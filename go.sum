@@ -2,6 +2,12 @@ github.com/KyleBanks/depth v1.2.1 h1:5h8fQADFrWtarTdtDudMmGsC7GPbOAu6RVB3ffsVFHc
 github.com/KyleBanks/depth v1.2.1/go.mod h1:jzSb9d0L43HxTQfT+oSA1EEp2q+ne2uh6XgeJcm8brE=
 github.com/TheSlopMachine/llm-router-adapter-demo v0.0.0-20260509202808-ef4aa2fdf881 h1:BoPraQn1zfyR5mYTRcPzN0K/xtbWUpHztsA5g06g7QM=
 github.com/TheSlopMachine/llm-router-adapter-demo v0.0.0-20260509202808-ef4aa2fdf881/go.mod h1:dvpFIB0qGueogHlzdEJXOJb4PDXR9B9AkOSnwEAwDos=
+github.com/TheSlopMachine/llm-router-adapter-demo v0.0.0-20260509223427-99fdf4f0169b h1:+WfKLT4qHhq3kkAlScwhwWETWOuUPURQIXQZygT6TqA=
+github.com/TheSlopMachine/llm-router-adapter-demo v0.0.0-20260509223427-99fdf4f0169b/go.mod h1:dvpFIB0qGueogHlzdEJXOJb4PDXR9B9AkOSnwEAwDos=
+github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260509230027-6ad17e39f09b h1:3bdymLEyqkehriMKWxItOSC8cWY45QWQbAGVk1XBO64=
+github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260509230027-6ad17e39f09b/go.mod h1:bcaiKCun3k4cSwfJHeoufIzszeyylEi3RdYYYRK0fkk=
+github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260509230642-d8926b2ee2dc h1:9z3JQMrDJWArAhfETAVmN37Y7+1vzF1jYw4P2QgPoVI=
+github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260509230642-d8926b2ee2dc/go.mod h1:bcaiKCun3k4cSwfJHeoufIzszeyylEi3RdYYYRK0fkk=
 github.com/TheSlopMachine/llm-router-sdk v0.0.0-20260509200534-5998c7ba59c2 h1:B3A0MLo+RbCH4R+7c0AAXWVFB/cBUFVVjEJWvwDMqjU=
 github.com/TheSlopMachine/llm-router-sdk v0.0.0-20260509200534-5998c7ba59c2/go.mod h1:8sl9tMKYIHOpRAbv2lk8TKHftfwL9WaUM4VGYe6jM80=
 github.com/TheSlopMachine/slop-tokenizer v0.0.0-20260508224456-e7e88f37eed3 h1:LON70fU9KrruryOknjmrtehdH0Ex2qPMJjuWhXcooIM=

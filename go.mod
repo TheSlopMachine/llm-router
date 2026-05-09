@@ -13,7 +13,8 @@ require (
 
 require (
 	github.com/KyleBanks/depth v1.2.1 // indirect
-	github.com/TheSlopMachine/llm-router-adapter-demo v0.0.0-20260509202808-ef4aa2fdf881 // indirect
+	github.com/TheSlopMachine/llm-router-adapter-demo v0.0.0-20260509223427-99fdf4f0169b // indirect
+	github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260509230642-d8926b2ee2dc // indirect
 	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect
 	github.com/go-openapi/jsonreference v0.20.0 // indirect
