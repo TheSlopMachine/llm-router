@@ -26,7 +26,7 @@ package main
 import (
 	"github.com/TheSlopMachine/llm-router/cmd"
 
-	_ "github.com/TheSlopMachine/llm-router/build/docs"
+	// _ "github.com/TheSlopMachine/llm-router/build/docs"
 	_ "github.com/TheSlopMachine/llm-router/providers/agents"
 	_ "github.com/TheSlopMachine/llm-router/plugins"
 )
