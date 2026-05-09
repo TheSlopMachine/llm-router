@@ -2,10 +2,10 @@
 <#
 .SYNOPSIS
     Thin wrapper around GNU Make for Windows.
-    Resolves Git's usr/bin tools (bash, printf, mkdir, …) and prepends them to
+    Resolves Git's usr/bin tools (bash, printf, mkdir, ...) and prepends them to
     PATH so that GNU Make "Built for Windows32" can find them via CreateProcess.
 .USAGE
-    .\make.ps1 [target] [KEY=VALUE …]
+    .\make.ps1 [target] [KEY=VALUE ...]
     .\make.ps1 run
     .\make.ps1 build VERSION=1.2.0
 #>
@@ -13,30 +13,37 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# ── Validate required tools ───────────────────────────────────────────────────
+# -- Validate required tools ---------------------------------------------------
 
-function Resolve-Tool {
-    param([string]$Name)
-    $cmd = Get-Command $Name -ErrorAction SilentlyContinue
-    if (-not $cmd) {
-        Write-Error "Required tool not found: '$Name'. Please install it and ensure it is on PATH."
-        exit 1
-    }
-    return $cmd.Path
+$missing = @('make', 'zip', 'go', 'git', 'npm') | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) }
+if ($missing) {
+    $scoopNames = $missing | ForEach-Object { if ($_ -eq 'npm') { 'nodejs' } else { $_ } }
+    Write-Error "Missing required tool(s): $($missing -join ', ')`nInstall them with: scoop install $($scoopNames -join ' ')"
+    exit 1
 }
 
-$gitPath = Resolve-Tool 'git'
-$null    = Resolve-Tool 'make'
+# -- Prepend Git's Unix coreutils to PATH -------------------------------------
+# `git --exec-path` asks git itself where its core executables live.
+# This resolves through any shim (Scoop, Chocolatey, winget, etc.) to the
+# real installation — no fragile path arithmetic needed.
 
-# ── Prepend Git's Unix coreutils to PATH ─────────────────────────────────────
-# git lives in …\cmd\git.exe; bash/printf/mkdir/… live in …\usr\bin\
-# Using the actual git.exe location makes this work for any Git install
-# (Scoop, winget, Git for Windows installer, etc.) without hardcoding paths.
+$gitExecPath = (& git --exec-path 2>$null) -replace '/', '\'
+if (-not $gitExecPath) {
+    Write-Error "Could not determine Git's exec path ('git --exec-path' failed). Is Git for Windows installed?"
+    exit 1
+}
 
-$gitUsrBin = Join-Path (Split-Path (Split-Path $gitPath)) 'usr\bin'
+# Walk up from the exec-path root to find usr\bin (layout varies by install).
+$gitUsrBin = $null
+$dir = $gitExecPath
+while ($dir -and (Split-Path $dir) -ne $dir) {
+    $candidate = Join-Path $dir 'usr\bin'
+    if (Test-Path $candidate) { $gitUsrBin = $candidate; break }
+    $dir = Split-Path $dir
+}
 
-if (-not (Test-Path $gitUsrBin)) {
-    Write-Error "Could not locate Git's usr\bin at '$gitUsrBin'. Is this a standard Git for Windows installation?"
+if (-not $gitUsrBin) {
+    Write-Error "Could not locate Git's usr\bin relative to exec path '$gitExecPath'. Is Git for Windows installed?"
     exit 1
 }
 
@@ -44,7 +51,7 @@ if ($env:PATH -notlike "*$gitUsrBin*") {
     $env:PATH = "$gitUsrBin;$env:PATH"
 }
 
-# ── Run make, forwarding all arguments ───────────────────────────────────────
+# -- Run make, forwarding all arguments ---------------------------------------
 
 & make @args
 exit $LASTEXITCODE

@@ -120,6 +120,11 @@ generate-plugins:
 # -- prepare-frontend ----------------------------------------------------------
 prepare-frontend: generate-plugins
 	@printf '\n== Swagger Generation ==\n'
+	@if [ ! -f "$(SWAG)" ]; then \
+		printf '[>] swag not found, installing via go install...\n'; \
+		go install github.com/swaggo/swag/cmd/swag@latest || { printf '[ERROR] Failed to install swag.\n'; exit 1; }; \
+		printf '[OK] swag installed.\n'; \
+	fi
 	@printf '[>] Generating Swagger docs...\n'
 	"$(SWAG)" init --parseDependency --parseInternal --output "$(DOCS_OUT)"
 	@printf '[OK] Swagger docs generated.\n'
