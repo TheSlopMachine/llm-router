@@ -1,0 +1,38 @@
+# Database files
+*.db
+
+# Build artifacts
+node_modules/
+build/
+internal/dashboard/build/
+
+# Compiled binaries and archives
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+out/
+
+# Main tool and package artifacts
+*.test
+*.prof
+
+# Test coverage
+cover.out
+coverage.txt
+coverage.html
+
+# Environment sensitive files
+.env
+.env.local
+
+# IDE and System files
+.vscode/
+.idea/
+.DS_Store
+
+# Generated files
+plugins/plugins.go
+web/src/lib/generated/

@@ -1,0 +1,23 @@
+{
+  "name": "llm-router-ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "generate:types": "openapi-typescript ../build/docs/swagger.json -o src/lib/generated/api-types.d.ts",
+    "dev": "npm run generate:types && vite",
+    "build": "npm run generate:types && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^3.1.2",
+    "@tsconfig/svelte": "^5.0.8",
+    "openapi-typescript": "^5.4.2",
+    "svelte": "^4.2.19",
+    "svelte-check": "^4.4.7",
+    "svelte-preprocess": "^6.0.3",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.14",
+    "vite-plugin-webfont-dl": "^3.12.0"
+  }
+}
