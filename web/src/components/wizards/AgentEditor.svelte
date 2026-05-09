@@ -584,19 +584,6 @@
     margin-bottom: 12px;
   }
 
-  .warning-box {
-    padding: 16px;
-    background: rgba(234, 179, 8, 0.1);
-    border: 1px solid rgba(234, 179, 8, 0.3);
-    border-radius: 8px;
-    margin-bottom: 16px;
-  }
-
-  .warning-box p {
-    margin: 0 0 8px 0;
-    color: var(--color-text);
-  }
-
   .warning-text {
     font-size: 12px;
     color: #ca8a04;
@@ -686,14 +673,5 @@
 
   .btn-icon.btn-danger:hover:not(:disabled) {
     background: rgba(239, 68, 68, 0.1);
-  }
-
-  .error-msg {
-    background: rgba(239, 68, 68, 0.1);
-    color: #dc2626;
-    padding: 12px;
-    border-radius: 8px;
-    margin-bottom: 16px;
-    font-size: 14px;
   }
 </style>
