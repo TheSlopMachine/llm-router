@@ -397,12 +397,12 @@ VERSION=1.0.0 make release
 
 External adapters are managed through `adapters.conf` at the project root:
 
-**Format**: `<module-path> <commit-or-version>`
+**Format**: `<module-path> <module-query>`
 
 **Example**:
 ```
 # External adapter registry
-github.com/TheSlopMachine/llm-router-adapter-demo latest
+github.com/TheSlopMachine/llm-router-adapter-demo main
 github.com/user/my-adapter v1.2.0
 github.com/user/another-adapter abc123def456
 ```
@@ -410,14 +410,16 @@ github.com/user/another-adapter abc123def456
 **How it works**:
 1. List external adapter modules in `adapters.conf`
 2. Run `make generate-plugins` (automatically called by `make build`)
-3. Makefile resolves `latest` to current HEAD commit
+3. Makefile runs `go get <module>@<module-query>` for each entry
 4. Generates `plugins/plugins.go` with blank imports
 5. Adapters self-register via `init()` calling `sdk.Register()`
+
+Using `main` fetches the current tip of the `main` branch. Go still records the resolved result as a pseudo-version in `go.mod`, so rerun `go get ...@main` or `make generate-plugins` when you want to advance to newer commits.
 
 **Makefile commands**:
 ```bash
 # Add an adapter
-make add-adapter MODULE=github.com/user/adapter VERSION=v1.0.0
+make add-adapter MODULE=github.com/user/adapter QUERY=main
 
 # List configured adapters
 make list-adapters
