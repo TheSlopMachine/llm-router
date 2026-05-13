@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	sdk "github.com/TheSlopMachine/llm-router-sdk"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
@@ -24,7 +25,7 @@ func (m *mockAdapter) ValidateCredentials(data map[string]string) error {
 	}
 	return nil
 }
-func (m *mockAdapter) Complete(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+func (m *mockAdapter) Complete(ctx context.Context, cred *sdk.Credential, req *sdk.ChatCompletionRequest) (*sdk.ChatCompletionResponse, error) {
 	return &models.ChatCompletionResponse{
 		ID:      "mock-" + fmt.Sprintf("%d", time.Now().Unix()),
 		Object:  "chat.completion",
@@ -42,7 +43,7 @@ func (m *mockAdapter) Complete(ctx context.Context, cred *models.Credential, req
 		},
 	}, nil
 }
-func (m *mockAdapter) CompleteStream(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest, w io.Writer) error {
+func (m *mockAdapter) CompleteStream(ctx context.Context, cred *sdk.Credential, req *sdk.ChatCompletionRequest, w io.Writer) error {
 	chunk := models.StreamChunk{
 		ID:      "mock-stream",
 		Object:  "chat.completion.chunk",
@@ -53,11 +54,11 @@ func (m *mockAdapter) CompleteStream(ctx context.Context, cred *models.Credentia
 	fmt.Fprintf(w, "data: %s\n\n", data)
 	return nil
 }
-func (m *mockAdapter) NeedsRefresh(cred *models.Credential) bool { return false }
-func (m *mockAdapter) RefreshCredential(ctx context.Context, cred *models.Credential) (*models.Credential, error) {
+func (m *mockAdapter) NeedsRefresh(cred *sdk.Credential) bool { return false }
+func (m *mockAdapter) RefreshCredential(ctx context.Context, cred *sdk.Credential) (*sdk.Credential, error) {
 	return nil, provider.ErrNoRefreshNeeded
 }
-func (m *mockAdapter) GetModelInfos(ctx context.Context, cred *models.Credential, qualifier string) ([]models.ModelInfo, error) {
+func (m *mockAdapter) GetModelInfos(ctx context.Context, cred *sdk.Credential, qualifier string) ([]sdk.ModelInfo, error) {
 	return []models.ModelInfo{
 		{Name: "mock-model", DisplayName: "Mock Model", ContextWindow: 4096, MaxTokens: 2048},
 	}, nil

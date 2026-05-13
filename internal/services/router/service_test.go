@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	sdk "github.com/TheSlopMachine/llm-router-sdk"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/compaction"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
@@ -19,7 +20,7 @@ import (
 
 // mockAdapter for router tests with configurable behavior
 type mockAdapter struct {
-	completeFunc func(context.Context, *models.Credential, *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error)
+	completeFunc func(context.Context, *sdk.Credential, *sdk.ChatCompletionRequest) (*sdk.ChatCompletionResponse, error)
 	callCount    *int // Use pointer to share state
 }
 
@@ -31,7 +32,7 @@ func (m *mockAdapter) ValidateCredentials(data map[string]string) error {
 	}
 	return nil
 }
-func (m *mockAdapter) Complete(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+func (m *mockAdapter) Complete(ctx context.Context, cred *sdk.Credential, req *sdk.ChatCompletionRequest) (*sdk.ChatCompletionResponse, error) {
 	if m.callCount != nil {
 		*m.callCount++
 	}
@@ -46,14 +47,14 @@ func (m *mockAdapter) Complete(ctx context.Context, cred *models.Credential, req
 		Choices: []models.ChatCompletionChoice{{Index: 0, Message: models.ChatMessage{Role: "assistant", Content: "test"}, FinishReason: "stop"}},
 	}, nil
 }
-func (m *mockAdapter) CompleteStream(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest, w io.Writer) error {
+func (m *mockAdapter) CompleteStream(ctx context.Context, cred *sdk.Credential, req *sdk.ChatCompletionRequest, w io.Writer) error {
 	return nil
 }
-func (m *mockAdapter) NeedsRefresh(cred *models.Credential) bool { return false }
-func (m *mockAdapter) RefreshCredential(ctx context.Context, cred *models.Credential) (*models.Credential, error) {
+func (m *mockAdapter) NeedsRefresh(cred *sdk.Credential) bool { return false }
+func (m *mockAdapter) RefreshCredential(ctx context.Context, cred *sdk.Credential) (*sdk.Credential, error) {
 	return nil, provider.ErrNoRefreshNeeded
 }
-func (m *mockAdapter) GetModelInfos(ctx context.Context, cred *models.Credential, qualifier string) ([]models.ModelInfo, error) {
+func (m *mockAdapter) GetModelInfos(ctx context.Context, cred *sdk.Credential, qualifier string) ([]sdk.ModelInfo, error) {
 	return []models.ModelInfo{{Name: "mock-model", DisplayName: "Mock", ContextWindow: 4096}}, nil
 }
 func (m *mockAdapter) GetAuthFlow() provider.AuthFlowHandler { return nil }
@@ -184,7 +185,7 @@ func TestRouterService_Complete_RateLimitRotatesToSecond(t *testing.T) {
 	
 	// First credential returns rate limit, second succeeds
 	firstCall := true
-	mock.completeFunc = func(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+	mock.completeFunc = func(ctx context.Context, cred *sdk.Credential, req *sdk.ChatCompletionRequest) (*sdk.ChatCompletionResponse, error) {
 		if firstCall {
 			firstCall = false
 			resetAt := time.Now().Add(60 * time.Second)
@@ -243,7 +244,7 @@ func TestRouterService_Complete_QuotaExceededRotates(t *testing.T) {
 	
 	// First credential returns quota exceeded, second succeeds
 	firstCall := true
-	mock.completeFunc = func(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+	mock.completeFunc = func(ctx context.Context, cred *sdk.Credential, req *sdk.ChatCompletionRequest) (*sdk.ChatCompletionResponse, error) {
 		if firstCall {
 			firstCall = false
 			resetAt := time.Now().Add(24 * time.Hour)
@@ -292,7 +293,7 @@ func TestRouterService_Complete_AuthErrorNoRetry(t *testing.T) {
 	})
 	
 	// Return auth error (should not retry)
-	mock.completeFunc = func(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+	mock.completeFunc = func(ctx context.Context, cred *sdk.Credential, req *sdk.ChatCompletionRequest) (*sdk.ChatCompletionResponse, error) {
 		return nil, &provider.ProviderError{
 			StatusCode: 401,
 			Message:    "authentication failed",
@@ -325,7 +326,7 @@ func TestRouterService_Complete_UpstreamErrorNoRetry(t *testing.T) {
 	})
 	
 	// Return upstream error (should not retry)
-	mock.completeFunc = func(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+	mock.completeFunc = func(ctx context.Context, cred *sdk.Credential, req *sdk.ChatCompletionRequest) (*sdk.ChatCompletionResponse, error) {
 		return nil, &provider.ProviderError{
 			StatusCode: 500,
 			Message:    "upstream error",
@@ -394,7 +395,7 @@ func TestRouterService_Complete_UpdatesUsageOnFailure(t *testing.T) {
 	})
 	
 	// Return non-retryable error
-	mock.completeFunc = func(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+	mock.completeFunc = func(ctx context.Context, cred *sdk.Credential, req *sdk.ChatCompletionRequest) (*sdk.ChatCompletionResponse, error) {
 		return nil, &provider.ProviderError{
 			StatusCode: 400,
 			Message:    "bad request",

@@ -4,6 +4,9 @@ import (
 	"testing"
 	"time"
 
+	bolt "go.etcd.io/bbolt"
+
+	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
@@ -80,6 +83,23 @@ func TestAdminService_IsBootstrapped(t *testing.T) {
 	}
 	if !ok {
 		t.Error("should be bootstrapped after bootstrap")
+	}
+}
+
+func TestAdminService_Bootstrap_DoesNotCreateProvidersBucket(t *testing.T) {
+	svc := setupAdminService(t)
+
+	if err := svc.Bootstrap("admin", "password123"); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+
+	if err := svc.db.View(func(tx *bolt.Tx) error {
+		if tx.Bucket(db.BucketProviders) != nil {
+			t.Fatalf("providers bucket should not be created during bootstrap")
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("db view failed: %v", err)
 	}
 }
 

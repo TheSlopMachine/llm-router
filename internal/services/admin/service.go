@@ -83,10 +83,6 @@ func (s *Service) Bootstrap(username, password string) error {
 		return err
 	}
 
-	if err := s.providerSvc.SyncDefaultProviders(); err != nil {
-		return fmt.Errorf("sync default providers: %w", err)
-	}
-
 	return s.db.SetBootstrapped()
 }
 

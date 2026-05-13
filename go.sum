@@ -8,8 +8,12 @@ github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260509230027-6ad17e
 github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260509230027-6ad17e39f09b/go.mod h1:bcaiKCun3k4cSwfJHeoufIzszeyylEi3RdYYYRK0fkk=
 github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260509230642-d8926b2ee2dc h1:9z3JQMrDJWArAhfETAVmN37Y7+1vzF1jYw4P2QgPoVI=
 github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260509230642-d8926b2ee2dc/go.mod h1:bcaiKCun3k4cSwfJHeoufIzszeyylEi3RdYYYRK0fkk=
+github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260513172055-27773d7d8450 h1:UcJZWm/sVm0IQ7VnuxIQBNN9RuYeiJpcSGGEegXuWeQ=
+github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260513172055-27773d7d8450/go.mod h1:ohMti0blLfhQIVhO3tTHbeYqMTjcjl/sr/t6YdyDLhY=
 github.com/TheSlopMachine/llm-router-sdk v0.0.0-20260509200534-5998c7ba59c2 h1:B3A0MLo+RbCH4R+7c0AAXWVFB/cBUFVVjEJWvwDMqjU=
 github.com/TheSlopMachine/llm-router-sdk v0.0.0-20260509200534-5998c7ba59c2/go.mod h1:8sl9tMKYIHOpRAbv2lk8TKHftfwL9WaUM4VGYe6jM80=
+github.com/TheSlopMachine/llm-router-sdk v0.0.0-20260509223403-813fcb1fbc33 h1:RhIsHmB9Cn6YDkLeBimMiBOMbwxEmwdR8gU4AjwCL9g=
+github.com/TheSlopMachine/llm-router-sdk v0.0.0-20260509223403-813fcb1fbc33/go.mod h1:8sl9tMKYIHOpRAbv2lk8TKHftfwL9WaUM4VGYe6jM80=
 github.com/TheSlopMachine/slop-tokenizer v0.0.0-20260508224456-e7e88f37eed3 h1:LON70fU9KrruryOknjmrtehdH0Ex2qPMJjuWhXcooIM=
 github.com/TheSlopMachine/slop-tokenizer v0.0.0-20260508224456-e7e88f37eed3/go.mod h1:swaRvi1DWnkAdmYC+O8DyL21o1cRdPwUwN0jMVcPxdE=
 github.com/cpuguy83/go-md2man/v2 v2.0.3/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=

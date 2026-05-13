@@ -6,12 +6,10 @@ package modelinfo
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
@@ -21,7 +19,6 @@ import (
 
 // Service manages model metadata caching
 type Service struct {
-	db          *db.DB
 	providerSvc *provider.Service
 	credSvc     *credential.Service
 	cacheTTL    time.Duration
@@ -39,24 +36,18 @@ type cacheEntry struct {
 }
 
 // New creates a ModelInfo service
-func New(database *db.DB, providerSvc *provider.Service, credSvc *credential.Service, cacheTTL time.Duration) *Service {
+func New(_ *db.DB, providerSvc *provider.Service, credSvc *credential.Service, cacheTTL time.Duration) *Service {
 	if cacheTTL == 0 {
 		cacheTTL = 1 * time.Hour
 	}
 
-	s := &Service{
-		db:          database,
+	return &Service{
 		providerSvc: providerSvc,
 		credSvc:     credSvc,
 		cacheTTL:    cacheTTL,
 		cache:       make(map[string]cacheEntry),
 		inflight:    make(map[string]*sync.WaitGroup),
 	}
-
-	// Load cache from database on startup
-	s.loadFromDB()
-
-	return s
 }
 
 // GetModelInfos retrieves all model metadata for a provider
@@ -155,26 +146,50 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 
 	// Get credentials
 	creds, err := s.credSvc.ListByProvider(providerID)
-	if err != nil || len(creds) == 0 {
-		return nil, fmt.Errorf("no credentials available for provider %s", p.Name)
+	if err != nil {
+		return nil, fmt.Errorf("list credentials for provider %s: %w", p.Name, err)
 	}
-
-	// Try each credential until one succeeds
 	var modelInfos []models.ModelInfo
 	var lastErr error
 
+	// Try a credential-free fetch first for adapters that do not need credentials
+	// for model discovery, such as the built-in agents provider.
+	if len(creds) == 0 {
+		modelInfos, lastErr = adapter.GetModelInfos(ctx, nil, p.Qualifier)
+		if lastErr == nil {
+			return s.store(providerID, modelInfos), nil
+		}
+		return nil, fmt.Errorf("no credentials available for provider %s", p.Name)
+	}
+
+	// Try each credential until one succeeds.
 	for _, cred := range creds {
 		modelInfos, lastErr = adapter.GetModelInfos(ctx, cred.ToSDK(), p.Qualifier)
 		if lastErr == nil {
-			break
+			return s.store(providerID, modelInfos), nil
 		}
 	}
 
-	if lastErr != nil {
-		return nil, fmt.Errorf("all credentials failed: %w", lastErr)
-	}
+	return nil, fmt.Errorf("all credentials failed: %w", lastErr)
+}
 
-	// Cache in memory
+// InvalidateProvider clears cache for a specific provider
+func (s *Service) InvalidateProvider(providerID string) error {
+	s.mu.Lock()
+	delete(s.cache, providerID)
+	s.mu.Unlock()
+	return nil
+}
+
+// InvalidateAll clears entire cache
+func (s *Service) InvalidateAll() error {
+	s.mu.Lock()
+	s.cache = make(map[string]cacheEntry)
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *Service) store(providerID string, modelInfos []models.ModelInfo) []models.ModelInfo {
 	entry := cacheEntry{
 		models:    modelInfos,
 		cachedAt:  util.Now(),
@@ -185,100 +200,6 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 	s.cache[providerID] = entry
 	s.mu.Unlock()
 
-	// Persist to database
-	s.persistCache(providerID, entry)
-
-	return modelInfos, nil
-}
-
-// persistCache stores cache entry to database
-func (s *Service) persistCache(providerID string, entry cacheEntry) error {
-	type dbEntry struct {
-		Models    []models.ModelInfo `json:"models"`
-		CachedAt  time.Time          `json:"cached_at"`
-		ExpiresAt time.Time          `json:"expires_at"`
-	}
-
-	data, err := json.Marshal(dbEntry{
-		Models:    entry.models,
-		CachedAt:  entry.cachedAt,
-		ExpiresAt: entry.expiresAt,
-	})
-	if err != nil {
-		return err
-	}
-
-	return s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketModelInfo)
-		return b.Put([]byte(providerID), data)
-	})
-}
-
-// loadFromDB loads cache from database on startup
-func (s *Service) loadFromDB() error {
-	type dbEntry struct {
-		Models    []models.ModelInfo `json:"models"`
-		CachedAt  time.Time          `json:"cached_at"`
-		ExpiresAt time.Time          `json:"expires_at"`
-	}
-
-	return s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketModelInfo)
-		if b == nil {
-			return nil
-		}
-
-		return b.ForEach(func(k, v []byte) error {
-			var entry dbEntry
-			if err := json.Unmarshal(v, &entry); err != nil {
-				return nil // Skip corrupted entries
-			}
-
-			// Only load non-expired entries
-			if util.Now().Before(entry.ExpiresAt) {
-				s.mu.Lock()
-				s.cache[string(k)] = cacheEntry{
-					models:    entry.Models,
-					cachedAt:  entry.CachedAt,
-					expiresAt: entry.ExpiresAt,
-				}
-				s.mu.Unlock()
-			}
-
-			return nil
-		})
-	})
-}
-
-// InvalidateProvider clears cache for a specific provider
-func (s *Service) InvalidateProvider(providerID string) error {
-	s.mu.Lock()
-	delete(s.cache, providerID)
-	s.mu.Unlock()
-
-	return s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketModelInfo)
-		if b == nil {
-			return nil
-		}
-		return b.Delete([]byte(providerID))
-	})
-}
-
-// InvalidateAll clears entire cache
-func (s *Service) InvalidateAll() error {
-	s.mu.Lock()
-	s.cache = make(map[string]cacheEntry)
-	s.mu.Unlock()
-
-	return s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketModelInfo)
-		if b == nil {
-			return nil
-		}
-		return b.ForEach(func(k, _ []byte) error {
-			return b.Delete(k)
-		})
-	})
+	return modelInfos
 }
 

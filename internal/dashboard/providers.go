@@ -38,9 +38,6 @@ func (h *Handler) apiProvidersList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]pv, 0, len(providers))
 	for _, p := range providers {
-		if p.Type == "agents" {
-			continue
-		}
 		out = append(out, pv{
 			ID:        p.ID,
 			Name:      p.Name,

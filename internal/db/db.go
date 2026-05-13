@@ -13,10 +13,10 @@ var (
 	BucketAdmin       = []byte("admin")       // AdminUser records
 	BucketTokens      = []byte("tokens")      // RouterToken records (keyed by ID)
 	BucketTokenIndex  = []byte("token_index") // token value → token ID lookup
-	BucketProviders   = []byte("providers")   // Provider records
+	BucketProviders   = []byte("providers")   // Legacy bucket, no longer used as provider source of truth
 	BucketCredentials = []byte("credentials") // Credential records
 	BucketAuth        = []byte("auth")        // Ephemeral auth state
-	BucketModelInfo   = []byte("model_info")  // Cached model metadata
+	BucketModelInfo   = []byte("model_info")  // Legacy bucket, no longer used for model metadata caching
 	BucketSessions    = []byte("sessions")    // Dashboard sessions
 	BucketMetrics     = []byte("metrics")     // Time-series metrics data
 	BucketAgents      = []byte("agents")      // Agent records
@@ -51,10 +51,8 @@ func (db *DB) initBuckets() error {
 			BucketAdmin,
 			BucketTokens,
 			BucketTokenIndex,
-			BucketProviders,
 			BucketCredentials,
 			BucketAuth,
-			BucketModelInfo,
 			BucketSessions,
 			BucketMetrics,
 			BucketAgents,
