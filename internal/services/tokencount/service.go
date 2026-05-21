@@ -4,8 +4,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/TheSlopMachine/slop-tokenizer"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/slop-tokenizer"
 )
 
 type Service struct {
@@ -30,7 +30,7 @@ func (s *Service) Count(text string, modelID models.ModelId) int {
 func (s *Service) CountMessages(messages []models.ChatMessage, modelID models.ModelId) int {
 	total := 0
 	for _, msg := range messages {
-		total += s.Count(msg.Content, modelID)
+		total += s.Count(msg.TextContent(), modelID)
 		total += 4
 	}
 	return total
@@ -95,4 +95,3 @@ func (s *Service) getEncodingForModel(modelID models.ModelId) string {
 		return tokenizer.O200K_BASE
 	}
 }
-

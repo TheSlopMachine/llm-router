@@ -34,6 +34,16 @@ func New(tokenCounter *tokencount.Service, logger *slog.Logger) *Service {
 func (s *Service) CompactIfNeeded(messages []models.ChatMessage, modelID models.ModelId, contextWindow int64) ([]models.ChatMessage, *Stats, error) {
 	originalTokens := s.tokenCounter.CountMessages(messages, modelID)
 	budget := int(float64(contextWindow) * 0.85)
+	if budget <= 0 || originalTokens <= budget {
+		return messages, &Stats{
+			OriginalTokens:  originalTokens,
+			CompactedTokens: originalTokens,
+			Budget:          budget,
+			TokensSaved:     0,
+			MessagesKept:    len(messages),
+			WasCompacted:    false,
+		}, nil
+	}
 
 	compactionMsgs := s.convertToCompactionMessages(messages, modelID)
 	result := Compact(compactionMsgs, budget, true)
@@ -71,11 +81,12 @@ func (s *Service) convertToCompactionMessages(messages []models.ChatMessage, mod
 	for i := 0; i < n; i++ {
 		msg := messages[i]
 		age := n - 1 - i
-		tokens := s.tokenCounter.Count(msg.Content, modelID)
+		content := msg.TextContent()
+		tokens := s.tokenCounter.Count(content, modelID)
 
 		cat := s.categorizeMessage(msg, i, age, lastUserIdx, lastAssistantIdx, n)
-		shout := s.detectShout(msg.Content)
-		trunc := s.detectTruncatable(msg.Content)
+		shout := s.detectShout(content)
+		trunc := s.detectTruncatable(content)
 
 		compactionMsgs[i] = Message{
 			ID:    i,
@@ -85,7 +96,7 @@ func (s *Service) convertToCompactionMessages(messages []models.ChatMessage, mod
 			Cat:   cat,
 			Shout: shout,
 			Trunc: trunc,
-			Text:  msg.Content,
+			Text:  content,
 		}
 	}
 
@@ -93,7 +104,7 @@ func (s *Service) convertToCompactionMessages(messages []models.ChatMessage, mod
 }
 
 func (s *Service) categorizeMessage(msg models.ChatMessage, idx, age, lastUserIdx, lastAssistantIdx, total int) Category {
-	content := strings.TrimSpace(msg.Content)
+	content := strings.TrimSpace(msg.TextContent())
 	if content == "" {
 		return CatGarbage
 	}
@@ -225,4 +236,3 @@ func (s *Service) calculateStats(result Result, originalTokens int, budget int) 
 		MessagesDropped: dropped,
 	}
 }
-
