@@ -22,6 +22,7 @@ type modelInfoTestAdapter struct {
 	typeKey   string
 	callCount int
 	infos     []models.ModelInfo
+	panicOnNil bool
 }
 
 func (a *modelInfoTestAdapter) TypeKey() string { return a.typeKey }
@@ -44,6 +45,9 @@ func (a *modelInfoTestAdapter) RefreshCredential(ctx context.Context, cred *sdk.
 }
 func (a *modelInfoTestAdapter) GetModelInfos(ctx context.Context, cred *sdk.Credential, providerQualifier string) ([]sdk.ModelInfo, error) {
 	a.callCount++
+	if a.panicOnNil && cred == nil {
+		panic("nil credential")
+	}
 	return append([]models.ModelInfo(nil), a.infos...), nil
 }
 func (a *modelInfoTestAdapter) GetAuthFlow() provider.AuthFlowHandler { return nil }
@@ -64,6 +68,10 @@ var (
 			{Name: "nocred-model", DisplayName: "No Credential Model", ContextWindow: 2048},
 		},
 	}
+	panicNoCredAdapter = &modelInfoTestAdapter{
+		typeKey:    "modelinfo-panic-nocred",
+		panicOnNil: true,
+	}
 )
 
 func ensureModelInfoAdapters(t *testing.T) {
@@ -74,8 +82,12 @@ func ensureModelInfoAdapters(t *testing.T) {
 	if _, err := provider.Lookup(noCredAdapter.typeKey); err != nil {
 		provider.Register(noCredAdapter)
 	}
+	if _, err := provider.Lookup(panicNoCredAdapter.typeKey); err != nil {
+		provider.Register(panicNoCredAdapter)
+	}
 	cachedAdapter.callCount = 0
 	noCredAdapter.callCount = 0
+	panicNoCredAdapter.callCount = 0
 }
 
 func setupModelInfoService(t *testing.T) (*Service, *credential.Service, *db.DB) {
@@ -215,5 +227,24 @@ func TestModelInfoService_SupportsCredentialFreeDiscovery(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Name != "nocred-model" {
 		t.Fatalf("unexpected credential-free models: %+v", got)
+	}
+}
+
+func TestModelInfoService_NoCredentialsDoesNotCrashOnAdapterPanic(t *testing.T) {
+	svc, _, _ := setupModelInfoService(t)
+
+	got, err := svc.GetModelInfos(context.Background(), panicNoCredAdapter.typeKey)
+	if err == nil {
+		t.Fatalf("expected missing-credentials error")
+	}
+
+	if len(got) != 0 {
+		t.Fatalf("expected no models, got %+v", got)
+	}
+	if panicNoCredAdapter.callCount != 1 {
+		t.Fatalf("expected panic adapter to be called once, got %d", panicNoCredAdapter.callCount)
+	}
+	if err.Error() != "no credentials available for provider modelinfo-panic-nocred" {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

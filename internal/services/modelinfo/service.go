@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	sdk "github.com/TheSlopMachine/llm-router-sdk"
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
@@ -155,7 +156,7 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 	// Try a credential-free fetch first for adapters that do not need credentials
 	// for model discovery, such as the built-in agents provider.
 	if len(creds) == 0 {
-		modelInfos, lastErr = adapter.GetModelInfos(ctx, nil, p.Qualifier)
+		modelInfos, lastErr = safeGetModelInfos(ctx, adapter, nil, p.Qualifier)
 		if lastErr == nil {
 			return s.store(providerID, modelInfos), nil
 		}
@@ -171,6 +172,26 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 	}
 
 	return nil, fmt.Errorf("all credentials failed: %w", lastErr)
+}
+
+func safeGetModelInfos(
+	ctx context.Context,
+	adapter provider.Adapter,
+	cred *models.Credential,
+	providerQualifier string,
+) (modelInfos []models.ModelInfo, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("adapter GetModelInfos panicked: %v", r)
+		}
+	}()
+
+	var sdkCred *sdk.Credential
+	if cred != nil {
+		sdkCred = cred.ToSDK()
+	}
+
+	return adapter.GetModelInfos(ctx, sdkCred, providerQualifier)
 }
 
 // InvalidateProvider clears cache for a specific provider
