@@ -7,14 +7,16 @@ require (
 	github.com/TheSlopMachine/slop-tokenizer v0.0.0-20260508224456-e7e88f37eed3
 	github.com/spf13/cobra v1.8.0
 	github.com/swaggo/http-swagger/v2 v2.0.2
+	github.com/swaggo/swag v1.16.6
 	go.etcd.io/bbolt v1.3.9
 	golang.org/x/crypto v0.50.0
 )
 
 require (
 	github.com/KyleBanks/depth v1.2.1 // indirect
-	github.com/TheSlopMachine/llm-router-adapter-demo v0.0.0-20260509223427-99fdf4f0169b // indirect
-	github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260513172055-27773d7d8450 // indirect
+	github.com/TheSlopMachine/llm-router-adapter-demo v0.0.0-20260513190634-01286aaf5620 // indirect
+	github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260513190656-d1d82ebfc1e3 // indirect
+	github.com/TheSlopMachine/llm-router-adapter-kiro v0.0.0-20260521134157-b2a725ac4a9c // indirect
 	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect
 	github.com/go-openapi/jsonreference v0.20.0 // indirect
@@ -25,7 +27,6 @@ require (
 	github.com/mailru/easyjson v0.7.6 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/swaggo/files/v2 v2.0.0 // indirect
-	github.com/swaggo/swag v1.16.6 // indirect
 	golang.org/x/mod v0.34.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect

@@ -88,6 +88,13 @@
     e.preventDefault()
     const form = e.target as HTMLFormElement
     const formData = new FormData(form)
+    const submitter = (e as SubmitEvent).submitter as HTMLButtonElement | HTMLInputElement | null
+
+    // The adapter auth flow may branch on which submit button was clicked.
+    // FormData(form) omits the clicked submitter, so we add it back explicitly.
+    if (submitter?.name) {
+      formData.append(submitter.name, submitter.value)
+    }
 
     loading = true
     error = ''
