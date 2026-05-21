@@ -410,11 +410,11 @@ github.com/user/another-adapter abc123def456
 **How it works**:
 1. List external adapter modules in `adapters.conf`
 2. Run `make generate-plugins` (automatically called by `make build`)
-3. Makefile runs `go get <module>@<module-query>` for each entry
+3. Makefile runs `GOPROXY=direct go get <module>@<module-query>` for each entry
 4. Generates `plugins/plugins.go` with blank imports
 5. Adapters self-register via `init()` calling `sdk.Register()`
 
-Using `main` fetches the current tip of the `main` branch. Go still records the resolved result as a pseudo-version in `go.mod`, so rerun `go get ...@main` or `make generate-plugins` when you want to advance to newer commits.
+Using `main` fetches the current tip of the `main` branch directly from git, then records the resolved result as a pseudo-version in `go.mod`. Rerun `make generate-plugins` when you want to advance to newer commits.
 
 **Makefile commands**:
 ```bash

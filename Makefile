@@ -101,8 +101,8 @@ generate-plugins:
 		printf 'import (\n' >> "$(PLUGINS)"; \
 		grep -v '^#' "$(ADAPTERS)" | grep -v '^$$' | while read -r mod query; do \
 			if [ -z "$$query" ]; then query=main; fi; \
-			printf '[>] Adding adapter: %s@%s\n' "$$mod" "$$query"; \
-			go get "$$mod@$$query" || exit 1; \
+			printf '[>] Adding adapter via git: %s@%s\n' "$$mod" "$$query"; \
+			GOPROXY=direct go get "$$mod@$$query" || exit 1; \
 			printf '\t_ "%s"\n' "$$mod" >> "$(PLUGINS)"; \
 		done || exit 1; \
 		printf ')\n' >> "$(PLUGINS)"; \
