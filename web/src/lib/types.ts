@@ -2,7 +2,6 @@
 import type { components } from './generated/api-types'
 
 // Backend API types (auto-generated from Swagger)
-export type Provider = components['schemas']['Provider']
 export type Token = components['schemas']['Token']
 export type TokenRules = components['schemas']['TokenRules']
 export type TokenCreateResponse = components['schemas']['TokenCreateResponse']
@@ -15,6 +14,28 @@ export type Stats = components['schemas']['Stats']
 export type Status = components['schemas']['Status']
 export type ErrorResponse = components['schemas']['ErrorResponse']
 export type ProviderStats = components['schemas']['ProviderStats']
+
+export interface Provider {
+  id: string
+  name: string
+  type: string
+  qualifier: string
+  auth_type: string
+  base_url: string
+  icon_url: string
+  supports_auth_flow: boolean
+}
+
+export interface AvailableModel {
+  full_model_id: string
+  provider_id: string
+  provider_name: string
+  provider_type: string
+  model_name: string
+  display_name: string
+  context_window?: number
+  max_tokens?: number
+}
 
 // Agent types (manually defined until Swagger regeneration)
 export interface Agent {

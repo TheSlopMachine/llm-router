@@ -1,75 +1,39 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
   import { api } from '../../lib/api'
   import Dropdown from '../Dropdown.svelte'
-  import type { Agent, AgentModel, DecisionModelConfig, ModelInfo } from '../../lib/types'
+  import type { Agent, AgentModel, AvailableModel, DecisionModelConfig } from '../../lib/types'
 
   export let agent: Agent | undefined
-  export let updateButtons: (buttons: any[]) => void
-  export let closeModal: () => void
-  export let onComplete: () => void
+  export let onComplete: (() => void | Promise<void>) | undefined
+  export let onCancel: (() => void | Promise<void>) | undefined
 
   let name = agent?.name || ''
   let description = agent?.description || ''
   let models: AgentModel[] = agent?.models || []
   let instructions = agent?.instructions || { content: '', injection: 'beginning' as const }
   let useDecisionModel = !!agent?.decision_model
-  let decisionModel: DecisionModelConfig = agent?.decision_model || { 
-    model_id: '', 
-    system_prompt: 'You are a routing assistant. Choose the best model for the user\'s request based on complexity, cost, and requirements.' 
+  let decisionModel: DecisionModelConfig = agent?.decision_model || {
+    model_id: '',
+    system_prompt: 'You are a routing assistant. Choose the best model for the user\'s request based on complexity, cost, and requirements.'
   }
 
-  let availableModels: ModelInfo[] = []
+  let availableModels: AvailableModel[] = []
   let modelsLoadState: 'loading' | 'loaded' | 'empty' | 'error' = 'loading'
   let loading = false
   let error = ''
   let saveTimeout: number | undefined
+  let draftSaveInterval: number | undefined
 
   const SAVE_TIMEOUT = 30000
   const draftKey = `agent-draft-${agent?.id || 'new'}`
-  let draftSaveInterval: number | undefined
 
   onMount(async () => {
-    // Try to restore draft
     if (!agent) {
-      const draft = localStorage.getItem(draftKey)
-      if (draft) {
-        try {
-          const restored = JSON.parse(draft)
-          name = restored.name || ''
-          description = restored.description || ''
-          models = (restored.models || []).filter((m: any) => m && typeof m === 'object')
-          instructions = restored.instructions || { content: '', injection: 'beginning' }
-          useDecisionModel = restored.useDecisionModel || false
-          decisionModel = restored.decisionModel || { model_id: '', system_prompt: '' }
-        } catch (e) {
-          console.error('Failed to restore draft:', e)
-        }
-      }
+      restoreDraft()
     }
 
-    // Load available models
-    try {
-      const response = await api.agents.availableModels()
-      // Filter out any null/undefined elements
-      availableModels = Array.isArray(response) 
-        ? response.filter((m: any) => m && typeof m === 'object') 
-        : []
-      modelsLoadState = availableModels.length === 0 ? 'empty' : 'loaded'
-    } catch (e: any) {
-      // Handle authentication errors
-      if (e.status === 401 || e.message?.includes('unauthenticated')) {
-        window.location.href = '/login'
-        return
-      }
-      error = (e as Error).message
-      modelsLoadState = 'error'
-      availableModels = []
-    }
-    
-    updateStepButtons()
-
-    // Auto-save draft every 5 seconds
+    await loadAvailableModels()
     draftSaveInterval = window.setInterval(saveDraft, 5000)
   })
 
@@ -82,75 +46,99 @@
     }
   })
 
-  function saveDraft() {
-    if (name || description || models.length > 0) {
-      localStorage.setItem(draftKey, JSON.stringify({
-        name, description, models, instructions, useDecisionModel, decisionModel
-      }))
+  function restoreDraft() {
+    const draft = localStorage.getItem(draftKey)
+    if (!draft) {
+      return
+    }
+
+    try {
+      const restored = JSON.parse(draft)
+      name = restored.name || ''
+      description = restored.description || ''
+      models = Array.isArray(restored.models) ? restored.models.filter((m: unknown) => !!m && typeof m === 'object') : []
+      instructions = restored.instructions || { content: '', injection: 'beginning' }
+      useDecisionModel = restored.useDecisionModel || false
+      decisionModel = restored.decisionModel || decisionModel
+    } catch (restoreError) {
+      console.error('Failed to restore draft:', restoreError)
     }
   }
 
-  function updateStepButtons() {
-    const canSaveAsDraft = name.trim() !== ''
-    const isComplete = name.trim() !== '' && models.length > 0 && 
-      (!useDecisionModel || (decisionModel.model_id && decisionModel.system_prompt.trim()))
-
-    updateButtons([
-      { label: 'Cancel', variant: 'secondary', onClick: closeModal },
-      { 
-        label: agent ? 'Save' : (isComplete ? 'Create' : 'Save as Draft'), 
-        variant: 'primary', 
-        onClick: save, 
-        disabled: !canSaveAsDraft,
-        loading 
+  async function loadAvailableModels() {
+    try {
+      const response = await api.models.available()
+      availableModels = Array.isArray(response)
+        ? response.filter((m: unknown) => !!m && typeof m === 'object') as AvailableModel[]
+        : []
+      modelsLoadState = availableModels.length === 0 ? 'empty' : 'loaded'
+    } catch (e: any) {
+      if (e.status === 401 || e.message?.includes('unauthenticated')) {
+        window.location.href = '/login'
+        return
       }
-    ])
+      error = (e as Error).message
+      modelsLoadState = 'error'
+      availableModels = []
+    }
   }
 
-  $: {
-    name, description, models, instructions, useDecisionModel, decisionModel
-    updateStepButtons()
+  function saveDraft() {
+    if (!name && !description && models.length === 0) {
+      return
+    }
+
+    localStorage.setItem(draftKey, JSON.stringify({
+      name,
+      description,
+      models,
+      instructions,
+      useDecisionModel,
+      decisionModel,
+    }))
   }
 
   async function save() {
+    if (!canSaveAsDraft || loading) {
+      return
+    }
+
     loading = true
     error = ''
 
-    // Set timeout
     saveTimeout = window.setTimeout(() => {
       error = 'Save operation timed out. Please check your connection and try again.'
       loading = false
-      updateStepButtons()
     }, SAVE_TIMEOUT)
 
     try {
       const payload = {
         name: name.trim(),
         description: description.trim(),
-        models: models.map((m, i) => ({ ...m, priority: i })),
+        models: models.map((model, index) => ({ ...model, priority: index })),
         instructions,
         decision_model: useDecisionModel ? decisionModel : null,
         version: agent?.version || 0,
-        is_draft: models.length === 0
+        is_draft: models.length === 0,
       }
 
-       if (agent) {
-         await api.agents.update(agent.id, payload)
-       } else {
-         await api.agents.create(payload)
-       }
-       
-       if (onComplete) await onComplete()
+      if (agent) {
+        await api.agents.update(agent.id, payload)
+      } else {
+        await api.agents.create(payload)
+      }
 
-       // Clear draft and timeout
       localStorage.removeItem(draftKey)
-      if (saveTimeout) clearTimeout(saveTimeout)
-      
-      closeModal()
+      if (saveTimeout) {
+        clearTimeout(saveTimeout)
+      }
+
+      await onComplete?.()
     } catch (e: any) {
-      if (saveTimeout) clearTimeout(saveTimeout)
-      
-      // Handle specific errors
+      if (saveTimeout) {
+        clearTimeout(saveTimeout)
+      }
+
       if (e.message?.includes('modified by another process')) {
         error = 'This agent was modified elsewhere. Please refresh and try again.'
       } else if (e.message?.includes('already exists')) {
@@ -158,19 +146,26 @@
       } else {
         error = (e as Error).message
       }
-      
+
       loading = false
-      updateStepButtons()
     }
   }
 
+  async function cancel() {
+    await onCancel?.()
+  }
+
+  function goToProviders() {
+    window.location.hash = '#/providers'
+  }
+
   function addModel() {
-    const defaultModelId = availableModels.length > 0 ? availableModels[0].name : ''
-    models = [...models, { 
-      model_id: defaultModelId, 
-      priority: models.length, 
-      description: '', 
-      instructions: '' 
+    const defaultModelId = availableModels.length > 0 ? availableModels[0].full_model_id : ''
+    models = [...models, {
+      model_id: defaultModelId,
+      priority: models.length,
+      description: '',
+      instructions: '',
     }]
   }
 
@@ -179,27 +174,61 @@
   }
 
   function moveUp(index: number) {
-    if (index === 0) return
-    const newModels = [...models]
-    ;[newModels[index - 1], newModels[index]] = [newModels[index], newModels[index - 1]]
-    models = newModels
+    if (index === 0) {
+      return
+    }
+    const nextModels = [...models]
+    ;[nextModels[index - 1], nextModels[index]] = [nextModels[index], nextModels[index - 1]]
+    models = nextModels
   }
 
   function moveDown(index: number) {
-    if (index === models.length - 1) return
-    const newModels = [...models]
-    ;[newModels[index], newModels[index + 1]] = [newModels[index + 1], newModels[index]]
-    models = newModels
+    if (index === models.length - 1) {
+      return
+    }
+    const nextModels = [...models]
+    ;[nextModels[index], nextModels[index + 1]] = [nextModels[index + 1], nextModels[index]]
+    models = nextModels
   }
 
   function isModelAvailable(modelId: string): boolean {
-    return availableModels.some(m => m.name === modelId)
+    return availableModels.some((model) => model.full_model_id === modelId)
   }
+
+  function modelOptions() {
+    return availableModels.map((model) => ({
+      value: model.full_model_id,
+      label: `${model.provider_name} · ${model.display_name} · ${model.full_model_id}`,
+    }))
+  }
+
+  function selectedModelLabel(modelId: string): string {
+    const model = availableModels.find((entry) => entry.full_model_id === modelId)
+    if (!model) {
+      return `${modelId} (unavailable)`
+    }
+    return `${model.provider_name} · ${model.display_name} · ${model.full_model_id}`
+  }
+
+  $: canSaveAsDraft = name.trim() !== ''
+  $: isComplete = name.trim() !== '' &&
+    models.length > 0 &&
+    (!useDecisionModel || (!!decisionModel.model_id && decisionModel.system_prompt.trim() !== ''))
+  $: primaryActionLabel = agent ? 'Save' : (isComplete ? 'Create' : 'Save as Draft')
 </script>
 
 <div class="agent-editor">
+  <div class="editor-actions">
+    <button class="btn btn-secondary" on:click={cancel} disabled={loading}>
+      Cancel
+    </button>
+    <button class="btn btn-primary btn-large" on:click={save} disabled={!canSaveAsDraft || loading}>
+      {loading ? 'Saving…' : primaryActionLabel}
+    </button>
+  </div>
+
   {#if error}
-    <p class="error-text">Error loading models: {error}</p>
+    <div class="error-msg">{error}</div>
   {/if}
 
   {#if modelsLoadState === 'empty'}
@@ -208,7 +237,7 @@
       <div>
         <strong>No models available</strong>
         <p>Configure at least one provider with credentials to create agents.</p>
-        <button class="btn btn-primary" on:click={() => { closeModal(); window.location.hash = '#/providers' }}>
+        <button class="btn btn-primary" on:click={goToProviders}>
           <span class="icon">cloud</span>
           Go to Providers
         </button>
@@ -220,20 +249,20 @@
     <h3>Basic Information</h3>
     <div class="form-group">
       <label for="name">Name <span class="required">*</span></label>
-      <input 
+      <input
         id="name"
-        type="text" 
-        class="input" 
-        bind:value={name} 
+        type="text"
+        class="input"
+        bind:value={name}
         placeholder="e.g., Research Assistant"
       />
     </div>
     <div class="form-group">
       <label for="description">Description</label>
-      <textarea 
+      <textarea
         id="description"
-        class="input" 
-        bind:value={description} 
+        class="input"
+        bind:value={description}
         rows="2"
         placeholder="Optional description of what this agent does"
       />
@@ -243,19 +272,19 @@
   <section class="form-section">
     <h3>Models {#if models.length === 0}<span class="draft-badge">Draft</span>{/if}</h3>
     <p class="help-text">Models are tried in order (top = highest priority). Add descriptions to help the decision model choose.</p>
-    
+
     {#if modelsLoadState === 'loading'}
       <div class="loading">Loading available models...</div>
     {:else if modelsLoadState === 'error'}
       <div class="error-box">
         <p>Failed to load models. Please try again.</p>
-        <button class="btn btn-secondary" on:click={() => window.location.reload()}>Reload</button>
+        <button class="btn btn-secondary" on:click={loadAvailableModels}>Reload</button>
       </div>
     {:else if models.length === 0}
       <div class="empty-models">
         <p>No models added yet</p>
         {#if modelsLoadState === 'empty'}
-          <p class="warning-text">⚠️ No models available. Configure providers first.</p>
+          <p class="warning-text">No models are currently available. Configure providers first.</p>
         {:else}
           <button class="btn btn-secondary" on:click={addModel}>
             <span class="icon">add</span>
@@ -267,77 +296,59 @@
       {#each models as model, i}
         <div class="model-item">
           <div class="model-header">
-            <span class="priority-badge">{i}</span>
+            <span class="priority-badge">{i + 1}</span>
             <Dropdown
               bind:value={model.model_id}
               options={[
-                ...availableModels.map(m => ({
-                  value: m.name,
-                  label: m.display_name || m.name
-                })),
-                // Show current value even if not in available list
-                ...(!isModelAvailable(model.model_id) && model.model_id 
-                  ? [{value: model.model_id, label: `${model.model_id} (unavailable)`}]
-                  : [])
+                ...modelOptions(),
+                ...(!isModelAvailable(model.model_id) && model.model_id
+                  ? [{ value: model.model_id, label: selectedModelLabel(model.model_id) }]
+                  : []),
               ]}
               searchable={true}
               placeholder="Select a model"
             />
             <div class="model-actions">
-              <button 
-                class="btn-icon" 
-                on:click={() => moveUp(i)} 
-                disabled={i === 0}
-                title="Move up"
-              >
+              <button class="btn-icon" on:click={() => moveUp(i)} disabled={i === 0} title="Move up">
                 <span class="icon">arrow_upward</span>
               </button>
-              <button 
-                class="btn-icon" 
-                on:click={() => moveDown(i)} 
-                disabled={i === models.length - 1}
-                title="Move down"
-              >
+              <button class="btn-icon" on:click={() => moveDown(i)} disabled={i === models.length - 1} title="Move down">
                 <span class="icon">arrow_downward</span>
               </button>
-              <button 
-                class="btn-icon btn-danger" 
-                on:click={() => removeModel(i)}
-                title="Remove"
-              >
+              <button class="btn-icon btn-danger" on:click={() => removeModel(i)} title="Remove">
                 <span class="icon">delete</span>
               </button>
             </div>
           </div>
-          
+
           {#if !isModelAvailable(model.model_id) && model.model_id}
-            <div class="warning-text">⚠️ This model is no longer available</div>
+            <div class="warning-text">This model is no longer available.</div>
           {/if}
-          
-           <div class="form-group">
-             <label for="agent-model-desc">Description (for decision model)</label>
-             <input 
-               id="agent-model-desc"
-               type="text"
-               class="input input-small" 
-               bind:value={model.description} 
-               placeholder="e.g., Best for complex reasoning and analysis"
-             />
-           </div>
-           
-           <div class="form-group">
-             <label for="agent-model-instr">Model-specific instructions (optional)</label>
-             <textarea 
-               id="agent-model-instr"
-               class="input input-small" 
-               bind:value={model.instructions} 
-               rows="2"
-               placeholder="Additional instructions for this specific model"
-             />
-           </div>
+
+          <div class="form-group">
+            <label for={`agent-model-desc-${i}`}>Description (for decision model)</label>
+            <input
+              id={`agent-model-desc-${i}`}
+              type="text"
+              class="input input-small"
+              bind:value={model.description}
+              placeholder="e.g., Best for complex reasoning and analysis"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for={`agent-model-instr-${i}`}>Model-specific instructions (optional)</label>
+            <textarea
+              id={`agent-model-instr-${i}`}
+              class="input input-small"
+              bind:value={model.instructions}
+              rows="2"
+              placeholder="Additional instructions for this specific model"
+            />
+          </div>
         </div>
       {/each}
-      
+
       <button class="btn btn-secondary" on:click={addModel}>
         <span class="icon">add</span>
         Add Model
@@ -349,29 +360,21 @@
     <h3>General Instructions</h3>
     <div class="form-group">
       <label for="instructions-content">Instructions</label>
-      <textarea 
+      <textarea
         id="instructions-content"
-        class="input" 
-        bind:value={instructions.content} 
+        class="input"
+        bind:value={instructions.content}
         rows="4"
         placeholder="System instructions that apply to all models"
       />
     </div>
     <div class="radio-group">
       <label class="radio-label">
-        <input 
-          type="radio" 
-          bind:group={instructions.injection} 
-          value="beginning"
-        />
+        <input type="radio" bind:group={instructions.injection} value="beginning" />
         Inject at beginning
       </label>
       <label class="radio-label">
-        <input 
-          type="radio" 
-          bind:group={instructions.injection} 
-          value="end"
-        />
+        <input type="radio" bind:group={instructions.injection} value="end" />
         Inject at end
       </label>
     </div>
@@ -380,44 +383,44 @@
   <section class="form-section">
     <h3>Decision Model (Optional)</h3>
     <p class="help-text">Use a cheap model to intelligently route requests based on context.</p>
-    
+
     <label class="checkbox-label">
       <input type="checkbox" bind:checked={useDecisionModel} />
       Enable decision-based routing
     </label>
-    
+
     {#if useDecisionModel}
       {#if modelsLoadState === 'loading'}
         <div class="loading">Loading models...</div>
       {:else if modelsLoadState === 'empty'}
-<div class="bg-surface">
-  <p class="warning-text">⚠️ No models available for decision routing.</p>
-  <p class="help-text">Add providers and credentials first.</p>
-</div>
+        <div class="empty-models">
+          <p class="warning-text">No models available for decision routing.</p>
+          <button class="btn btn-primary" on:click={goToProviders}>
+            <span class="icon">cloud</span>
+            Go to Providers
+          </button>
+        </div>
       {:else if modelsLoadState === 'loaded'}
         <div class="form-group">
           <label for="decision-model">Decision Model <span class="required">*</span></label>
           <Dropdown
             bind:value={decisionModel.model_id}
             options={[
-              {value: '', label: 'Select a model...'},
-              ...availableModels.map(m => ({
-                value: m.name,
-                label: m.display_name || m.name
-              }))
+              { value: '', label: 'Select a model...' },
+              ...modelOptions(),
             ]}
             searchable={true}
             placeholder="Select a model..."
           />
         </div>
       {/if}
-      
+
       <div class="form-group">
         <label for="decision-prompt">System Prompt <span class="required">*</span></label>
-        <textarea 
+        <textarea
           id="decision-prompt"
-          class="input" 
-          bind:value={decisionModel.system_prompt} 
+          class="input"
+          bind:value={decisionModel.system_prompt}
           rows="4"
           placeholder="You are a routing assistant. Choose the best model for the user's request based on complexity, cost, and requirements."
         />
@@ -428,20 +431,30 @@
 
 <style>
   .agent-editor {
-    max-height: 70vh;
-    overflow-y: auto;
-    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  .editor-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 16px 0;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-outline-soft);
   }
 
   .form-section {
-    margin-bottom: 32px;
     padding-bottom: 32px;
     border-bottom: 1px solid var(--color-outline-soft);
   }
 
   .form-section:last-child {
     border-bottom: none;
-    margin-bottom: 0;
     padding-bottom: 0;
   }
 
@@ -472,14 +485,6 @@
 
   .form-group {
     margin-bottom: 16px;
-  }
-
-  .form-group label {
-    display: block;
-    font-size: 12px;
-    font-weight: 500;
-    margin-bottom: 6px;
-    color: var(--color-text);
   }
 
   .required {
@@ -518,15 +523,7 @@
     margin-top: 8px;
   }
 
-  .radio-label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 14px;
-    color: var(--color-text);
-    cursor: pointer;
-  }
-
+  .radio-label,
   .checkbox-label {
     display: flex;
     align-items: center;
@@ -534,19 +531,21 @@
     font-size: 14px;
     color: var(--color-text);
     cursor: pointer;
+  }
+
+  .checkbox-label {
     margin-bottom: 16px;
   }
 
   .empty-models {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
     text-align: center;
     padding: 32px;
     background: var(--color-surface-container-high);
     border-radius: 8px;
-    margin-bottom: 16px;
-  }
-
-  .empty-models p {
-    color: var(--color-text-soft);
     margin-bottom: 16px;
   }
 
@@ -563,7 +562,6 @@
     background: rgba(234, 179, 8, 0.1);
     border: 1px solid rgba(234, 179, 8, 0.3);
     border-radius: 8px;
-    margin-bottom: 24px;
   }
 
   .warning-banner .icon {
@@ -587,7 +585,6 @@
   .warning-text {
     font-size: 12px;
     color: #ca8a04;
-    margin-bottom: 8px;
   }
 
   .error-box {
@@ -654,7 +651,6 @@
     border: 1px solid var(--color-outline-light);
     border-radius: 8px;
     cursor: pointer;
-    transition: background 0.15s;
   }
 
   .btn-icon:hover:not(:disabled) {

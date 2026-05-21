@@ -238,29 +238,4 @@
     color: var(--color-text);
   }
 
-  :global(.auth-html form) {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  :global(.auth-html input[type="submit"]),
-  :global(.auth-html button[type="submit"]) {
-    background: var(--color-button-container);
-    border: 1px solid var(--color-outline-light);
-    color: var(--color-text-on-button);
-    cursor: pointer;
-    padding: 0 16px;
-    height: 32px;
-    border-radius: 12px;
-    font-size: 14px;
-    font-weight: 500;
-    width: auto;
-    transition: background 0.15s;
-  }
-
-  :global(.auth-html input[type="submit"]:hover),
-  :global(.auth-html button[type="submit"]:hover) {
-    background: var(--color-button-container-high);
-  }
 </style>

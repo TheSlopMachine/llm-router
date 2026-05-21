@@ -272,10 +272,6 @@
 </div>
 
 <style>
-  .page-header {
-    margin-bottom: 24px;
-  }
-
   /* System Status Bar */
   .status-bar {
     display: flex;

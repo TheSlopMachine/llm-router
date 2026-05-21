@@ -440,11 +440,69 @@
     color: var(--color-text-soft); 
   }
 
-  :global(.page-header) { margin-bottom: 24px; }
+  :global(.auth-html form) {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  :global(.auth-html .auth-flow-content > * + *) {
+    margin-top: 16px;
+  }
+  :global(.auth-html .form-group) {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  :global(.auth-html .alert) {
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--color-notification-info-border);
+    background: var(--color-notification-info-bg);
+    color: var(--color-notification-info-text);
+    font-size: 13px;
+  }
+  :global(.auth-html hr) {
+    border: none;
+    border-top: 1px solid var(--color-outline-soft);
+    margin: 20px 0;
+  }
+  :global(.auth-html select) {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236c717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 16px;
+    padding-right: 40px;
+  }
+  :global(.auth-html input[type="submit"]),
+  :global(.auth-html button[type="submit"]) {
+    background: var(--color-button-container);
+    border: 1px solid var(--color-outline-light);
+    color: var(--color-text-on-button);
+    cursor: pointer;
+    padding: 0 16px;
+    height: 32px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    width: auto;
+    transition: background 0.15s;
+  }
+  :global(.auth-html input[type="submit"]:hover),
+  :global(.auth-html button[type="submit"]:hover) {
+    background: var(--color-button-container-high);
+  }
+  :global(.auth-html button[type="submit"] + button[type="submit"]),
+  :global(.auth-html input[type="submit"] + button[type="submit"]),
+  :global(.auth-html button[type="submit"] + input[type="submit"]) {
+    margin-left: 8px;
+  }
+
+  :global(.page-header) { margin-bottom: 32px; }
   :global(.page-header h1) { 
     font-size: 24px; 
     font-weight: 400; 
-    margin-bottom: 4px;
+    margin-bottom: 8px;
     color: var(--color-text);
   }
   :global(.page-header p) { 

@@ -3,10 +3,9 @@
   import { api } from '../lib/api'
   import { modal } from '../lib/modal'
   import EmptyState from './EmptyState.svelte'
-  import type { Credential, Provider } from '../lib/types'
+  import type { Credential } from '../lib/types'
 
   let credentials: Credential[] = []
-  let providers: Provider[] = []
   let loading: boolean = true
   let error: string = ''
 
@@ -16,12 +15,8 @@
     loading = true
     error = ''
     try {
-      const [c, p] = await Promise.all([
-        api.credentials.list(),
-        api.providers.list(),
-      ])
+      const c = await api.credentials.list()
       credentials = c || []
-      providers = p || []
     } catch (e) {
       error = (e as Error).message
     } finally {
@@ -122,19 +117,14 @@
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    margin-bottom: 24px;
     gap: 24px;
   }
 
   .page-header h1 {
-    font-size: 24px;
-    font-weight: 400;
-    margin: 0 0 4px 0;
+    margin: 0;
   }
 
   .page-header p {
-    color: var(--color-text-soft);
-    font-size: 14px;
     margin: 0;
   }
 

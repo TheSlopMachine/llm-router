@@ -3,6 +3,8 @@
   import { api } from '../lib/api'
   import Overview from '../components/Overview.svelte'
   import Metrics from './Metrics.svelte'
+  import AgentEditorPage from './AgentEditorPage.svelte'
+  import Models from '../components/Models.svelte'
   import Providers from '../components/Providers.svelte'
   import Tokens from '../components/Tokens.svelte'
   import Credentials from '../components/Credentials.svelte'
@@ -11,7 +13,7 @@
 
   const dispatch = createEventDispatcher<{ logout: void }>()
   
-  type PanelId = 'overview' | 'metrics' | 'providers' | 'tokens' | 'credentials' | 'agents'
+  type PanelId = 'overview' | 'metrics' | 'providers' | 'models' | 'tokens' | 'credentials' | 'agents'
   
   interface NavItem {
     id: PanelId
@@ -20,32 +22,40 @@
   }
   
   let panel: PanelId = 'overview'
-  
+  let routeSegments: string[] = []
+
   function navigateTo(panelId: PanelId): void {
     panel = panelId
     window.location.hash = '#/' + panelId
   }
+
+  function applyRoute(): void {
+    const raw = window.location.hash.replace(/^#\/?/, '')
+    const segments = raw.split('/').filter(Boolean)
+    const validPanels: PanelId[] = ['overview', 'metrics', 'providers', 'models', 'tokens', 'credentials', 'agents']
+
+    if (segments.length === 0) {
+      panel = 'overview'
+      routeSegments = []
+      window.location.hash = '#/overview'
+      return
+    }
+
+    const nextPanel = segments[0] as PanelId
+    if (!validPanels.includes(nextPanel)) {
+      panel = 'overview'
+      routeSegments = []
+      window.location.hash = '#/overview'
+      return
+    }
+
+    panel = nextPanel
+    routeSegments = segments.slice(1)
+  }
   
   onMount((): void => {
-    const hash = window.location.hash.slice(2)
-    const validPanels: PanelId[] = ['overview', 'metrics', 'providers', 'tokens', 'credentials', 'agents']
-    
-    if (validPanels.includes(hash as PanelId)) {
-      panel = hash as PanelId
-    } else {
-      panel = 'overview'
-      window.location.hash = '#/overview'
-    }
-    
-    window.addEventListener('hashchange', (): void => {
-      const route = window.location.hash.slice(2)
-      if (validPanels.includes(route as PanelId)) {
-        panel = route as PanelId
-      } else {
-        panel = 'overview'
-        window.location.hash = '#/overview'
-      }
-    })
+    applyRoute()
+    window.addEventListener('hashchange', applyRoute)
   })
   
   async function logout(): Promise<void> {
@@ -57,6 +67,7 @@
     { id: 'overview',     label: 'Overview',     icon: 'dashboard' },
     { id: 'metrics',      label: 'Metrics',      icon: 'analytics' },
     { id: 'providers',    label: 'Providers',    icon: 'cloud' },
+    { id: 'models',       label: 'Models',       icon: 'view_list' },
     { id: 'agents',       label: 'Agents',       icon: 'robot' },
     { id: 'tokens',       label: 'Tokens',       icon: 'key' },
     { id: 'credentials',  label: 'Credentials',  icon: 'lock' },
@@ -95,8 +106,16 @@
         <Metrics />
       {:else if panel === 'providers'}
         <Providers />
+      {:else if panel === 'models'}
+        <Models />
       {:else if panel === 'agents'}
-        <Agents />
+        {#if routeSegments[0] === 'new'}
+          <AgentEditorPage agentId={null} />
+        {:else if routeSegments[0]}
+          <AgentEditorPage agentId={routeSegments[0]} />
+        {:else}
+          <Agents />
+        {/if}
       {:else if panel === 'tokens'}
         <Tokens />
       {:else if panel === 'credentials'}

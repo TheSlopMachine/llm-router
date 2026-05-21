@@ -7,6 +7,7 @@
   import type { Provider, ProviderStats } from '../lib/types'
 
   let providers: Provider[] = []
+  let visibleProviders: Provider[] = []
   let providerStats: Record<string, ProviderStats> = {}
   let loading: boolean = true
   let error: string = ''
@@ -62,6 +63,8 @@
       error = (e as Error).message
     }
   }
+
+  $: visibleProviders = providers.filter((provider) => provider.supports_auth_flow)
 </script>
 
 <div class="page-header">
@@ -75,11 +78,11 @@
 
 {#if loading}
   <div class="empty">Loading…</div>
-{:else if providers.length === 0}
-  <div class="empty">No providers registered yet.</div>
+{:else if visibleProviders.length === 0}
+  <div class="empty">No providers with interactive authentication flows are available.</div>
 {:else}
   <div class="providers-grid">
-    {#each providers as provider}
+    {#each visibleProviders as provider}
       <ProviderCard 
         {provider}
         stats={providerStats[provider.id] || null}

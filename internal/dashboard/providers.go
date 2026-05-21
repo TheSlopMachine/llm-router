@@ -16,7 +16,7 @@ import (
 // @Description  Returns all configured providers.
 // @Tags         Providers
 // @Produce      json
-// @Success      200 {array} object{id=string,name=string,type=string,qualifier=string,auth_type=string,base_url=string,icon_url=string}
+// @Success      200 {array} object{id=string,name=string,type=string,qualifier=string,auth_type=string,base_url=string,icon_url=string,supports_auth_flow=bool}
 // @Failure      401 {object} models.ErrorResponse
 // @Failure      500 {object} models.ErrorResponse
 // @Security     SessionAuth
@@ -28,24 +28,26 @@ func (h *Handler) apiProvidersList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type pv struct {
-		ID        string `json:"id"`
-		Name      string `json:"name"`
-		Type      string `json:"type"`
-		Qualifier string `json:"qualifier"`
-		AuthType  string `json:"auth_type"`
-		BaseURL   string `json:"base_url"`
-		IconURL   string `json:"icon_url"`
+		ID               string `json:"id"`
+		Name             string `json:"name"`
+		Type             string `json:"type"`
+		Qualifier        string `json:"qualifier"`
+		AuthType         string `json:"auth_type"`
+		BaseURL          string `json:"base_url"`
+		IconURL          string `json:"icon_url"`
+		SupportsAuthFlow bool   `json:"supports_auth_flow"`
 	}
 	out := make([]pv, 0, len(providers))
 	for _, p := range providers {
 		out = append(out, pv{
-			ID:        p.ID,
-			Name:      p.Name,
-			Type:      p.Type,
-			Qualifier: p.Qualifier,
-			AuthType:  string(p.AuthType),
-			BaseURL:   p.BaseURL,
-			IconURL:   p.IconURL,
+			ID:               p.ID,
+			Name:             p.Name,
+			Type:             p.Type,
+			Qualifier:        p.Qualifier,
+			AuthType:         string(p.AuthType),
+			BaseURL:          p.BaseURL,
+			IconURL:          p.IconURL,
+			SupportsAuthFlow: providerSupportsAuthFlow(p.Type),
 		})
 	}
 	h.json(w, http.StatusOK, out)
@@ -221,7 +223,7 @@ func (h *Handler) authCallback(w http.ResponseWriter, r *http.Request) {
 	if state.Credentials != nil {
 		_, err := h.credSvc.Add(credential.AddOptions{
 			ProviderID: providerID,
-			Label:      "Auto-generated",
+			Label:      buildAutoCredentialLabel(p, state.Credentials),
 			Data:       state.Credentials,
 		})
 		if err != nil {
@@ -267,4 +269,3 @@ func (h *Handler) renderAuthState(w http.ResponseWriter, state provider.AuthFlow
 func (h *Handler) cleanupAuthFlow(flowID string) {
 	h.authSvc.Delete(flowID + ":provider_id")
 }
-

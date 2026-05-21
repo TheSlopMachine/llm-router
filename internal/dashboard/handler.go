@@ -92,6 +92,7 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/credentials/{id}", h.requireAuth(h.apiCredentialsDelete))
 
 	mux.HandleFunc("GET /api/llm-router/dashboard/models", h.requireAuth(h.apiModels))
+	mux.HandleFunc("GET /api/llm-router/dashboard/models/available", h.requireAuth(h.apiAvailableModels))
 
 	// Agent APIs
 	mux.HandleFunc("GET /api/llm-router/dashboard/agents", h.requireAuth(h.apiAgentsList))
@@ -156,7 +157,7 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 func (h *Handler) serve404(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusNotFound)
-	
+
 	html := `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -246,7 +247,7 @@ func (h *Handler) serve404(w http.ResponseWriter, r *http.Request) {
     </div>
 </body>
 </html>`
-	
+
 	w.Write([]byte(html))
 }
 
@@ -274,4 +275,3 @@ func (h *Handler) json(w http.ResponseWriter, status int, data any) {
 func (h *Handler) jsonErr(w http.ResponseWriter, status int, msg string) {
 	h.json(w, status, map[string]string{"error": msg})
 }
-

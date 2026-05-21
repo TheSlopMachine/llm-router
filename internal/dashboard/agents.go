@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 
@@ -174,50 +173,22 @@ func (h *Handler) apiAgentsDelete(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  models.ErrorResponse
 // @Router       /api/llm-router/dashboard/agents/available-models [get]
 func (h *Handler) apiAgentsAvailableModels(w http.ResponseWriter, r *http.Request) {
-	ctx := context.Background()
-
-	// Get all providers
-	providers, err := h.providerSvc.List()
+	items, err := h.availableModels(r.Context())
 	if err != nil {
-		h.logger.Error("failed to list providers", "error", err)
-		h.jsonErr(w, http.StatusInternalServerError, "failed to list providers")
+		h.logger.Error("failed to list available models", "error", err)
+		h.jsonErr(w, http.StatusInternalServerError, "failed to list available models")
 		return
 	}
 
-	// Collect all models from all providers (except agents)
-	var allModels []models.ModelInfo
-	for _, provider := range providers {
-		// Skip agents provider to prevent circular references
-		if provider.Type == "agents" {
-			continue
-		}
-
-		// Get credentials for this provider
-		creds, err := h.credSvc.All(provider.ID)
-		if err != nil || len(creds) == 0 {
-			// Skip providers without credentials
-			continue
-		}
-
-		// Get model infos
-		modelInfos, err := h.modelInfoSvc.GetModelInfos(ctx, provider.ID)
-		if err != nil {
-			h.logger.Warn("failed to get models for provider", "provider", provider.ID, "error", err)
-			continue
-		}
-
-		// Add provider prefix to model names
-		for _, modelInfo := range modelInfos {
-			modelInfo.Name = string(models.ModelId(provider.ID + "/" + modelInfo.Name))
-			if modelInfo.DisplayName != "" {
-				modelInfo.DisplayName = provider.Name + " - " + modelInfo.DisplayName
-			} else {
-				modelInfo.DisplayName = provider.Name + " - " + modelInfo.Name
-			}
-			allModels = append(allModels, modelInfo)
-		}
+	allModels := make([]models.ModelInfo, 0, len(items))
+	for _, item := range items {
+		allModels = append(allModels, models.ModelInfo{
+			Name:          item.FullModelID,
+			DisplayName:   item.ProviderName + " - " + item.DisplayName,
+			ContextWindow: item.ContextWindow,
+			MaxTokens:     item.MaxTokens,
+		})
 	}
 
 	h.json(w, http.StatusOK, allModels)
 }
-

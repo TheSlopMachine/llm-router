@@ -196,19 +196,14 @@
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    margin-bottom: 24px;
     gap: 24px;
   }
 
   .page-header h1 {
-    font-size: 24px;
-    font-weight: 400;
-    margin: 0 0 4px 0;
+    margin: 0;
   }
 
   .page-header p {
-    color: var(--color-text-soft);
-    font-size: 14px;
     margin: 0;
   }
 

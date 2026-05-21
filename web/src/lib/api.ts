@@ -70,6 +70,9 @@ export const api = {
       apiCall('get', path('/dashboard/models'), { 
         query: { provider_ids: providerIds } 
       }),
+
+    available: () =>
+      apiCall('get', path('/dashboard/models/available' as '/dashboard/models/available')),
   },
 
   // Agents
@@ -88,9 +91,6 @@ export const api = {
 
     delete: (id: string) => 
       apiCall('delete', path(`/dashboard/agents/${id}` as '/dashboard/agents/{id}')),
-
-    availableModels: () => 
-      apiCall('get', path('/dashboard/agents/available-models')),
   },
 
   // Metrics

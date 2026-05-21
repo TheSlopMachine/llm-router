@@ -3,7 +3,6 @@
   import { api } from '../lib/api'
   import { modal } from '../lib/modal'
   import type { Agent } from '../lib/types'
-  import AgentEditor from './wizards/AgentEditor.svelte'
   import EmptyState from './EmptyState.svelte'
 
   let agents: Agent[] = []
@@ -28,37 +27,8 @@
     }
   }
 
-  async function openNewAgent() {
-    // Check if models available first
-    try {
-      const models = await api.agents.availableModels()
-      if (!models || (models as any[]).length === 0) {
-        error = 'No models available. Please configure providers and credentials first.'
-        return
-      }
-    } catch (e: any) {
-      if (e.status === 401 || e.message?.includes('unauthenticated')) {
-        window.location.href = '/login'
-        return
-      }
-      error = 'Failed to load models. Please try again.'
-      return
-    }
-    
-    // Open modal only if models exist
-    modal.open({
-      title: 'New Agent',
-      content: AgentEditor,
-      severity: 'medium',
-      size: 'extra-large',
-      props: {
-        agent: undefined,
-        onComplete: async () => {
-          modal.close()
-          await load()
-        }
-      }
-    })
+  function openNewAgent() {
+    window.location.hash = '#/agents/new'
   }
 
   onMount(() => {
@@ -66,19 +36,7 @@
   })
 
   function openEditAgent(agent: Agent) {
-    modal.open({
-      title: 'Edit Agent',
-      content: AgentEditor,
-      severity: 'medium',
-      size: 'extra-large',
-      props: {
-        agent,
-        onComplete: async () => {
-          modal.close()
-          await load()
-        }
-      }
-    })
+    window.location.hash = `#/agents/${agent.id}`
   }
 
   async function deleteAgent(agent: Agent) {
@@ -193,19 +151,14 @@
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    margin-bottom: 24px;
     gap: 24px;
   }
 
   .page-header h1 {
-    font-size: 24px;
-    font-weight: 400;
-    margin: 0 0 4px 0;
+    margin: 0;
   }
 
   .page-header p {
-    color: var(--color-text-soft);
-    font-size: 14px;
     margin: 0;
   }
 
