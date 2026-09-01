@@ -152,10 +152,11 @@
     justify-content: space-between;
     align-items: flex-start;
     gap: 24px;
+    margin-bottom: 32px;
   }
 
   .page-header h1 {
-    margin: 0;
+    margin: 0 0 8px 0;
   }
 
   .page-header p {
