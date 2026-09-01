@@ -9,6 +9,7 @@
   export let disabled: boolean = false
   export let searchable: boolean = false
   export let searchThreshold: number = 10
+  export let autoWidth: boolean = false
 
   let isOpen = false
   let searchQuery = ''
@@ -122,7 +123,7 @@
   })
 </script>
 
-<div class="dropdown" class:disabled bind:this={dropdownElement}>
+<div class="dropdown" class:disabled class:autoWidth={autoWidth} bind:this={dropdownElement}>
   <button
     class="dropdown-trigger"
     class:open={isOpen}
@@ -184,6 +185,27 @@
   .dropdown {
     position: relative;
     width: 100%;
+  }
+
+  .dropdown.autoWidth {
+    width: auto;
+    display: inline-flex;
+  }
+
+  .dropdown.autoWidth .dropdown-trigger {
+    width: auto;
+    gap: 8px;
+  }
+
+  .dropdown.autoWidth .dropdown-label {
+    flex: 0 1 auto;
+  }
+
+  .dropdown.autoWidth .dropdown-menu {
+    min-width: 100%;
+    width: max-content;
+    max-width: 320px;
+    right: auto;
   }
 
   .dropdown.disabled {

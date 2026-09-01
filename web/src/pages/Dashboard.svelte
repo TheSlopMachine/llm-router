@@ -96,8 +96,8 @@
     </div>
   </aside>
 
-  <main class="main">
-    <div class="main-content">
+  <main class="main" class:chat={panel === 'chat'}>
+    <div class="main-content" class:chat={panel === 'chat'}>
       {#if panel === 'chat'}
         <Chat />
       {:else if panel === 'metrics'}
@@ -214,9 +214,22 @@
     padding: 32px;
     background: var(--color-surface);
   }
+  .main.chat {
+    padding: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
   .main-content {
     width: 100%;
     max-width: 1200px;
     margin: 0 auto;
+  }
+  .main-content.chat {
+    max-width: none;
+    flex: 1;
+    display: flex;
+    margin: 0;
+    min-height: 0;
   }
 </style>
