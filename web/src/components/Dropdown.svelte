@@ -10,6 +10,7 @@
   export let searchable: boolean = false
   export let searchThreshold: number = 10
   export let autoWidth: boolean = false
+  export let rounded: 'sm' | 'lg' = 'sm'
 
   let isOpen = false
   let searchQuery = ''
@@ -127,6 +128,7 @@
   <button
     class="dropdown-trigger"
     class:open={isOpen}
+    class:rounded-lg={rounded === 'lg'}
     bind:this={triggerElement}
     on:click={toggle}
     on:keydown={handleKeydown}
@@ -231,6 +233,10 @@
     text-align: left;
   }
 
+  .dropdown-trigger.rounded-lg {
+    border-radius: 12px;
+  }
+
   .dropdown-trigger:hover:not(:disabled) {
     border-color: var(--color-text-soft);
   }
@@ -311,7 +317,9 @@
   }
 
   .dropdown-option {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
     width: 100%;
     padding: 8px 12px;
     font-size: 14px;
