@@ -68,7 +68,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 
 	mux := http.NewServeMux()
 
-	dash, err := dashboard.New(adminSvc, providerSvc, credSvc, tokenSvc, authSvc, modelInfoSvc, metricsSvc, agentSvc, logger)
+	dash, err := dashboard.New(adminSvc, providerSvc, credSvc, tokenSvc, authSvc, modelInfoSvc, metricsSvc, agentSvc, routerSvc, logger)
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard handler: %w", err)
 	}

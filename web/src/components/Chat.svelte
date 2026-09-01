@@ -25,6 +25,7 @@
   let selectedModel: string = ''
   let input = ''
   let isSending = false
+  let error: string | null = null
   let copiedArtifact: string | null = null
   let messages: Message[] = []
   let threadEl: HTMLDivElement
@@ -71,11 +72,25 @@
 
   $: input, autoResize()
 
+  function parseCodeArtifacts(content: string): { clean: string; artifacts: CodeArtifact[] } {
+    const artifacts: CodeArtifact[] = []
+    const re = /```(\w+)?\n([\s\S]*?)```/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(content)) !== null) {
+      const lang = m[1]?.trim() || 'code'
+      const code = m[2].trim()
+      artifacts.push({ title: lang, code, language: lang, collapsed: false })
+    }
+    const clean = content.replace(re, '').trim()
+    return { clean: clean || content, artifacts }
+  }
+
   async function send() {
     if (!canSend) return
     const text = input.trim()
     input = ''
     isSending = true
+    error = null
 
     const userMsg: Message = {
       id: 'm' + Date.now(),
@@ -86,18 +101,43 @@
     messages = [...messages, userMsg]
     await scrollToBottom()
 
-    // Simulated assistant response — in real integration would call /v1/chat/completions
-    await new Promise((r) => setTimeout(r, 700))
-    const assistantMsg: Message = {
-      id: 'm' + (Date.now() + 1),
-      role: 'assistant',
-      content: `You said: "${text}".`,
-      timestamp: new Date()
+    // Build OpenAI-style history from current thread
+    const history = messages.map((mm) => ({
+      role: mm.role === 'user' ? 'user' : 'assistant',
+      content: mm.content
+    }))
+
+    try {
+      const resp: any = await api.chat.completions({
+        model: selectedModel,
+        messages: history,
+        stream: false
+      })
+      const raw = resp?.choices?.[0]?.message?.content ?? resp?.choices?.[0]?.text ?? ''
+      const { clean, artifacts } = parseCodeArtifacts(raw)
+      const assistantMsg: Message = {
+        id: 'm' + (Date.now() + 1),
+        role: 'assistant',
+        content: clean || raw || '(empty response)',
+        timestamp: new Date(),
+        artifacts: artifacts.length ? artifacts : undefined
+      }
+      messages = [...messages, assistantMsg]
+    } catch (e) {
+      const raw = e as any
+      if (raw && typeof raw.message === 'string' && raw.message) {
+        error = raw.message
+      } else if (typeof raw === 'string') {
+        error = raw
+      } else {
+        try { error = JSON.stringify(raw) } catch { error = String(raw) }
+        if (!error || error === '{}' || error === '[object Object]') error = 'Request failed'
+      }
+    } finally {
+      isSending = false
+      await scrollToBottom()
+      textareaEl?.focus()
     }
-    messages = [...messages, assistantMsg]
-    isSending = false
-    await scrollToBottom()
-    textareaEl?.focus()
   }
 
   async function copyArtifact(code: string, id: string) {
@@ -206,6 +246,9 @@
               <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
             </div>
           </div>
+        {/if}
+        {#if error}
+          <div class="error-msg">{error}</div>
         {/if}
       {/if}
     </div>

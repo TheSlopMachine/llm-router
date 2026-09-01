@@ -106,4 +106,10 @@ export const api = {
     models: () => 
       apiCall('get', path('/dashboard/metrics/models')),
   },
+
+  // Chat (dashboard session -> router proxy, no token)
+  chat: {
+    completions: (payload: { model: string; messages: Array<{ role: string; content: string }>; stream?: boolean }) =>
+      apiCall('post', path('/dashboard/chat/completions' as any) as any, { body: payload as any } as any),
+  },
 }

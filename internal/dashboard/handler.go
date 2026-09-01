@@ -18,6 +18,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
+	"github.com/TheSlopMachine/llm-router/internal/services/router"
 	"github.com/TheSlopMachine/llm-router/internal/services/token"
 )
 
@@ -36,6 +37,7 @@ type Handler struct {
 	modelInfoSvc *modelinfo.Service
 	metricsSvc   *metrics.Service
 	agentSvc     *agent.Service
+	routerSvc    *router.Service
 	logger       *slog.Logger
 }
 
@@ -49,6 +51,7 @@ func New(
 	modelInfoSvc *modelinfo.Service,
 	metricsSvc *metrics.Service,
 	agentSvc *agent.Service,
+	routerSvc *router.Service,
 	logger *slog.Logger,
 ) (*Handler, error) {
 	return &Handler{
@@ -60,6 +63,7 @@ func New(
 		modelInfoSvc: modelInfoSvc,
 		metricsSvc:   metricsSvc,
 		agentSvc:     agentSvc,
+		routerSvc:    routerSvc,
 		logger:       logger,
 	}, nil
 }
@@ -111,6 +115,9 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	// Auth flow endpoints
 	mux.HandleFunc("POST /api/llm-router/dashboard/auth/start", h.requireAuth(h.authStart))
 	mux.HandleFunc("POST /api/llm-router/dashboard/auth/callback", h.requireAuth(h.authCallback))
+
+	// Chat proxy (dashboard session -> router, no token required)
+	mux.HandleFunc("POST /api/llm-router/dashboard/chat/completions", h.requireAuth(h.apiChatCompletions))
 
 	// Swagger UI
 	mux.HandleFunc("GET /swagger/", httpSwagger.Handler(
