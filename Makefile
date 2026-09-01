@@ -22,6 +22,7 @@ ADAPTERS   := adapters.conf
 PLUGINS    := plugins/plugins.go
 PORT       ?= 8080
 URL        ?= http://localhost:$(PORT)
+QUICK      ?= 0
 
 # -- OS-specific settings ------------------------------------------------------
 ifeq ($(OS),Windows_NT)
@@ -96,15 +97,18 @@ help:
 	@printf '  release  Build frontend once, compile all platforms in parallel\n'
 	@printf '  clean    Remove $(PUBLISH)/ and local binaries\n\n'
 	@printf 'Variables:\n'
-	@printf '  VERSION  Release version tag  (default: dev)\n\n'
+	@printf '  VERSION  Release version tag  (default: dev)\n'
+	@printf '  QUICK    Skip adapters/swagger/svelte for run (QUICK=1)\n\n'
 	@printf 'Examples:\n'
 	@printf '  make run\n'
+	@printf '  make run QUICK=1\n'
 	@printf '  make build\n'
 	@printf '  VERSION=1.2.0 make release\n\n'
 	@printf 'Adapters:\n'
 	@printf '  Edit %s directly - format: <module-path> <full-commit-hash>\n\n' "$(ADAPTERS)"
 
 # -- generate-plugins ----------------------------------------------------------
+ifeq ($(filter 1 true,$(QUICK)),)
 generate-plugins:
 	@printf '\n== Plugin Generation ==\n'
 	@mkdir -p plugins
@@ -128,8 +132,13 @@ generate-plugins:
 		go mod tidy || exit 1; \
 	fi
 	@printf '[OK] Plugins generated.\n'
+else
+generate-plugins:
+	@printf '[>] QUICK mode - skipping adapter loading.\n'
+endif
 
 # -- prepare-frontend ----------------------------------------------------------
+ifeq ($(filter 1 true,$(QUICK)),)
 prepare-frontend: generate-plugins
 	@printf '\n== Swagger Generation ==\n'
 	@if [ ! -f "$(SWAG)" ]; then \
@@ -145,9 +154,15 @@ prepare-frontend: generate-plugins
 	cd "$(UI_DIR)" && $(NPM) install
 	cd "$(UI_DIR)" && $(NPM) run build
 	@printf '[OK] Frontend ready.\n'
+else
+prepare-frontend: generate-plugins
+	@printf '[>] QUICK mode - skipping Swagger and frontend build.\n'
+endif
 
 # -- run -----------------------------------------------------------------------
+# QUICK=1 skips adapters, swagger and svelte build — goes straight to `go run .`
 run: prepare-frontend
+	@if [ "$(QUICK)" = "1" ] || [ "$(QUICK)" = "true" ]; then printf '[>] QUICK mode enabled - adapters, swagger and svelte build skipped.\n'; fi
 	@printf '[>] Starting server, will open %s once it responds...\n' "$(URL)"
 	@( \
 		i=0; \
