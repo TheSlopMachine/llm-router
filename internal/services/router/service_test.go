@@ -10,11 +10,9 @@ import (
 
 	sdk "github.com/TheSlopMachine/llm-router-sdk"
 	"github.com/TheSlopMachine/llm-router/internal/models"
-	"github.com/TheSlopMachine/llm-router/internal/services/compaction"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
-	"github.com/TheSlopMachine/llm-router/internal/services/tokencount"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
 
@@ -71,7 +69,6 @@ func setupRouterService(t *testing.T, maxRetries int) (*Service, *credential.Ser
 	providerSvc := provider.NewService(database)
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
-	compactionSvc := compaction.New(tokencount.New(), slog.Default())
 	
 	// Create or reuse mock adapter
 	if globalMock == nil {
@@ -88,7 +85,7 @@ func setupRouterService(t *testing.T, maxRetries int) (*Service, *credential.Ser
 	// Sync providers
 	providerSvc.SyncDefaultProviders()
 	
-	routerSvc := New(providerSvc, credSvc, modelInfoSvc, compactionSvc, maxRetries, slog.Default())
+	routerSvc := New(providerSvc, credSvc, modelInfoSvc, maxRetries, slog.Default())
 	
 	return routerSvc, credSvc, globalMock
 }

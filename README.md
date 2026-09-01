@@ -1,6 +1,6 @@
 # llm-router
 
-A **zero-bloat**, self-contained OpenAI-compatible LLM routing gateway with intelligent load balancing, automatic context management, and real-time metrics.
+A **zero-bloat**, self-contained OpenAI-compatible LLM routing gateway with intelligent load balancing and real-time metrics.
 
 ```bash
 llm-router localhost -p 8080 --db ./router.db
@@ -43,7 +43,6 @@ flowchart TB
         
         subgraph Core["Core Services"]
             RouterSvc[Router Service<br/>ModelId → Provider + Credential]
-            CompactionSvc[Compaction Service<br/>Context window management]
             TokenCountSvc[Token Count Service<br/>Accurate token estimation]
             MetricsSvc[Metrics Service<br/>Real-time analytics]
         end
@@ -77,9 +76,6 @@ flowchart TB
     Dashboard --> AdminSvc
     
     TokenSvc --> RouterSvc
-    RouterSvc --> CompactionSvc
-    CompactionSvc --> TokenCountSvc
-    CompactionSvc --> Registry
     
     RouterSvc --> CredentialPool
     RouterSvc --> AgentSvc
@@ -107,18 +103,6 @@ flowchart TB
 ---
 
 ## Key Features
-
-### Intelligent Context Management
-
-The **Compaction Service** automatically manages conversation context to fit within model limits:
-
-- **Automatic compaction** when conversation exceeds 85% of context window
-- **Intelligent message prioritization** (system/highest/high/mid/low/lowest/garbage)
-- **"Shout" detection** for IMPORTANT, CRITICAL, URGENT markers
-- **Truncatable content detection** for code blocks and long messages
-- **Three compaction states**: kept, trim 25%, trim 10%, drop
-
-Uses **slop-tokenizer** for accurate token counting across OpenAI (o200k_base, cl100k_base) and Anthropic (claude) encodings.
 
 ### Real-Time Metrics
 
@@ -161,8 +145,7 @@ Configure retry cycles with `--max-retries` flag (default: 7).
 | 4 | **Credential Pool** | `services/credential` | Store, retrieve, update credentials with LRU-based load balancing |
 | 5 | **Agent Service** | `services/agent` | CRUD for Agent records with validation and circular dependency prevention |
 | 6 | **Auth Service** | `services/auth` | Ephemeral state for auth flows (10min TTL) |
-| 7 | **Compaction Service** | `services/compaction` | Automatic conversation compaction to fit context windows |
-| 8 | **Token Count Service** | `services/tokencount` | Accurate token counting using slop-tokenizer |
+| 7 | **Token Count Service** | `services/tokencount` | Accurate token counting using slop-tokenizer |
 | 9 | **Metrics Service** | `services/metrics` | Real-time metrics collection with 90-day retention |
 | 10 | **Model Info Service** | `services/modelinfo` | Model metadata caching (1h TTL) with in-flight deduplication |
 | 11 | **Maintenance** | `services/maintenance` | Background credential refresh + auth flow cleanup |

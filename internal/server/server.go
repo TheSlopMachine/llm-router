@@ -18,7 +18,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	"github.com/TheSlopMachine/llm-router/internal/services/agent"
 	"github.com/TheSlopMachine/llm-router/internal/services/auth"
-	"github.com/TheSlopMachine/llm-router/internal/services/compaction"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/maintenance"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
@@ -26,7 +25,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/router"
 	"github.com/TheSlopMachine/llm-router/internal/services/token"
-	"github.com/TheSlopMachine/llm-router/internal/services/tokencount"
 	"github.com/TheSlopMachine/llm-router/providers/agents"
 )
 
@@ -54,9 +52,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 	agentSvc := agent.New(database, providerSvc, modelInfoSvc)
-	tokenCountSvc := tokencount.New()
-	compactionSvc := compaction.New(tokenCountSvc, logger)
-	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, compactionSvc, cfg.MaxCredentialRetries, logger)
+	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, cfg.MaxCredentialRetries, logger)
 	maintSvc := maintenance.New(credSvc, providerSvc, database, logger)
 	metricsSvc := metrics.New(database, logger)
 	metricsSvc.Start()

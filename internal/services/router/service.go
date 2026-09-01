@@ -18,7 +18,6 @@ import (
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
-	"github.com/TheSlopMachine/llm-router/internal/services/compaction"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
@@ -26,26 +25,24 @@ import (
 
 // Service routes validated API requests to the appropriate provider.
 type Service struct {
-	providerSvc   *provider.Service
-	credSvc       *credential.Service
-	modelInfoSvc  *modelinfo.Service
-	compactionSvc *compaction.Service
-	maxRetries    int
-	logger        *slog.Logger
+	providerSvc  *provider.Service
+	credSvc      *credential.Service
+	modelInfoSvc *modelinfo.Service
+	maxRetries   int
+	logger       *slog.Logger
 }
 
 // New constructs a new router Service.
-func New(providerSvc *provider.Service, credSvc *credential.Service, modelInfoSvc *modelinfo.Service, compactionSvc *compaction.Service, maxRetries int, logger *slog.Logger) *Service {
+func New(providerSvc *provider.Service, credSvc *credential.Service, modelInfoSvc *modelinfo.Service, maxRetries int, logger *slog.Logger) *Service {
 	if maxRetries <= 0 {
 		maxRetries = 7
 	}
 	return &Service{
-		providerSvc:   providerSvc,
-		credSvc:       credSvc,
-		modelInfoSvc:  modelInfoSvc,
-		compactionSvc: compactionSvc,
-		maxRetries:    maxRetries,
-		logger:        logger,
+		providerSvc:  providerSvc,
+		credSvc:      credSvc,
+		modelInfoSvc: modelInfoSvc,
+		maxRetries:   maxRetries,
+		logger:       logger,
 	}
 }
 
@@ -81,27 +78,6 @@ func (s *Service) Complete(
 	adapter, err := provider.Lookup(p.Type)
 	if err != nil {
 		return nil, err
-	}
-
-	// Compact messages if needed
-	modelInfo, err := s.modelInfoSvc.GetModelInfo(ctx, req.Model)
-	if err != nil {
-		s.logger.Warn("failed to get model info, skipping compaction", "model", req.Model, "err", err)
-	} else if modelInfo.ContextWindow > 0 {
-		compacted, stats, err := s.compactionSvc.CompactIfNeeded(req.Messages, req.Model, modelInfo.ContextWindow)
-		if err != nil {
-			s.logger.Warn("compaction failed, using original messages", "err", err)
-		} else if stats.WasCompacted {
-			s.logger.Info("compacted conversation",
-				"original_tokens", stats.OriginalTokens,
-				"compacted_tokens", stats.CompactedTokens,
-				"budget", stats.Budget,
-				"saved", stats.TokensSaved,
-				"kept", stats.MessagesKept,
-				"trimmed", stats.MessagesTrimmed,
-				"dropped", stats.MessagesDropped)
-			req.Messages = compacted
-		}
 	}
 
 	// Get all available credentials sorted by priority/LRU
@@ -201,27 +177,6 @@ func (s *Service) CompleteStream(
 	adapter, err := provider.Lookup(p.Type)
 	if err != nil {
 		return err
-	}
-
-	// Compact messages if needed
-	modelInfo, err := s.modelInfoSvc.GetModelInfo(ctx, req.Model)
-	if err != nil {
-		s.logger.Warn("failed to get model info, skipping compaction", "model", req.Model, "err", err)
-	} else if modelInfo.ContextWindow > 0 {
-		compacted, stats, err := s.compactionSvc.CompactIfNeeded(req.Messages, req.Model, modelInfo.ContextWindow)
-		if err != nil {
-			s.logger.Warn("compaction failed, using original messages", "err", err)
-		} else if stats.WasCompacted {
-			s.logger.Info("compacted conversation",
-				"original_tokens", stats.OriginalTokens,
-				"compacted_tokens", stats.CompactedTokens,
-				"budget", stats.Budget,
-				"saved", stats.TokensSaved,
-				"kept", stats.MessagesKept,
-				"trimmed", stats.MessagesTrimmed,
-				"dropped", stats.MessagesDropped)
-			req.Messages = compacted
-		}
 	}
 
 	// Get all available credentials sorted by priority/LRU
