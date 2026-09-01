@@ -2,8 +2,8 @@
 
 A **zero-bloat**, self-contained OpenAI-compatible LLM routing gateway with intelligent load balancing and real-time metrics.
 
-```bash
-llm-router localhost -p 8080 --db ./router.db
+ ```bash
+llm-router localhost -p 8080 --api-port 8081 --db ./router.db
 ```
 
 ---
@@ -33,7 +33,6 @@ flowchart TB
     
     subgraph Router["llm-router"]
         Dashboard[Dashboard UI<br/>Svelte SPA]
-        Swagger[Swagger UI<br/>API Docs]
         API[OpenAI API<br/>/v1/chat/completions]
         
         subgraph Auth["Authentication Layer"]
@@ -68,9 +67,8 @@ flowchart TB
     
     Upstream[Upstream Providers<br/>OpenAI, Anthropic, etc.]
     
-    Client -->|HTTP| Dashboard
-    Client -->|HTTP| Swagger
-    Client -->|POST| API
+    Client -->|HTTP| Dashboard :8080
+    Client -->|POST| API :8081
     
     API --> TokenSvc
     Dashboard --> AdminSvc
@@ -137,8 +135,7 @@ Configure retry cycles with `--max-retries` flag (default: 7).
 |---|---------|---------|----------------|
 | 0 | **Bootstrap UI** | `dashboard` | First-run admin account creation |
 | A | **Dashboard** | `dashboard` | Admin UI for system overview, providers, agents, tokens, and credentials |
-| B | **Swagger UI** | `dashboard` | Interactive API documentation at `/swagger/` |
-| C | **OpenAI API** | `api/v1` | `/v1/chat/completions`, `/v1/models` |
+| C | **OpenAI API** | `api/v1` | `/v1/chat/completions`, `/v1/models` (separate port) |
 | 1 | **Token Service** | `services/token` | Issue / validate / revoke router-tokens |
 | 2 | **Router Service** | `services/router` | Resolve ModelId → Adapter + Credential with LRU selection and intelligent retry |
 | 3 | **Provider Service** | `services/provider` | CRUD for Provider records |
@@ -157,27 +154,26 @@ Configure retry cycles with `--max-retries` flag (default: 7).
 ### Quick Start
 
 ```bash
-# First run - starts the bootstrap UI at localhost:8080
+# First run - starts the bootstrap UI at localhost:8080 and API at 8081
 make run
 
 # Or build and run manually
 make build
-./llm-router localhost -p 8080 --db ./router.db
+./llm-router localhost -p 8080 --api-port 8081 --db ./router.db
 ```
 
 Then:
 
-1. Open `http://localhost:8080` → Create admin account
+1. Open `http://localhost:8080` → Create admin account (dashboard)
 2. Dashboard → **Overview** → Review system statistics and metrics
 3. Dashboard → **Providers** → Add a provider (e.g. type `demo`)
 4. Dashboard → **Credentials** → Click "Add New Credential" → Select provider → Follow wizard
 5. Dashboard → **Agents** → Create an agent to orchestrate multiple models (optional)
 6. Dashboard → **Tokens** → Issue a router token, note the secret value
-7. **Swagger UI** → Visit `http://localhost:8080/swagger/` for interactive API documentation
-8. Use the token with any OpenAI-compatible client:
+7. Use the token with any OpenAI-compatible client (API on 8081):
 
 ```bash
-curl http://localhost:8080/v1/chat/completions \
+curl http://localhost:8081/v1/chat/completions \
   -H "Authorization: Bearer <your-router-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -188,17 +184,16 @@ curl http://localhost:8080/v1/chat/completions \
 
 ### API Endpoints
 
-#### OpenAI-compatible API
+#### OpenAI-compatible API (port 8081)
 | Endpoint | Description |
 |----------|-------------|
 | `POST /v1/chat/completions` | OpenAI-compatible chat completions (streaming & non-streaming) |
-| `GET /v1/models` | List available models based on token rules |
+| `GET /v1/models` | List available models based on token rules (safe, no auth required) |
 
-#### Dashboard & Admin
+#### Dashboard & Admin (port 8080)
 | Endpoint | Description |
 |----------|-------------|
 | `GET /` | Dashboard UI (Svelte SPA) |
-| `GET /swagger/` | Interactive API documentation (Swagger UI) |
 | `GET /api/llm-router/status` | System status |
 | `POST /api/llm-router/login` | Admin login |
 | `POST /api/llm-router/logout` | Admin logout |
@@ -310,7 +305,7 @@ agents/code-reviewer
 
 **Usage:**
 ```bash
-curl http://localhost:8080/v1/chat/completions \
+curl http://localhost:8081/v1/chat/completions \
   -H "Authorization: Bearer <your-router-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -475,7 +470,7 @@ See the demo adapter for comprehensive documentation and examples.
 | Embedded DB | `go.etcd.io/bbolt` (pure Go, zero CGO) |
 | Serialisation | Go stdlib `encoding/json` |
 | Frontend | Svelte SPA |
-| API Documentation | Swagger/OpenAPI 2.0 via `swaggo/swag` |
+| API Documentation | OpenAPI-compatible JSON errors |
 | Token Counting | `github.com/TheSlopMachine/slop-tokenizer` |
 | Adapter Interface | `github.com/TheSlopMachine/llm-router-sdk` |
 

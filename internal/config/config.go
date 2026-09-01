@@ -6,7 +6,13 @@ import "fmt"
 // Config is the central runtime configuration for llm-router.
 // All values originate from CLI flags — there is no config file.
 type Config struct {
-	// ListenAddr is the address the HTTP server binds to (e.g. "localhost:8080").
+	// DashboardAddr is the address the dashboard HTTP server binds to (e.g. "localhost:8080").
+	DashboardAddr string
+
+	// APIAddr is the address the /v1 OpenAI-compatible API binds to (e.g. "localhost:8081").
+	APIAddr string
+
+	// Deprecated: ListenAddr kept for backwards compat, use DashboardAddr/APIAddr.
 	ListenAddr string
 
 	// DBPath is the path to the bbolt database file.
@@ -22,8 +28,11 @@ type Config struct {
 
 // Validate checks that all required configuration fields are set.
 func (c *Config) Validate() error {
-	if c.ListenAddr == "" {
-		return fmt.Errorf("listen address is required")
+	if c.DashboardAddr == "" && c.ListenAddr == "" {
+		return fmt.Errorf("dashboard listen address is required")
+	}
+	if c.APIAddr == "" && c.ListenAddr == "" {
+		return fmt.Errorf("api listen address is required")
 	}
 	if c.DBPath == "" {
 		return fmt.Errorf("database path is required")

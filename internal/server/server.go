@@ -1,5 +1,5 @@
-// Package server wires all services together and starts the HTTP server.
-// This is the composition root of the application.
+// Package server wires all services together and starts the HTTP servers.
+// Dashboard and /v1 API run on separate ports with independent muxes.
 package server
 
 import (
@@ -28,14 +28,15 @@ import (
 	"github.com/TheSlopMachine/llm-router/providers/agents"
 )
 
-// Server is the fully-wired llm-router application.
+// Server is the fully-wired llm-router application with two listeners.
 type Server struct {
-	cfg        *config.Config
-	db         *db.DB
-	logger     *slog.Logger
-	http       *http.Server
-	maintSvc   *maintenance.Service
-	metricsSvc *metrics.Service
+	cfg          *config.Config
+	db           *db.DB
+	logger       *slog.Logger
+	dashboardSrv *http.Server
+	apiSrv       *http.Server
+	maintSvc     *maintenance.Service
+	metricsSvc   *metrics.Service
 }
 
 // New builds the full Server from config.
@@ -44,6 +45,26 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
+
+	// Backwards compat: if new fields empty, fall back to ListenAddr
+	dashboardAddr := cfg.DashboardAddr
+	if dashboardAddr == "" {
+		dashboardAddr = cfg.ListenAddr
+	}
+	apiAddr := cfg.APIAddr
+	if apiAddr == "" {
+		// if only DashboardAddr set via compat, derive api as dashboard+1 is not safe; require explicit
+		if dashboardAddr == cfg.ListenAddr && cfg.ListenAddr != "" {
+			// try to keep old single-port behaviour for fallback: reuse same addr is unsafe, so bump port
+			apiAddr = dashboardAddr
+		}
+		if apiAddr == "" {
+			return nil, fmt.Errorf("api listen address is required")
+		}
+	}
+	// Ensure stored back
+	cfg.DashboardAddr = dashboardAddr
+	cfg.APIAddr = apiAddr
 
 	providerSvc := provider.NewService(database)
 	adminSvc := admin.New(database, providerSvc)
@@ -66,43 +87,56 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		}
 	}
 
-	mux := http.NewServeMux()
-
+	// Dashboard mux (SPA + /api/llm-router/*)
+	dashMux := http.NewServeMux()
 	dash, err := dashboard.New(adminSvc, providerSvc, credSvc, tokenSvc, authSvc, modelInfoSvc, metricsSvc, agentSvc, routerSvc, logger)
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard handler: %w", err)
 	}
-	dash.Register(mux, database)
+	dash.Register(dashMux, database)
+	dashHandler := bootstrapMiddleware(database)(requestLogger(logger, dashMux))
 
+	// API mux (/v1/* only, no bootstrap redirect ever)
+	apiMux := http.NewServeMux()
 	apiV1 := v1.New(tokenSvc, routerSvc, metricsSvc, logger)
-	apiV1.Register(mux)
+	apiV1.Register(apiMux)
 
-	handler := bootstrapMiddleware(database)(requestLogger(logger, mux))
+	apiHandler := requestLogger(logger, apiMux)
 
-	httpSrv := &http.Server{
-		Addr:    cfg.ListenAddr,
-		Handler: handler,
+	dashboardSrv := &http.Server{
+		Addr:    dashboardAddr,
+		Handler: dashHandler,
+	}
+	apiSrv := &http.Server{
+		Addr:    apiAddr,
+		Handler: apiHandler,
 	}
 
 	return &Server{
-		cfg:        cfg,
-		db:         database,
-		logger:     logger,
-		http:       httpSrv,
-		maintSvc:   maintSvc,
-		metricsSvc: metricsSvc,
+		cfg:          cfg,
+		db:           database,
+		logger:       logger,
+		dashboardSrv: dashboardSrv,
+		apiSrv:       apiSrv,
+		maintSvc:     maintSvc,
+		metricsSvc:   metricsSvc,
 	}, nil
 }
 
-// Run starts the maintenance loop and blocks on the HTTP server.
+// Run starts the maintenance loop and blocks on both HTTP servers.
 func (s *Server) Run(ctx context.Context) error {
 	s.maintSvc.Start(ctx)
-	s.logger.Info("llm-router started", "addr", s.cfg.ListenAddr, "db", s.cfg.DBPath)
+	s.logger.Info("llm-router started", "dashboard", s.cfg.DashboardAddr, "api", s.cfg.APIAddr, "db", s.cfg.DBPath)
 
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
 	go func() {
-		if err := s.http.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errCh <- err
+		if err := s.dashboardSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- fmt.Errorf("dashboard server: %w", err)
+		}
+	}()
+	go func() {
+		if err := s.apiSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- fmt.Errorf("api server: %w", err)
 		}
 	}()
 
@@ -110,9 +144,13 @@ func (s *Server) Run(ctx context.Context) error {
 	case <-ctx.Done():
 		s.logger.Info("shutting down gracefully...")
 		s.metricsSvc.Stop()
-		return s.http.Shutdown(context.Background())
+		_ = s.dashboardSrv.Shutdown(context.Background())
+		_ = s.apiSrv.Shutdown(context.Background())
+		return nil
 	case err := <-errCh:
 		s.metricsSvc.Stop()
+		_ = s.dashboardSrv.Shutdown(context.Background())
+		_ = s.apiSrv.Shutdown(context.Background())
 		return fmt.Errorf("http server: %w", err)
 	}
 }
@@ -132,15 +170,12 @@ func bootstrapMiddleware(database *db.DB) func(http.Handler) http.Handler {
 				r.URL.Path == "/api/llm-router/bootstrap" ||
 				r.URL.Path == "/api/llm-router/status" ||
 				strings.HasPrefix(r.URL.Path, "/assets/") ||
-				strings.HasPrefix(r.URL.Path, "/icons/") ||
-				strings.HasPrefix(r.URL.Path, "/v1/")
+				strings.HasPrefix(r.URL.Path, "/icons/")
 
 			if !exempt {
 				ok, err := database.IsBootstrapped()
 				if err != nil || !ok {
-					// Check if this is an API request
 					if strings.HasPrefix(r.URL.Path, "/api/") {
-						// Return JSON error for API requests
 						w.Header().Set("Content-Type", "application/json")
 						w.WriteHeader(http.StatusServiceUnavailable)
 						json.NewEncoder(w).Encode(map[string]string{
@@ -148,7 +183,6 @@ func bootstrapMiddleware(database *db.DB) func(http.Handler) http.Handler {
 						})
 						return
 					}
-					// Redirect HTML requests to bootstrap page
 					http.Redirect(w, r, "/bootstrap", http.StatusSeeOther)
 					return
 				}
@@ -181,4 +215,3 @@ func (r *statusRecorder) Flush() {
 		f.Flush()
 	}
 }
-

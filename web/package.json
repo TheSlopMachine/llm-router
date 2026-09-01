@@ -4,9 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "generate:types": "openapi-typescript ../build/docs/swagger.json -o src/lib/generated/api-types.d.ts",
-    "dev": "npm run generate:types && vite",
-    "build": "npm run generate:types && vite build",
+    "dev": "vite",
+    "build": "vite build",
     "preview": "vite preview"
   },
   "devDependencies": {

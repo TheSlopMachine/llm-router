@@ -43,9 +43,15 @@ func New(tokens *token.Service, routerSvc *router.Service, metricsSvc *metrics.S
 }
 
 // Register mounts all /v1 routes onto mux.
+// Safe endpoints (GET /v1/models) are whitelisted to allow anonymous access.
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /v1/chat/completions", h.auth(h.chatCompletions))
-	mux.HandleFunc("GET /v1/models", h.auth(h.listModels))
+	mux.HandleFunc("POST /v1/chat/completions", h.auth(h.chatCompletions, false))
+	mux.HandleFunc("GET /v1/models", h.auth(h.listModels, true))
+	mux.HandleFunc("HEAD /v1/models", h.auth(h.listModels, true))
+	mux.HandleFunc("OPTIONS /v1/models", h.auth(h.listModels, true))
+	// Fallback for unknown /v1 paths - always JSON, never SPA/redirect
+	mux.HandleFunc("/v1/", h.notFound)
+	mux.HandleFunc("/", h.notFound)
 }
 
 // ─────────────────────────────────────────────
@@ -75,7 +81,7 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request, t *mod
 		return
 	}
 
-	if !t.Rules.Allows(req.Model) {
+	if t != nil && !t.Rules.Allows(req.Model) {
 		h.writeError(w, http.StatusForbidden, "model_not_allowed",
 			fmt.Sprintf("model %q is not allowed by your token's rules", req.Model))
 		return
@@ -94,12 +100,16 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request, t *mod
 	providerID, _ := h.router.GetProviderIDForModel(r.Context(), req.Model)
 
 	// Build metric event
+	tokenID := ""
+	if t != nil {
+		tokenID = t.ID
+	}
 	event := models.MetricEvent{
 		Timestamp:    start,
 		ProviderID:   providerID,
 		ProviderType: providerType,
 		Model:        req.Model,
-		TokenID:      t.ID,
+		TokenID:      tokenID,
 		Duration:     duration,
 		StatusCode:   http.StatusOK,
 	}
@@ -149,12 +159,16 @@ func (h *Handler) handleStreamWithMetrics(w http.ResponseWriter, r *http.Request
 	providerID, _ := h.router.GetProviderIDForModel(r.Context(), req.Model)
 
 	// Build metric event
+	tokenID := ""
+	if t != nil {
+		tokenID = t.ID
+	}
 	event := models.MetricEvent{
 		Timestamp:    start,
 		ProviderID:   providerID,
 		ProviderType: providerType,
 		Model:        req.Model,
-		TokenID:      t.ID,
+		TokenID:      tokenID,
 		Duration:     duration,
 		StatusCode:   http.StatusOK,
 	}
@@ -202,11 +216,22 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 	}
 
 	var entries []modelEntry
-	for _, m := range t.Rules.AllowedModels {
-		entries = append(entries, modelEntry{ID: string(m), Object: "model"})
+	if t != nil {
+		for _, m := range t.Rules.AllowedModels {
+			entries = append(entries, modelEntry{ID: string(m), Object: "model"})
+		}
+	}
+	// Anonymous (safe) access returns empty list (no per-token filter).
+	// If t == nil, entries stays nil -> encoded as null, so init empty slice
+	if entries == nil {
+		entries = []modelEntry{}
 	}
 
 	h.writeJSON(w, http.StatusOK, modelList{Object: "list", Data: entries})
+}
+
+func (h *Handler) notFound(w http.ResponseWriter, r *http.Request) {
+	h.writeError(w, http.StatusNotFound, "not_found", fmt.Sprintf("endpoint %s %s not found", r.Method, r.URL.Path))
 }
 
 // ─────────────────────────────────────────────
@@ -215,11 +240,36 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 
 type authedHandler func(w http.ResponseWriter, r *http.Request, t *models.RouterToken)
 
-// auth extracts and validates the Bearer token from Authorization header.
-func (h *Handler) auth(next authedHandler) http.HandlerFunc {
+// whitelist for safe anonymous access: method -> path -> allow without token
+var safeMethods = map[string]bool{
+	"GET":     true,
+	"HEAD":    true,
+	"OPTIONS": true,
+}
+
+func isSafeWithoutAuth(r *http.Request) bool {
+	if !safeMethods[r.Method] {
+		return false
+	}
+	// Only GET /v1/models is considered safe public endpoint
+	if r.URL.Path == "/v1/models" {
+		return true
+	}
+	return false
+}
+
+// auth extracts and validates the Bearer token. Safe endpoints allow anonymous access.
+func (h *Handler) auth(next authedHandler, allowAnonymous bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		raw := extractBearer(r)
+
+		// Whitelisted safe paths allow missing token
 		if raw == "" {
+			if allowAnonymous || isSafeWithoutAuth(r) {
+				// Anonymous access - pass nil token (handlers must handle nil)
+				next(w, r, nil)
+				return
+			}
 			h.writeError(w, http.StatusUnauthorized, "missing_token", "Authorization: Bearer <token> header is required")
 			return
 		}

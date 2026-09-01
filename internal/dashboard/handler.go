@@ -9,8 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 
-	httpSwagger "github.com/swaggo/http-swagger/v2"
-
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	"github.com/TheSlopMachine/llm-router/internal/services/agent"
 	"github.com/TheSlopMachine/llm-router/internal/services/auth"
@@ -118,14 +116,6 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 
 	// Chat proxy (dashboard session -> router, no token required)
 	mux.HandleFunc("POST /api/llm-router/dashboard/chat/completions", h.requireAuth(h.apiChatCompletions))
-
-	// Swagger UI
-	mux.HandleFunc("GET /swagger/", httpSwagger.Handler(
-		httpSwagger.URL("/swagger/doc.json"),
-		httpSwagger.DeepLinking(true),
-		httpSwagger.DocExpansion("none"),
-		httpSwagger.DomID("swagger-ui"),
-	))
 
 	// SPA fallback
 	indexHTML, _ := distSub.Open("index.html")

@@ -1,6 +1,6 @@
 # =============================================================================
 # Makefile  -  cross-platform replacement for proj.cmd
-# Requires: go, swag, npm, zip, git
+# Requires: go, npm, zip, git
 #           sha256sum (Linux / Git Bash) or shasum (macOS)
 # Works on: Linux, macOS, Windows (via make.ps1 / make.cmd, Git Bash, MSYS2, WSL)
 # =============================================================================
@@ -16,12 +16,13 @@ SHELL      := bash
 VERSION    ?= dev
 BINARY     := llm-router
 UI_DIR     := web
-DOCS_OUT   := build/docs
 PUBLISH    := build/release
 ADAPTERS   := adapters.conf
 PLUGINS    := plugins/plugins.go
-PORT       ?= 8080
-URL        ?= http://localhost:$(PORT)
+DASHBOARD_PORT ?= 8080
+API_PORT       ?= 8081
+PORT           ?= $(DASHBOARD_PORT)
+URL            ?= http://localhost:$(DASHBOARD_PORT)
 QUICK      ?= 0
 
 # -- OS-specific settings ------------------------------------------------------
@@ -33,7 +34,6 @@ ifeq ($(OS),Windows_NT)
   # $(subst) converts backslashes (C:\Users\...) to forward slashes so the
   # resulting path is usable inside Git Bash recipes.
   GOPATH     := $(subst \,/,$(shell go env GOPATH))
-  SWAG       := $(GOPATH)/bin/swag.exe
   # git.exe is also natively callable.  If the repo check fails the var is empty.
   _GIT_RAW   := $(shell git rev-parse --short HEAD)
   GIT_COMMIT := $(if $(_GIT_RAW),$(_GIT_RAW),unknown)
@@ -66,7 +66,6 @@ else
     OPEN_CMD  := xdg-open
   endif
   GOPATH     := $(shell go env GOPATH 2>/dev/null)
-  SWAG       := $(GOPATH)/bin/swag
   GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
   BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
   SHA256     := $(shell command -v sha256sum 2>/dev/null || echo "shasum -a 256")
@@ -92,13 +91,13 @@ PLATFORM_TARGETS := $(addprefix _build_,$(subst /,_,$(PLATFORMS)))
 help:
 	@printf '\nUsage: make <target>\n\n'
 	@printf 'Targets:\n'
-	@printf '  run      Build frontend & docs, then run the server\n'
-	@printf '  build    Build frontend & docs, compile for current platform\n'
+	@printf '  run      Build frontend, then run the server\n'
+	@printf '  build    Build frontend, compile for current platform\n'
 	@printf '  release  Build frontend once, compile all platforms in parallel\n'
 	@printf '  clean    Remove $(PUBLISH)/ and local binaries\n\n'
 	@printf 'Variables:\n'
 	@printf '  VERSION  Release version tag  (default: dev)\n'
-	@printf '  QUICK    Skip adapters/swagger/svelte for run (QUICK=1)\n\n'
+	@printf '  QUICK    Skip adapters/svelte for run (QUICK=1)\n\n'
 	@printf 'Examples:\n'
 	@printf '  make run\n'
 	@printf '  make run QUICK=1\n'
@@ -140,15 +139,6 @@ endif
 # -- prepare-frontend ----------------------------------------------------------
 ifeq ($(filter 1 true,$(QUICK)),)
 prepare-frontend: generate-plugins
-	@printf '\n== Swagger Generation ==\n'
-	@if [ ! -f "$(SWAG)" ]; then \
-		printf '[>] swag not found, installing via go install...\n'; \
-		go install github.com/swaggo/swag/cmd/swag@latest || { printf '[ERROR] Failed to install swag.\n'; exit 1; }; \
-		printf '[OK] swag installed.\n'; \
-	fi
-	@printf '[>] Generating Swagger docs...\n'
-	"$(SWAG)" init --parseDependency --parseInternal --output "$(DOCS_OUT)"
-	@printf '[OK] Swagger docs generated.\n'
 	@printf '\n== Frontend ==\n'
 	mkdir -p "$(UI_DIR)/src/lib/generated"
 	cd "$(UI_DIR)" && $(NPM) install
@@ -156,18 +146,18 @@ prepare-frontend: generate-plugins
 	@printf '[OK] Frontend ready.\n'
 else
 prepare-frontend: generate-plugins
-	@printf '[>] QUICK mode - skipping Swagger and frontend build.\n'
+	@printf '[>] QUICK mode - skipping frontend build.\n'
 endif
 
 # -- run -----------------------------------------------------------------------
-# QUICK=1 skips adapters, swagger and svelte build — goes straight to `go run .`
+# QUICK=1 skips adapters and svelte build — goes straight to `go run .`
 run: prepare-frontend
-	@if [ "$(QUICK)" = "1" ] || [ "$(QUICK)" = "true" ]; then printf '[>] QUICK mode enabled - adapters, swagger and svelte build skipped.\n'; fi
-	@printf '[>] Starting server, will open %s once it responds...\n' "$(URL)"
+	@if [ "$(QUICK)" = "1" ] || [ "$(QUICK)" = "true" ]; then printf '[>] QUICK mode enabled - adapters and svelte build skipped.\n'; fi
+	@printf '[>] Starting dashboard %s and API %s, will open %s once it responds...\n' "http://localhost:$(DASHBOARD_PORT)" "http://localhost:$(API_PORT)" "$(URL)"
 	@( \
 		i=0; \
 		while [ $$i -lt 60 ]; do \
-			if (exec 3<>"/dev/tcp/localhost/$(PORT)") 2>/dev/null; then \
+			if (exec 3<>"/dev/tcp/localhost/$(DASHBOARD_PORT)") 2>/dev/null; then \
 				exec 3>&- 3<&-; \
 				if command -v "$(firstword $(OPEN_CMD))" >/dev/null 2>&1; then \
 					$(OPEN_CMD) "$(URL)" || printf '[WARN] Browser launch command failed. Open %s manually.\n' "$(URL)"; \
@@ -180,7 +170,7 @@ run: prepare-frontend
 		done; \
 		printf '[WARN] Timed out waiting for %s to come up - open it manually.\n' "$(URL)" \
 	) &
-	go run .
+	go run . --dashboard-port $(DASHBOARD_PORT) --api-port $(API_PORT)
 
 # -- build (current platform only) --------------------------------------------
 build: prepare-frontend
