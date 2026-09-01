@@ -3,7 +3,10 @@ module github.com/TheSlopMachine/llm-router
 go 1.25.0
 
 require (
-	github.com/TheSlopMachine/llm-router-sdk v0.0.0-20260509223403-813fcb1fbc33
+	github.com/TheSlopMachine/llm-router-adapter-demo v0.0.0-20260513190634-01286aaf5620
+	github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260513190656-d1d82ebfc1e3
+	github.com/TheSlopMachine/llm-router-adapter-kiro v0.0.0-20260530220814-071129f29171
+	github.com/TheSlopMachine/llm-router-sdk v0.0.0-20260521171311-28caef1a0902
 	github.com/TheSlopMachine/slop-tokenizer v0.0.0-20260508224456-e7e88f37eed3
 	github.com/spf13/cobra v1.8.0
 	github.com/swaggo/http-swagger/v2 v2.0.2
@@ -14,9 +17,6 @@ require (
 
 require (
 	github.com/KyleBanks/depth v1.2.1 // indirect
-	github.com/TheSlopMachine/llm-router-adapter-demo v0.0.0-20260513190634-01286aaf5620 // indirect
-	github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260513190656-d1d82ebfc1e3 // indirect
-	github.com/TheSlopMachine/llm-router-adapter-kiro v0.0.0-20260521151845-1e33458b077d // indirect
 	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect
 	github.com/go-openapi/jsonreference v0.20.0 // indirect

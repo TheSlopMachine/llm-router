@@ -106,6 +106,8 @@ generate-plugins:
 			printf '\t_ "%s"\n' "$$mod" >> "$(PLUGINS)"; \
 		done || exit 1; \
 		printf ')\n' >> "$(PLUGINS)"; \
+		printf '[>] Tidying module...\n'; \
+		go mod tidy || exit 1; \
 	fi
 	@printf '[OK] Plugins generated.\n'
 
