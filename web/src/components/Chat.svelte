@@ -3,6 +3,7 @@
   import { api } from '../lib/api'
   import Dropdown from './Dropdown.svelte'
   import ActionDropdown from './ActionDropdown.svelte'
+  import { parseMarkdownWithArtifacts } from '../lib/markdown'
   import type { AvailableModel } from '../lib/types'
 
   type Role = 'user' | 'assistant'
@@ -10,14 +11,15 @@
   interface CodeArtifact {
     title: string
     code: string
-    language?: string
-    collapsed?: boolean
+    language: string
+    collapsed: boolean
   }
 
   interface Message {
     id: string
     role: Role
     content: string
+    html?: string
     timestamp: Date
     artifacts?: CodeArtifact[]
   }
@@ -51,7 +53,6 @@
       models = []
     }
 
-    // restore model (independent of history)
     try {
       const savedModel = localStorage.getItem(STORAGE_MODEL)
       if (savedModel && models.some((m) => m.full_model_id === savedModel)) {
@@ -61,7 +62,6 @@
       }
     } catch {}
 
-    // restore single global history — independent of model
     try {
       const raw = localStorage.getItem(STORAGE_HISTORY)
       if (raw) {
@@ -69,16 +69,27 @@
         if (Array.isArray(parsed)) {
           messages = parsed
             .filter((m: any) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
-            .map((m: any) => ({
-              ...m,
-              timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
-              artifacts: Array.isArray(m.artifacts) ? m.artifacts : undefined
-            }))
+            .map((m: any) => {
+              const msg: Message = {
+                id: m.id || 'm' + Math.random().toString(36).slice(2),
+                role: m.role,
+                content: m.content,
+                timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
+                artifacts: Array.isArray(m.artifacts) ? m.artifacts : undefined,
+                html: m.html
+              }
+              // recompute html for assistant if missing (legacy storage)
+              if (msg.role === 'assistant' && !msg.html) {
+                const { html, artifacts } = parseMarkdownWithArtifacts(msg.content)
+                msg.html = html
+                if (!msg.artifacts && artifacts.length) msg.artifacts = artifacts
+              }
+              return msg
+            })
         }
       }
     } catch {}
 
-    // if still no model selected after history restore
     if (!selectedModel && models.length > 0) {
       selectedModel = models[0].full_model_id
     }
@@ -91,7 +102,6 @@
   $: dropdownOptions = models.map((m) => ({ value: m.full_model_id, label: m.display_name || m.full_model_id }))
   $: canSend = input.trim().length > 0 && !isSending && !!selectedModel
 
-  // persist global history — single last thread
   $: if (hydrated && typeof window !== 'undefined') {
     try {
       localStorage.setItem(STORAGE_HISTORY, JSON.stringify(messages))
@@ -129,19 +139,6 @@
 
   $: input, autoResize()
 
-  function parseCodeArtifacts(content: string): { clean: string; artifacts: CodeArtifact[] } {
-    const artifacts: CodeArtifact[] = []
-    const re = /```(\w+)?\n([\s\S]*?)```/g
-    let m: RegExpExecArray | null
-    while ((m = re.exec(content)) !== null) {
-      const lang = m[1]?.trim() || 'code'
-      const code = m[2].trim()
-      artifacts.push({ title: lang, code, language: lang, collapsed: false })
-    }
-    const clean = content.replace(re, '').trim()
-    return { clean: clean || content, artifacts }
-  }
-
   function handleAction(e: CustomEvent<string>) {
     const id = e.detail
     if (id === 'new') {
@@ -172,13 +169,22 @@
         if (!Array.isArray(parsed)) throw new Error('Invalid file')
         const loaded: Message[] = parsed
           .filter((m: any) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
-          .map((m: any) => ({
-            id: m.id || 'm' + Date.now() + Math.random().toString(36).slice(2),
-            role: m.role,
-            content: m.content,
-            timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
-            artifacts: Array.isArray(m.artifacts) ? m.artifacts : undefined
-          }))
+          .map((m: any) => {
+            const base: Message = {
+              id: m.id || 'm' + Date.now() + Math.random().toString(36).slice(2),
+              role: m.role,
+              content: m.content,
+              timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
+              artifacts: Array.isArray(m.artifacts) ? m.artifacts : undefined,
+              html: m.html
+            }
+            if (base.role === 'assistant' && !base.html) {
+              const { html, artifacts } = parseMarkdownWithArtifacts(base.content)
+              base.html = html
+              if (!base.artifacts && artifacts.length) base.artifacts = artifacts
+            }
+            return base
+          })
         messages = loaded
         error = null
         await tick()
@@ -219,11 +225,12 @@
         stream: false
       })
       const raw = resp?.choices?.[0]?.message?.content ?? resp?.choices?.[0]?.text ?? ''
-      const { clean, artifacts } = parseCodeArtifacts(raw)
+      const { html, artifacts } = parseMarkdownWithArtifacts(raw)
       const assistantMsg: Message = {
         id: 'm' + (Date.now() + 1),
         role: 'assistant',
-        content: clean || raw || '(empty response)',
+        content: raw || '(empty response)',
+        html,
         timestamp: new Date(),
         artifacts: artifacts.length ? artifacts : undefined
       }
@@ -296,15 +303,11 @@
             {#if msg.role === 'user'}
               <p class="user-text">{msg.content}</p>
             {:else}
-              <div class="assistant-text">
-                {#each msg.content.split(/(`[^`]+`)/g) as part, i}
-                  {#if part.startsWith('`') && part.endsWith('`')}
-                    <code class="inline-code">{part.slice(1, -1)}</code>
-                  {:else}
-                    <span>{part}</span>
-                  {/if}
-                {/each}
-              </div>
+              {#if msg.html}
+                <div class="assistant-text markdown-body">{@html msg.html}</div>
+              {:else}
+                <div class="assistant-text">{msg.content}</div>
+              {/if}
 
               {#if msg.artifacts}
                 {#each msg.artifacts as art, idx}
@@ -437,6 +440,45 @@
   .time { font-weight: 400; }
   .user-text { font-size: 14px; line-height: 21px; color: var(--color-text); white-space: pre-wrap; word-break: break-word; }
   .assistant-text { font-size: 14px; line-height: 22px; color: var(--color-text); word-break: break-word; }
+  .assistant-text :global(p) { margin: 8px 0; }
+  .assistant-text :global(p:first-child) { margin-top: 0; }
+  .assistant-text :global(p:last-child) { margin-bottom: 0; }
+  .assistant-text :global(ul), .assistant-text :global(ol) { margin: 8px 0 8px 20px; }
+  .assistant-text :global(li) { margin: 4px 0; }
+  .assistant-text :global(a) { color: var(--color-text-link); text-decoration: none; }
+  .assistant-text :global(a:hover) { text-decoration: underline; }
+  .assistant-text :global(blockquote) {
+    border-left: 2px solid var(--color-outline-light);
+    margin: 8px 0; padding: 4px 12px; color: var(--color-text-soft);
+  }
+  .assistant-text :global(h1), .assistant-text :global(h2), .assistant-text :global(h3) {
+    font-weight: 600; color: var(--color-text); margin: 16px 0 8px 0; line-height: 1.3;
+  }
+  .assistant-text :global(h1) { font-size: 20px; }
+  .assistant-text :global(h2) { font-size: 17px; }
+  .assistant-text :global(h3) { font-size: 15px; }
+  .assistant-text :global(code:not(pre code)) {
+    font-family: 'DM Mono', 'SF Mono', 'Fira Code', monospace;
+    font-size: 12.5px;
+    background: var(--color-surface-container-highest);
+    border: 1px solid var(--color-outline-soft);
+    padding: 1px 6px;
+    border-radius: 6px;
+    color: var(--color-text);
+    white-space: nowrap;
+  }
+  .assistant-text :global(pre) {
+    background: var(--color-surface-container-highest);
+    border: 1px solid var(--color-outline-soft);
+    border-radius: 8px;
+    padding: 12px 16px;
+    overflow-x: auto;
+    margin: 8px 0;
+  }
+  .assistant-text :global(pre code) {
+    background: transparent; border: none; padding: 0;
+    font-family: 'DM Mono', 'SF Mono', monospace; font-size: 12.5px;
+  }
   .inline-code {
     font-family: 'DM Mono', 'SF Mono', 'Fira Code', monospace;
     font-size: 12.5px;
