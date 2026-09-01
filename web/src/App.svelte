@@ -31,11 +31,11 @@
         state = 'login'
       } else {
         if (path !== '/') {
-          window.location.replace('/#/overview')
+          window.location.replace('/#/metrics')
           return
         }
         if (!window.location.hash) {
-          window.location.hash = '#/overview'
+          window.location.hash = '#/metrics'
         }
         state = 'dashboard'
       }
@@ -50,7 +50,7 @@
   })
 
   function onLogin(): void {
-    window.location.replace('/#/overview')
+    window.location.replace('/#/metrics')
   }
   
   function onBootstrap(): void {

@@ -1,19 +1,18 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte'
   import { api } from '../lib/api'
-  import Overview from '../components/Overview.svelte'
+  import Chat from '../components/Chat.svelte'
   import Metrics from './Metrics.svelte'
   import AgentEditorPage from './AgentEditorPage.svelte'
   import Models from '../components/Models.svelte'
   import Providers from '../components/Providers.svelte'
   import Tokens from '../components/Tokens.svelte'
-  import Credentials from '../components/Credentials.svelte'
   import Agents from '../components/Agents.svelte'
   import ThemeToggle from '../components/ThemeToggle.svelte'
 
   const dispatch = createEventDispatcher<{ logout: void }>()
   
-  type PanelId = 'overview' | 'metrics' | 'providers' | 'models' | 'tokens' | 'credentials' | 'agents'
+  type PanelId = 'chat' | 'metrics' | 'providers' | 'models' | 'agents' | 'tokens'
   
   interface NavItem {
     id: PanelId
@@ -21,7 +20,7 @@
     icon: string
   }
   
-  let panel: PanelId = 'overview'
+  let panel: PanelId = 'metrics'
   let routeSegments: string[] = []
 
   function navigateTo(panelId: PanelId): void {
@@ -32,20 +31,20 @@
   function applyRoute(): void {
     const raw = window.location.hash.replace(/^#\/?/, '')
     const segments = raw.split('/').filter(Boolean)
-    const validPanels: PanelId[] = ['overview', 'metrics', 'providers', 'models', 'tokens', 'credentials', 'agents']
+    const validPanels: PanelId[] = ['chat', 'metrics', 'providers', 'models', 'agents', 'tokens']
 
     if (segments.length === 0) {
-      panel = 'overview'
+      panel = 'metrics'
       routeSegments = []
-      window.location.hash = '#/overview'
+      window.location.hash = '#/metrics'
       return
     }
 
     const nextPanel = segments[0] as PanelId
     if (!validPanels.includes(nextPanel)) {
-      panel = 'overview'
+      panel = 'metrics'
       routeSegments = []
-      window.location.hash = '#/overview'
+      window.location.hash = '#/metrics'
       return
     }
 
@@ -64,13 +63,12 @@
   }
   
   const nav: NavItem[] = [
-    { id: 'overview',     label: 'Overview',     icon: 'dashboard' },
+    { id: 'chat',         label: 'Chat',         icon: 'chat' },
     { id: 'metrics',      label: 'Metrics',      icon: 'analytics' },
     { id: 'providers',    label: 'Providers',    icon: 'cloud' },
     { id: 'models',       label: 'Models',       icon: 'view_list' },
     { id: 'agents',       label: 'Agents',       icon: 'robot' },
     { id: 'tokens',       label: 'Tokens',       icon: 'key' },
-    { id: 'credentials',  label: 'Credentials',  icon: 'lock' },
   ]
 </script>
 
@@ -100,8 +98,8 @@
 
   <main class="main">
     <div class="main-content">
-      {#if panel === 'overview'}
-        <Overview on:navigate={(e) => navigateTo(e.detail)} />
+      {#if panel === 'chat'}
+        <Chat />
       {:else if panel === 'metrics'}
         <Metrics />
       {:else if panel === 'providers'}
@@ -118,8 +116,6 @@
         {/if}
       {:else if panel === 'tokens'}
         <Tokens />
-      {:else if panel === 'credentials'}
-        <Credentials />
       {/if}
     </div>
   </main>
