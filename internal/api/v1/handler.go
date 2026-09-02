@@ -49,9 +49,12 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/models", h.auth(h.listModels, true))
 	mux.HandleFunc("HEAD /v1/models", h.auth(h.listModels, true))
 	mux.HandleFunc("OPTIONS /v1/models", h.auth(h.listModels, true))
-	// Fallback for unknown /v1 paths - always JSON, never SPA/redirect
-	mux.HandleFunc("/v1/", h.notFound)
-	mux.HandleFunc("/", h.notFound)
+	mux.HandleFunc("GET /v1/models/{model}", h.auth(h.retrieveModel, true))
+	mux.HandleFunc("HEAD /v1/models/{model}", h.auth(h.retrieveModel, true))
+	mux.HandleFunc("OPTIONS /v1/models/{model}", h.auth(h.retrieveModel, true))
+	// Fallback for unknown paths - always JSON, never SPA/redirect
+	// Also handles slashed ModelIds like kiro/claude-haiku-4.5 via notFound delegation
+	mux.HandleFunc("/", h.notFoundWithModelFallback)
 }
 
 // ─────────────────────────────────────────────
@@ -77,13 +80,21 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request, t *mod
 	start := time.Now()
 	var req models.ChatCompletionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.writeError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("malformed request body: %s", err))
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("malformed request body: %s", err), nil)
+		return
+	}
+	if req.Model == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", strPtr("model"))
+		return
+	}
+	if len(req.Messages) == 0 {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'messages'", strPtr("messages"))
 		return
 	}
 
 	if t != nil && !t.Rules.Allows(req.Model) {
 		h.writeError(w, http.StatusForbidden, "model_not_allowed",
-			fmt.Sprintf("model %q is not allowed by your token's rules", req.Model))
+			fmt.Sprintf("model %q is not allowed by your token's rules", req.Model), strPtr("model"))
 		return
 	}
 
@@ -140,7 +151,7 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request, t *mod
 func (h *Handler) handleStreamWithMetrics(w http.ResponseWriter, r *http.Request, req *models.ChatCompletionRequest, t *models.RouterToken, start time.Time) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		h.writeError(w, http.StatusInternalServerError, "streaming_unsupported", "streaming is not supported by this server")
+		h.writeError(w, http.StatusInternalServerError, "server_error", "streaming is not supported by this server", nil)
 		return
 	}
 
@@ -183,7 +194,7 @@ func (h *Handler) handleStreamWithMetrics(w http.ResponseWriter, r *http.Request
 		errorObj := models.OpenAIError{
 			Error: models.OpenAIErrorBody{
 				Message: err.Error(),
-				Type:    "error",
+				Type:    errorTypeForCode(re.code),
 				Code:    re.code,
 			},
 		}
@@ -197,18 +208,13 @@ func (h *Handler) handleStreamWithMetrics(w http.ResponseWriter, r *http.Request
 }
 
 // listModels handles GET /v1/models
-// @Summary      List available models
-// @Description  Lists all models available to the authenticated token based on its allowed models rules.
-// @Tags         OpenAI API
-// @Produce      json
-// @Success      200 {object} object{object=string,data=[]object{id=string,object=string}} "List of models"
-// @Failure      401 {object} models.OpenAIError "Unauthorized"
-// @Security     BearerAuth
-// @Router       /v1/models [get]
 func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+	// OpenAI spec: ListModelsResponse {object:"list", data: [Model]}
 	type modelEntry struct {
-		ID     string `json:"id"`
-		Object string `json:"object"`
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		Created int64  `json:"created"`
+		OwnedBy string `json:"owned_by"`
 	}
 	type modelList struct {
 		Object string       `json:"object"`
@@ -218,11 +224,15 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 	var entries []modelEntry
 	if t != nil {
 		for _, m := range t.Rules.AllowedModels {
-			entries = append(entries, modelEntry{ID: string(m), Object: "model"})
+			provider, _, _ := m.Parse()
+			entries = append(entries, modelEntry{
+				ID:      string(m),
+				Object:  "model",
+				Created: time.Now().Unix(),
+				OwnedBy: provider,
+			})
 		}
 	}
-	// Anonymous (safe) access returns empty list (no per-token filter).
-	// If t == nil, entries stays nil -> encoded as null, so init empty slice
 	if entries == nil {
 		entries = []modelEntry{}
 	}
@@ -230,8 +240,52 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 	h.writeJSON(w, http.StatusOK, modelList{Object: "list", Data: entries})
 }
 
+// retrieveModel handles GET /v1/models/{model}
+func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+	// OpenAI spec: GET /models/{model} -> Model {id, object, created, owned_by}
+	modelID := strings.TrimPrefix(r.URL.Path, "/v1/models/")
+	// Handle case where PathValue is used for non-slashed ids (e.g. /v1/models/gpt-4)
+	if modelID == "" || modelID == r.URL.Path {
+		if v := r.PathValue("model"); v != "" {
+			modelID = v
+		}
+	}
+	// Trim any trailing slash or query handled by URL.Path already
+	modelID = strings.TrimSuffix(modelID, "/")
+	if modelID == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "model id is required", strPtr("model"))
+		return
+	}
+	mid := models.ModelId(modelID)
+	if t != nil && !t.Rules.Allows(mid) {
+		h.writeError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("The model '%s' does not exist", modelID), nil)
+		return
+	}
+	provider, _, _ := mid.Parse()
+	if provider == "" {
+		h.writeError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("The model '%s' does not exist", modelID), nil)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, map[string]any{
+		"id":       modelID,
+		"object":   "model",
+		"created":  time.Now().Unix(),
+		"owned_by": provider,
+	})
+}
+
 func (h *Handler) notFound(w http.ResponseWriter, r *http.Request) {
-	h.writeError(w, http.StatusNotFound, "not_found", fmt.Sprintf("endpoint %s %s not found", r.Method, r.URL.Path))
+	h.writeError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("Invalid URL (%s %s)", r.Method, r.URL.Path), nil)
+}
+
+func (h *Handler) notFoundWithModelFallback(w http.ResponseWriter, r *http.Request) {
+	// Handle slashed ModelIds like kiro/claude-haiku-4.5 which don't match {model} pattern
+	if strings.HasPrefix(r.URL.Path, "/v1/models/") && r.URL.Path != "/v1/models/" {
+		// Delegate to retrieveModel with same auth logic (safe whitelist applies)
+		h.auth(h.retrieveModel, true)(w, r)
+		return
+	}
+	h.notFound(w, r)
 }
 
 // ─────────────────────────────────────────────
@@ -251,8 +305,10 @@ func isSafeWithoutAuth(r *http.Request) bool {
 	if !safeMethods[r.Method] {
 		return false
 	}
-	// Only GET /v1/models is considered safe public endpoint
 	if r.URL.Path == "/v1/models" {
+		return true
+	}
+	if strings.HasPrefix(r.URL.Path, "/v1/models/") {
 		return true
 	}
 	return false
@@ -270,17 +326,17 @@ func (h *Handler) auth(next authedHandler, allowAnonymous bool) http.HandlerFunc
 				next(w, r, nil)
 				return
 			}
-			h.writeError(w, http.StatusUnauthorized, "missing_token", "Authorization: Bearer <token> header is required")
+			h.writeError(w, http.StatusUnauthorized, "invalid_request_error", "You didn't provide an API key. You need to provide your API key in an Authorization header using Bearer auth.", strPtr("Authorization"))
 			return
 		}
 
 		t, err := h.tokens.Validate(raw)
 		if err != nil {
 			if errors.Is(err, apierrors.ErrUnauthorized) {
-				h.writeError(w, http.StatusUnauthorized, "invalid_token", "invalid or revoked token")
+				h.writeError(w, http.StatusUnauthorized, "invalid_request_error", "Incorrect API key provided: "+raw+". You can find your API key at https://platform.openai.com/account/api-keys.", nil)
 				return
 			}
-			h.writeError(w, http.StatusInternalServerError, "internal_error", "token validation failed")
+			h.writeError(w, http.StatusInternalServerError, "server_error", "token validation failed", nil)
 			return
 		}
 
@@ -302,7 +358,7 @@ func extractBearer(r *http.Request) string {
 
 func (h *Handler) handleRouterError(w http.ResponseWriter, err error) {
 	re := h.classifyError(err)
-	h.writeError(w, re.status, re.code, err.Error())
+	h.writeError(w, re.status, re.code, err.Error(), nil)
 }
 
 type routerError struct {
@@ -352,14 +408,35 @@ func (h *Handler) classifyError(err error) routerError {
 	}
 }
 
-func (h *Handler) writeError(w http.ResponseWriter, status int, code, msg string) {
+func (h *Handler) writeError(w http.ResponseWriter, status int, code, msg string, param *string) {
+	// Map internal code to OpenAI error type
+	errType := errorTypeForCode(code)
 	h.writeJSON(w, status, models.OpenAIError{
 		Error: models.OpenAIErrorBody{
 			Message: msg,
-			Type:    "error",
+			Type:    errType,
+			Param:   param,
 			Code:    code,
 		},
 	})
+}
+
+func strPtr(s string) *string { return &s }
+
+func errorTypeForCode(code string) string {
+	switch code {
+	case "invalid_request_error", "not_found", "model_not_allowed", "provider_not_found":
+		return "invalid_request_error"
+	case "missing_token", "invalid_token", "auth_error":
+		// OpenAI 401 is typically invalid_request_error as well, but keep authentication_error for clarity
+		return "invalid_request_error"
+	case "rate_limit", "quota_exceeded":
+		return "rate_limit_error"
+	case "server_error", "upstream_error", "timeout", "internal_error":
+		return "server_error"
+	default:
+		return "invalid_request_error"
+	}
 }
 
 func (h *Handler) writeJSON(w http.ResponseWriter, status int, v any) {

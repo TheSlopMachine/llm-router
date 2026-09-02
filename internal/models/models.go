@@ -187,9 +187,10 @@ type OpenAIError struct {
 }
 
 type OpenAIErrorBody struct {
-	Message string `json:"message" example:"Invalid request: missing required field 'model'"`
-	Type    string `json:"type" example:"invalid_request_error"`
-	Code    string `json:"code,omitempty" example:"invalid_request"`
+	Message string  `json:"message" example:"Invalid request: missing required field 'model'"`
+	Type    string  `json:"type" example:"invalid_request_error"`
+	Param   *string `json:"param" example:"model"`
+	Code    string  `json:"code,omitempty" example:"invalid_request"`
 }
 
 // ─────────────────────────────────────────────
