@@ -1,5 +1,3 @@
-github.com/TheSlopMachine/llm-router-adapter-demo v0.0.0-20260513190634-01286aaf5620 h1:bgR/JzvMz/j+N+Kpt2IIrunugDCOhKhW389IVkHESCo=
-github.com/TheSlopMachine/llm-router-adapter-demo v0.0.0-20260513190634-01286aaf5620/go.mod h1:UL2IUJ0ggvA3Vi3PszL4tit9pCR74tJdhC+gv+gAcNg=
 github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260513190656-d1d82ebfc1e3 h1:/+eUxmi9lq0dxN69PxeTYtrNBTojIOlwkxrKdQ6HZkU=
 github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260513190656-d1d82ebfc1e3/go.mod h1:ohMti0blLfhQIVhO3tTHbeYqMTjcjl/sr/t6YdyDLhY=
 github.com/TheSlopMachine/llm-router-adapter-kiro v0.0.0-20260530220814-071129f29171 h1:dRvZ1PPYuD5GpaytwbuIDkGqDrTHjVuiQLrJCnQJ/J8=

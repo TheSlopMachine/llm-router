@@ -3,7 +3,6 @@ module github.com/TheSlopMachine/llm-router
 go 1.25.0
 
 require (
-	github.com/TheSlopMachine/llm-router-adapter-demo v0.0.0-20260513190634-01286aaf5620
 	github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260513190656-d1d82ebfc1e3
 	github.com/TheSlopMachine/llm-router-adapter-kiro v0.0.0-20260530220814-071129f29171
 	github.com/TheSlopMachine/llm-router-sdk v0.0.0-20260521171311-28caef1a0902
