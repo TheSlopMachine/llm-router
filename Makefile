@@ -13,6 +13,11 @@ PLUGINS    := plugins/plugins.go
 
 PUBLISH_PLATFORMS ?= windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64
 
+WORKSPACE_DIR := .workspace
+GO_WORK       := go.work
+
+WORKSPACE_REMOTE ?= https
+
 URL ?= http://localhost:8080
 
 ifeq ($(OS),Windows_NT)
@@ -68,11 +73,12 @@ endif
 
 LDFLAGS = -s -w -X main.Version=$(VERSION) -X main.GitCommit=$(GIT_COMMIT) -X main.BuildTime=$(BUILD_TIME)
 
-.PHONY: help prepare-plugins prepare-frontend prepare start stop restart status browser clean publish go-check go-test
+.PHONY: help init-workspace prepare-plugins prepare-frontend prepare start stop restart status browser clean publish go-check go-test
 
 help:
 	@printf '\nUsage: make <target>\n\n'
 	@printf 'Targets:\n'
+	@printf '  init-workspace    Clone adapters from %s to %s and generate %s\n' "$(ADAPTERS)" "$(WORKSPACE_DIR)" "$(GO_WORK)"
 	@printf '  prepare-plugins   Install adapters from %s\n' "$(ADAPTERS)"
 	@printf '  prepare-frontend  npm install && build frontend\n'
 	@printf '  prepare           prepare-frontend + prepare-plugins\n'
@@ -86,15 +92,50 @@ help:
 	@printf '  go-check          Run go vet\n'
 	@printf '  go-test           Run go test ./...\n\n'
 	@printf 'Variables:\n'
-	@printf '  PUBLISH_PLATFORMS  Platforms for publish. Default: "windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64"\n\n'
+	@printf '  PUBLISH_PLATFORMS  Platforms for publish. Default: "windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64"\n'
+	@printf '  WORKSPACE_REMOTE   Clone protocol for %s. Default: "https" (https|ssh)\n\n' "$(WORKSPACE_DIR)"
 	@printf 'Examples:\n'
 	@printf '  make start\n'
 	@printf '  make restart\n'
 	@printf '  make publish\n'
 	@printf '  make publish PUBLISH_PLATFORMS="linux/amd64 darwin/arm64"\n\n'
 
+init-workspace:
+	@mkdir -p "$(WORKSPACE_DIR)"
+	@grep -v '^#' "$(ADAPTERS)" 2>/dev/null | grep -v '^$$' | while read -r mod _hash; do \
+		mod=$$(printf '%s' "$$mod" | tr -d '\r' | xargs); \
+		[ -z "$$mod" ] && continue; \
+		dir="$(WORKSPACE_DIR)/$$(basename $$mod)"; \
+		if [ "$(WORKSPACE_REMOTE)" = "ssh" ]; then \
+			host=$$(printf '%s' "$$mod" | cut -d/ -f1); \
+			path=$$(printf '%s' "$$mod" | cut -d/ -f2-); \
+			url="git@$$host:$$path.git"; \
+		else \
+			url="https://$$mod.git"; \
+		fi; \
+		if [ ! -d "$$dir/.git" ]; then \
+			printf '[>] Cloning %s (%s) -> %s\n' "$$mod" "$(WORKSPACE_REMOTE)" "$$dir"; \
+			git clone "$$url" "$$dir" || exit 1; \
+		else \
+			cur_url=$$(git -C "$$dir" remote get-url origin 2>/dev/null || echo ""); \
+			if [ "$$cur_url" != "$$url" ]; then \
+				printf '[>] Updating remote %s: %s -> %s\n' "$$dir" "$$cur_url" "$$url"; \
+				git -C "$$dir" remote set-url origin "$$url" || true; \
+			else \
+				printf '[>] Exists %s, skip\n' "$$dir"; \
+			fi; \
+		fi; \
+	done
+	@printf '[>] Generating %s...\n' "$(GO_WORK)"
+	@printf 'go 1.25.0\n\nuse (\n  .\n' > "$(GO_WORK)"
+	@for d in $(WORKSPACE_DIR)/*; do [ -d "$$d" ] && printf '  ./%s\n' "$$d" >> "$(GO_WORK)"; done
+	@printf ')\n' >> "$(GO_WORK)"
+	@go work sync 2>/dev/null || true
+	@printf '[OK] Workspace ready (%s + %s)\n' "$(WORKSPACE_DIR)" "$(GO_WORK)"
+
 prepare-plugins:
 	@$(MAKE) stop
+	@$(MAKE) init-workspace
 	@printf '\n== Plugin Generation ==\n'
 	@mkdir -p plugins
 	@if [ ! -f "$(ADAPTERS)" ]; then \

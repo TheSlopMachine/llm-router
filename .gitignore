@@ -36,3 +36,8 @@ coverage.html
 # Generated files
 plugins/plugins.go
 web/src/lib/generated/
+
+# Workspace (local clones, generated)
+.workspace/
+go.work
+go.work.sum
