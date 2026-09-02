@@ -24,6 +24,11 @@ API_PORT       ?= 8081
 PORT           ?= $(DASHBOARD_PORT)
 URL            ?= http://localhost:$(DASHBOARD_PORT)
 QUICK      ?= 0
+ifeq ($(OS),Windows_NT)
+  DEV_DB ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.db
+else
+  DEV_DB ?= $(HOME)/.local/llm-router/llm-router-dev.db
+endif
 
 # -- OS-specific settings ------------------------------------------------------
 ifeq ($(OS),Windows_NT)
@@ -154,6 +159,8 @@ endif
 run: prepare-frontend
 	@if [ "$(QUICK)" = "1" ] || [ "$(QUICK)" = "true" ]; then printf '[>] QUICK mode enabled - adapters and svelte build skipped.\n'; fi
 	@printf '[>] Starting dashboard %s and API %s, will open %s once it responds...\n' "http://localhost:$(DASHBOARD_PORT)" "http://localhost:$(API_PORT)" "$(URL)"
+	@printf '[>] Using dev DB: %s\n' "$(DEV_DB)"
+	@mkdir -p "$(dir $(DEV_DB))"
 	@( \
 		i=0; \
 		while [ $$i -lt 60 ]; do \
@@ -170,7 +177,7 @@ run: prepare-frontend
 		done; \
 		printf '[WARN] Timed out waiting for %s to come up - open it manually.\n' "$(URL)" \
 	) &
-	go run . --dashboard-port $(DASHBOARD_PORT) --api-port $(API_PORT)
+	go run . --dashboard-port $(DASHBOARD_PORT) --api-port $(API_PORT) --db "$(DEV_DB)"
 
 # -- build (current platform only) --------------------------------------------
 build: prepare-frontend
