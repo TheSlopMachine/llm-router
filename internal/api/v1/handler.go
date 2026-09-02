@@ -13,12 +13,15 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/agent"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
+	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/router"
 	"github.com/TheSlopMachine/llm-router/internal/services/token"
@@ -26,19 +29,25 @@ import (
 
 // Handler holds the dependencies for the v1 API.
 type Handler struct {
-	tokens  *token.Service
-	router  *router.Service
-	metrics *metrics.Service
-	logger  *slog.Logger
+	tokens       *token.Service
+	router       *router.Service
+	metrics      *metrics.Service
+	providerSvc  *provider.Service
+	modelInfoSvc *modelinfo.Service
+	agentSvc     *agent.Service
+	logger       *slog.Logger
 }
 
 // New constructs a v1 Handler.
-func New(tokens *token.Service, routerSvc *router.Service, metricsSvc *metrics.Service, logger *slog.Logger) *Handler {
+func New(tokens *token.Service, routerSvc *router.Service, metricsSvc *metrics.Service, providerSvc *provider.Service, modelInfoSvc *modelinfo.Service, agentSvc *agent.Service, logger *slog.Logger) *Handler {
 	return &Handler{
-		tokens:  tokens,
-		router:  routerSvc,
-		metrics: metricsSvc,
-		logger:  logger,
+		tokens:       tokens,
+		router:       routerSvc,
+		metrics:      metricsSvc,
+		providerSvc:  providerSvc,
+		modelInfoSvc: modelInfoSvc,
+		agentSvc:     agentSvc,
+		logger:       logger,
 	}
 }
 
@@ -207,9 +216,8 @@ func (h *Handler) handleStreamWithMetrics(w http.ResponseWriter, r *http.Request
 	h.metrics.RecordRequest(event)
 }
 
-// listModels handles GET /v1/models
+// listModels handles GET /v1/models - global, independent of token rules
 func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
-	// OpenAI spec: ListModelsResponse {object:"list", data: [Model]}
 	type modelEntry struct {
 		ID      string `json:"id"`
 		Object  string `json:"object"`
@@ -222,17 +230,45 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 	}
 
 	var entries []modelEntry
-	if t != nil {
-		for _, m := range t.Rules.AllowedModels {
-			provider, _, _ := m.Parse()
-			entries = append(entries, modelEntry{
-				ID:      string(m),
-				Object:  "model",
-				Created: time.Now().Unix(),
-				OwnedBy: provider,
-			})
+	// Global listing like dashboard Available Models, not per-token
+	if h.providerSvc != nil && h.modelInfoSvc != nil {
+		if providers, err := h.providerSvc.List(); err == nil {
+			for _, p := range providers {
+				if p.Type == "agents" {
+					continue
+				}
+				infos, err := h.modelInfoSvc.GetModelInfos(r.Context(), p.ID)
+				if err != nil || len(infos) == 0 {
+					continue
+				}
+				for _, mi := range infos {
+					fullID := p.ID + "/" + mi.Name
+					entries = append(entries, modelEntry{
+						ID:      fullID,
+						Object:  "model",
+						Created: time.Now().Unix(),
+						OwnedBy: p.Type,
+					})
+				}
+			}
 		}
 	}
+	if h.agentSvc != nil {
+		if agents, err := h.agentSvc.List(); err == nil {
+			for _, a := range agents {
+				if a.IsDraft {
+					continue
+				}
+				entries = append(entries, modelEntry{
+					ID:      "agents/" + a.ID,
+					Object:  "model",
+					Created: a.CreatedAt.Unix(),
+					OwnedBy: "agents",
+				})
+			}
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].ID < entries[j].ID })
 	if entries == nil {
 		entries = []modelEntry{}
 	}
@@ -240,29 +276,48 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 	h.writeJSON(w, http.StatusOK, modelList{Object: "list", Data: entries})
 }
 
-// retrieveModel handles GET /v1/models/{model}
+// retrieveModel handles GET /v1/models/{model} - global
 func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
-	// OpenAI spec: GET /models/{model} -> Model {id, object, created, owned_by}
 	modelID := strings.TrimPrefix(r.URL.Path, "/v1/models/")
-	// Handle case where PathValue is used for non-slashed ids (e.g. /v1/models/gpt-4)
 	if modelID == "" || modelID == r.URL.Path {
 		if v := r.PathValue("model"); v != "" {
 			modelID = v
 		}
 	}
-	// Trim any trailing slash or query handled by URL.Path already
 	modelID = strings.TrimSuffix(modelID, "/")
 	if modelID == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "model id is required", strPtr("model"))
 		return
 	}
 	mid := models.ModelId(modelID)
-	if t != nil && !t.Rules.Allows(mid) {
+	providerID, modelName, err := mid.Parse()
+	if err != nil || providerID == "" || modelName == "" {
 		h.writeError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("The model '%s' does not exist", modelID), nil)
 		return
 	}
-	provider, _, _ := mid.Parse()
-	if provider == "" {
+	// Check global existence via modelInfo or agents
+	exists := false
+	var ownedBy string
+	if providerID == "agents" && h.agentSvc != nil {
+		if _, err := h.agentSvc.Get(modelName); err == nil {
+			exists = true
+			ownedBy = "agents"
+		}
+	} else if h.providerSvc != nil && h.modelInfoSvc != nil {
+		if _, err := h.providerSvc.Get(providerID); err == nil {
+			if _, err := h.modelInfoSvc.GetModelInfo(r.Context(), mid); err == nil {
+				exists = true
+				if p, err := h.providerSvc.Get(providerID); err == nil {
+					ownedBy = p.Type
+				} else {
+					ownedBy = providerID
+				}
+			}
+		}
+	}
+	// Fallback: if we can't verify (e.g. no credential), synthesize if provider parsed - for compatibility
+	if !exists {
+		// If provider exists but model unknown, still 404; if provider unknown, 404
 		h.writeError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("The model '%s' does not exist", modelID), nil)
 		return
 	}
@@ -270,7 +325,7 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, t *model
 		"id":       modelID,
 		"object":   "model",
 		"created":  time.Now().Unix(),
-		"owned_by": provider,
+		"owned_by": ownedBy,
 	})
 }
 

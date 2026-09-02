@@ -98,7 +98,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 
 	// API mux (/v1/* only, no bootstrap redirect ever)
 	apiMux := http.NewServeMux()
-	apiV1 := v1.New(tokenSvc, routerSvc, metricsSvc, logger)
+	apiV1 := v1.New(tokenSvc, routerSvc, metricsSvc, providerSvc, modelInfoSvc, agentSvc, logger)
 	apiV1.Register(apiMux)
 
 	apiHandler := requestLogger(logger, apiMux)
