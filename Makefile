@@ -68,7 +68,7 @@ endif
 
 LDFLAGS = -s -w -X main.Version=$(VERSION) -X main.GitCommit=$(GIT_COMMIT) -X main.BuildTime=$(BUILD_TIME)
 
-.PHONY: help prepare-plugins prepare-frontend prepare start stop restart status browser clean publish
+.PHONY: help prepare-plugins prepare-frontend prepare start stop restart status browser clean publish go-check go-test
 
 help:
 	@printf '\nUsage: make <target>\n\n'
@@ -82,7 +82,9 @@ help:
 	@printf '  status            Show dev server status (pid/log)\n'
 	@printf '  browser           Open dashboard in browser (%s)\n' "$(URL)"
 	@printf '  clean             Stop + git clean -fdx\n'
-	@printf '  publish           prepare-frontend + prepare-plugins + build all PUBLISH_PLATFORMS\n\n'
+	@printf '  publish           prepare-frontend + prepare-plugins + build all PUBLISH_PLATFORMS\n'
+	@printf '  go-check          Run go vet\n'
+	@printf '  go-test           Run go test ./...\n\n'
 	@printf 'Variables:\n'
 	@printf '  PUBLISH_PLATFORMS  Platforms for publish. Default: "windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64"\n\n'
 	@printf 'Examples:\n'
@@ -212,3 +214,13 @@ publish: prepare-frontend prepare-plugins
 	@rm -f $(PUBLISH)/_cksum_*.tmp
 	@printf '\n[OK] Artifacts in  $(PUBLISH)/\n'
 	@printf '[OK] Checksums in  $(PUBLISH)/checksums.txt\n'
+
+go-check:
+	@printf '[>] Running go vet...\n'
+	@go vet ./...
+	@printf '[OK] go vet passed\n'
+
+go-test:
+	@printf '[>] Running go test...\n'
+	@go test ./...
+	@printf '[OK] go test passed\n'
