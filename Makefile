@@ -71,6 +71,16 @@ else
   endif
 endif
 
+# file:// URI for LOG_FILE display (RFC 8089) — preserves LOG_FILE for FS ops
+empty :=
+space := $(empty) $(empty)
+_LOG_URI_ESC := $(subst $(space),%20,$(LOG_FILE))
+ifeq ($(OS),Windows_NT)
+  LOG_URI := file:///$(_LOG_URI_ESC)
+else
+  LOG_URI := file://$(_LOG_URI_ESC)
+endif
+
 LDFLAGS = -s -w -X main.Version=$(VERSION) -X main.GitCommit=$(GIT_COMMIT) -X main.BuildTime=$(BUILD_TIME)
 
 .PHONY: help init-workspace prepare-plugins prepare-frontend prepare start stop restart status browser clean publish go-check go-test
@@ -171,7 +181,7 @@ prepare: prepare-frontend prepare-plugins
 start:
 	@mkdir -p "$(dir $(DEV_DB))" "$(dir $(PID_FILE))"
 	@if [ -f "$(PID_FILE)" ] && kill -0 $$(cat "$(PID_FILE)") 2>/dev/null; then \
-		printf '[>] Already running PID %s (log %s)\n' "$$(cat $(PID_FILE))" "$(LOG_FILE)"; \
+		printf '[>] Already running PID %s (log %s)\n' "$$(cat $(PID_FILE))" "$(LOG_URI)"; \
 		printf 'Dashboard: http://localhost:8080\n'; \
 		printf 'API: http://localhost:8081/v1\n'; \
 		exit 0; \
@@ -179,7 +189,7 @@ start:
 	rm -f "$(PID_FILE)"; \
 	printf '[>] Building dev binary to %s...\n' "$(TMP_BIN)"; \
 	go build -o "$(TMP_BIN)" . || exit 1; \
-	printf '[>] Starting llm-router --web 8080 --api 8081 --db %s (pid %s, log %s)...\n' "$(DEV_DB)" "$(PID_FILE)" "$(LOG_FILE)"; \
+	printf '[>] Starting llm-router --web 8080 --api 8081 --db %s (pid %s, log %s)...\n' "$(DEV_DB)" "$(PID_FILE)" "$(LOG_URI)"; \
 	if command -v nohup >/dev/null 2>&1; then \
 		nohup "$(TMP_BIN)" --web 8080 --api 8081 --db "$(DEV_DB)" > "$(LOG_FILE)" 2>&1 & echo $$! > "$(PID_FILE)"; \
 	else \
@@ -218,7 +228,7 @@ status:
 	else \
 		printf 'llm-router dev server is not running\n'; \
 	fi; \
-	printf 'Log: %s\n' "$(LOG_FILE)"
+	printf 'Log: %s\n' "$(LOG_URI)"
 
 browser:
 	@if command -v "$(firstword $(OPEN_CMD))" >/dev/null 2>&1; then \
