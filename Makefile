@@ -1,15 +1,6 @@
 # =============================================================================
-# Makefile  -  cross-platform replacement for proj.cmd
-# Requires: go, npm, zip, git
-#           sha256sum (Linux / Git Bash) or shasum (macOS)
-# Works on: Linux, macOS, Windows (via make.ps1 / make.cmd, Git Bash, MSYS2, WSL)
+# Makefile - llm-router dev tasks
 # =============================================================================
-
-# -- Shell ---------------------------------------------------------------------
-# On Windows use make.ps1 which prepends Git's usr/bin to PATH so bash and
-# coreutils (printf, mkdir ...) are visible to CreateProcess.
-# NOTE: $(shell ...) at parse time still bypasses SHELL on Windows32 Make, so
-# the OS blocks below only call native executables (go, git, powershell).
 SHELL      := bash
 .SHELLFLAGS := -c
 
@@ -19,227 +10,166 @@ UI_DIR     := web
 PUBLISH    := build/release
 ADAPTERS   := adapters.conf
 PLUGINS    := plugins/plugins.go
-DASHBOARD_PORT ?= 8080
-API_PORT       ?= 8081
-PORT           ?= $(DASHBOARD_PORT)
-URL            ?= http://localhost:$(DASHBOARD_PORT)
-QUICK      ?= 0
+
+PUBLISH_PLATFORMS ?= windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64
+
 ifeq ($(OS),Windows_NT)
   DEV_DB ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.db
 else
   DEV_DB ?= $(HOME)/.local/llm-router/llm-router-dev.db
 endif
 
-# -- OS-specific settings ------------------------------------------------------
 ifeq ($(OS),Windows_NT)
-  # --- Windows: parse-time calls use only native Windows executables ----------
-  LOCAL_BIN  := $(BINARY).exe
-  NPM        := npm.cmd
-  # go.exe is a native Windows binary - CreateProcess can invoke it directly.
-  # $(subst) converts backslashes (C:\Users\...) to forward slashes so the
-  # resulting path is usable inside Git Bash recipes.
-  GOPATH     := $(subst \,/,$(shell go env GOPATH))
-  # git.exe is also natively callable.  If the repo check fails the var is empty.
-  _GIT_RAW   := $(shell git rev-parse --short HEAD)
-  GIT_COMMIT := $(if $(_GIT_RAW),$(_GIT_RAW),unknown)
-  # powershell.exe is natively callable.  'Z' is not a .NET format specifier
-  # so it is emitted as a literal character in the output.
-  BUILD_TIME := $(shell powershell -NoProfile -Command \
-    "[System.DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')")
-  # sha256sum ships with Git for Windows coreutils; used in bash recipes below.
-  SHA256     := sha256sum
-  # powershell.exe is natively callable and can launch the default browser.
-  OPEN_CMD   := powershell -NoProfile -Command Start-Process
-else
-  # --- Unix (Linux / macOS / MSYS2 / WSL) ------------------------------------
-  SHELL      := bash
-  NPM        := npm
-  UNAME_S    := $(shell uname -s)
-  ifneq ($(filter MINGW% CYGWIN%,$(UNAME_S)),)
-    LOCAL_BIN := $(BINARY).exe
-    OPEN_CMD  := powershell -NoProfile -Command Start-Process
-  else ifeq ($(UNAME_S),Darwin)
-    LOCAL_BIN := $(BINARY)
-    OPEN_CMD  := open
-  else ifneq ($(shell grep -qi microsoft /proc/version 2>/dev/null && echo wsl),)
-    # WSL: plain xdg-open usually has nothing to hand off to. Prefer wslview
-    # (from the 'wslu' package) if installed, else fall back to cmd.exe.
-    LOCAL_BIN := $(BINARY)
-    OPEN_CMD  := $(if $(shell command -v wslview 2>/dev/null),wslview,cmd.exe /c start "")
+  ifneq ($(TEMP),)
+    _TMP_DIR := $(subst \,/,$(TEMP))
+  else ifneq ($(TMP),)
+    _TMP_DIR := $(subst \,/,$(TMP))
   else
-    LOCAL_BIN := $(BINARY)
-    OPEN_CMD  := xdg-open
+    _TMP_DIR := $(subst \,/,$(USERPROFILE))/AppData/Local/Temp
   endif
-  GOPATH     := $(shell go env GOPATH 2>/dev/null)
-  GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
-  BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
-  SHA256     := $(shell command -v sha256sum 2>/dev/null || echo "shasum -a 256")
+  PID_FILE ?= $(_TMP_DIR)/llm-router-dev.pid
+  LOG_FILE ?= $(_TMP_DIR)/llm-router-dev.log
+  TMP_BIN  ?= $(_TMP_DIR)/llm-router-dev.exe
+else
+  _TMP_DIR := $(if $(TMPDIR),$(TMPDIR),/tmp)
+  PID_FILE ?= $(_TMP_DIR)/llm-router-dev.pid
+  LOG_FILE ?= $(_TMP_DIR)/llm-router-dev.log
+  TMP_BIN  ?= $(_TMP_DIR)/llm-router-dev
 endif
 
-LDFLAGS     = -s -w \
-              -X main.Version=$(VERSION) \
-              -X main.GitCommit=$(GIT_COMMIT) \
-              -X main.BuildTime=$(BUILD_TIME)
+ifeq ($(OS),Windows_NT)
+  LOCAL_BIN := $(BINARY).exe
+  NPM       := npm.cmd
+  GOPATH    := $(subst \,/,$(shell go env GOPATH))
+  _GIT_RAW  := $(shell git rev-parse --short HEAD)
+  GIT_COMMIT := $(if $(_GIT_RAW),$(_GIT_RAW),unknown)
+  BUILD_TIME := $(shell powershell -NoProfile -Command "[System.DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')")
+  SHA256    := sha256sum
+else
+  NPM       := npm
+  GOPATH    := $(shell go env GOPATH 2>/dev/null)
+  GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+  BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+  SHA256    := $(shell command -v sha256sum 2>/dev/null || echo "shasum -a 256")
+endif
 
-# -- Release target platforms --------------------------------------------------
-PLATFORMS := \
-  windows/amd64 windows/386   windows/arm64 \
-  linux/amd64   linux/386     linux/arm64   linux/arm \
-  darwin/amd64  darwin/arm64 \
-  freebsd/amd64 freebsd/386   freebsd/arm64
+LDFLAGS = -s -w -X main.Version=$(VERSION) -X main.GitCommit=$(GIT_COMMIT) -X main.BuildTime=$(BUILD_TIME)
 
-PLATFORM_TARGETS := $(addprefix _build_,$(subst /,_,$(PLATFORMS)))
+.PHONY: help prepare-plugins prepare-frontend start stop restart clean publish
 
-.PHONY: help run build release clean prepare-frontend generate-plugins FORCE
-
-# -- Default target ------------------------------------------------------------
 help:
 	@printf '\nUsage: make <target>\n\n'
 	@printf 'Targets:\n'
-	@printf '  run      Build frontend, then run the server\n'
-	@printf '  build    Build frontend, compile for current platform\n'
-	@printf '  release  Build frontend once, compile all platforms in parallel\n'
-	@printf '  clean    Remove $(PUBLISH)/ and local binaries\n\n'
+	@printf '  prepare-plugins   Install adapters from %s\n' "$(ADAPTERS)"
+	@printf '  prepare-frontend  npm install && build frontend\n'
+	@printf '  start             Build dev binary to temp and start daemon (db %s)\n' "$(DEV_DB)"
+	@printf '  stop              Stop daemon\n'
+	@printf '  restart           Stop + start\n'
+	@printf '  clean             Stop + git clean -fdx\n'
+	@printf '  publish           prepare-frontend + prepare-plugins + build all PUBLISH_PLATFORMS\n\n'
 	@printf 'Variables:\n'
-	@printf '  VERSION  Release version tag  (default: dev)\n'
-	@printf '  QUICK    Skip adapters/svelte for run (QUICK=1)\n\n'
+	@printf '  PUBLISH_PLATFORMS  Platforms for publish. Default: "windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64"\n\n'
 	@printf 'Examples:\n'
-	@printf '  make run\n'
-	@printf '  make run QUICK=1\n'
-	@printf '  make build\n'
-	@printf '  VERSION=1.2.0 make release\n\n'
-	@printf 'Adapters:\n'
-	@printf '  Edit %s directly - format: <module-path> <full-commit-hash>\n\n' "$(ADAPTERS)"
+	@printf '  make start\n'
+	@printf '  make restart\n'
+	@printf '  make publish\n'
+	@printf '  make publish PUBLISH_PLATFORMS="linux/amd64 darwin/arm64"\n\n'
 
-# -- generate-plugins ----------------------------------------------------------
-ifeq ($(filter 1 true,$(QUICK)),)
-generate-plugins:
+prepare-plugins:
+	@$(MAKE) stop
 	@printf '\n== Plugin Generation ==\n'
 	@mkdir -p plugins
 	@if [ ! -f "$(ADAPTERS)" ]; then \
-		printf '# External adapter registry\n# Format: <module-path> <full-commit-hash>\n# Example: github.com/user/adapter 01286aaf5620fb7b4a0f108f96ac7751ae3d7040\n' > "$(ADAPTERS)"; \
+		printf '# External adapter registry\n# Format: <module-path> <full-commit-hash>\n' > "$(ADAPTERS)"; \
 	fi
 	@printf '// Code generated by make generate-plugins. DO NOT EDIT.\n\npackage plugins\n\n' > "$(PLUGINS)"
 	@if [ -s "$(ADAPTERS)" ] && grep -q '^[^#]' "$(ADAPTERS)" 2>/dev/null; then \
 		printf 'import (\n' >> "$(PLUGINS)"; \
 		grep -v '^#' "$(ADAPTERS)" | grep -v '^$$' | while read -r mod query; do \
 			if ! printf '%s' "$$query" | grep -qE '^[0-9a-f]{40}$$'; then \
-				printf '[ERROR] %s: "%s" is not a full 40-char commit hash\n' "$$mod" "$$query"; \
-				exit 1; \
+				printf '[ERROR] %s: "%s" is not a full 40-char commit hash\n' "$$mod" "$$query"; exit 1; \
 			fi; \
 			printf '[>] Adding adapter via git: %s@%s\n' "$$mod" "$$query"; \
 			GOPROXY=direct go get "$$mod@$$query" || exit 1; \
 			printf '\t_ "%s"\n' "$$mod" >> "$(PLUGINS)"; \
 		done || exit 1; \
 		printf ')\n' >> "$(PLUGINS)"; \
-		printf '[>] Tidying module...\n'; \
-		go mod tidy || exit 1; \
+		printf '[>] Tidying module...\n'; go mod tidy || exit 1; \
 	fi
 	@printf '[OK] Plugins generated.\n'
-else
-generate-plugins:
-	@printf '[>] QUICK mode - skipping adapter loading.\n'
-endif
 
-# -- prepare-frontend ----------------------------------------------------------
-ifeq ($(filter 1 true,$(QUICK)),)
-prepare-frontend: generate-plugins
+prepare-frontend:
+	@$(MAKE) stop
 	@printf '\n== Frontend ==\n'
-	mkdir -p "$(UI_DIR)/src/lib/generated"
-	cd "$(UI_DIR)" && $(NPM) install
-	cd "$(UI_DIR)" && $(NPM) run build
+	@mkdir -p "$(UI_DIR)/src/lib/generated"
+	@cd "$(UI_DIR)" && $(NPM) install --no-audit --no-fund
+	@cd "$(UI_DIR)" && $(NPM) run build
 	@printf '[OK] Frontend ready.\n'
-else
-prepare-frontend: generate-plugins
-	@printf '[>] QUICK mode - skipping frontend build.\n'
-endif
 
-# -- run -----------------------------------------------------------------------
-# QUICK=1 skips adapters and svelte build — goes straight to `go run .`
-run: prepare-frontend
-	@if [ "$(QUICK)" = "1" ] || [ "$(QUICK)" = "true" ]; then printf '[>] QUICK mode enabled - adapters and svelte build skipped.\n'; fi
-	@printf '[>] Starting dashboard %s and API %s, will open %s once it responds...\n' "http://localhost:$(DASHBOARD_PORT)" "http://localhost:$(API_PORT)" "$(URL)"
-	@printf '[>] Using dev DB: %s\n' "$(DEV_DB)"
-	@mkdir -p "$(dir $(DEV_DB))"
-	@( \
-		i=0; \
-		while [ $$i -lt 60 ]; do \
-			if (exec 3<>"/dev/tcp/localhost/$(DASHBOARD_PORT)") 2>/dev/null; then \
-				exec 3>&- 3<&-; \
-				if command -v "$(firstword $(OPEN_CMD))" >/dev/null 2>&1; then \
-					$(OPEN_CMD) "$(URL)" || printf '[WARN] Browser launch command failed. Open %s manually.\n' "$(URL)"; \
-				else \
-					printf '[WARN] "$(firstword $(OPEN_CMD))" not found on PATH. Open %s manually.\n' "$(URL)"; \
-				fi; \
-				exit 0; \
-			fi; \
-			sleep 0.5; i=$$((i+1)); \
-		done; \
-		printf '[WARN] Timed out waiting for %s to come up - open it manually.\n' "$(URL)" \
-	) &
-	go run . --web $(DASHBOARD_PORT) --api $(API_PORT) --db "$(DEV_DB)"
+start:
+	@mkdir -p "$(dir $(DEV_DB))" "$(dir $(PID_FILE))"
+	@if [ -f "$(PID_FILE)" ] && kill -0 $$(cat "$(PID_FILE)") 2>/dev/null; then \
+		printf '[>] Already running PID %s (log %s)\n' "$$(cat $(PID_FILE))" "$(LOG_FILE)"; exit 0; \
+	fi; \
+	rm -f "$(PID_FILE)"; \
+	printf '[>] Building dev binary to %s...\n' "$(TMP_BIN)"; \
+	go build -o "$(TMP_BIN)" . || exit 1; \
+	printf '[>] Starting llm-router --web 8080 --api 8081 --db %s (pid %s, log %s)...\n' "$(DEV_DB)" "$(PID_FILE)" "$(LOG_FILE)"; \
+	if command -v nohup >/dev/null 2>&1; then \
+		nohup "$(TMP_BIN)" --web 8080 --api 8081 --db "$(DEV_DB)" > "$(LOG_FILE)" 2>&1 & echo $$! > "$(PID_FILE)"; \
+	else \
+		"$(TMP_BIN)" --web 8080 --api 8081 --db "$(DEV_DB)" > "$(LOG_FILE)" 2>&1 & echo $$! > "$(PID_FILE)"; \
+	fi; \
+	sleep 0.3; \
+	if kill -0 $$(cat "$(PID_FILE)") 2>/dev/null; then \
+		printf '[OK] Started PID %s\n' "$$(cat $(PID_FILE))"; \
+	else \
+		printf '[FAIL] Start failed, log:\n'; cat "$(LOG_FILE)" 2>/dev/null || true; rm -f "$(PID_FILE)"; exit 1; \
+	fi
 
-# -- build (current platform only) --------------------------------------------
-build: prepare-frontend
-	@printf '[>] Compiling for current platform...\n'
-	go build -o "$(LOCAL_BIN)" .
-	@printf '[OK] Binary: $(LOCAL_BIN)\n'
+stop:
+	@if [ ! -f "$(PID_FILE)" ]; then printf '[>] Not running (no pid file %s)\n' "$(PID_FILE)"; exit 0; fi; \
+	pid=$$(cat "$(PID_FILE)"); printf '[>] Stopping PID %s...\n' "$$pid"; \
+	if kill -0 $$pid 2>/dev/null; then \
+		kill $$pid 2>/dev/null || true; \
+		sleep 1; \
+		if kill -0 $$pid 2>/dev/null; then \
+			kill -9 $$pid 2>/dev/null || true; \
+			taskkill //F //PID $$pid 2>/dev/null || true; \
+			powershell -NoProfile -Command "try { Stop-Process -Id $$pid -Force -ErrorAction Stop } catch {}" 2>/dev/null || true; \
+		fi; \
+	fi; \
+	rm -f "$(PID_FILE)"; printf '[OK] Stopped\n'
 
-# -- Per-platform build (pattern rule) ----------------------------------------
-#
-# A single pattern rule replaces the old define/call/eval template.
-# On GNU Make "Built for Windows32", $$ escaping in define-block recipes is
-# broken: $$_goos is parsed as Make-variable $_ (empty) + literal "goos",
-# not as a deferred shell variable.  A pattern rule avoids that entirely:
-# $* is a proper Make automatic variable (the stem, e.g. "linux_amd64"),
-# expanded by Make before the shell sees the recipe.  $(subst _,/,$*) turns
-# the stem back into a GOOS/GOARCH pair without any space-as-replacement
-# tricks.  All values are baked in as literals before the shell runs.
+restart:
+	@$(MAKE) stop
+	@$(MAKE) start
 
-FORCE:
+clean:
+	@$(MAKE) stop
+	@printf '[>] Cleaning git-ignored files (git clean -fdx)...\n'
+	@git clean -fdx
+	@printf '[OK] Clean.\n'
 
-_build_%: FORCE
-	@set -e; \
-	_goos="$(patsubst %/,%,$(dir $(subst _,/,$*)))"; \
-	_goarch="$(notdir $(subst _,/,$*))"; \
-	if [ "$$_goos" = "windows" ]; then _bin="$(BINARY).exe"; else _bin="$(BINARY)"; fi; \
-	mkdir -p "$(PUBLISH)/$${_goos}_$${_goarch}"; \
-	printf '[>] Building %s/%s...\n' "$$_goos" "$$_goarch"; \
-	GOOS=$$_goos GOARCH=$$_goarch go build -ldflags="$(LDFLAGS)" \
-	    -o "$(PUBLISH)/$${_goos}_$${_goarch}/$$_bin" . \
-	    || { printf '[FAIL] Build failed: %s/%s\n' "$$_goos" "$$_goarch"; exit 1; }; \
-	(cd "$(PUBLISH)/$${_goos}_$${_goarch}" && zip -q "$(BINARY)_$${_goos}_$${_goarch}.zip" "$$_bin") \
-	    || { printf '[FAIL] Archive failed: %s/%s\n' "$$_goos" "$$_goarch"; exit 1; }; \
-	$(SHA256) "$(PUBLISH)/$${_goos}_$${_goarch}/$(BINARY)_$${_goos}_$${_goarch}.zip" \
-	    > "$(PUBLISH)/_cksum_$${_goos}_$${_goarch}.tmp"; \
-	printf '[OK] Done: %s/%s\n' "$$_goos" "$$_goarch"
-
-# -- release -------------------------------------------------------------------
-#
-# 1. Prepares frontend once.
-# 2. Spawns all platform builds in parallel via $(MAKE) -j.
-#    make already tracks failures: any failing _build_* target causes make to
-#    report an error and exit non-zero after parallel jobs finish, which is
-#    equivalent to the original's fail-marker / counter approach.
-# 3. Merges and sorts the isolated per-build checksum temp files into one
-#    manifest, then removes the temp files.
-
-release: prepare-frontend
-	@printf '\n== Release - $(VERSION) ==\n'
+publish: prepare-frontend prepare-plugins
+	@printf '\n== Publish - $(VERSION) ==\n'
 	@printf '  Commit:     $(GIT_COMMIT)\n'
 	@printf '  Build time: $(BUILD_TIME)\n\n'
-	rm -rf "$(PUBLISH)"
-	mkdir -p "$(PUBLISH)"
-	@printf '[>] Building $(words $(PLATFORMS)) platforms in parallel...\n'
-	$(MAKE) -j $(PLATFORM_TARGETS)
-	@# Merge per-build checksum temp files into one sorted manifest
+	@rm -rf "$(PUBLISH)"
+	@mkdir -p "$(PUBLISH)"
+	@printf '[>] Building %s platforms...\n' "$(words $(PUBLISH_PLATFORMS))"
+	@for plat in $(PUBLISH_PLATFORMS); do \
+		_goos=$$(echo $$plat | cut -d/ -f1); \
+		_goarch=$$(echo $$plat | cut -d/ -f2); \
+		if [ "$$_goos" = "windows" ]; then _bin="$(BINARY).exe"; else _bin="$(BINARY)"; fi; \
+		mkdir -p "$(PUBLISH)/$${_goos}_$${_goarch}"; \
+		printf '[>] Building %s/%s...\n' "$$_goos" "$$_goarch"; \
+		GOOS=$$_goos GOARCH=$$_goarch go build -ldflags="$(LDFLAGS)" -o "$(PUBLISH)/$${_goos}_$${_goarch}/$$_bin" . || { printf '[FAIL] Build failed: %s/%s\n' "$$_goos" "$$_goarch"; exit 1; }; \
+		(cd "$(PUBLISH)/$${_goos}_$${_goarch}" && zip -q "$(BINARY)_$${_goos}_$${_goarch}.zip" "$$_bin") || { printf '[FAIL] Archive failed: %s/%s\n' "$$_goos" "$$_goarch"; exit 1; }; \
+		$(SHA256) "$(PUBLISH)/$${_goos}_$${_goarch}/$(BINARY)_$${_goos}_$${_goarch}.zip" > "$(PUBLISH)/_cksum_$${_goos}_$${_goarch}.tmp"; \
+		printf '[OK] Done: %s/%s\n' "$$_goos" "$$_goarch"; \
+	done
 	@cat $(PUBLISH)/_cksum_*.tmp 2>/dev/null | sort > "$(PUBLISH)/checksums.txt"
 	@rm -f $(PUBLISH)/_cksum_*.tmp
 	@printf '\n[OK] Artifacts in  $(PUBLISH)/\n'
 	@printf '[OK] Checksums in  $(PUBLISH)/checksums.txt\n'
-
-# -- clean ---------------------------------------------------------------------
-clean:
-	@printf '[>] Cleaning ignored build artifacts...\n'
-	git clean -fdX
-	@printf '[OK] Clean.\n'
