@@ -128,7 +128,10 @@ prepare: prepare-frontend prepare-plugins
 start:
 	@mkdir -p "$(dir $(DEV_DB))" "$(dir $(PID_FILE))"
 	@if [ -f "$(PID_FILE)" ] && kill -0 $$(cat "$(PID_FILE)") 2>/dev/null; then \
-		printf '[>] Already running PID %s (log %s)\n' "$$(cat $(PID_FILE))" "$(LOG_FILE)"; exit 0; \
+		printf '[>] Already running PID %s (log %s)\n' "$$(cat $(PID_FILE))" "$(LOG_FILE)"; \
+		printf 'Dashboard: http://localhost:8080\n'; \
+		printf 'API: http://localhost:8081/v1\n'; \
+		exit 0; \
 	fi; \
 	rm -f "$(PID_FILE)"; \
 	printf '[>] Building dev binary to %s...\n' "$(TMP_BIN)"; \
@@ -142,6 +145,8 @@ start:
 	sleep 0.3; \
 	if kill -0 $$(cat "$(PID_FILE)") 2>/dev/null; then \
 		printf '[OK] Started PID %s\n' "$$(cat $(PID_FILE))"; \
+		printf 'Dashboard: http://localhost:8080\n'; \
+		printf 'API: http://localhost:8081/v1\n'; \
 	else \
 		printf '[FAIL] Start failed, log:\n'; cat "$(LOG_FILE)" 2>/dev/null || true; rm -f "$(PID_FILE)"; exit 1; \
 	fi
