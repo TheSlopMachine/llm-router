@@ -55,16 +55,18 @@ endif
 
 LDFLAGS = -s -w -X main.Version=$(VERSION) -X main.GitCommit=$(GIT_COMMIT) -X main.BuildTime=$(BUILD_TIME)
 
-.PHONY: help prepare-plugins prepare-frontend start stop restart clean publish
+.PHONY: help prepare-plugins prepare-frontend prepare start stop restart status clean publish
 
 help:
 	@printf '\nUsage: make <target>\n\n'
 	@printf 'Targets:\n'
 	@printf '  prepare-plugins   Install adapters from %s\n' "$(ADAPTERS)"
 	@printf '  prepare-frontend  npm install && build frontend\n'
+	@printf '  prepare           prepare-frontend + prepare-plugins\n'
 	@printf '  start             Build dev binary to temp and start daemon (db %s)\n' "$(DEV_DB)"
 	@printf '  stop              Stop daemon\n'
 	@printf '  restart           Stop + start\n'
+	@printf '  status            Show dev server status (pid/log)\n'
 	@printf '  clean             Stop + git clean -fdx\n'
 	@printf '  publish           prepare-frontend + prepare-plugins + build all PUBLISH_PLATFORMS\n\n'
 	@printf 'Variables:\n'
@@ -106,6 +108,9 @@ prepare-frontend:
 	@cd "$(UI_DIR)" && $(NPM) run build
 	@printf '[OK] Frontend ready.\n'
 
+prepare: prepare-frontend prepare-plugins
+	@printf '[OK] Prepare done\n'
+
 start:
 	@mkdir -p "$(dir $(DEV_DB))" "$(dir $(PID_FILE))"
 	@if [ -f "$(PID_FILE)" ] && kill -0 $$(cat "$(PID_FILE)") 2>/dev/null; then \
@@ -144,6 +149,14 @@ stop:
 restart:
 	@$(MAKE) stop
 	@$(MAKE) start
+
+status:
+	@if [ -f "$(PID_FILE)" ] && kill -0 $$(cat "$(PID_FILE)") 2>/dev/null; then \
+		printf 'llm-router dev server is running as PID %s\n' "$$(cat $(PID_FILE))"; \
+	else \
+		printf 'llm-router dev server is not running\n'; \
+	fi; \
+	printf 'Log: %s\n' "$(LOG_FILE)"
 
 clean:
 	@$(MAKE) stop
