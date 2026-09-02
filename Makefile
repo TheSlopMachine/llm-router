@@ -177,7 +177,7 @@ run: prepare-frontend
 		done; \
 		printf '[WARN] Timed out waiting for %s to come up - open it manually.\n' "$(URL)" \
 	) &
-	go run . --dashboard-port $(DASHBOARD_PORT) --api-port $(API_PORT) --db "$(DEV_DB)"
+	go run . --web $(DASHBOARD_PORT) --api $(API_PORT) --db "$(DEV_DB)"
 
 # -- build (current platform only) --------------------------------------------
 build: prepare-frontend

@@ -16,8 +16,7 @@ import (
 )
 
 var (
-	listenAddr           string
-	dashboardPort        string
+	webPort              string
 	apiPort              string
 	dbPath               string
 	debug                bool
@@ -49,8 +48,8 @@ Ships a lightweight HTMX dashboard for administration.
 Dashboard and /v1 API run on separate ports.
 
 Examples:
-  llm-router localhost -p 8080 --api-port 8081 --db ./router.db
-  llm-router 0.0.0.0 --dashboard-port 3000 --api-port 3001 --db /var/lib/llm-router/data.db`,
+  llm-router localhost --web 8080 --api 8081 --db ./llm-router.db
+  llm-router 0.0.0.0 --web 3000 --api 3001 --db /var/lib/llm-router/data.db`,
 
 	Args: cobra.MaximumNArgs(1),
 	RunE: run,
@@ -64,13 +63,23 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.Flags().StringVarP(&listenAddr, "port", "p", "8080", "port to listen on (dashboard, alias for --dashboard-port)")
-	rootCmd.Flags().StringVar(&dashboardPort, "dashboard-port", "", "port for dashboard UI (default: value of --port)")
-	rootCmd.Flags().StringVar(&apiPort, "api-port", "8081", "port for /v1 OpenAI-compatible API")
+	rootCmd.Flags().StringVar(&webPort, "web", "8080", "port for dashboard UI")
+	rootCmd.Flags().StringVar(&apiPort, "api", "8081", "port for /v1 OpenAI-compatible API")
 	rootCmd.Flags().StringVar(&dbPath, "db", "llm-router.db", "path to the bbolt database file")
 	rootCmd.Flags().BoolVar(&debug, "debug", false, "enable verbose debug logging")
 	rootCmd.Flags().IntVar(&maxCredentialRetries, "max-retries", 7, "max credential rotation retry cycles (exponential backoff)")
 	rootCmd.Flags().BoolVarP(&versionFlag, "version", "v", false, "print version information and exit")
+
+	// Deprecated aliases for backward compatibility (hidden)
+	rootCmd.Flags().StringVar(&webPort, "dashboard-port", "8080", "")
+	_ = rootCmd.Flags().MarkHidden("dashboard-port")
+	_ = rootCmd.Flags().MarkDeprecated("dashboard-port", "use --web instead")
+	rootCmd.Flags().StringVarP(&webPort, "port", "p", "8080", "")
+	_ = rootCmd.Flags().MarkHidden("port")
+	_ = rootCmd.Flags().MarkDeprecated("port", "use --web instead")
+	rootCmd.Flags().StringVar(&apiPort, "api-port", "8081", "")
+	_ = rootCmd.Flags().MarkHidden("api-port")
+	_ = rootCmd.Flags().MarkDeprecated("api-port", "use --api instead")
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -86,11 +95,7 @@ func run(cmd *cobra.Command, args []string) error {
 		host = args[0]
 	}
 
-	// Resolve dashboard port: --dashboard-port takes precedence over --port
-	dashPort := dashboardPort
-	if dashPort == "" {
-		dashPort = listenAddr
-	}
+	dashPort := webPort
 	if dashPort == "" {
 		dashPort = "8080"
 	}
