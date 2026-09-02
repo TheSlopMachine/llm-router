@@ -13,6 +13,8 @@ PLUGINS    := plugins/plugins.go
 
 PUBLISH_PLATFORMS ?= windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64
 
+URL ?= http://localhost:8080
+
 ifeq ($(OS),Windows_NT)
   DEV_DB ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.db
 else
@@ -45,17 +47,28 @@ ifeq ($(OS),Windows_NT)
   GIT_COMMIT := $(if $(_GIT_RAW),$(_GIT_RAW),unknown)
   BUILD_TIME := $(shell powershell -NoProfile -Command "[System.DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')")
   SHA256    := sha256sum
+  OPEN_CMD  := powershell -NoProfile -Command Start-Process
 else
   NPM       := npm
   GOPATH    := $(shell go env GOPATH 2>/dev/null)
   GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
   BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
   SHA256    := $(shell command -v sha256sum 2>/dev/null || echo "shasum -a 256")
+  UNAME_S   := $(shell uname -s)
+  ifneq ($(filter MINGW% CYGWIN%,$(UNAME_S)),)
+    OPEN_CMD := powershell -NoProfile -Command Start-Process
+  else ifeq ($(UNAME_S),Darwin)
+    OPEN_CMD := open
+  else ifneq ($(shell grep -qi microsoft /proc/version 2>/dev/null && echo wsl),)
+    OPEN_CMD := $(if $(shell command -v wslview 2>/dev/null),wslview,cmd.exe /c start "")
+  else
+    OPEN_CMD := xdg-open
+  endif
 endif
 
 LDFLAGS = -s -w -X main.Version=$(VERSION) -X main.GitCommit=$(GIT_COMMIT) -X main.BuildTime=$(BUILD_TIME)
 
-.PHONY: help prepare-plugins prepare-frontend prepare start stop restart status clean publish
+.PHONY: help prepare-plugins prepare-frontend prepare start stop restart status browser clean publish
 
 help:
 	@printf '\nUsage: make <target>\n\n'
@@ -67,6 +80,7 @@ help:
 	@printf '  stop              Stop daemon\n'
 	@printf '  restart           Stop + start\n'
 	@printf '  status            Show dev server status (pid/log)\n'
+	@printf '  browser           Open dashboard in browser (%s)\n' "$(URL)"
 	@printf '  clean             Stop + git clean -fdx\n'
 	@printf '  publish           prepare-frontend + prepare-plugins + build all PUBLISH_PLATFORMS\n\n'
 	@printf 'Variables:\n'
@@ -157,6 +171,13 @@ status:
 		printf 'llm-router dev server is not running\n'; \
 	fi; \
 	printf 'Log: %s\n' "$(LOG_FILE)"
+
+browser:
+	@if command -v "$(firstword $(OPEN_CMD))" >/dev/null 2>&1; then \
+		$(OPEN_CMD) "$(URL)" || printf '[WARN] Browser launch failed. Open %s manually.\n' "$(URL)"; \
+	else \
+		printf '[WARN] "$(firstword $(OPEN_CMD))" not found. Open %s manually.\n' "$(URL)"; \
+	fi
 
 clean:
 	@$(MAKE) stop
