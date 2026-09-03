@@ -170,6 +170,52 @@ func (s *Service) UpdateRules(id string, rules models.TokenRules) error {
 	})
 }
 
+// Regenerate replaces the secret of an existing token with a new one.
+// The token keeps its ID, Name and Rules; the old secret is invalidated.
+func (s *Service) Regenerate(id string) (*models.RouterToken, error) {
+	if id == "testing-key" {
+		return nil, fmt.Errorf("cannot regenerate testing-key")
+	}
+	raw, err := util.GenerateToken()
+	if err != nil {
+		return nil, fmt.Errorf("generate token secret: %w", err)
+	}
+	newHash := util.HashSecret(raw)
+	var result *models.RouterToken
+	var oldHash string
+	err = s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(db.BucketTokens)
+		data := b.Get([]byte(id))
+		if data == nil {
+			return fmt.Errorf("token %q not found", id)
+		}
+		var t models.RouterToken
+		if err := json.Unmarshal(data, &t); err != nil {
+			return fmt.Errorf("unmarshal token: %w", err)
+		}
+		oldHash = t.TokenHash
+		t.TokenHash = newHash
+		enc, err := json.Marshal(&t)
+		if err != nil {
+			return fmt.Errorf("marshal token: %w", err)
+		}
+		if err := b.Put([]byte(id), enc); err != nil {
+			return err
+		}
+		result = &t
+		idx := tx.Bucket(db.BucketTokenIndex)
+		if oldHash != "" {
+			_ = idx.Delete([]byte(oldHash))
+		}
+		return idx.Put([]byte(newHash), []byte(id))
+	})
+	if err != nil {
+		return nil, err
+	}
+	result.Token = raw
+	return result, nil
+}
+
 // ─────────────────────────────────────────────
 // Internal helpers
 // ─────────────────────────────────────────────

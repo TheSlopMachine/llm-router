@@ -88,6 +88,7 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("GET /api/llm-router/dashboard/tokens", h.requireAuth(h.apiTokensList))
 	mux.HandleFunc("POST /api/llm-router/dashboard/tokens", h.requireAuth(h.apiTokensCreate))
 	mux.HandleFunc("PUT /api/llm-router/dashboard/tokens/{id}", h.requireAuth(h.apiTokensUpdate))
+	mux.HandleFunc("POST /api/llm-router/dashboard/tokens/{id}/regenerate", h.requireAuth(h.apiTokensRegenerate))
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/tokens/{id}", h.requireAuth(h.apiTokensDelete))
 
 	mux.HandleFunc("GET /api/llm-router/dashboard/credentials", h.requireAuth(h.apiCredentialsList))

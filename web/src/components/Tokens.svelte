@@ -45,6 +45,7 @@
       props: {
         providers,
         editingToken: null,
+        cloningToken: null,
         onComplete: async (result: { token?: string }) => {
           if (result.token) {
             newTokenSecret = result.token
@@ -68,12 +69,53 @@
       props: {
         providers,
         editingToken: token,
+        cloningToken: null,
         onComplete: async () => {
           modal.close()
           await load()
         }
       }
     })
+  }
+
+  function openClone(token: Token): void {
+    newTokenSecret = null
+    error = ''
+    modal.open({
+      title: 'Clone token',
+      content: TokenWizard,
+      severity: 'medium',
+      size: 'large',
+      props: {
+        providers,
+        editingToken: null,
+        cloningToken: token,
+        onComplete: async (result: { token?: string }) => {
+          if (result.token) newTokenSecret = result.token
+          modal.close()
+          await load()
+        }
+      }
+    })
+  }
+
+  async function regenerate(id: string, name: string): Promise<void> {
+    const confirmed = await modal.confirm({
+      title: 'Regenerate token',
+      message: `Regenerate secret for "${name}"? The old secret will be invalidated immediately.`,
+      severity: 'high',
+      confirmText: 'Regenerate',
+      cancelText: 'Cancel',
+      danger: true
+    })
+    if (!confirmed) return
+    try {
+      const res: any = await api.tokens.regenerate(id)
+      newTokenSecret = res?.token ?? res?.Token ?? res?.token_hash ?? null
+      await load()
+    } catch (e) {
+      error = (e as Error).message
+    }
   }
 
   async function remove(id: string, name: string): Promise<void> {
@@ -182,6 +224,8 @@
             <td>{getUsage(t.id).toLocaleString()}</td>
             <td class="row-actions">
               <button class="btn btn-primary" on:click={() => openEdit(t)}>Edit</button>
+              <button class="btn btn-secondary" on:click={() => openClone(t)}>Clone</button>
+              <button class="btn btn-secondary" on:click={() => regenerate(t.id, t.name)}>Regenerate</button>
               <button class="btn btn-danger" on:click={() => remove(t.id, t.name)}>Revoke</button>
             </td>
           </tr>

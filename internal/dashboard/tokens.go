@@ -116,6 +116,26 @@ func (h *Handler) apiTokensUpdate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// apiTokensRegenerate regenerates the secret for a router token
+// @Summary      Regenerate token secret
+// @Description  Generates a new secret for an existing token. Old secret is invalidated. ID and rules are kept.
+// @Tags         Tokens
+// @Produce      json
+// @Param        id path string true "Token ID"
+// @Success      200 {object} models.RouterToken
+// @Failure      404 {object} models.ErrorResponse
+// @Failure      500 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/tokens/{id}/regenerate [post]
+func (h *Handler) apiTokensRegenerate(w http.ResponseWriter, r *http.Request) {
+	t, err := h.tokenSvc.Regenerate(r.PathValue("id"))
+	if err != nil {
+		h.jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.json(w, http.StatusOK, t)
+}
+
 // apiTokensDelete revokes a router token
 // @Summary      Revoke token
 // @Description  Permanently revokes a router token.

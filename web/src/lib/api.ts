@@ -53,6 +53,9 @@ export const api = {
     delete: (id: string) => 
       apiCall('delete', path(`/dashboard/tokens/${id}` as '/dashboard/tokens/{id}')),
 
+    regenerate: (id: string) =>
+      apiCall('post', path(`/dashboard/tokens/${id}/regenerate` as '/dashboard/tokens/{id}/regenerate'), { body: {} as any } as any),
+
     usage: () => 
       apiCall('get', path('/dashboard/tokens/usage')),
   },

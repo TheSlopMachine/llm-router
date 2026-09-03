@@ -5,6 +5,7 @@
 
   export let providers: Provider[]
   export let editingToken: Token | null = null
+  export let cloningToken: Token | null = null
   export let onComplete: (result: { token?: string }) => void
   
   export let updateButtons: (buttons: ModalButton[]) => void
@@ -26,9 +27,10 @@
   let allCredentials: Array<{ id: string; provider_id: string; provider_name: string; label: string; is_expired: boolean }> = []
 
   onMount(async () => {
-    if (editingToken) {
-      tokenName = editingToken.name
-      const r: any = editingToken.rules || {}
+    const source = editingToken ?? cloningToken
+    if (source) {
+      const r: any = source.rules || {}
+      tokenName = cloningToken ? `${source.name} (copy)` : source.name
       allowAllProviders = !!r.allow_all_providers
       selectedProviders = new Set(r.allowed_providers || [])
       allowAllModels = !!r.allow_all_models
@@ -75,7 +77,7 @@
   }))
 
   function updateStepButtons(): void {
-    const title = editingToken ? 'Edit token' : 'New token'
+    const title = editingToken ? 'Edit token' : cloningToken ? 'Clone token' : 'New token'
     
     if (wizardStep === 1) {
       updateTitle(`${title} · Step 1 of 3`)
