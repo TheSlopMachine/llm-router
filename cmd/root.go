@@ -7,18 +7,22 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
 
 	"github.com/TheSlopMachine/llm-router/internal/config"
 	"github.com/TheSlopMachine/llm-router/internal/server"
+	"github.com/TheSlopMachine/llm-router/internal/util"
 )
 
 var (
 	webPort              string
 	apiPort              string
 	dbPath               string
+	testingKeyPath       string
 	debug                bool
 	maxCredentialRetries int
 	versionFlag          bool
@@ -66,6 +70,7 @@ func init() {
 	rootCmd.Flags().StringVar(&webPort, "web", "8080", "port for dashboard UI")
 	rootCmd.Flags().StringVar(&apiPort, "api", "8081", "port for /v1 OpenAI-compatible API")
 	rootCmd.Flags().StringVar(&dbPath, "db", "llm-router.db", "path to the bbolt database file")
+	rootCmd.Flags().StringVar(&testingKeyPath, "testing-key", "", "path to file with ephemeral testing bearer token (generated if missing, not stored in DB)")
 	rootCmd.Flags().BoolVar(&debug, "debug", false, "enable verbose debug logging")
 	rootCmd.Flags().IntVar(&maxCredentialRetries, "max-retries", 7, "max credential rotation retry cycles (exponential backoff)")
 	rootCmd.Flags().BoolVarP(&versionFlag, "version", "v", false, "print version information and exit")
@@ -113,6 +118,16 @@ func run(cmd *cobra.Command, args []string) error {
 		DBPath:               dbPath,
 		Debug:                debug,
 		MaxCredentialRetries: maxCredentialRetries,
+		TestingKeyPath:       testingKeyPath,
+	}
+
+	// Resolve testing key file (generate if missing)
+	if testingKeyPath != "" {
+		raw, err := ensureTestingKey(testingKeyPath)
+		if err != nil {
+			return fmt.Errorf("testing-key: %w", err)
+		}
+		cfg.TestingKey = raw
 	}
 
 	// Logger
@@ -121,6 +136,10 @@ func run(cmd *cobra.Command, args []string) error {
 		level = slog.LevelDebug
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+
+	if cfg.TestingKey != "" {
+		logger.Info("testing key enabled", "path", cfg.TestingKeyPath)
+	}
 
 	// Build server
 	srv, err := server.New(cfg, logger)
@@ -134,5 +153,38 @@ func run(cmd *cobra.Command, args []string) error {
 	defer stop()
 
 	return srv.Run(ctx)
+}
+
+func ensureTestingKey(path string) (string, error) {
+	clean := filepath.Clean(path)
+
+	// Ensure parent directory exists
+	if dir := filepath.Dir(clean); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return "", fmt.Errorf("create testing-key dir %q: %w", dir, err)
+		}
+	}
+
+	// Try to read existing file
+	data, err := os.ReadFile(clean)
+	if err == nil {
+		raw := strings.TrimSpace(string(data))
+		if raw != "" {
+			return raw, nil
+		}
+		// empty file → regenerate below
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("read testing-key file %q: %w", clean, err)
+	}
+
+	// Generate new token
+	raw, err := util.GenerateToken()
+	if err != nil {
+		return "", fmt.Errorf("generate testing token: %w", err)
+	}
+	if err := os.WriteFile(clean, []byte(raw+"\n"), 0600); err != nil {
+		return "", fmt.Errorf("write testing-key file %q: %w", clean, err)
+	}
+	return raw, nil
 }
 

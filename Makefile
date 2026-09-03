@@ -22,8 +22,10 @@ URL ?= http://localhost:8080
 
 ifeq ($(OS),Windows_NT)
   DEV_DB ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.db
+  DEV_KEY ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.key
 else
   DEV_DB ?= $(HOME)/.local/llm-router/llm-router-dev.db
+  DEV_KEY ?= $(HOME)/.local/llm-router/llm-router-dev.key
 endif
 
 ifeq ($(OS),Windows_NT)
@@ -174,22 +176,24 @@ start:
 		printf '[>] Already running PID %s (log %s)\n' "$$(cat $(PID_FILE))" "$(LOG_URI)"; \
 		printf 'Dashboard: http://localhost:8080\n'; \
 		printf 'API: http://localhost:8081/v1\n'; \
+		if [ -f "$(DEV_KEY)" ]; then printf 'API Key: %s\n' "$$(cat $(DEV_KEY))"; fi; \
 		exit 0; \
 	fi; \
 	rm -f "$(PID_FILE)"; \
 	printf '[>] Building dev binary to %s...\n' "$(TMP_BIN)"; \
 	go build -o "$(TMP_BIN)" . || exit 1; \
-	printf '[>] Starting llm-router --web 8080 --api 8081 --db %s (pid %s, log %s)...\n' "$(DEV_DB)" "$(PID_FILE)" "$(LOG_URI)"; \
+	printf '[>] Starting llm-router --web 8080 --api 8081 --db %s --testing-key %s (pid %s, log %s)...\n' "$(DEV_DB)" "$(DEV_KEY)" "$(PID_FILE)" "$(LOG_URI)"; \
 	if command -v nohup >/dev/null 2>&1; then \
-		nohup "$(TMP_BIN)" --web 8080 --api 8081 --db "$(DEV_DB)" > "$(LOG_FILE)" 2>&1 & echo $$! > "$(PID_FILE)"; \
+		nohup "$(TMP_BIN)" --web 8080 --api 8081 --db "$(DEV_DB)" --testing-key "$(DEV_KEY)" > "$(LOG_FILE)" 2>&1 & echo $$! > "$(PID_FILE)"; \
 	else \
-		"$(TMP_BIN)" --web 8080 --api 8081 --db "$(DEV_DB)" > "$(LOG_FILE)" 2>&1 & echo $$! > "$(PID_FILE)"; \
+		"$(TMP_BIN)" --web 8080 --api 8081 --db "$(DEV_DB)" --testing-key "$(DEV_KEY)" > "$(LOG_FILE)" 2>&1 & echo $$! > "$(PID_FILE)"; \
 	fi; \
 	sleep 0.3; \
 	if kill -0 $$(cat "$(PID_FILE)") 2>/dev/null; then \
 		printf '[OK] Started PID %s\n' "$$(cat $(PID_FILE))"; \
 		printf 'Dashboard: http://localhost:8080\n'; \
 		printf 'API: http://localhost:8081/v1\n'; \
+		if [ -f "$(DEV_KEY)" ]; then printf 'API Key: %s\n' "$$(cat $(DEV_KEY))"; fi; \
 	else \
 		printf '[FAIL] Start failed, log:\n'; cat "$(LOG_FILE)" 2>/dev/null || true; rm -f "$(PID_FILE)"; exit 1; \
 	fi

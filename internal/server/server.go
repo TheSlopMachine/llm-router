@@ -68,7 +68,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 
 	providerSvc := provider.NewService(database)
 	adminSvc := admin.New(database, providerSvc)
-	tokenSvc := token.New(database)
+	tokenSvc := token.NewWithTestingKey(database, cfg.TestingKey)
 	authSvc := auth.New(database)
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)

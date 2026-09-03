@@ -78,8 +78,10 @@ Dev DB: `~/.local/llm-router/llm-router-dev.db` (auto-created). Temp files: `$(T
 1. **DO NOT LITTER WITH TEMPORARY FILES WITHIN THE PROJECT**
    All temporary files, logs, pids, dev binaries must go to `temp` (`$(TEMP)/` or `/tmp`) or `~/.local/llm-router/`. Never create `*.log`, `*.pid`, `*.tmp`, `llm-router.exe` in the project directory. Use the Makefile's `TMP_BIN/PID_FILE/LOG_FILE`.
 
-2. **DO NOT RUN Start-Process, go run or go build -o ./llm-router.exe. Use "make start" instead.**
-   The only supported way to run the dev server is `make start` (or `make restart`). It handles `DEV_DB` creation, `go build -o <temp>`, daemonization, pid/log, and port flags `--web/--api`. Direct `go run .`, `go build -o ./llm-router.exe`, or `Start-Process` bypass the pid/log contract and break `stop`/`status`/`restart`.
+2. **DO NOT RUN Start-Process, go run or go build -o ./llm-router.exe. Use "make start" instead. ABSOLUTE BAN ON DIRECT go run.**
+   The ONLY supported way to run/build the dev server is `make start` (or `make restart`). It handles `DEV_DB` creation, `go build -o <temp>`, daemonization, pid/log, and port flags `--web/--api/--db/--testing-key`. Direct `go run .`, `go run -tags ... .`, `go build -o ./llm-router.exe`, or `Start-Process`/`powershell go run` bypass the pid/log contract and break `stop`/`status`/`restart` and `DEV_KEY` handling.
+   FORBIDDEN in all forms: `go run .`, `go run ./...`, `go build -o .\llm-router.exe`, `Start-Process go`, `& go run`, `python -c "subprocess.Popen(['go','run',...])"`, or any wrapper that invokes `go run`/`go build` directly.
+   ALWAYS use `make start` / `make stop` / `make restart` / `make status`. If a verification is impossible via `make start/stop/status` (custom ports, testing-key path, isolated DB, etc.), **STOP and ASK the user** — do not improvise a direct `go run` invocation.
 
 3. **DO NOT RUN MUTABLE GIT OPERATIONS**
    Never run `git commit`, `git push`, `git reset`, `git checkout -f`, `git clean` directly. Use `make clean` (which does `stop` + `git clean -fdx`). Do not amend, force-push, or modify `adapters.conf` without going through `prepare-workspace`. Only commit when explicitly requested. Do not touch version control otherwise — no staging, no commits.
@@ -89,3 +91,6 @@ Dev DB: `~/.local/llm-router/llm-router-dev.db` (auto-created). Temp files: `$(T
 
 5. **DO NOT RUN RAW COMMANDS DIRECTLY WHEN THEY HAVE ALTERNATIVES (IN MAKE ACTIONS)**
    Never run raw `go vet`, `go test`, `npm install`, `npm run build`, `git clean` directly when a Makefile target exists (`go-check`, `go-test`, `prepare-workspace`, `prepare-frontend`, `clean`, etc.). Always use `make <target>` — it handles `stop`, env, and flags correctly. This is a strict rule.
+
+6. **ABSOLUTE BAN ON go run — ASK BEFORE IMPROVISING**
+   If you need a custom DB path, custom port, custom `--testing-key` file, or any isolated run for tests/verification, do NOT construct a `go run` command yourself. The `Makefile` `start` already covers `DEV_DB`/`DEV_KEY`/`TMP_BIN`/`PID_FILE`/`LOG_FILE`. If your scenario is not covered by `make start/stop/restart/status` with environment variables (`DEV_DB=... DEV_KEY=... make start`), **STOP and ASK the user** for permission/instructions instead of bypassing the Makefile.

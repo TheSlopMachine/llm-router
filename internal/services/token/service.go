@@ -21,8 +21,10 @@ import (
 
 // Service manages router-tokens.
 type Service struct {
-	db   *db.DB
-	repo *repository.Repository[models.RouterToken]
+	db           *db.DB
+	repo         *repository.Repository[models.RouterToken]
+	testingHash  string
+	testingToken *models.RouterToken
 }
 
 // New constructs a new token Service.
@@ -31,6 +33,24 @@ func New(database *db.DB) *Service {
 		db:   database,
 		repo: repository.New[models.RouterToken](database, db.BucketTokens, "token"),
 	}
+}
+
+// NewWithTestingKey constructs a token Service with an ephemeral in-memory testing token.
+// The testing token is not persisted to the database and allows all models.
+func NewWithTestingKey(database *db.DB, testingKey string) *Service {
+	s := New(database)
+	if testingKey != "" {
+		hash := util.HashSecret(testingKey)
+		s.testingHash = hash
+		s.testingToken = &models.RouterToken{
+			ID:        "testing-key",
+			Name:      "testing-key",
+			TokenHash: hash,
+			Rules:     models.TokenRules{},
+			CreatedAt: util.Now(),
+		}
+	}
+	return s
 }
 
 // ─────────────────────────────────────────────
@@ -79,6 +99,11 @@ func (s *Service) Create(opts CreateOptions) (*models.RouterToken, error) {
 // Returns ErrUnauthorized if the token is not found.
 func (s *Service) Validate(raw string) (*models.RouterToken, error) {
 	hash := util.HashSecret(raw)
+
+	// In-memory testing token bypasses DB lookup
+	if s.testingHash != "" && hash == s.testingHash {
+		return s.testingToken, nil
+	}
 
 	var token *models.RouterToken
 	err := s.db.View(func(tx *bolt.Tx) error {

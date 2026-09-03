@@ -24,6 +24,13 @@ type Config struct {
 	// MaxCredentialRetries is the number of retry cycles for credential rotation.
 	// Default: 7 (exponential backoff: 1s→2s→4s→8s→16s→32s→64s)
 	MaxCredentialRetries int
+
+	// TestingKeyPath is the path to the file holding the ephemeral testing bearer token.
+	// Empty means the feature is disabled.
+	TestingKeyPath string
+
+	// TestingKey is the raw testing token value (never persisted to DB, never logged).
+	TestingKey string
 }
 
 // Validate checks that all required configuration fields are set.
