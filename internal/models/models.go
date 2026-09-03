@@ -53,14 +53,61 @@ type RouterToken struct {
 
 // TokenRules constrains what an API token is allowed to do.
 type TokenRules struct {
-	// AllowedModels is the list of ModelIds this token may request.
-	// An empty slice means ALL models are permitted.
-	AllowedModels []ModelId `json:"allowed_models"`
+	AllowedProviders    []string  `json:"allowed_providers"`
+	AllowAllProviders   bool      `json:"allow_all_providers"`
+	AllowedModels       []ModelId `json:"allowed_models"`
+	AllowAllModels      bool      `json:"allow_all_models"`
+	AllowedCredentials  []string  `json:"allowed_credentials"`
+	AllowAllCredentials bool      `json:"allow_all_credentials"`
 }
 
-func (r TokenRules) Allows(model ModelId) bool {
-	if len(r.AllowedModels) == 0 {
+// AllowsProvider reports whether the token may use the given provider.
+func (r TokenRules) AllowsProvider(providerID string) bool {
+	if r.AllowAllProviders {
 		return true
+	}
+	if len(r.AllowedProviders) == 0 {
+		return false
+	}
+	for _, id := range r.AllowedProviders {
+		if id == providerID {
+			return true
+		}
+	}
+	return false
+}
+
+// AllowsCredential reports whether the token may use the given credential.
+func (r TokenRules) AllowsCredential(credentialID string) bool {
+	if r.AllowAllCredentials {
+		return true
+	}
+	if len(r.AllowedCredentials) == 0 {
+		return false
+	}
+	for _, id := range r.AllowedCredentials {
+		if id == credentialID {
+			return true
+		}
+	}
+	return false
+}
+
+// Allows reports whether the token may request the given model.
+// It checks provider allowlist first, then model allowlist.
+func (r TokenRules) Allows(model ModelId) bool {
+	providerID, _, err := model.Parse()
+	if err != nil {
+		return false
+	}
+	if !r.AllowsProvider(providerID) {
+		return false
+	}
+	if r.AllowAllModels {
+		return true
+	}
+	if len(r.AllowedModels) == 0 {
+		return false
 	}
 	for _, m := range r.AllowedModels {
 		if m == model {
@@ -76,10 +123,10 @@ func (r TokenRules) Allows(model ModelId) bool {
 
 // Provider is a registered upstream LLM backend.
 type Provider struct {
-	ID        string   `json:"id" example:"openai"`                    // Composite ID: "openai" or "openai:azure"
-	Name      string   `json:"name" example:"OpenAI"`                  // Display name
-	Type      string   `json:"type" example:"openai"`                  // Adapter type key
-	Qualifier string   `json:"qualifier" example:"azure"`              // Optional qualifier (empty for default)
+	ID        string   `json:"id" example:"openai"`       // Composite ID: "openai" or "openai:azure"
+	Name      string   `json:"name" example:"OpenAI"`     // Display name
+	Type      string   `json:"type" example:"openai"`     // Adapter type key
+	Qualifier string   `json:"qualifier" example:"azure"` // Optional qualifier (empty for default)
 	BaseURL   string   `json:"base_url" example:"https://api.openai.com"`
 	IconURL   string   `json:"icon_url" example:"https://cdn.example.com/openai.svg"` // Icon URL
 	AuthType  AuthType `json:"auth_type" example:"api_key"`
@@ -106,13 +153,13 @@ type Credential struct {
 	ExpiresAt  *time.Time        `json:"expires_at,omitempty"`
 	CreatedAt  time.Time         `json:"created_at"`
 	UpdatedAt  time.Time         `json:"updated_at"`
-	
+
 	// Usage tracking for LRU selection
 	LastUsedAt   *time.Time `json:"last_used_at,omitempty"`
 	RequestCount int64      `json:"request_count"`
 	SuccessCount int64      `json:"success_count"`
 	FailureCount int64      `json:"failure_count"`
-	
+
 	// Quota management
 	QuotaResetAt *time.Time `json:"quota_reset_at,omitempty"`
 }
@@ -255,12 +302,12 @@ func (tr TimeRange) Bounds() (start, end time.Time) {
 
 // MetricsOverview for dashboard display.
 type MetricsOverview struct {
-	TotalRequests  int64 `json:"total_requests" example:"1500"`
-	TotalErrors    int64 `json:"total_errors" example:"23"`
-	PeakRPM        int64 `json:"peak_rpm" example:"45"`
-	PeakTPMInput   int64 `json:"peak_tpm_input" example:"12000"`
-	PeakTPMOutput  int64 `json:"peak_tpm_output" example:"3500"`
-	PeakRPD        int64 `json:"peak_rpd" example:"35000"`
+	TotalRequests int64 `json:"total_requests" example:"1500"`
+	TotalErrors   int64 `json:"total_errors" example:"23"`
+	PeakRPM       int64 `json:"peak_rpm" example:"45"`
+	PeakTPMInput  int64 `json:"peak_tpm_input" example:"12000"`
+	PeakTPMOutput int64 `json:"peak_tpm_output" example:"3500"`
+	PeakRPD       int64 `json:"peak_rpd" example:"35000"`
 }
 
 // TimeSeriesPoint for chart data.
@@ -324,7 +371,6 @@ type DecisionModelConfig struct {
 type ErrorResponse struct {
 	Error string `json:"error" example:"invalid request"`
 }
-
 
 // ToSDK converts internal Credential to SDK Credential
 func (c *Credential) ToSDK() *sdk.Credential {

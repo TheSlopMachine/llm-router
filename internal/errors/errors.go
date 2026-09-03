@@ -26,6 +26,12 @@ var (
 	// ErrModelNotAllowed is returned when a token's rules forbid the requested model
 	ErrModelNotAllowed = errors.New("model not allowed by token rules")
 
+	// ErrProviderNotAllowed is returned when a token's rules forbid the requested provider
+	ErrProviderNotAllowed = errors.New("provider not allowed by token rules")
+
+	// ErrCredentialNotAllowed is returned when a token's rules forbid all credentials for a provider
+	ErrCredentialNotAllowed = errors.New("no allowed credential available for provider")
+
 	// ErrNoCredential is returned when no credential is available for a provider
 	ErrNoCredential = errors.New("no credential available for provider")
 
@@ -76,4 +82,3 @@ func (e *ValidationError) Unwrap() error {
 func NewValidationError(field, message string) error {
 	return &ValidationError{Field: field, Message: message}
 }
-

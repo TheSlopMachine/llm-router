@@ -1,19 +1,60 @@
-// Re-export generated backend types
-import type { components } from './generated/api-types'
+// Manual frontend types (fallback when generated is empty, keep compatible with backend)
+export interface TokenRules {
+  allowed_providers?: string[] | null
+  allow_all_providers?: boolean
+  allowed_models?: string[] | null
+  allow_all_models?: boolean
+  allowed_credentials?: string[] | null
+  allow_all_credentials?: boolean
+}
 
-// Backend API types (auto-generated from Swagger)
-export type Token = components['schemas']['Token']
-export type TokenRules = components['schemas']['TokenRules']
-export type TokenCreateResponse = components['schemas']['TokenCreateResponse']
-export type Credential = components['schemas']['Credential']
-export type ModelInfo = components['schemas']['ModelInfo']
-export type MetricsOverview = components['schemas']['MetricsOverview']
-export type TimeSeriesPoint = components['schemas']['TimeSeriesPoint']
-export type MetricsFilters = components['schemas']['MetricsFilters']
-export type Stats = components['schemas']['Stats']
-export type Status = components['schemas']['Status']
-export type ErrorResponse = components['schemas']['ErrorResponse']
-export type ProviderStats = components['schemas']['ProviderStats']
+export interface Token {
+  id: string
+  name: string
+  token?: string
+  token_hash?: string
+  rules: TokenRules
+  created_at: string
+}
+
+export type TokenCreateResponse = Token
+
+export interface Credential {
+  id: string
+  provider_id: string
+  provider_name: string
+  label: string
+  is_expired: boolean
+  expires_at?: string
+  updated_at: string
+}
+
+export interface ModelInfo {
+  name: string
+  display_name?: string
+  context_window?: number
+  max_tokens?: number
+}
+
+export interface MetricsOverview {
+  total_requests: number
+  total_errors: number
+  peak_rpm: number
+  peak_tpm_input: number
+  peak_tpm_output: number
+  peak_rpd: number
+}
+
+export interface TimeSeriesPoint {
+  timestamp: string
+  value: number
+}
+
+export type MetricsFilters = Record<string, unknown>
+export type Stats = Record<string, unknown>
+export type Status = Record<string, unknown>
+export type ErrorResponse = { error: string }
+export type ProviderStats = { model_count: number; credential_count: number; requests_today: number }
 
 export interface Provider {
   id: string
@@ -37,7 +78,6 @@ export interface AvailableModel {
   max_tokens?: number
 }
 
-// Agent types (manually defined until Swagger regeneration)
 export interface Agent {
   id: string
   name: string
@@ -69,11 +109,9 @@ export interface DecisionModelConfig {
   system_prompt: string
 }
 
-// Type aliases for convenience
 export type AuthType = 'api_key' | 'oauth2' | 'custom'
 export type TimeRange = 'hour' | '1d' | '7d' | '28d' | '90d' | 'month'
 
-// Derived types for API responses
 export interface ProviderModels {
   provider_id: string
   provider_name: string
@@ -92,7 +130,6 @@ export interface TokenUsageInfo {
   last_used?: string
 }
 
-// Frontend-only types (not in backend API)
 export interface ModalButton {
   label: string
   variant?: 'primary' | 'secondary' | 'danger'
@@ -101,6 +138,5 @@ export interface ModalButton {
   loading?: boolean
 }
 
-// Re-export API client utilities
 export type { ApiPath, ApiMethod, ApiResponse, ApiError, ApiRequestBody, ApiQueryParams } from './api-client'
 export { apiCall } from './api-client'

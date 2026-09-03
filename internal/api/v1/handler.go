@@ -101,10 +101,18 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request, t *mod
 		return
 	}
 
-	if t != nil && !t.Rules.Allows(req.Model) {
-		h.writeError(w, http.StatusForbidden, "model_not_allowed",
-			fmt.Sprintf("model %q is not allowed by your token's rules", req.Model), strPtr("model"))
-		return
+	if t != nil {
+		providerID, _, _ := req.Model.Parse()
+		if providerID != "" && !t.Rules.AllowsProvider(providerID) {
+			h.writeError(w, http.StatusForbidden, "provider_not_allowed",
+				fmt.Sprintf("provider %q is not allowed by your token's rules", providerID), strPtr("model"))
+			return
+		}
+		if !t.Rules.Allows(req.Model) {
+			h.writeError(w, http.StatusForbidden, "model_not_allowed",
+				fmt.Sprintf("model %q is not allowed by your token's rules", req.Model), strPtr("model"))
+			return
+		}
 	}
 
 	if req.Stream {
@@ -112,7 +120,7 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request, t *mod
 		return
 	}
 
-	resp, err := h.router.Complete(r.Context(), &req)
+	resp, err := h.router.Complete(r.Context(), &req, t)
 	duration := time.Since(start)
 
 	// Extract provider info
@@ -171,7 +179,7 @@ func (h *Handler) handleStreamWithMetrics(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	err := h.router.CompleteStream(r.Context(), req, w)
+	err := h.router.CompleteStream(r.Context(), req, w, t)
 	duration := time.Since(start)
 
 	// Extract provider info
@@ -198,7 +206,7 @@ func (h *Handler) handleStreamWithMetrics(w http.ResponseWriter, r *http.Request
 		re := h.classifyError(err)
 		event.ErrorType = re.code
 		h.logger.Error("stream error", "err", err)
-		
+
 		// Send error in OpenAI-compatible format as SSE event
 		errorObj := models.OpenAIError{
 			Error: models.OpenAIErrorBody{
@@ -449,6 +457,10 @@ func (h *Handler) classifyError(err error) routerError {
 		return routerError{http.StatusServiceUnavailable, "no_credential"}
 	case errors.Is(err, apierrors.ErrModelNotAllowed):
 		return routerError{http.StatusForbidden, "model_not_allowed"}
+	case errors.Is(err, apierrors.ErrProviderNotAllowed):
+		return routerError{http.StatusForbidden, "provider_not_allowed"}
+	case errors.Is(err, apierrors.ErrCredentialNotAllowed):
+		return routerError{http.StatusForbidden, "credential_not_allowed"}
 	case errors.Is(err, apierrors.ErrUnauthorized):
 		return routerError{http.StatusUnauthorized, "auth_error"}
 	default:
@@ -480,7 +492,7 @@ func strPtr(s string) *string { return &s }
 
 func errorTypeForCode(code string) string {
 	switch code {
-	case "invalid_request_error", "not_found", "model_not_allowed", "provider_not_found":
+	case "invalid_request_error", "not_found", "model_not_allowed", "provider_not_allowed", "credential_not_allowed", "provider_not_found":
 		return "invalid_request_error"
 	case "missing_token", "invalid_token", "auth_error":
 		// OpenAI 401 is typically invalid_request_error as well, but keep authentication_error for clarity
@@ -501,4 +513,3 @@ func (h *Handler) writeJSON(w http.ResponseWriter, status int, v any) {
 		h.logger.Error("json encode error", "err", err)
 	}
 }
-

@@ -53,7 +53,7 @@ func (h *Handler) apiChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.routerSvc.Complete(r.Context(), &req)
+	resp, err := h.routerSvc.Complete(r.Context(), &req, nil)
 	duration := time.Since(start)
 
 	// Metrics — use dashboard as token id
@@ -100,7 +100,7 @@ func (h *Handler) handleChatStream(w http.ResponseWriter, r *http.Request, req *
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	err := h.routerSvc.CompleteStream(r.Context(), req, w)
+	err := h.routerSvc.CompleteStream(r.Context(), req, w, nil)
 	duration := time.Since(start)
 	providerType, _, _ := req.Model.Parse()
 	providerID, _ := h.routerSvc.GetProviderIDForModel(r.Context(), req.Model)
@@ -175,6 +175,10 @@ func classifyChatError(err error) chatRouterError {
 		return chatRouterError{http.StatusServiceUnavailable, "no_credential"}
 	case errors.Is(err, apierrors.ErrModelNotAllowed):
 		return chatRouterError{http.StatusForbidden, "model_not_allowed"}
+	case errors.Is(err, apierrors.ErrProviderNotAllowed):
+		return chatRouterError{http.StatusForbidden, "provider_not_allowed"}
+	case errors.Is(err, apierrors.ErrCredentialNotAllowed):
+		return chatRouterError{http.StatusForbidden, "credential_not_allowed"}
 	case errors.Is(err, apierrors.ErrUnauthorized):
 		return chatRouterError{http.StatusUnauthorized, "auth_error"}
 	default:

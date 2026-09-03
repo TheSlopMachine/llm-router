@@ -46,7 +46,11 @@ func NewWithTestingKey(database *db.DB, testingKey string) *Service {
 			ID:        "testing-key",
 			Name:      "testing-key",
 			TokenHash: hash,
-			Rules:     models.TokenRules{},
+			Rules: models.TokenRules{
+				AllowAllProviders:   true,
+				AllowAllModels:      true,
+				AllowAllCredentials: true,
+			},
 			CreatedAt: util.Now(),
 		}
 	}
@@ -185,4 +189,3 @@ func (s *Service) put(t *models.RouterToken) error {
 		return tx.Bucket(db.BucketTokenIndex).Put([]byte(t.TokenHash), []byte(t.ID))
 	})
 }
-

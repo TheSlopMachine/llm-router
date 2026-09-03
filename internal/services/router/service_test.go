@@ -109,7 +109,7 @@ func TestRouterService_Complete_Success(t *testing.T) {
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
 	
-	resp, err := svc.Complete(context.Background(), req)
+	resp, err := svc.Complete(context.Background(), req, nil)
 	if err != nil {
 		t.Fatalf("complete failed: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestRouterService_Complete_InvalidModelId(t *testing.T) {
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
 	
-	_, err := svc.Complete(context.Background(), req)
+	_, err := svc.Complete(context.Background(), req, nil)
 	if err == nil {
 		t.Error("expected error for invalid model ID, got nil")
 	}
@@ -141,7 +141,7 @@ func TestRouterService_Complete_ProviderNotFound(t *testing.T) {
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
 	
-	_, err := svc.Complete(context.Background(), req)
+	_, err := svc.Complete(context.Background(), req, nil)
 	if err == nil {
 		t.Error("expected error for nonexistent provider, got nil")
 	}
@@ -155,7 +155,7 @@ func TestRouterService_Complete_NoCredentials(t *testing.T) {
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
 	
-	_, err := svc.Complete(context.Background(), req)
+	_, err := svc.Complete(context.Background(), req, nil)
 	if err == nil {
 		t.Error("expected error when no credentials available, got nil")
 	}
@@ -207,7 +207,7 @@ func TestRouterService_Complete_RateLimitRotatesToSecond(t *testing.T) {
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
 	
-	resp, err := svc.Complete(context.Background(), req)
+	resp, err := svc.Complete(context.Background(), req, nil)
 	if err != nil {
 		t.Fatalf("complete failed: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestRouterService_Complete_QuotaExceededRotates(t *testing.T) {
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
 	
-	resp, err := svc.Complete(context.Background(), req)
+	resp, err := svc.Complete(context.Background(), req, nil)
 	if err != nil {
 		t.Fatalf("complete failed: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestRouterService_Complete_AuthErrorNoRetry(t *testing.T) {
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
 	
-	_, err := svc.Complete(context.Background(), req)
+	_, err := svc.Complete(context.Background(), req, nil)
 	if err == nil {
 		t.Error("expected error for auth failure, got nil")
 	}
@@ -336,7 +336,7 @@ func TestRouterService_Complete_UpstreamErrorNoRetry(t *testing.T) {
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
 	
-	_, err := svc.Complete(context.Background(), req)
+	_, err := svc.Complete(context.Background(), req, nil)
 	if err == nil {
 		t.Error("expected error for upstream failure, got nil")
 	}
@@ -367,7 +367,7 @@ func TestRouterService_Complete_UpdatesUsageOnSuccess(t *testing.T) {
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
 	
-	_, err := svc.Complete(context.Background(), req)
+	_, err := svc.Complete(context.Background(), req, nil)
 	if err != nil {
 		t.Fatalf("complete failed: %v", err)
 	}
@@ -405,7 +405,7 @@ func TestRouterService_Complete_UpdatesUsageOnFailure(t *testing.T) {
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
 	
-	_, err := svc.Complete(context.Background(), req)
+	_, err := svc.Complete(context.Background(), req, nil)
 	if err == nil {
 		t.Error("expected error, got nil")
 	}

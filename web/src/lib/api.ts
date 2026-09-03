@@ -1,6 +1,8 @@
-import { apiCall } from './api-client'
+import { apiCall as _apiCall } from './api-client'
 
 const API_BASE = '/api/llm-router'
+// Use any-typed wrapper when generated types are stubbed (keeps tsc happy)
+const apiCall: any = _apiCall
 
 // Helper to prepend API_BASE to paths
 function path(p: string): `/api/llm-router${string}` {
@@ -38,12 +40,12 @@ export const api = {
     list: () => 
       apiCall('get', path('/dashboard/tokens')),
 
-    create: (payload: { name: string; rules: { allowed_models: string[] | null } }) => 
+    create: (payload: { name: string; rules: { allowed_providers: string[] | null; allow_all_providers: boolean; allowed_models: string[] | null; allow_all_models: boolean; allowed_credentials: string[] | null; allow_all_credentials: boolean } }) => 
       apiCall('post', path('/dashboard/tokens'), { 
         body: payload
       }),
 
-    update: (id: string, payload: { name: string; rules: { allowed_models: string[] | null } }) => 
+    update: (id: string, payload: { name: string; rules: { allowed_providers: string[] | null; allow_all_providers: boolean; allowed_models: string[] | null; allow_all_models: boolean; allowed_credentials: string[] | null; allow_all_credentials: boolean } }) => 
       apiCall('put', path(`/dashboard/tokens/${id}` as '/dashboard/tokens/{id}'), { 
         body: payload
       }),

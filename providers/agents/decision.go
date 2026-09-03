@@ -29,12 +29,12 @@ func (a *Adapter) routeWithDecisionModel(
 	decisionReq := &models.ChatCompletionRequest{
 		Model:       agent.DecisionModel.ModelID,
 		Messages:    decisionPrompt,
-		MaxTokens:   20, // Just need a number
+		MaxTokens:   20,  // Just need a number
 		Temperature: 0.0, // Deterministic
 	}
 
-	// Make decision request
-	resp, err := routerSvc.Complete(ctx, decisionReq)
+	// Make decision request (internal, no token restriction)
+	resp, err := routerSvc.Complete(ctx, decisionReq, nil)
 	if err != nil {
 		logger.Warn("decision model failed, falling back to priority",
 			"agent", agent.Name,
@@ -131,4 +131,3 @@ func parseDecisionResponse(resp *models.ChatCompletionResponse, modelCount int) 
 	// Convert to 0-indexed
 	return choice - 1
 }
-

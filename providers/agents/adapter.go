@@ -164,8 +164,8 @@ func (a *Adapter) Complete(
 			"model", agentModel.ModelID,
 			"priority", agentModel.Priority)
 
-		// Make internal request
-		resp, err := routerSvc.Complete(ctx, &modelReq)
+		// Make internal request (agent bypasses token credential filter)
+		resp, err := routerSvc.Complete(ctx, &modelReq, nil)
 
 		if err == nil {
 			logger.Info("agent request succeeded",
@@ -256,8 +256,8 @@ func (a *Adapter) CompleteStream(
 			"model", agentModel.ModelID,
 			"priority", agentModel.Priority)
 
-		// Make internal request
-		err := routerSvc.CompleteStream(ctx, &modelReq, w)
+		// Make internal request (agent bypasses token credential filter)
+		err := routerSvc.CompleteStream(ctx, &modelReq, w, nil)
 
 		if err == nil {
 			logger.Info("agent stream succeeded",
@@ -360,4 +360,3 @@ func reorderModels(models agentModelList, selected *models.AgentModel) agentMode
 
 	return sorted
 }
-

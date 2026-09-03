@@ -11,9 +11,9 @@ import (
 
 func TestModelId_Parse_Valid(t *testing.T) {
 	tests := []struct {
-		input      ModelId
-		wantProv   string
-		wantModel  string
+		input     ModelId
+		wantProv  string
+		wantModel string
 	}{
 		{"openai/gpt-4", "openai", "gpt-4"},
 		{"anthropic/claude-3", "anthropic", "claude-3"},
@@ -94,25 +94,38 @@ func TestModelId_ParseFull_WithQualifier(t *testing.T) {
 // TokenRules Tests
 // ─────────────────────────────────────────────
 
-func TestTokenRules_Allows_EmptyList(t *testing.T) {
-	rules := TokenRules{AllowedModels: []ModelId{}}
-	if !rules.Allows("openai/gpt-4") {
-		t.Error("empty allowed list should allow all models")
+func TestTokenRules_Allows_DenyAll_Empty(t *testing.T) {
+	rules := TokenRules{}
+	if rules.Allows("openai/gpt-4") {
+		t.Error("empty rules without AllowAll should deny all")
+	}
+	if rules.AllowsProvider("openai") {
+		t.Error("empty providers without AllowAll should deny")
+	}
+	if rules.AllowsCredential("cred-1") {
+		t.Error("empty credentials without AllowAll should deny")
 	}
 }
 
-func TestTokenRules_Allows_Wildcard(t *testing.T) {
-	rules := TokenRules{AllowedModels: nil}
+func TestTokenRules_Allows_AllowAll(t *testing.T) {
+	rules := TokenRules{AllowAllProviders: true, AllowAllModels: true, AllowAllCredentials: true}
 	if !rules.Allows("openai/gpt-4") {
-		t.Error("nil allowed list should allow all models")
+		t.Error("AllowAll should allow any model")
+	}
+	if !rules.AllowsProvider("openai") {
+		t.Error("AllowAllProviders should allow any provider")
+	}
+	if !rules.AllowsCredential("cred-1") {
+		t.Error("AllowAllCredentials should allow any credential")
 	}
 }
 
 func TestTokenRules_Allows_Specific(t *testing.T) {
 	rules := TokenRules{
-		AllowedModels: []ModelId{"openai/gpt-4", "anthropic/claude-3"},
+		AllowAllProviders: true,
+		AllowedModels:     []ModelId{"openai/gpt-4", "anthropic/claude-3"},
 	}
-	
+
 	if !rules.Allows("openai/gpt-4") {
 		t.Error("should allow openai/gpt-4")
 	}
@@ -123,11 +136,46 @@ func TestTokenRules_Allows_Specific(t *testing.T) {
 
 func TestTokenRules_Allows_Denied(t *testing.T) {
 	rules := TokenRules{
-		AllowedModels: []ModelId{"openai/gpt-4"},
+		AllowAllProviders: true,
+		AllowedModels:     []ModelId{"openai/gpt-4"},
 	}
-	
+
 	if rules.Allows("anthropic/claude-3") {
 		t.Error("should not allow anthropic/claude-3")
+	}
+}
+
+func TestTokenRules_Allows_ProviderGate(t *testing.T) {
+	rules := TokenRules{
+		AllowedProviders: []string{"openai"},
+		AllowedModels:    []ModelId{"openai/gpt-4"},
+	}
+	if !rules.Allows("openai/gpt-4") {
+		t.Error("openai/gpt-4 should be allowed when provider matches")
+	}
+	if rules.Allows("anthropic/claude-3") {
+		t.Error("anthropic should be denied by provider gate even if model matches provider")
+	}
+	rules2 := TokenRules{
+		AllowAllProviders: true,
+		AllowedModels:     []ModelId{"openai/gpt-4"},
+	}
+	if !rules2.Allows("openai/gpt-4") {
+		t.Error("AllowAllProviders should bypass provider check")
+	}
+}
+
+func TestTokenRules_Allows_Credential(t *testing.T) {
+	rules := TokenRules{AllowAllCredentials: true}
+	if !rules.AllowsCredential("any-id") {
+		t.Error("AllowAllCredentials should allow")
+	}
+	rules2 := TokenRules{AllowedCredentials: []string{"cred-1", "cred-2"}}
+	if !rules2.AllowsCredential("cred-1") {
+		t.Error("cred-1 should be allowed")
+	}
+	if rules2.AllowsCredential("cred-3") {
+		t.Error("cred-3 should be denied")
 	}
 }
 
@@ -237,7 +285,7 @@ func TestCredential_Priority_BothExpiredAndQuota(t *testing.T) {
 func TestCredential_IncrementUsage_Success(t *testing.T) {
 	cred := &Credential{}
 	cred.IncrementUsage(true)
-	
+
 	if cred.RequestCount != 1 {
 		t.Errorf("request count: got %d, want 1", cred.RequestCount)
 	}
@@ -255,7 +303,7 @@ func TestCredential_IncrementUsage_Success(t *testing.T) {
 func TestCredential_IncrementUsage_Failure(t *testing.T) {
 	cred := &Credential{}
 	cred.IncrementUsage(false)
-	
+
 	if cred.RequestCount != 1 {
 		t.Errorf("request count: got %d, want 1", cred.RequestCount)
 	}
@@ -295,4 +343,3 @@ func TestCredential_ExpiresIn_NoExpiry(t *testing.T) {
 		t.Errorf("expires in should be 0 for no expiry, got %v", duration)
 	}
 }
-

@@ -50,6 +50,28 @@ func New(providerSvc *provider.Service, credSvc *credential.Service, modelInfoSv
 // Core routing
 // ─────────────────────────────────────────────
 
+// filterCredentials filters the credential list according to token rules.
+// A nil token means no restriction (e.g. internal agent calls).
+func (s *Service) filterCredentials(creds []*models.Credential, token *models.RouterToken) []*models.Credential {
+	if token == nil || token.Rules.AllowAllCredentials {
+		return creds
+	}
+	if len(token.Rules.AllowedCredentials) == 0 {
+		return nil
+	}
+	allow := make(map[string]bool, len(token.Rules.AllowedCredentials))
+	for _, id := range token.Rules.AllowedCredentials {
+		allow[id] = true
+	}
+	out := make([]*models.Credential, 0, len(creds))
+	for _, c := range creds {
+		if allow[c.ID] {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // Complete routes a non-streaming chat completion request.
 //
 // Resolution order:
@@ -61,6 +83,7 @@ func New(providerSvc *provider.Service, credSvc *credential.Service, modelInfoSv
 func (s *Service) Complete(
 	ctx context.Context,
 	req *models.ChatCompletionRequest,
+	token *models.RouterToken,
 ) (*models.ChatCompletionResponse, error) {
 	// Parse composite provider ID from model ID
 	providerID, _, err := req.Model.Parse()
@@ -84,6 +107,10 @@ func (s *Service) Complete(
 	creds, err := s.credSvc.All(p.ID)
 	if err != nil {
 		return nil, fmt.Errorf("%w for provider %q", apierrors.ErrNoCredential, p.Name)
+	}
+	creds = s.filterCredentials(creds, token)
+	if len(creds) == 0 {
+		return nil, fmt.Errorf("%w for provider %q", apierrors.ErrCredentialNotAllowed, p.Name)
 	}
 
 	// Track which credentials we've tried in this cycle
@@ -110,6 +137,10 @@ func (s *Service) Complete(
 			if err != nil {
 				return nil, fmt.Errorf("%w for provider %q", apierrors.ErrNoCredential, p.Name)
 			}
+			creds = s.filterCredentials(creds, token)
+			if len(creds) == 0 {
+				return nil, fmt.Errorf("%w for provider %q", apierrors.ErrCredentialNotAllowed, p.Name)
+			}
 		}
 
 		// Try each credential once per cycle
@@ -120,8 +151,8 @@ func (s *Service) Complete(
 
 			attempted[cred.ID] = true
 
-		// Attempt request
-		resp, err := adapter.Complete(ctx, cred.ToSDK(), req)
+			// Attempt request
+			resp, err := adapter.Complete(ctx, cred.ToSDK(), req)
 
 			if err == nil {
 				// Success
@@ -160,6 +191,7 @@ func (s *Service) CompleteStream(
 	ctx context.Context,
 	req *models.ChatCompletionRequest,
 	w io.Writer,
+	token *models.RouterToken,
 ) error {
 	// Parse composite provider ID from model ID
 	providerID, _, err := req.Model.Parse()
@@ -183,6 +215,10 @@ func (s *Service) CompleteStream(
 	creds, err := s.credSvc.All(p.ID)
 	if err != nil {
 		return fmt.Errorf("%w for provider %q", apierrors.ErrNoCredential, p.Name)
+	}
+	creds = s.filterCredentials(creds, token)
+	if len(creds) == 0 {
+		return fmt.Errorf("%w for provider %q", apierrors.ErrCredentialNotAllowed, p.Name)
 	}
 
 	// Track which credentials we've tried in this cycle
@@ -209,6 +245,10 @@ func (s *Service) CompleteStream(
 			if err != nil {
 				return fmt.Errorf("%w for provider %q", apierrors.ErrNoCredential, p.Name)
 			}
+			creds = s.filterCredentials(creds, token)
+			if len(creds) == 0 {
+				return fmt.Errorf("%w for provider %q", apierrors.ErrCredentialNotAllowed, p.Name)
+			}
 		}
 
 		// Try each credential once per cycle
@@ -219,8 +259,8 @@ func (s *Service) CompleteStream(
 
 			attempted[cred.ID] = true
 
-		// Attempt request
-		err := adapter.CompleteStream(ctx, cred.ToSDK(), req, w)
+			// Attempt request
+			err := adapter.CompleteStream(ctx, cred.ToSDK(), req, w)
 
 			if err == nil {
 				// Success
@@ -272,4 +312,3 @@ func (s *Service) GetProviderIDForModel(ctx context.Context, modelID models.Mode
 
 	return providerID, nil
 }
-
