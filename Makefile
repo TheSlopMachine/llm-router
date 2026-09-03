@@ -18,7 +18,11 @@ GO_WORK       := go.work
 
 WORKSPACE_REMOTE ?= https
 
-URL ?= http://localhost:8080
+HOST     ?= localhost
+WEB_PORT ?= 8080
+API_PORT ?= 8081
+
+URL ?= http://$(HOST):$(WEB_PORT)
 
 ifeq ($(OS),Windows_NT)
   DEV_DB ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.db
@@ -96,7 +100,7 @@ help:
 	@printf '  prepare-workspace Clone adapters from %s to %s and generate %s + %s\n' "$(ADAPTERS)" "$(WORKSPACE_DIR)" "$(GO_WORK)" "$(ADAPTERS_GO)"
 	@printf '  prepare-frontend  npm install && build frontend\n'
 	@printf '  prepare           prepare-frontend + prepare-workspace\n'
-	@printf '  start             Build dev binary to temp and start daemon (db %s)\n' "$(DEV_DB)"
+	@printf '  start             Build dev binary to temp and start daemon (db %s, %s:%s/%s)\n' "$(DEV_DB)" "$(HOST)" "$(WEB_PORT)" "$(API_PORT)"
 	@printf '  stop              Stop daemon\n'
 	@printf '  restart           Stop + start\n'
 	@printf '  status            Show dev server status (pid/log)\n'
@@ -106,10 +110,18 @@ help:
 	@printf '  go-check          Run go vet\n'
 	@printf '  go-test           Run go test ./...\n\n'
 	@printf 'Variables:\n'
+	@printf '  HOST               Bind host for dashboard/API. Default: "localhost"\n'
+	@printf '  WEB_PORT           Dashboard port. Default: "8080"\n'
+	@printf '  API_PORT           API port. Default: "8081"\n'
+	@printf '  URL                Dashboard URL for browser. Default: "http://$$(HOST):$$(WEB_PORT)"\n'
+	@printf '  DEV_DB             Path to dev database. Default: "%s"\n' "$(DEV_DB)"
+	@printf '  DEV_KEY            Path to dev testing key. Default: "%s"\n' "$(DEV_KEY)"
 	@printf '  PUBLISH_PLATFORMS  Platforms for publish. Default: "windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64"\n'
 	@printf '  WORKSPACE_REMOTE   Clone protocol for %s. Default: "https" (https|ssh)\n\n' "$(WORKSPACE_DIR)"
 	@printf 'Examples:\n'
 	@printf '  make start\n'
+	@printf '  make start HOST=0.0.0.0 WEB_PORT=3000 API_PORT=3001\n'
+	@printf '  make start WEB_PORT=9090 API_PORT=9091\n'
 	@printf '  make restart\n'
 	@printf '  make publish\n'
 	@printf '  make publish PUBLISH_PLATFORMS="linux/amd64 darwin/arm64"\n\n'
@@ -218,25 +230,25 @@ start:
 	@mkdir -p "$(dir $(DEV_DB))" "$(dir $(PID_FILE))"
 	@if [ -f "$(PID_FILE)" ] && kill -0 $$(cat "$(PID_FILE)") 2>/dev/null; then \
 		printf '[>] Already running PID %s (log %s)\n' "$$(cat $(PID_FILE))" "$(LOG_URI)"; \
-		printf 'Dashboard: http://localhost:8080\n'; \
-		printf 'API: http://localhost:8081/v1\n'; \
+		printf 'Dashboard: http://$(HOST):$(WEB_PORT)\n'; \
+		printf 'API: http://$(HOST):$(API_PORT)/v1\n'; \
 		if [ -f "$(DEV_KEY)" ]; then printf 'API Key: %s\n' "$$(cat $(DEV_KEY))"; fi; \
 		exit 0; \
 	fi; \
 	rm -f "$(PID_FILE)"; \
 	printf '[>] Building dev binary to %s...\n' "$(TMP_BIN)"; \
 	go build -o "$(TMP_BIN)" . || exit 1; \
-	printf '[>] Starting llm-router --web 8080 --api 8081 --db %s --testing-key %s (pid %s, log %s)...\n' "$(DEV_DB)" "$(DEV_KEY)" "$(PID_FILE)" "$(LOG_URI)"; \
+	printf '[>] Starting llm-router %s --web $(WEB_PORT) --api $(API_PORT) --db %s --testing-key %s (pid %s, log %s)...\n' "$(HOST)" "$(DEV_DB)" "$(DEV_KEY)" "$(PID_FILE)" "$(LOG_URI)"; \
 	if command -v nohup >/dev/null 2>&1; then \
-		nohup "$(TMP_BIN)" --web 8080 --api 8081 --db "$(DEV_DB)" --testing-key "$(DEV_KEY)" > "$(LOG_FILE)" 2>&1 & echo $$! > "$(PID_FILE)"; \
+		nohup "$(TMP_BIN)" "$(HOST)" --web "$(WEB_PORT)" --api "$(API_PORT)" --db "$(DEV_DB)" --testing-key "$(DEV_KEY)" > "$(LOG_FILE)" 2>&1 & echo $$! > "$(PID_FILE)"; \
 	else \
-		"$(TMP_BIN)" --web 8080 --api 8081 --db "$(DEV_DB)" --testing-key "$(DEV_KEY)" > "$(LOG_FILE)" 2>&1 & echo $$! > "$(PID_FILE)"; \
+		"$(TMP_BIN)" "$(HOST)" --web "$(WEB_PORT)" --api "$(API_PORT)" --db "$(DEV_DB)" --testing-key "$(DEV_KEY)" > "$(LOG_FILE)" 2>&1 & echo $$! > "$(PID_FILE)"; \
 	fi; \
 	sleep 0.3; \
 	if kill -0 $$(cat "$(PID_FILE)") 2>/dev/null; then \
 		printf '[OK] Started PID %s\n' "$$(cat $(PID_FILE))"; \
-		printf 'Dashboard: http://localhost:8080\n'; \
-		printf 'API: http://localhost:8081/v1\n'; \
+		printf 'Dashboard: http://$(HOST):$(WEB_PORT)\n'; \
+		printf 'API: http://$(HOST):$(API_PORT)/v1\n'; \
 		if [ -f "$(DEV_KEY)" ]; then printf 'API Key: %s\n' "$$(cat $(DEV_KEY))"; fi; \
 	else \
 		printf '[FAIL] Start failed, log:\n'; cat "$(LOG_FILE)" 2>/dev/null || true; rm -f "$(PID_FILE)"; exit 1; \
