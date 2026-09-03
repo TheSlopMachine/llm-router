@@ -13,7 +13,6 @@
   async function submit(): Promise<void> {
     error = ''
     if (password !== password2) { error = 'Passwords do not match.'; return }
-    if (password.length < 8) { error = 'Password must be at least 8 characters.'; return }
     loading = true
     try {
       await api.bootstrap(username, password)
@@ -43,6 +42,9 @@
     <div class="form-group" style="margin-top: 12px;">
       <label for="p">Password</label>
       <input id="p" type="password" bind:value={password} autocomplete="new-password" />
+      {#if password.length > 0 && password.length < 8}
+        <div class="field-hint">Recommendation: use at least 8 characters for a stronger password.</div>
+      {/if}
     </div>
     <div class="form-group" style="margin-top: 12px;">
       <label for="p2">Confirm password</label>
@@ -89,6 +91,11 @@
     color: var(--color-text-soft); 
     font-size: 14px; 
     margin-bottom: 24px; 
+  }
+  .field-hint {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--color-warning-text);
   }
   .submit-btn { 
     width: 100%; 
