@@ -128,17 +128,23 @@ prepare-workspace:
 		else \
 			url="https://$$mod.git"; \
 		fi; \
-		if [ ! -d "$$dir/.git" ]; then \
-			printf '[>] Cloning %s (%s) -> %s\n' "$$mod" "$(WORKSPACE_REMOTE)" "$$dir"; \
-			git clone "$$url" "$$dir" || exit 1; \
-		else \
-			cur_url=$$(git -C "$$dir" remote get-url origin 2>/dev/null || echo ""); \
-			if [ "$$cur_url" != "$$url" ]; then \
-				printf '[>] Updating remote %s: %s -> %s\n' "$$dir" "$$cur_url" "$$url"; \
-				git -C "$$dir" remote set-url origin "$$url" || true; \
+		if [ -d "$$dir" ]; then \
+			if [ ! -d "$$dir/.git" ]; then \
+				printf '[!] Local dir %s exists without .git — skip clone (local dev adapter)\n' "$$dir"; \
 			else \
-				printf '[>] Exists %s, skip\n' "$$dir"; \
+				cur_url=$$(git -C "$$dir" remote get-url origin 2>/dev/null || echo ""); \
+				if [ -z "$$cur_url" ]; then \
+					printf '[>] Exists %s (no remote), skip\n' "$$dir"; \
+				elif [ "$$cur_url" != "$$url" ]; then \
+					printf '[>] Updating remote %s: %s -> %s\n' "$$dir" "$$cur_url" "$$url"; \
+					git -C "$$dir" remote set-url origin "$$url" || true; \
+				else \
+					printf '[>] Exists %s, skip\n' "$$dir"; \
+				fi; \
 			fi; \
+		else \
+			printf '[>] Cloning %s (%s) -> %s\n' "$$mod" "$(WORKSPACE_REMOTE)" "$$dir"; \
+			git clone "$$url" "$$dir" || { printf '[WARN] clone failed for %s (repo may not exist yet) — skip\n' "$$mod"; continue; }; \
 		fi; \
 	done
 	@printf '[>] Generating %s...\n' "$(GO_WORK)"
