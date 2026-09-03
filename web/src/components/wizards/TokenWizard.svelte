@@ -292,7 +292,7 @@
       <span>Allow all providers</span>
     </label>
     {#if allowAllProviders}
-      <div class="hint">All providers are allowed — individual checkboxes are hidden.</div>
+      <div class="hint">All providers are allowed.</div>
     {/if}
   </div>
 
