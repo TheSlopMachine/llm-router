@@ -85,7 +85,10 @@ endif
 
 LDFLAGS = -s -w -X main.Version=$(VERSION) -X main.GitCommit=$(GIT_COMMIT) -X main.BuildTime=$(BUILD_TIME)
 
-.PHONY: help prepare-workspace prepare-frontend prepare start stop restart status browser clean publish go-check go-test
+NODE_MIN := 20
+GO_MIN   := 1.25
+
+.PHONY: help prepare-workspace prepare-frontend prepare start stop restart status browser clean publish go-check go-test check-frontend-deps check-publish-deps
 
 help:
 	@printf '\nUsage: make <target>\n\n'
@@ -110,6 +113,41 @@ help:
 	@printf '  make restart\n'
 	@printf '  make publish\n'
 	@printf '  make publish PUBLISH_PLATFORMS="linux/amd64 darwin/arm64"\n\n'
+
+check-frontend-deps:
+	@printf '[>] Checking frontend deps (node >=$(NODE_MIN), npm)...\n'
+	@if ! command -v node >/dev/null 2>&1; then printf '[FAIL] node not found (requires >=$(NODE_MIN) https://nodejs.org)\n' >&2; exit 1; fi
+	@_node_ver=$$(node --version 2>/dev/null | sed -E 's/^v//'); \
+	 _node_maj=$$(printf '%s' "$$_node_ver" | cut -d. -f1); \
+	 if [ -z "$$_node_maj" ] || ! printf '%s' "$$_node_maj" | grep -qE '^[0-9]+$$'; then printf '[FAIL] cannot parse node version: %s\n' "$$_node_ver" >&2; exit 1; fi; \
+	 if [ "$$_node_maj" -lt $(NODE_MIN) ]; then printf '[FAIL] node >=$(NODE_MIN) required, found v%s\n' "$$_node_ver" >&2; exit 1; fi; \
+	 printf '[OK] node v%s\n' "$$_node_ver"
+	@if ! command -v $(NPM) >/dev/null 2>&1 && ! command -v npm >/dev/null 2>&1; then printf '[FAIL] npm not found (https://nodejs.org)\n' >&2; exit 1; fi
+	@printf '[OK] npm %s\n' "$$( $(NPM) --version 2>/dev/null || npm --version 2>/dev/null || echo unknown)"
+	@printf '[OK] Frontend deps OK\n'
+
+check-publish-deps:
+	@printf '[>] Checking publish deps (node >=$(NODE_MIN), npm, go >=$(GO_MIN), zip)...\n'
+	@if ! command -v node >/dev/null 2>&1; then printf '[FAIL] node not found (requires >=$(NODE_MIN) https://nodejs.org)\n' >&2; exit 1; fi
+	@_node_ver=$$(node --version 2>/dev/null | sed -E 's/^v//'); \
+	 _node_maj=$$(printf '%s' "$$_node_ver" | cut -d. -f1); \
+	 if [ -z "$$_node_maj" ] || ! printf '%s' "$$_node_maj" | grep -qE '^[0-9]+$$'; then printf '[FAIL] cannot parse node version: %s\n' "$$_node_ver" >&2; exit 1; fi; \
+	 if [ "$$_node_maj" -lt $(NODE_MIN) ]; then printf '[FAIL] node >=$(NODE_MIN) required, found v%s\n' "$$_node_ver" >&2; exit 1; fi; \
+	 printf '[OK] node v%s\n' "$$_node_ver"
+	@if ! command -v $(NPM) >/dev/null 2>&1 && ! command -v npm >/dev/null 2>&1; then printf '[FAIL] npm not found (https://nodejs.org)\n' >&2; exit 1; fi
+	@printf '[OK] npm %s\n' "$$( $(NPM) --version 2>/dev/null || npm --version 2>/dev/null || echo unknown)"
+	@if ! command -v go >/dev/null 2>&1; then printf '[FAIL] go not found (requires >=$(GO_MIN) https://go.dev/dl/)\n' >&2; exit 1; fi
+	@_go_ver=$$(go version 2>/dev/null | awk '{print $$3}' | sed 's/^go//'); \
+	 if [ -z "$$_go_ver" ]; then printf '[FAIL] cannot parse go version (%s)\n' "$$(go version 2>/dev/null)" >&2; exit 1; fi; \
+	 if [ "$$(printf '%s\n%s\n' "$$_go_ver" "$(GO_MIN)" | sort -V | head -n1)" != "$(GO_MIN)" ]; then printf '[FAIL] go >=$(GO_MIN) required, found %s\n' "$$_go_ver" >&2; exit 1; fi; \
+	 printf '[OK] go %s\n' "$$_go_ver"
+ifeq ($(OS),Windows_NT)
+	@printf '[OK] zip check skipped on Windows (using powershell Compress-Archive)\n'
+else
+	@if ! command -v zip >/dev/null 2>&1; then printf '[FAIL] zip not found (apt install zip / brew install zip)\n' >&2; exit 1; fi
+	@printf '[OK] zip %s\n' "$$(zip -v 2>&1 | head -n1)"
+endif
+	@printf '[OK] Publish deps OK\n'
 
 prepare-workspace:
 	@$(MAKE) stop
@@ -165,7 +203,7 @@ prepare-workspace:
 	@go work sync 2>/dev/null || true
 	@printf '[OK] Workspace ready (%s + %s + %s)\n' "$(WORKSPACE_DIR)" "$(GO_WORK)" "$(ADAPTERS_GO)"
 
-prepare-frontend:
+prepare-frontend: check-frontend-deps
 	@$(MAKE) stop
 	@printf '\n== Frontend ==\n'
 	@mkdir -p "$(UI_DIR)/src/lib/generated"
@@ -243,7 +281,7 @@ clean:
 	@git clean -fdx
 	@printf '[OK] Clean.\n'
 
-publish: prepare-frontend prepare-workspace
+publish: check-publish-deps prepare-frontend prepare-workspace
 	@printf '\n== Publish - $(VERSION) ==\n'
 	@printf '  Commit:     $(GIT_COMMIT)\n'
 	@printf '  Build time: $(BUILD_TIME)\n\n'
@@ -257,7 +295,11 @@ publish: prepare-frontend prepare-workspace
 		mkdir -p "$(PUBLISH)/$${_goos}_$${_goarch}"; \
 		printf '[>] Building %s/%s...\n' "$$_goos" "$$_goarch"; \
 		GOOS=$$_goos GOARCH=$$_goarch go build -ldflags="$(LDFLAGS)" -o "$(PUBLISH)/$${_goos}_$${_goarch}/$$_bin" . || { printf '[FAIL] Build failed: %s/%s\n' "$$_goos" "$$_goarch"; exit 1; }; \
-		(cd "$(PUBLISH)/$${_goos}_$${_goarch}" && zip -q "$(BINARY)_$${_goos}_$${_goarch}.zip" "$$_bin") || { printf '[FAIL] Archive failed: %s/%s\n' "$$_goos" "$$_goarch"; exit 1; }; \
+		if command -v zip >/dev/null 2>&1; then \
+			(cd "$(PUBLISH)/$${_goos}_$${_goarch}" && zip -q "$(BINARY)_$${_goos}_$${_goarch}.zip" "$$_bin") || { printf '[FAIL] Archive failed: %s/%s\n' "$$_goos" "$$_goarch"; exit 1; }; \
+		else \
+			powershell -NoProfile -Command "Compress-Archive -Path '$(PUBLISH)/$${_goos}_$${_goarch}/$$_bin' -DestinationPath '$(PUBLISH)/$${_goos}_$${_goarch}/$(BINARY)_$${_goos}_$${_goarch}.zip' -Force" || { printf '[FAIL] Archive failed (Compress-Archive): %s/%s\n' "$$_goos" "$$_goarch"; exit 1; }; \
+		fi; \
 		$(SHA256) "$(PUBLISH)/$${_goos}_$${_goarch}/$(BINARY)_$${_goos}_$${_goarch}.zip" > "$(PUBLISH)/_cksum_$${_goos}_$${_goarch}.tmp"; \
 		printf '[OK] Done: %s/%s\n' "$$_goos" "$$_goarch"; \
 	done
