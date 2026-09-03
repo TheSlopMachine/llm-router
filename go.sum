@@ -1,7 +1,7 @@
-github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260513190656-d1d82ebfc1e3 h1:/+eUxmi9lq0dxN69PxeTYtrNBTojIOlwkxrKdQ6HZkU=
-github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260513190656-d1d82ebfc1e3/go.mod h1:ohMti0blLfhQIVhO3tTHbeYqMTjcjl/sr/t6YdyDLhY=
-github.com/TheSlopMachine/llm-router-adapter-kiro v0.0.0-20260530220814-071129f29171 h1:dRvZ1PPYuD5GpaytwbuIDkGqDrTHjVuiQLrJCnQJ/J8=
-github.com/TheSlopMachine/llm-router-adapter-kiro v0.0.0-20260530220814-071129f29171/go.mod h1:XSV5NpGY8pfkF5B2ybbReKAWBb7QXSC4NmsRyJzzMoA=
+github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260902222138-980b06c4fed7 h1:lrSD7UKKaf4yLXn743MtEqlDRVmNuaTuUctwn3/bMCc=
+github.com/TheSlopMachine/llm-router-adapter-google v0.0.0-20260902222138-980b06c4fed7/go.mod h1:llOTC3CJ5enf4WKTrJZIr7eBdZBr6St61nKIE4wqdRY=
+github.com/TheSlopMachine/llm-router-adapter-kiro v0.0.0-20260902222201-414c12c6a24c h1:1KRWDoC7me6/GWeM9XgIkv0p8/FW7cg/Cx2JME0HEiM=
+github.com/TheSlopMachine/llm-router-adapter-kiro v0.0.0-20260902222201-414c12c6a24c/go.mod h1:ZcKWFsysN9+DH71xk1jnBb20QgBEAZyv6eJEuxNX5iQ=
 github.com/TheSlopMachine/llm-router-sdk v0.0.0-20260521171311-28caef1a0902 h1:a/y6N5heQkPp4qIosuS8Nl1Z5LaoZXXX3tpKSJnr9t4=
 github.com/TheSlopMachine/llm-router-sdk v0.0.0-20260521171311-28caef1a0902/go.mod h1:8sl9tMKYIHOpRAbv2lk8TKHftfwL9WaUM4VGYe6jM80=
 github.com/TheSlopMachine/slop-tokenizer v0.0.0-20260508224456-e7e88f37eed3 h1:LON70fU9KrruryOknjmrtehdH0Ex2qPMJjuWhXcooIM=

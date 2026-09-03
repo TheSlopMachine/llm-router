@@ -34,7 +34,7 @@ coverage.html
 .DS_Store
 
 # Generated files
-plugins/plugins.go
+adapters.go
 web/src/lib/generated/
 
 # Workspace (local clones, generated)

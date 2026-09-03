@@ -37,11 +37,11 @@ Sits between your applications and LLM providers, exposing a single OpenAI-compa
 Include only the adapters you need via `adapters.conf`:
 
 ```text
-github.com/TheSlopMachine/llm-router-adapter-demo 01286aaf5620fb7b4a0f108f96ac7751ae3d7040
+github.com/TheSlopMachine/llm-router-adapter-demo
 
 ```
 
-Run `make build` to compile everything into a single binary.
+Run `make prepare-workspace` to clone adapters and generate `adapters.go` + `go.work`, then compile into a single binary.
 
 ### Embedded Svelte Admin Panel
 
