@@ -4,7 +4,22 @@
   import { modal } from '../lib/modal'
   import TokenWizard from './wizards/TokenWizard.svelte'
   import EmptyState from './EmptyState.svelte'
+  import ActionDropdown from './ActionDropdown.svelte'
   import type { Token, Provider } from '../lib/types'
+
+  const tokenActions = [
+    { id: 'edit', label: 'Edit', icon: 'edit' },
+    { id: 'clone', label: 'Clone', icon: 'content_copy' },
+    { id: 'regenerate', label: 'Regenerate', icon: 'refresh' },
+  ]
+
+  function handleTokenAction(e: CustomEvent<string>, t: Token): void {
+    switch (e.detail) {
+      case 'edit': openEdit(t); break
+      case 'clone': openClone(t); break
+      case 'regenerate': regenerate(t.id, t.name); break
+    }
+  }
 
   let tokens: Token[] = []
   let providers: Provider[] = []
@@ -208,7 +223,7 @@
     onButtonClick={openCreate}
   />
 {:else}
-  <div class="card">
+  <div class="card tokens-card">
     <div class="card-header"><h2>Tokens</h2></div>
     <table>
       <thead>
@@ -223,9 +238,7 @@
             <td>{getLastUsed(t.id)}</td>
             <td>{getUsage(t.id).toLocaleString()}</td>
             <td class="row-actions">
-              <button class="btn btn-primary" on:click={() => openEdit(t)}>Edit</button>
-              <button class="btn btn-secondary" on:click={() => openClone(t)}>Clone</button>
-              <button class="btn btn-secondary" on:click={() => regenerate(t.id, t.name)}>Regenerate</button>
+              <ActionDropdown actions={tokenActions} label="Actions" rounded="lg" on:action={(e) => handleTokenAction(e, t)} />
               <button class="btn btn-danger" on:click={() => remove(t.id, t.name)}>Revoke</button>
             </td>
           </tr>
@@ -264,8 +277,17 @@
     word-break: break-all; 
   }
 
+  .tokens-card {
+    overflow: visible;
+  }
+
   .row-actions { 
     display: flex; 
     gap: 8px;
+    align-items: center;
+  }
+
+  :global(.tokens-card .dropdown-trigger) {
+    height: 32px;
   }
 </style>
