@@ -155,22 +155,6 @@
 {/if}
 
 <style>
-  .page-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 24px;
-    margin-bottom: 32px;
-  }
-
-  .page-header h1 {
-    margin: 0 0 8px 0;
-  }
-
-  .page-header p {
-    margin: 0;
-  }
-
   .providers-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -196,10 +180,4 @@
     }
   }
 
-  .empty {
-    padding: 32px;
-    text-align: center;
-    color: var(--color-text-soft);
-    font-size: 14px;
-  }
 </style>

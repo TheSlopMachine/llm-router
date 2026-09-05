@@ -63,11 +63,3 @@
     onCancel={backToAgents}
   />
 {/if}
-
-<style>
-  .loading {
-    text-align: center;
-    padding: 48px;
-    color: var(--color-text-soft);
-  }
-</style>

@@ -63,7 +63,7 @@
   })
 
   $effect(() => {
-    void input
+    input
     autoResize()
   })
 

@@ -255,28 +255,6 @@
 {/if}
 
 <style>
-  .page-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 24px;
-    margin-bottom: 32px;
-  }
-
-  .page-header h1 {
-    margin: 0 0 8px 0;
-  }
-
-  .page-header p {
-    margin: 0;
-  }
-
-  .loading {
-    text-align: center;
-    padding: 48px;
-    color: var(--color-text-soft);
-  }
-
   .secret {
     display: block;
     margin-top: 8px;

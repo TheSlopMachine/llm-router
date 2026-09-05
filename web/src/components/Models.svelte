@@ -256,13 +256,6 @@
     white-space: nowrap;
   }
 
-  .empty {
-    padding: 48px;
-    text-align: center;
-    color: var(--color-text-soft);
-    font-size: 14px;
-  }
-
   @media (max-width: 900px) {
     .toolbar-inner {
       flex-direction: column;

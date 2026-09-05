@@ -498,17 +498,19 @@
     margin-left: 8px;
   }
 
-  :global(.page-header) { margin-bottom: 32px; }
+  :global(.page-header) { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 32px; }
   :global(.page-header h1) { 
     font-size: 24px; 
     font-weight: 400; 
-    margin-bottom: 8px;
+    margin: 0 0 8px 0;
     color: var(--color-text);
   }
   :global(.page-header p) { 
+    margin: 0;
     color: var(--color-text-soft); 
     font-size: 14px; 
   }
+  :global(.loading) { padding: 48px; text-align: center; color: var(--color-text-soft); font-size: 14px; }
   
   :global(.icon) {
     font-family: "Material Symbols Outlined", sans-serif;

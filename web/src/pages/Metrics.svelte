@@ -3,8 +3,10 @@
 </script>
 
 <div class="page-header">
-  <h1>Metrics</h1>
-  <p>Provider API usage statistics and trends.</p>
+  <div>
+    <h1>Metrics</h1>
+    <p>Provider API usage statistics and trends.</p>
+  </div>
 </div>
 
 <ProviderAPIUsage />

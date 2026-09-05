@@ -1,28 +1,41 @@
 <script lang="ts">
   import { fly, fade } from 'svelte/transition'
   import { cubicOut, cubicIn } from 'svelte/easing'
+  import { untrack } from 'svelte'
+
+  type SelectOption = { value: string; label: string }
+  type Action = { id: string; label: string; icon?: string; disabled?: boolean }
 
   let {
     value = $bindable(''),
     options = [],
+    actions = [],
     placeholder = 'Select...',
+    label = 'Actions',
     disabled = false,
     searchable = false,
     searchThreshold = 10,
     autoWidth = false,
     rounded = 'sm',
-    onchange
+    onchange,
+    onaction
   } = $props<{
-    value: string
-    options: Array<{ value: string; label: string }>
+    value?: string
+    options?: SelectOption[]
+    actions?: Action[]
     placeholder?: string
+    label?: string
     disabled?: boolean
     searchable?: boolean
     searchThreshold?: number
     autoWidth?: boolean
     rounded?: 'sm' | 'lg'
     onchange?: (v: string) => void
+    onaction?: (id: string) => void
   }>()
+
+  let isActionMode = $derived(actions.length > 0)
+  let effectiveAutoWidth = $derived(autoWidth || isActionMode)
 
   let isOpen = $state(false)
   let searchQuery = $state('')
@@ -31,12 +44,12 @@
   let triggerElement = $state<HTMLButtonElement>()
   let shouldFlipUp = $state(false)
 
-  let selectedOption = $derived(options.find((opt: { value: string; label: string }) => opt.value === value))
+  let selectedOption = $derived(options.find((opt: SelectOption) => opt.value === value))
   let selectedLabel = $derived(selectedOption?.label || placeholder)
   let showSearch = $derived(searchable || options.length > searchThreshold)
   let filteredOptions = $derived(
     searchQuery
-      ? options.filter((opt: { value: string; label: string }) => opt.label.toLowerCase().includes(searchQuery.toLowerCase()))
+      ? options.filter((opt: SelectOption) => opt.label.toLowerCase().includes(searchQuery.toLowerCase()))
       : options
   )
 
@@ -45,7 +58,9 @@
     isOpen = !isOpen
     if (isOpen) {
       checkFlipPosition()
-      highlightedIndex = options.findIndex((opt: { value: string; label: string }) => opt.value === value)
+      if (!isActionMode) {
+        highlightedIndex = options.findIndex((opt: SelectOption) => opt.value === value)
+      }
     } else {
       searchQuery = ''
     }
@@ -59,21 +74,33 @@
     triggerElement?.focus()
   }
 
+  function handleAction(id: string, actDisabled?: boolean) {
+    if (actDisabled) return
+    onaction?.(id)
+    isOpen = false
+  }
+
   function checkFlipPosition() {
     if (!triggerElement) return
     const rect = triggerElement.getBoundingClientRect()
     const spaceBelow = window.innerHeight - rect.bottom
     const spaceAbove = rect.top
-    const estimatedHeight = Math.min(
-      filteredOptions.length * 40 + (showSearch ? 50 : 0),
-      180
-    )
+    const estimatedHeight = isActionMode
+      ? Math.min(actions.length * 40 + 8, 180)
+      : Math.min(filteredOptions.length * 40 + (showSearch ? 50 : 0), 180)
     shouldFlipUp = spaceBelow < estimatedHeight && spaceAbove > spaceBelow
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if (isActionMode) {
+      if (e.key === 'Escape' && isOpen) {
+        e.preventDefault()
+        isOpen = false
+        triggerElement?.focus()
+      }
+      return
+    }
     if (disabled) return
-
     switch (e.key) {
       case 'Enter':
       case ' ':
@@ -124,7 +151,7 @@
 
   $effect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (isOpen && dropdownElement && !dropdownElement.contains(e.target as Node)) {
+      if (untrack(() => isOpen) && dropdownElement && !dropdownElement.contains(e.target as Node)) {
         isOpen = false
         searchQuery = ''
       }
@@ -134,21 +161,22 @@
   })
 </script>
 
-<div class="dropdown" class:disabled class:autoWidth={autoWidth} bind:this={dropdownElement}>
+<div class="dropdown" class:disabled class:autoWidth={effectiveAutoWidth} bind:this={dropdownElement}>
   <button
     class="dropdown-trigger"
     class:open={isOpen}
     class:rounded-lg={rounded === 'lg'}
     bind:this={triggerElement}
-    onclick={toggle}
+    onclick={isActionMode ? (e) => { e.stopPropagation(); toggle() } : toggle}
     onkeydown={handleKeydown}
     {disabled}
-    role="combobox"
+    role={isActionMode ? undefined : 'combobox'}
+    aria-haspopup={isActionMode ? 'menu' : 'listbox'}
     aria-expanded={isOpen}
-    aria-haspopup="listbox"
-    aria-controls="dropdown-menu"
+    aria-controls={isActionMode ? undefined : 'dropdown-menu'}
+    type="button"
   >
-    <span class="dropdown-label">{selectedLabel}</span>
+    <span class="dropdown-label">{isActionMode ? label : selectedLabel}</span>
     <span class="icon chevron" class:open={isOpen}>expand_more</span>
   </button>
 
@@ -156,39 +184,54 @@
     <div
       class="dropdown-menu"
       class:flip-up={shouldFlipUp}
-      id="dropdown-menu"
-      role="listbox"
+      id={isActionMode ? undefined : 'dropdown-menu'}
+      role={isActionMode ? 'menu' : 'listbox'}
       in:fly={{ y: shouldFlipUp ? 8 : -8, duration: 200, easing: cubicOut, opacity: 0 }}
       out:fade={{ duration: 150, easing: cubicIn }}
     >
-      {#if showSearch}
-        <div class="dropdown-search">
-          <input
-            type="text"
-            placeholder="Search..."
-            bind:value={searchQuery}
-            onclick={(e) => e.stopPropagation()}
-            onkeydown={(e) => e.stopPropagation()}
-          />
+      {#if isActionMode}
+        <div class="dropdown-options">
+          {#each actions as act}
+            <button
+              class="dropdown-option"
+              onclick={() => handleAction(act.id, act.disabled)}
+              disabled={act.disabled}
+              role="menuitem"
+            >
+              {#if act.icon}<span class="icon" style="font-size:16px;margin-right:8px">{act.icon}</span>{/if}
+              {act.label}
+            </button>
+          {/each}
+        </div>
+      {:else}
+        {#if showSearch}
+          <div class="dropdown-search">
+            <input
+              type="text"
+              placeholder="Search..."
+              bind:value={searchQuery}
+              onclick={(e) => e.stopPropagation()}
+              onkeydown={(e) => e.stopPropagation()}
+            />
+          </div>
+        {/if}
+        <div class="dropdown-options">
+          {#each filteredOptions as option, i}
+            <button
+              class="dropdown-option"
+              class:selected={option.value === value}
+              class:highlighted={i === highlightedIndex}
+              onclick={() => select(option.value)}
+              role="option"
+              aria-selected={option.value === value}
+            >
+              {option.label}
+            </button>
+          {:else}
+            <div class="dropdown-empty">No options found</div>
+          {/each}
         </div>
       {/if}
-
-      <div class="dropdown-options">
-        {#each filteredOptions as option, i}
-          <button
-            class="dropdown-option"
-            class:selected={option.value === value}
-            class:highlighted={i === highlightedIndex}
-            onclick={() => select(option.value)}
-            role="option"
-            aria-selected={option.value === value}
-          >
-            {option.label}
-          </button>
-        {:else}
-          <div class="dropdown-empty">No options found</div>
-        {/each}
-      </div>
     </div>
   {/if}
 </div>
@@ -350,6 +393,11 @@
   .dropdown-option.selected {
     background: var(--color-nav-active);
     font-weight: 500;
+  }
+
+  .dropdown-option:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .dropdown-empty {
