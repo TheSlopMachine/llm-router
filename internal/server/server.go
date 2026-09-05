@@ -46,25 +46,14 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
-	// Backwards compat: if new fields empty, fall back to ListenAddr
 	dashboardAddr := cfg.DashboardAddr
 	if dashboardAddr == "" {
-		dashboardAddr = cfg.ListenAddr
+		return nil, fmt.Errorf("dashboard listen address is required")
 	}
 	apiAddr := cfg.APIAddr
 	if apiAddr == "" {
-		// if only DashboardAddr set via compat, derive api as dashboard+1 is not safe; require explicit
-		if dashboardAddr == cfg.ListenAddr && cfg.ListenAddr != "" {
-			// try to keep old single-port behaviour for fallback: reuse same addr is unsafe, so bump port
-			apiAddr = dashboardAddr
-		}
-		if apiAddr == "" {
-			return nil, fmt.Errorf("api listen address is required")
-		}
+		return nil, fmt.Errorf("api listen address is required")
 	}
-	// Ensure stored back
-	cfg.DashboardAddr = dashboardAddr
-	cfg.APIAddr = apiAddr
 
 	providerSvc := provider.NewService(database)
 	adminSvc := admin.New(database, providerSvc)

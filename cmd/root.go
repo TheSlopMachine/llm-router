@@ -23,7 +23,7 @@ var (
 	apiPort              string
 	dbPath               string
 	testingKeyPath       string
-	debug                bool
+	logLevel             string
 	maxCredentialRetries int
 	versionFlag          bool
 	versionInfo          struct {
@@ -71,20 +71,9 @@ func init() {
 	rootCmd.Flags().StringVar(&apiPort, "api", "8081", "port for /v1 OpenAI-compatible API")
 	rootCmd.Flags().StringVar(&dbPath, "db", "llm-router.db", "path to the bbolt database file")
 	rootCmd.Flags().StringVar(&testingKeyPath, "testing-key", "", "path to file with ephemeral testing bearer token (generated if missing, not stored in DB)")
-	rootCmd.Flags().BoolVar(&debug, "debug", false, "enable verbose debug logging")
+	rootCmd.Flags().StringVar(&logLevel, "log-level", "info", "log level: debug, info, warn, error")
 	rootCmd.Flags().IntVar(&maxCredentialRetries, "max-retries", 7, "max credential rotation retry cycles (exponential backoff)")
 	rootCmd.Flags().BoolVarP(&versionFlag, "version", "v", false, "print version information and exit")
-
-	// Deprecated aliases for backward compatibility (hidden)
-	rootCmd.Flags().StringVar(&webPort, "dashboard-port", "8080", "")
-	_ = rootCmd.Flags().MarkHidden("dashboard-port")
-	_ = rootCmd.Flags().MarkDeprecated("dashboard-port", "use --web instead")
-	rootCmd.Flags().StringVarP(&webPort, "port", "p", "8080", "")
-	_ = rootCmd.Flags().MarkHidden("port")
-	_ = rootCmd.Flags().MarkDeprecated("port", "use --web instead")
-	rootCmd.Flags().StringVar(&apiPort, "api-port", "8081", "")
-	_ = rootCmd.Flags().MarkHidden("api-port")
-	_ = rootCmd.Flags().MarkDeprecated("api-port", "use --api instead")
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -111,12 +100,24 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("dashboard and api ports must differ (both %s)", dashPort)
 	}
 
+	normalizedLogLevel := strings.ToLower(strings.TrimSpace(logLevel))
+	switch normalizedLogLevel {
+	case "", "debug", "info", "warn", "warning", "error":
+	default:
+		return fmt.Errorf("invalid --log-level %q: must be one of debug, info, warn, error", logLevel)
+	}
+	if normalizedLogLevel == "warning" {
+		normalizedLogLevel = "warn"
+	}
+	if normalizedLogLevel == "" {
+		normalizedLogLevel = "info"
+	}
+
 	cfg := &config.Config{
 		DashboardAddr:        fmt.Sprintf("%s:%s", host, dashPort),
 		APIAddr:              fmt.Sprintf("%s:%s", host, apiPort),
-		ListenAddr:           fmt.Sprintf("%s:%s", host, dashPort), // compat
 		DBPath:               dbPath,
-		Debug:                debug,
+		LogLevel:             normalizedLogLevel,
 		MaxCredentialRetries: maxCredentialRetries,
 		TestingKeyPath:       testingKeyPath,
 	}
@@ -131,9 +132,16 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	// Logger
-	level := slog.LevelInfo
-	if debug {
+	var level slog.Level
+	switch normalizedLogLevel {
+	case "debug":
 		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
@@ -187,4 +195,3 @@ func ensureTestingKey(path string) (string, error) {
 	}
 	return raw, nil
 }
-
