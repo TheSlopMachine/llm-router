@@ -253,6 +253,14 @@ prepare-frontend: check-frontend-deps
 	@printf '\n== Frontend ==\n'
 	@mkdir -p "$(UI_DIR)/src/lib/generated"
 	@cd "$(UI_DIR)" && $(NPM) install --no-audit --no-fund
+	@printf '[>] Generating OpenAPI spec from Go annotations...\n'
+	@go run github.com/swaggo/swag/cmd/swag@v1.16.4 init -g internal/dashboard/handler.go -o $(UI_DIR) --parseDependency --parseInternal --parseDepth 2 --outputTypes yaml --quiet || (printf '[WARN] swag failed — keeping stub %s\n' "$(UI_DIR)/openapi.yaml"; true)
+	@if [ -f "$(UI_DIR)/swagger.yaml" ]; then mv -f "$(UI_DIR)/swagger.yaml" "$(UI_DIR)/openapi.yaml"; fi
+	@rm -f "$(UI_DIR)/swagger.json" "$(UI_DIR)/docs.go"
+	@if [ ! -f "$(UI_DIR)/openapi.yaml" ]; then printf '[WARN] no openapi.yaml generated — creating empty stub\n'; printf 'openapi: 3.0.0\ninfo:\n  title: llm-router\n  version: dev\npaths: {}\n' > "$(UI_DIR)/openapi.yaml"; fi
+	@printf '[>] Generating TypeScript API types...\n'
+	@cd "$(UI_DIR)" && $(NPM) run generate:api-types --if-present || (printf '[WARN] openapi-typescript failed — keeping stub %s\n' "$(UI_DIR)/src/lib/generated/api-types.ts"; true)
+	@if [ ! -f "$(UI_DIR)/src/lib/generated/api-types.ts" ]; then mkdir -p "$(UI_DIR)/src/lib/generated"; printf '// Stub — replaced at build time by openapi-typescript generation.\nexport type paths = Record<string, Record<string, any>>\nexport type components = Record<string, any>\nexport type operations = Record<string, any>\n' > "$(UI_DIR)/src/lib/generated/api-types.ts"; fi
 	@cd "$(UI_DIR)" && $(NPM) run build
 	@printf '[OK] Frontend ready.\n'
 

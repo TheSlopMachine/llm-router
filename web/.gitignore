@@ -1,2 +1,6 @@
 node_modules/
 src/lib/generated/
+openapi.yaml
+swagger.yaml
+swagger.json
+docs.go

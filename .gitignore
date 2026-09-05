@@ -36,6 +36,10 @@ coverage.html
 # Generated files
 adapters.go
 web/src/lib/generated/
+web/openapi.yaml
+web/swagger.yaml
+web/swagger.json
+web/docs.go
 
 # Workspace (local clones, generated)
 .workspace/
