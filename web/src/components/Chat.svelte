@@ -467,16 +467,6 @@
     background: transparent; border: none; padding: 0;
     font-family: 'DM Mono', 'SF Mono', monospace; font-size: 12.5px;
   }
-  .inline-code {
-    font-family: 'DM Mono', 'SF Mono', 'Fira Code', monospace;
-    font-size: 12.5px;
-    background: var(--color-surface-container-highest);
-    border: 1px solid var(--color-outline-soft);
-    padding: 1px 6px;
-    border-radius: 6px;
-    color: var(--color-text);
-    white-space: nowrap;
-  }
   .artifact-card {
     margin-top: 12px;
     border: 1px solid var(--color-outline-light);

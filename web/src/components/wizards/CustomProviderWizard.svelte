@@ -17,11 +17,20 @@
     closeModal: () => void
   }>()
 
-  let name: string = $state(editingProvider?.name ?? '')
-  let baseURL: string = $state(editingProvider?.base_url ?? '')
-  let iconURL: string = $state(editingProvider?.icon_url ?? editingProvider?.IconURL ?? '')
+  let name: string = $state('')
+  let baseURL: string = $state('')
+  let iconURL: string = $state('')
   let creating: boolean = $state(false)
   let error: string = $state('')
+
+  $effect(() => {
+    // Hydrate when editingProvider arrives (mounted via modal.open — may be async)
+    if (editingProvider) {
+      name = editingProvider.name ?? ''
+      baseURL = editingProvider.base_url ?? ''
+      iconURL = editingProvider.icon_url ?? editingProvider.IconURL ?? ''
+    }
+  })
 
   function syncButtons(): void {
     const isEdit = !!editingProvider

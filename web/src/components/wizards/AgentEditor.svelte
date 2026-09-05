@@ -19,17 +19,16 @@
     onCancel?: (() => void | Promise<void>) | undefined
   }>()
 
-  let name = $state(agent?.name || '')
-  let description = $state(agent?.description || '')
-  let models = $state<AgentModel[]>(agent?.models ? [...agent.models] : [])
-  let instructions = $state(agent?.instructions || { content: '', injection: 'beginning' as const })
-  let useDecisionModel = $state(!!agent?.decision_model)
-  let decisionModel = $state<DecisionModelConfig>(
-    agent?.decision_model || {
-      model_id: '',
-      system_prompt: 'You are a routing assistant. Choose the best model for the user\'s request based on complexity, cost, and requirements.'
-    }
-  )
+  let name = $state('')
+  let description = $state('')
+  let models = $state<AgentModel[]>([])
+  let instructions = $state<{ content: string; injection: 'beginning' | 'end' }>({ content: '', injection: 'beginning' })
+  let useDecisionModel = $state(false)
+  let decisionModel = $state<DecisionModelConfig>({
+    model_id: '',
+    system_prompt: 'You are a routing assistant. Choose the best model for the user\'s request based on complexity, cost, and requirements.'
+  })
+  let hydratedFor = $state<string | null>(null)
 
   let availableModels = $state<AvailableModel[]>([])
   let modelsLoadState = $state<'loading' | 'loaded' | 'empty' | 'error'>('loading')
@@ -39,7 +38,20 @@
   let draftSaveInterval: ReturnType<typeof setInterval> | undefined = $state(undefined)
 
   const SAVE_TIMEOUT = 30000
-  const draftKey = `agent-draft-${agent?.id || 'new'}`
+  let draftKey = $derived(`agent-draft-${agent?.id || 'new'}`)
+
+  $effect(() => {
+    const id = agent?.id ?? 'new'
+    if (agent && hydratedFor !== id) {
+      name = agent.name ?? ''
+      description = agent.description ?? ''
+      models = agent.models ? [...agent.models] : []
+      instructions = agent.instructions ?? { content: '', injection: 'beginning' as const }
+      useDecisionModel = !!agent.decision_model
+      if (agent.decision_model) decisionModel = agent.decision_model
+      hydratedFor = id
+    }
+  })
 
   onMount(() => {
     if (!agent) restoreDraft()
