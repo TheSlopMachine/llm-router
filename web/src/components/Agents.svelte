@@ -1,39 +1,31 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import { api } from '../lib/api'
   import { modal } from '../lib/modal.svelte'
   import { getErrorMessage } from '../lib/errors'
+  import { createListResource } from '../lib/list-resource.svelte'
   import type { Agent } from '../lib/types'
   import EmptyState from './EmptyState.svelte'
 
-  let agents = $state<Agent[]>([])
-  let loading = $state(true)
-  let error = $state('')
-
-  async function load() {
-    loading = true
-    error = ''
-    try {
-      const response = await api.agents.list()
-      agents = response as Agent[]
-    } catch (e: any) {
-      if (e.status === 401 || e.message?.includes('unauthenticated')) {
-        window.location.href = '/login'
-        return
+  const resource = createListResource<Agent[]>(
+    async () => {
+      try {
+        const response = (await api.agents.list()) as unknown
+        return Array.isArray(response) ? (response as Agent[]) : []
+      } catch (e: unknown) {
+        const rec = e as { status?: number; message?: string }
+        if (rec?.status === 401 || getErrorMessage(e).includes('unauthenticated')) {
+          window.location.href = '/login'
+          return []
+        }
+        throw e
       }
-      error = getErrorMessage(e)
-    } finally {
-      loading = false
-    }
-  }
+    },
+    []
+  )
 
   function openNewAgent() {
     window.location.hash = '#/agents/new'
   }
-
-  onMount(() => {
-    load()
-  })
 
   function openEditAgent(agent: Agent) {
     window.location.hash = `#/agents/${agent.id}`
@@ -54,9 +46,9 @@
 
     try {
       await api.agents.delete(agent.id)
-      await load()
+      await resource.reload()
     } catch (e) {
-      error = getErrorMessage(e)
+      resource.error = getErrorMessage(e)
     }
   }
 </script>
@@ -67,7 +59,7 @@
       <h1>Agents</h1>
       <p>Virtual models that orchestrate requests across multiple providers with custom instructions.</p>
     </div>
-    {#if agents && agents.length > 0}
+    {#if resource.data && resource.data.length > 0}
       <button class="btn btn-primary" onclick={openNewAgent}>
         <span class="icon">add</span>
         New Agent
@@ -75,13 +67,13 @@
     {/if}
   </div>
 
-  {#if error}
-    <div class="error-msg">{error}</div>
+  {#if resource.error}
+    <div class="error-msg">{resource.error}</div>
   {/if}
 
-  {#if loading}
+  {#if resource.loading}
     <div class="loading">Loading agents...</div>
-  {:else if !agents || agents.length === 0}
+  {:else if !resource.data || resource.data.length === 0}
     <EmptyState
       icon="robot"
       message="No agents yet"
@@ -104,7 +96,7 @@
           </tr>
         </thead>
         <tbody>
-           {#each agents.filter(a => a) as agent}
+           {#each resource.data.filter(a => a) as agent}
             <tr>
               <td>
                 <strong>{agent.name}</strong>

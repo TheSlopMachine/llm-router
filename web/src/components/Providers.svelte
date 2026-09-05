@@ -1,37 +1,24 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import { api } from '../lib/api'
   import { modal } from '../lib/modal.svelte'
   import { getErrorMessage } from '../lib/errors'
+  import { createListResource } from '../lib/list-resource.svelte'
   import ProviderCard from './ProviderCard.svelte'
   import ProviderDetailModal from './ProviderDetailModal.svelte'
   import CustomProviderWizard from './wizards/CustomProviderWizard.svelte'
   import type { Provider, ProviderStats } from '../lib/types'
 
-  let providers = $state<Provider[]>([])
-  let providerStats = $state<Record<string, ProviderStats>>({})
-  let loading = $state(true)
-  let error = $state('')
-
-  let visibleProviders = $derived(
-    providers.filter((provider) => provider.supports_auth_flow || provider.type === 'custom')
+  const resource = createListResource<{ providers: Provider[]; providerStats: Record<string, ProviderStats> }>(
+    async () => {
+      const [p, s] = await Promise.all([api.providers.list(), api.providers.stats()])
+      return { providers: p, providerStats: s }
+    },
+    { providers: [], providerStats: {} }
   )
 
-  onMount(load)
-
-  async function load(): Promise<void> {
-    loading = true
-    error = ''
-    try {
-      const [p, s] = await Promise.all([api.providers.list(), api.providers.stats()])
-      providers = p
-      providerStats = s
-    } catch (e) {
-      error = getErrorMessage(e)
-    } finally {
-      loading = false
-    }
-  }
+  let visibleProviders = $derived(
+    resource.data.providers.filter((provider) => provider.supports_auth_flow || provider.type === 'custom')
+  )
 
   async function openProviderDetail(provider: Provider): Promise<void> {
     try {
@@ -50,23 +37,23 @@
             const updatedCreds = (await api.credentials.list()) as any[]
             const updatedProviderCreds = updatedCreds.filter((c: any) => c.provider_id === provider.id)
             modal.updateProps({ credentials: updatedProviderCreds })
-            await load()
+            await resource.reload()
           },
           onComplete: async () => {
             modal.close()
-            await load()
+            await resource.reload()
           },
           onEdit: provider.type === 'custom' ? () => { modal.close(); openEdit(provider) } : undefined,
           onDelete: provider.type === 'custom' ? () => deleteProvider(provider) : undefined
         }
       })
     } catch (e) {
-      error = getErrorMessage(e)
+      resource.error = getErrorMessage(e)
     }
   }
 
   function openCreate(): void {
-    error = ''
+    resource.error = ''
 
     modal.open({
       title: 'New Provider',
@@ -77,14 +64,14 @@
         editingProvider: null,
         onComplete: async () => {
           modal.close()
-          await load()
+          await resource.reload()
         }
       }
     })
   }
 
   function openEdit(provider: Provider): void {
-    error = ''
+    resource.error = ''
 
     modal.open({
       title: 'Edit Provider',
@@ -95,7 +82,7 @@
         editingProvider: provider,
         onComplete: async () => {
           modal.close()
-          await load()
+          await resource.reload()
         }
       }
     })
@@ -117,9 +104,9 @@
       const id = provider.id.replace('custom:', '')
       await api.providers.delete(id)
       modal.close()
-      await load()
+      await resource.reload()
     } catch (e) {
-      error = getErrorMessage(e)
+      resource.error = getErrorMessage(e)
     }
   }
 </script>
@@ -135,11 +122,11 @@
   </button>
 </div>
 
-{#if error}
-  <div class="error-msg">{error}</div>
+{#if resource.error}
+  <div class="error-msg">{resource.error}</div>
 {/if}
 
-{#if loading}
+{#if resource.loading}
   <div class="empty">Loading…</div>
 {:else if visibleProviders.length === 0}
   <div class="empty">No providers with interactive authentication flows are available.</div>
@@ -148,7 +135,7 @@
     {#each visibleProviders as provider}
       <ProviderCard
         {provider}
-        stats={providerStats[provider.id] || null}
+        stats={resource.data.providerStats[provider.id] || null}
         onClick={() => openProviderDetail(provider)}
       />
     {/each}

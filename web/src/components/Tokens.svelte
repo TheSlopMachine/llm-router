@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import { api } from '../lib/api'
   import { modal } from '../lib/modal.svelte'
   import { getErrorMessage } from '../lib/errors'
+  import { createListResource } from '../lib/list-resource.svelte'
   import TokenWizard from './wizards/TokenWizard.svelte'
   import EmptyState from './EmptyState.svelte'
   import ActionDropdown from './ActionDropdown.svelte'
@@ -28,32 +28,18 @@
     }
   }
 
-  let tokens = $state<Token[]>([])
-  let providers = $state<Provider[]>([])
-  let loading = $state(true)
-  let error = $state('')
-  let newTokenSecret = $state<string | null>(null)
-  let tokenUsage = $state<Record<string, TokenUsageInfo>>({})
-
-  onMount(load)
-
-  async function load(): Promise<void> {
-    loading = true
-    try {
+  const resource = createListResource<{ tokens: Token[]; providers: Provider[]; tokenUsage: Record<string, TokenUsageInfo> }>(
+    async () => {
       const [t, p, u] = await Promise.all([api.tokens.list(), api.providers.list(), api.tokens.usage()])
-      tokens = t || []
-      providers = p || []
-      tokenUsage = u || {}
-    } catch (e) {
-      error = getErrorMessage(e)
-    } finally {
-      loading = false
-    }
-  }
+      return { tokens: t || [], providers: p || [], tokenUsage: u || {} }
+    },
+    { tokens: [], providers: [], tokenUsage: {} }
+  )
+  let newTokenSecret = $state<string | null>(null)
 
   function openCreate(): void {
     newTokenSecret = null
-    error = ''
+    resource.error = ''
 
     modal.open({
       title: 'New token',
@@ -61,7 +47,7 @@
       severity: 'medium',
       size: 'large',
       props: {
-        providers,
+        providers: resource.data.providers,
         editingToken: null,
         cloningToken: null,
         onComplete: async (result: { token?: string }) => {
@@ -69,7 +55,7 @@
             newTokenSecret = result.token
           }
           modal.close()
-          await load()
+          await resource.reload()
         }
       }
     })
@@ -77,7 +63,7 @@
 
   async function openEdit(token: Token): Promise<void> {
     newTokenSecret = null
-    error = ''
+    resource.error = ''
 
     modal.open({
       title: 'Edit token',
@@ -85,12 +71,12 @@
       severity: 'medium',
       size: 'large',
       props: {
-        providers,
+        providers: resource.data.providers,
         editingToken: token,
         cloningToken: null,
         onComplete: async () => {
           modal.close()
-          await load()
+          await resource.reload()
         }
       }
     })
@@ -98,20 +84,20 @@
 
   function openClone(token: Token): void {
     newTokenSecret = null
-    error = ''
+    resource.error = ''
     modal.open({
       title: 'Clone token',
       content: TokenWizard,
       severity: 'medium',
       size: 'large',
       props: {
-        providers,
+        providers: resource.data.providers,
         editingToken: null,
         cloningToken: token,
         onComplete: async (result: { token?: string }) => {
           if (result.token) newTokenSecret = result.token
           modal.close()
-          await load()
+          await resource.reload()
         }
       }
     })
@@ -130,9 +116,9 @@
     try {
       const res: any = await api.tokens.regenerate(id)
       newTokenSecret = res?.token ?? res?.Token ?? res?.token_hash ?? null
-      await load()
+      await resource.reload()
     } catch (e) {
-      error = getErrorMessage(e)
+      resource.error = getErrorMessage(e)
     }
   }
 
@@ -150,9 +136,9 @@
 
     try {
       await api.tokens.delete(id)
-      await load()
+      await resource.reload()
     } catch (e) {
-      error = getErrorMessage(e)
+      resource.error = getErrorMessage(e)
     }
   }
 
@@ -163,7 +149,7 @@
     return id.slice(0, 12) + '…'
   }
   function getUsage(tokenId: string): number {
-    return tokenUsage[tokenId]?.requests || 0
+    return resource.data.tokenUsage[tokenId]?.requests || 0
   }
 
   function formatRelativeTime(isoString: string | undefined): string {
@@ -190,7 +176,7 @@
   }
 
   function getLastUsed(tokenId: string): string {
-    return formatRelativeTime(tokenUsage[tokenId]?.last_used)
+    return formatRelativeTime(resource.data.tokenUsage[tokenId]?.last_used)
   }
 </script>
 
@@ -199,7 +185,7 @@
     <h1>Tokens</h1>
     <p>Router tokens for the <code>/v1</code> API. Each token enforces its own model allowlist.</p>
   </div>
-  {#if tokens.length > 0}
+  {#if resource.data.tokens.length > 0}
     <button class="btn btn-primary" onclick={openCreate}>
       <span class="icon">add</span>
       New Token
@@ -207,8 +193,8 @@
   {/if}
 </div>
 
-{#if error}
-  <div class="error-msg">{error}</div>
+{#if resource.error}
+  <div class="error-msg">{resource.error}</div>
 {/if}
 
 {#if newTokenSecret}
@@ -218,9 +204,9 @@
   </div>
 {/if}
 
-{#if loading}
+{#if resource.loading}
   <div class="loading">Loading tokens...</div>
-{:else if tokens.length === 0}
+{:else if resource.data.tokens.length === 0}
   <EmptyState
     icon="key"
     message="No tokens yet"
@@ -237,7 +223,7 @@
         <tr><th>Name</th><th>ID</th><th>Created</th><th>Last Used</th><th>API calls</th><th></th></tr>
       </thead>
       <tbody>
-        {#each tokens as t}
+        {#each resource.data.tokens as t}
           <tr>
             <td>{t.name}</td>
             <td class="mono">{shortId(t.id)}</td>
