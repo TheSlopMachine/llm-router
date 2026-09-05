@@ -1,27 +1,38 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
-  import { modal } from '../lib/modal'
+  import { modal } from '../lib/modal.svelte'
   import type { Provider, Credential, ModalButton } from '../lib/types'
 
-  export let provider: Provider
-  export let credentials: Credential[]
-  export let onComplete: () => void
-  export let onUpdate: () => void
-  export let onEdit: (() => void) | undefined = undefined
-  export let onDelete: (() => void) | undefined = undefined
-  export let updateButtons: (buttons: ModalButton[]) => void
-  export let updateTitle: (title: string) => void
-  export let closeModal: () => void
+  let {
+    provider,
+    credentials = $bindable([]),
+    onComplete,
+    onUpdate,
+    onEdit = undefined,
+    onDelete = undefined,
+    updateButtons,
+    updateTitle,
+    closeModal
+  } = $props<{
+    provider: Provider
+    credentials: Credential[]
+    onComplete: () => void
+    onUpdate: () => void
+    onEdit?: () => void
+    onDelete?: () => void
+    updateButtons: (buttons: ModalButton[]) => void
+    updateTitle: (title: string) => void
+    closeModal: () => void
+  }>()
 
-  let view: 'list' | 'auth' = 'list'
-  let authHtml: string = ''
-  let flowId: string = ''
-  let loading: boolean = false
-  let error: string = ''
+  let view = $state<'list' | 'auth'>('list')
+  let authHtml = $state('')
+  let flowId = $state('')
+  let loading = $state(false)
+  let error = $state('')
 
   onMount(() => {
-    // If no credentials, automatically jump to auth flow
     if (credentials.length === 0) {
       switchToAuthFlow()
     } else {
@@ -39,9 +50,7 @@
 
   function updateAuthButtons(): void {
     updateTitle(`Add Credential · ${provider.name}`)
-    updateButtons([
-      { label: 'Cancel', variant: 'secondary', onClick: closeModal }
-    ])
+    updateButtons([{ label: 'Cancel', variant: 'secondary', onClick: closeModal }])
   }
 
   async function switchToAuthFlow(): Promise<void> {
@@ -92,8 +101,6 @@
     const formData = new FormData(form)
     const submitter = (e as SubmitEvent).submitter as HTMLButtonElement | HTMLInputElement | null
 
-    // The adapter auth flow may branch on which submit button was clicked.
-    // FormData(form) omits the clicked submitter, so we add it back explicitly.
     if (submitter?.name) {
       formData.append(submitter.name, submitter.value)
     }
@@ -147,10 +154,9 @@
 
     try {
       await api.credentials.delete(id)
-      credentials = credentials.filter(c => c.id !== id)
+      credentials = credentials.filter((c: Credential) => c.id !== id)
       if (onUpdate) onUpdate()
-      
-      // If no credentials left, jump to auth flow
+
       if (credentials.length === 0) {
         switchToAuthFlow()
       }
@@ -168,13 +174,13 @@
   {#if provider.type === 'custom' && (onEdit || onDelete)}
     <div class="provider-actions">
       {#if onEdit}
-        <button class="btn btn-secondary" on:click={onEdit}>
+        <button class="btn btn-secondary" onclick={onEdit}>
           <span class="icon">edit</span>
           Edit Provider
         </button>
       {/if}
       {#if onDelete}
-        <button class="btn btn-danger" on:click={onDelete}>
+        <button class="btn btn-danger" onclick={onDelete}>
           <span class="icon">delete</span>
           Delete Provider
         </button>
@@ -196,10 +202,7 @@
               <span class="badge badge-green">Active</span>
             {/if}
           </div>
-          <button 
-            class="btn-icon" 
-            on:click={() => deleteCredential(cred.id, cred.label)}
-            aria-label="Delete credential">
+          <button class="btn-icon" onclick={() => deleteCredential(cred.id, cred.label)} aria-label="Delete credential">
             <span class="icon">delete</span>
           </button>
         </div>
@@ -208,7 +211,7 @@
   {/if}
 {:else}
   <div class="auth-html">
-    <form on:submit={submitAuthStep}>
+    <form onsubmit={submitAuthStep}>
       <input type="hidden" name="flow_id" value={flowId} />
       {@html authHtml}
     </form>
@@ -264,5 +267,4 @@
     padding-bottom: 20px;
     border-bottom: 1px solid var(--color-border);
   }
-
 </style>

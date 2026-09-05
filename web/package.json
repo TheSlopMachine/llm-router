@@ -6,16 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^3.1.2",
+    "@sveltejs/vite-plugin-svelte": "^4.0.4",
     "@tsconfig/svelte": "^5.0.8",
     "@types/dompurify": "^3.0.5",
     "openapi-typescript": "^5.4.2",
-    "svelte": "^4.2.19",
-    "svelte-check": "^4.4.7",
-    "svelte-preprocess": "^6.0.3",
+    "svelte": "^5.34.0",
+    "svelte-check": "^4.3.1",
     "typescript": "^5.9.3",
     "vite": "^5.4.14",
     "vite-plugin-webfont-dl": "^3.12.0"

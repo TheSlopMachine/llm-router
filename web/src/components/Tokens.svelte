@@ -1,43 +1,45 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
-  import { modal } from '../lib/modal'
+  import { modal } from '../lib/modal.svelte'
   import TokenWizard from './wizards/TokenWizard.svelte'
   import EmptyState from './EmptyState.svelte'
   import ActionDropdown from './ActionDropdown.svelte'
-  import type { Token, Provider } from '../lib/types'
+  import type { Token, Provider, TokenUsageInfo } from '../lib/types'
 
   const tokenActions = [
     { id: 'edit', label: 'Edit', icon: 'edit' },
     { id: 'clone', label: 'Clone', icon: 'content_copy' },
-    { id: 'regenerate', label: 'Regenerate', icon: 'refresh' },
+    { id: 'regenerate', label: 'Regenerate', icon: 'refresh' }
   ]
 
-  function handleTokenAction(e: CustomEvent<string>, t: Token): void {
-    switch (e.detail) {
-      case 'edit': openEdit(t); break
-      case 'clone': openClone(t); break
-      case 'regenerate': regenerate(t.id, t.name); break
+  function handleTokenAction(id: string, t: Token): void {
+    switch (id) {
+      case 'edit':
+        openEdit(t)
+        break
+      case 'clone':
+        openClone(t)
+        break
+      case 'regenerate':
+        regenerate(t.id, t.name)
+        break
     }
   }
 
-  let tokens: Token[] = []
-  let providers: Provider[] = []
-  let loading: boolean = true
-  let error: string = ''
-  let newTokenSecret: string | null = null
-  let tokenUsage: Record<string, TokenUsageInfo> = {}
+  let tokens = $state<Token[]>([])
+  let providers = $state<Provider[]>([])
+  let loading = $state(true)
+  let error = $state('')
+  let newTokenSecret = $state<string | null>(null)
+  let tokenUsage = $state<Record<string, TokenUsageInfo>>({})
 
   onMount(load)
 
   async function load(): Promise<void> {
     loading = true
     try {
-      const [t, p, u] = await Promise.all([
-        api.tokens.list(), 
-        api.providers.list(),
-        api.tokens.usage()
-      ])
+      const [t, p, u] = await Promise.all([api.tokens.list(), api.providers.list(), api.tokens.usage()])
       tokens = t || []
       providers = p || []
       tokenUsage = u || {}
@@ -51,7 +53,7 @@
   function openCreate(): void {
     newTokenSecret = null
     error = ''
-    
+
     modal.open({
       title: 'New token',
       content: TokenWizard,
@@ -75,7 +77,7 @@
   async function openEdit(token: Token): Promise<void> {
     newTokenSecret = null
     error = ''
-    
+
     modal.open({
       title: 'Edit token',
       content: TokenWizard,
@@ -142,9 +144,9 @@
       cancelText: 'Cancel',
       danger: true
     })
-    
+
     if (!confirmed) return
-    
+
     try {
       await api.tokens.delete(id)
       await load()
@@ -153,15 +155,19 @@
     }
   }
 
-  function fmt(d: string): string { return new Date(d).toISOString().slice(0, 10) }
-  function shortId(id: string): string { return id.slice(0, 12) + '…' }
-  function getUsage(tokenId: string): number { 
-    return tokenUsage[tokenId]?.requests || 0 
+  function fmt(d: string): string {
+    return new Date(d).toISOString().slice(0, 10)
+  }
+  function shortId(id: string): string {
+    return id.slice(0, 12) + '…'
+  }
+  function getUsage(tokenId: string): number {
+    return tokenUsage[tokenId]?.requests || 0
   }
 
   function formatRelativeTime(isoString: string | undefined): string {
     if (!isoString) return '—'
-    
+
     const date = new Date(isoString)
     const now = new Date()
     const diffMs = now.getTime() - date.getTime()
@@ -169,7 +175,7 @@
     const diffMin = Math.floor(diffSec / 60)
     const diffHour = Math.floor(diffMin / 60)
     const diffDay = Math.floor(diffHour / 24)
-    
+
     if (diffSec < 60) return 'Just now'
     if (diffMin < 60) return `${diffMin} minute${diffMin !== 1 ? 's' : ''} ago`
     if (diffHour < 24) return `${diffHour} hour${diffHour !== 1 ? 's' : ''} ago`
@@ -193,7 +199,7 @@
     <p>Router tokens for the <code>/v1</code> API. Each token enforces its own model allowlist.</p>
   </div>
   {#if tokens.length > 0}
-    <button class="btn btn-primary" on:click={openCreate}>
+    <button class="btn btn-primary" onclick={openCreate}>
       <span class="icon">add</span>
       New Token
     </button>
@@ -214,7 +220,7 @@
 {#if loading}
   <div class="loading">Loading tokens...</div>
 {:else if tokens.length === 0}
-  <EmptyState 
+  <EmptyState
     icon="key"
     message="No tokens yet"
     hint="Create a token to access the /v1 API with model-specific permissions."
@@ -238,8 +244,8 @@
             <td>{getLastUsed(t.id)}</td>
             <td>{getUsage(t.id).toLocaleString()}</td>
             <td class="row-actions">
-              <ActionDropdown actions={tokenActions} label="Actions" rounded="lg" on:action={(e) => handleTokenAction(e, t)} />
-              <button class="btn btn-danger" on:click={() => remove(t.id, t.name)}>Revoke</button>
+              <ActionDropdown actions={tokenActions} label="Actions" rounded="lg" onaction={(id) => handleTokenAction(id, t)} />
+              <button class="btn btn-danger" onclick={() => remove(t.id, t.name)}>Revoke</button>
             </td>
           </tr>
         {/each}
@@ -271,18 +277,18 @@
     color: var(--color-text-soft);
   }
 
-  .secret { 
-    display: block; 
-    margin-top: 8px; 
-    word-break: break-all; 
+  .secret {
+    display: block;
+    margin-top: 8px;
+    word-break: break-all;
   }
 
   .tokens-card {
     overflow: visible;
   }
 
-  .row-actions { 
-    display: flex; 
+  .row-actions {
+    display: flex;
     gap: 8px;
     align-items: center;
   }

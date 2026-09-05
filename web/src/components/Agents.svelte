@@ -1,13 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
-  import { modal } from '../lib/modal'
+  import { modal } from '../lib/modal.svelte'
   import type { Agent } from '../lib/types'
   import EmptyState from './EmptyState.svelte'
 
-  let agents: Agent[] = []
-  let loading = true
-  let error = ''
+  let agents = $state<Agent[]>([])
+  let loading = $state(true)
+  let error = $state('')
 
   async function load() {
     loading = true
@@ -16,7 +16,6 @@
       const response = await api.agents.list()
       agents = response as Agent[]
     } catch (e: any) {
-      // Handle authentication errors
       if (e.status === 401 || e.message?.includes('unauthenticated')) {
         window.location.href = '/login'
         return
@@ -68,7 +67,7 @@
       <p>Virtual models that orchestrate requests across multiple providers with custom instructions.</p>
     </div>
     {#if agents && agents.length > 0}
-      <button class="btn btn-primary" on:click={openNewAgent}>
+      <button class="btn btn-primary" onclick={openNewAgent}>
         <span class="icon">add</span>
         New Agent
       </button>
@@ -82,7 +81,7 @@
   {#if loading}
     <div class="loading">Loading agents...</div>
   {:else if !agents || agents.length === 0}
-    <EmptyState 
+    <EmptyState
       icon="robot"
       message="No agents yet"
       hint="Create an agent to orchestrate requests across multiple models with custom instructions."
@@ -125,11 +124,11 @@
                 {/if}
               </td>
               <td class="row-actions">
-                <button class="btn btn-secondary btn-small" on:click={() => openEditAgent(agent)}>
+                <button class="btn btn-secondary btn-small" onclick={() => openEditAgent(agent)}>
                   <span class="icon">edit</span>
                   Edit
                 </button>
-                <button class="btn btn-danger btn-small" on:click={() => deleteAgent(agent)}>
+                <button class="btn btn-danger btn-small" onclick={() => deleteAgent(agent)}>
                   <span class="icon">delete</span>
                   Delete
                 </button>

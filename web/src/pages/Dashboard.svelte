@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount, createEventDispatcher } from 'svelte'
   import { api } from '../lib/api'
   import Chat from '../components/Chat.svelte'
   import Metrics from './Metrics.svelte'
@@ -10,18 +9,18 @@
   import Agents from '../components/Agents.svelte'
   import ThemeToggle from '../components/ThemeToggle.svelte'
 
-  const dispatch = createEventDispatcher<{ logout: void }>()
-  
+  let { onlogout } = $props<{ onlogout: () => void }>()
+
   type PanelId = 'chat' | 'metrics' | 'providers' | 'models' | 'agents' | 'tokens'
-  
+
   interface NavItem {
     id: PanelId
     label: string
     icon: string
   }
-  
-  let panel: PanelId = 'metrics'
-  let routeSegments: string[] = []
+
+  let panel = $state<PanelId>('metrics')
+  let routeSegments = $state<string[]>([])
 
   function navigateTo(panelId: PanelId): void {
     panel = panelId
@@ -51,17 +50,18 @@
     panel = nextPanel
     routeSegments = segments.slice(1)
   }
-  
-  onMount((): void => {
+
+  $effect(() => {
     applyRoute()
     window.addEventListener('hashchange', applyRoute)
+    return () => window.removeEventListener('hashchange', applyRoute)
   })
-  
+
   async function logout(): Promise<void> {
     await api.logout()
-    dispatch('logout')
+    onlogout?.()
   }
-  
+
   const nav: NavItem[] = [
     { id: 'chat',         label: 'Chat',         icon: 'chat' },
     { id: 'metrics',      label: 'Metrics',      icon: 'analytics' },
@@ -80,7 +80,7 @@
         <button
           class="nav-item"
           class:active={panel === item.id}
-          on:click={() => navigateTo(item.id)}
+          onclick={() => navigateTo(item.id)}
         >
           <span class="icon">{item.icon}</span>
           <span>{item.label}</span>
@@ -89,7 +89,7 @@
     </nav>
     <div class="sidebar-footer">
       <ThemeToggle />
-      <button class="logout-btn" on:click={logout}>
+      <button class="logout-btn" onclick={logout}>
         <span class="icon">logout</span>
         <span>Sign out</span>
       </button>

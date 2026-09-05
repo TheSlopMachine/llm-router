@@ -3,12 +3,12 @@
   import { api } from '../lib/api'
   import type { Agent } from '../lib/types'
 
-  export let agentId: string | null = null
+  let { agentId = null } = $props<{ agentId: string | null }>()
 
-  let agent: Agent | undefined
-  let loading = false
-  let error = ''
-  let loadedAgentId: string | null | undefined
+  let agent = $state<Agent | undefined>(undefined)
+  let loading = $state(false)
+  let error = $state('')
+  let loadedAgentId = $state<string | null | undefined>(undefined)
 
   async function loadAgent() {
     error = ''
@@ -38,9 +38,11 @@
     window.location.hash = '#/agents'
   }
 
-  $: if (agentId !== loadedAgentId) {
-    void loadAgent()
-  }
+  $effect(() => {
+    if (agentId !== loadedAgentId) {
+      void loadAgent()
+    }
+  })
 </script>
 
 <div class="page-header">

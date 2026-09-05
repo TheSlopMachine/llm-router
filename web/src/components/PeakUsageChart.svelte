@@ -1,34 +1,34 @@
 <script lang="ts">
   import type { TimeSeriesPoint } from '../lib/types'
-  
-  export let title: string
-  export let data: TimeSeriesPoint[] = []
-  export let loading: boolean = false
-  export let showFilterIcon: boolean = false
-  
-  $: maxValue = data.length > 0 ? Math.max(...data.map(d => d.value)) : 0
-  $: hasData = data.length > 0 && maxValue > 0
-  
-  // Calculate Y-axis scale
-  $: yAxisMax = hasData ? calculateYMax(maxValue) : 20
-  $: yAxisMid = Math.floor(yAxisMax / 2)
-  
+
+  let { title, data = [], loading = false, showFilterIcon = false } = $props<{
+    title: string
+    data: TimeSeriesPoint[]
+    loading?: boolean
+    showFilterIcon?: boolean
+  }>()
+
+  let maxValue = $derived(data.length > 0 ? Math.max(...data.map((d: TimeSeriesPoint) => d.value)) : 0)
+  let hasData = $derived(data.length > 0 && maxValue > 0)
+  let yAxisMax = $derived(hasData ? calculateYMax(maxValue) : 20)
+  let yAxisMid = $derived(Math.floor(yAxisMax / 2))
+
   function calculateYMax(max: number): number {
     if (max === 0) return 20
-    
+
     // Round up to nice number
     const magnitude = Math.pow(10, Math.floor(Math.log10(max)))
     const normalized = max / magnitude
-    
+
     let nice: number
     if (normalized <= 1) nice = 1
     else if (normalized <= 2) nice = 2
     else if (normalized <= 5) nice = 5
     else nice = 10
-    
+
     return nice * magnitude * 1.2 // Add 20% headroom
   }
-  
+
   function formatYLabel(value: number): string {
     if (value >= 1000) {
       return (value / 1000).toFixed(0) + 'K'
@@ -67,14 +67,16 @@
               <line x1="0" y1="0" x2="300" y2="0" stroke="#f4f5f5" stroke-width="1" />
               <line x1="0" y1="60" x2="300" y2="60" stroke="#f4f5f5" stroke-width="1" />
               <line x1="0" y1="119" x2="300" y2="119" stroke="#e2e3e4" stroke-width="1" />
-              
+
               <!-- Data line -->
               {#if data.length > 1}
-                {@const points = data.map((d, i) => {
-                  const x = (i / (data.length - 1)) * 300
-                  const y = 120 - ((d.value / yAxisMax) * 120)
-                  return `${x},${y}`
-                }).join(' ')}
+                {@const points = data
+                  .map((d: TimeSeriesPoint, i: number) => {
+                    const x = (i / (data.length - 1)) * 300
+                    const y = 120 - (d.value / yAxisMax) * 120
+                    return `${x},${y}`
+                  })
+                  .join(' ')}
                 <polyline
                   points={points}
                   fill="none"
@@ -83,7 +85,7 @@
                   vector-effect="non-scaling-stroke"
                 />
               {/if}
-              
+
               <!-- Axis ticks -->
               <line x1="0" y1="115" x2="0" y2="123" stroke="#e2e3e4" stroke-width="1" />
               <line x1="300" y1="115" x2="300" y2="123" stroke="#e2e3e4" stroke-width="1" />

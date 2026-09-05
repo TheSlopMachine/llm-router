@@ -3,7 +3,7 @@ import DOMPurify from 'dompurify'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/github.css'
 
-marked.setOptions({
+(marked as any).setOptions({
   gfm: true,
   breaks: true,
   highlight: (code: string, lang?: string) => {

@@ -27,23 +27,45 @@
   const STORAGE_HISTORY = 'llm-router:chat:history'
   const STORAGE_MODEL = 'llm-router:chat:model'
 
-  let models: AvailableModel[] = []
-  let selectedModel: string = ''
-  let input = ''
-  let isSending = false
-  let error: string | null = null
-  let copiedArtifact: string | null = null
-  let messages: Message[] = []
-  let threadEl: HTMLDivElement
-  let textareaEl: HTMLTextAreaElement
-  let fileInputEl: HTMLInputElement
-  let hydrated = false
+  let models = $state<AvailableModel[]>([])
+  let selectedModel = $state('')
+  let input = $state('')
+  let isSending = $state(false)
+  let error = $state<string | null>(null)
+  let copiedArtifact = $state<string | null>(null)
+  let messages = $state<Message[]>([])
+  let threadEl = $state<HTMLDivElement>()
+  let textareaEl = $state<HTMLTextAreaElement>()
+  let fileInputEl = $state<HTMLInputElement>()
+  let hydrated = $state(false)
 
   const actions = [
     { id: 'new', label: 'New Chat', icon: 'add' },
     { id: 'save', label: 'Save', icon: 'download' },
     { id: 'load', label: 'Load', icon: 'upload' }
   ]
+
+  let dropdownOptions = $derived(models.map((m) => ({ value: m.full_model_id, label: m.full_model_id })))
+  let canSend = $derived(input.trim().length > 0 && !isSending && !!selectedModel)
+
+  $effect(() => {
+    if (!hydrated) return
+    try {
+      localStorage.setItem(STORAGE_HISTORY, JSON.stringify(messages))
+    } catch {}
+  })
+
+  $effect(() => {
+    if (!hydrated || !selectedModel) return
+    try {
+      localStorage.setItem(STORAGE_MODEL, selectedModel)
+    } catch {}
+  })
+
+  $effect(() => {
+    void input
+    autoResize()
+  })
 
   onMount(async () => {
     try {
@@ -78,7 +100,6 @@
                 artifacts: Array.isArray(m.artifacts) ? m.artifacts : undefined,
                 html: m.html
               }
-              // recompute html for assistant if missing (legacy storage)
               if (msg.role === 'assistant' && !msg.html) {
                 const { html, artifacts } = parseMarkdownWithArtifacts(msg.content)
                 msg.html = html
@@ -98,20 +119,6 @@
     await tick()
     scrollToBottom(false)
   })
-
-  $: dropdownOptions = models.map((m) => ({ value: m.full_model_id, label: m.full_model_id }))
-  $: canSend = input.trim().length > 0 && !isSending && !!selectedModel
-
-  $: if (hydrated && typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(STORAGE_HISTORY, JSON.stringify(messages))
-    } catch {}
-  }
-  $: if (hydrated && typeof window !== 'undefined' && selectedModel) {
-    try {
-      localStorage.setItem(STORAGE_MODEL, selectedModel)
-    } catch {}
-  }
 
   function formatTime(d: Date): string {
     return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -137,14 +144,13 @@
     textareaEl.style.height = Math.min(textareaEl.scrollHeight, 160) + 'px'
   }
 
-  $: input, autoResize()
-
-  function handleAction(e: CustomEvent<string>) {
-    const id = e.detail
+  function handleAction(id: string) {
     if (id === 'new') {
       messages = []
       error = null
-      try { localStorage.removeItem(STORAGE_HISTORY) } catch {}
+      try {
+        localStorage.removeItem(STORAGE_HISTORY)
+      } catch {}
     } else if (id === 'save') {
       const blob = new Blob([JSON.stringify(messages, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
@@ -242,7 +248,11 @@
       } else if (typeof raw === 'string') {
         error = raw
       } else {
-        try { error = JSON.stringify(raw) } catch { error = String(raw) }
+        try {
+          error = JSON.stringify(raw)
+        } catch {
+          error = String(raw)
+        }
         if (!error || error === '{}' || error === '[object Object]') error = 'Request failed'
       }
     } finally {
@@ -318,13 +328,13 @@
                         <span>{art.title}</span>
                       </div>
                       <div class="artifact-actions">
-                        <button class="icon-btn" title="Download" on:click={() => downloadArtifact(art.code, art.title)}>
+                        <button class="icon-btn" title="Download" onclick={() => downloadArtifact(art.code, art.title)}>
                           <span class="icon">download</span>
                         </button>
-                        <button class="icon-btn" title={copiedArtifact === msg.id + idx ? 'Copied' : 'Copy'} on:click={() => copyArtifact(art.code, msg.id + idx)}>
+                        <button class="icon-btn" title={copiedArtifact === msg.id + idx ? 'Copied' : 'Copy'} onclick={() => copyArtifact(art.code, msg.id + idx)}>
                           <span class="icon">{copiedArtifact === msg.id + idx ? 'check' : 'content_copy'}</span>
                         </button>
-                        <button class="icon-btn" title={art.collapsed ? 'Expand' : 'Collapse'} on:click={() => toggleCollapse(msg.id, idx)}>
+                        <button class="icon-btn" title={art.collapsed ? 'Expand' : 'Collapse'} onclick={() => toggleCollapse(msg.id, idx)}>
                           <span class="icon">{art.collapsed ? 'expand_content' : 'collapse_content'}</span>
                         </button>
                       </div>
@@ -367,8 +377,8 @@
         bind:value={input}
         rows="1"
         placeholder="Start typing a prompt to see what our models can do"
-        on:keydown={handleTextareaKeydown}
-        on:input={autoResize}
+        onkeydown={handleTextareaKeydown}
+        oninput={autoResize}
       ></textarea>
 
       <div class="composer-footer">
@@ -384,10 +394,10 @@
               rounded="lg"
             />
           </div>
-          <ActionDropdown actions={actions} label="Actions" rounded="lg" on:action={handleAction} />
+          <ActionDropdown actions={actions} label="Actions" rounded="lg" onaction={(id) => handleAction(id)} />
         </div>
 
-        <button class="btn btn-primary run-btn" on:click={send} disabled={!canSend}>
+        <button class="btn btn-primary run-btn" onclick={send} disabled={!canSend}>
           <span>Run</span><span class="run-arrow">↵</span>
         </button>
       </div>
@@ -396,7 +406,7 @@
   </div>
 </div>
 
-<input bind:this={fileInputEl} type="file" accept="application/json,.json" style="display:none" on:change={handleFileChange} />
+<input bind:this={fileInputEl} type="file" accept="application/json,.json" style="display:none" onchange={handleFileChange} />
 
 <style>
   .chat-page {

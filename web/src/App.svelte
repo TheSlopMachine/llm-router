@@ -8,27 +8,27 @@
 
   type AppState = 'loading' | 'bootstrap' | 'login' | 'dashboard'
 
-  let state: AppState = 'loading'
-  let error: string | null = null
+  let appState: AppState = $state('loading')
+  let error: string | null = $state(null)
 
   onMount(async (): Promise<void> => {
     const path = window.location.pathname
-    
+
     try {
       const status = await api.status()
-      
+
       if (!status.bootstrapped) {
         if (path !== '/bootstrap') {
           window.location.replace('/bootstrap')
           return
         }
-        state = 'bootstrap'
+        appState = 'bootstrap'
       } else if (!status.authenticated) {
         if (path !== '/login') {
           window.location.replace('/login')
           return
         }
-        state = 'login'
+        appState = 'login'
       } else {
         if (path !== '/') {
           window.location.replace('/#/metrics')
@@ -37,7 +37,7 @@
         if (!window.location.hash) {
           window.location.hash = '#/metrics'
         }
-        state = 'dashboard'
+        appState = 'dashboard'
       }
     } catch (e) {
       error = (e as Error).message
@@ -45,24 +45,24 @@
         window.location.replace('/login')
         return
       }
-      state = 'login'
+      appState = 'login'
     }
   })
 
   function onLogin(): void {
     window.location.replace('/#/metrics')
   }
-  
+
   function onBootstrap(): void {
     window.location.replace('/login')
   }
-  
+
   function onLogout(): void {
     window.location.replace('/login')
   }
 </script>
 
-{#if state === 'loading'}
+{#if appState === 'loading'}
   <div class="splash">
     {#if error}
       <div style="max-width: 400px; text-align: center;">
@@ -73,12 +73,12 @@
       llm-router
     {/if}
   </div>
-{:else if state === 'bootstrap'}
-  <Bootstrap on:done={onBootstrap} />
-{:else if state === 'login'}
-  <Login on:done={onLogin} />
+{:else if appState === 'bootstrap'}
+  <Bootstrap ondone={onBootstrap} />
+{:else if appState === 'login'}
+  <Login ondone={onLogin} />
 {:else}
-  <Dashboard on:logout={onLogout} />
+  <Dashboard onlogout={onLogout} />
 {/if}
 
 <Modal />

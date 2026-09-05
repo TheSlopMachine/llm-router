@@ -5,11 +5,30 @@
 
   const MIN_FUZZY_SCORE = 0.72
 
-  let allModels: AvailableModel[] = []
-  let loading = true
-  let error = ''
-  let query = ''
-  let copiedModelId = ''
+  let allModels = $state<AvailableModel[]>([])
+  let loading = $state(true)
+  let error = $state('')
+  let query = $state('')
+  let copiedModelId = $state('')
+
+  let rankedModels = $derived(rankModels(allModels, query))
+  let filteredModels = $derived(
+    [...rankedModels].sort((a, b) => {
+      if (a.category !== b.category) {
+        return a.category - b.category
+      }
+      if (a.category === 2 && a.score !== b.score) {
+        return b.score - a.score
+      }
+      if (a.provider_name !== b.provider_name) {
+        return a.provider_name.localeCompare(b.provider_name)
+      }
+      if (a.display_name !== b.display_name) {
+        return a.display_name.localeCompare(b.display_name)
+      }
+      return a.full_model_id.localeCompare(b.full_model_id)
+    })
+  )
 
   onMount(load)
 
@@ -18,7 +37,7 @@
     error = ''
     try {
       const response = await api.models.available()
-      allModels = Array.isArray(response) ? response as AvailableModel[] : []
+      allModels = Array.isArray(response) ? (response as AvailableModel[]) : []
     } catch (e) {
       error = (e as Error).message
     } finally {
@@ -59,11 +78,7 @@
     for (let i = 1; i < rows; i += 1) {
       for (let j = 1; j < cols; j += 1) {
         const cost = a[i - 1] === b[j - 1] ? 0 : 1
-        dp[i][j] = Math.min(
-          dp[i - 1][j] + 1,
-          dp[i][j - 1] + 1,
-          dp[i - 1][j - 1] + cost,
-        )
+        dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost)
       }
     }
 
@@ -78,7 +93,7 @@
     if (maxLength === 0) {
       return 1
     }
-    return 1 - (levenshtein(queryValue, candidate) / maxLength)
+    return 1 - levenshtein(queryValue, candidate) / maxLength
   }
 
   type RankedModel = AvailableModel & { category: number; score: number }
@@ -95,7 +110,7 @@
         normalize(model.full_model_id),
         normalize(model.model_name),
         normalize(model.provider_name),
-        normalize(`${model.provider_name} ${model.display_name} ${model.full_model_id}`),
+        normalize(`${model.provider_name} ${model.display_name} ${model.full_model_id}`)
       ]
 
       const prefixMatch = fields.some((field) => field.startsWith(normalizedQuery))
@@ -118,23 +133,6 @@
 
     return ranked
   }
-
-  $: rankedModels = rankModels(allModels, query)
-  $: filteredModels = [...rankedModels].sort((a, b) => {
-    if (a.category !== b.category) {
-      return a.category - b.category
-    }
-    if (a.category === 2 && a.score !== b.score) {
-      return b.score - a.score
-    }
-    if (a.provider_name !== b.provider_name) {
-      return a.provider_name.localeCompare(b.provider_name)
-    }
-    if (a.display_name !== b.display_name) {
-      return a.display_name.localeCompare(b.display_name)
-    }
-    return a.full_model_id.localeCompare(b.full_model_id)
-  })
 </script>
 
 <div class="page-header">
@@ -152,12 +150,7 @@
   <div class="toolbar-inner">
     <div class="search-group">
       <label for="model-search">Search</label>
-      <input
-        id="model-search"
-        type="text"
-        bind:value={query}
-        placeholder="Search by model name, provider, or full model ID"
-      />
+      <input id="model-search" type="text" bind:value={query} placeholder="Search by model name, provider, or full model ID" />
     </div>
     <div class="result-count">
       {filteredModels.length} result{filteredModels.length === 1 ? '' : 's'}
@@ -203,7 +196,7 @@
             <td>{model.context_window || '—'}</td>
             <td>{model.max_tokens || '—'}</td>
             <td class="copy-cell">
-              <button class="btn btn-secondary btn-sm" on:click={() => copyModelId(model.full_model_id)}>
+              <button class="btn btn-secondary btn-sm" onclick={() => copyModelId(model.full_model_id)}>
                 <span class="icon">{copiedModelId === model.full_model_id ? 'check' : 'content_copy'}</span>
                 {copiedModelId === model.full_model_id ? 'Copied' : 'Copy ID'}
               </button>

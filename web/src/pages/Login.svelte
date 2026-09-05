@@ -1,14 +1,13 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte'
   import { api } from '../lib/api'
 
-  const dispatch = createEventDispatcher<{ done: void }>()
+  let { ondone } = $props<{ ondone: () => void }>()
 
-  let username: string = ''
-  let password: string = ''
-  let rememberMe: boolean = false
-  let error: string = ''
-  let loading: boolean = false
+  let username = $state('')
+  let password = $state('')
+  let rememberMe = $state(false)
+  let error = $state('')
+  let loading = $state(false)
 
   async function submit(): Promise<void> {
     if (!username || !password) return
@@ -16,7 +15,7 @@
     loading = true
     try {
       await api.login(username, password)
-      dispatch('done')
+      ondone?.()
     } catch (e) {
       error = 'Invalid username or password.'
     } finally {
@@ -37,17 +36,17 @@
 
     <div class="form-group">
       <label for="u">Username</label>
-      <input id="u" type="text" bind:value={username} autocomplete="username" on:keydown={(e) => e.key === 'Enter' && submit()} />
+      <input id="u" type="text" bind:value={username} autocomplete="username" onkeydown={(e) => e.key === 'Enter' && submit()} />
     </div>
     <div class="form-group" style="margin-top: 12px;">
       <label for="p">Password</label>
-      <input id="p" type="password" bind:value={password} autocomplete="current-password" on:keydown={(e) => e.key === 'Enter' && submit()} />
+      <input id="p" type="password" bind:value={password} autocomplete="current-password" onkeydown={(e) => e.key === 'Enter' && submit()} />
     </div>
     <label class="remember-me">
       <input type="checkbox" bind:checked={rememberMe} />
       <span>Keep me signed in</span>
     </label>
-    <button class="btn btn-primary submit-btn" on:click={submit} disabled={loading}>
+    <button class="btn btn-primary submit-btn" onclick={submit} disabled={loading}>
       {loading ? 'Signing in…' : 'Sign in'}
     </button>
   </div>

@@ -1,8 +1,10 @@
 <script lang="ts">
-  export let title: string
-  export let value: number | null
-  export let loading: boolean = false
-  export let icon: string = 'show_chart'
+  let { title, value, loading = false, icon = 'show_chart' } = $props<{
+    title: string
+    value: number | null
+    loading?: boolean
+    icon?: string
+  }>()
 </script>
 
 <div class="card">

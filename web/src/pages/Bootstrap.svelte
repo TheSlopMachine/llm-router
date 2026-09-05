@@ -1,14 +1,13 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte'
   import { api } from '../lib/api'
 
-  const dispatch = createEventDispatcher<{ done: void }>()
+  let { ondone } = $props<{ ondone: () => void }>()
 
-  let username: string = ''
-  let password: string = ''
-  let password2: string = ''
-  let error: string = ''
-  let loading: boolean = false
+  let username = $state('')
+  let password = $state('')
+  let password2 = $state('')
+  let error = $state('')
+  let loading = $state(false)
 
   async function submit(): Promise<void> {
     error = ''
@@ -16,7 +15,7 @@
     loading = true
     try {
       await api.bootstrap(username, password)
-      dispatch('done')
+      ondone?.()
     } catch (e) {
       error = (e as Error).message || 'Failed to create account.'
     } finally {
@@ -48,9 +47,9 @@
     </div>
     <div class="form-group" style="margin-top: 12px;">
       <label for="p2">Confirm password</label>
-      <input id="p2" type="password" bind:value={password2} autocomplete="new-password" on:keydown={(e) => e.key === 'Enter' && submit()} />
+      <input id="p2" type="password" bind:value={password2} autocomplete="new-password" onkeydown={(e) => e.key === 'Enter' && submit()} />
     </div>
-    <button class="btn btn-primary submit-btn" on:click={submit} disabled={loading}>
+    <button class="btn btn-primary submit-btn" onclick={submit} disabled={loading}>
       {loading ? 'Creating…' : 'Create account'}
     </button>
   </div>

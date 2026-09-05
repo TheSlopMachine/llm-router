@@ -1,28 +1,26 @@
 <script lang="ts">
-  import { theme } from '../lib/theme'
-  
-  let currentTheme: 'auto' | 'light' | 'dark' = 'auto'
-  
-  theme.subscribe(value => {
-    currentTheme = value
-  })
-  
+  import { theme } from '../lib/theme.svelte'
+
+  let icon = $derived(
+    theme.value === 'auto'
+      ? 'brightness_auto'
+      : theme.value === 'light'
+        ? 'light_mode'
+        : 'dark_mode'
+  )
+
+  let label = $derived(
+    theme.value === 'auto' ? 'Auto' : theme.value === 'light' ? 'Light' : 'Dark'
+  )
+
   function cycleTheme() {
     theme.cycle()
   }
-  
-  $: icon = currentTheme === 'auto' ? 'brightness_auto'
-           : currentTheme === 'light' ? 'light_mode'
-           : 'dark_mode'
-  
-  $: label = currentTheme === 'auto' ? 'Auto'
-            : currentTheme === 'light' ? 'Light'
-            : 'Dark'
 </script>
 
-<button 
-  class="theme-toggle" 
-  on:click={cycleTheme} 
+<button
+  class="theme-toggle"
+  onclick={cycleTheme}
   title="Theme: {label} (click to cycle)"
   aria-label="Toggle theme"
 >
@@ -47,16 +45,16 @@
     border: none;
     cursor: pointer;
   }
-  
+
   .theme-toggle:hover {
     background: var(--color-nav-hover);
     color: var(--color-text);
   }
-  
+
   .theme-toggle .icon {
     font-size: 20px;
   }
-  
+
   .theme-label {
     font-size: 14px;
   }

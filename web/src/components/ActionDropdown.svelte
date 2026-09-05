@@ -1,19 +1,25 @@
 <script lang="ts">
-  import { createEventDispatcher, onMount, onDestroy } from 'svelte'
   import { fly, fade } from 'svelte/transition'
   import { cubicOut, cubicIn } from 'svelte/easing'
 
-  export let actions: Array<{ id: string; label: string; icon?: string; disabled?: boolean }> = []
-  export let label: string = 'Actions'
-  export let disabled: boolean = false
-  export let rounded: 'sm' | 'lg' = 'sm'
+  let {
+    actions = [],
+    label = 'Actions',
+    disabled = false,
+    rounded = 'sm',
+    onaction
+  } = $props<{
+    actions: Array<{ id: string; label: string; icon?: string; disabled?: boolean }>
+    label?: string
+    disabled?: boolean
+    rounded?: 'sm' | 'lg'
+    onaction?: (id: string) => void
+  }>()
 
-  const dispatch = createEventDispatcher<{ action: string }>()
-
-  let isOpen = false
-  let dropdownElement: HTMLDivElement
-  let triggerElement: HTMLButtonElement
-  let shouldFlipUp = false
+  let isOpen = $state(false)
+  let dropdownElement = $state<HTMLDivElement>()
+  let triggerElement = $state<HTMLButtonElement>()
+  let shouldFlipUp = $state(false)
 
   function toggle() {
     if (disabled) return
@@ -23,7 +29,7 @@
 
   function onAction(id: string, actDisabled?: boolean) {
     if (actDisabled) return
-    dispatch('action', id)
+    onaction?.(id)
     isOpen = false
   }
 
@@ -36,12 +42,6 @@
     shouldFlipUp = spaceBelow < Math.min(estimatedHeight, 180) && spaceAbove > spaceBelow
   }
 
-  function handleClickOutside(e: MouseEvent) {
-    if (isOpen && dropdownElement && !dropdownElement.contains(e.target as Node)) {
-      isOpen = false
-    }
-  }
-
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape' && isOpen) {
       e.preventDefault()
@@ -50,11 +50,14 @@
     }
   }
 
-  onMount(() => {
+  $effect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (isOpen && dropdownElement && !dropdownElement.contains(e.target as Node)) {
+        isOpen = false
+      }
+    }
     document.addEventListener('click', handleClickOutside)
-  })
-  onDestroy(() => {
-    document.removeEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
   })
 </script>
 
@@ -64,8 +67,8 @@
     class:open={isOpen}
     class:rounded-lg={rounded === 'lg'}
     bind:this={triggerElement}
-    on:click|stopPropagation={toggle}
-    on:keydown={handleKeydown}
+    onclick={(e) => { e.stopPropagation(); toggle() }}
+    onkeydown={handleKeydown}
     {disabled}
     aria-haspopup="menu"
     aria-expanded={isOpen}
@@ -87,7 +90,7 @@
         {#each actions as act}
           <button
             class="dropdown-option"
-            on:click={() => onAction(act.id, act.disabled)}
+            onclick={() => onAction(act.id, act.disabled)}
             disabled={act.disabled}
             role="menuitem"
           >

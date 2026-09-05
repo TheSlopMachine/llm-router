@@ -1,12 +1,14 @@
 <script lang="ts">
   import type { Provider, ProviderStats } from '../lib/types'
 
-  export let provider: Provider
-  export let stats: ProviderStats | null
-  export let onClick: () => void
+  let { provider, stats, onClick } = $props<{
+    provider: Provider
+    stats: ProviderStats | null
+    onClick: () => void
+  }>()
 </script>
 
-<button class="provider-card" on:click={onClick}>
+<button class="provider-card" onclick={onClick}>
   <div class="provider-header">
     {#if provider.icon_url}
       <img src={provider.icon_url} alt={provider.name} class="provider-icon" />

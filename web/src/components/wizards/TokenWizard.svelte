@@ -3,28 +3,37 @@
   import { api } from '../../lib/api'
   import type { Token, Provider, ProviderModels, ModalButton } from '../../lib/types'
 
-  export let providers: Provider[]
-  export let editingToken: Token | null = null
-  export let cloningToken: Token | null = null
-  export let onComplete: (result: { token?: string }) => void
-  
-  export let updateButtons: (buttons: ModalButton[]) => void
-  export let updateTitle: (title: string) => void
-  export let closeModal: () => void
+  let {
+    providers,
+    editingToken = null,
+    cloningToken = null,
+    onComplete,
+    updateButtons,
+    updateTitle,
+    closeModal
+  } = $props<{
+    providers: Provider[]
+    editingToken?: Token | null
+    cloningToken?: Token | null
+    onComplete: (result: { token?: string }) => void
+    updateButtons: (buttons: ModalButton[]) => void
+    updateTitle: (title: string) => void
+    closeModal: () => void
+  }>()
 
-  let wizardStep: number = 1
-  let wizardLoading: boolean = false
-  let error: string = ''
+  let wizardStep: number = $state(1)
+  let wizardLoading: boolean = $state(false)
+  let error: string = $state('')
 
-  let tokenName: string = ''
-  let allowAllProviders: boolean = false
-  let selectedProviders: Set<string> = new Set()
-  let providerModels: ProviderModels[] = []
-  let allowAllModels: boolean = false
-  let selectedModels: Set<string> = new Set()
-  let allowAllCredentials: boolean = false
-  let selectedCredentials: Set<string> = new Set()
-  let allCredentials: Array<{ id: string; provider_id: string; provider_name: string; label: string; is_expired: boolean }> = []
+  let tokenName: string = $state('')
+  let allowAllProviders: boolean = $state(false)
+  let selectedProviders: Set<string> = $state(new Set())
+  let providerModels: ProviderModels[] = $state([])
+  let allowAllModels: boolean = $state(false)
+  let selectedModels: Set<string> = $state(new Set())
+  let allowAllCredentials: boolean = $state(false)
+  let selectedCredentials: Set<string> = $state(new Set())
+  let allCredentials: Array<{ id: string; provider_id: string; provider_name: string; label: string; is_expired: boolean }> = $state([])
 
   onMount(async () => {
     const source = editingToken ?? cloningToken
@@ -47,49 +56,44 @@
       allCredentials = []
     }
 
-    // If editing and not allow-all models, preload provider models to render step 2 correctly when user navigates there
-    // We don't auto-fetch on mount to avoid flash; step 2 will load.
-
     updateStepButtons()
   })
 
   function getEligibleProviderIds(): Set<string> {
     if (!allowAllProviders) return new Set(selectedProviders)
     if (!allowAllModels && selectedModels.size > 0) {
-      // derive provider ids from allowed models' type prefix
       const types = new Set<string>()
       for (const m of selectedModels) {
         const pre = m.split('/')[0]
         if (pre) types.add(pre)
       }
-      const ids = providers.filter(p => types.has(p.type)).map(p => p.id)
-      // if model type maps to no provider (e.g., stale), fall back to all
+      const ids = providers.filter((p: Provider) => types.has(p.type)).map((p: Provider) => p.id)
       if (ids.length > 0) return new Set(ids)
     }
-    return new Set(providers.map(p => p.id))
+    return new Set(providers.map((p: Provider) => p.id))
   }
 
-  $: eligibleProviderIds = getEligibleProviderIds()
-  $: eligibleProviders = providers.filter(p => eligibleProviderIds.has(p.id))
-  $: eligibleCredentialsGrouped = eligibleProviders.map(p => ({
+  let eligibleProviderIds = $derived(getEligibleProviderIds())
+  let eligibleProviders = $derived(providers.filter((p: Provider) => eligibleProviderIds.has(p.id)))
+  let eligibleCredentialsGrouped = $derived(eligibleProviders.map((p: Provider) => ({
     provider: p,
     creds: allCredentials.filter(c => c.provider_id === p.id)
-  }))
+  })))
 
   function updateStepButtons(): void {
     const title = editingToken ? 'Edit token' : cloningToken ? 'Clone token' : 'New token'
-    
+
     if (wizardStep === 1) {
       updateTitle(`${title} · Step 1 of 3`)
       updateButtons([
-        { 
-          label: 'Cancel', 
-          variant: 'secondary', 
-          onClick: closeModal 
+        {
+          label: 'Cancel',
+          variant: 'secondary',
+          onClick: closeModal
         },
-        { 
-          label: 'Next', 
-          variant: 'primary', 
+        {
+          label: 'Next',
+          variant: 'primary',
           onClick: goToStep2,
           disabled: !tokenName.trim() || (!allowAllProviders && selectedProviders.size === 0),
           loading: wizardLoading
@@ -98,14 +102,14 @@
     } else if (wizardStep === 2) {
       updateTitle(`${title} · Step 2 of 3`)
       updateButtons([
-        { 
-          label: 'Back', 
-          variant: 'secondary', 
+        {
+          label: 'Back',
+          variant: 'secondary',
           onClick: goBackToStep1
         },
-        { 
-          label: 'Next', 
-          variant: 'primary', 
+        {
+          label: 'Next',
+          variant: 'primary',
           onClick: goToStep3,
           disabled: !allowAllModels && selectedModels.size === 0,
           loading: wizardLoading
@@ -114,14 +118,14 @@
     } else {
       updateTitle(`${title} · Step 3 of 3`)
       updateButtons([
-        { 
-          label: 'Back', 
-          variant: 'secondary', 
+        {
+          label: 'Back',
+          variant: 'secondary',
           onClick: goBackToStep2
         },
-        { 
-          label: editingToken ? 'Update token' : 'Create token', 
-          variant: 'primary', 
+        {
+          label: editingToken ? 'Update token' : 'Create token',
+          variant: 'primary',
           onClick: submit,
           disabled: !allowAllCredentials && selectedCredentials.size === 0,
           loading: wizardLoading
@@ -165,28 +169,27 @@
 
   async function goToStep2(): Promise<void> {
     error = ''
-    
-    if (!tokenName.trim()) { 
+
+    if (!tokenName.trim()) {
       error = 'Token name is required.'
-      return 
+      return
     }
-    
-    if (!allowAllProviders && selectedProviders.size === 0) { 
+
+    if (!allowAllProviders && selectedProviders.size === 0) {
       error = 'Select at least one provider or allow all.'
-      return 
+      return
     }
-    
+
     wizardLoading = true
     updateStepButtons()
-    
+
     try {
-      const ids = allowAllProviders ? providers.map(p => p.id) : [...selectedProviders]
+      const ids = allowAllProviders ? providers.map((p: Provider) => p.id) : [...selectedProviders]
       if (ids.length === 0) {
         providerModels = []
       } else {
         const result: any = await api.models.list(ids)
         providerModels = result?.providers || result?.data || []
-        // normalize shape: some backends return {providers: [...]}
         if (!Array.isArray(providerModels)) providerModels = []
       }
       const availableTypes = new Set(providerModels.map((p: any) => p.provider_type))
@@ -220,7 +223,6 @@
           allCredentials = Array.isArray(creds) ? creds : []
         } catch (_) {}
       }
-      // prune credentials that are no longer eligible
       const eligible = getEligibleProviderIds()
       for (const cid of [...selectedCredentials]) {
         const cred = allCredentials.find(c => c.id === cid)
@@ -241,7 +243,7 @@
     error = ''
     wizardLoading = true
     updateStepButtons()
-    
+
     const payload = {
       name: tokenName,
       rules: {
@@ -253,7 +255,7 @@
         allow_all_credentials: allowAllCredentials,
       },
     }
-    
+
     try {
       if (editingToken) {
         await api.tokens.update(editingToken.id, payload as any)
@@ -269,14 +271,18 @@
     }
   }
 
-  // reactive button refresh when checkboxes change
-  $: {
-    // depend on step and selections
-    void wizardStep; void tokenName; void allowAllProviders; void selectedProviders.size; void allowAllModels; void selectedModels.size; void allowAllCredentials; void selectedCredentials.size; void wizardLoading;
-    // defer to next tick to avoid double call during mount
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+  $effect(() => {
+    void wizardStep
+    void tokenName
+    void allowAllProviders
+    void selectedProviders.size
+    void allowAllModels
+    void selectedModels.size
+    void allowAllCredentials
+    void selectedCredentials.size
+    void wizardLoading
     updateStepButtons()
-  }
+  })
 </script>
 
 {#if wizardStep === 1}
@@ -290,7 +296,7 @@
 
   <div class="form-group">
     <label class="checkbox-item">
-      <input type="checkbox" bind:checked={allowAllProviders} on:change={updateStepButtons} />
+      <input type="checkbox" bind:checked={allowAllProviders} onchange={updateStepButtons} />
       <span>Allow all providers</span>
     </label>
     {#if allowAllProviders}
@@ -304,7 +310,7 @@
       <div class="checkbox-list">
         {#each providers as p}
           <label class="checkbox-item">
-            <input type="checkbox" checked={selectedProviders.has(p.id)} on:change={() => toggleProvider(p.id)} />
+            <input type="checkbox" checked={selectedProviders.has(p.id)} onchange={() => toggleProvider(p.id)} />
             <span>{p.name} <span class="text-muted">({p.type}{p.qualifier ? ':' + p.qualifier : ''})</span></span>
           </label>
         {/each}
@@ -324,7 +330,7 @@
 
   <div class="form-group">
     <label class="checkbox-item">
-      <input type="checkbox" bind:checked={allowAllModels} on:change={updateStepButtons} />
+      <input type="checkbox" bind:checked={allowAllModels} onchange={updateStepButtons} />
       <span>Allow all models</span>
     </label>
     {#if allowAllModels}
@@ -347,7 +353,7 @@
               {#each pm.models as model}
                 {@const fullId = `${pm.provider_type}/${model}`}
                 <label class="checkbox-item">
-                  <input type="checkbox" checked={selectedModels.has(fullId)} on:change={() => toggleModel(fullId)} />
+                  <input type="checkbox" checked={selectedModels.has(fullId)} onchange={() => toggleModel(fullId)} />
                   <span class="mono">{model}</span>
                 </label>
               {/each}
@@ -372,7 +378,7 @@
 
   <div class="form-group">
     <label class="checkbox-item">
-      <input type="checkbox" bind:checked={allowAllCredentials} on:change={updateStepButtons} />
+      <input type="checkbox" bind:checked={allowAllCredentials} onchange={updateStepButtons} />
       <span>Allow all accounts</span>
     </label>
     {#if allowAllCredentials}
@@ -396,7 +402,7 @@
               <div class="checkbox-list">
                 {#each group.creds as cred}
                   <label class="checkbox-item">
-                    <input type="checkbox" checked={selectedCredentials.has(cred.id)} on:change={() => toggleCredential(cred.id)} />
+                    <input type="checkbox" checked={selectedCredentials.has(cred.id)} onchange={() => toggleCredential(cred.id)} />
                     <span>{cred.label} <span class="text-muted">({cred.id.slice(0, 8)}…)</span> {#if cred.is_expired}<span class="badge badge-red">expired</span>{/if}</span>
                   </label>
                 {/each}

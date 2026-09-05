@@ -1,17 +1,20 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
-  import { modal } from '../lib/modal'
+  import { modal } from '../lib/modal.svelte'
   import ProviderCard from './ProviderCard.svelte'
   import ProviderDetailModal from './ProviderDetailModal.svelte'
   import CustomProviderWizard from './wizards/CustomProviderWizard.svelte'
   import type { Provider, ProviderStats } from '../lib/types'
 
-  let providers: Provider[] = []
-  let visibleProviders: Provider[] = []
-  let providerStats: Record<string, ProviderStats> = {}
-  let loading: boolean = true
-  let error: string = ''
+  let providers = $state<Provider[]>([])
+  let providerStats = $state<Record<string, ProviderStats>>({})
+  let loading = $state(true)
+  let error = $state('')
+
+  let visibleProviders = $derived(
+    providers.filter((provider) => provider.supports_auth_flow || provider.type === 'custom')
+  )
 
   onMount(load)
 
@@ -19,10 +22,9 @@
     loading = true
     error = ''
     try {
-      [providers, providerStats] = await Promise.all([
-        api.providers.list(),
-        api.providers.stats(),
-      ])
+      const [p, s] = await Promise.all([api.providers.list(), api.providers.stats()])
+      providers = p
+      providerStats = s
     } catch (e) {
       error = (e as Error).message
     } finally {
@@ -32,8 +34,8 @@
 
   async function openProviderDetail(provider: Provider): Promise<void> {
     try {
-      const allCredentials = await api.credentials.list()
-      const providerCreds = allCredentials.filter(c => c.provider_id === provider.id)
+      const allCredentials = (await api.credentials.list()) as any[]
+      const providerCreds = allCredentials.filter((c: any) => c.provider_id === provider.id)
 
       modal.open({
         title: `${provider.name} Credentials`,
@@ -44,14 +46,9 @@
           provider,
           credentials: providerCreds,
           onUpdate: async () => {
-            // Reload data and update the modal's credentials
-            const updatedCreds = await api.credentials.list()
-            const updatedProviderCreds = updatedCreds.filter(c => c.provider_id === provider.id)
-            
-            // Update the modal props
+            const updatedCreds = (await api.credentials.list()) as any[]
+            const updatedProviderCreds = updatedCreds.filter((c: any) => c.provider_id === provider.id)
             modal.updateProps({ credentials: updatedProviderCreds })
-            
-            // Reload provider stats
             await load()
           },
           onComplete: async () => {
@@ -59,7 +56,7 @@
             await load()
           },
           onEdit: provider.type === 'custom' ? () => { modal.close(); openEdit(provider) } : undefined,
-          onDelete: provider.type === 'custom' ? () => deleteProvider(provider) : undefined,
+          onDelete: provider.type === 'custom' ? () => deleteProvider(provider) : undefined
         }
       })
     } catch (e) {
@@ -69,7 +66,7 @@
 
   function openCreate(): void {
     error = ''
-    
+
     modal.open({
       title: 'New Provider',
       content: CustomProviderWizard,
@@ -87,7 +84,7 @@
 
   function openEdit(provider: Provider): void {
     error = ''
-    
+
     modal.open({
       title: 'Edit Provider',
       content: CustomProviderWizard,
@@ -112,11 +109,10 @@
       cancelText: 'Cancel',
       danger: true
     })
-    
+
     if (!confirmed) return
-    
+
     try {
-      // Extract ID without 'custom:' prefix
       const id = provider.id.replace('custom:', '')
       await api.providers.delete(id)
       modal.close()
@@ -125,10 +121,6 @@
       error = (e as Error).message
     }
   }
-
-  $: visibleProviders = providers.filter((provider) => 
-    provider.supports_auth_flow || provider.type === 'custom'
-  )
 </script>
 
 <div class="page-header">
@@ -136,7 +128,7 @@
     <h1>Providers</h1>
     <p>Registered upstream LLM backends.</p>
   </div>
-  <button class="btn btn-primary" on:click={openCreate}>
+  <button class="btn btn-primary" onclick={openCreate}>
     <span class="icon">add</span>
     New Provider
   </button>
@@ -153,7 +145,7 @@
 {:else}
   <div class="providers-grid">
     {#each visibleProviders as provider}
-      <ProviderCard 
+      <ProviderCard
         {provider}
         stats={providerStats[provider.id] || null}
         onClick={() => openProviderDetail(provider)}
