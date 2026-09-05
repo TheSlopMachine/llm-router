@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { untrack } from 'svelte'
   import { api } from '../../lib/api'
   import type { Token, Provider, ProviderModels, ModalButton } from '../../lib/types'
 
@@ -56,7 +57,7 @@
       allCredentials = []
     }
 
-    updateStepButtons()
+    syncButtons()
   })
 
   function getEligibleProviderIds(): Set<string> {
@@ -80,91 +81,94 @@
     creds: allCredentials.filter(c => c.provider_id === p.id)
   })))
 
-  function updateStepButtons(): void {
+  function syncButtons(): void {
     const title = editingToken ? 'Edit token' : cloningToken ? 'Clone token' : 'New token'
-
-    if (wizardStep === 1) {
-      updateTitle(`${title} · Step 1 of 3`)
-      updateButtons([
-        {
-          label: 'Cancel',
-          variant: 'secondary',
-          onClick: closeModal
-        },
-        {
-          label: 'Next',
-          variant: 'primary',
-          onClick: goToStep2,
-          disabled: !tokenName.trim() || (!allowAllProviders && selectedProviders.size === 0),
-          loading: wizardLoading
-        }
-      ])
-    } else if (wizardStep === 2) {
-      updateTitle(`${title} · Step 2 of 3`)
-      updateButtons([
-        {
-          label: 'Back',
-          variant: 'secondary',
-          onClick: goBackToStep1
-        },
-        {
-          label: 'Next',
-          variant: 'primary',
-          onClick: goToStep3,
-          disabled: !allowAllModels && selectedModels.size === 0,
-          loading: wizardLoading
-        }
-      ])
-    } else {
-      updateTitle(`${title} · Step 3 of 3`)
-      updateButtons([
-        {
-          label: 'Back',
-          variant: 'secondary',
-          onClick: goBackToStep2
-        },
-        {
-          label: editingToken ? 'Update token' : 'Create token',
-          variant: 'primary',
-          onClick: submit,
-          disabled: !allowAllCredentials && selectedCredentials.size === 0,
-          loading: wizardLoading
-        }
-      ])
-    }
+    // Parent callbacks mutate modal stack ($state) — untrack so this write is not tracked as a dependency of any $effect
+    // Prevents effect_update_depth_exceeded (Svelte 5: $effect for side effects only, parent writes must be untracked)
+    untrack(() => {
+      if (wizardStep === 1) {
+        updateTitle(`${title} · Step 1 of 3`)
+        updateButtons([
+          {
+            label: 'Cancel',
+            variant: 'secondary',
+            onClick: closeModal
+          },
+          {
+            label: 'Next',
+            variant: 'primary',
+            onClick: goToStep2,
+            disabled: !tokenName.trim() || (!allowAllProviders && selectedProviders.size === 0),
+            loading: wizardLoading
+          }
+        ])
+      } else if (wizardStep === 2) {
+        updateTitle(`${title} · Step 2 of 3`)
+        updateButtons([
+          {
+            label: 'Back',
+            variant: 'secondary',
+            onClick: goBackToStep1
+          },
+          {
+            label: 'Next',
+            variant: 'primary',
+            onClick: goToStep3,
+            disabled: !allowAllModels && selectedModels.size === 0,
+            loading: wizardLoading
+          }
+        ])
+      } else {
+        updateTitle(`${title} · Step 3 of 3`)
+        updateButtons([
+          {
+            label: 'Back',
+            variant: 'secondary',
+            onClick: goBackToStep2
+          },
+          {
+            label: editingToken ? 'Update token' : 'Create token',
+            variant: 'primary',
+            onClick: submit,
+            disabled: !allowAllCredentials && selectedCredentials.size === 0,
+            loading: wizardLoading
+          }
+        ])
+      }
+    })
   }
 
   function goBackToStep1(): void {
     wizardStep = 1
     error = ''
-    updateStepButtons()
+    syncButtons()
   }
 
   function goBackToStep2(): void {
     wizardStep = 2
     error = ''
-    updateStepButtons()
+    syncButtons()
   }
 
   function toggleProvider(id: string): void {
     const s = new Set(selectedProviders)
     s.has(id) ? s.delete(id) : s.add(id)
     selectedProviders = s
-    updateStepButtons()
+    syncButtons()
   }
 
   function toggleModel(fullId: string): void {
     const s = new Set(selectedModels)
     s.has(fullId) ? s.delete(fullId) : s.add(fullId)
     selectedModels = s
-    updateStepButtons()
+    syncButtons()
   }
 
   function toggleCredential(id: string): void {
     const s = new Set(selectedCredentials)
     s.has(id) ? s.delete(id) : s.add(id)
     selectedCredentials = s
-    updateStepButtons()
+    syncButtons()
   }
 
   async function goToStep2(): Promise<void> {
@@ -181,7 +185,7 @@
     }
 
     wizardLoading = true
-    updateStepButtons()
+    syncButtons()
 
     try {
       const ids = allowAllProviders ? providers.map((p: Provider) => p.id) : [...selectedProviders]
@@ -204,7 +208,7 @@
       error = (e as Error).message
     } finally {
       wizardLoading = false
-      updateStepButtons()
+      syncButtons()
     }
   }
 
@@ -215,7 +219,7 @@
       return
     }
     wizardLoading = true
-    updateStepButtons()
+    syncButtons()
     try {
       if (allCredentials.length === 0) {
         try {
@@ -235,14 +239,14 @@
       error = (e as Error).message
     } finally {
       wizardLoading = false
-      updateStepButtons()
+      syncButtons()
     }
   }
 
   async function submit(): Promise<void> {
     error = ''
     wizardLoading = true
-    updateStepButtons()
+    syncButtons()
 
     const payload = {
       name: tokenName,
@@ -267,10 +271,13 @@
     } catch (e) {
       error = (e as Error).message
       wizardLoading = false
-      updateStepButtons()
+      syncButtons()
     }
   }
 
+  // Svelte 5: $effect is for side effects only; use $derived for computed values.
+  // The effect syncs footer buttons with form state. Parent writes (updateTitle/updateButtons mutate modal stack)
+  // must be untracked to prevent effect_update_depth_exceeded.
   $effect(() => {
     void wizardStep
     void tokenName
@@ -281,7 +288,7 @@
     void allowAllCredentials
     void selectedCredentials.size
     void wizardLoading
-    updateStepButtons()
+    untrack(() => syncButtons())
   })
 </script>
 
@@ -296,7 +303,7 @@
 
   <div class="form-group">
     <label class="checkbox-item">
-      <input type="checkbox" bind:checked={allowAllProviders} onchange={updateStepButtons} />
+      <input type="checkbox" bind:checked={allowAllProviders} onchange={syncButtons} />
       <span>Allow all providers</span>
     </label>
     {#if allowAllProviders}
@@ -330,7 +337,7 @@
 
   <div class="form-group">
     <label class="checkbox-item">
-      <input type="checkbox" bind:checked={allowAllModels} onchange={updateStepButtons} />
+      <input type="checkbox" bind:checked={allowAllModels} onchange={syncButtons} />
       <span>Allow all models</span>
     </label>
     {#if allowAllModels}
@@ -378,7 +385,7 @@
 
   <div class="form-group">
     <label class="checkbox-item">
-      <input type="checkbox" bind:checked={allowAllCredentials} onchange={updateStepButtons} />
+      <input type="checkbox" bind:checked={allowAllCredentials} onchange={syncButtons} />
       <span>Allow all accounts</span>
     </label>
     {#if allowAllCredentials}
