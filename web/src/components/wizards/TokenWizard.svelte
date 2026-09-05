@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { untrack } from 'svelte'
   import { api } from '../../lib/api'
+  import { getErrorMessage } from '../../lib/errors'
   import type { Token, Provider, ProviderModels, ModalButton } from '../../lib/types'
 
   let {
@@ -205,7 +206,7 @@
       wizardStep = 2
       error = ''
     } catch (e) {
-      error = (e as Error).message
+      error = getErrorMessage(e)
     } finally {
       wizardLoading = false
       syncButtons()
@@ -236,7 +237,7 @@
       wizardStep = 3
       error = ''
     } catch (e) {
-      error = (e as Error).message
+      error = getErrorMessage(e)
     } finally {
       wizardLoading = false
       syncButtons()
@@ -269,7 +270,7 @@
         onComplete({ token: result?.token ?? result?.Token ?? result?.token_hash })
       }
     } catch (e) {
-      error = (e as Error).message
+      error = getErrorMessage(e)
       wizardLoading = false
       syncButtons()
     }

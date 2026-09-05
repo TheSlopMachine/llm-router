@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
+  import { getErrorMessage } from '../lib/errors'
   import type { AvailableModel } from '../lib/types'
 
   const MIN_FUZZY_SCORE = 0.72
@@ -39,7 +40,7 @@
       const response = await api.models.available()
       allModels = Array.isArray(response) ? (response as AvailableModel[]) : []
     } catch (e) {
-      error = (e as Error).message
+      error = getErrorMessage(e)
     } finally {
       loading = false
     }
@@ -55,7 +56,7 @@
         }
       }, 1500)
     } catch (e) {
-      error = (e as Error).message || 'Failed to copy model ID'
+      error = getErrorMessage(e) || 'Failed to copy model ID'
     }
   }
 

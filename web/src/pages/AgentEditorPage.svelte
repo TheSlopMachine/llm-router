@@ -1,6 +1,7 @@
 <script lang="ts">
   import AgentEditor from '../components/wizards/AgentEditor.svelte'
   import { api } from '../lib/api'
+  import { getErrorMessage } from '../lib/errors'
   import type { Agent } from '../lib/types'
 
   let { agentId = null } = $props<{ agentId: string | null }>()
@@ -8,29 +9,27 @@
   let agent = $state<Agent | undefined>(undefined)
   let loading = $state(false)
   let error = $state('')
-  let loadedAgentId = $state<string | null | undefined>(undefined)
 
   async function loadAgent() {
     error = ''
     agent = undefined
 
     if (!agentId) {
-      loadedAgentId = agentId
       return
     }
 
     loading = true
     try {
       agent = await api.agents.get(agentId) as Agent
-    } catch (e: any) {
-      if (e.status === 401 || e.message?.includes('unauthenticated')) {
+    } catch (e: unknown) {
+      const msg = getErrorMessage(e)
+      if ((e as { status?: number })?.status === 401 || msg.includes('unauthenticated')) {
         window.location.href = '/login'
         return
       }
-      error = (e as Error).message
+      error = msg
     } finally {
       loading = false
-      loadedAgentId = agentId
     }
   }
 
@@ -39,9 +38,8 @@
   }
 
   $effect(() => {
-    if (agentId !== loadedAgentId) {
-      void loadAgent()
-    }
+    void agentId
+    void loadAgent()
   })
 </script>
 

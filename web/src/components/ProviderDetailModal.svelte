@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
   import { modal } from '../lib/modal.svelte'
+  import { getErrorMessage } from '../lib/errors'
   import type { Provider, Credential, ModalButton } from '../lib/types'
 
   let {
@@ -86,7 +87,7 @@
         throw new Error('Unexpected auth flow response')
       }
     } catch (e) {
-      error = (e as Error).message
+      error = getErrorMessage(e)
     } finally {
       loading = false
       if (view === 'list') {
@@ -134,7 +135,7 @@
         throw new Error('Unexpected auth flow response')
       }
     } catch (e) {
-      error = (e as Error).message
+      error = getErrorMessage(e)
     } finally {
       loading = false
     }
@@ -161,7 +162,7 @@
         switchToAuthFlow()
       }
     } catch (e) {
-      error = (e as Error).message
+      error = getErrorMessage(e)
     }
   }
 </script>

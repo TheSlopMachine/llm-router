@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
+  import { getErrorMessage } from '../lib/errors'
   import type { MetricsFilters, MetricsOverview, TimeSeriesPoint, Provider } from '../lib/types'
   import MetricsFiltersCmp from './MetricsFilters.svelte'
   import MetricsOverviewCard from './MetricsOverviewCard.svelte'
@@ -43,7 +44,7 @@
       providers = result || []
       errors = errors.filter((e) => !e.includes('providers'))
     } catch (err) {
-      const msg = `Failed to load providers: ${(err as Error).message}`
+      const msg = `Failed to load providers: ${getErrorMessage(err)}`
       if (!errors.includes(msg)) {
         errors = [...errors, msg]
       }
@@ -57,7 +58,7 @@
       models = result || []
       errors = errors.filter((e) => !e.includes('models'))
     } catch (err) {
-      const msg = `Failed to load models: ${(err as Error).message}`
+      const msg = `Failed to load models: ${getErrorMessage(err)}`
       if (!errors.includes(msg)) {
         errors = [...errors, msg]
       }
@@ -83,7 +84,7 @@
       rpdData = rpdSeries || []
       errors = errors.filter((e) => !e.includes('metrics'))
     } catch (err) {
-      const msg = `Failed to load metrics: ${(err as Error).message}`
+      const msg = `Failed to load metrics: ${getErrorMessage(err)}`
       if (!errors.includes(msg)) {
         errors = [...errors, msg]
       }

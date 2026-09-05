@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
   import { modal } from '../lib/modal.svelte'
+  import { getErrorMessage } from '../lib/errors'
   import TokenWizard from './wizards/TokenWizard.svelte'
   import EmptyState from './EmptyState.svelte'
   import ActionDropdown from './ActionDropdown.svelte'
@@ -44,7 +45,7 @@
       providers = p || []
       tokenUsage = u || {}
     } catch (e) {
-      error = (e as Error).message
+      error = getErrorMessage(e)
     } finally {
       loading = false
     }
@@ -131,7 +132,7 @@
       newTokenSecret = res?.token ?? res?.Token ?? res?.token_hash ?? null
       await load()
     } catch (e) {
-      error = (e as Error).message
+      error = getErrorMessage(e)
     }
   }
 
@@ -151,7 +152,7 @@
       await api.tokens.delete(id)
       await load()
     } catch (e) {
-      error = (e as Error).message
+      error = getErrorMessage(e)
     }
   }
 

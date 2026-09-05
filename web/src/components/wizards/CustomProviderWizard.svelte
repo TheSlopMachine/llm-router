@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { untrack } from 'svelte'
   import { api } from '../../lib/api'
+  import { getErrorMessage } from '../../lib/errors'
   import Dropdown from '../Dropdown.svelte'
   import type { ModalButton } from '../../lib/types'
 
@@ -69,26 +70,6 @@
     syncButtons()
   })
 
-  // Keep default type when types arrive — guarded to avoid loop.
-  $effect(() => {
-    if (types.length && !typeKey) {
-      untrack(() => {
-        typeKey = types[0]
-      })
-    }
-  })
-
-  // Sync if parent later supplies initialTypes
-  $effect(() => {
-    if (initialTypes?.length && types.length === 0 && !hasFetched) {
-      untrack(() => {
-        types = [...initialTypes!]
-        ensureDefaultType()
-        syncButtons()
-      })
-    }
-  })
-
   $effect(() => {
     void name
     void typeKey
@@ -119,7 +100,7 @@
       }
       onComplete()
     } catch (e) {
-      error = (e as Error).message
+      error = getErrorMessage(e)
       creating = false
       syncButtons()
     }

@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
   import { modal } from '../lib/modal.svelte'
+  import { getErrorMessage } from '../lib/errors'
   import ProviderCard from './ProviderCard.svelte'
   import ProviderDetailModal from './ProviderDetailModal.svelte'
   import CustomProviderWizard from './wizards/CustomProviderWizard.svelte'
@@ -26,7 +27,7 @@
       providers = p
       providerStats = s
     } catch (e) {
-      error = (e as Error).message
+      error = getErrorMessage(e)
     } finally {
       loading = false
     }
@@ -60,7 +61,7 @@
         }
       })
     } catch (e) {
-      error = (e as Error).message
+      error = getErrorMessage(e)
     }
   }
 
@@ -118,7 +119,7 @@
       modal.close()
       await load()
     } catch (e) {
-      error = (e as Error).message
+      error = getErrorMessage(e)
     }
   }
 </script>

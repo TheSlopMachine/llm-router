@@ -32,38 +32,32 @@ function applyTheme(theme: Theme): void {
 
 let current = $state<Theme>(getInitialTheme())
 
+function persist(v: Theme): void {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(STORAGE_KEY, v)
+  } catch (e) {
+    console.error('Failed to save theme to localStorage:', e)
+  }
+  applyTheme(v)
+}
+
 export const theme = {
   get value(): Theme {
     return current
   },
+  /** @deprecated use `theme.value` — kept for backwards compat */
   get current(): Theme {
     return current
   },
   set(v: Theme): void {
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem(STORAGE_KEY, v)
-      } catch (e) {
-        console.error('Failed to save theme to localStorage:', e)
-      }
-      applyTheme(v)
-    }
+    persist(v)
     current = v
   },
   cycle(): void {
     const themes: Theme[] = ['auto', 'light', 'dark']
-    const currentIndex = themes.indexOf(current)
-    const next = themes[(currentIndex + 1) % themes.length]
-
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem(STORAGE_KEY, next)
-      } catch (e) {
-        console.error('Failed to save theme to localStorage during cycle:', e)
-      }
-      applyTheme(next)
-    }
-
+    const next = themes[(themes.indexOf(current) + 1) % themes.length]
+    persist(next)
     current = next
   }
 }

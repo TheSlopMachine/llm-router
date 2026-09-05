@@ -1,4 +1,5 @@
 import type { paths } from './generated/api-types'
+import { getErrorMessage } from './errors'
 
 // Extract path string type
 export type ApiPath = keyof paths
@@ -87,27 +88,14 @@ export async function apiCall<
     const text = await res.text()
     let msg = `HTTP ${res.status}`
     try {
-      const json = JSON.parse(text) as any
-      if (json && typeof json === 'object' && 'error' in json) {
-        const errVal = (json as any).error
-        if (typeof errVal === 'string' && errVal) {
-          msg = errVal
-        } else if (errVal && typeof errVal === 'object') {
-          if (typeof errVal.message === 'string' && errVal.message) {
-            msg = errVal.message
-          } else {
-            // fallback: stringify object without producing [object Object]
-            try { msg = JSON.stringify(errVal) } catch { msg = String(errVal) }
-          }
+      const json = JSON.parse(text) as unknown
+      if (json && typeof json === 'object' && ('error' in (json as Record<string, unknown>) || 'message' in (json as Record<string, unknown>))) {
+        const candidate = getErrorMessage(json)
+        if (candidate && candidate !== 'Request failed' && candidate !== '{}' && candidate !== '[object Object]') {
+          msg = candidate
         }
-      } else if (json && typeof json.message === 'string') {
-        msg = json.message
       }
     } catch {}
-    // ensure msg is always a string
-    if (typeof msg !== 'string') {
-      try { msg = JSON.stringify(msg) } catch { msg = String(msg) }
-    }
     throw new Error(msg)
   }
 

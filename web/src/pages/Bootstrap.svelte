@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from '../lib/api'
+  import { getErrorMessage } from '../lib/errors'
 
   let { ondone } = $props<{ ondone: () => void }>()
 
@@ -17,7 +18,7 @@
       await api.bootstrap(username, password)
       ondone?.()
     } catch (e) {
-      error = (e as Error).message || 'Failed to create account.'
+      error = getErrorMessage(e) || 'Failed to create account.'
     } finally {
       loading = false
     }

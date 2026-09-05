@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
   import { modal } from '../lib/modal.svelte'
+  import { getErrorMessage } from '../lib/errors'
   import type { Agent } from '../lib/types'
   import EmptyState from './EmptyState.svelte'
 
@@ -20,7 +21,7 @@
         window.location.href = '/login'
         return
       }
-      error = (e as Error).message
+      error = getErrorMessage(e)
     } finally {
       loading = false
     }
@@ -55,7 +56,7 @@
       await api.agents.delete(agent.id)
       await load()
     } catch (e) {
-      error = (e as Error).message
+      error = getErrorMessage(e)
     }
   }
 </script>

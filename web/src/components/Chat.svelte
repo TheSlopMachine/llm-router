@@ -4,6 +4,7 @@
   import Dropdown from './Dropdown.svelte'
   import ActionDropdown from './ActionDropdown.svelte'
   import { parseMarkdownWithArtifacts } from '../lib/markdown'
+  import { getErrorMessage } from '../lib/errors'
   import type { AvailableModel } from '../lib/types'
 
   type Role = 'user' | 'assistant'
@@ -62,6 +63,29 @@
     } catch {}
   })
 
+  function messagesFromJSON(raw: unknown): Message[] {
+    if (!Array.isArray(raw)) return []
+    return (raw as unknown[])
+      .filter((m: unknown) => m && typeof m === 'object' && (m as Record<string, unknown>).role !== undefined && ((m as Record<string, unknown>).role === 'user' || (m as Record<string, unknown>).role === 'assistant') && typeof (m as Record<string, unknown>).content === 'string')
+      .map((m: unknown) => {
+        const rec = m as Record<string, unknown>
+        const msg: Message = {
+          id: typeof rec.id === 'string' && rec.id ? rec.id : crypto.randomUUID(),
+          role: rec.role as Role,
+          content: rec.content as string,
+          timestamp: rec.timestamp ? new Date(rec.timestamp as string) : new Date(),
+          artifacts: Array.isArray(rec.artifacts) ? (rec.artifacts as CodeArtifact[]) : undefined,
+          html: typeof rec.html === 'string' ? rec.html : undefined
+        }
+        if (msg.role === 'assistant' && !msg.html) {
+          const { html, artifacts } = parseMarkdownWithArtifacts(msg.content)
+          msg.html = html
+          if (!msg.artifacts && artifacts.length) msg.artifacts = artifacts
+        }
+        return msg
+      })
+  }
+
   $effect(() => {
     input
     autoResize()
@@ -89,24 +113,7 @@
       if (raw) {
         const parsed = JSON.parse(raw)
         if (Array.isArray(parsed)) {
-          messages = parsed
-            .filter((m: any) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
-            .map((m: any) => {
-              const msg: Message = {
-                id: m.id || 'm' + Math.random().toString(36).slice(2),
-                role: m.role,
-                content: m.content,
-                timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
-                artifacts: Array.isArray(m.artifacts) ? m.artifacts : undefined,
-                html: m.html
-              }
-              if (msg.role === 'assistant' && !msg.html) {
-                const { html, artifacts } = parseMarkdownWithArtifacts(msg.content)
-                msg.html = html
-                if (!msg.artifacts && artifacts.length) msg.artifacts = artifacts
-              }
-              return msg
-            })
+          messages = messagesFromJSON(parsed)
         }
       }
     } catch {}
@@ -173,24 +180,7 @@
       try {
         const parsed = JSON.parse(reader.result as string)
         if (!Array.isArray(parsed)) throw new Error('Invalid file')
-        const loaded: Message[] = parsed
-          .filter((m: any) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
-          .map((m: any) => {
-            const base: Message = {
-              id: m.id || 'm' + Date.now() + Math.random().toString(36).slice(2),
-              role: m.role,
-              content: m.content,
-              timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
-              artifacts: Array.isArray(m.artifacts) ? m.artifacts : undefined,
-              html: m.html
-            }
-            if (base.role === 'assistant' && !base.html) {
-              const { html, artifacts } = parseMarkdownWithArtifacts(base.content)
-              base.html = html
-              if (!base.artifacts && artifacts.length) base.artifacts = artifacts
-            }
-            return base
-          })
+        const loaded = messagesFromJSON(parsed)
         messages = loaded
         error = null
         await tick()
@@ -211,7 +201,7 @@
     error = null
 
     const userMsg: Message = {
-      id: 'm' + Date.now(),
+      id: crypto.randomUUID(),
       role: 'user',
       content: text,
       timestamp: new Date()
@@ -233,7 +223,7 @@
       const raw = resp?.choices?.[0]?.message?.content ?? resp?.choices?.[0]?.text ?? ''
       const { html, artifacts } = parseMarkdownWithArtifacts(raw)
       const assistantMsg: Message = {
-        id: 'm' + (Date.now() + 1),
+        id: crypto.randomUUID(),
         role: 'assistant',
         content: raw || '(empty response)',
         html,
@@ -242,19 +232,7 @@
       }
       messages = [...messages, assistantMsg]
     } catch (e) {
-      const raw = e as any
-      if (raw && typeof raw.message === 'string' && raw.message) {
-        error = raw.message
-      } else if (typeof raw === 'string') {
-        error = raw
-      } else {
-        try {
-          error = JSON.stringify(raw)
-        } catch {
-          error = String(raw)
-        }
-        if (!error || error === '{}' || error === '[object Object]') error = 'Request failed'
-      }
+      error = getErrorMessage(e)
     } finally {
       isSending = false
       await scrollToBottom()

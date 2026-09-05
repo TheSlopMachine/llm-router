@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { api } from '../../lib/api'
+  import { getErrorMessage } from '../../lib/errors'
   import Dropdown from '../Dropdown.svelte'
   import type { Agent, AgentModel, AvailableModel, DecisionModelConfig } from '../../lib/types'
 
@@ -33,7 +35,7 @@
   const SAVE_TIMEOUT = 30000
   const draftKey = `agent-draft-${agent?.id || 'new'}`
 
-  $effect(() => {
+  onMount(() => {
     if (!agent) restoreDraft()
     void loadAvailableModels()
     const interval = window.setInterval(saveDraft, 5000)
@@ -67,12 +69,13 @@
         ? response.filter((m: unknown) => !!m && typeof m === 'object') as AvailableModel[]
         : []
       modelsLoadState = availableModels.length === 0 ? 'empty' : 'loaded'
-    } catch (e: any) {
-      if (e.status === 401 || e.message?.includes('unauthenticated')) {
+    } catch (e: unknown) {
+      const msg = getErrorMessage(e)
+      if ((e as { status?: number })?.status === 401 || msg.includes('unauthenticated')) {
         window.location.href = '/login'
         return
       }
-      error = (e as Error).message
+      error = msg
       modelsLoadState = 'error'
       availableModels = []
     }
@@ -106,11 +109,12 @@
       localStorage.removeItem(draftKey)
       if (saveTimeout) clearTimeout(saveTimeout)
       await onComplete?.()
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (saveTimeout) clearTimeout(saveTimeout)
-      if (e.message?.includes('modified by another process')) error = 'This agent was modified elsewhere. Please refresh and try again.'
-      else if (e.message?.includes('already exists')) error = 'An agent with this name already exists. Please choose a different name.'
-      else error = (e as Error).message
+      const msg = getErrorMessage(e)
+      if (msg.includes('modified by another process')) error = 'This agent was modified elsewhere. Please refresh and try again.'
+      else if (msg.includes('already exists')) error = 'An agent with this name already exists. Please choose a different name.'
+      else error = msg
       loading = false
     }
   }
