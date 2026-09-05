@@ -33,7 +33,7 @@ func (h *Handler) apiTokensList(w http.ResponseWriter, r *http.Request) {
 // @Tags         Tokens
 // @Accept       json
 // @Produce      json
-// @Param        token body object{name=string,rules=object{allowed_models=[]string}} true "Token configuration"
+// @Param        token body object{name=string,rules=object{allowed_providers=[]string,allow_all_providers=bool,allowed_models=[]string,allow_all_models=bool,allowed_credentials=[]string,allow_all_credentials=bool}} true "Token configuration"
 // @Success      201 {object} models.RouterToken
 // @Failure      400 {object} models.ErrorResponse
 // @Failure      401 {object} models.ErrorResponse
@@ -80,7 +80,7 @@ func (h *Handler) apiTokensCreate(w http.ResponseWriter, r *http.Request) {
 // @Accept       json
 // @Produce      json
 // @Param        id path string true "Token ID"
-// @Param        token body object{name=string,rules=object{allowed_models=[]string}} true "Updated token configuration"
+// @Param        token body object{name=string,rules=object{allowed_providers=[]string,allow_all_providers=bool,allowed_models=[]string,allow_all_models=bool,allowed_credentials=[]string,allow_all_credentials=bool}} true "Updated token configuration"
 // @Success      200 {object} models.RouterToken
 // @Failure      400 {object} models.ErrorResponse
 // @Failure      401 {object} models.ErrorResponse

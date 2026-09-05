@@ -25,15 +25,24 @@ export type ApiQueryParams<
   ? Q
   : never
 
-// Extract response type for 200 status
+// Extract response type for success status (200 / 201) — fallback to unknown so svelte-check surfaces real mismatches
+// Swagger 2.0 uses 200 or 201 for success; 204 is no-content.
 export type ApiResponse<
   P extends ApiPath,
   M extends ApiMethod<P>
 > = paths[P][M] extends { responses: { 200: { schema: infer R } } }
   ? R
+  : paths[P][M] extends { responses: { 201: { schema: infer R } } }
+  ? R
   : paths[P][M] extends { responses: { 204: unknown } }
   ? void
-  : never
+  : paths[P][M] extends { responses: { 200: unknown } }
+  ? unknown
+  : paths[P][M] extends { responses: infer R }
+  ? R extends Record<string, { schema: infer S }>
+    ? S
+    : unknown
+  : unknown
 
 // Extract error response type
 export type ApiError<
