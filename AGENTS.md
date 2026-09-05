@@ -61,8 +61,8 @@ Rule: keep changes shallow. Do not touch service internals unless the task requi
 
 | DO | DON'T |
 |---|---|
-| `make check-frontend` | `npx svelte-check`, `tsc --noEmit`, `eslint .` |
-| `make prepare-frontend` | `npm install`, `npm run build` |
+| `make check-frontend` | `bunx svelte-check`, `bun run check`, `tsc --noEmit`, `eslint .` |
+| `make prepare-frontend` | `bun install`, `bun run build` |
 | `make go-check` | `go vet ./...` |
 | `make go-test` | `go test ./...` |
 
@@ -78,7 +78,7 @@ If the task needs one of these: STOP. Ask the human to run it and report back (t
 
 | DO | DON'T |
 |---|---|
-| "Please run `make start` and paste the output." | `go run .`, `go build -o ./llm-router.exe`, `npm run dev`, `Start-Process ...`, any script/wrapper invoking these |
+| "Please run `make start` and paste the output." | `go run .`, `go build -o ./llm-router.exe`, `bun run dev`, `Start-Process ...`, any script/wrapper invoking these |
 
 ## 4. Svelte 5 Reactivity
 

@@ -56,7 +56,6 @@ endif
 
 ifeq ($(OS),Windows_NT)
   LOCAL_BIN := $(BINARY).exe
-  NPM       := npm.cmd
   GOPATH    := $(subst \,/,$(shell go env GOPATH))
   _GIT_RAW  := $(shell git rev-parse --short HEAD)
   GIT_COMMIT := $(if $(_GIT_RAW),$(_GIT_RAW),unknown)
@@ -64,7 +63,6 @@ ifeq ($(OS),Windows_NT)
   SHA256    := sha256sum
   OPEN_CMD  := powershell -NoProfile -Command Start-Process
 else
-  NPM       := npm
   GOPATH    := $(shell go env GOPATH 2>/dev/null)
   GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
   BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -93,8 +91,9 @@ endif
 
 LDFLAGS = -s -w -X main.Version=$(VERSION) -X main.GitCommit=$(GIT_COMMIT) -X main.BuildTime=$(BUILD_TIME)
 
-NODE_MIN := 20
+BUN_MIN  := 1.2
 GO_MIN   := 1.25
+BUN      := bun
 
 .PHONY: help prepare-workspace prepare-frontend prepare start stop restart status browser clean publish go-check go-test check-frontend check-frontend-deps check-publish-deps
 
@@ -102,7 +101,7 @@ help:
 	@printf '\nUsage: make <target>\n\n'
 	@printf 'Targets:\n'
 	@printf '  prepare-workspace Clone adapters from %s to %s and generate %s + %s\n' "$(ADAPTERS)" "$(WORKSPACE_DIR)" "$(GO_WORK)" "$(ADAPTERS_GO)"
-	@printf '  prepare-frontend  npm install && build frontend\n'
+	@printf '  prepare-frontend  bun install && build frontend\n'
 	@printf '  prepare           prepare-frontend + prepare-workspace\n'
 	@printf '  start             Build dev binary to temp and start daemon (db %s, %s:%s/%s)\n' "$(DEV_DB)" "$(HOST)" "$(WEB_PORT)" "$(API_PORT)"
 	@printf '  stop              Stop daemon\n'
@@ -132,27 +131,21 @@ help:
 	@printf '  make publish PUBLISH_PLATFORMS="linux/amd64 darwin/arm64"\n\n'
 
 check-frontend-deps:
-	@printf '[>] Checking frontend deps (node >=$(NODE_MIN), npm)...\n'
-	@if ! command -v node >/dev/null 2>&1; then printf '[FAIL] node not found (requires >=$(NODE_MIN) https://nodejs.org)\n' >&2; exit 1; fi
-	@_node_ver=$$(node --version 2>/dev/null | sed -E 's/^v//'); \
-	 _node_maj=$$(printf '%s' "$$_node_ver" | cut -d. -f1); \
-	 if [ -z "$$_node_maj" ] || ! printf '%s' "$$_node_maj" | grep -qE '^[0-9]+$$'; then printf '[FAIL] cannot parse node version: %s\n' "$$_node_ver" >&2; exit 1; fi; \
-	 if [ "$$_node_maj" -lt $(NODE_MIN) ]; then printf '[FAIL] node >=$(NODE_MIN) required, found v%s\n' "$$_node_ver" >&2; exit 1; fi; \
-	 printf '[OK] node v%s\n' "$$_node_ver"
-	@if ! command -v $(NPM) >/dev/null 2>&1 && ! command -v npm >/dev/null 2>&1; then printf '[FAIL] npm not found (https://nodejs.org)\n' >&2; exit 1; fi
-	@printf '[OK] npm %s\n' "$$( $(NPM) --version 2>/dev/null || npm --version 2>/dev/null || echo unknown)"
+	@printf '[>] Checking frontend deps (bun >=$(BUN_MIN))...\n'
+	@if ! command -v bun >/dev/null 2>&1; then printf '[FAIL] bun not found (requires >=$(BUN_MIN) https://bun.sh)\n' >&2; exit 1; fi
+	@_bun_ver=$$(bun --version 2>/dev/null | sed -E 's/^v//'); \
+	 if [ -z "$$_bun_ver" ]; then printf '[FAIL] cannot parse bun version (%s)\n' "$$(bun --version 2>/dev/null)" >&2; exit 1; fi; \
+	 if [ "$$(printf '%s\n%s\n' "$$_bun_ver" "$(BUN_MIN)" | sort -V | head -n1)" != "$(BUN_MIN)" ]; then printf '[FAIL] bun >=$(BUN_MIN) required, found %s\n' "$$_bun_ver" >&2; exit 1; fi; \
+	 printf '[OK] bun v%s\n' "$$_bun_ver"
 	@printf '[OK] Frontend deps OK\n'
 
 check-publish-deps:
-	@printf '[>] Checking publish deps (node >=$(NODE_MIN), npm, go >=$(GO_MIN), zip)...\n'
-	@if ! command -v node >/dev/null 2>&1; then printf '[FAIL] node not found (requires >=$(NODE_MIN) https://nodejs.org)\n' >&2; exit 1; fi
-	@_node_ver=$$(node --version 2>/dev/null | sed -E 's/^v//'); \
-	 _node_maj=$$(printf '%s' "$$_node_ver" | cut -d. -f1); \
-	 if [ -z "$$_node_maj" ] || ! printf '%s' "$$_node_maj" | grep -qE '^[0-9]+$$'; then printf '[FAIL] cannot parse node version: %s\n' "$$_node_ver" >&2; exit 1; fi; \
-	 if [ "$$_node_maj" -lt $(NODE_MIN) ]; then printf '[FAIL] node >=$(NODE_MIN) required, found v%s\n' "$$_node_ver" >&2; exit 1; fi; \
-	 printf '[OK] node v%s\n' "$$_node_ver"
-	@if ! command -v $(NPM) >/dev/null 2>&1 && ! command -v npm >/dev/null 2>&1; then printf '[FAIL] npm not found (https://nodejs.org)\n' >&2; exit 1; fi
-	@printf '[OK] npm %s\n' "$$( $(NPM) --version 2>/dev/null || npm --version 2>/dev/null || echo unknown)"
+	@printf '[>] Checking publish deps (bun >=$(BUN_MIN), go >=$(GO_MIN), zip)...\n'
+	@if ! command -v bun >/dev/null 2>&1; then printf '[FAIL] bun not found (requires >=$(BUN_MIN) https://bun.sh)\n' >&2; exit 1; fi
+	@_bun_ver=$$(bun --version 2>/dev/null | sed -E 's/^v//'); \
+	 if [ -z "$$_bun_ver" ]; then printf '[FAIL] cannot parse bun version (%s)\n' "$$(bun --version 2>/dev/null)" >&2; exit 1; fi; \
+	 if [ "$$(printf '%s\n%s\n' "$$_bun_ver" "$(BUN_MIN)" | sort -V | head -n1)" != "$(BUN_MIN)" ]; then printf '[FAIL] bun >=$(BUN_MIN) required, found %s\n' "$$_bun_ver" >&2; exit 1; fi; \
+	 printf '[OK] bun v%s\n' "$$_bun_ver"
 	@if ! command -v go >/dev/null 2>&1; then printf '[FAIL] go not found (requires >=$(GO_MIN) https://go.dev/dl/)\n' >&2; exit 1; fi
 	@_go_ver=$$(go version 2>/dev/null | awk '{print $$3}' | sed 's/^go//'); \
 	 if [ -z "$$_go_ver" ]; then printf '[FAIL] cannot parse go version (%s)\n' "$$(go version 2>/dev/null)" >&2; exit 1; fi; \
@@ -252,16 +245,16 @@ prepare-frontend: check-frontend-deps
 	@$(MAKE) stop
 	@printf '\n== Frontend ==\n'
 	@mkdir -p "$(UI_DIR)/src/lib/generated"
-	@cd "$(UI_DIR)" && $(NPM) install --no-audit --no-fund
+	@cd "$(UI_DIR)" && $(BUN) install
 	@printf '[>] Generating OpenAPI spec from Go annotations...\n'
 	@go run github.com/swaggo/swag/cmd/swag@v1.16.4 init -g internal/dashboard/handler.go -o $(UI_DIR) --parseDependency --parseInternal --parseDepth 2 --outputTypes yaml --quiet || (printf '[WARN] swag failed — keeping stub %s\n' "$(UI_DIR)/openapi.yaml"; true)
 	@if [ -f "$(UI_DIR)/swagger.yaml" ]; then mv -f "$(UI_DIR)/swagger.yaml" "$(UI_DIR)/openapi.yaml"; fi
 	@rm -f "$(UI_DIR)/swagger.json" "$(UI_DIR)/docs.go"
 	@if [ ! -f "$(UI_DIR)/openapi.yaml" ]; then printf '[WARN] no openapi.yaml generated — creating empty stub\n'; printf 'openapi: 3.0.0\ninfo:\n  title: llm-router\n  version: dev\npaths: {}\n' > "$(UI_DIR)/openapi.yaml"; fi
 	@printf '[>] Generating TypeScript API types...\n'
-	@cd "$(UI_DIR)" && $(NPM) run generate:api-types --if-present || (printf '[WARN] openapi-typescript failed — keeping stub %s\n' "$(UI_DIR)/src/lib/generated/api-types.ts"; true)
+	@cd "$(UI_DIR)" && $(BUN) run generate:api-types || (printf '[WARN] openapi-typescript failed — keeping stub %s\n' "$(UI_DIR)/src/lib/generated/api-types.ts"; true)
 	@if [ ! -f "$(UI_DIR)/src/lib/generated/api-types.ts" ]; then mkdir -p "$(UI_DIR)/src/lib/generated"; printf '// Stub — replaced at build time by openapi-typescript generation.\nexport type paths = Record<string, Record<string, any>>\nexport type components = Record<string, any>\nexport type operations = Record<string, any>\n' > "$(UI_DIR)/src/lib/generated/api-types.ts"; fi
-	@cd "$(UI_DIR)" && $(NPM) run build
+	@cd "$(UI_DIR)" && $(BUN) run build
 	@printf '[OK] Frontend ready.\n'
 
 prepare: prepare-frontend prepare-workspace
@@ -373,5 +366,5 @@ go-test:
 
 check-frontend: check-frontend-deps
 	@printf '[>] Running svelte-check...\n'
-	@cd "$(UI_DIR)" && $(NPM) run check
+	@cd "$(UI_DIR)" && $(BUN) run check
 	@printf '[OK] svelte-check passed\n'
