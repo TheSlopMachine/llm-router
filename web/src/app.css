@@ -305,6 +305,67 @@ tbody tr:hover td {
   font-size: 14px;
 }
 
+/* Global utilities extracted from TokenWizard (cleanup phase) */
+.is-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.placeholder-inline,
+.muted-placeholder {
+  padding: 10px 12px;
+  border: 1px dashed var(--color-outline-soft);
+  border-radius: 8px;
+  color: var(--color-text-soft);
+  font-size: 12px;
+  text-align: center;
+}
+
+.search-field {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.search-field input {
+  padding-left: 36px;
+}
+
+.search-field .search-icon,
+.search-wrap .search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 18px;
+  color: var(--color-text-soft);
+  pointer-events: none;
+}
+
+/* Back-compat alias for wizard markup */
+.search-wrap {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.search-wrap input {
+  padding-left: 36px;
+}
+
+.badge-sm {
+  padding: 2px 8px;
+  font-size: 10px;
+}
+
+.text-muted {
+  color: var(--color-text-soft);
+}
+
+.hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--color-text-soft);
+}
+
 .error-msg {
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);

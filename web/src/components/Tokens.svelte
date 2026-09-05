@@ -2,6 +2,7 @@
   import { api } from '../lib/api'
   import { modal } from '../lib/modal.svelte'
   import { getErrorMessage } from '../lib/errors'
+  import { formatRelativeTime } from '../lib/time'
   import { createListResource } from '../lib/list-resource.svelte'
   import TokenWizard from './wizards/TokenWizard.svelte'
   import EmptyState from './EmptyState.svelte'
@@ -37,38 +38,18 @@
   )
   let newTokenSecret = $state<string | null>(null)
 
-  function openCreate(): void {
+  function openWizard(mode: 'create' | 'edit' | 'clone', token?: Token): void {
     resource.error = ''
-
+    const title = mode === 'edit' ? 'Edit token' : mode === 'clone' ? 'Clone token' : 'New token'
     modal.open({
-      title: 'New token',
+      title,
       content: TokenWizard,
       severity: 'medium',
       size: 'large',
       props: {
         providers: resource.data.providers,
-        editingToken: null,
-        cloningToken: null,
-        onComplete: async (_result: { token?: string }) => {
-          // Token is shown inside the wizard's completion screen — no outside banner.
-          await resource.reload()
-        }
-      }
-    })
-  }
-
-  async function openEdit(token: Token): Promise<void> {
-    resource.error = ''
-
-    modal.open({
-      title: 'Edit token',
-      content: TokenWizard,
-      severity: 'medium',
-      size: 'large',
-      props: {
-        providers: resource.data.providers,
-        editingToken: token,
-        cloningToken: null,
+        editingToken: mode === 'edit' ? (token ?? null) : null,
+        cloningToken: mode === 'clone' ? (token ?? null) : null,
         onComplete: async () => {
           await resource.reload()
         }
@@ -76,23 +57,9 @@
     })
   }
 
-  function openClone(token: Token): void {
-    resource.error = ''
-    modal.open({
-      title: 'Clone token',
-      content: TokenWizard,
-      severity: 'medium',
-      size: 'large',
-      props: {
-        providers: resource.data.providers,
-        editingToken: null,
-        cloningToken: token,
-        onComplete: async (_result: { token?: string }) => {
-          await resource.reload()
-        }
-      }
-    })
-  }
+  function openCreate(): void { openWizard('create') }
+  function openEdit(token: Token): void { openWizard('edit', token) }
+  function openClone(token: Token): void { openWizard('clone', token) }
 
   async function regenerate(id: string, name: string): Promise<void> {
     const confirmed = await modal.confirm({
@@ -143,31 +110,8 @@
     return resource.data.tokenUsage[tokenId]?.requests || 0
   }
 
-  function formatRelativeTime(isoString: string | undefined): string {
-    if (!isoString) return '—'
-
-    const date = new Date(isoString)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffSec = Math.floor(diffMs / 1000)
-    const diffMin = Math.floor(diffSec / 60)
-    const diffHour = Math.floor(diffMin / 60)
-    const diffDay = Math.floor(diffHour / 24)
-
-    if (diffSec < 60) return 'Just now'
-    if (diffMin < 60) return `${diffMin} minute${diffMin !== 1 ? 's' : ''} ago`
-    if (diffHour < 24) return `${diffHour} hour${diffHour !== 1 ? 's' : ''} ago`
-    if (diffDay < 30) return `${diffDay} day${diffDay !== 1 ? 's' : ''} ago`
-    if (diffDay < 365) {
-      const months = Math.floor(diffDay / 30)
-      return `${months} month${months !== 1 ? 's' : ''} ago`
-    }
-    const years = Math.floor(diffDay / 365)
-    return `${years} year${years !== 1 ? 's' : ''} ago`
-  }
-
   function getLastUsed(tokenId: string): string {
-    return formatRelativeTime(resource.data.tokenUsage[tokenId]?.last_used)
+    return formatRelativeTime(resource.data.tokenUsage[tokenId]?.last_used, 'long')
   }
 </script>
 
