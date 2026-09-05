@@ -9,8 +9,17 @@ export interface ModalButton {
   loading?: boolean
 }
 
+export interface StepperConfig {
+  current: number
+  total: number
+  labels: string[]
+}
+
 export interface BaseModalConfig {
   title: string
+  subtitle?: string
+  stepper?: StepperConfig | null
+  footerHint?: string
   severity?: ModalSeverity
   size?: ModalSize
   buttons?: ModalButton[]
@@ -118,6 +127,33 @@ export const modal = {
     const newStack = [...stack]
     const topModal = { ...newStack[newStack.length - 1] } as ModalConfig
     topModal.title = title
+    newStack[newStack.length - 1] = topModal
+    stack = newStack
+  },
+
+  updateSubtitle(subtitle: string): void {
+    if (stack.length === 0) return
+    const newStack = [...stack]
+    const topModal = { ...newStack[newStack.length - 1] } as ModalConfig
+    topModal.subtitle = subtitle
+    newStack[newStack.length - 1] = topModal
+    stack = newStack
+  },
+
+  updateStepper(stepper: StepperConfig | null): void {
+    if (stack.length === 0) return
+    const newStack = [...stack]
+    const topModal = { ...newStack[newStack.length - 1] } as ModalConfig
+    topModal.stepper = stepper
+    newStack[newStack.length - 1] = topModal
+    stack = newStack
+  },
+
+  updateFooterHint(hint: string): void {
+    if (stack.length === 0) return
+    const newStack = [...stack]
+    const topModal = { ...newStack[newStack.length - 1] } as ModalConfig
+    topModal.footerHint = hint
     newStack[newStack.length - 1] = topModal
     stack = newStack
   },

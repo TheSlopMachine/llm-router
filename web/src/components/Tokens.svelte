@@ -38,7 +38,6 @@
   let newTokenSecret = $state<string | null>(null)
 
   function openCreate(): void {
-    newTokenSecret = null
     resource.error = ''
 
     modal.open({
@@ -50,11 +49,8 @@
         providers: resource.data.providers,
         editingToken: null,
         cloningToken: null,
-        onComplete: async (result: { token?: string }) => {
-          if (result.token) {
-            newTokenSecret = result.token
-          }
-          modal.close()
+        onComplete: async (_result: { token?: string }) => {
+          // Token is shown inside the wizard's completion screen — no outside banner.
           await resource.reload()
         }
       }
@@ -62,7 +58,6 @@
   }
 
   async function openEdit(token: Token): Promise<void> {
-    newTokenSecret = null
     resource.error = ''
 
     modal.open({
@@ -75,7 +70,6 @@
         editingToken: token,
         cloningToken: null,
         onComplete: async () => {
-          modal.close()
           await resource.reload()
         }
       }
@@ -83,7 +77,6 @@
   }
 
   function openClone(token: Token): void {
-    newTokenSecret = null
     resource.error = ''
     modal.open({
       title: 'Clone token',
@@ -94,9 +87,7 @@
         providers: resource.data.providers,
         editingToken: null,
         cloningToken: token,
-        onComplete: async (result: { token?: string }) => {
-          if (result.token) newTokenSecret = result.token
-          modal.close()
+        onComplete: async (_result: { token?: string }) => {
           await resource.reload()
         }
       }

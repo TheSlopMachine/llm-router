@@ -62,6 +62,15 @@
       updateTitle: (title: string) => {
         modal.updateTitle(title)
       },
+      updateSubtitle: (subtitle: string) => {
+        modal.updateSubtitle(subtitle)
+      },
+      updateStepper: (stepper: import('../lib/modal.svelte').StepperConfig | null) => {
+        modal.updateStepper(stepper)
+      },
+      updateFooterHint: (hint: string) => {
+        modal.updateFooterHint(hint)
+      },
       closeModal: () => {
         modal.close()
       }
@@ -94,7 +103,12 @@
       tabindex="-1">
 
       <div class="modal-header">
-        <h2 id="modal-title-{index}">{config.title}</h2>
+        <div class="modal-title-col">
+          <h2 id="modal-title-{index}">{config.title}</h2>
+          {#if config.subtitle}
+            <p class="modal-subtitle">{config.subtitle}</p>
+          {/if}
+        </div>
         {#if config.severity !== 'high'}
           <button
             class="close-btn"
@@ -104,6 +118,31 @@
           </button>
         {/if}
       </div>
+
+      {#if config.stepper}
+        <div class="modal-stepper">
+          <div class="stepper-track">
+            <div class="stepper-track-fill" style="width: {((config.stepper.current - 1) / Math.max(1, config.stepper.total - 1)) * 100}%"></div>
+          </div>
+          <div class="stepper-steps">
+            {#each config.stepper.labels as label, i}
+              {@const n = i + 1}
+              {@const isCompleted = n < config.stepper.current}
+              {@const isCurrent = n === config.stepper.current}
+              <div class="stepper-step" class:completed={isCompleted} class:current={isCurrent}>
+                <div class="step-circle">
+                  {#if isCompleted}
+                    <span class="icon" style="font-size: 16px;">check</span>
+                  {:else}
+                    {n}
+                  {/if}
+                </div>
+                <span class="step-label">{label}</span>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
 
       <div class="modal-body">
         {#if config.type === 'confirm'}
@@ -116,16 +155,23 @@
         {/if}
       </div>
 
-      {#if config.buttons && config.buttons.length > 0}
+      {#if (config.buttons && config.buttons.length > 0) || config.footerHint}
         <div class="modal-footer">
-          {#each config.buttons as button}
-            <button
-              class="btn btn-{button.variant || 'secondary'}"
-              onclick={button.onClick}
-              disabled={button.disabled || button.loading}>
-              {button.loading ? 'Loading...' : button.label}
-            </button>
-          {/each}
+          {#if config.footerHint}
+            <span class="footer-hint">{config.footerHint}</span>
+          {/if}
+          {#if config.buttons && config.buttons.length > 0}
+            <div class="footer-actions">
+              {#each config.buttons as button}
+                <button
+                  class="btn btn-{button.variant || 'secondary'}"
+                  onclick={button.onClick}
+                  disabled={button.disabled || button.loading}>
+                  {button.loading ? 'Loading...' : button.label}
+                </button>
+              {/each}
+            </div>
+          {/if}
         </div>
       {/if}
     </div>
@@ -168,9 +214,17 @@
     border-bottom: 1px solid var(--color-outline-soft);
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     flex-shrink: 0;
     gap: 16px;
+  }
+
+  .modal-title-col {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
   }
 
   .modal-header h2 {
@@ -180,7 +234,93 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .modal-subtitle {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--color-text-soft);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 16px;
+  }
+
+  .modal-stepper {
+    padding: 16px 24px 0 24px;
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  .stepper-track {
+    position: absolute;
+    top: 28px;
+    left: 40px;
+    right: 40px;
+    height: 2px;
+    background: var(--color-outline-light);
+    border-radius: 9999px;
+  }
+
+  .stepper-track-fill {
+    height: 100%;
+    background: var(--color-text-soft);
+    border-radius: 9999px;
+    transition: width 0.25s ease;
+  }
+
+  .stepper-steps {
+    display: flex;
+    justify-content: space-between;
+    position: relative;
+  }
+
+  .stepper-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
     flex: 1;
+  }
+
+  .step-circle {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid var(--color-outline-light);
+    background: var(--color-surface);
+    color: var(--color-text-soft);
+    position: relative;
+    z-index: 1;
+  }
+
+  .stepper-step.current .step-circle {
+    background: var(--color-text);
+    border-color: var(--color-text);
+    color: var(--color-surface);
+  }
+
+  .stepper-step.completed .step-circle {
+    background: var(--color-text);
+    border-color: var(--color-text);
+    color: var(--color-surface);
+  }
+
+  .step-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--color-text-soft);
+    text-align: center;
+    line-height: 14px;
+  }
+
+  .stepper-step.current .step-label {
+    color: var(--color-text);
   }
 
   .close-btn {
@@ -222,9 +362,25 @@
     padding: 16px 24px;
     border-top: 1px solid var(--color-outline-soft);
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
+    align-items: center;
     gap: 12px;
     flex-shrink: 0;
+  }
+
+  .footer-hint {
+    font-size: 12px;
+    color: var(--color-error-text);
+    line-height: 16px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .footer-actions {
+    display: flex;
+    gap: 12px;
+    flex-shrink: 0;
+    margin-left: auto;
   }
 
   @keyframes fadeIn {
