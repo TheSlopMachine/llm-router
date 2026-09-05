@@ -16,6 +16,10 @@ PUBLISH_PLATFORMS ?= windows/amd64 windows/386 windows/arm64 linux/amd64 linux/3
 WORKSPACE_DIR := .workspace
 GO_WORK       := go.work
 
+# Mandatory SDK -- always cloned into the workspace
+SDK_MODULE ?= github.com/TheSlopMachine/llm-router-sdk
+SDK_DIR    := $(WORKSPACE_DIR)/$(notdir $(SDK_MODULE))
+
 WORKSPACE_REMOTE ?= https
 
 HOST     ?= localhost
@@ -167,9 +171,36 @@ prepare-workspace:
 	@if [ ! -f "$(ADAPTERS)" ]; then \
 		printf '# External adapter registry\n# Format: <module-path>\n' > "$(ADAPTERS)"; \
 	fi
+	@sdk_mod="$(SDK_MODULE)"; sdk_dir="$(SDK_DIR)"; \
+	if [ "$(WORKSPACE_REMOTE)" = "ssh" ]; then \
+		host=$$(printf '%s' "$$sdk_mod" | cut -d/ -f1); \
+		path=$$(printf '%s' "$$sdk_mod" | cut -d/ -f2-); \
+		url="git@$$host:$$path.git"; \
+	else \
+		url="https://$$sdk_mod.git"; \
+	fi; \
+	if [ -d "$$sdk_dir" ]; then \
+		if [ ! -d "$$sdk_dir/.git" ]; then \
+			printf '[!] Local dir %s exists without .git — skip clone (local dev)\n' "$$sdk_dir"; \
+		else \
+			cur_url=$$(git -C "$$sdk_dir" remote get-url origin 2>/dev/null || echo ""); \
+			if [ -z "$$cur_url" ]; then \
+				printf '[>] Exists %s (no remote), skip\n' "$$sdk_dir"; \
+			elif [ "$$cur_url" != "$$url" ]; then \
+				printf '[>] Updating remote %s: %s -> %s\n' "$$sdk_dir" "$$cur_url" "$$url"; \
+				git -C "$$sdk_dir" remote set-url origin "$$url" || true; \
+			else \
+				printf '[>] Exists %s, skip\n' "$$sdk_dir"; \
+			fi; \
+		fi; \
+	else \
+		printf '[>] Cloning %s (%s) -> %s\n' "$$sdk_mod" "$(WORKSPACE_REMOTE)" "$$sdk_dir"; \
+		git clone "$$url" "$$sdk_dir" || { printf '[WARN] clone failed for %s — skip\n' "$$sdk_mod"; }; \
+	fi
 	@grep -v '^#' "$(ADAPTERS)" 2>/dev/null | grep -v '^$$' | while read -r mod; do \
 		mod=$$(printf '%s' "$$mod" | tr -d '\r' | xargs); \
 		[ -z "$$mod" ] && continue; \
+		if [ "$$mod" = "$(SDK_MODULE)" ]; then printf '[>] Skip %s (already as SDK)\n' "$$mod"; continue; fi; \
 		dir="$(WORKSPACE_DIR)/$$(basename $$mod)"; \
 		if [ "$(WORKSPACE_REMOTE)" = "ssh" ]; then \
 			host=$$(printf '%s' "$$mod" | cut -d/ -f1); \
@@ -208,6 +239,7 @@ prepare-workspace:
 		grep -v '^#' "$(ADAPTERS)" | grep -v '^$$' | while read -r mod; do \
 			mod=$$(printf '%s' "$$mod" | tr -d '\r' | xargs); \
 			[ -z "$$mod" ] && continue; \
+			if [ "$$mod" = "$(SDK_MODULE)" ]; then continue; fi; \
 			printf '\t_ "%s"\n' "$$mod" >> "$(ADAPTERS_GO)"; \
 		done; \
 		printf ')\n' >> "$(ADAPTERS_GO)"; \
