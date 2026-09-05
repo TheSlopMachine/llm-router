@@ -3,17 +3,14 @@
   import { untrack } from 'svelte'
   import { api } from '../../lib/api'
   import { getErrorMessage } from '../../lib/errors'
-  import Dropdown from '../Dropdown.svelte'
   import type { ModalButton } from '../../lib/types'
 
   let {
-    adapterTypes: initialTypes,
     editingProvider = null,
     onComplete,
     updateButtons,
     closeModal
   } = $props<{
-    adapterTypes?: string[]
     editingProvider?: any | null
     onComplete: () => void
     updateButtons: (buttons: ModalButton[]) => void
@@ -21,18 +18,10 @@
   }>()
 
   let name: string = $state(editingProvider?.name ?? '')
-  let typeKey: string = $state(editingProvider?.type ?? '')
   let baseURL: string = $state(editingProvider?.base_url ?? '')
+  let iconURL: string = $state(editingProvider?.icon_url ?? editingProvider?.IconURL ?? '')
   let creating: boolean = $state(false)
   let error: string = $state('')
-  let types: string[] = $state(initialTypes ? [...initialTypes] : [])
-  let hasFetched = $state(false)
-
-  let options = $derived(types.map((t: string) => ({ value: t, label: t })))
-
-  function ensureDefaultType(): void {
-    if (types.length && !typeKey) typeKey = types[0]
-  }
 
   function syncButtons(): void {
     const isEdit = !!editingProvider
@@ -43,7 +32,7 @@
           label: isEdit ? 'Save' : 'Add',
           variant: 'primary',
           onClick: create,
-          disabled: !name.trim() || (!typeKey && types.length > 0),
+          disabled: !name.trim() || !baseURL.trim(),
           loading: creating
         }
       ])
@@ -51,35 +40,19 @@
   }
 
   onMount(() => {
-    ensureDefaultType()
-    if (types.length === 0 && !hasFetched) {
-      hasFetched = true
-      api.providers
-        .adapterTypes()
-        .then((fetched: string[]) => {
-          if (Array.isArray(fetched) && fetched.length) {
-            types = fetched
-            ensureDefaultType()
-            syncButtons()
-          }
-        })
-        .catch(() => {
-          hasFetched = false
-        })
-    }
     syncButtons()
   })
 
   $effect(() => {
     void name
-    void typeKey
+    void baseURL
+    void iconURL
     void creating
-    void types.length
     untrack(() => syncButtons())
   })
 
   async function create(): Promise<void> {
-    if (!name.trim()) return
+    if (!name.trim() || !baseURL.trim()) return
     creating = true
     error = ''
     syncButtons()
@@ -87,16 +60,18 @@
     try {
       if (editingProvider) {
         const rawId = String(editingProvider.id ?? editingProvider.ID ?? '')
-        const id = rawId.replace(/^custom:/, '') || rawId.replace('custom:', '')
-        await (api.providers.update as any)(id || rawId.replace('custom:', ''), {
+        const id = rawId.replace(/^custom:/, '')
+        await api.providers.update(id, {
           name: name.trim(),
           base_url: baseURL.trim(),
-          icon_url: editingProvider.icon_url ?? editingProvider.IconURL ?? ''
+          icon_url: iconURL.trim()
         })
       } else {
-        const payload: any = { name: name.trim(), base_url: baseURL.trim() }
-        if (typeKey) payload.type = typeKey
-        await (api.providers.create as any)(payload)
+        await api.providers.create({
+          name: name.trim(),
+          base_url: baseURL.trim(),
+          icon_url: iconURL.trim() || undefined
+        })
       }
       onComplete()
     } catch (e) {
@@ -112,22 +87,21 @@
 {/if}
 
 <div class="form-group">
-  <label for="provider-name">Name</label>
-  <input id="provider-name" type="text" bind:value={name} placeholder="OpenAI Production" />
+  <label for="provider-name">Name *</label>
+  <input id="provider-name" type="text" bind:value={name} placeholder="My LLM Provider" />
+  <small>A friendly name for this provider</small>
 </div>
 
 <div class="form-group">
-  <label for="provider-type">Type</label>
-  <Dropdown
-    bind:value={typeKey}
-    options={options}
-    placeholder={types.length ? "Select provider type" : "Loading types…"}
-  />
+  <label for="base-url">Base URL *</label>
+  <input id="base-url" type="text" bind:value={baseURL} placeholder="https://api.example.com/v1" />
+  <small>OpenAI-compatible endpoint (must support /chat/completions)</small>
 </div>
 
 <div class="form-group">
-  <label for="base-url">Base URL</label>
-  <input id="base-url" type="text" bind:value={baseURL} placeholder="https://api.openai.com" />
+  <label for="icon-url">Icon URL (Optional)</label>
+  <input id="icon-url" type="text" bind:value={iconURL} placeholder="https://example.com/icon.svg" />
+  <small>Optional icon for the provider card</small>
 </div>
 
 <style>
@@ -137,5 +111,12 @@
 
   .form-group:last-child {
     margin-bottom: 0;
+  }
+
+  .form-group small {
+    display: block;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--color-text-soft);
   }
 </style>
