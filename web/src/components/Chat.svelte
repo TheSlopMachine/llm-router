@@ -99,7 +99,7 @@
     scrollToBottom(false)
   })
 
-  $: dropdownOptions = models.map((m) => ({ value: m.full_model_id, label: m.display_name || m.full_model_id }))
+  $: dropdownOptions = models.map((m) => ({ value: m.full_model_id, label: m.full_model_id }))
   $: canSend = input.trim().length > 0 && !isSending && !!selectedModel
 
   $: if (hydrated && typeof window !== 'undefined') {
