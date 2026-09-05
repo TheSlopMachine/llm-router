@@ -20,8 +20,8 @@ import (
 
 type runtimeTestAdapter struct{}
 
-func (a *runtimeTestAdapter) TypeKey() string { return "runtime-test" }
-func (a *runtimeTestAdapter) AuthType() models.AuthType { return models.AuthTypeAPIKey }
+func (a *runtimeTestAdapter) TypeKey() string                                  { return "runtime-test" }
+func (a *runtimeTestAdapter) AuthType() models.AuthType                        { return models.AuthTypeAPIKey }
 func (a *runtimeTestAdapter) ValidateCredentials(data map[string]string) error { return nil }
 func (a *runtimeTestAdapter) Complete(ctx context.Context, cred *sdk.Credential, req *sdk.ChatCompletionRequest) (*sdk.ChatCompletionResponse, error) {
 	return nil, fmt.Errorf("not implemented")
@@ -102,6 +102,85 @@ func TestProviderService_GetResolvesQualifiedProvider(t *testing.T) {
 	}
 	if provider.Name != "Runtime Test Alt" {
 		t.Fatalf("name: got %q, want %q", provider.Name, "Runtime Test Alt")
+	}
+}
+
+func TestProviderService_CustomProviderCRUD(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+
+	// Create
+	cp, err := svc.CreateCustom("My LLM", "https://api.example.com/v1/", "https://example.com/icon.svg")
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if cp.ID != "my-llm" {
+		t.Fatalf("id: got %q, want %q", cp.ID, "my-llm")
+	}
+	if cp.BaseURL != "https://api.example.com/v1" {
+		t.Fatalf("base_url should be normalized (no trailing slash): got %q", cp.BaseURL)
+	}
+
+	// Get via provider ID
+	p, err := svc.Get("custom:my-llm")
+	if err != nil {
+		t.Fatalf("get failed: %v", err)
+	}
+	if p.Type != "custom" {
+		t.Fatalf("type: got %q, want %q", p.Type, "custom")
+	}
+	if p.BaseURL != "https://api.example.com/v1" {
+		t.Fatalf("base_url: got %q", p.BaseURL)
+	}
+
+	// List includes custom provider
+	providers, err := svc.List()
+	if err != nil {
+		t.Fatalf("list failed: %v", err)
+	}
+	if !containsProvider(providers, "custom:my-llm") {
+		t.Fatalf("custom provider missing from list")
+	}
+
+	// Duplicate names get unique slugs
+	cp2, err := svc.CreateCustom("My LLM", "https://other.example.com/v1", "")
+	if err != nil {
+		t.Fatalf("second create failed: %v", err)
+	}
+	if cp2.ID != "my-llm-2" {
+		t.Fatalf("duplicate id: got %q, want %q", cp2.ID, "my-llm-2")
+	}
+
+	// Update
+	updated, err := svc.UpdateCustom("my-llm", "My LLM Updated", "https://new.example.com/v1", "")
+	if err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+	if updated.Name != "My LLM Updated" {
+		t.Fatalf("name: got %q", updated.Name)
+	}
+
+	// Delete
+	if err := svc.DeleteCustom("my-llm-2"); err != nil {
+		t.Fatalf("delete failed: %v", err)
+	}
+	if _, err := svc.Get("custom:my-llm-2"); err == nil {
+		t.Fatalf("expected deleted provider lookup to fail")
+	}
+}
+
+func TestProviderService_CreateCustom_Validation(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+
+	if _, err := svc.CreateCustom("", "https://api.example.com/v1", ""); err == nil {
+		t.Fatalf("expected error for empty name")
+	}
+	if _, err := svc.CreateCustom("Test", "", ""); err == nil {
+		t.Fatalf("expected error for empty base_url")
+	}
+	if _, err := svc.CreateCustom("Test", "not-a-url", ""); err == nil {
+		t.Fatalf("expected error for invalid base_url")
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
@@ -114,8 +115,13 @@ func (s *Service) cleanupAuthFlows() {
 func (s *Service) maybeRefresh(ctx context.Context, cred *models.Credential) {
 	adapter, p, err := provider.ResolveAdapter(s.providerSvc, cred.ProviderID)
 	if err != nil {
-		s.logger.Warn("maintenance: provider resolution failed",
-			"credential_id", cred.ID, "provider_id", cred.ProviderID, "err", err)
+		if strings.Contains(err.Error(), "not found") {
+			s.logger.Debug("maintenance: orphan credential (provider deleted)",
+				"credential_id", cred.ID, "provider_id", cred.ProviderID, "err", err)
+		} else {
+			s.logger.Warn("maintenance: provider resolution failed",
+				"credential_id", cred.ID, "provider_id", cred.ProviderID, "err", err)
+		}
 		return
 	}
 
@@ -146,4 +152,3 @@ func (s *Service) maybeRefresh(ctx context.Context, cred *models.Credential) {
 	s.logger.Info("maintenance: credential refreshed successfully",
 		"credential_id", cred.ID, "provider", p.Name)
 }
-

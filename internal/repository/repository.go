@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	bolt "go.etcd.io/bbolt"
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	bolt "go.etcd.io/bbolt"
 )
 
 var errFound = errors.New("found")
@@ -39,7 +39,11 @@ func New[T any](database *db.DB, bucket []byte, name string) *Repository[T] {
 func (r *Repository[T]) Get(id string) (*T, error) {
 	var obj T
 	err := r.db.View(func(tx *bolt.Tx) error {
-		data := tx.Bucket(r.bucket).Get([]byte(id))
+		b := tx.Bucket(r.bucket)
+		if b == nil {
+			return fmt.Errorf("bucket %q not found (run with current binary to create it)", string(r.bucket))
+		}
+		data := b.Get([]byte(id))
 		if data == nil {
 			return fmt.Errorf("%s %q not found", r.name, id)
 		}
@@ -59,7 +63,15 @@ func (r *Repository[T]) Put(id string, obj *T) error {
 		return fmt.Errorf("marshal %s: %w", r.name, err)
 	}
 	return r.db.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(r.bucket).Put([]byte(id), enc)
+		b := tx.Bucket(r.bucket)
+		if b == nil {
+			var err error
+			b, err = tx.CreateBucketIfNotExists(r.bucket)
+			if err != nil {
+				return fmt.Errorf("create bucket %q: %w", string(r.bucket), err)
+			}
+		}
+		return b.Put([]byte(id), enc)
 	})
 }
 
@@ -67,7 +79,11 @@ func (r *Repository[T]) Put(id string, obj *T) error {
 func (r *Repository[T]) List() ([]*T, error) {
 	var items []*T
 	err := r.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(r.bucket).ForEach(func(_, v []byte) error {
+		b := tx.Bucket(r.bucket)
+		if b == nil {
+			return nil // bucket not yet created -> empty
+		}
+		return b.ForEach(func(_, v []byte) error {
 			var item T
 			if err := json.Unmarshal(v, &item); err != nil {
 				return fmt.Errorf("unmarshal %s: %w", r.name, err)
@@ -84,6 +100,9 @@ func (r *Repository[T]) List() ([]*T, error) {
 func (r *Repository[T]) Delete(id string) error {
 	return r.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(r.bucket)
+		if b == nil {
+			return fmt.Errorf("%s %q not found", r.name, id)
+		}
 		if b.Get([]byte(id)) == nil {
 			return fmt.Errorf("%s %q not found", r.name, id)
 		}
@@ -95,7 +114,11 @@ func (r *Repository[T]) Delete(id string) error {
 // Does not return an error if the record doesn't exist.
 func (r *Repository[T]) DeleteIfExists(id string) error {
 	return r.db.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(r.bucket).Delete([]byte(id))
+		b := tx.Bucket(r.bucket)
+		if b == nil {
+			return nil
+		}
+		return b.Delete([]byte(id))
 	})
 }
 
@@ -112,6 +135,9 @@ func (r *Repository[T]) DeleteIfExists(id string) error {
 func (r *Repository[T]) Update(id string, fn func(*T) error) error {
 	return r.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(r.bucket)
+		if b == nil {
+			return fmt.Errorf("%s %q not found", r.name, id)
+		}
 		raw := b.Get([]byte(id))
 		if raw == nil {
 			return fmt.Errorf("%s %q not found", r.name, id)
@@ -144,7 +170,11 @@ func (r *Repository[T]) Update(id string, fn func(*T) error) error {
 func (r *Repository[T]) ListFiltered(predicate func(*T) bool) ([]*T, error) {
 	var items []*T
 	err := r.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(r.bucket).ForEach(func(_, v []byte) error {
+		b := tx.Bucket(r.bucket)
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(_, v []byte) error {
 			var item T
 			if err := json.Unmarshal(v, &item); err != nil {
 				return fmt.Errorf("unmarshal %s: %w", r.name, err)
@@ -169,7 +199,11 @@ func (r *Repository[T]) ListFiltered(predicate func(*T) bool) ([]*T, error) {
 func (r *Repository[T]) FindFirst(predicate func(*T) bool) (*T, error) {
 	var result *T
 	err := r.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(r.bucket).ForEach(func(_, v []byte) error {
+		b := tx.Bucket(r.bucket)
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(_, v []byte) error {
 			var item T
 			if err := json.Unmarshal(v, &item); err != nil {
 				return fmt.Errorf("unmarshal %s: %w", r.name, err)
@@ -194,7 +228,12 @@ func (r *Repository[T]) FindFirst(predicate func(*T) bool) (*T, error) {
 func (r *Repository[T]) Exists(id string) (bool, error) {
 	var exists bool
 	err := r.db.View(func(tx *bolt.Tx) error {
-		exists = tx.Bucket(r.bucket).Get([]byte(id)) != nil
+		b := tx.Bucket(r.bucket)
+		if b == nil {
+			exists = false
+			return nil
+		}
+		exists = b.Get([]byte(id)) != nil
 		return nil
 	})
 	return exists, err
@@ -204,11 +243,14 @@ func (r *Repository[T]) Exists(id string) (bool, error) {
 func (r *Repository[T]) Count() (int, error) {
 	var count int
 	err := r.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(r.bucket).ForEach(func(_, _ []byte) error {
+		b := tx.Bucket(r.bucket)
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(_, _ []byte) error {
 			count++
 			return nil
 		})
 	})
 	return count, err
 }
-

@@ -117,6 +117,100 @@ func (h *Handler) apiProvidersStats(w http.ResponseWriter, r *http.Request) {
 	h.json(w, http.StatusOK, stats)
 }
 
+// apiProvidersCreate creates a new custom provider
+// @Summary      Create custom provider
+// @Description  Creates a new user-defined OpenAI-compatible provider
+// @Tags         Providers
+// @Accept       json
+// @Produce      json
+// @Param        body body models.CustomProviderCreateRequest true "Provider details"
+// @Success      200 {object} models.CustomProvider
+// @Failure      400 {object} models.ErrorResponse
+// @Failure      401 {object} models.ErrorResponse
+// @Failure      500 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/providers [post]
+func (h *Handler) apiProvidersCreate(w http.ResponseWriter, r *http.Request) {
+	var body models.CustomProviderCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	cp, err := h.providerSvc.CreateCustom(body.Name, body.BaseURL, body.IconURL)
+	if err != nil {
+		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	h.json(w, http.StatusOK, cp)
+}
+
+// apiProvidersUpdate updates an existing custom provider
+// @Summary      Update custom provider
+// @Description  Updates a user-defined provider's details
+// @Tags         Providers
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Provider ID (without 'custom:' prefix)"
+// @Param        body body models.CustomProviderUpdateRequest true "Provider details"
+// @Success      200 {object} models.CustomProvider
+// @Failure      400 {object} models.ErrorResponse
+// @Failure      401 {object} models.ErrorResponse
+// @Failure      404 {object} models.ErrorResponse
+// @Failure      500 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/providers/{id} [put]
+func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		h.jsonErr(w, http.StatusBadRequest, "id is required")
+		return
+	}
+
+	var body models.CustomProviderUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	cp, err := h.providerSvc.UpdateCustom(id, body.Name, body.BaseURL, body.IconURL)
+	if err != nil {
+		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	h.json(w, http.StatusOK, cp)
+}
+
+// apiProvidersDelete deletes a custom provider
+// @Summary      Delete custom provider
+// @Description  Deletes a user-defined provider
+// @Tags         Providers
+// @Produce      json
+// @Param        id path string true "Provider ID (without 'custom:' prefix)"
+// @Success      200 {object} object{message=string}
+// @Failure      400 {object} models.ErrorResponse
+// @Failure      401 {object} models.ErrorResponse
+// @Failure      404 {object} models.ErrorResponse
+// @Failure      500 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/providers/{id} [delete]
+func (h *Handler) apiProvidersDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		h.jsonErr(w, http.StatusBadRequest, "id is required")
+		return
+	}
+
+	if err := h.providerSvc.DeleteCustom(id); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	h.json(w, http.StatusOK, map[string]string{"message": "provider deleted"})
+}
+
 // authStart initiates an authentication flow
 func (h *Handler) authStart(w http.ResponseWriter, r *http.Request) {
 	var body struct {

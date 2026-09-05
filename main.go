@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/TheSlopMachine/llm-router/cmd"
 
+	_ "github.com/TheSlopMachine/llm-router/internal/adapters/generic"
 	_ "github.com/TheSlopMachine/llm-router/providers/agents"
 )
 
@@ -16,4 +17,3 @@ func main() {
 	cmd.SetVersionInfo(Version, GitCommit, BuildTime)
 	cmd.Execute()
 }
-

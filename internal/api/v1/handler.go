@@ -238,7 +238,8 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 	}
 
 	var entries []modelEntry
-	// Global listing like dashboard Available Models, not per-token
+	// Global listing like dashboard Available Models, not per-token.
+	// Never hide a provider on discovery error — log and optionally emit synthetic entry.
 	if h.providerSvc != nil && h.modelInfoSvc != nil {
 		if providers, err := h.providerSvc.List(); err == nil {
 			for _, p := range providers {
@@ -246,7 +247,28 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 					continue
 				}
 				infos, err := h.modelInfoSvc.GetModelInfos(r.Context(), p.ID)
-				if err != nil || len(infos) == 0 {
+				if err != nil {
+					h.logger.Warn("v1 listModels: model discovery failed", "provider_id", p.ID, "err", err)
+					if p.Type == "custom" {
+						// Compat servers may not implement GET /models — still advertise provider as routable.
+						entries = append(entries, modelEntry{
+							ID:      p.ID + "/*",
+							Object:  "model",
+							Created: time.Now().Unix(),
+							OwnedBy: p.Type,
+						})
+					}
+					continue
+				}
+				if len(infos) == 0 {
+					if p.Type == "custom" {
+						entries = append(entries, modelEntry{
+							ID:      p.ID + "/*",
+							Object:  "model",
+							Created: time.Now().Unix(),
+							OwnedBy: p.Type,
+						})
+					}
 					continue
 				}
 				for _, mi := range infos {

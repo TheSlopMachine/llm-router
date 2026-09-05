@@ -8,6 +8,8 @@
   export let credentials: Credential[]
   export let onComplete: () => void
   export let onUpdate: () => void
+  export let onEdit: (() => void) | undefined = undefined
+  export let onDelete: (() => void) | undefined = undefined
   export let updateButtons: (buttons: ModalButton[]) => void
   export let updateTitle: (title: string) => void
   export let closeModal: () => void
@@ -163,6 +165,23 @@
 {/if}
 
 {#if view === 'list'}
+  {#if provider.type === 'custom' && (onEdit || onDelete)}
+    <div class="provider-actions">
+      {#if onEdit}
+        <button class="btn btn-secondary" on:click={onEdit}>
+          <span class="icon">edit</span>
+          Edit Provider
+        </button>
+      {/if}
+      {#if onDelete}
+        <button class="btn btn-danger" on:click={onDelete}>
+          <span class="icon">delete</span>
+          Delete Provider
+        </button>
+      {/if}
+    </div>
+  {/if}
+
   {#if credentials.length === 0}
     <div class="empty-state">No credentials added yet</div>
   {:else}
@@ -236,6 +255,14 @@
   .credential-label {
     font-size: 14px;
     color: var(--color-text);
+  }
+
+  .provider-actions {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--color-border);
   }
 
 </style>

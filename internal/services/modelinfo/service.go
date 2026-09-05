@@ -7,6 +7,8 @@ package modelinfo
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"net/url"
 	"sync"
 	"time"
 
@@ -23,6 +25,7 @@ type Service struct {
 	providerSvc *provider.Service
 	credSvc     *credential.Service
 	cacheTTL    time.Duration
+	logger      *slog.Logger
 
 	// In-memory cache: providerID -> cacheEntry
 	mu       sync.RWMutex
@@ -49,6 +52,17 @@ func New(_ *db.DB, providerSvc *provider.Service, credSvc *credential.Service, c
 		cache:       make(map[string]cacheEntry),
 		inflight:    make(map[string]*sync.WaitGroup),
 	}
+}
+
+// SetLogger wires structured logging (called once from server.New).
+func (s *Service) SetLogger(l *slog.Logger) { s.logger = l }
+
+func hostOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "<invalid-host>"
+	}
+	return u.Host
 }
 
 // GetModelInfos retrieves all model metadata for a provider
@@ -136,18 +150,27 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 	// Get provider record
 	p, err := s.providerSvc.Get(providerID)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("model discovery: provider lookup failed", "provider_id", providerID, "err", err)
+		}
 		return nil, fmt.Errorf("provider lookup failed: %w", err)
 	}
 
 	// Get adapter
 	adapter, err := provider.Lookup(p.Type)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("model discovery: adapter lookup failed", "provider_id", providerID, "type", p.Type, "err", err)
+		}
 		return nil, fmt.Errorf("adapter lookup failed: %w", err)
 	}
 
 	// Get credentials
 	creds, err := s.credSvc.ListByProvider(providerID)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("model discovery: list credentials failed", "provider_id", providerID, "err", err)
+		}
 		return nil, fmt.Errorf("list credentials for provider %s: %w", p.Name, err)
 	}
 	var modelInfos []models.ModelInfo
@@ -158,20 +181,34 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 	if len(creds) == 0 {
 		modelInfos, lastErr = safeGetModelInfos(ctx, adapter, nil, p.Qualifier)
 		if lastErr == nil {
+			if s.logger != nil {
+				s.logger.Info("model discovery succeeded (no credential)", "provider_id", providerID, "base_url_host", hostOf(p.BaseURL), "models", len(modelInfos))
+			}
 			return s.store(providerID, modelInfos), nil
 		}
-		return nil, fmt.Errorf("no credentials available for provider %s", p.Name)
+		if s.logger != nil {
+			s.logger.Warn("model discovery failed", "provider_id", providerID, "base_url_host", hostOf(p.BaseURL), "qualifier", p.Qualifier, "err", lastErr, "attempts", 1)
+		}
+		return nil, fmt.Errorf("no credentials available for provider %s: %w", p.Name, lastErr)
 	}
 
 	// Try each credential until one succeeds.
+	// BaseURL for custom providers is resolved centrally inside generic.Adapter via qualifier,
+	// not via credential mutation.
 	for _, cred := range creds {
 		modelInfos, lastErr = adapter.GetModelInfos(ctx, cred.ToSDK(), p.Qualifier)
 		if lastErr == nil {
+			if s.logger != nil {
+				s.logger.Info("model discovery succeeded", "provider_id", providerID, "base_url_host", hostOf(p.BaseURL), "credential_id", cred.ID, "models", len(modelInfos))
+			}
 			return s.store(providerID, modelInfos), nil
 		}
 	}
 
-	return nil, fmt.Errorf("all credentials failed: %w", lastErr)
+	if s.logger != nil {
+		s.logger.Warn("model discovery failed", "provider_id", providerID, "base_url_host", hostOf(p.BaseURL), "qualifier", p.Qualifier, "err", lastErr, "attempts", len(creds))
+	}
+	return nil, fmt.Errorf("custom %q (%s) discovery: %w", providerID, hostOf(p.BaseURL), lastErr)
 }
 
 func safeGetModelInfos(
@@ -223,4 +260,3 @@ func (s *Service) store(providerID string, modelInfos []models.ModelInfo) []mode
 
 	return modelInfos
 }
-

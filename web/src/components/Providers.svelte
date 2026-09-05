@@ -4,6 +4,7 @@
   import { modal } from '../lib/modal'
   import ProviderCard from './ProviderCard.svelte'
   import ProviderDetailModal from './ProviderDetailModal.svelte'
+  import CustomProviderWizard from './wizards/CustomProviderWizard.svelte'
   import type { Provider, ProviderStats } from '../lib/types'
 
   let providers: Provider[] = []
@@ -56,7 +57,9 @@
           onComplete: async () => {
             modal.close()
             await load()
-          }
+          },
+          onEdit: provider.type === 'custom' ? () => { modal.close(); openEdit(provider) } : undefined,
+          onDelete: provider.type === 'custom' ? () => deleteProvider(provider) : undefined,
         }
       })
     } catch (e) {
@@ -64,12 +67,79 @@
     }
   }
 
-  $: visibleProviders = providers.filter((provider) => provider.supports_auth_flow)
+  function openCreate(): void {
+    error = ''
+    
+    modal.open({
+      title: 'New Provider',
+      content: CustomProviderWizard,
+      severity: 'medium',
+      size: 'medium',
+      props: {
+        editingProvider: null,
+        onComplete: async () => {
+          modal.close()
+          await load()
+        }
+      }
+    })
+  }
+
+  function openEdit(provider: Provider): void {
+    error = ''
+    
+    modal.open({
+      title: 'Edit Provider',
+      content: CustomProviderWizard,
+      severity: 'medium',
+      size: 'medium',
+      props: {
+        editingProvider: provider,
+        onComplete: async () => {
+          modal.close()
+          await load()
+        }
+      }
+    })
+  }
+
+  async function deleteProvider(provider: Provider): Promise<void> {
+    const confirmed = await modal.confirm({
+      title: 'Delete Provider',
+      message: `Are you sure you want to delete "${provider.name}"? This action cannot be undone.`,
+      severity: 'high',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      danger: true
+    })
+    
+    if (!confirmed) return
+    
+    try {
+      // Extract ID without 'custom:' prefix
+      const id = provider.id.replace('custom:', '')
+      await api.providers.delete(id)
+      modal.close()
+      await load()
+    } catch (e) {
+      error = (e as Error).message
+    }
+  }
+
+  $: visibleProviders = providers.filter((provider) => 
+    provider.supports_auth_flow || provider.type === 'custom'
+  )
 </script>
 
 <div class="page-header">
-  <h1>Providers</h1>
-  <p>Registered upstream LLM backends.</p>
+  <div>
+    <h1>Providers</h1>
+    <p>Registered upstream LLM backends.</p>
+  </div>
+  <button class="btn btn-primary" on:click={openCreate}>
+    <span class="icon">add</span>
+    New Provider
+  </button>
 </div>
 
 {#if error}
@@ -93,6 +163,22 @@
 {/if}
 
 <style>
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+    margin-bottom: 32px;
+  }
+
+  .page-header h1 {
+    margin: 0 0 8px 0;
+  }
+
+  .page-header p {
+    margin: 0;
+  }
+
   .providers-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);

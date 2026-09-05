@@ -151,7 +151,8 @@ func (s *Service) Complete(
 
 			attempted[cred.ID] = true
 
-			// Attempt request
+			// Attempt request — custom BaseURL is resolved centrally in generic.Adapter via qualifier,
+			// not via credential mutation.
 			resp, err := adapter.Complete(ctx, cred.ToSDK(), req)
 
 			if err == nil {
@@ -259,7 +260,7 @@ func (s *Service) CompleteStream(
 
 			attempted[cred.ID] = true
 
-			// Attempt request
+			// Attempt request — custom BaseURL is resolved centrally in generic.Adapter.
 			err := adapter.CompleteStream(ctx, cred.ToSDK(), req, w)
 
 			if err == nil {

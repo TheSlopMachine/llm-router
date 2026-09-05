@@ -93,12 +93,12 @@ func (h *Handler) apiModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type ProviderModels struct {
-		ProviderID   string              `json:"provider_id"`
-		ProviderName string              `json:"provider_name"`
-		ProviderType string              `json:"provider_type"`
-		Models       []string            `json:"models,omitempty"`
-		ModelInfo    []models.ModelInfo  `json:"model_info,omitempty"`
-		Error        string              `json:"error,omitempty"`
+		ProviderID   string             `json:"provider_id"`
+		ProviderName string             `json:"provider_name"`
+		ProviderType string             `json:"provider_type"`
+		Models       []string           `json:"models,omitempty"`
+		ModelInfo    []models.ModelInfo `json:"model_info,omitempty"`
+		Error        string             `json:"error,omitempty"`
 	}
 
 	type result struct{ pm ProviderModels }
@@ -113,25 +113,26 @@ func (h *Handler) apiModels(w http.ResponseWriter, r *http.Request) {
 				ch <- result{pm: ProviderModels{ProviderID: providerID, Error: "provider not found"}}
 				return
 			}
-			
+
 			pm := ProviderModels{
 				ProviderID:   p.ID,
 				ProviderName: p.Name,
 				ProviderType: p.Type,
 			}
-			
+
 			modelInfos, err := h.modelInfoSvc.GetModelInfos(ctx, providerID)
 			if err != nil {
+				h.logger.Warn("dashboard apiModels: model discovery failed", "provider_id", providerID, "err", err)
 				pm.Error = err.Error()
 			} else {
 				pm.ModelInfo = modelInfos
-				
+
 				pm.Models = make([]string, len(modelInfos))
 				for i, m := range modelInfos {
 					pm.Models[i] = m.Name
 				}
 			}
-			
+
 			ch <- result{pm: pm}
 		}(pid)
 	}
@@ -142,4 +143,3 @@ func (h *Handler) apiModels(w http.ResponseWriter, r *http.Request) {
 	}
 	h.json(w, http.StatusOK, map[string]any{"providers": results})
 }
-

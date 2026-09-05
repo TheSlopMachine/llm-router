@@ -123,7 +123,7 @@ func (r TokenRules) Allows(model ModelId) bool {
 
 // Provider is a registered upstream LLM backend.
 type Provider struct {
-	ID        string   `json:"id" example:"openai"`       // Composite ID: "openai" or "openai:azure"
+	ID        string   `json:"id" example:"openai"`       // Composite ID: "openai" or "openai:azure" or "custom:my-provider"
 	Name      string   `json:"name" example:"OpenAI"`     // Display name
 	Type      string   `json:"type" example:"openai"`     // Adapter type key
 	Qualifier string   `json:"qualifier" example:"azure"` // Optional qualifier (empty for default)
@@ -132,11 +132,35 @@ type Provider struct {
 	AuthType  AuthType `json:"auth_type" example:"api_key"`
 }
 
+// CustomProvider is a user-defined OpenAI-compatible provider.
+type CustomProvider struct {
+	ID        string    `json:"id"`       // Slug identifier: "my-provider"
+	Name      string    `json:"name"`     // Display name: "My Provider"
+	BaseURL   string    `json:"base_url"` // OpenAI-compatible base URL
+	IconURL   string    `json:"icon_url"` // Optional icon URL
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // ProviderStats holds aggregated statistics for a provider.
 type ProviderStats struct {
 	ModelCount      int   `json:"model_count" example:"5"`
 	CredentialCount int   `json:"credential_count" example:"2"`
 	RequestsToday   int64 `json:"requests_today" example:"1234"`
+}
+
+// CustomProviderCreateRequest is the request body for creating a custom provider.
+type CustomProviderCreateRequest struct {
+	Name    string `json:"name"`
+	BaseURL string `json:"base_url"`
+	IconURL string `json:"icon_url"`
+}
+
+// CustomProviderUpdateRequest is the request body for updating a custom provider.
+type CustomProviderUpdateRequest struct {
+	Name    string `json:"name"`
+	BaseURL string `json:"base_url"`
+	IconURL string `json:"icon_url"`
 }
 
 // ─────────────────────────────────────────────
@@ -372,10 +396,14 @@ type ErrorResponse struct {
 	Error string `json:"error" example:"invalid request"`
 }
 
-// ToSDK converts internal Credential to SDK Credential
+// ToSDK converts internal Credential to SDK Credential (deep-copies Data so callers cannot mutate the live record).
 func (c *Credential) ToSDK() *sdk.Credential {
+	data := make(map[string]string, len(c.Data))
+	for k, v := range c.Data {
+		data[k] = v
+	}
 	return &sdk.Credential{
 		ID:   c.ID,
-		Data: c.Data,
+		Data: data,
 	}
 }

@@ -28,6 +28,15 @@ export const api = {
     list: () => 
       apiCall('get', path('/dashboard/providers')),
 
+    create: (payload: { name: string; base_url: string; icon_url?: string }) =>
+      apiCall('post', path('/dashboard/providers'), { body: payload }),
+
+    update: (id: string, payload: { name: string; base_url: string; icon_url?: string }) =>
+      apiCall('put', path(`/dashboard/providers/${id}` as '/dashboard/providers/{id}'), { body: payload }),
+
+    delete: (id: string) =>
+      apiCall('delete', path(`/dashboard/providers/${id}` as '/dashboard/providers/{id}')),
+
     adapterTypes: () => 
       apiCall('get', path('/dashboard/adapter-types')),
 

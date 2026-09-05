@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,13 +20,13 @@ import (
 )
 
 type modelInfoTestAdapter struct {
-	typeKey   string
-	callCount int
-	infos     []models.ModelInfo
+	typeKey    string
+	callCount  int
+	infos      []models.ModelInfo
 	panicOnNil bool
 }
 
-func (a *modelInfoTestAdapter) TypeKey() string { return a.typeKey }
+func (a *modelInfoTestAdapter) TypeKey() string           { return a.typeKey }
 func (a *modelInfoTestAdapter) AuthType() models.AuthType { return models.AuthTypeAPIKey }
 func (a *modelInfoTestAdapter) ValidateCredentials(data map[string]string) error {
 	if data["api_key"] == "" {
@@ -244,7 +245,7 @@ func TestModelInfoService_NoCredentialsDoesNotCrashOnAdapterPanic(t *testing.T) 
 	if panicNoCredAdapter.callCount != 1 {
 		t.Fatalf("expected panic adapter to be called once, got %d", panicNoCredAdapter.callCount)
 	}
-	if err.Error() != "no credentials available for provider modelinfo-panic-nocred" {
+	if !strings.Contains(err.Error(), "no credentials available for provider modelinfo-panic-nocred") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

@@ -24,6 +24,16 @@ type Service struct {
 	db          *db.DB
 	providerSvc *provider.Service
 	repo        *repository.Repository[models.Credential]
+	onChanged   func(providerID string)
+}
+
+// SetOnChanged registers a callback fired after credential add/delete for a provider.
+func (s *Service) SetOnChanged(fn func(providerID string)) { s.onChanged = fn }
+
+func (s *Service) notifyChanged(providerID string) {
+	if s.onChanged != nil {
+		s.onChanged(providerID)
+	}
 }
 
 // New constructs a new credential Service.
@@ -75,6 +85,7 @@ func (s *Service) Add(opts AddOptions) (*models.Credential, error) {
 	if err := s.repo.Put(id, cred); err != nil {
 		return nil, err
 	}
+	s.notifyChanged(opts.ProviderID)
 	return cred, nil
 }
 
@@ -171,7 +182,18 @@ func (s *Service) Update(id string, data map[string]string, expiresAt *time.Time
 
 // Delete removes a Credential by ID.
 func (s *Service) Delete(id string) error {
-	return s.repo.Delete(id)
+	cred, _ := s.repo.Get(id)
+	providerID := ""
+	if cred != nil {
+		providerID = cred.ProviderID
+	}
+	if err := s.repo.Delete(id); err != nil {
+		return err
+	}
+	if providerID != "" {
+		s.notifyChanged(providerID)
+	}
+	return nil
 }
 
 // ─────────────────────────────────────────────
@@ -195,4 +217,3 @@ func (s *Service) MarkQuotaExceeded(id string, resetAt time.Time) error {
 		return nil
 	})
 }
-

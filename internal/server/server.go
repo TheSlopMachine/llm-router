@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TheSlopMachine/llm-router/internal/adapters/generic"
 	v1 "github.com/TheSlopMachine/llm-router/internal/api/v1"
 	"github.com/TheSlopMachine/llm-router/internal/config"
 	"github.com/TheSlopMachine/llm-router/internal/dashboard"
@@ -66,6 +67,33 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	maintSvc := maintenance.New(credSvc, providerSvc, database, logger)
 	metricsSvc := metrics.New(database, logger)
 	metricsSvc.Start()
+
+	// Wire generic (custom) adapter to single source of truth — no per-call injection.
+	generic.SetResolver(func(qualifier string) (string, error) {
+		cp, err := providerSvc.GetCustom(qualifier)
+		if err != nil {
+			return "", err
+		}
+		return cp.BaseURL, nil
+	})
+	generic.SetLogger(logger)
+	providerSvc.SetLogger(logger)
+	modelInfoSvc.SetLogger(logger)
+
+	// One-time GC of orphans from previous buggy deletes (covers double-prefix rows).
+	if n, err := providerSvc.CleanupOrphanedCredentials(); err != nil {
+		logger.Warn("orphan credential GC failed", "err", err)
+	} else if n > 0 {
+		logger.Info("orphan credential GC completed", "count", n)
+	}
+
+	// Invalidate model cache immediately after custom provider CRUD — "usable immediately".
+	providerSvc.SetOnChanged(func(providerID string) {
+		_ = modelInfoSvc.InvalidateProvider(providerID)
+	})
+	credSvc.SetOnChanged(func(providerID string) {
+		_ = modelInfoSvc.InvalidateProvider(providerID)
+	})
 
 	// Initialize agents adapter with dependencies
 	if agentsAdapter, err := provider.Lookup("agents"); err == nil {
