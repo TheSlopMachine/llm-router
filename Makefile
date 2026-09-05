@@ -96,7 +96,7 @@ LDFLAGS = -s -w -X main.Version=$(VERSION) -X main.GitCommit=$(GIT_COMMIT) -X ma
 NODE_MIN := 20
 GO_MIN   := 1.25
 
-.PHONY: help prepare-workspace prepare-frontend prepare start stop restart status browser clean publish go-check go-test check-frontend-deps check-publish-deps
+.PHONY: help prepare-workspace prepare-frontend prepare start stop restart status browser clean publish go-check go-test check-frontend check-frontend-deps check-publish-deps
 
 help:
 	@printf '\nUsage: make <target>\n\n'
@@ -112,7 +112,8 @@ help:
 	@printf '  clean             Stop + git clean -fdx\n'
 	@printf '  publish           prepare-frontend + prepare-workspace + build all PUBLISH_PLATFORMS\n'
 	@printf '  go-check          Run go vet\n'
-	@printf '  go-test           Run go test ./...\n\n'
+	@printf '  go-test           Run go test ./...\n'
+	@printf '  check-frontend    Run svelte-check (frontend type check)\n\n'
 	@printf 'Variables:\n'
 	@printf '  HOST               Bind host for dashboard/API. Default: "localhost"\n'
 	@printf '  WEB_PORT           Dashboard port. Default: "8080"\n'
@@ -361,3 +362,8 @@ go-test:
 	@printf '[>] Running go test...\n'
 	@go test ./...
 	@printf '[OK] go test passed\n'
+
+check-frontend: check-frontend-deps
+	@printf '[>] Running svelte-check...\n'
+	@cd "$(UI_DIR)" && $(NPM) run check
+	@printf '[OK] svelte-check passed\n'
