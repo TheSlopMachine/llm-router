@@ -1,9 +1,13 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { api } from '../../lib/api'
-  import type { Provider } from '../../lib/types'
+  import type { Provider, ModalButton } from '../../lib/types'
 
   export let editingProvider: Provider | null = null
   export let onComplete: (result: any) => void
+  export let updateButtons: (buttons: ModalButton[]) => void = () => {}
+  export let updateTitle: (title: string) => void = () => {}
+  export let closeModal: () => void = () => {}
 
   let name = editingProvider?.name || ''
   let baseURL = editingProvider?.base_url || ''
@@ -11,12 +15,33 @@
   let error = ''
   let loading = false
 
-  async function save() {
+  $: isValid = name.trim() !== '' && baseURL.trim() !== ''
+
+  onMount(() => {
+    updateTitle(editingProvider ? 'Edit Provider' : 'New Provider')
+    updateFormButtons()
+  })
+
+  function updateFormButtons(): void {
+    updateButtons([
+      { label: 'Cancel', variant: 'secondary', onClick: closeModal },
+      {
+        label: loading ? 'Saving...' : editingProvider ? 'Update Provider' : 'Create Provider',
+        variant: 'primary',
+        onClick: save,
+        disabled: !isValid,
+        loading
+      }
+    ])
+  }
+
+  async function save(): Promise<void> {
+    if (!isValid || loading) return
     loading = true
     error = ''
+    updateFormButtons()
     try {
       if (editingProvider) {
-        // Extract the ID without 'custom:' prefix
         const id = editingProvider.id.replace('custom:', '')
         await api.providers.update(id, { name, base_url: baseURL, icon_url: iconURL })
       } else {
@@ -25,18 +50,22 @@
       onComplete({})
     } catch (e) {
       error = (e as Error).message
-    } finally {
       loading = false
+      updateFormButtons()
     }
   }
 
-  function handleKeyPress(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !loading && name && baseURL) {
+  function handleKeyDown(e: KeyboardEvent): void {
+    if (e.key === 'Enter' && isValid && !loading) {
+      e.preventDefault()
       save()
     }
   }
 
-  $: isValid = name.trim() !== '' && baseURL.trim() !== ''
+  $: {
+    void isValid; void loading
+    updateFormButtons()
+  }
 </script>
 
 <div class="wizard">
@@ -51,7 +80,7 @@
       id="name" 
       bind:value={name} 
       placeholder="My LLM Provider"
-      on:keypress={handleKeyPress}
+      on:keydown={handleKeyDown}
     />
     <small>A friendly name for this provider</small>
   </div>
@@ -63,9 +92,9 @@
       id="baseURL" 
       bind:value={baseURL} 
       placeholder="https://api.example.com/v1"
-      on:keypress={handleKeyPress}
+      on:keydown={handleKeyDown}
     />
-    <small>OpenAI-compatible endpoint (must support /chat/completions)</small>
+    <small>OpenAI-compatible endpoint</small>
   </div>
   
   <div class="form-group">
@@ -75,76 +104,42 @@
       id="iconURL" 
       bind:value={iconURL} 
       placeholder="https://example.com/icon.svg"
-      on:keypress={handleKeyPress}
+      on:keydown={handleKeyDown}
     />
-    <small>Optional icon for the provider card</small>
-  </div>
-  
-  <div class="actions">
-    <button 
-      class="btn btn-primary" 
-      on:click={save} 
-      disabled={loading || !isValid}
-    >
-      {loading ? 'Saving...' : editingProvider ? 'Update Provider' : 'Create Provider'}
-    </button>
+    <small>Optional icon for the provider</small>
   </div>
 </div>
 
 <style>
   .wizard {
-    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
   }
 
   .form-group {
-    margin-bottom: 20px;
+    margin-bottom: 16px;
   }
 
-  .form-group label {
-    display: block;
-    margin-bottom: 8px;
-    font-weight: 500;
-    font-size: 14px;
-  }
-
-  .form-group input {
-    width: 100%;
-    padding: 10px 12px;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    font-size: 14px;
-    background: var(--color-bg);
-    color: var(--color-text);
-  }
-
-  .form-group input:focus {
-    outline: none;
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px var(--color-primary-alpha);
+  .form-group:last-child {
+    margin-bottom: 0;
   }
 
   .form-group small {
     display: block;
-    margin-top: 6px;
+    margin-top: 2px;
     font-size: 12px;
-    color: var(--color-text-soft);
-  }
-
-  .actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 12px;
-    margin-top: 24px;
-    padding-top: 20px;
-    border-top: 1px solid var(--color-border);
+    line-height: 16px;
+    color: var(--color-text-disabled);
   }
 
   .error-msg {
-    margin-bottom: 20px;
-    padding: 12px;
-    background: var(--color-error-bg);
-    color: var(--color-error);
-    border-radius: 6px;
+    margin-bottom: 16px;
+    padding: 12px 16px;
+    background: var(--color-badge-red-bg);
+    color: var(--color-error-text);
+    border: 1px solid var(--color-badge-red-bg);
+    border-radius: 8px;
     font-size: 14px;
   }
 </style>
