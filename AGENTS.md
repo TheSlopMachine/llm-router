@@ -128,6 +128,8 @@ Rule: before finishing any `.svelte` change, re-check every `$effect` touched ag
 | 4 | Litter the project | No `*.log`, `*.pid`, `*.tmp`, binaries, scratch files, notes inside the project tree. Use `/tmp` or an external scratch dir. |
 | 5 | Avoid the Makefile | No raw command substitutes for an allowed target (§3.2). No manual invocation of a banned target's underlying steps (§3.3). |
 | 6 | Run, start, or live-test the app | Human-only task. Agent is not proficient at runtime debugging. See §3.3, §7. |
+| 7 | Redirecting output to nul | It's a terrible habit and it breaks on windows. |
+| 8 | Truncating diagnostics output with tail/head.  | Wastes your time; diagnostics are important, do not truncate them |
 
 ## 6. Adapters
 
