@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -168,19 +169,5 @@ func sha256File(path string) (string, error) {
 	if _, err := io.Copy(h, f); err != nil {
 		return "", err
 	}
-	// hex encode
-	sum := h.Sum(nil)
-	hexStr := make([]byte, hexLen(len(sum)))
-	hexEncode(hexStr, sum)
-	return string(hexStr), nil
-}
-
-func hexLen(n int) int { return n * 2 }
-
-func hexEncode(dst, src []byte) {
-	const hextable = "0123456789abcdef"
-	for i, v := range src {
-		dst[i*2] = hextable[v>>4]
-		dst[i*2+1] = hextable[v&0x0f]
-	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }

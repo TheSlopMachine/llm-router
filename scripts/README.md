@@ -27,4 +27,4 @@ module github.com/TheSlopMachine/llm-router/scripts
 
 ## Strictness
 
-No fallbacks. Any `git` / `swag` / `api-types` / `vite build` failure is fatal. `stop` uses one graceful signal only (`SIGTERM` / `taskkill /PID` without `/F` or `/T`); survivors keep the pidfile and exit 1.
+No fallbacks. Any `git` / `swag` / `api-types` / `vite build` failure is fatal. `stop` uses one graceful signal only (`SIGTERM` on unix, `CTRL_BREAK_EVENT` to the process group on Windows — not a `TerminateProcess` force-kill); survivors keep the pidfile and exit 1.
