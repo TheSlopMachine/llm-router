@@ -77,7 +77,7 @@ func ensureBunInstall(root string, noSkip bool) error {
 	}
 	if !need {
 		if noSkip {
-			shared.Stepf("NO_SKIP=1: forcing bun install (would have skipped)")
+			shared.Stepf("NO_SKIP=1: forcing bun install")
 		} else {
 			shared.Stepf("bun install: up to date, skip")
 			return nil
@@ -96,7 +96,7 @@ func ensureBunInstall(root string, noSkip bool) error {
 
 func runSwag(root string, noSkip bool) error {
 	if !noSkip && openAPIUpToDate(root) {
-		shared.Stepf("openapi.yaml up to date, skip swag (NO_SKIP=1 to force)")
+		shared.Stepf("openapi.yaml up to date, skip swag")
 		return nil
 	}
 	shared.Stepf("Generating OpenAPI spec from Go annotations...")
@@ -133,7 +133,7 @@ func runSwag(root string, noSkip bool) error {
 
 func runAPITypes(root string, noSkip bool) error {
 	if !noSkip && apiTypesUpToDate(root) {
-		shared.Stepf("api-types.ts up to date, skip (NO_SKIP=1 to force)")
+		shared.Stepf("api-types.ts up to date, skip")
 		return nil
 	}
 	shared.Stepf("Generating TypeScript API types...")
