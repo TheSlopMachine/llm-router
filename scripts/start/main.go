@@ -11,11 +11,12 @@ import (
 	"github.com/TheSlopMachine/llm-router/scripts/shared"
 )
 
+const devBackendWebPort = "38473" // dev-only internal backend --web; never user-facing (vite is WEB_PORT)
+
 func main() {
 	host := flag.String("host", "localhost", "bind host")
-	webPort := flag.String("web-port", "8080", "dashboard port")
+	webPort := flag.String("web-port", "8080", "vite dev port (dashboard)")
 	apiPort := flag.String("api-port", "8081", "api port")
-	vitePort := flag.String("vite-port", "5173", "vite dev port")
 	dbPath := flag.String("db", "", "database file path")
 	keyPath := flag.String("testing-key", "", "testing key file path")
 	remote := flag.String("remote", "https", "clone protocol for workspace")
@@ -53,7 +54,7 @@ func main() {
 	if err := shared.RunScript("workspace", "--remote", *remote); err != nil {
 		shared.Failf("%v", err)
 	}
-	if err := shared.RunScript("frontend", "--mode", "dev", "--host", *host, "--vite-port", *vitePort); err != nil {
+	if err := shared.RunScript("frontend", "--mode", "dev", "--host", *host, "--vite-port", *webPort); err != nil {
 		shared.Failf("%v", err)
 	}
 
@@ -73,8 +74,8 @@ func main() {
 	shared.Stepf("Starting backend (go run) and frontend (vite)...")
 
 	backendPID, err := shared.SpawnDetached(root, backendLog, "go", "run", ".", *host,
-		"--web", *webPort, "--api", *apiPort, "--db", *dbPath, "--testing-key", *keyPath,
-		"--dev-ui-redirect", fmt.Sprintf("http://%s:%s", *host, *vitePort))
+		"--web", devBackendWebPort, "--api", *apiPort, "--db", *dbPath, "--testing-key", *keyPath,
+		"--dev-ui-redirect", fmt.Sprintf("http://%s:%s", *host, *webPort))
 	if err != nil {
 		shared.Failf("spawn backend: %v", err)
 	}
@@ -82,16 +83,16 @@ func main() {
 	webDir := filepath.Join(root, "web")
 	env := []string{
 		"VITE_BACKEND_HOST=" + *host,
-		"VITE_BACKEND_PORT=" + *webPort,
+		"VITE_BACKEND_PORT=" + devBackendWebPort,
 	}
-	frontendPID, err := shared.SpawnDetachedEnv(webDir, frontendLog, env, "bun", "run", "dev", "--", "--host", *host, "--port", *vitePort)
+	frontendPID, err := shared.SpawnDetachedEnv(webDir, frontendLog, env, "bun", "run", "dev", "--", "--host", *host, "--port", *webPort)
 	if err != nil {
 		// Attempt to stop the backend we just started.
 		_ = shared.Terminate(backendPID)
 		shared.Failf("spawn frontend: %v", err)
 	}
 
-	proc := shared.Proc{Backend: backendPID, Frontend: frontendPID, VitePort: mustAtoi(*vitePort)}
+	proc := shared.Proc{Backend: backendPID, Frontend: frontendPID, VitePort: mustAtoi(*webPort)}
 	raw, _ := json.MarshalIndent(proc, "", "  ")
 	if err := os.WriteFile(*pidFile, append(raw, '\n'), 0644); err != nil {
 		shared.Failf("write pidfile: %v", err)
@@ -102,7 +103,7 @@ func main() {
 	time.Sleep(200 * time.Millisecond)
 
 	fmt.Printf("[OK] Started backend PID %d, frontend PID %d\n", backendPID, frontendPID)
-	fmt.Printf("Dashboard (dev): http://%s:%s\n", *host, *vitePort)
+	fmt.Printf("Dashboard (dev): http://%s:%s\n", *host, *webPort)
 	fmt.Printf("API: http://%s:%s/v1\n", *host, *apiPort)
 	if raw, err := os.ReadFile(*keyPath); err == nil {
 		if s := string(raw); len(s) > 0 {
@@ -122,7 +123,7 @@ func mustAtoi(s string) int {
 	n := 0
 	for _, c := range s {
 		if c < '0' || c > '9' {
-			shared.Failf("invalid vite-port %q", s)
+			shared.Failf("invalid port %q", s)
 		}
 		n = n*10 + int(c-'0')
 	}

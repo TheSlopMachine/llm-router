@@ -8,10 +8,9 @@ PUBLISH_PLATFORMS ?= windows/amd64 windows/386 windows/arm64 linux/amd64 linux/3
 WORKSPACE_REMOTE   ?= https
 
 HOST      ?= localhost
-WEB_PORT  ?= 8080
+WEB_PORT  ?= 8080 # vite in `make start`; embedded dashboard in publish
 API_PORT  ?= 8081
-VITE_PORT ?= 5173
-URL       ?= http://$(HOST):$(VITE_PORT)
+URL       ?= http://$(HOST):$(WEB_PORT)
 
 ifeq ($(OS),Windows_NT)
   DEV_DB  ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.db
@@ -28,7 +27,7 @@ BUN     := bun
 .PHONY: help check-frontend-deps check-publish-deps go-tidy start stop restart status browser clean publish go-check go-test check-frontend
 
 help:
-	@cd scripts && GOWORK=off go run ./help --host "$(HOST)" --web-port "$(WEB_PORT)" --api-port "$(API_PORT)" --vite-port "$(VITE_PORT)" --url "$(URL)" --dev-db "$(DEV_DB)" --dev-key "$(DEV_KEY)" --platforms "$(PUBLISH_PLATFORMS)" --remote "$(WORKSPACE_REMOTE)"
+	@cd scripts && GOWORK=off go run ./help --host "$(HOST)" --web-port "$(WEB_PORT)" --api-port "$(API_PORT)" --url "$(URL)" --dev-db "$(DEV_DB)" --dev-key "$(DEV_KEY)" --platforms "$(PUBLISH_PLATFORMS)" --remote "$(WORKSPACE_REMOTE)"
 
 check-frontend-deps:
 	@printf '[>] Checking frontend deps (bun >=$(BUN_MIN))...\n'
@@ -57,14 +56,14 @@ go-tidy:
 	@go mod tidy
 
 start: check-frontend-deps
-	@cd scripts && GOWORK=off go run ./start --host "$(HOST)" --web-port "$(WEB_PORT)" --api-port "$(API_PORT)" --vite-port "$(VITE_PORT)" --db "$(DEV_DB)" --testing-key "$(DEV_KEY)" --remote "$(WORKSPACE_REMOTE)"
+	@cd scripts && GOWORK=off go run ./start --host "$(HOST)" --web-port "$(WEB_PORT)" --api-port "$(API_PORT)" --db "$(DEV_DB)" --testing-key "$(DEV_KEY)" --remote "$(WORKSPACE_REMOTE)"
 
 stop:
 	@cd scripts && GOWORK=off go run ./stop
 
 restart:
 	@cd scripts && GOWORK=off go run ./stop
-	@cd scripts && GOWORK=off go run ./start --host "$(HOST)" --web-port "$(WEB_PORT)" --api-port "$(API_PORT)" --vite-port "$(VITE_PORT)" --db "$(DEV_DB)" --testing-key "$(DEV_KEY)" --remote "$(WORKSPACE_REMOTE)"
+	@cd scripts && GOWORK=off go run ./start --host "$(HOST)" --web-port "$(WEB_PORT)" --api-port "$(API_PORT)" --db "$(DEV_DB)" --testing-key "$(DEV_KEY)" --remote "$(WORKSPACE_REMOTE)"
 
 status:
 	@cd scripts && GOWORK=off go run ./status

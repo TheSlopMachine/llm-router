@@ -10,9 +10,8 @@ import (
 
 func main() {
 	host := flag.String("host", "localhost", "bind host")
-	webPort := flag.String("web-port", "8080", "dashboard port")
+	webPort := flag.String("web-port", "8080", "vite dev port (dashboard)")
 	apiPort := flag.String("api-port", "8081", "api port")
-	vitePort := flag.String("vite-port", "5173", "vite dev port")
 	url := flag.String("url", "", "dashboard URL for browser")
 	devDB := flag.String("dev-db", "", "path to dev database")
 	devKey := flag.String("dev-key", "", "path to dev testing key")
@@ -21,7 +20,7 @@ func main() {
 	flag.Parse()
 
 	if *url == "" {
-		*url = fmt.Sprintf("http://%s:%s", *host, *vitePort)
+		*url = fmt.Sprintf("http://%s:%s", *host, *webPort)
 	}
 	if *devDB == "" {
 		if dir, err := shared.HomeLocal(); err == nil {
@@ -52,10 +51,9 @@ func main() {
 	fmt.Printf("  check-frontend    Run svelte-check (frontend type check)\n\n")
 	fmt.Printf("Variables:\n")
 	fmt.Printf("  HOST               Bind host. Default: \"%s\"\n", *host)
-	fmt.Printf("  WEB_PORT           Dashboard port. Default: \"%s\"\n", *webPort)
+	fmt.Printf("  WEB_PORT           Vite dev server in `make start` (dashboard). Default: \"%s\"\n", *webPort)
 	fmt.Printf("  API_PORT           API port. Default: \"%s\"\n", *apiPort)
-	fmt.Printf("  VITE_PORT          Vite dev server port. Default: \"%s\"\n", *vitePort)
-	fmt.Printf("  URL                Dashboard URL for browser. Default: \"http://$(HOST):$(VITE_PORT)\"\n")
+	fmt.Printf("  URL                Dashboard URL for browser. Default: \"http://$(HOST):$(WEB_PORT)\"\n")
 	fmt.Printf("  DEV_DB             Path to dev database. Default: \"%s\"\n", *devDB)
 	fmt.Printf("  DEV_KEY            Path to dev testing key. Default: \"%s\"\n", *devKey)
 	fmt.Printf("  PUBLISH_PLATFORMS  Platforms for publish. Default: \"windows/amd64 ...\"\n")
