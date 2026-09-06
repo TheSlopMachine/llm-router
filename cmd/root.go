@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,15 +20,14 @@ import (
 )
 
 var (
-	webPort              string
-	apiPort              string
-	dbPath               string
-	testingKeyPath       string
-	logLevel             string
-	maxCredentialRetries int
-	devUIRedirect        string
-	versionFlag          bool
-	versionInfo          struct {
+	webPort        config.Port = 8080
+	apiPort        config.Port = 8081
+	dbPath         string
+	testingKeyPath string
+	logLevel       config.LogLevel = config.LogLevelInfo
+	devUIRedirect  string
+	versionFlag    bool
+	versionInfo    struct {
 		Version   string
 		GitCommit string
 		BuildTime string
@@ -44,17 +44,10 @@ func SetVersionInfo(version, commit, buildTime string) {
 // rootCmd is the single CLI command — no sub-commands by design.
 var rootCmd = &cobra.Command{
 	Use:   "llm-router [host]",
-	Short: "A zero-bloat OpenAI-compatible LLM routing gateway",
-	Long: `llm-router — minimalist LLM routing gateway
-
-Routes OpenAI-compatible API requests to registered provider backends.
-Manages provider credentials with automatic rotation.
-Ships a lightweight HTMX dashboard for administration.
-Dashboard and /v1 API run on separate ports.
-
-Examples:
-  llm-router localhost --web 8080 --api 8081 --db ./llm-router.db
-  llm-router 0.0.0.0 --web 3000 --api 3001 --db /var/lib/llm-router/data.db`,
+	Short: "llm-router — minimalist LLM routing gateway",
+	Long:  "llm-router — minimalist LLM routing gateway",
+	Example: `  llm-router
+  llm-router localhost --web 8080 --api 8081 --db ./llm-router.db`,
 
 	Args: cobra.MaximumNArgs(1),
 	RunE: run,
@@ -68,12 +61,11 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.Flags().StringVar(&webPort, "web", "8080", "port for dashboard UI")
-	rootCmd.Flags().StringVar(&apiPort, "api", "8081", "port for /v1 OpenAI-compatible API")
-	rootCmd.Flags().StringVar(&dbPath, "db", "llm-router.db", "path to the bbolt database file")
-	rootCmd.Flags().StringVar(&testingKeyPath, "testing-key", "", "path to file with ephemeral testing bearer token (generated if missing, not stored in DB)")
-	rootCmd.Flags().StringVar(&logLevel, "log-level", "info", "log level: debug, info, warn, error")
-	rootCmd.Flags().IntVar(&maxCredentialRetries, "max-retries", 7, "max credential rotation retry cycles (exponential backoff)")
+	rootCmd.Flags().Var(&webPort, "web", "port for dashboard UI")
+	rootCmd.Flags().Var(&apiPort, "api", "port for /v1 OpenAI-compatible API")
+	rootCmd.Flags().StringVar(&dbPath, "db", "llm-router.db", "path to the database file")
+	rootCmd.Flags().StringVar(&testingKeyPath, "testing-key", "", "path to file with bearer token (auto-generated)")
+	rootCmd.Flags().Var(&logLevel, "log-level", "log level: debug, info, warn, error")
 	rootCmd.Flags().BoolVarP(&versionFlag, "version", "v", false, "print version information and exit")
 	rootCmd.Flags().StringVar(&devUIRedirect, "dev-ui-redirect", "", "internal: redirect dashboard navigations to this origin instead of serving the embedded SPA (used by `make start`)")
 	_ = rootCmd.Flags().MarkHidden("dev-ui-redirect")
@@ -92,38 +84,17 @@ func run(cmd *cobra.Command, args []string) error {
 		host = args[0]
 	}
 
-	dashPort := webPort
-	if dashPort == "" {
-		dashPort = "8080"
-	}
-	if apiPort == "" {
-		apiPort = "8081"
-	}
-	if dashPort == apiPort {
-		return fmt.Errorf("dashboard and api ports must differ (both %s)", dashPort)
-	}
-
-	normalizedLogLevel := strings.ToLower(strings.TrimSpace(logLevel))
-	switch normalizedLogLevel {
-	case "", "debug", "info", "warn", "warning", "error":
-	default:
-		return fmt.Errorf("invalid --log-level %q: must be one of debug, info, warn, error", logLevel)
-	}
-	if normalizedLogLevel == "warning" {
-		normalizedLogLevel = "warn"
-	}
-	if normalizedLogLevel == "" {
-		normalizedLogLevel = "info"
+	if webPort == apiPort {
+		return fmt.Errorf("dashboard and api ports must differ (both %s)", webPort.String())
 	}
 
 	cfg := &config.Config{
-		DashboardAddr:        fmt.Sprintf("%s:%s", host, dashPort),
-		APIAddr:              fmt.Sprintf("%s:%s", host, apiPort),
-		DBPath:               dbPath,
-		LogLevel:             normalizedLogLevel,
-		MaxCredentialRetries: maxCredentialRetries,
-		TestingKeyPath:       testingKeyPath,
-		DevUIRedirect:        strings.TrimSpace(devUIRedirect),
+		DashboardAddr:  net.JoinHostPort(host, webPort.String()),
+		APIAddr:        net.JoinHostPort(host, apiPort.String()),
+		DBPath:         dbPath,
+		LogLevel:       logLevel,
+		TestingKeyPath: testingKeyPath,
+		DevUIRedirect:  strings.TrimSpace(devUIRedirect),
 	}
 
 	// Resolve testing key file (generate if missing)
@@ -136,18 +107,7 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	// Logger
-	var level slog.Level
-	switch normalizedLogLevel {
-	case "debug":
-		level = slog.LevelDebug
-	case "warn":
-		level = slog.LevelWarn
-	case "error":
-		level = slog.LevelError
-	default:
-		level = slog.LevelInfo
-	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel.SlogLevel()}))
 
 	if cfg.TestingKey != "" {
 		logger.Info("testing key enabled", "path", cfg.TestingKeyPath)

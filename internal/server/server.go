@@ -63,7 +63,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 	agentSvc := agent.New(database, providerSvc, modelInfoSvc)
-	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, cfg.MaxCredentialRetries, logger)
+	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, 7, logger)
 	maintSvc := maintenance.New(credSvc, providerSvc, database, logger)
 	metricsSvc := metrics.New(database, logger)
 	metricsSvc.Start()
