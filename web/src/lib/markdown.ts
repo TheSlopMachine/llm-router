@@ -31,12 +31,13 @@ export interface ParsedArtifact {
 
 export function parseMarkdownWithArtifacts(content: string): { html: string; artifacts: ParsedArtifact[] } {
   const artifacts: ParsedArtifact[] = []
-  const re = /```(\w+)?\n([\s\S]*?)```/g
+  // [^\s`]+ captures c++, c#, objective-c, .js etc; trailing [ \t]* allows "```js linenos"
+  const re = /```([^\s`]+)?[ \t]*\n([\s\S]*?)```/g
   let m: RegExpExecArray | null
   while ((m = re.exec(content)) !== null) {
-    const lang = m[1]?.trim() || 'code'
+    const lang = m[1]?.trim() ?? ''
     const code = m[2].trim()
-    artifacts.push({ title: lang, code, language: lang, collapsed: false })
+    artifacts.push({ title: lang || 'code', code, language: lang, collapsed: false })
   }
   const clean = content.replace(re, '').trim()
   let html = ''

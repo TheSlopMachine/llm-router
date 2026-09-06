@@ -4,6 +4,7 @@
   import Dropdown from './Dropdown.svelte'
   import ActionDropdown from './ActionDropdown.svelte'
   import { parseMarkdownWithArtifacts } from '../lib/markdown'
+  import { resolveExtension } from '../lib/language-extensions'
   import { getErrorMessage } from '../lib/errors'
   import type { AvailableModel } from '../lib/types'
 
@@ -250,12 +251,13 @@
     } catch {}
   }
 
-  function downloadArtifact(code: string, title: string) {
+  function downloadArtifact(code: string, language?: string) {
+    const ext = resolveExtension(language)
     const blob = new Blob([code], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = title.toLowerCase().replace(/\s+/g, '-') + '.txt'
+    a.download = `code.${ext}`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -306,7 +308,7 @@
                         <span>{art.title}</span>
                       </div>
                       <div class="artifact-actions">
-                        <button class="icon-btn" title="Download" onclick={() => downloadArtifact(art.code, art.title)}>
+                        <button class="icon-btn" title="Download" onclick={() => downloadArtifact(art.code, art.language)}>
                           <span class="icon">download</span>
                         </button>
                         <button class="icon-btn" title={copiedArtifact === msg.id + idx ? 'Copied' : 'Copy'} onclick={() => copyArtifact(art.code, msg.id + idx)}>
