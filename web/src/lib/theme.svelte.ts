@@ -42,7 +42,12 @@ function persist(v: Theme): void {
   applyTheme(v)
 }
 
-export const theme = {
+export const theme: {
+  get value(): Theme
+  set value(v: Theme)
+  get current(): Theme
+  cycle(): void
+} = {
   get value(): Theme {
     return current
   },
@@ -50,7 +55,7 @@ export const theme = {
   get current(): Theme {
     return current
   },
-  set(v: Theme): void {
+  set value(v: Theme) {
     persist(v)
     current = v
   },

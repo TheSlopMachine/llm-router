@@ -2,6 +2,7 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	sdk "github.com/TheSlopMachine/llm-router-sdk"
@@ -393,6 +394,26 @@ type DecisionModelConfig struct {
 // ErrorResponse is the standard error response format for all API endpoints.
 type ErrorResponse struct {
 	Error string `json:"error" example:"invalid request"`
+}
+
+// ─────────────────────────────────────────────
+// RouterConfiguration — instance-scoped config (shared bucket, whole deployment)
+// ─────────────────────────────────────────────
+
+// RouterConfiguration holds deployment-wide instance settings persisted in the
+// RouterConfiguration bbolt bucket (single row, key "instance").
+type RouterConfiguration struct {
+	IsClusterNode    bool `json:"is_cluster_node"`
+	DisableTelemetry bool `json:"disable_telemetry"`
+	MaxRetries       int  `json:"max_retries"`
+}
+
+// Validate checks MaxRetries is in range 0-20.
+func (c RouterConfiguration) Validate() error {
+	if c.MaxRetries < 0 || c.MaxRetries > 20 {
+		return fmt.Errorf("max_retries must be between 0 and 20")
+	}
+	return nil
 }
 
 // ToSDK converts internal Credential to SDK Credential (deep-copies Data so callers cannot mutate the live record).

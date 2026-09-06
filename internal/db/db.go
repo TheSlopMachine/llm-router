@@ -9,18 +9,19 @@ import (
 
 // Bucket names — the single source of truth for all DB keys.
 var (
-	BucketMeta            = []byte("meta")             // bootstrap state, schema version
-	BucketAdmin           = []byte("admin")            // AdminUser records
-	BucketTokens          = []byte("tokens")           // RouterToken records (keyed by ID)
-	BucketTokenIndex      = []byte("token_index")      // token value → token ID lookup
-	BucketProviders       = []byte("providers")        // Legacy bucket, no longer used as provider source of truth
-	BucketCustomProviders = []byte("custom_providers") // User-defined OpenAI-compatible providers
-	BucketCredentials     = []byte("credentials")      // Credential records
-	BucketAuth            = []byte("auth")             // Ephemeral auth state
-	BucketModelInfo       = []byte("model_info")       // Legacy bucket, no longer used for model metadata caching
-	BucketSessions        = []byte("sessions")         // Dashboard sessions
-	BucketMetrics         = []byte("metrics")          // Time-series metrics data
-	BucketAgents          = []byte("agents")           // Agent records
+	BucketMeta                = []byte("meta")                 // bootstrap state, schema version
+	BucketAdmin               = []byte("admin")                // AdminUser records
+	BucketTokens              = []byte("tokens")               // RouterToken records (keyed by ID)
+	BucketTokenIndex          = []byte("token_index")          // token value → token ID lookup
+	BucketProviders           = []byte("providers")            // Legacy bucket, no longer used as provider source of truth
+	BucketCustomProviders     = []byte("custom_providers")     // User-defined OpenAI-compatible providers
+	BucketCredentials         = []byte("credentials")          // Credential records
+	BucketAuth                = []byte("auth")                 // Ephemeral auth state
+	BucketModelInfo           = []byte("model_info")           // Legacy bucket, no longer used for model metadata caching
+	BucketSessions            = []byte("sessions")             // Dashboard sessions
+	BucketMetrics             = []byte("metrics")              // Time-series metrics data
+	BucketAgents              = []byte("agents")               // Agent records
+	BucketRouterConfiguration = []byte("router_configuration") // Instance configuration (RouterConfiguration)
 )
 
 // DB wraps a bbolt.DB and ensures all required buckets exist.
@@ -58,6 +59,7 @@ func (db *DB) initBuckets() error {
 			BucketSessions,
 			BucketMetrics,
 			BucketAgents,
+			BucketRouterConfiguration,
 		}
 		for _, name := range buckets {
 			if _, err := tx.CreateBucketIfNotExists(name); err != nil {

@@ -13,6 +13,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	"github.com/TheSlopMachine/llm-router/internal/services/agent"
 	"github.com/TheSlopMachine/llm-router/internal/services/auth"
+	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
@@ -37,6 +38,7 @@ type Handler struct {
 	metricsSvc   *metrics.Service
 	agentSvc     *agent.Service
 	routerSvc    *router.Service
+	configSvc    *configsvc.Service
 	logger       *slog.Logger
 
 	// devRedirect, when set, is the origin (e.g. "http://localhost:8080")
@@ -57,6 +59,7 @@ func New(
 	metricsSvc *metrics.Service,
 	agentSvc *agent.Service,
 	routerSvc *router.Service,
+	configSvc *configsvc.Service,
 	logger *slog.Logger,
 ) (*Handler, error) {
 	return &Handler{
@@ -69,6 +72,7 @@ func New(
 		metricsSvc:   metricsSvc,
 		agentSvc:     agentSvc,
 		routerSvc:    routerSvc,
+		configSvc:    configSvc,
 		logger:       logger,
 	}, nil
 }
@@ -139,6 +143,10 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	// Auth flow endpoints
 	mux.HandleFunc("POST /api/llm-router/dashboard/auth/start", h.requireAuth(h.authStart))
 	mux.HandleFunc("POST /api/llm-router/dashboard/auth/callback", h.requireAuth(h.authCallback))
+
+	// Router configuration (instance-wide)
+	mux.HandleFunc("GET /api/llm-router/dashboard/config", h.requireAuth(h.apiConfigGet))
+	mux.HandleFunc("PUT /api/llm-router/dashboard/config", h.requireAuth(h.apiConfigPut))
 
 	// Chat proxy (dashboard session -> router, no token required)
 	mux.HandleFunc("POST /api/llm-router/dashboard/chat/completions", h.requireAuth(h.apiChatCompletions))

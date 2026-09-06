@@ -91,7 +91,7 @@ internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/models
 internal/models/         shared wire types
 internal/config/         Config struct
 providers/agents/        built-in agents adapter
-web/                     Svelte SPA (src/lib/generated/ auto-generated — do not hand-edit)
+web/                     Svelte SPA (web/openapi.yaml + src/lib/generated/ auto-generated — do not hand-edit)
 scripts/                 separate Go module — build/dev helpers (never imported by main module)
 adapters.go              auto-generated — DO NOT EDIT
 adapters.conf            external adapter registry, one module per line

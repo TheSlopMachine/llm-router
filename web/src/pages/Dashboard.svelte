@@ -7,7 +7,8 @@
   import Providers from '../components/Providers.svelte'
   import Tokens from '../components/Tokens.svelte'
   import Agents from '../components/Agents.svelte'
-  import ThemeToggle from '../components/ThemeToggle.svelte'
+  import { modal } from '../lib/modal.svelte'
+  import SettingsModal from '../components/SettingsModal.svelte'
 
   let { onlogout } = $props<{ onlogout: () => void }>()
 
@@ -57,6 +58,10 @@
     return () => window.removeEventListener('hashchange', applyRoute)
   })
 
+  function openSettings(): void {
+    modal.open({ title: 'Settings', content: SettingsModal })
+  }
+
   async function logout(): Promise<void> {
     await api.logout()
     onlogout?.()
@@ -88,7 +93,10 @@
       {/each}
     </nav>
     <div class="sidebar-footer">
-      <ThemeToggle />
+      <button class="logout-btn" onclick={openSettings} aria-label="Open settings">
+        <span class="icon">settings</span>
+        <span>Settings</span>
+      </button>
       <button class="logout-btn" onclick={logout}>
         <span class="icon">logout</span>
         <span>Sign out</span>

@@ -16,9 +16,11 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/config"
 	"github.com/TheSlopMachine/llm-router/internal/dashboard"
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	"github.com/TheSlopMachine/llm-router/internal/services/agent"
 	"github.com/TheSlopMachine/llm-router/internal/services/auth"
+	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/maintenance"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
@@ -63,7 +65,10 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 	agentSvc := agent.New(database, providerSvc, modelInfoSvc)
-	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, 7, logger)
+	configSvc := configsvc.New(database)
+	routerCfg, _ := configSvc.Get()
+	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, routerCfg.MaxRetries, logger)
+	configSvc.SetOnChanged(func(cfg models.RouterConfiguration) { routerSvc.SetMaxRetries(cfg.MaxRetries) })
 	maintSvc := maintenance.New(credSvc, providerSvc, database, logger)
 	metricsSvc := metrics.New(database, logger)
 	metricsSvc.Start()
@@ -106,7 +111,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 
 	// Dashboard mux (SPA + /api/llm-router/*)
 	dashMux := http.NewServeMux()
-	dash, err := dashboard.New(adminSvc, providerSvc, credSvc, tokenSvc, authSvc, modelInfoSvc, metricsSvc, agentSvc, routerSvc, logger)
+	dash, err := dashboard.New(adminSvc, providerSvc, credSvc, tokenSvc, authSvc, modelInfoSvc, metricsSvc, agentSvc, routerSvc, configSvc, logger)
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard handler: %w", err)
 	}

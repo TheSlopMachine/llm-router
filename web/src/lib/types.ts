@@ -129,6 +129,12 @@ export interface TokenUsageInfo {
   last_used?: string
 }
 
+export interface RouterConfiguration {
+  is_cluster_node: boolean
+  disable_telemetry: boolean
+  max_retries: number
+}
+
 export type { ApiPath, ApiMethod, ApiResponse, ApiError, ApiRequestBody, ApiQueryParams } from './api-client'
 export { apiCall } from './api-client'
 export type { ModalButton } from './modal.svelte'

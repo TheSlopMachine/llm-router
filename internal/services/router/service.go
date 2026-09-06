@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync"
 	"time"
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
@@ -28,13 +29,14 @@ type Service struct {
 	providerSvc  *provider.Service
 	credSvc      *credential.Service
 	modelInfoSvc *modelinfo.Service
+	mu           sync.RWMutex
 	maxRetries   int
 	logger       *slog.Logger
 }
 
 // New constructs a new router Service.
 func New(providerSvc *provider.Service, credSvc *credential.Service, modelInfoSvc *modelinfo.Service, maxRetries int, logger *slog.Logger) *Service {
-	if maxRetries <= 0 {
+	if maxRetries < 0 || maxRetries > 20 {
 		maxRetries = 7
 	}
 	return &Service{
@@ -44,6 +46,23 @@ func New(providerSvc *provider.Service, credSvc *credential.Service, modelInfoSv
 		maxRetries:   maxRetries,
 		logger:       logger,
 	}
+}
+
+// SetMaxRetries updates the retry limit at runtime.
+func (s *Service) SetMaxRetries(n int) {
+	if n < 0 || n > 20 {
+		return
+	}
+	s.mu.Lock()
+	s.maxRetries = n
+	s.mu.Unlock()
+}
+
+func (s *Service) getMaxRetries() int {
+	s.mu.RLock()
+	n := s.maxRetries
+	s.mu.RUnlock()
+	return n
 }
 
 // ─────────────────────────────────────────────
@@ -115,13 +134,14 @@ func (s *Service) Complete(
 
 	// Track which credentials we've tried in this cycle
 	attempted := make(map[string]bool)
+	maxRetries := s.getMaxRetries()
 
-	for cycle := 0; cycle <= s.maxRetries; cycle++ {
+	for cycle := 0; cycle <= maxRetries; cycle++ {
 		if cycle > 0 {
 			// All credentials exhausted, apply exponential backoff
 			delay := time.Duration(1<<(cycle-1)) * time.Second
 			s.logger.Warn("all credentials rate limited, backing off",
-				"cycle", cycle, "max", s.maxRetries, "delay", delay)
+				"cycle", cycle, "max", maxRetries, "delay", delay)
 
 			select {
 			case <-time.After(delay):
@@ -183,7 +203,7 @@ func (s *Service) Complete(
 		}
 	}
 
-	return nil, fmt.Errorf("all credentials exhausted after %d retries", s.maxRetries)
+	return nil, fmt.Errorf("all credentials exhausted after %d retries", maxRetries)
 }
 
 // CompleteStream routes a streaming chat completion request.
@@ -224,13 +244,14 @@ func (s *Service) CompleteStream(
 
 	// Track which credentials we've tried in this cycle
 	attempted := make(map[string]bool)
+	maxRetries := s.getMaxRetries()
 
-	for cycle := 0; cycle <= s.maxRetries; cycle++ {
+	for cycle := 0; cycle <= maxRetries; cycle++ {
 		if cycle > 0 {
 			// All credentials exhausted, apply exponential backoff
 			delay := time.Duration(1<<(cycle-1)) * time.Second
 			s.logger.Warn("all credentials rate limited, backing off",
-				"cycle", cycle, "max", s.maxRetries, "delay", delay)
+				"cycle", cycle, "max", maxRetries, "delay", delay)
 
 			select {
 			case <-time.After(delay):
@@ -291,7 +312,7 @@ func (s *Service) CompleteStream(
 		}
 	}
 
-	return fmt.Errorf("all credentials exhausted after %d retries", s.maxRetries)
+	return fmt.Errorf("all credentials exhausted after %d retries", maxRetries)
 }
 
 // ─────────────────────────────────────────────
