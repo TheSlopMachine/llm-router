@@ -5,6 +5,13 @@ import (
 	"strings"
 )
 
+// IsNoSkip reports whether NO_SKIP is set to a truthy value (1/true/yes/on).
+// When true, bun install and OpenAPI generation must not be skipped.
+func IsNoSkip() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("NO_SKIP")))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
 // EnvWithoutGowork returns the current environment with any GOWORK= entry
 // removed. Project-root `go` commands (go work sync, go run, go vet/test/build)
 // must not inherit GOWORK=off which is used only to run the scripts module itself.

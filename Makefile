@@ -3,6 +3,8 @@
 # =============================================================================
 
 VERSION    ?= dev
+NO_SKIP    ?= 0
+export NO_SKIP
 
 PUBLISH_PLATFORMS ?= windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64
 WORKSPACE_REMOTE   ?= https

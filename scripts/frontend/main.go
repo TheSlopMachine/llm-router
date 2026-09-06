@@ -3,9 +3,11 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/scripts/shared"
@@ -25,17 +27,19 @@ func main() {
 		shared.Failf("%v", err)
 	}
 
-	if err := ensureBunInstall(root); err != nil {
+	noSkip := shared.IsNoSkip()
+
+	if err := ensureBunInstall(root, noSkip); err != nil {
 		shared.Failf("%v", err)
 	}
 
 	// OpenAPI generation is strict: swag must succeed.
-	if err := runSwag(root); err != nil {
+	if err := runSwag(root, noSkip); err != nil {
 		shared.Failf("%v", err)
 	}
 
 	// TypeScript types: strict.
-	if err := runAPITypes(root); err != nil {
+	if err := runAPITypes(root, noSkip); err != nil {
 		shared.Failf("%v", err)
 	}
 
@@ -53,7 +57,7 @@ func main() {
 	}
 }
 
-func ensureBunInstall(root string) error {
+func ensureBunInstall(root string, noSkip bool) error {
 	webDir := filepath.Join(root, "web")
 	lockFile := filepath.Join(webDir, "bun.lock")
 	pkgFile := filepath.Join(webDir, "package.json")
@@ -72,8 +76,12 @@ func ensureBunInstall(root string) error {
 		}
 	}
 	if !need {
-		shared.Stepf("bun install: up to date, skip")
-		return nil
+		if noSkip {
+			shared.Stepf("NO_SKIP=1: forcing bun install (would have skipped)")
+		} else {
+			shared.Stepf("bun install: up to date, skip")
+			return nil
+		}
 	}
 	shared.Stepf("Running bun install...")
 	cmd := exec.Command("bun", "install")
@@ -86,7 +94,11 @@ func ensureBunInstall(root string) error {
 	return nil
 }
 
-func runSwag(root string) error {
+func runSwag(root string, noSkip bool) error {
+	if !noSkip && openAPIUpToDate(root) {
+		shared.Stepf("openapi.yaml up to date, skip swag (NO_SKIP=1 to force)")
+		return nil
+	}
 	shared.Stepf("Generating OpenAPI spec from Go annotations...")
 	webDir := filepath.Join(root, "web")
 	cmd := exec.Command("go", "run", "github.com/swaggo/swag/cmd/swag@v1.16.4",
@@ -119,7 +131,11 @@ func runSwag(root string) error {
 	return nil
 }
 
-func runAPITypes(root string) error {
+func runAPITypes(root string, noSkip bool) error {
+	if !noSkip && apiTypesUpToDate(root) {
+		shared.Stepf("api-types.ts up to date, skip (NO_SKIP=1 to force)")
+		return nil
+	}
 	shared.Stepf("Generating TypeScript API types...")
 	webDir := filepath.Join(root, "web")
 	cmd := exec.Command("bun", "run", "generate:api-types")
@@ -137,6 +153,48 @@ func runAPITypes(root string) error {
 	now := time.Now()
 	_ = os.Chtimes(out, now, now)
 	return nil
+}
+
+func openAPIUpToDate(root string) bool {
+	openapiYAML := filepath.Join(root, "web", "openapi.yaml")
+	st, err := os.Stat(openapiYAML)
+	if err != nil {
+		return false
+	}
+	cutoff := st.ModTime()
+	internalDir := filepath.Join(root, "internal")
+	upToDate := true
+	_ = filepath.WalkDir(internalDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		if info.ModTime().After(cutoff) {
+			upToDate = false
+		}
+		return nil
+	})
+	return upToDate
+}
+
+func apiTypesUpToDate(root string) bool {
+	openapiYAML := filepath.Join(root, "web", "openapi.yaml")
+	out := filepath.Join(root, "web", "src", "lib", "generated", "api-types.ts")
+	stOpenapi, err1 := os.Stat(openapiYAML)
+	stOut, err2 := os.Stat(out)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return !stOpenapi.ModTime().After(stOut.ModTime())
 }
 
 func ensureEmbedStub(root, host, vitePort string) error {

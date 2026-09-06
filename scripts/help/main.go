@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/TheSlopMachine/llm-router/scripts/shared"
@@ -57,7 +58,19 @@ func main() {
 	fmt.Printf("  DEV_DB             Path to dev database. Default: \"%s\"\n", *devDB)
 	fmt.Printf("  DEV_KEY            Path to dev testing key. Default: \"%s\"\n", *devKey)
 	fmt.Printf("  PUBLISH_PLATFORMS  Platforms for publish. Default: \"windows/amd64 ...\"\n")
-	fmt.Printf("  WORKSPACE_REMOTE   Clone protocol for .workspace. Default: \"%s\" (https|ssh)\n\n", *remote)
+	fmt.Printf("  WORKSPACE_REMOTE   Clone protocol for .workspace. Default: \"%s\" (https|ssh)\n", *remote)
+	fmt.Printf("  NO_SKIP            Disable skipping of bun install + OpenAPI generation. Default: \"0\" (truthy: 1/true/yes/on)\n")
+	{
+		v := os.Getenv("NO_SKIP")
+		note := "off"
+		if shared.IsNoSkip() {
+			note = "on"
+		}
+		if v == "" {
+			v = "(unset)"
+		}
+		fmt.Printf("                     Current: NO_SKIP=%s (%s)\n\n", v, note)
+	}
 	// Keep platforms value visible for --help introspection without cluttering main output:
 	_ = platforms
 	fmt.Printf("Examples:\n")
