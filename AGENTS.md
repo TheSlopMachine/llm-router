@@ -38,10 +38,11 @@ internal/models/         shared wire types
 internal/config/         Config struct
 providers/agents/        built-in agents adapter
 web/                     Svelte SPA (src/lib/generated/ is generated — do not hand-edit)
+scripts/                 separate Go module — build/dev helpers (never imported by main module)
 adapters.go              generated — DO NOT EDIT
 adapters.conf            external adapter registry, one module per line
 .workspace/              adapter dev workspace (gitignored) — ONLY place to write adapter code
-Makefile                 dev tasks — see §3
+Makefile                 thin launcher for scripts/ — see §3
 ```
 
 Rule: keep changes shallow. Do not touch service internals unless the task requires it.
@@ -53,7 +54,6 @@ Rule: keep changes shallow. Do not touch service internals unless the task requi
 | Command | Purpose |
 |---|---|
 | `make check-frontend` | Frontend compile/type-check |
-| `make prepare-frontend` | Install frontend deps + build frontend assets |
 | `make go-check` | Go static check (`go vet`) |
 | `make go-test` | Go tests |
 
@@ -62,7 +62,6 @@ Rule: keep changes shallow. Do not touch service internals unless the task requi
 | DO | DON'T |
 |---|---|
 | `make check-frontend` | `bunx svelte-check`, `bun run check`, `tsc --noEmit`, `eslint .` |
-| `make prepare-frontend` | `bun install`, `bun run build` |
 | `make go-check` | `go vet ./...` |
 | `make go-test` | `go test ./...` |
 
@@ -70,7 +69,7 @@ Rule: a raw command duplicating a `make` target is banned even if the outcome wo
 
 ### 3.3 Banned — every other Makefile target
 
-`start`, `stop`, `restart`, `status`, `browser`, `prepare`, `prepare-workspace`, `publish`, `clean`.
+`start`, `stop`, `restart`, `status`, `browser`, `publish`, `clean`.
 
 Agent NEVER runs these. No exception for "just to check", "isolated test", "custom port", or any other framing.
 
@@ -136,7 +135,7 @@ Rule: before finishing any `.svelte` change, re-check every `$effect` touched ag
 - Location: new adapter code goes ONLY in `.workspace/<adapter-name>/`. Never in `providers/`, repo root, or elsewhere.
 - Module: separate Go module `github.com/TheSlopMachine/llm-router-adapter-<name>`, `sdk.Register` in `init()`.
 - Required files: `go.mod`, `adapter.go`, `client.go`, `models.go`, `transform.go`, `errors.go`, `README.md`, `.gitignore`.
-- Registration: agent edits `adapters.conf` (add `<module>` line). Agent does NOT run `make prepare-workspace` (banned, §3.3) — ask human to run it and confirm `adapters.go` + `go.work` regenerated.
+- Registration: agent edits `adapters.conf` (add `<module>` line). Workspace (`go.work` + `adapters.go`) is regenerated implicitly by `make start` / `make publish` — agent does NOT run those (banned, §3.3). Ask human to run `make start` and confirm `adapters.go` + `go.work` regenerated.
 - Verification: `make go-check` only. Runtime check (e.g. `opencode-zen/model`) requires `make start` — ask human.
 
 ## 7. When Runtime Info Is Needed
@@ -145,4 +144,4 @@ Agent cannot run the app (§3.3, §5.6). To get runtime facts:
 
 1. State exactly what's needed: endpoint, log line, or behavior.
 2. Ask human to run `make start` / `make restart` and report back.
-3. Interpret: dashboard = `:8080`, API = `:8081/v1`, bearer key printed on start and stored at `~/.local/llm-router/llm-router-dev.key`. `401` without that key header is expected, not a bug.
+3. Interpret: dev dashboard = `http://HOST:VITE_PORT` (Vite, default 5173) proxying `/api/llm-router/*` → backend `HOST:WEB_PORT`; publish dashboard = `:8080` (embedded). API = `:8081/v1`. Bearer key printed on start and stored at `~/.local/llm-router/llm-router-dev.key`. `401` without that key header is expected, not a bug. Pidfile is JSON `{backend,frontend,vitePort}` at `%TEMP%/llm-router-dev.pid`.

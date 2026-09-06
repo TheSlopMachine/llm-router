@@ -41,7 +41,7 @@ github.com/TheSlopMachine/llm-router-adapter-demo
 
 ```
 
-Run `make prepare-workspace` to clone adapters and generate `adapters.go` + `go.work`, then compile into a single binary.
+Workspace setup (`go.work` + `adapters.go`) is handled implicitly by `make start` / `make publish`.
 
 ### Embedded Svelte Admin Panel
 
@@ -65,21 +65,26 @@ llm-router localhost --web 8080 --api 8081 --db ./llm-router.db --max-retries 7
 
 ## Quick Start
 
-1. **Build and run:**
+1. **Dev (split processes, HMR):**
 ```bash
-make build
-llm-router localhost --web 8080 --api 8081 --db ./llm-router.db
-
+make start
+# Dashboard (dev): http://localhost:5173  (Vite proxies /api/llm-router/* → :8080)
+# API:            http://localhost:8081/v1
 ```
 
+2. **Publish (single binary, UI embedded):**
+```bash
+make publish
+# Artifacts in build/release/
+```
 
-2. **Setup (`http://localhost:8080`):**
+3. **Setup (`http://localhost:5173` in dev, `:8080` in publish):**
 * Create the initial admin account.
 * Add a provider and credential.
 * Issue a router token.
 
 
-3. **Use the API:**
+4. **Use the API:**
 Pass the endpoint URL and your newly generated API key directly to your harness, framework, or agent runner:
 * **Base URL:** `http://localhost:8081/v1`
 * **API Key:** `<your-api-key>`

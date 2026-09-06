@@ -1,134 +1,35 @@
 # =============================================================================
-# Makefile - llm-router dev tasks
+# Makefile - llm-router dev tasks  (launcher for scripts/)
 # =============================================================================
-SHELL      := bash
-.SHELLFLAGS := -c
 
 VERSION    ?= dev
 BINARY     := llm-router
-UI_DIR     := web
-PUBLISH    := build/release
-ADAPTERS   := adapters.conf
-ADAPTERS_GO := adapters.go
 
 PUBLISH_PLATFORMS ?= windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64
+WORKSPACE_REMOTE   ?= https
 
-WORKSPACE_DIR := .workspace
-GO_WORK       := go.work
-
-# Mandatory SDK -- always cloned into the workspace
-SDK_MODULE ?= github.com/TheSlopMachine/llm-router-sdk
-SDK_DIR    := $(WORKSPACE_DIR)/$(notdir $(SDK_MODULE))
-
-WORKSPACE_REMOTE ?= https
-
-HOST     ?= localhost
-WEB_PORT ?= 8080
-API_PORT ?= 8081
-
-URL ?= http://$(HOST):$(WEB_PORT)
+HOST      ?= localhost
+WEB_PORT  ?= 8080
+API_PORT  ?= 8081
+VITE_PORT ?= 5173
+URL       ?= http://$(HOST):$(VITE_PORT)
 
 ifeq ($(OS),Windows_NT)
-  DEV_DB ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.db
+  DEV_DB  ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.db
   DEV_KEY ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.key
 else
-  DEV_DB ?= $(HOME)/.local/llm-router/llm-router-dev.db
+  DEV_DB  ?= $(HOME)/.local/llm-router/llm-router-dev.db
   DEV_KEY ?= $(HOME)/.local/llm-router/llm-router-dev.key
 endif
 
-ifeq ($(OS),Windows_NT)
-  ifneq ($(TEMP),)
-    _TMP_DIR := $(subst \,/,$(TEMP))
-  else ifneq ($(TMP),)
-    _TMP_DIR := $(subst \,/,$(TMP))
-  else
-    _TMP_DIR := $(subst \,/,$(USERPROFILE))/AppData/Local/Temp
-  endif
-  PID_FILE ?= $(_TMP_DIR)/llm-router-dev.pid
-  LOG_FILE ?= $(_TMP_DIR)/llm-router-dev.log
-  TMP_BIN  ?= $(_TMP_DIR)/llm-router-dev.exe
-else
-  _TMP_DIR := $(if $(TMPDIR),$(TMPDIR),/tmp)
-  PID_FILE ?= $(_TMP_DIR)/llm-router-dev.pid
-  LOG_FILE ?= $(_TMP_DIR)/llm-router-dev.log
-  TMP_BIN  ?= $(_TMP_DIR)/llm-router-dev
-endif
+BUN_MIN := 1.2
+GO_MIN  := 1.25
+BUN     := bun
 
-ifeq ($(OS),Windows_NT)
-  LOCAL_BIN := $(BINARY).exe
-  GOPATH    := $(subst \,/,$(shell go env GOPATH))
-  _GIT_RAW  := $(shell git rev-parse --short HEAD)
-  GIT_COMMIT := $(if $(_GIT_RAW),$(_GIT_RAW),unknown)
-  BUILD_TIME := $(shell powershell -NoProfile -Command "[System.DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')")
-  SHA256    := sha256sum
-  OPEN_CMD  := powershell -NoProfile -Command Start-Process
-else
-  GOPATH    := $(shell go env GOPATH 2>/dev/null)
-  GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
-  BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
-  SHA256    := $(shell command -v sha256sum 2>/dev/null || echo "shasum -a 256")
-  UNAME_S   := $(shell uname -s)
-  ifneq ($(filter MINGW% CYGWIN%,$(UNAME_S)),)
-    OPEN_CMD := powershell -NoProfile -Command Start-Process
-  else ifeq ($(UNAME_S),Darwin)
-    OPEN_CMD := open
-  else ifneq ($(shell grep -qi microsoft /proc/version 2>/dev/null && echo wsl),)
-    OPEN_CMD := $(if $(shell command -v wslview 2>/dev/null),wslview,cmd.exe /c start "")
-  else
-    OPEN_CMD := xdg-open
-  endif
-endif
-
-# file:// URI for LOG_FILE display (RFC 8089) — preserves LOG_FILE for FS ops
-empty :=
-space := $(empty) $(empty)
-_LOG_URI_ESC := $(subst $(space),%20,$(LOG_FILE))
-ifeq ($(OS),Windows_NT)
-  LOG_URI := file:///$(_LOG_URI_ESC)
-else
-  LOG_URI := file://$(_LOG_URI_ESC)
-endif
-
-LDFLAGS = -s -w -X main.Version=$(VERSION) -X main.GitCommit=$(GIT_COMMIT) -X main.BuildTime=$(BUILD_TIME)
-
-BUN_MIN  := 1.2
-GO_MIN   := 1.25
-BUN      := bun
-
-.PHONY: help prepare-workspace prepare-frontend prepare start stop restart status browser clean publish go-check go-test check-frontend check-frontend-deps check-publish-deps
+.PHONY: help check-frontend-deps check-publish-deps start stop restart status browser clean publish go-check go-test check-frontend
 
 help:
-	@printf '\nUsage: make <target>\n\n'
-	@printf 'Targets:\n'
-	@printf '  prepare-workspace Clone adapters from %s to %s and generate %s + %s\n' "$(ADAPTERS)" "$(WORKSPACE_DIR)" "$(GO_WORK)" "$(ADAPTERS_GO)"
-	@printf '  prepare-frontend  bun install && build frontend\n'
-	@printf '  prepare           prepare-frontend + prepare-workspace\n'
-	@printf '  start             Build dev binary to temp and start daemon (db %s, %s:%s/%s)\n' "$(DEV_DB)" "$(HOST)" "$(WEB_PORT)" "$(API_PORT)"
-	@printf '  stop              Stop daemon\n'
-	@printf '  restart           Stop + start\n'
-	@printf '  status            Show dev server status (pid/log)\n'
-	@printf '  browser           Open dashboard in browser (%s)\n' "$(URL)"
-	@printf '  clean             Stop + git clean -fdx\n'
-	@printf '  publish           prepare-frontend + prepare-workspace + build all PUBLISH_PLATFORMS\n'
-	@printf '  go-check          Run go vet\n'
-	@printf '  go-test           Run go test ./...\n'
-	@printf '  check-frontend    Run svelte-check (frontend type check)\n\n'
-	@printf 'Variables:\n'
-	@printf '  HOST               Bind host for dashboard/API. Default: "localhost"\n'
-	@printf '  WEB_PORT           Dashboard port. Default: "8080"\n'
-	@printf '  API_PORT           API port. Default: "8081"\n'
-	@printf '  URL                Dashboard URL for browser. Default: "http://$$(HOST):$$(WEB_PORT)"\n'
-	@printf '  DEV_DB             Path to dev database. Default: "%s"\n' "$(DEV_DB)"
-	@printf '  DEV_KEY            Path to dev testing key. Default: "%s"\n' "$(DEV_KEY)"
-	@printf '  PUBLISH_PLATFORMS  Platforms for publish. Default: "windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64"\n'
-	@printf '  WORKSPACE_REMOTE   Clone protocol for %s. Default: "https" (https|ssh)\n\n' "$(WORKSPACE_DIR)"
-	@printf 'Examples:\n'
-	@printf '  make start\n'
-	@printf '  make start HOST=0.0.0.0 WEB_PORT=3000 API_PORT=3001\n'
-	@printf '  make start WEB_PORT=9090 API_PORT=9091\n'
-	@printf '  make restart\n'
-	@printf '  make publish\n'
-	@printf '  make publish PUBLISH_PLATFORMS="linux/amd64 darwin/arm64"\n\n'
+	cd scripts && GOWORK=off go run ./help --host "$(HOST)" --web-port "$(WEB_PORT)" --api-port "$(API_PORT)" --vite-port "$(VITE_PORT)" --url "$(URL)" --dev-db "$(DEV_DB)" --dev-key "$(DEV_KEY)" --platforms "$(PUBLISH_PLATFORMS)" --remote "$(WORKSPACE_REMOTE)"
 
 check-frontend-deps:
 	@printf '[>] Checking frontend deps (bun >=$(BUN_MIN))...\n'
@@ -140,7 +41,7 @@ check-frontend-deps:
 	@printf '[OK] Frontend deps OK\n'
 
 check-publish-deps:
-	@printf '[>] Checking publish deps (bun >=$(BUN_MIN), go >=$(GO_MIN), zip)...\n'
+	@printf '[>] Checking publish deps (bun >=$(BUN_MIN), go >=$(GO_MIN))...\n'
 	@if ! command -v bun >/dev/null 2>&1; then printf '[FAIL] bun not found (requires >=$(BUN_MIN) https://bun.sh)\n' >&2; exit 1; fi
 	@_bun_ver=$$(bun --version 2>/dev/null | sed -E 's/^v//'); \
 	 if [ -z "$$_bun_ver" ]; then printf '[FAIL] cannot parse bun version (%s)\n' "$$(bun --version 2>/dev/null)" >&2; exit 1; fi; \
@@ -151,220 +52,39 @@ check-publish-deps:
 	 if [ -z "$$_go_ver" ]; then printf '[FAIL] cannot parse go version (%s)\n' "$$(go version 2>/dev/null)" >&2; exit 1; fi; \
 	 if [ "$$(printf '%s\n%s\n' "$$_go_ver" "$(GO_MIN)" | sort -V | head -n1)" != "$(GO_MIN)" ]; then printf '[FAIL] go >=$(GO_MIN) required, found %s\n' "$$_go_ver" >&2; exit 1; fi; \
 	 printf '[OK] go %s\n' "$$_go_ver"
-ifeq ($(OS),Windows_NT)
-	@printf '[OK] zip check skipped on Windows (using powershell Compress-Archive)\n'
-else
-	@if ! command -v zip >/dev/null 2>&1; then printf '[FAIL] zip not found (apt install zip / brew install zip)\n' >&2; exit 1; fi
-	@printf '[OK] zip %s\n' "$$(zip -v 2>&1 | head -n1)"
-endif
 	@printf '[OK] Publish deps OK\n'
 
-prepare-workspace:
-	@$(MAKE) stop
-	@mkdir -p "$(WORKSPACE_DIR)"
-	@if [ ! -f "$(ADAPTERS)" ]; then \
-		printf '# External adapter registry\n# Format: <module-path>\n' > "$(ADAPTERS)"; \
-	fi
-	@sdk_mod="$(SDK_MODULE)"; sdk_dir="$(SDK_DIR)"; \
-	if [ "$(WORKSPACE_REMOTE)" = "ssh" ]; then \
-		host=$$(printf '%s' "$$sdk_mod" | cut -d/ -f1); \
-		path=$$(printf '%s' "$$sdk_mod" | cut -d/ -f2-); \
-		url="git@$$host:$$path.git"; \
-	else \
-		url="https://$$sdk_mod.git"; \
-	fi; \
-	if [ -d "$$sdk_dir" ]; then \
-		if [ ! -d "$$sdk_dir/.git" ]; then \
-			printf '[!] Local dir %s exists without .git — skip clone (local dev)\n' "$$sdk_dir"; \
-		else \
-			cur_url=$$(git -C "$$sdk_dir" remote get-url origin 2>/dev/null || echo ""); \
-			if [ -z "$$cur_url" ]; then \
-				printf '[>] Exists %s (no remote), skip\n' "$$sdk_dir"; \
-			elif [ "$$cur_url" != "$$url" ]; then \
-				printf '[>] Updating remote %s: %s -> %s\n' "$$sdk_dir" "$$cur_url" "$$url"; \
-				git -C "$$sdk_dir" remote set-url origin "$$url" || true; \
-			else \
-				printf '[>] Exists %s, skip\n' "$$sdk_dir"; \
-			fi; \
-		fi; \
-	else \
-		printf '[>] Cloning %s (%s) -> %s\n' "$$sdk_mod" "$(WORKSPACE_REMOTE)" "$$sdk_dir"; \
-		git clone "$$url" "$$sdk_dir" || { printf '[WARN] clone failed for %s — skip\n' "$$sdk_mod"; }; \
-	fi
-	@grep -v '^#' "$(ADAPTERS)" 2>/dev/null | grep -v '^$$' | while read -r mod; do \
-		mod=$$(printf '%s' "$$mod" | tr -d '\r' | xargs); \
-		[ -z "$$mod" ] && continue; \
-		if [ "$$mod" = "$(SDK_MODULE)" ]; then printf '[>] Skip %s (already as SDK)\n' "$$mod"; continue; fi; \
-		dir="$(WORKSPACE_DIR)/$$(basename $$mod)"; \
-		if [ "$(WORKSPACE_REMOTE)" = "ssh" ]; then \
-			host=$$(printf '%s' "$$mod" | cut -d/ -f1); \
-			path=$$(printf '%s' "$$mod" | cut -d/ -f2-); \
-			url="git@$$host:$$path.git"; \
-		else \
-			url="https://$$mod.git"; \
-		fi; \
-		if [ -d "$$dir" ]; then \
-			if [ ! -d "$$dir/.git" ]; then \
-				printf '[!] Local dir %s exists without .git — skip clone (local dev adapter)\n' "$$dir"; \
-			else \
-				cur_url=$$(git -C "$$dir" remote get-url origin 2>/dev/null || echo ""); \
-				if [ -z "$$cur_url" ]; then \
-					printf '[>] Exists %s (no remote), skip\n' "$$dir"; \
-				elif [ "$$cur_url" != "$$url" ]; then \
-					printf '[>] Updating remote %s: %s -> %s\n' "$$dir" "$$cur_url" "$$url"; \
-					git -C "$$dir" remote set-url origin "$$url" || true; \
-				else \
-					printf '[>] Exists %s, skip\n' "$$dir"; \
-				fi; \
-			fi; \
-		else \
-			printf '[>] Cloning %s (%s) -> %s\n' "$$mod" "$(WORKSPACE_REMOTE)" "$$dir"; \
-			git clone "$$url" "$$dir" || { printf '[WARN] clone failed for %s (repo may not exist yet) — skip\n' "$$mod"; continue; }; \
-		fi; \
-	done
-	@printf '[>] Generating %s...\n' "$(GO_WORK)"
-	@printf 'go 1.25.0\n\nuse (\n  .\n' > "$(GO_WORK)"
-	@for d in $(WORKSPACE_DIR)/*; do [ -d "$$d" ] && printf '  ./%s\n' "$$d" >> "$(GO_WORK)"; done
-	@printf ')\n' >> "$(GO_WORK)"
-	@printf '[>] Generating %s...\n' "$(ADAPTERS_GO)"
-	@printf '// Code generated by make prepare-workspace. DO NOT EDIT.\n\npackage main\n\n' > "$(ADAPTERS_GO)"
-	@if grep -q '^[^#]' "$(ADAPTERS)" 2>/dev/null; then \
-		printf 'import (\n' >> "$(ADAPTERS_GO)"; \
-		grep -v '^#' "$(ADAPTERS)" | grep -v '^$$' | while read -r mod; do \
-			mod=$$(printf '%s' "$$mod" | tr -d '\r' | xargs); \
-			[ -z "$$mod" ] && continue; \
-			if [ "$$mod" = "$(SDK_MODULE)" ]; then continue; fi; \
-			printf '\t_ "%s"\n' "$$mod" >> "$(ADAPTERS_GO)"; \
-		done; \
-		printf ')\n' >> "$(ADAPTERS_GO)"; \
-	fi
-	@go work sync 2>/dev/null || true
-	@printf '[OK] Workspace ready (%s + %s + %s)\n' "$(WORKSPACE_DIR)" "$(GO_WORK)" "$(ADAPTERS_GO)"
+go-tidy:
+	@go mod tidy
 
-prepare-frontend: check-frontend-deps
-	@$(MAKE) stop
-	@printf '\n== Frontend ==\n'
-	@mkdir -p "$(UI_DIR)/src/lib/generated"
-	@cd "$(UI_DIR)" && $(BUN) install
-	@printf '[>] Generating OpenAPI spec from Go annotations...\n'
-	@go run github.com/swaggo/swag/cmd/swag@v1.16.4 init -g internal/dashboard/handler.go -o $(UI_DIR) --parseDependency --parseInternal --parseDepth 2 --outputTypes yaml --quiet || (printf '[WARN] swag failed — keeping stub %s\n' "$(UI_DIR)/openapi.yaml"; true)
-	@if [ -f "$(UI_DIR)/swagger.yaml" ]; then mv -f "$(UI_DIR)/swagger.yaml" "$(UI_DIR)/openapi.yaml"; fi
-	@rm -f "$(UI_DIR)/swagger.json" "$(UI_DIR)/docs.go"
-	@if [ ! -f "$(UI_DIR)/openapi.yaml" ]; then printf '[WARN] no openapi.yaml generated — creating empty stub\n'; printf 'openapi: 3.0.0\ninfo:\n  title: llm-router\n  version: dev\npaths: {}\n' > "$(UI_DIR)/openapi.yaml"; fi
-	@printf '[>] Generating TypeScript API types...\n'
-	@cd "$(UI_DIR)" && $(BUN) run generate:api-types || (printf '[WARN] openapi-typescript failed — keeping stub %s\n' "$(UI_DIR)/src/lib/generated/api-types.ts"; true)
-	@if [ ! -f "$(UI_DIR)/src/lib/generated/api-types.ts" ]; then mkdir -p "$(UI_DIR)/src/lib/generated"; printf '// Stub — replaced at build time by openapi-typescript generation.\nexport type paths = Record<string, Record<string, any>>\nexport type components = Record<string, any>\nexport type operations = Record<string, any>\n' > "$(UI_DIR)/src/lib/generated/api-types.ts"; fi
-	@cd "$(UI_DIR)" && $(BUN) run build
-	@printf '[OK] Frontend ready.\n'
-
-prepare: prepare-frontend prepare-workspace
-	@printf '[OK] Prepare done\n'
-
-start:
-	@mkdir -p "$(dir $(DEV_DB))" "$(dir $(PID_FILE))"
-	@if [ -f "$(PID_FILE)" ] && kill -0 $$(cat "$(PID_FILE)") 2>/dev/null; then \
-		printf '[>] Already running PID %s (log %s)\n' "$$(cat $(PID_FILE))" "$(LOG_URI)"; \
-		printf 'Dashboard: http://$(HOST):$(WEB_PORT)\n'; \
-		printf 'API: http://$(HOST):$(API_PORT)/v1\n'; \
-		if [ -f "$(DEV_KEY)" ]; then printf 'API Key: %s\n' "$$(cat $(DEV_KEY))"; fi; \
-		exit 0; \
-	fi; \
-	rm -f "$(PID_FILE)"; \
-	printf '[>] Building dev binary to %s...\n' "$(TMP_BIN)"; \
-	go build -o "$(TMP_BIN)" . || exit 1; \
-	printf '[>] Starting llm-router %s --web $(WEB_PORT) --api $(API_PORT) --db %s --testing-key %s (pid %s, log %s)...\n' "$(HOST)" "$(DEV_DB)" "$(DEV_KEY)" "$(PID_FILE)" "$(LOG_URI)"; \
-	if command -v nohup >/dev/null 2>&1; then \
-		nohup "$(TMP_BIN)" "$(HOST)" --web "$(WEB_PORT)" --api "$(API_PORT)" --db "$(DEV_DB)" --testing-key "$(DEV_KEY)" > "$(LOG_FILE)" 2>&1 & echo $$! > "$(PID_FILE)"; \
-	else \
-		"$(TMP_BIN)" "$(HOST)" --web "$(WEB_PORT)" --api "$(API_PORT)" --db "$(DEV_DB)" --testing-key "$(DEV_KEY)" > "$(LOG_FILE)" 2>&1 & echo $$! > "$(PID_FILE)"; \
-	fi; \
-	sleep 0.3; \
-	if kill -0 $$(cat "$(PID_FILE)") 2>/dev/null; then \
-		printf '[OK] Started PID %s\n' "$$(cat $(PID_FILE))"; \
-		printf 'Dashboard: http://$(HOST):$(WEB_PORT)\n'; \
-		printf 'API: http://$(HOST):$(API_PORT)/v1\n'; \
-		if [ -f "$(DEV_KEY)" ]; then printf 'API Key: %s\n' "$$(cat $(DEV_KEY))"; fi; \
-	else \
-		printf '[FAIL] Start failed, log:\n'; cat "$(LOG_FILE)" 2>/dev/null || true; rm -f "$(PID_FILE)"; exit 1; \
-	fi
+start: check-frontend-deps
+	cd scripts && GOWORK=off go run ./start --host "$(HOST)" --web-port "$(WEB_PORT)" --api-port "$(API_PORT)" --vite-port "$(VITE_PORT)" --db "$(DEV_DB)" --testing-key "$(DEV_KEY)" --remote "$(WORKSPACE_REMOTE)"
 
 stop:
-	@if [ ! -f "$(PID_FILE)" ]; then printf '[>] Not running (no pid file %s)\n' "$(PID_FILE)"; exit 0; fi; \
-	pid=$$(cat "$(PID_FILE)"); printf '[>] Stopping PID %s...\n' "$$pid"; \
-	if kill -0 $$pid 2>/dev/null; then \
-		kill $$pid 2>/dev/null || true; \
-		sleep 1; \
-		if kill -0 $$pid 2>/dev/null; then \
-			kill -9 $$pid 2>/dev/null || true; \
-			taskkill //F //PID $$pid 2>/dev/null || true; \
-			powershell -NoProfile -Command "try { Stop-Process -Id $$pid -Force -ErrorAction Stop } catch {}" 2>/dev/null || true; \
-		fi; \
-	fi; \
-	rm -f "$(PID_FILE)"; printf '[OK] Stopped\n'
+	cd scripts && GOWORK=off go run ./stop
 
-restart:
-	@$(MAKE) stop
-	@$(MAKE) start
+restart: go-tidy
+	cd scripts && GOWORK=off go run ./stop
+	cd scripts && GOWORK=off go run ./start --host "$(HOST)" --web-port "$(WEB_PORT)" --api-port "$(API_PORT)" --vite-port "$(VITE_PORT)" --db "$(DEV_DB)" --testing-key "$(DEV_KEY)" --remote "$(WORKSPACE_REMOTE)"
 
 status:
-	@if [ -f "$(PID_FILE)" ] && kill -0 $$(cat "$(PID_FILE)") 2>/dev/null; then \
-		printf 'llm-router dev server is running as PID %s\n' "$$(cat $(PID_FILE))"; \
-	else \
-		printf 'llm-router dev server is not running\n'; \
-	fi; \
-	printf 'Log: %s\n' "$(LOG_URI)"
+	cd scripts && GOWORK=off go run ./status
 
 browser:
-	@if command -v "$(firstword $(OPEN_CMD))" >/dev/null 2>&1; then \
-		$(OPEN_CMD) "$(URL)" || printf '[WARN] Browser launch failed. Open %s manually.\n' "$(URL)"; \
-	else \
-		printf '[WARN] "$(firstword $(OPEN_CMD))" not found. Open %s manually.\n' "$(URL)"; \
-	fi
+	cd scripts && GOWORK=off go run ./browser --url "$(URL)"
 
 clean:
-	@$(MAKE) stop
-	@printf '[>] Cleaning git-ignored files (git clean -fdx)...\n'
-	@git clean -fdx
-	@printf '[OK] Clean.\n'
+	cd scripts && GOWORK=off go run ./stop
+	git clean -fdX
 
-publish: check-publish-deps prepare-frontend prepare-workspace
-	@printf '\n== Publish - $(VERSION) ==\n'
-	@printf '  Commit:     $(GIT_COMMIT)\n'
-	@printf '  Build time: $(BUILD_TIME)\n\n'
-	@rm -rf "$(PUBLISH)"
-	@mkdir -p "$(PUBLISH)"
-	@printf '[>] Building %s platforms...\n' "$(words $(PUBLISH_PLATFORMS))"
-	@for plat in $(PUBLISH_PLATFORMS); do \
-		_goos=$$(echo $$plat | cut -d/ -f1); \
-		_goarch=$$(echo $$plat | cut -d/ -f2); \
-		if [ "$$_goos" = "windows" ]; then _bin="$(BINARY).exe"; else _bin="$(BINARY)"; fi; \
-		mkdir -p "$(PUBLISH)/$${_goos}_$${_goarch}"; \
-		printf '[>] Building %s/%s...\n' "$$_goos" "$$_goarch"; \
-		GOOS=$$_goos GOARCH=$$_goarch go build -ldflags="$(LDFLAGS)" -o "$(PUBLISH)/$${_goos}_$${_goarch}/$$_bin" . || { printf '[FAIL] Build failed: %s/%s\n' "$$_goos" "$$_goarch"; exit 1; }; \
-		if command -v zip >/dev/null 2>&1; then \
-			(cd "$(PUBLISH)/$${_goos}_$${_goarch}" && zip -q "$(BINARY)_$${_goos}_$${_goarch}.zip" "$$_bin") || { printf '[FAIL] Archive failed: %s/%s\n' "$$_goos" "$$_goarch"; exit 1; }; \
-		else \
-			powershell -NoProfile -Command "Compress-Archive -Path '$(PUBLISH)/$${_goos}_$${_goarch}/$$_bin' -DestinationPath '$(PUBLISH)/$${_goos}_$${_goarch}/$(BINARY)_$${_goos}_$${_goarch}.zip' -Force" || { printf '[FAIL] Archive failed (Compress-Archive): %s/%s\n' "$$_goos" "$$_goarch"; exit 1; }; \
-		fi; \
-		$(SHA256) "$(PUBLISH)/$${_goos}_$${_goarch}/$(BINARY)_$${_goos}_$${_goarch}.zip" > "$(PUBLISH)/_cksum_$${_goos}_$${_goarch}.tmp"; \
-		printf '[OK] Done: %s/%s\n' "$$_goos" "$$_goarch"; \
-	done
-	@cat $(PUBLISH)/_cksum_*.tmp 2>/dev/null | sort > "$(PUBLISH)/checksums.txt"
-	@rm -f $(PUBLISH)/_cksum_*.tmp
-	@printf '\n[OK] Artifacts in  $(PUBLISH)/\n'
-	@printf '[OK] Checksums in  $(PUBLISH)/checksums.txt\n'
+publish: check-publish-deps
+	cd scripts && GOWORK=off go run ./publish --version "$(VERSION)" --platforms "$(PUBLISH_PLATFORMS)" --remote "$(WORKSPACE_REMOTE)"
 
 go-check:
-	@printf '[>] Running go vet...\n'
-	@go vet ./...
-	@printf '[OK] go vet passed\n'
+	cd scripts && GOWORK=off go run ./vet
 
 go-test:
-	@printf '[>] Running go test...\n'
-	@go test ./...
-	@printf '[OK] go test passed\n'
+	cd scripts && GOWORK=off go run ./test
 
 check-frontend: check-frontend-deps
-	@printf '[>] Running svelte-check...\n'
-	@cd "$(UI_DIR)" && $(BUN) run check
-	@printf '[OK] svelte-check passed\n'
+	cd scripts && GOWORK=off go run ./fcheck

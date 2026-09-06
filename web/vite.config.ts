@@ -2,6 +2,11 @@ import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import webfontDownload from 'vite-plugin-webfont-dl'
 
+declare const process: { env: Record<string, string | undefined> }
+const backendHost = process.env.VITE_BACKEND_HOST || 'localhost'
+const backendPort = process.env.VITE_BACKEND_PORT || '8080'
+const backendTarget = `http://${backendHost}:${backendPort}`
+
 export default defineConfig({
   plugins: [
     svelte(),
@@ -16,10 +21,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/dashboard/api': 'http://localhost:8080',
-      '/login': 'http://localhost:8080',
-      '/logout': 'http://localhost:8080',
-      '/bootstrap': 'http://localhost:8080',
+      '/api/llm-router': backendTarget,
+      '/login': backendTarget,
+      '/logout': backendTarget,
+      '/bootstrap': backendTarget,
     }
   }
 })
