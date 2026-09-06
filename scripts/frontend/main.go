@@ -14,7 +14,7 @@ import (
 func main() {
 	mode := flag.String("mode", "dev", "dev or build")
 	host := flag.String("host", "localhost", "host for dev placeholder")
-	vitePort := flag.String("vite-port", "5173", "vite port for dev placeholder")
+	vitePort := flag.String("vite-port", "8080", "dashboard port")
 	flag.Parse()
 	if *mode != "dev" && *mode != "build" {
 		shared.Failf("invalid --mode %q: must be dev or build", *mode)

@@ -68,8 +68,8 @@ llm-router localhost --web 8080 --api 8081 --db ./llm-router.db --max-retries 7
 1. **Dev (split processes, HMR):**
 ```bash
 make start
-# Dashboard (dev): http://localhost:5173  (Vite proxies /api/llm-router/* → :8080)
-# API:            http://localhost:8081/v1
+# Dashboard:    http://localhost:8080
+# API:          http://localhost:8081/v1
 ```
 
 2. **Publish (single binary, UI embedded):**
@@ -78,7 +78,7 @@ make publish
 # Artifacts in build/release/
 ```
 
-3. **Setup (`http://localhost:5173` in dev, `:8080` in publish):**
+3. **Setup (`http://localhost:8080` in dev and publish):**
 * Create the initial admin account.
 * Add a provider and credential.
 * Issue a router token.

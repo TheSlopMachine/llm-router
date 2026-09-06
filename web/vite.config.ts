@@ -4,7 +4,7 @@ import webfontDownload from 'vite-plugin-webfont-dl'
 
 declare const process: { env: Record<string, string | undefined> }
 const backendHost = process.env.VITE_BACKEND_HOST || 'localhost'
-const backendPort = process.env.VITE_BACKEND_PORT || '8080'
+const backendPort = process.env.VITE_BACKEND_PORT || '38473'
 const backendTarget = `http://${backendHost}:${backendPort}`
 
 export default defineConfig({

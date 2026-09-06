@@ -11,11 +11,11 @@ import (
 	"github.com/TheSlopMachine/llm-router/scripts/shared"
 )
 
-const devBackendWebPort = "38473" // dev-only internal backend --web; never user-facing (vite is WEB_PORT)
+const devBackendWebPort = "38473" // dev-only internal backend --web; never user-facing
 
 func main() {
 	host := flag.String("host", "localhost", "bind host")
-	webPort := flag.String("web-port", "8080", "vite dev port (dashboard)")
+	webPort := flag.String("web-port", "8080", "dashboard port")
 	apiPort := flag.String("api-port", "8081", "api port")
 	dbPath := flag.String("db", "", "database file path")
 	keyPath := flag.String("testing-key", "", "testing key file path")

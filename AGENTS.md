@@ -144,4 +144,4 @@ Agent cannot run the app (§3.3, §5.6). To get runtime facts:
 
 1. State exactly what's needed: endpoint, log line, or behavior.
 2. Ask human to run `make start` / `make restart` and report back.
-3. Interpret: dev dashboard = `http://HOST:WEB_PORT` (Vite, default 8080) proxying `/api/llm-router/*` → backend `HOST:38473` (dev-internal, hardcoded); publish dashboard = `:8080` (embedded). API = `:8081/v1`. Bearer key printed on start and stored at `~/.local/llm-router/llm-router-dev.key`. `401` without that key header is expected, not a bug. Pidfile is JSON `{backend,frontend,vitePort}` at `%TEMP%/llm-router-dev.pid` (`vitePort` is `WEB_PORT` in dev).
+3. Interpret: dev dashboard = `http://HOST:WEB_PORT` proxying `/api/llm-router/*` → backend `HOST:38473` (dev-internal, hardcoded); publish dashboard = `:8080` (embedded). API = `:8081/v1`. Bearer key printed on start and stored at `~/.local/llm-router/llm-router-dev.key`. `401` without that key header is expected, not a bug. Pidfile is JSON `{backend,frontend,vitePort}` at `%TEMP%/llm-router-dev.pid`.

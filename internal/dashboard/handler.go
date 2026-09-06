@@ -39,7 +39,7 @@ type Handler struct {
 	routerSvc    *router.Service
 	logger       *slog.Logger
 
-	// devRedirect, when set, is the origin (e.g. "http://localhost:5173")
+	// devRedirect, when set, is the origin (e.g. "http://localhost:8080")
 	// that browser navigations are 302-redirected to instead of being
 	// served from the embedded build/web. Set via SetDevRedirect. See its
 	// doc comment for why this exists.
@@ -82,9 +82,9 @@ func New(
 // embedded build/web directory is just a placeholder stub so the
 // //go:embed directive has something to embed. Without this, hitting the
 // dashboard port directly in dev (or any /login, /bootstrap navigation
-// that isn't proxied — see web/vite.config.ts) serves that meaningless
-// placeholder instead of the actual UI, which is only running on Vite's
-// port. Production builds never call this, so it has no effect there.
+// not proxied to the dev server) serves that meaningless placeholder
+// instead of the actual UI, which is only running on WEB_PORT in dev.
+// Production builds never call this, so it has no effect there.
 func (h *Handler) SetDevRedirect(origin string) {
 	h.devRedirect = strings.TrimSuffix(origin, "/")
 }
@@ -92,7 +92,7 @@ func (h *Handler) SetDevRedirect(origin string) {
 func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (bool, error) }) {
 	distSub, _ := fs.Sub(spaFS, "build/web")
 
-	// Vite asset files
+	// SPA asset files
 	mux.Handle("GET /assets/", http.FileServer(http.FS(distSub)))
 	mux.Handle("GET /icons/", http.FileServer(http.FS(distSub)))
 

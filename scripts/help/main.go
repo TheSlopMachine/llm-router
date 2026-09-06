@@ -10,7 +10,7 @@ import (
 
 func main() {
 	host := flag.String("host", "localhost", "bind host")
-	webPort := flag.String("web-port", "8080", "vite dev port (dashboard)")
+	webPort := flag.String("web-port", "8080", "dashboard port")
 	apiPort := flag.String("api-port", "8081", "api port")
 	url := flag.String("url", "", "dashboard URL for browser")
 	devDB := flag.String("dev-db", "", "path to dev database")
@@ -51,7 +51,7 @@ func main() {
 	fmt.Printf("  check-frontend    Run svelte-check (frontend type check)\n\n")
 	fmt.Printf("Variables:\n")
 	fmt.Printf("  HOST               Bind host. Default: \"%s\"\n", *host)
-	fmt.Printf("  WEB_PORT           Vite dev server in `make start` (dashboard). Default: \"%s\"\n", *webPort)
+	fmt.Printf("  WEB_PORT           Dashboard port. Default: \"%s\"\n", *webPort)
 	fmt.Printf("  API_PORT           API port. Default: \"%s\"\n", *apiPort)
 	fmt.Printf("  URL                Dashboard URL for browser. Default: \"http://$(HOST):$(WEB_PORT)\"\n")
 	fmt.Printf("  DEV_DB             Path to dev database. Default: \"%s\"\n", *devDB)

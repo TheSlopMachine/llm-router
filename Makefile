@@ -8,7 +8,7 @@ PUBLISH_PLATFORMS ?= windows/amd64 windows/386 windows/arm64 linux/amd64 linux/3
 WORKSPACE_REMOTE   ?= https
 
 HOST      ?= localhost
-WEB_PORT  ?= 8080 # vite in `make start`; embedded dashboard in publish
+WEB_PORT  ?= 8080
 API_PORT  ?= 8081
 URL       ?= http://$(HOST):$(WEB_PORT)
 
