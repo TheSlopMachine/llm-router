@@ -27,13 +27,13 @@ Sits between your applications and LLM providers, exposing a single OpenAI-compa
 * **Modular:** Core repo remains lightweight and maintainable. Providers and plugins live in separate repositories.
 * **Everything works:** Zero dead code, all features are tested by real people.
 * **Clean UI:** Fully reviewed Svelte dashboard polished by a human.
-* **Common sense:** No unmoderated AI slop.
+* **UX with common sense:** No unmoderated AI slop that nobody knows how to use.
 
 ---
 
 ## Key Features
 
-### Embedded Svelte Admin Panel
+### Admin Panel
 
 * **Chat:** Test models directly in the browser.
 * **Metrics:** Inspect model and provider usage.
@@ -86,28 +86,32 @@ Flags:
 
 ## Quick Start
 
-1. **Development server:**
+### Development server
+
 ```bash
 make start
 make start HOST=localhost WEB_PORT=8080 API_PORT=8081
 ```
 
-2. **Production builds:**
+### Production builds
+
 ```bash
 make publish
 make publish PUBLISH_PLATFORMS="windows/amd64 linux/amd64 darwin/amd64 freebsd/amd64"
 ```
 
-3. **Dashboard setup**
-* Create the initial admin account.
-* Go to `Providers` and authenticate in any of listed providers, or add a new one.
-* Go to `Tokens` and issue a new token. In wizard, select `Allow all` if you don't care about limits.
-* The token will be shown to you once, afterwards you won't be able see it again.
+### Dashboard setup
 
-4. **Use the token:**
-Pass the endpoint URL and your token to your harness or any other software:
-* **Base URL:** `http://localhost:8081/v1`
-* **Token:** `<your-token>`
+1. Create the initial admin account.
+2. Go to `Providers` and authenticate in any of listed providers, or add a new one.
+3. Go to `Tokens` and issue a new token. In wizard, select `Allow all` if you don't care about limits.
+4. The token will be shown to you once, afterwards you won't be able see it again.
+
+### API usage
+
+Pass your token and the endpoint URL to your harness or any other AI-powered software:
+- **Base URL:** `http://localhost:8081/v1`
+- **Token:** `10b7****************************************************4fd7`
 
 ---
 
