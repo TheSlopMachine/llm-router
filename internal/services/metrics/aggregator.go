@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	bolt "go.etcd.io/bbolt"
 )
 
 // compressAndPersist compresses old in-memory buckets and persists them to bbolt.
@@ -75,11 +75,14 @@ func (s *Service) compressBuckets(buckets []*MetricBucket, targetInterval time.D
 	}
 
 	for _, bucket := range buckets {
-		// Aggregate totals
+		// Aggregate totals (sum), peaks (max per-minute)
 		compressed.TotalRequests += bucket.TotalRequests
 		compressed.TotalErrors += bucket.TotalErrors
 		compressed.TokensInput += bucket.TokensInput
 		compressed.TokensOutput += bucket.TokensOutput
+		compressed.PeakRequests = maxInt64(compressed.PeakRequests, bucket.PeakRequests)
+		compressed.PeakInputTokens = maxInt64(compressed.PeakInputTokens, bucket.PeakInputTokens)
+		compressed.PeakOutputTokens = maxInt64(compressed.PeakOutputTokens, bucket.PeakOutputTokens)
 		compressed.DurationSum += bucket.DurationSum
 		compressed.DurationCount += bucket.DurationCount
 
@@ -130,6 +133,9 @@ func (s *Service) mergeProviderMetrics(dest, src *ProviderMetrics) {
 	dest.Errors += src.Errors
 	dest.TokensInput += src.TokensInput
 	dest.TokensOutput += src.TokensOutput
+	dest.PeakRequests = maxInt64(dest.PeakRequests, src.PeakRequests)
+	dest.PeakInputTokens = maxInt64(dest.PeakInputTokens, src.PeakInputTokens)
+	dest.PeakOutputTokens = maxInt64(dest.PeakOutputTokens, src.PeakOutputTokens)
 	dest.DurationSum += src.DurationSum
 	dest.DurationCount += src.DurationCount
 }
@@ -140,6 +146,9 @@ func (s *Service) mergeModelMetrics(dest, src *ModelMetrics) {
 	dest.Errors += src.Errors
 	dest.TokensInput += src.TokensInput
 	dest.TokensOutput += src.TokensOutput
+	dest.PeakRequests = maxInt64(dest.PeakRequests, src.PeakRequests)
+	dest.PeakInputTokens = maxInt64(dest.PeakInputTokens, src.PeakInputTokens)
+	dest.PeakOutputTokens = maxInt64(dest.PeakOutputTokens, src.PeakOutputTokens)
 }
 
 // mergeTokenMetrics merges source into destination.
@@ -148,7 +157,10 @@ func (s *Service) mergeTokenMetrics(dest, src *TokenMetrics) {
 	dest.Errors += src.Errors
 	dest.TokensInput += src.TokensInput
 	dest.TokensOutput += src.TokensOutput
-	
+	dest.PeakRequests = maxInt64(dest.PeakRequests, src.PeakRequests)
+	dest.PeakInputTokens = maxInt64(dest.PeakInputTokens, src.PeakInputTokens)
+	dest.PeakOutputTokens = maxInt64(dest.PeakOutputTokens, src.PeakOutputTokens)
+
 	// Keep the most recent LastUsed timestamp
 	if src.LastUsed != nil {
 		if dest.LastUsed == nil || src.LastUsed.After(*dest.LastUsed) {
@@ -264,4 +276,3 @@ func parseBucketKey(key string) (time.Time, string, error) {
 
 	return ts, granularity, nil
 }
-

@@ -3,11 +3,12 @@ package metrics
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	bolt "go.etcd.io/bbolt"
 )
 
 // QueryOverview returns aggregated metrics for the specified filters.
@@ -25,12 +26,11 @@ func (s *Service) QueryOverview(filters models.MetricsFilters) (*models.MetricsO
 
 	// Calculate aggregates
 	overview := &models.MetricsOverview{
-		TotalRequests:  s.sumRequests(filtered),
-		TotalErrors:    s.sumErrors(filtered),
-		PeakRPM:        s.calculatePeakRPM(filtered),
-		PeakTPMInput:   s.calculatePeakTPM(filtered, "input"),
-		PeakTPMOutput:  s.calculatePeakTPM(filtered, "output"),
-		PeakRPD:        s.calculatePeakRPD(filtered),
+		TotalRequests:    s.sumRequests(filtered),
+		TotalErrors:      s.sumErrors(filtered),
+		PeakRequests:     s.calculatePeakRequests(filtered),
+		PeakInputTokens:  s.calculatePeakInputTokens(filtered),
+		PeakOutputTokens: s.calculatePeakOutputTokens(filtered),
 	}
 
 	return overview, nil
@@ -49,11 +49,22 @@ func (s *Service) QueryTimeSeries(metric string, filters models.MetricsFilters) 
 	// Apply filters
 	filtered := s.applyFilters(buckets, filters)
 
+	// Sort chronologically for time-scaled rendering
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].Timestamp.Before(filtered[j].Timestamp)
+	})
+
 	// Extract time series based on metric type
 	var points []models.TimeSeriesPoint
 	for _, bucket := range filtered {
 		var value int64
 		switch metric {
+		case "peak_requests":
+			value = bucket.PeakRequests
+		case "peak_input_tokens":
+			value = bucket.PeakInputTokens
+		case "peak_output_tokens":
+			value = bucket.PeakOutputTokens
 		case "requests":
 			value = bucket.TotalRequests
 		case "errors":
@@ -143,6 +154,9 @@ func (s *Service) fetchBuckets(start, end time.Time) ([]*MetricBucket, error) {
 	}
 
 	buckets = append(buckets, dbBuckets...)
+	sort.Slice(buckets, func(i, j int) bool {
+		return buckets[i].Timestamp.Before(buckets[j].Timestamp)
+	})
 	return buckets, nil
 }
 
@@ -180,6 +194,9 @@ func (s *Service) filterBucket(bucket *MetricBucket, filters models.MetricsFilte
 			filtered.TotalErrors = pm.Errors
 			filtered.TokensInput = pm.TokensInput
 			filtered.TokensOutput = pm.TokensOutput
+			filtered.PeakRequests = pm.PeakRequests
+			filtered.PeakInputTokens = pm.PeakInputTokens
+			filtered.PeakOutputTokens = pm.PeakOutputTokens
 			filtered.DurationSum = pm.DurationSum
 			filtered.DurationCount = pm.DurationCount
 		} else {
@@ -190,6 +207,9 @@ func (s *Service) filterBucket(bucket *MetricBucket, filters models.MetricsFilte
 		filtered.TotalErrors = bucket.TotalErrors
 		filtered.TokensInput = bucket.TokensInput
 		filtered.TokensOutput = bucket.TokensOutput
+		filtered.PeakRequests = bucket.PeakRequests
+		filtered.PeakInputTokens = bucket.PeakInputTokens
+		filtered.PeakOutputTokens = bucket.PeakOutputTokens
 		filtered.DurationSum = bucket.DurationSum
 		filtered.DurationCount = bucket.DurationCount
 	}
@@ -201,6 +221,9 @@ func (s *Service) filterBucket(bucket *MetricBucket, filters models.MetricsFilte
 			filtered.TotalErrors = mm.Errors
 			filtered.TokensInput = mm.TokensInput
 			filtered.TokensOutput = mm.TokensOutput
+			filtered.PeakRequests = mm.PeakRequests
+			filtered.PeakInputTokens = mm.PeakInputTokens
+			filtered.PeakOutputTokens = mm.PeakOutputTokens
 		} else {
 			return nil
 		}
@@ -227,48 +250,34 @@ func (s *Service) sumErrors(buckets []*MetricBucket) int64 {
 	return total
 }
 
-// calculatePeakRPM calculates peak requests per minute.
-func (s *Service) calculatePeakRPM(buckets []*MetricBucket) int64 {
+// calculatePeakRequests calculates true per-minute peak requests (max PeakRequests).
+func (s *Service) calculatePeakRequests(buckets []*MetricBucket) int64 {
 	var peak int64
 	for _, bucket := range buckets {
-		if bucket.TotalRequests > peak {
-			peak = bucket.TotalRequests
+		if bucket.PeakRequests > peak {
+			peak = bucket.PeakRequests
 		}
 	}
 	return peak
 }
 
-// calculatePeakTPM calculates peak tokens per minute.
-func (s *Service) calculatePeakTPM(buckets []*MetricBucket, tokenType string) int64 {
+// calculatePeakInputTokens calculates true per-minute peak input tokens.
+func (s *Service) calculatePeakInputTokens(buckets []*MetricBucket) int64 {
 	var peak int64
 	for _, bucket := range buckets {
-		var tokens int64
-		if tokenType == "input" {
-			tokens = bucket.TokensInput
-		} else {
-			tokens = bucket.TokensOutput
-		}
-		if tokens > peak {
-			peak = tokens
+		if bucket.PeakInputTokens > peak {
+			peak = bucket.PeakInputTokens
 		}
 	}
 	return peak
 }
 
-// calculatePeakRPD calculates peak requests per day.
-func (s *Service) calculatePeakRPD(buckets []*MetricBucket) int64 {
-	// Group buckets by day
-	dailyRequests := make(map[string]int64)
-	for _, bucket := range buckets {
-		day := bucket.Timestamp.Format("2006-01-02")
-		dailyRequests[day] += bucket.TotalRequests
-	}
-
-	// Find peak
+// calculatePeakOutputTokens calculates true per-minute peak output tokens.
+func (s *Service) calculatePeakOutputTokens(buckets []*MetricBucket) int64 {
 	var peak int64
-	for _, requests := range dailyRequests {
-		if requests > peak {
-			peak = requests
+	for _, bucket := range buckets {
+		if bucket.PeakOutputTokens > peak {
+			peak = bucket.PeakOutputTokens
 		}
 	}
 	return peak
@@ -327,4 +336,3 @@ func (s *Service) GetTokenUsage() (map[string]*TokenUsageInfo, error) {
 
 	return usage, nil
 }
-

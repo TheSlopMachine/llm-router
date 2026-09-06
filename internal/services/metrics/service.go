@@ -8,12 +8,14 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	bolt "go.etcd.io/bbolt"
 )
 
 const (
-	eventBufferSize = 10000
+	eventBufferSize   = 10000
 	aggregateInterval = 1 * time.Minute
-	cleanupInterval = 1 * time.Hour
+	cleanupInterval   = 1 * time.Hour
+	metricsVersion    = "2"
 )
 
 // Service manages metrics collection, aggregation, and querying.
@@ -36,45 +38,64 @@ type Service struct {
 
 // MetricBucket represents aggregated metrics for a time window.
 type MetricBucket struct {
-	Timestamp      time.Time                   `json:"timestamp"`
-	TotalRequests  int64                       `json:"total_requests"`
-	TotalErrors    int64                       `json:"total_errors"`
-	TokensInput    int64                       `json:"tokens_input"`
-	TokensOutput   int64                       `json:"tokens_output"`
-	DurationSum    int64                       `json:"duration_sum"`   // microseconds
-	DurationCount  int64                       `json:"duration_count"` // number of requests with duration
-	ByProviderID   map[string]*ProviderMetrics `json:"by_provider_id"`
-	ByProviderType map[string]*ProviderMetrics `json:"by_provider_type"`
-	ByModel        map[string]*ModelMetrics    `json:"by_model"`
-	ByTokenID      map[string]*TokenMetrics    `json:"by_token_id"`
-	ErrorsByType   map[string]int64            `json:"errors_by_type"`
+	Timestamp        time.Time                   `json:"timestamp"`
+	TotalRequests    int64                       `json:"total_requests"`
+	TotalErrors      int64                       `json:"total_errors"`
+	TokensInput      int64                       `json:"tokens_input"`
+	TokensOutput     int64                       `json:"tokens_output"`
+	PeakRequests     int64                       `json:"peak_requests"`
+	PeakInputTokens  int64                       `json:"peak_input_tokens"`
+	PeakOutputTokens int64                       `json:"peak_output_tokens"`
+	DurationSum      int64                       `json:"duration_sum"`   // microseconds
+	DurationCount    int64                       `json:"duration_count"` // number of requests with duration
+	ByProviderID     map[string]*ProviderMetrics `json:"by_provider_id"`
+	ByProviderType   map[string]*ProviderMetrics `json:"by_provider_type"`
+	ByModel          map[string]*ModelMetrics    `json:"by_model"`
+	ByTokenID        map[string]*TokenMetrics    `json:"by_token_id"`
+	ErrorsByType     map[string]int64            `json:"errors_by_type"`
 }
 
 // ProviderMetrics tracks metrics for a specific provider.
 type ProviderMetrics struct {
-	Requests      int64 `json:"requests"`
-	Errors        int64 `json:"errors"`
-	TokensInput   int64 `json:"tokens_input"`
-	TokensOutput  int64 `json:"tokens_output"`
-	DurationSum   int64 `json:"duration_sum"`
-	DurationCount int64 `json:"duration_count"`
+	Requests         int64 `json:"requests"`
+	Errors           int64 `json:"errors"`
+	TokensInput      int64 `json:"tokens_input"`
+	TokensOutput     int64 `json:"tokens_output"`
+	PeakRequests     int64 `json:"peak_requests"`
+	PeakInputTokens  int64 `json:"peak_input_tokens"`
+	PeakOutputTokens int64 `json:"peak_output_tokens"`
+	DurationSum      int64 `json:"duration_sum"`
+	DurationCount    int64 `json:"duration_count"`
 }
 
 // ModelMetrics tracks metrics for a specific model.
 type ModelMetrics struct {
-	Requests     int64 `json:"requests"`
-	Errors       int64 `json:"errors"`
-	TokensInput  int64 `json:"tokens_input"`
-	TokensOutput int64 `json:"tokens_output"`
+	Requests         int64 `json:"requests"`
+	Errors           int64 `json:"errors"`
+	TokensInput      int64 `json:"tokens_input"`
+	TokensOutput     int64 `json:"tokens_output"`
+	PeakRequests     int64 `json:"peak_requests"`
+	PeakInputTokens  int64 `json:"peak_input_tokens"`
+	PeakOutputTokens int64 `json:"peak_output_tokens"`
 }
 
 // TokenMetrics tracks metrics for a specific token.
 type TokenMetrics struct {
-	Requests     int64      `json:"requests"`
-	Errors       int64      `json:"errors"`
-	TokensInput  int64      `json:"tokens_input"`
-	TokensOutput int64      `json:"tokens_output"`
-	LastUsed     *time.Time `json:"last_used,omitempty"`
+	Requests         int64      `json:"requests"`
+	Errors           int64      `json:"errors"`
+	TokensInput      int64      `json:"tokens_input"`
+	TokensOutput     int64      `json:"tokens_output"`
+	PeakRequests     int64      `json:"peak_requests"`
+	PeakInputTokens  int64      `json:"peak_input_tokens"`
+	PeakOutputTokens int64      `json:"peak_output_tokens"`
+	LastUsed         *time.Time `json:"last_used,omitempty"`
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // New constructs a new metrics Service.
@@ -88,8 +109,38 @@ func New(database *db.DB, logger *slog.Logger) *Service {
 	}
 }
 
+// ensureCleanMetrics wipes legacy buckets if metrics_version is stale.
+func (s *Service) ensureCleanMetrics() error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		meta := tx.Bucket(db.BucketMeta)
+		if meta == nil {
+			return nil
+		}
+		if string(meta.Get([]byte("metrics_version"))) == metricsVersion {
+			return nil
+		}
+		b := tx.Bucket(db.BucketMetrics)
+		if b != nil {
+			c := b.Cursor()
+			for k, _ := c.First(); k != nil; k, _ = c.Next() {
+				if err := b.Delete(k); err != nil {
+					return err
+				}
+			}
+		}
+		if err := meta.Put([]byte("metrics_version"), []byte(metricsVersion)); err != nil {
+			return err
+		}
+		s.logger.Info("metrics wiped for new version", "version", metricsVersion)
+		return nil
+	})
+}
+
 // Start begins background workers for metrics processing.
 func (s *Service) Start() {
+	if err := s.ensureCleanMetrics(); err != nil {
+		s.logger.Error("metrics version check failed", "err", err)
+	}
 	go s.processEvents()
 	go s.startAggregator()
 	go s.startCleanup()
@@ -160,6 +211,10 @@ func (s *Service) recordEvent(event models.MetricEvent) {
 		bucket.DurationSum += event.Duration.Microseconds()
 		bucket.DurationCount++
 	}
+	// Peak per-minute = max per-minute bucket totals within window (1m buckets: peak == total)
+	bucket.PeakRequests = maxInt64(bucket.PeakRequests, bucket.TotalRequests)
+	bucket.PeakInputTokens = maxInt64(bucket.PeakInputTokens, bucket.TokensInput)
+	bucket.PeakOutputTokens = maxInt64(bucket.PeakOutputTokens, bucket.TokensOutput)
 
 	// Track errors
 	if event.ErrorType != "" {
@@ -197,6 +252,9 @@ func (s *Service) recordEvent(event models.MetricEvent) {
 		mm.Requests++
 		mm.TokensInput += event.TokensInput
 		mm.TokensOutput += event.TokensOutput
+		mm.PeakRequests = maxInt64(mm.PeakRequests, mm.Requests)
+		mm.PeakInputTokens = maxInt64(mm.PeakInputTokens, mm.TokensInput)
+		mm.PeakOutputTokens = maxInt64(mm.PeakOutputTokens, mm.TokensOutput)
 		if event.ErrorType != "" {
 			mm.Errors++
 		}
@@ -212,11 +270,14 @@ func (s *Service) recordEvent(event models.MetricEvent) {
 		tm.Requests++
 		tm.TokensInput += event.TokensInput
 		tm.TokensOutput += event.TokensOutput
-		
+		tm.PeakRequests = maxInt64(tm.PeakRequests, tm.Requests)
+		tm.PeakInputTokens = maxInt64(tm.PeakInputTokens, tm.TokensInput)
+		tm.PeakOutputTokens = maxInt64(tm.PeakOutputTokens, tm.TokensOutput)
+
 		// Update last used timestamp
 		eventTime := event.Timestamp
 		tm.LastUsed = &eventTime
-		
+
 		if event.ErrorType != "" {
 			tm.Errors++
 		}
@@ -228,6 +289,9 @@ func (s *Service) updateProviderMetrics(pm *ProviderMetrics, event models.Metric
 	pm.Requests++
 	pm.TokensInput += event.TokensInput
 	pm.TokensOutput += event.TokensOutput
+	pm.PeakRequests = maxInt64(pm.PeakRequests, pm.Requests)
+	pm.PeakInputTokens = maxInt64(pm.PeakInputTokens, pm.TokensInput)
+	pm.PeakOutputTokens = maxInt64(pm.PeakOutputTokens, pm.TokensOutput)
 	if event.Duration > 0 {
 		pm.DurationSum += event.Duration.Microseconds()
 		pm.DurationCount++
@@ -293,4 +357,3 @@ func (s *Service) cleanup() error {
 
 	return nil
 }
-

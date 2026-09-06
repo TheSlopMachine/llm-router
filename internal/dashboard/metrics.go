@@ -44,7 +44,7 @@ func (h *Handler) apiMetricsOverview(w http.ResponseWriter, r *http.Request) {
 // @Description  Returns time-series data for a specific metric.
 // @Tags         Metrics
 // @Produce      json
-// @Param        metric query string true "Metric name" Enums(requests, errors, tokens_input, tokens_output)
+// @Param        metric query string true "Metric name" Enums(peak_requests, peak_input_tokens, peak_output_tokens)
 // @Param        time_range query string false "Time range" Enums(hour, 1d, 7d, 28d, 90d, month) default(hour)
 // @Param        provider_id query string false "Filter by provider ID"
 // @Param        model query string false "Filter by model"
@@ -119,4 +119,3 @@ func (h *Handler) apiTokenUsage(w http.ResponseWriter, r *http.Request) {
 
 	h.json(w, http.StatusOK, usage)
 }
-

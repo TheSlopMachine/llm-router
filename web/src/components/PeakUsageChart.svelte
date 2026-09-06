@@ -1,33 +1,26 @@
 <script lang="ts">
   import type { TimeSeriesPoint } from '../lib/types'
 
-  let { title, data = [], loading = false, showFilterIcon = false } = $props<{
+  let { title, data = [], loading = false } = $props<{
     title: string
     data: TimeSeriesPoint[]
     loading?: boolean
-    showFilterIcon?: boolean
   }>()
 
   let maxValue = $derived(data.length > 0 ? Math.max(...data.map((d: TimeSeriesPoint) => d.value)) : 0)
   let hasData = $derived(data.length > 0 && maxValue > 0)
-  let yAxisMax = $derived(hasData ? calculateYMax(maxValue) : 20)
+  let yAxisMax = $derived(hasData ? maxValue : 20)
   let yAxisMid = $derived(Math.floor(yAxisMax / 2))
 
-  function calculateYMax(max: number): number {
-    if (max === 0) return 20
-
-    // Round up to nice number
-    const magnitude = Math.pow(10, Math.floor(Math.log10(max)))
-    const normalized = max / magnitude
-
-    let nice: number
-    if (normalized <= 1) nice = 1
-    else if (normalized <= 2) nice = 2
-    else if (normalized <= 5) nice = 5
-    else nice = 10
-
-    return nice * magnitude * 1.2 // Add 20% headroom
-  }
+  let startMs = $derived.by(() => {
+    if (data.length === 0) return 0
+    return Math.min(...data.map((d: TimeSeriesPoint) => new Date(d.timestamp).getTime()))
+  })
+  let endMs = $derived.by(() => {
+    if (data.length === 0) return 1
+    return Math.max(...data.map((d: TimeSeriesPoint) => new Date(d.timestamp).getTime()))
+  })
+  let rangeMs = $derived(Math.max(endMs - startMs, 1))
 
   function formatYLabel(value: number): string {
     if (value >= 1000) {
@@ -35,14 +28,20 @@
     }
     return value.toString()
   }
+
+  function xFor(ts: string): number {
+    return ((new Date(ts).getTime() - startMs) / rangeMs) * 300
+  }
+
+  function yFor(value: number): number {
+    if (yAxisMax === 0) return 120
+    return 120 - (value / yAxisMax) * 120
+  }
 </script>
 
 <div class="card">
   <div class="card-header-inline">
     <span class="card-title">{title}</span>
-    {#if showFilterIcon}
-      <span class="icon">filter_list</span>
-    {/if}
   </div>
   <div class="chart-container">
     {#if loading}
@@ -52,30 +51,29 @@
         <div class="y-axis-labels">
           <span class="y-label">{formatYLabel(yAxisMax)}</span>
           <span class="y-label">{formatYLabel(yAxisMid)}</span>
+          <span class="y-label">0</span>
         </div>
         <div class="chart-area">
           {#if !hasData}
             <svg width="100%" height="100%" viewBox="0 0 300 120" preserveAspectRatio="none">
-              <!-- Empty chart with axes -->
               <line x1="0" y1="119" x2="300" y2="119" stroke="#e2e3e4" stroke-width="1" />
               <line x1="0" y1="115" x2="0" y2="123" stroke="#e2e3e4" stroke-width="1" />
               <line x1="300" y1="115" x2="300" y2="123" stroke="#e2e3e4" stroke-width="1" />
             </svg>
           {:else}
             <svg width="100%" height="100%" viewBox="0 0 300 120" preserveAspectRatio="none">
-              <!-- Grid lines -->
+              <!-- Grid lines at peak, peak/2, zero -->
               <line x1="0" y1="0" x2="300" y2="0" stroke="#f4f5f5" stroke-width="1" />
               <line x1="0" y1="60" x2="300" y2="60" stroke="#f4f5f5" stroke-width="1" />
               <line x1="0" y1="119" x2="300" y2="119" stroke="#e2e3e4" stroke-width="1" />
 
-              <!-- Data line -->
-              {#if data.length > 1}
+              {#if data.length === 1}
+                {@const cx = xFor(data[0].timestamp)}
+                {@const cy = yFor(data[0].value)}
+                <circle cx={cx} cy={cy} r="3" fill="#2483e2" vector-effect="non-scaling-stroke" />
+              {:else}
                 {@const points = data
-                  .map((d: TimeSeriesPoint, i: number) => {
-                    const x = (i / (data.length - 1)) * 300
-                    const y = 120 - (d.value / yAxisMax) * 120
-                    return `${x},${y}`
-                  })
+                  .map((d: TimeSeriesPoint) => `${xFor(d.timestamp)},${yFor(d.value)}`)
                   .join(' ')}
                 <polyline
                   points={points}

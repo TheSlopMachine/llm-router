@@ -326,12 +326,11 @@ func (tr TimeRange) Bounds() (start, end time.Time) {
 
 // MetricsOverview for dashboard display.
 type MetricsOverview struct {
-	TotalRequests int64 `json:"total_requests" example:"1500"`
-	TotalErrors   int64 `json:"total_errors" example:"23"`
-	PeakRPM       int64 `json:"peak_rpm" example:"45"`
-	PeakTPMInput  int64 `json:"peak_tpm_input" example:"12000"`
-	PeakTPMOutput int64 `json:"peak_tpm_output" example:"3500"`
-	PeakRPD       int64 `json:"peak_rpd" example:"35000"`
+	TotalRequests    int64 `json:"total_requests" example:"1500"`
+	TotalErrors      int64 `json:"total_errors" example:"23"`
+	PeakRequests     int64 `json:"peak_requests" example:"45"`
+	PeakInputTokens  int64 `json:"peak_input_tokens" example:"12000"`
+	PeakOutputTokens int64 `json:"peak_output_tokens" example:"3500"`
 }
 
 // TimeSeriesPoint for chart data.

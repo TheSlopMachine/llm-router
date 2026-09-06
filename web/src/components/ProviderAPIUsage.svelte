@@ -14,9 +14,9 @@
   } as unknown as MetricsFilters & { provider_id: string; model: string; time_range: string })
 
   let overview = $state<MetricsOverview | null>(null)
-  let rpmData = $state<TimeSeriesPoint[]>([])
-  let tpmInputData = $state<TimeSeriesPoint[]>([])
-  let rpdData = $state<TimeSeriesPoint[]>([])
+  let requestsData = $state<TimeSeriesPoint[]>([])
+  let inputTokensData = $state<TimeSeriesPoint[]>([])
+  let outputTokensData = $state<TimeSeriesPoint[]>([])
   let loading = $state(true)
   let providers = $state<Provider[]>([])
   let models = $state<string[]>([])
@@ -70,27 +70,26 @@
     try {
       loading = true
 
-      // Load overview and time series in parallel
-      const [overviewData, rpmSeries, tpmSeries, rpdSeries] = await Promise.all([
+      const [overviewData, reqSeries, inSeries, outSeries] = await Promise.all([
         api.metrics.overview(filters),
-        api.metrics.timeSeries('requests', filters),
-        api.metrics.timeSeries('tokens_input', filters),
-        api.metrics.timeSeries('requests', { ...filters, time_range: '1d' }) // RPD uses daily view
+        api.metrics.timeSeries('peak_requests', filters),
+        api.metrics.timeSeries('peak_input_tokens', filters),
+        api.metrics.timeSeries('peak_output_tokens', filters)
       ])
 
       overview = overviewData
-      rpmData = rpmSeries || []
-      tpmInputData = tpmSeries || []
-      rpdData = rpdSeries || []
+      requestsData = reqSeries || []
+      inputTokensData = inSeries || []
+      outputTokensData = outSeries || []
       errors = errors.filter((e) => !e.includes('metrics'))
     } catch (err) {
       const msg = `Failed to load metrics: ${getErrorMessage(err)}`
       if (!errors.includes(msg)) {
         errors = [...errors, msg]
       }
-      rpmData = []
-      tpmInputData = []
-      rpdData = []
+      requestsData = []
+      inputTokensData = []
+      outputTokensData = []
     } finally {
       loading = false
     }
@@ -136,19 +135,9 @@
     <h2>Peak usage trends</h2>
   </div>
   <div class="charts-grid">
-    <PeakUsageChart
-      title="Peak requests per minute (RPM)"
-      data={rpmData}
-      {loading}
-      showFilterIcon={true}
-    />
-    <PeakUsageChart
-      title="Peak input tokens per minute (TPM)"
-      data={tpmInputData}
-      {loading}
-      showFilterIcon={false}
-    />
-    <PeakUsageChart title="Peak requests per day (RPD)" data={rpdData} {loading} showFilterIcon={true} />
+    <PeakUsageChart title="Peak requests" data={requestsData} {loading} />
+    <PeakUsageChart title="Peak input tokens" data={inputTokensData} {loading} />
+    <PeakUsageChart title="Peak output tokens" data={outputTokensData} {loading} />
   </div>
 </div>
 

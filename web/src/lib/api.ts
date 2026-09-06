@@ -187,10 +187,9 @@ export const api = {
       return {
         total_requests: (raw?.total_requests as number) ?? 0,
         total_errors: (raw?.total_errors as number) ?? 0,
-        peak_rpm: (raw?.peak_rpm as number) ?? 0,
-        peak_tpm_input: (raw?.peak_tpm_input as number) ?? 0,
-        peak_tpm_output: (raw?.peak_tpm_output as number) ?? 0,
-        peak_rpd: (raw?.peak_rpd as number) ?? 0,
+        peak_requests: (raw?.peak_requests as number) ?? 0,
+        peak_input_tokens: (raw?.peak_input_tokens as number) ?? 0,
+        peak_output_tokens: (raw?.peak_output_tokens as number) ?? 0,
       }
     },
 

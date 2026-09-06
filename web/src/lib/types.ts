@@ -39,10 +39,9 @@ export interface ModelInfo {
 export interface MetricsOverview {
   total_requests: number
   total_errors: number
-  peak_rpm: number
-  peak_tpm_input: number
-  peak_tpm_output: number
-  peak_rpd: number
+  peak_requests: number
+  peak_input_tokens: number
+  peak_output_tokens: number
 }
 
 export interface TimeSeriesPoint {
