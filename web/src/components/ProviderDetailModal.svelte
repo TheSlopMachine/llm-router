@@ -3,6 +3,7 @@
   import { api } from '../lib/api'
   import { modal } from '../lib/modal.svelte'
   import { getErrorMessage } from '../lib/errors'
+  import { hardenSecureElements } from '../lib/secure'
   import type { Provider, Credential, ModalButton } from '../lib/types'
 
   let {
@@ -32,6 +33,12 @@
   let flowId = $state('')
   let loading = $state(false)
   let error = $state('')
+  let authContainer = $state<HTMLDivElement | undefined>(undefined)
+
+  $effect(() => {
+    void authHtml
+    if (authContainer) hardenSecureElements(authContainer)
+  })
 
   onMount(() => {
     if (credentials.length === 0) {
@@ -211,8 +218,8 @@
     </div>
   {/if}
 {:else}
-  <div class="auth-html">
-    <form onsubmit={submitAuthStep}>
+  <div bind:this={authContainer} class="auth-html">
+    <form autocomplete="off" onsubmit={submitAuthStep}>
       <input type="hidden" name="flow_id" value={flowId} />
       {@html authHtml}
     </form>

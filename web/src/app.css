@@ -507,6 +507,14 @@ tbody tr:hover td {
   font-variation-settings: "FILL" 1, "wght" 300, "GRAD" 0, "opsz" 20;
 }
 
+/* Secure inputs — pasted secrets (API keys, tokens) must not be remembered by the browser.
+   Any <input class="secure"> is hardened to autocomplete="off" via lib/secure.ts.
+   Password fields (type=password) are intentionally not secure — password managers remain enabled. */
+input.secure,
+textarea.secure {
+  /* marker — behavior enforced via attributes, not styling */
+}
+
 .divider {
   border: none;
   border-top: 1px solid var(--color-outline-soft);

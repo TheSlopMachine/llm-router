@@ -6,6 +6,7 @@
   import Bootstrap from './pages/Bootstrap.svelte'
   import Dashboard from './pages/Dashboard.svelte'
   import Modal from './components/Modal.svelte'
+  import { hardenSecureElements } from './lib/secure'
 
   type AppState = 'loading' | 'bootstrap' | 'login' | 'dashboard'
 
@@ -13,6 +14,9 @@
   let error: string | null = $state(null)
 
   onMount(async (): Promise<void> => {
+    hardenSecureElements()
+    const mo = new MutationObserver(() => hardenSecureElements())
+    mo.observe(document.body, { childList: true, subtree: true })
     const path = window.location.pathname
 
     try {

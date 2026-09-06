@@ -17,7 +17,7 @@ func (f *AuthFlow) InitiateFlow(ctx sdk.AuthFlowContext) (sdk.AuthFlowState, err
 	<p>Enter your API key for this provider. The provider must support the OpenAI chat completions API.</p>
 	<div class="form-group">
 		<label for="api_key">API Key *</label>
-		<input type="text" id="api_key" name="api_key" class="form-control" placeholder="sk-..." required />
+		<input type="text" id="api_key" name="api_key" class="form-control secure" autocomplete="off" placeholder="sk-..." required />
 	</div>
 	<button type="submit" class="btn btn-primary">Add Credential</button>
 </div>`,
@@ -34,7 +34,7 @@ func (f *AuthFlow) HandleStep(ctx sdk.AuthFlowContext, input map[string][]string
 	<p><strong>Custom OpenAI-Compatible Provider</strong></p>
 	<div class="form-group">
 		<label for="api_key">API Key *</label>
-		<input type="text" id="api_key" name="api_key" class="form-control" placeholder="sk-..." required />
+		<input type="text" id="api_key" name="api_key" class="form-control secure" autocomplete="off" placeholder="sk-..." required />
 	</div>
 	<button type="submit" class="btn btn-primary">Add Credential</button>
 </div>`,
@@ -50,7 +50,7 @@ func (f *AuthFlow) HandleStep(ctx sdk.AuthFlowContext, input map[string][]string
 	<p><strong>Custom OpenAI-Compatible Provider</strong></p>
 	<div class="form-group">
 		<label for="api_key">API Key *</label>
-		<input type="text" id="api_key" name="api_key" class="form-control" placeholder="sk-..." required />
+		<input type="text" id="api_key" name="api_key" class="form-control secure" autocomplete="off" placeholder="sk-..." required />
 	</div>
 	<button type="submit" class="btn btn-primary">Add Credential</button>
 </div>`,
@@ -65,7 +65,7 @@ func (f *AuthFlow) HandleStep(ctx sdk.AuthFlowContext, input map[string][]string
 	<p><strong>Custom OpenAI-Compatible Provider</strong></p>
 	<div class="form-group">
 		<label for="api_key">API Key *</label>
-		<input type="text" id="api_key" name="api_key" class="form-control" placeholder="sk-..." required />
+		<input type="text" id="api_key" name="api_key" class="form-control secure" autocomplete="off" placeholder="sk-..." required />
 	</div>
 	<button type="submit" class="btn btn-primary">Add Credential</button>
 </div>`,
