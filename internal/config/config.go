@@ -28,6 +28,14 @@ type Config struct {
 
 	// TestingKey is the raw testing token value (never persisted to DB, never logged).
 	TestingKey string
+
+	// DevUIRedirect, when non-empty, is the origin (e.g. "http://localhost:5173")
+	// that the dashboard 302-redirects browser navigations to instead of
+	// serving its own embedded SPA. Set only by `make start` (via
+	// --dev-ui-redirect), whose embedded build/web is a placeholder stub
+	// because the real UI is served by Vite on a different port. Empty
+	// disables the redirect — the normal/production behavior.
+	DevUIRedirect string
 }
 
 // Validate checks that all required configuration fields are set.

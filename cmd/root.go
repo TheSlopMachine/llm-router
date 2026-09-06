@@ -25,6 +25,7 @@ var (
 	testingKeyPath       string
 	logLevel             string
 	maxCredentialRetries int
+	devUIRedirect        string
 	versionFlag          bool
 	versionInfo          struct {
 		Version   string
@@ -74,6 +75,8 @@ func init() {
 	rootCmd.Flags().StringVar(&logLevel, "log-level", "info", "log level: debug, info, warn, error")
 	rootCmd.Flags().IntVar(&maxCredentialRetries, "max-retries", 7, "max credential rotation retry cycles (exponential backoff)")
 	rootCmd.Flags().BoolVarP(&versionFlag, "version", "v", false, "print version information and exit")
+	rootCmd.Flags().StringVar(&devUIRedirect, "dev-ui-redirect", "", "internal: redirect dashboard navigations to this origin instead of serving the embedded SPA (used by `make start`)")
+	_ = rootCmd.Flags().MarkHidden("dev-ui-redirect")
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -120,6 +123,7 @@ func run(cmd *cobra.Command, args []string) error {
 		LogLevel:             normalizedLogLevel,
 		MaxCredentialRetries: maxCredentialRetries,
 		TestingKeyPath:       testingKeyPath,
+		DevUIRedirect:        strings.TrimSpace(devUIRedirect),
 	}
 
 	// Resolve testing key file (generate if missing)

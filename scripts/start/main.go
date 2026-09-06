@@ -37,6 +37,17 @@ func main() {
 		shared.Failf("%v", err)
 	}
 
+	// Refuse to clobber an already-running dev server. Spawning a second
+	// backend/frontend pair here would silently overwrite the pidfile,
+	// orphaning the first pair — no `make stop` could ever reach them again.
+	if p, err := shared.ReadPidFile(*pidFile); err == nil {
+		if (p.Backend > 0 && shared.Alive(p.Backend)) || (p.Frontend > 0 && shared.Alive(p.Frontend)) {
+			shared.Failf("already running (see `make status`); run `make stop` or `make restart` first")
+		}
+		// Stale pidfile pointing at dead processes: safe to remove and continue.
+		_ = os.Remove(*pidFile)
+	}
+
 	// Prepare workspace and frontend (strict, fast-path when fresh).
 	shared.Stepf("Preparing workspace and frontend...")
 	if err := shared.RunScript("workspace", "--remote", *remote); err != nil {
@@ -62,7 +73,8 @@ func main() {
 	shared.Stepf("Starting backend (go run) and frontend (vite)...")
 
 	backendPID, err := shared.SpawnDetached(root, backendLog, "go", "run", ".", *host,
-		"--web", *webPort, "--api", *apiPort, "--db", *dbPath, "--testing-key", *keyPath)
+		"--web", *webPort, "--api", *apiPort, "--db", *dbPath, "--testing-key", *keyPath,
+		"--dev-ui-redirect", fmt.Sprintf("http://%s:%s", *host, *vitePort))
 	if err != nil {
 		shared.Failf("spawn backend: %v", err)
 	}

@@ -22,9 +22,6 @@ export default defineConfig({
   server: {
     proxy: {
       '/api/llm-router': backendTarget,
-      '/login': backendTarget,
-      '/logout': backendTarget,
-      '/bootstrap': backendTarget,
     }
   }
 })

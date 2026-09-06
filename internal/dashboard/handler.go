@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	"github.com/TheSlopMachine/llm-router/internal/services/agent"
@@ -37,6 +38,12 @@ type Handler struct {
 	agentSvc     *agent.Service
 	routerSvc    *router.Service
 	logger       *slog.Logger
+
+	// devRedirect, when set, is the origin (e.g. "http://localhost:5173")
+	// that browser navigations are 302-redirected to instead of being
+	// served from the embedded build/web. Set via SetDevRedirect. See its
+	// doc comment for why this exists.
+	devRedirect string
 }
 
 // New constructs a dashboard Handler.
@@ -66,7 +73,22 @@ func New(
 	}, nil
 }
 
-// Register mounts all dashboard routes.
+// SetDevRedirect configures the handler to 302-redirect any browser
+// navigation that would otherwise fall through to the embedded SPA (i.e.
+// everything not matched by a more specific route in Register) to origin
+// instead, preserving path and query.
+//
+// This exists because `make start` never runs a real `vite build` — the
+// embedded build/web directory is just a placeholder stub so the
+// //go:embed directive has something to embed. Without this, hitting the
+// dashboard port directly in dev (or any /login, /bootstrap navigation
+// that isn't proxied — see web/vite.config.ts) serves that meaningless
+// placeholder instead of the actual UI, which is only running on Vite's
+// port. Production builds never call this, so it has no effect there.
+func (h *Handler) SetDevRedirect(origin string) {
+	h.devRedirect = strings.TrimSuffix(origin, "/")
+}
+
 func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (bool, error) }) {
 	distSub, _ := fs.Sub(spaFS, "build/web")
 
@@ -127,6 +149,15 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	indexHTML.Close()
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if h.devRedirect != "" {
+			target := h.devRedirect + r.URL.Path
+			if r.URL.RawQuery != "" {
+				target += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, target, http.StatusFound)
+			return
+		}
+
 		if r.URL.Path == "/" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Write(indexBytes)

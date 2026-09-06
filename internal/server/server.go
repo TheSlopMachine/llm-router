@@ -110,6 +110,9 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard handler: %w", err)
 	}
+	if cfg.DevUIRedirect != "" {
+		dash.SetDevRedirect(cfg.DevUIRedirect)
+	}
 	dash.Register(dashMux, database)
 	dashHandler := bootstrapMiddleware(database)(requestLogger(logger, dashMux))
 
