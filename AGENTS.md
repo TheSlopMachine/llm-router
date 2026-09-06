@@ -1,22 +1,76 @@
 # AGENTS.md
 
-Guidelines for AI agents in `llm-router/`. Read before any change. Rules are absolute. No exceptions. No reinterpretation.
+Guidelines for AI agents in `llm-router/`. Read before any change. Treat every rule as absolute. No exceptions. No reinterpretation.
 
-## 0. Priority Rules
+## 0. Banned Wording
 
-1. NEVER write to `$state` from an `$effect` that reads it. → §4
-2. NEVER run, start, build, or live-test the app. Only 4 `make` targets allowed. → §3
-3. NEVER run destructive git commands. → §5
-4. NEVER delete the dev DB. NEVER kill processes. NEVER litter the repo. → §5
+Apply this section to all agent output: commit messages, PR descriptions, code comments, log strings, UI copy, CLI help/output, error messages, and doc edits.
 
-## 1. Project
+### 0.1 No Filler Phrases
+
+Rule: NEVER write filler phrases that pad a sentence without adding information.
+
+DON'T:
+- "In order to fix this issue, we need to update the router."
+- "It's worth noting that the credential pool is LRU-based."
+- "Please note that this change also updates the router."
+- "As you can see, the test now passes."
+
+DO:
+- "Fix the issue by updating the router."
+- "The credential pool is LRU-based."
+- "Also update the router."
+- "The test now passes."
+
+### 0.2 No Implementation-Detail Asides in UI or CLI
+
+Rule: NEVER append a parenthetical (or dash/comma aside) that explains an internal condition, branch, or implementation reason inside UI text, CLI output, log lines, or error messages. State the action or fact only. Put the reasoning in a code comment or commit message, or leave it out entirely — never surface it to the user.
+
+DON'T:
+- `"Skip validation... (because SKIP_VALIDATION was true)"`
+- `"Load models... (isCacheValid == false)"`
+- `"Retry request... (attempt < maxRetries)"`
+- `"Save credential... (credential.Token != "")"`
+
+DO:
+- `"Skip validation"`
+- `"Load models"`
+- `"Retry request"`
+- `"Save credential"`
+
+If the condition is genuinely useful for debugging, log it at debug level with structured fields (`reason=rate_limited`). Never narrate it in prose inside the user-facing string.
+
+### 0.3 No Unprofessional or Non-Informative Wording
+
+Rule: NEVER use casual, slang, or vague verbs in place of precise technical terms, in code, comments, commits, logs, or docs. Banned examples: "blow up", "wire", "sweep", "spin up", "juice", "nuke", "hack", "magic".
+
+DON'T:
+- "This blows up if the token is empty."
+- "Wire the new adapter into the router."
+- "Sweep stale credentials on startup."
+- "Spin up a goroutine to poll the queue."
+
+DO:
+- "This panics if the token is empty."
+- "Register the new adapter with the router."
+- "Remove stale credentials on startup."
+- "Start a goroutine to poll the queue."
+
+## 1. Priority Rules
+
+1. NEVER write to `$state` from an `$effect` that reads it. → §5
+2. NEVER run, start, build, or live-test the app. Use only the 4 allowed `make` targets. → §4
+3. NEVER run destructive git commands. → §6
+4. NEVER delete the dev DB. NEVER kill processes. NEVER litter the repo. → §6
+
+## 2. Project
 
 `llm-router` — single-binary OpenAI-compatible LLM routing gateway. Go backend + embedded Svelte SPA + embedded bbolt DB.
 
 - Routes `ModelId = provider/model` (e.g. `openai/gpt-4o`, `agents/my-agent`) → `Adapter` + `CredentialPool`.
-- External adapters registered via `adapters.conf`.
+- Register external adapters via `adapters.conf`.
 
-## 2. Structure
+## 3. Structure
 
 ```
 cmd/root.go              CLI entrypoint (--web/--api/--db)
@@ -37,19 +91,19 @@ internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/models
 internal/models/         shared wire types
 internal/config/         Config struct
 providers/agents/        built-in agents adapter
-web/                     Svelte SPA (src/lib/generated/ is generated — do not hand-edit)
+web/                     Svelte SPA (src/lib/generated/ auto-generated — do not hand-edit)
 scripts/                 separate Go module — build/dev helpers (never imported by main module)
-adapters.go              generated — DO NOT EDIT
+adapters.go              auto-generated — DO NOT EDIT
 adapters.conf            external adapter registry, one module per line
 .workspace/              adapter dev workspace (gitignored) — ONLY place to write adapter code
-Makefile                 thin launcher for scripts/ — see §3
+Makefile                 thin launcher for scripts/ — see §4
 ```
 
 Rule: keep changes shallow. Do not touch service internals unless the task requires it.
 
-## 3. Commands
+## 4. Commands
 
-### 3.1 Allowed — agent runs these directly
+### 4.1 Allowed — agent runs these directly
 
 | Command | Purpose |
 |---|---|
@@ -57,7 +111,7 @@ Rule: keep changes shallow. Do not touch service internals unless the task requi
 | `make go-check` | Go static check (`go vet`) |
 | `make go-test` | Go tests |
 
-### 3.2 Banned — raw equivalents of the above
+### 4.2 Banned — raw equivalents of the above
 
 | DO | DON'T |
 |---|---|
@@ -65,13 +119,13 @@ Rule: keep changes shallow. Do not touch service internals unless the task requi
 | `make go-check` | `go vet ./...` |
 | `make go-test` | `go test ./...` |
 
-Rule: a raw command duplicating a `make` target is banned even if the outcome would be identical.
+Rule: NEVER substitute a raw command for an allowed `make` target, even when the outcome matches.
 
-### 3.3 Banned — every other Makefile target
+### 4.3 Banned — every other Makefile target
 
 `start`, `stop`, `restart`, `status`, `browser`, `publish`, `clean`.
 
-Agent NEVER runs these. No exception for "just to check", "isolated test", "custom port", or any other framing.
+NEVER run these. No exception for "just to check", "isolated test", "custom port", or any other framing.
 
 If the task needs one of these: STOP. Ask the human to run it and report back (terminal output, logs, curl/browser result).
 
@@ -79,9 +133,9 @@ If the task needs one of these: STOP. Ask the human to run it and report back (t
 |---|---|
 | "Please run `make start` and paste the output." | `go run .`, `go build -o ./llm-router.exe`, `bun run dev`, `Start-Process ...`, any script/wrapper invoking these |
 
-## 4. Svelte 5 Reactivity
+## 5. Svelte 5 Reactivity
 
-Rule: `$effect` NEVER writes to a `$state` variable that the same effect (or a function it calls) also reads. Guard flags and `untrack()` do not fix this — they hide it.
+Rule: NEVER write to a `$state` variable from an `$effect` that reads it — directly, or via a function it calls. Guard flags and `untrack()` do not fix this — they hide it.
 
 DON'T:
 ```svelte
@@ -117,30 +171,31 @@ Rule: never stack a 2nd/3rd `$effect` with its own guard flag to patch the 1st. 
 
 Rule: before finishing any `.svelte` change, re-check every `$effect` touched against this section.
 
-## 5. Absolute Prohibitions
+## 6. Absolute Prohibitions
 
 | # | Prohibition | Detail |
 |---|---|---|
 | 1 | Kill processes | No `kill`, `pkill`, `taskkill`, `Stop-Process`. Ask human to run `make stop`. |
-| 2 | Delete database files | Never remove `~/.local/llm-router/llm-router-dev.db` (or Windows equivalent). Human recreates it via `make start`. |
-| 3 | Destructive git commands | No `git commit`, `git push`, `git reset`, `git checkout -f`, `git clean`, force-push, amend. Commit only if explicitly instructed, for that exact commit only. |
+| 2 | Delete database files | Never remove `~/.local/llm-router/llm-router-dev.db` (or the Windows equivalent). Ask the human to recreate it via `make start`. |
+| 3 | Run destructive git commands | No `git commit`, `git push`, `git reset`, `git checkout -f`, `git clean`, force-push, amend. Commit only if explicitly instructed, for that exact commit only. |
 | 4 | Litter the project | No `*.log`, `*.pid`, `*.tmp`, binaries, scratch files, notes inside the project tree. Use `/tmp` or an external scratch dir. |
-| 5 | Avoid the Makefile | No raw command substitutes for an allowed target (§3.2). No manual invocation of a banned target's underlying steps (§3.3). |
-| 6 | Run, start, or live-test the app | Human-only task. Agent is not proficient at runtime debugging. See §3.3, §7. |
-| 7 | Redirecting output to nul | It's a terrible habit and it breaks on windows. |
-| 8 | Truncating diagnostics output with tail/head.  | Wastes your time; diagnostics are important, do not truncate them |
+| 5 | Avoid the Makefile | No raw command substitutes for an allowed target (§4.2). No manual invocation of a banned target's underlying steps (§4.3). |
+| 6 | Run, start, or live-test the app | Human-only task. NEVER debug at runtime yourself — ask the human. See §4.3, §8. |
+| 7 | Redirect output to nul | A terrible habit that breaks on Windows. |
+| 8 | Truncate diagnostics output with tail/head | Diagnostics matter and truncating wastes time. NEVER truncate them. |
+| 9 | Fall back silently | NEVER swallow a failure and continue on a fallback path. Surface every failure as an error — return it to the caller, log it, or both — or route it to an explicit, named on-fail branch. Never fall through unannounced. |
 
-## 6. Adapters
+## 7. Adapters
 
-- Location: new adapter code goes ONLY in `.workspace/<adapter-name>/`. Never in `providers/`, repo root, or elsewhere.
+- Location: write new adapter code ONLY in `.workspace/<adapter-name>/`. Never in `providers/`, repo root, or elsewhere.
 - Module: separate Go module `github.com/TheSlopMachine/llm-router-adapter-<name>`, `sdk.Register` in `init()`.
 - Required files: `go.mod`, `adapter.go`, `client.go`, `models.go`, `transform.go`, `errors.go`, `README.md`, `.gitignore`.
-- Registration: agent edits `adapters.conf` (add `<module>` line). Workspace (`go.work` + `adapters.go`) is regenerated implicitly by `make start` / `make publish` — agent does NOT run those (banned, §3.3). Ask human to run `make start` and confirm `adapters.go` + `go.work` regenerated.
-- Verification: `make go-check` only. Runtime check (e.g. `opencode-zen/model`) requires `make start` — ask human.
+- Registration: edit `adapters.conf` (add the `<module>` line). `make start` / `make publish` regenerate the workspace (`go.work` + `adapters.go`) automatically — NEVER run those yourself (banned, §4.3). Ask the human to run `make start` and confirm `adapters.go` + `go.work` regenerated.
+- Verification: run `make go-check` only. For runtime checks (e.g. `opencode-zen/model`), ask the human to run `make start`.
 
-## 7. When Runtime Info Is Needed
+## 8. When Runtime Info Is Needed
 
-Agent cannot run the app (§3.3, §5.6). To get runtime facts:
+NEVER run the app yourself (§4.3, §6.6). To get runtime facts:
 
 1. State exactly what's needed: endpoint, log line, or behavior.
 2. Ask human to run `make start` / `make restart` and report back.
