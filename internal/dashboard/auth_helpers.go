@@ -3,60 +3,22 @@ package dashboard
 import (
 	"strings"
 
-	"github.com/TheSlopMachine/llm-router/internal/models"
-	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/util"
 )
 
-func providerSupportsAuthFlow(typeKey string) bool {
-	adapter, err := provider.Lookup(typeKey)
-	if err != nil {
-		return false
+func buildAutoCredentialLabel(providerID string, data map[string]any) string {
+	name := strings.TrimSpace(providerID)
+	if name == "" {
+		name = "Provider"
 	}
-	return adapter.GetAuthFlow() != nil
-}
-
-func buildAutoCredentialLabel(p *models.Provider, data map[string]string) string {
-	providerName := "Provider"
-	if p != nil && strings.TrimSpace(p.Name) != "" {
-		providerName = strings.TrimSpace(p.Name)
-	}
-
-	methodName := credentialAuthMethodLabel(p, data)
-	timestamp := util.Now().Format("2006-01-02 15:04")
-	return providerName + " · " + methodName + " · " + timestamp
-}
-
-func credentialAuthMethodLabel(p *models.Provider, data map[string]string) string {
-	if data == nil {
-		return fallbackAuthMethodLabel(p)
-	}
-
-	raw := strings.TrimSpace(data["auth_method"])
-	if raw != "" {
-		if normalized := normalizeKnownAuthMethod(raw); normalized != "" {
-			return normalized
+	method := "Authenticated"
+	if data != nil {
+		if raw, _ := data["auth_method"].(string); strings.TrimSpace(raw) != "" {
+			method = normalizeKnownAuthMethod(raw)
 		}
 	}
-
-	return fallbackAuthMethodLabel(p)
-}
-
-func fallbackAuthMethodLabel(p *models.Provider) string {
-	if p == nil {
-		return "Authenticated"
-	}
-
-	switch p.AuthType {
-	case models.AuthTypeAPIKey:
-		return "API Key"
-	case models.AuthTypeOAuth2:
-		return "OAuth"
-	case models.AuthTypeBasic:
-		return "Basic Auth"
-	default:
-		return "Authenticated"
-	}
+	timestamp := util.Now().Format("2006-01-02 15:04")
+	return name + " · " + method + " · " + timestamp
 }
 
 func normalizeKnownAuthMethod(raw string) string {
@@ -81,7 +43,7 @@ func normalizeKnownAuthMethod(raw string) string {
 		return r == '-' || r == '_' || r == ' '
 	})
 	if len(parts) == 0 {
-		return ""
+		return "Authenticated"
 	}
 
 	for i, part := range parts {

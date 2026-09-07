@@ -16,14 +16,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
-// ProviderInfo is a minimal struct to avoid import cycle with provider package
-type ProviderInfo struct {
-	Name      string
-	Qualifier string
-	BaseURL   string
-	IconURL   string
-}
-
 // SetupTestDB creates a temporary bbolt database for testing.
 // The database is automatically cleaned up when the test completes.
 func SetupTestDB(t *testing.T) *db.DB {
@@ -50,23 +42,21 @@ func SetupTestDB(t *testing.T) *db.DB {
 	return database
 }
 
-// MockAdapter is a simple, configurable test adapter.
+// MockAdapter is a simple, configurable test adapter using models types.
 type MockAdapter struct {
 	typeKey            string
-	authType           models.AuthType
 	completeFunc       func(context.Context, *models.Credential, *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error)
 	completeStreamFunc func(context.Context, *models.Credential, *models.ChatCompletionRequest, io.Writer) error
-	validateFunc       func(map[string]string) error
+	validateFunc       func(map[string]any) error
 	needsRefreshFunc   func(*models.Credential) bool
-	refreshFunc        func(context.Context, *models.Credential) (*models.Credential, error)
+	refreshFunc        func(context.Context, *models.Credential) (map[string]any, error)
 	modelInfosFunc     func(context.Context, *models.Credential, string) ([]models.ModelInfo, error)
 }
 
 // NewMockAdapter creates a mock adapter with sensible defaults.
 func NewMockAdapter(typeKey string) *MockAdapter {
 	return &MockAdapter{
-		typeKey:  typeKey,
-		authType: models.AuthTypeAPIKey,
+		typeKey: typeKey,
 		completeFunc: func(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
 			return &models.ChatCompletionResponse{
 				ID:      "mock-" + fmt.Sprintf("%d", time.Now().Unix()),
@@ -110,8 +100,8 @@ func NewMockAdapter(typeKey string) *MockAdapter {
 			fmt.Fprintf(w, "data: %s\n\n", data)
 			return nil
 		},
-		validateFunc: func(data map[string]string) error {
-			if data["api_key"] == "" {
+		validateFunc: func(data map[string]any) error {
+			if s, _ := data["api_key"].(string); s == "" {
 				return fmt.Errorf("api_key required")
 			}
 			return nil
@@ -119,7 +109,7 @@ func NewMockAdapter(typeKey string) *MockAdapter {
 		needsRefreshFunc: func(cred *models.Credential) bool {
 			return false
 		},
-		refreshFunc: func(ctx context.Context, cred *models.Credential) (*models.Credential, error) {
+		refreshFunc: func(ctx context.Context, cred *models.Credential) (map[string]any, error) {
 			return nil, fmt.Errorf("no refresh needed")
 		},
 		modelInfosFunc: func(ctx context.Context, cred *models.Credential, qualifier string) ([]models.ModelInfo, error) {
@@ -135,32 +125,22 @@ func NewMockAdapter(typeKey string) *MockAdapter {
 	}
 }
 
-func (m *MockAdapter) TypeKey() string                     { return m.typeKey }
-func (m *MockAdapter) AuthType() models.AuthType           { return m.authType }
-func (m *MockAdapter) ValidateCredentials(data map[string]string) error { return m.validateFunc(data) }
-func (m *MockAdapter) Complete(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+func (m *MockAdapter) TypeKey() string { return m.typeKey }
+func (m *MockAdapter) ValidateCredentials(data map[string]any) error {
+	return m.validateFunc(data)
+}
+func (m *MockAdapter) Complete(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest, _ map[string]any) (*models.ChatCompletionResponse, error) {
 	return m.completeFunc(ctx, cred, req)
 }
-func (m *MockAdapter) CompleteStream(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest, w io.Writer) error {
+func (m *MockAdapter) CompleteStream(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest, w io.Writer, _ map[string]any) error {
 	return m.completeStreamFunc(ctx, cred, req, w)
 }
 func (m *MockAdapter) NeedsRefresh(cred *models.Credential) bool { return m.needsRefreshFunc(cred) }
-func (m *MockAdapter) RefreshCredential(ctx context.Context, cred *models.Credential) (*models.Credential, error) {
+func (m *MockAdapter) RefreshCredential(ctx context.Context, cred *models.Credential) (map[string]any, error) {
 	return m.refreshFunc(ctx, cred)
 }
-func (m *MockAdapter) GetModelInfos(ctx context.Context, cred *models.Credential, qualifier string) ([]models.ModelInfo, error) {
-	return m.modelInfosFunc(ctx, cred, qualifier)
-}
-func (m *MockAdapter) GetAuthFlow() interface{} { return nil }
-func (m *MockAdapter) GetDefaultProviders() []ProviderInfo {
-	return []ProviderInfo{
-		{
-			Name:      "Mock Provider",
-			Qualifier: "",
-			BaseURL:   "",
-			IconURL:   "",
-		},
-	}
+func (m *MockAdapter) GetModelInfos(ctx context.Context, cred *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {
+	return m.modelInfosFunc(ctx, cred, "")
 }
 
 // WithCompleteFunc configures the Complete behavior.
@@ -176,7 +156,7 @@ func (m *MockAdapter) WithCompleteStreamFunc(f func(context.Context, *models.Cre
 }
 
 // WithValidateFunc configures the ValidateCredentials behavior.
-func (m *MockAdapter) WithValidateFunc(f func(map[string]string) error) *MockAdapter {
+func (m *MockAdapter) WithValidateFunc(f func(map[string]any) error) *MockAdapter {
 	m.validateFunc = f
 	return m
 }
@@ -194,7 +174,7 @@ func BuildCredential(providerID string, opts ...func(*models.Credential)) *model
 	cred := &models.Credential{
 		ID:         fmt.Sprintf("cred-%d", time.Now().UnixNano()),
 		ProviderID: providerID,
-		Data: map[string]string{
+		Data: map[string]any{
 			"api_key": "test-key",
 		},
 		LastUsedAt: nil,
@@ -208,7 +188,7 @@ func BuildCredential(providerID string, opts ...func(*models.Credential)) *model
 }
 
 // WithCredentialData sets credential data.
-func WithCredentialData(data map[string]string) func(*models.Credential) {
+func WithCredentialData(data map[string]any) func(*models.Credential) {
 	return func(c *models.Credential) {
 		c.Data = data
 	}
@@ -299,14 +279,12 @@ func WithStreaming(stream bool) func(*models.ChatCompletionRequest) {
 	}
 }
 
-// BuildProvider creates a test provider.
-func BuildProvider(typeKey string, opts ...func(*models.Provider)) *models.Provider {
-	p := &models.Provider{
-		ID:        fmt.Sprintf("%s", typeKey),
-		Name:      typeKey,
-		Type:      typeKey,
-		Qualifier: "",
-		BaseURL:   "",
+// BuildProvider creates a test provider instance.
+func BuildProvider(typeKey string, opts ...func(*models.ProviderInstance)) *models.ProviderInstance {
+	p := &models.ProviderInstance{
+		ID:      typeKey,
+		Name:    typeKey,
+		TypeKey: typeKey,
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -315,18 +293,18 @@ func BuildProvider(typeKey string, opts ...func(*models.Provider)) *models.Provi
 }
 
 // WithProviderName sets provider name.
-func WithProviderName(name string) func(*models.Provider) {
-	return func(p *models.Provider) {
+func WithProviderName(name string) func(*models.ProviderInstance) {
+	return func(p *models.ProviderInstance) {
 		p.Name = name
 	}
 }
 
 // WithProviderQualifier sets provider qualifier.
-func WithProviderQualifier(q string) func(*models.Provider) {
-	return func(p *models.Provider) {
+func WithProviderQualifier(q string) func(*models.ProviderInstance) {
+	return func(p *models.ProviderInstance) {
 		p.Qualifier = q
 		if q != "" {
-			p.ID = p.Type + ":" + q
+			p.ID = p.TypeKey + ":" + q
 		}
 	}
 }
@@ -358,4 +336,3 @@ func ParseSSEStream(r io.Reader) ([]models.StreamChunk, error) {
 
 	return chunks, nil
 }
-

@@ -59,7 +59,9 @@ export interface Provider {
   id: string
   name: string
   type: string
+  type_key: string
   qualifier: string
+  config: Record<string, unknown>
   auth_type: string
   base_url: string
   icon_url: string
@@ -133,6 +135,90 @@ export interface RouterConfiguration {
   is_cluster_node: boolean
   disable_telemetry: boolean
   max_retries: number
+}
+
+export interface UINode {
+  type: 'text' | 'input' | 'select' | 'checkbox' | 'button' | 'link' | 'banner' | 'group'
+  text?: string
+  name?: string
+  label?: string
+  input_type?: string
+  required?: boolean
+  options?: string[]
+  url?: string
+  variant?: string
+  form_action?: string
+  content?: UINode[]
+  placeholder?: string
+  value?: unknown
+}
+
+export interface SchemaResponse {
+  nodes: UINode[] | null
+  fallback?: string
+}
+
+export type AuthStepStatus = 'render' | 'redirect' | 'complete'
+
+export interface AuthStepResponse {
+  status: AuthStepStatus
+  nodes?: UINode[]
+  redirect_url?: string
+  flow_id?: string
+  provider_id?: string
+  message?: string
+  credential_id?: string
+}
+
+export interface Plugin {
+  id: string
+  display_name: string
+  author: string
+  version: string
+  router_version: string
+  description: string
+  license: string
+  allow_hosts: string[]
+  unsafe: boolean
+  type_keys: string[]
+  enabled: boolean
+  origin: { repo_id: string; path: string; manual: boolean }
+  installed_at: string
+  updated_at: string
+  history_count: number
+}
+
+export interface PluginRepo {
+  id: string
+  kind: string
+  owner: string
+  repo: string
+  index_url: string
+}
+
+export interface StoreFile {
+  repo_id: string
+  path: string
+  display_name: string
+  author: string
+  version: string
+  description: string
+  allow_hosts: string[]
+  unsafe: boolean
+  installed: boolean
+  installed_version: string
+  update_available: boolean
+  error?: string
+}
+
+export interface PluginUpdate {
+  plugin_id: string
+  current: string
+  latest: string
+  repo_id: string
+  path: string
+  update_available: boolean
+  error?: string
 }
 
 export type { ApiPath, ApiMethod, ApiResponse, ApiError, ApiRequestBody, ApiQueryParams } from './api-client'

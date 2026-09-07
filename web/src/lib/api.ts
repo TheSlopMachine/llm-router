@@ -1,15 +1,18 @@
 import { apiCall as _apiCall } from './api-client'
-import type { Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel } from './types'
+import type { Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate } from './types'
 
 const apiCall = _apiCall
 
 function toProvider(raw: Record<string, unknown>): Provider {
   const r = raw as Record<string, unknown>
+  const typeKey = (r.type_key as string) ?? (r.type as string) ?? ''
   return {
     id: (r.id as string) ?? '',
     name: (r.name as string) ?? '',
-    type: (r.type as string) ?? '',
+    type: (r.type as string) ?? typeKey,
+    type_key: typeKey,
     qualifier: (r.qualifier as string) ?? '',
+    config: (r.config as Record<string, unknown>) ?? {},
     auth_type: (r.auth_type as string) ?? '',
     base_url: (r.base_url as string) ?? '',
     icon_url: (r.icon_url as string) ?? '',
@@ -77,7 +80,13 @@ export const api = {
     create: (payload: { name: string; base_url: string; icon_url?: string }) =>
       apiCall('post', '/api/llm-router/dashboard/providers', { body: payload as unknown as never }),
 
+    createInstance: (payload: { name: string; type_key: string; qualifier?: string; config?: Record<string, unknown>; icon_url?: string }) =>
+      apiCall('post', '/api/llm-router/dashboard/providers', { body: payload as unknown as never }),
+
     update: (id: string, payload: { name: string; base_url: string; icon_url?: string }) =>
+      apiCall('put', `/api/llm-router/dashboard/providers/${id}` as '/api/llm-router/dashboard/providers/{id}', { body: payload as unknown as never } as never),
+
+    updateInstance: (id: string, payload: { name: string; config?: Record<string, unknown>; icon_url?: string }) =>
       apiCall('put', `/api/llm-router/dashboard/providers/${id}` as '/api/llm-router/dashboard/providers/{id}', { body: payload as unknown as never } as never),
 
     delete: (id: string) =>
@@ -94,6 +103,87 @@ export const api = {
       }
       return out
     },
+
+    configSchema: (id: string): Promise<SchemaResponse> =>
+      fetch(`/api/llm-router/dashboard/providers/${encodeURIComponent(id)}/config-schema`).then(assertOk),
+
+    credentialSchema: (id: string): Promise<SchemaResponse> =>
+      fetch(`/api/llm-router/dashboard/providers/${encodeURIComponent(id)}/credential-schema`).then(assertOk),
+
+    configSchemaForType: (type_key: string): Promise<SchemaResponse> =>
+      fetch(`/api/llm-router/dashboard/type-schemas?kind=config&type_key=${encodeURIComponent(type_key)}`).then(assertOk),
+  },
+
+  // Auth wizards (lua UI-tree)
+  auth: {
+    initiate: (provider_id: string): Promise<AuthStepResponse> =>
+      postJson('/api/llm-router/dashboard/auth/initiate', { provider_id }),
+
+    step: (payload: { provider_id: string; flow_id: string; action: string; values: Record<string, unknown> }): Promise<AuthStepResponse> =>
+      postJson('/api/llm-router/dashboard/auth/step', payload),
+  },
+
+  // Installed plugins
+  plugins: {
+    list: (): Promise<Plugin[]> =>
+      fetch('/api/llm-router/dashboard/plugins').then(assertOk),
+
+    get: (id: string): Promise<Plugin> =>
+      fetch(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}`).then(assertOk),
+
+    installFile: (source: string): Promise<Plugin> =>
+      fetch('/api/llm-router/dashboard/plugins/install-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: source,
+      }).then(assertOk),
+
+    installFromRepo: (repo_id: string, path: string): Promise<Plugin> =>
+      postJson('/api/llm-router/dashboard/plugins/install-from-repo', { repo_id, path }),
+
+    remove: (id: string): Promise<void> =>
+      fetch(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(assertOkVoid),
+
+    enable: (id: string): Promise<Plugin> =>
+      postJson(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}/enable`, {}),
+
+    disable: (id: string): Promise<Plugin> =>
+      postJson(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}/disable`, {}),
+
+    rollback: (id: string): Promise<Plugin> =>
+      postJson(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}/rollback`, {}),
+
+    logs: (id: string): Promise<Array<{ at: string; message: string }>> =>
+      fetch(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}/logs`).then(assertOk),
+
+    crashes: (id: string): Promise<Array<{ at: string; type_key: string; cause: string }>> =>
+      fetch(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}/crashes`).then(assertOk),
+  },
+
+  // Plugin store
+  repos: {
+    list: (): Promise<PluginRepo[]> =>
+      fetch('/api/llm-router/dashboard/plugin-repos').then(assertOk),
+
+    addGitHub: (owner: string, repo: string): Promise<PluginRepo> =>
+      postJson('/api/llm-router/dashboard/plugin-repos', { kind: 'github', owner, repo }),
+
+    addGeneric: (index_url: string): Promise<PluginRepo> =>
+      postJson('/api/llm-router/dashboard/plugin-repos', { kind: 'generic-index', index_url }),
+
+    remove: (id: string): Promise<void> =>
+      fetch(`/api/llm-router/dashboard/plugin-repos/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(assertOkVoid),
+
+    files: (id: string): Promise<StoreFile[]> =>
+      fetch(`/api/llm-router/dashboard/plugin-repos/${encodeURIComponent(id)}/files`).then(assertOk),
+  },
+
+  store: {
+    search: (): Promise<{ repos: Array<{ repo: PluginRepo; files: StoreFile[]; error: string }> }> =>
+      fetch('/api/llm-router/dashboard/plugin-store/search').then(assertOk),
+
+    updates: (): Promise<{ updates: PluginUpdate[] }> =>
+      fetch('/api/llm-router/dashboard/plugin-store/updates').then(assertOk),
   },
 
   // Tokens
@@ -136,6 +226,9 @@ export const api = {
   credentials: {
     list: () =>
       apiCall('get', '/api/llm-router/dashboard/credentials'),
+
+    create: (payload: { provider_id: string; label?: string; data: Record<string, unknown> }) =>
+      postJson('/api/llm-router/dashboard/credentials', payload),
 
     delete: (id: string) =>
       apiCall('delete', `/api/llm-router/dashboard/credentials/${id}` as '/api/llm-router/dashboard/credentials/{id}'),
@@ -225,4 +318,38 @@ export const api = {
     completions: (payload: { model: string; messages: Array<{ role: string; content: string }>; stream?: boolean }) =>
       apiCall('post', '/api/llm-router/dashboard/chat/completions', { body: payload as unknown as never } as never),
   },
+}
+
+async function assertOk(res: Response): Promise<any> {
+  if (!res.ok) {
+    throw new Error(await errorText(res))
+  }
+  return res.json()
+}
+
+async function assertOkVoid(res: Response): Promise<void> {
+  if (!res.ok) {
+    throw new Error(await errorText(res))
+  }
+}
+
+async function postJson(path: string, payload: unknown): Promise<any> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return assertOk(res)
+}
+
+async function errorText(res: Response): Promise<string> {
+  const text = await res.text()
+  try {
+    const json = JSON.parse(text) as unknown
+    if (json && typeof json === 'object' && 'error' in (json as Record<string, unknown>)) {
+      const candidate = (json as Record<string, unknown>).error
+      if (typeof candidate === 'string' && candidate) return candidate
+    }
+  } catch {}
+  return `HTTP ${res.status}`
 }

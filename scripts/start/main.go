@@ -19,7 +19,6 @@ func main() {
 	apiPort := flag.String("api-port", "8081", "api port")
 	dbPath := flag.String("db", "", "database file path")
 	keyPath := flag.String("testing-key", "", "testing key file path")
-	remote := flag.String("remote", "https", "clone protocol for workspace")
 	pidFile := flag.String("pid-file", shared.DefaultPidFile(), "pidfile path")
 	flag.Parse()
 
@@ -28,9 +27,6 @@ func main() {
 	}
 	if *keyPath == "" {
 		shared.Failf("missing --testing-key")
-	}
-	if *remote != "https" && *remote != "ssh" {
-		shared.Failf("invalid --remote %q", *remote)
 	}
 
 	root, err := shared.RootDir()
@@ -49,11 +45,8 @@ func main() {
 		_ = os.Remove(*pidFile)
 	}
 
-	// Prepare workspace and frontend (strict, fast-path when fresh).
-	shared.Stepf("Preparing workspace and frontend...")
-	if err := shared.RunScript("workspace", "--remote", *remote); err != nil {
-		shared.Failf("%v", err)
-	}
+	// Prepare frontend (strict, fast-path when fresh).
+	shared.Stepf("Preparing frontend...")
 	if err := shared.RunScript("frontend", "--mode", "dev", "--host", *host, "--vite-port", *webPort); err != nil {
 		shared.Failf("%v", err)
 	}

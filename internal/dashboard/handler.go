@@ -12,11 +12,12 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	"github.com/TheSlopMachine/llm-router/internal/services/agent"
-	"github.com/TheSlopMachine/llm-router/internal/services/auth"
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
+	"github.com/TheSlopMachine/llm-router/internal/services/pluginrepo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/router"
 	"github.com/TheSlopMachine/llm-router/internal/services/token"
@@ -33,12 +34,13 @@ type Handler struct {
 	providerSvc  *provider.Service
 	credSvc      *credential.Service
 	tokenSvc     *token.Service
-	authSvc      *auth.Service
 	modelInfoSvc *modelinfo.Service
 	metricsSvc   *metrics.Service
 	agentSvc     *agent.Service
 	routerSvc    *router.Service
 	configSvc    *configsvc.Service
+	luaSvc       *luaplugin.Service
+	repoSvc      *pluginrepo.Service
 	logger       *slog.Logger
 
 	// devRedirect, when set, is the origin (e.g. "http://localhost:8080")
@@ -54,12 +56,13 @@ func New(
 	providerSvc *provider.Service,
 	credSvc *credential.Service,
 	tokenSvc *token.Service,
-	authSvc *auth.Service,
 	modelInfoSvc *modelinfo.Service,
 	metricsSvc *metrics.Service,
 	agentSvc *agent.Service,
 	routerSvc *router.Service,
 	configSvc *configsvc.Service,
+	luaSvc *luaplugin.Service,
+	repoSvc *pluginrepo.Service,
 	logger *slog.Logger,
 ) (*Handler, error) {
 	return &Handler{
@@ -67,12 +70,13 @@ func New(
 		providerSvc:  providerSvc,
 		credSvc:      credSvc,
 		tokenSvc:     tokenSvc,
-		authSvc:      authSvc,
 		modelInfoSvc: modelInfoSvc,
 		metricsSvc:   metricsSvc,
 		agentSvc:     agentSvc,
 		routerSvc:    routerSvc,
 		configSvc:    configSvc,
+		luaSvc:       luaSvc,
+		repoSvc:      repoSvc,
 		logger:       logger,
 	}, nil
 }
@@ -113,6 +117,9 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/providers/{id}", h.requireAuth(h.apiProvidersDelete))
 	mux.HandleFunc("GET /api/llm-router/dashboard/adapter-types", h.requireAuth(h.apiAdapterTypes))
 	mux.HandleFunc("GET /api/llm-router/dashboard/providers/stats", h.requireAuth(h.apiProvidersStats))
+	mux.HandleFunc("GET /api/llm-router/dashboard/providers/{id}/config-schema", h.requireAuth(h.apiProviderConfigSchema))
+	mux.HandleFunc("GET /api/llm-router/dashboard/providers/{id}/credential-schema", h.requireAuth(h.apiProviderCredentialSchema))
+	mux.HandleFunc("GET /api/llm-router/dashboard/type-schemas", h.requireAuth(h.apiTypeSchemas))
 
 	mux.HandleFunc("GET /api/llm-router/dashboard/tokens", h.requireAuth(h.apiTokensList))
 	mux.HandleFunc("POST /api/llm-router/dashboard/tokens", h.requireAuth(h.apiTokensCreate))
@@ -121,6 +128,7 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/tokens/{id}", h.requireAuth(h.apiTokensDelete))
 
 	mux.HandleFunc("GET /api/llm-router/dashboard/credentials", h.requireAuth(h.apiCredentialsList))
+	mux.HandleFunc("POST /api/llm-router/dashboard/credentials", h.requireAuth(h.apiCredentialsCreate))
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/credentials/{id}", h.requireAuth(h.apiCredentialsDelete))
 
 	mux.HandleFunc("GET /api/llm-router/dashboard/models", h.requireAuth(h.apiModels))
@@ -140,9 +148,29 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("GET /api/llm-router/dashboard/metrics/models", h.requireAuth(h.apiMetricsModels))
 	mux.HandleFunc("GET /api/llm-router/dashboard/tokens/usage", h.requireAuth(h.apiTokenUsage))
 
-	// Auth flow endpoints
-	mux.HandleFunc("POST /api/llm-router/dashboard/auth/start", h.requireAuth(h.authStart))
-	mux.HandleFunc("POST /api/llm-router/dashboard/auth/callback", h.requireAuth(h.authCallback))
+	// Auth flow endpoints (lua UI-tree wizards)
+	mux.HandleFunc("POST /api/llm-router/dashboard/auth/initiate", h.requireAuth(h.authInitiate))
+	mux.HandleFunc("POST /api/llm-router/dashboard/auth/step", h.requireAuth(h.authStep))
+
+	// Plugin endpoints
+	mux.HandleFunc("GET /api/llm-router/dashboard/plugins", h.requireAuth(h.apiPluginsList))
+	mux.HandleFunc("POST /api/llm-router/dashboard/plugins/install-file", h.requireAuth(h.apiPluginsInstallFile))
+	mux.HandleFunc("POST /api/llm-router/dashboard/plugins/install-from-repo", h.requireAuth(h.apiPluginsInstallFromRepo))
+	mux.HandleFunc("GET /api/llm-router/dashboard/plugins/{id}", h.requireAuth(h.apiPluginsGet))
+	mux.HandleFunc("DELETE /api/llm-router/dashboard/plugins/{id}", h.requireAuth(h.apiPluginsDelete))
+	mux.HandleFunc("POST /api/llm-router/dashboard/plugins/{id}/enable", h.requireAuth(h.apiPluginsEnable))
+	mux.HandleFunc("POST /api/llm-router/dashboard/plugins/{id}/disable", h.requireAuth(h.apiPluginsDisable))
+	mux.HandleFunc("POST /api/llm-router/dashboard/plugins/{id}/rollback", h.requireAuth(h.apiPluginsRollback))
+	mux.HandleFunc("GET /api/llm-router/dashboard/plugins/{id}/logs", h.requireAuth(h.apiPluginsLogs))
+	mux.HandleFunc("GET /api/llm-router/dashboard/plugins/{id}/crashes", h.requireAuth(h.apiPluginsCrashes))
+
+	// Plugin store endpoints
+	mux.HandleFunc("GET /api/llm-router/dashboard/plugin-repos", h.requireAuth(h.apiReposList))
+	mux.HandleFunc("POST /api/llm-router/dashboard/plugin-repos", h.requireAuth(h.apiReposAdd))
+	mux.HandleFunc("DELETE /api/llm-router/dashboard/plugin-repos/{id}", h.requireAuth(h.apiReposDelete))
+	mux.HandleFunc("GET /api/llm-router/dashboard/plugin-repos/{id}/files", h.requireAuth(h.apiReposFiles))
+	mux.HandleFunc("GET /api/llm-router/dashboard/plugin-store/search", h.requireAuth(h.apiStoreSearch))
+	mux.HandleFunc("GET /api/llm-router/dashboard/plugin-store/updates", h.requireAuth(h.apiStoreUpdates))
 
 	// Router configuration (instance-wide)
 	mux.HandleFunc("GET /api/llm-router/dashboard/config", h.requireAuth(h.apiConfigGet))

@@ -3,8 +3,8 @@
   import { api } from '../lib/api'
   import { modal } from '../lib/modal.svelte'
   import { getErrorMessage } from '../lib/errors'
-  import { hardenSecureElements } from '../lib/secure'
   import type { Provider, Credential, ModalButton } from '../lib/types'
+  import CredentialWizard from './CredentialWizard.svelte'
 
   let {
     provider,
@@ -29,20 +29,12 @@
   }>()
 
   let view = $state<'list' | 'auth'>('list')
-  let authHtml = $state('')
-  let flowId = $state('')
-  let loading = $state(false)
   let error = $state('')
-  let authContainer = $state<HTMLDivElement | undefined>(undefined)
-
-  $effect(() => {
-    void authHtml
-    if (authContainer) hardenSecureElements(authContainer)
-  })
 
   onMount(() => {
     if (credentials.length === 0) {
-      switchToAuthFlow()
+      view = 'auth'
+      updateAuthButtons()
     } else {
       updateListButtons()
     }
@@ -52,7 +44,7 @@
     updateTitle(`${provider.name} Credentials`)
     updateButtons([
       { label: 'Cancel', variant: 'secondary', onClick: closeModal },
-      { label: 'Add credential', variant: 'primary', onClick: switchToAuthFlow, loading }
+      { label: 'Add credential', variant: 'primary', onClick: () => { view = 'auth'; updateAuthButtons() } }
     ])
   }
 
@@ -61,91 +53,9 @@
     updateButtons([{ label: 'Cancel', variant: 'secondary', onClick: closeModal }])
   }
 
-  async function switchToAuthFlow(): Promise<void> {
-    loading = true
-    error = ''
+  function backToList(): void {
+    view = 'list'
     updateListButtons()
-
-    try {
-      const res = await fetch('/api/llm-router/dashboard/auth/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider_id: provider.id })
-      })
-
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || 'Failed to start auth flow')
-      }
-
-      const data = await res.json()
-
-      if (data.status === 'render' && data.html) {
-        flowId = data.flow_id
-        authHtml = data.html
-        view = 'auth'
-        updateAuthButtons()
-      } else if (data.status === 'redirect' && data.external_url) {
-        window.open(data.external_url, '_blank')
-        error = 'Please complete authentication in the new window'
-      } else if (data.status === 'complete') {
-        onComplete()
-      } else {
-        throw new Error('Unexpected auth flow response')
-      }
-    } catch (e) {
-      error = getErrorMessage(e)
-    } finally {
-      loading = false
-      if (view === 'list') {
-        updateListButtons()
-      }
-    }
-  }
-
-  async function submitAuthStep(e: Event): Promise<void> {
-    e.preventDefault()
-    const form = e.target as HTMLFormElement
-    const formData = new FormData(form)
-    const submitter = (e as SubmitEvent).submitter as HTMLButtonElement | HTMLInputElement | null
-
-    if (submitter?.name) {
-      formData.append(submitter.name, submitter.value)
-    }
-
-    loading = true
-    error = ''
-
-    try {
-      const res = await fetch('/api/llm-router/dashboard/auth/callback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams(formData as any).toString()
-      })
-
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || 'Auth step failed')
-      }
-
-      const data = await res.json()
-
-      if (data.status === 'complete') {
-        onComplete()
-        return
-      } else if (data.status === 'render' && data.html) {
-        authHtml = data.html
-      } else if (data.status === 'redirect' && data.external_url) {
-        window.open(data.external_url, '_blank')
-        error = 'Please complete authentication in the new window'
-      } else {
-        throw new Error('Unexpected auth flow response')
-      }
-    } catch (e) {
-      error = getErrorMessage(e)
-    } finally {
-      loading = false
-    }
   }
 
   async function deleteCredential(id: string, label: string): Promise<void> {
@@ -166,7 +76,8 @@
       if (onUpdate) onUpdate()
 
       if (credentials.length === 0) {
-        switchToAuthFlow()
+        view = 'auth'
+        updateAuthButtons()
       }
     } catch (e) {
       error = getErrorMessage(e)
@@ -179,7 +90,7 @@
 {/if}
 
 {#if view === 'list'}
-  {#if provider.type === 'custom' && (onEdit || onDelete)}
+  {#if onEdit || onDelete}
     <div class="provider-actions">
       {#if onEdit}
         <button class="btn btn-secondary" onclick={onEdit}>
@@ -218,15 +129,7 @@
     </div>
   {/if}
 {:else}
-  <div bind:this={authContainer} class="auth-html">
-    <form autocomplete="off" onsubmit={submitAuthStep}>
-      <input type="hidden" name="flow_id" value={flowId} />
-      {@html authHtml}
-    </form>
-  </div>
-  {#if loading}
-    <div class="empty-state">Processing…</div>
-  {/if}
+  <CredentialWizard {provider} onComplete={onComplete} onBack={credentials.length > 0 ? backToList : undefined} />
 {/if}
 
 <style>

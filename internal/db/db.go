@@ -14,8 +14,12 @@ var (
 	BucketTokens              = []byte("tokens")               // RouterToken records (keyed by ID)
 	BucketTokenIndex          = []byte("token_index")          // token value → token ID lookup
 	BucketProviders           = []byte("providers")            // Legacy bucket, no longer used as provider source of truth
-	BucketCustomProviders     = []byte("custom_providers")     // User-defined OpenAI-compatible providers
+	BucketProviderInstances   = []byte("provider_instances")   // Unified provider records (all types)
+	BucketCustomProviders     = []byte("custom_providers")     // Legacy custom providers, migrated to provider_instances on startup
 	BucketCredentials         = []byte("credentials")          // Credential records
+	BucketPlugins             = []byte("plugins")              // Installed Lua plugin records
+	BucketPluginRepos         = []byte("plugin_repos")         // Added plugin repositories
+	BucketPluginStorage       = []byte("plugin_storage")       // llm_router.storage.* key/value per plugin
 	BucketAuth                = []byte("auth")                 // Ephemeral auth state
 	BucketModelInfo           = []byte("model_info")           // Legacy bucket, no longer used for model metadata caching
 	BucketSessions            = []byte("sessions")             // Dashboard sessions
@@ -53,8 +57,12 @@ func (db *DB) initBuckets() error {
 			BucketAdmin,
 			BucketTokens,
 			BucketTokenIndex,
+			BucketProviderInstances,
 			BucketCustomProviders,
 			BucketCredentials,
+			BucketPlugins,
+			BucketPluginRepos,
+			BucketPluginStorage,
 			BucketAuth,
 			BucketSessions,
 			BucketMetrics,

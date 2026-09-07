@@ -10,7 +10,6 @@ import (
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
-	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 )
 
 // apiChatCompletions proxies a dashboard-authenticated chat request to the router.
@@ -151,18 +150,18 @@ type chatRouterError struct {
 }
 
 func classifyChatError(err error) chatRouterError {
-	var provErr *provider.ProviderError
+	var provErr *models.ProviderError
 	if errors.As(err, &provErr) {
 		switch provErr.Type {
-		case provider.ErrorTypeRateLimit:
+		case models.ErrorTypeRateLimit:
 			return chatRouterError{http.StatusBadGateway, "rate_limit"}
-		case provider.ErrorTypeQuotaExceeded:
+		case models.ErrorTypeQuotaExceeded:
 			return chatRouterError{http.StatusBadGateway, "quota_exceeded"}
-		case provider.ErrorTypeAuth:
+		case models.ErrorTypeAuth:
 			return chatRouterError{http.StatusUnauthorized, "auth_error"}
-		case provider.ErrorTypeTimeout:
+		case models.ErrorTypeTimeout:
 			return chatRouterError{http.StatusBadGateway, "timeout"}
-		case provider.ErrorTypeUpstream:
+		case models.ErrorTypeUpstream:
 			return chatRouterError{http.StatusBadGateway, "upstream_error"}
 		default:
 			return chatRouterError{http.StatusBadGateway, "upstream_error"}

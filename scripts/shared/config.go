@@ -17,7 +17,9 @@ type Proc struct {
 	VitePort int `json:"vitePort"`
 }
 
-// RootDir returns the repo root: nearest ancestor of cwd containing adapters.conf.
+// RootDir returns the repo root: nearest ancestor of cwd containing go.mod
+// alongside the internal/ tree. The go.mod check alone is not enough:
+// scripts/ is a separate Go module nested inside the repo.
 func RootDir() (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -25,8 +27,10 @@ func RootDir() (string, error) {
 	}
 	dir := cwd
 	for range 8 {
-		if _, err := os.Stat(filepath.Join(dir, "adapters.conf")); err == nil {
-			return dir, nil
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			if st, err := os.Stat(filepath.Join(dir, "internal")); err == nil && st.IsDir() {
+				return dir, nil
+			}
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -34,7 +38,7 @@ func RootDir() (string, error) {
 		}
 		dir = parent
 	}
-	return "", fmt.Errorf("repo root not found (no adapters.conf above %s)", cwd)
+	return "", fmt.Errorf("repo root not found (no go.mod with internal/ above %s)", cwd)
 }
 
 // DefaultPidFile is %TEMP%/llm-router-dev.pid (or $TMPDIR equivalent).

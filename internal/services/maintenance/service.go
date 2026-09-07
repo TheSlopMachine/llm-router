@@ -2,18 +2,17 @@
 //
 // Responsibilities:
 //   - Periodically scanning all credentials for those that need refresh
-//   - Delegating refresh to the appropriate Provider Adapter
+//   - Delegating refresh to the appropriate provider backend
 //   - Persisting updated credentials via the Credential Pool Service
 //
 // Design principles:
-//   - Flexible: no hardcoded refresh logic — each adapter decides its own strategy
+//   - Flexible: no hardcoded refresh logic — each backend decides its own strategy
 //   - Non-blocking: runs in a background goroutine; errors are logged, not fatal
-//   - Jitter-free: each check interval is fixed; adapters decide when NeedsRefresh is true
+//   - Jitter-free: each check interval is fixed; backends decide when NeedsRefresh is true
 package maintenance
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -110,10 +109,10 @@ func (s *Service) cleanupAuthFlows() {
 	}
 }
 
-// maybeRefresh checks a single credential and refreshes it if the adapter
-// reports it needs refreshing.
+// maybeRefresh checks a single credential and refreshes it when the backend
+// reports it needs refreshing. Backends without refresh handlers are skipped.
 func (s *Service) maybeRefresh(ctx context.Context, cred *models.Credential) {
-	adapter, p, err := provider.ResolveAdapter(s.providerSvc, cred.ProviderID)
+	resolved, err := provider.Resolve(s.providerSvc, cred.ProviderID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			s.logger.Debug("maintenance: orphan credential (provider deleted)",
@@ -125,30 +124,58 @@ func (s *Service) maybeRefresh(ctx context.Context, cred *models.Credential) {
 		return
 	}
 
-	if !adapter.NeedsRefresh(cred.ToSDK()) {
+	needs, err := s.needsRefresh(resolved, cred)
+	if err != nil {
+		s.logger.Warn("maintenance: needs-refresh check failed",
+			"credential_id", cred.ID, "provider_id", cred.ProviderID, "err", err)
+		return
+	}
+	if !needs {
 		return
 	}
 
 	s.logger.Info("maintenance: refreshing credential",
-		"credential_id", cred.ID, "provider", p.Name)
+		"credential_id", cred.ID, "provider", resolved.Instance.Name)
 
-	updated, err := adapter.RefreshCredential(ctx, cred.ToSDK())
+	data, err := s.refresh(ctx, resolved, cred)
 	if err != nil {
-		if errors.Is(err, provider.ErrNoRefreshNeeded) {
-			// Static credentials (e.g. API keys) — nothing to do
+		if isNotRefreshable(err) {
 			return
 		}
 		s.logger.Error("maintenance: refresh failed",
-			"credential_id", cred.ID, "provider", p.Name, "err", err)
+			"credential_id", cred.ID, "provider", resolved.Instance.Name, "err", err)
 		return
 	}
 
-	if err := s.credSvc.Update(cred.ID, updated.Data, nil); err != nil {
+	if err := s.credSvc.Update(cred.ID, data, nil); err != nil {
 		s.logger.Error("maintenance: persist refreshed credential failed",
 			"credential_id", cred.ID, "err", err)
 		return
 	}
 
 	s.logger.Info("maintenance: credential refreshed successfully",
-		"credential_id", cred.ID, "provider", p.Name)
+		"credential_id", cred.ID, "provider", resolved.Instance.Name)
+}
+
+func (s *Service) needsRefresh(resolved *provider.Resolved, cred *models.Credential) (bool, error) {
+	if resolved.IsLua() {
+		return s.providerSvc.LuaService().NeedsRefresh(resolved.Instance.TypeKey, cred)
+	}
+	return resolved.Go.NeedsRefresh(cred), nil
+}
+
+func (s *Service) refresh(ctx context.Context, resolved *provider.Resolved, cred *models.Credential) (map[string]any, error) {
+	if resolved.IsLua() {
+		return s.providerSvc.LuaService().RefreshCredential(ctx, resolved.Instance.TypeKey, cred)
+	}
+	return resolved.Go.RefreshCredential(ctx, cred)
+}
+
+func isNotRefreshable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "does not declare handler") ||
+		strings.Contains(msg, "no refresh needed")
 }

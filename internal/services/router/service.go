@@ -4,8 +4,8 @@
 //   - Resolving a ModelId to the correct Provider
 //   - Fetching live Credentials from the Credential Pool
 //   - Intelligent retry with credential rotation on rate limits
-//   - Delegating requests to Provider Adapters
-//   - Translating adapter-specific errors back to OpenAI-compatible ones
+//   - Delegating requests to Lua plugins or built-in Go adapters
+//   - Translating backend-specific errors back to OpenAI-compatible ones
 package router
 
 import (
@@ -22,6 +22,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
+	"github.com/TheSlopMachine/llm-router/internal/services/retry"
 )
 
 // Service routes validated API requests to the appropriate provider.
@@ -65,10 +66,6 @@ func (s *Service) getMaxRetries() int {
 	return n
 }
 
-// ─────────────────────────────────────────────
-// Core routing
-// ─────────────────────────────────────────────
-
 // filterCredentials filters the credential list according to token rules.
 // A nil token means no restriction (e.g. internal agent calls).
 func (s *Service) filterCredentials(creds []*models.Credential, token *models.RouterToken) []*models.Credential {
@@ -91,38 +88,23 @@ func (s *Service) filterCredentials(creds []*models.Credential, token *models.Ro
 	return out
 }
 
-// Complete routes a non-streaming chat completion request.
-//
-// Resolution order:
-//  1. Parse the ModelId to extract the provider prefix.
-//  2. Find a registered Provider whose Type matches the prefix.
-//  3. Get all available Credentials from the pool (sorted by priority/LRU).
-//  4. Try each credential with intelligent retry on rate limits.
-//  5. Apply exponential backoff when all credentials exhausted.
-func (s *Service) Complete(
-	ctx context.Context,
-	req *models.ChatCompletionRequest,
-	token *models.RouterToken,
-) (*models.ChatCompletionResponse, error) {
-	// Parse composite provider ID from model ID
-	providerID, _, err := req.Model.Parse()
-	if err != nil {
-		return nil, fmt.Errorf("invalid model id: %w", err)
+func (s *Service) completeOne(ctx context.Context, resolved *provider.Resolved, cred *models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+	cfg := resolved.Instance.Config
+	if resolved.IsLua() {
+		return s.providerSvc.LuaService().Complete(ctx, resolved.Instance.TypeKey, cred, req, cfg)
 	}
+	return resolved.Go.Complete(ctx, cred, req, cfg)
+}
 
-	// Direct lookup by composite ID
-	p, err := s.providerSvc.Get(providerID)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
+func (s *Service) completeStreamOne(ctx context.Context, resolved *provider.Resolved, cred *models.Credential, req *models.ChatCompletionRequest, w io.Writer) error {
+	cfg := resolved.Instance.Config
+	if resolved.IsLua() {
+		return s.providerSvc.LuaService().CompleteStream(ctx, resolved.Instance.TypeKey, cred, req, w, cfg)
 	}
+	return resolved.Go.CompleteStream(ctx, cred, req, w, cfg)
+}
 
-	// Get adapter by type
-	adapter, err := provider.Lookup(p.Type)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get all available credentials sorted by priority/LRU
+func (s *Service) loadCredentials(p *models.ProviderInstance, token *models.RouterToken) ([]*models.Credential, error) {
 	creds, err := s.credSvc.All(p.ID)
 	if err != nil {
 		return nil, fmt.Errorf("%w for provider %q", apierrors.ErrNoCredential, p.Name)
@@ -131,78 +113,87 @@ func (s *Service) Complete(
 	if len(creds) == 0 {
 		return nil, fmt.Errorf("%w for provider %q", apierrors.ErrCredentialNotAllowed, p.Name)
 	}
+	return creds, nil
+}
 
-	// Track which credentials we've tried in this cycle
-	attempted := make(map[string]bool)
+// buildCandidates maps credentials to retry candidates with usage tracking.
+func (s *Service) buildCandidates(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, req *models.ChatCompletionRequest) []retry.Candidate[*models.ChatCompletionResponse] {
+	candidates := make([]retry.Candidate[*models.ChatCompletionResponse], 0, len(creds))
+	for _, cred := range creds {
+		cred := cred
+		candidates = append(candidates, retry.Candidate[*models.ChatCompletionResponse]{
+			Label: cred.ID,
+			Run: func(ctx context.Context) (*models.ChatCompletionResponse, error) {
+				resp, err := s.completeOne(ctx, resolved, cred, req)
+				if err == nil {
+					_ = s.credSvc.UpdateUsage(cred.ID, true)
+					return resp, nil
+				}
+				_ = s.credSvc.UpdateUsage(cred.ID, false)
+				if perr, ok := asQuotaExceeded(err); ok && perr.RetryAfter != nil {
+					_ = s.credSvc.MarkQuotaExceeded(cred.ID, *perr.RetryAfter)
+				}
+				return nil, err
+			},
+		})
+	}
+	return candidates
+}
+
+func asQuotaExceeded(err error) (*models.ProviderError, bool) {
+	var perr *models.ProviderError
+	if errors.As(err, &perr) && perr.Type == models.ErrorTypeQuotaExceeded {
+		return perr, true
+	}
+	return nil, false
+}
+
+// Complete routes a non-streaming chat completion request with credential
+// rotation via the shared retry engine and exponential backoff across cycles.
+func (s *Service) Complete(
+	ctx context.Context,
+	req *models.ChatCompletionRequest,
+	token *models.RouterToken,
+) (*models.ChatCompletionResponse, error) {
+	providerID, _, err := req.Model.Parse()
+	if err != nil {
+		return nil, fmt.Errorf("invalid model id: %w", err)
+	}
+	resolved, err := provider.Resolve(s.providerSvc, providerID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
+	}
+	creds, err := s.loadCredentials(resolved.Instance, token)
+	if err != nil {
+		return nil, err
+	}
 	maxRetries := s.getMaxRetries()
-
 	for cycle := 0; cycle <= maxRetries; cycle++ {
 		if cycle > 0 {
-			// All credentials exhausted, apply exponential backoff
 			delay := time.Duration(1<<(cycle-1)) * time.Second
 			s.logger.Warn("all credentials rate limited, backing off",
 				"cycle", cycle, "max", maxRetries, "delay", delay)
-
 			select {
 			case <-time.After(delay):
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
-
-			// Clear attempted set (rate limits may have reset)
-			attempted = make(map[string]bool)
-
-			// Refresh credential list (quota may have reset)
-			creds, err = s.credSvc.All(p.ID)
+			creds, err = s.loadCredentials(resolved.Instance, token)
 			if err != nil {
-				return nil, fmt.Errorf("%w for provider %q", apierrors.ErrNoCredential, p.Name)
-			}
-			creds = s.filterCredentials(creds, token)
-			if len(creds) == 0 {
-				return nil, fmt.Errorf("%w for provider %q", apierrors.ErrCredentialNotAllowed, p.Name)
+				return nil, err
 			}
 		}
-
-		// Try each credential once per cycle
-		for _, cred := range creds {
-			if attempted[cred.ID] {
-				continue
-			}
-
-			attempted[cred.ID] = true
-
-			// Attempt request — custom BaseURL is resolved centrally in generic.Adapter via qualifier,
-			// not via credential mutation.
-			resp, err := adapter.Complete(ctx, cred.ToSDK(), req)
-
-			if err == nil {
-				// Success
-				_ = s.credSvc.UpdateUsage(cred.ID, true)
-				return resp, nil
-			}
-
-			// Check if this is a retryable provider error
-			var provErr *provider.ProviderError
-			if errors.As(err, &provErr) && provErr.IsRetryable() {
-				s.logger.Info("rate limit or quota exceeded, rotating credential",
-					"cred_id", cred.ID, "error_type", provErr.Type, "status", provErr.StatusCode)
-
-				_ = s.credSvc.UpdateUsage(cred.ID, false)
-
-				// Mark quota exceeded if applicable
-				if provErr.Type == provider.ErrorTypeQuotaExceeded && provErr.RetryAfter != nil {
-					_ = s.credSvc.MarkQuotaExceeded(cred.ID, *provErr.RetryAfter)
-				}
-
-				continue // Try next credential
-			}
-
-			// Non-retryable error, fail immediately
-			_ = s.credSvc.UpdateUsage(cred.ID, false)
+		resp, err := retry.Run(ctx, s.buildCandidates(ctx, resolved, creds, req), s.logger)
+		if err == nil {
+			return resp, nil
+		}
+		if !retry.Classify(err) {
+			return nil, err
+		}
+		if cycle == maxRetries {
 			return nil, err
 		}
 	}
-
 	return nil, fmt.Errorf("all credentials exhausted after %d retries", maxRetries)
 }
 
@@ -214,110 +205,66 @@ func (s *Service) CompleteStream(
 	w io.Writer,
 	token *models.RouterToken,
 ) error {
-	// Parse composite provider ID from model ID
 	providerID, _, err := req.Model.Parse()
 	if err != nil {
 		return fmt.Errorf("invalid model id: %w", err)
 	}
-
-	// Direct lookup by composite ID
-	p, err := s.providerSvc.Get(providerID)
+	resolved, err := provider.Resolve(s.providerSvc, providerID)
 	if err != nil {
 		return fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
 	}
-
-	// Get adapter by type
-	adapter, err := provider.Lookup(p.Type)
+	creds, err := s.loadCredentials(resolved.Instance, token)
 	if err != nil {
 		return err
 	}
-
-	// Get all available credentials sorted by priority/LRU
-	creds, err := s.credSvc.All(p.ID)
-	if err != nil {
-		return fmt.Errorf("%w for provider %q", apierrors.ErrNoCredential, p.Name)
-	}
-	creds = s.filterCredentials(creds, token)
-	if len(creds) == 0 {
-		return fmt.Errorf("%w for provider %q", apierrors.ErrCredentialNotAllowed, p.Name)
-	}
-
-	// Track which credentials we've tried in this cycle
-	attempted := make(map[string]bool)
 	maxRetries := s.getMaxRetries()
-
 	for cycle := 0; cycle <= maxRetries; cycle++ {
 		if cycle > 0 {
-			// All credentials exhausted, apply exponential backoff
 			delay := time.Duration(1<<(cycle-1)) * time.Second
 			s.logger.Warn("all credentials rate limited, backing off",
 				"cycle", cycle, "max", maxRetries, "delay", delay)
-
 			select {
 			case <-time.After(delay):
 			case <-ctx.Done():
 				return ctx.Err()
 			}
-
-			// Clear attempted set (rate limits may have reset)
-			attempted = make(map[string]bool)
-
-			// Refresh credential list (quota may have reset)
-			creds, err = s.credSvc.All(p.ID)
+			creds, err = s.loadCredentials(resolved.Instance, token)
 			if err != nil {
-				return fmt.Errorf("%w for provider %q", apierrors.ErrNoCredential, p.Name)
-			}
-			creds = s.filterCredentials(creds, token)
-			if len(creds) == 0 {
-				return fmt.Errorf("%w for provider %q", apierrors.ErrCredentialNotAllowed, p.Name)
+				return err
 			}
 		}
-
-		// Try each credential once per cycle
+		candidates := make([]retry.StreamCandidate, 0, len(creds))
 		for _, cred := range creds {
-			if attempted[cred.ID] {
-				continue
-			}
-
-			attempted[cred.ID] = true
-
-			// Attempt request — custom BaseURL is resolved centrally in generic.Adapter.
-			err := adapter.CompleteStream(ctx, cred.ToSDK(), req, w)
-
-			if err == nil {
-				// Success
-				_ = s.credSvc.UpdateUsage(cred.ID, true)
-				return nil
-			}
-
-			// Check if this is a retryable provider error
-			var provErr *provider.ProviderError
-			if errors.As(err, &provErr) && provErr.IsRetryable() {
-				s.logger.Info("rate limit or quota exceeded, rotating credential",
-					"cred_id", cred.ID, "error_type", provErr.Type, "status", provErr.StatusCode)
-
-				_ = s.credSvc.UpdateUsage(cred.ID, false)
-
-				// Mark quota exceeded if applicable
-				if provErr.Type == provider.ErrorTypeQuotaExceeded && provErr.RetryAfter != nil {
-					_ = s.credSvc.MarkQuotaExceeded(cred.ID, *provErr.RetryAfter)
-				}
-
-				continue // Try next credential
-			}
-
-			// Non-retryable error, fail immediately
-			_ = s.credSvc.UpdateUsage(cred.ID, false)
+			cred := cred
+			candidates = append(candidates, retry.StreamCandidate{
+				Label: cred.ID,
+				Run: func(ctx context.Context, w io.Writer) error {
+					err := s.completeStreamOne(ctx, resolved, cred, req, w)
+					if err == nil {
+						_ = s.credSvc.UpdateUsage(cred.ID, true)
+						return nil
+					}
+					_ = s.credSvc.UpdateUsage(cred.ID, false)
+					if perr, ok := asQuotaExceeded(err); ok && perr.RetryAfter != nil {
+						_ = s.credSvc.MarkQuotaExceeded(cred.ID, *perr.RetryAfter)
+					}
+					return err
+				},
+			})
+		}
+		err := retry.RunStream(ctx, candidates, w, s.logger)
+		if err == nil {
+			return nil
+		}
+		if !retry.Classify(err) {
+			return err
+		}
+		if cycle == maxRetries {
 			return err
 		}
 	}
-
 	return fmt.Errorf("all credentials exhausted after %d retries", maxRetries)
 }
-
-// ─────────────────────────────────────────────
-// Helper methods
-// ─────────────────────────────────────────────
 
 // GetProviderIDForModel returns the composite provider ID for a given model.
 func (s *Service) GetProviderIDForModel(ctx context.Context, modelID models.ModelId) (string, error) {
@@ -325,12 +272,9 @@ func (s *Service) GetProviderIDForModel(ctx context.Context, modelID models.Mode
 	if err != nil {
 		return "", err
 	}
-
-	// Verify provider exists
 	_, err = s.providerSvc.Get(providerID)
 	if err != nil {
 		return "", err
 	}
-
 	return providerID, nil
 }

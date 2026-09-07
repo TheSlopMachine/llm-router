@@ -16,9 +16,7 @@
     { providers: [], providerStats: {} }
   )
 
-  let visibleProviders = $derived(
-    resource.data.providers.filter((provider) => provider.supports_auth_flow || provider.type === 'custom')
-  )
+  let visibleProviders = $derived(resource.data.providers)
 
   async function openProviderDetail(provider: Provider): Promise<void> {
     try {
@@ -43,8 +41,8 @@
             modal.close()
             await resource.reload()
           },
-          onEdit: provider.type === 'custom' ? () => { modal.close(); openEdit(provider) } : undefined,
-          onDelete: provider.type === 'custom' ? () => deleteProvider(provider) : undefined
+          onEdit: () => { modal.close(); openEdit(provider) },
+          onDelete: () => deleteProvider(provider)
         }
       })
     } catch (e) {
@@ -91,7 +89,7 @@
   async function deleteProvider(provider: Provider): Promise<void> {
     const confirmed = await modal.confirm({
       title: 'Delete Provider',
-      message: `Are you sure you want to delete "${provider.name}"? This action cannot be undone.`,
+      message: `Are you sure you want to delete "${provider.name}"? Credentials for this provider will be removed as well.`,
       severity: 'high',
       confirmText: 'Delete',
       cancelText: 'Cancel',
@@ -101,8 +99,7 @@
     if (!confirmed) return
 
     try {
-      const id = provider.id.replace('custom:', '')
-      await api.providers.delete(id)
+      await api.providers.delete(provider.id)
       modal.close()
       await resource.reload()
     } catch (e) {
@@ -129,7 +126,7 @@
 {#if resource.loading}
   <div class="empty">Loading…</div>
 {:else if visibleProviders.length === 0}
-  <div class="empty">No providers with interactive authentication flows are available.</div>
+  <div class="empty">No providers yet. Add one to get started.</div>
 {:else}
   <div class="providers-grid">
     {#each visibleProviders as provider}

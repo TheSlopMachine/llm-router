@@ -1,58 +1,20 @@
 package provider_test
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 	"testing"
+	"time"
 
 	bolt "go.etcd.io/bbolt"
 
-	sdk "github.com/TheSlopMachine/llm-router-sdk"
-	_ "github.com/TheSlopMachine/llm-router/providers/agents"
-
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
 
-type runtimeTestAdapter struct{}
-
-func (a *runtimeTestAdapter) TypeKey() string                                  { return "runtime-test" }
-func (a *runtimeTestAdapter) AuthType() models.AuthType                        { return models.AuthTypeAPIKey }
-func (a *runtimeTestAdapter) ValidateCredentials(data map[string]string) error { return nil }
-func (a *runtimeTestAdapter) Complete(ctx context.Context, cred *sdk.Credential, req *sdk.ChatCompletionRequest) (*sdk.ChatCompletionResponse, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-func (a *runtimeTestAdapter) CompleteStream(ctx context.Context, cred *sdk.Credential, req *sdk.ChatCompletionRequest, w io.Writer) error {
-	return fmt.Errorf("not implemented")
-}
-func (a *runtimeTestAdapter) NeedsRefresh(cred *sdk.Credential) bool { return false }
-func (a *runtimeTestAdapter) RefreshCredential(ctx context.Context, cred *sdk.Credential) (*sdk.Credential, error) {
-	return nil, provider.ErrNoRefreshNeeded
-}
-func (a *runtimeTestAdapter) GetModelInfos(ctx context.Context, cred *sdk.Credential, providerQualifier string) ([]sdk.ModelInfo, error) {
-	return nil, nil
-}
-func (a *runtimeTestAdapter) GetAuthFlow() provider.AuthFlowHandler { return nil }
-func (a *runtimeTestAdapter) GetDefaultProviders() []provider.ProviderInfo {
-	return []provider.ProviderInfo{
-		{Name: "Runtime Test Default", Qualifier: "", BaseURL: "https://default.example.com", IconURL: "default"},
-		{Name: "Runtime Test Alt", Qualifier: "alt", BaseURL: "https://alt.example.com", IconURL: "alt"},
-	}
-}
-
-func ensureRuntimeTestAdapter(t *testing.T) {
-	t.Helper()
-	if _, err := provider.Lookup("runtime-test"); err == nil {
-		return
-	}
-	provider.Register(&runtimeTestAdapter{})
-}
-
-func containsProvider(providers []*models.Provider, id string) bool {
+func containsProvider(providers []*models.ProviderInstance, id string) bool {
 	for _, p := range providers {
 		if p.ID == id {
 			return true
@@ -61,98 +23,94 @@ func containsProvider(providers []*models.Provider, id string) bool {
 	return false
 }
 
-func TestProviderService_ListReturnsRuntimeProviders(t *testing.T) {
-	ensureRuntimeTestAdapter(t)
-
+func TestProviderService_CreateAndGet(t *testing.T) {
 	database := testutil.SetupTestDB(t)
 	svc := provider.NewService(database)
 
-	providers, err := svc.List()
-	if err != nil {
-		t.Fatalf("list failed: %v", err)
-	}
-
-	if !containsProvider(providers, "runtime-test") {
-		t.Fatalf("runtime provider list is missing runtime-test")
-	}
-	if !containsProvider(providers, "runtime-test:alt") {
-		t.Fatalf("runtime provider list is missing runtime-test:alt")
-	}
-	if !containsProvider(providers, "agents") {
-		t.Fatalf("runtime provider list is missing agents")
-	}
-}
-
-func TestProviderService_GetResolvesQualifiedProvider(t *testing.T) {
-	ensureRuntimeTestAdapter(t)
-
-	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
-
-	provider, err := svc.Get("runtime-test:alt")
-	if err != nil {
-		t.Fatalf("get failed: %v", err)
-	}
-
-	if provider.Type != "runtime-test" {
-		t.Fatalf("type: got %q, want %q", provider.Type, "runtime-test")
-	}
-	if provider.Qualifier != "alt" {
-		t.Fatalf("qualifier: got %q, want %q", provider.Qualifier, "alt")
-	}
-	if provider.Name != "Runtime Test Alt" {
-		t.Fatalf("name: got %q, want %q", provider.Name, "Runtime Test Alt")
-	}
-}
-
-func TestProviderService_CustomProviderCRUD(t *testing.T) {
-	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
-
-	// Create
-	cp, err := svc.CreateCustom("My LLM", "https://api.example.com/v1/", "https://example.com/icon.svg")
+	inst, err := svc.Create(provider.CreateOptions{
+		Name: "My LLM", TypeKey: "custom",
+		Config: map[string]any{"base_url": "https://api.example.com/v1/"},
+	})
 	if err != nil {
 		t.Fatalf("create failed: %v", err)
 	}
-	if cp.ID != "my-llm" {
-		t.Fatalf("id: got %q, want %q", cp.ID, "my-llm")
+	if inst.ID != "custom:my-llm" {
+		t.Fatalf("id: got %q, want %q", inst.ID, "custom:my-llm")
 	}
-	if cp.BaseURL != "https://api.example.com/v1" {
-		t.Fatalf("base_url should be normalized (no trailing slash): got %q", cp.BaseURL)
+	if inst.BaseURL() != "https://api.example.com/v1" {
+		t.Fatalf("base_url should be normalized (no trailing slash): got %q", inst.BaseURL())
 	}
 
-	// Get via provider ID
 	p, err := svc.Get("custom:my-llm")
 	if err != nil {
 		t.Fatalf("get failed: %v", err)
 	}
-	if p.Type != "custom" {
-		t.Fatalf("type: got %q, want %q", p.Type, "custom")
+	if p.TypeKey != "custom" {
+		t.Fatalf("type: got %q, want %q", p.TypeKey, "custom")
 	}
-	if p.BaseURL != "https://api.example.com/v1" {
-		t.Fatalf("base_url: got %q", p.BaseURL)
-	}
+}
 
-	// List includes custom provider
-	providers, err := svc.List()
+func TestProviderService_CreateLuaType(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+
+	inst, err := svc.Create(provider.CreateOptions{Name: "Zen", TypeKey: "opencode-zen"})
 	if err != nil {
-		t.Fatalf("list failed: %v", err)
+		t.Fatalf("create failed: %v", err)
 	}
-	if !containsProvider(providers, "custom:my-llm") {
-		t.Fatalf("custom provider missing from list")
+	if inst.ID != "opencode-zen" {
+		t.Fatalf("id: got %q, want %q", inst.ID, "opencode-zen")
 	}
 
-	// Duplicate names get unique slugs
-	cp2, err := svc.CreateCustom("My LLM", "https://other.example.com/v1", "")
+	qualified, err := svc.Create(provider.CreateOptions{Name: "Zen EU", TypeKey: "opencode-zen", Qualifier: "eu"})
 	if err != nil {
-		t.Fatalf("second create failed: %v", err)
+		t.Fatalf("create qualified failed: %v", err)
 	}
-	if cp2.ID != "my-llm-2" {
-		t.Fatalf("duplicate id: got %q, want %q", cp2.ID, "my-llm-2")
+	if qualified.ID != "opencode-zen:eu" {
+		t.Fatalf("id: got %q", qualified.ID)
 	}
 
-	// Update
-	updated, err := svc.UpdateCustom("my-llm", "My LLM Updated", "https://new.example.com/v1", "")
+	got, err := svc.GetByTypeAndQualifier("opencode-zen", "eu")
+	if err != nil || got.ID != qualified.ID {
+		t.Fatalf("get by type+qualifier failed: %+v %v", got, err)
+	}
+}
+
+func TestProviderService_Create_Validation(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+
+	if _, err := svc.Create(provider.CreateOptions{Name: "", TypeKey: "custom"}); err == nil {
+		t.Fatal("expected error for empty name")
+	}
+	if _, err := svc.Create(provider.CreateOptions{Name: "Test"}); err == nil {
+		t.Fatal("expected error for empty type_key")
+	}
+	if _, err := svc.Create(provider.CreateOptions{Name: "Test", TypeKey: "custom"}); err == nil {
+		t.Fatal("expected error for custom without base_url")
+	}
+	if _, err := svc.Create(provider.CreateOptions{
+		Name: "Test", TypeKey: "custom", Config: map[string]any{"base_url": "not-a-url"},
+	}); err == nil {
+		t.Fatal("expected error for invalid base_url")
+	}
+}
+
+func TestProviderService_UpdateDelete(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+
+	cp, err := svc.CreateCustom("My LLM", "https://api.example.com/v1/", "https://example.com/icon.svg")
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if cp.ID != "custom:my-llm" {
+		t.Fatalf("id: got %q, want %q", cp.ID, "custom:my-llm")
+	}
+
+	updated, err := svc.Update(cp.ID, provider.UpdateOptions{
+		Name: "My LLM Updated", Config: map[string]any{"base_url": "https://new.example.com/v1"},
+	})
 	if err != nil {
 		t.Fatalf("update failed: %v", err)
 	}
@@ -160,65 +118,122 @@ func TestProviderService_CustomProviderCRUD(t *testing.T) {
 		t.Fatalf("name: got %q", updated.Name)
 	}
 
-	// Delete
-	if err := svc.DeleteCustom("my-llm-2"); err != nil {
-		t.Fatalf("delete failed: %v", err)
-	}
-	if _, err := svc.Get("custom:my-llm-2"); err == nil {
-		t.Fatalf("expected deleted provider lookup to fail")
-	}
-}
-
-func TestProviderService_CreateCustom_Validation(t *testing.T) {
-	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
-
-	if _, err := svc.CreateCustom("", "https://api.example.com/v1", ""); err == nil {
-		t.Fatalf("expected error for empty name")
-	}
-	if _, err := svc.CreateCustom("Test", "", ""); err == nil {
-		t.Fatalf("expected error for empty base_url")
-	}
-	if _, err := svc.CreateCustom("Test", "not-a-url", ""); err == nil {
-		t.Fatalf("expected error for invalid base_url")
-	}
-}
-
-func TestProviderService_IgnoresLegacyProviderBucketData(t *testing.T) {
-	ensureRuntimeTestAdapter(t)
-
-	database := testutil.SetupTestDB(t)
-	stale := &models.Provider{
-		ID:       "stale-provider",
-		Name:     "Stale Provider",
-		Type:     "stale",
-		AuthType: models.AuthTypeAPIKey,
-	}
-	data, err := json.Marshal(stale)
-	if err != nil {
-		t.Fatalf("marshal stale provider: %v", err)
-	}
-
-	if err := database.Update(func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists(db.BucketProviders)
-		if err != nil {
-			return err
-		}
-		return b.Put([]byte(stale.ID), data)
-	}); err != nil {
-		t.Fatalf("seed legacy providers bucket: %v", err)
-	}
-
-	svc := provider.NewService(database)
 	providers, err := svc.List()
 	if err != nil {
 		t.Fatalf("list failed: %v", err)
 	}
-	if containsProvider(providers, stale.ID) {
-		t.Fatalf("legacy provider bucket entry %q should not appear in runtime provider list", stale.ID)
+	if !containsProvider(providers, "custom:my-llm") {
+		t.Fatal("custom provider missing from list")
 	}
 
-	if _, err := svc.Get(stale.ID); err == nil {
-		t.Fatalf("expected stale provider lookup to fail")
+	if err := svc.DeleteCustom("my-llm"); err != nil {
+		t.Fatalf("delete failed: %v", err)
+	}
+	if _, err := svc.Get("custom:my-llm"); err == nil {
+		t.Fatal("expected deleted provider lookup to fail")
+	}
+}
+
+func TestProviderService_DeleteCascadesCredentials(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+	svc.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
+
+	inst, err := svc.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"})
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+	credSvc := credential.New(database, svc)
+	cred, err := credSvc.Add(credential.AddOptions{
+		ProviderID: inst.ID, Label: "test", Data: map[string]any{"api_key": "key"},
+	})
+	if err != nil {
+		t.Fatalf("add credential: %v", err)
+	}
+	if err := svc.Delete(inst.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := credSvc.Get(cred.ID); err == nil {
+		t.Fatal("credential should be cascaded on provider delete")
+	}
+}
+
+func TestProviderService_EnsureSeeded(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+
+	if err := svc.EnsureSeeded(); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := svc.Get("agents"); err != nil {
+		t.Fatalf("agents provider missing after seed: %v", err)
+	}
+	// Idempotent.
+	if err := svc.EnsureSeeded(); err != nil {
+		t.Fatalf("second seed: %v", err)
+	}
+}
+
+func TestProviderService_MigratesLegacyCustom(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	type legacyCustomProvider struct {
+		ID        string    `json:"id"`
+		Name      string    `json:"name"`
+		BaseURL   string    `json:"base_url"`
+		IconURL   string    `json:"icon_url"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+	}
+	legacy := legacyCustomProvider{ID: "old-one", Name: "Old One", BaseURL: "https://old.example.com/v1/"}
+	if err := database.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(db.BucketCustomProviders)
+		raw, _ := json.Marshal(legacy)
+		return b.Put([]byte(legacy.ID), raw)
+	}); err != nil {
+		t.Fatalf("seed legacy: %v", err)
+	}
+
+	svc := provider.NewService(database)
+	got, err := svc.Get("custom:old-one")
+	if err != nil {
+		t.Fatalf("migrated provider missing: %v", err)
+	}
+	if got.BaseURL() != "https://old.example.com/v1" {
+		t.Fatalf("migrated base_url: %q", got.BaseURL())
+	}
+}
+
+func TestProviderService_TypeKeysIncludesGoAdapters(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+	svc.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
+
+	keys := svc.TypeKeys()
+	found := false
+	for _, k := range keys {
+		if k == "mock" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("type keys missing mock: %v", keys)
+	}
+}
+
+func TestProviderService_CustomSchemas(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+
+	nodes, err := svc.ConfigSchema("custom")
+	if err != nil || len(nodes) == 0 {
+		t.Fatalf("custom config schema: %+v %v", nodes, err)
+	}
+	nodes, err = svc.CredentialSchema("custom")
+	if err != nil || len(nodes) == 0 {
+		t.Fatalf("custom credential schema: %+v %v", nodes, err)
+	}
+	nodes, err = svc.CredentialSchema("agents")
+	if err != nil || len(nodes) == 0 {
+		t.Fatalf("agents credential schema: %+v %v", nodes, err)
 	}
 }

@@ -67,8 +67,8 @@ DO:
 
 `llm-router` — single-binary OpenAI-compatible LLM routing gateway. Go backend + embedded Svelte SPA + embedded bbolt DB.
 
-- Routes `ModelId = provider/model` (e.g. `openai/gpt-4o`, `agents/my-agent`) → `Adapter` + `CredentialPool`.
-- Register external adapters via `adapters.conf`.
+- Routes `ModelId = provider/model` (e.g. `opencode-zen/gpt-5`, `agents/my-agent`) → backend + `CredentialPool`.
+- Provider backends are single-file Lua plugins (`internal/services/luaplugin/bundled/`, installed store records in `BucketPlugins`). Built-in Go backends exist only for `custom` (OpenAI-compatible passthrough) and `agents` (virtual provider).
 
 ## 3. Structure
 
@@ -77,10 +77,13 @@ cmd/root.go              CLI entrypoint (--web/--api/--db)
 internal/server/         HTTP server: dashboard (8080), /v1 API (8081)
 internal/services/
   token/                 router-token issue/validate
-  router/                ModelId → Adapter + Credential, LRU + retry
-  provider/              Provider CRUD
+  router/                ModelId → backend + Credential, retry engine
+  retry/                 single retry/fallthrough engine (router + agents)
+  provider/              ProviderInstance CRUD (all types, one path)
   credential/            credential pool, usage stats
   agent/                 agents/* virtual provider
+  luaplugin/             Lua execution core: manifest, sandbox, HTTP+SSRF, storage; bundled/*.lua
+  pluginrepo/            plugin store: GitHub Contents API + generic index
   modelinfo/             model metadata cache (1h TTL)
   metrics/               1m buckets, 90d retention
   maintenance/           refresh + cleanup
@@ -90,12 +93,10 @@ internal/dashboard/      admin REST API
 internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/models
 internal/models/         shared wire types
 internal/config/         Config struct
-providers/agents/        built-in agents adapter
+internal/adapters/generic/ built-in custom backend (Go)
+providers/agents/        built-in agents backend (Go)
 web/                     Svelte SPA (web/openapi.yaml + src/lib/generated/ auto-generated — do not hand-edit)
 scripts/                 separate Go module — build/dev helpers (never imported by main module)
-adapters.go              auto-generated — DO NOT EDIT
-adapters.conf            external adapter registry, one module per line
-.workspace/              adapter dev workspace (gitignored) — ONLY place to write adapter code
 Makefile                 thin launcher for scripts/ — see §4
 ```
 
@@ -185,13 +186,14 @@ Rule: before finishing any `.svelte` change, re-check every `$effect` touched ag
 | 8 | Truncate diagnostics output with tail/head | Diagnostics matter and truncating wastes time. NEVER truncate them. |
 | 9 | Fall back silently | NEVER swallow a failure and continue on a fallback path. Surface every failure as an error — return it to the caller, log it, or both — or route it to an explicit, named on-fail branch. Never fall through unannounced. |
 
-## 7. Adapters
+## 7. Lua Plugins
 
-- Location: write new adapter code ONLY in `.workspace/<adapter-name>/`. Never in `providers/`, repo root, or elsewhere.
-- Module: separate Go module `github.com/TheSlopMachine/llm-router-adapter-<name>`, `sdk.Register` in `init()`.
-- Required files: `go.mod`, `adapter.go`, `client.go`, `models.go`, `transform.go`, `errors.go`, `README.md`, `.gitignore`.
-- Registration: edit `adapters.conf` (add the `<module>` line). `make start` / `make publish` regenerate the workspace (`go.work` + `adapters.go`) automatically — NEVER run those yourself (banned, §4.3). Ask the human to run `make start` and confirm `adapters.go` + `go.work` regenerated.
-- Verification: run `make go-check` only. For runtime checks (e.g. `opencode-zen/model`), ask the human to run `make start`.
+- Location: new provider backends are single-file Lua plugins. Develop them anywhere as one `.lua` file with a `--- @` manifest header; install via dashboard Store page or `POST /api/llm-router/dashboard/plugins/install-file`.
+- Manifest: required tags `@plugin`, `@author`, `@version`, `@router_version`, one or more `@allow_host` (`*` marks the plugin unsafe). `internal/services/luaplugin/manifest.go` validates.
+- API: `llm_router.register(type_key, {complete, ...})`, `llm_router.create_http_client`, `llm_router.storage`, `json.encode/decode`. Error contract `{type=, message=, retry_after=}`. UI trees for `config_schema`/`credential_schema`/`auth_initiate`/`auth_step` render through `DynamicForm.svelte`.
+- Bundled plugins live in `internal/services/luaplugin/bundled/*.lua` and install on startup via `EnsureBundled`. Bump `@version` to ship an upgrade.
+- Built-in Go backends exist only for `custom` (`internal/adapters/generic/`) and `agents` (`providers/agents/`), both implementing `provider.GoAdapter`.
+- Verification: run `make go-check` only. For runtime checks, ask the human to run `make start`.
 
 ## 8. When Runtime Info Is Needed
 

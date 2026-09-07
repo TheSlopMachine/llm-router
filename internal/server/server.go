@@ -19,12 +19,13 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	"github.com/TheSlopMachine/llm-router/internal/services/agent"
-	"github.com/TheSlopMachine/llm-router/internal/services/auth"
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/maintenance"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
+	"github.com/TheSlopMachine/llm-router/internal/services/pluginrepo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/router"
 	"github.com/TheSlopMachine/llm-router/internal/services/token"
@@ -58,14 +59,31 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		return nil, fmt.Errorf("api listen address is required")
 	}
 
+	luaSvc, err := luaplugin.New(database, logger)
+	if err != nil {
+		return nil, fmt.Errorf("init plugin service: %w", err)
+	}
+	if err := luaSvc.EnsureBundled(); err != nil {
+		return nil, fmt.Errorf("install bundled plugins: %w", err)
+	}
+
 	providerSvc := provider.NewService(database)
+	providerSvc.SetLogger(logger)
+	providerSvc.SetLuaService(luaSvc)
+	providerSvc.RegisterGoAdapter(&generic.Adapter{})
+	agentsAdapter := &agents.Adapter{}
+	providerSvc.RegisterGoAdapter(agentsAdapter)
+	if err := providerSvc.EnsureSeeded(); err != nil {
+		return nil, fmt.Errorf("seed providers: %w", err)
+	}
+
 	adminSvc := admin.New(database, providerSvc)
 	tokenSvc := token.NewWithTestingKey(database, cfg.TestingKey)
-	authSvc := auth.New(database)
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 	agentSvc := agent.New(database, providerSvc, modelInfoSvc)
 	configSvc := configsvc.New(database)
+	repoSvc := pluginrepo.New(database)
 	routerCfg, _ := configSvc.Get()
 	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, routerCfg.MaxRetries, logger)
 	configSvc.SetOnChanged(func(cfg models.RouterConfiguration) { routerSvc.SetMaxRetries(cfg.MaxRetries) })
@@ -73,45 +91,35 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	metricsSvc := metrics.New(database, logger)
 	metricsSvc.Start()
 
-	// Wire generic (custom) adapter to single source of truth — no per-call injection.
-	generic.SetResolver(func(qualifier string) (string, error) {
-		cp, err := providerSvc.GetCustom(qualifier)
-		if err != nil {
-			return "", err
-		}
-		return cp.BaseURL, nil
-	})
-	generic.SetLogger(logger)
-	providerSvc.SetLogger(logger)
 	modelInfoSvc.SetLogger(logger)
 
-	// One-time GC of orphans from previous buggy deletes (covers double-prefix rows).
 	if n, err := providerSvc.CleanupOrphanedCredentials(); err != nil {
 		logger.Warn("orphan credential GC failed", "err", err)
 	} else if n > 0 {
 		logger.Info("orphan credential GC completed", "count", n)
 	}
 
-	// Invalidate model cache immediately after custom provider CRUD — "usable immediately".
-	providerSvc.SetOnChanged(func(providerID string) {
+	invalidate := func(providerID string) {
 		_ = modelInfoSvc.InvalidateProvider(providerID)
-	})
-	credSvc.SetOnChanged(func(providerID string) {
-		_ = modelInfoSvc.InvalidateProvider(providerID)
-	})
-
-	// Initialize agents adapter with dependencies
-	if agentsAdapter, err := provider.Lookup("agents"); err == nil {
-		if a, ok := agentsAdapter.(*agents.Adapter); ok {
-			a.SetRouterService(routerSvc)
-			a.SetAgentService(agentSvc)
-			a.SetLogger(logger)
-		}
 	}
+	providerSvc.SetOnChanged(invalidate)
+	credSvc.SetOnChanged(invalidate)
+	luaSvc.SetOnChanged(func(typeKey string) {
+		providers, err := providerSvc.GetByType(typeKey)
+		if err != nil {
+			return
+		}
+		for _, p := range providers {
+			_ = modelInfoSvc.InvalidateProvider(p.ID)
+		}
+	})
 
-	// Dashboard mux (SPA + /api/llm-router/*)
+	agentsAdapter.SetRouterService(routerSvc)
+	agentsAdapter.SetAgentService(agentSvc)
+	agentsAdapter.SetLogger(logger)
+
 	dashMux := http.NewServeMux()
-	dash, err := dashboard.New(adminSvc, providerSvc, credSvc, tokenSvc, authSvc, modelInfoSvc, metricsSvc, agentSvc, routerSvc, configSvc, logger)
+	dash, err := dashboard.New(adminSvc, providerSvc, credSvc, tokenSvc, modelInfoSvc, metricsSvc, agentSvc, routerSvc, configSvc, luaSvc, repoSvc, logger)
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard handler: %w", err)
 	}
@@ -121,7 +129,6 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	dash.Register(dashMux, database)
 	dashHandler := bootstrapMiddleware(database)(requestLogger(logger, dashMux))
 
-	// API mux (/v1/* only, no bootstrap redirect ever)
 	apiMux := http.NewServeMux()
 	apiV1 := v1.New(tokenSvc, routerSvc, metricsSvc, providerSvc, modelInfoSvc, agentSvc, logger)
 	apiV1.Register(apiMux)

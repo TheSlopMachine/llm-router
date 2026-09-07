@@ -34,14 +34,13 @@ coverage.html
 .DS_Store
 
 # Generated files
-adapters.go
 web/src/lib/generated/
 web/openapi.yaml
 web/swagger.yaml
 web/swagger.json
 web/docs.go
 
-# Workspace (local clones, generated)
+# Local Go workspace leftovers
 .workspace/
 go.work
 go.work.sum

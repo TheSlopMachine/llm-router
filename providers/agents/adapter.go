@@ -1,29 +1,23 @@
-// Package agents implements a virtual provider adapter that orchestrates
+// Package agents implements a virtual provider backend that orchestrates
 // requests across multiple real providers with custom instructions and
 // optional decision-based routing.
 package agents
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"sort"
 	"sync"
 
-	sdk "github.com/TheSlopMachine/llm-router-sdk"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/agent"
-	"github.com/TheSlopMachine/llm-router/internal/services/provider"
+	"github.com/TheSlopMachine/llm-router/internal/services/retry"
 	"github.com/TheSlopMachine/llm-router/internal/services/router"
 )
 
-func init() {
-	sdk.Register(&Adapter{})
-}
-
-// Adapter implements the provider.Adapter interface for virtual agents.
+// Adapter implements the provider.GoAdapter interface for virtual agents.
 type Adapter struct {
 	routerSvc *router.Service
 	agentSvc  *agent.Service
@@ -74,19 +68,15 @@ func (a *Adapter) getLogger() *slog.Logger {
 }
 
 // ─────────────────────────────────────────────
-// Adapter Interface Implementation
+// GoAdapter Implementation
 // ─────────────────────────────────────────────
 
 func (a *Adapter) TypeKey() string {
 	return "agents"
 }
 
-func (a *Adapter) AuthType() sdk.AuthType {
-	return sdk.AuthTypeAPIKey
-}
-
-func (a *Adapter) ValidateCredentials(data map[string]string) error {
-	agentID := data["agent_id"]
+func (a *Adapter) ValidateCredentials(data map[string]any) error {
+	agentID, _ := data["agent_id"].(string)
 	if agentID == "" {
 		return fmt.Errorf("agent_id is required")
 	}
@@ -106,9 +96,10 @@ func (a *Adapter) ValidateCredentials(data map[string]string) error {
 
 func (a *Adapter) Complete(
 	ctx context.Context,
-	cred *sdk.Credential,
-	req *sdk.ChatCompletionRequest,
-) (*sdk.ChatCompletionResponse, error) {
+	cred *models.Credential,
+	req *models.ChatCompletionRequest,
+	_ map[string]any,
+) (*models.ChatCompletionResponse, error) {
 	routerSvc := a.getRouterService()
 	if routerSvc == nil {
 		return nil, fmt.Errorf("router service not initialized")
@@ -121,18 +112,18 @@ func (a *Adapter) Complete(
 
 	logger := a.getLogger()
 
-	// Get agent configuration
-	agentID := cred.Data["agent_id"]
+	agentID := ""
+	if cred != nil {
+		agentID, _ = cred.Data["agent_id"].(string)
+	}
 	agent, err := agentSvc.Get(agentID)
 	if err != nil {
 		return nil, fmt.Errorf("get agent: %w", err)
 	}
 
-	// Inject general instructions
 	modifiedReq := *req
 	modifiedReq.Messages = injectInstructions(req.Messages, agent.Instructions)
 
-	// Decision model routing (if configured)
 	var selectedModel *models.AgentModel
 	if agent.DecisionModel != nil {
 		selectedModel = a.routeWithDecisionModel(ctx, agent, &modifiedReq)
@@ -144,62 +135,43 @@ func (a *Adapter) Complete(
 		}
 	}
 
-	// Reorder models: selected first, then by priority
 	orderedModels := reorderModels(agent.Models, selectedModel)
 
-	// Try each model in order
+	candidates := make([]retry.Candidate[*models.ChatCompletionResponse], 0, len(orderedModels))
 	for _, agentModel := range orderedModels {
-		modelReq := modifiedReq
-
-		// Apply model-specific instructions
-		if agentModel.Instructions != "" {
-			modelReq.Messages = injectModelInstructions(modelReq.Messages, agentModel.Instructions)
-		}
-
-		// Set target model
-		modelReq.Model = agentModel.ModelID
-
-		logger.Info("agent trying model",
-			"agent", agent.Name,
-			"model", agentModel.ModelID,
-			"priority", agentModel.Priority)
-
-		// Make internal request (agent bypasses token credential filter)
-		resp, err := routerSvc.Complete(ctx, &modelReq, nil)
-
-		if err == nil {
-			logger.Info("agent request succeeded",
-				"agent", agent.Name,
-				"model", agentModel.ModelID)
-			return resp, nil
-		}
-
-		// Check if retryable
-		var provErr *provider.ProviderError
-		if errors.As(err, &provErr) && provErr.IsRetryable() {
-			logger.Info("agent model failed with retryable error, trying next",
-				"agent", agent.Name,
-				"model", agentModel.ModelID,
-				"error", provErr.Message)
-			continue
-		}
-
-		// Non-retryable error, fail immediately
-		logger.Error("agent model failed with non-retryable error",
-			"agent", agent.Name,
-			"model", agentModel.ModelID,
-			"error", err)
-		return nil, err
+		agentModel := agentModel
+		candidates = append(candidates, retry.Candidate[*models.ChatCompletionResponse]{
+			Label: string(agentModel.ModelID),
+			Run: func(ctx context.Context) (*models.ChatCompletionResponse, error) {
+				modelReq := modifiedReq
+				if agentModel.Instructions != "" {
+					modelReq.Messages = injectModelInstructions(modelReq.Messages, agentModel.Instructions)
+				}
+				modelReq.Model = agentModel.ModelID
+				logger.Info("agent trying model",
+					"agent", agent.Name,
+					"model", agentModel.ModelID,
+					"priority", agentModel.Priority)
+				resp, err := routerSvc.Complete(ctx, &modelReq, nil)
+				if err == nil {
+					logger.Info("agent request succeeded",
+						"agent", agent.Name,
+						"model", agentModel.ModelID)
+				}
+				return resp, err
+			},
+		})
 	}
 
-	return nil, fmt.Errorf("all agent models exhausted for agent %q", agent.Name)
+	return retry.Run(ctx, candidates, logger)
 }
 
 func (a *Adapter) CompleteStream(
 	ctx context.Context,
-	cred *sdk.Credential,
-	req *sdk.ChatCompletionRequest,
+	cred *models.Credential,
+	req *models.ChatCompletionRequest,
 	w io.Writer,
+	_ map[string]any,
 ) error {
 	routerSvc := a.getRouterService()
 	if routerSvc == nil {
@@ -213,18 +185,18 @@ func (a *Adapter) CompleteStream(
 
 	logger := a.getLogger()
 
-	// Get agent configuration
-	agentID := cred.Data["agent_id"]
+	agentID := ""
+	if cred != nil {
+		agentID, _ = cred.Data["agent_id"].(string)
+	}
 	agent, err := agentSvc.Get(agentID)
 	if err != nil {
 		return fmt.Errorf("get agent: %w", err)
 	}
 
-	// Inject general instructions
 	modifiedReq := *req
 	modifiedReq.Messages = injectInstructions(req.Messages, agent.Instructions)
 
-	// Decision model routing (if configured)
 	var selectedModel *models.AgentModel
 	if agent.DecisionModel != nil {
 		selectedModel = a.routeWithDecisionModel(ctx, agent, &modifiedReq)
@@ -236,101 +208,59 @@ func (a *Adapter) CompleteStream(
 		}
 	}
 
-	// Reorder models: selected first, then by priority
 	orderedModels := reorderModels(agent.Models, selectedModel)
 
-	// Try each model in order
+	candidates := make([]retry.StreamCandidate, 0, len(orderedModels))
 	for _, agentModel := range orderedModels {
-		modelReq := modifiedReq
-
-		// Apply model-specific instructions
-		if agentModel.Instructions != "" {
-			modelReq.Messages = injectModelInstructions(modelReq.Messages, agentModel.Instructions)
-		}
-
-		// Set target model
-		modelReq.Model = agentModel.ModelID
-
-		logger.Info("agent trying model (stream)",
-			"agent", agent.Name,
-			"model", agentModel.ModelID,
-			"priority", agentModel.Priority)
-
-		// Make internal request (agent bypasses token credential filter)
-		err := routerSvc.CompleteStream(ctx, &modelReq, w, nil)
-
-		if err == nil {
-			logger.Info("agent stream succeeded",
-				"agent", agent.Name,
-				"model", agentModel.ModelID)
-			return nil
-		}
-
-		// Check if retryable
-		var provErr *provider.ProviderError
-		if errors.As(err, &provErr) && provErr.IsRetryable() {
-			logger.Info("agent model failed with retryable error, trying next (stream)",
-				"agent", agent.Name,
-				"model", agentModel.ModelID,
-				"error", provErr.Message)
-			continue
-		}
-
-		// Non-retryable error, fail immediately
-		logger.Error("agent model failed with non-retryable error (stream)",
-			"agent", agent.Name,
-			"model", agentModel.ModelID,
-			"error", err)
-		return err
+		agentModel := agentModel
+		candidates = append(candidates, retry.StreamCandidate{
+			Label: string(agentModel.ModelID),
+			Run: func(ctx context.Context, w io.Writer) error {
+				modelReq := modifiedReq
+				if agentModel.Instructions != "" {
+					modelReq.Messages = injectModelInstructions(modelReq.Messages, agentModel.Instructions)
+				}
+				modelReq.Model = agentModel.ModelID
+				logger.Info("agent trying model (stream)",
+					"agent", agent.Name,
+					"model", agentModel.ModelID,
+					"priority", agentModel.Priority)
+				return routerSvc.CompleteStream(ctx, &modelReq, w, nil)
+			},
+		})
 	}
 
-	return fmt.Errorf("all agent models exhausted for agent %q", agent.Name)
+	return retry.RunStream(ctx, candidates, w, logger)
 }
 
-func (a *Adapter) NeedsRefresh(cred *sdk.Credential) bool {
+func (a *Adapter) NeedsRefresh(cred *models.Credential) bool {
 	return false
 }
 
-func (a *Adapter) RefreshCredential(ctx context.Context, cred *sdk.Credential) (*sdk.Credential, error) {
-	return nil, sdk.ErrNoRefreshNeeded
+func (a *Adapter) RefreshCredential(ctx context.Context, cred *models.Credential) (map[string]any, error) {
+	return nil, fmt.Errorf("no refresh needed for this credential type")
 }
 
-func (a *Adapter) GetAuthFlow() sdk.AuthFlowHandler {
-	return nil
-}
-
-func (a *Adapter) GetModelInfos(ctx context.Context, cred *sdk.Credential, providerQualifier string) ([]sdk.ModelInfo, error) {
+func (a *Adapter) GetModelInfos(ctx context.Context, cred *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {
 	agentSvc := a.getAgentService()
 	if agentSvc == nil {
 		return nil, fmt.Errorf("agent service not initialized")
 	}
 
-	// List all agents and return as models
 	agents, err := agentSvc.List()
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
 	}
 
-	infos := make([]sdk.ModelInfo, len(agents))
+	infos := make([]models.ModelInfo, len(agents))
 	for i, agent := range agents {
-		infos[i] = sdk.ModelInfo{
+		infos[i] = models.ModelInfo{
 			Name:        agent.Name,
 			DisplayName: agent.Name,
 		}
 	}
 
 	return infos, nil
-}
-
-func (a *Adapter) GetDefaultProviders() []sdk.ProviderInfo {
-	return []sdk.ProviderInfo{
-		{
-			Name:      "Agents",
-			Qualifier: "",
-			BaseURL:   "",
-			IconURL:   "",
-		},
-	}
 }
 
 // ─────────────────────────────────────────────
@@ -340,14 +270,12 @@ func (a *Adapter) GetDefaultProviders() []sdk.ProviderInfo {
 type agentModelList []models.AgentModel
 
 func reorderModels(models agentModelList, selected *models.AgentModel) agentModelList {
-	// Sort by priority
 	sorted := make(agentModelList, len(models))
 	copy(sorted, models)
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i].Priority < sorted[j].Priority
 	})
 
-	// If a model was selected by decision model, move it to front
 	if selected != nil {
 		result := agentModelList{*selected}
 		for _, m := range sorted {

@@ -17,7 +17,6 @@ func main() {
 	devDB := flag.String("dev-db", "", "path to dev database")
 	devKey := flag.String("dev-key", "", "path to dev testing key")
 	platforms := flag.String("platforms", "windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64", "platforms for publish")
-	remote := flag.String("remote", "https", "clone protocol for .workspace")
 	flag.Parse()
 
 	if *url == "" {
@@ -46,7 +45,7 @@ func main() {
 	fmt.Printf("  status            Show dev server status\n")
 	fmt.Printf("  browser           Open dashboard in browser (%s)\n", *url)
 	fmt.Printf("  clean             Stop + git clean -fdX (preserves untracked source)\n")
-	fmt.Printf("  publish           Build frontend + workspace + all PUBLISH_PLATFORMS binaries\n")
+	fmt.Printf("  publish           Build frontend + all PUBLISH_PLATFORMS binaries\n")
 	fmt.Printf("  go-check          Run go vet\n")
 	fmt.Printf("  go-test           Run go test ./...\n")
 	fmt.Printf("  check-frontend    Run svelte-check (frontend type check)\n\n")
@@ -58,7 +57,6 @@ func main() {
 	fmt.Printf("  DEV_DB             Path to dev database. Default: \"%s\"\n", *devDB)
 	fmt.Printf("  DEV_KEY            Path to dev testing key. Default: \"%s\"\n", *devKey)
 	fmt.Printf("  PUBLISH_PLATFORMS  Platforms for publish. Default: \"windows/amd64 ...\"\n")
-	fmt.Printf("  WORKSPACE_REMOTE   Clone protocol for .workspace. Default: \"%s\" (https|ssh)\n", *remote)
 	fmt.Printf("  NO_SKIP            Disable skipping of bun install + OpenAPI generation. Default: \"0\" (truthy: 1/true/yes/on)\n")
 	{
 		v := os.Getenv("NO_SKIP")

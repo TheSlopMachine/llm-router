@@ -1,6 +1,6 @@
 // Package modelinfo manages model metadata caching.
 //
-// This service provides a caching layer between the dashboard UI and provider adapters,
+// This service provides a caching layer between the dashboard UI and provider backends,
 // reducing API calls and improving performance.
 package modelinfo
 
@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	sdk "github.com/TheSlopMachine/llm-router-sdk"
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
@@ -27,7 +26,6 @@ type Service struct {
 	cacheTTL    time.Duration
 	logger      *slog.Logger
 
-	// In-memory cache: providerID -> cacheEntry
 	mu       sync.RWMutex
 	cache    map[string]cacheEntry
 	inflight map[string]*sync.WaitGroup
@@ -66,9 +64,7 @@ func hostOf(raw string) string {
 }
 
 // GetModelInfos retrieves all model metadata for a provider
-// Example: GetModelInfos(ctx, "openai:azure")
 func (s *Service) GetModelInfos(ctx context.Context, providerID string) ([]models.ModelInfo, error) {
-	// Check in-memory cache first
 	s.mu.RLock()
 	if entry, exists := s.cache[providerID]; exists && util.Now().Before(entry.expiresAt) {
 		s.mu.RUnlock()
@@ -76,14 +72,12 @@ func (s *Service) GetModelInfos(ctx context.Context, providerID string) ([]model
 	}
 	s.mu.RUnlock()
 
-	// Check if fetch is already in progress
 	s.mu.Lock()
 	wg, exists := s.inflight[providerID]
 	if exists {
 		s.mu.Unlock()
 		wg.Wait()
 
-		// Try cache again after wait
 		s.mu.RLock()
 		defer s.mu.RUnlock()
 		if entry, exists := s.cache[providerID]; exists {
@@ -92,7 +86,6 @@ func (s *Service) GetModelInfos(ctx context.Context, providerID string) ([]model
 		return nil, fmt.Errorf("fetch failed for provider %s", providerID)
 	}
 
-	// Start new fetch
 	wg = &sync.WaitGroup{}
 	wg.Add(1)
 	s.inflight[providerID] = wg
@@ -109,7 +102,6 @@ func (s *Service) GetModelInfos(ctx context.Context, providerID string) ([]model
 }
 
 // GetModelInfo retrieves metadata for a specific model
-// Example: GetModelInfo(ctx, "openai:azure/gpt-4o")
 func (s *Service) GetModelInfo(ctx context.Context, modelID models.ModelId) (*models.ModelInfo, error) {
 	providerID, modelName, err := modelID.Parse()
 	if err != nil {
@@ -131,7 +123,6 @@ func (s *Service) GetModelInfo(ctx context.Context, modelID models.ModelId) (*mo
 }
 
 // GetModels retrieves just the model names for a provider
-// Example: GetModels(ctx, "openai:azure")
 func (s *Service) GetModels(ctx context.Context, providerID string) ([]string, error) {
 	modelInfos, err := s.GetModelInfos(ctx, providerID)
 	if err != nil {
@@ -145,27 +136,18 @@ func (s *Service) GetModels(ctx context.Context, providerID string) ([]string, e
 	return names, nil
 }
 
-// fetchAndCache fetches model metadata from provider and caches it
+// fetchAndCache fetches model metadata from the provider backend and caches it.
 func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]models.ModelInfo, error) {
-	// Get provider record
-	p, err := s.providerSvc.Get(providerID)
+	resolved, err := provider.Resolve(s.providerSvc, providerID)
 	if err != nil {
 		if s.logger != nil {
 			s.logger.Warn("model discovery: provider lookup failed", "provider_id", providerID, "err", err)
 		}
 		return nil, fmt.Errorf("provider lookup failed: %w", err)
 	}
+	p := resolved.Instance
+	config := p.Config
 
-	// Get adapter
-	adapter, err := provider.Lookup(p.Type)
-	if err != nil {
-		if s.logger != nil {
-			s.logger.Error("model discovery: adapter lookup failed", "provider_id", providerID, "type", p.Type, "err", err)
-		}
-		return nil, fmt.Errorf("adapter lookup failed: %w", err)
-	}
-
-	// Get credentials
 	creds, err := s.credSvc.ListByProvider(providerID)
 	if err != nil {
 		if s.logger != nil {
@@ -176,46 +158,50 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 	var modelInfos []models.ModelInfo
 	var lastErr error
 
-	// Try a credential-free fetch first for adapters that do not need credentials
-	// for model discovery, such as the built-in agents provider.
+	fetch := func(cred *models.Credential) ([]models.ModelInfo, error) {
+		if resolved.IsLua() {
+			return s.providerSvc.LuaService().GetModelInfos(ctx, p.TypeKey, cred, config)
+		}
+		return safeGetModelInfos(ctx, resolved.Go, cred, config)
+	}
+
+	// Credential-free fetch first for backends that do not need credentials
+	// for discovery, such as the built-in agents provider or keyless plugins.
 	if len(creds) == 0 {
-		modelInfos, lastErr = safeGetModelInfos(ctx, adapter, nil, p.Qualifier)
+		modelInfos, lastErr = fetch(nil)
 		if lastErr == nil {
 			if s.logger != nil {
-				s.logger.Info("model discovery succeeded (no credential)", "provider_id", providerID, "base_url_host", hostOf(p.BaseURL), "models", len(modelInfos))
+				s.logger.Info("model discovery succeeded (no credential)", "provider_id", providerID, "models", len(modelInfos))
 			}
 			return s.store(providerID, modelInfos), nil
 		}
 		if s.logger != nil {
-			s.logger.Warn("model discovery failed", "provider_id", providerID, "base_url_host", hostOf(p.BaseURL), "qualifier", p.Qualifier, "err", lastErr, "attempts", 1)
+			s.logger.Warn("model discovery failed", "provider_id", providerID, "qualifier", p.Qualifier, "err", lastErr, "attempts", 1)
 		}
 		return nil, fmt.Errorf("no credentials available for provider %s: %w", p.Name, lastErr)
 	}
 
-	// Try each credential until one succeeds.
-	// BaseURL for custom providers is resolved centrally inside generic.Adapter via qualifier,
-	// not via credential mutation.
 	for _, cred := range creds {
-		modelInfos, lastErr = adapter.GetModelInfos(ctx, cred.ToSDK(), p.Qualifier)
+		modelInfos, lastErr = fetch(cred)
 		if lastErr == nil {
 			if s.logger != nil {
-				s.logger.Info("model discovery succeeded", "provider_id", providerID, "base_url_host", hostOf(p.BaseURL), "credential_id", cred.ID, "models", len(modelInfos))
+				s.logger.Info("model discovery succeeded", "provider_id", providerID, "credential_id", cred.ID, "models", len(modelInfos))
 			}
 			return s.store(providerID, modelInfos), nil
 		}
 	}
 
 	if s.logger != nil {
-		s.logger.Warn("model discovery failed", "provider_id", providerID, "base_url_host", hostOf(p.BaseURL), "qualifier", p.Qualifier, "err", lastErr, "attempts", len(creds))
+		s.logger.Warn("model discovery failed", "provider_id", providerID, "qualifier", p.Qualifier, "err", lastErr, "attempts", len(creds))
 	}
-	return nil, fmt.Errorf("custom %q (%s) discovery: %w", providerID, hostOf(p.BaseURL), lastErr)
+	return nil, fmt.Errorf("provider %q discovery: %w", providerID, lastErr)
 }
 
 func safeGetModelInfos(
 	ctx context.Context,
-	adapter provider.Adapter,
+	adapter provider.GoAdapter,
 	cred *models.Credential,
-	providerQualifier string,
+	providerConfig map[string]any,
 ) (modelInfos []models.ModelInfo, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -223,12 +209,7 @@ func safeGetModelInfos(
 		}
 	}()
 
-	var sdkCred *sdk.Credential
-	if cred != nil {
-		sdkCred = cred.ToSDK()
-	}
-
-	return adapter.GetModelInfos(ctx, sdkCred, providerQualifier)
+	return adapter.GetModelInfos(ctx, cred, providerConfig)
 }
 
 // InvalidateProvider clears cache for a specific provider

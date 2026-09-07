@@ -24,14 +24,10 @@ const binary = "llm-router"
 func main() {
 	version := flag.String("version", "dev", "release version for ldflags")
 	platforms := flag.String("platforms", "", "space-separated GOOS/GOARCH list")
-	remote := flag.String("remote", "https", "clone protocol for workspace")
 	flag.Parse()
 
 	if *platforms == "" {
 		shared.Failf("missing --platforms")
-	}
-	if *remote != "https" && *remote != "ssh" {
-		shared.Failf("invalid --remote %q", *remote)
 	}
 
 	root, err := shared.RootDir()
@@ -42,11 +38,6 @@ func main() {
 	// Strict: frontend build must succeed.
 	shared.Stepf("Building frontend (vite build)...")
 	if err := shared.RunScript("frontend", "--mode", "build"); err != nil {
-		shared.Failf("%v", err)
-	}
-
-	shared.Stepf("Preparing workspace...")
-	if err := shared.RunScript("workspace", "--remote", *remote); err != nil {
 		shared.Failf("%v", err)
 	}
 

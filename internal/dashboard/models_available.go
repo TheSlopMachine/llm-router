@@ -47,7 +47,7 @@ func (h *Handler) availableModels(ctx context.Context) ([]availableModelView, er
 
 	items := make([]availableModelView, 0)
 	for _, providerRecord := range providers {
-		if providerRecord.Type == "agents" {
+		if providerRecord.TypeKey == "agents" {
 			continue
 		}
 
@@ -70,7 +70,7 @@ func (h *Handler) availableModels(ctx context.Context) ([]availableModelView, er
 				FullModelID:   string(models.ModelId(providerRecord.ID + "/" + modelInfo.Name)),
 				ProviderID:    providerRecord.ID,
 				ProviderName:  providerRecord.Name,
-				ProviderType:  providerRecord.Type,
+				ProviderType:  providerRecord.TypeKey,
 				ModelName:     modelInfo.Name,
 				DisplayName:   displayName,
 				ContextWindow: modelInfo.ContextWindow,

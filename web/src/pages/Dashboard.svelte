@@ -7,12 +7,14 @@
   import Providers from '../components/Providers.svelte'
   import Tokens from '../components/Tokens.svelte'
   import Agents from '../components/Agents.svelte'
+  import PluginManager from './PluginManager.svelte'
+  import PluginStore from './PluginStore.svelte'
   import { modal } from '../lib/modal.svelte'
   import SettingsModal from '../components/SettingsModal.svelte'
 
   let { onlogout } = $props<{ onlogout: () => void }>()
 
-  type PanelId = 'chat' | 'metrics' | 'providers' | 'models' | 'agents' | 'tokens'
+  type PanelId = 'chat' | 'metrics' | 'providers' | 'models' | 'agents' | 'tokens' | 'plugins' | 'store'
 
   interface NavItem {
     id: PanelId
@@ -31,7 +33,7 @@
   function applyRoute(): void {
     const raw = window.location.hash.replace(/^#\/?/, '')
     const segments = raw.split('/').filter(Boolean)
-    const validPanels: PanelId[] = ['chat', 'metrics', 'providers', 'models', 'agents', 'tokens']
+    const validPanels: PanelId[] = ['chat', 'metrics', 'providers', 'models', 'agents', 'tokens', 'plugins', 'store']
 
     if (segments.length === 0) {
       panel = 'metrics'
@@ -74,6 +76,8 @@
     { id: 'models',       label: 'Models',       icon: 'view_list' },
     { id: 'agents',       label: 'Agents',       icon: 'robot' },
     { id: 'tokens',       label: 'Tokens',       icon: 'key' },
+    { id: 'plugins',      label: 'Plugins',      icon: 'extension' },
+    { id: 'store',        label: 'Store',        icon: 'download' },
   ]
 </script>
 
@@ -124,6 +128,10 @@
         {/if}
       {:else if panel === 'tokens'}
         <Tokens />
+      {:else if panel === 'plugins'}
+        <PluginManager />
+      {:else if panel === 'store'}
+        <PluginStore />
       {/if}
     </div>
   </main>

@@ -243,30 +243,30 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 	if h.providerSvc != nil && h.modelInfoSvc != nil {
 		if providers, err := h.providerSvc.List(); err == nil {
 			for _, p := range providers {
-				if p.Type == "agents" {
+				if p.TypeKey == "agents" {
 					continue
 				}
 				infos, err := h.modelInfoSvc.GetModelInfos(r.Context(), p.ID)
 				if err != nil {
 					h.logger.Warn("v1 listModels: model discovery failed", "provider_id", p.ID, "err", err)
-					if p.Type == "custom" {
+					if p.TypeKey == "custom" {
 						// Compat servers may not implement GET /models — still advertise provider as routable.
 						entries = append(entries, modelEntry{
 							ID:      p.ID + "/*",
 							Object:  "model",
 							Created: time.Now().Unix(),
-							OwnedBy: p.Type,
+							OwnedBy: p.TypeKey,
 						})
 					}
 					continue
 				}
 				if len(infos) == 0 {
-					if p.Type == "custom" {
+					if p.TypeKey == "custom" {
 						entries = append(entries, modelEntry{
 							ID:      p.ID + "/*",
 							Object:  "model",
 							Created: time.Now().Unix(),
-							OwnedBy: p.Type,
+							OwnedBy: p.TypeKey,
 						})
 					}
 					continue
@@ -277,7 +277,7 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 						ID:      fullID,
 						Object:  "model",
 						Created: time.Now().Unix(),
-						OwnedBy: p.Type,
+						OwnedBy: p.TypeKey,
 					})
 				}
 			}
@@ -338,7 +338,7 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, t *model
 			if _, err := h.modelInfoSvc.GetModelInfo(r.Context(), mid); err == nil {
 				exists = true
 				if p, err := h.providerSvc.Get(providerID); err == nil {
-					ownedBy = p.Type
+					ownedBy = p.TypeKey
 				} else {
 					ownedBy = providerID
 				}
@@ -453,18 +453,18 @@ type routerError struct {
 
 func (h *Handler) classifyError(err error) routerError {
 	// Check for ProviderError first
-	var provErr *provider.ProviderError
+	var provErr *models.ProviderError
 	if errors.As(err, &provErr) {
 		switch provErr.Type {
-		case provider.ErrorTypeRateLimit:
+		case models.ErrorTypeRateLimit:
 			return routerError{http.StatusBadGateway, "rate_limit"}
-		case provider.ErrorTypeQuotaExceeded:
+		case models.ErrorTypeQuotaExceeded:
 			return routerError{http.StatusBadGateway, "quota_exceeded"}
-		case provider.ErrorTypeAuth:
+		case models.ErrorTypeAuth:
 			return routerError{http.StatusUnauthorized, "auth_error"}
-		case provider.ErrorTypeTimeout:
+		case models.ErrorTypeTimeout:
 			return routerError{http.StatusBadGateway, "timeout"}
-		case provider.ErrorTypeUpstream:
+		case models.ErrorTypeUpstream:
 			return routerError{http.StatusBadGateway, "upstream_error"}
 		default:
 			return routerError{http.StatusBadGateway, "upstream_error"}

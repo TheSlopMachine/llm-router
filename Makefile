@@ -7,7 +7,6 @@ NO_SKIP    ?= 0
 export NO_SKIP
 
 PUBLISH_PLATFORMS ?= windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64
-WORKSPACE_REMOTE   ?= https
 
 HOST      ?= localhost
 WEB_PORT  ?= 8080
@@ -29,7 +28,7 @@ BUN     := bun
 .PHONY: help check-frontend-deps check-publish-deps go-tidy start stop restart status browser clean publish go-check go-test check-frontend
 
 help:
-	@cd scripts && GOWORK=off go run ./help --host "$(HOST)" --web-port "$(WEB_PORT)" --api-port "$(API_PORT)" --url "$(URL)" --dev-db "$(DEV_DB)" --dev-key "$(DEV_KEY)" --platforms "$(PUBLISH_PLATFORMS)" --remote "$(WORKSPACE_REMOTE)"
+	@cd scripts && GOWORK=off go run ./help --host "$(HOST)" --web-port "$(WEB_PORT)" --api-port "$(API_PORT)" --url "$(URL)" --dev-db "$(DEV_DB)" --dev-key "$(DEV_KEY)" --platforms "$(PUBLISH_PLATFORMS)"
 
 check-frontend-deps:
 	@printf '[>] Checking frontend deps (bun >=$(BUN_MIN))...\n'
@@ -58,14 +57,14 @@ go-tidy:
 	@go mod tidy
 
 start: check-frontend-deps
-	@cd scripts && GOWORK=off go run ./start --host "$(HOST)" --web-port "$(WEB_PORT)" --api-port "$(API_PORT)" --db "$(DEV_DB)" --testing-key "$(DEV_KEY)" --remote "$(WORKSPACE_REMOTE)"
+	@cd scripts && GOWORK=off go run ./start --host "$(HOST)" --web-port "$(WEB_PORT)" --api-port "$(API_PORT)" --db "$(DEV_DB)" --testing-key "$(DEV_KEY)"
 
 stop:
 	@cd scripts && GOWORK=off go run ./stop
 
 restart:
 	@cd scripts && GOWORK=off go run ./stop
-	@cd scripts && GOWORK=off go run ./start --host "$(HOST)" --web-port "$(WEB_PORT)" --api-port "$(API_PORT)" --db "$(DEV_DB)" --testing-key "$(DEV_KEY)" --remote "$(WORKSPACE_REMOTE)"
+	@cd scripts && GOWORK=off go run ./start --host "$(HOST)" --web-port "$(WEB_PORT)" --api-port "$(API_PORT)" --db "$(DEV_DB)" --testing-key "$(DEV_KEY)"
 
 status:
 	@cd scripts && GOWORK=off go run ./status
@@ -78,7 +77,7 @@ clean:
 	@git clean -fdX
 
 publish: check-publish-deps
-	@cd scripts && GOWORK=off go run ./publish --version "$(VERSION)" --platforms "$(PUBLISH_PLATFORMS)" --remote "$(WORKSPACE_REMOTE)"
+	@cd scripts && GOWORK=off go run ./publish --version "$(VERSION)" --platforms "$(PUBLISH_PLATFORMS)"
 
 go-check:
 	@cd scripts && GOWORK=off go run ./vet

@@ -1,55 +1,26 @@
-// Package generic provides a generic OpenAI-compatible adapter for custom providers.
-// BaseURL is resolved centrally via a provider resolver — no per-call credential injection.
+// Package generic provides a generic OpenAI-compatible backend for custom providers.
 package generic
 
 import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
-	"net/url"
 	"strings"
+	"time"
 
-	sdk "github.com/TheSlopMachine/llm-router-sdk"
+	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
 const adapterTypeKey = "custom"
 
-// resolveBaseURL is injected once at startup (server.New) so the adapter
-// owns its config. Signature: qualifier -> baseURL.
-var resolveBaseURL func(qualifier string) (string, error)
-var logger *slog.Logger
-
-// SetResolver wires the single source of truth for custom provider config.
-// Must be called once after provider.Service is constructed.
-func SetResolver(fn func(qualifier string) (string, error)) {
-	resolveBaseURL = fn
-}
-
-// SetLogger wires structured logging for discovery/route diagnostics.
-func SetLogger(l *slog.Logger) { logger = l }
-
-func baseURLHost(baseURL string) string {
-	u, err := url.Parse(baseURL)
-	if err != nil || u.Host == "" {
-		return "<invalid-host>"
-	}
-	return u.Host
-}
-
-// Adapter implements the generic OpenAI-compatible adapter for "custom" providers.
+// Adapter implements the generic OpenAI-compatible backend for "custom" providers.
 type Adapter struct{}
-
-func init() {
-	sdk.Register(&Adapter{})
-}
 
 func (a *Adapter) TypeKey() string { return adapterTypeKey }
 
-func (a *Adapter) AuthType() sdk.AuthType { return sdk.AuthTypeAPIKey }
-
-func (a *Adapter) ValidateCredentials(data map[string]string) error {
-	apiKey := strings.TrimSpace(data["api_key"])
+func (a *Adapter) ValidateCredentials(data map[string]any) error {
+	apiKey, _ := data["api_key"].(string)
+	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
 		return fmt.Errorf("custom provider: api_key is required")
 	}
@@ -59,65 +30,35 @@ func (a *Adapter) ValidateCredentials(data map[string]string) error {
 	return nil
 }
 
-func (a *Adapter) baseURLForQualifier(qualifier string) (string, error) {
-	if resolveBaseURL == nil {
-		err := fmt.Errorf("custom provider resolver not wired (server.New must call generic.SetResolver)")
-		if logger != nil {
-			logger.Error("custom provider resolver not wired", "qualifier", qualifier)
-		}
-		return "", err
-	}
-	if strings.TrimSpace(qualifier) == "" {
-		err := fmt.Errorf("custom provider: missing qualifier (expected custom:<slug>/model)")
-		if logger != nil {
-			logger.Warn("custom provider missing qualifier", "qualifier", qualifier)
-		}
-		return "", err
-	}
-	baseURL, err := resolveBaseURL(qualifier)
-	if err != nil {
-		if logger != nil {
-			logger.Warn("custom provider not found", "qualifier", qualifier, "err", err)
-		}
-		return "", fmt.Errorf("custom provider %q not found: %w", qualifier, err)
-	}
+func baseURLFromConfig(config map[string]any) (string, error) {
+	baseURL, _ := config["base_url"].(string)
 	baseURL = strings.TrimSpace(baseURL)
 	if baseURL == "" {
-		err := fmt.Errorf("custom provider %q has empty base_url", qualifier)
-		if logger != nil {
-			logger.Warn("custom provider empty base_url", "qualifier", qualifier)
-		}
-		return "", err
+		return "", fmt.Errorf("custom provider has empty base_url")
 	}
-	return baseURL, nil
-}
-
-func (a *Adapter) baseURLForRequest(req *sdk.ChatCompletionRequest) (string, error) {
-	_, qualifier, _, err := req.Model.ParseFull()
-	if err != nil {
-		return "", fmt.Errorf("invalid model id: %w", err)
-	}
-	// Only handle custom type here; ParseFull extracts adapterType as well.
-	adapterType, _, _, _ := req.Model.ParseFull()
-	if adapterType != adapterTypeKey {
-		return "", fmt.Errorf("generic adapter called for non-custom model %q", req.Model)
-	}
-	return a.baseURLForQualifier(qualifier)
+	return strings.TrimSuffix(baseURL, "/"), nil
 }
 
 func (a *Adapter) Complete(
 	ctx context.Context,
-	cred *sdk.Credential,
-	req *sdk.ChatCompletionRequest,
-) (*sdk.ChatCompletionResponse, error) {
-	baseURL, err := a.baseURLForRequest(req)
+	cred *models.Credential,
+	req *models.ChatCompletionRequest,
+	providerConfig map[string]any,
+) (*models.ChatCompletionResponse, error) {
+	adapterType, _, modelName, err := req.Model.ParseFull()
+	if err != nil {
+		return nil, fmt.Errorf("invalid model id: %w", err)
+	}
+	if adapterType != adapterTypeKey {
+		return nil, fmt.Errorf("generic adapter called for non-custom model %q", req.Model)
+	}
+	baseURL, err := baseURLFromConfig(providerConfig)
 	if err != nil {
 		return nil, err
 	}
-	apiKey := extractAPIKey(cred)
-	_, _, modelName, err := req.Model.ParseFull()
-	if err != nil {
-		return nil, fmt.Errorf("invalid model id: %w", err)
+	apiKey := ""
+	if cred != nil {
+		apiKey = cred.DataString("api_key")
 	}
 	client := newClient(baseURL)
 	return client.ChatCompletion(ctx, apiKey, modelName, req)
@@ -125,52 +66,70 @@ func (a *Adapter) Complete(
 
 func (a *Adapter) CompleteStream(
 	ctx context.Context,
-	cred *sdk.Credential,
-	req *sdk.ChatCompletionRequest,
+	cred *models.Credential,
+	req *models.ChatCompletionRequest,
 	w io.Writer,
+	providerConfig map[string]any,
 ) error {
-	baseURL, err := a.baseURLForRequest(req)
+	adapterType, _, modelName, err := req.Model.ParseFull()
+	if err != nil {
+		return fmt.Errorf("invalid model id: %w", err)
+	}
+	if adapterType != adapterTypeKey {
+		return fmt.Errorf("generic adapter called for non-custom model %q", req.Model)
+	}
+	baseURL, err := baseURLFromConfig(providerConfig)
 	if err != nil {
 		return err
 	}
-	apiKey := extractAPIKey(cred)
-	_, _, modelName, err := req.Model.ParseFull()
-	if err != nil {
-		return fmt.Errorf("invalid model id: %w", err)
+	apiKey := ""
+	if cred != nil {
+		apiKey = cred.DataString("api_key")
 	}
 	client := newClient(baseURL)
 	return client.ChatCompletionStream(ctx, apiKey, modelName, req, w)
 }
 
-func (a *Adapter) NeedsRefresh(cred *sdk.Credential) bool { return false }
+func (a *Adapter) NeedsRefresh(cred *models.Credential) bool { return false }
 
-func (a *Adapter) RefreshCredential(ctx context.Context, cred *sdk.Credential) (*sdk.Credential, error) {
-	return nil, sdk.ErrNoRefreshNeeded
+func (a *Adapter) RefreshCredential(ctx context.Context, cred *models.Credential) (map[string]any, error) {
+	return nil, fmt.Errorf("no refresh needed for this credential type")
 }
 
 func (a *Adapter) GetModelInfos(
 	ctx context.Context,
-	cred *sdk.Credential,
-	providerQualifier string,
-) ([]sdk.ModelInfo, error) {
-	baseURL, err := a.baseURLForQualifier(providerQualifier)
+	cred *models.Credential,
+	providerConfig map[string]any,
+) ([]models.ModelInfo, error) {
+	baseURL, err := baseURLFromConfig(providerConfig)
 	if err != nil {
 		return nil, err
 	}
-	apiKey := extractAPIKey(cred)
+	apiKey := ""
+	if cred != nil {
+		apiKey = cred.DataString("api_key")
+	}
 	client := newClient(baseURL)
 	return client.ListModels(ctx, apiKey)
 }
 
-func (a *Adapter) GetAuthFlow() sdk.AuthFlowHandler { return &AuthFlow{} }
-
-func (a *Adapter) GetDefaultProviders() []sdk.ProviderInfo { return []sdk.ProviderInfo{} }
-
-func extractAPIKey(cred *sdk.Credential) string {
-	if cred == nil || cred.Data == nil {
-		return ""
+// classifyHTTPError maps upstream status codes to the retry contract.
+func classifyHTTPError(status int, body string) error {
+	msg := fmt.Sprintf("unexpected status %d: %s", status, body)
+	switch {
+	case status == 401 || status == 403:
+		return &models.ProviderError{StatusCode: status, Message: msg, Type: models.ErrorTypeAuth}
+	case status == 429:
+		if strings.Contains(strings.ToLower(msg), "quota") {
+			retryAfter := time.Now().Add(time.Minute)
+			return &models.ProviderError{StatusCode: status, Message: msg, Type: models.ErrorTypeQuotaExceeded, RetryAfter: &retryAfter}
+		}
+		return &models.ProviderError{StatusCode: status, Message: msg, Type: models.ErrorTypeRateLimit}
+	case status == 408 || status == 504:
+		return &models.ProviderError{StatusCode: status, Message: msg, Type: models.ErrorTypeTimeout}
+	case status >= 500:
+		return &models.ProviderError{StatusCode: status, Message: msg, Type: models.ErrorTypeUpstream}
+	default:
+		return &models.ProviderError{StatusCode: status, Message: msg, Type: models.ErrorTypeInvalidRequest}
 	}
-	return strings.TrimSpace(cred.Data["api_key"])
 }
-
-var _ sdk.Adapter = (*Adapter)(nil)

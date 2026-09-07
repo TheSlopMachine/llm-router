@@ -2,10 +2,12 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 )
 
 type credView struct {
@@ -52,6 +54,62 @@ func (h *Handler) apiCredentialsList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.json(w, http.StatusOK, out)
+}
+
+// apiCredentialsCreate saves a credential from single-step schema data.
+// @Summary      Create credential
+// @Description  Validates and stores a credential for a provider.
+// @Tags         Credentials
+// @Accept       json
+// @Produce      json
+// @Param        body body object{provider_id=string,label=string,data=object} true "Credential details"
+// @Success      200 {object} object{id=string,provider_id=string,provider_name=string,label=string,is_expired=bool,expires_at=string,updated_at=string}
+// @Failure      400 {object} models.ErrorResponse
+// @Failure      401 {object} models.ErrorResponse
+// @Failure      404 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/credentials [post]
+func (h *Handler) apiCredentialsCreate(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ProviderID string         `json:"provider_id"`
+		Label      string         `json:"label"`
+		Data       map[string]any `json:"data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.ProviderID == "" {
+		h.jsonErr(w, http.StatusBadRequest, "provider_id is required")
+		return
+	}
+	p, err := h.providerSvc.Get(body.ProviderID)
+	if err != nil {
+		h.jsonErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	label := body.Label
+	if label == "" {
+		label = buildAutoCredentialLabel(p.Name, body.Data)
+	}
+	cred, err := h.credSvc.Add(credential.AddOptions{
+		ProviderID: body.ProviderID,
+		Label:      label,
+		Data:       body.Data,
+	})
+	if err != nil {
+		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h.json(w, http.StatusOK, credView{
+		ID:           cred.ID,
+		ProviderID:   cred.ProviderID,
+		ProviderName: p.Name,
+		Label:        cred.Label,
+		IsExpired:    cred.IsExpired(),
+		ExpiresAt:    cred.ExpiresAt,
+		UpdatedAt:    cred.UpdatedAt,
+	})
 }
 
 // apiCredentialsDelete deletes a credential
@@ -117,7 +175,7 @@ func (h *Handler) apiModels(w http.ResponseWriter, r *http.Request) {
 			pm := ProviderModels{
 				ProviderID:   p.ID,
 				ProviderName: p.Name,
-				ProviderType: p.Type,
+				ProviderType: p.TypeKey,
 			}
 
 			modelInfos, err := h.modelInfoSvc.GetModelInfos(ctx, providerID)

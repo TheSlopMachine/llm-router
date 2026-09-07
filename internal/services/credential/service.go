@@ -53,18 +53,33 @@ func New(database *db.DB, providerSvc *provider.Service) *Service {
 type AddOptions struct {
 	ProviderID string
 	Label      string
-	Data       map[string]string
+	Data       map[string]any
 }
 
 // Add validates and persists a new Credential for the given provider.
+// Validation dispatches to the Go adapter or the Lua validate_credentials
+// handler for the provider's type key.
 func (s *Service) Add(opts AddOptions) (*models.Credential, error) {
-	adapter, _, err := provider.ResolveAdapter(s.providerSvc, opts.ProviderID)
+	resolved, err := provider.Resolve(s.providerSvc, opts.ProviderID)
 	if err != nil {
 		return nil, err
 	}
-
-	if err := adapter.ValidateCredentials(opts.Data); err != nil {
-		return nil, fmt.Errorf("invalid credentials: %w", err)
+	data := opts.Data
+	if data == nil {
+		data = map[string]any{}
+	}
+	if resolved.IsLua() {
+		ok, verr := s.providerSvc.LuaService().ValidateCredentials(resolved.Instance.TypeKey, data)
+		if verr != nil {
+			return nil, fmt.Errorf("invalid credentials: %w", verr)
+		}
+		if !ok {
+			return nil, fmt.Errorf("invalid credentials: rejected by provider")
+		}
+	} else {
+		if err := resolved.Go.ValidateCredentials(data); err != nil {
+			return nil, fmt.Errorf("invalid credentials: %w", err)
+		}
 	}
 
 	id, err := util.GenerateID()
@@ -77,7 +92,7 @@ func (s *Service) Add(opts AddOptions) (*models.Credential, error) {
 		ID:         id,
 		ProviderID: opts.ProviderID,
 		Label:      opts.Label,
-		Data:       opts.Data,
+		Data:       data,
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
@@ -99,9 +114,6 @@ func (s *Service) Get(id string) (*models.Credential, error) {
 }
 
 // Next returns the best available (non-expired) Credential for a provider.
-// Selection strategy: LRU with priority ordering.
-// Priority: 0 (never used) > 1 (normal) > 2 (quota exceeded)
-// Expired credentials (priority 3) are never returned.
 func (s *Service) Next(providerID string) (*models.Credential, error) {
 	creds, err := s.All(providerID)
 	if err != nil {
@@ -122,7 +134,6 @@ func (s *Service) All(providerID string) ([]*models.Credential, error) {
 		return nil, err
 	}
 
-	// Filter out expired credentials
 	available := make([]*models.Credential, 0, len(all))
 	for _, c := range all {
 		if !c.IsExpired() {
@@ -134,13 +145,11 @@ func (s *Service) All(providerID string) ([]*models.Credential, error) {
 		return nil, fmt.Errorf("all credentials for provider %s are expired", providerID)
 	}
 
-	// Sort by priority, then by LRU
 	sort.Slice(available, func(i, j int) bool {
 		pi, pj := available[i].Priority(), available[j].Priority()
 		if pi != pj {
-			return pi < pj // Lower priority number = higher priority
+			return pi < pj
 		}
-		// Same priority: sort by LRU (nil = never used = highest priority)
 		if available[i].LastUsedAt == nil {
 			return true
 		}
@@ -170,8 +179,7 @@ func (s *Service) ListAll() ([]*models.Credential, error) {
 // ─────────────────────────────────────────────
 
 // Update replaces a Credential's mutable fields (data, expiry).
-// Used by the Maintenance service after a successful token refresh.
-func (s *Service) Update(id string, data map[string]string, expiresAt *time.Time) error {
+func (s *Service) Update(id string, data map[string]any, expiresAt *time.Time) error {
 	return s.repo.Update(id, func(c *models.Credential) error {
 		c.Data = data
 		c.ExpiresAt = expiresAt

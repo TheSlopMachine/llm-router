@@ -3,45 +3,28 @@ package dashboard
 import (
 	"strings"
 	"testing"
-
-	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
-func TestCredentialAuthMethodLabelUsesKnownMethod(t *testing.T) {
-	providerRecord := &models.Provider{
-		Name:     "Kiro AI",
-		AuthType: models.AuthTypeOAuth2,
-	}
-
-	got := credentialAuthMethodLabel(providerRecord, map[string]string{
+func TestBuildAutoCredentialLabelUsesKnownMethod(t *testing.T) {
+	got := buildAutoCredentialLabel("Kiro AI", map[string]any{
 		"auth_method": "builder-id",
 	})
 
-	if got != "Builder ID" {
-		t.Fatalf("expected Builder ID, got %q", got)
+	if !strings.HasPrefix(got, "Kiro AI · Builder ID · ") {
+		t.Fatalf("unexpected label: %q", got)
 	}
 }
 
-func TestCredentialAuthMethodLabelFallsBackToAuthType(t *testing.T) {
-	providerRecord := &models.Provider{
-		Name:     "Google AI Studio",
-		AuthType: models.AuthTypeAPIKey,
-	}
+func TestBuildAutoCredentialLabelFallsBack(t *testing.T) {
+	got := buildAutoCredentialLabel("Google AI Studio", map[string]any{})
 
-	got := credentialAuthMethodLabel(providerRecord, map[string]string{})
-
-	if got != "API Key" {
-		t.Fatalf("expected API Key, got %q", got)
+	if !strings.HasPrefix(got, "Google AI Studio · Authenticated · ") {
+		t.Fatalf("unexpected label: %q", got)
 	}
 }
 
-func TestBuildAutoCredentialLabelIncludesProviderMethodAndTimestamp(t *testing.T) {
-	providerRecord := &models.Provider{
-		Name:     "Kiro AI",
-		AuthType: models.AuthTypeOAuth2,
-	}
-
-	got := buildAutoCredentialLabel(providerRecord, map[string]string{
+func TestBuildAutoCredentialLabelIncludesTimestamp(t *testing.T) {
+	got := buildAutoCredentialLabel("Kiro AI", map[string]any{
 		"auth_method": "idc",
 	})
 
