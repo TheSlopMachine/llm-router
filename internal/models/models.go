@@ -312,11 +312,11 @@ type ChatCompletionUsage struct {
 
 // StreamChunk is a single SSE data payload for streaming responses.
 type StreamChunk struct {
-	ID      string              `json:"id"`
-	Object  string              `json:"object"`
-	Created int64               `json:"created"`
-	Model   string              `json:"model"`
-	Choices []StreamChunkChoice `json:"choices"`
+	ID      string               `json:"id"`
+	Object  string               `json:"object"`
+	Created int64                `json:"created"`
+	Model   string               `json:"model"`
+	Choices []StreamChunkChoice  `json:"choices"`
 	Usage   *ChatCompletionUsage `json:"usage,omitempty"`
 }
 
@@ -346,13 +346,13 @@ type ModelInfo struct {
 type ErrorType int
 
 const (
-	ErrorTypeUnknown       ErrorType = iota
-	ErrorTypeRateLimit               // Temporary rate limit, rotate credential
-	ErrorTypeQuotaExceeded           // Credential quota exhausted, deprioritize (MUST have RetryAfter)
-	ErrorTypeAuth                    // Auth failure, credential may be invalid
-	ErrorTypeUpstream                // Upstream error, don't retry
-	ErrorTypeTimeout                 // Timeout, may retry
-	ErrorTypeInvalidRequest          // Invalid request, don't retry
+	ErrorTypeUnknown        ErrorType = iota
+	ErrorTypeRateLimit                // Temporary rate limit, rotate credential
+	ErrorTypeQuotaExceeded            // Credential quota exhausted, deprioritize (MUST have RetryAfter)
+	ErrorTypeAuth                     // Auth failure, credential may be invalid
+	ErrorTypeUpstream                 // Upstream error, don't retry
+	ErrorTypeTimeout                  // Timeout, may retry
+	ErrorTypeInvalidRequest           // Invalid request, don't retry
 )
 
 // ProviderError represents errors returned by provider backends.
@@ -522,11 +522,11 @@ type ProviderStats struct {
 
 // ProviderInstanceCreateRequest is the generic create body for any provider type.
 type ProviderInstanceCreateRequest struct {
-	Name     string         `json:"name"`
-	TypeKey  string         `json:"type_key"`
-	Qualifier string        `json:"qualifier"`
-	Config   map[string]any `json:"config"`
-	IconURL  string         `json:"icon_url"`
+	Name      string         `json:"name"`
+	TypeKey   string         `json:"type_key"`
+	Qualifier string         `json:"qualifier"`
+	Config    map[string]any `json:"config"`
+	IconURL   string         `json:"icon_url"`
 }
 
 // ProviderInstanceUpdateRequest is the generic update body.
@@ -647,20 +647,20 @@ func (c *Credential) DataString(key string) string {
 // UINode is a single node of the lua-driven UI tree shared by
 // config_schema, credential_schema and auth wizards.
 type UINode struct {
-	Type        string            `json:"type"`
-	Text        string            `json:"text,omitempty"`
-	Name        string            `json:"name,omitempty"`
-	Label       string            `json:"label,omitempty"`
-	InputType   string            `json:"input_type,omitempty"`
-	Required    bool              `json:"required,omitempty"`
-	Options     []string          `json:"options,omitempty"`
-	URL         string            `json:"url,omitempty"`
-	Variant     string            `json:"variant,omitempty"`
-	FormAction  string            `json:"form_action,omitempty"`
-	Content     []*UINode         `json:"content,omitempty"`
-	Placeholder string            `json:"placeholder,omitempty"`
-	Value       any               `json:"value,omitempty"`
-	Extra       map[string]any    `json:"-"`
+	Type        string         `json:"type"`
+	Text        string         `json:"text,omitempty"`
+	Name        string         `json:"name,omitempty"`
+	Label       string         `json:"label,omitempty"`
+	InputType   string         `json:"input_type,omitempty"`
+	Required    bool           `json:"required,omitempty"`
+	Options     []string       `json:"options,omitempty"`
+	URL         string         `json:"url,omitempty"`
+	Variant     string         `json:"variant,omitempty"`
+	FormAction  string         `json:"form_action,omitempty"`
+	Content     []*UINode      `json:"content,omitempty"`
+	Placeholder string         `json:"placeholder,omitempty"`
+	Value       any            `json:"value,omitempty"`
+	Extra       map[string]any `json:"-"`
 }
 
 // AuthStepInput is the submit payload for auth_step.

@@ -286,13 +286,13 @@ func (h *Handler) apiStoreUpdates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type updateView struct {
-		PluginID         string `json:"plugin_id"`
-		Current          string `json:"current"`
-		Latest           string `json:"latest"`
-		RepoID           string `json:"repo_id"`
-		Path             string `json:"path"`
-		UpdateAvailable  bool   `json:"update_available"`
-		Error            string `json:"error,omitempty"`
+		PluginID        string `json:"plugin_id"`
+		Current         string `json:"current"`
+		Latest          string `json:"latest"`
+		RepoID          string `json:"repo_id"`
+		Path            string `json:"path"`
+		UpdateAvailable bool   `json:"update_available"`
+		Error           string `json:"error,omitempty"`
 	}
 	ch := make(chan updateView, len(installed))
 	count := 0

@@ -135,10 +135,10 @@ func (g *ssrfGuard) resolveAndPick(ctx context.Context, hostname string) (net.IP
 
 // pluginHTTPClient is the Go backing of llm_router.create_http_client.
 type pluginHTTPClient struct {
-	ctx     *execContext
-	guard   *ssrfGuard
-	client  *http.Client
-	goCtx   context.Context
+	ctx    *execContext
+	guard  *ssrfGuard
+	client *http.Client
+	goCtx  context.Context
 }
 
 func newPluginHTTPClient(ctx *execContext, timeoutMs int) *pluginHTTPClient {

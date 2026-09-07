@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	bolt "go.etcd.io/bbolt"
 )
 
 // CleanupExpired removes records from a bucket that are older than the given threshold.
@@ -68,4 +68,3 @@ func CleanupExpired[T any](
 		return nil
 	})
 }
-

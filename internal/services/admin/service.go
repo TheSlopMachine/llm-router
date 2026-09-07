@@ -203,4 +203,3 @@ func (s *Service) CleanupExpiredSessions() error {
 		return sess.ExpiresAt
 	})
 }
-

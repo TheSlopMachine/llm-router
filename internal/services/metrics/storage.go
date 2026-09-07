@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	bolt "go.etcd.io/bbolt"
 )
 
 // persistBucket saves a bucket to the database.
@@ -182,4 +182,3 @@ func (s *Service) loadTokenUsageFromDB() (map[string]*TokenUsageInfo, error) {
 
 	return usage, err
 }
-

@@ -3,8 +3,8 @@ package repository
 import (
 	"testing"
 
-	bolt "go.etcd.io/bbolt"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
+	bolt "go.etcd.io/bbolt"
 )
 
 type testRecord struct {
@@ -17,7 +17,7 @@ type testRecord struct {
 func setupTestRepo(t *testing.T) *Repository[testRecord] {
 	t.Helper()
 	db := testutil.SetupTestDB(t)
-	
+
 	// Create the test bucket
 	err := db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte("test"))
@@ -26,7 +26,7 @@ func setupTestRepo(t *testing.T) *Repository[testRecord] {
 	if err != nil {
 		t.Fatalf("failed to create test bucket: %v", err)
 	}
-	
+
 	return New[testRecord](db, []byte("test"), "test_record")
 }
 
@@ -389,4 +389,3 @@ func TestRepository_Update_NotFound(t *testing.T) {
 		t.Error("expected error for updating nonexistent record, got nil")
 	}
 }
-

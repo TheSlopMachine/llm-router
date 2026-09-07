@@ -35,4 +35,3 @@ func injectModelInstructions(messages []models.ChatMessage, instructions string)
 	// Model-specific instructions always appended at the end
 	return append(messages, systemMsg)
 }
-

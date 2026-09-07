@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
-	bolt "go.etcd.io/bbolt"
 	lua "github.com/yuin/gopher-lua"
+	bolt "go.etcd.io/bbolt"
 )
 
 // storageBackend persists llm_router.storage.* entries in BucketPluginStorage

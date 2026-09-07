@@ -622,7 +622,7 @@ func (s *Service) migrateLegacyCustom() error {
 		}
 		inst := &models.ProviderInstance{
 			ID: id, Name: cp.Name, TypeKey: TypeCustom, Qualifier: slugify(cp.ID),
-			Config: map[string]any{"base_url": strings.TrimSuffix(strings.TrimSpace(cp.BaseURL), "/")},
+			Config:  map[string]any{"base_url": strings.TrimSuffix(strings.TrimSpace(cp.BaseURL), "/")},
 			IconURL: cp.IconURL, CreatedAt: created, UpdatedAt: updated,
 		}
 		if strings.TrimSpace(inst.Name) == "" {

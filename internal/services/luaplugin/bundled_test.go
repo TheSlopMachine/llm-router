@@ -159,7 +159,8 @@ func TestBundledHandlerSets(t *testing.T) {
 	}
 }
 
-func TestEnsureBundledIdempotent(t *testing.T) {	svc, err := New(testutil.SetupTestDB(t), nil)
+func TestEnsureBundledIdempotent(t *testing.T) {
+	svc, err := New(testutil.SetupTestDB(t), nil)
 	if err != nil {
 		t.Fatalf("new: %v", err)
 	}

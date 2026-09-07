@@ -59,7 +59,7 @@ DO:
 ## 1. Priority Rules
 
 1. NEVER write to `$state` from an `$effect` that reads it. → §5
-2. NEVER run, start, build, or live-test the app. Use only the 5 allowed `make` targets. → §4
+2. NEVER run, start, build, or live-test the app. Use only the 6 allowed `make` targets. → §4
 3. NEVER run destructive git commands. → §6
 4. NEVER delete the dev DB. NEVER kill processes. NEVER litter the repo. → §6
 
@@ -110,7 +110,9 @@ Rule: keep changes shallow. Do not touch service internals unless the task requi
 |---|---|
 | `make check-frontend` | Frontend compile/type-check |
 | `make go-check` | Go static check (`go vet`) |
-| `make go-test` | Go tests |
+| `make go-test` | Go tests (`PKG=...` scopes packages, default `./...`) |
+| `make fmt` | Apply `gofmt` to both Go modules |
+| `make fmt-check` | Fail when `gofmt` would reformat anything |
 | `make init` | Project init/re-init: bun install, openapi.yaml, api-types, embed stub; skips fresh outputs unless `NO_SKIP=1` |
 
 ### 4.2 Banned — raw equivalents of the above
@@ -120,6 +122,7 @@ Rule: keep changes shallow. Do not touch service internals unless the task requi
 | `make check-frontend` | `bunx svelte-check`, `bun run check`, `tsc --noEmit`, `eslint .` |
 | `make go-check` | `go vet ./...` |
 | `make go-test` | `go test ./...` |
+| `make fmt` / `make fmt-check` | `gofmt -w .`, `gofmt -l .` |
 
 Rule: NEVER substitute a raw command for an allowed `make` target, even when the outcome matches.
 

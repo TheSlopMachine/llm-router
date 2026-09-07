@@ -14,4 +14,3 @@ func NowPtr() *time.Time {
 	t := Now()
 	return &t
 }
-

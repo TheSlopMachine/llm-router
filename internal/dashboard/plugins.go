@@ -10,21 +10,21 @@ import (
 )
 
 type pluginView struct {
-	ID            string   `json:"id"`
-	DisplayName   string   `json:"display_name"`
-	Author        string   `json:"author"`
-	Version       string   `json:"version"`
-	RouterVersion string   `json:"router_version"`
-	Description   string   `json:"description"`
-	License       string   `json:"license"`
-	AllowHosts    []string `json:"allow_hosts"`
-	Unsafe        bool     `json:"unsafe"`
-	TypeKeys      []string `json:"type_keys"`
-	Enabled       bool     `json:"enabled"`
+	ID            string                 `json:"id"`
+	DisplayName   string                 `json:"display_name"`
+	Author        string                 `json:"author"`
+	Version       string                 `json:"version"`
+	RouterVersion string                 `json:"router_version"`
+	Description   string                 `json:"description"`
+	License       string                 `json:"license"`
+	AllowHosts    []string               `json:"allow_hosts"`
+	Unsafe        bool                   `json:"unsafe"`
+	TypeKeys      []string               `json:"type_keys"`
+	Enabled       bool                   `json:"enabled"`
 	Origin        luaplugin.PluginOrigin `json:"origin"`
-	InstalledAt   time.Time `json:"installed_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
-	HistoryCount  int       `json:"history_count"`
+	InstalledAt   time.Time              `json:"installed_at"`
+	UpdatedAt     time.Time              `json:"updated_at"`
+	HistoryCount  int                    `json:"history_count"`
 }
 
 func toPluginView(rec *luaplugin.PluginRecord) pluginView {

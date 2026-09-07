@@ -267,4 +267,3 @@ func (s *Service) checkUniqueName(agent *models.Agent) error {
 
 	return nil
 }
-

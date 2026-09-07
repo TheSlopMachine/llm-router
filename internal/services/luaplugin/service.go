@@ -87,13 +87,13 @@ type Service struct {
 // New loads all enabled plugins into the in-memory registry.
 func New(database *db.DB, logger *slog.Logger) (*Service, error) {
 	s := &Service{
-		database:  database,
-		repo:      repository.New[PluginRecord](database, db.BucketPlugins, "plugin"),
-		storage:   newStorageBackend(database),
-		logger:    logger,
-		registry:  map[string]*PluginRecord{},
-		logs:      map[string][]LogEntry{},
-		crashes:   map[string][]CrashEntry{},
+		database: database,
+		repo:     repository.New[PluginRecord](database, db.BucketPlugins, "plugin"),
+		storage:  newStorageBackend(database),
+		logger:   logger,
+		registry: map[string]*PluginRecord{},
+		logs:     map[string][]LogEntry{},
+		crashes:  map[string][]CrashEntry{},
 	}
 	if err := s.rebuild(); err != nil {
 		return nil, err

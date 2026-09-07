@@ -13,14 +13,17 @@ Configuration flows one way: `Makefile` vars → env → scripts. Scripts take n
 | Script | Env | Called by |
 |--------|-----|-----------|
 | `init` | `HOST`, `WEB_PORT`, `NO_SKIP` | `make init`; `make start` / `make publish` (via dep) |
-| `start` | `HOST`, `WEB_PORT`, `API_PORT`, `DEV_DB`*, `DEV_KEY`*, `PID_FILE` | `make start` / `make restart` |
+| `start` | `HOST`, `WEB_PORT`, `API_PORT`, `LOG_LEVEL` (default `info`), `DEV_DB`*, `DEV_KEY`*, `PID_FILE` | `make start` / `make restart` |
 | `stop` | `PID_FILE` | `make stop` / `make restart` / `make clean` |
 | `status` | `PID_FILE` | `make status` |
 | `browser` | `URL` (default `http://HOST:WEB_PORT`) | `make browser` |
 | `publish` | `VERSION` (default `dev`), `PUBLISH_PLATFORMS`* | `make publish` |
 | `help` | display only: `HOST`, `WEB_PORT`, `API_PORT`, `URL`, `DEV_DB`, `DEV_KEY` | `make help` |
 | _(env)_ | `NO_SKIP` (`1`/`true`/`yes`/`on` disables caches) | `make init NO_SKIP=1` or `NO_SKIP=1 make init` |
-| `vet` / `test` / `fcheck` | — | `make go-check` / `make go-test` / `make check-frontend` |
+| `vet` / `test` / `fcheck` | — / `PKG` (default `./...`) / — | `make go-check` / `make go-test` / `make check-frontend` |
+| `fmt` | `FMT_WRITE=1` writes, otherwise checks | `make fmt` / `make fmt-check` |
+
+`make go-test PKG=./internal/services/retry/` scopes the run; `make fmt` applies `gofmt -w`, `make fmt-check` fails listing files that need it. Both cover the root and `scripts` modules, skipping `.workspace`, `node_modules`, `build`, `.git`.
 
 `*` required (fatal when blank). The rest fall back to dev defaults (`localhost`, `8080`, `8081`, `~/.local/llm-router/...`, temp pidfile).
 

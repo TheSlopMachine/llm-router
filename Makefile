@@ -12,7 +12,9 @@ HOST      ?= localhost
 WEB_PORT  ?= 8080
 API_PORT  ?= 8081
 URL       ?= http://$(HOST):$(WEB_PORT)
-export HOST WEB_PORT API_PORT URL VERSION PUBLISH_PLATFORMS
+LOG_LEVEL ?= info
+PKG       ?= ./...
+export HOST WEB_PORT API_PORT URL VERSION PUBLISH_PLATFORMS LOG_LEVEL PKG
 
 ifeq ($(OS),Windows_NT)
   DEV_DB  ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.db
@@ -27,7 +29,7 @@ BUN_MIN := 1.2
 GO_MIN  := 1.25
 BUN     := bun
 
-.PHONY: help check-frontend-deps check-publish-deps go-tidy init start stop restart status browser clean publish go-check go-test check-frontend
+.PHONY: help check-frontend-deps check-publish-deps go-tidy fmt fmt-check init start stop restart status browser clean publish go-check go-test check-frontend
 
 help:
 	@cd scripts && GOWORK=off go run ./help
@@ -57,6 +59,13 @@ check-publish-deps:
 
 go-tidy:
 	@go mod tidy
+	@cd scripts && GOWORK=off go mod tidy
+
+fmt:
+	@cd scripts && FMT_WRITE=1 GOWORK=off go run ./fmt
+
+fmt-check:
+	@cd scripts && GOWORK=off go run ./fmt
 
 init: check-frontend-deps
 	@cd scripts && GOWORK=off go run ./init

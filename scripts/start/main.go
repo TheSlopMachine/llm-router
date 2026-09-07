@@ -18,6 +18,7 @@ func main() {
 	host := shared.Getenv("HOST", "localhost")
 	webPort := shared.Getenv("WEB_PORT", "8080")
 	apiPort := shared.Getenv("API_PORT", "8081")
+	logLevel := shared.NormalizeLogLevel(shared.Getenv("LOG_LEVEL", "info"))
 	dbPath := shared.RequireEnv("DEV_DB")
 	keyPath := shared.RequireEnv("DEV_KEY")
 	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
@@ -55,6 +56,7 @@ func main() {
 
 	backendPID, err := shared.SpawnDetached(root, backendLog, "go", "run", ".", host,
 		"--web", devBackendWebPort, "--api", apiPort, "--db", dbPath, "--testing-key", keyPath,
+		"--log-level", logLevel,
 		"--dev-ui-redirect", fmt.Sprintf("http://%s:%s", host, webPort))
 	if err != nil {
 		shared.Failf("spawn backend: %v", err)

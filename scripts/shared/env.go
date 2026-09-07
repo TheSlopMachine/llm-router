@@ -9,7 +9,12 @@ import (
 // IsNoSkip reports whether NO_SKIP is set to a truthy value (1/true/yes/on).
 // When true, bun install and OpenAPI generation must not be skipped.
 func IsNoSkip() bool {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv("NO_SKIP")))
+	return IsWriteMode("NO_SKIP")
+}
+
+// IsWriteMode reports whether the named env var is truthy (1/true/yes/on).
+func IsWriteMode(name string) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
 	return v == "1" || v == "true" || v == "yes" || v == "on"
 }
 
@@ -28,6 +33,19 @@ func RequireEnv(name string) string {
 		Failf("missing %s env", name)
 	}
 	return v
+}
+
+// NormalizeLogLevel lowercases and trims a log level, failing on values
+// outside debug/info/warn/warning/error — the set cmd/root.go accepts.
+func NormalizeLogLevel(v string) string {
+	n := strings.ToLower(strings.TrimSpace(v))
+	switch n {
+	case "debug", "info", "warn", "warning", "error":
+		return n
+	default:
+		Failf("invalid LOG_LEVEL %q: must be one of debug, info, warn, error", v)
+		return ""
+	}
 }
 
 // DefaultDevDB returns ~/.local/llm-router/llm-router-dev.db (or OS equivalent).

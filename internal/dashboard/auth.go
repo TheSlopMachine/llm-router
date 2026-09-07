@@ -118,4 +118,3 @@ func (h *Handler) apiBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 	h.json(w, http.StatusOK, map[string]any{"ok": true})
 }
-

@@ -63,8 +63,8 @@ type Service struct {
 // New constructs a pluginrepo Service with GitHub and generic providers.
 func New(database *db.DB) *Service {
 	s := &Service{
-		repo:   repository.New[RepoRecord](database, db.BucketPluginRepos, "plugin repo"),
-		client: &http.Client{Timeout: 30 * time.Second},
+		repo:      repository.New[RepoRecord](database, db.BucketPluginRepos, "plugin repo"),
+		client:    &http.Client{Timeout: 30 * time.Second},
 		providers: map[string]RepoProvider{},
 	}
 	gh := &githubProvider{client: s.client}
