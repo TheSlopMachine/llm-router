@@ -1,6 +1,6 @@
 --- @plugin OpenCode Zen
 --- @author TheSlopMachine
---- @version 1.0.0
+--- @version 1.0.1
 --- @router_version 0.0.4
 --- @description OpenAI/Anthropic/Google compatible free provider OpenCode Zen
 --- @allow_host opencode.ai
@@ -20,9 +20,28 @@ local function opencode_headers(extra)
     ["User-Agent"] = "opencode/1.18.29",
     ["x-opencode-client"] = "opencode",
     ["x-opencode-project"] = "proj_llm-router",
+    ["x-opencode-session"] = llm_router.random_hex(16),
+    ["x-opencode-request"] = llm_router.random_hex(16),
   }
   for k, v in pairs(extra or {}) do h[k] = v end
   return h
+end
+
+-- Plain-text view of a chat message. Content arrives either as a string
+-- or as an array of content parts (multimodal/tool messages).
+local function message_text(m)
+  local content = m.content
+  if type(content) == "string" then return content end
+  if type(content) ~= "table" then return "" end
+  local parts = {}
+  for _, p in ipairs(content) do
+    if type(p) == "string" then
+      if p ~= "" then table.insert(parts, p) end
+    elseif type(p) == "table" and type(p.text) == "string" and p.text ~= "" then
+      table.insert(parts, p.text)
+    end
+  end
+  return table.concat(parts, "\n")
 end
 
 local function classify_error(status, body)
@@ -83,17 +102,17 @@ local function build_responses_input(messages)
   for _, m in ipairs(messages or {}) do
     local role = m.role
     if role == "system" then
-      local text = (m.content or "")
+      local text = message_text(m)
       if text ~= "" then
         table.insert(input, { role = "system", content = text })
       end
     elseif role == "user" then
-      local text = (m.content or "")
+      local text = message_text(m)
       if text ~= "" then
         table.insert(input, { role = "user", content = { { type = "input_text", text = text } } })
       end
     elseif role == "assistant" then
-      local text = (m.content or "")
+      local text = message_text(m)
       if text ~= "" then
         table.insert(input, { role = "assistant", content = { { type = "output_text", text = text } } })
       end
@@ -106,7 +125,7 @@ local function build_responses_input(messages)
         end
       end
     elseif role == "tool" then
-      table.insert(input, { type = "function_call_output", call_id = m.tool_call_id or "call_unknown", output = m.content or "" })
+      table.insert(input, { type = "function_call_output", call_id = m.tool_call_id or "call_unknown", output = message_text(m) })
     end
   end
   if #input == 0 then

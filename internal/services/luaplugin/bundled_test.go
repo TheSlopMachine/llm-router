@@ -134,8 +134,32 @@ func TestBundledKiroModelInfos(t *testing.T) {
 	}
 }
 
-func TestEnsureBundledIdempotent(t *testing.T) {
+func TestBundledHandlerSets(t *testing.T) {
 	svc, err := New(testutil.SetupTestDB(t), nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	if err := svc.EnsureBundled(); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	expected := map[string][]string{
+		"opencode-zen": {"complete", "validate_credentials", "get_model_infos", "credential_schema"},
+		"google":       {"complete", "complete_stream", "validate_credentials", "get_model_infos", "credential_schema"},
+		"kiro":         {"complete", "complete_stream", "validate_credentials", "get_model_infos", "needs_refresh", "refresh_credential", "config_schema", "credential_schema", "auth_initiate", "auth_step"},
+	}
+	for typeKey, handlers := range expected {
+		for _, h := range handlers {
+			if !svc.HasHandler(typeKey, h) {
+				t.Errorf("type %q missing handler %q", typeKey, h)
+			}
+		}
+	}
+	if svc.HasHandler("opencode-zen", "complete_stream") {
+		t.Error("opencode-zen must not declare complete_stream (emulated by router)")
+	}
+}
+
+func TestEnsureBundledIdempotent(t *testing.T) {	svc, err := New(testutil.SetupTestDB(t), nil)
 	if err != nil {
 		t.Fatalf("new: %v", err)
 	}

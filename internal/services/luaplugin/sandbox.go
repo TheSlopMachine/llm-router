@@ -237,6 +237,29 @@ func installRouterTable(L *lua.LState, ctx *execContext) {
 
 	router.RawSetString("storage", newStorageTable(L, ctx))
 
+	router.RawSetString("uuid_v5", L.NewFunction(func(L *lua.LState) int {
+		namespace := L.CheckString(1)
+		name := L.CheckString(2)
+		id, err := uuidV5(namespace, name)
+		if err != nil {
+			L.RaiseError("llm_router.uuid_v5: %s", err.Error())
+			return 0
+		}
+		L.Push(lua.LString(id))
+		return 1
+	}))
+
+	router.RawSetString("random_hex", L.NewFunction(func(L *lua.LState) int {
+		n := L.CheckInt(1)
+		s, err := randomHex(n)
+		if err != nil {
+			L.RaiseError("llm_router.random_hex: %s", err.Error())
+			return 0
+		}
+		L.Push(lua.LString(s))
+		return 1
+	}))
+
 	L.SetGlobal("llm_router", router)
 }
 

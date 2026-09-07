@@ -1,6 +1,6 @@
 --- @plugin Kiro AI
 --- @author TheSlopMachine
---- @version 1.0.0
+--- @version 1.0.1
 --- @router_version 0.0.4
 --- @description AWS Kiro models via device login (OAuth2 with proactive refresh)
 --- @allow_host codewhisperer.us-east-1.amazonaws.com
@@ -177,6 +177,23 @@ end
 
 -- ── Request transform ──
 
+-- Plain-text view of a chat message. Content arrives either as a string
+-- or as an array of content parts (multimodal/tool messages).
+local function message_text(m)
+  local content = m.content
+  if type(content) == "string" then return content end
+  if type(content) ~= "table" then return "" end
+  local parts = {}
+  for _, p in ipairs(content) do
+    if type(p) == "string" then
+      if p ~= "" then table.insert(parts, p) end
+    elseif type(p) == "table" and type(p.text) == "string" and p.text ~= "" then
+      table.insert(parts, p.text)
+    end
+  end
+  return table.concat(parts, "\n")
+end
+
 local function build_tool_specs(tools)
   local specs = {}
   for _, t in ipairs(tools or {}) do
@@ -237,7 +254,7 @@ local function convert_messages(messages, tools, model)
     end
     current_role = role
     if role == "assistant" then
-      local text = (m.content or ""):match("^%s*(.-)%s*$")
+      local text = message_text(m):match("^%s*(.-)%s*$")
       if text ~= "" then table.insert(assistant_parts, text) end
       local uses = {}
       for _, tc in ipairs(m.tool_calls or {}) do
@@ -257,9 +274,9 @@ local function convert_messages(messages, tools, model)
     else
       if m.role == "tool" then
         table.insert(tool_results, { toolUseId = m.tool_call_id or "",
-          status = "success", content = { { text = m.content or "" } } })
+          status = "success", content = { { text = message_text(m) } } })
       else
-        local text = (m.content or ""):match("^%s*(.-)%s*$")
+        local text = message_text(m):match("^%s*(.-)%s*$")
         if text ~= "" then table.insert(user_parts, text) end
       end
     end
@@ -295,19 +312,29 @@ local function convert_messages(messages, tools, model)
   return history, current
 end
 
+local function conversation_id(history, current_content)
+  local seed = current_content or ""
+  if #history > 0 and history[1].userInputMessage
+      and type(history[1].userInputMessage.content) == "string"
+      and history[1].userInputMessage.content ~= "" then
+    seed = history[1].userInputMessage.content
+  end
+  if #seed > 4000 then seed = seed:sub(1, 4000) end
+  return llm_router.uuid_v5(CONVERSATION_NS, seed)
+end
+
 local function build_payload(request, model)
   local history, current = convert_messages(request.messages, request.tools or {}, model)
   if current.content == "" then current.content = "continue" end
   current.content = "[Context: Current time is " .. os.date("!%Y-%m-%dT%H:%M:%SZ") .. "]\n\n" .. current.content
   current.origin = "AI_EDITOR"
-  local payload = {
-    conversationState = {
-      chatTriggerType = "MANUAL",
-      conversationId = "kiro-" .. tostring(os.time()),
-      currentMessage = { userInputMessage = current },
-      history = history,
-    },
+  local state = {
+    chatTriggerType = "MANUAL",
+    conversationId = conversation_id(history, current.content),
+    currentMessage = { userInputMessage = current },
   }
+  if #history > 0 then state.history = history end
+  local payload = { conversationState = state }
   if (request.max_tokens and request.max_tokens > 0)
       or (request.temperature and request.temperature > 0)
       or (request.top_p and request.top_p > 0) then
@@ -328,6 +355,11 @@ local function generate_headers(credential)
     ["Accept"] = "application/vnd.amazon.eventstream",
     ["X-Amz-Target"] = "AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
     ["User-Agent"] = "AWS-SDK-JS/3.0.0 kiro-ide/1.0.0",
+    ["X-Amz-User-Agent"] = "aws-sdk-js/3.0.0 kiro-ide/1.0.0",
+    ["Amz-Sdk-Request"] = "attempt=1; max=3",
+    ["Amz-Sdk-Invocation-Id"] = llm_router.random_hex(16),
+    ["x-amzn-bedrock-cache-control"] = "enable",
+    ["anthropic-beta"] = "prompt-caching-2024-07-31",
   }
 end
 
