@@ -59,7 +59,7 @@ DO:
 ## 1. Priority Rules
 
 1. NEVER write to `$state` from an `$effect` that reads it. → §5
-2. NEVER run, start, build, or live-test the app. Use only the 4 allowed `make` targets. → §4
+2. NEVER run, start, build, or live-test the app. Use only the 5 allowed `make` targets. → §4
 3. NEVER run destructive git commands. → §6
 4. NEVER delete the dev DB. NEVER kill processes. NEVER litter the repo. → §6
 
@@ -111,6 +111,7 @@ Rule: keep changes shallow. Do not touch service internals unless the task requi
 | `make check-frontend` | Frontend compile/type-check |
 | `make go-check` | Go static check (`go vet`) |
 | `make go-test` | Go tests |
+| `make init` | Project init/re-init: bun install, openapi.yaml, api-types, embed stub; skips fresh outputs unless `NO_SKIP=1` |
 
 ### 4.2 Banned — raw equivalents of the above
 
@@ -200,5 +201,5 @@ Rule: before finishing any `.svelte` change, re-check every `$effect` touched ag
 NEVER run the app yourself (§4.3, §6.6). To get runtime facts:
 
 1. State exactly what's needed: endpoint, log line, or behavior.
-2. Ask human to run `make start` / `make restart` and report back.
+2. Ask human to run `make start` / `make restart` / `make init` and report back.
 3. Interpret: dev dashboard = `http://HOST:WEB_PORT` proxying `/api/llm-router/*` → backend `HOST:38473` (dev-internal, hardcoded); publish dashboard = `:8080` (embedded). API = `:8081/v1`. Bearer key printed on start and stored at `~/.local/llm-router/llm-router-dev.key`. `401` without that key header is expected, not a bug. Pidfile is JSON `{backend,frontend,vitePort}` at `%TEMP%/llm-router-dev.pid`.

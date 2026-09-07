@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 
@@ -9,18 +8,17 @@ import (
 )
 
 func main() {
-	pidFile := flag.String("pid-file", shared.DefaultPidFile(), "path to pidfile")
-	flag.Parse()
+	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
 
-	if _, err := os.Stat(*pidFile); os.IsNotExist(err) {
+	if _, err := os.Stat(pidFile); os.IsNotExist(err) {
 		fmt.Println("llm-router dev server is not running")
 		fmt.Printf("Backend log: %s\n", shared.DefaultBackendLog())
 		fmt.Printf("Frontend log: %s\n", shared.DefaultFrontendLog())
 		return
 	}
-	p, err := shared.ReadPidFile(*pidFile)
+	p, err := shared.ReadPidFile(pidFile)
 	if err != nil {
-		shared.Failf("parse pidfile %s: %v", *pidFile, err)
+		shared.Failf("parse pidfile %s: %v", pidFile, err)
 	}
 	report := func(name string, pid int) {
 		if pid <= 0 {

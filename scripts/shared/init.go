@@ -1,7 +1,6 @@
-package main
+package shared
 
 import (
-	"flag"
 	"fmt"
 	"io/fs"
 	"os"
@@ -9,55 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/TheSlopMachine/llm-router/scripts/shared"
 )
 
-func main() {
-	mode := flag.String("mode", "dev", "dev or build")
-	host := flag.String("host", "localhost", "host for dev placeholder")
-	vitePort := flag.String("vite-port", "8080", "dashboard port")
-	flag.Parse()
-	if *mode != "dev" && *mode != "build" {
-		shared.Failf("invalid --mode %q: must be dev or build", *mode)
-	}
-
-	root, err := shared.RootDir()
-	if err != nil {
-		shared.Failf("%v", err)
-	}
-
-	noSkip := shared.IsNoSkip()
-
-	if err := ensureBunInstall(root, noSkip); err != nil {
-		shared.Failf("%v", err)
-	}
-
-	// OpenAPI generation is strict: swag must succeed.
-	if err := runSwag(root, noSkip); err != nil {
-		shared.Failf("%v", err)
-	}
-
-	// TypeScript types: strict.
-	if err := runAPITypes(root, noSkip); err != nil {
-		shared.Failf("%v", err)
-	}
-
-	if err := ensureEmbedStub(root, *host, *vitePort); err != nil {
-		shared.Failf("%v", err)
-	}
-
-	if *mode == "build" {
-		if err := runViteBuild(root); err != nil {
-			shared.Failf("%v", err)
-		}
-		shared.OKf("Frontend ready (build)")
-	} else {
-		shared.OKf("Frontend ready (dev)")
-	}
-}
-
-func ensureBunInstall(root string, noSkip bool) error {
+// EnsureBunInstall runs `bun install` in web/ unless node_modules is newer
+// than bun.lock + package.json. noSkip forces the install.
+func EnsureBunInstall(root string, noSkip bool) error {
 	webDir := filepath.Join(root, "web")
 	lockFile := filepath.Join(webDir, "bun.lock")
 	pkgFile := filepath.Join(webDir, "package.json")
@@ -77,13 +32,13 @@ func ensureBunInstall(root string, noSkip bool) error {
 	}
 	if !need {
 		if noSkip {
-			shared.Stepf("NO_SKIP=1: forcing bun install")
+			Stepf("NO_SKIP=1: forcing bun install")
 		} else {
-			shared.Stepf("bun install: up to date, skip")
+			Stepf("bun install: up to date, skip")
 			return nil
 		}
 	}
-	shared.Stepf("Running bun install...")
+	Stepf("Running bun install...")
 	cmd := exec.Command("bun", "install")
 	cmd.Dir = webDir
 	cmd.Stdout = os.Stdout
@@ -94,19 +49,21 @@ func ensureBunInstall(root string, noSkip bool) error {
 	return nil
 }
 
-func runSwag(root string, noSkip bool) error {
-	if !noSkip && openAPIUpToDate(root) {
-		shared.Stepf("openapi.yaml up to date, skip swag")
+// RunSwag regenerates web/openapi.yaml from Go annotations unless it is
+// newer than all internal/**/*.go. noSkip forces regeneration.
+func RunSwag(root string, noSkip bool) error {
+	if !noSkip && OpenAPIUpToDate(root) {
+		Stepf("openapi.yaml up to date, skip swag")
 		return nil
 	}
-	shared.Stepf("Generating OpenAPI spec from Go annotations...")
+	Stepf("Generating OpenAPI spec from Go annotations...")
 	webDir := filepath.Join(root, "web")
 	cmd := exec.Command("go", "run", "github.com/swaggo/swag/cmd/swag@v1.16.4",
 		"init", "-g", "internal/dashboard/handler.go",
 		"-o", webDir, "--parseDependency", "--parseInternal", "--parseDepth", "2",
 		"--outputTypes", "yaml", "--quiet")
 	cmd.Dir = root
-	cmd.Env = shared.EnvWithoutGowork()
+	cmd.Env = EnvWithoutGowork()
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -131,12 +88,14 @@ func runSwag(root string, noSkip bool) error {
 	return nil
 }
 
-func runAPITypes(root string, noSkip bool) error {
-	if !noSkip && apiTypesUpToDate(root) {
-		shared.Stepf("api-types.ts up to date, skip")
+// RunAPITypes regenerates web/src/lib/generated/api-types.ts unless it is
+// newer than web/openapi.yaml. noSkip forces regeneration.
+func RunAPITypes(root string, noSkip bool) error {
+	if !noSkip && APITypesUpToDate(root) {
+		Stepf("api-types.ts up to date, skip")
 		return nil
 	}
-	shared.Stepf("Generating TypeScript API types...")
+	Stepf("Generating TypeScript API types...")
 	webDir := filepath.Join(root, "web")
 	cmd := exec.Command("bun", "run", "generate:api-types")
 	cmd.Dir = webDir
@@ -155,7 +114,9 @@ func runAPITypes(root string, noSkip bool) error {
 	return nil
 }
 
-func openAPIUpToDate(root string) bool {
+// OpenAPIUpToDate reports whether web/openapi.yaml is newer than every Go
+// file under internal/.
+func OpenAPIUpToDate(root string) bool {
 	openapiYAML := filepath.Join(root, "web", "openapi.yaml")
 	st, err := os.Stat(openapiYAML)
 	if err != nil {
@@ -186,7 +147,8 @@ func openAPIUpToDate(root string) bool {
 	return upToDate
 }
 
-func apiTypesUpToDate(root string) bool {
+// APITypesUpToDate reports whether api-types.ts is newer than openapi.yaml.
+func APITypesUpToDate(root string) bool {
 	openapiYAML := filepath.Join(root, "web", "openapi.yaml")
 	out := filepath.Join(root, "web", "src", "lib", "generated", "api-types.ts")
 	stOpenapi, err1 := os.Stat(openapiYAML)
@@ -197,7 +159,9 @@ func apiTypesUpToDate(root string) bool {
 	return !stOpenapi.ModTime().After(stOut.ModTime())
 }
 
-func ensureEmbedStub(root, host, vitePort string) error {
+// EnsureEmbedStub creates the dev placeholder for the //go:embed directive
+// when missing. Never overwrites an existing file.
+func EnsureEmbedStub(root, host, vitePort string) error {
 	buildWeb := filepath.Join(root, "internal", "dashboard", "build", "web")
 	if err := os.MkdirAll(buildWeb, 0755); err != nil {
 		return fmt.Errorf("create build/web: %w", err)
@@ -206,24 +170,11 @@ func ensureEmbedStub(root, host, vitePort string) error {
 	if _, err := os.Stat(indexPath); err == nil {
 		return nil
 	}
-	shared.Stepf("Creating embed stub %s...", indexPath)
+	Stepf("Creating embed stub %s...", indexPath)
 	devURL := fmt.Sprintf("http://%s:%s", host, vitePort)
 	html := fmt.Sprintf(`<!doctype html><html><head><meta charset="utf-8"><title>llm-router dev</title></head><body style="font-family:system-ui;padding:40px"><h1>llm-router dev placeholder</h1><p>This file only exists to satisfy the //go:embed directive in internal/dashboard/handler.go during dev builds — it is not the real UI.</p><p>You're seeing it because the backend was started without <code>--dev-ui-redirect</code>. Via <code>make start</code> it redirects here automatically to <a href="%s">%s</a> instead.</p></body></html>`, devURL, devURL)
-	if _, err := shared.WriteIfChanged(indexPath, []byte(html), 0644); err != nil {
+	if _, err := WriteIfChanged(indexPath, []byte(html), 0644); err != nil {
 		return err
-	}
-	return nil
-}
-
-func runViteBuild(root string) error {
-	shared.Stepf("Running vite build...")
-	webDir := filepath.Join(root, "web")
-	cmd := exec.Command("bun", "run", "build")
-	cmd.Dir = webDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("vite build: %w", err)
 	}
 	return nil
 }

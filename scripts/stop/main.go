@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"time"
@@ -10,17 +9,16 @@ import (
 )
 
 func main() {
-	pidFile := flag.String("pid-file", shared.DefaultPidFile(), "pidfile path")
-	flag.Parse()
+	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
 
-	if _, err := os.Stat(*pidFile); os.IsNotExist(err) {
-		fmt.Printf("[>] Not running (no pid file %s)\n", *pidFile)
+	if _, err := os.Stat(pidFile); os.IsNotExist(err) {
+		fmt.Printf("[>] Not running (no pid file %s)\n", pidFile)
 		return
 	}
 
-	p, err := shared.ReadPidFile(*pidFile)
+	p, err := shared.ReadPidFile(pidFile)
 	if err != nil {
-		shared.Failf("parse pidfile %s: %v", *pidFile, err)
+		shared.Failf("parse pidfile %s: %v", pidFile, err)
 	}
 
 	type entry struct {
@@ -36,7 +34,7 @@ func main() {
 	}
 	if !aliveAny {
 		fmt.Println("[>] Not running (pids not alive)")
-		_ = os.Remove(*pidFile)
+		_ = os.Remove(pidFile)
 		fmt.Println("[OK] Stopped")
 		return
 	}
@@ -63,7 +61,7 @@ func main() {
 			}
 		}
 		if !still {
-			_ = os.Remove(*pidFile)
+			_ = os.Remove(pidFile)
 			fmt.Println("[OK] Stopped")
 			return
 		}
@@ -76,6 +74,6 @@ func main() {
 			survivors = append(survivors, fmt.Sprintf("%s PID %d", e.name, e.pid))
 		}
 	}
-	fmt.Fprintf(os.Stderr, "[FAIL] Still running after grace period: %v (pidfile kept at %s)\n", survivors, *pidFile)
+	fmt.Fprintf(os.Stderr, "[FAIL] Still running after grace period: %v (pidfile kept at %s)\n", survivors, pidFile)
 	os.Exit(1)
 }

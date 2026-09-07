@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"crypto/sha256"
 	"encoding/hex"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -22,13 +21,8 @@ import (
 const binary = "llm-router"
 
 func main() {
-	version := flag.String("version", "dev", "release version for ldflags")
-	platforms := flag.String("platforms", "", "space-separated GOOS/GOARCH list")
-	flag.Parse()
-
-	if *platforms == "" {
-		shared.Failf("missing --platforms")
-	}
+	version := shared.Getenv("VERSION", "dev")
+	platforms := shared.RequireEnv("PUBLISH_PLATFORMS")
 
 	root, err := shared.RootDir()
 	if err != nil {
@@ -37,7 +31,7 @@ func main() {
 
 	// Strict: frontend build must succeed.
 	shared.Stepf("Building frontend (vite build)...")
-	if err := shared.RunScript("frontend", "--mode", "build"); err != nil {
+	if err := runViteBuild(root); err != nil {
 		shared.Failf("%v", err)
 	}
 
@@ -51,7 +45,7 @@ func main() {
 	}
 	buildTime := time.Now().UTC().Format(time.RFC3339)
 
-	fmt.Printf("\n== Publish - %s ==\n", *version)
+	fmt.Printf("\n== Publish - %s ==\n", version)
 	fmt.Printf("  Commit:     %s\n", gitCommit)
 	fmt.Printf("  Build time: %s\n\n", buildTime)
 
@@ -62,9 +56,9 @@ func main() {
 	}
 
 	ldflags := fmt.Sprintf("-s -w -X main.Version=%s -X main.GitCommit=%s -X main.BuildTime=%s",
-		*version, gitCommit, buildTime)
+		version, gitCommit, buildTime)
 
-	plats := strings.Fields(*platforms)
+	plats := strings.Fields(platforms)
 	shared.Stepf("Building %d platforms...", len(plats))
 
 	var checksums []string
@@ -116,6 +110,19 @@ func main() {
 
 	fmt.Printf("\n[OK] Artifacts in  %s/\n", publishDir)
 	fmt.Printf("[OK] Checksums in  %s\n", csPath)
+}
+
+func runViteBuild(root string) error {
+	shared.Stepf("Running vite build...")
+	webDir := filepath.Join(root, "web")
+	cmd := exec.Command("bun", "run", "build")
+	cmd.Dir = webDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("vite build: %w", err)
+	}
+	return nil
 }
 
 func zipFile(dst, src string) error {
