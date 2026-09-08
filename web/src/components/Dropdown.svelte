@@ -4,7 +4,7 @@
   import { untrack } from 'svelte'
 
   type SelectOption = { value: string; label: string }
-  type Action = { id: string; label: string; icon?: string; disabled?: boolean }
+  type Action = { id: string; label: string; icon?: string; disabled?: boolean; danger?: boolean }
 
   let {
     value = $bindable(''),
@@ -95,6 +95,7 @@
     if (isActionMode) {
       if (e.key === 'Escape' && isOpen) {
         e.preventDefault()
+        e.stopPropagation()
         isOpen = false
         triggerElement?.focus()
       }
@@ -194,6 +195,7 @@
           {#each actions as act}
             <button
               class="dropdown-option"
+              class:danger={act.danger}
               onclick={() => handleAction(act.id, act.disabled)}
               disabled={act.disabled}
               role="menuitem"
@@ -398,6 +400,10 @@
   .dropdown-option:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .dropdown-option.danger {
+    color: var(--color-danger, #b42318);
   }
 
   .dropdown-empty {

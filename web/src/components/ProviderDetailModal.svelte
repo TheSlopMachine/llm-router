@@ -3,7 +3,7 @@
   import { api } from '../lib/api'
   import { modal } from '../lib/modal.svelte'
   import { getErrorMessage } from '../lib/errors'
-  import type { Provider, Credential, ModalButton } from '../lib/types'
+  import type { Provider, Credential, ModalButton, ModalMenu } from '../lib/types'
   import CredentialWizard from './CredentialWizard.svelte'
 
   let {
@@ -14,6 +14,7 @@
     onEdit = undefined,
     onDelete = undefined,
     updateButtons,
+    updateMenu,
     updateTitle,
     closeModal
   } = $props<{
@@ -24,6 +25,7 @@
     onEdit?: () => void
     onDelete?: () => void
     updateButtons: (buttons: ModalButton[]) => void
+    updateMenu: (menu: ModalMenu | null) => void
     updateTitle: (title: string) => void
     closeModal: () => void
   }>()
@@ -31,26 +33,52 @@
   let view = $state<'list' | 'auth'>('list')
   let error = $state('')
 
+  let dropdownActions = $derived([
+    { id: 'add', label: 'Add credential', icon: 'add' },
+    ...(onEdit ? [{ id: 'edit', label: 'Edit Provider', icon: 'edit' }] : []),
+    ...(onDelete ? [{ id: 'delete', label: 'Delete Provider', icon: 'delete', danger: true }] : []),
+  ])
+
   onMount(() => {
-    if (credentials.length === 0) {
-      view = 'auth'
-      updateAuthButtons()
-    } else {
-      updateListButtons()
-    }
+    updateListButtons()
   })
 
   function updateListButtons(): void {
     updateTitle(`${provider.name} Credentials`)
     updateButtons([
       { label: 'Cancel', variant: 'secondary', onClick: closeModal },
-      { label: 'Add credential', variant: 'primary', onClick: () => { view = 'auth'; updateAuthButtons() } }
     ])
+    if (dropdownActions.length === 1) {
+      const single = dropdownActions[0]
+      updateButtons([
+        { label: 'Cancel', variant: 'secondary', onClick: closeModal },
+        { label: single.label, variant: 'primary', onClick: () => handleDropdownAction(single.id) },
+      ])
+      updateMenu(null)
+    } else {
+      updateMenu({ label: 'Actions', actions: dropdownActions, onaction: handleDropdownAction })
+    }
+  }
+
+  function switchToAuthFlow(): void {
+    view = 'auth'
+    updateAuthButtons()
   }
 
   function updateAuthButtons(): void {
     updateTitle(`Add Credential · ${provider.name}`)
     updateButtons([{ label: 'Cancel', variant: 'secondary', onClick: closeModal }])
+    updateMenu(null)
+  }
+
+  function handleDropdownAction(id: string): void {
+    if (id === 'add') {
+      switchToAuthFlow()
+    } else if (id === 'edit') {
+      onEdit?.()
+    } else if (id === 'delete') {
+      onDelete?.()
+    }
   }
 
   function backToList(): void {
@@ -74,11 +102,6 @@
       await api.credentials.delete(id)
       credentials = credentials.filter((c: Credential) => c.id !== id)
       if (onUpdate) onUpdate()
-
-      if (credentials.length === 0) {
-        view = 'auth'
-        updateAuthButtons()
-      }
     } catch (e) {
       error = getErrorMessage(e)
     }
@@ -90,27 +113,6 @@
 {/if}
 
 {#if view === 'list'}
-  {#if provider.is_ui_readonly}
-    <div class="provider-actions">
-      <span class="badge">Managed automatically</span>
-    </div>
-  {:else if onEdit || onDelete}
-    <div class="provider-actions">
-      {#if onEdit}
-        <button class="btn btn-secondary" onclick={onEdit}>
-          <span class="icon">edit</span>
-          Edit Provider
-        </button>
-      {/if}
-      {#if onDelete}
-        <button class="btn btn-danger" onclick={onDelete}>
-          <span class="icon">delete</span>
-          Delete Provider
-        </button>
-      {/if}
-    </div>
-  {/if}
-
   {#if credentials.length === 0}
     <div class="empty-state">No credentials added yet</div>
   {:else}
@@ -133,7 +135,7 @@
     </div>
   {/if}
 {:else}
-  <CredentialWizard {provider} onComplete={onComplete} onBack={credentials.length > 0 ? backToList : undefined} />
+  <CredentialWizard {provider} onComplete={onComplete} onBack={backToList} />
 {/if}
 
 <style>
@@ -173,13 +175,5 @@
   .credential-label {
     font-size: 14px;
     color: var(--color-text);
-  }
-
-  .provider-actions {
-    display: flex;
-    gap: 12px;
-    margin-bottom: 20px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid var(--color-border);
   }
 </style>

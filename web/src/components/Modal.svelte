@@ -1,6 +1,7 @@
 <script lang="ts">
   import { modal } from '../lib/modal.svelte'
-  import type { ModalConfig, ModalButton } from '../lib/modal.svelte'
+  import type { ModalConfig, ModalButton, ModalMenu } from '../lib/modal.svelte'
+  import ActionDropdown from './ActionDropdown.svelte'
 
   let stack = $derived(modal.stack)
 
@@ -58,6 +59,9 @@
       ...config.props,
       updateButtons: (buttons: ModalButton[]) => {
         modal.updateButtons(buttons)
+      },
+      updateMenu: (menu: ModalMenu | null) => {
+        modal.updateMenu(menu)
       },
       updateTitle: (title: string) => {
         modal.updateTitle(title)
@@ -155,21 +159,26 @@
         {/if}
       </div>
 
-      {#if (config.buttons && config.buttons.length > 0) || config.footerHint}
+      {#if (config.buttons && config.buttons.length > 0) || config.menu || config.footerHint}
         <div class="modal-footer">
           {#if config.footerHint}
             <span class="footer-hint">{config.footerHint}</span>
           {/if}
-          {#if config.buttons && config.buttons.length > 0}
+          {#if (config.buttons && config.buttons.length > 0) || config.menu}
             <div class="footer-actions">
-              {#each config.buttons as button}
-                <button
-                  class="btn btn-{button.variant || 'secondary'}"
-                  onclick={button.onClick}
-                  disabled={button.disabled || button.loading}>
-                  {button.loading ? 'Loading...' : button.label}
-                </button>
-              {/each}
+              {#if config.menu}
+                <ActionDropdown label={config.menu.label} actions={config.menu.actions} onaction={config.menu.onaction} />
+              {/if}
+              {#if config.buttons}
+                {#each config.buttons as button}
+                  <button
+                    class="btn btn-{button.variant || 'secondary'}"
+                    onclick={button.onClick}
+                    disabled={button.disabled || button.loading}>
+                    {button.loading ? 'Loading...' : button.label}
+                  </button>
+                {/each}
+              {/if}
             </div>
           {/if}
         </div>

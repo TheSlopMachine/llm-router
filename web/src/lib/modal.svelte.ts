@@ -9,6 +9,20 @@ export interface ModalButton {
   loading?: boolean
 }
 
+export interface ModalMenuAction {
+  id: string
+  label: string
+  icon?: string
+  disabled?: boolean
+  danger?: boolean
+}
+
+export interface ModalMenu {
+  label: string
+  actions: ModalMenuAction[]
+  onaction: (id: string) => void
+}
+
 export interface StepperConfig {
   current: number
   total: number
@@ -23,6 +37,7 @@ export interface BaseModalConfig {
   severity?: ModalSeverity
   size?: ModalSize
   buttons?: ModalButton[]
+  menu?: ModalMenu | null
   onClose?: () => void
 }
 
@@ -118,6 +133,15 @@ export const modal = {
     const newStack = [...stack]
     const topModal = { ...newStack[newStack.length - 1] } as ModalConfig
     topModal.buttons = buttons
+    newStack[newStack.length - 1] = topModal
+    stack = newStack
+  },
+
+  updateMenu(menu: ModalMenu | null): void {
+    if (stack.length === 0) return
+    const newStack = [...stack]
+    const topModal = { ...newStack[newStack.length - 1] } as ModalConfig
+    topModal.menu = menu
     newStack[newStack.length - 1] = topModal
     stack = newStack
   },

@@ -8,7 +8,7 @@
     rounded = 'sm',
     onaction
   } = $props<{
-    actions: Array<{ id: string; label: string; icon?: string; disabled?: boolean }>
+    actions: Array<{ id: string; label: string; icon?: string; disabled?: boolean; danger?: boolean }>
     label?: string
     disabled?: boolean
     rounded?: 'sm' | 'lg'
