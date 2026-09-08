@@ -189,6 +189,7 @@ Rule: before finishing any `.svelte` change, re-check every `$effect` touched ag
 | 7 | Redirect output to nul | A terrible habit that breaks on Windows. |
 | 8 | Truncate diagnostics output with tail/head | Diagnostics matter and truncating wastes time. NEVER truncate them. |
 | 9 | Fall back silently | NEVER swallow a failure and continue on a fallback path. Surface every failure as an error — return it to the caller, log it, or both — or route it to an explicit, named on-fail branch. Never fall through unannounced. |
+| 10 | Match errors by string | NEVER match error codes or kinds with `strings.Contains(err.Error(), ...)` or message substrings. Define sentinel errors and match with `errors.Is` / `errors.As`. |
 
 ## 7. Lua Plugins
 

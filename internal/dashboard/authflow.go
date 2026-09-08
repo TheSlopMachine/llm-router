@@ -2,10 +2,12 @@ package dashboard
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/util"
 )
 
@@ -36,6 +38,12 @@ func (h *Handler) authInitiate(w http.ResponseWriter, r *http.Request) {
 	p, ok := h.loadVisibleProvider(body.ProviderID)
 	if !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+
+	// Go backends never offer stepped flows; fall back without touching Lua.
+	if _, ok := h.providerSvc.GoAdapterFor(p.TypeKey); ok {
+		h.jsonErr(w, http.StatusConflict, "provider does not support stepped auth flows")
 		return
 	}
 
@@ -93,8 +101,17 @@ func (h *Handler) authStep(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, ok := h.providerSvc.GoAdapterFor(p.TypeKey); ok {
+		h.jsonErr(w, http.StatusConflict, "provider does not support stepped auth flows")
+		return
+	}
+
 	result, err := h.luaSvc.AuthStep(r.Context(), p.TypeKey, body.FlowID, body.Action, body.Values)
 	if err != nil {
+		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
+			h.jsonErr(w, http.StatusBadRequest, "auth flow step is not supported by this provider")
+			return
+		}
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -146,37 +163,5 @@ func isAuthFallback(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := err.Error()
-	for _, sub := range []string{"does not declare handler", "handler not declared", "not registered", "disabled"} {
-		if len(msg) >= len(sub) && containsFold(msg, sub) {
-			return true
-		}
-	}
-	return false
-}
-
-func containsFold(s, sub string) bool {
-	if len(sub) == 0 {
-		return true
-	}
-	for i := 0; i+len(sub) <= len(s); i++ {
-		match := true
-		for j := 0; j < len(sub); j++ {
-			a, b := s[i+j], sub[j]
-			if a >= 'A' && a <= 'Z' {
-				a += 'a' - 'A'
-			}
-			if b >= 'A' && b <= 'Z' {
-				b += 'a' - 'A'
-			}
-			if a != b {
-				match = false
-				break
-			}
-		}
-		if match {
-			return true
-		}
-	}
-	return false
+	return errors.Is(err, luaplugin.ErrHandlerNotFound) || errors.Is(err, luaplugin.ErrPluginDisabled)
 }

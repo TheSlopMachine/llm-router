@@ -27,7 +27,7 @@ func newProvidersUIHandler(t *testing.T) (*Handler, *provider.Service, *db.DB) {
 	return &Handler{providerSvc: providerSvc}, providerSvc, database
 }
 
-func seedUIRows(t *testing.T, svc *provider.Service, database *db.DB) {
+func seedUIRows(t *testing.T, svc *provider.Service, database *db.DB) *luaplugin.Service {
 	t.Helper()
 	luaSvc, err := luaplugin.New(database, nil)
 	if err != nil {
@@ -50,6 +50,7 @@ llm_router.register("zen", {
 	if err := svc.EnsureSeeded(); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
+	return luaSvc
 }
 
 func decodeProvidersList(t *testing.T, rec *httptest.ResponseRecorder) []map[string]any {
@@ -227,5 +228,64 @@ func TestAvailableModelsIncludesAgentsWithoutCredentials(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("agents/helper missing from available models: %+v", items)
+	}
+}
+
+func postAuthInitiate(t *testing.T, h *Handler, providerID string) *httptest.ResponseRecorder {
+	t.Helper()
+	body := strings.NewReader(`{"provider_id":"` + providerID + `"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/llm-router/dashboard/auth/initiate", body)
+	rec := httptest.NewRecorder()
+	h.authInitiate(rec, req)
+	return rec
+}
+
+func TestAuthInitiateGoBackendFallsBack409(t *testing.T) {
+	h, providerSvc, _ := newProvidersUIHandler(t)
+	providerSvc.RegisterGoAdapter(testutil.NewMockAdapter("custom"))
+	inst, err := providerSvc.CreateCustom("OmniRoute", "https://example.com/v1", "")
+	if err != nil {
+		t.Fatalf("create custom provider: %v", err)
+	}
+
+	rec := postAuthInitiate(t, h, inst.ID)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status: got %d, body %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "stepped auth flows") {
+		t.Fatalf("body must name the stepped-flow fallback: %s", rec.Body.String())
+	}
+}
+
+func TestAuthInitiateLuaWithoutHandlerFallsBack409(t *testing.T) {
+	h, providerSvc, database := newProvidersUIHandler(t)
+	h.luaSvc = seedUIRows(t, providerSvc, database)
+
+	providers, err := providerSvc.List()
+	if err != nil {
+		t.Fatalf("list providers: %v", err)
+	}
+	zenID := ""
+	for _, p := range providers {
+		if p.TypeKey == "zen" {
+			zenID = p.ID
+		}
+	}
+	if zenID == "" {
+		t.Fatal("seeded zen provider missing")
+	}
+
+	rec := postAuthInitiate(t, h, zenID)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status: got %d, body %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAuthInitiateMissingProvider404(t *testing.T) {
+	h, _, _ := newProvidersUIHandler(t)
+
+	rec := postAuthInitiate(t, h, "nope")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, body %s", rec.Code, rec.Body.String())
 	}
 }

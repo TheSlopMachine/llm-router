@@ -166,9 +166,6 @@
           {/if}
           {#if (config.buttons && config.buttons.length > 0) || config.menu}
             <div class="footer-actions">
-              {#if config.menu}
-                <ActionDropdown label={config.menu.label} actions={config.menu.actions} onaction={config.menu.onaction} />
-              {/if}
               {#if config.buttons}
                 {#each config.buttons as button}
                   <button
@@ -178,6 +175,9 @@
                     {button.loading ? 'Loading...' : button.label}
                   </button>
                 {/each}
+              {/if}
+              {#if config.menu}
+                <ActionDropdown label={config.menu.label} actions={config.menu.actions} onaction={config.menu.onaction} />
               {/if}
             </div>
           {/if}

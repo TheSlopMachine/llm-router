@@ -7,6 +7,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -542,7 +543,7 @@ func (s *Service) ConfigSchema(typeKey string) ([]*models.UINode, error) {
 	}
 	nodes, err := s.luaSvc.Schema(typeKey, "config_schema")
 	if err != nil {
-		if isHandlerNotFound(err) {
+		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
 			return nil, nil
 		}
 		return nil, err
@@ -571,20 +572,12 @@ func (s *Service) CredentialSchema(typeKey string) ([]*models.UINode, error) {
 	}
 	nodes, err := s.luaSvc.Schema(typeKey, "credential_schema")
 	if err != nil {
-		if isHandlerNotFound(err) {
+		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
 			return nil, nil
 		}
 		return nil, err
 	}
 	return nodes, nil
-}
-
-func isHandlerNotFound(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(err.Error(), "does not declare handler") ||
-		strings.Contains(err.Error(), "handler not declared")
 }
 
 // ─────────────────────────────────────────────
