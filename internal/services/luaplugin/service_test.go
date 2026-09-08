@@ -59,6 +59,88 @@ func setupService(t *testing.T) *Service {
 	return svc
 }
 
+const iconPluginSource = `--- @plugin Icon Plugin
+--- @author tester
+--- @version 1.0.0
+--- @router_version 0.0.4
+--- @description Icon plugin
+--- @allow_host example.com
+
+llm_router.register("icon-type", {
+  icon = "https://example.com/icon.svg",
+  complete = function(ctx, credential, request)
+    return {
+      id = "chatcmpl-icon",
+      object = "chat.completion",
+      created = 1700000000,
+      model = request.model,
+      choices = {
+        { index = 0, message = { role = "assistant", content = "hi" }, finish_reason = "stop" },
+      },
+      usage = { prompt_tokens = 1, completion_tokens = 1, total_tokens = 2 },
+    }
+  end,
+})
+`
+
+func TestInstallCapturesIcon(t *testing.T) {
+	svc := setupService(t)
+	rec, err := svc.Install([]byte(iconPluginSource), PluginOrigin{Manual: true})
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if got := rec.Icons["icon-type"]; got != "https://example.com/icon.svg" {
+		t.Fatalf("record icon: got %q", got)
+	}
+	if got := svc.Icon("icon-type"); got != "https://example.com/icon.svg" {
+		t.Fatalf("registry icon: got %q", got)
+	}
+}
+
+func TestInstallRejectsBadIcon(t *testing.T) {
+	svc := setupService(t)
+	cases := map[string]string{
+		"plain string":   `icon = "not a url"`,
+		"wrong scheme":   `icon = "ftp://example.com/icon.svg"`,
+		"http not https": `icon = "http://example.com/icon.svg"`,
+		"non-string":     `icon = 42`,
+		"oversized data": `icon = "data:image/svg+xml,` + strings.Repeat("a", 40<<10) + `"`,
+		"data non-image": `icon = "data:text/plain,hello"`,
+	}
+	for name, iconLine := range cases {
+		src := strings.Replace(iconPluginSource, `icon = "https://example.com/icon.svg",`, iconLine+",", 1)
+		if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err == nil {
+			t.Errorf("%s: expected install error", name)
+		}
+	}
+}
+
+func TestRollbackRestoresIcon(t *testing.T) {
+	svc := setupService(t)
+	rec, err := svc.Install([]byte(iconPluginSource), PluginOrigin{Manual: true})
+	if err != nil {
+		t.Fatalf("install v1: %v", err)
+	}
+	v2 := strings.Replace(iconPluginSource, "@version 1.0.0", "@version 2.0.0", 1)
+	v2 = strings.Replace(v2, `icon = "https://example.com/icon.svg",`, `icon = "https://example.com/icon2.svg",`, 1)
+	if _, err := svc.Install([]byte(v2), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install v2: %v", err)
+	}
+	if got := svc.Icon("icon-type"); got != "https://example.com/icon2.svg" {
+		t.Fatalf("v2 icon: got %q", got)
+	}
+	rolled, err := svc.Rollback(rec.ID)
+	if err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	if got := rolled.Icons["icon-type"]; got != "https://example.com/icon.svg" {
+		t.Fatalf("rolled-back icon: got %q", got)
+	}
+	if got := svc.Icon("icon-type"); got != "https://example.com/icon.svg" {
+		t.Fatalf("registry icon after rollback: got %q", got)
+	}
+}
+
 func TestParseManifest(t *testing.T) {
 	m, err := ParseManifest([]byte(testPluginSource))
 	if err != nil {

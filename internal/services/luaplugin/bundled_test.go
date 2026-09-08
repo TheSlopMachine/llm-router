@@ -159,6 +159,29 @@ func TestBundledHandlerSets(t *testing.T) {
 	}
 }
 
+func TestBundledIcons(t *testing.T) {
+	svc, err := New(testutil.SetupTestDB(t), nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	if err := svc.EnsureBundled(); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	expected := map[string]string{
+		"opencode-zen": "https://opencode.ai/favicon.ico",
+		"google":       "https://www.gstatic.com/lamda/images/favicon_v1_150160cddff7f294ce30.svg",
+		"kiro":         "https://kiro.dev/favicon.ico",
+	}
+	for typeKey, want := range expected {
+		if got := svc.Icon(typeKey); got != want {
+			t.Errorf("type %q icon: got %q, want %q", typeKey, got, want)
+		}
+	}
+	if got := svc.Icon("no-such-type"); got != "" {
+		t.Errorf("unknown type icon: got %q, want empty", got)
+	}
+}
+
 func TestEnsureBundledIdempotent(t *testing.T) {
 	svc, err := New(testutil.SetupTestDB(t), nil)
 	if err != nil {

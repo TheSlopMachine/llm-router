@@ -318,16 +318,17 @@ func (s *Service) Delete(id string) error {
 
 // EnsureSeeded creates the built-in agents provider row and one provider
 // row per enabled Lua plugin type key when none exists yet, keeping fresh
-// installs routable without manual provider setup.
+// installs routable without manual provider setup. Missing icons on existing
+// rows are backfilled from the plugin; user-set icons are never overwritten.
 func (s *Service) EnsureSeeded() error {
 	now := time.Now()
-	ensure := func(id, name, typeKey string) error {
+	ensure := func(id, name, typeKey, icon string) error {
 		if _, err := s.providers.Get(id); err == nil {
 			return nil
 		}
 		inst := &models.ProviderInstance{
 			ID: id, Name: name, TypeKey: typeKey,
-			Config: map[string]any{}, CreatedAt: now, UpdatedAt: now,
+			Config: map[string]any{}, IconURL: icon, CreatedAt: now, UpdatedAt: now,
 		}
 		if err := s.providers.Put(id, inst); err != nil {
 			return err
@@ -335,7 +336,7 @@ func (s *Service) EnsureSeeded() error {
 		s.notifyChanged(id)
 		return nil
 	}
-	if err := ensure("agents", "Agents", TypeAgents); err != nil {
+	if err := ensure("agents", "Agents", TypeAgents, ""); err != nil {
 		return err
 	}
 	if s.luaSvc == nil {
@@ -362,19 +363,38 @@ func (s *Service) EnsureSeeded() error {
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
+		var icon string
+		if s.luaSvc != nil {
+			icon = s.luaSvc.Icon(key)
+		}
 		existing, err := s.GetByType(key)
 		if err != nil {
 			return err
 		}
-		if len(existing) > 0 {
+		if len(existing) == 0 {
+			name := seen[key]
+			if strings.TrimSpace(name) == "" {
+				name = key
+			}
+			if err := ensure(key, name, key, icon); err != nil {
+				return err
+			}
 			continue
 		}
-		name := seen[key]
-		if strings.TrimSpace(name) == "" {
-			name = key
+		if icon == "" {
+			continue
 		}
-		if err := ensure(key, name, key); err != nil {
-			return err
+		for _, inst := range existing {
+			if inst.IconURL != "" {
+				continue
+			}
+			if err := s.providers.Update(inst.ID, func(p *models.ProviderInstance) error {
+				p.IconURL = icon
+				p.UpdatedAt = time.Now()
+				return nil
+			}); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

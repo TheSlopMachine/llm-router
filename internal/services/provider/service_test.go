@@ -10,6 +10,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
@@ -171,6 +172,97 @@ func TestProviderService_EnsureSeeded(t *testing.T) {
 	// Idempotent.
 	if err := svc.EnsureSeeded(); err != nil {
 		t.Fatalf("second seed: %v", err)
+	}
+}
+
+func TestProviderService_EnsureSeededCopiesPluginIcon(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+
+	luaSvc, err := luaplugin.New(database, nil)
+	if err != nil {
+		t.Fatalf("lua service: %v", err)
+	}
+	const iconSource = `--- @plugin Seeded Plugin
+--- @author tester
+--- @version 1.0.0
+--- @router_version 0.0.4
+--- @allow_host example.com
+
+llm_router.register("seeded-type", {
+  icon = "https://example.com/seeded.svg",
+  complete = function() end,
+})
+`
+	if _, err := luaSvc.Install([]byte(iconSource), luaplugin.PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install plugin: %v", err)
+	}
+	svc.SetLuaService(luaSvc)
+
+	if err := svc.EnsureSeeded(); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	inst, err := svc.Get("seeded-type")
+	if err != nil {
+		t.Fatalf("seeded provider missing: %v", err)
+	}
+	if inst.IconURL != "https://example.com/seeded.svg" {
+		t.Fatalf("seeded icon: got %q", inst.IconURL)
+	}
+}
+
+func TestProviderService_EnsureSeededBackfillsMissingIcon(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+
+	luaSvc, err := luaplugin.New(database, nil)
+	if err != nil {
+		t.Fatalf("lua service: %v", err)
+	}
+	const iconSource = `--- @plugin Backfill Plugin
+--- @author tester
+--- @version 1.0.0
+--- @router_version 0.0.4
+--- @allow_host example.com
+
+llm_router.register("backfill-type", {
+  icon = "https://example.com/backfill.svg",
+  complete = function() end,
+})
+`
+	if _, err := luaSvc.Install([]byte(iconSource), luaplugin.PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install plugin: %v", err)
+	}
+	svc.SetLuaService(luaSvc)
+
+	// Pre-existing rows: one without icon (backfill), one with custom icon (keep).
+	if _, err := svc.Create(provider.CreateOptions{Name: "Bare", TypeKey: "backfill-type"}); err != nil {
+		t.Fatalf("create bare: %v", err)
+	}
+	custom, err := svc.Create(provider.CreateOptions{Name: "Custom", TypeKey: "backfill-type", Qualifier: "q"})
+	if err != nil {
+		t.Fatalf("create custom: %v", err)
+	}
+	if _, err := svc.Update(custom.ID, provider.UpdateOptions{Name: "Custom", IconURL: "https://example.com/mine.svg"}); err != nil {
+		t.Fatalf("set custom icon: %v", err)
+	}
+
+	if err := svc.EnsureSeeded(); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	bare, err := svc.Get("backfill-type")
+	if err != nil {
+		t.Fatalf("bare provider missing: %v", err)
+	}
+	if bare.IconURL != "https://example.com/backfill.svg" {
+		t.Fatalf("backfilled icon: got %q", bare.IconURL)
+	}
+	kept, err := svc.Get(custom.ID)
+	if err != nil {
+		t.Fatalf("custom provider missing: %v", err)
+	}
+	if kept.IconURL != "https://example.com/mine.svg" {
+		t.Fatalf("custom icon overwritten: got %q", kept.IconURL)
 	}
 }
 

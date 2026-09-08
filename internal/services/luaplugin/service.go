@@ -31,6 +31,7 @@ type PluginVersionSnapshot struct {
 	Source   []byte              `json:"source"`
 	TypeKeys []string            `json:"type_keys"`
 	Handlers map[string][]string `json:"handlers"`
+	Icons    map[string]string   `json:"icons"`
 }
 
 // PluginRecord is the stored plugin row in BucketPlugins.
@@ -46,6 +47,7 @@ type PluginRecord struct {
 	Unsafe        bool                    `json:"unsafe"`
 	TypeKeys      []string                `json:"type_keys"`
 	Handlers      map[string][]string     `json:"handlers"`
+	Icons         map[string]string       `json:"icons"`
 	Source        []byte                  `json:"source"`
 	History       []PluginVersionSnapshot `json:"history"`
 	Origin        PluginOrigin            `json:"origin"`
@@ -215,7 +217,7 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 	if err != nil {
 		return nil, err
 	}
-	typeKeys, handlers, err := s.dryRun(id, source, manifest)
+	typeKeys, handlers, icons, err := s.dryRun(id, source, manifest)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +227,7 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 	if err == nil && existing != nil {
 		history := append(existing.History, PluginVersionSnapshot{
 			Version: existing.Version, Source: existing.Source, TypeKeys: existing.TypeKeys,
-			Handlers: existing.Handlers,
+			Handlers: existing.Handlers, Icons: existing.Icons,
 		})
 		if len(history) > 10 {
 			history = history[len(history)-10:]
@@ -235,7 +237,7 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 			Version: manifest.Version, RouterVersion: manifest.RouterVersion,
 			Description: manifest.Description, License: manifest.License,
 			AllowHosts: manifest.AllowHosts, Unsafe: manifest.Unsafe,
-			TypeKeys: typeKeys, Handlers: handlers, Source: append([]byte(nil), source...),
+			TypeKeys: typeKeys, Handlers: handlers, Icons: icons, Source: append([]byte(nil), source...),
 			History: history, Origin: origin, Enabled: existing.Enabled,
 			InstalledAt: existing.InstalledAt, UpdatedAt: now,
 		}
@@ -254,7 +256,7 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 		Version: manifest.Version, RouterVersion: manifest.RouterVersion,
 		Description: manifest.Description, License: manifest.License,
 		AllowHosts: manifest.AllowHosts, Unsafe: manifest.Unsafe,
-		TypeKeys: typeKeys, Handlers: handlers, Source: append([]byte(nil), source...),
+		TypeKeys: typeKeys, Handlers: handlers, Icons: icons, Source: append([]byte(nil), source...),
 		Origin: origin, Enabled: true,
 		InstalledAt: now, UpdatedAt: now,
 	}
@@ -280,7 +282,7 @@ func (s *Service) Rollback(id string) (*PluginRecord, error) {
 	}
 	prev := rec.History[len(rec.History)-1]
 	rest := rec.History[:len(rec.History)-1]
-	rest = append(rest, PluginVersionSnapshot{Version: rec.Version, Source: rec.Source, TypeKeys: rec.TypeKeys, Handlers: rec.Handlers})
+	rest = append(rest, PluginVersionSnapshot{Version: rec.Version, Source: rec.Source, TypeKeys: rec.TypeKeys, Handlers: rec.Handlers, Icons: rec.Icons})
 	if len(rest) > 10 {
 		rest = rest[len(rest)-10:]
 	}
@@ -289,8 +291,9 @@ func (s *Service) Rollback(id string) (*PluginRecord, error) {
 		return nil, fmt.Errorf("previous version manifest: %w", err)
 	}
 	handlers := prev.Handlers
+	icons := prev.Icons
 	if handlers == nil {
-		_, handlers, err = s.dryRun(id, prev.Source, manifest)
+		_, handlers, icons, err = s.dryRun(id, prev.Source, manifest)
 		if err != nil {
 			return nil, fmt.Errorf("previous version dry-run: %w", err)
 		}
@@ -299,6 +302,7 @@ func (s *Service) Rollback(id string) (*PluginRecord, error) {
 	rec.Source = prev.Source
 	rec.TypeKeys = prev.TypeKeys
 	rec.Handlers = handlers
+	rec.Icons = icons
 	rec.DisplayName = manifest.Plugin
 	rec.Author = manifest.Author
 	rec.RouterVersion = manifest.RouterVersion
@@ -373,10 +377,30 @@ func (s *Service) Disable(id string) (*PluginRecord, error) {
 	return rec, nil
 }
 
+// maxPluginIconBytes caps an icon value (data-URI icons live in bbolt).
+const maxPluginIconBytes = 32 << 10
+
+// validateIcon accepts empty (no icon), https:// URLs and data:image URIs.
+func validateIcon(typeKey, value string) error {
+	if value == "" {
+		return nil
+	}
+	if len(value) > maxPluginIconBytes {
+		return fmt.Errorf("plugin type %q: icon exceeds %d bytes", typeKey, maxPluginIconBytes)
+	}
+	if strings.HasPrefix(value, "https://") {
+		return nil
+	}
+	if strings.HasPrefix(value, "data:image/") {
+		return nil
+	}
+	return fmt.Errorf("plugin type %q: icon must be an https:// URL or data:image URI", typeKey)
+}
+
 // dryRun executes the plugin top-level code in a fully configured sandbox
-// and returns the registered type keys plus declared handler names.
+// and returns the registered type keys, declared handler names and icons.
 // Handlers are not invoked.
-func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) ([]string, map[string][]string, error) {
+func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) ([]string, map[string][]string, map[string]string, error) {
 	ctx := &execContext{
 		pluginID:      pluginID,
 		allowHosts:    manifest.AllowHosts,
@@ -389,15 +413,16 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) ([]
 	L := newSandboxState(ctx)
 	defer L.Close()
 	if err := L.DoString(string(source)); err != nil {
-		return nil, nil, &models.PluginInternalError{
+		return nil, nil, nil, &models.PluginInternalError{
 			PluginID: pluginID, Cause: "top-level: " + luaErrorString(L.Get(-1)),
 		}
 	}
 	if len(ctx.registrations) == 0 {
-		return nil, nil, fmt.Errorf("plugin declares no type keys: missing llm_router.register call")
+		return nil, nil, nil, fmt.Errorf("plugin declares no type keys: missing llm_router.register call")
 	}
 	keys := make([]string, 0, len(ctx.registrations))
 	handlers := map[string][]string{}
+	icons := map[string]string{}
 	for k, tbl := range ctx.registrations {
 		keys = append(keys, k)
 		var names []string
@@ -412,9 +437,21 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) ([]
 		}
 		sort.Strings(names)
 		handlers[k] = names
+		if v := tbl.RawGetString("icon"); v != lua.LNil {
+			icon, ok := v.(lua.LString)
+			if !ok {
+				return nil, nil, nil, fmt.Errorf("plugin type %q: icon must be a string", k)
+			}
+			if err := validateIcon(k, string(icon)); err != nil {
+				return nil, nil, nil, err
+			}
+			if string(icon) != "" {
+				icons[k] = string(icon)
+			}
+		}
 	}
 	sort.Strings(keys)
-	return keys, handlers, nil
+	return keys, handlers, icons, nil
 }
 
 // HasHandler reports whether a type key declares a handler.
@@ -431,6 +468,17 @@ func (s *Service) HasHandler(typeKey, handler string) bool {
 		}
 	}
 	return false
+}
+
+// Icon returns the icon declared by a type key, or empty when none.
+func (s *Service) Icon(typeKey string) string {
+	s.mu.RLock()
+	rec, ok := s.registry[typeKey]
+	s.mu.RUnlock()
+	if !ok {
+		return ""
+	}
+	return rec.Icons[typeKey]
 }
 
 // BuildID derives the composite plugin ID from origin and manifest.

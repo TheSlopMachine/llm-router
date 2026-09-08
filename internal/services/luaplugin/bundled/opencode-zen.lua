@@ -1,6 +1,6 @@
 --- @plugin OpenCode Zen
 --- @author TheSlopMachine
---- @version 1.0.1
+--- @version 1.0.2
 --- @router_version 0.0.4
 --- @description OpenAI/Anthropic/Google compatible free provider OpenCode Zen
 --- @allow_host opencode.ai
@@ -188,6 +188,7 @@ local function extract_responses_tool_calls(raw)
 end
 
 llm_router.register("opencode-zen", {
+  icon = "https://opencode.ai/favicon.ico",
 
   credential_schema = function()
     return {

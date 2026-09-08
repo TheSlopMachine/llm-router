@@ -1,6 +1,6 @@
 --- @plugin Kiro AI
 --- @author TheSlopMachine
---- @version 1.0.1
+--- @version 1.0.2
 --- @router_version 0.0.4
 --- @description AWS Kiro models via device login (OAuth2 with proactive refresh)
 --- @allow_host codewhisperer.us-east-1.amazonaws.com
@@ -397,6 +397,7 @@ local function flow_scope(flow_id)
 end
 
 llm_router.register("kiro", {
+  icon = "https://kiro.dev/favicon.ico",
 
   config_schema = function()
     return {

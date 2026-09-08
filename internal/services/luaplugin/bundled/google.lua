@@ -1,6 +1,6 @@
 --- @plugin Google AI Studio
 --- @author TheSlopMachine
---- @version 1.0.0
+--- @version 1.0.1
 --- @router_version 0.0.4
 --- @description Google Gemini models via AI Studio API
 --- @allow_host generativelanguage.googleapis.com
@@ -130,6 +130,7 @@ local function supports_generate_content(entry)
 end
 
 llm_router.register("google", {
+  icon = "https://www.gstatic.com/lamda/images/favicon_v1_150160cddff7f294ce30.svg",
 
   credential_schema = function()
     return {
