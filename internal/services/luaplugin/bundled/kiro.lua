@@ -1,6 +1,6 @@
 --- @plugin Kiro AI
 --- @author TheSlopMachine
---- @version 1.0.2
+--- @version 1.0.4
 --- @router_version 0.0.4
 --- @description AWS Kiro models via device login (OAuth2 with proactive refresh)
 --- @allow_host codewhisperer.us-east-1.amazonaws.com
@@ -384,11 +384,15 @@ local function device_page(message_text, state)
   if message_text and message_text ~= "" then
     table.insert(nodes, { type = "banner", variant = "info", text = message_text })
   end
-  table.insert(nodes, { type = "text", text = "Open the verification page and enter code " .. (state.user_code or "") })
-  table.insert(nodes, { type = "link", text = "Open verification page",
-    url = state.verification_uri_complete or state.verification_uri or "" })
-  table.insert(nodes, { type = "button", text = "Check Authorization", form_action = "poll_device" })
-  table.insert(nodes, { type = "button", text = "Start Over", form_action = "restart" })
+  table.insert(nodes, { type = "text", text = "Open the verification page, then enter the code below." })
+  table.insert(nodes, { type = "code", text = state.user_code or "", label = "Device code" })
+  table.insert(nodes, { type = "flow", direction = "horizontal", align = "center", content = {
+    { type = "link", text = "Open verification page",
+      url = state.verification_uri_complete or state.verification_uri or "" },
+    { type = "spacer" },
+    { type = "button", text = "Check Authorization", form_action = "poll_device" },
+    { type = "button", text = "Start Over", form_action = "restart" },
+  } })
   return { render = nodes }
 end
 

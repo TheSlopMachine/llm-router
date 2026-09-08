@@ -662,6 +662,16 @@ type UINode struct {
 	Content     []*UINode      `json:"content,omitempty"`
 	Placeholder string         `json:"placeholder,omitempty"`
 	Value       any            `json:"value,omitempty"`
+	Direction   string         `json:"direction,omitempty"`
+	Align       string         `json:"align,omitempty"`
+	Justify     string         `json:"justify,omitempty"`
+	Gap         string         `json:"gap,omitempty"`
+	Columns     int            `json:"columns,omitempty"`
+	Title       string         `json:"title,omitempty"`
+	Subtitle    string         `json:"subtitle,omitempty"`
+	Wrap        bool           `json:"wrap,omitempty"`
+	Grow        bool           `json:"grow,omitempty"`
+	Size        string         `json:"size,omitempty"`
 	Extra       map[string]any `json:"-"`
 }
 

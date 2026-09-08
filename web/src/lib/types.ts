@@ -140,7 +140,7 @@ export interface RouterConfiguration {
 }
 
 export interface UINode {
-  type: 'text' | 'input' | 'select' | 'checkbox' | 'button' | 'link' | 'banner' | 'group'
+  type: 'text' | 'input' | 'select' | 'checkbox' | 'button' | 'link' | 'banner' | 'group' | 'flow' | 'grid' | 'section' | 'spacer' | 'divider' | 'secret' | 'code'
   text?: string
   name?: string
   label?: string
@@ -153,6 +153,16 @@ export interface UINode {
   content?: UINode[]
   placeholder?: string
   value?: unknown
+  direction?: string
+  align?: string
+  justify?: string
+  gap?: string
+  columns?: number
+  title?: string
+  subtitle?: string
+  wrap?: boolean
+  grow?: boolean
+  size?: string
 }
 
 export interface SchemaResponse {

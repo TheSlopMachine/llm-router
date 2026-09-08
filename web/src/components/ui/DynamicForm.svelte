@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { UINode } from '../../lib/types'
+  import SecretInput from './SecretInput.svelte'
+  import CodeBlock from './CodeBlock.svelte'
 
   let {
     nodes,
@@ -32,8 +34,27 @@
 
   function hasSubmitButton(list: UINode[]): boolean {
     return list.some(
-      (n) => n.type === 'button' || (n.type === 'group' && n.content ? hasSubmitButton(n.content) : false)
+      (n) =>
+        n.type === 'button' ||
+        ((n.type === 'group' || n.type === 'flow' || n.type === 'grid' || n.type === 'section') &&
+          n.content ? hasSubmitButton(n.content) : false)
     )
+  }
+
+  const flexDirection: Record<string, string> = { horizontal: 'row', vertical: 'column' }
+  const flexAlign: Record<string, string> = { start: 'flex-start', center: 'center', end: 'flex-end', stretch: 'stretch' }
+  const flexJustify: Record<string, string> = { start: 'flex-start', center: 'center', end: 'flex-end', between: 'space-between' }
+  const gapSize: Record<string, string> = { sm: '8px', md: '12px', lg: '16px' }
+
+  function flowStyle(node: UINode): string {
+    const parts = [
+      `flex-direction: ${flexDirection[node.direction ?? 'vertical'] ?? 'column'}`,
+      `gap: ${gapSize[node.gap ?? 'md'] ?? '12px'}`,
+      `align-items: ${flexAlign[node.align ?? 'stretch'] ?? 'stretch'}`,
+      `justify-content: ${flexJustify[node.justify ?? 'start'] ?? 'flex-start'}`,
+    ]
+    if (node.wrap ?? true) parts.push('flex-wrap: wrap')
+    return parts.join('; ')
   }
 
   function handleButton(action: string): void {
@@ -57,7 +78,7 @@
           oninput={(e) => setValue(node.name ?? '', (e.target as HTMLInputElement).value)}
           placeholder={node.placeholder ?? ''}
           required={node.required ?? false}
-          autocomplete="off"
+          autocomplete={node.input_type === 'password' ? 'new-password' : 'off'}
         />
       </div>
     {:else if node.type === 'select'}
@@ -96,6 +117,43 @@
           {node.text || submitLabel}
         </button>
       </div>
+    {:else if node.type === 'secret'}
+      <SecretInput
+        id="dyn-{node.name}"
+        label={node.label ?? ''}
+        required={node.required ?? false}
+        placeholder={node.placeholder ?? ''}
+        value={(values[node.name ?? ''] as string) ?? ''}
+        disabled={busy}
+        oninput={(v) => setValue(node.name ?? '', v)}
+      />
+    {:else if node.type === 'code'}
+      <CodeBlock text={node.text ?? ''} label={node.label ?? ''} />
+    {:else if node.type === 'flow'}
+      <div class="flow" style={flowStyle(node)}>
+        {@render nodeList(node.content ?? [])}
+      </div>
+    {:else if node.type === 'grid'}
+      <div
+        class="grid"
+        style="grid-template-columns: repeat({node.columns || 1}, 1fr); gap: {gapSize[node.gap ?? 'md'] ?? '12px'}"
+      >
+        {@render nodeList(node.content ?? [])}
+      </div>
+    {:else if node.type === 'section'}
+      <section class="section">
+        <h3 class="section-title">{node.title}</h3>
+        {#if node.subtitle}<p class="section-subtitle">{node.subtitle}</p>{/if}
+        {@render nodeList(node.content ?? [])}
+      </section>
+    {:else if node.type === 'spacer'}
+      {#if node.grow ?? true}
+        <div class="spacer-grow" aria-hidden="true"></div>
+      {:else}
+        <div class="spacer-fixed" style="height: {gapSize[node.size ?? 'md'] ?? '12px'}" aria-hidden="true"></div>
+      {/if}
+    {:else if node.type === 'divider'}
+      <hr class="divider" />
     {:else if node.type === 'group'}
       <div class="form-group-nested">
         {@render nodeList(node.content ?? [])}
@@ -169,5 +227,44 @@
   .form-group-nested {
     border-left: 2px solid var(--color-outline-soft);
     padding-left: 12px;
+  }
+  .flow {
+    display: flex;
+    width: 100%;
+  }
+  .grid {
+    display: grid;
+    width: 100%;
+  }
+  @media (max-width: 560px) {
+    .grid {
+      grid-template-columns: 1fr !important;
+    }
+  }
+  .section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--color-outline-light);
+    border-radius: 8px;
+  }
+  .section-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .section-subtitle {
+    margin: -8px 0 0 0;
+    font-size: 13px;
+    color: var(--color-text-soft);
+  }
+  .spacer-grow {
+    flex: 1 1 auto;
+  }
+  .divider {
+    border: none;
+    border-top: 1px solid var(--color-outline-light);
+    margin: 4px 0;
   }
 </style>
