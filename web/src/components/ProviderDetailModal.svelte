@@ -90,7 +90,11 @@
 {/if}
 
 {#if view === 'list'}
-  {#if onEdit || onDelete}
+  {#if provider.is_ui_readonly}
+    <div class="provider-actions">
+      <span class="badge">Managed automatically</span>
+    </div>
+  {:else if onEdit || onDelete}
     <div class="provider-actions">
       {#if onEdit}
         <button class="btn btn-secondary" onclick={onEdit}>

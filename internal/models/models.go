@@ -490,14 +490,16 @@ func (r TokenRules) Allows(model ModelId) bool {
 // ProviderInstance is the single persisted provider record for every type:
 // lua-plugin type keys, built-in "custom" and "agents".
 type ProviderInstance struct {
-	ID        string         `json:"id" example:"opencode-zen"`
-	Name      string         `json:"name" example:"OpenCode Zen"`
-	TypeKey   string         `json:"type_key" example:"opencode-zen"`
-	Qualifier string         `json:"qualifier" example:""`
-	Config    map[string]any `json:"config"`
-	IconURL   string         `json:"icon_url" example:"https://cdn.example.com/openai.svg"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	ID           string         `json:"id" example:"opencode-zen"`
+	Name         string         `json:"name" example:"OpenCode Zen"`
+	TypeKey      string         `json:"type_key" example:"opencode-zen"`
+	Qualifier    string         `json:"qualifier" example:""`
+	Config       map[string]any `json:"config"`
+	IconURL      string         `json:"icon_url" example:"https://cdn.example.com/openai.svg"`
+	IsUIReadonly bool           `json:"is_ui_readonly"`
+	IsUIHidden   bool           `json:"is_ui_hidden"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
 }
 
 // Provider is kept as an alias so existing call sites keep compiling

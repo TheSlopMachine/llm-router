@@ -18,6 +18,8 @@ type providerView struct {
 	BaseURL          string         `json:"base_url"`
 	IconURL          string         `json:"icon_url"`
 	SupportsAuthFlow bool           `json:"supports_auth_flow"`
+	IsUIReadonly     bool           `json:"is_ui_readonly"`
+	IsUIHidden       bool           `json:"is_ui_hidden"`
 }
 
 func toProviderView(p *models.ProviderInstance, svc *provider.Service) providerView {
@@ -30,7 +32,31 @@ func toProviderView(p *models.ProviderInstance, svc *provider.Service) providerV
 		ID: p.ID, Name: p.Name, TypeKey: p.TypeKey, Type: p.TypeKey,
 		Qualifier: p.Qualifier, Config: config, BaseURL: baseURL, IconURL: p.IconURL,
 		SupportsAuthFlow: svc.SupportsAuthFlow(p.TypeKey),
+		IsUIReadonly:     p.IsUIReadonly, IsUIHidden: p.IsUIHidden,
 	}
+}
+
+// visibleProviders drops UI-hidden rows. Router, models and metrics keep
+// using the full service-level list.
+func visibleProviders(all []*models.ProviderInstance) []*models.ProviderInstance {
+	out := make([]*models.ProviderInstance, 0, len(all))
+	for _, p := range all {
+		if p.IsUIHidden {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// loadVisibleProvider resolves a provider for UI management endpoints.
+// Hidden rows behave as nonexistent.
+func (h *Handler) loadVisibleProvider(id string) (*models.ProviderInstance, bool) {
+	p, err := h.providerSvc.Get(id)
+	if err != nil || p.IsUIHidden {
+		return nil, false
+	}
+	return p, true
 }
 
 // apiProvidersList lists all providers
@@ -49,6 +75,7 @@ func (h *Handler) apiProvidersList(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	providers = visibleProviders(providers)
 	out := make([]providerView, 0, len(providers))
 	for _, p := range providers {
 		out = append(out, toProviderView(p, h.providerSvc))
@@ -58,15 +85,20 @@ func (h *Handler) apiProvidersList(w http.ResponseWriter, r *http.Request) {
 
 // apiAdapterTypes lists available provider type keys (Go backends + Lua plugins).
 // @Summary      List provider types
-// @Description  Returns all registered provider type keys.
+// @Description  Returns all registered provider type keys with UI creation flags.
 // @Tags         Providers
 // @Produce      json
-// @Success      200 {array} string
+// @Success      200 {array} object{type_key=string,creatable=bool}
 // @Failure      401 {object} models.ErrorResponse
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/adapter-types [get]
 func (h *Handler) apiAdapterTypes(w http.ResponseWriter, r *http.Request) {
-	h.json(w, http.StatusOK, h.providerSvc.TypeKeys())
+	keys := h.providerSvc.TypeKeys()
+	out := make([]map[string]any, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, map[string]any{"type_key": k, "creatable": provider.IsCreatableTypeKey(k)})
+	}
+	h.json(w, http.StatusOK, out)
 }
 
 // apiProvidersStats returns aggregated statistics for all providers
@@ -85,6 +117,7 @@ func (h *Handler) apiProvidersStats(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	providers = visibleProviders(providers)
 
 	stats := make(map[string]*models.ProviderStats)
 	ctx := r.Context()
@@ -189,6 +222,16 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	existing, ok := h.loadVisibleProvider(id)
+	if !ok {
+		h.jsonErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	if existing.IsUIReadonly {
+		h.jsonErr(w, http.StatusForbidden, "provider is managed automatically")
+		return
+	}
+
 	var body models.ProviderInstanceUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
@@ -244,6 +287,16 @@ func (h *Handler) apiProvidersDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	existing, ok := h.loadVisibleProvider(id)
+	if !ok {
+		h.jsonErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	if existing.IsUIReadonly {
+		h.jsonErr(w, http.StatusForbidden, "provider is managed automatically")
+		return
+	}
+
 	if err := h.providerSvc.Delete(id); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -265,8 +318,8 @@ func (h *Handler) apiProvidersDelete(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/providers/{id}/config-schema [get]
 func (h *Handler) apiProviderConfigSchema(w http.ResponseWriter, r *http.Request) {
-	p, err := h.providerSvc.Get(r.PathValue("id"))
-	if err != nil {
+	p, ok := h.loadVisibleProvider(r.PathValue("id"))
+	if !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
@@ -344,8 +397,8 @@ func (h *Handler) apiTypeSchemas(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/providers/{id}/credential-schema [get]
 func (h *Handler) apiProviderCredentialSchema(w http.ResponseWriter, r *http.Request) {
-	p, err := h.providerSvc.Get(r.PathValue("id"))
-	if err != nil {
+	p, ok := h.loadVisibleProvider(r.PathValue("id"))
+	if !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}

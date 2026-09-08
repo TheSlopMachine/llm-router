@@ -329,3 +329,145 @@ func TestProviderService_CustomSchemas(t *testing.T) {
 		t.Fatalf("agents credential schema: %+v %v", nodes, err)
 	}
 }
+
+func TestProviderService_ManualCreateHasNoUIFlags(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+
+	inst, err := svc.Create(provider.CreateOptions{Name: "Zen", TypeKey: "opencode-zen"})
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if inst.IsUIReadonly || inst.IsUIHidden {
+		t.Fatalf("manual row must not carry UI flags: %+v", inst)
+	}
+}
+
+func TestProviderService_EnsureSeededMarksAgentsHiddenReadonly(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+
+	if err := svc.EnsureSeeded(); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	agents, err := svc.Get("agents")
+	if err != nil {
+		t.Fatalf("agents provider missing: %v", err)
+	}
+	if !agents.IsUIReadonly || !agents.IsUIHidden {
+		t.Fatalf("agents row must be readonly+hidden: %+v", agents)
+	}
+}
+
+func TestProviderService_EnsureSeededMarksLuaSingletonsReadonly(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+
+	luaSvc, err := luaplugin.New(database, nil)
+	if err != nil {
+		t.Fatalf("lua service: %v", err)
+	}
+	const src = `--- @plugin Flag Plugin
+--- @author tester
+--- @version 1.0.0
+--- @router_version 0.0.4
+--- @allow_host example.com
+
+llm_router.register("flag-type", {
+  complete = function() end,
+})
+`
+	if _, err := luaSvc.Install([]byte(src), luaplugin.PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install plugin: %v", err)
+	}
+	svc.SetLuaService(luaSvc)
+
+	if err := svc.EnsureSeeded(); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	inst, err := svc.Get("flag-type")
+	if err != nil {
+		t.Fatalf("seeded provider missing: %v", err)
+	}
+	if !inst.IsUIReadonly {
+		t.Fatalf("seeded singleton must be readonly: %+v", inst)
+	}
+	if inst.IsUIHidden {
+		t.Fatalf("seeded singleton must not be hidden: %+v", inst)
+	}
+}
+
+func TestProviderService_BackfillsSeedFlags(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+
+	// Pre-flag rows: bare singleton ID, agents ID, and a qualifier row.
+	if _, err := svc.Create(provider.CreateOptions{Name: "Bare", TypeKey: "flag-type"}); err != nil {
+		t.Fatalf("create bare: %v", err)
+	}
+	if _, err := svc.Create(provider.CreateOptions{Name: "Agents", TypeKey: "agents"}); err != nil {
+		t.Fatalf("create agents: %v", err)
+	}
+	qualified, err := svc.Create(provider.CreateOptions{Name: "Q", TypeKey: "flag-type", Qualifier: "eu"})
+	if err != nil {
+		t.Fatalf("create qualified: %v", err)
+	}
+
+	luaSvc, err := luaplugin.New(database, nil)
+	if err != nil {
+		t.Fatalf("lua service: %v", err)
+	}
+	const src = `--- @plugin Flag Plugin
+--- @author tester
+--- @version 1.0.0
+--- @router_version 0.0.4
+--- @allow_host example.com
+
+llm_router.register("flag-type", {
+  complete = function() end,
+})
+`
+	if _, err := luaSvc.Install([]byte(src), luaplugin.PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install plugin: %v", err)
+	}
+	svc.SetLuaService(luaSvc)
+
+	if err := svc.EnsureSeeded(); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	bare, err := svc.Get("flag-type")
+	if err != nil {
+		t.Fatalf("bare row missing: %v", err)
+	}
+	if !bare.IsUIReadonly || bare.IsUIHidden {
+		t.Fatalf("bare singleton must become readonly: %+v", bare)
+	}
+
+	agents, err := svc.Get("agents")
+	if err != nil {
+		t.Fatalf("agents row missing: %v", err)
+	}
+	if !agents.IsUIReadonly || !agents.IsUIHidden {
+		t.Fatalf("agents row must become readonly+hidden: %+v", agents)
+	}
+
+	q, err := svc.Get(qualified.ID)
+	if err != nil {
+		t.Fatalf("qualified row missing: %v", err)
+	}
+	if q.IsUIReadonly || q.IsUIHidden {
+		t.Fatalf("qualifier row must stay editable: %+v", q)
+	}
+}
+
+func TestIsCreatableTypeKey(t *testing.T) {
+	if provider.IsCreatableTypeKey("agents") {
+		t.Error("agents type must not be creatable through the UI")
+	}
+	for _, k := range []string{"custom", "opencode-zen", "google", "mock"} {
+		if !provider.IsCreatableTypeKey(k) {
+			t.Errorf("type %q must stay creatable", k)
+		}
+	}
+}

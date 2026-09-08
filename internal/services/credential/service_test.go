@@ -417,3 +417,46 @@ func TestCredentialService_Update(t *testing.T) {
 		t.Error("expires at should be set")
 	}
 }
+
+// ─────────────────────────────────────────────
+// DeleteByProvider Tests
+// ─────────────────────────────────────────────
+
+func TestCredentialService_DeleteByProvider(t *testing.T) {
+	svc, _ := setupCredentialService(t)
+
+	svc.Add(AddOptions{
+		ProviderID: "mock",
+		Label:      "One",
+		Data:       map[string]any{"api_key": "key1"},
+	})
+	svc.Add(AddOptions{
+		ProviderID: "mock",
+		Label:      "Two",
+		Data:       map[string]any{"api_key": "key2"},
+	})
+
+	n, err := svc.DeleteByProvider("mock")
+	if err != nil {
+		t.Fatalf("delete by provider failed: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("removed count: got %d, want 2", n)
+	}
+
+	remaining, err := svc.ListByProvider("mock")
+	if err != nil {
+		t.Fatalf("list failed: %v", err)
+	}
+	if len(remaining) != 0 {
+		t.Errorf("expected no remaining credentials, got %d", len(remaining))
+	}
+
+	n, err = svc.DeleteByProvider("mock")
+	if err != nil {
+		t.Fatalf("second delete failed: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("second delete count: got %d, want 0", n)
+	}
+}

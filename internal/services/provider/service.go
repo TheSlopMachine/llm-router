@@ -320,21 +320,30 @@ func (s *Service) Delete(id string) error {
 // row per enabled Lua plugin type key when none exists yet, keeping fresh
 // installs routable without manual provider setup. Missing icons on existing
 // rows are backfilled from the plugin; user-set icons are never overwritten.
+// Seeded rows are marked UI-readonly (set automatically by the core, never
+// from Lua or the dashboard); the agents row is additionally UI-hidden.
 func (s *Service) EnsureSeeded() error {
 	now := time.Now()
 	ensure := func(id, name, typeKey, icon string) error {
 		if _, err := s.providers.Get(id); err == nil {
 			return nil
 		}
+		hidden := typeKey == TypeAgents
 		inst := &models.ProviderInstance{
 			ID: id, Name: name, TypeKey: typeKey,
-			Config: map[string]any{}, IconURL: icon, CreatedAt: now, UpdatedAt: now,
+			Config: map[string]any{}, IconURL: icon,
+			IsUIReadonly: true, IsUIHidden: hidden,
+			CreatedAt: now, UpdatedAt: now,
 		}
 		if err := s.providers.Put(id, inst); err != nil {
 			return err
 		}
 		s.notifyChanged(id)
 		return nil
+	}
+	// Backfill flags on rows that match the seed pattern (pre-flag installs).
+	if err := s.backfillSeedFlags(); err != nil {
+		return err
 	}
 	if err := ensure("agents", "Agents", TypeAgents, ""); err != nil {
 		return err
@@ -395,6 +404,35 @@ func (s *Service) EnsureSeeded() error {
 			}); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+// backfillSeedFlags marks pre-flag rows matching the seed pattern as
+// UI-readonly (the bare `agents` row additionally UI-hidden). Rows with
+// qualifiers stay editable: only the singleton slot is core-managed.
+func (s *Service) backfillSeedFlags() error {
+	rows, err := s.providers.List()
+	if err != nil {
+		return err
+	}
+	for _, inst := range rows {
+		wantReadonly := inst.ID == inst.TypeKey && inst.TypeKey != TypeCustom
+		wantHidden := inst.TypeKey == TypeAgents && inst.ID == TypeAgents
+		if !wantReadonly && !wantHidden {
+			continue
+		}
+		if inst.IsUIReadonly == wantReadonly && inst.IsUIHidden == wantHidden {
+			continue
+		}
+		if err := s.providers.Update(inst.ID, func(p *models.ProviderInstance) error {
+			p.IsUIReadonly = wantReadonly
+			p.IsUIHidden = wantHidden
+			p.UpdatedAt = time.Now()
+			return nil
+		}); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -477,6 +515,13 @@ func (s *Service) SupportsAuthFlow(typeKey string) bool {
 		return false
 	}
 	return s.luaSvc.HasHandler(typeKey, "auth_initiate")
+}
+
+// IsCreatableTypeKey reports whether users may create provider rows of a
+// type through the UI. The agents singleton is core-managed and excluded;
+// every other known type stays creatable (qualifier rows included).
+func IsCreatableTypeKey(typeKey string) bool {
+	return typeKey != TypeAgents
 }
 
 // ConfigSchema returns the config UI tree for a type key.

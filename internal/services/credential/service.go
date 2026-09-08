@@ -204,6 +204,24 @@ func (s *Service) Delete(id string) error {
 	return nil
 }
 
+// DeleteByProvider removes every Credential of one provider.
+// Returns the removed count.
+func (s *Service) DeleteByProvider(providerID string) (int, error) {
+	creds, err := s.ListByProvider(providerID)
+	if err != nil {
+		return 0, err
+	}
+	for _, c := range creds {
+		if err := s.repo.Delete(c.ID); err != nil {
+			return 0, err
+		}
+	}
+	if len(creds) > 0 {
+		s.notifyChanged(providerID)
+	}
+	return len(creds), nil
+}
+
 // ─────────────────────────────────────────────
 // Usage Tracking
 // ─────────────────────────────────────────────

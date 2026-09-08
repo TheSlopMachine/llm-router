@@ -466,6 +466,8 @@ func (h *Handler) classifyError(err error) routerError {
 			return routerError{http.StatusBadGateway, "timeout"}
 		case models.ErrorTypeUpstream:
 			return routerError{http.StatusBadGateway, "upstream_error"}
+		case models.ErrorTypeInvalidRequest:
+			return routerError{http.StatusBadRequest, "invalid_request_error"}
 		default:
 			return routerError{http.StatusBadGateway, "upstream_error"}
 		}

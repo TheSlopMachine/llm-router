@@ -93,6 +93,20 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 
 	modelInfoSvc.SetLogger(logger)
 
+	if n, err := agentSvc.MigrateIDs(credSvc, tokenSvc); err != nil {
+		logger.Warn("agent ID migration failed", "err", err)
+	} else if n > 0 {
+		logger.Info("agent ID migration completed", "count", n)
+	}
+
+	// Virtual agents resolve from the model name and need no credentials;
+	// rows left over from the credential-bound era are dead weight.
+	if n, err := credSvc.DeleteByProvider("agents"); err != nil {
+		logger.Warn("agents credential cleanup failed", "err", err)
+	} else if n > 0 {
+		logger.Info("agents credential cleanup completed", "count", n)
+	}
+
 	if n, err := providerSvc.CleanupOrphanedCredentials(); err != nil {
 		logger.Warn("orphan credential GC failed", "err", err)
 	} else if n > 0 {

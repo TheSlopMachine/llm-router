@@ -17,6 +17,8 @@ function toProvider(raw: Record<string, unknown>): Provider {
     base_url: (r.base_url as string) ?? '',
     icon_url: (r.icon_url as string) ?? '',
     supports_auth_flow: (r.supports_auth_flow as boolean) ?? false,
+    is_ui_readonly: (r.is_ui_readonly as boolean) ?? false,
+    is_ui_hidden: (r.is_ui_hidden as boolean) ?? false,
   }
 }
 
@@ -92,8 +94,10 @@ export const api = {
     delete: (id: string) =>
       apiCall('delete', `/api/llm-router/dashboard/providers/${id}` as '/api/llm-router/dashboard/providers/{id}'),
 
-    adapterTypes: () =>
-      apiCall('get', '/api/llm-router/dashboard/adapter-types') as Promise<string[]>,
+    adapterTypes: async (): Promise<string[]> => {
+      const raw = (await apiCall('get', '/api/llm-router/dashboard/adapter-types')) as unknown as Array<{ type_key: string; creatable: boolean }>
+      return raw.filter((t) => t.creatable).map((t) => t.type_key)
+    },
 
     stats: async (): Promise<Record<string, ProviderStats>> => {
       const raw = (await apiCall('get', '/api/llm-router/dashboard/providers/stats')) as unknown as Record<string, Record<string, unknown>>

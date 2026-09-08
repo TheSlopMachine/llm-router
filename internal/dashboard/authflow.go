@@ -33,8 +33,8 @@ func (h *Handler) authInitiate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := h.providerSvc.Get(body.ProviderID)
-	if err != nil {
+	p, ok := h.loadVisibleProvider(body.ProviderID)
+	if !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
@@ -87,8 +87,8 @@ func (h *Handler) authStep(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := h.providerSvc.Get(body.ProviderID)
-	if err != nil {
+	p, ok := h.loadVisibleProvider(body.ProviderID)
+	if !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}

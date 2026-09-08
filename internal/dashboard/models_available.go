@@ -50,7 +50,6 @@ func (h *Handler) availableModels(ctx context.Context) ([]availableModelView, er
 		if providerRecord.TypeKey == "agents" {
 			continue
 		}
-
 		if _, err := h.credSvc.All(providerRecord.ID); err != nil {
 			continue
 		}
@@ -75,6 +74,27 @@ func (h *Handler) availableModels(ctx context.Context) ([]availableModelView, er
 				DisplayName:   displayName,
 				ContextWindow: modelInfo.ContextWindow,
 				MaxTokens:     modelInfo.MaxTokens,
+			})
+		}
+	}
+
+	// Virtual agents need no credentials: list them directly, mirroring /v1/models.
+	if agents, err := h.agentSvc.List(); err == nil {
+		providerName := "Agents"
+		if p, err := h.providerSvc.Get("agents"); err == nil && p.Name != "" {
+			providerName = p.Name
+		}
+		for _, a := range agents {
+			if a.IsDraft {
+				continue
+			}
+			items = append(items, availableModelView{
+				FullModelID:  "agents/" + a.ID,
+				ProviderID:   "agents",
+				ProviderName: providerName,
+				ProviderType: "agents",
+				ModelName:    a.ID,
+				DisplayName:  a.Name,
 			})
 		}
 	}

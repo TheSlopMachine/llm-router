@@ -83,8 +83,8 @@ func (h *Handler) apiCredentialsCreate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "provider_id is required")
 		return
 	}
-	p, err := h.providerSvc.Get(body.ProviderID)
-	if err != nil {
+	p, ok := h.loadVisibleProvider(body.ProviderID)
+	if !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}

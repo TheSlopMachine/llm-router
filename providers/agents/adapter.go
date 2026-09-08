@@ -112,13 +112,18 @@ func (a *Adapter) Complete(
 
 	logger := a.getLogger()
 
-	agentID := ""
-	if cred != nil {
-		agentID, _ = cred.Data["agent_id"].(string)
+	// The agent resolves from the model name suffix (agents/<agent-id>).
+	// Credentials carry no agent binding.
+	_, agentID, err := req.Model.Parse()
+	if err != nil {
+		return nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: fmt.Sprintf("invalid model id: %s", err)}
+	}
+	if agentID == "" {
+		return nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: "agent id is required"}
 	}
 	agent, err := agentSvc.Get(agentID)
 	if err != nil {
-		return nil, fmt.Errorf("get agent: %w", err)
+		return nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: fmt.Sprintf("agent %q not found", agentID)}
 	}
 
 	modifiedReq := *req
@@ -185,13 +190,16 @@ func (a *Adapter) CompleteStream(
 
 	logger := a.getLogger()
 
-	agentID := ""
-	if cred != nil {
-		agentID, _ = cred.Data["agent_id"].(string)
+	_, agentID, err := req.Model.Parse()
+	if err != nil {
+		return &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: fmt.Sprintf("invalid model id: %s", err)}
+	}
+	if agentID == "" {
+		return &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: "agent id is required"}
 	}
 	agent, err := agentSvc.Get(agentID)
 	if err != nil {
-		return fmt.Errorf("get agent: %w", err)
+		return &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: fmt.Sprintf("agent %q not found", agentID)}
 	}
 
 	modifiedReq := *req
@@ -255,7 +263,7 @@ func (a *Adapter) GetModelInfos(ctx context.Context, cred *models.Credential, _ 
 	infos := make([]models.ModelInfo, len(agents))
 	for i, agent := range agents {
 		infos[i] = models.ModelInfo{
-			Name:        agent.Name,
+			Name:        agent.ID,
 			DisplayName: agent.Name,
 		}
 	}

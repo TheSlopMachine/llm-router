@@ -66,6 +66,8 @@ export interface Provider {
   base_url: string
   icon_url: string
   supports_auth_flow: boolean
+  is_ui_readonly: boolean
+  is_ui_hidden: boolean
 }
 
 export interface AvailableModel {

@@ -41,8 +41,8 @@
             modal.close()
             await resource.reload()
           },
-          onEdit: () => { modal.close(); openEdit(provider) },
-          onDelete: () => deleteProvider(provider)
+          onEdit: provider.is_ui_readonly ? undefined : () => { modal.close(); openEdit(provider) },
+          onDelete: provider.is_ui_readonly ? undefined : () => deleteProvider(provider)
         }
       })
     } catch (e) {

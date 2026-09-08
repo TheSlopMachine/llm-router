@@ -9,13 +9,16 @@ package agent
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/repository"
+	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
+	"github.com/TheSlopMachine/llm-router/internal/services/token"
 	"github.com/TheSlopMachine/llm-router/internal/util"
 )
 
@@ -41,12 +44,15 @@ func New(database *db.DB, providerSvc *provider.Service, modelInfoSvc *modelinfo
 // CRUD Operations
 // ─────────────────────────────────────────────
 
-// Create creates a new agent.
+// Create creates a new agent with a slug ID derived from its name.
 func (s *Service) Create(agent *models.Agent) error {
-	// Generate ID
-	id, err := util.GenerateID()
+	// Validate first so slug errors reference a valid name.
+	if strings.TrimSpace(agent.Name) == "" {
+		return fmt.Errorf("agent name is required")
+	}
+	id, err := s.uniqueSlug(agent.Name)
 	if err != nil {
-		return fmt.Errorf("generate agent ID: %w", err)
+		return err
 	}
 	agent.ID = id
 
@@ -234,6 +240,47 @@ func (s *Service) validateDecisionModel(config *models.DecisionModelConfig) erro
 // Helper Methods
 // ─────────────────────────────────────────────
 
+// reservedAgentSlugs collide with dashboard routes.
+var reservedAgentSlugs = map[string]bool{"new": true}
+
+var slugStripReg = regexp.MustCompile(`[^a-z0-9-]+`)
+var slugDashReg = regexp.MustCompile(`-+`)
+
+// agentSlug converts a name to a URL-safe slug, or "" when unusable.
+func agentSlug(name string) string {
+	slug := strings.ToLower(name)
+	slug = strings.ReplaceAll(slug, " ", "-")
+	slug = strings.ReplaceAll(slug, "_", "-")
+	slug = slugStripReg.ReplaceAllString(slug, "")
+	slug = strings.Trim(slug, "-")
+	slug = slugDashReg.ReplaceAllString(slug, "-")
+	return slug
+}
+
+// uniqueSlug derives a free agent ID from a name, suffixing on collision
+// or reserved words. IDs stay stable across renames.
+func (s *Service) uniqueSlug(name string) (string, error) {
+	base := agentSlug(name)
+	if base == "" {
+		return "", fmt.Errorf("agent name %q has no usable characters for an ID", name)
+	}
+	id := base
+	for counter := 2; ; counter++ {
+		if reservedAgentSlugs[id] {
+			id = fmt.Sprintf("%s-%d", base, counter)
+			continue
+		}
+		exists, err := s.repo.Exists(id)
+		if err != nil {
+			return "", fmt.Errorf("check agent ID: %w", err)
+		}
+		if !exists {
+			return id, nil
+		}
+		id = fmt.Sprintf("%s-%d", base, counter)
+	}
+}
+
 func (s *Service) calculateMaxTokens(models []models.AgentModel) (int, error) {
 	maxTokens := 0
 	ctx := context.Background()
@@ -266,4 +313,91 @@ func (s *Service) checkUniqueName(agent *models.Agent) error {
 	}
 
 	return nil
+}
+
+var uuidHexReg = regexp.MustCompile(`^[0-9a-fA-F]+$`)
+
+// isUUIDLike reports whether id looks like a pre-slug UUID agent ID.
+func isUUIDLike(id string) bool {
+	clean := strings.ReplaceAll(id, "-", "")
+	return len(clean) == 32 && uuidHexReg.MatchString(clean)
+}
+
+// MigrateIDs renames UUID-era agents to slug IDs and rewrites every
+// reference: credentials data.agent_id and token AllowedModels entries.
+// Idempotent: re-runs find no UUID rows and change nothing.
+func (s *Service) MigrateIDs(credSvc *credential.Service, tokenSvc *token.Service) (int, error) {
+	agents, err := s.List()
+	if err != nil {
+		return 0, err
+	}
+	renames := map[string]string{}
+	for _, a := range agents {
+		if !isUUIDLike(a.ID) {
+			continue
+		}
+		newID, err := s.uniqueSlug(a.Name)
+		if err != nil {
+			return 0, fmt.Errorf("slug for agent %q: %w", a.Name, err)
+		}
+		updated := *a
+		updated.ID = newID
+		updated.UpdatedAt = util.Now()
+		if err := s.repo.Put(newID, &updated); err != nil {
+			return 0, fmt.Errorf("store renamed agent: %w", err)
+		}
+		if err := s.repo.Delete(a.ID); err != nil {
+			return 0, fmt.Errorf("remove old agent ID: %w", err)
+		}
+		renames[a.ID] = newID
+	}
+	if len(renames) == 0 {
+		return 0, nil
+	}
+
+	creds, err := credSvc.ListAll()
+	if err != nil {
+		return 0, fmt.Errorf("list credentials: %w", err)
+	}
+	for _, c := range creds {
+		agentID, _ := c.Data["agent_id"].(string)
+		newID, ok := renames[agentID]
+		if !ok {
+			continue
+		}
+		data := make(map[string]any, len(c.Data))
+		for k, v := range c.Data {
+			data[k] = v
+		}
+		data["agent_id"] = newID
+		if err := credSvc.Update(c.ID, data, c.ExpiresAt); err != nil {
+			return 0, fmt.Errorf("rewrite credential %s: %w", c.ID, err)
+		}
+	}
+
+	tokens, err := tokenSvc.List()
+	if err != nil {
+		return 0, fmt.Errorf("list tokens: %w", err)
+	}
+	for _, tok := range tokens {
+		changed := false
+		rules := tok.Rules
+		for i, m := range rules.AllowedModels {
+			providerID, name, err := m.Parse()
+			if err != nil || providerID != "agents" {
+				continue
+			}
+			if newID, ok := renames[name]; ok {
+				rules.AllowedModels[i] = models.ModelId("agents/" + newID)
+				changed = true
+			}
+		}
+		if changed {
+			if err := tokenSvc.UpdateRules(tok.ID, rules); err != nil {
+				return 0, fmt.Errorf("rewrite token %s: %w", tok.ID, err)
+			}
+		}
+	}
+
+	return len(renames), nil
 }

@@ -163,6 +163,8 @@ func classifyChatError(err error) chatRouterError {
 			return chatRouterError{http.StatusBadGateway, "timeout"}
 		case models.ErrorTypeUpstream:
 			return chatRouterError{http.StatusBadGateway, "upstream_error"}
+		case models.ErrorTypeInvalidRequest:
+			return chatRouterError{http.StatusBadRequest, "invalid_request_error"}
 		default:
 			return chatRouterError{http.StatusBadGateway, "upstream_error"}
 		}
