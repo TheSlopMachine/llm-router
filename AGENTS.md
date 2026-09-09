@@ -68,7 +68,7 @@ DO:
 `llm-router` — single-binary OpenAI-compatible LLM routing gateway. Go backend + embedded Svelte SPA + embedded bbolt DB.
 
 - Routes `ModelId = provider/model` (e.g. `opencode-zen/gpt-5`, `agents/my-agent`) → backend + `CredentialPool`.
-- Provider backends are single-file Lua plugins (`internal/services/luaplugin/bundled/`, installed store records in `BucketPlugins`). Built-in Go backends exist only for `custom` (OpenAI-compatible passthrough) and `agents` (virtual provider).
+- Provider backends are single-file Lua plugins (installed store records in `BucketPlugins`, sourced from plugin store repositories). Built-in Go backends exist only for `custom` (OpenAI-compatible passthrough) and `agents` (virtual provider).
 
 ## 3. Structure
 
@@ -82,8 +82,8 @@ internal/services/
   provider/              ProviderInstance CRUD (all types, one path)
   credential/            credential pool, usage stats
   agent/                 agents/* virtual provider
-  luaplugin/             Lua execution core: manifest, sandbox, HTTP+SSRF, storage; bundled/*.lua
-  pluginrepo/            plugin store: GitHub Contents API + generic index
+  luaplugin/             Lua execution core: manifest, sandbox, HTTP+SSRF, storage
+  pluginrepo/            plugin store: GitHub Contents API + generic index; code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
   modelinfo/             model metadata cache (1h TTL)
   metrics/               1m buckets, 90d retention
   maintenance/           refresh + cleanup
@@ -193,10 +193,10 @@ Rule: before finishing any `.svelte` change, re-check every `$effect` touched ag
 
 ## 7. Lua Plugins
 
-- Location: new provider backends are single-file Lua plugins. Develop them anywhere as one `.lua` file with a `--- @` manifest header; install via dashboard Store page or `POST /api/llm-router/dashboard/plugins/install-file`.
+- Location: new provider backends are single-file Lua plugins. Develop them anywhere as one `.lua` file with a `--- @` manifest header; install via dashboard Plugins → Catalog tab or `POST /api/llm-router/dashboard/plugins/install-file`.
 - Manifest: required tags `@plugin`, `@author`, `@version`, `@router_version`, one or more `@allow_host` (`*` marks the plugin unsafe). `internal/services/luaplugin/manifest.go` validates.
 - API: `llm_router.register(type_key, {complete, ...})`, `llm_router.create_http_client`, `llm_router.storage`, `llm_router.uuid_v5(namespace, name)` (RFC 4122), `llm_router.random_hex(nbytes)`, `json.encode/decode`. Error contract `{type=, message=, retry_after=}`. UI trees for `config_schema`/`credential_schema`/`auth_initiate`/`auth_step` render through `DynamicForm.svelte`. Node kinds: leafs `text`, `input`, `select`, `checkbox`, `button`, `link`, `banner`, `secret`, `code`; containers `group`, `flow`, `grid`, `section`, `spacer`, `divider`. No raw HTML from plugins, ever — new widgets ship as first-class node kinds, not markup.
-- Bundled plugins live in `internal/services/luaplugin/bundled/*.lua` and install on startup via `EnsureBundled`. Bump `@version` to ship an upgrade.
+- Store: provider plugins ship from plugin store repositories, not from the binary. Built-in repos live in `pluginrepo.BuiltinRepos` and seed on startup via `EnsureBuiltinRepos`; they cannot be removed (`ErrBuiltinRepoProtected`). To ship a plugin upgrade, bump `@version` in the store repository.
 - Built-in Go backends exist only for `custom` (`internal/adapters/generic/`) and `agents` (`providers/agents/`), both implementing `provider.GoAdapter`.
 - Verification: run `make go-check` only. For runtime checks, ask the human to run `make start`.
 

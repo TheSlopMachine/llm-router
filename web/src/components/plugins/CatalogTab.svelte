@@ -275,9 +275,14 @@
     <div class="card repo-card">
       <div class="repo-header">
         <h2>{entry.repo.id}</h2>
-        <button class="btn-icon" onclick={() => removeRepo(entry.repo.id)} aria-label="Remove repository">
-          <span class="icon">delete</span>
-        </button>
+        <div class="repo-badges">
+          {#if entry.repo.builtin}<span class="badge">Built-in</span>{/if}
+          {#if !entry.repo.builtin}
+            <button class="btn-icon" onclick={() => removeRepo(entry.repo.id)} aria-label="Remove repository">
+              <span class="icon">delete</span>
+            </button>
+          {/if}
+        </div>
       </div>
       {#if entry.error}
         <div class="error-msg">{entry.error}</div>
@@ -405,6 +410,11 @@
   }
   .repo-header h2 {
     margin: 0;
+  }
+  .repo-badges {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
   .file-list {
     display: flex;

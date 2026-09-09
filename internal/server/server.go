@@ -63,9 +63,6 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init plugin service: %w", err)
 	}
-	if err := luaSvc.EnsureBundled(); err != nil {
-		return nil, fmt.Errorf("install bundled plugins: %w", err)
-	}
 
 	providerSvc := provider.NewService(database)
 	providerSvc.SetLogger(logger)
@@ -84,6 +81,9 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	agentSvc := agent.New(database, providerSvc, modelInfoSvc)
 	configSvc := configsvc.New(database)
 	repoSvc := pluginrepo.New(database)
+	if err := repoSvc.EnsureBuiltinRepos(); err != nil {
+		return nil, fmt.Errorf("seed built-in plugin repos: %w", err)
+	}
 	routerCfg, _ := configSvc.Get()
 	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, routerCfg.MaxRetries, logger)
 	configSvc.SetOnChanged(func(cfg models.RouterConfiguration) { routerSvc.SetMaxRetries(cfg.MaxRetries) })

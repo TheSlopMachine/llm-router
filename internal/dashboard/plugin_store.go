@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sort"
 
@@ -15,10 +16,11 @@ type repoView struct {
 	Owner    string `json:"owner"`
 	Repo     string `json:"repo"`
 	IndexURL string `json:"index_url"`
+	Builtin  bool   `json:"builtin"`
 }
 
 func toRepoView(rec *pluginrepo.RepoRecord) repoView {
-	return repoView{ID: rec.ID, Kind: rec.Kind, Owner: rec.Owner, Repo: rec.Repo, IndexURL: rec.IndexURL}
+	return repoView{ID: rec.ID, Kind: rec.Kind, Owner: rec.Owner, Repo: rec.Repo, IndexURL: rec.IndexURL, Builtin: rec.Builtin}
 }
 
 // apiReposList lists added plugin repositories.
@@ -26,7 +28,7 @@ func toRepoView(rec *pluginrepo.RepoRecord) repoView {
 // @Description  Returns all added plugin repositories.
 // @Tags         PluginStore
 // @Produce      json
-// @Success      200 {array} object{id=string,kind=string,owner=string,repo=string,index_url=string}
+// @Success      200 {array} object{id=string,kind=string,owner=string,repo=string,index_url=string,builtin=bool}
 // @Failure      401 {object} models.ErrorResponse
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugin-repos [get]
@@ -94,10 +96,15 @@ func (h *Handler) apiReposAdd(w http.ResponseWriter, r *http.Request) {
 // @Success      200 {object} object{message=string}
 // @Failure      400 {object} models.ErrorResponse
 // @Failure      401 {object} models.ErrorResponse
+// @Failure      403 {object} models.ErrorResponse
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugin-repos/{id} [delete]
 func (h *Handler) apiReposDelete(w http.ResponseWriter, r *http.Request) {
 	if err := h.repoSvc.Remove(r.PathValue("id")); err != nil {
+		if errors.Is(err, pluginrepo.ErrBuiltinRepoProtected) {
+			h.jsonErr(w, http.StatusForbidden, err.Error())
+			return
+		}
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -298,9 +305,6 @@ func (h *Handler) apiStoreUpdates(w http.ResponseWriter, r *http.Request) {
 	count := 0
 	for _, rec := range installed {
 		if rec.Origin.Manual || rec.Origin.RepoID == "" {
-			continue
-		}
-		if rec.Origin.RepoID == "bundled" {
 			continue
 		}
 		count++

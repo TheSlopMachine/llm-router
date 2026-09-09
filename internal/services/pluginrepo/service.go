@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,15 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/repository"
 )
+
+// ErrBuiltinRepoProtected is returned when removing a built-in repository.
+var ErrBuiltinRepoProtected = errors.New("built-in repository cannot be removed")
+
+// BuiltinRepos lists repositories seeded in code on every startup.
+// Entries use the same IDs as user-added ones: "github/<owner>/<repo>".
+var BuiltinRepos = []RepoRef{
+	{ID: "github/TheSlopMachine/llm-router-store", Kind: "github", Owner: "TheSlopMachine", Repo: "llm-router-store"},
+}
 
 // RepoRef identifies one repository.
 type RepoRef struct {
@@ -41,6 +51,7 @@ type RepoRecord struct {
 	Owner    string    `json:"owner"`
 	Repo     string    `json:"repo"`
 	IndexURL string    `json:"index_url"`
+	Builtin  bool      `json:"builtin"`
 	AddedAt  time.Time `json:"added_at"`
 }
 
@@ -150,8 +161,39 @@ func (s *Service) AddGeneric(ctx context.Context, indexURL string) (*RepoRecord,
 	return rec, nil
 }
 
+// EnsureBuiltinRepos seeds the code-defined repositories without network
+// validation, so startup never depends on store availability. Existing rows
+// with the same ID are marked built-in.
+func (s *Service) EnsureBuiltinRepos() error {
+	for _, ref := range BuiltinRepos {
+		if _, err := s.providerFor(ref.Kind); err != nil {
+			return err
+		}
+		if existing, err := s.repo.Get(ref.ID); err == nil && existing != nil {
+			if !existing.Builtin {
+				existing.Builtin = true
+				if err := s.repo.Put(ref.ID, existing); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		rec := &RepoRecord{
+			ID: ref.ID, Kind: ref.Kind, Owner: ref.Owner, Repo: ref.Repo,
+			IndexURL: ref.IndexURL, Builtin: true, AddedAt: time.Now(),
+		}
+		if err := s.repo.Put(ref.ID, rec); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Remove deletes a repository record.
 func (s *Service) Remove(id string) error {
+	if existing, err := s.repo.Get(id); err == nil && existing != nil && existing.Builtin {
+		return fmt.Errorf("remove repo %q: %w", id, ErrBuiltinRepoProtected)
+	}
 	return s.repo.Delete(id)
 }
 

@@ -207,6 +207,7 @@ export interface PluginRepo {
   owner: string
   repo: string
   index_url: string
+  builtin: boolean
 }
 
 export interface StoreFile {
