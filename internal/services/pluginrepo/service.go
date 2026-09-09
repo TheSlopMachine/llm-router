@@ -1,6 +1,6 @@
 // Package pluginrepo manages external plugin repositories (the plugin store).
-// It knows about GitHub and generic index endpoints; the luaplugin service
-// owns installation from downloaded bytes.
+// Repositories are JSON indexes listing plugin file names; the luaplugin
+// service owns installation from downloaded bytes.
 package pluginrepo
 
 import (
@@ -8,12 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
@@ -23,18 +24,24 @@ import (
 // ErrBuiltinRepoProtected is returned when removing a built-in repository.
 var ErrBuiltinRepoProtected = errors.New("built-in repository cannot be removed")
 
+// BuiltinRepo is one code-defined repository: the source URL shown in the
+// UI and the resolved index.json URL used for downloads.
+type BuiltinRepo struct {
+	Source string
+	Index  string
+}
+
 // BuiltinRepos lists repositories seeded in code on every startup.
-// Entries use the same IDs as user-added ones: "github/<owner>/<repo>".
-var BuiltinRepos = []RepoRef{
-	{ID: "github/TheSlopMachine/llm-router-store", Kind: "github", Owner: "TheSlopMachine", Repo: "llm-router-store"},
+var BuiltinRepos = []BuiltinRepo{
+	{
+		Source: "https://github.com/TheSlopMachine/llm-router-store",
+		Index:  "https://raw.githubusercontent.com/TheSlopMachine/llm-router-store/main/llm-router-plugins/index.json",
+	},
 }
 
 // RepoRef identifies one repository.
 type RepoRef struct {
 	ID       string
-	Kind     string
-	Owner    string
-	Repo     string
 	IndexURL string
 }
 
@@ -46,55 +53,37 @@ type RepoFile struct {
 
 // RepoRecord is the stored repository row in BucketPluginRepos.
 type RepoRecord struct {
-	ID       string    `json:"id"`
-	Kind     string    `json:"kind"`
-	Owner    string    `json:"owner"`
-	Repo     string    `json:"repo"`
-	IndexURL string    `json:"index_url"`
-	Builtin  bool      `json:"builtin"`
-	AddedAt  time.Time `json:"added_at"`
+	ID        string    `json:"id"`
+	Kind      string    `json:"kind"`
+	IndexURL  string    `json:"index_url"`
+	SourceURL string    `json:"source_url"`
+	Builtin   bool      `json:"builtin"`
+	AddedAt   time.Time `json:"added_at"`
 }
 
-// RepoProvider fetches plugin files from one repository kind.
-type RepoProvider interface {
-	Kind() string
-	ListPluginFiles(ctx context.Context, ref RepoRef) ([]RepoFile, error)
-	FetchFile(ctx context.Context, ref RepoRef, path string) ([]byte, error)
-	ReadMe(ctx context.Context, ref RepoRef) (content string, ok bool, err error)
-	License(ctx context.Context, ref RepoRef) (content string, ok bool, err error)
+// indexProvider fetches plugin files from an index.json listing bare file
+// names. File URLs resolve against the index directory.
+type indexProvider struct {
+	client *http.Client
 }
 
-// Service owns repository records and dispatches to kind providers.
+// Service owns repository records.
 type Service struct {
-	repo      *repository.Repository[RepoRecord]
-	providers map[string]RepoProvider
-	client    *http.Client
+	repo  *repository.Repository[RepoRecord]
+	index *indexProvider
 }
 
-// New constructs a pluginrepo Service with GitHub and generic providers.
+// New constructs a pluginrepo Service.
 func New(database *db.DB) *Service {
-	s := &Service{
-		repo:      repository.New[RepoRecord](database, db.BucketPluginRepos, "plugin repo"),
-		client:    &http.Client{Timeout: 30 * time.Second},
-		providers: map[string]RepoProvider{},
+	client := &http.Client{Timeout: 30 * time.Second}
+	return &Service{
+		repo:  repository.New[RepoRecord](database, db.BucketPluginRepos, "plugin repo"),
+		index: &indexProvider{client: client},
 	}
-	gh := &githubProvider{client: s.client, branches: map[string]string{}}
-	gen := &genericProvider{client: s.client}
-	s.providers[gh.Kind()] = gh
-	s.providers[gen.Kind()] = gen
-	return s
 }
 
 func (s *Service) refOf(rec *RepoRecord) RepoRef {
-	return RepoRef{ID: rec.ID, Kind: rec.Kind, Owner: rec.Owner, Repo: rec.Repo, IndexURL: rec.IndexURL}
-}
-
-func (s *Service) providerFor(kind string) (RepoProvider, error) {
-	p, ok := s.providers[kind]
-	if !ok {
-		return nil, fmt.Errorf("unknown repo kind %q", kind)
-	}
-	return p, nil
+	return RepoRef{ID: rec.ID, IndexURL: rec.IndexURL}
 }
 
 // List returns all added repositories sorted by ID.
@@ -112,77 +101,137 @@ func (s *Service) Get(id string) (*RepoRecord, error) {
 	return s.repo.Get(id)
 }
 
-// AddGitHub validates owner/repo via index.json and stores the repo.
-func (s *Service) AddGitHub(ctx context.Context, owner, repo string) (*RepoRecord, error) {
-	owner = strings.TrimSpace(owner)
-	repo = strings.TrimSpace(repo)
-	if owner == "" || repo == "" {
-		return nil, fmt.Errorf("owner and repo are required")
-	}
-	if strings.Contains(owner, "/") || strings.Contains(repo, "/") {
-		return nil, fmt.Errorf("invalid owner/repo")
-	}
-	id := "github/" + owner + "/" + repo
-	if existing, err := s.repo.Get(id); err == nil && existing != nil {
-		return existing, nil
-	}
-	rec := &RepoRecord{ID: id, Kind: "github", Owner: owner, Repo: repo, AddedAt: time.Now()}
-	p, _ := s.providerFor("github")
-	if _, err := p.ListPluginFiles(ctx, s.refOf(rec)); err != nil {
-		return nil, fmt.Errorf("validate repo: %w", err)
-	}
-	if err := s.repo.Put(id, rec); err != nil {
-		return nil, err
-	}
-	return rec, nil
+// repoIDForIndex derives a stable record ID from a resolved index URL.
+func repoIDForIndex(indexURL string) string {
+	sum := fnv.New32a()
+	_, _ = sum.Write([]byte(indexURL))
+	return "index/" + slugURL(indexURL) + "-" + strconv.FormatUint(uint64(sum.Sum32()), 16)
 }
 
-// AddGeneric validates an index URL and stores the repo.
-func (s *Service) AddGeneric(ctx context.Context, indexURL string) (*RepoRecord, error) {
-	indexURL = strings.TrimSpace(indexURL)
-	u, err := url.Parse(indexURL)
+// resolveIndexCandidates turns user input into candidate index.json URLs:
+// either the URL itself when it points at index.json, or the conventional
+// index locations for a repository URL on a known git host.
+func resolveIndexCandidates(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return nil, fmt.Errorf("invalid index url")
+		return nil, fmt.Errorf("invalid repository url")
 	}
-	id := "generic/" + slugURL(indexURL)
-	if existing, err := s.repo.Get(id); err == nil && existing != nil {
-		existing.IndexURL = indexURL
-		_ = s.repo.Put(id, existing)
-		return existing, nil
+	if u.Path == "/index.json" || strings.HasSuffix(u.Path, "/index.json") {
+		u.Fragment = ""
+		return []string{u.String()}, nil
 	}
-	rec := &RepoRecord{ID: id, Kind: "generic-index", IndexURL: indexURL, AddedAt: time.Now()}
-	p, _ := s.providerFor("generic-index")
-	if _, err := p.ListPluginFiles(ctx, s.refOf(rec)); err != nil {
-		return nil, fmt.Errorf("validate index: %w", err)
+	repoPath := strings.Trim(strings.TrimSuffix(strings.Trim(u.Path, "/"), ".git"), "/")
+	if repoPath == "" || strings.Contains(repoPath, "..") {
+		return nil, fmt.Errorf("invalid repository url")
 	}
-	if err := s.repo.Put(id, rec); err != nil {
+	segments := strings.Split(repoPath, "/")
+	for _, segment := range segments {
+		if segment == "" || segment == "." {
+			return nil, fmt.Errorf("invalid repository url")
+		}
+	}
+	branchIndex := func(base string) []string {
+		return []string{
+			base + "/main/llm-router-plugins/index.json",
+			base + "/master/llm-router-plugins/index.json",
+		}
+	}
+	switch strings.ToLower(u.Host) {
+	case "github.com":
+		if len(segments) != 2 {
+			return nil, fmt.Errorf("github url must be owner/repo, or paste the index.json url directly")
+		}
+		return branchIndex("https://raw.githubusercontent.com/" + repoPath), nil
+	case "gitlab.com":
+		if len(segments) < 2 {
+			return nil, fmt.Errorf("gitlab url must be group/repo, or paste the index.json url directly")
+		}
+		return branchIndex("https://" + u.Host + "/" + repoPath + "/-/raw"), nil
+	case "bitbucket.org":
+		if len(segments) != 2 {
+			return nil, fmt.Errorf("bitbucket url must be owner/repo, or paste the index.json url directly")
+		}
+		return branchIndex("https://bitbucket.org/" + repoPath + "/raw"), nil
+	case "codeberg.org":
+		if len(segments) != 2 {
+			return nil, fmt.Errorf("codeberg url must be owner/repo, or paste the index.json url directly")
+		}
+		return branchIndex("https://codeberg.org/" + repoPath + "/raw/branch"), nil
+	default:
+		return nil, fmt.Errorf("unsupported host %q: paste the index.json url directly", u.Host)
+	}
+}
+
+// AddRepo validates a repository or index URL and stores the repo. The first
+// candidate index that parses with a non-empty plugin list wins.
+func (s *Service) AddRepo(ctx context.Context, rawURL string) (*RepoRecord, error) {
+	candidates, err := resolveIndexCandidates(rawURL)
+	if err != nil {
 		return nil, err
 	}
-	return rec, nil
+	var lastErr error
+	for _, indexURL := range candidates {
+		id := repoIDForIndex(indexURL)
+		if existing, err := s.repo.Get(id); err == nil && existing != nil {
+			return existing, nil
+		}
+		if _, err := s.index.fetchIndex(ctx, indexURL); err != nil {
+			lastErr = err
+			continue
+		}
+		rec := &RepoRecord{ID: id, Kind: "index", IndexURL: indexURL, SourceURL: strings.TrimSpace(rawURL), AddedAt: time.Now()}
+		if err := s.repo.Put(id, rec); err != nil {
+			return nil, err
+		}
+		return rec, nil
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("no usable index: %w", lastErr)
+	}
+	return nil, fmt.Errorf("no usable index")
 }
 
 // EnsureBuiltinRepos seeds the code-defined repositories without network
 // validation, so startup never depends on store availability. Existing rows
 // with the same ID are marked built-in.
 func (s *Service) EnsureBuiltinRepos() error {
-	for _, ref := range BuiltinRepos {
-		if _, err := s.providerFor(ref.Kind); err != nil {
-			return err
-		}
-		if existing, err := s.repo.Get(ref.ID); err == nil && existing != nil {
-			if !existing.Builtin {
+	for _, builtin := range BuiltinRepos {
+		id := repoIDForIndex(builtin.Index)
+		if existing, err := s.repo.Get(id); err == nil && existing != nil {
+			if !existing.Builtin || existing.IndexURL != builtin.Index || existing.SourceURL != builtin.Source {
 				existing.Builtin = true
-				if err := s.repo.Put(ref.ID, existing); err != nil {
+				existing.IndexURL = builtin.Index
+				existing.SourceURL = builtin.Source
+				if err := s.repo.Put(id, existing); err != nil {
 					return err
 				}
 			}
 			continue
 		}
 		rec := &RepoRecord{
-			ID: ref.ID, Kind: ref.Kind, Owner: ref.Owner, Repo: ref.Repo,
-			IndexURL: ref.IndexURL, Builtin: true, AddedAt: time.Now(),
+			ID: id, Kind: "index", IndexURL: builtin.Index, SourceURL: builtin.Source,
+			Builtin: true, AddedAt: time.Now(),
 		}
-		if err := s.repo.Put(ref.ID, rec); err != nil {
+		if err := s.repo.Put(id, rec); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// PruneLegacyRepos deletes repository rows from retired schemes. Installed
+// plugins keep working; updates resume after reinstall from the catalog.
+func (s *Service) PruneLegacyRepos() error {
+	items, err := s.repo.List()
+	if err != nil {
+		return err
+	}
+	for _, rec := range items {
+		if rec.Kind == "index" {
+			continue
+		}
+		if err := s.repo.Delete(rec.ID); err != nil {
 			return err
 		}
 	}
@@ -203,11 +252,7 @@ func (s *Service) ListPluginFiles(ctx context.Context, id string) ([]RepoFile, e
 	if err != nil {
 		return nil, err
 	}
-	p, err := s.providerFor(rec.Kind)
-	if err != nil {
-		return nil, err
-	}
-	return p.ListPluginFiles(ctx, s.refOf(rec))
+	return s.index.ListPluginFiles(ctx, s.refOf(rec))
 }
 
 // FetchFile downloads one plugin file.
@@ -216,11 +261,7 @@ func (s *Service) FetchFile(ctx context.Context, id, path string) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	p, err := s.providerFor(rec.Kind)
-	if err != nil {
-		return nil, err
-	}
-	return p.FetchFile(ctx, s.refOf(rec), path)
+	return s.index.FetchFile(ctx, s.refOf(rec), path)
 }
 
 // ReadMe returns the repository README when present.
@@ -229,11 +270,7 @@ func (s *Service) ReadMe(ctx context.Context, id string) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	p, err := s.providerFor(rec.Kind)
-	if err != nil {
-		return "", false, err
-	}
-	return p.ReadMe(ctx, s.refOf(rec))
+	return s.index.ReadMe(ctx, s.refOf(rec))
 }
 
 // License returns the repository license when present.
@@ -242,11 +279,7 @@ func (s *Service) License(ctx context.Context, id string) (string, bool, error) 
 	if err != nil {
 		return "", false, err
 	}
-	p, err := s.providerFor(rec.Kind)
-	if err != nil {
-		return "", false, err
-	}
-	return p.License(ctx, s.refOf(rec))
+	return s.index.License(ctx, s.refOf(rec))
 }
 
 func slugURL(s string) string {
@@ -273,57 +306,23 @@ func slugURL(s string) string {
 }
 
 // ─────────────────────────────────────────────
-// GitHub provider (raw files + index.json, no API calls)
+// Index provider (index.json listing bare file names)
 // ─────────────────────────────────────────────
 
 var errRawNotFound = errors.New("raw file not found")
 
-type githubProvider struct {
-	client  *http.Client
-	rawBase string // override in tests; defaults to raw.githubusercontent.com
-
-	mu       sync.Mutex
-	branches map[string]string // repo ID -> resolved default branch
-}
-
-func (g *githubProvider) Kind() string { return "github" }
-
-// githubIndex is llm-router-plugins/index.json: file names only.
-// Versions and descriptions come from manifests at runtime.
-type githubIndex struct {
+// repoIndex is index.json: plugin file names only. Versions and
+// descriptions come from manifests at runtime.
+type repoIndex struct {
 	Plugins []string `json:"plugins"`
 }
 
-func (g *githubProvider) rawBaseURL() string {
-	if g.rawBase != "" {
-		return g.rawBase
-	}
-	return "https://raw.githubusercontent.com"
-}
-
-func (g *githubProvider) rawURL(ref RepoRef, branch string, parts ...string) string {
-	return g.rawBaseURL() + "/" + ref.Owner + "/" + ref.Repo + "/" + branch + "/" + strings.Join(parts, "/")
-}
-
-func (g *githubProvider) rawHead(ctx context.Context, url string) (int, error) {
-	req, err := http.NewRequestWithContext(ctx, "HEAD", url, nil)
-	if err != nil {
-		return 0, err
-	}
-	resp, err := g.client.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode, nil
-}
-
-func (g *githubProvider) download(ctx context.Context, url string, limit int64) ([]byte, error) {
+func (p *indexProvider) download(ctx context.Context, url string, limit int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := g.client.Do(req)
+	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -337,57 +336,32 @@ func (g *githubProvider) download(ctx context.Context, url string, limit int64) 
 	return io.ReadAll(io.LimitReader(resp.Body, limit))
 }
 
-// resolveBranch finds the default branch by probing index.json on main,
-// then master. The result is cached in memory.
-func (g *githubProvider) resolveBranch(ctx context.Context, ref RepoRef) (string, error) {
-	g.mu.Lock()
-	branch, ok := g.branches[ref.ID]
-	g.mu.Unlock()
-	if ok {
-		return branch, nil
-	}
-	for _, candidate := range []string{"main", "master"} {
-		code, err := g.rawHead(ctx, g.rawURL(ref, candidate, "llm-router-plugins", "index.json"))
-		if err != nil {
-			return "", err
-		}
-		if code == http.StatusOK {
-			g.mu.Lock()
-			g.branches[ref.ID] = candidate
-			g.mu.Unlock()
-			return candidate, nil
-		}
-		if code != http.StatusNotFound {
-			return "", fmt.Errorf("resolve branch for %q: status %d", ref.ID, code)
-		}
-	}
-	return "", fmt.Errorf("index.json not found on main or master for %q", ref.ID)
-}
-
-func (g *githubProvider) fetchIndex(ctx context.Context, ref RepoRef) (*githubIndex, string, error) {
-	branch, err := g.resolveBranch(ctx, ref)
-	if err != nil {
-		return nil, "", err
-	}
-	body, err := g.download(ctx, g.rawURL(ref, branch, "llm-router-plugins", "index.json"), 64<<10)
-	if err != nil {
-		return nil, "", err
-	}
-	var idx githubIndex
-	if err := json.Unmarshal(body, &idx); err != nil {
-		return nil, "", fmt.Errorf("decode index: %w", err)
-	}
-	if len(idx.Plugins) == 0 {
-		return nil, "", fmt.Errorf("index lists no plugins for %q", ref.ID)
-	}
-	return &idx, branch, nil
-}
-
-func (g *githubProvider) ListPluginFiles(ctx context.Context, ref RepoRef) ([]RepoFile, error) {
-	idx, _, err := g.fetchIndex(ctx, ref)
+func (p *indexProvider) fetchIndex(ctx context.Context, indexURL string) (*repoIndex, error) {
+	body, err := p.download(ctx, indexURL, 64<<10)
 	if err != nil {
 		return nil, err
 	}
+	var idx repoIndex
+	if err := json.Unmarshal(body, &idx); err != nil {
+		return nil, fmt.Errorf("decode index: %w", err)
+	}
+	if len(idx.Plugins) == 0 {
+		return nil, fmt.Errorf("index lists no plugins")
+	}
+	return &idx, nil
+}
+
+// indexDir returns the directory holding index.json.
+func indexDir(indexURL string) string {
+	return strings.TrimSuffix(indexURL, "/index.json")
+}
+
+func (p *indexProvider) ListPluginFiles(ctx context.Context, ref RepoRef) ([]RepoFile, error) {
+	idx, err := p.fetchIndex(ctx, ref.IndexURL)
+	if err != nil {
+		return nil, err
+	}
+	dir := indexDir(ref.IndexURL)
 	out := []RepoFile{}
 	seen := map[string]bool{}
 	for _, name := range idx.Plugins {
@@ -399,170 +373,71 @@ func (g *githubProvider) ListPluginFiles(ctx context.Context, ref RepoRef) ([]Re
 			continue
 		}
 		seen[name] = true
-		out = append(out, RepoFile{Path: "llm-router-plugins/" + name})
+		out = append(out, RepoFile{Path: "llm-router-plugins/" + name, URL: dir + "/" + name})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out, nil
 }
 
-func (g *githubProvider) FetchFile(ctx context.Context, ref RepoRef, path string) ([]byte, error) {
+func (p *indexProvider) FetchFile(ctx context.Context, ref RepoRef, path string) ([]byte, error) {
 	if !strings.HasPrefix(path, "llm-router-plugins/") || strings.Contains(strings.TrimPrefix(path, "llm-router-plugins/"), "/") {
 		return nil, fmt.Errorf("invalid plugin path %q", path)
 	}
-	branch, err := g.resolveBranch(ctx, ref)
-	if err != nil {
-		return nil, err
-	}
-	body, err := g.download(ctx, g.rawURL(ref, branch, path), 1<<20)
-	if err != nil {
-		if errors.Is(err, errRawNotFound) {
-			return nil, fmt.Errorf("plugin %q not found in %q", path, ref.ID)
-		}
-		return nil, err
-	}
-	return body, nil
-}
-
-func (g *githubProvider) fetchRootFile(ctx context.Context, ref RepoRef, name string) (string, bool, error) {
-	branch, err := g.resolveBranch(ctx, ref)
-	if err != nil {
-		return "", false, nil
-	}
-	body, err := g.download(ctx, g.rawURL(ref, branch, name), 256<<10)
-	if err != nil {
-		return "", false, nil
-	}
-	return string(body), true, nil
-}
-
-func (g *githubProvider) ReadMe(ctx context.Context, ref RepoRef) (string, bool, error) {
-	return g.fetchRootFile(ctx, ref, "README.md")
-}
-
-func (g *githubProvider) License(ctx context.Context, ref RepoRef) (string, bool, error) {
-	for _, name := range []string{"LICENSE.md", "LICENSE", "LICENSE.txt"} {
-		if content, ok, _ := g.fetchRootFile(ctx, ref, name); ok {
-			return content, true, nil
-		}
-	}
-	return "", false, nil
-}
-
-// ─────────────────────────────────────────────
-// Generic index provider (self-hosted JSON index)
-// ─────────────────────────────────────────────
-
-type genericProvider struct {
-	client *http.Client
-}
-
-func (g *genericProvider) Kind() string { return "generic-index" }
-
-type genericIndex struct {
-	Plugins []struct {
-		Path string `json:"path"`
-		URL  string `json:"url"`
-	} `json:"plugins"`
-	ReadmeURL  string `json:"readme_url"`
-	LicenseURL string `json:"license_url"`
-}
-
-func (g *genericProvider) fetchIndex(ctx context.Context, ref RepoRef) (*genericIndex, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", ref.IndexURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := g.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("index status %d", resp.StatusCode)
-	}
-	var idx genericIndex
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&idx); err != nil {
-		return nil, fmt.Errorf("decode index: %w", err)
-	}
-	return &idx, nil
-}
-
-func (g *genericProvider) ListPluginFiles(ctx context.Context, ref RepoRef) ([]RepoFile, error) {
-	idx, err := g.fetchIndex(ctx, ref)
-	if err != nil {
-		return nil, err
-	}
-	var out []RepoFile
-	for _, p := range idx.Plugins {
-		if !strings.HasPrefix(p.Path, "llm-router-plugins/") || p.URL == "" {
-			continue
-		}
-		out = append(out, RepoFile{Path: p.Path, URL: p.URL})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
-	return out, nil
-}
-
-func (g *genericProvider) FetchFile(ctx context.Context, ref RepoRef, path string) ([]byte, error) {
-	files, err := g.ListPluginFiles(ctx, ref)
+	files, err := p.ListPluginFiles(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
 	for _, f := range files {
 		if f.Path == path {
-			req, err := http.NewRequestWithContext(ctx, "GET", f.URL, nil)
+			body, err := p.download(ctx, f.URL, 1<<20)
 			if err != nil {
+				if errors.Is(err, errRawNotFound) {
+					return nil, fmt.Errorf("plugin %q not found", path)
+				}
 				return nil, err
 			}
-			resp, err := g.client.Do(req)
-			if err != nil {
-				return nil, err
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				return nil, fmt.Errorf("download %q: status %d", path, resp.StatusCode)
-			}
-			return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+			return body, nil
 		}
 	}
 	return nil, fmt.Errorf("plugin %q not in index", path)
 }
 
-func (g *genericProvider) fetchURL(ctx context.Context, raw string) (string, bool, error) {
-	if raw == "" {
-		return "", false, nil
-	}
-	req, err := http.NewRequestWithContext(ctx, "GET", raw, nil)
+func (p *indexProvider) fetchText(ctx context.Context, url string) (string, bool) {
+	body, err := p.download(ctx, url, 256<<10)
 	if err != nil {
-		return "", false, nil
+		return "", false
 	}
-	resp, err := g.client.Do(req)
-	if err != nil {
-		return "", false, nil
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", false, nil
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
-	if err != nil {
-		return "", false, nil
-	}
-	return string(data), true, nil
+	return string(body), true
 }
 
-func (g *genericProvider) ReadMe(ctx context.Context, ref RepoRef) (string, bool, error) {
-	idx, err := g.fetchIndex(ctx, ref)
-	if err != nil {
-		return "", false, err
+// docCandidates probes well-known doc names next to the index, then one
+// level up, covering flat layouts and llm-router-plugins/ subdirectories.
+func (p *indexProvider) docCandidates(ctx context.Context, ref RepoRef, names []string) (string, bool) {
+	dir := indexDir(ref.IndexURL)
+	parent := dir
+	if i := strings.LastIndex(dir, "/"); i > 0 {
+		parent = dir[:i]
 	}
-	return g.fetchURL(ctx, idx.ReadmeURL)
+	dirs := []string{dir}
+	if parent != dir {
+		dirs = append(dirs, parent)
+	}
+	for _, d := range dirs {
+		for _, name := range names {
+			if content, ok := p.fetchText(ctx, d+"/"+name); ok {
+				return content, true
+			}
+		}
+	}
+	return "", false
 }
 
-func (g *genericProvider) License(ctx context.Context, ref RepoRef) (string, bool, error) {
-	idx, err := g.fetchIndex(ctx, ref)
-	if err != nil {
-		return "", false, err
-	}
-	return g.fetchURL(ctx, idx.LicenseURL)
+func (p *indexProvider) ReadMe(ctx context.Context, ref RepoRef) (string, bool, error) {
+	content, ok := p.docCandidates(ctx, ref, []string{"README.md"})
+	return content, ok, nil
+}
+
+func (p *indexProvider) License(ctx context.Context, ref RepoRef) (string, bool, error) {
+	content, ok := p.docCandidates(ctx, ref, []string{"LICENSE.md", "LICENSE", "LICENSE.txt"})
+	return content, ok, nil
 }

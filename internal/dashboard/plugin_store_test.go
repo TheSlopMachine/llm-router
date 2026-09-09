@@ -24,7 +24,7 @@ func TestStoreSearchErrorRepoReturnsEmptyFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lua service: %v", err)
 	}
-	rec := pluginrepo.RepoRecord{ID: "generic/unreachable", Kind: "generic-index", IndexURL: "http://127.0.0.1:1/index.json"}
+	rec := pluginrepo.RepoRecord{ID: "index/unreachable", Kind: "index", IndexURL: "http://127.0.0.1:1/index.json"}
 	raw, err := json.Marshal(rec)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)

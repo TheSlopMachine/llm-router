@@ -11,16 +11,13 @@ import (
 )
 
 type repoView struct {
-	ID       string `json:"id"`
-	Kind     string `json:"kind"`
-	Owner    string `json:"owner"`
-	Repo     string `json:"repo"`
-	IndexURL string `json:"index_url"`
-	Builtin  bool   `json:"builtin"`
+	ID      string `json:"id"`
+	URL     string `json:"url"`
+	Builtin bool   `json:"builtin"`
 }
 
 func toRepoView(rec *pluginrepo.RepoRecord) repoView {
-	return repoView{ID: rec.ID, Kind: rec.Kind, Owner: rec.Owner, Repo: rec.Repo, IndexURL: rec.IndexURL, Builtin: rec.Builtin}
+	return repoView{ID: rec.ID, URL: rec.SourceURL, Builtin: rec.Builtin}
 }
 
 // apiReposList lists added plugin repositories.
@@ -28,7 +25,7 @@ func toRepoView(rec *pluginrepo.RepoRecord) repoView {
 // @Description  Returns all added plugin repositories.
 // @Tags         PluginStore
 // @Produce      json
-// @Success      200 {array} object{id=string,kind=string,owner=string,repo=string,index_url=string,builtin=bool}
+// @Success      200 {array} object{id=string,url=string,builtin=bool}
 // @Failure      401 {object} models.ErrorResponse
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugin-repos [get]
@@ -45,41 +42,28 @@ func (h *Handler) apiReposList(w http.ResponseWriter, r *http.Request) {
 	h.json(w, http.StatusOK, out)
 }
 
-// apiReposAdd adds a repository by kind.
+// apiReposAdd adds a repository from a repository or index URL.
 // @Summary      Add plugin repository
-// @Description  Adds a plugin repository by kind.
+// @Description  Adds a plugin repository from a repository or index URL.
 // @Tags         PluginStore
 // @Accept       json
 // @Produce      json
-// @Param        body body object{kind=string,owner=string,repo=string,index_url=string} true "Repository details"
-// @Success      200 {object} object{id=string,kind=string}
+// @Param        body body object{url=string} true "Repository or index URL"
+// @Success      200 {object} object{id=string,url=string}
 // @Failure      400 {object} models.ErrorResponse
 // @Failure      401 {object} models.ErrorResponse
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugin-repos [post]
 func (h *Handler) apiReposAdd(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Kind     string `json:"kind"`
-		Owner    string `json:"owner"`
-		Repo     string `json:"repo"`
-		IndexURL string `json:"index_url"`
+		URL string `json:"url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	ctx := r.Context()
-	var rec *pluginrepo.RepoRecord
-	var err error
-	switch body.Kind {
-	case "github":
-		rec, err = h.repoSvc.AddGitHub(ctx, body.Owner, body.Repo)
-	case "generic-index":
-		rec, err = h.repoSvc.AddGeneric(ctx, body.IndexURL)
-	default:
-		h.jsonErr(w, http.StatusBadRequest, "kind must be github or generic-index")
-		return
-	}
+	rec, err := h.repoSvc.AddRepo(ctx, body.URL)
 	if err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return

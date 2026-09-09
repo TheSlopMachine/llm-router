@@ -40,6 +40,7 @@
 
   let installedCount = $derived(resource.data.plugins.length)
   let catalogCount = $derived(resource.data.repos.reduce((n, entry) => n + entry.files.length, 0))
+  let knownRepoIDs = $derived(resource.data.repos.map((entry) => entry.repo.id))
 </script>
 
 <div class="page-header">
@@ -69,6 +70,7 @@
   <InstalledTab
     plugins={resource.data.plugins}
     updates={resource.data.updates}
+    {knownRepoIDs}
     onReload={resource.reload}
     onBrowseCatalog={() => ontabchange('catalog')}
   />

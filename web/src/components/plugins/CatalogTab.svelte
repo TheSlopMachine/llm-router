@@ -32,10 +32,7 @@
   let actionError = $state('')
 
   let showAddRepo = $state(false)
-  let repoKind = $state<'github' | 'generic-index'>('github')
-  let owner = $state('')
-  let repoName = $state('')
-  let indexUrl = $state('')
+  let repoUrl = $state('')
   let adding = $state(false)
 
   let installingPath = $state<string | null>(null)
@@ -48,6 +45,9 @@
 
   function findRepoPath(plugin: Plugin): { repo_id: string; path: string } | null {
     if (plugin.origin && !plugin.origin.manual && plugin.origin.repo_id && plugin.origin.path) {
+      if (!repos.some((entry: RepoEntry) => entry.repo.id === plugin.origin.repo_id)) {
+        return null
+      }
       return { repo_id: plugin.origin.repo_id, path: plugin.origin.path }
     }
     return null
@@ -122,15 +122,9 @@
     adding = true
     actionError = ''
     try {
-      if (repoKind === 'github') {
-        await api.repos.addGitHub(owner.trim(), repoName.trim())
-      } else {
-        await api.repos.addGeneric(indexUrl.trim())
-      }
+      await api.repos.addRepo(repoUrl.trim())
       showAddRepo = false
-      owner = ''
-      repoName = ''
-      indexUrl = ''
+      repoUrl = ''
       await onReload()
     } catch (e) {
       actionError = getErrorMessage(e)
@@ -213,29 +207,10 @@
 {#if showAddRepo}
   <div class="card form-card">
     <div class="form-group">
-      <label for="repo-kind">Kind</label>
-      <select id="repo-kind" bind:value={repoKind}>
-        <option value="github">GitHub</option>
-        <option value="generic-index">Generic index URL</option>
-      </select>
+      <label for="repo-url">Repository or index URL</label>
+      <input id="repo-url" type="text" bind:value={repoUrl} placeholder="https://github.com/octocat/llm-router-plugins" />
+      <div class="hint">Paste a repository URL or a direct index.json URL.</div>
     </div>
-    {#if repoKind === 'github'}
-      <div class="form-row">
-        <div class="form-group">
-          <label for="repo-owner">Owner</label>
-          <input id="repo-owner" type="text" bind:value={owner} placeholder="octocat" />
-        </div>
-        <div class="form-group">
-          <label for="repo-name">Repository</label>
-          <input id="repo-name" type="text" bind:value={repoName} placeholder="llm-router-plugins" />
-        </div>
-      </div>
-    {:else}
-      <div class="form-group">
-        <label for="index-url">Index URL</label>
-        <input id="index-url" type="text" bind:value={indexUrl} placeholder="https://example.com/plugins/index.json" />
-      </div>
-    {/if}
     <div class="form-actions">
       <button class="btn btn-secondary" onclick={() => {
         showAddRepo = false
@@ -274,7 +249,10 @@
   {#each visibleRepos as entry (entry.repo.id)}
     <div class="card repo-card">
       <div class="repo-header">
-        <h2>{entry.repo.id}</h2>
+        <div>
+          <h2>{entry.repo.id}</h2>
+          <div class="muted">{entry.repo.url}</div>
+        </div>
         <div class="repo-badges">
           {#if entry.repo.builtin}<span class="badge">Built-in</span>{/if}
           {#if !entry.repo.builtin}
@@ -433,11 +411,6 @@
   .form-group label {
     font-size: 13px;
     font-weight: 500;
-  }
-  .form-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
   }
   .form-actions {
     display: flex;

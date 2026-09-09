@@ -203,10 +203,7 @@ export interface Plugin {
 
 export interface PluginRepo {
   id: string
-  kind: string
-  owner: string
-  repo: string
-  index_url: string
+  url: string
   builtin: boolean
 }
 

@@ -81,6 +81,9 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	agentSvc := agent.New(database, providerSvc, modelInfoSvc)
 	configSvc := configsvc.New(database)
 	repoSvc := pluginrepo.New(database)
+	if err := repoSvc.PruneLegacyRepos(); err != nil {
+		return nil, fmt.Errorf("prune legacy plugin repos: %w", err)
+	}
 	if err := repoSvc.EnsureBuiltinRepos(); err != nil {
 		return nil, fmt.Errorf("seed built-in plugin repos: %w", err)
 	}

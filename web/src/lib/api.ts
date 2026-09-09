@@ -169,11 +169,8 @@ export const api = {
     list: (): Promise<PluginRepo[]> =>
       fetch('/api/llm-router/dashboard/plugin-repos').then(assertOk),
 
-    addGitHub: (owner: string, repo: string): Promise<PluginRepo> =>
-      postJson('/api/llm-router/dashboard/plugin-repos', { kind: 'github', owner, repo }),
-
-    addGeneric: (index_url: string): Promise<PluginRepo> =>
-      postJson('/api/llm-router/dashboard/plugin-repos', { kind: 'generic-index', index_url }),
+    addRepo: (url: string): Promise<PluginRepo> =>
+      postJson('/api/llm-router/dashboard/plugin-repos', { url }),
 
     remove: (id: string): Promise<void> =>
       fetch(`/api/llm-router/dashboard/plugin-repos/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(assertOkVoid),

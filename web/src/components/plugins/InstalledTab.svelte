@@ -9,11 +9,13 @@
   let {
     plugins,
     updates,
+    knownRepoIDs,
     onReload,
     onBrowseCatalog
   } = $props<{
     plugins: Plugin[]
     updates: PluginUpdate[]
+    knownRepoIDs: string[]
     onReload: () => Promise<void>
     onBrowseCatalog?: () => void
   }>()
@@ -27,6 +29,9 @@
 
   function findRepoPath(plugin: Plugin): { repo_id: string; path: string } | null {
     if (plugin.origin && !plugin.origin.manual && plugin.origin.repo_id && plugin.origin.path) {
+      if (!knownRepoIDs.includes(plugin.origin.repo_id)) {
+        return null
+      }
       return { repo_id: plugin.origin.repo_id, path: plugin.origin.path }
     }
     return null

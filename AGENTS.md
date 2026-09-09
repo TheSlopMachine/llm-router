@@ -83,7 +83,7 @@ internal/services/
   credential/            credential pool, usage stats
   agent/                 agents/* virtual provider
   luaplugin/             Lua execution core: manifest, sandbox, HTTP+SSRF, storage
-  pluginrepo/            plugin store: GitHub raw `index.json` + generic index; code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
+  pluginrepo/            plugin store: single-URL index repos (repo URL or direct index.json, files resolved against the index directory); code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
   modelinfo/             model metadata cache (1h TTL)
   metrics/               1m buckets, 90d retention
   maintenance/           refresh + cleanup
