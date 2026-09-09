@@ -148,12 +148,6 @@ export const api = {
     remove: (id: string): Promise<void> =>
       fetch(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(assertOkVoid),
 
-    enable: (id: string): Promise<Plugin> =>
-      postJson(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}/enable`, {}),
-
-    disable: (id: string): Promise<Plugin> =>
-      postJson(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}/disable`, {}),
-
     rollback: (id: string): Promise<Plugin> =>
       postJson(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}/rollback`, {}),
 

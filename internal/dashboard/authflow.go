@@ -163,5 +163,5 @@ func isAuthFallback(err error) bool {
 	if err == nil {
 		return false
 	}
-	return errors.Is(err, luaplugin.ErrHandlerNotFound) || errors.Is(err, luaplugin.ErrPluginDisabled)
+	return errors.Is(err, luaplugin.ErrHandlerNotFound)
 }

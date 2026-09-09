@@ -1,6 +1,5 @@
 <script lang="ts">
   import ActionDropdown from '../ActionDropdown.svelte'
-  import Switch from '../ui/Switch.svelte'
 
   export interface PluginBadge {
     text: string
@@ -21,9 +20,6 @@
     badges = [],
     description = '',
     mode,
-    enabled = false,
-    toggleLabel = 'Toggle plugin',
-    onToggle,
     onDetails,
     actions = [],
     onaction,
@@ -36,9 +32,6 @@
     badges?: PluginBadge[]
     description?: string
     mode: 'installed' | 'uninstalled'
-    enabled?: boolean
-    toggleLabel?: string
-    onToggle?: (next: boolean) => void
     onDetails?: () => void
     actions?: PluginCardAction[]
     onaction?: (id: string) => void
@@ -59,17 +52,16 @@
     </div>
     <div class="plugin-actions">
       {#if mode === 'installed'}
-        <Switch checked={enabled} ariaLabel={toggleLabel} onchange={(next) => onToggle?.(next)} />
-        <button class="btn-icon" onclick={() => onDetails?.()} aria-label="Details">
-          <span class="icon">info</span>
-        </button>
         <ActionDropdown {actions} label="Actions" rounded="lg" onaction={(id) => onaction?.(id)} />
-      {:else}
         <button class="btn-icon" onclick={() => onDetails?.()} aria-label="Details">
           <span class="icon">info</span>
         </button>
+      {:else}
         <button class="btn btn-secondary" disabled={installing} onclick={() => onInstall?.()}>
           {installing ? 'Installing…' : installLabel}
+        </button>
+        <button class="btn-icon" onclick={() => onDetails?.()} aria-label="Details">
+          <span class="icon">info</span>
         </button>
       {/if}
     </div>

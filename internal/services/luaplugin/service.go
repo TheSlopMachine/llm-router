@@ -51,7 +51,6 @@ type PluginRecord struct {
 	Source        []byte                  `json:"source"`
 	History       []PluginVersionSnapshot `json:"history"`
 	Origin        PluginOrigin            `json:"origin"`
-	Enabled       bool                    `json:"enabled"`
 	InstalledAt   time.Time               `json:"installed_at"`
 	UpdatedAt     time.Time               `json:"updated_at"`
 }
@@ -126,9 +125,6 @@ func (s *Service) rebuild() error {
 	}
 	reg := map[string]*PluginRecord{}
 	for _, rec := range records {
-		if !rec.Enabled {
-			continue
-		}
 		for _, key := range rec.TypeKeys {
 			if prev, exists := reg[key]; exists {
 				if s.logger != nil {
@@ -146,31 +142,13 @@ func (s *Service) rebuild() error {
 	return nil
 }
 
-// Lookup returns the enabled plugin record serving typeKey.
+// Lookup returns the plugin record serving typeKey.
 func (s *Service) Lookup(typeKey string) (*PluginRecord, error) {
 	s.mu.RLock()
 	rec, ok := s.registry[typeKey]
 	s.mu.RUnlock()
 	if ok {
 		return rec, nil
-	}
-	if existing, err := s.findByTypeKey(typeKey); err == nil && existing != nil {
-		return nil, fmt.Errorf("%w: %q (plugin %q)", ErrPluginDisabled, typeKey, existing.ID)
-	}
-	return nil, fmt.Errorf("no plugin registered for type key %q", typeKey)
-}
-
-func (s *Service) findByTypeKey(typeKey string) (*PluginRecord, error) {
-	records, err := s.repo.List()
-	if err != nil {
-		return nil, err
-	}
-	for _, rec := range records {
-		for _, k := range rec.TypeKeys {
-			if k == typeKey {
-				return rec, nil
-			}
-		}
 	}
 	return nil, fmt.Errorf("no plugin registered for type key %q", typeKey)
 }
@@ -238,7 +216,7 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 			Description: manifest.Description, License: manifest.License,
 			AllowHosts: manifest.AllowHosts, Unsafe: manifest.Unsafe,
 			TypeKeys: typeKeys, Handlers: handlers, Icons: icons, Source: append([]byte(nil), source...),
-			History: history, Origin: origin, Enabled: existing.Enabled,
+			History: history, Origin: origin,
 			InstalledAt: existing.InstalledAt, UpdatedAt: now,
 		}
 		if err := s.repo.Put(id, updated); err != nil {
@@ -257,7 +235,7 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 		Description: manifest.Description, License: manifest.License,
 		AllowHosts: manifest.AllowHosts, Unsafe: manifest.Unsafe,
 		TypeKeys: typeKeys, Handlers: handlers, Icons: icons, Source: append([]byte(nil), source...),
-		Origin: origin, Enabled: true,
+		Origin:      origin,
 		InstalledAt: now, UpdatedAt: now,
 	}
 	if err := s.repo.Put(id, rec); err != nil {
@@ -337,44 +315,6 @@ func (s *Service) Delete(id string) error {
 	}
 	s.notify(rec.TypeKeys...)
 	return nil
-}
-
-// Enable marks a plugin enabled and rebuilds the registry.
-func (s *Service) Enable(id string) (*PluginRecord, error) {
-	var rec *PluginRecord
-	err := s.repo.Update(id, func(r *PluginRecord) error {
-		r.Enabled = true
-		r.UpdatedAt = time.Now()
-		rec = r
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	if err := s.rebuild(); err != nil {
-		return nil, err
-	}
-	s.notify(rec.TypeKeys...)
-	return rec, nil
-}
-
-// Disable marks a plugin disabled and rebuilds the registry.
-func (s *Service) Disable(id string) (*PluginRecord, error) {
-	var rec *PluginRecord
-	err := s.repo.Update(id, func(r *PluginRecord) error {
-		r.Enabled = false
-		r.UpdatedAt = time.Now()
-		rec = r
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	if err := s.rebuild(); err != nil {
-		return nil, err
-	}
-	s.notify(rec.TypeKeys...)
-	return rec, nil
 }
 
 // maxPluginIconBytes caps an icon value (data-URI icons live in bbolt).

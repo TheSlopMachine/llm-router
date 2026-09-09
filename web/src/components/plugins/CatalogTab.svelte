@@ -338,16 +338,12 @@
                 meta={f.version ? `v${f.version}` : ''}
                 badges={[
                   ...(f.unsafe ? [{ text: 'Unrestricted network', kind: 'badge-red' as const }] : []),
-                  ...(!plugin.enabled ? [{ text: 'Disabled', kind: '' as const }] : []),
                   ...(f.update_available
                     ? [{ text: `Update: v${f.installed_version} → v${f.version}`, kind: 'badge-green' as const }]
                     : [{ text: 'Installed', kind: '' as const }])
                 ]}
                 description={f.description}
                 mode="installed"
-                enabled={plugin.enabled}
-                toggleLabel={plugin.enabled ? `Disable ${plugin.display_name}` : `Enable ${plugin.display_name}`}
-                onToggle={(next) => pluginState.setEnabled(plugin, next)}
                 onDetails={() => pluginState.openDetails(plugin)}
                 actions={pluginState.buildActions(plugin)}
                 onaction={(id) => handleCatalogAction(plugin, f, id)}

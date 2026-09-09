@@ -358,9 +358,6 @@ func (s *Service) EnsureSeeded() error {
 	}
 	seen := map[string]string{}
 	for _, rec := range records {
-		if !rec.Enabled {
-			continue
-		}
 		for _, key := range rec.TypeKeys {
 			if _, ok := seen[key]; !ok {
 				seen[key] = rec.DisplayName

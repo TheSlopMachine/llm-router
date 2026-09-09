@@ -338,22 +338,12 @@ func TestRollback(t *testing.T) {
 	}
 }
 
-func TestEnableDisable(t *testing.T) {
+func TestLookupResolvesInstalled(t *testing.T) {
 	svc := setupService(t)
-	rec, err := svc.Install([]byte(testPluginSource), PluginOrigin{Manual: true})
-	if err != nil {
+	if _, err := svc.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	if _, err := svc.Disable(rec.ID); err != nil {
-		t.Fatalf("disable: %v", err)
-	}
-	if _, err := svc.Lookup("test-type"); err == nil {
-		t.Fatal("disabled plugin must not resolve")
-	}
-	if _, err := svc.Enable(rec.ID); err != nil {
-		t.Fatalf("enable: %v", err)
-	}
 	if _, err := svc.Lookup("test-type"); err != nil {
-		t.Fatalf("enabled plugin must resolve: %v", err)
+		t.Fatalf("installed plugin must resolve: %v", err)
 	}
 }

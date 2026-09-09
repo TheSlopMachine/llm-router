@@ -194,7 +194,6 @@ export interface Plugin {
   allow_hosts: string[]
   unsafe: boolean
   type_keys: string[]
-  enabled: boolean
   origin: { repo_id: string; path: string; manual: boolean }
   installed_at: string
   updated_at: string

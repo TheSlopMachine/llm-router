@@ -14,7 +14,6 @@ func TestHandlerNotFoundSentinel(t *testing.T) {
 		nil,
 		errors.New("no plugin registered for type key \"custom\""),
 		errors.New("boom"),
-		ErrPluginDisabled,
 	} {
 		if errors.Is(err, ErrHandlerNotFound) {
 			t.Errorf("ErrHandlerNotFound must not match %v", err)

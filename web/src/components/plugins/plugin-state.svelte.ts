@@ -34,19 +34,6 @@ export function createPluginState(opts: {
     }
   }
 
-  async function setEnabled(plugin: Plugin, enabled: boolean): Promise<void> {
-    try {
-      if (enabled) {
-        await api.plugins.enable(plugin.id)
-      } else {
-        await api.plugins.disable(plugin.id)
-      }
-      await opts.onReload()
-    } catch (e) {
-      opts.onError(getErrorMessage(e))
-    }
-  }
-
   async function rollback(plugin: Plugin): Promise<void> {
     const confirmed = await modal.confirm({
       title: 'Roll back plugin',
@@ -135,7 +122,6 @@ export function createPluginState(opts: {
 
   return {
     openDetails,
-    setEnabled,
     rollback,
     removePlugin,
     updatePlugin,

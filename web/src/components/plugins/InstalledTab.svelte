@@ -88,14 +88,10 @@
         meta={`v${plugin.version} · ${plugin.author}`}
         badges={[
           ...(plugin.unsafe ? [{ text: 'Unrestricted network', kind: 'badge-red' as const }] : []),
-          ...(!plugin.enabled ? [{ text: 'Disabled', kind: '' as const }] : []),
           ...(update ? [{ text: `Update: v${update.current} → v${update.latest}`, kind: 'badge-green' as const }] : [])
         ]}
         description={plugin.description}
         mode="installed"
-        enabled={plugin.enabled}
-        toggleLabel={plugin.enabled ? `Disable ${plugin.display_name}` : `Enable ${plugin.display_name}`}
-        onToggle={(next) => pluginState.setEnabled(plugin, next)}
         onDetails={() => pluginState.openDetails(plugin)}
         actions={pluginState.buildActions(plugin)}
         onaction={(id) => pluginState.handleAction(plugin, id)}

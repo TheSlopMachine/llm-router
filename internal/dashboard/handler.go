@@ -158,8 +158,6 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("POST /api/llm-router/dashboard/plugins/install-from-repo", h.requireAuth(h.apiPluginsInstallFromRepo))
 	mux.HandleFunc("GET /api/llm-router/dashboard/plugins/{id}", h.requireAuth(h.apiPluginsGet))
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/plugins/{id}", h.requireAuth(h.apiPluginsDelete))
-	mux.HandleFunc("POST /api/llm-router/dashboard/plugins/{id}/enable", h.requireAuth(h.apiPluginsEnable))
-	mux.HandleFunc("POST /api/llm-router/dashboard/plugins/{id}/disable", h.requireAuth(h.apiPluginsDisable))
 	mux.HandleFunc("POST /api/llm-router/dashboard/plugins/{id}/rollback", h.requireAuth(h.apiPluginsRollback))
 	mux.HandleFunc("GET /api/llm-router/dashboard/plugins/{id}/logs", h.requireAuth(h.apiPluginsLogs))
 	mux.HandleFunc("GET /api/llm-router/dashboard/plugins/{id}/crashes", h.requireAuth(h.apiPluginsCrashes))

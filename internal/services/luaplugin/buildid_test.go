@@ -23,15 +23,12 @@ func TestInstallRepoOrigin(t *testing.T) {
 	}
 }
 
-func TestInstallRepoOriginPreservesDisabled(t *testing.T) {
+func TestInstallRepoOriginKeepsHistory(t *testing.T) {
 	svc := setupService(t)
 	origin := PluginOrigin{RepoID: "github/owner/repo", Path: "llm-router-plugins/test-plugin.lua"}
 	rec, err := svc.Install([]byte(testPluginSource), origin)
 	if err != nil {
 		t.Fatalf("install: %v", err)
-	}
-	if _, err := svc.Disable(rec.ID); err != nil {
-		t.Fatalf("disable: %v", err)
 	}
 	updated, err := svc.Install([]byte(testPluginSource), origin)
 	if err != nil {
@@ -39,9 +36,6 @@ func TestInstallRepoOriginPreservesDisabled(t *testing.T) {
 	}
 	if updated.ID != rec.ID {
 		t.Fatalf("id changed: got %q, want %q", updated.ID, rec.ID)
-	}
-	if updated.Enabled {
-		t.Fatalf("reinstall must preserve disabled state")
 	}
 	if len(updated.History) != 1 {
 		t.Fatalf("history length: got %d, want 1", len(updated.History))

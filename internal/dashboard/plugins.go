@@ -20,7 +20,6 @@ type pluginView struct {
 	AllowHosts    []string               `json:"allow_hosts"`
 	Unsafe        bool                   `json:"unsafe"`
 	TypeKeys      []string               `json:"type_keys"`
-	Enabled       bool                   `json:"enabled"`
 	Origin        luaplugin.PluginOrigin `json:"origin"`
 	InstalledAt   time.Time              `json:"installed_at"`
 	UpdatedAt     time.Time              `json:"updated_at"`
@@ -36,7 +35,7 @@ func toPluginView(rec *luaplugin.PluginRecord) pluginView {
 		Version: rec.Version, RouterVersion: rec.RouterVersion,
 		Description: rec.Description, License: rec.License,
 		AllowHosts: allowHosts, Unsafe: rec.Unsafe,
-		TypeKeys: typeKeys, Enabled: rec.Enabled, Origin: rec.Origin,
+		TypeKeys: typeKeys, Origin: rec.Origin,
 		InstalledAt: rec.InstalledAt, UpdatedAt: rec.UpdatedAt,
 		HistoryCount: len(rec.History),
 	}
@@ -129,46 +128,6 @@ func (h *Handler) apiPluginsDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.json(w, http.StatusOK, map[string]string{"message": "plugin deleted"})
-}
-
-// apiPluginsEnable enables a plugin.
-// @Summary      Enable plugin
-// @Description  Enables an installed Lua plugin.
-// @Tags         Plugins
-// @Produce      json
-// @Param        id path string true "Plugin ID"
-// @Success      200 {object} object{id=string,enabled=bool}
-// @Failure      400 {object} models.ErrorResponse
-// @Failure      401 {object} models.ErrorResponse
-// @Security     SessionAuth
-// @Router       /api/llm-router/dashboard/plugins/{id}/enable [post]
-func (h *Handler) apiPluginsEnable(w http.ResponseWriter, r *http.Request) {
-	rec, err := h.luaSvc.Enable(r.PathValue("id"))
-	if err != nil {
-		h.jsonErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	h.json(w, http.StatusOK, toPluginView(rec))
-}
-
-// apiPluginsDisable disables a plugin.
-// @Summary      Disable plugin
-// @Description  Disables an installed Lua plugin.
-// @Tags         Plugins
-// @Produce      json
-// @Param        id path string true "Plugin ID"
-// @Success      200 {object} object{id=string,enabled=bool}
-// @Failure      400 {object} models.ErrorResponse
-// @Failure      401 {object} models.ErrorResponse
-// @Security     SessionAuth
-// @Router       /api/llm-router/dashboard/plugins/{id}/disable [post]
-func (h *Handler) apiPluginsDisable(w http.ResponseWriter, r *http.Request) {
-	rec, err := h.luaSvc.Disable(r.PathValue("id"))
-	if err != nil {
-		h.jsonErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	h.json(w, http.StatusOK, toPluginView(rec))
 }
 
 // apiPluginsRollback rolls a plugin back to its previous version.

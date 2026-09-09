@@ -9,9 +9,6 @@ import (
 // requested handler. Callers apply the fixed fallback behavior per handler.
 var ErrHandlerNotFound = errors.New("luaplugin: handler not declared")
 
-// ErrPluginDisabled is returned when a lookup hits a disabled plugin.
-var ErrPluginDisabled = errors.New("luaplugin: plugin disabled")
-
 // notFoundError wraps ErrHandlerNotFound with plugin context.
 type notFoundError struct {
 	PluginID string
