@@ -580,6 +580,30 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 	} else if node.Type == "spacer" {
 		node.Grow = true
 	}
+	if v := tbl.RawGetString("option_labels"); v != lua.LNil {
+		labelsTbl, ok := v.(*lua.LTable)
+		if !ok {
+			return nil, fmt.Errorf("option_labels must be a table")
+		}
+		labels := map[string]string{}
+		var labelErr error
+		labelsTbl.ForEach(func(k, val lua.LValue) {
+			if labelErr != nil {
+				return
+			}
+			ks, ok := k.(lua.LString)
+			vs, ok2 := val.(lua.LString)
+			if !ok || !ok2 || strings.TrimSpace(string(ks)) == "" || strings.TrimSpace(string(vs)) == "" {
+				labelErr = fmt.Errorf("option_labels keys and values must be non-empty strings")
+				return
+			}
+			labels[string(ks)] = string(vs)
+		})
+		if labelErr != nil {
+			return nil, labelErr
+		}
+		node.OptionLabels = labels
+	}
 	if !uiNodeTypes[node.Type] {
 		return nil, fmt.Errorf("unknown node type %q", node.Type)
 	}
@@ -625,6 +649,17 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 				return nil, fmt.Errorf("invalid input_type %q", node.InputType)
 			}
 		}
+		if node.Type == "select" && len(node.OptionLabels) > 0 {
+			known := map[string]bool{}
+			for _, opt := range node.Options {
+				known[opt] = true
+			}
+			for key := range node.OptionLabels {
+				if !known[key] {
+					return nil, fmt.Errorf("option_labels key %q is not in options", key)
+				}
+			}
+		}
 	case "link":
 		if strings.TrimSpace(node.URL) == "" {
 			return nil, fmt.Errorf("link node requires url")
@@ -632,6 +667,13 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 	case "button":
 		if strings.TrimSpace(node.FormAction) == "" {
 			node.FormAction = "submit"
+		}
+		if node.Variant != "" {
+			switch node.Variant {
+			case "primary", "secondary", "danger":
+			default:
+				return nil, fmt.Errorf("invalid button variant %q", node.Variant)
+			}
 		}
 	case "banner":
 		if node.Variant != "" {

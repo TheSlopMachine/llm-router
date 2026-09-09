@@ -3,7 +3,7 @@
   import { api } from '../../lib/api'
   import { getErrorMessage } from '../../lib/errors'
   import type { ModalButton, Provider, UINode } from '../../lib/types'
-  import DynamicForm from '../ui/DynamicForm.svelte'
+  import DynamicForm, { collectButtons, buttonVariant } from '../ui/DynamicForm.svelte'
 
   let {
     editingProvider = null,
@@ -77,16 +77,29 @@
   }
 
   function syncButtons(): void {
-    updateButtons([
-      { label: 'Cancel', variant: 'secondary', onClick: closeModal },
-      {
+    const tree = collectButtons(configNodes ?? [])
+    // Config trees carry no server-side steps: any tree button saves the
+    // whole form, its action is display-only.
+    const buttons: ModalButton[] = tree.map((n) => ({
+      label: n.text || (isEdit ? 'Save' : 'Add'),
+      variant: buttonVariant(n),
+      onClick: save,
+      disabled: !name.trim() || creating,
+      loading: creating,
+    }))
+    if (!tree.some((n) => (n.form_action || 'submit') === 'cancel')) {
+      buttons.push({ label: 'Cancel', variant: 'secondary', onClick: closeModal })
+    }
+    if (tree.length === 0) {
+      buttons.push({
         label: isEdit ? 'Save' : 'Add',
         variant: 'primary',
         onClick: save,
         disabled: !name.trim() || creating,
-        loading: creating
-      }
-    ])
+        loading: creating,
+      })
+    }
+    updateButtons(buttons)
   }
 
   function collectConfig(): Record<string, unknown> | null {
@@ -135,11 +148,6 @@
       syncButtons()
     }
   }
-
-  function onConfigSubmit(_action: string, formValues: Record<string, unknown>): void {
-    configValues = { ...formValues }
-    void save()
-  }
 </script>
 
 {#if error}
@@ -171,7 +179,7 @@
 {/if}
 
 {#if configNodes}
-  <DynamicForm nodes={configNodes} bind:values={configValues} onSubmit={onConfigSubmit} busy={creating} submitLabel={isEdit ? 'Save' : 'Add'} />
+  <DynamicForm nodes={configNodes} bind:values={configValues} busy={creating} />
 {:else if useRawConfig}
   <div class="form-group">
     <label for="provider-config">Config JSON</label>

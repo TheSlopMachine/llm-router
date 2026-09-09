@@ -67,7 +67,6 @@
 
   function updateAuthButtons(): void {
     updateTitle(`Add Credential · ${provider.name}`)
-    updateButtons([{ label: 'Cancel', variant: 'secondary', onClick: closeModal }])
     updateMenu(null)
   }
 
@@ -79,11 +78,6 @@
     } else if (id === 'delete') {
       onDelete?.()
     }
-  }
-
-  function backToList(): void {
-    view = 'list'
-    updateListButtons()
   }
 
   async function deleteCredential(id: string, label: string): Promise<void> {
@@ -135,7 +129,7 @@
     </div>
   {/if}
 {:else}
-  <CredentialWizard {provider} onComplete={onComplete} onBack={backToList} />
+  <CredentialWizard {provider} onComplete={onComplete} {closeModal} {updateButtons} />
 {/if}
 
 <style>

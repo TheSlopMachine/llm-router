@@ -1,6 +1,6 @@
 --- @plugin Kiro AI
 --- @author TheSlopMachine
---- @version 1.0.4
+--- @version 1.0.6
 --- @router_version 0.0.4
 --- @description AWS Kiro models via device login (OAuth2 with proactive refresh)
 --- @allow_host codewhisperer.us-east-1.amazonaws.com
@@ -365,18 +365,58 @@ end
 
 -- ── OAuth device flow (auth wizard) ──
 
-local function start_page(error_text, region, start_url, method)
+local function method_page(error_text)
   local nodes = {}
   if error_text and error_text ~= "" then
     table.insert(nodes, { type = "banner", variant = "error", text = error_text })
   end
-  table.insert(nodes, { type = "text", text = "Sign in with the same Kiro account you use in the IDE." })
-  table.insert(nodes, { type = "select", name = "device_method", label = "Method",
-    options = { "builder-id", "idc" }, value = method or "builder-id" })
-  table.insert(nodes, { type = "input", name = "region", label = "Region", value = region or DEFAULT_REGION })
-  table.insert(nodes, { type = "input", name = "start_url", label = "Start URL", value = start_url or BUILDER_START_URL })
-  table.insert(nodes, { type = "button", text = "Start Device Login", form_action = "start_device" })
+  table.insert(nodes, { type = "section", title = "Sign in to Kiro",
+    subtitle = "Use the same Kiro account as in the IDE.",
+    content = {
+      { type = "select", name = "device_method", label = "Method",
+        options = { "builder-id", "idc" },
+        option_labels = { ["builder-id"] = "AWS Builder ID", ["idc"] = "IAM Identity Center" },
+        value = "builder-id" },
+      { type = "button", text = "Continue", form_action = "pick_method" },
+    } })
   return { render = nodes }
+end
+
+local function region_page(error_text, region, start_url)
+  local nodes = {}
+  if error_text and error_text ~= "" then
+    table.insert(nodes, { type = "banner", variant = "error", text = error_text })
+  end
+  table.insert(nodes, { type = "section", title = "Sign in to Kiro",
+    subtitle = "Enter your IAM Identity Center details.",
+    content = {
+      { type = "grid", columns = 2, content = {
+        { type = "input", name = "region", label = "Region", value = region or DEFAULT_REGION },
+        { type = "input", name = "start_url", label = "Start URL", value = start_url or BUILDER_START_URL },
+      } },
+      { type = "button", text = "Start Device Login", form_action = "start_device" },
+      { type = "button", text = "Back", form_action = "restart" },
+    } })
+  return { render = nodes }
+end
+
+local function builder_page()
+  local nodes = {
+    { type = "section", title = "Sign in to Kiro",
+      subtitle = "Uses the Kiro default start URL in us-east-1. No input needed.",
+      content = {
+        { type = "button", text = "Start Device Login", form_action = "start_device" },
+        { type = "button", text = "Back", form_action = "restart" },
+      } },
+  }
+  return { render = nodes }
+end
+
+local function start_page(error_text, region, start_url, method)
+  if method == "idc" then
+    return region_page(error_text, region, start_url)
+  end
+  return method_page(error_text)
 end
 
 local function device_page(message_text, state)
@@ -384,15 +424,15 @@ local function device_page(message_text, state)
   if message_text and message_text ~= "" then
     table.insert(nodes, { type = "banner", variant = "info", text = message_text })
   end
-  table.insert(nodes, { type = "text", text = "Open the verification page, then enter the code below." })
-  table.insert(nodes, { type = "code", text = state.user_code or "", label = "Device code" })
-  table.insert(nodes, { type = "flow", direction = "horizontal", align = "center", content = {
-    { type = "link", text = "Open verification page",
-      url = state.verification_uri_complete or state.verification_uri or "" },
-    { type = "spacer" },
-    { type = "button", text = "Check Authorization", form_action = "poll_device" },
-    { type = "button", text = "Start Over", form_action = "restart" },
-  } })
+  table.insert(nodes, { type = "section", title = "Complete device login",
+    subtitle = "Open the verification page, then enter the code below.",
+    content = {
+      { type = "code", text = state.user_code or "", label = "Device code" },
+      { type = "link", text = "Open verification page",
+        url = state.verification_uri_complete or state.verification_uri or "" },
+      { type = "button", text = "Check Authorization", form_action = "poll_device" },
+      { type = "button", text = "Start Over", form_action = "restart" },
+    } })
   return { render = nodes }
 end
 
@@ -411,10 +451,13 @@ llm_router.register("kiro", {
 
   credential_schema = function()
     return {
-      { type = "text", text = "Paste tokens from a previous login, or use device login instead." },
-      { type = "input", name = "access_token", input_type = "password", label = "Access Token" },
-      { type = "input", name = "refresh_token", input_type = "password", label = "Refresh Token" },
-      { type = "button", text = "Save", form_action = "submit" },
+      { type = "section", title = "Manual token entry",
+        subtitle = "Paste tokens from a previous login, or use device login instead.",
+        content = {
+          { type = "secret", name = "access_token", label = "Access Token" },
+          { type = "secret", name = "refresh_token", label = "Refresh Token" },
+          { type = "button", text = "Save", form_action = "submit" },
+        } },
     }
   end,
 
@@ -501,11 +544,25 @@ llm_router.register("kiro", {
 
     if action == "restart" or action == "cancel" then
       llm_router.storage.delete(scope, "device")
+      llm_router.storage.delete(scope, "method")
       return start_page("", DEFAULT_REGION, BUILDER_START_URL, "builder-id")
     end
 
-    if action == "start_device" then
+    if action == "pick_method" then
       local method = values.device_method or "builder-id"
+      if method == "" then method = "builder-id" end
+      if method ~= "builder-id" and method ~= "idc" then
+        return method_page("Choose a device login method to continue.")
+      end
+      llm_router.storage.set(scope, "method", method)
+      if method == "builder-id" then
+        return builder_page()
+      end
+      return region_page("", DEFAULT_REGION, BUILDER_START_URL)
+    end
+
+    if action == "start_device" then
+      local method = llm_router.storage.get(scope, "method") or "builder-id"
       if method == "" then method = "builder-id" end
       local region = values.region or DEFAULT_REGION
       if region == "" then region = DEFAULT_REGION end

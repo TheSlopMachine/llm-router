@@ -104,6 +104,63 @@ func TestUINodeNewKindsInvalid(t *testing.T) {
 		"divider with content": `{ type = "divider", content = { { type = "text", text = "x" } } }`,
 		"secret without name":  `{ type = "secret", label = "Token" }`,
 		"code without text":    `{ type = "code", label = "Code" }`,
+		"button bad variant":   `{ type = "button", text = "Go", variant = "loud" }`,
+	}
+	for name, body := range cases {
+		if _, err := schemaNodes(t, body); err == nil {
+			t.Errorf("%s: expected validation error", name)
+		}
+	}
+}
+
+func TestUINodeButtonVariantValid(t *testing.T) {
+	nodes, err := schemaNodes(t, `
+    { type = "button", text = "Delete", form_action = "remove", variant = "danger" },
+    { type = "button", text = "Go" },
+  `)
+	if err != nil {
+		t.Fatalf("valid tree rejected: %v", err)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 nodes, got %d", len(nodes))
+	}
+	if nodes[0].Variant != "danger" {
+		t.Errorf("button variant wrong: %+v", nodes[0])
+	}
+	if nodes[1].FormAction != "submit" {
+		t.Errorf("button default action wrong: %+v", nodes[1])
+	}
+}
+
+func TestUINodeOptionLabelsValid(t *testing.T) {
+	nodes, err := schemaNodes(t, `
+    { type = "select", name = "method", label = "Method",
+      options = { "builder-id", "idc" },
+      option_labels = { ["builder-id"] = "AWS Builder ID", ["idc"] = "IAM Identity Center" } },
+  `)
+	if err != nil {
+		t.Fatalf("valid tree rejected: %v", err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(nodes))
+	}
+	labels := nodes[0].OptionLabels
+	if labels["builder-id"] != "AWS Builder ID" || labels["idc"] != "IAM Identity Center" {
+		t.Errorf("option labels wrong: %+v", labels)
+	}
+}
+
+func TestUINodeOptionLabelsInvalid(t *testing.T) {
+	cases := map[string]string{
+		"labels not a table": `{ type = "select", name = "m", options = { "a" }, option_labels = "x" }`,
+		"labels non-string key": `{ type = "select", name = "m", options = { "a" },
+      option_labels = { [1] = "One" } }`,
+		"labels non-string value": `{ type = "select", name = "m", options = { "a" },
+      option_labels = { ["a"] = 42 } }`,
+		"labels empty key": `{ type = "select", name = "m", options = { "a" },
+      option_labels = { ["  "] = "One" } }`,
+		"labels unknown key": `{ type = "select", name = "m", options = { "a" },
+      option_labels = { ["b"] = "Bee" } }`,
 	}
 	for name, body := range cases {
 		if _, err := schemaNodes(t, body); err == nil {

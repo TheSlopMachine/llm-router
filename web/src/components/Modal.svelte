@@ -390,6 +390,8 @@
     gap: 12px;
     flex-shrink: 0;
     margin-left: auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
 
   @keyframes fadeIn {

@@ -2,22 +2,25 @@
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
   import { getErrorMessage } from '../lib/errors'
-  import type { Provider, UINode } from '../lib/types'
-  import DynamicForm from './ui/DynamicForm.svelte'
+  import type { Provider, UINode, ModalButton } from '../lib/types'
+  import DynamicForm, { collectButtons, buttonVariant } from './ui/DynamicForm.svelte'
 
   let {
     provider,
     onComplete,
-    onBack,
+    closeModal,
+    updateButtons,
   } = $props<{
     provider: Provider
     onComplete: () => void
-    onBack?: () => void
+    closeModal: () => void
+    updateButtons: (buttons: ModalButton[]) => void
   }>()
 
   type Mode = 'loading' | 'wizard' | 'single' | 'raw'
   let mode: Mode = $state('loading')
   let nodes = $state<UINode[]>([])
+  let formValues = $state<Record<string, unknown>>({})
   let flowId = $state('')
   let rawJson = $state('{}')
   let loading = $state(false)
@@ -39,18 +42,22 @@
         flowId = res.flow_id ?? ''
       } else if (res.status === 'complete') {
         onComplete()
+        return
       } else {
         await loadSingleStep()
+        return
       }
     } catch (e) {
       const message = getErrorMessage(e)
       if (message.includes('stepped auth flows') || message.includes('409')) {
         await loadSingleStep()
+        return
       } else {
         error = message
         mode = 'single'
       }
     }
+    syncFooter()
   })
 
   async function loadSingleStep(): Promise<void> {
@@ -66,11 +73,64 @@
       error = getErrorMessage(e)
       mode = 'raw'
     }
+    syncFooter()
+  }
+
+  // Footer owns every flow control: tree-declared buttons first, then an
+  // auto Cancel (unless the tree declares cancel itself), then a default
+  // primary submit when the tree declares no buttons at all.
+  function defaultSubmitLabel(): string {
+    return mode === 'wizard' ? 'Continue' : 'Save'
+  }
+
+  function submitFor(action: string): void {
+    if (action === 'cancel') {
+      closeModal()
+      return
+    }
+    if (mode === 'single') {
+      if (action === 'restart') {
+        closeModal()
+        return
+      }
+      void submitSingle(action, { ...formValues })
+      return
+    }
+    void submitWizard(action, { ...formValues })
+  }
+
+  function syncFooter(): void {
+    const tree = collectButtons(nodes)
+    const buttons: ModalButton[] = tree.map((n) => {
+      const action = n.form_action || 'submit'
+      if (action === 'cancel') {
+        return { label: n.text || 'Cancel', variant: buttonVariant(n), onClick: closeModal, disabled: loading }
+      }
+      return {
+        label: n.text || defaultSubmitLabel(),
+        variant: buttonVariant(n),
+        onClick: () => submitFor(action),
+        disabled: loading,
+      }
+    })
+    if (!tree.some((n) => (n.form_action || 'submit') === 'cancel')) {
+      buttons.push({ label: 'Cancel', variant: 'secondary', onClick: closeModal, disabled: loading })
+    }
+    if (tree.length === 0 && nodes.length > 0) {
+      buttons.push({
+        label: defaultSubmitLabel(),
+        variant: 'primary',
+        onClick: () => submitFor('submit'),
+        disabled: loading,
+      })
+    }
+    updateButtons(buttons)
   }
 
   async function submitWizard(action: string, formValues: Record<string, unknown>): Promise<void> {
     loading = true
     error = ''
+    syncFooter()
     try {
       const res = await api.auth.step({
         provider_id: provider.id,
@@ -92,16 +152,18 @@
       error = getErrorMessage(e)
     } finally {
       loading = false
+      syncFooter()
     }
   }
 
   async function submitSingle(action: string, formValues: Record<string, unknown>): Promise<void> {
     if (action === 'cancel' || action === 'restart') {
-      onBack?.()
+      closeModal()
       return
     }
     loading = true
     error = ''
+    syncFooter()
     try {
       await api.credentials.create({ provider_id: provider.id, data: formValues })
       onComplete()
@@ -109,6 +171,7 @@
       error = getErrorMessage(e)
     } finally {
       loading = false
+      syncFooter()
     }
   }
 
@@ -138,20 +201,10 @@
     <div class="banner banner-info">{redirectMessage}</div>
   {/if}
   {#if nodes.length > 0}
-    <DynamicForm {nodes} onSubmit={submitWizard} busy={loading} submitLabel="Continue" />
-  {/if}
-  {#if onBack}
-    <div class="form-actions">
-      <button class="btn btn-secondary" onclick={onBack}>Back</button>
-    </div>
+    <DynamicForm {nodes} bind:values={formValues} busy={loading} />
   {/if}
 {:else if mode === 'single'}
-  <DynamicForm {nodes} onSubmit={submitSingle} busy={loading} submitLabel="Save" />
-  {#if onBack}
-    <div class="form-actions">
-      <button class="btn btn-secondary" onclick={onBack}>Back</button>
-    </div>
-  {/if}
+  <DynamicForm {nodes} bind:values={formValues} busy={loading} />
 {:else}
   <p class="form-text">This provider type has no credential form. Paste credential data as JSON.</p>
   <div class="form-group">
@@ -159,7 +212,6 @@
     <textarea id="cred-raw" rows="6" bind:value={rawJson} autocomplete="off"></textarea>
   </div>
   <div class="form-actions">
-    {#if onBack}<button class="btn btn-secondary" onclick={onBack}>Back</button>{/if}
     <button class="btn btn-primary" disabled={loading} onclick={submitRaw}>Save</button>
   </div>
 {/if}

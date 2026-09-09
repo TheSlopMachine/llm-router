@@ -1,6 +1,6 @@
 --- @plugin Google AI Studio
 --- @author TheSlopMachine
---- @version 1.0.1
+--- @version 1.0.2
 --- @router_version 0.0.4
 --- @description Google Gemini models via AI Studio API
 --- @allow_host generativelanguage.googleapis.com
@@ -134,10 +134,13 @@ llm_router.register("google", {
 
   credential_schema = function()
     return {
-      { type = "text", text = "Get your API key from Google AI Studio." },
-      { type = "link", text = "Open AI Studio", url = "https://aistudio.google.com/app/apikey" },
-      { type = "input", name = "api_key", input_type = "password", label = "API Key", required = true },
-      { type = "button", text = "Save", form_action = "submit" },
+      { type = "section", title = "Google AI Studio",
+        subtitle = "Get your API key from Google AI Studio.",
+        content = {
+          { type = "link", text = "Open AI Studio", url = "https://aistudio.google.com/app/apikey" },
+          { type = "secret", name = "api_key", label = "API Key", required = true },
+          { type = "button", text = "Save", form_action = "submit" },
+        } },
     }
   end,
 

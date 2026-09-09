@@ -649,30 +649,31 @@ func (c *Credential) DataString(key string) string {
 // UINode is a single node of the lua-driven UI tree shared by
 // config_schema, credential_schema and auth wizards.
 type UINode struct {
-	Type        string         `json:"type"`
-	Text        string         `json:"text,omitempty"`
-	Name        string         `json:"name,omitempty"`
-	Label       string         `json:"label,omitempty"`
-	InputType   string         `json:"input_type,omitempty"`
-	Required    bool           `json:"required,omitempty"`
-	Options     []string       `json:"options,omitempty"`
-	URL         string         `json:"url,omitempty"`
-	Variant     string         `json:"variant,omitempty"`
-	FormAction  string         `json:"form_action,omitempty"`
-	Content     []*UINode      `json:"content,omitempty"`
-	Placeholder string         `json:"placeholder,omitempty"`
-	Value       any            `json:"value,omitempty"`
-	Direction   string         `json:"direction,omitempty"`
-	Align       string         `json:"align,omitempty"`
-	Justify     string         `json:"justify,omitempty"`
-	Gap         string         `json:"gap,omitempty"`
-	Columns     int            `json:"columns,omitempty"`
-	Title       string         `json:"title,omitempty"`
-	Subtitle    string         `json:"subtitle,omitempty"`
-	Wrap        bool           `json:"wrap,omitempty"`
-	Grow        bool           `json:"grow,omitempty"`
-	Size        string         `json:"size,omitempty"`
-	Extra       map[string]any `json:"-"`
+	Type         string            `json:"type"`
+	Text         string            `json:"text,omitempty"`
+	Name         string            `json:"name,omitempty"`
+	Label        string            `json:"label,omitempty"`
+	InputType    string            `json:"input_type,omitempty"`
+	Required     bool              `json:"required,omitempty"`
+	Options      []string          `json:"options,omitempty"`
+	OptionLabels map[string]string `json:"option_labels,omitempty"`
+	URL          string            `json:"url,omitempty"`
+	Variant      string            `json:"variant,omitempty"`
+	FormAction   string            `json:"form_action,omitempty"`
+	Content      []*UINode         `json:"content,omitempty"`
+	Placeholder  string            `json:"placeholder,omitempty"`
+	Value        any               `json:"value,omitempty"`
+	Direction    string            `json:"direction,omitempty"`
+	Align        string            `json:"align,omitempty"`
+	Justify      string            `json:"justify,omitempty"`
+	Gap          string            `json:"gap,omitempty"`
+	Columns      int               `json:"columns,omitempty"`
+	Title        string            `json:"title,omitempty"`
+	Subtitle     string            `json:"subtitle,omitempty"`
+	Wrap         bool              `json:"wrap,omitempty"`
+	Grow         bool              `json:"grow,omitempty"`
+	Size         string            `json:"size,omitempty"`
+	Extra        map[string]any    `json:"-"`
 }
 
 // AuthStepInput is the submit payload for auth_step.

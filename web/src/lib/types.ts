@@ -163,6 +163,7 @@ export interface UINode {
   wrap?: boolean
   grow?: boolean
   size?: string
+  option_labels?: Record<string, string>
 }
 
 export interface SchemaResponse {

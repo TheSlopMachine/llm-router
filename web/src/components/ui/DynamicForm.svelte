@@ -6,14 +6,10 @@
   let {
     nodes,
     values = $bindable({}),
-    onSubmit,
-    submitLabel = 'Submit',
     busy = false,
   } = $props<{
     nodes: UINode[]
     values?: Record<string, unknown>
-    onSubmit: (action: string, values: Record<string, unknown>) => void
-    submitLabel?: string
     busy?: boolean
   }>()
 
@@ -28,17 +24,8 @@
     return node.options?.[0] ?? ''
   }
 
-  function buttonAction(node: UINode): string {
-    return node.form_action || 'submit'
-  }
-
-  function hasSubmitButton(list: UINode[]): boolean {
-    return list.some(
-      (n) =>
-        n.type === 'button' ||
-        ((n.type === 'group' || n.type === 'flow' || n.type === 'grid' || n.type === 'section') &&
-          n.content ? hasSubmitButton(n.content) : false)
-    )
+  function optionLabel(node: UINode, option: string): string {
+    return node.option_labels?.[option] ?? option
   }
 
   const flexDirection: Record<string, string> = { horizontal: 'row', vertical: 'column' }
@@ -56,9 +43,31 @@
     if (node.wrap ?? true) parts.push('flex-wrap: wrap')
     return parts.join('; ')
   }
+</script>
 
-  function handleButton(action: string): void {
-    onSubmit(action, { ...values })
+<script lang="ts" module>
+  import type { UINode as UINodeType } from '../../lib/types'
+
+  // Collects button nodes in tree order for footer rendering.
+  // DynamicForm itself never renders buttons; hosts own the footer.
+  export function collectButtons(list: UINodeType[]): UINodeType[] {
+    const out: UINodeType[] = []
+    const walk = (nodes: UINodeType[]): void => {
+      for (const n of nodes) {
+        if (n.type === 'button') out.push(n)
+        if (n.content) walk(n.content)
+      }
+    }
+    walk(list)
+    return out
+  }
+
+  export function buttonVariant(node: UINodeType): 'primary' | 'secondary' | 'danger' {
+    if (node.variant === 'primary' || node.variant === 'secondary' || node.variant === 'danger') {
+      return node.variant
+    }
+    const action = node.form_action || 'submit'
+    return action === 'cancel' || action === 'restart' ? 'secondary' : 'primary'
   }
 </script>
 
@@ -90,7 +99,7 @@
           onchange={(e) => setValue(node.name ?? '', (e.target as HTMLSelectElement).value)}
         >
           {#each node.options ?? [] as option}
-            <option value={option}>{option}</option>
+            <option value={option}>{optionLabel(node, option)}</option>
           {/each}
         </select>
       </div>
@@ -106,17 +115,6 @@
       </div>
     {:else if node.type === 'link'}
       <p class="form-link"><a href={node.url} target="_blank" rel="noopener noreferrer">{node.text || node.url}</a></p>
-    {:else if node.type === 'button'}
-      <div class="form-actions">
-        <button
-          type="button"
-          class="btn {buttonAction(node) === 'cancel' || buttonAction(node) === 'restart' ? 'btn-secondary' : 'btn-primary'}"
-          disabled={busy}
-          onclick={() => handleButton(buttonAction(node))}
-        >
-          {node.text || submitLabel}
-        </button>
-      </div>
     {:else if node.type === 'secret'}
       <SecretInput
         id="dyn-{node.name}"
@@ -164,13 +162,6 @@
 
 <div class="dynamic-form">
   {@render nodeList(nodes)}
-  {#if !hasSubmitButton(nodes)}
-    <div class="form-actions">
-      <button type="button" class="btn btn-primary" disabled={busy} onclick={() => handleButton('submit')}>
-        {submitLabel}
-      </button>
-    </div>
-  {/if}
 </div>
 
 <style>
@@ -218,11 +209,6 @@
   .form-link {
     margin: 0;
     font-size: 14px;
-  }
-  .form-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 4px;
   }
   .form-group-nested {
     border-left: 2px solid var(--color-outline-soft);
