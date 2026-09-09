@@ -603,16 +603,16 @@ func (s *Service) recordCrash(pluginID, typeKey, cause string) {
 	s.crashes[pluginID] = entries
 }
 
-// Logs returns recent print() lines for a plugin.
+// Logs returns recent print() lines for a plugin, never nil.
 func (s *Service) Logs(pluginID string) []LogEntry {
 	s.logMu.Lock()
 	defer s.logMu.Unlock()
-	return append([]LogEntry(nil), s.logs[pluginID]...)
+	return append([]LogEntry{}, s.logs[pluginID]...)
 }
 
-// Crashes returns recent recorded crashes for a plugin.
+// Crashes returns recent recorded crashes for a plugin, never nil.
 func (s *Service) Crashes(pluginID string) []CrashEntry {
 	s.logMu.Lock()
 	defer s.logMu.Unlock()
-	return append([]CrashEntry(nil), s.crashes[pluginID]...)
+	return append([]CrashEntry{}, s.crashes[pluginID]...)
 }

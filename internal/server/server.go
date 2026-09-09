@@ -119,6 +119,11 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	providerSvc.SetOnChanged(invalidate)
 	credSvc.SetOnChanged(invalidate)
 	luaSvc.SetOnChanged(func(typeKey string) {
+		// Runtime plugin changes (install/update/rollback/enable) must
+		// create default provider rows, previously seeded at startup.
+		if err := providerSvc.SyncDefaultProviders(); err != nil {
+			logger.Warn("sync default providers failed", "err", err)
+		}
 		providers, err := providerSvc.GetByType(typeKey)
 		if err != nil {
 			return

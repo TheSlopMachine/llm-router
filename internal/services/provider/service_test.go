@@ -211,6 +211,47 @@ llm_router.register("seeded-type", {
 	}
 }
 
+func TestProviderService_SyncDefaultProvidersAfterRuntimeInstall(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+
+	luaSvc, err := luaplugin.New(database, nil)
+	if err != nil {
+		t.Fatalf("lua service: %v", err)
+	}
+	svc.SetLuaService(luaSvc)
+
+	if err := svc.EnsureSeeded(); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	const runtimeSource = `--- @plugin Runtime Plugin
+--- @author tester
+--- @version 1.0.0
+--- @router_version 0.0.4
+--- @allow_host example.com
+
+llm_router.register("runtime-type", {
+  complete = function() end,
+})
+`
+	if _, err := luaSvc.Install([]byte(runtimeSource), luaplugin.PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install plugin: %v", err)
+	}
+	if err := svc.SyncDefaultProviders(); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	inst, err := svc.Get("runtime-type")
+	if err != nil {
+		t.Fatalf("default provider missing after runtime install: %v", err)
+	}
+	if inst.Name != "Runtime Plugin" {
+		t.Fatalf("name: got %q, want %q", inst.Name, "Runtime Plugin")
+	}
+	if !inst.IsUIReadonly {
+		t.Fatalf("seeded singleton must be readonly: %+v", inst)
+	}
+}
+
 func TestProviderService_EnsureSeededBackfillsMissingIcon(t *testing.T) {
 	database := testutil.SetupTestDB(t)
 	svc := provider.NewService(database)

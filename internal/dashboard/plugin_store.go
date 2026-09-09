@@ -166,6 +166,9 @@ func (h *Handler) apiStoreSearch(w http.ResponseWriter, r *http.Request) {
 	out := make([]map[string]any, 0, len(repos))
 	for range repos {
 		res := <-ch
+		if res.files == nil {
+			res.files = []storeFileView{}
+		}
 		out = append(out, map[string]any{
 			"repo": res.repo, "files": res.files, "error": res.err,
 		})
@@ -217,7 +220,7 @@ func (h *Handler) describeFiles(r *http.Request, repoID string, files []pluginre
 			view.Author = manifest.Author
 			view.Version = manifest.Version
 			view.Description = manifest.Description
-			view.AllowHosts = manifest.AllowHosts
+			view.AllowHosts = append([]string{}, manifest.AllowHosts...)
 			view.Unsafe = manifest.Unsafe
 			if id, err := luaplugin.BuildID(luaplugin.PluginOrigin{RepoID: repoID, Path: f.Path}, manifest); err == nil {
 				if existing, err := h.luaSvc.Get(id); err == nil && existing != nil {

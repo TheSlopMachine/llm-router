@@ -5,7 +5,6 @@ package pluginrepo
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +13,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
@@ -78,7 +78,7 @@ func New(database *db.DB) *Service {
 		client:    &http.Client{Timeout: 30 * time.Second},
 		providers: map[string]RepoProvider{},
 	}
-	gh := &githubProvider{client: s.client}
+	gh := &githubProvider{client: s.client, branches: map[string]string{}}
 	gen := &genericProvider{client: s.client}
 	s.providers[gh.Kind()] = gh
 	s.providers[gen.Kind()] = gen
@@ -112,7 +112,7 @@ func (s *Service) Get(id string) (*RepoRecord, error) {
 	return s.repo.Get(id)
 }
 
-// AddGitHub validates owner/repo via the Contents API and stores the repo.
+// AddGitHub validates owner/repo via index.json and stores the repo.
 func (s *Service) AddGitHub(ctx context.Context, owner, repo string) (*RepoRecord, error) {
 	owner = strings.TrimSpace(owner)
 	repo = strings.TrimSpace(repo)
@@ -273,54 +273,133 @@ func slugURL(s string) string {
 }
 
 // ─────────────────────────────────────────────
-// GitHub provider (Contents API, no git clone)
+// GitHub provider (raw files + index.json, no API calls)
 // ─────────────────────────────────────────────
 
+var errRawNotFound = errors.New("raw file not found")
+
 type githubProvider struct {
-	client *http.Client
+	client  *http.Client
+	rawBase string // override in tests; defaults to raw.githubusercontent.com
+
+	mu       sync.Mutex
+	branches map[string]string // repo ID -> resolved default branch
 }
 
 func (g *githubProvider) Kind() string { return "github" }
 
-type githubContentEntry struct {
-	Name        string `json:"name"`
-	Path        string `json:"path"`
-	Type        string `json:"type"`
-	DownloadURL string `json:"download_url"`
-	Content     string `json:"content"`
-	Encoding    string `json:"encoding"`
+// githubIndex is llm-router-plugins/index.json: file names only.
+// Versions and descriptions come from manifests at runtime.
+type githubIndex struct {
+	Plugins []string `json:"plugins"`
 }
 
-func (g *githubProvider) apiGet(ctx context.Context, url string, target any) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return err
+func (g *githubProvider) rawBaseURL() string {
+	if g.rawBase != "" {
+		return g.rawBase
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
+	return "https://raw.githubusercontent.com"
+}
+
+func (g *githubProvider) rawURL(ref RepoRef, branch string, parts ...string) string {
+	return g.rawBaseURL() + "/" + ref.Owner + "/" + ref.Repo + "/" + branch + "/" + strings.Join(parts, "/")
+}
+
+func (g *githubProvider) rawHead(ctx context.Context, url string) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, "HEAD", url, nil)
+	if err != nil {
+		return 0, err
+	}
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		return fmt.Errorf("github api %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	return resp.StatusCode, nil
+}
+
+func (g *githubProvider) download(ctx context.Context, url string, limit int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
 	}
-	return json.NewDecoder(resp.Body).Decode(target)
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, errRawNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download %q: status %d", url, resp.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, limit))
+}
+
+// resolveBranch finds the default branch by probing index.json on main,
+// then master. The result is cached in memory.
+func (g *githubProvider) resolveBranch(ctx context.Context, ref RepoRef) (string, error) {
+	g.mu.Lock()
+	branch, ok := g.branches[ref.ID]
+	g.mu.Unlock()
+	if ok {
+		return branch, nil
+	}
+	for _, candidate := range []string{"main", "master"} {
+		code, err := g.rawHead(ctx, g.rawURL(ref, candidate, "llm-router-plugins", "index.json"))
+		if err != nil {
+			return "", err
+		}
+		if code == http.StatusOK {
+			g.mu.Lock()
+			g.branches[ref.ID] = candidate
+			g.mu.Unlock()
+			return candidate, nil
+		}
+		if code != http.StatusNotFound {
+			return "", fmt.Errorf("resolve branch for %q: status %d", ref.ID, code)
+		}
+	}
+	return "", fmt.Errorf("index.json not found on main or master for %q", ref.ID)
+}
+
+func (g *githubProvider) fetchIndex(ctx context.Context, ref RepoRef) (*githubIndex, string, error) {
+	branch, err := g.resolveBranch(ctx, ref)
+	if err != nil {
+		return nil, "", err
+	}
+	body, err := g.download(ctx, g.rawURL(ref, branch, "llm-router-plugins", "index.json"), 64<<10)
+	if err != nil {
+		return nil, "", err
+	}
+	var idx githubIndex
+	if err := json.Unmarshal(body, &idx); err != nil {
+		return nil, "", fmt.Errorf("decode index: %w", err)
+	}
+	if len(idx.Plugins) == 0 {
+		return nil, "", fmt.Errorf("index lists no plugins for %q", ref.ID)
+	}
+	return &idx, branch, nil
 }
 
 func (g *githubProvider) ListPluginFiles(ctx context.Context, ref RepoRef) ([]RepoFile, error) {
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/llm-router-plugins", ref.Owner, ref.Repo)
-	var entries []githubContentEntry
-	if err := g.apiGet(ctx, apiURL, &entries); err != nil {
+	idx, _, err := g.fetchIndex(ctx, ref)
+	if err != nil {
 		return nil, err
 	}
-	var out []RepoFile
-	for _, e := range entries {
-		if e.Type != "file" || !strings.HasSuffix(e.Name, ".lua") {
+	out := []RepoFile{}
+	seen := map[string]bool{}
+	for _, name := range idx.Plugins {
+		name = strings.TrimSpace(name)
+		if name == "" || !strings.HasSuffix(name, ".lua") || strings.Contains(name, "/") {
 			continue
 		}
-		out = append(out, RepoFile{Path: "llm-router-plugins/" + e.Name, URL: e.DownloadURL})
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, RepoFile{Path: "llm-router-plugins/" + name})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out, nil
@@ -330,59 +409,30 @@ func (g *githubProvider) FetchFile(ctx context.Context, ref RepoRef, path string
 	if !strings.HasPrefix(path, "llm-router-plugins/") || strings.Contains(strings.TrimPrefix(path, "llm-router-plugins/"), "/") {
 		return nil, fmt.Errorf("invalid plugin path %q", path)
 	}
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s", ref.Owner, ref.Repo, path)
-	var entry githubContentEntry
-	if err := g.apiGet(ctx, apiURL, &entry); err != nil {
-		return nil, err
-	}
-	if entry.DownloadURL == "" {
-		return nil, fmt.Errorf("no download url for %q", path)
-	}
-	req, err := http.NewRequestWithContext(ctx, "GET", entry.DownloadURL, nil)
+	branch, err := g.resolveBranch(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := g.client.Do(req)
+	body, err := g.download(ctx, g.rawURL(ref, branch, path), 1<<20)
 	if err != nil {
+		if errors.Is(err, errRawNotFound) {
+			return nil, fmt.Errorf("plugin %q not found in %q", path, ref.ID)
+		}
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download %q: status %d", path, resp.StatusCode)
-	}
-	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	return body, nil
 }
 
 func (g *githubProvider) fetchRootFile(ctx context.Context, ref RepoRef, name string) (string, bool, error) {
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s", ref.Owner, ref.Repo, name)
-	var entry githubContentEntry
-	if err := g.apiGet(ctx, apiURL, &entry); err != nil {
+	branch, err := g.resolveBranch(ctx, ref)
+	if err != nil {
 		return "", false, nil
 	}
-	if entry.Encoding == "base64" && entry.Content != "" {
-		raw, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(entry.Content, "\n", ""))
-		if err != nil {
-			return "", false, nil
-		}
-		return string(raw), true, nil
+	body, err := g.download(ctx, g.rawURL(ref, branch, name), 256<<10)
+	if err != nil {
+		return "", false, nil
 	}
-	if entry.DownloadURL != "" {
-		req, err := http.NewRequestWithContext(ctx, "GET", entry.DownloadURL, nil)
-		if err != nil {
-			return "", false, nil
-		}
-		resp, err := g.client.Do(req)
-		if err != nil {
-			return "", false, nil
-		}
-		defer resp.Body.Close()
-		raw, err := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
-		if err != nil {
-			return "", false, nil
-		}
-		return string(raw), true, nil
-	}
-	return "", false, nil
+	return string(body), true, nil
 }
 
 func (g *githubProvider) ReadMe(ctx context.Context, ref RepoRef) (string, bool, error) {

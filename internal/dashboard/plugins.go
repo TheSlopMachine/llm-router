@@ -28,13 +28,14 @@ type pluginView struct {
 }
 
 func toPluginView(rec *luaplugin.PluginRecord) pluginView {
-	typeKeys := append([]string(nil), rec.TypeKeys...)
+	typeKeys := append([]string{}, rec.TypeKeys...)
+	allowHosts := append([]string{}, rec.AllowHosts...)
 	sort.Strings(typeKeys)
 	return pluginView{
 		ID: rec.ID, DisplayName: rec.DisplayName, Author: rec.Author,
 		Version: rec.Version, RouterVersion: rec.RouterVersion,
 		Description: rec.Description, License: rec.License,
-		AllowHosts: rec.AllowHosts, Unsafe: rec.Unsafe,
+		AllowHosts: allowHosts, Unsafe: rec.Unsafe,
 		TypeKeys: typeKeys, Enabled: rec.Enabled, Origin: rec.Origin,
 		InstalledAt: rec.InstalledAt, UpdatedAt: rec.UpdatedAt,
 		HistoryCount: len(rec.History),

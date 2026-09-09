@@ -83,7 +83,7 @@ internal/services/
   credential/            credential pool, usage stats
   agent/                 agents/* virtual provider
   luaplugin/             Lua execution core: manifest, sandbox, HTTP+SSRF, storage
-  pluginrepo/            plugin store: GitHub Contents API + generic index; code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
+  pluginrepo/            plugin store: GitHub raw `index.json` + generic index; code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
   modelinfo/             model metadata cache (1h TTL)
   metrics/               1m buckets, 90d retention
   maintenance/           refresh + cleanup
@@ -190,6 +190,7 @@ Rule: before finishing any `.svelte` change, re-check every `$effect` touched ag
 | 8 | Truncate diagnostics output with tail/head | Diagnostics matter and truncating wastes time. NEVER truncate them. |
 | 9 | Fall back silently | NEVER swallow a failure and continue on a fallback path. Surface every failure as an error — return it to the caller, log it, or both — or route it to an explicit, named on-fail branch. Never fall through unannounced. |
 | 10 | Match errors by string | NEVER match error codes or kinds with `strings.Contains(err.Error(), ...)` or message substrings. Define sentinel errors and match with `errors.Is` / `errors.As`. |
+| 11 | Patch a weak API contract in the frontend | Repetitive `??` / `?.` over backend data shapes means the contract is wrong. Fix the backend to return consistent shapes (arrays never null, objects never null when the schema promises them). Frontend guards stay only for genuinely optional local state. |
 
 ## 7. Lua Plugins
 
