@@ -2,6 +2,7 @@
   import { fly, fade } from 'svelte/transition'
   import { cubicOut, cubicIn } from 'svelte/easing'
   import { untrack } from 'svelte'
+  import { portal } from '../lib/portal'
 
   type SelectOption = { value: string; label: string }
   type Action = { id: string; label: string; icon?: string; disabled?: boolean; danger?: boolean }
@@ -42,7 +43,11 @@
   let highlightedIndex = $state(-1)
   let dropdownElement = $state<HTMLDivElement>()
   let triggerElement = $state<HTMLButtonElement>()
+  let menuElement = $state<HTMLDivElement>()
   let shouldFlipUp = $state(false)
+  let menuTop = $state(0)
+  let menuLeft = $state(0)
+  let menuWidth = $state(0)
 
   let selectedOption = $derived(options.find((opt: SelectOption) => opt.value === value))
   let selectedLabel = $derived(selectedOption?.label || placeholder)
@@ -57,7 +62,7 @@
     if (disabled) return
     isOpen = !isOpen
     if (isOpen) {
-      checkFlipPosition()
+      positionMenu()
       if (!isActionMode) {
         highlightedIndex = options.findIndex((opt: SelectOption) => opt.value === value)
       }
@@ -80,15 +85,24 @@
     isOpen = false
   }
 
-  function checkFlipPosition() {
-    if (!triggerElement) return
-    const rect = triggerElement.getBoundingClientRect()
-    const spaceBelow = window.innerHeight - rect.bottom
-    const spaceAbove = rect.top
-    const estimatedHeight = isActionMode
+  function estimateMenuHeight(): number {
+    return isActionMode
       ? Math.min(actions.length * 40 + 8, 180)
       : Math.min(filteredOptions.length * 40 + (showSearch ? 50 : 0), 180)
+  }
+
+  // positionMenu pins the portaled menu to the trigger with fixed
+  // coordinates, so overflow:hidden ancestors cannot clip it.
+  function positionMenu(): void {
+    if (!triggerElement) return
+    const rect = triggerElement.getBoundingClientRect()
+    const estimatedHeight = estimateMenuHeight()
+    const spaceBelow = window.innerHeight - rect.bottom
+    const spaceAbove = rect.top
     shouldFlipUp = spaceBelow < estimatedHeight && spaceAbove > spaceBelow
+    menuTop = shouldFlipUp ? Math.max(8, rect.top - estimatedHeight - 4) : rect.bottom + 4
+    menuLeft = Math.max(8, rect.left)
+    menuWidth = Math.max(1, Math.round(rect.width))
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -151,14 +165,33 @@
   }
 
   $effect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (untrack(() => isOpen) && dropdownElement && !dropdownElement.contains(e.target as Node)) {
+    function isMenuOpen(): boolean {
+      return untrack(() => isOpen)
+    }
+    function handleClickOutside(e: MouseEvent): void {
+      const target = e.target as Node
+      if (
+        isMenuOpen() &&
+        dropdownElement &&
+        menuElement &&
+        !dropdownElement.contains(target) &&
+        !menuElement.contains(target)
+      ) {
         isOpen = false
         searchQuery = ''
       }
     }
+    function handleReposition(): void {
+      if (isMenuOpen()) positionMenu()
+    }
     document.addEventListener('click', handleClickOutside)
-    return () => document.removeEventListener('click', handleClickOutside)
+    window.addEventListener('resize', handleReposition)
+    window.addEventListener('scroll', handleReposition, true)
+    return () => {
+      document.removeEventListener('click', handleClickOutside)
+      window.removeEventListener('resize', handleReposition)
+      window.removeEventListener('scroll', handleReposition, true)
+    }
   })
 </script>
 
@@ -182,9 +215,15 @@
   </button>
 
   {#if isOpen}
+    {@const menuStyle = effectiveAutoWidth
+      ? `top: ${menuTop}px; left: ${menuLeft}px; min-width: ${menuWidth}px;`
+      : `top: ${menuTop}px; left: ${menuLeft}px; width: ${menuWidth}px;`}
     <div
+      use:portal
+      bind:this={menuElement}
       class="dropdown-menu"
-      class:flip-up={shouldFlipUp}
+      class:full-width={!effectiveAutoWidth}
+      style={menuStyle}
       id={isActionMode ? undefined : 'dropdown-menu'}
       role={isActionMode ? 'menu' : 'listbox'}
       in:fly={{ y: shouldFlipUp ? 8 : -8, duration: 200, easing: cubicOut, opacity: 0 }}
@@ -258,13 +297,6 @@
     flex: 0 1 auto;
   }
 
-  .dropdown.autoWidth .dropdown-menu {
-    min-width: 100%;
-    width: max-content;
-    max-width: 320px;
-    right: auto;
-  }
-
   .dropdown.disabled {
     opacity: 0.6;
     cursor: not-allowed;
@@ -327,11 +359,10 @@
   }
 
   .dropdown-menu {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    right: 0;
-    z-index: 1000;
+    position: fixed;
+    z-index: 2000;
+    width: max-content;
+    max-width: min(320px, calc(100vw - 16px));
     background: var(--color-surface);
     border: 1px solid var(--color-outline-light);
     border-radius: 8px;
@@ -339,9 +370,8 @@
     overflow: hidden;
   }
 
-  .dropdown-menu.flip-up {
-    top: auto;
-    bottom: calc(100% + 4px);
+  .dropdown-menu.full-width {
+    width: auto;
   }
 
   .dropdown-search {
