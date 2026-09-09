@@ -499,8 +499,8 @@ func BuildID(origin PluginOrigin, manifest *Manifest) (string, error) {
 	if strings.TrimSpace(origin.RepoID) == "" {
 		return "", fmt.Errorf("repo origin requires repo id")
 	}
-	if strings.Contains(origin.RepoID, "/") || strings.Contains(origin.RepoID, "..") {
-		return "", fmt.Errorf("invalid repo id %q", origin.RepoID)
+	if err := validateRepoID(origin.RepoID); err != nil {
+		return "", err
 	}
 	base := path.Base(origin.Path)
 	if !strings.HasSuffix(base, ".lua") {
@@ -515,6 +515,23 @@ func BuildID(origin PluginOrigin, manifest *Manifest) (string, error) {
 		return "", fmt.Errorf("plugin path %q must live directly in llm-router-plugins/", origin.Path)
 	}
 	return origin.RepoID + "/" + author + "/" + name, nil
+}
+
+// validateRepoID accepts slash-separated repository IDs such as
+// "github/<owner>/<repo>" and rejects traversal and malformed values.
+func validateRepoID(id string) error {
+	if strings.Contains(id, "\x00") {
+		return fmt.Errorf("invalid repo id %q", id)
+	}
+	if strings.HasPrefix(id, "/") || strings.HasSuffix(id, "/") {
+		return fmt.Errorf("invalid repo id %q", id)
+	}
+	for _, segment := range strings.Split(id, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return fmt.Errorf("invalid repo id %q", id)
+		}
+	}
+	return nil
 }
 
 func sanitizeIDPart(s string) (string, error) {
