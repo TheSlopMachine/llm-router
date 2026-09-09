@@ -2,7 +2,6 @@
   import SearchField from '../ui/SearchField.svelte'
   import EmptyState from '../EmptyState.svelte'
   import PluginCard from './PluginCard.svelte'
-  import PluginDetails from './PluginDetails.svelte'
   import { createPluginState } from './plugin-state.svelte'
   import type { Plugin, PluginUpdate } from '../../lib/types'
 
@@ -92,22 +91,15 @@
           ...(!plugin.enabled ? [{ text: 'Disabled', kind: '' as const }] : []),
           ...(update ? [{ text: `Update: v${update.current} → v${update.latest}`, kind: 'badge-green' as const }] : [])
         ]}
-        subtitle={plugin.id}
         description={plugin.description}
-        typeKeys={plugin.type_keys}
         mode="installed"
+        enabled={plugin.enabled}
+        toggleLabel={plugin.enabled ? `Disable ${plugin.display_name}` : `Enable ${plugin.display_name}`}
+        onToggle={(next) => pluginState.setEnabled(plugin, next)}
+        onDetails={() => pluginState.openDetails(plugin)}
         actions={pluginState.buildActions(plugin)}
         onaction={(id) => pluginState.handleAction(plugin, id)}
-      >
-        {#if pluginState.expanded === plugin.id}
-          <PluginDetails
-            {plugin}
-            logs={pluginState.details[plugin.id]?.logs ?? []}
-            crashes={pluginState.details[plugin.id]?.crashes ?? []}
-            loading={pluginState.detailsLoading[plugin.id] ?? false}
-          />
-        {/if}
-      </PluginCard>
+      />
     {/each}
   </div>
 {/if}

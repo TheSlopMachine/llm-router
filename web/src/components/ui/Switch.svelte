@@ -4,12 +4,14 @@
     label,
     id,
     disabled = false,
+    ariaLabel = 'Toggle',
     onchange
   } = $props<{
     checked?: boolean
     label?: string
     id?: string
     disabled?: boolean
+    ariaLabel?: string
     onchange?: (v: boolean) => void
   }>()
 
@@ -44,7 +46,7 @@
     type="button"
     role="switch"
     aria-checked={checked}
-    aria-label="Toggle"
+    aria-label={ariaLabel}
     class="switch"
     class:on={checked}
     {disabled}

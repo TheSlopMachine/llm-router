@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte'
   import ActionDropdown from '../ActionDropdown.svelte'
+  import Switch from '../ui/Switch.svelte'
 
   export interface PluginBadge {
     text: string
@@ -19,30 +19,32 @@
     title,
     meta = '',
     badges = [],
-    subtitle = '',
     description = '',
-    typeKeys = [],
     mode,
+    enabled = false,
+    toggleLabel = 'Toggle plugin',
+    onToggle,
+    onDetails,
     actions = [],
+    onaction,
     installLabel = 'Install',
     installing = false,
-    onInstall,
-    onaction,
-    children
+    onInstall
   } = $props<{
     title: string
     meta?: string
     badges?: PluginBadge[]
-    subtitle?: string
     description?: string
-    typeKeys?: string[]
     mode: 'installed' | 'uninstalled'
+    enabled?: boolean
+    toggleLabel?: string
+    onToggle?: (next: boolean) => void
+    onDetails?: () => void
     actions?: PluginCardAction[]
+    onaction?: (id: string) => void
     installLabel?: string
     installing?: boolean
     onInstall?: () => void
-    onaction?: (id: string) => void
-    children?: Snippet
   }>()
 </script>
 
@@ -56,25 +58,23 @@
       {/each}
     </div>
     <div class="plugin-actions">
-      {#if mode === 'uninstalled'}
+      {#if mode === 'installed'}
+        <Switch checked={enabled} ariaLabel={toggleLabel} onchange={(next) => onToggle?.(next)} />
+        <button class="btn-icon" onclick={() => onDetails?.()} aria-label="Details">
+          <span class="icon">info</span>
+        </button>
+        <ActionDropdown {actions} label="Actions" rounded="lg" onaction={(id) => onaction?.(id)} />
+      {:else}
+        <button class="btn-icon" onclick={() => onDetails?.()} aria-label="Details">
+          <span class="icon">info</span>
+        </button>
         <button class="btn btn-secondary" disabled={installing} onclick={() => onInstall?.()}>
           {installing ? 'Installing…' : installLabel}
         </button>
-      {:else}
-        <ActionDropdown {actions} label="Actions" rounded="lg" onaction={(id) => onaction?.(id)} />
       {/if}
     </div>
   </div>
-  {#if subtitle}<div class="muted">{subtitle}</div>{/if}
   {#if description}<div class="muted">{description}</div>{/if}
-  {#if typeKeys.length > 0}
-    <div class="type-keys">
-      {#each typeKeys as key}
-        <span class="badge">{key}</span>
-      {/each}
-    </div>
-  {/if}
-  {#if children}{@render children()}{/if}
 </div>
 
 <style>
@@ -106,16 +106,7 @@
     color: var(--color-text-soft);
     margin-top: 4px;
   }
-  .type-keys {
-    display: flex;
-    gap: 6px;
-    margin-top: 8px;
-    flex-wrap: wrap;
-  }
   .badge {
     margin-left: 6px;
-  }
-  .type-keys .badge {
-    margin-left: 0;
   }
 </style>

@@ -5,8 +5,11 @@
   import SearchField from '../ui/SearchField.svelte'
   import EmptyState from '../EmptyState.svelte'
   import PluginCard from './PluginCard.svelte'
-  import PluginDetails from './PluginDetails.svelte'
+  import PluginDetailsModal from './PluginDetailsModal.svelte'
+  import RepoDetailsModal from './RepoDetailsModal.svelte'
   import { createPluginState } from './plugin-state.svelte'
+  import { factsFromFile } from './plugin-facts'
+  import { confirmInstall } from './install-confirm'
   import type { Plugin, PluginRepo, PluginUpdate, StoreFile } from '../../lib/types'
 
   interface RepoEntry {
@@ -74,6 +77,16 @@
 
   let availableUpdates = $derived(updates.filter((u: PluginUpdate) => u.update_available))
 
+  let fileByOrigin = $derived.by(() => {
+    const map = new Map<string, StoreFile>()
+    for (const entry of repos) {
+      for (const f of entry.files) {
+        map.set(`${f.repo_id}/${f.path}`, f)
+      }
+    }
+    return map
+  })
+
   function matchesQuery(f: StoreFile): boolean {
     const q = query.trim().toLowerCase()
     if (!q) return true
@@ -111,11 +124,51 @@
   }
 
   async function handleCatalogAction(plugin: Plugin, file: StoreFile, id: string): Promise<void> {
-    if (id === 'update' || id === 'reinstall') {
-      await installEntry(file.repo_id, file.path)
+    if (id === 'update') {
+      await confirmAndInstall(file, 'Update')
+      return
+    }
+    if (id === 'reinstall') {
+      await confirmAndInstall(file, 'Reinstall')
       return
     }
     await pluginState.handleAction(plugin, id)
+  }
+
+  async function confirmAndInstall(file: StoreFile, label: string): Promise<void> {
+    const confirmed = await confirmInstall(
+      `${label} ${file.display_name || file.path}`,
+      factsFromFile(file),
+      label
+    )
+    if (!confirmed) return
+    await installEntry(file.repo_id, file.path)
+  }
+
+  function openFileDetails(file: StoreFile): void {
+    modal.open({
+      title: file.display_name || file.path,
+      content: PluginDetailsModal,
+      severity: 'medium',
+      size: 'medium',
+      props: { facts: factsFromFile(file) }
+    })
+  }
+
+  function openRepoDetails(entry: RepoEntry): void {
+    modal.open({
+      title: entry.repo.title || entry.repo.id,
+      content: RepoDetailsModal,
+      severity: 'medium',
+      size: 'small',
+      props: {
+        title: entry.repo.title || entry.repo.id,
+        description: entry.repo.description,
+        url: entry.repo.url,
+        builtin: entry.repo.builtin,
+        fileCount: entry.files.length
+      }
+    })
   }
 
   async function addRepo(): Promise<void> {
@@ -224,9 +277,14 @@
   <div class="card updates-card">
     <h2>Updates available</h2>
     {#each availableUpdates as u}
+      {@const file = fileByOrigin.get(`${u.repo_id}/${u.path}`) ?? null}
       <div class="update-row">
         <span>{u.plugin_id}: {u.current} → {u.latest}</span>
-        <button class="btn btn-secondary" onclick={() => installEntry(u.repo_id, u.path)}>Update</button>
+        {#if file}
+          <button class="btn btn-secondary" onclick={() => confirmAndInstall(file, 'Update')}>Update</button>
+        {:else}
+          <button class="btn btn-secondary" onclick={() => installEntry(u.repo_id, u.path)}>Update</button>
+        {/if}
       </div>
     {/each}
   </div>
@@ -252,10 +310,12 @@
         <div>
           <h2>{entry.repo.title || entry.repo.id}</h2>
           {#if entry.repo.description}<div class="muted">{entry.repo.description}</div>{/if}
-          <div class="muted">{entry.repo.url}</div>
         </div>
         <div class="repo-badges">
           {#if entry.repo.builtin}<span class="badge">Built-in</span>{/if}
+          <button class="btn-icon" onclick={() => openRepoDetails(entry)} aria-label="Repository details">
+            <span class="icon">info</span>
+          </button>
           {#if !entry.repo.builtin}
             <button class="btn-icon" onclick={() => removeRepo(entry.repo.id)} aria-label="Remove repository">
               <span class="icon">delete</span>
@@ -283,33 +343,26 @@
                     ? [{ text: `Update: v${f.installed_version} → v${f.version}`, kind: 'badge-green' as const }]
                     : [{ text: 'Installed', kind: '' as const }])
                 ]}
-                subtitle={f.path}
                 description={f.description}
-                typeKeys={plugin.type_keys}
                 mode="installed"
+                enabled={plugin.enabled}
+                toggleLabel={plugin.enabled ? `Disable ${plugin.display_name}` : `Enable ${plugin.display_name}`}
+                onToggle={(next) => pluginState.setEnabled(plugin, next)}
+                onDetails={() => pluginState.openDetails(plugin)}
                 actions={pluginState.buildActions(plugin)}
                 onaction={(id) => handleCatalogAction(plugin, f, id)}
-              >
-                {#if pluginState.expanded === plugin.id}
-                  <PluginDetails
-                    {plugin}
-                    logs={pluginState.details[plugin.id]?.logs ?? []}
-                    crashes={pluginState.details[plugin.id]?.crashes ?? []}
-                    loading={pluginState.detailsLoading[plugin.id] ?? false}
-                  />
-                {/if}
-              </PluginCard>
+              />
             {:else}
               <PluginCard
                 title={f.display_name || f.path}
                 meta={f.version ? `v${f.version}` : ''}
                 badges={[...(f.unsafe ? [{ text: 'Unrestricted network', kind: 'badge-red' as const }] : [])]}
-                subtitle={f.path}
                 description={f.description}
                 mode="uninstalled"
                 installLabel="Install"
                 installing={installingPath === key}
-                onInstall={() => installEntry(f.repo_id, f.path)}
+                onDetails={() => openFileDetails(f)}
+                onInstall={() => confirmAndInstall(f, 'Install')}
               />
             {/if}
             {#if f.error}<div class="error-msg">{f.error}</div>{/if}

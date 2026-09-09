@@ -3,15 +3,13 @@ import { modal } from '../../lib/modal.svelte'
 import { getErrorMessage } from '../../lib/errors'
 import type { Plugin, PluginUpdate } from '../../lib/types'
 import type { PluginCardAction } from './PluginCard.svelte'
-
-interface PluginDetails {
-  logs: Array<{ at: string; message: string }>
-  crashes: Array<{ at: string; type_key: string; cause: string }>
-}
+import PluginDetailsModal from './PluginDetailsModal.svelte'
+import { factsFromPlugin } from './plugin-facts'
+import { confirmInstall } from './install-confirm'
 
 /**
  * Shared installed-plugin behavior for Installed and Catalog tabs.
- * Owns expanded details, lazy logs/crashes loading and all mutations.
+ * Details open in a modal; install/update/reinstall confirm permissions.
  */
 export function createPluginState(opts: {
   onReload: () => Promise<void>
@@ -19,26 +17,20 @@ export function createPluginState(opts: {
   findUpdate: (plugin: Plugin) => PluginUpdate | null
   findRepoPath: (plugin: Plugin) => { repo_id: string; path: string } | null
 }) {
-  let expanded = $state<string | null>(null)
-  let details = $state<Record<string, PluginDetails>>({})
-  let detailsLoading = $state<Record<string, boolean>>({})
-
-  async function toggleDetails(plugin: Plugin): Promise<void> {
-    if (expanded === plugin.id) {
-      expanded = null
-      return
-    }
-    expanded = plugin.id
-    if (!details[plugin.id]) {
-      detailsLoading[plugin.id] = true
-      try {
-        const [logs, crashes] = await Promise.all([api.plugins.logs(plugin.id), api.plugins.crashes(plugin.id)])
-        details[plugin.id] = { logs, crashes }
-      } catch (e) {
-        opts.onError(getErrorMessage(e))
-      } finally {
-        detailsLoading[plugin.id] = false
-      }
+  async function openDetails(plugin: Plugin): Promise<void> {
+    modal.open({
+      title: plugin.display_name,
+      content: PluginDetailsModal,
+      severity: 'medium',
+      size: 'medium',
+      props: { facts: factsFromPlugin(plugin), logs: [], crashes: [], loading: true }
+    })
+    try {
+      const [logs, crashes] = await Promise.all([api.plugins.logs(plugin.id), api.plugins.crashes(plugin.id)])
+      modal.updateProps({ logs, crashes, loading: false })
+    } catch (e) {
+      modal.close()
+      opts.onError(getErrorMessage(e))
     }
   }
 
@@ -85,16 +77,21 @@ export function createPluginState(opts: {
     if (!confirmed) return
     try {
       await api.plugins.remove(plugin.id)
-      if (expanded === plugin.id) expanded = null
       await opts.onReload()
     } catch (e) {
       opts.onError(getErrorMessage(e))
     }
   }
 
-  async function updatePlugin(plugin: Plugin): Promise<void> {
+  async function updatePlugin(plugin: Plugin, confirmLabel: string): Promise<void> {
     const target = opts.findUpdate(plugin) ?? opts.findRepoPath(plugin)
     if (!target) return
+    const confirmed = await confirmInstall(
+      `${confirmLabel} ${plugin.display_name}`,
+      factsFromPlugin(plugin),
+      confirmLabel
+    )
+    if (!confirmed) return
     try {
       await api.plugins.installFromRepo(target.repo_id, target.path)
       await opts.onReload()
@@ -107,12 +104,6 @@ export function createPluginState(opts: {
     const update = opts.findUpdate(plugin)
     const origin = opts.findRepoPath(plugin)
     const actions: PluginCardAction[] = []
-    if (plugin.enabled) {
-      actions.push({ id: 'disable', label: 'Disable', icon: 'toggle_off' })
-    } else {
-      actions.push({ id: 'enable', label: 'Enable', icon: 'toggle_on' })
-    }
-    actions.push({ id: 'details', label: expanded === plugin.id ? 'Hide details' : 'Details', icon: 'info' })
     if (update) {
       actions.push({ id: 'update', label: `Update to v${update.latest}`, icon: 'upgrade' })
     } else if (origin) {
@@ -127,20 +118,11 @@ export function createPluginState(opts: {
 
   async function handleAction(plugin: Plugin, id: string): Promise<void> {
     switch (id) {
-      case 'enable':
-        await setEnabled(plugin, true)
-        break
-      case 'disable':
-        await setEnabled(plugin, false)
-        break
-      case 'details':
-        await toggleDetails(plugin)
-        break
       case 'update':
-        await updatePlugin(plugin)
+        await updatePlugin(plugin, 'Update')
         break
       case 'reinstall':
-        await updatePlugin(plugin)
+        await updatePlugin(plugin, 'Reinstall')
         break
       case 'rollback':
         await rollback(plugin)
@@ -152,16 +134,7 @@ export function createPluginState(opts: {
   }
 
   return {
-    get expanded(): string | null {
-      return expanded
-    },
-    get details(): Record<string, PluginDetails> {
-      return details
-    },
-    get detailsLoading(): Record<string, boolean> {
-      return detailsLoading
-    },
-    toggleDetails,
+    openDetails,
     setEnabled,
     rollback,
     removePlugin,
