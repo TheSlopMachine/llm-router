@@ -11,13 +11,15 @@ import (
 )
 
 type repoView struct {
-	ID      string `json:"id"`
-	URL     string `json:"url"`
-	Builtin bool   `json:"builtin"`
+	ID          string `json:"id"`
+	URL         string `json:"url"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Builtin     bool   `json:"builtin"`
 }
 
 func toRepoView(rec *pluginrepo.RepoRecord) repoView {
-	return repoView{ID: rec.ID, URL: rec.SourceURL, Builtin: rec.Builtin}
+	return repoView{ID: rec.ID, URL: rec.SourceURL, Title: rec.Title, Description: rec.Description, Builtin: rec.Builtin}
 }
 
 // apiReposList lists added plugin repositories.
@@ -25,7 +27,7 @@ func toRepoView(rec *pluginrepo.RepoRecord) repoView {
 // @Description  Returns all added plugin repositories.
 // @Tags         PluginStore
 // @Produce      json
-// @Success      200 {array} object{id=string,url=string,builtin=bool}
+// @Success      200 {array} object{id=string,url=string,title=string,description=string,builtin=bool}
 // @Failure      401 {object} models.ErrorResponse
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugin-repos [get]
@@ -49,7 +51,7 @@ func (h *Handler) apiReposList(w http.ResponseWriter, r *http.Request) {
 // @Accept       json
 // @Produce      json
 // @Param        body body object{url=string} true "Repository or index URL"
-// @Success      200 {object} object{id=string,url=string}
+// @Success      200 {object} object{id=string,url=string,title=string,description=string}
 // @Failure      400 {object} models.ErrorResponse
 // @Failure      401 {object} models.ErrorResponse
 // @Security     SessionAuth
@@ -139,12 +141,19 @@ func (h *Handler) apiStoreSearch(w http.ResponseWriter, r *http.Request) {
 	ch := make(chan repoResult, len(repos))
 	for _, rec := range repos {
 		go func(rec *pluginrepo.RepoRecord) {
-			files, err := h.repoSvc.ListPluginFiles(r.Context(), rec.ID)
+			doc, err := h.repoSvc.GetIndex(r.Context(), rec.ID)
+			view := toRepoView(rec)
 			if err != nil {
-				ch <- repoResult{repo: toRepoView(rec), err: err.Error()}
+				ch <- repoResult{repo: view, err: err.Error()}
 				return
 			}
-			ch <- repoResult{repo: toRepoView(rec), files: h.describeFiles(r, rec.ID, files)}
+			if doc.Title != "" {
+				view.Title = doc.Title
+			}
+			if doc.Description != "" {
+				view.Description = doc.Description
+			}
+			ch <- repoResult{repo: view, files: h.describeFiles(r, rec.ID, doc.Files)}
 		}(rec)
 	}
 	out := make([]map[string]any, 0, len(repos))
@@ -160,6 +169,9 @@ func (h *Handler) apiStoreSearch(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(out, func(i, j int) bool {
 		a, _ := out[i]["repo"].(repoView)
 		b, _ := out[j]["repo"].(repoView)
+		if a.Title != b.Title {
+			return a.Title < b.Title
+		}
 		return a.ID < b.ID
 	})
 	h.json(w, http.StatusOK, map[string]any{"repos": out})

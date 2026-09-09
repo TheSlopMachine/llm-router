@@ -113,7 +113,7 @@ func newIndexTestServer() *httptest.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/files/index.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"plugins":["a.lua","b.txt","sub/c.lua"," a.lua ",""]}`))
+		_, _ = w.Write([]byte(`{"title":"Test store","description":"Test plugins","plugins":["a.lua","b.txt","sub/c.lua"," a.lua ",""]}`))
 	})
 	mux.HandleFunc("/files/a.lua", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("-- plugin a"))
@@ -173,6 +173,29 @@ func TestIndexProvider(t *testing.T) {
 	}
 }
 
+func TestGetIndex(t *testing.T) {
+	srv := newIndexTestServer()
+	defer srv.Close()
+	svc := New(testutil.SetupTestDB(t))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	rec, err := svc.AddRepo(ctx, srv.URL+"/files/index.json")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	doc, err := svc.GetIndex(ctx, rec.ID)
+	if err != nil {
+		t.Fatalf("get index: %v", err)
+	}
+	if doc.Title != "Test store" || doc.Description != "Test plugins" {
+		t.Fatalf("doc: %+v", doc)
+	}
+	if len(doc.Files) != 1 || doc.Files[0].Path != "llm-router-plugins/a.lua" {
+		t.Fatalf("files: %+v", doc.Files)
+	}
+}
+
 func TestAddRepoDirectIndex(t *testing.T) {
 	srv := newIndexTestServer()
 	defer srv.Close()
@@ -187,6 +210,9 @@ func TestAddRepoDirectIndex(t *testing.T) {
 	}
 	if rec.Kind != "index" || rec.IndexURL != raw || rec.SourceURL != raw {
 		t.Fatalf("record: %+v", rec)
+	}
+	if rec.Title != "Test store" || rec.Description != "Test plugins" {
+		t.Fatalf("snapshot: %+v", rec)
 	}
 	again, err := svc.AddRepo(ctx, raw)
 	if err != nil {

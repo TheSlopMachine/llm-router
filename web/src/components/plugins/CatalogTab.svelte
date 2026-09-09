@@ -250,7 +250,8 @@
     <div class="card repo-card">
       <div class="repo-header">
         <div>
-          <h2>{entry.repo.id}</h2>
+          <h2>{entry.repo.title || entry.repo.id}</h2>
+          {#if entry.repo.description}<div class="muted">{entry.repo.description}</div>{/if}
           <div class="muted">{entry.repo.url}</div>
         </div>
         <div class="repo-badges">

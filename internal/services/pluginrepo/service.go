@@ -53,12 +53,14 @@ type RepoFile struct {
 
 // RepoRecord is the stored repository row in BucketPluginRepos.
 type RepoRecord struct {
-	ID        string    `json:"id"`
-	Kind      string    `json:"kind"`
-	IndexURL  string    `json:"index_url"`
-	SourceURL string    `json:"source_url"`
-	Builtin   bool      `json:"builtin"`
-	AddedAt   time.Time `json:"added_at"`
+	ID          string    `json:"id"`
+	Kind        string    `json:"kind"`
+	IndexURL    string    `json:"index_url"`
+	SourceURL   string    `json:"source_url"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Builtin     bool      `json:"builtin"`
+	AddedAt     time.Time `json:"added_at"`
 }
 
 // indexProvider fetches plugin files from an index.json listing bare file
@@ -176,11 +178,15 @@ func (s *Service) AddRepo(ctx context.Context, rawURL string) (*RepoRecord, erro
 		if existing, err := s.repo.Get(id); err == nil && existing != nil {
 			return existing, nil
 		}
-		if _, err := s.index.fetchIndex(ctx, indexURL); err != nil {
+		idx, err := s.index.fetchIndex(ctx, indexURL)
+		if err != nil {
 			lastErr = err
 			continue
 		}
-		rec := &RepoRecord{ID: id, Kind: "index", IndexURL: indexURL, SourceURL: strings.TrimSpace(rawURL), AddedAt: time.Now()}
+		rec := &RepoRecord{
+			ID: id, Kind: "index", IndexURL: indexURL, SourceURL: strings.TrimSpace(rawURL),
+			Title: idx.Title, Description: idx.Description, AddedAt: time.Now(),
+		}
 		if err := s.repo.Put(id, rec); err != nil {
 			return nil, err
 		}
@@ -244,6 +250,19 @@ func (s *Service) Remove(id string) error {
 		return fmt.Errorf("remove repo %q: %w", id, ErrBuiltinRepoProtected)
 	}
 	return s.repo.Delete(id)
+}
+
+// GetIndex fetches the index document with display info and files.
+func (s *Service) GetIndex(ctx context.Context, id string) (IndexDoc, error) {
+	rec, err := s.repo.Get(id)
+	if err != nil {
+		return IndexDoc{}, err
+	}
+	files, idx, err := s.index.listWithIndex(ctx, s.refOf(rec))
+	if err != nil {
+		return IndexDoc{}, err
+	}
+	return IndexDoc{Title: idx.Title, Description: idx.Description, Files: files}, nil
 }
 
 // ListPluginFiles lists plugin files for one repository.
@@ -311,10 +330,12 @@ func slugURL(s string) string {
 
 var errRawNotFound = errors.New("raw file not found")
 
-// repoIndex is index.json: plugin file names only. Versions and
-// descriptions come from manifests at runtime.
+// repoIndex is index.json: repository display info and plugin file names.
+// Versions and descriptions come from manifests at runtime.
 type repoIndex struct {
-	Plugins []string `json:"plugins"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Plugins     []string `json:"plugins"`
 }
 
 func (p *indexProvider) download(ctx context.Context, url string, limit int64) ([]byte, error) {
@@ -357,9 +378,21 @@ func indexDir(indexURL string) string {
 }
 
 func (p *indexProvider) ListPluginFiles(ctx context.Context, ref RepoRef) ([]RepoFile, error) {
+	files, _, err := p.listWithIndex(ctx, ref)
+	return files, err
+}
+
+// IndexDoc is a fetched index: display info plus resolved plugin files.
+type IndexDoc struct {
+	Title       string
+	Description string
+	Files       []RepoFile
+}
+
+func (p *indexProvider) listWithIndex(ctx context.Context, ref RepoRef) ([]RepoFile, *repoIndex, error) {
 	idx, err := p.fetchIndex(ctx, ref.IndexURL)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	dir := indexDir(ref.IndexURL)
 	out := []RepoFile{}
@@ -376,7 +409,7 @@ func (p *indexProvider) ListPluginFiles(ctx context.Context, ref RepoRef) ([]Rep
 		out = append(out, RepoFile{Path: "llm-router-plugins/" + name, URL: dir + "/" + name})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
-	return out, nil
+	return out, idx, nil
 }
 
 func (p *indexProvider) FetchFile(ctx context.Context, ref RepoRef, path string) ([]byte, error) {

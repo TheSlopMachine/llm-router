@@ -204,6 +204,8 @@ export interface Plugin {
 export interface PluginRepo {
   id: string
   url: string
+  title: string
+  description: string
   builtin: boolean
 }
 
