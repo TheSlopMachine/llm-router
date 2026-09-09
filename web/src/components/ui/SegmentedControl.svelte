@@ -2,12 +2,19 @@
   let {
     value = $bindable(''),
     options,
-    ariaLabel
+    ariaLabel,
+    onchange
   } = $props<{
     value: string
     options: Array<{ value: string; label: string }>
     ariaLabel?: string
+    onchange?: (value: string) => void
   }>()
+
+  function select(next: string): void {
+    value = next
+    onchange?.(next)
+  }
 </script>
 
 <div class="segmented" role="group" aria-label={ariaLabel}>
@@ -17,7 +24,7 @@
       class="seg-btn"
       class:active={value === opt.value}
       aria-pressed={value === opt.value}
-      onclick={() => (value = opt.value)}
+      onclick={() => select(opt.value)}
     >
       {opt.label}
     </button>

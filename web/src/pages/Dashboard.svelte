@@ -7,14 +7,13 @@
   import Providers from '../components/Providers.svelte'
   import Tokens from '../components/Tokens.svelte'
   import Agents from '../components/Agents.svelte'
-  import PluginManager from './PluginManager.svelte'
-  import PluginStore from './PluginStore.svelte'
+  import PluginsPage, { type PluginsTab } from './PluginsPage.svelte'
   import { modal } from '../lib/modal.svelte'
   import SettingsModal from '../components/SettingsModal.svelte'
 
   let { onlogout } = $props<{ onlogout: () => void }>()
 
-  type PanelId = 'chat' | 'metrics' | 'providers' | 'models' | 'agents' | 'tokens' | 'plugins' | 'store'
+  type PanelId = 'chat' | 'metrics' | 'providers' | 'models' | 'agents' | 'tokens' | 'plugins'
 
   interface NavItem {
     id: PanelId
@@ -33,7 +32,13 @@
   function applyRoute(): void {
     const raw = window.location.hash.replace(/^#\/?/, '')
     const segments = raw.split('/').filter(Boolean)
-    const validPanels: PanelId[] = ['chat', 'metrics', 'providers', 'models', 'agents', 'tokens', 'plugins', 'store']
+    if (segments[0] === 'store') {
+      panel = 'plugins'
+      routeSegments = ['catalog']
+      window.location.hash = '#/plugins/catalog'
+      return
+    }
+    const validPanels: PanelId[] = ['chat', 'metrics', 'providers', 'models', 'agents', 'tokens', 'plugins']
 
     if (segments.length === 0) {
       panel = 'metrics'
@@ -74,11 +79,16 @@
     { id: 'metrics',      label: 'Metrics',      icon: 'analytics' },
     { id: 'providers',    label: 'Providers',    icon: 'cloud' },
     { id: 'models',       label: 'Models',       icon: 'view_list' },
+    { id: 'plugins',      label: 'Plugins',      icon: 'extension' },
     { id: 'agents',       label: 'Agents',       icon: 'robot' },
     { id: 'tokens',       label: 'Tokens',       icon: 'key' },
-    { id: 'plugins',      label: 'Plugins',      icon: 'extension' },
-    { id: 'store',        label: 'Store',        icon: 'download' },
   ]
+
+  let pluginsTab = $derived<PluginsTab>(routeSegments[0] === 'catalog' ? 'catalog' : 'installed')
+
+  function selectPluginsTab(next: PluginsTab): void {
+    window.location.hash = '#/plugins/' + next
+  }
 </script>
 
 <div class="layout">
@@ -129,9 +139,7 @@
       {:else if panel === 'tokens'}
         <Tokens />
       {:else if panel === 'plugins'}
-        <PluginManager />
-      {:else if panel === 'store'}
-        <PluginStore />
+        <PluginsPage tab={pluginsTab} ontabchange={selectPluginsTab} />
       {/if}
     </div>
   </main>
