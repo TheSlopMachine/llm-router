@@ -85,6 +85,96 @@ func TestProvidersListExcludesHidden(t *testing.T) {
 	}
 }
 
+func TestProvidersListHidesUnavailableBackend(t *testing.T) {
+	h, svc, database := newProvidersUIHandler(t)
+	luaSvc := seedUIRows(t, svc, database)
+
+	listIDs := func() []string {
+		req := httptest.NewRequest(http.MethodGet, "/api/llm-router/dashboard/providers", nil)
+		rec := httptest.NewRecorder()
+		h.apiProvidersList(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("list status: got %d, body %s", rec.Code, rec.Body.String())
+		}
+		var ids []string
+		for _, e := range decodeProvidersList(t, rec) {
+			id, _ := e["id"].(string)
+			ids = append(ids, id)
+		}
+		return ids
+	}
+
+	pluginID := ""
+	records, err := luaSvc.List()
+	if err != nil {
+		t.Fatalf("list plugins: %v", err)
+	}
+	for _, rec := range records {
+		for _, k := range rec.TypeKeys {
+			if k == "zen" {
+				pluginID = rec.ID
+			}
+		}
+	}
+	if pluginID == "" {
+		t.Fatal("zen plugin record missing")
+	}
+
+	before := listIDs()
+	found := false
+	for _, id := range before {
+		if id == "zen" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("zen must be listed while plugin installed: %v", before)
+	}
+
+	if err := luaSvc.Delete(pluginID); err != nil {
+		t.Fatalf("delete plugin: %v", err)
+	}
+	if _, err := svc.Get("zen"); err != nil {
+		t.Fatalf("orphaned provider row must survive plugin delete: %v", err)
+	}
+	for _, id := range listIDs() {
+		if id == "zen" {
+			t.Fatal("zen must be hidden while plugin removed")
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/llm-router/dashboard/providers/zen/models", nil)
+	req.SetPathValue("id", "zen")
+	rec := httptest.NewRecorder()
+	h.apiProviderModels(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unavailable models: got %d, want 404, body %s", rec.Code, rec.Body.String())
+	}
+
+	const src = `--- @plugin Seed Plugin
+--- @author tester
+--- @version 1.0.0
+--- @router_version 0.0.4
+--- @allow_host example.com
+
+llm_router.register("zen", {
+  complete = function() end,
+})
+`
+	if _, err := luaSvc.Install([]byte(src), luaplugin.PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("reinstall plugin: %v", err)
+	}
+	restored := false
+	for _, id := range listIDs() {
+		if id == "zen" {
+			restored = true
+		}
+	}
+	if !restored {
+		t.Fatal("zen must be listed again after plugin reinstall")
+	}
+}
+
 func TestProvidersUpdateGuards(t *testing.T) {
 	h, svc, database := newProvidersUIHandler(t)
 	seedUIRows(t, svc, database)

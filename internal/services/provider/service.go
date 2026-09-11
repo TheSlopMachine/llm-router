@@ -508,6 +508,21 @@ func (s *Service) TypeKeys() []string {
 	return out
 }
 
+// IsTypeAvailable reports whether a backend serves typeKey right now:
+// a built-in Go adapter or a currently registered Lua plugin type.
+// Rows with unavailable types stay in the database so reinstalling the
+// plugin restores them, but the dashboard hides them.
+func (s *Service) IsTypeAvailable(typeKey string) bool {
+	if _, ok := s.GoAdapterFor(typeKey); ok {
+		return true
+	}
+	if s.luaSvc == nil {
+		return false
+	}
+	_, err := s.luaSvc.Lookup(typeKey)
+	return err == nil
+}
+
 // SupportsAuthFlow reports whether a type offers a multi-step auth wizard.
 func (s *Service) SupportsAuthFlow(typeKey string) bool {
 	if _, ok := s.GoAdapterFor(typeKey); ok {

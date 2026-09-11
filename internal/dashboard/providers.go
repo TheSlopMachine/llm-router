@@ -36,12 +36,17 @@ func toProviderView(p *models.ProviderInstance, svc *provider.Service) providerV
 	}
 }
 
-// visibleProviders drops UI-hidden rows. Router, models and metrics keep
-// using the full service-level list.
-func visibleProviders(all []*models.ProviderInstance) []*models.ProviderInstance {
+// visibleProviders drops UI-hidden rows and rows whose backend is
+// currently unavailable (plugin removed). Router, models and metrics keep
+// using the full service-level list. Unavailable rows stay in the database
+// so reinstalling the plugin restores them on the next list reload.
+func visibleProviders(all []*models.ProviderInstance, svc *provider.Service) []*models.ProviderInstance {
 	out := make([]*models.ProviderInstance, 0, len(all))
 	for _, p := range all {
 		if p.IsUIHidden {
+			continue
+		}
+		if svc != nil && !svc.IsTypeAvailable(p.TypeKey) {
 			continue
 		}
 		out = append(out, p)
@@ -50,10 +55,13 @@ func visibleProviders(all []*models.ProviderInstance) []*models.ProviderInstance
 }
 
 // loadVisibleProvider resolves a provider for UI management endpoints.
-// Hidden rows behave as nonexistent.
+// Hidden rows and rows with unavailable backends behave as nonexistent.
 func (h *Handler) loadVisibleProvider(id string) (*models.ProviderInstance, bool) {
 	p, err := h.providerSvc.Get(id)
 	if err != nil || p.IsUIHidden {
+		return nil, false
+	}
+	if !h.providerSvc.IsTypeAvailable(p.TypeKey) {
 		return nil, false
 	}
 	return p, true
@@ -75,7 +83,7 @@ func (h *Handler) apiProvidersList(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	providers = visibleProviders(providers)
+	providers = visibleProviders(providers, h.providerSvc)
 	out := make([]providerView, 0, len(providers))
 	for _, p := range providers {
 		out = append(out, toProviderView(p, h.providerSvc))
@@ -117,7 +125,7 @@ func (h *Handler) apiProvidersStats(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	providers = visibleProviders(providers)
+	providers = visibleProviders(providers, h.providerSvc)
 
 	stats := make(map[string]*models.ProviderStats)
 	ctx := r.Context()
