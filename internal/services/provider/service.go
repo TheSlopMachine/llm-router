@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/repository"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
@@ -41,6 +42,9 @@ const (
 	TypeCustom = "custom"
 	TypeAgents = "agents"
 )
+
+// ErrNotRefreshable is returned by Go adapters that never refresh credentials.
+var ErrNotRefreshable = errors.New("credential type does not support refresh")
 
 // Service exposes unified ProviderInstance CRUD.
 type Service struct {
@@ -199,7 +203,7 @@ func (s *Service) uniqueID(typeKey, qualifier, name string) string {
 func (s *Service) Get(id string) (*models.ProviderInstance, error) {
 	inst, err := s.providers.Get(strings.TrimSpace(id))
 	if err != nil {
-		return nil, fmt.Errorf("provider %q not found", id)
+		return nil, apierrors.NewNotFoundError("provider", id)
 	}
 	return inst, nil
 }

@@ -157,6 +157,56 @@ func unmarshalTo(raw []byte, target any) error {
 	return json.Unmarshal(raw, target)
 }
 
+// normalizeEmptyObjects rewrites `"key": {}` to `"key": []` for the given
+// keys, at any nesting depth. An empty Lua table encodes as a JSON object,
+// but wire fields like choices/tool_calls are arrays — without this,
+// emitting an empty choices array (usage-only stream chunks) fails schema
+// validation.
+func normalizeEmptyObjects(raw []byte, keys ...string) []byte {
+	var generic any
+	if err := json.Unmarshal(raw, &generic); err != nil {
+		return raw
+	}
+	keySet := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		keySet[k] = true
+	}
+	if !normalizeValue(generic, keySet) {
+		return raw
+	}
+	out, err := json.Marshal(generic)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+func normalizeValue(v any, keys map[string]bool) bool {
+	changed := false
+	switch t := v.(type) {
+	case map[string]any:
+		for k, child := range t {
+			if keys[k] {
+				if m, isObj := child.(map[string]any); isObj && len(m) == 0 {
+					t[k] = []any{}
+					changed = true
+					continue
+				}
+			}
+			if normalizeValue(child, keys) {
+				changed = true
+			}
+		}
+	case []any:
+		for _, child := range t {
+			if normalizeValue(child, keys) {
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
 // goToLuaJSON marshals a Go value to JSON, decodes it generically and
 // pushes the result as a Lua value. The JSON round trip normalizes
 // struct tags and omitempty behavior.

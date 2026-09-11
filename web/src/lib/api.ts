@@ -1,5 +1,5 @@
 import { apiCall as _apiCall } from './api-client'
-import type { Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate } from './types'
+import type { Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate, ProviderModel, TestResult, Proxy, ProxyStatus } from './types'
 
 const apiCall = _apiCall
 
@@ -225,6 +225,15 @@ export const api = {
     create: (payload: { provider_id: string; label?: string; data: Record<string, unknown> }) =>
       postJson('/api/llm-router/dashboard/credentials', payload),
 
+    update: (id: string, payload: { label?: string; disabled?: boolean; data?: Record<string, unknown> }) =>
+      putJson(`/api/llm-router/dashboard/credentials/${id}`, payload),
+
+    reorder: (providerId: string, ids: string[]) =>
+      putJson('/api/llm-router/dashboard/credentials/reorder', { provider_id: providerId, ids }),
+
+    test: (id: string, model?: string): Promise<TestResult> =>
+      postJson(`/api/llm-router/dashboard/credentials/${id}/test`, model ? { model } : {}),
+
     delete: (id: string) =>
       apiCall('delete', `/api/llm-router/dashboard/credentials/${id}` as '/api/llm-router/dashboard/credentials/{id}'),
   },
@@ -233,6 +242,43 @@ export const api = {
   models: {
     list: (providerIds: string[]) =>
       apiCall('get', '/api/llm-router/dashboard/models', { query: { provider_ids: providerIds } as unknown as never }),
+
+    // Merged view for one provider: upstream models + admin overrides.
+    forProvider: async (providerId: string): Promise<ProviderModel[]> => {
+      const res = await fetch(`/api/llm-router/dashboard/providers/${providerId}/models`)
+      const raw = (await assertOk(res)) as unknown
+      const arr = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []
+      return arr.map((r) => ({
+        name: (r.name as string) ?? '',
+        display_name: (r.display_name as string) ?? '',
+        rpm: (r.rpm as number) ?? 0,
+        tpm: (r.tpm as number) ?? 0,
+        rpd: (r.rpd as number) ?? 0,
+        context_window: r.context_window as number | undefined,
+        max_tokens: r.max_tokens as number | undefined,
+        capabilities: (r.capabilities as string[] | undefined) ?? [],
+        reasoning: r.reasoning as ProviderModel['reasoning'],
+        disabled: (r.disabled as boolean) ?? false,
+        custom: (r.custom as boolean) ?? false,
+      }))
+    },
+
+    setOverride: (providerId: string, model: string, payload: { disabled?: boolean; custom?: boolean; display_name?: string; capabilities?: string[] }) =>
+      putJson(`/api/llm-router/dashboard/providers/${providerId}/models/${model}`, payload),
+
+    deleteOverride: (providerId: string, model: string) =>
+      fetch(`/api/llm-router/dashboard/providers/${providerId}/models/${model}`, { method: 'DELETE' }).then(assertOkVoid),
+
+    refresh: (providerId: string) =>
+      postJson(`/api/llm-router/dashboard/providers/${providerId}/models/refresh`, {}),
+
+    test: (modelId: string): Promise<TestResult> =>
+      postJson('/api/llm-router/dashboard/models/test', { model_id: modelId }),
+
+    probeCapabilities: async (modelId: string): Promise<string[]> => {
+      const raw = await postJson('/api/llm-router/dashboard/models/capabilities', { model_id: modelId })
+      return Array.isArray(raw?.capabilities) ? raw.capabilities : []
+    },
 
     available: async (): Promise<AvailableModel[]> => {
       const raw = (await apiCall('get', '/api/llm-router/dashboard/models/available')) as unknown
@@ -247,6 +293,34 @@ export const api = {
         context_window: r.context_window as number | undefined,
         max_tokens: r.max_tokens as number | undefined,
       }))
+    },
+  },
+
+  // Proxies
+  proxies: {
+    list: async (): Promise<Proxy[]> => {
+      const res = await fetch('/api/llm-router/dashboard/proxies')
+      const raw = (await assertOk(res)) as unknown
+      return Array.isArray(raw) ? (raw as Proxy[]) : []
+    },
+    add: (url: string, country?: string) =>
+      postJson('/api/llm-router/dashboard/proxies', { url, country: country ?? '' }),
+    delete: (id: string) =>
+      fetch(`/api/llm-router/dashboard/proxies/${id}`, { method: 'DELETE' }).then(assertOkVoid),
+    check: (id: string): Promise<{ alive: boolean; latency_ms?: number; error?: string }> =>
+      postJson(`/api/llm-router/dashboard/proxies/${id}/check`, {}),
+    checkAll: () =>
+      postJson('/api/llm-router/dashboard/proxies/check-all', {}),
+    sources: async (): Promise<string[]> => {
+      const res = await fetch('/api/llm-router/dashboard/proxy-sources')
+      const raw = (await assertOk(res)) as unknown
+      return Array.isArray(raw) ? (raw as string[]) : []
+    },
+    refreshSource: (key: string): Promise<{ added: number; total: number }> =>
+      postJson(`/api/llm-router/dashboard/proxy-sources/${key}/refresh`, {}),
+    status: async (): Promise<ProxyStatus> => {
+      const res = await fetch('/api/llm-router/dashboard/proxy/status')
+      return (await assertOk(res)) as ProxyStatus
     },
   },
 
@@ -331,6 +405,15 @@ async function assertOkVoid(res: Response): Promise<void> {
 async function postJson(path: string, payload: unknown): Promise<any> {
   const res = await fetch(path, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return assertOk(res)
+}
+
+async function putJson(path: string, payload: unknown): Promise<any> {
+  const res = await fetch(path, {
+    method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })

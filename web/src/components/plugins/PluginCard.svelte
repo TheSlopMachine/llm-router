@@ -1,5 +1,6 @@
 <script lang="ts">
   import ActionDropdown from '../ActionDropdown.svelte'
+  import { squircle } from '../../lib/squircle'
 
   export interface PluginBadge {
     text: string
@@ -41,7 +42,7 @@
   }>()
 </script>
 
-<div class="card">
+<div class="card" use:squircle={18}>
   <div class="plugin-header">
     <div>
       <strong>{title}</strong>
@@ -71,9 +72,8 @@
 
 <style>
   .card {
-    background: var(--color-surface);
-    border: 1px solid var(--color-outline-light);
-    border-radius: 16px;
+    background: var(--color-surface-container-high);
+    border-radius: var(--radius-lg);
     padding: 20px;
   }
   .plugin-header {

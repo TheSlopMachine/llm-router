@@ -82,7 +82,7 @@ func (s *Service) Complete(
 			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode response: " + merr.Error()}
 		}
 		var out models.ChatCompletionResponse
-		if uerr := unmarshalTo(raw, &out); uerr != nil {
+		if uerr := unmarshalTo(normalizeEmptyObjects(raw, "choices", "tool_calls"), &out); uerr != nil {
 			s.recordCrash(rec.ID, typeKey, "complete schema violation: "+uerr.Error())
 			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "complete schema violation: " + uerr.Error()}
 		}
@@ -92,7 +92,7 @@ func (s *Service) Complete(
 		}
 		resp = &out
 		return nil
-	})
+	}, providerConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -126,15 +126,23 @@ func (s *Service) CompleteStream(
 			return 0
 		}
 		var chunk models.StreamChunk
-		if uerr := unmarshalTo(raw, &chunk); uerr != nil {
+		if uerr := unmarshalTo(normalizeEmptyObjects(raw, "choices", "tool_calls"), &chunk); uerr != nil {
 			L.RaiseError("emit: invalid chunk shape: %s", uerr.Error())
 			return 0
 		}
-		if len(chunk.Choices) == 0 {
-			L.RaiseError("emit: chunk has no choices")
+		if len(chunk.Choices) == 0 && chunk.Usage == nil {
+			L.RaiseError("emit: chunk has neither choices nor usage")
 			return 0
 		}
-		if _, werr := fmt.Fprintf(w, "data: %s\n\n", string(raw)); werr != nil {
+		// Emit the canonical struct encoding, not the raw plugin bytes:
+		// this normalizes alias fields (reasoning -> reasoning_content)
+		// and keeps the wire shape identical to non-stream responses.
+		canonical, cerr := marshalGoJSON(chunk)
+		if cerr != nil {
+			L.RaiseError("emit: encode canonical chunk: %s", cerr.Error())
+			return 0
+		}
+		if _, werr := fmt.Fprintf(w, "data: %s\n\n", string(canonical)); werr != nil {
 			L.RaiseError("emit: write: %s", werr.Error())
 			return 0
 		}
@@ -149,7 +157,7 @@ func (s *Service) CompleteStream(
 	}, 2, func(L *lua.LState) error {
 		_, rawErr := splitReturn(L)
 		return s.contractErrOrInternal(rec, typeKey, rawErr)
-	})
+	}, providerConfig)
 	if err != nil {
 		return err
 	}
@@ -221,7 +229,7 @@ func (s *Service) ValidateCredentials(typeKey string, data map[string]any) (bool
 			}
 		}
 		return s.contractErrOrInternal(rec, typeKey, rawErr)
-	})
+	}, nil)
 	if err != nil {
 		return false, err
 	}
@@ -272,7 +280,7 @@ func (s *Service) GetModelInfos(
 		}
 		infos = out
 		return nil
-	})
+	}, providerConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +314,7 @@ func (s *Service) NeedsRefresh(typeKey string, cred *models.Credential) (bool, e
 		}
 		s.recordCrash(rec.ID, typeKey, "needs_refresh must return boolean")
 		return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "needs_refresh must return boolean"}
-	})
+	}, nil)
 	if err != nil {
 		return false, err
 	}
@@ -343,7 +351,7 @@ func (s *Service) RefreshCredential(
 		}
 		data = out
 		return nil
-	})
+	}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -377,7 +385,7 @@ func (s *Service) Schema(typeKey, handler string) ([]*models.UINode, error) {
 		}
 		nodes = parsed
 		return nil
-	})
+	}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -405,7 +413,7 @@ func (s *Service) AuthInitiate(goCtx context.Context, typeKey, flowID string) (*
 		}
 		result = parsed
 		return nil
-	})
+	}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -439,7 +447,7 @@ func (s *Service) AuthStep(goCtx context.Context, typeKey, flowID, action string
 		}
 		result = parsed
 		return nil
-	})
+	}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -447,6 +455,63 @@ func (s *Service) AuthStep(goCtx context.Context, typeKey, flowID, action string
 		return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "auth_step"}
 	}
 	return result, nil
+}
+
+// ProxySourceKeys lists proxy-list sources registered by installed plugins.
+func (s *Service) ProxySourceKeys() []string {
+	records, err := s.List()
+	if err != nil {
+		return nil
+	}
+	var keys []string
+	for _, rec := range records {
+		keys = append(keys, rec.ProxySourceKeys...)
+	}
+	return keys
+}
+
+// FetchProxies invokes the fetch_proxies handler of a proxy source plugin.
+func (s *Service) FetchProxies(goCtx context.Context, sourceKey string) ([]models.ProxyCandidate, error) {
+	records, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	var rec *PluginRecord
+	for _, r := range records {
+		for _, k := range r.ProxySourceKeys {
+			if k == sourceKey {
+				rec = r
+				break
+			}
+		}
+	}
+	if rec == nil {
+		return nil, fmt.Errorf("proxy source %q not found", sourceKey)
+	}
+	var out []models.ProxyCandidate
+	found, err := s.handlerCall(goCtx, rec, sourceKey, "fetch_proxies", nil, 1, func(L *lua.LState) error {
+		result := L.Get(-1)
+		if result == lua.LNil {
+			out = []models.ProxyCandidate{}
+			return nil
+		}
+		raw, merr := marshalLua(result)
+		if merr != nil {
+			return &models.PluginInternalError{PluginID: rec.ID, Cause: "encode proxies: " + merr.Error()}
+		}
+		if uerr := unmarshalTo(raw, &out); uerr != nil {
+			s.recordCrash(rec.ID, sourceKey, "fetch_proxies schema violation: "+uerr.Error())
+			return &models.PluginInternalError{PluginID: rec.ID, Cause: "fetch_proxies schema violation: " + uerr.Error()}
+		}
+		return nil
+	}, nil)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, &notFoundError{PluginID: rec.ID, TypeKey: sourceKey, Handler: "fetch_proxies"}
+	}
+	return out, nil
 }
 
 // parseAuthResult discriminates the three auth outcomes by table shape.

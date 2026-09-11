@@ -24,6 +24,12 @@ a:hover { text-decoration: underline; }
   --color-surface-container-high: #fcfcfc;
   --color-surface-container-highest: #f4f5f5;
   --color-background: #fafafa;
+
+  /* Radius scale. Elements get squircle corners via the use:squircle action. */
+  --radius-xs: 8px;
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
   
   --color-sidebar-bg: #fafafa;
   --color-nav-hover: #efefef;
@@ -67,6 +73,20 @@ a:hover { text-decoration: underline; }
   --color-badge-yellow-text: #ca8a04;
   --color-badge-red-bg: rgba(239, 68, 68, 0.1);
   --color-badge-red-text: #dc2626;
+
+  --color-accent: #2483e2;
+  --color-accent-hover: #1b6dca;
+  --color-accent-soft: rgba(59, 130, 246, 0.1);
+
+  --color-chip-neutral-bg: #e4e6e8;
+  --color-chip-neutral-text: #4b4f55;
+
+  --color-badge-purple-bg: rgba(139, 92, 246, 0.1);
+  --color-badge-purple-text: #7c3aed;
+  --color-badge-teal-bg: rgba(20, 184, 166, 0.1);
+  --color-badge-teal-text: #0d9488;
+  --color-badge-orange-bg: rgba(249, 115, 22, 0.1);
+  --color-badge-orange-text: #ea580c;
   
   --color-warning-text: #ca8a04;
   --color-error-text: #dc2626;
@@ -131,6 +151,20 @@ a:hover { text-decoration: underline; }
   --color-badge-yellow-text: #fbbf24;
   --color-badge-red-bg: rgba(248, 113, 113, 0.15);
   --color-badge-red-text: #f87171;
+
+  --color-accent: #87a9ff;
+  --color-accent-hover: #a5bfff;
+  --color-accent-soft: rgba(96, 165, 250, 0.15);
+
+  --color-chip-neutral-bg: #3a3c40;
+  --color-chip-neutral-text: #c9cdd3;
+
+  --color-badge-purple-bg: rgba(167, 139, 250, 0.15);
+  --color-badge-purple-text: #a78bfa;
+  --color-badge-teal-bg: rgba(45, 212, 191, 0.15);
+  --color-badge-teal-text: #2dd4bf;
+  --color-badge-orange-bg: rgba(251, 146, 60, 0.15);
+  --color-badge-orange-text: #fb923c;
   
   --color-warning-text: #fbbf24;
   --color-error-text: #f87171;
@@ -148,15 +182,17 @@ input, select, textarea {
   font-size: 14px;
   font-weight: 400;
   width: 100%;
-  border-radius: 8px;
-  border: 1px solid var(--color-outline-light);
-  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--color-surface-container-highest);
   color: var(--color-text);
   padding: 6px 12px;
   outline: none;
 }
 input:focus, select:focus, textarea:focus {
-  border-color: var(--color-text-soft);
+  background: var(--color-surface-container-high);
+  /* inset ring: follows the clip-path squircle, unlike outline/box-shadow */
+  box-shadow: inset 0 0 0 2px var(--color-accent);
 }
 input:disabled, select:disabled, textarea:disabled {
   background-color: var(--color-surface-container);
@@ -184,7 +220,7 @@ button, .btn {
   gap: 8px;
   padding: 0 16px;
   height: 32px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   border: 1px solid transparent;
   background: transparent;
@@ -207,12 +243,11 @@ button:focus-visible, .btn:focus-visible {
 }
 
 .btn-primary {
-  background: var(--color-button-container);
-  border-color: var(--color-outline-light);
+  background: var(--color-button-container-high);
   color: var(--color-text-on-button);
 }
 .btn-primary:hover:not([disabled]) { 
-  background: var(--color-button-container-high);
+  background: var(--color-outline-light);
 }
 
 .btn-secondary {
@@ -289,10 +324,35 @@ tbody tr:hover td {
   font-size: 11px;
   font-weight: 500;
 }
-.badge-blue { background: rgba(59, 130, 246, 0.1); color: #2563eb; }
-.badge-green { background: rgba(34, 197, 94, 0.1); color: #16a34a; }
-.badge-yellow { background: rgba(234, 179, 8, 0.1); color: #ca8a04; }
-.badge-red { background: rgba(239, 68, 68, 0.1); color: #dc2626; }
+.badge-blue { background: var(--color-badge-blue-bg); color: var(--color-badge-blue-text); }
+.badge-green { background: var(--color-badge-green-bg); color: var(--color-badge-green-text); }
+.badge-yellow { background: var(--color-badge-yellow-bg); color: var(--color-badge-yellow-text); }
+.badge-red { background: var(--color-badge-red-bg); color: var(--color-badge-red-text); }
+.badge-purple { background: var(--color-badge-purple-bg); color: var(--color-badge-purple-text); }
+.badge-teal { background: var(--color-badge-teal-bg); color: var(--color-badge-teal-text); }
+.badge-orange { background: var(--color-badge-orange-bg); color: var(--color-badge-orange-text); }
+
+/* Capability chip: compact tag, squircle corners */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.chip .icon { font-size: 13px; }
+.chip-blue { background: var(--color-badge-blue-bg); color: var(--color-badge-blue-text); }
+.chip-green { background: var(--color-badge-green-bg); color: var(--color-badge-green-text); }
+.chip-yellow { background: var(--color-badge-yellow-bg); color: var(--color-badge-yellow-text); }
+.chip-red { background: var(--color-badge-red-bg); color: var(--color-badge-red-text); }
+.chip-purple { background: var(--color-badge-purple-bg); color: var(--color-badge-purple-text); }
+.chip-teal { background: var(--color-badge-teal-bg); color: var(--color-badge-teal-text); }
+.chip-orange { background: var(--color-badge-orange-bg); color: var(--color-badge-orange-text); }
+.chip-neutral { background: var(--color-chip-neutral-bg); color: var(--color-chip-neutral-text); }
 
 .mono { 
   font-family: "DM Mono", "SF Mono", "Fira Code", monospace; 

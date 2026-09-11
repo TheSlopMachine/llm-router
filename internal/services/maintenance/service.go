@@ -13,15 +13,18 @@ package maintenance
 
 import (
 	"context"
+	"errors"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/repository"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
+	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 )
 
 const defaultCheckInterval = 60 * time.Second
@@ -33,6 +36,11 @@ type Service struct {
 	interval    time.Duration
 	logger      *slog.Logger
 	db          *db.DB
+
+	proxySvc *proxypool.Service
+	luaSvc   *luaplugin.Service
+
+	lastProxyRefresh time.Time
 }
 
 // New constructs a new maintenance Service with the default check interval.
@@ -44,6 +52,13 @@ func New(credSvc *credential.Service, providerSvc *provider.Service, db *db.DB, 
 		logger:      logger,
 		db:          db,
 	}
+}
+
+// SetProxyServices wires the proxy pool and plugin service for periodic
+// pool rotation (list refresh + health checks).
+func (s *Service) SetProxyServices(proxySvc *proxypool.Service, luaSvc *luaplugin.Service) {
+	s.proxySvc = proxySvc
+	s.luaSvc = luaSvc
 }
 
 // WithInterval overrides the check interval (useful for testing).
@@ -67,6 +82,7 @@ func (s *Service) Start(ctx context.Context) {
 			case <-ticker.C:
 				s.runCycle(ctx)
 				s.cleanupAuthFlows()
+				s.maintainProxyPool(ctx)
 			}
 		}
 	}()
@@ -94,6 +110,34 @@ func (s *Service) runCycle(ctx context.Context) {
 	}
 }
 
+const proxyPoolRefreshInterval = time.Hour
+
+// maintainProxyPool refreshes list-sourced proxies and probes the pool
+// hourly; checks run on the regular ticker when a refresh is due.
+func (s *Service) maintainProxyPool(ctx context.Context) {
+	if s.proxySvc == nil || s.luaSvc == nil {
+		return
+	}
+	if time.Since(s.lastProxyRefresh) < proxyPoolRefreshInterval {
+		return
+	}
+	s.lastProxyRefresh = time.Now()
+	for _, key := range s.luaSvc.ProxySourceKeys() {
+		if ctx.Err() != nil {
+			return
+		}
+		candidates, err := s.luaSvc.FetchProxies(ctx, key)
+		if err != nil {
+			s.logger.Warn("maintenance: proxy source refresh failed", "source", key, "err", err)
+			continue
+		}
+		if _, err := s.proxySvc.SyncFromSource(key, candidates); err != nil {
+			s.logger.Warn("maintenance: proxy pool sync failed", "source", key, "err", err)
+		}
+	}
+	s.proxySvc.CheckAll(ctx)
+}
+
 // cleanupAuthFlows removes auth flow entries older than 10 minutes.
 func (s *Service) cleanupAuthFlows() {
 	threshold := time.Now().UTC().Add(-10 * time.Minute)
@@ -114,7 +158,7 @@ func (s *Service) cleanupAuthFlows() {
 func (s *Service) maybeRefresh(ctx context.Context, cred *models.Credential) {
 	resolved, err := provider.Resolve(s.providerSvc, cred.ProviderID)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, apierrors.ErrNotFound) {
 			s.logger.Debug("maintenance: orphan credential (provider deleted)",
 				"credential_id", cred.ID, "provider_id", cred.ProviderID, "err", err)
 		} else {
@@ -126,6 +170,9 @@ func (s *Service) maybeRefresh(ctx context.Context, cred *models.Credential) {
 
 	needs, err := s.needsRefresh(resolved, cred)
 	if err != nil {
+		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
+			return
+		}
 		s.logger.Warn("maintenance: needs-refresh check failed",
 			"credential_id", cred.ID, "provider_id", cred.ProviderID, "err", err)
 		return
@@ -139,7 +186,7 @@ func (s *Service) maybeRefresh(ctx context.Context, cred *models.Credential) {
 
 	data, err := s.refresh(ctx, resolved, cred)
 	if err != nil {
-		if isNotRefreshable(err) {
+		if errors.Is(err, luaplugin.ErrHandlerNotFound) || errors.Is(err, provider.ErrNotRefreshable) {
 			return
 		}
 		s.logger.Error("maintenance: refresh failed",
@@ -169,13 +216,4 @@ func (s *Service) refresh(ctx context.Context, resolved *provider.Resolved, cred
 		return s.providerSvc.LuaService().RefreshCredential(ctx, resolved.Instance.TypeKey, cred)
 	}
 	return resolved.Go.RefreshCredential(ctx, cred)
-}
-
-func isNotRefreshable(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "does not declare handler") ||
-		strings.Contains(msg, "no refresh needed")
 }

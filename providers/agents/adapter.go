@@ -13,6 +13,7 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/agent"
+	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/retry"
 	"github.com/TheSlopMachine/llm-router/internal/services/router"
 )
@@ -246,7 +247,7 @@ func (a *Adapter) NeedsRefresh(cred *models.Credential) bool {
 }
 
 func (a *Adapter) RefreshCredential(ctx context.Context, cred *models.Credential) (map[string]any, error) {
-	return nil, fmt.Errorf("no refresh needed for this credential type")
+	return nil, provider.ErrNotRefreshable
 }
 
 func (a *Adapter) GetModelInfos(ctx context.Context, cred *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {

@@ -6,14 +6,16 @@
     label = 'Actions',
     disabled = false,
     rounded = 'sm',
+    triggerIcon = '',
     onaction
   } = $props<{
     actions: Array<{ id: string; label: string; icon?: string; disabled?: boolean; danger?: boolean }>
     label?: string
     disabled?: boolean
     rounded?: 'sm' | 'lg'
+    triggerIcon?: string
     onaction?: (id: string) => void
   }>()
 </script>
 
-<Dropdown {actions} {label} {disabled} {rounded} {onaction} />
+<Dropdown {actions} {label} {disabled} {rounded} {triggerIcon} {onaction} />

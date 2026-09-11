@@ -125,7 +125,8 @@ func (s *Service) Next(providerID string) (*models.Credential, error) {
 	return creds[0], nil
 }
 
-// All returns all non-expired credentials for a provider, sorted by priority and LRU.
+// All returns routable credentials for a provider: non-expired and not
+// disabled, sorted by manual order, then computed priority, then LRU.
 func (s *Service) All(providerID string) ([]*models.Credential, error) {
 	all, err := s.repo.ListFiltered(func(c *models.Credential) bool {
 		return c.ProviderID == providerID
@@ -136,30 +137,43 @@ func (s *Service) All(providerID string) ([]*models.Credential, error) {
 
 	available := make([]*models.Credential, 0, len(all))
 	for _, c := range all {
-		if !c.IsExpired() {
+		if !c.IsExpired() && !c.Disabled {
 			available = append(available, c)
 		}
 	}
 
 	if len(available) == 0 {
-		return nil, fmt.Errorf("all credentials for provider %s are expired", providerID)
+		return nil, fmt.Errorf("no available credentials for provider %s", providerID)
 	}
 
-	sort.Slice(available, func(i, j int) bool {
-		pi, pj := available[i].Priority(), available[j].Priority()
+	SortPool(available)
+
+	return available, nil
+}
+
+// SortPool orders a credential pool: manually ordered first (Order asc),
+// then by computed priority, then least recently used.
+func SortPool(creds []*models.Credential) {
+	sort.Slice(creds, func(i, j int) bool {
+		oi, oj := creds[i].Order, creds[j].Order
+		if (oi > 0) != (oj > 0) {
+			return oi > 0
+		}
+		if oi > 0 && oj > 0 && oi != oj {
+			return oi < oj
+		}
+		pi, pj := creds[i].Priority(), creds[j].Priority()
 		if pi != pj {
 			return pi < pj
 		}
-		if available[i].LastUsedAt == nil {
+		if creds[i].LastUsedAt == nil {
 			return true
 		}
-		if available[j].LastUsedAt == nil {
+		if creds[j].LastUsedAt == nil {
 			return false
 		}
-		return available[i].LastUsedAt.Before(*available[j].LastUsedAt)
+		return creds[i].LastUsedAt.Before(*creds[j].LastUsedAt)
 	})
-
-	return available, nil
 }
 
 // ListByProvider returns all Credentials for a given provider.
@@ -186,6 +200,88 @@ func (s *Service) Update(id string, data map[string]any, expiresAt *time.Time) e
 		c.UpdatedAt = util.Now()
 		return nil
 	})
+}
+
+// UpdateDetails edits the admin-facing fields: label, enable/disable, and
+// optionally the credential data (revalidated against the provider backend
+// when replaced).
+func (s *Service) UpdateDetails(id string, label *string, disabled *bool, data map[string]any) error {
+	cred, err := s.repo.Get(id)
+	if err != nil {
+		return err
+	}
+	if data != nil {
+		resolved, err := provider.Resolve(s.providerSvc, cred.ProviderID)
+		if err != nil {
+			return err
+		}
+		if resolved.IsLua() {
+			ok, verr := s.providerSvc.LuaService().ValidateCredentials(resolved.Instance.TypeKey, data)
+			if verr != nil {
+				return fmt.Errorf("invalid credentials: %w", verr)
+			}
+			if !ok {
+				return fmt.Errorf("invalid credentials: rejected by provider")
+			}
+		} else if err := resolved.Go.ValidateCredentials(data); err != nil {
+			return fmt.Errorf("invalid credentials: %w", err)
+		}
+	}
+	if err := s.repo.Update(id, func(c *models.Credential) error {
+		if label != nil {
+			c.Label = *label
+		}
+		if disabled != nil {
+			c.Disabled = *disabled
+		}
+		if data != nil {
+			c.Data = data
+		}
+		c.UpdatedAt = util.Now()
+		return nil
+	}); err != nil {
+		return err
+	}
+	if disabled != nil {
+		s.notifyChanged(cred.ProviderID)
+	}
+	return nil
+}
+
+// Reorder sets the manual pool order for a provider's credentials.
+// ids must cover every credential of the provider; Order becomes 1-based.
+func (s *Service) Reorder(providerID string, ids []string) error {
+	creds, err := s.ListByProvider(providerID)
+	if err != nil {
+		return err
+	}
+	known := make(map[string]bool, len(creds))
+	for _, c := range creds {
+		known[c.ID] = true
+	}
+	if len(ids) != len(creds) {
+		return fmt.Errorf("reorder list must contain all %d credentials of provider %s", len(creds), providerID)
+	}
+	seen := make(map[string]bool, len(ids))
+	for i, id := range ids {
+		if !known[id] {
+			return fmt.Errorf("credential %q does not belong to provider %s", id, providerID)
+		}
+		if seen[id] {
+			return fmt.Errorf("credential %q listed twice", id)
+		}
+		seen[id] = true
+		order := i + 1
+		if err := s.repo.Update(id, func(c *models.Credential) error {
+			c.Order = order
+			c.UpdatedAt = util.Now()
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	s.notifyChanged(providerID)
+	return nil
 }
 
 // Delete removes a Credential by ID.

@@ -403,9 +403,8 @@
     cursor: pointer;
   }
   .card {
-    background: var(--color-surface);
-    border: 1px solid var(--color-outline-light);
-    border-radius: 16px;
+    background: var(--color-surface-container-high);
+    border-radius: var(--radius-lg);
     padding: 20px;
     margin-bottom: 16px;
   }

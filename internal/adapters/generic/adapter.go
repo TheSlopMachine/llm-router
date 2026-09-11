@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 )
 
 const adapterTypeKey = "custom"
@@ -93,7 +94,7 @@ func (a *Adapter) CompleteStream(
 func (a *Adapter) NeedsRefresh(cred *models.Credential) bool { return false }
 
 func (a *Adapter) RefreshCredential(ctx context.Context, cred *models.Credential) (map[string]any, error) {
-	return nil, fmt.Errorf("no refresh needed for this credential type")
+	return nil, provider.ErrNotRefreshable
 }
 
 func (a *Adapter) GetModelInfos(

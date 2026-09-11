@@ -18,6 +18,7 @@
     searchThreshold = 10,
     autoWidth = false,
     rounded = 'sm',
+    triggerIcon = '',
     onchange,
     onaction
   } = $props<{
@@ -31,6 +32,7 @@
     searchThreshold?: number
     autoWidth?: boolean
     rounded?: 'sm' | 'lg'
+    triggerIcon?: string
     onchange?: (v: string) => void
     onaction?: (id: string) => void
   }>()
@@ -93,15 +95,20 @@
 
   // positionMenu pins the portaled menu to the trigger with fixed
   // coordinates, so overflow:hidden ancestors cannot clip it.
+  // Horizontal clamp keeps the menu inside the viewport.
   function positionMenu(): void {
     if (!triggerElement) return
     const rect = triggerElement.getBoundingClientRect()
     const estimatedHeight = estimateMenuHeight()
+    const estimatedWidth = Math.max(rect.width, 200)
     const spaceBelow = window.innerHeight - rect.bottom
     const spaceAbove = rect.top
     shouldFlipUp = spaceBelow < estimatedHeight && spaceAbove > spaceBelow
     menuTop = shouldFlipUp ? Math.max(8, rect.top - estimatedHeight - 4) : rect.bottom + 4
-    menuLeft = Math.max(8, rect.left)
+    const rightAligned = rect.left + estimatedWidth > window.innerWidth - 8
+    menuLeft = rightAligned
+      ? Math.max(8, rect.right - estimatedWidth)
+      : Math.max(8, rect.left)
     menuWidth = Math.max(1, Math.round(rect.width))
   }
 
@@ -210,8 +217,12 @@
     aria-controls={isActionMode ? undefined : 'dropdown-menu'}
     type="button"
   >
-    <span class="dropdown-label">{isActionMode ? label : selectedLabel}</span>
-    <span class="icon chevron" class:open={isOpen}>expand_more</span>
+    {#if triggerIcon}
+      <span class="icon trigger-icon">{triggerIcon}</span>
+    {:else}
+      <span class="dropdown-label">{isActionMode ? label : selectedLabel}</span>
+      <span class="icon chevron" class:open={isOpen}>expand_more</span>
+    {/if}
   </button>
 
   {#if isOpen}
@@ -311,26 +322,31 @@
     font-family: inherit;
     font-size: 14px;
     font-weight: 400;
-    border-radius: 8px;
-    border: 1px solid var(--color-outline-light);
-    background: var(--color-surface);
+    border-radius: var(--radius-md);
+    border: none;
+    background: var(--color-surface-container-highest);
     color: var(--color-text);
     cursor: pointer;
-    transition: border-color 0.15s ease;
+    transition: background-color 0.15s ease;
     text-align: left;
   }
 
   .dropdown-trigger.rounded-lg {
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
   }
 
   .dropdown-trigger:hover:not(:disabled) {
-    border-color: var(--color-text-soft);
+    background: var(--color-outline-light);
   }
 
   .dropdown-trigger:focus {
-    border-color: var(--color-text-soft);
     outline: none;
+    box-shadow: inset 0 0 0 2px var(--color-accent);
+  }
+
+  .trigger-icon {
+    font-size: 20px;
+    margin: 0 auto;
   }
 
   .dropdown-trigger:disabled {
@@ -363,9 +379,8 @@
     z-index: 2000;
     width: max-content;
     max-width: min(320px, calc(100vw - 16px));
-    background: var(--color-surface);
-    border: 1px solid var(--color-outline-light);
-    border-radius: 8px;
+    background: var(--color-surface-container-high);
+    border-radius: var(--radius-md);
     box-shadow: var(--shadow-lg);
     overflow: hidden;
   }

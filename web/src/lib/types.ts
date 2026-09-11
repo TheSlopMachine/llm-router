@@ -25,8 +25,68 @@ export interface Credential {
   provider_name: string
   label: string
   is_expired: boolean
+  disabled?: boolean
+  order?: number
+  request_count?: number
+  success_count?: number
+  quota_reset_at?: string
   expires_at?: string
   updated_at: string
+}
+
+export interface ModelReasoning {
+  supported_efforts?: string[]
+  default_effort?: string
+  default_enabled?: boolean
+  mandatory?: boolean
+}
+
+export interface ProviderModel {
+  name: string
+  display_name: string
+  rpm: number
+  tpm: number
+  rpd: number
+  context_window?: number
+  max_tokens?: number
+  capabilities: string[]
+  reasoning?: ModelReasoning
+  disabled: boolean
+  custom: boolean
+}
+
+export interface TestResult {
+  ok: boolean
+  latency_ms: number
+  error?: string
+  response?: string
+}
+
+export interface ProxyHealth {
+  ok: boolean
+  latency_ms: number
+  checked_at: string
+}
+
+export interface Proxy {
+  id: string
+  url: string
+  protocol: string
+  host: string
+  port: number
+  country: string
+  source: string
+  alive: boolean
+  latency_ms: number
+  last_check_at?: string
+  provider_health?: Record<string, ProxyHealth>
+  created_at: string
+}
+
+export interface ProxyStatus {
+  server_country: string
+  total: number
+  alive: number
 }
 
 export interface ModelInfo {

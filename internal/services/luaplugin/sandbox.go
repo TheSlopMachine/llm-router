@@ -21,7 +21,14 @@ type execContext struct {
 	storage    *storageBackend
 	timeoutMs  int
 
+	// proxyID/proxyURL route plugin HTTP through a pool proxy when set.
+	proxyID  string
+	proxyURL string
+	// onProxyResult reports the outcome of a proxied request.
+	onProxyResult func(ok bool, latencyMs int64)
+
 	registrations map[string]*lua.LTable
+	proxySources  map[string]*lua.LTable
 }
 
 // openLib opens a single gopher-lua library by name.
@@ -200,6 +207,38 @@ func installRouterTable(L *lua.LState, ctx *execContext) {
 			}
 		}
 		ctx.registrations[typeKey] = handlers
+		return 0
+	}))
+
+	router.RawSetString("register_proxy_source", L.NewFunction(func(L *lua.LState) int {
+		typeKey := L.CheckString(1)
+		handlers := L.CheckTable(2)
+		if ctx == nil {
+			L.RaiseError("llm_router.register_proxy_source: no execution context")
+			return 0
+		}
+		if !typeKeyPattern.MatchString(typeKey) {
+			L.RaiseError("llm_router.register_proxy_source: invalid type key %q", typeKey)
+			return 0
+		}
+		if _, exists := ctx.registrations[typeKey]; exists {
+			L.RaiseError("llm_router.register_proxy_source: duplicate type key %q", typeKey)
+			return 0
+		}
+		if _, exists := ctx.proxySources[typeKey]; exists {
+			L.RaiseError("llm_router.register_proxy_source: duplicate source key %q", typeKey)
+			return 0
+		}
+		fetch := handlers.RawGetString("fetch_proxies")
+		if fetch == lua.LNil {
+			L.RaiseError("llm_router.register_proxy_source: handler \"fetch_proxies\" is required for %q", typeKey)
+			return 0
+		}
+		if _, ok := fetch.(*lua.LFunction); !ok {
+			L.RaiseError("llm_router.register_proxy_source: handler \"fetch_proxies\" must be a function")
+			return 0
+		}
+		ctx.proxySources[typeKey] = handlers
 		return 0
 	}))
 

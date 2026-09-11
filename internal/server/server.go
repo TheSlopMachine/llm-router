@@ -21,12 +21,14 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/agent"
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/geoip"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/maintenance"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/pluginrepo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
+	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 	"github.com/TheSlopMachine/llm-router/internal/services/router"
 	"github.com/TheSlopMachine/llm-router/internal/services/token"
 	"github.com/TheSlopMachine/llm-router/providers/agents"
@@ -89,8 +91,39 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	}
 	routerCfg, _ := configSvc.Get()
 	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, routerCfg.MaxRetries, logger)
-	configSvc.SetOnChanged(func(cfg models.RouterConfiguration) { routerSvc.SetMaxRetries(cfg.MaxRetries) })
+
+	// Proxy subsystem: pool, geo-IP detection, plugin proxy resolution.
+	proxySvc := proxypool.New(database)
+	geoSvc := geoip.New(logger)
+	geoSvc.SetOverride(routerCfg.ServerCountry)
+	luaSvc.SetProxyResolver(func(rec *luaplugin.PluginRecord, providerConfig map[string]any) (string, string) {
+		mode, ids := parseProxyMode(providerConfig)
+		typeKey := ""
+		if len(rec.TypeKeys) > 0 {
+			typeKey = rec.TypeKeys[0]
+		}
+		serverCountry := geoSvc.Country(context.Background())
+		force := rec.ProxyForceOnMismatch && rec.ProxyLocation != "" && serverCountry != "" && serverCountry != rec.ProxyLocation
+		var p *models.Proxy
+		switch {
+		case mode == models.ProxyModeManual:
+			p = proxySvc.SelectManual(ids, typeKey)
+		case mode == models.ProxyModeAuto || force:
+			p = proxySvc.Select(models.ProxyPreferences{Location: rec.ProxyLocation}, typeKey)
+		}
+		if p == nil {
+			return "", ""
+		}
+		return p.ID, p.URL
+	})
+	luaSvc.SetProxyOutcomeReporter(proxySvc.RecordOutcome)
+
+	configSvc.SetOnChanged(func(cfg models.RouterConfiguration) {
+		routerSvc.SetMaxRetries(cfg.MaxRetries)
+		geoSvc.SetOverride(cfg.ServerCountry)
+	})
 	maintSvc := maintenance.New(credSvc, providerSvc, database, logger)
+	maintSvc.SetProxyServices(proxySvc, luaSvc)
 	metricsSvc := metrics.New(database, logger)
 	metricsSvc.Start()
 
@@ -141,7 +174,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	agentsAdapter.SetLogger(logger)
 
 	dashMux := http.NewServeMux()
-	dash, err := dashboard.New(adminSvc, providerSvc, credSvc, tokenSvc, modelInfoSvc, metricsSvc, agentSvc, routerSvc, configSvc, luaSvc, repoSvc, logger)
+	dash, err := dashboard.New(adminSvc, providerSvc, credSvc, tokenSvc, modelInfoSvc, metricsSvc, agentSvc, routerSvc, configSvc, luaSvc, repoSvc, proxySvc, geoSvc, logger)
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard handler: %w", err)
 	}
@@ -268,4 +301,27 @@ func (r *statusRecorder) Flush() {
 	if f, ok := r.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// parseProxyMode reads the provider-level proxy config from ProviderInstance.Config.
+func parseProxyMode(providerConfig map[string]any) (mode string, ids []string) {
+	mode = models.ProxyModeDisabled
+	raw, ok := providerConfig["proxy"].(map[string]any)
+	if !ok {
+		return mode, nil
+	}
+	if m, ok := raw["mode"].(string); ok {
+		switch m {
+		case models.ProxyModeAuto, models.ProxyModeManual:
+			mode = m
+		}
+	}
+	if list, ok := raw["ids"].([]any); ok {
+		for _, v := range list {
+			if s, ok := v.(string); ok {
+				ids = append(ids, s)
+			}
+		}
+	}
+	return mode, ids
 }

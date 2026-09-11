@@ -155,7 +155,7 @@ func (s *Service) Complete(
 	req *models.ChatCompletionRequest,
 	token *models.RouterToken,
 ) (*models.ChatCompletionResponse, error) {
-	providerID, _, err := req.Model.Parse()
+	providerID, modelName, err := req.Model.Parse()
 	if err != nil {
 		return nil, fmt.Errorf("invalid model id: %w", err)
 	}
@@ -167,6 +167,9 @@ func (s *Service) Complete(
 	// credentials; token credential rules do not apply to them.
 	if resolved.Instance.TypeKey == provider.TypeAgents {
 		return s.completeOne(ctx, resolved, nil, req)
+	}
+	if !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
+		return nil, fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
 	}
 	creds, err := s.loadCredentials(resolved.Instance, token)
 	if err != nil {
@@ -210,7 +213,7 @@ func (s *Service) CompleteStream(
 	w io.Writer,
 	token *models.RouterToken,
 ) error {
-	providerID, _, err := req.Model.Parse()
+	providerID, modelName, err := req.Model.Parse()
 	if err != nil {
 		return fmt.Errorf("invalid model id: %w", err)
 	}
@@ -220,6 +223,9 @@ func (s *Service) CompleteStream(
 	}
 	if resolved.Instance.TypeKey == provider.TypeAgents {
 		return s.completeStreamOne(ctx, resolved, nil, req, w)
+	}
+	if !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
+		return fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
 	}
 	creds, err := s.loadCredentials(resolved.Instance, token)
 	if err != nil {
@@ -285,4 +291,121 @@ func (s *Service) GetProviderIDForModel(ctx context.Context, modelID models.Mode
 		return "", err
 	}
 	return providerID, nil
+}
+
+// TestResult reports the outcome of a credential or model probe.
+type TestResult struct {
+	OK       bool   `json:"ok"`
+	Latency  int64  `json:"latency_ms"`
+	Error    string `json:"error,omitempty"`
+	Response string `json:"response,omitempty"`
+}
+
+// probeRequest builds a minimal completion request for connectivity tests.
+func probeRequest(model models.ModelId) *models.ChatCompletionRequest {
+	return &models.ChatCompletionRequest{
+		Model:     model,
+		MaxTokens: 16,
+		Messages:  []models.ChatMessage{{Role: "user", Content: "Reply with: ok"}},
+	}
+}
+
+// TestCredential runs a single probe request pinned to one credential,
+// bypassing pool rotation. The probe model is the provider's first listed
+// model, or overrideModel when given.
+func (s *Service) TestCredential(ctx context.Context, providerID, credentialID string, overrideModel string) TestResult {
+	resolved, err := provider.Resolve(s.providerSvc, providerID)
+	if err != nil {
+		return TestResult{Error: err.Error()}
+	}
+	cred, err := s.credSvc.Get(credentialID)
+	if err != nil {
+		return TestResult{Error: "credential not found"}
+	}
+	if cred.ProviderID != providerID {
+		return TestResult{Error: "credential does not belong to this provider"}
+	}
+	model := overrideModel
+	if model == "" {
+		infos, err := s.modelInfoSvc.GetModelInfos(ctx, providerID)
+		if err != nil || len(infos) == 0 {
+			return TestResult{Error: "no model available for probe: model discovery failed"}
+		}
+		model = infos[0].Name
+	}
+	req := probeRequest(models.ModelId(providerID + "/" + model))
+	start := time.Now()
+	resp, err := s.completeOne(ctx, resolved, cred, req)
+	res := TestResult{OK: err == nil, Latency: time.Since(start).Milliseconds()}
+	if err != nil {
+		res.Error = err.Error()
+		return res
+	}
+	if len(resp.Choices) > 0 {
+		res.Response = resp.Choices[0].Message.TextContent()
+	}
+	return res
+}
+
+// TestModel runs a probe through the normal routing path (credential pool
+// included), as an internal unrestricted call.
+func (s *Service) TestModel(ctx context.Context, modelID models.ModelId) TestResult {
+	start := time.Now()
+	resp, err := s.Complete(ctx, probeRequest(modelID), nil)
+	res := TestResult{OK: err == nil, Latency: time.Since(start).Milliseconds()}
+	if err != nil {
+		res.Error = err.Error()
+		return res
+	}
+	if len(resp.Choices) > 0 {
+		res.Response = resp.Choices[0].Message.TextContent()
+	}
+	return res
+}
+
+// ProbeCapabilities detects model features with live probe requests.
+// Each probe consumes a small amount of quota. Unprobed capabilities are
+// simply absent from the result.
+func (s *Service) ProbeCapabilities(ctx context.Context, modelID models.ModelId) ([]string, error) {
+	providerID, _, err := modelID.Parse()
+	if err != nil {
+		return nil, fmt.Errorf("invalid model id: %w", err)
+	}
+	if _, err := provider.Resolve(s.providerSvc, providerID); err != nil {
+		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
+	}
+
+	caps := []string{}
+
+	// Reasoning models spend tokens on thinking before any tool call or
+	// JSON output; probes need real headroom.
+	toolReq := probeRequest(modelID)
+	toolReq.MaxTokens = 512
+	toolReq.Messages[0].Content = "Call the function report_weather with city=Paris."
+	toolReq.Tools = []models.ChatTool{{
+		Type: "function",
+		Function: &models.ChatToolFunction{
+			Name:        "report_weather",
+			Description: "Report weather for a city",
+			Parameters: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"city": map[string]any{"type": "string"}},
+				"required":   []string{"city"},
+			},
+		},
+	}}
+	toolReq.ToolChoice = map[string]any{"type": "function", "function": map[string]any{"name": "report_weather"}}
+	if resp, err := s.Complete(ctx, toolReq, nil); err == nil && len(resp.Choices) > 0 && len(resp.Choices[0].Message.ToolCalls) > 0 {
+		caps = append(caps, "tools")
+	}
+
+	jsonReq := probeRequest(modelID)
+	jsonReq.MaxTokens = 512
+	jsonReq.Messages[0].Content = `Output exactly: {"ok": true}`
+	jsonReq.ResponseFormat = map[string]any{"type": "json_object"}
+	if _, err := s.Complete(ctx, jsonReq, nil); err == nil {
+		caps = append(caps, "json_mode")
+	}
+
+	return caps, nil
 }

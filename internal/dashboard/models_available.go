@@ -9,14 +9,15 @@ import (
 )
 
 type availableModelView struct {
-	FullModelID   string `json:"full_model_id"`
-	ProviderID    string `json:"provider_id"`
-	ProviderName  string `json:"provider_name"`
-	ProviderType  string `json:"provider_type"`
-	ModelName     string `json:"model_name"`
-	DisplayName   string `json:"display_name"`
-	ContextWindow int64  `json:"context_window,omitempty"`
-	MaxTokens     int64  `json:"max_tokens,omitempty"`
+	FullModelID   string   `json:"full_model_id"`
+	ProviderID    string   `json:"provider_id"`
+	ProviderName  string   `json:"provider_name"`
+	ProviderType  string   `json:"provider_type"`
+	ModelName     string   `json:"model_name"`
+	DisplayName   string   `json:"display_name"`
+	ContextWindow int64    `json:"context_window,omitempty"`
+	MaxTokens     int64    `json:"max_tokens,omitempty"`
+	Capabilities  []string `json:"capabilities,omitempty"`
 }
 
 // apiAvailableModels godoc
@@ -54,12 +55,15 @@ func (h *Handler) availableModels(ctx context.Context) ([]availableModelView, er
 			continue
 		}
 
-		modelInfos, err := h.modelInfoSvc.GetModelInfos(ctx, providerRecord.ID)
+		modelInfos, err := h.modelInfoSvc.MergedView(ctx, providerRecord.ID)
 		if err != nil {
 			continue
 		}
 
 		for _, modelInfo := range modelInfos {
+			if modelInfo.Disabled {
+				continue
+			}
 			displayName := modelInfo.DisplayName
 			if displayName == "" {
 				displayName = modelInfo.Name
@@ -74,6 +78,7 @@ func (h *Handler) availableModels(ctx context.Context) ([]availableModelView, er
 				DisplayName:   displayName,
 				ContextWindow: modelInfo.ContextWindow,
 				MaxTokens:     modelInfo.MaxTokens,
+				Capabilities:  modelInfo.Capabilities,
 			})
 		}
 	}

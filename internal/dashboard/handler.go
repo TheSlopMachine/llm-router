@@ -10,15 +10,18 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	"github.com/TheSlopMachine/llm-router/internal/services/agent"
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/geoip"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/pluginrepo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
+	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 	"github.com/TheSlopMachine/llm-router/internal/services/router"
 	"github.com/TheSlopMachine/llm-router/internal/services/token"
 )
@@ -41,6 +44,8 @@ type Handler struct {
 	configSvc    *configsvc.Service
 	luaSvc       *luaplugin.Service
 	repoSvc      *pluginrepo.Service
+	proxySvc     *proxypool.Service
+	geoSvc       *geoip.Service
 	logger       *slog.Logger
 
 	// devRedirect, when set, is the origin (e.g. "http://localhost:8080")
@@ -63,6 +68,8 @@ func New(
 	configSvc *configsvc.Service,
 	luaSvc *luaplugin.Service,
 	repoSvc *pluginrepo.Service,
+	proxySvc *proxypool.Service,
+	geoSvc *geoip.Service,
 	logger *slog.Logger,
 ) (*Handler, error) {
 	return &Handler{
@@ -77,6 +84,8 @@ func New(
 		configSvc:    configSvc,
 		luaSvc:       luaSvc,
 		repoSvc:      repoSvc,
+		proxySvc:     proxySvc,
+		geoSvc:       geoSvc,
 		logger:       logger,
 	}, nil
 }
@@ -129,10 +138,19 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 
 	mux.HandleFunc("GET /api/llm-router/dashboard/credentials", h.requireAuth(h.apiCredentialsList))
 	mux.HandleFunc("POST /api/llm-router/dashboard/credentials", h.requireAuth(h.apiCredentialsCreate))
+	mux.HandleFunc("PUT /api/llm-router/dashboard/credentials/reorder", h.requireAuth(h.apiCredentialsReorder))
+	mux.HandleFunc("PUT /api/llm-router/dashboard/credentials/{id}", h.requireAuth(h.apiCredentialsUpdate))
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/credentials/{id}", h.requireAuth(h.apiCredentialsDelete))
+	mux.HandleFunc("POST /api/llm-router/dashboard/credentials/{id}/test", h.requireAuth(h.apiCredentialsTest))
 
 	mux.HandleFunc("GET /api/llm-router/dashboard/models", h.requireAuth(h.apiModels))
 	mux.HandleFunc("GET /api/llm-router/dashboard/models/available", h.requireAuth(h.apiAvailableModels))
+	mux.HandleFunc("POST /api/llm-router/dashboard/models/test", h.requireAuth(h.apiModelTest))
+	mux.HandleFunc("POST /api/llm-router/dashboard/models/capabilities", h.requireAuth(h.apiModelCapabilities))
+	mux.HandleFunc("GET /api/llm-router/dashboard/providers/{id}/models", h.requireAuth(h.apiProviderModels))
+	mux.HandleFunc("POST /api/llm-router/dashboard/providers/{id}/models/refresh", h.requireAuth(h.apiProviderModelsRefresh))
+	mux.HandleFunc("PUT /api/llm-router/dashboard/providers/{id}/models/{model...}", h.requireAuth(h.apiProviderModelSetOverride))
+	mux.HandleFunc("DELETE /api/llm-router/dashboard/providers/{id}/models/{model...}", h.requireAuth(h.apiProviderModelDeleteOverride))
 
 	// Agent APIs
 	mux.HandleFunc("GET /api/llm-router/dashboard/agents", h.requireAuth(h.apiAgentsList))
@@ -174,6 +192,16 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("GET /api/llm-router/dashboard/config", h.requireAuth(h.apiConfigGet))
 	mux.HandleFunc("PUT /api/llm-router/dashboard/config", h.requireAuth(h.apiConfigPut))
 
+	// Proxy pool
+	mux.HandleFunc("GET /api/llm-router/dashboard/proxies", h.requireAuth(h.apiProxiesList))
+	mux.HandleFunc("POST /api/llm-router/dashboard/proxies", h.requireAuth(h.apiProxiesAdd))
+	mux.HandleFunc("DELETE /api/llm-router/dashboard/proxies/{id}", h.requireAuth(h.apiProxiesDelete))
+	mux.HandleFunc("POST /api/llm-router/dashboard/proxies/{id}/check", h.requireAuth(h.apiProxiesCheck))
+	mux.HandleFunc("POST /api/llm-router/dashboard/proxies/check-all", h.requireAuth(h.apiProxiesCheckAll))
+	mux.HandleFunc("GET /api/llm-router/dashboard/proxy-sources", h.requireAuth(h.apiProxySources))
+	mux.HandleFunc("POST /api/llm-router/dashboard/proxy-sources/{key}/refresh", h.requireAuth(h.apiProxySourceRefresh))
+	mux.HandleFunc("GET /api/llm-router/dashboard/proxy/status", h.requireAuth(h.apiProxyStatus))
+
 	// Chat proxy (dashboard session -> router, no token required)
 	mux.HandleFunc("POST /api/llm-router/dashboard/chat/completions", h.requireAuth(h.apiChatCompletions))
 
@@ -183,6 +211,14 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	indexHTML.Close()
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Unknown API paths are a JSON 404, never an SPA redirect: in dev the
+		// Vite proxy would otherwise follow the redirect back into itself.
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(models.ErrorResponse{Error: "unknown endpoint"})
+			return
+		}
 		if h.devRedirect != "" {
 			target := h.devRedirect + r.URL.Path
 			if r.URL.RawQuery != "" {

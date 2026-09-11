@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { squircle } from '../../lib/squircle'
+
   let {
     value = $bindable(''),
     options,
@@ -17,7 +19,7 @@
   }
 </script>
 
-<div class="segmented" role="group" aria-label={ariaLabel}>
+<div class="segmented" role="group" aria-label={ariaLabel} use:squircle={12}>
   {#each options as opt}
     <button
       type="button"
@@ -25,6 +27,7 @@
       class:active={value === opt.value}
       aria-pressed={value === opt.value}
       onclick={() => select(opt.value)}
+      use:squircle={9}
     >
       {opt.label}
     </button>
@@ -34,34 +37,34 @@
 <style>
   .segmented {
     display: inline-flex;
-    padding: 4px;
-    gap: 4px;
+    height: 36px;
+    padding: 3px;
+    gap: 0;
     background: var(--color-surface-container-highest);
-    border: 1px solid var(--color-outline-soft);
-    border-radius: 9999px;
+    border: none;
+    border-radius: var(--radius-md);
+    overflow: hidden;
   }
 
   .seg-btn {
+    display: flex;
+    align-items: center;
     padding: 0 14px;
-    height: 28px;
-    border-radius: 9999px;
-    border: 1px solid transparent;
+    height: 100%;
+    border-radius: 9px;
+    border: none;
     background: transparent;
     color: var(--color-text-soft);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     cursor: pointer;
     transition:
       background 0.15s,
-      border-color 0.15s,
-      color 0.15s,
-      box-shadow 0.15s;
+      color 0.15s;
   }
 
   .seg-btn.active {
     background: var(--color-surface);
-    border-color: var(--color-outline-light);
     color: var(--color-text);
-    box-shadow: var(--shadow-xs);
   }
 </style>

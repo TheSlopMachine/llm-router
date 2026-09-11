@@ -19,6 +19,7 @@ func (s *Service) handlerCall(
 	pushArgs func(L *lua.LState),
 	nret int,
 	applyRet func(L *lua.LState) error,
+	providerConfig map[string]any,
 ) (found bool, err error) {
 	ctx := &execContext{
 		pluginID:      rec.ID,
@@ -28,6 +29,16 @@ func (s *Service) handlerCall(
 		logSink:       s.appendLog,
 		storage:       s.storage,
 		registrations: map[string]*lua.LTable{},
+		proxySources:  map[string]*lua.LTable{},
+	}
+	if s.proxyResolver != nil {
+		ctx.proxyID, ctx.proxyURL = s.proxyResolver(rec, providerConfig)
+	}
+	if ctx.proxyID != "" && s.proxyOutcome != nil {
+		proxyID, tk := ctx.proxyID, typeKey
+		ctx.onProxyResult = func(ok bool, latencyMs int64) {
+			s.proxyOutcome(proxyID, tk, ok, latencyMs)
+		}
 	}
 	L := newSandboxState(ctx)
 	defer L.Close()
@@ -40,7 +51,11 @@ func (s *Service) handlerCall(
 	}
 	handlers, ok := ctx.registrations[typeKey]
 	if !ok {
-		return false, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: handler}
+		if srcHandlers, isSource := ctx.proxySources[typeKey]; isSource {
+			handlers = srcHandlers
+		} else {
+			return false, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: handler}
+		}
 	}
 	fn := handlers.RawGetString(handler)
 	if fn == lua.LNil {

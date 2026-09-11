@@ -226,15 +226,52 @@ func (h *Handler) handleStreamWithMetrics(w http.ResponseWriter, r *http.Request
 
 // listModels handles GET /v1/models - global, independent of token rules
 func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+	// OpenAI canonical fields plus the moderate OpenRouter-style extension set.
+	type modelArchitecture struct {
+		InputModalities  []string `json:"input_modalities,omitempty"`
+		OutputModalities []string `json:"output_modalities,omitempty"`
+		Modality         string   `json:"modality,omitempty"`
+	}
 	type modelEntry struct {
-		ID      string `json:"id"`
-		Object  string `json:"object"`
-		Created int64  `json:"created"`
-		OwnedBy string `json:"owned_by"`
+		ID                  string                 `json:"id"`
+		Object              string                 `json:"object"`
+		Created             int64                  `json:"created"`
+		OwnedBy             string                 `json:"owned_by"`
+		Name                string                 `json:"name,omitempty"`
+		Description         string                 `json:"description,omitempty"`
+		ContextLength       int64                  `json:"context_length,omitempty"`
+		MaxCompletionTokens int64                  `json:"max_completion_tokens,omitempty"`
+		Architecture        *modelArchitecture     `json:"architecture,omitempty"`
+		Reasoning           *models.ModelReasoning `json:"reasoning,omitempty"`
+		SupportedParameters []string               `json:"supported_parameters,omitempty"`
 	}
 	type modelList struct {
 		Object string       `json:"object"`
 		Data   []modelEntry `json:"data"`
+	}
+
+	entryFor := func(p *models.ProviderInstance, mi modelinfo.ModelView) modelEntry {
+		e := modelEntry{
+			ID:                  p.ID + "/" + mi.Name,
+			Object:              "model",
+			Created:             p.CreatedAt.Unix(),
+			OwnedBy:             p.TypeKey,
+			Name:                mi.DisplayName,
+			Description:         mi.Description,
+			ContextLength:       mi.ContextWindow,
+			MaxCompletionTokens: mi.MaxTokens,
+			Reasoning:           mi.Reasoning,
+			SupportedParameters: mi.SupportedParameters,
+		}
+		if len(mi.InputModalities) > 0 || len(mi.OutputModalities) > 0 {
+			arch := &modelArchitecture{
+				InputModalities:  mi.InputModalities,
+				OutputModalities: mi.OutputModalities,
+			}
+			arch.Modality = joinModalities(mi.InputModalities) + "->" + joinModalities(mi.OutputModalities)
+			e.Architecture = arch
+		}
+		return e
 	}
 
 	var entries []modelEntry
@@ -246,7 +283,7 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 				if p.TypeKey == "agents" {
 					continue
 				}
-				infos, err := h.modelInfoSvc.GetModelInfos(r.Context(), p.ID)
+				infos, err := h.modelInfoSvc.MergedView(r.Context(), p.ID)
 				if err != nil {
 					h.logger.Warn("v1 listModels: model discovery failed", "provider_id", p.ID, "err", err)
 					if p.TypeKey == "custom" {
@@ -254,7 +291,7 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 						entries = append(entries, modelEntry{
 							ID:      p.ID + "/*",
 							Object:  "model",
-							Created: time.Now().Unix(),
+							Created: p.CreatedAt.Unix(),
 							OwnedBy: p.TypeKey,
 						})
 					}
@@ -265,20 +302,17 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 						entries = append(entries, modelEntry{
 							ID:      p.ID + "/*",
 							Object:  "model",
-							Created: time.Now().Unix(),
+							Created: p.CreatedAt.Unix(),
 							OwnedBy: p.TypeKey,
 						})
 					}
 					continue
 				}
 				for _, mi := range infos {
-					fullID := p.ID + "/" + mi.Name
-					entries = append(entries, modelEntry{
-						ID:      fullID,
-						Object:  "model",
-						Created: time.Now().Unix(),
-						OwnedBy: p.TypeKey,
-					})
+					if mi.Disabled {
+						continue
+					}
+					entries = append(entries, entryFor(p, mi))
 				}
 			}
 		}
@@ -328,35 +362,66 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, t *model
 	// Check global existence via modelInfo or agents
 	exists := false
 	var ownedBy string
+	var created int64
+	var info *modelinfo.ModelView
 	if providerID == "agents" && h.agentSvc != nil {
 		if _, err := h.agentSvc.Get(modelName); err == nil {
 			exists = true
 			ownedBy = "agents"
 		}
 	} else if h.providerSvc != nil && h.modelInfoSvc != nil {
-		if _, err := h.providerSvc.Get(providerID); err == nil {
-			if _, err := h.modelInfoSvc.GetModelInfo(r.Context(), mid); err == nil {
-				exists = true
-				if p, err := h.providerSvc.Get(providerID); err == nil {
-					ownedBy = p.TypeKey
-				} else {
-					ownedBy = providerID
+		if p, err := h.providerSvc.Get(providerID); err == nil {
+			ownedBy = p.TypeKey
+			created = p.CreatedAt.Unix()
+			if views, err := h.modelInfoSvc.MergedView(r.Context(), providerID); err == nil {
+				for i := range views {
+					if views[i].Name == modelName && !views[i].Disabled {
+						exists = true
+						info = &views[i]
+						break
+					}
 				}
 			}
 		}
 	}
-	// Fallback: if we can't verify (e.g. no credential), synthesize if provider parsed - for compatibility
 	if !exists {
-		// If provider exists but model unknown, still 404; if provider unknown, 404
 		h.writeError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("The model '%s' does not exist", modelID), nil)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"id":       modelID,
 		"object":   "model",
-		"created":  time.Now().Unix(),
+		"created":  created,
 		"owned_by": ownedBy,
-	})
+	}
+	if info != nil {
+		if info.DisplayName != "" {
+			out["name"] = info.DisplayName
+		}
+		if info.Description != "" {
+			out["description"] = info.Description
+		}
+		if info.ContextWindow > 0 {
+			out["context_length"] = info.ContextWindow
+		}
+		if info.MaxTokens > 0 {
+			out["max_completion_tokens"] = info.MaxTokens
+		}
+		if len(info.InputModalities) > 0 || len(info.OutputModalities) > 0 {
+			out["architecture"] = map[string]any{
+				"input_modalities":  info.InputModalities,
+				"output_modalities": info.OutputModalities,
+				"modality":          joinModalities(info.InputModalities) + "->" + joinModalities(info.OutputModalities),
+			}
+		}
+		if info.Reasoning != nil {
+			out["reasoning"] = info.Reasoning
+		}
+		if len(info.SupportedParameters) > 0 {
+			out["supported_parameters"] = info.SupportedParameters
+		}
+	}
+	h.writeJSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) notFound(w http.ResponseWriter, r *http.Request) {
@@ -477,6 +542,8 @@ func (h *Handler) classifyError(err error) routerError {
 	switch {
 	case errors.Is(err, apierrors.ErrProviderNotFound):
 		return routerError{http.StatusBadRequest, "provider_not_found"}
+	case errors.Is(err, apierrors.ErrModelDisabled):
+		return routerError{http.StatusNotFound, "model_not_found"}
 	case errors.Is(err, apierrors.ErrNoCredential):
 		return routerError{http.StatusServiceUnavailable, "no_credential"}
 	case errors.Is(err, apierrors.ErrModelNotAllowed):
@@ -513,6 +580,11 @@ func (h *Handler) writeError(w http.ResponseWriter, status int, code, msg string
 }
 
 func strPtr(s string) *string { return &s }
+
+// joinModalities renders OpenRouter-style modality strings: ["text","image"] -> "text+image".
+func joinModalities(mods []string) string {
+	return strings.Join(mods, "+")
+}
 
 func errorTypeForCode(code string) string {
 	switch code {

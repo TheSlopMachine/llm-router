@@ -44,3 +44,7 @@ web/docs.go
 .workspace/
 go.work
 go.work.sum
+
+# Local tooling and scratch (live API keys, dev harness)
+.opencode/
+test_shit/

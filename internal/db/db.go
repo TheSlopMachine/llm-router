@@ -26,6 +26,8 @@ var (
 	BucketMetrics             = []byte("metrics")              // Time-series metrics data
 	BucketAgents              = []byte("agents")               // Agent records
 	BucketRouterConfiguration = []byte("router_configuration") // Instance configuration (RouterConfiguration)
+	BucketModelOverrides      = []byte("model_overrides")      // Per-provider model enable/disable and custom models
+	BucketProxies             = []byte("proxies")              // Proxy pool records (manual + list-sourced)
 )
 
 // DB wraps a bbolt.DB and ensures all required buckets exist.
@@ -68,6 +70,8 @@ func (db *DB) initBuckets() error {
 			BucketMetrics,
 			BucketAgents,
 			BucketRouterConfiguration,
+			BucketModelOverrides,
+			BucketProxies,
 		}
 		for _, name := range buckets {
 			if _, err := tx.CreateBucketIfNotExists(name); err != nil {

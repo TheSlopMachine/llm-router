@@ -227,14 +227,32 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	if existing.IsUIReadonly {
-		h.jsonErr(w, http.StatusForbidden, "provider is managed automatically")
-		return
-	}
 
 	var body models.ProviderInstanceUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if existing.IsUIReadonly {
+		// Seeded providers are managed automatically; only the operational
+		// proxy mode may be edited on them. Other config keys are preserved.
+		proxyCfg, hasProxy := body.Config["proxy"]
+		if body.Name != "" && body.Name != existing.Name || !hasProxy {
+			h.jsonErr(w, http.StatusForbidden, "provider is managed automatically")
+			return
+		}
+		cfg := map[string]any{}
+		for k, v := range existing.Config {
+			cfg[k] = v
+		}
+		cfg["proxy"] = proxyCfg
+		inst, err := h.providerSvc.Update(id, provider.UpdateOptions{Name: existing.Name, Config: cfg, IconURL: existing.IconURL})
+		if err != nil {
+			h.jsonErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		h.json(w, http.StatusOK, toProviderView(inst, h.providerSvc))
 		return
 	}
 

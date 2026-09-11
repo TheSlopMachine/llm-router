@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/scripts/shared"
@@ -12,7 +14,9 @@ import (
 
 const devBackendWebPort = "38473" // dev-only internal backend --web; never user-facing
 
-// start launches the dev backend (go run) and frontend (vite).
+var exeSuffix = map[bool]string{true: ".exe", false: ""}[runtime.GOOS == "windows"]
+
+// start launches the dev backend (built binary) and frontend (vite).
 // Project initialization lives in `make init`; configuration comes from env only.
 func main() {
 	host := shared.Getenv("HOST", "localhost")
@@ -52,9 +56,22 @@ func main() {
 	backendLog := shared.DefaultBackendLog()
 	frontendLog := shared.DefaultFrontendLog()
 
-	shared.Stepf("Starting backend (go run) and frontend (vite)...")
+	shared.Stepf("Building backend...")
 
-	backendPID, err := shared.SpawnDetached(root, backendLog, "go", "run", ".", host,
+	// Build to a temp binary and spawn it directly: `go run` would put its
+	// own wrapper PID in the pidfile, and the compiled child it execs can
+	// outlive the wrapper (reparented to init) while holding the ports —
+	// `make stop` then never reaches the real server.
+	binPath := filepath.Join(os.TempDir(), "llm-router-dev-backend"+exeSuffix)
+	build := exec.Command("go", "build", "-o", binPath, ".")
+	build.Dir = root
+	if out, err := build.CombinedOutput(); err != nil {
+		shared.Failf("backend build: %v\n%s", err, out)
+	}
+
+	shared.Stepf("Starting backend and frontend (vite)...")
+
+	backendPID, err := shared.SpawnDetached(root, backendLog, binPath, host,
 		"--web", devBackendWebPort, "--api", apiPort, "--db", dbPath, "--testing-key", keyPath,
 		"--log-level", logLevel,
 		"--dev-ui-redirect", fmt.Sprintf("http://%s:%s", host, webPort))

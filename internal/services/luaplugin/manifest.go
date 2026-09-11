@@ -17,6 +17,15 @@ type Manifest struct {
 	AllowHosts    []string
 	// Unsafe is true when the plugin requests a wildcard allow_host.
 	Unsafe bool
+	// ProxyLocation is an optional ISO country code the upstream expects
+	// requests to originate from (proxy preference).
+	ProxyLocation string
+	// ProxyForceOnMismatch marks providers that require a proxy whenever the
+	// server location differs from ProxyLocation (e.g. region-locked APIs).
+	ProxyForceOnMismatch bool
+	// ProxySource marks this plugin as a proxy-list source with a
+	// fetch_proxies handler instead of a provider backend.
+	ProxySource bool
 }
 
 // ParseManifest parses the leading "---" header block. The header is the
@@ -68,6 +77,12 @@ func ParseManifest(source []byte) (*Manifest, error) {
 			if value != "" {
 				allowHosts = append(allowHosts, value)
 			}
+		case "@proxy_location":
+			m.ProxyLocation = strings.ToUpper(value)
+		case "@proxy_force_on_mismatch":
+			m.ProxyForceOnMismatch = value == "true"
+		case "@proxy_source":
+			m.ProxySource = value == "true" || value == ""
 		default:
 			return nil, fmt.Errorf("unknown manifest tag %q", tag)
 		}
@@ -83,7 +98,8 @@ func ParseManifest(source []byte) (*Manifest, error) {
 			return nil, fmt.Errorf("duplicate manifest tag %q", tag)
 		}
 	}
-	if seen["@description"] > 1 || seen["@license"] > 1 {
+	if seen["@description"] > 1 || seen["@license"] > 1 ||
+		seen["@proxy_location"] > 1 || seen["@proxy_force_on_mismatch"] > 1 || seen["@proxy_source"] > 1 {
 		return nil, fmt.Errorf("duplicate single-value manifest tag")
 	}
 	if len(allowHosts) == 0 {

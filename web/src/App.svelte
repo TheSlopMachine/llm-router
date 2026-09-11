@@ -6,6 +6,7 @@
   import Bootstrap from './pages/Bootstrap.svelte'
   import Dashboard from './pages/Dashboard.svelte'
   import Modal from './components/Modal.svelte'
+  import Toasts from './components/Toasts.svelte'
   import { hardenSecureElements } from './lib/secure'
 
   type AppState = 'loading' | 'bootstrap' | 'login' | 'dashboard'
@@ -87,6 +88,7 @@
 {/if}
 
 <Modal />
+<Toasts />
 
 <style>
   .splash {

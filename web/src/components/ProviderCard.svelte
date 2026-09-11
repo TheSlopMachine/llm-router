@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Provider, ProviderStats } from '../lib/types'
+  import { squircle } from '../lib/squircle'
 
   let { provider, stats, onClick } = $props<{
     provider: Provider
@@ -8,10 +9,10 @@
   }>()
 </script>
 
-<button class="provider-card" onclick={onClick}>
+<button class="provider-card" onclick={onClick} use:squircle={18}>
   <div class="provider-header">
     {#if provider.icon_url}
-      <img src={provider.icon_url} alt={provider.name} class="provider-icon" />
+      <img src={provider.icon_url} alt={provider.name} class="provider-icon" use:squircle={12} />
     {:else}
       <span class="icon provider-icon-fallback">cloud</span>
     {/if}
@@ -27,13 +28,14 @@
 
 <style>
   .provider-card {
-    background: var(--color-surface);
-    border: 1px solid var(--color-outline-light);
-    border-radius: 16px;
+    background: var(--color-surface-container-high);
+    border-radius: var(--radius-lg);
     padding: 20px;
     cursor: pointer;
     text-align: left;
-    transition: border-color 0.15s ease;
+    transition:
+      background-color 0.15s ease,
+      transform 0.12s ease;
     width: 100%;
     display: flex;
     align-items: center;
@@ -45,7 +47,11 @@
   }
 
   .provider-card:hover {
-    background: var(--color-hover-bg);
+    background: var(--color-surface-container-highest);
+  }
+
+  .provider-card:active {
+    transform: scale(0.97);
   }
 
   .provider-header {
@@ -58,7 +64,7 @@
   .provider-icon {
     width: 40px;
     height: 40px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     object-fit: contain;
     flex-shrink: 0;
   }
@@ -69,8 +75,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--color-surface-container-high);
-    border-radius: 8px;
+    background: var(--color-surface-container-highest);
+    border-radius: var(--radius-md);
     font-size: 24px;
     color: var(--color-text-soft);
     flex-shrink: 0;

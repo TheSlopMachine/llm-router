@@ -16,8 +16,30 @@ type credView struct {
 	ProviderName string     `json:"provider_name"`
 	Label        string     `json:"label"`
 	IsExpired    bool       `json:"is_expired"`
+	Disabled     bool       `json:"disabled"`
+	Order        int        `json:"order,omitempty"`
+	RequestCount int64      `json:"request_count"`
+	SuccessCount int64      `json:"success_count"`
+	QuotaResetAt *time.Time `json:"quota_reset_at,omitempty"`
 	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
 	UpdatedAt    time.Time  `json:"updated_at"`
+}
+
+func toCredView(c *models.Credential, providerName string) credView {
+	return credView{
+		ID:           c.ID,
+		ProviderID:   c.ProviderID,
+		ProviderName: providerName,
+		Label:        c.Label,
+		IsExpired:    c.IsExpired(),
+		Disabled:     c.Disabled,
+		Order:        c.Order,
+		RequestCount: c.RequestCount,
+		SuccessCount: c.SuccessCount,
+		QuotaResetAt: c.QuotaResetAt,
+		ExpiresAt:    c.ExpiresAt,
+		UpdatedAt:    c.UpdatedAt,
+	}
 }
 
 // apiCredentialsList lists all credentials
@@ -43,15 +65,7 @@ func (h *Handler) apiCredentialsList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]credView, len(creds))
 	for i, c := range creds {
-		out[i] = credView{
-			ID:           c.ID,
-			ProviderID:   c.ProviderID,
-			ProviderName: providerMap[c.ProviderID],
-			Label:        c.Label,
-			IsExpired:    c.IsExpired(),
-			ExpiresAt:    c.ExpiresAt,
-			UpdatedAt:    c.UpdatedAt,
-		}
+		out[i] = toCredView(c, providerMap[c.ProviderID])
 	}
 	h.json(w, http.StatusOK, out)
 }
@@ -101,15 +115,112 @@ func (h *Handler) apiCredentialsCreate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	h.json(w, http.StatusOK, credView{
-		ID:           cred.ID,
-		ProviderID:   cred.ProviderID,
-		ProviderName: p.Name,
-		Label:        cred.Label,
-		IsExpired:    cred.IsExpired(),
-		ExpiresAt:    cred.ExpiresAt,
-		UpdatedAt:    cred.UpdatedAt,
-	})
+	h.json(w, http.StatusOK, toCredView(cred, p.Name))
+}
+
+// apiCredentialsUpdate edits label, enable/disable state or data of a credential
+// @Summary      Update credential
+// @Description  Renames, enables/disables or replaces the data of a stored credential.
+// @Tags         Credentials
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Credential ID"
+// @Param        body body object{label=string,disabled=bool,data=object} true "Fields to update"
+// @Success      200 {object} object{id=string,provider_id=string,provider_name=string,label=string,is_expired=bool,disabled=bool,order=int,updated_at=string}
+// @Failure      400 {object} models.ErrorResponse
+// @Failure      401 {object} models.ErrorResponse
+// @Failure      404 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/credentials/{id} [put]
+func (h *Handler) apiCredentialsUpdate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		Label    *string        `json:"label"`
+		Disabled *bool          `json:"disabled"`
+		Data     map[string]any `json:"data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.Label == nil && body.Disabled == nil && body.Data == nil {
+		h.jsonErr(w, http.StatusBadRequest, "nothing to update")
+		return
+	}
+	if err := h.credSvc.UpdateDetails(id, body.Label, body.Disabled, body.Data); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	cred, err := h.credSvc.Get(id)
+	if err != nil {
+		h.jsonErr(w, http.StatusNotFound, "credential not found")
+		return
+	}
+	name := ""
+	if p, err := h.providerSvc.Get(cred.ProviderID); err == nil {
+		name = p.Name
+	}
+	h.json(w, http.StatusOK, toCredView(cred, name))
+}
+
+// apiCredentialsReorder sets the manual pool order of a provider's credentials
+// @Summary      Reorder credentials
+// @Description  Sets the routing priority order; ids must cover all credentials of the provider.
+// @Tags         Credentials
+// @Accept       json
+// @Param        body body object{provider_id=string,ids=[]string} true "Ordered credential IDs"
+// @Success      204 "No Content"
+// @Failure      400 {object} models.ErrorResponse
+// @Failure      401 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/credentials/reorder [put]
+func (h *Handler) apiCredentialsReorder(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ProviderID string   `json:"provider_id"`
+		IDs        []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.ProviderID == "" || len(body.IDs) == 0 {
+		h.jsonErr(w, http.StatusBadRequest, "provider_id and ids are required")
+		return
+	}
+	if err := h.credSvc.Reorder(body.ProviderID, body.IDs); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// apiCredentialsTest probes a credential with a minimal live request
+// @Summary      Test credential
+// @Description  Runs a minimal completion pinned to this credential and reports success and latency.
+// @Tags         Credentials
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Credential ID"
+// @Param        body body object{model=string} false "Optional model override"
+// @Success      200 {object} object{ok=bool,latency_ms=int,error=string,response=string}
+// @Failure      401 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/credentials/{id}/test [post]
+func (h *Handler) apiCredentialsTest(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	cred, err := h.credSvc.Get(id)
+	if err != nil {
+		h.jsonErr(w, http.StatusNotFound, "credential not found")
+		return
+	}
+	var body struct {
+		Model string `json:"model"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+	res := h.routerSvc.TestCredential(r.Context(), cred.ProviderID, id, body.Model)
+	h.json(w, http.StatusOK, res)
 }
 
 // apiCredentialsDelete deletes a credential

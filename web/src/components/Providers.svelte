@@ -1,10 +1,8 @@
 <script lang="ts">
-  import { api } from '../lib/api'
   import { modal } from '../lib/modal.svelte'
-  import { getErrorMessage } from '../lib/errors'
+  import { api } from '../lib/api'
   import { createListResource } from '../lib/list-resource.svelte'
   import ProviderCard from './ProviderCard.svelte'
-  import ProviderDetailModal from './ProviderDetailModal.svelte'
   import CustomProviderWizard from './wizards/CustomProviderWizard.svelte'
   import type { Provider, ProviderStats } from '../lib/types'
 
@@ -18,36 +16,8 @@
 
   let visibleProviders = $derived(resource.data.providers)
 
-  async function openProviderDetail(provider: Provider): Promise<void> {
-    try {
-      const allCredentials = (await api.credentials.list()) as any[]
-      const providerCreds = allCredentials.filter((c: any) => c.provider_id === provider.id)
-
-      modal.open({
-        title: `${provider.name} Credentials`,
-        content: ProviderDetailModal,
-        severity: 'medium',
-        size: 'large',
-        props: {
-          provider,
-          credentials: providerCreds,
-          onUpdate: async () => {
-            const updatedCreds = (await api.credentials.list()) as any[]
-            const updatedProviderCreds = updatedCreds.filter((c: any) => c.provider_id === provider.id)
-            modal.updateProps({ credentials: updatedProviderCreds })
-            await resource.reload()
-          },
-          onComplete: async () => {
-            modal.close()
-            await resource.reload()
-          },
-          onEdit: provider.is_ui_readonly ? undefined : () => { modal.close(); openEdit(provider) },
-          onDelete: provider.is_ui_readonly ? undefined : () => deleteProvider(provider)
-        }
-      })
-    } catch (e) {
-      resource.error = getErrorMessage(e)
-    }
+  function openProviderDetail(provider: Provider): void {
+    window.location.hash = '#/providers/' + provider.id
   }
 
   function openCreate(): void {
@@ -66,45 +36,6 @@
         }
       }
     })
-  }
-
-  function openEdit(provider: Provider): void {
-    resource.error = ''
-
-    modal.open({
-      title: 'Edit Provider',
-      content: CustomProviderWizard,
-      severity: 'medium',
-      size: 'medium',
-      props: {
-        editingProvider: provider,
-        onComplete: async () => {
-          modal.close()
-          await resource.reload()
-        }
-      }
-    })
-  }
-
-  async function deleteProvider(provider: Provider): Promise<void> {
-    const confirmed = await modal.confirm({
-      title: 'Delete Provider',
-      message: `Are you sure you want to delete "${provider.name}"? Credentials for this provider will be removed as well.`,
-      severity: 'high',
-      confirmText: 'Delete',
-      cancelText: 'Cancel',
-      danger: true
-    })
-
-    if (!confirmed) return
-
-    try {
-      await api.providers.delete(provider.id)
-      modal.close()
-      await resource.reload()
-    } catch (e) {
-      resource.error = getErrorMessage(e)
-    }
   }
 </script>
 

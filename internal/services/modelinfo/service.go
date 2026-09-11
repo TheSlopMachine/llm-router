@@ -14,6 +14,7 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/repository"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/util"
@@ -25,6 +26,7 @@ type Service struct {
 	credSvc     *credential.Service
 	cacheTTL    time.Duration
 	logger      *slog.Logger
+	overrides   *repository.Repository[models.ModelOverride]
 
 	mu       sync.RWMutex
 	cache    map[string]cacheEntry
@@ -38,7 +40,7 @@ type cacheEntry struct {
 }
 
 // New creates a ModelInfo service
-func New(_ *db.DB, providerSvc *provider.Service, credSvc *credential.Service, cacheTTL time.Duration) *Service {
+func New(database *db.DB, providerSvc *provider.Service, credSvc *credential.Service, cacheTTL time.Duration) *Service {
 	if cacheTTL == 0 {
 		cacheTTL = 1 * time.Hour
 	}
@@ -47,6 +49,7 @@ func New(_ *db.DB, providerSvc *provider.Service, credSvc *credential.Service, c
 		providerSvc: providerSvc,
 		credSvc:     credSvc,
 		cacheTTL:    cacheTTL,
+		overrides:   repository.New[models.ModelOverride](database, db.BucketModelOverrides, "model_override"),
 		cache:       make(map[string]cacheEntry),
 		inflight:    make(map[string]*sync.WaitGroup),
 	}
@@ -228,7 +231,106 @@ func (s *Service) InvalidateAll() error {
 	return nil
 }
 
+// ─────────────────────────────────────────────
+// Model overrides: enable/disable, custom models, display metadata
+// ─────────────────────────────────────────────
+
+func overrideKey(providerID, modelName string) string {
+	return providerID + "/" + modelName
+}
+
+// ModelView is a model merged with its admin override state.
+type ModelView struct {
+	models.ModelInfo
+	Disabled bool `json:"disabled"`
+	Custom   bool `json:"custom"`
+}
+
+// SetOverride creates or replaces the override for one model.
+func (s *Service) SetOverride(ov models.ModelOverride) error {
+	if ov.ProviderID == "" || ov.Name == "" {
+		return fmt.Errorf("override requires provider id and model name")
+	}
+	return s.overrides.Put(overrideKey(ov.ProviderID, ov.Name), &ov)
+}
+
+// DeleteOverride removes the override for one model. For custom models this
+// removes the model itself.
+func (s *Service) DeleteOverride(providerID, modelName string) error {
+	return s.overrides.Delete(overrideKey(providerID, modelName))
+}
+
+// ListOverrides returns all overrides of a provider.
+func (s *Service) ListOverrides(providerID string) ([]*models.ModelOverride, error) {
+	return s.overrides.ListFiltered(func(ov *models.ModelOverride) bool {
+		return ov.ProviderID == providerID
+	})
+}
+
+// IsModelEnabled reports whether a model may be routed. Models are enabled
+// unless an override disables them.
+func (s *Service) IsModelEnabled(providerID, modelName string) bool {
+	ov, err := s.overrides.Get(overrideKey(providerID, modelName))
+	if err != nil || ov == nil {
+		return true
+	}
+	return !ov.Disabled
+}
+
+// MergedView merges the cached upstream model list with admin overrides:
+// disabled models are flagged, custom models appended, display metadata applied.
+func (s *Service) MergedView(ctx context.Context, providerID string) ([]ModelView, error) {
+	infos, err := s.GetModelInfos(ctx, providerID)
+	if err != nil {
+		return nil, err
+	}
+	ovs, err := s.ListOverrides(providerID)
+	if err != nil {
+		return nil, err
+	}
+	byName := make(map[string]*models.ModelOverride, len(ovs))
+	for _, ov := range ovs {
+		byName[ov.Name] = ov
+	}
+	out := make([]ModelView, 0, len(infos)+len(ovs))
+	for _, mi := range infos {
+		v := ModelView{ModelInfo: mi}
+		if ov, ok := byName[mi.Name]; ok {
+			v.Disabled = ov.Disabled
+			v.Custom = ov.Custom
+			if ov.DisplayName != "" {
+				v.DisplayName = ov.DisplayName
+			}
+			if len(ov.Capabilities) > 0 {
+				v.Capabilities = ov.Capabilities
+			}
+			delete(byName, mi.Name)
+		}
+		out = append(out, v)
+	}
+	for _, ov := range byName {
+		if !ov.Custom {
+			continue
+		}
+		mi := models.ModelInfo{
+			Name:         ov.Name,
+			DisplayName:  ov.DisplayName,
+			Capabilities: ov.Capabilities,
+		}
+		mi.DeriveCapabilities()
+		out = append(out, ModelView{
+			ModelInfo: mi,
+			Disabled:  ov.Disabled,
+			Custom:    true,
+		})
+	}
+	return out, nil
+}
+
 func (s *Service) store(providerID string, modelInfos []models.ModelInfo) []models.ModelInfo {
+	for i := range modelInfos {
+		modelInfos[i].DeriveCapabilities()
+	}
 	entry := cacheEntry{
 		models:    modelInfos,
 		cachedAt:  util.Now(),

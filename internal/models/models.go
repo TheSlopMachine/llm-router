@@ -164,16 +164,22 @@ type ChatMessage struct {
 	ToolCallID   string                   `json:"tool_call_id,omitempty"`
 	Name         string                   `json:"name,omitempty"`
 	Refusal      *string                  `json:"refusal,omitempty"`
+	// ReasoningContent carries chain-of-thought text exposed by reasoning
+	// models (DeepSeek `reasoning_content`, Groq `reasoning`).
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 func (m *ChatMessage) UnmarshalJSON(data []byte) error {
 	type rawMessage struct {
-		Role       string          `json:"role"`
-		Content    json.RawMessage `json:"content"`
-		ToolCalls  []ChatToolCall  `json:"tool_calls,omitempty"`
-		ToolCallID string          `json:"tool_call_id,omitempty"`
-		Name       string          `json:"name,omitempty"`
-		Refusal    *string         `json:"refusal,omitempty"`
+		Role             string          `json:"role"`
+		Content          json.RawMessage `json:"content"`
+		ToolCalls        []ChatToolCall  `json:"tool_calls,omitempty"`
+		ToolCallID       string          `json:"tool_call_id,omitempty"`
+		Name             string          `json:"name,omitempty"`
+		Refusal          *string         `json:"refusal,omitempty"`
+		ReasoningContent string          `json:"reasoning_content,omitempty"`
+		// Groq-style alias.
+		Reasoning string `json:"reasoning,omitempty"`
 	}
 	var raw rawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -184,6 +190,10 @@ func (m *ChatMessage) UnmarshalJSON(data []byte) error {
 	m.ToolCallID = raw.ToolCallID
 	m.Name = raw.Name
 	m.Refusal = raw.Refusal
+	m.ReasoningContent = raw.ReasoningContent
+	if m.ReasoningContent == "" {
+		m.ReasoningContent = raw.Reasoning
+	}
 	m.Content = ""
 	m.ContentParts = nil
 	rawContent := strings.TrimSpace(string(raw.Content))
@@ -206,12 +216,13 @@ func (m *ChatMessage) UnmarshalJSON(data []byte) error {
 
 func (m ChatMessage) MarshalJSON() ([]byte, error) {
 	type rawMessage struct {
-		Role       string         `json:"role"`
-		Content    any            `json:"content"`
-		ToolCalls  []ChatToolCall `json:"tool_calls,omitempty"`
-		ToolCallID string         `json:"tool_call_id,omitempty"`
-		Name       string         `json:"name,omitempty"`
-		Refusal    *string        `json:"refusal,omitempty"`
+		Role             string         `json:"role"`
+		Content          any            `json:"content"`
+		ToolCalls        []ChatToolCall `json:"tool_calls,omitempty"`
+		ToolCallID       string         `json:"tool_call_id,omitempty"`
+		Name             string         `json:"name,omitempty"`
+		Refusal          *string        `json:"refusal,omitempty"`
+		ReasoningContent string         `json:"reasoning_content,omitempty"`
 	}
 	content := any(m.Content)
 	if len(m.ContentParts) > 0 {
@@ -220,6 +231,7 @@ func (m ChatMessage) MarshalJSON() ([]byte, error) {
 	return json.Marshal(rawMessage{
 		Role: m.Role, Content: content, ToolCalls: m.ToolCalls,
 		ToolCallID: m.ToolCallID, Name: m.Name, Refusal: m.Refusal,
+		ReasoningContent: m.ReasoningContent,
 	})
 }
 
@@ -308,6 +320,21 @@ type ChatCompletionUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+
+	PromptTokensDetails     *PromptTokensDetails     `json:"prompt_tokens_details,omitempty"`
+	CompletionTokensDetails *CompletionTokensDetails `json:"completion_tokens_details,omitempty"`
+}
+
+// PromptTokensDetails is the OpenAI breakdown of prompt-side token usage.
+type PromptTokensDetails struct {
+	CachedTokens int `json:"cached_tokens,omitempty"`
+	AudioTokens  int `json:"audio_tokens,omitempty"`
+}
+
+// CompletionTokensDetails is the OpenAI breakdown of completion-side token usage.
+type CompletionTokensDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
+	AudioTokens     int `json:"audio_tokens,omitempty"`
 }
 
 // StreamChunk is a single SSE data payload for streaming responses.
@@ -327,15 +354,83 @@ type StreamChunkChoice struct {
 	Logprobs     any         `json:"logprobs,omitempty"`
 }
 
+// ModelReasoning describes reasoning support of a model (OpenRouter-style).
+type ModelReasoning struct {
+	// SupportedEfforts in descending effort order (highest first).
+	SupportedEfforts []string `json:"supported_efforts,omitempty"`
+	DefaultEffort    string   `json:"default_effort,omitempty"`
+	DefaultEnabled   bool     `json:"default_enabled,omitempty"`
+	Mandatory        bool     `json:"mandatory,omitempty"`
+}
+
 // ModelInfo contains metadata about a specific model.
+// Field style follows the OpenRouter model schema where applicable.
 type ModelInfo struct {
 	Name          string `json:"name"`
 	DisplayName   string `json:"display_name"`
+	Description   string `json:"description,omitempty"`
 	RPM           int64  `json:"rpm"`
 	TPM           int64  `json:"tpm"`
 	RPD           int64  `json:"rpd"`
 	ContextWindow int64  `json:"context_window,omitempty"`
 	MaxTokens     int64  `json:"max_tokens,omitempty"`
+
+	// Capabilities are UI-facing feature chips (tools, vision, ...).
+	// Derived from the fields below when the plugin does not set them.
+	Capabilities []string `json:"capabilities,omitempty"`
+
+	InputModalities     []string        `json:"input_modalities,omitempty"`
+	OutputModalities    []string        `json:"output_modalities,omitempty"`
+	SupportedParameters []string        `json:"supported_parameters,omitempty"`
+	Reasoning           *ModelReasoning `json:"reasoning,omitempty"`
+}
+
+// DeriveCapabilities fills Capabilities from the OpenRouter-style fields.
+// Explicit plugin-provided capabilities win.
+func (m *ModelInfo) DeriveCapabilities() {
+	if len(m.Capabilities) > 0 {
+		return
+	}
+	has := func(list []string, v string) bool {
+		for _, x := range list {
+			if x == v {
+				return true
+			}
+		}
+		return false
+	}
+	var caps []string
+	if has(m.SupportedParameters, "tools") {
+		caps = append(caps, "tools")
+	}
+	if has(m.SupportedParameters, "response_format") {
+		caps = append(caps, "json_mode")
+	}
+	if has(m.SupportedParameters, "structured_outputs") {
+		caps = append(caps, "structured_outputs")
+	}
+	if m.Reasoning != nil {
+		caps = append(caps, "reasoning")
+	}
+	if has(m.InputModalities, "image") {
+		caps = append(caps, "vision")
+	}
+	if has(m.InputModalities, "audio") {
+		caps = append(caps, "audio")
+	}
+	m.Capabilities = caps
+}
+
+// ModelOverride is the per-provider admin override for a single model:
+// disable from routing and /v1/models, register a custom model the upstream
+// does not list, or adjust display metadata.
+type ModelOverride struct {
+	ProviderID   string   `json:"provider_id"`
+	Name         string   `json:"name"`
+	Disabled     bool     `json:"disabled,omitempty"`
+	Custom       bool     `json:"custom,omitempty"`
+	DisplayName  string   `json:"display_name,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // ─────────────────────────────────────────────
@@ -560,6 +655,12 @@ type Credential struct {
 	FailureCount int64      `json:"failure_count"`
 
 	QuotaResetAt *time.Time `json:"quota_reset_at,omitempty"`
+
+	// Disabled excludes the credential from routing and fallthrough.
+	Disabled bool `json:"disabled,omitempty"`
+	// Order is the admin-defined pool position (1-based). 0 means unordered:
+	// unordered credentials sort after ordered ones by computed priority.
+	Order int `json:"order,omitempty"`
 }
 
 // IsExpired reports whether the credential has passed its expiry time.
@@ -783,6 +884,66 @@ type TimeSeriesPoint struct {
 }
 
 // ─────────────────────────────────────────────
+// Proxies
+// ─────────────────────────────────────────────
+
+// Proxy is one outbound proxy endpoint, either manually registered or
+// synced from a proxy-list source plugin.
+type Proxy struct {
+	ID       string `json:"id"`
+	URL      string `json:"url"`      // scheme://[user:pass@]host:port
+	Protocol string `json:"protocol"` // http, https, socks4, socks5
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Country  string `json:"country"` // ISO 3166-1 alpha-2, empty when unknown
+	Source   string `json:"source"`  // "manual" or "list:<source type key>"
+
+	Alive       bool      `json:"alive"`
+	LatencyMs   int64     `json:"latency_ms"`
+	LastCheckAt time.Time `json:"last_check_at,omitempty"`
+
+	// Health per provider type key: a proxy region-locked by one provider
+	// stays usable for the others.
+	ProviderHealth map[string]ProxyHealth `json:"provider_health,omitempty"`
+
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ProxyHealth is the last probe outcome for one provider.
+type ProxyHealth struct {
+	OK        bool      `json:"ok"`
+	LatencyMs int64     `json:"latency_ms"`
+	CheckedAt time.Time `json:"checked_at"`
+}
+
+// ProxyPreferences come from a plugin manifest: where the upstream expects
+// requests to originate.
+type ProxyPreferences struct {
+	Location string `json:"location,omitempty"` // ISO country code, e.g. "US"
+}
+
+// ProxyConfig is the provider-level proxy mode stored in ProviderInstance.Config.
+type ProxyConfig struct {
+	Mode string   `json:"mode"`          // "disabled" (default), "auto", "manual"
+	IDs  []string `json:"ids,omitempty"` // manual mode: chosen proxy IDs
+}
+
+// Mode constants for ProxyConfig.
+const (
+	ProxyModeDisabled = "disabled"
+	ProxyModeAuto     = "auto"
+	ProxyModeManual   = "manual"
+)
+
+// ProxyCandidate is one proxy entry produced by a source plugin.
+type ProxyCandidate struct {
+	Protocol string `json:"protocol"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Country  string `json:"country"`
+}
+
+// ─────────────────────────────────────────────
 // Agents
 // ─────────────────────────────────────────────
 
@@ -847,6 +1008,9 @@ type RouterConfiguration struct {
 	IsClusterNode    bool `json:"is_cluster_node"`
 	DisableTelemetry bool `json:"disable_telemetry"`
 	MaxRetries       int  `json:"max_retries"`
+	// ServerCountry is an optional manual override (ISO 3166-1 alpha-2) for
+	// the geo-IP detected server location, used for proxy preference matching.
+	ServerCountry string `json:"server_country,omitempty"`
 }
 
 // Validate checks MaxRetries is in range 0-20.
