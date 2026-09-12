@@ -11,6 +11,7 @@
   import ActionDropdown from '../components/ActionDropdown.svelte'
   import Switch from '../components/ui/Switch.svelte'
   import { squircle } from '../lib/squircle'
+  import { t } from '../lib/i18n.svelte'
 
   let { providerId } = $props<{ providerId: string }>()
 
@@ -24,11 +25,12 @@
   let modelSearch = $state('')
   let modelFilter = $state<'all' | 'enabled' | 'disabled'>('all')
 
-  // Toolbar overflow cascade: full → buttons into menu → search into icon.
+  // Toolbar: below 640px the search collapses into an icon button and
+  // the visibility filter moves into the subbar menu.
   let toolbarWidth = $state(1200)
   let searchOpen = $state(false)
-  let toolbarStage = $derived<'full' | 'menu' | 'compact'>(
-    toolbarWidth < 700 ? 'compact' : toolbarWidth < 1050 ? 'menu' : 'full'
+  let toolbarStage = $derived<'full' | 'compact'>(
+    toolbarWidth < 640 ? 'compact' : 'full'
   )
 
   // Attaches width measurement when the node appears (toolbar renders
@@ -42,23 +44,15 @@
   }
 
   let overflowActions = $derived.by(() => {
-    const core = [
-      { id: 'import', label: 'Import from /models', icon: 'download' },
-      { id: 'test_all', label: testingAll ? 'Testing…' : 'Test all', icon: 'network_check', disabled: testingAll },
-    ]
-    if (toolbarStage !== 'compact') return core
-    const filters = (['all', 'enabled', 'disabled'] as const).map((v) => ({
+    return (['all', 'enabled', 'disabled'] as const).map((v) => ({
       id: 'filter:' + v,
-      label: 'Show: ' + v[0].toUpperCase() + v.slice(1),
+      label: `${t('Show')}: ` + t(v[0].toUpperCase() + v.slice(1)),
       icon: modelFilter === v ? 'check' : undefined,
     }))
-    return [...filters, ...core]
   })
 
   function handleOverflowAction(id: string): void {
-    if (id === 'import') importModels()
-    else if (id === 'test_all') testAllModels()
-    else if (id.startsWith('filter:')) modelFilter = id.slice(7) as typeof modelFilter
+    if (id.startsWith('filter:')) modelFilter = id.slice(7) as typeof modelFilter
   }
 
   // Provider proxy settings (stored in provider.config.proxy)
@@ -72,6 +66,10 @@
   let credentialTestResults = $state<Record<string, TestResult | 'loading'>>({})
   let modelTestResults = $state<Record<string, TestResult | 'loading'>>({})
   let testingAll = $state(false)
+
+  // Model automation (stored in provider.config)
+  let disableFailedModels = $state(false)
+  let autoSyncModels = $state(false)
 
   const resultTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
@@ -154,6 +152,47 @@
     proxyMode = raw.mode === 'auto' || raw.mode === 'manual' ? raw.mode : 'disabled'
     proxyIds = {}
     for (const id of raw.ids ?? []) proxyIds[id] = true
+    disableFailedModels = provider?.config?.disable_failed_models === true
+    autoSyncModels = provider?.config?.models_auto_sync === true
+  }
+
+  // Operational settings only: seeded providers reject any other config
+  // keys, so never spread the whole provider.config into an update.
+  function operationalConfig(): Record<string, unknown> {
+    const ids = Object.keys(proxyIds).filter((id) => proxyIds[id])
+    return {
+      proxy: { mode: proxyMode, ...(proxyMode === 'manual' ? { ids } : {}) },
+      disable_failed_models: disableFailedModels,
+      models_auto_sync: autoSyncModels,
+    }
+  }
+
+  async function saveAutomation(): Promise<void> {
+    if (!provider) return
+    error = ''
+    try {
+      await api.providers.updateInstance(provider.id, {
+        name: provider.name,
+        config: operationalConfig(),
+      })
+      const providers = await api.providers.list()
+      provider = (providers as Provider[]).find((p) => p.id === providerId) ?? provider
+    } catch (e) {
+      error = getErrorMessage(e)
+    }
+  }
+
+  async function toggleProviderEnabled(enabled: boolean): Promise<void> {
+    if (!provider) return
+    error = ''
+    try {
+      await api.providers.updateInstance(provider.id, { name: provider.name, disabled: !enabled })
+      const providers = await api.providers.list()
+      provider = (providers as Provider[]).find((p) => p.id === providerId) ?? provider
+      toast.success(enabled ? `${provider.name} enabled` : `${provider.name} disabled`)
+    } catch (e) {
+      error = getErrorMessage(e)
+    }
   }
 
   async function saveProxyConfig(): Promise<void> {
@@ -161,13 +200,9 @@
     savingProxy = true
     error = ''
     try {
-      const ids = Object.keys(proxyIds).filter((id) => proxyIds[id])
       await api.providers.updateInstance(provider.id, {
         name: provider.name,
-        config: {
-          ...provider.config,
-          proxy: { mode: proxyMode, ...(proxyMode === 'manual' ? { ids } : {}) },
-        },
+        config: operationalConfig(),
       })
       const providers = await api.providers.list()
       provider = (providers as Provider[]).find((p) => p.id === providerId) ?? provider
@@ -229,7 +264,7 @@
 
   function openEditCredential(cred: Credential): void {
     modal.open({
-      title: `Edit Key · ${cred.label || 'Unnamed'}`,
+      title: `${t('Edit Key')} · ${cred.label || t('Unnamed')}`,
       content: CredentialEditModal,
       severity: 'medium',
       size: 'medium',
@@ -246,7 +281,7 @@
   function openEditProvider(): void {
     if (!provider) return
     modal.open({
-      title: 'Edit Provider',
+      title: t('Edit Provider'),
       content: CustomProviderWizard,
       severity: 'medium',
       size: 'medium',
@@ -263,11 +298,11 @@
   async function deleteProvider(): Promise<void> {
     if (!provider) return
     const confirmed = await modal.confirm({
-      title: 'Delete Provider',
-      message: `Are you sure you want to delete "${provider.name}"? Credentials for this provider will be removed as well.`,
+      title: t('Delete Provider'),
+      message: `${t('Are you sure you want to delete')} "${provider.name}"? ${t('Credentials for this provider will be removed as well.')}`,
       severity: 'high',
-      confirmText: 'Delete',
-      cancelText: 'Cancel',
+      confirmText: t('Delete'),
+      cancelText: t('Cancel'),
       danger: true,
     })
     if (!confirmed) return
@@ -281,11 +316,11 @@
 
   async function deleteCredential(cred: Credential): Promise<void> {
     const confirmed = await modal.confirm({
-      title: 'Delete key',
-      message: `Are you sure you want to delete "${cred.label || 'Unnamed'}"? This action cannot be undone.`,
+      title: t('Delete key'),
+      message: `${t('Are you sure you want to delete')} "${cred.label || t('Unnamed')}"? ${t('This action cannot be undone.')}`,
       severity: 'medium',
-      confirmText: 'Delete',
-      cancelText: 'Cancel',
+      confirmText: t('Delete'),
+      cancelText: t('Cancel'),
       danger: true,
     })
     if (!confirmed) return
@@ -396,6 +431,20 @@
         if (m.disabled) continue
         await testModel(m)
       }
+      if (disableFailedModels) {
+        const failed = models.filter((m) => {
+          if (m.disabled) return false
+          const r = modelTestResults[m.name]
+          return r !== undefined && r !== 'loading' && !r.ok
+        })
+        for (const m of failed) {
+          await api.models.setOverride(providerId, m.name, { disabled: true })
+        }
+        if (failed.length > 0) {
+          toast.success(`${failed.length} failing model${failed.length === 1 ? '' : 's'} disabled`)
+          await reloadModels()
+        }
+      }
     } finally {
       testingAll = false
     }
@@ -444,11 +493,11 @@
 
   async function deleteCustomModel(m: ProviderModel): Promise<void> {
     const confirmed = await modal.confirm({
-      title: 'Delete custom model',
-      message: `Remove "${m.name}" from this provider?`,
+      title: t('Delete custom model'),
+      message: `${t('Remove')} "${m.name}" ${t('from this provider?')}`,
       severity: 'medium',
-      confirmText: 'Delete',
-      cancelText: 'Cancel',
+      confirmText: t('Delete'),
+      cancelText: t('Cancel'),
       danger: true,
     })
     if (!confirmed) return
@@ -470,22 +519,22 @@
 
   function testIcon(res: TestResult | 'loading' | undefined, idleTitle: string): { icon: string; cls: string; title: string } {
     if (!res) return { icon: 'network_check', cls: '', title: idleTitle }
-    if (res === 'loading') return { icon: 'progress_activity', cls: 'spin', title: 'Testing…' }
+    if (res === 'loading') return { icon: 'progress_activity', cls: 'spin', title: t('Testing…') }
     if (res.ok) return { icon: 'check_circle', cls: 'icon-ok', title: `OK · ${res.latency_ms}ms` }
-    return { icon: 'error', cls: 'icon-fail', title: res.error ?? 'Failed' }
+    return { icon: 'error', cls: 'icon-fail', title: res.error ?? t('Failed') }
   }
 </script>
 
 {#if loading}
-  <div class="empty">Loading…</div>
+  <div class="empty">{t('Loading…')}</div>
 {:else if !provider}
   <div class="empty">
-    <p>Provider not found.</p>
-    <button class="btn btn-secondary" onclick={back}>Back to providers</button>
+    <p>{t('Provider not found.')}</p>
+    <button class="btn btn-secondary" onclick={back}>{t('Back to providers')}</button>
   </div>
 {:else}
   <div class="detail-header">
-    <button class="btn-icon" onclick={back} aria-label="Back to providers" title="Back to providers">
+    <button class="btn-icon" onclick={back} aria-label={t('Back to providers')} title={t('Back to providers')}>
       <span class="icon">arrow_back</span>
     </button>
     {#if provider.icon_url}
@@ -493,19 +542,24 @@
     {:else}
       <span class="icon provider-icon-fallback">cloud</span>
     {/if}
-    <div class="provider-title">
+    <div class="provider-title" class:provider-off={provider.disabled}>
       <h1>{provider.name}</h1>
       <p>{provider.type_key}</p>
     </div>
+    <Switch
+      checked={!provider.disabled}
+      ariaLabel="Enable provider"
+      onchange={(v) => toggleProviderEnabled(v)}
+    />
     <div class="header-actions">
       {#if !provider.is_ui_readonly}
         <button class="btn btn-secondary" onclick={openEditProvider} use:squircle={12}>
           <span class="icon">edit</span>
-          Edit
+          {t('Edit')}
         </button>
         <button class="btn btn-secondary danger" onclick={deleteProvider} use:squircle={12}>
           <span class="icon">delete</span>
-          Delete
+          {t('Delete')}
         </button>
       {/if}
     </div>
@@ -517,23 +571,23 @@
 
   <section class="section">
     <div class="section-header">
-      <h2>API Keys</h2>
+      <h2>{t('API Keys')}</h2>
       <button class="btn btn-primary" onclick={openAddCredential} use:squircle={12}>
         <span class="icon">add</span>
-        Add key
+        {t('Add key')}
       </button>
     </div>
     {#if credentials.length === 0}
-      <div class="empty-state">No keys yet. Add one to route traffic to this provider.</div>
+      <div class="empty-state">{t('No keys yet. Add one to route traffic to this provider.')}</div>
     {:else}
       <div class="table" use:squircle={18}>
         <div class="table-row table-head">
           <span class="col-priority">#</span>
-          <span class="col-label">Name</span>
-          <span class="col-actions">Actions</span>
+          <span class="col-label">{t('Name')}</span>
+          <span class="col-actions">{t('Actions')}</span>
         </div>
         {#each credentials as cred, i (cred.id)}
-          {@const ti = testIcon(credentialTestResults[cred.id], 'Test key')}
+          {@const ti = testIcon(credentialTestResults[cred.id], t('Test key'))}
           <div
             class="table-row"
             class:row-disabled={cred.disabled}
@@ -544,19 +598,19 @@
             role="listitem"
           >
             <span class="col-priority">
-              <span class="icon drag-handle" title="Drag to reorder">drag_indicator</span>
+              <span class="icon drag-handle" title={t('Drag to reorder')}>drag_indicator</span>
               {i + 1}
             </span>
             <span class="col-label">
               {cred.label || 'Unnamed'}
               {#if cred.is_expired}
-                <span class="badge badge-red">Expired</span>
+                <span class="badge badge-red">{t('Expired')}</span>
               {/if}
             </span>
             <span class="col-actions">
               <Switch
                 checked={!cred.disabled}
-                ariaLabel="Enable key"
+                ariaLabel={t('Enable key')}
                 onchange={(v) => toggleCredential(cred, v)}
               />
               <button
@@ -568,10 +622,10 @@
               >
                 <span class="icon {ti.cls}">{ti.icon}</span>
               </button>
-              <button class="btn-icon" onclick={() => openEditCredential(cred)} aria-label="Edit key" title="Edit key">
+              <button class="btn-icon" onclick={() => openEditCredential(cred)} aria-label={t('Edit key')} title={t('Edit key')}>
                 <span class="icon">edit</span>
               </button>
-              <button class="btn-icon" onclick={() => deleteCredential(cred)} aria-label="Delete key" title="Delete key">
+              <button class="btn-icon" onclick={() => deleteCredential(cred)} aria-label={t('Delete key')} title={t('Delete key')}>
                 <span class="icon">delete</span>
               </button>
             </span>
@@ -583,16 +637,16 @@
 
   <section class="section">
     <div class="proxy-head">
-      <h2>Proxy</h2>
+      <h2>{t('Proxy')}</h2>
       <div class="proxy-head-right">
         <SegmentedControl
           bind:value={proxyMode}
           options={[
-            { value: 'disabled', label: 'Disabled' },
-            { value: 'auto', label: 'Auto' },
-            { value: 'manual', label: 'Manual' },
+            { value: 'disabled', label: t('Disabled') },
+            { value: 'auto', label: t('Auto') },
+            { value: 'manual', label: t('Manual') },
           ]}
-          ariaLabel="Proxy mode"
+          ariaLabel={t('Proxy mode')}
           onchange={() => saveProxyConfig()}
         />
         {#if savingProxy}
@@ -604,16 +658,16 @@
     </div>
     <p class="form-hint proxy-hint">
       {#if proxyMode === 'disabled'}
-        Direct connection, unless the provider's plugin forces a proxy on location mismatch.
+        {t('Direct connection, unless the provider\'s plugin forces a proxy on location mismatch.')}
       {:else if proxyMode === 'auto'}
-        Route through the best pooled proxy matching the plugin's location preference.
+        {t('Route through the best pooled proxy matching the plugin\'s location preference.')}
       {:else}
-        Route through the proxies you select below (first alive wins).
+        {t('Route through the proxies you select below (first alive wins).')}
       {/if}
     </p>
     {#if proxyMode === 'manual'}
       {#if poolManual.length === 0}
-        <p class="form-hint">No manual proxies in the pool. Add them on the Proxies page.</p>
+        <p class="form-hint">{t('No manual proxies in the pool. Add them on the Proxies page.')}</p>
       {:else}
         <div class="proxy-pick-list">
           {#each poolManual as p (p.id)}
@@ -637,14 +691,14 @@
 
   <section class="section">
     <div class="section-header">
-      <h2>Available models</h2>
+      <h2>{t('Available models')}</h2>
     </div>
     <div class="models-toolbar" use:measure>
       {#if toolbarStage !== 'compact'}
         <input
           class="search-input"
           type="text"
-          placeholder="Filter models…"
+          placeholder={t('Filter models…')}
           bind:value={modelSearch}
           use:squircle={12}
         />
@@ -654,20 +708,20 @@
           <input
             class="search-input"
             type="text"
-            placeholder="Filter models…"
+            placeholder={t('Filter models…')}
             bind:value={modelSearch}
             autofocus
             use:squircle={12}
           />
-          <button class="btn-icon" aria-label="Search" title="Search">
+          <button class="btn-icon" aria-label={t('Search')} title={t('Search')}>
             <span class="icon">search</span>
           </button>
-          <button class="btn-icon" onclick={() => { searchOpen = false }} aria-label="Close search" title="Close search">
+          <button class="btn-icon" onclick={() => { searchOpen = false }} aria-label={t('Close search')} title={t('Close search')}>
             <span class="icon">close</span>
           </button>
         </div>
       {:else}
-        <button class="btn-icon search-open-btn" onclick={() => { searchOpen = true }} aria-label="Open search" title="Filter models">
+        <button class="btn-icon search-open-btn" onclick={() => { searchOpen = true }} aria-label={t('Open search')} title={t('Filter models')}>
           <span class="icon">search</span>
         </button>
       {/if}
@@ -675,33 +729,49 @@
         <SegmentedControl
           bind:value={modelFilter}
           options={[
-            { value: 'all', label: 'All' },
-            { value: 'enabled', label: 'Enabled' },
-            { value: 'disabled', label: 'Disabled' },
+            { value: 'all', label: t('All') },
+            { value: 'enabled', label: t('Enabled') },
+            { value: 'disabled', label: t('Disabled') },
           ]}
-          ariaLabel="Model visibility filter"
+          ariaLabel={t('Model visibility filter')}
         />
       {/if}
-      <div class="toolbar-actions">
-        {#if toolbarStage === 'full'}
-          <button class="btn btn-secondary" onclick={importModels} use:squircle={12}>
-            <span class="icon">download</span>
-            Import from /models
-          </button>
-          <button class="btn btn-secondary" onclick={testAllModels} disabled={testingAll} use:squircle={12}>
-            <span class="icon">network_check</span>
-            {testingAll ? 'Testing…' : 'Test all'}
-          </button>
-        {:else}
-          <ActionDropdown triggerIcon="more_vert" label="More actions" actions={overflowActions} onaction={handleOverflowAction} />
-        {/if}
-      </div>
+    </div>
+    <div class="models-subbar">
+      <button class="btn btn-secondary" onclick={importModels} use:squircle={12}>
+        <span class="icon">download</span>
+        {t('Import from /models')}
+      </button>
+      <button class="btn btn-secondary" onclick={testAllModels} disabled={testingAll} use:squircle={12}>
+        <span class="icon">network_check</span>
+        {testingAll ? t('Testing…') : t('Test all')}
+      </button>
+      {#if toolbarStage === 'compact'}
+        <ActionDropdown triggerIcon="more_vert" label={t('More actions')} actions={overflowActions} onaction={handleOverflowAction} />
+      {/if}
+      <span class="toolbar-sep"></span>
+      <label class="toolbar-toggle">
+        <Switch
+          checked={disableFailedModels}
+          ariaLabel={t('Disable failing models')}
+          onchange={(v) => { disableFailedModels = v; saveAutomation() }}
+        />
+        {t('Disable failing models')}
+      </label>
+      <label class="toolbar-toggle">
+        <Switch
+          checked={autoSyncModels}
+          ariaLabel={t('Auto-sync models')}
+          onchange={(v) => { autoSyncModels = v; saveAutomation() }}
+        />
+        {t('Auto-sync models')}
+      </label>
     </div>
     {#if modelsError}
       <div class="error-msg">{modelsError}</div>
     {:else if filteredModels.length === 0}
       <div class="empty-state">
-        {models.length === 0 ? 'No models reported by this provider.' : 'No models match the filter.'}
+        {models.length === 0 ? t('No models reported by this provider.') : t('No models match the filter.')}
       </div>
     {:else}
       {@render modelsTable()}
@@ -711,11 +781,11 @@
 
   <section class="section">
     <div class="section-header">
-      <h2>Add custom model</h2>
+      <h2>{t('Add custom model')}</h2>
     </div>
     <div class="custom-model-form">
-      <input class="search-input" type="text" placeholder="Model id (e.g. my-model-v1)" bind:value={customId} use:squircle={12} />
-      <input class="search-input" type="text" placeholder="Display name" bind:value={customName} use:squircle={12} />
+      <input class="search-input" type="text" placeholder={t('Model id (e.g. my-model-v1)')} bind:value={customId} use:squircle={12} />
+      <input class="search-input" type="text" placeholder={t('Display name')} bind:value={customName} use:squircle={12} />
       <button class="btn btn-secondary" onclick={probeCustomCapabilities} disabled={!customId.trim() || probingCustom} use:squircle={12}>
         <span class="icon" class:spin={probingCustom}>{probingCustom ? 'progress_activity' : 'fact_check'}</span>
         Check
@@ -740,47 +810,47 @@
           use:squircle={8}
         >
           {#if meta?.icon}<span class="icon">{meta.icon}</span>{/if}
-          {meta?.label ?? cap}
+          {meta ? t(meta.label) : cap}
         </button>
       {/each}
     </div>
-    <p class="form-hint">For models the provider does not list in /models.</p>
+    <p class="form-hint">{t('For models the provider does not list in /models.')}</p>
   </section>
 {/if}
 
 {#snippet modelContext(m: ProviderModel)}
   <span class="ctx-text">
     {#if m.context_window}
-      <span title="Context window — up to {m.context_window.toLocaleString()} input tokens">{(m.context_window / 1000).toFixed(0)}k context</span>
+      <span title={t('Context window — up to') + ` ${m.context_window.toLocaleString()} ` + t('input tokens')}>{(m.context_window / 1000).toFixed(0)}k {t('context')}</span>
     {/if}
     {#if m.max_tokens}
-      <span title="Max output — up to {m.max_tokens.toLocaleString()} tokens per response">{(m.max_tokens / 1000).toFixed(0)}k output</span>
+      <span title={t('Max output — up to') + ` ${m.max_tokens.toLocaleString()} ` + t('tokens per response')}>{(m.max_tokens / 1000).toFixed(0)}k {t('output')}</span>
     {/if}
   </span>
 {/snippet}
 
 {#snippet modelCaps(m: ProviderModel)}
   {#if m.custom}
-    <span class="chip chip-teal" title="Added manually, not listed by the provider">custom</span>
+    <span class="chip chip-teal" title={t('Added manually, not listed by the provider')}>{t('custom')}</span>
   {/if}
   {#each m.capabilities as cap}
     {@const meta = CAPABILITY_META[cap]}
     {@const hint = cap === 'reasoning' && meta && m.reasoning?.supported_efforts?.length
-      ? `${meta.hint} (effort: ${[...m.reasoning.supported_efforts].reverse().join(', ')})`
-      : (meta?.hint ?? cap)}
+      ? `${t(meta.hint)} (${t('effort')}: ${[...m.reasoning.supported_efforts].reverse().join(', ')})`
+      : t(meta?.hint ?? cap)}
     <span class="chip {meta?.cls ?? 'chip-neutral'}" title={hint}>
       {#if meta?.icon}<span class="icon">{meta.icon}</span>{/if}
-      {meta?.label ?? cap}
+      {meta ? t(meta.label) : cap}
     </span>
   {/each}
 {/snippet}
 
 {#snippet modelActions(m: ProviderModel)}
-  {@const ti = testIcon(modelTestResults[m.name], 'Test model')}
+  {@const ti = testIcon(modelTestResults[m.name], t('Test model'))}
   <span class="model-actions">
     <Switch
       checked={!m.disabled}
-      ariaLabel="Enable model"
+      ariaLabel={t('Enable model')}
       onchange={(v) => toggleModel(m, v)}
     />
     <button
@@ -793,7 +863,7 @@
       <span class="icon {ti.cls}">{ti.icon}</span>
     </button>
     {#if m.custom}
-      <button class="btn-icon" onclick={() => deleteCustomModel(m)} aria-label="Delete custom model" title="Delete custom model">
+      <button class="btn-icon" onclick={() => deleteCustomModel(m)} aria-label={t('Delete custom model')} title={t('Delete custom model')}>
         <span class="icon">delete</span>
       </button>
     {/if}
@@ -803,10 +873,10 @@
 {#snippet modelsTable()}
   <div class="table models-table" use:squircle={18}>
     <div class="table-row model-row table-head">
-      <span class="mcol-id">Model</span>
-      <span class="mcol-ctx">Context</span>
-      <span class="mcol-caps">Capabilities</span>
-      <span class="mcol-actions">Actions</span>
+      <span class="mcol-id">{t('Model')}</span>
+      <span class="mcol-ctx">{t('Context')}</span>
+      <span class="mcol-caps">{t('Capabilities')}</span>
+      <span class="mcol-actions">{t('Actions')}</span>
     </div>
     {#each filteredModels as m (m.name)}
       <div class="table-row model-row" class:row-disabled={m.disabled}>
@@ -814,7 +884,7 @@
           <span class="model-display">{m.display_name || m.name}</span>
           <span class="model-id">
             {m.name}
-            <button class="btn-icon copy-btn" onclick={() => copyModelId(m.name)} aria-label="Copy model id" title="Copy model id">
+            <button class="btn-icon copy-btn" onclick={() => copyModelId(m.name)} aria-label={t('Copy model id')} title={t('Copy model id')}>
               <span class="icon">content_copy</span>
             </button>
           </span>
@@ -836,7 +906,7 @@
             <div class="model-display">{m.display_name || m.name}</div>
             <span class="model-id">
               {m.name}
-              <button class="btn-icon copy-btn" onclick={() => copyModelId(m.name)} aria-label="Copy model id" title="Copy model id">
+              <button class="btn-icon copy-btn" onclick={() => copyModelId(m.name)} aria-label={t('Copy model id')} title={t('Copy model id')}>
                 <span class="icon">content_copy</span>
               </button>
             </span>
@@ -967,7 +1037,33 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    margin-bottom: 8px;
+  }
+  .models-subbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
     margin-bottom: 16px;
+  }
+  .toolbar-sep {
+    width: 1px;
+    align-self: stretch;
+    background: var(--color-outline-soft);
+    margin: 4px;
+  }
+  .toolbar-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--color-text-soft);
+    cursor: pointer;
+    user-select: none;
+  }
+  .provider-off h1,
+  .provider-off p {
+    opacity: 0.55;
   }
   .search-expand {
     display: flex;
@@ -989,11 +1085,6 @@
   }
   .search-open-btn:active {
     transform: scale(0.88);
-  }
-  .toolbar-actions {
-    margin-left: auto;
-    display: flex;
-    gap: 8px;
   }
   .search-input {
     flex: 0 1 280px;
@@ -1018,7 +1109,7 @@
   /* Desktop: models as a table; mobile: cards */
   .models-grid { display: none; }
   .model-row {
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.7fr) minmax(0, 1.4fr) auto;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.7fr) minmax(0, 1.4fr) 124px;
   }
   .mcol-id {
     min-width: 0;
@@ -1146,14 +1237,13 @@
     .models-toolbar {
       flex-wrap: wrap;
     }
-    .toolbar-actions {
-      margin-left: 0;
-      width: 100%;
-      justify-content: flex-end;
-    }
     .search-input {
       flex: 1 1 100%;
     }
+    .custom-model-form {
+      flex-direction: column;
+    }
+  }
   .proxy-head {
     display: flex;
     align-items: center;
@@ -1191,10 +1281,6 @@
   }
   .proxy-pick:active {
     transform: scale(0.94);
-  }
-  .custom-model-form {
-      flex-direction: column;
-    }
   }
   @media (max-width: 520px) {
     .drag-handle {

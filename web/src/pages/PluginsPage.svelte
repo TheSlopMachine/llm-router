@@ -5,6 +5,7 @@
   import InstalledTab from '../components/plugins/InstalledTab.svelte'
   import CatalogTab from '../components/plugins/CatalogTab.svelte'
   import type { Plugin, PluginRepo, PluginUpdate, StoreFile } from '../lib/types'
+  import { t } from '../lib/i18n.svelte'
 
   export type PluginsTab = 'installed' | 'catalog'
 
@@ -45,8 +46,8 @@
 
 <div class="page-header">
   <div>
-    <h1>Plugins</h1>
-    <p>Manage installed plugins and install new ones from the catalog.</p>
+    <h1>{t('Plugins')}</h1>
+    <p>{t('Manage installed plugins and install new ones from the catalog.')}</p>
   </div>
 </div>
 
@@ -55,15 +56,15 @@
     value={tab}
     onchange={(next) => ontabchange(next as PluginsTab)}
     options={[
-      { value: 'installed', label: `Installed (${installedCount})` },
-      { value: 'catalog', label: `Catalog (${catalogCount})` }
+      { value: 'installed', label: `${t('Installed')} (${installedCount})` },
+      { value: 'catalog', label: `${t('Catalog')} (${catalogCount})` }
     ]}
-    ariaLabel="Plugin views"
+    ariaLabel={t('Plugin views')}
   />
 </div>
 
 {#if resource.loading}
-  <div class="empty">Loading…</div>
+  <div class="empty">{t('Loading…')}</div>
 {:else if resource.error}
   <div class="error-msg">{resource.error}</div>
 {:else if tab === 'installed'}

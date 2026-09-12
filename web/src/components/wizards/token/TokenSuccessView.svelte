@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { t } from '../../../lib/i18n.svelte'
+
   let {
     token,
     scopeLabel,
@@ -22,7 +24,7 @@
   <div class="success-icon-wrap">
     <span class="icon success-icon">check_circle</span>
   </div>
-  <h3 class="success-title">Token created</h3>
+  <h3 class="success-title">{t('Token created')}</h3>
   <p class="success-hint">Copy it now — it will not be shown again.</p>
 
   {#if error}
@@ -31,23 +33,23 @@
 
   <div class="token-box">
     <span class="mono token-string">{token}</span>
-    <button class="btn btn-secondary btn-sm" onclick={onCopy} aria-label="Copy token">
+    <button class="btn btn-secondary btn-sm" onclick={onCopy} aria-label={t('Copy token')}>
       <span class="icon" style="font-size: 16px;">{copied ? 'check' : 'content_copy'}</span>
-      {copied ? 'Copied!' : 'Copy'}
+      {copied ? t('Copied!') : t('Copy')}
     </button>
   </div>
 
   <div class="scope-summary">
     <div class="scope-block">
-      <span class="scope-label">Providers</span>
+      <span class="scope-label">{t('Providers')}</span>
       <span class="scope-value">{scopeLabel.providers}</span>
     </div>
     <div class="scope-block">
-      <span class="scope-label">Models</span>
+      <span class="scope-label">{t('Models')}</span>
       <span class="scope-value">{scopeLabel.models}</span>
     </div>
     <div class="scope-block">
-      <span class="scope-label">Accounts</span>
+      <span class="scope-label">{t('Accounts')}</span>
       <span class="scope-value">{scopeLabel.accounts}</span>
     </div>
   </div>

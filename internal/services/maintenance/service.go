@@ -23,6 +23,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/repository"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
+	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 )
@@ -40,7 +41,20 @@ type Service struct {
 	proxySvc *proxypool.Service
 	luaSvc   *luaplugin.Service
 
+	modelInfoSvc modelInfoRefresher
+
 	lastProxyRefresh time.Time
+}
+
+// modelInfoRefresher is the slice of modelinfo the maintenance loop needs.
+type modelInfoRefresher interface {
+	MergedView(ctx context.Context, providerID string) ([]modelinfo.ModelView, error)
+}
+
+// SetModelInfoService wires model metadata refresh for providers with
+// config.models_auto_sync enabled.
+func (s *Service) SetModelInfoService(mi modelInfoRefresher) {
+	s.modelInfoSvc = mi
 }
 
 // New constructs a new maintenance Service with the default check interval.
@@ -107,6 +121,37 @@ func (s *Service) runCycle(ctx context.Context) {
 		default:
 		}
 		s.maybeRefresh(ctx, cred)
+	}
+
+	s.syncProviderModels(ctx)
+}
+
+// syncProviderModels warms the model metadata cache for providers that opted
+// into automatic sync (config.models_auto_sync). The MergedView TTL (1h)
+// throttles actual upstream calls; disabled providers are skipped.
+func (s *Service) syncProviderModels(ctx context.Context) {
+	if s.modelInfoSvc == nil {
+		return
+	}
+	providers, err := s.providerSvc.List()
+	if err != nil {
+		s.logger.Warn("maintenance: list providers for model sync failed", "err", err)
+		return
+	}
+	for _, p := range providers {
+		if ctx.Err() != nil {
+			return
+		}
+		if p.Disabled {
+			continue
+		}
+		enabled, _ := p.Config["models_auto_sync"].(bool)
+		if !enabled {
+			continue
+		}
+		if _, err := s.modelInfoSvc.MergedView(ctx, p.ID); err != nil {
+			s.logger.Warn("maintenance: model auto-sync failed", "provider_id", p.ID, "err", err)
+		}
 	}
 }
 

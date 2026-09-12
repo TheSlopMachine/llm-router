@@ -4,6 +4,7 @@
   import { getErrorMessage } from '../lib/errors'
   import { createListResource } from '../lib/list-resource.svelte'
   import type { Agent } from '../lib/types'
+  import { t } from '../lib/i18n.svelte'
   import EmptyState from './EmptyState.svelte'
 
   const resource = createListResource<Agent[]>(
@@ -33,12 +34,12 @@
 
   async function deleteAgent(agent: Agent) {
     const confirmed = await modal.confirm({
-      title: 'Delete Agent',
-      message: `Are you sure you want to delete "${agent.name}"? This action cannot be undone.`,
+      title: t('Delete Agent'),
+      message: `${t('Are you sure you want to delete')} "${agent.name}"? ${t('This action cannot be undone.')}`,
       severity: 'high',
       size: 'small',
-      confirmText: 'Delete',
-      cancelText: 'Cancel',
+      confirmText: t('Delete'),
+      cancelText: t('Cancel'),
       danger: true
     })
 
@@ -56,13 +57,13 @@
 <div class="page">
   <div class="page-header">
     <div>
-      <h1>Agents</h1>
-      <p>Virtual models that orchestrate requests across multiple providers with custom instructions.</p>
+      <h1>{t('Agents')}</h1>
+      <p>{t('Virtual models that orchestrate requests across multiple providers with custom instructions.')}</p>
     </div>
     {#if resource.data && resource.data.length > 0}
       <button class="btn btn-primary" onclick={openNewAgent}>
         <span class="icon">add</span>
-        New Agent
+        {t('New Agent')}
       </button>
     {/if}
   </div>
@@ -72,27 +73,27 @@
   {/if}
 
   {#if resource.loading}
-    <div class="loading">Loading agents...</div>
+    <div class="loading">{t('Loading agents...')}</div>
   {:else if !resource.data || resource.data.length === 0}
     <EmptyState
       icon="robot"
-      message="No agents yet"
-      hint="Create an agent to orchestrate requests across multiple models with custom instructions."
-      buttonText="Create Your First Agent"
+      message={t('No agents yet')}
+      hint={t('Create an agent to orchestrate requests across multiple models with custom instructions.')}
+      buttonText={t('Create Your First Agent')}
       buttonIcon="add"
       onButtonClick={openNewAgent}
     />
   {:else}
     <div class="card">
-      <div class="card-header"><h2>Agents</h2></div>
+      <div class="card-header"><h2>{t('Agents')}</h2></div>
       <table>
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Description</th>
-            <th>Models</th>
-            <th>Decision Model</th>
-            <th>Actions</th>
+            <th>{t('Name')}</th>
+            <th>{t('Description')}</th>
+            <th>{t('Models')}</th>
+            <th>{t('Decision Model')}</th>
+            <th>{t('Actions')}</th>
           </tr>
         </thead>
         <tbody>
@@ -104,7 +105,7 @@
               <td>{agent.description || '—'}</td>
               <td>
                 {#if agent.is_draft}
-                  <span class="badge badge-yellow">Draft</span>
+                  <span class="badge badge-yellow">{t('Draft')}</span>
                 {:else}
                     {agent.models?.length || 0}
                 {/if}
@@ -119,11 +120,11 @@
               <td class="row-actions">
                 <button class="btn btn-secondary btn-small" onclick={() => openEditAgent(agent)}>
                   <span class="icon">edit</span>
-                  Edit
+                  {t('Edit')}
                 </button>
                 <button class="btn btn-danger btn-small" onclick={() => deleteAgent(agent)}>
                   <span class="icon">delete</span>
-                  Delete
+                  {t('Delete')}
                 </button>
               </td>
             </tr>

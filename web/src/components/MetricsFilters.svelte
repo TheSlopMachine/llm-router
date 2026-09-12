@@ -1,6 +1,7 @@
 <script lang="ts">
   import Dropdown from './Dropdown.svelte'
   import type { MetricsFilters, Provider } from '../lib/types'
+  import { t } from '../lib/i18n.svelte'
 
   type Filters = MetricsFilters & { provider_id: string; model: string; time_range: string }
 
@@ -20,29 +21,29 @@
     onchange?.(filters)
   }
 
-  const timeRangeOptions = [
-    { value: 'hour', label: 'Last Hour' },
-    { value: '1d', label: '1 Day' },
-    { value: '7d', label: '7 Days' },
-    { value: '28d', label: '28 Days' },
-    { value: '90d', label: '90 Days' },
-    { value: 'month', label: 'This Month' }
-  ]
+  let timeRangeOptions = $derived([
+    { value: 'hour', label: t('Last Hour') },
+    { value: '1d', label: t('1 Day') },
+    { value: '7d', label: t('7 Days') },
+    { value: '28d', label: t('28 Days') },
+    { value: '90d', label: t('90 Days') },
+    { value: 'month', label: t('This Month') }
+  ])
 
   let providerOptions = $derived([
-    { value: '', label: 'All Providers' },
+    { value: '', label: t('All Providers') },
     ...providers.map((p: Provider) => ({ value: p.id, label: p.name }))
   ])
 
   let modelOptions = $derived([
-    { value: '', label: 'All models' },
+    { value: '', label: t('All models') },
     ...models.map((m: string) => ({ value: m, label: m }))
   ])
 </script>
 
 <div class="filters">
   <div class="filter-group">
-    <label for="filter-provider">Provider</label>
+    <label for="filter-provider">{t('Provider')}</label>
     <Dropdown
       bind:value={filters.provider_id}
       options={providerOptions}
@@ -52,7 +53,7 @@
   </div>
 
   <div class="filter-group">
-    <label for="filter-time-range">Time Range</label>
+    <label for="filter-time-range">{t('Time Range')}</label>
     <Dropdown
       bind:value={filters.time_range}
       options={timeRangeOptions}
@@ -62,7 +63,7 @@
   </div>
 
   <div class="filter-group">
-    <label for="filter-model">Model</label>
+    <label for="filter-model">{t('Model')}</label>
     <Dropdown
       bind:value={filters.model}
       options={modelOptions}

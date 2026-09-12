@@ -20,6 +20,7 @@ type providerView struct {
 	SupportsAuthFlow bool           `json:"supports_auth_flow"`
 	IsUIReadonly     bool           `json:"is_ui_readonly"`
 	IsUIHidden       bool           `json:"is_ui_hidden"`
+	Disabled         bool           `json:"disabled"`
 }
 
 func toProviderView(p *models.ProviderInstance, svc *provider.Service) providerView {
@@ -33,17 +34,30 @@ func toProviderView(p *models.ProviderInstance, svc *provider.Service) providerV
 		Qualifier: p.Qualifier, Config: config, BaseURL: baseURL, IconURL: p.IconURL,
 		SupportsAuthFlow: svc.SupportsAuthFlow(p.TypeKey),
 		IsUIReadonly:     p.IsUIReadonly, IsUIHidden: p.IsUIHidden,
+		Disabled: p.Disabled,
 	}
 }
 
-// visibleProviders drops UI-hidden rows and rows whose backend is
-// currently unavailable (plugin removed). Router, models and metrics keep
-// using the full service-level list. Unavailable rows stay in the database
-// so reinstalling the plugin restores them on the next list reload.
-func visibleProviders(all []*models.ProviderInstance, svc *provider.Service) []*models.ProviderInstance {
+// providerTypeKnown reports whether the type key can actually serve requests:
+// built-in Go backends always; Lua types only while their plugin is installed.
+// A nil Lua service means the subsystem is absent, not that nothing is installed.
+func (h *Handler) providerTypeKnown(typeKey string) bool {
+	if typeKey == provider.TypeCustom || typeKey == provider.TypeAgents {
+		return true
+	}
+	if h.luaSvc == nil {
+		return true
+	}
+	_, err := h.luaSvc.Lookup(typeKey)
+	return err == nil
+}
+
+// visibleProviders drops UI-hidden rows and rows whose plugin is uninstalled.
+// Router, models and metrics keep using the full service-level list.
+func (h *Handler) visibleProviders(all []*models.ProviderInstance) []*models.ProviderInstance {
 	out := make([]*models.ProviderInstance, 0, len(all))
 	for _, p := range all {
-		if p.IsUIHidden {
+		if p.IsUIHidden || !h.providerTypeKnown(p.TypeKey) {
 			continue
 		}
 		if svc != nil && !svc.IsTypeAvailable(p.TypeKey) {
@@ -55,10 +69,10 @@ func visibleProviders(all []*models.ProviderInstance, svc *provider.Service) []*
 }
 
 // loadVisibleProvider resolves a provider for UI management endpoints.
-// Hidden rows and rows with unavailable backends behave as nonexistent.
+// Hidden rows and rows with an uninstalled plugin behave as nonexistent.
 func (h *Handler) loadVisibleProvider(id string) (*models.ProviderInstance, bool) {
 	p, err := h.providerSvc.Get(id)
-	if err != nil || p.IsUIHidden {
+	if err != nil || p.IsUIHidden || !h.providerTypeKnown(p.TypeKey) {
 		return nil, false
 	}
 	if !h.providerSvc.IsTypeAvailable(p.TypeKey) {
@@ -83,7 +97,7 @@ func (h *Handler) apiProvidersList(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	providers = visibleProviders(providers, h.providerSvc)
+	providers = h.visibleProviders(providers)
 	out := make([]providerView, 0, len(providers))
 	for _, p := range providers {
 		out = append(out, toProviderView(p, h.providerSvc))
@@ -125,7 +139,7 @@ func (h *Handler) apiProvidersStats(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	providers = visibleProviders(providers, h.providerSvc)
+	providers = h.visibleProviders(providers)
 
 	stats := make(map[string]*models.ProviderStats)
 	ctx := r.Context()
@@ -243,19 +257,30 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if existing.IsUIReadonly {
-		// Seeded providers are managed automatically; only the operational
-		// proxy mode may be edited on them. Other config keys are preserved.
-		proxyCfg, hasProxy := body.Config["proxy"]
-		if body.Name != "" && body.Name != existing.Name || !hasProxy {
+		// Seeded providers are managed automatically; only operational keys
+		// (proxy mode, model automation) and the disabled toggle may be edited.
+		// Other config keys are preserved.
+		allowed := map[string]bool{"proxy": true, "models_auto_sync": true, "disable_failed_models": true}
+		if body.Name != "" && body.Name != existing.Name {
 			h.jsonErr(w, http.StatusForbidden, "provider is managed automatically")
 			return
+		}
+		for k := range body.Config {
+			if !allowed[k] {
+				h.jsonErr(w, http.StatusForbidden, "provider is managed automatically")
+				return
+			}
 		}
 		cfg := map[string]any{}
 		for k, v := range existing.Config {
 			cfg[k] = v
 		}
-		cfg["proxy"] = proxyCfg
-		inst, err := h.providerSvc.Update(id, provider.UpdateOptions{Name: existing.Name, Config: cfg, IconURL: existing.IconURL})
+		for k := range allowed {
+			if v, ok := body.Config[k]; ok {
+				cfg[k] = v
+			}
+		}
+		inst, err := h.providerSvc.Update(id, provider.UpdateOptions{Name: existing.Name, Config: cfg, IconURL: existing.IconURL, Disabled: body.Disabled})
 		if err != nil {
 			h.jsonErr(w, http.StatusBadRequest, err.Error())
 			return
@@ -284,7 +309,7 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	inst, err := h.providerSvc.Update(id, provider.UpdateOptions{
-		Name: body.Name, Config: body.Config, IconURL: body.IconURL,
+		Name: body.Name, Config: body.Config, IconURL: body.IconURL, Disabled: body.Disabled,
 	})
 	if err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())

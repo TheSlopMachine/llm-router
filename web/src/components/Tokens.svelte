@@ -8,12 +8,13 @@
   import EmptyState from './EmptyState.svelte'
   import ActionDropdown from './ActionDropdown.svelte'
   import type { Token, Provider, TokenUsageInfo } from '../lib/types'
+  import { t } from '../lib/i18n.svelte'
 
-  const tokenActions = [
-    { id: 'edit', label: 'Edit', icon: 'edit' },
-    { id: 'clone', label: 'Clone', icon: 'content_copy' },
-    { id: 'regenerate', label: 'Regenerate', icon: 'refresh' }
-  ]
+  let tokenActions = $derived([
+    { id: 'edit', label: t('Edit'), icon: 'edit' },
+    { id: 'clone', label: t('Clone'), icon: 'content_copy' },
+    { id: 'regenerate', label: t('Regenerate'), icon: 'refresh' }
+  ])
 
   function handleTokenAction(id: string, t: Token): void {
     switch (id) {
@@ -40,7 +41,7 @@
 
   function openWizard(mode: 'create' | 'edit' | 'clone', token?: Token): void {
     resource.error = ''
-    const title = mode === 'edit' ? 'Edit token' : mode === 'clone' ? 'Clone token' : 'New token'
+    const title = mode === 'edit' ? t('Edit token') : mode === 'clone' ? t('Clone token') : t('New token')
     modal.open({
       title,
       content: TokenWizard,
@@ -63,11 +64,11 @@
 
   async function regenerate(id: string, name: string): Promise<void> {
     const confirmed = await modal.confirm({
-      title: 'Regenerate token',
-      message: `Regenerate secret for "${name}"? The old secret will be invalidated immediately.`,
+      title: t('Regenerate token'),
+      message: `${t('Regenerate secret for')} "${name}"? ${t('The old secret will be invalidated immediately.')}`,
       severity: 'high',
-      confirmText: 'Regenerate',
-      cancelText: 'Cancel',
+      confirmText: t('Regenerate'),
+      cancelText: t('Cancel'),
       danger: true
     })
     if (!confirmed) return
@@ -82,11 +83,11 @@
 
   async function remove(id: string, name: string): Promise<void> {
     const confirmed = await modal.confirm({
-      title: 'Revoke token',
-      message: `Are you sure you want to revoke token "${name}"? This action cannot be undone.`,
+      title: t('Revoke token'),
+      message: `${t('Are you sure you want to revoke token')} "${name}"? ${t('This action cannot be undone.')}`,
       severity: 'medium',
-      confirmText: 'Revoke',
-      cancelText: 'Cancel',
+      confirmText: t('Revoke'),
+      cancelText: t('Cancel'),
       danger: true
     })
 
@@ -117,13 +118,13 @@
 
 <div class="page-header">
   <div>
-    <h1>Tokens</h1>
-    <p>Router tokens for the <code>/v1</code> API. Each token enforces its own model allowlist.</p>
+    <h1>{t('Tokens')}</h1>
+    <p>{t('Router tokens for the')} <code>/v1</code> {t('API. Each token enforces its own model allowlist.')}</p>
   </div>
   {#if resource.data.tokens.length > 0}
     <button class="btn btn-primary" onclick={openCreate}>
       <span class="icon">add</span>
-      New Token
+      {t('New Token')}
     </button>
   {/if}
 </div>
@@ -134,40 +135,40 @@
 
 {#if newTokenSecret}
   <div class="success-msg">
-    Token created. Copy it now — it will not be shown again:<br />
+    {t('Token created. Copy it now — it will not be shown again:')}<br />
     <span class="mono secret">{newTokenSecret}</span>
   </div>
 {/if}
 
 {#if resource.loading}
-  <div class="loading">Loading tokens...</div>
+  <div class="loading">{t('Loading tokens...')}</div>
 {:else if resource.data.tokens.length === 0}
   <EmptyState
     icon="key"
-    message="No tokens yet"
-    hint="Create a token to access the /v1 API with model-specific permissions."
-    buttonText="Create Your First Token"
+    message={t('No tokens yet')}
+    hint={t('Create a token to access the /v1 API with model-specific permissions.')}
+    buttonText={t('Create Your First Token')}
     buttonIcon="add"
     onButtonClick={openCreate}
   />
 {:else}
   <div class="card tokens-card">
-    <div class="card-header"><h2>Tokens</h2></div>
+    <div class="card-header"><h2>{t('Tokens')}</h2></div>
     <table>
       <thead>
-        <tr><th>Name</th><th>ID</th><th>Created</th><th>Last Used</th><th>API calls</th><th></th></tr>
+        <tr><th>{t('Name')}</th><th>{t('ID')}</th><th>{t('Created')}</th><th>{t('Last Used')}</th><th>{t('API calls')}</th><th></th></tr>
       </thead>
       <tbody>
-        {#each resource.data.tokens as t}
+        {#each resource.data.tokens as tok}
           <tr>
-            <td>{t.name}</td>
-            <td class="mono">{shortId(t.id)}</td>
-            <td>{fmt(t.created_at)}</td>
-            <td>{getLastUsed(t.id)}</td>
-            <td>{getUsage(t.id).toLocaleString()}</td>
+            <td>{tok.name}</td>
+            <td class="mono">{shortId(tok.id)}</td>
+            <td>{fmt(tok.created_at)}</td>
+            <td>{getLastUsed(tok.id)}</td>
+            <td>{getUsage(tok.id).toLocaleString()}</td>
             <td class="row-actions">
-              <ActionDropdown actions={tokenActions} label="Actions" rounded="lg" onaction={(id) => handleTokenAction(id, t)} />
-              <button class="btn btn-danger" onclick={() => remove(t.id, t.name)}>Revoke</button>
+              <ActionDropdown actions={tokenActions} label={t('Actions')} rounded="lg" onaction={(id) => handleTokenAction(id, tok)} />
+              <button class="btn btn-danger" onclick={() => remove(tok.id, tok.name)}>{t('Revoke')}</button>
             </td>
           </tr>
         {/each}

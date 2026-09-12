@@ -562,3 +562,27 @@ func TestIsCreatableTypeKey(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateReusesSingletonRow(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+
+	first, err := svc.Create(provider.CreateOptions{Name: "Groq", TypeKey: "groq"})
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	second, err := svc.Create(provider.CreateOptions{Name: "Groq Again", TypeKey: "groq"})
+	if err != nil {
+		t.Fatalf("second create: %v", err)
+	}
+	if second.ID != first.ID {
+		t.Fatalf("expected singleton reuse, got %q then %q", first.ID, second.ID)
+	}
+	qualified, err := svc.Create(provider.CreateOptions{Name: "Groq Work", TypeKey: "groq", Qualifier: "work"})
+	if err != nil {
+		t.Fatalf("qualified create: %v", err)
+	}
+	if qualified.ID == first.ID {
+		t.Fatalf("qualified instance must not reuse the singleton row")
+	}
+}

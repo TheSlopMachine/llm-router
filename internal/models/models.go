@@ -54,19 +54,37 @@ type ChatMessageContentPart struct {
 	ID          string                   `json:"id,omitempty"`
 	Name        string                   `json:"name,omitempty"`
 	Input       json.RawMessage          `json:"input,omitempty"`
+	ImageURL    *ChatMessageImageURL     `json:"image_url,omitempty"`
+	InputAudio  *ChatMessageInputAudio   `json:"input_audio,omitempty"`
 	Content     []ChatMessageContentPart `json:"-"`
 	ContentText string                   `json:"-"`
 }
 
+// ChatMessageImageURL is an OpenAI image_url content part. URL is either a
+// remote http(s) URL or a data: URL carrying base64 bytes inline.
+type ChatMessageImageURL struct {
+	URL    string `json:"url,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// ChatMessageInputAudio is an OpenAI input_audio content part. Data is
+// base64 audio, Format is wav or mp3.
+type ChatMessageInputAudio struct {
+	Data   string `json:"data,omitempty"`
+	Format string `json:"format,omitempty"`
+}
+
 func (p *ChatMessageContentPart) UnmarshalJSON(data []byte) error {
 	type rawPart struct {
-		Type      string          `json:"type,omitempty"`
-		Text      string          `json:"text,omitempty"`
-		ToolUseID string          `json:"tool_use_id,omitempty"`
-		ID        string          `json:"id,omitempty"`
-		Name      string          `json:"name,omitempty"`
-		Input     json.RawMessage `json:"input,omitempty"`
-		Content   json.RawMessage `json:"content,omitempty"`
+		Type       string          `json:"type,omitempty"`
+		Text       string          `json:"text,omitempty"`
+		ToolUseID  string          `json:"tool_use_id,omitempty"`
+		ID         string          `json:"id,omitempty"`
+		Name       string          `json:"name,omitempty"`
+		Input      json.RawMessage `json:"input,omitempty"`
+		ImageURL   json.RawMessage `json:"image_url,omitempty"`
+		InputAudio json.RawMessage `json:"input_audio,omitempty"`
+		Content    json.RawMessage `json:"content,omitempty"`
 	}
 	var raw rawPart
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -78,6 +96,20 @@ func (p *ChatMessageContentPart) UnmarshalJSON(data []byte) error {
 	p.ID = raw.ID
 	p.Name = raw.Name
 	p.Input = raw.Input
+	if trimmed := strings.TrimSpace(string(raw.ImageURL)); trimmed != "" && trimmed != "null" {
+		var iu ChatMessageImageURL
+		if err := json.Unmarshal(raw.ImageURL, &iu); err != nil {
+			return err
+		}
+		p.ImageURL = &iu
+	}
+	if trimmed := strings.TrimSpace(string(raw.InputAudio)); trimmed != "" && trimmed != "null" {
+		var ia ChatMessageInputAudio
+		if err := json.Unmarshal(raw.InputAudio, &ia); err != nil {
+			return err
+		}
+		p.InputAudio = &ia
+	}
 	rawContent := strings.TrimSpace(string(raw.Content))
 	switch {
 	case rawContent == "", rawContent == "null":
@@ -95,17 +127,20 @@ func (p *ChatMessageContentPart) UnmarshalJSON(data []byte) error {
 
 func (p ChatMessageContentPart) MarshalJSON() ([]byte, error) {
 	type rawPart struct {
-		Type      string          `json:"type,omitempty"`
-		Text      string          `json:"text,omitempty"`
-		ToolUseID string          `json:"tool_use_id,omitempty"`
-		ID        string          `json:"id,omitempty"`
-		Name      string          `json:"name,omitempty"`
-		Input     json.RawMessage `json:"input,omitempty"`
-		Content   any             `json:"content,omitempty"`
+		Type       string                 `json:"type,omitempty"`
+		Text       string                 `json:"text,omitempty"`
+		ToolUseID  string                 `json:"tool_use_id,omitempty"`
+		ID         string                 `json:"id,omitempty"`
+		Name       string                 `json:"name,omitempty"`
+		Input      json.RawMessage        `json:"input,omitempty"`
+		ImageURL   *ChatMessageImageURL   `json:"image_url,omitempty"`
+		InputAudio *ChatMessageInputAudio `json:"input_audio,omitempty"`
+		Content    any                    `json:"content,omitempty"`
 	}
 	out := rawPart{
 		Type: p.Type, Text: p.Text, ToolUseID: p.ToolUseID,
 		ID: p.ID, Name: p.Name, Input: p.Input,
+		ImageURL: p.ImageURL, InputAudio: p.InputAudio,
 	}
 	if len(p.Content) > 0 {
 		out.Content = p.Content
@@ -448,6 +483,7 @@ const (
 	ErrorTypeUpstream                 // Upstream error, don't retry
 	ErrorTypeTimeout                  // Timeout, may retry
 	ErrorTypeInvalidRequest           // Invalid request, don't retry
+	ErrorTypeGeo                      // Geo-blocked upstream; proxy used is at fault, mark it bad
 )
 
 // ProviderError represents errors returned by provider backends.
@@ -593,8 +629,11 @@ type ProviderInstance struct {
 	IconURL      string         `json:"icon_url" example:"https://cdn.example.com/openai.svg"`
 	IsUIReadonly bool           `json:"is_ui_readonly"`
 	IsUIHidden   bool           `json:"is_ui_hidden"`
-	CreatedAt    time.Time      `json:"created_at"`
-	UpdatedAt    time.Time      `json:"updated_at"`
+	// Disabled takes the provider out of routing and model listings.
+	// Settings and discovery keep working.
+	Disabled  bool      `json:"disabled,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Provider is kept as an alias so existing call sites keep compiling
@@ -628,9 +667,10 @@ type ProviderInstanceCreateRequest struct {
 
 // ProviderInstanceUpdateRequest is the generic update body.
 type ProviderInstanceUpdateRequest struct {
-	Name    string         `json:"name"`
-	Config  map[string]any `json:"config"`
-	IconURL string         `json:"icon_url"`
+	Name     string         `json:"name"`
+	Config   map[string]any `json:"config"`
+	IconURL  string         `json:"icon_url"`
+	Disabled *bool          `json:"disabled"`
 }
 
 // ─────────────────────────────────────────────

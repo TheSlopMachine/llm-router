@@ -2,6 +2,7 @@ package luaplugin
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -32,7 +33,11 @@ func (s *Service) handlerCall(
 		proxySources:  map[string]*lua.LTable{},
 	}
 	if s.proxyResolver != nil {
-		ctx.proxyID, ctx.proxyURL = s.proxyResolver(rec, providerConfig)
+		proxyID, proxyURL, rerr := s.proxyResolver(rec, providerConfig)
+		if rerr != nil {
+			return true, rerr
+		}
+		ctx.proxyID, ctx.proxyURL = proxyID, proxyURL
 	}
 	if ctx.proxyID != "" && s.proxyOutcome != nil {
 		proxyID, tk := ctx.proxyID, typeKey
@@ -40,6 +45,16 @@ func (s *Service) handlerCall(
 			s.proxyOutcome(proxyID, tk, ok, latencyMs)
 		}
 	}
+	// A geo-blocked response through a proxy marks that proxy bad for this
+	// provider: the HTTP layer counted the 400 as a successful dial.
+	defer func() {
+		if err != nil && ctx.onProxyResult != nil {
+			var perr *models.ProviderError
+			if errors.As(err, &perr) && perr.Type == models.ErrorTypeGeo {
+				ctx.onProxyResult(false, 0)
+			}
+		}
+	}()
 	L := newSandboxState(ctx)
 	defer L.Close()
 	L.SetContext(goCtx)
@@ -119,6 +134,9 @@ func asProviderError(v lua.LValue) (*models.ProviderError, bool) {
 		status = 504
 	case "invalid_request":
 		errType = models.ErrorTypeInvalidRequest
+		status = 400
+	case "geo":
+		errType = models.ErrorTypeGeo
 		status = 400
 	default:
 		return nil, false

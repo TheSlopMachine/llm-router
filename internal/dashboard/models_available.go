@@ -48,10 +48,7 @@ func (h *Handler) availableModels(ctx context.Context) ([]availableModelView, er
 
 	items := make([]availableModelView, 0)
 	for _, providerRecord := range providers {
-		if providerRecord.TypeKey == "agents" {
-			continue
-		}
-		if _, err := h.credSvc.All(providerRecord.ID); err != nil {
+		if providerRecord.TypeKey == "agents" || providerRecord.Disabled {
 			continue
 		}
 

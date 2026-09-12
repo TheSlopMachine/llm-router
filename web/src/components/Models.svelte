@@ -2,7 +2,9 @@
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
   import { getErrorMessage } from '../lib/errors'
+  import { squircle } from '../lib/squircle'
   import type { AvailableModel } from '../lib/types'
+  import { t, n } from '../lib/i18n.svelte'
 
   const MIN_FUZZY_SCORE = 0.72
 
@@ -58,6 +60,11 @@
     } catch (e) {
       error = getErrorMessage(e) || 'Failed to copy model ID'
     }
+  }
+
+  function fmtK(n: number | undefined | null): string {
+    if (!n) return '—'
+    return n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`
   }
 
   function normalize(value: string): string {
@@ -138,8 +145,8 @@
 
 <div class="page-header">
   <div>
-    <h1>Models</h1>
-    <p>Browse available models and quickly copy their full model IDs.</p>
+    <h1>{t('Models')}</h1>
+    <p>{t('Browse available models and quickly copy their full model IDs.')}</p>
   </div>
 </div>
 
@@ -147,92 +154,78 @@
   <div class="error-msg">{error}</div>
 {/if}
 
-<div class="toolbar card">
-  <div class="toolbar-inner">
-    <div class="search-group">
-      <label for="model-search">Search</label>
-      <input id="model-search" type="text" bind:value={query} placeholder="Search by model name, provider, or full model ID" />
-    </div>
-    <div class="result-count">
-      {filteredModels.length} result{filteredModels.length === 1 ? '' : 's'}
-    </div>
-  </div>
+<div class="toolbar">
+  <input class="search-input" type="text" bind:value={query} placeholder={t('Search by model name, provider, or full model ID')} use:squircle={12} />
+  <span class="result-count">{n(filteredModels.length, 'result', 'results', 'результат', 'результата', 'результатов')}</span>
 </div>
 
 {#if loading}
-  <div class="empty">Loading models…</div>
+  <div class="empty">{t('Loading models…')}</div>
 {:else if allModels.length === 0}
-  <div class="empty">No available models yet. Configure providers with working credentials first.</div>
+  <div class="empty">{t('No available models yet. Configure providers with working credentials first.')}</div>
 {:else if filteredModels.length === 0}
-  <div class="empty">No matching models found.</div>
+  <div class="empty">{t('No matching models found.')}</div>
 {:else}
-  <div class="card">
-    <div class="card-header">
-      <h2>Available Models</h2>
+  <div class="table" use:squircle={18}>
+    <div class="table-row table-head">
+      <span class="col-display">{t('Model')}</span>
+      <span class="col-provider">{t('Provider')}</span>
+      <span class="col-id">{t('Full model ID')}</span>
+      <span class="col-ctx">{t('Context')}</span>
+      <span class="col-max">{t('Max tokens')}</span>
+      <span class="col-copy"></span>
     </div>
-    <table>
-      <thead>
-        <tr>
-          <th>Display</th>
-          <th>Provider</th>
-          <th>Full Model ID</th>
-          <th>Context</th>
-          <th>Max Tokens</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {#each filteredModels as model}
-          <tr>
-            <td>
-              <div class="display-cell">
-                <strong>{model.display_name}</strong>
-                {#if model.display_name !== model.model_name}
-                  <span class="subtle">{model.model_name}</span>
-                {/if}
-              </div>
-            </td>
-            <td>{model.provider_name}</td>
-            <td><code class="mono">{model.full_model_id}</code></td>
-            <td>{model.context_window || '—'}</td>
-            <td>{model.max_tokens || '—'}</td>
-            <td class="copy-cell">
-              <button class="btn btn-secondary btn-sm" onclick={() => copyModelId(model.full_model_id)}>
-                <span class="icon">{copiedModelId === model.full_model_id ? 'check' : 'content_copy'}</span>
-                {copiedModelId === model.full_model_id ? 'Copied' : 'Copy ID'}
-              </button>
-            </td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
+    {#each filteredModels as model (model.full_model_id)}
+      <div class="table-row">
+        <span class="col-display">
+          <span class="display-name">{model.display_name}</span>
+          {#if model.display_name !== model.model_name}
+            <span class="subtle">{model.model_name}</span>
+          {/if}
+        </span>
+        <span class="col-provider">{model.provider_name}</span>
+        <span class="col-id mono">{model.full_model_id}</span>
+        <span class="col-ctx" title={model.context_window ? t('Context window — up to') + ` ${model.context_window.toLocaleString()} ` + t('input tokens') : undefined}>{fmtK(model.context_window)}{model.context_window ? ` ${t('context')}` : ''}</span>
+        <span class="col-max" title={model.max_tokens ? t('Max output — up to') + ` ${model.max_tokens.toLocaleString()} ` + t('tokens per response') : undefined}>{fmtK(model.max_tokens)}{model.max_tokens ? ` ${t('output')}` : ''}</span>
+        <span class="col-copy">
+          <button
+            class="btn-icon"
+            class:icon-ok={copiedModelId === model.full_model_id}
+            onclick={() => copyModelId(model.full_model_id)}
+            aria-label={t('Copy full model ID')}
+            title={t('Copy full model ID')}
+          >
+            <span class="icon">{copiedModelId === model.full_model_id ? 'check' : 'content_copy'}</span>
+          </button>
+        </span>
+      </div>
+    {/each}
   </div>
 {/if}
 
 <style>
   .toolbar {
-    margin-bottom: 24px;
-  }
-
-  .toolbar-inner {
     display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    gap: 24px;
-    padding: 20px 24px;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
   }
 
-  .search-group {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    flex: 1;
+  .search-input {
+    flex: 0 1 320px;
+    height: 36px;
+    padding: 0 12px;
+    border: none;
+    border-radius: var(--radius-md);
+    background: var(--color-surface-container-highest);
+    color: var(--color-text);
+    font-family: inherit;
+    font-size: 14px;
   }
 
-  .search-group label {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--color-text-soft);
+  .search-input:focus {
+    outline: none;
+    box-shadow: inset 0 0 0 2px var(--color-accent);
   }
 
   .result-count {
@@ -241,30 +234,107 @@
     white-space: nowrap;
   }
 
-  .display-cell {
+  .table {
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+
+  .table-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.55fr) minmax(0, 1.2fr) minmax(0, 0.55fr) minmax(0, 0.55fr) 48px;
+    align-items: center;
+    padding: 10px 16px;
+    gap: 12px;
+    background: var(--color-surface-container-high);
+  }
+
+  .table-row + .table-row {
+    border-top: 1px solid var(--color-outline-soft);
+  }
+
+  .table-head {
+    background: var(--color-surface-container-highest);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-soft);
+  }
+
+  .col-display {
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
+  }
+
+  .display-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .subtle {
     color: var(--color-text-soft);
     font-size: 12px;
-  }
-
-  .copy-cell {
-    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  @media (max-width: 900px) {
-    .toolbar-inner {
-      flex-direction: column;
-      align-items: stretch;
-    }
+  .col-provider {
+    font-size: 13px;
+    color: var(--color-text-soft);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
-    .result-count {
-      white-space: normal;
+  .col-id {
+    font-size: 12px;
+    color: var(--color-text-soft);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .col-ctx,
+  .col-max {
+    font-size: 13px;
+    color: var(--color-text-soft);
+    white-space: nowrap;
+  }
+
+  .col-copy {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .icon-ok {
+    color: var(--color-success-text);
+  }
+
+  @media (max-width: 900px) {
+    .table-row {
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 0.55fr) 48px;
+    }
+    .col-provider,
+    .col-max {
+      display: none;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .table-row {
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr) 48px;
+      padding: 10px 12px;
+    }
+    .col-id {
+      display: none;
+    }
+    .search-input {
+      flex: 1 1 100%;
     }
   }
 </style>

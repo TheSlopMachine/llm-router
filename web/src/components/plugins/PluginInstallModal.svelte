@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { PluginFacts } from './plugin-facts'
+  import { t } from '../../lib/i18n.svelte'
 
   let { facts } = $props<{ facts: PluginFacts }>()
 </script>
@@ -7,12 +8,12 @@
 {#if facts.description}<p class="description">{facts.description}</p>{/if}
 {#if facts.versionLine}<div class="muted">{facts.versionLine}</div>{/if}
 
-<h3>Requested permissions</h3>
+<h3>{t('Requested permissions')}</h3>
 {#if facts.unsafe}
-  <div class="badge badge-red">Unrestricted network</div>
+  <div class="badge badge-red">{t('Unrestricted network')}</div>
 {/if}
 {#if facts.allowHosts.length === 0}
-  <div class="muted">No network hosts.</div>
+  <div class="muted">{t('No network hosts.')}</div>
 {:else}
   {#each facts.allowHosts as host}
     <div class="mono host">{host}</div>

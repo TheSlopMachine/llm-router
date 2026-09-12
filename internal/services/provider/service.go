@@ -163,6 +163,14 @@ func (s *Service) Create(opts CreateOptions) (*models.ProviderInstance, error) {
 		config["base_url"] = strings.TrimSuffix(baseURL, "/")
 	}
 
+	// Singleton plugin types: the core seeds one row per type key. Reuse it
+	// instead of creating a duplicate unqualified instance.
+	if typeKey != TypeCustom && qualifier == "" {
+		if existing, err := s.providers.Get(typeKey); err == nil && existing != nil {
+			return existing, nil
+		}
+	}
+
 	id := s.uniqueID(typeKey, qualifier, name)
 	now := time.Now()
 	inst := &models.ProviderInstance{
@@ -236,9 +244,10 @@ func (s *Service) GetByTypeAndQualifier(typeKey, qualifier string) (*models.Prov
 
 // UpdateOptions holds mutable provider fields.
 type UpdateOptions struct {
-	Name    string
-	Config  map[string]any
-	IconURL string
+	Name     string
+	Config   map[string]any
+	IconURL  string
+	Disabled *bool
 }
 
 // Update replaces a provider's mutable fields.
@@ -266,6 +275,9 @@ func (s *Service) Update(id string, opts UpdateOptions) (*models.ProviderInstanc
 		p.Name = name
 		if opts.Config != nil {
 			p.Config = opts.Config
+		}
+		if opts.Disabled != nil {
+			p.Disabled = *opts.Disabled
 		}
 		p.IconURL = strings.TrimSpace(opts.IconURL)
 		p.UpdatedAt = time.Now()

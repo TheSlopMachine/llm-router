@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { api } from '../../lib/api'
   import { getErrorMessage } from '../../lib/errors'
+  import { t } from '../../lib/i18n.svelte'
   import type { ModalButton, Provider, UINode } from '../../lib/types'
   import DynamicForm, { collectButtons, buttonVariant } from '../ui/DynamicForm.svelte'
 
@@ -81,18 +82,18 @@
     // Config trees carry no server-side steps: any tree button saves the
     // whole form, its action is display-only.
     const buttons: ModalButton[] = tree.map((n) => ({
-      label: n.text || (isEdit ? 'Save' : 'Add'),
+      label: n.text || (isEdit ? t('Save') : t('Add')),
       variant: buttonVariant(n),
       onClick: save,
       disabled: !name.trim() || creating,
       loading: creating,
     }))
     if (!tree.some((n) => (n.form_action || 'submit') === 'cancel')) {
-      buttons.push({ label: 'Cancel', variant: 'secondary', onClick: closeModal })
+      buttons.push({ label: t('Cancel'), variant: 'secondary', onClick: closeModal })
     }
     if (tree.length === 0) {
       buttons.push({
-        label: isEdit ? 'Save' : 'Add',
+        label: isEdit ? t('Save') : t('Add'),
         variant: 'primary',
         onClick: save,
         disabled: !name.trim() || creating,
@@ -107,7 +108,7 @@
       try {
         return JSON.parse(rawConfig) as Record<string, unknown>
       } catch {
-        error = 'Config is not valid JSON'
+        error = t('Config is not valid JSON')
         return null
       }
     }
@@ -156,7 +157,7 @@
 
 {#if !isEdit}
   <div class="form-group">
-    <label for="provider-type">Type *</label>
+    <label for="provider-type">{t('Type')} *</label>
     <select id="provider-type" value={typeKey} onchange={(e) => onTypeChange((e.target as HTMLSelectElement).value)}>
       {#each types as t}
         <option value={t}>{t}</option>
@@ -166,15 +167,15 @@
 {/if}
 
 <div class="form-group">
-  <label for="provider-name">Name *</label>
-  <input id="provider-name" type="text" bind:value={name} placeholder="My LLM Provider" oninput={syncButtons} />
+  <label for="provider-name">{t('Name')} *</label>
+  <input id="provider-name" type="text" bind:value={name} placeholder={t('My LLM Provider')} oninput={syncButtons} />
 </div>
 
 {#if !isEdit && typeKey !== 'custom' && typeKey !== 'agents'}
   <div class="form-group">
-    <label for="provider-qualifier">Qualifier (optional)</label>
+    <label for="provider-qualifier">{t('Qualifier')} ({t('optional')})</label>
     <input id="provider-qualifier" type="text" bind:value={qualifier} placeholder="eu" />
-    <small>Distinguishes multiple providers of the same type</small>
+    <small>{t('Distinguishes multiple providers of the same type')}</small>
   </div>
 {/if}
 
@@ -182,13 +183,13 @@
   <DynamicForm nodes={configNodes} bind:values={configValues} busy={creating} />
 {:else if useRawConfig}
   <div class="form-group">
-    <label for="provider-config">Config JSON</label>
+    <label for="provider-config">{t('Config JSON')}</label>
     <textarea id="provider-config" rows="5" bind:value={rawConfig} autocomplete="off"></textarea>
   </div>
 {/if}
 
 <div class="form-group">
-  <label for="icon-url">Icon URL (optional)</label>
+  <label for="icon-url">{t('Icon URL')} ({t('optional')})</label>
   <input id="icon-url" type="text" bind:value={iconURL} placeholder="https://example.com/icon.svg" />
 </div>
 

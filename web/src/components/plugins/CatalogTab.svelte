@@ -11,6 +11,7 @@
   import { factsFromFile } from './plugin-facts'
   import { confirmInstall } from './install-confirm'
   import type { Plugin, PluginRepo, PluginUpdate, StoreFile } from '../../lib/types'
+  import { t } from '../../lib/i18n.svelte'
 
   interface RepoEntry {
     repo: PluginRepo
@@ -226,7 +227,7 @@
 
 <div class="toolbar">
   <div class="toolbar-search">
-    <SearchField bind:value={query} placeholder="Search catalog..." />
+    <SearchField bind:value={query} placeholder={t('Search catalog...')} />
   </div>
   <div class="toolbar-actions">
     <button
@@ -238,17 +239,17 @@
         showUpdatesOnly = !showUpdatesOnly
       }}
     >
-      Updates only{#if availableUpdates.length > 0} ({availableUpdates.length}){/if}
+      {t('Updates only')}{#if availableUpdates.length > 0} ({availableUpdates.length}){/if}
     </button>
     <label class="btn btn-secondary file-label">
-      {uploading ? 'Uploading…' : 'Upload file'}
+      {uploading ? t('Uploading…') : t('Upload file')}
       <input type="file" accept=".lua" onchange={uploadFile} disabled={uploading} hidden />
     </label>
     <button class="btn btn-primary" onclick={() => {
       showAddRepo = !showAddRepo
     }}>
       <span class="icon">add</span>
-      Add repository
+      {t('Add repository')}
     </button>
   </div>
 </div>
@@ -260,30 +261,30 @@
 {#if showAddRepo}
   <div class="card form-card">
     <div class="form-group">
-      <label for="repo-url">Repository or index URL</label>
+      <label for="repo-url">{t('Repository or index URL')}</label>
       <input id="repo-url" type="text" bind:value={repoUrl} placeholder="https://github.com/octocat/llm-router-plugins" />
-      <div class="hint">Paste a repository URL or a direct index.json URL.</div>
+      <div class="hint">{t('Paste a repository URL or a direct index.json URL.')}</div>
     </div>
     <div class="form-actions">
       <button class="btn btn-secondary" onclick={() => {
         showAddRepo = false
-      }}>Cancel</button>
-      <button class="btn btn-primary" disabled={adding} onclick={addRepo}>Add</button>
+      }}>{t('Cancel')}</button>
+      <button class="btn btn-primary" disabled={adding} onclick={addRepo}>{t('Add')}</button>
     </div>
   </div>
 {/if}
 
 {#if availableUpdates.length > 0}
   <div class="card updates-card">
-    <h2>Updates available</h2>
+    <h2>{t('Updates available')}</h2>
     {#each availableUpdates as u}
       {@const file = fileByOrigin.get(`${u.repo_id}/${u.path}`) ?? null}
       <div class="update-row">
         <span>{u.plugin_id}: {u.current} → {u.latest}</span>
         {#if file}
-          <button class="btn btn-secondary" onclick={() => confirmAndInstall(file, 'Update')}>Update</button>
+          <button class="btn btn-secondary" onclick={() => confirmAndInstall(file, 'Update')}>{t('Update')}</button>
         {:else}
-          <button class="btn btn-secondary" onclick={() => installEntry(u.repo_id, u.path)}>Update</button>
+          <button class="btn btn-secondary" onclick={() => installEntry(u.repo_id, u.path)}>{t('Update')}</button>
         {/if}
       </div>
     {/each}
@@ -293,16 +294,16 @@
 {#if repos.length === 0}
   <EmptyState
     icon="download"
-    message="No repositories added yet"
-    hint="Add a plugin repository or upload a .lua file to install a plugin."
-    buttonText="Add repository"
+    message={t('No repositories added yet')}
+    hint={t('Add a plugin repository or upload a .lua file to install a plugin.')}
+    buttonText={t('Add repository')}
     buttonIcon="add"
     onButtonClick={() => {
       showAddRepo = true
     }}
   />
 {:else if visibleRepos.length === 0}
-  <div class="empty">No plugins match the current filter.</div>
+  <div class="empty">{t('No plugins match the current filter.')}</div>
 {:else}
   {#each visibleRepos as entry (entry.repo.id)}
     <div class="card repo-card">
@@ -312,12 +313,12 @@
           {#if entry.repo.description}<div class="muted">{entry.repo.description}</div>{/if}
         </div>
         <div class="repo-badges">
-          {#if entry.repo.builtin}<span class="badge">Built-in</span>{/if}
-          <button class="btn-icon" onclick={() => openRepoDetails(entry)} aria-label="Repository details">
+          {#if entry.repo.builtin}<span class="badge">{t('Built-in')}</span>{/if}
+          <button class="btn-icon" onclick={() => openRepoDetails(entry)} aria-label={t('Repository details')}>
             <span class="icon">info</span>
           </button>
           {#if !entry.repo.builtin}
-            <button class="btn-icon" onclick={() => removeRepo(entry.repo.id)} aria-label="Remove repository">
+            <button class="btn-icon" onclick={() => removeRepo(entry.repo.id)} aria-label={t('Remove repository')}>
               <span class="icon">delete</span>
             </button>
           {/if}
@@ -326,7 +327,7 @@
       {#if entry.error}
         <div class="error-msg">{entry.error}</div>
       {:else if entry.files.length === 0}
-        <div class="empty">No plugins in this repository.</div>
+        <div class="empty">{t('No plugins in this repository.')}</div>
       {:else}
         <div class="file-list">
           {#each entry.files as f (`${f.repo_id}/${f.path}`)}
@@ -337,10 +338,10 @@
                 title={f.display_name || f.path}
                 meta={f.version ? `v${f.version}` : ''}
                 badges={[
-                  ...(f.unsafe ? [{ text: 'Unrestricted network', kind: 'badge-red' as const }] : []),
+                  ...(f.unsafe ? [{ text: t('Unrestricted network'), kind: 'badge-red' as const }] : []),
                   ...(f.update_available
                     ? [{ text: `Update: v${f.installed_version} → v${f.version}`, kind: 'badge-green' as const }]
-                    : [{ text: 'Installed', kind: '' as const }])
+                    : [{ text: t('Installed'), kind: '' as const }])
                 ]}
                 description={f.description}
                 mode="installed"
@@ -352,10 +353,10 @@
               <PluginCard
                 title={f.display_name || f.path}
                 meta={f.version ? `v${f.version}` : ''}
-                badges={[...(f.unsafe ? [{ text: 'Unrestricted network', kind: 'badge-red' as const }] : [])]}
+                badges={[...(f.unsafe ? [{ text: t('Unrestricted network'), kind: 'badge-red' as const }] : [])]}
                 description={f.description}
                 mode="uninstalled"
-                installLabel="Install"
+                installLabel={t('Install')}
                 installing={installingPath === key}
                 onDetails={() => openFileDetails(f)}
                 onInstall={() => confirmAndInstall(f, 'Install')}
@@ -370,7 +371,7 @@
 {/if}
 
 {#if uploadNotice}
-  <div class="muted">Uploaded: {uploadNotice}…</div>
+  <div class="muted">{t('Uploaded')}: {uploadNotice}…</div>
 {/if}
 
 <style>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from '../lib/api'
+  import { t } from '../lib/i18n.svelte'
 
   let { ondone } = $props<{ ondone: () => void }>()
 
@@ -17,7 +18,7 @@
       await api.login(username, password)
       ondone?.()
     } catch (e) {
-      error = 'Invalid username or password.'
+      error = t('Invalid username or password.')
     } finally {
       loading = false
     }
@@ -27,27 +28,27 @@
 <div class="auth-wrap">
   <div class="auth-card">
     <div class="brand">llm-router</div>
-    <h1>Sign in</h1>
-    <p class="sub">Manage providers, tokens, and credentials.</p>
+    <h1>{t('Sign in')}</h1>
+    <p class="sub">{t('Manage providers, tokens, and credentials.')}</p>
 
     {#if error}
       <div class="error-msg">{error}</div>
     {/if}
 
     <div class="form-group">
-      <label for="u">Username</label>
+      <label for="u">{t('Username')}</label>
       <input id="u" type="text" bind:value={username} autocomplete="username" onkeydown={(e) => e.key === 'Enter' && submit()} />
     </div>
     <div class="form-group" style="margin-top: 12px;">
-      <label for="p">Password</label>
+      <label for="p">{t('Password')}</label>
       <input id="p" type="password" bind:value={password} autocomplete="current-password" onkeydown={(e) => e.key === 'Enter' && submit()} />
     </div>
     <label class="remember-me">
       <input type="checkbox" bind:checked={rememberMe} />
-      <span>Keep me signed in</span>
+      <span>{t('Keep me signed in')}</span>
     </label>
     <button class="btn btn-primary submit-btn" onclick={submit} disabled={loading}>
-      {loading ? 'Signing in…' : 'Sign in'}
+      {loading ? t('Signing in…') : t('Sign in')}
     </button>
   </div>
 </div>
@@ -61,9 +62,9 @@
     background: var(--color-background);
   }
   .auth-card {
-    background: var(--color-surface);
-    border: 1px solid var(--color-outline-light);
-    border-radius: 16px;
+    background: var(--color-surface-container-high);
+    border: none;
+    border-radius: var(--radius-lg);
     padding: 40px;
     width: 100%;
     max-width: 400px;

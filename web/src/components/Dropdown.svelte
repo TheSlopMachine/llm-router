@@ -214,6 +214,7 @@
     role={isActionMode ? undefined : 'combobox'}
     aria-haspopup={isActionMode ? 'menu' : 'listbox'}
     aria-expanded={isOpen}
+    aria-label={isActionMode ? label : undefined}
     aria-controls={isActionMode ? undefined : 'dropdown-menu'}
     type="button"
   >

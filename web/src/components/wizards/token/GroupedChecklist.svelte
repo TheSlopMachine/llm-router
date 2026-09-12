@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
+  import { t } from '../../../lib/i18n.svelte'
 
   type Group = {
     id: string
@@ -91,7 +92,7 @@
           onclick={() => selectAll(group, !isGroupAllSelected(group, query), query)}
           disabled={disabled || group.items.length === 0}
         >
-          {isGroupAllSelected(group, query) ? 'Deselect all' : 'Select all'}
+          {isGroupAllSelected(group, query) ? t('Deselect all') : t('Select all')}
         </button>
         {#if group.error}
           <span class="badge badge-red">{group.error}</span>
@@ -101,7 +102,7 @@
       {#if group.items.length}
         {@const f = filtered(group, query)}
         {#if f.length === 0}
-          <div class="muted-placeholder">{noMatchLabel} for "{query}"</div>
+          <div class="muted-placeholder">{t(noMatchLabel)} for "{query}"</div>
         {:else}
           <div class="checkbox-list" class:cred-list={group.items[0]?.label !== undefined}>
             {#each f as item}
@@ -119,13 +120,13 @@
           </div>
         {/if}
       {:else if !group.error}
-        <div class="muted-placeholder">{emptyLabel}</div>
+        <div class="muted-placeholder">{t(emptyLabel)}</div>
       {/if}
     </div>
   {/each}
 
   {#if groups.length === 0}
-    <div class="muted-placeholder">{emptyLabel}</div>
+    <div class="muted-placeholder">{t(emptyLabel)}</div>
   {/if}
 </div>
 

@@ -128,6 +128,7 @@ export interface Provider {
   supports_auth_flow: boolean
   is_ui_readonly: boolean
   is_ui_hidden: boolean
+  disabled: boolean
 }
 
 export interface AvailableModel {

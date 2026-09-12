@@ -96,7 +96,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	proxySvc := proxypool.New(database)
 	geoSvc := geoip.New(logger)
 	geoSvc.SetOverride(routerCfg.ServerCountry)
-	luaSvc.SetProxyResolver(func(rec *luaplugin.PluginRecord, providerConfig map[string]any) (string, string) {
+	luaSvc.SetProxyResolver(func(rec *luaplugin.PluginRecord, providerConfig map[string]any) (string, string, error) {
 		mode, ids := parseProxyMode(providerConfig)
 		typeKey := ""
 		if len(rec.TypeKeys) > 0 {
@@ -108,13 +108,19 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		switch {
 		case mode == models.ProxyModeManual:
 			p = proxySvc.SelectManual(ids, typeKey)
+			if p == nil {
+				return "", "", fmt.Errorf("provider proxy: no usable proxy among %d selected", len(ids))
+			}
 		case mode == models.ProxyModeAuto || force:
 			p = proxySvc.Select(models.ProxyPreferences{Location: rec.ProxyLocation}, typeKey)
+			if p == nil && force {
+				return "", "", fmt.Errorf("provider proxy: plugin requires a %s exit (server is %s) but no usable proxy is pooled", rec.ProxyLocation, serverCountry)
+			}
 		}
 		if p == nil {
-			return "", ""
+			return "", "", nil
 		}
-		return p.ID, p.URL
+		return p.ID, p.URL, nil
 	})
 	luaSvc.SetProxyOutcomeReporter(proxySvc.RecordOutcome)
 
@@ -124,6 +130,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	})
 	maintSvc := maintenance.New(credSvc, providerSvc, database, logger)
 	maintSvc.SetProxyServices(proxySvc, luaSvc)
+	maintSvc.SetModelInfoService(modelInfoSvc)
 	metricsSvc := metrics.New(database, logger)
 	metricsSvc.Start()
 

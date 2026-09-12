@@ -203,9 +203,9 @@
   }
 
   .modal-card {
-    background: var(--color-surface);
-    border: 1px solid var(--color-outline-light);
-    border-radius: 16px;
+    background: var(--color-surface-container-high);
+    border: none;
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
     max-height: 90vh;
     display: flex;

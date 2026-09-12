@@ -4,6 +4,7 @@
   import { getErrorMessage } from '../lib/errors'
   import type { MetricsFilters, MetricsOverview, TimeSeriesPoint, Provider } from '../lib/types'
   import MetricsFiltersCmp from './MetricsFilters.svelte'
+  import { t } from '../lib/i18n.svelte'
   import MetricsOverviewCard from './MetricsOverviewCard.svelte'
   import PeakUsageChart from './PeakUsageChart.svelte'
 
@@ -111,18 +112,18 @@
 
 <div class="section">
   <div class="section-header">
-    <h2>Overview</h2>
+    <h2>{t('Overview')}</h2>
     <span class="icon info-icon">info</span>
   </div>
   <div class="overview-grid">
     <MetricsOverviewCard
-      title="Total API Requests"
+      title={t('Total API Requests')}
       value={overview?.total_requests ?? null}
       {loading}
       icon="show_chart"
     />
     <MetricsOverviewCard
-      title="Total API Errors"
+      title={t('Total API Errors')}
       value={overview?.total_errors ?? null}
       {loading}
       icon="show_chart"
@@ -132,12 +133,12 @@
 
 <div class="section">
   <div class="section-header">
-    <h2>Peak usage trends</h2>
+    <h2>{t('Peak usage trends')}</h2>
   </div>
   <div class="charts-grid">
-    <PeakUsageChart title="Peak requests" data={requestsData} {loading} />
-    <PeakUsageChart title="Peak input tokens" data={inputTokensData} {loading} />
-    <PeakUsageChart title="Peak output tokens" data={outputTokensData} {loading} />
+    <PeakUsageChart title={t('Peak requests')} data={requestsData} {loading} />
+    <PeakUsageChart title={t('Peak input tokens')} data={inputTokensData} {loading} />
+    <PeakUsageChart title={t('Peak output tokens')} data={outputTokensData} {loading} />
   </div>
 </div>
 

@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { api } from '../../lib/api'
   import { getErrorMessage } from '../../lib/errors'
+  import { t } from '../../lib/i18n.svelte'
   import Dropdown from '../Dropdown.svelte'
   import Switch from '../ui/Switch.svelte'
   import SectionCard from '../ui/SectionCard.svelte'
@@ -107,7 +108,7 @@
     loading = true
     error = ''
     saveTimeout = window.setTimeout(() => {
-      error = 'Save operation timed out. Please check your connection and try again.'
+      error = t('Save operation timed out. Please check your connection and try again.')
       loading = false
     }, SAVE_TIMEOUT) as unknown as ReturnType<typeof setTimeout>
     try {
@@ -128,8 +129,8 @@
     } catch (e: unknown) {
       if (saveTimeout) clearTimeout(saveTimeout as unknown as number)
       const msg = getErrorMessage(e)
-      if (msg.includes('modified by another process')) error = 'This agent was modified elsewhere. Please refresh and try again.'
-      else if (msg.includes('already exists')) error = 'An agent with this name already exists. Please choose a different name.'
+      if (msg.includes('modified by another process')) error = t('This agent was modified elsewhere. Please refresh and try again.')
+      else if (msg.includes('already exists')) error = t('An agent with this name already exists. Please choose a different name.')
       else error = msg
       loading = false
     }
@@ -162,11 +163,11 @@
   }
 
   let allModelOptions = $derived(availableModels.map((m) => ({ value: m.full_model_id, label: `${m.provider_name} · ${m.display_name} · ${m.full_model_id}` })))
-  let decisionOptions = $derived([{ value: '', label: 'Select a model...' }, ...allModelOptions])
+  let decisionOptions = $derived([{ value: '', label: t('Select a model...') }, ...allModelOptions])
 
   let canSaveAsDraft = $derived(name.trim() !== '')
   let canCreate = $derived(name.trim() !== '' && models.length > 0)
-  let primaryLabel = $derived(agent ? 'Save' : 'Create agent')
+  let primaryLabel = $derived(agent ? t('Save') : t('Create agent'))
 </script>
 
 <div class="agent-editor">
@@ -178,42 +179,42 @@
     <div class="warning-banner">
       <span class="icon">warning</span>
       <div>
-        <strong>No models available</strong>
-        <p>Configure at least one provider with credentials to create agents.</p>
-        <button class="btn btn-primary" onclick={goToProviders}><span class="icon">cloud</span>Go to Providers</button>
+        <strong>{t('No models available')}</strong>
+        <p>{t('Configure at least one provider with credentials to create agents.')}</p>
+        <button class="btn btn-primary" onclick={goToProviders}><span class="icon">cloud</span>{t('Go to Providers')}</button>
       </div>
     </div>
   {/if}
 
   <SectionCard title="Basic information">
     <div class="form-group">
-      <label for="agent-name">Name <span class="required">*</span></label>
-      <input id="agent-name" type="text" bind:value={name} placeholder="e.g., Research Assistant" />
+      <label for="agent-name">{t('Name')} <span class="required">*</span></label>
+      <input id="agent-name" type="text" bind:value={name} placeholder={t('e.g., Research Assistant')} />
     </div>
     <div class="form-group">
-      <label for="agent-description">Description</label>
-      <textarea id="agent-description" bind:value={description} rows={2} placeholder="Optional description of what this agent does"></textarea>
+      <label for="agent-description">{t('Description')}</label>
+      <textarea id="agent-description" bind:value={description} rows={2} placeholder={t('Optional description of what this agent does')}></textarea>
     </div>
   </SectionCard>
 
   <SectionCard title="Models" description="Models are tried in order (top = highest priority). Add descriptions to help the decision model choose.">
     {#snippet badge()}
-      {#if models.length === 0}<span class="badge badge-yellow">Draft</span>{/if}
+      {#if models.length === 0}<span class="badge badge-yellow">{t('Draft')}</span>{/if}
     {/snippet}
     {#if modelsLoadState === 'loading'}
-      <div class="loading">Loading available models...</div>
+      <div class="loading">{t('Loading available models...')}</div>
     {:else if modelsLoadState === 'error'}
       <div class="error-box">
-        <p>Failed to load models. Please try again.</p>
-        <button class="btn btn-secondary" onclick={loadAvailableModels}>Reload</button>
+        <p>{t('Failed to load models. Please try again.')}</p>
+        <button class="btn btn-secondary" onclick={loadAvailableModels}>{t('Reload')}</button>
       </div>
     {:else if models.length === 0}
       <div class="placeholder-inline">
-        <p>No models added yet</p>
+        <p>{t('No models added yet')}</p>
         {#if modelsLoadState === 'empty'}
-          <p class="hint">No models are currently available. Configure providers first.</p>
+          <p class="hint">{t('No models are currently available. Configure providers first.')}</p>
         {:else}
-          <button class="btn btn-secondary" onclick={addModel}><span class="icon">add</span>Add Model</button>
+          <button class="btn btn-secondary" onclick={addModel}><span class="icon">add</span>{t('Add Model')}</button>
         {/if}
       </div>
     {:else}
@@ -235,53 +236,53 @@
           />
         {/each}
       </div>
-      <button class="btn btn-secondary" onclick={addModel}><span class="icon">add</span>Add Model</button>
+      <button class="btn btn-secondary" onclick={addModel}><span class="icon">add</span>{t('Add Model')}</button>
     {/if}
   </SectionCard>
 
   <SectionCard title="General instructions">
     <div class="form-group">
-      <label for="instructions-content">Instructions</label>
+      <label for="instructions-content">{t('Instructions')}</label>
       <textarea
         id="instructions-content"
         bind:value={instructions.content}
         rows={4}
-        placeholder="System instructions that apply to all models"
+        placeholder={t('System instructions that apply to all models')}
       ></textarea>
     </div>
     <SegmentedControl
       bind:value={instructions.injection}
       options={[
-        { value: 'beginning', label: 'Inject at beginning' },
-        { value: 'end', label: 'Inject at end' }
+        { value: 'beginning', label: t('Inject at beginning') },
+        { value: 'end', label: t('Inject at end') }
       ]}
       ariaLabel="Instruction injection position"
     />
   </SectionCard>
 
   <SectionCard title="Decision model (optional)" description="Use a cheap model to intelligently route requests based on context.">
-    <Switch bind:checked={useDecisionModel} label="Enable decision-based routing" id="decision-toggle" />
+    <Switch bind:checked={useDecisionModel} label={t('Enable decision-based routing')} id="decision-toggle" />
     {#if useDecisionModel}
       {#if modelsLoadState === 'loading'}
-        <div class="loading">Loading models...</div>
+        <div class="loading">{t('Loading models...')}</div>
       {:else if modelsLoadState === 'empty'}
         <div class="placeholder-inline">
-          <p class="hint">No models available for decision routing.</p>
-          <button class="btn btn-primary" onclick={goToProviders}><span class="icon">cloud</span>Go to Providers</button>
+          <p class="hint">{t('No models available for decision routing.')}</p>
+          <button class="btn btn-primary" onclick={goToProviders}><span class="icon">cloud</span>{t('Go to Providers')}</button>
         </div>
       {:else if modelsLoadState === 'loaded'}
         <div class="form-group">
-          <label for="decision-model">Decision Model <span class="required">*</span></label>
-          <Dropdown bind:value={decisionModel.model_id} options={decisionOptions} searchable={true} placeholder="Select a model..." />
+          <label for="decision-model">{t('Decision Model')} <span class="required">*</span></label>
+          <Dropdown bind:value={decisionModel.model_id} options={decisionOptions} searchable={true} placeholder={t('Select a model...')} />
         </div>
       {/if}
       <div class="form-group">
-        <label for="decision-prompt">System Prompt <span class="required">*</span></label>
+        <label for="decision-prompt">{t('System Prompt')} <span class="required">*</span></label>
         <textarea
           id="decision-prompt"
           bind:value={decisionModel.system_prompt}
           rows={4}
-          placeholder="You are a routing assistant. Choose the best model for the user's request based on complexity, cost, and requirements."
+          placeholder={t('You are a routing assistant. Choose the best model for the user\'s request based on complexity, cost, and requirements.')}
         ></textarea>
       </div>
     {/if}
@@ -290,9 +291,9 @@
   <div class="editor-footer">
     <div class="footer-spacer"></div>
     <div class="footer-actions">
-      <button class="btn btn-secondary" onclick={cancel} disabled={loading}>Cancel</button>
-      <button class="btn btn-secondary" onclick={save} disabled={!canSaveAsDraft || loading}>Save as draft</button>
-      <button class="btn btn-primary" onclick={save} disabled={!canCreate || loading}>{loading ? 'Saving…' : primaryLabel}</button>
+      <button class="btn btn-secondary" onclick={cancel} disabled={loading}>{t('Cancel')}</button>
+      <button class="btn btn-secondary" onclick={save} disabled={!canSaveAsDraft || loading}>{t('Save as draft')}</button>
+      <button class="btn btn-primary" onclick={save} disabled={!canCreate || loading}>{loading ? t('Saving…') : primaryLabel}</button>
     </div>
   </div>
 </div>

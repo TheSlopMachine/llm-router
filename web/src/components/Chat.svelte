@@ -6,6 +6,8 @@
   import { parseMarkdownWithArtifacts } from '../lib/markdown'
   import { resolveExtension } from '../lib/language-extensions'
   import { getErrorMessage } from '../lib/errors'
+  import { t } from '../lib/i18n.svelte'
+  import { squircle } from '../lib/squircle'
   import type { AvailableModel } from '../lib/types'
 
   type Role = 'user' | 'assistant'
@@ -41,11 +43,11 @@
   let fileInputEl = $state<HTMLInputElement>()
   let hydrated = $state(false)
 
-  const actions = [
-    { id: 'new', label: 'New Chat', icon: 'add' },
-    { id: 'save', label: 'Save', icon: 'download' },
-    { id: 'load', label: 'Load', icon: 'upload' }
-  ]
+  let actions = $derived([
+    { id: 'new', label: t('New Chat'), icon: 'add' },
+    { id: 'save', label: t('Save'), icon: 'download' },
+    { id: 'load', label: t('Load'), icon: 'upload' }
+  ])
 
   let dropdownOptions = $derived(models.map((m) => ({ value: m.full_model_id, label: m.full_model_id })))
   let canSend = $derived(input.trim().length > 0 && !isSending && !!selectedModel)
@@ -187,7 +189,7 @@
         await tick()
         scrollToBottom(false)
       } catch {
-        error = 'Failed to load history'
+        error = t('Failed to load history')
       }
     }
     reader.readAsText(file)
@@ -278,14 +280,14 @@
       {#if messages.length === 0}
         <div class="empty-thread">
           <span class="icon empty-icon">chat</span>
-          <p class="empty-title">Start a conversation</p>
-          <p class="empty-hint">Ask anything — the thread will appear here.</p>
+          <p class="empty-title">{t('Start a conversation')}</p>
+          <p class="empty-hint">{t('Ask anything — the thread will appear here.')}</p>
         </div>
       {:else}
         {#each messages as msg (msg.id)}
           <div class="message" class:user={msg.role === 'user'} class:assistant={msg.role === 'assistant'}>
             <div class="meta">
-              <span class="sender">{msg.role === 'user' ? 'User' : 'Model'}</span>
+              <span class="sender">{msg.role === 'user' ? t('You') : t('Model')}</span>
               <span class="dot">•</span>
               <span class="time">{formatTime(msg.timestamp)}</span>
             </div>
@@ -308,13 +310,13 @@
                         <span>{art.title}</span>
                       </div>
                       <div class="artifact-actions">
-                        <button class="icon-btn" title="Download" onclick={() => downloadArtifact(art.code, art.language)}>
+                        <button class="icon-btn" title={t('Download')} onclick={() => downloadArtifact(art.code, art.language)}>
                           <span class="icon">download</span>
                         </button>
-                        <button class="icon-btn" title={copiedArtifact === msg.id + idx ? 'Copied' : 'Copy'} onclick={() => copyArtifact(art.code, msg.id + idx)}>
+                        <button class="icon-btn" title={copiedArtifact === msg.id + idx ? t('Copied') : t('Copy')} onclick={() => copyArtifact(art.code, msg.id + idx)}>
                           <span class="icon">{copiedArtifact === msg.id + idx ? 'check' : 'content_copy'}</span>
                         </button>
-                        <button class="icon-btn" title={art.collapsed ? 'Expand' : 'Collapse'} onclick={() => toggleCollapse(msg.id, idx)}>
+                        <button class="icon-btn" title={art.collapsed ? t('Expand') : t('Collapse')} onclick={() => toggleCollapse(msg.id, idx)}>
                           <span class="icon">{art.collapsed ? 'expand_content' : 'collapse_content'}</span>
                         </button>
                       </div>
@@ -334,9 +336,9 @@
         {#if isSending}
           <div class="message assistant">
             <div class="meta">
-              <span class="sender">Model</span>
+              <span class="sender">{t('Model')}</span>
               <span class="dot">•</span>
-              <span class="time">now</span>
+              <span class="time">{t('now')}</span>
             </div>
             <div class="typing">
               <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
@@ -351,12 +353,12 @@
   </div>
 
   <div class="composer-dock">
-    <div class="composer-card">
+    <div class="composer-card" use:squircle={20}>
       <textarea
         bind:this={textareaEl}
         bind:value={input}
         rows="1"
-        placeholder="Start typing a prompt to see what our models can do"
+        placeholder={t('Start typing a prompt to see what our models can do')}
         onkeydown={handleTextareaKeydown}
         oninput={autoResize}
       ></textarea>
@@ -367,22 +369,22 @@
             <Dropdown
               bind:value={selectedModel}
               options={dropdownOptions}
-              placeholder={models.length === 0 ? 'No models' : 'Select model'}
+              placeholder={models.length === 0 ? t('No models') : t('Select model')}
               disabled={models.length === 0}
               autoWidth={true}
               searchable={true}
               rounded="lg"
             />
           </div>
-          <ActionDropdown actions={actions} label="Actions" rounded="lg" onaction={(id) => handleAction(id)} />
+          <ActionDropdown actions={actions} label={t('Actions')} rounded="lg" onaction={(id) => handleAction(id)} />
         </div>
 
         <button class="btn btn-primary run-btn" onclick={send} disabled={!canSend}>
-          <span>Run</span><span class="run-arrow">↵</span>
+          <span>{t('Run')}</span><span class="run-arrow">↵</span>
         </button>
       </div>
     </div>
-    <div class="composer-hint">Press Enter to send, Shift + Enter for new line</div>
+    <div class="composer-hint">{t('Press Enter to send, Shift + Enter for new line')}</div>
   </div>
 </div>
 
@@ -523,16 +525,14 @@
   .composer-card {
     max-width: 760px; width: 100%; margin: 0 auto;
     background: var(--color-surface-container-high);
-    border: 1px solid var(--color-outline-light);
+    border: none;
     border-radius: 20px;
-    box-shadow: var(--shadow-lg);
+    filter: drop-shadow(0 12px 16px rgba(0, 0, 0, 0.35)) drop-shadow(0 4px 6px rgba(0, 0, 0, 0.25));
     padding: 12px 14px 10px 14px;
     display: flex; flex-direction: column; gap: 10px;
   }
   :global(.dark) .composer-card {
     background: var(--color-surface-container-high);
-    border-color: var(--color-outline-soft);
-    box-shadow: var(--shadow-xl);
   }
   .composer-card textarea {
     width: 100%; min-height: 24px; max-height: 160px;

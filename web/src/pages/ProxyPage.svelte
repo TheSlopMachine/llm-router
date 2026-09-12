@@ -6,6 +6,7 @@
   import type { Proxy, ProxyStatus } from '../lib/types'
   import SegmentedControl from '../components/ui/SegmentedControl.svelte'
   import { squircle } from '../lib/squircle'
+  import { t, n } from '../lib/i18n.svelte'
 
   type Tab = 'mine' | 'lists'
 
@@ -68,11 +69,11 @@
 
   async function deleteProxy(p: Proxy): Promise<void> {
     const confirmed = await modal.confirm({
-      title: 'Delete proxy',
-      message: `Remove ${p.url} from the pool?`,
+      title: t('Delete proxy'),
+      message: `${t('Remove')} ${p.url} ${t('from the pool?')}`,
       severity: 'medium',
-      confirmText: 'Delete',
-      cancelText: 'Cancel',
+      confirmText: t('Delete'),
+      cancelText: t('Cancel'),
       danger: true,
     })
     if (!confirmed) return
@@ -136,22 +137,22 @@
 
 <div class="page-header">
   <div>
-    <h1>Proxies</h1>
+    <h1>{t('Proxies')}</h1>
     <p>
       {#if status}
-        Server location: <b>{status.server_country || 'unknown'}</b> · {status.alive}/{status.total} alive
+        {t('Server location')}: <b>{status.server_country || t('unknown')}</b> · {n(status.alive, 'alive', 'alive', 'жив', 'живо', 'живо')}/{n(status.total, 'total', 'total', 'всего', 'всего', 'всего')}
       {:else}
-        Outbound proxy pool.
+        {t('Outbound proxy pool.')}
       {/if}
     </p>
   </div>
   <SegmentedControl
     bind:value={tab}
     options={[
-      { value: 'mine', label: 'My Proxies' },
-      { value: 'lists', label: 'Proxy Lists' },
+      { value: 'mine', label: t('My Proxies') },
+      { value: 'lists', label: t('Proxy Lists') },
     ]}
-    ariaLabel="Proxy tabs"
+    ariaLabel={t('Proxy tabs')}
   />
 </div>
 
@@ -160,44 +161,44 @@
 {/if}
 
 {#if loading}
-  <div class="empty">Loading…</div>
+  <div class="empty">{t('Loading…')}</div>
 {:else if tab === 'mine'}
   <section class="section">
     <div class="add-form">
       <input
         class="search-input url-input"
         type="text"
-        placeholder="protocol://[user:pass@]host:port"
+        placeholder={t('protocol://[user:pass@]host:port')}
         bind:value={newUrl}
         use:squircle={12}
       />
       <input
         class="search-input country-input"
         type="text"
-        placeholder="CC"
+        placeholder={t('CC')}
         maxlength="2"
         bind:value={newCountry}
         use:squircle={12}
       />
       <button class="btn btn-primary" onclick={addProxy} disabled={!newUrl.trim() || adding} use:squircle={12}>
         <span class="icon">add</span>
-        Add proxy
+        {t('Add proxy')}
       </button>
       <button class="btn btn-secondary" onclick={checkAll} disabled={checkingAll || manualProxies.length === 0} use:squircle={12}>
         <span class="icon" class:spin={checkingAll}>{checkingAll ? 'progress_activity' : 'network_check'}</span>
-        Check all
+        {t('Check all')}
       </button>
     </div>
     {#if manualProxies.length === 0}
-      <div class="empty-state" use:squircle={18}>No manual proxies yet. Add one above, or pull free lists from the Proxy Lists tab.</div>
+      <div class="empty-state" use:squircle={18}>{t('No manual proxies yet. Add one above, or pull free lists from the Proxy Lists tab.')}</div>
     {:else}
       <div class="table" use:squircle={18}>
         <div class="table-row table-head">
-          <span class="pcol-url">Proxy</span>
-          <span class="pcol-proto">Protocol</span>
-          <span class="pcol-country">Country</span>
-          <span class="pcol-status">Status</span>
-          <span class="pcol-actions">Actions</span>
+          <span class="pcol-url">{t('Proxy')}</span>
+          <span class="pcol-proto">{t('Protocol')}</span>
+          <span class="pcol-country">{t('Country')}</span>
+          <span class="pcol-status">{t('Status')}</span>
+          <span class="pcol-actions">{t('Actions')}</span>
         </div>
         {#each manualProxies as p (p.id)}
           <div class="table-row" class:row-dead={!p.alive}>
@@ -206,16 +207,16 @@
             <span class="pcol-country">{p.country || '—'}</span>
             <span class="pcol-status">
               {#if p.alive}
-                <span class="badge badge-green" title="Last probe latency">alive{p.latency_ms ? ` · ${p.latency_ms}ms` : ''}</span>
+                <span class="badge badge-green" title={t('Last probe latency')}>{t('alive')}{p.latency_ms ? ` · ${p.latency_ms}ms` : ''}</span>
               {:else}
-                <span class="badge badge-red" title="Failed the last probe; recheck to revive">dead</span>
+                <span class="badge badge-red" title={t('Failed the last probe; recheck to revive')}>{t('dead')}</span>
               {/if}
             </span>
             <span class="pcol-actions">
-              <button class="btn-icon" onclick={() => checkProxy(p)} disabled={checkingId === p.id} aria-label="Check proxy" title="Check proxy">
+              <button class="btn-icon" onclick={() => checkProxy(p)} disabled={checkingId === p.id} aria-label={t('Check proxy')} title={t('Check proxy')}>
                 <span class="icon" class:spin={checkingId === p.id}>{checkingId === p.id ? 'progress_activity' : 'network_check'}</span>
               </button>
-              <button class="btn-icon" onclick={() => deleteProxy(p)} aria-label="Delete proxy" title="Delete proxy">
+              <button class="btn-icon" onclick={() => deleteProxy(p)} aria-label={t('Delete proxy')} title={t('Delete proxy')}>
                 <span class="icon">delete</span>
               </button>
             </span>
@@ -227,13 +228,13 @@
 {:else}
   <section class="section">
     <div class="section-header">
-      <h2>Sources</h2>
+      <h2>{t('Sources')}</h2>
       {#if refreshNote}
         <span class="refresh-note">{refreshNote}</span>
       {/if}
     </div>
     {#if sources.length === 0}
-      <div class="empty-state" use:squircle={18}>No proxy list sources installed. Install a proxy-source plugin (e.g. proxifly).</div>
+      <div class="empty-state" use:squircle={18}>{t('No proxy list sources installed. Install a proxy-source plugin (e.g. proxifly).')}</div>
     {:else}
       <div class="sources-row">
         {#each sources as key}
@@ -241,7 +242,7 @@
             <span class="source-name">{key}</span>
             <button class="btn btn-secondary" onclick={() => refreshSource(key)} disabled={refreshingSource === key} use:squircle={12}>
               <span class="icon" class:spin={refreshingSource === key}>{refreshingSource === key ? 'progress_activity' : 'refresh'}</span>
-              Refresh
+              {t('Refresh')}
             </button>
           </div>
         {/each}
@@ -251,17 +252,17 @@
 
   <section class="section">
     <div class="section-header">
-      <h2>Pulled from lists ({listProxies.length})</h2>
+      <h2>{t('Pulled from lists')} ({listProxies.length})</h2>
     </div>
     {#if listProxies.length === 0}
-      <div class="empty-state" use:squircle={18}>Nothing pooled yet. Refresh a source above.</div>
+      <div class="empty-state" use:squircle={18}>{t('Nothing pooled yet. Refresh a source above.')}</div>
     {:else}
       <div class="table list-table" use:squircle={18}>
         <div class="table-row table-head">
-          <span class="pcol-url">Proxy</span>
-          <span class="pcol-proto">Protocol</span>
-          <span class="pcol-country">Country</span>
-          <span class="pcol-source">Source</span>
+          <span class="pcol-url">{t('Proxy')}</span>
+          <span class="pcol-proto">{t('Protocol')}</span>
+          <span class="pcol-country">{t('Country')}</span>
+          <span class="pcol-source">{t('Source')}</span>
         </div>
         {#each listProxies.slice(0, 200) as p (p.id)}
           <div class="table-row" class:row-dead={!p.alive}>

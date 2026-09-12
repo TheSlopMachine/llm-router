@@ -56,6 +56,39 @@ func TestChatCompletionUsage_Details_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestChatMessage_MultimodalParts_RoundTrip(t *testing.T) {
+	raw := `{"role":"user","content":[` +
+		`{"type":"text","text":"what is this?"},` +
+		`{"type":"image_url","image_url":{"url":"data:image/png;base64,AAA","detail":"high"}},` +
+		`{"type":"input_audio","input_audio":{"data":"BBB","format":"wav"}}]}`
+	var m ChatMessage
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.ContentParts) != 3 {
+		t.Fatalf("parts: got %d", len(m.ContentParts))
+	}
+	if m.ContentParts[1].ImageURL == nil || m.ContentParts[1].ImageURL.URL != "data:image/png;base64,AAA" {
+		t.Fatalf("image_url lost: %+v", m.ContentParts[1].ImageURL)
+	}
+	if m.ContentParts[2].InputAudio == nil || m.ContentParts[2].InputAudio.Format != "wav" {
+		t.Fatalf("input_audio lost: %+v", m.ContentParts[2].InputAudio)
+	}
+	// Binary parts carry no text.
+	if got := m.Content; got != "what is this?" {
+		t.Fatalf("text flatten polluted: %q", got)
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"image_url":{"url":"data:image/png;base64,AAA"`, `"input_audio":{"data":"BBB","format":"wav"}`} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("marshal lost multimodal part %s: %s", want, out)
+		}
+	}
+}
+
 func TestChatCompletionUsage_NoDetails_Omitted(t *testing.T) {
 	out, _ := json.Marshal(ChatCompletionUsage{PromptTokens: 1, CompletionTokens: 2, TotalTokens: 3})
 	if strings.Contains(string(out), "_details") {
