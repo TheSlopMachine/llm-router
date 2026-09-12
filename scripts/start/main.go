@@ -43,6 +43,14 @@ func main() {
 		_ = os.Remove(pidFile)
 	}
 
+	// Fail fast when a port is held by a process outside this pidfile.
+	// The actual bind at startup stays the source of truth.
+	for _, port := range []int{mustAtoi(webPort), mustAtoi(apiPort), mustAtoi(devBackendWebPort)} {
+		if free, holder := shared.PortStatus(port); !free {
+			shared.Failf("port %d already in use by %s", port, holder)
+		}
+	}
+
 	// Ensure parent dirs for db and pidfile.
 	for _, p := range []string{dbPath, pidFile, shared.DefaultBackendLog(), shared.DefaultFrontendLog()} {
 		dir := filepath.Dir(p)
@@ -89,6 +97,13 @@ func main() {
 		// Attempt to stop the backend we just started.
 		_ = shared.Terminate(backendPID)
 		shared.Failf("spawn frontend: %v", err)
+	}
+
+	// Group both processes so a later stop reaches descendants too.
+	// Registration failure only loses the descendant guarantee.
+	if err := shared.RegisterSession(pidFile, backendPID, frontendPID); err != nil {
+		fmt.Fprintf(os.Stderr, "[WARN] process group registration failed: %v\n", err)
+		fmt.Fprintln(os.Stderr, "[WARN] stop falls back to best-effort termination")
 	}
 
 	proc := shared.Proc{Backend: backendPID, Frontend: frontendPID, VitePort: mustAtoi(webPort)}
