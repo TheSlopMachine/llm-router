@@ -157,6 +157,10 @@ Harness scenario `proxies` passes live.
 33. **Available-models credential gate removed** — the dashboard models list
     no longer requires routable credentials, so keyless providers
     (opencode-zen) show up.
+34. **Multimodal message parts** — `ChatMessageContentPart` carries OpenAI
+    `image_url` (`{url, detail}`) and `input_audio` (`{data, format}`)
+    through unmarshal/marshal round-trips; text flattening ignores binary
+    parts, so token counting and text views are unchanged.
 
 ## Notes
 

@@ -34,7 +34,7 @@ func toProviderView(p *models.ProviderInstance, svc *provider.Service) providerV
 		Qualifier: p.Qualifier, Config: config, BaseURL: baseURL, IconURL: p.IconURL,
 		SupportsAuthFlow: svc.SupportsAuthFlow(p.TypeKey),
 		IsUIReadonly:     p.IsUIReadonly, IsUIHidden: p.IsUIHidden,
-		Disabled:         p.Disabled,
+		Disabled: p.Disabled,
 	}
 }
 
