@@ -163,6 +163,9 @@ func (s *Service) Complete(
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
 	}
+	if resolved.Instance.Disabled {
+		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
+	}
 	// Virtual agents resolve from the model name suffix and need no
 	// credentials; token credential rules do not apply to them.
 	if resolved.Instance.TypeKey == provider.TypeAgents {
@@ -220,6 +223,9 @@ func (s *Service) CompleteStream(
 	resolved, err := provider.Resolve(s.providerSvc, providerID)
 	if err != nil {
 		return fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
+	}
+	if resolved.Instance.Disabled {
+		return fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
 	}
 	if resolved.Instance.TypeKey == provider.TypeAgents {
 		return s.completeStreamOne(ctx, resolved, nil, req, w)

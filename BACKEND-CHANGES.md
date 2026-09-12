@@ -124,6 +124,40 @@ Harness scenario `proxies` passes live.
 - Credential stats display could surface `request_count`/`success_count`/
   `quota_reset_at` — fields are already in the credential list response.
 
+## Done (2026-09-12, provider lifecycle + proxy hardening)
+
+27. **Singleton plugin providers** — `provider.Service.Create` reuses the
+    seeded row (`id == type_key`) for unqualified plugin types instead of
+    creating `type-2` duplicates. Regression test in
+    `provider/service_test.go` (`TestCreateReusesSingletonRow`).
+28. **Orphaned plugin providers hidden** — dashboard provider list and
+    management endpoints drop rows whose type key has no installed plugin
+    (`Handler.providerTypeKnown`; nil luaSvc = subsystem absent, keep
+    visible). Data stays in DB; reinstalling the plugin brings the row back.
+    Test: `TestProvidersListHidesOrphanedPluginRows`.
+29. **Plugin error contract: `geo` type** — `models.ErrorTypeGeo`;
+    `asProviderError` maps `{type="geo"}` (400). Plugins return it for
+    location blocks (google.lua v1.2.0). When a handler fails geo through a
+    proxy, `exec` reports proxy failure for that provider (the HTTP layer
+    counts 400 as dial success) → `Select`/`SelectManual` skip it next time.
+    /v1 wire code: `geo_blocked` (400).
+30. **Proxy resolver hard-fails** — `SetProxyResolver` signature now returns
+    an error; handler aborts before Lua runs when manual mode has no usable
+    selected proxy, or a `@proxy_force_on_mismatch` plugin needs a proxy but
+    the pool is empty. No more silent direct fallback in those modes.
+31. **Provider `disabled` flag** — `ProviderInstance.Disabled`; PUT accepts
+    `disabled` (also on readonly rows, alongside operational config keys
+    `proxy`/`models_auto_sync`/`disable_failed_models`). Disabled providers
+    are skipped in `/v1/models`, dashboard available-models, and router
+    `Complete`/`CompleteStream` (`ErrProviderDisabled` → 400
+    `provider_disabled`); settings/discovery keep working.
+32. **Model auto-sync** — `config.models_auto_sync` warms the modelinfo cache
+    via `MergedView` (TTL-throttled) on every maintenance tick; disabled
+    providers skipped.
+33. **Available-models credential gate removed** — the dashboard models list
+    no longer requires routable credentials, so keyless providers
+    (opencode-zen) show up.
+
 ## Notes
 
 - Model lists are NOT hardcoded in Lua plugins (except the documented fallback

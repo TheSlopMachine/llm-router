@@ -1,4 +1,4 @@
-export type Language = 'auto' | 'en'
+export type Language = 'auto' | 'en' | 'ru'
 
 const STORAGE_KEY = 'language'
 
@@ -6,7 +6,7 @@ function getInitialLanguage(): Language {
   if (typeof window === 'undefined') return 'auto'
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored === 'auto' || stored === 'en') return stored
+    if (stored === 'auto' || stored === 'en' || stored === 'ru') return stored
   } catch (e) {
     console.error('Failed to access localStorage for language:', e)
   }

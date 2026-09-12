@@ -5,6 +5,7 @@
   import { getErrorMessage } from '../../lib/errors'
   import { formatRelativeTime } from '../../lib/time'
   import { modelTraits, traitBadgeClass, toggleSet } from '../../lib/token-helpers'
+  import { t, n } from '../../lib/i18n.svelte'
   import type { Token, Provider, ProviderModels } from '../../lib/types'
   import type { ModalButton, StepperConfig } from '../../lib/modal.svelte'
   import Switch from '../ui/Switch.svelte'
@@ -59,9 +60,9 @@
   let copyTimeout: ReturnType<typeof setTimeout> | undefined = $state(undefined)
 
   let isEditMode = $derived(!!editingToken)
-  let baseTitle = $derived(editingToken ? 'Edit token' : cloningToken ? 'Clone token' : 'New token')
-  let subtitle = $derived(view === 'success' ? 'Token created successfully' : tokenName.trim() ? tokenName.trim() : `Step ${wizardStep} of 3`)
-  let stepperConfig: StepperConfig | null = $derived(view === 'success' ? null : { current: wizardStep, total: 3, labels: ['Name & access', 'Models', 'Accounts'] })
+  let baseTitle = $derived(editingToken ? t('Edit token') : cloningToken ? t('Clone token') : t('New token'))
+  let subtitle = $derived(view === 'success' ? t('Token created successfully') : tokenName.trim() ? tokenName.trim() : `${t('Step')} ${wizardStep} ${t('of 3')}`)
+  let stepperConfig: StepperConfig | null = $derived(view === 'success' ? null : { current: wizardStep, total: 3, labels: [t('Name & access'), t('Models'), t('Accounts')] })
 
   onMount(async () => {
     const source = editingToken ?? cloningToken
@@ -113,8 +114,8 @@
 
   let step1Valid = $derived(!!tokenName.trim() && (allowAllProviders || selectedProviders.size > 0))
   let step1Hint = $derived.by(() => {
-    if (!tokenName.trim()) return 'Enter a token name.'
-    if (!allowAllProviders && selectedProviders.size === 0) return 'Select at least one provider or enable Allow all.'
+    if (!tokenName.trim()) return t('Enter a token name.')
+    if (!allowAllProviders && selectedProviders.size === 0) return t('Select at least one provider or enable Allow all.')
     return ''
   })
   let step2Valid = $derived.by(() => {
@@ -125,7 +126,7 @@
   let step2Hint = $derived.by(() => {
     if (allowAllModels) return ''
     if (!hasAnyModelAvailable) return ''
-    if (selectedModels.size === 0) return 'Select at least one model or enable Allow all.'
+    if (selectedModels.size === 0) return t('Select at least one model or enable Allow all.')
     return ''
   })
   let step3Valid = $derived.by(() => {
@@ -136,7 +137,7 @@
   let step3Hint = $derived.by(() => {
     if (allowAllCredentials) return ''
     if (!hasAnyCredentialAvailable) return ''
-    if (selectedCredentials.size === 0) return 'Select at least one account or enable Allow all.'
+    if (selectedCredentials.size === 0) return t('Select at least one account or enable Allow all.')
     return ''
   })
   let currentHint = $derived(view === 'success' ? '' : wizardStep === 1 ? step1Hint : wizardStep === 2 ? step2Hint : step3Hint)
@@ -185,25 +186,25 @@
       updateFooterHint(currentHint)
       if (view === 'success') {
         updateButtons([
-          { label: 'Create another', variant: 'secondary', onClick: resetWizard },
-          { label: 'Done', variant: 'primary', onClick: handleDone }
+          { label: t('Create another'), variant: 'secondary', onClick: resetWizard },
+          { label: t('Done'), variant: 'primary', onClick: handleDone }
         ])
         return
       }
       if (wizardStep === 1) {
         updateButtons([
-          { label: 'Cancel', variant: 'secondary', onClick: closeModal },
-          { label: 'Next', variant: 'primary', onClick: goToStep2, disabled: !currentValid, loading: wizardLoading }
+          { label: t('Cancel'), variant: 'secondary', onClick: closeModal },
+          { label: t('Next'), variant: 'primary', onClick: goToStep2, disabled: !currentValid, loading: wizardLoading }
         ])
       } else if (wizardStep === 2) {
         updateButtons([
-          { label: 'Back', variant: 'secondary', onClick: goBackToStep1 },
-          { label: 'Next', variant: 'primary', onClick: goToStep3, disabled: !currentValid, loading: wizardLoading }
+          { label: t('Back'), variant: 'secondary', onClick: goBackToStep1 },
+          { label: t('Next'), variant: 'primary', onClick: goToStep3, disabled: !currentValid, loading: wizardLoading }
         ])
       } else {
         updateButtons([
-          { label: 'Back', variant: 'secondary', onClick: goBackToStep2 },
-          { label: isEditMode ? 'Update token' : 'Create token', variant: 'primary', onClick: submit, disabled: !currentValid, loading: wizardLoading }
+          { label: t('Back'), variant: 'secondary', onClick: goBackToStep2 },
+          { label: isEditMode ? t('Update token') : t('Create token'), variant: 'primary', onClick: submit, disabled: !currentValid, loading: wizardLoading }
         ])
       }
     })
@@ -217,8 +218,8 @@
 
   async function goToStep2(): Promise<void> {
     error = ''
-    if (!tokenName.trim()) { error = 'Token name is required.'; return }
-    if (!allowAllProviders && selectedProviders.size === 0) { error = 'Select at least one provider or allow all.'; return }
+    if (!tokenName.trim()) { error = t('Token name is required.'); return }
+    if (!allowAllProviders && selectedProviders.size === 0) { error = t('Select at least one provider or allow all.'); return }
     wizardLoading = true; syncChrome()
     try {
       const ids = allowAllProviders ? providers.map((p: Provider) => p.id) : [...selectedProviders]
@@ -240,7 +241,7 @@
 
   async function goToStep3(): Promise<void> {
     error = ''
-    if (!allowAllModels && !step2Valid) { error = step2Hint || 'Select at least one model or allow all.'; return }
+    if (!allowAllModels && !step2Valid) { error = step2Hint || t('Select at least one model or allow all.'); return }
     wizardLoading = true; syncChrome()
     try {
       if (allCredentials.length === 0) {
@@ -298,7 +299,7 @@
   async function copyToken(): Promise<void> {
     if (!createdToken) return
     try { await navigator.clipboard.writeText(createdToken); copied = true; if (copyTimeout) clearTimeout(copyTimeout); copyTimeout = window.setTimeout(() => (copied = false), 2000) }
-    catch (_) { error = 'Copy failed. Please select and copy manually.' }
+    catch (_) { error = t('Copy failed. Please select and copy manually.') }
   }
 
   $effect(() => {
@@ -313,9 +314,9 @@
   <TokenSuccessView
     token={createdToken}
     scopeLabel={{
-      providers: allowAllProviders ? 'All providers' : `${selectedProviders.size} provider${selectedProviders.size !== 1 ? 's' : ''}`,
-      models: allowAllModels ? 'All models' : `${selectedModels.size} model${selectedModels.size !== 1 ? 's' : ''}`,
-      accounts: allowAllCredentials ? 'All accounts' : `${selectedCredentials.size} account${selectedCredentials.size !== 1 ? 's' : ''}`
+      providers: allowAllProviders ? t('All providers') : n(selectedProviders.size, 'provider', 'providers', 'провайдер', 'провайдера', 'провайдеров'),
+      models: allowAllModels ? t('All models') : n(selectedModels.size, 'model', 'models', 'модель', 'модели', 'моделей'),
+      accounts: allowAllCredentials ? t('All accounts') : n(selectedCredentials.size, 'account', 'accounts', 'аккаунт', 'аккаунта', 'аккаунтов')
     }}
     {copied}
     {error}
@@ -326,34 +327,34 @@
 {:else if wizardStep === 1}
   {#if error}<div class="error-msg">{error}</div>{/if}
   <div class="form-group">
-    <label for="token-name">Token name *</label>
-    <input id="token-name" type="text" bind:value={tokenName} placeholder="My Application" />
+    <label for="token-name">{t('Token name')} *</label>
+    <input id="token-name" type="text" bind:value={tokenName} placeholder={t('My Application')} />
   </div>
   <div class="form-group">
-    <Switch bind:checked={allowAllProviders} label="Allow all providers" id="allow-all-providers" />
-    {#if allowAllProviders}<div class="hint">All providers are allowed. The list below is disabled but visible.</div>{/if}
+    <Switch bind:checked={allowAllProviders} label={t('Allow all providers')} id="allow-all-providers" />
+    {#if allowAllProviders}<div class="hint">{t('All providers are allowed. The list below is disabled but visible.')}</div>{/if}
   </div>
   <div class="form-group" class:is-disabled={allowAllProviders}>
-    <div class="form-label">Providers</div>
+    <div class="form-label">{t('Providers')}</div>
     <ProviderTileGrid {providers} selected={selectedProviders} disabled={allowAllProviders} onToggle={toggleProvider} />
   </div>
 {:else if wizardStep === 2}
   {#if error}<div class="error-msg">{error}</div>{/if}
   <div class="form-group">
-    <Switch bind:checked={allowAllModels} label="Allow all models" id="allow-all-models" />
-    {#if allowAllModels}<div class="hint">All models of the selected providers are allowed. The list below is disabled but visible.</div>{/if}
+    <Switch bind:checked={allowAllModels} label={t('Allow all models')} id="allow-all-models" />
+    {#if allowAllModels}<div class="hint">{t('All models of the selected providers are allowed. The list below is disabled but visible.')}</div>{/if}
   </div>
-  <SearchField bind:value={searchModels} placeholder="Search models..." disabled={allowAllModels} />
+  <SearchField bind:value={searchModels} placeholder={t('Search models...')} disabled={allowAllModels} />
   {#if providerModels.length === 0}
-    <div class="muted-placeholder">No providers selected — go back and select providers.</div>
+    <div class="muted-placeholder">{t('No providers selected — go back and select providers.')}</div>
   {:else}
     <GroupedChecklist
       groups={modelGroups}
       selected={selectedModels}
       query={searchModels}
       disabled={allowAllModels}
-      emptyLabel="No models available for this provider"
-      noMatchLabel="No matches"
+      emptyLabel={t('No models available for this provider')}
+      noMatchLabel={t('No matches')}
       getItemId={modelItemId}
       onToggle={toggleModel}
       onSelectAll={applyModelSelectAll}
@@ -371,22 +372,22 @@
 {:else if wizardStep === 3}
   {#if error}<div class="error-msg">{error}</div>{/if}
   <div class="form-group">
-    <Switch bind:checked={allowAllCredentials} label="Allow all accounts" id="allow-all-creds" />
-    {#if allowAllCredentials}<div class="hint">All accounts of the eligible providers are allowed. The list below is disabled but visible.</div>{/if}
+    <Switch bind:checked={allowAllCredentials} label={t('Allow all accounts')} id="allow-all-creds" />
+    {#if allowAllCredentials}<div class="hint">{t('All accounts of the eligible providers are allowed. The list below is disabled but visible.')}</div>{/if}
   </div>
-  <SearchField bind:value={searchAccounts} placeholder="Search accounts..." disabled={allowAllCredentials} />
+  <SearchField bind:value={searchAccounts} placeholder={t('Search accounts...')} disabled={allowAllCredentials} />
   {#if allCredentials.length === 0}
-    <div class="muted-placeholder">No accounts registered yet.</div>
+    <div class="muted-placeholder">{t('No accounts registered yet.')}</div>
   {:else if eligibleCredentialsGrouped.length === 0}
-    <div class="muted-placeholder">No accounts match the selected providers/models.</div>
+    <div class="muted-placeholder">{t('No accounts match the selected providers/models.')}</div>
   {:else}
     <GroupedChecklist
       groups={accountGroups}
       selected={selectedCredentials}
       query={searchAccounts}
       disabled={allowAllCredentials}
-      emptyLabel="No accounts for this provider"
-      noMatchLabel="No matches"
+      emptyLabel={t('No accounts for this provider')}
+      noMatchLabel={t('No matches')}
       getItemId={credItemId}
       matchItem={credMatch}
       onToggle={toggleCredential}
@@ -396,10 +397,10 @@
         <label class="checkbox-item cred-item">
           <input type="checkbox" {checked} onchange={() => toggleCredential(id)} disabled={allowAllCredentials} />
           <span class="cred-main">
-            <span class="cred-label">{item.label || 'API Key'}</span>
+            <span class="cred-label">{item.label || t('API Key')}</span>
             <span class="text-muted cred-meta">{formatRelativeTime(item.updated_at, 'short')} · <span class="mono">{item.id.slice(0, 8)}…</span></span>
           </span>
-          {#if item.is_expired}<span class="badge badge-red badge-sm">expired</span>{/if}
+          {#if item.is_expired}<span class="badge badge-red badge-sm">{t('expired')}</span>{/if}
         </label>
       {/snippet}
     </GroupedChecklist>

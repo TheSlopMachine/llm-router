@@ -280,7 +280,7 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 	if h.providerSvc != nil && h.modelInfoSvc != nil {
 		if providers, err := h.providerSvc.List(); err == nil {
 			for _, p := range providers {
-				if p.TypeKey == "agents" {
+				if p.TypeKey == "agents" || p.Disabled {
 					continue
 				}
 				infos, err := h.modelInfoSvc.MergedView(r.Context(), p.ID)
@@ -533,6 +533,8 @@ func (h *Handler) classifyError(err error) routerError {
 			return routerError{http.StatusBadGateway, "upstream_error"}
 		case models.ErrorTypeInvalidRequest:
 			return routerError{http.StatusBadRequest, "invalid_request_error"}
+		case models.ErrorTypeGeo:
+			return routerError{http.StatusBadRequest, "geo_blocked"}
 		default:
 			return routerError{http.StatusBadGateway, "upstream_error"}
 		}
@@ -546,6 +548,8 @@ func (h *Handler) classifyError(err error) routerError {
 		return routerError{http.StatusNotFound, "model_not_found"}
 	case errors.Is(err, apierrors.ErrNoCredential):
 		return routerError{http.StatusServiceUnavailable, "no_credential"}
+	case errors.Is(err, apierrors.ErrProviderDisabled):
+		return routerError{http.StatusBadRequest, "provider_disabled"}
 	case errors.Is(err, apierrors.ErrModelNotAllowed):
 		return routerError{http.StatusForbidden, "model_not_allowed"}
 	case errors.Is(err, apierrors.ErrProviderNotAllowed):

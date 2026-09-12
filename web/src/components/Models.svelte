@@ -4,6 +4,7 @@
   import { getErrorMessage } from '../lib/errors'
   import { squircle } from '../lib/squircle'
   import type { AvailableModel } from '../lib/types'
+  import { t, n } from '../lib/i18n.svelte'
 
   const MIN_FUZZY_SCORE = 0.72
 
@@ -144,8 +145,8 @@
 
 <div class="page-header">
   <div>
-    <h1>Models</h1>
-    <p>Browse available models and quickly copy their full model IDs.</p>
+    <h1>{t('Models')}</h1>
+    <p>{t('Browse available models and quickly copy their full model IDs.')}</p>
   </div>
 </div>
 
@@ -154,24 +155,24 @@
 {/if}
 
 <div class="toolbar">
-  <input class="search-input" type="text" bind:value={query} placeholder="Search by model name, provider, or full model ID" use:squircle={12} />
-  <span class="result-count">{filteredModels.length} result{filteredModels.length === 1 ? '' : 's'}</span>
+  <input class="search-input" type="text" bind:value={query} placeholder={t('Search by model name, provider, or full model ID')} use:squircle={12} />
+  <span class="result-count">{n(filteredModels.length, 'result', 'results', 'результат', 'результата', 'результатов')}</span>
 </div>
 
 {#if loading}
-  <div class="empty">Loading models…</div>
+  <div class="empty">{t('Loading models…')}</div>
 {:else if allModels.length === 0}
-  <div class="empty">No available models yet. Configure providers with working credentials first.</div>
+  <div class="empty">{t('No available models yet. Configure providers with working credentials first.')}</div>
 {:else if filteredModels.length === 0}
-  <div class="empty">No matching models found.</div>
+  <div class="empty">{t('No matching models found.')}</div>
 {:else}
   <div class="table" use:squircle={18}>
     <div class="table-row table-head">
-      <span class="col-display">Model</span>
-      <span class="col-provider">Provider</span>
-      <span class="col-id">Full model ID</span>
-      <span class="col-ctx">Context</span>
-      <span class="col-max">Max tokens</span>
+      <span class="col-display">{t('Model')}</span>
+      <span class="col-provider">{t('Provider')}</span>
+      <span class="col-id">{t('Full model ID')}</span>
+      <span class="col-ctx">{t('Context')}</span>
+      <span class="col-max">{t('Max tokens')}</span>
       <span class="col-copy"></span>
     </div>
     {#each filteredModels as model (model.full_model_id)}
@@ -184,15 +185,15 @@
         </span>
         <span class="col-provider">{model.provider_name}</span>
         <span class="col-id mono">{model.full_model_id}</span>
-        <span class="col-ctx" title={model.context_window ? `Context window — up to ${model.context_window.toLocaleString()} input tokens` : undefined}>{fmtK(model.context_window)}{model.context_window ? ' context' : ''}</span>
-        <span class="col-max" title={model.max_tokens ? `Max output — ${model.max_tokens.toLocaleString()} tokens` : undefined}>{fmtK(model.max_tokens)}{model.max_tokens ? ' output' : ''}</span>
+        <span class="col-ctx" title={model.context_window ? t('Context window — up to') + ` ${model.context_window.toLocaleString()} ` + t('input tokens') : undefined}>{fmtK(model.context_window)}{model.context_window ? ` ${t('context')}` : ''}</span>
+        <span class="col-max" title={model.max_tokens ? t('Max output — up to') + ` ${model.max_tokens.toLocaleString()} ` + t('tokens per response') : undefined}>{fmtK(model.max_tokens)}{model.max_tokens ? ` ${t('output')}` : ''}</span>
         <span class="col-copy">
           <button
             class="btn-icon"
             class:icon-ok={copiedModelId === model.full_model_id}
             onclick={() => copyModelId(model.full_model_id)}
-            aria-label="Copy full model ID"
-            title="Copy full model ID"
+            aria-label={t('Copy full model ID')}
+            title={t('Copy full model ID')}
           >
             <span class="icon">{copiedModelId === model.full_model_id ? 'check' : 'content_copy'}</span>
           </button>

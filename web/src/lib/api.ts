@@ -19,6 +19,7 @@ function toProvider(raw: Record<string, unknown>): Provider {
     supports_auth_flow: (r.supports_auth_flow as boolean) ?? false,
     is_ui_readonly: (r.is_ui_readonly as boolean) ?? false,
     is_ui_hidden: (r.is_ui_hidden as boolean) ?? false,
+    disabled: (r.disabled as boolean) ?? false,
   }
 }
 
@@ -88,7 +89,7 @@ export const api = {
     update: (id: string, payload: { name: string; base_url: string; icon_url?: string }) =>
       apiCall('put', `/api/llm-router/dashboard/providers/${id}` as '/api/llm-router/dashboard/providers/{id}', { body: payload as unknown as never } as never),
 
-    updateInstance: (id: string, payload: { name: string; config?: Record<string, unknown>; icon_url?: string }) =>
+    updateInstance: (id: string, payload: { name: string; config?: Record<string, unknown>; icon_url?: string; disabled?: boolean }) =>
       apiCall('put', `/api/llm-router/dashboard/providers/${id}` as '/api/llm-router/dashboard/providers/{id}', { body: payload as unknown as never } as never),
 
     delete: (id: string) =>

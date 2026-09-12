@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { TimeSeriesPoint } from '../lib/types'
+  import { t } from '../lib/i18n.svelte'
 
   let { title, data = [], loading = false } = $props<{
     title: string
@@ -45,7 +46,7 @@
   </div>
   <div class="chart-container">
     {#if loading}
-      <div class="empty-state">Loading...</div>
+      <div class="empty-state">{t('Loading...')}</div>
     {:else}
       <div class="chart-wrapper">
         <div class="y-axis-labels">

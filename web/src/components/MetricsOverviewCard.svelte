@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte'
   let { title, value, loading = false, icon = 'show_chart' } = $props<{
     title: string
     value: number | null
@@ -14,9 +15,9 @@
   </div>
   <div class="card-body">
     {#if loading}
-      <div class="loading">Loading...</div>
+      <div class="loading">{t('Loading...')}</div>
     {:else if value === null || value === 0}
-      <div class="empty-state">No data available</div>
+      <div class="empty-state">{t('No data available')}</div>
     {:else}
       <div class="metric-value">{value.toLocaleString()}</div>
     {/if}

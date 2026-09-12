@@ -289,3 +289,33 @@ func TestAuthInitiateMissingProvider404(t *testing.T) {
 		t.Fatalf("status: got %d, body %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestProvidersListHidesOrphanedPluginRows(t *testing.T) {
+	h, svc, database := newProvidersUIHandler(t)
+	luaSvc := seedUIRows(t, svc, database)
+	h.luaSvc = luaSvc
+
+	list := func() int {
+		req := httptest.NewRequest(http.MethodGet, "/api/llm-router/dashboard/providers", nil)
+		rec := httptest.NewRecorder()
+		h.apiProvidersList(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status: got %d, body %s", rec.Code, rec.Body.String())
+		}
+		return len(decodeProvidersList(t, rec))
+	}
+
+	if got := list(); got != 1 {
+		t.Fatalf("installed plugin: expected 1 visible provider, got %d", got)
+	}
+	plugins, err := luaSvc.List()
+	if err != nil || len(plugins) != 1 {
+		t.Fatalf("list plugins: %v", err)
+	}
+	if err := luaSvc.Delete(plugins[0].ID); err != nil {
+		t.Fatalf("delete plugin: %v", err)
+	}
+	if got := list(); got != 0 {
+		t.Fatalf("deleted plugin: expected 0 visible providers, got %d", got)
+	}
+}

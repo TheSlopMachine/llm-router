@@ -4,6 +4,7 @@
   import PluginCard from './PluginCard.svelte'
   import { createPluginState } from './plugin-state.svelte'
   import type { Plugin, PluginUpdate } from '../../lib/types'
+  import { t } from '../../lib/i18n.svelte'
 
   let {
     plugins,
@@ -65,20 +66,20 @@
 {/if}
 
 {#if plugins.length > 0}
-  <SearchField bind:value={query} placeholder="Search installed plugins..." />
+  <SearchField bind:value={query} placeholder={t('Search installed plugins...')} />
 {/if}
 
 {#if plugins.length === 0}
   <EmptyState
     icon="extension"
-    message="No plugins installed"
-    hint="Browse the catalog to install a provider plugin."
-    buttonText="Browse catalog"
+    message={t('No plugins installed')}
+    hint={t('Browse the catalog to install a provider plugin.')}
+    buttonText={t('Browse catalog')}
     buttonIcon="download"
     onButtonClick={() => onBrowseCatalog?.()}
   />
 {:else if filtered.length === 0}
-  <div class="empty">No plugins match the search.</div>
+  <div class="empty">{t('No plugins match the search.')}</div>
 {:else}
   <div class="plugin-list">
     {#each filtered as plugin (plugin.id)}

@@ -37,6 +37,8 @@ var (
 
 	// ErrProviderNotFound is returned when no provider can handle a given ModelId
 	ErrProviderNotFound = errors.New("provider not found for model")
+	// ErrProviderDisabled is returned when the provider is switched off
+	ErrProviderDisabled = errors.New("provider is disabled")
 
 	// ErrModelDisabled is returned when an admin override disables the requested model
 	ErrModelDisabled = errors.New("model is disabled by administrator")

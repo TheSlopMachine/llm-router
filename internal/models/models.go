@@ -448,6 +448,7 @@ const (
 	ErrorTypeUpstream                 // Upstream error, don't retry
 	ErrorTypeTimeout                  // Timeout, may retry
 	ErrorTypeInvalidRequest           // Invalid request, don't retry
+	ErrorTypeGeo                      // Geo-blocked upstream; proxy used is at fault, mark it bad
 )
 
 // ProviderError represents errors returned by provider backends.
@@ -593,6 +594,9 @@ type ProviderInstance struct {
 	IconURL      string         `json:"icon_url" example:"https://cdn.example.com/openai.svg"`
 	IsUIReadonly bool           `json:"is_ui_readonly"`
 	IsUIHidden   bool           `json:"is_ui_hidden"`
+	// Disabled takes the provider out of routing and model listings.
+	// Settings and discovery keep working.
+	Disabled bool `json:"disabled,omitempty"`
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`
 }
@@ -628,9 +632,10 @@ type ProviderInstanceCreateRequest struct {
 
 // ProviderInstanceUpdateRequest is the generic update body.
 type ProviderInstanceUpdateRequest struct {
-	Name    string         `json:"name"`
-	Config  map[string]any `json:"config"`
-	IconURL string         `json:"icon_url"`
+	Name     string         `json:"name"`
+	Config   map[string]any `json:"config"`
+	IconURL  string         `json:"icon_url"`
+	Disabled *bool          `json:"disabled"`
 }
 
 // ─────────────────────────────────────────────

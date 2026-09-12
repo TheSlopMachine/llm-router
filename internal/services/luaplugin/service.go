@@ -90,7 +90,7 @@ type Service struct {
 	onChanged func(typeKey string)
 
 	// proxyResolver picks a pool proxy for a plugin call (nil = direct).
-	proxyResolver func(rec *PluginRecord, providerConfig map[string]any) (proxyID, proxyURL string)
+	proxyResolver func(rec *PluginRecord, providerConfig map[string]any) (proxyID, proxyURL string, err error)
 	// proxyOutcome reports a real request outcome through a proxy.
 	proxyOutcome func(proxyID, typeKey string, ok bool, latencyMs int64)
 }
@@ -102,7 +102,9 @@ type ProxyResolution struct {
 }
 
 // SetProxyResolver wires pool-based proxy selection for plugin HTTP calls.
-func (s *Service) SetProxyResolver(fn func(rec *PluginRecord, providerConfig map[string]any) (proxyID, proxyURL string)) {
+// A non-nil error fails the handler before any Lua runs (e.g. manual mode
+// with no usable proxy, or a geo-forced provider with an empty pool).
+func (s *Service) SetProxyResolver(fn func(rec *PluginRecord, providerConfig map[string]any) (proxyID, proxyURL string, err error)) {
 	s.proxyResolver = fn
 }
 

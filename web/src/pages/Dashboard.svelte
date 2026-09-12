@@ -13,6 +13,7 @@
   import PluginsPage, { type PluginsTab } from './PluginsPage.svelte'
   import { modal } from '../lib/modal.svelte'
   import SettingsModal from '../components/SettingsModal.svelte'
+  import { t } from '../lib/i18n.svelte'
 
   let { onlogout } = $props<{ onlogout: () => void }>()
 
@@ -134,13 +135,13 @@
 <div class="layout" class:mobile>
   {#if mobile}
     <header class="appbar">
-      <button class="btn-icon" onclick={() => { drawerOpen = true }} aria-label="Open menu" title="Menu">
+      <button class="btn-icon" onclick={() => { drawerOpen = true }} aria-label={t('Open menu')} title={t('Menu')}>
         <span class="icon">menu</span>
       </button>
       <div class="appbar-brand">llm-router</div>
     </header>
     {#if drawerOpen}
-      <button class="scrim" aria-label="Close menu" onclick={() => { drawerOpen = false }}></button>
+      <button class="scrim" aria-label={t('Close menu')} onclick={() => { drawerOpen = false }}></button>
     {/if}
   {/if}
   <aside class="sidebar" class:collapsed={collapsed && !mobile} class:drawer={mobile} class:drawer-open={drawerOpen}>
@@ -150,8 +151,8 @@
         <button
           class="collapse-btn"
           onclick={() => { drawerOpen = false }}
-          aria-label="Close menu"
-          title="Close menu"
+          aria-label={t('Close menu')}
+          title={t('Close menu')}
         >
           <span class="icon">close</span>
         </button>
@@ -159,8 +160,8 @@
         <button
           class="collapse-btn"
           onclick={toggleSidebar}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={collapsed ? t('Expand sidebar') : t('Collapse sidebar')}
+          title={collapsed ? t('Expand sidebar') : t('Collapse sidebar')}
         >
           <span class="icon">{collapsed ? 'left_panel_open' : 'left_panel_close'}</span>
         </button>
@@ -172,21 +173,21 @@
           class="nav-item"
           class:active={panel === item.id}
           onclick={() => navigateTo(item.id)}
-          title={collapsed ? item.label : undefined}
+          title={collapsed ? t(item.label) : undefined}
         >
           <span class="icon">{item.icon}</span>
-          <span class="label">{item.label}</span>
+          <span class="label">{t(item.label)}</span>
         </button>
       {/each}
     </nav>
     <div class="sidebar-footer">
-      <button class="logout-btn" onclick={openSettings} aria-label="Open settings" title={collapsed ? 'Settings' : undefined}>
+      <button class="logout-btn" onclick={openSettings} aria-label={t('Open settings')} title={collapsed ? t('Settings') : undefined}>
         <span class="icon">settings</span>
-        <span class="label">Settings</span>
+        <span class="label">{t('Settings')}</span>
       </button>
-      <button class="logout-btn" onclick={logout} title={collapsed ? 'Sign out' : undefined}>
+      <button class="logout-btn" onclick={logout} title={collapsed ? t('Sign out') : undefined}>
         <span class="icon">logout</span>
-        <span class="label">Sign out</span>
+        <span class="label">{t('Sign out')}</span>
       </button>
     </div>
   </aside>

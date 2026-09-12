@@ -1,6 +1,8 @@
 import { api } from '../../lib/api'
 import { modal } from '../../lib/modal.svelte'
+import { toast } from '../../lib/toast.svelte'
 import { getErrorMessage } from '../../lib/errors'
+import { t } from '../../lib/i18n.svelte'
 import type { Plugin, PluginUpdate } from '../../lib/types'
 import type { PluginCardAction } from './PluginCard.svelte'
 import PluginDetailsModal from './PluginDetailsModal.svelte'
@@ -36,10 +38,10 @@ export function createPluginState(opts: {
 
   async function rollback(plugin: Plugin): Promise<void> {
     const confirmed = await modal.confirm({
-      title: 'Roll back plugin',
-      message: `Roll "${plugin.display_name}" back to the previous version?`,
+      title: t('Roll back plugin'),
+      message: `${t('Roll')} "${plugin.display_name}" ${t('back to the previous version?')}`,
       severity: 'medium',
-      confirmText: 'Roll back',
+      confirmText: t('Roll back'),
       cancelText: 'Cancel',
       danger: false
     })
@@ -54,10 +56,10 @@ export function createPluginState(opts: {
 
   async function removePlugin(plugin: Plugin): Promise<void> {
     const confirmed = await modal.confirm({
-      title: 'Delete plugin',
-      message: `Delete "${plugin.display_name}"? Providers using its types will stop working.`,
+      title: t('Delete plugin'),
+      message: `${t('Delete')} "${plugin.display_name}"? ${t('Providers using its types will stop working.')}`,
       severity: 'high',
-      confirmText: 'Delete',
+      confirmText: t('Delete'),
       cancelText: 'Cancel',
       danger: true
     })
@@ -92,15 +94,41 @@ export function createPluginState(opts: {
     const origin = opts.findRepoPath(plugin)
     const actions: PluginCardAction[] = []
     if (update) {
-      actions.push({ id: 'update', label: `Update to v${update.latest}`, icon: 'upgrade' })
+      actions.push({ id: 'update', label: `${t('Update to')} v${update.latest}`, icon: 'upgrade' })
     } else if (origin) {
-      actions.push({ id: 'reinstall', label: 'Reinstall', icon: 'refresh' })
+      actions.push({ id: 'reinstall', label: t('Reinstall'), icon: 'refresh' })
+    }
+    if (plugin.origin?.manual) {
+      actions.push({ id: 'update_file', label: t('Update from file…'), icon: 'upload_file' })
     }
     if (plugin.history_count > 0) {
-      actions.push({ id: 'rollback', label: 'Roll back', icon: 'history' })
+      actions.push({ id: 'rollback', label: t('Roll back'), icon: 'history' })
     }
-    actions.push({ id: 'delete', label: 'Delete', icon: 'delete', danger: true })
+    actions.push({ id: 'delete', label: t('Delete'), icon: 'delete', danger: true })
     return actions
+  }
+
+  async function updateFromFile(plugin: Plugin): Promise<void> {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.lua'
+    input.onchange = async () => {
+      const file = input.files?.[0]
+      if (!file) return
+      try {
+        const text = await file.text()
+        const rec = await api.plugins.installFile(text)
+        if (rec.id !== plugin.id) {
+          toast.success(`${rec.display_name} v${rec.version} installed as a separate plugin`)
+        } else {
+          toast.success(`${rec.display_name} updated to v${rec.version}`)
+        }
+        await opts.onReload()
+      } catch (e) {
+        opts.onError(getErrorMessage(e))
+      }
+    }
+    input.click()
   }
 
   async function handleAction(plugin: Plugin, id: string): Promise<void> {
@@ -110,6 +138,9 @@ export function createPluginState(opts: {
         break
       case 'reinstall':
         await updatePlugin(plugin, 'Reinstall')
+        break
+      case 'update_file':
+        await updateFromFile(plugin)
         break
       case 'rollback':
         await rollback(plugin)

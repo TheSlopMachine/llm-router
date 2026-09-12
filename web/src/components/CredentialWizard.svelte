@@ -4,6 +4,8 @@
   import { getErrorMessage } from '../lib/errors'
   import type { Provider, UINode, ModalButton } from '../lib/types'
   import DynamicForm, { collectButtons, buttonVariant } from './ui/DynamicForm.svelte'
+  import SegmentedControl from './ui/SegmentedControl.svelte'
+  import { t } from '../lib/i18n.svelte'
 
   let {
     provider,
@@ -26,8 +28,42 @@
   let loading = $state(false)
   let error = $state('')
   let redirectMessage = $state('')
+  // Providers with both a stepped auth flow and a manual credential form
+  // (e.g. Kiro) let the user pick the entry method up front.
+  let entryTab = $state<'flow' | 'manual'>('flow')
+  let manualAvailable = $state(false)
 
   onMount(async (): Promise<void> => {
+    if (provider.supports_auth_flow) {
+      try {
+        const schema = await api.providers.credentialSchema(provider.id)
+        manualAvailable = !!(schema.nodes && schema.nodes.length > 0)
+      } catch {
+        manualAvailable = false
+      }
+    }
+    if (!provider.supports_auth_flow) {
+      await loadSingleStep()
+      return
+    }
+    await loadFlow()
+  })
+
+  async function switchEntry(tab: 'flow' | 'manual'): Promise<void> {
+    if (tab === entryTab) return
+    entryTab = tab
+    formValues = {}
+    redirectMessage = ''
+    if (tab === 'manual') {
+      await loadSingleStep()
+    } else {
+      await loadFlow()
+    }
+  }
+
+  async function loadFlow(): Promise<void> {
+    mode = 'loading'
+    error = ''
     try {
       const res = await api.auth.initiate(provider.id)
       if (res.status === 'render' && res.nodes) {
@@ -58,7 +94,7 @@
       }
     }
     syncFooter()
-  })
+  }
 
   async function loadSingleStep(): Promise<void> {
     try {
@@ -146,7 +182,7 @@
       } else if (res.status === 'complete') {
         onComplete()
       } else {
-        error = 'Unexpected auth response'
+        error = t('Unexpected auth response')
       }
     } catch (e) {
       error = getErrorMessage(e)
@@ -194,8 +230,22 @@
   <div class="error-msg">{error}</div>
 {/if}
 
+{#if manualAvailable}
+  <div class="entry-switch">
+    <SegmentedControl
+      value={entryTab}
+      options={[
+        { value: 'flow', label: t('Device login') },
+        { value: 'manual', label: t('Paste tokens') },
+      ]}
+      ariaLabel="Credential entry method"
+      onchange={(v) => switchEntry(v as 'flow' | 'manual')}
+    />
+  </div>
+{/if}
+
 {#if mode === 'loading'}
-  <div class="empty-state">Loading…</div>
+  <div class="empty-state">{t('Loading…')}</div>
 {:else if mode === 'wizard'}
   {#if redirectMessage}
     <div class="banner banner-info">{redirectMessage}</div>
@@ -206,17 +256,22 @@
 {:else if mode === 'single'}
   <DynamicForm {nodes} bind:values={formValues} busy={loading} />
 {:else}
-  <p class="form-text">This provider type has no credential form. Paste credential data as JSON.</p>
+  <p class="form-text">{t('This provider type has no credential form. Paste credential data as JSON.')}</p>
   <div class="form-group">
-    <label for="cred-raw">Credential JSON</label>
+    <label for="cred-raw">{t('Credential JSON')}</label>
     <textarea id="cred-raw" rows="6" bind:value={rawJson} autocomplete="off"></textarea>
   </div>
   <div class="form-actions">
-    <button class="btn btn-primary" disabled={loading} onclick={submitRaw}>Save</button>
+    <button class="btn btn-primary" disabled={loading} onclick={submitRaw}>{t('Save')}</button>
   </div>
 {/if}
 
 <style>
+  .entry-switch {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 16px;
+  }
   .empty-state {
     padding: 32px;
     text-align: center;

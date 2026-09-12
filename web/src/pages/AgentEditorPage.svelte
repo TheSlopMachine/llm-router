@@ -3,6 +3,7 @@
   import { api } from '../lib/api'
   import { getErrorMessage } from '../lib/errors'
   import type { Agent } from '../lib/types'
+  import { t } from '../lib/i18n.svelte'
 
   let { agentId = null } = $props<{ agentId: string | null }>()
 
@@ -45,15 +46,15 @@
 
 <div class="page-header">
   <div>
-    <h1>{agentId ? 'Edit Agent' : 'New Agent'}</h1>
-    <p>{agentId ? 'Update routing, models, and instructions for this agent.' : 'Create a virtual model that orchestrates requests across multiple providers.'}</p>
+    <h1>{agentId ? t('Edit Agent') : t('New Agent')}</h1>
+    <p>{agentId ? t('Update routing, models, and instructions for this agent.') : t('Create a virtual model that orchestrates requests across multiple providers.')}</p>
   </div>
 </div>
 
 {#if error}
   <div class="error-msg">{error}</div>
 {:else if loading}
-  <div class="loading">Loading agent...</div>
+  <div class="loading">{t('Loading agent...')}</div>
 {:else}
   <AgentEditor
     {agent}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import ActionDropdown from '../ActionDropdown.svelte'
   import { squircle } from '../../lib/squircle'
+  import { t } from '../../lib/i18n.svelte'
 
   export interface PluginBadge {
     text: string
@@ -53,15 +54,15 @@
     </div>
     <div class="plugin-actions">
       {#if mode === 'installed'}
-        <ActionDropdown {actions} label="Actions" rounded="lg" onaction={(id) => onaction?.(id)} />
-        <button class="btn-icon" onclick={() => onDetails?.()} aria-label="Details">
+        <ActionDropdown {actions} label={t('Actions')} rounded="lg" onaction={(id) => onaction?.(id)} />
+        <button class="btn-icon" onclick={() => onDetails?.()} aria-label={t('Details')}>
           <span class="icon">info</span>
         </button>
       {:else}
         <button class="btn btn-secondary" disabled={installing} onclick={() => onInstall?.()}>
           {installing ? 'Installing…' : installLabel}
         </button>
-        <button class="btn-icon" onclick={() => onDetails?.()} aria-label="Details">
+        <button class="btn-icon" onclick={() => onDetails?.()} aria-label={t('Details')}>
           <span class="icon">info</span>
         </button>
       {/if}

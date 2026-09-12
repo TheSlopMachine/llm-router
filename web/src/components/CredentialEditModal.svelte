@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api } from '../lib/api'
   import { getErrorMessage } from '../lib/errors'
+  import { t } from '../lib/i18n.svelte'
   import type { Credential } from '../lib/types'
 
   let {
@@ -40,12 +41,12 @@
     <div class="error-msg">{error}</div>
   {/if}
   <label class="field">
-    <span class="field-label">Name</span>
-    <input class="field-input" type="text" bind:value={label} {onkeydown} placeholder="e.g. Work account" />
+    <span class="field-label">{t('Name')}</span>
+    <input class="field-input" type="text" bind:value={label} {onkeydown} placeholder={t('e.g. Work account')} />
   </label>
   <div class="actions">
     <button class="btn btn-primary" onclick={save} disabled={saving}>
-      {saving ? 'Saving…' : 'Save'}
+      {saving ? t('Saving…') : t('Save')}
     </button>
   </div>
 </div>

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { t } from '../../lib/i18n.svelte'
+
   let {
     title,
     description = '',
@@ -17,7 +19,7 @@
 {#if description}<p class="description">{description}</p>{/if}
 <div class="muted">{url}</div>
 <div class="facts">
-  {#if builtin}<span class="badge">Built-in</span>{/if}
+  {#if builtin}<span class="badge">{t('Built-in')}</span>{/if}
   <span class="muted">{fileCount} plugins</span>
 </div>
 

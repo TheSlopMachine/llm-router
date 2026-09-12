@@ -5,6 +5,7 @@
   import ProviderCard from './ProviderCard.svelte'
   import CustomProviderWizard from './wizards/CustomProviderWizard.svelte'
   import type { Provider, ProviderStats } from '../lib/types'
+  import { t } from '../lib/i18n.svelte'
 
   const resource = createListResource<{ providers: Provider[]; providerStats: Record<string, ProviderStats> }>(
     async () => {
@@ -18,6 +19,16 @@
 
   function openProviderDetail(provider: Provider): void {
     window.location.hash = '#/providers/' + provider.id
+  }
+
+  async function toggleProvider(provider: Provider, enabled: boolean): Promise<void> {
+    resource.error = ''
+    try {
+      await api.providers.updateInstance(provider.id, { name: provider.name, disabled: !enabled })
+      await resource.reload()
+    } catch (e) {
+      resource.error = e instanceof Error ? e.message : String(e)
+    }
   }
 
   function openCreate(): void {
@@ -41,12 +52,12 @@
 
 <div class="page-header">
   <div>
-    <h1>Providers</h1>
-    <p>Registered upstream LLM backends.</p>
+    <h1>{t('Providers')}</h1>
+    <p>{t('Registered upstream LLM backends.')}</p>
   </div>
   <button class="btn btn-primary" onclick={openCreate}>
     <span class="icon">add</span>
-    New Provider
+    {t('New Provider')}
   </button>
 </div>
 
@@ -55,9 +66,9 @@
 {/if}
 
 {#if resource.loading}
-  <div class="empty">Loading…</div>
+  <div class="empty">{t('Loading…')}</div>
 {:else if visibleProviders.length === 0}
-  <div class="empty">No providers yet. Add one to get started.</div>
+  <div class="empty">{t('No providers yet. Add one to get started.')}</div>
 {:else}
   <div class="providers-grid">
     {#each visibleProviders as provider}
@@ -65,6 +76,7 @@
         {provider}
         stats={resource.data.providerStats[provider.id] || null}
         onClick={() => openProviderDetail(provider)}
+        onToggle={(enabled) => toggleProvider(provider, enabled)}
       />
     {/each}
   </div>

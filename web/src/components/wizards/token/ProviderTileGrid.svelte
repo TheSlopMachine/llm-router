@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Provider } from '../../../lib/types'
   import { providerDescription } from '../../../lib/token-helpers'
+  import { t } from '../../../lib/i18n.svelte'
 
   let {
     providers,
@@ -16,7 +17,7 @@
 </script>
 
 {#if providers.length === 0}
-  <div class="muted-placeholder">No providers available.</div>
+  <div class="muted-placeholder">{t('No providers available.')}</div>
 {:else}
   <div class="provider-grid">
     {#each providers as p}

@@ -105,8 +105,8 @@ a:hover { text-decoration: underline; }
   /* Dark Theme Tokens */
   --color-surface: #1f1f1f;
   --color-surface-container: #1a1a1a;
-  --color-surface-container-high: #252525;
-  --color-surface-container-highest: #2a2a2a;
+  --color-surface-container-high: #2d2d2d;
+  --color-surface-container-highest: #343434;
   --color-background: #141313;
   
   --color-sidebar-bg: #1a1a1a;
@@ -120,16 +120,16 @@ a:hover { text-decoration: underline; }
   --color-text-on-button: #e5e2e1;
   --color-text-on-button-reverse: #141313;
   
-  --color-outline-light: #333333;
-  --color-outline-soft: #262626;
+  --color-outline-light: #404040;
+  --color-outline-soft: #3a3a3a;
   --color-outline: #8e9192;
   --color-outline-variant: #444748;
   
-  --color-button-container: #2a2a2a;
-  --color-button-container-high: #353535;
+  --color-button-container: #313131;
+  --color-button-container-high: #3d3d3d;
   --color-button-container-accent: #2d3548;
   
-  --color-hover-bg: #252525;
+  --color-hover-bg: #333333;
   
   --color-accent-yellow: #fcbd00;
   --color-accent-yellow-light: #3a321b;
