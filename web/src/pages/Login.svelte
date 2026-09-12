@@ -61,9 +61,9 @@
     background: var(--color-background);
   }
   .auth-card {
-    background: var(--color-surface);
-    border: 1px solid var(--color-outline-light);
-    border-radius: 16px;
+    background: var(--color-surface-container-high);
+    border: none;
+    border-radius: var(--radius-lg);
     padding: 40px;
     width: 100%;
     max-width: 400px;

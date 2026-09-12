@@ -28,7 +28,7 @@
   let toolbarWidth = $state(1200)
   let searchOpen = $state(false)
   let toolbarStage = $derived<'full' | 'menu' | 'compact'>(
-    toolbarWidth < 700 ? 'compact' : toolbarWidth < 1050 ? 'menu' : 'full'
+    toolbarWidth < 640 ? 'compact' : toolbarWidth < 880 ? 'menu' : 'full'
   )
 
   // Attaches width measurement when the node appears (toolbar renders
@@ -1018,7 +1018,7 @@
   /* Desktop: models as a table; mobile: cards */
   .models-grid { display: none; }
   .model-row {
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.7fr) minmax(0, 1.4fr) auto;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.7fr) minmax(0, 1.4fr) 124px;
   }
   .mcol-id {
     min-width: 0;
@@ -1154,6 +1154,10 @@
     .search-input {
       flex: 1 1 100%;
     }
+    .custom-model-form {
+      flex-direction: column;
+    }
+  }
   .proxy-head {
     display: flex;
     align-items: center;
@@ -1191,10 +1195,6 @@
   }
   .proxy-pick:active {
     transform: scale(0.94);
-  }
-  .custom-model-form {
-      flex-direction: column;
-    }
   }
   @media (max-width: 520px) {
     .drag-handle {

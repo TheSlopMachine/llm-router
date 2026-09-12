@@ -25,9 +25,9 @@
 
 <style>
   .card {
-    background: var(--color-surface);
-    border: 1px solid var(--color-outline-light);
-    border-radius: 8px;
+    background: var(--color-surface-container-high);
+    border: none;
+    border-radius: var(--radius-lg);
     padding: 16px;
     min-height: 180px;
   }

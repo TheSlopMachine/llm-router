@@ -6,6 +6,7 @@
   import { parseMarkdownWithArtifacts } from '../lib/markdown'
   import { resolveExtension } from '../lib/language-extensions'
   import { getErrorMessage } from '../lib/errors'
+  import { squircle } from '../lib/squircle'
   import type { AvailableModel } from '../lib/types'
 
   type Role = 'user' | 'assistant'
@@ -351,7 +352,7 @@
   </div>
 
   <div class="composer-dock">
-    <div class="composer-card">
+    <div class="composer-card" use:squircle={20}>
       <textarea
         bind:this={textareaEl}
         bind:value={input}
@@ -523,16 +524,14 @@
   .composer-card {
     max-width: 760px; width: 100%; margin: 0 auto;
     background: var(--color-surface-container-high);
-    border: 1px solid var(--color-outline-light);
+    border: none;
     border-radius: 20px;
-    box-shadow: var(--shadow-lg);
+    filter: drop-shadow(0 12px 16px rgba(0, 0, 0, 0.35)) drop-shadow(0 4px 6px rgba(0, 0, 0, 0.25));
     padding: 12px 14px 10px 14px;
     display: flex; flex-direction: column; gap: 10px;
   }
   :global(.dark) .composer-card {
     background: var(--color-surface-container-high);
-    border-color: var(--color-outline-soft);
-    box-shadow: var(--shadow-xl);
   }
   .composer-card textarea {
     width: 100%; min-height: 24px; max-height: 160px;
