@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api } from '../lib/api'
   import { getErrorMessage } from '../lib/errors'
+  import { squircle } from '../lib/squircle'
 
   let { ondone } = $props<{ ondone: () => void }>()
 
@@ -26,7 +27,8 @@
 </script>
 
 <div class="auth-wrap">
-  <div class="auth-card">
+  <div class="auth-card-shadow">
+  <div class="auth-card" use:squircle={18}>
     <div class="brand">llm-router</div>
     <h1>Create admin account</h1>
     <p class="sub">First run — set up your dashboard credentials.</p>
@@ -37,22 +39,23 @@
 
     <div class="form-group">
       <label for="u">Username</label>
-      <input id="u" type="text" bind:value={username} autocomplete="username" />
+      <input id="u" type="text" bind:value={username} autocomplete="username" use:squircle={8} />
     </div>
     <div class="form-group" style="margin-top: 12px;">
       <label for="p">Password</label>
-      <input id="p" type="password" bind:value={password} autocomplete="new-password" />
+      <input id="p" type="password" bind:value={password} autocomplete="new-password" use:squircle={8} />
       {#if password.length > 0 && password.length < 8}
         <div class="field-hint">Recommendation: use at least 8 characters for a stronger password.</div>
       {/if}
     </div>
     <div class="form-group" style="margin-top: 12px;">
       <label for="p2">Confirm password</label>
-      <input id="p2" type="password" bind:value={password2} autocomplete="new-password" onkeydown={(e) => e.key === 'Enter' && submit()} />
+      <input id="p2" type="password" bind:value={password2} autocomplete="new-password" onkeydown={(e) => e.key === 'Enter' && submit()} use:squircle={8} />
     </div>
-    <button class="btn btn-primary submit-btn" onclick={submit} disabled={loading}>
+    <button class="btn btn-primary submit-btn" onclick={submit} disabled={loading} use:squircle={12}>
       {loading ? 'Creating…' : 'Create account'}
     </button>
+  </div>
   </div>
 </div>
 
@@ -62,16 +65,23 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 24px;
     background: var(--color-background);
+  }
+  /* drop-shadow follows the squircle clip-path, unlike box-shadow */
+  .auth-card-shadow {
+    filter: drop-shadow(0 4px 6px rgba(10, 13, 18, 0.12));
+  }
+  :global(.dark) .auth-card-shadow {
+    filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.6));
   }
   .auth-card {
     background: var(--color-surface);
-    border: 1px solid var(--color-outline-light);
-    border-radius: 16px;
+    border: none;
+    border-radius: var(--radius-lg);
     padding: 40px;
     width: 100%;
     max-width: 400px;
-    box-shadow: var(--shadow-md);
   }
   .brand {
     font-size: 13px;
@@ -101,6 +111,31 @@
     width: 100%; 
     justify-content: center; 
     margin-top: 20px; 
-    height: 40px;
+    transition: transform 120ms ease;
+  }
+  .submit-btn:active {
+    transform: scale(0.97);
+  }
+  .auth-card input[type="text"],
+  .auth-card input[type="password"] {
+    background: var(--color-button-container-high);
+    border-radius: 8px;
+    outline: none;
+    /* transparent idle ring so the focus ring can transition in */
+    box-shadow: inset 0 0 0 2px transparent;
+    transition: background-color 160ms ease, box-shadow 160ms ease, padding 160ms ease, transform 120ms ease;
+  }
+  .auth-card input[type="text"]:focus,
+  .auth-card input[type="password"]:focus {
+    background: var(--color-button-container-high);
+    outline: none;
+    /* +2px vertical padding: the field grows by the ring size, width fixed */
+    padding: calc(var(--field-pad-v) + 1px) var(--field-pad-h);
+    box-shadow: inset 0 0 0 2px #fff;
+  }
+  /* press only (mouse/touch): keyboard focus gets no scale */
+  .auth-card input[type="text"]:active,
+  .auth-card input[type="password"]:active {
+    transform: scale(0.99);
   }
 </style>

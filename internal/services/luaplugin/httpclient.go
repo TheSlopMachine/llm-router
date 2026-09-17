@@ -147,24 +147,20 @@ type pluginHTTPClient struct {
 	guard  *ssrfGuard
 	client *http.Client
 	goCtx  context.Context
+	// timeout bounds one attempt; every rotation retry gets a fresh budget.
+	timeout time.Duration
 }
 
 func newPluginHTTPClient(ctx *execContext, timeoutMs int) *pluginHTTPClient {
 	c := &pluginHTTPClient{ctx: ctx, guard: newSSRFGuard(ctx.allowHosts)}
 	timeout := time.Duration(timeoutMs) * time.Millisecond
+	c.timeout = timeout
 
-	// Proxy mode: the target host is still validated against the plugin
-	// allow-list in buildRequest; DNS resolution happens at the proxy, so
-	// the dial-time IP pinning is replaced by hostname checks only.
-	if ctx.proxyURL != "" {
-		transport, err := proxypool.TransportFor(ctx.proxyURL, timeout)
-		if err == nil {
-			c.client = &http.Client{Timeout: timeout, Transport: transport, CheckRedirect: c.checkRedirect}
-			return c
-		}
-		c.ctx.logSinkSafe("proxy transport build failed, direct connection")
-	}
-
+	// Direct transport: the target host is validated against the plugin
+	// allow-list and the dial pins the resolved IP, closing DNS rebinding.
+	// Proxy transports build per request in doWithProxyRotation, after the
+	// route is resolved: DNS resolution then happens at the proxy, so the
+	// dial-time IP pinning is replaced by hostname checks only.
 	dialer := &net.Dialer{Timeout: timeout}
 	transport := &http.Transport{
 		DialContext: func(dialCtx context.Context, network, addr string) (net.Conn, error) {
@@ -212,6 +208,61 @@ func newPluginHTTPClient(ctx *execContext, timeoutMs int) *pluginHTTPClient {
 		CheckRedirect: c.checkRedirect,
 	}
 	return c
+}
+
+// proxyClient builds the transport for the currently resolved proxy.
+// A build failure is a loud error: the request rotates to the next proxy
+// or fails, it never falls back to direct.
+func (c *pluginHTTPClient) proxyClient() (*http.Client, error) {
+	transport, err := proxypool.TransportFor(c.ctx.proxyURL, c.timeout)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Client{Timeout: c.timeout, Transport: transport, CheckRedirect: c.checkRedirect}, nil
+}
+
+// doWithProxyRotation executes one plugin HTTP request. The route resolves
+// fresh per request; a failed proxied attempt records a negative outcome
+// and retries with the next untried pooled proxy. Direct requests and an
+// exhausted proxy list surface the last error. Proxy-to-direct fallback
+// never happens.
+func (c *pluginHTTPClient) doWithProxyRotation(req *http.Request) (*http.Response, string, time.Time, error) {
+	if err := c.ctx.beginRequest(); err != nil {
+		return nil, "", time.Time{}, err
+	}
+	for {
+		proxyID := c.ctx.proxyID
+		client := c.client
+		if c.ctx.proxyURL != "" {
+			pc, berr := c.proxyClient()
+			if berr != nil {
+				c.reportProxy(time.Now(), proxyID, false)
+				if !c.ctx.rotateProxy() {
+					return nil, "", time.Time{}, fmt.Errorf("%w after %d attempts: %v", proxypool.ErrProxyPoolExhausted, len(c.ctx.triedProxies), berr)
+				}
+				continue
+			}
+			client = pc
+		}
+		if req.GetBody != nil {
+			if body, gerr := req.GetBody(); gerr == nil {
+				req.Body = body
+			}
+		}
+		start := time.Now()
+		resp, derr := client.Do(req)
+		if derr == nil {
+			c.ctx.lastProxyID = proxyID
+			return resp, proxyID, start, nil
+		}
+		if c.ctx.proxyURL == "" {
+			return nil, "", time.Time{}, derr
+		}
+		c.reportProxy(start, proxyID, false)
+		if !c.ctx.rotateProxy() {
+			return nil, "", time.Time{}, fmt.Errorf("%w after %d attempts: %v", proxypool.ErrProxyPoolExhausted, len(c.ctx.triedProxies), derr)
+		}
+	}
 }
 
 // checkRedirect validates every redirect hop against the plugin allow-list.
@@ -284,9 +335,11 @@ func (c *pluginHTTPClient) buildRequest(L *lua.LState, arg *lua.LTable) *http.Re
 	headers := luaTableStringMap(arg, "headers")
 	checkCustomHostHeader(L, c, headers)
 	var body io.Reader
+	var bodyBytes []byte
 	if v := arg.RawGetString("body"); v != lua.LNil {
 		if s, ok := v.(lua.LString); ok {
-			body = bytes.NewReader([]byte(s))
+			bodyBytes = []byte(s)
+			body = bytes.NewReader(bodyBytes)
 		} else {
 			L.RaiseError("request: body must be a string")
 			return nil
@@ -296,6 +349,12 @@ func (c *pluginHTTPClient) buildRequest(L *lua.LState, arg *lua.LTable) *http.Re
 	if err != nil {
 		L.RaiseError("request: %s", err.Error())
 		return nil
+	}
+	if bodyBytes != nil {
+		// Rotation replays the body on every proxy attempt.
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+		}
 	}
 	for k, v := range headers {
 		if strings.EqualFold(k, "host") {
@@ -307,10 +366,11 @@ func (c *pluginHTTPClient) buildRequest(L *lua.LState, arg *lua.LTable) *http.Re
 	return req
 }
 
-// reportProxy records the outcome of a proxied request for pool health.
-func (c *pluginHTTPClient) reportProxy(start time.Time, ok bool) {
+// reportProxy records the outcome of a proxied attempt for pool health.
+// Direct attempts never touch the pool.
+func (c *pluginHTTPClient) reportProxy(start time.Time, proxyID string, ok bool) {
 	if c.ctx != nil && c.ctx.onProxyResult != nil {
-		c.ctx.onProxyResult(ok, time.Since(start).Milliseconds())
+		c.ctx.onProxyResult(proxyID, ok, time.Since(start).Milliseconds())
 	}
 }
 
@@ -321,23 +381,22 @@ func (c *pluginHTTPClient) luaRequest(L *lua.LState) int {
 	if req == nil {
 		return 0
 	}
-	start := time.Now()
-	resp, err := c.client.Do(req)
+	resp, proxyID, start, err := c.doWithProxyRotation(req)
 	if err != nil {
-		c.reportProxy(start, false)
-		pushLuaErr(L, "upstream", err.Error())
+		// Contract is (resp, err): nil response first, error table second.
 		L.Push(lua.LNil)
+		pushLuaErr(L, "upstream", err.Error())
 		return 2
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if err != nil {
-		c.reportProxy(start, false)
-		pushLuaErr(L, "upstream", err.Error())
+		c.reportProxy(start, proxyID, false)
 		L.Push(lua.LNil)
+		pushLuaErr(L, "upstream", err.Error())
 		return 2
 	}
-	c.reportProxy(start, resp.StatusCode < 500)
+	c.reportProxy(start, proxyID, resp.StatusCode < 500)
 	out := L.NewTable()
 	out.RawSetString("status", lua.LNumber(resp.StatusCode))
 	hdrs := L.NewTable()
@@ -377,16 +436,14 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 	if req == nil {
 		return 0
 	}
-	start := time.Now()
-	resp, err := c.client.Do(req)
+	resp, proxyID, start, err := c.doWithProxyRotation(req)
 	if err != nil {
-		c.reportProxy(start, false)
 		pushLuaErr(L, "upstream", err.Error())
 		return 1
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		c.reportProxy(start, resp.StatusCode < 500)
+		c.reportProxy(start, proxyID, resp.StatusCode < 500)
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		pushLuaErr(L, "upstream", fmt.Sprintf("unexpected status %d: %s", resp.StatusCode, string(body)))
 		return 1
@@ -405,12 +462,12 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 				break
 			}
 			if err != nil {
-				c.reportProxy(start, false)
+				c.reportProxy(start, proxyID, false)
 				pushLuaErr(L, "upstream", err.Error())
 				return 1
 			}
 		}
-		c.reportProxy(start, true)
+		c.reportProxy(start, proxyID, true)
 		L.Push(lua.LNil)
 		return 1
 	}
@@ -425,11 +482,11 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		c.reportProxy(start, false)
+		c.reportProxy(start, proxyID, false)
 		pushLuaErr(L, "upstream", err.Error())
 		return 1
 	}
-	c.reportProxy(start, true)
+	c.reportProxy(start, proxyID, true)
 	L.Push(lua.LNil)
 	return 1
 }

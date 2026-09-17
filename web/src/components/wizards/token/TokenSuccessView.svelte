@@ -69,7 +69,7 @@
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    background: rgba(34, 197, 94, 0.1);
+    background: var(--color-notification-success-bg);
     display: flex;
     align-items: center;
     justify-content: center;

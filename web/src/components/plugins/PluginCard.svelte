@@ -5,7 +5,7 @@
 
   export interface PluginBadge {
     text: string
-    kind: '' | 'badge-red' | 'badge-green' | 'badge-blue' | 'badge-yellow'
+    kind: '' | 'chip-red' | 'chip-green' | 'chip-blue' | 'chip-yellow'
   }
 
   export interface PluginCardAction {
@@ -49,20 +49,20 @@
       <strong>{title}</strong>
       {#if meta}<span class="muted-inline">{meta}</span>{/if}
       {#each badges as badge}
-        <span class="badge {badge.kind}">{badge.text}</span>
+        <span class="chip {badge.kind}">{badge.text}</span>
       {/each}
     </div>
     <div class="plugin-actions">
       {#if mode === 'installed'}
         <ActionDropdown {actions} label={t('Actions')} rounded="lg" onaction={(id) => onaction?.(id)} />
-        <button class="btn-icon" onclick={() => onDetails?.()} aria-label={t('Details')}>
+        <button class="btn-icon" onclick={() => onDetails?.()} aria-label={t('Details')} use:squircle={10}>
           <span class="icon">info</span>
         </button>
       {:else}
         <button class="btn btn-secondary" disabled={installing} onclick={() => onInstall?.()}>
           {installing ? 'Installing…' : installLabel}
         </button>
-        <button class="btn-icon" onclick={() => onDetails?.()} aria-label={t('Details')}>
+        <button class="btn-icon" onclick={() => onDetails?.()} aria-label={t('Details')} use:squircle={10}>
           <span class="icon">info</span>
         </button>
       {/if}

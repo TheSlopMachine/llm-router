@@ -97,30 +97,14 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	geoSvc := geoip.New(logger)
 	geoSvc.SetOverride(routerCfg.ServerCountry)
 	luaSvc.SetProxyResolver(func(rec *luaplugin.PluginRecord, providerConfig map[string]any) (string, string, error) {
-		mode, ids := parseProxyMode(providerConfig)
+		mode, ids := proxypool.ParseProxyMode(providerConfig)
 		typeKey := ""
 		if len(rec.TypeKeys) > 0 {
 			typeKey = rec.TypeKeys[0]
 		}
+		location := rec.ProxyLocation
 		serverCountry := geoSvc.Country(context.Background())
-		force := rec.ProxyForceOnMismatch && rec.ProxyLocation != "" && serverCountry != "" && serverCountry != rec.ProxyLocation
-		var p *models.Proxy
-		switch {
-		case mode == models.ProxyModeManual:
-			p = proxySvc.SelectManual(ids, typeKey)
-			if p == nil {
-				return "", "", fmt.Errorf("provider proxy: no usable proxy among %d selected", len(ids))
-			}
-		case mode == models.ProxyModeAuto || force:
-			p = proxySvc.Select(models.ProxyPreferences{Location: rec.ProxyLocation}, typeKey)
-			if p == nil && force {
-				return "", "", fmt.Errorf("provider proxy: plugin requires a %s exit (server is %s) but no usable proxy is pooled", rec.ProxyLocation, serverCountry)
-			}
-		}
-		if p == nil {
-			return "", "", nil
-		}
-		return p.ID, p.URL, nil
+		return proxypool.ResolveProxy(proxySvc, mode, ids, location, rec.ProxyForceOnMismatch, serverCountry, typeKey)
 	})
 	luaSvc.SetProxyOutcomeReporter(proxySvc.RecordOutcome)
 
@@ -308,27 +292,4 @@ func (r *statusRecorder) Flush() {
 	if f, ok := r.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
-}
-
-// parseProxyMode reads the provider-level proxy config from ProviderInstance.Config.
-func parseProxyMode(providerConfig map[string]any) (mode string, ids []string) {
-	mode = models.ProxyModeDisabled
-	raw, ok := providerConfig["proxy"].(map[string]any)
-	if !ok {
-		return mode, nil
-	}
-	if m, ok := raw["mode"].(string); ok {
-		switch m {
-		case models.ProxyModeAuto, models.ProxyModeManual:
-			mode = m
-		}
-	}
-	if list, ok := raw["ids"].([]any); ok {
-		for _, v := range list {
-			if s, ok := v.(string); ok {
-				ids = append(ids, s)
-			}
-		}
-	}
-	return mode, ids
 }

@@ -19,11 +19,11 @@ export function modelTraits(model: string): string[] {
 }
 
 export function traitBadgeClass(trait: string): string {
-  if (trait === 'Preview') return 'badge-yellow'
-  if (trait === 'Image') return 'badge-blue'
-  if (trait === 'Audio') return 'badge-green'
-  if (trait === 'Agentic') return 'badge badge-blue'
-  return 'badge-blue'
+  if (trait === 'Preview') return 'chip-yellow'
+  if (trait === 'Image') return 'chip-blue'
+  if (trait === 'Audio') return 'chip-green'
+  if (trait === 'Agentic') return 'chip chip-blue'
+  return 'chip-blue'
 }
 
 export function toggleSet<T>(set: Set<T>, value: T): Set<T> {

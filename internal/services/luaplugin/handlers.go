@@ -2,6 +2,7 @@ package luaplugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -53,6 +54,10 @@ func requestTable(L *lua.LState, req *models.ChatCompletionRequest) *lua.LTable 
 }
 
 // Complete invokes the complete handler and validates the response shape.
+//
+// Geo-rotation: a region-locked answer through a proxy demotes it (exec
+// records the outcome) and the handler re-runs against the next pooled
+// proxy — silently, until the pool is exhausted. Direct calls never loop.
 func (s *Service) Complete(
 	goCtx context.Context,
 	typeKey string,
@@ -64,42 +69,82 @@ func (s *Service) Complete(
 	if err != nil {
 		return nil, err
 	}
-	var resp *models.ChatCompletionResponse
-	found, err := s.handlerCall(goCtx, rec, typeKey, "complete", func(L *lua.LState) {
-		L.Push(ctxTable(L, "", providerConfig))
-		L.Push(credTable(L, cred))
-		L.Push(requestTable(L, req))
-	}, 2, func(L *lua.LState) error {
-		result, rawErr := splitReturn(L)
-		if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
-			return cerr
+	// Geo-rotation: a region-locked answer through a proxy demotes it (exec
+	// records the outcome) and the handler re-runs against the next pooled
+	// proxy — silently, until the pool is exhausted. Direct calls never loop.
+	tried := map[string]bool{}
+	for {
+		var resp *models.ChatCompletionResponse
+		found, route, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "complete", func(L *lua.LState) {
+			L.Push(ctxTable(L, "", providerConfig))
+			L.Push(credTable(L, cred))
+			L.Push(requestTable(L, req))
+		}, 2, func(L *lua.LState) error {
+			result, rawErr := splitReturn(L)
+			if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
+				return cerr
+			}
+			if result == lua.LNil {
+				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "complete returned nil result"}
+			}
+			raw, merr := marshalLua(result)
+			if merr != nil {
+				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode response: " + merr.Error()}
+			}
+			var out models.ChatCompletionResponse
+			if uerr := unmarshalTo(normalizeEmptyObjects(raw, "choices", "tool_calls"), &out); uerr != nil {
+				s.recordCrash(rec.ID, typeKey, "complete schema violation: "+uerr.Error())
+				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "complete schema violation: " + uerr.Error()}
+			}
+			if len(out.Choices) == 0 {
+				s.recordCrash(rec.ID, typeKey, "complete schema violation: empty choices")
+				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "complete schema violation: empty choices"}
+			}
+			resp = &out
+			return nil
+		}, providerConfig)
+		if callErr == nil {
+			if !found {
+				return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "complete"}
+			}
+			return resp, nil
 		}
-		if result == lua.LNil {
-			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "complete returned nil result"}
+		next, rotErr := s.geoRotationNext(rec, providerConfig, callErr, route, tried)
+		if rotErr != nil {
+			return nil, rotErr
 		}
-		raw, merr := marshalLua(result)
-		if merr != nil {
-			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode response: " + merr.Error()}
+		if next == "" {
+			return nil, callErr
 		}
-		var out models.ChatCompletionResponse
-		if uerr := unmarshalTo(normalizeEmptyObjects(raw, "choices", "tool_calls"), &out); uerr != nil {
-			s.recordCrash(rec.ID, typeKey, "complete schema violation: "+uerr.Error())
-			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "complete schema violation: " + uerr.Error()}
-		}
-		if len(out.Choices) == 0 {
-			s.recordCrash(rec.ID, typeKey, "complete schema violation: empty choices")
-			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "complete schema violation: empty choices"}
-		}
-		resp = &out
-		return nil
-	}, providerConfig)
-	if err != nil {
-		return nil, err
 	}
-	if !found {
-		return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "complete"}
+}
+
+// geoRotationNext re-resolves the route after a geo rejection. It returns
+// (nextID, nil) to retry, ("", nil) to surface the original error (not geo,
+// or a direct route), or a resolver error. Pool exhaustion yields a single
+// synthesized geo error instead of the last proxy's raw rejection.
+func (s *Service) geoRotationNext(rec *PluginRecord, providerConfig map[string]any, callErr error, route string, tried map[string]bool) (string, error) {
+	var perr *models.ProviderError
+	if route == "" || !errors.As(callErr, &perr) || perr.Type != models.ErrorTypeGeo {
+		return "", nil
 	}
-	return resp, nil
+	tried[route] = true
+	if s.proxyResolver == nil {
+		return "", nil
+	}
+	next, _, rerr := s.proxyResolver(rec, providerConfig)
+	if rerr != nil {
+		return "", rerr
+	}
+	if next == "" || tried[next] {
+		return "", &models.ProviderError{
+			StatusCode: perr.StatusCode,
+			Type:       models.ErrorTypeGeo,
+			Message:    fmt.Sprintf("region-locked upstream: all %d pooled proxies were rejected", len(tried)),
+		}
+	}
+	tried[next] = true
+	return next, nil
 }
 
 // CompleteStream invokes complete_stream with an emit callback. When the
@@ -117,55 +162,71 @@ func (s *Service) CompleteStream(
 	if err != nil {
 		return err
 	}
-	emitted := 0
-	emitFn := func(L *lua.LState) int {
-		chunkVal := L.Get(1)
-		raw, merr := marshalLua(chunkVal)
-		if merr != nil {
-			L.RaiseError("emit: encode chunk: %s", merr.Error())
+	tried := map[string]bool{}
+	for {
+		emitted := 0
+		emitFn := func(L *lua.LState) int {
+			chunkVal := L.Get(1)
+			raw, merr := marshalLua(chunkVal)
+			if merr != nil {
+				L.RaiseError("emit: encode chunk: %s", merr.Error())
+				return 0
+			}
+			var chunk models.StreamChunk
+			if uerr := unmarshalTo(normalizeEmptyObjects(raw, "choices", "tool_calls"), &chunk); uerr != nil {
+				L.RaiseError("emit: invalid chunk shape: %s", uerr.Error())
+				return 0
+			}
+			if len(chunk.Choices) == 0 && chunk.Usage == nil {
+				L.RaiseError("emit: chunk has neither choices nor usage")
+				return 0
+			}
+			// Emit the canonical struct encoding, not the raw plugin bytes:
+			// this normalizes alias fields (reasoning -> reasoning_content)
+			// and keeps the wire shape identical to non-stream responses.
+			canonical, cerr := marshalGoJSON(chunk)
+			if cerr != nil {
+				L.RaiseError("emit: encode canonical chunk: %s", cerr.Error())
+				return 0
+			}
+			if _, werr := fmt.Fprintf(w, "data: %s\n\n", string(canonical)); werr != nil {
+				L.RaiseError("emit: write: %s", werr.Error())
+				return 0
+			}
+			emitted++
 			return 0
 		}
-		var chunk models.StreamChunk
-		if uerr := unmarshalTo(normalizeEmptyObjects(raw, "choices", "tool_calls"), &chunk); uerr != nil {
-			L.RaiseError("emit: invalid chunk shape: %s", uerr.Error())
-			return 0
+		found, route, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "complete_stream", func(L *lua.LState) {
+			L.Push(ctxTable(L, "", providerConfig))
+			L.Push(credTable(L, cred))
+			L.Push(requestTable(L, req))
+			L.Push(L.NewFunction(emitFn))
+		}, 2, func(L *lua.LState) error {
+			_, rawErr := splitReturn(L)
+			return s.contractErrOrInternal(rec, typeKey, rawErr)
+		}, providerConfig)
+		if callErr != nil {
+			// Mid-stream errors are terminal: bytes already left. Only a
+			// pre-first-chunk geo rejection rotates to the next proxy.
+			if emitted > 0 {
+				return callErr
+			}
+			next, rotErr := s.geoRotationNext(rec, providerConfig, callErr, route, tried)
+			if rotErr != nil {
+				return rotErr
+			}
+			if next == "" {
+				return callErr
+			}
+			continue
 		}
-		if len(chunk.Choices) == 0 && chunk.Usage == nil {
-			L.RaiseError("emit: chunk has neither choices nor usage")
-			return 0
+		if found {
+			if _, werr := io.WriteString(w, "data: [DONE]\n\n"); werr != nil {
+				return werr
+			}
+			return nil
 		}
-		// Emit the canonical struct encoding, not the raw plugin bytes:
-		// this normalizes alias fields (reasoning -> reasoning_content)
-		// and keeps the wire shape identical to non-stream responses.
-		canonical, cerr := marshalGoJSON(chunk)
-		if cerr != nil {
-			L.RaiseError("emit: encode canonical chunk: %s", cerr.Error())
-			return 0
-		}
-		if _, werr := fmt.Fprintf(w, "data: %s\n\n", string(canonical)); werr != nil {
-			L.RaiseError("emit: write: %s", werr.Error())
-			return 0
-		}
-		emitted++
-		return 0
-	}
-	found, err := s.handlerCall(goCtx, rec, typeKey, "complete_stream", func(L *lua.LState) {
-		L.Push(ctxTable(L, "", providerConfig))
-		L.Push(credTable(L, cred))
-		L.Push(requestTable(L, req))
-		L.Push(L.NewFunction(emitFn))
-	}, 2, func(L *lua.LState) error {
-		_, rawErr := splitReturn(L)
-		return s.contractErrOrInternal(rec, typeKey, rawErr)
-	}, providerConfig)
-	if err != nil {
-		return err
-	}
-	if found {
-		if _, werr := io.WriteString(w, "data: [DONE]\n\n"); werr != nil {
-			return werr
-		}
-		return nil
+		break
 	}
 	// Fallback: emulate streaming over complete().
 	resp, cerr := s.Complete(goCtx, typeKey, cred, req, providerConfig)

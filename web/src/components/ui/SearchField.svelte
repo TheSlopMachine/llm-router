@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { squircle } from '../../lib/squircle'
+
   let {
     value = $bindable(''),
     placeholder = 'Search...',
@@ -12,7 +14,7 @@
 
 <div class="search-field">
   <span class="icon search-icon">search</span>
-  <input type="text" {placeholder} bind:value {disabled} />
+  <input type="text" {placeholder} bind:value {disabled} use:squircle={12} />
 </div>
 
 <style>

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { squircle } from '../../lib/squircle'
+
   let {
     id,
     label = '',
@@ -58,6 +60,7 @@
       {disabled}
       autocomplete="new-password"
       spellcheck={false}
+      use:squircle={12}
     />
     <button
       type="button"
@@ -66,6 +69,7 @@
       aria-label={revealed ? 'Hide secret' : 'Show secret'}
       aria-pressed={revealed}
       title={revealed ? 'Hide' : 'Show'}
+      use:squircle={10}
     >
       <span class="icon">{revealed ? 'visibility_off' : 'visibility'}</span>
     </button>
@@ -76,6 +80,7 @@
       disabled={!value || disabled}
       aria-label="Copy secret"
       title="Copy"
+      use:squircle={10}
     >
       <span class="icon">{copied ? 'check' : 'content_copy'}</span>
     </button>

@@ -5,6 +5,7 @@
   import type { Provider, UINode, ModalButton } from '../lib/types'
   import DynamicForm, { collectButtons, buttonVariant } from './ui/DynamicForm.svelte'
   import SegmentedControl from './ui/SegmentedControl.svelte'
+  import { squircle } from '../lib/squircle'
   import { t } from '../lib/i18n.svelte'
 
   let {
@@ -259,7 +260,7 @@
   <p class="form-text">{t('This provider type has no credential form. Paste credential data as JSON.')}</p>
   <div class="form-group">
     <label for="cred-raw">{t('Credential JSON')}</label>
-    <textarea id="cred-raw" rows="6" bind:value={rawJson} autocomplete="off"></textarea>
+    <textarea id="cred-raw" rows="6" bind:value={rawJson} autocomplete="off" use:squircle={12}></textarea>
   </div>
   <div class="form-actions">
     <button class="btn btn-primary" disabled={loading} onclick={submitRaw}>{t('Save')}</button>
@@ -285,7 +286,7 @@
     margin-bottom: 12px;
   }
   .banner-info {
-    background: var(--color-info-bg, #eef4ff);
+    background: var(--color-notification-info-bg);
   }
   .form-text {
     font-size: 14px;

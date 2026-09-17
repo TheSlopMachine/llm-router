@@ -194,6 +194,7 @@
             onclick={() => copyModelId(model.full_model_id)}
             aria-label={t('Copy full model ID')}
             title={t('Copy full model ID')}
+            use:squircle={10}
           >
             <span class="icon">{copiedModelId === model.full_model_id ? 'check' : 'content_copy'}</span>
           </button>
@@ -211,21 +212,9 @@
     margin-bottom: 16px;
   }
 
+  /* Layout only — widget styling comes from the global field rules. */
   .search-input {
     flex: 0 1 320px;
-    height: 36px;
-    padding: 0 12px;
-    border: none;
-    border-radius: var(--radius-md);
-    background: var(--color-surface-container-highest);
-    color: var(--color-text);
-    font-family: inherit;
-    font-size: 14px;
-  }
-
-  .search-input:focus {
-    outline: none;
-    box-shadow: inset 0 0 0 2px var(--color-accent);
   }
 
   .result-count {
@@ -234,29 +223,9 @@
     white-space: nowrap;
   }
 
-  .table {
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-  }
-
+  /* Column layout only — table widget chrome comes from the global rules. */
   .table-row {
-    display: grid;
     grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.55fr) minmax(0, 1.2fr) minmax(0, 0.55fr) minmax(0, 0.55fr) 48px;
-    align-items: center;
-    padding: 10px 16px;
-    gap: 12px;
-    background: var(--color-surface-container-high);
-  }
-
-  .table-row + .table-row {
-    border-top: 1px solid var(--color-outline-soft);
-  }
-
-  .table-head {
-    background: var(--color-surface-container-highest);
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--color-text-soft);
   }
 
   .col-display {

@@ -11,13 +11,15 @@
   import Tokens from '../components/Tokens.svelte'
   import Agents from '../components/Agents.svelte'
   import PluginsPage, { type PluginsTab } from './PluginsPage.svelte'
+  import UiTest from './UiTest.svelte'
   import { modal } from '../lib/modal.svelte'
+  import { squircle } from '../lib/squircle'
   import SettingsModal from '../components/SettingsModal.svelte'
   import { t } from '../lib/i18n.svelte'
 
   let { onlogout } = $props<{ onlogout: () => void }>()
 
-  type PanelId = 'chat' | 'metrics' | 'providers' | 'models' | 'agents' | 'tokens' | 'plugins' | 'proxy'
+  type PanelId = 'chat' | 'metrics' | 'providers' | 'models' | 'agents' | 'tokens' | 'plugins' | 'proxy' | 'ui-test'
 
   interface NavItem {
     id: PanelId
@@ -43,7 +45,7 @@
       window.location.hash = '#/plugins/catalog'
       return
     }
-    const validPanels: PanelId[] = ['chat', 'metrics', 'providers', 'models', 'agents', 'tokens', 'plugins', 'proxy']
+    const validPanels: PanelId[] = ['chat', 'metrics', 'providers', 'models', 'agents', 'tokens', 'plugins', 'proxy', 'ui-test']
 
     if (segments.length === 0) {
       panel = 'metrics'
@@ -135,7 +137,7 @@
 <div class="layout" class:mobile>
   {#if mobile}
     <header class="appbar">
-      <button class="btn-icon" onclick={() => { drawerOpen = true }} aria-label={t('Open menu')} title={t('Menu')}>
+      <button class="btn-icon" onclick={() => { drawerOpen = true }} aria-label={t('Open menu')} title={t('Menu')} use:squircle={10}>
         <span class="icon">menu</span>
       </button>
       <div class="appbar-brand">llm-router</div>
@@ -220,6 +222,8 @@
         <PluginsPage tab={pluginsTab} ontabchange={selectPluginsTab} />
       {:else if panel === 'proxy'}
         <ProxyPage />
+      {:else if panel === 'ui-test'}
+        <UiTest />
       {/if}
     </div>
   </main>

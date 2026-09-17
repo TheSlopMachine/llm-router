@@ -58,6 +58,19 @@ func New(database *db.DB, providerSvc *provider.Service, credSvc *credential.Ser
 // SetLogger wires structured logging (called once from server.New).
 func (s *Service) SetLogger(l *slog.Logger) { s.logger = l }
 
+// PeekModelInfos returns the cached model list without triggering an upstream
+// fetch; stale entries count. A miss returns nil — callers that merely display
+// a count must not ping the provider (auto-sync is opt-in via
+// config.models_auto_sync; everything else syncs on explicit user action).
+func (s *Service) PeekModelInfos(providerID string) []models.ModelInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if entry, ok := s.cache[providerID]; ok {
+		return entry.models
+	}
+	return nil
+}
+
 func hostOf(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {

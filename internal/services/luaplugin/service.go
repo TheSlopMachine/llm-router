@@ -102,8 +102,9 @@ type ProxyResolution struct {
 }
 
 // SetProxyResolver wires pool-based proxy selection for plugin HTTP calls.
-// A non-nil error fails the handler before any Lua runs (e.g. manual mode
-// with no usable proxy, or a geo-forced provider with an empty pool).
+// Resolution is lazy per request; a non-nil error fails the request loudly
+// (e.g. manual mode with no usable proxy, or a geo-forced provider with an
+// empty pool).
 func (s *Service) SetProxyResolver(fn func(rec *PluginRecord, providerConfig map[string]any) (proxyID, proxyURL string, err error)) {
 	s.proxyResolver = fn
 }

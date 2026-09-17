@@ -25,7 +25,7 @@
 
 <h3>{t('Permissions')}</h3>
 {#if facts.unsafe}
-  <div class="badge badge-red">{t('Unrestricted network')}</div>
+  <div class="chip chip-red">{t('Unrestricted network')}</div>
 {/if}
 {#if facts.allowHosts.length === 0}
   <div class="muted">{t('No network hosts.')}</div>

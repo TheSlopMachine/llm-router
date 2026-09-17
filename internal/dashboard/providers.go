@@ -119,7 +119,7 @@ func (h *Handler) apiAdapterTypes(w http.ResponseWriter, r *http.Request) {
 
 // apiProvidersStats returns aggregated statistics for all providers
 // @Summary      Get provider statistics
-// @Description  Returns aggregated statistics for all providers (model count, credential count, requests in last 24h)
+// @Description  Returns aggregated statistics for all providers (cached model count, credential count). Never fetches from upstreams.
 // @Tags         Providers
 // @Produce      json
 // @Success      200 {object} map[string]models.ProviderStats
@@ -136,28 +136,16 @@ func (h *Handler) apiProvidersStats(w http.ResponseWriter, r *http.Request) {
 	providers = h.visibleProviders(providers)
 
 	stats := make(map[string]*models.ProviderStats)
-	ctx := r.Context()
 
 	for _, p := range providers {
 		stat := &models.ProviderStats{}
 
-		modelInfos, err := h.modelInfoSvc.GetModelInfos(ctx, p.ID)
-		if err == nil {
-			stat.ModelCount = len(modelInfos)
-		}
+		// Cache peek only: a stats read must never fetch from the upstream.
+		stat.ModelCount = len(h.modelInfoSvc.PeekModelInfos(p.ID))
 
 		creds, err := h.credSvc.ListByProvider(p.ID)
 		if err == nil {
 			stat.CredentialCount = len(creds)
-		}
-
-		filters := models.MetricsFilters{
-			ProviderID: p.ID,
-			TimeRange:  "1d",
-		}
-		overview, err := h.metricsSvc.QueryOverview(filters)
-		if err == nil && overview != nil {
-			stat.RequestsToday = overview.TotalRequests
 		}
 
 		stats[p.ID] = stat

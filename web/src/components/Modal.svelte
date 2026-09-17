@@ -80,12 +80,6 @@
       }
     }
   }
-
-  function handleCloseButton(config: ModalConfig): void {
-    if (config.severity !== 'high') {
-      modal.close()
-    }
-  }
 </script>
 
 {#each stack as config, index (index)}
@@ -113,14 +107,6 @@
             <p class="modal-subtitle">{config.subtitle}</p>
           {/if}
         </div>
-        {#if config.severity !== 'high'}
-          <button
-            class="close-btn"
-            onclick={() => handleCloseButton(config)}
-            aria-label="Close modal">
-            <span class="icon">close</span>
-          </button>
-        {/if}
       </div>
 
       {#if config.stepper}
@@ -206,7 +192,8 @@
     background: var(--color-surface-container-high);
     border: none;
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-lg);
+    /* all-side halo + downward depth: the top edge must not merge with the backdrop */
+    box-shadow: 0 0 32px rgba(0, 0, 0, 0.22), 0 12px 24px rgba(0, 0, 0, 0.18);
     max-height: 90vh;
     display: flex;
     flex-direction: column;
@@ -332,28 +319,6 @@
     color: var(--color-text);
   }
 
-  .close-btn {
-    padding: 4px;
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    color: var(--color-text-soft);
-    border-radius: 4px;
-    transition: background 0.15s, color 0.15s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .close-btn:hover {
-    background: var(--color-hover-bg);
-    color: var(--color-text);
-  }
-
-  .close-btn .icon {
-    font-size: 20px;
-  }
-
   .modal-body {
     padding: 24px;
     overflow-y: auto;
@@ -367,8 +332,10 @@
     margin: 0;
   }
 
+  /* One spacing rhythm N=12: edge-to-last-button, buttons-to-bottom edge,
+     and between adjacent buttons are all the same N. */
   .modal-footer {
-    padding: 16px 24px;
+    padding: 12px;
     border-top: 1px solid var(--color-outline-soft);
     display: flex;
     justify-content: space-between;

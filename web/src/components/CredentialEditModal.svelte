@@ -2,6 +2,7 @@
   import { api } from '../lib/api'
   import { getErrorMessage } from '../lib/errors'
   import { t } from '../lib/i18n.svelte'
+  import { squircle } from '../lib/squircle'
   import type { Credential } from '../lib/types'
 
   let {
@@ -40,12 +41,12 @@
   {#if error}
     <div class="error-msg">{error}</div>
   {/if}
-  <label class="field">
-    <span class="field-label">{t('Name')}</span>
-    <input class="field-input" type="text" bind:value={label} {onkeydown} placeholder={t('e.g. Work account')} />
-  </label>
+  <div class="form-group">
+    <label for="cred-edit-label">{t('Name')}</label>
+    <input id="cred-edit-label" type="text" bind:value={label} {onkeydown} placeholder={t('e.g. Work account')} use:squircle={12} />
+  </div>
   <div class="actions">
-    <button class="btn btn-primary" onclick={save} disabled={saving}>
+    <button class="btn btn-primary" onclick={save} disabled={saving} use:squircle={12}>
       {saving ? t('Saving…') : t('Save')}
     </button>
   </div>
@@ -56,29 +57,6 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-  }
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .field-label {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--color-text-soft);
-  }
-  .field-input {
-    padding: 8px 12px;
-    border: 1px solid var(--color-outline-light);
-    border-radius: 8px;
-    background: var(--color-surface);
-    color: var(--color-text);
-    font-family: inherit;
-    font-size: 14px;
-  }
-  .field-input:focus {
-    outline: 2px solid var(--color-accent);
-    outline-offset: -1px;
   }
   .actions {
     display: flex;

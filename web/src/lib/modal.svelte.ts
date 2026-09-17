@@ -3,7 +3,7 @@ export type ModalSize = 'small' | 'medium' | 'large' | 'extra-large'
 
 export interface ModalButton {
   label: string
-  variant?: 'primary' | 'secondary' | 'danger'
+  variant?: 'primary' | 'secondary' | 'danger' | 'text' | 'text danger'
   onClick: () => void | Promise<void>
   disabled?: boolean
   loading?: boolean
@@ -79,7 +79,9 @@ export const modal = {
           buttons: [
             {
               label: cancelText,
-              variant: 'secondary' as const,
+              // SwiftUI mapping: Cancel is a borderless TextButton (danger-tinted
+              // in destructive confirms), Confirm stays prominent accent.
+              variant: (config.danger ? 'text danger' : 'text') as ModalButton['variant'],
               onClick: () => {
                 modal.close()
                 resolve(false)
@@ -87,7 +89,7 @@ export const modal = {
             },
             {
               label: confirmText,
-              variant: (config.danger ? 'danger' : 'primary') as ModalButton['variant'],
+              variant: 'primary' as const,
               onClick: () => {
                 modal.close()
                 resolve(true)

@@ -10,7 +10,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 a { 
-  color: #2483e2; 
+  color: var(--color-text-link); 
   font-weight: 500;
   text-decoration: none; 
   cursor: pointer;
@@ -18,11 +18,18 @@ a {
 a:hover { text-decoration: underline; }
 
 :root {
+  /* Color scheme — only these tokens (chips are exempt, any colors).
+     text: primary --color-text, secondary --color-text-soft, tertiary --color-text-disabled
+     backgrounds: page --color-background, raised --color-surface, containers --color-surface-container[-high[-est]]
+     actions: --color-accent (+hover/soft), danger --color-danger (+hover)
+     feedback triples: --color-notification-{info,warning,error,success}-{bg,border,text}
+     disabled: --color-disabled-bg/text
+     switch: --color-switch-off/on (on follows --color-accent) */
   /* Light Theme Tokens */
   --color-surface: #ffffff;
   --color-surface-container: #ffffff;
   --color-surface-container-high: #fcfcfc;
-  --color-surface-container-highest: #f4f5f5;
+  --color-surface-container-highest: #e9eaeb;
   --color-background: #fafafa;
 
   /* Radius scale. Elements get squircle corners via the use:squircle action. */
@@ -42,13 +49,13 @@ a:hover { text-decoration: underline; }
   --color-text-on-button: #2b2d31;
   --color-text-on-button-reverse: #ffffff;
   
-  --color-outline-light: #e2e3e4;
-  --color-outline-soft: #eaeaeb;
+  --color-outline-light: #d5d7d9;
+  --color-outline-soft: #dfe0e1;
   --color-outline: #76777b;
   --color-outline-variant: #c6c6ca;
   
   --color-button-container: #ffffff;
-  --color-button-container-high: #eaeaeb;
+  --color-button-container-high: #dee0e2;
   --color-button-container-accent: #dbeafe;
   
   --color-hover-bg: #f4f5f5;
@@ -78,6 +85,9 @@ a:hover { text-decoration: underline; }
   --color-accent-hover: #1b6dca;
   --color-accent-soft: rgba(59, 130, 246, 0.1);
 
+  --color-switch-off: #eaeaeb;
+  --color-switch-on: var(--color-accent);
+
   --color-chip-neutral-bg: #e4e6e8;
   --color-chip-neutral-text: #4b4f55;
 
@@ -91,6 +101,18 @@ a:hover { text-decoration: underline; }
   --color-warning-text: #ca8a04;
   --color-error-text: #dc2626;
   --color-success-text: #16a34a;
+  --color-disabled-bg: #f4f5f6;
+  --color-disabled-text: #a8adb3;
+
+  --color-danger: #dc2626;
+  --color-danger-hover: #b91c1c;
+
+  --color-notification-error-bg: rgba(239, 68, 68, 0.1);
+  --color-notification-error-border: rgba(239, 68, 68, 0.3);
+  --color-notification-error-text: #dc2626;
+  --color-notification-success-bg: rgba(34, 197, 94, 0.1);
+  --color-notification-success-border: rgba(34, 197, 94, 0.3);
+  --color-notification-success-text: #16a34a;
   
   --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-sm: 0 1px 3px 0 rgba(10, 13, 18, 0.1), 0 1px 2px -1px rgba(10, 13, 18, 0.1);
@@ -99,6 +121,13 @@ a:hover { text-decoration: underline; }
   --shadow-xl: 0 20px 24px -4px rgba(10, 13, 18, 0.08), 0 8px 8px -4px rgba(10, 13, 18, 0.03);
   
   --sidebar-w: 240px;
+
+  /* Playground-tunable control metrics (see UI test polygon). */
+  --btn-pad-v: 6px;
+  --btn-pad-h: 14px;
+  --field-pad-v: 10px;
+  --field-pad-h: 12px;
+  --ctl-radius: 14px;
 }
 
 .dark {
@@ -156,6 +185,9 @@ a:hover { text-decoration: underline; }
   --color-accent-hover: #a5bfff;
   --color-accent-soft: rgba(96, 165, 250, 0.15);
 
+  --color-switch-off: #3a3c40;
+  --color-switch-on: var(--color-accent);
+
   --color-chip-neutral-bg: #3a3c40;
   --color-chip-neutral-text: #c9cdd3;
 
@@ -169,6 +201,18 @@ a:hover { text-decoration: underline; }
   --color-warning-text: #fbbf24;
   --color-error-text: #f87171;
   --color-success-text: #4ade80;
+  --color-disabled-bg: #2c2c2c;
+  --color-disabled-text: #5f5f5f;
+
+  --color-danger: #ef4444;
+  --color-danger-hover: #dc2626;
+
+  --color-notification-error-bg: rgba(248, 113, 113, 0.15);
+  --color-notification-error-border: rgba(248, 113, 113, 0.35);
+  --color-notification-error-text: #f87171;
+  --color-notification-success-bg: rgba(74, 222, 128, 0.15);
+  --color-notification-success-border: rgba(74, 222, 128, 0.35);
+  --color-notification-success-text: #4ade80;
   
   --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
   --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.6), 0 1px 2px -1px rgba(0, 0, 0, 0.6);
@@ -177,28 +221,85 @@ a:hover { text-decoration: underline; }
   --shadow-xl: 0 20px 24px -4px rgba(0, 0, 0, 0.6), 0 8px 8px -4px rgba(0, 0, 0, 0.5);
 }
 
+/* Control sizing: heights derive from content (line-height) + padding vars,
+   never fixed pixels — the polygon tunes them live and widgets grow with
+   their content. .btn-sm / .btn-large are the base button scaled: same shape,
+   proportionally scaled font, padding and corner radius. Icon buttons are
+   squares via aspect-ratio on the same vertical padding. Textarea is exempt
+   (min-height instead). */
 input, select, textarea {
   font-family: inherit;
   font-size: 14px;
   font-weight: 400;
+  line-height: 20px;
   width: 100%;
-  border-radius: var(--radius-md);
-  border: none;
+  border-radius: var(--ctl-radius);
+  /* transparent border keeps disabled geometry identical to enabled */
+  border: 1px solid transparent;
   background: var(--color-surface-container-highest);
   color: var(--color-text);
-  padding: 6px 12px;
+  padding: var(--field-pad-v) var(--field-pad-h);
   outline: none;
 }
+/* Bare checkboxes never take the full-width input rule (DynamicForm rows);
+   the styled project checkbox is .check below. */
+input[type="checkbox"] {
+  width: auto;
+  height: auto;
+}
 input:focus, select:focus, textarea:focus {
-  background: var(--color-surface-container-high);
-  /* inset ring: follows the clip-path squircle, unlike outline/box-shadow */
+  /* fill stays put — the accent inset ring alone marks focus (longhand only:
+     the background shorthand would reset background-repeat and tile the
+     select chevron) */
   box-shadow: inset 0 0 0 2px var(--color-accent);
 }
 input:disabled, select:disabled, textarea:disabled {
-  background-color: var(--color-surface-container);
-  color: var(--color-text-disabled);
-  border-color: var(--color-outline-soft);
+  background-color: var(--color-disabled-bg);
+  color: var(--color-disabled-text);
+  /* frame in the enabled fill color so the widget reads against the page */
+  border-color: var(--color-surface-container-highest);
   cursor: not-allowed;
+}
+
+/* Project checkbox: squircle box sized to match text fields. Pair with
+   use:squircle for the superellipse clip (border-radius below is the
+   fallback). Inactive fill matches .btn-primary; the checked mark draws
+   white on top of it. */
+input[type="checkbox"].check {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: var(--color-button-container-high);
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  transition: transform 120ms ease;
+}
+/* press only (mouse/touch): small box needs a deep scale to read */
+input[type="checkbox"].check:active {
+  transform: scale(0.85);
+}
+input[type="checkbox"].check::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--color-accent);
+  transform: scale(0);
+  transition: transform 80ms ease-out;
+}
+input[type="checkbox"].check:checked::before {
+  transform: scale(1);
+}
+input[type="checkbox"].check:focus {
+  background: var(--color-button-container-high);
+  box-shadow: none;
 }
 textarea {
   resize: vertical;
@@ -208,34 +309,59 @@ select option {
   background: var(--color-surface); 
   color: var(--color-text);
 }
+/* Custom chevron everywhere (was auth-forms only); appearance:none kills the native glyph. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236c717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+  padding-right: 40px;
+}
+.dark select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a0a0a0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+}
 
 button, .btn {
   font-family: inherit;
   font-size: 14px;
   font-weight: 500;
-  line-height: 21px;
+  line-height: 22px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 0 16px;
-  height: 32px;
-  border-radius: var(--radius-md);
+  /* horizontal rhythm: icon-text gap is half the edge padding */
+  gap: calc(var(--btn-pad-h) / 2);
+  padding: var(--btn-pad-v) var(--btn-pad-h);
+  border-radius: var(--ctl-radius);
   cursor: pointer;
   border: 1px solid transparent;
   background: transparent;
   color: var(--color-text-on-button);
   white-space: nowrap;
   user-select: none;
+  transition:
+    transform 120ms ease,
+    background 0.15s ease;
+}
+/* press feedback: a small inward bounce */
+button:active:not([disabled]), .btn:active:not([disabled]) {
+  transform: scale(0.96);
 }
 button:hover:not([disabled]), .btn:hover:not([disabled]) { 
   background: var(--color-button-container-high); 
 }
 button:disabled, .btn:disabled { 
-  background-color: var(--color-surface-container);
-  color: var(--color-text-disabled);
+  background-color: var(--color-disabled-bg);
+  color: var(--color-disabled-text);
+  /* frame in the enabled fill color so the button reads against the page */
+  border-color: var(--color-button-container-high);
   cursor: not-allowed;
   opacity: 0.6;
+}
+.dark button:disabled, .dark .btn:disabled {
+  opacity: 0.8;
 }
 button:focus-visible, .btn:focus-visible {
   outline: 2px solid var(--color-outline);
@@ -243,55 +369,123 @@ button:focus-visible, .btn:focus-visible {
 }
 
 .btn-primary {
-  background: var(--color-button-container-high);
-  color: var(--color-text-on-button);
+  background: var(--color-accent);
+  color: var(--color-text-on-button-reverse);
 }
 .btn-primary:hover:not([disabled]) { 
-  background: var(--color-outline-light);
+  background: var(--color-accent-hover);
 }
 
 .btn-secondary {
   border-color: transparent;
-  background: transparent;
+  background: var(--color-button-container-high);
   color: var(--color-text-on-button);
 }
 .btn-secondary:hover:not([disabled]) {
-  background: var(--color-button-container-high);
+  background: var(--color-outline-light);
 }
 
 .btn-danger {
-  background: transparent;
-  border-color: var(--color-error-text);
-  color: var(--color-error-text);
+  background: var(--color-danger);
+  border-color: transparent;
+  color: #fff;
 }
 .btn-danger:hover:not([disabled]) { 
-  background: rgba(239, 68, 68, 0.1); 
+  background: var(--color-danger-hover);
 }
 
-.btn-link {
-  color: var(--color-text-link);
-  border: none;
+/* TextButton (SwiftUI borderless): no fill, accent text, soft tint on hover.
+   Keeps the transparent border so it matches filled buttons' geometry.
+   .danger recolors the text for destructive contexts. */
+.btn-text {
   background: transparent;
+  color: var(--color-accent);
 }
-.btn-link:hover { 
-  text-decoration: underline;
-  background: transparent;
+.btn-text:hover:not([disabled]) {
+  background: var(--color-accent-soft);
+}
+.btn-text.danger {
+  color: var(--color-danger);
+}
+.btn-text.danger:hover:not([disabled]) {
+  background: var(--color-notification-error-bg);
 }
 
-.btn-sm { 
-  padding: 0 12px; 
-  height: 28px;
-  font-size: 12px; 
+/* Tinted buttons: colors come from inline --tint-* vars computed by
+   lib/tint.ts. Rules sit after the variants so equal-specificity hovers
+   resolve to the tint. */
+.btn-tinted {
+  background: var(--tint-bg);
+  color: var(--tint-text);
+  border-color: transparent;
+}
+.btn-tinted:hover:not([disabled]) {
+  background: var(--tint-hover);
+}
+.btn-text.btn-tinted {
+  background: transparent;
+  color: var(--tint-bg);
+}
+.btn-text.btn-tinted:hover:not([disabled]) {
+  background: var(--tint-soft);
+}
+
+/* Image glyph inside a Button (icon={src:...}); font icons size themselves. */
+.btn-glyph {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+/* Scale steps: same shape as the base button, scaled ~0.8x / ~1.3x —
+   font, line-height, padding and corner radius all follow. */
+.btn-sm {
+  font-size: 12px;
+  line-height: 18px;
+  padding: calc(var(--btn-pad-v) * 0.75) calc(var(--btn-pad-h) * 0.85);
+  border-radius: calc(var(--ctl-radius) * 0.8);
 }
 
 .btn-large {
-  height: 36px;
+  font-size: 16px;
+  line-height: 24px;
+  padding: calc(var(--btn-pad-v) * 1.75) calc(var(--btn-pad-h) * 1.4);
+  border-radius: calc(var(--ctl-radius) * 1.2);
 }
 
+/* Icon buttons: squircle-square, width pinned to the derived height so the
+   box is exactly square (aspect-ratio proved unreliable in flex rows).
+   Height = 22px line box + 2*pad-v + 2px border. */
 .btn-icon {
-  aspect-ratio: 1 / 1;
-  padding: 0;
-  border-radius: 50%;
+  padding: var(--btn-pad-v);
+  width: calc(var(--btn-pad-v) * 2 + 24px);
+  border-radius: var(--ctl-radius);
+}
+.btn-icon .icon {
+  line-height: inherit;
+}
+/* Destructive icon button: red glyph, reddish hover fill. */
+.btn-icon.icon-danger {
+  color: var(--color-danger);
+}
+.btn-icon.icon-danger:hover:not([disabled]) {
+  background: var(--color-notification-error-bg);
+}
+.btn-sm.btn-icon {
+  /* sm: 18px line box + 2*0.75*pad-v + 2px border */
+  width: calc(var(--btn-pad-v) * 1.5 + 20px);
+}
+.btn-sm.btn-icon .icon {
+  font-size: 16px;
+}
+
+/* Icon+text buttons: font icons carry ~4px of optical side bearing, so the
+   icon edge reads wider than the text edge — compensate on the icon side. */
+.btn-iconed-left {
+  padding-left: calc(var(--btn-pad-h) - 4px);
+}
+.btn-iconed-right {
+  padding-right: calc(var(--btn-pad-h) - 4px);
 }
 
 table { width: 100%; border-collapse: collapse; }
@@ -316,32 +510,41 @@ tbody tr:hover td {
   background: var(--color-hover-bg);
 }
 
-.badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 10px;
-  border-radius: 9999px;
-  font-size: 11px;
-  font-weight: 500;
+/* Div-table widget: .table > .table-row rows, one .table-head on top.
+   Pages set only grid-template-columns and column-specific tweaks;
+   base geometry and header styling live here so every table reads the same. */
+.table {
+  background: var(--color-surface-container-high);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
 }
-.badge-blue { background: var(--color-badge-blue-bg); color: var(--color-badge-blue-text); }
-.badge-green { background: var(--color-badge-green-bg); color: var(--color-badge-green-text); }
-.badge-yellow { background: var(--color-badge-yellow-bg); color: var(--color-badge-yellow-text); }
-.badge-red { background: var(--color-badge-red-bg); color: var(--color-badge-red-text); }
-.badge-purple { background: var(--color-badge-purple-bg); color: var(--color-badge-purple-text); }
-.badge-teal { background: var(--color-badge-teal-bg); color: var(--color-badge-teal-text); }
-.badge-orange { background: var(--color-badge-orange-bg); color: var(--color-badge-orange-text); }
+.table-row {
+  display: grid;
+  align-items: center;
+  padding: 10px 16px;
+  gap: 12px;
+}
+.table-row + .table-row {
+  border-top: 1px solid var(--color-outline-soft);
+}
+.table-head {
+  background: var(--color-surface-container-highest);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-soft);
+}
 
-/* Capability chip: compact tag, squircle corners */
+/* Capability chip: compact tag. The only tag style — badges were merged
+   into chips. */
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 8px;
-  border-radius: var(--radius-xs);
-  font-size: 11px;
+  padding: 3px 12px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
   font-weight: 500;
-  line-height: 16px;
+  line-height: 18px;
   white-space: nowrap;
 }
 .chip .icon { font-size: 13px; }
@@ -353,6 +556,20 @@ tbody tr:hover td {
 .chip-teal { background: var(--color-badge-teal-bg); color: var(--color-badge-teal-text); }
 .chip-orange { background: var(--color-badge-orange-bg); color: var(--color-badge-orange-text); }
 .chip-neutral { background: var(--color-chip-neutral-bg); color: var(--color-chip-neutral-text); }
+
+/* Chip sizes: sm 16px / base 24px / lg 30px row height, radius scaled up. */
+.chip-sm {
+  padding: 1px 8px;
+  border-radius: 9px;
+  font-size: 10px;
+  line-height: 14px;
+}
+.chip-lg {
+  padding: 5px 18px;
+  border-radius: 15px;
+  font-size: 14px;
+  line-height: 20px;
+}
 
 .mono { 
   font-family: "DM Mono", "SF Mono", "Fira Code", monospace; 
@@ -411,11 +628,6 @@ tbody tr:hover td {
   padding-left: 36px;
 }
 
-.badge-sm {
-  padding: 2px 8px;
-  font-size: 10px;
-}
-
 .text-muted {
   color: var(--color-text-soft);
 }
@@ -427,18 +639,18 @@ tbody tr:hover td {
 }
 
 .error-msg {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #dc2626;
+  background: var(--color-notification-error-bg);
+  border: 1px solid var(--color-notification-error-border);
+  color: var(--color-notification-error-text);
   padding: 12px 16px;
   border-radius: 8px;
   margin-bottom: 16px;
   font-size: 13px;
 }
 .success-msg {
-  background: rgba(34, 197, 94, 0.1);
-  border: 1px solid rgba(34, 197, 94, 0.3);
-  color: #16a34a;
+  background: var(--color-notification-success-bg);
+  border: 1px solid var(--color-notification-success-border);
+  color: var(--color-notification-success-text);
   padding: 12px 16px;
   border-radius: 8px;
   margin-bottom: 16px;
@@ -501,23 +713,16 @@ tbody tr:hover td {
   border-top: 1px solid var(--color-outline-soft);
   margin: 20px 0;
 }
-.auth-html select {
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236c717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  background-size: 16px;
-  padding-right: 40px;
-}
+/* Plugin auth HTML: controls inherit the global field/select/button system;
+   only submit sizing context lives here. */
 .auth-html input[type="submit"],
 .auth-html button[type="submit"] {
-  background: var(--color-button-container);
-  border: 1px solid var(--color-outline-light);
+  background: var(--color-button-container-high);
+  border: none;
   color: var(--color-text-on-button);
   cursor: pointer;
-  padding: 0 16px;
-  height: 32px;
-  border-radius: 12px;
+  padding: var(--btn-pad-v) var(--btn-pad-h);
+  border-radius: var(--ctl-radius);
   font-size: 14px;
   font-weight: 500;
   width: auto;
@@ -525,7 +730,7 @@ tbody tr:hover td {
 }
 .auth-html input[type="submit"]:hover,
 .auth-html button[type="submit"]:hover {
-  background: var(--color-button-container-high);
+  background: var(--color-outline-light);
 }
 .auth-html button[type="submit"] + button[type="submit"],
 .auth-html input[type="submit"] + button[type="submit"],

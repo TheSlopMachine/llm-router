@@ -9,6 +9,8 @@
   import { getErrorMessage } from '../lib/errors'
   import Dropdown from './Dropdown.svelte'
   import Switch from './ui/Switch.svelte'
+  import { squircle } from '../lib/squircle'
+  import { accent, accents } from '../lib/accent.svelte'
 
   let {
     updateButtons,
@@ -106,6 +108,23 @@
       <label for="settings-theme">{t('Theme')}</label>
       <Dropdown value={th} options={themeOptions} onchange={(v) => (th = v as Theme)} />
     </div>
+
+    <div class="field">
+      <span class="field-label">{t('Accent')}</span>
+      <div class="accent-grid">
+        {#each accents as a}
+          <button
+            type="button"
+            class="accent-swatch"
+            class:selected={accent.value.name === a.name}
+            style="background: {a.bg}; color: {a.text}"
+            onclick={() => { accent.value = a }}
+            title="{a.name} ({a.bg})"
+            use:squircle={12}
+          >Aa</button>
+        {/each}
+      </div>
+    </div>
   </section>
 
   <hr class="divider" />
@@ -126,7 +145,7 @@
 
     <div class="field">
       <label for="settings-max-retries">{t('Max retries')}</label>
-      <input id="settings-max-retries" type="number" min="0" max="20" step="1" bind:value={maxRetries} />
+      <input id="settings-max-retries" type="number" min="0" max="20" step="1" bind:value={maxRetries} use:squircle={12} />
     </div>
   </section>
 </div>
@@ -175,5 +194,24 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
+  }
+
+  .accent-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .accent-swatch {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--ctl-radius);
+    border: none;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
+  }
+  .accent-swatch.selected {
+    box-shadow: inset 0 0 0 2px var(--color-text);
   }
 </style>

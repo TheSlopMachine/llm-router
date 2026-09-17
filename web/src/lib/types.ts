@@ -113,7 +113,7 @@ export type MetricsFilters = Record<string, unknown>
 export type Stats = Record<string, unknown>
 export type Status = Record<string, unknown>
 export type ErrorResponse = { error: string }
-export type ProviderStats = { model_count: number; credential_count: number; requests_today: number }
+export type ProviderStats = { model_count: number; credential_count: number }
 
 export interface Provider {
   id: string

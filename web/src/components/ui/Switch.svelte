@@ -73,30 +73,32 @@
     width: 36px;
     height: 20px;
     border-radius: 9999px;
-    border: 1px solid var(--color-outline-light);
-    background: var(--color-surface-container-highest);
+    border: none;
+    background: var(--color-switch-off);
     position: relative;
     cursor: pointer;
     padding: 0;
     flex-shrink: 0;
-    transition:
-      background 0.15s,
-      border-color 0.15s;
+    transition: background 0.15s;
   }
 
   .switch.on {
-    background: var(--color-text);
-    border-color: var(--color-text);
+    background: var(--color-switch-on);
+  }
+
+  /* The thumb slide is the feedback; no global press bounce on the track. */
+  .switch:active {
+    transform: none;
   }
 
   .switch-thumb {
     position: absolute;
     top: 2px;
     left: 2px;
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
-    background: var(--color-surface);
+    background: #fff;
     box-shadow: var(--shadow-xs);
     transition: transform 0.15s;
   }

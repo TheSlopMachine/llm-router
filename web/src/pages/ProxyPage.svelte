@@ -97,16 +97,26 @@
     }
   }
 
+  let checkAllAbort: AbortController | null = null
+
+  // Second click cancels: the endpoint is synchronous and dies with the request.
   async function checkAll(): Promise<void> {
+    if (checkingAll) {
+      checkAllAbort?.abort()
+      return
+    }
     checkingAll = true
+    checkAllAbort = new AbortController()
     try {
-      await api.proxies.checkAll()
-      // The check runs in the background; give it a moment before reloading.
-      setTimeout(reloadPool, 3000)
+      await api.proxies.checkAll(checkAllAbort.signal)
+      await reloadPool()
     } catch (e) {
-      error = getErrorMessage(e)
+      if (!checkAllAbort.signal.aborted) {
+        error = getErrorMessage(e)
+      }
     } finally {
       checkingAll = false
+      checkAllAbort = null
     }
   }
 
@@ -166,14 +176,14 @@
   <section class="section">
     <div class="add-form">
       <input
-        class="search-input url-input"
+        class="url-input"
         type="text"
         placeholder={t('protocol://[user:pass@]host:port')}
         bind:value={newUrl}
         use:squircle={12}
       />
       <input
-        class="search-input country-input"
+        class="country-input"
         type="text"
         placeholder={t('CC')}
         maxlength="2"
@@ -184,9 +194,9 @@
         <span class="icon">add</span>
         {t('Add proxy')}
       </button>
-      <button class="btn btn-secondary" onclick={checkAll} disabled={checkingAll || manualProxies.length === 0} use:squircle={12}>
-        <span class="icon" class:spin={checkingAll}>{checkingAll ? 'progress_activity' : 'network_check'}</span>
-        {t('Check all')}
+      <button class="btn btn-secondary" onclick={checkAll} disabled={!checkingAll && manualProxies.length === 0} use:squircle={12}>
+        <span class="icon">{checkingAll ? 'stop' : 'network_check'}</span>
+        {checkingAll ? t('Checking… click to cancel') : t('Check all')}
       </button>
     </div>
     {#if manualProxies.length === 0}
@@ -207,16 +217,16 @@
             <span class="pcol-country">{p.country || '—'}</span>
             <span class="pcol-status">
               {#if p.alive}
-                <span class="badge badge-green" title={t('Last probe latency')}>{t('alive')}{p.latency_ms ? ` · ${p.latency_ms}ms` : ''}</span>
+                <span class="chip chip-green" title={t('Last probe latency')}>{t('alive')}{p.latency_ms ? ` · ${p.latency_ms}ms` : ''}</span>
               {:else}
-                <span class="badge badge-red" title={t('Failed the last probe; recheck to revive')}>{t('dead')}</span>
+                <span class="chip chip-red" title={t('Failed the last probe; recheck to revive')}>{t('dead')}</span>
               {/if}
             </span>
             <span class="pcol-actions">
-              <button class="btn-icon" onclick={() => checkProxy(p)} disabled={checkingId === p.id} aria-label={t('Check proxy')} title={t('Check proxy')}>
+              <button class="btn-icon" onclick={() => checkProxy(p)} disabled={checkingId === p.id} aria-label={t('Check proxy')} title={t('Check proxy')} use:squircle={10}>
                 <span class="icon" class:spin={checkingId === p.id}>{checkingId === p.id ? 'progress_activity' : 'network_check'}</span>
               </button>
-              <button class="btn-icon" onclick={() => deleteProxy(p)} aria-label={t('Delete proxy')} title={t('Delete proxy')}>
+              <button class="btn-icon icon-danger" onclick={() => deleteProxy(p)} aria-label={t('Delete proxy')} title={t('Delete proxy')} use:squircle={10}>
                 <span class="icon">delete</span>
               </button>
             </span>
@@ -311,39 +321,9 @@
     flex: 0 0 72px;
     text-transform: uppercase;
   }
-  .search-input {
-    padding: 8px 12px;
-    border: none;
-    border-radius: var(--radius-md);
-    background: var(--color-surface-container-highest);
-    color: var(--color-text);
-    font-family: inherit;
-    font-size: 14px;
-  }
-  .search-input:focus {
-    outline: none;
-    box-shadow: inset 0 0 0 2px var(--color-accent);
-  }
-  .table {
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-  }
+  /* Column layout only — table widget chrome comes from the global rules. */
   .table-row {
-    display: grid;
     grid-template-columns: minmax(0, 1.6fr) 110px 90px minmax(0, 1fr) auto;
-    align-items: center;
-    padding: 10px 16px;
-    gap: 12px;
-    background: var(--color-surface-container-high);
-  }
-  .table-row + .table-row {
-    border-top: 1px solid var(--color-outline-soft);
-  }
-  .table-head {
-    background: var(--color-surface-container-highest);
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--color-text-soft);
   }
   .row-dead {
     opacity: 0.5;

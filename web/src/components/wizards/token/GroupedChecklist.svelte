@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import { t } from '../../../lib/i18n.svelte'
+  import { squircle } from '../../../lib/squircle'
 
   type Group = {
     id: string
@@ -88,14 +89,14 @@
         <span class="section-count">{groupSelectedCount(group)} / {group.items.length}</span>
         <button
           type="button"
-          class="btn-link select-all-btn"
+          class="btn-text select-all-btn"
           onclick={() => selectAll(group, !isGroupAllSelected(group, query), query)}
           disabled={disabled || group.items.length === 0}
         >
           {isGroupAllSelected(group, query) ? t('Deselect all') : t('Select all')}
         </button>
         {#if group.error}
-          <span class="badge badge-red">{group.error}</span>
+          <span class="chip chip-red">{group.error}</span>
         {/if}
       </div>
 
@@ -112,7 +113,7 @@
                 {@render row({ item, id, checked, group })}
               {:else}
                 <label class="checkbox-item">
-                  <input type="checkbox" {checked} onchange={() => onToggle(id)} {disabled} />
+                  <input type="checkbox" class="check" {checked} onchange={() => onToggle(id)} {disabled} use:squircle={6} />
                   <span class="mono">{String(item)}</span>
                 </label>
               {/if}

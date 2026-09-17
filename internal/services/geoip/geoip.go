@@ -10,9 +10,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 )
 
 const detectURL = "http://ip-api.com/json/?fields=status,countryCode"
@@ -34,9 +35,10 @@ func New(logger *slog.Logger) *Service {
 }
 
 // SetOverride installs the manual country override (empty clears).
+// The value normalizes to canonical alpha-2 like every other country code.
 func (s *Service) SetOverride(country string) {
 	s.mu.Lock()
-	s.override = strings.ToUpper(strings.TrimSpace(country))
+	s.override = proxypool.NormalizeCountryCode(country)
 	s.mu.Unlock()
 }
 
@@ -60,6 +62,7 @@ func (s *Service) Country(ctx context.Context) string {
 		}
 		return cached // stale cache beats nothing
 	}
+	c = proxypool.NormalizeCountryCode(c)
 	s.mu.Lock()
 	s.country = c
 	s.fetchedAt = time.Now()

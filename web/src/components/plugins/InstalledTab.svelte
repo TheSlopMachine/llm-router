@@ -88,8 +88,8 @@
         title={plugin.display_name}
         meta={`v${plugin.version} · ${plugin.author}`}
         badges={[
-          ...(plugin.unsafe ? [{ text: 'Unrestricted network', kind: 'badge-red' as const }] : []),
-          ...(update ? [{ text: `Update: v${update.current} → v${update.latest}`, kind: 'badge-green' as const }] : [])
+          ...(plugin.unsafe ? [{ text: 'Unrestricted network', kind: 'chip-red' as const }] : []),
+          ...(update ? [{ text: `Update: v${update.current} → v${update.latest}`, kind: 'chip-green' as const }] : [])
         ]}
         description={plugin.description}
         mode="installed"

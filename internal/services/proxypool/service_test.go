@@ -91,12 +91,42 @@ func TestSelect_PreferencesAndProviderHealth(t *testing.T) {
 	svc.RecordOutcome(de.ID, "groq", false, 1)
 	got = svc.Select(models.ProxyPreferences{Location: "DE"}, "groq")
 	if got == nil || got.ID != us.ID {
-		t.Fatalf("provider-known-bad proxy not excluded: %+v", got)
+		t.Fatalf("provider-known-bad proxy not demoted: %+v", got)
 	}
 	// Same proxy stays usable for another provider.
 	got = svc.Select(models.ProxyPreferences{Location: "DE"}, "google")
 	if got == nil || got.ID != de.ID {
 		t.Fatalf("per-provider health leaked: %+v", got)
+	}
+	// A known-bad proxy is still returned when it is the only alive one:
+	// demotion is a priority, not a block.
+	svc.RecordOutcome(us.ID, "groq", false, 1)
+	got = svc.Select(models.ProxyPreferences{Location: "DE"}, "groq")
+	if got == nil {
+		t.Fatal("all-demoted pool selects nothing")
+	}
+}
+
+func TestSelect_StickyKnownGood(t *testing.T) {
+	svc := setup(t)
+	us, _ := svc.AddManual("http://1.1.1.1:80", "us")
+	de, _ := svc.AddManual("http://2.2.2.2:80", "de")
+	for _, id := range []string{us.ID, de.ID} {
+		p, _ := svc.Get(id)
+		p.Alive = true
+		_ = svc.repo.Put(id, p)
+	}
+	// The proven exit sticks even against the location preference.
+	svc.RecordOutcome(us.ID, "groq", true, 1)
+	got := svc.Select(models.ProxyPreferences{Location: "DE"}, "groq")
+	if got == nil || got.ID != us.ID {
+		t.Fatalf("sticky known-good lost to location preference: %+v", got)
+	}
+	// Once it fails, rotation moves on and the preference leads again.
+	svc.RecordOutcome(us.ID, "groq", false, 1)
+	got = svc.Select(models.ProxyPreferences{Location: "DE"}, "groq")
+	if got == nil || got.ID != de.ID {
+		t.Fatalf("failed sticky not rotated: %+v", got)
 	}
 }
 

@@ -57,21 +57,21 @@
         <div class="chart-area">
           {#if !hasData}
             <svg width="100%" height="100%" viewBox="0 0 300 120" preserveAspectRatio="none">
-              <line x1="0" y1="119" x2="300" y2="119" stroke="#e2e3e4" stroke-width="1" />
-              <line x1="0" y1="115" x2="0" y2="123" stroke="#e2e3e4" stroke-width="1" />
-              <line x1="300" y1="115" x2="300" y2="123" stroke="#e2e3e4" stroke-width="1" />
+              <line x1="0" y1="119" x2="300" y2="119" style="stroke: var(--color-outline-light)" stroke-width="1" />
+              <line x1="0" y1="115" x2="0" y2="123" style="stroke: var(--color-outline-light)" stroke-width="1" />
+              <line x1="300" y1="115" x2="300" y2="123" style="stroke: var(--color-outline-light)" stroke-width="1" />
             </svg>
           {:else}
             <svg width="100%" height="100%" viewBox="0 0 300 120" preserveAspectRatio="none">
               <!-- Grid lines at peak, peak/2, zero -->
-              <line x1="0" y1="0" x2="300" y2="0" stroke="#f4f5f5" stroke-width="1" />
-              <line x1="0" y1="60" x2="300" y2="60" stroke="#f4f5f5" stroke-width="1" />
-              <line x1="0" y1="119" x2="300" y2="119" stroke="#e2e3e4" stroke-width="1" />
+              <line x1="0" y1="0" x2="300" y2="0" style="stroke: var(--color-surface-container-highest)" stroke-width="1" />
+              <line x1="0" y1="60" x2="300" y2="60" style="stroke: var(--color-surface-container-highest)" stroke-width="1" />
+              <line x1="0" y1="119" x2="300" y2="119" style="stroke: var(--color-outline-light)" stroke-width="1" />
 
               {#if data.length === 1}
                 {@const cx = xFor(data[0].timestamp)}
                 {@const cy = yFor(data[0].value)}
-                <circle cx={cx} cy={cy} r="3" fill="#2483e2" vector-effect="non-scaling-stroke" />
+                <circle cx={cx} cy={cy} r="3" style="fill: var(--color-accent)" vector-effect="non-scaling-stroke" />
               {:else}
                 {@const points = data
                   .map((d: TimeSeriesPoint) => `${xFor(d.timestamp)},${yFor(d.value)}`)
@@ -79,15 +79,15 @@
                 <polyline
                   points={points}
                   fill="none"
-                  stroke="#2483e2"
+                  style="stroke: var(--color-accent)"
                   stroke-width="2"
                   vector-effect="non-scaling-stroke"
                 />
               {/if}
 
               <!-- Axis ticks -->
-              <line x1="0" y1="115" x2="0" y2="123" stroke="#e2e3e4" stroke-width="1" />
-              <line x1="300" y1="115" x2="300" y2="123" stroke="#e2e3e4" stroke-width="1" />
+              <line x1="0" y1="115" x2="0" y2="123" style="stroke: var(--color-outline-light)" stroke-width="1" />
+              <line x1="300" y1="115" x2="300" y2="123" style="stroke: var(--color-outline-light)" stroke-width="1" />
             </svg>
           {/if}
         </div>

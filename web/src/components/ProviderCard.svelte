@@ -10,14 +10,30 @@
     onClick: () => void
     onToggle: (enabled: boolean) => void
   }>()
+
+  function onCardKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      onClick()
+    }
+  }
 </script>
 
+<!-- The whole card is the click target (no inner button rectangle). The toggle
+     wrapper eats its own clicks/keys and extends a ~30px dead zone around the
+     switch via padding cancelled by negative margin — layout is unchanged, but
+     taps near the switch never trigger the card. -->
 <div
   class="provider-card"
   class:disabled={provider.disabled}
+  role="button"
+  tabindex="0"
+  aria-label={provider.name}
+  onclick={onClick}
+  onkeydown={onCardKeydown}
   use:squircle={18}
 >
-  <button class="provider-main" onclick={onClick} aria-label={provider.name}>
+  <div class="provider-main">
     <div class="provider-header">
       {#if provider.icon_url}
         <img src={provider.icon_url} alt="" class="provider-icon" use:squircle={12} />
@@ -32,8 +48,13 @@
         </div>
       </div>
     </div>
-  </button>
-  <span class="provider-toggle">
+  </div>
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <span
+    class="provider-toggle"
+    onclick={(e) => e.stopPropagation()}
+    onkeydown={(e) => e.stopPropagation()}
+  >
     <Switch
       checked={!provider.disabled}
       ariaLabel={t('Enable provider')}
@@ -55,10 +76,17 @@
     align-items: center;
     gap: 12px;
     box-sizing: border-box;
+    cursor: pointer;
   }
 
   .provider-card:hover {
     background: var(--color-surface-container-highest);
+  }
+
+  .provider-card:focus-visible {
+    /* inset ring: follows the squircle clip, unlike outline */
+    box-shadow: inset 0 0 0 2px var(--color-accent);
+    outline: none;
   }
 
   .provider-card.disabled {
@@ -74,16 +102,6 @@
     min-width: 0;
     display: flex;
     align-items: center;
-    text-align: left;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: inherit;
-    line-height: inherit;
-    transition: transform 0.12s ease;
-  }
-
-  .provider-main:active {
-    transform: scale(0.97);
   }
 
   .provider-header {
@@ -144,7 +162,12 @@
     flex-shrink: 0;
   }
 
+  /* Dead zone: padding extends the hit area ~30px past the switch on every
+     side, negative margin cancels the layout cost. The card clip-path trims
+     whatever bleeds outside the card, so only the in-card zone stays inert. */
   .provider-toggle {
     flex-shrink: 0;
+    padding: 30px;
+    margin: -30px;
   }
 </style>

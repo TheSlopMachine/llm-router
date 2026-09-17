@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 )
 
 // Manifest is the parsed "--- @tag value" header of a plugin file.
@@ -78,7 +80,7 @@ func ParseManifest(source []byte) (*Manifest, error) {
 				allowHosts = append(allowHosts, value)
 			}
 		case "@proxy_location":
-			m.ProxyLocation = strings.ToUpper(value)
+			m.ProxyLocation = proxypool.NormalizeCountryCode(value)
 		case "@proxy_force_on_mismatch":
 			m.ProxyForceOnMismatch = value == "true"
 		case "@proxy_source":

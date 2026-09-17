@@ -21,37 +21,51 @@ func (s *Service) handlerCall(
 	nret int,
 	applyRet func(L *lua.LState) error,
 	providerConfig map[string]any,
-) (found bool, err error) {
+) (bool, error) {
+	found, _, err := s.handlerCallRouted(goCtx, rec, typeKey, handler, pushArgs, nret, applyRet, providerConfig)
+	return found, err
+}
+
+// handlerCallRouted is handlerCall plus the proxy route used by the call's
+// last HTTP request ("" = direct). Geo-rotation in Complete/CompleteStream
+// consumes it.
+func (s *Service) handlerCallRouted(
+	goCtx context.Context,
+	rec *PluginRecord,
+	typeKey, handler string,
+	pushArgs func(L *lua.LState),
+	nret int,
+	applyRet func(L *lua.LState) error,
+	providerConfig map[string]any,
+) (found bool, route string, err error) {
 	ctx := &execContext{
-		pluginID:      rec.ID,
-		allowHosts:    rec.AllowHosts,
-		unsafe:        rec.Unsafe,
-		logger:        s.logger,
-		logSink:       s.appendLog,
-		storage:       s.storage,
-		registrations: map[string]*lua.LTable{},
-		proxySources:  map[string]*lua.LTable{},
+		pluginID:            rec.ID,
+		allowHosts:          rec.AllowHosts,
+		unsafe:              rec.Unsafe,
+		logger:              s.logger,
+		logSink:             s.appendLog,
+		storage:             s.storage,
+		registrations:       map[string]*lua.LTable{},
+		proxySources:        map[string]*lua.LTable{},
+		proxyResolver:       s.proxyResolver,
+		proxyRec:            rec,
+		proxyProviderConfig: providerConfig,
 	}
-	if s.proxyResolver != nil {
-		proxyID, proxyURL, rerr := s.proxyResolver(rec, providerConfig)
-		if rerr != nil {
-			return true, rerr
-		}
-		ctx.proxyID, ctx.proxyURL = proxyID, proxyURL
-	}
-	if ctx.proxyID != "" && s.proxyOutcome != nil {
-		proxyID, tk := ctx.proxyID, typeKey
-		ctx.onProxyResult = func(ok bool, latencyMs int64) {
-			s.proxyOutcome(proxyID, tk, ok, latencyMs)
+	if s.proxyOutcome != nil {
+		tk := typeKey
+		ctx.onProxyResult = func(proxyID string, ok bool, latencyMs int64) {
+			if proxyID != "" {
+				s.proxyOutcome(proxyID, tk, ok, latencyMs)
+			}
 		}
 	}
 	// A geo-blocked response through a proxy marks that proxy bad for this
 	// provider: the HTTP layer counted the 400 as a successful dial.
 	defer func() {
-		if err != nil && ctx.onProxyResult != nil {
+		if err != nil && ctx.onProxyResult != nil && ctx.lastProxyID != "" {
 			var perr *models.ProviderError
 			if errors.As(err, &perr) && perr.Type == models.ErrorTypeGeo {
-				ctx.onProxyResult(false, 0)
+				ctx.onProxyResult(ctx.lastProxyID, false, 0)
 			}
 		}
 	}()
@@ -62,24 +76,24 @@ func (s *Service) handlerCall(
 	if err := L.DoString(string(rec.Source)); err != nil {
 		cause := luaErrorString(L.Get(-1))
 		s.recordCrash(rec.ID, typeKey, "load: "+cause)
-		return true, &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "load: " + cause}
+		return true, ctx.proxyID, &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "load: " + cause}
 	}
 	handlers, ok := ctx.registrations[typeKey]
 	if !ok {
 		if srcHandlers, isSource := ctx.proxySources[typeKey]; isSource {
 			handlers = srcHandlers
 		} else {
-			return false, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: handler}
+			return false, ctx.proxyID, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: handler}
 		}
 	}
 	fn := handlers.RawGetString(handler)
 	if fn == lua.LNil {
-		return false, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: handler}
+		return false, ctx.proxyID, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: handler}
 	}
 	lfn, ok := fn.(*lua.LFunction)
 	if !ok {
 		s.recordCrash(rec.ID, typeKey, "handler "+handler+" is not a function")
-		return true, &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "handler " + handler + " is not a function"}
+		return true, ctx.proxyID, &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "handler " + handler + " is not a function"}
 	}
 
 	top := L.GetTop()
@@ -91,15 +105,15 @@ func (s *Service) handlerCall(
 	if callErr := L.PCall(nargs, nret, nil); callErr != nil {
 		err := s.luaCallError(rec, typeKey, L, callErr)
 		L.SetTop(top)
-		return true, err
+		return true, ctx.proxyID, err
 	}
 	defer L.SetTop(top)
 	if applyRet != nil {
 		if err := applyRet(L); err != nil {
-			return true, err
+			return true, ctx.proxyID, err
 		}
 	}
-	return true, nil
+	return true, ctx.proxyID, nil
 }
 
 func asProviderError(v lua.LValue) (*models.ProviderError, bool) {

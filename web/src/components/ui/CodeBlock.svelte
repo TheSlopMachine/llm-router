@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { squircle } from '../../lib/squircle'
+
   let { text, label = '' } = $props<{
     text: string
     label?: string
@@ -36,6 +38,7 @@
       onclick={() => void copyText()}
       aria-label="Copy code"
       title="Copy"
+      use:squircle={10}
     >
       <span class="icon">{copied ? 'check' : 'content_copy'}</span>
     </button>
@@ -59,7 +62,7 @@
     padding: 10px 12px;
     border: 1px solid var(--color-outline-light);
     border-radius: 8px;
-    background: var(--color-surface-container, #f4f5f5);
+    background: var(--color-surface-container);
   }
   .code-text {
     flex: 1;

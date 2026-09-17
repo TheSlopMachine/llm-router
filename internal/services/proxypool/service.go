@@ -60,7 +60,7 @@ func (s *Service) AddManual(rawURL, country string) (*models.Proxy, error) {
 	if err != nil {
 		return nil, err
 	}
-	p.Country = strings.ToUpper(strings.TrimSpace(country))
+	p.Country = NormalizeCountryCode(country)
 	if existing, err := s.repo.Get(p.ID); err == nil && existing != nil {
 		return nil, fmt.Errorf("proxy %s already registered", p.URL)
 	}
@@ -188,7 +188,7 @@ func candidateToProxy(c models.ProxyCandidate, source string) (*models.Proxy, er
 		Protocol: scheme,
 		Host:     c.Host,
 		Port:     c.Port,
-		Country:  strings.ToUpper(strings.TrimSpace(c.Country)),
+		Country:  NormalizeCountryCode(c.Country),
 		Source:   source,
 	}, nil
 }

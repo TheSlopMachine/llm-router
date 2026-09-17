@@ -1,17 +1,21 @@
 // Squircle (superellipse, Lamé curve n=4) clip-path for arbitrary elements.
 //
-// The action measures the element and sets clip-path: path() in real pixels,
-// so corners keep uniform curvature at any size (objectBoundingBox masks
-// distort corners by aspect ratio). clip-path: path() works in Chrome 88+,
+// The action measures the element's border box and sets clip-path: path() in
+// real pixels, so corners keep uniform curvature at any size (objectBoundingBox
+// masks distort corners by aspect ratio). clip-path: path() works in Chrome 88+,
 // Safari 15.4+, Firefox 97+; older engines keep the CSS border-radius
 // fallback, so always keep a border-radius on the element.
+//
+// The corner radius comes from the element's computed border-radius — CSS is
+// the single source of truth, so theme variables rescale the clip live. The
+// numeric action argument is only a fallback for elements without a CSS radius.
 //
 // Squircle elements are borderless by design: CSS borders do not follow a
 // clip-path. Use a fill that contrasts with the background instead of a
 // border (the Apple grouped-list approach).
 
 const SUPERELLIPSE_EXP = 0.5 // 2/n with n = 4
-const CORNER_SAMPLES = 10
+const CORNER_SAMPLES = 24
 
 function pt(x: number, y: number): string {
   return `L ${x.toFixed(2)} ${y.toFixed(2)}`
@@ -53,27 +57,63 @@ export function squirclePath(width: number, height: number, radius: number): str
   ].join(' ')
 }
 
+// CSS border-radius is the source of truth; the action argument is a fallback.
+// Percent radii (e.g. 50%) resolve against the smaller side.
+function resolveRadius(node: HTMLElement, w: number, h: number, fallback: number): number {
+  const raw = getComputedStyle(node).borderTopLeftRadius
+  if (!raw) return fallback
+  if (raw.endsWith('%')) {
+    const pct = parseFloat(raw)
+    return Number.isFinite(pct) ? (pct / 100) * Math.min(w, h) : fallback
+  }
+  const px = parseFloat(raw)
+  return Number.isFinite(px) && px > 0 ? px : fallback
+}
+
+// A radius-only CSS change does not move the border box, so ResizeObserver
+// alone misses it; window resize (also dispatched by the metrics playground)
+// forces every live squircle to re-read its computed radius.
+const liveApplies = new Set<() => void>()
+let windowHooked = false
+
+function hookWindow(): void {
+  if (windowHooked) return
+  windowHooked = true
+  window.addEventListener('resize', () => {
+    for (const apply of liveApplies) apply()
+  })
+}
+
 export function squircle(node: HTMLElement, radius = 10): { update(r: number): void; destroy(): void } {
-  let r = radius
+  let fallback = radius
 
   function apply(): void {
     const w = node.offsetWidth
     const h = node.offsetHeight
     if (!w || !h) return
-    node.style.clipPath = `path('${squirclePath(w, h, r)}')`
+    node.style.clipPath = `path('${squirclePath(w, h, resolveRadius(node, w, h, fallback))}')`
   }
 
   apply()
+  // border-box: padding-only changes grow the widget while the content box
+  // (the default observed box) stays put, and the clip must follow the widget.
   const ro = new ResizeObserver(apply)
-  ro.observe(node)
+  try {
+    ro.observe(node, { box: 'border-box' })
+  } catch {
+    ro.observe(node)
+  }
+  hookWindow()
+  liveApplies.add(apply)
 
   return {
     update(next: number) {
-      r = next
+      fallback = next
       apply()
     },
     destroy() {
       ro.disconnect()
+      liveApplies.delete(apply)
     },
   }
 }

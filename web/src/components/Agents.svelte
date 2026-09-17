@@ -105,24 +105,24 @@
               <td>{agent.description || '—'}</td>
               <td>
                 {#if agent.is_draft}
-                  <span class="badge badge-yellow">{t('Draft')}</span>
+                  <span class="chip chip-yellow">{t('Draft')}</span>
                 {:else}
                     {agent.models?.length || 0}
                 {/if}
               </td>
               <td>
                 {#if agent.decision_model}
-                  <span class="badge badge-blue">✓</span>
+                  <span class="chip chip-blue">✓</span>
                 {:else}
                   <span class="text-soft">—</span>
                 {/if}
               </td>
               <td class="row-actions">
-                <button class="btn btn-secondary btn-small" onclick={() => openEditAgent(agent)}>
+                <button class="btn btn-secondary btn-sm" onclick={() => openEditAgent(agent)}>
                   <span class="icon">edit</span>
                   {t('Edit')}
                 </button>
-                <button class="btn btn-danger btn-small" onclick={() => deleteAgent(agent)}>
+                <button class="btn btn-danger btn-sm" onclick={() => deleteAgent(agent)}>
                   <span class="icon">delete</span>
                   {t('Delete')}
                 </button>

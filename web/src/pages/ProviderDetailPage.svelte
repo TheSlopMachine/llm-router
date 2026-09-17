@@ -424,14 +424,23 @@
     })
   }
 
+  let testAllCancel = $state(false)
+
+  // Second click cancels: the loop checks the flag between models.
   async function testAllModels(): Promise<void> {
+    if (testingAll) {
+      testAllCancel = true
+      return
+    }
     testingAll = true
+    testAllCancel = false
     try {
       for (const m of models) {
+        if (testAllCancel) break
         if (m.disabled) continue
         await testModel(m)
       }
-      if (disableFailedModels) {
+      if (!testAllCancel && disableFailedModels) {
         const failed = models.filter((m) => {
           if (m.disabled) return false
           const r = modelTestResults[m.name]
@@ -447,6 +456,7 @@
       }
     } finally {
       testingAll = false
+      testAllCancel = false
     }
   }
 
@@ -534,7 +544,7 @@
   </div>
 {:else}
   <div class="detail-header">
-    <button class="btn-icon" onclick={back} aria-label={t('Back to providers')} title={t('Back to providers')}>
+    <button class="btn-icon" onclick={back} aria-label={t('Back to providers')} title={t('Back to providers')} use:squircle={10}>
       <span class="icon">arrow_back</span>
     </button>
     {#if provider.icon_url}
@@ -604,7 +614,7 @@
             <span class="col-label">
               {cred.label || 'Unnamed'}
               {#if cred.is_expired}
-                <span class="badge badge-red">{t('Expired')}</span>
+                <span class="chip chip-red">{t('Expired')}</span>
               {/if}
             </span>
             <span class="col-actions">
@@ -619,13 +629,14 @@
                 disabled={credentialTestResults[cred.id] === 'loading'}
                 aria-label={ti.title}
                 title={ti.title}
+                use:squircle={10}
               >
                 <span class="icon {ti.cls}">{ti.icon}</span>
               </button>
-              <button class="btn-icon" onclick={() => openEditCredential(cred)} aria-label={t('Edit key')} title={t('Edit key')}>
+              <button class="btn-icon" onclick={() => openEditCredential(cred)} aria-label={t('Edit key')} title={t('Edit key')} use:squircle={10}>
                 <span class="icon">edit</span>
               </button>
-              <button class="btn-icon" onclick={() => deleteCredential(cred)} aria-label={t('Delete key')} title={t('Delete key')}>
+              <button class="btn-icon icon-danger" onclick={() => deleteCredential(cred)} aria-label={t('Delete key')} title={t('Delete key')} use:squircle={10}>
                 <span class="icon">delete</span>
               </button>
             </span>
@@ -713,15 +724,15 @@
             autofocus
             use:squircle={12}
           />
-          <button class="btn-icon" aria-label={t('Search')} title={t('Search')}>
+          <button class="btn-icon" aria-label={t('Search')} title={t('Search')} use:squircle={10}>
             <span class="icon">search</span>
           </button>
-          <button class="btn-icon" onclick={() => { searchOpen = false }} aria-label={t('Close search')} title={t('Close search')}>
+          <button class="btn-icon" onclick={() => { searchOpen = false }} aria-label={t('Close search')} title={t('Close search')} use:squircle={10}>
             <span class="icon">close</span>
           </button>
         </div>
       {:else}
-        <button class="btn-icon search-open-btn" onclick={() => { searchOpen = true }} aria-label={t('Open search')} title={t('Filter models')}>
+        <button class="btn-icon search-open-btn" onclick={() => { searchOpen = true }} aria-label={t('Open search')} title={t('Filter models')} use:squircle={10}>
           <span class="icon">search</span>
         </button>
       {/if}
@@ -742,9 +753,9 @@
         <span class="icon">download</span>
         {t('Import from /models')}
       </button>
-      <button class="btn btn-secondary" onclick={testAllModels} disabled={testingAll} use:squircle={12}>
-        <span class="icon">network_check</span>
-        {testingAll ? t('Testing…') : t('Test all')}
+      <button class="btn btn-secondary" onclick={testAllModels} use:squircle={12}>
+        <span class="icon">{testingAll ? 'stop' : 'network_check'}</span>
+        {testingAll ? t('Testing… click to cancel') : t('Test all')}
       </button>
       {#if toolbarStage === 'compact'}
         <ActionDropdown triggerIcon="more_vert" label={t('More actions')} actions={overflowActions} onaction={handleOverflowAction} />
@@ -859,11 +870,12 @@
       disabled={modelTestResults[m.name] === 'loading'}
       aria-label={ti.title}
       title={ti.title}
+      use:squircle={10}
     >
       <span class="icon {ti.cls}">{ti.icon}</span>
     </button>
     {#if m.custom}
-      <button class="btn-icon" onclick={() => deleteCustomModel(m)} aria-label={t('Delete custom model')} title={t('Delete custom model')}>
+      <button class="btn-icon icon-danger" onclick={() => deleteCustomModel(m)} aria-label={t('Delete custom model')} title={t('Delete custom model')} use:squircle={10}>
         <span class="icon">delete</span>
       </button>
     {/if}
@@ -884,7 +896,7 @@
           <span class="model-display">{m.display_name || m.name}</span>
           <span class="model-id">
             {m.name}
-            <button class="btn-icon copy-btn" onclick={() => copyModelId(m.name)} aria-label={t('Copy model id')} title={t('Copy model id')}>
+            <button class="btn-icon copy-btn" onclick={() => copyModelId(m.name)} aria-label={t('Copy model id')} title={t('Copy model id')} use:squircle={10}>
               <span class="icon">content_copy</span>
             </button>
           </span>
@@ -906,7 +918,7 @@
             <div class="model-display">{m.display_name || m.name}</div>
             <span class="model-id">
               {m.name}
-              <button class="btn-icon copy-btn" onclick={() => copyModelId(m.name)} aria-label={t('Copy model id')} title={t('Copy model id')}>
+              <button class="btn-icon copy-btn" onclick={() => copyModelId(m.name)} aria-label={t('Copy model id')} title={t('Copy model id')} use:squircle={10}>
                 <span class="icon">content_copy</span>
               </button>
             </span>
@@ -976,20 +988,9 @@
     border: 1px dashed var(--color-outline-light);
     border-radius: var(--radius-lg);
   }
-  .table {
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-  }
+  /* Column layout only — table widget chrome comes from the global rules. */
   .table-row {
-    display: grid;
     grid-template-columns: 64px minmax(0, 1fr) auto;
-    align-items: center;
-    padding: 10px 16px;
-    gap: 12px;
-    background: var(--color-surface-container-high);
-  }
-  .table-row + .table-row {
-    border-top: 1px solid var(--color-outline-soft);
   }
   .table-row[draggable='true'] {
     cursor: grab;
@@ -998,10 +999,6 @@
     cursor: grabbing;
   }
   .table-head {
-    background: var(--color-surface-container-highest);
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--color-text-soft);
     cursor: default;
   }
   .table-head .col-actions,
@@ -1086,20 +1083,9 @@
   .search-open-btn:active {
     transform: scale(0.88);
   }
+  /* Layout only — widget styling comes from the global field rules. */
   .search-input {
     flex: 0 1 280px;
-    height: 36px;
-    padding: 0 12px;
-    border: none;
-    border-radius: var(--radius-md);
-    background: var(--color-surface-container-highest);
-    color: var(--color-text);
-    font-family: inherit;
-    font-size: 14px;
-  }
-  .search-input:focus {
-    outline: none;
-    box-shadow: inset 0 0 0 2px var(--color-accent);
   }
   .models-grid {
     display: grid;

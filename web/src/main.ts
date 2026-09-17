@@ -1,4 +1,5 @@
 import './app.css'
+import './lib/accent.svelte'
 import { mount } from 'svelte'
 import App from './App.svelte'
 

@@ -2,6 +2,7 @@
   import Dropdown from '../../Dropdown.svelte'
   import type { AgentModel, AvailableModel } from '../../../lib/types'
   import { t } from '../../../lib/i18n.svelte'
+  import { squircle } from '../../../lib/squircle'
 
   let {
     model,
@@ -54,13 +55,13 @@
       />
     </div>
     <div class="model-actions">
-      <button class="btn-icon" onclick={onMoveUp} disabled={index === 0} title={t('Move up')} aria-label={t('Move up')}>
+      <button class="btn-icon" onclick={onMoveUp} disabled={index === 0} title={t('Move up')} aria-label={t('Move up')} use:squircle={10}>
         <span class="icon">arrow_upward</span>
       </button>
-      <button class="btn-icon" onclick={onMoveDown} disabled={index === total - 1} title={t('Move down')} aria-label={t('Move down')}>
+      <button class="btn-icon" onclick={onMoveDown} disabled={index === total - 1} title={t('Move down')} aria-label={t('Move down')} use:squircle={10}>
         <span class="icon">arrow_downward</span>
       </button>
-      <button class="btn-icon btn-danger" onclick={onDelete} disabled={total === 1} title={t('Remove')} aria-label={t('Remove')}>
+      <button class="btn-icon icon-danger" onclick={onDelete} disabled={total === 1} title={t('Remove')} aria-label={t('Remove')} use:squircle={10}>
         <span class="icon">delete</span>
       </button>
     </div>
@@ -80,6 +81,7 @@
         (v) => onChange({ ...model, description: v })
       }
       placeholder={t('e.g., Best for complex reasoning and analysis')}
+      use:squircle={12}
     />
   </div>
 
@@ -93,6 +95,7 @@
       }
       rows={2}
       placeholder={t('Additional instructions for this specific model')}
+      use:squircle={12}
     ></textarea>
   </div>
 </div>
@@ -163,14 +166,9 @@
     cursor: not-allowed;
   }
 
-  .model-actions .btn-icon.btn-danger {
-    color: var(--color-error-text);
-    border-color: var(--color-outline-light);
-  }
-
   .warning-text {
     font-size: 12px;
-    color: #ca8a04;
+    color: var(--color-warning-text);
   }
 
   .form-group {

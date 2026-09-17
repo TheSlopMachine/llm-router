@@ -28,7 +28,6 @@ function toProviderStats(raw: Record<string, unknown>): ProviderStats {
   return {
     model_count: (r.model_count as number) ?? 0,
     credential_count: (r.credential_count as number) ?? 0,
-    requests_today: (r.requests_today as number) ?? 0,
   }
 }
 
@@ -310,8 +309,9 @@ export const api = {
       fetch(`/api/llm-router/dashboard/proxies/${id}`, { method: 'DELETE' }).then(assertOkVoid),
     check: (id: string): Promise<{ alive: boolean; latency_ms?: number; error?: string }> =>
       postJson(`/api/llm-router/dashboard/proxies/${id}/check`, {}),
-    checkAll: () =>
-      postJson('/api/llm-router/dashboard/proxies/check-all', {}),
+    // Synchronous endpoint: aborting the request cancels the remaining checks.
+    checkAll: (signal?: AbortSignal) =>
+      postJson('/api/llm-router/dashboard/proxies/check-all', {}, signal),
     sources: async (): Promise<string[]> => {
       const res = await fetch('/api/llm-router/dashboard/proxy-sources')
       const raw = (await assertOk(res)) as unknown
@@ -403,11 +403,12 @@ async function assertOkVoid(res: Response): Promise<void> {
   }
 }
 
-async function postJson(path: string, payload: unknown): Promise<any> {
+async function postJson(path: string, payload: unknown, signal?: AbortSignal): Promise<any> {
   const res = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+    signal: signal ?? null,
   })
   return assertOk(res)
 }

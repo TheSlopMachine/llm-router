@@ -3,6 +3,7 @@
   import { cubicOut, cubicIn } from 'svelte/easing'
   import { untrack } from 'svelte'
   import { portal } from '../lib/portal'
+  import { squircle } from '../lib/squircle'
 
   type SelectOption = { value: string; label: string }
   type Action = { id: string; label: string; icon?: string; disabled?: boolean; danger?: boolean }
@@ -217,6 +218,7 @@
     aria-label={isActionMode ? label : undefined}
     aria-controls={isActionMode ? undefined : 'dropdown-menu'}
     type="button"
+    use:squircle={12}
   >
     {#if triggerIcon}
       <span class="icon trigger-icon">{triggerIcon}</span>
@@ -265,6 +267,7 @@
               bind:value={searchQuery}
               onclick={(e) => e.stopPropagation()}
               onkeydown={(e) => e.stopPropagation()}
+              use:squircle={12}
             />
           </div>
         {/if}
@@ -303,6 +306,7 @@
   .dropdown.autoWidth .dropdown-trigger {
     width: auto;
     gap: 8px;
+    padding: var(--btn-pad-v) var(--btn-pad-h);
   }
 
   .dropdown.autoWidth .dropdown-label {
@@ -319,11 +323,11 @@
     align-items: center;
     justify-content: space-between;
     width: 100%;
-    padding: 6px 12px;
+    padding: var(--field-pad-v) var(--field-pad-h);
     font-family: inherit;
     font-size: 14px;
     font-weight: 400;
-    border-radius: var(--radius-md);
+    border-radius: var(--ctl-radius);
     border: none;
     background: var(--color-surface-container-highest);
     color: var(--color-text);
@@ -338,6 +342,13 @@
 
   .dropdown-trigger:hover:not(:disabled) {
     background: var(--color-outline-light);
+  }
+
+  /* Trigger and options opt out of the global press bounce — the menu
+     opening is the feedback. */
+  .dropdown-trigger:active,
+  .dropdown-option:active {
+    transform: none;
   }
 
   .dropdown-trigger:focus {
@@ -381,8 +392,9 @@
     width: max-content;
     max-width: min(320px, calc(100vw - 16px));
     background: var(--color-surface-container-high);
+    /* slightly brighter frame so the menu reads against the card behind it */
+    border: 1px solid var(--color-outline-light);
     border-radius: var(--radius-md);
-    box-shadow: var(--shadow-lg);
     overflow: hidden;
   }
 
@@ -395,17 +407,10 @@
     border-bottom: 1px solid var(--color-outline-light);
   }
 
+  /* Compact variant of the global field: same fill/ring system, tighter padding. */
   .dropdown-search input {
     width: 100%;
     padding: 6px 12px;
-    font-size: 14px;
-    border: 1px solid var(--color-outline-light);
-    border-radius: 6px;
-    outline: none;
-  }
-
-  .dropdown-search input:focus {
-    border-color: var(--color-text-soft);
   }
 
   .dropdown-options {
@@ -422,7 +427,7 @@
     align-items: center;
     justify-content: flex-start;
     width: 100%;
-    padding: 8px 12px;
+    padding: 6px 12px;
     font-size: 14px;
     text-align: left;
     border: none;
@@ -433,9 +438,10 @@
     transition: none !important;
   }
 
+  /* Half-intensity hover: the nav-hover fill diluted 50% toward transparent. */
   .dropdown-option:hover,
   .dropdown-option.highlighted {
-    background: var(--color-nav-hover);
+    background: color-mix(in srgb, var(--color-nav-hover) 50%, transparent);
   }
 
   .dropdown-option.selected {
@@ -449,7 +455,7 @@
   }
 
   .dropdown-option.danger {
-    color: var(--color-danger, #b42318);
+    color: var(--color-error-text);
   }
 
   .dropdown-empty {

@@ -108,7 +108,9 @@ func (h *Handler) apiProxiesCheck(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/proxies/check-all [post]
 func (h *Handler) apiProxiesCheckAll(w http.ResponseWriter, r *http.Request) {
-	go h.proxySvc.CheckAll(r.Context())
+	// Synchronous and tied to the request context: a client disconnect
+	// (the dashboard cancel button) stops the remaining checks.
+	h.proxySvc.CheckAll(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -12,6 +12,7 @@
   import { confirmInstall } from './install-confirm'
   import type { Plugin, PluginRepo, PluginUpdate, StoreFile } from '../../lib/types'
   import { t } from '../../lib/i18n.svelte'
+  import { squircle } from '../../lib/squircle'
 
   interface RepoEntry {
     repo: PluginRepo
@@ -262,7 +263,7 @@
   <div class="card form-card">
     <div class="form-group">
       <label for="repo-url">{t('Repository or index URL')}</label>
-      <input id="repo-url" type="text" bind:value={repoUrl} placeholder="https://github.com/octocat/llm-router-plugins" />
+      <input id="repo-url" type="text" bind:value={repoUrl} placeholder="https://github.com/octocat/llm-router-plugins" use:squircle={12} />
       <div class="hint">{t('Paste a repository URL or a direct index.json URL.')}</div>
     </div>
     <div class="form-actions">
@@ -313,12 +314,12 @@
           {#if entry.repo.description}<div class="muted">{entry.repo.description}</div>{/if}
         </div>
         <div class="repo-badges">
-          {#if entry.repo.builtin}<span class="badge">{t('Built-in')}</span>{/if}
-          <button class="btn-icon" onclick={() => openRepoDetails(entry)} aria-label={t('Repository details')}>
+          {#if entry.repo.builtin}<span class="chip chip-neutral">{t('Built-in')}</span>{/if}
+          <button class="btn-icon" onclick={() => openRepoDetails(entry)} aria-label={t('Repository details')} use:squircle={10}>
             <span class="icon">info</span>
           </button>
           {#if !entry.repo.builtin}
-            <button class="btn-icon" onclick={() => removeRepo(entry.repo.id)} aria-label={t('Remove repository')}>
+            <button class="btn-icon icon-danger" onclick={() => removeRepo(entry.repo.id)} aria-label={t('Remove repository')} use:squircle={10}>
               <span class="icon">delete</span>
             </button>
           {/if}
@@ -338,9 +339,9 @@
                 title={f.display_name || f.path}
                 meta={f.version ? `v${f.version}` : ''}
                 badges={[
-                  ...(f.unsafe ? [{ text: t('Unrestricted network'), kind: 'badge-red' as const }] : []),
+                  ...(f.unsafe ? [{ text: t('Unrestricted network'), kind: 'chip-red' as const }] : []),
                   ...(f.update_available
-                    ? [{ text: `Update: v${f.installed_version} → v${f.version}`, kind: 'badge-green' as const }]
+                    ? [{ text: `Update: v${f.installed_version} → v${f.version}`, kind: 'chip-green' as const }]
                     : [{ text: t('Installed'), kind: '' as const }])
                 ]}
                 description={f.description}
@@ -353,7 +354,7 @@
               <PluginCard
                 title={f.display_name || f.path}
                 meta={f.version ? `v${f.version}` : ''}
-                badges={[...(f.unsafe ? [{ text: t('Unrestricted network'), kind: 'badge-red' as const }] : [])]}
+                badges={[...(f.unsafe ? [{ text: t('Unrestricted network'), kind: 'chip-red' as const }] : [])]}
                 description={f.description}
                 mode="uninstalled"
                 installLabel={t('Install')}

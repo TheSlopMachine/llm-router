@@ -10,6 +10,7 @@
   import type { ModalButton, StepperConfig } from '../../lib/modal.svelte'
   import Switch from '../ui/Switch.svelte'
   import SearchField from '../ui/SearchField.svelte'
+  import { squircle } from '../../lib/squircle'
   import ProviderTileGrid from './token/ProviderTileGrid.svelte'
   import TokenSuccessView from './token/TokenSuccessView.svelte'
   import GroupedChecklist from './token/GroupedChecklist.svelte'
@@ -362,9 +363,9 @@
       {#snippet row({ item, id, checked })}
         {@const traits = modelTraits(item)}
         <label class="checkbox-item">
-          <input type="checkbox" {checked} onchange={() => toggleModel(id)} disabled={allowAllModels} />
+          <input type="checkbox" class="check" {checked} onchange={() => toggleModel(id)} disabled={allowAllModels} use:squircle={6} />
           <span class="mono">{item}</span>
-          {#each traits as t}<span class="badge {traitBadgeClass(t)} badge-sm">{t}</span>{/each}
+          {#each traits as t}<span class="chip chip-sm {traitBadgeClass(t)}">{t}</span>{/each}
         </label>
       {/snippet}
     </GroupedChecklist>
@@ -395,12 +396,12 @@
     >
       {#snippet row({ item, id, checked })}
         <label class="checkbox-item cred-item">
-          <input type="checkbox" {checked} onchange={() => toggleCredential(id)} disabled={allowAllCredentials} />
+          <input type="checkbox" class="check" {checked} onchange={() => toggleCredential(id)} disabled={allowAllCredentials} use:squircle={6} />
           <span class="cred-main">
             <span class="cred-label">{item.label || t('API Key')}</span>
             <span class="text-muted cred-meta">{formatRelativeTime(item.updated_at, 'short')} · <span class="mono">{item.id.slice(0, 8)}…</span></span>
           </span>
-          {#if item.is_expired}<span class="badge badge-red badge-sm">{t('expired')}</span>{/if}
+          {#if item.is_expired}<span class="chip chip-red chip-sm">{t('expired')}</span>{/if}
         </label>
       {/snippet}
     </GroupedChecklist>

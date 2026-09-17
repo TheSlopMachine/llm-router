@@ -161,6 +161,43 @@ Harness scenario `proxies` passes live.
     `image_url` (`{url, detail}`) and `input_audio` (`{data, format}`)
     through unmarshal/marshal round-trips; text flattening ignores binary
     parts, so token counting and text views are unchanged.
+35. **Proxy egress overhaul** — one request now resolves its route fresh
+    and rotates through untried pooled proxies while attempts fail; proxy
+    exhaustion surfaces the last error, never a silent direct fallback
+    (the transport-build-failure direct fallback is removed). `force`
+    locations resolve strictly (`SelectStrict`): a wrong-country exit no
+    longer satisfies a region demand. Known-bad per-provider health demotes
+    (`-1000` score) instead of excluding, in both `Select` and
+    `SelectManual`. `Check` verifies the real exit country through the
+    proxy (`DetectExitCountry`, same ip-api technique as geoip) instead of
+    trusting list metadata. Country codes normalize to alpha-2 everywhere
+    (`NormalizeCountryCode`: manual adds, list syncs, manifest
+    `@proxy_location`, geoip override, resolve-time). `ParseProxyMode` and
+    `ResolveProxy` moved to `proxypool` with full matrix tests.
+36. **Lua `client:request` transport-error order fixed** — failure returns
+    `(nil, errtable)` per the `(resp, err)` contract. Previously the error
+    table arrived in the `resp` slot with `err == nil`, so plugins read a
+    missing `status` off the error table instead of failing.
+37. **Provider stats never touch the network** — `/dashboard/providers/stats`
+    reads the model cache via `PeekModelInfos` (no fetch on miss) and drops
+    the per-provider day-long metrics scan with `RequestsToday`. Auto refresh
+    stays opt-in via `models_auto_sync` (maintenance loop); everything else
+    syncs on explicit user action. Opening the providers tab no longer pings
+    upstreams.
+38. **Proxy pool: sticky exits, soft force, parallel checks, geo rotation** —
+    `Select` ranks the freshest known-good proxy for the provider first
+    (+500), so repeat traffic keeps one working exit instead of re-walking
+    the pool. Forced exits (`@proxy_force_on_mismatch`) became a preference,
+    not a gate: matching countries lead, others fall through, and only an
+    empty pool errors. `SelectStrict` is gone. `CheckAll` runs 16-wide
+    (per-proxy egress means the geo endpoint's per-IP limit applies per
+    proxy). Region-locked answers now rotate silently through untried pooled
+    proxies inside `Complete`/`CompleteStream` (stream only before the first
+    chunk); pool exhaustion returns one synthesized geo error
+    ("region-locked upstream: all N pooled proxies were rejected"), and
+    dial-level exhaustion wraps `proxypool.ErrProxyPoolExhausted`.
+    `POST /dashboard/proxies/check-all` is synchronous and dies with the
+    request context, so a client abort cancels the remaining checks.
 
 ## Notes
 

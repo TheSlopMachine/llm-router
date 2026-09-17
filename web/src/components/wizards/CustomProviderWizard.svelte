@@ -5,6 +5,7 @@
   import { t } from '../../lib/i18n.svelte'
   import type { ModalButton, Provider, UINode } from '../../lib/types'
   import DynamicForm, { collectButtons, buttonVariant } from '../ui/DynamicForm.svelte'
+  import { squircle } from '../../lib/squircle'
 
   let {
     editingProvider = null,
@@ -158,7 +159,7 @@
 {#if !isEdit}
   <div class="form-group">
     <label for="provider-type">{t('Type')} *</label>
-    <select id="provider-type" value={typeKey} onchange={(e) => onTypeChange((e.target as HTMLSelectElement).value)}>
+    <select id="provider-type" value={typeKey} onchange={(e) => onTypeChange((e.target as HTMLSelectElement).value)} use:squircle={12}>
       {#each types as t}
         <option value={t}>{t}</option>
       {/each}
@@ -168,13 +169,13 @@
 
 <div class="form-group">
   <label for="provider-name">{t('Name')} *</label>
-  <input id="provider-name" type="text" bind:value={name} placeholder={t('My LLM Provider')} oninput={syncButtons} />
+  <input id="provider-name" type="text" bind:value={name} placeholder={t('My LLM Provider')} oninput={syncButtons} use:squircle={12} />
 </div>
 
 {#if !isEdit && typeKey !== 'custom' && typeKey !== 'agents'}
   <div class="form-group">
     <label for="provider-qualifier">{t('Qualifier')} ({t('optional')})</label>
-    <input id="provider-qualifier" type="text" bind:value={qualifier} placeholder="eu" />
+    <input id="provider-qualifier" type="text" bind:value={qualifier} placeholder="eu" use:squircle={12} />
     <small>{t('Distinguishes multiple providers of the same type')}</small>
   </div>
 {/if}
@@ -184,13 +185,13 @@
 {:else if useRawConfig}
   <div class="form-group">
     <label for="provider-config">{t('Config JSON')}</label>
-    <textarea id="provider-config" rows="5" bind:value={rawConfig} autocomplete="off"></textarea>
+    <textarea id="provider-config" rows="5" bind:value={rawConfig} autocomplete="off" use:squircle={12}></textarea>
   </div>
 {/if}
 
 <div class="form-group">
   <label for="icon-url">{t('Icon URL')} ({t('optional')})</label>
-  <input id="icon-url" type="text" bind:value={iconURL} placeholder="https://example.com/icon.svg" />
+  <input id="icon-url" type="text" bind:value={iconURL} placeholder="https://example.com/icon.svg" use:squircle={12} />
 </div>
 
 <style>

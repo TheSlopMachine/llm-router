@@ -8,6 +8,7 @@
   import SectionCard from '../ui/SectionCard.svelte'
   import SegmentedControl from '../ui/SegmentedControl.svelte'
   import ModelCard from './agents/ModelCard.svelte'
+  import { squircle } from '../../lib/squircle'
   import type { Agent, AgentModel, AvailableModel, DecisionModelConfig } from '../../lib/types'
 
   let {
@@ -189,17 +190,17 @@
   <SectionCard title="Basic information">
     <div class="form-group">
       <label for="agent-name">{t('Name')} <span class="required">*</span></label>
-      <input id="agent-name" type="text" bind:value={name} placeholder={t('e.g., Research Assistant')} />
+      <input id="agent-name" type="text" bind:value={name} placeholder={t('e.g., Research Assistant')} use:squircle={12} />
     </div>
     <div class="form-group">
       <label for="agent-description">{t('Description')}</label>
-      <textarea id="agent-description" bind:value={description} rows={2} placeholder={t('Optional description of what this agent does')}></textarea>
+      <textarea id="agent-description" bind:value={description} rows={2} placeholder={t('Optional description of what this agent does')} use:squircle={12}></textarea>
     </div>
   </SectionCard>
 
   <SectionCard title="Models" description="Models are tried in order (top = highest priority). Add descriptions to help the decision model choose.">
     {#snippet badge()}
-      {#if models.length === 0}<span class="badge badge-yellow">{t('Draft')}</span>{/if}
+      {#if models.length === 0}<span class="chip chip-yellow">{t('Draft')}</span>{/if}
     {/snippet}
     {#if modelsLoadState === 'loading'}
       <div class="loading">{t('Loading available models...')}</div>
@@ -248,6 +249,7 @@
         bind:value={instructions.content}
         rows={4}
         placeholder={t('System instructions that apply to all models')}
+        use:squircle={12}
       ></textarea>
     </div>
     <SegmentedControl
@@ -283,6 +285,7 @@
           bind:value={decisionModel.system_prompt}
           rows={4}
           placeholder={t('You are a routing assistant. Choose the best model for the user\'s request based on complexity, cost, and requirements.')}
+          use:squircle={12}
         ></textarea>
       </div>
     {/if}
@@ -385,8 +388,9 @@
 
   .error-box {
     padding: 16px;
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: var(--color-notification-error-bg);
+    border: 1px solid var(--color-notification-error-border);
+    color: var(--color-notification-error-text);
     border-radius: 8px;
     text-align: center;
   }

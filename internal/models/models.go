@@ -651,9 +651,8 @@ func (p *ProviderInstance) BaseURL() string {
 
 // ProviderStats holds aggregated statistics for a provider.
 type ProviderStats struct {
-	ModelCount      int   `json:"model_count" example:"5"`
-	CredentialCount int   `json:"credential_count" example:"2"`
-	RequestsToday   int64 `json:"requests_today" example:"1234"`
+	ModelCount      int `json:"model_count" example:"5"`
+	CredentialCount int `json:"credential_count" example:"2"`
 }
 
 // ProviderInstanceCreateRequest is the generic create body for any provider type.

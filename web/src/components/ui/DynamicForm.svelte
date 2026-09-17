@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { UINode } from '../../lib/types'
+  import { squircle } from '../../lib/squircle'
   import SecretInput from './SecretInput.svelte'
   import CodeBlock from './CodeBlock.svelte'
 
@@ -88,6 +89,7 @@
           placeholder={node.placeholder ?? ''}
           required={node.required ?? false}
           autocomplete={node.input_type === 'password' ? 'new-password' : 'off'}
+          use:squircle={12}
         />
       </div>
     {:else if node.type === 'select'}
@@ -97,6 +99,7 @@
           id="dyn-{node.name}"
           value={selectValue(node)}
           onchange={(e) => setValue(node.name ?? '', (e.target as HTMLSelectElement).value)}
+          use:squircle={12}
         >
           {#each node.options ?? [] as option}
             <option value={option}>{optionLabel(node, option)}</option>
@@ -108,8 +111,10 @@
         <input
           id="dyn-{node.name}"
           type="checkbox"
+          class="check"
           checked={values[node.name ?? ''] === true}
           onchange={(e) => setValue(node.name ?? '', (e.target as HTMLInputElement).checked)}
+          use:squircle={6}
         />
         {#if node.label}<label for="dyn-{node.name}">{node.label}</label>{/if}
       </div>
@@ -181,16 +186,16 @@
     font-size: 13px;
   }
   .banner-info {
-    background: var(--color-info-bg, #eef4ff);
-    color: var(--color-text);
+    background: var(--color-notification-info-bg);
+    color: var(--color-notification-info-text);
   }
   .banner-error {
-    background: var(--color-danger-bg, #fdecec);
-    color: var(--color-danger, #b42318);
+    background: var(--color-notification-error-bg);
+    color: var(--color-notification-error-text);
   }
   .banner-success {
-    background: var(--color-success-bg, #e9f7ef);
-    color: var(--color-success, #1e7e34);
+    background: var(--color-notification-success-bg);
+    color: var(--color-notification-success-text);
   }
   .form-group {
     display: flex;

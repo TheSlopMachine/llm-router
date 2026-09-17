@@ -21,11 +21,22 @@ type execContext struct {
 	storage    *storageBackend
 	timeoutMs  int
 
-	// proxyID/proxyURL route plugin HTTP through a pool proxy when set.
-	proxyID  string
-	proxyURL string
-	// onProxyResult reports the outcome of a proxied request.
-	onProxyResult func(ok bool, latencyMs int64)
+	// Proxy routing: resolver picks a pooled proxy per request; the HTTP
+	// layer rotates to the next untried proxy when an attempt fails.
+	// proxyURL == "" means the current request goes direct.
+	proxyResolver       func(rec *PluginRecord, providerConfig map[string]any) (proxyID, proxyURL string, err error)
+	proxyRec            *PluginRecord
+	proxyProviderConfig map[string]any
+	proxyID             string
+	proxyURL            string
+	// lastProxyID is the proxy of the most recent attempt, used for
+	// post-call outcome attribution (e.g. geo-blocked responses).
+	lastProxyID string
+	// triedProxies bounds rotation: one request never retries a proxy.
+	triedProxies map[string]bool
+	// onProxyResult feeds per-provider pool health. Never called for
+	// direct requests.
+	onProxyResult func(proxyID string, ok bool, latencyMs int64)
 
 	registrations map[string]*lua.LTable
 	proxySources  map[string]*lua.LTable
