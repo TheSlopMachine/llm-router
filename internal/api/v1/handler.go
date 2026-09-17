@@ -11,9 +11,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -55,6 +57,7 @@ func New(tokens *token.Service, routerSvc *router.Service, metricsSvc *metrics.S
 // Safe endpoints (GET /v1/models) are whitelisted to allow anonymous access.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/chat/completions", h.auth(h.chatCompletions, false))
+	mux.HandleFunc("POST /v1/audio/transcriptions", h.auth(h.audioTranscriptions, false))
 	mux.HandleFunc("GET /v1/models", h.auth(h.listModels, true))
 	mux.HandleFunc("HEAD /v1/models", h.auth(h.listModels, true))
 	mux.HandleFunc("OPTIONS /v1/models", h.auth(h.listModels, true))
@@ -162,6 +165,173 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request, t *mod
 	}
 
 	h.writeJSON(w, http.StatusOK, resp)
+}
+
+// maxAudioUploadBytes caps one transcription upload (OpenAI's limit is 25 MB;
+// keep headroom for form overhead).
+const maxAudioUploadBytes = 32 << 20
+
+// audioTranscriptions handles POST /v1/audio/transcriptions
+// @Summary      Create audio transcription
+// @Description  Transcribes an uploaded audio file. Multipart form: file (required),
+// @Description  model (required), language, prompt, response_format (json|text|srt|verbose_json|vtt),
+// @Description  temperature, timestamp_granularities[] (word|segment).
+// @Tags         OpenAI API
+// @Accept       mpfd
+// @Produce      json
+// @Success      200 {object} models.TranscriptionResponse "Successful response"
+// @Failure      400 {object} models.OpenAIError "Invalid request"
+// @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
+// @Router       /v1/audio/transcriptions [post]
+// @Security     BearerAuth
+func (h *Handler) audioTranscriptions(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+	start := time.Now()
+	req, err := parseTranscriptionRequest(r)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
+		return
+	}
+
+	if t != nil {
+		providerID, _, _ := req.Model.Parse()
+		if providerID != "" && !t.Rules.AllowsProvider(providerID) {
+			h.writeError(w, http.StatusForbidden, "provider_not_allowed",
+				fmt.Sprintf("provider %q is not allowed by your token's rules", providerID), strPtr("model"))
+			return
+		}
+		if !t.Rules.Allows(req.Model) {
+			h.writeError(w, http.StatusForbidden, "model_not_allowed",
+				fmt.Sprintf("model %q is not allowed by your token's rules", req.Model), strPtr("model"))
+			return
+		}
+	}
+
+	resp, err := h.router.Transcribe(r.Context(), req, t)
+	duration := time.Since(start)
+
+	providerType, _, _ := req.Model.Parse()
+	providerID, _ := h.router.GetProviderIDForModel(r.Context(), req.Model)
+	tokenID := ""
+	if t != nil {
+		tokenID = t.ID
+	}
+	event := models.MetricEvent{
+		Timestamp:    start,
+		ProviderID:   providerID,
+		ProviderType: providerType,
+		Model:        req.Model,
+		TokenID:      tokenID,
+		Duration:     duration,
+		StatusCode:   http.StatusOK,
+	}
+	if err != nil {
+		re := h.classifyError(err)
+		event.StatusCode = re.status
+		event.ErrorType = re.code
+	}
+	h.metrics.RecordRequest(event)
+
+	if err != nil {
+		h.handleRouterError(w, err)
+		return
+	}
+	h.writeTranscriptionResponse(w, req.ResponseFormat, resp)
+}
+
+// parseTranscriptionRequest reads the multipart body of
+// POST /v1/audio/transcriptions into a TranscriptionRequest.
+func parseTranscriptionRequest(r *http.Request) (*models.TranscriptionRequest, error) {
+	ct := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "multipart/form-data") {
+		return nil, fmt.Errorf("Content-Type must be multipart/form-data")
+	}
+	r.Body = http.MaxBytesReader(nil, r.Body, maxAudioUploadBytes)
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		return nil, fmt.Errorf("malformed multipart body: %s", err)
+	}
+	model := strings.TrimSpace(r.FormValue("model"))
+	if model == "" {
+		return nil, fmt.Errorf("missing required field 'model'")
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		return nil, fmt.Errorf("missing required field 'file'")
+	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, fmt.Errorf("read file: %s", err)
+	}
+	if len(data) == 0 {
+		return nil, fmt.Errorf("file is empty")
+	}
+	format := strings.TrimSpace(r.FormValue("response_format"))
+	switch format {
+	case "", "json", "text", "srt", "verbose_json", "vtt":
+	default:
+		return nil, fmt.Errorf("invalid response_format %q: expected json, text, srt, verbose_json or vtt", format)
+	}
+	req := &models.TranscriptionRequest{
+		Model:          models.ModelId(model),
+		File:           data,
+		FileName:       header.Filename,
+		ContentType:    header.Header.Get("Content-Type"),
+		Language:       strings.TrimSpace(r.FormValue("language")),
+		Prompt:         r.FormValue("prompt"),
+		ResponseFormat: format,
+	}
+	if req.ContentType == "" {
+		req.ContentType = "application/octet-stream"
+	}
+	if v := strings.TrimSpace(r.FormValue("temperature")); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid temperature %q: must be a number", v)
+		}
+		req.Temperature = &f
+	}
+	if r.MultipartForm != nil {
+		for _, g := range r.MultipartForm.Value["timestamp_granularities[]"] {
+			g = strings.TrimSpace(g)
+			if g == "word" || g == "segment" {
+				req.TimestampGranularities = append(req.TimestampGranularities, g)
+			} else if g != "" {
+				return nil, fmt.Errorf("invalid timestamp granularity %q: expected word or segment", g)
+			}
+		}
+	}
+	return req, nil
+}
+
+// writeTranscriptionResponse renders the normalized transcription in the
+// client's response_format. srt/vtt need segments; a model that returned
+// none is a loud error, not an empty document.
+func (h *Handler) writeTranscriptionResponse(w http.ResponseWriter, format string, resp *models.TranscriptionResponse) {
+	switch format {
+	case "", "json":
+		h.writeJSON(w, http.StatusOK, struct {
+			Text string `json:"text"`
+		}{Text: resp.Text})
+	case "verbose_json":
+		h.writeJSON(w, http.StatusOK, resp)
+	case "text":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, resp.Text)
+	case "srt", "vtt":
+		if len(resp.Segments) == 0 {
+			h.writeError(w, http.StatusBadGateway, "upstream_error",
+				fmt.Sprintf("response_format %q requires segment timestamps the model did not return", format), nil)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		if format == "srt" {
+			_, _ = io.WriteString(w, resp.SRT())
+		} else {
+			_, _ = io.WriteString(w, resp.VTT())
+		}
+	}
 }
 
 // handleStreamWithMetrics wraps streaming with metrics collection.
@@ -546,6 +716,8 @@ func (h *Handler) classifyError(err error) routerError {
 		return routerError{http.StatusBadRequest, "provider_not_found"}
 	case errors.Is(err, apierrors.ErrModelDisabled):
 		return routerError{http.StatusNotFound, "model_not_found"}
+	case errors.Is(err, apierrors.ErrEndpointNotSupported):
+		return routerError{http.StatusBadRequest, "endpoint_not_supported"}
 	case errors.Is(err, apierrors.ErrNoCredential):
 		return routerError{http.StatusServiceUnavailable, "no_credential"}
 	case errors.Is(err, apierrors.ErrProviderDisabled):

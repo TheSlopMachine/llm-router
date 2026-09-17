@@ -42,6 +42,10 @@ var (
 
 	// ErrModelDisabled is returned when an admin override disables the requested model
 	ErrModelDisabled = errors.New("model is disabled by administrator")
+
+	// ErrEndpointNotSupported is returned when the provider or model does
+	// not serve the requested endpoint (e.g. audio/transcriptions)
+	ErrEndpointNotSupported = errors.New("endpoint not supported")
 )
 
 // NotFoundError wraps ErrNotFound with context about what was not found

@@ -206,7 +206,7 @@ func installRouterTable(L *lua.LState, ctx *execContext) {
 			return 0
 		}
 		for _, name := range []string{
-			"complete_stream", "validate_credentials", "get_model_infos",
+			"complete_stream", "transcribe", "validate_credentials", "get_model_infos",
 			"needs_refresh", "refresh_credential", "config_schema",
 			"credential_schema", "auth_initiate", "auth_step",
 		} {
@@ -308,6 +308,18 @@ func installRouterTable(L *lua.LState, ctx *execContext) {
 		}
 		L.Push(lua.LString(s))
 		return 1
+	}))
+
+	router.RawSetString("multipart", L.NewFunction(func(L *lua.LState) int {
+		parts := L.CheckTable(1)
+		body, contentType, err := buildMultipart(parts)
+		if err != nil {
+			L.RaiseError("llm_router.multipart: %s", err.Error())
+			return 0
+		}
+		L.Push(lua.LString(body))
+		L.Push(lua.LString(contentType))
+		return 2
 	}))
 
 	L.SetGlobal("llm_router", router)

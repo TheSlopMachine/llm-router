@@ -10,7 +10,9 @@ import (
 
 // CurrentVersion is the router version plugins declare compatibility with
 // via the @router_version manifest tag.
-const CurrentVersion = "0.0.4"
+//
+// 0.0.5 adds the transcribe handler and llm_router.multipart.
+const CurrentVersion = "0.0.5"
 
 // ─────────────────────────────────────────────
 // ModelId
@@ -418,6 +420,114 @@ type ModelInfo struct {
 	OutputModalities    []string        `json:"output_modalities,omitempty"`
 	SupportedParameters []string        `json:"supported_parameters,omitempty"`
 	Reasoning           *ModelReasoning `json:"reasoning,omitempty"`
+
+	// Endpoints lists the served endpoint identifiers (Endpoint* constants).
+	// Empty means chat/completions only.
+	Endpoints []string `json:"endpoints,omitempty"`
+}
+
+// Endpoint identifiers listed in ModelInfo.Endpoints. The router rejects a
+// request when the resolved model declares Endpoints and the target endpoint
+// is absent; an empty Endpoints list means chat/completions only (legacy
+// plugins predate the field).
+const (
+	EndpointChatCompletions    = "chat/completions"
+	EndpointAudioTranscription = "audio/transcriptions"
+)
+
+// SupportsEndpoint reports whether the model serves endpoint. Empty
+// Endpoints implies chat/completions only.
+func (m *ModelInfo) SupportsEndpoint(endpoint string) bool {
+	if len(m.Endpoints) == 0 {
+		return endpoint == EndpointChatCompletions
+	}
+	for _, e := range m.Endpoints {
+		if e == endpoint {
+			return true
+		}
+	}
+	return false
+}
+
+// ─────────────────────────────────────────────
+// Audio transcription wire types (POST /v1/audio/transcriptions)
+// ─────────────────────────────────────────────
+
+// TranscriptionRequest is the parsed multipart body of
+// POST /v1/audio/transcriptions. File holds the raw audio bytes.
+type TranscriptionRequest struct {
+	Model                  ModelId
+	File                   []byte
+	FileName               string
+	ContentType            string
+	Language               string
+	Prompt                 string
+	ResponseFormat         string // json (default), text, srt, verbose_json, vtt
+	Temperature            *float64
+	TimestampGranularities []string // word, segment
+}
+
+// TranscriptionResponse is the normalized plugin return: the OpenAI
+// verbose_json shape. The router renders the client-facing response_format
+// from these fields.
+type TranscriptionResponse struct {
+	Text     string                 `json:"text"`
+	Language string                 `json:"language,omitempty"`
+	Duration float64                `json:"duration,omitempty"`
+	Segments []TranscriptionSegment `json:"segments,omitempty"`
+	Words    []TranscriptionWord    `json:"words,omitempty"`
+}
+
+type TranscriptionSegment struct {
+	ID               int     `json:"id"`
+	Seek             int     `json:"seek,omitempty"`
+	Start            float64 `json:"start"`
+	End              float64 `json:"end"`
+	Text             string  `json:"text"`
+	Tokens           []int   `json:"tokens,omitempty"`
+	Temperature      float64 `json:"temperature,omitempty"`
+	AvgLogprob       float64 `json:"avg_logprob,omitempty"`
+	CompressionRatio float64 `json:"compression_ratio,omitempty"`
+	NoSpeechProb     float64 `json:"no_speech_prob,omitempty"`
+}
+
+type TranscriptionWord struct {
+	Word  string  `json:"word"`
+	Start float64 `json:"start"`
+	End   float64 `json:"end"`
+}
+
+func srtTimestamp(sec float64, sep byte) string {
+	if sec < 0 {
+		sec = 0
+	}
+	ms := int64(sec*1000 + 0.5)
+	h := ms / 3600000
+	m := (ms % 3600000) / 60000
+	s := (ms % 60000) / 1000
+	rem := ms % 1000
+	return fmt.Sprintf("%02d:%02d:%02d%c%03d", h, m, s, sep, rem)
+}
+
+// SRT renders segments as a SubRip subtitle document.
+func (r *TranscriptionResponse) SRT() string {
+	var b strings.Builder
+	for i, seg := range r.Segments {
+		fmt.Fprintf(&b, "%d\n%s --> %s\n%s\n\n",
+			i+1, srtTimestamp(seg.Start, ','), srtTimestamp(seg.End, ','), strings.TrimSpace(seg.Text))
+	}
+	return b.String()
+}
+
+// VTT renders segments as a WebVTT subtitle document.
+func (r *TranscriptionResponse) VTT() string {
+	var b strings.Builder
+	b.WriteString("WEBVTT\n\n")
+	for _, seg := range r.Segments {
+		fmt.Fprintf(&b, "%s --> %s\n%s\n\n",
+			srtTimestamp(seg.Start, '.'), srtTimestamp(seg.End, '.'), strings.TrimSpace(seg.Text))
+	}
+	return b.String()
 }
 
 // DeriveCapabilities fills Capabilities from the OpenRouter-style fields.

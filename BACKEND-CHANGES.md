@@ -207,6 +207,19 @@ Harness scenario `proxies` passes live.
     variant) now merge from the cache only (`PeekMergedView`): browsing the
     models tab no longer pings upstreams. Refresh stays opt-in
     (`models_auto_sync` maintenance) or manual (provider page import).
+40. **Audio transcription endpoint + plugin contract doc** —
+    `POST /v1/audio/transcriptions` (multipart, 32 MB cap) routes through the
+    same resolve → credential-rotation → retry pipeline as chat. Lua plugins
+    declare an optional `transcribe` handler; Go adapters implement the
+    optional `provider.Transcriber` interface; a provider without either
+    fails loudly with `endpoint_not_supported`. The plugin returns the
+    normalized OpenAI `verbose_json` shape and the router renders the
+    client's `response_format` from it, including SRT/VTT from segments.
+    `llm_router.multipart(parts)` builds multipart bodies for plugins.
+    `ModelInfo.endpoints` declares which endpoints a model serves (empty =
+    chat only); the router gates chat and transcription calls against it.
+    Router version bumped to 0.0.5; PLUGIN-CONTRACT.md is now the binding
+    plugin-author contract.
 
 ## Notes
 

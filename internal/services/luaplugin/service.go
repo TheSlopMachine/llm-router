@@ -408,7 +408,7 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) ([]
 		keys = append(keys, k)
 		var names []string
 		for _, name := range []string{
-			"complete", "complete_stream", "validate_credentials", "get_model_infos",
+			"complete", "complete_stream", "transcribe", "validate_credentials", "get_model_infos",
 			"needs_refresh", "refresh_credential", "config_schema",
 			"credential_schema", "auth_initiate", "auth_step",
 		} {

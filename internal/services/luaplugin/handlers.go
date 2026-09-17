@@ -258,6 +258,96 @@ func marshalLuaChunk(chunk models.StreamChunk) ([]byte, error) {
 	return raw, err
 }
 
+// transcriptionRequestTable builds the transcribe request table. The audio
+// bytes pass as a raw Lua string — a JSON round trip would base64 them.
+// needs_segments tells the plugin to fetch segment timestamps (the router
+// renders srt/vtt from segments).
+func transcriptionRequestTable(L *lua.LState, req *models.TranscriptionRequest) *lua.LTable {
+	tbl := L.NewTable()
+	tbl.RawSetString("model", lua.LString(req.Model.String()))
+	tbl.RawSetString("file", lua.LString(string(req.File)))
+	tbl.RawSetString("file_name", lua.LString(req.FileName))
+	tbl.RawSetString("content_type", lua.LString(req.ContentType))
+	if req.Language != "" {
+		tbl.RawSetString("language", lua.LString(req.Language))
+	}
+	if req.Prompt != "" {
+		tbl.RawSetString("prompt", lua.LString(req.Prompt))
+	}
+	if req.ResponseFormat != "" {
+		tbl.RawSetString("response_format", lua.LString(req.ResponseFormat))
+	}
+	if req.Temperature != nil {
+		tbl.RawSetString("temperature", lua.LNumber(*req.Temperature))
+	}
+	if len(req.TimestampGranularities) > 0 {
+		gran := L.NewTable()
+		for _, g := range req.TimestampGranularities {
+			gran.Append(lua.LString(g))
+		}
+		tbl.RawSetString("timestamp_granularities", gran)
+	}
+	tbl.RawSetString("needs_segments", lua.LBool(req.ResponseFormat == "srt" || req.ResponseFormat == "vtt"))
+	return tbl
+}
+
+// Transcribe invokes the transcribe handler with the same geo-rotation as
+// Complete. A missing handler reports ErrHandlerNotFound so the router maps
+// it to a clean "endpoint not supported" error.
+func (s *Service) Transcribe(
+	goCtx context.Context,
+	typeKey string,
+	cred *models.Credential,
+	req *models.TranscriptionRequest,
+	providerConfig map[string]any,
+) (*models.TranscriptionResponse, error) {
+	rec, err := s.Lookup(typeKey)
+	if err != nil {
+		return nil, err
+	}
+	tried := map[string]bool{}
+	for {
+		var resp *models.TranscriptionResponse
+		found, route, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "transcribe", func(L *lua.LState) {
+			L.Push(ctxTable(L, "", providerConfig))
+			L.Push(credTable(L, cred))
+			L.Push(transcriptionRequestTable(L, req))
+		}, 2, func(L *lua.LState) error {
+			result, rawErr := splitReturn(L)
+			if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
+				return cerr
+			}
+			if result == lua.LNil {
+				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "transcribe returned nil result"}
+			}
+			raw, merr := marshalLua(result)
+			if merr != nil {
+				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode response: " + merr.Error()}
+			}
+			var out models.TranscriptionResponse
+			if uerr := unmarshalTo(normalizeEmptyObjects(raw, "segments", "words"), &out); uerr != nil {
+				s.recordCrash(rec.ID, typeKey, "transcribe schema violation: "+uerr.Error())
+				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "transcribe schema violation: " + uerr.Error()}
+			}
+			resp = &out
+			return nil
+		}, providerConfig)
+		if callErr == nil {
+			if !found {
+				return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "transcribe"}
+			}
+			return resp, nil
+		}
+		next, rotErr := s.geoRotationNext(rec, providerConfig, callErr, route, tried)
+		if rotErr != nil {
+			return nil, rotErr
+		}
+		if next == "" {
+			return nil, callErr
+		}
+	}
+}
+
 // ValidateCredentials calls validate_credentials. Missing handler accepts
 // any data. Returns valid=false with a ProviderError on rejection.
 func (s *Service) ValidateCredentials(typeKey string, data map[string]any) (bool, error) {

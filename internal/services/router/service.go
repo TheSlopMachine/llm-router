@@ -20,6 +20,7 @@ import (
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/retry"
@@ -148,6 +149,23 @@ func asQuotaExceeded(err error) (*models.ProviderError, bool) {
 	return nil, false
 }
 
+// checkEndpoint rejects the request when the cached model card declares an
+// endpoint list excluding the target. Models absent from the cache pass:
+// gating acts on declared data only, never on guesses.
+func (s *Service) checkEndpoint(providerID, modelName, endpoint string) error {
+	for _, info := range s.modelInfoSvc.PeekModelInfos(providerID) {
+		if info.Name != modelName {
+			continue
+		}
+		if !info.SupportsEndpoint(endpoint) {
+			return fmt.Errorf("%w: model %s/%s does not serve %s",
+				apierrors.ErrEndpointNotSupported, providerID, modelName, endpoint)
+		}
+		return nil
+	}
+	return nil
+}
+
 // Complete routes a non-streaming chat completion request with credential
 // rotation via the shared retry engine and exponential backoff across cycles.
 func (s *Service) Complete(
@@ -173,6 +191,9 @@ func (s *Service) Complete(
 	}
 	if !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
 		return nil, fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
+	}
+	if err := s.checkEndpoint(providerID, modelName, models.EndpointChatCompletions); err != nil {
+		return nil, err
 	}
 	creds, err := s.loadCredentials(resolved.Instance, token)
 	if err != nil {
@@ -233,6 +254,9 @@ func (s *Service) CompleteStream(
 	if !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
 		return fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
 	}
+	if err := s.checkEndpoint(providerID, modelName, models.EndpointChatCompletions); err != nil {
+		return err
+	}
 	creds, err := s.loadCredentials(resolved.Instance, token)
 	if err != nil {
 		return err
@@ -284,6 +308,111 @@ func (s *Service) CompleteStream(
 		}
 	}
 	return fmt.Errorf("all credentials exhausted after %d retries", maxRetries)
+}
+
+// transcribeOne runs a single transcription attempt against one credential.
+func (s *Service) transcribeOne(ctx context.Context, resolved *provider.Resolved, cred *models.Credential, req *models.TranscriptionRequest) (*models.TranscriptionResponse, error) {
+	cfg := resolved.Instance.Config
+	if resolved.IsLua() {
+		resp, err := s.providerSvc.LuaService().Transcribe(ctx, resolved.Instance.TypeKey, cred, req, cfg)
+		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
+			return nil, fmt.Errorf("%w: provider %q has no transcribe handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+		}
+		return resp, err
+	}
+	tr, ok := resolved.Go.(provider.Transcriber)
+	if !ok {
+		return nil, fmt.Errorf("%w: provider %q does not support audio transcription", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+	}
+	return tr.Transcribe(ctx, cred, req, cfg)
+}
+
+// Transcribe routes a POST /v1/audio/transcriptions request with the same
+// credential rotation and backoff cycles as Complete.
+func (s *Service) Transcribe(
+	ctx context.Context,
+	req *models.TranscriptionRequest,
+	token *models.RouterToken,
+) (*models.TranscriptionResponse, error) {
+	providerID, modelName, err := req.Model.Parse()
+	if err != nil {
+		return nil, fmt.Errorf("invalid model id: %w", err)
+	}
+	resolved, err := provider.Resolve(s.providerSvc, providerID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
+	}
+	if resolved.Instance.Disabled {
+		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
+	}
+	if resolved.Instance.TypeKey == provider.TypeAgents {
+		return nil, fmt.Errorf("%w: agents do not serve audio transcription", apierrors.ErrEndpointNotSupported)
+	}
+	if !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
+		return nil, fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
+	}
+	if err := s.checkEndpoint(providerID, modelName, models.EndpointAudioTranscription); err != nil {
+		return nil, err
+	}
+	// Capability pre-check: fail loudly before touching the credential pool.
+	if resolved.IsLua() {
+		if !s.providerSvc.LuaService().HasHandler(resolved.Instance.TypeKey, "transcribe") {
+			return nil, fmt.Errorf("%w: provider %q has no transcribe handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+		}
+	} else if _, ok := resolved.Go.(provider.Transcriber); !ok {
+		return nil, fmt.Errorf("%w: provider %q does not support audio transcription", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+	}
+	creds, err := s.loadCredentials(resolved.Instance, token)
+	if err != nil {
+		return nil, err
+	}
+	maxRetries := s.getMaxRetries()
+	for cycle := 0; cycle <= maxRetries; cycle++ {
+		if cycle > 0 {
+			delay := time.Duration(1<<(cycle-1)) * time.Second
+			s.logger.Warn("all credentials rate limited, backing off",
+				"cycle", cycle, "max", maxRetries, "delay", delay)
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			creds, err = s.loadCredentials(resolved.Instance, token)
+			if err != nil {
+				return nil, err
+			}
+		}
+		candidates := make([]retry.Candidate[*models.TranscriptionResponse], 0, len(creds))
+		for _, cred := range creds {
+			cred := cred
+			candidates = append(candidates, retry.Candidate[*models.TranscriptionResponse]{
+				Label: cred.ID,
+				Run: func(ctx context.Context) (*models.TranscriptionResponse, error) {
+					resp, err := s.transcribeOne(ctx, resolved, cred, req)
+					if err == nil {
+						_ = s.credSvc.UpdateUsage(cred.ID, true)
+						return resp, nil
+					}
+					_ = s.credSvc.UpdateUsage(cred.ID, false)
+					if perr, ok := asQuotaExceeded(err); ok && perr.RetryAfter != nil {
+						_ = s.credSvc.MarkQuotaExceeded(cred.ID, *perr.RetryAfter)
+					}
+					return nil, err
+				},
+			})
+		}
+		resp, err := retry.Run(ctx, candidates, s.logger)
+		if err == nil {
+			return resp, nil
+		}
+		if !retry.Classify(err) {
+			return nil, err
+		}
+		if cycle == maxRetries {
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("all credentials exhausted after %d retries", maxRetries)
 }
 
 // GetProviderIDForModel returns the composite provider ID for a given model.

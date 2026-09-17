@@ -37,6 +37,13 @@ type GoAdapter interface {
 	GetModelInfos(ctx context.Context, cred *models.Credential, providerConfig map[string]any) ([]models.ModelInfo, error)
 }
 
+// Transcriber is an optional GoAdapter capability serving
+// POST /v1/audio/transcriptions. Lua plugin types implement the equivalent
+// via the transcribe handler.
+type Transcriber interface {
+	Transcribe(ctx context.Context, cred *models.Credential, req *models.TranscriptionRequest, providerConfig map[string]any) (*models.TranscriptionResponse, error)
+}
+
 // Built-in type keys served by Go code.
 const (
 	TypeCustom = "custom"
