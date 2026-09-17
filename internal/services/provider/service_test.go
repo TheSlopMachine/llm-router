@@ -502,6 +502,56 @@ llm_router.register("flag-type", {
 	}
 }
 
+func TestProviderService_IsTypeAvailable(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+	svc.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
+
+	if !svc.IsTypeAvailable("mock") {
+		t.Error("Go adapter type must be available")
+	}
+	if svc.IsTypeAvailable("missing-type") {
+		t.Error("unknown type must be unavailable")
+	}
+
+	luaSvc, err := luaplugin.New(database, nil)
+	if err != nil {
+		t.Fatalf("lua service: %v", err)
+	}
+	svc.SetLuaService(luaSvc)
+	const src = `--- @plugin Availability Plugin
+--- @author tester
+--- @version 1.0.0
+--- @router_version 0.0.4
+--- @allow_host example.com
+
+llm_router.register("avail-type", {
+  complete = function() end,
+})
+`
+	rec, err := luaSvc.Install([]byte(src), luaplugin.PluginOrigin{Manual: true})
+	if err != nil {
+		t.Fatalf("install plugin: %v", err)
+	}
+	if !svc.IsTypeAvailable("avail-type") {
+		t.Fatal("installed plugin type must be available")
+	}
+
+	if err := luaSvc.Delete(rec.ID); err != nil {
+		t.Fatalf("delete plugin: %v", err)
+	}
+	if svc.IsTypeAvailable("avail-type") {
+		t.Error("deleted plugin type must be unavailable")
+	}
+
+	if _, err := luaSvc.Install([]byte(src), luaplugin.PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("reinstall plugin: %v", err)
+	}
+	if !svc.IsTypeAvailable("avail-type") {
+		t.Error("reinstalled plugin type must be available again")
+	}
+}
+
 func TestIsCreatableTypeKey(t *testing.T) {
 	if provider.IsCreatableTypeKey("agents") {
 		t.Error("agents type must not be creatable through the UI")

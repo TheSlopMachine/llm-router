@@ -60,6 +60,9 @@ func (h *Handler) visibleProviders(all []*models.ProviderInstance) []*models.Pro
 		if p.IsUIHidden || !h.providerTypeKnown(p.TypeKey) {
 			continue
 		}
+		if h.providerSvc != nil && !h.providerSvc.IsTypeAvailable(p.TypeKey) {
+			continue
+		}
 		out = append(out, p)
 	}
 	return out
@@ -70,6 +73,9 @@ func (h *Handler) visibleProviders(all []*models.ProviderInstance) []*models.Pro
 func (h *Handler) loadVisibleProvider(id string) (*models.ProviderInstance, bool) {
 	p, err := h.providerSvc.Get(id)
 	if err != nil || p.IsUIHidden || !h.providerTypeKnown(p.TypeKey) {
+		return nil, false
+	}
+	if !h.providerSvc.IsTypeAvailable(p.TypeKey) {
 		return nil, false
 	}
 	return p, true
