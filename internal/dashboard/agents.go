@@ -173,7 +173,7 @@ func (h *Handler) apiAgentsDelete(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  models.ErrorResponse
 // @Router       /api/llm-router/dashboard/agents/available-models [get]
 func (h *Handler) apiAgentsAvailableModels(w http.ResponseWriter, r *http.Request) {
-	items, err := h.availableModels(r.Context())
+	items, err := h.availableModels()
 	if err != nil {
 		h.logger.Error("failed to list available models", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, "failed to list available models")

@@ -120,6 +120,10 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 
 	modelInfoSvc.SetLogger(logger)
 
+	// Model caches persist in bbolt; warm the missing ones in the background
+	// so first clicks never wait on upstream discovery.
+	go modelInfoSvc.WarmMissing(context.Background())
+
 	if n, err := agentSvc.MigrateIDs(credSvc, tokenSvc); err != nil {
 		logger.Warn("agent ID migration failed", "err", err)
 	} else if n > 0 {

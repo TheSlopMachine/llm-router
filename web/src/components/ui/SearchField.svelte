@@ -10,31 +10,102 @@
     placeholder?: string
     disabled?: boolean
   }>()
+
+  // The clear button suppresses blur on mousedown, so the click lands while
+  // the field is still focused.
+  function clear(e: MouseEvent): void {
+    e.preventDefault()
+    value = ''
+  }
 </script>
 
-<div class="search-field">
-  <span class="icon search-icon">search</span>
-  <input type="text" {placeholder} bind:value {disabled} use:squircle={12} />
+<!-- Composite field: the container wears the field chrome (fill, radius,
+     focus ring via :focus-within), the input is naked inside it. Icons are
+     plain flex children — nothing is absolutely positioned. -->
+<div class="search-field" use:squircle={12}>
+  <span class="search-icon" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+  </span>
+  <input type="text" {placeholder} bind:value {disabled} />
+  <button
+    type="button"
+    class="search-clear"
+    onmousedown={clear}
+    aria-label="Clear search"
+    tabindex="-1"
+  >
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+  </button>
 </div>
 
 <style>
-  /* layout provided by global .search-field/.search-icon; keep scoped for project isolation if globals missing */
   .search-field {
-    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     margin-bottom: 16px;
+    padding: var(--field-pad-v) var(--field-pad-h);
+    border: 1px solid transparent;
+    border-radius: var(--ctl-radius);
+    background: var(--color-surface-container-highest);
+  }
+
+  .search-field:focus-within {
+    box-shadow: inset 0 0 0 2px var(--color-accent);
   }
 
   .search-field input {
-    padding-left: 36px;
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    /* focus ring lives on the container */
+    box-shadow: none;
   }
 
-  .search-icon {
-    position: absolute;
-    left: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 18px;
+  .search-field input:focus {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .search-icon,
+  .search-clear {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
     color: var(--color-text-soft);
+    transition:
+      opacity 0.15s ease,
+      transform 0.15s ease;
+    transform: scale(1);
+  }
+
+  /* Focus swaps the magnifier for the clear button; both slots stay
+     reserved, so the text never shifts. */
+  .search-field:focus-within .search-icon,
+  .search-field:not(:focus-within) .search-clear {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+
+  .search-field:not(:focus-within) .search-clear {
     pointer-events: none;
+  }
+
+  .search-clear {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .search-clear:hover {
+    background: var(--color-hover-bg);
+    color: var(--color-text);
   }
 </style>

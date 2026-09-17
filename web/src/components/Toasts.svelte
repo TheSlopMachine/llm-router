@@ -59,7 +59,7 @@
   }
   .toast {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: flex-start;
     gap: 10px;
     width: fit-content;

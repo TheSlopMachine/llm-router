@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -303,7 +302,7 @@ func TestAvailableModelsIncludesAgentsWithoutCredentials(t *testing.T) {
 		t.Fatalf("expected zero agents credentials, got %d", len(rows))
 	}
 
-	items, err := h.availableModels(context.Background())
+	items, err := h.availableModels()
 	if err != nil {
 		t.Fatalf("available models failed: %v", err)
 	}

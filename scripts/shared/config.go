@@ -44,6 +44,44 @@ func RootDir() (string, error) {
 // DefaultPidFile is %TEMP%/llm-router-dev.pid (or $TMPDIR equivalent).
 func DefaultPidFile() string { return filepath.Join(os.TempDir(), "llm-router-dev.pid") }
 
+// StartParamsFile lives next to the pidfile and records the parameters of the
+// last start, so restart relaunches with the same configuration.
+type StartParams struct {
+	DevDB    string `json:"dev_db"`
+	DevKey   string `json:"dev_key"`
+	Host     string `json:"host"`
+	WebPort  string `json:"web_port"`
+	APIPort  string `json:"api_port"`
+	LogLevel string `json:"log_level"`
+}
+
+// ParamsFileFor returns the params file path next to the given pidfile.
+func ParamsFileFor(pidFile string) string {
+	return filepath.Join(filepath.Dir(pidFile), "llm-router-dev.params.json")
+}
+
+// WriteStartParams persists the start parameters.
+func WriteStartParams(pidFile string, p StartParams) error {
+	raw, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(ParamsFileFor(pidFile), append(raw, '\n'), 0644)
+}
+
+// ReadStartParams reads the recorded start parameters.
+func ReadStartParams(pidFile string) (*StartParams, error) {
+	raw, err := os.ReadFile(ParamsFileFor(pidFile))
+	if err != nil {
+		return nil, err
+	}
+	var p StartParams
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
 // DefaultBackendLog and DefaultFrontendLog sit next to the pidfile.
 func DefaultBackendLog() string  { return filepath.Join(os.TempDir(), "llm-router-backend.log") }
 func DefaultFrontendLog() string { return filepath.Join(os.TempDir(), "llm-router-frontend.log") }

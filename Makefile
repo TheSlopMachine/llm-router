@@ -76,7 +76,8 @@ start: check-frontend-deps init
 stop:
 	@cd scripts && GOWORK=off go run ./stop
 
-restart: stop start
+restart:
+	@cd scripts && GOWORK=off go run ./restart
 
 status:
 	@cd scripts && GOWORK=off go run ./status

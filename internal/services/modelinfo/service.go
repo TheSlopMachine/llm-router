@@ -27,6 +27,7 @@ type Service struct {
 	cacheTTL    time.Duration
 	logger      *slog.Logger
 	overrides   *repository.Repository[models.ModelOverride]
+	records     *repository.Repository[modelInfoRecord]
 
 	mu       sync.RWMutex
 	cache    map[string]cacheEntry
@@ -37,6 +38,13 @@ type cacheEntry struct {
 	models    []models.ModelInfo
 	cachedAt  time.Time
 	expiresAt time.Time
+}
+
+// modelInfoRecord is the persisted form of a cache entry: the model cache
+// lives in bbolt and survives restarts.
+type modelInfoRecord struct {
+	Models   []models.ModelInfo `json:"models"`
+	CachedAt time.Time          `json:"cached_at"`
 }
 
 // New creates a ModelInfo service
@@ -50,6 +58,7 @@ func New(database *db.DB, providerSvc *provider.Service, credSvc *credential.Ser
 		credSvc:     credSvc,
 		cacheTTL:    cacheTTL,
 		overrides:   repository.New[models.ModelOverride](database, db.BucketModelOverrides, "model_override"),
+		records:     repository.New[modelInfoRecord](database, db.BucketModelInfos, "model_info_record"),
 		cache:       make(map[string]cacheEntry),
 		inflight:    make(map[string]*sync.WaitGroup),
 	}
@@ -59,16 +68,56 @@ func New(database *db.DB, providerSvc *provider.Service, credSvc *credential.Ser
 func (s *Service) SetLogger(l *slog.Logger) { s.logger = l }
 
 // PeekModelInfos returns the cached model list without triggering an upstream
-// fetch; stale entries count. A miss returns nil — callers that merely display
-// a count must not ping the provider (auto-sync is opt-in via
-// config.models_auto_sync; everything else syncs on explicit user action).
+// fetch; stale entries count, and a memory miss hydrates from the persisted
+// record. A true miss returns nil — callers that merely display a count must
+// not ping the provider (auto-sync is opt-in via config.models_auto_sync;
+// everything else syncs on explicit user action or the startup warm).
 func (s *Service) PeekModelInfos(providerID string) []models.ModelInfo {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if entry, ok := s.cache[providerID]; ok {
+	entry, ok := s.cache[providerID]
+	s.mu.RUnlock()
+	if ok {
 		return entry.models
 	}
-	return nil
+	rec, err := s.records.Get(providerID)
+	if err != nil || rec == nil {
+		return nil
+	}
+	s.mu.Lock()
+	s.cache[providerID] = cacheEntry{
+		models:    rec.Models,
+		cachedAt:  rec.CachedAt,
+		expiresAt: rec.CachedAt.Add(s.cacheTTL),
+	}
+	s.mu.Unlock()
+	return rec.Models
+}
+
+// WarmMissing creates model caches for providers that have none. Runs in the
+// background at startup; refresh afterwards stays opt-in (models_auto_sync)
+// or manual.
+func (s *Service) WarmMissing(ctx context.Context) {
+	providers, err := s.providerSvc.List()
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("model cache warm: list providers failed", "err", err)
+		}
+		return
+	}
+	for _, p := range providers {
+		if ctx.Err() != nil {
+			return
+		}
+		if p.Disabled {
+			continue
+		}
+		if len(s.PeekModelInfos(p.ID)) > 0 {
+			continue
+		}
+		if _, err := s.GetModelInfos(ctx, p.ID); err != nil && s.logger != nil {
+			s.logger.Warn("model cache warm failed", "provider_id", p.ID, "err", err)
+		}
+	}
 }
 
 func hostOf(raw string) string {
@@ -233,7 +282,7 @@ func (s *Service) InvalidateProvider(providerID string) error {
 	s.mu.Lock()
 	delete(s.cache, providerID)
 	s.mu.Unlock()
-	return nil
+	return s.records.DeleteIfExists(providerID)
 }
 
 // InvalidateAll clears entire cache
@@ -241,6 +290,13 @@ func (s *Service) InvalidateAll() error {
 	s.mu.Lock()
 	s.cache = make(map[string]cacheEntry)
 	s.mu.Unlock()
+	providers, err := s.providerSvc.List()
+	if err != nil {
+		return err
+	}
+	for _, p := range providers {
+		_ = s.records.DeleteIfExists(p.ID)
+	}
 	return nil
 }
 
@@ -292,6 +348,7 @@ func (s *Service) IsModelEnabled(providerID, modelName string) bool {
 
 // MergedView merges the cached upstream model list with admin overrides:
 // disabled models are flagged, custom models appended, display metadata applied.
+// Fetches from the upstream on a cache miss — explicit refresh paths only.
 func (s *Service) MergedView(ctx context.Context, providerID string) ([]ModelView, error) {
 	infos, err := s.GetModelInfos(ctx, providerID)
 	if err != nil {
@@ -301,6 +358,21 @@ func (s *Service) MergedView(ctx context.Context, providerID string) ([]ModelVie
 	if err != nil {
 		return nil, err
 	}
+	return mergeModelViews(infos, ovs), nil
+}
+
+// PeekMergedView is MergedView over the cache (stale entries count) with no
+// upstream fetch. Browsing paths use it: upstream sync is opt-in
+// (models_auto_sync) or an explicit user action.
+func (s *Service) PeekMergedView(providerID string) ([]ModelView, error) {
+	ovs, err := s.ListOverrides(providerID)
+	if err != nil {
+		return nil, err
+	}
+	return mergeModelViews(s.PeekModelInfos(providerID), ovs), nil
+}
+
+func mergeModelViews(infos []models.ModelInfo, ovs []*models.ModelOverride) []ModelView {
 	byName := make(map[string]*models.ModelOverride, len(ovs))
 	for _, ov := range ovs {
 		byName[ov.Name] = ov
@@ -337,22 +409,27 @@ func (s *Service) MergedView(ctx context.Context, providerID string) ([]ModelVie
 			Custom:    true,
 		})
 	}
-	return out, nil
+	return out
 }
 
 func (s *Service) store(providerID string, modelInfos []models.ModelInfo) []models.ModelInfo {
 	for i := range modelInfos {
 		modelInfos[i].DeriveCapabilities()
 	}
+	now := util.Now()
 	entry := cacheEntry{
 		models:    modelInfos,
-		cachedAt:  util.Now(),
-		expiresAt: util.Now().Add(s.cacheTTL),
+		cachedAt:  now,
+		expiresAt: now.Add(s.cacheTTL),
 	}
 
 	s.mu.Lock()
 	s.cache[providerID] = entry
 	s.mu.Unlock()
+
+	if err := s.records.Put(providerID, &modelInfoRecord{Models: modelInfos, CachedAt: now}); err != nil && s.logger != nil {
+		s.logger.Warn("model cache persist failed", "provider_id", providerID, "err", err)
+	}
 
 	return modelInfos
 }

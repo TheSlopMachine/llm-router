@@ -3,8 +3,9 @@
   import { api } from '../lib/api'
   import { getErrorMessage } from '../lib/errors'
   import { squircle } from '../lib/squircle'
+  import SearchField from './ui/SearchField.svelte'
   import type { AvailableModel } from '../lib/types'
-  import { t, n } from '../lib/i18n.svelte'
+  import { t } from '../lib/i18n.svelte'
 
   const MIN_FUZZY_SCORE = 0.72
 
@@ -62,9 +63,10 @@
     }
   }
 
-  function fmtK(n: number | undefined | null): string {
+  // Same presentation as the provider-detail models table: "128k context".
+  function fmtCtx(n: number | undefined | null, kind: 'context' | 'output'): string {
     if (!n) return '—'
-    return n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`
+    return `${(n / 1000).toFixed(0)}k ${t(kind)}`
   }
 
   function normalize(value: string): string {
@@ -144,9 +146,11 @@
 </script>
 
 <div class="page-header">
-  <div>
+  <div class="title-row">
     <h1>{t('Models')}</h1>
-    <p>{t('Browse available models and quickly copy their full model IDs.')}</p>
+    {#if !loading && allModels.length > 0}
+      <span class="title-count">{allModels.length}</span>
+    {/if}
   </div>
 </div>
 
@@ -154,10 +158,7 @@
   <div class="error-msg">{error}</div>
 {/if}
 
-<div class="toolbar">
-  <input class="search-input" type="text" bind:value={query} placeholder={t('Search by model name, provider, or full model ID')} use:squircle={12} />
-  <span class="result-count">{n(filteredModels.length, 'result', 'results', 'результат', 'результата', 'результатов')}</span>
-</div>
+<SearchField bind:value={query} placeholder={t('Search by model name, provider, or full model ID')} />
 
 {#if loading}
   <div class="empty">{t('Loading models…')}</div>
@@ -169,32 +170,36 @@
   <div class="table" use:squircle={18}>
     <div class="table-row table-head">
       <span class="col-display">{t('Model')}</span>
-      <span class="col-provider">{t('Provider')}</span>
-      <span class="col-id">{t('Full model ID')}</span>
       <span class="col-ctx">{t('Context')}</span>
-      <span class="col-max">{t('Max tokens')}</span>
-      <span class="col-copy"></span>
+      <span class="col-id">{t('Model ID')}</span>
     </div>
     {#each filteredModels as model (model.full_model_id)}
       <div class="table-row">
         <span class="col-display">
           <span class="display-name">{model.display_name}</span>
-          {#if model.display_name !== model.model_name}
-            <span class="subtle">{model.model_name}</span>
-          {/if}
+          <a
+            class="provider-link"
+            href={model.provider_type === 'agents' ? '#/agents' : `#/providers/${model.provider_id}`}
+          >{model.provider_type === 'agents' ? t('Agents') : model.provider_name}<span class="icon">chevron_right</span></a>
         </span>
-        <span class="col-provider">{model.provider_name}</span>
-        <span class="col-id mono">{model.full_model_id}</span>
-        <span class="col-ctx" title={model.context_window ? t('Context window — up to') + ` ${model.context_window.toLocaleString()} ` + t('input tokens') : undefined}>{fmtK(model.context_window)}{model.context_window ? ` ${t('context')}` : ''}</span>
-        <span class="col-max" title={model.max_tokens ? t('Max output — up to') + ` ${model.max_tokens.toLocaleString()} ` + t('tokens per response') : undefined}>{fmtK(model.max_tokens)}{model.max_tokens ? ` ${t('output')}` : ''}</span>
-        <span class="col-copy">
+        <span class="col-ctx ctx-text">
+          {#if model.context_window}
+            <span title={t('Context window — up to') + ` ${model.context_window.toLocaleString()} ` + t('input tokens')}>{fmtCtx(model.context_window, 'context')}</span>
+          {/if}
+          {#if model.max_tokens}
+            <span title={t('Max output — up to') + ` ${model.max_tokens.toLocaleString()} ` + t('tokens per response')}>{fmtCtx(model.max_tokens, 'output')}</span>
+          {/if}
+          {#if !model.context_window && !model.max_tokens}—{/if}
+        </span>
+        <span class="col-id">
+          <span class="mono id-text">{model.full_model_id}</span>
           <button
-            class="btn-icon"
+            class="btn-icon btn-sm copy-btn"
             class:icon-ok={copiedModelId === model.full_model_id}
             onclick={() => copyModelId(model.full_model_id)}
-            aria-label={t('Copy full model ID')}
-            title={t('Copy full model ID')}
-            use:squircle={10}
+            aria-label={t('Copy model id')}
+            title={t('Copy model id')}
+            use:squircle={8}
           >
             <span class="icon">{copiedModelId === model.full_model_id ? 'check' : 'content_copy'}</span>
           </button>
@@ -205,27 +210,27 @@
 {/if}
 
 <style>
-  .toolbar {
+  .title-row {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin-bottom: 16px;
+    gap: 10px;
   }
 
-  /* Layout only — widget styling comes from the global field rules. */
-  .search-input {
-    flex: 0 1 320px;
+  /* The global page-header h1 carries margin-bottom; it would offset the
+     count's centering against the title. */
+  .title-row h1 {
+    margin: 0;
   }
 
-  .result-count {
+  .title-count {
+    font-size: 14px;
+    font-weight: 400;
     color: var(--color-text-soft);
-    font-size: 13px;
-    white-space: nowrap;
   }
 
   /* Column layout only — table widget chrome comes from the global rules. */
   .table-row {
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.55fr) minmax(0, 1.2fr) minmax(0, 0.55fr) minmax(0, 0.55fr) 48px;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr) minmax(0, 1.3fr);
   }
 
   .col-display {
@@ -238,29 +243,55 @@
   .display-name {
     font-size: 14px;
     font-weight: 500;
+    line-height: 18px;
     color: var(--color-text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    /* wrap at spaces instead of clipping with an ellipsis */
+    white-space: normal;
+    overflow-wrap: break-word;
   }
 
-  .subtle {
-    color: var(--color-text-soft);
+  .provider-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    min-width: 0;
+    width: fit-content;
     font-size: 12px;
+    line-height: 16px;
+    color: var(--color-text-soft);
+    text-decoration: none;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .col-provider {
+  .provider-link:hover {
+    color: var(--color-text);
+    text-decoration: none;
+  }
+
+  .provider-link .icon {
+    font-size: 14px;
+    color: var(--color-text-disabled);
+  }
+
+  /* Same presentation as the provider-detail models table. */
+  .ctx-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
     font-size: 13px;
     color: var(--color-text-soft);
-    overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .col-id {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .id-text {
     font-size: 12px;
     color: var(--color-text-soft);
     overflow: hidden;
@@ -268,42 +299,21 @@
     white-space: nowrap;
   }
 
-  .col-ctx,
-  .col-max {
-    font-size: 13px;
-    color: var(--color-text-soft);
-    white-space: nowrap;
-  }
-
-  .col-copy {
-    display: flex;
-    justify-content: flex-end;
+  .copy-btn {
+    flex-shrink: 0;
   }
 
   .icon-ok {
     color: var(--color-success-text);
   }
 
-  @media (max-width: 900px) {
+  @media (max-width: 720px) {
     .table-row {
-      grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 0.55fr) 48px;
-    }
-    .col-provider,
-    .col-max {
-      display: none;
-    }
-  }
-
-  @media (max-width: 560px) {
-    .table-row {
-      grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr) 48px;
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr);
       padding: 10px 12px;
     }
-    .col-id {
+    .col-ctx {
       display: none;
-    }
-    .search-input {
-      flex: 1 1 100%;
     }
   }
 </style>

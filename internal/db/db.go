@@ -27,6 +27,7 @@ var (
 	BucketAgents              = []byte("agents")               // Agent records
 	BucketRouterConfiguration = []byte("router_configuration") // Instance configuration (RouterConfiguration)
 	BucketModelOverrides      = []byte("model_overrides")      // Per-provider model enable/disable and custom models
+	BucketModelInfos          = []byte("model_infos")          // Persisted per-provider model metadata cache
 	BucketProxies             = []byte("proxies")              // Proxy pool records (manual + list-sourced)
 )
 
@@ -71,6 +72,7 @@ func (db *DB) initBuckets() error {
 			BucketAgents,
 			BucketRouterConfiguration,
 			BucketModelOverrides,
+			BucketModelInfos,
 			BucketProxies,
 		}
 		for _, name := range buckets {

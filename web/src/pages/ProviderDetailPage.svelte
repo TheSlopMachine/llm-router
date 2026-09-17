@@ -18,6 +18,7 @@
   let provider = $state<Provider | null>(null)
   let credentials = $state<Credential[]>([])
   let models = $state<ProviderModel[]>([])
+  let modelsLoading = $state(true)
   let modelsError = $state('')
   let loading = $state(true)
   let error = $state('')
@@ -127,7 +128,8 @@
       credentials = sortCredentials((creds as Credential[]).filter((c) => c.provider_id === providerId))
       if (provider) {
         initProxyConfig()
-        await reloadModels()
+        // Models load independently: the page renders while the section spins.
+        void reloadModels()
         poolManual = (await api.proxies.list()).filter((p) => p.source === 'manual')
       }
     } catch (e) {
@@ -222,12 +224,15 @@
   }
 
   async function reloadModels(): Promise<void> {
+    modelsLoading = true
     modelsError = ''
     try {
       models = await api.models.forProvider(providerId)
     } catch (e) {
       modelsError = getErrorMessage(e)
       models = []
+    } finally {
+      modelsLoading = false
     }
   }
 
@@ -778,7 +783,9 @@
         {t('Auto-sync models')}
       </label>
     </div>
-    {#if modelsError}
+    {#if modelsLoading}
+      <div class="empty-state">{t('Loading…')}</div>
+    {:else if modelsError}
       <div class="error-msg">{modelsError}</div>
     {:else if filteredModels.length === 0}
       <div class="empty-state">
@@ -859,11 +866,6 @@
 {#snippet modelActions(m: ProviderModel)}
   {@const ti = testIcon(modelTestResults[m.name], t('Test model'))}
   <span class="model-actions">
-    <Switch
-      checked={!m.disabled}
-      ariaLabel={t('Enable model')}
-      onchange={(v) => toggleModel(m, v)}
-    />
     <button
       class="btn-icon"
       onclick={() => testModel(m)}
@@ -879,6 +881,11 @@
         <span class="icon">delete</span>
       </button>
     {/if}
+    <Switch
+      checked={!m.disabled}
+      ariaLabel={t('Enable model')}
+      onchange={(v) => toggleModel(m, v)}
+    />
   </span>
 {/snippet}
 
@@ -909,23 +916,33 @@
   </div>
 {/snippet}
 
+{#snippet modelCtxLine(m: ProviderModel)}
+  {@const parts = [
+    m.context_window ? `${(m.context_window / 1000).toFixed(0)}k ${t('context')}` : '',
+    m.max_tokens ? `${(m.max_tokens / 1000).toFixed(0)}k ${t('output')}` : '',
+  ].filter(Boolean)}
+  {#if parts.length > 0}
+    <div class="ctx-line">{parts.join(' · ')}</div>
+  {/if}
+{/snippet}
+
 {#snippet modelsCards()}
   <div class="models-grid">
     {#each filteredModels as m (m.name)}
       <div class="model-card" class:card-disabled={m.disabled} use:squircle={18}>
-        <div class="model-card-top">
-          <div>
-            <div class="model-display">{m.display_name || m.name}</div>
-            <span class="model-id">
-              {m.name}
-              <button class="btn-icon copy-btn" onclick={() => copyModelId(m.name)} aria-label={t('Copy model id')} title={t('Copy model id')} use:squircle={10}>
-                <span class="icon">content_copy</span>
-              </button>
-            </span>
+        <!-- 2x2: name wraps in place (top-left), actions keep their width
+             (top-right); id and its copy button share the bottom line. -->
+        <div class="mc-grid">
+          <div class="mc-name">{m.display_name || m.name}</div>
+          <div class="mc-actions">{@render modelActions(m)}</div>
+          <div class="mc-idrow">
+            <span class="mc-id">{m.name}</span>
+            <button class="btn-icon btn-sm copy-btn" onclick={() => copyModelId(m.name)} aria-label={t('Copy model id')} title={t('Copy model id')} use:squircle={8}>
+              <span class="icon">content_copy</span>
+            </button>
           </div>
-          {@render modelActions(m)}
         </div>
-        <div class="model-meta">{@render modelContext(m)}{@render modelCaps(m)}</div>
+        <div class="model-meta">{@render modelCtxLine(m)}{@render modelCaps(m)}</div>
       </div>
     {/each}
   </div>
@@ -1106,10 +1123,11 @@
   .model-display {
     font-size: 14px;
     font-weight: 500;
+    line-height: 18px;
     color: var(--color-text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    /* wrap at spaces instead of clipping with an ellipsis */
+    white-space: normal;
+    overflow-wrap: break-word;
   }
   .mcol-caps, .mcol-ctx { margin-top: 0; }
   .ctx-text {
@@ -1133,11 +1151,51 @@
   .card-disabled {
     opacity: 0.55;
   }
-  .model-card-top {
+  .mc-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "name actions"
+      "idrow idrow";
+    column-gap: 8px;
+    row-gap: 2px;
+    align-items: center;
+  }
+  .mc-name {
+    grid-area: name;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 18px;
+    color: var(--color-text);
+    overflow-wrap: anywhere;
+  }
+  .mc-actions {
+    grid-area: actions;
+    display: flex;
+    justify-content: flex-end;
+  }
+  .mc-idrow {
+    grid-area: idrow;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
+    gap: 4px;
+    min-width: 0;
+  }
+  .mc-id {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-text-soft);
+    overflow-wrap: anywhere;
+  }
+  /* Uniform rhythm: name↔id = id↔context = context↔chips = 4px. */
+  .ctx-line {
+    flex-basis: 100%;
+    font-size: 13px;
+    color: var(--color-text-soft);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .model-id {
     display: flex;
@@ -1161,8 +1219,8 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
-    margin-top: 10px;
+    gap: 4px 6px;
+    margin-top: 4px;
   }
   .custom-model-form {
     display: flex;

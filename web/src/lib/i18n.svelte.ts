@@ -175,6 +175,8 @@ const ru: Record<string, string> = {
   'Menu': 'Меню',
   'Metrics': 'Метрики',
   'Model': 'Модель',
+  'Model ID': 'ID модели',
+  'Open provider settings': 'Открыть настройки провайдера',
   'Model id (e.g. my-model-v1)': 'ID модели (напр., my-model-v1)',
   'More actions': 'Ещё действия',
   'now': 'сейчас',

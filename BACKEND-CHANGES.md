@@ -198,6 +198,15 @@ Harness scenario `proxies` passes live.
     dial-level exhaustion wraps `proxypool.ErrProxyPoolExhausted`.
     `POST /dashboard/proxies/check-all` is synchronous and dies with the
     request context, so a client abort cancels the remaining checks.
+39. **Model cache persisted, startup warm, browse never fetches** — the model
+    metadata cache lives in bbolt (`model_infos` bucket) and survives
+    restarts; `PeekModelInfos` hydrates memory from it. `WarmMissing` runs in
+    the background at startup and creates caches for providers that have
+    none, so first clicks never wait on upstream discovery. The
+    available-models endpoints (`/dashboard/models/available`, agents
+    variant) now merge from the cache only (`PeekMergedView`): browsing the
+    models tab no longer pings upstreams. Refresh stays opt-in
+    (`models_auto_sync` maintenance) or manual (provider page import).
 
 ## Notes
 

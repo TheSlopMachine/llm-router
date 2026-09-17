@@ -598,36 +598,6 @@ tbody tr:hover td {
   text-align: center;
 }
 
-.search-field {
-  position: relative;
-  margin-bottom: 16px;
-}
-
-.search-field input {
-  padding-left: 36px;
-}
-
-.search-field .search-icon,
-.search-wrap .search-icon {
-  position: absolute;
-  left: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 18px;
-  color: var(--color-text-soft);
-  pointer-events: none;
-}
-
-/* Back-compat alias for wizard markup */
-.search-wrap {
-  position: relative;
-  margin-bottom: 16px;
-}
-
-.search-wrap input {
-  padding-left: 36px;
-}
-
 .text-muted {
   color: var(--color-text-soft);
 }

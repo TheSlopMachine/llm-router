@@ -112,6 +112,14 @@ func main() {
 		shared.Failf("write pidfile: %v", err)
 	}
 
+	// Record the launch parameters: restart relaunches with the same config.
+	if err := shared.WriteStartParams(pidFile, shared.StartParams{
+		DevDB: dbPath, DevKey: keyPath, Host: host,
+		WebPort: webPort, APIPort: apiPort, LogLevel: logLevel,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "[WARN] write params file: %v\n", err)
+	}
+
 	// Give the OS a moment to report a very early exit (e.g. missing binary)
 	// without doing a health poll. This is not a readiness check.
 	time.Sleep(200 * time.Millisecond)
