@@ -394,7 +394,9 @@ async function assertOk(res: Response): Promise<any> {
   if (!res.ok) {
     throw new Error(await errorText(res))
   }
-  return res.json()
+  // 204/empty bodies are valid answers; res.json() on them throws.
+  const text = await res.text()
+  return text ? JSON.parse(text) : undefined
 }
 
 async function assertOkVoid(res: Response): Promise<void> {

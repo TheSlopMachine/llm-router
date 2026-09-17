@@ -42,7 +42,6 @@
   .search-field {
     display: flex;
     align-items: center;
-    gap: 8px;
     margin-bottom: 16px;
     padding: var(--field-pad-v) var(--field-pad-h);
     border: 1px solid transparent;
@@ -69,6 +68,9 @@
     box-shadow: none;
   }
 
+  /* Icons collapse fully (width → 0), not just fade: the text slides over
+     smoothly. Margins carry the spacing so no dead gap survives the
+     collapsed slot. */
   .search-icon,
   .search-clear {
     display: flex;
@@ -76,32 +78,42 @@
     justify-content: center;
     flex-shrink: 0;
     color: var(--color-text-soft);
+    overflow: hidden;
     transition:
+      width 0.2s ease,
+      margin 0.2s ease,
       opacity 0.15s ease,
       transform 0.15s ease;
     transform: scale(1);
   }
 
-  /* Focus swaps the magnifier for the clear button; both slots stay
-     reserved, so the text never shifts. */
+  .search-icon {
+    width: 16px;
+    margin-right: 8px;
+  }
+
+  .search-clear {
+    width: 22px;
+    height: 22px;
+    margin-left: 8px;
+    padding: 0;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    cursor: pointer;
+  }
+
   .search-field:focus-within .search-icon,
   .search-field:not(:focus-within) .search-clear {
+    width: 0;
+    margin-left: 0;
+    margin-right: 0;
     opacity: 0;
     transform: scale(0.8);
   }
 
   .search-field:not(:focus-within) .search-clear {
     pointer-events: none;
-  }
-
-  .search-clear {
-    width: 22px;
-    height: 22px;
-    padding: 0;
-    border: none;
-    border-radius: 7px;
-    background: transparent;
-    cursor: pointer;
   }
 
   .search-clear:hover {
