@@ -10,6 +10,13 @@
 // the single source of truth, so theme variables rescale the clip live. The
 // numeric action argument is only a fallback for elements without a CSS radius.
 //
+// The rendered silhouette is the intersection of clip-path and border-radius,
+// and a superellipse corner always contains the circular corner of the same
+// radius — so a live border-radius would mask the clip entirely. The action
+// therefore zeroes the radius inline (keeping the CSS rule as the fallback
+// for engines without clip-path: path()) and reads the CSS value back by
+// temporarily clearing that inline override.
+//
 // Squircle elements are borderless by design: CSS borders do not follow a
 // clip-path. Use a fill that contrasts with the background instead of a
 // border (the Apple grouped-list approach).
@@ -65,10 +72,16 @@ export function squirclePath(width: number, height: number, radius: number): str
   ].join(' ')
 }
 
+const supportsPath = typeof CSS !== 'undefined' && CSS.supports('clip-path', "path('M 0 0 L 1 1 Z')")
+
 // CSS border-radius is the source of truth; the action argument is a fallback.
+// The inline override (see below) is temporarily cleared to read the CSS value.
 // Percent radii (e.g. 50%) resolve against the smaller side.
 function resolveRadius(node: HTMLElement, w: number, h: number, fallback: number): number {
+  const inline = node.style.borderRadius
+  if (inline) node.style.borderRadius = ''
   const raw = getComputedStyle(node).borderTopLeftRadius
+  if (inline) node.style.borderRadius = inline
   if (!raw) return fallback
   if (raw.endsWith('%')) {
     const pct = parseFloat(raw)
@@ -94,6 +107,10 @@ function hookWindow(): void {
 
 export function squircle(node: HTMLElement, radius = 10): { update(r: number): void; destroy(): void } {
   let fallback = radius
+
+  // Keep the CSS border-radius as the no-clip-path fallback, but mask it where
+  // the clip applies, otherwise the circular radius always wins the silhouette.
+  if (supportsPath) node.style.borderRadius = '0'
 
   function apply(): void {
     const w = node.offsetWidth
@@ -122,6 +139,8 @@ export function squircle(node: HTMLElement, radius = 10): { update(r: number): v
     destroy() {
       ro.disconnect()
       liveApplies.delete(apply)
+      node.style.borderRadius = ''
+      node.style.clipPath = ''
     },
   }
 }
