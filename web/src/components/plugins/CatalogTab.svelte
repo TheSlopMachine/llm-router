@@ -190,12 +190,10 @@
 
   async function removeRepo(id: string): Promise<void> {
     const confirmed = await modal.confirm({
-      title: 'Remove repository',
-      message: 'Remove this repository from the store? Installed plugins stay installed.',
+      title: t('Remove repository'),
+      message: t('Remove this repository from the store? Installed plugins stay installed.'),
       severity: 'medium',
-      confirmText: 'Remove',
-      cancelText: 'Cancel',
-      danger: false
+      confirmText: t('Remove'),
     })
     if (!confirmed) return
     try {

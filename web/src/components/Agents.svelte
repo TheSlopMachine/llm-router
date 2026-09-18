@@ -39,8 +39,7 @@
       severity: 'high',
       size: 'small',
       confirmText: t('Delete'),
-      cancelText: t('Cancel'),
-      danger: true
+      confirmRole: 'destructive'
     })
 
     if (!confirmed) return

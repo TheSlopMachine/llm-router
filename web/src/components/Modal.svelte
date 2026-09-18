@@ -1,6 +1,7 @@
 <script lang="ts">
   import { modal } from '../lib/modal.svelte'
   import type { ModalConfig, ModalButton, ModalMenu } from '../lib/modal.svelte'
+  import { t } from '../lib/i18n.svelte'
   import ActionDropdown from './ActionDropdown.svelte'
 
   let stack = $derived(modal.stack)
@@ -107,6 +108,9 @@
             <p class="modal-subtitle">{config.subtitle}</p>
           {/if}
         </div>
+        <button class="btn-icon modal-close" onclick={() => modal.close()} aria-label={t('Close')}>
+          <span class="icon">close</span>
+        </button>
       </div>
 
       {#if config.stepper}
@@ -136,7 +140,12 @@
 
       <div class="modal-body">
         {#if config.type === 'confirm'}
-          <p>{config.message}</p>
+          {#if config.content}
+            {@const ConfirmContent = config.content}
+            <ConfirmContent {...(config.props ?? {})} />
+          {:else}
+            <p>{config.message}</p>
+          {/if}
         {:else if config.type === 'content'}
           {@const Content = config.content}
           {#if Content}
@@ -146,7 +155,7 @@
       </div>
 
       {#if (config.buttons && config.buttons.length > 0) || config.menu || config.footerHint}
-        <div class="modal-footer">
+        <div class="modal-footer" class:footer-bordered={config.type === 'content'}>
           {#if config.footerHint}
             <span class="footer-hint">{config.footerHint}</span>
           {/if}
@@ -207,12 +216,16 @@
 
   .modal-header {
     padding: 20px 24px;
-    border-bottom: 1px solid var(--color-outline-soft);
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
     flex-shrink: 0;
     gap: 16px;
+  }
+
+  .modal-close {
+    flex-shrink: 0;
+    margin: -6px -10px 0 0;
   }
 
   .modal-title-col {
@@ -336,12 +349,15 @@
      and between adjacent buttons are all the same N. */
   .modal-footer {
     padding: 12px;
-    border-top: 1px solid var(--color-outline-soft);
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 12px;
     flex-shrink: 0;
+  }
+
+  .modal-footer.footer-bordered {
+    border-top: 1px solid var(--color-outline-soft);
   }
 
   .footer-hint {

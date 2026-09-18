@@ -1,5 +1,8 @@
+import { t } from './i18n.svelte'
+
 export type ModalSeverity = 'low' | 'medium' | 'high'
 export type ModalSize = 'small' | 'medium' | 'large' | 'extra-large'
+export type ConfirmRole = 'default' | 'destructive'
 
 export interface ModalButton {
   label: string
@@ -43,10 +46,11 @@ export interface BaseModalConfig {
 
 export interface ConfirmModalConfig extends BaseModalConfig {
   type: 'confirm'
-  message: string
+  message?: string
+  content?: any
+  props?: Record<string, any>
   confirmText?: string
-  cancelText?: string
-  danger?: boolean
+  confirmRole?: ConfirmRole
 }
 
 export interface ContentModalConfig extends BaseModalConfig {
@@ -66,9 +70,6 @@ export const modal = {
 
   confirm(config: Omit<ConfirmModalConfig, 'type'>): Promise<boolean> {
     return new Promise((resolve) => {
-      const confirmText = config.confirmText || 'Confirm'
-      const cancelText = config.cancelText || 'Cancel'
-
       stack = [
         ...stack,
         {
@@ -76,23 +77,24 @@ export const modal = {
           severity: config.severity || 'medium',
           size: config.size || 'small',
           ...config,
+          onClose: () => {
+            resolve(false)
+            config.onClose?.()
+          },
           buttons: [
             {
-              label: cancelText,
-              // SwiftUI mapping: Cancel is a borderless TextButton (danger-tinted
-              // in destructive confirms), Confirm stays prominent accent.
-              variant: (config.danger ? 'text danger' : 'text') as ModalButton['variant'],
+              label: t('Cancel'),
+              variant: 'text' as ModalButton['variant'],
               onClick: () => {
                 modal.close()
-                resolve(false)
               }
             },
             {
-              label: confirmText,
-              variant: 'primary' as const,
+              label: config.confirmText || t('Confirm'),
+              variant: (config.confirmRole === 'destructive' ? 'danger' : 'primary') as ModalButton['variant'],
               onClick: () => {
-                modal.close()
                 resolve(true)
+                modal.close()
               }
             }
           ]

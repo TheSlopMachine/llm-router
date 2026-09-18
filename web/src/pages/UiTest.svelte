@@ -128,7 +128,7 @@
   ]
 
   function askConfirm(): void {
-    void modal.confirm({ title: 'Demo confirm', message: 'Confirm this demo action?', danger: true }).then((ok) => {
+    void modal.confirm({ title: 'Demo confirm', message: 'Confirm this demo action?', confirmRole: 'destructive' }).then((ok) => {
       confirmResult = ok ? 'confirmed' : 'cancelled'
     })
   }

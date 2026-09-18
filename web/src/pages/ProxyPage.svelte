@@ -85,8 +85,7 @@
       message: `${t('Remove')} ${p.url} ${t('from the pool?')}`,
       severity: 'medium',
       confirmText: t('Delete'),
-      cancelText: t('Cancel'),
-      danger: true,
+      confirmRole: 'destructive',
     })
     if (!confirmed) return
     try {

@@ -42,8 +42,6 @@ export function createPluginState(opts: {
       message: `${t('Roll')} "${plugin.display_name}" ${t('back to the previous version?')}`,
       severity: 'medium',
       confirmText: t('Roll back'),
-      cancelText: 'Cancel',
-      danger: false
     })
     if (!confirmed) return
     try {
@@ -60,8 +58,7 @@ export function createPluginState(opts: {
       message: `${t('Delete')} "${plugin.display_name}"? ${t('Providers using its types will stop working.')}`,
       severity: 'high',
       confirmText: t('Delete'),
-      cancelText: 'Cancel',
-      danger: true
+      confirmRole: 'destructive'
     })
     if (!confirmed) return
     try {

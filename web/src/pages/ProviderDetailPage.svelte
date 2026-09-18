@@ -307,8 +307,7 @@
       message: `${t('Are you sure you want to delete')} "${provider.name}"? ${t('Credentials for this provider will be removed as well.')}`,
       severity: 'high',
       confirmText: t('Delete'),
-      cancelText: t('Cancel'),
-      danger: true,
+      confirmRole: 'destructive',
     })
     if (!confirmed) return
     try {
@@ -325,8 +324,7 @@
       message: `${t('Are you sure you want to delete')} "${cred.label || t('Unnamed')}"? ${t('This action cannot be undone.')}`,
       severity: 'medium',
       confirmText: t('Delete'),
-      cancelText: t('Cancel'),
-      danger: true,
+      confirmRole: 'destructive',
     })
     if (!confirmed) return
     try {
@@ -512,8 +510,7 @@
       message: `${t('Remove')} "${m.name}" ${t('from this provider?')}`,
       severity: 'medium',
       confirmText: t('Delete'),
-      cancelText: t('Cancel'),
-      danger: true,
+      confirmRole: 'destructive',
     })
     if (!confirmed) return
     try {

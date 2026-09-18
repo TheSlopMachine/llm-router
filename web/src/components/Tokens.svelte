@@ -68,8 +68,7 @@
       message: `${t('Regenerate secret for')} "${name}"? ${t('The old secret will be invalidated immediately.')}`,
       severity: 'high',
       confirmText: t('Regenerate'),
-      cancelText: t('Cancel'),
-      danger: true
+      confirmRole: 'destructive'
     })
     if (!confirmed) return
     try {
@@ -87,8 +86,7 @@
       message: `${t('Are you sure you want to revoke token')} "${name}"? ${t('This action cannot be undone.')}`,
       severity: 'medium',
       confirmText: t('Revoke'),
-      cancelText: t('Cancel'),
-      danger: true
+      confirmRole: 'destructive'
     })
 
     if (!confirmed) return
