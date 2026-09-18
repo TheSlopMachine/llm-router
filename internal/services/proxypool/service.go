@@ -9,6 +9,7 @@
 package proxypool
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -39,15 +40,35 @@ type Service struct {
 	CheckURL string
 	// DialTimeout bounds a single health-check dial.
 	DialTimeout time.Duration
+
+	pipeline *pipeline
 }
 
-// New constructs the proxy pool service.
+// New constructs the proxy pool service. List-sourced DB rows that were
+// never verified alive are culled: under the streaming pipeline only
+// verified proxies may occupy the bucket.
 func New(database *db.DB) *Service {
-	return &Service{
+	s := &Service{
 		repo:        repository.New[models.Proxy](database, db.BucketProxies, "proxy"),
 		CheckURL:    "https://www.gstatic.com/generate_204",
 		DialTimeout: 10 * time.Second,
+		pipeline:    newPipeline(),
 	}
+	unverified, err := s.repo.ListFiltered(func(p *models.Proxy) bool {
+		return p.Source != ManualSource && !p.Alive
+	})
+	if err == nil {
+		for _, p := range unverified {
+			_ = s.repo.Delete(p.ID)
+		}
+	}
+	return s
+}
+
+// StartWorkers launches the streaming check pipeline. Call once at startup;
+// the workers stop with ctx.
+func (s *Service) StartWorkers(ctx context.Context) {
+	s.startWorkers(ctx)
 }
 
 // ─────────────────────────────────────────────
@@ -99,49 +120,8 @@ func (s *Service) List() ([]*models.Proxy, error) {
 	return all, nil
 }
 
-// SyncFromSource replaces all list-sourced entries of one source with the
-// fresh candidates. Health memory survives for proxies present in both sets.
-func (s *Service) SyncFromSource(sourceKey string, candidates []models.ProxyCandidate) (int, error) {
-	source := ListSource(sourceKey)
-	existing, err := s.repo.ListFiltered(func(p *models.Proxy) bool { return p.Source == source })
-	if err != nil {
-		return 0, err
-	}
-	byID := make(map[string]*models.Proxy, len(existing))
-	for _, p := range existing {
-		byID[p.ID] = p
-	}
-	seen := map[string]bool{}
-	added := 0
-	for _, c := range candidates {
-		p, err := candidateToProxy(c, source)
-		if err != nil {
-			continue
-		}
-		seen[p.ID] = true
-		if old, ok := byID[p.ID]; ok {
-			p.Alive = old.Alive
-			p.LatencyMs = old.LatencyMs
-			p.LastCheckAt = old.LastCheckAt
-			p.ProviderHealth = old.ProviderHealth
-			p.CreatedAt = old.CreatedAt
-		} else {
-			added++
-		}
-		if err := s.repo.Put(p.ID, p); err != nil {
-			return added, err
-		}
-	}
-	for id := range byID {
-		if !seen[id] {
-			_ = s.repo.Delete(id)
-		}
-	}
-	return added, nil
-}
-
 // proxyID is deterministic: the same URL maps to the same record, so manual
-// re-adds dedup and list syncs preserve health memory.
+// re-adds dedup and re-checks preserve health memory.
 func proxyID(rawURL string) string {
 	sum := sha256.Sum256([]byte(rawURL))
 	return "px-" + hex.EncodeToString(sum[:8])

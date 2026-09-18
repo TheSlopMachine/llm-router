@@ -1,8 +1,10 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
@@ -114,11 +116,12 @@ func (h *Handler) apiProxiesCheckAll(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// apiProxySources lists registered proxy-list source plugins
+// apiProxySources lists proxy-list source plugins with pipeline stats
 // @Summary      List proxy sources
+// @Description  Returns every registered source with its worker status and counters.
 // @Tags         Proxies
 // @Produce      json
-// @Success      200 {array} string
+// @Success      200 {array} proxypool.SourceInfo
 // @Failure      401 {object} models.ErrorResponse
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/proxy-sources [get]
@@ -127,33 +130,60 @@ func (h *Handler) apiProxySources(w http.ResponseWriter, r *http.Request) {
 	if keys == nil {
 		keys = []string{}
 	}
-	h.json(w, http.StatusOK, keys)
+	h.json(w, http.StatusOK, h.proxySvc.SourceInfos(keys))
 }
 
-// apiProxySourceRefresh fetches a fresh proxy list from a source plugin
+// apiProxySourceRefresh starts an async fetch + check cycle for a source
 // @Summary      Refresh proxy source
-// @Description  Invokes the source plugin's fetch_proxies and syncs the pool.
+// @Description  Starts a background fetch: candidates stream into the check
+// @Description  pipeline; only verified proxies are pooled. Poll the sources
+// @Description  list for progress.
 // @Tags         Proxies
-// @Produce      json
 // @Param        key path string true "Source type key"
-// @Success      200 {object} object{added=int}
+// @Success      202 {object} object{started=bool}
 // @Failure      401 {object} models.ErrorResponse
-// @Failure      502 {object} models.ErrorResponse
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/proxy-sources/{key}/refresh [post]
 func (h *Handler) apiProxySourceRefresh(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
-	candidates, err := h.luaSvc.FetchProxies(r.Context(), key)
-	if err != nil {
-		h.jsonErr(w, http.StatusBadGateway, err.Error())
-		return
+	h.proxySvc.BeginFetch(key)
+	go func() {
+		ctx := context.Background()
+		candidates, err := h.luaSvc.FetchProxies(ctx, key)
+		if err != nil {
+			h.proxySvc.FailFetch(key, err)
+			return
+		}
+		_, _ = h.proxySvc.RefreshSource(key, candidates)
+	}()
+	h.json(w, http.StatusAccepted, map[string]any{"started": true})
+}
+
+// apiProxySourceProxies returns verified-alive proxies of one source
+// @Summary      List source proxies
+// @Description  Verified-alive proxies pulled from one source, fastest first, paginated.
+// @Tags         Proxies
+// @Produce      json
+// @Param        key path string true "Source type key"
+// @Param        offset query int false "Offset"
+// @Param        limit query int false "Limit (default 100)"
+// @Success      200 {object} object{items=array,total=int}
+// @Failure      401 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/proxy-sources/{key}/proxies [get]
+func (h *Handler) apiProxySourceProxies(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 {
+		limit = 100
 	}
-	added, err := h.proxySvc.SyncFromSource(key, candidates)
+	items, total, err := h.proxySvc.SourceProxies(key, offset, limit)
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	h.json(w, http.StatusOK, map[string]any{"added": added, "total": len(candidates)})
+	h.json(w, http.StatusOK, map[string]any{"items": items, "total": total})
 }
 
 // apiProxyStatus reports server location and pool stats

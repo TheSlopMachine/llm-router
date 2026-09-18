@@ -43,6 +43,7 @@ type Server struct {
 	apiSrv       *http.Server
 	maintSvc     *maintenance.Service
 	metricsSvc   *metrics.Service
+	proxySvc     *proxypool.Service
 }
 
 // New builds the full Server from config.
@@ -202,11 +203,13 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		apiSrv:       apiSrv,
 		maintSvc:     maintSvc,
 		metricsSvc:   metricsSvc,
+		proxySvc:     proxySvc,
 	}, nil
 }
 
 // Run starts the maintenance loop and blocks on both HTTP servers.
 func (s *Server) Run(ctx context.Context) error {
+	s.proxySvc.StartWorkers(ctx)
 	s.maintSvc.Start(ctx)
 	s.logger.Info("llm-router started", "dashboard", s.cfg.DashboardAddr, "api", s.cfg.APIAddr, "db", s.cfg.DBPath)
 

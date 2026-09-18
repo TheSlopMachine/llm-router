@@ -42,35 +42,6 @@ func TestAddManual_Validation(t *testing.T) {
 	}
 }
 
-func TestSyncFromSource_Idempotent(t *testing.T) {
-	svc := setup(t)
-	cands := []models.ProxyCandidate{
-		{Protocol: "http", Host: "1.2.3.4", Port: 8080, Country: "us"},
-		{Protocol: "socks5", Host: "5.6.7.8", Port: 1080, Country: "de"},
-	}
-	added, err := svc.SyncFromSource("proxifly", cands)
-	if err != nil || added != 2 {
-		t.Fatalf("sync: added=%d err=%v", added, err)
-	}
-	// Health memory survives a resync.
-	all, _ := svc.List()
-	svc.RecordOutcome(all[0].ID, "groq", true, 42)
-	_, err = svc.SyncFromSource("proxifly", cands)
-	if err != nil {
-		t.Fatalf("resync: %v", err)
-	}
-	again, _ := svc.List()
-	if len(again) != 2 {
-		t.Fatalf("resync duplicated: %d", len(again))
-	}
-	// Shrink: entries gone from the list are removed.
-	_, _ = svc.SyncFromSource("proxifly", cands[:1])
-	final, _ := svc.List()
-	if len(final) != 1 {
-		t.Fatalf("stale entries kept: %d", len(final))
-	}
-}
-
 func TestSelect_PreferencesAndProviderHealth(t *testing.T) {
 	svc := setup(t)
 	us, _ := svc.AddManual("http://1.1.1.1:80", "us")
@@ -176,16 +147,13 @@ func TestCheck_LiveAndDead(t *testing.T) {
 	}
 
 	// Dead list-sourced proxy is culled immediately.
-	_, _ = svc.SyncFromSource("proxifly", []models.ProxyCandidate{{Protocol: "http", Host: "127.0.0.1", Port: 1}})
-	all, _ := svc.List()
-	var dead *models.Proxy
-	for _, p := range all {
-		if p.Source == ListSource("proxifly") {
-			dead = p
-		}
+	dead, err := candidateToProxy(models.ProxyCandidate{Protocol: "http", Host: "127.0.0.1", Port: 1}, ListSource("proxifly"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if dead == nil {
-		t.Fatal("list-sourced proxy missing after sync")
+	dead.Alive = true
+	if err := svc.repo.Put(dead.ID, dead); err != nil {
+		t.Fatal(err)
 	}
 	_, err = svc.Check(context.Background(), dead.ID)
 	if err == nil {

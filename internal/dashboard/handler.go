@@ -200,6 +200,7 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("POST /api/llm-router/dashboard/proxies/check-all", h.requireAuth(h.apiProxiesCheckAll))
 	mux.HandleFunc("GET /api/llm-router/dashboard/proxy-sources", h.requireAuth(h.apiProxySources))
 	mux.HandleFunc("POST /api/llm-router/dashboard/proxy-sources/{key}/refresh", h.requireAuth(h.apiProxySourceRefresh))
+	mux.HandleFunc("GET /api/llm-router/dashboard/proxy-sources/{key}/proxies", h.requireAuth(h.apiProxySourceProxies))
 	mux.HandleFunc("GET /api/llm-router/dashboard/proxy/status", h.requireAuth(h.apiProxyStatus))
 
 	// Chat proxy (dashboard session -> router, no token required)

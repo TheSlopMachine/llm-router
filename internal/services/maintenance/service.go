@@ -157,8 +157,9 @@ func (s *Service) syncProviderModels(ctx context.Context) {
 
 const proxyPoolRefreshInterval = time.Hour
 
-// maintainProxyPool refreshes list-sourced proxies and probes the pool
-// hourly; checks run on the regular ticker when a refresh is due.
+// maintainProxyPool refreshes list-sourced proxies hourly: each source is
+// fetched and its candidates stream into the check pipeline. The DB pool
+// (manual + verified-alive) is re-probed right after.
 func (s *Service) maintainProxyPool(ctx context.Context) {
 	if s.proxySvc == nil || s.luaSvc == nil {
 		return
@@ -171,13 +172,15 @@ func (s *Service) maintainProxyPool(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		s.proxySvc.BeginFetch(key)
 		candidates, err := s.luaSvc.FetchProxies(ctx, key)
 		if err != nil {
+			s.proxySvc.FailFetch(key, err)
 			s.logger.Warn("maintenance: proxy source refresh failed", "source", key, "err", err)
 			continue
 		}
-		if _, err := s.proxySvc.SyncFromSource(key, candidates); err != nil {
-			s.logger.Warn("maintenance: proxy pool sync failed", "source", key, "err", err)
+		if _, err := s.proxySvc.RefreshSource(key, candidates); err != nil {
+			s.logger.Warn("maintenance: proxy pool refresh failed", "source", key, "err", err)
 		}
 	}
 	s.proxySvc.CheckAll(ctx)

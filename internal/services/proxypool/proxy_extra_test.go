@@ -7,8 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
 func TestNormalizeCountryCode(t *testing.T) {
@@ -38,20 +36,6 @@ func TestAddManual_NormalizesCountry(t *testing.T) {
 	}
 	if p.Country != "US" {
 		t.Fatalf("country not normalized: %q", p.Country)
-	}
-}
-
-func TestSyncFromSource_NormalizesCountry(t *testing.T) {
-	svc := setup(t)
-	_, err := svc.SyncFromSource("src", []models.ProxyCandidate{
-		{Protocol: "http", Host: "10.9.9.9", Port: 8080, Country: "deu"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	all, _ := svc.List()
-	if len(all) != 1 || all[0].Country != "DE" {
-		t.Fatalf("country not normalized: %+v", all)
 	}
 }
 
