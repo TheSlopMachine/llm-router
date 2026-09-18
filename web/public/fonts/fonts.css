@@ -23,3 +23,19 @@
   font-display: block;
   src: url('/fonts/material-symbols-outlined.woff2') format('woff2');
 }
+
+@font-face {
+  font-family: 'Chrysanthemum';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/Chrysanthemum-Regular.otf') format('opentype');
+}
+
+@font-face {
+  font-family: 'Chrysanthemum';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/Chrysanthemum-Italic.otf') format('opentype');
+}

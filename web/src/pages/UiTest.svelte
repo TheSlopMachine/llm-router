@@ -33,6 +33,12 @@
   let confirmResult = $state('(not asked)')
   let toastText = $state('Custom toast text — edit me and show')
 
+  // Font preview: Chrysanthemum applies app-wide while the polygon is open.
+  $effect(() => {
+    document.body.classList.add('uit-chrysanthemum')
+    return () => document.body.classList.remove('uit-chrysanthemum')
+  })
+
   let formValues = $state<Record<string, unknown>>({})
 
   let padBtnH = $state('14px')
@@ -393,6 +399,9 @@
 
 <style>
   /* Composer owns spacing: widgets render marginless, the stack gaps them. */
+  :global(body.uit-chrysanthemum) {
+    font-family: 'Chrysanthemum', 'Inter', system-ui, -apple-system, sans-serif;
+  }
   .uit-stack {
     display: flex;
     flex-direction: column;
