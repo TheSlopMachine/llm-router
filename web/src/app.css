@@ -410,6 +410,12 @@ button:focus-visible, .btn:focus-visible {
 .btn-text.danger:hover:not([disabled]) {
   background: var(--color-notification-error-bg);
 }
+.btn-text.plain {
+  color: var(--color-text-soft);
+}
+.btn-text.plain:hover:not([disabled]) {
+  background: var(--color-hover-bg);
+}
 
 /* Tinted buttons: colors come from inline --tint-* vars computed by
    lib/tint.ts. Rules sit after the variants so equal-specificity hovers

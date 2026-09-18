@@ -6,7 +6,7 @@ export type ConfirmRole = 'default' | 'destructive'
 
 export interface ModalButton {
   label: string
-  variant?: 'primary' | 'secondary' | 'danger' | 'text' | 'text danger'
+  variant?: 'primary' | 'secondary' | 'danger' | 'text' | 'text danger' | 'text plain'
   onClick: () => void | Promise<void>
   disabled?: boolean
   loading?: boolean
@@ -84,7 +84,7 @@ export const modal = {
           buttons: [
             {
               label: t('Cancel'),
-              variant: 'text' as ModalButton['variant'],
+              variant: 'text plain' as ModalButton['variant'],
               onClick: () => {
                 modal.close()
               }
