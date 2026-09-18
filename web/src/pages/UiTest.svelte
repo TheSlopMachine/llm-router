@@ -40,7 +40,7 @@
     return () => document.body.classList.remove('uit-chrysanthemum')
   })
 
-  let squircleN = $state('4')
+  let squircleN = $state('2.5')
 
   interface FontFile { url: string; weight: string; style: string }
   interface FontFamily { family: string; files: FontFile[] }
@@ -82,11 +82,11 @@
 
   let formValues = $state<Record<string, unknown>>({})
 
-  let padBtnH = $state('14px')
-  let padBtnV = $state('6px')
+  let padBtnH = $state('16px')
+  let padBtnV = $state('4px')
   let padFieldH = $state('12px')
-  let padFieldV = $state('10px')
-  let ctlRadius = $state('14px')
+  let padFieldV = $state('8px')
+  let ctlRadius = $state('16px')
 
   function px(v: string): string {
     const t = v.trim()
@@ -106,11 +106,11 @@
   }
 
   function resetMetrics(): void {
-    padBtnH = '14px'
-    padBtnV = '6px'
+    padBtnH = '16px'
+    padBtnV = '4px'
     padFieldH = '12px'
-    padFieldV = '10px'
-    ctlRadius = '14px'
+    padFieldV = '8px'
+    ctlRadius = '16px'
     const root = document.documentElement
     root.style.removeProperty('--btn-pad-h')
     root.style.removeProperty('--btn-pad-v')

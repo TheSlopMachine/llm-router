@@ -123,11 +123,11 @@ a:hover { text-decoration: underline; }
   --sidebar-w: 240px;
 
   /* Playground-tunable control metrics (see UI test polygon). */
-  --btn-pad-v: 6px;
-  --btn-pad-h: 14px;
-  --field-pad-v: 10px;
+  --btn-pad-v: 4px;
+  --btn-pad-h: 16px;
+  --field-pad-v: 8px;
   --field-pad-h: 12px;
-  --ctl-radius: 14px;
+  --ctl-radius: 16px;
 }
 
 .dark {
@@ -234,9 +234,15 @@ input, select, textarea {
   line-height: 20px;
   width: 100%;
   border-radius: var(--ctl-radius);
-  /* transparent border keeps disabled geometry identical to enabled */
+  /* The 1px border strip stays transparent and only reserves geometry; the
+     visible frame is painted by the --_frame gradient layer because CSS
+     borders do not follow the squircle clip-path. States flip the vars. */
   border: 1px solid transparent;
-  background: var(--color-surface-container-highest);
+  --_fill: var(--color-surface-container-highest);
+  --_frame: transparent;
+  background:
+    linear-gradient(var(--_fill), var(--_fill)) padding-box,
+    linear-gradient(var(--_frame), var(--_frame)) border-box;
   color: var(--color-text);
   padding: var(--field-pad-v) var(--field-pad-h);
   outline: none;
@@ -248,16 +254,16 @@ input[type="checkbox"] {
   height: auto;
 }
 input:focus, select:focus, textarea:focus {
-  /* fill stays put — the accent inset ring alone marks focus (longhand only:
-     the background shorthand would reset background-repeat and tile the
-     select chevron) */
-  box-shadow: inset 0 0 0 2px var(--color-accent);
+  /* accent frame follows the squircle clip; the inner 1px shadow keeps the
+     ring 2px thick in total */
+  --_frame: var(--color-accent);
+  box-shadow: inset 0 0 0 1px var(--color-accent);
 }
 input:disabled, select:disabled, textarea:disabled {
-  background-color: var(--color-disabled-bg);
-  color: var(--color-disabled-text);
+  --_fill: var(--color-disabled-bg);
   /* frame in the enabled fill color so the widget reads against the page */
-  border-color: var(--color-surface-container-highest);
+  --_frame: var(--color-surface-container-highest);
+  color: var(--color-disabled-text);
   cursor: not-allowed;
 }
 
@@ -309,18 +315,23 @@ select option {
   background: var(--color-surface); 
   color: var(--color-text);
 }
-/* Custom chevron everywhere (was auth-forms only); appearance:none kills the native glyph. */
+/* Custom chevron everywhere (was auth-forms only); appearance:none kills the
+   native glyph. The chevron is a layer in the gradient stack so disabled and
+   focus states keep it while they flip --_fill/--_frame. */
+:root {
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236c717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+}
+.dark {
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a0a0a0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+}
 select {
   appearance: none;
   -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236c717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  background-size: 16px;
+  background:
+    var(--select-chevron) no-repeat right 12px center / 16px padding-box,
+    linear-gradient(var(--_fill), var(--_fill)) padding-box,
+    linear-gradient(var(--_frame), var(--_frame)) border-box;
   padding-right: 40px;
-}
-.dark select {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a0a0a0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
 }
 
 button, .btn {
@@ -352,11 +363,14 @@ button:active:not([disabled]), .btn:active:not([disabled]) {
 button:hover:not([disabled]), .btn:hover:not([disabled]) { 
   background: var(--color-button-container-high); 
 }
-button:disabled, .btn:disabled { 
-  background-color: var(--color-disabled-bg);
+button:disabled, .btn:disabled {
+  /* frame painted by a gradient layer: CSS borders do not follow the
+     squircle clip-path. Frame color = enabled fill so the button reads
+     against the page. */
+  background:
+    linear-gradient(var(--color-disabled-bg), var(--color-disabled-bg)) padding-box,
+    linear-gradient(var(--color-button-container-high), var(--color-button-container-high)) border-box;
   color: var(--color-disabled-text);
-  /* frame in the enabled fill color so the button reads against the page */
-  border-color: var(--color-button-container-high);
   cursor: not-allowed;
   opacity: 0.6;
 }
@@ -643,7 +657,7 @@ tbody tr:hover td {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
+  padding: 16px;
   border-bottom: 1px solid var(--color-outline-soft);
 }
 .card-header h2 { 

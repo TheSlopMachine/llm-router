@@ -1,4 +1,4 @@
-// Squircle (superellipse, Lamé curve n=4) clip-path for arbitrary elements.
+// Squircle (superellipse, Lamé curve n=2.5) clip-path for arbitrary elements.
 //
 // The action measures the element's border box and sets clip-path: path() in
 // real pixels, so corners keep uniform curvature at any size (objectBoundingBox
@@ -21,7 +21,7 @@
 // clip-path. Use a fill that contrasts with the background instead of a
 // border (the Apple grouped-list approach).
 
-let superellipseExp = 0.5 // 2/n with n = 4
+let superellipseExp = 0.8 // 2/n with n = 2.5
 
 // Live tuning from the polygon: re-applies every mounted squircle.
 export function setSquircleExponent(n: number): void {

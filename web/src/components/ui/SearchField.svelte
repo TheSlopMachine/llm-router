@@ -46,11 +46,18 @@
     padding: var(--field-pad-v) var(--field-pad-h);
     border: 1px solid transparent;
     border-radius: var(--ctl-radius);
-    background: var(--color-surface-container-highest);
+    /* frame painted by a gradient layer: CSS borders do not follow the
+       squircle clip-path (same pattern as base inputs in app.css) */
+    --_fill: var(--color-surface-container-highest);
+    --_frame: transparent;
+    background:
+      linear-gradient(var(--_fill), var(--_fill)) padding-box,
+      linear-gradient(var(--_frame), var(--_frame)) border-box;
   }
 
   .search-field:focus-within {
-    box-shadow: inset 0 0 0 2px var(--color-accent);
+    --_frame: var(--color-accent);
+    box-shadow: inset 0 0 0 1px var(--color-accent);
   }
 
   .search-field input {
