@@ -24,7 +24,6 @@
     updateTitle,
     updateSubtitle,
     updateStepper,
-    updateFooterHint,
     closeModal
   } = $props<{
     providers: Provider[]
@@ -35,7 +34,6 @@
     updateTitle: (title: string) => void
     updateSubtitle: (subtitle: string) => void
     updateStepper: (stepper: StepperConfig | null) => void
-    updateFooterHint: (hint: string, tone?: 'default' | 'error') => void
     closeModal: () => void
   }>()
 
@@ -114,11 +112,6 @@
   let hasAnyCredentialAvailable = $derived(eligibleCredentialsGrouped.some((g: { creds: typeof allCredentials }) => g.creds.length > 0))
 
   let step1Valid = $derived(!!tokenName.trim() && (allowAllProviders || selectedProviders.size > 0))
-  let step1Hint = $derived.by(() => {
-    if (!tokenName.trim()) return t('Enter a token name.')
-    if (!allowAllProviders && selectedProviders.size === 0) return t('Select at least one provider or enable Allow all.')
-    return ''
-  })
   let step2Valid = $derived.by(() => {
     if (allowAllModels) return true
     if (!hasAnyModelAvailable) return true
@@ -135,13 +128,6 @@
     if (!hasAnyCredentialAvailable) return true
     return selectedCredentials.size > 0
   })
-  let step3Hint = $derived.by(() => {
-    if (allowAllCredentials) return ''
-    if (!hasAnyCredentialAvailable) return ''
-    if (selectedCredentials.size === 0) return t('Select at least one account or enable Allow all.')
-    return ''
-  })
-  let currentHint = $derived(view === 'success' ? '' : wizardStep === 1 ? step1Hint : wizardStep === 2 ? step2Hint : step3Hint)
   let currentValid = $derived(view === 'success' ? true : wizardStep === 1 ? step1Valid : wizardStep === 2 ? step2Valid : step3Valid)
 
   // grouped-checklist data (models + accounts share the same component)
@@ -184,7 +170,6 @@
       updateTitle(baseTitle)
       updateSubtitle(subtitle)
       updateStepper(stepperConfig)
-      updateFooterHint(currentHint)
       if (view === 'success') {
         updateButtons([
           { label: t('Create another'), variant: 'secondary', onClick: resetWizard },
@@ -306,7 +291,7 @@
   $effect(() => {
     void wizardStep; void tokenName; void allowAllProviders; void selectedProviders.size; void allowAllModels; void selectedModels.size
     void allowAllCredentials; void selectedCredentials.size; void wizardLoading; void searchModels; void searchAccounts
-    void view; void createdToken; void error; void subtitle; void stepperConfig; void currentHint
+    void view; void createdToken; void error; void subtitle; void stepperConfig
     untrack(() => syncChrome())
   })
 </script>

@@ -148,9 +148,8 @@
   function openContentModal(): void {
     modal.open({
       title: 'Demo modal',
-      subtitle: 'Content modal with buttons and hint',
+      subtitle: 'Content modal with buttons',
       size: 'medium',
-      footerHint: { text: 'Footer hint text.' },
       content: EmptyState,
       props: {
         icon: 'extension',

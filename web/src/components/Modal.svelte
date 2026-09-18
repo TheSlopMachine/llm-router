@@ -74,9 +74,6 @@
       updateStepper: (stepper: import('../lib/modal.svelte').StepperConfig | null) => {
         modal.updateStepper(stepper)
       },
-      updateFooterHint: (hint: string) => {
-        modal.updateFooterHint(hint)
-      },
       closeModal: () => {
         modal.close()
       }
@@ -165,28 +162,23 @@
         </div>
       {/if}
 
-      {#if (config.buttons && config.buttons.length > 0) || config.menu || config.footerHint}
+      {#if (config.buttons && config.buttons.length > 0) || config.menu}
         <div class="modal-footer" class:footer-bordered={config.type === 'content'}>
-          {#if config.footerHint}
-            <span class="footer-hint" class:footer-hint-error={config.footerHint.tone === 'error'}>{config.footerHint.text}</span>
-          {/if}
-          {#if (config.buttons && config.buttons.length > 0) || config.menu}
-            <div class="footer-actions">
-              {#if config.buttons}
-                {#each config.buttons as button}
-                  <button
-                    class="btn btn-{button.variant || 'secondary'}"
-                    onclick={button.onClick}
-                    disabled={button.disabled || button.loading}>
-                    {button.loading ? 'Loading...' : button.label}
-                  </button>
-                {/each}
-              {/if}
-              {#if config.menu}
-                <ActionDropdown label={config.menu.label} actions={config.menu.actions} onaction={config.menu.onaction} />
-              {/if}
-            </div>
-          {/if}
+          <div class="footer-actions">
+            {#if config.buttons}
+              {#each config.buttons as button}
+                <button
+                  class="btn btn-{button.variant || 'secondary'}"
+                  onclick={button.onClick}
+                  disabled={button.disabled || button.loading}>
+                  {button.loading ? 'Loading...' : button.label}
+                </button>
+              {/each}
+            {/if}
+            {#if config.menu}
+              <ActionDropdown label={config.menu.label} actions={config.menu.actions} onaction={config.menu.onaction} />
+            {/if}
+          </div>
         </div>
       {/if}
     </div>
@@ -234,10 +226,10 @@
     gap: 16px;
   }
 
-  /* Glyph sits ~14px from the corner; the 36px hover box reaches 8px. */
+  /* Hover fill lands 14px from the corner, same as the footer buttons. */
   .modal-close {
     flex-shrink: 0;
-    margin: -12px -12px 0 0;
+    margin: -6px -6px 0 0;
   }
 
   .modal-title-col {
@@ -362,8 +354,8 @@
   .modal-footer {
     padding: 14px;
     display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
+    justify-content: flex-end;
+    align-items: center;
     gap: 12px;
     flex-shrink: 0;
   }
@@ -372,26 +364,10 @@
     border-top: 1px solid var(--color-outline-soft);
   }
 
-  /* Fill-less text needs the deeper inset the button text already has:
-     14px footer + 14px own margin = Done text's 28px from the corner. */
-  .footer-hint {
-    font-size: 12px;
-    color: var(--color-text-soft);
-    line-height: 16px;
-    flex: 1;
-    min-width: 0;
-    margin: 0 0 14px 14px;
-  }
-
-  .footer-hint.footer-hint-error {
-    color: var(--color-error-text);
-  }
-
   .footer-actions {
     display: flex;
     gap: 12px;
     flex-shrink: 0;
-    margin-left: auto;
     flex-wrap: wrap;
     justify-content: flex-end;
   }
