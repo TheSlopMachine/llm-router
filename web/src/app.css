@@ -36,7 +36,7 @@ a:hover { text-decoration: underline; }
   --radius-xs: 8px;
   --radius-sm: 10px;
   --radius-md: 12px;
-  --radius-lg: 18px;
+  --radius-lg: 24px;
   
   --color-sidebar-bg: #fafafa;
   --color-nav-hover: #efefef;

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { TimeSeriesPoint } from '../lib/types'
   import { t } from '../lib/i18n.svelte'
+  import { squircle } from '../lib/squircle'
 
   let { title, data = [], loading = false } = $props<{
     title: string
@@ -40,7 +41,7 @@
   }
 </script>
 
-<div class="card">
+<div class="card" use:squircle={18}>
   <div class="card-header-inline">
     <span class="card-title">{title}</span>
   </div>

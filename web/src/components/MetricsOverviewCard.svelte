@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte'
+  import { squircle } from '../lib/squircle'
   let { title, value, loading = false, icon = 'show_chart' } = $props<{
     title: string
     value: number | null
@@ -8,7 +9,7 @@
   }>()
 </script>
 
-<div class="card">
+<div class="card" use:squircle={18}>
   <div class="card-header-inline">
     <span class="card-title">{title}</span>
     <span class="icon">{icon}</span>

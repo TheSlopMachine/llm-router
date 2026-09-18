@@ -144,7 +144,7 @@
       title: 'Demo modal',
       subtitle: 'Content modal with buttons and hint',
       size: 'medium',
-      footerHint: 'Footer hint text.',
+      footerHint: { text: 'Footer hint text.' },
       content: EmptyState,
       props: {
         icon: 'extension',

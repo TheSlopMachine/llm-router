@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import { t } from '../../lib/i18n.svelte'
+  import { squircle } from '../../lib/squircle'
 
   let {
     title,
@@ -15,7 +16,7 @@
   }>()
 </script>
 
-<section class="card section-card">
+<section class="card section-card" use:squircle={18}>
   <div class="card-header">
     <div class="section-title-col">
       <h3>

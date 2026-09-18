@@ -5,6 +5,7 @@
   import { createListResource } from '../lib/list-resource.svelte'
   import type { Agent } from '../lib/types'
   import { t } from '../lib/i18n.svelte'
+  import { squircle } from '../lib/squircle'
   import EmptyState from './EmptyState.svelte'
 
   const resource = createListResource<Agent[]>(
@@ -83,7 +84,7 @@
       onButtonClick={openNewAgent}
     />
   {:else}
-    <div class="card">
+    <div class="card" use:squircle={18}>
       <div class="card-header"><h2>{t('Agents')}</h2></div>
       <table>
         <thead>

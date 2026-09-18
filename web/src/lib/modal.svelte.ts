@@ -32,11 +32,16 @@ export interface StepperConfig {
   labels: string[]
 }
 
+export interface FooterHint {
+  text: string
+  tone?: 'default' | 'error'
+}
+
 export interface BaseModalConfig {
   title: string
   subtitle?: string
   stepper?: StepperConfig | null
-  footerHint?: string
+  footerHint?: FooterHint
   severity?: ModalSeverity
   size?: ModalSize
   buttons?: ModalButton[]
@@ -177,11 +182,11 @@ export const modal = {
     stack = newStack
   },
 
-  updateFooterHint(hint: string): void {
+  updateFooterHint(text: string, tone: FooterHint['tone'] = 'default'): void {
     if (stack.length === 0) return
     const newStack = [...stack]
     const topModal = { ...newStack[newStack.length - 1] } as ModalConfig
-    topModal.footerHint = hint
+    topModal.footerHint = text ? { text, tone } : undefined
     newStack[newStack.length - 1] = topModal
     stack = newStack
   },

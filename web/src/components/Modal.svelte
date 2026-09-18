@@ -2,6 +2,7 @@
   import { modal } from '../lib/modal.svelte'
   import type { ModalConfig, ModalButton, ModalMenu } from '../lib/modal.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { squircle } from '../lib/squircle'
   import ActionDropdown from './ActionDropdown.svelte'
 
   let stack = $derived(modal.stack)
@@ -93,13 +94,15 @@
 
     <div
       class="modal-card modal-{config.size}"
+      class:modal-confirm={config.type === 'confirm'}
       style="z-index: {1001 + index * 2}"
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => handleKeyDown(e, config, e.currentTarget as HTMLElement)}
       role="dialog"
       aria-modal="true"
       aria-labelledby="modal-title-{index}"
-      tabindex="-1">
+      tabindex="-1"
+      use:squircle>
 
       <div class="modal-header">
         <div class="modal-title-col">
@@ -108,9 +111,11 @@
             <p class="modal-subtitle">{config.subtitle}</p>
           {/if}
         </div>
-        <button class="btn-icon modal-close" onclick={() => modal.close()} aria-label={t('Close')}>
-          <span class="icon">close</span>
-        </button>
+        {#if config.type === 'content'}
+          <button class="btn-icon modal-close" onclick={() => modal.close()} aria-label={t('Close')}>
+            <span class="icon">close</span>
+          </button>
+        {/if}
       </div>
 
       {#if config.stepper}
@@ -157,7 +162,7 @@
       {#if (config.buttons && config.buttons.length > 0) || config.menu || config.footerHint}
         <div class="modal-footer" class:footer-bordered={config.type === 'content'}>
           {#if config.footerHint}
-            <span class="footer-hint">{config.footerHint}</span>
+            <span class="footer-hint" class:footer-hint-error={config.footerHint.tone === 'error'}>{config.footerHint.text}</span>
           {/if}
           {#if (config.buttons && config.buttons.length > 0) || config.menu}
             <div class="footer-actions">
@@ -194,6 +199,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    /* shadow lives here: the card's squircle clip-path would cut a box-shadow */
+    filter: drop-shadow(0 0 32px rgba(0, 0, 0, 0.22)) drop-shadow(0 12px 24px rgba(0, 0, 0, 0.18));
     animation: fadeIn 0.15s ease-out;
   }
 
@@ -201,8 +208,6 @@
     background: var(--color-surface-container-high);
     border: none;
     border-radius: var(--radius-lg);
-    /* all-side halo + downward depth: the top edge must not merge with the backdrop */
-    box-shadow: 0 0 32px rgba(0, 0, 0, 0.22), 0 12px 24px rgba(0, 0, 0, 0.18);
     max-height: 90vh;
     display: flex;
     flex-direction: column;
@@ -215,7 +220,7 @@
   .modal-extra-large { width: 90%; max-width: 1100px; }
 
   .modal-header {
-    padding: 20px 24px;
+    padding: 20px;
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
@@ -225,7 +230,7 @@
 
   .modal-close {
     flex-shrink: 0;
-    margin: -6px -10px 0 0;
+    margin: -6px -6px 0 0;
   }
 
   .modal-title-col {
@@ -362,10 +367,14 @@
 
   .footer-hint {
     font-size: 12px;
-    color: var(--color-error-text);
+    color: var(--color-text-soft);
     line-height: 16px;
     flex: 1;
     min-width: 0;
+  }
+
+  .footer-hint.footer-hint-error {
+    color: var(--color-error-text);
   }
 
   .footer-actions {
@@ -375,6 +384,28 @@
     margin-left: auto;
     flex-wrap: wrap;
     justify-content: flex-end;
+  }
+
+  /* Confirm rhythm: one 20px edge grid, tighter text, buttons 6px apart. */
+  .modal-confirm .modal-header {
+    padding: 20px 20px 0;
+  }
+
+  .modal-confirm .modal-body {
+    padding: 12px 20px 0;
+  }
+
+  .modal-confirm .modal-body p {
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  .modal-confirm .modal-footer {
+    padding: 20px;
+  }
+
+  .modal-confirm .footer-actions {
+    gap: 6px;
   }
 
   @keyframes fadeIn {

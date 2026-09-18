@@ -35,7 +35,7 @@
     updateTitle: (title: string) => void
     updateSubtitle: (subtitle: string) => void
     updateStepper: (stepper: StepperConfig | null) => void
-    updateFooterHint: (hint: string) => void
+    updateFooterHint: (hint: string, tone?: 'default' | 'error') => void
     closeModal: () => void
   }>()
 
