@@ -188,22 +188,22 @@ func (h *Handler) apiProxySourceProxies(w http.ResponseWriter, r *http.Request) 
 
 // apiProxyStatus reports server location and pool stats
 // @Summary      Proxy status
+// @Description  total counts every proxy the pool knows (manual + last fetched
+// @Description  source lists), alive counts the verified ones.
 // @Produce      json
 // @Success      200 {object} object{server_country=string,total=int,alive=int}
 // @Failure      401 {object} models.ErrorResponse
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/proxy/status [get]
 func (h *Handler) apiProxyStatus(w http.ResponseWriter, r *http.Request) {
-	all, _ := h.proxySvc.List()
-	alive := 0
-	for _, p := range all {
-		if p.Alive {
-			alive++
-		}
+	total, alive, err := h.proxySvc.PoolTotals()
+	if err != nil {
+		h.jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	h.json(w, http.StatusOK, map[string]any{
 		"server_country": h.geoSvc.Country(r.Context()),
-		"total":          len(all),
+		"total":          total,
 		"alive":          alive,
 	})
 }

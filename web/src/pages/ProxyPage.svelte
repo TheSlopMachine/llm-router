@@ -285,9 +285,9 @@
             <span class="scol-name source-name">{s.key}</span>
             <span class="scol-status">
               {#if s.status === 'fetching'}
-                <span class="icon spin status-icon">progress_activity</span>{t('Fetching list…')}
+                {t('Fetching list…')}
               {:else if s.status === 'checking'}
-                <span class="icon spin status-icon">progress_activity</span>{t('Checking proxies…')}
+                {t('Checking proxies…')}
               {:else if s.last_error}
                 <span class="status-error" title={s.last_error}>{t('Failed')}</span>
               {:else}
@@ -375,9 +375,6 @@
     font-size: 13px;
     overflow: hidden;
     white-space: nowrap;
-  }
-  .status-icon {
-    font-size: 16px;
   }
   .status-error {
     color: var(--color-danger);

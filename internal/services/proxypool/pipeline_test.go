@@ -196,3 +196,44 @@ func TestSourceProxies_Pagination(t *testing.T) {
 		t.Fatalf("second page: total=%d len=%d", total, len(page))
 	}
 }
+
+func TestPoolTotals_ManualPlusSourceMeta(t *testing.T) {
+	svc := setup(t)
+	if _, err := svc.AddManual("http://10.1.1.1:8080", ""); err != nil {
+		t.Fatal(err)
+	}
+	// A source whose last fetch brought 500 candidates; 2 verified alive.
+	for _, host := range []string{"10.0.0.1", "10.0.0.2"} {
+		p, err := candidateToProxy(models.ProxyCandidate{Protocol: "http", Host: host, Port: 8080}, ListSource("proxifly"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.Alive = true
+		if err := svc.repo.Put(p.ID, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.meta.Put(ListSource("proxifly"), &sourceFetchMeta{Total: 500}); err != nil {
+		t.Fatal(err)
+	}
+
+	total, alive, err := svc.PoolTotals()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 501 || alive != 2 {
+		t.Fatalf("totals: total=%d alive=%d, want 501/2", total, alive)
+	}
+}
+
+func TestSourceInfos_FallsBackToPersistedMeta(t *testing.T) {
+	svc := setup(t)
+	if err := svc.meta.Put(ListSource("proxifly"), &sourceFetchMeta{Total: 500, LastFetchAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	// No RAM fetch since startup: totals come from the persisted meta.
+	info := svc.SourceInfos([]string{"proxifly"})[0]
+	if info.Total != 500 || info.Status != SourceStatusIdle || info.LastFetchAt.IsZero() {
+		t.Fatalf("meta fallback: %+v", info)
+	}
+}

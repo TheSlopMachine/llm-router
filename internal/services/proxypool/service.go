@@ -36,6 +36,7 @@ var supportedProtocols = map[string]bool{"http": true, "https": true, "socks4": 
 // Service manages the proxy pool.
 type Service struct {
 	repo *repository.Repository[models.Proxy]
+	meta *repository.Repository[sourceFetchMeta]
 	// CheckURL is the lightweight endpoint used for generic health checks.
 	CheckURL string
 	// DialTimeout bounds a single health-check dial.
@@ -44,12 +45,20 @@ type Service struct {
 	pipeline *pipeline
 }
 
+// sourceFetchMeta persists the last fetch outcome per source so the
+// dashboard totals survive restarts (the check pipeline itself is RAM-only).
+type sourceFetchMeta struct {
+	Total       int       `json:"total"`
+	LastFetchAt time.Time `json:"last_fetch_at"`
+}
+
 // New constructs the proxy pool service. List-sourced DB rows that were
 // never verified alive are culled: under the streaming pipeline only
 // verified proxies may occupy the bucket.
 func New(database *db.DB) *Service {
 	s := &Service{
 		repo:        repository.New[models.Proxy](database, db.BucketProxies, "proxy"),
+		meta:        repository.New[sourceFetchMeta](database, db.BucketProxySourceMeta, "proxy_source_meta"),
 		CheckURL:    "https://www.gstatic.com/generate_204",
 		DialTimeout: 10 * time.Second,
 		pipeline:    newPipeline(),

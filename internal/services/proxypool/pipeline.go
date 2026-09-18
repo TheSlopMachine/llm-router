@@ -190,6 +190,7 @@ func (s *Service) RefreshSource(sourceKey string, candidates []models.ProxyCandi
 	st.pending = 0
 	st.lastFetchAt = util.Now()
 	st.lastError = ""
+	_ = s.meta.Put(source, &sourceFetchMeta{Total: len(candidates), LastFetchAt: st.lastFetchAt})
 
 	jobs := make([]checkJob, 0, len(candidates))
 	enqueued := 0
@@ -221,7 +222,9 @@ func (s *Service) RefreshSource(sourceKey string, candidates []models.ProxyCandi
 
 // SourceInfos snapshots the runtime state of the given source keys. Alive
 // is the DB-level count of verified proxies per source, so the per-source
-// numbers sum to the pool-wide totals the dashboard header reports.
+// numbers sum to the pool-wide totals the dashboard header reports. Fetch
+// totals fall back to the persisted last-fetch meta when the RAM pipeline
+// has not seen a fetch since startup.
 func (s *Service) SourceInfos(keys []string) []SourceInfo {
 	s.pipeline.mu.Lock()
 	defer s.pipeline.mu.Unlock()
@@ -235,6 +238,9 @@ func (s *Service) SourceInfos(keys []string) []SourceInfo {
 			info.Pending = st.pending
 			info.LastFetchAt = st.lastFetchAt
 			info.LastError = st.lastError
+		} else if meta, err := s.meta.Get(ListSource(key)); err == nil && meta != nil {
+			info.Total = meta.Total
+			info.LastFetchAt = meta.LastFetchAt
 		}
 		alive, err := s.repo.ListFiltered(func(p *models.Proxy) bool {
 			return p.Source == ListSource(key) && p.Alive
@@ -245,6 +251,34 @@ func (s *Service) SourceInfos(keys []string) []SourceInfo {
 		out = append(out, info)
 	}
 	return out
+}
+
+// PoolTotals reports the dashboard header counters: total is every proxy
+// the pool knows about (manual entries plus the last fetched totals of all
+// list sources), alive is the DB-level verified count.
+func (s *Service) PoolTotals() (total, alive int, err error) {
+	all, err := s.repo.List()
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, p := range all {
+		if p.Alive {
+			alive++
+		}
+		if p.Source == ManualSource {
+			total++
+		}
+	}
+	// Sum the last fetched total of every known source, whether it still
+	// has verified proxies pooled or not.
+	metas, err := s.meta.List()
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, m := range metas {
+		total += m.Total
+	}
+	return total, alive, nil
 }
 
 // SourceProxies returns alive list-sourced proxies of one source, fastest

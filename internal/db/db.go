@@ -29,6 +29,7 @@ var (
 	BucketModelOverrides      = []byte("model_overrides")      // Per-provider model enable/disable and custom models
 	BucketModelInfos          = []byte("model_infos")          // Persisted per-provider model metadata cache
 	BucketProxies             = []byte("proxies")              // Proxy pool records (manual + list-sourced)
+	BucketProxySourceMeta     = []byte("proxy_source_meta")    // Last fetch totals per proxy list source
 )
 
 // DB wraps a bbolt.DB and ensures all required buckets exist.
@@ -74,6 +75,7 @@ func (db *DB) initBuckets() error {
 			BucketModelOverrides,
 			BucketModelInfos,
 			BucketProxies,
+			BucketProxySourceMeta,
 		}
 		for _, name := range buckets {
 			if _, err := tx.CreateBucketIfNotExists(name); err != nil {

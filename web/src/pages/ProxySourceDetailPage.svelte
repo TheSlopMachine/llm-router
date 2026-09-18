@@ -88,9 +88,9 @@
       <h1>{info.key}</h1>
       <p>
         {#if info.status === 'fetching'}
-          <span class="icon spin status-icon">progress_activity</span>{t('Fetching list…')}
+          {t('Fetching list…')}
         {:else if info.status === 'checking'}
-          <span class="icon spin status-icon">progress_activity</span>{t('Checking proxies…')}
+          {t('Checking proxies…')}
         {:else}
           {t('Idle')}
         {/if}
@@ -160,9 +160,6 @@
     align-items: center;
     gap: 4px;
     flex-wrap: wrap;
-  }
-  .status-icon {
-    font-size: 16px;
   }
   /* Column layout only — table widget chrome comes from the global rules. */
   .table-row {
