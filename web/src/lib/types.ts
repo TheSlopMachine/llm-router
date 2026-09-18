@@ -89,6 +89,22 @@ export interface ProxyStatus {
   alive: number
 }
 
+export interface ProxySourceInfo {
+  key: string
+  status: 'idle' | 'fetching' | 'checking'
+  total: number
+  checked: number
+  alive: number
+  pending: number
+  last_fetch_at?: string
+  last_error?: string
+}
+
+export interface ProxySourceProxies {
+  items: Proxy[]
+  total: number
+}
+
 export interface ModelInfo {
   name: string
   display_name?: string

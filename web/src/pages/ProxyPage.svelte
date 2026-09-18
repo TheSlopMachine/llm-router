@@ -3,7 +3,7 @@
   import { api } from '../lib/api'
   import { modal } from '../lib/modal.svelte'
   import { getErrorMessage } from '../lib/errors'
-  import type { Proxy, ProxyStatus } from '../lib/types'
+  import type { Proxy, ProxyStatus, ProxySourceInfo } from '../lib/types'
   import SegmentedControl from '../components/ui/SegmentedControl.svelte'
   import { squircle } from '../lib/squircle'
   import { t, n } from '../lib/i18n.svelte'
@@ -12,7 +12,7 @@
 
   let tab = $state<Tab>('mine')
   let proxies = $state<Proxy[]>([])
-  let sources = $state<string[]>([])
+  let sources = $state<ProxySourceInfo[]>([])
   let status = $state<ProxyStatus | null>(null)
   let loading = $state(true)
   let error = $state('')
@@ -22,13 +22,20 @@
   let adding = $state(false)
   let checkingId = $state('')
   let checkingAll = $state(false)
-  let refreshingSource = $state('')
-  let refreshNote = $state('')
 
   let manualProxies = $derived(proxies.filter((p) => p.source === 'manual'))
-  let listProxies = $derived(proxies.filter((p) => p.source !== 'manual'))
+  let sourcesActive = $derived(sources.some((s) => s.status !== 'idle'))
 
-  onMount(loadAll)
+  onMount(() => {
+    loadAll()
+    // While a source worker is busy, poll so the table shows live progress.
+    const poll = setInterval(() => {
+      if (tab === 'lists' && sourcesActive) {
+        reloadSources()
+      }
+    }, 2000)
+    return () => clearInterval(poll)
+  })
 
   async function loadAll(): Promise<void> {
     loading = true
@@ -48,6 +55,15 @@
   async function reloadPool(): Promise<void> {
     proxies = await api.proxies.list()
     status = await api.proxies.status()
+  }
+
+  async function reloadSources(): Promise<void> {
+    try {
+      sources = await api.proxies.sources()
+      status = await api.proxies.status()
+    } catch {
+      // Polling is best-effort; the next tick retries.
+    }
   }
 
   async function addProxy(): Promise<void> {
@@ -120,17 +136,26 @@
     }
   }
 
-  async function refreshSource(key: string): Promise<void> {
-    refreshingSource = key
-    refreshNote = ''
+  async function refreshSource(s: ProxySourceInfo): Promise<void> {
+    error = ''
     try {
-      const res = await api.proxies.refreshSource(key)
-      refreshNote = `${key}: ${res.total} fetched, ${res.added} new`
-      await reloadPool()
+      await api.proxies.refreshSource(s.key)
+      // Fetch starts in the background; mark the row busy at once.
+      sources = sources.map((x) => (x.key === s.key ? { ...x, status: 'fetching' as const } : x))
+      await reloadSources()
     } catch (e) {
-      refreshNote = `${key}: ${getErrorMessage(e)}`
-    } finally {
-      refreshingSource = ''
+      error = getErrorMessage(e)
+    }
+  }
+
+  function openSource(s: ProxySourceInfo): void {
+    window.location.hash = '#/proxy/source/' + encodeURIComponent(s.key)
+  }
+
+  function onSourceRowKeydown(e: KeyboardEvent, s: ProxySourceInfo): void {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      openSource(s)
     }
   }
 
@@ -150,7 +175,7 @@
     <h1>{t('Proxies')}</h1>
     <p>
       {#if status}
-        {t('Server location')}: <b>{status.server_country || t('unknown')}</b> · {n(status.alive, 'alive', 'alive', 'жив', 'живо', 'живо')}/{n(status.total, 'total', 'total', 'всего', 'всего', 'всего')}
+        {n(status.total, 'total', 'total', 'всего', 'всего', 'всего')} · {n(status.alive, 'working', 'working', 'рабочий', 'рабочих', 'рабочих')}
       {:else}
         {t('Outbound proxy pool.')}
       {/if}
@@ -237,55 +262,52 @@
   </section>
 {:else}
   <section class="section">
-    <div class="section-header">
-      <h2>{t('Sources')}</h2>
-      {#if refreshNote}
-        <span class="refresh-note">{refreshNote}</span>
-      {/if}
-    </div>
     {#if sources.length === 0}
       <div class="empty-state" use:squircle={18}>{t('No proxy list sources installed. Install a proxy-source plugin (e.g. proxifly).')}</div>
     {:else}
-      <div class="sources-row">
-        {#each sources as key}
-          <div class="source-card" use:squircle={18}>
-            <span class="source-name">{key}</span>
-            <button class="btn btn-secondary" onclick={() => refreshSource(key)} disabled={refreshingSource === key} use:squircle={12}>
-              <span class="icon" class:spin={refreshingSource === key}>{refreshingSource === key ? 'progress_activity' : 'refresh'}</span>
-              {t('Refresh')}
-            </button>
-          </div>
-        {/each}
-      </div>
-    {/if}
-  </section>
-
-  <section class="section">
-    <div class="section-header">
-      <h2>{t('Pulled from lists')} ({listProxies.length})</h2>
-    </div>
-    {#if listProxies.length === 0}
-      <div class="empty-state" use:squircle={18}>{t('Nothing pooled yet. Refresh a source above.')}</div>
-    {:else}
-      <div class="table list-table" use:squircle={18}>
+      <div class="table sources-table" use:squircle={18}>
         <div class="table-row table-head">
-          <span class="pcol-url">{t('Proxy')}</span>
-          <span class="pcol-proto">{t('Protocol')}</span>
-          <span class="pcol-country">{t('Country')}</span>
-          <span class="pcol-source">{t('Source')}</span>
+          <span class="scol-name">{t('Source')}</span>
+          <span class="scol-status">{t('Status')}</span>
+          <span class="scol-num">{t('Total')}</span>
+          <span class="scol-num">{t('Checked')}</span>
+          <span class="scol-num">{t('Alive')}</span>
+          <span class="scol-actions"></span>
         </div>
-        {#each listProxies.slice(0, 200) as p (p.id)}
-          <div class="table-row" class:row-dead={!p.alive}>
-            <span class="pcol-url mono">{p.url}</span>
-            <span class="pcol-proto"><span class="chip {protocolChip(p.protocol)}">{p.protocol}</span></span>
-            <span class="pcol-country">{p.country || '—'}</span>
-            <span class="pcol-source">{p.source.replace('list:', '')}</span>
+        {#each sources as s (s.key)}
+          <div
+            class="table-row row-clickable"
+            role="button"
+            tabindex="0"
+            onclick={() => openSource(s)}
+            onkeydown={(e) => onSourceRowKeydown(e, s)}
+          >
+            <span class="scol-name source-name">{s.key}</span>
+            <span class="scol-status">
+              {#if s.status === 'fetching'}
+                <span class="icon spin status-icon">progress_activity</span>{t('Fetching list…')}
+              {:else if s.status === 'checking'}
+                <span class="icon spin status-icon">progress_activity</span>{t('Checking proxies…')}
+              {:else if s.last_error}
+                <span class="status-error" title={s.last_error}>{t('Failed')}</span>
+              {:else}
+                {t('Idle')}
+              {/if}
+            </span>
+            <span class="scol-num">{s.total > 0 ? s.total : '—'}</span>
+            <span class="scol-num">{s.checked > 0 ? s.checked : '—'}</span>
+            <span class="scol-num">{s.alive > 0 ? s.alive : '—'}</span>
+            <!-- The button eats its own clicks so row navigation never fires
+                 from the action cell. -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <span class="scol-actions" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+              <button class="btn-text" onclick={() => refreshSource(s)} disabled={s.status !== 'idle'}>
+                {t('Refresh')}
+              </button>
+            </span>
           </div>
         {/each}
       </div>
-      {#if listProxies.length > 200}
-        <p class="form-hint">Showing 200 of {listProxies.length}.</p>
-      {/if}
     {/if}
   </section>
 {/if}
@@ -293,21 +315,6 @@
 <style>
   .section {
     margin-bottom: 32px;
-  }
-  .section-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 16px;
-  }
-  .section-header h2 {
-    font-size: 16px;
-    font-weight: 600;
-    margin: 0;
-  }
-  .refresh-note {
-    font-size: 13px;
-    color: var(--color-text-soft);
   }
   .add-form {
     display: flex;
@@ -325,11 +332,22 @@
   .table-row {
     grid-template-columns: minmax(0, 1.6fr) 110px 90px minmax(0, 1fr) auto;
   }
+  .sources-table .table-row {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) 90px 110px 90px 110px;
+  }
+  .row-clickable {
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+  }
+  .row-clickable:hover {
+    background: var(--color-hover-bg);
+  }
+  .row-clickable:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--color-accent);
+    outline: none;
+  }
   .row-dead {
     opacity: 0.5;
-  }
-  .list-table .table-row {
-    grid-template-columns: minmax(0, 1.8fr) 110px 90px minmax(0, 1fr);
   }
   .mono {
     font-family: 'DM Mono', monospace;
@@ -343,21 +361,33 @@
     gap: 6px;
     justify-content: flex-end;
   }
-  .sources-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-  }
-  .source-card {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 14px 18px;
-    background: var(--color-surface-container-high);
-    border-radius: var(--radius-lg);
-  }
   .source-name {
     font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .scol-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-text-soft);
+    font-size: 13px;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .status-icon {
+    font-size: 16px;
+  }
+  .status-error {
+    color: var(--color-danger);
+  }
+  .scol-num {
+    font-variant-numeric: tabular-nums;
+  }
+  .scol-actions {
+    display: flex;
+    justify-content: flex-end;
   }
   .empty-state {
     padding: 32px;
@@ -367,15 +397,19 @@
     background: var(--color-surface-container-high);
     border-radius: var(--radius-lg);
   }
-  .form-hint {
-    margin-top: 8px;
-    font-size: 13px;
-    color: var(--color-text-soft);
-  }
   .empty {
     padding: 48px;
     text-align: center;
     color: var(--color-text-soft);
+  }
+  @media (max-width: 900px) {
+    .sources-table .table-row {
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 70px 90px;
+    }
+    .scol-num:nth-of-type(4),
+    .scol-num:nth-of-type(5) {
+      display: none;
+    }
   }
   @media (max-width: 768px) {
     .add-form {
@@ -384,7 +418,7 @@
     .table-row {
       grid-template-columns: minmax(0, 1fr) auto auto;
     }
-    .pcol-country, .pcol-source {
+    .pcol-country {
       display: none;
     }
   }

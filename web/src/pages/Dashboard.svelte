@@ -6,6 +6,7 @@
   import AgentEditorPage from './AgentEditorPage.svelte'
   import ProviderDetailPage from './ProviderDetailPage.svelte'
   import ProxyPage from './ProxyPage.svelte'
+  import ProxySourceDetailPage from './ProxySourceDetailPage.svelte'
   import Models from '../components/Models.svelte'
   import Providers from '../components/Providers.svelte'
   import Tokens from '../components/Tokens.svelte'
@@ -221,7 +222,11 @@
       {:else if panel === 'plugins'}
         <PluginsPage tab={pluginsTab} ontabchange={selectPluginsTab} />
       {:else if panel === 'proxy'}
-        <ProxyPage />
+        {#if routeSegments[0] === 'source' && routeSegments[1]}
+          <ProxySourceDetailPage sourceKey={decodeURIComponent(routeSegments[1])} />
+        {:else}
+          <ProxyPage />
+        {/if}
       {:else if panel === 'ui-test'}
         <UiTest />
       {/if}

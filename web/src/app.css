@@ -755,3 +755,11 @@ textarea.secure {
   border-top: 1px solid var(--color-outline-soft);
   margin: 16px 0;
 }
+
+/* Busy indicator: apply .spin to any .icon glyph (progress_activity). */
+@keyframes icon-spin {
+  to { transform: rotate(360deg); }
+}
+.spin {
+  animation: icon-spin 1s linear infinite;
+}

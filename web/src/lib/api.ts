@@ -1,5 +1,5 @@
 import { apiCall as _apiCall } from './api-client'
-import type { Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate, ProviderModel, TestResult, Proxy, ProxyStatus } from './types'
+import type { Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate, ProviderModel, TestResult, Proxy, ProxyStatus, ProxySourceInfo, ProxySourceProxies } from './types'
 
 const apiCall = _apiCall
 
@@ -312,13 +312,17 @@ export const api = {
     // Synchronous endpoint: aborting the request cancels the remaining checks.
     checkAll: (signal?: AbortSignal) =>
       postJson('/api/llm-router/dashboard/proxies/check-all', {}, signal),
-    sources: async (): Promise<string[]> => {
+    sources: async (): Promise<ProxySourceInfo[]> => {
       const res = await fetch('/api/llm-router/dashboard/proxy-sources')
       const raw = (await assertOk(res)) as unknown
-      return Array.isArray(raw) ? (raw as string[]) : []
+      return Array.isArray(raw) ? (raw as ProxySourceInfo[]) : []
     },
-    refreshSource: (key: string): Promise<{ added: number; total: number }> =>
+    refreshSource: (key: string): Promise<{ started: boolean }> =>
       postJson(`/api/llm-router/dashboard/proxy-sources/${key}/refresh`, {}),
+    sourceProxies: async (key: string, offset: number, limit: number): Promise<ProxySourceProxies> => {
+      const res = await fetch(`/api/llm-router/dashboard/proxy-sources/${encodeURIComponent(key)}/proxies?offset=${offset}&limit=${limit}`)
+      return (await assertOk(res)) as ProxySourceProxies
+    },
     status: async (): Promise<ProxyStatus> => {
       const res = await fetch('/api/llm-router/dashboard/proxy/status')
       return (await assertOk(res)) as ProxyStatus

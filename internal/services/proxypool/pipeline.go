@@ -40,12 +40,13 @@ type checkJob struct {
 }
 
 // sourceState is the mutable per-source runtime view. Counters reset on
-// every fetch; Alive counts proxies verified since that fetch.
+// every fetch; alive is not tracked here: SourceInfo.Alive reports the
+// DB-level count of verified proxies so the per-source number always
+// matches the pool-wide totals.
 type sourceState struct {
 	status      string
 	total       int
 	checked     int
-	alive       int
 	pending     int
 	lastFetchAt time.Time
 	lastError   string
@@ -133,10 +134,10 @@ func (s *Service) checkCandidate(ctx context.Context, job checkJob) {
 		// A list proxy that answers no more leaves the pool entirely.
 		_ = s.repo.Delete(p.ID)
 	}
-	s.finishJob(job.source, p.ID, alive)
+	s.finishJob(job.source, p.ID)
 }
 
-func (s *Service) finishJob(source, id string, alive bool) {
+func (s *Service) finishJob(source, id string) {
 	s.pipeline.mu.Lock()
 	defer s.pipeline.mu.Unlock()
 	delete(s.pipeline.pending, id)
@@ -146,9 +147,6 @@ func (s *Service) finishJob(source, id string, alive bool) {
 	}
 	st.checked++
 	st.pending--
-	if alive {
-		st.alive++
-	}
 	if st.pending <= 0 && st.status == SourceStatusChecking {
 		st.pending = 0
 		st.status = SourceStatusIdle
@@ -189,7 +187,6 @@ func (s *Service) RefreshSource(sourceKey string, candidates []models.ProxyCandi
 	st.status = SourceStatusChecking
 	st.total = len(candidates)
 	st.checked = 0
-	st.alive = 0
 	st.pending = 0
 	st.lastFetchAt = util.Now()
 	st.lastError = ""
@@ -222,7 +219,9 @@ func (s *Service) RefreshSource(sourceKey string, candidates []models.ProxyCandi
 	return enqueued, nil
 }
 
-// SourceInfos snapshots the runtime state of the given source keys.
+// SourceInfos snapshots the runtime state of the given source keys. Alive
+// is the DB-level count of verified proxies per source, so the per-source
+// numbers sum to the pool-wide totals the dashboard header reports.
 func (s *Service) SourceInfos(keys []string) []SourceInfo {
 	s.pipeline.mu.Lock()
 	defer s.pipeline.mu.Unlock()
@@ -233,10 +232,15 @@ func (s *Service) SourceInfos(keys []string) []SourceInfo {
 			info.Status = st.status
 			info.Total = st.total
 			info.Checked = st.checked
-			info.Alive = st.alive
 			info.Pending = st.pending
 			info.LastFetchAt = st.lastFetchAt
 			info.LastError = st.lastError
+		}
+		alive, err := s.repo.ListFiltered(func(p *models.Proxy) bool {
+			return p.Source == ListSource(key) && p.Alive
+		})
+		if err == nil {
+			info.Alive = len(alive)
 		}
 		out = append(out, info)
 	}
