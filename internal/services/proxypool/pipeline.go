@@ -31,6 +31,16 @@ const (
 // size.
 const queueCapacity = 4096
 
+// checkWindowSize is how many candidates of one source get probed per fetch
+// cycle. Lists are walked in rotating windows: every fetch checks the next
+// slice and eventually covers the whole list.
+const checkWindowSize = 100
+
+// minSourceAlive triggers a reserve refill: when a source drops below this
+// many verified proxies, the next window is checked right away instead of
+// waiting for the scheduled fetch.
+const minSourceAlive = 10
+
 // errWorkersNotStarted reports RefreshSource before StartWorkers.
 var errWorkersNotStarted = errors.New("proxypool: StartWorkers must be called before RefreshSource")
 
@@ -42,7 +52,8 @@ type checkJob struct {
 // sourceState is the mutable per-source runtime view. Counters reset on
 // every fetch; alive is not tracked here: SourceInfo.Alive reports the
 // DB-level count of verified proxies so the per-source number always
-// matches the pool-wide totals.
+// matches the pool-wide totals. candidates holds the last fetched list in
+// RAM (never the DB) and feeds rotating check windows.
 type sourceState struct {
 	status      string
 	total       int
@@ -50,6 +61,9 @@ type sourceState struct {
 	pending     int
 	lastFetchAt time.Time
 	lastError   string
+	candidates  []*models.Proxy
+	offset      int
+	checkedIDs  map[string]bool // candidates probed since the last fetch
 }
 
 // SourceInfo is the dashboard-facing snapshot of one source.
@@ -120,13 +134,20 @@ func (s *Service) checkCandidate(ctx context.Context, job checkJob) {
 	alive := err == nil
 
 	if alive {
-		// Ground truth beats list metadata: resolve the real exit country.
-		if country, derr := DetectExitCountry(context.WithoutCancel(ctx), p.URL); derr == nil && country != "" {
-			p.Country = country
-		}
-		if old, gerr := s.repo.Get(p.ID); gerr == nil && old != nil {
+		old, gerr := s.repo.Get(p.ID)
+		isNew := gerr != nil || old == nil
+		if isNew {
+			// Ground truth beats list metadata, but only on first insert:
+			// re-checks verify liveness only and never re-probe geography.
+			if country, derr := DetectExitCountry(context.WithoutCancel(ctx), p.URL); derr == nil && country != "" {
+				p.Country = country
+			}
+		} else {
 			p.ProviderHealth = old.ProviderHealth
 			p.CreatedAt = old.CreatedAt
+			if p.Country == "" {
+				p.Country = old.Country
+			}
 		}
 		p.Alive = true
 		_ = s.repo.Put(p.ID, p)
@@ -147,10 +168,52 @@ func (s *Service) finishJob(source, id string) {
 	}
 	st.checked++
 	st.pending--
-	if st.pending <= 0 && st.status == SourceStatusChecking {
-		st.pending = 0
-		st.status = SourceStatusIdle
+	st.checkedIDs[id] = true
+	if st.pending > 0 || st.status != SourceStatusChecking {
+		return
 	}
+	st.pending = 0
+	// Reserve refill: a source running low on verified proxies gets the
+	// next window right away instead of idling until the scheduled fetch.
+	// Refill walks candidates not yet probed in this fetch cycle, so a
+	// list of duds can never spin the checker forever.
+	alive, err := s.repo.ListFiltered(func(p *models.Proxy) bool {
+		return p.Source == source && p.Alive
+	})
+	if err == nil && len(alive) < minSourceAlive && len(st.candidates) > len(st.checkedIDs) {
+		s.enqueueWindowLocked(source, st)
+		if st.pending > 0 {
+			return
+		}
+	}
+	st.status = SourceStatusIdle
+}
+
+// enqueueWindowLocked queues the next check window of a source's candidate
+// list, rotating the offset past candidates already probed in this fetch
+// cycle. Callers hold pipeline.mu.
+func (s *Service) enqueueWindowLocked(source string, st *sourceState) int {
+	n := len(st.candidates)
+	if n == 0 {
+		return 0
+	}
+	start := st.offset % n
+	enqueued := 0
+	for i := 0; i < n && enqueued < checkWindowSize; i++ {
+		p := st.candidates[(start+i)%n]
+		if st.checkedIDs[p.ID] || s.pipeline.pending[p.ID] {
+			continue
+		}
+		s.pipeline.pending[p.ID] = true
+		st.pending++
+		enqueued++
+		go func(job checkJob) {
+			s.pipeline.jobs <- job
+		}(checkJob{source: source, proxy: p})
+	}
+	st.offset = (start + checkWindowSize) % n
+	st.status = SourceStatusChecking
+	return enqueued
 }
 
 // BeginFetch marks a source as fetching. Pair with RefreshSource on success
@@ -172,10 +235,9 @@ func (s *Service) FailFetch(sourceKey string, err error) {
 	st.lastError = err.Error()
 }
 
-// RefreshSource enqueues freshly fetched candidates for checking. Only
-// verified proxies are persisted; nothing unverified touches the DB. The
-// feed runs in a detached goroutine and returns immediately: candidates
-// start flowing to workers as soon as the first list arrives.
+// RefreshSource stores the fetched list in RAM and enqueues the next check
+// window. Only verified proxies are persisted; nothing unverified touches
+// the DB. Candidates start flowing to workers as soon as the list arrives.
 func (s *Service) RefreshSource(sourceKey string, candidates []models.ProxyCandidate) (int, error) {
 	source := ListSource(sourceKey)
 	s.pipeline.mu.Lock()
@@ -190,33 +252,27 @@ func (s *Service) RefreshSource(sourceKey string, candidates []models.ProxyCandi
 	st.pending = 0
 	st.lastFetchAt = util.Now()
 	st.lastError = ""
-	_ = s.meta.Put(source, &sourceFetchMeta{Total: len(candidates), LastFetchAt: st.lastFetchAt})
 
-	jobs := make([]checkJob, 0, len(candidates))
-	enqueued := 0
+	st.candidates = st.candidates[:0]
+	st.checkedIDs = map[string]bool{}
 	for _, c := range candidates {
 		p, err := candidateToProxy(c, source)
 		if err != nil {
 			continue
 		}
-		if s.pipeline.pending[p.ID] {
-			continue
-		}
-		s.pipeline.pending[p.ID] = true
-		jobs = append(jobs, checkJob{source: source, proxy: p})
-		enqueued++
+		st.candidates = append(st.candidates, p)
 	}
-	st.pending = enqueued
-	if enqueued == 0 {
+	offset := 0
+	if meta, err := s.meta.Get(source); err == nil && meta != nil {
+		offset = meta.Offset
+	}
+	st.offset = offset
+	enqueued := s.enqueueWindowLocked(source, st)
+	_ = s.meta.Put(source, &sourceFetchMeta{Total: len(candidates), Offset: st.offset, LastFetchAt: st.lastFetchAt})
+	if st.pending == 0 {
 		st.status = SourceStatusIdle
 	}
 	s.pipeline.mu.Unlock()
-
-	go func() {
-		for _, job := range jobs {
-			s.pipeline.jobs <- job
-		}
-	}()
 	return enqueued, nil
 }
 

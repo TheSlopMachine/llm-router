@@ -237,3 +237,60 @@ func TestSourceInfos_FallsBackToPersistedMeta(t *testing.T) {
 		t.Fatalf("meta fallback: %+v", info)
 	}
 }
+
+func TestRefreshSource_WindowRotation(t *testing.T) {
+	svc := setup(t)
+	svc.StartWorkers(context.Background())
+	cands := make([]models.ProxyCandidate, 0, 250)
+	for i := 1; i <= 250; i++ {
+		cands = append(cands, models.ProxyCandidate{Protocol: "http", Host: "127.0.0.1", Port: 10000 + i})
+	}
+	enqueued, err := svc.RefreshSource("proxifly", cands)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enqueued != checkWindowSize {
+		t.Fatalf("first window: %d, want %d", enqueued, checkWindowSize)
+	}
+	meta, err := svc.meta.Get(ListSource("proxifly"))
+	if err != nil || meta == nil {
+		t.Fatal("meta missing")
+	}
+	if meta.Total != 250 || meta.Offset != checkWindowSize {
+		t.Fatalf("meta: %+v", meta)
+	}
+	// Second fetch continues from the rotated offset.
+	enqueued, err = svc.RefreshSource("proxifly", cands)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enqueued != checkWindowSize {
+		t.Fatalf("second window: %d", enqueued)
+	}
+	meta, _ = svc.meta.Get(ListSource("proxifly"))
+	if meta.Offset != 2*checkWindowSize {
+		t.Fatalf("rotated offset: %d", meta.Offset)
+	}
+}
+
+func TestRefill_StopsAfterExhaustingCandidates(t *testing.T) {
+	svc := setup(t)
+	svc.StartWorkers(context.Background())
+	// All candidates are dead on arrival: the refill must walk the list
+	// once and then settle, never loop.
+	cands := []models.ProxyCandidate{
+		{Protocol: "http", Host: "127.0.0.1", Port: 1},
+		{Protocol: "http", Host: "127.0.0.1", Port: 2},
+		{Protocol: "http", Host: "127.0.0.1", Port: 3},
+	}
+	if _, err := svc.RefreshSource("proxifly", cands); err != nil {
+		t.Fatal(err)
+	}
+	info := waitSourceIdle(t, svc, "proxifly")
+	if info.Checked != 3 {
+		t.Fatalf("checked: %d, want exactly the 3 candidates once", info.Checked)
+	}
+	if info.Alive != 0 {
+		t.Fatalf("alive: %d", info.Alive)
+	}
+}

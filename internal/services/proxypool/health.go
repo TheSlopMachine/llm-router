@@ -41,11 +41,10 @@ func (s *Service) Check(ctx context.Context, id string) (*models.Proxy, error) {
 		_ = s.repo.Delete(id)
 		return nil, err
 	}
-	if err == nil {
-		// Ground truth beats list metadata: resolve the actual exit
-		// country through the proxy on a detached context (the check
-		// budget above is already spent on the liveness probe).
-		// A failed probe keeps the stored value; liveness is unaffected.
+	if err == nil && p.Country == "" {
+		// Exit-country detection happens once, when geography is unknown:
+		// re-checks verify liveness only and never re-probe geography.
+		// A failed probe keeps the empty value; liveness is unaffected.
 		if country, derr := DetectExitCountry(context.WithoutCancel(ctx), p.URL); derr == nil && country != "" {
 			p.Country = country
 		}

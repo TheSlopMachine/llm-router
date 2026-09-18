@@ -65,7 +65,8 @@ func TestCheck_DetectsExitCountry(t *testing.T) {
 	// a URL the stub answers to.
 	svc.CheckURL = "http://geo-stub.invalid/generate_204"
 
-	p, err := svc.AddManual(proxyAddr, "usa")
+	// Geography is detected only while unknown.
+	p, err := svc.AddManual(proxyAddr, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,9 +74,17 @@ func TestCheck_DetectsExitCountry(t *testing.T) {
 	if err != nil || !got.Alive {
 		t.Fatalf("proxy should be alive: %+v err=%v", got, err)
 	}
-	// Detection overrides the seeded list metadata.
 	if got.Country != "DE" {
 		t.Fatalf("exit country not detected: %q", got.Country)
+	}
+
+	// A known country is never re-probed: rechecks verify liveness only.
+	oldDetect2 := detectURL
+	detectURL = "http://geo-stub.invalid/unreachable"
+	defer func() { detectURL = oldDetect2 }()
+	got, err = svc.Check(context.Background(), p.ID)
+	if err != nil || got.Country != "DE" {
+		t.Fatalf("known country re-probed or lost: %+v err=%v", got, err)
 	}
 }
 

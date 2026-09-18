@@ -4,13 +4,9 @@
   import { modal } from '../lib/modal.svelte'
   import { getErrorMessage } from '../lib/errors'
   import type { Proxy, ProxyStatus, ProxySourceInfo } from '../lib/types'
-  import SegmentedControl from '../components/ui/SegmentedControl.svelte'
   import { squircle } from '../lib/squircle'
   import { t, n } from '../lib/i18n.svelte'
 
-  type Tab = 'mine' | 'lists'
-
-  let tab = $state<Tab>('mine')
   let proxies = $state<Proxy[]>([])
   let sources = $state<ProxySourceInfo[]>([])
   let status = $state<ProxyStatus | null>(null)
@@ -30,7 +26,7 @@
     loadAll()
     // While a source worker is busy, poll so the table shows live progress.
     const poll = setInterval(() => {
-      if (tab === 'lists' && sourcesActive) {
+      if (sourcesActive) {
         reloadSources()
       }
     }, 2000)
@@ -181,14 +177,6 @@
       {/if}
     </p>
   </div>
-  <SegmentedControl
-    bind:value={tab}
-    options={[
-      { value: 'mine', label: t('My Proxies') },
-      { value: 'lists', label: t('Proxy Lists') },
-    ]}
-    ariaLabel={t('Proxy tabs')}
-  />
 </div>
 
 {#if error}
@@ -197,8 +185,11 @@
 
 {#if loading}
   <div class="empty">{t('Loading…')}</div>
-{:else if tab === 'mine'}
+{:else}
   <section class="section">
+    <div class="section-header">
+      <h2>{t('My Proxies')}</h2>
+    </div>
     <div class="add-form">
       <input
         class="url-input"
@@ -260,8 +251,11 @@
       </div>
     {/if}
   </section>
-{:else}
+
   <section class="section">
+    <div class="section-header">
+      <h2>{t('Proxy Lists')}</h2>
+    </div>
     {#if sources.length === 0}
       <div class="empty-state" use:squircle={18}>{t('No proxy list sources installed. Install a proxy-source plugin (e.g. proxifly).')}</div>
     {:else}
@@ -315,6 +309,17 @@
 <style>
   .section {
     margin-bottom: 32px;
+  }
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .section-header h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
   }
   .add-form {
     display: flex;

@@ -47,8 +47,10 @@ type Service struct {
 
 // sourceFetchMeta persists the last fetch outcome per source so the
 // dashboard totals survive restarts (the check pipeline itself is RAM-only).
+// Offset rotates the check window across fetches.
 type sourceFetchMeta struct {
 	Total       int       `json:"total"`
+	Offset      int       `json:"offset"`
 	LastFetchAt time.Time `json:"last_fetch_at"`
 }
 
