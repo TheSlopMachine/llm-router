@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -637,4 +638,152 @@ func TestScratchGoogleEmbedProbe(t *testing.T) {
 		lastErr = nil
 	}
 	t.Fatal("embed probe: all keys failed")
+}
+
+// TestScratchGroqProxyMatrix runs every groq credential against
+// api.groq.com through alive pool proxies grouped by country and reports
+// which country/proxy makes the keys work. Network access to groq from
+// this machine is direct (groq is not geo-blocked here); the point is to
+// find whether the 403 Forbidden is egress-IP-dependent.
+func TestScratchGroqProxyMatrix(t *testing.T) {
+	scratchLive(t)
+	path := "/Users/toli/playground/llm-router/router.db"
+	database, err := bolt.Open(path, 0600, &bolt.Options{ReadOnly: true, Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer database.Close()
+
+	var keys []string
+	type proxyRow struct {
+		url, protocol, country string
+		latency                int64
+	}
+	var aliveProxies []proxyRow
+	err = database.View(func(tx *bolt.Tx) error {
+		creds := tx.Bucket([]byte("credentials"))
+		cc := creds.Cursor()
+		for k, v := cc.First(); k != nil; k, v = cc.Next() {
+			var cred map[string]any
+			if err := json.Unmarshal(v, &cred); err != nil {
+				continue
+			}
+			if cred["provider_id"] != "groq" || cred["disabled"] == true {
+				continue
+			}
+			data, _ := cred["data"].(map[string]any)
+			if s, _ := data["api_key"].(string); s != "" {
+				keys = append(keys, s)
+			}
+		}
+		if px := tx.Bucket([]byte("proxies")); px != nil {
+			pc := px.Cursor()
+			for k, v := pc.First(); k != nil; k, v = pc.Next() {
+				var p map[string]any
+				if err := json.Unmarshal(v, &p); err != nil {
+					continue
+				}
+				if p["alive"] != true {
+					continue
+				}
+				proto, _ := p["protocol"].(string)
+				if proto != "http" && proto != "https" {
+					continue
+				}
+				u, _ := p["url"].(string)
+				country, _ := p["country"].(string)
+				lat, _ := p["latency_ms"].(float64)
+				aliveProxies = append(aliveProxies, proxyRow{u, proto, country, int64(lat)})
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("view: %v", err)
+	}
+	if len(keys) == 0 {
+		t.Skip("no groq credentials in db")
+	}
+
+	out, err := os.Create("/Users/toli/playground/llm-router/test_shit/groq_matrix.txt")
+	if err != nil {
+		t.Fatalf("create out: %v", err)
+	}
+	defer out.Close()
+
+	// Up to 3 fastest proxies per country.
+	byCountry := map[string][]proxyRow{}
+	for _, p := range aliveProxies {
+		list := byCountry[p.country]
+		if len(list) < 3 {
+			byCountry[p.country] = append(list, p)
+		}
+	}
+	fmt.Fprintf(out, "groq keys: %d, alive http(s) proxies: %d, countries: %d\n", len(keys), len(aliveProxies), len(byCountry))
+
+	probe := func(key string, p *proxyRow) (int, string) {
+		var client *http.Client
+		if p == nil {
+			client = &http.Client{Timeout: 15 * time.Second}
+		} else {
+			u, perr := url.Parse(p.url)
+			if perr != nil {
+				return 0, perr.Error()
+			}
+			client = &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{Proxy: http.ProxyURL(u)}}
+		}
+		req, _ := http.NewRequest("GET", "https://api.groq.com/openai/v1/models", nil)
+		req.Header.Set("Authorization", "Bearer "+key)
+		resp, err := client.Do(req)
+		if err != nil {
+			return 0, err.Error()
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
+		resp.Body.Close()
+		return resp.StatusCode, string(body)
+	}
+
+	// Baseline: direct, first key.
+	st, body := probe(keys[0], nil)
+	fmt.Fprintf(out, "DIRECT key#0: %d %s\n", st, body)
+
+	countries := []string{}
+	for c := range byCountry {
+		countries = append(countries, c)
+	}
+	sort.Strings(countries)
+	for _, country := range countries {
+		for ki, key := range keys {
+			if ki > 0 {
+				break // country sweep with the first key; keys compared later on a working route
+			}
+			for _, p := range byCountry[country] {
+				st, body := probe(key, &p)
+				short := body
+				if len(short) > 80 {
+					short = short[:80]
+				}
+				fmt.Fprintf(out, "%s key#%d %s: %d %s\n", country, ki, p.url, st, strings.ReplaceAll(short, "\n", " "))
+			}
+		}
+	}
+
+	// All keys through the first working proxy (if any 200 was seen).
+	for _, country := range countries {
+		for _, p := range byCountry[country] {
+			st, _ := probe(keys[0], &p)
+			if st != 200 {
+				continue
+			}
+			for ki, key := range keys {
+				st2, body2 := probe(key, &p)
+				short := body2
+				if len(short) > 80 {
+					short = short[:80]
+				}
+				fmt.Fprintf(out, "ALLKEYS %s key#%d: %d %s\n", p.url, ki, st2, strings.ReplaceAll(short, "\n", " "))
+			}
+			return
+		}
+	}
 }

@@ -649,8 +649,10 @@ func (s *Service) ValidateCredentials(typeKey string, data map[string]any) (bool
 	return valid, nil
 }
 
-// GetModelInfos calls get_model_infos. Missing handler reports
-// ErrHandlerNotFound so callers apply the fixed fallback.
+// GetModelInfos calls get_model_infos with the same geo-rotation as
+// Complete: a region-locked answer through a proxy walks the pool instead
+// of failing discovery. Missing handler reports ErrHandlerNotFound so
+// callers apply the fixed fallback.
 func (s *Service) GetModelInfos(
 	goCtx context.Context,
 	typeKey string,
@@ -661,46 +663,55 @@ func (s *Service) GetModelInfos(
 	if err != nil {
 		return nil, err
 	}
-	var infos []models.ModelInfo
-	found, err := s.handlerCall(goCtx, rec, typeKey, "get_model_infos", func(L *lua.LState) {
-		L.Push(ctxTable(L, "", nil))
-		L.Push(credTable(L, cred))
-		if len(providerConfig) > 0 {
-			L.Push(toLuaValue(L, providerConfig))
-		} else {
-			L.Push(L.NewTable())
-		}
-	}, 2, func(L *lua.LState) error {
-		result, rawErr := splitReturn(L)
-		if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
-			return cerr
-		}
-		if result == lua.LNil {
-			infos = []models.ModelInfo{}
+	tried := map[string]bool{}
+	for {
+		var infos []models.ModelInfo
+		found, route, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "get_model_infos", func(L *lua.LState) {
+			L.Push(ctxTable(L, "", nil))
+			L.Push(credTable(L, cred))
+			if len(providerConfig) > 0 {
+				L.Push(toLuaValue(L, providerConfig))
+			} else {
+				L.Push(L.NewTable())
+			}
+		}, 2, func(L *lua.LState) error {
+			result, rawErr := splitReturn(L)
+			if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
+				return cerr
+			}
+			if result == lua.LNil {
+				infos = []models.ModelInfo{}
+				return nil
+			}
+			raw, merr := marshalLua(result)
+			if merr != nil {
+				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode model infos: " + merr.Error()}
+			}
+			var out []models.ModelInfo
+			if uerr := unmarshalTo(raw, &out); uerr != nil {
+				s.recordCrash(rec.ID, typeKey, "get_model_infos schema violation: "+uerr.Error())
+				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "get_model_infos schema violation: " + uerr.Error()}
+			}
+			infos = out
 			return nil
+		}, providerConfig)
+		if callErr == nil {
+			if !found {
+				return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "get_model_infos"}
+			}
+			if infos == nil {
+				infos = []models.ModelInfo{}
+			}
+			return infos, nil
 		}
-		raw, merr := marshalLua(result)
-		if merr != nil {
-			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode model infos: " + merr.Error()}
+		next, rotErr := s.geoRotationNext(rec, providerConfig, callErr, route, tried)
+		if rotErr != nil {
+			return nil, rotErr
 		}
-		var out []models.ModelInfo
-		if uerr := unmarshalTo(raw, &out); uerr != nil {
-			s.recordCrash(rec.ID, typeKey, "get_model_infos schema violation: "+uerr.Error())
-			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "get_model_infos schema violation: " + uerr.Error()}
+		if next == "" {
+			return nil, callErr
 		}
-		infos = out
-		return nil
-	}, providerConfig)
-	if err != nil {
-		return nil, err
 	}
-	if !found {
-		return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "get_model_infos"}
-	}
-	if infos == nil {
-		infos = []models.ModelInfo{}
-	}
-	return infos, nil
 }
 
 // NeedsRefresh calls needs_refresh. Missing handler means not refreshable.
