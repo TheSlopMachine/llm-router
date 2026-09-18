@@ -3,14 +3,14 @@
   import { api } from '../lib/api'
   import Chat from '../components/Chat.svelte'
   import Metrics from './Metrics.svelte'
-  import AgentEditorPage from './AgentEditorPage.svelte'
+  import VirtualModelEditorPage from './VirtualModelEditorPage.svelte'
   import ProviderDetailPage from './ProviderDetailPage.svelte'
   import ProxyPage from './ProxyPage.svelte'
   import ProxySourceDetailPage from './ProxySourceDetailPage.svelte'
   import Models from '../components/Models.svelte'
   import Providers from '../components/Providers.svelte'
   import Tokens from '../components/Tokens.svelte'
-  import Agents from '../components/Agents.svelte'
+  import VirtualModels from '../components/VirtualModels.svelte'
   import PluginsPage, { type PluginsTab } from './PluginsPage.svelte'
   import UiTest from './UiTest.svelte'
   import { modal } from '../lib/modal.svelte'
@@ -20,7 +20,7 @@
 
   let { onlogout } = $props<{ onlogout: () => void }>()
 
-  type PanelId = 'chat' | 'metrics' | 'providers' | 'models' | 'agents' | 'tokens' | 'plugins' | 'proxy' | 'ui-test'
+  type PanelId = 'chat' | 'metrics' | 'providers' | 'models' | 'virtual' | 'tokens' | 'plugins' | 'proxy' | 'ui-test'
 
   interface NavItem {
     id: PanelId
@@ -46,7 +46,7 @@
       window.location.hash = '#/plugins/catalog'
       return
     }
-    const validPanels: PanelId[] = ['chat', 'metrics', 'providers', 'models', 'agents', 'tokens', 'plugins', 'proxy', 'ui-test']
+    const validPanels: PanelId[] = ['chat', 'metrics', 'providers', 'models', 'virtual', 'tokens', 'plugins', 'proxy', 'ui-test']
 
     if (segments.length === 0) {
       panel = 'metrics'
@@ -88,7 +88,7 @@
     { id: 'providers',    label: 'Providers',    icon: 'cloud' },
     { id: 'models',       label: 'Models',       icon: 'view_list' },
     { id: 'plugins',      label: 'Plugins',      icon: 'extension' },
-    { id: 'agents',       label: 'Agents',       icon: 'robot' },
+    { id: 'virtual',      label: 'Virtual models', icon: 'robot' },
     { id: 'tokens',       label: 'Tokens',       icon: 'key' },
     { id: 'proxy',        label: 'Proxies',      icon: 'vpn_lock' },
   ]
@@ -209,13 +209,13 @@
         {/if}
       {:else if panel === 'models'}
         <Models />
-      {:else if panel === 'agents'}
+      {:else if panel === 'virtual'}
         {#if routeSegments[0] === 'new'}
-          <AgentEditorPage agentId={null} />
+          <VirtualModelEditorPage vmId={null} />
         {:else if routeSegments[0]}
-          <AgentEditorPage agentId={routeSegments[0]} />
+          <VirtualModelEditorPage vmId={routeSegments[0]} />
         {:else}
-          <Agents />
+          <VirtualModels />
         {/if}
       {:else if panel === 'tokens'}
         <Tokens />

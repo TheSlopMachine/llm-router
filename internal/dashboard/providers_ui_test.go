@@ -10,13 +10,13 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
-	"github.com/TheSlopMachine/llm-router/internal/services/agent"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
+	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
-	agentsadapter "github.com/TheSlopMachine/llm-router/providers/agents"
+	virtualadapter "github.com/TheSlopMachine/llm-router/providers/virtual"
 )
 
 func newProvidersUIHandler(t *testing.T) (*Handler, *provider.Service, *db.DB) {
@@ -189,7 +189,7 @@ func TestProvidersUpdateGuards(t *testing.T) {
 	if code := call("zen", `{"name":"Zen 2"}`); code != http.StatusForbidden {
 		t.Errorf("readonly update: got %d, want 403", code)
 	}
-	if code := call("agents", `{"name":"Agents 2"}`); code != http.StatusNotFound {
+	if code := call("virtual", `{"name":"Virtual 2"}`); code != http.StatusNotFound {
 		t.Errorf("hidden update: got %d, want 404", code)
 	}
 	if code := call("missing", `{"name":"X"}`); code != http.StatusNotFound {
@@ -212,13 +212,13 @@ func TestProvidersDeleteGuards(t *testing.T) {
 	if code := call("zen"); code != http.StatusForbidden {
 		t.Errorf("readonly delete: got %d, want 403", code)
 	}
-	if code := call("agents"); code != http.StatusNotFound {
+	if code := call("virtual"); code != http.StatusNotFound {
 		t.Errorf("hidden delete: got %d, want 404", code)
 	}
 	if _, err := svc.Get("zen"); err != nil {
 		t.Errorf("readonly row must survive blocked delete: %v", err)
 	}
-	if _, err := svc.Get("agents"); err != nil {
+	if _, err := svc.Get("virtual"); err != nil {
 		t.Errorf("hidden row must survive blocked delete: %v", err)
 	}
 }
@@ -227,8 +227,8 @@ func TestProviderSchemasHidden404(t *testing.T) {
 	h, svc, database := newProvidersUIHandler(t)
 	seedUIRows(t, svc, database)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/llm-router/dashboard/providers/agents/credential-schema", nil)
-	req.SetPathValue("id", "agents")
+	req := httptest.NewRequest(http.MethodGet, "/api/llm-router/dashboard/providers/virtual/credential-schema", nil)
+	req.SetPathValue("id", "virtual")
 	rec := httptest.NewRecorder()
 	h.apiProviderCredentialSchema(rec, req)
 	if rec.Code != http.StatusNotFound {
@@ -240,7 +240,7 @@ func TestAdapterTypesCarryCreatableFlag(t *testing.T) {
 	h, svc, database := newProvidersUIHandler(t)
 	seedUIRows(t, svc, database)
 	svc.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
-	svc.RegisterGoAdapter(&agentsadapter.Adapter{})
+	svc.RegisterGoAdapter(&virtualadapter.Adapter{})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/llm-router/dashboard/adapter-types", nil)
 	rec := httptest.NewRecorder()
@@ -257,8 +257,8 @@ func TestAdapterTypesCarryCreatableFlag(t *testing.T) {
 		k, _ := e["type_key"].(string)
 		byKey[k] = e["creatable"]
 	}
-	if byKey["agents"] != false {
-		t.Errorf("agents must be non-creatable: %v", byKey)
+	if byKey["virtual"] != false {
+		t.Errorf("virtual must be non-creatable: %v", byKey)
 	}
 	for _, k := range []string{"mock", "zen"} {
 		if byKey[k] != true {
@@ -267,7 +267,7 @@ func TestAdapterTypesCarryCreatableFlag(t *testing.T) {
 	}
 }
 
-func TestAvailableModelsIncludesAgentsWithoutCredentials(t *testing.T) {
+func TestAvailableModelsIncludesVirtualWithoutCredentials(t *testing.T) {
 	h, svc, database := newProvidersUIHandler(t)
 	seedUIRows(t, svc, database)
 	svc.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
@@ -277,29 +277,28 @@ func TestAvailableModelsIncludesAgentsWithoutCredentials(t *testing.T) {
 
 	credSvc := credential.New(database, svc)
 	modelInfoSvc := modelinfo.New(database, svc, credSvc, 1*time.Hour)
-	agentSvc := agent.New(database, svc, modelInfoSvc)
+	virtualSvc := virtual.New(database, svc, modelInfoSvc)
 	h.credSvc = credSvc
 	h.modelInfoSvc = modelInfoSvc
-	h.agentSvc = agentSvc
+	h.virtualSvc = virtualSvc
 
-	a := &models.Agent{
-		Name:    "Helper",
-		IsDraft: true,
-		Models:  []models.AgentModel{{ModelID: "mock/test-model", Priority: 1}},
+	vm := &models.VirtualModel{
+		Name:   "Helper",
+		Models: []models.VirtualModelEntry{{ModelID: "mock/test-model"}},
 	}
-	if err := agentSvc.Create(a); err != nil {
-		t.Fatalf("create agent: %v", err)
+	if err := virtualSvc.Create(vm); err != nil {
+		t.Fatalf("create virtual model: %v", err)
 	}
-	if a.ID != "helper" {
-		t.Fatalf("agent id: got %q, want %q", a.ID, "helper")
+	if vm.ID != "helper" {
+		t.Fatalf("virtual model id: got %q, want %q", vm.ID, "helper")
 	}
 
-	rows, err := credSvc.ListByProvider("agents")
+	rows, err := credSvc.ListByProvider(provider.TypeVirtual)
 	if err != nil {
-		t.Fatalf("list agents credentials: %v", err)
+		t.Fatalf("list virtual credentials: %v", err)
 	}
 	if len(rows) != 0 {
-		t.Fatalf("expected zero agents credentials, got %d", len(rows))
+		t.Fatalf("expected zero virtual credentials, got %d", len(rows))
 	}
 
 	items, err := h.availableModels()
@@ -308,15 +307,15 @@ func TestAvailableModelsIncludesAgentsWithoutCredentials(t *testing.T) {
 	}
 	found := false
 	for _, item := range items {
-		if item.FullModelID == "agents/helper" {
+		if item.FullModelID == "virtual/helper" {
 			found = true
-			if item.ProviderID != "agents" || item.ModelName != "helper" || item.DisplayName != "Helper" {
-				t.Errorf("agents entry fields wrong: %+v", item)
+			if item.ProviderID != provider.TypeVirtual || item.ModelName != "helper" || item.DisplayName != "Helper" {
+				t.Errorf("virtual entry fields wrong: %+v", item)
 			}
 		}
 	}
 	if !found {
-		t.Fatalf("agents/helper missing from available models: %+v", items)
+		t.Fatalf("virtual/helper missing from available models: %+v", items)
 	}
 }
 

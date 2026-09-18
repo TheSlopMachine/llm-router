@@ -377,6 +377,17 @@
     max-width: 300px;
   }
 
+  /* Confirm message is fill-less text: it sits on the 20px header grid,
+     not on the 14px content grid. */
+  .modal-confirm .modal-body {
+    padding: 14px 20px;
+  }
+
+  /* Title-less confirm: the message is the first text — 20px off the top. */
+  .modal-confirm .modal-body:first-child {
+    padding-top: 20px;
+  }
+
   .modal-confirm .modal-body p {
     font-size: 15px;
     line-height: 1.45;

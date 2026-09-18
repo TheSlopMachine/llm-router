@@ -2,6 +2,7 @@
 package db
 
 import (
+	"errors"
 	"fmt"
 
 	bolt "go.etcd.io/bbolt"
@@ -24,7 +25,7 @@ var (
 	BucketModelInfo           = []byte("model_info")           // Legacy bucket, no longer used for model metadata caching
 	BucketSessions            = []byte("sessions")             // Dashboard sessions
 	BucketMetrics             = []byte("metrics")              // Time-series metrics data
-	BucketAgents              = []byte("agents")               // Agent records
+	BucketVirtualModels       = []byte("virtual_models")       // VirtualModel records
 	BucketRouterConfiguration = []byte("router_configuration") // Instance configuration (RouterConfiguration)
 	BucketModelOverrides      = []byte("model_overrides")      // Per-provider model enable/disable and custom models
 	BucketModelInfos          = []byte("model_infos")          // Persisted per-provider model metadata cache
@@ -70,7 +71,7 @@ func (db *DB) initBuckets() error {
 			BucketAuth,
 			BucketSessions,
 			BucketMetrics,
-			BucketAgents,
+			BucketVirtualModels,
 			BucketRouterConfiguration,
 			BucketModelOverrides,
 			BucketModelInfos,
@@ -81,6 +82,11 @@ func (db *DB) initBuckets() error {
 			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
 				return fmt.Errorf("create bucket %q: %w", name, err)
 			}
+		}
+		// The pre-rework "agents" bucket is dead weight; virtual models live in
+		// virtual_models now.
+		if err := tx.DeleteBucket([]byte("agents")); err != nil && !errors.Is(err, bolt.ErrBucketNotFound) {
+			return fmt.Errorf("drop legacy agents bucket: %w", err)
 		}
 		return nil
 	})

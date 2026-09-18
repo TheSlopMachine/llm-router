@@ -1,0 +1,1 @@
+Raleway - это элегантное семейство шрифтов без засечек. Первоначально тонкое начертание разработано Matt McInerney, в дальнейшем начертания были расширены Pablo Impallari, Rodrigo Fuenzalida и Igino Marini.

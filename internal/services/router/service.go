@@ -186,7 +186,7 @@ func (s *Service) Complete(
 	}
 	// Virtual agents resolve from the model name suffix and need no
 	// credentials; token credential rules do not apply to them.
-	if resolved.Instance.TypeKey == provider.TypeAgents {
+	if resolved.Instance.TypeKey == provider.TypeVirtual {
 		return s.completeOne(ctx, resolved, nil, req)
 	}
 	if !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
@@ -248,7 +248,7 @@ func (s *Service) CompleteStream(
 	if resolved.Instance.Disabled {
 		return fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
 	}
-	if resolved.Instance.TypeKey == provider.TypeAgents {
+	if resolved.Instance.TypeKey == provider.TypeVirtual {
 		return s.completeStreamOne(ctx, resolved, nil, req, w)
 	}
 	if !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
@@ -345,8 +345,8 @@ func (s *Service) Transcribe(
 	if resolved.Instance.Disabled {
 		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
 	}
-	if resolved.Instance.TypeKey == provider.TypeAgents {
-		return nil, fmt.Errorf("%w: agents do not serve audio transcription", apierrors.ErrEndpointNotSupported)
+	if resolved.Instance.TypeKey == provider.TypeVirtual {
+		return nil, fmt.Errorf("%w: virtual models do not serve audio transcription", apierrors.ErrEndpointNotSupported)
 	}
 	if !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
 		return nil, fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
@@ -450,8 +450,8 @@ func (s *Service) Speech(
 	if resolved.Instance.Disabled {
 		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
 	}
-	if resolved.Instance.TypeKey == provider.TypeAgents {
-		return nil, fmt.Errorf("%w: agents do not serve text-to-speech", apierrors.ErrEndpointNotSupported)
+	if resolved.Instance.TypeKey == provider.TypeVirtual {
+		return nil, fmt.Errorf("%w: virtual models do not serve text-to-speech", apierrors.ErrEndpointNotSupported)
 	}
 	if !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
 		return nil, fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
@@ -555,8 +555,8 @@ func (s *Service) GenerateImage(
 	if resolved.Instance.Disabled {
 		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
 	}
-	if resolved.Instance.TypeKey == provider.TypeAgents {
-		return nil, fmt.Errorf("%w: agents do not serve image generation", apierrors.ErrEndpointNotSupported)
+	if resolved.Instance.TypeKey == provider.TypeVirtual {
+		return nil, fmt.Errorf("%w: virtual models do not serve image generation", apierrors.ErrEndpointNotSupported)
 	}
 	if !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
 		return nil, fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
@@ -660,8 +660,8 @@ func (s *Service) Embed(
 	if resolved.Instance.Disabled {
 		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
 	}
-	if resolved.Instance.TypeKey == provider.TypeAgents {
-		return nil, fmt.Errorf("%w: agents do not serve embeddings", apierrors.ErrEndpointNotSupported)
+	if resolved.Instance.TypeKey == provider.TypeVirtual {
+		return nil, fmt.Errorf("%w: virtual models do not serve embeddings", apierrors.ErrEndpointNotSupported)
 	}
 	if !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
 		return nil, fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)

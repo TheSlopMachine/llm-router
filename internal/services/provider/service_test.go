@@ -166,8 +166,8 @@ func TestProviderService_EnsureSeeded(t *testing.T) {
 	if err := svc.EnsureSeeded(); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	if _, err := svc.Get("agents"); err != nil {
-		t.Fatalf("agents provider missing after seed: %v", err)
+	if _, err := svc.Get("virtual"); err != nil {
+		t.Fatalf("virtual provider missing after seed: %v", err)
 	}
 	// Idempotent.
 	if err := svc.EnsureSeeded(); err != nil {
@@ -365,9 +365,9 @@ func TestProviderService_CustomSchemas(t *testing.T) {
 	if err != nil || len(nodes) == 0 {
 		t.Fatalf("custom credential schema: %+v %v", nodes, err)
 	}
-	nodes, err = svc.CredentialSchema("agents")
+	nodes, err = svc.CredentialSchema("virtual")
 	if err != nil || len(nodes) == 0 {
-		t.Fatalf("agents credential schema: %+v %v", nodes, err)
+		t.Fatalf("virtual credential schema: %+v %v", nodes, err)
 	}
 }
 
@@ -384,19 +384,19 @@ func TestProviderService_ManualCreateHasNoUIFlags(t *testing.T) {
 	}
 }
 
-func TestProviderService_EnsureSeededMarksAgentsHiddenReadonly(t *testing.T) {
+func TestProviderService_EnsureSeededMarksVirtualHiddenReadonly(t *testing.T) {
 	database := testutil.SetupTestDB(t)
 	svc := provider.NewService(database)
 
 	if err := svc.EnsureSeeded(); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	agents, err := svc.Get("agents")
+	vm, err := svc.Get("virtual")
 	if err != nil {
-		t.Fatalf("agents provider missing: %v", err)
+		t.Fatalf("virtual provider missing: %v", err)
 	}
-	if !agents.IsUIReadonly || !agents.IsUIHidden {
-		t.Fatalf("agents row must be readonly+hidden: %+v", agents)
+	if !vm.IsUIReadonly || !vm.IsUIHidden {
+		t.Fatalf("virtual row must be readonly+hidden: %+v", vm)
 	}
 }
 
@@ -442,12 +442,12 @@ func TestProviderService_BackfillsSeedFlags(t *testing.T) {
 	database := testutil.SetupTestDB(t)
 	svc := provider.NewService(database)
 
-	// Pre-flag rows: bare singleton ID, agents ID, and a qualifier row.
+	// Pre-flag rows: bare singleton ID, virtual row, and a qualifier row.
 	if _, err := svc.Create(provider.CreateOptions{Name: "Bare", TypeKey: "flag-type"}); err != nil {
 		t.Fatalf("create bare: %v", err)
 	}
-	if _, err := svc.Create(provider.CreateOptions{Name: "Agents", TypeKey: "agents"}); err != nil {
-		t.Fatalf("create agents: %v", err)
+	if _, err := svc.Create(provider.CreateOptions{Name: "Virtual models", TypeKey: "virtual"}); err != nil {
+		t.Fatalf("create virtual: %v", err)
 	}
 	qualified, err := svc.Create(provider.CreateOptions{Name: "Q", TypeKey: "flag-type", Qualifier: "eu"})
 	if err != nil {
@@ -485,12 +485,12 @@ llm_router.register("flag-type", {
 		t.Fatalf("bare singleton must become readonly: %+v", bare)
 	}
 
-	agents, err := svc.Get("agents")
+	vm, err := svc.Get("virtual")
 	if err != nil {
-		t.Fatalf("agents row missing: %v", err)
+		t.Fatalf("virtual row missing: %v", err)
 	}
-	if !agents.IsUIReadonly || !agents.IsUIHidden {
-		t.Fatalf("agents row must become readonly+hidden: %+v", agents)
+	if !vm.IsUIReadonly || !vm.IsUIHidden {
+		t.Fatalf("virtual row must become readonly+hidden: %+v", vm)
 	}
 
 	q, err := svc.Get(qualified.ID)
@@ -553,8 +553,8 @@ llm_router.register("avail-type", {
 }
 
 func TestIsCreatableTypeKey(t *testing.T) {
-	if provider.IsCreatableTypeKey("agents") {
-		t.Error("agents type must not be creatable through the UI")
+	if provider.IsCreatableTypeKey("virtual") {
+		t.Error("virtual type must not be creatable through the UI")
 	}
 	for _, k := range []string{"custom", "opencode-zen", "google", "mock"} {
 		if !provider.IsCreatableTypeKey(k) {

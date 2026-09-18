@@ -292,6 +292,7 @@ export const api = {
         display_name: (r.display_name as string) ?? (r.model_name as string) ?? '',
         context_window: r.context_window as number | undefined,
         max_tokens: r.max_tokens as number | undefined,
+        capabilities: r.capabilities as string[] | undefined,
       }))
     },
   },
@@ -329,8 +330,8 @@ export const api = {
     },
   },
 
-  // Agents
-  agents: {
+  // Virtual models
+  virtualModels: {
     list: () =>
       apiCall('get', '/api/llm-router/dashboard/agents'),
 
@@ -345,6 +346,23 @@ export const api = {
 
     delete: (id: string) =>
       apiCall('delete', `/api/llm-router/dashboard/agents/${id}` as '/api/llm-router/dashboard/agents/{id}'),
+
+    // Fall-through targets only: the endpoint excludes virtual models.
+    availableModels: async (): Promise<AvailableModel[]> => {
+      const raw = (await apiCall('get', '/api/llm-router/dashboard/agents/available-models')) as unknown
+      const arr = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []
+      return arr.map((r) => ({
+        full_model_id: (r.name as string) ?? '',
+        provider_id: '',
+        provider_name: '',
+        provider_type: '',
+        model_name: (r.name as string) ?? '',
+        display_name: (r.display_name as string) ?? (r.name as string) ?? '',
+        context_window: r.context_window as number | undefined,
+        max_tokens: r.max_tokens as number | undefined,
+        capabilities: r.capabilities as string[] | undefined,
+      }))
+    },
   },
 
   // Metrics

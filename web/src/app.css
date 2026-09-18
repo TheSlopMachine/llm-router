@@ -1,6 +1,6 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-family: "Raleway", "Inter", system-ui, -apple-system, sans-serif;
   font-size: 14px;
   font-weight: 400;
   line-height: 21px;
@@ -28,9 +28,9 @@ a:hover { text-decoration: underline; }
   /* Light Theme Tokens */
   --color-surface: #ffffff;
   --color-surface-container: #ffffff;
-  --color-surface-container-high: #fcfcfc;
-  --color-surface-container-highest: #e9eaeb;
-  --color-background: #fafafa;
+  --color-surface-container-high: #ececf0;
+  --color-surface-container-highest: #e1e2e8;
+  --color-background: #f8f8fa;
 
   /* Radius scale. Elements get squircle corners via the use:squircle action. */
   --radius-xs: 8px;
@@ -38,13 +38,13 @@ a:hover { text-decoration: underline; }
   --radius-md: 12px;
   --radius-lg: 24px;
   
-  --color-sidebar-bg: #fafafa;
-  --color-nav-hover: #efefef;
-  --color-nav-active: #ececec;
+  --color-sidebar-bg: #e2e3ea;
+  --color-nav-hover: #d8d9e0;
+  --color-nav-active: #cfd0d8;
   
   --color-text: #2b2d31;
   --color-text-soft: #6c717a;
-  --color-text-disabled: #bdc1c6;
+  --color-text-disabled: #9aa0a6;
   --color-text-link: #2483e2;
   --color-text-on-button: #2b2d31;
   --color-text-on-button-reverse: #ffffff;
@@ -55,10 +55,10 @@ a:hover { text-decoration: underline; }
   --color-outline-variant: #c6c6ca;
   
   --color-button-container: #ffffff;
-  --color-button-container-high: #dee0e2;
+  --color-button-container-high: #e1e2e8;
   --color-button-container-accent: #dbeafe;
   
-  --color-hover-bg: #f4f5f5;
+  --color-hover-bg: #e4e5ea;
   
   --color-accent-yellow: #fcbd00;
   --color-accent-yellow-light: #fff7e0;
@@ -85,7 +85,7 @@ a:hover { text-decoration: underline; }
   --color-accent-hover: #1b6dca;
   --color-accent-soft: rgba(59, 130, 246, 0.1);
 
-  --color-switch-off: #eaeaeb;
+  --color-switch-off: #dcdde2;
   --color-switch-on: var(--color-accent);
 
   --color-chip-neutral-bg: #e4e6e8;
@@ -101,8 +101,8 @@ a:hover { text-decoration: underline; }
   --color-warning-text: #ca8a04;
   --color-error-text: #dc2626;
   --color-success-text: #16a34a;
-  --color-disabled-bg: #f4f5f6;
-  --color-disabled-text: #a8adb3;
+  --color-disabled-bg: #f3f3f6;
+  --color-disabled-text: #989da4;
 
   --color-danger: #dc2626;
   --color-danger-hover: #b91c1c;
@@ -144,7 +144,7 @@ a:hover { text-decoration: underline; }
   
   --color-text: #e5e2e1;
   --color-text-soft: #a0a0a0;
-  --color-text-disabled: #4a4a4a;
+  --color-text-disabled: #707070;
   --color-text-link: #87a9ff;
   --color-text-on-button: #e5e2e1;
   --color-text-on-button-reverse: #141313;
@@ -201,8 +201,8 @@ a:hover { text-decoration: underline; }
   --color-warning-text: #fbbf24;
   --color-error-text: #f87171;
   --color-success-text: #4ade80;
-  --color-disabled-bg: #2c2c2c;
-  --color-disabled-text: #5f5f5f;
+  --color-disabled-bg: #262626;
+  --color-disabled-text: #747474;
 
   --color-danger: #ef4444;
   --color-danger-hover: #dc2626;
@@ -234,15 +234,9 @@ input, select, textarea {
   line-height: 20px;
   width: 100%;
   border-radius: var(--ctl-radius);
-  /* The 1px border strip stays transparent and only reserves geometry; the
-     visible frame is painted by the --_frame gradient layer because CSS
-     borders do not follow the squircle clip-path. States flip the vars. */
+  /* transparent border keeps disabled geometry identical to enabled */
   border: 1px solid transparent;
-  --_fill: var(--color-surface-container-highest);
-  --_frame: transparent;
-  background:
-    linear-gradient(var(--_fill), var(--_fill)) padding-box,
-    linear-gradient(var(--_frame), var(--_frame)) border-box;
+  background: var(--color-surface-container-highest);
   color: var(--color-text);
   padding: var(--field-pad-v) var(--field-pad-h);
   outline: none;
@@ -254,15 +248,11 @@ input[type="checkbox"] {
   height: auto;
 }
 input:focus, select:focus, textarea:focus {
-  /* accent frame follows the squircle clip; the inner 1px shadow keeps the
-     ring 2px thick in total */
-  --_frame: var(--color-accent);
-  box-shadow: inset 0 0 0 1px var(--color-accent);
+  /* glow follows the squircle silhouette; a ring cannot (clip-path) */
+  filter: drop-shadow(0 0 3px var(--color-accent));
 }
 input:disabled, select:disabled, textarea:disabled {
-  --_fill: var(--color-disabled-bg);
-  /* frame in the enabled fill color so the widget reads against the page */
-  --_frame: var(--color-surface-container-highest);
+  background-color: var(--color-disabled-bg);
   color: var(--color-disabled-text);
   cursor: not-allowed;
 }
@@ -315,23 +305,18 @@ select option {
   background: var(--color-surface); 
   color: var(--color-text);
 }
-/* Custom chevron everywhere (was auth-forms only); appearance:none kills the
-   native glyph. The chevron is a layer in the gradient stack so disabled and
-   focus states keep it while they flip --_fill/--_frame. */
-:root {
-  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236c717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-}
-.dark {
-  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a0a0a0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-}
+/* Custom chevron everywhere (was auth-forms only); appearance:none kills the native glyph. */
 select {
   appearance: none;
   -webkit-appearance: none;
-  background:
-    var(--select-chevron) no-repeat right 12px center / 16px padding-box,
-    linear-gradient(var(--_fill), var(--_fill)) padding-box,
-    linear-gradient(var(--_frame), var(--_frame)) border-box;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236c717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
   padding-right: 40px;
+}
+.dark select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a0a0a0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
 }
 
 button, .btn {
@@ -364,12 +349,7 @@ button:hover:not([disabled]), .btn:hover:not([disabled]) {
   background: var(--color-button-container-high); 
 }
 button:disabled, .btn:disabled {
-  /* frame painted by a gradient layer: CSS borders do not follow the
-     squircle clip-path. Frame color = enabled fill so the button reads
-     against the page. */
-  background:
-    linear-gradient(var(--color-disabled-bg), var(--color-disabled-bg)) padding-box,
-    linear-gradient(var(--color-button-container-high), var(--color-button-container-high)) border-box;
+  background-color: var(--color-disabled-bg);
   color: var(--color-disabled-text);
   cursor: not-allowed;
   opacity: 0.6;
@@ -377,9 +357,14 @@ button:disabled, .btn:disabled {
 .dark button:disabled, .dark .btn:disabled {
   opacity: 0.8;
 }
+/* No outline ring: clip-path cuts it at the squircle corners. Keyboard focus
+   gets the same fill as hover instead. */
 button:focus-visible, .btn:focus-visible {
-  outline: 2px solid var(--color-outline);
-  outline-offset: -2px;
+  outline: none;
+  background: var(--color-button-container-high);
+}
+.btn-primary:focus-visible {
+  background: var(--color-accent-hover);
 }
 
 .btn-primary {
@@ -457,20 +442,20 @@ button:focus-visible, .btn:focus-visible {
   object-fit: contain;
 }
 
-/* Scale steps: same shape as the base button, scaled ~0.8x / ~1.3x —
-   font, line-height, padding and corner radius all follow. */
+/* Scale steps: same shape as the base button, proportionally scaled —
+   font, line-height, padding and corner radius all follow one factor. */
 .btn-sm {
   font-size: 12px;
   line-height: 18px;
-  padding: calc(var(--btn-pad-v) * 0.75) calc(var(--btn-pad-h) * 0.85);
-  border-radius: calc(var(--ctl-radius) * 0.8);
+  padding: calc(var(--btn-pad-v) * 0.9) calc(var(--btn-pad-h) * 0.85);
+  border-radius: calc(var(--ctl-radius) * 0.85);
 }
 
 .btn-large {
   font-size: 16px;
   line-height: 24px;
-  padding: calc(var(--btn-pad-v) * 1.75) calc(var(--btn-pad-h) * 1.4);
-  border-radius: calc(var(--ctl-radius) * 1.2);
+  padding: calc(var(--btn-pad-v) * 1.33) calc(var(--btn-pad-h) * 1.15);
+  border-radius: calc(var(--ctl-radius) * 1.15);
 }
 
 /* Icon buttons: squircle-square, width pinned to the derived height so the
@@ -492,8 +477,8 @@ button:focus-visible, .btn:focus-visible {
   background: var(--color-notification-error-bg);
 }
 .btn-sm.btn-icon {
-  /* sm: 18px line box + 2*0.75*pad-v + 2px border */
-  width: calc(var(--btn-pad-v) * 1.5 + 20px);
+  /* sm: 18px line box + 2*0.9*pad-v + 2px border — exactly square */
+  width: calc(var(--btn-pad-v) * 1.8 + 20px);
 }
 .btn-sm.btn-icon .icon {
   font-size: 16px;
@@ -577,16 +562,17 @@ tbody tr:hover td {
 .chip-orange { background: var(--color-badge-orange-bg); color: var(--color-badge-orange-text); }
 .chip-neutral { background: var(--color-chip-neutral-bg); color: var(--color-chip-neutral-text); }
 
-/* Chip sizes: sm 16px / base 24px / lg 30px row height, radius scaled up. */
+/* Chip sizes: sm 20px / base 24px / lg 28px row height — one scale factor
+   for font, line-height, padding and radius, same as the button steps. */
 .chip-sm {
-  padding: 1px 8px;
-  border-radius: 9px;
+  padding: 3px 10px;
+  border-radius: 10px;
   font-size: 10px;
   line-height: 14px;
 }
 .chip-lg {
-  padding: 5px 18px;
-  border-radius: 15px;
+  padding: 4px 14px;
+  border-radius: 14px;
   font-size: 14px;
   line-height: 20px;
 }
@@ -652,6 +638,11 @@ tbody tr:hover td {
   border: none;
   border-radius: var(--radius-lg);
   overflow: hidden;
+  /* drop-shadow follows the squircle clip; box-shadow would be clipped away */
+  filter: drop-shadow(0 1px 3px rgba(15, 17, 23, 0.1));
+}
+.dark .card {
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5));
 }
 .card-header {
   display: flex;

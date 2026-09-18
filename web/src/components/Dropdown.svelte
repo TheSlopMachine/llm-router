@@ -390,7 +390,7 @@
     position: fixed;
     z-index: 2000;
     width: max-content;
-    max-width: min(320px, calc(100vw - 16px));
+    max-width: min(480px, calc(100vw - 16px));
     background: var(--color-surface-container-high);
     /* slightly brighter frame so the menu reads against the card behind it */
     border: 1px solid var(--color-outline-light);
@@ -436,6 +436,8 @@
     color: var(--color-text);
     cursor: pointer;
     transition: none !important;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   /* Half-intensity hover: the nav-hover fill diluted 50% toward transparent. */

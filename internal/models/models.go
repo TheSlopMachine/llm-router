@@ -257,7 +257,9 @@ func (m *ChatMessage) UnmarshalJSON(data []byte) error {
 
 func (m ChatMessage) MarshalJSON() ([]byte, error) {
 	type rawMessage struct {
-		Role             string         `json:"role"`
+		// omitempty: stream deltas without a role must not emit "role":"" —
+		// strict clients (older Zed) reject an empty string as an invalid role.
+		Role             string         `json:"role,omitempty"`
 		Content          any            `json:"content"`
 		ToolCalls        []ChatToolCall `json:"tool_calls,omitempty"`
 		ToolCallID       string         `json:"tool_call_id,omitempty"`
@@ -913,7 +915,7 @@ func (r TokenRules) Allows(model ModelId) bool {
 // ─────────────────────────────────────────────
 
 // ProviderInstance is the single persisted provider record for every type:
-// lua-plugin type keys, built-in "custom" and "agents".
+// lua-plugin type keys, built-in "custom" and "virtual".
 type ProviderInstance struct {
 	ID           string         `json:"id" example:"opencode-zen"`
 	Name         string         `json:"name" example:"OpenCode Zen"`
@@ -1280,47 +1282,28 @@ type ProxyCandidate struct {
 // Agents
 // ─────────────────────────────────────────────
 
-// Agent is a virtual provider that orchestrates requests across multiple real providers.
-type Agent struct {
-	ID            string               `json:"id"`
-	Name          string               `json:"name"`
-	Description   string               `json:"description"`
-	Models        []AgentModel         `json:"models"`
-	Instructions  AgentInstructions    `json:"instructions"`
-	DecisionModel *DecisionModelConfig `json:"decision_model,omitempty"`
-	MaxTokens     int                  `json:"max_tokens"`
-	Version       int                  `json:"version"`
-	IsDraft       bool                 `json:"is_draft"`
-	CreatedAt     time.Time            `json:"created_at"`
-	UpdatedAt     time.Time            `json:"updated_at"`
+// VirtualModel routes requests to its models in list order (fall-through)
+// and reports an error only when every model failed.
+type VirtualModel struct {
+	ID          string              `json:"id"`
+	Name        string              `json:"name"`
+	Description string              `json:"description"`
+	Models      []VirtualModelEntry `json:"models"`
+	// Instruction is prepended to requests as the first user message.
+	Instruction string `json:"instruction"`
+	// Capabilities is the intersection of all models' capabilities.
+	Capabilities []string `json:"capabilities,omitempty"`
+	// ContextLength / MaxCompletionTokens are the minima across all models.
+	ContextLength       int64     `json:"context_length,omitempty"`
+	MaxCompletionTokens int64     `json:"max_completion_tokens,omitempty"`
+	Version             int       `json:"version"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
-// AgentModel represents a model that an agent can use.
-type AgentModel struct {
-	ModelID      ModelId `json:"model_id"`
-	Priority     int     `json:"priority"`
-	Description  string  `json:"description"`
-	Instructions string  `json:"instructions"`
-}
-
-// AgentInstructions defines how instructions are injected into requests.
-type AgentInstructions struct {
-	Content   string            `json:"content"`
-	Injection InjectionStrategy `json:"injection"`
-}
-
-// InjectionStrategy defines where instructions are injected in the message list.
-type InjectionStrategy string
-
-const (
-	InjectionBeginning InjectionStrategy = "beginning"
-	InjectionEnd       InjectionStrategy = "end"
-)
-
-// DecisionModelConfig configures the optional decision model for intelligent routing.
-type DecisionModelConfig struct {
-	ModelID      ModelId `json:"model_id"`
-	SystemPrompt string  `json:"system_prompt"`
+// VirtualModelEntry is one fall-through step. List order is the priority.
+type VirtualModelEntry struct {
+	ModelID ModelId `json:"model_id"`
 }
 
 // ─────────────────────────────────────────────

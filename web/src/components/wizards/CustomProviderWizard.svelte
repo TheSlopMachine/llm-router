@@ -56,7 +56,7 @@
   async function loadConfigSchema(): Promise<void> {
     configNodes = null
     useRawConfig = false
-    if (!typeKey || typeKey === 'agents') return
+    if (!typeKey || typeKey === 'virtual') return
     try {
       const schema = await api.providers.configSchemaForType(typeKey)
       if (schema.nodes) {
@@ -172,7 +172,7 @@
   <input id="provider-name" type="text" bind:value={name} placeholder={t('My LLM Provider')} oninput={syncButtons} use:squircle={12} />
 </div>
 
-{#if !isEdit && typeKey !== 'custom' && typeKey !== 'agents'}
+{#if !isEdit && typeKey !== 'custom' && typeKey !== 'virtual'}
   <div class="form-group">
     <label for="provider-qualifier">{t('Qualifier')} ({t('optional')})</label>
     <input id="provider-qualifier" type="text" bind:value={qualifier} placeholder="eu" use:squircle={12} />

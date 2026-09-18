@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 )
 
 // ─────────────────────────────────────────────
@@ -17,12 +18,12 @@ import (
 // @Tags         agents
 // @Security     SessionAuth
 // @Produce      json
-// @Success      200  {array}   models.Agent
+// @Success      200  {array}   models.VirtualModel
 // @Failure      401  {object}  models.ErrorResponse
 // @Failure      500  {object}  models.ErrorResponse
 // @Router       /api/llm-router/dashboard/agents [get]
 func (h *Handler) apiAgentsList(w http.ResponseWriter, r *http.Request) {
-	agents, err := h.agentSvc.List()
+	agents, err := h.virtualSvc.List()
 	if err != nil {
 		h.logger.Error("failed to list agents", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, "failed to list agents")
@@ -38,26 +39,26 @@ func (h *Handler) apiAgentsList(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Accept       json
 // @Produce      json
-// @Param        agent  body      models.Agent  true  "Agent configuration"
-// @Success      201    {object}  models.Agent
+// @Param        agent  body      models.VirtualModel  true  "Agent configuration"
+// @Success      201    {object}  models.VirtualModel
 // @Failure      400    {object}  models.ErrorResponse
 // @Failure      401    {object}  models.ErrorResponse
 // @Failure      500    {object}  models.ErrorResponse
 // @Router       /api/llm-router/dashboard/agents [post]
 func (h *Handler) apiAgentsCreate(w http.ResponseWriter, r *http.Request) {
-	var agent models.Agent
-	if err := json.NewDecoder(r.Body).Decode(&agent); err != nil {
+	var vm models.VirtualModel
+	if err := json.NewDecoder(r.Body).Decode(&vm); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if err := h.agentSvc.Create(&agent); err != nil {
-		h.logger.Error("failed to create agent", "error", err)
+	if err := h.virtualSvc.Create(&vm); err != nil {
+		h.logger.Error("failed to create virtual model", "error", err)
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	h.json(w, http.StatusCreated, agent)
+	h.json(w, http.StatusCreated, vm)
 }
 
 // apiAgentsGet godoc
@@ -67,7 +68,7 @@ func (h *Handler) apiAgentsCreate(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Produce      json
 // @Param        id   path      string  true  "Agent ID"
-// @Success      200  {object}  models.Agent
+// @Success      200  {object}  models.VirtualModel
 // @Failure      401  {object}  models.ErrorResponse
 // @Failure      404  {object}  models.ErrorResponse
 // @Failure      500  {object}  models.ErrorResponse
@@ -75,11 +76,11 @@ func (h *Handler) apiAgentsCreate(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) apiAgentsGet(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
-		h.jsonErr(w, http.StatusBadRequest, "agent ID is required")
+		h.jsonErr(w, http.StatusBadRequest, "virtual model ID is required")
 		return
 	}
 
-	agent, err := h.agentSvc.Get(id)
+	agent, err := h.virtualSvc.Get(id)
 	if err != nil {
 		h.logger.Error("failed to get agent", "id", id, "error", err)
 		h.jsonErr(w, http.StatusNotFound, "agent not found")
@@ -97,8 +98,8 @@ func (h *Handler) apiAgentsGet(w http.ResponseWriter, r *http.Request) {
 // @Accept       json
 // @Produce      json
 // @Param        id     path      string        true  "Agent ID"
-// @Param        agent  body      models.Agent  true  "Agent configuration"
-// @Success      200    {object}  models.Agent
+// @Param        agent  body      models.VirtualModel  true  "Agent configuration"
+// @Success      200    {object}  models.VirtualModel
 // @Failure      400    {object}  models.ErrorResponse
 // @Failure      401    {object}  models.ErrorResponse
 // @Failure      404    {object}  models.ErrorResponse
@@ -107,27 +108,27 @@ func (h *Handler) apiAgentsGet(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) apiAgentsUpdate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
-		h.jsonErr(w, http.StatusBadRequest, "agent ID is required")
+		h.jsonErr(w, http.StatusBadRequest, "virtual model ID is required")
 		return
 	}
 
-	var agent models.Agent
-	if err := json.NewDecoder(r.Body).Decode(&agent); err != nil {
+	var vm models.VirtualModel
+	if err := json.NewDecoder(r.Body).Decode(&vm); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if err := h.agentSvc.Update(id, &agent); err != nil {
-		h.logger.Error("failed to update agent", "id", id, "error", err)
+	if err := h.virtualSvc.Update(id, &vm); err != nil {
+		h.logger.Error("failed to update virtual model", "id", id, "error", err)
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	// Fetch updated agent
-	updated, err := h.agentSvc.Get(id)
+	updated, err := h.virtualSvc.Get(id)
 	if err != nil {
-		h.logger.Error("failed to get updated agent", "id", id, "error", err)
-		h.jsonErr(w, http.StatusInternalServerError, "failed to get updated agent")
+		h.logger.Error("failed to get updated virtual model", "id", id, "error", err)
+		h.jsonErr(w, http.StatusInternalServerError, "failed to get updated virtual model")
 		return
 	}
 
@@ -149,11 +150,11 @@ func (h *Handler) apiAgentsUpdate(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) apiAgentsDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
-		h.jsonErr(w, http.StatusBadRequest, "agent ID is required")
+		h.jsonErr(w, http.StatusBadRequest, "virtual model ID is required")
 		return
 	}
 
-	if err := h.agentSvc.Delete(id); err != nil {
+	if err := h.virtualSvc.Delete(id); err != nil {
 		h.logger.Error("failed to delete agent", "id", id, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, "failed to delete agent")
 		return
@@ -180,13 +181,18 @@ func (h *Handler) apiAgentsAvailableModels(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Virtual models are not valid fall-through targets (circular dependency).
 	allModels := make([]models.ModelInfo, 0, len(items))
 	for _, item := range items {
+		if item.ProviderType == provider.TypeVirtual {
+			continue
+		}
 		allModels = append(allModels, models.ModelInfo{
 			Name:          item.FullModelID,
 			DisplayName:   item.ProviderName + " - " + item.DisplayName,
 			ContextWindow: item.ContextWindow,
 			MaxTokens:     item.MaxTokens,
+			Capabilities:  item.Capabilities,
 		})
 	}
 

@@ -18,7 +18,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
-	"github.com/TheSlopMachine/llm-router/internal/services/agent"
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/geoip"
@@ -31,7 +30,8 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 	"github.com/TheSlopMachine/llm-router/internal/services/router"
 	"github.com/TheSlopMachine/llm-router/internal/services/token"
-	"github.com/TheSlopMachine/llm-router/providers/agents"
+	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
+	virtualadapter "github.com/TheSlopMachine/llm-router/providers/virtual"
 )
 
 // Server is the fully-wired llm-router application with two listeners.
@@ -71,8 +71,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	providerSvc.SetLogger(logger)
 	providerSvc.SetLuaService(luaSvc)
 	providerSvc.RegisterGoAdapter(&generic.Adapter{})
-	agentsAdapter := &agents.Adapter{}
-	providerSvc.RegisterGoAdapter(agentsAdapter)
+	virtualAdapter := &virtualadapter.Adapter{}
+	providerSvc.RegisterGoAdapter(virtualAdapter)
 	if err := providerSvc.EnsureSeeded(); err != nil {
 		return nil, fmt.Errorf("seed providers: %w", err)
 	}
@@ -81,7 +81,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	tokenSvc := token.NewWithTestingKey(database, cfg.TestingKey)
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
-	agentSvc := agent.New(database, providerSvc, modelInfoSvc)
+	virtualSvc := virtual.New(database, providerSvc, modelInfoSvc)
 	configSvc := configsvc.New(database)
 	repoSvc := pluginrepo.New(database)
 	if err := repoSvc.PruneLegacyRepos(); err != nil {
@@ -125,18 +125,14 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	// so first clicks never wait on upstream discovery.
 	go modelInfoSvc.WarmMissing(context.Background())
 
-	if n, err := agentSvc.MigrateIDs(credSvc, tokenSvc); err != nil {
-		logger.Warn("agent ID migration failed", "err", err)
-	} else if n > 0 {
-		logger.Info("agent ID migration completed", "count", n)
-	}
-
-	// Virtual agents resolve from the model name and need no credentials;
+	// Virtual models resolve from the model name and need no credentials;
 	// rows left over from the credential-bound era are dead weight.
-	if n, err := credSvc.DeleteByProvider("agents"); err != nil {
-		logger.Warn("agents credential cleanup failed", "err", err)
-	} else if n > 0 {
-		logger.Info("agents credential cleanup completed", "count", n)
+	for _, key := range []string{"agents", provider.TypeVirtual} {
+		if n, err := credSvc.DeleteByProvider(key); err != nil {
+			logger.Warn("virtual credential cleanup failed", "provider", key, "err", err)
+		} else if n > 0 {
+			logger.Info("virtual credential cleanup completed", "provider", key, "count", n)
+		}
 	}
 
 	if n, err := providerSvc.CleanupOrphanedCredentials(); err != nil {
@@ -165,12 +161,12 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		}
 	})
 
-	agentsAdapter.SetRouterService(routerSvc)
-	agentsAdapter.SetAgentService(agentSvc)
-	agentsAdapter.SetLogger(logger)
+	virtualAdapter.SetRouterService(routerSvc)
+	virtualAdapter.SetVirtualService(virtualSvc)
+	virtualAdapter.SetLogger(logger)
 
 	dashMux := http.NewServeMux()
-	dash, err := dashboard.New(adminSvc, providerSvc, credSvc, tokenSvc, modelInfoSvc, metricsSvc, agentSvc, routerSvc, configSvc, luaSvc, repoSvc, proxySvc, geoSvc, logger)
+	dash, err := dashboard.New(adminSvc, providerSvc, credSvc, tokenSvc, modelInfoSvc, metricsSvc, virtualSvc, routerSvc, configSvc, luaSvc, repoSvc, proxySvc, geoSvc, logger)
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard handler: %w", err)
 	}
@@ -181,7 +177,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	dashHandler := bootstrapMiddleware(database)(requestLogger(logger, dashMux))
 
 	apiMux := http.NewServeMux()
-	apiV1 := v1.New(tokenSvc, routerSvc, metricsSvc, providerSvc, modelInfoSvc, agentSvc, logger)
+	apiV1 := v1.New(tokenSvc, routerSvc, metricsSvc, providerSvc, modelInfoSvc, virtualSvc, logger)
 	apiV1.Register(apiMux)
 
 	apiHandler := requestLogger(logger, apiMux)

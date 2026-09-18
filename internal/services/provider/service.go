@@ -2,7 +2,7 @@
 //
 // Every provider is an explicit ProviderInstance database row, regardless of
 // whether its TypeKey is served by a Lua plugin or by a built-in Go adapter
-// ("custom", "agents").
+// ("custom", "virtual").
 package provider
 
 import (
@@ -25,7 +25,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// GoAdapter is implemented by built-in Go backends ("custom", "agents").
+// GoAdapter is implemented by built-in Go backends ("custom", "virtual").
 // Lua plugin types are served by luaplugin.Service instead.
 type GoAdapter interface {
 	TypeKey() string
@@ -67,8 +67,8 @@ type Embedder interface {
 
 // Built-in type keys served by Go code.
 const (
-	TypeCustom = "custom"
-	TypeAgents = "agents"
+	TypeCustom  = "custom"
+	TypeVirtual = "virtual"
 )
 
 // ErrNotRefreshable is returned by Go adapters that never refresh credentials.
@@ -366,14 +366,14 @@ func (s *Service) Delete(id string) error {
 // installs routable without manual provider setup. Missing icons on existing
 // rows are backfilled from the plugin; user-set icons are never overwritten.
 // Seeded rows are marked UI-readonly (set automatically by the core, never
-// from Lua or the dashboard); the agents row is additionally UI-hidden.
+// from Lua or the dashboard); the virtual-models row is additionally UI-hidden.
 func (s *Service) EnsureSeeded() error {
 	now := time.Now()
 	ensure := func(id, name, typeKey, icon string) error {
 		if _, err := s.providers.Get(id); err == nil {
 			return nil
 		}
-		hidden := typeKey == TypeAgents
+		hidden := typeKey == TypeVirtual
 		inst := &models.ProviderInstance{
 			ID: id, Name: name, TypeKey: typeKey,
 			Config: map[string]any{}, IconURL: icon,
@@ -386,11 +386,16 @@ func (s *Service) EnsureSeeded() error {
 		s.notifyChanged(id)
 		return nil
 	}
+	// The legacy "agents" singleton row is dead weight; virtual models live
+	// under the "virtual" row now.
+	if err := s.providers.DeleteIfExists("agents"); err != nil {
+		return fmt.Errorf("drop legacy agents provider row: %w", err)
+	}
 	// Backfill flags on rows that match the seed pattern (pre-flag installs).
 	if err := s.backfillSeedFlags(); err != nil {
 		return err
 	}
-	if err := ensure("agents", "Agents", TypeAgents, ""); err != nil {
+	if err := ensure(TypeVirtual, "Virtual models", TypeVirtual, ""); err != nil {
 		return err
 	}
 	if s.luaSvc == nil {
@@ -461,7 +466,7 @@ func (s *Service) backfillSeedFlags() error {
 	}
 	for _, inst := range rows {
 		wantReadonly := inst.ID == inst.TypeKey && inst.TypeKey != TypeCustom
-		wantHidden := inst.TypeKey == TypeAgents && inst.ID == TypeAgents
+		wantHidden := inst.TypeKey == TypeVirtual && inst.ID == TypeVirtual
 		if !wantReadonly && !wantHidden {
 			continue
 		}
@@ -578,7 +583,7 @@ func (s *Service) SupportsAuthFlow(typeKey string) bool {
 // type through the UI. The agents singleton is core-managed and excluded;
 // every other known type stays creatable (qualifier rows included).
 func IsCreatableTypeKey(typeKey string) bool {
-	return typeKey != TypeAgents
+	return typeKey != TypeVirtual
 }
 
 // ConfigSchema returns the config UI tree for a type key.
@@ -591,7 +596,7 @@ func (s *Service) ConfigSchema(typeKey string) ([]*models.UINode, error) {
 			{Type: "input", Name: "base_url", Label: "Base URL", Required: true, Placeholder: "https://api.example.com/v1"},
 		}, nil
 	}
-	if typeKey == TypeAgents {
+	if typeKey == TypeVirtual {
 		return nil, nil
 	}
 	if s.luaSvc == nil {
@@ -616,10 +621,10 @@ func (s *Service) CredentialSchema(typeKey string) ([]*models.UINode, error) {
 			{Type: "button", Text: "Save", FormAction: "submit"},
 		}, nil
 	}
-	if typeKey == TypeAgents {
+	if typeKey == TypeVirtual {
 		return []*models.UINode{
-			{Type: "text", Text: "Bind this credential to an agent."},
-			{Type: "input", Name: "agent_id", Label: "Agent ID", Required: true},
+			{Type: "text", Text: "Bind this credential to a virtual model."},
+			{Type: "input", Name: "agent_id", Label: "Virtual model ID", Required: true},
 			{Type: "button", Text: "Save", FormAction: "submit"},
 		}, nil
 	}

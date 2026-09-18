@@ -179,8 +179,8 @@
           <span class="display-name">{model.display_name}</span>
           <a
             class="provider-link"
-            href={model.provider_type === 'agents' ? '#/agents' : `#/providers/${model.provider_id}`}
-          >{model.provider_type === 'agents' ? t('Agents') : model.provider_name}<span class="icon">chevron_right</span></a>
+            href={model.provider_type === 'virtual' ? '#/virtual' : `#/providers/${model.provider_id}`}
+          >{model.provider_type === 'virtual' ? t('Virtual models') : model.provider_name}<span class="icon">chevron_right</span></a>
         </span>
         <span class="col-ctx ctx-text">
           {#if model.context_window}

@@ -74,6 +74,49 @@ export function squirclePath(width: number, height: number, radius: number): str
 
 const supportsPath = typeof CSS !== 'undefined' && CSS.supports('clip-path', "path('M 0 0 L 1 1 Z')")
 
+// Class-driven squircle for elements rendered in dozens of places where a
+// per-element action would be noise (chips). Attaches the action to every
+// current and future match; detaches when the node leaves the DOM.
+const AUTO_SELECTOR = '.chip'
+
+export function startAutoSquircle(root: ParentNode = document.body): () => void {
+  const attached = new WeakMap<HTMLElement, { destroy(): void }>()
+
+  function attach(el: HTMLElement): void {
+    if (!attached.has(el)) attached.set(el, squircle(el))
+  }
+  function scan(node: Node): void {
+    if (!(node instanceof HTMLElement)) return
+    if (node.matches(AUTO_SELECTOR)) attach(node)
+    node.querySelectorAll(AUTO_SELECTOR).forEach((el) => attach(el as HTMLElement))
+  }
+  function teardown(node: Node): void {
+    if (!(node instanceof HTMLElement)) return
+    const entry = attached.get(node)
+    if (entry) {
+      entry.destroy()
+      attached.delete(node)
+    }
+    node.querySelectorAll(AUTO_SELECTOR).forEach((el) => {
+      const e = attached.get(el as HTMLElement)
+      if (e) {
+        e.destroy()
+        attached.delete(el as HTMLElement)
+      }
+    })
+  }
+
+  scan(root as unknown as Node)
+  const mo = new MutationObserver((muts) => {
+    for (const m of muts) {
+      m.addedNodes.forEach(scan)
+      m.removedNodes.forEach(teardown)
+    }
+  })
+  mo.observe(root, { childList: true, subtree: true })
+  return () => mo.disconnect()
+}
+
 // CSS border-radius is the source of truth; the action argument is a fallback.
 // The inline override (see below) is temporarily cleared to read the CSS value.
 // Percent radii (e.g. 50%) resolve against the smaller side.
@@ -119,6 +162,16 @@ export function squircle(node: HTMLElement, radius = 10): { update(r: number): v
     node.style.clipPath = `path('${squirclePath(w, h, resolveRadius(node, w, h, fallback))}')`
   }
 
+  // A component setting style={...} (e.g. Button's tint vars) rewrites the
+  // style attribute and wipes our inline clip-path/border-radius. Re-assert
+  // them when that happens; our own writes leave clip-path in place and
+  // setting an unchanged value does not mutate, so this terminates.
+  const mo = new MutationObserver(() => {
+    if (supportsPath && node.style.clipPath === '') apply()
+    if (supportsPath && node.style.borderRadius !== '0') node.style.borderRadius = '0'
+  })
+  mo.observe(node, { attributes: true, attributeFilter: ['style'] })
+
   apply()
   // border-box: padding-only changes grow the widget while the content box
   // (the default observed box) stays put, and the clip must follow the widget.
@@ -137,6 +190,7 @@ export function squircle(node: HTMLElement, radius = 10): { update(r: number): v
       apply()
     },
     destroy() {
+      mo.disconnect()
       ro.disconnect()
       liveApplies.delete(apply)
       node.style.borderRadius = ''

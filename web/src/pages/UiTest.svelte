@@ -12,14 +12,13 @@
   import EmptyState from '../components/EmptyState.svelte'
   import ProviderCard from '../components/ProviderCard.svelte'
   import PluginCard from '../components/plugins/PluginCard.svelte'
-  import ModelCard from '../components/wizards/agents/ModelCard.svelte'
   import { modal } from '../lib/modal.svelte'
   import { toast } from '../lib/toast.svelte'
   import { theme } from '../lib/theme.svelte'
   import { squircle, setSquircleExponent } from '../lib/squircle'
   import { onMount } from 'svelte'
   import { tintSoft } from '../lib/tint'
-  import type { UINode, Provider, ProviderStats, AgentModel, AvailableModel } from '../lib/types'
+  import type { UINode, Provider, ProviderStats } from '../lib/types'
 
   let textVal = $state('')
   let secretVal = $state('')
@@ -36,8 +35,8 @@
 
   // Font preview: chosen family applies app-wide while the polygon is open.
   $effect(() => {
-    document.body.classList.add('uit-chrysanthemum')
-    return () => document.body.classList.remove('uit-chrysanthemum')
+    document.body.classList.add('uit-fontlab')
+    return () => document.body.classList.remove('uit-fontlab')
   })
 
   let squircleN = $state('2.5')
@@ -45,7 +44,7 @@
   interface FontFile { url: string; weight: string; style: string }
   interface FontFamily { family: string; files: FontFile[] }
   let fontFamilies = $state<FontFamily[]>([])
-  let fontPick = $state('Chrysanthemum')
+  let fontPick = $state('Raleway')
   let fontStatus = $state('')
 
   onMount(async () => {
@@ -53,6 +52,7 @@
       const res = await fetch('/fonts/preview/manifest.json')
       if (!res.ok) throw new Error(`font manifest: HTTP ${res.status}`)
       fontFamilies = await res.json()
+      await applyFont(fontPick)
     } catch (e) {
       fontStatus = 'Font manifest failed to load'
       console.error(e)
@@ -168,11 +168,6 @@
   }
   const sampleStats: ProviderStats = { model_count: 3, credential_count: 2 }
 
-  let agentModel = $state<AgentModel>({ model_id: 'demo/model-a', priority: 1, description: 'Demo', instructions: '' })
-  const availableModels: AvailableModel[] = [
-    { full_model_id: 'demo/model-a', provider_id: 'demo', provider_name: 'Demo', provider_type: 'demo', model_name: 'model-a', display_name: 'Model A' },
-    { full_model_id: 'demo/model-b', provider_id: 'demo', provider_name: 'Demo', provider_type: 'demo', model_name: 'model-b', display_name: 'Model B' },
-  ]
 
   function askConfirm(): void {
     void modal.confirm({ title: 'Demo confirm', message: 'Confirm this demo action?', confirmRole: 'destructive' }).then((ok) => {
@@ -240,7 +235,7 @@
         {/each}
       </select>
     </label>
-    <button class="btn btn-secondary btn-sm" onclick={resetMetrics} use:squircle={8}>Reset</button>
+    <Button text="Reset" size="sm" onclick={resetMetrics} />
   </div>
   {#if fontStatus}<p class="hint">{fontStatus}</p>{/if}
 </SectionCard>
@@ -327,24 +322,24 @@
 
 <SectionCard title="Chips (badges merged here)">
   <div class="row">
-    <span class="chip chip-sm chip-blue">sm blue</span>
-    <span class="chip chip-sm chip-green">sm green</span>
-    <span class="chip chip-sm chip-red">sm red</span>
+    <span class="chip chip-sm chip-blue">Sm blue</span>
+    <span class="chip chip-sm chip-green">Sm green</span>
+    <span class="chip chip-sm chip-red">Sm red</span>
   </div>
   <div class="row">
-    <span class="chip chip-blue">blue</span>
-    <span class="chip chip-green">green</span>
-    <span class="chip chip-yellow">yellow</span>
-    <span class="chip chip-red">red</span>
-    <span class="chip chip-purple">purple</span>
-    <span class="chip chip-teal">teal</span>
-    <span class="chip chip-orange">orange</span>
-    <span class="chip chip-neutral">neutral</span>
+    <span class="chip chip-blue">Blue</span>
+    <span class="chip chip-green">Green</span>
+    <span class="chip chip-yellow">Yellow</span>
+    <span class="chip chip-red">Red</span>
+    <span class="chip chip-purple">Purple</span>
+    <span class="chip chip-teal">Teal</span>
+    <span class="chip chip-orange">Orange</span>
+    <span class="chip chip-neutral">Neutral</span>
   </div>
   <div class="row">
-    <span class="chip chip-lg chip-blue">lg blue</span>
-    <span class="chip chip-lg chip-green">lg green</span>
-    <span class="chip chip-lg chip-red">lg red</span>
+    <span class="chip chip-lg chip-blue">Lg blue</span>
+    <span class="chip chip-lg chip-green">Lg green</span>
+    <span class="chip chip-lg chip-red">Lg red</span>
     <span class="mono">mono text</span>
   </div>
   <div class="row">
@@ -357,20 +352,20 @@
 <SectionCard title="Overlays">
   <div class="row">
     <div class="confirm-col">
-      <button class="btn btn-secondary" onclick={askConfirm} use:squircle={12}>Confirm modal</button>
-      <button class="btn btn-secondary" onclick={askTitleOnly} use:squircle={12}>Title only</button>
-      <button class="btn btn-secondary" onclick={askNoTitle} use:squircle={12}>No title</button>
+      <Button text="Confirm modal" onclick={askConfirm} />
+      <Button text="Title only" onclick={askTitleOnly} />
+      <Button text="No title" onclick={askNoTitle} />
     </div>
-    <button class="btn btn-secondary" onclick={openContentModal} use:squircle={12}>Content modal</button>
-    <button class="btn btn-secondary" onclick={() => toast.success('Demo success toast')} use:squircle={12}>Success toast</button>
-    <button class="btn btn-secondary" onclick={() => toast.error('Demo error toast')} use:squircle={12}>Error toast</button>
+    <Button text="Content modal" onclick={openContentModal} />
+    <Button text="Success toast" onclick={() => toast.success('Demo success toast')} />
+    <Button text="Error toast" onclick={() => toast.error('Demo error toast')} />
   </div>
   <div class="form-group">
     <label for="uit-toast-text">Toast text</label>
     <textarea id="uit-toast-text" rows={3} bind:value={toastText} use:squircle={12}></textarea>
   </div>
   <div class="row">
-    <button class="btn btn-secondary" onclick={() => toast.success(toastText || '(empty)')} use:squircle={12}>Show toast</button>
+    <Button text="Show toast" onclick={() => toast.success(toastText || '(empty)')} />
   </div>
   <p class="hint">Confirm result: <span class="mono">{confirmResult}</span></p>
 </SectionCard>
@@ -418,16 +413,6 @@
       onDetails={() => toast.success('Details clicked')}
     />
   </div>
-  <ModelCard
-    model={agentModel}
-    index={0}
-    total={1}
-    {availableModels}
-    onChange={(next) => { agentModel = next }}
-    onMoveUp={() => {}}
-    onMoveDown={() => {}}
-    onDelete={() => toast.error('Delete clicked')}
-  />
   <div class="card-pad">
     <EmptyState icon="search_off" message="Nothing here" hint="Demo empty state." buttonText="Do thing" buttonIcon="add" onButtonClick={() => toast.success('Empty action clicked')} />
   </div>
@@ -450,8 +435,8 @@
 
 <style>
   /* Composer owns spacing: widgets render marginless, the stack gaps them. */
-  :global(body.uit-chrysanthemum) {
-    font-family: var(--uit-lab-font, 'Chrysanthemum'), 'Inter', system-ui, -apple-system, sans-serif;
+  :global(body.uit-fontlab) {
+    font-family: var(--uit-lab-font, 'Raleway'), 'Inter', system-ui, -apple-system, sans-serif;
   }
   .uit-stack {
     display: flex;

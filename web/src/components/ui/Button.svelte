@@ -23,6 +23,7 @@
     style = 'none',
     size = 'base',
     disabled = false,
+    danger = false,
     type = 'button',
     ariaLabel,
     onclick,
@@ -34,6 +35,8 @@
     style?: 'prominent' | 'none' | 'text' | 'icon'
     size?: 'sm' | 'base' | 'lg'
     disabled?: boolean
+    /** red glyph + reddish hover fill, icon style only */
+    danger?: boolean
     type?: 'button' | 'submit'
     ariaLabel?: string
     onclick?: (e: MouseEvent) => void
@@ -46,7 +49,7 @@
       : style === 'text'
         ? 'btn-text'
         : style === 'icon'
-          ? 'btn-secondary btn-icon'
+          ? 'btn-icon'
           : 'btn-secondary'
   )
   let sizeClass = $derived(size === 'sm' ? 'btn-sm' : size === 'lg' ? 'btn-large' : '')
@@ -68,11 +71,15 @@
   })
 
   let radius = $derived(size === 'sm' ? 8 : 12)
+
+  // Sentence case by contract: first letter uppercase, the rest untouched.
+  let label = $derived(text ? text[0].toUpperCase() + text.slice(1) : text)
 </script>
 
-<button
+  <button
   class="btn {styleClass} {sizeClass}"
   class:btn-tinted={tintVars !== null}
+  class:icon-danger={danger && style === 'icon'}
   class:btn-iconed-left={iconSide === 'left'}
   class:btn-iconed-right={iconSide === 'right'}
   style={tintVars ?? ''}
@@ -96,7 +103,7 @@
         <span class="icon">{icon.name}</span>
       {/if}
     {/if}
-    {#if children}{@render children()}{:else}{text}{/if}
+    {#if children}{@render children()}{:else}{label}{/if}
     {#if icon && icon.placement === 'right'}
       {#if icon.src}
         <img class="btn-glyph" src={icon.src} alt="" />

@@ -21,12 +21,12 @@ import (
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
-	"github.com/TheSlopMachine/llm-router/internal/services/agent"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/router"
 	"github.com/TheSlopMachine/llm-router/internal/services/token"
+	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
 )
 
 // Handler holds the dependencies for the v1 API.
@@ -36,19 +36,19 @@ type Handler struct {
 	metrics      *metrics.Service
 	providerSvc  *provider.Service
 	modelInfoSvc *modelinfo.Service
-	agentSvc     *agent.Service
+	virtualSvc   *virtual.Service
 	logger       *slog.Logger
 }
 
 // New constructs a v1 Handler.
-func New(tokens *token.Service, routerSvc *router.Service, metricsSvc *metrics.Service, providerSvc *provider.Service, modelInfoSvc *modelinfo.Service, agentSvc *agent.Service, logger *slog.Logger) *Handler {
+func New(tokens *token.Service, routerSvc *router.Service, metricsSvc *metrics.Service, providerSvc *provider.Service, modelInfoSvc *modelinfo.Service, virtualSvc *virtual.Service, logger *slog.Logger) *Handler {
 	return &Handler{
 		tokens:       tokens,
 		router:       routerSvc,
 		metrics:      metricsSvc,
 		providerSvc:  providerSvc,
 		modelInfoSvc: modelInfoSvc,
-		agentSvc:     agentSvc,
+		virtualSvc:   virtualSvc,
 		logger:       logger,
 	}
 }
@@ -834,6 +834,7 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 		Architecture        *modelArchitecture     `json:"architecture,omitempty"`
 		Reasoning           *models.ModelReasoning `json:"reasoning,omitempty"`
 		SupportedParameters []string               `json:"supported_parameters,omitempty"`
+		Capabilities        []string               `json:"capabilities,omitempty"`
 	}
 	type modelList struct {
 		Object string       `json:"object"`
@@ -870,7 +871,7 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 	if h.providerSvc != nil && h.modelInfoSvc != nil {
 		if providers, err := h.providerSvc.List(); err == nil {
 			for _, p := range providers {
-				if p.TypeKey == "agents" || p.Disabled {
+				if p.TypeKey == provider.TypeVirtual || p.Disabled {
 					continue
 				}
 				infos, err := h.modelInfoSvc.MergedView(r.Context(), p.ID)
@@ -907,17 +908,19 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 			}
 		}
 	}
-	if h.agentSvc != nil {
-		if agents, err := h.agentSvc.List(); err == nil {
+	if h.virtualSvc != nil {
+		if agents, err := h.virtualSvc.List(); err == nil {
 			for _, a := range agents {
-				if a.IsDraft {
-					continue
-				}
 				entries = append(entries, modelEntry{
-					ID:      "agents/" + a.ID,
-					Object:  "model",
-					Created: a.CreatedAt.Unix(),
-					OwnedBy: "agents",
+					ID:                  provider.TypeVirtual + "/" + a.ID,
+					Object:              "model",
+					Created:             a.CreatedAt.Unix(),
+					OwnedBy:             provider.TypeVirtual,
+					Name:                a.Name,
+					Description:         a.Description,
+					ContextLength:       a.ContextLength,
+					MaxCompletionTokens: a.MaxCompletionTokens,
+					Capabilities:        a.Capabilities,
 				})
 			}
 		}
@@ -949,15 +952,18 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, t *model
 		h.writeError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("The model '%s' does not exist", modelID), nil)
 		return
 	}
-	// Check global existence via modelInfo or agents
+	// Check global existence via modelInfo or virtual models
 	exists := false
 	var ownedBy string
 	var created int64
 	var info *modelinfo.ModelView
-	if providerID == "agents" && h.agentSvc != nil {
-		if _, err := h.agentSvc.Get(modelName); err == nil {
+	var virtualAgent *models.VirtualModel
+	if providerID == provider.TypeVirtual && h.virtualSvc != nil {
+		if a, err := h.virtualSvc.Get(modelName); err == nil {
 			exists = true
-			ownedBy = "agents"
+			ownedBy = provider.TypeVirtual
+			created = a.CreatedAt.Unix()
+			virtualAgent = a
 		}
 	} else if h.providerSvc != nil && h.modelInfoSvc != nil {
 		if p, err := h.providerSvc.Get(providerID); err == nil {
@@ -983,6 +989,21 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, t *model
 		"object":   "model",
 		"created":  created,
 		"owned_by": ownedBy,
+	}
+	if virtualAgent != nil {
+		out["name"] = virtualAgent.Name
+		if virtualAgent.Description != "" {
+			out["description"] = virtualAgent.Description
+		}
+		if virtualAgent.ContextLength > 0 {
+			out["context_length"] = virtualAgent.ContextLength
+		}
+		if virtualAgent.MaxCompletionTokens > 0 {
+			out["max_completion_tokens"] = virtualAgent.MaxCompletionTokens
+		}
+		if len(virtualAgent.Capabilities) > 0 {
+			out["capabilities"] = virtualAgent.Capabilities
+		}
 	}
 	if info != nil {
 		if info.DisplayName != "" {

@@ -836,10 +836,10 @@
 {#snippet modelContext(m: ProviderModel)}
   <span class="ctx-text">
     {#if m.context_window}
-      <span title={t('Context window — up to') + ` ${m.context_window.toLocaleString()} ` + t('input tokens')}>{(m.context_window / 1000).toFixed(0)}k {t('context')}</span>
+      <span title={t('Context window — up to') + ` ${m.context_window.toLocaleString()} ` + t('input tokens')}>{(m.context_window / 1000).toFixed(0)}k ctx</span>
     {/if}
     {#if m.max_tokens}
-      <span title={t('Max output — up to') + ` ${m.max_tokens.toLocaleString()} ` + t('tokens per response')}>{(m.max_tokens / 1000).toFixed(0)}k {t('output')}</span>
+      <span title={t('Max output — up to') + ` ${m.max_tokens.toLocaleString()} ` + t('tokens per response')}>{(m.max_tokens / 1000).toFixed(0)}k out</span>
     {/if}
   </span>
 {/snippet}
@@ -1025,7 +1025,7 @@
   .col-priority {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 10px;
     color: var(--color-text-soft);
   }
   .col-label {

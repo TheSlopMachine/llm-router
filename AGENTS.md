@@ -67,8 +67,8 @@ DO:
 
 `llm-router` — single-binary OpenAI-compatible LLM routing gateway. Go backend + embedded Svelte SPA + embedded bbolt DB.
 
-- Routes `ModelId = provider/model` (e.g. `opencode-zen/gpt-5`, `agents/my-agent`) → backend + `CredentialPool`.
-- Provider backends are single-file Lua plugins (installed store records in `BucketPlugins`, sourced from plugin store repositories). Built-in Go backends exist only for `custom` (OpenAI-compatible passthrough) and `agents` (virtual provider).
+- Routes `ModelId = provider/model` (e.g. `opencode-zen/gpt-5`, `virtual/my-model`) → backend + `CredentialPool`.
+- Provider backends are single-file Lua plugins (installed store records in `BucketPlugins`, sourced from plugin store repositories). Built-in Go backends exist only for `custom` (OpenAI-compatible passthrough) and `virtual` (virtual models).
 
 ## 3. Structure
 
@@ -78,10 +78,10 @@ internal/server/         HTTP server: dashboard (8080), /v1 API (8081)
 internal/services/
   token/                 router-token issue/validate
   router/                ModelId → backend + Credential, retry engine
-  retry/                 single retry/fallthrough engine (router + agents)
+  retry/                 single retry/fallthrough engine (router + virtual models)
   provider/              ProviderInstance CRUD (all types, one path)
   credential/            credential pool, usage stats
-  agent/                 agents/* virtual provider
+  virtual/               virtual models (fall-through lists + instruction)
   luaplugin/             Lua execution core: manifest, sandbox, HTTP+SSRF, storage
   pluginrepo/            plugin store: single-URL index repos (repo URL or direct index.json, files resolved against the index directory); code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
   modelinfo/             model metadata cache (1h TTL)
@@ -94,7 +94,7 @@ internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/models
 internal/models/         shared wire types
 internal/config/         Config struct
 internal/adapters/generic/ built-in custom backend (Go)
-providers/agents/        built-in agents backend (Go)
+providers/virtual/       built-in virtual-models backend (Go)
 web/                     Svelte SPA (web/openapi.yaml + src/lib/generated/ auto-generated — do not hand-edit)
 scripts/                 separate Go module — build/dev helpers (never imported by main module)
 Makefile                 thin launcher for scripts/ — see §4
@@ -198,7 +198,7 @@ Rule: before finishing any `.svelte` change, re-check every `$effect` touched ag
 - Manifest: required tags `@plugin`, `@author`, `@version`, `@router_version`, one or more `@allow_host` (`*` marks the plugin unsafe). `internal/services/luaplugin/manifest.go` validates.
 - API: `llm_router.register(type_key, {complete, ...})`, `llm_router.create_http_client`, `llm_router.multipart`, `llm_router.storage`, `llm_router.uuid_v5(namespace, name)` (RFC 4122), `llm_router.random_hex(nbytes)`, `json.encode/decode`. Error contract `{type=, message=, retry_after=}`. Endpoint handlers beyond chat: `transcribe` (POST /v1/audio/transcriptions). **PLUGIN-CONTRACT.md is the binding contract for plugin authors — keep it in sync with every handler/API change.** UI trees for `config_schema`/`credential_schema`/`auth_initiate`/`auth_step` render through `DynamicForm.svelte`. Node kinds: leafs `text`, `input`, `select`, `checkbox`, `button`, `link`, `banner`, `secret`, `code`; containers `group`, `flow`, `grid`, `section`, `spacer`, `divider`. No raw HTML from plugins, ever — new widgets ship as first-class node kinds, not markup.
 - Store: provider plugins ship from plugin store repositories, not from the binary. Built-in repos live in `pluginrepo.BuiltinRepos` and seed on startup via `EnsureBuiltinRepos`; they cannot be removed (`ErrBuiltinRepoProtected`). To ship a plugin upgrade, bump `@version` in the store repository.
-- Built-in Go backends exist only for `custom` (`internal/adapters/generic/`) and `agents` (`providers/agents/`), both implementing `provider.GoAdapter`.
+- Built-in Go backends exist only for `custom` (`internal/adapters/generic/`) and `virtual` (`providers/virtual/`), both implementing `provider.GoAdapter`.
 - Verification: run `make go-check` only. For runtime checks, ask the human to run `make start`.
 
 ## 8. When Runtime Info Is Needed

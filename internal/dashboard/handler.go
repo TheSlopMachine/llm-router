@@ -12,7 +12,6 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
-	"github.com/TheSlopMachine/llm-router/internal/services/agent"
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/geoip"
@@ -24,6 +23,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 	"github.com/TheSlopMachine/llm-router/internal/services/router"
 	"github.com/TheSlopMachine/llm-router/internal/services/token"
+	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
 )
 
 //go:embed build/web
@@ -39,7 +39,7 @@ type Handler struct {
 	tokenSvc     *token.Service
 	modelInfoSvc *modelinfo.Service
 	metricsSvc   *metrics.Service
-	agentSvc     *agent.Service
+	virtualSvc   *virtual.Service
 	routerSvc    *router.Service
 	configSvc    *configsvc.Service
 	luaSvc       *luaplugin.Service
@@ -63,7 +63,7 @@ func New(
 	tokenSvc *token.Service,
 	modelInfoSvc *modelinfo.Service,
 	metricsSvc *metrics.Service,
-	agentSvc *agent.Service,
+	virtualSvc *virtual.Service,
 	routerSvc *router.Service,
 	configSvc *configsvc.Service,
 	luaSvc *luaplugin.Service,
@@ -79,7 +79,7 @@ func New(
 		tokenSvc:     tokenSvc,
 		modelInfoSvc: modelInfoSvc,
 		metricsSvc:   metricsSvc,
-		agentSvc:     agentSvc,
+		virtualSvc:   virtualSvc,
 		routerSvc:    routerSvc,
 		configSvc:    configSvc,
 		luaSvc:       luaSvc,

@@ -42,7 +42,7 @@ func toProviderView(p *models.ProviderInstance, svc *provider.Service) providerV
 // built-in Go backends always; Lua types only while their plugin is installed.
 // A nil Lua service means the subsystem is absent, not that nothing is installed.
 func (h *Handler) providerTypeKnown(typeKey string) bool {
-	if typeKey == provider.TypeCustom || typeKey == provider.TypeAgents {
+	if typeKey == provider.TypeCustom || typeKey == provider.TypeVirtual {
 		return true
 	}
 	if h.luaSvc == nil {

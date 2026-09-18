@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 )
 
 type availableModelView struct {
@@ -47,7 +48,7 @@ func (h *Handler) availableModels() ([]availableModelView, error) {
 
 	items := make([]availableModelView, 0)
 	for _, providerRecord := range providers {
-		if providerRecord.TypeKey == "agents" || providerRecord.Disabled {
+		if providerRecord.TypeKey == provider.TypeVirtual || providerRecord.Disabled {
 			continue
 		}
 
@@ -80,21 +81,18 @@ func (h *Handler) availableModels() ([]availableModelView, error) {
 		}
 	}
 
-	// Virtual agents need no credentials: list them directly, mirroring /v1/models.
-	if agents, err := h.agentSvc.List(); err == nil {
-		providerName := "Agents"
-		if p, err := h.providerSvc.Get("agents"); err == nil && p.Name != "" {
+	// Virtual models need no credentials: list them directly, mirroring /v1/models.
+	if agents, err := h.virtualSvc.List(); err == nil {
+		providerName := "Virtual models"
+		if p, err := h.providerSvc.Get(provider.TypeVirtual); err == nil && p.Name != "" {
 			providerName = p.Name
 		}
 		for _, a := range agents {
-			if a.IsDraft {
-				continue
-			}
 			items = append(items, availableModelView{
-				FullModelID:  "agents/" + a.ID,
-				ProviderID:   "agents",
+				FullModelID:  provider.TypeVirtual + "/" + a.ID,
+				ProviderID:   provider.TypeVirtual,
 				ProviderName: providerName,
-				ProviderType: "agents",
+				ProviderType: provider.TypeVirtual,
 				ModelName:    a.ID,
 				DisplayName:  a.Name,
 			})

@@ -156,37 +156,25 @@ export interface AvailableModel {
   display_name: string
   context_window?: number
   max_tokens?: number
+  capabilities?: string[]
 }
 
-export interface Agent {
+export interface VirtualModel {
   id: string
   name: string
   description: string
-  models: AgentModel[]
-  instructions: AgentInstructions
-  decision_model?: DecisionModelConfig
-  max_tokens: number
+  models: VirtualModelEntry[]
+  instruction: string
+  capabilities?: string[]
+  context_length?: number
+  max_completion_tokens?: number
   version: number
-  is_draft: boolean
   created_at: string
   updated_at: string
 }
 
-export interface AgentModel {
+export interface VirtualModelEntry {
   model_id: string
-  priority: number
-  description: string
-  instructions: string
-}
-
-export interface AgentInstructions {
-  content: string
-  injection: 'beginning' | 'end'
-}
-
-export interface DecisionModelConfig {
-  model_id: string
-  system_prompt: string
 }
 
 export type AuthType = 'api_key' | 'oauth2' | 'custom'

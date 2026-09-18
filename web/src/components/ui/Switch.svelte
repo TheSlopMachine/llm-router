@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { squircle } from '../../lib/squircle'
+
   let {
     checked = $bindable(false),
     label,
@@ -36,8 +38,9 @@
       class:on={checked}
       {disabled}
       onclick={toggle}
+      use:squircle
     >
-      <span class="switch-thumb"></span>
+      <span class="switch-thumb" use:squircle></span>
     </button>
   </label>
 {:else}
@@ -47,12 +50,13 @@
     role="switch"
     aria-checked={checked}
     aria-label={ariaLabel}
-    class="switch"
-    class:on={checked}
-    {disabled}
-    onclick={toggle}
-  >
-    <span class="switch-thumb"></span>
+      class="switch"
+      class:on={checked}
+      {disabled}
+      onclick={toggle}
+      use:squircle
+    >
+    <span class="switch-thumb" use:squircle></span>
   </button>
 {/if}
 
@@ -99,7 +103,8 @@
     height: 16px;
     border-radius: 50%;
     background: #fff;
-    box-shadow: var(--shadow-xs);
+    /* drop-shadow follows the squircle clip; box-shadow would be clipped away */
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
     transition: transform 0.15s;
   }
 

@@ -1,8 +1,10 @@
 <script lang="ts">
-  let { icon, message, hint, buttonText, buttonIcon, onButtonClick } = $props<{
+  import Button from './ui/Button.svelte'
+
+  let { icon, message, hint = '', buttonText, buttonIcon, onButtonClick } = $props<{
     icon: string
     message: string
-    hint: string
+    hint?: string
     buttonText: string
     buttonIcon: string
     onButtonClick: () => void
@@ -12,11 +14,8 @@
 <div class="empty">
   <span class="icon empty-icon">{icon}</span>
   <p>{message}</p>
-  <p class="empty-hint">{hint}</p>
-  <button class="btn btn-primary" onclick={onButtonClick}>
-    <span class="icon">{buttonIcon}</span>
-    {buttonText}
-  </button>
+  {#if hint}<p class="empty-hint">{hint}</p>{/if}
+  <Button text={buttonText} style="prominent" icon={{ name: buttonIcon }} onclick={onButtonClick} />
 </div>
 
 <style>
