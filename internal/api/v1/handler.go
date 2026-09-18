@@ -58,6 +58,10 @@ func New(tokens *token.Service, routerSvc *router.Service, metricsSvc *metrics.S
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/chat/completions", h.auth(h.chatCompletions, false))
 	mux.HandleFunc("POST /v1/audio/transcriptions", h.auth(h.audioTranscriptions, false))
+	mux.HandleFunc("POST /v1/audio/speech", h.auth(h.audioSpeech, false))
+	mux.HandleFunc("POST /v1/images/generations", h.auth(h.imageGenerations, false))
+	mux.HandleFunc("POST /v1/embeddings", h.auth(h.embeddings, false))
+	mux.HandleFunc("POST /v1/messages", h.auth(h.anthropicMessages, false))
 	mux.HandleFunc("GET /v1/models", h.auth(h.listModels, true))
 	mux.HandleFunc("HEAD /v1/models", h.auth(h.listModels, true))
 	mux.HandleFunc("OPTIONS /v1/models", h.auth(h.listModels, true))
@@ -332,6 +336,422 @@ func (h *Handler) writeTranscriptionResponse(w http.ResponseWriter, format strin
 			_, _ = io.WriteString(w, resp.VTT())
 		}
 	}
+}
+
+// audioSpeech handles POST /v1/audio/speech
+// @Summary      Create speech
+// @Description  Generates audio from the input text. JSON body: model (required),
+// @Description  input (required), voice, response_format (mp3|opus|aac|flac|wav|pcm),
+// @Description  speed, instructions. The response body is raw audio bytes.
+// @Tags         OpenAI API
+// @Accept       json
+// @Produce      audio/mpeg
+// @Success      200 "Audio stream"
+// @Failure      400 {object} models.OpenAIError "Invalid request"
+// @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
+// @Router       /v1/audio/speech [post]
+// @Security     BearerAuth
+func (h *Handler) audioSpeech(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+	start := time.Now()
+	var req models.SpeechRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("malformed request body: %s", err), nil)
+		return
+	}
+	if req.Model == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", strPtr("model"))
+		return
+	}
+	if strings.TrimSpace(req.Input) == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'input'", strPtr("input"))
+		return
+	}
+	switch req.ResponseFormat {
+	case "", "mp3", "opus", "aac", "flac", "wav", "pcm":
+	default:
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error",
+			fmt.Sprintf("invalid response_format %q: expected mp3, opus, aac, flac, wav or pcm", req.ResponseFormat), strPtr("response_format"))
+		return
+	}
+	if req.Speed != nil && (*req.Speed < 0.25 || *req.Speed > 4.0) {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "speed must be between 0.25 and 4.0", strPtr("speed"))
+		return
+	}
+
+	if t != nil {
+		providerID, _, _ := req.Model.Parse()
+		if providerID != "" && !t.Rules.AllowsProvider(providerID) {
+			h.writeError(w, http.StatusForbidden, "provider_not_allowed",
+				fmt.Sprintf("provider %q is not allowed by your token's rules", providerID), strPtr("model"))
+			return
+		}
+		if !t.Rules.Allows(req.Model) {
+			h.writeError(w, http.StatusForbidden, "model_not_allowed",
+				fmt.Sprintf("model %q is not allowed by your token's rules", req.Model), strPtr("model"))
+			return
+		}
+	}
+
+	resp, err := h.router.Speech(r.Context(), &req, t)
+	duration := time.Since(start)
+
+	providerType, _, _ := req.Model.Parse()
+	providerID, _ := h.router.GetProviderIDForModel(r.Context(), req.Model)
+	tokenID := ""
+	if t != nil {
+		tokenID = t.ID
+	}
+	event := models.MetricEvent{
+		Timestamp:    start,
+		ProviderID:   providerID,
+		ProviderType: providerType,
+		Model:        req.Model,
+		TokenID:      tokenID,
+		Duration:     duration,
+		StatusCode:   http.StatusOK,
+	}
+	if err != nil {
+		re := h.classifyError(err)
+		event.StatusCode = re.status
+		event.ErrorType = re.code
+	}
+	h.metrics.RecordRequest(event)
+
+	if err != nil {
+		h.handleRouterError(w, err)
+		return
+	}
+	format := resp.Format
+	if format == "" {
+		format = req.ResponseFormat
+	}
+	w.Header().Set("Content-Type", models.SpeechContentType(format))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(resp.Audio)
+}
+
+// imageGenerations handles POST /v1/images/generations
+// @Summary      Create image
+// @Description  Generates images from a prompt. JSON body: prompt (required), model,
+// @Description  n, size, quality, style, response_format (url|b64_json).
+// @Tags         OpenAI API
+// @Accept       json
+// @Produce      json
+// @Success      200 {object} models.ImageGenerationResponse "Successful response"
+// @Failure      400 {object} models.OpenAIError "Invalid request"
+// @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
+// @Router       /v1/images/generations [post]
+// @Security     BearerAuth
+func (h *Handler) imageGenerations(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+	start := time.Now()
+	var req models.ImageGenerationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("malformed request body: %s", err), nil)
+		return
+	}
+	if strings.TrimSpace(req.Prompt) == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'prompt'", strPtr("prompt"))
+		return
+	}
+	if req.N < 0 || req.N > 10 {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "n must be between 1 and 10", strPtr("n"))
+		return
+	}
+	switch req.ResponseFormat {
+	case "", "url", "b64_json":
+	default:
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error",
+			fmt.Sprintf("invalid response_format %q: expected url or b64_json", req.ResponseFormat), strPtr("response_format"))
+		return
+	}
+
+	if req.Model != "" && t != nil {
+		providerID, _, _ := req.Model.Parse()
+		if providerID != "" && !t.Rules.AllowsProvider(providerID) {
+			h.writeError(w, http.StatusForbidden, "provider_not_allowed",
+				fmt.Sprintf("provider %q is not allowed by your token's rules", providerID), strPtr("model"))
+			return
+		}
+		if !t.Rules.Allows(req.Model) {
+			h.writeError(w, http.StatusForbidden, "model_not_allowed",
+				fmt.Sprintf("model %q is not allowed by your token's rules", req.Model), strPtr("model"))
+			return
+		}
+	}
+
+	resp, err := h.router.GenerateImage(r.Context(), &req, t)
+	duration := time.Since(start)
+
+	providerType, _, _ := req.Model.Parse()
+	providerID, _ := h.router.GetProviderIDForModel(r.Context(), req.Model)
+	tokenID := ""
+	if t != nil {
+		tokenID = t.ID
+	}
+	event := models.MetricEvent{
+		Timestamp:    start,
+		ProviderID:   providerID,
+		ProviderType: providerType,
+		Model:        req.Model,
+		TokenID:      tokenID,
+		Duration:     duration,
+		StatusCode:   http.StatusOK,
+	}
+	if err != nil {
+		re := h.classifyError(err)
+		event.StatusCode = re.status
+		event.ErrorType = re.code
+	}
+	h.metrics.RecordRequest(event)
+
+	if err != nil {
+		h.handleRouterError(w, err)
+		return
+	}
+	if resp.Created == 0 {
+		resp.Created = time.Now().Unix()
+	}
+	h.writeJSON(w, http.StatusOK, resp)
+}
+
+// embeddings handles POST /v1/embeddings
+// @Summary      Create embeddings
+// @Description  Generates embedding vectors for the input. JSON body: model (required),
+// @Description  input (string or array of strings, required), encoding_format (float|base64),
+// @Description  dimensions.
+// @Tags         OpenAI API
+// @Accept       json
+// @Produce      json
+// @Success      200 {object} models.EmbeddingsResponse "Successful response"
+// @Failure      400 {object} models.OpenAIError "Invalid request"
+// @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
+// @Router       /v1/embeddings [post]
+// @Security     BearerAuth
+func (h *Handler) embeddings(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+	start := time.Now()
+	var req models.EmbeddingsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("malformed request body: %s", err), nil)
+		return
+	}
+	if req.Model == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", strPtr("model"))
+		return
+	}
+	if len(req.Input) == 0 {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'input'", strPtr("input"))
+		return
+	}
+	for _, s := range req.Input {
+		if strings.TrimSpace(s) == "" {
+			h.writeError(w, http.StatusBadRequest, "invalid_request_error", "input must not contain empty strings", strPtr("input"))
+			return
+		}
+	}
+	switch req.EncodingFormat {
+	case "", "float", "base64":
+	default:
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error",
+			fmt.Sprintf("invalid encoding_format %q: expected float or base64", req.EncodingFormat), strPtr("encoding_format"))
+		return
+	}
+
+	if t != nil {
+		providerID, _, _ := req.Model.Parse()
+		if providerID != "" && !t.Rules.AllowsProvider(providerID) {
+			h.writeError(w, http.StatusForbidden, "provider_not_allowed",
+				fmt.Sprintf("provider %q is not allowed by your token's rules", providerID), strPtr("model"))
+			return
+		}
+		if !t.Rules.Allows(req.Model) {
+			h.writeError(w, http.StatusForbidden, "model_not_allowed",
+				fmt.Sprintf("model %q is not allowed by your token's rules", req.Model), strPtr("model"))
+			return
+		}
+	}
+
+	resp, err := h.router.Embed(r.Context(), &req, t)
+	duration := time.Since(start)
+
+	providerType, _, _ := req.Model.Parse()
+	providerID, _ := h.router.GetProviderIDForModel(r.Context(), req.Model)
+	tokenID := ""
+	if t != nil {
+		tokenID = t.ID
+	}
+	event := models.MetricEvent{
+		Timestamp:    start,
+		ProviderID:   providerID,
+		ProviderType: providerType,
+		Model:        req.Model,
+		TokenID:      tokenID,
+		Duration:     duration,
+		StatusCode:   http.StatusOK,
+	}
+	if err != nil {
+		re := h.classifyError(err)
+		event.StatusCode = re.status
+		event.ErrorType = re.code
+	}
+	h.metrics.RecordRequest(event)
+
+	if err != nil {
+		h.handleRouterError(w, err)
+		return
+	}
+	if req.EncodingFormat == "base64" {
+		for i := range resp.Data {
+			resp.Data[i].B64Values = models.EmbeddingBase64(resp.Data[i].Values)
+			resp.Data[i].Values = nil
+		}
+	}
+	if resp.Model == "" {
+		resp.Model = req.Model.String()
+	}
+	h.writeJSON(w, http.StatusOK, struct {
+		Object string `json:"object"`
+		*models.EmbeddingsResponse
+	}{Object: "list", EmbeddingsResponse: resp})
+}
+
+// anthropicMessages handles POST /v1/messages
+// @Summary      Create message (Anthropic Messages API)
+// @Description  Anthropic-compatible endpoint. The request is converted to the OpenAI
+// @Description  chat shape, routed normally, and the answer converted back. Supports
+// @Description  streaming (SSE), tools, system prompts, images and tool results.
+// @Tags         Anthropic API
+// @Accept       json
+// @Produce      json
+// @Router       /v1/messages [post]
+// @Security     BearerAuth
+func (h *Handler) anthropicMessages(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+	start := time.Now()
+	var req anthropicRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("malformed request body: %s", err), nil)
+		return
+	}
+	if req.Model == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", strPtr("model"))
+		return
+	}
+	if req.MaxTokens <= 0 {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'max_tokens'", strPtr("max_tokens"))
+		return
+	}
+	if len(req.Messages) == 0 {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'messages'", strPtr("messages"))
+		return
+	}
+
+	chatReq, err := req.toOpenAI()
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
+		return
+	}
+
+	if t != nil {
+		providerID, _, _ := chatReq.Model.Parse()
+		if providerID != "" && !t.Rules.AllowsProvider(providerID) {
+			h.writeError(w, http.StatusForbidden, "provider_not_allowed",
+				fmt.Sprintf("provider %q is not allowed by your token's rules", providerID), strPtr("model"))
+			return
+		}
+		if !t.Rules.Allows(chatReq.Model) {
+			h.writeError(w, http.StatusForbidden, "model_not_allowed",
+				fmt.Sprintf("model %q is not allowed by your token's rules", chatReq.Model), strPtr("model"))
+			return
+		}
+	}
+
+	if req.Stream {
+		h.anthropicStream(w, r, chatReq, t, start)
+		return
+	}
+
+	resp, err := h.router.Complete(r.Context(), chatReq, t)
+	duration := time.Since(start)
+
+	providerType, _, _ := chatReq.Model.Parse()
+	providerID, _ := h.router.GetProviderIDForModel(r.Context(), chatReq.Model)
+	tokenID := ""
+	if t != nil {
+		tokenID = t.ID
+	}
+	event := models.MetricEvent{
+		Timestamp:    start,
+		ProviderID:   providerID,
+		ProviderType: providerType,
+		Model:        chatReq.Model,
+		TokenID:      tokenID,
+		Duration:     duration,
+		StatusCode:   http.StatusOK,
+	}
+	if err == nil && resp != nil && resp.Usage.TotalTokens > 0 {
+		event.TokensInput = int64(resp.Usage.PromptTokens)
+		event.TokensOutput = int64(resp.Usage.CompletionTokens)
+	}
+	if err != nil {
+		re := h.classifyError(err)
+		event.StatusCode = re.status
+		event.ErrorType = re.code
+	}
+	h.metrics.RecordRequest(event)
+
+	if err != nil {
+		h.handleRouterError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, anthropicFromOpenAI(resp, req.Model))
+}
+
+// anthropicStream serves POST /v1/messages with stream=true: the OpenAI
+// chunk stream is translated into Anthropic events.
+func (h *Handler) anthropicStream(w http.ResponseWriter, r *http.Request, chatReq *models.ChatCompletionRequest, t *models.RouterToken, start time.Time) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		h.writeError(w, http.StatusInternalServerError, "server_error", "streaming is not supported by this server", nil)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	tw := newAnthropicStreamWriter(w, flusher, chatReq.Model.String())
+	err := h.router.CompleteStream(r.Context(), chatReq, tw, t)
+	duration := time.Since(start)
+
+	providerType, _, _ := chatReq.Model.Parse()
+	providerID, _ := h.router.GetProviderIDForModel(r.Context(), chatReq.Model)
+	tokenID := ""
+	if t != nil {
+		tokenID = t.ID
+	}
+	event := models.MetricEvent{
+		Timestamp:    start,
+		ProviderID:   providerID,
+		ProviderType: providerType,
+		Model:        chatReq.Model,
+		TokenID:      tokenID,
+		Duration:     duration,
+		StatusCode:   http.StatusOK,
+	}
+
+	if err != nil {
+		event.StatusCode = http.StatusInternalServerError
+		re := h.classifyError(err)
+		event.ErrorType = re.code
+		h.logger.Error("anthropic stream error", "err", err)
+		_ = tw.emit("error", map[string]any{
+			"type":  "error",
+			"error": map[string]any{"type": "api_error", "message": err.Error()},
+		})
+	}
+	h.metrics.RecordRequest(event)
 }
 
 // handleStreamWithMetrics wraps streaming with metrics collection.

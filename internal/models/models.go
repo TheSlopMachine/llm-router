@@ -2,8 +2,11 @@
 package models
 
 import (
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -12,7 +15,8 @@ import (
 // via the @router_version manifest tag.
 //
 // 0.0.5 adds the transcribe handler and llm_router.multipart.
-const CurrentVersion = "0.0.5"
+// 0.0.6 adds the speech and generate_image handlers.
+const CurrentVersion = "0.0.6"
 
 // ─────────────────────────────────────────────
 // ModelId
@@ -433,6 +437,9 @@ type ModelInfo struct {
 const (
 	EndpointChatCompletions    = "chat/completions"
 	EndpointAudioTranscription = "audio/transcriptions"
+	EndpointAudioSpeech        = "audio/speech"
+	EndpointImagesGenerations  = "images/generations"
+	EndpointEmbeddings         = "embeddings"
 )
 
 // SupportsEndpoint reports whether the model serves endpoint. Empty
@@ -528,6 +535,183 @@ func (r *TranscriptionResponse) VTT() string {
 			srtTimestamp(seg.Start, '.'), srtTimestamp(seg.End, '.'), strings.TrimSpace(seg.Text))
 	}
 	return b.String()
+}
+
+// ─────────────────────────────────────────────
+// Text-to-speech wire types (POST /v1/audio/speech)
+// ─────────────────────────────────────────────
+
+// SpeechRequest is the parsed body of POST /v1/audio/speech.
+type SpeechRequest struct {
+	Model          ModelId  `json:"model"`
+	Input          string   `json:"input"`
+	Voice          string   `json:"voice"`
+	ResponseFormat string   `json:"response_format,omitempty"` // mp3 (default), opus, aac, flac, wav, pcm
+	Speed          *float64 `json:"speed,omitempty"`
+	Instructions   string   `json:"instructions,omitempty"`
+}
+
+// SpeechResponse is the normalized plugin return: raw audio bytes plus the
+// format they are encoded in. The router serves the bytes with the matching
+// Content-Type; no transcoding happens inside the router.
+type SpeechResponse struct {
+	Audio  []byte
+	Format string // mp3, opus, aac, flac, wav, pcm
+}
+
+// SpeechContentType maps a speech format to its wire Content-Type.
+func SpeechContentType(format string) string {
+	switch format {
+	case "mp3":
+		return "audio/mpeg"
+	case "opus":
+		return "audio/opus"
+	case "aac":
+		return "audio/aac"
+	case "flac":
+		return "audio/flac"
+	case "wav":
+		return "audio/wav"
+	case "pcm":
+		return "audio/L16; rate=24000"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// ─────────────────────────────────────────────
+// Image generation wire types (POST /v1/images/generations)
+// ─────────────────────────────────────────────
+
+// ImageGenerationRequest is the parsed body of POST /v1/images/generations.
+type ImageGenerationRequest struct {
+	Model          ModelId `json:"model"`
+	Prompt         string  `json:"prompt"`
+	N              int     `json:"n,omitempty"`
+	Size           string  `json:"size,omitempty"`
+	Quality        string  `json:"quality,omitempty"`
+	Style          string  `json:"style,omitempty"`
+	ResponseFormat string  `json:"response_format,omitempty"` // url or b64_json
+}
+
+// ImageGenerationResponse is the normalized plugin return and the client
+// wire response: the OpenAI images shape.
+type ImageGenerationResponse struct {
+	Created int64       `json:"created"`
+	Data    []ImageData `json:"data"`
+}
+
+type ImageData struct {
+	URL           string `json:"url,omitempty"`
+	B64JSON       string `json:"b64_json,omitempty"`
+	RevisedPrompt string `json:"revised_prompt,omitempty"`
+}
+
+// ─────────────────────────────────────────────
+// Embeddings wire types (POST /v1/embeddings)
+// ─────────────────────────────────────────────
+
+// EmbeddingsRequest is the parsed body of POST /v1/embeddings. Input is
+// normalized to a list of strings at the edge: OpenAI accepts a single
+// string, a list of strings, or token arrays; token arrays are decoded by
+// clients upstream of this router and are refused here.
+type EmbeddingsRequest struct {
+	Model          ModelId  `json:"model"`
+	Input          []string `json:"-"`
+	EncodingFormat string   `json:"encoding_format,omitempty"` // float (default) or base64
+	Dimensions     int      `json:"dimensions,omitempty"`
+}
+
+// embeddingsRequestJSON decodes the polymorphic OpenAI input field.
+func (r *EmbeddingsRequest) UnmarshalJSON(raw []byte) error {
+	var probe struct {
+		Model          ModelId         `json:"model"`
+		Input          json.RawMessage `json:"input"`
+		EncodingFormat string          `json:"encoding_format,omitempty"`
+		Dimensions     int             `json:"dimensions,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return err
+	}
+	r.Model = probe.Model
+	r.EncodingFormat = probe.EncodingFormat
+	r.Dimensions = probe.Dimensions
+	if len(probe.Input) == 0 {
+		return fmt.Errorf("missing required field 'input'")
+	}
+	var single string
+	if err := json.Unmarshal(probe.Input, &single); err == nil {
+		r.Input = []string{single}
+		return nil
+	}
+	var list []string
+	if err := json.Unmarshal(probe.Input, &list); err == nil {
+		r.Input = list
+		return nil
+	}
+	return fmt.Errorf("input must be a string or an array of strings")
+}
+
+// EmbeddingsResponse is the normalized plugin return and the client wire
+// response. Plugins always return float vectors; the edge renders
+// encoding_format=base64 from them.
+type EmbeddingsResponse struct {
+	Data  []Embedding      `json:"data"`
+	Model string           `json:"model"`
+	Usage *EmbeddingsUsage `json:"usage,omitempty"`
+}
+
+type Embedding struct {
+	Index     int       `json:"index"`
+	Values    []float64 `json:"-"`
+	B64Values string    `json:"-"`
+}
+
+// UnmarshalJSON accepts the plugin-side embedding entry: the OpenAI
+// {index, embedding:[...]} shape with float values.
+func (e *Embedding) UnmarshalJSON(raw []byte) error {
+	var wire struct {
+		Index     int       `json:"index"`
+		Embedding []float64 `json:"embedding"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return err
+	}
+	e.Index = wire.Index
+	e.Values = wire.Embedding
+	return nil
+}
+
+// MarshalJSON renders one embedding entry in the OpenAI shape: float array
+// by default, base64 float32-LE when the client asked for base64.
+func (e Embedding) MarshalJSON() ([]byte, error) {
+	type wire struct {
+		Object    string `json:"object"`
+		Index     int    `json:"index"`
+		Embedding any    `json:"embedding"`
+	}
+	out := wire{Object: "embedding", Index: e.Index}
+	if e.B64Values != "" {
+		out.Embedding = e.B64Values
+	} else {
+		out.Embedding = e.Values
+	}
+	return json.Marshal(out)
+}
+
+type EmbeddingsUsage struct {
+	PromptTokens int `json:"prompt_tokens"`
+	TotalTokens  int `json:"total_tokens"`
+}
+
+// EmbeddingBase64 encodes a float vector as base64 float32 little-endian,
+// the OpenAI encoding_format=base64 wire form.
+func EmbeddingBase64(values []float64) string {
+	buf := make([]byte, 4*len(values))
+	for i, v := range values {
+		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(float32(v)))
+	}
+	return base64.StdEncoding.EncodeToString(buf)
 }
 
 // DeriveCapabilities fills Capabilities from the OpenRouter-style fields.

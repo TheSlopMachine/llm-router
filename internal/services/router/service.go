@@ -415,6 +415,321 @@ func (s *Service) Transcribe(
 	return nil, fmt.Errorf("all credentials exhausted after %d retries", maxRetries)
 }
 
+// speechOne runs a single speech attempt against one credential.
+func (s *Service) speechOne(ctx context.Context, resolved *provider.Resolved, cred *models.Credential, req *models.SpeechRequest) (*models.SpeechResponse, error) {
+	cfg := resolved.Instance.Config
+	if resolved.IsLua() {
+		resp, err := s.providerSvc.LuaService().Speech(ctx, resolved.Instance.TypeKey, cred, req, cfg)
+		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
+			return nil, fmt.Errorf("%w: provider %q has no speech handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+		}
+		return resp, err
+	}
+	sp, ok := resolved.Go.(provider.Speaker)
+	if !ok {
+		return nil, fmt.Errorf("%w: provider %q does not support text-to-speech", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+	}
+	return sp.Speech(ctx, cred, req, cfg)
+}
+
+// Speech routes a POST /v1/audio/speech request with the same credential
+// rotation and backoff cycles as Complete.
+func (s *Service) Speech(
+	ctx context.Context,
+	req *models.SpeechRequest,
+	token *models.RouterToken,
+) (*models.SpeechResponse, error) {
+	providerID, modelName, err := req.Model.Parse()
+	if err != nil {
+		return nil, fmt.Errorf("invalid model id: %w", err)
+	}
+	resolved, err := provider.Resolve(s.providerSvc, providerID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
+	}
+	if resolved.Instance.Disabled {
+		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
+	}
+	if resolved.Instance.TypeKey == provider.TypeAgents {
+		return nil, fmt.Errorf("%w: agents do not serve text-to-speech", apierrors.ErrEndpointNotSupported)
+	}
+	if !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
+		return nil, fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
+	}
+	if err := s.checkEndpoint(providerID, modelName, models.EndpointAudioSpeech); err != nil {
+		return nil, err
+	}
+	// Capability pre-check: fail loudly before touching the credential pool.
+	if resolved.IsLua() {
+		if !s.providerSvc.LuaService().HasHandler(resolved.Instance.TypeKey, "speech") {
+			return nil, fmt.Errorf("%w: provider %q has no speech handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+		}
+	} else if _, ok := resolved.Go.(provider.Speaker); !ok {
+		return nil, fmt.Errorf("%w: provider %q does not support text-to-speech", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+	}
+	creds, err := s.loadCredentials(resolved.Instance, token)
+	if err != nil {
+		return nil, err
+	}
+	maxRetries := s.getMaxRetries()
+	for cycle := 0; cycle <= maxRetries; cycle++ {
+		if cycle > 0 {
+			delay := time.Duration(1<<(cycle-1)) * time.Second
+			s.logger.Warn("all credentials rate limited, backing off",
+				"cycle", cycle, "max", maxRetries, "delay", delay)
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			creds, err = s.loadCredentials(resolved.Instance, token)
+			if err != nil {
+				return nil, err
+			}
+		}
+		candidates := make([]retry.Candidate[*models.SpeechResponse], 0, len(creds))
+		for _, cred := range creds {
+			cred := cred
+			candidates = append(candidates, retry.Candidate[*models.SpeechResponse]{
+				Label: cred.ID,
+				Run: func(ctx context.Context) (*models.SpeechResponse, error) {
+					resp, err := s.speechOne(ctx, resolved, cred, req)
+					if err == nil {
+						_ = s.credSvc.UpdateUsage(cred.ID, true)
+						return resp, nil
+					}
+					_ = s.credSvc.UpdateUsage(cred.ID, false)
+					if perr, ok := asQuotaExceeded(err); ok && perr.RetryAfter != nil {
+						_ = s.credSvc.MarkQuotaExceeded(cred.ID, *perr.RetryAfter)
+					}
+					return nil, err
+				},
+			})
+		}
+		resp, err := retry.Run(ctx, candidates, s.logger)
+		if err == nil {
+			return resp, nil
+		}
+		if !retry.Classify(err) {
+			return nil, err
+		}
+		if cycle == maxRetries {
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("all credentials exhausted after %d retries", maxRetries)
+}
+
+// generateImageOne runs a single image generation attempt against one credential.
+func (s *Service) generateImageOne(ctx context.Context, resolved *provider.Resolved, cred *models.Credential, req *models.ImageGenerationRequest) (*models.ImageGenerationResponse, error) {
+	cfg := resolved.Instance.Config
+	if resolved.IsLua() {
+		resp, err := s.providerSvc.LuaService().GenerateImage(ctx, resolved.Instance.TypeKey, cred, req, cfg)
+		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
+			return nil, fmt.Errorf("%w: provider %q has no generate_image handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+		}
+		return resp, err
+	}
+	ig, ok := resolved.Go.(provider.ImageGenerator)
+	if !ok {
+		return nil, fmt.Errorf("%w: provider %q does not support image generation", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+	}
+	return ig.GenerateImage(ctx, cred, req, cfg)
+}
+
+// GenerateImage routes a POST /v1/images/generations request with the same
+// credential rotation and backoff cycles as Complete.
+func (s *Service) GenerateImage(
+	ctx context.Context,
+	req *models.ImageGenerationRequest,
+	token *models.RouterToken,
+) (*models.ImageGenerationResponse, error) {
+	providerID, modelName, err := req.Model.Parse()
+	if err != nil {
+		return nil, fmt.Errorf("invalid model id: %w", err)
+	}
+	resolved, err := provider.Resolve(s.providerSvc, providerID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
+	}
+	if resolved.Instance.Disabled {
+		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
+	}
+	if resolved.Instance.TypeKey == provider.TypeAgents {
+		return nil, fmt.Errorf("%w: agents do not serve image generation", apierrors.ErrEndpointNotSupported)
+	}
+	if !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
+		return nil, fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
+	}
+	if err := s.checkEndpoint(providerID, modelName, models.EndpointImagesGenerations); err != nil {
+		return nil, err
+	}
+	// Capability pre-check: fail loudly before touching the credential pool.
+	if resolved.IsLua() {
+		if !s.providerSvc.LuaService().HasHandler(resolved.Instance.TypeKey, "generate_image") {
+			return nil, fmt.Errorf("%w: provider %q has no generate_image handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+		}
+	} else if _, ok := resolved.Go.(provider.ImageGenerator); !ok {
+		return nil, fmt.Errorf("%w: provider %q does not support image generation", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+	}
+	creds, err := s.loadCredentials(resolved.Instance, token)
+	if err != nil {
+		return nil, err
+	}
+	maxRetries := s.getMaxRetries()
+	for cycle := 0; cycle <= maxRetries; cycle++ {
+		if cycle > 0 {
+			delay := time.Duration(1<<(cycle-1)) * time.Second
+			s.logger.Warn("all credentials rate limited, backing off",
+				"cycle", cycle, "max", maxRetries, "delay", delay)
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			creds, err = s.loadCredentials(resolved.Instance, token)
+			if err != nil {
+				return nil, err
+			}
+		}
+		candidates := make([]retry.Candidate[*models.ImageGenerationResponse], 0, len(creds))
+		for _, cred := range creds {
+			cred := cred
+			candidates = append(candidates, retry.Candidate[*models.ImageGenerationResponse]{
+				Label: cred.ID,
+				Run: func(ctx context.Context) (*models.ImageGenerationResponse, error) {
+					resp, err := s.generateImageOne(ctx, resolved, cred, req)
+					if err == nil {
+						_ = s.credSvc.UpdateUsage(cred.ID, true)
+						return resp, nil
+					}
+					_ = s.credSvc.UpdateUsage(cred.ID, false)
+					if perr, ok := asQuotaExceeded(err); ok && perr.RetryAfter != nil {
+						_ = s.credSvc.MarkQuotaExceeded(cred.ID, *perr.RetryAfter)
+					}
+					return nil, err
+				},
+			})
+		}
+		resp, err := retry.Run(ctx, candidates, s.logger)
+		if err == nil {
+			return resp, nil
+		}
+		if !retry.Classify(err) {
+			return nil, err
+		}
+		if cycle == maxRetries {
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("all credentials exhausted after %d retries", maxRetries)
+}
+
+// embedOne runs a single embeddings attempt against one credential.
+func (s *Service) embedOne(ctx context.Context, resolved *provider.Resolved, cred *models.Credential, req *models.EmbeddingsRequest) (*models.EmbeddingsResponse, error) {
+	cfg := resolved.Instance.Config
+	if resolved.IsLua() {
+		resp, err := s.providerSvc.LuaService().Embed(ctx, resolved.Instance.TypeKey, cred, req, cfg)
+		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
+			return nil, fmt.Errorf("%w: provider %q has no embed handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+		}
+		return resp, err
+	}
+	em, ok := resolved.Go.(provider.Embedder)
+	if !ok {
+		return nil, fmt.Errorf("%w: provider %q does not support embeddings", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+	}
+	return em.Embed(ctx, cred, req, cfg)
+}
+
+// Embed routes a POST /v1/embeddings request with the same credential
+// rotation and backoff cycles as Complete.
+func (s *Service) Embed(
+	ctx context.Context,
+	req *models.EmbeddingsRequest,
+	token *models.RouterToken,
+) (*models.EmbeddingsResponse, error) {
+	providerID, modelName, err := req.Model.Parse()
+	if err != nil {
+		return nil, fmt.Errorf("invalid model id: %w", err)
+	}
+	resolved, err := provider.Resolve(s.providerSvc, providerID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
+	}
+	if resolved.Instance.Disabled {
+		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
+	}
+	if resolved.Instance.TypeKey == provider.TypeAgents {
+		return nil, fmt.Errorf("%w: agents do not serve embeddings", apierrors.ErrEndpointNotSupported)
+	}
+	if !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
+		return nil, fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
+	}
+	if err := s.checkEndpoint(providerID, modelName, models.EndpointEmbeddings); err != nil {
+		return nil, err
+	}
+	// Capability pre-check: fail loudly before touching the credential pool.
+	if resolved.IsLua() {
+		if !s.providerSvc.LuaService().HasHandler(resolved.Instance.TypeKey, "embed") {
+			return nil, fmt.Errorf("%w: provider %q has no embed handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+		}
+	} else if _, ok := resolved.Go.(provider.Embedder); !ok {
+		return nil, fmt.Errorf("%w: provider %q does not support embeddings", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+	}
+	creds, err := s.loadCredentials(resolved.Instance, token)
+	if err != nil {
+		return nil, err
+	}
+	maxRetries := s.getMaxRetries()
+	for cycle := 0; cycle <= maxRetries; cycle++ {
+		if cycle > 0 {
+			delay := time.Duration(1<<(cycle-1)) * time.Second
+			s.logger.Warn("all credentials rate limited, backing off",
+				"cycle", cycle, "max", maxRetries, "delay", delay)
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			creds, err = s.loadCredentials(resolved.Instance, token)
+			if err != nil {
+				return nil, err
+			}
+		}
+		candidates := make([]retry.Candidate[*models.EmbeddingsResponse], 0, len(creds))
+		for _, cred := range creds {
+			cred := cred
+			candidates = append(candidates, retry.Candidate[*models.EmbeddingsResponse]{
+				Label: cred.ID,
+				Run: func(ctx context.Context) (*models.EmbeddingsResponse, error) {
+					resp, err := s.embedOne(ctx, resolved, cred, req)
+					if err == nil {
+						_ = s.credSvc.UpdateUsage(cred.ID, true)
+						return resp, nil
+					}
+					_ = s.credSvc.UpdateUsage(cred.ID, false)
+					if perr, ok := asQuotaExceeded(err); ok && perr.RetryAfter != nil {
+						_ = s.credSvc.MarkQuotaExceeded(cred.ID, *perr.RetryAfter)
+					}
+					return nil, err
+				},
+			})
+		}
+		resp, err := retry.Run(ctx, candidates, s.logger)
+		if err == nil {
+			return resp, nil
+		}
+		if !retry.Classify(err) {
+			return nil, err
+		}
+		if cycle == maxRetries {
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("all credentials exhausted after %d retries", maxRetries)
+}
+
 // GetProviderIDForModel returns the composite provider ID for a given model.
 func (s *Service) GetProviderIDForModel(ctx context.Context, modelID models.ModelId) (string, error) {
 	providerID, _, err := modelID.Parse()

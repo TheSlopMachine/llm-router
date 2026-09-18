@@ -1,6 +1,7 @@
 package luaplugin
 
 import (
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -206,7 +207,8 @@ func installRouterTable(L *lua.LState, ctx *execContext) {
 			return 0
 		}
 		for _, name := range []string{
-			"complete_stream", "transcribe", "validate_credentials", "get_model_infos",
+			"complete_stream", "transcribe", "speech", "generate_image", "embed",
+			"validate_credentials", "get_model_infos",
 			"needs_refresh", "refresh_credential", "config_schema",
 			"credential_schema", "auth_initiate", "auth_step",
 		} {
@@ -320,6 +322,23 @@ func installRouterTable(L *lua.LState, ctx *execContext) {
 		L.Push(lua.LString(body))
 		L.Push(lua.LString(contentType))
 		return 2
+	}))
+
+	router.RawSetString("base64_encode", L.NewFunction(func(L *lua.LState) int {
+		s := L.CheckString(1)
+		L.Push(lua.LString(base64.StdEncoding.EncodeToString([]byte(s))))
+		return 1
+	}))
+
+	router.RawSetString("base64_decode", L.NewFunction(func(L *lua.LState) int {
+		s := L.CheckString(1)
+		raw, err := base64.StdEncoding.DecodeString(s)
+		if err != nil {
+			L.RaiseError("llm_router.base64_decode: %s", err.Error())
+			return 0
+		}
+		L.Push(lua.LString(string(raw)))
+		return 1
 	}))
 
 	L.SetGlobal("llm_router", router)

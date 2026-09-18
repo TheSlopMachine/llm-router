@@ -44,6 +44,27 @@ type Transcriber interface {
 	Transcribe(ctx context.Context, cred *models.Credential, req *models.TranscriptionRequest, providerConfig map[string]any) (*models.TranscriptionResponse, error)
 }
 
+// Speaker is an optional GoAdapter capability serving
+// POST /v1/audio/speech. Lua plugin types implement the equivalent
+// via the speech handler.
+type Speaker interface {
+	Speech(ctx context.Context, cred *models.Credential, req *models.SpeechRequest, providerConfig map[string]any) (*models.SpeechResponse, error)
+}
+
+// ImageGenerator is an optional GoAdapter capability serving
+// POST /v1/images/generations. Lua plugin types implement the equivalent
+// via the generate_image handler.
+type ImageGenerator interface {
+	GenerateImage(ctx context.Context, cred *models.Credential, req *models.ImageGenerationRequest, providerConfig map[string]any) (*models.ImageGenerationResponse, error)
+}
+
+// Embedder is an optional GoAdapter capability serving
+// POST /v1/embeddings. Lua plugin types implement the equivalent
+// via the embed handler.
+type Embedder interface {
+	Embed(ctx context.Context, cred *models.Credential, req *models.EmbeddingsRequest, providerConfig map[string]any) (*models.EmbeddingsResponse, error)
+}
+
 // Built-in type keys served by Go code.
 const (
 	TypeCustom = "custom"
