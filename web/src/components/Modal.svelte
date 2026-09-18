@@ -359,10 +359,8 @@
 
   /* One spacing rhythm N=12: edge-to-last-button, buttons-to-bottom edge,
      and between adjacent buttons are all the same N. */
-  /* Footer inset mirrors the button text's own padding: the fill edge lands
-     where the eye measures whitespace, clear of the 24px corner arc. */
   .modal-footer {
-    padding: 28px;
+    padding: 14px;
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
@@ -374,12 +372,15 @@
     border-top: 1px solid var(--color-outline-soft);
   }
 
+  /* Fill-less text needs the deeper inset the button text already has:
+     14px footer + 14px own margin = Done text's 28px from the corner. */
   .footer-hint {
     font-size: 12px;
     color: var(--color-text-soft);
     line-height: 16px;
     flex: 1;
     min-width: 0;
+    margin: 0 0 14px 14px;
   }
 
   .footer-hint.footer-hint-error {
