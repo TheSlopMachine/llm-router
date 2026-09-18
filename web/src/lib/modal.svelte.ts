@@ -44,6 +44,7 @@ export interface BaseModalConfig {
   footerHint?: FooterHint
   severity?: ModalSeverity
   size?: ModalSize
+  className?: string
   buttons?: ModalButton[]
   menu?: ModalMenu | null
   onClose?: () => void

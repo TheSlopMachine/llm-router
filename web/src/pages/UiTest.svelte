@@ -133,12 +133,6 @@
     })
   }
 
-  function askAccentConfirm(): void {
-    void modal.confirm({ title: 'Demo confirm', message: 'Confirm this demo action?' }).then((ok) => {
-      confirmResult = ok ? 'confirmed' : 'cancelled'
-    })
-  }
-
   function openContentModal(): void {
     modal.open({
       title: 'Demo modal',
@@ -295,7 +289,6 @@
 <SectionCard title="Overlays">
   <div class="row">
     <button class="btn btn-secondary" onclick={askConfirm} use:squircle={12}>Confirm modal</button>
-    <button class="btn btn-secondary" onclick={askAccentConfirm} use:squircle={12}>Confirm (accent)</button>
     <button class="btn btn-secondary" onclick={openContentModal} use:squircle={12}>Content modal</button>
     <button class="btn btn-secondary" onclick={() => toast.success('Demo success toast')} use:squircle={12}>Success toast</button>
     <button class="btn btn-secondary" onclick={() => toast.error('Demo error toast')} use:squircle={12}>Error toast</button>

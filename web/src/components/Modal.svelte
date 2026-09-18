@@ -93,7 +93,7 @@
     role="presentation">
 
     <div
-      class="modal-card modal-{config.size}"
+      class="modal-card modal-{config.size} {config.className || ''}"
       class:modal-confirm={config.type === 'confirm'}
       style="z-index: {1001 + index * 2}"
       onclick={(e) => e.stopPropagation()}
@@ -220,7 +220,7 @@
   .modal-extra-large { width: 90%; max-width: 1100px; }
 
   .modal-header {
-    padding: 20px;
+    padding: 14px 14px 0;
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
@@ -230,7 +230,6 @@
 
   .modal-close {
     flex-shrink: 0;
-    margin: -6px -6px 0 0;
   }
 
   .modal-title-col {
@@ -261,7 +260,7 @@
   }
 
   .modal-stepper {
-    padding: 16px 24px 0 24px;
+    padding: 12px 14px 0 14px;
     flex-shrink: 0;
     position: relative;
   }
@@ -338,7 +337,7 @@
   }
 
   .modal-body {
-    padding: 24px;
+    padding: 12px 14px 14px;
     overflow-y: auto;
     flex: 1;
     min-height: 0;
@@ -353,7 +352,7 @@
   /* One spacing rhythm N=12: edge-to-last-button, buttons-to-bottom edge,
      and between adjacent buttons are all the same N. */
   .modal-footer {
-    padding: 12px;
+    padding: 14px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -386,22 +385,14 @@
     justify-content: flex-end;
   }
 
-  /* Confirm rhythm: one 20px edge grid, tighter text, buttons 6px apart. */
-  .modal-confirm .modal-header {
-    padding: 20px 20px 0;
-  }
-
-  .modal-confirm .modal-body {
-    padding: 12px 20px 0;
+  /* Confirm specifics: larger message text, tighter button pair. */
+  .modal-card.modal-confirm {
+    max-width: 300px;
   }
 
   .modal-confirm .modal-body p {
     font-size: 15px;
     line-height: 1.45;
-  }
-
-  .modal-confirm .modal-footer {
-    padding: 20px;
   }
 
   .modal-confirm .footer-actions {
