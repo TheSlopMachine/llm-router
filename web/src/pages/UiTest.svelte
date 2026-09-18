@@ -16,7 +16,8 @@
   import { modal } from '../lib/modal.svelte'
   import { toast } from '../lib/toast.svelte'
   import { theme } from '../lib/theme.svelte'
-  import { squircle } from '../lib/squircle'
+  import { squircle, setSquircleExponent } from '../lib/squircle'
+  import { onMount } from 'svelte'
   import { tintSoft } from '../lib/tint'
   import type { UINode, Provider, ProviderStats, AgentModel, AvailableModel } from '../lib/types'
 
@@ -33,11 +34,51 @@
   let confirmResult = $state('(not asked)')
   let toastText = $state('Custom toast text — edit me and show')
 
-  // Font preview: Chrysanthemum applies app-wide while the polygon is open.
+  // Font preview: chosen family applies app-wide while the polygon is open.
   $effect(() => {
     document.body.classList.add('uit-chrysanthemum')
     return () => document.body.classList.remove('uit-chrysanthemum')
   })
+
+  let squircleN = $state('4')
+
+  interface FontFile { url: string; weight: string; style: string }
+  interface FontFamily { family: string; files: FontFile[] }
+  let fontFamilies = $state<FontFamily[]>([])
+  let fontPick = $state('Chrysanthemum')
+  let fontStatus = $state('')
+
+  onMount(async () => {
+    try {
+      const res = await fetch('/fonts/preview/manifest.json')
+      if (!res.ok) throw new Error(`font manifest: HTTP ${res.status}`)
+      fontFamilies = await res.json()
+    } catch (e) {
+      fontStatus = 'Font manifest failed to load'
+      console.error(e)
+    }
+  })
+
+  async function applyFont(family: string): Promise<void> {
+    fontPick = family
+    fontStatus = ''
+    const entry = fontFamilies.find((f) => f.family === family)
+    if (!entry) {
+      document.body.style.setProperty('--uit-lab-font', "'Inter'")
+      return
+    }
+    try {
+      await Promise.all(entry.files.map(async (f) => {
+        const face = new FontFace(family, `url('${f.url}')`, { weight: f.weight, style: f.style })
+        await face.load()
+        document.fonts.add(face)
+      }))
+      document.body.style.setProperty('--uit-lab-font', `'${family}'`)
+    } catch (e) {
+      fontStatus = `Failed to load ${family}`
+      console.error(e)
+    }
+  }
 
   let formValues = $state<Record<string, unknown>>({})
 
@@ -190,8 +231,18 @@
     <label class="metric-field">field pad-h<input type="text" value={padFieldH} oninput={(e) => { padFieldH = (e.target as HTMLInputElement).value; applyMetrics() }} /></label>
     <label class="metric-field">field pad-v<input type="text" value={padFieldV} oninput={(e) => { padFieldV = (e.target as HTMLInputElement).value; applyMetrics() }} /></label>
     <label class="metric-field">radius<input type="text" value={ctlRadius} oninput={(e) => { ctlRadius = (e.target as HTMLInputElement).value; applyMetrics() }} /></label>
+    <label class="metric-field">squircle n<input type="text" value={squircleN} oninput={(e) => { squircleN = (e.target as HTMLInputElement).value; setSquircleExponent(parseFloat(squircleN)) }} /></label>
+    <label class="metric-field">font
+      <select value={fontPick} onchange={(e) => applyFont((e.target as HTMLSelectElement).value)}>
+        <option value="Inter">Inter (default)</option>
+        {#each fontFamilies as f}
+          <option value={f.family}>{f.family}</option>
+        {/each}
+      </select>
+    </label>
     <button class="btn btn-secondary btn-sm" onclick={resetMetrics} use:squircle={8}>Reset</button>
   </div>
+  {#if fontStatus}<p class="hint">{fontStatus}</p>{/if}
 </SectionCard>
 
 <SectionCard title="Buttons (one Button widget)">
@@ -400,7 +451,7 @@
 <style>
   /* Composer owns spacing: widgets render marginless, the stack gaps them. */
   :global(body.uit-chrysanthemum) {
-    font-family: 'Chrysanthemum', 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: var(--uit-lab-font, 'Chrysanthemum'), 'Inter', system-ui, -apple-system, sans-serif;
   }
   .uit-stack {
     display: flex;

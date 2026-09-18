@@ -14,7 +14,15 @@
 // clip-path. Use a fill that contrasts with the background instead of a
 // border (the Apple grouped-list approach).
 
-const SUPERELLIPSE_EXP = 0.5 // 2/n with n = 4
+let superellipseExp = 0.5 // 2/n with n = 4
+
+// Live tuning from the polygon: re-applies every mounted squircle.
+export function setSquircleExponent(n: number): void {
+  if (!Number.isFinite(n) || n < 2) return
+  superellipseExp = 2 / n
+  for (const apply of liveApplies) apply()
+}
+
 const CORNER_SAMPLES = 24
 
 function pt(x: number, y: number): string {
@@ -27,8 +35,8 @@ function cornerArc(cx: number, cy: number, r: number, quadrant: number): string 
   const points: string[] = []
   for (let i = 0; i <= CORNER_SAMPLES; i++) {
     const t = (i / CORNER_SAMPLES) * (Math.PI / 2)
-    const s = r * Math.pow(Math.sin(t), SUPERELLIPSE_EXP)
-    const c = r * Math.pow(Math.cos(t), SUPERELLIPSE_EXP)
+    const s = r * Math.pow(Math.sin(t), superellipseExp)
+    const c = r * Math.pow(Math.cos(t), superellipseExp)
     switch (quadrant) {
       case 0: points.push(pt(cx + s, cy - c)); break // (cx, cy-r) -> (cx+r, cy)
       case 1: points.push(pt(cx + c, cy + s)); break // (cx+r, cy) -> (cx, cy+r)
