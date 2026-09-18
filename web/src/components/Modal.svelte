@@ -226,7 +226,7 @@
   .modal-extra-large { width: 90%; max-width: 1100px; }
 
   .modal-header {
-    padding: 14px 14px 0;
+    padding: 20px 20px 0;
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
@@ -234,8 +234,10 @@
     gap: 16px;
   }
 
+  /* Glyph sits ~14px from the corner; the 36px hover box reaches 8px. */
   .modal-close {
     flex-shrink: 0;
+    margin: -12px -12px 0 0;
   }
 
   .modal-title-col {
@@ -357,8 +359,10 @@
 
   /* One spacing rhythm N=12: edge-to-last-button, buttons-to-bottom edge,
      and between adjacent buttons are all the same N. */
+  /* Footer inset mirrors the button text's own padding: the fill edge lands
+     where the eye measures whitespace, clear of the 24px corner arc. */
   .modal-footer {
-    padding: 14px;
+    padding: 28px;
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
