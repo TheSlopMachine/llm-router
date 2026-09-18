@@ -133,6 +133,18 @@
     })
   }
 
+  function askTitleOnly(): void {
+    void modal.confirm({ title: 'Demo confirm', confirmRole: 'destructive' }).then((ok) => {
+      confirmResult = ok ? 'confirmed' : 'cancelled'
+    })
+  }
+
+  function askNoTitle(): void {
+    void modal.confirm({ title: '', message: 'Confirm this demo action?', confirmRole: 'destructive' }).then((ok) => {
+      confirmResult = ok ? 'confirmed' : 'cancelled'
+    })
+  }
+
   function openContentModal(): void {
     modal.open({
       title: 'Demo modal',
@@ -288,7 +300,11 @@
 
 <SectionCard title="Overlays">
   <div class="row">
-    <button class="btn btn-secondary" onclick={askConfirm} use:squircle={12}>Confirm modal</button>
+    <div class="confirm-col">
+      <button class="btn btn-secondary" onclick={askConfirm} use:squircle={12}>Confirm modal</button>
+      <button class="btn btn-secondary" onclick={askTitleOnly} use:squircle={12}>Title only</button>
+      <button class="btn btn-secondary" onclick={askNoTitle} use:squircle={12}>No title</button>
+    </div>
     <button class="btn btn-secondary" onclick={openContentModal} use:squircle={12}>Content modal</button>
     <button class="btn btn-secondary" onclick={() => toast.success('Demo success toast')} use:squircle={12}>Success toast</button>
     <button class="btn btn-secondary" onclick={() => toast.error('Demo error toast')} use:squircle={12}>Error toast</button>
@@ -442,5 +458,11 @@
   }
   .success-msg {
     margin-top: 12px;
+  }
+  .confirm-col {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
   }
 </style>

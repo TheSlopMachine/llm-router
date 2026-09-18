@@ -100,23 +100,27 @@
       onkeydown={(e) => handleKeyDown(e, config, e.currentTarget as HTMLElement)}
       role="dialog"
       aria-modal="true"
-      aria-labelledby="modal-title-{index}"
+      aria-labelledby={config.title ? `modal-title-${index}` : undefined}
       tabindex="-1"
       use:squircle>
 
-      <div class="modal-header">
-        <div class="modal-title-col">
-          <h2 id="modal-title-{index}">{config.title}</h2>
-          {#if config.subtitle}
-            <p class="modal-subtitle">{config.subtitle}</p>
+      {#if config.title || config.type === 'content'}
+        <div class="modal-header">
+          <div class="modal-title-col">
+            {#if config.title}
+              <h2 id="modal-title-{index}">{config.title}</h2>
+            {/if}
+            {#if config.subtitle}
+              <p class="modal-subtitle">{config.subtitle}</p>
+            {/if}
+          </div>
+          {#if config.type === 'content'}
+            <button class="btn-icon modal-close" onclick={() => modal.close()} aria-label={t('Close')}>
+              <span class="icon">close</span>
+            </button>
           {/if}
         </div>
-        {#if config.type === 'content'}
-          <button class="btn-icon modal-close" onclick={() => modal.close()} aria-label={t('Close')}>
-            <span class="icon">close</span>
-          </button>
-        {/if}
-      </div>
+      {/if}
 
       {#if config.stepper}
         <div class="modal-stepper">
@@ -143,21 +147,23 @@
         </div>
       {/if}
 
-      <div class="modal-body">
-        {#if config.type === 'confirm'}
-          {#if config.content}
-            {@const ConfirmContent = config.content}
-            <ConfirmContent {...(config.props ?? {})} />
-          {:else}
-            <p>{config.message}</p>
+      {#if config.type === 'confirm' ? (config.content || config.message) : config.content}
+        <div class="modal-body">
+          {#if config.type === 'confirm'}
+            {#if config.content}
+              {@const ConfirmContent = config.content}
+              <ConfirmContent {...(config.props ?? {})} />
+            {:else}
+              <p>{config.message}</p>
+            {/if}
+          {:else if config.type === 'content'}
+            {@const Content = config.content}
+            {#if Content}
+              <Content {...getContentProps(config)} />
+            {/if}
           {/if}
-        {:else if config.type === 'content'}
-          {@const Content = config.content}
-          {#if Content}
-            <Content {...getContentProps(config)} />
-          {/if}
-        {/if}
-      </div>
+        </div>
+      {/if}
 
       {#if (config.buttons && config.buttons.length > 0) || config.menu || config.footerHint}
         <div class="modal-footer" class:footer-bordered={config.type === 'content'}>
@@ -260,7 +266,7 @@
   }
 
   .modal-stepper {
-    padding: 12px 14px 0 14px;
+    padding: 14px 14px 0 14px;
     flex-shrink: 0;
     position: relative;
   }
@@ -337,7 +343,7 @@
   }
 
   .modal-body {
-    padding: 12px 14px 14px;
+    padding: 14px;
     overflow-y: auto;
     flex: 1;
     min-height: 0;
@@ -355,7 +361,7 @@
     padding: 14px;
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-end;
     gap: 12px;
     flex-shrink: 0;
   }
