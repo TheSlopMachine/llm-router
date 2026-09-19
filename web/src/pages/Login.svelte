@@ -39,11 +39,11 @@
 
     <div class="form-group">
       <label for="u">{t('Username')}</label>
-      <input id="u" type="text" bind:value={username} autocomplete="username" onkeydown={(e) => e.key === 'Enter' && submit()} use:squircle={8} />
+      <input id="u" type="text" bind:value={username} autocomplete="username" onkeydown={(e) => e.key === 'Enter' && submit()} use:squircle={12} />
     </div>
     <div class="form-group" style="margin-top: 12px;">
       <label for="p">{t('Password')}</label>
-      <input id="p" type="password" bind:value={password} autocomplete="current-password" onkeydown={(e) => e.key === 'Enter' && submit()} use:squircle={8} />
+      <input id="p" type="password" bind:value={password} autocomplete="current-password" onkeydown={(e) => e.key === 'Enter' && submit()} use:squircle={12} />
     </div>
     <label class="remember-me">
       <input type="checkbox" class="check" bind:checked={rememberMe} use:squircle={6} />
@@ -99,36 +99,18 @@
     font-size: 14px; 
     margin-bottom: 24px; 
   }
+  /* Same shape and height as the text fields above: field line-height and
+     paddings, global control radius. */
   .submit-btn {
     width: 100%;
     justify-content: center;
     margin-top: 20px;
+    line-height: 20px;
+    padding: var(--field-pad-v) var(--field-pad-h);
     transition: transform 120ms ease;
   }
   .submit-btn:active {
     transform: scale(0.97);
-  }
-  .auth-card input[type="text"],
-  .auth-card input[type="password"] {
-    background: var(--color-button-container-high);
-    border-radius: 8px;
-    outline: none;
-    /* transparent idle ring so the focus ring can transition in */
-    box-shadow: inset 0 0 0 2px transparent;
-    transition: background-color 160ms ease, box-shadow 160ms ease, padding 160ms ease, transform 120ms ease;
-  }
-  .auth-card input[type="text"]:focus,
-  .auth-card input[type="password"]:focus {
-    background: var(--color-button-container-high);
-    outline: none;
-    /* +2px vertical padding: the field grows by the ring size, width fixed */
-    padding: calc(var(--field-pad-v) + 1px) var(--field-pad-h);
-    box-shadow: inset 0 0 0 2px #fff;
-  }
-  /* press only (mouse/touch): keyboard focus gets no scale */
-  .auth-card input[type="text"]:active,
-  .auth-card input[type="password"]:active {
-    transform: scale(0.99);
   }
   .remember-me {
     display: flex;
