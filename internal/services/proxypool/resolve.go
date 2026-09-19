@@ -38,8 +38,8 @@ func ParseProxyMode(providerConfig map[string]any) (mode string, ids []string) {
 // pool) fails loudly instead.
 //
 // The plugin's preferred location is a preference, never a gate: matching
-// proxies lead the ranking, others follow, and the retry layer falls through
-// them when the upstream rejects one.
+// proxies lead the ranking, others follow, and the plugin's geo-rotation
+// falls through them when the upstream rejects one.
 func ResolveProxy(s *Service, mode string, ids []string, location string, forceOnMismatch bool, serverCountry, providerType string) (proxyID, proxyURL string, err error) {
 	// Normalize at use time: stored plugin rows may predate canonical codes.
 	location = NormalizeCountryCode(location)

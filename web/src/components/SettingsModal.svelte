@@ -34,7 +34,6 @@
   let th = $state<Theme>(theme.value)
   let isClusterNode = $state(false)
   let disableTelemetry = $state(false)
-  let maxRetries = $state(7)
   let saving = $state(false)
   let error = $state('')
 
@@ -43,7 +42,6 @@
       const cfg = await api.config.get()
       isClusterNode = cfg.is_cluster_node
       disableTelemetry = cfg.disable_telemetry
-      maxRetries = cfg.max_retries
     } catch (e) {
       error = getErrorMessage(e)
     }
@@ -77,8 +75,7 @@
       theme.value = th
       await api.config.update({
         is_cluster_node: isClusterNode,
-        disable_telemetry: disableTelemetry,
-        max_retries: Number(maxRetries)
+        disable_telemetry: disableTelemetry
       })
       closeModal()
     } catch (e) {
@@ -141,11 +138,6 @@
     <div class="field-row">
       <span class="field-label">{t('Disable anonymized telemetry')}</span>
       <Switch bind:checked={disableTelemetry} />
-    </div>
-
-    <div class="field">
-      <label for="settings-max-retries">{t('Max retries')}</label>
-      <input id="settings-max-retries" type="number" min="0" max="20" step="1" bind:value={maxRetries} use:squircle={12} />
     </div>
   </section>
 </div>

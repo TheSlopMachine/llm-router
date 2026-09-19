@@ -57,7 +57,7 @@ func main() {
 	}
 	fmt.Printf("Examples:\n")
 	fmt.Printf("  make init\n")
-	fmt.Printf("  make go-test PKG=./internal/services/retry/\n")
+	fmt.Printf("  make go-test PKG=./internal/services/router/\n")
 	fmt.Printf("  make fmt-check\n")
 	fmt.Printf("  make start\n")
 	fmt.Printf("  make start HOST=0.0.0.0 WEB_PORT=3000 API_PORT=3001\n")

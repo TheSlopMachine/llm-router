@@ -209,7 +209,7 @@ Harness scenario `proxies` passes live.
     (`models_auto_sync` maintenance) or manual (provider page import).
 40. **Audio transcription endpoint + plugin contract doc** —
     `POST /v1/audio/transcriptions` (multipart, 32 MB cap) routes through the
-    same resolve → credential-rotation → retry pipeline as chat. Lua plugins
+    same resolve → credential-pool → single backend pass as chat. Lua plugins
     declare an optional `transcribe` handler; Go adapters implement the
     optional `provider.Transcriber` interface; a provider without either
     fails loudly with `endpoint_not_supported`. The plugin returns the

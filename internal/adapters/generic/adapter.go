@@ -3,6 +3,7 @@ package generic
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -14,8 +15,38 @@ import (
 
 const adapterTypeKey = "custom"
 
+// UsageTracker records per-credential outcomes. It is implemented by the
+// credential pool service and injected via SetUsageTracker.
+type UsageTracker interface {
+	UpdateUsage(id string, success bool) error
+	MarkQuotaExceeded(id string, resetAt time.Time) error
+}
+
 // Adapter implements the generic OpenAI-compatible backend for "custom" providers.
-type Adapter struct{}
+type Adapter struct {
+	usage UsageTracker
+}
+
+// SetUsageTracker wires per-credential usage accounting for pool calls.
+// Unset (nil) disables accounting; attempts still run.
+func (a *Adapter) SetUsageTracker(t UsageTracker) { a.usage = t }
+
+func (a *Adapter) trackSuccess(cred *models.Credential) {
+	if a.usage != nil {
+		_ = a.usage.UpdateUsage(cred.ID, true)
+	}
+}
+
+func (a *Adapter) trackFailure(cred *models.Credential, err error) {
+	if a.usage == nil {
+		return
+	}
+	_ = a.usage.UpdateUsage(cred.ID, false)
+	var perr *models.ProviderError
+	if errors.As(err, &perr) && perr.Type == models.ErrorTypeQuotaExceeded && perr.RetryAfter != nil {
+		_ = a.usage.MarkQuotaExceeded(cred.ID, *perr.RetryAfter)
+	}
+}
 
 func (a *Adapter) TypeKey() string { return adapterTypeKey }
 
@@ -42,7 +73,7 @@ func baseURLFromConfig(config map[string]any) (string, error) {
 
 func (a *Adapter) Complete(
 	ctx context.Context,
-	cred *models.Credential,
+	creds []*models.Credential,
 	req *models.ChatCompletionRequest,
 	providerConfig map[string]any,
 ) (*models.ChatCompletionResponse, error) {
@@ -57,17 +88,33 @@ func (a *Adapter) Complete(
 	if err != nil {
 		return nil, err
 	}
-	apiKey := ""
-	if cred != nil {
-		apiKey = cred.DataString("api_key")
+	if len(creds) == 0 {
+		return nil, fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
-	return client.ChatCompletion(ctx, apiKey, modelName, req)
+	var lastErr error
+	for _, cred := range creds {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		var apiKey string
+		if cred != nil {
+			apiKey = cred.DataString("api_key")
+		}
+		resp, err := client.ChatCompletion(ctx, apiKey, modelName, req)
+		if err == nil {
+			a.trackSuccess(cred)
+			return resp, nil
+		}
+		a.trackFailure(cred, err)
+		lastErr = err
+	}
+	return nil, lastErr
 }
 
 func (a *Adapter) CompleteStream(
 	ctx context.Context,
-	cred *models.Credential,
+	creds []*models.Credential,
 	req *models.ChatCompletionRequest,
 	w io.Writer,
 	providerConfig map[string]any,
@@ -83,12 +130,28 @@ func (a *Adapter) CompleteStream(
 	if err != nil {
 		return err
 	}
-	apiKey := ""
-	if cred != nil {
-		apiKey = cred.DataString("api_key")
+	if len(creds) == 0 {
+		return fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
-	return client.ChatCompletionStream(ctx, apiKey, modelName, req, w)
+	var lastErr error
+	for _, cred := range creds {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var apiKey string
+		if cred != nil {
+			apiKey = cred.DataString("api_key")
+		}
+		err := client.ChatCompletionStream(ctx, apiKey, modelName, req, w)
+		if err == nil {
+			a.trackSuccess(cred)
+			return nil
+		}
+		a.trackFailure(cred, err)
+		lastErr = err
+	}
+	return lastErr
 }
 
 func (a *Adapter) NeedsRefresh(cred *models.Credential) bool { return false }
@@ -114,7 +177,7 @@ func (a *Adapter) GetModelInfos(
 	return client.ListModels(ctx, apiKey)
 }
 
-// classifyHTTPError maps upstream status codes to the retry contract.
+// classifyHTTPError maps upstream status codes to the error contract.
 func classifyHTTPError(status int, body string) error {
 	msg := fmt.Sprintf("unexpected status %d: %s", status, body)
 	switch {

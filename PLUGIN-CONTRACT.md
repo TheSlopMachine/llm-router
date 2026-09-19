@@ -41,11 +41,12 @@ fallback.
   - `type`: `rate_limit` | `quota_exceeded` | `auth` | `upstream` | `timeout` | `invalid_request` | `geo`
   - `retry_after`: optional unix timestamp; mandatory for `quota_exceeded`
     (defaults to now+60s when absent)
-- The type decides what the retry engine does. `rate_limit`,
-  `quota_exceeded`, `upstream` (transient 5xx/overload) and `timeout` move to
-  the next candidate — another credential, and inside a virtual model the next
-  fall-through model. `auth`, `invalid_request` and `geo` are terminal:
-  `auth`/`invalid_request` fail the request, `geo` marks the proxy bad.
+- The router calls once and never repeats: there are no repeat passes or
+  backoff pauses in the request path. Key iteration lives inside the backend:
+  the core tries the sorted credential pool in order, at most once per key,
+  and returns the first success or the last error. Key-level failures never
+  leave the backend. `quota_exceeded` additionally deprioritizes the key until
+  `retry_after`.
 - Any other error form (raised errors, wrong shapes) becomes
   `PluginInternalError` and counts as a plugin crash.
 

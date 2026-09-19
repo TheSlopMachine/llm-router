@@ -201,7 +201,6 @@ export interface TokenUsageInfo {
 export interface RouterConfiguration {
   is_cluster_node: boolean
   disable_telemetry: boolean
-  max_retries: number
 }
 
 export interface UINode {

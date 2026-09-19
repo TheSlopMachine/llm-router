@@ -147,7 +147,7 @@ type pluginHTTPClient struct {
 	guard  *ssrfGuard
 	client *http.Client
 	goCtx  context.Context
-	// timeout bounds one attempt; every rotation retry gets a fresh budget.
+	// timeout bounds one attempt; every key attempt gets a fresh budget.
 	timeout time.Duration
 }
 
