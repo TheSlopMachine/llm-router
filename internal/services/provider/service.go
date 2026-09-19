@@ -27,11 +27,16 @@ import (
 
 // GoAdapter is implemented by built-in Go backends ("custom", "virtual").
 // Lua plugin types are served by luaplugin.Service instead.
+//
+// Request methods take the whole sorted credential pool: the backend tries
+// keys in order, at most once each, and returns a single result. Key-level
+// failures never leave the backend; there are no repeat passes or backoff
+// pauses in the request path.
 type GoAdapter interface {
 	TypeKey() string
 	ValidateCredentials(data map[string]any) error
-	Complete(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest, providerConfig map[string]any) (*models.ChatCompletionResponse, error)
-	CompleteStream(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest, w io.Writer, providerConfig map[string]any) error
+	Complete(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, providerConfig map[string]any) (*models.ChatCompletionResponse, error)
+	CompleteStream(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, w io.Writer, providerConfig map[string]any) error
 	NeedsRefresh(cred *models.Credential) bool
 	RefreshCredential(ctx context.Context, cred *models.Credential) (map[string]any, error)
 	GetModelInfos(ctx context.Context, cred *models.Credential, providerConfig map[string]any) ([]models.ModelInfo, error)
@@ -41,28 +46,28 @@ type GoAdapter interface {
 // POST /v1/audio/transcriptions. Lua plugin types implement the equivalent
 // via the transcribe handler.
 type Transcriber interface {
-	Transcribe(ctx context.Context, cred *models.Credential, req *models.TranscriptionRequest, providerConfig map[string]any) (*models.TranscriptionResponse, error)
+	Transcribe(ctx context.Context, creds []*models.Credential, req *models.TranscriptionRequest, providerConfig map[string]any) (*models.TranscriptionResponse, error)
 }
 
 // Speaker is an optional GoAdapter capability serving
 // POST /v1/audio/speech. Lua plugin types implement the equivalent
 // via the speech handler.
 type Speaker interface {
-	Speech(ctx context.Context, cred *models.Credential, req *models.SpeechRequest, providerConfig map[string]any) (*models.SpeechResponse, error)
+	Speech(ctx context.Context, creds []*models.Credential, req *models.SpeechRequest, providerConfig map[string]any) (*models.SpeechResponse, error)
 }
 
 // ImageGenerator is an optional GoAdapter capability serving
 // POST /v1/images/generations. Lua plugin types implement the equivalent
 // via the generate_image handler.
 type ImageGenerator interface {
-	GenerateImage(ctx context.Context, cred *models.Credential, req *models.ImageGenerationRequest, providerConfig map[string]any) (*models.ImageGenerationResponse, error)
+	GenerateImage(ctx context.Context, creds []*models.Credential, req *models.ImageGenerationRequest, providerConfig map[string]any) (*models.ImageGenerationResponse, error)
 }
 
 // Embedder is an optional GoAdapter capability serving
 // POST /v1/embeddings. Lua plugin types implement the equivalent
 // via the embed handler.
 type Embedder interface {
-	Embed(ctx context.Context, cred *models.Credential, req *models.EmbeddingsRequest, providerConfig map[string]any) (*models.EmbeddingsResponse, error)
+	Embed(ctx context.Context, creds []*models.Credential, req *models.EmbeddingsRequest, providerConfig map[string]any) (*models.EmbeddingsResponse, error)
 }
 
 // Built-in type keys served by Go code.

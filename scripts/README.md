@@ -23,7 +23,7 @@ Configuration flows one way: `Makefile` vars → env → scripts. Scripts take n
 | `vet` / `test` / `fcheck` | — / `PKG` (default `./...`) / — | `make go-check` / `make go-test` / `make check-frontend` |
 | `fmt` | `FMT_WRITE=1` writes, otherwise checks | `make fmt` / `make fmt-check` |
 
-`make go-test PKG=./internal/services/retry/` scopes the run; `make fmt` applies `gofmt -w`, `make fmt-check` fails listing files that need it. Both cover the root and `scripts` modules, skipping `.workspace`, `node_modules`, `build`, `.git`.
+`make go-test PKG=./internal/services/router/` scopes the run; `make fmt` applies `gofmt -w`, `make fmt-check` fails listing files that need it. Both cover the root and `scripts` modules, skipping `.workspace`, `node_modules`, `build`, `.git`.
 
 `*` required (fatal when blank). The rest fall back to dev defaults (`localhost`, `8080`, `8081`, `~/.local/llm-router/...`, temp pidfile).
 

@@ -45,8 +45,8 @@ func SetupTestDB(t *testing.T) *db.DB {
 // MockAdapter is a simple, configurable test adapter using models types.
 type MockAdapter struct {
 	typeKey            string
-	completeFunc       func(context.Context, *models.Credential, *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error)
-	completeStreamFunc func(context.Context, *models.Credential, *models.ChatCompletionRequest, io.Writer) error
+	completeFunc       func(context.Context, []*models.Credential, *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error)
+	completeStreamFunc func(context.Context, []*models.Credential, *models.ChatCompletionRequest, io.Writer) error
 	validateFunc       func(map[string]any) error
 	needsRefreshFunc   func(*models.Credential) bool
 	refreshFunc        func(context.Context, *models.Credential) (map[string]any, error)
@@ -57,7 +57,7 @@ type MockAdapter struct {
 func NewMockAdapter(typeKey string) *MockAdapter {
 	return &MockAdapter{
 		typeKey: typeKey,
-		completeFunc: func(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+		completeFunc: func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
 			return &models.ChatCompletionResponse{
 				ID:      "mock-" + fmt.Sprintf("%d", time.Now().Unix()),
 				Object:  "chat.completion",
@@ -80,7 +80,7 @@ func NewMockAdapter(typeKey string) *MockAdapter {
 				},
 			}, nil
 		},
-		completeStreamFunc: func(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest, w io.Writer) error {
+		completeStreamFunc: func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, w io.Writer) error {
 			chunk := models.StreamChunk{
 				ID:      "mock-stream",
 				Object:  "chat.completion.chunk",
@@ -129,11 +129,11 @@ func (m *MockAdapter) TypeKey() string { return m.typeKey }
 func (m *MockAdapter) ValidateCredentials(data map[string]any) error {
 	return m.validateFunc(data)
 }
-func (m *MockAdapter) Complete(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest, _ map[string]any) (*models.ChatCompletionResponse, error) {
-	return m.completeFunc(ctx, cred, req)
+func (m *MockAdapter) Complete(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, _ map[string]any) (*models.ChatCompletionResponse, error) {
+	return m.completeFunc(ctx, creds, req)
 }
-func (m *MockAdapter) CompleteStream(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest, w io.Writer, _ map[string]any) error {
-	return m.completeStreamFunc(ctx, cred, req, w)
+func (m *MockAdapter) CompleteStream(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, w io.Writer, _ map[string]any) error {
+	return m.completeStreamFunc(ctx, creds, req, w)
 }
 func (m *MockAdapter) NeedsRefresh(cred *models.Credential) bool { return m.needsRefreshFunc(cred) }
 func (m *MockAdapter) RefreshCredential(ctx context.Context, cred *models.Credential) (map[string]any, error) {
@@ -144,13 +144,13 @@ func (m *MockAdapter) GetModelInfos(ctx context.Context, cred *models.Credential
 }
 
 // WithCompleteFunc configures the Complete behavior.
-func (m *MockAdapter) WithCompleteFunc(f func(context.Context, *models.Credential, *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error)) *MockAdapter {
+func (m *MockAdapter) WithCompleteFunc(f func(context.Context, []*models.Credential, *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error)) *MockAdapter {
 	m.completeFunc = f
 	return m
 }
 
 // WithCompleteStreamFunc configures the CompleteStream behavior.
-func (m *MockAdapter) WithCompleteStreamFunc(f func(context.Context, *models.Credential, *models.ChatCompletionRequest, io.Writer) error) *MockAdapter {
+func (m *MockAdapter) WithCompleteStreamFunc(f func(context.Context, []*models.Credential, *models.ChatCompletionRequest, io.Writer) error) *MockAdapter {
 	m.completeStreamFunc = f
 	return m
 }

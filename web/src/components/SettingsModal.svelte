@@ -34,7 +34,6 @@
   let th = $state<Theme>(theme.value)
   let isClusterNode = $state(false)
   let disableTelemetry = $state(false)
-  let maxRetries = $state(7)
   // Pool settings pass through untouched: no UI controls edit them yet.
   let minDownloadSpeedKbps = $state(15000)
   let maxProxiesPerLocation = $state(10)
@@ -47,7 +46,6 @@
       const cfg = await api.config.get()
       isClusterNode = cfg.is_cluster_node
       disableTelemetry = cfg.disable_telemetry
-      maxRetries = cfg.max_retries
       minDownloadSpeedKbps = cfg.min_download_speed_kbps
       maxProxiesPerLocation = cfg.max_proxies_per_location
       updateIntervalMinutes = cfg.update_interval_minutes
@@ -85,7 +83,6 @@
       await api.config.update({
         is_cluster_node: isClusterNode,
         disable_telemetry: disableTelemetry,
-        max_retries: Number(maxRetries),
         min_download_speed_kbps: minDownloadSpeedKbps,
         max_proxies_per_location: maxProxiesPerLocation,
         update_interval_minutes: updateIntervalMinutes
@@ -151,11 +148,6 @@
     <div class="field-row">
       <span class="field-label">{t('Disable anonymized telemetry')}</span>
       <Switch bind:checked={disableTelemetry} />
-    </div>
-
-    <div class="field">
-      <label for="settings-max-retries">{t('Max retries')}</label>
-      <input id="settings-max-retries" type="number" min="0" max="20" step="1" bind:value={maxRetries} use:squircle={12} />
     </div>
   </section>
 </div>

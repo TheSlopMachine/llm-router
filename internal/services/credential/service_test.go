@@ -23,7 +23,7 @@ func (m *mockAdapter) ValidateCredentials(data map[string]any) error {
 	}
 	return nil
 }
-func (m *mockAdapter) Complete(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest, _ map[string]any) (*models.ChatCompletionResponse, error) {
+func (m *mockAdapter) Complete(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, _ map[string]any) (*models.ChatCompletionResponse, error) {
 	return &models.ChatCompletionResponse{
 		ID:      "mock-" + fmt.Sprintf("%d", time.Now().Unix()),
 		Object:  "chat.completion",
@@ -41,7 +41,7 @@ func (m *mockAdapter) Complete(ctx context.Context, cred *models.Credential, req
 		},
 	}, nil
 }
-func (m *mockAdapter) CompleteStream(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest, w io.Writer, _ map[string]any) error {
+func (m *mockAdapter) CompleteStream(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, w io.Writer, _ map[string]any) error {
 	chunk := models.StreamChunk{
 		ID:      "mock-stream",
 		Object:  "chat.completion.chunk",

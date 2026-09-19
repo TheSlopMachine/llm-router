@@ -32,10 +32,10 @@ func (a *modelInfoTestAdapter) ValidateCredentials(data map[string]any) error {
 	}
 	return nil
 }
-func (a *modelInfoTestAdapter) Complete(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest, _ map[string]any) (*models.ChatCompletionResponse, error) {
+func (a *modelInfoTestAdapter) Complete(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, _ map[string]any) (*models.ChatCompletionResponse, error) {
 	return nil, fmt.Errorf("not implemented")
 }
-func (a *modelInfoTestAdapter) CompleteStream(ctx context.Context, cred *models.Credential, req *models.ChatCompletionRequest, w io.Writer, _ map[string]any) error {
+func (a *modelInfoTestAdapter) CompleteStream(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, w io.Writer, _ map[string]any) error {
 	return fmt.Errorf("not implemented")
 }
 func (a *modelInfoTestAdapter) NeedsRefresh(cred *models.Credential) bool { return false }

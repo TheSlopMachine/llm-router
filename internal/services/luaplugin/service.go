@@ -91,6 +91,9 @@ type Service struct {
 
 	onChanged func(typeKey string)
 
+	// usage records per-credential outcomes for pool calls (nil = disabled).
+	usage UsageTracker
+
 	// proxyResolver returns the ordered proxy picks for a plugin call
 	// (nil/empty = direct).
 	proxyResolver func(rec *PluginRecord, providerConfig map[string]any) ([]ProxyPick, error)

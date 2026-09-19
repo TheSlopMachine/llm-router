@@ -69,7 +69,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	providerSvc := provider.NewService(database)
 	providerSvc.SetLogger(logger)
 	providerSvc.SetLuaService(luaSvc)
-	providerSvc.RegisterGoAdapter(&generic.Adapter{})
+	genericAdapter := &generic.Adapter{}
+	providerSvc.RegisterGoAdapter(genericAdapter)
 	virtualAdapter := &virtualadapter.Adapter{}
 	providerSvc.RegisterGoAdapter(virtualAdapter)
 	if err := providerSvc.EnsureSeeded(); err != nil {
@@ -90,7 +91,9 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		return nil, fmt.Errorf("seed built-in plugin repos: %w", err)
 	}
 	routerCfg, _ := configSvc.Get()
-	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, routerCfg.MaxRetries, logger)
+	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, logger)
+	luaSvc.SetUsageTracker(credSvc)
+	genericAdapter.SetUsageTracker(credSvc)
 
 	// Proxy subsystem: pool, plugin proxy resolution, pair outcome reports.
 	proxySvc := proxypool.New(database)
@@ -125,7 +128,6 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	maintSvc.SetProxyTickInterval(proxyTickInterval(routerCfg))
 	maintSvc.SetModelInfoService(modelInfoSvc)
 	configSvc.SetOnChanged(func(cfg models.RouterConfiguration) {
-		routerSvc.SetMaxRetries(cfg.MaxRetries)
 		proxySvc.SetConfig(cfg.MinDownloadSpeedKbps, cfg.MaxProxiesPerLocation)
 		maintSvc.SetProxyTickInterval(proxyTickInterval(cfg))
 	})

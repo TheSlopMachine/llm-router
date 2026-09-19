@@ -308,8 +308,8 @@ llm_router.register("crash-type", {
 	if !ok {
 		t.Fatalf("expected PluginInternalError, got %T (%v)", err, err)
 	}
-	if !perr.Retryable() {
-		t.Fatal("plugin crash must be retryable")
+	if perr.Cause == "" {
+		t.Fatal("plugin crash must carry a cause")
 	}
 	if len(svc.Crashes("manual/a/P")) == 0 {
 		t.Fatal("crash must be recorded")

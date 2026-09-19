@@ -12,7 +12,6 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
-	"github.com/TheSlopMachine/llm-router/internal/services/retry"
 	"github.com/TheSlopMachine/llm-router/internal/services/router"
 	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
 )
@@ -123,7 +122,7 @@ func (a *Adapter) ValidateCredentials(data map[string]any) error {
 
 func (a *Adapter) Complete(
 	ctx context.Context,
-	cred *models.Credential,
+	creds []*models.Credential,
 	req *models.ChatCompletionRequest,
 	_ map[string]any,
 ) (*models.ChatCompletionResponse, error) {
@@ -138,34 +137,37 @@ func (a *Adapter) Complete(
 	}
 	logger := a.getLogger()
 
-	candidates := make([]retry.Candidate[*models.ChatCompletionResponse], 0, len(agent.Models))
+	// Fall-through queue, not retries: each member is tried at most once, in
+	// list order. The first success wins; otherwise the last error is
+	// returned as-is.
+	var lastErr error
 	for _, agentModel := range agent.Models {
-		agentModel := agentModel
-		candidates = append(candidates, retry.Candidate[*models.ChatCompletionResponse]{
-			Label: string(agentModel.ModelID),
-			Run: func(ctx context.Context) (*models.ChatCompletionResponse, error) {
-				modelReq := *modifiedReq
-				modelReq.Model = agentModel.ModelID
-				logger.Info("virtual model trying model",
-					"virtual_model", agent.Name,
-					"model", agentModel.ModelID)
-				resp, err := routerSvc.Complete(ctx, &modelReq, nil)
-				if err == nil {
-					logger.Info("virtual model request succeeded",
-						"virtual_model", agent.Name,
-						"model", agentModel.ModelID)
-				}
-				return resp, err
-			},
-		})
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		modelReq := *modifiedReq
+		modelReq.Model = agentModel.ModelID
+		logger.Info("virtual model trying model",
+			"virtual_model", agent.Name,
+			"model", agentModel.ModelID)
+		resp, err := routerSvc.Complete(ctx, &modelReq, nil)
+		if err == nil {
+			logger.Info("virtual model request succeeded",
+				"virtual_model", agent.Name,
+				"model", agentModel.ModelID)
+			return resp, nil
+		}
+		lastErr = err
 	}
-
-	return retry.Run(ctx, candidates, logger)
+	if lastErr == nil {
+		return nil, fmt.Errorf("virtual model %q has no models to try", agent.Name)
+	}
+	return nil, lastErr
 }
 
 func (a *Adapter) CompleteStream(
 	ctx context.Context,
-	cred *models.Credential,
+	creds []*models.Credential,
 	req *models.ChatCompletionRequest,
 	w io.Writer,
 	_ map[string]any,
@@ -181,23 +183,28 @@ func (a *Adapter) CompleteStream(
 	}
 	logger := a.getLogger()
 
-	candidates := make([]retry.StreamCandidate, 0, len(agent.Models))
+	// Same fall-through queue as Complete: attempts continue even after
+	// partial writes, members are interchangeable by advertised capabilities.
+	var lastErr error
 	for _, agentModel := range agent.Models {
-		agentModel := agentModel
-		candidates = append(candidates, retry.StreamCandidate{
-			Label: string(agentModel.ModelID),
-			Run: func(ctx context.Context, w io.Writer) error {
-				modelReq := *modifiedReq
-				modelReq.Model = agentModel.ModelID
-				logger.Info("virtual model trying model (stream)",
-					"virtual_model", agent.Name,
-					"model", agentModel.ModelID)
-				return routerSvc.CompleteStream(ctx, &modelReq, w, nil)
-			},
-		})
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		modelReq := *modifiedReq
+		modelReq.Model = agentModel.ModelID
+		logger.Info("virtual model trying model (stream)",
+			"virtual_model", agent.Name,
+			"model", agentModel.ModelID)
+		if err := routerSvc.CompleteStream(ctx, &modelReq, w, nil); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
 	}
-
-	return retry.RunStream(ctx, candidates, w, logger)
+	if lastErr == nil {
+		return fmt.Errorf("virtual model %q has no models to try", agent.Name)
+	}
+	return lastErr
 }
 
 func (a *Adapter) NeedsRefresh(cred *models.Credential) bool {

@@ -183,9 +183,10 @@ type ChatToolFunction struct {
 }
 
 type ChatToolCall struct {
-	ID       string           `json:"id,omitempty"`
-	Type     string           `json:"type,omitempty"`
-	Function ChatToolFunction `json:"function"`
+	ID           string                 `json:"id,omitempty"`
+	Type         string                 `json:"type,omitempty"`
+	Function     ChatToolFunction       `json:"function"`
+	ExtraContent map[string]interface{} `json:"extra_content,omitempty"`
 }
 
 type ChatTool struct {
@@ -770,18 +771,18 @@ type ModelOverride struct {
 // Provider errors
 // ─────────────────────────────────────────────
 
-// ErrorType classifies provider errors for retry logic.
+// ErrorType classifies provider errors for key iteration inside backends.
 type ErrorType int
 
 const (
 	ErrorTypeUnknown        ErrorType = iota
-	ErrorTypeRateLimit                // Temporary rate limit, rotate credential
+	ErrorTypeRateLimit                // Temporary rate limit on this key
 	ErrorTypeQuotaExceeded            // Credential quota exhausted, deprioritize (MUST have RetryAfter)
 	ErrorTypeAuth                     // Auth failure, credential may be invalid
-	ErrorTypeUpstream                 // Transient upstream failure (5xx, overload), retry the next candidate
-	ErrorTypeTimeout                  // Transient timeout, retry the next candidate
-	ErrorTypeInvalidRequest           // Invalid request, don't retry
-	ErrorTypeGeo                      // Geo-blocked upstream; blocks the proxy for this provider
+	ErrorTypeUpstream                 // Transient upstream failure (5xx, overload)
+	ErrorTypeTimeout                  // Transient timeout
+	ErrorTypeInvalidRequest           // Invalid request
+	ErrorTypeGeo                      // Geo-blocked upstream; proxy used is at fault, mark it bad
 )
 
 // ProviderError represents errors returned by provider backends.
@@ -796,23 +797,7 @@ func (e *ProviderError) Error() string {
 	return fmt.Sprintf("provider error (%d): %s", e.StatusCode, e.Message)
 }
 
-// IsRetryable reports whether this error moves the retry engine to the next
-// candidate (credential rotation, virtual-model fall-through). Transient
-// failures are retryable; request/auth/geo problems are terminal.
-func (e *ProviderError) IsRetryable() bool {
-	switch e.Type {
-	case ErrorTypeRateLimit, ErrorTypeQuotaExceeded, ErrorTypeUpstream, ErrorTypeTimeout:
-		return true
-	default:
-		return false
-	}
-}
-
-// Retryable reports the same as IsRetryable to satisfy retry.Classifiable.
-func (e *ProviderError) Retryable() bool { return e.IsRetryable() }
-
 // PluginInternalError is a caught Lua failure at the Go/Lua boundary.
-// Always retryable: the retry engine moves to the next candidate.
 type PluginInternalError struct {
 	PluginID string
 	TypeKey  string
@@ -825,9 +810,6 @@ func (e *PluginInternalError) Error() string {
 	}
 	return fmt.Sprintf("plugin %q internal error: %s", e.PluginID, e.Cause)
 }
-
-// Retryable always returns true for plugin crashes.
-func (e *PluginInternalError) Retryable() bool { return true }
 
 // ─────────────────────────────────────────────
 // Admin
@@ -1332,7 +1314,6 @@ type ErrorResponse struct {
 type RouterConfiguration struct {
 	IsClusterNode    bool `json:"is_cluster_node"`
 	DisableTelemetry bool `json:"disable_telemetry"`
-	MaxRetries       int  `json:"max_retries"`
 	// MinDownloadSpeedKbps floors the pooled proxy download speed. Slower
 	// proxies are displaced once their location holds more than
 	// MaxProxiesPerLocation.
@@ -1353,9 +1334,6 @@ const (
 
 // Validate checks the configuration ranges.
 func (c RouterConfiguration) Validate() error {
-	if c.MaxRetries < 0 || c.MaxRetries > 20 {
-		return fmt.Errorf("max_retries must be between 0 and 20")
-	}
 	if c.MinDownloadSpeedKbps <= 0 {
 		return fmt.Errorf("min_download_speed_kbps must be positive")
 	}

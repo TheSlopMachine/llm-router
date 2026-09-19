@@ -45,7 +45,7 @@ func setupVirtualStack(t *testing.T) (*router.Service, *virtual.Service, *creden
 
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 	virtualSvc := virtual.New(database, providerSvc, modelInfoSvc)
-	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, 3, slog.Default())
+	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, slog.Default())
 
 	virtualAdapter := &virtualadapter.Adapter{}
 	virtualAdapter.SetRouterService(routerSvc)
@@ -99,6 +99,70 @@ func TestRouterVirtualStreamWithoutCredentials(t *testing.T) {
 
 	if err := routerSvc.CompleteStream(context.Background(), virtualRequest("virtual/e2e"), io.Discard, nil); err != nil {
 		t.Fatalf("stream failed: %v", err)
+	}
+}
+
+func TestRouterVirtualFallsThroughToSecondModel(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+
+	providerSvc := provider.NewService(database)
+	mock := testutil.NewMockAdapter("mock").WithCompleteFunc(
+		func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+			if req.Model == "mock/bad-model" {
+				return nil, &models.ProviderError{StatusCode: 502, Type: models.ErrorTypeUpstream, Message: "overloaded"}
+			}
+			return &models.ChatCompletionResponse{
+				ID:      "second-ok",
+				Object:  "chat.completion",
+				Created: time.Now().Unix(),
+				Model:   string(req.Model),
+				Choices: []models.ChatCompletionChoice{{Index: 0, Message: models.ChatMessage{Role: "assistant", Content: "ok"}, FinishReason: "stop"}},
+			}, nil
+		})
+	providerSvc.RegisterGoAdapter(mock)
+	if _, err := providerSvc.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
+		t.Fatalf("create mock provider: %v", err)
+	}
+	if _, err := providerSvc.Create(provider.CreateOptions{Name: "Virtual models", TypeKey: provider.TypeVirtual}); err != nil {
+		t.Fatalf("create virtual provider: %v", err)
+	}
+
+	credSvc := credential.New(database, providerSvc)
+	if _, err := credSvc.Add(credential.AddOptions{
+		ProviderID: "mock",
+		Label:      "member cred",
+		Data:       map[string]any{"api_key": "test-key"},
+	}); err != nil {
+		t.Fatalf("add member credential: %v", err)
+	}
+
+	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
+	virtualSvc := virtual.New(database, providerSvc, modelInfoSvc)
+	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, slog.Default())
+
+	virtualAdapter := &virtualadapter.Adapter{}
+	virtualAdapter.SetRouterService(routerSvc)
+	virtualAdapter.SetVirtualService(virtualSvc)
+	virtualAdapter.SetLogger(slog.Default())
+	providerSvc.RegisterGoAdapter(virtualAdapter)
+
+	vm := &models.VirtualModel{
+		Name: "Fallthrough",
+		Models: []models.VirtualModelEntry{
+			{ModelID: "mock/bad-model"},
+			{ModelID: "mock/good-model"},
+		},
+	}
+	if err := virtualSvc.Create(vm); err != nil {
+		t.Fatalf("create virtual model: %v", err)
+	}
+
+	resp, err := routerSvc.Complete(context.Background(), virtualRequest("virtual/fallthrough"), nil)
+	if err != nil {
+		t.Fatalf("complete failed: %v", err)
+	}
+	if string(resp.Model) != "mock/good-model" {
+		t.Errorf("response model: got %q, want %q", resp.Model, "mock/good-model")
 	}
 }
 

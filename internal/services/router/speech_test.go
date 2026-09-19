@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"testing"
 	"time"
@@ -19,24 +20,24 @@ import (
 type speechMockAdapter struct {
 	mockAdapter
 	infos      []models.ModelInfo
-	speechFunc func(context.Context, *models.Credential, *models.SpeechRequest) (*models.SpeechResponse, error)
-	imageFunc  func(context.Context, *models.Credential, *models.ImageGenerationRequest) (*models.ImageGenerationResponse, error)
+	speechFunc func(context.Context, []*models.Credential, *models.SpeechRequest) (*models.SpeechResponse, error)
+	imageFunc  func(context.Context, []*models.Credential, *models.ImageGenerationRequest) (*models.ImageGenerationResponse, error)
 }
 
 func (m *speechMockAdapter) GetModelInfos(ctx context.Context, cred *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {
 	return m.infos, nil
 }
 
-func (m *speechMockAdapter) Speech(ctx context.Context, cred *models.Credential, req *models.SpeechRequest, _ map[string]any) (*models.SpeechResponse, error) {
+func (m *speechMockAdapter) Speech(ctx context.Context, creds []*models.Credential, req *models.SpeechRequest, _ map[string]any) (*models.SpeechResponse, error) {
 	if m.speechFunc != nil {
-		return m.speechFunc(ctx, cred, req)
+		return m.speechFunc(ctx, creds, req)
 	}
 	return &models.SpeechResponse{Audio: []byte("AUDIO"), Format: "mp3"}, nil
 }
 
-func (m *speechMockAdapter) GenerateImage(ctx context.Context, cred *models.Credential, req *models.ImageGenerationRequest, _ map[string]any) (*models.ImageGenerationResponse, error) {
+func (m *speechMockAdapter) GenerateImage(ctx context.Context, creds []*models.Credential, req *models.ImageGenerationRequest, _ map[string]any) (*models.ImageGenerationResponse, error) {
 	if m.imageFunc != nil {
-		return m.imageFunc(ctx, cred, req)
+		return m.imageFunc(ctx, creds, req)
 	}
 	return &models.ImageGenerationResponse{
 		Created: 1700000001,
@@ -44,7 +45,7 @@ func (m *speechMockAdapter) GenerateImage(ctx context.Context, cred *models.Cred
 	}, nil
 }
 
-func setupSpeechRouter(t *testing.T, maxRetries int) (*Service, *credential.Service, *modelinfo.Service, *speechMockAdapter) {
+func setupSpeechRouter(t *testing.T) (*Service, *credential.Service, *modelinfo.Service, *speechMockAdapter) {
 	t.Helper()
 	database := testutil.SetupTestDB(t)
 
@@ -57,7 +58,7 @@ func setupSpeechRouter(t *testing.T, maxRetries int) (*Service, *credential.Serv
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 
-	return New(providerSvc, credSvc, modelInfoSvc, maxRetries, slog.Default()), credSvc, modelInfoSvc, mock
+	return New(providerSvc, credSvc, modelInfoSvc, slog.Default()), credSvc, modelInfoSvc, mock
 }
 
 func speechReq(model string) *models.SpeechRequest {
@@ -69,7 +70,7 @@ func imageReq(model string) *models.ImageGenerationRequest {
 }
 
 func TestRouterService_Speech_Success(t *testing.T) {
-	svc, credSvc, _, _ := setupSpeechRouter(t, 3)
+	svc, credSvc, _, _ := setupSpeechRouter(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 
 	resp, err := svc.Speech(context.Background(), speechReq("mock/gemini-tts"), nil)
@@ -82,7 +83,7 @@ func TestRouterService_Speech_Success(t *testing.T) {
 }
 
 func TestRouterService_Speech_UnsupportedAdapter(t *testing.T) {
-	svc, credSvc, _ := setupRouterService(t, 3)
+	svc, credSvc, _ := setupRouterService(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 
 	_, err := svc.Speech(context.Background(), speechReq("mock/test-model"), nil)
@@ -92,7 +93,7 @@ func TestRouterService_Speech_UnsupportedAdapter(t *testing.T) {
 }
 
 func TestRouterService_Speech_ModelGateRejects(t *testing.T) {
-	svc, credSvc, modelInfoSvc, mock := setupSpeechRouter(t, 3)
+	svc, credSvc, modelInfoSvc, mock := setupSpeechRouter(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 	mock.infos = []models.ModelInfo{
 		{Name: "chat-model", DisplayName: "Chat", Endpoints: []string{models.EndpointChatCompletions}},
@@ -108,7 +109,7 @@ func TestRouterService_Speech_ModelGateRejects(t *testing.T) {
 }
 
 func TestRouterService_Speech_ModelGateAllowsAndBlocksChat(t *testing.T) {
-	svc, credSvc, modelInfoSvc, mock := setupSpeechRouter(t, 3)
+	svc, credSvc, modelInfoSvc, mock := setupSpeechRouter(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 	mock.infos = []models.ModelInfo{
 		{Name: "tts-model", DisplayName: "TTS", Endpoints: []string{models.EndpointAudioSpeech}},
@@ -130,22 +131,14 @@ func TestRouterService_Speech_ModelGateAllowsAndBlocksChat(t *testing.T) {
 	}
 }
 
-func TestRouterService_Speech_RateLimitRotates(t *testing.T) {
-	svc, credSvc, _, mock := setupSpeechRouter(t, 3)
+func TestRouterService_Speech_PassesPoolToBackend(t *testing.T) {
+	svc, credSvc, _, mock := setupSpeechRouter(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 	addTranscribeCred(t, credSvc, "Cred 2")
 
-	firstCall := true
-	mock.speechFunc = func(ctx context.Context, cred *models.Credential, req *models.SpeechRequest) (*models.SpeechResponse, error) {
-		if firstCall {
-			firstCall = false
-			resetAt := time.Now().Add(60 * time.Second)
-			return nil, &models.ProviderError{
-				StatusCode: 429,
-				Message:    "rate limit exceeded",
-				Type:       models.ErrorTypeRateLimit,
-				RetryAfter: &resetAt,
-			}
+	mock.speechFunc = func(ctx context.Context, creds []*models.Credential, req *models.SpeechRequest) (*models.SpeechResponse, error) {
+		if len(creds) != 2 {
+			return nil, fmt.Errorf("expected 2-credential pool, got %d", len(creds))
 		}
 		return &models.SpeechResponse{Audio: []byte("SECOND"), Format: "mp3"}, nil
 	}
@@ -160,7 +153,7 @@ func TestRouterService_Speech_RateLimitRotates(t *testing.T) {
 }
 
 func TestRouterService_GenerateImage_Success(t *testing.T) {
-	svc, credSvc, _, _ := setupSpeechRouter(t, 3)
+	svc, credSvc, _, _ := setupSpeechRouter(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 
 	resp, err := svc.GenerateImage(context.Background(), imageReq("mock/imagen-3"), nil)
@@ -173,7 +166,7 @@ func TestRouterService_GenerateImage_Success(t *testing.T) {
 }
 
 func TestRouterService_GenerateImage_UnsupportedAdapter(t *testing.T) {
-	svc, credSvc, _ := setupRouterService(t, 3)
+	svc, credSvc, _ := setupRouterService(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 
 	_, err := svc.GenerateImage(context.Background(), imageReq("mock/test-model"), nil)
@@ -183,7 +176,7 @@ func TestRouterService_GenerateImage_UnsupportedAdapter(t *testing.T) {
 }
 
 func TestRouterService_GenerateImage_ModelGateRejects(t *testing.T) {
-	svc, credSvc, modelInfoSvc, mock := setupSpeechRouter(t, 3)
+	svc, credSvc, modelInfoSvc, mock := setupSpeechRouter(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 	mock.infos = []models.ModelInfo{
 		{Name: "chat-model", DisplayName: "Chat", Endpoints: []string{models.EndpointChatCompletions}},
@@ -199,7 +192,7 @@ func TestRouterService_GenerateImage_ModelGateRejects(t *testing.T) {
 }
 
 func TestRouterService_GenerateImage_ModelGateAllows(t *testing.T) {
-	svc, credSvc, modelInfoSvc, mock := setupSpeechRouter(t, 3)
+	svc, credSvc, modelInfoSvc, mock := setupSpeechRouter(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 	mock.infos = []models.ModelInfo{
 		{Name: "image-model", DisplayName: "Image", Endpoints: []string{models.EndpointImagesGenerations}},
@@ -221,16 +214,16 @@ func TestRouterService_GenerateImage_ModelGateAllows(t *testing.T) {
 type embedMockAdapter struct {
 	mockAdapter
 	infos     []models.ModelInfo
-	embedFunc func(context.Context, *models.Credential, *models.EmbeddingsRequest) (*models.EmbeddingsResponse, error)
+	embedFunc func(context.Context, []*models.Credential, *models.EmbeddingsRequest) (*models.EmbeddingsResponse, error)
 }
 
 func (m *embedMockAdapter) GetModelInfos(ctx context.Context, cred *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {
 	return m.infos, nil
 }
 
-func (m *embedMockAdapter) Embed(ctx context.Context, cred *models.Credential, req *models.EmbeddingsRequest, _ map[string]any) (*models.EmbeddingsResponse, error) {
+func (m *embedMockAdapter) Embed(ctx context.Context, creds []*models.Credential, req *models.EmbeddingsRequest, _ map[string]any) (*models.EmbeddingsResponse, error) {
 	if m.embedFunc != nil {
-		return m.embedFunc(ctx, cred, req)
+		return m.embedFunc(ctx, creds, req)
 	}
 	data := make([]models.Embedding, len(req.Input))
 	for i := range req.Input {
@@ -239,7 +232,7 @@ func (m *embedMockAdapter) Embed(ctx context.Context, cred *models.Credential, r
 	return &models.EmbeddingsResponse{Data: data}, nil
 }
 
-func setupEmbedRouter(t *testing.T, maxRetries int) (*Service, *credential.Service, *modelinfo.Service, *embedMockAdapter) {
+func setupEmbedRouter(t *testing.T) (*Service, *credential.Service, *modelinfo.Service, *embedMockAdapter) {
 	t.Helper()
 	database := testutil.SetupTestDB(t)
 
@@ -252,7 +245,7 @@ func setupEmbedRouter(t *testing.T, maxRetries int) (*Service, *credential.Servi
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 
-	return New(providerSvc, credSvc, modelInfoSvc, maxRetries, slog.Default()), credSvc, modelInfoSvc, mock
+	return New(providerSvc, credSvc, modelInfoSvc, slog.Default()), credSvc, modelInfoSvc, mock
 }
 
 func embedReq(model string) *models.EmbeddingsRequest {
@@ -260,7 +253,7 @@ func embedReq(model string) *models.EmbeddingsRequest {
 }
 
 func TestRouterService_Embed_Success(t *testing.T) {
-	svc, credSvc, _, _ := setupEmbedRouter(t, 3)
+	svc, credSvc, _, _ := setupEmbedRouter(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 
 	resp, err := svc.Embed(context.Background(), embedReq("mock/gemini-embedding-001"), nil)
@@ -273,7 +266,7 @@ func TestRouterService_Embed_Success(t *testing.T) {
 }
 
 func TestRouterService_Embed_UnsupportedAdapter(t *testing.T) {
-	svc, credSvc, _ := setupRouterService(t, 3)
+	svc, credSvc, _ := setupRouterService(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 
 	_, err := svc.Embed(context.Background(), embedReq("mock/test-model"), nil)
@@ -283,7 +276,7 @@ func TestRouterService_Embed_UnsupportedAdapter(t *testing.T) {
 }
 
 func TestRouterService_Embed_ModelGateRejects(t *testing.T) {
-	svc, credSvc, modelInfoSvc, mock := setupEmbedRouter(t, 3)
+	svc, credSvc, modelInfoSvc, mock := setupEmbedRouter(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 	mock.infos = []models.ModelInfo{
 		{Name: "chat-model", DisplayName: "Chat", Endpoints: []string{models.EndpointChatCompletions}},
@@ -299,7 +292,7 @@ func TestRouterService_Embed_ModelGateRejects(t *testing.T) {
 }
 
 func TestRouterService_Embed_ModelGateAllowsAndBlocksChat(t *testing.T) {
-	svc, credSvc, modelInfoSvc, mock := setupEmbedRouter(t, 3)
+	svc, credSvc, modelInfoSvc, mock := setupEmbedRouter(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 	mock.infos = []models.ModelInfo{
 		{Name: "emb-model", DisplayName: "Emb", Endpoints: []string{models.EndpointEmbeddings}},
@@ -321,22 +314,14 @@ func TestRouterService_Embed_ModelGateAllowsAndBlocksChat(t *testing.T) {
 	}
 }
 
-func TestRouterService_Embed_RateLimitRotates(t *testing.T) {
-	svc, credSvc, _, mock := setupEmbedRouter(t, 3)
+func TestRouterService_Embed_PassesPoolToBackend(t *testing.T) {
+	svc, credSvc, _, mock := setupEmbedRouter(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 	addTranscribeCred(t, credSvc, "Cred 2")
 
-	firstCall := true
-	mock.embedFunc = func(ctx context.Context, cred *models.Credential, req *models.EmbeddingsRequest) (*models.EmbeddingsResponse, error) {
-		if firstCall {
-			firstCall = false
-			resetAt := time.Now().Add(60 * time.Second)
-			return nil, &models.ProviderError{
-				StatusCode: 429,
-				Message:    "rate limit exceeded",
-				Type:       models.ErrorTypeRateLimit,
-				RetryAfter: &resetAt,
-			}
+	mock.embedFunc = func(ctx context.Context, creds []*models.Credential, req *models.EmbeddingsRequest) (*models.EmbeddingsResponse, error) {
+		if len(creds) != 2 {
+			return nil, fmt.Errorf("expected 2-credential pool, got %d", len(creds))
 		}
 		return &models.EmbeddingsResponse{
 			Data: []models.Embedding{{Index: 0, Values: []float64{9.9}}, {Index: 1, Values: []float64{8.8}}},
@@ -348,6 +333,6 @@ func TestRouterService_Embed_RateLimitRotates(t *testing.T) {
 		t.Fatalf("embed failed: %v", err)
 	}
 	if resp.Data[0].Values[0] != 9.9 {
-		t.Fatalf("expected rotation to second credential, got %+v", resp.Data[0])
+		t.Fatalf("expected backend response, got %+v", resp.Data[0])
 	}
 }
