@@ -288,8 +288,8 @@ func TestRouterService_Complete_AuthErrorNoRetry(t *testing.T) {
 	}
 }
 
-func TestRouterService_Complete_UpstreamErrorNoRetry(t *testing.T) {
-	svc, credSvc, mock := setupRouterService(t, 3)
+func TestRouterService_Complete_UpstreamErrorRetries(t *testing.T) {
+	svc, credSvc, mock := setupRouterService(t, 1)
 
 	credSvc.Add(credential.AddOptions{
 		ProviderID: "mock",
@@ -315,8 +315,8 @@ func TestRouterService_Complete_UpstreamErrorNoRetry(t *testing.T) {
 		t.Error("expected error for upstream failure, got nil")
 	}
 
-	if *mock.callCount != 1 {
-		t.Errorf("expected 1 call (no retry on upstream error), got %d", *mock.callCount)
+	if *mock.callCount != 2 {
+		t.Errorf("expected 2 calls (one retry cycle on upstream error), got %d", *mock.callCount)
 	}
 }
 
@@ -367,7 +367,7 @@ func TestRouterService_Complete_UpdatesUsageOnFailure(t *testing.T) {
 		return nil, &models.ProviderError{
 			StatusCode: 400,
 			Message:    "bad request",
-			Type:       models.ErrorTypeUpstream,
+			Type:       models.ErrorTypeInvalidRequest,
 		}
 	}
 

@@ -776,8 +776,8 @@ const (
 	ErrorTypeRateLimit                // Temporary rate limit, rotate credential
 	ErrorTypeQuotaExceeded            // Credential quota exhausted, deprioritize (MUST have RetryAfter)
 	ErrorTypeAuth                     // Auth failure, credential may be invalid
-	ErrorTypeUpstream                 // Upstream error, don't retry
-	ErrorTypeTimeout                  // Timeout, may retry
+	ErrorTypeUpstream                 // Transient upstream failure (5xx, overload), retry the next candidate
+	ErrorTypeTimeout                  // Transient timeout, retry the next candidate
 	ErrorTypeInvalidRequest           // Invalid request, don't retry
 	ErrorTypeGeo                      // Geo-blocked upstream; proxy used is at fault, mark it bad
 )
@@ -794,9 +794,16 @@ func (e *ProviderError) Error() string {
 	return fmt.Sprintf("provider error (%d): %s", e.StatusCode, e.Message)
 }
 
-// IsRetryable reports whether this error triggers credential rotation.
+// IsRetryable reports whether this error moves the retry engine to the next
+// candidate (credential rotation, virtual-model fall-through). Transient
+// failures are retryable; request/auth/geo problems are terminal.
 func (e *ProviderError) IsRetryable() bool {
-	return e.Type == ErrorTypeRateLimit || e.Type == ErrorTypeQuotaExceeded
+	switch e.Type {
+	case ErrorTypeRateLimit, ErrorTypeQuotaExceeded, ErrorTypeUpstream, ErrorTypeTimeout:
+		return true
+	default:
+		return false
+	}
 }
 
 // Retryable reports the same as IsRetryable to satisfy retry.Classifiable.

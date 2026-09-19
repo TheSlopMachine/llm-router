@@ -67,6 +67,98 @@ func (s *Service) getMaxRetries() int {
 	return n
 }
 
+// cycleBudget caps the backoff cycle budget per error class. Rate limits and
+// quota exhaustions recover by waiting, so they ride the full configured
+// series; overloads and timeouts recover through the next candidate rather
+// than through waiting, so they get at most two backoff cycles (~3s).
+func (s *Service) cycleBudget(err error) int {
+	var perr *models.ProviderError
+	if errors.As(err, &perr) && (perr.Type == models.ErrorTypeUpstream || perr.Type == models.ErrorTypeTimeout) {
+		return min(s.getMaxRetries(), 2)
+	}
+	return s.getMaxRetries()
+}
+
+// backoffSleep waits out one exponential cycle delay.
+func (s *Service) backoffSleep(ctx context.Context, cycle int) error {
+	delay := time.Duration(1<<(cycle-1)) * time.Second
+	s.logger.Warn("retry candidates exhausted, backing off", "cycle", cycle, "delay", delay)
+	select {
+	case <-time.After(delay):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// retryCycles executes build over the credential pool, re-running through
+// backoff cycles on retryable failures; the cycle budget depends on the
+// error class (cycleBudget).
+func retryCycles[T any](
+	s *Service,
+	ctx context.Context,
+	creds []*models.Credential,
+	reload func() ([]*models.Credential, error),
+	build func(creds []*models.Credential) []retry.Candidate[T],
+) (T, error) {
+	var zero T
+	for cycle := 0; ; cycle++ {
+		if cycle > 0 {
+			if err := s.backoffSleep(ctx, cycle); err != nil {
+				return zero, err
+			}
+			var err error
+			creds, err = reload()
+			if err != nil {
+				return zero, err
+			}
+		}
+		resp, err := retry.Run(ctx, build(creds), s.logger)
+		if err == nil {
+			return resp, nil
+		}
+		if !retry.Classify(err) {
+			return zero, err
+		}
+		if cycle >= s.cycleBudget(err) {
+			return zero, err
+		}
+	}
+}
+
+// retryCyclesStream is retryCycles for streaming endpoints.
+func retryCyclesStream(
+	s *Service,
+	ctx context.Context,
+	w io.Writer,
+	creds []*models.Credential,
+	reload func() ([]*models.Credential, error),
+	build func(creds []*models.Credential) []retry.StreamCandidate,
+) error {
+	for cycle := 0; ; cycle++ {
+		if cycle > 0 {
+			if err := s.backoffSleep(ctx, cycle); err != nil {
+				return err
+			}
+			var err error
+			creds, err = reload()
+			if err != nil {
+				return err
+			}
+		}
+		err := retry.RunStream(ctx, build(creds), w, s.logger)
+		if err == nil {
+			return nil
+		}
+		if !retry.Classify(err) {
+			return err
+		}
+		if cycle >= s.cycleBudget(err) {
+			return err
+		}
+	}
+}
+
 // filterCredentials filters the credential list according to token rules.
 // A nil token means no restriction (e.g. internal agent calls).
 func (s *Service) filterCredentials(creds []*models.Credential, token *models.RouterToken) []*models.Credential {
@@ -199,34 +291,13 @@ func (s *Service) Complete(
 	if err != nil {
 		return nil, err
 	}
-	maxRetries := s.getMaxRetries()
-	for cycle := 0; cycle <= maxRetries; cycle++ {
-		if cycle > 0 {
-			delay := time.Duration(1<<(cycle-1)) * time.Second
-			s.logger.Warn("all credentials rate limited, backing off",
-				"cycle", cycle, "max", maxRetries, "delay", delay)
-			select {
-			case <-time.After(delay):
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
-			creds, err = s.loadCredentials(resolved.Instance, token)
-			if err != nil {
-				return nil, err
-			}
-		}
-		resp, err := retry.Run(ctx, s.buildCandidates(ctx, resolved, creds, req), s.logger)
-		if err == nil {
-			return resp, nil
-		}
-		if !retry.Classify(err) {
-			return nil, err
-		}
-		if cycle == maxRetries {
-			return nil, err
-		}
+	reload := func() ([]*models.Credential, error) {
+		return s.loadCredentials(resolved.Instance, token)
 	}
-	return nil, fmt.Errorf("all credentials exhausted after %d retries", maxRetries)
+	build := func(creds []*models.Credential) []retry.Candidate[*models.ChatCompletionResponse] {
+		return s.buildCandidates(ctx, resolved, creds, req)
+	}
+	return retryCycles(s, ctx, creds, reload, build)
 }
 
 // CompleteStream routes a streaming chat completion request.
@@ -261,22 +332,10 @@ func (s *Service) CompleteStream(
 	if err != nil {
 		return err
 	}
-	maxRetries := s.getMaxRetries()
-	for cycle := 0; cycle <= maxRetries; cycle++ {
-		if cycle > 0 {
-			delay := time.Duration(1<<(cycle-1)) * time.Second
-			s.logger.Warn("all credentials rate limited, backing off",
-				"cycle", cycle, "max", maxRetries, "delay", delay)
-			select {
-			case <-time.After(delay):
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-			creds, err = s.loadCredentials(resolved.Instance, token)
-			if err != nil {
-				return err
-			}
-		}
+	reload := func() ([]*models.Credential, error) {
+		return s.loadCredentials(resolved.Instance, token)
+	}
+	build := func(creds []*models.Credential) []retry.StreamCandidate {
 		candidates := make([]retry.StreamCandidate, 0, len(creds))
 		for _, cred := range creds {
 			cred := cred
@@ -296,18 +355,9 @@ func (s *Service) CompleteStream(
 				},
 			})
 		}
-		err := retry.RunStream(ctx, candidates, w, s.logger)
-		if err == nil {
-			return nil
-		}
-		if !retry.Classify(err) {
-			return err
-		}
-		if cycle == maxRetries {
-			return err
-		}
+		return candidates
 	}
-	return fmt.Errorf("all credentials exhausted after %d retries", maxRetries)
+	return retryCyclesStream(s, ctx, w, creds, reload, build)
 }
 
 // transcribeOne runs a single transcription attempt against one credential.
@@ -366,22 +416,10 @@ func (s *Service) Transcribe(
 	if err != nil {
 		return nil, err
 	}
-	maxRetries := s.getMaxRetries()
-	for cycle := 0; cycle <= maxRetries; cycle++ {
-		if cycle > 0 {
-			delay := time.Duration(1<<(cycle-1)) * time.Second
-			s.logger.Warn("all credentials rate limited, backing off",
-				"cycle", cycle, "max", maxRetries, "delay", delay)
-			select {
-			case <-time.After(delay):
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
-			creds, err = s.loadCredentials(resolved.Instance, token)
-			if err != nil {
-				return nil, err
-			}
-		}
+	reload := func() ([]*models.Credential, error) {
+		return s.loadCredentials(resolved.Instance, token)
+	}
+	build := func(creds []*models.Credential) []retry.Candidate[*models.TranscriptionResponse] {
 		candidates := make([]retry.Candidate[*models.TranscriptionResponse], 0, len(creds))
 		for _, cred := range creds {
 			cred := cred
@@ -401,18 +439,9 @@ func (s *Service) Transcribe(
 				},
 			})
 		}
-		resp, err := retry.Run(ctx, candidates, s.logger)
-		if err == nil {
-			return resp, nil
-		}
-		if !retry.Classify(err) {
-			return nil, err
-		}
-		if cycle == maxRetries {
-			return nil, err
-		}
+		return candidates
 	}
-	return nil, fmt.Errorf("all credentials exhausted after %d retries", maxRetries)
+	return retryCycles(s, ctx, creds, reload, build)
 }
 
 // speechOne runs a single speech attempt against one credential.
@@ -471,22 +500,10 @@ func (s *Service) Speech(
 	if err != nil {
 		return nil, err
 	}
-	maxRetries := s.getMaxRetries()
-	for cycle := 0; cycle <= maxRetries; cycle++ {
-		if cycle > 0 {
-			delay := time.Duration(1<<(cycle-1)) * time.Second
-			s.logger.Warn("all credentials rate limited, backing off",
-				"cycle", cycle, "max", maxRetries, "delay", delay)
-			select {
-			case <-time.After(delay):
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
-			creds, err = s.loadCredentials(resolved.Instance, token)
-			if err != nil {
-				return nil, err
-			}
-		}
+	reload := func() ([]*models.Credential, error) {
+		return s.loadCredentials(resolved.Instance, token)
+	}
+	build := func(creds []*models.Credential) []retry.Candidate[*models.SpeechResponse] {
 		candidates := make([]retry.Candidate[*models.SpeechResponse], 0, len(creds))
 		for _, cred := range creds {
 			cred := cred
@@ -506,18 +523,9 @@ func (s *Service) Speech(
 				},
 			})
 		}
-		resp, err := retry.Run(ctx, candidates, s.logger)
-		if err == nil {
-			return resp, nil
-		}
-		if !retry.Classify(err) {
-			return nil, err
-		}
-		if cycle == maxRetries {
-			return nil, err
-		}
+		return candidates
 	}
-	return nil, fmt.Errorf("all credentials exhausted after %d retries", maxRetries)
+	return retryCycles(s, ctx, creds, reload, build)
 }
 
 // generateImageOne runs a single image generation attempt against one credential.
@@ -576,22 +584,10 @@ func (s *Service) GenerateImage(
 	if err != nil {
 		return nil, err
 	}
-	maxRetries := s.getMaxRetries()
-	for cycle := 0; cycle <= maxRetries; cycle++ {
-		if cycle > 0 {
-			delay := time.Duration(1<<(cycle-1)) * time.Second
-			s.logger.Warn("all credentials rate limited, backing off",
-				"cycle", cycle, "max", maxRetries, "delay", delay)
-			select {
-			case <-time.After(delay):
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
-			creds, err = s.loadCredentials(resolved.Instance, token)
-			if err != nil {
-				return nil, err
-			}
-		}
+	reload := func() ([]*models.Credential, error) {
+		return s.loadCredentials(resolved.Instance, token)
+	}
+	build := func(creds []*models.Credential) []retry.Candidate[*models.ImageGenerationResponse] {
 		candidates := make([]retry.Candidate[*models.ImageGenerationResponse], 0, len(creds))
 		for _, cred := range creds {
 			cred := cred
@@ -611,18 +607,9 @@ func (s *Service) GenerateImage(
 				},
 			})
 		}
-		resp, err := retry.Run(ctx, candidates, s.logger)
-		if err == nil {
-			return resp, nil
-		}
-		if !retry.Classify(err) {
-			return nil, err
-		}
-		if cycle == maxRetries {
-			return nil, err
-		}
+		return candidates
 	}
-	return nil, fmt.Errorf("all credentials exhausted after %d retries", maxRetries)
+	return retryCycles(s, ctx, creds, reload, build)
 }
 
 // embedOne runs a single embeddings attempt against one credential.
@@ -681,22 +668,10 @@ func (s *Service) Embed(
 	if err != nil {
 		return nil, err
 	}
-	maxRetries := s.getMaxRetries()
-	for cycle := 0; cycle <= maxRetries; cycle++ {
-		if cycle > 0 {
-			delay := time.Duration(1<<(cycle-1)) * time.Second
-			s.logger.Warn("all credentials rate limited, backing off",
-				"cycle", cycle, "max", maxRetries, "delay", delay)
-			select {
-			case <-time.After(delay):
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
-			creds, err = s.loadCredentials(resolved.Instance, token)
-			if err != nil {
-				return nil, err
-			}
-		}
+	reload := func() ([]*models.Credential, error) {
+		return s.loadCredentials(resolved.Instance, token)
+	}
+	build := func(creds []*models.Credential) []retry.Candidate[*models.EmbeddingsResponse] {
 		candidates := make([]retry.Candidate[*models.EmbeddingsResponse], 0, len(creds))
 		for _, cred := range creds {
 			cred := cred
@@ -716,18 +691,9 @@ func (s *Service) Embed(
 				},
 			})
 		}
-		resp, err := retry.Run(ctx, candidates, s.logger)
-		if err == nil {
-			return resp, nil
-		}
-		if !retry.Classify(err) {
-			return nil, err
-		}
-		if cycle == maxRetries {
-			return nil, err
-		}
+		return candidates
 	}
-	return nil, fmt.Errorf("all credentials exhausted after %d retries", maxRetries)
+	return retryCycles(s, ctx, creds, reload, build)
 }
 
 // GetProviderIDForModel returns the composite provider ID for a given model.

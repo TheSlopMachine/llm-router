@@ -22,8 +22,8 @@ func TestClassify(t *testing.T) {
 		{"rate limit", &models.ProviderError{Type: models.ErrorTypeRateLimit}, true},
 		{"quota", &models.ProviderError{Type: models.ErrorTypeQuotaExceeded, RetryAfter: &retryAfter}, true},
 		{"auth", &models.ProviderError{Type: models.ErrorTypeAuth}, false},
-		{"upstream", &models.ProviderError{Type: models.ErrorTypeUpstream}, false},
-		{"timeout", &models.ProviderError{Type: models.ErrorTypeTimeout}, false},
+		{"upstream", &models.ProviderError{Type: models.ErrorTypeUpstream}, true},
+		{"timeout", &models.ProviderError{Type: models.ErrorTypeTimeout}, true},
 		{"plugin internal", &models.PluginInternalError{PluginID: "x", Cause: "boom"}, true},
 		{"plain", fmt.Errorf("plain"), false},
 	}
