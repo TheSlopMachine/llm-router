@@ -685,11 +685,11 @@
     </div>
     <p class="form-hint proxy-hint">
       {#if proxyMode === 'disabled'}
-        {t('Direct connection, unless the provider\'s plugin forces a proxy on location mismatch.')}
+        {t('Direct connection, no proxying.')}
       {:else if proxyMode === 'auto'}
-        {t('Route through the best pooled proxy matching the plugin\'s location preference.')}
+        {t('Route through the fastest pooled proxy matching the plugin locations.')}
       {:else}
-        {t('Route through the proxies you select below (first alive wins).')}
+        {t('Route through the proxies you select below (first usable wins).')}
       {/if}
     </p>
     {#if proxyMode === 'manual'}
@@ -708,7 +708,7 @@
               onclick={() => { proxyIds = { ...proxyIds, [p.id]: !proxyIds[p.id] }; saveProxyConfig() }}
               use:squircle={8}
             >
-              {p.url}{p.country ? ` · ${p.country}` : ''}{p.alive ? '' : ' · dead'}
+              {p.url}{p.location ? ` · ${p.location}` : ''}
             </button>
           {/each}
         </div>

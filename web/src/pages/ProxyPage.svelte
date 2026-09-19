@@ -14,10 +14,8 @@
   let error = $state('')
 
   let newUrl = $state('')
-  let newCountry = $state('')
+  let newLocation = $state('')
   let adding = $state(false)
-  let checkingId = $state('')
-  let checkingAll = $state(false)
 
   let manualProxies = $derived(proxies.filter((p) => p.source === 'manual'))
   let sourcesActive = $derived(sources.some((s) => s.status !== 'idle'))
@@ -68,9 +66,9 @@
     adding = true
     error = ''
     try {
-      await api.proxies.add(url, newCountry.trim().toUpperCase())
+      await api.proxies.add(url, newLocation.trim().toUpperCase())
       newUrl = ''
-      newCountry = ''
+      newLocation = ''
       await reloadPool()
     } catch (e) {
       error = getErrorMessage(e)
@@ -96,45 +94,14 @@
     }
   }
 
-  async function checkProxy(p: Proxy): Promise<void> {
-    checkingId = p.id
-    try {
-      await api.proxies.check(p.id)
-    } catch {
-      // dead proxies are culled by the backend; the pool reload reflects it
-    } finally {
-      checkingId = ''
-      await reloadPool()
-    }
-  }
-
-  let checkAllAbort: AbortController | null = null
-
-  // Second click cancels: the endpoint is synchronous and dies with the request.
-  async function checkAll(): Promise<void> {
-    if (checkingAll) {
-      checkAllAbort?.abort()
-      return
-    }
-    checkingAll = true
-    checkAllAbort = new AbortController()
-    try {
-      await api.proxies.checkAll(checkAllAbort.signal)
-      await reloadPool()
-    } catch (e) {
-      if (!checkAllAbort.signal.aborted) {
-        error = getErrorMessage(e)
-      }
-    } finally {
-      checkingAll = false
-      checkAllAbort = null
-    }
-  }
-
   async function refreshSource(s: ProxySourceInfo): Promise<void> {
     error = ''
     try {
-      await api.proxies.refreshSource(s.key)
+      const res = await api.proxies.refreshSource(s.key)
+      if (!res.started) {
+        error = res.reason === 'pool full' ? t('Pool is full, nothing to fetch.') : t('Refresh skipped.')
+        return
+      }
       // Fetch starts in the background; mark the row busy at once.
       sources = sources.map((x) => (x.key === s.key ? { ...x, status: 'fetching' as const } : x))
       await reloadSources()
@@ -142,7 +109,6 @@
       error = getErrorMessage(e)
     }
   }
-
   function openSource(s: ProxySourceInfo): void {
     window.location.hash = '#/proxy/source/' + encodeURIComponent(s.key)
   }
@@ -154,8 +120,12 @@
     }
   }
 
-  function protocolChip(protocol: string): string {
-    switch (protocol) {
+  function formatSpeed(kbps: number): string {
+    if (!kbps) return '—'
+    return `${(kbps / 1000).toFixed(1)} Mbit/s`
+  }
+
+  function protocolChip(protocol: string): string {    switch (protocol) {
       case 'http': return 'chip-blue'
       case 'https': return 'chip-green'
       case 'socks5': return 'chip-purple'
@@ -170,7 +140,7 @@
     <h1>{t('Proxies')}</h1>
     <p>
       {#if status}
-        {n(status.total, 'total', 'total', 'всего', 'всего', 'всего')} · {n(status.alive, 'working', 'working', 'рабочий', 'рабочих', 'рабочих')}
+        {n(status.total, 'total', 'total', 'всего', 'всего', 'всего')}{status.searching ? ` · ${t('searching')}` : ''}
       {:else}
         {t('Outbound proxy pool.')}
       {/if}
@@ -202,18 +172,15 @@
         type="text"
         placeholder={t('CC')}
         maxlength="2"
-        bind:value={newCountry}
+        bind:value={newLocation}
         use:squircle={12}
       />
       <button class="btn btn-primary" onclick={addProxy} disabled={!newUrl.trim() || adding} use:squircle={12}>
         <span class="icon">add</span>
         {t('Add proxy')}
       </button>
-      <button class="btn btn-secondary" onclick={checkAll} disabled={!checkingAll && manualProxies.length === 0} use:squircle={12}>
-        <span class="icon">{checkingAll ? 'stop' : 'network_check'}</span>
-        {checkingAll ? t('Checking… click to cancel') : t('Check all')}
-      </button>
     </div>
+    <p class="form-hint">{t('Manual proxies are probed once on add and never rotated.')}</p>
     {#if manualProxies.length === 0}
       <div class="empty-state" use:squircle={18}>{t('No manual proxies yet. Add one above, or pull free lists from the Proxy Lists tab.')}</div>
     {:else}
@@ -222,25 +189,18 @@
           <span class="pcol-url">{t('Proxy')}</span>
           <span class="pcol-proto">{t('Protocol')}</span>
           <span class="pcol-country">{t('Country')}</span>
-          <span class="pcol-status">{t('Status')}</span>
+          <span class="pcol-ping">{t('Ping')}</span>
+          <span class="pcol-speed">{t('Speed')}</span>
           <span class="pcol-actions">{t('Actions')}</span>
         </div>
         {#each manualProxies as p (p.id)}
-          <div class="table-row" class:row-dead={!p.alive}>
+          <div class="table-row">
             <span class="pcol-url mono">{p.url}</span>
             <span class="pcol-proto"><span class="chip {protocolChip(p.protocol)}">{p.protocol}</span></span>
-            <span class="pcol-country">{p.country || '—'}</span>
-            <span class="pcol-status">
-              {#if p.alive}
-                <span class="chip chip-green" title={t('Last probe latency')}>{t('alive')}{p.latency_ms ? ` · ${p.latency_ms}ms` : ''}</span>
-              {:else}
-                <span class="chip chip-red" title={t('Failed the last probe; recheck to revive')}>{t('dead')}</span>
-              {/if}
-            </span>
+            <span class="pcol-country">{p.location || '—'}</span>
+            <span class="pcol-ping">{p.handshake_ms ? `${p.handshake_ms}ms` : '—'}</span>
+            <span class="pcol-speed">{formatSpeed(p.speed_kbps)}</span>
             <span class="pcol-actions">
-              <button class="btn-icon" onclick={() => checkProxy(p)} disabled={checkingId === p.id} aria-label={t('Check proxy')} title={t('Check proxy')} use:squircle={10}>
-                <span class="icon" class:spin={checkingId === p.id}>{checkingId === p.id ? 'progress_activity' : 'network_check'}</span>
-              </button>
               <button class="btn-icon icon-danger" onclick={() => deleteProxy(p)} aria-label={t('Delete proxy')} title={t('Delete proxy')} use:squircle={10}>
                 <span class="icon">delete</span>
               </button>
@@ -263,8 +223,7 @@
           <span class="scol-name">{t('Source')}</span>
           <span class="scol-status">{t('Status')}</span>
           <span class="scol-num">{t('Total')}</span>
-          <span class="scol-num">{t('Checked')}</span>
-          <span class="scol-num">{t('Alive')}</span>
+          <span class="scol-num">{t('Pooled')}</span>
           <span class="scol-actions"></span>
         </div>
         {#each sources as s (s.key)}
@@ -279,8 +238,8 @@
             <span class="scol-status">
               {#if s.status === 'fetching'}
                 {t('Fetching list…')}
-              {:else if s.status === 'checking'}
-                {t('Checking proxies…')}
+              {:else if s.status === 'adding'}
+                {t('Adding proxies…')}
               {:else if s.last_error}
                 <span class="status-error" title={s.last_error}>{t('Failed')}</span>
               {:else}
@@ -288,8 +247,7 @@
               {/if}
             </span>
             <span class="scol-num">{s.total > 0 ? s.total : '—'}</span>
-            <span class="scol-num">{s.checked > 0 ? s.checked : '—'}</span>
-            <span class="scol-num">{s.alive > 0 ? s.alive : '—'}</span>
+            <span class="scol-num">{s.pooled > 0 ? s.pooled : '—'}</span>
             <!-- The button eats its own clicks so row navigation never fires
                  from the action cell. -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -320,6 +278,11 @@
     font-weight: 600;
     margin: 0;
   }
+  .form-hint {
+    color: var(--color-text-soft);
+    font-size: 13px;
+    margin: 0 0 16px;
+  }
   .add-form {
     display: flex;
     gap: 12px;
@@ -334,10 +297,10 @@
   }
   /* Column layout only — table widget chrome comes from the global rules. */
   .table-row {
-    grid-template-columns: minmax(0, 1.6fr) 110px 90px minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1.6fr) 110px 90px 90px minmax(0, 1fr) auto;
   }
   .sources-table .table-row {
-    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) 90px 110px 90px 110px;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) 90px 90px 110px;
   }
   .row-clickable {
     cursor: pointer;

@@ -16,7 +16,9 @@ import (
 //
 // 0.0.5 adds the transcribe handler and llm_router.multipart.
 // 0.0.6 adds the speech and generate_image handlers.
-const CurrentVersion = "0.0.6"
+// 0.0.7 replaces the proxy pool: multi @proxy_location whitelist,
+// @proxy_default_option, per-pair rate limits and blocks.
+const CurrentVersion = "0.0.7"
 
 // ─────────────────────────────────────────────
 // ModelId
@@ -779,7 +781,7 @@ const (
 	ErrorTypeUpstream                 // Transient upstream failure (5xx, overload), retry the next candidate
 	ErrorTypeTimeout                  // Transient timeout, retry the next candidate
 	ErrorTypeInvalidRequest           // Invalid request, don't retry
-	ErrorTypeGeo                      // Geo-blocked upstream; proxy used is at fault, mark it bad
+	ErrorTypeGeo                      // Geo-blocked upstream; blocks the proxy for this provider
 )
 
 // ProviderError represents errors returned by provider backends.
@@ -1230,38 +1232,38 @@ type TimeSeriesPoint struct {
 // ─────────────────────────────────────────────
 
 // Proxy is one outbound proxy endpoint, either manually registered or
-// synced from a proxy-list source plugin.
+// synced from a proxy-list source plugin. Presence in the bucket means the
+// proxy answered the last probe; dead proxies are deleted, never flagged.
 type Proxy struct {
 	ID       string `json:"id"`
 	URL      string `json:"url"`      // scheme://[user:pass@]host:port
 	Protocol string `json:"protocol"` // http, https, socks4, socks5
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
-	Country  string `json:"country"` // ISO 3166-1 alpha-2, empty when unknown
-	Source   string `json:"source"`  // "manual" or "list:<source type key>"
+	Location string `json:"location"` // ISO 3166-1 alpha-2 exit location, empty when unknown
+	Source   string `json:"source"`   // "manual" or "list:<source type key>"
 
-	Alive       bool      `json:"alive"`
-	LatencyMs   int64     `json:"latency_ms"`
+	HandshakeMs int64     `json:"handshake_ms"`
+	SpeedKbps   int64     `json:"speed_kbps"`
 	LastCheckAt time.Time `json:"last_check_at,omitempty"`
-
-	// Health per provider type key: a proxy region-locked by one provider
-	// stays usable for the others.
-	ProviderHealth map[string]ProxyHealth `json:"provider_health,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// ProxyHealth is the last probe outcome for one provider.
-type ProxyHealth struct {
-	OK        bool      `json:"ok"`
-	LatencyMs int64     `json:"latency_ms"`
-	CheckedAt time.Time `json:"checked_at"`
+// ProxyLimit is per-pair live state for one proxy and one provider type key.
+// A limit or block for one provider never affects the others.
+type ProxyLimit struct {
+	ProxyID     string     `json:"proxy_id"`
+	Provider    string     `json:"provider"`
+	ResetsAt    *time.Time `json:"resets_at,omitempty"`
+	Blocked     bool       `json:"blocked,omitempty"`
+	BlockReason string     `json:"block_reason,omitempty"`
 }
 
-// ProxyPreferences come from a plugin manifest: where the upstream expects
-// requests to originate.
-type ProxyPreferences struct {
-	Location string `json:"location,omitempty"` // ISO country code, e.g. "US"
+// ActiveRegion is one demanded proxy exit location.
+type ActiveRegion struct {
+	Region   string    `json:"region"`
+	LastSeen time.Time `json:"last_seen"`
 }
 
 // ProxyConfig is the provider-level proxy mode stored in ProviderInstance.Config.
@@ -1331,15 +1333,37 @@ type RouterConfiguration struct {
 	IsClusterNode    bool `json:"is_cluster_node"`
 	DisableTelemetry bool `json:"disable_telemetry"`
 	MaxRetries       int  `json:"max_retries"`
-	// ServerCountry is an optional manual override (ISO 3166-1 alpha-2) for
-	// the geo-IP detected server location, used for proxy preference matching.
-	ServerCountry string `json:"server_country,omitempty"`
+	// MinDownloadSpeedKbps floors the pooled proxy download speed. Slower
+	// proxies are displaced once their location holds more than
+	// MaxProxiesPerLocation.
+	MinDownloadSpeedKbps int64 `json:"min_download_speed_kbps"`
+	// MaxProxiesPerLocation caps pooled proxies per exit location to the
+	// fastest N. Locations below the cap keep even slow proxies as fallback.
+	MaxProxiesPerLocation int `json:"max_proxies_per_location"`
+	// UpdateIntervalMinutes sets the automatic proxy rotation period.
+	UpdateIntervalMinutes int `json:"update_interval_minutes"`
 }
 
-// Validate checks MaxRetries is in range 0-20.
+// Default proxy pool settings.
+const (
+	DefaultMinDownloadSpeedKbps  int64 = 15000
+	DefaultMaxProxiesPerLocation       = 10
+	DefaultUpdateIntervalMinutes       = 15
+)
+
+// Validate checks the configuration ranges.
 func (c RouterConfiguration) Validate() error {
 	if c.MaxRetries < 0 || c.MaxRetries > 20 {
 		return fmt.Errorf("max_retries must be between 0 and 20")
+	}
+	if c.MinDownloadSpeedKbps <= 0 {
+		return fmt.Errorf("min_download_speed_kbps must be positive")
+	}
+	if c.MaxProxiesPerLocation <= 0 {
+		return fmt.Errorf("max_proxies_per_location must be positive")
+	}
+	if c.UpdateIntervalMinutes < 1 || c.UpdateIntervalMinutes > 1440 {
+		return fmt.Errorf("update_interval_minutes must be between 1 and 1440")
 	}
 	return nil
 }

@@ -89,14 +89,13 @@
       <p>
         {#if info.status === 'fetching'}
           {t('Fetching list…')}
-        {:else if info.status === 'checking'}
-          {t('Checking proxies…')}
+        {:else if info.status === 'adding'}
+          {t('Adding proxies…')}
         {:else}
           {t('Idle')}
         {/if}
         · {n(info.total, 'fetched', 'fetched', 'загружено', 'загружено', 'загружено')}
-        · {n(info.checked, 'checked', 'checked', 'проверен', 'проверено', 'проверено')}
-        · {n(info.alive, 'alive', 'alive', 'живой', 'живых', 'живых')}
+        · {n(info.pooled, 'pooled', 'pooled', 'в пуле', 'в пуле', 'в пуле')}
       </p>
     </div>
   </div>
@@ -118,14 +117,16 @@
         <span class="pcol-url">{t('Proxy')}</span>
         <span class="pcol-proto">{t('Protocol')}</span>
         <span class="pcol-country">{t('Country')}</span>
-        <span class="pcol-latency">{t('Latency')}</span>
+        <span class="pcol-ping">{t('Ping')}</span>
+        <span class="pcol-speed">{t('Speed')}</span>
       </div>
       {#each items as p (p.id)}
         <div class="table-row">
           <span class="pcol-url mono">{p.url}</span>
           <span class="pcol-proto">{p.protocol}</span>
-          <span class="pcol-country">{p.country || '—'}</span>
-          <span class="pcol-latency">{p.latency_ms ? `${p.latency_ms}ms` : '—'}</span>
+          <span class="pcol-country">{p.location || '—'}</span>
+          <span class="pcol-ping">{p.handshake_ms ? `${p.handshake_ms}ms` : '—'}</span>
+          <span class="pcol-speed">{p.speed_kbps ? `${(p.speed_kbps / 1000).toFixed(1)} Mbit/s` : '—'}</span>
         </div>
       {/each}
     </div>
@@ -163,7 +164,7 @@
   }
   /* Column layout only — table widget chrome comes from the global rules. */
   .table-row {
-    grid-template-columns: minmax(0, 1.8fr) 110px 90px 110px;
+    grid-template-columns: minmax(0, 1.8fr) 110px 90px 90px 110px;
   }
   .mono {
     font-family: 'DM Mono', monospace;
@@ -172,7 +173,8 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .pcol-latency {
+  .pcol-ping,
+  .pcol-speed {
     font-variant-numeric: tabular-nums;
   }
   .more-row {
@@ -198,7 +200,8 @@
       grid-template-columns: minmax(0, 1fr) 90px;
     }
     .pcol-country,
-    .pcol-latency {
+    .pcol-ping,
+    .pcol-speed {
       display: none;
     }
   }

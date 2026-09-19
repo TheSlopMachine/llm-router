@@ -45,9 +45,11 @@ type PluginRecord struct {
 	License       string   `json:"license"`
 	AllowHosts    []string `json:"allow_hosts"`
 	Unsafe        bool     `json:"unsafe"`
-	// ProxyLocation and ProxyForceOnMismatch mirror the manifest proxy tags.
-	ProxyLocation        string `json:"proxy_location,omitempty"`
-	ProxyForceOnMismatch bool   `json:"proxy_force_on_mismatch,omitempty"`
+	// ProxyLocations and ProxyDefaultOption mirror the manifest proxy tags.
+	ProxyLocations []string `json:"proxy_locations,omitempty"`
+	// ProxyDefaultOption is the default proxy mode for providers registered
+	// from this plugin. Empty means disabled.
+	ProxyDefaultOption string `json:"proxy_default_option,omitempty"`
 	// ProxySourceKeys lists registered proxy-list sources in this plugin.
 	ProxySourceKeys []string                `json:"proxy_source_keys,omitempty"`
 	TypeKeys        []string                `json:"type_keys"`
@@ -89,10 +91,28 @@ type Service struct {
 
 	onChanged func(typeKey string)
 
-	// proxyResolver picks a pool proxy for a plugin call (nil = direct).
-	proxyResolver func(rec *PluginRecord, providerConfig map[string]any) (proxyID, proxyURL string, err error)
-	// proxyOutcome reports a real request outcome through a proxy.
-	proxyOutcome func(proxyID, typeKey string, ok bool, latencyMs int64)
+	// proxyResolver returns the ordered proxy picks for a plugin call
+	// (nil/empty = direct).
+	proxyResolver func(rec *PluginRecord, providerConfig map[string]any) ([]ProxyPick, error)
+	// proxyEventReporter receives rate-limit and block outcomes for
+	// proxy-provider pairs.
+	proxyEventReporter func(ev ProxyEvent)
+}
+
+// ProxyPick is one ordered proxy candidate for a plugin call.
+type ProxyPick struct {
+	ID  string
+	URL string
+}
+
+// ProxyEvent is a rate-limit or block outcome for a proxy-provider pair.
+type ProxyEvent struct {
+	ProxyID     string
+	Provider    string
+	RateLimited bool
+	ResetsAt    time.Time
+	Blocked     bool
+	BlockReason string
 }
 
 // ProxyResolution is the resolver result for one plugin call.
@@ -103,15 +123,14 @@ type ProxyResolution struct {
 
 // SetProxyResolver wires pool-based proxy selection for plugin HTTP calls.
 // Resolution is lazy per request; a non-nil error fails the request loudly
-// (e.g. manual mode with no usable proxy, or a geo-forced provider with an
-// empty pool).
-func (s *Service) SetProxyResolver(fn func(rec *PluginRecord, providerConfig map[string]any) (proxyID, proxyURL string, err error)) {
+// (manual mode with no usable proxy pooled).
+func (s *Service) SetProxyResolver(fn func(rec *PluginRecord, providerConfig map[string]any) ([]ProxyPick, error)) {
 	s.proxyResolver = fn
 }
 
-// SetProxyOutcomeReporter wires per-provider proxy health feedback.
-func (s *Service) SetProxyOutcomeReporter(fn func(proxyID, typeKey string, ok bool, latencyMs int64)) {
-	s.proxyOutcome = fn
+// SetProxyEventReporter wires proxy-provider pair outcome feedback.
+func (s *Service) SetProxyEventReporter(fn func(ev ProxyEvent)) {
+	s.proxyEventReporter = fn
 }
 
 // New loads all enabled plugins into the in-memory registry.
@@ -182,6 +201,31 @@ func (s *Service) Lookup(typeKey string) (*PluginRecord, error) {
 	return nil, fmt.Errorf("no plugin registered for type key %q", typeKey)
 }
 
+// DefaultProxyMode returns the manifest default proxy mode for typeKey.
+// Empty and unknown values mean disabled.
+func (s *Service) DefaultProxyMode(typeKey string) string {
+	rec, err := s.Lookup(typeKey)
+	if err != nil {
+		return models.ProxyModeDisabled
+	}
+	switch rec.ProxyDefaultOption {
+	case models.ProxyModeAuto, models.ProxyModeManual:
+		return rec.ProxyDefaultOption
+	default:
+		return models.ProxyModeDisabled
+	}
+}
+
+// ProxyWhitelist returns the manifest location whitelist for typeKey.
+// Empty means any location is allowed.
+func (s *Service) ProxyWhitelist(typeKey string) []string {
+	rec, err := s.Lookup(typeKey)
+	if err != nil {
+		return nil
+	}
+	return append([]string{}, rec.ProxyLocations...)
+}
+
 // Registered returns all enabled type keys, sorted.
 func (s *Service) Registered() []string {
 	s.mu.RLock()
@@ -244,7 +288,7 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 			Version: manifest.Version, RouterVersion: manifest.RouterVersion,
 			Description: manifest.Description, License: manifest.License,
 			AllowHosts: manifest.AllowHosts, Unsafe: manifest.Unsafe,
-			ProxyLocation: manifest.ProxyLocation, ProxyForceOnMismatch: manifest.ProxyForceOnMismatch,
+			ProxyLocations: manifest.ProxyLocations, ProxyDefaultOption: manifest.ProxyDefaultOption,
 			ProxySourceKeys: sourceKeys,
 			TypeKeys:        typeKeys, Handlers: handlers, Icons: icons, Source: append([]byte(nil), source...),
 			History: history, Origin: origin,
@@ -265,7 +309,7 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 		Version: manifest.Version, RouterVersion: manifest.RouterVersion,
 		Description: manifest.Description, License: manifest.License,
 		AllowHosts: manifest.AllowHosts, Unsafe: manifest.Unsafe,
-		ProxyLocation: manifest.ProxyLocation, ProxyForceOnMismatch: manifest.ProxyForceOnMismatch,
+		ProxyLocations: manifest.ProxyLocations, ProxyDefaultOption: manifest.ProxyDefaultOption,
 		ProxySourceKeys: sourceKeys,
 		TypeKeys:        typeKeys, Handlers: handlers, Icons: icons, Source: append([]byte(nil), source...),
 		Origin:      origin,
@@ -321,8 +365,8 @@ func (s *Service) Rollback(id string) (*PluginRecord, error) {
 	rec.License = manifest.License
 	rec.AllowHosts = manifest.AllowHosts
 	rec.Unsafe = manifest.Unsafe
-	rec.ProxyLocation = manifest.ProxyLocation
-	rec.ProxyForceOnMismatch = manifest.ProxyForceOnMismatch
+	rec.ProxyLocations = manifest.ProxyLocations
+	rec.ProxyDefaultOption = manifest.ProxyDefaultOption
 	rec.History = rest
 	rec.UpdatedAt = time.Now()
 	if err := s.repo.Put(id, rec); err != nil {
@@ -389,8 +433,14 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) ([]
 	L := newSandboxState(ctx)
 	defer L.Close()
 	if err := L.DoString(string(source)); err != nil {
+		// A parse failure pushes nothing: fall back to the Go error so
+		// the message carries the parser diagnostics instead of "nil".
+		cause := luaErrorString(L.Get(-1))
+		if cause == "" || cause == "nil" {
+			cause = err.Error()
+		}
 		return nil, nil, nil, nil, &models.PluginInternalError{
-			PluginID: pluginID, Cause: "top-level: " + luaErrorString(L.Get(-1)),
+			PluginID: pluginID, Cause: fmt.Sprintf("top-level: %s (source %d bytes)", cause, len(source)),
 		}
 	}
 	if len(ctx.registrations) == 0 && len(ctx.proxySources) == 0 {

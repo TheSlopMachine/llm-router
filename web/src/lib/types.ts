@@ -62,40 +62,30 @@ export interface TestResult {
   response?: string
 }
 
-export interface ProxyHealth {
-  ok: boolean
-  latency_ms: number
-  checked_at: string
-}
-
 export interface Proxy {
   id: string
   url: string
   protocol: string
   host: string
   port: number
-  country: string
+  location: string
   source: string
-  alive: boolean
-  latency_ms: number
+  handshake_ms: number
+  speed_kbps: number
   last_check_at?: string
-  provider_health?: Record<string, ProxyHealth>
   created_at: string
 }
 
 export interface ProxyStatus {
-  server_country: string
   total: number
-  alive: number
+  searching: boolean
 }
 
 export interface ProxySourceInfo {
   key: string
-  status: 'idle' | 'fetching' | 'checking'
+  status: 'idle' | 'fetching' | 'adding'
   total: number
-  checked: number
-  alive: number
-  pending: number
+  pooled: number
   last_fetch_at?: string
   last_error?: string
 }

@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Router version: **0.0.6** (`models.CurrentVersion`). A plugin using a feature
+Router version: **0.0.7** (`models.CurrentVersion`). A plugin using a feature
 must declare the `@router_version` that introduced it; older routers refuse
 to install it.
 
@@ -16,6 +16,7 @@ to install it.
 | 0.0.4 | complete, complete_stream, validate_credentials, get_model_infos, needs_refresh, refresh_credential, config_schema, credential_schema, auth_initiate, auth_step; proxy sources; storage; uuid_v5; random_hex |
 | 0.0.5 | `transcribe` handler, `llm_router.multipart`, `ModelInfo.endpoints` |
 | 0.0.6 | `speech` handler, `generate_image` handler, `embed` handler, `llm_router.base64_encode/decode` |
+| 0.0.7 | proxy pool rework: repeatable `@proxy_location` whitelist, `@proxy_default_option`, per-pair rate limits and blocks |
 
 ## Registration
 
@@ -45,7 +46,7 @@ fallback.
   `quota_exceeded`, `upstream` (transient 5xx/overload) and `timeout` move to
   the next candidate — another credential, and inside a virtual model the next
   fall-through model. `auth`, `invalid_request` and `geo` are terminal:
-  `auth`/`invalid_request` fail the request, `geo` marks the proxy bad.
+  `auth`/`invalid_request` fail the request, `geo` fails the request.
 - Any other error form (raised errors, wrong shapes) becomes
   `PluginInternalError` and counts as a plugin crash.
 
@@ -269,6 +270,56 @@ local body, ctype = llm_router.multipart({
 
 Max 64 parts. `content_type` defaults to `application/octet-stream`. Header
 metacharacters in names/filenames are stripped.
+
+## Proxy pool (0.0.7)
+
+Provider HTTP (`create_http_client`) routes through the pooled proxy picked
+for the calling provider. Pick = fastest proxy whose location is in the
+plugin whitelist and whose pair state for the provider is clean.
+
+Manifest tags:
+
+```lua
+--- @proxy_location US   -- repeatable whitelist, empty allows any location
+--- @proxy_location GB
+--- @proxy_default_option auto  -- disabled (default) | auto | manual
+```
+
+Pool rules (`RouterConfiguration`: `min_download_speed_kbps = 15000`,
+`max_proxies_per_location = 10`, `update_interval_minutes = 15`):
+
+* Two-stage probe, both legs through the proxy: CONNECT tunnel
+  (`Ping`, handshake ms), then a 1MB download (`Speed`, kbit/s). Tunnel
+  failure deletes at once; download failure deletes; a timed-out download
+  still records the achieved speed.
+* Dead proxies are deleted. Slow proxies (under the speed floor) are kept
+  as fallback until their location fills, then displaced one-for-one by
+  faster newcomers; rotation trims each location to the fastest N.
+  Manual proxies are sacred: probed once on add, never rotated, deleted
+  only by hand.
+* Exit locations are verified by probing through the proxy on add; list
+  metadata is only a fallback.
+* Demand-driven fetch: request whitelists accumulate in `active_regions`
+  (defaults `US, DE, NL, GB, FR, CA` always apply, observed entries expire
+  after 48h). Scheduled fetch pauses while every demanded region holds N
+  fast proxies and resumes on shortage; manual refresh short-circuits on a
+  full pool. Rotation ticks on schedule regardless; source refresh fetches,
+  adds, then rotates the whole pool. One rotation at a time, 64 probe
+  workers.
+* Source fetch covers a rotating window of 1500 candidates per fetch,
+  probed in chunks of 150 while shortfall persists; a full pool costs zero
+  probes.
+
+Pair state (per proxy and provider, never shared across providers):
+
+* `rate_limit` / `quota_exceeded` with `retry_after` limits the pair until
+  that timestamp (`+60s` default). The pair is skipped until reset.
+* `geo` blocks the pair with the message as reason. Blocks never expire;
+  the pair dies with the proxy (pool entries churn within a day; a stuck
+  manual pair clears on proxy delete + re-add).
+
+`fetch_proxies` returns proxy candidates
+`{ protocol, host, port, country }`; only probed-alive entries pool.
 
 ## Planned endpoints (not implemented)
 

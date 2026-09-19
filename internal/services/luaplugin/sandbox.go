@@ -22,22 +22,22 @@ type execContext struct {
 	storage    *storageBackend
 	timeoutMs  int
 
-	// Proxy routing: resolver picks a pooled proxy per request; the HTTP
-	// layer rotates to the next untried proxy when an attempt fails.
+	// Proxy routing: the resolver returns the ordered picks for one
+	// request; the HTTP layer walks them while attempts fail.
 	// proxyURL == "" means the current request goes direct.
-	proxyResolver       func(rec *PluginRecord, providerConfig map[string]any) (proxyID, proxyURL string, err error)
+	proxyResolver       func(rec *PluginRecord, providerConfig map[string]any) ([]ProxyPick, error)
 	proxyRec            *PluginRecord
 	proxyProviderConfig map[string]any
+	proxyPicks          []ProxyPick
+	proxyIdx            int
 	proxyID             string
 	proxyURL            string
 	// lastProxyID is the proxy of the most recent attempt, used for
-	// post-call outcome attribution (e.g. geo-blocked responses).
+	// post-call outcome attribution (rate limits, geo blocks).
 	lastProxyID string
-	// triedProxies bounds rotation: one request never retries a proxy.
-	triedProxies map[string]bool
-	// onProxyResult feeds per-provider pool health. Never called for
-	// direct requests.
-	onProxyResult func(proxyID string, ok bool, latencyMs int64)
+	// onProxyEvent reports rate-limit and block outcomes for the
+	// proxy-provider pair. Never called for direct requests.
+	onProxyEvent func(ev ProxyEvent)
 
 	registrations map[string]*lua.LTable
 	proxySources  map[string]*lua.LTable

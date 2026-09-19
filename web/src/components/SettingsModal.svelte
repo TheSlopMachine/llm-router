@@ -35,6 +35,10 @@
   let isClusterNode = $state(false)
   let disableTelemetry = $state(false)
   let maxRetries = $state(7)
+  // Pool settings pass through untouched: no UI controls edit them yet.
+  let minDownloadSpeedKbps = $state(15000)
+  let maxProxiesPerLocation = $state(10)
+  let updateIntervalMinutes = $state(15)
   let saving = $state(false)
   let error = $state('')
 
@@ -44,6 +48,9 @@
       isClusterNode = cfg.is_cluster_node
       disableTelemetry = cfg.disable_telemetry
       maxRetries = cfg.max_retries
+      minDownloadSpeedKbps = cfg.min_download_speed_kbps
+      maxProxiesPerLocation = cfg.max_proxies_per_location
+      updateIntervalMinutes = cfg.update_interval_minutes
     } catch (e) {
       error = getErrorMessage(e)
     }
@@ -78,7 +85,10 @@
       await api.config.update({
         is_cluster_node: isClusterNode,
         disable_telemetry: disableTelemetry,
-        max_retries: Number(maxRetries)
+        max_retries: Number(maxRetries),
+        min_download_speed_kbps: minDownloadSpeedKbps,
+        max_proxies_per_location: maxProxiesPerLocation,
+        update_interval_minutes: updateIntervalMinutes
       })
       closeModal()
     } catch (e) {

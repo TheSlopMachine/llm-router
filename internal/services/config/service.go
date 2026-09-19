@@ -47,6 +47,9 @@ func (s *Service) Get() (models.RouterConfiguration, error) {
 	}
 	if !found {
 		cfg.MaxRetries = 7
+		cfg.MinDownloadSpeedKbps = models.DefaultMinDownloadSpeedKbps
+		cfg.MaxProxiesPerLocation = models.DefaultMaxProxiesPerLocation
+		cfg.UpdateIntervalMinutes = models.DefaultUpdateIntervalMinutes
 	}
 	return cfg, nil
 }

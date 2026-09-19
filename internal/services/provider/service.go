@@ -374,9 +374,15 @@ func (s *Service) EnsureSeeded() error {
 			return nil
 		}
 		hidden := typeKey == TypeVirtual
+		config := map[string]any{}
+		if s.luaSvc != nil && typeKey != TypeVirtual {
+			if mode := s.luaSvc.DefaultProxyMode(typeKey); mode != models.ProxyModeDisabled {
+				config["proxy"] = map[string]any{"mode": mode}
+			}
+		}
 		inst := &models.ProviderInstance{
 			ID: id, Name: name, TypeKey: typeKey,
-			Config: map[string]any{}, IconURL: icon,
+			Config: config, IconURL: icon,
 			IsUIReadonly: true, IsUIHidden: hidden,
 			CreatedAt: now, UpdatedAt: now,
 		}

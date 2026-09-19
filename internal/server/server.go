@@ -20,7 +20,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
-	"github.com/TheSlopMachine/llm-router/internal/services/geoip"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/maintenance"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
@@ -93,29 +92,43 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	routerCfg, _ := configSvc.Get()
 	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, routerCfg.MaxRetries, logger)
 
-	// Proxy subsystem: pool, geo-IP detection, plugin proxy resolution.
+	// Proxy subsystem: pool, plugin proxy resolution, pair outcome reports.
 	proxySvc := proxypool.New(database)
-	geoSvc := geoip.New(logger)
-	geoSvc.SetOverride(routerCfg.ServerCountry)
-	luaSvc.SetProxyResolver(func(rec *luaplugin.PluginRecord, providerConfig map[string]any) (string, string, error) {
-		mode, ids := proxypool.ParseProxyMode(providerConfig)
+	proxySvc.SetConfig(routerCfg.MinDownloadSpeedKbps, routerCfg.MaxProxiesPerLocation)
+	luaSvc.SetProxyResolver(func(rec *luaplugin.PluginRecord, providerConfig map[string]any) ([]luaplugin.ProxyPick, error) {
+		mode, ids := proxyMode(providerConfig)
 		typeKey := ""
 		if len(rec.TypeKeys) > 0 {
 			typeKey = rec.TypeKeys[0]
 		}
-		location := rec.ProxyLocation
-		serverCountry := geoSvc.Country(context.Background())
-		return proxypool.ResolveProxy(proxySvc, mode, ids, location, rec.ProxyForceOnMismatch, serverCountry, typeKey)
+		picks, err := proxySvc.Rank(rec.ProxyLocations, mode, ids, typeKey)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]luaplugin.ProxyPick, 0, len(picks))
+		for _, p := range picks {
+			out = append(out, luaplugin.ProxyPick{ID: p.ID, URL: p.URL})
+		}
+		return out, nil
 	})
-	luaSvc.SetProxyOutcomeReporter(proxySvc.RecordOutcome)
+	luaSvc.SetProxyEventReporter(func(ev luaplugin.ProxyEvent) {
+		if ev.RateLimited {
+			proxySvc.RecordRateLimit(ev.ProxyID, ev.Provider, ev.ResetsAt)
+		}
+		if ev.Blocked {
+			proxySvc.RecordBlocked(ev.ProxyID, ev.Provider, ev.BlockReason)
+		}
+	})
 
-	configSvc.SetOnChanged(func(cfg models.RouterConfiguration) {
-		routerSvc.SetMaxRetries(cfg.MaxRetries)
-		geoSvc.SetOverride(cfg.ServerCountry)
-	})
 	maintSvc := maintenance.New(credSvc, providerSvc, database, logger)
 	maintSvc.SetProxyServices(proxySvc, luaSvc)
+	maintSvc.SetProxyTickInterval(proxyTickInterval(routerCfg))
 	maintSvc.SetModelInfoService(modelInfoSvc)
+	configSvc.SetOnChanged(func(cfg models.RouterConfiguration) {
+		routerSvc.SetMaxRetries(cfg.MaxRetries)
+		proxySvc.SetConfig(cfg.MinDownloadSpeedKbps, cfg.MaxProxiesPerLocation)
+		maintSvc.SetProxyTickInterval(proxyTickInterval(cfg))
+	})
 	metricsSvc := metrics.New(database, logger)
 	metricsSvc.Start()
 
@@ -166,7 +179,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	virtualAdapter.SetLogger(logger)
 
 	dashMux := http.NewServeMux()
-	dash, err := dashboard.New(adminSvc, providerSvc, credSvc, tokenSvc, modelInfoSvc, metricsSvc, virtualSvc, routerSvc, configSvc, luaSvc, repoSvc, proxySvc, geoSvc, logger)
+	dash, err := dashboard.New(adminSvc, providerSvc, credSvc, tokenSvc, modelInfoSvc, metricsSvc, virtualSvc, routerSvc, configSvc, luaSvc, repoSvc, proxySvc, logger)
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard handler: %w", err)
 	}
@@ -203,9 +216,40 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	}, nil
 }
 
+// proxyMode reads the provider-level proxy mode from
+// ProviderInstance.Config. Unknown shapes fall back to disabled.
+func proxyMode(providerConfig map[string]any) (mode string, ids []string) {
+	mode = models.ProxyModeDisabled
+	raw, ok := providerConfig["proxy"].(map[string]any)
+	if !ok {
+		return mode, nil
+	}
+	if m, ok := raw["mode"].(string); ok {
+		switch m {
+		case models.ProxyModeAuto, models.ProxyModeManual:
+			mode = m
+		}
+	}
+	if list, ok := raw["ids"].([]any); ok {
+		for _, v := range list {
+			if s, ok := v.(string); ok {
+				ids = append(ids, s)
+			}
+		}
+	}
+	return mode, ids
+}
+
+// proxyTickInterval converts the configured rotation period.
+func proxyTickInterval(cfg models.RouterConfiguration) time.Duration {
+	if cfg.UpdateIntervalMinutes < 1 {
+		return time.Duration(models.DefaultUpdateIntervalMinutes) * time.Minute
+	}
+	return time.Duration(cfg.UpdateIntervalMinutes) * time.Minute
+}
+
 // Run starts the maintenance loop and blocks on both HTTP servers.
 func (s *Server) Run(ctx context.Context) error {
-	s.proxySvc.StartWorkers(ctx)
 	s.maintSvc.Start(ctx)
 	s.logger.Info("llm-router started", "dashboard", s.cfg.DashboardAddr, "api", s.cfg.APIAddr, "db", s.cfg.DBPath)
 
