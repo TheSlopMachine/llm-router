@@ -93,6 +93,9 @@ func (s *Service) WithInterval(d time.Duration) *Service {
 func (s *Service) Start(ctx context.Context) {
 	s.logger.Info("maintenance service started", "interval", s.interval)
 	go func() {
+		// Rotate the proxy pool at once instead of waiting for the first
+		// tick: a restarted router re-verifies its pool immediately.
+		s.rotateProxyOnce(ctx)
 		ticker := time.NewTicker(s.interval)
 		defer ticker.Stop()
 		for {
@@ -163,6 +166,19 @@ func (s *Service) syncProviderModels(ctx context.Context) {
 }
 
 const proxySourceFetchInterval = time.Hour
+
+// rotateProxyOnce runs one pool rotation pass outside the tick schedule.
+func (s *Service) rotateProxyOnce(ctx context.Context) {
+	if s.proxySvc == nil {
+		return
+	}
+	s.lastProxyRotate = time.Now()
+	if err := s.proxySvc.RotateAll(ctx); err != nil {
+		s.logger.Warn("maintenance: startup proxy rotation failed", "err", err)
+		return
+	}
+	s.logger.Info("maintenance: startup proxy rotation completed")
+}
 
 // maintainProxyPool rotates the pool on the configured tick and fetches new
 // list candidates hourly. Fetching and rotation are independent: the tick
