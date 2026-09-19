@@ -11,8 +11,16 @@ function resolveLang(): 'en' | 'ru' {
 }
 
 const ru: Record<string, string> = {
-  'Direct connection, unless the provider\'s plugin forces a proxy on location mismatch.': 'Прямое соединение, если плагин провайдера не требует прокси при несовпадении региона.',
-  'Route through the best pooled proxy matching the plugin\'s location preference.': 'Маршрутизировать через лучший прокси из пула под регион плагина.',
+  'Direct connection, no proxying.': 'Прямое соединение, без проксирования.',
+  'Route through the fastest pooled proxy matching the plugin locations.': 'Маршрутизировать через быстрейший прокси из пула под регионы плагина.',
+  'Route through the proxies you select below (first usable wins).': 'Маршрутизировать через выбранные ниже прокси (первый годный побеждает).',
+  'Adding proxies…': 'Добавление прокси…',
+  'Ping': 'Пинг',
+  'Speed': 'Скорость',
+  'searching': 'идет поиск',
+  'Pooled': 'В пуле',
+  'Pool is full, nothing to fetch.': 'Пул заполнен, fetching не нужен.',
+  'Refresh skipped.': 'Обновление пропущено.',
   'You are a routing assistant. Choose the best model for the user\'s request based on complexity, cost, and requirements.': 'Вы — ассистент маршрутизации. Выбирайте лучшую модель под запрос пользователя по сложности, цене и требованиям.',
   '1 Day': '1 день',
   '28 Days': '28 дней',

@@ -14,7 +14,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
-	"github.com/TheSlopMachine/llm-router/internal/services/geoip"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
@@ -45,7 +44,6 @@ type Handler struct {
 	luaSvc       *luaplugin.Service
 	repoSvc      *pluginrepo.Service
 	proxySvc     *proxypool.Service
-	geoSvc       *geoip.Service
 	logger       *slog.Logger
 
 	// devRedirect, when set, is the origin (e.g. "http://localhost:8080")
@@ -69,7 +67,6 @@ func New(
 	luaSvc *luaplugin.Service,
 	repoSvc *pluginrepo.Service,
 	proxySvc *proxypool.Service,
-	geoSvc *geoip.Service,
 	logger *slog.Logger,
 ) (*Handler, error) {
 	return &Handler{
@@ -85,7 +82,6 @@ func New(
 		luaSvc:       luaSvc,
 		repoSvc:      repoSvc,
 		proxySvc:     proxySvc,
-		geoSvc:       geoSvc,
 		logger:       logger,
 	}, nil
 }
@@ -196,8 +192,6 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("GET /api/llm-router/dashboard/proxies", h.requireAuth(h.apiProxiesList))
 	mux.HandleFunc("POST /api/llm-router/dashboard/proxies", h.requireAuth(h.apiProxiesAdd))
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/proxies/{id}", h.requireAuth(h.apiProxiesDelete))
-	mux.HandleFunc("POST /api/llm-router/dashboard/proxies/{id}/check", h.requireAuth(h.apiProxiesCheck))
-	mux.HandleFunc("POST /api/llm-router/dashboard/proxies/check-all", h.requireAuth(h.apiProxiesCheckAll))
 	mux.HandleFunc("GET /api/llm-router/dashboard/proxy-sources", h.requireAuth(h.apiProxySources))
 	mux.HandleFunc("POST /api/llm-router/dashboard/proxy-sources/{key}/refresh", h.requireAuth(h.apiProxySourceRefresh))
 	mux.HandleFunc("GET /api/llm-router/dashboard/proxy-sources/{key}/proxies", h.requireAuth(h.apiProxySourceProxies))

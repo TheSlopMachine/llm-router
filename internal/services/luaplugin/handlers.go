@@ -3,7 +3,6 @@ package luaplugin
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -55,10 +54,8 @@ func requestTable(L *lua.LState, req *models.ChatCompletionRequest) *lua.LTable 
 }
 
 // Complete invokes the complete handler and validates the response shape.
-//
-// Geo-rotation: a region-locked answer through a proxy demotes it (exec
-// records the outcome) and the handler re-runs against the next pooled
-// proxy — silently, until the pool is exhausted. Direct calls never loop.
+// Proxy retries belong to the higher-level retry engine: one handler call
+// uses one ordered pick list, and transport failover stays inside it.
 func (s *Service) Complete(
 	goCtx context.Context,
 	typeKey string,
@@ -70,82 +67,42 @@ func (s *Service) Complete(
 	if err != nil {
 		return nil, err
 	}
-	// Geo-rotation: a region-locked answer through a proxy demotes it (exec
-	// records the outcome) and the handler re-runs against the next pooled
-	// proxy — silently, until the pool is exhausted. Direct calls never loop.
-	tried := map[string]bool{}
-	for {
-		var resp *models.ChatCompletionResponse
-		found, route, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "complete", func(L *lua.LState) {
-			L.Push(ctxTable(L, "", providerConfig))
-			L.Push(credTable(L, cred))
-			L.Push(requestTable(L, req))
-		}, 2, func(L *lua.LState) error {
-			result, rawErr := splitReturn(L)
-			if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
-				return cerr
-			}
-			if result == lua.LNil {
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "complete returned nil result"}
-			}
-			raw, merr := marshalLua(result)
-			if merr != nil {
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode response: " + merr.Error()}
-			}
-			var out models.ChatCompletionResponse
-			if uerr := unmarshalTo(normalizeEmptyObjects(raw, "choices", "tool_calls"), &out); uerr != nil {
-				s.recordCrash(rec.ID, typeKey, "complete schema violation: "+uerr.Error())
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "complete schema violation: " + uerr.Error()}
-			}
-			if len(out.Choices) == 0 {
-				s.recordCrash(rec.ID, typeKey, "complete schema violation: empty choices")
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "complete schema violation: empty choices"}
-			}
-			resp = &out
-			return nil
-		}, providerConfig)
-		if callErr == nil {
-			if !found {
-				return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "complete"}
-			}
-			return resp, nil
+	var resp *models.ChatCompletionResponse
+	found, _, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "complete", func(L *lua.LState) {
+		L.Push(ctxTable(L, "", providerConfig))
+		L.Push(credTable(L, cred))
+		L.Push(requestTable(L, req))
+	}, 2, func(L *lua.LState) error {
+		result, rawErr := splitReturn(L)
+		if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
+			return cerr
 		}
-		next, rotErr := s.geoRotationNext(rec, providerConfig, callErr, route, tried)
-		if rotErr != nil {
-			return nil, rotErr
+		if result == lua.LNil {
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "complete returned nil result"}
 		}
-		if next == "" {
-			return nil, callErr
+		raw, merr := marshalLua(result)
+		if merr != nil {
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode response: " + merr.Error()}
 		}
-	}
-}
-
-// geoRotationNext re-resolves the route after a geo rejection. It returns
-// (nextID, nil) to retry, ("", nil) to surface the original error (not geo,
-// or a direct route), or a resolver error. Pool exhaustion yields a single
-// synthesized geo error instead of the last proxy's raw rejection.
-func (s *Service) geoRotationNext(rec *PluginRecord, providerConfig map[string]any, callErr error, route string, tried map[string]bool) (string, error) {
-	var perr *models.ProviderError
-	if route == "" || !errors.As(callErr, &perr) || perr.Type != models.ErrorTypeGeo {
-		return "", nil
-	}
-	tried[route] = true
-	if s.proxyResolver == nil {
-		return "", nil
-	}
-	next, _, rerr := s.proxyResolver(rec, providerConfig)
-	if rerr != nil {
-		return "", rerr
-	}
-	if next == "" || tried[next] {
-		return "", &models.ProviderError{
-			StatusCode: perr.StatusCode,
-			Type:       models.ErrorTypeGeo,
-			Message:    fmt.Sprintf("region-locked upstream: all %d pooled proxies were rejected", len(tried)),
+		var out models.ChatCompletionResponse
+		if uerr := unmarshalTo(normalizeEmptyObjects(raw, "choices", "tool_calls"), &out); uerr != nil {
+			s.recordCrash(rec.ID, typeKey, "complete schema violation: "+uerr.Error())
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "complete schema violation: " + uerr.Error()}
 		}
+		if len(out.Choices) == 0 {
+			s.recordCrash(rec.ID, typeKey, "complete schema violation: empty choices")
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "complete schema violation: empty choices"}
+		}
+		resp = &out
+		return nil
+	}, providerConfig)
+	if callErr != nil {
+		return nil, callErr
 	}
-	tried[next] = true
-	return next, nil
+	if !found {
+		return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "complete"}
+	}
+	return resp, nil
 }
 
 // CompleteStream invokes complete_stream with an emit callback. When the
@@ -163,71 +120,53 @@ func (s *Service) CompleteStream(
 	if err != nil {
 		return err
 	}
-	tried := map[string]bool{}
-	for {
-		emitted := 0
-		emitFn := func(L *lua.LState) int {
-			chunkVal := L.Get(1)
-			raw, merr := marshalLua(chunkVal)
-			if merr != nil {
-				L.RaiseError("emit: encode chunk: %s", merr.Error())
-				return 0
-			}
-			var chunk models.StreamChunk
-			if uerr := unmarshalTo(normalizeEmptyObjects(raw, "choices", "tool_calls"), &chunk); uerr != nil {
-				L.RaiseError("emit: invalid chunk shape: %s", uerr.Error())
-				return 0
-			}
-			if len(chunk.Choices) == 0 && chunk.Usage == nil {
-				L.RaiseError("emit: chunk has neither choices nor usage")
-				return 0
-			}
-			// Emit the canonical struct encoding, not the raw plugin bytes:
-			// this normalizes alias fields (reasoning -> reasoning_content)
-			// and keeps the wire shape identical to non-stream responses.
-			canonical, cerr := marshalGoJSON(chunk)
-			if cerr != nil {
-				L.RaiseError("emit: encode canonical chunk: %s", cerr.Error())
-				return 0
-			}
-			if _, werr := fmt.Fprintf(w, "data: %s\n\n", string(canonical)); werr != nil {
-				L.RaiseError("emit: write: %s", werr.Error())
-				return 0
-			}
-			emitted++
+	emitFn := func(L *lua.LState) int {
+		chunkVal := L.Get(1)
+		raw, merr := marshalLua(chunkVal)
+		if merr != nil {
+			L.RaiseError("emit: encode chunk: %s", merr.Error())
 			return 0
 		}
-		found, route, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "complete_stream", func(L *lua.LState) {
-			L.Push(ctxTable(L, "", providerConfig))
-			L.Push(credTable(L, cred))
-			L.Push(requestTable(L, req))
-			L.Push(L.NewFunction(emitFn))
-		}, 2, func(L *lua.LState) error {
-			_, rawErr := splitReturn(L)
-			return s.contractErrOrInternal(rec, typeKey, rawErr)
-		}, providerConfig)
-		if callErr != nil {
-			// Mid-stream errors are terminal: bytes already left. Only a
-			// pre-first-chunk geo rejection rotates to the next proxy.
-			if emitted > 0 {
-				return callErr
-			}
-			next, rotErr := s.geoRotationNext(rec, providerConfig, callErr, route, tried)
-			if rotErr != nil {
-				return rotErr
-			}
-			if next == "" {
-				return callErr
-			}
-			continue
+		var chunk models.StreamChunk
+		if uerr := unmarshalTo(normalizeEmptyObjects(raw, "choices", "tool_calls"), &chunk); uerr != nil {
+			L.RaiseError("emit: invalid chunk shape: %s", uerr.Error())
+			return 0
 		}
-		if found {
-			if _, werr := io.WriteString(w, "data: [DONE]\n\n"); werr != nil {
-				return werr
-			}
-			return nil
+		if len(chunk.Choices) == 0 && chunk.Usage == nil {
+			L.RaiseError("emit: chunk has neither choices nor usage")
+			return 0
 		}
-		break
+		// Emit the canonical struct encoding, not the raw plugin bytes:
+		// this normalizes alias fields (reasoning -> reasoning_content)
+		// and keeps the wire shape identical to non-stream responses.
+		canonical, cerr := marshalGoJSON(chunk)
+		if cerr != nil {
+			L.RaiseError("emit: encode canonical chunk: %s", cerr.Error())
+			return 0
+		}
+		if _, werr := fmt.Fprintf(w, "data: %s\n\n", string(canonical)); werr != nil {
+			L.RaiseError("emit: write: %s", werr.Error())
+			return 0
+		}
+		return 0
+	}
+	found, _, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "complete_stream", func(L *lua.LState) {
+		L.Push(ctxTable(L, "", providerConfig))
+		L.Push(credTable(L, cred))
+		L.Push(requestTable(L, req))
+		L.Push(L.NewFunction(emitFn))
+	}, 2, func(L *lua.LState) error {
+		_, rawErr := splitReturn(L)
+		return s.contractErrOrInternal(rec, typeKey, rawErr)
+	}, providerConfig)
+	if callErr != nil {
+		return callErr
+	}
+	if found {
+		if _, werr := io.WriteString(w, "data: [DONE]\n\n"); werr != nil {
+			return werr
+		}
+		return nil
 	}
 	// Fallback: emulate streaming over complete().
 	resp, cerr := s.Complete(goCtx, typeKey, cred, req, providerConfig)
@@ -292,9 +231,9 @@ func transcriptionRequestTable(L *lua.LState, req *models.TranscriptionRequest) 
 	return tbl
 }
 
-// Transcribe invokes the transcribe handler with the same geo-rotation as
-// Complete. A missing handler reports ErrHandlerNotFound so the router maps
-// it to a clean "endpoint not supported" error.
+// Transcribe invokes the transcribe handler. A missing handler reports
+// ErrHandlerNotFound so the router maps it to a clean "endpoint not
+// supported" error.
 func (s *Service) Transcribe(
 	goCtx context.Context,
 	typeKey string,
@@ -306,47 +245,38 @@ func (s *Service) Transcribe(
 	if err != nil {
 		return nil, err
 	}
-	tried := map[string]bool{}
-	for {
-		var resp *models.TranscriptionResponse
-		found, route, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "transcribe", func(L *lua.LState) {
-			L.Push(ctxTable(L, "", providerConfig))
-			L.Push(credTable(L, cred))
-			L.Push(transcriptionRequestTable(L, req))
-		}, 2, func(L *lua.LState) error {
-			result, rawErr := splitReturn(L)
-			if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
-				return cerr
-			}
-			if result == lua.LNil {
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "transcribe returned nil result"}
-			}
-			raw, merr := marshalLua(result)
-			if merr != nil {
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode response: " + merr.Error()}
-			}
-			var out models.TranscriptionResponse
-			if uerr := unmarshalTo(normalizeEmptyObjects(raw, "segments", "words"), &out); uerr != nil {
-				s.recordCrash(rec.ID, typeKey, "transcribe schema violation: "+uerr.Error())
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "transcribe schema violation: " + uerr.Error()}
-			}
-			resp = &out
-			return nil
-		}, providerConfig)
-		if callErr == nil {
-			if !found {
-				return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "transcribe"}
-			}
-			return resp, nil
+	var resp *models.TranscriptionResponse
+	found, _, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "transcribe", func(L *lua.LState) {
+		L.Push(ctxTable(L, "", providerConfig))
+		L.Push(credTable(L, cred))
+		L.Push(transcriptionRequestTable(L, req))
+	}, 2, func(L *lua.LState) error {
+		result, rawErr := splitReturn(L)
+		if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
+			return cerr
 		}
-		next, rotErr := s.geoRotationNext(rec, providerConfig, callErr, route, tried)
-		if rotErr != nil {
-			return nil, rotErr
+		if result == lua.LNil {
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "transcribe returned nil result"}
 		}
-		if next == "" {
-			return nil, callErr
+		raw, merr := marshalLua(result)
+		if merr != nil {
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode response: " + merr.Error()}
 		}
+		var out models.TranscriptionResponse
+		if uerr := unmarshalTo(normalizeEmptyObjects(raw, "segments", "words"), &out); uerr != nil {
+			s.recordCrash(rec.ID, typeKey, "transcribe schema violation: "+uerr.Error())
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "transcribe schema violation: " + uerr.Error()}
+		}
+		resp = &out
+		return nil
+	}, providerConfig)
+	if callErr != nil {
+		return nil, callErr
 	}
+	if !found {
+		return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "transcribe"}
+	}
+	return resp, nil
 }
 
 // speechRequestTable builds the speech request table.
@@ -369,11 +299,10 @@ func speechRequestTable(L *lua.LState, req *models.SpeechRequest) *lua.LTable {
 	return tbl
 }
 
-// Speech invokes the speech handler with the same geo-rotation as Complete.
-// The plugin returns {audio_b64, format}: the JSON return path cannot carry
-// raw bytes, so audio crosses the boundary base64-encoded. A missing handler
-// reports ErrHandlerNotFound so the router maps it to a clean
-// "endpoint not supported" error.
+// Speech invokes the speech handler. The plugin returns {audio_b64,
+// format}: the JSON return path cannot carry raw bytes, so audio crosses
+// the boundary base64-encoded. A missing handler reports ErrHandlerNotFound
+// so the router maps it to a clean "endpoint not supported" error.
 func (s *Service) Speech(
 	goCtx context.Context,
 	typeKey string,
@@ -385,59 +314,50 @@ func (s *Service) Speech(
 	if err != nil {
 		return nil, err
 	}
-	tried := map[string]bool{}
-	for {
-		var resp *models.SpeechResponse
-		found, route, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "speech", func(L *lua.LState) {
-			L.Push(ctxTable(L, "", providerConfig))
-			L.Push(credTable(L, cred))
-			L.Push(speechRequestTable(L, req))
-		}, 2, func(L *lua.LState) error {
-			result, rawErr := splitReturn(L)
-			if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
-				return cerr
-			}
-			if result == lua.LNil {
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "speech returned nil result"}
-			}
-			raw, merr := marshalLua(result)
-			if merr != nil {
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode response: " + merr.Error()}
-			}
-			var out struct {
-				AudioB64 string `json:"audio_b64"`
-				Format   string `json:"format"`
-			}
-			if uerr := unmarshalTo(raw, &out); uerr != nil {
-				s.recordCrash(rec.ID, typeKey, "speech schema violation: "+uerr.Error())
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "speech schema violation: " + uerr.Error()}
-			}
-			audio, derr := base64.StdEncoding.DecodeString(out.AudioB64)
-			if derr != nil {
-				s.recordCrash(rec.ID, typeKey, "speech audio_b64 is not valid base64")
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "speech audio_b64 is not valid base64"}
-			}
-			if len(audio) == 0 {
-				s.recordCrash(rec.ID, typeKey, "speech returned empty audio")
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "speech returned empty audio"}
-			}
-			resp = &models.SpeechResponse{Audio: audio, Format: out.Format}
-			return nil
-		}, providerConfig)
-		if callErr == nil {
-			if !found {
-				return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "speech"}
-			}
-			return resp, nil
+	var resp *models.SpeechResponse
+	found, _, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "speech", func(L *lua.LState) {
+		L.Push(ctxTable(L, "", providerConfig))
+		L.Push(credTable(L, cred))
+		L.Push(speechRequestTable(L, req))
+	}, 2, func(L *lua.LState) error {
+		result, rawErr := splitReturn(L)
+		if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
+			return cerr
 		}
-		next, rotErr := s.geoRotationNext(rec, providerConfig, callErr, route, tried)
-		if rotErr != nil {
-			return nil, rotErr
+		if result == lua.LNil {
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "speech returned nil result"}
 		}
-		if next == "" {
-			return nil, callErr
+		raw, merr := marshalLua(result)
+		if merr != nil {
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode response: " + merr.Error()}
 		}
+		var out struct {
+			AudioB64 string `json:"audio_b64"`
+			Format   string `json:"format"`
+		}
+		if uerr := unmarshalTo(raw, &out); uerr != nil {
+			s.recordCrash(rec.ID, typeKey, "speech schema violation: "+uerr.Error())
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "speech schema violation: " + uerr.Error()}
+		}
+		audio, derr := base64.StdEncoding.DecodeString(out.AudioB64)
+		if derr != nil {
+			s.recordCrash(rec.ID, typeKey, "speech audio_b64 is not valid base64")
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "speech audio_b64 is not valid base64"}
+		}
+		if len(audio) == 0 {
+			s.recordCrash(rec.ID, typeKey, "speech returned empty audio")
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "speech returned empty audio"}
+		}
+		resp = &models.SpeechResponse{Audio: audio, Format: out.Format}
+		return nil
+	}, providerConfig)
+	if callErr != nil {
+		return nil, callErr
 	}
+	if !found {
+		return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "speech"}
+	}
+	return resp, nil
 }
 
 // imageRequestTable builds the generate_image request table.
@@ -463,9 +383,9 @@ func imageRequestTable(L *lua.LState, req *models.ImageGenerationRequest) *lua.L
 	return tbl
 }
 
-// GenerateImage invokes the generate_image handler with the same
-// geo-rotation as Complete. A missing handler reports ErrHandlerNotFound so
-// the router maps it to a clean "endpoint not supported" error.
+// GenerateImage invokes the generate_image handler. A missing handler
+// reports ErrHandlerNotFound so the router maps it to a clean "endpoint
+// not supported" error.
 func (s *Service) GenerateImage(
 	goCtx context.Context,
 	typeKey string,
@@ -477,51 +397,42 @@ func (s *Service) GenerateImage(
 	if err != nil {
 		return nil, err
 	}
-	tried := map[string]bool{}
-	for {
-		var resp *models.ImageGenerationResponse
-		found, route, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "generate_image", func(L *lua.LState) {
-			L.Push(ctxTable(L, "", providerConfig))
-			L.Push(credTable(L, cred))
-			L.Push(imageRequestTable(L, req))
-		}, 2, func(L *lua.LState) error {
-			result, rawErr := splitReturn(L)
-			if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
-				return cerr
-			}
-			if result == lua.LNil {
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "generate_image returned nil result"}
-			}
-			raw, merr := marshalLua(result)
-			if merr != nil {
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode response: " + merr.Error()}
-			}
-			var out models.ImageGenerationResponse
-			if uerr := unmarshalTo(normalizeEmptyObjects(raw, "data"), &out); uerr != nil {
-				s.recordCrash(rec.ID, typeKey, "generate_image schema violation: "+uerr.Error())
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "generate_image schema violation: " + uerr.Error()}
-			}
-			if len(out.Data) == 0 {
-				s.recordCrash(rec.ID, typeKey, "generate_image schema violation: empty data")
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "generate_image schema violation: empty data"}
-			}
-			resp = &out
-			return nil
-		}, providerConfig)
-		if callErr == nil {
-			if !found {
-				return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "generate_image"}
-			}
-			return resp, nil
+	var resp *models.ImageGenerationResponse
+	found, _, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "generate_image", func(L *lua.LState) {
+		L.Push(ctxTable(L, "", providerConfig))
+		L.Push(credTable(L, cred))
+		L.Push(imageRequestTable(L, req))
+	}, 2, func(L *lua.LState) error {
+		result, rawErr := splitReturn(L)
+		if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
+			return cerr
 		}
-		next, rotErr := s.geoRotationNext(rec, providerConfig, callErr, route, tried)
-		if rotErr != nil {
-			return nil, rotErr
+		if result == lua.LNil {
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "generate_image returned nil result"}
 		}
-		if next == "" {
-			return nil, callErr
+		raw, merr := marshalLua(result)
+		if merr != nil {
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode response: " + merr.Error()}
 		}
+		var out models.ImageGenerationResponse
+		if uerr := unmarshalTo(normalizeEmptyObjects(raw, "data"), &out); uerr != nil {
+			s.recordCrash(rec.ID, typeKey, "generate_image schema violation: "+uerr.Error())
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "generate_image schema violation: " + uerr.Error()}
+		}
+		if len(out.Data) == 0 {
+			s.recordCrash(rec.ID, typeKey, "generate_image schema violation: empty data")
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "generate_image schema violation: empty data"}
+		}
+		resp = &out
+		return nil
+	}, providerConfig)
+	if callErr != nil {
+		return nil, callErr
 	}
+	if !found {
+		return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "generate_image"}
+	}
+	return resp, nil
 }
 
 // embeddingsRequestTable builds the embed request table.
@@ -539,9 +450,9 @@ func embeddingsRequestTable(L *lua.LState, req *models.EmbeddingsRequest) *lua.L
 	return tbl
 }
 
-// Embed invokes the embed handler with the same geo-rotation as Complete.
-// A missing handler reports ErrHandlerNotFound so the router maps it to a
-// clean "endpoint not supported" error.
+// Embed invokes the embed handler. A missing handler reports
+// ErrHandlerNotFound so the router maps it to a clean "endpoint not
+// supported" error.
 func (s *Service) Embed(
 	goCtx context.Context,
 	typeKey string,
@@ -553,58 +464,49 @@ func (s *Service) Embed(
 	if err != nil {
 		return nil, err
 	}
-	tried := map[string]bool{}
-	for {
-		var resp *models.EmbeddingsResponse
-		found, route, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "embed", func(L *lua.LState) {
-			L.Push(ctxTable(L, "", providerConfig))
-			L.Push(credTable(L, cred))
-			L.Push(embeddingsRequestTable(L, req))
-		}, 2, func(L *lua.LState) error {
-			result, rawErr := splitReturn(L)
-			if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
-				return cerr
-			}
-			if result == lua.LNil {
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "embed returned nil result"}
-			}
-			raw, merr := marshalLua(result)
-			if merr != nil {
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode response: " + merr.Error()}
-			}
-			var out models.EmbeddingsResponse
-			if uerr := unmarshalTo(normalizeEmptyObjects(raw, "data"), &out); uerr != nil {
-				s.recordCrash(rec.ID, typeKey, "embed schema violation: "+uerr.Error())
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "embed schema violation: " + uerr.Error()}
-			}
-			if len(out.Data) != len(req.Input) {
-				s.recordCrash(rec.ID, typeKey, "embed schema violation: data length does not match input length")
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "embed schema violation: data length does not match input length"}
-			}
-			for i := range out.Data {
-				if len(out.Data[i].Values) == 0 {
-					s.recordCrash(rec.ID, typeKey, "embed schema violation: empty embedding vector")
-					return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "embed schema violation: empty embedding vector"}
-				}
-				out.Data[i].Index = i
-			}
-			resp = &out
-			return nil
-		}, providerConfig)
-		if callErr == nil {
-			if !found {
-				return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "embed"}
-			}
-			return resp, nil
+	var resp *models.EmbeddingsResponse
+	found, _, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "embed", func(L *lua.LState) {
+		L.Push(ctxTable(L, "", providerConfig))
+		L.Push(credTable(L, cred))
+		L.Push(embeddingsRequestTable(L, req))
+	}, 2, func(L *lua.LState) error {
+		result, rawErr := splitReturn(L)
+		if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
+			return cerr
 		}
-		next, rotErr := s.geoRotationNext(rec, providerConfig, callErr, route, tried)
-		if rotErr != nil {
-			return nil, rotErr
+		if result == lua.LNil {
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "embed returned nil result"}
 		}
-		if next == "" {
-			return nil, callErr
+		raw, merr := marshalLua(result)
+		if merr != nil {
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode response: " + merr.Error()}
 		}
+		var out models.EmbeddingsResponse
+		if uerr := unmarshalTo(normalizeEmptyObjects(raw, "data"), &out); uerr != nil {
+			s.recordCrash(rec.ID, typeKey, "embed schema violation: "+uerr.Error())
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "embed schema violation: " + uerr.Error()}
+		}
+		if len(out.Data) != len(req.Input) {
+			s.recordCrash(rec.ID, typeKey, "embed schema violation: data length does not match input length")
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "embed schema violation: data length does not match input length"}
+		}
+		for i := range out.Data {
+			if len(out.Data[i].Values) == 0 {
+				s.recordCrash(rec.ID, typeKey, "embed schema violation: empty embedding vector")
+				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "embed schema violation: empty embedding vector"}
+			}
+			out.Data[i].Index = i
+		}
+		resp = &out
+		return nil
+	}, providerConfig)
+	if callErr != nil {
+		return nil, callErr
 	}
+	if !found {
+		return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "embed"}
+	}
+	return resp, nil
 }
 
 // ValidateCredentials calls validate_credentials. Missing handler accepts
@@ -649,10 +551,8 @@ func (s *Service) ValidateCredentials(typeKey string, data map[string]any) (bool
 	return valid, nil
 }
 
-// GetModelInfos calls get_model_infos with the same geo-rotation as
-// Complete: a region-locked answer through a proxy walks the pool instead
-// of failing discovery. Missing handler reports ErrHandlerNotFound so
-// callers apply the fixed fallback.
+// GetModelInfos calls get_model_infos. Missing handler reports
+// ErrHandlerNotFound so callers apply the fixed fallback.
 func (s *Service) GetModelInfos(
 	goCtx context.Context,
 	typeKey string,
@@ -663,55 +563,46 @@ func (s *Service) GetModelInfos(
 	if err != nil {
 		return nil, err
 	}
-	tried := map[string]bool{}
-	for {
-		var infos []models.ModelInfo
-		found, route, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "get_model_infos", func(L *lua.LState) {
-			L.Push(ctxTable(L, "", nil))
-			L.Push(credTable(L, cred))
-			if len(providerConfig) > 0 {
-				L.Push(toLuaValue(L, providerConfig))
-			} else {
-				L.Push(L.NewTable())
-			}
-		}, 2, func(L *lua.LState) error {
-			result, rawErr := splitReturn(L)
-			if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
-				return cerr
-			}
-			if result == lua.LNil {
-				infos = []models.ModelInfo{}
-				return nil
-			}
-			raw, merr := marshalLua(result)
-			if merr != nil {
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode model infos: " + merr.Error()}
-			}
-			var out []models.ModelInfo
-			if uerr := unmarshalTo(raw, &out); uerr != nil {
-				s.recordCrash(rec.ID, typeKey, "get_model_infos schema violation: "+uerr.Error())
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "get_model_infos schema violation: " + uerr.Error()}
-			}
-			infos = out
+	var infos []models.ModelInfo
+	found, _, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "get_model_infos", func(L *lua.LState) {
+		L.Push(ctxTable(L, "", nil))
+		L.Push(credTable(L, cred))
+		if len(providerConfig) > 0 {
+			L.Push(toLuaValue(L, providerConfig))
+		} else {
+			L.Push(L.NewTable())
+		}
+	}, 2, func(L *lua.LState) error {
+		result, rawErr := splitReturn(L)
+		if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
+			return cerr
+		}
+		if result == lua.LNil {
+			infos = []models.ModelInfo{}
 			return nil
-		}, providerConfig)
-		if callErr == nil {
-			if !found {
-				return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "get_model_infos"}
-			}
-			if infos == nil {
-				infos = []models.ModelInfo{}
-			}
-			return infos, nil
 		}
-		next, rotErr := s.geoRotationNext(rec, providerConfig, callErr, route, tried)
-		if rotErr != nil {
-			return nil, rotErr
+		raw, merr := marshalLua(result)
+		if merr != nil {
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode model infos: " + merr.Error()}
 		}
-		if next == "" {
-			return nil, callErr
+		var out []models.ModelInfo
+		if uerr := unmarshalTo(raw, &out); uerr != nil {
+			s.recordCrash(rec.ID, typeKey, "get_model_infos schema violation: "+uerr.Error())
+			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "get_model_infos schema violation: " + uerr.Error()}
 		}
+		infos = out
+		return nil
+	}, providerConfig)
+	if callErr != nil {
+		return nil, callErr
 	}
+	if !found {
+		return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "get_model_infos"}
+	}
+	if infos == nil {
+		infos = []models.ModelInfo{}
+	}
+	return infos, nil
 }
 
 // NeedsRefresh calls needs_refresh. Missing handler means not refreshable.

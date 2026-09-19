@@ -251,7 +251,7 @@ llm_router.register("bad", { complete = function() end })
 `
 	if _, err := svc.Install([]byte(bad), PluginOrigin{Manual: true}); err == nil {
 		t.Fatal("expected install failure for os.execute access")
-	} else if !strings.Contains(err.Error(), "nil") {
+	} else if !strings.Contains(err.Error(), "non-function") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

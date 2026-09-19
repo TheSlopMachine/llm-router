@@ -3,6 +3,7 @@ package luaplugin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -27,8 +28,7 @@ func (s *Service) handlerCall(
 }
 
 // handlerCallRouted is handlerCall plus the proxy route used by the call's
-// last HTTP request ("" = direct). Geo-rotation in Complete/CompleteStream
-// consumes it.
+// last HTTP request ("" = direct).
 func (s *Service) handlerCallRouted(
 	goCtx context.Context,
 	rec *PluginRecord,
@@ -51,21 +51,31 @@ func (s *Service) handlerCallRouted(
 		proxyRec:            rec,
 		proxyProviderConfig: providerConfig,
 	}
-	if s.proxyOutcome != nil {
+	if s.proxyEventReporter != nil {
 		tk := typeKey
-		ctx.onProxyResult = func(proxyID string, ok bool, latencyMs int64) {
-			if proxyID != "" {
-				s.proxyOutcome(proxyID, tk, ok, latencyMs)
+		ctx.onProxyEvent = func(ev ProxyEvent) {
+			if ev.ProxyID != "" {
+				ev.Provider = tk
+				s.proxyEventReporter(ev)
 			}
 		}
 	}
-	// A geo-blocked response through a proxy marks that proxy bad for this
-	// provider: the HTTP layer counted the 400 as a successful dial.
+	// Pair outcomes: a rate-limit response limits the proxy for this
+	// provider until retry_after; a geo-blocked response blocks it.
 	defer func() {
-		if err != nil && ctx.onProxyResult != nil && ctx.lastProxyID != "" {
+		if err != nil && ctx.onProxyEvent != nil && ctx.lastProxyID != "" {
 			var perr *models.ProviderError
-			if errors.As(err, &perr) && perr.Type == models.ErrorTypeGeo {
-				ctx.onProxyResult(ctx.lastProxyID, false, 0)
+			if errors.As(err, &perr) {
+				switch perr.Type {
+				case models.ErrorTypeRateLimit, models.ErrorTypeQuotaExceeded:
+					resetsAt := time.Now().Add(time.Minute)
+					if perr.RetryAfter != nil {
+						resetsAt = *perr.RetryAfter
+					}
+					ctx.onProxyEvent(ProxyEvent{ProxyID: ctx.lastProxyID, RateLimited: true, ResetsAt: resetsAt})
+				case models.ErrorTypeGeo:
+					ctx.onProxyEvent(ProxyEvent{ProxyID: ctx.lastProxyID, Blocked: true, BlockReason: perr.Message})
+				}
 			}
 		}
 	}()
@@ -74,7 +84,13 @@ func (s *Service) handlerCallRouted(
 	L.SetContext(goCtx)
 
 	if err := L.DoString(string(rec.Source)); err != nil {
+		// A parse failure pushes nothing: fall back to the Go error so
+		// the crash carries the parser message instead of "nil".
 		cause := luaErrorString(L.Get(-1))
+		if cause == "" || cause == "nil" {
+			cause = err.Error()
+		}
+		cause = fmt.Sprintf("%s (source %d bytes)", cause, len(rec.Source))
 		s.recordCrash(rec.ID, typeKey, "load: "+cause)
 		return true, ctx.proxyID, &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "load: " + cause}
 	}

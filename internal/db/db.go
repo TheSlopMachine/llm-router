@@ -29,7 +29,9 @@ var (
 	BucketRouterConfiguration = []byte("router_configuration") // Instance configuration (RouterConfiguration)
 	BucketModelOverrides      = []byte("model_overrides")      // Per-provider model enable/disable and custom models
 	BucketModelInfos          = []byte("model_infos")          // Persisted per-provider model metadata cache
-	BucketProxies             = []byte("proxies")              // Proxy pool records (manual + list-sourced)
+	BucketProxies             = []byte("proxies_v2")           // Proxy pool records (manual + list-sourced)
+	BucketProxyLimits         = []byte("proxy_limits")         // Per-pair live state: (proxy, provider) limits and blocks
+	BucketActiveRegions       = []byte("active_regions")       // Demanded proxy exit locations
 	BucketProxySourceMeta     = []byte("proxy_source_meta")    // Last fetch totals per proxy list source
 )
 
@@ -76,6 +78,8 @@ func (db *DB) initBuckets() error {
 			BucketModelOverrides,
 			BucketModelInfos,
 			BucketProxies,
+			BucketProxyLimits,
+			BucketActiveRegions,
 			BucketProxySourceMeta,
 		}
 		for _, name := range buckets {

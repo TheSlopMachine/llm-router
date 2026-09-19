@@ -43,7 +43,9 @@ type Service struct {
 
 	modelInfoSvc modelInfoRefresher
 
-	lastProxyRefresh time.Time
+	proxyTickInterval time.Duration
+	lastProxyRotate   time.Time
+	lastProxyFetch    time.Time
 }
 
 // modelInfoRefresher is the slice of modelinfo the maintenance loop needs.
@@ -69,10 +71,15 @@ func New(credSvc *credential.Service, providerSvc *provider.Service, db *db.DB, 
 }
 
 // SetProxyServices wires the proxy pool and plugin service for periodic
-// pool rotation (list refresh + health checks).
+// pool rotation and source fetching.
 func (s *Service) SetProxyServices(proxySvc *proxypool.Service, luaSvc *luaplugin.Service) {
 	s.proxySvc = proxySvc
 	s.luaSvc = luaSvc
+}
+
+// SetProxyTickInterval sets the automatic proxy rotation period.
+func (s *Service) SetProxyTickInterval(d time.Duration) {
+	s.proxyTickInterval = d
 }
 
 // WithInterval overrides the check interval (useful for testing).
@@ -86,6 +93,9 @@ func (s *Service) WithInterval(d time.Duration) *Service {
 func (s *Service) Start(ctx context.Context) {
 	s.logger.Info("maintenance service started", "interval", s.interval)
 	go func() {
+		// Rotate the proxy pool at once instead of waiting for the first
+		// tick: a restarted router re-verifies its pool immediately.
+		s.rotateProxyOnce(ctx)
 		ticker := time.NewTicker(s.interval)
 		defer ticker.Stop()
 		for {
@@ -155,35 +165,63 @@ func (s *Service) syncProviderModels(ctx context.Context) {
 	}
 }
 
-const proxyPoolRefreshInterval = time.Hour
+const proxySourceFetchInterval = time.Hour
 
-// maintainProxyPool refreshes list-sourced proxies hourly: each source is
-// fetched and its candidates stream into the check pipeline. The DB pool
-// (manual + verified-alive) is re-probed right after.
+// rotateProxyOnce runs one pool rotation pass outside the tick schedule.
+func (s *Service) rotateProxyOnce(ctx context.Context) {
+	if s.proxySvc == nil {
+		return
+	}
+	s.lastProxyRotate = time.Now()
+	if err := s.proxySvc.RotateAll(ctx); err != nil {
+		s.logger.Warn("maintenance: startup proxy rotation failed", "err", err)
+		return
+	}
+	s.logger.Info("maintenance: startup proxy rotation completed")
+}
+
+// maintainProxyPool rotates the pool on the configured tick and fetches new
+// list candidates hourly. Fetching and rotation are independent: the tick
+// re-probes pooled proxies, the fetch adds new ones.
 func (s *Service) maintainProxyPool(ctx context.Context) {
 	if s.proxySvc == nil || s.luaSvc == nil {
 		return
 	}
-	if time.Since(s.lastProxyRefresh) < proxyPoolRefreshInterval {
+	if s.proxyTickInterval > 0 && (s.lastProxyRotate.IsZero() || time.Since(s.lastProxyRotate) >= s.proxyTickInterval) {
+		s.lastProxyRotate = time.Now()
+		if err := s.proxySvc.RotateAll(ctx); err != nil {
+			s.logger.Warn("maintenance: proxy rotation failed", "err", err)
+		}
+	}
+	if !s.lastProxyFetch.IsZero() && time.Since(s.lastProxyFetch) < proxySourceFetchInterval {
 		return
 	}
-	s.lastProxyRefresh = time.Now()
+	if !s.proxySvc.NeedsSearch() {
+		return
+	}
+	s.lastProxyFetch = time.Now()
 	for _, key := range s.luaSvc.ProxySourceKeys() {
 		if ctx.Err() != nil {
 			return
 		}
-		s.proxySvc.BeginFetch(key)
+		s.proxySvc.SetSourceFetching(key)
 		candidates, err := s.luaSvc.FetchProxies(ctx, key)
 		if err != nil {
-			s.proxySvc.FailFetch(key, err)
+			s.proxySvc.SetSourceFailed(key, err)
 			s.logger.Warn("maintenance: proxy source refresh failed", "source", key, "err", err)
 			continue
 		}
-		if _, err := s.proxySvc.RefreshSource(key, candidates); err != nil {
+		if err := s.proxySvc.AddCandidates(ctx, key, candidates); err != nil {
+			// A busy pool means another rotation is already working;
+			// not a source failure, so don't stain its status.
+			if errors.Is(err, proxypool.ErrBusy) {
+				s.proxySvc.SetSourceDone(key, len(candidates))
+			} else {
+				s.proxySvc.SetSourceFailed(key, err)
+			}
 			s.logger.Warn("maintenance: proxy pool refresh failed", "source", key, "err", err)
 		}
 	}
-	s.proxySvc.CheckAll(ctx)
 }
 
 // cleanupAuthFlows removes auth flow entries older than 10 minutes.

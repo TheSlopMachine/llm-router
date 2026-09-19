@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
@@ -62,15 +63,9 @@ func TestComplete_RoutesThroughProxy(t *testing.T) {
 	proxyURL := markerProxy(t, "via-proxy-marker")
 
 	var resolved int
-	svc.SetProxyResolver(func(rec *PluginRecord, _ map[string]any) (string, string, error) {
+	svc.SetProxyResolver(func(rec *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
 		resolved++
-		return "px-test", proxyURL, nil
-	})
-	var outcomes []string
-	svc.SetProxyOutcomeReporter(func(proxyID, _ string, ok bool, _ int64) {
-		if ok {
-			outcomes = append(outcomes, proxyID)
-		}
+		return []ProxyPick{{ID: "px-test", URL: proxyURL}}, nil
 	})
 
 	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
@@ -88,9 +83,6 @@ func TestComplete_RoutesThroughProxy(t *testing.T) {
 	if !strings.Contains(got, "via-proxy-marker") {
 		t.Fatalf("response did not come through the proxy: %q", got)
 	}
-	if len(outcomes) == 0 {
-		t.Fatal("successful proxied request never reported")
-	}
 }
 
 func TestComplete_RotatesToNextProxyOnFailure(t *testing.T) {
@@ -99,21 +91,9 @@ func TestComplete_RotatesToNextProxyOnFailure(t *testing.T) {
 	liveURL := markerProxy(t, "via-second-proxy")
 	deadURL := "http://127.0.0.1:1"
 
-	// Dead first, live second: the resolver answers every resolution with
-	// the next untried proxy, mimicking pool demotion.
-	queue := []struct{ id, url string }{{"px-dead", deadURL}, {"px-live", liveURL}}
-	svc.SetProxyResolver(func(_ *PluginRecord, _ map[string]any) (string, string, error) {
-		next := queue[0]
-		if len(queue) > 1 {
-			queue = queue[1:]
-		}
-		return next.id, next.url, nil
-	})
-	var failed []string
-	svc.SetProxyOutcomeReporter(func(proxyID, _ string, ok bool, _ int64) {
-		if !ok {
-			failed = append(failed, proxyID)
-		}
+	// Dead first, live second: one ordered list, failover walks it.
+	svc.SetProxyResolver(func(_ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+		return []ProxyPick{{ID: "px-dead", URL: deadURL}, {ID: "px-live", URL: liveURL}}, nil
 	})
 
 	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
@@ -127,9 +107,6 @@ func TestComplete_RotatesToNextProxyOnFailure(t *testing.T) {
 	if got := resp.Choices[0].Message.TextContent(); !strings.Contains(got, "via-second-proxy") {
 		t.Fatalf("did not rotate to live proxy: %q", got)
 	}
-	if len(failed) == 0 || failed[0] != "px-dead" {
-		t.Fatalf("dead proxy failure never reported: %v", failed)
-	}
 }
 
 func TestComplete_ProxyExhaustedSurfacesError(t *testing.T) {
@@ -138,21 +115,37 @@ func TestComplete_ProxyExhaustedSurfacesError(t *testing.T) {
 
 	// The only pooled proxy refuses connections: the error must surface,
 	// never a silent direct attempt.
-	resolutions := 0
-	svc.SetProxyResolver(func(_ *PluginRecord, _ map[string]any) (string, string, error) {
-		resolutions++
-		return "px-dead", "http://127.0.0.1:1", nil
+	svc.SetProxyResolver(func(_ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+		return []ProxyPick{{ID: "px-dead", URL: "http://127.0.0.1:1"}}, nil
 	})
 
 	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
-	resp, err := svc.Complete(t.Context(), "proxy-fetch-type", cred, &models.ChatCompletionRequest{
+	_, err := svc.Complete(t.Context(), "proxy-fetch-type", cred, &models.ChatCompletionRequest{
 		Model:    "test/proxy-model",
 		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
 	}, nil)
 	if err == nil {
-		t.Fatalf("exhausted proxy list must surface an error, got content %q (resolutions=%d)", resp.Choices[0].Message.TextContent(), resolutions)
+		t.Fatal("exhausted proxy list must surface an error")
 	}
 }
+
+const proxyRateLimitPluginSource = `--- @plugin Proxy Rate Plugin
+--- @author tester
+--- @version 1.0.0
+--- @router_version 0.0.4
+--- @allow_host example.com
+
+llm_router.register("proxy-rate-type", {
+  complete = function(ctx, credential, request)
+    local client = llm_router.create_http_client({ timeout_ms = 5000 })
+    local resp, req_err = client:request({ method = "GET", url = "http://example.com/probe" })
+    if req_err ~= nil then
+      return nil, { type = "upstream", message = req_err.message }
+    end
+    return nil, { type = "rate_limit", message = "slow down", retry_after = 1700000060 }
+  end,
+})
+`
 
 const proxyGeoPluginSource = `--- @plugin Proxy Geo Plugin
 --- @author tester
@@ -167,74 +160,53 @@ llm_router.register("proxy-geo-type", {
     if req_err ~= nil then
       return nil, { type = "upstream", message = req_err.message }
     end
-    if string.find(resp.body, "wrong-region", 1, true) then
-      return nil, { type = "geo", message = "region locked" }
-    end
-    return {
-      id = "chatcmpl-proxy",
-      object = "chat.completion",
-      created = 1700000000,
-      model = request.model,
-      choices = {
-        { index = 0, message = { role = "assistant", content = resp.body }, finish_reason = "stop" },
-      },
-      usage = { prompt_tokens = 1, completion_tokens = 1, total_tokens = 2 },
-    }
+    return nil, { type = "geo", message = "region locked" }
   end,
 })
 `
 
-func installProxyGeoPlugin(t *testing.T, svc *Service) {
-	t.Helper()
-	if _, err := svc.Install([]byte(proxyGeoPluginSource), PluginOrigin{Manual: true}); err != nil {
+func TestComplete_RateLimitReportsPairEvent(t *testing.T) {
+	svc := setupService(t)
+	if _, err := svc.Install([]byte(proxyRateLimitPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-}
-
-func TestComplete_GeoRotatesSilently(t *testing.T) {
-	svc := setupService(t)
-	installProxyGeoPlugin(t, svc)
-	lockedURL := markerProxy(t, "wrong-region")
-	okURL := markerProxy(t, "right-region")
-
-	queue := []struct{ id, url string }{{"px-locked", lockedURL}, {"px-ok", okURL}}
-	svc.SetProxyResolver(func(_ *PluginRecord, _ map[string]any) (string, string, error) {
-		next := queue[0]
-		if len(queue) > 1 {
-			queue = queue[1:]
-		}
-		return next.id, next.url, nil
+	proxyURL := markerProxy(t, "x")
+	svc.SetProxyResolver(func(_ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+		return []ProxyPick{{ID: "px-1", URL: proxyURL}}, nil
 	})
-	var bad []string
-	svc.SetProxyOutcomeReporter(func(proxyID, _ string, ok bool, _ int64) {
-		if !ok {
-			bad = append(bad, proxyID)
-		}
+	var events []ProxyEvent
+	svc.SetProxyEventReporter(func(ev ProxyEvent) {
+		events = append(events, ev)
 	})
 
 	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
-	resp, err := svc.Complete(t.Context(), "proxy-geo-type", cred, &models.ChatCompletionRequest{
-		Model:    "test/geo-model",
+	_, err := svc.Complete(t.Context(), "proxy-rate-type", cred, &models.ChatCompletionRequest{
+		Model:    "test/rate-model",
 		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
 	}, nil)
-	if err != nil {
-		t.Fatalf("geo rotation must recover silently: %v", err)
+	if err == nil {
+		t.Fatal("rate limit must surface an error")
 	}
-	if got := resp.Choices[0].Message.TextContent(); !strings.Contains(got, "right-region") {
-		t.Fatalf("did not rotate past the locked proxy: %q", got)
+	if len(events) != 1 || !events[0].RateLimited || events[0].ProxyID != "px-1" {
+		t.Fatalf("rate limit pair event missing: %+v", events)
 	}
-	if len(bad) == 0 || bad[0] != "px-locked" {
-		t.Fatalf("locked proxy never marked bad for the provider: %v", bad)
+	if events[0].ResetsAt.Unix() != 1700000060 {
+		t.Fatalf("retry_after not honored: %+v", events[0])
 	}
 }
 
-func TestComplete_GeoExhaustionSynthesizesError(t *testing.T) {
+func TestComplete_GeoReportsPairBlock(t *testing.T) {
 	svc := setupService(t)
-	installProxyGeoPlugin(t, svc)
-	lockedURL := markerProxy(t, "wrong-region")
-
-	svc.SetProxyResolver(func(_ *PluginRecord, _ map[string]any) (string, string, error) {
-		return "px-locked", lockedURL, nil
+	if _, err := svc.Install([]byte(proxyGeoPluginSource), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	proxyURL := markerProxy(t, "ok-region")
+	svc.SetProxyResolver(func(_ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+		return []ProxyPick{{ID: "px-1", URL: proxyURL}}, nil
+	})
+	var events []ProxyEvent
+	svc.SetProxyEventReporter(func(ev ProxyEvent) {
+		events = append(events, ev)
 	})
 
 	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
@@ -243,14 +215,48 @@ func TestComplete_GeoExhaustionSynthesizesError(t *testing.T) {
 		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
 	}, nil)
 	if err == nil {
-		t.Fatal("exhausted geo pool must error")
+		t.Fatal("geo error must surface")
 	}
 	var perr *models.ProviderError
 	if !errors.As(err, &perr) || perr.Type != models.ErrorTypeGeo {
-		t.Fatalf("exhaustion must stay a geo provider error: %v", err)
+		t.Fatalf("geo error must stay a geo provider error: %v", err)
 	}
-	if !strings.Contains(perr.Message, "all 1 pooled proxies") {
-		t.Fatalf("exhaustion message must report the pool size: %q", perr.Message)
+	if len(events) != 1 || !events[0].Blocked || events[0].ProxyID != "px-1" {
+		t.Fatalf("geo pair block missing: %+v", events)
+	}
+	if events[0].BlockReason != "region locked" {
+		t.Fatalf("block reason not carried: %+v", events[0])
+	}
+}
+
+func TestComplete_RateLimitDefaultResetsInMinute(t *testing.T) {
+	svc := setupService(t)
+	src := strings.Replace(proxyRateLimitPluginSource, "proxy-rate-type", "proxy-rate-dflt", 1)
+	src = strings.Replace(src, `, retry_after = 1700000060`, ``, 1)
+	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	proxyURL := markerProxy(t, "x")
+	svc.SetProxyResolver(func(_ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+		return []ProxyPick{{ID: "px-1", URL: proxyURL}}, nil
+	})
+	var events []ProxyEvent
+	svc.SetProxyEventReporter(func(ev ProxyEvent) {
+		events = append(events, ev)
+	})
+	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
+	// The rate_limit fixture without retry_after defaults in asProviderError;
+	// quota_exceeded defaults to now+60s at the contract layer.
+	before := time.Now()
+	_, _ = svc.Complete(t.Context(), "proxy-rate-dflt", cred, &models.ChatCompletionRequest{
+		Model:    "test/rate-model",
+		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
+	}, nil)
+	if len(events) != 1 || !events[0].RateLimited {
+		t.Fatalf("rate limit pair event missing: %+v", events)
+	}
+	if events[0].ResetsAt.Before(before) {
+		t.Fatalf("default reset must be in the future: %+v", events[0])
 	}
 }
 
@@ -258,10 +264,9 @@ func TestDoWithProxyRotation_BadTransportNeverGoesDirect(t *testing.T) {
 	// Unbuildable proxy URL: rotation has nothing to advance to, so the
 	// build error surfaces. No network access happens either way.
 	ctx := &execContext{
-		proxyResolver: func(_ *PluginRecord, _ map[string]any) (string, string, error) {
-			return "px-bogus", "bogus-scheme://example.com:8080", nil
+		proxyResolver: func(_ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+			return []ProxyPick{{ID: "px-bogus", URL: "bogus-scheme://example.com:8080"}}, nil
 		},
-		triedProxies: map[string]bool{},
 	}
 	c := &pluginHTTPClient{ctx: ctx, guard: newSSRFGuard([]string{"example.com"})}
 	req, _ := http.NewRequest("GET", "http://example.com/", nil)
@@ -273,9 +278,9 @@ func TestDoWithProxyRotation_BadTransportNeverGoesDirect(t *testing.T) {
 func TestExecContext_RotationBounds(t *testing.T) {
 	calls := 0
 	ctx := &execContext{
-		proxyResolver: func(_ *PluginRecord, _ map[string]any) (string, string, error) {
+		proxyResolver: func(_ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
 			calls++
-			return "px-1", "http://10.9.9.9:8080", nil
+			return []ProxyPick{{ID: "px-1", URL: "http://10.9.9.9:8080"}}, nil
 		},
 	}
 	if err := ctx.beginRequest(); err != nil {
@@ -284,11 +289,11 @@ func TestExecContext_RotationBounds(t *testing.T) {
 	if ctx.proxyURL == "" {
 		t.Fatal("route not resolved")
 	}
-	// Same single proxy: second rotation attempt stops, no infinite loop.
+	// Single pick: rotation stops, no infinite loop, one resolution.
 	if ctx.rotateProxy() {
-		t.Fatal("rotation must stop when the resolver repeats a tried proxy")
+		t.Fatal("rotation must stop at the end of the pick list")
 	}
-	if calls != 2 {
-		t.Fatalf("expected 2 resolutions, got %d", calls)
+	if calls != 1 {
+		t.Fatalf("expected 1 resolution, got %d", calls)
 	}
 }

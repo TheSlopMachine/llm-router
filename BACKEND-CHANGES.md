@@ -221,6 +221,34 @@ Harness scenario `proxies` passes live.
     Router version bumped to 0.0.5; PLUGIN-CONTRACT.md is now the binding
     plugin-author contract.
 
+## Done (2026-09-19, proxy pool rework)
+
+41. **Proxy pool replaced** — two-stage probe (CONNECT tunnel ping, 1MB
+    download speed), one live state per proxy-provider pair (rate limit,
+    block), demand-driven fetch. Buckets `proxies_v2` + `proxy_limits` +
+    `active_regions`; old buckets unread. Dead proxies deleted; slow ones
+    (under `min_download_speed_kbps = 15000`) kept as fallback until their
+    location fills, then displaced one-for-one by faster newcomers;
+    rotation trims locations to the fastest `max_proxies_per_location`.
+    Exit locations verified through the proxy on add. Demand accumulates
+    request whitelists over defaults `US/DE/NL/GB/FR/CA` (observed entries
+    expire after 48h); scheduled fetch pauses while every demanded region
+    holds N fast proxies. Source fetch covers a rotating 1500-window in
+    150-chunks while shortfall persists (zero probes on a full pool);
+    manual refresh short-circuits on a full pool; 64 probe workers.
+    Settings live in `RouterConfiguration` with defaults
+    `15000/10/15`, no UI editing yet.
+42. **Pair outcomes** — handler `rate_limit`/`quota_exceeded` limits the
+    pair until `retry_after` (`+60s` default); `geo` blocks the pair with
+    the message as reason. Blocks never expire; pairs die with the proxy.
+    Handler geo-rotation removed; retries belong to the credential retry
+    engine, transport failover stays inside one call.
+43. **Manifest** — repeatable `@proxy_location` whitelist (empty = any),
+    new `@proxy_default_option disabled|auto|manual` (absent = disabled,
+    applied in `EnsureSeeded`); `@proxy_force_on_mismatch` removed
+    (tolerated on install); server `geoip` service and
+    `RouterConfiguration.server_country` removed. Router version 0.0.7.
+
 ## Notes
 
 - Model lists are NOT hardcoded in Lua plugins (except the documented fallback

@@ -29,6 +29,7 @@ func (s *Service) SetOnChanged(fn func(models.RouterConfiguration)) { s.onChange
 // Get returns the stored RouterConfiguration, or defaults when not yet persisted.
 func (s *Service) Get() (models.RouterConfiguration, error) {
 	var cfg models.RouterConfiguration
+	found := false
 	err := s.database.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(db.BucketRouterConfiguration)
 		if b == nil {
@@ -38,10 +39,16 @@ func (s *Service) Get() (models.RouterConfiguration, error) {
 		if v == nil {
 			return nil
 		}
+		found = true
 		return json.Unmarshal(v, &cfg)
 	})
 	if err != nil {
 		return models.RouterConfiguration{}, err
+	}
+	if !found {
+		cfg.MinDownloadSpeedKbps = models.DefaultMinDownloadSpeedKbps
+		cfg.MaxProxiesPerLocation = models.DefaultMaxProxiesPerLocation
+		cfg.UpdateIntervalMinutes = models.DefaultUpdateIntervalMinutes
 	}
 	return cfg, nil
 }

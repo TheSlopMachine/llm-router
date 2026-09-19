@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 )
 
@@ -19,12 +20,12 @@ type Manifest struct {
 	AllowHosts    []string
 	// Unsafe is true when the plugin requests a wildcard allow_host.
 	Unsafe bool
-	// ProxyLocation is an optional ISO country code the upstream expects
-	// requests to originate from (proxy preference).
-	ProxyLocation string
-	// ProxyForceOnMismatch marks providers that require a proxy whenever the
-	// server location differs from ProxyLocation (e.g. region-locked APIs).
-	ProxyForceOnMismatch bool
+	// ProxyLocations is the whitelist of ISO country codes the upstream
+	// expects requests to originate from. Empty allows any location.
+	ProxyLocations []string
+	// ProxyDefaultOption is the default proxy mode for providers registered
+	// from this plugin: disabled, auto or manual. Empty means disabled.
+	ProxyDefaultOption string
 	// ProxySource marks this plugin as a proxy-list source with a
 	// fetch_proxies handler instead of a provider backend.
 	ProxySource bool
@@ -36,6 +37,7 @@ func ParseManifest(source []byte) (*Manifest, error) {
 	m := &Manifest{}
 	seen := map[string]int{}
 	allowHosts := []string{}
+	locations := []string{}
 
 	text := strings.ReplaceAll(string(source), "\r\n", "\n")
 	lines := strings.Split(text, "\n")
@@ -80,9 +82,19 @@ func ParseManifest(source []byte) (*Manifest, error) {
 				allowHosts = append(allowHosts, value)
 			}
 		case "@proxy_location":
-			m.ProxyLocation = proxypool.NormalizeCountryCode(value)
+			if value != "" {
+				locations = append(locations, proxypool.NormalizeCountryCode(value))
+			}
+		case "@proxy_default_option":
+			switch value {
+			case models.ProxyModeDisabled, models.ProxyModeAuto, models.ProxyModeManual:
+				m.ProxyDefaultOption = value
+			default:
+				return nil, fmt.Errorf("invalid @proxy_default_option %q: want disabled, auto or manual", value)
+			}
 		case "@proxy_force_on_mismatch":
-			m.ProxyForceOnMismatch = value == "true"
+			// Removed directive: force-on-mismatch no longer exists. Tolerate
+			// the tag so previously valid plugins keep installing.
 		case "@proxy_source":
 			m.ProxySource = value == "true" || value == ""
 		default:
@@ -101,7 +113,7 @@ func ParseManifest(source []byte) (*Manifest, error) {
 		}
 	}
 	if seen["@description"] > 1 || seen["@license"] > 1 ||
-		seen["@proxy_location"] > 1 || seen["@proxy_force_on_mismatch"] > 1 || seen["@proxy_source"] > 1 {
+		seen["@proxy_default_option"] > 1 || seen["@proxy_source"] > 1 {
 		return nil, fmt.Errorf("duplicate single-value manifest tag")
 	}
 	if len(allowHosts) == 0 {
@@ -125,6 +137,7 @@ func ParseManifest(source []byte) (*Manifest, error) {
 	}
 	m.AllowHosts = allowHosts
 	m.Unsafe = wildcard
+	m.ProxyLocations = dedupeStrings(locations)
 	if _, _, _, err := parseSemver(m.Version); err != nil {
 		return nil, fmt.Errorf("invalid @version %q: %w", m.Version, err)
 	}
@@ -132,6 +145,19 @@ func ParseManifest(source []byte) (*Manifest, error) {
 		return nil, fmt.Errorf("invalid @router_version %q: %w", m.RouterVersion, err)
 	}
 	return m, nil
+}
+
+func dedupeStrings(in []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, s := range in {
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 // CheckRouterVersion rejects plugins requiring a newer router.
