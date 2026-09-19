@@ -654,7 +654,8 @@ func (s *Service) probeDownload(ctx context.Context, proxyURL string) (int64, er
 	if elapsed <= 0 {
 		elapsed = time.Millisecond
 	}
-	return counter.n * 8 * 1000 / elapsed.Milliseconds(), nil
+	// Kilobits per second: bytes * 8 bits / elapsed ms.
+	return counter.n * 8 / elapsed.Milliseconds(), nil
 }
 
 func (s *Service) locationCount(location string) (int, error) {

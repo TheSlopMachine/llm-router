@@ -362,6 +362,23 @@ func TestProbeHandshake_Socks5RespectsTimeout(t *testing.T) {
 	}
 }
 
+func TestProbeDownload_SpeedMagnitude(t *testing.T) {
+	svc := setupPool(t)
+	// 1MB over ~300ms ranks near 28 Mbit/s. Wide bounds absorb loopback
+	// jitter; a units regression (bits/s stored as kbit/s) misses by 1000x.
+	origin := fileOrigin(t, 300*time.Millisecond)
+	proxyAddr := forwardProxy(t, origin)
+	livePool(t, svc, proxyAddr, origin, "US")
+
+	speed, err := svc.probeDownload(context.Background(), "http://"+proxyAddr)
+	if err != nil {
+		t.Fatalf("download: %v", err)
+	}
+	if speed < 10000 || speed > 60000 {
+		t.Fatalf("speed out of magnitude: %d kbit/s, want ~28000", speed)
+	}
+}
+
 func TestChoose_Matrix(t *testing.T) {
 	svc := setupPool(t)
 	us := seedProxy(t, svc, "http://10.1.0.1:8080", "US", 100, 1000, ManualSource)
