@@ -406,7 +406,7 @@
     }
   }
 
-  async function testModel(m: ProviderModel): Promise<void> {
+  async function probeModel(m: ProviderModel): Promise<TestResult> {
     modelTestResults = { ...modelTestResults, [m.name]: 'loading' }
     let res: TestResult
     try {
@@ -415,6 +415,11 @@
       res = { ok: false, latency_ms: 0, error: getErrorMessage(e) }
     }
     modelTestResults = { ...modelTestResults, [m.name]: res }
+    return res
+  }
+
+  async function testModel(m: ProviderModel): Promise<TestResult> {
+    const res = await probeModel(m)
     if (res.ok) {
       toast.success(`${m.name} works · ${res.latency_ms}ms`)
     } else {
@@ -425,6 +430,7 @@
       delete next[m.name]
       modelTestResults = next
     })
+    return res
   }
 
   let testAllCancel = $state(false)
@@ -437,18 +443,26 @@
     }
     testingAll = true
     testAllCancel = false
+    for (const key of [...resultTimers.keys()]) {
+      if (key.startsWith('model:')) {
+        clearTimeout(resultTimers.get(key))
+        resultTimers.delete(key)
+      }
+    }
     try {
+      const failed: ProviderModel[] = []
       for (const m of models) {
         if (testAllCancel) break
         if (m.disabled) continue
-        await testModel(m)
+        const res = await probeModel(m)
+        if (res.ok) {
+          toast.success(`${m.name} works · ${res.latency_ms}ms`)
+        } else {
+          toast.error(`${m.name} failed: ${res.error}`)
+          failed.push(m)
+        }
       }
       if (!testAllCancel && disableFailedModels) {
-        const failed = models.filter((m) => {
-          if (m.disabled) return false
-          const r = modelTestResults[m.name]
-          return r !== undefined && r !== 'loading' && !r.ok
-        })
         for (const m of failed) {
           await api.models.setOverride(providerId, m.name, { disabled: true })
         }
