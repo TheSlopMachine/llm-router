@@ -23,5 +23,7 @@ func ForceKillAll(pidFile string, pids ...int) error {
 }
 
 // ProcessPath returns the executable path of pid, best-effort. "unknown"
-// when unavailable through permissions, exit, or platform. Diagnostic only.
+// when unavailable through permissions, exit, or platform. Status reports
+// it. AliveMatches uses it as process identity with a conservative
+// fallback to alive on "unknown".
 func ProcessPath(pid int) string { return processPath(pid) }

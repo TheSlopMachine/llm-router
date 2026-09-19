@@ -25,15 +25,24 @@ func terminate(pid int) error { return syscall.Kill(pid, syscall.SIGTERM) }
 // -pid signal already reaches the whole tree with no extra bookkeeping.
 func registerSession(pidFile string, pids []int) error { return nil }
 
-// forceKillAll sends SIGKILL to each pid's process group.
+// forceKillAll sends SIGKILL to each pid's process group. Missing
+// processes stay silent so a PID that exits mid-stop counts as success.
 func forceKillAll(pidFile string, pids []int) error {
 	var firstErr error
 	for _, pid := range pids {
 		if pid <= 0 {
 			continue
 		}
-		if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && firstErr == nil {
-			firstErr = err
+		if !Alive(pid) {
+			continue
+		}
+		if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil {
+			if !Alive(pid) {
+				continue
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
 	return firstErr
@@ -41,7 +50,7 @@ func forceKillAll(pidFile string, pids []int) error {
 
 // processPath resolves pid's executable path via /proc, best-effort. Works
 // on Linux; returns "unknown" on platforms without /proc (e.g. macOS) or on
-// any other failure. Diagnostic-only, never load-bearing.
+// any other failure.
 func processPath(pid int) string {
 	link, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
 	if err != nil {

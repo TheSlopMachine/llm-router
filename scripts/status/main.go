@@ -23,19 +23,24 @@ func main() {
 		shared.Failf("parse pidfile %s: %v", pidFile, err)
 	}
 
-	report := func(name string, pid int) {
+	report := func(name string, pid int, expectedPath string) {
 		if pid <= 0 {
 			fmt.Printf("%s: not recorded\n", name)
 			return
 		}
-		if shared.Alive(pid) {
-			fmt.Printf("%s is running as PID %d (%s)\n", name, pid, shared.ProcessPath(pid))
-		} else {
-			fmt.Printf("%s PID %d is not running\n", name, pid)
+		actual := shared.ProcessPath(pid)
+		if shared.AliveMatches(pid, expectedPath) {
+			fmt.Printf("%s is running as PID %d (%s)\n", name, pid, actual)
+			return
 		}
+		if shared.Alive(pid) {
+			fmt.Printf("%s PID %d is stale\n", name, pid)
+			return
+		}
+		fmt.Printf("%s PID %d is not running\n", name, pid)
 	}
-	report("backend", p.Backend)
-	report("frontend", p.Frontend)
+	report("backend", p.Backend, p.BackendPath)
+	report("frontend", p.Frontend, p.FrontendPath)
 
 	reportPort := func(label string, port int) {
 		if port <= 0 {

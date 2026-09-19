@@ -23,6 +23,11 @@ var (
 	procQueryFullProcessImageNameW = kernel32.NewProc("QueryFullProcessImageNameW")
 	procGetCurrentProcess          = kernel32.NewProc("GetCurrentProcess")
 	procDuplicateHandle            = kernel32.NewProc("DuplicateHandle")
+	procGetExitCodeProcess         = kernel32.NewProc("GetExitCodeProcess")
+)
+
+const (
+	stillActive = 259 // STILL_ACTIVE from GetExitCodeProcess
 )
 
 const (
@@ -35,7 +40,9 @@ const (
 	duplicateSameAccess            = 0x0002 // DUPLICATE_SAME_ACCESS
 )
 
-// Alive reports whether pid exists by probing it with OpenProcess.
+// Alive reports whether pid is still running. OpenProcess alone succeeds
+// for an exited process while handles to it stay open elsewhere, so the
+// exit code decides. An undeterminable exit code stays conservative.
 func Alive(pid int) bool {
 	if pid <= 0 {
 		return false
@@ -44,8 +51,13 @@ func Alive(pid int) bool {
 	if h == 0 {
 		return false
 	}
-	procCloseHandle.Call(h)
-	return true
+	defer procCloseHandle.Call(h)
+	var code uint32
+	ok, _, _ := procGetExitCodeProcess.Call(h, uintptr(unsafe.Pointer(&code)))
+	if ok == 0 {
+		return true
+	}
+	return code == stillActive
 }
 
 // terminate asks pid to shut down gracefully via CTRL_BREAK_EVENT to its
@@ -159,20 +171,32 @@ func forceKillFallback(pids []int) error {
 		if pid <= 0 {
 			continue
 		}
+		if !Alive(pid) {
+			continue
+		}
 		h, _, _ := procOpenProcess.Call(uintptr(processTerminateRight), 0, uintptr(pid))
 		if h == 0 {
-			continue // already gone
+			if !Alive(pid) {
+				continue
+			}
+			continue
 		}
-		if ok, _, terr := procTerminateProcess.Call(h, 1); ok == 0 && firstErr == nil {
-			firstErr = fmt.Errorf("TerminateProcess PID %d: %w", pid, terr)
-		}
+		ok, _, terr := procTerminateProcess.Call(h, 1)
 		procCloseHandle.Call(h)
+		if ok == 0 {
+			if !Alive(pid) {
+				continue
+			}
+			if firstErr == nil {
+				firstErr = fmt.Errorf("TerminateProcess PID %d: %w", pid, terr)
+			}
+		}
 	}
 	return firstErr
 }
 
 // processPath resolves pid's executable path, best-effort. Returns
-// "unknown" on any failure. Diagnostic-only, never load-bearing.
+// "unknown" on any failure.
 func processPath(pid int) string {
 	h, _, _ := procOpenProcess.Call(uintptr(processQueryLimitedInformation), 0, uintptr(pid))
 	if h == 0 {

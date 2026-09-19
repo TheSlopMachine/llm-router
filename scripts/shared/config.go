@@ -12,9 +12,11 @@ import (
 
 // Proc is the JSON pidfile written by start and read by stop/status.
 type Proc struct {
-	Backend  int `json:"backend"`
-	Frontend int `json:"frontend"`
-	VitePort int `json:"vitePort"`
+	Backend      int    `json:"backend"`
+	Frontend     int    `json:"frontend"`
+	VitePort     int    `json:"vitePort"`
+	BackendPath  string `json:"backendPath,omitempty"`
+	FrontendPath string `json:"frontendPath,omitempty"`
 }
 
 // RootDir returns the repo root: nearest ancestor of cwd containing go.mod

@@ -36,7 +36,7 @@ func main() {
 	// backend/frontend pair here would silently overwrite the pidfile,
 	// orphaning the first pair — no `make stop` could ever reach them again.
 	if p, err := shared.ReadPidFile(pidFile); err == nil {
-		if (p.Backend > 0 && shared.Alive(p.Backend)) || (p.Frontend > 0 && shared.Alive(p.Frontend)) {
+		if shared.AliveMatches(p.Backend, p.BackendPath) || shared.AliveMatches(p.Frontend, p.FrontendPath) {
 			shared.Failf("already running (see `make status`); run `make stop` or `make restart` first")
 		}
 		// Stale pidfile pointing at dead processes: safe to remove and continue.
@@ -106,7 +106,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, "[WARN] stop falls back to best-effort termination")
 	}
 
-	proc := shared.Proc{Backend: backendPID, Frontend: frontendPID, VitePort: mustAtoi(webPort)}
+	proc := shared.Proc{
+		Backend:      backendPID,
+		Frontend:     frontendPID,
+		VitePort:     mustAtoi(webPort),
+		BackendPath:  snapshotPath(backendPID, binPath),
+		FrontendPath: snapshotPath(frontendPID, resolveBun()),
+	}
 	raw, _ := json.MarshalIndent(proc, "", "  ")
 	if err := os.WriteFile(pidFile, append(raw, '\n'), 0644); err != nil {
 		shared.Failf("write pidfile: %v", err)
@@ -159,4 +165,25 @@ func indexNewline(s string) int {
 		}
 	}
 	return -1
+}
+
+// snapshotPath records the executable identity for a spawned PID. The live
+// process path wins. The fallback covers a query that lands before exec
+// completes or without query rights.
+func snapshotPath(pid int, fallback string) string {
+	if actual := shared.ProcessPath(pid); actual != "unknown" && actual != "" {
+		return actual
+	}
+	return fallback
+}
+
+// resolveBun locates the frontend binary for the identity fallback.
+func resolveBun() string {
+	if resolved, err := exec.LookPath("bun"); err == nil {
+		if abs, err := filepath.Abs(resolved); err == nil {
+			return abs
+		}
+		return resolved
+	}
+	return ""
 }

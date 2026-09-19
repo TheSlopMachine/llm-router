@@ -30,12 +30,16 @@ func main() {
 	type entry struct {
 		name string
 		pid  int
+		path string
 	}
-	entries := []entry{{"backend", p.Backend}, {"frontend", p.Frontend}}
+	entries := []entry{
+		{"backend", p.Backend, p.BackendPath},
+		{"frontend", p.Frontend, p.FrontendPath},
+	}
 
 	anyAlive := func() bool {
 		for _, e := range entries {
-			if e.pid > 0 && shared.Alive(e.pid) {
+			if shared.AliveMatches(e.pid, e.path) {
 				return true
 			}
 		}
@@ -61,7 +65,7 @@ func main() {
 	// Best-effort graceful signal. Failure falls through to the
 	// wait/force path below.
 	for _, e := range entries {
-		if e.pid <= 0 || !shared.Alive(e.pid) {
+		if !shared.AliveMatches(e.pid, e.path) {
 			continue
 		}
 		fmt.Printf("[>] Stopping %s PID %d...\n", e.name, e.pid)
@@ -78,11 +82,11 @@ func main() {
 	}
 
 	fmt.Println("[>] Still running after grace period, forcing shutdown...")
-	pids := make([]int, 0, len(entries))
+	targets := make([]shared.KillTarget, 0, len(entries))
 	for _, e := range entries {
-		pids = append(pids, e.pid)
+		targets = append(targets, shared.KillTarget{PID: e.pid, ExpectedPath: e.path})
 	}
-	if err := shared.ForceKillAll(pidFile, pids...); err != nil {
+	if err := shared.ForceKillTargets(pidFile, targets...); err != nil {
 		fmt.Printf("[>] force-kill error: %v\n", err)
 	}
 
@@ -94,7 +98,7 @@ func main() {
 
 	var survivors []string
 	for _, e := range entries {
-		if e.pid > 0 && shared.Alive(e.pid) {
+		if shared.AliveMatches(e.pid, e.path) {
 			survivors = append(survivors, fmt.Sprintf("%s PID %d", e.name, e.pid))
 		}
 	}
