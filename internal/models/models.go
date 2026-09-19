@@ -181,9 +181,10 @@ type ChatToolFunction struct {
 }
 
 type ChatToolCall struct {
-	ID       string           `json:"id,omitempty"`
-	Type     string           `json:"type,omitempty"`
-	Function ChatToolFunction `json:"function"`
+	ID           string                 `json:"id,omitempty"`
+	Type         string                 `json:"type,omitempty"`
+	Function     ChatToolFunction       `json:"function"`
+	ExtraContent map[string]interface{} `json:"extra_content,omitempty"`
 }
 
 type ChatTool struct {
