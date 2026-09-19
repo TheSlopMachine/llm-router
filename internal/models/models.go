@@ -769,17 +769,17 @@ type ModelOverride struct {
 // Provider errors
 // ─────────────────────────────────────────────
 
-// ErrorType classifies provider errors for retry logic.
+// ErrorType classifies provider errors for key iteration inside backends.
 type ErrorType int
 
 const (
 	ErrorTypeUnknown        ErrorType = iota
-	ErrorTypeRateLimit                // Temporary rate limit, rotate credential
+	ErrorTypeRateLimit                // Temporary rate limit on this key
 	ErrorTypeQuotaExceeded            // Credential quota exhausted, deprioritize (MUST have RetryAfter)
 	ErrorTypeAuth                     // Auth failure, credential may be invalid
-	ErrorTypeUpstream                 // Transient upstream failure (5xx, overload), retry the next candidate
-	ErrorTypeTimeout                  // Transient timeout, retry the next candidate
-	ErrorTypeInvalidRequest           // Invalid request, don't retry
+	ErrorTypeUpstream                 // Transient upstream failure (5xx, overload)
+	ErrorTypeTimeout                  // Transient timeout
+	ErrorTypeInvalidRequest           // Invalid request
 	ErrorTypeGeo                      // Geo-blocked upstream; proxy used is at fault, mark it bad
 )
 
@@ -795,23 +795,7 @@ func (e *ProviderError) Error() string {
 	return fmt.Sprintf("provider error (%d): %s", e.StatusCode, e.Message)
 }
 
-// IsRetryable reports whether this error moves the retry engine to the next
-// candidate (credential rotation, virtual-model fall-through). Transient
-// failures are retryable; request/auth/geo problems are terminal.
-func (e *ProviderError) IsRetryable() bool {
-	switch e.Type {
-	case ErrorTypeRateLimit, ErrorTypeQuotaExceeded, ErrorTypeUpstream, ErrorTypeTimeout:
-		return true
-	default:
-		return false
-	}
-}
-
-// Retryable reports the same as IsRetryable to satisfy retry.Classifiable.
-func (e *ProviderError) Retryable() bool { return e.IsRetryable() }
-
 // PluginInternalError is a caught Lua failure at the Go/Lua boundary.
-// Always retryable: the retry engine moves to the next candidate.
 type PluginInternalError struct {
 	PluginID string
 	TypeKey  string
@@ -824,9 +808,6 @@ func (e *PluginInternalError) Error() string {
 	}
 	return fmt.Sprintf("plugin %q internal error: %s", e.PluginID, e.Cause)
 }
-
-// Retryable always returns true for plugin crashes.
-func (e *PluginInternalError) Retryable() bool { return true }
 
 // ─────────────────────────────────────────────
 // Admin
@@ -1331,16 +1312,12 @@ type ErrorResponse struct {
 type RouterConfiguration struct {
 	IsClusterNode    bool `json:"is_cluster_node"`
 	DisableTelemetry bool `json:"disable_telemetry"`
-	MaxRetries       int  `json:"max_retries"`
 	// ServerCountry is an optional manual override (ISO 3166-1 alpha-2) for
 	// the geo-IP detected server location, used for proxy preference matching.
 	ServerCountry string `json:"server_country,omitempty"`
 }
 
-// Validate checks MaxRetries is in range 0-20.
+// Validate checks the instance settings.
 func (c RouterConfiguration) Validate() error {
-	if c.MaxRetries < 0 || c.MaxRetries > 20 {
-		return fmt.Errorf("max_retries must be between 0 and 20")
-	}
 	return nil
 }

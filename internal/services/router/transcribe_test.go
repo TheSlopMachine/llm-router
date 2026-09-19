@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"testing"
 	"time"
@@ -19,21 +20,21 @@ import (
 type transcribeMockAdapter struct {
 	mockAdapter
 	infos          []models.ModelInfo
-	transcribeFunc func(context.Context, *models.Credential, *models.TranscriptionRequest) (*models.TranscriptionResponse, error)
+	transcribeFunc func(context.Context, []*models.Credential, *models.TranscriptionRequest) (*models.TranscriptionResponse, error)
 }
 
 func (m *transcribeMockAdapter) GetModelInfos(ctx context.Context, cred *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {
 	return m.infos, nil
 }
 
-func (m *transcribeMockAdapter) Transcribe(ctx context.Context, cred *models.Credential, req *models.TranscriptionRequest, _ map[string]any) (*models.TranscriptionResponse, error) {
+func (m *transcribeMockAdapter) Transcribe(ctx context.Context, creds []*models.Credential, req *models.TranscriptionRequest, _ map[string]any) (*models.TranscriptionResponse, error) {
 	if m.transcribeFunc != nil {
-		return m.transcribeFunc(ctx, cred, req)
+		return m.transcribeFunc(ctx, creds, req)
 	}
 	return &models.TranscriptionResponse{Text: "transcribed"}, nil
 }
 
-func setupTranscribeRouter(t *testing.T, maxRetries int) (*Service, *credential.Service, *modelinfo.Service, *transcribeMockAdapter) {
+func setupTranscribeRouter(t *testing.T) (*Service, *credential.Service, *modelinfo.Service, *transcribeMockAdapter) {
 	t.Helper()
 	database := testutil.SetupTestDB(t)
 
@@ -46,7 +47,7 @@ func setupTranscribeRouter(t *testing.T, maxRetries int) (*Service, *credential.
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 
-	return New(providerSvc, credSvc, modelInfoSvc, maxRetries, slog.Default()), credSvc, modelInfoSvc, mock
+	return New(providerSvc, credSvc, modelInfoSvc, slog.Default()), credSvc, modelInfoSvc, mock
 }
 
 func addTranscribeCred(t *testing.T, credSvc *credential.Service, label string) {
@@ -70,7 +71,7 @@ func transcribeReq(model string) *models.TranscriptionRequest {
 }
 
 func TestRouterService_Transcribe_Success(t *testing.T) {
-	svc, credSvc, _, _ := setupTranscribeRouter(t, 3)
+	svc, credSvc, _, _ := setupTranscribeRouter(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 
 	resp, err := svc.Transcribe(context.Background(), transcribeReq("mock/whisper-large-v3"), nil)
@@ -83,7 +84,7 @@ func TestRouterService_Transcribe_Success(t *testing.T) {
 }
 
 func TestRouterService_Transcribe_UnsupportedAdapter(t *testing.T) {
-	svc, credSvc, _ := setupRouterService(t, 3)
+	svc, credSvc, _ := setupRouterService(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 
 	_, err := svc.Transcribe(context.Background(), transcribeReq("mock/test-model"), nil)
@@ -93,7 +94,7 @@ func TestRouterService_Transcribe_UnsupportedAdapter(t *testing.T) {
 }
 
 func TestRouterService_Transcribe_ModelGateRejects(t *testing.T) {
-	svc, credSvc, modelInfoSvc, mock := setupTranscribeRouter(t, 3)
+	svc, credSvc, modelInfoSvc, mock := setupTranscribeRouter(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 	mock.infos = []models.ModelInfo{
 		{Name: "chat-model", DisplayName: "Chat", Endpoints: []string{models.EndpointChatCompletions}},
@@ -109,7 +110,7 @@ func TestRouterService_Transcribe_ModelGateRejects(t *testing.T) {
 }
 
 func TestRouterService_Transcribe_ModelGateAllowsAndBlocksChat(t *testing.T) {
-	svc, credSvc, modelInfoSvc, mock := setupTranscribeRouter(t, 3)
+	svc, credSvc, modelInfoSvc, mock := setupTranscribeRouter(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 	mock.infos = []models.ModelInfo{
 		{Name: "stt-model", DisplayName: "STT", Endpoints: []string{models.EndpointAudioTranscription}},
@@ -136,22 +137,14 @@ func TestRouterService_Transcribe_ModelGateAllowsAndBlocksChat(t *testing.T) {
 	}
 }
 
-func TestRouterService_Transcribe_RateLimitRotates(t *testing.T) {
-	svc, credSvc, _, mock := setupTranscribeRouter(t, 3)
+func TestRouterService_Transcribe_PassesPoolToBackend(t *testing.T) {
+	svc, credSvc, _, mock := setupTranscribeRouter(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 	addTranscribeCred(t, credSvc, "Cred 2")
 
-	firstCall := true
-	mock.transcribeFunc = func(ctx context.Context, cred *models.Credential, req *models.TranscriptionRequest) (*models.TranscriptionResponse, error) {
-		if firstCall {
-			firstCall = false
-			resetAt := time.Now().Add(60 * time.Second)
-			return nil, &models.ProviderError{
-				StatusCode: 429,
-				Message:    "rate limit exceeded",
-				Type:       models.ErrorTypeRateLimit,
-				RetryAfter: &resetAt,
-			}
+	mock.transcribeFunc = func(ctx context.Context, creds []*models.Credential, req *models.TranscriptionRequest) (*models.TranscriptionResponse, error) {
+		if len(creds) != 2 {
+			return nil, fmt.Errorf("expected 2-credential pool, got %d", len(creds))
 		}
 		return &models.TranscriptionResponse{Text: "second credential"}, nil
 	}

@@ -393,15 +393,14 @@ export const api = {
 
   // Router configuration (instance-wide, RouterConfiguration bucket)
   config: {
-    get: async (): Promise<{ is_cluster_node: boolean; disable_telemetry: boolean; max_retries: number }> => {
+    get: async (): Promise<{ is_cluster_node: boolean; disable_telemetry: boolean }> => {
       const raw = (await apiCall('get', '/api/llm-router/dashboard/config' as never)) as unknown as Record<string, unknown>
       return {
         is_cluster_node: (raw?.is_cluster_node as boolean) ?? false,
         disable_telemetry: (raw?.disable_telemetry as boolean) ?? false,
-        max_retries: (raw?.max_retries as number) ?? 7,
       }
     },
-    update: (payload: { is_cluster_node: boolean; disable_telemetry: boolean; max_retries: number }) =>
+    update: (payload: { is_cluster_node: boolean; disable_telemetry: boolean }) =>
       apiCall('put', '/api/llm-router/dashboard/config' as never, { body: payload as unknown as never } as never),
   },
 

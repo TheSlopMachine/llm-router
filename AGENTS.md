@@ -77,8 +77,7 @@ cmd/root.go              CLI entrypoint (--web/--api/--db)
 internal/server/         HTTP server: dashboard (8080), /v1 API (8081)
 internal/services/
   token/                 router-token issue/validate
-  router/                ModelId → backend + Credential, retry engine
-  retry/                 single retry/fallthrough engine (router + virtual models)
+  router/                ModelId → backend + CredentialPool, single pass, no repeats
   provider/              ProviderInstance CRUD (all types, one path)
   credential/            credential pool, usage stats
   virtual/               virtual models (fall-through lists + instruction)
