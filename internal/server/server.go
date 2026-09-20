@@ -160,7 +160,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		_ = modelInfoSvc.InvalidateProvider(providerID)
 	}
 	providerSvc.SetOnChanged(invalidate)
-	credSvc.SetOnChanged(invalidate)
+	// Credential changes never invalidate the model list: discovery uses the
+	// first answering key, so the upstream list does not depend on the pool.
 	luaSvc.SetOnChanged(func(typeKey string) {
 		// Runtime plugin changes (install/update/rollback/enable) must
 		// create default provider rows, previously seeded at startup.
