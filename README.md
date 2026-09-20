@@ -18,13 +18,14 @@ Sits between your applications and LLM providers, exposing a single OpenAI-compa
 * **Load distribution:** Split traffic across multiple providers and provider accounts.
 * **Access control:** Issue separate API keys with individual model, provider, and rate limits.
 * **Built-in dashboard:** Full admin UI embedded into the go binary.
+* **Plugin system:** Lua plugins allow you to add new provider integrations easily.
 
 ---
 
 ## Architecture & Philosophy
 
 * **Blazingly fast:** Go + Svelte, no heavy JS runtime.
-* **Modular:** Core repo remains lightweight and maintainable. Providers and plugins live in separate repositories.
+* **Modular:** Core repo remains lightweight and maintainable. Easily extensible with Lua plugins.
 * **Everything works:** Zero dead code, all features are tested by real people.
 * **Clean UI:** Fully reviewed Svelte dashboard polished by a human.
 * **UX with common sense:** No unmoderated AI slop that nobody knows how to use.
@@ -39,22 +40,9 @@ Sits between your applications and LLM providers, exposing a single OpenAI-compa
 * **Metrics:** Inspect model and provider usage.
 * **Providers:** Connect new providers and accounts.
 * **Models:** Browse available models across active providers.
-* **Agents:** Configure multi-model routing rules visually.
+* **Plugins:** Install plugins from the online store.
+* **Virtual models:** Create a composite model out of many.
 * **Tokens:** Manage access tokens with fine-grained model permissions.
-
-### Modular Builds
-
-Include only the providers you need via `adapters.conf`:
-
-```text
-# Example: github.com/TheSlopMachine/llm-router-adapter-demo
-
-github.com/TheSlopMachine/llm-router-adapter-google
-github.com/TheSlopMachine/llm-router-adapter-kiro
-github.com/TheSlopMachine/llm-router-adapter-opencode-zen
-```
-
-Workspace setup is fully handled by the Makefile.
 
 ### Zero-Config
 
@@ -77,7 +65,6 @@ Flags:
       --db string            path to the database file (default "llm-router.db")
   -h, --help                 help for llm-router
       --log-level LogLevel   log level: debug, info, warn, error (default info)
-      --testing-key string   path to file with bearer token (auto-generated)
   -v, --version              print version information and exit
       --web Port             port for dashboard UI (default 8080)
 ```
