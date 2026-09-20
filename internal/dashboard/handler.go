@@ -146,7 +146,6 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("GET /api/llm-router/dashboard/providers/{id}/models", h.requireAuth(h.apiProviderModels))
 	mux.HandleFunc("POST /api/llm-router/dashboard/providers/{id}/models/refresh", h.requireAuth(h.apiProviderModelsRefresh))
 	mux.HandleFunc("GET /api/llm-router/dashboard/providers/{id}/virtual-models", h.requireAuth(h.apiProviderVirtualModels))
-	mux.HandleFunc("POST /api/llm-router/dashboard/providers/{id}/virtual-models/sync", h.requireAuth(h.apiProviderVirtualModelsSync))
 	mux.HandleFunc("PUT /api/llm-router/dashboard/providers/{id}/models/{model...}", h.requireAuth(h.apiProviderModelSetOverride))
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/providers/{id}/models/{model...}", h.requireAuth(h.apiProviderModelDeleteOverride))
 

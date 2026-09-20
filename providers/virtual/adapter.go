@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"sync"
 
+	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/router"
@@ -84,6 +85,9 @@ func (a *Adapter) resolve(req *models.ChatCompletionRequest) (*models.VirtualMod
 	agent, err := virtualSvc.Get(agentID)
 	if err != nil {
 		return nil, nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: fmt.Sprintf("virtual model %q not found", agentID)}
+	}
+	if agent.Disabled {
+		return nil, nil, fmt.Errorf("%w: virtual/%s", apierrors.ErrModelDisabled, agentID)
 	}
 
 	modifiedReq := *req

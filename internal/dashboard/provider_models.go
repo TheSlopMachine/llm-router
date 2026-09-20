@@ -108,6 +108,10 @@ func (h *Handler) apiProviderModelSetOverride(w http.ResponseWriter, r *http.Req
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Enable/disable flips reshape managed virtual models.
+	if _, err := h.virtualSvc.SyncProviderModels(r.Context(), providerID); err != nil {
+		h.logger.Warn("managed virtual models sync failed", "provider_id", providerID, "err", err)
+	}
 	h.json(w, http.StatusOK, ov)
 }
 
@@ -131,6 +135,9 @@ func (h *Handler) apiProviderModelDeleteOverride(w http.ResponseWriter, r *http.
 	if err := h.modelInfoSvc.DeleteOverride(providerID, r.PathValue("model")); err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if _, err := h.virtualSvc.SyncProviderModels(r.Context(), providerID); err != nil {
+		h.logger.Warn("managed virtual models sync failed", "provider_id", providerID, "err", err)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -188,35 +195,6 @@ func (h *Handler) apiProviderVirtualModels(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	groups, err := h.virtualSvc.GroupsForProvider(providerID)
-	if err != nil {
-		h.jsonErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if groups == nil {
-		groups = []virtual.ProviderVMGroup{}
-	}
-	h.json(w, http.StatusOK, groups)
-}
-
-// apiProviderVirtualModelsSync creates/updates/deletes managed virtual
-// models so each endpoint group has exactly one.
-// @Summary      Sync provider virtual models
-// @Description  Recomputes managed virtual models from the cached model list.
-// @Tags         Providers
-// @Produce      json
-// @Param        id path string true "Provider ID"
-// @Success      200 {array} virtual.ProviderVMGroup
-// @Failure      401 {object} models.ErrorResponse
-// @Failure      404 {object} models.ErrorResponse
-// @Security     SessionAuth
-// @Router       /api/llm-router/dashboard/providers/{id}/virtual-models/sync [post]
-func (h *Handler) apiProviderVirtualModelsSync(w http.ResponseWriter, r *http.Request) {
-	providerID := r.PathValue("id")
-	if _, ok := h.loadVisibleProvider(providerID); !ok {
-		h.jsonErr(w, http.StatusNotFound, "provider not found")
-		return
-	}
-	groups, err := h.virtualSvc.SyncProviderModels(r.Context(), providerID)
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return

@@ -1286,6 +1286,8 @@ type VirtualModel struct {
 	// member list recomputed on import; manual edits to members are
 	// overwritten. Empty means manually maintained.
 	ManagedBy string `json:"managed_by,omitempty"`
+	// Disabled takes the virtual model out of routing. Probes still run.
+	Disabled bool `json:"disabled,omitempty"`
 	// Capabilities is the intersection of all models' capabilities.
 	Capabilities []string `json:"capabilities,omitempty"`
 	// ContextLength / MaxCompletionTokens are the minima across all models.

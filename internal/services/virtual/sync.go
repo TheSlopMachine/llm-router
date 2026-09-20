@@ -17,8 +17,8 @@ type syncEndpoint struct {
 
 var syncEndpoints = []syncEndpoint{
 	{"chat", "Chat", models.EndpointChatCompletions},
-	{"transcription", "Transcription", models.EndpointAudioTranscription},
-	{"speech", "Speech", models.EndpointAudioSpeech},
+	{"transcription", "STT", models.EndpointAudioTranscription},
+	{"speech", "TTS", models.EndpointAudioSpeech},
 	{"images", "Images", models.EndpointImagesGenerations},
 	{"embeddings", "Embeddings", models.EndpointEmbeddings},
 }

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
@@ -189,5 +190,23 @@ func TestRouterVirtualUnknownAgentIsInvalidRequest(t *testing.T) {
 
 	if err := routerSvc.CompleteStream(context.Background(), virtualRequest("virtual/nope"), io.Discard, nil); err == nil {
 		t.Fatal("expected stream error for unknown virtual model, got nil")
+	}
+}
+
+func TestRouterVirtualDisabledIsModelDisabled(t *testing.T) {
+	routerSvc, virtualSvc, _ := setupVirtualStack(t)
+
+	vm, err := virtualSvc.Get("e2e")
+	if err != nil {
+		t.Fatalf("get virtual model: %v", err)
+	}
+	vm.Disabled = true
+	if err := virtualSvc.Update(vm.ID, vm); err != nil {
+		t.Fatalf("disable virtual model: %v", err)
+	}
+
+	_, err = routerSvc.Complete(context.Background(), virtualRequest("virtual/e2e"), nil)
+	if !errors.Is(err, apierrors.ErrModelDisabled) {
+		t.Fatalf("expected ErrModelDisabled, got %v", err)
 	}
 }
