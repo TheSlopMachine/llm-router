@@ -1281,6 +1281,11 @@ type VirtualModel struct {
 	Models      []VirtualModelEntry `json:"models"`
 	// Instruction is prepended to requests as the first user message.
 	Instruction string `json:"instruction"`
+	// ManagedBy marks provider-maintained virtual models
+	// ("provider:<provider-id>:<endpoint-slug>"). Managed models have their
+	// member list recomputed on import; manual edits to members are
+	// overwritten. Empty means manually maintained.
+	ManagedBy string `json:"managed_by,omitempty"`
 	// Capabilities is the intersection of all models' capabilities.
 	Capabilities []string `json:"capabilities,omitempty"`
 	// ContextLength / MaxCompletionTokens are the minima across all models.
