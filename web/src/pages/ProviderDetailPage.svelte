@@ -457,11 +457,65 @@
     }
   }
 
+  // Probe endpoint by what the model serves. Chat models with image input
+  // get the vision probe (covers chat plus image in one go).
+  function probeEndpoint(m: ProviderModel): string {
+    const eps = m.endpoints ?? []
+    if (eps.length === 0 || eps.includes('chat/completions')) {
+      if ((m.input_modalities ?? []).includes('image')) return 'vision'
+      return 'chat'
+    }
+    if (eps.includes('audio/speech')) return 'speech'
+    if (eps.includes('embeddings')) return 'embeddings'
+    if (eps.includes('images/generations')) return 'image'
+    if (eps.includes('audio/transcriptions')) return 'transcription'
+    return 'chat'
+  }
+
+  // Modalities a successful probe verifies, by endpoint.
+  const VERIFIED_MODALITIES: Record<string, { in: string[]; out: string[] }> = {
+    chat: { in: ['text'], out: ['text'] },
+    vision: { in: ['text', 'image'], out: ['text'] },
+    speech: { in: ['text'], out: ['audio'] },
+    transcription: { in: ['audio'], out: ['text'] },
+    image: { in: ['text'], out: ['image'] },
+    embeddings: { in: ['text'], out: ['embedding'] },
+  }
+
+  function union(a: string[] | undefined, b: string[]): string[] {
+    return [...new Set([...(a ?? []), ...b])]
+  }
+
+  // Toasts carry the human summary; the full error lives in backend logs.
+  function probeToast(m: ProviderModel, res: TestResult): void {
+    if (res.ok) {
+      toast.success(`${m.name} works · ${res.latency_ms}ms`)
+      return
+    }
+    toast.error(`${m.name} failed: ${res.summary ? t(res.summary) : t('probe failed')}`)
+  }
+
   async function probeModel(m: ProviderModel): Promise<TestResult> {
     modelTestResults = { ...modelTestResults, [m.name]: 'loading' }
     let res: TestResult
     try {
-      res = await api.models.test(`${providerId}/${m.name}`)
+      const endpoint = probeEndpoint(m)
+      res = await api.models.test(`${providerId}/${m.name}`, endpoint)
+      if (res.ok) {
+        // Store verified modalities on the model record (full id key).
+        // Best-effort: a failed write must not fail the probe itself.
+        try {
+          const v = VERIFIED_MODALITIES[endpoint] ?? VERIFIED_MODALITIES.chat
+          await api.models.setOverride(providerId, m.name, {
+            input_modalities: union(m.input_modalities, v.in),
+            output_modalities: union(m.output_modalities, v.out),
+          })
+          m.input_modalities = union(m.input_modalities, v.in)
+          m.output_modalities = union(m.output_modalities, v.out)
+        } catch {
+          // Ignore: liveness is proven, metadata sync is cosmetic.
+        }
+      }
     } catch (e) {
       res = { ok: false, latency_ms: 0, error: getErrorMessage(e) }
     }
@@ -471,11 +525,10 @@
 
   async function testModel(m: ProviderModel): Promise<TestResult> {
     const res = await probeModel(m)
-    if (res.ok) {
-      toast.success(`${m.name} works · ${res.latency_ms}ms`)
-    } else {
-      toast.error(`${m.name} failed: ${res.error}`)
-      if (disableFailedModels) {
+    probeToast(m, res)
+    if (!res.ok) {
+      // Temporary quota is not death: never disable over it.
+      if (disableFailedModels && !res.quota_exceeded) {
         await api.models.setOverride(providerId, m.name, { disabled: true })
         await reloadModels()
       }
@@ -510,11 +563,10 @@
         if (testAllCancel) break
         if (m.disabled) continue
         const res = await probeModel(m)
-        if (res.ok) {
-          toast.success(`${m.name} works · ${res.latency_ms}ms`)
-        } else {
-          toast.error(`${m.name} failed: ${res.error}`)
-          failed.push(m)
+        probeToast(m, res)
+        if (!res.ok) {
+          // Temporary quota is not death: never disable over it.
+          if (!res.quota_exceeded) failed.push(m)
         }
       }
       if (!testAllCancel && disableFailedModels) {
@@ -647,7 +699,7 @@
   </div>
 
   {#if error}
-    <div class="error-msg">{error}</div>
+    <div class="error-msg" use:squircle={12}>{error}</div>
   {/if}
 
   <section class="section">
@@ -853,7 +905,7 @@
     {#if modelsLoading}
       <div class="empty-state">{t('Loading…')}</div>
     {:else if modelsError}
-      <div class="error-msg">{modelsError}</div>
+      <div class="error-msg" use:squircle={12}>{modelsError}</div>
     {:else if filteredModels.length === 0}
       <div class="empty-state">
         {models.length === 0 ? t('No models reported by this provider.') : t('No models match the filter.')}

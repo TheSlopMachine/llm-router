@@ -151,7 +151,7 @@
 </div>
 
 {#if error}
-  <div class="error-msg">{error}</div>
+  <div class="error-msg" use:squircle={12}>{error}</div>
 {/if}
 
 {#if loading}

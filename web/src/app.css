@@ -616,19 +616,17 @@ tbody tr:hover td {
 
 .error-msg {
   background: var(--color-notification-error-bg);
-  border: 1px solid var(--color-notification-error-border);
   color: var(--color-notification-error-text);
   padding: 12px 16px;
-  border-radius: 8px;
+  border-radius: 12px;
   margin-bottom: 16px;
   font-size: 13px;
 }
 .success-msg {
   background: var(--color-notification-success-bg);
-  border: 1px solid var(--color-notification-success-border);
   color: var(--color-notification-success-text);
   padding: 12px 16px;
-  border-radius: 8px;
+  border-radius: 12px;
   margin-bottom: 16px;
   font-size: 13px;
 }

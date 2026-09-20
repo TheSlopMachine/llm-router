@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from '../lib/api'
+  import { squircle } from '../lib/squircle'
   import { createListResource } from '../lib/list-resource.svelte'
   import SegmentedControl from '../components/ui/SegmentedControl.svelte'
   import InstalledTab from '../components/plugins/InstalledTab.svelte'
@@ -66,7 +67,7 @@
 {#if resource.loading}
   <div class="empty">{t('Loading…')}</div>
 {:else if resource.error}
-  <div class="error-msg">{resource.error}</div>
+  <div class="error-msg" use:squircle={12}>{resource.error}</div>
 {:else if tab === 'installed'}
   <InstalledTab
     plugins={resource.data.plugins}

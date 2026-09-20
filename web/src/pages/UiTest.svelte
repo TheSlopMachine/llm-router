@@ -428,8 +428,8 @@
       </tbody>
     </table>
   </div>
-  <div class="error-msg">Demo error message.</div>
-  <div class="success-msg">Demo success message.</div>
+  <div class="error-msg" use:squircle={12}>Demo error message.</div>
+  <div class="success-msg" use:squircle={12}>Demo success message.</div>
 </SectionCard>
 </div>
 

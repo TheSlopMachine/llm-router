@@ -260,12 +260,13 @@ export const api = {
         reasoning: r.reasoning as ProviderModel['reasoning'],
         input_modalities: r.input_modalities as string[] | undefined,
         output_modalities: r.output_modalities as string[] | undefined,
+        endpoints: r.endpoints as string[] | undefined,
         disabled: (r.disabled as boolean) ?? false,
         custom: (r.custom as boolean) ?? false,
       }))
     },
 
-    setOverride: (providerId: string, model: string, payload: { disabled?: boolean; custom?: boolean; display_name?: string; capabilities?: string[] }) =>
+    setOverride: (providerId: string, model: string, payload: { disabled?: boolean; custom?: boolean; display_name?: string; capabilities?: string[]; input_modalities?: string[]; output_modalities?: string[] }) =>
       putJson(`/api/llm-router/dashboard/providers/${providerId}/models/${model}`, payload),
 
     deleteOverride: (providerId: string, model: string) =>
@@ -274,8 +275,8 @@ export const api = {
     refresh: (providerId: string) =>
       postJson(`/api/llm-router/dashboard/providers/${providerId}/models/refresh`, {}),
 
-    test: (modelId: string): Promise<TestResult> =>
-      postJson('/api/llm-router/dashboard/models/test', { model_id: modelId }),
+    test: (modelId: string, endpoint?: string): Promise<TestResult> =>
+      postJson('/api/llm-router/dashboard/models/test', { model_id: modelId, endpoint }),
 
     probeCapabilities: async (modelId: string): Promise<string[]> => {
       const raw = await postJson('/api/llm-router/dashboard/models/capabilities', { model_id: modelId })

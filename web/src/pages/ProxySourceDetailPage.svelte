@@ -103,10 +103,10 @@
   </div>
 
   {#if info.last_error}
-    <div class="error-msg">{info.last_error}</div>
+    <div class="error-msg" use:squircle={12}>{info.last_error}</div>
   {/if}
   {#if error}
-    <div class="error-msg">{error}</div>
+    <div class="error-msg" use:squircle={12}>{error}</div>
   {/if}
 
   {#if items.length === 0}

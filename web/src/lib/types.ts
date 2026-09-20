@@ -53,6 +53,7 @@ export interface ProviderModel {
   reasoning?: ModelReasoning
   input_modalities?: string[]
   output_modalities?: string[]
+  endpoints?: string[]
   disabled: boolean
   custom: boolean
 }
@@ -62,6 +63,8 @@ export interface TestResult {
   latency_ms: number
   error?: string
   response?: string
+  quota_exceeded?: boolean
+  summary?: string
 }
 
 export interface Proxy {

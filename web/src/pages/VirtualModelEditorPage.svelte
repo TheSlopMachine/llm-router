@@ -1,5 +1,6 @@
 <script lang="ts">
   import VirtualModelEditor from '../components/VirtualModelEditor.svelte'
+  import { squircle } from '../lib/squircle'
   import { api } from '../lib/api'
   import { getErrorMessage } from '../lib/errors'
   import type { VirtualModel } from '../lib/types'
@@ -52,7 +53,7 @@
 </div>
 
 {#if error}
-  <div class="error-msg">{error}</div>
+  <div class="error-msg" use:squircle={12}>{error}</div>
 {:else if loading}
   <div class="loading">{t('Loading virtual model...')}</div>
 {:else}

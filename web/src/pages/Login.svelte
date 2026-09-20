@@ -34,7 +34,7 @@
     <p class="sub">{t('Manage providers, tokens, and credentials.')}</p>
 
     {#if error}
-      <div class="error-msg">{error}</div>
+      <div class="error-msg" use:squircle={12}>{error}</div>
     {/if}
 
     <div class="form-group">
