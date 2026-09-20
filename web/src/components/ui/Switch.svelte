@@ -7,6 +7,7 @@
     id,
     disabled = false,
     ariaLabel = 'Toggle',
+    size = 'md',
     onchange
   } = $props<{
     checked?: boolean
@@ -14,6 +15,7 @@
     id?: string
     disabled?: boolean
     ariaLabel?: string
+    size?: 'md' | 'xl'
     onchange?: (v: boolean) => void
   }>()
 
@@ -36,6 +38,7 @@
       aria-label={label}
       class="switch"
       class:on={checked}
+      class:xl={size === 'xl'}
       {disabled}
       onclick={toggle}
       use:squircle
@@ -52,6 +55,7 @@
     aria-label={ariaLabel}
       class="switch"
       class:on={checked}
+      class:xl={size === 'xl'}
       {disabled}
       onclick={toggle}
       use:squircle
@@ -110,5 +114,20 @@
 
   .switch.on .switch-thumb {
     transform: translateX(16px);
+  }
+
+  /* XL is 2x linear scale for hero placement (provider header). */
+  .switch.xl {
+    width: 72px;
+    height: 40px;
+  }
+  .switch.xl .switch-thumb {
+    top: 4px;
+    left: 4px;
+    width: 32px;
+    height: 32px;
+  }
+  .switch.xl.on .switch-thumb {
+    transform: translateX(32px);
   }
 </style>

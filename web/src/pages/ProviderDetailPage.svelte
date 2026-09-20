@@ -681,11 +681,6 @@
       <h1>{provider.name}</h1>
       <p>{provider.type_key}</p>
     </div>
-    <Switch
-      checked={!provider.disabled}
-      ariaLabel="Enable provider"
-      onchange={(v) => toggleProviderEnabled(v)}
-    />
     <div class="header-actions">
       {#if !provider.is_ui_readonly}
         <button class="btn btn-secondary" onclick={openEditProvider} use:squircle={12}>
@@ -698,6 +693,12 @@
         </button>
       {/if}
     </div>
+    <Switch
+      checked={!provider.disabled}
+      ariaLabel="Enable provider"
+      size="xl"
+      onchange={(v) => toggleProviderEnabled(v)}
+    />
   </div>
 
   {#if error}
@@ -886,7 +887,8 @@
       {#if toolbarStage === 'compact'}
         <ActionDropdown triggerIcon="more_vert" label={t('More actions')} actions={overflowActions} onaction={handleOverflowAction} />
       {/if}
-      <span class="toolbar-sep"></span>
+    </div>
+    <div class="models-toggles">
       <label class="toolbar-toggle">
         <Switch
           checked={disableFailedModels}
@@ -1099,8 +1101,12 @@
   .detail-header {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 16px;
     margin-bottom: 32px;
+  }
+  .provider-title {
+    flex: 1;
+    min-width: 0;
   }
   .provider-icon {
     width: 40px;
@@ -1206,6 +1212,13 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .models-toggles {
+    display: flex;
+    align-items: center;
+    gap: 16px;
     flex-wrap: wrap;
     margin-bottom: 16px;
   }
@@ -1457,9 +1470,9 @@
   }
   .proxy-head {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
   }
   .proxy-head h2 {
     font-size: 16px;
@@ -1472,7 +1485,7 @@
     gap: 8px;
   }
   .proxy-hint {
-    text-align: right;
+    text-align: left;
   }
   .proxy-state {
     font-size: 20px;
