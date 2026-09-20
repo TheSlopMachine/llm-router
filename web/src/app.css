@@ -9,10 +9,10 @@ body {
   font-optical-sizing: auto;
   -webkit-font-smoothing: antialiased;
 }
-a { 
-  color: var(--color-text-link); 
+a {
+  color: var(--color-text-link);
   font-weight: 500;
-  text-decoration: none; 
+  text-decoration: none;
   cursor: pointer;
 }
 a:hover { text-decoration: underline; }
@@ -21,48 +21,57 @@ a:hover { text-decoration: underline; }
   /* Color scheme — only these tokens (chips are exempt, any colors).
      text: primary --color-text, secondary --color-text-soft, tertiary --color-text-disabled
      backgrounds: page --color-background, raised --color-surface, containers --color-surface-container[-high[-est]]
+     elevation: --elev alpha overlay, once per nesting level (L*N);
+       overlays (modals, toasts) stay solid
      actions: --color-accent (+hover/soft), danger --color-danger (+hover)
      feedback triples: --color-notification-{info,warning,error,success}-{bg,border,text}
      disabled: --color-disabled-bg/text
      switch: --color-switch-off/on (on follows --color-accent) */
   /* Light Theme Tokens */
+
   --color-surface: #ffffff;
   --color-surface-container: #ffffff;
   --color-surface-container-high: #ececf0;
   --color-surface-container-highest: #e1e2e8;
   --color-background: #f8f8fa;
 
+  /* Elevation: one overlay constant per theme, applied once per nesting
+     level. Brightness compounds automatically (L*N): a header inside a
+     table is two levels up. Overlays (modals, toasts) are separate
+     screens: they restart from the page base. */
+  --elev: rgba(0, 0, 0, 0.025);
+
   /* Radius scale. Elements get squircle corners via the use:squircle action. */
   --radius-xs: 8px;
   --radius-sm: 10px;
   --radius-md: 12px;
   --radius-lg: 24px;
-  
+
   --color-sidebar-bg: #e2e3ea;
   --color-nav-hover: #d8d9e0;
   --color-nav-active: #cfd0d8;
-  
+
   --color-text: #2b2d31;
   --color-text-soft: #6c717a;
   --color-text-disabled: #9aa0a6;
   --color-text-link: #2483e2;
   --color-text-on-button: #2b2d31;
   --color-text-on-button-reverse: #ffffff;
-  
+
   --color-outline-light: #d5d7d9;
   --color-outline-soft: #dfe0e1;
   --color-outline: #76777b;
   --color-outline-variant: #c6c6ca;
-  
+
   --color-button-container: #ffffff;
   --color-button-container-high: #e1e2e8;
   --color-button-container-accent: #dbeafe;
-  
+
   --color-hover-bg: #e4e5ea;
-  
+
   --color-accent-yellow: #fcbd00;
   --color-accent-yellow-light: #fff7e0;
-  
+
   --color-notification-info-bg: #eff6ff;
   --color-notification-info-border: #bfdbfe;
   --color-notification-info-text: #1e40af;
@@ -71,7 +80,7 @@ a:hover { text-decoration: underline; }
   --color-notification-warning-border: #fde68a;
   --color-notification-warning-text: #92400e;
   --color-notification-warning-icon: #f59e0b;
-  
+
   --color-badge-blue-bg: rgba(59, 130, 246, 0.1);
   --color-badge-blue-text: #2563eb;
   --color-badge-green-bg: rgba(34, 197, 94, 0.1);
@@ -97,7 +106,7 @@ a:hover { text-decoration: underline; }
   --color-badge-teal-text: #0d9488;
   --color-badge-orange-bg: rgba(249, 115, 22, 0.1);
   --color-badge-orange-text: #ea580c;
-  
+
   --color-warning-text: #ca8a04;
   --color-error-text: #dc2626;
   --color-success-text: #16a34a;
@@ -113,13 +122,13 @@ a:hover { text-decoration: underline; }
   --color-notification-success-bg: rgba(34, 197, 94, 0.1);
   --color-notification-success-border: rgba(34, 197, 94, 0.3);
   --color-notification-success-text: #16a34a;
-  
+
   --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-sm: 0 1px 3px 0 rgba(10, 13, 18, 0.1), 0 1px 2px -1px rgba(10, 13, 18, 0.1);
   --shadow-md: 0 4px 6px -1px rgba(10, 13, 18, 0.1), 0 2px 4px -2px rgba(10, 13, 18, 0.06);
   --shadow-lg: 0 12px 16px -4px rgba(10, 13, 18, 0.08), 0 4px 6px -2px rgba(10, 13, 18, 0.03);
   --shadow-xl: 0 20px 24px -4px rgba(10, 13, 18, 0.08), 0 8px 8px -4px rgba(10, 13, 18, 0.03);
-  
+
   --sidebar-w: 240px;
 
   /* Playground-tunable control metrics (see UI test polygon). */
@@ -137,32 +146,35 @@ a:hover { text-decoration: underline; }
   --color-surface-container-high: #2d2d2d;
   --color-surface-container-highest: #343434;
   --color-background: #141313;
-  
+
+  /* Elevation overlays: nest to brighten automatically on dark theme. */
+  --elev: rgba(255, 255, 255, 0.03);
+
   --color-sidebar-bg: #1a1a1a;
   --color-nav-hover: #252525;
   --color-nav-active: #2a2a2a;
-  
+
   --color-text: #e5e2e1;
   --color-text-soft: #a0a0a0;
   --color-text-disabled: #707070;
   --color-text-link: #87a9ff;
   --color-text-on-button: #e5e2e1;
   --color-text-on-button-reverse: #141313;
-  
+
   --color-outline-light: #404040;
   --color-outline-soft: #3a3a3a;
   --color-outline: #8e9192;
   --color-outline-variant: #444748;
-  
+
   --color-button-container: #313131;
   --color-button-container-high: #3d3d3d;
   --color-button-container-accent: #2d3548;
-  
+
   --color-hover-bg: #333333;
-  
+
   --color-accent-yellow: #fcbd00;
   --color-accent-yellow-light: #3a321b;
-  
+
   --color-notification-info-bg: #1e2a3a;
   --color-notification-info-border: #2d4a6f;
   --color-notification-info-text: #93c5fd;
@@ -171,7 +183,7 @@ a:hover { text-decoration: underline; }
   --color-notification-warning-border: #4a4020;
   --color-notification-warning-text: #fbbf24;
   --color-notification-warning-icon: #f59e0b;
-  
+
   --color-badge-blue-bg: rgba(96, 165, 250, 0.15);
   --color-badge-blue-text: #60a5fa;
   --color-badge-green-bg: rgba(74, 222, 128, 0.15);
@@ -197,7 +209,7 @@ a:hover { text-decoration: underline; }
   --color-badge-teal-text: #2dd4bf;
   --color-badge-orange-bg: rgba(251, 146, 60, 0.15);
   --color-badge-orange-text: #fb923c;
-  
+
   --color-warning-text: #fbbf24;
   --color-error-text: #f87171;
   --color-success-text: #4ade80;
@@ -213,7 +225,7 @@ a:hover { text-decoration: underline; }
   --color-notification-success-bg: rgba(74, 222, 128, 0.15);
   --color-notification-success-border: rgba(74, 222, 128, 0.35);
   --color-notification-success-text: #4ade80;
-  
+
   --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
   --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.6), 0 1px 2px -1px rgba(0, 0, 0, 0.6);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.6), 0 2px 4px -2px rgba(0, 0, 0, 0.5);
@@ -236,7 +248,7 @@ input, select, textarea {
   border-radius: var(--ctl-radius);
   /* transparent border keeps disabled geometry identical to enabled */
   border: 1px solid transparent;
-  background: var(--color-surface-container-highest);
+  background: var(--elev);
   color: var(--color-text);
   padding: var(--field-pad-v) var(--field-pad-h);
   outline: none;
@@ -247,10 +259,7 @@ input[type="checkbox"] {
   width: auto;
   height: auto;
 }
-input:focus, select:focus, textarea:focus {
-  /* glow follows the squircle silhouette; a ring cannot (clip-path) */
-  filter: drop-shadow(0 0 3px var(--color-accent));
-}
+
 input:disabled, select:disabled, textarea:disabled {
   background-color: var(--color-disabled-bg);
   color: var(--color-disabled-text);
@@ -301,8 +310,8 @@ textarea {
   resize: vertical;
   min-height: 80px;
 }
-select option { 
-  background: var(--color-surface); 
+select option {
+  background: var(--color-surface);
   color: var(--color-text);
 }
 /* Custom chevron everywhere (was auth-forms only); appearance:none kills the native glyph. */
@@ -345,8 +354,8 @@ button, .btn {
 button:active:not([disabled]), .btn:active:not([disabled]) {
   transform: scale(0.96);
 }
-button:hover:not([disabled]), .btn:hover:not([disabled]) { 
-  background: var(--color-button-container-high); 
+button:hover:not([disabled]), .btn:hover:not([disabled]) {
+  background: var(--color-button-container-high);
 }
 button:disabled, .btn:disabled {
   background-color: var(--color-disabled-bg);
@@ -371,13 +380,13 @@ button:focus-visible, .btn:focus-visible {
   background: var(--color-accent);
   color: var(--color-text-on-button-reverse);
 }
-.btn-primary:hover:not([disabled]) { 
+.btn-primary:hover:not([disabled]) {
   background: var(--color-accent-hover);
 }
 
 .btn-secondary {
   border-color: transparent;
-  background: var(--color-button-container-high);
+  background: var(--elev);
   color: var(--color-text-on-button);
 }
 .btn-secondary:hover:not([disabled]) {
@@ -389,7 +398,7 @@ button:focus-visible, .btn:focus-visible {
   border-color: transparent;
   color: #fff;
 }
-.btn-danger:hover:not([disabled]) { 
+.btn-danger:hover:not([disabled]) {
   background: var(--color-danger-hover);
 }
 
@@ -511,7 +520,7 @@ td {
   font-size: 14px;
 }
 tr:last-child td { border-bottom: none; }
-tbody tr:hover td { 
+tbody tr:hover td {
   background: var(--color-hover-bg);
 }
 
@@ -519,7 +528,7 @@ tbody tr:hover td {
    Pages set only grid-template-columns and column-specific tweaks;
    base geometry and header styling live here so every table reads the same. */
 .table {
-  background: var(--color-surface-container-high);
+  background: var(--elev);
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
@@ -533,7 +542,7 @@ tbody tr:hover td {
   border-top: 1px solid var(--color-outline-soft);
 }
 .table-head {
-  background: var(--color-surface-container-highest);
+  background: var(--elev);
   font-size: 12px;
   font-weight: 600;
   color: var(--color-text-soft);
@@ -577,13 +586,13 @@ tbody tr:hover td {
   line-height: 20px;
 }
 
-.mono { 
-  font-family: "DM Mono", "SF Mono", "Fira Code", monospace; 
-  font-size: 13px; 
+.mono {
+  font-family: "DM Mono", "SF Mono", "Fira Code", monospace;
+  font-size: 13px;
 }
-.empty { 
-  padding: 48px; 
-  text-align: center; 
+.empty {
+  padding: 48px;
+  text-align: center;
   color: var(--color-text-soft);
   font-size: 14px;
 }
@@ -632,16 +641,12 @@ tbody tr:hover td {
 }
 
 .card {
-  background: var(--color-surface-container-high);
+  background: var(--elev);
   border: none;
   border-radius: var(--radius-lg);
   overflow: hidden;
-  /* drop-shadow follows the squircle clip; box-shadow would be clipped away */
-  filter: drop-shadow(0 1px 3px rgba(15, 17, 23, 0.1));
 }
-.dark .card {
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5));
-}
+
 .card-header {
   display: flex;
   align-items: center;
@@ -649,21 +654,21 @@ tbody tr:hover td {
   padding: 16px;
   border-bottom: 1px solid var(--color-outline-soft);
 }
-.card-header h2 { 
-  font-size: 16px; 
-  font-weight: 500; 
-  color: var(--color-text); 
+.card-header h2 {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
 }
 
-.form-group { 
-  display: flex; 
-  flex-direction: column; 
-  gap: 6px; 
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-.form-group label { 
-  font-size: 12px; 
-  font-weight: 500; 
-  color: var(--color-text-soft); 
+.form-group label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-soft);
 }
 
 .auth-html form {
@@ -718,16 +723,16 @@ tbody tr:hover td {
 }
 
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 32px; }
-.page-header h1 { 
-  font-size: 24px; 
-  font-weight: 400; 
+.page-header h1 {
+  font-size: 24px;
+  font-weight: 400;
   margin: 0 0 8px 0;
   color: var(--color-text);
 }
-.page-header p { 
+.page-header p {
   margin: 0;
-  color: var(--color-text-soft); 
-  font-size: 14px; 
+  color: var(--color-text-soft);
+  font-size: 14px;
 }
 .loading { padding: 48px; text-align: center; color: var(--color-text-soft); font-size: 14px; }
 

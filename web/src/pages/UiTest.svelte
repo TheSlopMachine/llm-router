@@ -10,15 +10,15 @@
   import Dropdown from '../components/Dropdown.svelte'
   import ActionDropdown from '../components/ActionDropdown.svelte'
   import EmptyState from '../components/EmptyState.svelte'
-  import ProviderCard from '../components/ProviderCard.svelte'
-  import PluginCard from '../components/plugins/PluginCard.svelte'
+  import Table from '../components/ui/Table.svelte'
+  import type { TableColumn, TableSortDir } from '../components/ui/Table.svelte'
   import { modal } from '../lib/modal.svelte'
   import { toast } from '../lib/toast.svelte'
   import { theme } from '../lib/theme.svelte'
   import { squircle, setSquircleExponent } from '../lib/squircle'
   import { onMount } from 'svelte'
   import { tintSoft } from '../lib/tint'
-  import type { UINode, Provider, ProviderStats } from '../lib/types'
+  import type { UINode } from '../lib/types'
 
   let textVal = $state('')
   let secretVal = $state('')
@@ -32,6 +32,54 @@
   let lastAction = $state('(none)')
   let confirmResult = $state('(not asked)')
   let toastText = $state('Custom toast text — edit me and show')
+
+  interface DemoRow { name: string; ctx: string; n: number; off?: boolean }
+  const demoRows: DemoRow[] = [
+    { name: 'Gemini 2.5 Flash', ctx: '1049k ctx', n: 23 },
+    { name: 'A very long model name that must wrap inside its cell', ctx: '8k ctx', n: 3, off: true },
+    { name: '', ctx: '', n: 0 },
+  ]
+  const demoCols: TableColumn[] = [
+    { key: 'name', title: 'Model', width: '40%' },
+    { key: 'ctx', title: 'Context', width: '120px', align: 'center' },
+    { key: 'n', title: '', align: 'right' },
+  ]
+  let sortRows = $state<DemoRow[]>([...demoRows])
+  let sortKey = $state<string | null>(null)
+  let sortDir = $state<TableSortDir | null>(null)
+  const sortCols: TableColumn[] = [
+    { key: 'name', title: 'Model', sortable: true },
+    { key: 'n', title: 'Count', align: 'right', sortable: true },
+  ]
+  function demoSort(key: string): void {
+    if (sortKey !== key) {
+      sortKey = key
+      sortDir = 'asc'
+    } else if (sortDir === 'asc') {
+      sortDir = 'desc'
+    } else {
+      sortKey = null
+      sortDir = null
+    }
+    if (sortKey == null || sortDir == null) {
+      sortRows = [...demoRows]
+      return
+    }
+    const dir = sortDir === 'asc' ? 1 : -1
+    sortRows = [...demoRows].sort((a, b) => {
+      const av = a[sortKey as keyof DemoRow] ?? ''
+      const bv = b[sortKey as keyof DemoRow] ?? ''
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir
+      return String(av).localeCompare(String(bv)) * dir
+    })
+  }
+  let dragRows = $state<DemoRow[]>([...demoRows])
+  function demoReorder(from: number, to: number): void {
+    const next = [...dragRows]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    dragRows = next
+  }
 
   // Font preview: chosen family applies app-wide while the polygon is open.
   $effect(() => {
@@ -159,15 +207,6 @@
     { type: 'spacer' },
     { type: 'text', text: 'End of form.' },
   ]
-
-  const sampleProvider: Provider = {
-    id: 'demo', name: 'Demo provider', type: 'Demo', type_key: 'demo',
-    qualifier: '', config: {}, auth_type: 'key', base_url: 'https://example.com',
-    icon_url: '', supports_auth_flow: false, is_ui_readonly: false,
-    is_ui_hidden: false, disabled: false,
-  }
-  const sampleStats: ProviderStats = { model_count: 3, credential_count: 2 }
-
 
   function askConfirm(): void {
     void modal.confirm({ title: 'Demo confirm', message: 'Confirm this demo action?', confirmRole: 'destructive' }).then((ok) => {
@@ -349,6 +388,85 @@
   </div>
 </SectionCard>
 
+<SectionCard title="Tables">
+  <p class="hint">Alignments, widths (40% / 120px / auto), empty header, empty cells, tall row centers siblings.</p>
+  <div class="table" use:squircle={18}>
+    <Table
+      columns={demoCols}
+      rows={demoRows}
+      rowKey={(r) => r.name || '(empty)'}
+      rowClass={(r) => (r.off ? 'row-off' : '')}
+    >
+      {#snippet cell({ column, row })}
+        {#if column.key === 'name'}{row.name || '—'}
+        {:else if column.key === 'ctx'}{row.ctx || '—'}
+        {:else}{row.n}{/if}
+      {/snippet}
+      {#snippet empty()}
+        <div class="uit-empty-note">No rows — caller-provided empty content.</div>
+      {/snippet}
+    </Table>
+  </div>
+  <p class="hint">Sortable: click the header cell. Unsorted ⇅, asc ↑, desc ↓.</p>
+  <div class="table" use:squircle={18}>
+    <Table
+      columns={sortCols}
+      rows={sortRows}
+      rowKey={(r) => r.name || '(empty)'}
+      sortKey={sortKey}
+      sortDir={sortDir}
+      onsort={demoSort}
+    >
+      {#snippet cell({ column, row })}
+        {#if column.key === 'name'}{row.name || '—'}{:else}{row.n}{/if}
+      {/snippet}
+      {#snippet empty()}
+        <div class="uit-empty-note">No rows — caller-provided empty content.</div>
+      {/snippet}
+    </Table>
+  </div>
+  <p class="hint">Draggable: grip column spawns automatically, rows reorder.</p>
+  <div class="table" use:squircle={18}>
+    <Table
+      columns={demoCols}
+      rows={dragRows}
+      rowKey={(r) => r.name || '(empty)'}
+      draggable
+      onReorder={demoReorder}
+    >
+      {#snippet cell({ column, row })}
+        {#if column.key === 'name'}{row.name || '—'}
+        {:else if column.key === 'ctx'}{row.ctx || '—'}
+        {:else}{row.n}{/if}
+      {/snippet}
+      {#snippet empty()}
+        <div class="uit-empty-note">No rows — drag demo empty content.</div>
+      {/snippet}
+    </Table>
+  </div>
+  <p class="hint">Loading skeleton and custom empty content.</p>
+  <div class="table" use:squircle={18}>
+    <Table columns={demoCols} rows={[] as DemoRow[]} rowKey={(r) => r.name} loading>
+      {#snippet cell({ row })}
+        {row.name}
+      {/snippet}
+      {#snippet empty()}
+        <div class="uit-empty-note">Never shown while loading.</div>
+      {/snippet}
+    </Table>
+  </div>
+  <div class="table" use:squircle={18}>
+    <Table columns={demoCols} rows={[] as DemoRow[]} rowKey={(r) => r.name}>
+      {#snippet cell({ row })}
+        {row.name}
+      {/snippet}
+      {#snippet empty()}
+        <div class="uit-empty-note">Custom empty content.</div>
+      {/snippet}
+    </Table>
+  </div>
+</SectionCard>
+
 <SectionCard title="Overlays">
   <div class="row">
     <div class="confirm-col">
@@ -390,47 +508,6 @@
   <CodeBlock label="Live values" text={JSON.stringify(formValues, null, 2)} />
 </SectionCard>
 
-<SectionCard title="Cards">
-  <div class="cards">
-    <ProviderCard provider={sampleProvider} stats={sampleStats} onClick={() => toast.success('Provider clicked')} onToggle={(v) => toast.success(v ? 'Enabled' : 'Disabled')} />
-    <PluginCard
-      title="Demo plugin"
-      meta="tester · 1.0.0"
-      badges={[{ text: 'safe', kind: 'chip-green' }]}
-      description="Uninstalled sample card."
-      mode="uninstalled"
-      installLabel="Install"
-      onInstall={() => toast.success('Install clicked')}
-      onDetails={() => toast.success('Details clicked')}
-    />
-    <PluginCard
-      title="Demo plugin"
-      meta="tester · 1.0.0"
-      description="Installed sample card."
-      mode="installed"
-      actions={[{ id: 'remove', label: 'Remove', icon: 'delete', danger: true }]}
-      onaction={(id) => { lastAction = id }}
-      onDetails={() => toast.success('Details clicked')}
-    />
-  </div>
-  <div class="card-pad">
-    <EmptyState icon="search_off" message="Nothing here" hint="Demo empty state." buttonText="Do thing" buttonIcon="add" onButtonClick={() => toast.success('Empty action clicked')} />
-  </div>
-</SectionCard>
-
-<SectionCard title="Table and messages">
-  <div class="table" use:squircle={18}>
-    <table>
-      <thead><tr><th>Name</th><th>Status</th><th>Count</th></tr></thead>
-      <tbody>
-        <tr><td>Alpha</td><td><span class="chip chip-green">ok</span></td><td>12</td></tr>
-        <tr><td>Beta</td><td><span class="chip chip-red">fail</span></td><td>3</td></tr>
-      </tbody>
-    </table>
-  </div>
-  <div class="error-msg" use:squircle={12}>Demo error message.</div>
-  <div class="success-msg" use:squircle={12}>Demo success message.</div>
-</SectionCard>
 </div>
 
 <style>
@@ -452,6 +529,10 @@
     gap: 12px;
     align-items: center;
     margin-bottom: 16px;
+  }
+  .uit-empty-note {
+    color: var(--color-text-soft);
+    font-size: 13px;
   }
   .row:last-child {
     margin-bottom: 0;
@@ -483,25 +564,9 @@
   .form-group {
     margin-bottom: 12px;
   }
-  .cards {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    margin-bottom: 16px;
-  }
-  .card-pad {
-    border-top: 1px solid var(--color-outline-soft);
-    margin-top: 4px;
-  }
   .table {
     margin-bottom: 16px;
     border-radius: var(--radius-lg);
-  }
-  .error-msg {
-    margin-top: 12px;
-  }
-  .success-msg {
-    margin-top: 12px;
   }
   .confirm-col {
     display: flex;

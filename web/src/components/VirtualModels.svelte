@@ -9,6 +9,7 @@
   import EmptyState from './EmptyState.svelte'
   import Button from './ui/Button.svelte'
   import CapabilityChips from './ui/CapabilityChips.svelte'
+  import Table from './ui/Table.svelte'
 
   const resource = createListResource<VirtualModel[]>(
     async () => {
@@ -66,7 +67,7 @@
   </div>
 
   {#if resource.error}
-    <div class="error-msg">{resource.error}</div>
+    <div class="error-msg" use:squircle={12}>{resource.error}</div>
   {/if}
 
   {#if resource.loading}
@@ -81,25 +82,41 @@
     />
   {:else}
     <div class="table" use:squircle={18}>
-      <div class="table-row table-head">
-        <span class="col-id">ID</span>
-        <span class="col-desc">{t('Description')}</span>
-        <span class="col-caps">{t('Capabilities')}</span>
-        <span class="col-actions">{t('Actions')}</span>
-      </div>
-      {#each resource.data.filter((a) => a) as vm (vm.id)}
-        <div class="table-row">
-          <span class="col-id mono">{vm.id}</span>
-          <span class="col-desc">{vm.description || vm.name || '—'}</span>
-          <span class="col-caps">
-            <CapabilityChips caps={vm.capabilities ?? []} />
-          </span>
-          <span class="col-actions">
+    <Table
+      columns={[
+        { key: 'id', title: 'ID', width: '2fr' },
+        { key: 'desc', title: t('Description'), width: '2fr' },
+        { key: 'caps', title: t('Capabilities'), width: '25%' },
+        { key: 'actions', title: t('Actions'), align: 'right' },
+      ]}
+      rows={resource.data.filter((a) => a)}
+      rowKey={(vm) => vm.id}
+    >
+      {#snippet cell({ column, row })}
+        {@const vm = row as VirtualModel}
+        {#if column.key === 'id'}
+          <span class="mono">{vm.id}</span>
+        {:else if column.key === 'desc'}
+          <span class="vm-desc">{vm.description || vm.name || '—'}</span>
+        {:else if column.key === 'caps'}
+          <CapabilityChips caps={vm.capabilities ?? []} />
+        {:else}
+          <span class="vm-actions">
             <Button style="icon" icon={{ name: 'edit' }} ariaLabel={t('Edit')} onclick={() => openEdit(vm)} />
             <Button style="icon" danger icon={{ name: 'delete' }} ariaLabel={t('Delete')} onclick={() => remove(vm)} />
           </span>
-        </div>
-      {/each}
+        {/if}
+      {/snippet}
+      {#snippet empty()}
+        <EmptyState
+          icon="robot"
+          message={t('No virtual models yet')}
+          buttonText={t('Create your first virtual model')}
+          buttonIcon="add"
+          onButtonClick={openNew}
+        />
+      {/snippet}
+    </Table>
     </div>
   {/if}
 </div>
@@ -120,15 +137,16 @@
   }
 
   .col-desc {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: break-word;
+    white-space: normal;
   }
 
   .col-caps {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(4, max-content);
     gap: 4px;
-    flex-wrap: wrap;
+    justify-content: start;
+    align-content: start;
   }
 
   .col-actions {

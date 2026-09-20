@@ -4,6 +4,11 @@
   import { getErrorMessage } from '../lib/errors'
   import { toast } from '../lib/toast.svelte'
   import type { Provider, Credential, ProviderModel, ProviderVMGroup, TestResult, Proxy } from '../lib/types'
+  import Chip from '../components/ui/Chip.svelte'
+  import Table from '../components/ui/Table.svelte'
+  import type { TableColumn } from '../components/ui/Table.svelte'
+  import CapabilityChips from '../components/ui/CapabilityChips.svelte'
+  import Button from '../components/ui/Button.svelte'
   import CredentialWizard from '../components/CredentialWizard.svelte'
   import CredentialEditModal from '../components/CredentialEditModal.svelte'
   import CustomProviderWizard from '../components/wizards/CustomProviderWizard.svelte'
@@ -12,6 +17,7 @@
   import Switch from '../components/ui/Switch.svelte'
   import { squircle } from '../lib/squircle'
   import { t } from '../lib/i18n.svelte'
+  import { CAPABILITY_META } from '../lib/capabilities'
 
   let { providerId } = $props<{ providerId: string }>()
 
@@ -91,15 +97,6 @@
   let customProbeNote = $state('')
 
   const KNOWN_CAPABILITIES = ['tools', 'vision', 'audio', 'json_mode', 'structured_outputs', 'reasoning']
-
-  const CAPABILITY_META: Record<string, { label: string; cls: string; icon: string; hint: string }> = {
-    tools: { label: 'Tools', cls: 'chip-blue', icon: 'build', hint: 'Tool calling — the model can invoke functions' },
-    vision: { label: 'Vision', cls: 'chip-purple', icon: 'image', hint: 'Vision — accepts image input' },
-    audio: { label: 'Audio', cls: 'chip-teal', icon: 'graphic_eq', hint: 'Audio — accepts audio input' },
-    json_mode: { label: 'JSON', cls: 'chip-yellow', icon: 'data_object', hint: 'JSON mode — response_format: json_object' },
-    structured_outputs: { label: 'Structured', cls: 'chip-yellow', icon: 'schema', hint: 'Structured outputs — responses follow a JSON schema' },
-    reasoning: { label: 'Reasoning', cls: 'chip-orange', icon: 'psychology', hint: 'Reasoning — thinks before answering (reasoning_content)' },
-  }
 
   let filteredModels = $derived.by(() => {
     let list = models
@@ -940,14 +937,8 @@
         {t('Auto-sync models')}
       </label>
     </div>
-    {#if modelsLoading}
-      <div class="empty-state">{t('Loading…')}</div>
-    {:else if modelsError}
+    {#if modelsError}
       <div class="error-msg" use:squircle={12}>{modelsError}</div>
-    {:else if filteredModels.length === 0}
-      <div class="empty-state">
-        {models.length === 0 ? t('No models reported by this provider.') : t('No models match the filter.')}
-      </div>
     {:else}
       {@render modelsTable()}
       {@render modelsCards()}
@@ -963,42 +954,56 @@
       <div class="empty-state">{t('No endpoint groups on this provider yet.')}</div>
     {:else}
       <div class="table" use:squircle={18}>
-        <div class="table-row table-head vm-head">
-          <span>{t('Virtual model')}</span>
-          <span>{t('Endpoint')}</span>
-          <span class="vm-num">{t('Models')}</span>
-          <span></span>
-        </div>
-        {#each vmGroups as g (g.endpoint)}
-          {@const ep = VM_ENDPOINTS[g.endpoint] ?? { path: g.endpoint, hint: g.label }}
-          <div class="table-row vm-head">
-            <span class="vm-id">
-              {#if g.virtual}
-                <span class="model-display">{g.virtual.name}</span>
-                <span class="model-id">
-                  <a class="vm-link" href={`#/virtual/${g.virtual.id}`} title={t('Open virtual model')}>{g.virtual.id}</a>
-                  <button class="btn-icon copy-btn" onclick={() => copyModelId(g.virtual?.id ?? '')} aria-label={t('Copy model id')} title={t('Copy model id')} use:squircle={10}>
-                    <span class="icon">content_copy</span>
-                  </button>
-                </span>
-              {:else}
-                <span class="mods-empty">—</span>
-              {/if}
-            </span>
-            <span class="model-meta" title={t(ep.hint)}>{ep.path}</span>
-            <span class="model-meta vm-num">{g.models.length}</span>
-            <span class="vm-toggle">
-              {#if g.virtual}
-                {@const v = g.virtual}
-                <Switch
-                  checked={!v.disabled}
-                  ariaLabel={t('Enable virtual model')}
-                  onchange={(en) => toggleVirtualModel(v.id, en)}
+      <Table
+        columns={[
+          { key: 'vm', title: t('Virtual model'), width: '1.4fr' },
+          { key: 'endpoint', title: t('Endpoint'), width: '1.2fr' },
+          { key: 'count', title: t('Models'), width: '0.4fr', align: 'right' },
+          { key: 'toggle', width: 'auto' },
+        ]}
+        rows={vmGroups}
+        rowKey={(g) => g.endpoint}
+      >
+        {#snippet cell({ column, row })}
+          {@const g = row as ProviderVMGroup}
+          {#if column.key === 'vm'}
+            {#if g.virtual}
+              {@const v = g.virtual}
+              <span class="model-display">{v.name}</span>
+              <span class="model-id">
+                <a class="vm-link" href={`#/virtual/${v.id}`} title={t('Open virtual model')}>{v.id}</a>
+                <Button
+                  style="icon"
+                  size="sm"
+                  icon={{ name: 'content_copy' }}
+                  title={t('Copy model id')}
+                  ariaLabel={t('Copy model id')}
+                  onclick={() => copyModelId(v.id)}
                 />
-              {/if}
-            </span>
-          </div>
-        {/each}
+              </span>
+            {:else}
+              <span class="mods-empty">—</span>
+            {/if}
+          {:else if column.key === 'endpoint'}
+            {@const ep = VM_ENDPOINTS[g.endpoint] ?? { path: g.endpoint, hint: g.label }}
+            <span class="model-meta" title={t(ep.hint)}>{ep.path}</span>
+          {:else if column.key === 'count'}
+            <span class="model-meta">{g.models.length}</span>
+          {:else}
+            {#if g.virtual}
+              {@const v = g.virtual}
+              <Switch
+                checked={!v.disabled}
+                ariaLabel={t('Enable virtual model')}
+                onchange={(en) => toggleVirtualModel(v.id, en)}
+              />
+            {/if}
+          {/if}
+        {/snippet}
+        {#snippet empty()}
+          <div class="uit-empty-note">{t('No endpoint groups on this provider yet.')}</div>
+        {/snippet}
+      </Table>
       </div>
     {/if}
   </section>
@@ -1063,14 +1068,22 @@
       <span class="mods-group">
         {#each inMods as mod}
           {@const icon = modalityIcon(mod)}
-          {#if icon}<span class="chip chip-sm mods-chip {modalityColor(mod)}" title={mod} use:squircle={12}><span class="icon mods-icon">{icon}</span></span>{:else}<span class="mods-word" title={mod}>{mod}</span>{/if}
+          {#if icon}
+            <Chip icon={icon} cls={modalityColor(mod)} title={mod} glyphSize={22} />
+          {:else}
+            <span class="mods-word" title={mod}>{mod}</span>
+          {/if}
         {/each}
       </span>
       <span class="icon mods-arrow" aria-hidden="true">arrow_forward</span>
       <span class="mods-group">
         {#each outMods as mod}
           {@const icon = modalityIcon(mod)}
-          {#if icon}<span class="chip chip-sm mods-chip {modalityColor(mod)}" title={mod} use:squircle={12}><span class="icon mods-icon">{icon}</span></span>{:else}<span class="mods-word" title={mod}>{mod}</span>{/if}
+          {#if icon}
+            <Chip icon={icon} cls={modalityColor(mod)} title={mod} glyphSize={22} />
+          {:else}
+            <span class="mods-word" title={mod}>{mod}</span>
+          {/if}
         {/each}
       </span>
     </span>
@@ -1079,73 +1092,91 @@
 
 {#snippet modelCaps(m: ProviderModel)}
   {#if m.custom}
-    <span class="chip chip-teal" title={t('Added manually, not listed by the provider')}>{t('custom')}</span>
+    <Chip text={t('custom')} cls="chip-teal" title={t('Added manually, not listed by the provider')} />
   {/if}
-  {#each m.capabilities as cap}
-    {@const meta = CAPABILITY_META[cap]}
-    {@const hint = cap === 'reasoning' && meta && m.reasoning?.supported_efforts?.length
-      ? `${t(meta.hint)} (${t('effort')}: ${[...m.reasoning.supported_efforts].reverse().join(', ')})`
-      : t(meta?.hint ?? cap)}
-    <span class="chip {meta?.cls ?? 'chip-neutral'}" title={hint}>
-      {#if meta?.icon}<span class="icon">{meta.icon}</span>{/if}
-      {meta ? t(meta.label) : cap}
-    </span>
-  {/each}
+  {@const reasoningHint: Record<string, string> = m.reasoning?.supported_efforts?.length
+    ? { reasoning: `${t(CAPABILITY_META.reasoning.hint)} (${t('effort')}: ${[...m.reasoning.supported_efforts].reverse().join(', ')})` }
+    : {}}
+  <CapabilityChips caps={m.capabilities} hints={reasoningHint} />
 {/snippet}
 
 {#snippet modelActions(m: ProviderModel)}
   {@const ti = testIcon(modelTestResults[m.name], t('Test model'))}
   <span class="model-actions">
-    <button
-      class="btn-icon"
-      onclick={() => testModel(m)}
-      disabled={modelTestResults[m.name] === 'loading'}
-      aria-label={ti.title}
+    <Button
+      style="icon"
+      size="sm"
+      icon={{ name: ti.icon }}
+      glyphClass={ti.cls}
       title={ti.title}
-      use:squircle={10}
-    >
-      <span class="icon {ti.cls}">{ti.icon}</span>
-    </button>
+      ariaLabel={ti.title}
+      disabled={modelTestResults[m.name] === 'loading'}
+      onclick={() => testModel(m)}
+    />
     {#if m.custom}
-      <button class="btn-icon icon-danger" onclick={() => deleteCustomModel(m)} aria-label={t('Delete custom model')} title={t('Delete custom model')} use:squircle={10}>
-        <span class="icon">delete</span>
-      </button>
+      <Button
+        style="icon"
+        size="sm"
+        danger
+        icon={{ name: 'delete' }}
+        title={t('Delete custom model')}
+        ariaLabel={t('Delete custom model')}
+        onclick={() => deleteCustomModel(m)}
+      />
     {/if}
     <Switch
       checked={!m.disabled}
       ariaLabel={t('Enable model')}
-      size="xl"
       onchange={(v) => toggleModel(m, v)}
     />
   </span>
 {/snippet}
 
 {#snippet modelsTable()}
-  <div class="table models-table" use:squircle={18}>
-    <div class="table-row model-row table-head">
-      <span class="mcol-id">{t('Model')}</span>
-      <span class="mcol-ctx">{t('Context')}</span>
-      <span class="mcol-mods">{t('Modalities')}</span>
-      <span class="mcol-caps">{t('Capabilities')}</span>
-      <span class="mcol-actions">{t('Actions')}</span>
-    </div>
-    {#each filteredModels as m (m.name)}
-      <div class="table-row model-row" class:row-disabled={m.disabled}>
-        <span class="mcol-id">
-          <span class="model-display">{m.display_name || m.name}</span>
-          <span class="model-id">
-            {m.name}
-            <button class="btn-icon copy-btn" onclick={() => copyModelId(m.name)} aria-label={t('Copy model id')} title={t('Copy model id')} use:squircle={10}>
-              <span class="icon">content_copy</span>
-            </button>
-          </span>
+  <div class="models-table">
+  <div class="table" use:squircle={18}>
+  <Table
+    columns={[
+      { key: 'model', title: t('Model'), width: '35%' },
+      { key: 'ctx', title: t('Context'), width: '10%' },
+      { key: 'mods', title: t('Modalities'), width: '15%' },
+      { key: 'caps', title: t('Capabilities'), width: '30%' },
+      { key: 'actions', title: t('Actions'), width: '10%', align: 'right' },
+    ]}
+    rows={filteredModels}
+    rowKey={(m) => m.name}
+    rowClass={(m) => (m.disabled ? 'row-off' : '')}
+    loading={modelsLoading && models.length === 0}
+    sortable=true
+  >
+    {#snippet cell({ column, row })}
+      {@const m = row as ProviderModel}
+      {#if column.key === 'model'}
+        <div>
+        <span class="model-display">{m.display_name || m.name}</span>
+        <span class="model-id">
+          {m.name}
+          <Button
+            style="icon"
+            size="sm"
+            icon={{ name: 'content_copy' }}
+            title={t('Copy model id')}
+            ariaLabel={t('Copy model id')}
+            onclick={() => copyModelId(m.name)}
+          />
         </span>
-        <span class="mcol-ctx model-meta">{@render modelContext(m)}</span>
-        <span class="mcol-mods model-meta">{@render modelMods(m)}</span>
-        <span class="mcol-caps model-meta">{@render modelCaps(m)}</span>
-        <span class="mcol-actions">{@render modelActions(m)}</span>
-      </div>
-    {/each}
+        </div>
+      {:else if column.key === 'ctx'}{@render modelContext(m)}
+      {:else if column.key === 'mods'}{@render modelMods(m)}
+      {:else if column.key === 'caps'}{@render modelCaps(m)}
+      {:else}{@render modelActions(m)}
+      {/if}
+    {/snippet}
+    {#snippet empty()}
+      <div class="empty-state">{models.length === 0 ? t('No models reported by this provider.') : t('No models match the filter.')}</div>
+    {/snippet}
+  </Table>
+  </div>
   </div>
 {/snippet}
 
@@ -1170,9 +1201,14 @@
           <div class="mc-actions">{@render modelActions(m)}</div>
           <div class="mc-idrow">
             <span class="mc-id">{m.name}</span>
-            <button class="btn-icon btn-sm copy-btn" onclick={() => copyModelId(m.name)} aria-label={t('Copy model id')} title={t('Copy model id')} use:squircle={8}>
-              <span class="icon">content_copy</span>
-            </button>
+            <Button
+              style="icon"
+              size="sm"
+              icon={{ name: 'content_copy' }}
+              title={t('Copy model id')}
+              ariaLabel={t('Copy model id')}
+              onclick={() => copyModelId(m.name)}
+            />
           </div>
         </div>
         <div class="model-meta">{@render modelCtxLine(m)}{@render modelMods(m)}{@render modelCaps(m)}</div>
@@ -1257,9 +1293,6 @@
   }
   .table-head .col-actions {
     justify-content: flex-start;
-  }
-  .table-head .mcol-actions {
-    justify-content: flex-end;
   }
   .row-disabled {
     opacity: 0.55;
@@ -1357,14 +1390,6 @@
   }
   /* Desktop: models as a table; mobile: cards */
   .models-grid { display: none; }
-  .model-row {
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.6fr) minmax(0, 0.8fr) minmax(0, 1.2fr) 124px;
-  }
-  .vm-head {
-    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 0.4fr) auto;
-  }
-  .vm-num { text-align: right; }
-  .vm-toggle { display: flex; justify-content: flex-end; }
   .vm-id {
     min-width: 0;
     display: flex;
@@ -1372,12 +1397,6 @@
     gap: 2px;
   }
   .vm-link { overflow-wrap: break-word; }
-  .mcol-id {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
   .model-display {
     font-size: 14px;
     font-weight: 500;
@@ -1387,7 +1406,6 @@
     white-space: normal;
     overflow-wrap: break-word;
   }
-  .mcol-caps, .mcol-ctx, .mcol-mods { margin-top: 0; }
   .ctx-text {
     display: flex;
     flex-direction: column;
@@ -1409,12 +1427,9 @@
     gap: 4px;
     align-items: flex-start;
   }
-  .mods-flow .mods-icon { font-size: 22px; }
   .mods-flow .mods-arrow { font-size: 20px; opacity: 0.55; }
-  .mods-chip { padding: 3px; border-radius: 12px; }
   .mods-word { font-size: 12px; }
   .mods-empty { opacity: 0.5; }
-  .mcol-actions { display: flex; justify-content: flex-end; }
   @media (max-width: 860px) {
     .models-table { display: none; }
     .models-grid { display: grid; }
@@ -1481,9 +1496,6 @@
     font-size: 13px;
     color: var(--color-text);
     word-break: break-all;
-  }
-  .copy-btn .icon {
-    font-size: 15px;
   }
   .model-actions {
     display: flex;

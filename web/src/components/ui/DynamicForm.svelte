@@ -77,7 +77,7 @@
     {#if node.type === 'text'}
       <p class="form-text">{node.text}</p>
     {:else if node.type === 'banner'}
-      <div class="banner banner-{node.variant || 'info'}">{node.text}</div>
+      <div class="banner banner-{node.variant || 'info'}" use:squircle={12}>{node.text}</div>
     {:else if node.type === 'input'}
       <div class="form-group">
         {#if node.label}<label for="dyn-{node.name}">{node.label}{#if node.required} *{/if}</label>{/if}
@@ -181,8 +181,8 @@
     margin: 0;
   }
   .banner {
-    padding: 10px 12px;
-    border-radius: 8px;
+    padding: 12px 16px;
+    border-radius: 12px;
     font-size: 13px;
   }
   .banner-info {

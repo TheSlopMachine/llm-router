@@ -87,7 +87,7 @@
     align-items: stretch;
     align-self: flex-start;
     padding: 3px;
-    background: var(--color-surface-container-highest);
+    background: var(--elev);
     border: none;
     border-radius: calc(var(--ctl-radius) * 0.75 + 3px);
   }

@@ -19,6 +19,8 @@
   let {
     text = '',
     icon,
+    glyphClass = '',
+    title = '',
     tint,
     style = 'none',
     size = 'base',
@@ -31,6 +33,9 @@
   } = $props<{
     text?: string
     icon?: ButtonIcon
+    /** extra class on the glyph span (spin, status colors) */
+    glyphClass?: string
+    title?: string
     tint?: string
     style?: 'prominent' | 'none' | 'text' | 'icon'
     size?: 'sm' | 'base' | 'lg'
@@ -86,6 +91,7 @@
   {type}
   {disabled}
   aria-label={ariaLabel}
+  {title}
   {onclick}
   use:squircle={radius}
 >
@@ -93,14 +99,14 @@
     {#if icon?.src}
       <img class="btn-glyph" src={icon.src} alt="" />
     {:else}
-      <span class="icon">{icon?.name ?? 'add'}</span>
+      <span class="icon {glyphClass}">{icon?.name ?? 'add'}</span>
     {/if}
   {:else}
     {#if icon && (icon.placement ?? 'left') === 'left'}
       {#if icon.src}
         <img class="btn-glyph" src={icon.src} alt="" />
       {:else}
-        <span class="icon">{icon.name}</span>
+        <span class="icon {glyphClass}">{icon.name}</span>
       {/if}
     {/if}
     {#if children}{@render children()}{:else}{label}{/if}
@@ -108,7 +114,7 @@
       {#if icon.src}
         <img class="btn-glyph" src={icon.src} alt="" />
       {:else}
-        <span class="icon">{icon.name}</span>
+        <span class="icon {glyphClass}">{icon.name}</span>
       {/if}
     {/if}
   {/if}

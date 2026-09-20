@@ -46,12 +46,14 @@
     padding: var(--field-pad-v) var(--field-pad-h);
     border: 1px solid transparent;
     border-radius: var(--ctl-radius);
-    background: var(--color-surface-container-highest);
+    background: var(--elev);
   }
 
   /* glow follows the squircle silhouette; a ring cannot (clip-path) */
   .search-field:focus-within {
-    filter: drop-shadow(0 0 3px var(--color-accent));
+    background:
+      linear-gradient(var(--color-accent-soft), var(--color-accent-soft)),
+      var(--elev);
   }
 
   .search-field input {

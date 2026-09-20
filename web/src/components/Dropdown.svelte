@@ -240,6 +240,7 @@
       style={menuStyle}
       id={isActionMode ? undefined : 'dropdown-menu'}
       role={isActionMode ? 'menu' : 'listbox'}
+      use:squircle={12}
       in:fly={{ y: shouldFlipUp ? 8 : -8, duration: 200, easing: cubicOut, opacity: 0 }}
       out:fade={{ duration: 150, easing: cubicIn }}
     >
@@ -329,7 +330,7 @@
     font-weight: 400;
     border-radius: var(--ctl-radius);
     border: none;
-    background: var(--color-surface-container-highest);
+    background: var(--elev);
     color: var(--color-text);
     cursor: pointer;
     transition: background-color 0.15s ease;
@@ -391,9 +392,9 @@
     z-index: 2000;
     width: max-content;
     max-width: min(480px, calc(100vw - 16px));
-    background: var(--color-surface-container-high);
-    /* slightly brighter frame so the menu reads against the card behind it */
-    border: 1px solid var(--color-outline-light);
+    background: var(--elev);
+    /* borderless by squircle design: borders do not follow the clip */
+    border: none;
     border-radius: var(--radius-md);
     overflow: hidden;
   }
@@ -440,14 +441,14 @@
     overflow-wrap: anywhere;
   }
 
-  /* Half-intensity hover: the nav-hover fill diluted 50% toward transparent. */
+  /* Hovered/picked option sits one elevation level above the menu. */
   .dropdown-option:hover,
   .dropdown-option.highlighted {
-    background: color-mix(in srgb, var(--color-nav-hover) 50%, transparent);
+    background: var(--elev);
   }
 
   .dropdown-option.selected {
-    background: var(--color-nav-active);
+    background: var(--elev);
     font-weight: 500;
   }
 

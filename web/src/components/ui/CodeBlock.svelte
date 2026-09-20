@@ -62,7 +62,7 @@
     padding: 10px 12px;
     border: 1px solid var(--color-outline-light);
     border-radius: 8px;
-    background: var(--color-surface-container);
+    background: var(--elev);
   }
   .code-text {
     flex: 1;
