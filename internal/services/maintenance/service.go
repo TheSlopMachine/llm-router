@@ -220,7 +220,9 @@ func (s *Service) maintainProxyPool(ctx context.Context) {
 				s.proxySvc.SetSourceFailed(key, err)
 			}
 			s.logger.Warn("maintenance: proxy pool refresh failed", "source", key, "err", err)
+			continue
 		}
+		s.proxySvc.SetSourceDone(key, len(candidates))
 	}
 }
 

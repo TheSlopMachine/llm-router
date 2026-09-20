@@ -91,6 +91,8 @@
           {t('Fetching list…')}
         {:else if info.status === 'adding'}
           {t('Adding proxies…')}
+        {:else if info.status === 'rotating'}
+          {t('Checking proxies…')}
         {:else}
           {t('Idle')}
         {/if}

@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
@@ -91,6 +92,9 @@ type Service struct {
 	maxPerLocation int
 	rotationSem    chan struct{}
 	sourceStatus   map[string]*sourceState
+	// checking reports live probe work (rotation or candidate adds).
+	// It drives the dashboard busy signal; transitions own the details.
+	checking atomic.Bool
 }
 
 // sourceFetchMeta persists the last fetch outcome per source. Offset rotates
@@ -115,6 +119,7 @@ const (
 	SourceStatusIdle     = "idle"
 	SourceStatusFetching = "fetching"
 	SourceStatusAdding   = "adding"
+	SourceStatusRotating = "rotating"
 )
 
 // SourceInfo is the dashboard-facing snapshot of one source.
@@ -707,6 +712,10 @@ func (s *Service) updateRecord(ctx context.Context, p *models.Proxy, minSpeedKbp
 	_ = s.proxies.Put(p.ID, p)
 }
 
+// Checking reports whether probe work is running right now (a rotation or
+// candidate adds). Dashboard polling keys off it.
+func (s *Service) Checking() bool { return s.checking.Load() }
+
 // UpdateOne re-probes one pooled proxy by ID.
 func (s *Service) UpdateOne(ctx context.Context, id string) (*models.Proxy, error) {
 	p, err := s.proxies.Get(id)
@@ -732,6 +741,8 @@ func (s *Service) RotateAll(ctx context.Context) error {
 	default:
 		return ErrBusy
 	}
+	s.checking.Store(true)
+	defer s.checking.Store(false)
 	minSpeedKbps, maxPerLocation := s.settings()
 	all, err := s.proxies.List()
 	if err != nil {
@@ -820,7 +831,8 @@ func (s *Service) AddManual(rawURL, location string) (*models.Proxy, error) {
 // Candidates outside demand are skipped before probing; coverage proceeds
 // in chunks while shortfall persists, capped at one window per fetch, so a
 // full pool costs zero probes. A concurrent rotation is skipped with
-// ErrBusy, never queued.
+// ErrBusy, never queued. The caller owns the final source transition:
+// status stays at adding on return.
 func (s *Service) AddCandidates(ctx context.Context, sourceKey string, candidates []models.ProxyCandidate) error {
 	select {
 	case s.rotationSem <- struct{}{}:
@@ -828,6 +840,8 @@ func (s *Service) AddCandidates(ctx context.Context, sourceKey string, candidate
 	default:
 		return ErrBusy
 	}
+	s.checking.Store(true)
+	defer s.checking.Store(false)
 	source := ListSource(sourceKey)
 	demand := s.demandSet()
 	filtered := make([]models.ProxyCandidate, 0, len(candidates))
@@ -838,7 +852,6 @@ func (s *Service) AddCandidates(ctx context.Context, sourceKey string, candidate
 	}
 	s.setSourceStatus(source, SourceStatusAdding, len(filtered), "")
 	s.coverFiltered(ctx, source, filtered)
-	s.setSourceStatus(source, SourceStatusIdle, len(filtered), "")
 	return nil
 }
 
@@ -995,6 +1008,11 @@ func (s *Service) setSourceStatus(source, status string, total int, lastError st
 	if status != SourceStatusIdle {
 		st.lastFetchAt = util.Now()
 	}
+}
+
+// SetSourceRotating marks a source pool check in progress for the dashboard.
+func (s *Service) SetSourceRotating(sourceKey string) {
+	s.setSourceStatus(ListSource(sourceKey), SourceStatusRotating, 0, "")
 }
 
 // SetSourceDone returns a source to idle without an error, keeping the

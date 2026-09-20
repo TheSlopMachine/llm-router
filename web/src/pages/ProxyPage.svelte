@@ -19,12 +19,14 @@
 
   let manualProxies = $derived(proxies.filter((p) => p.source === 'manual'))
   let sourcesActive = $derived(sources.some((s) => s.status !== 'idle'))
+  let poolChecking = $derived(status?.checking ?? false)
+  let poolBusy = $derived(sourcesActive || poolChecking)
 
   onMount(() => {
     loadAll()
-    // While a source worker is busy, poll so the table shows live progress.
+    // While probe work runs, poll so the table shows live progress.
     const poll = setInterval(() => {
-      if (sourcesActive) {
+      if (poolBusy) {
         reloadSources()
       }
     }, 2000)
@@ -240,6 +242,8 @@
                 {t('Fetching list…')}
               {:else if s.status === 'adding'}
                 {t('Adding proxies…')}
+              {:else if s.status === 'rotating'}
+                {t('Checking proxies…')}
               {:else if s.last_error}
                 <span class="status-error" title={s.last_error}>{t('Failed')}</span>
               {:else}
@@ -252,7 +256,7 @@
                  from the action cell. -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <span class="scol-actions" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
-              <button class="btn-text" onclick={() => refreshSource(s)} disabled={s.status !== 'idle'}>
+              <button class="btn-text" onclick={() => refreshSource(s)} disabled={s.status !== 'idle' || poolChecking}>
                 {t('Refresh')}
               </button>
             </span>

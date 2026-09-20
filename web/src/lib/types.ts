@@ -79,11 +79,12 @@ export interface Proxy {
 export interface ProxyStatus {
   total: number
   searching: boolean
+  checking: boolean
 }
 
 export interface ProxySourceInfo {
   key: string
-  status: 'idle' | 'fetching' | 'adding'
+  status: 'idle' | 'fetching' | 'adding' | 'rotating'
   total: number
   pooled: number
   last_fetch_at?: string

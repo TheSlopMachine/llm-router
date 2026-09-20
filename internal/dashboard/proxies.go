@@ -137,6 +137,7 @@ func (h *Handler) apiProxySourceRefresh(w http.ResponseWriter, r *http.Request) 
 			h.proxySvc.SetSourceFailed(key, err)
 			return
 		}
+		h.proxySvc.SetSourceRotating(key)
 		if err := h.proxySvc.RotateAll(ctx); err != nil {
 			// Adds already landed; a failed rotation must not masquerade
 			// as a failed fetch.
@@ -144,6 +145,7 @@ func (h *Handler) apiProxySourceRefresh(w http.ResponseWriter, r *http.Request) 
 			h.proxySvc.SetSourceDone(key, len(candidates))
 			return
 		}
+		h.proxySvc.SetSourceDone(key, len(candidates))
 	}()
 	h.json(w, http.StatusAccepted, map[string]any{"started": true})
 }
@@ -177,9 +179,9 @@ func (h *Handler) apiProxySourceProxies(w http.ResponseWriter, r *http.Request) 
 
 // apiProxyStatus reports pool stats
 // @Summary      Proxy status
-// @Description  total counts every proxy the pool holds; searching reports whether the next scheduled fetch will run.
+// @Description  total counts every proxy the pool holds; searching reports whether the next scheduled fetch will run; checking reports live probe work.
 // @Produce      json
-// @Success      200 {object} object{total=int,searching=bool}
+// @Success      200 {object} object{total=int,searching=bool,checking=bool}
 // @Failure      401 {object} models.ErrorResponse
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/proxy/status [get]
@@ -192,5 +194,6 @@ func (h *Handler) apiProxyStatus(w http.ResponseWriter, r *http.Request) {
 	h.json(w, http.StatusOK, map[string]any{
 		"total":     total,
 		"searching": h.proxySvc.NeedsSearch(),
+		"checking":  h.proxySvc.Checking(),
 	})
 }
