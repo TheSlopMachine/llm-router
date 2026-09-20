@@ -457,11 +457,13 @@
     }
   }
 
-  // Probe endpoint by what the model serves. Chat models with image input
-  // get the vision probe (covers chat plus image in one go).
+  // Probe endpoint by what the model serves. Empty endpoints means
+  // chat-only (legacy): plain chat probe, never vision — modality claims
+  // alone must not route special models into the wrong probe.
   function probeEndpoint(m: ProviderModel): string {
     const eps = m.endpoints ?? []
-    if (eps.length === 0 || eps.includes('chat/completions')) {
+    if (eps.length === 0) return 'chat'
+    if (eps.includes('chat/completions')) {
       if ((m.input_modalities ?? []).includes('image')) return 'vision'
       return 'chat'
     }
