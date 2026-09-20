@@ -70,6 +70,15 @@ var DefaultRegions = []string{"US", "DE", "NL", "GB", "FR", "CA"}
 // pass runs is skipped, never queued.
 var ErrBusy = errors.New("proxypool: rotation already in progress")
 
+// ErrNoProxies reports a settled pool with no usable pick: nothing is
+// running that could add one, so waiting longer is pointless.
+var ErrNoProxies = errors.New("proxypool: no usable proxy")
+
+// recheckInterval bounds staleness while waiting for a proxy (pair limit
+// expiry, scheduled fetch). Waiting never gives up on its own; the request
+// context still aborts it.
+const recheckInterval = 5 * time.Second
+
 var supportedProtocols = map[string]bool{"http": true, "https": true, "socks4": true, "socks5": true}
 
 // Service manages the proxy pool.
@@ -95,6 +104,10 @@ type Service struct {
 	// checking reports live probe work (rotation or candidate adds).
 	// It drives the dashboard busy signal; transitions own the details.
 	checking atomic.Bool
+	// bcastCh wakes RankWait waiters on every pool change. It is closed
+	// and replaced under bcastMu; waiters hold the channel, never the lock.
+	bcastMu sync.Mutex
+	bcastCh chan struct{}
 }
 
 // sourceFetchMeta persists the last fetch outcome per source. Offset rotates
@@ -148,6 +161,7 @@ func New(database *db.DB) *Service {
 		maxPerLocation: models.DefaultMaxProxiesPerLocation,
 		rotationSem:    make(chan struct{}, 1),
 		sourceStatus:   map[string]*sourceState{},
+		bcastCh:        make(chan struct{}),
 	}
 }
 
@@ -277,6 +291,31 @@ func (s *Service) Rank(whitelist []string, mode string, ids []string, provider s
 	}
 }
 
+// RankWait is Rank for auto mode with waiting: empty picks while probe
+// work runs or a fetch is still due block until a pick appears, the pool
+// settles empty (ErrNoProxies), or the context aborts. Providers wait for
+// ready or no-proxies instead of silently going direct.
+func (s *Service) RankWait(ctx context.Context, whitelist []string, ids []string, provider string) ([]Pick, error) {
+	for {
+		picks, err := s.Rank(whitelist, models.ProxyModeAuto, ids, provider)
+		if err != nil {
+			return nil, err
+		}
+		if len(picks) > 0 {
+			return picks, nil
+		}
+		if !s.Checking() && !s.NeedsSearch() {
+			return nil, ErrNoProxies
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-s.changed():
+		case <-time.After(recheckInterval):
+		}
+	}
+}
+
 // Choose returns the fastest usable proxy, or ("", "", nil) for direct.
 func (s *Service) Choose(whitelist []string, mode string, ids []string, provider string) (string, string, error) {
 	picks, err := s.Rank(whitelist, mode, ids, provider)
@@ -391,6 +430,7 @@ func (s *Service) RecordRateLimit(proxyID, provider string, resetsAt time.Time) 
 	}
 	lim.ResetsAt = &resetsAt
 	_ = s.limits.Put(id, lim)
+	s.notify()
 }
 
 // RecordBlocked blocks a proxy for a provider after a geo-block answer.
@@ -407,6 +447,7 @@ func (s *Service) RecordBlocked(proxyID, provider, reason string) {
 	lim.Blocked = true
 	lim.BlockReason = reason
 	_ = s.limits.Put(id, lim)
+	s.notify()
 }
 
 // ─────────────────────────────────────────────
@@ -432,6 +473,7 @@ func (s *Service) Delete(id string) error {
 	for _, lim := range limits {
 		_ = s.limits.Delete(limitID(lim.ProxyID, lim.Provider))
 	}
+	s.notify()
 	return nil
 }
 
@@ -716,6 +758,20 @@ func (s *Service) updateRecord(ctx context.Context, p *models.Proxy, minSpeedKbp
 // candidate adds). Dashboard polling keys off it.
 func (s *Service) Checking() bool { return s.checking.Load() }
 
+// notify wakes RankWait waiters: the pool changed, re-evaluate.
+func (s *Service) notify() {
+	s.bcastMu.Lock()
+	defer s.bcastMu.Unlock()
+	close(s.bcastCh)
+	s.bcastCh = make(chan struct{})
+}
+
+func (s *Service) changed() <-chan struct{} {
+	s.bcastMu.Lock()
+	defer s.bcastMu.Unlock()
+	return s.bcastCh
+}
+
 // UpdateOne re-probes one pooled proxy by ID.
 func (s *Service) UpdateOne(ctx context.Context, id string) (*models.Proxy, error) {
 	p, err := s.proxies.Get(id)
@@ -743,6 +799,7 @@ func (s *Service) RotateAll(ctx context.Context) error {
 	}
 	s.checking.Store(true)
 	defer s.checking.Store(false)
+	defer s.notify()
 	minSpeedKbps, maxPerLocation := s.settings()
 	all, err := s.proxies.List()
 	if err != nil {
@@ -842,6 +899,7 @@ func (s *Service) AddCandidates(ctx context.Context, sourceKey string, candidate
 	}
 	s.checking.Store(true)
 	defer s.checking.Store(false)
+	defer s.notify()
 	source := ListSource(sourceKey)
 	demand := s.demandSet()
 	filtered := make([]models.ProxyCandidate, 0, len(candidates))
@@ -991,6 +1049,7 @@ func (s *Service) add(ctx context.Context, rawURL, location, source string) (*mo
 	if err := s.proxies.Put(p.ID, p); err != nil {
 		return nil, err
 	}
+	s.notify()
 	return p, nil
 }
 

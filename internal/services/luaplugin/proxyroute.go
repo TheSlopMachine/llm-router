@@ -1,20 +1,23 @@
 package luaplugin
 
+import "context"
+
 // Proxy rotation helpers. Every plugin HTTP request starts with a fresh
 // ordered pick list, then walks it while attempts fail. Rotation never
 // falls back to direct: an empty list means the resolver asked for direct,
 // and an exhausted list surfaces the last error.
 
 // beginRequest resolves the ordered picks for one HTTP request and selects
-// the first. A resolver error fails the request loudly.
-func (ctx *execContext) beginRequest() error {
+// the first. Auto mode waits for ready or no-proxies instead of silently
+// going direct. A resolver error fails the request loudly.
+func (ctx *execContext) beginRequest(goCtx context.Context) error {
 	ctx.proxyPicks = nil
 	ctx.proxyIdx = 0
 	ctx.proxyID, ctx.proxyURL = "", ""
 	if ctx.proxyResolver == nil {
 		return nil
 	}
-	picks, err := ctx.proxyResolver(ctx.proxyRec, ctx.proxyProviderConfig)
+	picks, err := ctx.proxyResolver(goCtx, ctx.proxyRec, ctx.proxyProviderConfig)
 	if err != nil {
 		return err
 	}

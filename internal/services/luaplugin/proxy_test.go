@@ -1,6 +1,7 @@
 package luaplugin
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -63,7 +64,7 @@ func TestComplete_RoutesThroughProxy(t *testing.T) {
 	proxyURL := markerProxy(t, "via-proxy-marker")
 
 	var resolved int
-	svc.SetProxyResolver(func(rec *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+	svc.SetProxyResolver(func(_ context.Context, rec *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
 		resolved++
 		return []ProxyPick{{ID: "px-test", URL: proxyURL}}, nil
 	})
@@ -92,7 +93,7 @@ func TestComplete_RotatesToNextProxyOnFailure(t *testing.T) {
 	deadURL := "http://127.0.0.1:1"
 
 	// Dead first, live second: one ordered list, failover walks it.
-	svc.SetProxyResolver(func(_ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+	svc.SetProxyResolver(func(_ context.Context, _ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
 		return []ProxyPick{{ID: "px-dead", URL: deadURL}, {ID: "px-live", URL: liveURL}}, nil
 	})
 
@@ -115,7 +116,7 @@ func TestComplete_ProxyExhaustedSurfacesError(t *testing.T) {
 
 	// The only pooled proxy refuses connections: the error must surface,
 	// never a silent direct attempt.
-	svc.SetProxyResolver(func(_ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+	svc.SetProxyResolver(func(_ context.Context, _ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
 		return []ProxyPick{{ID: "px-dead", URL: "http://127.0.0.1:1"}}, nil
 	})
 
@@ -171,7 +172,7 @@ func TestComplete_RateLimitReportsPairEvent(t *testing.T) {
 		t.Fatalf("install: %v", err)
 	}
 	proxyURL := markerProxy(t, "x")
-	svc.SetProxyResolver(func(_ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+	svc.SetProxyResolver(func(_ context.Context, _ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
 		return []ProxyPick{{ID: "px-1", URL: proxyURL}}, nil
 	})
 	var events []ProxyEvent
@@ -201,7 +202,7 @@ func TestComplete_GeoReportsPairBlock(t *testing.T) {
 		t.Fatalf("install: %v", err)
 	}
 	proxyURL := markerProxy(t, "ok-region")
-	svc.SetProxyResolver(func(_ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+	svc.SetProxyResolver(func(_ context.Context, _ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
 		return []ProxyPick{{ID: "px-1", URL: proxyURL}}, nil
 	})
 	var events []ProxyEvent
@@ -237,7 +238,7 @@ func TestComplete_RateLimitDefaultResetsInMinute(t *testing.T) {
 		t.Fatalf("install: %v", err)
 	}
 	proxyURL := markerProxy(t, "x")
-	svc.SetProxyResolver(func(_ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+	svc.SetProxyResolver(func(_ context.Context, _ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
 		return []ProxyPick{{ID: "px-1", URL: proxyURL}}, nil
 	})
 	var events []ProxyEvent
@@ -264,7 +265,7 @@ func TestDoWithProxyRotation_BadTransportNeverGoesDirect(t *testing.T) {
 	// Unbuildable proxy URL: rotation has nothing to advance to, so the
 	// build error surfaces. No network access happens either way.
 	ctx := &execContext{
-		proxyResolver: func(_ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+		proxyResolver: func(_ context.Context, _ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
 			return []ProxyPick{{ID: "px-bogus", URL: "bogus-scheme://example.com:8080"}}, nil
 		},
 	}
@@ -278,12 +279,12 @@ func TestDoWithProxyRotation_BadTransportNeverGoesDirect(t *testing.T) {
 func TestExecContext_RotationBounds(t *testing.T) {
 	calls := 0
 	ctx := &execContext{
-		proxyResolver: func(_ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+		proxyResolver: func(_ context.Context, _ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
 			calls++
 			return []ProxyPick{{ID: "px-1", URL: "http://10.9.9.9:8080"}}, nil
 		},
 	}
-	if err := ctx.beginRequest(); err != nil {
+	if err := ctx.beginRequest(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if ctx.proxyURL == "" {
@@ -295,5 +296,21 @@ func TestExecContext_RotationBounds(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("expected 1 resolution, got %d", calls)
+	}
+}
+
+func TestBeginRequest_ResolverErrorIsLoud(t *testing.T) {
+	// No picks and no direct fallback: a settled empty pool surfaces
+	// the resolver error instead of silently going direct.
+	ctx := &execContext{
+		proxyResolver: func(context.Context, *PluginRecord, map[string]any) ([]ProxyPick, error) {
+			return nil, errors.New("proxypool: no usable proxy")
+		},
+	}
+	if err := ctx.beginRequest(context.Background()); err == nil {
+		t.Fatal("expected loud resolver error, got nil")
+	}
+	if len(ctx.proxyPicks) != 0 || ctx.proxyURL != "" {
+		t.Fatal("failed resolution must leave the route empty")
 	}
 }

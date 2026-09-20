@@ -98,13 +98,21 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	// Proxy subsystem: pool, plugin proxy resolution, pair outcome reports.
 	proxySvc := proxypool.New(database)
 	proxySvc.SetConfig(routerCfg.MinDownloadSpeedKbps, routerCfg.MaxProxiesPerLocation)
-	luaSvc.SetProxyResolver(func(rec *luaplugin.PluginRecord, providerConfig map[string]any) ([]luaplugin.ProxyPick, error) {
+	luaSvc.SetProxyResolver(func(goCtx context.Context, rec *luaplugin.PluginRecord, providerConfig map[string]any) ([]luaplugin.ProxyPick, error) {
 		mode, ids := proxyMode(providerConfig)
 		typeKey := ""
 		if len(rec.TypeKeys) > 0 {
 			typeKey = rec.TypeKeys[0]
 		}
-		picks, err := proxySvc.Rank(rec.ProxyLocations, mode, ids, typeKey)
+		var picks []proxypool.Pick
+		var err error
+		if mode == models.ProxyModeAuto {
+			// Auto waits for ready or no-proxies instead of silently
+			// going direct.
+			picks, err = proxySvc.RankWait(goCtx, rec.ProxyLocations, ids, typeKey)
+		} else {
+			picks, err = proxySvc.Rank(rec.ProxyLocations, mode, ids, typeKey)
+		}
 		if err != nil {
 			return nil, err
 		}
