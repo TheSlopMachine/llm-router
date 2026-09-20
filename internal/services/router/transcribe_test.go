@@ -157,3 +157,13 @@ func TestRouterService_Transcribe_PassesPoolToBackend(t *testing.T) {
 		t.Fatalf("text: got %q", resp.Text)
 	}
 }
+
+func TestRouterService_TestTranscribe_Probe(t *testing.T) {
+	svc, credSvc, _, _ := setupTranscribeRouter(t)
+	addTranscribeCred(t, credSvc, "Cred 1")
+
+	res := svc.TestTranscribe(context.Background(), "mock/whisper-large-v3")
+	if !res.OK {
+		t.Fatalf("transcribe probe failed: %v", res.Error)
+	}
+}

@@ -447,6 +447,12 @@ func mergeModelViews(infos []models.ModelInfo, ovs []*models.ModelOverride) []Mo
 			if len(ov.Capabilities) > 0 {
 				v.Capabilities = ov.Capabilities
 			}
+			if len(ov.InputModalities) > 0 {
+				v.InputModalities = ov.InputModalities
+			}
+			if len(ov.OutputModalities) > 0 {
+				v.OutputModalities = ov.OutputModalities
+			}
 			delete(byName, mi.Name)
 		}
 		out = append(out, v)

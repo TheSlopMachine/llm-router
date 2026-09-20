@@ -336,3 +336,33 @@ func TestRouterService_Embed_PassesPoolToBackend(t *testing.T) {
 		t.Fatalf("expected backend response, got %+v", resp.Data[0])
 	}
 }
+
+func TestRouterService_TestSpeech_Probe(t *testing.T) {
+	svc, credSvc, _, _ := setupSpeechRouter(t)
+	addTranscribeCred(t, credSvc, "Cred 1")
+
+	res := svc.TestSpeech(context.Background(), "mock/gemini-tts")
+	if !res.OK {
+		t.Fatalf("speech probe failed: %v", res.Error)
+	}
+}
+
+func TestRouterService_TestImageGeneration_Probe(t *testing.T) {
+	svc, credSvc, _, _ := setupSpeechRouter(t)
+	addTranscribeCred(t, credSvc, "Cred 1")
+
+	res := svc.TestImageGeneration(context.Background(), "mock/imagen-3")
+	if !res.OK {
+		t.Fatalf("image probe failed: %v", res.Error)
+	}
+}
+
+func TestRouterService_TestEmbeddings_Probe(t *testing.T) {
+	svc, credSvc, _, _ := setupEmbedRouter(t)
+	addTranscribeCred(t, credSvc, "Cred 1")
+
+	res := svc.TestEmbeddings(context.Background(), "mock/gemini-embedding-001")
+	if !res.OK {
+		t.Fatalf("embeddings probe failed: %v", res.Error)
+	}
+}

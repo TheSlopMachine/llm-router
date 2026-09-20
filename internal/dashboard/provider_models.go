@@ -6,6 +6,7 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
+	"github.com/TheSlopMachine/llm-router/internal/services/router"
 )
 
 // apiProviderModels returns the provider's models merged with admin overrides
@@ -45,7 +46,7 @@ func (h *Handler) apiProviderModels(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Param        id path string true "Provider ID"
 // @Param        model path string true "Model name"
-// @Param        body body object{disabled=bool,custom=bool,display_name=string,capabilities=[]string} true "Override"
+// @Param        body body object{disabled=bool,custom=bool,display_name=string,capabilities=[]string,input_modalities=[]string,output_modalities=[]string} true "Override"
 // @Success      200 {object} models.ModelOverride
 // @Failure      400 {object} models.ErrorResponse
 // @Failure      401 {object} models.ErrorResponse
@@ -59,10 +60,12 @@ func (h *Handler) apiProviderModelSetOverride(w http.ResponseWriter, r *http.Req
 		return
 	}
 	var body struct {
-		Disabled     *bool    `json:"disabled"`
-		Custom       *bool    `json:"custom"`
-		DisplayName  *string  `json:"display_name"`
-		Capabilities []string `json:"capabilities"`
+		Disabled         *bool    `json:"disabled"`
+		Custom           *bool    `json:"custom"`
+		DisplayName      *string  `json:"display_name"`
+		Capabilities     []string `json:"capabilities"`
+		InputModalities  []string `json:"input_modalities"`
+		OutputModalities []string `json:"output_modalities"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
@@ -93,6 +96,12 @@ func (h *Handler) apiProviderModelSetOverride(w http.ResponseWriter, r *http.Req
 	}
 	if body.Capabilities != nil {
 		ov.Capabilities = body.Capabilities
+	}
+	if body.InputModalities != nil {
+		ov.InputModalities = body.InputModalities
+	}
+	if body.OutputModalities != nil {
+		ov.OutputModalities = body.OutputModalities
 	}
 	if err := h.modelInfoSvc.SetOverride(ov); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
@@ -193,11 +202,11 @@ func (h *Handler) apiModelCapabilities(w http.ResponseWriter, r *http.Request) {
 
 // apiModelTest probes a model through the normal routing path
 // @Summary      Test model
-// @Description  Runs a minimal completion for a full ModelId and reports success and latency.
+// @Description  Runs a minimal probe for a full ModelId and reports success and latency. Endpoint selects the probe: chat (default), vision, speech, transcription, image, embeddings.
 // @Tags         Models
 // @Accept       json
 // @Produce      json
-// @Param        body body object{model_id=string} true "Full model id (provider/model)"
+// @Param        body body object{model_id=string,endpoint=string} true "Full model id (provider/model) plus probe endpoint"
 // @Success      200 {object} object{ok=bool,latency_ms=int,error=string,response=string}
 // @Failure      400 {object} models.ErrorResponse
 // @Failure      401 {object} models.ErrorResponse
@@ -205,7 +214,8 @@ func (h *Handler) apiModelCapabilities(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/llm-router/dashboard/models/test [post]
 func (h *Handler) apiModelTest(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ModelID string `json:"model_id"`
+		ModelID  string `json:"model_id"`
+		Endpoint string `json:"endpoint"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
@@ -215,6 +225,27 @@ func (h *Handler) apiModelTest(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "model_id is required")
 		return
 	}
-	res := h.routerSvc.TestModel(r.Context(), models.ModelId(body.ModelID))
+	modelID := models.ModelId(body.ModelID)
+	var res router.TestResult
+	switch body.Endpoint {
+	case "", "chat":
+		res = h.routerSvc.TestModel(r.Context(), modelID)
+	case "vision":
+		res = h.routerSvc.TestVision(r.Context(), modelID)
+	case "speech":
+		res = h.routerSvc.TestSpeech(r.Context(), modelID)
+	case "transcription":
+		res = h.routerSvc.TestTranscribe(r.Context(), modelID)
+	case "image":
+		res = h.routerSvc.TestImageGeneration(r.Context(), modelID)
+	case "embeddings":
+		res = h.routerSvc.TestEmbeddings(r.Context(), modelID)
+	default:
+		h.jsonErr(w, http.StatusBadRequest, "unknown probe endpoint")
+		return
+	}
+	if !res.OK {
+		h.logger.Warn("model probe failed", "model", body.ModelID, "endpoint", body.Endpoint, "err", res.Error)
+	}
 	h.json(w, http.StatusOK, res)
 }

@@ -26,10 +26,11 @@ func New(database *db.DB) *Service {
 // SetOnChanged registers a callback invoked after a successful Put.
 func (s *Service) SetOnChanged(fn func(models.RouterConfiguration)) { s.onChanged = fn }
 
-// Get returns the stored RouterConfiguration, or defaults when not yet persisted.
+// Get returns the stored RouterConfiguration. Fields that were never
+// persisted (old rows predate them) fall back to defaults: zero is never a
+// valid value for the ranged fields, so normalizing it is safe.
 func (s *Service) Get() (models.RouterConfiguration, error) {
 	var cfg models.RouterConfiguration
-	found := false
 	err := s.database.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(db.BucketRouterConfiguration)
 		if b == nil {
@@ -39,15 +40,18 @@ func (s *Service) Get() (models.RouterConfiguration, error) {
 		if v == nil {
 			return nil
 		}
-		found = true
 		return json.Unmarshal(v, &cfg)
 	})
 	if err != nil {
 		return models.RouterConfiguration{}, err
 	}
-	if !found {
+	if cfg.MinDownloadSpeedKbps <= 0 {
 		cfg.MinDownloadSpeedKbps = models.DefaultMinDownloadSpeedKbps
+	}
+	if cfg.MaxProxiesPerLocation <= 0 {
 		cfg.MaxProxiesPerLocation = models.DefaultMaxProxiesPerLocation
+	}
+	if cfg.UpdateIntervalMinutes <= 0 {
 		cfg.UpdateIntervalMinutes = models.DefaultUpdateIntervalMinutes
 	}
 	return cfg, nil

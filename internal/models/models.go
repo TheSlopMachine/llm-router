@@ -760,6 +760,10 @@ type ModelOverride struct {
 	Custom       bool     `json:"custom,omitempty"`
 	DisplayName  string   `json:"display_name,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"`
+	// InputModalities and OutputModalities hold probe-verified modalities,
+	// keyed by full model id. Applied over upstream data when non-empty.
+	InputModalities  []string `json:"input_modalities,omitempty"`
+	OutputModalities []string `json:"output_modalities,omitempty"`
 }
 
 // ─────────────────────────────────────────────

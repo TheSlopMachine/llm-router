@@ -229,6 +229,21 @@ func TestRouterService_Complete_BackendErrorSurfacesWithoutRepeat(t *testing.T) 
 	}
 }
 
+func TestRouterService_TestVision_Success(t *testing.T) {
+	svc, credSvc, _, _ := setupRouterService(t)
+
+	credSvc.Add(credential.AddOptions{
+		ProviderID: "mock",
+		Label:      "Cred 1",
+		Data:       map[string]any{"api_key": "key1"},
+	})
+
+	res := svc.TestVision(context.Background(), "mock/test-model")
+	if !res.OK {
+		t.Fatalf("vision probe failed: %v", res.Error)
+	}
+}
+
 func TestRouterService_TestModel_BypassesManualDisable(t *testing.T) {
 	svc, credSvc, modelInfoSvc, _ := setupRouterService(t)
 
@@ -288,5 +303,30 @@ func TestRouterService_Complete_AuthErrorSingleAttempt(t *testing.T) {
 
 	if *mock.callCount != 1 {
 		t.Errorf("expected 1 call, got %d", *mock.callCount)
+	}
+}
+
+func TestRouterService_TestModel_MarksQuotaExceeded(t *testing.T) {
+	svc, credSvc, _, mock := setupRouterService(t)
+
+	credSvc.Add(credential.AddOptions{
+		ProviderID: "mock",
+		Label:      "Cred 1",
+		Data:       map[string]any{"api_key": "key1"},
+	})
+	mock.completeFunc = func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+		return nil, &models.ProviderError{
+			StatusCode: 429,
+			Message:    "quota exhausted",
+			Type:       models.ErrorTypeQuotaExceeded,
+		}
+	}
+
+	res := svc.TestModel(context.Background(), "mock/test-model")
+	if res.OK {
+		t.Fatal("expected failed probe, got ok")
+	}
+	if !res.QuotaExceeded {
+		t.Error("quota failure must set quota_exceeded so callers never disable over it")
 	}
 }
