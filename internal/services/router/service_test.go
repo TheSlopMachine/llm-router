@@ -2,11 +2,14 @@ package router
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"testing"
 	"time"
+
+	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
@@ -59,7 +62,7 @@ func (m *mockAdapter) GetModelInfos(ctx context.Context, cred *models.Credential
 	return []models.ModelInfo{{Name: "mock-model", DisplayName: "Mock", ContextWindow: 4096}}, nil
 }
 
-func setupRouterService(t *testing.T) (*Service, *credential.Service, *mockAdapter) {
+func setupRouterService(t *testing.T) (*Service, *credential.Service, *modelinfo.Service, *mockAdapter) {
 	t.Helper()
 	database := testutil.SetupTestDB(t)
 
@@ -74,7 +77,7 @@ func setupRouterService(t *testing.T) (*Service, *credential.Service, *mockAdapt
 
 	routerSvc := New(providerSvc, credSvc, modelInfoSvc, slog.Default())
 
-	return routerSvc, credSvc, mock
+	return routerSvc, credSvc, modelInfoSvc, mock
 }
 
 // ─────────────────────────────────────────────
@@ -82,7 +85,7 @@ func setupRouterService(t *testing.T) (*Service, *credential.Service, *mockAdapt
 // ─────────────────────────────────────────────
 
 func TestRouterService_Complete_Success(t *testing.T) {
-	svc, credSvc, _ := setupRouterService(t)
+	svc, credSvc, _, _ := setupRouterService(t)
 
 	credSvc.Add(credential.AddOptions{
 		ProviderID: "mock",
@@ -106,7 +109,7 @@ func TestRouterService_Complete_Success(t *testing.T) {
 }
 
 func TestRouterService_Complete_InvalidModelId(t *testing.T) {
-	svc, _, _ := setupRouterService(t)
+	svc, _, _, _ := setupRouterService(t)
 
 	req := &models.ChatCompletionRequest{
 		Model:    "invalid-model-id",
@@ -120,7 +123,7 @@ func TestRouterService_Complete_InvalidModelId(t *testing.T) {
 }
 
 func TestRouterService_Complete_ProviderNotFound(t *testing.T) {
-	svc, _, _ := setupRouterService(t)
+	svc, _, _, _ := setupRouterService(t)
 
 	req := &models.ChatCompletionRequest{
 		Model:    "nonexistent/test-model",
@@ -134,7 +137,7 @@ func TestRouterService_Complete_ProviderNotFound(t *testing.T) {
 }
 
 func TestRouterService_Complete_NoCredentials(t *testing.T) {
-	svc, _, _ := setupRouterService(t)
+	svc, _, _, _ := setupRouterService(t)
 
 	req := &models.ChatCompletionRequest{
 		Model:    "mock/test-model",
@@ -153,7 +156,7 @@ func TestRouterService_Complete_NoCredentials(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestRouterService_Complete_PassesFullPoolInSingleCall(t *testing.T) {
-	svc, credSvc, mock := setupRouterService(t)
+	svc, credSvc, _, mock := setupRouterService(t)
 
 	credSvc.Add(credential.AddOptions{
 		ProviderID: "mock",
@@ -188,7 +191,7 @@ func TestRouterService_Complete_PassesFullPoolInSingleCall(t *testing.T) {
 }
 
 func TestRouterService_Complete_BackendErrorSurfacesWithoutRepeat(t *testing.T) {
-	svc, credSvc, mock := setupRouterService(t)
+	svc, credSvc, _, mock := setupRouterService(t)
 
 	credSvc.Add(credential.AddOptions{
 		ProviderID: "mock",
@@ -226,8 +229,38 @@ func TestRouterService_Complete_BackendErrorSurfacesWithoutRepeat(t *testing.T) 
 	}
 }
 
+func TestRouterService_TestModel_BypassesManualDisable(t *testing.T) {
+	svc, credSvc, modelInfoSvc, _ := setupRouterService(t)
+
+	credSvc.Add(credential.AddOptions{
+		ProviderID: "mock",
+		Label:      "Cred 1",
+		Data:       map[string]any{"api_key": "key1"},
+	})
+	if err := modelInfoSvc.SetOverride(models.ModelOverride{
+		ProviderID: "mock",
+		Name:       "test-model",
+		Disabled:   true,
+	}); err != nil {
+		t.Fatalf("disable model: %v", err)
+	}
+
+	req := &models.ChatCompletionRequest{
+		Model:    "mock/test-model",
+		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
+	}
+	if _, err := svc.Complete(context.Background(), req, nil); !errors.Is(err, apierrors.ErrModelDisabled) {
+		t.Fatalf("expected ErrModelDisabled from routing, got %v", err)
+	}
+
+	res := svc.TestModel(context.Background(), "mock/test-model")
+	if !res.OK {
+		t.Fatalf("probe of disabled model must go through, got %v", res.Error)
+	}
+}
+
 func TestRouterService_Complete_AuthErrorSingleAttempt(t *testing.T) {
-	svc, credSvc, mock := setupRouterService(t)
+	svc, credSvc, _, mock := setupRouterService(t)
 
 	credSvc.Add(credential.AddOptions{
 		ProviderID: "mock",

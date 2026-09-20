@@ -84,7 +84,7 @@ func TestRouterService_Transcribe_Success(t *testing.T) {
 }
 
 func TestRouterService_Transcribe_UnsupportedAdapter(t *testing.T) {
-	svc, credSvc, _ := setupRouterService(t)
+	svc, credSvc, _, _ := setupRouterService(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 
 	_, err := svc.Transcribe(context.Background(), transcribeReq("mock/test-model"), nil)

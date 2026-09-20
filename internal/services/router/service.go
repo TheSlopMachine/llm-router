@@ -116,6 +116,17 @@ func (s *Service) Complete(
 	req *models.ChatCompletionRequest,
 	token *models.RouterToken,
 ) (*models.ChatCompletionResponse, error) {
+	return s.complete(ctx, req, token, false)
+}
+
+// complete is Complete with an explicit admin-override bypass for probes:
+// TestModel passes true so manually disabled models stay testable.
+func (s *Service) complete(
+	ctx context.Context,
+	req *models.ChatCompletionRequest,
+	token *models.RouterToken,
+	allowDisabled bool,
+) (*models.ChatCompletionResponse, error) {
 	providerID, modelName, err := req.Model.Parse()
 	if err != nil {
 		return nil, fmt.Errorf("invalid model id: %w", err)
@@ -132,7 +143,7 @@ func (s *Service) Complete(
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
 		return s.completeOne(ctx, resolved, nil, req)
 	}
-	if !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
+	if !allowDisabled && !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
 		return nil, fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
 	}
 	if err := s.checkEndpoint(providerID, modelName, models.EndpointChatCompletions); err != nil {
@@ -484,10 +495,11 @@ func (s *Service) TestCredential(ctx context.Context, providerID, credentialID s
 }
 
 // TestModel runs a probe through the normal routing path (credential pool
-// included), as an internal unrestricted call.
+// included), as an internal unrestricted call. Manually disabled models stay
+// testable: the admin override gates routing, not probing.
 func (s *Service) TestModel(ctx context.Context, modelID models.ModelId) TestResult {
 	start := time.Now()
-	resp, err := s.Complete(ctx, probeRequest(modelID), nil)
+	resp, err := s.complete(ctx, probeRequest(modelID), nil, true)
 	res := TestResult{OK: err == nil, Latency: time.Since(start).Milliseconds()}
 	if err != nil {
 		res.Error = err.Error()

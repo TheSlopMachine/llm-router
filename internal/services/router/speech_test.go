@@ -83,7 +83,7 @@ func TestRouterService_Speech_Success(t *testing.T) {
 }
 
 func TestRouterService_Speech_UnsupportedAdapter(t *testing.T) {
-	svc, credSvc, _ := setupRouterService(t)
+	svc, credSvc, _, _ := setupRouterService(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 
 	_, err := svc.Speech(context.Background(), speechReq("mock/test-model"), nil)
@@ -166,7 +166,7 @@ func TestRouterService_GenerateImage_Success(t *testing.T) {
 }
 
 func TestRouterService_GenerateImage_UnsupportedAdapter(t *testing.T) {
-	svc, credSvc, _ := setupRouterService(t)
+	svc, credSvc, _, _ := setupRouterService(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 
 	_, err := svc.GenerateImage(context.Background(), imageReq("mock/test-model"), nil)
@@ -266,7 +266,7 @@ func TestRouterService_Embed_Success(t *testing.T) {
 }
 
 func TestRouterService_Embed_UnsupportedAdapter(t *testing.T) {
-	svc, credSvc, _ := setupRouterService(t)
+	svc, credSvc, _, _ := setupRouterService(t)
 	addTranscribeCred(t, credSvc, "Cred 1")
 
 	_, err := svc.Embed(context.Background(), embedReq("mock/test-model"), nil)
