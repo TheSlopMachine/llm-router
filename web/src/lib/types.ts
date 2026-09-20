@@ -58,6 +58,13 @@ export interface ProviderModel {
   custom: boolean
 }
 
+export interface ProviderVMGroup {
+  endpoint: string
+  label: string
+  models: string[]
+  virtual?: { id: string; name: string } | null
+}
+
 export interface TestResult {
   ok: boolean
   latency_ms: number

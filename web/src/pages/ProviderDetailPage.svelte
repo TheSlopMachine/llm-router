@@ -3,7 +3,7 @@
   import { modal } from '../lib/modal.svelte'
   import { getErrorMessage } from '../lib/errors'
   import { toast } from '../lib/toast.svelte'
-  import type { Provider, Credential, ProviderModel, TestResult, Proxy } from '../lib/types'
+  import type { Provider, Credential, ProviderModel, ProviderVMGroup, TestResult, Proxy } from '../lib/types'
   import CredentialWizard from '../components/CredentialWizard.svelte'
   import CredentialEditModal from '../components/CredentialEditModal.svelte'
   import CustomProviderWizard from '../components/wizards/CustomProviderWizard.svelte'
@@ -138,6 +138,7 @@
         initProxyConfig()
         // Models load independently: the page renders while the section spins.
         void reloadModels()
+        void loadVmGroups()
         poolManual = (await api.proxies.list()).filter((p) => p.source === 'manual')
       }
     } catch (e) {
@@ -207,6 +208,30 @@
       error = getErrorMessage(e)
     }
   }
+  // Managed virtual models: one fall-through VM per served endpoint.
+  // Members refresh on import; the backend syncs them, this page renders.
+  let vmGroups = $state<ProviderVMGroup[]>([])
+  let vmSyncing = $state(false)
+
+  async function loadVmGroups(): Promise<void> {
+    try {
+      vmGroups = await api.providers.virtualModels(providerId)
+    } catch {
+      vmGroups = []
+    }
+  }
+
+  async function syncVmGroups(): Promise<void> {
+    vmSyncing = true
+    try {
+      vmGroups = await api.providers.syncVirtualModels(providerId)
+    } catch (e) {
+      error = getErrorMessage(e)
+    } finally {
+      vmSyncing = false
+    }
+  }
+
   // Operational settings only: seeded providers reject any other config
   // keys, so never spread the whole provider.config into an update.
   function operationalConfig(): Record<string, unknown> {
@@ -292,6 +317,7 @@
     try {
       await api.models.refresh(providerId)
       await reloadModels()
+      await loadVmGroups()
     } catch (e) {
       modelsError = getErrorMessage(e)
     }
@@ -922,6 +948,41 @@
 
   <section class="section">
     <div class="section-header">
+      <h2>{t('Virtual models')}</h2>
+      <button class="btn btn-secondary" onclick={syncVmGroups} disabled={vmSyncing} use:squircle={12}>
+        <span class="icon">{vmSyncing ? 'progress_activity' : 'sync'}</span>
+        {vmSyncing ? t('Syncing…') : t('Sync')}
+      </button>
+    </div>
+    <p class="form-hint">{t('One managed fall-through model per served endpoint. Members follow enabled models and refresh on import.')}</p>
+    {#if vmGroups.length === 0}
+      <div class="empty-state">{t('No endpoint groups on this provider yet.')}</div>
+    {:else}
+      <div class="table" use:squircle={18}>
+        <div class="table-row table-head">
+          <span class="mcol-id">{t('Endpoint')}</span>
+          <span class="mcol-ctx">{t('Models')}</span>
+          <span class="mcol-caps">{t('Virtual model')}</span>
+        </div>
+        {#each vmGroups as g (g.endpoint)}
+          <div class="table-row model-row vm-row">
+            <span class="mcol-id">{t(g.label)}</span>
+            <span class="mcol-ctx model-meta">{g.models.length}</span>
+            <span class="mcol-caps model-meta">
+              {#if g.virtual}
+                <a class="vm-link" href={`#/virtual/${g.virtual.id}`}>{g.virtual.name}</a>
+              {:else}
+                <span class="mods-empty">—</span>
+              {/if}
+            </span>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </section>
+
+  <section class="section">
+    <div class="section-header">
       <h2>{t('Add custom model')}</h2>
     </div>
     <div class="custom-model-form">
@@ -1275,6 +1336,9 @@
   .models-grid { display: none; }
   .model-row {
     grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.6fr) minmax(0, 0.8fr) minmax(0, 1.2fr) 124px;
+  }
+  .vm-row {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.6fr) minmax(0, 2fr);
   }
   .mcol-id {
     min-width: 0;

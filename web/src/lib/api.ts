@@ -1,5 +1,5 @@
 import { apiCall as _apiCall } from './api-client'
-import type { Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate, ProviderModel, TestResult, Proxy, ProxyStatus, ProxySourceInfo, ProxySourceProxies } from './types'
+import type { Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate, ProviderModel, ProviderVMGroup, TestResult, Proxy, ProxyStatus, ProxySourceInfo, ProxySourceProxies } from './types'
 
 const apiCall = _apiCall
 
@@ -97,6 +97,18 @@ export const api = {
     adapterTypes: async (): Promise<string[]> => {
       const raw = (await apiCall('get', '/api/llm-router/dashboard/adapter-types')) as unknown as Array<{ type_key: string; creatable: boolean }>
       return raw.filter((t) => t.creatable).map((t) => t.type_key)
+    },
+
+    virtualModels: async (id: string): Promise<ProviderVMGroup[]> => {
+      const res = await fetch(`/api/llm-router/dashboard/providers/${id}/virtual-models`)
+      const raw = (await assertOk(res)) as unknown
+      return Array.isArray(raw) ? (raw as ProviderVMGroup[]) : []
+    },
+
+    syncVirtualModels: async (id: string): Promise<ProviderVMGroup[]> => {
+      const res = await fetch(`/api/llm-router/dashboard/providers/${id}/virtual-models/sync`, { method: 'POST' })
+      const raw = (await assertOk(res)) as unknown
+      return Array.isArray(raw) ? (raw as ProviderVMGroup[]) : []
     },
 
     stats: async (): Promise<Record<string, ProviderStats>> => {
