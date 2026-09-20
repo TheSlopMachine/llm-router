@@ -224,7 +224,9 @@
   }
 
   async function reloadModels(): Promise<void> {
-    modelsLoading = true
+    // First load spins; later reloads patch in place so the page
+    // does not flash and scroll does not jump.
+    if (models.length === 0) modelsLoading = true
     modelsError = ''
     try {
       models = await api.models.forProvider(providerId)
@@ -424,6 +426,10 @@
       toast.success(`${m.name} works · ${res.latency_ms}ms`)
     } else {
       toast.error(`${m.name} failed: ${res.error}`)
+      if (disableFailedModels) {
+        await api.models.setOverride(providerId, m.name, { disabled: true })
+        await reloadModels()
+      }
     }
     flashTimer('model:' + m.name, () => {
       const next = { ...modelTestResults }

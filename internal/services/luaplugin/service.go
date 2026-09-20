@@ -1,6 +1,7 @@
 package luaplugin
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"path"
@@ -95,8 +96,8 @@ type Service struct {
 	usage UsageTracker
 
 	// proxyResolver returns the ordered proxy picks for a plugin call
-	// (nil/empty = direct).
-	proxyResolver func(rec *PluginRecord, providerConfig map[string]any) ([]ProxyPick, error)
+	// (nil/empty = direct). Auto mode waits for ready or no-proxies.
+	proxyResolver func(ctx context.Context, rec *PluginRecord, providerConfig map[string]any) ([]ProxyPick, error)
 	// proxyEventReporter receives rate-limit and block outcomes for
 	// proxy-provider pairs.
 	proxyEventReporter func(ev ProxyEvent)
@@ -126,8 +127,8 @@ type ProxyResolution struct {
 
 // SetProxyResolver wires pool-based proxy selection for plugin HTTP calls.
 // Resolution is lazy per request; a non-nil error fails the request loudly
-// (manual mode with no usable proxy pooled).
-func (s *Service) SetProxyResolver(fn func(rec *PluginRecord, providerConfig map[string]any) ([]ProxyPick, error)) {
+// (manual mode with no usable proxy pooled, settled pool with none).
+func (s *Service) SetProxyResolver(fn func(ctx context.Context, rec *PluginRecord, providerConfig map[string]any) ([]ProxyPick, error)) {
 	s.proxyResolver = fn
 }
 

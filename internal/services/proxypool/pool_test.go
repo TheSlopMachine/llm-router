@@ -3,6 +3,7 @@ package proxypool
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -585,5 +586,68 @@ func TestAddCandidates_WindowAndDemandFilter(t *testing.T) {
 	}
 	if len(pooled) != 0 {
 		t.Fatalf("dead candidates must not pool, got %d", len(pooled))
+	}
+}
+
+func TestRankWaitReadyImmediately(t *testing.T) {
+	svc := setupPool(t)
+	seedProxy(t, svc, "http://127.0.0.1:8080", "US", 5, 20000, ManualSource)
+	picks, err := svc.RankWait(context.Background(), nil, nil, "groq")
+	if err != nil || len(picks) != 1 {
+		t.Fatalf("got picks=%v err=%v", picks, err)
+	}
+}
+
+func TestRankWaitWaitsForNotify(t *testing.T) {
+	svc := setupPool(t)
+	done := make(chan []Pick, 1)
+	go func() {
+		picks, err := svc.RankWait(context.Background(), nil, nil, "groq")
+		if err != nil {
+			done <- nil
+			return
+		}
+		done <- picks
+	}()
+	select {
+	case <-done:
+		t.Fatal("RankWait must block on an empty pool with unmet demand")
+	case <-time.After(100 * time.Millisecond):
+	}
+	seedProxy(t, svc, "http://127.0.0.1:8081", "US", 5, 20000, ManualSource)
+	svc.notify()
+	select {
+	case picks := <-done:
+		if len(picks) != 1 {
+			t.Fatalf("got picks=%v", picks)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("RankWait did not wake on pool change")
+	}
+}
+
+func TestRankWaitNoProxiesWhenSettled(t *testing.T) {
+	svc := setupPool(t)
+	svc.SetConfig(15000, 1)
+	for i, region := range DefaultRegions {
+		p := seedProxy(t, svc, "http://127.0.0.1:91"+string(rune('0'+i)), region, 5, 20000, ManualSource)
+		svc.RecordRateLimit(p.ID, "groq", time.Now().Add(time.Hour))
+	}
+	if svc.NeedsSearch() {
+		t.Fatal("demand must read as satisfied for the no-proxies case")
+	}
+	_, err := svc.RankWait(context.Background(), nil, nil, "groq")
+	if !errors.Is(err, ErrNoProxies) {
+		t.Fatalf("expected ErrNoProxies, got %v", err)
+	}
+}
+
+func TestRankWaitContextCancel(t *testing.T) {
+	svc := setupPool(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := svc.RankWait(ctx, nil, nil, "groq")
+	if err == nil {
+		t.Fatal("expected context error, got nil")
 	}
 }

@@ -226,7 +226,7 @@ func (c *pluginHTTPClient) proxyClient() (*http.Client, error) {
 // pick. Direct requests and an exhausted pick list surface the last error.
 // Proxy-to-direct fallback never happens.
 func (c *pluginHTTPClient) doWithProxyRotation(req *http.Request) (*http.Response, string, time.Time, error) {
-	if err := c.ctx.beginRequest(); err != nil {
+	if err := c.ctx.beginRequest(req.Context()); err != nil {
 		return nil, "", time.Time{}, err
 	}
 	for {

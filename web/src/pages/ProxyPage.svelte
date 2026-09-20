@@ -142,7 +142,7 @@
     <h1>{t('Proxies')}</h1>
     <p>
       {#if status}
-        {n(status.total, 'total', 'total', 'всего', 'всего', 'всего')}{status.searching ? ` · ${t('searching')}` : ''}
+        {n(status.total, 'total', 'total', 'всего', 'всего', 'всего')}{status.searching ? ` · ${t('searching')}` : ''}{status.checking ? ` · ${t('Checking proxies…')}` : ''}
       {:else}
         {t('Outbound proxy pool.')}
       {/if}

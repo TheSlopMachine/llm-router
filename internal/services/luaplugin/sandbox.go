@@ -1,6 +1,7 @@
 package luaplugin
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"log/slog"
@@ -25,7 +26,7 @@ type execContext struct {
 	// Proxy routing: the resolver returns the ordered picks for one
 	// request; the HTTP layer walks them while attempts fail.
 	// proxyURL == "" means the current request goes direct.
-	proxyResolver       func(rec *PluginRecord, providerConfig map[string]any) ([]ProxyPick, error)
+	proxyResolver       func(ctx context.Context, rec *PluginRecord, providerConfig map[string]any) ([]ProxyPick, error)
 	proxyRec            *PluginRecord
 	proxyProviderConfig map[string]any
 	proxyPicks          []ProxyPick
