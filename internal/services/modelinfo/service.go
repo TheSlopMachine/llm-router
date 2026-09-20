@@ -77,7 +77,7 @@ func (s *Service) PeekModelInfos(providerID string) []models.ModelInfo {
 	entry, ok := s.cache[providerID]
 	s.mu.RUnlock()
 	if ok {
-		return entry.models
+		return stripModalityCaps(entry.models)
 	}
 	rec, err := s.records.Get(providerID)
 	if err != nil || rec == nil {
@@ -91,6 +91,31 @@ func (s *Service) PeekModelInfos(providerID string) []models.ModelInfo {
 	}
 	s.mu.Unlock()
 	return rec.Models
+}
+
+// modalityCaps are capability chips duplicated by the modalities column.
+var modalityCaps = map[string]bool{"vision": true, "audio": true}
+
+// stripModalityCaps drops modality-duplicate chips. Capabilities render in
+// their own column; modalities render separately. Copies: cached slices
+// stay untouched.
+func stripModalityCaps(infos []models.ModelInfo) []models.ModelInfo {
+	out := make([]models.ModelInfo, 0, len(infos))
+	for _, mi := range infos {
+		if len(mi.Capabilities) == 0 {
+			out = append(out, mi)
+			continue
+		}
+		kept := make([]string, 0, len(mi.Capabilities))
+		for _, c := range mi.Capabilities {
+			if !modalityCaps[c] {
+				kept = append(kept, c)
+			}
+		}
+		mi.Capabilities = kept
+		out = append(out, mi)
+	}
+	return out
 }
 
 // WarmMissing creates model caches for providers that have none. Runs in the
@@ -133,7 +158,7 @@ func (s *Service) GetModelInfos(ctx context.Context, providerID string) ([]model
 	s.mu.RLock()
 	if entry, exists := s.cache[providerID]; exists && util.Now().Before(entry.expiresAt) {
 		s.mu.RUnlock()
-		return entry.models, nil
+		return stripModalityCaps(entry.models), nil
 	}
 	s.mu.RUnlock()
 
@@ -146,7 +171,7 @@ func (s *Service) GetModelInfos(ctx context.Context, providerID string) ([]model
 		s.mu.RLock()
 		defer s.mu.RUnlock()
 		if entry, exists := s.cache[providerID]; exists {
-			return entry.models, nil
+			return stripModalityCaps(entry.models), nil
 		}
 		return nil, fmt.Errorf("fetch failed for provider %s", providerID)
 	}
@@ -446,7 +471,7 @@ func mergeModelViews(infos []models.ModelInfo, ovs []*models.ModelOverride) []Mo
 }
 
 func (s *Service) store(providerID string, fresh []models.ModelInfo) []models.ModelInfo {
-	modelInfos := s.mergeRetained(providerID, fresh)
+	modelInfos := stripModalityCaps(s.mergeRetained(providerID, fresh))
 	for i := range modelInfos {
 		modelInfos[i].DeriveCapabilities()
 	}

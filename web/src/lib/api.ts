@@ -258,6 +258,8 @@ export const api = {
         max_tokens: r.max_tokens as number | undefined,
         capabilities: (r.capabilities as string[] | undefined) ?? [],
         reasoning: r.reasoning as ProviderModel['reasoning'],
+        input_modalities: r.input_modalities as string[] | undefined,
+        output_modalities: r.output_modalities as string[] | undefined,
         disabled: (r.disabled as boolean) ?? false,
         custom: (r.custom as boolean) ?? false,
       }))

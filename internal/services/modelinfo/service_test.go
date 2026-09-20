@@ -175,6 +175,36 @@ func TestModelInfoService_StoreMergesNewKeepsExisting(t *testing.T) {
 	}
 }
 
+func TestModelInfoService_ModalityCapsStripped(t *testing.T) {
+	svc, credSvc, providerSvc, _ := setupModelInfoService(t)
+	addModelInfoCredential(t, credSvc, "modelinfo-test")
+	adapterFor(t, providerSvc, "modelinfo-test").infos = []models.ModelInfo{
+		{Name: "m", Capabilities: []string{"tools", "vision", "audio"}},
+	}
+	if _, err := svc.Refresh(context.Background(), "modelinfo-test"); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	for _, got := range svc.PeekModelInfos("modelinfo-test") {
+		for _, c := range got.Capabilities {
+			if c == "vision" || c == "audio" {
+				t.Fatalf("modality chip must not render: %+v", got.Capabilities)
+			}
+		}
+	}
+	if got, err := svc.GetModelInfos(context.Background(), "modelinfo-test"); err != nil {
+		t.Fatalf("get: %v", err)
+	} else {
+		for _, c := range got[0].Capabilities {
+			if c == "vision" || c == "audio" {
+				t.Fatalf("modality chip must not render: %+v", got[0].Capabilities)
+			}
+		}
+		if len(got[0].Capabilities) != 1 || got[0].Capabilities[0] != "tools" {
+			t.Fatalf("tools must survive: %+v", got[0].Capabilities)
+		}
+	}
+}
+
 func TestModelInfoService_InvalidateProviderClearsMemoryCache(t *testing.T) {
 	svc, credSvc, providerSvc, _ := setupModelInfoService(t)
 	addModelInfoCredential(t, credSvc, "modelinfo-test")

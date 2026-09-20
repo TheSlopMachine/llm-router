@@ -51,6 +51,8 @@ export interface ProviderModel {
   max_tokens?: number
   capabilities: string[]
   reasoning?: ModelReasoning
+  input_modalities?: string[]
+  output_modalities?: string[]
   disabled: boolean
   custom: boolean
 }

@@ -421,8 +421,9 @@ type ModelInfo struct {
 	ContextWindow int64  `json:"context_window,omitempty"`
 	MaxTokens     int64  `json:"max_tokens,omitempty"`
 
-	// Capabilities are UI-facing feature chips (tools, vision, ...).
+	// Capabilities are UI-facing feature chips (tools, json_mode, ...).
 	// Derived from the fields below when the plugin does not set them.
+	// Modalities stay out: they render in their own column.
 	Capabilities []string `json:"capabilities,omitempty"`
 
 	InputModalities     []string        `json:"input_modalities,omitempty"`
@@ -745,12 +746,6 @@ func (m *ModelInfo) DeriveCapabilities() {
 	}
 	if m.Reasoning != nil {
 		caps = append(caps, "reasoning")
-	}
-	if has(m.InputModalities, "image") {
-		caps = append(caps, "vision")
-	}
-	if has(m.InputModalities, "audio") {
-		caps = append(caps, "audio")
 	}
 	m.Capabilities = caps
 }

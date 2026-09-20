@@ -166,6 +166,36 @@
     autoSyncModels = provider?.config?.models_auto_sync === true
   }
 
+  // Modality chip colors. Voice family shares teal; unknowns stay neutral.
+  function modalityColor(mod: string): string {
+    switch (mod) {
+      case 'text': return 'chip-green'
+      case 'image': return 'chip-purple'
+      case 'audio':
+      case 'speech':
+      case 'transcription': return 'chip-teal'
+      case 'video': return 'chip-orange'
+      case 'file': return 'chip-yellow'
+      case 'embedding': return 'chip-neutral'
+      default: return 'chip-neutral'
+    }
+  }
+  // Modality glyphs for the modalities column. Unknown modalities fall
+  // back to the raw word so new upstream values stay visible.
+  function modalityIcon(mod: string): string {
+    switch (mod) {
+      case 'text': return 'title'
+      case 'image': return 'image'
+      case 'audio': return 'graphic_eq'
+      case 'file': return 'attach_file'
+      case 'video': return 'videocam'
+      case 'embedding': return 'scatter_plot'
+      case 'speech': return 'record_voice_over'
+      case 'transcription': return 'hearing'
+      default: return ''
+    }
+  }
+
   // The visibility filter lives in instance settings so every browser
   // shares the last position. Fire-and-forget: the list filters locally.
   async function saveModelsFilter(v: typeof modelFilter): Promise<void> {
@@ -884,6 +914,30 @@
   </span>
 {/snippet}
 
+{#snippet modelMods(m: ProviderModel)}
+  {@const inMods = m.input_modalities ?? []}
+  {@const outMods = m.output_modalities ?? []}
+  {#if inMods.length === 0 && outMods.length === 0}
+    <span class="mods-empty">—</span>
+  {:else}
+    <span class="mods-flow">
+      <span class="mods-group">
+        {#each inMods as mod}
+          {@const icon = modalityIcon(mod)}
+          {#if icon}<span class="chip chip-sm mods-chip {modalityColor(mod)}" title={mod} use:squircle={12}><span class="icon mods-icon">{icon}</span></span>{:else}<span class="mods-word" title={mod}>{mod}</span>{/if}
+        {/each}
+      </span>
+      <span class="icon mods-arrow" aria-hidden="true">arrow_forward</span>
+      <span class="mods-group">
+        {#each outMods as mod}
+          {@const icon = modalityIcon(mod)}
+          {#if icon}<span class="chip chip-sm mods-chip {modalityColor(mod)}" title={mod} use:squircle={12}><span class="icon mods-icon">{icon}</span></span>{:else}<span class="mods-word" title={mod}>{mod}</span>{/if}
+        {/each}
+      </span>
+    </span>
+  {/if}
+{/snippet}
+
 {#snippet modelCaps(m: ProviderModel)}
   {#if m.custom}
     <span class="chip chip-teal" title={t('Added manually, not listed by the provider')}>{t('custom')}</span>
@@ -931,6 +985,7 @@
     <div class="table-row model-row table-head">
       <span class="mcol-id">{t('Model')}</span>
       <span class="mcol-ctx">{t('Context')}</span>
+      <span class="mcol-mods">{t('Modalities')}</span>
       <span class="mcol-caps">{t('Capabilities')}</span>
       <span class="mcol-actions">{t('Actions')}</span>
     </div>
@@ -946,6 +1001,7 @@
           </span>
         </span>
         <span class="mcol-ctx model-meta">{@render modelContext(m)}</span>
+        <span class="mcol-mods model-meta">{@render modelMods(m)}</span>
         <span class="mcol-caps model-meta">{@render modelCaps(m)}</span>
         <span class="mcol-actions">{@render modelActions(m)}</span>
       </div>
@@ -979,7 +1035,7 @@
             </button>
           </div>
         </div>
-        <div class="model-meta">{@render modelCtxLine(m)}{@render modelCaps(m)}</div>
+        <div class="model-meta">{@render modelCtxLine(m)}{@render modelMods(m)}{@render modelCaps(m)}</div>
       </div>
     {/each}
   </div>
@@ -1055,9 +1111,11 @@
   .table-head {
     cursor: default;
   }
-  .table-head .col-actions,
-  .table-head .mcol-actions {
+  .table-head .col-actions {
     justify-content: flex-start;
+  }
+  .table-head .mcol-actions {
+    justify-content: flex-end;
   }
   .row-disabled {
     opacity: 0.55;
@@ -1149,7 +1207,7 @@
   /* Desktop: models as a table; mobile: cards */
   .models-grid { display: none; }
   .model-row {
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.7fr) minmax(0, 1.4fr) 124px;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.6fr) minmax(0, 0.8fr) minmax(0, 1.2fr) 124px;
   }
   .mcol-id {
     min-width: 0;
@@ -1166,7 +1224,7 @@
     white-space: normal;
     overflow-wrap: break-word;
   }
-  .mcol-caps, .mcol-ctx { margin-top: 0; }
+  .mcol-caps, .mcol-ctx, .mcol-mods { margin-top: 0; }
   .ctx-text {
     display: flex;
     flex-direction: column;
@@ -1175,6 +1233,24 @@
     color: var(--color-text-soft);
     white-space: nowrap;
   }
+  .mods-flow {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--color-text-soft);
+    white-space: nowrap;
+  }
+  .mods-group {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: flex-start;
+  }
+  .mods-flow .mods-icon { font-size: 22px; }
+  .mods-flow .mods-arrow { font-size: 20px; opacity: 0.55; }
+  .mods-chip { padding: 3px; border-radius: 12px; }
+  .mods-word { font-size: 12px; }
+  .mods-empty { opacity: 0.5; }
   .mcol-actions { display: flex; justify-content: flex-end; }
   @media (max-width: 860px) {
     .models-table { display: none; }

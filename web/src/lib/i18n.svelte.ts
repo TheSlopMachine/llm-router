@@ -225,6 +225,7 @@ const ru: Record<string, string> = {
   'More actions': 'Ещё действия',
   'now': 'сейчас',
   'Model visibility filter': 'Фильтр видимости моделей',
+  'Modalities': 'Модальности',
   'Model-specific instructions': 'Инструкции для этой модели',
   'Models': 'Модели',
   'Move down': 'Переместить вниз',
