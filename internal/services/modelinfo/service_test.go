@@ -147,6 +147,34 @@ func TestModelInfoService_RefreshKeepsStaleOnFailure(t *testing.T) {
 	}
 }
 
+func TestModelInfoService_StoreMergesNewKeepsExisting(t *testing.T) {
+	svc, credSvc, providerSvc, _ := setupModelInfoService(t)
+	addModelInfoCredential(t, credSvc, "modelinfo-test")
+	adapter := adapterFor(t, providerSvc, "modelinfo-test")
+
+	adapter.infos = []models.ModelInfo{{Name: "old-model", DisplayName: "Old", ContextWindow: 100}}
+	if _, err := svc.Refresh(context.Background(), "modelinfo-test"); err != nil {
+		t.Fatalf("first refresh: %v", err)
+	}
+	adapter.infos = []models.ModelInfo{
+		{Name: "old-model", DisplayName: "Changed", ContextWindow: 999},
+		{Name: "new-model", DisplayName: "New", ContextWindow: 50},
+	}
+	if _, err := svc.Refresh(context.Background(), "modelinfo-test"); err != nil {
+		t.Fatalf("second refresh: %v", err)
+	}
+	got := svc.PeekModelInfos("modelinfo-test")
+	if len(got) != 2 {
+		t.Fatalf("merged list: got %+v", got)
+	}
+	if got[0].Name != "old-model" || got[0].ContextWindow != 100 {
+		t.Errorf("existing record must be kept as-is, got %+v", got[0])
+	}
+	if got[1].Name != "new-model" || got[1].ContextWindow != 50 {
+		t.Errorf("new model must be appended, got %+v", got[1])
+	}
+}
+
 func TestModelInfoService_InvalidateProviderClearsMemoryCache(t *testing.T) {
 	svc, credSvc, providerSvc, _ := setupModelInfoService(t)
 	addModelInfoCredential(t, credSvc, "modelinfo-test")

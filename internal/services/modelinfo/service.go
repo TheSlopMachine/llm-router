@@ -284,6 +284,32 @@ func (s *Service) Refresh(ctx context.Context, providerID string) ([]models.Mode
 	return s.fetchAndCache(ctx, providerID)
 }
 
+// mergeRetained keeps existing cached records by name and appends names
+// the fresh fetch introduces. Records are keyed by full model id
+// (provider + name): the same name on another provider is a separate
+// record verified separately. Known models keep their stored metadata:
+// providers add models, they don't rewrite them. Manual and custom models
+// live in the overrides bucket and never pass through here.
+func (s *Service) mergeRetained(providerID string, fresh []models.ModelInfo) []models.ModelInfo {
+	existing := s.PeekModelInfos(providerID)
+	if len(existing) == 0 {
+		return fresh
+	}
+	seen := make(map[string]bool, len(existing))
+	merged := make([]models.ModelInfo, 0, len(existing)+len(fresh))
+	merged = append(merged, existing...)
+	for _, mi := range existing {
+		seen[mi.Name] = true
+	}
+	for _, mi := range fresh {
+		if !seen[mi.Name] {
+			merged = append(merged, mi)
+			seen[mi.Name] = true
+		}
+	}
+	return merged
+}
+
 // InvalidateProvider clears cache for a specific provider
 func (s *Service) InvalidateProvider(providerID string) error {
 	s.mu.Lock()
@@ -419,7 +445,8 @@ func mergeModelViews(infos []models.ModelInfo, ovs []*models.ModelOverride) []Mo
 	return out
 }
 
-func (s *Service) store(providerID string, modelInfos []models.ModelInfo) []models.ModelInfo {
+func (s *Service) store(providerID string, fresh []models.ModelInfo) []models.ModelInfo {
+	modelInfos := s.mergeRetained(providerID, fresh)
 	for i := range modelInfos {
 		modelInfos[i].DeriveCapabilities()
 	}
