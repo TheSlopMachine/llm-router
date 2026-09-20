@@ -277,6 +277,13 @@ func safeGetModelInfos(
 	return adapter.GetModelInfos(ctx, cred, providerConfig)
 }
 
+// Refresh forces an upstream fetch and stores it. The previous cache is
+// kept when the fetch fails: until a new list arrives the old one counts
+// as current.
+func (s *Service) Refresh(ctx context.Context, providerID string) ([]models.ModelInfo, error) {
+	return s.fetchAndCache(ctx, providerID)
+}
+
 // InvalidateProvider clears cache for a specific provider
 func (s *Service) InvalidateProvider(providerID string) error {
 	s.mu.Lock()

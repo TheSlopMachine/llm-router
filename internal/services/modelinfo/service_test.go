@@ -23,6 +23,7 @@ type modelInfoTestAdapter struct {
 	callCount  int
 	infos      []models.ModelInfo
 	panicOnNil bool
+	failErr    error
 }
 
 func (a *modelInfoTestAdapter) TypeKey() string { return a.typeKey }
@@ -44,6 +45,9 @@ func (a *modelInfoTestAdapter) RefreshCredential(ctx context.Context, cred *mode
 }
 func (a *modelInfoTestAdapter) GetModelInfos(ctx context.Context, cred *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {
 	a.callCount++
+	if a.failErr != nil {
+		return nil, a.failErr
+	}
 	if a.panicOnNil && cred == nil {
 		panic("nil credential")
 	}
@@ -122,6 +126,24 @@ func TestModelInfoService_CacheHitUsesMemoryOnly(t *testing.T) {
 	}
 	if len(second) != 1 || second[0].Name != "live-model" {
 		t.Fatalf("unexpected second result: %+v", second)
+	}
+}
+
+func TestModelInfoService_RefreshKeepsStaleOnFailure(t *testing.T) {
+	svc, credSvc, providerSvc, _ := setupModelInfoService(t)
+	addModelInfoCredential(t, credSvc, "modelinfo-test")
+
+	if _, err := svc.GetModelInfos(context.Background(), "modelinfo-test"); err != nil {
+		t.Fatalf("warm cache: %v", err)
+	}
+	adapterFor(t, providerSvc, "modelinfo-test").failErr = fmt.Errorf("upstream down")
+
+	if _, err := svc.Refresh(context.Background(), "modelinfo-test"); err == nil {
+		t.Fatal("expected refresh error, got nil")
+	}
+	got := svc.PeekModelInfos("modelinfo-test")
+	if len(got) != 1 || got[0].Name != "live-model" {
+		t.Fatalf("stale list must survive failed refresh, got %+v", got)
 	}
 }
 

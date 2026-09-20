@@ -125,9 +125,11 @@ func (h *Handler) apiProviderModelDeleteOverride(w http.ResponseWriter, r *http.
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// apiProviderModelsRefresh bypasses the model metadata cache
+// apiProviderModelsRefresh fetches the provider model list again. The
+// previous list stays live until a new one arrives: a failed fetch keeps
+// serving the stale list instead of wiping it.
 // @Summary      Refresh provider models
-// @Description  Invalidates the cached model list and fetches it from the provider again.
+// @Description  Fetches the model list from the provider again; the previous list stays until a new one arrives.
 // @Tags         Providers
 // @Produce      json
 // @Param        id path string true "Provider ID"
@@ -143,7 +145,9 @@ func (h *Handler) apiProviderModelsRefresh(w http.ResponseWriter, r *http.Reques
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	_ = h.modelInfoSvc.InvalidateProvider(providerID)
+	if _, err := h.modelInfoSvc.Refresh(r.Context(), providerID); err != nil {
+		h.logger.Warn("model refresh failed, serving stale list", "provider_id", providerID, "err", err)
+	}
 	views, err := h.modelInfoSvc.MergedView(r.Context(), providerID)
 	if err != nil {
 		h.jsonErr(w, http.StatusBadGateway, err.Error())
