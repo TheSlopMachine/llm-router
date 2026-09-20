@@ -1314,6 +1314,9 @@ type ErrorResponse struct {
 type RouterConfiguration struct {
 	IsClusterNode    bool `json:"is_cluster_node"`
 	DisableTelemetry bool `json:"disable_telemetry"`
+	// ModelsFilter remembers the dashboard model visibility filter
+	// ("all", "enabled", "disabled"). Empty means "all".
+	ModelsFilter string `json:"models_filter,omitempty"`
 	// MinDownloadSpeedKbps floors the pooled proxy download speed. Slower
 	// proxies are displaced once their location holds more than
 	// MaxProxiesPerLocation.
@@ -1334,6 +1337,11 @@ const (
 
 // Validate checks the configuration ranges.
 func (c RouterConfiguration) Validate() error {
+	switch c.ModelsFilter {
+	case "", "all", "enabled", "disabled":
+	default:
+		return fmt.Errorf("models_filter must be one of all, enabled, disabled")
+	}
 	if c.MinDownloadSpeedKbps <= 0 {
 		return fmt.Errorf("min_download_speed_kbps must be positive")
 	}

@@ -126,6 +126,14 @@
       const [providers, creds] = await Promise.all([api.providers.list(), api.credentials.list()])
       provider = (providers as Provider[]).find((p) => p.id === providerId) ?? null
       credentials = sortCredentials((creds as Credential[]).filter((c) => c.provider_id === providerId))
+      try {
+        const cfg = await api.config.get()
+        if (cfg.models_filter === 'enabled' || cfg.models_filter === 'disabled') {
+          modelFilter = cfg.models_filter
+        }
+      } catch {
+        // Instance filter is best-effort; the local default stands.
+      }
       if (provider) {
         initProxyConfig()
         // Models load independently: the page renders while the section spins.
@@ -158,6 +166,17 @@
     autoSyncModels = provider?.config?.models_auto_sync === true
   }
 
+  // The visibility filter lives in instance settings so every browser
+  // shares the last position. Fire-and-forget: the list filters locally.
+  async function saveModelsFilter(v: typeof modelFilter): Promise<void> {
+    modelFilter = v
+    try {
+      const cfg = await api.config.get()
+      await api.config.update({ ...cfg, models_filter: v })
+    } catch (e) {
+      error = getErrorMessage(e)
+    }
+  }
   // Operational settings only: seeded providers reject any other config
   // keys, so never spread the whole provider.config into an update.
   function operationalConfig(): Record<string, unknown> {
@@ -761,6 +780,7 @@
             { value: 'disabled', label: t('Disabled') },
           ]}
           ariaLabel={t('Model visibility filter')}
+          onchange={(v) => void saveModelsFilter(v as typeof modelFilter)}
         />
       {/if}
     </div>

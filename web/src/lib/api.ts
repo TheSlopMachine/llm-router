@@ -389,17 +389,18 @@ export const api = {
   // Router configuration (instance-wide, RouterConfiguration bucket)
   // Proxy pool fields pass through untouched: no UI controls edit them yet.
   config: {
-    get: async (): Promise<{ is_cluster_node: boolean; disable_telemetry: boolean; min_download_speed_kbps: number; max_proxies_per_location: number; update_interval_minutes: number }> => {
+    get: async (): Promise<{ is_cluster_node: boolean; disable_telemetry: boolean; models_filter?: string; min_download_speed_kbps: number; max_proxies_per_location: number; update_interval_minutes: number }> => {
       const raw = (await apiCall('get', '/api/llm-router/dashboard/config' as never)) as unknown as Record<string, unknown>
       return {
         is_cluster_node: (raw?.is_cluster_node as boolean) ?? false,
         disable_telemetry: (raw?.disable_telemetry as boolean) ?? false,
+        models_filter: raw?.models_filter as string | undefined,
         min_download_speed_kbps: (raw?.min_download_speed_kbps as number) ?? 15000,
         max_proxies_per_location: (raw?.max_proxies_per_location as number) ?? 10,
         update_interval_minutes: (raw?.update_interval_minutes as number) ?? 15,
       }
     },
-    update: (payload: { is_cluster_node: boolean; disable_telemetry: boolean; min_download_speed_kbps: number; max_proxies_per_location: number; update_interval_minutes: number }) =>
+    update: (payload: { is_cluster_node: boolean; disable_telemetry: boolean; models_filter?: string; min_download_speed_kbps: number; max_proxies_per_location: number; update_interval_minutes: number }) =>
       apiCall('put', '/api/llm-router/dashboard/config' as never, { body: payload as unknown as never } as never),
   },
 

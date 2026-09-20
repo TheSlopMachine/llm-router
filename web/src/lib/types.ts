@@ -192,6 +192,7 @@ export interface TokenUsageInfo {
 export interface RouterConfiguration {
   is_cluster_node: boolean
   disable_telemetry: boolean
+  models_filter?: string
 }
 
 export interface UINode {
