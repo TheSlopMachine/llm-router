@@ -209,9 +209,8 @@
     }
   }
   // Managed virtual models: one fall-through VM per served endpoint.
-  // Members refresh on import; the backend syncs them, this page renders.
+  // Members refresh on import and override flips; this page renders.
   let vmGroups = $state<ProviderVMGroup[]>([])
-  let vmSyncing = $state(false)
 
   async function loadVmGroups(): Promise<void> {
     try {
@@ -221,15 +220,22 @@
     }
   }
 
-  async function syncVmGroups(): Promise<void> {
-    vmSyncing = true
+  async function toggleVirtualModel(id: string, enabled: boolean): Promise<void> {
     try {
-      vmGroups = await api.providers.syncVirtualModels(providerId)
+      await api.virtualModels.update(id, { disabled: !enabled })
+      await loadVmGroups()
     } catch (e) {
       error = getErrorMessage(e)
-    } finally {
-      vmSyncing = false
     }
+  }
+
+  // Endpoint wire paths and hints for the virtual-model table.
+  const VM_ENDPOINTS: Record<string, { path: string; hint: string }> = {
+    chat: { path: '/v1/chat/completions', hint: 'Text chat' },
+    transcription: { path: '/v1/audio/transcriptions', hint: 'Speech-to-text' },
+    speech: { path: '/v1/audio/speech', hint: 'Text-to-speech' },
+    images: { path: '/v1/images/generations', hint: 'Image generation' },
+    embeddings: { path: '/v1/embeddings', hint: 'Text embeddings' },
   }
 
   // Operational settings only: seeded providers reject any other config
@@ -310,6 +316,8 @@
     } finally {
       modelsLoading = false
     }
+    // Group composition follows the list above.
+    void loadVmGroups()
   }
 
   async function importModels(): Promise<void> {
@@ -949,30 +957,44 @@
   <section class="section">
     <div class="section-header">
       <h2>{t('Virtual models')}</h2>
-      <button class="btn btn-secondary" onclick={syncVmGroups} disabled={vmSyncing} use:squircle={12}>
-        <span class="icon">{vmSyncing ? 'progress_activity' : 'sync'}</span>
-        {vmSyncing ? t('Syncing…') : t('Sync')}
-      </button>
     </div>
     <p class="form-hint">{t('One managed fall-through model per served endpoint. Members follow enabled models and refresh on import.')}</p>
     {#if vmGroups.length === 0}
       <div class="empty-state">{t('No endpoint groups on this provider yet.')}</div>
     {:else}
       <div class="table" use:squircle={18}>
-        <div class="table-row table-head">
-          <span class="mcol-id">{t('Endpoint')}</span>
-          <span class="mcol-ctx">{t('Models')}</span>
-          <span class="mcol-caps">{t('Virtual model')}</span>
+        <div class="table-row table-head vm-head">
+          <span>{t('Virtual model')}</span>
+          <span>{t('Endpoint')}</span>
+          <span class="vm-num">{t('Models')}</span>
+          <span></span>
         </div>
         {#each vmGroups as g (g.endpoint)}
-          <div class="table-row model-row vm-row">
-            <span class="mcol-id">{t(g.label)}</span>
-            <span class="mcol-ctx model-meta">{g.models.length}</span>
-            <span class="mcol-caps model-meta">
+          {@const ep = VM_ENDPOINTS[g.endpoint] ?? { path: g.endpoint, hint: g.label }}
+          <div class="table-row vm-head">
+            <span class="vm-id">
               {#if g.virtual}
-                <a class="vm-link" href={`#/virtual/${g.virtual.id}`}>{g.virtual.name}</a>
+                <span class="model-display">{g.virtual.name}</span>
+                <span class="model-id">
+                  <a class="vm-link" href={`#/virtual/${g.virtual.id}`} title={t('Open virtual model')}>{g.virtual.id}</a>
+                  <button class="btn-icon copy-btn" onclick={() => copyModelId(g.virtual?.id ?? '')} aria-label={t('Copy model id')} title={t('Copy model id')} use:squircle={10}>
+                    <span class="icon">content_copy</span>
+                  </button>
+                </span>
               {:else}
                 <span class="mods-empty">—</span>
+              {/if}
+            </span>
+            <span class="model-meta" title={t(ep.hint)}>{ep.path}</span>
+            <span class="model-meta vm-num">{g.models.length}</span>
+            <span class="vm-toggle">
+              {#if g.virtual}
+                {@const v = g.virtual}
+                <Switch
+                  checked={!v.disabled}
+                  ariaLabel={t('Enable virtual model')}
+                  onchange={(en) => toggleVirtualModel(v.id, en)}
+                />
               {/if}
             </span>
           </div>
@@ -1092,6 +1114,7 @@
     <Switch
       checked={!m.disabled}
       ariaLabel={t('Enable model')}
+      size="xl"
       onchange={(v) => toggleModel(m, v)}
     />
   </span>
@@ -1267,7 +1290,7 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    margin-bottom: 8px;
+    margin-bottom: 16px;
   }
   .models-subbar {
     display: flex;
@@ -1337,9 +1360,18 @@
   .model-row {
     grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.6fr) minmax(0, 0.8fr) minmax(0, 1.2fr) 124px;
   }
-  .vm-row {
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.6fr) minmax(0, 2fr);
+  .vm-head {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 0.4fr) auto;
   }
+  .vm-num { text-align: right; }
+  .vm-toggle { display: flex; justify-content: flex-end; }
+  .vm-id {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .vm-link { overflow-wrap: break-word; }
   .mcol-id {
     min-width: 0;
     display: flex;

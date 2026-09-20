@@ -62,7 +62,7 @@ export interface ProviderVMGroup {
   endpoint: string
   label: string
   models: string[]
-  virtual?: { id: string; name: string } | null
+  virtual?: { id: string; name: string; disabled?: boolean } | null
 }
 
 export interface TestResult {

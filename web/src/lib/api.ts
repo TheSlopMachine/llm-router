@@ -105,12 +105,6 @@ export const api = {
       return Array.isArray(raw) ? (raw as ProviderVMGroup[]) : []
     },
 
-    syncVirtualModels: async (id: string): Promise<ProviderVMGroup[]> => {
-      const res = await fetch(`/api/llm-router/dashboard/providers/${id}/virtual-models/sync`, { method: 'POST' })
-      const raw = (await assertOk(res)) as unknown
-      return Array.isArray(raw) ? (raw as ProviderVMGroup[]) : []
-    },
-
     stats: async (): Promise<Record<string, ProviderStats>> => {
       const raw = (await apiCall('get', '/api/llm-router/dashboard/providers/stats')) as unknown as Record<string, Record<string, unknown>>
       const out: Record<string, ProviderStats> = {}

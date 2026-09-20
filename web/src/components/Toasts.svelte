@@ -33,13 +33,22 @@
       <span class="icon">{item.kind === 'success' ? 'check_circle' : 'error'}</span>
       <span class="toast-text">{item.text}</span>
       <button
-        class="btn-icon toast-copy"
+        class="btn-icon toast-btn"
         onclick={() => void copy(item)}
         aria-label="Copy to clipboard"
         title="Copy"
         use:squircle={8}
       >
         <span class="icon">{copiedId === item.id ? 'check' : 'content_copy'}</span>
+      </button>
+      <button
+        class="btn-icon toast-btn"
+        onclick={() => toast.dismiss(item.id)}
+        aria-label="Dismiss"
+        title="Dismiss"
+        use:squircle={8}
+      >
+        <span class="icon">close</span>
       </button>
     </div>
   {/each}
@@ -104,20 +113,24 @@
     scrollbar-gutter: stable;
     padding-right: 4px;
   }
-  /* Copy affordance: revealed on hover (or keyboard focus), never a
-     whole-toast click target. */
-  .toast-copy {
+  /* Action buttons: fixed square so padding is even on all sides. */
+  .toast-btn {
     opacity: 0;
-    padding: 4px;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     transition: opacity 0.15s ease;
     flex-shrink: 0;
   }
-  .toast-copy .icon {
+  .toast-btn .icon {
     font-size: 16px;
     line-height: 1;
   }
-  .toast:hover .toast-copy,
-  .toast:focus-within .toast-copy {
+  .toast:hover .toast-btn,
+  .toast:focus-within .toast-btn {
     opacity: 1;
   }
 </style>
