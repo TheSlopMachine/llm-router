@@ -21,6 +21,9 @@
 // clip-path. Use a fill that contrasts with the background instead of a
 // border (the Apple grouped-list approach).
 
+// Set to false to disable squircle effect globally
+let squircleEnabled = true
+
 let superellipseExp = 0.8 // 2/n with n = 2.5
 
 // Live tuning from the polygon: re-applies every mounted squircle.
@@ -150,6 +153,14 @@ function hookWindow(): void {
 
 export function squircle(node: HTMLElement, radius = 10): { update(r: number): void; destroy(): void } {
   let fallback = radius
+
+  // Early return if squircle is disabled
+  if (!squircleEnabled) {
+    return {
+      update(next: number) {},
+      destroy() {},
+    }
+  }
 
   // Keep the CSS border-radius as the no-clip-path fallback, but mask it where
   // the clip applies, otherwise the circular radius always wins the silhouette.
