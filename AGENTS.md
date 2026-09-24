@@ -193,6 +193,7 @@ Rule: before finishing any `.svelte` change, re-check every `$effect` touched ag
 | 9 | Fall back silently | NEVER swallow a failure and continue on a fallback path. Surface every failure as an error — return it to the caller, log it, or both — or route it to an explicit, named on-fail branch. Never fall through unannounced. |
 | 10 | Match errors by string | NEVER match error codes or kinds with `strings.Contains(err.Error(), ...)` or message substrings. Define sentinel errors and match with `errors.Is` / `errors.As`. |
 | 11 | Patch a weak API contract in the frontend | Repetitive `??` / `?.` over backend data shapes means the contract is wrong. Fix the backend to return consistent shapes (arrays never null, objects never null when the schema promises them). Frontend guards stay only for genuinely optional local state. |
+| 12 | Create stray files from the shell | NEVER let a shell command create a file: no `>` / `>>` / `Out-File` redirection, no heredocs, no `2>/dev/null`, no unquoted fragments that resolve to filenames (`nul`, `null`, command text as filename). Read command output from the tool result, never from disk. Every such file earns the offending agent 20 lashes. |
 
 ## 7. Lua Plugins
 
