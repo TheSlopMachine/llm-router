@@ -62,7 +62,7 @@ export interface ProviderVMGroup {
   endpoint: string
   label: string
   models: string[]
-  virtual?: { id: string; name: string; disabled?: boolean } | null
+  virtual?: VirtualModel | null
 }
 
 export interface TestResult {
@@ -157,9 +157,14 @@ export interface AvailableModel {
   provider_type: string
   model_name: string
   display_name: string
+  description?: string
   context_window?: number
   max_tokens?: number
   capabilities?: string[]
+  input_modalities?: string[]
+  output_modalities?: string[]
+  reasoning?: ProviderModel['reasoning']
+  supported_parameters?: string[]
 }
 
 export interface VirtualModel {
@@ -168,9 +173,8 @@ export interface VirtualModel {
   description: string
   models: VirtualModelEntry[]
   instruction: string
-  capabilities?: string[]
-  context_length?: number
-  max_completion_tokens?: number
+  managed_by?: string
+  disabled?: boolean
   version: number
   created_at: string
   updated_at: string

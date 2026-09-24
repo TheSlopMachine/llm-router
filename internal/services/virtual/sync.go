@@ -94,7 +94,8 @@ func sameMembers(a []models.VirtualModelEntry, b []models.VirtualModelEntry) boo
 // non-empty endpoint group has exactly one. Members are enabled models
 // serving the endpoint, in cache order. Managed VMs whose group emptied are
 // deleted. Manual edits to name/description/instruction survive: only the
-// member list is rewritten.
+// member list is rewritten. One bad group never aborts the rest: per-group
+// failures are logged and skipped.
 func (s *Service) SyncProviderModels(ctx context.Context, providerID string) ([]ProviderVMGroup, error) {
 	_ = ctx
 	inst, err := s.providerSvc.Get(providerID)
@@ -105,35 +106,66 @@ func (s *Service) SyncProviderModels(ctx context.Context, providerID string) ([]
 	if err != nil {
 		return nil, err
 	}
+	// Orphan index: an unmanaged record squatting an auto-generated name is
+	// adopted instead of colliding with it.
+	orphans := map[string]*models.VirtualModel{}
+	if all, err := s.List(); err == nil {
+		for _, vm := range all {
+			if vm.ManagedBy == "" {
+				orphans[strings.ToLower(vm.Name)] = vm
+			}
+		}
+	}
 	live := map[string]bool{}
 	for i := range groups {
 		g := &groups[i]
 		live[g.Endpoint] = true
-		entries := make([]models.VirtualModelEntry, 0, len(g.Models))
+		entries := make([]models.ModelId, 0, len(g.Models))
 		for _, name := range g.Models {
-			entries = append(entries, models.VirtualModelEntry{ModelID: models.ModelId(providerID + "/" + name)})
+			entries = append(entries, models.ModelId(providerID+"/"+name))
 		}
 		marker := ProviderMarker(providerID, g.Endpoint)
 		if g.Virtual == nil {
+			autoName := fmt.Sprintf("%s %s", inst.Name, g.Label)
+			if orphan, ok := orphans[strings.ToLower(autoName)]; ok {
+				adopted := *orphan
+				adopted.ManagedBy = marker
+				adopted.Models = toEntries(entries)
+				if err := s.Update(adopted.ID, &adopted); err != nil {
+					s.log().Warn("managed virtual model adopt failed",
+						"provider_id", providerID, "endpoint", g.Endpoint, "error", err)
+					continue
+				}
+				if fresh, err := s.Get(adopted.ID); err == nil {
+					g.Virtual = fresh
+				} else {
+					g.Virtual = &adopted
+				}
+				continue
+			}
 			vm := &models.VirtualModel{
-				Name:        fmt.Sprintf("%s %s", inst.Name, g.Label),
+				Name:        autoName,
 				Description: fmt.Sprintf("Automatic fall-through across %s %s models. Members refresh on import.", inst.Name, strings.ToLower(g.Label)),
-				Models:      entries,
+				Models:      toEntries(entries),
 				ManagedBy:   marker,
 			}
 			if err := s.Create(vm); err != nil {
-				return nil, err
+				s.log().Warn("managed virtual model create failed",
+					"provider_id", providerID, "endpoint", g.Endpoint, "error", err)
+				continue
 			}
 			g.Virtual = vm
 			continue
 		}
-		if sameMembers(g.Virtual.Models, entries) {
+		if sameMembers(g.Virtual.Models, toEntries(entries)) {
 			continue
 		}
 		updated := *g.Virtual
-		updated.Models = entries
+		updated.Models = toEntries(entries)
 		if err := s.Update(updated.ID, &updated); err != nil {
-			return nil, err
+			s.log().Warn("managed virtual model update failed",
+				"provider_id", providerID, "endpoint", g.Endpoint, "error", err)
+			continue
 		}
 		if fresh, err := s.Get(updated.ID); err == nil {
 			g.Virtual = fresh
@@ -149,9 +181,18 @@ func (s *Service) SyncProviderModels(ctx context.Context, providerID string) ([]
 	for _, vm := range all {
 		if strings.HasPrefix(vm.ManagedBy, prefix) && !live[strings.TrimPrefix(vm.ManagedBy, prefix)] {
 			if err := s.Delete(vm.ID); err != nil {
-				return nil, err
+				s.log().Warn("managed virtual model delete failed",
+					"provider_id", providerID, "virtual_id", vm.ID, "error", err)
 			}
 		}
 	}
 	return groups, nil
+}
+
+func toEntries(ids []models.ModelId) []models.VirtualModelEntry {
+	entries := make([]models.VirtualModelEntry, 0, len(ids))
+	for _, id := range ids {
+		entries = append(entries, models.VirtualModelEntry{ModelID: id})
+	}
+	return entries
 }

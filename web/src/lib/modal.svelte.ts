@@ -1,4 +1,5 @@
 import { t } from './i18n.svelte'
+import type { Snippet } from 'svelte'
 
 export type ModalSeverity = 'low' | 'medium' | 'high'
 export type ModalSize = 'small' | 'medium' | 'large' | 'extra-large'
@@ -17,7 +18,7 @@ export interface ModalMenuAction {
   label: string
   icon?: string
   disabled?: boolean
-  danger?: boolean
+  tint?: string
 }
 
 export interface ModalMenu {
@@ -59,7 +60,14 @@ export interface ContentModalConfig extends BaseModalConfig {
   props?: Record<string, any>
 }
 
-export type ModalConfig = ConfirmModalConfig | ContentModalConfig
+// Inline dialog: the body is a caller snippet closing over local state,
+// no component file needed for trivial prompts.
+export interface SnippetModalConfig extends BaseModalConfig {
+  type: 'snippet'
+  contentSnippet: Snippet
+}
+
+export type ModalConfig = ConfirmModalConfig | ContentModalConfig | SnippetModalConfig
 
 let stack = $state<ModalConfig[]>([])
 
@@ -77,6 +85,9 @@ export const modal = {
           severity: config.severity || 'medium',
           size: config.size || 'small',
           ...config,
+          // Title is mandatory for confirm modals: fall back rather than
+          // render a headless dialog.
+          title: config.title?.trim() ? config.title : t('Confirm'),
           onClose: () => {
             resolve(false)
             config.onClose?.()
@@ -103,16 +114,17 @@ export const modal = {
     })
   },
 
-  open(config: Omit<ContentModalConfig, 'type'>): void {
+  open(config: Omit<ContentModalConfig, 'type'> | Omit<SnippetModalConfig, 'type'>): void {
+    const type = ('contentSnippet' in config ? 'snippet' : 'content') as ModalConfig['type']
     stack = [
       ...stack,
       {
-        type: 'content' as const,
+        type,
         severity: config.severity || 'medium',
         size: config.size || 'medium',
         buttons: config.buttons || [],
         ...config
-      }
+      } as ModalConfig
     ]
   },
 
@@ -132,59 +144,57 @@ export const modal = {
     }
   },
 
+  // Chrome updates mutate the top config in place. The Modal shell keys
+  // its each-block by config identity, so replacing the object would
+  // destroy and recreate the whole content subtree on every update —
+  // wiping content state, focus, and in-flight clicks.
   updateButtons(buttons: ModalButton[]): void {
     if (stack.length === 0) return
     const newStack = [...stack]
-    const topModal = { ...newStack[newStack.length - 1] } as ModalConfig
+    const topModal = newStack[newStack.length - 1] as ModalConfig
     topModal.buttons = buttons
-    newStack[newStack.length - 1] = topModal
     stack = newStack
   },
 
   updateMenu(menu: ModalMenu | null): void {
     if (stack.length === 0) return
     const newStack = [...stack]
-    const topModal = { ...newStack[newStack.length - 1] } as ModalConfig
+    const topModal = newStack[newStack.length - 1] as ModalConfig
     topModal.menu = menu
-    newStack[newStack.length - 1] = topModal
     stack = newStack
   },
 
   updateTitle(title: string): void {
     if (stack.length === 0) return
     const newStack = [...stack]
-    const topModal = { ...newStack[newStack.length - 1] } as ModalConfig
+    const topModal = newStack[newStack.length - 1] as ModalConfig
     topModal.title = title
-    newStack[newStack.length - 1] = topModal
     stack = newStack
   },
 
   updateSubtitle(subtitle: string): void {
     if (stack.length === 0) return
     const newStack = [...stack]
-    const topModal = { ...newStack[newStack.length - 1] } as ModalConfig
+    const topModal = newStack[newStack.length - 1] as ModalConfig
     topModal.subtitle = subtitle
-    newStack[newStack.length - 1] = topModal
     stack = newStack
   },
 
   updateStepper(stepper: StepperConfig | null): void {
     if (stack.length === 0) return
     const newStack = [...stack]
-    const topModal = { ...newStack[newStack.length - 1] } as ModalConfig
+    const topModal = newStack[newStack.length - 1] as ModalConfig
     topModal.stepper = stepper
-    newStack[newStack.length - 1] = topModal
     stack = newStack
   },
 
   updateProps(props: Record<string, any>): void {
     if (stack.length === 0) return
     const newStack = [...stack]
-    const topModal = { ...newStack[newStack.length - 1] } as ModalConfig
+    const topModal = newStack[newStack.length - 1] as ModalConfig
     if (topModal.type === 'content') {
       topModal.props = { ...topModal.props, ...props }
     }
-    newStack[newStack.length - 1] = topModal
     stack = newStack
   }
 }

@@ -64,24 +64,24 @@
     flex-direction: column;
     /* right edge anchored: each toast takes the width its text needs */
     align-items: flex-end;
-    gap: 8px;
+    gap: var(--space-3);
   }
   .toast {
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    gap: 10px;
+    gap: var(--space-4);
     width: fit-content;
     /* grows with content up to 1.5x the base width, then wraps in height */
     min-width: 320px;
     max-width: min(480px, calc(100vw - 32px));
     /* ...and up to a third of the viewport in height, then scrolls */
     max-height: 33vh;
-    padding: 12px 16px;
+    padding: var(--space-4) var(--space-5);
     border-radius: var(--radius-md);
     background: var(--color-surface-container-highest);
     color: var(--color-text);
-    font-size: 14px;
+    font-size: var(--text-base);
     text-align: left;
     animation: toast-in 0.28s cubic-bezier(0.3, 1.15, 0.5, 1);
   }
@@ -92,7 +92,7 @@
     }
   }
   .toast .icon {
-    font-size: 20px;
+    font-size: var(--text-lg);
     flex-shrink: 0;
   }
   .toast-success > .icon {
@@ -111,7 +111,7 @@
     max-height: calc(33vh - 24px);
     overflow-y: auto;
     scrollbar-gutter: stable;
-    padding-right: 4px;
+    padding-right: var(--space-2);
   }
   /* Action buttons: fixed square so padding is even on all sides. */
   .toast-btn {
@@ -126,7 +126,7 @@
     flex-shrink: 0;
   }
   .toast-btn .icon {
-    font-size: 16px;
+    font-size: var(--text-md);
     line-height: 1;
   }
   .toast:hover .toast-btn,

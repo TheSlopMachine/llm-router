@@ -7,10 +7,9 @@
 package virtual
 
 import (
-	"context"
 	"fmt"
+	"log/slog"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
@@ -27,6 +26,7 @@ type Service struct {
 	repo         *repository.Repository[models.VirtualModel]
 	providerSvc  *provider.Service
 	modelInfoSvc *modelinfo.Service
+	logger       *slog.Logger
 }
 
 // New constructs a new virtual-model Service.
@@ -37,6 +37,16 @@ func New(database *db.DB, providerSvc *provider.Service, modelInfoSvc *modelinfo
 		providerSvc:  providerSvc,
 		modelInfoSvc: modelInfoSvc,
 	}
+}
+
+// SetLogger wires structured logging (called once from server.New).
+func (s *Service) SetLogger(l *slog.Logger) { s.logger = l }
+
+func (s *Service) log() *slog.Logger {
+	if s.logger == nil {
+		return slog.Default()
+	}
+	return s.logger
 }
 
 // ─────────────────────────────────────────────
@@ -64,9 +74,6 @@ func (s *Service) Create(vm *models.VirtualModel) error {
 	if err := s.checkUniqueName(vm); err != nil {
 		return err
 	}
-
-	// Aggregated limits and capabilities across the fall-through list
-	s.computeAggregates(vm)
 
 	// Set initial version and timestamps
 	vm.Version = 1
@@ -101,9 +108,6 @@ func (s *Service) Update(id string, vm *models.VirtualModel) error {
 	if err := s.checkUniqueName(vm); err != nil {
 		return err
 	}
-
-	// Aggregated limits and capabilities across the fall-through list
-	s.computeAggregates(vm)
 
 	// Update via repository with optimistic locking
 	return s.repo.Update(id, func(existing *models.VirtualModel) error {
@@ -228,44 +232,42 @@ func (s *Service) uniqueSlug(name string) (string, error) {
 	}
 }
 
-// computeAggregates derives the virtual model's advertised limits from its
-// fall-through list: capabilities = intersection (a feature is only safe when
-// every model has it), context length and max completion tokens = the minima
-// (a larger request or a larger output budget would break weaker models).
-// Best-effort: models without cached metadata are skipped.
-func (s *Service) computeAggregates(vm *models.VirtualModel) {
-	ctx := context.Background()
-
-	capCount := map[string]int{}
-	var contextLength, maxCompletionTokens int64
-
-	for _, model := range vm.Models {
-		mi, err := s.modelInfoSvc.GetModelInfo(ctx, model.ModelID)
-		if err != nil {
+// LiveMembers returns the model ids to try for the agent, snapshotted for
+// one request. Managed virtual models resolve their endpoint group live
+// from the provider model list (disabled and removed models drop out on
+// the next call); manual models use the stored list.
+func (s *Service) LiveMembers(agent *models.VirtualModel) []models.ModelId {
+	if agent == nil {
+		return nil
+	}
+	if !strings.HasPrefix(agent.ManagedBy, "provider:") {
+		out := make([]models.ModelId, 0, len(agent.Models))
+		for _, e := range agent.Models {
+			out = append(out, e.ModelID)
+		}
+		return out
+	}
+	rest := strings.TrimPrefix(agent.ManagedBy, "provider:")
+	idx := strings.LastIndex(rest, ":")
+	if idx == -1 {
+		return nil
+	}
+	providerID, slug := rest[:idx], rest[idx+1:]
+	groups, err := s.GroupsForProvider(providerID)
+	if err != nil {
+		return nil
+	}
+	for _, g := range groups {
+		if g.Endpoint != slug {
 			continue
 		}
-		for _, cap := range mi.Capabilities {
-			capCount[cap]++
+		out := make([]models.ModelId, 0, len(g.Models))
+		for _, name := range g.Models {
+			out = append(out, models.ModelId(providerID+"/"+name))
 		}
-		if mi.ContextWindow > 0 && (contextLength == 0 || mi.ContextWindow < contextLength) {
-			contextLength = mi.ContextWindow
-		}
-		if mi.MaxTokens > 0 && (maxCompletionTokens == 0 || mi.MaxTokens < maxCompletionTokens) {
-			maxCompletionTokens = mi.MaxTokens
-		}
+		return out
 	}
-
-	caps := make([]string, 0, len(capCount))
-	for cap, n := range capCount {
-		if n == len(vm.Models) {
-			caps = append(caps, cap)
-		}
-	}
-	sort.Strings(caps)
-
-	vm.Capabilities = caps
-	vm.ContextLength = contextLength
-	vm.MaxCompletionTokens = maxCompletionTokens
+	return nil
 }
 
 func (s *Service) checkUniqueName(vm *models.VirtualModel) error {

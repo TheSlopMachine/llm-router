@@ -9,15 +9,20 @@ import (
 )
 
 type availableModelView struct {
-	FullModelID   string   `json:"full_model_id"`
-	ProviderID    string   `json:"provider_id"`
-	ProviderName  string   `json:"provider_name"`
-	ProviderType  string   `json:"provider_type"`
-	ModelName     string   `json:"model_name"`
-	DisplayName   string   `json:"display_name"`
-	ContextWindow int64    `json:"context_window,omitempty"`
-	MaxTokens     int64    `json:"max_tokens,omitempty"`
-	Capabilities  []string `json:"capabilities,omitempty"`
+	FullModelID         string                 `json:"full_model_id"`
+	ProviderID          string                 `json:"provider_id"`
+	ProviderName        string                 `json:"provider_name"`
+	ProviderType        string                 `json:"provider_type"`
+	ModelName           string                 `json:"model_name"`
+	DisplayName         string                 `json:"display_name"`
+	Description         string                 `json:"description,omitempty"`
+	ContextWindow       int64                  `json:"context_window,omitempty"`
+	MaxTokens           int64                  `json:"max_tokens,omitempty"`
+	Capabilities        []string               `json:"capabilities,omitempty"`
+	InputModalities     []string               `json:"input_modalities,omitempty"`
+	OutputModalities    []string               `json:"output_modalities,omitempty"`
+	Reasoning           *models.ModelReasoning `json:"reasoning,omitempty"`
+	SupportedParameters []string               `json:"supported_parameters,omitempty"`
 }
 
 // apiAvailableModels godoc
@@ -68,37 +73,26 @@ func (h *Handler) availableModels() ([]availableModelView, error) {
 			}
 
 			items = append(items, availableModelView{
-				FullModelID:   string(models.ModelId(providerRecord.ID + "/" + modelInfo.Name)),
-				ProviderID:    providerRecord.ID,
-				ProviderName:  providerRecord.Name,
-				ProviderType:  providerRecord.TypeKey,
-				ModelName:     modelInfo.Name,
-				DisplayName:   displayName,
-				ContextWindow: modelInfo.ContextWindow,
-				MaxTokens:     modelInfo.MaxTokens,
-				Capabilities:  modelInfo.Capabilities,
+				FullModelID:         string(models.ModelId(providerRecord.ID + "/" + modelInfo.Name)),
+				ProviderID:          providerRecord.ID,
+				ProviderName:        providerRecord.Name,
+				ProviderType:        providerRecord.TypeKey,
+				ModelName:           modelInfo.Name,
+				DisplayName:         displayName,
+				Description:         modelInfo.Description,
+				ContextWindow:       modelInfo.ContextWindow,
+				MaxTokens:           modelInfo.MaxTokens,
+				Capabilities:        modelInfo.Capabilities,
+				InputModalities:     modelInfo.InputModalities,
+				OutputModalities:    modelInfo.OutputModalities,
+				Reasoning:           modelInfo.Reasoning,
+				SupportedParameters: modelInfo.SupportedParameters,
 			})
 		}
 	}
 
-	// Virtual models need no credentials: list them directly, mirroring /v1/models.
-	if agents, err := h.virtualSvc.List(); err == nil {
-		providerName := "Virtual models"
-		if p, err := h.providerSvc.Get(provider.TypeVirtual); err == nil && p.Name != "" {
-			providerName = p.Name
-		}
-		for _, a := range agents {
-			items = append(items, availableModelView{
-				FullModelID:  provider.TypeVirtual + "/" + a.ID,
-				ProviderID:   provider.TypeVirtual,
-				ProviderName: providerName,
-				ProviderType: provider.TypeVirtual,
-				ModelName:    a.ID,
-				DisplayName:  a.Name,
-			})
-		}
-	}
-
+	// Virtual models are excluded: they are not valid fall-through targets
+	// (circular dependency) and list separately under virtual-models.
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].ProviderName != items[j].ProviderName {
 			return items[i].ProviderName < items[j].ProviderName

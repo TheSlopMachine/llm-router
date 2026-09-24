@@ -1,8 +1,9 @@
 <script lang="ts">
+  import Button from './ui/controls/Button.svelte'
   import { onMount, tick } from 'svelte'
   import { api } from '../lib/api'
-  import Dropdown from './Dropdown.svelte'
-  import ActionDropdown from './ActionDropdown.svelte'
+  import Select from './ui/controls/Select.svelte'
+  import FloatingList from './ui/controls/FloatingList.svelte'
   import { parseMarkdownWithArtifacts } from '../lib/markdown'
   import { resolveExtension } from '../lib/language-extensions'
   import { getErrorMessage } from '../lib/errors'
@@ -48,6 +49,9 @@
     { id: 'save', label: t('Save'), icon: 'download' },
     { id: 'load', label: t('Load'), icon: 'upload' }
   ])
+
+  let actionsOpen = $state(false)
+  let actionsAnchor = $state<HTMLElement>()
 
   let dropdownOptions = $derived(models.map((m) => ({ value: m.full_model_id, label: m.full_model_id })))
   let canSend = $derived(input.trim().length > 0 && !isSending && !!selectedModel)
@@ -310,15 +314,9 @@
                         <span>{art.title}</span>
                       </div>
                       <div class="artifact-actions">
-                        <button class="icon-btn" title={t('Download')} onclick={() => downloadArtifact(art.code, art.language)}>
-                          <span class="icon">download</span>
-                        </button>
-                        <button class="icon-btn" title={copiedArtifact === msg.id + idx ? t('Copied') : t('Copy')} onclick={() => copyArtifact(art.code, msg.id + idx)}>
-                          <span class="icon">{copiedArtifact === msg.id + idx ? 'check' : 'content_copy'}</span>
-                        </button>
-                        <button class="icon-btn" title={art.collapsed ? t('Expand') : t('Collapse')} onclick={() => toggleCollapse(msg.id, idx)}>
-                          <span class="icon">{art.collapsed ? 'expand_content' : 'collapse_content'}</span>
-                        </button>
+                        <Button title={t('Download')} ariaLabel={t('Download')} icon={{ name: 'download' }} onclick={() => downloadArtifact(art.code, art.language)} />
+                        <Button title={copiedArtifact === msg.id + idx ? t('Copied') : t('Copy')} ariaLabel={copiedArtifact === msg.id + idx ? t('Copied') : t('Copy')} icon={{ name: copiedArtifact === msg.id + idx ? 'check' : 'content_copy' }} onclick={() => copyArtifact(art.code, msg.id + idx)} />
+                        <Button title={art.collapsed ? t('Expand') : t('Collapse')} ariaLabel={art.collapsed ? t('Expand') : t('Collapse')} icon={{ name: art.collapsed ? 'expand_content' : 'collapse_content' }} onclick={() => toggleCollapse(msg.id, idx)} />
                       </div>
                     </div>
                     {#if !art.collapsed}
@@ -366,7 +364,7 @@
       <div class="composer-footer">
         <div class="composer-left">
           <div class="model-picker-wrap">
-            <Dropdown
+            <Select
               bind:value={selectedModel}
               options={dropdownOptions}
               placeholder={models.length === 0 ? t('No models') : t('Select model')}
@@ -376,7 +374,21 @@
               rounded="lg"
             />
           </div>
-          <ActionDropdown actions={actions} label={t('Actions')} rounded="lg" onaction={(id) => handleAction(id)} />
+          <Button
+            text={t('Actions')}
+            icon={{ name: 'expand_more', placement: 'right' }}
+            onclick={(e) => {
+              actionsAnchor = e.currentTarget as HTMLElement
+              actionsOpen = !actionsOpen
+            }}
+          />
+          <FloatingList
+            bind:open={actionsOpen}
+            anchor={actionsAnchor}
+            label={t('Actions')}
+            {actions}
+            onaction={(id) => handleAction(id)}
+          />
         </div>
 
         <button class="btn btn-primary run-btn" onclick={send} disabled={!canSend}>
@@ -402,7 +414,7 @@
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 32px 24px 0 24px;
+    padding: var(--space-7) var(--space-6) 0 var(--space-6);
   }
   .thread-inner {
     max-width: 760px;
@@ -410,8 +422,8 @@
     margin: 0 auto;
     display: flex;
     flex-direction: column;
-    gap: 28px;
-    padding-bottom: 16px;
+    gap: var(--space-7);
+    padding-bottom: var(--space-5);
   }
   .empty-thread {
     display: flex;
@@ -422,35 +434,35 @@
     text-align: center;
     color: var(--color-text-soft);
   }
-  .empty-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.6; }
-  .empty-title { font-size: 16px; font-weight: 500; color: var(--color-text); margin-bottom: 6px; }
-  .empty-hint { font-size: 14px; color: var(--color-text-soft); }
-  .message { display: flex; flex-direction: column; gap: 8px; }
-  .meta { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--color-text-soft); letter-spacing: 0.01em; }
+  .empty-icon { font-size: 48px; margin-bottom: var(--space-4); opacity: 0.6; }
+  .empty-title { font-size: var(--text-md); font-weight: 500; color: var(--color-text); margin-bottom: 6px; }
+
+  .message { display: flex; flex-direction: column; gap: var(--space-3); }
+  .meta { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); font-weight: 500; color: var(--color-text-soft); letter-spacing: 0.01em; }
   .sender { color: var(--color-text-soft); }
   .dot { opacity: 0.5; }
   .time { font-weight: 400; }
-  .user-text { font-size: 14px; line-height: 21px; color: var(--color-text); white-space: pre-wrap; word-break: break-word; }
-  .assistant-text { font-size: 14px; line-height: 22px; color: var(--color-text); word-break: break-word; }
-  .assistant-text :global(p) { margin: 8px 0; }
+  .user-text { font-size: var(--text-base); line-height: 21px; color: var(--color-text); white-space: pre-wrap; word-break: break-word; }
+  .assistant-text { font-size: var(--text-base); line-height: 22px; color: var(--color-text); word-break: break-word; }
+  .assistant-text :global(p) { margin: var(--space-3) 0; }
   .assistant-text :global(p:first-child) { margin-top: 0; }
   .assistant-text :global(p:last-child) { margin-bottom: 0; }
   .assistant-text :global(ul), .assistant-text :global(ol) { margin: 8px 0 8px 20px; }
-  .assistant-text :global(li) { margin: 4px 0; }
+  .assistant-text :global(li) { margin: var(--space-2) 0; }
   .assistant-text :global(a) { color: var(--color-text-link); text-decoration: none; }
   .assistant-text :global(a:hover) { text-decoration: underline; }
   .assistant-text :global(blockquote) {
     border-left: 2px solid var(--color-outline-light);
-    margin: 8px 0; padding: 4px 12px; color: var(--color-text-soft);
+    margin: var(--space-3) 0; padding: var(--space-2) var(--space-4); color: var(--color-text-soft);
   }
   .assistant-text :global(h1), .assistant-text :global(h2), .assistant-text :global(h3) {
-    font-weight: 600; color: var(--color-text); margin: 16px 0 8px 0; line-height: 1.3;
+    font-weight: 600; color: var(--color-text); margin: var(--space-5) 0 var(--space-3) 0; line-height: 1.3;
   }
-  .assistant-text :global(h1) { font-size: 20px; }
-  .assistant-text :global(h2) { font-size: 17px; }
-  .assistant-text :global(h3) { font-size: 15px; }
+  .assistant-text :global(h1) { font-size: var(--text-lg); }
+  .assistant-text :global(h2) { font-size: var(--text-md); }
+  .assistant-text :global(h3) { font-size: var(--text-base); }
   .assistant-text :global(code:not(pre code)) {
-    font-family: 'DM Mono', 'SF Mono', 'Fira Code', monospace;
+    font-family: var(--font-mono);
     font-size: 12.5px;
     background: var(--color-surface-container-highest);
     border: 1px solid var(--color-outline-soft);
@@ -463,16 +475,16 @@
     background: var(--color-surface-container-highest);
     border: 1px solid var(--color-outline-soft);
     border-radius: 8px;
-    padding: 12px 16px;
+    padding: var(--space-4) var(--space-5);
     overflow-x: auto;
-    margin: 8px 0;
+    margin: var(--space-3) 0;
   }
   .assistant-text :global(pre code) {
     background: transparent; border: none; padding: 0;
-    font-family: 'DM Mono', 'SF Mono', monospace; font-size: 12.5px;
+    font-family: var(--font-mono); font-size: 12.5px;
   }
   .artifact-card {
-    margin-top: 12px;
+    margin-top: var(--space-4);
     border: 1px solid var(--color-outline-light);
     border-radius: 16px;
     background: var(--color-surface-container);
@@ -489,24 +501,16 @@
   }
   .artifact-card.collapsed .artifact-header { border-bottom: none; }
   :global(.dark) .artifact-header { background: var(--color-surface-container-highest); }
-  .artifact-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--color-text); }
-  .code-icon { font-size: 18px; color: var(--color-text-soft); }
-  .artifact-actions { display: flex; align-items: center; gap: 2px; }
-  .icon-btn {
-    width: 28px; height: 28px;
-    display: inline-flex; align-items: center; justify-content: center;
-    border-radius: 8px; border: 1px solid transparent;
-    background: transparent; color: var(--color-text-soft); cursor: pointer;
-  }
-  .icon-btn:hover { background: var(--color-surface); border-color: var(--color-outline-light); color: var(--color-text); }
-  .icon-btn .icon { font-size: 16px; }
+  .artifact-title { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-sm); font-weight: 500; color: var(--color-text); }
+  .code-icon { font-size: var(--text-md); color: var(--color-text-soft); }
+  .artifact-actions { display: flex; align-items: center; gap: var(--space-1); }
   .artifact-body { background: var(--color-surface); overflow-x: auto; }
   .code-pre {
     margin: 0; padding: 16px 20px;
-    font-family: 'DM Mono', 'SF Mono', 'Fira Code', monospace;
+    font-family: var(--font-mono);
     font-size: 12.5px; line-height: 19px; color: var(--color-text); white-space: pre;
   }
-  .typing { display: flex; gap: 4px; padding: 6px 0; }
+  .typing { display: flex; gap: var(--space-2); padding: 6px 0; }
   .typing-dot {
     width: 6px; height: 6px; border-radius: 50%;
     background: var(--color-text-soft); opacity: 0.6; animation: typing 1.2s infinite;
@@ -519,7 +523,7 @@
   }
   .composer-dock {
     flex-shrink: 0;
-    padding: 12px 24px 16px 24px;
+    padding: var(--space-4) var(--space-6) var(--space-5) var(--space-6);
     background: linear-gradient(to top, var(--color-surface) 85%, transparent);
   }
   .composer-card {
@@ -527,9 +531,8 @@
     background: var(--color-surface-container-high);
     border: none;
     border-radius: 20px;
-    filter: drop-shadow(0 12px 16px rgba(0, 0, 0, 0.35)) drop-shadow(0 4px 6px rgba(0, 0, 0, 0.25));
     padding: 12px 14px 10px 14px;
-    display: flex; flex-direction: column; gap: 10px;
+    display: flex; flex-direction: column; gap: var(--space-4);
   }
   :global(.dark) .composer-card {
     background: var(--color-surface-container-high);
@@ -538,27 +541,27 @@
     width: 100%; min-height: 24px; max-height: 160px;
     resize: none; border: none; outline: none;
     background: transparent; color: var(--color-text);
-    font-family: inherit; font-size: 14px; line-height: 21px;
-    padding: 4px 2px; box-shadow: none;
+    font-family: inherit; font-size: var(--text-base); line-height: 21px;
+    padding: var(--space-2) var(--space-1); box-shadow: none;
   }
   .composer-card textarea::placeholder { color: var(--color-text-soft); }
   .composer-footer {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
   }
   .composer-left {
-    display: flex; align-items: center; gap: 8px;
+    display: flex; align-items: center; gap: var(--space-3);
   }
   .model-picker-wrap { width: auto; flex-shrink: 0; display: inline-flex; }
   .composer-left :global(.dropdown-trigger) { height: 32px; }
-  .run-btn { gap: 6px; }
-  .run-arrow { margin-left: 2px; font-size: 14px; line-height: 1; }
+  .run-btn { gap: var(--space-2); }
+  .run-arrow { margin-left: var(--space-1); font-size: var(--text-base); line-height: 1; }
   .composer-hint {
     max-width: 760px; margin: 8px auto 0 auto;
-    text-align: center; font-size: 11px; color: var(--color-text-soft);
+    text-align: center; font-size: var(--text-xs); color: var(--color-text-soft);
   }
   @media (max-width: 640px) {
-    .thread { padding: 16px 16px 0 16px; }
-    .composer-dock { padding: 8px 12px 12px 12px; }
+    .thread { padding: var(--space-5) var(--space-5) 0 var(--space-5); }
+    .composer-dock { padding: var(--space-3) var(--space-4) var(--space-4) var(--space-4); }
     .composer-card { border-radius: 16px; }
   }
 </style>

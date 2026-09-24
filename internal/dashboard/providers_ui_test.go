@@ -305,17 +305,10 @@ func TestAvailableModelsIncludesVirtualWithoutCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("available models failed: %v", err)
 	}
-	found := false
 	for _, item := range items {
-		if item.FullModelID == "virtual/helper" {
-			found = true
-			if item.ProviderID != provider.TypeVirtual || item.ModelName != "helper" || item.DisplayName != "Helper" {
-				t.Errorf("virtual entry fields wrong: %+v", item)
-			}
+		if item.ProviderType == provider.TypeVirtual {
+			t.Fatalf("virtual entry must not be listed: %+v", item)
 		}
-	}
-	if !found {
-		t.Fatalf("virtual/helper missing from available models: %+v", items)
 	}
 }
 

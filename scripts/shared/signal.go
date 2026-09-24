@@ -1,9 +1,9 @@
 package shared
 
-// Terminate sends one graceful stop signal to pid. Unix: SIGTERM. Windows:
-// CTRL_BREAK_EVENT to the process group. Delivery can fail before reaching
-// the target (see terminate in signal_windows.go), so callers proceed to
-// the force path on failure.
+// Terminate sends one graceful stop signal to pid's process group. Unix:
+// SIGTERM to -pid. Windows: CTRL_BREAK_EVENT to the process group. Delivery
+// can fail before reaching the target (see terminate in signal_windows.go
+// and signal_unix.go), so callers proceed to the force path on failure.
 func Terminate(pid int) error { return terminate(pid) }
 
 // RegisterSession groups the processes spawned for pidFile so a later,

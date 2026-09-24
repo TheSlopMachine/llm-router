@@ -1,0 +1,120 @@
+<script lang="ts">
+  import type { TimeSeriesPoint } from '$lib/types'
+  import { t } from '$lib/i18n.svelte'
+  import { SectionCard, VStack, HStack, Text } from '$ui'
+
+  let { title, data = [], loading = false } = $props<{
+    title: string
+    data: TimeSeriesPoint[]
+    loading?: boolean
+  }>()
+
+  let maxValue = $derived(data.length > 0 ? Math.max(...data.map((d: TimeSeriesPoint) => d.value)) : 0)
+  let hasData = $derived(data.length > 0 && maxValue > 0)
+  let yAxisMax = $derived(hasData ? maxValue : 20)
+  let yAxisMid = $derived(Math.floor(yAxisMax / 2))
+
+  let startMs = $derived.by(() => {
+    if (data.length === 0) return 0
+    return Math.min(...data.map((d: TimeSeriesPoint) => new Date(d.timestamp).getTime()))
+  })
+  let endMs = $derived.by(() => {
+    if (data.length === 0) return 1
+    return Math.max(...data.map((d: TimeSeriesPoint) => new Date(d.timestamp).getTime()))
+  })
+  let rangeMs = $derived(Math.max(endMs - startMs, 1))
+
+  function formatYLabel(value: number): string {
+    if (value >= 1000) {
+      return (value / 1000).toFixed(0) + 'K'
+    }
+    return value.toString()
+  }
+
+  function xFor(ts: string): number {
+    return ((new Date(ts).getTime() - startMs) / rangeMs) * 300
+  }
+
+  function yFor(value: number): number {
+    if (yAxisMax === 0) return 120
+    return 120 - (value / yAxisMax) * 120
+  }
+</script>
+
+<SectionCard {title}>
+  <div class="chart-container">
+    {#if loading}
+      <Text tone="soft" size="sm">{t('Loading...')}</Text>
+    {:else}
+      <HStack gap={3} fill>
+        <div class="y-axis-labels">
+          <Text size="xs" tone="soft">{formatYLabel(yAxisMax)}</Text>
+          <Text size="xs" tone="soft">{formatYLabel(yAxisMid)}</Text>
+          <Text size="xs" tone="soft">0</Text>
+        </div>
+        <div class="chart-area">
+          {#if !hasData}
+            <svg width="100%" height="120" viewBox="0 0 300 120" preserveAspectRatio="none">
+              <line x1="0" y1="119" x2="300" y2="119" style="stroke: var(--color-outline-light)" stroke-width="1" />
+              <line x1="0" y1="115" x2="0" y2="123" style="stroke: var(--color-outline-light)" stroke-width="1" />
+              <line x1="300" y1="115" x2="300" y2="123" style="stroke: var(--color-outline-light)" stroke-width="1" />
+            </svg>
+          {:else}
+            <svg width="100%" height="120" viewBox="0 0 300 120" preserveAspectRatio="none">
+              <!-- Grid lines -->
+              <line x1="0" y1="0" x2="300" y2="0" style="stroke: var(--color-surface-container-highest)" stroke-width="1" />
+              <line x1="0" y1="60" x2="300" y2="60" style="stroke: var(--color-surface-container-highest)" stroke-width="1" />
+              <line x1="0" y1="119" x2="300" y2="119" style="stroke: var(--color-outline-light)" stroke-width="1" />
+
+              {#if data.length === 1}
+                {@const cx = xFor(data[0].timestamp)}
+                {@const cy = yFor(data[0].value)}
+                <circle cx={cx} cy={cy} r="3" style="fill: var(--color-accent)" vector-effect="non-scaling-stroke" />
+              {:else}
+                {@const points = data
+                  .map((d: TimeSeriesPoint) => `${xFor(d.timestamp)},${yFor(d.value)}`)
+                  .join(' ')}
+                <polyline
+                  points={points}
+                  fill="none"
+                  style="stroke: var(--color-accent)"
+                  stroke-width="2"
+                  vector-effect="non-scaling-stroke"
+                />
+              {/if}
+
+              <!-- Axis ticks -->
+              <line x1="0" y1="115" x2="0" y2="123" style="stroke: var(--color-outline-light)" stroke-width="1" />
+              <line x1="300" y1="115" x2="300" y2="123" style="stroke: var(--color-outline-light)" stroke-width="1" />
+            </svg>
+          {/if}
+        </div>
+      </HStack>
+    {/if}
+  </div>
+</SectionCard>
+
+<style>
+  .chart-container {
+    min-height: 140px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .y-axis-labels {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: var(--space-1) 0;
+    min-width: 40px;
+    text-align: right;
+    height: 120px;
+  }
+
+  .chart-area {
+    flex: 1;
+    position: relative;
+    height: 120px;
+  }
+</style>

@@ -20,6 +20,27 @@
 // Squircle elements are borderless by design: CSS borders do not follow a
 // clip-path. Use a fill that contrasts with the background instead of a
 // border (the Apple grouped-list approach).
+//
+// -- Performance ------------------------------------------------------------
+// Four things keep this cheap at hundreds of elements:
+//   1. Observers are shared (lib/observers.ts): one ResizeObserver and one
+//      MutationObserver for the whole app instead of a pair per element.
+//   2. Paths are memoised on (width, height, radius, exponent). A table of
+//      40 identical chips computes the geometry once.
+//   3. Applies are batched into a rAF and a node whose box and radius did not
+//      change writes nothing, so a resize storm costs one pass.
+//   4. Within that pass, the read/write/read/write dance needed to peek at
+//      the CSS radius (see resolveAndCommit below) is phase-separated across
+//      every node in the burst rather than interleaved per node — see the
+//      comment on resolveAndCommit for why that matters.
+
+import {
+  observeResize,
+  observeStyleAttribute,
+  trackElements,
+  hookViewport,
+  invalidateAll,
+} from './observers'
 
 let superellipseExp = 0.8 // 2/n with n = 2.5
 
@@ -27,7 +48,8 @@ let superellipseExp = 0.8 // 2/n with n = 2.5
 export function setSquircleExponent(n: number): void {
   if (!Number.isFinite(n) || n < 2) return
   superellipseExp = 2 / n
-  for (const apply of liveApplies) apply()
+  pathCache.clear()
+  invalidateAll()
 }
 
 const CORNER_SAMPLES = 24
@@ -54,11 +76,21 @@ function cornerArc(cx: number, cy: number, r: number, quadrant: number): string 
   return points.join(' ')
 }
 
+// Identical geometry recurs constantly -- every chip in a table, every row
+// button. Memoise on the rounded box so the 25-point-per-corner sampling runs
+// once per distinct shape instead of once per element.
+const pathCache = new Map<string, string>()
+const PATH_CACHE_LIMIT = 512
+
 export function squirclePath(width: number, height: number, radius: number): string {
   const r = Math.max(0, Math.min(radius, width / 2, height / 2))
+  const key = `${width.toFixed(1)}x${height.toFixed(1)}r${r.toFixed(2)}`
+  const hit = pathCache.get(key)
+  if (hit !== undefined) return hit
+
   const w = width
   const h = height
-  return [
+  const path = [
     `M ${r.toFixed(2)} 0`,
     `L ${(w - r).toFixed(2)} 0`,
     cornerArc(w - r, r, r, 0),
@@ -70,61 +102,48 @@ export function squirclePath(width: number, height: number, radius: number): str
     cornerArc(r, r, r, 3),
     'Z',
   ].join(' ')
+
+  // Bounded cache: drop the oldest entry rather than grow without limit on a
+  // long-lived dashboard whose tables resize continuously.
+  if (pathCache.size >= PATH_CACHE_LIMIT) {
+    const oldest = pathCache.keys().next().value
+    if (oldest !== undefined) pathCache.delete(oldest)
+  }
+  pathCache.set(key, path)
+  return path
 }
 
 const supportsPath = typeof CSS !== 'undefined' && CSS.supports('clip-path', "path('M 0 0 L 1 1 Z')")
 
 // Class-driven squircle for elements rendered in dozens of places where a
-// per-element action would be noise (chips). Attaches the action to every
-// current and future match; detaches when the node leaves the DOM.
+// per-element action would be noise (chips). Shares the app-wide element
+// tracker instead of opening its own document observer.
 const AUTO_SELECTOR = '.chip'
 
-export function startAutoSquircle(root: ParentNode = document.body): () => void {
+export function startAutoSquircle(): () => void {
+  if (!supportsPath) return () => {}
   const attached = new WeakMap<HTMLElement, { destroy(): void }>()
-
-  function attach(el: HTMLElement): void {
-    if (!attached.has(el)) attached.set(el, squircle(el))
-  }
-  function scan(node: Node): void {
-    if (!(node instanceof HTMLElement)) return
-    if (node.matches(AUTO_SELECTOR)) attach(node)
-    node.querySelectorAll(AUTO_SELECTOR).forEach((el) => attach(el as HTMLElement))
-  }
-  function teardown(node: Node): void {
-    if (!(node instanceof HTMLElement)) return
-    const entry = attached.get(node)
-    if (entry) {
-      entry.destroy()
-      attached.delete(node)
-    }
-    node.querySelectorAll(AUTO_SELECTOR).forEach((el) => {
-      const e = attached.get(el as HTMLElement)
-      if (e) {
-        e.destroy()
-        attached.delete(el as HTMLElement)
+  return trackElements({
+    selector: AUTO_SELECTOR,
+    attach(el) {
+      if (!attached.has(el)) attached.set(el, squircle(el))
+    },
+    detach(el) {
+      const entry = attached.get(el)
+      if (entry) {
+        entry.destroy()
+        attached.delete(el)
       }
-    })
-  }
-
-  scan(root as unknown as Node)
-  const mo = new MutationObserver((muts) => {
-    for (const m of muts) {
-      m.addedNodes.forEach(scan)
-      m.removedNodes.forEach(teardown)
-    }
+    },
   })
-  mo.observe(root, { childList: true, subtree: true })
-  return () => mo.disconnect()
 }
 
 // CSS border-radius is the source of truth; the action argument is a fallback.
-// The inline override (see below) is temporarily cleared to read the CSS value.
-// Percent radii (e.g. 50%) resolve against the smaller side.
-function resolveRadius(node: HTMLElement, w: number, h: number, fallback: number): number {
-  const inline = node.style.borderRadius
-  if (inline) node.style.borderRadius = ''
+// Percent radii (e.g. 50%) resolve against the smaller side. Pure function:
+// the inline-override clear/restore around this read lives in
+// resolveAndCommit now, batched across every node in the burst.
+function readCssRadius(node: HTMLElement, w: number, h: number, fallback: number): number {
   const raw = getComputedStyle(node).borderTopLeftRadius
-  if (inline) node.style.borderRadius = inline
   if (!raw) return fallback
   if (raw.endsWith('%')) {
     const pct = parseFloat(raw)
@@ -134,65 +153,136 @@ function resolveRadius(node: HTMLElement, w: number, h: number, fallback: number
   return Number.isFinite(px) && px > 0 ? px : fallback
 }
 
-// A radius-only CSS change does not move the border box, so ResizeObserver
-// alone misses it; window resize (also dispatched by the metrics playground)
-// forces every live squircle to re-read its computed radius.
-const liveApplies = new Set<() => void>()
-let windowHooked = false
-
-function hookWindow(): void {
-  if (windowHooked) return
-  windowHooked = true
-  window.addEventListener('resize', () => {
-    for (const apply of liveApplies) apply()
-  })
+interface ApplyItem {
+  node: HTMLElement
+  fallbackBox: { value: number }
+  keyBox: { value: string }
+  destroyed: boolean
 }
 
-export function squircle(node: HTMLElement, radius = 10): { update(r: number): void; destroy(): void } {
-  let fallback = radius
+// Resolving the true CSS radius means clearing our inline override, reading
+// getComputedStyle, then restoring the override -- and getComputedStyle
+// flushes *every* pending style write in the document, not just this node's.
+// Doing that dance once per node, interleaved with the next node's
+// offsetWidth read (itself a layout-forcing read), forces one recalculation
+// per node in the burst instead of one for the whole burst -- exactly the
+// thrashing pattern the shared rAF batching in observers.ts was meant to
+// avoid, just pushed down a level. Phase-separating it here (read every box,
+// clear every radius, read every radius, restore every radius, then commit)
+// means only the *first* radius read forces a flush; the rest land clean.
+function resolveAndCommit(items: ApplyItem[]): void {
+  const live = items.filter((it) => !it.destroyed && it.node.isConnected)
+  const n = live.length
+  if (n === 0) return
+
+  const w = new Array<number>(n)
+  const h = new Array<number>(n)
+  for (let i = 0; i < n; i++) {
+    w[i] = live[i].node.offsetWidth
+    h[i] = live[i].node.offsetHeight
+  }
+
+  for (let i = 0; i < n; i++) {
+    if (w[i] && h[i] && live[i].node.style.borderRadius) {
+      live[i].node.style.borderRadius = ''
+    }
+  }
+
+  const r = new Array<number>(n)
+  for (let i = 0; i < n; i++) {
+    r[i] = w[i] && h[i]
+      ? readCssRadius(live[i].node, w[i], h[i], live[i].fallbackBox.value)
+      : live[i].fallbackBox.value
+  }
+
+  for (let i = 0; i < n; i++) {
+    if (w[i] && h[i]) live[i].node.style.borderRadius = '0'
+  }
+
+  for (let i = 0; i < n; i++) {
+    if (!w[i] || !h[i]) continue
+    const { node, keyBox } = live[i]
+    const key = `${w[i]}x${h[i]}r${r[i].toFixed(2)}`
+    if (key === keyBox.value && node.style.clipPath !== '') continue
+    keyBox.value = key
+    node.style.clipPath = `path('${squirclePath(w[i], h[i], r[i])}')`
+  }
+}
+
+// Auto-trigger queue (ResizeObserver / style-attribute reapply). A microtask
+// still runs before the next paint, so nothing visible is delayed -- it just
+// lets every node touched within the same synchronous callback burst (e.g.
+// observers.ts's own flush() looping over a resize batch) land in one
+// resolveAndCommit call instead of N. Manual init/update() stay synchronous
+// on purpose: single-element, user-driven, no burst to coalesce.
+let applyQueue: ApplyItem[] = []
+let applyScheduled = false
+
+function queueApply(item: ApplyItem): void {
+  applyQueue.push(item)
+  if (!applyScheduled) {
+    applyScheduled = true
+    queueMicrotask(() => {
+      applyScheduled = false
+      const queue = applyQueue
+      applyQueue = []
+      resolveAndCommit(queue)
+    })
+  }
+}
+
+export function squircle(
+  node: HTMLElement,
+  radius = 10
+): { update(r: number): void; destroy(): void } {
+  const fallbackBox = { value: radius }
+
+  if (!supportsPath) {
+    // No clip-path support: the CSS border-radius fallback is the whole
+    // behaviour, so skip every observer and measurement.
+    return {
+      update(next: number) {
+        fallbackBox.value = next
+      },
+      destroy() {},
+    }
+  }
 
   // Keep the CSS border-radius as the no-clip-path fallback, but mask it where
   // the clip applies, otherwise the circular radius always wins the silhouette.
-  if (supportsPath) node.style.borderRadius = '0'
+  node.style.borderRadius = '0'
 
-  function apply(): void {
-    const w = node.offsetWidth
-    const h = node.offsetHeight
-    if (!w || !h) return
-    node.style.clipPath = `path('${squirclePath(w, h, resolveRadius(node, w, h, fallback))}')`
-  }
+  const keyBox = { value: '' }
+  const item: ApplyItem = { node, fallbackBox, keyBox, destroyed: false }
 
   // A component setting style={...} (e.g. Button's tint vars) rewrites the
   // style attribute and wipes our inline clip-path/border-radius. Re-assert
   // them when that happens; our own writes leave clip-path in place and
   // setting an unchanged value does not mutate, so this terminates.
-  const mo = new MutationObserver(() => {
-    if (supportsPath && node.style.clipPath === '') apply()
-    if (supportsPath && node.style.borderRadius !== '0') node.style.borderRadius = '0'
+  const stopAttr = observeStyleAttribute(node, () => {
+    if (node.style.borderRadius !== '0') node.style.borderRadius = '0'
+    if (node.style.clipPath === '') {
+      keyBox.value = ''
+      queueApply(item)
+    }
   })
-  mo.observe(node, { attributes: true, attributeFilter: ['style'] })
 
-  apply()
+  resolveAndCommit([item])
   // border-box: padding-only changes grow the widget while the content box
   // (the default observed box) stays put, and the clip must follow the widget.
-  const ro = new ResizeObserver(apply)
-  try {
-    ro.observe(node, { box: 'border-box' })
-  } catch {
-    ro.observe(node)
-  }
-  hookWindow()
-  liveApplies.add(apply)
+  const stopResize = observeResize(node, () => queueApply(item))
+  hookViewport()
 
   return {
     update(next: number) {
-      fallback = next
-      apply()
+      fallbackBox.value = next
+      keyBox.value = ''
+      resolveAndCommit([item])
     },
     destroy() {
-      mo.disconnect()
-      ro.disconnect()
-      liveApplies.delete(apply)
+      item.destroyed = true
+      stopAttr()
+      stopResize()
       node.style.borderRadius = ''
       node.style.clipPath = ''
     },

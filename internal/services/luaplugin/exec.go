@@ -168,6 +168,9 @@ func asProviderError(v lua.LValue) (*models.ProviderError, bool) {
 	case "geo":
 		errType = models.ErrorTypeGeo
 		status = 400
+	case "not_found":
+		errType = models.ErrorTypeNotFound
+		status = 404
 	default:
 		return nil, false
 	}

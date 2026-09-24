@@ -1,26 +1,28 @@
 <script lang="ts">
+  import Button from '../components/ui/controls/Button.svelte'
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
-  import Chat from '../components/Chat.svelte'
-  import Metrics from './Metrics.svelte'
-  import VirtualModelEditorPage from './VirtualModelEditorPage.svelte'
-  import ProviderDetailPage from './ProviderDetailPage.svelte'
-  import ProxyPage from './ProxyPage.svelte'
-  import ProxySourceDetailPage from './ProxySourceDetailPage.svelte'
-  import Models from '../components/Models.svelte'
-  import Providers from '../components/Providers.svelte'
-  import Tokens from '../components/Tokens.svelte'
-  import VirtualModels from '../components/VirtualModels.svelte'
-  import PluginsPage, { type PluginsTab } from './PluginsPage.svelte'
-  import UiTest from './UiTest.svelte'
-  import { modal } from '../lib/modal.svelte'
-  import { squircle } from '../lib/squircle'
-  import SettingsModal from '../components/SettingsModal.svelte'
+  import Metrics from './metrics/Metrics.svelte'
+  import Plugins from './plugins/Plugins.svelte'
+  import VirtualModelEditorPage from './virtual-models/VirtualModelEditPage.svelte'
+  import ProviderDetailPage from './providers/ProviderDetailPage.svelte'
+  import ProxyPage from './proxy/ProxyPage.svelte'
+  import ProxySourceDetailPage from './proxy/ProxySourceDetailPage.svelte'
+  import Models from './models/Models.svelte'
+  import Providers from './providers/Providers.svelte'
+  import Tokens from './tokens/Tokens.svelte'
+  import VirtualModels from './virtual-models/VirtualModels.svelte'
+  import SettingsPage from './settings/SettingsPage.svelte'
+  import type { PluginsTab } from './plugins/Plugins.svelte'
   import { t } from '../lib/i18n.svelte'
 
   let { onlogout } = $props<{ onlogout: () => void }>()
 
-  type PanelId = 'chat' | 'metrics' | 'providers' | 'models' | 'virtual' | 'tokens' | 'plugins' | 'proxy' | 'ui-test'
+  // One source of truth: the tuple drives both the type and the runtime
+  // validation below. Previously the same nine ids were written twice and
+  // drifted apart the moment a section was added.
+  const PANELS = ['metrics', 'providers', 'models', 'virtual', 'tokens', 'plugins', 'proxy', 'settings', 'ui-test'] as const
+  type PanelId = (typeof PANELS)[number]
 
   interface NavItem {
     id: PanelId
@@ -46,8 +48,6 @@
       window.location.hash = '#/plugins/catalog'
       return
     }
-    const validPanels: PanelId[] = ['chat', 'metrics', 'providers', 'models', 'virtual', 'tokens', 'plugins', 'proxy', 'ui-test']
-
     if (segments.length === 0) {
       panel = 'metrics'
       routeSegments = []
@@ -56,7 +56,7 @@
     }
 
     const nextPanel = segments[0] as PanelId
-    if (!validPanels.includes(nextPanel)) {
+    if (!(PANELS as readonly string[]).includes(nextPanel)) {
       panel = 'metrics'
       routeSegments = []
       window.location.hash = '#/metrics'
@@ -74,7 +74,7 @@
   })
 
   function openSettings(): void {
-    modal.open({ title: 'Settings', content: SettingsModal })
+    navigateTo('settings')
   }
 
   async function logout(): Promise<void> {
@@ -83,7 +83,6 @@
   }
 
   const nav: NavItem[] = [
-    { id: 'chat',         label: 'Chat',         icon: 'chat' },
     { id: 'metrics',      label: 'Metrics',      icon: 'analytics' },
     { id: 'providers',    label: 'Providers',    icon: 'cloud' },
     { id: 'models',       label: 'Models',       icon: 'view_list' },
@@ -138,9 +137,7 @@
 <div class="layout" class:mobile>
   {#if mobile}
     <header class="appbar">
-      <button class="btn-icon" onclick={() => { drawerOpen = true }} aria-label={t('Open menu')} title={t('Menu')} use:squircle={10}>
-        <span class="icon">menu</span>
-      </button>
+      <Button onclick={() => { drawerOpen = true }} ariaLabel={t('Open menu')} title={t('Menu')} icon={{ name: 'menu' }} />
       <div class="appbar-brand">llm-router</div>
     </header>
     {#if drawerOpen}
@@ -184,7 +181,7 @@
       {/each}
     </nav>
     <div class="sidebar-footer">
-      <button class="logout-btn" onclick={openSettings} aria-label={t('Open settings')} title={collapsed ? t('Settings') : undefined}>
+      <button class="logout-btn" class:active={panel === 'settings'} onclick={openSettings} aria-label={t('Open settings')} title={collapsed ? t('Settings') : undefined}>
         <span class="icon">settings</span>
         <span class="label">{t('Settings')}</span>
       </button>
@@ -195,11 +192,9 @@
     </div>
   </aside>
 
-  <main class="main" class:chat={panel === 'chat'}>
-    <div class="main-content" class:chat={panel === 'chat'}>
-      {#if panel === 'chat'}
-        <Chat />
-      {:else if panel === 'metrics'}
+  <main class="main">
+    <div class="main-content">
+      {#if panel === 'metrics'}
         <Metrics />
       {:else if panel === 'providers'}
         {#if routeSegments[0]}
@@ -220,13 +215,15 @@
       {:else if panel === 'tokens'}
         <Tokens />
       {:else if panel === 'plugins'}
-        <PluginsPage tab={pluginsTab} ontabchange={selectPluginsTab} />
+        <Plugins tab={pluginsTab} ontabchange={selectPluginsTab} />
       {:else if panel === 'proxy'}
         {#if routeSegments[0] === 'source' && routeSegments[1]}
           <ProxySourceDetailPage sourceKey={decodeURIComponent(routeSegments[1])} />
         {:else}
           <ProxyPage />
         {/if}
+      {:else if panel === 'settings'}
+        <SettingsPage />
       {:else if panel === 'ui-test'}
         <UiTest />
       {/if}
@@ -260,11 +257,11 @@
     align-items: center;
     justify-content: space-between;
     padding: 0 20px;
-    margin-bottom: 24px;
+    margin-bottom: var(--space-6);
     min-height: 24px;
   }
   .brand {
-    font-size: 13px;
+    font-size: var(--text-sm);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -288,7 +285,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 4px;
+    padding: var(--space-2);
     border-radius: 6px;
     color: var(--color-text-soft);
     background: none;
@@ -324,21 +321,21 @@
   .sidebar.collapsed .logout-btn {
     gap: 0;
   }
-  nav { 
-    display: flex; 
-    flex-direction: column; 
-    gap: 4px; 
-    padding: 0 12px; 
+  nav {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: 0 var(--space-4);
   }
   .nav-item {
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    gap: 8px;
+    gap: var(--space-3);
     text-align: left;
-    padding: 8px 12px;
+    padding: var(--space-3) var(--space-4);
     border-radius: 8px;
-    font-size: 14px;
+    font-size: var(--text-base);
     font-weight: 500;
     color: var(--color-text-soft);
     background: none;
@@ -354,34 +351,35 @@
   .nav-item:active {
     transform: scale(0.96);
   }
-  .nav-item:hover { 
-    background: var(--color-nav-hover); 
-    color: var(--color-text); 
+  .nav-item:hover {
+    background: var(--color-nav-hover);
+    color: var(--color-text);
   }
-  .nav-item.active { 
-    background: var(--color-nav-active); 
-    color: var(--color-text); 
+  .nav-item.active,
+  .logout-btn.active {
+    background: var(--color-nav-active);
+    color: var(--color-text);
   }
   .nav-item .icon {
-    font-size: 20px;
+    font-size: var(--text-lg);
   }
   .sidebar-footer {
     margin-top: auto;
-    padding: 0 12px;
+    padding: 0 var(--space-4);
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-3);
   }
   .logout-btn {
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    gap: 8px;
+    gap: var(--space-3);
     width: 100%;
     text-align: left;
-    padding: 8px 12px;
+    padding: var(--space-3) var(--space-4);
     border-radius: 8px;
-    font-size: 14px;
+    font-size: var(--text-base);
     color: var(--color-text-soft);
     background: none;
     border: none;
@@ -395,51 +393,38 @@
   .logout-btn:active {
     transform: scale(0.96);
   }
-  .logout-btn:hover { 
-    color: var(--color-text); 
-    background: var(--color-nav-hover); 
+  .logout-btn:hover {
+    color: var(--color-text);
+    background: var(--color-nav-hover);
   }
   .logout-btn .icon {
-    font-size: 20px;
+    font-size: var(--text-lg);
   }
   .main {
     flex: 1;
     overflow-y: auto;
-    padding: 32px;
+    padding: var(--space-7);
     background: var(--color-surface);
-  }
-  .main.chat {
-    padding: 0;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
   }
   .main-content {
     width: 100%;
     max-width: 1200px;
     margin: 0 auto;
   }
-  .main-content.chat {
-    max-width: none;
-    flex: 1;
-    display: flex;
-    margin: 0;
-    min-height: 0;
-  }
 
   /* ── Phone layout: app bar + drawer sidebar ── */
   .appbar {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-4);
     height: 52px;
-    padding: 0 16px;
+    padding: 0 var(--space-5);
     flex-shrink: 0;
     background: var(--color-sidebar-bg);
     border-bottom: 1px solid var(--color-outline-light);
   }
   .appbar-brand {
-    font-size: 13px;
+    font-size: var(--text-sm);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -473,7 +458,7 @@
     transition:
       transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
       visibility 0s linear 0.3s;
-    box-shadow: var(--shadow-xl);
+    border-right: 1px solid var(--color-outline-soft);
   }
   .layout.mobile .sidebar.drawer-open {
     transform: translateX(0);
@@ -483,6 +468,6 @@
       visibility 0s;
   }
   .layout.mobile .main {
-    padding: 16px;
+    padding: var(--space-5);
   }
 </style>

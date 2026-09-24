@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
@@ -866,6 +867,9 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 	}
 
 	var entries []modelEntry
+	// byFullID indexes the already-fetched member views for virtual-model
+	// resolution below: no second lookup pass.
+	byFullID := map[string]modelinfo.ModelView{}
 	// Global listing like dashboard Available Models, not per-token.
 	// Never hide a provider on discovery error — log and optionally emit synthetic entry.
 	if h.providerSvc != nil && h.modelInfoSvc != nil {
@@ -903,6 +907,7 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 					if mi.Disabled {
 						continue
 					}
+					byFullID[p.ID+"/"+mi.Name] = mi
 					entries = append(entries, entryFor(p, mi))
 				}
 			}
@@ -910,18 +915,71 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 	}
 	if h.virtualSvc != nil {
 		if agents, err := h.virtualSvc.List(); err == nil {
+			// Virtual metadata is folded serve-time from the member views
+			// above: unknown members are skipped, a virtual model with no
+			// available members stays hidden. Pure in-memory work, fanned out.
+			type resolvedVirtual struct {
+				agent *models.VirtualModel
+				agg   virtual.Metadata
+			}
+			var mu sync.Mutex
+			var resolved []resolvedVirtual
+			var wg sync.WaitGroup
 			for _, a := range agents {
-				entries = append(entries, modelEntry{
+				if a.Disabled {
+					continue
+				}
+				wg.Add(1)
+				go func(a *models.VirtualModel) {
+					defer wg.Done()
+					members := make([]modelinfo.ModelView, 0, len(a.Models))
+					for _, e := range a.Models {
+						mv, ok := byFullID[string(e.ModelID)]
+						if !ok {
+							h.logger.Warn("v1 listModels: virtual member not found, skipping",
+								"virtual_id", a.ID, "member", string(e.ModelID))
+							continue
+						}
+						members = append(members, mv)
+					}
+					if len(members) == 0 {
+						h.logger.Warn("v1 listModels: virtual model has no available members, hiding",
+							"virtual_id", a.ID)
+						return
+					}
+					mu.Lock()
+					infos := make([]models.ModelInfo, 0, len(members))
+					for _, mv := range members {
+						infos = append(infos, mv.ModelInfo)
+					}
+					resolved = append(resolved, resolvedVirtual{agent: a, agg: virtual.FoldMembers(infos)})
+					mu.Unlock()
+				}(a)
+			}
+			wg.Wait()
+			for _, rv := range resolved {
+				a, agg := rv.agent, rv.agg
+				e := modelEntry{
 					ID:                  provider.TypeVirtual + "/" + a.ID,
 					Object:              "model",
 					Created:             a.CreatedAt.Unix(),
 					OwnedBy:             provider.TypeVirtual,
 					Name:                a.Name,
 					Description:         a.Description,
-					ContextLength:       a.ContextLength,
-					MaxCompletionTokens: a.MaxCompletionTokens,
-					Capabilities:        a.Capabilities,
-				})
+					ContextLength:       agg.ContextLength,
+					MaxCompletionTokens: agg.MaxCompletionTokens,
+					Reasoning:           agg.Reasoning,
+					SupportedParameters: agg.SupportedParameters,
+					Capabilities:        agg.Capabilities,
+				}
+				if len(agg.InputModalities) > 0 || len(agg.OutputModalities) > 0 {
+					e.Architecture = &modelArchitecture{
+						InputModalities:  agg.InputModalities,
+						OutputModalities: agg.OutputModalities,
+						Modality:         joinModalities(agg.InputModalities) + "->" + joinModalities(agg.OutputModalities),
+					}
+				}
+				entries = append(entries, e)
 			}
 		}
 	}
@@ -958,12 +1016,62 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, t *model
 	var created int64
 	var info *modelinfo.ModelView
 	var virtualAgent *models.VirtualModel
+	var virtualAgg virtual.Metadata
 	if providerID == provider.TypeVirtual && h.virtualSvc != nil {
-		if a, err := h.virtualSvc.Get(modelName); err == nil {
-			exists = true
-			ownedBy = provider.TypeVirtual
-			created = a.CreatedAt.Unix()
-			virtualAgent = a
+		if a, err := h.virtualSvc.Get(modelName); err == nil && !a.Disabled {
+			// Members resolve cache-only: a single lookup must never ping
+			// upstreams. Unknown members are skipped; no available members
+			// means the virtual model does not exist for this endpoint.
+			if h.modelInfoSvc != nil {
+				need := map[string][]string{}
+				for _, e := range a.Models {
+					pid, name, perr := e.ModelID.Parse()
+					if perr != nil {
+						h.logger.Warn("v1 retrieveModel: virtual member id invalid, skipping",
+							"virtual_id", a.ID, "member", string(e.ModelID))
+						continue
+					}
+					need[pid] = append(need[pid], name)
+				}
+				var members []modelinfo.ModelView
+				for pid, names := range need {
+					views, verr := h.modelInfoSvc.PeekMergedView(pid)
+					if verr != nil {
+						h.logger.Warn("v1 retrieveModel: provider view unavailable, skipping members",
+							"virtual_id", a.ID, "provider_id", pid)
+						continue
+					}
+					byName := make(map[string]modelinfo.ModelView, len(views))
+					for _, v := range views {
+						if !v.Disabled {
+							byName[v.Name] = v
+						}
+					}
+					for _, name := range names {
+						mv, ok := byName[name]
+						if !ok {
+							h.logger.Warn("v1 retrieveModel: virtual member not found, skipping",
+								"virtual_id", a.ID, "member", pid+"/"+name)
+							continue
+						}
+						members = append(members, mv)
+					}
+				}
+				if len(members) > 0 {
+					exists = true
+					ownedBy = provider.TypeVirtual
+					created = a.CreatedAt.Unix()
+					virtualAgent = a
+					infos := make([]models.ModelInfo, 0, len(members))
+					for _, mv := range members {
+						infos = append(infos, mv.ModelInfo)
+					}
+					virtualAgg = virtual.FoldMembers(infos)
+				} else {
+					h.logger.Warn("v1 retrieveModel: virtual model has no available members, hiding",
+						"virtual_id", a.ID)
+				}
+			}
 		}
 	} else if h.providerSvc != nil && h.modelInfoSvc != nil {
 		if p, err := h.providerSvc.Get(providerID); err == nil {
@@ -995,14 +1103,27 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, t *model
 		if virtualAgent.Description != "" {
 			out["description"] = virtualAgent.Description
 		}
-		if virtualAgent.ContextLength > 0 {
-			out["context_length"] = virtualAgent.ContextLength
+		if virtualAgg.ContextLength > 0 {
+			out["context_length"] = virtualAgg.ContextLength
 		}
-		if virtualAgent.MaxCompletionTokens > 0 {
-			out["max_completion_tokens"] = virtualAgent.MaxCompletionTokens
+		if virtualAgg.MaxCompletionTokens > 0 {
+			out["max_completion_tokens"] = virtualAgg.MaxCompletionTokens
 		}
-		if len(virtualAgent.Capabilities) > 0 {
-			out["capabilities"] = virtualAgent.Capabilities
+		if len(virtualAgg.Capabilities) > 0 {
+			out["capabilities"] = virtualAgg.Capabilities
+		}
+		if len(virtualAgg.InputModalities) > 0 || len(virtualAgg.OutputModalities) > 0 {
+			out["architecture"] = map[string]any{
+				"input_modalities":  virtualAgg.InputModalities,
+				"output_modalities": virtualAgg.OutputModalities,
+				"modality":          joinModalities(virtualAgg.InputModalities) + "->" + joinModalities(virtualAgg.OutputModalities),
+			}
+		}
+		if virtualAgg.Reasoning != nil {
+			out["reasoning"] = virtualAgg.Reasoning
+		}
+		if len(virtualAgg.SupportedParameters) > 0 {
+			out["supported_parameters"] = virtualAgg.SupportedParameters
 		}
 	}
 	if info != nil {

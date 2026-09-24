@@ -68,33 +68,39 @@ func (a *Adapter) getLogger() *slog.Logger {
 }
 
 // resolve looks up the virtual model targeted by the request model id
-// (virtual/<agent-id>) and returns the request with the instruction prepended
-// as the first user message.
-func (a *Adapter) resolve(req *models.ChatCompletionRequest) (*models.VirtualModel, *models.ChatCompletionRequest, error) {
+// (virtual/<agent-id>) and returns the agent, the member queue snapshotted
+// for this request, and the request with the instruction prepended as the
+// first user message.
+func (a *Adapter) resolve(req *models.ChatCompletionRequest) (*models.VirtualModel, []models.ModelId, *models.ChatCompletionRequest, error) {
 	_, agentID, err := req.Model.Parse()
 	if err != nil {
-		return nil, nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: fmt.Sprintf("invalid model id: %s", err)}
+		return nil, nil, nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: fmt.Sprintf("invalid model id: %s", err)}
 	}
 	if agentID == "" {
-		return nil, nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: "virtual model id is required"}
+		return nil, nil, nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: "virtual model id is required"}
 	}
 	virtualSvc := a.getVirtualService()
 	if virtualSvc == nil {
-		return nil, nil, fmt.Errorf("virtual model service not initialized")
+		return nil, nil, nil, fmt.Errorf("virtual model service not initialized")
 	}
 	agent, err := virtualSvc.Get(agentID)
 	if err != nil {
-		return nil, nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: fmt.Sprintf("virtual model %q not found", agentID)}
+		return nil, nil, nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: fmt.Sprintf("virtual model %q not found", agentID)}
 	}
 	if agent.Disabled {
-		return nil, nil, fmt.Errorf("%w: virtual/%s", apierrors.ErrModelDisabled, agentID)
+		return nil, nil, nil, fmt.Errorf("%w: virtual/%s", apierrors.ErrModelDisabled, agentID)
+	}
+	members := virtualSvc.LiveMembers(agent)
+	if len(members) == 0 && agent.ManagedBy != "" {
+		a.getLogger().Warn("virtual model group is empty, nothing to try",
+			"virtual_model", agent.Name, "managed_by", agent.ManagedBy)
 	}
 
 	modifiedReq := *req
 	if agent.Instruction != "" {
 		modifiedReq.Messages = append([]models.ChatMessage{{Role: "user", Content: agent.Instruction}}, req.Messages...)
 	}
-	return agent, &modifiedReq, nil
+	return agent, members, &modifiedReq, nil
 }
 
 // ─────────────────────────────────────────────
@@ -135,7 +141,7 @@ func (a *Adapter) Complete(
 		return nil, fmt.Errorf("router service not initialized")
 	}
 
-	agent, modifiedReq, err := a.resolve(req)
+	agent, members, modifiedReq, err := a.resolve(req)
 	if err != nil {
 		return nil, err
 	}
@@ -145,20 +151,20 @@ func (a *Adapter) Complete(
 	// list order. The first success wins; otherwise the last error is
 	// returned as-is.
 	var lastErr error
-	for _, agentModel := range agent.Models {
+	for _, memberID := range members {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		modelReq := *modifiedReq
-		modelReq.Model = agentModel.ModelID
+		modelReq.Model = memberID
 		logger.Info("virtual model trying model",
 			"virtual_model", agent.Name,
-			"model", agentModel.ModelID)
+			"model", memberID)
 		resp, err := routerSvc.Complete(ctx, &modelReq, nil)
 		if err == nil {
 			logger.Info("virtual model request succeeded",
 				"virtual_model", agent.Name,
-				"model", agentModel.ModelID)
+				"model", memberID)
 			return resp, nil
 		}
 		lastErr = err
@@ -181,7 +187,7 @@ func (a *Adapter) CompleteStream(
 		return fmt.Errorf("router service not initialized")
 	}
 
-	agent, modifiedReq, err := a.resolve(req)
+	agent, members, modifiedReq, err := a.resolve(req)
 	if err != nil {
 		return err
 	}
@@ -190,15 +196,15 @@ func (a *Adapter) CompleteStream(
 	// Same fall-through queue as Complete: attempts continue even after
 	// partial writes, members are interchangeable by advertised capabilities.
 	var lastErr error
-	for _, agentModel := range agent.Models {
+	for _, memberID := range members {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		modelReq := *modifiedReq
-		modelReq.Model = agentModel.ModelID
+		modelReq.Model = memberID
 		logger.Info("virtual model trying model (stream)",
 			"virtual_model", agent.Name,
-			"model", agentModel.ModelID)
+			"model", memberID)
 		if err := routerSvc.CompleteStream(ctx, &modelReq, w, nil); err == nil {
 			return nil
 		} else {
@@ -233,12 +239,9 @@ func (a *Adapter) GetModelInfos(ctx context.Context, cred *models.Credential, _ 
 	infos := make([]models.ModelInfo, len(agents))
 	for i, agent := range agents {
 		infos[i] = models.ModelInfo{
-			Name:          agent.ID,
-			DisplayName:   agent.Name,
-			Description:   agent.Description,
-			ContextWindow: agent.ContextLength,
-			MaxTokens:     agent.MaxCompletionTokens,
-			Capabilities:  agent.Capabilities,
+			Name:        agent.ID,
+			DisplayName: agent.Name,
+			Description: agent.Description,
 		}
 	}
 

@@ -335,6 +335,38 @@ func (s *Service) mergeRetained(providerID string, fresh []models.ModelInfo) []m
 	return merged
 }
 
+// RemoveModel drops one model from the cached list after the upstream
+// reports it does not exist. A missing provider record is a no-op.
+// Reports whether anything was removed.
+func (s *Service) RemoveModel(providerID, name string) (bool, error) {
+	rec, err := s.records.Get(providerID)
+	if err != nil || rec == nil {
+		return false, nil
+	}
+	kept := make([]models.ModelInfo, 0, len(rec.Models))
+	removed := false
+	for _, mi := range rec.Models {
+		if mi.Name == name {
+			removed = true
+			continue
+		}
+		kept = append(kept, mi)
+	}
+	if !removed {
+		return false, nil
+	}
+	s.mu.Lock()
+	if e, ok := s.cache[providerID]; ok {
+		e.models = append([]models.ModelInfo(nil), kept...)
+		s.cache[providerID] = e
+	}
+	s.mu.Unlock()
+	if err := s.records.Put(providerID, &modelInfoRecord{Models: kept, CachedAt: rec.CachedAt}); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // InvalidateProvider clears cache for a specific provider
 func (s *Service) InvalidateProvider(providerID string) error {
 	s.mu.Lock()

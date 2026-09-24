@@ -4,8 +4,12 @@
   import { getErrorMessage } from '../../lib/errors'
   import { t } from '../../lib/i18n.svelte'
   import type { ModalButton, Provider, UINode } from '../../lib/types'
-  import DynamicForm, { collectButtons, buttonVariant } from '../ui/DynamicForm.svelte'
-  import { squircle } from '../../lib/squircle'
+  import DynamicForm, { collectButtons, buttonVariant } from '../domain/DynamicForm.svelte'
+  import TextEdit from '../ui/controls/TextEdit.svelte'
+  import TextArea from '../ui/controls/TextArea.svelte'
+  import Select from '../ui/controls/Select.svelte'
+  import Text from '../ui/controls/Text.svelte'
+  import VStack from '../ui/layout/VStack.svelte'
 
   let {
     editingProvider = null,
@@ -152,59 +156,59 @@
   }
 </script>
 
-{#if error}
-  <div class="error-msg">{error}</div>
-{/if}
+<VStack gap={4}>
+  {#if error}
+    <div class="error-msg">{error}</div>
+  {/if}
 
-{#if !isEdit}
-  <div class="form-group">
-    <label for="provider-type">{t('Type')} *</label>
-    <select id="provider-type" value={typeKey} onchange={(e) => onTypeChange((e.target as HTMLSelectElement).value)} use:squircle={12}>
-      {#each types as t}
-        <option value={t}>{t}</option>
-      {/each}
-    </select>
-  </div>
-{/if}
+  {#if !isEdit}
+    <VStack gap={1}>
+      <Text size="sm" weight="medium">{t('Type')} *</Text>
+      <Select
+        value={typeKey}
+        options={types.map((t) => ({ value: t, label: t }))}
+        onchange={onTypeChange}
+      />
+    </VStack>
+  {/if}
 
-<div class="form-group">
-  <label for="provider-name">{t('Name')} *</label>
-  <input id="provider-name" type="text" bind:value={name} placeholder={t('My LLM Provider')} oninput={syncButtons} use:squircle={12} />
-</div>
+  <VStack gap={1}>
+    <Text size="sm" weight="medium">{t('Name')} *</Text>
+    <TextEdit
+      id="provider-name"
+      bind:value={name}
+      hint={t('My LLM Provider')}
+      onchange={syncButtons}
+    />
+  </VStack>
 
-{#if !isEdit && typeKey !== 'custom' && typeKey !== 'virtual'}
-  <div class="form-group">
-    <label for="provider-qualifier">{t('Qualifier')} ({t('optional')})</label>
-    <input id="provider-qualifier" type="text" bind:value={qualifier} placeholder="eu" use:squircle={12} />
-    <small>{t('Distinguishes multiple providers of the same type')}</small>
-  </div>
-{/if}
+  {#if !isEdit && typeKey !== 'custom' && typeKey !== 'virtual'}
+    <VStack gap={1}>
+      <Text size="sm" weight="medium">{t('Qualifier')} ({t('optional')})</Text>
+      <TextEdit
+        id="provider-qualifier"
+        bind:value={qualifier}
+        hint="eu"
+      />
+      <Text size="sm" tone="soft">{t('Distinguishes multiple providers of the same type')}</Text>
+    </VStack>
+  {/if}
 
-{#if configNodes}
-  <DynamicForm nodes={configNodes} bind:values={configValues} busy={creating} />
-{:else if useRawConfig}
-  <div class="form-group">
-    <label for="provider-config">{t('Config JSON')}</label>
-    <textarea id="provider-config" rows="5" bind:value={rawConfig} autocomplete="off" use:squircle={12}></textarea>
-  </div>
-{/if}
+  {#if configNodes}
+    <DynamicForm nodes={configNodes} bind:values={configValues} busy={creating} />
+  {:else if useRawConfig}
+    <VStack gap={1}>
+      <Text size="sm" weight="medium">{t('Config JSON')}</Text>
+      <TextArea id="provider-config" minRows={5} bind:value={rawConfig} />
+    </VStack>
+  {/if}
 
-<div class="form-group">
-  <label for="icon-url">{t('Icon URL')} ({t('optional')})</label>
-  <input id="icon-url" type="text" bind:value={iconURL} placeholder="https://example.com/icon.svg" use:squircle={12} />
-</div>
-
-<style>
-  .form-group {
-    margin-bottom: 16px;
-  }
-  .form-group:last-child {
-    margin-bottom: 0;
-  }
-  .form-group small {
-    display: block;
-    margin-top: 6px;
-    font-size: 12px;
-    color: var(--color-text-soft);
-  }
-</style>
+  <VStack gap={1}>
+    <Text size="sm" weight="medium">{t('Icon URL')} ({t('optional')})</Text>
+    <TextEdit
+      id="icon-url"
+      bind:value={iconURL}
+      hint="https://example.com/icon.svg"
+    />
+  </VStack>
+</VStack>

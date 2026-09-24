@@ -5,9 +5,9 @@
   import Login from './pages/Login.svelte'
   import Bootstrap from './pages/Bootstrap.svelte'
   import Dashboard from './pages/Dashboard.svelte'
-  import Modal from './components/Modal.svelte'
+  import Modal from './components/ui/composite/Modal.svelte'
   import Toasts from './components/Toasts.svelte'
-  import { hardenSecureElements } from './lib/secure'
+  import { startSecureHardening } from './lib/secure'
 
   type AppState = 'loading' | 'bootstrap' | 'login' | 'dashboard'
 
@@ -15,9 +15,7 @@
   let error: string | null = $state(null)
 
   onMount(async (): Promise<void> => {
-    hardenSecureElements()
-    const mo = new MutationObserver(() => hardenSecureElements())
-    mo.observe(document.body, { childList: true, subtree: true })
+    startSecureHardening()
     const path = window.location.pathname
 
     try {
@@ -72,7 +70,7 @@
   <div class="splash">
     {#if error}
       <div style="max-width: 400px; text-align: center;">
-        <div style="font-size: 20px; font-weight: 600; margin-bottom: 16px;">llm-router</div>
+        <div style="font-size: var(--text-lg); font-weight: 600; margin-bottom: 16px;">llm-router</div>
         <div class="error-msg">{error}</div>
       </div>
     {:else}
@@ -96,7 +94,7 @@
     align-items: center;
     justify-content: center;
     height: 100vh;
-    font-size: 20px;
+    font-size: var(--text-lg);
     font-weight: 600;
     color: var(--color-text-soft);
     letter-spacing: 0.1em;

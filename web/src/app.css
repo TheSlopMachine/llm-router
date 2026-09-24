@@ -1,7 +1,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: "Raleway", "Inter", system-ui, -apple-system, sans-serif;
-  font-size: 14px;
+  font-family: var(--font-normal);
+  font-size: var(--text-base);
   font-weight: 400;
   line-height: 21px;
   background: var(--color-background);
@@ -39,7 +39,52 @@ a:hover { text-decoration: underline; }
      level. Brightness compounds automatically (L*N): a header inside a
      table is two levels up. Overlays (modals, toasts) are separate
      screens: they restart from the page base. */
-  --elev: rgba(0, 0, 0, 0.025);
+  --elev: rgba(0, 0, 0, 0.075);
+
+
+  /* ── Spacing scale ────────────────────────────────────────────────────
+     One ladder for every gap, padding and margin in the system. Widgets
+     take a step number (gap={3}), never a pixel value, so a literal like
+     5px or 13px becomes impossible to write by accident. Steps are the
+     values that already dominated the codebase, deduplicated. */
+  --space-0: 0px;
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 48px;
+
+  /* Control heights: one height per size step, shared by Button, TextEdit,
+     Picker and Select so matching sizes always align. */
+  --ctl-small: 28px;
+  --ctl-medium: 36px;
+  --ctl-large: 44px;
+
+  /* ── Typography scale ─────────────────────────────────────────────────
+     13px was folded into 12/14: two sizes one pixel apart are drift, not
+     a decision. Line heights are unitless so they compose under nesting. */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-md: 16px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+
+  --font-normal: "Raleway", sans-serif;
+  --font-mono: "Red Hat Mono", monospace;
+
+  --leading-none: 1;
+  --leading-tight: 1.3;
+  --leading-base: 1.5;
+  --leading-loose: 1.7;
+
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-bold: 700;
 
   /* Radius scale. Elements get squircle corners via the use:squircle action. */
   --radius-xs: 8px;
@@ -122,12 +167,6 @@ a:hover { text-decoration: underline; }
   --color-notification-success-bg: rgba(34, 197, 94, 0.1);
   --color-notification-success-border: rgba(34, 197, 94, 0.3);
   --color-notification-success-text: #16a34a;
-
-  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-sm: 0 1px 3px 0 rgba(10, 13, 18, 0.1), 0 1px 2px -1px rgba(10, 13, 18, 0.1);
-  --shadow-md: 0 4px 6px -1px rgba(10, 13, 18, 0.1), 0 2px 4px -2px rgba(10, 13, 18, 0.06);
-  --shadow-lg: 0 12px 16px -4px rgba(10, 13, 18, 0.08), 0 4px 6px -2px rgba(10, 13, 18, 0.03);
-  --shadow-xl: 0 20px 24px -4px rgba(10, 13, 18, 0.08), 0 8px 8px -4px rgba(10, 13, 18, 0.03);
 
   --sidebar-w: 240px;
 
@@ -225,23 +264,17 @@ a:hover { text-decoration: underline; }
   --color-notification-success-bg: rgba(74, 222, 128, 0.15);
   --color-notification-success-border: rgba(74, 222, 128, 0.35);
   --color-notification-success-text: #4ade80;
-
-  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
-  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.6), 0 1px 2px -1px rgba(0, 0, 0, 0.6);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.6), 0 2px 4px -2px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 12px 16px -4px rgba(0, 0, 0, 0.6), 0 4px 6px -2px rgba(0, 0, 0, 0.5);
-  --shadow-xl: 0 20px 24px -4px rgba(0, 0, 0, 0.6), 0 8px 8px -4px rgba(0, 0, 0, 0.5);
 }
 
 /* Control sizing: heights derive from content (line-height) + padding vars,
    never fixed pixels — the polygon tunes them live and widgets grow with
-   their content. .btn-sm / .btn-large are the base button scaled: same shape,
+   their content. .btn-small / .btn-large are the base button scaled: same shape,
    proportionally scaled font, padding and corner radius. Icon buttons are
    squares via aspect-ratio on the same vertical padding. Textarea is exempt
    (min-height instead). */
 input, select, textarea {
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--text-base);
   font-weight: 400;
   line-height: 20px;
   width: 100%;
@@ -268,8 +301,8 @@ input:disabled, select:disabled, textarea:disabled {
 
 /* Project checkbox: squircle box sized to match text fields. Pair with
    use:squircle for the superellipse clip (border-radius below is the
-   fallback). Inactive fill matches .btn-primary; the checked mark draws
-   white on top of it. */
+   fallback). Unchecked fill matches fields; the checked mark draws
+   white on top of the accent. */
 input[type="checkbox"].check {
   appearance: none;
   -webkit-appearance: none;
@@ -280,7 +313,7 @@ input[type="checkbox"].check {
   padding: 0;
   border: none;
   border-radius: 6px;
-  background: var(--color-button-container-high);
+  background: var(--elev);
   cursor: pointer;
   display: inline-grid;
   place-content: center;
@@ -303,7 +336,7 @@ input[type="checkbox"].check:checked::before {
   transform: scale(1);
 }
 input[type="checkbox"].check:focus {
-  background: var(--color-button-container-high);
+  background: var(--elev);
   box-shadow: none;
 }
 textarea {
@@ -330,7 +363,7 @@ select {
 
 button, .btn {
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--text-base);
   font-weight: 500;
   line-height: 22px;
   display: inline-flex;
@@ -366,14 +399,35 @@ button:disabled, .btn:disabled {
 .dark button:disabled, .dark .btn:disabled {
   opacity: 0.8;
 }
-/* No outline ring: clip-path cuts it at the squircle corners. Keyboard focus
-   gets the same fill as hover instead. */
+/* Focus ring on clipped elements.
+   An outline is painted outside the border box, so clip-path cuts it away —
+   that is why focus used to be only a background swap, which is too weak to
+   satisfy the WCAG focus-visible contrast requirement. An *inset* box-shadow
+   is painted inside the box, so the squircle clip merely rounds its corners:
+   the ring survives, follows the superellipse, and needs no extra markup. */
+:root {
+  --focus-ring: inset 0 0 0 2px var(--color-accent);
+  --focus-ring-contrast: inset 0 0 0 2px var(--color-text-on-button-reverse);
+}
 button:focus-visible, .btn:focus-visible {
   outline: none;
   background: var(--color-button-container-high);
+  box-shadow: var(--focus-ring);
 }
 .btn-primary:focus-visible {
   background: var(--color-accent-hover);
+  box-shadow: var(--focus-ring-contrast);
+}
+/* Fields are not clipped, so they can use a real outline. */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+input.check:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .btn-primary {
@@ -402,15 +456,17 @@ button:focus-visible, .btn:focus-visible {
   background: var(--color-danger-hover);
 }
 
-/* TextButton (SwiftUI borderless): no fill, accent text, soft tint on hover.
-   Keeps the transparent border so it matches filled buttons' geometry.
+/* TextButton (SwiftUI borderless): transparent idle, plain page text or the
+   passed tint. Hover is a subtle accent wash, never a fill. Keeps the
+   transparent border so it matches filled buttons' geometry.
    .danger recolors the text for destructive contexts. */
 .btn-text {
   background: transparent;
-  color: var(--color-accent);
+  color: var(--color-text);
 }
-.btn-text:hover:not([disabled]) {
-  background: var(--color-accent-soft);
+.btn-text:hover:not([disabled]),
+.btn-text:focus-visible {
+  background: color-mix(in srgb, var(--color-accent) 15%, transparent);
 }
 .btn-text.danger {
   color: var(--color-danger);
@@ -440,8 +496,9 @@ button:focus-visible, .btn:focus-visible {
   background: transparent;
   color: var(--tint-bg);
 }
-.btn-text.btn-tinted:hover:not([disabled]) {
-  background: var(--tint-soft);
+.btn-text.btn-tinted:hover:not([disabled]),
+.btn-text.btn-tinted:focus-visible {
+  background: color-mix(in srgb, var(--tint-bg) 15%, transparent);
 }
 
 /* Image glyph inside a Button (icon={src:...}); font icons size themselves. */
@@ -453,15 +510,18 @@ button:focus-visible, .btn:focus-visible {
 
 /* Scale steps: same shape as the base button, proportionally scaled —
    font, line-height, padding and corner radius all follow one factor. */
-.btn-sm {
-  font-size: 12px;
+.ctl-small { height: var(--ctl-small); }
+.ctl-medium { height: var(--ctl-medium); }
+.ctl-large { height: var(--ctl-large); }
+.btn-small {
+  font-size: var(--text-sm);
   line-height: 18px;
   padding: calc(var(--btn-pad-v) * 0.9) calc(var(--btn-pad-h) * 0.85);
   border-radius: calc(var(--ctl-radius) * 0.85);
 }
 
 .btn-large {
-  font-size: 16px;
+  font-size: var(--text-md);
   line-height: 24px;
   padding: calc(var(--btn-pad-v) * 1.33) calc(var(--btn-pad-h) * 1.15);
   border-radius: calc(var(--ctl-radius) * 1.15);
@@ -478,19 +538,12 @@ button:focus-visible, .btn:focus-visible {
 .btn-icon .icon {
   line-height: inherit;
 }
-/* Destructive icon button: red glyph, reddish hover fill. */
-.btn-icon.icon-danger {
-  color: var(--color-danger);
-}
-.btn-icon.icon-danger:hover:not([disabled]) {
-  background: var(--color-notification-error-bg);
-}
-.btn-sm.btn-icon {
+.btn-small.btn-icon {
   /* sm: 18px line box + 2*0.9*pad-v + 2px border — exactly square */
   width: calc(var(--btn-pad-v) * 1.8 + 20px);
 }
-.btn-sm.btn-icon .icon {
-  font-size: 16px;
+.btn-small.btn-icon .icon {
+  font-size: var(--text-md);
 }
 
 /* Icon+text buttons: font icons carry ~4px of optical side bearing, so the
@@ -505,7 +558,7 @@ button:focus-visible, .btn:focus-visible {
 table { width: 100%; border-collapse: collapse; }
 th {
   text-align: left;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -514,10 +567,10 @@ th {
   border-bottom: 1px solid var(--color-outline-light);
 }
 td {
-  padding: 12px 16px;
+  padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--color-outline-soft);
   color: var(--color-text-soft);
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 tr:last-child td { border-bottom: none; }
 tbody tr:hover td {
@@ -536,14 +589,14 @@ tbody tr:hover td {
   display: grid;
   align-items: center;
   padding: 10px 16px;
-  gap: 12px;
+  gap: var(--space-4);
 }
 .table-row + .table-row {
   border-top: 1px solid var(--color-outline-soft);
 }
 .table-head {
   background: var(--elev);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--color-text-soft);
 }
@@ -553,15 +606,15 @@ tbody tr:hover td {
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 12px;
+  gap: var(--space-2);
+  padding: 6px 12px;
   border-radius: var(--radius-md);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 500;
   line-height: 18px;
   white-space: nowrap;
 }
-.chip .icon { font-size: 13px; }
+.chip .icon { font-size: var(--text-sm); }
 .chip-blue { background: var(--color-badge-blue-bg); color: var(--color-badge-blue-text); }
 .chip-green { background: var(--color-badge-green-bg); color: var(--color-badge-green-text); }
 .chip-yellow { background: var(--color-badge-yellow-bg); color: var(--color-badge-yellow-text); }
@@ -574,27 +627,44 @@ tbody tr:hover td {
 /* Chip sizes: sm 20px / base 24px / lg 28px row height — one scale factor
    for font, line-height, padding and radius, same as the button steps. */
 .chip-sm {
-  padding: 3px 10px;
+  padding: 5px 10px;
   border-radius: 10px;
   font-size: 10px;
   line-height: 14px;
 }
+.chip-sm .icon { font-size: 10px; }
 .chip-lg {
-  padding: 4px 14px;
+  padding: 7px 14px;
   border-radius: 14px;
-  font-size: 14px;
+  font-size: var(--text-base);
   line-height: 20px;
+}
+.chip-lg .icon { font-size: var(--text-base); }
+
+/* Icon-only chips: geometry scales with size like the rest. Scoped
+   overrides are banned here — global size classes must always win. */
+.chip-icon-only {
+  padding: 3px;
+  border-radius: 8px;
+}
+.chip-sm.chip-icon-only {
+  padding: 2px;
+  border-radius: 6px;
+}
+.chip-lg.chip-icon-only {
+  padding: 4px;
+  border-radius: 12px;
 }
 
 .mono {
-  font-family: "DM Mono", "SF Mono", "Fira Code", monospace;
-  font-size: 13px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
 }
 .empty {
-  padding: 48px;
+  padding: var(--space-8);
   text-align: center;
   color: var(--color-text-soft);
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 
 /* Global utilities extracted from TokenWizard (cleanup phase) */
@@ -609,7 +679,7 @@ tbody tr:hover td {
   border: 1px dashed var(--color-outline-soft);
   border-radius: 8px;
   color: var(--color-text-soft);
-  font-size: 12px;
+  font-size: var(--text-sm);
   text-align: center;
 }
 
@@ -619,25 +689,25 @@ tbody tr:hover td {
 
 .hint {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--color-text-soft);
 }
 
 .error-msg {
   background: var(--color-notification-error-bg);
   color: var(--color-notification-error-text);
-  padding: 12px 16px;
+  padding: var(--space-4) var(--space-5);
   border-radius: 12px;
-  margin-bottom: 16px;
-  font-size: 13px;
+  margin-bottom: var(--space-5);
+  font-size: var(--text-sm);
 }
 .success-msg {
   background: var(--color-notification-success-bg);
   color: var(--color-notification-success-text);
-  padding: 12px 16px;
+  padding: var(--space-4) var(--space-5);
   border-radius: 12px;
-  margin-bottom: 16px;
-  font-size: 13px;
+  margin-bottom: var(--space-5);
+  font-size: var(--text-sm);
 }
 
 .card {
@@ -651,11 +721,11 @@ tbody tr:hover td {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px;
+  padding: var(--space-5);
   border-bottom: 1px solid var(--color-outline-soft);
 }
 .card-header h2 {
-  font-size: 16px;
+  font-size: var(--text-md);
   font-weight: 500;
   color: var(--color-text);
 }
@@ -666,7 +736,7 @@ tbody tr:hover td {
   gap: 6px;
 }
 .form-group label {
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--color-text-soft);
 }
@@ -674,23 +744,23 @@ tbody tr:hover td {
 .auth-html form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-5);
 }
 .auth-html .auth-flow-content > * + * {
-  margin-top: 16px;
+  margin-top: var(--space-5);
 }
 .auth-html .form-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-3);
 }
 .auth-html .alert {
-  padding: 12px 16px;
+  padding: var(--space-4) var(--space-5);
   border-radius: 8px;
   border: 1px solid var(--color-notification-info-border);
   background: var(--color-notification-info-bg);
   color: var(--color-notification-info-text);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 .auth-html hr {
   border: none;
@@ -707,7 +777,7 @@ tbody tr:hover td {
   cursor: pointer;
   padding: var(--btn-pad-v) var(--btn-pad-h);
   border-radius: var(--ctl-radius);
-  font-size: 14px;
+  font-size: var(--text-base);
   font-weight: 500;
   width: auto;
   transition: background 0.15s;
@@ -719,26 +789,26 @@ tbody tr:hover td {
 .auth-html button[type="submit"] + button[type="submit"],
 .auth-html input[type="submit"] + button[type="submit"],
 .auth-html button[type="submit"] + input[type="submit"] {
-  margin-left: 8px;
+  margin-left: var(--space-3);
 }
 
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 32px; }
+.page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-6); margin-bottom: var(--space-7); }
 .page-header h1 {
-  font-size: 24px;
+  font-size: var(--text-xl);
   font-weight: 400;
-  margin: 0 0 8px 0;
+  margin: 0 0 var(--space-3) 0;
   color: var(--color-text);
 }
 .page-header p {
   margin: 0;
   color: var(--color-text-soft);
-  font-size: 14px;
+  font-size: var(--text-base);
 }
-.loading { padding: 48px; text-align: center; color: var(--color-text-soft); font-size: 14px; }
+.loading { padding: var(--space-8); text-align: center; color: var(--color-text-soft); font-size: var(--text-base); }
 
 .icon {
-  font-family: "Material Symbols Outlined", sans-serif;
-  font-size: 20px;
+  font-family: "Material Symbols Outlined";
+  font-size: var(--text-lg);
   vertical-align: middle;
   display: inline-block;
   font-weight: normal;
@@ -767,7 +837,7 @@ textarea.secure {
 .divider {
   border: none;
   border-top: 1px solid var(--color-outline-soft);
-  margin: 16px 0;
+  margin: var(--space-5) 0;
 }
 
 /* Busy indicator: apply .spin to any .icon glyph (progress_activity). */
@@ -776,4 +846,390 @@ textarea.secure {
 }
 .spin {
   animation: icon-spin 1s linear infinite;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════
+   LAYOUT PRIMITIVES
+   Base rules for the Stack / Grid / Spacer / Divider widgets. The widgets
+   themselves carry no scoped <style> at all: they set custom properties
+   inline and everything structural lives here, so N primitive instances
+   cost one stylesheet rule instead of N scoped classes.
+   ══════════════════════════════════════════════════════════════════════ */
+
+.stk {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stk-gap, 0px);
+  align-items: var(--stk-align, stretch);
+  justify-content: var(--stk-justify, flex-start);
+  min-width: 0;
+  /* flex children refuse to shrink below content width without this; it is
+     the single most common cause of overflowing rows, so it is the default */
+  min-height: 0;
+}
+.stk-h {
+  flex-direction: row;
+  align-items: var(--stk-align, center);
+}
+.stk-wrap { flex-wrap: wrap; }
+.stk-grow { flex: 1 1 0; }
+.stk-fill { width: 100%; }
+.stk-scroll-y { overflow-y: auto; }
+.stk-scroll-x { overflow-x: auto; }
+.stk-pad { padding: var(--stk-pad, 0px); }
+
+/* ZStack: children share one cell and paint in source order. */
+.zstk {
+  display: grid;
+  min-width: 0;
+}
+.zstk > * {
+  grid-area: 1 / 1;
+}
+
+.grd {
+  display: grid;
+  gap: var(--grd-gap, 0px);
+  grid-template-columns: var(--grd-cols, 1fr);
+  align-items: var(--grd-align, stretch);
+  min-width: 0;
+}
+
+/* Spacer: eats the free space along the parent axis. */
+.spc { flex: 1 1 auto; min-width: 0; min-height: 0; }
+
+/* Box: a padded/filled container with no layout opinion of its own. */
+.box {
+  padding: var(--box-pad, 0px);
+  background: var(--box-bg, transparent);
+  border-radius: var(--box-radius, 0px);
+  min-width: 0;
+}
+
+/* Text: every size/weight/colour combination the system allows, addressed
+   by token rather than by literal. */
+.txt { margin: 0; min-width: 0; }
+.txt-xs   { font-size: var(--text-xs);   line-height: var(--leading-tight); }
+.txt-sm   { font-size: var(--text-sm);   line-height: var(--leading-base); }
+.txt-base { font-size: var(--text-base); line-height: var(--leading-base); }
+.txt-md   { font-size: var(--text-md);   line-height: var(--leading-tight); }
+.txt-lg   { font-size: var(--text-lg);   line-height: var(--leading-tight); }
+.txt-xl   { font-size: var(--text-xl);   line-height: var(--leading-tight); }
+.txt-2xl  { font-size: var(--text-2xl);  line-height: var(--leading-none); }
+
+.txt-normal { font-weight: var(--weight-normal); }
+.txt-medium { font-weight: var(--weight-medium); }
+.txt-bold   { font-weight: var(--weight-bold); }
+
+.txt-mono   { font-family: var(--font-mono); }
+.txt-italic { font-style: italic; }
+
+.txt-mono   { font-family: var(--font-mono); }
+.txt-italic { font-style: italic; }
+
+.txt-default  { color: var(--color-text); }
+.txt-soft     { color: var(--color-text-soft); }
+.txt-disabled { color: var(--color-text-disabled); }
+.txt-accent   { color: var(--color-accent); }
+.txt-danger   { color: var(--color-error-text); }
+.txt-success  { color: var(--color-success-text); }
+.txt-warning  { color: var(--color-warning-text); }
+
+.txt-left   { text-align: left; }
+.txt-center { text-align: center; }
+.txt-right  { text-align: right; }
+
+.txt-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.txt-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--txt-lines, 2);
+  line-clamp: var(--txt-lines, 2);
+  overflow: hidden;
+}
+.txt-break { overflow-wrap: anywhere; }
+
+/* Image: aspect-locked, never overflows its column. */
+.img {
+  display: block;
+  max-width: 100%;
+  object-fit: var(--img-fit, contain);
+  border-radius: var(--img-radius, 0px);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   SHARED COMPONENT CLASSES
+   Previously redeclared inside component <style> blocks -- .form-group in
+   8 files, .table-row in 6, .empty-state in 6, .section-header in 5,
+   .muted in 5. One definition each, here.
+   ══════════════════════════════════════════════════════════════════════ */
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+.section-header h2,
+.section-header h3 {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+  margin: 0;
+}
+
+.section-title {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+  margin: 0;
+}
+
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-6);
+  margin-bottom: var(--space-6);
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-8) var(--space-6);
+  text-align: center;
+  color: var(--color-text-soft);
+}
+.empty-hint {
+  font-size: var(--text-sm);
+  color: var(--color-text-soft);
+}
+
+.muted { color: var(--color-text-soft); }
+
+.row-clickable { cursor: pointer; }
+.row-clickable:hover { background: var(--color-hover-bg); }
+.row-clickable:focus-visible {
+  outline: none;
+  background: var(--color-hover-bg);
+}
+.row-disabled { opacity: 0.55; }
+
+.drag-handle {
+  cursor: grab;
+  color: var(--color-text-disabled);
+}
+.drag-handle:active { cursor: grabbing; }
+
+.col-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   POPOVER SURFACE (Select + Menu)
+   Both widgets share one anchored, portaled surface. Previously this block
+   lived inside the single Dropdown god-component; keeping it global means
+   splitting that component in two did not duplicate 174 lines of CSS.
+   ══════════════════════════════════════════════════════════════════════ */
+
+.dropdown {
+  position: relative;
+  width: 100%;
+}
+
+.dropdown.autoWidth {
+  width: auto;
+  display: inline-flex;
+}
+
+.dropdown.autoWidth .dropdown-trigger {
+  width: auto;
+  /* autoWidth changes width only: padding, fill and type stay identical to
+     the full-width trigger. The gap only keeps the chevron off the label
+     once space-between has no free space to distribute. */
+  gap: var(--space-3);
+  border: none;
+
+}
+
+.dropdown.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dropdown-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--field-pad-v) var(--field-pad-h);
+  font-family: inherit;
+  font-size: var(--text-base);
+  line-height: 20px;
+  font-weight: 400;
+  border-radius: var(--ctl-radius);
+  border: none;
+  background: var(--elev);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  text-align: left;
+}
+
+.dropdown-trigger.rounded-lg {
+  border-radius: var(--radius-lg);
+}
+
+.dropdown-trigger.ctl-small {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+.dropdown-trigger.ctl-medium {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.dropdown-trigger.ctl-large {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.dropdown-trigger:hover:not(:disabled) {
+  background: var(--color-outline-light);
+}
+
+/* Trigger and options opt out of the global press bounce — the menu
+   opening is the feedback. The button-qualified selector outranks the
+   global button:active rule, so wide triggers no longer shrink. */
+button.dropdown-trigger:active:not([disabled]),
+.dropdown-option:active {
+  transform: none;
+  border: none;
+}
+
+.dropdown-trigger:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-accent);
+  border: none;
+
+}
+
+.trigger-icon {
+  font-size: var(--text-lg);
+  margin: 0 auto;
+}
+
+.dropdown-trigger:disabled {
+  background-color: var(--color-surface-container);
+  color: var(--color-text-disabled);
+  border-color: var(--color-outline-soft);
+  cursor: not-allowed;
+}
+
+.dropdown-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: none;
+}
+
+.chevron {
+  font-size: var(--text-lg);
+  color: var(--color-text-soft);
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+}
+
+.chevron.open {
+  transform: rotate(180deg);
+}
+
+.dropdown-menu {
+  position: fixed;
+  z-index: 2000;
+  width: max-content;
+  max-width: min(480px, calc(100vw - 16px));
+  /* Overlay surface: solid like toasts, never the translucent --elev wash. */
+  background: var(--color-surface-container-highest);
+  /* borderless by squircle design: borders do not follow the clip */
+  border: none;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.dropdown-menu.full-width {
+  width: auto;
+}
+
+.dropdown-search {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--color-outline-light);
+}
+
+/* Compact variant of the global field: same fill/ring system, tighter padding. */
+.dropdown-search input {
+  width: 100%;
+  padding: 6px 12px;
+}
+
+.dropdown-options {
+  max-height: 180px;
+  overflow-y: auto;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.dropdown-option {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  padding: 6px 12px;
+  font-size: var(--text-base);
+  text-align: left;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: none !important;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Hovered/picked option sits one elevation level above the menu. */
+.dropdown-option:hover,
+.dropdown-option.highlighted {
+  background: var(--elev);
+}
+
+.dropdown-option.selected {
+  background: var(--elev);
+  font-weight: 500;
+}
+
+.dropdown-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dropdown-empty {
+  padding: var(--space-4);
+  text-align: center;
+  color: var(--color-text-soft);
+  font-size: var(--text-base);
 }

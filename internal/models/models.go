@@ -782,6 +782,7 @@ const (
 	ErrorTypeTimeout                  // Transient timeout
 	ErrorTypeInvalidRequest           // Invalid request
 	ErrorTypeGeo                      // Geo-blocked upstream; proxy used is at fault, mark it bad
+	ErrorTypeNotFound                 // Model does not exist upstream; drop it from the cache
 )
 
 // ProviderError represents errors returned by provider backends.
@@ -1282,20 +1283,15 @@ type VirtualModel struct {
 	// Instruction is prepended to requests as the first user message.
 	Instruction string `json:"instruction"`
 	// ManagedBy marks provider-maintained virtual models
-	// ("provider:<provider-id>:<endpoint-slug>"). Managed models have their
-	// member list recomputed on import; manual edits to members are
-	// overwritten. Empty means manually maintained.
+	// ("provider:<provider-id>:<endpoint-slug>"). Managed models resolve
+	// their member list live from the provider list on every call; stored
+	// members are ignored. Empty means manually maintained.
 	ManagedBy string `json:"managed_by,omitempty"`
 	// Disabled takes the virtual model out of routing. Probes still run.
-	Disabled bool `json:"disabled,omitempty"`
-	// Capabilities is the intersection of all models' capabilities.
-	Capabilities []string `json:"capabilities,omitempty"`
-	// ContextLength / MaxCompletionTokens are the minima across all models.
-	ContextLength       int64     `json:"context_length,omitempty"`
-	MaxCompletionTokens int64     `json:"max_completion_tokens,omitempty"`
-	Version             int       `json:"version"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
+	Disabled  bool      `json:"disabled,omitempty"`
+	Version   int       `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // VirtualModelEntry is one fall-through step. List order is the priority.

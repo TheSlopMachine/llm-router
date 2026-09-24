@@ -143,6 +143,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	metricsSvc.Start()
 
 	modelInfoSvc.SetLogger(logger)
+	virtualSvc.SetLogger(logger)
 
 	// Model caches persist in bbolt; warm the missing ones in the background
 	// so first clicks never wait on upstream discovery.

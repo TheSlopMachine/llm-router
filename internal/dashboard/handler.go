@@ -146,16 +146,22 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("GET /api/llm-router/dashboard/providers/{id}/models", h.requireAuth(h.apiProviderModels))
 	mux.HandleFunc("POST /api/llm-router/dashboard/providers/{id}/models/refresh", h.requireAuth(h.apiProviderModelsRefresh))
 	mux.HandleFunc("GET /api/llm-router/dashboard/providers/{id}/virtual-models", h.requireAuth(h.apiProviderVirtualModels))
+	mux.HandleFunc("POST /api/llm-router/dashboard/providers/{id}/virtual-models/sync", h.requireAuth(h.apiProviderVirtualModelsSync))
 	mux.HandleFunc("PUT /api/llm-router/dashboard/providers/{id}/models/{model...}", h.requireAuth(h.apiProviderModelSetOverride))
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/providers/{id}/models/{model...}", h.requireAuth(h.apiProviderModelDeleteOverride))
 
-	// Agent APIs
-	mux.HandleFunc("GET /api/llm-router/dashboard/agents", h.requireAuth(h.apiAgentsList))
-	mux.HandleFunc("POST /api/llm-router/dashboard/agents", h.requireAuth(h.apiAgentsCreate))
-	mux.HandleFunc("GET /api/llm-router/dashboard/agents/{id}", h.requireAuth(h.apiAgentsGet))
-	mux.HandleFunc("PUT /api/llm-router/dashboard/agents/{id}", h.requireAuth(h.apiAgentsUpdate))
-	mux.HandleFunc("DELETE /api/llm-router/dashboard/agents/{id}", h.requireAuth(h.apiAgentsDelete))
-	mux.HandleFunc("GET /api/llm-router/dashboard/agents/available-models", h.requireAuth(h.apiAgentsAvailableModels))
+	// Virtual model APIs
+	mux.HandleFunc("GET /api/llm-router/dashboard/virtual-models", h.requireAuth(h.apiVirtualModelsList))
+	mux.HandleFunc("POST /api/llm-router/dashboard/virtual-models", h.requireAuth(h.apiVirtualModelsCreate))
+	mux.HandleFunc("GET /api/llm-router/dashboard/virtual-models/{id}", h.requireAuth(h.apiVirtualModelsGet))
+	mux.HandleFunc("PUT /api/llm-router/dashboard/virtual-models/{id}", h.requireAuth(h.apiVirtualModelsUpdate))
+	mux.HandleFunc("DELETE /api/llm-router/dashboard/virtual-models/{id}", h.requireAuth(h.apiVirtualModelsDelete))
+	// Deprecated agents aliases: same handlers, removed once the frontend migrates.
+	mux.HandleFunc("GET /api/llm-router/dashboard/agents", h.requireAuth(h.apiVirtualModelsList))
+	mux.HandleFunc("POST /api/llm-router/dashboard/agents", h.requireAuth(h.apiVirtualModelsCreate))
+	mux.HandleFunc("GET /api/llm-router/dashboard/agents/{id}", h.requireAuth(h.apiVirtualModelsGet))
+	mux.HandleFunc("PUT /api/llm-router/dashboard/agents/{id}", h.requireAuth(h.apiVirtualModelsUpdate))
+	mux.HandleFunc("DELETE /api/llm-router/dashboard/agents/{id}", h.requireAuth(h.apiVirtualModelsDelete))
 
 	// Metrics APIs
 	mux.HandleFunc("GET /api/llm-router/dashboard/metrics/overview", h.requireAuth(h.apiMetricsOverview))

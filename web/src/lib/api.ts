@@ -105,6 +105,11 @@ export const api = {
       return Array.isArray(raw) ? (raw as ProviderVMGroup[]) : []
     },
 
+    syncVirtualModels: async (id: string): Promise<ProviderVMGroup[]> => {
+      const raw = await postJson(`/api/llm-router/dashboard/providers/${id}/virtual-models/sync`, {})
+      return Array.isArray(raw) ? (raw as ProviderVMGroup[]) : []
+    },
+
     stats: async (): Promise<Record<string, ProviderStats>> => {
       const raw = (await apiCall('get', '/api/llm-router/dashboard/providers/stats')) as unknown as Record<string, Record<string, unknown>>
       const out: Record<string, ProviderStats> = {}
@@ -299,9 +304,14 @@ export const api = {
         provider_type: (r.provider_type as string) ?? '',
         model_name: (r.model_name as string) ?? '',
         display_name: (r.display_name as string) ?? (r.model_name as string) ?? '',
+        description: r.description as string | undefined,
         context_window: r.context_window as number | undefined,
         max_tokens: r.max_tokens as number | undefined,
         capabilities: r.capabilities as string[] | undefined,
+        input_modalities: r.input_modalities as string[] | undefined,
+        output_modalities: r.output_modalities as string[] | undefined,
+        reasoning: r.reasoning as AvailableModel['reasoning'],
+        supported_parameters: r.supported_parameters as string[] | undefined,
       }))
     },
   },
@@ -337,36 +347,19 @@ export const api = {
   // Virtual models
   virtualModels: {
     list: () =>
-      apiCall('get', '/api/llm-router/dashboard/agents'),
+      apiCall('get', '/api/llm-router/dashboard/virtual-models'),
 
     create: (payload: unknown) =>
-      apiCall('post', '/api/llm-router/dashboard/agents', { body: payload as unknown as never }),
+      apiCall('post', '/api/llm-router/dashboard/virtual-models', { body: payload as unknown as never }),
 
     get: (id: string) =>
-      apiCall('get', `/api/llm-router/dashboard/agents/${id}` as '/api/llm-router/dashboard/agents/{id}'),
+      apiCall('get', `/api/llm-router/dashboard/virtual-models/${id}` as '/api/llm-router/dashboard/virtual-models/{id}'),
 
     update: (id: string, payload: unknown) =>
-      apiCall('put', `/api/llm-router/dashboard/agents/${id}` as '/api/llm-router/dashboard/agents/{id}', { body: payload as unknown as never } as never),
+      apiCall('put', `/api/llm-router/dashboard/virtual-models/${id}` as '/api/llm-router/dashboard/virtual-models/{id}', { body: payload as unknown as never } as never),
 
     delete: (id: string) =>
-      apiCall('delete', `/api/llm-router/dashboard/agents/${id}` as '/api/llm-router/dashboard/agents/{id}'),
-
-    // Fall-through targets only: the endpoint excludes virtual models.
-    availableModels: async (): Promise<AvailableModel[]> => {
-      const raw = (await apiCall('get', '/api/llm-router/dashboard/agents/available-models')) as unknown
-      const arr = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []
-      return arr.map((r) => ({
-        full_model_id: (r.name as string) ?? '',
-        provider_id: '',
-        provider_name: '',
-        provider_type: '',
-        model_name: (r.name as string) ?? '',
-        display_name: (r.display_name as string) ?? (r.name as string) ?? '',
-        context_window: r.context_window as number | undefined,
-        max_tokens: r.max_tokens as number | undefined,
-        capabilities: r.capabilities as string[] | undefined,
-      }))
-    },
+      apiCall('delete', `/api/llm-router/dashboard/virtual-models/${id}` as '/api/llm-router/dashboard/virtual-models/{id}'),
   },
 
   // Metrics

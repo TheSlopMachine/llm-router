@@ -109,6 +109,29 @@ func (s *Service) checkEndpoint(providerID, modelName, endpoint string) error {
 	return nil
 }
 
+// dropMissingModel removes the model from the info cache when the backend
+// reports it does not exist upstream. Best-effort: the original error is
+// always returned untouched.
+func (s *Service) dropMissingModel(providerID, modelName string, err error) {
+	if err == nil {
+		return
+	}
+	var perr *models.ProviderError
+	if !errors.As(err, &perr) || perr.Type != models.ErrorTypeNotFound {
+		return
+	}
+	removed, rerr := s.modelInfoSvc.RemoveModel(providerID, modelName)
+	if rerr != nil {
+		s.logger.Warn("router: drop missing model from cache failed",
+			"provider_id", providerID, "model", modelName, "error", rerr)
+		return
+	}
+	if removed {
+		s.logger.Warn("router: upstream reports model does not exist, dropped from cache",
+			"provider_id", providerID, "model", modelName)
+	}
+}
+
 // Complete routes a non-streaming chat completion request. The backend tries
 // the credential pool in order, at most once per key; the first success wins
 // and the last error is returned as-is.
@@ -154,7 +177,9 @@ func (s *Service) complete(
 	if err != nil {
 		return nil, err
 	}
-	return s.completeOne(ctx, resolved, creds, req)
+	resp, err := s.completeOne(ctx, resolved, creds, req)
+	s.dropMissingModel(providerID, modelName, err)
+	return resp, err
 }
 
 // CompleteStream routes a streaming chat completion request.
@@ -189,7 +214,9 @@ func (s *Service) CompleteStream(
 	if err != nil {
 		return err
 	}
-	return s.completeStreamOne(ctx, resolved, creds, req, w)
+	err = s.completeStreamOne(ctx, resolved, creds, req, w)
+	s.dropMissingModel(providerID, modelName, err)
+	return err
 }
 
 // transcribeOne runs a single transcription pass against the credential pool.

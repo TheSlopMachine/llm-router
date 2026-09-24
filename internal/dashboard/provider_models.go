@@ -176,6 +176,38 @@ func (h *Handler) apiProviderModelsRefresh(w http.ResponseWriter, r *http.Reques
 	h.json(w, http.StatusOK, views)
 }
 
+// apiProviderVirtualModelsSync ensures one managed virtual model per
+// non-empty endpoint group (idempotent, cache-only, no upstream fetch)
+// and returns the groups.
+// @Summary      Sync provider virtual models
+// @Description  Creates missing managed virtual models and refreshes member lists from the cache, then returns the endpoint groups.
+// @Tags         Providers
+// @Produce      json
+// @Param        id path string true "Provider ID"
+// @Success      200  {array}  virtual.ProviderVMGroup
+// @Failure      401  {object}  models.ErrorResponse
+// @Failure      404  {object}  models.ErrorResponse
+// @Failure      500  {object}  models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/providers/{id}/virtual-models/sync [post]
+func (h *Handler) apiProviderVirtualModelsSync(w http.ResponseWriter, r *http.Request) {
+	providerID := r.PathValue("id")
+	if _, ok := h.loadVisibleProvider(providerID); !ok {
+		h.jsonErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	groups, err := h.virtualSvc.SyncProviderModels(r.Context(), providerID)
+	if err != nil {
+		h.logger.Error("managed virtual models sync failed", "provider_id", providerID, "error", err)
+		h.jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if groups == nil {
+		groups = []virtual.ProviderVMGroup{}
+	}
+	h.json(w, http.StatusOK, groups)
+}
+
 // apiProviderVirtualModels lists endpoint groups of a provider with their
 // managed virtual models. Computed from the cache, no upstream fetch.
 // @Summary      List provider virtual-model groups
@@ -204,6 +236,7 @@ func (h *Handler) apiProviderVirtualModels(w http.ResponseWriter, r *http.Reques
 	}
 	h.json(w, http.StatusOK, groups)
 }
+
 // apiModelCapabilities probes a model for supported features
 // @Summary      Probe model capabilities
 // @Description  Runs live probe requests to detect tool calling and JSON mode support.

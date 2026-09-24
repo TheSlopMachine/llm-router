@@ -27,7 +27,6 @@
 </script>
 
 <div class="auth-wrap">
-  <div class="auth-card-shadow">
   <div class="auth-card" use:squircle={18}>
     <div class="brand">llm-router</div>
     <h1>Create admin account</h1>
@@ -56,7 +55,6 @@
       {loading ? 'Creating…' : 'Create account'}
     </button>
   </div>
-  </div>
 </div>
 
 <style>
@@ -65,15 +63,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 24px;
+    padding: var(--space-6);
     background: var(--color-background);
-  }
-  /* drop-shadow follows the squircle clip-path, unlike box-shadow */
-  .auth-card-shadow {
-    filter: drop-shadow(0 4px 6px rgba(10, 13, 18, 0.12));
-  }
-  :global(.dark) .auth-card-shadow {
-    filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.6));
   }
   .auth-card {
     background: var(--color-surface);
@@ -84,27 +75,27 @@
     max-width: 400px;
   }
   .brand {
-    font-size: 13px;
+    font-size: var(--text-sm);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-text);
-    margin-bottom: 24px;
+    margin-bottom: var(--space-6);
   }
   h1 { 
-    font-size: 24px; 
+    font-size: var(--text-xl); 
     font-weight: 600; 
     margin-bottom: 6px;
     color: var(--color-text);
   }
   .sub { 
     color: var(--color-text-soft); 
-    font-size: 14px; 
-    margin-bottom: 24px; 
+    font-size: var(--text-base); 
+    margin-bottom: var(--space-6); 
   }
   .field-hint {
     margin-top: 6px;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-warning-text);
   }
   /* Same shape and height as the text fields above: field line-height and

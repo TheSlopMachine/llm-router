@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Button from './ui/Button.svelte'
+  import Button from './ui/controls/Button.svelte'
 
   let { icon, message, hint = '', buttonText, buttonIcon, onButtonClick } = $props<{
     icon: string
@@ -19,27 +19,19 @@
 </div>
 
 <style>
-  .empty {
-    text-align: center;
-    padding: 64px 32px;
-  }
+
 
   .empty .empty-icon {
     font-size: 64px;
     color: var(--color-text-soft);
     display: block;
-    margin-bottom: 16px;
+    margin-bottom: var(--space-5);
   }
 
   .empty p {
-    margin: 8px 0;
+    margin: var(--space-3) 0;
     color: var(--color-text);
-    font-size: 16px;
+    font-size: var(--text-md);
   }
 
-  .empty-hint {
-    color: var(--color-text-soft);
-    font-size: 14px;
-    margin-bottom: 32px;
-  }
 </style>

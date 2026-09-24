@@ -17,7 +17,32 @@ func Alive(pid int) bool {
 	return syscall.Kill(pid, 0) == nil
 }
 
-func terminate(pid int) error { return syscall.Kill(pid, syscall.SIGTERM) }
+// terminate sends SIGTERM to pid's process group, not just pid itself.
+// detachedAttr's Setpgid made the spawned process (e.g. `bun run dev`) the
+// leader of its own group, with any child it forks (vite, esbuild) inheriting
+// that pgid automatically. A plain Kill(pid, ...) only reaches the group
+// leader: if that leader exits on SIGTERM without forwarding the signal to
+// its own children (which is common -- bun/npm/node script runners do not
+// all propagate signals to subprocesses), those children are orphaned.
+// Alive(pid) then reports the leader dead, `stop` declares success and
+// deletes the pidfile, and the orphan -- holding no listening port, so
+// `start`'s port check never catches it -- keeps running invisibly. Repeated
+// restart cycles accumulate one such orphan each time, which is exactly the
+// slow, restart-driven memory growth this was causing: killing the group
+// here, matching forceKillAll below and the Windows terminate (which is
+// group-aware via CREATE_NEW_PROCESS_GROUP), reaches descendants on the
+// graceful path too, so they no longer depend on the force-kill fallback
+// ever triggering.
+func terminate(pid int) error {
+	err := syscall.Kill(-pid, syscall.SIGTERM)
+	if err != nil && err == syscall.ESRCH {
+		// No such process group -- e.g. a pre-fix pidfile recorded a pid that
+		// was never made a group leader. Fall back to the single pid so an
+		// old pidfile does not turn stop into a hard failure.
+		return syscall.Kill(pid, syscall.SIGTERM)
+	}
+	return err
+}
 
 // registerSession is a no-op on unix. detachedAttr already sets Setpgid,
 // making the spawned process the leader of its own new process group;

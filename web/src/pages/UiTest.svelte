@@ -1,37 +1,89 @@
 <script lang="ts">
-  import Switch from '../components/ui/Switch.svelte'
-  import Button from '../components/ui/Button.svelte'
-  import SegmentedControl from '../components/ui/SegmentedControl.svelte'
-  import SearchField from '../components/ui/SearchField.svelte'
-  import SecretInput from '../components/ui/SecretInput.svelte'
-  import SectionCard from '../components/ui/SectionCard.svelte'
-  import CodeBlock from '../components/ui/CodeBlock.svelte'
-  import DynamicForm from '../components/ui/DynamicForm.svelte'
-  import Dropdown from '../components/Dropdown.svelte'
-  import ActionDropdown from '../components/ActionDropdown.svelte'
-  import EmptyState from '../components/EmptyState.svelte'
-  import Table from '../components/ui/Table.svelte'
-  import type { TableColumn, TableSortDir } from '../components/ui/Table.svelte'
+  import Switch from '../components/ui/controls/Switch.svelte'
+  import Button from '../components/ui/controls/Button.svelte'
+  import Picker from '../components/ui/controls/Picker.svelte'
+  import SearchField from '../components/ui/controls/SearchField.svelte'
+  import TextEdit from '../components/ui/controls/TextEdit.svelte'
+  import TextArea from '../components/ui/controls/TextArea.svelte'
+  import SectionCard from '../components/ui/composite/SectionCard.svelte'
+  import CodeBlock from '../components/ui/composite/CodeBlock.svelte'
+  import DynamicForm from '../components/domain/DynamicForm.svelte'
+  import Select from '../components/ui/controls/Select.svelte'
+  import FloatingList from '../components/ui/controls/FloatingList.svelte'
+  import Chip from '../components/ui/controls/Chip.svelte'
+  import { VStack, Text } from '$ui'
+  import Table from '../components/ui/composite/Table.svelte'
+  import type { TableColumn, TableSortDir } from '../components/ui/composite/Table.svelte'
+  import ModelsTable from '../components/ui/composite/ModelsTable.svelte'
+  import type { ModelsTableModel } from '../components/ui/composite/ModelsTable.svelte'
   import { modal } from '../lib/modal.svelte'
   import { toast } from '../lib/toast.svelte'
   import { theme } from '../lib/theme.svelte'
-  import { squircle, setSquircleExponent } from '../lib/squircle'
-  import { onMount } from 'svelte'
+  import { squircle } from '../lib/squircle'
   import { tintSoft } from '../lib/tint'
   import type { UINode } from '../lib/types'
 
-  let textVal = $state('')
-  let secretVal = $state('')
+  // Buttons
+  let btnStyle = $state('none')
+  let btnSize = $state('medium')
+  let btnText = $state('Demo button')
+  let btnIcon = $state('add')
+  let btnIconPlace = $state('left')
+  let btnDisabled = $state(false)
+  let btnTint = $state('')
+
+  // TextEdit
+  let teValue = $state('')
+  let teType = $state('text')
+  let teHint = $state('Type here…')
+  let teLeading = $state('')
+  let teDisabled = $state(false)
+  let teRegex = $state('')
+  let teValid = $state(true)
+  let teExtraTrailing = $state(false)
+
+  // TextArea
+  let taValue = $state('')
+  let taMin = $state('2')
+  let taMax = $state('6')
+  let taDisabled = $state(false)
+
+  // SearchField
   let searchVal = $state('')
-  let checked = $state(false)
-  let checkedOn = $state(true)
-  let switchOn = $state(true)
-  let switchOff = $state(false)
+  let searchPlaceholder = $state('Search the polygon')
+  let searchDisabled = $state(false)
+
+  // Select
+  let selVal = $state('two')
+  let selSize = $state('medium')
+  let selSearchable = $state(false)
+  let selDisabled = $state(false)
+  let selAutoWidth = $state(false)
+  let selPlaceholder = $state('Pick one…')
+
+  // Switch
+  let swChecked = $state(true)
+  let swLabel = $state('Demo switch')
+  let swSize = $state('md')
+  let swDisabled = $state(false)
+
+  // Chips
+  let chipText = $state('Demo chip')
+  let chipIcon = $state('star')
+  let chipColor = $state('chip-blue')
+  let chipSize = $state('medium')
+
   let seg = $state('b')
-  let dropVal = $state('two')
+  let segSize = $state('medium')
   let lastAction = $state('(none)')
+  let demoMenuOpen = $state(false)
+  let demoMenuAnchor = $state<HTMLElement>()
   let confirmResult = $state('(not asked)')
   let toastText = $state('Custom toast text — edit me and show')
+
+  // CodeBlock
+  let cbLabel = $state('Live values')
+  let cbText = $state('{"model": "demo"}')
 
   interface DemoRow { name: string; ctx: string; n: number; off?: boolean }
   const demoRows: DemoRow[] = [
@@ -39,18 +91,14 @@
     { name: 'A very long model name that must wrap inside its cell', ctx: '8k ctx', n: 3, off: true },
     { name: '', ctx: '', n: 0 },
   ]
-  const demoCols: TableColumn[] = [
-    { key: 'name', title: 'Model', width: '40%' },
+  const tblCols: TableColumn[] = [
+    { key: 'name', title: 'Model', width: '40%', sortable: true },
     { key: 'ctx', title: 'Context', width: '120px', align: 'center' },
-    { key: 'n', title: '', align: 'right' },
+    { key: 'n', title: 'Count', align: 'right', sortable: true },
   ]
   let sortRows = $state<DemoRow[]>([...demoRows])
   let sortKey = $state<string | null>(null)
   let sortDir = $state<TableSortDir | null>(null)
-  const sortCols: TableColumn[] = [
-    { key: 'name', title: 'Model', sortable: true },
-    { key: 'n', title: 'Count', align: 'right', sortable: true },
-  ]
   function demoSort(key: string): void {
     if (sortKey !== key) {
       sortKey = key
@@ -81,92 +129,33 @@
     dragRows = next
   }
 
-  // Font preview: chosen family applies app-wide while the polygon is open.
-  $effect(() => {
-    document.body.classList.add('uit-fontlab')
-    return () => document.body.classList.remove('uit-fontlab')
-  })
+  let tblMode = $state('none')
+  let tblLoading = $state(false)
+  let tblEmpty = $state(false)
+  const tblRows = $derived(tblEmpty ? [] : tblMode === 'draggable' ? dragRows : sortRows)
 
-  let squircleN = $state('2.5')
-
-  interface FontFile { url: string; weight: string; style: string }
-  interface FontFamily { family: string; files: FontFile[] }
-  let fontFamilies = $state<FontFamily[]>([])
-  let fontPick = $state('Raleway')
-  let fontStatus = $state('')
-
-  onMount(async () => {
-    try {
-      const res = await fetch('/fonts/preview/manifest.json')
-      if (!res.ok) throw new Error(`font manifest: HTTP ${res.status}`)
-      fontFamilies = await res.json()
-      await applyFont(fontPick)
-    } catch (e) {
-      fontStatus = 'Font manifest failed to load'
-      console.error(e)
-    }
-  })
-
-  async function applyFont(family: string): Promise<void> {
-    fontPick = family
-    fontStatus = ''
-    const entry = fontFamilies.find((f) => f.family === family)
-    if (!entry) {
-      document.body.style.setProperty('--uit-lab-font', "'Inter'")
-      return
-    }
-    try {
-      await Promise.all(entry.files.map(async (f) => {
-        const face = new FontFace(family, `url('${f.url}')`, { weight: f.weight, style: f.style })
-        await face.load()
-        document.fonts.add(face)
-      }))
-      document.body.style.setProperty('--uit-lab-font', `'${family}'`)
-    } catch (e) {
-      fontStatus = `Failed to load ${family}`
-      console.error(e)
-    }
-  }
+  // ModelsTable demo
+  interface MtRow { id: string; name: string; ctx?: number; disabled: boolean }
+  let mtRows = $state<MtRow[]>([
+    { id: 'flash', name: 'Flash', ctx: 1049000, disabled: false },
+    { id: 'pro', name: 'Pro', ctx: 2000000, disabled: true },
+  ])
+  let mtSortable = $state(false)
+  let mtLoading = $state(false)
+  const mtModels = $derived<ModelsTableModel[]>(mtRows.map((r) => ({
+    kind: 'model',
+    id: r.id,
+    fullId: `demo/${r.id}`,
+    name: r.name,
+    contextWindow: r.ctx,
+    inputModalities: ['text'],
+    outputModalities: ['text'],
+    capabilities: ['tools'],
+    disabled: r.disabled,
+    source: r,
+  })))
 
   let formValues = $state<Record<string, unknown>>({})
-
-  let padBtnH = $state('16px')
-  let padBtnV = $state('4px')
-  let padFieldH = $state('12px')
-  let padFieldV = $state('8px')
-  let ctlRadius = $state('16px')
-
-  function px(v: string): string {
-    const t = v.trim()
-    return /^\d+(\.\d+)?$/.test(t) ? t + 'px' : t
-  }
-
-  function applyMetrics(): void {
-    const root = document.documentElement
-    root.style.setProperty('--btn-pad-h', px(padBtnH))
-    root.style.setProperty('--btn-pad-v', px(padBtnV))
-    root.style.setProperty('--field-pad-h', px(padFieldH))
-    root.style.setProperty('--field-pad-v', px(padFieldV))
-    root.style.setProperty('--ctl-radius', px(ctlRadius))
-    // Radius-only changes never move a border box, so ResizeObserver misses
-    // them; squircle re-reads computed radii on window resize.
-    window.dispatchEvent(new Event('resize'))
-  }
-
-  function resetMetrics(): void {
-    padBtnH = '16px'
-    padBtnV = '4px'
-    padFieldH = '12px'
-    padFieldV = '8px'
-    ctlRadius = '16px'
-    const root = document.documentElement
-    root.style.removeProperty('--btn-pad-h')
-    root.style.removeProperty('--btn-pad-v')
-    root.style.removeProperty('--field-pad-h')
-    root.style.removeProperty('--field-pad-v')
-    root.style.removeProperty('--ctl-radius')
-    window.dispatchEvent(new Event('resize'))
-  }
 
   let themePick = $state(theme.value === 'light' ? 'light' : 'dark')
 
@@ -220,25 +209,19 @@
     })
   }
 
-  function askNoTitle(): void {
-    void modal.confirm({ title: '', message: 'Confirm this demo action?', confirmRole: 'destructive' }).then((ok) => {
-      confirmResult = ok ? 'confirmed' : 'cancelled'
-    })
-  }
-
   function openContentModal(): void {
     modal.open({
       title: 'Demo modal',
       subtitle: 'Content modal with buttons',
       size: 'medium',
-      content: EmptyState,
-      props: {
-        icon: 'extension',
-        message: 'Modal body component',
-        hint: 'Any component renders here.',
-        buttonText: 'Close',
-        buttonIcon: 'close',
-        onButtonClick: () => modal.close(),
+      contentSnippet: () => {
+        return (
+          <VStack align="center" gap={4} style="padding: 20px;">
+            <Text size="xl" icon={{ name: 'extension' }}>{t('No plugins installed')}</Text>
+            <Text tone="soft" align="center">{t('Browse the catalog to install a provider plugin.')}</Text>
+            <Button style="prominent" icon={{ name: 'download' }} onclick={() => toast.success('Browse catalog clicked')}>{t('Browse catalog')}</Button>
+          </VStack>
+        )
       },
       buttons: [{ label: 'Done', variant: 'primary', onClick: () => modal.close() }],
     })
@@ -251,135 +234,189 @@
     <h1>UI test polygon</h1>
     <p>Every reusable component in one place. Nothing here touches the backend.</p>
   </div>
-  <SegmentedControl bind:value={themePick} ariaLabel="Theme" options={[
+  <Picker bind:value={themePick} ariaLabel="Theme" options={[
     { value: 'light', label: 'Light' },
     { value: 'dark', label: 'Dark' },
   ]} onchange={(v) => { theme.value = v === 'light' ? 'light' : 'dark' }} />
 </div>
 
-<SectionCard title="Playground">
-  <p class="hint">Accent color lives in Settings now. Control metrics (px values, live):</p>
-  <div class="metric-row">
-    <label class="metric-field">btn pad-h<input type="text" value={padBtnH} oninput={(e) => { padBtnH = (e.target as HTMLInputElement).value; applyMetrics() }} /></label>
-    <label class="metric-field">btn pad-v<input type="text" value={padBtnV} oninput={(e) => { padBtnV = (e.target as HTMLInputElement).value; applyMetrics() }} /></label>
-    <label class="metric-field">field pad-h<input type="text" value={padFieldH} oninput={(e) => { padFieldH = (e.target as HTMLInputElement).value; applyMetrics() }} /></label>
-    <label class="metric-field">field pad-v<input type="text" value={padFieldV} oninput={(e) => { padFieldV = (e.target as HTMLInputElement).value; applyMetrics() }} /></label>
-    <label class="metric-field">radius<input type="text" value={ctlRadius} oninput={(e) => { ctlRadius = (e.target as HTMLInputElement).value; applyMetrics() }} /></label>
-    <label class="metric-field">squircle n<input type="text" value={squircleN} oninput={(e) => { squircleN = (e.target as HTMLInputElement).value; setSquircleExponent(parseFloat(squircleN)) }} /></label>
-    <label class="metric-field">font
-      <select value={fontPick} onchange={(e) => applyFont((e.target as HTMLSelectElement).value)}>
-        <option value="Inter">Inter (default)</option>
-        {#each fontFamilies as f}
-          <option value={f.family}>{f.family}</option>
-        {/each}
-      </select>
-    </label>
-    <Button text="Reset" size="sm" onclick={resetMetrics} />
-  </div>
-  {#if fontStatus}<p class="hint">{fontStatus}</p>{/if}
-</SectionCard>
-
-<SectionCard title="Buttons (one Button widget)">
+<SectionCard title="Buttons">
   <div class="row">
-    <Button text="Prominent" style="prominent" onclick={() => { lastAction = 'prominent' }} />
-    <Button text="Plain (none)" onclick={() => { lastAction = 'plain' }} />
-    <Button text="Text" style="text" onclick={() => { lastAction = 'text' }} />
-    <Button text="Disabled" disabled />
+    <Picker bind:value={btnStyle} ariaLabel="Style" options={[
+      { value: 'none', label: 'none' },
+      { value: 'prominent', label: 'prominent' },
+      { value: 'text', label: 'text' },
+    ]} />
+    <Picker bind:value={btnSize} ariaLabel="Size" options={[
+      { value: 'small', label: 'small' },
+      { value: 'medium', label: 'medium' },
+      { value: 'large', label: 'large' },
+    ]} />
+    <Switch bind:checked={btnDisabled} label="Disabled" />
   </div>
   <div class="row">
-    <Button text="Tinted" tint="#7c3aed" />
-    <Button text="Tinted prominent" style="prominent" tint="#e11d48" />
-    <Button text="Tinted text" style="text" tint="#0d9488" />
-    <Button text="Danger via tint" tint="#dc2626" />
+    <TextEdit bind:value={btnText} hint="Button text" />
+    <TextEdit bind:value={btnIcon} hint="Icon name (empty = none)" />
+    <Picker bind:value={btnIconPlace} ariaLabel="Icon placement" options={[
+      { value: 'left', label: 'icon left' },
+      { value: 'right', label: 'icon right' },
+    ]} />
+    <TextEdit bind:value={btnTint} hint="Tint hex (empty = none)" />
   </div>
   <div class="row">
-    <Button text="Small" size="sm" />
-    <Button text="Large" size="lg" />
-    <Button text="Icon left" icon={{ name: 'add', placement: 'left' }} />
-    <Button text="Icon right" icon={{ name: 'arrow_forward', placement: 'right' }} />
-  </div>
-  <div class="row">
-    <span class="hint">Icon buttons:</span>
-    <Button style="icon" icon={{ name: 'add' }} ariaLabel="Icon button" />
-    <Button style="icon" size="sm" icon={{ name: 'add' }} ariaLabel="Small icon button" />
-    <Button style="icon" tint="#dc2626" icon={{ name: 'delete' }} ariaLabel="Tinted icon button" />
+    <Button
+      text={btnText}
+      style={btnStyle as 'prominent' | 'none' | 'text'}
+      size={btnSize as 'small' | 'medium' | 'large'}
+      icon={btnIcon.trim() ? { name: btnIcon.trim(), placement: btnIconPlace as 'left' | 'right' } : undefined}
+      tint={btnTint.trim() || undefined}
+      disabled={btnDisabled}
+      ariaLabel="Demo button"
+      onclick={() => { lastAction = 'button' }}
+    />
+    <span class="hint">Action: <span class="mono">{lastAction}</span></span>
   </div>
 </SectionCard>
 
-<SectionCard title="Inputs">
-  <div class="form-group">
-    <label for="uit-text">Text input</label>
-    <input id="uit-text" type="text" placeholder="Type here" bind:value={textVal} use:squircle={12} />
+<SectionCard title="TextEdit">
+  <div class="row">
+    <Picker bind:value={teType} ariaLabel="Type" options={[
+      { value: 'text', label: 'text' },
+      { value: 'secret', label: 'secret' },
+    ]} />
+    <TextEdit bind:value={teHint} hint="Placeholder" />
+    <TextEdit bind:value={teLeading} hint="Leading icon (empty = none)" />
+    <Switch bind:checked={teDisabled} label="Disabled" />
+    <Switch bind:checked={teExtraTrailing} label="Extra trailing" />
   </div>
-  <div class="form-group">
-    <label for="uit-pass">Password</label>
-    <input id="uit-pass" type="password" placeholder="Secret" use:squircle={12} />
+  <div class="row">
+    <TextEdit bind:value={teRegex} hint="Regex (empty = off)" />
   </div>
-  <div class="form-group">
-    <label for="uit-area">Textarea</label>
-    <textarea id="uit-area" placeholder="Multiline" use:squircle={12}></textarea>
-  </div>
-  <div class="form-group">
-    <label for="uit-sel">Select</label>
-    <select id="uit-sel" use:squircle={12}>
-      <option>Alpha</option>
-      <option>Beta</option>
-    </select>
-  </div>
-  <div class="form-group">
-    <label for="uit-dis">Disabled</label>
-    <input id="uit-dis" type="text" value="Locked" disabled use:squircle={12} />
-  </div>
-  <p class="hint">Hint text. Value so far: <span class="mono">{textVal || '(empty)'}</span></p>
-  <SecretInput id="uit-secret" label="Secret input" placeholder="sk-..." value={secretVal} oninput={(v) => { secretVal = v }} />
-  <SearchField bind:value={searchVal} placeholder="Search the polygon" />
+  <TextEdit
+    bind:value={teValue}
+    type={teType as 'text' | 'secret'}
+    hint={teHint}
+    leadingIcon={teLeading.trim() || undefined}
+    trailing={teExtraTrailing ? [{ icon: 'star', label: 'Extra', onclick: () => { lastAction = 'extra' } }] : []}
+    regex={teRegex.trim() || undefined}
+    disabled={teDisabled}
+    onvalid={(v) => { teValid = v }}
+  />
+  <p class="hint">Value: <span class="mono">{teValue || '(empty)'}</span> · Valid: <span class="mono">{teValid ? 'yes' : 'no'}</span> · Action: <span class="mono">{lastAction}</span></p>
 </SectionCard>
 
-<SectionCard title="Toggles">
+<SectionCard title="TextArea">
   <div class="row">
-    <Switch bind:checked={switchOn} label="On switch" />
-    <Switch bind:checked={switchOff} label="Off switch" />
-    <Switch checked disabled label="Disabled" />
+    <Picker bind:value={taMin} ariaLabel="Min rows" options={[
+      { value: '1', label: 'min 1' },
+      { value: '2', label: 'min 2' },
+      { value: '4', label: 'min 4' },
+    ]} />
+    <Picker bind:value={taMax} ariaLabel="Max rows" options={[
+      { value: '3', label: 'max 3' },
+      { value: '6', label: 'max 6' },
+      { value: '12', label: 'max 12' },
+    ]} />
+    <Switch bind:checked={taDisabled} label="Disabled" />
   </div>
-  <div class="row">
-    <label class="check-row">
-      <input type="checkbox" class="check" bind:checked use:squircle={6} />
-      <span>Project checkbox (.check, {checked ? 'on' : 'off'})</span>
-    </label>
-    <label class="check-row">
-      <input type="checkbox" class="check" bind:checked={checkedOn} use:squircle={6} />
-      <span>Checked sample ({checkedOn ? 'on' : 'off'})</span>
-    </label>
-  </div>
-  <SegmentedControl bind:value={seg} ariaLabel="Demo segments" options={[
-    { value: 'a', label: 'Alpha' },
-    { value: 'b', label: 'Beta' },
-    { value: 'c', label: 'Gamma' },
-  ]} />
-  <p class="hint">Segment: <span class="mono">{seg}</span></p>
+  <TextArea bind:value={taValue} hint="Multiline…" minRows={Number(taMin)} maxRows={Number(taMax)} disabled={taDisabled} />
+  <p class="hint">Length: <span class="mono">{taValue.length}</span></p>
 </SectionCard>
 
-<SectionCard title="Chips (badges merged here)">
+<SectionCard title="SearchField">
   <div class="row">
-    <span class="chip chip-sm chip-blue">Sm blue</span>
-    <span class="chip chip-sm chip-green">Sm green</span>
-    <span class="chip chip-sm chip-red">Sm red</span>
+    <TextEdit bind:value={searchPlaceholder} hint="Placeholder" />
+    <Switch bind:checked={searchDisabled} label="Disabled" />
+  </div>
+  <SearchField bind:value={searchVal} placeholder={searchPlaceholder} disabled={searchDisabled} />
+  <p class="hint">Value: <span class="mono">{searchVal || '(empty)'}</span></p>
+</SectionCard>
+
+<SectionCard title="Select">
+  <div class="row">
+    <Switch bind:checked={selSearchable} label="Searchable" />
+    <Switch bind:checked={selDisabled} label="Disabled" />
+    <Switch bind:checked={selAutoWidth} label="Auto width" />
+    <Picker bind:value={selSize} ariaLabel="Size" options={[
+      { value: 'small', label: 'small' },
+      { value: 'medium', label: 'medium' },
+      { value: 'large', label: 'large' },
+    ]} />
+    <TextEdit bind:value={selPlaceholder} hint="Placeholder" />
   </div>
   <div class="row">
-    <span class="chip chip-blue">Blue</span>
-    <span class="chip chip-green">Green</span>
-    <span class="chip chip-yellow">Yellow</span>
-    <span class="chip chip-red">Red</span>
-    <span class="chip chip-purple">Purple</span>
-    <span class="chip chip-teal">Teal</span>
-    <span class="chip chip-orange">Orange</span>
-    <span class="chip chip-neutral">Neutral</span>
+    <Select
+      bind:value={selVal}
+      size={selSize as 'small' | 'medium' | 'large'}
+      options={[
+        { value: 'one', label: 'Option one' },
+        { value: 'two', label: 'Option two' },
+        { value: 'three', label: 'Option three' },
+      ]}
+      placeholder={selPlaceholder}
+      searchable={selSearchable}
+      disabled={selDisabled}
+      autoWidth={selAutoWidth}
+    />
+  </div>
+  <p class="hint">Value: <span class="mono">{selVal}</span></p>
+</SectionCard>
+
+<SectionCard title="Switch">
+  <div class="row">
+    <TextEdit bind:value={swLabel} hint="Label" />
+    <Picker bind:value={swSize} ariaLabel="Size" options={[
+      { value: 'md', label: 'md' },
+      { value: 'xl', label: 'xl' },
+    ]} />
+    <Switch bind:checked={swDisabled} label="Disabled" />
   </div>
   <div class="row">
-    <span class="chip chip-lg chip-blue">Lg blue</span>
-    <span class="chip chip-lg chip-green">Lg green</span>
-    <span class="chip chip-lg chip-red">Lg red</span>
-    <span class="mono">mono text</span>
+    <Switch bind:checked={swChecked} label={swLabel} size={swSize as 'md' | 'xl'} disabled={swDisabled} />
+    <span class="hint">State: <span class="mono">{swChecked ? 'on' : 'off'}</span></span>
+  </div>
+  <div class="row">
+    <Picker bind:value={seg} size={segSize as 'small' | 'medium' | 'large'} ariaLabel="Demo segments" options={[
+      { value: 'a', label: 'Alpha' },
+      { value: 'b', label: 'Beta' },
+      { value: 'c', label: 'Gamma' },
+    ]} />
+    <Picker bind:value={segSize} ariaLabel="Picker size" options={[
+      { value: 'small', label: 'small' },
+      { value: 'medium', label: 'medium' },
+      { value: 'large', label: 'large' },
+    ]} />
+    <span class="hint">Segment: <span class="mono">{seg}</span></span>
+  </div>
+</SectionCard>
+
+<SectionCard title="Chips">
+  <div class="row">
+    <TextEdit bind:value={chipText} hint="Text (empty = icon only)" />
+    <TextEdit bind:value={chipIcon} hint="Icon (empty = none)" />
+    <Picker bind:value={chipColor} ariaLabel="Color" options={[
+      { value: 'chip-blue', label: 'blue' },
+      { value: 'chip-green', label: 'green' },
+      { value: 'chip-yellow', label: 'yellow' },
+      { value: 'chip-red', label: 'red' },
+      { value: 'chip-purple', label: 'purple' },
+      { value: 'chip-teal', label: 'teal' },
+      { value: 'chip-orange', label: 'orange' },
+      { value: 'chip-neutral', label: 'neutral' },
+    ]} />
+    <Picker bind:value={chipSize} ariaLabel="Size" options={[
+      { value: 'small', label: 'small' },
+      { value: 'medium', label: 'medium' },
+      { value: 'large', label: 'large' },
+    ]} />
+  </div>
+  <div class="row">
+    <Chip
+      icon={chipIcon.trim() || undefined}
+      text={chipText}
+      color={chipColor}
+      size={chipSize as 'small' | 'medium' | 'large'}
+    />
   </div>
   <div class="row">
     {#each tintedChips as tc}
@@ -388,51 +425,63 @@
   </div>
 </SectionCard>
 
+<SectionCard title="FloatingList">
+  <div class="row">
+    <Button
+      text="Demo actions"
+      icon={{ name: 'expand_more', placement: 'right' }}
+      onclick={(e) => {
+        demoMenuAnchor = e.currentTarget as HTMLElement
+        demoMenuOpen = !demoMenuOpen
+      }}
+    />
+    <FloatingList
+      bind:open={demoMenuOpen}
+      anchor={demoMenuAnchor}
+      label="Demo actions"
+      actions={[
+        { id: 'edit', label: 'Edit', icon: 'edit' },
+        { id: 'delete', label: 'Delete', icon: 'delete', tint: '#dc2626' },
+      ]}
+      onaction={(id) => { lastAction = id }}
+    />
+    <span class="hint">Action: <span class="mono">{lastAction}</span></span>
+  </div>
+</SectionCard>
+
+<SectionCard title="CodeBlock">
+  <div class="row">
+    <TextEdit bind:value={cbLabel} hint="Label" />
+  </div>
+  <div class="row">
+    <TextEdit bind:value={cbText} hint="Code text" />
+  </div>
+  <CodeBlock label={cbLabel} text={cbText} />
+</SectionCard>
+
 <SectionCard title="Tables">
-  <p class="hint">Alignments, widths (40% / 120px / auto), empty header, empty cells, tall row centers siblings.</p>
-  <div class="table" use:squircle={18}>
+  <p class="hint">One table, every mode. Columns cover left / center / right alignment.</p>
+  <div class="row">
+    <Picker bind:value={tblMode} ariaLabel="Table mode" options={[
+      { value: 'none', label: 'none' },
+      { value: 'draggable', label: 'draggable' },
+      { value: 'sortable', label: 'sortable' },
+    ]} />
+    <Switch bind:checked={tblLoading} label="Loading" />
+    <Switch bind:checked={tblEmpty} label="Empty" />
+  </div>
+  <div class="demo-table" use:squircle={18}>
     <Table
-      columns={demoCols}
-      rows={demoRows}
+      columns={tblCols}
+      rows={tblRows}
       rowKey={(r) => r.name || '(empty)'}
       rowClass={(r) => (r.off ? 'row-off' : '')}
-    >
-      {#snippet cell({ column, row })}
-        {#if column.key === 'name'}{row.name || '—'}
-        {:else if column.key === 'ctx'}{row.ctx || '—'}
-        {:else}{row.n}{/if}
-      {/snippet}
-      {#snippet empty()}
-        <div class="uit-empty-note">No rows — caller-provided empty content.</div>
-      {/snippet}
-    </Table>
-  </div>
-  <p class="hint">Sortable: click the header cell. Unsorted ⇅, asc ↑, desc ↓.</p>
-  <div class="table" use:squircle={18}>
-    <Table
-      columns={sortCols}
-      rows={sortRows}
-      rowKey={(r) => r.name || '(empty)'}
-      sortKey={sortKey}
-      sortDir={sortDir}
+      sortKey={tblMode === 'sortable' ? sortKey : null}
+      sortDir={tblMode === 'sortable' ? sortDir : null}
       onsort={demoSort}
-    >
-      {#snippet cell({ column, row })}
-        {#if column.key === 'name'}{row.name || '—'}{:else}{row.n}{/if}
-      {/snippet}
-      {#snippet empty()}
-        <div class="uit-empty-note">No rows — caller-provided empty content.</div>
-      {/snippet}
-    </Table>
-  </div>
-  <p class="hint">Draggable: grip column spawns automatically, rows reorder.</p>
-  <div class="table" use:squircle={18}>
-    <Table
-      columns={demoCols}
-      rows={dragRows}
-      rowKey={(r) => r.name || '(empty)'}
-      draggable
+      draggable={tblMode === 'draggable'}
       onReorder={demoReorder}
+      loading={tblLoading}
     >
       {#snippet cell({ column, row })}
         {#if column.key === 'name'}{row.name || '—'}
@@ -440,31 +489,37 @@
         {:else}{row.n}{/if}
       {/snippet}
       {#snippet empty()}
-        <div class="uit-empty-note">No rows — drag demo empty content.</div>
+        <div class="uit-empty-note">No rows — caller-provided empty content.</div>
       {/snippet}
     </Table>
   </div>
-  <p class="hint">Loading skeleton and custom empty content.</p>
-  <div class="table" use:squircle={18}>
-    <Table columns={demoCols} rows={[] as DemoRow[]} rowKey={(r) => r.name} loading>
-      {#snippet cell({ row })}
-        {row.name}
-      {/snippet}
-      {#snippet empty()}
-        <div class="uit-empty-note">Never shown while loading.</div>
-      {/snippet}
-    </Table>
+  <p class="hint">Sortable: click the header cell. Draggable: grip column spawns automatically, rows reorder.</p>
+</SectionCard>
+
+<SectionCard title="ModelsTable">
+  <div class="row">
+    <Switch bind:checked={mtSortable} label="Sortable" />
+    <Switch bind:checked={mtLoading} label="Loading" />
   </div>
-  <div class="table" use:squircle={18}>
-    <Table columns={demoCols} rows={[] as DemoRow[]} rowKey={(r) => r.name}>
-      {#snippet cell({ row })}
-        {row.name}
-      {/snippet}
-      {#snippet empty()}
-        <div class="uit-empty-note">Custom empty content.</div>
-      {/snippet}
-    </Table>
-  </div>
+  <ModelsTable
+    models={mtModels}
+    sortable={mtSortable}
+    loading={mtLoading}
+  >
+    {#snippet actions({ model })}
+      {@const r = model.source as MtRow}
+      <Switch
+        checked={!r.disabled}
+        ariaLabel="Enable model"
+        onchange={(v) => {
+          mtRows = mtRows.map((m) => (m.id === r.id ? { ...m, disabled: !v } : m))
+        }}
+      />
+    {/snippet}
+    {#snippet empty()}
+      <div class="uit-empty-note">No models.</div>
+    {/snippet}
+  </ModelsTable>
 </SectionCard>
 
 <SectionCard title="Overlays">
@@ -472,35 +527,16 @@
     <div class="confirm-col">
       <Button text="Confirm modal" onclick={askConfirm} />
       <Button text="Title only" onclick={askTitleOnly} />
-      <Button text="No title" onclick={askNoTitle} />
     </div>
     <Button text="Content modal" onclick={openContentModal} />
     <Button text="Success toast" onclick={() => toast.success('Demo success toast')} />
     <Button text="Error toast" onclick={() => toast.error('Demo error toast')} />
   </div>
-  <div class="form-group">
-    <label for="uit-toast-text">Toast text</label>
-    <textarea id="uit-toast-text" rows={3} bind:value={toastText} use:squircle={12}></textarea>
-  </div>
+  <TextArea bind:value={toastText} hint="Toast text" minRows={3} maxRows={6} />
   <div class="row">
     <Button text="Show toast" onclick={() => toast.success(toastText || '(empty)')} />
   </div>
   <p class="hint">Confirm result: <span class="mono">{confirmResult}</span></p>
-</SectionCard>
-
-<SectionCard title="Dropdowns">
-  <div class="row">
-    <Dropdown bind:value={dropVal} options={[
-      { value: 'one', label: 'Option one' },
-      { value: 'two', label: 'Option two' },
-      { value: 'three', label: 'Option three' },
-    ]} />
-    <ActionDropdown label="Demo actions" actions={[
-      { id: 'edit', label: 'Edit', icon: 'edit' },
-      { id: 'delete', label: 'Delete', icon: 'delete', danger: true },
-    ]} onaction={(id) => { lastAction = id }} />
-  </div>
-  <p class="hint">Dropdown: <span class="mono">{dropVal}</span> · Action: <span class="mono">{lastAction}</span></p>
 </SectionCard>
 
 <SectionCard title="Dynamic form">
@@ -512,66 +548,37 @@
 
 <style>
   /* Composer owns spacing: widgets render marginless, the stack gaps them. */
-  :global(body.uit-fontlab) {
-    font-family: var(--uit-lab-font, 'Raleway'), 'Inter', system-ui, -apple-system, sans-serif;
-  }
   .uit-stack {
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: var(--space-6);
   }
   .uit-stack > .page-header {
-    margin-bottom: 8px;
+    margin-bottom: var(--space-3);
   }
   .row {
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
+    gap: var(--space-4);
     align-items: center;
-    margin-bottom: 16px;
+    margin-bottom: var(--space-5);
   }
   .uit-empty-note {
     color: var(--color-text-soft);
-    font-size: 13px;
+    font-size: var(--text-sm);
   }
   .row:last-child {
     margin-bottom: 0;
   }
-  .metric-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    align-items: flex-end;
-  }
-  .metric-field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: 12px;
-    color: var(--color-text-soft);
-  }
-  .metric-field input {
-    width: 90px;
-  }
-  .check-row {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    cursor: pointer;
-    user-select: none;
-  }
-  .form-group {
-    margin-bottom: 12px;
-  }
-  .table {
-    margin-bottom: 16px;
+  .demo-table {
+    margin-bottom: var(--space-5);
     border-radius: var(--radius-lg);
+    overflow: hidden;
   }
   .confirm-col {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-3);
     align-items: flex-start;
   }
 </style>

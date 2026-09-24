@@ -191,6 +191,8 @@ func classifyHTTPError(status int, body string) error {
 		return &models.ProviderError{StatusCode: status, Message: msg, Type: models.ErrorTypeRateLimit}
 	case status == 408 || status == 504:
 		return &models.ProviderError{StatusCode: status, Message: msg, Type: models.ErrorTypeTimeout}
+	case status == 404:
+		return &models.ProviderError{StatusCode: status, Message: msg, Type: models.ErrorTypeNotFound}
 	case status >= 500:
 		return &models.ProviderError{StatusCode: status, Message: msg, Type: models.ErrorTypeUpstream}
 	default:

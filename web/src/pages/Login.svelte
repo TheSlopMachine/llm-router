@@ -27,7 +27,6 @@
 </script>
 
 <div class="auth-wrap">
-  <div class="auth-card-shadow">
   <div class="auth-card" use:squircle={18}>
     <div class="brand">llm-router</div>
     <h1>{t('Sign in')}</h1>
@@ -53,7 +52,6 @@
       {loading ? t('Signing in…') : t('Sign in')}
     </button>
   </div>
-  </div>
 </div>
 
 <style>
@@ -62,15 +60,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 24px;
+    padding: var(--space-6);
     background: var(--color-background);
-  }
-  /* drop-shadow follows the squircle clip-path, unlike box-shadow */
-  .auth-card-shadow {
-    filter: drop-shadow(0 4px 6px rgba(10, 13, 18, 0.12));
-  }
-  :global(.dark) .auth-card-shadow {
-    filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.6));
   }
   .auth-card {
     background: var(--color-surface-container-high);
@@ -81,23 +72,23 @@
     max-width: 400px;
   }
   .brand {
-    font-size: 13px;
+    font-size: var(--text-sm);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-text);
-    margin-bottom: 24px;
+    margin-bottom: var(--space-6);
   }
   h1 { 
-    font-size: 24px; 
+    font-size: var(--text-xl); 
     font-weight: 600; 
     margin-bottom: 6px;
     color: var(--color-text);
   }
   .sub { 
     color: var(--color-text-soft); 
-    font-size: 14px; 
-    margin-bottom: 24px; 
+    font-size: var(--text-base); 
+    margin-bottom: var(--space-6); 
   }
   /* Same shape and height as the text fields above: field line-height and
      paddings, global control radius. */
@@ -115,9 +106,9 @@
   .remember-me {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-top: 16px;
-    font-size: 14px;
+    gap: var(--space-3);
+    margin-top: var(--space-5);
+    font-size: var(--text-base);
     color: var(--color-text);
     cursor: pointer;
     user-select: none;
