@@ -33,6 +33,16 @@ func TestEnsureBuiltinReposSeeds(t *testing.T) {
 	}
 }
 
+// TestBuiltinRepoIDStable locks the historical record ID: repo IDs persist
+// in storage and plugin origins, so the slug scheme must never drift.
+// A scheme change orphans existing rows and duplicates catalog entries.
+func TestBuiltinRepoIDStable(t *testing.T) {
+	const want = "index/https-raw-githubusercontent-com-theslopmachine-llm-router-store--80dc9c77"
+	if got := builtinID(); got != want {
+		t.Fatalf("builtin repo ID drifted: got %q, want %q", got, want)
+	}
+}
+
 func TestEnsureBuiltinReposIdempotent(t *testing.T) {
 	svc := setupService(t)
 	if err := svc.EnsureBuiltinRepos(); err != nil {

@@ -19,7 +19,6 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/repository"
-	"github.com/TheSlopMachine/llm-router/internal/util"
 )
 
 // ErrBuiltinRepoProtected is returned when removing a built-in repository.
@@ -303,7 +302,19 @@ func (s *Service) License(ctx context.Context, id string) (string, bool, error) 
 }
 
 func slugURL(s string) string {
-	out := util.Slugify(s)
+	s = strings.ToLower(s)
+	var b strings.Builder
+	prevDash := false
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			prevDash = false
+		} else if !prevDash {
+			b.WriteRune('-')
+			prevDash = true
+		}
+	}
+	out := strings.Trim(b.String(), "-")
 	if len(out) > 64 {
 		out = out[:64]
 	}
