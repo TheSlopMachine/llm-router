@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -45,7 +46,7 @@ func (r *Repository[T]) Get(id string) (*T, error) {
 		}
 		data := b.Get([]byte(id))
 		if data == nil {
-			return fmt.Errorf("%s %q not found", r.name, id)
+			return fmt.Errorf("%s %q: %w", r.name, id, apierrors.ErrNotFound)
 		}
 		return json.Unmarshal(data, &obj)
 	})
@@ -101,10 +102,10 @@ func (r *Repository[T]) Delete(id string) error {
 	return r.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(r.bucket)
 		if b == nil {
-			return fmt.Errorf("%s %q not found", r.name, id)
+			return fmt.Errorf("%s %q: %w", r.name, id, apierrors.ErrNotFound)
 		}
 		if b.Get([]byte(id)) == nil {
-			return fmt.Errorf("%s %q not found", r.name, id)
+			return fmt.Errorf("%s %q: %w", r.name, id, apierrors.ErrNotFound)
 		}
 		return b.Delete([]byte(id))
 	})
@@ -136,11 +137,11 @@ func (r *Repository[T]) Update(id string, fn func(*T) error) error {
 	return r.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(r.bucket)
 		if b == nil {
-			return fmt.Errorf("%s %q not found", r.name, id)
+			return fmt.Errorf("%s %q: %w", r.name, id, apierrors.ErrNotFound)
 		}
 		raw := b.Get([]byte(id))
 		if raw == nil {
-			return fmt.Errorf("%s %q not found", r.name, id)
+			return fmt.Errorf("%s %q: %w", r.name, id, apierrors.ErrNotFound)
 		}
 
 		var obj T
@@ -221,7 +222,7 @@ func (r *Repository[T]) FindFirst(predicate func(*T) bool) (*T, error) {
 	if err != nil {
 		return nil, err
 	}
-	return nil, fmt.Errorf("%s not found", r.name)
+	return nil, fmt.Errorf("%s: %w", r.name, apierrors.ErrNotFound)
 }
 
 // Exists checks if a record with the given ID exists.

@@ -138,7 +138,8 @@
           <div style="padding: var(--space-4);">
             <HStack align="center" gap={4}>
               <VStack gap={1} grow>
-                <Text weight="bold" size="base">{s.key}</Text>
+                <Text weight="bold" size="base">{s.name}</Text>
+                <Text size="xs" tone="soft">{s.key}</Text>
                 <HStack gap={2} align="center">
                   <Text size="xs" tone="soft">{n(s.total, 'proxy', 'proxies', 'прокси', 'прокси', 'прокси')}</Text>
                   {#if s.status !== 'idle'}

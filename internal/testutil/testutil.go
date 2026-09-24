@@ -51,6 +51,9 @@ type MockAdapter struct {
 	needsRefreshFunc   func(*models.Credential) bool
 	refreshFunc        func(context.Context, *models.Credential) (map[string]any, error)
 	modelInfosFunc     func(context.Context, *models.Credential, string) ([]models.ModelInfo, error)
+	// Calls counts Complete invocations; SeenPools records each call's pool.
+	Calls     int
+	SeenPools [][]*models.Credential
 }
 
 // NewMockAdapter creates a mock adapter with sensible defaults.
@@ -130,9 +133,13 @@ func (m *MockAdapter) ValidateCredentials(data map[string]any) error {
 	return m.validateFunc(data)
 }
 func (m *MockAdapter) Complete(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, _ map[string]any) (*models.ChatCompletionResponse, error) {
+	m.Calls++
+	m.SeenPools = append(m.SeenPools, creds)
 	return m.completeFunc(ctx, creds, req)
 }
 func (m *MockAdapter) CompleteStream(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, w io.Writer, _ map[string]any) error {
+	m.Calls++
+	m.SeenPools = append(m.SeenPools, creds)
 	return m.completeStreamFunc(ctx, creds, req, w)
 }
 func (m *MockAdapter) NeedsRefresh(cred *models.Credential) bool { return m.needsRefreshFunc(cred) }

@@ -3,31 +3,23 @@ package luaplugin
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
-	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/pool"
 )
 
 // UsageTracker records per-credential outcomes. It is implemented by the
 // credential pool service and injected via SetUsageTracker, keeping this
 // package free of import cycles.
-type UsageTracker interface {
-	UpdateUsage(id string, success bool) error
-	MarkQuotaExceeded(id string, resetAt time.Time) error
-}
+type UsageTracker = pool.UsageTracker
 
 // SetUsageTracker wires per-credential usage accounting for pool calls.
 // Unset (nil) disables accounting; attempts still run.
 func (s *Service) SetUsageTracker(t UsageTracker) { s.usage = t }
 
-func asQuotaExceeded(err error) (*models.ProviderError, bool) {
-	var perr *models.ProviderError
-	if errors.As(err, &perr) && perr.Type == models.ErrorTypeQuotaExceeded {
-		return perr, true
-	}
-	return nil, false
+func isFatalPoolError(err error) bool {
+	return errors.Is(err, ErrHandlerNotFound)
 }
 
 // runPool tries one attempt per credential in pool order and returns the
@@ -35,66 +27,13 @@ func asQuotaExceeded(err error) (*models.ProviderError, bool) {
 // or backoff pauses. A missing handler fails immediately: it is identical
 // for every key. Otherwise the last error is returned.
 func runPool[T any](ctx context.Context, s *Service, creds []*models.Credential, attempt func(context.Context, *models.Credential) (T, error)) (T, error) {
-	var zero T
-	if len(creds) == 0 {
-		return zero, fmt.Errorf("no credentials available")
-	}
-	var lastErr error
-	for _, cred := range creds {
-		if err := ctx.Err(); err != nil {
-			return zero, err
-		}
-		res, err := attempt(ctx, cred)
-		if err == nil {
-			if s.usage != nil {
-				_ = s.usage.UpdateUsage(cred.ID, true)
-			}
-			return res, nil
-		}
-		if s.usage != nil {
-			_ = s.usage.UpdateUsage(cred.ID, false)
-			if perr, ok := asQuotaExceeded(err); ok && perr.RetryAfter != nil {
-				_ = s.usage.MarkQuotaExceeded(cred.ID, *perr.RetryAfter)
-			}
-		}
-		if errors.Is(err, ErrHandlerNotFound) {
-			return zero, err
-		}
-		lastErr = err
-	}
-	return zero, lastErr
+	return pool.Run(ctx, s.logger, creds, s.usage, attempt, isFatalPoolError)
 }
 
-// runPoolStream is runPool for streaming calls. Attempts continue on error
-// even after partial writes: keys of one provider are interchangeable.
+// runPoolStream is runPool for streaming calls. Failover is allowed only
+// before the first byte reaches the client.
 func (s *Service) runPoolStream(ctx context.Context, w io.Writer, creds []*models.Credential, attempt func(context.Context, *models.Credential, io.Writer) error) error {
-	if len(creds) == 0 {
-		return fmt.Errorf("no credentials available")
-	}
-	var lastErr error
-	for _, cred := range creds {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		err := attempt(ctx, cred, w)
-		if err == nil {
-			if s.usage != nil {
-				_ = s.usage.UpdateUsage(cred.ID, true)
-			}
-			return nil
-		}
-		if s.usage != nil {
-			_ = s.usage.UpdateUsage(cred.ID, false)
-			if perr, ok := asQuotaExceeded(err); ok && perr.RetryAfter != nil {
-				_ = s.usage.MarkQuotaExceeded(cred.ID, *perr.RetryAfter)
-			}
-		}
-		if errors.Is(err, ErrHandlerNotFound) {
-			return err
-		}
-		lastErr = err
-	}
-	return lastErr
+	return pool.RunStream(ctx, s.logger, w, creds, s.usage, attempt, isFatalPoolError)
 }
 
 // CompletePool tries the credential pool in order through the complete

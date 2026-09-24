@@ -232,7 +232,7 @@ Harness scenario `proxies` passes live.
     `llm_router.multipart(parts)` builds multipart bodies for plugins.
     `ModelInfo.endpoints` declares which endpoints a model serves (empty =
     chat only); the router gates chat and transcription calls against it.
-    Router version bumped to 0.0.5; PLUGIN-CONTRACT.md is now the binding
+    Router version bumped to 0.0.5; PLUGIN-API.md is now the binding
     plugin-author contract.
 
 ## Done (2026-09-19, proxy pool rework)
@@ -290,9 +290,9 @@ Harness scenario `proxies` passes live.
     change to a managed virtual model except the disabled toggle
     (`managedUpdateIsToggleOnly`); the marker is preserved server-side.
 47. **Upstream model-gone** — new plugin error type `not_found`
-    (PLUGIN-CONTRACT.md, `models.ErrorTypeNotFound`, generic adapter maps
+    (PLUGIN-API.md, `models.ErrorTypeNotFound`, generic adapter maps
     HTTP 404). The router drops the model from the info cache
-    (`modelinfo.RemoveModel`, best-effort, WARN log) on chat/stream paths and
+    (`modelinfo.RemoveModel`, best-effort, WARN log) on all routed paths and
     returns the original error.
 48. **Rename agents → virtual-models** — dashboard routes
     `/dashboard/virtual-models[/{id}]` (`virtual_models.go`,

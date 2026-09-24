@@ -327,6 +327,9 @@ func TestProviderService_MigratesLegacyCustom(t *testing.T) {
 	}
 
 	svc := provider.NewService(database)
+	if err := svc.EnsureSeeded(); err != nil {
+		t.Fatalf("seed after legacy: %v", err)
+	}
 	got, err := svc.Get("custom:old-one")
 	if err != nil {
 		t.Fatalf("migrated provider missing: %v", err)

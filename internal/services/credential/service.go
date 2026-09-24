@@ -113,18 +113,6 @@ func (s *Service) Get(id string) (*models.Credential, error) {
 	return s.repo.Get(id)
 }
 
-// Next returns the best available (non-expired) Credential for a provider.
-func (s *Service) Next(providerID string) (*models.Credential, error) {
-	creds, err := s.All(providerID)
-	if err != nil {
-		return nil, err
-	}
-	if len(creds) == 0 {
-		return nil, fmt.Errorf("no available credentials for provider %s", providerID)
-	}
-	return creds[0], nil
-}
-
 // All returns routable credentials for a provider: non-expired and not
 // disabled, sorted by manual order, then computed priority, then LRU.
 func (s *Service) All(providerID string) ([]*models.Credential, error) {

@@ -86,7 +86,9 @@
     name = v.name ?? ''
     description = v.description ?? ''
     instruction = v.instruction ?? ''
-    models = (v.models ?? []).map((m: { model_id: string }) => m.model_id)
+    // Dedupe defensively: the keyed list below crashes on duplicate keys,
+    // and the backend rejects duplicates on save.
+    models = [...new Set((v.models ?? []).map((m: { model_id: string }) => m.model_id))]
   }
 
   function backToList() {
@@ -134,12 +136,25 @@
   }
 
   function addModel() {
-    models = [...models, availableModels[0]?.full_model_id ?? '']
+    // Never duplicate: the keyed list crashes on duplicate keys and the
+    // backend rejects duplicates on save.
+    const next = availableModels.map((m) => m.full_model_id).find((id) => id && !models.includes(id))
+    if (next === undefined) {
+      formError = t('All available models are already in the list.')
+      return
+    }
+    formError = ''
+    models = [...models, next]
   }
   function removeModel(index: number) {
     models = models.filter((_, i) => i !== index)
   }
   function setModel(index: number, id: string) {
+    if (id && models.some((m, i) => i !== index && m === id)) {
+      formError = t('This model is already in the list.')
+      return
+    }
+    formError = ''
     const next = [...models]
     next[index] = id
     models = next

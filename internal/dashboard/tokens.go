@@ -41,30 +41,16 @@ func (h *Handler) apiTokensList(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/llm-router/dashboard/tokens [post]
 func (h *Handler) apiTokensCreate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name  string `json:"name"`
-		Rules struct {
-			AllowedProviders    []string         `json:"allowed_providers"`
-			AllowAllProviders   bool             `json:"allow_all_providers"`
-			AllowedModels       []models.ModelId `json:"allowed_models"`
-			AllowAllModels      bool             `json:"allow_all_models"`
-			AllowedCredentials  []string         `json:"allowed_credentials"`
-			AllowAllCredentials bool             `json:"allow_all_credentials"`
-		} `json:"rules"`
+		Name  string            `json:"name"`
+		Rules models.TokenRules `json:"rules"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	t, err := h.tokenSvc.Create(token.CreateOptions{
-		Name: body.Name,
-		Rules: models.TokenRules{
-			AllowedProviders:    body.Rules.AllowedProviders,
-			AllowAllProviders:   body.Rules.AllowAllProviders,
-			AllowedModels:       body.Rules.AllowedModels,
-			AllowAllModels:      body.Rules.AllowAllModels,
-			AllowedCredentials:  body.Rules.AllowedCredentials,
-			AllowAllCredentials: body.Rules.AllowAllCredentials,
-		},
+		Name:  body.Name,
+		Rules: body.Rules,
 	})
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
@@ -89,27 +75,13 @@ func (h *Handler) apiTokensCreate(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/llm-router/dashboard/tokens/{id} [put]
 func (h *Handler) apiTokensUpdate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Rules struct {
-			AllowedProviders    []string         `json:"allowed_providers"`
-			AllowAllProviders   bool             `json:"allow_all_providers"`
-			AllowedModels       []models.ModelId `json:"allowed_models"`
-			AllowAllModels      bool             `json:"allow_all_models"`
-			AllowedCredentials  []string         `json:"allowed_credentials"`
-			AllowAllCredentials bool             `json:"allow_all_credentials"`
-		} `json:"rules"`
+		Rules models.TokenRules `json:"rules"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := h.tokenSvc.UpdateRules(r.PathValue("id"), models.TokenRules{
-		AllowedProviders:    body.Rules.AllowedProviders,
-		AllowAllProviders:   body.Rules.AllowAllProviders,
-		AllowedModels:       body.Rules.AllowedModels,
-		AllowAllModels:      body.Rules.AllowAllModels,
-		AllowedCredentials:  body.Rules.AllowedCredentials,
-		AllowAllCredentials: body.Rules.AllowAllCredentials,
-	}); err != nil {
+	if err := h.tokenSvc.UpdateRules(r.PathValue("id"), body.Rules); err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

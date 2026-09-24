@@ -1,73 +1,19 @@
 package credential
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"io"
 	"testing"
 	"time"
 
-	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
-
-// mockAdapter implements provider.GoAdapter for testing
-type mockAdapter struct{}
-
-func (m *mockAdapter) TypeKey() string { return "mock" }
-func (m *mockAdapter) ValidateCredentials(data map[string]any) error {
-	if s, _ := data["api_key"].(string); s == "" {
-		return fmt.Errorf("api_key required")
-	}
-	return nil
-}
-func (m *mockAdapter) Complete(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, _ map[string]any) (*models.ChatCompletionResponse, error) {
-	return &models.ChatCompletionResponse{
-		ID:      "mock-" + fmt.Sprintf("%d", time.Now().Unix()),
-		Object:  "chat.completion",
-		Created: time.Now().Unix(),
-		Model:   string(req.Model),
-		Choices: []models.ChatCompletionChoice{
-			{
-				Index: 0,
-				Message: models.ChatMessage{
-					Role:    "assistant",
-					Content: "mock response",
-				},
-				FinishReason: "stop",
-			},
-		},
-	}, nil
-}
-func (m *mockAdapter) CompleteStream(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, w io.Writer, _ map[string]any) error {
-	chunk := models.StreamChunk{
-		ID:      "mock-stream",
-		Object:  "chat.completion.chunk",
-		Created: time.Now().Unix(),
-		Model:   string(req.Model),
-	}
-	data, _ := json.Marshal(chunk)
-	fmt.Fprintf(w, "data: %s\n\n", data)
-	return nil
-}
-func (m *mockAdapter) NeedsRefresh(cred *models.Credential) bool { return false }
-func (m *mockAdapter) RefreshCredential(ctx context.Context, cred *models.Credential) (map[string]any, error) {
-	return nil, fmt.Errorf("no refresh needed for this credential type")
-}
-func (m *mockAdapter) GetModelInfos(ctx context.Context, cred *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {
-	return []models.ModelInfo{
-		{Name: "mock-model", DisplayName: "Mock Model", ContextWindow: 4096, MaxTokens: 2048},
-	}, nil
-}
 
 func setupCredentialService(t *testing.T) (*Service, *provider.Service) {
 	t.Helper()
 	database := testutil.SetupTestDB(t)
 
 	providerSvc := provider.NewService(database)
-	providerSvc.RegisterGoAdapter(&mockAdapter{})
+	providerSvc.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
 	if _, err := providerSvc.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
 	}
@@ -133,7 +79,7 @@ func TestCredentialService_Add_InvalidProvider(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────
-// Next Tests (LRU Selection)
+// Pool Head Tests (LRU Selection via All)
 // ─────────────────────────────────────────────
 
 func TestCredentialService_Next_NeverUsed(t *testing.T) {
@@ -150,13 +96,16 @@ func TestCredentialService_Next_NeverUsed(t *testing.T) {
 		Data:       map[string]any{"api_key": "key2"},
 	})
 
-	next, err := svc.Next("mock")
+	next, err := svc.All("mock")
 	if err != nil {
-		t.Fatalf("next failed: %v", err)
+		t.Fatalf("all failed: %v", err)
 	}
 
-	if next.ID != cred1.ID && next.ID != cred2.ID {
-		t.Errorf("unexpected credential returned: %s", next.ID)
+	if len(next) != 2 {
+		t.Fatalf("expected 2 credentials, got %d", len(next))
+	}
+	if next[0].ID != cred1.ID && next[0].ID != cred2.ID {
+		t.Errorf("unexpected credential at pool head: %s", next[0].ID)
 	}
 }
 
@@ -178,20 +127,23 @@ func TestCredentialService_Next_LRU(t *testing.T) {
 		t.Fatalf("update usage failed: %v", err)
 	}
 
-	next, err := svc.Next("mock")
+	next, err := svc.All("mock")
 	if err != nil {
-		t.Fatalf("next failed: %v", err)
+		t.Fatalf("all failed: %v", err)
 	}
 
-	if next.ID != cred2.ID {
-		t.Errorf("expected cred2 (never used), got %s", next.ID)
+	if len(next) != 2 {
+		t.Fatalf("expected 2 credentials, got %d", len(next))
+	}
+	if next[0].ID != cred2.ID {
+		t.Errorf("expected cred2 (never used) at pool head, got %s", next[0].ID)
 	}
 }
 
 func TestCredentialService_Next_NoCredentials(t *testing.T) {
 	svc, _ := setupCredentialService(t)
 
-	_, err := svc.Next("mock")
+	_, err := svc.All("mock")
 	if err == nil {
 		t.Error("expected error when no credentials available, got nil")
 	}

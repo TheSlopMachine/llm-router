@@ -46,6 +46,16 @@ var (
 	// ErrEndpointNotSupported is returned when the provider or model does
 	// not serve the requested endpoint (e.g. audio/transcriptions)
 	ErrEndpointNotSupported = errors.New("endpoint not supported")
+
+	// ErrTimeout marks upstream timeouts outside the ProviderError path
+	// (e.g. transport-level deadlines). Prefer ProviderError with
+	// ErrorTypeTimeout when an upstream response exists.
+	ErrTimeout = errors.New("upstream timeout")
+
+	// ErrRateLimited marks upstream rate limits outside the ProviderError
+	// path. Prefer ProviderError with ErrorTypeRateLimit when an upstream
+	// response exists.
+	ErrRateLimited = errors.New("upstream rate limited")
 )
 
 // NotFoundError wraps ErrNotFound with context about what was not found

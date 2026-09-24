@@ -92,35 +92,35 @@ func TestParseTranscriptionRequest_Errors(t *testing.T) {
 			build: func(t *testing.T) (string, *bytes.Buffer) {
 				return multipartBody(t, map[string]string{}, true)
 			},
-			wantErr: "model",
+			wantErr: "missing required field 'model'",
 		},
 		{
 			name: "missing file",
 			build: func(t *testing.T) (string, *bytes.Buffer) {
 				return multipartBody(t, map[string]string{"model": "groq/whisper-large-v3"}, false)
 			},
-			wantErr: "file",
+			wantErr: "missing required field 'file'",
 		},
 		{
 			name: "bad response format",
 			build: func(t *testing.T) (string, *bytes.Buffer) {
 				return multipartBody(t, map[string]string{"model": "groq/whisper-large-v3", "response_format": "yaml"}, true)
 			},
-			wantErr: "response_format",
+			wantErr: `invalid response_format "yaml": expected json, text, srt, verbose_json or vtt`,
 		},
 		{
 			name: "bad granularity",
 			build: func(t *testing.T) (string, *bytes.Buffer) {
 				return multipartBody(t, map[string]string{"model": "groq/whisper-large-v3", "timestamp_granularities[]": "millisecond"}, true)
 			},
-			wantErr: "granularity",
+			wantErr: `invalid timestamp granularity "millisecond": expected word or segment`,
 		},
 		{
 			name: "bad temperature",
 			build: func(t *testing.T) (string, *bytes.Buffer) {
 				return multipartBody(t, map[string]string{"model": "groq/whisper-large-v3", "temperature": "hot"}, true)
 			},
-			wantErr: "temperature",
+			wantErr: `invalid temperature "hot": must be a number`,
 		},
 	}
 	for _, tc := range cases {
@@ -132,8 +132,8 @@ func TestParseTranscriptionRequest_Errors(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected error")
 			}
-			if !strings.Contains(err.Error(), tc.wantErr) {
-				t.Fatalf("error %q must mention %q", err.Error(), tc.wantErr)
+			if err.Error() != tc.wantErr {
+				t.Fatalf("error %q must equal %q", err.Error(), tc.wantErr)
 			}
 		})
 	}

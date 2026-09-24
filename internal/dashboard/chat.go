@@ -2,13 +2,12 @@ package dashboard
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
+	"github.com/TheSlopMachine/llm-router/internal/httpkit"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
@@ -92,10 +91,7 @@ func (h *Handler) handleChatStream(w http.ResponseWriter, r *http.Request, req *
 		h.jsonErr(w, http.StatusInternalServerError, "streaming not supported")
 		return
 	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
+	httpkit.WriteSSEHeaders(w)
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
@@ -121,7 +117,7 @@ func (h *Handler) handleChatStream(w http.ResponseWriter, r *http.Request, req *
 		errorObj := models.OpenAIError{
 			Error: models.OpenAIErrorBody{
 				Message: err.Error(),
-				Type:    "error",
+				Type:    apierrors.ErrorTypeForCode(re.code),
 				Code:    re.code,
 			},
 		}
@@ -138,7 +134,7 @@ func handleChatRouterError(w http.ResponseWriter, err error, h *Handler) {
 	h.json(w, re.status, models.OpenAIError{
 		Error: models.OpenAIErrorBody{
 			Message: err.Error(),
-			Type:    "error",
+			Type:    apierrors.ErrorTypeForCode(re.code),
 			Code:    re.code,
 		},
 	})
@@ -150,46 +146,6 @@ type chatRouterError struct {
 }
 
 func classifyChatError(err error) chatRouterError {
-	var provErr *models.ProviderError
-	if errors.As(err, &provErr) {
-		switch provErr.Type {
-		case models.ErrorTypeRateLimit:
-			return chatRouterError{http.StatusBadGateway, "rate_limit"}
-		case models.ErrorTypeQuotaExceeded:
-			return chatRouterError{http.StatusBadGateway, "quota_exceeded"}
-		case models.ErrorTypeAuth:
-			return chatRouterError{http.StatusUnauthorized, "auth_error"}
-		case models.ErrorTypeTimeout:
-			return chatRouterError{http.StatusBadGateway, "timeout"}
-		case models.ErrorTypeUpstream:
-			return chatRouterError{http.StatusBadGateway, "upstream_error"}
-		case models.ErrorTypeInvalidRequest:
-			return chatRouterError{http.StatusBadRequest, "invalid_request_error"}
-		default:
-			return chatRouterError{http.StatusBadGateway, "upstream_error"}
-		}
-	}
-	switch {
-	case errors.Is(err, apierrors.ErrProviderNotFound):
-		return chatRouterError{http.StatusBadRequest, "provider_not_found"}
-	case errors.Is(err, apierrors.ErrNoCredential):
-		return chatRouterError{http.StatusServiceUnavailable, "no_credential"}
-	case errors.Is(err, apierrors.ErrModelNotAllowed):
-		return chatRouterError{http.StatusForbidden, "model_not_allowed"}
-	case errors.Is(err, apierrors.ErrProviderNotAllowed):
-		return chatRouterError{http.StatusForbidden, "provider_not_allowed"}
-	case errors.Is(err, apierrors.ErrCredentialNotAllowed):
-		return chatRouterError{http.StatusForbidden, "credential_not_allowed"}
-	case errors.Is(err, apierrors.ErrUnauthorized):
-		return chatRouterError{http.StatusUnauthorized, "auth_error"}
-	default:
-		s := err.Error()
-		if strings.Contains(s, "timeout") {
-			return chatRouterError{http.StatusBadGateway, "timeout"}
-		}
-		if strings.Contains(s, "rate limit") {
-			return chatRouterError{http.StatusBadGateway, "rate_limit"}
-		}
-		return chatRouterError{http.StatusBadGateway, "upstream_error"}
-	}
+	re := apierrors.ToAPIError(err)
+	return chatRouterError{re.Status, re.Code}
 }

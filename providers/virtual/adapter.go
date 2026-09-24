@@ -8,63 +8,29 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"sync"
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
-	"github.com/TheSlopMachine/llm-router/internal/services/router"
 	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
+	"github.com/TheSlopMachine/llm-router/internal/streamgate"
 )
 
 // Adapter implements the provider.GoAdapter interface for virtual models.
 type Adapter struct {
-	routerSvc  *router.Service
+	routerSvc  provider.Completer
 	virtualSvc *virtual.Service
 	logger     *slog.Logger
-	mu         sync.RWMutex
 }
 
-// SetRouterService injects the router service dependency.
-func (a *Adapter) SetRouterService(svc *router.Service) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.routerSvc = svc
-}
-
-// SetVirtualService injects the virtual-model service dependency.
-func (a *Adapter) SetVirtualService(svc *virtual.Service) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.virtualSvc = svc
-}
-
-// SetLogger injects the logger dependency.
-func (a *Adapter) SetLogger(logger *slog.Logger) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.logger = logger
-}
-
-func (a *Adapter) getRouterService() *router.Service {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	return a.routerSvc
-}
-
-func (a *Adapter) getVirtualService() *virtual.Service {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	return a.virtualSvc
-}
-
-func (a *Adapter) getLogger() *slog.Logger {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	if a.logger == nil {
-		return slog.Default()
+// New constructs an Adapter with all dependencies. The router dependency
+// enters as the narrow provider.Completer port, so construction order is
+// explicit and no setter injection is needed.
+func New(completer provider.Completer, virtualSvc *virtual.Service, logger *slog.Logger) *Adapter {
+	if logger == nil {
+		logger = slog.Default()
 	}
-	return a.logger
+	return &Adapter{routerSvc: completer, virtualSvc: virtualSvc, logger: logger}
 }
 
 // resolve looks up the virtual model targeted by the request model id
@@ -79,7 +45,7 @@ func (a *Adapter) resolve(req *models.ChatCompletionRequest) (*models.VirtualMod
 	if agentID == "" {
 		return nil, nil, nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: "virtual model id is required"}
 	}
-	virtualSvc := a.getVirtualService()
+	virtualSvc := a.virtualSvc
 	if virtualSvc == nil {
 		return nil, nil, nil, fmt.Errorf("virtual model service not initialized")
 	}
@@ -90,9 +56,12 @@ func (a *Adapter) resolve(req *models.ChatCompletionRequest) (*models.VirtualMod
 	if agent.Disabled {
 		return nil, nil, nil, fmt.Errorf("%w: virtual/%s", apierrors.ErrModelDisabled, agentID)
 	}
-	members := virtualSvc.LiveMembers(agent)
+	members, err := virtualSvc.LiveMembers(agent)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("virtual model %q members: %w", agent.Name, err)
+	}
 	if len(members) == 0 && agent.ManagedBy != "" {
-		a.getLogger().Warn("virtual model group is empty, nothing to try",
+		a.logger.Warn("virtual model group is empty, nothing to try",
 			"virtual_model", agent.Name, "managed_by", agent.ManagedBy)
 	}
 
@@ -117,7 +86,7 @@ func (a *Adapter) ValidateCredentials(data map[string]any) error {
 		return fmt.Errorf("agent_id is required")
 	}
 
-	virtualSvc := a.getVirtualService()
+	virtualSvc := a.virtualSvc
 	if virtualSvc == nil {
 		return fmt.Errorf("virtual model service not initialized")
 	}
@@ -136,7 +105,7 @@ func (a *Adapter) Complete(
 	req *models.ChatCompletionRequest,
 	_ map[string]any,
 ) (*models.ChatCompletionResponse, error) {
-	routerSvc := a.getRouterService()
+	routerSvc := a.routerSvc
 	if routerSvc == nil {
 		return nil, fmt.Errorf("router service not initialized")
 	}
@@ -145,7 +114,7 @@ func (a *Adapter) Complete(
 	if err != nil {
 		return nil, err
 	}
-	logger := a.getLogger()
+	logger := a.logger
 
 	// Fall-through queue, not retries: each member is tried at most once, in
 	// list order. The first success wins; otherwise the last error is
@@ -182,7 +151,7 @@ func (a *Adapter) CompleteStream(
 	w io.Writer,
 	_ map[string]any,
 ) error {
-	routerSvc := a.getRouterService()
+	routerSvc := a.routerSvc
 	if routerSvc == nil {
 		return fmt.Errorf("router service not initialized")
 	}
@@ -191,10 +160,12 @@ func (a *Adapter) CompleteStream(
 	if err != nil {
 		return err
 	}
-	logger := a.getLogger()
+	logger := a.logger
 
-	// Same fall-through queue as Complete: attempts continue even after
-	// partial writes, members are interchangeable by advertised capabilities.
+	// Same fall-through queue as Complete, with one guard: once the first
+	// byte reaches the client the stream belongs to that member and ends
+	// with its error instead of continuing to the next member.
+	gate := streamgate.New(w)
 	var lastErr error
 	for _, memberID := range members {
 		if err := ctx.Err(); err != nil {
@@ -205,10 +176,13 @@ func (a *Adapter) CompleteStream(
 		logger.Info("virtual model trying model (stream)",
 			"virtual_model", agent.Name,
 			"model", memberID)
-		if err := routerSvc.CompleteStream(ctx, &modelReq, w, nil); err == nil {
+		if err := routerSvc.CompleteStream(ctx, &modelReq, gate, nil); err == nil {
 			return nil
 		} else {
 			lastErr = err
+		}
+		if gate.Written() {
+			return lastErr
 		}
 	}
 	if lastErr == nil {
@@ -226,7 +200,7 @@ func (a *Adapter) RefreshCredential(ctx context.Context, cred *models.Credential
 }
 
 func (a *Adapter) GetModelInfos(ctx context.Context, cred *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {
-	virtualSvc := a.getVirtualService()
+	virtualSvc := a.virtualSvc
 	if virtualSvc == nil {
 		return nil, fmt.Errorf("virtual model service not initialized")
 	}

@@ -13,8 +13,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
-	"time"
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
@@ -42,22 +40,46 @@ func New(providerSvc *provider.Service, credSvc *credential.Service, modelInfoSv
 	}
 }
 
+// tokenRulesCtxKey carries the outer request's credential rules across
+// re-entrant router calls (virtual-model fan-out). The virtual adapter
+// forwards ctx untouched, so inner member calls inherit the same rules
+// instead of running unrestricted on a nil token.
+type tokenRulesCtxKey struct{}
+
+// withTokenRules snapshots an explicit request token into ctx. A nil token
+// with no snapshot already present stays unrestricted (admin probes).
+func withTokenRules(ctx context.Context, token *models.RouterToken) context.Context {
+	if token == nil {
+		return ctx
+	}
+	rules := token.Rules
+	return context.WithValue(ctx, tokenRulesCtxKey{}, &rules)
+}
+
+// effectiveToken resolves the credential policy for a routing step: the
+// explicit token wins, otherwise the outer snapshot from ctx applies,
+// otherwise the call is unrestricted.
+func effectiveToken(ctx context.Context, token *models.RouterToken) *models.RouterToken {
+	if token != nil {
+		return token
+	}
+	if rules, ok := ctx.Value(tokenRulesCtxKey{}).(*models.TokenRules); ok && rules != nil {
+		return &models.RouterToken{Rules: *rules}
+	}
+	return nil
+}
+
 // filterCredentials filters the credential list according to token rules.
-// A nil token means no restriction (e.g. internal agent calls).
-func (s *Service) filterCredentials(creds []*models.Credential, token *models.RouterToken) []*models.Credential {
+// A nil token means no restriction (admin probes and other internal calls
+// running outside any request snapshot). Provider-scoped rules evaluate
+// against providerID; the legacy flat credential list is provider-blind.
+func (s *Service) filterCredentials(providerID string, creds []*models.Credential, token *models.RouterToken) []*models.Credential {
 	if token == nil || token.Rules.AllowAllCredentials {
 		return creds
 	}
-	if len(token.Rules.AllowedCredentials) == 0 {
-		return nil
-	}
-	allow := make(map[string]bool, len(token.Rules.AllowedCredentials))
-	for _, id := range token.Rules.AllowedCredentials {
-		allow[id] = true
-	}
 	out := make([]*models.Credential, 0, len(creds))
 	for _, c := range creds {
-		if allow[c.ID] {
+		if token.Rules.AllowsCredential(providerID, c.ID) {
 			out = append(out, c)
 		}
 	}
@@ -80,12 +102,12 @@ func (s *Service) completeStreamOne(ctx context.Context, resolved *provider.Reso
 	return resolved.Go.CompleteStream(ctx, creds, req, w, cfg)
 }
 
-func (s *Service) loadCredentials(p *models.ProviderInstance, token *models.RouterToken) ([]*models.Credential, error) {
+func (s *Service) loadCredentials(ctx context.Context, p *models.ProviderInstance, token *models.RouterToken) ([]*models.Credential, error) {
 	creds, err := s.credSvc.All(p.ID)
 	if err != nil {
 		return nil, fmt.Errorf("%w for provider %q", apierrors.ErrNoCredential, p.Name)
 	}
-	creds = s.filterCredentials(creds, token)
+	creds = s.filterCredentials(p.ID, creds, effectiveToken(ctx, token))
 	if len(creds) == 0 {
 		return nil, fmt.Errorf("%w for provider %q", apierrors.ErrCredentialNotAllowed, p.Name)
 	}
@@ -105,6 +127,22 @@ func (s *Service) checkEndpoint(providerID, modelName, endpoint string) error {
 				apierrors.ErrEndpointNotSupported, providerID, modelName, endpoint)
 		}
 		return nil
+	}
+	return nil
+}
+
+// requireModelEnabled enforces the admin model override gate fail-closed:
+// missing overrides allow routing, storage failures deny routing.
+func (s *Service) requireModelEnabled(providerID, modelName string, model models.ModelId, allowDisabled bool) error {
+	if allowDisabled {
+		return nil
+	}
+	enabled, err := s.modelInfoSvc.IsModelEnabled(providerID, modelName)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, model)
 	}
 	return nil
 }
@@ -151,34 +189,23 @@ func (s *Service) complete(
 	token *models.RouterToken,
 	allowDisabled bool,
 ) (*models.ChatCompletionResponse, error) {
-	providerID, modelName, err := req.Model.Parse()
+	ctx, rr, err := s.resolveRequest(ctx, req.Model, token, allowDisabled, models.EndpointChatCompletions)
 	if err != nil {
-		return nil, fmt.Errorf("invalid model id: %w", err)
+		return nil, err
 	}
-	resolved, err := provider.Resolve(s.providerSvc, providerID)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
-	}
-	if resolved.Instance.Disabled {
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
-	}
+	resolved := rr.resolved
 	// Virtual agents resolve from the model name suffix and need no
-	// credentials; token credential rules do not apply to them.
+	// credentials of their own; the outer token snapshot in ctx still
+	// restricts the credentials of the member models tried inside.
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
 		return s.completeOne(ctx, resolved, nil, req)
 	}
-	if !allowDisabled && !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
-	}
-	if err := s.checkEndpoint(providerID, modelName, models.EndpointChatCompletions); err != nil {
-		return nil, err
-	}
-	creds, err := s.loadCredentials(resolved.Instance, token)
+	creds, err := s.loadCredentials(ctx, resolved.Instance, token)
 	if err != nil {
 		return nil, err
 	}
 	resp, err := s.completeOne(ctx, resolved, creds, req)
-	s.dropMissingModel(providerID, modelName, err)
+	s.dropMissingModel(rr.providerID, rr.modelName, err)
 	return resp, err
 }
 
@@ -190,32 +217,20 @@ func (s *Service) CompleteStream(
 	w io.Writer,
 	token *models.RouterToken,
 ) error {
-	providerID, modelName, err := req.Model.Parse()
+	ctx, rr, err := s.resolveRequest(ctx, req.Model, token, false, models.EndpointChatCompletions)
 	if err != nil {
-		return fmt.Errorf("invalid model id: %w", err)
+		return err
 	}
-	resolved, err := provider.Resolve(s.providerSvc, providerID)
-	if err != nil {
-		return fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
-	}
-	if resolved.Instance.Disabled {
-		return fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
-	}
+	resolved := rr.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
 		return s.completeStreamOne(ctx, resolved, nil, req, w)
 	}
-	if !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
-		return fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
-	}
-	if err := s.checkEndpoint(providerID, modelName, models.EndpointChatCompletions); err != nil {
-		return err
-	}
-	creds, err := s.loadCredentials(resolved.Instance, token)
+	creds, err := s.loadCredentials(ctx, resolved.Instance, token)
 	if err != nil {
 		return err
 	}
 	err = s.completeStreamOne(ctx, resolved, creds, req, w)
-	s.dropMissingModel(providerID, modelName, err)
+	s.dropMissingModel(rr.providerID, rr.modelName, err)
 	return err
 }
 
@@ -252,25 +267,13 @@ func (s *Service) transcribe(
 	token *models.RouterToken,
 	allowDisabled bool,
 ) (*models.TranscriptionResponse, error) {
-	providerID, modelName, err := req.Model.Parse()
+	ctx, rr, err := s.resolveRequest(ctx, req.Model, token, allowDisabled, models.EndpointAudioTranscription)
 	if err != nil {
-		return nil, fmt.Errorf("invalid model id: %w", err)
+		return nil, err
 	}
-	resolved, err := provider.Resolve(s.providerSvc, providerID)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
-	}
-	if resolved.Instance.Disabled {
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
-	}
+	resolved := rr.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
 		return nil, fmt.Errorf("%w: virtual models do not serve audio transcription", apierrors.ErrEndpointNotSupported)
-	}
-	if !allowDisabled && !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
-	}
-	if err := s.checkEndpoint(providerID, modelName, models.EndpointAudioTranscription); err != nil {
-		return nil, err
 	}
 	// Capability pre-check: fail loudly before touching the credential pool.
 	if resolved.IsLua() {
@@ -280,11 +283,13 @@ func (s *Service) transcribe(
 	} else if _, ok := resolved.Go.(provider.Transcriber); !ok {
 		return nil, fmt.Errorf("%w: provider %q does not support audio transcription", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
-	creds, err := s.loadCredentials(resolved.Instance, token)
+	creds, err := s.loadCredentials(ctx, resolved.Instance, token)
 	if err != nil {
 		return nil, err
 	}
-	return s.transcribeOne(ctx, resolved, creds, req)
+	resp, err := s.transcribeOne(ctx, resolved, creds, req)
+	s.dropMissingModel(rr.providerID, rr.modelName, err)
+	return resp, err
 }
 
 // speechOne runs a single speech pass against the credential pool.
@@ -320,25 +325,13 @@ func (s *Service) speech(
 	token *models.RouterToken,
 	allowDisabled bool,
 ) (*models.SpeechResponse, error) {
-	providerID, modelName, err := req.Model.Parse()
+	ctx, rr, err := s.resolveRequest(ctx, req.Model, token, allowDisabled, models.EndpointAudioSpeech)
 	if err != nil {
-		return nil, fmt.Errorf("invalid model id: %w", err)
+		return nil, err
 	}
-	resolved, err := provider.Resolve(s.providerSvc, providerID)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
-	}
-	if resolved.Instance.Disabled {
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
-	}
+	resolved := rr.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
 		return nil, fmt.Errorf("%w: virtual models do not serve text-to-speech", apierrors.ErrEndpointNotSupported)
-	}
-	if !allowDisabled && !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
-	}
-	if err := s.checkEndpoint(providerID, modelName, models.EndpointAudioSpeech); err != nil {
-		return nil, err
 	}
 	// Capability pre-check: fail loudly before touching the credential pool.
 	if resolved.IsLua() {
@@ -348,11 +341,13 @@ func (s *Service) speech(
 	} else if _, ok := resolved.Go.(provider.Speaker); !ok {
 		return nil, fmt.Errorf("%w: provider %q does not support text-to-speech", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
-	creds, err := s.loadCredentials(resolved.Instance, token)
+	creds, err := s.loadCredentials(ctx, resolved.Instance, token)
 	if err != nil {
 		return nil, err
 	}
-	return s.speechOne(ctx, resolved, creds, req)
+	resp, err := s.speechOne(ctx, resolved, creds, req)
+	s.dropMissingModel(rr.providerID, rr.modelName, err)
+	return resp, err
 }
 
 // generateImageOne runs a single image generation pass against the credential pool.
@@ -388,25 +383,13 @@ func (s *Service) generateImage(
 	token *models.RouterToken,
 	allowDisabled bool,
 ) (*models.ImageGenerationResponse, error) {
-	providerID, modelName, err := req.Model.Parse()
+	ctx, rr, err := s.resolveRequest(ctx, req.Model, token, allowDisabled, models.EndpointImagesGenerations)
 	if err != nil {
-		return nil, fmt.Errorf("invalid model id: %w", err)
+		return nil, err
 	}
-	resolved, err := provider.Resolve(s.providerSvc, providerID)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
-	}
-	if resolved.Instance.Disabled {
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
-	}
+	resolved := rr.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
 		return nil, fmt.Errorf("%w: virtual models do not serve image generation", apierrors.ErrEndpointNotSupported)
-	}
-	if !allowDisabled && !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
-	}
-	if err := s.checkEndpoint(providerID, modelName, models.EndpointImagesGenerations); err != nil {
-		return nil, err
 	}
 	// Capability pre-check: fail loudly before touching the credential pool.
 	if resolved.IsLua() {
@@ -416,11 +399,13 @@ func (s *Service) generateImage(
 	} else if _, ok := resolved.Go.(provider.ImageGenerator); !ok {
 		return nil, fmt.Errorf("%w: provider %q does not support image generation", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
-	creds, err := s.loadCredentials(resolved.Instance, token)
+	creds, err := s.loadCredentials(ctx, resolved.Instance, token)
 	if err != nil {
 		return nil, err
 	}
-	return s.generateImageOne(ctx, resolved, creds, req)
+	resp, err := s.generateImageOne(ctx, resolved, creds, req)
+	s.dropMissingModel(rr.providerID, rr.modelName, err)
+	return resp, err
 }
 
 // embedOne runs a single embeddings pass against the credential pool.
@@ -456,25 +441,13 @@ func (s *Service) embed(
 	token *models.RouterToken,
 	allowDisabled bool,
 ) (*models.EmbeddingsResponse, error) {
-	providerID, modelName, err := req.Model.Parse()
+	ctx, rr, err := s.resolveRequest(ctx, req.Model, token, allowDisabled, models.EndpointEmbeddings)
 	if err != nil {
-		return nil, fmt.Errorf("invalid model id: %w", err)
+		return nil, err
 	}
-	resolved, err := provider.Resolve(s.providerSvc, providerID)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
-	}
-	if resolved.Instance.Disabled {
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
-	}
+	resolved := rr.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
 		return nil, fmt.Errorf("%w: virtual models do not serve embeddings", apierrors.ErrEndpointNotSupported)
-	}
-	if !allowDisabled && !s.modelInfoSvc.IsModelEnabled(providerID, modelName) {
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrModelDisabled, req.Model)
-	}
-	if err := s.checkEndpoint(providerID, modelName, models.EndpointEmbeddings); err != nil {
-		return nil, err
 	}
 	// Capability pre-check: fail loudly before touching the credential pool.
 	if resolved.IsLua() {
@@ -484,11 +457,13 @@ func (s *Service) embed(
 	} else if _, ok := resolved.Go.(provider.Embedder); !ok {
 		return nil, fmt.Errorf("%w: provider %q does not support embeddings", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
-	creds, err := s.loadCredentials(resolved.Instance, token)
+	creds, err := s.loadCredentials(ctx, resolved.Instance, token)
 	if err != nil {
 		return nil, err
 	}
-	return s.embedOne(ctx, resolved, creds, req)
+	resp, err := s.embedOne(ctx, resolved, creds, req)
+	s.dropMissingModel(rr.providerID, rr.modelName, err)
+	return resp, err
 }
 
 // GetProviderIDForModel returns the composite provider ID for a given model.
@@ -502,274 +477,4 @@ func (s *Service) GetProviderIDForModel(ctx context.Context, modelID models.Mode
 		return "", err
 	}
 	return providerID, nil
-}
-
-// TestResult reports the outcome of a credential or model probe.
-// QuotaExceeded marks temporary rate-limit failures: the model is alive,
-// the quota is not. Callers must not disable models over it.
-// Summary is a short human string for toasts; the full error goes to logs.
-type TestResult struct {
-	OK            bool   `json:"ok"`
-	Latency       int64  `json:"latency_ms"`
-	Error         string `json:"error,omitempty"`
-	Response      string `json:"response,omitempty"`
-	QuotaExceeded bool   `json:"quota_exceeded,omitempty"`
-	Summary       string `json:"summary,omitempty"`
-}
-
-// probeRequest builds a minimal completion request for connectivity tests.
-func probeRequest(model models.ModelId) *models.ChatCompletionRequest {
-	return &models.ChatCompletionRequest{
-		Model:     model,
-		MaxTokens: 16,
-		Messages:  []models.ChatMessage{{Role: "user", Content: "Reply with: ok"}},
-	}
-}
-
-// TestCredential runs a single probe request pinned to one credential,
-// bypassing pool rotation. The probe model is the provider's first listed
-// model, or overrideModel when given.
-func (s *Service) TestCredential(ctx context.Context, providerID, credentialID string, overrideModel string) TestResult {
-	resolved, err := provider.Resolve(s.providerSvc, providerID)
-	if err != nil {
-		return TestResult{Error: err.Error()}
-	}
-	cred, err := s.credSvc.Get(credentialID)
-	if err != nil {
-		return TestResult{Error: "credential not found"}
-	}
-	if cred.ProviderID != providerID {
-		return TestResult{Error: "credential does not belong to this provider"}
-	}
-	model := overrideModel
-	if model == "" {
-		infos, err := s.modelInfoSvc.GetModelInfos(ctx, providerID)
-		if err != nil || len(infos) == 0 {
-			return TestResult{Error: "no model available for probe: model discovery failed"}
-		}
-		model = infos[0].Name
-	}
-	req := probeRequest(models.ModelId(providerID + "/" + model))
-	start := time.Now()
-	resp, err := s.completeOne(ctx, resolved, []*models.Credential{cred}, req)
-	if err != nil {
-		return probeResult(start, "", err)
-	}
-	text := ""
-	if len(resp.Choices) > 0 {
-		text = resp.Choices[0].Message.TextContent()
-	}
-	return probeResult(start, text, nil)
-}
-
-// TestModel runs a probe through the normal routing path (credential pool
-// included), as an internal unrestricted call. Manually disabled models stay
-// testable: the admin override gates routing, not probing.
-func (s *Service) TestModel(ctx context.Context, modelID models.ModelId) TestResult {
-	start := time.Now()
-	resp, err := s.complete(ctx, probeRequest(modelID), nil, true)
-	if err != nil {
-		return probeResult(start, "", err)
-	}
-	text := ""
-	if len(resp.Choices) > 0 {
-		text = resp.Choices[0].Message.TextContent()
-	}
-	return probeResult(start, text, nil)
-}
-
-// probePixelPNG is a 1x1 PNG for vision probes: no network needed to build
-// the request.
-const probePixelPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
-
-// probeWAV synthesizes a short mono beep for transcription probes.
-func probeWAV() []byte {
-	const sampleRate = 8000
-	const samples = sampleRate / 2
-	buf := make([]byte, 44+samples*2)
-	copy(buf[0:], "RIFF")
-	put32(buf[4:], uint32(36+samples*2))
-	copy(buf[8:], "WAVEfmt ")
-	put32(buf[16:], 16)
-	put16(buf[20:], 1)
-	put16(buf[22:], 1)
-	put32(buf[24:], sampleRate)
-	put32(buf[28:], sampleRate*2)
-	put16(buf[32:], 2)
-	put16(buf[34:], 16)
-	copy(buf[36:], "data")
-	put32(buf[40:], uint32(samples*2))
-	for i := range samples {
-		v := int16(10000 * math.Sin(2*math.Pi*440*float64(i)/sampleRate))
-		put16(buf[44+i*2:], uint16(v))
-	}
-	return buf
-}
-
-func put16(b []byte, v uint16) {
-	b[0] = byte(v)
-	b[1] = byte(v >> 8)
-}
-
-func put32(b []byte, v uint32) {
-	b[0] = byte(v)
-	b[1] = byte(v >> 8)
-	b[2] = byte(v >> 16)
-	b[3] = byte(v >> 24)
-}
-
-// probeResult builds a TestResult from a probe outcome.
-func probeResult(start time.Time, respText string, err error) TestResult {
-	res := TestResult{OK: err == nil, Latency: time.Since(start).Milliseconds()}
-	if err != nil {
-		res.Error = err.Error()
-		res.Summary = probeSummary(err)
-		var perr *models.ProviderError
-		if errors.As(err, &perr) && (perr.Type == models.ErrorTypeRateLimit || perr.Type == models.ErrorTypeQuotaExceeded) {
-			res.QuotaExceeded = true
-		}
-		return res
-	}
-	res.Response = respText
-	return res
-}
-
-// probeSummary maps a probe error to a short human string for toasts.
-func probeSummary(err error) string {
-	var perr *models.ProviderError
-	if errors.As(err, &perr) {
-		switch perr.Type {
-		case models.ErrorTypeRateLimit, models.ErrorTypeQuotaExceeded:
-			return "quota exceeded, temporary"
-		case models.ErrorTypeAuth:
-			return "authentication failed"
-		case models.ErrorTypeInvalidRequest:
-			return "invalid request"
-		case models.ErrorTypeUpstream:
-			return "upstream error"
-		case models.ErrorTypeTimeout:
-			return "request timed out"
-		case models.ErrorTypeGeo:
-			return "region blocked"
-		}
-	}
-	return "probe failed"
-}
-
-// TestVision runs a minimal image-input probe, bypassing manual disable.
-func (s *Service) TestVision(ctx context.Context, modelID models.ModelId) TestResult {
-	start := time.Now()
-	req := probeRequest(modelID)
-	req.Messages = []models.ChatMessage{{
-		Role:    "user",
-		Content: "What is in this image? Reply with: ok",
-		ContentParts: []models.ChatMessageContentPart{{
-			Type:     "image_url",
-			ImageURL: &models.ChatMessageImageURL{URL: "data:image/png;base64," + probePixelPNG},
-		}},
-	}}
-	resp, err := s.complete(ctx, req, nil, true)
-	if err != nil || len(resp.Choices) == 0 {
-		if err == nil {
-			err = fmt.Errorf("empty response")
-		}
-		return probeResult(start, "", err)
-	}
-	return probeResult(start, resp.Choices[0].Message.TextContent(), nil)
-}
-
-// TestSpeech runs a minimal speech probe, bypassing manual disable.
-func (s *Service) TestSpeech(ctx context.Context, modelID models.ModelId) TestResult {
-	start := time.Now()
-	resp, err := s.speech(ctx, &models.SpeechRequest{Model: modelID, Input: "test"}, nil, true)
-	if err != nil {
-		return probeResult(start, "", err)
-	}
-	return probeResult(start, fmt.Sprintf("%d bytes of audio", len(resp.Audio)), nil)
-}
-
-// TestTranscribe runs a minimal transcription probe, bypassing manual disable.
-func (s *Service) TestTranscribe(ctx context.Context, modelID models.ModelId) TestResult {
-	start := time.Now()
-	resp, err := s.transcribe(ctx, &models.TranscriptionRequest{
-		Model:       modelID,
-		File:        probeWAV(),
-		FileName:    "probe.wav",
-		ContentType: "audio/wav",
-	}, nil, true)
-	if err != nil {
-		return probeResult(start, "", err)
-	}
-	return probeResult(start, resp.Text, nil)
-}
-
-// TestImageGeneration runs a minimal image probe, bypassing manual disable.
-func (s *Service) TestImageGeneration(ctx context.Context, modelID models.ModelId) TestResult {
-	start := time.Now()
-	resp, err := s.generateImage(ctx, &models.ImageGenerationRequest{Model: modelID, Prompt: "test", N: 1}, nil, true)
-	if err != nil {
-		return probeResult(start, "", err)
-	}
-	return probeResult(start, fmt.Sprintf("%d image(s)", len(resp.Data)), nil)
-}
-
-// TestEmbeddings runs a minimal embeddings probe, bypassing manual disable.
-func (s *Service) TestEmbeddings(ctx context.Context, modelID models.ModelId) TestResult {
-	start := time.Now()
-	resp, err := s.embed(ctx, &models.EmbeddingsRequest{Model: modelID, Input: []string{"test"}}, nil, true)
-	if err != nil {
-		return probeResult(start, "", err)
-	}
-	dims := 0
-	if len(resp.Data) > 0 {
-		dims = len(resp.Data[0].Values)
-	}
-	return probeResult(start, fmt.Sprintf("%d embedding(s), %d dims", len(resp.Data), dims), nil)
-}
-
-// ProbeCapabilities detects model features with live probe requests.
-// Each probe consumes a small amount of quota. Unprobed capabilities are
-// simply absent from the result.
-func (s *Service) ProbeCapabilities(ctx context.Context, modelID models.ModelId) ([]string, error) {
-	providerID, _, err := modelID.Parse()
-	if err != nil {
-		return nil, fmt.Errorf("invalid model id: %w", err)
-	}
-	if _, err := provider.Resolve(s.providerSvc, providerID); err != nil {
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
-	}
-
-	caps := []string{}
-
-	// Reasoning models spend tokens on thinking before any tool call or
-	// JSON output; probes need real headroom.
-	toolReq := probeRequest(modelID)
-	toolReq.MaxTokens = 512
-	toolReq.Messages[0].Content = "Call the function report_weather with city=Paris."
-	toolReq.Tools = []models.ChatTool{{
-		Type: "function",
-		Function: &models.ChatToolFunction{
-			Name:        "report_weather",
-			Description: "Report weather for a city",
-			Parameters: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{"city": map[string]any{"type": "string"}},
-				"required":   []string{"city"},
-			},
-		},
-	}}
-	toolReq.ToolChoice = map[string]any{"type": "function", "function": map[string]any{"name": "report_weather"}}
-	if resp, err := s.Complete(ctx, toolReq, nil); err == nil && len(resp.Choices) > 0 && len(resp.Choices[0].Message.ToolCalls) > 0 {
-		caps = append(caps, "tools")
-	}
-
-	jsonReq := probeRequest(modelID)
-	jsonReq.MaxTokens = 512
-	jsonReq.Messages[0].Content = `Output exactly: {"ok": true}`
-	jsonReq.ResponseFormat = map[string]any{"type": "json_object"}
-	if _, err := s.Complete(ctx, jsonReq, nil); err == nil {
-		caps = append(caps, "json_mode")
-	}
-
-	return caps, nil
 }

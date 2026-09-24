@@ -4,11 +4,9 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/adapters/generic"
@@ -71,8 +69,6 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	providerSvc.SetLuaService(luaSvc)
 	genericAdapter := &generic.Adapter{}
 	providerSvc.RegisterGoAdapter(genericAdapter)
-	virtualAdapter := &virtualadapter.Adapter{}
-	providerSvc.RegisterGoAdapter(virtualAdapter)
 	if err := providerSvc.EnsureSeeded(); err != nil {
 		return nil, fmt.Errorf("seed providers: %w", err)
 	}
@@ -90,46 +86,20 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	if err := repoSvc.EnsureBuiltinRepos(); err != nil {
 		return nil, fmt.Errorf("seed built-in plugin repos: %w", err)
 	}
-	routerCfg, _ := configSvc.Get()
+	routerCfg, err := configSvc.Get()
+	if err != nil {
+		return nil, fmt.Errorf("load router config: %w", err)
+	}
 	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, logger)
+	virtualAdapter := virtualadapter.New(routerSvc, virtualSvc, logger)
+	providerSvc.RegisterGoAdapter(virtualAdapter)
 	luaSvc.SetUsageTracker(credSvc)
 	genericAdapter.SetUsageTracker(credSvc)
 
 	// Proxy subsystem: pool, plugin proxy resolution, pair outcome reports.
 	proxySvc := proxypool.New(database)
 	proxySvc.SetConfig(routerCfg.MinDownloadSpeedKbps, routerCfg.MaxProxiesPerLocation)
-	luaSvc.SetProxyResolver(func(goCtx context.Context, rec *luaplugin.PluginRecord, providerConfig map[string]any) ([]luaplugin.ProxyPick, error) {
-		mode, ids := proxyMode(providerConfig)
-		typeKey := ""
-		if len(rec.TypeKeys) > 0 {
-			typeKey = rec.TypeKeys[0]
-		}
-		var picks []proxypool.Pick
-		var err error
-		if mode == models.ProxyModeAuto {
-			// Auto waits for ready or no-proxies instead of silently
-			// going direct.
-			picks, err = proxySvc.RankWait(goCtx, rec.ProxyLocations, ids, typeKey)
-		} else {
-			picks, err = proxySvc.Rank(rec.ProxyLocations, mode, ids, typeKey)
-		}
-		if err != nil {
-			return nil, err
-		}
-		out := make([]luaplugin.ProxyPick, 0, len(picks))
-		for _, p := range picks {
-			out = append(out, luaplugin.ProxyPick{ID: p.ID, URL: p.URL})
-		}
-		return out, nil
-	})
-	luaSvc.SetProxyEventReporter(func(ev luaplugin.ProxyEvent) {
-		if ev.RateLimited {
-			proxySvc.RecordRateLimit(ev.ProxyID, ev.Provider, ev.ResetsAt)
-		}
-		if ev.Blocked {
-			proxySvc.RecordBlocked(ev.ProxyID, ev.Provider, ev.BlockReason)
-		}
-	})
+	wireProxy(luaSvc, proxySvc)
 
 	maintSvc := maintenance.New(credSvc, providerSvc, database, logger)
 	maintSvc.SetProxyServices(proxySvc, luaSvc)
@@ -149,49 +119,18 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	// so first clicks never wait on upstream discovery.
 	go modelInfoSvc.WarmMissing(context.Background())
 
-	// Virtual models resolve from the model name and need no credentials;
-	// rows left over from the credential-bound era are dead weight.
-	for _, key := range []string{"agents", provider.TypeVirtual} {
-		if n, err := credSvc.DeleteByProvider(key); err != nil {
-			logger.Warn("virtual credential cleanup failed", "provider", key, "err", err)
-		} else if n > 0 {
-			logger.Info("virtual credential cleanup completed", "provider", key, "count", n)
-		}
-	}
+	startupCleanup(logger, credSvc, providerSvc)
+	migrateProxySourceKeys(logger, luaSvc, proxySvc)
 
-	if n, err := providerSvc.CleanupOrphanedCredentials(); err != nil {
-		logger.Warn("orphan credential GC failed", "err", err)
-	} else if n > 0 {
-		logger.Info("orphan credential GC completed", "count", n)
-	}
-
-	invalidate := func(providerID string) {
-		_ = modelInfoSvc.InvalidateProvider(providerID)
-	}
-	providerSvc.SetOnChanged(invalidate)
-	// Credential changes never invalidate the model list: discovery uses the
-	// first answering key, so the upstream list does not depend on the pool.
-	luaSvc.SetOnChanged(func(typeKey string) {
-		// Runtime plugin changes (install/update/rollback/enable) must
-		// create default provider rows, previously seeded at startup.
-		if err := providerSvc.SyncDefaultProviders(); err != nil {
-			logger.Warn("sync default providers failed", "err", err)
-		}
-		providers, err := providerSvc.GetByType(typeKey)
-		if err != nil {
-			return
-		}
-		for _, p := range providers {
-			_ = modelInfoSvc.InvalidateProvider(p.ID)
-		}
-	})
-
-	virtualAdapter.SetRouterService(routerSvc)
-	virtualAdapter.SetVirtualService(virtualSvc)
-	virtualAdapter.SetLogger(logger)
+	wireInvalidation(logger, providerSvc, modelInfoSvc, luaSvc)
 
 	dashMux := http.NewServeMux()
-	dash, err := dashboard.New(adminSvc, providerSvc, credSvc, tokenSvc, modelInfoSvc, metricsSvc, virtualSvc, routerSvc, configSvc, luaSvc, repoSvc, proxySvc, logger)
+	dash, err := dashboard.New(dashboard.Params{
+		AdminSvc: adminSvc, ProviderSvc: providerSvc, CredSvc: credSvc,
+		TokenSvc: tokenSvc, ModelInfoSvc: modelInfoSvc, MetricsSvc: metricsSvc,
+		VirtualSvc: virtualSvc, RouterSvc: routerSvc, ConfigSvc: configSvc,
+		LuaSvc: luaSvc, RepoSvc: repoSvc, ProxySvc: proxySvc, Logger: logger,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard handler: %w", err)
 	}
@@ -202,7 +141,11 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	dashHandler := bootstrapMiddleware(database)(requestLogger(logger, dashMux))
 
 	apiMux := http.NewServeMux()
-	apiV1 := v1.New(tokenSvc, routerSvc, metricsSvc, providerSvc, modelInfoSvc, virtualSvc, logger)
+	apiV1 := v1.New(v1.Params{
+		Tokens: tokenSvc, RouterSvc: routerSvc, MetricsSvc: metricsSvc,
+		ProviderSvc: providerSvc, ModelInfoSvc: modelInfoSvc,
+		VirtualSvc: virtualSvc, Logger: logger,
+	})
 	apiV1.Register(apiMux)
 
 	apiHandler := requestLogger(logger, apiMux)
@@ -226,38 +169,6 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		metricsSvc:   metricsSvc,
 		proxySvc:     proxySvc,
 	}, nil
-}
-
-// proxyMode reads the provider-level proxy mode from
-// ProviderInstance.Config. Unknown shapes fall back to disabled.
-func proxyMode(providerConfig map[string]any) (mode string, ids []string) {
-	mode = models.ProxyModeDisabled
-	raw, ok := providerConfig["proxy"].(map[string]any)
-	if !ok {
-		return mode, nil
-	}
-	if m, ok := raw["mode"].(string); ok {
-		switch m {
-		case models.ProxyModeAuto, models.ProxyModeManual:
-			mode = m
-		}
-	}
-	if list, ok := raw["ids"].([]any); ok {
-		for _, v := range list {
-			if s, ok := v.(string); ok {
-				ids = append(ids, s)
-			}
-		}
-	}
-	return mode, ids
-}
-
-// proxyTickInterval converts the configured rotation period.
-func proxyTickInterval(cfg models.RouterConfiguration) time.Duration {
-	if cfg.UpdateIntervalMinutes < 1 {
-		return time.Duration(models.DefaultUpdateIntervalMinutes) * time.Minute
-	}
-	return time.Duration(cfg.UpdateIntervalMinutes) * time.Minute
 }
 
 // Run starts the maintenance loop and blocks on both HTTP servers.
@@ -295,60 +206,4 @@ func (s *Server) Run(ctx context.Context) error {
 // Close releases the database handle. Call after Run returns.
 func (s *Server) Close() error {
 	return s.db.Close()
-}
-
-func bootstrapMiddleware(database *db.DB) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			exempt := r.URL.Path == "/login" ||
-				r.URL.Path == "/bootstrap" ||
-				r.URL.Path == "/api/llm-router/login" ||
-				r.URL.Path == "/api/llm-router/logout" ||
-				r.URL.Path == "/api/llm-router/bootstrap" ||
-				r.URL.Path == "/api/llm-router/status" ||
-				strings.HasPrefix(r.URL.Path, "/assets/") ||
-				strings.HasPrefix(r.URL.Path, "/icons/")
-
-			if !exempt {
-				ok, err := database.IsBootstrapped()
-				if err != nil || !ok {
-					if strings.HasPrefix(r.URL.Path, "/api/") {
-						w.Header().Set("Content-Type", "application/json")
-						w.WriteHeader(http.StatusServiceUnavailable)
-						json.NewEncoder(w).Encode(map[string]string{
-							"error": "system not bootstrapped",
-						})
-						return
-					}
-					http.Redirect(w, r, "/bootstrap", http.StatusSeeOther)
-					return
-				}
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-func requestLogger(logger *slog.Logger, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(rw, r)
-		logger.Info("→", "method", r.Method, "path", r.URL.Path, "status", rw.status)
-	})
-}
-
-type statusRecorder struct {
-	http.ResponseWriter
-	status int
-}
-
-func (r *statusRecorder) WriteHeader(code int) {
-	r.status = code
-	r.ResponseWriter.WriteHeader(code)
-}
-
-func (r *statusRecorder) Flush() {
-	if f, ok := r.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
 }

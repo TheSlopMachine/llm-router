@@ -2,10 +2,23 @@ package luaplugin
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 
 	lua "github.com/yuin/gopher-lua"
+)
+
+// Conversion sentinels: Lua values that cannot cross into JSON.
+var (
+	// ErrUnsupportedLuaType marks functions, userdata and threads.
+	ErrUnsupportedLuaType = errors.New("luaplugin: unsupported lua value type")
+	// ErrNonStringKey marks tables keyed by non-strings in object position.
+	ErrNonStringKey = errors.New("luaplugin: non-string table key")
+	// ErrMixedTable marks tables mixing array and object parts.
+	ErrMixedTable = errors.New("luaplugin: mixed array/object table")
+	// ErrSparseArray marks array tables with holes in 1..n.
+	ErrSparseArray = errors.New("luaplugin: sparse array table")
 )
 
 // toLuaValue converts JSON-compatible Go values into Lua values.
@@ -65,27 +78,28 @@ func toLuaValue(L *lua.LState, v any) lua.LValue {
 
 // fromLuaValue converts a Lua value into JSON-compatible Go values.
 // Tables with only consecutive 1-based integer keys become []any,
-// all other tables become map[string]any. Non-string keys are stringified.
-func fromLuaValue(v lua.LValue) any {
+// all other tables become map[string]any. Functions, userdata and threads,
+// sparse arrays, mixed tables and non-string object keys are errors.
+func fromLuaValue(v lua.LValue) (any, error) {
 	switch t := v.(type) {
 	case *lua.LNilType:
-		return nil
+		return nil, nil
 	case lua.LBool:
-		return bool(t)
+		return bool(t), nil
 	case lua.LString:
-		return string(t)
+		return string(t), nil
 	case lua.LNumber:
-		return float64(t)
+		return float64(t), nil
 	case *lua.LTable:
 		return tableToGo(t)
 	default:
-		return nil
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedLuaType, v.Type().String())
 	}
 }
 
-func tableToGo(tbl *lua.LTable) any {
+func tableToGo(tbl *lua.LTable) (any, error) {
 	if tbl == nil {
-		return nil
+		return nil, nil
 	}
 	n := tbl.Len()
 	if n == 0 {
@@ -99,18 +113,23 @@ func tableToGo(tbl *lua.LTable) any {
 			empty = false
 			ks, ok := k.(lua.LString)
 			if !ok {
-				convErr = fmt.Errorf("non-string table key of type %s", k.Type().String())
+				convErr = fmt.Errorf("%w: %s", ErrNonStringKey, k.Type().String())
 				return
 			}
-			obj[string(ks)] = fromLuaValue(v)
+			child, err := fromLuaValue(v)
+			if err != nil {
+				convErr = err
+				return
+			}
+			obj[string(ks)] = child
 		})
 		if convErr != nil {
-			return map[string]any{}
+			return nil, convErr
 		}
 		if empty {
-			return map[string]any{}
+			return map[string]any{}, nil
 		}
-		return obj
+		return obj, nil
 	}
 	// Array-like fast path, but verify every index 1..n exists and
 	// reject mixed tables (array part plus string keys).
@@ -118,9 +137,13 @@ func tableToGo(tbl *lua.LTable) any {
 	for i := 1; i <= n; i++ {
 		v := tbl.RawGetInt(i)
 		if v == lua.LNil {
-			return map[string]any{}
+			return nil, fmt.Errorf("%w: missing index %d", ErrSparseArray, i)
 		}
-		arr = append(arr, fromLuaValue(v))
+		child, err := fromLuaValue(v)
+		if err != nil {
+			return nil, err
+		}
+		arr = append(arr, child)
 	}
 	mixed := false
 	tbl.ForEach(func(k, _ lua.LValue) {
@@ -129,22 +152,19 @@ func tableToGo(tbl *lua.LTable) any {
 		}
 	})
 	if mixed {
-		obj := map[string]any{}
-		tbl.ForEach(func(k, v lua.LValue) {
-			ks, ok := k.(lua.LString)
-			if !ok {
-				return
-			}
-			obj[string(ks)] = fromLuaValue(v)
-		})
-		return obj
+		return nil, fmt.Errorf("%w: %d array items plus object keys", ErrMixedTable, n)
 	}
-	return arr
+	return arr, nil
 }
 
 // marshalLua encodes a Lua value to JSON via the Go intermediate form.
+// Unconvertible values are errors, never silent empty objects.
 func marshalLua(v lua.LValue) ([]byte, error) {
-	return json.Marshal(fromLuaValue(v))
+	goVal, err := fromLuaValue(v)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(goVal)
 }
 
 // marshalGoJSON encodes a Go value to JSON.

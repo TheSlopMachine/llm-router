@@ -53,39 +53,6 @@ type Handler struct {
 	devRedirect string
 }
 
-// New constructs a dashboard Handler.
-func New(
-	adminSvc *admin.Service,
-	providerSvc *provider.Service,
-	credSvc *credential.Service,
-	tokenSvc *token.Service,
-	modelInfoSvc *modelinfo.Service,
-	metricsSvc *metrics.Service,
-	virtualSvc *virtual.Service,
-	routerSvc *router.Service,
-	configSvc *configsvc.Service,
-	luaSvc *luaplugin.Service,
-	repoSvc *pluginrepo.Service,
-	proxySvc *proxypool.Service,
-	logger *slog.Logger,
-) (*Handler, error) {
-	return &Handler{
-		adminSvc:     adminSvc,
-		providerSvc:  providerSvc,
-		credSvc:      credSvc,
-		tokenSvc:     tokenSvc,
-		modelInfoSvc: modelInfoSvc,
-		metricsSvc:   metricsSvc,
-		virtualSvc:   virtualSvc,
-		routerSvc:    routerSvc,
-		configSvc:    configSvc,
-		luaSvc:       luaSvc,
-		repoSvc:      repoSvc,
-		proxySvc:     proxySvc,
-		logger:       logger,
-	}, nil
-}
-
 // SetDevRedirect configures the handler to 302-redirect any browser
 // navigation that would otherwise fall through to the embedded SPA (i.e.
 // everything not matched by a more specific route in Register) to origin
@@ -200,8 +167,8 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("POST /api/llm-router/dashboard/proxies", h.requireAuth(h.apiProxiesAdd))
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/proxies/{id}", h.requireAuth(h.apiProxiesDelete))
 	mux.HandleFunc("GET /api/llm-router/dashboard/proxy-sources", h.requireAuth(h.apiProxySources))
-	mux.HandleFunc("POST /api/llm-router/dashboard/proxy-sources/{key}/refresh", h.requireAuth(h.apiProxySourceRefresh))
-	mux.HandleFunc("GET /api/llm-router/dashboard/proxy-sources/{key}/proxies", h.requireAuth(h.apiProxySourceProxies))
+	mux.HandleFunc("POST /api/llm-router/dashboard/proxy-sources/refresh", h.requireAuth(h.apiProxySourceRefresh))
+	mux.HandleFunc("GET /api/llm-router/dashboard/proxy-sources/proxies", h.requireAuth(h.apiProxySourceProxies))
 	mux.HandleFunc("GET /api/llm-router/dashboard/proxy/status", h.requireAuth(h.apiProxyStatus))
 
 	// Chat proxy (dashboard session -> router, no token required)
@@ -255,104 +222,6 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 
 		http.ServeContent(w, r, stat.Name(), stat.ModTime(), file.(io.ReadSeeker))
 	})
-}
-
-// serve404 returns a styled 404 error page matching the app's design system
-func (h *Handler) serve404(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusNotFound)
-
-	html := `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>404 Not Found - llm-router</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: "Inter", system-ui, -apple-system, sans-serif;
-            font-size: 14px;
-            line-height: 1.5;
-            background: #fafafa;
-            color: #2b2d31;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            padding: 20px;
-        }
-        .container {
-            background: #ffffff;
-            border: 1px solid #e2e3e4;
-            border-radius: 16px;
-            padding: 48px;
-            max-width: 500px;
-            width: 100%;
-            text-align: center;
-            box-shadow: 0 4px 6px -1px rgba(10, 13, 18, 0.1), 0 2px 4px -2px rgba(10, 13, 18, 0.06);
-        }
-        h1 {
-            font-size: 48px;
-            font-weight: 600;
-            color: #6c717a;
-            margin-bottom: 16px;
-        }
-        h2 {
-            font-size: 24px;
-            font-weight: 400;
-            color: #2b2d31;
-            margin-bottom: 12px;
-        }
-        p {
-            color: #6c717a;
-            margin-bottom: 32px;
-            font-size: 14px;
-        }
-        .path {
-            font-family: "DM Mono", "SF Mono", "Fira Code", monospace;
-            font-size: 13px;
-            background: #f4f5f5;
-            padding: 8px 12px;
-            border-radius: 6px;
-            color: #2b2d31;
-            margin-bottom: 32px;
-            word-break: break-all;
-        }
-        a {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 0 24px;
-            height: 40px;
-            background: #ffffff;
-            border: 1px solid #e2e3e4;
-            border-radius: 12px;
-            color: #2b2d31;
-            text-decoration: none;
-            font-weight: 500;
-            transition: background 0.15s ease;
-        }
-        a:hover {
-            background: #eaeaeb;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>404</h1>
-        <h2>Page Not Found</h2>
-        <p>The page you requested does not exist.</p>
-        <div class="path">` + r.URL.Path + `</div>
-        <a href="/">Return to Dashboard</a>
-    </div>
-</body>
-</html>`
-
-	w.Write([]byte(html))
 }
 
 func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {

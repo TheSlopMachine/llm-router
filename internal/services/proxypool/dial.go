@@ -145,31 +145,3 @@ func strconvParseUint16(s string) (uint16, error) {
 	}
 	return uint16(n), nil
 }
-
-// probeThrough issues a GET to checkURL through the proxy.
-func probeThrough(ctx context.Context, proxyURL, checkURL string) error {
-	u, err := url.Parse(proxyURL)
-	if err != nil {
-		return err
-	}
-	transport, err := TransportFor(u.String(), 10*time.Second)
-	if err != nil {
-		return err
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<10))
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("check url status %d", resp.StatusCode)
-	}
-	return nil
-}

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -43,9 +44,11 @@ func TestProxySourceRefreshSkippedWhenFull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lua service: %v", err)
 	}
-	if _, err := luaSvc.Install([]byte(refreshSourcePlugin), luaplugin.PluginOrigin{Manual: true}); err != nil {
+	installed, err := luaSvc.Install([]byte(refreshSourcePlugin), luaplugin.PluginOrigin{Manual: true})
+	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
+	srcKey := luaplugin.QualifiedSourceKey(installed.ID, "testsrc")
 	proxySvc := proxypool.New(database)
 	h := &Handler{luaSvc: luaSvc, proxySvc: proxySvc}
 
@@ -119,8 +122,7 @@ func TestProxySourceRefreshSkippedWhenFull(t *testing.T) {
 		t.Fatal("pool must read as full")
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/llm-router/dashboard/proxy-sources/testsrc/refresh", nil)
-	req.SetPathValue("key", "testsrc")
+	req := httptest.NewRequest(http.MethodPost, "/api/llm-router/dashboard/proxy-sources/refresh?key="+url.QueryEscape(srcKey), nil)
 	rec := httptest.NewRecorder()
 	h.apiProxySourceRefresh(rec, req)
 	if rec.Code != http.StatusAccepted {
@@ -140,15 +142,16 @@ func TestProxySourceRefreshSurvivesDeadRequestContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lua service: %v", err)
 	}
-	if _, err := luaSvc.Install([]byte(refreshSourcePlugin), luaplugin.PluginOrigin{Manual: true}); err != nil {
+	installed, err := luaSvc.Install([]byte(refreshSourcePlugin), luaplugin.PluginOrigin{Manual: true})
+	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
+	srcKey := luaplugin.QualifiedSourceKey(installed.ID, "testsrc")
 	h := &Handler{luaSvc: luaSvc, proxySvc: proxypool.New(database)}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	req := httptest.NewRequest(http.MethodPost, "/api/llm-router/dashboard/proxy-sources/testsrc/refresh", nil).WithContext(ctx)
-	req.SetPathValue("key", "testsrc")
+	req := httptest.NewRequest(http.MethodPost, "/api/llm-router/dashboard/proxy-sources/refresh?key="+url.QueryEscape(srcKey), nil).WithContext(ctx)
 	rec := httptest.NewRecorder()
 	h.apiProxySourceRefresh(rec, req)
 	if rec.Code != http.StatusAccepted {
@@ -157,7 +160,7 @@ func TestProxySourceRefreshSurvivesDeadRequestContext(t *testing.T) {
 
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		infos := h.proxySvc.SourceInfos([]string{"testsrc"})
+		infos := h.proxySvc.SourceInfos([]string{srcKey})
 		if len(infos) == 1 && infos[0].Status == proxypool.SourceStatusIdle {
 			if infos[0].LastError != "" {
 				t.Fatalf("background fetch must not fail: %s", infos[0].LastError)

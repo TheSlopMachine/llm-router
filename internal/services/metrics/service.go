@@ -31,6 +31,8 @@ type Service struct {
 	aggregatorTicker *time.Ticker
 	cleanupTicker    *time.Ticker
 	stopCh           chan struct{}
+	stopOnce         sync.Once
+	wg               sync.WaitGroup
 
 	// Non-blocking event channel
 	eventCh chan models.MetricEvent
@@ -141,22 +143,65 @@ func (s *Service) Start() {
 	if err := s.ensureCleanMetrics(); err != nil {
 		s.logger.Error("metrics version check failed", "err", err)
 	}
+	s.wg.Add(3)
 	go s.processEvents()
 	go s.startAggregator()
 	go s.startCleanup()
 	s.logger.Info("metrics service started")
 }
 
-// Stop gracefully shuts down the metrics service.
+// Stop gracefully shuts down the metrics service: workers finish, queued
+// events drain into buckets, and all in-memory buckets flush to storage.
 func (s *Service) Stop() {
-	close(s.stopCh)
-	if s.aggregatorTicker != nil {
-		s.aggregatorTicker.Stop()
+	s.stopOnce.Do(func() {
+		close(s.stopCh)
+		if s.aggregatorTicker != nil {
+			s.aggregatorTicker.Stop()
+		}
+		if s.cleanupTicker != nil {
+			s.cleanupTicker.Stop()
+		}
+		s.wg.Wait()
+		s.drainEvents()
+		if err := s.flushAll(); err != nil {
+			s.logger.Error("metrics final flush failed", "err", err)
+		}
+		s.logger.Info("metrics service stopped")
+	})
+}
+
+// drainEvents folds every queued event into its bucket after workers exit.
+func (s *Service) drainEvents() {
+	for {
+		select {
+		case event := <-s.eventCh:
+			s.recordEvent(event)
+		default:
+			return
+		}
 	}
-	if s.cleanupTicker != nil {
-		s.cleanupTicker.Stop()
+}
+
+// flushAll persists every in-memory bucket without the 1h age cutoff used
+// by periodic aggregation. Buckets leave memory only after a durable write.
+func (s *Service) flushAll() error {
+	s.mu.Lock()
+	pending := make([]*MetricBucket, 0, len(s.recentBuckets))
+	stamps := make([]time.Time, 0, len(s.recentBuckets))
+	for ts, bucket := range s.recentBuckets {
+		pending = append(pending, bucket)
+		stamps = append(stamps, ts)
 	}
-	s.logger.Info("metrics service stopped")
+	s.mu.Unlock()
+	for i, bucket := range pending {
+		if err := s.persistBucket(bucket, "1m"); err != nil {
+			return err
+		}
+		s.mu.Lock()
+		delete(s.recentBuckets, stamps[i])
+		s.mu.Unlock()
+	}
+	return nil
 }
 
 // RecordRequest records a metric event (non-blocking).
@@ -172,6 +217,7 @@ func (s *Service) RecordRequest(event models.MetricEvent) {
 
 // processEvents consumes events from the channel and updates buckets.
 func (s *Service) processEvents() {
+	defer s.wg.Done()
 	for {
 		select {
 		case event := <-s.eventCh:
@@ -303,6 +349,7 @@ func (s *Service) updateProviderMetrics(pm *ProviderMetrics, event models.Metric
 
 // startAggregator runs periodic aggregation and persistence.
 func (s *Service) startAggregator() {
+	defer s.wg.Done()
 	s.aggregatorTicker = time.NewTicker(aggregateInterval)
 	defer s.aggregatorTicker.Stop()
 
@@ -320,6 +367,7 @@ func (s *Service) startAggregator() {
 
 // startCleanup runs periodic cleanup of old data.
 func (s *Service) startCleanup() {
+	defer s.wg.Done()
 	s.cleanupTicker = time.NewTicker(cleanupInterval)
 	defer s.cleanupTicker.Stop()
 

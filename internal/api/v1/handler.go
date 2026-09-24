@@ -21,6 +21,7 @@ import (
 	"time"
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
+	"github.com/TheSlopMachine/llm-router/internal/httpkit"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
@@ -39,19 +40,6 @@ type Handler struct {
 	modelInfoSvc *modelinfo.Service
 	virtualSvc   *virtual.Service
 	logger       *slog.Logger
-}
-
-// New constructs a v1 Handler.
-func New(tokens *token.Service, routerSvc *router.Service, metricsSvc *metrics.Service, providerSvc *provider.Service, modelInfoSvc *modelinfo.Service, virtualSvc *virtual.Service, logger *slog.Logger) *Handler {
-	return &Handler{
-		tokens:       tokens,
-		router:       routerSvc,
-		metrics:      metricsSvc,
-		providerSvc:  providerSvc,
-		modelInfoSvc: modelInfoSvc,
-		virtualSvc:   virtualSvc,
-		logger:       logger,
-	}
 }
 
 // Register mounts all /v1 routes onto mux.
@@ -96,8 +84,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
 	start := time.Now()
 	var req models.ChatCompletionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("malformed request body: %s", err), nil)
+	if err := decodeJSONBody(w, r, &req); err != nil {
+		h.writeDecodeError(w, err)
 		return
 	}
 	if req.Model == "" {
@@ -109,18 +97,9 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request, t *mod
 		return
 	}
 
-	if t != nil {
-		providerID, _, _ := req.Model.Parse()
-		if providerID != "" && !t.Rules.AllowsProvider(providerID) {
-			h.writeError(w, http.StatusForbidden, "provider_not_allowed",
-				fmt.Sprintf("provider %q is not allowed by your token's rules", providerID), strPtr("model"))
-			return
-		}
-		if !t.Rules.Allows(req.Model) {
-			h.writeError(w, http.StatusForbidden, "model_not_allowed",
-				fmt.Sprintf("model %q is not allowed by your token's rules", req.Model), strPtr("model"))
-			return
-		}
+	if deny := authorizeModel(t, req.Model); deny != nil {
+		h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+		return
 	}
 
 	if req.Stream {
@@ -131,38 +110,11 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request, t *mod
 	resp, err := h.router.Complete(r.Context(), &req, t)
 	duration := time.Since(start)
 
-	// Extract provider info
-	providerType, _, _ := req.Model.Parse()
-	providerID, _ := h.router.GetProviderIDForModel(r.Context(), req.Model)
-
-	// Build metric event
-	tokenID := ""
-	if t != nil {
-		tokenID = t.ID
+	var usage *models.ChatCompletionUsage
+	if err == nil && resp != nil {
+		usage = &resp.Usage
 	}
-	event := models.MetricEvent{
-		Timestamp:    start,
-		ProviderID:   providerID,
-		ProviderType: providerType,
-		Model:        req.Model,
-		TokenID:      tokenID,
-		Duration:     duration,
-		StatusCode:   http.StatusOK,
-	}
-
-	if err == nil && resp != nil && resp.Usage.TotalTokens > 0 {
-		event.TokensInput = int64(resp.Usage.PromptTokens)
-		event.TokensOutput = int64(resp.Usage.CompletionTokens)
-	}
-
-	if err != nil {
-		re := h.classifyError(err)
-		event.StatusCode = re.status
-		event.ErrorType = re.code
-	}
-
-	// Record metrics (non-blocking)
-	h.metrics.RecordRequest(event)
+	h.recordRouteMetric(r.Context(), start, req.Model, t, duration, err, usage)
 
 	if err != nil {
 		h.handleRouterError(w, err)
@@ -197,44 +149,15 @@ func (h *Handler) audioTranscriptions(w http.ResponseWriter, r *http.Request, t 
 		return
 	}
 
-	if t != nil {
-		providerID, _, _ := req.Model.Parse()
-		if providerID != "" && !t.Rules.AllowsProvider(providerID) {
-			h.writeError(w, http.StatusForbidden, "provider_not_allowed",
-				fmt.Sprintf("provider %q is not allowed by your token's rules", providerID), strPtr("model"))
-			return
-		}
-		if !t.Rules.Allows(req.Model) {
-			h.writeError(w, http.StatusForbidden, "model_not_allowed",
-				fmt.Sprintf("model %q is not allowed by your token's rules", req.Model), strPtr("model"))
-			return
-		}
+	if deny := authorizeModel(t, req.Model); deny != nil {
+		h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+		return
 	}
 
 	resp, err := h.router.Transcribe(r.Context(), req, t)
 	duration := time.Since(start)
 
-	providerType, _, _ := req.Model.Parse()
-	providerID, _ := h.router.GetProviderIDForModel(r.Context(), req.Model)
-	tokenID := ""
-	if t != nil {
-		tokenID = t.ID
-	}
-	event := models.MetricEvent{
-		Timestamp:    start,
-		ProviderID:   providerID,
-		ProviderType: providerType,
-		Model:        req.Model,
-		TokenID:      tokenID,
-		Duration:     duration,
-		StatusCode:   http.StatusOK,
-	}
-	if err != nil {
-		re := h.classifyError(err)
-		event.StatusCode = re.status
-		event.ErrorType = re.code
-	}
-	h.metrics.RecordRequest(event)
+	h.recordRouteMetric(r.Context(), start, req.Model, t, duration, err, nil)
 
 	if err != nil {
 		h.handleRouterError(w, err)
@@ -355,8 +278,8 @@ func (h *Handler) writeTranscriptionResponse(w http.ResponseWriter, format strin
 func (h *Handler) audioSpeech(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
 	start := time.Now()
 	var req models.SpeechRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("malformed request body: %s", err), nil)
+	if err := decodeJSONBody(w, r, &req); err != nil {
+		h.writeDecodeError(w, err)
 		return
 	}
 	if req.Model == "" {
@@ -379,44 +302,15 @@ func (h *Handler) audioSpeech(w http.ResponseWriter, r *http.Request, t *models.
 		return
 	}
 
-	if t != nil {
-		providerID, _, _ := req.Model.Parse()
-		if providerID != "" && !t.Rules.AllowsProvider(providerID) {
-			h.writeError(w, http.StatusForbidden, "provider_not_allowed",
-				fmt.Sprintf("provider %q is not allowed by your token's rules", providerID), strPtr("model"))
-			return
-		}
-		if !t.Rules.Allows(req.Model) {
-			h.writeError(w, http.StatusForbidden, "model_not_allowed",
-				fmt.Sprintf("model %q is not allowed by your token's rules", req.Model), strPtr("model"))
-			return
-		}
+	if deny := authorizeModel(t, req.Model); deny != nil {
+		h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+		return
 	}
 
 	resp, err := h.router.Speech(r.Context(), &req, t)
 	duration := time.Since(start)
 
-	providerType, _, _ := req.Model.Parse()
-	providerID, _ := h.router.GetProviderIDForModel(r.Context(), req.Model)
-	tokenID := ""
-	if t != nil {
-		tokenID = t.ID
-	}
-	event := models.MetricEvent{
-		Timestamp:    start,
-		ProviderID:   providerID,
-		ProviderType: providerType,
-		Model:        req.Model,
-		TokenID:      tokenID,
-		Duration:     duration,
-		StatusCode:   http.StatusOK,
-	}
-	if err != nil {
-		re := h.classifyError(err)
-		event.StatusCode = re.status
-		event.ErrorType = re.code
-	}
-	h.metrics.RecordRequest(event)
+	h.recordRouteMetric(r.Context(), start, req.Model, t, duration, err, nil)
 
 	if err != nil {
 		h.handleRouterError(w, err)
@@ -446,8 +340,8 @@ func (h *Handler) audioSpeech(w http.ResponseWriter, r *http.Request, t *models.
 func (h *Handler) imageGenerations(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
 	start := time.Now()
 	var req models.ImageGenerationRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("malformed request body: %s", err), nil)
+	if err := decodeJSONBody(w, r, &req); err != nil {
+		h.writeDecodeError(w, err)
 		return
 	}
 	if strings.TrimSpace(req.Prompt) == "" {
@@ -466,44 +360,15 @@ func (h *Handler) imageGenerations(w http.ResponseWriter, r *http.Request, t *mo
 		return
 	}
 
-	if req.Model != "" && t != nil {
-		providerID, _, _ := req.Model.Parse()
-		if providerID != "" && !t.Rules.AllowsProvider(providerID) {
-			h.writeError(w, http.StatusForbidden, "provider_not_allowed",
-				fmt.Sprintf("provider %q is not allowed by your token's rules", providerID), strPtr("model"))
-			return
-		}
-		if !t.Rules.Allows(req.Model) {
-			h.writeError(w, http.StatusForbidden, "model_not_allowed",
-				fmt.Sprintf("model %q is not allowed by your token's rules", req.Model), strPtr("model"))
-			return
-		}
+	if deny := authorizeModel(t, req.Model); deny != nil {
+		h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+		return
 	}
 
 	resp, err := h.router.GenerateImage(r.Context(), &req, t)
 	duration := time.Since(start)
 
-	providerType, _, _ := req.Model.Parse()
-	providerID, _ := h.router.GetProviderIDForModel(r.Context(), req.Model)
-	tokenID := ""
-	if t != nil {
-		tokenID = t.ID
-	}
-	event := models.MetricEvent{
-		Timestamp:    start,
-		ProviderID:   providerID,
-		ProviderType: providerType,
-		Model:        req.Model,
-		TokenID:      tokenID,
-		Duration:     duration,
-		StatusCode:   http.StatusOK,
-	}
-	if err != nil {
-		re := h.classifyError(err)
-		event.StatusCode = re.status
-		event.ErrorType = re.code
-	}
-	h.metrics.RecordRequest(event)
+	h.recordRouteMetric(r.Context(), start, req.Model, t, duration, err, nil)
 
 	if err != nil {
 		h.handleRouterError(w, err)
@@ -531,8 +396,8 @@ func (h *Handler) imageGenerations(w http.ResponseWriter, r *http.Request, t *mo
 func (h *Handler) embeddings(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
 	start := time.Now()
 	var req models.EmbeddingsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("malformed request body: %s", err), nil)
+	if err := decodeJSONBody(w, r, &req); err != nil {
+		h.writeDecodeError(w, err)
 		return
 	}
 	if req.Model == "" {
@@ -557,44 +422,15 @@ func (h *Handler) embeddings(w http.ResponseWriter, r *http.Request, t *models.R
 		return
 	}
 
-	if t != nil {
-		providerID, _, _ := req.Model.Parse()
-		if providerID != "" && !t.Rules.AllowsProvider(providerID) {
-			h.writeError(w, http.StatusForbidden, "provider_not_allowed",
-				fmt.Sprintf("provider %q is not allowed by your token's rules", providerID), strPtr("model"))
-			return
-		}
-		if !t.Rules.Allows(req.Model) {
-			h.writeError(w, http.StatusForbidden, "model_not_allowed",
-				fmt.Sprintf("model %q is not allowed by your token's rules", req.Model), strPtr("model"))
-			return
-		}
+	if deny := authorizeModel(t, req.Model); deny != nil {
+		h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+		return
 	}
 
 	resp, err := h.router.Embed(r.Context(), &req, t)
 	duration := time.Since(start)
 
-	providerType, _, _ := req.Model.Parse()
-	providerID, _ := h.router.GetProviderIDForModel(r.Context(), req.Model)
-	tokenID := ""
-	if t != nil {
-		tokenID = t.ID
-	}
-	event := models.MetricEvent{
-		Timestamp:    start,
-		ProviderID:   providerID,
-		ProviderType: providerType,
-		Model:        req.Model,
-		TokenID:      tokenID,
-		Duration:     duration,
-		StatusCode:   http.StatusOK,
-	}
-	if err != nil {
-		re := h.classifyError(err)
-		event.StatusCode = re.status
-		event.ErrorType = re.code
-	}
-	h.metrics.RecordRequest(event)
+	h.recordRouteMetric(r.Context(), start, req.Model, t, duration, err, nil)
 
 	if err != nil {
 		h.handleRouterError(w, err)
@@ -628,8 +464,8 @@ func (h *Handler) embeddings(w http.ResponseWriter, r *http.Request, t *models.R
 func (h *Handler) anthropicMessages(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
 	start := time.Now()
 	var req anthropicRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("malformed request body: %s", err), nil)
+	if err := decodeJSONBody(w, r, &req); err != nil {
+		h.writeDecodeError(w, err)
 		return
 	}
 	if req.Model == "" {
@@ -651,18 +487,9 @@ func (h *Handler) anthropicMessages(w http.ResponseWriter, r *http.Request, t *m
 		return
 	}
 
-	if t != nil {
-		providerID, _, _ := chatReq.Model.Parse()
-		if providerID != "" && !t.Rules.AllowsProvider(providerID) {
-			h.writeError(w, http.StatusForbidden, "provider_not_allowed",
-				fmt.Sprintf("provider %q is not allowed by your token's rules", providerID), strPtr("model"))
-			return
-		}
-		if !t.Rules.Allows(chatReq.Model) {
-			h.writeError(w, http.StatusForbidden, "model_not_allowed",
-				fmt.Sprintf("model %q is not allowed by your token's rules", chatReq.Model), strPtr("model"))
-			return
-		}
+	if deny := authorizeModel(t, chatReq.Model); deny != nil {
+		h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+		return
 	}
 
 	if req.Stream {
@@ -673,31 +500,11 @@ func (h *Handler) anthropicMessages(w http.ResponseWriter, r *http.Request, t *m
 	resp, err := h.router.Complete(r.Context(), chatReq, t)
 	duration := time.Since(start)
 
-	providerType, _, _ := chatReq.Model.Parse()
-	providerID, _ := h.router.GetProviderIDForModel(r.Context(), chatReq.Model)
-	tokenID := ""
-	if t != nil {
-		tokenID = t.ID
+	var usage *models.ChatCompletionUsage
+	if err == nil && resp != nil {
+		usage = &resp.Usage
 	}
-	event := models.MetricEvent{
-		Timestamp:    start,
-		ProviderID:   providerID,
-		ProviderType: providerType,
-		Model:        chatReq.Model,
-		TokenID:      tokenID,
-		Duration:     duration,
-		StatusCode:   http.StatusOK,
-	}
-	if err == nil && resp != nil && resp.Usage.TotalTokens > 0 {
-		event.TokensInput = int64(resp.Usage.PromptTokens)
-		event.TokensOutput = int64(resp.Usage.CompletionTokens)
-	}
-	if err != nil {
-		re := h.classifyError(err)
-		event.StatusCode = re.status
-		event.ErrorType = re.code
-	}
-	h.metrics.RecordRequest(event)
+	h.recordRouteMetric(r.Context(), start, chatReq.Model, t, duration, err, usage)
 
 	if err != nil {
 		h.handleRouterError(w, err)
@@ -715,10 +522,7 @@ func (h *Handler) anthropicStream(w http.ResponseWriter, r *http.Request, chatRe
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
+	httpkit.WriteSSEHeaders(w)
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
@@ -763,10 +567,7 @@ func (h *Handler) handleStreamWithMetrics(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
+	httpkit.WriteSSEHeaders(w)
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
@@ -1215,7 +1016,7 @@ func (h *Handler) auth(next authedHandler, allowAnonymous bool) http.HandlerFunc
 		t, err := h.tokens.Validate(raw)
 		if err != nil {
 			if errors.Is(err, apierrors.ErrUnauthorized) {
-				h.writeError(w, http.StatusUnauthorized, "invalid_request_error", "Incorrect API key provided: "+raw+". You can find your API key at https://platform.openai.com/account/api-keys.", nil)
+				h.writeError(w, http.StatusUnauthorized, "invalid_request_error", "Incorrect API key provided. You can find your API key at https://platform.openai.com/account/api-keys.", nil)
 				return
 			}
 			h.writeError(w, http.StatusInternalServerError, "server_error", "token validation failed", nil)
@@ -1249,59 +1050,8 @@ type routerError struct {
 }
 
 func (h *Handler) classifyError(err error) routerError {
-	// Check for ProviderError first
-	var provErr *models.ProviderError
-	if errors.As(err, &provErr) {
-		switch provErr.Type {
-		case models.ErrorTypeRateLimit:
-			return routerError{http.StatusBadGateway, "rate_limit"}
-		case models.ErrorTypeQuotaExceeded:
-			return routerError{http.StatusBadGateway, "quota_exceeded"}
-		case models.ErrorTypeAuth:
-			return routerError{http.StatusUnauthorized, "auth_error"}
-		case models.ErrorTypeTimeout:
-			return routerError{http.StatusBadGateway, "timeout"}
-		case models.ErrorTypeUpstream:
-			return routerError{http.StatusBadGateway, "upstream_error"}
-		case models.ErrorTypeInvalidRequest:
-			return routerError{http.StatusBadRequest, "invalid_request_error"}
-		case models.ErrorTypeGeo:
-			return routerError{http.StatusBadRequest, "geo_blocked"}
-		default:
-			return routerError{http.StatusBadGateway, "upstream_error"}
-		}
-	}
-
-	// Fallback to existing error classification
-	switch {
-	case errors.Is(err, apierrors.ErrProviderNotFound):
-		return routerError{http.StatusBadRequest, "provider_not_found"}
-	case errors.Is(err, apierrors.ErrModelDisabled):
-		return routerError{http.StatusNotFound, "model_not_found"}
-	case errors.Is(err, apierrors.ErrEndpointNotSupported):
-		return routerError{http.StatusBadRequest, "endpoint_not_supported"}
-	case errors.Is(err, apierrors.ErrNoCredential):
-		return routerError{http.StatusServiceUnavailable, "no_credential"}
-	case errors.Is(err, apierrors.ErrProviderDisabled):
-		return routerError{http.StatusBadRequest, "provider_disabled"}
-	case errors.Is(err, apierrors.ErrModelNotAllowed):
-		return routerError{http.StatusForbidden, "model_not_allowed"}
-	case errors.Is(err, apierrors.ErrProviderNotAllowed):
-		return routerError{http.StatusForbidden, "provider_not_allowed"}
-	case errors.Is(err, apierrors.ErrCredentialNotAllowed):
-		return routerError{http.StatusForbidden, "credential_not_allowed"}
-	case errors.Is(err, apierrors.ErrUnauthorized):
-		return routerError{http.StatusUnauthorized, "auth_error"}
-	default:
-		errStr := err.Error()
-		if strings.Contains(errStr, "timeout") {
-			return routerError{http.StatusBadGateway, "timeout"}
-		}
-		if strings.Contains(errStr, "rate limit") {
-			return routerError{http.StatusBadGateway, "rate_limit"}
-		}
-		return routerError{http.StatusBadGateway, "upstream_error"}
-	}
+	re := apierrors.ToAPIError(err)
+	return routerError{re.Status, re.Code}
 }
 
 func (h *Handler) writeError(w http.ResponseWriter, status int, code, msg string, param *string) {
@@ -1325,19 +1075,7 @@ func joinModalities(mods []string) string {
 }
 
 func errorTypeForCode(code string) string {
-	switch code {
-	case "invalid_request_error", "not_found", "model_not_allowed", "provider_not_allowed", "credential_not_allowed", "provider_not_found":
-		return "invalid_request_error"
-	case "missing_token", "invalid_token", "auth_error":
-		// OpenAI 401 is typically invalid_request_error as well, but keep authentication_error for clarity
-		return "invalid_request_error"
-	case "rate_limit", "quota_exceeded":
-		return "rate_limit_error"
-	case "server_error", "upstream_error", "timeout", "internal_error":
-		return "server_error"
-	default:
-		return "invalid_request_error"
-	}
+	return apierrors.ErrorTypeForCode(code)
 }
 
 func (h *Handler) writeJSON(w http.ResponseWriter, status int, v any) {

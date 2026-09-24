@@ -282,59 +282,40 @@ func TestTokenService_UpdateRules_NotFound(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────
-// Token Rules Tests
+// Token Rules Tests: persistence roundtrip only.
+// Rule semantics live in models.TokenRules tests.
 // ─────────────────────────────────────────────
 
-func TestTokenService_TokenRules_Allows(t *testing.T) {
+func TestTokenService_TokenRules_PersistRoundtrip(t *testing.T) {
 	svc := setupTokenService(t)
 
 	rules := models.TokenRules{
 		AllowAllProviders: true,
 		AllowedModels:     []models.ModelId{"openai/gpt-4", "anthropic/claude-3"},
+		CredentialScopes: []models.CredentialScope{
+			{ProviderID: "openai", All: true},
+		},
 	}
 
 	token, err := svc.Create(CreateOptions{
-		Name:  "Restricted Token",
+		Name:  "Scoped Token",
 		Rules: rules,
 	})
 	if err != nil {
 		t.Fatalf("create failed: %v", err)
 	}
 
-	// Test allowed models
-	if !token.Rules.Allows("openai/gpt-4") {
-		t.Error("should allow openai/gpt-4")
-	}
-	if !token.Rules.Allows("anthropic/claude-3") {
-		t.Error("should allow anthropic/claude-3")
-	}
-
-	// Test disallowed model
-	if token.Rules.Allows("demo/test-model") {
-		t.Error("should not allow demo/test-model")
-	}
-}
-
-func TestTokenService_TokenRules_AllowsAll(t *testing.T) {
-	svc := setupTokenService(t)
-
-	rules := models.TokenRules{
-		AllowAllProviders: true, AllowAllModels: true, AllowAllCredentials: true,
-	}
-
-	token, err := svc.Create(CreateOptions{
-		Name:  "Unrestricted Token",
-		Rules: rules,
-	})
+	got, err := svc.Get(token.ID)
 	if err != nil {
-		t.Fatalf("create failed: %v", err)
+		t.Fatalf("get failed: %v", err)
 	}
-
-	// AllowAll should allow all models
-	if !token.Rules.Allows("openai/gpt-4") {
-		t.Error("should allow openai/gpt-4")
+	if len(got.Rules.AllowedModels) != 2 || !got.Rules.AllowAllProviders {
+		t.Errorf("rules did not survive roundtrip: %+v", got.Rules)
 	}
-	if !token.Rules.Allows("demo/test-model") {
-		t.Error("should allow demo/test-model")
+	if len(got.Rules.CredentialScopes) != 1 || !got.Rules.CredentialScopes[0].All {
+		t.Errorf("scopes did not survive roundtrip: %+v", got.Rules)
+	}
+	if !got.Rules.AllowsCredential("openai", "any-future-key") {
+		t.Error("reloaded scope should cover future keys")
 	}
 }

@@ -31,8 +31,7 @@ func TestGetModelInfosUsesVirtualModelID(t *testing.T) {
 		t.Fatalf("create virtual model: %v", err)
 	}
 
-	adapter := &Adapter{}
-	adapter.SetVirtualService(virtualSvc)
+	adapter := New(nil, virtualSvc, nil)
 	infos, err := adapter.GetModelInfos(context.Background(), nil, nil)
 	if err != nil {
 		t.Fatalf("model infos failed: %v", err)

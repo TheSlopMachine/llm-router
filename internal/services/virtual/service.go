@@ -9,7 +9,6 @@ package virtual
 import (
 	"fmt"
 	"log/slog"
-	"regexp"
 	"strings"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
@@ -194,18 +193,9 @@ func (s *Service) validateModels(models []models.VirtualModelEntry) error {
 // reservedAgentSlugs collide with dashboard routes.
 var reservedAgentSlugs = map[string]bool{"new": true}
 
-var slugStripReg = regexp.MustCompile(`[^a-z0-9-]+`)
-var slugDashReg = regexp.MustCompile(`-+`)
-
 // agentSlug converts a name to a URL-safe slug, or "" when unusable.
 func agentSlug(name string) string {
-	slug := strings.ToLower(name)
-	slug = strings.ReplaceAll(slug, " ", "-")
-	slug = strings.ReplaceAll(slug, "_", "-")
-	slug = slugStripReg.ReplaceAllString(slug, "")
-	slug = strings.Trim(slug, "-")
-	slug = slugDashReg.ReplaceAllString(slug, "-")
-	return slug
+	return util.Slugify(name)
 }
 
 // uniqueSlug derives a free vm ID from a name, suffixing on collision
@@ -235,27 +225,27 @@ func (s *Service) uniqueSlug(name string) (string, error) {
 // LiveMembers returns the model ids to try for the agent, snapshotted for
 // one request. Managed virtual models resolve their endpoint group live
 // from the provider model list (disabled and removed models drop out on
-// the next call); manual models use the stored list.
-func (s *Service) LiveMembers(agent *models.VirtualModel) []models.ModelId {
+// the next call); manual models use the stored list. Storage failures and
+// corrupt markers are errors; a managed group with no models is an empty
+// list without an error.
+func (s *Service) LiveMembers(agent *models.VirtualModel) ([]models.ModelId, error) {
 	if agent == nil {
-		return nil
+		return nil, fmt.Errorf("nil virtual model")
 	}
 	if !strings.HasPrefix(agent.ManagedBy, "provider:") {
 		out := make([]models.ModelId, 0, len(agent.Models))
 		for _, e := range agent.Models {
 			out = append(out, e.ModelID)
 		}
-		return out
+		return out, nil
 	}
-	rest := strings.TrimPrefix(agent.ManagedBy, "provider:")
-	idx := strings.LastIndex(rest, ":")
-	if idx == -1 {
-		return nil
+	providerID, slug, err := ParseMarker(agent.ManagedBy)
+	if err != nil {
+		return nil, err
 	}
-	providerID, slug := rest[:idx], rest[idx+1:]
 	groups, err := s.GroupsForProvider(providerID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	for _, g := range groups {
 		if g.Endpoint != slug {
@@ -265,9 +255,9 @@ func (s *Service) LiveMembers(agent *models.VirtualModel) []models.ModelId {
 		for _, name := range g.Models {
 			out = append(out, models.ModelId(providerID+"/"+name))
 		}
-		return out
+		return out, nil
 	}
-	return nil
+	return nil, nil
 }
 
 func (s *Service) checkUniqueName(vm *models.VirtualModel) error {

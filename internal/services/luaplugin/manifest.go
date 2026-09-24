@@ -186,8 +186,11 @@ func parseSemver(s string) (maj, min, patch int, err error) {
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "v")
 	parts := strings.Split(s, ".")
-	if len(parts) != 3 {
-		return 0, 0, 0, fmt.Errorf("expected MAJOR.MINOR.PATCH")
+	if len(parts) < 2 || len(parts) > 3 {
+		return 0, 0, 0, fmt.Errorf("expected MAJOR.MINOR[.PATCH]")
+	}
+	for len(parts) < 3 {
+		parts = append(parts, "0")
 	}
 	nums := make([]int, 3)
 	for i, p := range parts {

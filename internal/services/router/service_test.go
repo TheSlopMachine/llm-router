@@ -3,8 +3,6 @@ package router
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -18,56 +16,20 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
 
-// mockAdapter for router tests with configurable behavior.
-// It is the backend: it receives the whole credential pool in one call.
-type mockAdapter struct {
-	completeFunc func(context.Context, []*models.Credential, *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error)
-	callCount    *int
-	seenPools    *[][]*models.Credential
-}
-
-func (m *mockAdapter) TypeKey() string { return "mock" }
-func (m *mockAdapter) ValidateCredentials(data map[string]any) error {
-	if s, _ := data["api_key"].(string); s == "" {
-		return fmt.Errorf("api_key required")
-	}
-	return nil
-}
-func (m *mockAdapter) Complete(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, _ map[string]any) (*models.ChatCompletionResponse, error) {
-	if m.callCount != nil {
-		*m.callCount++
-	}
-	if m.seenPools != nil {
-		*m.seenPools = append(*m.seenPools, creds)
-	}
-	if m.completeFunc != nil {
-		return m.completeFunc(ctx, creds, req)
-	}
-	return &models.ChatCompletionResponse{
-		ID:      "test-response",
-		Object:  "chat.completion",
-		Created: time.Now().Unix(),
-		Model:   string(req.Model),
-		Choices: []models.ChatCompletionChoice{{Index: 0, Message: models.ChatMessage{Role: "assistant", Content: "test"}, FinishReason: "stop"}},
-	}, nil
-}
-func (m *mockAdapter) CompleteStream(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, w io.Writer, _ map[string]any) error {
-	return nil
-}
-func (m *mockAdapter) NeedsRefresh(cred *models.Credential) bool { return false }
-func (m *mockAdapter) RefreshCredential(ctx context.Context, cred *models.Credential) (map[string]any, error) {
-	return nil, fmt.Errorf("no refresh needed for this credential type")
-}
-func (m *mockAdapter) GetModelInfos(ctx context.Context, cred *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {
-	return []models.ModelInfo{{Name: "mock-model", DisplayName: "Mock", ContextWindow: 4096}}, nil
-}
-
-func setupRouterService(t *testing.T) (*Service, *credential.Service, *modelinfo.Service, *mockAdapter) {
+func setupRouterService(t *testing.T) (*Service, *credential.Service, *modelinfo.Service, *testutil.MockAdapter) {
 	t.Helper()
 	database := testutil.SetupTestDB(t)
 
 	providerSvc := provider.NewService(database)
-	mock := &mockAdapter{callCount: new(int), seenPools: &[][]*models.Credential{}}
+	mock := testutil.NewMockAdapter("mock").WithCompleteFunc(func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+		return &models.ChatCompletionResponse{
+			ID:      "test-response",
+			Object:  "chat.completion",
+			Created: time.Now().Unix(),
+			Model:   string(req.Model),
+			Choices: []models.ChatCompletionChoice{{Index: 0, Message: models.ChatMessage{Role: "assistant", Content: "test"}, FinishReason: "stop"}},
+		}, nil
+	})
 	providerSvc.RegisterGoAdapter(mock)
 	if _, err := providerSvc.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
@@ -182,11 +144,11 @@ func TestRouterService_Complete_PassesFullPoolInSingleCall(t *testing.T) {
 		t.Errorf("expected test response, got %q", resp.ID)
 	}
 
-	if *mock.callCount != 1 {
-		t.Errorf("expected 1 backend call, got %d", *mock.callCount)
+	if mock.Calls != 1 {
+		t.Errorf("expected 1 backend call, got %d", mock.Calls)
 	}
-	if len(*mock.seenPools) != 1 || len((*mock.seenPools)[0]) != 2 {
-		t.Errorf("expected one call with a 2-credential pool, got %v", *mock.seenPools)
+	if len(mock.SeenPools) != 1 || len(mock.SeenPools[0]) != 2 {
+		t.Errorf("expected one call with a 2-credential pool, got %v", mock.SeenPools)
 	}
 }
 
@@ -204,7 +166,7 @@ func TestRouterService_Complete_BackendErrorSurfacesWithoutRepeat(t *testing.T) 
 		Data:       map[string]any{"api_key": "key2"},
 	})
 
-	mock.completeFunc = func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+	mock.WithCompleteFunc(func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
 		resetAt := time.Now().Add(60 * time.Second)
 		return nil, &models.ProviderError{
 			StatusCode: 429,
@@ -212,7 +174,7 @@ func TestRouterService_Complete_BackendErrorSurfacesWithoutRepeat(t *testing.T) 
 			Type:       models.ErrorTypeRateLimit,
 			RetryAfter: &resetAt,
 		}
-	}
+	})
 
 	req := &models.ChatCompletionRequest{
 		Model:    "mock/test-model",
@@ -224,8 +186,8 @@ func TestRouterService_Complete_BackendErrorSurfacesWithoutRepeat(t *testing.T) 
 		t.Error("expected backend error, got nil")
 	}
 
-	if *mock.callCount != 1 {
-		t.Errorf("expected 1 backend call (no repeat passes), got %d", *mock.callCount)
+	if mock.Calls != 1 {
+		t.Errorf("expected 1 backend call (no repeat passes), got %d", mock.Calls)
 	}
 }
 
@@ -283,13 +245,13 @@ func TestRouterService_Complete_AuthErrorSingleAttempt(t *testing.T) {
 		Data:       map[string]any{"api_key": "key1"},
 	})
 
-	mock.completeFunc = func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+	mock.WithCompleteFunc(func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
 		return nil, &models.ProviderError{
 			StatusCode: 401,
 			Message:    "authentication failed",
 			Type:       models.ErrorTypeAuth,
 		}
-	}
+	})
 
 	req := &models.ChatCompletionRequest{
 		Model:    "mock/test-model",
@@ -301,8 +263,8 @@ func TestRouterService_Complete_AuthErrorSingleAttempt(t *testing.T) {
 		t.Error("expected error for auth failure, got nil")
 	}
 
-	if *mock.callCount != 1 {
-		t.Errorf("expected 1 call, got %d", *mock.callCount)
+	if mock.Calls != 1 {
+		t.Errorf("expected 1 call, got %d", mock.Calls)
 	}
 }
 
@@ -314,13 +276,13 @@ func TestRouterService_TestModel_MarksQuotaExceeded(t *testing.T) {
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "key1"},
 	})
-	mock.completeFunc = func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+	mock.WithCompleteFunc(func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
 		return nil, &models.ProviderError{
 			StatusCode: 429,
 			Message:    "quota exhausted",
 			Type:       models.ErrorTypeQuotaExceeded,
 		}
-	}
+	})
 
 	res := svc.TestModel(context.Background(), "mock/test-model")
 	if res.OK {

@@ -16,9 +16,9 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
 
-// speechMockAdapter extends the router test mock with Speech and GenerateImage.
+// speechMockAdapter extends the shared test mock with Speech and GenerateImage.
 type speechMockAdapter struct {
-	mockAdapter
+	*testutil.MockAdapter
 	infos      []models.ModelInfo
 	speechFunc func(context.Context, []*models.Credential, *models.SpeechRequest) (*models.SpeechResponse, error)
 	imageFunc  func(context.Context, []*models.Credential, *models.ImageGenerationRequest) (*models.ImageGenerationResponse, error)
@@ -50,7 +50,7 @@ func setupSpeechRouter(t *testing.T) (*Service, *credential.Service, *modelinfo.
 	database := testutil.SetupTestDB(t)
 
 	providerSvc := provider.NewService(database)
-	mock := &speechMockAdapter{mockAdapter: mockAdapter{callCount: new(int)}}
+	mock := &speechMockAdapter{MockAdapter: testutil.NewMockAdapter("mock")}
 	providerSvc.RegisterGoAdapter(mock)
 	if _, err := providerSvc.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
@@ -210,9 +210,9 @@ func TestRouterService_GenerateImage_ModelGateAllows(t *testing.T) {
 	}
 }
 
-// embedMockAdapter extends the router test mock with Embed.
+// embedMockAdapter extends the shared test mock with Embed.
 type embedMockAdapter struct {
-	mockAdapter
+	*testutil.MockAdapter
 	infos     []models.ModelInfo
 	embedFunc func(context.Context, []*models.Credential, *models.EmbeddingsRequest) (*models.EmbeddingsResponse, error)
 }
@@ -237,7 +237,7 @@ func setupEmbedRouter(t *testing.T) (*Service, *credential.Service, *modelinfo.S
 	database := testutil.SetupTestDB(t)
 
 	providerSvc := provider.NewService(database)
-	mock := &embedMockAdapter{mockAdapter: mockAdapter{callCount: new(int)}}
+	mock := &embedMockAdapter{MockAdapter: testutil.NewMockAdapter("mock")}
 	providerSvc.RegisterGoAdapter(mock)
 	if _, err := providerSvc.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)

@@ -85,8 +85,11 @@ internal/services/
   pluginrepo/            plugin store: single-URL index repos (repo URL or direct index.json, files resolved against the index directory); code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
   modelinfo/             model metadata cache (1h TTL)
   metrics/               1m buckets, 90d retention
-  maintenance/           refresh + cleanup
-  tokencount/            slop-tokenizer wrapper
+  maintenance/           refresh + cleanup (refresh, modelsync, proxy, auth jobs)
+internal/pool/           single-pass credential failover (unary + stream)
+internal/streamgate/     first-byte gate: failover stops after first SSE byte
+internal/httpkit/        shared transport helpers (SSE headers)
+internal/errors/         domain sentinels + MapUpstream + ToAPIError
 internal/repository/     bbolt buckets
 internal/dashboard/      admin REST API
 internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/models
@@ -195,7 +198,7 @@ Rule: before finishing any `.svelte` change, re-check every `$effect` touched ag
 
 - Location: new provider backends are single-file Lua plugins. Develop them anywhere as one `.lua` file with a `--- @` manifest header; install via dashboard Plugins → Catalog tab or `POST /api/llm-router/dashboard/plugins/install-file`.
 - Manifest: required tags `@plugin`, `@author`, `@version`, `@router_version`, one or more `@allow_host` (`*` marks the plugin unsafe). `internal/services/luaplugin/manifest.go` validates.
-- API: `llm_router.register(type_key, {complete, ...})`, `llm_router.create_http_client`, `llm_router.multipart`, `llm_router.storage`, `llm_router.uuid_v5(namespace, name)` (RFC 4122), `llm_router.random_hex(nbytes)`, `json.encode/decode`. Error contract `{type=, message=, retry_after=}`. Endpoint handlers beyond chat: `transcribe` (POST /v1/audio/transcriptions). **docs/PLUGIN-CONTRACT.md is the binding contract for plugin authors — keep it in sync with every handler/API change.** UI trees for `config_schema`/`credential_schema`/`auth_initiate`/`auth_step` render through `DynamicForm.svelte`. Node kinds: leafs `text`, `input`, `select`, `checkbox`, `button`, `link`, `banner`, `secret`, `code`; containers `group`, `flow`, `grid`, `section`, `spacer`, `divider`. No raw HTML from plugins, ever — new widgets ship as first-class node kinds, not markup.
+- API: `llm_router.register(type_key, {complete, ...})`, `llm_router.create_http_client`, `llm_router.multipart`, `llm_router.storage`, `llm_router.uuid_v5(namespace, name)` (RFC 4122), `llm_router.random_hex(nbytes)`, `json.encode/decode`. Error contract `{type=, message=, retry_after=}`. Endpoint handlers beyond chat: `transcribe` (POST /v1/audio/transcriptions). **docs/PLUGIN-API.md is the binding contract for plugin authors — keep it in sync with every handler/API change.** UI trees for `config_schema`/`credential_schema`/`auth_initiate`/`auth_step` render through `DynamicForm.svelte`. Node kinds: leafs `text`, `input`, `select`, `checkbox`, `button`, `link`, `banner`, `secret`, `code`; containers `group`, `flow`, `grid`, `section`, `spacer`, `divider`. No raw HTML from plugins, ever — new widgets ship as first-class node kinds, not markup.
 - Store: provider plugins ship from plugin store repositories, not from the binary. Built-in repos live in `pluginrepo.BuiltinRepos` and seed on startup via `EnsureBuiltinRepos`; they cannot be removed (`ErrBuiltinRepoProtected`). To ship a plugin upgrade, bump `@version` in the store repository.
 - Built-in Go backends exist only for `custom` (`internal/adapters/generic/`) and `virtual` (`providers/virtual/`), both implementing `provider.GoAdapter`.
 - Verification: run `make go-check` only. For runtime checks, ask the human to run `make start`.

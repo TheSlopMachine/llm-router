@@ -10,19 +10,19 @@ import (
 func TestModelOverrides_EnableDisable(t *testing.T) {
 	svc, _, _, _ := setupModelInfoService(t)
 
-	if !svc.IsModelEnabled("modelinfo-test", "live-model") {
+	if enabled, err := svc.IsModelEnabled("modelinfo-test", "live-model"); err != nil || !enabled {
 		t.Fatal("models are enabled by default")
 	}
 	if err := svc.SetOverride(models.ModelOverride{ProviderID: "modelinfo-test", Name: "live-model", Disabled: true}); err != nil {
 		t.Fatalf("set override: %v", err)
 	}
-	if svc.IsModelEnabled("modelinfo-test", "live-model") {
+	if enabled, err := svc.IsModelEnabled("modelinfo-test", "live-model"); err != nil || enabled {
 		t.Fatal("override did not disable the model")
 	}
 	if err := svc.DeleteOverride("modelinfo-test", "live-model"); err != nil {
 		t.Fatalf("delete override: %v", err)
 	}
-	if !svc.IsModelEnabled("modelinfo-test", "live-model") {
+	if enabled, err := svc.IsModelEnabled("modelinfo-test", "live-model"); err != nil || !enabled {
 		t.Fatal("model stays disabled after override removal")
 	}
 }

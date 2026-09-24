@@ -1,8 +1,10 @@
 package repository
 
 import (
+	"errors"
 	"testing"
 
+	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 	bolt "go.etcd.io/bbolt"
 )
@@ -58,8 +60,26 @@ func TestRepository_Get_NotFound(t *testing.T) {
 	repo := setupTestRepo(t)
 
 	_, err := repo.Get("nonexistent")
-	if err == nil {
-		t.Error("expected error for nonexistent record, got nil")
+	if !errors.Is(err, apierrors.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestRepository_Get_CorruptJSON(t *testing.T) {
+	repo := setupTestRepo(t)
+
+	if err := repo.Put("good", &testRecord{ID: "good"}); err != nil {
+		t.Fatalf("put failed: %v", err)
+	}
+	if err := repo.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("test")).Put([]byte("bad"), []byte("{invalid"))
+	}); err != nil {
+		t.Fatalf("corrupt seed failed: %v", err)
+	}
+	if _, err := repo.Get("bad"); err == nil {
+		t.Error("expected error for corrupt record, got nil")
+	} else if errors.Is(err, apierrors.ErrNotFound) {
+		t.Errorf("corrupt record must not map to NotFound: %v", err)
 	}
 }
 
@@ -129,8 +149,8 @@ func TestRepository_Delete_NotFound(t *testing.T) {
 	repo := setupTestRepo(t)
 
 	err := repo.Delete("nonexistent")
-	if err == nil {
-		t.Error("expected error for deleting nonexistent record, got nil")
+	if !errors.Is(err, apierrors.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
 
@@ -274,8 +294,8 @@ func TestRepository_FindFirst_NoMatch(t *testing.T) {
 	_, err := repo.FindFirst(func(r *testRecord) bool {
 		return r.Name == "Nonexistent"
 	})
-	if err == nil {
-		t.Error("expected error for no match, got nil")
+	if !errors.Is(err, apierrors.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
 
@@ -385,7 +405,7 @@ func TestRepository_Update_NotFound(t *testing.T) {
 		r.Name = "Modified"
 		return nil
 	})
-	if err == nil {
-		t.Error("expected error for updating nonexistent record, got nil")
+	if !errors.Is(err, apierrors.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
