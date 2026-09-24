@@ -181,7 +181,7 @@
   async function reloadModels(): Promise<void> {
     // First load spins; later reloads patch in place so the page
     // does not flash and scroll does not jump.
-    if (models.length === 0) modelsLoading = true
+    modelsLoading = true
     modelsError = ''
     try {
       models = await api.models.forProvider(providerId)

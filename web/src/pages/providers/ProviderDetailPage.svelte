@@ -130,7 +130,7 @@
 
   async function reloadCredentials(): Promise<void> {
     if (!providerIdValue) return
-    credentialsLoading = credentials.length === 0
+    credentialsLoading = true
     try {
       const creds = await api.credentials.list()
       credentials = sortCredentials((creds as Credential[]).filter((c) => c.provider_id === providerIdValue))
