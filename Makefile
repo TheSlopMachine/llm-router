@@ -29,7 +29,7 @@ BUN_MIN := 1.2
 GO_MIN  := 1.25
 BUN     := bun
 
-.PHONY: help check-frontend-deps check-publish-deps go-tidy fmt fmt-check init start stop restart status browser clean publish go-check go-test check-frontend
+.PHONY: help check-frontend-deps check-publish-deps go-tidy fmt fmt-check init start stop restart status browser log log-frontend clean publish go-check go-test check-frontend
 
 help:
 	@cd scripts && GOWORK=off go run ./help
@@ -81,6 +81,12 @@ restart:
 
 status:
 	@cd scripts && GOWORK=off go run ./status
+
+log:
+	@cd scripts && GOWORK=off go run ./log
+
+log-frontend:
+	@cd scripts && GOWORK=off go run ./logfrontend
 
 browser:
 	@cd scripts && GOWORK=off go run ./browser

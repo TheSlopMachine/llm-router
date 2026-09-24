@@ -116,6 +116,8 @@ Rule: keep changes shallow. Do not touch service internals unless the task requi
 | `make fmt` | Apply `gofmt` to both Go modules |
 | `make fmt-check` | Fail when `gofmt` would reformat anything |
 | `make init` | Project init/re-init: bun install, openapi.yaml, api-types, embed stub; skips fresh outputs unless `NO_SKIP=1` |
+| `make log` | Tail backend log (`LINES=...` sizes tail, default `100`; `FOLLOW=...` overrides TTY auto-follow) |
+| `make log-frontend` | Tail frontend log (same `LINES`/`FOLLOW` contract as `make log`) |
 
 ### 4.2 Banned — raw equivalents of the above
 
@@ -188,12 +190,13 @@ Rule: before finishing any `.svelte` change, re-check every `$effect` touched ag
 | 4 | Litter the project | No `*.log`, `*.pid`, `*.tmp`, binaries, scratch files, notes inside the project tree. Use `/tmp` or an external scratch dir. |
 | 5 | Avoid the Makefile | No raw command substitutes for an allowed target (§4.2). No manual invocation of a banned target's underlying steps (§4.3). |
 | 6 | Run, start, or live-test the app | Human-only task. NEVER debug at runtime yourself — ask the human. See §4.3, §8. |
-| 7 | Redirect output to nul | A terrible habit that breaks on Windows. |
+| 7 | Redirect output to nul or /dev/null | Breaks on Windows, and hides diagnostics on every OS. Every such redirect earns the offending agent 800 lashes. |
 | 8 | Truncate diagnostics output with tail/head | Diagnostics matter and truncating wastes time. NEVER truncate them. |
 | 9 | Fall back silently | NEVER swallow a failure and continue on a fallback path. Surface every failure as an error — return it to the caller, log it, or both — or route it to an explicit, named on-fail branch. Never fall through unannounced. |
 | 10 | Match errors by string | NEVER match error codes or kinds with `strings.Contains(err.Error(), ...)` or message substrings. Define sentinel errors and match with `errors.Is` / `errors.As`. |
 | 11 | Patch a weak API contract in the frontend | Repetitive `??` / `?.` over backend data shapes means the contract is wrong. Fix the backend to return consistent shapes (arrays never null, objects never null when the schema promises them). Frontend guards stay only for genuinely optional local state. |
 | 12 | Create stray files from the shell | NEVER let a shell command create a file: no `>` / `>>` / `Out-File` redirection, no heredocs, no `2>/dev/null`, no unquoted fragments that resolve to filenames (`nul`, `null`, command text as filename). Read command output from the tool result, never from disk. Every such file earns the offending agent 20 lashes. |
+| 13 | Pass env vars with shell syntax | NEVER `VAR=value make <target>` (Unix-only) and NEVER `$env:VAR="value"; make <target>` (PowerShell-only, leaks state into the session). Use `make <target> VAR=value`: make syntax, works in every shell, scoped to one invocation. |
 
 ## 7. Lua Plugins
 
