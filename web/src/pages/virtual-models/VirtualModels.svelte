@@ -133,7 +133,7 @@
       models={(resource.data ?? []).filter((a) => a).map((vm) => ({
         kind: 'virtual' as const,
         id: vm.id,
-        fullId: vm.id,
+        fullId: `virtual/${vm.id}`,
         description: vm.description || '—',
         contextWindow: minMembers(vm, (m) => m?.context_window),
         maxTokens: minMembers(vm, (m) => m?.max_tokens),

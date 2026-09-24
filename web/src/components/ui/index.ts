@@ -36,6 +36,7 @@ export { default as Picker } from './controls/Picker.svelte'
 // Composites.
 export { default as Modal } from './composite/Modal.svelte'
 export { default as StepsView } from './composite/StepsView.svelte'
+export { default as CopyButton } from './composite/CopyButton.svelte'
 export { default as List } from './composite/List.svelte'
 export { default as SectionCard } from './composite/SectionCard.svelte'
 export { default as CodeBlock } from './composite/CodeBlock.svelte'
