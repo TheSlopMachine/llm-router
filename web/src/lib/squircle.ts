@@ -42,6 +42,9 @@ import {
   invalidateAll,
 } from './observers'
 
+// Set to false to disable squircle effect globally
+let squircleEnabled = true
+
 let superellipseExp = 0.8 // 2/n with n = 2.5
 
 // Live tuning from the polygon: re-applies every mounted squircle.
@@ -244,6 +247,14 @@ export function squircle(
       update(next: number) {
         fallbackBox.value = next
       },
+      destroy() {},
+    }
+  }
+
+  // Early return if squircle is disabled
+  if (!squircleEnabled) {
+    return {
+      update(next: number) {},
       destroy() {},
     }
   }
