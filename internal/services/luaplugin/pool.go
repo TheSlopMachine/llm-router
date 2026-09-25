@@ -26,14 +26,22 @@ func isFatalPoolError(err error) bool {
 // first success. Every key is tried at most once; there are no repeat passes
 // or backoff pauses. A missing handler fails immediately: it is identical
 // for every key. Otherwise the last error is returned.
-func runPool[T any](ctx context.Context, s *Service, creds []*models.Credential, attempt func(context.Context, *models.Credential) (T, error)) (T, error) {
-	return pool.Run(ctx, s.logger, creds, s.usage, attempt, isFatalPoolError)
+func runPool[T any](ctx context.Context, s *Service, model string, creds []*models.Credential, attempt func(context.Context, *models.Credential) (T, error)) (T, error) {
+	log := s.logger
+	if log != nil && model != "" {
+		log = log.With("model", model)
+	}
+	return pool.Run(ctx, log, creds, s.usage, attempt, isFatalPoolError)
 }
 
 // runPoolStream is runPool for streaming calls. Failover is allowed only
 // before the first byte reaches the client.
-func (s *Service) runPoolStream(ctx context.Context, w io.Writer, creds []*models.Credential, attempt func(context.Context, *models.Credential, io.Writer) error) error {
-	return pool.RunStream(ctx, s.logger, w, creds, s.usage, attempt, isFatalPoolError)
+func (s *Service) runPoolStream(ctx context.Context, model string, w io.Writer, creds []*models.Credential, attempt func(context.Context, *models.Credential, io.Writer) error) error {
+	log := s.logger
+	if log != nil && model != "" {
+		log = log.With("model", model)
+	}
+	return pool.RunStream(ctx, log, w, creds, s.usage, attempt, isFatalPoolError)
 }
 
 // CompletePool tries the credential pool in order through the complete
@@ -45,7 +53,7 @@ func (s *Service) CompletePool(
 	req *models.ChatCompletionRequest,
 	providerConfig map[string]any,
 ) (*models.ChatCompletionResponse, error) {
-	return runPool(ctx, s, creds, func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
+	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 		return s.Complete(ctx, typeKey, cred, req, providerConfig)
 	})
 }
@@ -60,7 +68,7 @@ func (s *Service) CompleteStreamPool(
 	w io.Writer,
 	providerConfig map[string]any,
 ) error {
-	return s.runPoolStream(ctx, w, creds, func(ctx context.Context, cred *models.Credential, w io.Writer) error {
+	return s.runPoolStream(ctx, req.Model.String(), w, creds, func(ctx context.Context, cred *models.Credential, w io.Writer) error {
 		return s.CompleteStream(ctx, typeKey, cred, req, w, providerConfig)
 	})
 }
@@ -74,7 +82,7 @@ func (s *Service) TranscribePool(
 	req *models.TranscriptionRequest,
 	providerConfig map[string]any,
 ) (*models.TranscriptionResponse, error) {
-	return runPool(ctx, s, creds, func(ctx context.Context, cred *models.Credential) (*models.TranscriptionResponse, error) {
+	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.TranscriptionResponse, error) {
 		return s.Transcribe(ctx, typeKey, cred, req, providerConfig)
 	})
 }
@@ -88,7 +96,7 @@ func (s *Service) SpeechPool(
 	req *models.SpeechRequest,
 	providerConfig map[string]any,
 ) (*models.SpeechResponse, error) {
-	return runPool(ctx, s, creds, func(ctx context.Context, cred *models.Credential) (*models.SpeechResponse, error) {
+	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.SpeechResponse, error) {
 		return s.Speech(ctx, typeKey, cred, req, providerConfig)
 	})
 }
@@ -102,7 +110,7 @@ func (s *Service) GenerateImagePool(
 	req *models.ImageGenerationRequest,
 	providerConfig map[string]any,
 ) (*models.ImageGenerationResponse, error) {
-	return runPool(ctx, s, creds, func(ctx context.Context, cred *models.Credential) (*models.ImageGenerationResponse, error) {
+	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ImageGenerationResponse, error) {
 		return s.GenerateImage(ctx, typeKey, cred, req, providerConfig)
 	})
 }
@@ -116,7 +124,7 @@ func (s *Service) EmbedPool(
 	req *models.EmbeddingsRequest,
 	providerConfig map[string]any,
 ) (*models.EmbeddingsResponse, error) {
-	return runPool(ctx, s, creds, func(ctx context.Context, cred *models.Credential) (*models.EmbeddingsResponse, error) {
+	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.EmbeddingsResponse, error) {
 		return s.Embed(ctx, typeKey, cred, req, providerConfig)
 	})
 }

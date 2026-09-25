@@ -46,7 +46,7 @@ func requestLogger(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rw, r)
-		logger.Info("→", "method", r.Method, "path", r.URL.Path, "status", rw.status)
+		logger.Debug("request", "method", r.Method, "path", r.URL.Path, "status", rw.status)
 	})
 }
 

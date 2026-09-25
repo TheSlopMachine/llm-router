@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/TheSlopMachine/llm-router/internal/config"
+	"github.com/TheSlopMachine/llm-router/internal/logging"
 	"github.com/TheSlopMachine/llm-router/internal/server"
 )
 
@@ -96,7 +97,7 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	// Logger
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel.SlogLevel()}))
+	logger := slog.New(logging.NewHandler(os.Stderr, logLevel.SlogLevel()))
 
 	if cfg.NoAuth {
 		logger.Warn("authorization disabled (--no-auth): dev and AI debugging only")

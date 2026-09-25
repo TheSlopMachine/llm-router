@@ -87,7 +87,7 @@ func (s *Service) maybeRefresh(ctx context.Context, cred *models.Credential) {
 		return
 	}
 
-	s.logger.Info("maintenance: refreshing credential",
+	s.logger.Debug("maintenance: refreshing credential",
 		"credential_id", cred.ID, "provider", resolved.Instance.Name)
 
 	data, err := s.refresh(ctx, resolved, cred)

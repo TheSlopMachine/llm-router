@@ -144,7 +144,7 @@ func installPrint(L *lua.LState, ctx *execContext) {
 				ctx.logSink(ctx.pluginID, msg)
 			}
 			if ctx.logger != nil {
-				ctx.logger.Info("plugin log", "plugin_id", ctx.pluginID, "msg", msg)
+				ctx.logger.Debug("plugin log", "plugin_id", ctx.pluginID, "msg", msg)
 			}
 		}
 		return 0

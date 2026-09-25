@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -23,12 +24,17 @@ type UsageTracker = pool.UsageTracker
 
 // Adapter implements the generic OpenAI-compatible backend for "custom" providers.
 type Adapter struct {
-	usage UsageTracker
+	usage  UsageTracker
+	logger *slog.Logger
 }
 
 // SetUsageTracker wires per-credential usage accounting for pool calls.
 // Unset (nil) disables accounting; attempts still run.
 func (a *Adapter) SetUsageTracker(t UsageTracker) { a.usage = t }
+
+// SetLogger wires the logger for pool failover lines. Unset falls back to
+// slog.Default inside the pool.
+func (a *Adapter) SetLogger(l *slog.Logger) { a.logger = l }
 
 func (a *Adapter) TypeKey() string { return adapterTypeKey }
 
@@ -70,7 +76,11 @@ func (a *Adapter) Complete(
 		return nil, fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
-	return pool.Run(ctx, nil, creds, a.usage, func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
+	log := a.logger
+	if log != nil {
+		log = log.With("model", req.Model.String())
+	}
+	return pool.Run(ctx, log, creds, a.usage, func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 		var apiKey string
 		if cred != nil {
 			apiKey = cred.DataString("api_key")
@@ -101,7 +111,11 @@ func (a *Adapter) CompleteStream(
 		return fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
-	return pool.RunStream(ctx, nil, w, creds, a.usage, func(ctx context.Context, cred *models.Credential, w io.Writer) error {
+	log := a.logger
+	if log != nil {
+		log = log.With("model", req.Model.String())
+	}
+	return pool.RunStream(ctx, log, w, creds, a.usage, func(ctx context.Context, cred *models.Credential, w io.Writer) error {
 		var apiKey string
 		if cred != nil {
 			apiKey = cred.DataString("api_key")

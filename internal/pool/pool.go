@@ -41,6 +41,26 @@ func trackSuccess(log *slog.Logger, tracker UsageTracker, cred *models.Credentia
 	}
 }
 
+func credentialID(cred *models.Credential) string {
+	if cred == nil {
+		return ""
+	}
+	return cred.ID
+}
+
+func logTryingNext(log *slog.Logger, cred *models.Credential, err error) {
+	args := make([]any, 0, 4)
+	if id := credentialID(cred); id != "" {
+		args = append(args, "credential_id", id)
+	}
+	args = append(args, "error", err)
+	loggerOrDefault(log).Info("credential failed, trying next", args...)
+}
+
+func logAllFailed(log *slog.Logger, lastErr error) {
+	loggerOrDefault(log).Warn("all credentials failed", "last_error", lastErr)
+}
+
 func trackFailure(log *slog.Logger, tracker UsageTracker, cred *models.Credential, err error) {
 	if tracker == nil || cred == nil {
 		return
@@ -65,7 +85,7 @@ func Run[T any](ctx context.Context, log *slog.Logger, creds []*models.Credentia
 		return zero, NoCredentials
 	}
 	var lastErr error
-	for _, cred := range creds {
+	for i, cred := range creds {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
@@ -79,6 +99,12 @@ func Run[T any](ctx context.Context, log *slog.Logger, creds []*models.Credentia
 			return zero, err
 		}
 		lastErr = err
+		if i < len(creds)-1 {
+			logTryingNext(log, cred, err)
+		}
+	}
+	if lastErr != nil {
+		logAllFailed(log, lastErr)
 	}
 	return zero, lastErr
 }
@@ -92,7 +118,7 @@ func RunStream(ctx context.Context, log *slog.Logger, w io.Writer, creds []*mode
 	}
 	gate := streamgate.New(w)
 	var lastErr error
-	for _, cred := range creds {
+	for i, cred := range creds {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -109,6 +135,12 @@ func RunStream(ctx context.Context, log *slog.Logger, w io.Writer, creds []*mode
 		if gate.Written() {
 			return lastErr
 		}
+		if i < len(creds)-1 {
+			logTryingNext(log, cred, err)
+		}
+	}
+	if lastErr != nil {
+		logAllFailed(log, lastErr)
 	}
 	return lastErr
 }

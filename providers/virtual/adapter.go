@@ -120,27 +120,37 @@ func (a *Adapter) Complete(
 	// list order. The first success wins; otherwise the last error is
 	// returned as-is.
 	var lastErr error
-	for _, memberID := range members {
+	for i, memberID := range members {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		modelReq := *modifiedReq
 		modelReq.Model = memberID
-		logger.Info("virtual model trying model",
+		logger.Debug("virtual model trying model",
 			"virtual_model", agent.Name,
 			"model", memberID)
 		resp, err := routerSvc.Complete(ctx, &modelReq, nil)
 		if err == nil {
-			logger.Info("virtual model request succeeded",
+			logger.Debug("virtual model request succeeded",
 				"virtual_model", agent.Name,
 				"model", memberID)
 			return resp, nil
 		}
 		lastErr = err
+		if i < len(members)-1 {
+			logger.Info("member model failed, trying next",
+				"virtual_model", agent.Name,
+				"failed_model", memberID.String(),
+				"next_model", members[i+1].String(),
+				"error", err)
+		}
 	}
 	if lastErr == nil {
 		return nil, fmt.Errorf("virtual model %q has no models to try", agent.Name)
 	}
+	logger.Warn("all member models failed",
+		"virtual_model", agent.Name,
+		"last_error", lastErr)
 	return nil, lastErr
 }
 
@@ -167,13 +177,13 @@ func (a *Adapter) CompleteStream(
 	// with its error instead of continuing to the next member.
 	gate := streamgate.New(w)
 	var lastErr error
-	for _, memberID := range members {
+	for i, memberID := range members {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		modelReq := *modifiedReq
 		modelReq.Model = memberID
-		logger.Info("virtual model trying model (stream)",
+		logger.Debug("virtual model trying model (stream)",
 			"virtual_model", agent.Name,
 			"model", memberID)
 		if err := routerSvc.CompleteStream(ctx, &modelReq, gate, nil); err == nil {
@@ -184,10 +194,20 @@ func (a *Adapter) CompleteStream(
 		if gate.Written() {
 			return lastErr
 		}
+		if i < len(members)-1 {
+			logger.Info("member model failed, trying next",
+				"virtual_model", agent.Name,
+				"failed_model", memberID.String(),
+				"next_model", members[i+1].String(),
+				"error", lastErr)
+		}
 	}
 	if lastErr == nil {
 		return fmt.Errorf("virtual model %q has no models to try", agent.Name)
 	}
+	logger.Warn("all member models failed",
+		"virtual_model", agent.Name,
+		"last_error", lastErr)
 	return lastErr
 }
 

@@ -263,7 +263,7 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 		modelInfos, lastErr = fetch(nil)
 		if lastErr == nil {
 			if s.logger != nil {
-				s.logger.Info("model discovery succeeded (no credential)", "provider_id", providerID, "models", len(modelInfos))
+				s.logger.Debug("model discovery succeeded (no credential)", "provider_id", providerID, "models", len(modelInfos))
 			}
 			return s.store(providerID, modelInfos), nil
 		}
@@ -277,7 +277,7 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 		modelInfos, lastErr = fetch(cred)
 		if lastErr == nil {
 			if s.logger != nil {
-				s.logger.Info("model discovery succeeded", "provider_id", providerID, "credential_id", cred.ID, "models", len(modelInfos))
+				s.logger.Debug("model discovery succeeded", "provider_id", providerID, "credential_id", cred.ID, "models", len(modelInfos))
 			}
 			return s.store(providerID, modelInfos), nil
 		}

@@ -46,7 +46,7 @@ func (s *Service) compressAndPersist() error {
 	}
 	s.mu.Unlock()
 
-	s.logger.Info("compressed and persisted buckets", "count", len(toCompress), "windows", len(grouped))
+	s.logger.Debug("compressed and persisted buckets", "count", len(toCompress), "windows", len(grouped))
 	return nil
 }
 
@@ -200,7 +200,7 @@ func (s *Service) compressOldBuckets(cutoff time.Time, fromGranularity, toGranul
 		}
 	}
 
-	s.logger.Info("compressed old buckets", "from", fromGranularity, "to", toGranularity, "count", len(buckets))
+	s.logger.Debug("compressed old buckets", "from", fromGranularity, "to", toGranularity, "count", len(buckets))
 	return nil
 }
 

@@ -68,6 +68,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	providerSvc.SetLogger(logger)
 	providerSvc.SetLuaService(luaSvc)
 	genericAdapter := &generic.Adapter{}
+	genericAdapter.SetLogger(logger)
 	providerSvc.RegisterGoAdapter(genericAdapter)
 	if err := providerSvc.EnsureSeeded(); err != nil {
 		return nil, fmt.Errorf("seed providers: %w", err)
