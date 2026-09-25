@@ -1,9 +1,10 @@
-package luaplugin
+package pool
 
 import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -12,9 +13,11 @@ import (
 
 // fakeTracker records usage calls for pool tests.
 type fakeTracker struct {
-	success map[string]int
-	failure map[string]int
-	quota   map[string]time.Time
+	success  map[string]int
+	failure  map[string]int
+	quota    map[string]time.Time
+	usageErr error
+	quotaErr error
 }
 
 func newFakeTracker() *fakeTracker {
@@ -26,6 +29,9 @@ func newFakeTracker() *fakeTracker {
 }
 
 func (f *fakeTracker) UpdateUsage(id string, success bool) error {
+	if f.usageErr != nil {
+		return f.usageErr
+	}
 	if success {
 		f.success[id]++
 	} else {
@@ -35,6 +41,9 @@ func (f *fakeTracker) UpdateUsage(id string, success bool) error {
 }
 
 func (f *fakeTracker) MarkQuotaExceeded(id string, resetAt time.Time) error {
+	if f.quotaErr != nil {
+		return f.quotaErr
+	}
 	f.quota[id] = resetAt
 	return nil
 }
@@ -51,15 +60,16 @@ func okResp() (*models.ChatCompletionResponse, error) {
 	return &models.ChatCompletionResponse{ID: "ok"}, nil
 }
 
-func TestRunPoolFirstSuccess(t *testing.T) {
+var errFatal = errors.New("fatal: no handler")
+
+func TestRunFirstSuccess(t *testing.T) {
 	tracker := newFakeTracker()
-	svc := &Service{usage: tracker}
 	calls := 0
-	resp, err := runPool(context.Background(), svc, poolCreds("a", "b"),
+	resp, err := Run(context.Background(), nil, poolCreds("a", "b"), tracker,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			calls++
 			return okResp()
-		})
+		}, nil)
 	if err != nil || resp.ID != "ok" || calls != 1 {
 		t.Fatalf("got resp=%v err=%v calls=%d", resp, err, calls)
 	}
@@ -68,18 +78,17 @@ func TestRunPoolFirstSuccess(t *testing.T) {
 	}
 }
 
-func TestRunPoolTriesEachKeyOnceInOrder(t *testing.T) {
+func TestRunTriesEachKeyOnceInOrder(t *testing.T) {
 	tracker := newFakeTracker()
-	svc := &Service{usage: tracker}
 	var order []string
-	resp, err := runPool(context.Background(), svc, poolCreds("a", "b", "c"),
+	resp, err := Run(context.Background(), nil, poolCreds("a", "b", "c"), tracker,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			order = append(order, cred.ID)
 			if cred.ID != "c" {
 				return nil, &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeRateLimit, Message: "limited"}
 			}
 			return okResp()
-		})
+		}, nil)
 	if err != nil || resp.ID != "ok" {
 		t.Fatalf("got resp=%v err=%v", resp, err)
 	}
@@ -91,14 +100,13 @@ func TestRunPoolTriesEachKeyOnceInOrder(t *testing.T) {
 	}
 }
 
-func TestRunPoolReturnsLastError(t *testing.T) {
-	svc := &Service{}
+func TestRunReturnsLastError(t *testing.T) {
 	calls := 0
-	_, err := runPool(context.Background(), svc, poolCreds("a", "b"),
+	_, err := Run(context.Background(), nil, poolCreds("a", "b"), nil,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			calls++
 			return nil, &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeRateLimit, Message: "fail-" + cred.ID}
-		})
+		}, nil)
 	if err == nil || calls != 2 {
 		t.Fatalf("got err=%v calls=%d", err, calls)
 	}
@@ -107,40 +115,37 @@ func TestRunPoolReturnsLastError(t *testing.T) {
 	}
 }
 
-func TestRunPoolEmpty(t *testing.T) {
-	svc := &Service{}
-	if _, err := runPool(context.Background(), svc, nil,
+func TestRunEmpty(t *testing.T) {
+	if _, err := Run(context.Background(), nil, nil, nil,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			return okResp()
-		}); err == nil {
-		t.Fatal("expected error for empty pool, got nil")
+		}, nil); !errors.Is(err, NoCredentials) {
+		t.Fatalf("expected NoCredentials, got %v", err)
 	}
 }
 
-func TestRunPoolMissingHandlerStopsImmediately(t *testing.T) {
-	svc := &Service{}
+func TestRunFatalStopsImmediately(t *testing.T) {
 	calls := 0
-	_, err := runPool(context.Background(), svc, poolCreds("a", "b"),
+	_, err := Run(context.Background(), nil, poolCreds("a", "b"), nil,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			calls++
-			return nil, &notFoundError{PluginID: "p", TypeKey: "t", Handler: "complete"}
-		})
-	if !errors.Is(err, ErrHandlerNotFound) {
-		t.Fatalf("expected ErrHandlerNotFound, got %v", err)
+			return nil, errFatal
+		}, func(err error) bool { return errors.Is(err, errFatal) })
+	if !errors.Is(err, errFatal) {
+		t.Fatalf("expected fatal error, got %v", err)
 	}
 	if calls != 1 {
-		t.Fatalf("missing handler must stop after 1 attempt, got %d", calls)
+		t.Fatalf("fatal error must stop after 1 attempt, got %d", calls)
 	}
 }
 
-func TestRunPoolMarksQuotaExceeded(t *testing.T) {
+func TestRunMarksQuotaExceeded(t *testing.T) {
 	tracker := newFakeTracker()
-	svc := &Service{usage: tracker}
 	resetAt := time.Now().Add(time.Hour).Truncate(time.Second)
-	_, _ = runPool(context.Background(), svc, poolCreds("a"),
+	_, _ = Run(context.Background(), nil, poolCreds("a"), tracker,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			return nil, &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeQuotaExceeded, Message: "quota", RetryAfter: &resetAt}
-		})
+		}, nil)
 	if got := tracker.quota["a"].Truncate(time.Second); !got.Equal(resetAt) {
 		t.Errorf("quota mark: got %v, want %v", got, resetAt)
 	}
@@ -149,25 +154,36 @@ func TestRunPoolMarksQuotaExceeded(t *testing.T) {
 	}
 }
 
-func TestRunPoolCanceledContext(t *testing.T) {
-	svc := &Service{}
+func TestRunCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	calls := 0
-	_, err := runPool(ctx, svc, poolCreds("a", "b"),
+	_, err := Run(ctx, nil, poolCreds("a", "b"), nil,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			calls++
 			return okResp()
-		})
+		}, nil)
 	if err == nil || calls != 0 {
 		t.Fatalf("got err=%v calls=%d", err, calls)
 	}
 }
 
-func TestRunPoolStreamFallsThrough(t *testing.T) {
-	svc := &Service{}
+func TestRunTrackingErrorsDoNotFailAttempts(t *testing.T) {
+	tracker := newFakeTracker()
+	tracker.usageErr = errors.New("storage unavailable")
+	tracker.quotaErr = errors.New("storage unavailable")
+	resp, err := Run(context.Background(), slog.Default(), poolCreds("a"), tracker,
+		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
+			return okResp()
+		}, nil)
+	if err != nil || resp.ID != "ok" {
+		t.Fatalf("tracking failure must not fail the attempt: resp=%v err=%v", resp, err)
+	}
+}
+
+func TestRunStreamFallsThrough(t *testing.T) {
 	calls := 0
-	err := svc.runPoolStream(context.Background(), io.Discard, poolCreds("a", "b"),
+	err := RunStream(context.Background(), nil, io.Discard, poolCreds("a", "b"), nil,
 		func(ctx context.Context, cred *models.Credential, w io.Writer) error {
 			calls++
 			if cred.ID == "a" {
@@ -175,8 +191,29 @@ func TestRunPoolStreamFallsThrough(t *testing.T) {
 			}
 			_, _ = io.WriteString(w, "data: ok\n\n")
 			return nil
-		})
+		}, nil)
 	if err != nil || calls != 2 {
 		t.Fatalf("got err=%v calls=%d", err, calls)
+	}
+}
+
+func TestRunStreamStopsAfterFirstByte(t *testing.T) {
+	calls := 0
+	err := RunStream(context.Background(), nil, io.Discard, poolCreds("a", "b"), nil,
+		func(ctx context.Context, cred *models.Credential, w io.Writer) error {
+			calls++
+			_, _ = io.WriteString(w, "data: partial\n\n")
+			return &models.ProviderError{StatusCode: 500, Type: models.ErrorTypeUpstream, Message: "died mid-stream"}
+		}, nil)
+	if err == nil || calls != 1 {
+		t.Fatalf("stream must stop after first byte: err=%v calls=%d", err, calls)
+	}
+}
+
+func TestRunStreamEmpty(t *testing.T) {
+	err := RunStream(context.Background(), nil, io.Discard, nil, nil,
+		func(ctx context.Context, cred *models.Credential, w io.Writer) error { return nil }, nil)
+	if !errors.Is(err, NoCredentials) {
+		t.Fatalf("expected NoCredentials, got %v", err)
 	}
 }

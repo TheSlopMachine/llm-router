@@ -1,3 +1,5 @@
+//go:build store
+
 package luaplugin
 
 import (
@@ -7,13 +9,14 @@ import (
 )
 
 // TestStorePluginsInstall loads every plugin shipped in the sibling plugin
-// store checkout and asserts registration-level invariants. Skipped when
-// the store is not checked out next to the main module (CI).
+// store checkout and asserts registration-level invariants. It runs only
+// with -tags=store and a sibling llm-router-store checkout: store coverage
+// is opt-in, never a silent green skip in the default suite.
 func TestStorePluginsInstall(t *testing.T) {
 	storeDir := filepath.Join("..", "..", "llm-router-store", "llm-router-plugins")
 	entries, err := os.ReadDir(storeDir)
 	if err != nil {
-		t.Skipf("plugin store not checked out: %v", err)
+		t.Fatalf("plugin store not checked out: %v", err)
 	}
 	for _, entry := range entries {
 		if filepath.Ext(entry.Name()) != ".lua" {
@@ -37,7 +40,7 @@ func TestStorePluginsInstall(t *testing.T) {
 func TestStoreGooglePluginHandlers(t *testing.T) {
 	source, err := os.ReadFile(filepath.Join("..", "..", "llm-router-store", "llm-router-plugins", "google.lua"))
 	if err != nil {
-		t.Skipf("plugin store not checked out: %v", err)
+		t.Fatalf("plugin store not checked out: %v", err)
 	}
 	svc := setupService(t)
 	if _, err := svc.Install(source, PluginOrigin{Manual: true}); err != nil {

@@ -9,6 +9,9 @@ Router version: **0.0.7** (`models.CurrentVersion`). A plugin using a feature
 must declare the `@router_version` that introduced it; older routers refuse
 to install it.
 
+Plugin `@version` and `@router_version` accept `MAJOR.MINOR[.PATCH]`
+(a missing patch means `.0`); anything else is rejected at install.
+
 ## Version history
 
 | Router | Adds |
@@ -325,6 +328,12 @@ Pair state (per proxy and provider, never shared across providers):
 
 `fetch_proxies` returns proxy candidates
 `{ protocol, host, port, country }`; only probed-alive entries pool.
+
+Source identity: declare a bare name in `register_proxy_source(name, ...)`
+(the `^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$` pattern). The runtime qualifies it
+per plugin as `<recordID>/<name>`: two different plugins may claim one name
+and each serves its own list. The dashboard shows the bare name with the
+qualified key beneath it.
 
 ## Planned endpoints (not implemented)
 

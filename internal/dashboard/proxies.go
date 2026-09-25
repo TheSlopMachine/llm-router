@@ -105,13 +105,18 @@ func (h *Handler) apiProxySources(w http.ResponseWriter, r *http.Request) {
 // @Summary      Refresh proxy source
 // @Description  Starts a background refresh: candidates are probed as they arrive and added under the pool rules, then the pool rotates.
 // @Tags         Proxies
-// @Param        key path string true "Source type key"
+// @Param        key query string true "Source key"
 // @Success      202 {object} object{started=bool,reason=string}
+// @Failure      400 {object} models.ErrorResponse
 // @Failure      401 {object} models.ErrorResponse
 // @Security     SessionAuth
-// @Router       /api/llm-router/dashboard/proxy-sources/{key}/refresh [post]
+// @Router       /api/llm-router/dashboard/proxy-sources/refresh [post]
 func (h *Handler) apiProxySourceRefresh(w http.ResponseWriter, r *http.Request) {
-	key := r.PathValue("key")
+	key := r.URL.Query().Get("key")
+	if key == "" {
+		h.jsonErr(w, http.StatusBadRequest, "missing required query parameter 'key'")
+		return
+	}
 	if !h.proxySvc.NeedsSearch() {
 		h.json(w, http.StatusAccepted, map[string]any{"started": false, "reason": "pool full"})
 		return
@@ -155,15 +160,20 @@ func (h *Handler) apiProxySourceRefresh(w http.ResponseWriter, r *http.Request) 
 // @Description  Pooled proxies pulled from one source, fastest first, paginated.
 // @Tags         Proxies
 // @Produce      json
-// @Param        key path string true "Source type key"
+// @Param        key query string true "Source key"
 // @Param        offset query int false "Offset"
 // @Param        limit query int false "Limit (default 100)"
 // @Success      200 {object} object{items=array,total=int}
+// @Failure      400 {object} models.ErrorResponse
 // @Failure      401 {object} models.ErrorResponse
 // @Security     SessionAuth
-// @Router       /api/llm-router/dashboard/proxy-sources/{key}/proxies [get]
+// @Router       /api/llm-router/dashboard/proxy-sources/proxies [get]
 func (h *Handler) apiProxySourceProxies(w http.ResponseWriter, r *http.Request) {
-	key := r.PathValue("key")
+	key := r.URL.Query().Get("key")
+	if key == "" {
+		h.jsonErr(w, http.StatusBadRequest, "missing required query parameter 'key'")
+		return
+	}
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {

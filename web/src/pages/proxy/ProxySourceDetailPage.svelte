@@ -83,7 +83,8 @@
     <Button onclick={back} title={t('Back')} ariaLabel={t('Back')} icon={{ name: 'arrow_back' }} />
     {#if info}
       <VStack gap={1}>
-        <Text tag="h1" size="lg" weight="bold">{info.key}</Text>
+        <Text tag="h1" size="lg" weight="bold">{info.name}</Text>
+        <Text size="xs" tone="soft">{info.key}</Text>
         <HStack gap={2} align="center">
           {#if info.status === 'fetching'}
             <Text tone="accent" size="sm">{t('Fetching list…')}</Text>

@@ -25,13 +25,13 @@
 <script lang="ts">
   import Table from './Table.svelte'
   import type { TableColumn, TableSortDir } from './Table.svelte'
-  import Button from '../controls/Button.svelte'
   import Chip from '../controls/Chip.svelte'
   import VStack from '../layout/VStack.svelte'
   import HStack from '../layout/HStack.svelte'
   import Text from '../controls/Text.svelte'
   import { CAPABILITY_META } from '../../../lib/capabilities'
   import ModalitiesFlow from './ModalitiesFlow.svelte'
+  import CopyButton from './CopyButton.svelte'
   import { t } from '../../../lib/i18n.svelte'
   import { squircle } from '../../../lib/squircle'
 
@@ -61,7 +61,6 @@
 
   let sortKey = $state<string | null>(null)
   let sortDir = $state<TableSortDir | null>(null)
-  let copiedId = $state('')
 
   const columns = $derived<TableColumn[]>([
     { key: 'model', title: t('Model'), width: readonly ? '3.6fr' : '3.2fr', sortable },
@@ -123,17 +122,7 @@
   }
 
   function fullId(model: ModelsTableModel): string {
-    return model.fullId ?? (model.kind === 'virtual' ? model.id : model.providerId ? `${model.providerId}/${model.id}` : model.id)
-  }
-
-  function copyText(model: ModelsTableModel): void {
-    const id = fullId(model)
-    void navigator.clipboard.writeText(id).then(() => {
-      copiedId = id
-      window.setTimeout(() => {
-        if (copiedId === id) copiedId = ''
-      }, 1500)
-    }).catch(() => {})
+    return model.fullId ?? (model.kind === 'virtual' ? `virtual/${model.id}` : model.providerId ? `${model.providerId}/${model.id}` : model.id)
   }
 
   function openProvider(providerId: string): void {
@@ -164,13 +153,7 @@
               <Text mono size="sm" class="id-text">
                 virtual/{model.id}
               </Text>
-              <Button
-                size="small"
-                icon={{ name: copiedId === fullId(model) ? 'check' : 'content_copy' }}
-                title={t('Copy model id')}
-                ariaLabel={t('Copy model id')}
-                onclick={() => copyText(model)}
-              />
+              <CopyButton size="small" text={fullId(model)} title={t('Copy model id')} ariaLabel={t('Copy model id')} />
             </HStack>
             <Text size="sm" tone="soft" class="secondary-text">{model.description || '—'}</Text>
           {:else}
@@ -179,13 +162,7 @@
             </HStack>
             <HStack gap={2} align="center" class="identity-line">
               <Text mono size="sm" class="id-text">{fullId(model)}</Text>
-              <Button
-                size="small"
-                icon={{ name: copiedId === fullId(model) ? 'check' : 'content_copy' }}
-                title={t('Copy model id')}
-                ariaLabel={t('Copy model id')}
-                onclick={() => copyText(model)}
-              />
+              <CopyButton size="small" text={fullId(model)} title={t('Copy model id')} ariaLabel={t('Copy model id')} />
             </HStack>
           {/if}
           {#if showProviderLink && model.providerId && model.providerName}

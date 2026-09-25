@@ -6,13 +6,14 @@ package modelinfo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"sync"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/repository"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
@@ -31,13 +32,20 @@ type Service struct {
 
 	mu       sync.RWMutex
 	cache    map[string]cacheEntry
-	inflight map[string]*sync.WaitGroup
+	inflight map[string]*inflightCall
 }
 
 type cacheEntry struct {
 	models    []models.ModelInfo
 	cachedAt  time.Time
 	expiresAt time.Time
+}
+
+// inflightCall tracks one in-progress upstream fetch so concurrent waiters
+// share the leader's result, including its error, instead of stampeding.
+type inflightCall struct {
+	wg  sync.WaitGroup
+	err error
 }
 
 // modelInfoRecord is the persisted form of a cache entry: the model cache
@@ -60,7 +68,7 @@ func New(database *db.DB, providerSvc *provider.Service, credSvc *credential.Ser
 		overrides:   repository.New[models.ModelOverride](database, db.BucketModelOverrides, "model_override"),
 		records:     repository.New[modelInfoRecord](database, db.BucketModelInfos, "model_info_record"),
 		cache:       make(map[string]cacheEntry),
-		inflight:    make(map[string]*sync.WaitGroup),
+		inflight:    make(map[string]*inflightCall),
 	}
 }
 
@@ -90,7 +98,7 @@ func (s *Service) PeekModelInfos(providerID string) []models.ModelInfo {
 		expiresAt: rec.CachedAt.Add(s.cacheTTL),
 	}
 	s.mu.Unlock()
-	return rec.Models
+	return stripModalityCaps(rec.Models)
 }
 
 // modalityCaps are capability chips duplicated by the modalities column.
@@ -145,14 +153,6 @@ func (s *Service) WarmMissing(ctx context.Context) {
 	}
 }
 
-func hostOf(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return "<invalid-host>"
-	}
-	return u.Host
-}
-
 // GetModelInfos retrieves all model metadata for a provider
 func (s *Service) GetModelInfos(ctx context.Context, providerID string) ([]models.ModelInfo, error) {
 	s.mu.RLock()
@@ -163,32 +163,34 @@ func (s *Service) GetModelInfos(ctx context.Context, providerID string) ([]model
 	s.mu.RUnlock()
 
 	s.mu.Lock()
-	wg, exists := s.inflight[providerID]
+	call, exists := s.inflight[providerID]
 	if exists {
 		s.mu.Unlock()
-		wg.Wait()
+		call.wg.Wait()
 
 		s.mu.RLock()
 		defer s.mu.RUnlock()
 		if entry, exists := s.cache[providerID]; exists {
 			return stripModalityCaps(entry.models), nil
 		}
+		if call.err != nil {
+			return nil, call.err
+		}
 		return nil, fmt.Errorf("fetch failed for provider %s", providerID)
 	}
 
-	wg = &sync.WaitGroup{}
-	wg.Add(1)
-	s.inflight[providerID] = wg
+	call = &inflightCall{}
+	call.wg.Add(1)
+	s.inflight[providerID] = call
 	s.mu.Unlock()
 
-	defer func() {
-		s.mu.Lock()
-		delete(s.inflight, providerID)
-		s.mu.Unlock()
-		wg.Done()
-	}()
-
-	return s.fetchAndCache(ctx, providerID)
+	models, err := s.fetchAndCache(ctx, providerID)
+	call.err = err
+	s.mu.Lock()
+	delete(s.inflight, providerID)
+	s.mu.Unlock()
+	call.wg.Done()
+	return models, err
 }
 
 // GetModelInfo retrieves metadata for a specific model
@@ -261,7 +263,7 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 		modelInfos, lastErr = fetch(nil)
 		if lastErr == nil {
 			if s.logger != nil {
-				s.logger.Info("model discovery succeeded (no credential)", "provider_id", providerID, "models", len(modelInfos))
+				s.logger.Debug("model discovery succeeded (no credential)", "provider_id", providerID, "models", len(modelInfos))
 			}
 			return s.store(providerID, modelInfos), nil
 		}
@@ -275,7 +277,7 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 		modelInfos, lastErr = fetch(cred)
 		if lastErr == nil {
 			if s.logger != nil {
-				s.logger.Info("model discovery succeeded", "provider_id", providerID, "credential_id", cred.ID, "models", len(modelInfos))
+				s.logger.Debug("model discovery succeeded", "provider_id", providerID, "credential_id", cred.ID, "models", len(modelInfos))
 			}
 			return s.store(providerID, modelInfos), nil
 		}
@@ -315,6 +317,11 @@ func (s *Service) Refresh(ctx context.Context, providerID string) ([]models.Mode
 // record verified separately. Known models keep their stored metadata:
 // providers add models, they don't rewrite them. Manual and custom models
 // live in the overrides bucket and never pass through here.
+//
+// Eviction of models the upstream drops is request-driven, not fetch-driven:
+// the router removes a model via RemoveModel when the backend reports
+// ErrorTypeNotFound, so transiently omitted names survive one flap while
+// confirmed removals disappear on next use.
 func (s *Service) mergeRetained(providerID string, fresh []models.ModelInfo) []models.ModelInfo {
 	existing := s.PeekModelInfos(providerID)
 	if len(existing) == 0 {
@@ -427,13 +434,20 @@ func (s *Service) ListOverrides(providerID string) ([]*models.ModelOverride, err
 }
 
 // IsModelEnabled reports whether a model may be routed. Models are enabled
-// unless an override disables them.
-func (s *Service) IsModelEnabled(providerID, modelName string) bool {
+// unless an override disables them. Missing overrides allow routing;
+// storage failures deny routing.
+func (s *Service) IsModelEnabled(providerID, modelName string) (bool, error) {
 	ov, err := s.overrides.Get(overrideKey(providerID, modelName))
-	if err != nil || ov == nil {
-		return true
+	if err != nil {
+		if errors.Is(err, apierrors.ErrNotFound) {
+			return true, nil
+		}
+		return false, err
 	}
-	return !ov.Disabled
+	if ov == nil {
+		return true, nil
+	}
+	return !ov.Disabled, nil
 }
 
 // MergedView merges the cached upstream model list with admin overrides:

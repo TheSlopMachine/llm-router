@@ -3,98 +3,45 @@ package luaplugin
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
-	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/pool"
 )
 
 // UsageTracker records per-credential outcomes. It is implemented by the
 // credential pool service and injected via SetUsageTracker, keeping this
 // package free of import cycles.
-type UsageTracker interface {
-	UpdateUsage(id string, success bool) error
-	MarkQuotaExceeded(id string, resetAt time.Time) error
-}
+type UsageTracker = pool.UsageTracker
 
 // SetUsageTracker wires per-credential usage accounting for pool calls.
 // Unset (nil) disables accounting; attempts still run.
 func (s *Service) SetUsageTracker(t UsageTracker) { s.usage = t }
 
-func asQuotaExceeded(err error) (*models.ProviderError, bool) {
-	var perr *models.ProviderError
-	if errors.As(err, &perr) && perr.Type == models.ErrorTypeQuotaExceeded {
-		return perr, true
-	}
-	return nil, false
+func isFatalPoolError(err error) bool {
+	return errors.Is(err, ErrHandlerNotFound)
 }
 
 // runPool tries one attempt per credential in pool order and returns the
 // first success. Every key is tried at most once; there are no repeat passes
 // or backoff pauses. A missing handler fails immediately: it is identical
 // for every key. Otherwise the last error is returned.
-func runPool[T any](ctx context.Context, s *Service, creds []*models.Credential, attempt func(context.Context, *models.Credential) (T, error)) (T, error) {
-	var zero T
-	if len(creds) == 0 {
-		return zero, fmt.Errorf("no credentials available")
+func runPool[T any](ctx context.Context, s *Service, model string, creds []*models.Credential, attempt func(context.Context, *models.Credential) (T, error)) (T, error) {
+	log := s.logger
+	if log != nil && model != "" {
+		log = log.With("model", model)
 	}
-	var lastErr error
-	for _, cred := range creds {
-		if err := ctx.Err(); err != nil {
-			return zero, err
-		}
-		res, err := attempt(ctx, cred)
-		if err == nil {
-			if s.usage != nil {
-				_ = s.usage.UpdateUsage(cred.ID, true)
-			}
-			return res, nil
-		}
-		if s.usage != nil {
-			_ = s.usage.UpdateUsage(cred.ID, false)
-			if perr, ok := asQuotaExceeded(err); ok && perr.RetryAfter != nil {
-				_ = s.usage.MarkQuotaExceeded(cred.ID, *perr.RetryAfter)
-			}
-		}
-		if errors.Is(err, ErrHandlerNotFound) {
-			return zero, err
-		}
-		lastErr = err
-	}
-	return zero, lastErr
+	return pool.Run(ctx, log, creds, s.usage, attempt, isFatalPoolError)
 }
 
-// runPoolStream is runPool for streaming calls. Attempts continue on error
-// even after partial writes: keys of one provider are interchangeable.
-func (s *Service) runPoolStream(ctx context.Context, w io.Writer, creds []*models.Credential, attempt func(context.Context, *models.Credential, io.Writer) error) error {
-	if len(creds) == 0 {
-		return fmt.Errorf("no credentials available")
+// runPoolStream is runPool for streaming calls. Failover is allowed only
+// before the first byte reaches the client.
+func (s *Service) runPoolStream(ctx context.Context, model string, w io.Writer, creds []*models.Credential, attempt func(context.Context, *models.Credential, io.Writer) error) error {
+	log := s.logger
+	if log != nil && model != "" {
+		log = log.With("model", model)
 	}
-	var lastErr error
-	for _, cred := range creds {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		err := attempt(ctx, cred, w)
-		if err == nil {
-			if s.usage != nil {
-				_ = s.usage.UpdateUsage(cred.ID, true)
-			}
-			return nil
-		}
-		if s.usage != nil {
-			_ = s.usage.UpdateUsage(cred.ID, false)
-			if perr, ok := asQuotaExceeded(err); ok && perr.RetryAfter != nil {
-				_ = s.usage.MarkQuotaExceeded(cred.ID, *perr.RetryAfter)
-			}
-		}
-		if errors.Is(err, ErrHandlerNotFound) {
-			return err
-		}
-		lastErr = err
-	}
-	return lastErr
+	return pool.RunStream(ctx, log, w, creds, s.usage, attempt, isFatalPoolError)
 }
 
 // CompletePool tries the credential pool in order through the complete
@@ -106,7 +53,7 @@ func (s *Service) CompletePool(
 	req *models.ChatCompletionRequest,
 	providerConfig map[string]any,
 ) (*models.ChatCompletionResponse, error) {
-	return runPool(ctx, s, creds, func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
+	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 		return s.Complete(ctx, typeKey, cred, req, providerConfig)
 	})
 }
@@ -121,7 +68,7 @@ func (s *Service) CompleteStreamPool(
 	w io.Writer,
 	providerConfig map[string]any,
 ) error {
-	return s.runPoolStream(ctx, w, creds, func(ctx context.Context, cred *models.Credential, w io.Writer) error {
+	return s.runPoolStream(ctx, req.Model.String(), w, creds, func(ctx context.Context, cred *models.Credential, w io.Writer) error {
 		return s.CompleteStream(ctx, typeKey, cred, req, w, providerConfig)
 	})
 }
@@ -135,7 +82,7 @@ func (s *Service) TranscribePool(
 	req *models.TranscriptionRequest,
 	providerConfig map[string]any,
 ) (*models.TranscriptionResponse, error) {
-	return runPool(ctx, s, creds, func(ctx context.Context, cred *models.Credential) (*models.TranscriptionResponse, error) {
+	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.TranscriptionResponse, error) {
 		return s.Transcribe(ctx, typeKey, cred, req, providerConfig)
 	})
 }
@@ -149,7 +96,7 @@ func (s *Service) SpeechPool(
 	req *models.SpeechRequest,
 	providerConfig map[string]any,
 ) (*models.SpeechResponse, error) {
-	return runPool(ctx, s, creds, func(ctx context.Context, cred *models.Credential) (*models.SpeechResponse, error) {
+	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.SpeechResponse, error) {
 		return s.Speech(ctx, typeKey, cred, req, providerConfig)
 	})
 }
@@ -163,7 +110,7 @@ func (s *Service) GenerateImagePool(
 	req *models.ImageGenerationRequest,
 	providerConfig map[string]any,
 ) (*models.ImageGenerationResponse, error) {
-	return runPool(ctx, s, creds, func(ctx context.Context, cred *models.Credential) (*models.ImageGenerationResponse, error) {
+	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ImageGenerationResponse, error) {
 		return s.GenerateImage(ctx, typeKey, cred, req, providerConfig)
 	})
 }
@@ -177,7 +124,7 @@ func (s *Service) EmbedPool(
 	req *models.EmbeddingsRequest,
 	providerConfig map[string]any,
 ) (*models.EmbeddingsResponse, error) {
-	return runPool(ctx, s, creds, func(ctx context.Context, cred *models.Credential) (*models.EmbeddingsResponse, error) {
+	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.EmbeddingsResponse, error) {
 		return s.Embed(ctx, typeKey, cred, req, providerConfig)
 	})
 }

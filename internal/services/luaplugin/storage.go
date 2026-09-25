@@ -118,7 +118,11 @@ func newStorageTable(L *lua.LState, ctx *execContext) *lua.LTable {
 	tbl.RawSetString("set", L.NewFunction(func(L *lua.LState) int {
 		scope := L.CheckString(1)
 		key := L.CheckString(2)
-		val := fromLuaValue(L.Get(3))
+		val, verr := fromLuaValue(L.Get(3))
+		if verr != nil {
+			L.RaiseError("llm_router.storage.set: %s", verr.Error())
+			return 0
+		}
 		if ctx == nil || ctx.storage == nil {
 			L.RaiseError("llm_router.storage: no execution context")
 			return 0

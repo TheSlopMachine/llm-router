@@ -15,7 +15,7 @@ func main() {
 	}
 
 	host := shared.Getenv("HOST", "localhost")
-	webPort := shared.Getenv("WEB_PORT", "8080")
+	webPort := shared.Getenv("WEB_PORT", "38080")
 	noSkip := shared.IsNoSkip()
 
 	if err := shared.EnsureBunInstall(root, noSkip); err != nil {

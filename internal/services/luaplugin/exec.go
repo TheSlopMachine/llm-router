@@ -11,6 +11,14 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// scopedProxyRec attributes proxy pair outcomes to the requesting type key.
+// A plugin serving several keys shares one record; limits apply per key.
+func scopedProxyRec(rec *PluginRecord, typeKey string) *PluginRecord {
+	cp := *rec
+	cp.TypeKeys = []string{typeKey}
+	return &cp
+}
+
 // handlerCall loads plugin source in a fresh state and invokes one handler.
 // Lua error tables matching the (type, message, retry_after) contract become
 // ProviderError; everything else becomes PluginInternalError.
@@ -48,7 +56,7 @@ func (s *Service) handlerCallRouted(
 		registrations:       map[string]*lua.LTable{},
 		proxySources:        map[string]*lua.LTable{},
 		proxyResolver:       s.proxyResolver,
-		proxyRec:            rec,
+		proxyRec:            scopedProxyRec(rec, typeKey),
 		proxyProviderConfig: providerConfig,
 	}
 	if s.proxyEventReporter != nil {

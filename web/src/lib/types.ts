@@ -96,6 +96,7 @@ export interface ProxyStatus {
 
 export interface ProxySourceInfo {
   key: string
+  name: string
   status: 'idle' | 'fetching' | 'adding' | 'rotating'
   total: number
   pooled: number

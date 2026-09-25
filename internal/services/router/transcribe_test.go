@@ -16,9 +16,9 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
 
-// transcribeMockAdapter extends the router test mock with Transcribe.
+// transcribeMockAdapter extends the shared test mock with Transcribe.
 type transcribeMockAdapter struct {
-	mockAdapter
+	*testutil.MockAdapter
 	infos          []models.ModelInfo
 	transcribeFunc func(context.Context, []*models.Credential, *models.TranscriptionRequest) (*models.TranscriptionResponse, error)
 }
@@ -39,7 +39,7 @@ func setupTranscribeRouter(t *testing.T) (*Service, *credential.Service, *modeli
 	database := testutil.SetupTestDB(t)
 
 	providerSvc := provider.NewService(database)
-	mock := &transcribeMockAdapter{mockAdapter: mockAdapter{callCount: new(int)}}
+	mock := &transcribeMockAdapter{MockAdapter: testutil.NewMockAdapter("mock")}
 	providerSvc.RegisterGoAdapter(mock)
 	if _, err := providerSvc.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)

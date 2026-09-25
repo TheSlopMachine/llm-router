@@ -170,6 +170,30 @@ func (s *Service) notify(keys ...string) {
 	}
 }
 
+// checkTypeKeyConflicts rejects type keys already served by another plugin.
+// Updating the same plugin ID is allowed; claiming a foreign key is not.
+func (s *Service) checkTypeKeyConflicts(id string, typeKeys []string) error {
+	records, err := s.repo.List()
+	if err != nil {
+		return err
+	}
+	claimed := make(map[string]string, len(typeKeys))
+	for _, key := range typeKeys {
+		claimed[key] = id
+	}
+	for _, rec := range records {
+		if rec.ID == id {
+			continue
+		}
+		for _, key := range rec.TypeKeys {
+			if owner, ok := claimed[key]; ok && owner == id {
+				return fmt.Errorf("%w: type key %q claimed by plugin %q", ErrTypeKeyConflict, key, rec.ID)
+			}
+		}
+	}
+	return nil
+}
+
 func (s *Service) rebuild() error {
 	records, err := s.repo.List()
 	if err != nil {
@@ -179,6 +203,8 @@ func (s *Service) rebuild() error {
 	for _, rec := range records {
 		for _, key := range rec.TypeKeys {
 			if prev, exists := reg[key]; exists {
+				// Startup invariant guard only: new conflicts are rejected
+				// at install time by checkTypeKeyConflicts.
 				if s.logger != nil {
 					s.logger.Warn("duplicate type key across plugins, last wins",
 						"type_key", key, "prev", prev.ID, "next", rec.ID)
@@ -274,6 +300,9 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 	}
 	typeKeys, handlers, icons, sourceKeys, err := s.dryRun(id, source, manifest)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.checkTypeKeyConflicts(id, typeKeys); err != nil {
 		return nil, err
 	}
 
@@ -461,12 +490,7 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) ([]
 	for k, tbl := range ctx.registrations {
 		keys = append(keys, k)
 		var names []string
-		for _, name := range []string{
-			"complete", "complete_stream", "transcribe", "speech", "generate_image", "embed",
-			"validate_credentials", "get_model_infos",
-			"needs_refresh", "refresh_credential", "config_schema",
-			"credential_schema", "auth_initiate", "auth_step",
-		} {
+		for _, name := range AllHandlerNames() {
 			if v := tbl.RawGetString(name); v != lua.LNil {
 				names = append(names, name)
 			}

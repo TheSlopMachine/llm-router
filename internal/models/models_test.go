@@ -102,7 +102,7 @@ func TestTokenRules_Allows_DenyAll_Empty(t *testing.T) {
 	if rules.AllowsProvider("openai") {
 		t.Error("empty providers without AllowAll should deny")
 	}
-	if rules.AllowsCredential("cred-1") {
+	if rules.AllowsCredential("openai", "cred-1") {
 		t.Error("empty credentials without AllowAll should deny")
 	}
 }
@@ -115,7 +115,7 @@ func TestTokenRules_Allows_AllowAll(t *testing.T) {
 	if !rules.AllowsProvider("openai") {
 		t.Error("AllowAllProviders should allow any provider")
 	}
-	if !rules.AllowsCredential("cred-1") {
+	if !rules.AllowsCredential("openai", "cred-1") {
 		t.Error("AllowAllCredentials should allow any credential")
 	}
 }
@@ -167,15 +167,47 @@ func TestTokenRules_Allows_ProviderGate(t *testing.T) {
 
 func TestTokenRules_Allows_Credential(t *testing.T) {
 	rules := TokenRules{AllowAllCredentials: true}
-	if !rules.AllowsCredential("any-id") {
+	if !rules.AllowsCredential("openai", "any-id") {
 		t.Error("AllowAllCredentials should allow")
 	}
 	rules2 := TokenRules{AllowedCredentials: []string{"cred-1", "cred-2"}}
-	if !rules2.AllowsCredential("cred-1") {
+	if !rules2.AllowsCredential("openai", "cred-1") {
 		t.Error("cred-1 should be allowed")
 	}
-	if rules2.AllowsCredential("cred-3") {
+	if rules2.AllowsCredential("openai", "cred-3") {
 		t.Error("cred-3 should be denied")
+	}
+}
+
+func TestTokenRules_Allows_CredentialScopes(t *testing.T) {
+	rules := TokenRules{
+		CredentialScopes: []CredentialScope{
+			{ProviderID: "openai", All: true},
+			{ProviderID: "anthropic", CredentialIDs: []string{"cred-9"}},
+		},
+	}
+	if !rules.AllowsCredential("openai", "future-key") {
+		t.Error("provider scope All should cover future keys")
+	}
+	if !rules.AllowsCredential("anthropic", "cred-9") {
+		t.Error("pinned scope key should be allowed")
+	}
+	if rules.AllowsCredential("anthropic", "cred-10") {
+		t.Error("unpinned key of another provider should be denied")
+	}
+	if rules.AllowsCredential("groq", "cred-9") {
+		t.Error("other provider should be denied")
+	}
+	// Scopes union with legacy flat fields.
+	mixed := TokenRules{
+		AllowedCredentials: []string{"legacy-1"},
+		CredentialScopes:   []CredentialScope{{ProviderID: "openai", All: true}},
+	}
+	if !mixed.AllowsCredential("openai", "legacy-1") {
+		t.Error("legacy flat entry should still allow")
+	}
+	if !mixed.AllowsCredential("openai", "new-key") {
+		t.Error("scope should extend legacy entries")
 	}
 }
 
@@ -341,5 +373,29 @@ func TestCredential_ExpiresIn_NoExpiry(t *testing.T) {
 	duration := cred.ExpiresIn()
 	if duration != 0 {
 		t.Errorf("expires in should be 0 for no expiry, got %v", duration)
+	}
+}
+
+func TestParseProxyConfig(t *testing.T) {
+	cfg, err := ParseProxyConfig(nil)
+	if err != nil || cfg.Mode != ProxyModeDisabled {
+		t.Fatalf("absent proxy: got %+v %v", cfg, err)
+	}
+	cfg, err = ParseProxyConfig(map[string]any{"proxy": map[string]any{"mode": "disabled"}})
+	if err != nil || cfg.Mode != ProxyModeDisabled {
+		t.Fatalf("explicit disabled: got %+v %v", cfg, err)
+	}
+	cfg, err = ParseProxyConfig(map[string]any{"proxy": map[string]any{"mode": "auto"}})
+	if err != nil || cfg.Mode != ProxyModeAuto {
+		t.Fatalf("auto: got %+v %v", cfg, err)
+	}
+	cfg, err = ParseProxyConfig(map[string]any{
+		"proxy": map[string]any{"mode": "manual", "ids": []any{"px-1", 42}},
+	})
+	if err != nil || cfg.Mode != ProxyModeManual || len(cfg.IDs) != 1 || cfg.IDs[0] != "px-1" {
+		t.Fatalf("manual: got %+v %v", cfg, err)
+	}
+	if _, err = ParseProxyConfig(map[string]any{"proxy": map[string]any{"mode": "socks"}}); err == nil {
+		t.Fatal("unknown mode must error")
 	}
 }

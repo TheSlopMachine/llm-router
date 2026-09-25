@@ -11,11 +11,11 @@ import (
 // scripts use so shown defaults match real behavior.
 func main() {
 	host := shared.Getenv("HOST", "localhost")
-	webPort := shared.Getenv("WEB_PORT", "8080")
-	apiPort := shared.Getenv("API_PORT", "8081")
+	webPort := shared.Getenv("WEB_PORT", "38080")
+	apiPort := shared.Getenv("API_PORT", "38081")
 	url := shared.Getenv("URL", "http://"+host+":"+webPort)
 	devDB := shared.Getenv("DEV_DB", shared.DefaultDevDB())
-	devKey := shared.Getenv("DEV_KEY", shared.DefaultDevKey())
+	noAuth := shared.Getenv("NO_AUTH", "0")
 	pkg := shared.Getenv("PKG", "./...")
 
 	fmt.Printf("\nUsage: make <target>\n\n")
@@ -25,6 +25,8 @@ func main() {
 	fmt.Printf("  stop              Stop dev processes\n")
 	fmt.Printf("  restart           Stop + start\n")
 	fmt.Printf("  status            Show dev server status\n")
+	fmt.Printf("  log               Tail backend log (follows on TTY, dumps and exits otherwise)\n")
+	fmt.Printf("  log-frontend      Tail frontend log (follows on TTY, dumps and exits otherwise)\n")
 	fmt.Printf("  browser           Open dashboard in browser (%s)\n", url)
 	fmt.Printf("  clean             Stop + git clean -fdX (preserves untracked source)\n")
 	fmt.Printf("  publish           Init, then build frontend + all PUBLISH_PLATFORMS binaries\n")
@@ -40,9 +42,11 @@ func main() {
 	fmt.Printf("  URL                Dashboard URL for browser. Default: \"http://$(HOST):$(WEB_PORT)\"\n")
 	fmt.Printf("  LOG_LEVEL          Server log level. Default: \"%s\"\n", shared.Getenv("LOG_LEVEL", "info"))
 	fmt.Printf("  DEV_DB             Path to dev database. Default: \"%s\"\n", devDB)
-	fmt.Printf("  DEV_KEY            Path to dev testing key. Default: \"%s\"\n", devKey)
+	fmt.Printf("  NO_AUTH            Disable all authorization (dev and AI debugging only). Default: \"%s\"\n", noAuth)
 	fmt.Printf("  PUBLISH_PLATFORMS  Platforms for publish. Default: \"windows/amd64 ...\"\n")
 	fmt.Printf("  PKG                Package scope for go-test. Default: \"./...\"\n")
+	fmt.Printf("  LINES              Initial tail size for log and log-frontend. Default: \"100\"\n")
+	fmt.Printf("  FOLLOW             Force log follow (1) or dump-and-exit (0). Default: follow on TTY only\n")
 	fmt.Printf("  NO_SKIP            Disable skipping of bun install + OpenAPI generation. Default: \"0\" (truthy: 1/true/yes/on)\n")
 	{
 		v := os.Getenv("NO_SKIP")

@@ -333,9 +333,9 @@ export const api = {
       return Array.isArray(raw) ? (raw as ProxySourceInfo[]) : []
     },
     refreshSource: (key: string): Promise<{ started: boolean; reason?: string }> =>
-      postJson(`/api/llm-router/dashboard/proxy-sources/${key}/refresh`, {}),
+      postJson(`/api/llm-router/dashboard/proxy-sources/refresh?key=${encodeURIComponent(key)}`, {}),
     sourceProxies: async (key: string, offset: number, limit: number): Promise<ProxySourceProxies> => {
-      const res = await fetch(`/api/llm-router/dashboard/proxy-sources/${encodeURIComponent(key)}/proxies?offset=${offset}&limit=${limit}`)
+      const res = await fetch(`/api/llm-router/dashboard/proxy-sources/proxies?key=${encodeURIComponent(key)}&offset=${offset}&limit=${limit}`)
       return (await assertOk(res)) as ProxySourceProxies
     },
     status: async (): Promise<ProxyStatus> => {

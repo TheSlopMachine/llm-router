@@ -2,6 +2,7 @@ package virtual
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -26,6 +27,25 @@ var syncEndpoints = []syncEndpoint{
 // ProviderMarker builds the ManagedBy marker for a provider endpoint group.
 func ProviderMarker(providerID, slug string) string {
 	return "provider:" + providerID + ":" + slug
+}
+
+// ParseMarker splits a ManagedBy marker into provider ID and endpoint slug.
+// The split runs at the last colon, so provider IDs containing colons
+// (qualified "type:qualifier" rows) survive the round trip.
+func ParseMarker(marker string) (providerID, slug string, err error) {
+	rest, ok := strings.CutPrefix(marker, "provider:")
+	if !ok {
+		return "", "", fmt.Errorf("invalid managed marker %q: missing provider: prefix", marker)
+	}
+	idx := strings.LastIndex(rest, ":")
+	if idx == -1 {
+		return "", "", fmt.Errorf("invalid managed marker %q: missing endpoint slug", marker)
+	}
+	providerID, slug = rest[:idx], rest[idx+1:]
+	if providerID == "" || slug == "" {
+		return "", "", fmt.Errorf("invalid managed marker %q: empty provider or slug", marker)
+	}
+	return providerID, slug, nil
 }
 
 // ProviderVMGroup is one endpoint group with its managed virtual model.
@@ -94,10 +114,9 @@ func sameMembers(a []models.VirtualModelEntry, b []models.VirtualModelEntry) boo
 // non-empty endpoint group has exactly one. Members are enabled models
 // serving the endpoint, in cache order. Managed VMs whose group emptied are
 // deleted. Manual edits to name/description/instruction survive: only the
-// member list is rewritten. One bad group never aborts the rest: per-group
-// failures are logged and skipped.
+// member list is rewritten. Per-group failures accumulate into the returned
+// error; completed groups still apply.
 func (s *Service) SyncProviderModels(ctx context.Context, providerID string) ([]ProviderVMGroup, error) {
-	_ = ctx
 	inst, err := s.providerSvc.Get(providerID)
 	if err != nil {
 		return nil, err
@@ -117,7 +136,16 @@ func (s *Service) SyncProviderModels(ctx context.Context, providerID string) ([]
 		}
 	}
 	live := map[string]bool{}
+	var syncErrs []error
+	fail := func(endpoint, op string, err error) {
+		syncErrs = append(syncErrs, fmt.Errorf("endpoint %s %s: %w", endpoint, op, err))
+		s.log().Warn("managed virtual model "+op+" failed",
+			"provider_id", providerID, "endpoint", endpoint, "error", err)
+	}
 	for i := range groups {
+		if err := ctx.Err(); err != nil {
+			return groups, errors.Join(append(syncErrs, fmt.Errorf("sync canceled: %w", err))...)
+		}
 		g := &groups[i]
 		live[g.Endpoint] = true
 		entries := make([]models.ModelId, 0, len(g.Models))
@@ -132,8 +160,7 @@ func (s *Service) SyncProviderModels(ctx context.Context, providerID string) ([]
 				adopted.ManagedBy = marker
 				adopted.Models = toEntries(entries)
 				if err := s.Update(adopted.ID, &adopted); err != nil {
-					s.log().Warn("managed virtual model adopt failed",
-						"provider_id", providerID, "endpoint", g.Endpoint, "error", err)
+					fail(g.Endpoint, "adopt", err)
 					continue
 				}
 				if fresh, err := s.Get(adopted.ID); err == nil {
@@ -150,8 +177,7 @@ func (s *Service) SyncProviderModels(ctx context.Context, providerID string) ([]
 				ManagedBy:   marker,
 			}
 			if err := s.Create(vm); err != nil {
-				s.log().Warn("managed virtual model create failed",
-					"provider_id", providerID, "endpoint", g.Endpoint, "error", err)
+				fail(g.Endpoint, "create", err)
 				continue
 			}
 			g.Virtual = vm
@@ -163,8 +189,7 @@ func (s *Service) SyncProviderModels(ctx context.Context, providerID string) ([]
 		updated := *g.Virtual
 		updated.Models = toEntries(entries)
 		if err := s.Update(updated.ID, &updated); err != nil {
-			s.log().Warn("managed virtual model update failed",
-				"provider_id", providerID, "endpoint", g.Endpoint, "error", err)
+			fail(g.Endpoint, "update", err)
 			continue
 		}
 		if fresh, err := s.Get(updated.ID); err == nil {
@@ -175,18 +200,23 @@ func (s *Service) SyncProviderModels(ctx context.Context, providerID string) ([]
 	}
 	all, err := s.List()
 	if err != nil {
-		return nil, err
+		return groups, errors.Join(append(syncErrs, err)...)
 	}
-	prefix := "provider:" + providerID + ":"
 	for _, vm := range all {
-		if strings.HasPrefix(vm.ManagedBy, prefix) && !live[strings.TrimPrefix(vm.ManagedBy, prefix)] {
+		if err := ctx.Err(); err != nil {
+			return groups, errors.Join(append(syncErrs, fmt.Errorf("sync canceled: %w", err))...)
+		}
+		markerProvider, _, merr := ParseMarker(vm.ManagedBy)
+		if merr != nil || markerProvider != providerID {
+			continue
+		}
+		if !live[strings.TrimPrefix(vm.ManagedBy, "provider:"+providerID+":")] {
 			if err := s.Delete(vm.ID); err != nil {
-				s.log().Warn("managed virtual model delete failed",
-					"provider_id", providerID, "virtual_id", vm.ID, "error", err)
+				fail(vm.ID, "delete", err)
 			}
 		}
 	}
-	return groups, nil
+	return groups, errors.Join(syncErrs...)
 }
 
 func toEntries(ids []models.ModelId) []models.VirtualModelEntry {

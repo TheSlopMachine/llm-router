@@ -9,27 +9,26 @@ export NO_SKIP
 PUBLISH_PLATFORMS ?= windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64
 
 HOST      ?= localhost
-WEB_PORT  ?= 8080
-API_PORT  ?= 8081
+WEB_PORT  ?= 38080
+API_PORT  ?= 38081
 URL       ?= http://$(HOST):$(WEB_PORT)
 LOG_LEVEL ?= info
+NO_AUTH   ?= 0
 PKG       ?= ./...
-export HOST WEB_PORT API_PORT URL VERSION PUBLISH_PLATFORMS LOG_LEVEL PKG
+export HOST WEB_PORT API_PORT URL VERSION PUBLISH_PLATFORMS LOG_LEVEL NO_AUTH PKG
 
 ifeq ($(OS),Windows_NT)
   DEV_DB  ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.db
-  DEV_KEY ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.key
 else
   DEV_DB  ?= $(HOME)/.local/llm-router/llm-router-dev.db
-  DEV_KEY ?= $(HOME)/.local/llm-router/llm-router-dev.key
 endif
-export DEV_DB DEV_KEY
+export DEV_DB
 
 BUN_MIN := 1.2
 GO_MIN  := 1.25
 BUN     := bun
 
-.PHONY: help check-frontend-deps check-publish-deps go-tidy fmt fmt-check init start stop restart status browser clean publish go-check go-test check-frontend
+.PHONY: help check-frontend-deps check-publish-deps go-tidy fmt fmt-check init start stop restart status browser log log-frontend clean publish go-check go-test check-frontend
 
 help:
 	@cd scripts && GOWORK=off go run ./help
@@ -81,6 +80,12 @@ restart:
 
 status:
 	@cd scripts && GOWORK=off go run ./status
+
+log:
+	@cd scripts && GOWORK=off go run ./log
+
+log-frontend:
+	@cd scripts && GOWORK=off go run ./logfrontend
 
 browser:
 	@cd scripts && GOWORK=off go run ./browser

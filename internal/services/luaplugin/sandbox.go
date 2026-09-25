@@ -144,7 +144,7 @@ func installPrint(L *lua.LState, ctx *execContext) {
 				ctx.logSink(ctx.pluginID, msg)
 			}
 			if ctx.logger != nil {
-				ctx.logger.Info("plugin log", "plugin_id", ctx.pluginID, "msg", msg)
+				ctx.logger.Debug("plugin log", "plugin_id", ctx.pluginID, "msg", msg)
 			}
 		}
 		return 0
@@ -207,12 +207,7 @@ func installRouterTable(L *lua.LState, ctx *execContext) {
 			L.RaiseError("llm_router.register: handler \"complete\" must be a function")
 			return 0
 		}
-		for _, name := range []string{
-			"complete_stream", "transcribe", "speech", "generate_image", "embed",
-			"validate_credentials", "get_model_infos",
-			"needs_refresh", "refresh_credential", "config_schema",
-			"credential_schema", "auth_initiate", "auth_step",
-		} {
+		for _, name := range OptionalHandlerNames() {
 			if v := handlers.RawGetString(name); v != lua.LNil {
 				if _, ok := v.(*lua.LFunction); !ok {
 					L.RaiseError("llm_router.register: handler %q must be a function", name)

@@ -53,7 +53,7 @@ func main() {
 		}
 	}
 	reportPort("frontend port", p.VitePort)
-	reportPort("backend api port", mustAtoiSoft(shared.Getenv("API_PORT", "8081")))
+	reportPort("backend api port", mustAtoiSoft(shared.Getenv("API_PORT", "38081")))
 	reportPort("backend internal port", mustAtoiSoft(devBackendWebPort))
 
 	fmt.Printf("Backend log: %s\n", shared.DefaultBackendLog())

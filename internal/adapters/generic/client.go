@@ -35,7 +35,10 @@ func (c *Client) ChatCompletion(
 	modelName string,
 	req *models.ChatCompletionRequest,
 ) (*models.ChatCompletionResponse, error) {
-	payload := transformRequest(req, modelName)
+	payload, err := passthroughPayload(req, modelName)
+	if err != nil {
+		return nil, err
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -76,7 +79,10 @@ func (c *Client) ChatCompletionStream(
 	req *models.ChatCompletionRequest,
 	w io.Writer,
 ) error {
-	payload := transformRequest(req, modelName)
+	payload, err := passthroughPayload(req, modelName)
+	if err != nil {
+		return err
+	}
 	payload["stream"] = true
 
 	body, err := json.Marshal(payload)
@@ -161,37 +167,18 @@ func (c *Client) ListModels(ctx context.Context, apiKey string) ([]models.ModelI
 	return modelsList, nil
 }
 
-// transformRequest converts a request to OpenAI-compatible format.
-func transformRequest(req *models.ChatCompletionRequest, modelName string) map[string]interface{} {
-	payload := map[string]interface{}{
-		"model":    modelName,
-		"messages": req.Messages,
+// passthroughPayload forwards the normalized request as-is, replacing only
+// the composite ModelId with the upstream model name. The struct owns the
+// OpenAI schema; the adapter holds no field allowlist.
+func passthroughPayload(req *models.ChatCompletionRequest, modelName string) (map[string]any, error) {
+	raw, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-
-	if req.Temperature != 0 {
-		payload["temperature"] = req.Temperature
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("normalize request: %w", err)
 	}
-	if req.MaxTokens != 0 {
-		payload["max_tokens"] = req.MaxTokens
-	}
-	if req.TopP != 0 {
-		payload["top_p"] = req.TopP
-	}
-	if req.N != nil {
-		payload["n"] = *req.N
-	}
-	if req.Stop != nil {
-		payload["stop"] = req.Stop
-	}
-	if req.PresencePenalty != nil {
-		payload["presence_penalty"] = *req.PresencePenalty
-	}
-	if req.FrequencyPenalty != nil {
-		payload["frequency_penalty"] = *req.FrequencyPenalty
-	}
-	if req.MaxCompletionTokens != nil {
-		payload["max_completion_tokens"] = *req.MaxCompletionTokens
-	}
-
-	return payload
+	payload["model"] = modelName
+	return payload, nil
 }

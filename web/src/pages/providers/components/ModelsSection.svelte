@@ -8,6 +8,7 @@
   import Table from '../../../components/ui/composite/Table.svelte'
   import ModelsTable from '../../../components/ui/composite/ModelsTable.svelte'
   import type { ModelsTableModel } from '../../../components/ui/composite/ModelsTable.svelte'
+  import CopyButton from '../../../components/ui/composite/CopyButton.svelte'
   import Button from '../../../components/ui/controls/Button.svelte'
   import Spacer from '../../../components/ui/layout/Spacer.svelte'
   import HStack from '../../../components/ui/layout/HStack.svelte'
@@ -128,7 +129,7 @@
 
   function loadFilter(): 'all' | 'enabled' | 'disabled' {
     const v = localStorage.getItem(filterKey())
-    return v === 'enabled' || v === 'disabled' ? v : 'all'
+    return v === 'all' || v === 'disabled' ? v : 'enabled'
   }
 
   async function saveModelsFilter(v: typeof modelFilter): Promise<void> {
@@ -400,14 +401,6 @@
     }
   }
 
-  async function copyModelId(name: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(`${providerId}/${name}`)
-    } catch (e) {
-      error = getErrorMessage(e)
-    }
-  }
-
   function testIcon(res: TestResult | 'loading' | undefined, idleTitle: string): { icon: string; title: string } {
     if (!res) return { icon: 'network_check', title: idleTitle }
     if (res === 'loading') return { icon: 'progress_activity', title: t('Testing…') }
@@ -545,14 +538,8 @@
               <VStack gap={1} align="start">
                 <Text size="base" weight="medium">{v.name}</Text>
                 <HStack gap={2} align="center">
-                  <Text mono size="sm" class="id-text">{v.id}</Text>
-                  <Button
-                    size="small"
-                    icon={{ name: 'content_copy' }}
-                    title={t('Copy model id')}
-                    ariaLabel={t('Copy model id')}
-                    onclick={() => copyModelId(v.id)}
-                  />
+                  <Text mono size="sm" class="id-text">virtual/{v.id}</Text>
+                  <CopyButton size="small" text={`virtual/${v.id}`} title={t('Copy model id')} ariaLabel={t('Copy model id')} />
                 </HStack>
               </VStack>
             {:else}

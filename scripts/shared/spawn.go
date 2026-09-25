@@ -27,7 +27,7 @@ func SpawnDetachedEnv(dir, logPath string, extraEnv []string, name string, args 
 	cmd.Stderr = logFile
 	cmd.Stdin = nil
 	cmd.Env = EnvWith(extraEnv)
-	cmd.SysProcAttr = detachedAttr()
+	cmd.SysProcAttr = newConsoleAttr()
 
 	if err := cmd.Start(); err != nil {
 		return 0, err

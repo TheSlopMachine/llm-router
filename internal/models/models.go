@@ -29,14 +29,20 @@ type ModelId string
 
 func (m ModelId) String() string { return string(m) }
 
-// Parse splits a ModelId into providerID and model name.
+// Parse splits a ModelId into providerID and model name. Both parts must be
+// non-empty: "/model" and "provider/" are rejected instead of routing with
+// an empty half.
 func (m ModelId) Parse() (providerID, model string, err error) {
 	s := string(m)
 	idx := strings.Index(s, "/")
 	if idx == -1 {
 		return "", "", fmt.Errorf("invalid ModelId %q: missing '/' separator (expected provider/model-name)", s)
 	}
-	return s[:idx], s[idx+1:], nil
+	providerID, model = s[:idx], s[idx+1:]
+	if providerID == "" || model == "" {
+		return "", "", fmt.Errorf("invalid ModelId %q: provider and model must be non-empty", s)
+	}
+	return providerID, model, nil
 }
 
 // ParseFull splits a ModelId into adapter type, qualifier, and model name.
@@ -844,6 +850,17 @@ type TokenRules struct {
 	AllowAllModels      bool      `json:"allow_all_models"`
 	AllowedCredentials  []string  `json:"allowed_credentials"`
 	AllowAllCredentials bool      `json:"allow_all_credentials"`
+	// CredentialScopes grants credential access per provider: All covers
+	// every current and future key of the provider, CredentialIDs pins
+	// specific keys. Scopes union with the legacy flat credential fields.
+	CredentialScopes []CredentialScope `json:"credential_scopes,omitempty"`
+}
+
+// CredentialScope grants a token access to credentials of one provider.
+type CredentialScope struct {
+	ProviderID    string   `json:"provider_id"`
+	All           bool     `json:"all"`
+	CredentialIDs []string `json:"credential_ids,omitempty"`
 }
 
 // AllowsProvider reports whether the token may use the given provider.
@@ -862,10 +879,25 @@ func (r TokenRules) AllowsProvider(providerID string) bool {
 	return false
 }
 
-// AllowsCredential reports whether the token may use the given credential.
-func (r TokenRules) AllowsCredential(credentialID string) bool {
+// AllowsCredential reports whether the token may use the given credential
+// of the given provider. Scopes union with the legacy flat fields: either
+// source granting access allows the credential.
+func (r TokenRules) AllowsCredential(providerID, credentialID string) bool {
 	if r.AllowAllCredentials {
 		return true
+	}
+	for _, scope := range r.CredentialScopes {
+		if scope.ProviderID != providerID {
+			continue
+		}
+		if scope.All {
+			return true
+		}
+		for _, id := range scope.CredentialIDs {
+			if id == credentialID {
+				return true
+			}
+		}
 	}
 	if len(r.AllowedCredentials) == 0 {
 		return false
@@ -934,6 +966,20 @@ func (p *ProviderInstance) BaseURL() string {
 	}
 	s, _ := p.Config["base_url"].(string)
 	return s
+}
+
+// NormalizeBaseURL trims raw and requires an http(s) URL without a trailing
+// slash. Single source of truth for base_url validation across provider
+// CRUD and the custom backend.
+func NormalizeBaseURL(raw string) (string, error) {
+	baseURL := strings.TrimSpace(raw)
+	if baseURL == "" {
+		return "", fmt.Errorf("base_url is required for custom providers")
+	}
+	if !strings.HasPrefix(baseURL, "https://") && !strings.HasPrefix(baseURL, "http://") {
+		return "", fmt.Errorf("base_url must be a valid HTTP/HTTPS URL")
+	}
+	return strings.TrimSuffix(baseURL, "/"), nil
 }
 
 // ProviderStats holds aggregated statistics for a provider.
@@ -1260,6 +1306,33 @@ const (
 	ProxyModeAuto     = "auto"
 	ProxyModeManual   = "manual"
 )
+
+// ParseProxyConfig reads the provider-level proxy policy from a provider
+// config map. Absent or non-map proxy sections mean disabled; an explicitly
+// unknown mode is an error, never a silent fallback to direct.
+func ParseProxyConfig(providerConfig map[string]any) (ProxyConfig, error) {
+	cfg := ProxyConfig{Mode: ProxyModeDisabled}
+	raw, ok := providerConfig["proxy"].(map[string]any)
+	if !ok {
+		return cfg, nil
+	}
+	if m, ok := raw["mode"].(string); ok && m != "" {
+		switch m {
+		case ProxyModeDisabled, ProxyModeAuto, ProxyModeManual:
+			cfg.Mode = m
+		default:
+			return cfg, fmt.Errorf("unknown proxy mode %q: expected disabled, auto or manual", m)
+		}
+	}
+	if list, ok := raw["ids"].([]any); ok {
+		for _, v := range list {
+			if s, ok := v.(string); ok {
+				cfg.IDs = append(cfg.IDs, s)
+			}
+		}
+	}
+	return cfg, nil
+}
 
 // ProxyCandidate is one proxy entry produced by a source plugin.
 type ProxyCandidate struct {

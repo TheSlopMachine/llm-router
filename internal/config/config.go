@@ -80,12 +80,12 @@ type Config struct {
 	// LogLevel controls slog verbosity.
 	LogLevel LogLevel
 
-	// TestingKeyPath is the path to the file holding the ephemeral testing bearer token.
-	// Empty means the feature is disabled.
-	TestingKeyPath string
-
-	// TestingKey is the raw testing token value (never persisted to DB, never logged).
-	TestingKey string
+	// NoAuth disables all authorization: /v1 requests validate without
+	// bearer tokens, dashboard APIs skip session checks, and status
+	// reports authenticated. Bootstrap state stays real: a fresh DB
+	// still opens the account-creation page. Dev and AI debugging only —
+	// never enable on shared or public instances.
+	NoAuth bool
 
 	// DevUIRedirect, when non-empty, is the origin (e.g. "http://localhost:8080")
 	// that the dashboard 302-redirects browser navigations to instead of

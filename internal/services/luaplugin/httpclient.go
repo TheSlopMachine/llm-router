@@ -231,9 +231,11 @@ func (c *pluginHTTPClient) doWithProxyRotation(req *http.Request) (*http.Respons
 	}
 	for {
 		client := c.client
+		proxyID := c.ctx.proxyID
 		if c.ctx.proxyURL != "" {
 			pc, berr := c.proxyClient()
 			if berr != nil {
+				c.logProxyDebug("plugin proxy client build failed, rotating", proxyID, berr)
 				if !c.ctx.rotateProxy() {
 					return nil, "", time.Time{}, berr
 				}
@@ -250,15 +252,26 @@ func (c *pluginHTTPClient) doWithProxyRotation(req *http.Request) (*http.Respons
 		resp, derr := client.Do(req)
 		if derr == nil {
 			c.ctx.lastProxyID = c.ctx.proxyID
+			if proxyID != "" && c.ctx.logger != nil {
+				c.ctx.logger.Debug("plugin http request succeeded", "proxy_id", proxyID)
+			}
 			return resp, c.ctx.proxyID, start, nil
 		}
 		if c.ctx.proxyURL == "" {
 			return nil, "", time.Time{}, derr
 		}
+		c.logProxyDebug("plugin proxy attempt failed, rotating", proxyID, derr)
 		if !c.ctx.rotateProxy() {
 			return nil, "", time.Time{}, derr
 		}
 	}
+}
+
+func (c *pluginHTTPClient) logProxyDebug(msg, proxyID string, err error) {
+	if c.ctx == nil || c.ctx.logger == nil || proxyID == "" {
+		return
+	}
+	c.ctx.logger.Debug(msg, "proxy_id", proxyID, "error", err)
 }
 
 // checkRedirect validates every redirect hop against the plugin allow-list.

@@ -24,11 +24,6 @@ func (s *Service) compressAndPersist() error {
 			toDelete = append(toDelete, ts)
 		}
 	}
-
-	// Remove from memory
-	for _, ts := range toDelete {
-		delete(s.recentBuckets, ts)
-	}
 	s.mu.Unlock()
 
 	if len(toCompress) == 0 {
@@ -44,7 +39,14 @@ func (s *Service) compressAndPersist() error {
 		}
 	}
 
-	s.logger.Info("compressed and persisted buckets", "count", len(toCompress), "windows", len(grouped))
+	// Evict from memory only after durable writes.
+	s.mu.Lock()
+	for _, ts := range toDelete {
+		delete(s.recentBuckets, ts)
+	}
+	s.mu.Unlock()
+
+	s.logger.Debug("compressed and persisted buckets", "count", len(toCompress), "windows", len(grouped))
 	return nil
 }
 
@@ -198,7 +200,7 @@ func (s *Service) compressOldBuckets(cutoff time.Time, fromGranularity, toGranul
 		}
 	}
 
-	s.logger.Info("compressed old buckets", "from", fromGranularity, "to", toGranularity, "count", len(buckets))
+	s.logger.Debug("compressed old buckets", "from", fromGranularity, "to", toGranularity, "count", len(buckets))
 	return nil
 }
 

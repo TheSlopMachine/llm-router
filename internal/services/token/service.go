@@ -21,10 +21,8 @@ import (
 
 // Service manages router-tokens.
 type Service struct {
-	db           *db.DB
-	repo         *repository.Repository[models.RouterToken]
-	testingHash  string
-	testingToken *models.RouterToken
+	db   *db.DB
+	repo *repository.Repository[models.RouterToken]
 }
 
 // New constructs a new token Service.
@@ -33,28 +31,6 @@ func New(database *db.DB) *Service {
 		db:   database,
 		repo: repository.New[models.RouterToken](database, db.BucketTokens, "token"),
 	}
-}
-
-// NewWithTestingKey constructs a token Service with an ephemeral in-memory testing token.
-// The testing token is not persisted to the database and allows all models.
-func NewWithTestingKey(database *db.DB, testingKey string) *Service {
-	s := New(database)
-	if testingKey != "" {
-		hash := util.HashSecret(testingKey)
-		s.testingHash = hash
-		s.testingToken = &models.RouterToken{
-			ID:        "testing-key",
-			Name:      "testing-key",
-			TokenHash: hash,
-			Rules: models.TokenRules{
-				AllowAllProviders:   true,
-				AllowAllModels:      true,
-				AllowAllCredentials: true,
-			},
-			CreatedAt: util.Now(),
-		}
-	}
-	return s
 }
 
 // ─────────────────────────────────────────────
@@ -103,11 +79,6 @@ func (s *Service) Create(opts CreateOptions) (*models.RouterToken, error) {
 // Returns ErrUnauthorized if the token is not found.
 func (s *Service) Validate(raw string) (*models.RouterToken, error) {
 	hash := util.HashSecret(raw)
-
-	// In-memory testing token bypasses DB lookup
-	if s.testingHash != "" && hash == s.testingHash {
-		return s.testingToken, nil
-	}
 
 	var token *models.RouterToken
 	err := s.db.View(func(tx *bolt.Tx) error {
@@ -173,9 +144,6 @@ func (s *Service) UpdateRules(id string, rules models.TokenRules) error {
 // Regenerate replaces the secret of an existing token with a new one.
 // The token keeps its ID, Name and Rules; the old secret is invalidated.
 func (s *Service) Regenerate(id string) (*models.RouterToken, error) {
-	if id == "testing-key" {
-		return nil, fmt.Errorf("cannot regenerate testing-key")
-	}
 	raw, err := util.GenerateToken()
 	if err != nil {
 		return nil, fmt.Errorf("generate token secret: %w", err)
@@ -187,7 +155,7 @@ func (s *Service) Regenerate(id string) (*models.RouterToken, error) {
 		b := tx.Bucket(db.BucketTokens)
 		data := b.Get([]byte(id))
 		if data == nil {
-			return fmt.Errorf("token %q not found", id)
+			return fmt.Errorf("token %q: %w", id, errors.ErrNotFound)
 		}
 		var t models.RouterToken
 		if err := json.Unmarshal(data, &t); err != nil {
@@ -205,7 +173,9 @@ func (s *Service) Regenerate(id string) (*models.RouterToken, error) {
 		result = &t
 		idx := tx.Bucket(db.BucketTokenIndex)
 		if oldHash != "" {
-			_ = idx.Delete([]byte(oldHash))
+			if err := idx.Delete([]byte(oldHash)); err != nil {
+				return err
+			}
 		}
 		return idx.Put([]byte(newHash), []byte(id))
 	})
@@ -220,18 +190,19 @@ func (s *Service) Regenerate(id string) (*models.RouterToken, error) {
 // Internal helpers
 // ─────────────────────────────────────────────
 
-// put persists a token and updates the hash → id index.
+// put persists a token and updates the hash → id index in one transaction.
 func (s *Service) put(t *models.RouterToken) error {
 	// Do not persist the raw token value.
 	stored := *t
 	stored.Token = ""
-
-	if err := s.repo.Put(t.ID, &stored); err != nil {
-		return err
+	enc, err := json.Marshal(&stored)
+	if err != nil {
+		return fmt.Errorf("marshal token: %w", err)
 	}
-
-	// Update index separately
 	return s.db.Update(func(tx *bolt.Tx) error {
+		if err := tx.Bucket(db.BucketTokens).Put([]byte(t.ID), enc); err != nil {
+			return err
+		}
 		return tx.Bucket(db.BucketTokenIndex).Put([]byte(t.TokenHash), []byte(t.ID))
 	})
 }
