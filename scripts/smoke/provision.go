@@ -9,49 +9,51 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 )
 
 // provision ensures the instance is bootstrapped, installs the plugin
 // source and resolves usable credentials from the dev database. The pool
-// fails over across keys inside every request, so one check covers all
-// keys: the harness only verifies at least one usable credential exists.
-// It returns the provider instance ID and a cleanup func (non-nil only for
-// the ephemeral mock credential). No usable credential is errNoAccount.
-func provision(cfg config, pluginType string) (providerID string, cleanup func(), err error) {
+// fails over across keys inside every request, so the matrix needs no
+// per-credential loop; the credential-test below iterates them instead.
+// Cleanup is non-nil only for the ephemeral mock credential. No usable
+// credential is errNoAccount.
+func provision(cfg config, pluginType string) (providerID string, creds []credCandidate, cleanup func(), err error) {
 	if err := ensureBootstrapped(cfg); err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	source, err := pluginSource(cfg, pluginType)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	if err := installPlugin(cfg, pluginType, source); err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	providerID, err = findProvider(cfg, pluginType)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	if pluginType == "mock" {
 		credID, err := addCredential(cfg, providerID, map[string]any{})
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
+		me := []credCandidate{{ID: credID, Label: "smoke", ProviderID: providerID}}
 		if !cfg.cleanup {
-			return providerID, nil, nil
+			return providerID, me, nil, nil
 		}
-		return providerID, func() { deleteCredential(cfg, credID) }, nil
+		return providerID, me, func() { deleteCredential(cfg, credID) }, nil
 	}
-	ok, err := hasUsableCredential(cfg, providerID)
+	creds, err = listUsableCredentials(cfg, providerID)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
-	if !ok {
-		return "", nil, errNoAccount
+	if len(creds) == 0 {
+		return "", nil, nil, errNoAccount
 	}
-	return providerID, nil, nil
+	return providerID, creds, nil, nil
 }
 
 // waitReady polls status until the backend listens or the deadline passes.
@@ -244,28 +246,46 @@ var errNoAccount = fmt.Errorf("no credential in db")
 type credRow struct {
 	ID         string `json:"id"`
 	ProviderID string `json:"provider_id"`
+	Label      string `json:"label"`
 	Disabled   bool   `json:"disabled"`
 	IsExpired  bool   `json:"is_expired"`
+	UpdatedAt  string `json:"updated_at"`
 }
 
-// hasUsableCredential reports whether the provider has at least one
-// enabled, non-expired credential. The pool covers every key per request,
-// so one usable credential is enough for the whole matrix.
-func hasUsableCredential(cfg config, providerID string) (bool, error) {
+// credCandidate is one enabled, non-expired credential row.
+type credCandidate struct {
+	ID         string
+	Label      string
+	ProviderID string
+	UpdatedAt  string
+}
+
+// listUsableCredentials returns enabled, non-expired credentials of the
+// provider, most recently updated first.
+func listUsableCredentials(cfg config, providerID string) ([]credCandidate, error) {
 	status, raw, err := doJSON("GET", cfg.web+"/api/llm-router/dashboard/credentials", nil)
 	if err != nil {
-		return false, fmt.Errorf("list credentials: %w", err)
+		return nil, fmt.Errorf("list credentials: %w", err)
 	}
 	var rows []credRow
 	if err := requireOK(status, raw, &rows); err != nil {
-		return false, err
+		return nil, err
 	}
+	var out []credCandidate
 	for _, c := range rows {
 		if c.ProviderID == providerID && !c.Disabled && !c.IsExpired {
-			return true, nil
+			out = append(out, credCandidate{ID: c.ID, Label: c.Label, ProviderID: c.ProviderID, UpdatedAt: c.UpdatedAt})
 		}
 	}
-	return false, nil
+	// Most recently touched first (RFC3339 sorts lexically); stable IDs
+	// break ties deterministically.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].UpdatedAt != out[j].UpdatedAt {
+			return out[i].UpdatedAt > out[j].UpdatedAt
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
 }
 
 func addCredential(cfg config, providerID string, data map[string]any) (string, error) {

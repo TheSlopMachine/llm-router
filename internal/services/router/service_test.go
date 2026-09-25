@@ -292,4 +292,7 @@ func TestRouterService_TestModel_MarksQuotaExceeded(t *testing.T) {
 	if !res.QuotaExceeded {
 		t.Error("quota failure must set quota_exceeded so callers never disable over it")
 	}
+	if res.Code != "quota_exceeded" {
+		t.Errorf("probe must carry machine-readable code, got %q", res.Code)
+	}
 }

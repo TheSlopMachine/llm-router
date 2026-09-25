@@ -32,7 +32,7 @@ func main() {
 }
 
 func runPlugin(cfg config, rep *report, pluginType string) {
-	providerID, cleanup, err := provision(cfg, pluginType)
+	providerID, creds, cleanup, err := provision(cfg, pluginType)
 	if err != nil {
 		if errors.Is(err, errNoAccount) {
 			rep.add(pluginType, "-", "-", skip, "no credential in db", 0)
@@ -53,5 +53,6 @@ func runPlugin(cfg config, rep *report, pluginType string) {
 		rep.add(pluginType, "-", "-", fail, "no models listed", 0)
 		return
 	}
+	checkCredentialTest(cfg, rep, pluginType, providerID, creds, models)
 	runMatrix(cfg, rep, pluginType, providerID, models)
 }

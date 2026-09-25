@@ -211,6 +211,84 @@ func deleteVirtual(cfg config, vmID string) {
 	}
 }
 
+// contCodes are probe codes that move to the next model instead of
+// failing: limits, gone models and malformed-model answers say nothing
+// about the credential or the router.
+var contCodes = map[string]bool{
+	"quota_exceeded": true, "payment_required": true, "rate_limit": true,
+	"model_not_found": true, "not_found": true,
+	"endpoint_not_supported": true, "invalid_request_error": true,
+}
+
+type probeResult struct {
+	OK    bool   `json:"ok"`
+	Code  string `json:"code"`
+	Error string `json:"error"`
+}
+
+func postCredentialTest(cfg config, credID, model string) (probeResult, error) {
+	var res probeResult
+	status, raw, err := doJSON("POST", cfg.web+"/api/llm-router/dashboard/credentials/"+credID+"/test", map[string]any{
+		"model": model,
+	})
+	if err != nil {
+		return res, err
+	}
+	if err := requireOK(status, raw, &res); err != nil {
+		return res, err
+	}
+	return res, nil
+}
+
+// checkCredentialTest tries chat-serving models per credential until one
+// passes. First success closes the check; auth-dead ends fail only when
+// nothing else passed, exhausted dimensions skip with reason.
+func checkCredentialTest(cfg config, rep *report, pluginType, providerID string, creds []credCandidate, models []modelView) {
+	var chat []string
+	for _, m := range models {
+		if !m.Disabled && m.serves("chat/completions") {
+			chat = append(chat, m.Name)
+		}
+	}
+	if len(chat) == 0 {
+		rep.add(pluginType, "-", "credential-test", skip, "no chat model to probe", 0)
+		return
+	}
+	var sawAuth bool
+	reason := "no models to try"
+	for _, cred := range creds {
+		for _, name := range chat {
+			model := providerID + "/" + name
+			start := time.Now()
+			res, err := postCredentialTest(cfg, cred.ID, name)
+			if err != nil {
+				rep.add(pluginType, model, "credential-test", fail, err.Error(), time.Since(start))
+				return
+			}
+			if res.OK {
+				rep.add(pluginType, model, "credential-test", pass, "key "+cred.Label, time.Since(start))
+				return
+			}
+			if res.Code == "auth_error" {
+				sawAuth = true
+				reason = "auth_error on key " + cred.Label
+				break
+			}
+			if contCodes[res.Code] {
+				reason = res.Code + " on " + model
+				continue
+			}
+			rep.add(pluginType, model, "credential-test", fail, res.Error, time.Since(start))
+			return
+		}
+	}
+	if sawAuth {
+		rep.add(pluginType, "-", "credential-test", fail, reason, 0)
+		return
+	}
+	rep.add(pluginType, "-", "credential-test", skip, reason, 0)
+}
+
 func checkMessages(cfg config, model string, stream bool) error {
 	// Thinking models starve on tiny budgets ("hi" + 16 tokens yields
 	// empty candidates), so the probe mirrors the completions prompt
@@ -383,51 +461,102 @@ func checkEmbeddings(cfg config, model string) error {
 	return nil
 }
 
-// runMatrix tests one model per requested capability: the first enabled
-// model serving each endpoint. Quota on one model never cancels the rest.
+// runMatrix tests requested capabilities, trying serving models in list
+// order until one passes. First success closes the capability; quota and
+// sibling skips move to the next model, real failures stop. Quota on one
+// model never cancels the rest.
 func runMatrix(cfg config, rep *report, pluginType, providerID string, models []modelView) {
-	byEndpoint := map[string]string{}
+	byEndpoint := map[string][]string{}
 	for _, m := range models {
 		if m.Disabled {
 			continue
 		}
 		for _, e := range []string{"chat/completions", "audio/transcriptions", "audio/speech", "images/generations", "embeddings"} {
-			if _, ok := byEndpoint[e]; !ok && m.serves(e) {
-				byEndpoint[e] = providerID + "/" + m.Name
+			if m.serves(e) {
+				byEndpoint[e] = append(byEndpoint[e], providerID+"/"+m.Name)
 			}
 		}
 	}
-	run := func(target, model string, check func() error) {
+	served := map[string]string{}
+	run := func(target, model string, check func() error) string {
 		if model == "" {
 			rep.add(pluginType, "-", target, skip, "no model serves capability", 0)
-			return
+			return ""
 		}
 		start := time.Now()
 		if reason, err := classifyRetryEmpty(check); err != nil {
 			rep.add(pluginType, model, target, fail, err.Error(), time.Since(start))
+			return ""
 		} else if reason != "" {
 			rep.add(pluginType, model, target, skip, reason, time.Since(start))
+			return ""
 		} else {
 			rep.add(pluginType, model, target, pass, "", time.Since(start))
+			served[target] = model
+			return model
 		}
 	}
+	// runFallback tries every serving model until one passes or fails
+	// loudly. Skips fall through with the last reason.
+	runFallback := func(target string, candidates []string, check func(string) error) string {
+		if len(candidates) == 0 {
+			rep.add(pluginType, "-", target, skip, "no model serves capability", 0)
+			return ""
+		}
+		reason := "no models to try"
+		for _, model := range candidates {
+			start := time.Now()
+			if rreason, err := classifyRetryEmpty(func() error { return check(model) }); err != nil {
+				rep.add(pluginType, model, target, fail, err.Error(), time.Since(start))
+				return ""
+			} else if rreason != "" {
+				reason = rreason
+				continue
+			} else {
+				rep.add(pluginType, model, target, pass, "", time.Since(start))
+				served[target] = model
+				return model
+			}
+		}
+		rep.add(pluginType, "-", target, skip, reason, 0)
+		return ""
+	}
+	// Streams inherit the unary outcome: a stream failing after headers
+	// yields 200 plus a truncated body with no classifiable error, so a
+	// skipped unary means the stream would hit the same wall.
+	streamGated := func(target, base string, check func(string) error) {
+		if model, ok := served[base]; ok {
+			run(target, model, func() error { return check(model) })
+			return
+		}
+		for _, res := range rep.results {
+			if res.target == base && res.status == skip {
+				rep.add(pluginType, "-", target, skip, "unary skipped: "+res.reason, 0)
+				return
+			}
+		}
+		if cands := byEndpoint["chat/completions"]; len(cands) > 0 {
+			run(target, cands[0], func() error { return check(cands[0]) })
+		}
+	}
+	chat := byEndpoint["chat/completions"]
 	if cfg.targets["completions"] {
-		run("completions", byEndpoint["chat/completions"], func() error {
-			return checkCompletions(cfg, byEndpoint["chat/completions"])
+		runFallback("completions", chat, func(m string) error {
+			return checkCompletions(cfg, m)
 		})
-		run("completions-stream", byEndpoint["chat/completions"], func() error {
-			return checkCompletionsStream(cfg, byEndpoint["chat/completions"])
+		streamGated("completions-stream", "completions", func(m string) error {
+			return checkCompletionsStream(cfg, m)
 		})
-		run("dashboard-chat", byEndpoint["chat/completions"], func() error {
-			return checkDashboardChat(cfg, byEndpoint["chat/completions"])
+		runFallback("dashboard-chat", chat, func(m string) error {
+			return checkDashboardChat(cfg, m)
 		})
 	}
 	if cfg.targets["messages"] {
-		run("messages", byEndpoint["chat/completions"], func() error {
-			return checkMessages(cfg, byEndpoint["chat/completions"], false)
+		runFallback("messages", chat, func(m string) error {
+			return checkMessages(cfg, m, false)
 		})
-		run("messages-stream", byEndpoint["chat/completions"], func() error {
-			return checkMessages(cfg, byEndpoint["chat/completions"], true)
+		streamGated("messages-stream", "messages", func(m string) error {
+			return checkMessages(cfg, m, true)
 		})
 		// Tool blocks only where deterministic: the mock tools model
 		// echoes one tool_call per request. Real providers decide
@@ -439,23 +568,23 @@ func runMatrix(cfg config, rep *report, pluginType, providerID string, models []
 		}
 	}
 	if cfg.targets["transcribe"] {
-		run("transcribe", byEndpoint["audio/transcriptions"], func() error {
-			return checkTranscribe(cfg, byEndpoint["audio/transcriptions"])
+		runFallback("transcribe", byEndpoint["audio/transcriptions"], func(m string) error {
+			return checkTranscribe(cfg, m)
 		})
 	}
 	if cfg.targets["speech"] {
-		run("speech", byEndpoint["audio/speech"], func() error {
-			return checkSpeech(cfg, byEndpoint["audio/speech"])
+		runFallback("speech", byEndpoint["audio/speech"], func(m string) error {
+			return checkSpeech(cfg, m)
 		})
 	}
 	if cfg.targets["image"] {
-		run("image", byEndpoint["images/generations"], func() error {
-			return checkImage(cfg, byEndpoint["images/generations"])
+		runFallback("image", byEndpoint["images/generations"], func(m string) error {
+			return checkImage(cfg, m)
 		})
 	}
 	if cfg.targets["embeddings"] {
-		run("embeddings", byEndpoint["embeddings"], func() error {
-			return checkEmbeddings(cfg, byEndpoint["embeddings"])
+		runFallback("embeddings", byEndpoint["embeddings"], func(m string) error {
+			return checkEmbeddings(cfg, m)
 		})
 	}
 	// Mock self-check: mock-limited must skip with quota, proving the
@@ -473,15 +602,15 @@ func runMatrix(cfg config, rep *report, pluginType, providerID string, models []
 	}
 	// Negative path: a capability the model does not serve must fail
 	// closed, never silently. Free: gated before any backend is touched.
-	if chat := byEndpoint["chat/completions"]; chat != "" {
-		run("endpoint-gate", chat, func() error {
-			return checkEndpointGate(cfg, chat)
+	if len(chat) > 0 {
+		run("endpoint-gate", chat[0], func() error {
+			return checkEndpointGate(cfg, chat[0])
 		})
 	}
 	// Virtual fan-out through one ad-hoc virtual model per provider.
-	if chat := byEndpoint["chat/completions"]; chat != "" && cfg.targets["completions"] {
-		run("virtual-chat", chat, func() error {
-			return checkVirtualChat(cfg, chat)
+	if len(chat) > 0 && cfg.targets["completions"] {
+		run("virtual-chat", chat[0], func() error {
+			return checkVirtualChat(cfg, chat[0])
 		})
 	}
 }
