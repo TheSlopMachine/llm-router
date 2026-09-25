@@ -135,6 +135,82 @@ func checkCompletionsStream(cfg config, model string) error {
 	return nil
 }
 
+func checkMessagesTools(cfg config, model string) error {
+	body := map[string]any{
+		"model":      model,
+		"max_tokens": 64,
+		"messages":   []any{map[string]any{"role": "user", "content": "hi"}},
+		"tools": []any{map[string]any{
+			"name": "get_weather", "description": "Get weather",
+			"input_schema": map[string]any{"type": "object"},
+		}},
+		"tool_choice": map[string]any{"type": "any"},
+	}
+	status, raw, err := doJSON("POST", cfg.api+"/v1/messages", body)
+	if err != nil {
+		return err
+	}
+	if status < 200 || status >= 300 {
+		return &wireError{status: status, code: wireCode(raw), msg: strings.TrimSpace(string(raw))}
+	}
+	if !strings.Contains(string(raw), "tool_use") {
+		return fmt.Errorf("no tool_use block")
+	}
+	return nil
+}
+
+// checkEndpointGate asserts the negative path: a capability the model does
+// not serve must fail closed with endpoint_not_supported, never silently.
+func checkEndpointGate(cfg config, chatModel string) error {
+	status, raw, err := postMultipart(cfg.api+"/v1/audio/transcriptions", chatModel, "smoke.wav", synthWAV(), "json")
+	if err != nil {
+		return err
+	}
+	if status < 200 || status >= 300 {
+		if code := wireCode(raw); code == "endpoint_not_supported" {
+			return nil
+		}
+		return &wireError{status: status, code: wireCode(raw), msg: strings.TrimSpace(string(raw))}
+	}
+	return fmt.Errorf("transcribe on chat-only model must not succeed")
+}
+
+func checkVirtualChat(cfg config, member string) error {
+	vm, err := createVirtual(cfg, member)
+	if err != nil {
+		return err
+	}
+	defer deleteVirtual(cfg, vm)
+	return checkCompletions(cfg, "virtual/"+vm)
+}
+
+func createVirtual(cfg config, member string) (string, error) {
+	status, raw, err := doJSON("POST", cfg.web+"/api/llm-router/dashboard/virtual-models", map[string]any{
+		"name":   "smoke-vm",
+		"models": []any{map[string]any{"model_id": member}},
+	})
+	if err != nil {
+		return "", fmt.Errorf("create virtual model: %w", err)
+	}
+	var vm struct {
+		ID string `json:"id"`
+	}
+	if err := requireOK(status, raw, &vm); err != nil {
+		return "", err
+	}
+	if vm.ID == "" {
+		return "", fmt.Errorf("create virtual model: empty id")
+	}
+	return vm.ID, nil
+}
+
+func deleteVirtual(cfg config, vmID string) {
+	status, raw, err := doJSON("DELETE", cfg.web+"/api/llm-router/dashboard/virtual-models/"+vmID, nil)
+	if err == nil {
+		_ = requireOK(status, raw, nil)
+	}
+}
+
 func checkMessages(cfg config, model string, stream bool) error {
 	// Thinking models starve on tiny budgets ("hi" + 16 tokens yields
 	// empty candidates), so the probe mirrors the completions prompt
@@ -225,18 +301,16 @@ func synthWAV() []byte {
 }
 
 func checkTranscribe(cfg config, model string) error {
-	status, raw, err := postMultipart(cfg.api+"/v1/audio/transcriptions", model, "smoke.wav", synthWAV())
+	status, raw, err := postMultipart(cfg.api+"/v1/audio/transcriptions", model, "smoke.wav", synthWAV(), "srt")
 	if err != nil {
 		return err
 	}
-	var out struct {
-		Text string `json:"text"`
+	if status < 200 || status >= 300 {
+		return &wireError{status: status, code: wireCode(raw), msg: strings.TrimSpace(string(raw))}
 	}
-	if err := requireOK(status, raw, &out); err != nil {
-		return err
-	}
-	if out.Text == "" {
-		return fmt.Errorf("empty transcript")
+	// srt exercises the segments contract plus server-side rendering.
+	if !strings.Contains(string(raw), "-->") {
+		return fmt.Errorf("srt without cue timing")
 	}
 	return nil
 }
@@ -259,7 +333,7 @@ func checkSpeech(cfg config, model string) error {
 
 func checkImage(cfg config, model string) error {
 	status, raw, err := doJSON("POST", cfg.api+"/v1/images/generations", map[string]any{
-		"model": model, "prompt": "a cat", "n": 1,
+		"model": model, "prompt": "a cat", "n": 1, "response_format": "url",
 	})
 	if err != nil {
 		return err
@@ -273,7 +347,11 @@ func checkImage(cfg config, model string) error {
 	if err := requireOK(status, raw, &out); err != nil {
 		return err
 	}
-	if len(out.Data) == 0 || (out.Data[0].URL == "" && out.Data[0].B64JSON == "") {
+	if len(out.Data) == 0 {
+		return fmt.Errorf("empty image data")
+	}
+	// Deterministic providers honor url; the contract allows b64 fallback.
+	if out.Data[0].URL == "" && out.Data[0].B64JSON == "" {
 		return fmt.Errorf("empty image data")
 	}
 	return nil
@@ -281,21 +359,26 @@ func checkImage(cfg config, model string) error {
 
 func checkEmbeddings(cfg config, model string) error {
 	status, raw, err := doJSON("POST", cfg.api+"/v1/embeddings", map[string]any{
-		"model": model, "input": []string{"hi"},
+		"model": model, "input": []string{"hi"}, "encoding_format": "base64",
 	})
 	if err != nil {
 		return err
 	}
 	var out struct {
 		Data []struct {
-			Embedding []float64 `json:"embedding"`
+			Embedding any `json:"embedding"`
 		} `json:"data"`
 	}
 	if err := requireOK(status, raw, &out); err != nil {
 		return err
 	}
-	if len(out.Data) == 0 || len(out.Data[0].Embedding) == 0 {
-		return fmt.Errorf("empty embedding")
+	if len(out.Data) == 0 {
+		return fmt.Errorf("empty embeddings")
+	}
+	// base64 wire form renders the vector as a string, not an array.
+	s, ok := out.Data[0].Embedding.(string)
+	if !ok || s == "" {
+		return fmt.Errorf("base64 embedding must be a non-empty string")
 	}
 	return nil
 }
@@ -346,6 +429,14 @@ func runMatrix(cfg config, rep *report, pluginType, providerID string, models []
 		run("messages-stream", byEndpoint["chat/completions"], func() error {
 			return checkMessages(cfg, byEndpoint["chat/completions"], true)
 		})
+		// Tool blocks only where deterministic: the mock tools model
+		// echoes one tool_call per request. Real providers decide
+		// themselves, so no assertion there.
+		if pluginType == "mock" {
+			run("messages-tools", providerID+"/mock-tools", func() error {
+				return checkMessagesTools(cfg, providerID+"/mock-tools")
+			})
+		}
 	}
 	if cfg.targets["transcribe"] {
 		run("transcribe", byEndpoint["audio/transcriptions"], func() error {
@@ -379,6 +470,19 @@ func runMatrix(cfg config, rep *report, pluginType, providerID string, models []
 		} else {
 			rep.add(pluginType, limited, "skip-path", pass, "skip: "+reason, time.Since(start))
 		}
+	}
+	// Negative path: a capability the model does not serve must fail
+	// closed, never silently. Free: gated before any backend is touched.
+	if chat := byEndpoint["chat/completions"]; chat != "" {
+		run("endpoint-gate", chat, func() error {
+			return checkEndpointGate(cfg, chat)
+		})
+	}
+	// Virtual fan-out through one ad-hoc virtual model per provider.
+	if chat := byEndpoint["chat/completions"]; chat != "" && cfg.targets["completions"] {
+		run("virtual-chat", chat, func() error {
+			return checkVirtualChat(cfg, chat)
+		})
 	}
 }
 

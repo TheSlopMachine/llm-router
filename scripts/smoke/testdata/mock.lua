@@ -1,9 +1,11 @@
 --- @plugin Smoke Mock
 --- @author llm-router
---- @version 1.0.0
+--- @version 1.1.0
 --- @router_version 0.1.2
 --- @description Deterministic mock provider for the smoke harness. No network use.
 --- @allow_host example.com
+-- NOTE: bump @version on every edit of this file. The harness skips
+-- reinstalling when the installed version matches the source.
 
 -- Model routing by bare name: mock-limited always reports quota_exceeded so
 -- the harness exercises its skip path deterministically.
@@ -38,11 +40,35 @@ llm_router.register("mock", {
       { name = "mock-img", display_name = "Mock Image", endpoints = { "images/generations" } },
       { name = "mock-emb", display_name = "Mock Embeddings", endpoints = { "embeddings" } },
       { name = "mock-limited", display_name = "Mock Limited", endpoints = { "chat/completions" } },
+      { name = "mock-tools", display_name = "Mock Tools", endpoints = { "chat/completions" } },
     }
   end,
 
   complete = function(ctx, credential, request)
     if limited(request.model_name) then return nil, quota_err() end
+    if request.model_name == "mock-tools" and type(request.tools) == "table" and #request.tools > 0 then
+      local name = "get_weather"
+      local first = request.tools[1]
+      if type(first) == "table" then
+        if type(first["function"]) == "table" and type(first["function"].name) == "string" then
+          name = first["function"].name
+        elseif type(first.name) == "string" then
+          name = first.name
+        end
+      end
+      return {
+        id = "smoke-tools", object = "chat.completion", created = os.time(), model = request.model,
+        choices = {
+          { index = 0,
+            message = { role = "assistant", tool_calls = {
+              { id = "call_smoke", type = "function",
+                ["function"] = { name = name, arguments = "{}" } },
+            } },
+            finish_reason = "tool_calls" },
+        },
+        usage = { prompt_tokens = 2, completion_tokens = 2, total_tokens = 4 },
+      }
+    end
     return {
       id = "smoke-chat", object = "chat.completion", created = os.time(), model = request.model,
       choices = {
@@ -61,6 +87,10 @@ llm_router.register("mock", {
   end,
 
   transcribe = function(ctx, credential, request)
+    if request.needs_segments then
+      return { text = "smoke transcript",
+        segments = { { id = 0, start = 0.0, ["end"] = 1.0, text = "smoke transcript" } } }
+    end
     return { text = "smoke transcript" }
   end,
 
@@ -77,6 +107,9 @@ llm_router.register("mock", {
   end,
 
   generate_image = function(ctx, credential, request)
+    if request.response_format == "url" then
+      return { created = os.time(), data = { { url = "http://example.com/smoke.png" } } }
+    end
     return { created = os.time(), data = { { b64_json = "aGk=" } } }
   end,
 

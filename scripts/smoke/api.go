@@ -104,10 +104,11 @@ func requireOK(status int, raw []byte, out any) error {
 	return nil
 }
 
-func postMultipart(url, model, fileName string, file []byte) (int, []byte, error) {
+func postMultipart(url, model, fileName string, file []byte, format string) (int, []byte, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	_ = w.WriteField("model", model)
+	_ = w.WriteField("response_format", format)
 	fw, err := w.CreateFormFile("file", fileName)
 	if err != nil {
 		return 0, nil, err
