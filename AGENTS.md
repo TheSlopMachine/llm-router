@@ -56,14 +56,21 @@ DO:
 - "Remove stale credentials on startup."
 - "Start a goroutine to poll the queue."
 
-## 1. Project
+## 1. Session start
+
+Open every session by identifying the platform and shell. Never assume them.
+
+- Query the runtime environment first (OS, shell, working directory); training defaults do not apply.
+- On win32 the `bash` tool runs PowerShell: chain commands with `;`, quote paths with `"..."`, never use Unix-isms (`head`, `cat`, `VAR=x cmd`).
+
+## 2. Project
 
 `llm-router` — single-binary OpenAI-compatible LLM routing gateway. Go backend + embedded Svelte SPA + embedded bbolt DB.
 
 - Routes `ModelId = provider/model` (e.g. `opencode-zen/gpt-5`, `virtual/my-model`) → backend + `CredentialPool`.
 - Provider backends are single-file Lua plugins (installed store records in `BucketPlugins`, sourced from plugin store repositories). Built-in Go backends exist only for `custom` (OpenAI-compatible passthrough) and `virtual` (virtual models).
 
-## 2. Structure
+## 3. Structure
 
 ```
 cmd/root.go              CLI entrypoint (--web/--api/--db)
@@ -95,14 +102,14 @@ web/                     Svelte SPA (web/openapi.yaml + src/lib/generated/ auto-
 scripts/                 separate Go module — build/dev helpers (never imported by main module)
 scripts/smoke/           black-box smoke harness + mock provider (testdata/mock.lua)
 docs/                    PLUGIN-API.md (binding plugin contract), BACKEND.md (core map), CHANGELOG.md
-Makefile                 thin launcher for scripts/ — see §3
+Makefile                 thin launcher for scripts/ — see §4
 ```
 
 Keep changes shallow. Do not touch service internals unless the task requires it.
 
-## 3. Commands
+## 4. Commands
 
-### 3.1 Targets — agent runs the `agent` ones directly
+### 4.1 Targets — agent runs the `agent` ones directly
 
 | Command | Access | Purpose |
 |---|---|---|
@@ -127,7 +134,7 @@ Keep changes shallow. Do not touch service internals unless the task requires it
 
 `check-frontend-deps` and `check-publish-deps` are prerequisites, not direct targets. Never run them standalone.
 
-### 3.2 Banned — raw equivalents of the above
+### 4.2 Banned — raw equivalents of the above
 
 | DO | DON'T |
 |---|---|
@@ -143,7 +150,7 @@ NEVER substitute a raw command for an allowed `make` target, even when the outco
 
 When no target covers an operation, add one (`Makefile` + `scripts/help.txt` + `scripts/README.md` + this table) instead of running raw commands. A missing target is a gap to fix, never permission to bypass.
 
-### 3.3 Human-only handoff
+### 4.3 Human-only handoff
 
 If the task needs `browser`, `publish`, or `clean`: STOP. Ask the human to run it and report back (terminal output, logs, curl/browser result).
 
@@ -151,16 +158,16 @@ If the task needs `browser`, `publish`, or `clean`: STOP. Ask the human to run i
 |---|---|
 | "Please run `make publish` and paste the output." | `go run .`, `go build -o ./llm-router.exe`, `bun run dev`, `Start-Process ...`, any script/wrapper invoking these |
 
-## 4. Prohibitions
+## 5. Prohibitions
 
 | # | Prohibition | Detail |
 |---|---|---|
-| 1 | Kill processes | No `kill`, `pkill`, `taskkill`, `Stop-Process`. Use `make stop` / `make restart` so pidfiles stay consistent. |
+| 1 | Kill processes | No `kill`, `pkill`, `taskkill`, `Stop-Process`. Use `make stop` / `make restart` so pidfiles stay consistent. `make restart` / `make smoke` stop live dev processes first: warn before running them when the user may have work in flight. |
 | 2 | Delete database files | Never remove `~/.local/llm-router/llm-router-dev.db` (or the Windows equivalent). If it is corrupt, ask the human to delete it. |
 | 3 | Run destructive git commands | No `git push`, `git reset`, `git checkout -f`, `git clean`, force-push, amend. Commit only if explicitly instructed, for that exact commit only. |
 | 4 | Litter the project | No `*.log`, `*.pid`, `*.tmp`, binaries, scratch files, notes inside the project tree. Use `/tmp` or an external scratch dir. Delete temporary verification files when done. |
-| 5 | Avoid the Makefile | No raw command substitutes for an allowed target (§3.2). No manual invocation of a banned target's underlying steps (§3.3). |
-| 6 | Build or launch the app outside make targets | `browser`, `publish`, `clean` are human-only. Debug live with `make start NO_AUTH=1` / `make restart` / `make stop` / `make status` — ask the human for anything else. See §3.3, §9. |
+| 5 | Avoid the Makefile | No raw command substitutes for an allowed target (§4.2). No manual invocation of a banned target's underlying steps (§4.3). |
+| 6 | Build or launch the app outside make targets | `browser`, `publish`, `clean` are human-only. Debug live with `make start NO_AUTH=1` / `make restart` / `make stop` / `make status` — ask the human for anything else. See §4.3, §10. |
 | 7 | Redirect output to nul or /dev/null | Breaks on Windows and hides diagnostics on every OS. |
 | 8 | Truncate diagnostics output with tail/head | Diagnostics matter and truncating wastes time. NEVER truncate them. |
 | 9 | Fall back silently | NEVER swallow a failure and continue on a fallback path. Surface every failure as an error — return it to the caller, log it, or both — or route it to an explicit, named on-fail branch. Never fall through unannounced. |
@@ -168,17 +175,23 @@ If the task needs `browser`, `publish`, or `clean`: STOP. Ask the human to run i
 | 11 | Patch a weak API contract in the frontend | Repetitive `??` / `?.` over backend data shapes means the contract is wrong. Fix the backend to return consistent shapes (arrays never null, objects never null when the schema promises them). Frontend guards stay only for genuinely optional local state. |
 | 12 | Create stray files from the shell | NEVER let a shell command create a file: no `>` / `>>` / `Out-File` redirection, no heredocs, no `2>/dev/null`, no unquoted fragments that resolve to filenames (`nul`, `null`, command text as filename). Read command output from the tool result, never from disk. |
 | 13 | Pass env vars with shell syntax | NEVER `VAR=value make <target>` (Unix-only) and NEVER `$env:VAR="value"; make <target>` (PowerShell-only, leaks state into the session). Use `make <target> VAR=value`: make syntax, works in every shell, scoped to one invocation. |
+| 14 | Act on questions | Answer questions with words. A question never authorizes edits, runs, installs, or any other side effect — not even an obvious follow-up. |
+| 15 | Write files through executed scripts | Never create or patch files via throwaway scripts (`python -c` writers, heredoc generators, `sed` equivalents). Use the dedicated file tools so every change stays reviewable. |
 
-## 5. Edit discipline
+## 6. Edit discipline
 
+- Grasp the concept before the code. On ambiguity, ask instead of inferring from code literally.
 - Re-read the region before every `edit` to the same file. Stale `oldString`
   either no-matches or deletes neighboring code.
+- Batch edits to one file only from a fresh read of every region; verify
+  each result before the next batch.
 - After deleting a function, grep the file's imports immediately (`net/url`,
   `regexp`, `errors`, `strings`, `slog` orphans are guaranteed); `go vet`
   catches them a cycle later.
 - Diff every edited file before moving on.
+- Leave no scaffolding: delete draft notes, TODO-placeholders and reasoning asides left over from the edit itself.
 - One simple shell command per call: no heredocs, no `VAR=x cmd`, no bare
-  `echo`, no `2>/dev/null` (§4.#12, §4.#13).
+  `echo`, no `2>/dev/null` (§5.#12, §5.#13).
 - A predicted runtime-only risk ships with its test in the same change
   (route patterns validate only at startup — hence `mux_test.go`).
 - Verify through execution whenever reasonable: run checks, tests, or smoke
@@ -186,7 +199,7 @@ If the task needs `browser`, `publish`, or `clean`: STOP. Ask the human to run i
   `make go-fmt-check` gate every Go change; `make smoke` gates wire-level
   changes against live upstreams.
 
-## 6. Design defaults
+## 7. Design defaults
 
 - One knowledge, one owner. Duplicated logic drifts toward bugs; unify
   instead of patching instances.
@@ -196,7 +209,7 @@ If the task needs `browser`, `publish`, or `clean`: STOP. Ask the human to run i
   method, one `db.Update`.
 - Fix the contract where data is born. Frontend guards over backend shapes,
   display-side parsing, and anonymous DTOs duplicating models are backend
-  bugs postponed (§4.#11).
+  bugs postponed (§5.#11).
 - Persisted derived values are frozen. Functions whose outputs live in
   storage never change semantics without a migration; lock them with
   stability tests.
@@ -208,7 +221,7 @@ If the task needs `browser`, `publish`, or `clean`: STOP. Ask the human to run i
 - Names must not lie. Rename when semantics change; a lying name is worse
   than none.
 
-## 7. Svelte 5 Reactivity
+## 8. Svelte 5 Reactivity
 
 NEVER write to a `$state` variable from an `$effect` that reads it — directly, or via a function it calls. Guard flags and `untrack()` do not fix this — they hide it.
 
@@ -246,7 +259,7 @@ Never stack a 2nd/3rd `$effect` with its own guard flag to patch the 1st. That m
 
 Before finishing any `.svelte` change, re-check every `$effect` touched against this section.
 
-## 8. Lua Plugins
+## 9. Lua Plugins
 
 - New provider backends are single-file Lua plugins: one `.lua` file with a `--- @` manifest header. Install via dashboard Plugins → Catalog tab or `POST /api/llm-router/dashboard/plugins/install-file`.
 - Manifest: required tags `@plugin`, `@author`, `@version`, `@router_version`, one or more `@allow_host` (`*` marks the plugin unsafe). Routers serve no contract older than `0.1.1`. `internal/services/luaplugin/manifest.go` validates.
@@ -257,7 +270,7 @@ Before finishing any `.svelte` change, re-check every `$effect` touched against 
 - Built-in Go backends exist only for `custom` (`internal/adapters/generic/`) and `virtual` (`providers/virtual/`), both implementing `provider.GoAdapter`.
 - Verification: `make go-vet` for static checks, `make smoke` for wire-level checks against live upstreams.
 
-## 9. Runtime, API Testing, Smoke
+## 10. Runtime, API Testing, Smoke
 
 Debug live with `make start NO_AUTH=1` (authorization fully off: no bearer keys, no login), `make log` / `make log-frontend` for output, `make status` for state, `make stop` when done. Fresh DBs still open the bootstrap page once (account creation stays); `status.authenticated` reads true under no-auth. NEVER enable no-auth outside local dev.
 
@@ -292,14 +305,14 @@ Smoke harness (`scripts/smoke/`, `make smoke` restarts with `NO_AUTH=1` first):
 - Matrix iterates models per capability until first success; `quota`/`payment`/`rate`/`not_found`/`invalid_request` move on, `auth` fails, exhaustion without success skips with reason.
 - Mock provider ships in `testdata/mock.lua`; bump its `@version` on every edit (the harness skips reinstall on version match).
 
-## 10. Plugin Store Repo (sibling checkout)
+## 11. Plugin Store Repo (sibling checkout)
 
 Provider plugins ship from plugin store repositories, not from the binary. Built-in repos live in `pluginrepo.BuiltinRepos` and seed on startup via `EnsureBuiltinRepos`; they cannot be removed (`ErrBuiltinRepoProtected`). To ship a plugin upgrade, bump `@version` in the store repository.
 
 - Reissue checklist per plugin: `@version` bump (major on contract breaks), `@router_version` floor, classify through the helper, `(resp, err)` stream idiom with `on_response`, `scope` on rate/quota, `request.model_name` (never forward request tables verbatim upstream).
 - Verify reissues without live keys: install dry-run plus classify extensions against synthetic `{status, headers, body}` inputs. Live streams and impersonation paths verify on `make start` with real accounts only.
 
-## 11. Documentation
+## 12. Documentation
 
 Edit docs in the same change as the code, never deferred. Short formulations: present simple for system state, past simple for history.
 
@@ -310,5 +323,5 @@ Edit docs in the same change as the code, never deferred. Short formulations: pr
 - `scripts/help.txt`: a new target or variable adds a line; verify with a live `make help`.
 - Root `README.md` is human-owned: never edit it.
 - Plugin store reissues bump `@version` (major on contract breaks) and honor the `@router_version` floor.
-- Move together: `CurrentVersion`, history rows, `minRouterVersion`. New make targets already ride the §3.2 rule (no duplication here).
+- Move together: `CurrentVersion`, history rows, `minRouterVersion`. New make targets already ride the §4.2 rule.
 - Verify doc edits by re-reading the whole file plus grepping stale markers (old API names, removed buckets or fields).
