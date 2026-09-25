@@ -129,7 +129,7 @@
 
   function loadFilter(): 'all' | 'enabled' | 'disabled' {
     const v = localStorage.getItem(filterKey())
-    return v === 'enabled' || v === 'disabled' ? v : 'all'
+    return v === 'all' || v === 'disabled' ? v : 'enabled'
   }
 
   async function saveModelsFilter(v: typeof modelFilter): Promise<void> {
