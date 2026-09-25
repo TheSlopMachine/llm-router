@@ -108,13 +108,16 @@ Rule: keep changes shallow. Do not touch service internals unless the task requi
 
 ### 4.1 Allowed — agent runs these directly
 
+Rule: run checks, tests and formatting ONLY through these targets. No raw
+tool invocations, even for a single file.
+
 | Command | Purpose |
 |---|---|
 | `make check-frontend` | Frontend compile/type-check |
-| `make go-check` | Go static check (`go vet`) |
+| `make go-vet` | Go static check (`go vet`; `PKG=...` scopes packages, default `./...`) |
 | `make go-test` | Go tests (`PKG=...` scopes packages, default `./...`) |
-| `make fmt` | Apply `gofmt` to both Go modules |
-| `make fmt-check` | Fail when `gofmt` would reformat anything |
+| `make go-fmt` | Apply `gofmt` to both Go modules (`PATHS=...` scopes files/dirs, default whole tree) |
+| `make go-fmt-check` | Fail when `gofmt` would reformat anything (`PATHS=...` scopes files/dirs) |
 | `make init` | Project init/re-init: bun install, openapi.yaml, api-types, embed stub; skips fresh outputs unless `NO_SKIP=1` |
 | `make log` | Tail backend log (`LINES=...` sizes tail, default `100`; `FOLLOW=...` overrides TTY auto-follow) |
 | `make log-frontend` | Tail frontend log (same `LINES`/`FOLLOW` contract as `make log`) |
@@ -131,11 +134,16 @@ Rule: keep changes shallow. Do not touch service internals unless the task requi
 | DO | DON'T |
 |---|---|
 | `make check-frontend` | `bunx svelte-check`, `bun run check`, `tsc --noEmit`, `eslint .` |
-| `make go-check` | `go vet ./...` |
+| `make go-vet` | `go vet ./...` |
+| `make go-vet PKG=...` | `go vet ./internal/...` (scoped raw vet) |
 | `make go-test` | `go test ./...` |
-| `make fmt` / `make fmt-check` | `gofmt -w .`, `gofmt -l .` |
+| `make go-test PKG=...` | `go test ./internal/...` (scoped raw test) |
+| `make go-fmt` / `make go-fmt-check` | `gofmt -w .`, `gofmt -l .` |
+| `make go-fmt-check PATHS=...` | `gofmt -l <paths>` (scoped raw gofmt) |
 
 Rule: NEVER substitute a raw command for an allowed `make` target, even when the outcome matches.
+
+Rule: when no target covers an operation, add one (`Makefile` + `scripts/help.txt` + `scripts/README.md` + this table) instead of running raw commands. A missing target is a gap to fix, never permission to bypass.
 
 ### 4.3 Banned — every other Makefile target
 
@@ -212,7 +220,7 @@ Rule: before finishing any `.svelte` change, re-check every `$effect` touched ag
 - API: `llm_router.register(type_key, {complete, ...})`, `llm_router.http_client`, `llm_router.classify_error`, `llm_router.multipart`, `llm_router.storage`, `llm_router.uuid_v5(namespace, name)` (RFC 4122), `llm_router.random_hex(nbytes)`, `json.encode/decode`. Error contract `{type=, message=, retry_after=, scope=}`. Endpoint handlers beyond chat: `transcribe` (POST /v1/audio/transcriptions). **docs/PLUGIN-API.md is the binding contract for plugin authors — keep it in sync with every handler/API change.** UI trees for `config_schema`/`credential_schema`/`auth_initiate`/`auth_step` render through `DynamicForm.svelte`. Node kinds: leafs `text`, `input`, `select`, `checkbox`, `button`, `link`, `banner`, `secret`, `code`; containers `group`, `flow`, `grid`, `section`, `spacer`, `divider`. No raw HTML from plugins, ever — new widgets ship as first-class node kinds, not markup.
 - Store: provider plugins ship from plugin store repositories, not from the binary. Built-in repos live in `pluginrepo.BuiltinRepos` and seed on startup via `EnsureBuiltinRepos`; they cannot be removed (`ErrBuiltinRepoProtected`). To ship a plugin upgrade, bump `@version` in the store repository.
 - Built-in Go backends exist only for `custom` (`internal/adapters/generic/`) and `virtual` (`providers/virtual/`), both implementing `provider.GoAdapter`.
-- Verification: run `make go-check` only. For runtime checks, ask the human to run `make start`.
+- Verification: run `make go-vet` only. For runtime checks, ask the human to run `make start`.
 
 ## 8. When Runtime Info Is Needed
 

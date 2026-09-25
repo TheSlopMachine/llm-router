@@ -20,11 +20,13 @@ Configuration flows one way: `Makefile` vars → env → scripts. Scripts take n
 | `publish` | `VERSION` (default `dev`), `PUBLISH_PLATFORMS`* | `make publish` |
 | `help` | display only: `HOST`, `WEB_PORT`, `API_PORT`, `URL`, `DEV_DB`, `NO_AUTH` | `make help` |
 | _(env)_ | `NO_SKIP` (`1`/`true`/`yes`/`on` disables caches) | `make init NO_SKIP=1` or `NO_SKIP=1 make init` |
-| `vet` / `test` / `fcheck` | — / `PKG` (default `./...`) / — | `make go-check` / `make go-test` / `make check-frontend` |
-| `fmt` | `FMT_WRITE=1` writes, otherwise checks | `make fmt` / `make fmt-check` |
+| `vet` / `test` / `fcheck` | `PKG` (default `./...`) / `PKG` (default `./...`) / — | `make go-vet` / `make go-test` / `make go-fmt-check` |
+| `fmt` | `FMT_WRITE=1` writes, otherwise checks; `PATHS` narrows to space-separated root-relative files/dirs (default: whole tree) | `make go-fmt` / `make go-fmt-check` |
+
+`make help` prints `scripts/help.txt` directly (no code).
 | `smoke` | `SMOKE_PLUGINS` (default `mock`), `SMOKE_TARGETS` (default `completions,messages`), `SMOKE_STORE_DIR`, `SMOKE_*_API_KEY`, `SMOKE_CLEANUP` (default `1`) | `make smoke` (restarts with `NO_AUTH=1` first) |
 
-`make go-test PKG=./internal/services/router/` scopes the run; `make fmt` applies `gofmt -w`, `make fmt-check` fails listing files that need it. Both cover the root and `scripts` modules, skipping `.workspace`, `node_modules`, `build`, `.git`.
+`make go-test PKG=./internal/services/router/` scopes the run; `make go-vet PKG=./internal/services/router/...` scopes vet (patterns under `scripts/` run inside the scripts module); `make go-fmt PATHS="internal/server scripts/smoke"` formats only those trees; `make go-fmt-check` fails listing files that need it. Unscoped `go vet` covers the root and `scripts` modules; unscoped `go test` covers the root module. Both skip `.workspace`, `node_modules`, `build`, `.git`.
 
 `*` required (fatal when blank). The rest fall back to dev defaults (`localhost`, `38080`, `38081`, `~/.local/llm-router/...`, temp pidfile).
 
