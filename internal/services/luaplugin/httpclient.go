@@ -12,14 +12,32 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 	lua "github.com/yuin/gopher-lua"
 )
 
-// maxResponseBody caps buffered upstream bodies.
-const maxResponseBody = 16 << 20
+// Plugin HTTP client budgets: one place for every timeout and size bound
+// on the Lua request path.
+const (
+	defaultHTTPTimeoutMs = 60000
+	minHTTPTimeoutMs     = 1000
+	maxHTTPTimeoutMs     = 300000
+
+	// maxResponseBody caps buffered upstream bodies.
+	maxResponseBody = 16 << 20
+
+	// streamErrBodyLimit caps the upstream body embedded in non-2xx stream
+	// error messages.
+	streamErrBodyLimit = 64 << 10
+	// streamChunkSize is the read buffer for on_chunk mode.
+	streamChunkSize = 32 << 10
+	// streamScannerMin/Max bound the on_line scanner buffer.
+	streamScannerMin = 64 << 10
+	streamScannerMax = 1 << 20
+)
 
 var blockedCIDRs = []string{
 	"10.0.0.0/8",
@@ -141,18 +159,22 @@ func (g *ssrfGuard) resolveAndPick(ctx context.Context, hostname string) (net.IP
 	return nil, fmt.Errorf("dial to %q blocked: all resolved addresses are private/link-local", hostname)
 }
 
-// pluginHTTPClient is the Go backing of llm_router.create_http_client.
+// pluginHTTPClient is the Go backing of llm_router.http_client.
 type pluginHTTPClient struct {
 	ctx    *execContext
 	guard  *ssrfGuard
 	client *http.Client
-	goCtx  context.Context
 	// timeout bounds one attempt; every key attempt gets a fresh budget.
 	timeout time.Duration
+	// proxyClients caches one transport per resolved proxy URL: handlers
+	// issuing several requests through one client (image fan-out loops)
+	// reuse connections instead of rebuilding the transport per request.
+	proxyMu      sync.Mutex
+	proxyClients map[string]*http.Client
 }
 
 func newPluginHTTPClient(ctx *execContext, timeoutMs int) *pluginHTTPClient {
-	c := &pluginHTTPClient{ctx: ctx, guard: newSSRFGuard(ctx.allowHosts)}
+	c := &pluginHTTPClient{ctx: ctx, guard: newSSRFGuard(ctx.allowHosts), proxyClients: map[string]*http.Client{}}
 	timeout := time.Duration(timeoutMs) * time.Millisecond
 	c.timeout = timeout
 
@@ -210,15 +232,22 @@ func newPluginHTTPClient(ctx *execContext, timeoutMs int) *pluginHTTPClient {
 	return c
 }
 
-// proxyClient builds the transport for the currently resolved proxy.
-// A build failure is a loud error: the request rotates to the next proxy
-// or fails, it never falls back to direct.
+// proxyClient returns the cached client for the currently resolved proxy,
+// building its transport once. A build failure is a loud error: the request
+// rotates to the next proxy or fails, it never falls back to direct.
 func (c *pluginHTTPClient) proxyClient() (*http.Client, error) {
+	c.proxyMu.Lock()
+	defer c.proxyMu.Unlock()
+	if client, ok := c.proxyClients[c.ctx.proxyURL]; ok {
+		return client, nil
+	}
 	transport, err := proxypool.TransportFor(c.ctx.proxyURL, c.timeout)
 	if err != nil {
 		return nil, err
 	}
-	return &http.Client{Timeout: c.timeout, Transport: transport, CheckRedirect: c.checkRedirect}, nil
+	client := &http.Client{Timeout: c.timeout, Transport: transport, CheckRedirect: c.checkRedirect}
+	c.proxyClients[c.ctx.proxyURL] = client
+	return client, nil
 }
 
 // doWithProxyRotation executes one plugin HTTP request. The picks resolve
@@ -313,8 +342,8 @@ func clientOf(L *lua.LState) *pluginHTTPClient {
 }
 
 func goCtxOf(c *pluginHTTPClient) context.Context {
-	if c.goCtx != nil {
-		return c.goCtx
+	if c.ctx != nil && c.ctx.goCtx != nil {
+		return c.ctx.goCtx
 	}
 	return context.Background()
 }
@@ -409,8 +438,12 @@ func (c *pluginHTTPClient) luaRequest(L *lua.LState) int {
 	return 2
 }
 
-// luaStream implements client:stream({...}) -> err-or-nil, feeding the
-// upstream body to on_line (line mode) or on_chunk (raw bytes mode).
+// luaStream implements client:stream({...}) -> (resp, err), feeding the
+// upstream body to on_line (line mode) or on_chunk (raw bytes mode). resp
+// carries {status, headers}; err follows the error contract, or nil.
+// on_response(resp) optionally classifies the head before the body streams:
+// its non-nil return aborts with that error table. Without a hook decision
+// a non-2xx surfaces as upstream, never as a silent stream.
 func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 	arg := L.CheckTable(2)
 	onLine := arg.RawGetString("on_line")
@@ -431,58 +464,134 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 			return 0
 		}
 	}
+	onResponse := arg.RawGetString("on_response")
+	if onResponse != lua.LNil {
+		if _, ok := onResponse.(*lua.LFunction); !ok {
+			L.RaiseError("stream: on_response must be a function")
+			return 0
+		}
+	}
 	req := c.buildRequest(L, arg)
 	if req == nil {
 		return 0
 	}
 	resp, _, _, err := c.doWithProxyRotation(req)
 	if err != nil {
+		L.Push(lua.LNil)
 		pushLuaErr(L, "upstream", err.Error())
-		return 1
+		return 2
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		pushLuaErr(L, "upstream", fmt.Sprintf("unexpected status %d: %s", resp.StatusCode, string(body)))
-		return 1
+	head := responseHead(L, resp)
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if hookErr := c.runOnResponse(L, onResponse, head); hookErr != nil {
+			L.Push(lua.LNil)
+			L.Push(hookErr)
+			return 2
+		}
+	} else {
+		// Error responses never stream: buffer the bounded body first so
+		// the hook classifies with full context (status, headers, body).
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, streamErrBodyLimit))
+		head.RawSetString("body", lua.LString(string(errBody)))
+		if hookErr := c.runOnResponse(L, onResponse, head); hookErr != nil {
+			L.Push(lua.LNil)
+			L.Push(hookErr)
+			return 2
+		}
+		L.Push(lua.LNil)
+		pushLuaErr(L, "upstream", fmt.Sprintf("unexpected status %d: %s", resp.StatusCode, string(errBody)))
+		return 2
 	}
 	if fn, ok := onChunk.(*lua.LFunction); ok {
-		buf := make([]byte, 32<<10)
+		buf := make([]byte, streamChunkSize)
 		for {
 			n, err := resp.Body.Read(buf)
 			if n > 0 {
 				if callErr := protectedCallback(L, fn, lua.LString(string(buf[:n]))); callErr != nil {
+					L.Push(lua.LNil)
 					pushLuaErr(L, "upstream", fmt.Sprintf("on_chunk failed: %s", callErr.Error()))
-					return 1
+					return 2
 				}
 			}
 			if err == io.EOF {
 				break
 			}
 			if err != nil {
+				L.Push(lua.LNil)
 				pushLuaErr(L, "upstream", err.Error())
-				return 1
+				return 2
 			}
 		}
+		L.Push(head)
 		L.Push(lua.LNil)
-		return 1
+		return 2
 	}
 	fn := onLine.(*lua.LFunction)
 	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 64<<10), 1<<20)
+	scanner.Buffer(make([]byte, streamScannerMin), streamScannerMax)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if callErr := protectedCallback(L, fn, lua.LString(line)); callErr != nil {
+			L.Push(lua.LNil)
 			pushLuaErr(L, "upstream", fmt.Sprintf("on_line failed: %s", callErr.Error()))
-			return 1
+			return 2
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		L.Push(lua.LNil)
 		pushLuaErr(L, "upstream", err.Error())
-		return 1
+		return 2
 	}
+	L.Push(head)
 	L.Push(lua.LNil)
-	return 1
+	return 2
+}
+
+// responseHead renders the response status line as a Lua table for the
+// on_response hook and the stream success value.
+func responseHead(L *lua.LState, resp *http.Response) *lua.LTable {
+	head := L.NewTable()
+	head.RawSetString("status", lua.LNumber(resp.StatusCode))
+	hdrs := L.NewTable()
+	for k, vv := range resp.Header {
+		hdrs.RawSetString(strings.ToLower(k), lua.LString(strings.Join(vv, ", ")))
+	}
+	head.RawSetString("headers", hdrs)
+	return head
+}
+
+// runOnResponse invokes the on_response hook (LNil = absent) with the
+// response head. A nil hook return accepts the head; a table return aborts
+// the stream with that error. Anything else is a plugin bug and raises.
+func (c *pluginHTTPClient) runOnResponse(L *lua.LState, hook lua.LValue, head *lua.LTable) lua.LValue {
+	if hook == lua.LNil {
+		return nil
+	}
+	fn, ok := hook.(*lua.LFunction)
+	if !ok {
+		L.RaiseError("stream: on_response must be a function")
+		return nil
+	}
+	top := L.GetTop()
+	L.Push(fn)
+	L.Push(head)
+	if err := L.PCall(1, 1, nil); err != nil {
+		L.SetTop(top)
+		L.RaiseError("stream: on_response failed: %s", err.Error())
+		return nil
+	}
+	ret := L.Get(-1)
+	L.Pop(1)
+	if ret == lua.LNil {
+		return nil
+	}
+	tbl, ok := ret.(*lua.LTable)
+	if !ok {
+		L.RaiseError("stream: on_response must return a table or nil")
+		return nil
+	}
+	return tbl
 }
 
 func protectedCallback(L *lua.LState, fn *lua.LFunction, args ...lua.LValue) error {

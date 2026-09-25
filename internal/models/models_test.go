@@ -90,6 +90,23 @@ func TestModelId_ParseFull_WithQualifier(t *testing.T) {
 	}
 }
 
+func TestModelId_Name(t *testing.T) {
+	tests := []struct {
+		input ModelId
+		want  string
+	}{
+		{"groq/openai/gpt-oss-20b", "openai/gpt-oss-20b"},
+		{"google/gemini-2.5-pro", "gemini-2.5-pro"},
+		{"invalid", "invalid"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		if got := tt.input.Name(); got != tt.want {
+			t.Errorf("Name(%q): got %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
 // ─────────────────────────────────────────────
 // TokenRules Tests
 // ─────────────────────────────────────────────
@@ -238,29 +255,6 @@ func TestCredential_IsExpired_NoExpiry(t *testing.T) {
 	}
 }
 
-func TestCredential_IsQuotaExceeded_NotExceeded(t *testing.T) {
-	past := time.Now().Add(-1 * time.Hour)
-	cred := &Credential{QuotaResetAt: &past}
-	if cred.IsQuotaExceeded() {
-		t.Error("quota should not be exceeded (reset time passed)")
-	}
-}
-
-func TestCredential_IsQuotaExceeded_Exceeded(t *testing.T) {
-	future := time.Now().Add(1 * time.Hour)
-	cred := &Credential{QuotaResetAt: &future}
-	if !cred.IsQuotaExceeded() {
-		t.Error("quota should be exceeded")
-	}
-}
-
-func TestCredential_IsQuotaExceeded_NoQuota(t *testing.T) {
-	cred := &Credential{QuotaResetAt: nil}
-	if cred.IsQuotaExceeded() {
-		t.Error("credential with no quota should not be exceeded")
-	}
-}
-
 func TestCredential_Priority_NeverUsed(t *testing.T) {
 	cred := &Credential{LastUsedAt: nil}
 	if cred.Priority() != 0 {
@@ -276,18 +270,6 @@ func TestCredential_Priority_Normal(t *testing.T) {
 	}
 }
 
-func TestCredential_Priority_QuotaExceeded(t *testing.T) {
-	now := time.Now()
-	future := time.Now().Add(1 * time.Hour)
-	cred := &Credential{
-		LastUsedAt:   &now,
-		QuotaResetAt: &future,
-	}
-	if cred.Priority() != 2 {
-		t.Errorf("quota exceeded credential should have priority 2, got %d", cred.Priority())
-	}
-}
-
 func TestCredential_Priority_Expired(t *testing.T) {
 	now := time.Now()
 	past := time.Now().Add(-1 * time.Hour)
@@ -295,22 +277,8 @@ func TestCredential_Priority_Expired(t *testing.T) {
 		LastUsedAt: &now,
 		ExpiresAt:  &past,
 	}
-	if cred.Priority() != 3 {
-		t.Errorf("expired credential should have priority 3, got %d", cred.Priority())
-	}
-}
-
-func TestCredential_Priority_BothExpiredAndQuota(t *testing.T) {
-	now := time.Now()
-	past := time.Now().Add(-1 * time.Hour)
-	future := time.Now().Add(1 * time.Hour)
-	cred := &Credential{
-		LastUsedAt:   &now,
-		ExpiresAt:    &past,
-		QuotaResetAt: &future,
-	}
-	if cred.Priority() != 3 {
-		t.Errorf("expired credential should have priority 3 even with quota exceeded, got %d", cred.Priority())
+	if cred.Priority() != 2 {
+		t.Errorf("expired credential should have priority 2, got %d", cred.Priority())
 	}
 }
 

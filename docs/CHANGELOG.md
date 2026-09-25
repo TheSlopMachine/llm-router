@@ -1,5 +1,44 @@
 # Backend changes required by the provider detail page
 
+## Done (0.1.2 plugin contract)
+
+1. **`payment_required` error type** — `ErrorTypePaymentRequired` for
+   upstream paywalls (status 402 → `402` + `payment_required` on the wire).
+   Exhausted marking ignores it like `auth`; smoke harnesses treat it as a
+   skip with reason, not a failure.
+
+## Done (0.1.1 plugin contract)
+
+1. **Unified exhausted store** — `internal/services/exhausted` (bucket
+   `exhausted`): joint limit keys over plugin, provider type, account,
+   model, proxy. Stored keys act as filters (subset match); expired entries
+   delete on read. Credential pools drop matching combinations (full pool
+   kept as last resort); proxy picks filter after ranking.
+2. **Error `scope`** — `ProviderError.Scope` (`account`/`model`/`proxy`,
+   parsed from the contract table, unknown words fail closed). Empty scope
+   on rate/quota marks the full combination. Marking happens once, in the
+   exec defer, for rate/quota outcomes only.
+3. **`classify_error`** — handler slot plus `llm_router.classify_error`
+   helper (default from status plus envelope code/type, quota wording,
+   retry-after header/body hints; extension gets `(raw, default)` and
+   returns the final table or nil; pure, no recursion).
+4. **Removed old limit state** — credential `quota_reset_at` path and the
+   `proxy_limits` bucket are gone, with named startup migrations
+   (`migrateDropProxyLimits`, `migrateClearCredentialQuota`). `geo` no
+   longer persists anything.
+5. **Streamlined pipeline** — `HandlerMeta` through pool/handlers/exec;
+   `request.model_name` everywhere, `embed.encoding_format`;
+   `client:stream` returns `(resp, err)` with an `on_response` hook;
+   `llm_router.http_client` (renamed); `invalid_request` stops pool
+   failover; manifest floor 0.1.1 (older contracts rejected at install);
+   registry rebuild fails closed on duplicate type keys; rollback
+   snapshots cover proxy source keys.
+
+Tests: `internal/services/exhausted/store_test.go`,
+`internal/services/luaplugin/{classify_test,exhausted_test,stream_api_test,meta_test}.go`,
+`internal/services/router/exhausted_test.go`,
+`internal/server/{migrate_test,proxy_wiring_test}.go`. `make go-test` green.
+
 ## Done (2026-09-11)
 
 1. **Rename/update credential** — `PUT /api/llm-router/dashboard/credentials/{id}`

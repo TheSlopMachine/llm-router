@@ -14,6 +14,8 @@ func MapUpstream(status int, code, errType, message string) *models.ProviderErro
 	}
 	perr := &models.ProviderError{StatusCode: status, Message: msg}
 	switch {
+	case status == 402:
+		perr.Type = models.ErrorTypePaymentRequired
 	case status == 401 || status == 403:
 		perr.Type = models.ErrorTypeAuth
 	case status == 404:

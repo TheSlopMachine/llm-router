@@ -2,6 +2,7 @@ package luaplugin
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -12,7 +13,7 @@ import (
 const testPluginSource = `--- @plugin Test Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.0.4
+--- @router_version 0.1.1
 --- @description Test plugin
 --- @allow_host example.com
 
@@ -62,7 +63,7 @@ func setupService(t *testing.T) *Service {
 const iconPluginSource = `--- @plugin Icon Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.0.4
+--- @router_version 0.1.1
 --- @description Icon plugin
 --- @allow_host example.com
 
@@ -158,7 +159,7 @@ func TestParseManifest(t *testing.T) {
 }
 
 func TestParseManifestWildcard(t *testing.T) {
-	src := "--- @plugin P\n--- @author a\n--- @version 1.0.0\n--- @router_version 0.0.4\n--- @allow_host *\n"
+	src := "--- @plugin P\n--- @author a\n--- @version 1.0.0\n--- @router_version 0.1.1\n--- @allow_host *\n"
 	m, err := ParseManifest([]byte(src))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -172,7 +173,7 @@ func TestParseManifestMissing(t *testing.T) {
 	for _, src := range []string{
 		"--- @plugin P\n--- @author a\n",
 		"print('no header')\n",
-		"--- @plugin P\n--- @author a\n--- @version 1.0.0\n--- @router_version 0.0.4\n",
+		"--- @plugin P\n--- @author a\n--- @version 1.0.0\n--- @router_version 0.1.1\n",
 	} {
 		if _, err := ParseManifest([]byte(src)); err == nil {
 			t.Fatalf("expected error for %q", src)
@@ -181,17 +182,19 @@ func TestParseManifestMissing(t *testing.T) {
 }
 
 func TestCheckRouterVersion(t *testing.T) {
-	m := &Manifest{RouterVersion: "0.0.4"}
-	if err := CheckRouterVersion(m, "0.0.4"); err != nil {
+	m := &Manifest{RouterVersion: "0.1.1"}
+	if err := CheckRouterVersion(m, "0.1.1"); err != nil {
 		t.Fatalf("equal versions: %v", err)
 	}
 	m.RouterVersion = "99.0.0"
-	if err := CheckRouterVersion(m, "0.0.4"); err == nil {
+	if err := CheckRouterVersion(m, "0.1.1"); err == nil {
 		t.Fatal("expected rejection of newer router requirement")
 	}
-	m.RouterVersion = "0.0.3"
-	if err := CheckRouterVersion(m, "0.0.4"); err != nil {
-		t.Fatalf("older requirement must pass: %v", err)
+	for _, old := range []string{"0.0.7", "0.0.4", "0.0.3"} {
+		m.RouterVersion = old
+		if err := CheckRouterVersion(m, "0.1.1"); err == nil {
+			t.Fatalf("pre-0.1.1 contract %s must be rejected", old)
+		}
 	}
 }
 
@@ -211,10 +214,9 @@ func TestInstallAndComplete(t *testing.T) {
 		t.Fatalf("lookup: %v", err)
 	}
 
-	resp, err := svc.Complete(context.Background(), "test-type",
-		&models.Credential{ID: "c1", Data: map[string]any{"api_key": "k"}},
-		&models.ChatCompletionRequest{Model: "test-type/model-a", Messages: []models.ChatMessage{{Role: "user", Content: "hi"}}},
-		nil)
+	resp, err := svc.Complete(context.Background(), testMeta("test-type",
+		&models.Credential{ID: "c1", Data: map[string]any{"api_key": "k"}}, "test-type/model-a", nil),
+		&models.ChatCompletionRequest{Model: "test-type/model-a", Messages: []models.ChatMessage{{Role: "user", Content: "hi"}}})
 	if err != nil {
 		t.Fatalf("complete: %v", err)
 	}
@@ -243,7 +245,7 @@ func TestSandboxDeniesUnsafeGlobals(t *testing.T) {
 	bad := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.0.4
+--- @router_version 0.1.1
 --- @allow_host example.com
 
 local x = os.execute("echo hi")
@@ -261,7 +263,7 @@ func TestErrorContract(t *testing.T) {
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.0.4
+--- @router_version 0.1.1
 --- @allow_host example.com
 
 llm_router.register("err-type", {
@@ -273,8 +275,8 @@ llm_router.register("err-type", {
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Complete(context.Background(), "err-type",
-		&models.Credential{ID: "c1"}, &models.ChatCompletionRequest{Model: "x/y"}, nil)
+	_, err := svc.Complete(context.Background(), testMeta("err-type",
+		&models.Credential{ID: "c1"}, "x/y", nil), &models.ChatCompletionRequest{Model: "x/y"})
 	perr, ok := err.(*models.ProviderError)
 	if !ok {
 		t.Fatalf("expected ProviderError, got %T (%v)", err, err)
@@ -284,12 +286,156 @@ llm_router.register("err-type", {
 	}
 }
 
+func TestErrorContractScope(t *testing.T) {
+	svc := setupService(t)
+	src := `--- @plugin P
+--- @author a
+--- @version 1.0.0
+--- @router_version 0.1.1
+--- @allow_host example.com
+
+llm_router.register("scope-type", {
+  complete = function(ctx, credential, request)
+    return nil, { type = "quota_exceeded", message = "out",
+      retry_after = 1700000060, scope = { "account", "model" } }
+  end,
+})
+`
+	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	_, err := svc.Complete(context.Background(), testMeta("scope-type",
+		&models.Credential{ID: "c1"}, "x/y", nil), &models.ChatCompletionRequest{Model: "x/y"})
+	perr, ok := err.(*models.ProviderError)
+	if !ok {
+		t.Fatalf("expected ProviderError, got %T (%v)", err, err)
+	}
+	if len(perr.Scope) != 2 || perr.Scope[0] != "account" || perr.Scope[1] != "model" {
+		t.Fatalf("scope: %v", perr.Scope)
+	}
+}
+
+func TestErrorContractBadScopeIsInternal(t *testing.T) {
+	svc := setupService(t)
+	src := `--- @plugin P
+--- @author a
+--- @version 1.0.0
+--- @router_version 0.1.1
+--- @allow_host example.com
+
+llm_router.register("badscope-type", {
+  complete = function(ctx, credential, request)
+    return nil, { type = "rate_limit", message = "slow", scope = { "region" } }
+  end,
+})
+`
+	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	_, err := svc.Complete(context.Background(), testMeta("badscope-type",
+		&models.Credential{ID: "c1"}, "x/y", nil), &models.ChatCompletionRequest{Model: "x/y"})
+	var ierr *models.PluginInternalError
+	if !errors.As(err, &ierr) {
+		t.Fatalf("unknown scope word must fail closed, got %T (%v)", err, err)
+	}
+}
+
+func TestIsFatalPoolError(t *testing.T) {
+	fatal := []error{
+		ErrHandlerNotFound,
+		&models.ProviderError{Type: models.ErrorTypeInvalidRequest},
+	}
+	for _, err := range fatal {
+		if !isFatalPoolError(err) {
+			t.Fatalf("must be fatal: %v", err)
+		}
+	}
+	nonFatal := []error{
+		&models.ProviderError{Type: models.ErrorTypeRateLimit},
+		&models.ProviderError{Type: models.ErrorTypeQuotaExceeded},
+		&models.ProviderError{Type: models.ErrorTypeAuth},
+		&models.ProviderError{Type: models.ErrorTypeUpstream},
+		&models.ProviderError{Type: models.ErrorTypeTimeout},
+		&models.ProviderError{Type: models.ErrorTypeGeo},
+		&models.ProviderError{Type: models.ErrorTypeNotFound},
+		&models.ProviderError{Type: models.ErrorTypePaymentRequired},
+		errors.New("boom"),
+		nil,
+	}
+	for _, err := range nonFatal {
+		if isFatalPoolError(err) {
+			t.Fatalf("must not be fatal: %v", err)
+		}
+	}
+}
+
+func TestCompletePool_InvalidRequestStopsAfterFirstKey(t *testing.T) {
+	svc := setupService(t)
+	src := `--- @plugin P
+--- @author a
+--- @version 1.0.0
+--- @router_version 0.1.1
+--- @allow_host example.com
+
+llm_router.register("fatal-type", {
+  complete = function(ctx, credential, request)
+    print("attempt " .. credential.id)
+    return nil, { type = "invalid_request", message = "bad prompt" }
+  end,
+})
+`
+	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	creds := []*models.Credential{{ID: "a"}, {ID: "b"}}
+	req := &models.ChatCompletionRequest{Model: "fatal-type/m"}
+	meta := testMeta("fatal-type", nil, req.Model, nil)
+	if _, err := svc.CompletePool(context.Background(), meta, creds, req); !isFatalPoolError(err) {
+		t.Fatalf("invalid_request must surface as fatal pool error, got %v", err)
+	}
+	rec, err := svc.Lookup("fatal-type")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if got := len(svc.Logs(rec.ID)); got != 1 {
+		t.Fatalf("invalid_request must stop after 1 attempt, got %d log lines", got)
+	}
+}
+
+func TestErrorContractPaymentRequired(t *testing.T) {
+	svc := setupService(t)
+	src := `--- @plugin P
+--- @author a
+--- @version 1.0.0
+--- @router_version 0.1.1
+--- @allow_host example.com
+
+llm_router.register("pay-type", {
+  complete = function(ctx, credential, request)
+    return nil, { type = "payment_required", message = "subscription required" }
+  end,
+})
+`
+	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	_, err := svc.Complete(context.Background(), testMeta("pay-type",
+		&models.Credential{ID: "c1"}, "x/y", nil), &models.ChatCompletionRequest{Model: "x/y"})
+	perr, ok := err.(*models.ProviderError)
+	if !ok {
+		t.Fatalf("expected ProviderError, got %T (%v)", err, err)
+	}
+	if perr.Type != models.ErrorTypePaymentRequired || perr.StatusCode != 402 {
+		t.Fatalf("payment: %+v", perr)
+	}
+}
+
 func TestRuntimeCrashIsInternal(t *testing.T) {
 	svc := setupService(t)
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.0.4
+--- @router_version 0.1.1
 --- @allow_host example.com
 
 llm_router.register("crash-type", {
@@ -302,8 +448,8 @@ llm_router.register("crash-type", {
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Complete(context.Background(), "crash-type",
-		&models.Credential{ID: "c1"}, &models.ChatCompletionRequest{Model: "x/y"}, nil)
+	_, err := svc.Complete(context.Background(), testMeta("crash-type",
+		&models.Credential{ID: "c1"}, "x/y", nil), &models.ChatCompletionRequest{Model: "x/y"})
 	perr, ok := err.(*models.PluginInternalError)
 	if !ok {
 		t.Fatalf("expected PluginInternalError, got %T (%v)", err, err)

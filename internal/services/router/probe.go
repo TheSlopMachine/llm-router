@@ -159,6 +159,8 @@ func probeSummary(err error) string {
 			return "request timed out"
 		case models.ErrorTypeGeo:
 			return "region blocked"
+		case models.ErrorTypePaymentRequired:
+			return "payment required"
 		}
 	}
 	return "probe failed"

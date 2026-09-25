@@ -3,7 +3,6 @@ package proxypool
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -407,40 +406,28 @@ func TestChoose_Matrix(t *testing.T) {
 	}
 }
 
-func TestChoose_SkipsLimitedAndBlocked(t *testing.T) {
+func TestChoose_FastestFirst(t *testing.T) {
 	svc := setupPool(t)
 	fast := seedProxy(t, svc, "http://10.1.0.1:8080", "US", 10, 1000, ManualSource)
 	slow := seedProxy(t, svc, "http://10.1.0.2:8080", "US", 20, 500, ManualSource)
 
-	svc.RecordRateLimit(fast.ID, "groq", time.Now().Add(time.Minute))
-	if id, _, _ := svc.Choose(nil, models.ProxyModeAuto, nil, "groq"); id != slow.ID {
-		t.Fatalf("rate-limited proxy must be skipped, got %q", id)
-	}
-	if id, _, _ := svc.Choose(nil, models.ProxyModeAuto, nil, "google"); id != fast.ID {
-		t.Fatalf("limit leaked to another provider, got %q", id)
-	}
-	svc.RecordRateLimit(fast.ID, "groq", time.Now().Add(-time.Minute))
 	if id, _, _ := svc.Choose(nil, models.ProxyModeAuto, nil, "groq"); id != fast.ID {
-		t.Fatalf("expired limit must not skip, got %q", id)
+		t.Fatalf("fastest proxy must win, got %q", id)
 	}
-	svc.RecordBlocked(fast.ID, "groq", "region locked")
-	if id, _, _ := svc.Choose(nil, models.ProxyModeAuto, nil, "groq"); id != slow.ID {
-		t.Fatalf("blocked proxy must be skipped, got %q", id)
-	}
-	if id, _, _ := svc.Choose(nil, models.ProxyModeAuto, nil, "google"); id != fast.ID {
-		t.Fatalf("block leaked to another provider, got %q", id)
+	picks, err := svc.Rank(nil, models.ProxyModeAuto, nil, "groq")
+	if err != nil || len(picks) != 2 || picks[0].ID != fast.ID || picks[1].ID != slow.ID {
+		t.Fatalf("rank order: %+v, %v", picks, err)
 	}
 }
 
-func TestDelete_CascadesPairState(t *testing.T) {
+func TestDelete_RemovesProxy(t *testing.T) {
 	svc := setupPool(t)
 	p := seedProxy(t, svc, "http://10.1.0.1:8080", "US", 10, 1000, ManualSource)
-	svc.RecordBlocked(p.ID, "groq", "region locked")
 	if err := svc.Delete(p.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.limits.Get(limitID(p.ID, "groq")); err == nil {
-		t.Fatal("pair state must die with the proxy")
+	if _, err := svc.Get(p.ID); err == nil {
+		t.Fatal("proxy must be gone after delete")
 	}
 }
 
@@ -626,19 +613,21 @@ func TestRankWaitWaitsForNotify(t *testing.T) {
 	}
 }
 
-func TestRankWaitNoProxiesWhenSettled(t *testing.T) {
+func TestRankSettledEmptyWhitelist(t *testing.T) {
 	svc := setupPool(t)
 	svc.SetConfig(15000, 1)
 	for i, region := range DefaultRegions {
-		p := seedProxy(t, svc, "http://127.0.0.1:91"+string(rune('0'+i)), region, 5, 20000, ManualSource)
-		svc.RecordRateLimit(p.ID, "groq", time.Now().Add(time.Hour))
+		seedProxy(t, svc, "http://127.0.0.1:91"+string(rune('0'+i)), region, 5, 20000, ManualSource)
 	}
 	if svc.NeedsSearch() {
-		t.Fatal("demand must read as satisfied for the no-proxies case")
+		t.Fatal("demand must read as satisfied for the settled case")
 	}
-	_, err := svc.RankWait(context.Background(), nil, nil, "groq")
-	if !errors.Is(err, ErrNoProxies) {
-		t.Fatalf("expected ErrNoProxies, got %v", err)
+	// A whitelist matching nothing pooled ranks empty without error. It
+	// must be asserted via Rank, not RankWait: Rank records the whitelist
+	// as demand, after which the pool is no longer settled for RankWait.
+	picks, err := svc.Rank([]string{"XX"}, models.ProxyModeAuto, nil, "groq")
+	if err != nil || len(picks) != 0 {
+		t.Fatalf("unmatched whitelist must rank empty: %+v, %v", picks, err)
 	}
 }
 

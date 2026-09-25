@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -17,6 +18,36 @@ func scopedProxyRec(rec *PluginRecord, typeKey string) *PluginRecord {
 	cp := *rec
 	cp.TypeKeys = []string{typeKey}
 	return &cp
+}
+
+// exhaustedJointKey builds the stored joint key for one rate/quota outcome.
+// Empty scope marks the full combination of known dimensions (at minimum
+// plugin and provider). A scope word naming an empty dimension skips
+// marking: a degraded key would bench wider than the error warrants (e.g. a
+// credential-less call marking the whole provider via scope account).
+func exhaustedJointKey(ctx *execContext, scope []string) (string, error) {
+	if len(scope) == 0 {
+		return exhausted.FullKey(ctx.pluginID, ctx.typeKey, ctx.credentialID, ctx.model.String(), ctx.lastProxyID), nil
+	}
+	for _, w := range scope {
+		switch w {
+		case models.ExhaustedScopeAccount:
+			if ctx.credentialID == "" {
+				return "", fmt.Errorf("exhausted: scope account with no credential")
+			}
+		case models.ExhaustedScopeModel:
+			if ctx.model == "" {
+				return "", fmt.Errorf("exhausted: scope model with no model")
+			}
+		case models.ExhaustedScopeProxy:
+			if ctx.lastProxyID == "" {
+				return "", fmt.Errorf("exhausted: scope proxy with no proxy")
+			}
+		default:
+			return "", fmt.Errorf("exhausted: unknown scope word %q", w)
+		}
+	}
+	return exhausted.KeyFromScope(ctx.pluginID, ctx.typeKey, ctx.credentialID, ctx.model.String(), ctx.lastProxyID, scope)
 }
 
 // handlerCall loads plugin source in a fresh state and invokes one handler.
@@ -31,7 +62,7 @@ func (s *Service) handlerCall(
 	applyRet func(L *lua.LState) error,
 	providerConfig map[string]any,
 ) (bool, error) {
-	found, _, err := s.handlerCallRouted(goCtx, rec, typeKey, handler, pushArgs, nret, applyRet, providerConfig)
+	found, _, err := s.handlerCallRouted(goCtx, rec, HandlerMeta{TypeKey: typeKey, ProviderConfig: providerConfig}, handler, pushArgs, nret, applyRet)
 	return found, err
 }
 
@@ -40,12 +71,13 @@ func (s *Service) handlerCall(
 func (s *Service) handlerCallRouted(
 	goCtx context.Context,
 	rec *PluginRecord,
-	typeKey, handler string,
+	meta HandlerMeta,
+	handler string,
 	pushArgs func(L *lua.LState),
 	nret int,
 	applyRet func(L *lua.LState) error,
-	providerConfig map[string]any,
 ) (found bool, route string, err error) {
+	typeKey := meta.TypeKey
 	ctx := &execContext{
 		pluginID:            rec.ID,
 		allowHosts:          rec.AllowHosts,
@@ -57,34 +89,43 @@ func (s *Service) handlerCallRouted(
 		proxySources:        map[string]*lua.LTable{},
 		proxyResolver:       s.proxyResolver,
 		proxyRec:            scopedProxyRec(rec, typeKey),
-		proxyProviderConfig: providerConfig,
+		proxyProviderConfig: meta.ProviderConfig,
+		providerID:          meta.ProviderID,
+		typeKey:             typeKey,
+		credentialID:        meta.credentialID(),
+		model:               meta.Model,
+		exhausted:           s.exhausted,
+		goCtx:               goCtx,
 	}
-	if s.proxyEventReporter != nil {
-		tk := typeKey
-		ctx.onProxyEvent = func(ev ProxyEvent) {
-			if ev.ProxyID != "" {
-				ev.Provider = tk
-				s.proxyEventReporter(ev)
-			}
-		}
-	}
-	// Pair outcomes: a rate-limit response limits the proxy for this
-	// provider until retry_after; a geo-blocked response blocks it.
+	// Joint limit marking: a rate/quota outcome records the scoped joint
+	// key (or the full combination without scope) in the exhausted store.
+	// The single site owns every identity dimension: plugin, type,
+	// credential, model and the last proxy of the call.
 	defer func() {
-		if err != nil && ctx.onProxyEvent != nil && ctx.lastProxyID != "" {
-			var perr *models.ProviderError
-			if errors.As(err, &perr) {
-				switch perr.Type {
-				case models.ErrorTypeRateLimit, models.ErrorTypeQuotaExceeded:
-					resetsAt := time.Now().Add(time.Minute)
-					if perr.RetryAfter != nil {
-						resetsAt = *perr.RetryAfter
-					}
-					ctx.onProxyEvent(ProxyEvent{ProxyID: ctx.lastProxyID, RateLimited: true, ResetsAt: resetsAt})
-				case models.ErrorTypeGeo:
-					ctx.onProxyEvent(ProxyEvent{ProxyID: ctx.lastProxyID, Blocked: true, BlockReason: perr.Message})
-				}
+		if err == nil || ctx.exhausted == nil {
+			return
+		}
+		var perr *models.ProviderError
+		if !errors.As(err, &perr) {
+			return
+		}
+		if perr.Type != models.ErrorTypeRateLimit && perr.Type != models.ErrorTypeQuotaExceeded {
+			return
+		}
+		resetsAt := time.Now().Add(time.Minute)
+		if perr.RetryAfter != nil {
+			resetsAt = *perr.RetryAfter
+		}
+		key, kerr := exhaustedJointKey(ctx, perr.Scope)
+		if kerr != nil {
+			if ctx.logger != nil {
+				ctx.logger.Warn("exhausted: skip marking on empty dimension",
+					"plugin_id", ctx.pluginID, "type", ctx.typeKey, "error", kerr)
 			}
+			return
+		}
+		if merr := ctx.exhausted.Mark(key, resetsAt, perr.Message); merr != nil && ctx.logger != nil {
+			ctx.logger.Warn("exhausted: mark failed", "key", key, "error", merr)
 		}
 	}()
 	L := newSandboxState(ctx)
@@ -176,6 +217,9 @@ func asProviderError(v lua.LValue) (*models.ProviderError, bool) {
 	case "geo":
 		errType = models.ErrorTypeGeo
 		status = 400
+	case "payment_required":
+		errType = models.ErrorTypePaymentRequired
+		status = 402
 	case "not_found":
 		errType = models.ErrorTypeNotFound
 		status = 404
@@ -193,7 +237,44 @@ func asProviderError(v lua.LValue) (*models.ProviderError, bool) {
 		t := time.Now().Add(time.Minute)
 		perr.RetryAfter = &t
 	}
+	if sv := tbl.RawGetString("scope"); sv != lua.LNil {
+		scope, ok := parseScope(sv)
+		if !ok {
+			return nil, false
+		}
+		perr.Scope = scope
+	}
 	return perr, true
+}
+
+// parseScope reads the optional scope array of an error contract table.
+// Every entry must name a known exhausted dimension; anything else rejects
+// the whole table so scope typos fail closed instead of silently widening
+// or dropping the marking.
+func parseScope(v lua.LValue) ([]string, bool) {
+	tbl, ok := v.(*lua.LTable)
+	if !ok {
+		return nil, false
+	}
+	var scope []string
+	valid := true
+	tbl.ForEach(func(_, item lua.LValue) {
+		s, ok := item.(lua.LString)
+		if !ok {
+			valid = false
+			return
+		}
+		switch string(s) {
+		case models.ExhaustedScopeAccount, models.ExhaustedScopeModel, models.ExhaustedScopeProxy:
+			scope = append(scope, string(s))
+		default:
+			valid = false
+		}
+	})
+	if !valid {
+		return nil, false
+	}
+	return scope, true
 }
 
 // luaCallError converts a failed PCall into ProviderError or PluginInternalError.

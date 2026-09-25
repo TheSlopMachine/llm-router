@@ -169,21 +169,13 @@ func TestCredentialService_All_SortedByPriority(t *testing.T) {
 	})
 	svc.UpdateUsage(normal.ID, true)
 
-	quotaExceeded, _ := svc.Add(AddOptions{
-		ProviderID: "mock",
-		Label:      "Quota Exceeded",
-		Data:       map[string]any{"api_key": "key3"},
-	})
-	svc.UpdateUsage(quotaExceeded.ID, true)
-	svc.MarkQuotaExceeded(quotaExceeded.ID, time.Now().Add(1*time.Hour))
-
 	all, err := svc.All("mock")
 	if err != nil {
 		t.Fatalf("all failed: %v", err)
 	}
 
-	if len(all) != 3 {
-		t.Fatalf("expected 3 credentials, got %d", len(all))
+	if len(all) != 2 {
+		t.Fatalf("expected 2 credentials, got %d", len(all))
 	}
 
 	if all[0].ID != neverUsed.ID {
@@ -191,9 +183,6 @@ func TestCredentialService_All_SortedByPriority(t *testing.T) {
 	}
 	if all[1].ID != normal.ID {
 		t.Errorf("second should be normal, got %s", all[1].ID)
-	}
-	if all[2].ID != quotaExceeded.ID {
-		t.Errorf("third should be quota exceeded, got %s", all[2].ID)
 	}
 }
 
@@ -280,37 +269,6 @@ func TestCredentialService_UpdateUsage_Failure(t *testing.T) {
 	}
 	if updated.FailureCount != 1 {
 		t.Errorf("failure count: got %d, want 1", updated.FailureCount)
-	}
-}
-
-// ─────────────────────────────────────────────
-// MarkQuotaExceeded Tests
-// ─────────────────────────────────────────────
-
-func TestCredentialService_MarkQuotaExceeded(t *testing.T) {
-	svc, _ := setupCredentialService(t)
-
-	cred, _ := svc.Add(AddOptions{
-		ProviderID: "mock",
-		Label:      "Test",
-		Data:       map[string]any{"api_key": "key1"},
-	})
-
-	resetAt := time.Now().Add(1 * time.Hour)
-	if err := svc.MarkQuotaExceeded(cred.ID, resetAt); err != nil {
-		t.Fatalf("mark quota exceeded failed: %v", err)
-	}
-
-	updated, err := svc.Get(cred.ID)
-	if err != nil {
-		t.Fatalf("get failed: %v", err)
-	}
-
-	if !updated.IsQuotaExceeded() {
-		t.Error("credential should be quota exceeded")
-	}
-	if updated.Priority() != 2 {
-		t.Errorf("priority: got %d, want 2", updated.Priority())
 	}
 }
 

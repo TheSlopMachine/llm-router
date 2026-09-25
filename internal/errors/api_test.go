@@ -50,6 +50,7 @@ func TestToAPIErrorProviderTypes(t *testing.T) {
 		{models.ErrorTypeNotFound, http.StatusNotFound, "not_found"},
 		{models.ErrorTypeInvalidRequest, http.StatusBadRequest, "invalid_request_error"},
 		{models.ErrorTypeGeo, http.StatusBadRequest, "geo_blocked"},
+		{models.ErrorTypePaymentRequired, http.StatusPaymentRequired, "payment_required"},
 		{models.ErrorTypeUpstream, http.StatusBadGateway, "upstream_error"},
 	}
 	for _, tc := range cases {
@@ -81,5 +82,9 @@ func TestMapUpstreamExactCodes(t *testing.T) {
 	notFound := MapUpstream(404, "", "", "no such model")
 	if notFound.Type != models.ErrorTypeNotFound {
 		t.Errorf("404: got %v", notFound.Type)
+	}
+	payment := MapUpstream(402, "", "", "subscription required")
+	if payment.Type != models.ErrorTypePaymentRequired {
+		t.Errorf("402: got %v", payment.Type)
 	}
 }

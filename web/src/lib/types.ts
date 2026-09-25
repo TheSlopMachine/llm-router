@@ -29,7 +29,6 @@ export interface Credential {
   order?: number
   request_count?: number
   success_count?: number
-  quota_reset_at?: string
   expires_at?: string
   updated_at: string
 }

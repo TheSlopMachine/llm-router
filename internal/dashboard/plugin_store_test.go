@@ -65,7 +65,7 @@ func TestStoreSearchReturnsIndexTitle(t *testing.T) {
 		_, _ = w.Write([]byte(`{"title":"Titled store","description":"Titled plugins","plugins":["a.lua"]}`))
 	})
 	mux.HandleFunc("/files/a.lua", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("--- @plugin Titled\n--- @author tester\n--- @version 1.0.0\n--- @router_version 0.0.4\n--- @allow_host example.com\n\nllm_router.register(\"titled-type\", {\n  complete = function() end,\n})\n"))
+		_, _ = w.Write([]byte("--- @plugin Titled\n--- @author tester\n--- @version 1.0.0\n--- @router_version 0.1.1\n--- @allow_host example.com\n\nllm_router.register(\"titled-type\", {\n  complete = function() end,\n})\n"))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()

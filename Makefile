@@ -28,7 +28,7 @@ BUN_MIN := 1.2
 GO_MIN  := 1.25
 BUN     := bun
 
-.PHONY: help check-frontend-deps check-publish-deps go-tidy fmt fmt-check init start stop restart status browser log log-frontend clean publish go-check go-test check-frontend
+.PHONY: help check-frontend-deps check-publish-deps go-tidy fmt fmt-check init start stop restart status browser log log-frontend clean publish go-check go-test check-frontend smoke
 
 help:
 	@cd scripts && GOWORK=off go run ./help
@@ -77,6 +77,12 @@ stop:
 
 restart:
 	@cd scripts && GOWORK=off go run ./restart
+
+# Smoke harness: restarts the dev stack with authorization off, then drives
+# the wire surfaces (provisioning accounts from SMOKE_* env automatically).
+smoke: NO_AUTH = 1
+smoke: restart
+	@cd scripts && GOWORK=off go run ./smoke
 
 status:
 	@cd scripts && GOWORK=off go run ./status

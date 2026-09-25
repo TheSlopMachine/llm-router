@@ -18,7 +18,11 @@ import (
 // 0.0.6 adds the speech and generate_image handlers.
 // 0.0.7 replaces the proxy pool: multi @proxy_location whitelist,
 // @proxy_default_option, per-pair rate limits and blocks.
-const CurrentVersion = "0.0.7"
+// 0.1.1 replaces per-pair proxy limits and credential quota marks with the
+// unified exhausted store: joint limit keys with a scope field on the error
+// contract. Old plugins are rejected by the manifest gate.
+// 0.1.2 adds the payment_required error type for upstream paywalls.
+const CurrentVersion = "0.1.2"
 
 // ─────────────────────────────────────────────
 // ModelId
@@ -55,6 +59,16 @@ func (m ModelId) ParseFull() (adapterType, qualifier, model string, err error) {
 		return providerID[:idx], providerID[idx+1:], model, nil
 	}
 	return providerID, "", model, nil
+}
+
+// Name returns the model name without the provider prefix: everything after
+// the first '/'. Plugins sending the bare name upstream use this instead of
+// hand-rolled stripping. Invalid ids yield the full id unchanged.
+func (m ModelId) Name() string {
+	if _, model, err := m.Parse(); err == nil {
+		return model
+	}
+	return string(m)
 }
 
 // ─────────────────────────────────────────────
@@ -780,15 +794,16 @@ type ModelOverride struct {
 type ErrorType int
 
 const (
-	ErrorTypeUnknown        ErrorType = iota
-	ErrorTypeRateLimit                // Temporary rate limit on this key
-	ErrorTypeQuotaExceeded            // Credential quota exhausted, deprioritize (MUST have RetryAfter)
-	ErrorTypeAuth                     // Auth failure, credential may be invalid
-	ErrorTypeUpstream                 // Transient upstream failure (5xx, overload)
-	ErrorTypeTimeout                  // Transient timeout
-	ErrorTypeInvalidRequest           // Invalid request
-	ErrorTypeGeo                      // Geo-blocked upstream; proxy used is at fault, mark it bad
-	ErrorTypeNotFound                 // Model does not exist upstream; drop it from the cache
+	ErrorTypeUnknown         ErrorType = iota
+	ErrorTypeRateLimit                 // Temporary rate limit on this key
+	ErrorTypeQuotaExceeded             // Credential quota exhausted, deprioritize (MUST have RetryAfter)
+	ErrorTypeAuth                      // Auth failure, credential may be invalid
+	ErrorTypeUpstream                  // Transient upstream failure (5xx, overload)
+	ErrorTypeTimeout                   // Transient timeout
+	ErrorTypeInvalidRequest            // Invalid request
+	ErrorTypeGeo                       // Geo-blocked upstream; proxy used is at fault, mark it bad
+	ErrorTypeNotFound                  // Model does not exist upstream; drop it from the cache
+	ErrorTypePaymentRequired           // Upstream paywall (subscription, credits): skip, never mark
 )
 
 // ProviderError represents errors returned by provider backends.
@@ -797,6 +812,10 @@ type ProviderError struct {
 	Message    string
 	Type       ErrorType
 	RetryAfter *time.Time
+	// Scope names the exhausted dimensions the error limits (account, model,
+	// proxy). Empty on rate/quota errors marks the full combination. Other
+	// types ignore scope.
+	Scope []string
 }
 
 func (e *ProviderError) Error() string {
@@ -1026,8 +1045,6 @@ type Credential struct {
 	SuccessCount int64      `json:"success_count"`
 	FailureCount int64      `json:"failure_count"`
 
-	QuotaResetAt *time.Time `json:"quota_reset_at,omitempty"`
-
 	// Disabled excludes the credential from routing and fallthrough.
 	Disabled bool `json:"disabled,omitempty"`
 	// Order is the admin-defined pool position (1-based). 0 means unordered:
@@ -1051,20 +1068,11 @@ func (c *Credential) ExpiresIn() time.Duration {
 	return time.Until(*c.ExpiresAt)
 }
 
-// IsQuotaExceeded reports whether the credential's quota is currently exceeded.
-func (c *Credential) IsQuotaExceeded() bool {
-	if c.QuotaResetAt == nil {
-		return false
-	}
-	return time.Now().Before(*c.QuotaResetAt)
-}
-
-// Priority returns the selection priority for this credential.
+// Priority returns the selection priority for this credential: unused
+// first, then used, expired last. Limit state lives in the exhausted store,
+// never on the credential.
 func (c *Credential) Priority() int {
 	if c.IsExpired() {
-		return 3
-	}
-	if c.IsQuotaExceeded() {
 		return 2
 	}
 	if c.LastUsedAt == nil {
@@ -1083,11 +1091,6 @@ func (c *Credential) IncrementUsage(success bool) {
 	} else {
 		c.FailureCount++
 	}
-}
-
-// MarkQuotaExceeded marks this credential as quota-exceeded until resetAt.
-func (c *Credential) MarkQuotaExceeded(resetAt time.Time) {
-	c.QuotaResetAt = &resetAt
 }
 
 // DataString returns a string view of a data value for Go adapters
@@ -1278,14 +1281,25 @@ type Proxy struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// ProxyLimit is per-pair live state for one proxy and one provider type key.
-// A limit or block for one provider never affects the others.
-type ProxyLimit struct {
-	ProxyID     string     `json:"proxy_id"`
-	Provider    string     `json:"provider"`
-	ResetsAt    *time.Time `json:"resets_at,omitempty"`
-	Blocked     bool       `json:"blocked,omitempty"`
-	BlockReason string     `json:"block_reason,omitempty"`
+// ─────────────────────────────────────────────
+// Exhausted store (0.1.1)
+// ─────────────────────────────────────────────
+
+// ExhaustedScope dimensions nameable in the error contract scope field.
+// Provider and plugin are always part of every key and need no naming.
+const (
+	ExhaustedScopeAccount = "account"
+	ExhaustedScopeModel   = "model"
+	ExhaustedScopeProxy   = "proxy"
+)
+
+// ExhaustedEntry is one joint limit key: the stored dimensions act as a
+// filter, and a candidate combination matching every stored dimension is
+// skipped until ResetsAt passes.
+type ExhaustedEntry struct {
+	Key      string    `json:"key"`
+	ResetsAt time.Time `json:"resets_at"`
+	Reason   string    `json:"reason,omitempty"`
 }
 
 // ActiveRegion is one demanded proxy exit location.

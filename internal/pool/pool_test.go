@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"testing"
-	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
@@ -15,16 +14,13 @@ import (
 type fakeTracker struct {
 	success  map[string]int
 	failure  map[string]int
-	quota    map[string]time.Time
 	usageErr error
-	quotaErr error
 }
 
 func newFakeTracker() *fakeTracker {
 	return &fakeTracker{
 		success: map[string]int{},
 		failure: map[string]int{},
-		quota:   map[string]time.Time{},
 	}
 }
 
@@ -37,14 +33,6 @@ func (f *fakeTracker) UpdateUsage(id string, success bool) error {
 	} else {
 		f.failure[id]++
 	}
-	return nil
-}
-
-func (f *fakeTracker) MarkQuotaExceeded(id string, resetAt time.Time) error {
-	if f.quotaErr != nil {
-		return f.quotaErr
-	}
-	f.quota[id] = resetAt
 	return nil
 }
 
@@ -139,16 +127,12 @@ func TestRunFatalStopsImmediately(t *testing.T) {
 	}
 }
 
-func TestRunMarksQuotaExceeded(t *testing.T) {
+func TestRunFailureTracksUsageOnly(t *testing.T) {
 	tracker := newFakeTracker()
-	resetAt := time.Now().Add(time.Hour).Truncate(time.Second)
 	_, _ = Run(context.Background(), nil, poolCreds("a"), tracker,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
-			return nil, &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeQuotaExceeded, Message: "quota", RetryAfter: &resetAt}
+			return nil, &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeQuotaExceeded, Message: "quota"}
 		}, nil)
-	if got := tracker.quota["a"].Truncate(time.Second); !got.Equal(resetAt) {
-		t.Errorf("quota mark: got %v, want %v", got, resetAt)
-	}
 	if tracker.failure["a"] != 1 {
 		t.Errorf("failure: got %v", tracker.failure)
 	}
@@ -171,7 +155,6 @@ func TestRunCanceledContext(t *testing.T) {
 func TestRunTrackingErrorsDoNotFailAttempts(t *testing.T) {
 	tracker := newFakeTracker()
 	tracker.usageErr = errors.New("storage unavailable")
-	tracker.quotaErr = errors.New("storage unavailable")
 	resp, err := Run(context.Background(), slog.Default(), poolCreds("a"), tracker,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			return okResp()

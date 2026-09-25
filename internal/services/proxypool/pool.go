@@ -70,7 +70,6 @@ var supportedProtocols = map[string]bool{"http": true, "https": true, "socks4": 
 // Service manages the proxy pool.
 type Service struct {
 	proxies *repository.Repository[models.Proxy]
-	limits  *repository.Repository[models.ProxyLimit]
 	regions *repository.Repository[models.ActiveRegion]
 	meta    *repository.Repository[sourceFetchMeta]
 	// CheckURL is the speed test download endpoint.
@@ -137,7 +136,6 @@ type SourceInfo struct {
 func New(database *db.DB) *Service {
 	return &Service{
 		proxies:        repository.New[models.Proxy](database, db.BucketProxies, "proxy"),
-		limits:         repository.New[models.ProxyLimit](database, db.BucketProxyLimits, "proxy_limit"),
 		regions:        repository.New[models.ActiveRegion](database, db.BucketActiveRegions, "active_region"),
 		meta:           repository.New[sourceFetchMeta](database, db.BucketProxySourceMeta, "proxy_source_meta"),
 		CheckURL:       "https://speed.cloudflare.com/__down?bytes=1048576",

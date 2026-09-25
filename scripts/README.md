@@ -22,6 +22,7 @@ Configuration flows one way: `Makefile` vars → env → scripts. Scripts take n
 | _(env)_ | `NO_SKIP` (`1`/`true`/`yes`/`on` disables caches) | `make init NO_SKIP=1` or `NO_SKIP=1 make init` |
 | `vet` / `test` / `fcheck` | — / `PKG` (default `./...`) / — | `make go-check` / `make go-test` / `make check-frontend` |
 | `fmt` | `FMT_WRITE=1` writes, otherwise checks | `make fmt` / `make fmt-check` |
+| `smoke` | `SMOKE_PLUGINS` (default `mock`), `SMOKE_TARGETS` (default `completions,messages`), `SMOKE_STORE_DIR`, `SMOKE_*_API_KEY`, `SMOKE_CLEANUP` (default `1`) | `make smoke` (restarts with `NO_AUTH=1` first) |
 
 `make go-test PKG=./internal/services/router/` scopes the run; `make fmt` applies `gofmt -w`, `make fmt-check` fails listing files that need it. Both cover the root and `scripts` modules, skipping `.workspace`, `node_modules`, `build`, `.git`.
 

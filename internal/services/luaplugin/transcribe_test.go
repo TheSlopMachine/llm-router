@@ -12,7 +12,7 @@ import (
 const transcribePluginSource = `--- @plugin Transcribe Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.0.5
+--- @router_version 0.1.1
 --- @description Transcribe test plugin
 --- @allow_host example.com
 
@@ -54,8 +54,8 @@ func TestTranscribe_Success(t *testing.T) {
 	if !svc.HasHandler("stt-type", "transcribe") {
 		t.Fatal("transcribe handler must be registered")
 	}
-	resp, err := svc.Transcribe(context.Background(), "stt-type",
-		&models.Credential{ID: "c1", Data: map[string]any{"api_key": "k"}},
+	resp, err := svc.Transcribe(context.Background(), testMeta("stt-type",
+		&models.Credential{ID: "c1", Data: map[string]any{"api_key": "k"}}, "stt-type/whisper-large-v3", nil),
 		&models.TranscriptionRequest{
 			Model:          "stt-type/whisper-large-v3",
 			File:           []byte("FAKEAUDIO\x00\x01\x02"),
@@ -63,7 +63,7 @@ func TestTranscribe_Success(t *testing.T) {
 			ContentType:    "audio/wav",
 			Language:       "en",
 			ResponseFormat: "srt",
-		}, nil)
+		})
 	if err != nil {
 		t.Fatalf("transcribe: %v", err)
 	}
@@ -84,9 +84,9 @@ func TestTranscribe_HandlerNotFound(t *testing.T) {
 	if _, err := svc.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Transcribe(context.Background(), "test-type",
-		&models.Credential{ID: "c1"},
-		&models.TranscriptionRequest{Model: "test-type/model-a", File: []byte("x"), FileName: "a.wav"}, nil)
+	_, err := svc.Transcribe(context.Background(), testMeta("test-type",
+		&models.Credential{ID: "c1"}, "test-type/model-a", nil),
+		&models.TranscriptionRequest{Model: "test-type/model-a", File: []byte("x"), FileName: "a.wav"})
 	if !errors.Is(err, ErrHandlerNotFound) {
 		t.Fatalf("expected ErrHandlerNotFound, got %v", err)
 	}
@@ -101,9 +101,9 @@ func TestTranscribe_ContractError(t *testing.T) {
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Transcribe(context.Background(), "stt-type",
-		&models.Credential{ID: "c1"},
-		&models.TranscriptionRequest{Model: "stt-type/m", File: []byte("x"), FileName: "a.wav"}, nil)
+	_, err := svc.Transcribe(context.Background(), testMeta("stt-type",
+		&models.Credential{ID: "c1"}, "stt-type/m", nil),
+		&models.TranscriptionRequest{Model: "stt-type/m", File: []byte("x"), FileName: "a.wav"})
 	perr, ok := err.(*models.ProviderError)
 	if !ok || perr.Type != models.ErrorTypeRateLimit {
 		t.Fatalf("expected rate_limit ProviderError, got %T (%v)", err, err)
@@ -115,7 +115,7 @@ func TestMultipartHelper(t *testing.T) {
 	src := `--- @plugin Multipart Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.0.5
+--- @router_version 0.1.1
 --- @description Multipart test plugin
 --- @allow_host example.com
 
@@ -141,11 +141,11 @@ llm_router.register("mp-type", {
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	resp, err := svc.Transcribe(context.Background(), "mp-type",
-		&models.Credential{ID: "c1"},
+	resp, err := svc.Transcribe(context.Background(), testMeta("mp-type",
+		&models.Credential{ID: "c1"}, "mp-type/m", nil),
 		&models.TranscriptionRequest{
 			Model: "mp-type/m", File: []byte("BINARY\x00\x01\x02"), FileName: "a.wav", ContentType: "audio/wav",
-		}, nil)
+		})
 	if err != nil {
 		t.Fatalf("transcribe: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestMultipartHelperValidation(t *testing.T) {
 	src := `--- @plugin Multipart Bad Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.0.5
+--- @router_version 0.1.1
 --- @description Multipart validation test
 --- @allow_host example.com
 
@@ -195,9 +195,9 @@ llm_router.register("mpbad-type", {
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Transcribe(context.Background(), "mpbad-type",
-		&models.Credential{ID: "c1"},
-		&models.TranscriptionRequest{Model: "mpbad-type/m", File: []byte("x"), FileName: "a.wav"}, nil)
+	_, err := svc.Transcribe(context.Background(), testMeta("mpbad-type",
+		&models.Credential{ID: "c1"}, "mpbad-type/m", nil),
+		&models.TranscriptionRequest{Model: "mpbad-type/m", File: []byte("x"), FileName: "a.wav"})
 	var ierr *models.PluginInternalError
 	if !errors.As(err, &ierr) {
 		t.Fatalf("expected PluginInternalError, got %T (%v)", err, err)

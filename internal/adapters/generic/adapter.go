@@ -3,7 +3,6 @@ package generic
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -151,7 +150,7 @@ func (a *Adapter) GetModelInfos(
 // Structured code/type fields of the upstream envelope decide; message
 // text never does.
 func classifyHTTPError(status int, body string) error {
-	code, errType, message := parseUpstreamEnvelope(body)
+	code, errType, message := apierrors.ParseEnvelope(body)
 	if message == "" {
 		message = fmt.Sprintf("unexpected status %d: %s", status, body)
 	}
@@ -161,32 +160,4 @@ func classifyHTTPError(status int, body string) error {
 		perr.RetryAfter = &retryAfter
 	}
 	return perr
-}
-
-// parseUpstreamEnvelope extracts code/type/message from an OpenAI-style
-// error envelope: {"error":{"code","type","message"}}. Unknown shapes
-// yield empty values and fall back to status-based mapping.
-func parseUpstreamEnvelope(body string) (code, errType, message string) {
-	var envelope struct {
-		Error struct {
-			Code    any `json:"code"`
-			Type    any `json:"type"`
-			Message any `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
-		return "", "", ""
-	}
-	return asString(envelope.Error.Code), asString(envelope.Error.Type), asString(envelope.Error.Message)
-}
-
-func asString(v any) string {
-	switch s := v.(type) {
-	case string:
-		return s
-	case float64:
-		return strings.TrimSuffix(fmt.Sprintf("%v", s), ".0")
-	default:
-		return ""
-	}
 }

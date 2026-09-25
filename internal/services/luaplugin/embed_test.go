@@ -12,7 +12,7 @@ import (
 const embedPluginSource = `--- @plugin Embed Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.0.6
+--- @router_version 0.1.1
 --- @description Embed test plugin
 --- @allow_host example.com
 
@@ -48,12 +48,12 @@ func TestEmbed_Success(t *testing.T) {
 	if !svc.HasHandler("emb-type", "embed") {
 		t.Fatal("embed handler must be registered")
 	}
-	resp, err := svc.Embed(context.Background(), "emb-type",
-		&models.Credential{ID: "c1"},
+	resp, err := svc.Embed(context.Background(), testMeta("emb-type",
+		&models.Credential{ID: "c1"}, "emb-type/gemini-embedding-001", nil),
 		&models.EmbeddingsRequest{
 			Model: "emb-type/gemini-embedding-001",
 			Input: []string{"hello", "world"},
-		}, nil)
+		})
 	if err != nil {
 		t.Fatalf("embed: %v", err)
 	}
@@ -81,9 +81,9 @@ func TestEmbed_HandlerNotFound(t *testing.T) {
 	if _, err := svc.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Embed(context.Background(), "test-type",
-		&models.Credential{ID: "c1"},
-		&models.EmbeddingsRequest{Model: "test-type/model-a", Input: []string{"x"}}, nil)
+	_, err := svc.Embed(context.Background(), testMeta("test-type",
+		&models.Credential{ID: "c1"}, "test-type/model-a", nil),
+		&models.EmbeddingsRequest{Model: "test-type/model-a", Input: []string{"x"}})
 	if !errors.Is(err, ErrHandlerNotFound) {
 		t.Fatalf("expected ErrHandlerNotFound, got %v", err)
 	}
@@ -98,9 +98,9 @@ func TestEmbed_ContractError(t *testing.T) {
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Embed(context.Background(), "emb-type",
-		&models.Credential{ID: "c1"},
-		&models.EmbeddingsRequest{Model: "emb-type/m", Input: []string{"x"}}, nil)
+	_, err := svc.Embed(context.Background(), testMeta("emb-type",
+		&models.Credential{ID: "c1"}, "emb-type/m", nil),
+		&models.EmbeddingsRequest{Model: "emb-type/m", Input: []string{"x"}})
 	perr, ok := err.(*models.ProviderError)
 	if !ok || perr.Type != models.ErrorTypeAuth {
 		t.Fatalf("expected auth ProviderError, got %T (%v)", err, err)
@@ -115,9 +115,9 @@ func TestEmbed_ShortResultIsCrash(t *testing.T) {
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Embed(context.Background(), "emb-type",
-		&models.Credential{ID: "c1"},
-		&models.EmbeddingsRequest{Model: "emb-type/m", Input: []string{"a", "b"}}, nil)
+	_, err := svc.Embed(context.Background(), testMeta("emb-type",
+		&models.Credential{ID: "c1"}, "emb-type/m", nil),
+		&models.EmbeddingsRequest{Model: "emb-type/m", Input: []string{"a", "b"}})
 	var perr *models.PluginInternalError
 	if !errors.As(err, &perr) || !strings.Contains(perr.Cause, "does not match input length") {
 		t.Fatalf("expected PluginInternalError about length mismatch, got %v", err)

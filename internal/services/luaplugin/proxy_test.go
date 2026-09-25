@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
@@ -27,12 +26,12 @@ func markerProxy(t *testing.T, marker string) string {
 const proxyFetchPluginSource = `--- @plugin Proxy Fetch Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.0.4
+--- @router_version 0.1.1
 --- @allow_host example.com
 
 llm_router.register("proxy-fetch-type", {
   complete = function(ctx, credential, request)
-    local client = llm_router.create_http_client({ timeout_ms = 5000 })
+    local client = llm_router.http_client({ timeout_ms = 5000 })
     local resp, req_err = client:request({ method = "GET", url = "http://example.com/probe" })
     if req_err ~= nil then
       return nil, { type = "upstream", message = req_err.message }
@@ -70,10 +69,10 @@ func TestComplete_RoutesThroughProxy(t *testing.T) {
 	})
 
 	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
-	resp, err := svc.Complete(t.Context(), "proxy-fetch-type", cred, &models.ChatCompletionRequest{
+	resp, err := svc.Complete(t.Context(), testMeta("proxy-fetch-type", cred, "test/proxy-model", nil), &models.ChatCompletionRequest{
 		Model:    "test/proxy-model",
 		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("complete: %v", err)
 	}
@@ -98,10 +97,10 @@ func TestComplete_RotatesToNextProxyOnFailure(t *testing.T) {
 	})
 
 	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
-	resp, err := svc.Complete(t.Context(), "proxy-fetch-type", cred, &models.ChatCompletionRequest{
+	resp, err := svc.Complete(t.Context(), testMeta("proxy-fetch-type", cred, "test/proxy-model", nil), &models.ChatCompletionRequest{
 		Model:    "test/proxy-model",
 		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("rotation should recover: %v", err)
 	}
@@ -121,143 +120,12 @@ func TestComplete_ProxyExhaustedSurfacesError(t *testing.T) {
 	})
 
 	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
-	_, err := svc.Complete(t.Context(), "proxy-fetch-type", cred, &models.ChatCompletionRequest{
+	_, err := svc.Complete(t.Context(), testMeta("proxy-fetch-type", cred, "test/proxy-model", nil), &models.ChatCompletionRequest{
 		Model:    "test/proxy-model",
 		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
-	}, nil)
+	})
 	if err == nil {
 		t.Fatal("exhausted proxy list must surface an error")
-	}
-}
-
-const proxyRateLimitPluginSource = `--- @plugin Proxy Rate Plugin
---- @author tester
---- @version 1.0.0
---- @router_version 0.0.4
---- @allow_host example.com
-
-llm_router.register("proxy-rate-type", {
-  complete = function(ctx, credential, request)
-    local client = llm_router.create_http_client({ timeout_ms = 5000 })
-    local resp, req_err = client:request({ method = "GET", url = "http://example.com/probe" })
-    if req_err ~= nil then
-      return nil, { type = "upstream", message = req_err.message }
-    end
-    return nil, { type = "rate_limit", message = "slow down", retry_after = 1700000060 }
-  end,
-})
-`
-
-const proxyGeoPluginSource = `--- @plugin Proxy Geo Plugin
---- @author tester
---- @version 1.0.0
---- @router_version 0.0.4
---- @allow_host example.com
-
-llm_router.register("proxy-geo-type", {
-  complete = function(ctx, credential, request)
-    local client = llm_router.create_http_client({ timeout_ms = 5000 })
-    local resp, req_err = client:request({ method = "GET", url = "http://example.com/probe" })
-    if req_err ~= nil then
-      return nil, { type = "upstream", message = req_err.message }
-    end
-    return nil, { type = "geo", message = "region locked" }
-  end,
-})
-`
-
-func TestComplete_RateLimitReportsPairEvent(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(proxyRateLimitPluginSource), PluginOrigin{Manual: true}); err != nil {
-		t.Fatalf("install: %v", err)
-	}
-	proxyURL := markerProxy(t, "x")
-	svc.SetProxyResolver(func(_ context.Context, _ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
-		return []ProxyPick{{ID: "px-1", URL: proxyURL}}, nil
-	})
-	var events []ProxyEvent
-	svc.SetProxyEventReporter(func(ev ProxyEvent) {
-		events = append(events, ev)
-	})
-
-	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
-	_, err := svc.Complete(t.Context(), "proxy-rate-type", cred, &models.ChatCompletionRequest{
-		Model:    "test/rate-model",
-		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
-	}, nil)
-	if err == nil {
-		t.Fatal("rate limit must surface an error")
-	}
-	if len(events) != 1 || !events[0].RateLimited || events[0].ProxyID != "px-1" {
-		t.Fatalf("rate limit pair event missing: %+v", events)
-	}
-	if events[0].ResetsAt.Unix() != 1700000060 {
-		t.Fatalf("retry_after not honored: %+v", events[0])
-	}
-}
-
-func TestComplete_GeoReportsPairBlock(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(proxyGeoPluginSource), PluginOrigin{Manual: true}); err != nil {
-		t.Fatalf("install: %v", err)
-	}
-	proxyURL := markerProxy(t, "ok-region")
-	svc.SetProxyResolver(func(_ context.Context, _ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
-		return []ProxyPick{{ID: "px-1", URL: proxyURL}}, nil
-	})
-	var events []ProxyEvent
-	svc.SetProxyEventReporter(func(ev ProxyEvent) {
-		events = append(events, ev)
-	})
-
-	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
-	_, err := svc.Complete(t.Context(), "proxy-geo-type", cred, &models.ChatCompletionRequest{
-		Model:    "test/geo-model",
-		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
-	}, nil)
-	if err == nil {
-		t.Fatal("geo error must surface")
-	}
-	var perr *models.ProviderError
-	if !errors.As(err, &perr) || perr.Type != models.ErrorTypeGeo {
-		t.Fatalf("geo error must stay a geo provider error: %v", err)
-	}
-	if len(events) != 1 || !events[0].Blocked || events[0].ProxyID != "px-1" {
-		t.Fatalf("geo pair block missing: %+v", events)
-	}
-	if events[0].BlockReason != "region locked" {
-		t.Fatalf("block reason not carried: %+v", events[0])
-	}
-}
-
-func TestComplete_RateLimitDefaultResetsInMinute(t *testing.T) {
-	svc := setupService(t)
-	src := strings.Replace(proxyRateLimitPluginSource, "proxy-rate-type", "proxy-rate-dflt", 1)
-	src = strings.Replace(src, `, retry_after = 1700000060`, ``, 1)
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
-		t.Fatalf("install: %v", err)
-	}
-	proxyURL := markerProxy(t, "x")
-	svc.SetProxyResolver(func(_ context.Context, _ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
-		return []ProxyPick{{ID: "px-1", URL: proxyURL}}, nil
-	})
-	var events []ProxyEvent
-	svc.SetProxyEventReporter(func(ev ProxyEvent) {
-		events = append(events, ev)
-	})
-	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
-	// The rate_limit fixture without retry_after defaults in asProviderError;
-	// quota_exceeded defaults to now+60s at the contract layer.
-	before := time.Now()
-	_, _ = svc.Complete(t.Context(), "proxy-rate-dflt", cred, &models.ChatCompletionRequest{
-		Model:    "test/rate-model",
-		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
-	}, nil)
-	if len(events) != 1 || !events[0].RateLimited {
-		t.Fatalf("rate limit pair event missing: %+v", events)
-	}
-	if events[0].ResetsAt.Before(before) {
-		t.Fatalf("default reset must be in the future: %+v", events[0])
 	}
 }
 

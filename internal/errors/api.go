@@ -34,6 +34,8 @@ func ToAPIError(err error) APIError {
 			return APIError{http.StatusBadRequest, "invalid_request_error"}
 		case models.ErrorTypeGeo:
 			return APIError{http.StatusBadRequest, "geo_blocked"}
+		case models.ErrorTypePaymentRequired:
+			return APIError{http.StatusPaymentRequired, "payment_required"}
 		case models.ErrorTypeUpstream:
 			return APIError{http.StatusBadGateway, "upstream_error"}
 		default:
@@ -73,7 +75,7 @@ func ErrorTypeForCode(code string) string {
 	switch code {
 	case "invalid_request_error", "not_found", "model_not_allowed", "provider_not_allowed", "credential_not_allowed", "provider_not_found":
 		return "invalid_request_error"
-	case "missing_token", "invalid_token", "auth_error":
+	case "missing_token", "invalid_token", "auth_error", "payment_required":
 		return "invalid_request_error"
 	case "rate_limit", "quota_exceeded":
 		return "rate_limit_error"

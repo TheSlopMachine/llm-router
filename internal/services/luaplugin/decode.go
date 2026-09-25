@@ -78,18 +78,19 @@ func (s *Service) schemaViolation(rec *PluginRecord, typeKey, handler, cause str
 func callAndDecode[T any](
 	s *Service,
 	goCtx context.Context,
-	typeKey, handler string,
+	meta HandlerMeta,
+	handler string,
 	pushArgs func(*lua.LState),
 	emptyKeys []string,
 	validate func(*T) error,
-	providerConfig map[string]any,
 ) (*T, error) {
+	typeKey := meta.TypeKey
 	rec, err := s.Lookup(typeKey)
 	if err != nil {
 		return nil, err
 	}
 	var out *T
-	found, _, callErr := s.handlerCallRouted(goCtx, rec, typeKey, handler, pushArgs, 2, func(L *lua.LState) error {
+	found, _, callErr := s.handlerCallRouted(goCtx, rec, meta, handler, pushArgs, 2, func(L *lua.LState) error {
 		result, rawErr := splitReturn(L)
 		decoded, derr := decodeHandlerResult(s, rec, typeKey, handler, result, rawErr, emptyKeys, validate)
 		if derr != nil {
@@ -97,7 +98,7 @@ func callAndDecode[T any](
 		}
 		out = decoded
 		return nil
-	}, providerConfig)
+	})
 	if callErr != nil {
 		return nil, callErr
 	}

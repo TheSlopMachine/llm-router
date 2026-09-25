@@ -9,7 +9,7 @@ func sourcePlugin(name, source string) string {
 	return `--- @plugin ` + name + `
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.0.4
+--- @router_version 0.1.1
 --- @allow_host example.com
 --- @proxy_source true
 
@@ -52,6 +52,65 @@ func TestProxySourceKeysQualifyByRecord(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Fatalf("keys missing: %v", want)
+	}
+}
+
+// TestRollbackRestoresProxySourceKeys guards the snapshot contract: proxy
+// source keys survive an update that drops them and come back on rollback.
+func TestRollbackRestoresProxySourceKeys(t *testing.T) {
+	svc := setupService(t)
+	v1 := sourcePlugin("Source RB", "rbsrc")
+	rec, err := svc.Install([]byte(v1), PluginOrigin{Manual: true})
+	if err != nil {
+		t.Fatalf("install v1: %v", err)
+	}
+	if len(rec.ProxySourceKeys) != 1 {
+		t.Fatalf("v1 source keys: %v", rec.ProxySourceKeys)
+	}
+	v2 := `--- @plugin Source RB
+--- @author tester
+--- @version 2.0.0
+--- @router_version 0.1.1
+--- @allow_host example.com
+
+llm_router.register("rb-type", {
+  complete = function(ctx, credential, request)
+    return nil, { type = "upstream", message = "v2" }
+  end,
+})
+`
+	rec2, err := svc.Install([]byte(v2), PluginOrigin{Manual: true})
+	if err != nil {
+		t.Fatalf("install v2: %v", err)
+	}
+	if len(rec2.ProxySourceKeys) != 0 {
+		t.Fatalf("v2 source keys: %v", rec2.ProxySourceKeys)
+	}
+	rolled, err := svc.Rollback(rec2.ID)
+	if err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	if len(rolled.ProxySourceKeys) != 1 {
+		t.Fatalf("rolled-back source keys: %v", rolled.ProxySourceKeys)
+	}
+}
+
+// TestRebuildRejectsDuplicateTypeKeys locks the registry fail-closed: two
+// stored records claiming one type key abort the rebuild instead of
+// silently serving last-wins.
+func TestRebuildRejectsDuplicateTypeKeys(t *testing.T) {
+	svc := setupService(t)
+	mkrec := func(id string) *PluginRecord {
+		return &PluginRecord{ID: id, TypeKeys: []string{"dup-type"}}
+	}
+	if err := svc.repo.Put("manual/tester/A", mkrec("manual/tester/A")); err != nil {
+		t.Fatalf("put A: %v", err)
+	}
+	if err := svc.repo.Put("manual/tester/B", mkrec("manual/tester/B")); err != nil {
+		t.Fatalf("put B: %v", err)
+	}
+	if err := svc.rebuild(); err == nil {
+		t.Fatal("duplicate type key must fail the rebuild")
 	}
 }
 

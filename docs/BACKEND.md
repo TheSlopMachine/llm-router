@@ -20,8 +20,10 @@ router.Service: Parse(ModelId=provider/model) → Resolve → Disabled
   → model gate → endpoint gate → capability → loadCredentials
   → pool (single pass, first success wins, last error out)
   ↓
-proxypool.Service (pick/probe/rate-limit) ← luaplugin httpclient
-  ← router through the server-wired resolver
+proxypool.Service (pick/probe) ← luaplugin httpclient
+  ← router through the server-wired resolver, exhausted-filtered after rank
+  ↓
+exhausted.Service (joint limit keys, subset match, expiry auto-delete)
   ↓
 HTTP: api/v1 (OpenAI-compatible) + dashboard (admin REST + SPA fallback)
   ↓
@@ -49,13 +51,16 @@ persistence: repository (generic buckets) + models (wire types)
 ## Pool invariants
 
 - `pool.Run / pool.RunStream`: one attempt per key, pool order, no repeats,
-  no backoff. Fatal errors (`ErrHandlerNotFound`) stop immediately.
+  no backoff. Fatal errors (`ErrHandlerNotFound`, `invalid_request`) stop
+  immediately.
 - Proxy source keys are qualified per plugin (`<recordID>/<name>`);
   `proxypool.RekeySource` migrates legacy bare tags once at startup.
 - `streamgate.Writer`: failover continues only before the first byte reaches
   the client. After that the stream belongs to one upstream.
 - Usage tracking is best-effort but never silent: failures log with the
-  credential ID. Quota marks require `ErrorTypeQuotaExceeded + RetryAfter`.
+  credential ID. Limit state lives only in `exhausted.Service`: rate/quota
+  outcomes mark the scoped joint key (or the full combination without
+  scope) in the exec defer; nothing else writes limit state.
 
 ## Error contract
 
@@ -91,9 +96,11 @@ services map it with `errors.Is`, never by string.
 
 ## Buckets
 
-`internal/db` owns bucket names and creation. Removed buckets (`agents`)
-drop in `initBuckets`. Legacy rows migrate explicitly (`migrateLegacyCustom`
-inside `EnsureSeeded`); migrations never silently discard user data.
+`internal/db` owns bucket names and creation. Removed buckets (`agents`,
+`proxy_limits`) drop at startup; legacy rows migrate explicitly
+(`migrateLegacyCustom` inside `EnsureSeeded`, `migrateDropProxyLimits` /
+`migrateClearCredentialQuota` in `server`); migrations never silently
+discard user data.
 
 ## Adding an endpoint
 

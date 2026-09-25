@@ -13,19 +13,10 @@ func (s *Service) Get(id string) (*models.Proxy, error) {
 	return s.proxies.Get(id)
 }
 
-// Delete removes a proxy and its pair state.
+// Delete removes a proxy.
 func (s *Service) Delete(id string) error {
 	if err := s.proxies.Delete(id); err != nil {
 		return err
-	}
-	limits, err := s.limits.ListFiltered(func(l *models.ProxyLimit) bool {
-		return l.ProxyID == id
-	})
-	if err != nil {
-		return nil
-	}
-	for _, lim := range limits {
-		_ = s.limits.Delete(limitID(lim.ProxyID, lim.Provider))
 	}
 	s.notify()
 	return nil

@@ -13,6 +13,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/repository"
+	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -28,11 +29,12 @@ type PluginOrigin struct {
 
 // PluginVersionSnapshot is one rollback entry.
 type PluginVersionSnapshot struct {
-	Version  string              `json:"version"`
-	Source   []byte              `json:"source"`
-	TypeKeys []string            `json:"type_keys"`
-	Handlers map[string][]string `json:"handlers"`
-	Icons    map[string]string   `json:"icons"`
+	Version         string              `json:"version"`
+	Source          []byte              `json:"source"`
+	TypeKeys        []string            `json:"type_keys"`
+	Handlers        map[string][]string `json:"handlers"`
+	Icons           map[string]string   `json:"icons"`
+	ProxySourceKeys []string            `json:"proxy_source_keys,omitempty"`
 }
 
 // PluginRecord is the stored plugin row in BucketPlugins.
@@ -95,28 +97,19 @@ type Service struct {
 	// usage records per-credential outcomes for pool calls (nil = disabled).
 	usage UsageTracker
 
+	// exhausted records joint limit keys for rate/quota outcomes
+	// (nil = disabled).
+	exhausted *exhausted.Service
+
 	// proxyResolver returns the ordered proxy picks for a plugin call
 	// (nil/empty = direct). Auto mode waits for ready or no-proxies.
 	proxyResolver func(ctx context.Context, rec *PluginRecord, providerConfig map[string]any) ([]ProxyPick, error)
-	// proxyEventReporter receives rate-limit and block outcomes for
-	// proxy-provider pairs.
-	proxyEventReporter func(ev ProxyEvent)
 }
 
 // ProxyPick is one ordered proxy candidate for a plugin call.
 type ProxyPick struct {
 	ID  string
 	URL string
-}
-
-// ProxyEvent is a rate-limit or block outcome for a proxy-provider pair.
-type ProxyEvent struct {
-	ProxyID     string
-	Provider    string
-	RateLimited bool
-	ResetsAt    time.Time
-	Blocked     bool
-	BlockReason string
 }
 
 // ProxyResolution is the resolver result for one plugin call.
@@ -130,11 +123,6 @@ type ProxyResolution struct {
 // (manual mode with no usable proxy pooled, settled pool with none).
 func (s *Service) SetProxyResolver(fn func(ctx context.Context, rec *PluginRecord, providerConfig map[string]any) ([]ProxyPick, error)) {
 	s.proxyResolver = fn
-}
-
-// SetProxyEventReporter wires proxy-provider pair outcome feedback.
-func (s *Service) SetProxyEventReporter(fn func(ev ProxyEvent)) {
-	s.proxyEventReporter = fn
 }
 
 // New loads all enabled plugins into the in-memory registry.
@@ -203,12 +191,7 @@ func (s *Service) rebuild() error {
 	for _, rec := range records {
 		for _, key := range rec.TypeKeys {
 			if prev, exists := reg[key]; exists {
-				// Startup invariant guard only: new conflicts are rejected
-				// at install time by checkTypeKeyConflicts.
-				if s.logger != nil {
-					s.logger.Warn("duplicate type key across plugins, last wins",
-						"type_key", key, "prev", prev.ID, "next", rec.ID)
-				}
+				return fmt.Errorf("duplicate type key %q across plugins %q and %q: resolve by uninstalling one", key, prev.ID, rec.ID)
 			}
 			cp := *rec
 			reg[key] = &cp
@@ -311,7 +294,7 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 	if err == nil && existing != nil {
 		history := append(existing.History, PluginVersionSnapshot{
 			Version: existing.Version, Source: existing.Source, TypeKeys: existing.TypeKeys,
-			Handlers: existing.Handlers, Icons: existing.Icons,
+			Handlers: existing.Handlers, Icons: existing.Icons, ProxySourceKeys: existing.ProxySourceKeys,
 		})
 		if len(history) > 10 {
 			history = history[len(history)-10:]
@@ -370,7 +353,7 @@ func (s *Service) Rollback(id string) (*PluginRecord, error) {
 	}
 	prev := rec.History[len(rec.History)-1]
 	rest := rec.History[:len(rec.History)-1]
-	rest = append(rest, PluginVersionSnapshot{Version: rec.Version, Source: rec.Source, TypeKeys: rec.TypeKeys, Handlers: rec.Handlers, Icons: rec.Icons})
+	rest = append(rest, PluginVersionSnapshot{Version: rec.Version, Source: rec.Source, TypeKeys: rec.TypeKeys, Handlers: rec.Handlers, Icons: rec.Icons, ProxySourceKeys: rec.ProxySourceKeys})
 	if len(rest) > 10 {
 		rest = rest[len(rest)-10:]
 	}
@@ -380,10 +363,12 @@ func (s *Service) Rollback(id string) (*PluginRecord, error) {
 	}
 	handlers := prev.Handlers
 	icons := prev.Icons
+	sourceKeys := prev.ProxySourceKeys
 	if handlers == nil {
-		_, handlers, icons, _, err = s.dryRun(id, prev.Source, manifest)
-		if err != nil {
-			return nil, fmt.Errorf("previous version dry-run: %w", err)
+		var derr error
+		_, handlers, icons, sourceKeys, derr = s.dryRun(id, prev.Source, manifest)
+		if derr != nil {
+			return nil, fmt.Errorf("previous version dry-run: %w", derr)
 		}
 	}
 	rec.Version = prev.Version
@@ -400,6 +385,7 @@ func (s *Service) Rollback(id string) (*PluginRecord, error) {
 	rec.Unsafe = manifest.Unsafe
 	rec.ProxyLocations = manifest.ProxyLocations
 	rec.ProxyDefaultOption = manifest.ProxyDefaultOption
+	rec.ProxySourceKeys = sourceKeys
 	rec.History = rest
 	rec.UpdatedAt = time.Now()
 	if err := s.repo.Put(id, rec); err != nil {

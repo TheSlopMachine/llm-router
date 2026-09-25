@@ -11,6 +11,7 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
@@ -37,7 +38,7 @@ func setupRouterService(t *testing.T) (*Service, *credential.Service, *modelinfo
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 
-	routerSvc := New(providerSvc, credSvc, modelInfoSvc, slog.Default())
+	routerSvc := New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), slog.Default())
 
 	return routerSvc, credSvc, modelInfoSvc, mock
 }

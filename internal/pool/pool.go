@@ -9,17 +9,16 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/streamgate"
 )
 
 // UsageTracker records per-credential outcomes. Implemented by the credential
-// service; backends receive it by injection.
+// service; backends receive it by injection. Limit state lives in the
+// exhausted store, never here: failures only feed usage statistics.
 type UsageTracker interface {
 	UpdateUsage(id string, success bool) error
-	MarkQuotaExceeded(id string, resetAt time.Time) error
 }
 
 // NoCredentials is returned for an empty pool.
@@ -67,12 +66,6 @@ func trackFailure(log *slog.Logger, tracker UsageTracker, cred *models.Credentia
 	}
 	if uerr := tracker.UpdateUsage(cred.ID, false); uerr != nil {
 		loggerOrDefault(log).Warn("pool: usage update failed", "credential_id", cred.ID, "error", uerr)
-	}
-	var perr *models.ProviderError
-	if errors.As(err, &perr) && perr.Type == models.ErrorTypeQuotaExceeded && perr.RetryAfter != nil {
-		if qerr := tracker.MarkQuotaExceeded(cred.ID, *perr.RetryAfter); qerr != nil {
-			loggerOrDefault(log).Warn("pool: quota mark failed", "credential_id", cred.ID, "error", qerr)
-		}
 	}
 }
 
