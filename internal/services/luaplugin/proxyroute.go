@@ -1,6 +1,9 @@
 package luaplugin
 
-import "context"
+import (
+	"context"
+	"net/url"
+)
 
 // Proxy rotation helpers. Every plugin HTTP request starts with a fresh
 // ordered pick list, then walks it while attempts fail. Rotation never
@@ -42,4 +45,28 @@ func (ctx *execContext) rotateProxy() bool {
 	ctx.proxyIdx = next
 	ctx.proxyID, ctx.proxyURL = ctx.proxyPicks[next].ID, ctx.proxyPicks[next].URL
 	return true
+}
+
+// redactedProxyHostPort renders a proxy URL as host:port without credentials.
+// Userinfo never reaches logs: only the host portion is returned. An empty
+// URL means direct and renders empty; an unparseable URL falls back to the
+// proxy ID so the log still identifies the pick.
+func redactedProxyHostPort(rawURL, fallbackID string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return fallbackID
+	}
+	return u.Host
+}
+
+// proxyDisplay reports the redacted host:port of the call's current route
+// ("" = direct).
+func (ctx *execContext) proxyDisplay() string {
+	if ctx == nil {
+		return ""
+	}
+	return redactedProxyHostPort(ctx.proxyURL, ctx.proxyID)
 }

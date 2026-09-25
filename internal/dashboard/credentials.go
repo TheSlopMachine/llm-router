@@ -219,7 +219,11 @@ func (h *Handler) apiCredentialsTest(w http.ResponseWriter, r *http.Request) {
 	}
 	res := h.routerSvc.TestCredential(r.Context(), cred.ProviderID, id, body.Model)
 	if !res.OK {
-		h.logger.Warn("credential probe failed", "credential", id, "provider", cred.ProviderID, "err", res.Error)
+		args := []any{"credential", id, "provider", cred.ProviderID, "err", res.Error}
+		if res.Proxy != "" {
+			args = append(args, "proxy", res.Proxy)
+		}
+		h.logger.Warn("credential probe failed", args...)
 	}
 	h.json(w, http.StatusOK, res)
 }

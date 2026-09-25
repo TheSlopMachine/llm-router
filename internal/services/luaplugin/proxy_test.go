@@ -182,3 +182,67 @@ func TestBeginRequest_ResolverErrorIsLoud(t *testing.T) {
 		t.Fatal("failed resolution must leave the route empty")
 	}
 }
+
+func TestRedactedProxyHostPort(t *testing.T) {
+	if got := redactedProxyHostPort("", "px-1"); got != "" {
+		t.Fatalf("direct: got %q want empty", got)
+	}
+	got := redactedProxyHostPort("http://user:pass@proxy.example:8080", "px-1")
+	if got != "proxy.example:8080" {
+		t.Fatalf("redacted: got %q want %q", got, "proxy.example:8080")
+	}
+	if strings.Contains(got, "user") || strings.Contains(got, "pass") {
+		t.Fatalf("credentials leaked in %q", got)
+	}
+	if got := redactedProxyHostPort(":://bad", "px-fallback"); got != "px-fallback" {
+		t.Fatalf("unparseable: got %q want fallback", got)
+	}
+	if got := (&execContext{}).proxyDisplay(); got != "" {
+		t.Fatalf("empty ctx: got %q want empty", got)
+	}
+	var nilCtx *execContext
+	if got := nilCtx.proxyDisplay(); got != "" {
+		t.Fatalf("nil ctx: got %q want empty", got)
+	}
+}
+
+func TestCompleteRouted_ReportsProxyHostPort(t *testing.T) {
+	svc := setupService(t)
+	installProxyFetchPlugin(t, svc)
+	proxyURL := markerProxy(t, "via-proxy-marker")
+	svc.SetProxyResolver(func(_ context.Context, rec *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+		return []ProxyPick{{ID: "px-test", URL: proxyURL}}, nil
+	})
+	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
+	_, proxy, err := svc.CompleteRouted(t.Context(), testMeta("proxy-fetch-type", cred, "test/proxy-model", nil), &models.ChatCompletionRequest{
+		Model:    "test/proxy-model",
+		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if proxy == "" {
+		t.Fatal("expected proxy host:port, got empty")
+	}
+	if strings.Contains(proxy, "user") || strings.Contains(proxy, "pass") {
+		t.Fatalf("credentials leaked in %q", proxy)
+	}
+}
+
+func TestCompleteRouted_DirectOmitsProxy(t *testing.T) {
+	svc := setupService(t)
+	installProxyFetchPlugin(t, svc)
+	svc.SetProxyResolver(func(_ context.Context, _ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+		return nil, errors.New("proxypool: no usable proxy")
+	})
+	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
+	// Resolver failure leaves the route empty: no proxy is reported even
+	// though the call fails.
+	_, proxy, _ := svc.CompleteRouted(t.Context(), testMeta("proxy-fetch-type", cred, "test/proxy-model", nil), &models.ChatCompletionRequest{
+		Model:    "test/proxy-model",
+		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if proxy != "" {
+		t.Fatalf("direct: got %q want empty", proxy)
+	}
+}

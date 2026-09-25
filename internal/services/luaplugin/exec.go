@@ -67,7 +67,7 @@ func (s *Service) handlerCall(
 }
 
 // handlerCallRouted is handlerCall plus the proxy route used by the call's
-// last HTTP request ("" = direct).
+// last HTTP request as redacted host:port ("" = direct).
 func (s *Service) handlerCallRouted(
 	goCtx context.Context,
 	rec *PluginRecord,
@@ -141,24 +141,24 @@ func (s *Service) handlerCallRouted(
 		}
 		cause = fmt.Sprintf("%s (source %d bytes)", cause, len(rec.Source))
 		s.recordCrash(rec.ID, typeKey, "load: "+cause)
-		return true, ctx.proxyID, &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "load: " + cause}
+		return true, ctx.proxyDisplay(), &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "load: " + cause}
 	}
 	handlers, ok := ctx.registrations[typeKey]
 	if !ok {
 		if srcHandlers, isSource := ctx.proxySources[typeKey]; isSource {
 			handlers = srcHandlers
 		} else {
-			return false, ctx.proxyID, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: handler}
+			return false, ctx.proxyDisplay(), &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: handler}
 		}
 	}
 	fn := handlers.RawGetString(handler)
 	if fn == lua.LNil {
-		return false, ctx.proxyID, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: handler}
+		return false, ctx.proxyDisplay(), &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: handler}
 	}
 	lfn, ok := fn.(*lua.LFunction)
 	if !ok {
 		s.recordCrash(rec.ID, typeKey, "handler "+handler+" is not a function")
-		return true, ctx.proxyID, &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "handler " + handler + " is not a function"}
+		return true, ctx.proxyDisplay(), &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "handler " + handler + " is not a function"}
 	}
 
 	top := L.GetTop()
@@ -170,15 +170,15 @@ func (s *Service) handlerCallRouted(
 	if callErr := L.PCall(nargs, nret, nil); callErr != nil {
 		err := s.luaCallError(rec, typeKey, L, callErr)
 		L.SetTop(top)
-		return true, ctx.proxyID, err
+		return true, ctx.proxyDisplay(), err
 	}
 	defer L.SetTop(top)
 	if applyRet != nil {
 		if err := applyRet(L); err != nil {
-			return true, ctx.proxyID, err
+			return true, ctx.proxyDisplay(), err
 		}
 	}
-	return true, ctx.proxyID, nil
+	return true, ctx.proxyDisplay(), nil
 }
 
 func asProviderError(v lua.LValue) (*models.ProviderError, bool) {

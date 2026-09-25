@@ -63,6 +63,17 @@ func (s *Service) Complete(
 	meta HandlerMeta,
 	req *models.ChatCompletionRequest,
 ) (*models.ChatCompletionResponse, error) {
+	resp, _, err := s.CompleteRouted(goCtx, meta, req)
+	return resp, err
+}
+
+// CompleteRouted is Complete plus the redacted proxy host:port of the call
+// ("" = direct).
+func (s *Service) CompleteRouted(
+	goCtx context.Context,
+	meta HandlerMeta,
+	req *models.ChatCompletionRequest,
+) (*models.ChatCompletionResponse, string, error) {
 	return callAndDecode(s, goCtx, meta, "complete", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", meta.ProviderConfig))
 		L.Push(credTable(L, meta.Credential))
@@ -84,9 +95,21 @@ func (s *Service) CompleteStream(
 	req *models.ChatCompletionRequest,
 	w io.Writer,
 ) error {
+	_, err := s.CompleteStreamRouted(goCtx, meta, req, w)
+	return err
+}
+
+// CompleteStreamRouted is CompleteStream plus the redacted proxy host:port
+// of the call ("" = direct).
+func (s *Service) CompleteStreamRouted(
+	goCtx context.Context,
+	meta HandlerMeta,
+	req *models.ChatCompletionRequest,
+	w io.Writer,
+) (string, error) {
 	rec, err := s.Lookup(meta.TypeKey)
 	if err != nil {
-		return err
+		return "", err
 	}
 	emitFn := func(L *lua.LState) int {
 		chunkVal := L.Get(1)
@@ -118,7 +141,7 @@ func (s *Service) CompleteStream(
 		}
 		return 0
 	}
-	found, _, callErr := s.handlerCallRouted(goCtx, rec, meta, "complete_stream", func(L *lua.LState) {
+	found, proxy, callErr := s.handlerCallRouted(goCtx, rec, meta, "complete_stream", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", meta.ProviderConfig))
 		L.Push(credTable(L, meta.Credential))
 		L.Push(requestTable(L, req))
@@ -128,18 +151,18 @@ func (s *Service) CompleteStream(
 		return s.contractErrOrInternal(rec, meta.TypeKey, rawErr)
 	})
 	if callErr != nil {
-		return callErr
+		return proxy, callErr
 	}
 	if found {
 		if _, werr := io.WriteString(w, "data: [DONE]\n\n"); werr != nil {
-			return werr
+			return proxy, werr
 		}
-		return nil
+		return proxy, nil
 	}
 	// Fallback: emulate streaming over complete().
-	resp, cerr := s.Complete(goCtx, meta, req)
+	resp, fallbackProxy, cerr := s.CompleteRouted(goCtx, meta, req)
 	if cerr != nil {
-		return cerr
+		return fallbackProxy, cerr
 	}
 	chunk := models.StreamChunk{
 		ID: resp.ID, Object: "chat.completion.chunk",
@@ -155,10 +178,10 @@ func (s *Service) CompleteStream(
 	}
 	raw, _ := marshalLuaChunk(chunk)
 	if _, werr := fmt.Fprintf(w, "data: %s\n\n", string(raw)); werr != nil {
-		return werr
+		return fallbackProxy, werr
 	}
 	_, werr := io.WriteString(w, "data: [DONE]\n\n")
-	return werr
+	return fallbackProxy, werr
 }
 
 func marshalLuaChunk(chunk models.StreamChunk) ([]byte, error) {
@@ -208,6 +231,17 @@ func (s *Service) Transcribe(
 	meta HandlerMeta,
 	req *models.TranscriptionRequest,
 ) (*models.TranscriptionResponse, error) {
+	resp, _, err := s.TranscribeRouted(goCtx, meta, req)
+	return resp, err
+}
+
+// TranscribeRouted is Transcribe plus the redacted proxy host:port of the
+// call ("" = direct).
+func (s *Service) TranscribeRouted(
+	goCtx context.Context,
+	meta HandlerMeta,
+	req *models.TranscriptionRequest,
+) (*models.TranscriptionResponse, string, error) {
 	return callAndDecode[models.TranscriptionResponse](s, goCtx, meta, "transcribe", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", meta.ProviderConfig))
 		L.Push(credTable(L, meta.Credential))
@@ -245,7 +279,18 @@ func (s *Service) Speech(
 	meta HandlerMeta,
 	req *models.SpeechRequest,
 ) (*models.SpeechResponse, error) {
-	out, err := callAndDecode(s, goCtx, meta, "speech", func(L *lua.LState) {
+	resp, _, err := s.SpeechRouted(goCtx, meta, req)
+	return resp, err
+}
+
+// SpeechRouted is Speech plus the redacted proxy host:port of the call
+// ("" = direct).
+func (s *Service) SpeechRouted(
+	goCtx context.Context,
+	meta HandlerMeta,
+	req *models.SpeechRequest,
+) (*models.SpeechResponse, string, error) {
+	out, proxy, err := callAndDecode(s, goCtx, meta, "speech", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", meta.ProviderConfig))
 		L.Push(credTable(L, meta.Credential))
 		L.Push(speechRequestTable(L, req))
@@ -260,10 +305,10 @@ func (s *Service) Speech(
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, proxy, err
 	}
 	audio, _ := base64.StdEncoding.DecodeString(out.AudioB64)
-	return &models.SpeechResponse{Audio: audio, Format: out.Format}, nil
+	return &models.SpeechResponse{Audio: audio, Format: out.Format}, proxy, nil
 }
 
 // imageRequestTable builds the generate_image request table.
@@ -298,6 +343,17 @@ func (s *Service) GenerateImage(
 	meta HandlerMeta,
 	req *models.ImageGenerationRequest,
 ) (*models.ImageGenerationResponse, error) {
+	resp, _, err := s.GenerateImageRouted(goCtx, meta, req)
+	return resp, err
+}
+
+// GenerateImageRouted is GenerateImage plus the redacted proxy host:port of
+// the call ("" = direct).
+func (s *Service) GenerateImageRouted(
+	goCtx context.Context,
+	meta HandlerMeta,
+	req *models.ImageGenerationRequest,
+) (*models.ImageGenerationResponse, string, error) {
 	return callAndDecode(s, goCtx, meta, "generate_image", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", meta.ProviderConfig))
 		L.Push(credTable(L, meta.Credential))
@@ -337,6 +393,17 @@ func (s *Service) Embed(
 	meta HandlerMeta,
 	req *models.EmbeddingsRequest,
 ) (*models.EmbeddingsResponse, error) {
+	resp, _, err := s.EmbedRouted(goCtx, meta, req)
+	return resp, err
+}
+
+// EmbedRouted is Embed plus the redacted proxy host:port of the call
+// ("" = direct).
+func (s *Service) EmbedRouted(
+	goCtx context.Context,
+	meta HandlerMeta,
+	req *models.EmbeddingsRequest,
+) (*models.EmbeddingsResponse, string, error) {
 	return callAndDecode(s, goCtx, meta, "embed", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", meta.ProviderConfig))
 		L.Push(credTable(L, meta.Credential))

@@ -390,7 +390,7 @@ llm_router.register("fatal-type", {
 	creds := []*models.Credential{{ID: "a"}, {ID: "b"}}
 	req := &models.ChatCompletionRequest{Model: "fatal-type/m"}
 	meta := testMeta("fatal-type", nil, req.Model, nil)
-	if _, err := svc.CompletePool(context.Background(), meta, creds, req); !isFatalPoolError(err) {
+	if _, _, err := svc.CompletePool(context.Background(), meta, creds, req); !isFatalPoolError(err) {
 		t.Fatalf("invalid_request must surface as fatal pool error, got %v", err)
 	}
 	rec, err := svc.Lookup("fatal-type")

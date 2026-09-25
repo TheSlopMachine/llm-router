@@ -200,3 +200,90 @@ func TestRunStreamEmpty(t *testing.T) {
 		t.Fatalf("expected NoCredentials, got %v", err)
 	}
 }
+
+// captureHandler records slog records for proxy attr assertions.
+type captureHandler struct {
+	records []slog.Record
+}
+
+func (h *captureHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
+	h.records = append(h.records, r)
+	return nil
+}
+
+func (h *captureHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+
+func (h *captureHandler) WithGroup(string) slog.Handler { return h }
+
+func recordProxy(r slog.Record) (string, bool) {
+	found := ""
+	ok := false
+	r.Attrs(func(a slog.Attr) bool {
+		if a.Key == "proxy" {
+			found = a.Value.String()
+			ok = true
+		}
+		return true
+	})
+	return found, ok
+}
+
+func TestRunWithProxy_ReturnsLastProxy(t *testing.T) {
+	_, proxy, err := RunWithProxy(context.Background(), nil, poolCreds("a", "b"), nil,
+		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, string, error) {
+			return nil, "proxy-" + cred.ID + ":8080", &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeRateLimit, Message: "limited"}
+		}, nil)
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	if proxy != "proxy-b:8080" {
+		t.Fatalf("last proxy: got %q want %q", proxy, "proxy-b:8080")
+	}
+}
+
+func TestRunWithProxy_LogsProxyPerAttempt(t *testing.T) {
+	h := &captureHandler{}
+	log := slog.New(h)
+	_, _, _ = RunWithProxy(context.Background(), log, poolCreds("a", "b"), nil,
+		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, string, error) {
+			return nil, "10.0.0.1:8080", &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeRateLimit, Message: "limited"}
+		}, nil)
+	if len(h.records) != 2 {
+		t.Fatalf("expected trying-next plus all-failed, got %d records", len(h.records))
+	}
+	for _, r := range h.records {
+		got, ok := recordProxy(r)
+		if !ok || got != "10.0.0.1:8080" {
+			t.Fatalf("record %q missing proxy attr: %+v", r.Message, h.records)
+		}
+	}
+}
+
+func TestRunWithProxy_OmitsProxyWhenDirect(t *testing.T) {
+	h := &captureHandler{}
+	log := slog.New(h)
+	_, _, _ = RunWithProxy(context.Background(), log, poolCreds("a", "b"), nil,
+		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, string, error) {
+			return nil, "", &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeRateLimit, Message: "limited"}
+		}, nil)
+	for _, r := range h.records {
+		if _, ok := recordProxy(r); ok {
+			t.Fatalf("direct request must omit proxy attr: %+v", h.records)
+		}
+	}
+}
+
+func TestRunStreamWithProxy_ReturnsLastProxy(t *testing.T) {
+	proxy, err := RunStreamWithProxy(context.Background(), nil, io.Discard, poolCreds("a", "b"), nil,
+		func(ctx context.Context, cred *models.Credential, w io.Writer) (string, error) {
+			return "proxy-" + cred.ID + ":8080", &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeRateLimit, Message: "limited"}
+		}, nil)
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	if proxy != "proxy-b:8080" {
+		t.Fatalf("last proxy: got %q want %q", proxy, "proxy-b:8080")
+	}
+}

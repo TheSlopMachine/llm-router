@@ -26,6 +26,7 @@ type TestResult struct {
 	QuotaExceeded bool   `json:"quota_exceeded,omitempty"`
 	Code          string `json:"code,omitempty"`
 	Summary       string `json:"summary,omitempty"`
+	Proxy         string `json:"proxy,omitempty"`
 }
 
 // probeRequest builds a minimal completion request for connectivity tests.
@@ -66,15 +67,15 @@ func (s *Service) TestCredential(ctx context.Context, providerID, credentialID s
 	}
 	req := probeRequest(models.ModelId(providerID + "/" + model))
 	start := time.Now()
-	resp, err := s.completeOne(ctx, resolved, []*models.Credential{cred}, req)
+	resp, proxy, err := s.completeOne(ctx, resolved, []*models.Credential{cred}, req)
 	if err != nil {
-		return probeResult(start, "", err)
+		return probeResult(start, "", proxy, err)
 	}
 	text := ""
 	if len(resp.Choices) > 0 {
 		text = resp.Choices[0].Message.TextContent()
 	}
-	return probeResult(start, text, nil)
+	return probeResult(start, text, proxy, nil)
 }
 
 // TestModel runs a probe through the normal routing path (credential pool
@@ -82,15 +83,15 @@ func (s *Service) TestCredential(ctx context.Context, providerID, credentialID s
 // testable: the admin override gates routing, not probing.
 func (s *Service) TestModel(ctx context.Context, modelID models.ModelId) TestResult {
 	start := time.Now()
-	resp, err := s.complete(ctx, probeRequest(modelID), nil, true)
+	resp, proxy, err := s.completeWithProxy(ctx, probeRequest(modelID), nil, true)
 	if err != nil {
-		return probeResult(start, "", err)
+		return probeResult(start, "", proxy, err)
 	}
 	text := ""
 	if len(resp.Choices) > 0 {
 		text = resp.Choices[0].Message.TextContent()
 	}
-	return probeResult(start, text, nil)
+	return probeResult(start, text, proxy, nil)
 }
 
 // probePixelPNG is a 1x1 PNG for vision probes: no network needed to build
@@ -134,8 +135,8 @@ func put32(b []byte, v uint32) {
 }
 
 // probeResult builds a TestResult from a probe outcome.
-func probeResult(start time.Time, respText string, err error) TestResult {
-	res := TestResult{OK: err == nil, Latency: time.Since(start).Milliseconds()}
+func probeResult(start time.Time, respText, proxy string, err error) TestResult {
+	res := TestResult{OK: err == nil, Latency: time.Since(start).Milliseconds(), Proxy: proxy}
 	if err != nil {
 		res.Error = err.Error()
 		res.Summary = probeSummary(err)
@@ -186,63 +187,63 @@ func (s *Service) TestVision(ctx context.Context, modelID models.ModelId) TestRe
 			ImageURL: &models.ChatMessageImageURL{URL: "data:image/png;base64," + probePixelPNG},
 		}},
 	}}
-	resp, err := s.complete(ctx, req, nil, true)
+	resp, proxy, err := s.completeWithProxy(ctx, req, nil, true)
 	if err != nil || len(resp.Choices) == 0 {
 		if err == nil {
 			err = fmt.Errorf("empty response")
 		}
-		return probeResult(start, "", err)
+		return probeResult(start, "", proxy, err)
 	}
-	return probeResult(start, resp.Choices[0].Message.TextContent(), nil)
+	return probeResult(start, resp.Choices[0].Message.TextContent(), proxy, nil)
 }
 
 // TestSpeech runs a minimal speech probe, bypassing manual disable.
 func (s *Service) TestSpeech(ctx context.Context, modelID models.ModelId) TestResult {
 	start := time.Now()
-	resp, err := s.speech(ctx, &models.SpeechRequest{Model: modelID, Input: "test"}, nil, true)
+	resp, proxy, err := s.speechWithProxy(ctx, &models.SpeechRequest{Model: modelID, Input: "test"}, nil, true)
 	if err != nil {
-		return probeResult(start, "", err)
+		return probeResult(start, "", proxy, err)
 	}
-	return probeResult(start, fmt.Sprintf("%d bytes of audio", len(resp.Audio)), nil)
+	return probeResult(start, fmt.Sprintf("%d bytes of audio", len(resp.Audio)), proxy, nil)
 }
 
 // TestTranscribe runs a minimal transcription probe, bypassing manual disable.
 func (s *Service) TestTranscribe(ctx context.Context, modelID models.ModelId) TestResult {
 	start := time.Now()
-	resp, err := s.transcribe(ctx, &models.TranscriptionRequest{
+	resp, proxy, err := s.transcribeWithProxy(ctx, &models.TranscriptionRequest{
 		Model:       modelID,
 		File:        probeWAV(),
 		FileName:    "probe.wav",
 		ContentType: "audio/wav",
 	}, nil, true)
 	if err != nil {
-		return probeResult(start, "", err)
+		return probeResult(start, "", proxy, err)
 	}
-	return probeResult(start, resp.Text, nil)
+	return probeResult(start, resp.Text, proxy, nil)
 }
 
 // TestImageGeneration runs a minimal image probe, bypassing manual disable.
 func (s *Service) TestImageGeneration(ctx context.Context, modelID models.ModelId) TestResult {
 	start := time.Now()
-	resp, err := s.generateImage(ctx, &models.ImageGenerationRequest{Model: modelID, Prompt: "test", N: 1}, nil, true)
+	resp, proxy, err := s.generateImageWithProxy(ctx, &models.ImageGenerationRequest{Model: modelID, Prompt: "test", N: 1}, nil, true)
 	if err != nil {
-		return probeResult(start, "", err)
+		return probeResult(start, "", proxy, err)
 	}
-	return probeResult(start, fmt.Sprintf("%d image(s)", len(resp.Data)), nil)
+	return probeResult(start, fmt.Sprintf("%d image(s)", len(resp.Data)), proxy, nil)
 }
 
 // TestEmbeddings runs a minimal embeddings probe, bypassing manual disable.
 func (s *Service) TestEmbeddings(ctx context.Context, modelID models.ModelId) TestResult {
 	start := time.Now()
-	resp, err := s.embed(ctx, &models.EmbeddingsRequest{Model: modelID, Input: []string{"test"}}, nil, true)
+	resp, proxy, err := s.embedWithProxy(ctx, &models.EmbeddingsRequest{Model: modelID, Input: []string{"test"}}, nil, true)
 	if err != nil {
-		return probeResult(start, "", err)
+		return probeResult(start, "", proxy, err)
 	}
 	dims := 0
 	if len(resp.Data) > 0 {
 		dims = len(resp.Data[0].Values)
 	}
-	return probeResult(start, fmt.Sprintf("%d embedding(s), %d dims", len(resp.Data), dims), nil)
+	return probeResult(start, fmt.Sprintf("%d embedding(s), %d dims", len(resp.Data), dims), proxy, nil)
 }
 
 // ProbeCapabilities detects model features with live probe requests.

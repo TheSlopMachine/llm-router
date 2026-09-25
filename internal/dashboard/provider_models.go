@@ -317,7 +317,11 @@ func (h *Handler) apiModelTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !res.OK {
-		h.logger.Warn("model probe failed", "model", body.ModelID, "endpoint", body.Endpoint, "err", res.Error)
+		args := []any{"model", body.ModelID, "endpoint", body.Endpoint, "err", res.Error}
+		if res.Proxy != "" {
+			args = append(args, "proxy", res.Proxy)
+		}
+		h.logger.Warn("model probe failed", args...)
 	}
 	h.json(w, http.StatusOK, res)
 }

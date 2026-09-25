@@ -37,25 +37,26 @@ func isFatalPoolError(err error) bool {
 }
 
 // runPool tries one attempt per credential in pool order and returns the
-// first success. Every key is tried at most once; there are no repeat passes
-// or backoff pauses. A missing handler fails immediately: it is identical
-// for every key. Otherwise the last error is returned.
-func runPool[T any](ctx context.Context, s *Service, model string, creds []*models.Credential, attempt func(context.Context, *models.Credential) (T, error)) (T, error) {
+// first success with the redacted proxy host:port of the winning or last
+// attempt ("" = direct). Every key is tried at most once; there are no
+// repeat passes or backoff pauses. A missing handler fails immediately: it
+// is identical for every key. Otherwise the last error is returned.
+func runPool[T any](ctx context.Context, s *Service, model string, creds []*models.Credential, attempt func(context.Context, *models.Credential) (T, string, error)) (T, string, error) {
 	log := s.logger
 	if log != nil && model != "" {
 		log = log.With("model", model)
 	}
-	return pool.Run(ctx, log, creds, s.usage, attempt, isFatalPoolError)
+	return pool.RunWithProxy(ctx, log, creds, s.usage, attempt, isFatalPoolError)
 }
 
 // runPoolStream is runPool for streaming calls. Failover is allowed only
 // before the first byte reaches the client.
-func (s *Service) runPoolStream(ctx context.Context, model string, w io.Writer, creds []*models.Credential, attempt func(context.Context, *models.Credential, io.Writer) error) error {
+func (s *Service) runPoolStream(ctx context.Context, model string, w io.Writer, creds []*models.Credential, attempt func(context.Context, *models.Credential, io.Writer) (string, error)) (string, error) {
 	log := s.logger
 	if log != nil && model != "" {
 		log = log.With("model", model)
 	}
-	return pool.RunStream(ctx, log, w, creds, s.usage, attempt, isFatalPoolError)
+	return pool.RunStreamWithProxy(ctx, log, w, creds, s.usage, attempt, isFatalPoolError)
 }
 
 // withCredential pins one pool credential into a copy of the base meta.
@@ -65,80 +66,86 @@ func withCredential(meta HandlerMeta, cred *models.Credential) HandlerMeta {
 }
 
 // CompletePool tries the credential pool in order through the complete
-// handler, at most once per credential.
+// handler, at most once per credential. It returns the redacted proxy
+// host:port of the winning or last attempt ("" = direct).
 func (s *Service) CompletePool(
 	ctx context.Context,
 	meta HandlerMeta,
 	creds []*models.Credential,
 	req *models.ChatCompletionRequest,
-) (*models.ChatCompletionResponse, error) {
-	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
-		return s.Complete(ctx, withCredential(meta, cred), req)
+) (*models.ChatCompletionResponse, string, error) {
+	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, string, error) {
+		return s.CompleteRouted(ctx, withCredential(meta, cred), req)
 	})
 }
 
 // CompleteStreamPool tries the credential pool in order through the
-// complete_stream handler, at most once per credential.
+// complete_stream handler, at most once per credential. It returns the
+// redacted proxy host:port of the winning or last attempt ("" = direct).
 func (s *Service) CompleteStreamPool(
 	ctx context.Context,
 	meta HandlerMeta,
 	creds []*models.Credential,
 	req *models.ChatCompletionRequest,
 	w io.Writer,
-) error {
-	return s.runPoolStream(ctx, req.Model.String(), w, creds, func(ctx context.Context, cred *models.Credential, w io.Writer) error {
-		return s.CompleteStream(ctx, withCredential(meta, cred), req, w)
+) (string, error) {
+	return s.runPoolStream(ctx, req.Model.String(), w, creds, func(ctx context.Context, cred *models.Credential, w io.Writer) (string, error) {
+		return s.CompleteStreamRouted(ctx, withCredential(meta, cred), req, w)
 	})
 }
 
 // TranscribePool tries the credential pool in order through the transcribe
-// handler, at most once per credential.
+// handler, at most once per credential. It returns the redacted proxy
+// host:port of the winning or last attempt ("" = direct).
 func (s *Service) TranscribePool(
 	ctx context.Context,
 	meta HandlerMeta,
 	creds []*models.Credential,
 	req *models.TranscriptionRequest,
-) (*models.TranscriptionResponse, error) {
-	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.TranscriptionResponse, error) {
-		return s.Transcribe(ctx, withCredential(meta, cred), req)
+) (*models.TranscriptionResponse, string, error) {
+	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.TranscriptionResponse, string, error) {
+		return s.TranscribeRouted(ctx, withCredential(meta, cred), req)
 	})
 }
 
 // SpeechPool tries the credential pool in order through the speech handler,
-// at most once per credential.
+// at most once per credential. It returns the redacted proxy host:port of
+// the winning or last attempt ("" = direct).
 func (s *Service) SpeechPool(
 	ctx context.Context,
 	meta HandlerMeta,
 	creds []*models.Credential,
 	req *models.SpeechRequest,
-) (*models.SpeechResponse, error) {
-	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.SpeechResponse, error) {
-		return s.Speech(ctx, withCredential(meta, cred), req)
+) (*models.SpeechResponse, string, error) {
+	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.SpeechResponse, string, error) {
+		return s.SpeechRouted(ctx, withCredential(meta, cred), req)
 	})
 }
 
 // GenerateImagePool tries the credential pool in order through the
-// generate_image handler, at most once per credential.
+// generate_image handler, at most once per credential. It returns the
+// redacted proxy host:port of the winning or last attempt ("" = direct).
 func (s *Service) GenerateImagePool(
 	ctx context.Context,
 	meta HandlerMeta,
 	creds []*models.Credential,
 	req *models.ImageGenerationRequest,
-) (*models.ImageGenerationResponse, error) {
-	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ImageGenerationResponse, error) {
-		return s.GenerateImage(ctx, withCredential(meta, cred), req)
+) (*models.ImageGenerationResponse, string, error) {
+	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ImageGenerationResponse, string, error) {
+		return s.GenerateImageRouted(ctx, withCredential(meta, cred), req)
 	})
 }
 
 // EmbedPool tries the credential pool in order through the embed handler, at
-// most once per credential.
+// most once per credential. It returns the redacted proxy host:port of the
+// winning or last attempt ("" = direct).
 func (s *Service) EmbedPool(
 	ctx context.Context,
 	meta HandlerMeta,
 	creds []*models.Credential,
 	req *models.EmbeddingsRequest,
-) (*models.EmbeddingsResponse, error) {
-	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.EmbeddingsResponse, error) {
-		return s.Embed(ctx, withCredential(meta, cred), req)
+) (*models.EmbeddingsResponse, string, error) {
+	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.EmbeddingsResponse, string, error) {
+		return s.EmbedRouted(ctx, withCredential(meta, cred), req)
 	})
 }
