@@ -7,32 +7,39 @@ this file maps the Go core.
 ## System map
 
 ```
-cmd/root.go → config.Config → server.New → db (bbolt)
-                                    ↓
-provider.Service (registry + Resolve + EnsureSeeded)
-  ↑ RegisterGoAdapter ← generic.Adapter (custom) | virtual.Adapter
-  ↑ SetLuaService   ← luaplugin.Service (VM, handlers, pool, manifest)
-  ↓
-credential.Service (pool All/SortPool) + token.Service (Rules)
-  + modelinfo.Service (cache + overrides, 1h TTL)
-  ↓
-router.Service: Parse(ModelId=provider/model) → Resolve → Disabled
-  → model gate → endpoint gate → capability → loadCredentials
-  → pool (single pass, first success wins, last error out)
-  ↓
-proxypool.Service (pick/probe) ← luaplugin httpclient
-  ← router through the server-wired resolver, exhausted-filtered after rank
-  ↓
-exhausted.Service (joint limit keys, subset match, expiry auto-delete)
-  ↓
-HTTP: api/v1 (OpenAI-compatible) + dashboard (admin REST + SPA fallback)
-  ↓
-background: maintenance (refresh, modelsync, proxy, auth jobs)
-  + metrics (1m buckets, 90d retention) + pluginrepo (store index)
-  ↓
-persistence: repository (generic buckets) + models (wire types)
-  + errors (sentinels) + pool (failover) + streamgate (first-byte gate)
+cmd/root.go              CLI entrypoint (--web/--api/--db)
+internal/server/         HTTP server: dashboard (38080), /v1 API (38081)
+internal/services/
+  token/                 router-token issue/validate
+  router/                ModelId → backend + CredentialPool, single pass, no repeats
+  provider/              ProviderInstance CRUD (all types, one path)
+  credential/            credential pool, usage stats
+  virtual/               virtual models (fall-through lists + instruction)
+  luaplugin/             Lua execution core: manifest, sandbox, HTTP+SSRF, storage
+  pluginrepo/            plugin store: single-URL index repos (repo URL or direct index.json, files resolved against the index directory); code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
+  modelinfo/             model metadata cache (1h TTL)
+  metrics/               1m buckets, 90d retention
+  maintenance/           refresh + cleanup (refresh, modelsync, proxy, auth jobs)
+  exhausted/             joint limit keys (account/model/proxy), subset match, expiry auto-delete
+internal/pool/           single-pass credential failover (unary + stream)
+internal/streamgate/     first-byte gate: failover stops after first SSE byte
+internal/httpkit/        shared transport helpers (SSE headers)
+internal/errors/         domain sentinels + MapUpstream + ToAPIError
+internal/repository/     bbolt buckets
+internal/dashboard/      admin REST API
+internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/models, /v1/messages
+internal/models/         shared wire types
+internal/config/         Config struct
+internal/adapters/generic/ built-in custom backend (Go)
+providers/virtual/       built-in virtual-models backend (Go)
+web/                     Svelte SPA (web/openapi.yaml + src/lib/generated/ auto-generated — do not hand-edit)
+scripts/                 separate Go module — build/dev helpers (never imported by main module)
+scripts/smoke/           black-box smoke harness + mock provider (testdata/mock.lua)
+docs/                    PLUGIN-API.md (binding plugin contract), BACKEND.md (core map), CHANGELOG.md
+Makefile                 thin launcher for scripts/ — see AGENTS.md §3
 ```
+
+Keep changes shallow. Touch service internals only when the task requires it.
 
 ## Request flow
 
@@ -53,7 +60,7 @@ persistence: repository (generic buckets) + models (wire types)
 - `pool.Run / pool.RunStream`: one attempt per key, pool order, no repeats,
   no backoff. Fatal errors (`ErrHandlerNotFound`, `invalid_request`) stop
   immediately.
-- Proxy source keys are qualified per plugin (`<recordID>/<name>`);
+- Proxy source keys qualify per plugin (`<recordID>/<name>`);
   `proxypool.RekeySource` migrates legacy bare tags once at startup.
 - `streamgate.Writer`: failover continues only before the first byte reaches
   the client. After that the stream belongs to one upstream.
@@ -62,13 +69,25 @@ persistence: repository (generic buckets) + models (wire types)
   outcomes mark the scoped joint key (or the full combination without
   scope) in the exec defer; nothing else writes limit state.
 
+## Exhausted store
+
+- Stored keys act as filters over candidate dimensions (plugin, provider
+  type, account, model, proxy). A candidate matching every stored dimension
+  skips until `ResetsAt` passes.
+- Credential pools drop matching combinations before the token filter; an
+  all-limited pool stays as last resort. Proxy picks filter after ranking;
+  manual mode with nothing usable left fails loudly.
+- Expired entries delete on read; `Prune` sweeps the rest. `geo`, `auth`
+  and other non-rate types never mark.
+
 ## Error contract
 
 - Domain errors live in `internal/errors`: sentinels (`ErrNotFound`,
   `ErrTimeout`, `ErrRateLimited`, …) + `models.ProviderError` with a typed
   `ErrorType`. No `strings.Contains` matching anywhere.
 - `MapUpstream(status, code, type, message)`: exact status/code matching
-  from the upstream envelope; message text never decides.
+  from the upstream envelope; message text never decides (except quota
+  wording on bare 429s in the Lua classify helper).
 - `ToAPIError(err)`: the single domain→wire table for both surfaces.
   `ErrorTypeForCode` maps wire codes to OpenAI error types.
 - Provider 404 (`ErrorTypeNotFound`) → wire `not_found`, evicts the model
@@ -101,6 +120,15 @@ services map it with `errors.Is`, never by string.
 (`migrateLegacyCustom` inside `EnsureSeeded`, `migrateDropProxyLimits` /
 `migrateClearCredentialQuota` in `server`); migrations never silently
 discard user data.
+
+## Smoke harness
+
+`scripts/smoke/` drives the wire surfaces black-box against a dev stack
+(`make smoke` restarts with `NO_AUTH=1` first): status → bootstrap →
+plugin install → provider + dev-database credentials → model matrix
+(one model per capability, first success closes it) → cleanup of created
+credentials. Quota, payment, rate and missing-model outcomes skip with
+reason; anything else fails. Exit 0 means clean (skips allowed).
 
 ## Adding an endpoint
 
