@@ -14,10 +14,13 @@ import (
 // @Router       /api/llm-router/status [get]
 func (h *Handler) apiStatus(db interface{ IsBootstrapped() (bool, error) }) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		bootstrapped, _ := db.IsBootstrapped()
-		authenticated := false
-		if c, err := r.Cookie(sessionCookie); err == nil {
-			_, authenticated = h.adminSvc.ValidateSession(c.Value)
+		realBootstrapped, _ := db.IsBootstrapped()
+		bootstrapped := EffectiveBootstrapped(realBootstrapped, h.noAuth)
+		authenticated := h.noAuth
+		if !authenticated {
+			if c, err := r.Cookie(sessionCookie); err == nil {
+				_, authenticated = h.adminSvc.ValidateSession(c.Value)
+			}
 		}
 
 		var stats map[string]int

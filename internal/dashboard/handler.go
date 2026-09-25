@@ -45,6 +45,7 @@ type Handler struct {
 	repoSvc      *pluginrepo.Service
 	proxySvc     *proxypool.Service
 	logger       *slog.Logger
+	noAuth       bool
 
 	// devRedirect, when set, is the origin (e.g. "http://localhost:8080")
 	// that browser navigations are 302-redirected to instead of being
@@ -226,6 +227,10 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 
 func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if h.noAuth {
+			next(w, r)
+			return
+		}
 		c, err := r.Cookie(sessionCookie)
 		if err != nil || c.Value == "" {
 			h.jsonErr(w, http.StatusUnauthorized, "unauthenticated")

@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -16,18 +15,17 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/config"
 	"github.com/TheSlopMachine/llm-router/internal/server"
-	"github.com/TheSlopMachine/llm-router/internal/util"
 )
 
 var (
-	webPort        config.Port = 8080
-	apiPort        config.Port = 8081
-	dbPath         string
-	testingKeyPath string
-	logLevel       config.LogLevel = config.LogLevelInfo
-	devUIRedirect  string
-	versionFlag    bool
-	versionInfo    struct {
+	webPort       config.Port = 8080
+	apiPort       config.Port = 8081
+	dbPath        string
+	noAuth        bool
+	logLevel      config.LogLevel = config.LogLevelInfo
+	devUIRedirect string
+	versionFlag   bool
+	versionInfo   struct {
 		Version   string
 		GitCommit string
 		BuildTime string
@@ -64,7 +62,7 @@ func init() {
 	rootCmd.Flags().Var(&webPort, "web", "port for dashboard UI")
 	rootCmd.Flags().Var(&apiPort, "api", "port for /v1 OpenAI-compatible API")
 	rootCmd.Flags().StringVar(&dbPath, "db", "llm-router.db", "path to the database file")
-	rootCmd.Flags().StringVar(&testingKeyPath, "testing-key", "", "path to file with bearer token (auto-generated)")
+	rootCmd.Flags().BoolVar(&noAuth, "no-auth", false, "disable all authorization (dev and AI debugging only)")
 	rootCmd.Flags().Var(&logLevel, "log-level", "log level: debug, info, warn, error")
 	rootCmd.Flags().BoolVarP(&versionFlag, "version", "v", false, "print version information and exit")
 	rootCmd.Flags().StringVar(&devUIRedirect, "dev-ui-redirect", "", "internal: redirect dashboard navigations to this origin instead of serving the embedded SPA (used by `make start`)")
@@ -89,28 +87,19 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	cfg := &config.Config{
-		DashboardAddr:  net.JoinHostPort(host, webPort.String()),
-		APIAddr:        net.JoinHostPort(host, apiPort.String()),
-		DBPath:         dbPath,
-		LogLevel:       logLevel,
-		TestingKeyPath: testingKeyPath,
-		DevUIRedirect:  strings.TrimSpace(devUIRedirect),
-	}
-
-	// Resolve testing key file (generate if missing)
-	if testingKeyPath != "" {
-		raw, err := ensureTestingKey(testingKeyPath)
-		if err != nil {
-			return fmt.Errorf("testing-key: %w", err)
-		}
-		cfg.TestingKey = raw
+		DashboardAddr: net.JoinHostPort(host, webPort.String()),
+		APIAddr:       net.JoinHostPort(host, apiPort.String()),
+		DBPath:        dbPath,
+		LogLevel:      logLevel,
+		NoAuth:        noAuth,
+		DevUIRedirect: strings.TrimSpace(devUIRedirect),
 	}
 
 	// Logger
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel.SlogLevel()}))
 
-	if cfg.TestingKey != "" {
-		logger.Info("testing key enabled", "path", cfg.TestingKeyPath)
+	if cfg.NoAuth {
+		logger.Warn("authorization disabled (--no-auth): dev and AI debugging only")
 	}
 
 	// Build server
@@ -125,37 +114,4 @@ func run(cmd *cobra.Command, args []string) error {
 	defer stop()
 
 	return srv.Run(ctx)
-}
-
-func ensureTestingKey(path string) (string, error) {
-	clean := filepath.Clean(path)
-
-	// Ensure parent directory exists
-	if dir := filepath.Dir(clean); dir != "." && dir != "" {
-		if err := os.MkdirAll(dir, 0700); err != nil {
-			return "", fmt.Errorf("create testing-key dir %q: %w", dir, err)
-		}
-	}
-
-	// Try to read existing file
-	data, err := os.ReadFile(clean)
-	if err == nil {
-		raw := strings.TrimSpace(string(data))
-		if raw != "" {
-			return raw, nil
-		}
-		// empty file → regenerate below
-	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("read testing-key file %q: %w", clean, err)
-	}
-
-	// Generate new token
-	raw, err := util.GenerateToken()
-	if err != nil {
-		return "", fmt.Errorf("generate testing token: %w", err)
-	}
-	if err := os.WriteFile(clean, []byte(raw+"\n"), 0600); err != nil {
-		return "", fmt.Errorf("write testing-key file %q: %w", clean, err)
-	}
-	return raw, nil
 }

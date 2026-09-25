@@ -20,11 +20,11 @@ var exeSuffix = map[bool]string{true: ".exe", false: ""}[runtime.GOOS == "window
 // Project initialization lives in `make init`; configuration comes from env only.
 func main() {
 	host := shared.Getenv("HOST", "localhost")
-	webPort := shared.Getenv("WEB_PORT", "8080")
-	apiPort := shared.Getenv("API_PORT", "8081")
+	webPort := shared.Getenv("WEB_PORT", "38080")
+	apiPort := shared.Getenv("API_PORT", "38081")
 	logLevel := shared.NormalizeLogLevel(shared.Getenv("LOG_LEVEL", "info"))
 	dbPath := shared.RequireEnv("DEV_DB")
-	keyPath := shared.RequireEnv("DEV_KEY")
+	noAuth := shared.IsWriteMode("NO_AUTH")
 	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
 
 	root, err := shared.RootDir()
@@ -79,20 +79,32 @@ func main() {
 
 	shared.Stepf("Starting backend and frontend (vite)...")
 
-	backendPID, err := shared.SpawnDetached(root, backendLog, binPath, host,
-		"--web", devBackendWebPort, "--api", apiPort, "--db", dbPath, "--testing-key", keyPath,
+	backendArgs := []string{binPath, host,
+		"--web", devBackendWebPort, "--api", apiPort, "--db", dbPath,
 		"--log-level", logLevel,
-		"--dev-ui-redirect", fmt.Sprintf("http://%s:%s", host, webPort))
+		"--dev-ui-redirect", fmt.Sprintf("http://%s:%s", host, webPort)}
+	if noAuth {
+		backendArgs = append(backendArgs, "--no-auth")
+	}
+	backendPID, err := shared.SpawnDetached(root, backendLog, backendArgs[0], backendArgs[1:]...)
 	if err != nil {
 		shared.Failf("spawn backend: %v", err)
 	}
 
 	webDir := filepath.Join(root, "web")
+	// A broken ::1 stack binds an unreachable socket when given
+	// "localhost" (Node resolves it to ::1 first). Pin IPv4 loopback for
+	// the default host only; explicit HOST values pass through untouched.
+	// Covers both the listen socket and the vite → backend proxy target.
+	viteHost, backendHost := host, host
+	if host == "localhost" {
+		viteHost, backendHost = "127.0.0.1", "127.0.0.1"
+	}
 	env := []string{
-		"VITE_BACKEND_HOST=" + host,
+		"VITE_BACKEND_HOST=" + backendHost,
 		"VITE_BACKEND_PORT=" + devBackendWebPort,
 	}
-	frontendPID, err := shared.SpawnDetachedEnv(webDir, frontendLog, env, "bun", "run", "dev", "--", "--host", host, "--port", webPort)
+	frontendPID, err := shared.SpawnDetachedEnv(webDir, frontendLog, env, "bun", "run", "dev", "--", "--host", viteHost, "--port", webPort)
 	if err != nil {
 		// Attempt to stop the backend we just started.
 		_ = shared.Terminate(backendPID)
@@ -120,7 +132,7 @@ func main() {
 
 	// Record the launch parameters: restart relaunches with the same config.
 	if err := shared.WriteStartParams(pidFile, shared.StartParams{
-		DevDB: dbPath, DevKey: keyPath, Host: host,
+		DevDB: dbPath, NoAuth: noAuth, Host: host,
 		WebPort: webPort, APIPort: apiPort, LogLevel: logLevel,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] write params file: %v\n", err)
@@ -133,14 +145,8 @@ func main() {
 	fmt.Printf("[OK] Started backend PID %d, frontend PID %d\n", backendPID, frontendPID)
 	fmt.Printf("Dashboard (dev): http://%s:%s\n", host, webPort)
 	fmt.Printf("API: http://%s:%s/v1\n", host, apiPort)
-	if raw, err := os.ReadFile(keyPath); err == nil {
-		if s := string(raw); len(s) > 0 {
-			// Trim newline, print first line only.
-			if idx := indexNewline(s); idx >= 0 {
-				s = s[:idx]
-			}
-			fmt.Printf("API Key: %s\n", s)
-		}
+	if noAuth {
+		fmt.Printf("Auth: disabled (--no-auth)\n")
 	}
 	fmt.Printf("Backend log: %s\n", backendLog)
 	fmt.Printf("Frontend log: %s\n", frontendLog)
@@ -156,15 +162,6 @@ func mustAtoi(s string) int {
 		n = n*10 + int(c-'0')
 	}
 	return n
-}
-
-func indexNewline(s string) int {
-	for i, c := range s {
-		if c == '\n' || c == '\r' {
-			return i
-		}
-	}
-	return -1
 }
 
 // snapshotPath records the executable identity for a spawned PID. The live

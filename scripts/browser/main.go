@@ -9,7 +9,7 @@ import (
 
 func main() {
 	host := shared.Getenv("HOST", "localhost")
-	webPort := shared.Getenv("WEB_PORT", "8080")
+	webPort := shared.Getenv("WEB_PORT", "38080")
 	url := shared.Getenv("URL", "http://"+host+":"+webPort)
 	var cmd *exec.Cmd
 	switch runtime.GOOS {

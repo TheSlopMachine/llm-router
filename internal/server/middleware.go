@@ -6,10 +6,11 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/TheSlopMachine/llm-router/internal/dashboard"
 	"github.com/TheSlopMachine/llm-router/internal/db"
 )
 
-func bootstrapMiddleware(database *db.DB) func(http.Handler) http.Handler {
+func bootstrapMiddleware(database *db.DB, noAuth bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			exempt := r.URL.Path == "/login" ||
@@ -22,8 +23,8 @@ func bootstrapMiddleware(database *db.DB) func(http.Handler) http.Handler {
 				strings.HasPrefix(r.URL.Path, "/icons/")
 
 			if !exempt {
-				ok, err := database.IsBootstrapped()
-				if err != nil || !ok {
+				real, err := database.IsBootstrapped()
+				if err != nil || !dashboard.EffectiveBootstrapped(real, noAuth) {
 					if strings.HasPrefix(r.URL.Path, "/api/") {
 						w.Header().Set("Content-Type", "application/json")
 						w.WriteHeader(http.StatusServiceUnavailable)

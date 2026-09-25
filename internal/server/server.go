@@ -74,7 +74,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	}
 
 	adminSvc := admin.New(database, providerSvc)
-	tokenSvc := token.NewWithTestingKey(database, cfg.TestingKey)
+	tokenSvc := token.New(database)
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 	virtualSvc := virtual.New(database, providerSvc, modelInfoSvc)
@@ -122,6 +122,13 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	startupCleanup(logger, credSvc, providerSvc)
 	migrateProxySourceKeys(logger, luaSvc, proxySvc)
 
+	if cfg.NoAuth {
+		bootstrapped, err := database.IsBootstrapped()
+		if err != nil || !bootstrapped {
+			logger.Warn("no-auth mode with no admin account: dropping --no-auth later will require bootstrap")
+		}
+	}
+
 	wireInvalidation(logger, providerSvc, modelInfoSvc, luaSvc)
 
 	dashMux := http.NewServeMux()
@@ -130,6 +137,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		TokenSvc: tokenSvc, ModelInfoSvc: modelInfoSvc, MetricsSvc: metricsSvc,
 		VirtualSvc: virtualSvc, RouterSvc: routerSvc, ConfigSvc: configSvc,
 		LuaSvc: luaSvc, RepoSvc: repoSvc, ProxySvc: proxySvc, Logger: logger,
+		NoAuth: cfg.NoAuth,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard handler: %w", err)
@@ -138,13 +146,13 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		dash.SetDevRedirect(cfg.DevUIRedirect)
 	}
 	dash.Register(dashMux, database)
-	dashHandler := bootstrapMiddleware(database)(requestLogger(logger, dashMux))
+	dashHandler := bootstrapMiddleware(database, cfg.NoAuth)(requestLogger(logger, dashMux))
 
 	apiMux := http.NewServeMux()
 	apiV1 := v1.New(v1.Params{
 		Tokens: tokenSvc, RouterSvc: routerSvc, MetricsSvc: metricsSvc,
 		ProviderSvc: providerSvc, ModelInfoSvc: modelInfoSvc,
-		VirtualSvc: virtualSvc, Logger: logger,
+		VirtualSvc: virtualSvc, Logger: logger, NoAuth: cfg.NoAuth,
 	})
 	apiV1.Register(apiMux)
 

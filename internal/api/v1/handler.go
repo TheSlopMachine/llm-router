@@ -40,6 +40,7 @@ type Handler struct {
 	modelInfoSvc *modelinfo.Service
 	virtualSvc   *virtual.Service
 	logger       *slog.Logger
+	noAuth       bool
 }
 
 // Register mounts all /v1 routes onto mux.
@@ -998,8 +999,13 @@ func isSafeWithoutAuth(r *http.Request) bool {
 }
 
 // auth extracts and validates the Bearer token. Safe endpoints allow anonymous access.
+// With NoAuth every request routes with a nil token, skipping validation.
 func (h *Handler) auth(next authedHandler, allowAnonymous bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if h.noAuth {
+			next(w, r, nil)
+			return
+		}
 		raw := extractBearer(r)
 
 		// Whitelisted safe paths allow missing token

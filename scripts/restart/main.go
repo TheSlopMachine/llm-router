@@ -18,11 +18,13 @@ func main() {
 
 	if p, err := shared.ReadStartParams(pidFile); err == nil {
 		overlay("DEV_DB", p.DevDB, shared.DefaultDevDB())
-		overlay("DEV_KEY", p.DevKey, shared.DefaultDevKey())
 		overlay("HOST", p.Host, "localhost")
-		overlay("WEB_PORT", p.WebPort, "8080")
-		overlay("API_PORT", p.APIPort, "8081")
+		overlay("WEB_PORT", p.WebPort, "38080")
+		overlay("API_PORT", p.APIPort, "38081")
 		overlay("LOG_LEVEL", p.LogLevel, "info")
+		if p.NoAuth && !shared.IsWriteMode("NO_AUTH") {
+			_ = os.Setenv("NO_AUTH", "1")
+		}
 	}
 
 	root, err := shared.RootDir()

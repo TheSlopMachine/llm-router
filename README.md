@@ -58,13 +58,14 @@ Usage:
 
 Examples:
   llm-router
-  llm-router localhost --web 8080 --api 8081 --db ./llm-router.db
+llm-router localhost --web 8080 --api 8081 --db ./llm-router.db
 
 Flags:
       --api Port             port for /v1 OpenAI-compatible API (default 8081)
       --db string            path to the database file (default "llm-router.db")
   -h, --help                 help for llm-router
       --log-level LogLevel   log level: debug, info, warn, error (default info)
+      --no-auth              disable all authorization (dev and AI debugging only)
   -v, --version              print version information and exit
       --web Port             port for dashboard UI (default 8080)
 ```

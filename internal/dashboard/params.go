@@ -33,6 +33,16 @@ type Params struct {
 	RepoSvc      *pluginrepo.Service
 	ProxySvc     *proxypool.Service
 	Logger       *slog.Logger
+	// NoAuth skips session checks: dashboard APIs serve without login.
+	NoAuth bool
+}
+
+// EffectiveBootstrapped is the bootstrap state the SPA acts on: the real
+// database state, or true under NoAuth where no account is required.
+// Single source of truth for the middleware and the status endpoint so
+// the gate and the reported state can never diverge.
+func EffectiveBootstrapped(bootstrapped, noAuth bool) bool {
+	return bootstrapped || noAuth
 }
 
 // New constructs a dashboard Handler.
@@ -51,5 +61,6 @@ func New(p Params) (*Handler, error) {
 		repoSvc:      p.RepoSvc,
 		proxySvc:     p.ProxySvc,
 		logger:       p.Logger,
+		noAuth:       p.NoAuth,
 	}, nil
 }

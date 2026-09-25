@@ -59,7 +59,7 @@ DO:
 ## 1. Priority Rules
 
 1. NEVER write to `$state` from an `$effect` that reads it. → §5
-2. NEVER run, start, build, or live-test the app. Use only the 6 allowed `make` targets. → §4
+2. NEVER build the app binary by hand or debug outside `make start`. Use the allowed `make` targets. → §4
 3. NEVER run destructive git commands. → §6
 4. NEVER delete the dev DB. NEVER kill processes. NEVER litter the repo. → §6
 
@@ -74,7 +74,7 @@ DO:
 
 ```
 cmd/root.go              CLI entrypoint (--web/--api/--db)
-internal/server/         HTTP server: dashboard (8080), /v1 API (8081)
+internal/server/         HTTP server: dashboard (38080), /v1 API (38081)
 internal/services/
   token/                 router-token issue/validate
   router/                ModelId → backend + CredentialPool, single pass, no repeats
@@ -118,6 +118,12 @@ Rule: keep changes shallow. Do not touch service internals unless the task requi
 | `make init` | Project init/re-init: bun install, openapi.yaml, api-types, embed stub; skips fresh outputs unless `NO_SKIP=1` |
 | `make log` | Tail backend log (`LINES=...` sizes tail, default `100`; `FOLLOW=...` overrides TTY auto-follow) |
 | `make log-frontend` | Tail frontend log (same `LINES`/`FOLLOW` contract as `make log`) |
+| `make start` | Start dev backend + frontend (vite); `NO_AUTH=1` disables all authorization |
+| `make stop` | Stop dev processes |
+| `make restart` | Stop + start, keeping last start params |
+| `make status` | Show dev server status |
+| `make log` | Tail backend log (`LINES=...` sizes tail, default `100`; `FOLLOW=...` overrides TTY auto-follow) |
+| `make log-frontend` | Tail frontend log (same `LINES`/`FOLLOW` contract as `make log`) |
 
 ### 4.2 Banned — raw equivalents of the above
 
@@ -132,7 +138,7 @@ Rule: NEVER substitute a raw command for an allowed `make` target, even when the
 
 ### 4.3 Banned — every other Makefile target
 
-`start`, `stop`, `restart`, `status`, `browser`, `publish`, `clean`.
+`browser`, `publish`, `clean`.
 
 NEVER run these. No exception for "just to check", "isolated test", "custom port", or any other framing.
 
@@ -140,7 +146,7 @@ If the task needs one of these: STOP. Ask the human to run it and report back (t
 
 | DO | DON'T |
 |---|---|
-| "Please run `make start` and paste the output." | `go run .`, `go build -o ./llm-router.exe`, `bun run dev`, `Start-Process ...`, any script/wrapper invoking these |
+| "Please run `make publish` and paste the output." | `go run .`, `go build -o ./llm-router.exe`, `bun run dev`, `Start-Process ...`, any script/wrapper invoking these |
 
 ## 5. Svelte 5 Reactivity
 
@@ -189,7 +195,7 @@ Rule: before finishing any `.svelte` change, re-check every `$effect` touched ag
 | 3 | Run destructive git commands | No `git commit`, `git push`, `git reset`, `git checkout -f`, `git clean`, force-push, amend. Commit only if explicitly instructed, for that exact commit only. |
 | 4 | Litter the project | No `*.log`, `*.pid`, `*.tmp`, binaries, scratch files, notes inside the project tree. Use `/tmp` or an external scratch dir. |
 | 5 | Avoid the Makefile | No raw command substitutes for an allowed target (§4.2). No manual invocation of a banned target's underlying steps (§4.3). |
-| 6 | Run, start, or live-test the app | Human-only task. NEVER debug at runtime yourself — ask the human. See §4.3, §8. |
+| 6 | Run, start, or live-test the app | Human-only task: `browser`, `publish`, `clean`. Debug live with `make start NO_AUTH=1` / `make restart` / `make stop` / `make status` — ask the human for anything else. See §4.3, §8. |
 | 7 | Redirect output to nul or /dev/null | Breaks on Windows, and hides diagnostics on every OS. Every such redirect earns the offending agent 800 lashes. |
 | 8 | Truncate diagnostics output with tail/head | Diagnostics matter and truncating wastes time. NEVER truncate them. |
 | 9 | Fall back silently | NEVER swallow a failure and continue on a fallback path. Surface every failure as an error — return it to the caller, log it, or both — or route it to an explicit, named on-fail branch. Never fall through unannounced. |
@@ -209,8 +215,28 @@ Rule: before finishing any `.svelte` change, re-check every `$effect` touched ag
 
 ## 8. When Runtime Info Is Needed
 
-NEVER run the app yourself (§4.3, §6.6). To get runtime facts:
+Debug live with `make start NO_AUTH=1` (authorization fully off: no bearer keys, no login), `make log` / `make log-frontend` for output, `make status` for state, `make stop` when done. Fresh DBs still open the bootstrap page once (account creation stays); `status.authenticated` reads true under no-auth. NEVER enable no-auth outside local dev.
+
+To get runtime facts from a human-run instance instead:
 
 1. State exactly what's needed: endpoint, log line, or behavior.
 2. Ask human to run `make start` / `make restart` / `make init` and report back.
-3. Interpret: dev dashboard = `http://HOST:WEB_PORT` proxying `/api/llm-router/*` → backend `HOST:38473` (dev-internal, hardcoded); publish dashboard = `:8080` (embedded). API = `:8081/v1`. Bearer key printed on start and stored at `~/.local/llm-router/llm-router-dev.key`. `401` without that key header is expected, not a bug. Pidfile is JSON `{backend,frontend,vitePort}` at `%TEMP%/llm-router-dev.pid`.
+3. Interpret: dev dashboard = `http://HOST:WEB_PORT` proxying `/api/llm-router/*` → backend `HOST:38473` (dev-internal, hardcoded); publish dashboard = `:8080` (embedded). API = `:8081/v1` (dev values come from `WEB_PORT`/`API_PORT`, defaults `38080`/`38081`). Pidfile is JSON `{backend,frontend,vitePort}` at `%TEMP%/llm-router-dev.pid`.
+
+## 9. API Testing
+
+Under `NO_AUTH=1` every call below needs no headers. With auth on, add `-H "Authorization: Bearer <token>"` to `/v1` and use a logged-in session (cookie) for `/api/llm-router/*`; `401` without them is expected, not a bug.
+
+`/v1` (OpenAI-compatible, `:$API_PORT/v1`):
+- `POST /v1/chat/completions` `{"model":"<provider>/<model>","messages":[{"role":"user","content":"hi"}]}` — core routing; add `"stream":true` for SSE
+- `GET /v1/models` — routable model list, no token rules applied
+- `POST /v1/audio/transcriptions` (multipart `file`+`model`), `/v1/audio/speech`, `/v1/images/generations`, `/v1/embeddings` — per-endpoint backends
+- Diagnose: wrong `provider/` → `provider_not_found`; disabled model → `model_not_found`; no usable key → `no_credential`/`credential_not_allowed`; upstream failure → `upstream_error`/`timeout`/`rate_limit` (see `errors.ToAPIError`)
+
+Dashboard `/api/llm-router/*` (`:$WEB_PORT`, JSON `{"error":...}` on failure):
+- `GET /api/llm-router/status` — `{bootstrapped, authenticated}`; boot gate for everything else
+- `GET /dashboard/providers`, `/dashboard/tokens`, `/dashboard/credentials` — inventory
+- `POST /dashboard/chat/completions` — same router through a session, `TokenID: "dashboard"` in metrics
+- `GET /dashboard/proxy-sources`, `/dashboard/virtual-models` — pool and fan-out state
+
+Runtime diagnostics: `make log LINES=...` (backend), `make log-frontend` (vite), `make status` (PIDs/ports), metrics overview/timeseries endpoints for usage.
