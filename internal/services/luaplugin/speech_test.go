@@ -13,7 +13,7 @@ import (
 const speechPluginSource = `--- @plugin Speech Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.0.6
+--- @router_version 0.1.1
 --- @description Speech and image test plugin
 --- @allow_host example.com
 
@@ -59,15 +59,15 @@ func TestSpeech_Success(t *testing.T) {
 		t.Fatal("speech handler must be registered")
 	}
 	speed := 1.25
-	resp, err := svc.Speech(context.Background(), "tts-type",
-		&models.Credential{ID: "c1", Data: map[string]any{"api_key": "k"}},
+	resp, err := svc.Speech(context.Background(), testMeta("tts-type",
+		&models.Credential{ID: "c1", Data: map[string]any{"api_key": "k"}}, "tts-type/gemini-tts", nil),
 		&models.SpeechRequest{
 			Model:          "tts-type/gemini-tts",
 			Input:          "hello",
 			Voice:          "Kore",
 			ResponseFormat: "ogg",
 			Speed:          &speed,
-		}, nil)
+		})
 	if err != nil {
 		t.Fatalf("speech: %v", err)
 	}
@@ -84,9 +84,9 @@ func TestSpeech_HandlerNotFound(t *testing.T) {
 	if _, err := svc.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Speech(context.Background(), "test-type",
-		&models.Credential{ID: "c1"},
-		&models.SpeechRequest{Model: "test-type/model-a", Input: "hi"}, nil)
+	_, err := svc.Speech(context.Background(), testMeta("test-type",
+		&models.Credential{ID: "c1"}, "test-type/model-a", nil),
+		&models.SpeechRequest{Model: "test-type/model-a", Input: "hi"})
 	if !errors.Is(err, ErrHandlerNotFound) {
 		t.Fatalf("expected ErrHandlerNotFound, got %v", err)
 	}
@@ -103,9 +103,9 @@ func TestSpeech_ContractError(t *testing.T) {
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Speech(context.Background(), "tts-type",
-		&models.Credential{ID: "c1"},
-		&models.SpeechRequest{Model: "tts-type/m", Input: "hi"}, nil)
+	_, err := svc.Speech(context.Background(), testMeta("tts-type",
+		&models.Credential{ID: "c1"}, "tts-type/m", nil),
+		&models.SpeechRequest{Model: "tts-type/m", Input: "hi"})
 	perr, ok := err.(*models.ProviderError)
 	if !ok || perr.Type != models.ErrorTypeQuotaExceeded {
 		t.Fatalf("expected quota_exceeded ProviderError, got %T (%v)", err, err)
@@ -119,9 +119,9 @@ func TestSpeech_BadBase64(t *testing.T) {
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Speech(context.Background(), "tts-type",
-		&models.Credential{ID: "c1"},
-		&models.SpeechRequest{Model: "tts-type/m", Input: "hi"}, nil)
+	_, err := svc.Speech(context.Background(), testMeta("tts-type",
+		&models.Credential{ID: "c1"}, "tts-type/m", nil),
+		&models.SpeechRequest{Model: "tts-type/m", Input: "hi"})
 	var perr *models.PluginInternalError
 	if !errors.As(err, &perr) || !strings.Contains(perr.Cause, "base64") {
 		t.Fatalf("expected PluginInternalError about base64, got %v", err)
@@ -135,9 +135,9 @@ func TestSpeech_EmptyAudio(t *testing.T) {
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Speech(context.Background(), "tts-type",
-		&models.Credential{ID: "c1"},
-		&models.SpeechRequest{Model: "tts-type/m", Input: "hi"}, nil)
+	_, err := svc.Speech(context.Background(), testMeta("tts-type",
+		&models.Credential{ID: "c1"}, "tts-type/m", nil),
+		&models.SpeechRequest{Model: "tts-type/m", Input: "hi"})
 	var perr *models.PluginInternalError
 	if !errors.As(err, &perr) || !strings.Contains(perr.Cause, "empty audio") {
 		t.Fatalf("expected PluginInternalError about empty audio, got %v", err)
@@ -152,14 +152,14 @@ func TestGenerateImage_Success(t *testing.T) {
 	if !svc.HasHandler("tts-type", "generate_image") {
 		t.Fatal("generate_image handler must be registered")
 	}
-	resp, err := svc.GenerateImage(context.Background(), "tts-type",
-		&models.Credential{ID: "c1"},
+	resp, err := svc.GenerateImage(context.Background(), testMeta("tts-type",
+		&models.Credential{ID: "c1"}, "tts-type/imagen-3", nil),
 		&models.ImageGenerationRequest{
 			Model:  "tts-type/imagen-3",
 			Prompt: "a cat",
 			N:      2,
 			Size:   "1024x1024",
-		}, nil)
+		})
 	if err != nil {
 		t.Fatalf("generate_image: %v", err)
 	}
@@ -186,9 +186,9 @@ func TestGenerateImage_HandlerNotFound(t *testing.T) {
 	if _, err := svc.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.GenerateImage(context.Background(), "test-type",
-		&models.Credential{ID: "c1"},
-		&models.ImageGenerationRequest{Model: "test-type/model-a", Prompt: "x"}, nil)
+	_, err := svc.GenerateImage(context.Background(), testMeta("test-type",
+		&models.Credential{ID: "c1"}, "test-type/model-a", nil),
+		&models.ImageGenerationRequest{Model: "test-type/model-a", Prompt: "x"})
 	if !errors.Is(err, ErrHandlerNotFound) {
 		t.Fatalf("expected ErrHandlerNotFound, got %v", err)
 	}
@@ -204,9 +204,9 @@ func TestGenerateImage_EmptyData(t *testing.T) {
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.GenerateImage(context.Background(), "tts-type",
-		&models.Credential{ID: "c1"},
-		&models.ImageGenerationRequest{Model: "tts-type/m", Prompt: "x"}, nil)
+	_, err := svc.GenerateImage(context.Background(), testMeta("tts-type",
+		&models.Credential{ID: "c1"}, "tts-type/m", nil),
+		&models.ImageGenerationRequest{Model: "tts-type/m", Prompt: "x"})
 	var perr *models.PluginInternalError
 	if !errors.As(err, &perr) || !strings.Contains(perr.Cause, "empty data") {
 		t.Fatalf("expected PluginInternalError about empty data, got %v", err)

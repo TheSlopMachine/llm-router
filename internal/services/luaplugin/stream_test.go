@@ -11,7 +11,7 @@ import (
 const streamPluginSource = `--- @plugin Stream Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.0.4
+--- @router_version 0.1.1
 --- @description Stream plugin
 --- @allow_host example.com
 
@@ -53,7 +53,7 @@ func TestCompleteStream_UsageOnlyChunkAllowed(t *testing.T) {
 		Model:    "stream-type/model-a",
 		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
 	}
-	if err := svc.CompleteStream(context.Background(), "stream-type", nil, req, &buf, nil); err != nil {
+	if err := svc.CompleteStream(context.Background(), testMeta("stream-type", nil, req.Model, nil), req, &buf); err != nil {
 		t.Fatalf("complete stream: %v", err)
 	}
 	out := buf.String()
@@ -68,7 +68,7 @@ func TestCompleteStream_UsageOnlyChunkAllowed(t *testing.T) {
 const badStreamPluginSource = `--- @plugin Bad Stream Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.0.4
+--- @router_version 0.1.1
 --- @description Bad stream plugin
 --- @allow_host example.com
 
@@ -98,7 +98,7 @@ func TestCompleteStream_EmptyChunkRejected(t *testing.T) {
 		Model:    "bad-stream-type/model-a",
 		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
 	}
-	err := svc.CompleteStream(context.Background(), "bad-stream-type", nil, req, &buf, nil)
+	err := svc.CompleteStream(context.Background(), testMeta("bad-stream-type", nil, req.Model, nil), req, &buf)
 	if err == nil {
 		t.Fatal("expected error for chunk without choices and usage")
 	}

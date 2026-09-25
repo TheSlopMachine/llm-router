@@ -208,13 +208,6 @@ func WithCredentialExpiry(t time.Time) func(*models.Credential) {
 	}
 }
 
-// WithCredentialQuota sets credential quota exceeded time.
-func WithCredentialQuota(resetAt time.Time) func(*models.Credential) {
-	return func(c *models.Credential) {
-		c.QuotaResetAt = &resetAt
-	}
-}
-
 // WithCredentialLastUsed sets last used time.
 func WithCredentialLastUsed(t time.Time) func(*models.Credential) {
 	return func(c *models.Credential) {

@@ -1,0 +1,48 @@
+
+Usage: make <target>
+
+Targets:
+  init              Initialize project (bun install, openapi.yaml, api-types, embed stub)
+  start             Init, then start backend (go run) + frontend (vite) in dev mode
+  stop              Stop dev processes
+  restart           Stop + start
+  smoke             Restart with NO_AUTH=1, then run the smoke harness (wire surfaces)
+  status            Show dev server status
+  log               Tail backend log (follows on TTY, dumps and exits otherwise)
+  log-frontend      Tail frontend log (follows on TTY, dumps and exits otherwise)
+  browser           Open dashboard in browser (http://localhost:38080)
+  clean             Stop + git clean -fdX (preserves untracked source)
+  publish           Init, then build frontend + all PUBLISH_PLATFORMS binaries
+  go-vet            Run go vet (PKG scopes packages, default "./...")
+  go-test           Run go test (PKG scopes packages, default "./...")
+  go-fmt            Apply gofmt to both Go modules (PATHS scopes files/dirs)
+  go-fmt-check      Fail when gofmt would reformat anything (PATHS scopes)
+  check-frontend    Run svelte-check (frontend type check)
+
+Variables:
+  HOST               Bind host. Default: "localhost"
+  WEB_PORT           Dashboard port. Default: "38080"
+  API_PORT           API port. Default: "38081"
+  URL                Dashboard URL for browser. Default: "http://$(HOST):$(WEB_PORT)"
+  LOG_LEVEL          Server log level. Default: "info"
+  DEV_DB             Path to dev database. Default: "~/.local/llm-router/llm-router-dev.db"
+  NO_AUTH            Disable all authorization (dev and AI debugging only). Default: "0"
+  SMOKE_PLUGINS      Comma plugin types for smoke (or "all"). Default: "mock"
+  SMOKE_TARGETS      Comma targets for smoke. Default: "completions,messages"
+  PUBLISH_PLATFORMS  Platforms for publish. Default: "windows/amd64 ..."
+  PKG                Package scope for go-vet and go-test. Default: "./..."
+  PATHS              Space-separated files/dirs for go-fmt and go-fmt-check. Default: whole tree
+  LINES              Initial tail size for log and log-frontend. Default: "100"
+  FOLLOW             Force log follow (1) or dump-and-exit (0). Default: follow on TTY only
+  NO_SKIP            Disable skipping of bun install + OpenAPI generation. Default: "0" (truthy: 1/true/yes/on)
+
+Examples:
+  make init
+  make go-test PKG=./internal/services/router/
+  make go-vet PKG=./internal/services/router/...
+  make go-fmt-check PATHS="internal/server scripts/smoke"
+  make start
+  make start HOST=0.0.0.0 WEB_PORT=3000 API_PORT=3001
+  make restart
+  make publish
+  make publish PUBLISH_PLATFORMS="linux/amd64 darwin/arm64"

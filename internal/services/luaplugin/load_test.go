@@ -31,10 +31,10 @@ func TestHandlerCall_CorruptSourceReportsParserError(t *testing.T) {
 	}
 
 	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
-	_, callErr := svc.Complete(t.Context(), rec.TypeKeys[0], cred, &models.ChatCompletionRequest{
+	_, callErr := svc.Complete(t.Context(), testMeta(rec.TypeKeys[0], cred, "test/broken-model", nil), &models.ChatCompletionRequest{
 		Model:    "test/broken-model",
 		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
-	}, nil)
+	})
 	if callErr == nil {
 		t.Fatal("corrupt source must fail the call")
 	}

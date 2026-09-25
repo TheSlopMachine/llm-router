@@ -20,7 +20,6 @@ type credView struct {
 	Order        int        `json:"order,omitempty"`
 	RequestCount int64      `json:"request_count"`
 	SuccessCount int64      `json:"success_count"`
-	QuotaResetAt *time.Time `json:"quota_reset_at,omitempty"`
 	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 }
@@ -36,7 +35,6 @@ func toCredView(c *models.Credential, providerName string) credView {
 		Order:        c.Order,
 		RequestCount: c.RequestCount,
 		SuccessCount: c.SuccessCount,
-		QuotaResetAt: c.QuotaResetAt,
 		ExpiresAt:    c.ExpiresAt,
 		UpdatedAt:    c.UpdatedAt,
 	}

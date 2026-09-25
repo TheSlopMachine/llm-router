@@ -53,21 +53,6 @@ func (s *Service) RotateAll(ctx context.Context) error {
 	wg.Wait()
 	s.trimLocations(maxPerLocation)
 	s.sweepDemand()
-	// Expired pair limits carry no signal; drop them while passing.
-	limits, err := s.limits.List()
-	if err == nil {
-		now := util.Now()
-		for _, lim := range limits {
-			if lim.ResetsAt != nil && !lim.Blocked && lim.ResetsAt.Before(now) {
-				if _, err := s.proxies.Get(lim.ProxyID); err != nil {
-					_ = s.limits.Delete(limitID(lim.ProxyID, lim.Provider))
-				} else {
-					lim.ResetsAt = nil
-					_ = s.limits.Put(limitID(lim.ProxyID, lim.Provider), lim)
-				}
-			}
-		}
-	}
 	return nil
 }
 

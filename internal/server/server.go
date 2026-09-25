@@ -18,6 +18,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/maintenance"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
@@ -91,16 +92,18 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load router config: %w", err)
 	}
-	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, logger)
+	exhaustedSvc := exhausted.New(database)
+	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, exhaustedSvc, logger)
 	virtualAdapter := virtualadapter.New(routerSvc, virtualSvc, logger)
 	providerSvc.RegisterGoAdapter(virtualAdapter)
 	luaSvc.SetUsageTracker(credSvc)
+	luaSvc.SetExhaustedStore(exhaustedSvc)
 	genericAdapter.SetUsageTracker(credSvc)
 
 	// Proxy subsystem: pool, plugin proxy resolution, pair outcome reports.
 	proxySvc := proxypool.New(database)
 	proxySvc.SetConfig(routerCfg.MinDownloadSpeedKbps, routerCfg.MaxProxiesPerLocation)
-	wireProxy(luaSvc, proxySvc)
+	wireProxy(luaSvc, proxySvc, exhaustedSvc)
 
 	maintSvc := maintenance.New(credSvc, providerSvc, database, logger)
 	maintSvc.SetProxyServices(proxySvc, luaSvc)
@@ -122,6 +125,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 
 	startupCleanup(logger, credSvc, providerSvc)
 	migrateProxySourceKeys(logger, luaSvc, proxySvc)
+	migrateDropProxyLimits(logger, database)
+	migrateClearCredentialQuota(logger, database)
 
 	if cfg.NoAuth {
 		bootstrapped, err := database.IsBootstrapped()

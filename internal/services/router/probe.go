@@ -15,13 +15,16 @@ import (
 // TestResult reports the outcome of a credential or model probe.
 // QuotaExceeded marks temporary rate-limit failures: the model is alive,
 // the quota is not. Callers must not disable models over it.
-// Summary is a short human string for toasts; the full error goes to logs.
+// Code is the machine-readable wire code for the failure (empty on
+// success); Summary is a short human string for toasts, the full error
+// goes to logs.
 type TestResult struct {
 	OK            bool   `json:"ok"`
 	Latency       int64  `json:"latency_ms"`
 	Error         string `json:"error,omitempty"`
 	Response      string `json:"response,omitempty"`
 	QuotaExceeded bool   `json:"quota_exceeded,omitempty"`
+	Code          string `json:"code,omitempty"`
 	Summary       string `json:"summary,omitempty"`
 }
 
@@ -40,20 +43,24 @@ func probeRequest(model models.ModelId) *models.ChatCompletionRequest {
 func (s *Service) TestCredential(ctx context.Context, providerID, credentialID string, overrideModel string) TestResult {
 	resolved, err := provider.Resolve(s.providerSvc, providerID)
 	if err != nil {
-		return TestResult{Error: err.Error()}
+		return TestResult{Error: err.Error(), Code: apierrors.ToAPIError(err).Code}
 	}
 	cred, err := s.credSvc.Get(credentialID)
 	if err != nil {
-		return TestResult{Error: "credential not found"}
+		return TestResult{Error: "credential not found", Code: "not_found"}
 	}
 	if cred.ProviderID != providerID {
-		return TestResult{Error: "credential does not belong to this provider"}
+		return TestResult{Error: "credential does not belong to this provider", Code: "invalid_request_error"}
 	}
 	model := overrideModel
 	if model == "" {
 		infos, err := s.modelInfoSvc.GetModelInfos(ctx, providerID)
 		if err != nil || len(infos) == 0 {
-			return TestResult{Error: "no model available for probe: model discovery failed"}
+			code := "upstream_error"
+			if err != nil {
+				code = apierrors.ToAPIError(err).Code
+			}
+			return TestResult{Error: "no model available for probe: model discovery failed", Code: code}
 		}
 		model = infos[0].Name
 	}
@@ -132,6 +139,7 @@ func probeResult(start time.Time, respText string, err error) TestResult {
 	if err != nil {
 		res.Error = err.Error()
 		res.Summary = probeSummary(err)
+		res.Code = apierrors.ToAPIError(err).Code
 		var perr *models.ProviderError
 		if errors.As(err, &perr) && (perr.Type == models.ErrorTypeRateLimit || perr.Type == models.ErrorTypeQuotaExceeded) {
 			res.QuotaExceeded = true
@@ -159,6 +167,8 @@ func probeSummary(err error) string {
 			return "request timed out"
 		case models.ErrorTypeGeo:
 			return "region blocked"
+		case models.ErrorTypePaymentRequired:
+			return "payment required"
 		}
 	}
 	return "probe failed"

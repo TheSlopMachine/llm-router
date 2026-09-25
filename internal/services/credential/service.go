@@ -318,12 +318,3 @@ func (s *Service) UpdateUsage(id string, success bool) error {
 		return nil
 	})
 }
-
-// MarkQuotaExceeded marks a credential as quota-exceeded until resetAt.
-func (s *Service) MarkQuotaExceeded(id string, resetAt time.Time) error {
-	return s.repo.Update(id, func(c *models.Credential) error {
-		c.MarkQuotaExceeded(resetAt)
-		c.UpdatedAt = util.Now()
-		return nil
-	})
-}

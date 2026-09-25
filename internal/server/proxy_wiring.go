@@ -2,18 +2,20 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 )
 
 // wireProxy connects the Lua HTTP client to the proxy pool: ordered picks
-// for plugin calls and pair outcome feedback for rate limits and blocks.
+// for plugin calls, filtered by exhausted proxy combinations after ranking.
 // Multi-type plugins resolve through the requesting type key: the caller
 // scopes the plugin record before invoking the resolver.
-func wireProxy(luaSvc *luaplugin.Service, proxySvc *proxypool.Service) {
+func wireProxy(luaSvc *luaplugin.Service, proxySvc *proxypool.Service, exhaustedSvc *exhausted.Service) {
 	luaSvc.SetProxyResolver(func(goCtx context.Context, rec *luaplugin.PluginRecord, providerConfig map[string]any) ([]luaplugin.ProxyPick, error) {
 		proxyCfg, err := models.ParseProxyConfig(providerConfig)
 		if err != nil {
@@ -36,18 +38,30 @@ func wireProxy(luaSvc *luaplugin.Service, proxySvc *proxypool.Service) {
 		}
 		out := make([]luaplugin.ProxyPick, 0, len(picks))
 		for _, p := range picks {
+			if dropExhaustedProxy(exhaustedSvc, rec.ID, typeKey, p.ID) {
+				continue
+			}
 			out = append(out, luaplugin.ProxyPick{ID: p.ID, URL: p.URL})
+		}
+		if proxyCfg.Mode == models.ProxyModeManual && len(picks) > 0 && len(out) == 0 {
+			return nil, fmt.Errorf("provider proxy: no usable proxy among %d selected", len(picks))
 		}
 		return out, nil
 	})
-	luaSvc.SetProxyEventReporter(func(ev luaplugin.ProxyEvent) {
-		if ev.RateLimited {
-			proxySvc.RecordRateLimit(ev.ProxyID, ev.Provider, ev.ResetsAt)
-		}
-		if ev.Blocked {
-			proxySvc.RecordBlocked(ev.ProxyID, ev.Provider, ev.BlockReason)
-		}
-	})
+}
+
+// dropExhaustedProxy reports whether the proxy combination (plugin, type,
+// proxy) matches a stored limit key. A nil store disables filtering;
+// lookup failures fail open so a struggling store never blocks traffic.
+func dropExhaustedProxy(exhaustedSvc *exhausted.Service, pluginID, typeKey, proxyID string) bool {
+	if exhaustedSvc == nil {
+		return false
+	}
+	hit, err := exhaustedSvc.LimitedAny(exhausted.Segments{Plugin: pluginID, Provider: typeKey, Proxy: proxyID})
+	if err != nil {
+		return false
+	}
+	return hit != ""
 }
 
 // proxyTickInterval converts the configured rotation period.

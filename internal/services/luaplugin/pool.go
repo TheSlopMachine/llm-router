@@ -7,6 +7,7 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/pool"
+	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 )
 
 // UsageTracker records per-credential outcomes. It is implemented by the
@@ -18,8 +19,21 @@ type UsageTracker = pool.UsageTracker
 // Unset (nil) disables accounting; attempts still run.
 func (s *Service) SetUsageTracker(t UsageTracker) { s.usage = t }
 
+// SetExhaustedStore wires joint limit-key recording for rate/quota
+// outcomes. Unset (nil) disables marking; attempts still run.
+func (s *Service) SetExhaustedStore(e *exhausted.Service) { s.exhausted = e }
+
 func isFatalPoolError(err error) bool {
-	return errors.Is(err, ErrHandlerNotFound)
+	if errors.Is(err, ErrHandlerNotFound) {
+		return true
+	}
+	// invalid_request is identical for every key: the request itself is
+	// malformed, so iterating the pool only repeats the failure.
+	var perr *models.ProviderError
+	if errors.As(err, &perr) {
+		return perr.Type == models.ErrorTypeInvalidRequest
+	}
+	return false
 }
 
 // runPool tries one attempt per credential in pool order and returns the
@@ -44,17 +58,22 @@ func (s *Service) runPoolStream(ctx context.Context, model string, w io.Writer, 
 	return pool.RunStream(ctx, log, w, creds, s.usage, attempt, isFatalPoolError)
 }
 
+// withCredential pins one pool credential into a copy of the base meta.
+func withCredential(meta HandlerMeta, cred *models.Credential) HandlerMeta {
+	meta.Credential = cred
+	return meta
+}
+
 // CompletePool tries the credential pool in order through the complete
 // handler, at most once per credential.
 func (s *Service) CompletePool(
 	ctx context.Context,
-	typeKey string,
+	meta HandlerMeta,
 	creds []*models.Credential,
 	req *models.ChatCompletionRequest,
-	providerConfig map[string]any,
 ) (*models.ChatCompletionResponse, error) {
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
-		return s.Complete(ctx, typeKey, cred, req, providerConfig)
+		return s.Complete(ctx, withCredential(meta, cred), req)
 	})
 }
 
@@ -62,14 +81,13 @@ func (s *Service) CompletePool(
 // complete_stream handler, at most once per credential.
 func (s *Service) CompleteStreamPool(
 	ctx context.Context,
-	typeKey string,
+	meta HandlerMeta,
 	creds []*models.Credential,
 	req *models.ChatCompletionRequest,
 	w io.Writer,
-	providerConfig map[string]any,
 ) error {
 	return s.runPoolStream(ctx, req.Model.String(), w, creds, func(ctx context.Context, cred *models.Credential, w io.Writer) error {
-		return s.CompleteStream(ctx, typeKey, cred, req, w, providerConfig)
+		return s.CompleteStream(ctx, withCredential(meta, cred), req, w)
 	})
 }
 
@@ -77,13 +95,12 @@ func (s *Service) CompleteStreamPool(
 // handler, at most once per credential.
 func (s *Service) TranscribePool(
 	ctx context.Context,
-	typeKey string,
+	meta HandlerMeta,
 	creds []*models.Credential,
 	req *models.TranscriptionRequest,
-	providerConfig map[string]any,
 ) (*models.TranscriptionResponse, error) {
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.TranscriptionResponse, error) {
-		return s.Transcribe(ctx, typeKey, cred, req, providerConfig)
+		return s.Transcribe(ctx, withCredential(meta, cred), req)
 	})
 }
 
@@ -91,13 +108,12 @@ func (s *Service) TranscribePool(
 // at most once per credential.
 func (s *Service) SpeechPool(
 	ctx context.Context,
-	typeKey string,
+	meta HandlerMeta,
 	creds []*models.Credential,
 	req *models.SpeechRequest,
-	providerConfig map[string]any,
 ) (*models.SpeechResponse, error) {
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.SpeechResponse, error) {
-		return s.Speech(ctx, typeKey, cred, req, providerConfig)
+		return s.Speech(ctx, withCredential(meta, cred), req)
 	})
 }
 
@@ -105,13 +121,12 @@ func (s *Service) SpeechPool(
 // generate_image handler, at most once per credential.
 func (s *Service) GenerateImagePool(
 	ctx context.Context,
-	typeKey string,
+	meta HandlerMeta,
 	creds []*models.Credential,
 	req *models.ImageGenerationRequest,
-	providerConfig map[string]any,
 ) (*models.ImageGenerationResponse, error) {
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ImageGenerationResponse, error) {
-		return s.GenerateImage(ctx, typeKey, cred, req, providerConfig)
+		return s.GenerateImage(ctx, withCredential(meta, cred), req)
 	})
 }
 
@@ -119,12 +134,11 @@ func (s *Service) GenerateImagePool(
 // most once per credential.
 func (s *Service) EmbedPool(
 	ctx context.Context,
-	typeKey string,
+	meta HandlerMeta,
 	creds []*models.Credential,
 	req *models.EmbeddingsRequest,
-	providerConfig map[string]any,
 ) (*models.EmbeddingsResponse, error) {
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.EmbeddingsResponse, error) {
-		return s.Embed(ctx, typeKey, cred, req, providerConfig)
+		return s.Embed(ctx, withCredential(meta, cred), req)
 	})
 }

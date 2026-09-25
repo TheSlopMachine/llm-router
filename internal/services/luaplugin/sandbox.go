@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -23,6 +25,13 @@ type execContext struct {
 	storage    *storageBackend
 	timeoutMs  int
 
+	// Request identity from HandlerMeta: the provider instance and type
+	// serving the request, the attempt credential, and the requested model.
+	providerID   string
+	typeKey      string
+	credentialID string
+	model        models.ModelId
+
 	// Proxy routing: the resolver returns the ordered picks for one
 	// request; the HTTP layer walks them while attempts fail.
 	// proxyURL == "" means the current request goes direct.
@@ -34,11 +43,17 @@ type execContext struct {
 	proxyID             string
 	proxyURL            string
 	// lastProxyID is the proxy of the most recent attempt, used for
-	// post-call outcome attribution (rate limits, geo blocks).
+	// joint limit marking on rate/quota outcomes.
 	lastProxyID string
-	// onProxyEvent reports rate-limit and block outcomes for the
-	// proxy-provider pair. Never called for direct requests.
-	onProxyEvent func(ev ProxyEvent)
+	// inClassify guards the classify_error helper against re-entrant calls
+	// from its own extension.
+	inClassify bool
+	// goCtx carries the caller request context into HTTP requests built by
+	// this call's clients, so cancellation propagates (nil = Background).
+	goCtx context.Context
+	// exhausted records joint limit keys for rate/quota outcomes
+	// (nil = disabled).
+	exhausted *exhausted.Service
 
 	registrations map[string]*lua.LTable
 	proxySources  map[string]*lua.LTable
@@ -251,37 +266,39 @@ func installRouterTable(L *lua.LState, ctx *execContext) {
 		return 0
 	}))
 
-	router.RawSetString("create_http_client", L.NewFunction(func(L *lua.LState) int {
+	router.RawSetString("http_client", L.NewFunction(func(L *lua.LState) int {
 		if ctx == nil {
-			L.RaiseError("llm_router.create_http_client: no execution context")
+			L.RaiseError("llm_router.http_client: no execution context")
 			return 0
 		}
-		timeoutMs := 60000
+		timeoutMs := defaultHTTPTimeoutMs
 		if L.GetTop() >= 1 && L.Get(1) != lua.LNil {
 			opts, ok := L.Get(1).(*lua.LTable)
 			if !ok {
-				L.RaiseError("llm_router.create_http_client: options must be a table")
+				L.RaiseError("llm_router.http_client: options must be a table")
 				return 0
 			}
 			if v := opts.RawGetString("timeout_ms"); v != lua.LNil {
 				if n, ok := v.(lua.LNumber); ok {
 					timeoutMs = int(n)
 				} else {
-					L.RaiseError("llm_router.create_http_client: timeout_ms must be a number")
+					L.RaiseError("llm_router.http_client: timeout_ms must be a number")
 					return 0
 				}
 			}
 		}
-		if timeoutMs < 1000 {
-			timeoutMs = 1000
+		if timeoutMs < minHTTPTimeoutMs {
+			timeoutMs = minHTTPTimeoutMs
 		}
-		if timeoutMs > 300000 {
-			timeoutMs = 300000
+		if timeoutMs > maxHTTPTimeoutMs {
+			timeoutMs = maxHTTPTimeoutMs
 		}
 		client := newPluginHTTPClient(ctx, timeoutMs)
 		L.Push(client.toLua(L))
 		return 1
 	}))
+
+	router.RawSetString("classify_error", L.NewFunction(classifyErrorFunc(ctx)))
 
 	router.RawSetString("storage", newStorageTable(L, ctx))
 

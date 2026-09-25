@@ -49,6 +49,9 @@ func requestTable(L *lua.LState, req *models.ChatCompletionRequest) *lua.LTable 
 	// The stream flag is absent by contract: stream/non-stream is
 	// determined by which handler is invoked.
 	tbl.RawSetString("stream", lua.LNil)
+	// model_name is the bare model without the provider prefix, for
+	// upstream payloads. model keeps the full ModelId.
+	tbl.RawSetString("model_name", lua.LString(req.Model.Name()))
 	return tbl
 }
 
@@ -57,21 +60,19 @@ func requestTable(L *lua.LState, req *models.ChatCompletionRequest) *lua.LTable 
 // uses one ordered pick list, and transport failover stays inside it.
 func (s *Service) Complete(
 	goCtx context.Context,
-	typeKey string,
-	cred *models.Credential,
+	meta HandlerMeta,
 	req *models.ChatCompletionRequest,
-	providerConfig map[string]any,
 ) (*models.ChatCompletionResponse, error) {
-	return callAndDecode(s, goCtx, typeKey, "complete", func(L *lua.LState) {
-		L.Push(ctxTable(L, "", providerConfig))
-		L.Push(credTable(L, cred))
+	return callAndDecode(s, goCtx, meta, "complete", func(L *lua.LState) {
+		L.Push(ctxTable(L, "", meta.ProviderConfig))
+		L.Push(credTable(L, meta.Credential))
 		L.Push(requestTable(L, req))
 	}, []string{"choices", "tool_calls"}, func(out *models.ChatCompletionResponse) error {
 		if len(out.Choices) == 0 {
 			return errEmptyChoices
 		}
 		return nil
-	}, providerConfig)
+	})
 }
 
 // CompleteStream invokes complete_stream with an emit callback. When the
@@ -79,13 +80,11 @@ func (s *Service) Complete(
 // single chunk produced by complete plus [DONE].
 func (s *Service) CompleteStream(
 	goCtx context.Context,
-	typeKey string,
-	cred *models.Credential,
+	meta HandlerMeta,
 	req *models.ChatCompletionRequest,
 	w io.Writer,
-	providerConfig map[string]any,
 ) error {
-	rec, err := s.Lookup(typeKey)
+	rec, err := s.Lookup(meta.TypeKey)
 	if err != nil {
 		return err
 	}
@@ -119,15 +118,15 @@ func (s *Service) CompleteStream(
 		}
 		return 0
 	}
-	found, _, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "complete_stream", func(L *lua.LState) {
-		L.Push(ctxTable(L, "", providerConfig))
-		L.Push(credTable(L, cred))
+	found, _, callErr := s.handlerCallRouted(goCtx, rec, meta, "complete_stream", func(L *lua.LState) {
+		L.Push(ctxTable(L, "", meta.ProviderConfig))
+		L.Push(credTable(L, meta.Credential))
 		L.Push(requestTable(L, req))
 		L.Push(L.NewFunction(emitFn))
 	}, 2, func(L *lua.LState) error {
 		_, rawErr := splitReturn(L)
-		return s.contractErrOrInternal(rec, typeKey, rawErr)
-	}, providerConfig)
+		return s.contractErrOrInternal(rec, meta.TypeKey, rawErr)
+	})
 	if callErr != nil {
 		return callErr
 	}
@@ -138,7 +137,7 @@ func (s *Service) CompleteStream(
 		return nil
 	}
 	// Fallback: emulate streaming over complete().
-	resp, cerr := s.Complete(goCtx, typeKey, cred, req, providerConfig)
+	resp, cerr := s.Complete(goCtx, meta, req)
 	if cerr != nil {
 		return cerr
 	}
@@ -174,6 +173,7 @@ func marshalLuaChunk(chunk models.StreamChunk) ([]byte, error) {
 func transcriptionRequestTable(L *lua.LState, req *models.TranscriptionRequest) *lua.LTable {
 	tbl := L.NewTable()
 	tbl.RawSetString("model", lua.LString(req.Model.String()))
+	tbl.RawSetString("model_name", lua.LString(req.Model.Name()))
 	tbl.RawSetString("file", lua.LString(string(req.File)))
 	tbl.RawSetString("file_name", lua.LString(req.FileName))
 	tbl.RawSetString("content_type", lua.LString(req.ContentType))
@@ -205,22 +205,21 @@ func transcriptionRequestTable(L *lua.LState, req *models.TranscriptionRequest) 
 // supported" error.
 func (s *Service) Transcribe(
 	goCtx context.Context,
-	typeKey string,
-	cred *models.Credential,
+	meta HandlerMeta,
 	req *models.TranscriptionRequest,
-	providerConfig map[string]any,
 ) (*models.TranscriptionResponse, error) {
-	return callAndDecode[models.TranscriptionResponse](s, goCtx, typeKey, "transcribe", func(L *lua.LState) {
-		L.Push(ctxTable(L, "", providerConfig))
-		L.Push(credTable(L, cred))
+	return callAndDecode[models.TranscriptionResponse](s, goCtx, meta, "transcribe", func(L *lua.LState) {
+		L.Push(ctxTable(L, "", meta.ProviderConfig))
+		L.Push(credTable(L, meta.Credential))
 		L.Push(transcriptionRequestTable(L, req))
-	}, []string{"segments", "words"}, nil, providerConfig)
+	}, []string{"segments", "words"}, nil)
 }
 
 // speechRequestTable builds the speech request table.
 func speechRequestTable(L *lua.LState, req *models.SpeechRequest) *lua.LTable {
 	tbl := L.NewTable()
 	tbl.RawSetString("model", lua.LString(req.Model.String()))
+	tbl.RawSetString("model_name", lua.LString(req.Model.Name()))
 	tbl.RawSetString("input", lua.LString(req.Input))
 	if req.Voice != "" {
 		tbl.RawSetString("voice", lua.LString(req.Voice))
@@ -243,14 +242,12 @@ func speechRequestTable(L *lua.LState, req *models.SpeechRequest) *lua.LTable {
 // so the router maps it to a clean "endpoint not supported" error.
 func (s *Service) Speech(
 	goCtx context.Context,
-	typeKey string,
-	cred *models.Credential,
+	meta HandlerMeta,
 	req *models.SpeechRequest,
-	providerConfig map[string]any,
 ) (*models.SpeechResponse, error) {
-	out, err := callAndDecode(s, goCtx, typeKey, "speech", func(L *lua.LState) {
-		L.Push(ctxTable(L, "", providerConfig))
-		L.Push(credTable(L, cred))
+	out, err := callAndDecode(s, goCtx, meta, "speech", func(L *lua.LState) {
+		L.Push(ctxTable(L, "", meta.ProviderConfig))
+		L.Push(credTable(L, meta.Credential))
 		L.Push(speechRequestTable(L, req))
 	}, nil, func(payload *speechPayload) error {
 		audio, derr := base64.StdEncoding.DecodeString(payload.AudioB64)
@@ -261,7 +258,7 @@ func (s *Service) Speech(
 			return errEmptyAudio
 		}
 		return nil
-	}, providerConfig)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -273,6 +270,7 @@ func (s *Service) Speech(
 func imageRequestTable(L *lua.LState, req *models.ImageGenerationRequest) *lua.LTable {
 	tbl := L.NewTable()
 	tbl.RawSetString("model", lua.LString(req.Model.String()))
+	tbl.RawSetString("model_name", lua.LString(req.Model.Name()))
 	tbl.RawSetString("prompt", lua.LString(req.Prompt))
 	if req.N > 0 {
 		tbl.RawSetString("n", lua.LNumber(req.N))
@@ -297,32 +295,34 @@ func imageRequestTable(L *lua.LState, req *models.ImageGenerationRequest) *lua.L
 // not supported" error.
 func (s *Service) GenerateImage(
 	goCtx context.Context,
-	typeKey string,
-	cred *models.Credential,
+	meta HandlerMeta,
 	req *models.ImageGenerationRequest,
-	providerConfig map[string]any,
 ) (*models.ImageGenerationResponse, error) {
-	return callAndDecode(s, goCtx, typeKey, "generate_image", func(L *lua.LState) {
-		L.Push(ctxTable(L, "", providerConfig))
-		L.Push(credTable(L, cred))
+	return callAndDecode(s, goCtx, meta, "generate_image", func(L *lua.LState) {
+		L.Push(ctxTable(L, "", meta.ProviderConfig))
+		L.Push(credTable(L, meta.Credential))
 		L.Push(imageRequestTable(L, req))
 	}, []string{"data"}, func(out *models.ImageGenerationResponse) error {
 		if len(out.Data) == 0 {
 			return errEmptyImageData
 		}
 		return nil
-	}, providerConfig)
+	})
 }
 
 // embeddingsRequestTable builds the embed request table.
 func embeddingsRequestTable(L *lua.LState, req *models.EmbeddingsRequest) *lua.LTable {
 	tbl := L.NewTable()
 	tbl.RawSetString("model", lua.LString(req.Model.String()))
+	tbl.RawSetString("model_name", lua.LString(req.Model.Name()))
 	input := L.NewTable()
 	for _, s := range req.Input {
 		input.Append(lua.LString(s))
 	}
 	tbl.RawSetString("input", input)
+	if req.EncodingFormat != "" {
+		tbl.RawSetString("encoding_format", lua.LString(req.EncodingFormat))
+	}
 	if req.Dimensions > 0 {
 		tbl.RawSetString("dimensions", lua.LNumber(req.Dimensions))
 	}
@@ -334,14 +334,12 @@ func embeddingsRequestTable(L *lua.LState, req *models.EmbeddingsRequest) *lua.L
 // supported" error.
 func (s *Service) Embed(
 	goCtx context.Context,
-	typeKey string,
-	cred *models.Credential,
+	meta HandlerMeta,
 	req *models.EmbeddingsRequest,
-	providerConfig map[string]any,
 ) (*models.EmbeddingsResponse, error) {
-	return callAndDecode(s, goCtx, typeKey, "embed", func(L *lua.LState) {
-		L.Push(ctxTable(L, "", providerConfig))
-		L.Push(credTable(L, cred))
+	return callAndDecode(s, goCtx, meta, "embed", func(L *lua.LState) {
+		L.Push(ctxTable(L, "", meta.ProviderConfig))
+		L.Push(credTable(L, meta.Credential))
 		L.Push(embeddingsRequestTable(L, req))
 	}, []string{"data"}, func(out *models.EmbeddingsResponse) error {
 		if len(out.Data) != len(req.Input) {
@@ -354,7 +352,7 @@ func (s *Service) Embed(
 			out.Data[i].Index = i
 		}
 		return nil
-	}, providerConfig)
+	})
 }
 
 // ValidateCredentials calls validate_credentials. Missing handler accepts
@@ -412,7 +410,8 @@ func (s *Service) GetModelInfos(
 		return nil, err
 	}
 	var infos []models.ModelInfo
-	found, _, callErr := s.handlerCallRouted(goCtx, rec, typeKey, "get_model_infos", func(L *lua.LState) {
+	meta := HandlerMeta{TypeKey: typeKey, Credential: cred, ProviderConfig: providerConfig}
+	found, _, callErr := s.handlerCallRouted(goCtx, rec, meta, "get_model_infos", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", nil))
 		L.Push(credTable(L, cred))
 		if len(providerConfig) > 0 {
@@ -440,7 +439,7 @@ func (s *Service) GetModelInfos(
 		}
 		infos = out
 		return nil
-	}, providerConfig)
+	})
 	if callErr != nil {
 		return nil, callErr
 	}

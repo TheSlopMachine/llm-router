@@ -17,6 +17,7 @@ const (
 	HandlerEmbed               Handler = "embed"
 	HandlerValidateCredentials Handler = "validate_credentials"
 	HandlerGetModelInfos       Handler = "get_model_infos"
+	HandlerClassifyError       Handler = "classify_error"
 	HandlerNeedsRefresh        Handler = "needs_refresh"
 	HandlerRefreshCredential   Handler = "refresh_credential"
 	HandlerConfigSchema        Handler = "config_schema"
@@ -35,6 +36,7 @@ func OptionalHandlerNames() []string {
 		string(HandlerEmbed),
 		string(HandlerValidateCredentials),
 		string(HandlerGetModelInfos),
+		string(HandlerClassifyError),
 		string(HandlerNeedsRefresh),
 		string(HandlerRefreshCredential),
 		string(HandlerConfigSchema),

@@ -160,6 +160,12 @@ func dedupeStrings(in []string) []string {
 	return out
 }
 
+// minRouterVersion is the oldest plugin contract served: 0.1.1 replaced
+// pair limits and credential quota with the unified exhausted store and
+// reworked the stream idiom. Older plugins are rejected at install, not
+// adapted: the contract break is explicit.
+const minRouterVersion = "0.1.1"
+
 // CheckRouterVersion rejects plugins requiring a newer router.
 func CheckRouterVersion(manifest *Manifest, current string) error {
 	cMaj, cMin, cPatch, err := parseSemver(current)
@@ -169,6 +175,12 @@ func CheckRouterVersion(manifest *Manifest, current string) error {
 	rMaj, rMin, rPatch, err := parseSemver(manifest.RouterVersion)
 	if err != nil {
 		return fmt.Errorf("invalid plugin @router_version %q: %w", manifest.RouterVersion, err)
+	}
+	if older, err := CompareVersions(manifest.RouterVersion, minRouterVersion); err != nil || older < 0 {
+		if err != nil {
+			return fmt.Errorf("invalid plugin @router_version %q: %w", manifest.RouterVersion, err)
+		}
+		return fmt.Errorf("plugin @router_version %s predates the oldest served contract %s: reissue the plugin", manifest.RouterVersion, minRouterVersion)
 	}
 	if cMaj != rMaj {
 		if cMaj < rMaj {

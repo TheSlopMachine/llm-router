@@ -28,10 +28,10 @@ BUN_MIN := 1.2
 GO_MIN  := 1.25
 BUN     := bun
 
-.PHONY: help check-frontend-deps check-publish-deps go-tidy fmt fmt-check init start stop restart status browser log log-frontend clean publish go-check go-test check-frontend
+.PHONY: help check-frontend-deps check-publish-deps go-tidy go-fmt go-fmt-check init start stop restart status browser log log-frontend clean publish go-vet go-test check-frontend smoke
 
 help:
-	@cd scripts && GOWORK=off go run ./help
+	@cat scripts/help.txt
 
 check-frontend-deps:
 	@printf '[>] Checking frontend deps (bun >=$(BUN_MIN))...\n'
@@ -60,10 +60,10 @@ go-tidy:
 	@go mod tidy
 	@cd scripts && GOWORK=off go mod tidy
 
-fmt:
+go-fmt:
 	@cd scripts && FMT_WRITE=1 GOWORK=off go run ./fmt
 
-fmt-check:
+go-fmt-check:
 	@cd scripts && GOWORK=off go run ./fmt
 
 init: check-frontend-deps
@@ -77,6 +77,12 @@ stop:
 
 restart:
 	@cd scripts && GOWORK=off go run ./restart
+
+# Smoke harness: restarts the dev stack with authorization off, then drives
+# the wire surfaces (provisioning accounts from SMOKE_* env automatically).
+smoke: NO_AUTH = 1
+smoke: restart
+	@cd scripts && GOWORK=off go run ./smoke
 
 status:
 	@cd scripts && GOWORK=off go run ./status
@@ -97,7 +103,7 @@ clean:
 publish: check-publish-deps init
 	@cd scripts && GOWORK=off go run ./publish
 
-go-check:
+go-vet:
 	@cd scripts && GOWORK=off go run ./vet
 
 go-test:

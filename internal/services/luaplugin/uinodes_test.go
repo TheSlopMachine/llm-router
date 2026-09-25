@@ -17,7 +17,7 @@ func schemaNodes(t *testing.T, body string) ([]*models.UINode, error) {
 	src := `--- @plugin Schema Probe
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.0.4
+--- @router_version 0.1.1
 --- @allow_host example.com
 
 llm_router.register("probe", {
