@@ -240,3 +240,44 @@ Dashboard `/api/llm-router/*` (`:$WEB_PORT`, JSON `{"error":...}` on failure):
 - `GET /dashboard/proxy-sources`, `/dashboard/virtual-models` — pool and fan-out state
 
 Runtime diagnostics: `make log LINES=...` (backend), `make log-frontend` (vite), `make status` (PIDs/ports), metrics overview/timeseries endpoints for usage.
+
+## 10. Agent Field Manual
+
+### 10.1 Edit discipline
+
+- Re-read the region before every `edit` to the same file. Stale `oldString`
+  either no-matches or deletes neighboring code.
+- After deleting a function, grep the file's imports immediately (`net/url`,
+  `regexp`, `errors`, `strings`, `slog` orphans are guaranteed); `go vet`
+  catches them a cycle later.
+- Diff every edited file before moving on.
+- One simple shell command per call: no heredocs, no `VAR=x cmd`, no bare
+  `echo`, no `2>/dev/null` (§12, §13).
+- A predicted runtime-only risk ships with its test in the same change
+  (route patterns validate only at startup — hence `mux_test.go`).
+
+### 10.2 Design defaults
+
+- One knowledge, one owner. Duplicated logic drifts toward bugs; unify
+  instead of patching instances.
+- Fail closed. Unknown state denies with a surfaced error, never a default
+  success (§9).
+- Transaction boundary belongs to the calling domain method: one public
+  method, one `db.Update`.
+- Fix the contract where data is born. Frontend guards over backend shapes,
+  display-side parsing, and anonymous DTOs duplicating models are backend
+  bugs postponed (§11).
+- Persisted derived values are frozen. Functions whose outputs live in
+  storage must never change semantics without a migration; lock them with
+  stability tests.
+- Migrations are explicit or versioned, never inline recovery hacks.
+  Never smuggle backward-compat recovery into the function that needs
+  the new shape: the next reader sees dead weight and deletes it,
+  re-breaking old data silently. If new code breaks stored shapes,
+  either version the bucket (`proxies_v2`, `metrics_v2`, …) or declare
+  a named migration function (`migrateLegacyCustom`, `migrateProxySourceKeys`)
+  that runs once at startup and stays greppable.
+- Fix the class, not the instance. Systemic fixes run smaller than
+  instance patches.
+- Names must not lie. Rename when semantics change; a lying name is worse
+  than none.
