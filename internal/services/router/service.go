@@ -226,6 +226,44 @@ func (s *Service) dropMissingModel(providerID, modelName string, err error) {
 	}
 }
 
+// LikelyExhausted reports whether model is already known to be entirely
+// unusable: a model-wide limit key exists for its resolved provider,
+// independent of which account or proxy would be tried. It is a cheap,
+// best-effort pre-check for a caller iterating several candidate models
+// (virtual-model fan-out) deciding whether a member is worth attempting at
+// all — it never touches the credential pool or the exhausted store's
+// account/proxy dimensions, so it cannot detect "every account happens to
+// be limited" short of an explicit model-wide mark. A false result is not
+// proof of success: dropExhausted's own last-resort fallback can still let
+// a fully-filtered pool through. Callers must not skip the last remaining
+// candidate on a true result; a stale mark must never fully deny a request.
+func (s *Service) LikelyExhausted(model models.ModelId) bool {
+	if s.exhaustedSvc == nil {
+		return false
+	}
+	providerID, _, err := model.Parse()
+	if err != nil {
+		return false
+	}
+	resolved, err := provider.Resolve(s.providerSvc, providerID)
+	if err != nil || !resolved.IsLua() {
+		return false
+	}
+	rec, err := s.providerSvc.LuaService().Lookup(resolved.Instance.TypeKey)
+	if err != nil {
+		return false
+	}
+	hit, err := s.exhaustedSvc.LimitedAny(exhausted.Segments{
+		Plugin:   rec.ID,
+		Provider: resolved.Instance.TypeKey,
+		Model:    model.String(),
+	})
+	if err != nil {
+		return false
+	}
+	return hit != ""
+}
+
 // Complete routes a non-streaming chat completion request. The backend tries
 // the credential pool in order, at most once per key; the first success wins
 // and the last error is returned as-is.

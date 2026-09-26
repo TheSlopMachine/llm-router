@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 )
 
 const streamAPIPluginSource = `--- @plugin Stream API Plugin
@@ -63,7 +64,7 @@ func setupStreamAPIService(t *testing.T, proxyURL string) *Service {
 	if _, err := svc.Install([]byte(streamAPIPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	svc.SetProxyResolver(func(_ context.Context, _ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+	svc.SetProxyResolver(func(_ context.Context, _ *PluginRecord, _ map[string]any, _ exhausted.Segments) ([]ProxyPick, error) {
 		return []ProxyPick{{ID: "px-test", URL: proxyURL}}, nil
 	})
 	return svc
@@ -124,7 +125,7 @@ llm_router.register("sdef-type", {
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	svc.SetProxyResolver(func(_ context.Context, _ *PluginRecord, _ map[string]any) ([]ProxyPick, error) {
+	svc.SetProxyResolver(func(_ context.Context, _ *PluginRecord, _ map[string]any, _ exhausted.Segments) ([]ProxyPick, error) {
 		return []ProxyPick{{ID: "px-test", URL: streamProxyStub(t, 500, "boom")}}, nil
 	})
 	cred := &models.Credential{ID: "c1", Data: map[string]any{}}

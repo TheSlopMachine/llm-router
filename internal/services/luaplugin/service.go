@@ -102,8 +102,11 @@ type Service struct {
 	exhausted *exhausted.Service
 
 	// proxyResolver returns the ordered proxy picks for a plugin call
-	// (nil/empty = direct). Auto mode waits for ready or no-proxies.
-	proxyResolver func(ctx context.Context, rec *PluginRecord, providerConfig map[string]any) ([]ProxyPick, error)
+	// (nil/empty = direct). Auto mode waits for ready or no-proxies. known
+	// carries the account and model already fixed for this attempt, so the
+	// resolver can drop a proxy that is limited jointly with them, not just
+	// on its own.
+	proxyResolver func(ctx context.Context, rec *PluginRecord, providerConfig map[string]any, known exhausted.Segments) ([]ProxyPick, error)
 }
 
 // ProxyPick is one ordered proxy candidate for a plugin call.
@@ -121,7 +124,7 @@ type ProxyResolution struct {
 // SetProxyResolver wires pool-based proxy selection for plugin HTTP calls.
 // Resolution is lazy per request; a non-nil error fails the request loudly
 // (manual mode with no usable proxy pooled, settled pool with none).
-func (s *Service) SetProxyResolver(fn func(ctx context.Context, rec *PluginRecord, providerConfig map[string]any) ([]ProxyPick, error)) {
+func (s *Service) SetProxyResolver(fn func(ctx context.Context, rec *PluginRecord, providerConfig map[string]any, known exhausted.Segments) ([]ProxyPick, error)) {
 	s.proxyResolver = fn
 }
 

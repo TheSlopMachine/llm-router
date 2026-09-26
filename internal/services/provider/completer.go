@@ -14,4 +14,9 @@ import (
 type Completer interface {
 	Complete(ctx context.Context, req *models.ChatCompletionRequest, token *models.RouterToken) (*models.ChatCompletionResponse, error)
 	CompleteStream(ctx context.Context, req *models.ChatCompletionRequest, w io.Writer, token *models.RouterToken) error
+	// LikelyExhausted is a cheap, best-effort pre-check: true means model
+	// carries a model-wide limit key and is worth skipping without an
+	// attempt. False is not a guarantee of success. Implementations with no
+	// exhausted store wired always return false.
+	LikelyExhausted(model models.ModelId) bool
 }

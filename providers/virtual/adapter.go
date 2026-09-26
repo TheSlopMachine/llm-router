@@ -124,6 +124,16 @@ func (a *Adapter) Complete(
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		// A model-wide limit key means every account for this member is
+		// known to be dead right now; skip the attempt entirely, unless
+		// it's the last member left — a stale mark must never deny the
+		// request outright.
+		if i < len(members)-1 && routerSvc.LikelyExhausted(memberID) {
+			logger.Info("member model likely exhausted, skipping without an attempt",
+				"virtual_model", agent.Name,
+				"skipped_model", memberID.String())
+			continue
+		}
 		modelReq := *modifiedReq
 		modelReq.Model = memberID
 		logger.Debug("virtual model trying model",
@@ -180,6 +190,12 @@ func (a *Adapter) CompleteStream(
 	for i, memberID := range members {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if i < len(members)-1 && routerSvc.LikelyExhausted(memberID) {
+			logger.Info("member model likely exhausted, skipping without an attempt",
+				"virtual_model", agent.Name,
+				"skipped_model", memberID.String())
+			continue
 		}
 		modelReq := *modifiedReq
 		modelReq.Model = memberID

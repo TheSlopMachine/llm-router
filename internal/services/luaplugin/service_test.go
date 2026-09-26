@@ -344,6 +344,7 @@ func TestIsFatalPoolError(t *testing.T) {
 	fatal := []error{
 		ErrHandlerNotFound,
 		&models.ProviderError{Type: models.ErrorTypeInvalidRequest},
+		&models.ProviderError{Type: models.ErrorTypeGeo},
 	}
 	for _, err := range fatal {
 		if !isFatalPoolError(err) {
@@ -356,7 +357,6 @@ func TestIsFatalPoolError(t *testing.T) {
 		&models.ProviderError{Type: models.ErrorTypeAuth},
 		&models.ProviderError{Type: models.ErrorTypeUpstream},
 		&models.ProviderError{Type: models.ErrorTypeTimeout},
-		&models.ProviderError{Type: models.ErrorTypeGeo},
 		&models.ProviderError{Type: models.ErrorTypeNotFound},
 		&models.ProviderError{Type: models.ErrorTypePaymentRequired},
 		errors.New("boom"),
@@ -399,6 +399,48 @@ llm_router.register("fatal-type", {
 	}
 	if got := len(svc.Logs(rec.ID)); got != 1 {
 		t.Fatalf("invalid_request must stop after 1 attempt, got %d log lines", got)
+	}
+}
+
+func TestCompletePool_GeoStopsAfterFirstKey(t *testing.T) {
+	// A geo block is a property of the network path, not the credential:
+	// cycling the rest of the pool would very likely repeat the same
+	// failure through the same top-ranked (unrelated to credential) exit,
+	// so it must stop and surface immediately, exactly like invalid_request.
+	svc := setupService(t)
+	src := `--- @plugin P
+--- @author a
+--- @version 1.0.0
+--- @router_version 0.1.1
+--- @allow_host example.com
+
+llm_router.register("geo-type", {
+  complete = function(ctx, credential, request)
+    print("attempt " .. credential.id)
+    return nil, { type = "geo", message = "not available in your region" }
+  end,
+})
+`
+	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	creds := []*models.Credential{{ID: "a"}, {ID: "b"}}
+	req := &models.ChatCompletionRequest{Model: "geo-type/m"}
+	meta := testMeta("geo-type", nil, req.Model, nil)
+	_, _, err := svc.CompletePool(context.Background(), meta, creds, req)
+	var perr *models.ProviderError
+	if !errors.As(err, &perr) || perr.Type != models.ErrorTypeGeo {
+		t.Fatalf("expected a geo provider error, got %v", err)
+	}
+	if !isFatalPoolError(err) {
+		t.Fatalf("geo must surface as fatal pool error, got %v", err)
+	}
+	rec, err := svc.Lookup("geo-type")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if got := len(svc.Logs(rec.ID)); got != 1 {
+		t.Fatalf("geo must stop after 1 attempt, got %d log lines", got)
 	}
 }
 

@@ -124,3 +124,45 @@ func TestRouterService_AllLimitedKeepsPoolAsLastResort(t *testing.T) {
 		t.Fatalf("last-resort pool must still serve: got %q", got)
 	}
 }
+
+func TestRouterService_LikelyExhausted(t *testing.T) {
+	svc, exhaustedSvc, providerID, credA, _ := setupExhaustedRouter(t)
+	model := models.ModelId(providerID + "/model-a")
+
+	if svc.LikelyExhausted(model) {
+		t.Fatal("unmarked model must not report likely exhausted")
+	}
+
+	// An account-only mark says nothing about the model as a whole: other
+	// accounts could still serve it.
+	rec, err := svc.providerSvc.LuaService().Lookup("exh-type")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	acctKey, err := exhausted.KeyFromScope(rec.ID, "exh-type", credA.ID, model.String(), "", []string{"account"})
+	if err != nil {
+		t.Fatalf("scope key: %v", err)
+	}
+	if err := exhaustedSvc.Mark(acctKey, time.Now().Add(time.Hour), "test"); err != nil {
+		t.Fatalf("mark account: %v", err)
+	}
+	if svc.LikelyExhausted(model) {
+		t.Fatal("account-only mark must not report the model as likely exhausted")
+	}
+
+	// A model-wide mark applies regardless of account.
+	modelKey, err := exhausted.KeyFromScope(rec.ID, "exh-type", "", model.String(), "", []string{"model"})
+	if err != nil {
+		t.Fatalf("scope key: %v", err)
+	}
+	if err := exhaustedSvc.Mark(modelKey, time.Now().Add(time.Hour), "test"); err != nil {
+		t.Fatalf("mark model: %v", err)
+	}
+	if !svc.LikelyExhausted(model) {
+		t.Fatal("model-wide mark must report the model as likely exhausted")
+	}
+	// A different model on the same provider is unaffected.
+	if svc.LikelyExhausted(models.ModelId(providerID + "/model-b")) {
+		t.Fatal("a different model must not be reported as likely exhausted")
+	}
+}

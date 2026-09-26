@@ -27,11 +27,22 @@ func isFatalPoolError(err error) bool {
 	if errors.Is(err, ErrHandlerNotFound) {
 		return true
 	}
-	// invalid_request is identical for every key: the request itself is
-	// malformed, so iterating the pool only repeats the failure.
 	var perr *models.ProviderError
 	if errors.As(err, &perr) {
-		return perr.Type == models.ErrorTypeInvalidRequest
+		switch perr.Type {
+		case models.ErrorTypeInvalidRequest:
+			// Identical for every key: the request itself is malformed, so
+			// iterating the pool only repeats the failure.
+			return true
+		case models.ErrorTypeGeo:
+			// The exit is at fault, not the credential: cycling credentials
+			// mostly re-hits the same top-ranked proxy pick. Fail once and
+			// surface it, instead of paying for the rest of the pool. Not
+			// marked in the exhausted store: this is a hard stop, not a
+			// temporary skip. Virtual-model fall-through is unaffected —
+			// it moves to the next member on any error, fatal or not.
+			return true
+		}
 	}
 	return false
 }

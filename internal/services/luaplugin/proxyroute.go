@@ -3,6 +3,8 @@ package luaplugin
 import (
 	"context"
 	"net/url"
+
+	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 )
 
 // Proxy rotation helpers. Every plugin HTTP request starts with a fresh
@@ -20,7 +22,8 @@ func (ctx *execContext) beginRequest(goCtx context.Context) error {
 	if ctx.proxyResolver == nil {
 		return nil
 	}
-	picks, err := ctx.proxyResolver(goCtx, ctx.proxyRec, ctx.proxyProviderConfig)
+	known := exhausted.Segments{Account: ctx.credentialID, Model: ctx.model.String()}
+	picks, err := ctx.proxyResolver(goCtx, ctx.proxyRec, ctx.proxyProviderConfig, known)
 	if err != nil {
 		return err
 	}
