@@ -1145,13 +1145,13 @@ type UINode struct {
 	Direction    string            `json:"direction,omitempty"`
 	Align        string            `json:"align,omitempty"`
 	Justify      string            `json:"justify,omitempty"`
-	Gap          string            `json:"gap,omitempty"`
+	Gap          int               `json:"gap,omitempty"`
 	Columns      int               `json:"columns,omitempty"`
 	Title        string            `json:"title,omitempty"`
 	Subtitle     string            `json:"subtitle,omitempty"`
 	Wrap         bool              `json:"wrap,omitempty"`
 	Grow         bool              `json:"grow,omitempty"`
-	Size         string            `json:"size,omitempty"`
+	Size         int               `json:"size,omitempty"`
 	Extra        map[string]any    `json:"-"`
 }
 

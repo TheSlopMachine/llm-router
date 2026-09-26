@@ -2,6 +2,7 @@ package luaplugin
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
@@ -60,7 +61,28 @@ var uiNodeTypes = map[string]bool{
 	"divider": true, "secret": true, "code": true,
 }
 
-var uiGapSizes = map[string]bool{"sm": true, "md": true, "lg": true}
+var legacyGapSteps = map[string]int{"sm": 2, "md": 4, "lg": 6}
+
+// parseGapStep normalizes a Lua gap/size value to a Step 0..8.
+// LString accepts the legacy sm|md|lg enum, LNumber accepts an int 0..8.
+func parseGapStep(v lua.LValue) (int, error) {
+	switch t := v.(type) {
+	case lua.LString:
+		step, ok := legacyGapSteps[string(t)]
+		if !ok {
+			return 0, fmt.Errorf("invalid gap %q: expected sm, md, lg or Step 0..8", string(t))
+		}
+		return step, nil
+	case lua.LNumber:
+		f := float64(t)
+		if math.Trunc(f) != f || f < 0 || f > 8 {
+			return 0, fmt.Errorf("invalid gap %v: expected Step 0..8", f)
+		}
+		return int(f), nil
+	default:
+		return 0, fmt.Errorf("gap must be a Step 0..8 or one of sm, md, lg")
+	}
+}
 
 // parseUINodes validates a Lua UI tree into []*models.UINode.
 func parseUINodes(v lua.LValue) ([]*models.UINode, error) {
@@ -115,10 +137,8 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 		Direction:   getStr("direction"),
 		Align:       getStr("align"),
 		Justify:     getStr("justify"),
-		Gap:         getStr("gap"),
 		Title:       getStr("title"),
 		Subtitle:    getStr("subtitle"),
-		Size:        getStr("size"),
 	}
 	if v, ok := tbl.RawGetString("columns").(lua.LNumber); ok {
 		node.Columns = int(v)
@@ -262,11 +282,14 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 		default:
 			return nil, fmt.Errorf("invalid flow direction %q", node.Direction)
 		}
-		if node.Gap == "" {
-			node.Gap = "md"
-		}
-		if !uiGapSizes[node.Gap] {
-			return nil, fmt.Errorf("invalid flow gap %q", node.Gap)
+		if v := tbl.RawGetString("gap"); v != lua.LNil {
+			step, err := parseGapStep(v)
+			if err != nil {
+				return nil, fmt.Errorf("invalid flow gap: %w", err)
+			}
+			node.Gap = step
+		} else {
+			node.Gap = legacyGapSteps["md"]
 		}
 		if node.Align == "" {
 			node.Align = "stretch"
@@ -280,7 +303,7 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 			node.Justify = "start"
 		}
 		switch node.Justify {
-		case "start", "center", "end", "between":
+		case "start", "center", "end", "between", "around", "evenly":
 		default:
 			return nil, fmt.Errorf("invalid flow justify %q", node.Justify)
 		}
@@ -291,11 +314,14 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 		if node.Columns < 1 || node.Columns > 6 {
 			return nil, fmt.Errorf("grid columns must be between 1 and 6")
 		}
-		if node.Gap == "" {
-			node.Gap = "md"
-		}
-		if !uiGapSizes[node.Gap] {
-			return nil, fmt.Errorf("invalid grid gap %q", node.Gap)
+		if v := tbl.RawGetString("gap"); v != lua.LNil {
+			step, err := parseGapStep(v)
+			if err != nil {
+				return nil, fmt.Errorf("invalid grid gap: %w", err)
+			}
+			node.Gap = step
+		} else {
+			node.Gap = legacyGapSteps["md"]
 		}
 	case "section":
 		if len(node.Content) == 0 {
@@ -314,8 +340,12 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 		if len(node.Content) != 0 {
 			return nil, fmt.Errorf("spacer node must not have content")
 		}
-		if node.Size != "" && !uiGapSizes[node.Size] {
-			return nil, fmt.Errorf("invalid spacer size %q", node.Size)
+		if v := tbl.RawGetString("size"); v != lua.LNil {
+			step, err := parseGapStep(v)
+			if err != nil {
+				return nil, fmt.Errorf("invalid spacer size: %w", err)
+			}
+			node.Size = step
 		}
 	case "divider":
 		if len(node.Content) != 0 {
