@@ -22,7 +22,10 @@ import (
 // unified exhausted store: joint limit keys with a scope field on the error
 // contract. Old plugins are rejected by the manifest gate.
 // 0.1.2 adds the payment_required error type for upstream paywalls.
-const CurrentVersion = "0.1.2"
+// 0.2.0 adds DynamicForm Step gaps (flow/grid gap and spacer size accept
+// Step int 0..8 alongside the legacy sm|md|lg enum), input_type=secret,
+// around/evenly justify values, and strict link URL schemes.
+const CurrentVersion = "0.2.0"
 
 // ─────────────────────────────────────────────
 // ModelId
