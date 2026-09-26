@@ -629,6 +629,10 @@
     <Checkbox bind:checked={cbChecked} ariaLabel="Demo checkbox" disabled={cbDisabled} />
     <span class="hint">State: <span class="mono">{cbChecked ? 'on' : 'off'}</span></span>
   </div>
+  <div class="row">
+    <Checkbox bind:checked={cbChecked} label="Labeled checkbox" disabled={cbDisabled} />
+    <span class="hint">Label clicks toggle too.</span>
+  </div>
 </SectionCard>
 
 <SectionCard title="Image">

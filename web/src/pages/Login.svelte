@@ -45,10 +45,9 @@
       <label for="p">{t('Password')}</label>
       <input id="p" type="password" bind:value={password} autocomplete="current-password" onkeydown={(e) => e.key === 'Enter' && submit()} use:squircle={12} />
     </div>
-    <label class="remember-me">
-      <Checkbox bind:checked={rememberMe} ariaLabel={t('Keep me signed in')} />
-      <span>{t('Keep me signed in')}</span>
-    </label>
+    <div class="remember-me">
+      <Checkbox bind:checked={rememberMe} label={t('Keep me signed in')} />
+    </div>
     <button class="btn btn-primary submit-btn" onclick={submit} disabled={loading} use:squircle={12}>
       {loading ? t('Signing in…') : t('Sign in')}
     </button>
@@ -105,13 +104,6 @@
     transform: scale(0.97);
   }
   .remember-me {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
     margin-top: var(--space-5);
-    font-size: var(--text-base);
-    color: var(--color-text);
-    cursor: pointer;
-    user-select: none;
   }
 </style>
