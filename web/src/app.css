@@ -181,7 +181,8 @@ a:hover { text-decoration: underline; }
 .dark {
   /* Dark Theme Tokens */
   --color-surface: #1f1f1f;
-  --color-surface-container: #1a1a1a;
+  /* Layering always adds elev: container sits between surface and high. */
+  --color-surface-container: #262626;
   --color-surface-container-high: #2d2d2d;
   --color-surface-container-highest: #343434;
   --color-background: #141313;
