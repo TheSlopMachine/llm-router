@@ -13,6 +13,7 @@
   import Tokens from './tokens/Tokens.svelte'
   import VirtualModels from './virtual-models/VirtualModels.svelte'
   import SettingsPage from './settings/SettingsPage.svelte'
+  import UiTest from './UiTest.svelte'
   import type { PluginsTab } from './plugins/Plugins.svelte'
   import { t } from '../lib/i18n.svelte'
 

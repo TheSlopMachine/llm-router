@@ -11,6 +11,21 @@
   import Select from '../components/ui/controls/Select.svelte'
   import FloatingList from '../components/ui/controls/FloatingList.svelte'
   import Chip from '../components/ui/controls/Chip.svelte'
+  import Checkbox from '../components/ui/controls/Checkbox.svelte'
+  import Divider from '../components/ui/controls/Divider.svelte'
+  import Image from '../components/ui/controls/Image.svelte'
+  import Stack from '../components/ui/layout/Stack.svelte'
+  import HStack from '../components/ui/layout/HStack.svelte'
+  import ZStack from '../components/ui/layout/ZStack.svelte'
+  import Grid from '../components/ui/layout/Grid.svelte'
+  import Spacer from '../components/ui/layout/Spacer.svelte'
+  import ScrollView from '../components/ui/layout/ScrollView.svelte'
+  import Box from '../components/ui/layout/Box.svelte'
+  import List from '../components/ui/composite/List.svelte'
+  import CopyButton from '../components/ui/composite/CopyButton.svelte'
+  import StepsView from '../components/ui/composite/StepsView.svelte'
+  import ModalitiesFlow from '../components/ui/composite/ModalitiesFlow.svelte'
+  import { t } from '../lib/i18n.svelte'
   import { VStack, Text } from '$ui'
   import Table from '../components/ui/composite/Table.svelte'
   import type { TableColumn, TableSortDir } from '../components/ui/composite/Table.svelte'
@@ -209,20 +224,26 @@
     })
   }
 
+  // Layout
+  let boxSurface = $state('elev' as 'none' | 'elev' | 'container' | 'high' | 'highest')
+  let gridCols = $state('3')
+
+  // Checkbox
+  let cbChecked = $state(true)
+  let cbDisabled = $state(false)
+
+  // StepsView
+  let stepCurrent = $state(2)
+
+  // ModalitiesFlow
+  let modsDir = $state('vertical' as 'horizontal' | 'vertical')
+
   function openContentModal(): void {
     modal.open({
       title: 'Demo modal',
       subtitle: 'Content modal with buttons',
       size: 'medium',
-      contentSnippet: () => {
-        return (
-          <VStack align="center" gap={4} style="padding: 20px;">
-            <Text size="xl" icon={{ name: 'extension' }}>{t('No plugins installed')}</Text>
-            <Text tone="soft" align="center">{t('Browse the catalog to install a provider plugin.')}</Text>
-            <Button style="prominent" icon={{ name: 'download' }} onclick={() => toast.success('Browse catalog clicked')}>{t('Browse catalog')}</Button>
-          </VStack>
-        )
-      },
+      contentSnippet: demoModalContent,
       buttons: [{ label: 'Done', variant: 'primary', onClick: () => modal.close() }],
     })
   }
@@ -544,7 +565,122 @@
   <CodeBlock label="Live values" text={JSON.stringify(formValues, null, 2)} />
 </SectionCard>
 
+<SectionCard title="Layout">
+  <div class="row">
+    <Picker bind:value={boxSurface} ariaLabel="Box surface" options={[
+      { value: 'none', label: 'none' },
+      { value: 'elev', label: 'elev' },
+      { value: 'container', label: 'container' },
+      { value: 'high', label: 'high' },
+      { value: 'highest', label: 'highest' },
+    ]} />
+    <Picker bind:value={gridCols} ariaLabel="Grid columns" options={[
+      { value: '2', label: '2 cols' },
+      { value: '3', label: '3 cols' },
+    ]} />
+  </div>
+  <p class="hint">HStack + Spacer + Box</p>
+  <HStack gap={3} align="center">
+    <Box pad={3} surface={boxSurface} radius="md"><Text>First</Text></Box>
+    <Spacer />
+    <Box pad={3} surface={boxSurface} radius="md"><Text>Last</Text></Box>
+  </HStack>
+  <p class="hint">Stack (vertical, gap 2)</p>
+  <Stack gap={2}>
+    <Box pad={2} surface="container" radius="sm"><Text size="sm">Row one</Text></Box>
+    <Box pad={2} surface="container" radius="sm"><Text size="sm">Row two</Text></Box>
+  </Stack>
+  <p class="hint">Grid ({gridCols} cols)</p>
+  <Grid cols={Number(gridCols)} gap={2}>
+    <Box pad={2} surface="container" radius="sm"><Text size="sm">A</Text></Box>
+    <Box pad={2} surface="container" radius="sm"><Text size="sm">B</Text></Box>
+    <Box pad={2} surface="container" radius="sm"><Text size="sm">C</Text></Box>
+  </Grid>
+  <p class="hint">ZStack (overlay)</p>
+  <ZStack>
+    <Box pad={4} surface="container" radius="md"><Text size="sm">Base layer</Text></Box>
+    <Text size="sm" tone="soft">Top layer</Text>
+  </ZStack>
+  <p class="hint">ScrollView (horizontal)</p>
+  <ScrollView axis="x">
+    <HStack gap={2}>
+      <Box pad={2} surface="container" radius="sm"><Text size="sm">Wide content stays on one line — scroll me</Text></Box>
+      <Box pad={2} surface="container" radius="sm"><Text size="sm">Tail</Text></Box>
+    </HStack>
+  </ScrollView>
+</SectionCard>
+
+<SectionCard title="Divider">
+  <Text size="sm">Above</Text>
+  <Divider />
+  <Text size="sm">Below</Text>
+  <div class="row">
+    <Text size="sm">Left</Text>
+    <Divider axis="v" />
+    <Text size="sm">Right</Text>
+  </div>
+</SectionCard>
+
+<SectionCard title="Checkbox">
+  <div class="row">
+    <Switch bind:checked={cbDisabled} label="Disabled" />
+  </div>
+  <div class="row">
+    <Checkbox bind:checked={cbChecked} ariaLabel="Demo checkbox" disabled={cbDisabled} />
+    <span class="hint">State: <span class="mono">{cbChecked ? 'on' : 'off'}</span></span>
+  </div>
+</SectionCard>
+
+<SectionCard title="Image">
+  <div class="row">
+    <Image src="https://example.com/nonexistent.png" alt="Broken demo" width={64} height={64} radius="md" />
+    <span class="hint">Broken src renders the fallback icon.</span>
+  </div>
+</SectionCard>
+
+<SectionCard title="StepsView">
+  <div class="row">
+    <Button text="Prev" onclick={() => { stepCurrent = Math.max(1, stepCurrent - 1) }} disabled={stepCurrent <= 1} />
+    <Button text="Next" onclick={() => { stepCurrent = Math.min(3, stepCurrent + 1) }} disabled={stepCurrent >= 3} />
+    <span class="hint">Step: <span class="mono">{stepCurrent} / 3</span></span>
+  </div>
+  <StepsView steps={['Pick provider', 'Add credential', 'Done']} bind:current={stepCurrent} />
+</SectionCard>
+
+<SectionCard title="CopyButton">
+  <div class="row">
+    <CopyButton text="demo/model-id" />
+    <span class="hint">Copies <span class="mono">demo/model-id</span> to clipboard.</span>
+  </div>
+</SectionCard>
+
+<SectionCard title="List">
+  <List>
+    <Box pad={2}><Text size="sm">First row</Text></Box>
+    <Box pad={2}><Text size="sm">Second row</Text></Box>
+    <Box pad={2}><Text size="sm">Third row</Text></Box>
+  </List>
+</SectionCard>
+
+<SectionCard title="ModalitiesFlow">
+  <div class="row">
+    <Picker bind:value={modsDir} ariaLabel="Chips direction" options={[
+      { value: 'vertical', label: 'vertical' },
+      { value: 'horizontal', label: 'horizontal' },
+    ]} />
+  </div>
+  <ModalitiesFlow modalities={{ input: ['text', 'image'], output: ['text'] }} chipsDirection={modsDir} />
+</SectionCard>
+
 </div>
+
+{#snippet demoModalContent()}
+  <VStack align="center" gap={4}>
+    <Text size="xl">{t('No plugins installed')}</Text>
+    <Text tone="soft" align="center">{t('Browse the catalog to install a provider plugin.')}</Text>
+    <Button style="prominent" icon={{ name: 'download' }} onclick={() => toast.success('Browse catalog clicked')}>{t('Browse catalog')}</Button>
+  </VStack>
+{/snippet}
 
 <style>
   /* Composer owns spacing: widgets render marginless, the stack gaps them. */
