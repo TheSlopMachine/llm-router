@@ -622,26 +622,6 @@ textarea:focus-visible {
   font-size: var(--text-sm);
 }
 
-.card {
-  background: var(--elev);
-  border: none;
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-5);
-  border-bottom: 1px solid var(--color-outline-soft);
-}
-.card-header h2 {
-  font-size: var(--text-md);
-  font-weight: 500;
-  color: var(--color-text);
-}
-
 .form-group {
   display: flex;
   flex-direction: column;

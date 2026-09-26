@@ -34,6 +34,23 @@
 </section>
 
 <style>
+  /* Card chrome, scoped: SectionCard is the sole consumer of the removed
+     global .card/.card-header rules. */
+  .card {
+    background: var(--elev);
+    border: none;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-5);
+    border-bottom: 1px solid var(--color-outline-soft);
+  }
+
   .section-card {
     overflow: visible;
   }
