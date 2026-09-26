@@ -35,7 +35,7 @@
 <VStack gap={2}>
   {#if label}<Text size="sm" weight="medium">{label}</Text>{/if}
   <!-- radius-md + uniform pad: matches Toasts geometry; was ctl-radius + 12/16px pad -->
-  <Box surface="elev" pad={3} radius="md" squircled>
+  <Box elev pad={3} radius="md" squircled>
     <HStack gap={3} align="center">
       <code class="code-text">{text}</code>
       <Button

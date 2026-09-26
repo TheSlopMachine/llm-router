@@ -227,7 +227,8 @@
   }
 
   // Layout
-  let boxSurface = $state('elev' as 'none' | 'elev' | 'container' | 'high' | 'highest')
+  let demoElev = $state(true)
+  let nestDepth = $state('3')
   let gridCols = $state('3')
 
   // Checkbox
@@ -588,13 +589,8 @@
 
 <SectionCard title="Layout">
   <div class="row">
-    <Picker bind:value={boxSurface} ariaLabel="Box surface" options={[
-      { value: 'none', label: 'none' },
-      { value: 'elev', label: 'elev' },
-      { value: 'container', label: 'container' },
-      { value: 'high', label: 'high' },
-      { value: 'highest', label: 'highest' },
-    ]} />
+    <Switch bind:checked={demoElev} label="Elev" />
+    <TextEdit bind:value={nestDepth} hint="Nesting depth (1–4)" regex="^[0-9]*$" />
     <Picker bind:value={gridCols} ariaLabel="Grid columns" options={[
       { value: '2', label: '2 cols' },
       { value: '3', label: '3 cols' },
@@ -602,31 +598,33 @@
   </div>
   <p class="hint">HStack + Spacer + Box</p>
   <HStack gap={3} align="center">
-    <Box pad={3} surface={boxSurface} radius="md"><Text>First</Text></Box>
+    <Box pad={3} elev={demoElev} radius="md"><Text>First</Text></Box>
     <Spacer />
-    <Box pad={3} surface={boxSurface} radius="md"><Text>Last</Text></Box>
+    <Box pad={3} elev={demoElev} radius="md"><Text>Last</Text></Box>
   </HStack>
+  <p class="hint">Nesting (each level adds one elev wash)</p>
+  {@render nestBox(Math.min(4, Math.max(1, Number(nestDepth) || 2)))}
   <p class="hint">Stack (vertical, gap 2)</p>
   <Stack gap={2}>
-    <Box pad={2} surface="container" radius="sm"><Text size="sm">Row one</Text></Box>
-    <Box pad={2} surface="container" radius="sm"><Text size="sm">Row two</Text></Box>
+    <Box pad={2} elev radius="sm"><Text size="sm">Row one</Text></Box>
+    <Box pad={2} elev radius="sm"><Text size="sm">Row two</Text></Box>
   </Stack>
   <p class="hint">Grid ({gridCols} cols)</p>
   <Grid cols={Number(gridCols)} gap={2}>
-    <Box pad={2} surface="container" radius="sm"><Text size="sm">A</Text></Box>
-    <Box pad={2} surface="container" radius="sm"><Text size="sm">B</Text></Box>
-    <Box pad={2} surface="container" radius="sm"><Text size="sm">C</Text></Box>
+    <Box pad={2} elev radius="sm"><Text size="sm">A</Text></Box>
+    <Box pad={2} elev radius="sm"><Text size="sm">B</Text></Box>
+    <Box pad={2} elev radius="sm"><Text size="sm">C</Text></Box>
   </Grid>
   <p class="hint">ZStack (overlay)</p>
   <ZStack>
-    <Box pad={4} surface="container" radius="md"><Text size="sm">Base layer</Text></Box>
+    <Box pad={4} elev radius="md"><Text size="sm">Base layer</Text></Box>
     <Text size="sm" tone="soft">Top layer</Text>
   </ZStack>
   <p class="hint">ScrollView (horizontal)</p>
   <ScrollView axis="x">
     <HStack gap={2}>
-      <Box pad={2} surface="container" radius="sm"><Text size="sm">Wide content stays on one line — scroll me</Text></Box>
-      <Box pad={2} surface="container" radius="sm"><Text size="sm">Tail</Text></Box>
+      <Box pad={2} elev radius="sm"><Text size="sm">Wide content stays on one line — scroll me</Text></Box>
+      <Box pad={2} elev radius="sm"><Text size="sm">Tail</Text></Box>
     </HStack>
   </ScrollView>
 </SectionCard>
@@ -705,6 +703,15 @@
     <Text tone="soft" align="center">{t('Browse the catalog to install a provider plugin.')}</Text>
     <Button style="prominent" icon={{ name: 'download' }} onclick={() => toast.success('Browse catalog clicked')}>{t('Browse catalog')}</Button>
   </VStack>
+{/snippet}
+
+{#snippet nestBox(depth: number)}
+  {#if depth > 0}
+    <Box elev pad={3} radius="md">
+      <Text size="sm">Level {depth}</Text>
+      {@render nestBox(depth - 1)}
+    </Box>
+  {/if}
 {/snippet}
 
 <style>

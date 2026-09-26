@@ -184,7 +184,7 @@
     {:else if node.type === 'divider'}
       <Divider />
     {:else if node.type === 'group'}
-      <Box surface="container" pad={3} radius="md">
+      <Box elev pad={3} radius="md">
         {@render nodeList(node.content ?? [])}
       </Box>
     {/if}

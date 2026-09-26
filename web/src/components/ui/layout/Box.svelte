@@ -1,13 +1,14 @@
 <script lang="ts">
-  // A padded / filled container with no layout opinion. Use when you need
-  // surface + padding but not a flex context.
+  // A padded container with no layout opinion. Layering is boolean:
+  // a widget either carries one elev wash or none — nesting accumulates it.
+  // Use when you need padding (+ optional elev) but not a flex context.
   import type { Snippet } from 'svelte'
   import { space, type Step } from '../tokens'
   import { squircle } from '../../../lib/squircle'
 
   let {
     pad,
-    surface = 'none',
+    elev = false,
     radius,
     squircled = false,
     tag = 'div',
@@ -16,7 +17,8 @@
     ...rest
   } = $props<{
     pad?: Step
-    surface?: 'none' | 'elev' | 'container' | 'high' | 'highest'
+    /** one elev wash over the parent background; unset stays transparent */
+    elev?: boolean
     radius?: 'xs' | 'sm' | 'md' | 'lg'
     /** clip-path corners; leave false for anything that scrolls or overflows */
     squircled?: boolean
@@ -26,14 +28,7 @@
     [key: string]: unknown
   }>()
 
-  const SURFACE: Record<string, string> = {
-    none: 'transparent',
-    elev: 'var(--elev)',
-    container: 'var(--color-surface-container)',
-    high: 'var(--color-surface-container-high)',
-    highest: 'var(--color-surface-container-highest)',
-  }
-  const bg = $derived(SURFACE[surface] ?? 'transparent')
+  const bg = $derived(elev ? 'var(--elev)' : 'transparent')
   const rad = $derived(radius ? `var(--radius-${radius})` : undefined)
 </script>
 
