@@ -510,52 +510,6 @@ textarea:focus-visible {
   padding-right: calc(var(--btn-pad-h) - 4px);
 }
 
-table { width: 100%; border-collapse: collapse; }
-th {
-  text-align: left;
-  font-size: var(--text-sm);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-text-soft);
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--color-outline-light);
-}
-td {
-  padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--color-outline-soft);
-  color: var(--color-text-soft);
-  font-size: var(--text-base);
-}
-tr:last-child td { border-bottom: none; }
-tbody tr:hover td {
-  background: var(--color-hover-bg);
-}
-
-/* Div-table widget: .table > .table-row rows, one .table-head on top.
-   Pages set only grid-template-columns and column-specific tweaks;
-   base geometry and header styling live here so every table reads the same. */
-.table {
-  background: var(--elev);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-.table-row {
-  display: grid;
-  align-items: center;
-  padding: 10px 16px;
-  gap: var(--space-4);
-}
-.table-row + .table-row {
-  border-top: 1px solid var(--color-outline-soft);
-}
-.table-head {
-  background: var(--elev);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-text-soft);
-}
-
 /* Capability chip: compact tag. The only tag style — badges were merged
    into chips. */
 .chip {
@@ -959,14 +913,6 @@ textarea.secure {
 }
 
 .muted { color: var(--color-text-soft); }
-
-.row-clickable { cursor: pointer; }
-.row-clickable:hover { background: var(--color-hover-bg); }
-.row-clickable:focus-visible {
-  outline: none;
-  background: var(--color-hover-bg);
-}
-.row-disabled { opacity: 0.55; }
 
 .drag-handle {
   cursor: grab;

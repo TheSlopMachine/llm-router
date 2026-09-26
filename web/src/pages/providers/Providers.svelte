@@ -129,11 +129,33 @@
 {/if}
 
 <style>
-  /* Column layout only — table widget chrome comes from the global rules. */
+  /* Providers table chrome, scoped: the sole consumer of the removed
+     global .table/.table-row/.table-head and row-state rules. */
+  .table {
+    background: var(--elev);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+  .table-row {
+    display: grid;
+    align-items: center;
+    padding: 10px 16px;
+    gap: var(--space-4);
+  }
+  .table-row + .table-row {
+    border-top: 1px solid var(--color-outline-soft);
+  }
+  .table-head {
+    background: var(--elev);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--color-text-soft);
+  }
   .table-row {
     grid-template-columns: 44px minmax(0, 2fr) minmax(0, 0.8fr) minmax(0, 0.7fr) 72px;
   }
 
+  .row-clickable { cursor: pointer; }
 
   .row-clickable:hover {
     background: var(--color-hover-bg);
@@ -143,6 +165,8 @@
     box-shadow: inset 0 0 0 2px var(--color-accent);
     outline: none;
   }
+
+  .row-disabled { opacity: 0.55; }
 
 
   .col-icon {
