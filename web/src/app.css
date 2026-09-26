@@ -793,52 +793,8 @@ textarea.secure {
   min-width: 0;
 }
 
-/* Text: every size/weight/colour combination the system allows, addressed
-   by token rather than by literal. */
-.txt { margin: 0; min-width: 0; }
-.txt-xs   { font-size: var(--text-xs);   line-height: var(--leading-tight); }
-.txt-sm   { font-size: var(--text-sm);   line-height: var(--leading-base); }
-.txt-base { font-size: var(--text-base); line-height: var(--leading-base); }
-.txt-md   { font-size: var(--text-md);   line-height: var(--leading-tight); }
-.txt-lg   { font-size: var(--text-lg);   line-height: var(--leading-tight); }
-.txt-xl   { font-size: var(--text-xl);   line-height: var(--leading-tight); }
-.txt-2xl  { font-size: var(--text-2xl);  line-height: var(--leading-none); }
-
-.txt-normal { font-weight: var(--weight-normal); }
-.txt-medium { font-weight: var(--weight-medium); }
-.txt-bold   { font-weight: var(--weight-bold); }
-
-.txt-mono   { font-family: var(--font-mono); }
-.txt-italic { font-style: italic; }
-
-.txt-mono   { font-family: var(--font-mono); }
-.txt-italic { font-style: italic; }
-
-.txt-default  { color: var(--color-text); }
-.txt-soft     { color: var(--color-text-soft); }
-.txt-disabled { color: var(--color-text-disabled); }
-.txt-accent   { color: var(--color-accent); }
-.txt-danger   { color: var(--color-error-text); }
-.txt-success  { color: var(--color-success-text); }
-.txt-warning  { color: var(--color-warning-text); }
-
-.txt-left   { text-align: left; }
-.txt-center { text-align: center; }
-.txt-right  { text-align: right; }
-
-.txt-truncate {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.txt-clamp {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: var(--txt-lines, 2);
-  line-clamp: var(--txt-lines, 2);
-  overflow: hidden;
-}
-.txt-break { overflow-wrap: anywhere; }
+/* Text rules live scoped in controls/Text.svelte, the sole renderer of
+   txt-* classes. */
 
 /* ══════════════════════════════════════════════════════════════════════
    SHARED COMPONENT CLASSES
