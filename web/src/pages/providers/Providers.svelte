@@ -5,6 +5,7 @@
   import { createListResource } from '../../lib/list-resource.svelte'
   import CustomProviderWizard from '../../components/wizards/CustomProviderWizard.svelte'
   import Switch from '../../components/ui/controls/Switch.svelte'
+  import List from '../../components/ui/composite/List.svelte'
   import { squircle } from '../../lib/squircle'
   import type { Provider, ProviderStats } from '../../lib/types'
   import { t, n } from '../../lib/i18n.svelte'
@@ -76,7 +77,7 @@
 {:else if visibleProviders.length === 0}
   <div class="empty">{t('No providers yet. Add one to get started.')}</div>
 {:else}
-  <div class="table" use:squircle={18}>
+  <List>
     <div class="table-row table-head">
       <span class="col-icon"></span>
       <span class="col-name">{t('Provider')}</span>
@@ -125,28 +126,18 @@
         </span>
       </div>
     {/each}
-  </div>
+  </List>
 {/if}
 
 <style>
-  /* Providers table chrome, scoped: the sole consumer of the removed
-     global .table/.table-row/.table-head and row-state rules. */
-  .table {
-    background: var(--elev);
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-  }
+  /* Row grid + states, scoped: container, shape and dividers come from List. */
   .table-row {
     display: grid;
     align-items: center;
     padding: 10px 16px;
     gap: var(--space-4);
   }
-  .table-row + .table-row {
-    border-top: 1px solid var(--color-outline-soft);
-  }
   .table-head {
-    background: var(--elev);
     font-size: var(--text-sm);
     font-weight: 600;
     color: var(--color-text-soft);
