@@ -84,6 +84,36 @@ func parseGapStep(v lua.LValue) (int, error) {
 	}
 }
 
+// validLinkURL accepts http, https and mailto URLs plus relative paths.
+// Any other scheme (javascript:, data:, ...) is rejected.
+func validLinkURL(raw string) bool {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return false
+	}
+	schemeEnd := -1
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case ':':
+			schemeEnd = i
+		case '/', '?', '#':
+			schemeEnd = -2
+		}
+		if schemeEnd != -1 {
+			break
+		}
+	}
+	if schemeEnd < 0 {
+		return true
+	}
+	switch strings.ToLower(s[:schemeEnd]) {
+	case "http", "https", "mailto":
+		return true
+	default:
+		return false
+	}
+}
+
 // parseUINodes validates a Lua UI tree into []*models.UINode.
 func parseUINodes(v lua.LValue) ([]*models.UINode, error) {
 	tbl, ok := v.(*lua.LTable)
@@ -246,6 +276,9 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 	case "link":
 		if strings.TrimSpace(node.URL) == "" {
 			return nil, fmt.Errorf("link node requires url")
+		}
+		if !validLinkURL(node.URL) {
+			return nil, fmt.Errorf("link url scheme must be http, https, mailto or a relative path")
 		}
 	case "button":
 		if strings.TrimSpace(node.FormAction) == "" {

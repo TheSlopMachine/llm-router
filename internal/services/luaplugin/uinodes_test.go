@@ -298,3 +298,29 @@ func TestUINodeInputTypeSecret(t *testing.T) {
 		t.Errorf("invalid input_type accepted")
 	}
 }
+
+func TestUINodeLinkURLSchemes(t *testing.T) {
+	for _, url := range []string{
+		"https://example.com/docs",
+		"http://example.com",
+		"mailto:ops@example.com",
+		"/docs/guide",
+		"docs/guide",
+		"HTTPS://example.com",
+	} {
+		if _, err := schemaNodes(t, `{ type = "link", url = "`+url+`", text = "Docs" }`); err != nil {
+			t.Errorf("link url %q rejected: %v", url, err)
+		}
+	}
+	for _, url := range []string{
+		"javascript:alert(1)",
+		"JaVaScRiPt:alert(1)",
+		"data:text/plain,hi",
+		"vbscript:msgbox(1)",
+		"file:///etc/passwd",
+	} {
+		if _, err := schemaNodes(t, `{ type = "link", url = "`+url+`", text = "X" }`); err == nil {
+			t.Errorf("link url %q accepted", url)
+		}
+	}
+}
