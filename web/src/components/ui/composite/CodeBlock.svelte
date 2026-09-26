@@ -1,6 +1,9 @@
 <script lang="ts">
-  import { squircle } from '../../../lib/squircle'
   import Button from '../controls/Button.svelte'
+  import Text from '../controls/Text.svelte'
+  import Box from '../layout/Box.svelte'
+  import HStack from '../layout/HStack.svelte'
+  import VStack from '../layout/VStack.svelte'
 
   let { text, label = '' } = $props<{
     text: string
@@ -29,39 +32,24 @@
   }
 </script>
 
-<div class="code-block">
-  {#if label}<div class="code-label">{label}</div>{/if}
-  <div class="code-row" use:squircle={12}>
-    <code class="code-text">{text}</code>
-    <Button
-      size="small"
-      icon={{ name: copied ? 'check' : 'content_copy' }}
-      title="Copy"
-      ariaLabel="Copy code"
-      onclick={() => void copyText()}
-    />
-  </div>
-</div>
+<VStack gap={2}>
+  {#if label}<Text size="sm" weight="medium">{label}</Text>{/if}
+  <!-- radius-md + uniform pad: matches Toasts geometry; was ctl-radius + 12/16px pad -->
+  <Box surface="elev" pad={3} radius="md" squircled>
+    <HStack gap={3} align="center">
+      <code class="code-text">{text}</code>
+      <Button
+        size="small"
+        icon={{ name: copied ? 'check' : 'content_copy' }}
+        title="Copy"
+        ariaLabel="Copy code"
+        onclick={() => void copyText()}
+      />
+    </HStack>
+  </Box>
+</VStack>
 
 <style>
-  .code-block {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-  .code-label {
-    font-size: var(--text-sm);
-    font-weight: 500;
-  }
-  .code-row {
-    display: flex;
-    gap: var(--space-3);
-    align-items: center;
-    padding: var(--space-3) var(--space-4);
-    border: none;
-    border-radius: var(--ctl-radius);
-    background: var(--elev);
-  }
   .code-text {
     flex: 1;
     min-width: 0;
