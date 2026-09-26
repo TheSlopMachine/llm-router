@@ -11,6 +11,7 @@
   import Select from '../components/ui/controls/Select.svelte'
   import FloatingList from '../components/ui/controls/FloatingList.svelte'
   import Chip from '../components/ui/controls/Chip.svelte'
+  import Banner from '../components/ui/composite/Banner.svelte'
   import Icon from '../components/ui/controls/Icon.svelte'
   import Checkbox from '../components/ui/controls/Checkbox.svelte'
   import Divider from '../components/ui/controls/Divider.svelte'
@@ -570,6 +571,14 @@
     <Button text="Show toast" onclick={() => toast.success(toastText || '(empty)')} />
   </div>
   <p class="hint">Confirm result: <span class="mono">{confirmResult}</span></p>
+</SectionCard>
+
+<SectionCard title="Banners">
+  <Banner variant="info" text="Info banner." />
+  <Banner variant="warning" text="Warning banner." />
+  <Banner variant="error" text="Error banner." />
+  <Banner variant="success" text="Success banner." />
+  <Banner text="Custom tint banner." tint="#7c3aed" />
 </SectionCard>
 
 <SectionCard title="Dynamic form">
