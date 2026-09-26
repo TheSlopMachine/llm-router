@@ -951,14 +951,6 @@ textarea.secure {
 }
 .txt-break { overflow-wrap: anywhere; }
 
-/* Image: aspect-locked, never overflows its column. */
-.img {
-  display: block;
-  max-width: 100%;
-  object-fit: var(--img-fit, contain);
-  border-radius: var(--img-radius, 0px);
-}
-
 /* ══════════════════════════════════════════════════════════════════════
    SHARED COMPONENT CLASSES
    Previously redeclared inside component <style> blocks -- .form-group in

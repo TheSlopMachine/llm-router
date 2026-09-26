@@ -69,6 +69,13 @@
 {/if}
 
 <style>
+  /* Aspect-locked, never overflows its column. */
+  .img {
+    display: block;
+    max-width: 100%;
+    object-fit: var(--img-fit, contain);
+    border-radius: var(--img-radius, 0px);
+  }
   .img-fallback {
     display: inline-flex;
     align-items: center;
