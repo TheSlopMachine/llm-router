@@ -20,6 +20,11 @@
 {/if}
 
 <style>
+  .divider {
+    border: none;
+    border-top: 1px solid var(--color-outline-soft);
+    margin: var(--space-5) 0;
+  }
   .divider-v {
     width: 1px;
     align-self: stretch;

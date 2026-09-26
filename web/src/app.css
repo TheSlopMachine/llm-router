@@ -834,12 +834,6 @@ textarea.secure {
   /* marker — behavior enforced via attributes, not styling */
 }
 
-.divider {
-  border: none;
-  border-top: 1px solid var(--color-outline-soft);
-  margin: var(--space-5) 0;
-}
-
 /* Busy indicator: apply .spin to any .icon glyph (progress_activity). */
 @keyframes icon-spin {
   to { transform: rotate(360deg); }
