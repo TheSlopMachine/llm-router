@@ -261,13 +261,14 @@
   {/if}
 
   {#if repos.length === 0}
+    {#snippet addRepoAction()}
+      <Button style="prominent" icon={{ name: 'add' }} onclick={() => { showAddRepo = true }}>{t('Add repository')}</Button>
+    {/snippet}
     <EmptyState
       icon="download"
-      message={t('No repositories added yet')}
-      hint={t('Add a plugin repository to install a plugin.')}
-      buttonText={t('Add repository')}
-      buttonIcon="add"
-      onButtonClick={() => { showAddRepo = true }}
+      title={t('No repositories added yet')}
+      caption={t('Add a plugin repository to install a plugin.')}
+      action={addRepoAction}
     />
   {:else if visibleRepos.length === 0}
     <Text tone="soft" align="center">{t('No plugins match the current filter.')}</Text>

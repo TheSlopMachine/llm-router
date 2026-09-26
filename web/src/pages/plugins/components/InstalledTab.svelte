@@ -123,13 +123,14 @@
   </HStack>
 
   {#if plugins.length === 0}
+    {#snippet browseCatalogAction()}
+      <Button style="prominent" icon={{ name: 'download' }} onclick={() => onBrowseCatalog?.()}>{t('Browse catalog')}</Button>
+    {/snippet}
     <EmptyState
       icon="extension"
-      message={t('No plugins installed')}
-      hint={t('Browse the catalog to install a provider plugin.')}
-      buttonText={t('Browse catalog')}
-      buttonIcon="download"
-      onButtonClick={() => onBrowseCatalog?.()}
+      title={t('No plugins installed')}
+      caption={t('Browse the catalog to install a provider plugin.')}
+      action={browseCatalogAction}
     />
   {:else if filtered.length === 0}
     <Text tone="soft" align="center">{t('No plugins match the search.')}</Text>

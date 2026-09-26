@@ -1,37 +1,38 @@
 <script lang="ts">
-  import Button from './ui/controls/Button.svelte'
+  import type { Snippet } from 'svelte'
+  import Icon from './ui/controls/Icon.svelte'
+  import Text from './ui/controls/Text.svelte'
+  import VStack from './ui/layout/VStack.svelte'
 
-  let { icon, message, hint = '', buttonText, buttonIcon, onButtonClick } = $props<{
-    icon: string
-    message: string
-    hint?: string
-    buttonText: string
-    buttonIcon: string
-    onButtonClick: () => void
+  // Shared empty placeholder. Title + optional caption + optional ready-made
+  // Button (passed as the `action` snippet — EmptyState never builds buttons
+  // itself). Icon renders through the Icon widget; its display size is the
+  // one piece of unique decoration here.
+  let {
+    icon,
+    title,
+    caption,
+    action,
+  } = $props<{
+    icon?: string
+    title: string
+    caption?: string
+    action?: Snippet
   }>()
 </script>
 
-<div class="empty">
-  <span class="icon empty-icon">{icon}</span>
-  <p>{message}</p>
-  {#if hint}<p class="empty-hint">{hint}</p>{/if}
-  <Button text={buttonText} style="prominent" icon={{ name: buttonIcon }} onclick={onButtonClick} />
-</div>
+<VStack align="center" gap={3} class="empty">
+  {#if icon}<Icon name={icon} class="empty-icon" />{/if}
+  <Text size="lg" weight="medium" align="center">{title}</Text>
+  {#if caption}<Text size="sm" tone="soft" align="center">{caption}</Text>{/if}
+  {#if action}{@render action()}{/if}
+</VStack>
 
 <style>
-
-
-  .empty .empty-icon {
+  /* Global: the class rides the Icon root, Svelte drops
+     component-passed classes from scoped CSS as unused. */
+  :global(.empty-icon) {
     font-size: 64px;
     color: var(--color-text-soft);
-    display: block;
-    margin-bottom: var(--space-5);
   }
-
-  .empty p {
-    margin: var(--space-3) 0;
-    color: var(--color-text);
-    font-size: var(--text-md);
-  }
-
 </style>

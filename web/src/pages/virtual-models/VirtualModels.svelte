@@ -160,12 +160,13 @@
         </HStack>
       {/snippet}
       {#snippet empty()}
+        {#snippet createVmAction()}
+          <Button style="prominent" icon={{ name: 'add' }} onclick={openNew}>{t('Create your first virtual model')}</Button>
+        {/snippet}
         <EmptyState
           icon="robot"
-          message={t('No virtual models yet')}
-          buttonText={t('Create your first virtual model')}
-          buttonIcon="add"
-          onButtonClick={openNew}
+          title={t('No virtual models yet')}
+          action={createVmAction}
         />
       {/snippet}
     </ModelsTable>
