@@ -1,11 +1,11 @@
 <script lang="ts">
   import { squircle } from '../../../lib/squircle'
 
-  // Project checkbox as a widget: a bare box by default; with `label` the
-  // text renders inside the button, so text clicks toggle natively and the
-  // accessible name comes from content. Bare rows keep owning their own
-  // click handling. Visual language matches the legacy input.check: elev
-  // box, accent mark scaling in.
+  // Native checkbox device: the input carries state, keyboard and
+  // screen-reader semantics; the span paints the box. With `label` the text
+  // renders in the same <label>, so text clicks toggle natively — no
+  // handlers, no a11y workarounds. Bare mode (no label) renders siblings
+  // with no wrapper, so hosts keep owning their rows.
   let {
     checked = $bindable(false),
     label,
@@ -15,7 +15,7 @@
     onchange
   } = $props<{
     checked?: boolean
-    /** optional text beside the box; rendered inside the button */
+    /** optional text beside the box; text clicks toggle it */
     label?: string
     id?: string
     disabled?: boolean
@@ -23,34 +23,73 @@
     onchange?: (v: boolean) => void
   }>()
 
-  function toggle(): void {
-    if (disabled) return
-    const next = !checked
+  function handleChange(e: Event): void {
+    const next = (e.currentTarget as HTMLInputElement).checked
     checked = next
     onchange?.(next)
   }
 </script>
 
-<button
-  {id}
-  type="button"
-  role="checkbox"
-  aria-checked={checked}
-  aria-label={label ?? ariaLabel}
-  class="checkbox"
-  class:on={checked}
-  class:labeled={label !== undefined}
-  {disabled}
-  onclick={toggle}
-  use:squircle={6}
->
-  <span class="checkbox-mark" aria-hidden="true"></span>
-  {#if label}<span class="checkbox-label">{label}</span>{/if}
-</button>
+<script lang="ts" module>
+  let nextAutoId = 0
+</script>
+
+{#if label}
+  <label class="checkbox-wrap labeled" for={id}>
+    <input
+      {id}
+      type="checkbox"
+      class="checkbox-input"
+      checked={checked}
+      {disabled}
+      onchange={handleChange}
+    />
+    <span class="checkbox" aria-hidden="true" use:squircle={6}>
+      <span class="checkbox-mark"></span>
+    </span>
+    <span class="checkbox-label">{label}</span>
+  </label>
+{:else}
+  <span class="checkbox-wrap">
+    <input
+      {id}
+      type="checkbox"
+      class="checkbox-input"
+      checked={checked}
+      {disabled}
+      aria-label={ariaLabel}
+      onchange={handleChange}
+    />
+    <span class="checkbox" aria-hidden="true" use:squircle={6}>
+      <span class="checkbox-mark"></span>
+    </span>
+  </span>
+{/if}
 
 <style>
-  .checkbox {
+  .checkbox-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
     flex: none;
+  }
+  .checkbox-wrap.labeled {
+    gap: var(--space-3);
+    cursor: pointer;
+    user-select: none;
+  }
+  .checkbox-wrap:has(.checkbox-input:disabled) {
+    cursor: not-allowed;
+  }
+  /* The input is the click/keyboard surface; the span paints the box. */
+  .checkbox-input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    margin: 0;
+    cursor: pointer;
+  }
+  .checkbox {
     width: 18px;
     height: 18px;
     margin: 0;
@@ -61,9 +100,9 @@
     background:
       linear-gradient(var(--elev), var(--elev)),
       var(--elev);
-    cursor: pointer;
     display: inline-grid;
     place-content: center;
+    flex: none;
   }
   .checkbox-mark {
     width: 14px;
@@ -73,34 +112,28 @@
     transform: scale(0);
     transition: transform 80ms ease-out;
   }
-  .checkbox.on .checkbox-mark {
+  .checkbox-input:checked + .checkbox .checkbox-mark {
     transform: scale(1);
   }
-  /* Labeled variant: the text is button content, so it toggles on click. */
-  .checkbox.labeled {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-3);
-    width: auto;
-    height: auto;
-    user-select: none;
-  }
-  .checkbox-label {
-    font-size: var(--text-base);
-    color: var(--color-text);
-  }
   /* Press only: the small box needs a deep scale to read. */
-  .checkbox:active:not([disabled]) {
+  .checkbox-input:active:not([disabled]) + .checkbox {
     transform: scale(0.85);
   }
-  .checkbox:disabled {
+  .checkbox-input:disabled + .checkbox,
+  .checkbox-input:disabled ~ .checkbox-label {
     opacity: 0.5;
+  }
+  .checkbox-input:disabled {
     cursor: not-allowed;
   }
-  .checkbox:focus-visible {
+  .checkbox-input:focus-visible + .checkbox {
     background:
       linear-gradient(var(--elev), var(--elev)),
       var(--elev);
     box-shadow: var(--focus-ring);
+  }
+  .checkbox-label {
+    font-size: var(--text-base);
+    color: var(--color-text);
   }
 </style>
