@@ -226,3 +226,131 @@
   {/if}
 </div>
 
+<style>
+  /* Listbox trigger geometry. The menu surface (.dropdown-menu,
+     .dropdown-options, .dropdown-option) stays global, shared with
+     FloatingList. Scoped selectors outrank the global button rules
+     they override, so states render as before. */
+  .dropdown {
+    position: relative;
+    width: 100%;
+  }
+
+  .dropdown.autoWidth {
+    width: auto;
+    display: inline-flex;
+  }
+
+  .dropdown.autoWidth .dropdown-trigger {
+    width: auto;
+    /* autoWidth changes width only: padding, fill and type stay identical to
+       the full-width trigger. The gap only keeps the chevron off the label
+       once space-between has no free space to distribute. */
+    gap: var(--space-3);
+    border: none;
+  }
+
+  .dropdown.disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .dropdown-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: var(--field-pad-v) var(--field-pad-h);
+    font-family: inherit;
+    font-size: var(--text-base);
+    line-height: 20px;
+    font-weight: 400;
+    border-radius: var(--ctl-radius);
+    border: none;
+    background: var(--elev);
+    color: var(--color-text);
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+    text-align: left;
+  }
+
+  .dropdown-trigger.rounded-lg {
+    border-radius: var(--radius-lg);
+  }
+
+  .dropdown-trigger.ctl-small {
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+  .dropdown-trigger.ctl-medium {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  .dropdown-trigger.ctl-large {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .dropdown-trigger:hover:not(:disabled) {
+    background: var(--color-outline-light);
+  }
+
+  /* The trigger opts out of the global press bounce — the menu opening is
+     the feedback. The button-qualified selector outranks the global
+     button:active rule, so wide triggers no longer shrink. */
+  button.dropdown-trigger:active:not([disabled]) {
+    transform: none;
+    border: none;
+  }
+
+  .dropdown-trigger:focus {
+    outline: none;
+    box-shadow: inset 0 0 0 2px var(--color-accent);
+    border: none;
+  }
+
+  .dropdown-trigger:disabled {
+    background-color: var(--color-surface-container);
+    color: var(--color-text-disabled);
+    border-color: var(--color-outline-soft);
+    cursor: not-allowed;
+  }
+
+  .dropdown-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border: none;
+  }
+
+  .chevron {
+    font-size: var(--text-lg);
+    color: var(--color-text-soft);
+    transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
+  }
+
+  .chevron.open {
+    transform: rotate(180deg);
+  }
+
+  .dropdown-search {
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--color-outline-light);
+  }
+
+  /* Compact variant of the global field: same fill/ring system, tighter padding. */
+  .dropdown-search input {
+    width: 100%;
+    padding: 6px 12px;
+  }
+
+  .dropdown-empty {
+    padding: var(--space-4);
+    text-align: center;
+    color: var(--color-text-soft);
+    font-size: var(--text-base);
+  }
+</style>
+
