@@ -280,3 +280,21 @@ func TestUINodeGapJSONIsInt(t *testing.T) {
 		t.Errorf("gap JSON must be int 6, got %v", decoded["gap"])
 	}
 }
+
+func TestUINodeInputTypeSecret(t *testing.T) {
+	nodes, err := schemaNodes(t, `{ type = "input", name = "token", label = "Token", input_type = "secret" }`)
+	if err != nil {
+		t.Fatalf("input_type secret rejected: %v", err)
+	}
+	if nodes[0].InputType != "secret" {
+		t.Errorf("input_type wrong: %+v", nodes[0])
+	}
+	for _, inputType := range []string{"text", "password", "number"} {
+		if _, err := schemaNodes(t, `{ type = "input", name = "f", input_type = "`+inputType+`" }`); err != nil {
+			t.Errorf("input_type %q rejected: %v", inputType, err)
+		}
+	}
+	if _, err := schemaNodes(t, `{ type = "input", name = "f", input_type = "email" }`); err == nil {
+		t.Errorf("invalid input_type accepted")
+	}
+}

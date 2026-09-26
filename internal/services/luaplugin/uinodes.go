@@ -227,7 +227,7 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 		}
 		if node.Type == "input" && node.InputType != "" {
 			switch node.InputType {
-			case "text", "password", "number":
+			case "text", "password", "number", "secret":
 			default:
 				return nil, fmt.Errorf("invalid input_type %q", node.InputType)
 			}
