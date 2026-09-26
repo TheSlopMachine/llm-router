@@ -2,6 +2,7 @@
   import { api } from '../lib/api'
   import { t } from '../lib/i18n.svelte'
   import { squircle } from '../lib/squircle'
+  import Checkbox from '../components/ui/controls/Checkbox.svelte'
 
   let { ondone } = $props<{ ondone: () => void }>()
 
@@ -45,7 +46,7 @@
       <input id="p" type="password" bind:value={password} autocomplete="current-password" onkeydown={(e) => e.key === 'Enter' && submit()} use:squircle={12} />
     </div>
     <label class="remember-me">
-      <input type="checkbox" class="check" bind:checked={rememberMe} use:squircle={6} />
+      <Checkbox bind:checked={rememberMe} ariaLabel={t('Keep me signed in')} />
       <span>{t('Keep me signed in')}</span>
     </label>
     <button class="btn btn-primary submit-btn" onclick={submit} disabled={loading} use:squircle={12}>

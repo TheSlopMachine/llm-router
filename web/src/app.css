@@ -286,8 +286,7 @@ input, select, textarea {
   padding: var(--field-pad-v) var(--field-pad-h);
   outline: none;
 }
-/* Bare checkboxes never take the full-width input rule (DynamicForm rows);
-   the styled project checkbox is .check below. */
+/* Bare checkboxes never take the full-width input rule. */
 input[type="checkbox"] {
   width: auto;
   height: auto;
@@ -299,46 +298,6 @@ input:disabled, select:disabled, textarea:disabled {
   cursor: not-allowed;
 }
 
-/* Project checkbox: squircle box sized to match text fields. Pair with
-   use:squircle for the superellipse clip (border-radius below is the
-   fallback). Unchecked fill matches fields; the checked mark draws
-   white on top of the accent. */
-input[type="checkbox"].check {
-  appearance: none;
-  -webkit-appearance: none;
-  flex: none;
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: var(--elev);
-  cursor: pointer;
-  display: inline-grid;
-  place-content: center;
-  transition: transform 120ms ease;
-}
-/* press only (mouse/touch): small box needs a deep scale to read */
-input[type="checkbox"].check:active {
-  transform: scale(0.85);
-}
-input[type="checkbox"].check::before {
-  content: "";
-  width: 12px;
-  height: 12px;
-  border-radius: 4px;
-  background: var(--color-accent);
-  transform: scale(0);
-  transition: transform 80ms ease-out;
-}
-input[type="checkbox"].check:checked::before {
-  transform: scale(1);
-}
-input[type="checkbox"].check:focus {
-  background: var(--elev);
-  box-shadow: none;
-}
 textarea {
   resize: vertical;
   min-height: 80px;
@@ -424,10 +383,6 @@ select:focus-visible,
 textarea:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
-}
-input.check:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
 }
 
 .btn-primary {
