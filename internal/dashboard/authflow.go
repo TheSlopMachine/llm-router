@@ -53,7 +53,7 @@ func (h *Handler) authInitiate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.luaSvc.AuthInitiate(r.Context(), p.TypeKey, flowID)
+	result, err := h.luaSvc.AuthInitiate(r.Context(), p.TypeKey, flowID, p.Config)
 	if err != nil {
 		if isAuthFallback(err) {
 			h.jsonErr(w, http.StatusConflict, "provider does not support stepped auth flows")
@@ -106,7 +106,7 @@ func (h *Handler) authStep(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.luaSvc.AuthStep(r.Context(), p.TypeKey, body.FlowID, body.Action, body.Values)
+	result, err := h.luaSvc.AuthStep(r.Context(), p.TypeKey, body.FlowID, body.Action, body.Values, p.Config)
 	if err != nil {
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
 			h.jsonErr(w, http.StatusBadRequest, "auth flow step is not supported by this provider")

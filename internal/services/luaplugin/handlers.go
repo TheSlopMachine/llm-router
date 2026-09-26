@@ -623,14 +623,14 @@ func (s *Service) Schema(typeKey, handler string) ([]*models.UINode, error) {
 
 // AuthInitiate calls auth_initiate. Missing handler reports ErrHandlerNotFound
 // so the dashboard uses the single-step credential_schema form.
-func (s *Service) AuthInitiate(goCtx context.Context, typeKey, flowID string) (*models.AuthFlowResult, error) {
+func (s *Service) AuthInitiate(goCtx context.Context, typeKey, flowID string, providerConfig map[string]any) (*models.AuthFlowResult, error) {
 	rec, err := s.Lookup(typeKey)
 	if err != nil {
 		return nil, err
 	}
 	var result *models.AuthFlowResult
 	found, err := s.handlerCall(goCtx, rec, typeKey, "auth_initiate", func(L *lua.LState) {
-		L.Push(ctxTable(L, flowID, nil))
+		L.Push(ctxTable(L, flowID, providerConfig))
 	}, 1, func(L *lua.LState) error {
 		parsed, perr := parseAuthResult(L.Get(-1))
 		if perr != nil {
@@ -650,7 +650,7 @@ func (s *Service) AuthInitiate(goCtx context.Context, typeKey, flowID string) (*
 }
 
 // AuthStep calls auth_step with {action, values}.
-func (s *Service) AuthStep(goCtx context.Context, typeKey, flowID, action string, values map[string]any) (*models.AuthFlowResult, error) {
+func (s *Service) AuthStep(goCtx context.Context, typeKey, flowID, action string, values map[string]any, providerConfig map[string]any) (*models.AuthFlowResult, error) {
 	rec, err := s.Lookup(typeKey)
 	if err != nil {
 		return nil, err
@@ -660,7 +660,7 @@ func (s *Service) AuthStep(goCtx context.Context, typeKey, flowID, action string
 	}
 	var result *models.AuthFlowResult
 	found, err := s.handlerCall(goCtx, rec, typeKey, "auth_step", func(L *lua.LState) {
-		L.Push(ctxTable(L, flowID, nil))
+		L.Push(ctxTable(L, flowID, providerConfig))
 		input := L.NewTable()
 		input.RawSetString("action", lua.LString(action))
 		input.RawSetString("values", toLuaValue(L, values))
