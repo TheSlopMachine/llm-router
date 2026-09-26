@@ -615,6 +615,9 @@ tbody tr:hover td {
   white-space: nowrap;
 }
 .chip .icon { font-size: var(--text-sm); }
+.chip-label {
+  line-height: 1;
+}
 .chip-blue { background: var(--color-badge-blue-bg); color: var(--color-badge-blue-text); }
 .chip-green { background: var(--color-badge-green-bg); color: var(--color-badge-green-text); }
 .chip-yellow { background: var(--color-badge-yellow-bg); color: var(--color-badge-yellow-text); }

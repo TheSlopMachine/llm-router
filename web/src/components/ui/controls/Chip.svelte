@@ -26,9 +26,3 @@
   {#if text}<span class="chip-label">{text}</span>{/if}
   {#if icon && iconSide === 'right'}<span class="icon chip-glyph">{icon}</span>{/if}
 </span>
-
-<style>
-  .chip-label {
-    line-height: 1;
-  }
-</style>
