@@ -1,7 +1,10 @@
 <script lang="ts">
   import type { UINode } from '../../lib/types'
-  import { squircle } from '../../lib/squircle'
+  import Banner from '../ui/composite/Banner.svelte'
   import CodeBlock from '../ui/composite/CodeBlock.svelte'
+  import SectionCard from '../ui/composite/SectionCard.svelte'
+  import Grid from '../ui/layout/Grid.svelte'
+  import Box from '../ui/layout/Box.svelte'
   import TextEdit from '../ui/controls/TextEdit.svelte'
   import Select from '../ui/controls/Select.svelte'
   import Switch from '../ui/controls/Switch.svelte'
@@ -10,6 +13,7 @@
   import HStack from '../ui/layout/HStack.svelte'
   import Spacer from '../ui/layout/Spacer.svelte'
   import Divider from '../ui/controls/Divider.svelte'
+  import type { Align, Justify, Step } from '../ui/tokens'
 
   let {
     nodes,
@@ -32,24 +36,29 @@
     return node.options?.[0] ?? ''
   }
 
+  function fieldValue(node: UINode): string {
+    const current = values[node.name ?? '']
+    if (typeof current === 'string') return current
+    if (typeof node.value === 'string') return node.value
+    return ''
+  }
+
   function optionLabel(node: UINode, option: string): string {
     return node.option_labels?.[option] ?? option
   }
 
-  const flexDirection: Record<string, string> = { horizontal: 'row', vertical: 'column' }
-  const flexAlign: Record<string, string> = { start: 'flex-start', center: 'center', end: 'flex-end', stretch: 'stretch' }
-  const flexJustify: Record<string, string> = { start: 'flex-start', center: 'center', end: 'flex-end', between: 'space-between' }
-  const gapSize: Record<string, string> = { sm: '8px', md: '12px', lg: '16px' }
+  // Backend normalizes gap/size to Step int (legacy sm|md|lg accepted).
+  const LEGACY_GAP: Record<string, Step> = { sm: 2, md: 4, lg: 6 }
+  function toStep(v: unknown, fallback: Step): Step {
+    if (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 8) return v as Step
+    if (typeof v === 'string' && v in LEGACY_GAP) return LEGACY_GAP[v]
+    return fallback
+  }
 
-  function flowStyle(node: UINode): string {
-    const parts = [
-      `flex-direction: ${flexDirection[node.direction ?? 'vertical'] ?? 'column'}`,
-      `gap: ${gapSize[node.gap ?? 'md'] ?? '12px'}`,
-      `align-items: ${flexAlign[node.align ?? 'stretch'] ?? 'stretch'}`,
-      `justify-content: ${flexJustify[node.justify ?? 'start'] ?? 'flex-start'}`,
-    ]
-    if (node.wrap ?? true) parts.push('flex-wrap: wrap')
-    return parts.join('; ')
+  function bannerVariant(node: UINode): 'info' | 'warning' | 'error' | 'success' {
+    return node.variant === 'warning' || node.variant === 'error' || node.variant === 'success'
+      ? node.variant
+      : 'info'
   }
 </script>
 
@@ -84,7 +93,7 @@
     {#if node.type === 'text'}
       <Text tone="soft">{node.text}</Text>
     {:else if node.type === 'banner'}
-      <div class="banner banner-{node.variant || 'info'}" use:squircle={12}>{node.text}</div>
+      <Banner variant={bannerVariant(node)} text={node.text ?? ''} />
     {:else if node.type === 'input'}
       <VStack gap={1}>
         {#if node.label}
@@ -93,7 +102,7 @@
         <TextEdit
           id="dyn-{node.name}"
           type={node.input_type === 'password' || node.input_type === 'secret' ? 'secret' : 'text'}
-          value={(values[node.name ?? ''] as string) ?? ''}
+          value={fieldValue(node)}
           hint={node.placeholder ?? ''}
           required={node.required ?? false}
           disabled={busy}
@@ -120,7 +129,7 @@
         onchange={(v) => setValue(node.name ?? '', v)}
       />
     {:else if node.type === 'link'}
-      <p class="form-link"><a href={node.url} target="_blank" rel="noopener noreferrer">{node.text || node.url}</a></p>
+      <Text size="base"><a href={node.url} target="_blank" rel="noopener noreferrer">{node.text || node.url}</a></Text>
     {:else if node.type === 'secret'}
       <VStack gap={1}>
         {#if node.label}
@@ -129,7 +138,7 @@
         <TextEdit
           id="dyn-{node.name}"
           type="secret"
-          value={(values[node.name ?? ''] as string) ?? ''}
+          value={fieldValue(node)}
           hint={node.placeholder ?? ''}
           required={node.required ?? false}
           disabled={busy}
@@ -139,113 +148,61 @@
     {:else if node.type === 'code'}
       <CodeBlock text={node.text ?? ''} label={node.label ?? ''} />
     {:else if node.type === 'flow'}
-      <div class="flow" style={flowStyle(node)}>
-        {@render nodeList(node.content ?? [])}
-      </div>
+      {#if (node.direction ?? 'vertical') === 'horizontal'}
+        <HStack
+          gap={toStep(node.gap, 4)}
+          align={(node.align ?? 'stretch') as Align}
+          justify={(node.justify ?? 'start') as Justify}
+          wrap={node.wrap ?? true}
+        >
+          {@render nodeList(node.content ?? [])}
+        </HStack>
+      {:else}
+        <VStack
+          gap={toStep(node.gap, 4)}
+          align={(node.align ?? 'stretch') as Align}
+          justify={(node.justify ?? 'start') as Justify}
+          wrap={node.wrap ?? true}
+        >
+          {@render nodeList(node.content ?? [])}
+        </VStack>
+      {/if}
     {:else if node.type === 'grid'}
-      <div
-        class="grid"
-        style="grid-template-columns: repeat({node.columns || 1}, 1fr); gap: {gapSize[node.gap ?? 'md'] ?? '12px'}"
-      >
+      <Grid cols={node.columns ?? 1} gap={toStep(node.gap, 4)} class="dyn-grid">
         {@render nodeList(node.content ?? [])}
-      </div>
+      </Grid>
     {:else if node.type === 'section'}
-      <section class="section">
-        <h3 class="section-title">{node.title}</h3>
-        {#if node.subtitle}<p class="section-subtitle">{node.subtitle}</p>{/if}
+      <SectionCard title={node.title ?? ''} description={node.subtitle}>
         {@render nodeList(node.content ?? [])}
-      </section>
+      </SectionCard>
     {:else if node.type === 'spacer'}
       {#if node.grow ?? true}
         <Spacer />
       {:else}
-        <div class="spacer-fixed" style="height: {gapSize[node.size ?? 'md'] ?? '12px'}" aria-hidden="true"></div>
+        <Spacer size={toStep(node.size, 4)} axis="y" />
       {/if}
     {:else if node.type === 'divider'}
       <Divider />
     {:else if node.type === 'group'}
-      <div class="form-group-nested">
+      <Box surface="container" pad={3} radius="md">
         {@render nodeList(node.content ?? [])}
-      </div>
+      </Box>
     {/if}
   {/each}
 {/snippet}
 
-<div class="dynamic-form">
+<VStack gap={4}>
   {@render nodeList(nodes)}
-</div>
+</VStack>
 
 <style>
-  .dynamic-form {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-  }
-  .form-text {
-    font-size: var(--text-base);
-    color: var(--color-text-soft);
-    margin: 0;
-  }
-  .banner {
-    padding: var(--space-4) var(--space-5);
-    border-radius: 12px;
-    font-size: var(--text-sm);
-  }
-  .banner-info {
-    background: var(--color-notification-info-bg);
-    color: var(--color-notification-info-text);
-  }
-  .banner-error {
-    background: var(--color-notification-error-bg);
-    color: var(--color-notification-error-text);
-  }
-  .banner-success {
-    background: var(--color-notification-success-bg);
-    color: var(--color-notification-success-text);
-  }
-
-  .form-check {
-    flex-direction: row;
-    align-items: center;
-    gap: var(--space-3);
-  }
-  .form-link {
-    margin: 0;
-    font-size: var(--text-base);
-  }
-  .form-group-nested {
-    border-left: 2px solid var(--color-outline-soft);
-    padding-left: var(--space-4);
-  }
-  .flow {
-    display: flex;
-    width: 100%;
-  }
-  .grid {
-    display: grid;
+  /* Grid has no responsive prop: narrow screens collapse plugin grids. */
+  :global(.dyn-grid) {
     width: 100%;
   }
   @media (max-width: 560px) {
-    .grid {
+    :global(.dyn-grid) {
       grid-template-columns: 1fr !important;
     }
   }
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-    padding: var(--space-4);
-    border: 1px solid var(--color-outline-light);
-    border-radius: 8px;
-  }
-
-  .section-subtitle {
-    margin: -8px 0 0 0;
-    font-size: var(--text-sm);
-    color: var(--color-text-soft);
-  }
-  .spacer-grow {
-    flex: 1 1 auto;
-  }
-
 </style>
