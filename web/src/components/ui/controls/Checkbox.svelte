@@ -45,7 +45,7 @@
       onchange={handleChange}
     />
     <span class="checkbox" aria-hidden="true" use:squircle={6}>
-      <span class="checkbox-mark"></span>
+      <span class="checkbox-mark" use:squircle={4}></span>
     </span>
     <span class="checkbox-label">{label}</span>
   </label>
@@ -61,7 +61,7 @@
       onchange={handleChange}
     />
     <span class="checkbox" aria-hidden="true" use:squircle={6}>
-      <span class="checkbox-mark"></span>
+      <span class="checkbox-mark" use:squircle={4}></span>
     </span>
   </span>
 {/if}
