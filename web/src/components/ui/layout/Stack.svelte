@@ -1,10 +1,9 @@
 <script lang="ts">
   // The one layout primitive. VStack / HStack are three-line aliases over it.
   //
-  // No scoped <style> on purpose: the structural rules live once in app.css
-  // (.stk), and everything variable arrives as inline custom properties. A
-  // thousand stacks therefore cost one stylesheet rule, not a thousand
-  // scoped classes.
+  // Structural rules live scoped below (.stk); everything variable arrives
+  // as inline custom properties. .stk-grow stays global in app.css:
+  // ScrollView consumes it outside Stack.
   import type { Snippet } from 'svelte'
   import { ALIGN, JUSTIFY, space, type Step, type Align, type Justify } from '../tokens'
 
@@ -64,3 +63,26 @@
 >
   {@render children()}
 </svelte:element>
+
+<style>
+  .stk {
+    display: flex;
+    flex-direction: column;
+    gap: var(--stk-gap, 0px);
+    align-items: var(--stk-align, stretch);
+    justify-content: var(--stk-justify, flex-start);
+    min-width: 0;
+    /* flex children refuse to shrink below content width without this; it is
+       the single most common cause of overflowing rows, so it is the default */
+    min-height: 0;
+  }
+  .stk-h {
+    flex-direction: row;
+    align-items: var(--stk-align, center);
+  }
+  .stk-wrap { flex-wrap: wrap; }
+  .stk-fill { width: 100%; }
+  .stk-scroll-y { overflow-y: auto; }
+  .stk-scroll-x { overflow-x: auto; }
+  .stk-pad { padding: var(--stk-pad, 0px); }
+</style>

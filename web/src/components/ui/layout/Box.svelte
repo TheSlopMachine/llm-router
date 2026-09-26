@@ -61,3 +61,13 @@
     {@render children()}
   </svelte:element>
 {/if}
+
+<style>
+  /* Box: a padded/filled container with no layout opinion of its own. */
+  .box {
+    padding: var(--box-pad, 0px);
+    background: var(--box-bg, transparent);
+    border-radius: var(--box-radius, 0px);
+    min-width: 0;
+  }
+</style>

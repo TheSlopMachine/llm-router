@@ -6,3 +6,8 @@
 </script>
 
 <div class="spc {cls}" aria-hidden="true"></div>
+
+<style>
+  /* Spacer: eats the free space along the parent axis. */
+  .spc { flex: 1 1 auto; min-width: 0; min-height: 0; }
+</style>

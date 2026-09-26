@@ -737,33 +737,14 @@ textarea.secure {
 
 /* ══════════════════════════════════════════════════════════════════════
    LAYOUT PRIMITIVES
-   Base rules for the Stack / Grid / Spacer / Divider widgets. The widgets
-   themselves carry no scoped <style> at all: they set custom properties
-   inline and everything structural lives here, so N primitive instances
-   cost one stylesheet rule instead of N scoped classes.
+   Structural rules live scoped in their widgets (Stack / Grid / Spacer /
+   Box). Two rules stay global: .stk-grow (ScrollView consumes it outside
+   Stack) and .zstk (its child rule targets caller-rendered snippet
+   children, which a scoped selector cannot reach). Scoping either would
+   duplicate the knowledge or break the layout.
    ══════════════════════════════════════════════════════════════════════ */
 
-.stk {
-  display: flex;
-  flex-direction: column;
-  gap: var(--stk-gap, 0px);
-  align-items: var(--stk-align, stretch);
-  justify-content: var(--stk-justify, flex-start);
-  min-width: 0;
-  /* flex children refuse to shrink below content width without this; it is
-     the single most common cause of overflowing rows, so it is the default */
-  min-height: 0;
-}
-.stk-h {
-  flex-direction: row;
-  align-items: var(--stk-align, center);
-}
-.stk-wrap { flex-wrap: wrap; }
 .stk-grow { flex: 1 1 0; }
-.stk-fill { width: 100%; }
-.stk-scroll-y { overflow-y: auto; }
-.stk-scroll-x { overflow-x: auto; }
-.stk-pad { padding: var(--stk-pad, 0px); }
 
 /* ZStack: children share one cell and paint in source order. */
 .zstk {
@@ -772,25 +753,6 @@ textarea.secure {
 }
 .zstk > * {
   grid-area: 1 / 1;
-}
-
-.grd {
-  display: grid;
-  gap: var(--grd-gap, 0px);
-  grid-template-columns: var(--grd-cols, 1fr);
-  align-items: var(--grd-align, stretch);
-  min-width: 0;
-}
-
-/* Spacer: eats the free space along the parent axis. */
-.spc { flex: 1 1 auto; min-width: 0; min-height: 0; }
-
-/* Box: a padded/filled container with no layout opinion of its own. */
-.box {
-  padding: var(--box-pad, 0px);
-  background: var(--box-bg, transparent);
-  border-radius: var(--box-radius, 0px);
-  min-width: 0;
 }
 
 /* Text rules live scoped in controls/Text.svelte, the sole renderer of

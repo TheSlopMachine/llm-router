@@ -31,3 +31,13 @@
 >
   {@render children()}
 </div>
+
+<style>
+  .grd {
+    display: grid;
+    gap: var(--grd-gap, 0px);
+    grid-template-columns: var(--grd-cols, 1fr);
+    align-items: var(--grd-align, stretch);
+    min-width: 0;
+  }
+</style>
