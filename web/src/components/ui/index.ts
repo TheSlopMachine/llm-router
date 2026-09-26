@@ -17,6 +17,7 @@ export type { Step, Align, Justify, Size } from './tokens'
 
 // Controls.
 export { default as Divider } from './controls/Divider.svelte'
+export { default as Icon } from './controls/Icon.svelte'
 export { default as Text } from './controls/Text.svelte'
 export { default as Image } from './controls/Image.svelte'
 export { default as Button } from './controls/Button.svelte'

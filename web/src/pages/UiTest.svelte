@@ -11,6 +11,7 @@
   import Select from '../components/ui/controls/Select.svelte'
   import FloatingList from '../components/ui/controls/FloatingList.svelte'
   import Chip from '../components/ui/controls/Chip.svelte'
+  import Icon from '../components/ui/controls/Icon.svelte'
   import Checkbox from '../components/ui/controls/Checkbox.svelte'
   import Divider from '../components/ui/controls/Divider.svelte'
   import Image from '../components/ui/controls/Image.svelte'
@@ -443,6 +444,17 @@
     {#each tintedChips as tc}
       <span class="chip" style="background: {tc.bg}; color: {tc.text}">tint {tc.c}</span>
     {/each}
+  </div>
+</SectionCard>
+
+<SectionCard title="Icons">
+  <div class="row">
+    <Icon name="star" />
+    <Icon name="star" size="lg" />
+    <Icon name="star" size="lg" tone="accent" />
+    <Icon name="error" tone="danger" />
+    <Icon name="check_circle" tone="success" />
+    <span class="hint">Unset size/tone inherits from context.</span>
   </div>
 </SectionCard>
 

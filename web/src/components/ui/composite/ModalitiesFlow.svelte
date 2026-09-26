@@ -1,5 +1,6 @@
 <script lang="ts">
   import Chip from '../controls/Chip.svelte'
+  import Icon from '../controls/Icon.svelte'
   import HStack from '../layout/HStack.svelte'
   import VStack from '../layout/VStack.svelte'
   import { modalityColor, modalityIcon } from '../../../lib/modalities'
@@ -31,15 +32,15 @@
 </script>
 
 {#if input.length > 0 || output.length > 0}
-  <HStack gap={2} align="center" class="mods-flow">
+  <HStack gap={2} align="center">
     {#if chipsDirection === 'vertical'}
-      <VStack gap={2} align="center" class="mods-group">
+      <VStack gap={2} align="center" wrap>
         {#each input as mod}
           <Chip icon={modalityIcon(mod)} text="" color={modalityColor(mod)} title={mod} {size} />
         {/each}
       </VStack>
-      <span class="icon mods-arrow" aria-hidden="true">arrow_forward</span>
-      <VStack gap={2} align="center" class="mods-group">
+      <Icon name="arrow_forward" size="base" tone="disabled" class="mods-arrow" />
+      <VStack gap={2} align="center" wrap>
         {#each output as mod}
           <Chip icon={modalityIcon(mod)} text="" color={modalityColor(mod)} title={mod} {size} />
         {/each}
@@ -48,7 +49,7 @@
       {#each input as mod}
         <Chip icon={modalityIcon(mod)} text="" color={modalityColor(mod)} title={mod} {size} />
       {/each}
-      <span class="icon mods-arrow" aria-hidden="true">arrow_forward</span>
+      <Icon name="arrow_forward" size="base" tone="disabled" class="mods-arrow" />
       {#each output as mod}
         <Chip icon={modalityIcon(mod)} text="" color={modalityColor(mod)} title={mod} {size} />
       {/each}
@@ -57,14 +58,9 @@
 {/if}
 
 <style>
-  /* :global — classes ride HStack/VStack roots in another component. */
-  :global(.mods-group) {
-    flex-wrap: wrap;
-  }
-
-  .mods-arrow {
-    color: var(--color-text-disabled);
-    font-size: var(--text-base);
+  /* Global: the class rides the Icon root in another component, Svelte
+     drops component-passed classes from scoped CSS as unused. */
+  :global(.mods-arrow) {
     flex: none;
   }
 </style>
