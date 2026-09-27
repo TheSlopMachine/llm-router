@@ -2,11 +2,12 @@
 Usage: make <target>
 
 Targets:
+  help              Print targets and variables
   init              Initialize project (bun install, openapi.yaml, api-types, embed stub)
   start             Init, then start backend (go run) + frontend (vite) in dev mode
   stop              Stop dev processes
   restart           Stop + start
-  smoke             Restart with NO_AUTH=1, then run the smoke harness (wire surfaces)
+  smoke             Restart with NO_AUTH=1, then run the smoke harness (request paths)
   status            Show dev server status
   log               Tail backend log (follows on TTY, dumps and exits otherwise)
   log-frontend      Tail frontend log (follows on TTY, dumps and exits otherwise)
@@ -17,9 +18,11 @@ Targets:
   go-test           Run go test (PKG scopes packages, default "./...")
   go-fmt            Apply gofmt to both Go modules (PATHS scopes files/dirs)
   go-fmt-check      Fail when gofmt would reformat anything (PATHS scopes)
+  go-tidy           Tidy both Go modules
   check-frontend    Run svelte-check (frontend type check)
 
 Variables:
+  VERSION            Release version for publish. Default: "dev"
   HOST               Bind host. Default: "localhost"
   WEB_PORT           Dashboard port. Default: "38080"
   API_PORT           API port. Default: "38081"

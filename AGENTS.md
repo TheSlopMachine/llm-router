@@ -196,7 +196,7 @@ If the task needs `browser`, `publish`, or `clean`: STOP. Ask the human to run i
   (route patterns validate only at startup — hence `mux_test.go`).
 - Verify through execution whenever reasonable: run checks, tests, or smoke
   after implementing, fixing, or refactoring. `make go-vet`, `make go-test`,
-  `make go-fmt-check` gate every Go change; `make smoke` gates wire-level
+  `make go-fmt-check` gate every Go change; `make smoke` gates request-path
   changes against live upstreams.
 
 ## 7. Design defaults
@@ -262,13 +262,13 @@ Before finishing any `.svelte` change, re-check every `$effect` touched against 
 ## 9. Lua Plugins
 
 - New provider backends are single-file Lua plugins: one `.lua` file with a `--- @` manifest header. Install via dashboard Plugins → Catalog tab or `POST /api/llm-router/dashboard/plugins/install-file`.
-- Manifest: required tags `@plugin`, `@author`, `@version`, `@router_version`, one or more `@allow_host` (`*` marks the plugin unsafe). Routers serve no contract older than `0.1.1`. `internal/services/luaplugin/manifest.go` validates.
+- Manifest: required tags `@plugin`, `@author`, `@version`, `@router_version`, one or more `@allow_host` (`*` marks the plugin unsafe). Routers serve no contract older than `0.3.0`. `internal/services/luaplugin/manifest.go` validates.
 - API: `llm_router.register(type_key, {complete, ...})`, `llm_router.http_client`, `llm_router.classify_error`, `llm_router.multipart`, `llm_router.storage`, `llm_router.uuid_v5(namespace, name)` (RFC 4122), `llm_router.random_hex(nbytes)`, `json.encode/decode`. Error contract `{type=, message=, retry_after=, scope=}` with `account`/`model`/`proxy` scope words; empty scope on rate/quota marks the full combination. **docs/PLUGIN-API.md is the binding contract for plugin authors — keep it in sync with every handler/API change.**
 - Error parallels: `classify_error(raw, default)` extension handles provider specifics; the core default stays safe (`auth`/`geo`/`quota` only on explicit signals, else `upstream`).
 - Exhausted store: joint limit keys over plugin, provider type, account, model, proxy. Stored keys filter candidates by subset match; expired entries delete on read. `rate_limit`/`quota_exceeded` mark, everything else does not.
 - UI trees for `config_schema`/`credential_schema`/`auth_initiate`/`auth_step` render through `DynamicForm.svelte`. Node kinds: leafs `text`, `input`, `select`, `checkbox`, `button`, `link`, `banner`, `secret`, `code`; containers `group`, `flow`, `grid`, `section`, `spacer`, `divider`. No raw HTML from plugins, ever — new widgets ship as first-class node kinds, not markup.
 - Built-in Go backends exist only for `custom` (`internal/adapters/generic/`) and `virtual` (`providers/virtual/`), both implementing `provider.GoAdapter`.
-- Verification: `make go-vet` for static checks, `make smoke` for wire-level checks against live upstreams.
+- Verification: `make go-vet` for static checks, `make smoke` for black-box checks against live upstreams.
 
 ## 10. Runtime, API Testing, Smoke
 

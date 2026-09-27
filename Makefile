@@ -79,7 +79,7 @@ restart:
 	@cd scripts && GOWORK=off go run ./restart
 
 # Smoke harness: restarts the dev stack with authorization off, then drives
-# the wire surfaces (provisioning accounts from SMOKE_* env automatically).
+# the request paths (provisioning accounts from SMOKE_* env automatically).
 smoke: NO_AUTH = 1
 smoke: restart
 	@cd scripts && GOWORK=off go run ./smoke

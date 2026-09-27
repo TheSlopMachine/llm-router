@@ -1,5 +1,17 @@
 # Changelog
 
+## Done (2026-09-27, v0.3.1)
+
+- **Credential pool pre-skip** — pools skipped credentials with a live exhausted key before the attempt (unary and stream) and virtual fan-out applied the same filter to member calls.
+- **Manual credential refresh** — added `POST /dashboard/credentials/{id}/refresh` with a dashboard button on the provider detail page.
+- **Provider export/import/purge** — added `GET /dashboard/providers/{id}/export`, `POST /dashboard/providers/import`, `DELETE /dashboard/providers/{id}/purge`.
+- **Data management and doctor** — added subsystem export/import/clear (`GET/POST /dashboard/data/...`, `GET /dashboard/data/stats`) and database doctor (`GET /dashboard/doctor/inspect`, `POST /dashboard/doctor/fix`); settings page gained security, data management and doctor sections with localized keys.
+- **Admin password** — added `POST /dashboard/admin/password` for password change.
+- **Smoke 0.3.0 codes** — smoke matrix classified `content_policy`, `model_unavailable` and `structural_fault` outcomes; mock plugin reissued.
+- **UI kit consistency** — summarized header, table, button, empty-state, list, box, checkbox and container style updates in one pass.
+
+Tests: `internal/pool/pool_test.go`, `internal/services/router/exhausted_test.go`, `providers/virtual/adapter_test.go`. `make go-test` green.
+
 ## Done (2026-09-27, v0.3.0)
 
 - **Error contract rework** — removed `ErrorTypeTimeout` (merged into `upstream`); added `content_policy` (wire `400`), `model_unavailable` (wire `503`, fixed 2-minute model cooldown), `structural_fault` (wire `502`, stops the pool and disables the provider). Fixed `MapUpstream` order so code fallbacks run before the bare 400 default. Contract tables validated strictly at the boundary: unknown types, missing/past `retry_after` on rate/quota, and `scope`/`retry_after` where forbidden became `PluginInternalError`. Added `upstream_status`/`upstream_body` passthrough with 4KiB snippet cap and debug spill files in `upstream_dumps/`.
@@ -10,9 +22,17 @@
 
 Tests: `internal/errors/api_test.go`, `internal/models/geo_test.go`, `internal/services/geoban/service_test.go`, `internal/services/luaplugin/{contract_strict_test,service_test,exhausted_test}.go`, `internal/services/{credential/disable_test,provider/disable_test}.go`. `make go-test` green.
 
+## Done (2026-09-26, v0.2.0)
+
+- **DynamicForm rework** — normalized `flow`/`grid` `gap` and `spacer` `size` to Step int `0..8` (legacy `sm|md|lg` retained); `flow.justify` gained `around`/`evenly`; `input_type=secret` accepted; `link.url` restricted to `http`/`https`/`mailto` and relative paths; `provider_config` passed into `auth_initiate` and `auth_step` `ctx`. Router version rose to 0.2.0.
+- **Exhausted model and proxy skip** — router skipped likely-exhausted models and joint proxy limits before selection; virtual fan-out applied the same filter.
+- **Proxy log redaction** — pool and probe logs reported redacted hostport values.
+
+Tests: `internal/services/luaplugin/{authctx_test,uinodes_test}.go`, `internal/services/router/exhausted_test.go`, `providers/virtual/adapter_test.go`. `make go-test` green.
+
 ## Done (2026-09-25, v0.1.2)
 
-- **`payment_required` error type** — added `ErrorTypePaymentRequired` for upstream paywalls (status 402 mapped to wire `402` + `payment_required`). Exhausted marking ignored it like `auth`; smoke harnesses treated it as a skip with reason, not a failure.
+- **`payment_required` error type** — added `ErrorTypePaymentRequired` for upstream paywalls (status 402 mapped to status `402` + `payment_required`). Exhausted marking ignored it like `auth`; smoke harnesses treated it as a skip with reason, not a failure.
 
 Tests: `internal/errors/api_test.go`, `internal/services/luaplugin/service_test.go`, `internal/services/luaplugin/classify_test.go`. `make go-test` green.
 

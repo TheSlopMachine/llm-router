@@ -86,6 +86,8 @@ llm_router.register_proxy_source(name, {
 - `complete` is required. Undeclared optional handlers report
   `endpoint_not_supported` — loud, never a silent fallback. Unknown handler
   names are ignored.
+- An optional `icon` string on the registration table selects the dashboard
+  icon: `https://` URL or `data:image/` URI, 32KiB cap. Empty means no icon.
 - `classify_error` absent means the core default decides alone.
 - One bare source name may be claimed by several plugins; the runtime
   qualifies each as `<recordID>/<name>`.
@@ -113,8 +115,10 @@ llm_router.register_proxy_source(name, {
 
 ### Common arguments
 
-- `ctx` — `{ provider_config = {...} }` when the provider has config rows.
-  Only auth handlers also carry `flow_id`.
+- `ctx` — `{ provider_config = {...} }` when the provider has config rows
+  (request handlers; `get_model_infos` receives config as its third argument
+  with an empty `ctx` instead). Auth handlers (`auth_initiate`, `auth_step`)
+  also carry `flow_id`; `provider_config` reaches them inside `ctx`.
 - `credential` — `{ id = "...", data = {...} }`; `data` holds the fields
   saved through `credential_schema`. Unpinned calls pass `{ id = "", data = {} }`.
 - Every `request` table carries `model` (full `provider/model` id) and
@@ -139,6 +143,7 @@ llm_router.register_proxy_source(name, {
   of the request. Unknown words reject the whole table (`PluginInternalError`).
 - `upstream_status` / `upstream_body`: optional passthrough of the raw
   upstream failure for logs and debugging. Routing never reads them.
+  Wrong types are ignored (non-number status, non-string body).
   Bodies over 4KiB truncate to a snippet; full bodies spill to disk files
   in debug mode with the path on the log line.
 - `not_found`: the requested model does not exist upstream. The router
@@ -147,7 +152,7 @@ llm_router.register_proxy_source(name, {
   for bad endpoints or malformed requests.
 - `content_policy`: the upstream rejected the content of this request
   (moderation, safety, content filter). Stops the pool like
-  `invalid_request` but surfaces a distinct wire code so clients tell
+  `invalid_request` but surfaces a distinct status code so clients tell
   "fix the prompt" apart from "fix the request shape".
 - `model_unavailable`: the model exists but is not serving (cold start,
   loading, overloaded engine). Marks `(provider, model)` for 2 minutes and
@@ -164,9 +169,12 @@ llm_router.register_proxy_source(name, {
   indefinite `(provider, proxy)` flag and, in `retry_same_key` mode,
   retries the same credential on a proxy from another region.
 
-Pool semantics: the core tries the sorted credential pool in order, at most
+Pool semantics: the router drops exhausted matches before the token filter
+and keeps the full pool as a last resort when every credential is limited.
+The core then tries the sorted pool in order, at most
 once per key (plus same-key geo retries up to `max_proxies`), and returns
-the first success or the last error. `invalid_request`, `content_policy`
+the first success or the last error. Per-attempt skip bypasses credentials
+with a live rate-limit key without a request. `invalid_request`, `content_policy`
 and `structural_fault` stop the pool after the first key. Streaming stops
 failover after the first byte reaches the client; same-key geo retries do
 not apply to streams. Any other error form (raised errors, wrong shapes)
@@ -205,7 +213,8 @@ Returns the OpenAI `verbose_json` shape (`text` required, `language` /
 `duration` optional, `segments` required when `needs_segments`, `words`
 optional). Always fetch the most detailed upstream format; the router
 renders the client's `response_format` from it. When `needs_segments` is
-true and the model cannot return segments, fail with `invalid_request`.
+true and the model cannot return segments, the endpoint fails with
+`upstream_error` (502).
 Upload size is capped at 32 MB at the router edge.
 
 `speech(ctx, credential, request)` → `{ audio_b64, format }`:
@@ -304,10 +313,10 @@ model cards (empty array, never nil):
 | `description` | string? | |
 | `rpm` / `tpm` / `rpd` | number | rate estimates, 0 when unknown |
 | `context_window` / `max_tokens` | number? | |
-| `capabilities` | array? | explicit wins; else derived (`tools` from `supported_parameters`, `json_mode` from `response_format`, `reasoning` flag) |
+| `capabilities` | array? | explicit wins; else derived (`tools` from `supported_parameters`, `json_mode` from `response_format`, `structured_outputs` from `supported_parameters`, `reasoning` flag) |
 | `input_modalities` / `output_modalities` | array? | e.g. `text`, `image`, `audio` |
 | `supported_parameters` | array? | OpenAI parameter names the model accepts |
-| `reasoning` | table? | `{ supported_efforts, default_effort, default_enabled }` |
+| `reasoning` | table? | `{ supported_efforts, default_effort, default_enabled, mandatory }` |
 | `endpoints` | array? | `chat/completions`, `audio/transcriptions`, `audio/speech`, `images/generations`, `embeddings`; empty means chat-only |
 
 The router rejects requests against a declared-but-absent endpoint with
@@ -443,12 +452,17 @@ UI node arrays rendered by `DynamicForm`. Node kinds (15):
 - Containers: `group`, `flow`, `grid`, `section`, `spacer`, `divider`.
 
 Key validations: `input`/`select`/`checkbox`/`secret` need `name`;
-`input.input_type` is `text`/`password`/`number`; `select.option_labels`
-must subset `options`; `link` needs `url`; `button` defaults
+`input.input_type` is `text`/`password`/`number`/`secret`; `select.option_labels`
+must subset `options`; `link` needs `url` (`http`/`https`/`mailto` or a
+relative path); `button` defaults
 `form_action="submit"`, `variant` is `primary`/`secondary`/`danger`;
-`banner.variant` is `info`/`error`/`success`; `section` needs `title`;
-`code` needs `text`; containers need non-empty `content` (`flow.direction`
-`horizontal`/`vertical`, `grid.columns` 1..6). Trees cap at depth 8 and 200
+`banner.variant` is `info`/`error`/`success`; `section` needs `title`
+(max 120 chars, subtitle max 240); `flow` defaults to
+`direction=vertical`, `align=stretch`, `justify=start`, `gap=4`
+(`justify` accepts `start`/`center`/`end`/`between`/`around`/`evenly`);
+`grid.columns` is 1..6 with default `gap=4`; `group`/`flow`/`grid`/`section`
+need non-empty `content`; `spacer`/`divider` forbid `content`
+(`spacer.size` accepts Step `0..8`); `code` needs `text`. Trees cap at depth 8 and 200
 nodes. Buttons render in host-owned footers, never inline. No raw HTML from
 plugins, ever — new widgets ship as first-class node kinds, not markup.
 
@@ -533,8 +547,8 @@ Pool rules (`RouterConfiguration`: `min_download_speed_kbps = 15000`,
 * Dead proxies are deleted. Slow proxies (under the speed floor) are kept
   as fallback until their location fills, then displaced one-for-one by
   faster newcomers; rotation trims each location to the fastest N.
-  Manual proxies are sacred: probed once on add, never rotated, deleted
-  only by hand.
+  Manual proxies stay out of scheduled rotation and trimming; removal happens
+  by explicit delete or by a failed explicit re-probe.
 * Exit locations are verified by probing through the proxy on add; list
   metadata is only a fallback.
 * Demand-driven fetch: request whitelists accumulate in `active_regions`
@@ -556,13 +570,6 @@ Source identity: declare a bare name in `register_proxy_source(name, ...)`
 per plugin as `<recordID>/<name>`: two different plugins may claim one name
 and each serves its own list. The dashboard shows the bare name with the
 qualified key beneath it.
-
-## Manifest reference
-
-Required: `@plugin`, `@author`, `@version`, `@router_version`, one or more
-`@allow_host`. `@allow_host "*"` marks the plugin unsafe and must stand
-alone. Removed directives (`@proxy_force_on_mismatch`) are tolerated on
-install but carry no meaning. Unknown tags reject the install.
 
 ## Planned endpoints (not implemented)
 

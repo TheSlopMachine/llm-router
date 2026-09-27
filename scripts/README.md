@@ -15,14 +15,18 @@ Configuration flows one way: `Makefile` vars → env → scripts. Scripts take n
 | `init` | `HOST`, `WEB_PORT`, `NO_SKIP` | `make init`; `make start` / `make publish` (via dep) |
 | `start` | `HOST`, `WEB_PORT`, `API_PORT`, `LOG_LEVEL` (default `info`), `NO_AUTH` (default `0`), `DEV_DB`*, `PID_FILE` | `make start` / `make restart` |
 | `stop` | `PID_FILE` | `make stop` / `make restart` / `make clean` |
+| `restart` | same as `start` | `make restart` / `make smoke` (before the harness) |
 | `status` | `PID_FILE` | `make status` |
+| `log` | `LINES` (default `100`), `FOLLOW` | `make log` |
+| `logfrontend` | `LINES` (default `100`), `FOLLOW` | `make log-frontend` |
 | `browser` | `URL` (default `http://HOST:WEB_PORT`) | `make browser` |
 | `publish` | `VERSION` (default `dev`), `PUBLISH_PLATFORMS`* | `make publish` |
 | `help` | static text (`help.txt`), no code | `make help` |
 | `smoke` | `SMOKE_PLUGINS` (default `mock`), `SMOKE_TARGETS` (default `completions,messages`), `SMOKE_STORE_DIR`, `SMOKE_CLEANUP` (default `1`) | `make smoke` (restarts with `NO_AUTH=1` first) |
 | _(env)_ | `NO_SKIP` (`1`/`true`/`yes`/`on` disables caches) | `make init NO_SKIP=1` or `NO_SKIP=1 make init` |
-| `vet` / `test` / `fcheck` | `PKG` (default `./...`; `scripts/`-relative patterns run inside the scripts module) / `PKG` (default `./...`) / — | `make go-vet` / `make go-test` / `make go-fmt-check` |
+| `vet` / `test` / `fcheck` | `PKG` (default `./...`; `scripts/`-relative patterns run inside the scripts module) / `PKG` (default `./...`) / — | `make go-vet` / `make go-test` / `make check-frontend` |
 | `fmt` | `FMT_WRITE=1` writes, otherwise checks; `PATHS` narrows to space-separated root-relative files/dirs (default: whole tree) | `make go-fmt` / `make go-fmt-check` |
+| `go-tidy` | — | `make go-tidy` |
 
 `make go-test PKG=./internal/services/router/` scopes the run; `make go-vet PKG=./internal/services/router/...` scopes vet; `make go-fmt PATHS="internal/server scripts/smoke"` formats only those trees. Unscoped `go vet` covers the root and `scripts` modules; unscoped `go test` covers the root module. Both skip `.workspace`, `node_modules`, `build`, `.git`.
 
@@ -36,7 +40,7 @@ Configuration flows one way: `Makefile` vars → env → scripts. Scripts take n
 
 ## Smoke (`make smoke`)
 
-Restarts the dev stack with `NO_AUTH=1`, waits for readiness, then drives the wire surfaces black-box: status → bootstrap → plugin install → provider + dev-database credentials → model matrix (one model per capability, first success closes it) → cleanup of created credentials. Missing credentials skip the plugin, never fail it. Quota, payment, rate and missing-model outcomes skip with reason; anything else fails. Exit 0 means clean (skips allowed).
+Restarts the dev stack with `NO_AUTH=1`, waits for readiness, then drives the request paths black-box: status → bootstrap → plugin install → provider + dev-database credentials → model matrix (one model per capability, first success closes it) → cleanup of created credentials. Missing credentials skip the plugin, never fail it. Quota, payment, rate and missing-model outcomes skip with reason; anything else fails. Exit 0 means clean (skips allowed).
 
 ## Caching (`NO_SKIP`)
 

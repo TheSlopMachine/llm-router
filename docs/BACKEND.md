@@ -7,8 +7,8 @@ this file maps the Go core.
 ## System map
 
 ```
-cmd/root.go              CLI entrypoint (--web/--api/--db)
-internal/server/         HTTP server: dashboard (38080), /v1 API (38081)
+cmd/root.go              CLI entrypoint (--web/--api/--db; defaults 8080/8081, dev uses WEB_PORT/API_PORT 38080/38081)
+internal/server/         HTTP server: dashboard + /v1 API (ports from CLI flags)
 internal/services/
   token/                 router-token issue/validate
   router/                ModelId → backend + CredentialPool, single pass, no repeats
@@ -22,13 +22,18 @@ internal/services/
   maintenance/           refresh + cleanup (refresh, modelsync, proxy, auth jobs)
   exhausted/             joint limit keys (account/model/proxy), subset match, expiry auto-delete
   geoban/                indefinite (plugin, provider, proxy) geo flags, no expiry, explicit clear
+  admin/                 admin password change
+  config/                instance-wide router configuration
+  datamanagement/        subsystem export/import/clear + provider export/import/purge
+  doctor/                database inspection and repair
+  proxypool/             pooled proxy selection, probing, rotation, demand fetch
 internal/pool/           single-pass credential failover (unary + stream)
 internal/streamgate/     first-byte gate: failover stops after first SSE byte
 internal/httpkit/        shared transport helpers (SSE headers)
 internal/errors/         domain sentinels + MapUpstream + ToAPIError
 internal/repository/     bbolt buckets
-internal/dashboard/      admin REST API
-internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/models, /v1/messages
+internal/dashboard/      admin REST API (providers, tokens, credentials + refresh, models, virtual-models, metrics, plugins, repos, config, data export/import/clear, doctor, proxies, geo bans)
+internal/api/v1/         OpenAI-compatible endpoints: chat/completions, audio/transcriptions, audio/speech, images/generations, embeddings, messages, models list + retrieve
 internal/models/         shared wire types
 internal/config/         Config struct
 internal/adapters/generic/ built-in custom backend (Go)
@@ -44,11 +49,16 @@ Keep changes shallow. Touch service internals only when the task requires it.
 
 ## Request flow
 
-`Parse → Resolve → Disabled → IsModelEnabled → checkEndpoint → capability
-→ loadCredentials → invoke → dropMissingModel(not_found) → metrics.`
+`Parse → Resolve → Disabled → requireModelEnabled → checkEndpoint → capability
+→ loadCredentials (dropExhausted → token filter) → invoke → dropMissingModel(not_found) → metrics.`
 
-- `router/route.go:resolveRequest` owns the shared pipeline. Endpoint code
-  adds only virtual short-circuit, capability pre-check, pool call.
+- `router/route.go:resolveRequest` owns the shared prefix (parse, resolve,
+  disabled gate, model-override gate, endpoint gate). Endpoint code in
+  `router/service.go` adds virtual short-circuit, capability pre-check
+  (`HasHandler` / `Transcriber` / `Speaker` / `ImageGenerator` / `Embedder`),
+  credential load and pool call; metrics record in `api/v1/handler.go`.
+- `allowDisabled` probe paths bypass the disabled gate; virtual short-circuit
+  runs before credential load.
 - Virtual models fan out through the router re-entrantly. The outer token
   rules travel in ctx (`router/service.go:withTokenRules`); inner member
   calls inherit them. `nil` token with no snapshot stays unrestricted
@@ -62,8 +72,13 @@ Keep changes shallow. Touch service internals only when the task requires it.
   no backoff. Fatal errors (`ErrHandlerNotFound`, `invalid_request`,
   `content_policy`, `structural_fault`, `geo` in `fail_fast` mode) stop
   immediately. Unary pools retry `geo` with the same credential on another
-  region's proxy up to `config.geo.max_proxies` in `retry_same_key` mode;
-  streams fail over to the next credential while pre-first-byte.
+  region's proxy up to the provider `geo.max_proxies` (`fail_fast` default,
+  `retry_same_key` default 3, cap 10) in `retry_same_key` mode;
+  streams fail over to the next credential while pre-first-byte (no same-key
+  retries). Per-attempt `skip` bypasses credentials with a live exhausted key
+  (`luaplugin/exhausted_skip.go`); the router also drops exhausted matches
+  before the token filter and keeps the full pool when every credential is
+  limited.
 - Proxy source keys qualify per plugin (`<recordID>/<name>`);
   `proxypool.RekeySource` migrates legacy bare tags once at startup.
 - `streamgate.Writer`: failover continues only before the first byte reaches
@@ -82,8 +97,9 @@ Keep changes shallow. Touch service internals only when the task requires it.
 - Stored keys act as filters over candidate dimensions (plugin, provider
   type, account, model, proxy). A candidate matching every stored dimension
   skips until `ResetsAt` passes.
-- Credential pools drop matching combinations before the token filter; an
-  all-limited pool stays as last resort. Proxy picks filter after ranking;
+- Credential pools drop matching combinations before the token filter; when
+  every credential is limited the router keeps the full pool as a last resort
+  (`router/service.go:dropExhausted`). Proxy picks filter after ranking;
   manual mode with nothing usable left fails loudly.
 - Expired entries delete on read; `Prune` sweeps the rest. Content,
   malformed-request, missing-model and transient failures never mark.
@@ -96,8 +112,8 @@ Keep changes shallow. Touch service internals only when the task requires it.
 ## Error contract
 
 - Domain errors live in `internal/errors`: sentinels (`ErrNotFound`,
-  `ErrTimeout`, `ErrRateLimited`, …) + `models.ProviderError` with a typed
-  `ErrorType` (11 types; `timeout` merged into `upstream`). No
+  `ErrTimeout` → status `timeout`, `ErrRateLimited`, …) + `models.ProviderError` with a typed
+  `ErrorType` (11 plugin types plus `Unknown`; the removed `timeout` type merged into `upstream`). No
   `strings.Contains` matching anywhere.
 - `MapUpstream(status, code, type, message)`: exact status/code matching
   from the upstream envelope with code fallbacks before the bare-status
@@ -143,19 +159,28 @@ services map it with `errors.Is`, never by string.
 `migrateClearCredentialQuota` in `server`); migrations never silently
 discard user data. `geo_bans` is created alongside the rest.
 
+Live buckets (`internal/db/db.go`): `meta`, `admin`, `tokens`,
+`token_index`, `provider_instances`, `credentials`, `plugins`,
+`plugin_repos`, `plugin_storage`, `auth`, `sessions`, `metrics`,
+`virtual_models`, `router_configuration`, `model_overrides`, `model_infos`,
+`proxies_v2`, `exhausted`, `geo_bans`, `active_regions`,
+`proxy_source_meta`. Legacy `providers`, `custom_providers`, `model_info`
+remain defined but are not created; `EnsureSeeded` migrates them.
+
 ## Smoke harness
 
-`scripts/smoke/` drives the wire surfaces black-box against a dev stack
+`scripts/smoke/` drives the request paths black-box against a dev stack
 (`make smoke` restarts with `NO_AUTH=1` first): status → bootstrap →
 plugin install → provider + dev-database credentials → model matrix
-(one model per capability, first success closes it) → cleanup of created
-credentials. Quota, payment, rate and missing-model outcomes skip with
+(one model per capability, first success closes it, plus fallback and
+negative `endpoint_not_supported` paths) → cleanup of created
+credentials. Quota, payment, rate, missing-model and fallback-path outcomes skip with
 reason; anything else fails. Exit 0 means clean (skips allowed).
 
 ## Adding an endpoint
 
 1. `models`: `Endpoint*` constant + `SupportsEndpoint` coverage.
-2. `provider`: capability interface (`Transcriber`-style) for Go backends.
+2. `provider`: capability interface (`Transcriber` / `Speaker` / `ImageGenerator` / `Embedder`) for Go backends.
 3. `luaplugin`: `Handler*` constant in `handler_names.go` (+ sandbox
    registration + `callAndDecode` wiring in `decode.go`).
 4. `router`: resolve + capability + pool call (see `route.go`).
