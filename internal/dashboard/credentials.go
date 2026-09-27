@@ -209,7 +209,7 @@ func (h *Handler) apiCredentialsReorder(w http.ResponseWriter, r *http.Request) 
 // @Produce      json
 // @Param        id path string true "Credential ID"
 // @Param        body body object{model=string} false "Optional model override"
-// @Success      200 {object} object{ok=bool,latency_ms=int,error=string,response=string}
+// @Success      200 {object} object{ok=bool,latency_ms=int,error=string,response=string,quota_exceeded=bool,code=string,summary=string,proxy=string}
 // @Failure      401 {object} models.ErrorResponse
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/credentials/{id}/test [post]

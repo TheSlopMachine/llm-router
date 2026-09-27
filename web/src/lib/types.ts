@@ -110,7 +110,9 @@ export interface TestResult {
   error?: string
   response?: string
   quota_exceeded?: boolean
+  code?: string
   summary?: string
+  proxy?: string
 }
 
 export interface Proxy {

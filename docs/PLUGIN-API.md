@@ -155,8 +155,9 @@ llm_router.register_proxy_source(name, {
   `invalid_request` but surfaces a distinct status code so clients tell
   "fix the prompt" apart from "fix the request shape".
 - `model_unavailable`: the model exists but is not serving (cold start,
-  loading, overloaded engine). Marks `(provider, model)` for 2 minutes and
-  moves to the next credential.
+  loading, overloaded engine, or an upstream that reports the model without
+  an API key binding). Marks `(provider, model)` for 2 minutes and
+  moves to the next credential. Records no credential or provider disable.
 - `structural_fault`: the provider endpoint itself is broken for every key
   and model (unresolvable host, refused connection, broken TLS identity —
   mapped by the router from direct-leg transport failures). Stops the pool
@@ -496,7 +497,8 @@ Behavior:
   When every credential is limited the full pool is kept as a last resort:
   a stale but unexpired mark never denies a request that could succeed.
   Manual proxy mode with nothing usable left fails loudly.
-- `model_unavailable` marks `(provider, model)` for a fixed 2 minutes.
+- `model_unavailable` marks `(provider, model)` for a fixed 2 minutes and
+  disables nothing: the credential and the provider stay enabled.
 - `geo` records no TTL: the `(provider, proxy)` flag is indefinite and
   lives until the proxy is deleted or an admin clears it
   (`DELETE /dashboard/providers/{id}/geo-bans`). In `auto` proxy mode,

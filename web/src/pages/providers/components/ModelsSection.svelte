@@ -288,6 +288,8 @@
     probeToast(m, res)
     if (!res.ok) {
       // Temporary quota is not death: never disable over it.
+      // model_unavailable (code=model_unavailable) disables here with a 2m
+      // router cooldown and no credential disable.
       if (disableFailedModels && !res.quota_exceeded) {
         await api.models.setOverride(providerId, m.name, { disabled: true })
         await reloadModels()
@@ -325,6 +327,8 @@
         probeToast(m, res)
         if (!res.ok) {
           // Temporary quota is not death: never disable over it.
+          // model_unavailable (code=model_unavailable) lands here with a 2m
+          // router cooldown and no credential disable.
           if (!res.quota_exceeded) failed.push(m)
         }
       }

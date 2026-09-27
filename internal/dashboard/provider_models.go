@@ -279,7 +279,7 @@ func (h *Handler) apiModelCapabilities(w http.ResponseWriter, r *http.Request) {
 // @Accept       json
 // @Produce      json
 // @Param        body body object{model_id=string,endpoint=string} true "Full model id (provider/model) plus probe endpoint"
-// @Success      200 {object} object{ok=bool,latency_ms=int,error=string,response=string}
+// @Success      200 {object} object{ok=bool,latency_ms=int,error=string,response=string,quota_exceeded=bool,code=string,summary=string,proxy=string}
 // @Failure      400 {object} models.ErrorResponse
 // @Failure      401 {object} models.ErrorResponse
 // @Security     SessionAuth
