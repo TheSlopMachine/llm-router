@@ -245,6 +245,9 @@ export const api = {
     test: (id: string, model?: string): Promise<TestResult> =>
       postJson(`/api/llm-router/dashboard/credentials/${id}/test`, model ? { model } : {}),
 
+    refresh: (id: string): Promise<{ ok: boolean }> =>
+      postJson(`/api/llm-router/dashboard/credentials/${id}/refresh`, {}),
+
     delete: (id: string) =>
       apiCall('delete', `/api/llm-router/dashboard/credentials/${id}` as '/api/llm-router/dashboard/credentials/{id}'),
   },

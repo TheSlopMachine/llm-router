@@ -21,6 +21,7 @@
   let credentials = $state<Credential[]>([])
   let credentialsLoading = $state(false)
   let credentialTestResults = $state<Record<string, TestResult | 'loading'>>({})
+  let credentialRefreshing = $state<Record<string, boolean>>({})
   const resultTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   let editingCred = $state<Credential | null>(null)
@@ -231,6 +232,19 @@
     })
   }
 
+  async function refreshCredential(cred: Credential): Promise<void> {
+    credentialRefreshing = { ...credentialRefreshing, [cred.id]: true }
+    try {
+      await api.credentials.refresh(cred.id)
+      toast.success(`Key "${cred.label || 'Unnamed'}" refreshed`)
+      await reloadCredentials()
+    } catch (e) {
+      toast.error(`Refresh failed: ${getErrorMessage(e)}`)
+    } finally {
+      credentialRefreshing = { ...credentialRefreshing, [cred.id]: false }
+    }
+  }
+
   function testIcon(res: TestResult | 'loading' | undefined, idleTitle: string): { icon: string; title: string } {
     if (!res) return { icon: 'network_check', title: idleTitle }
     if (res === 'loading') return { icon: 'progress_activity', title: t('Testing…') }
@@ -367,6 +381,15 @@
           {:else}
             {@const ti = testIcon(credentialTestResults[cred.id], t('Test key'))}
             <HStack gap={3} justify="end">
+              <Button
+                size="small"
+                style="text"
+                icon={{ name: 'refresh' }}
+                ariaLabel={t('Refresh token')}
+                title={t('Refresh token')}
+                disabled={credentialRefreshing[cred.id]}
+                onclick={() => refreshCredential(cred)}
+              />
               <Button
                 size="small"
                 icon={{ name: ti.icon }}

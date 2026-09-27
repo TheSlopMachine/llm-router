@@ -237,6 +237,27 @@ func (h *Handler) apiCredentialsTest(w http.ResponseWriter, r *http.Request) {
 	h.json(w, http.StatusOK, res)
 }
 
+// apiCredentialsRefresh manually refreshes a credential
+// @Summary      Refresh credential
+// @Description  Triggers a credential refresh via the provider backend (Lua or Go adapter)
+// @Tags         Credentials
+// @Produce      json
+// @Param        id path string true "Credential ID"
+// @Success      200 {object} object{ok=bool}
+// @Failure      400 {object} models.ErrorResponse
+// @Failure      401 {object} models.ErrorResponse
+// @Failure      404 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/credentials/{id}/refresh [post]
+func (h *Handler) apiCredentialsRefresh(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := h.credSvc.ManualRefresh(id); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h.json(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 // apiCredentialsDelete deletes a credential
 // @Summary      Delete credential
 // @Description  Removes a stored credential.

@@ -412,6 +412,7 @@ const ru: Record<string, string> = {
   'System instructions that apply to all models': 'Системные инструкции для всех моделей',
   'Test all': 'Протестировать все',
   'Test key': 'Протестировать ключ',
+  'Refresh token': 'Обновить токен',
   'Test model': 'Протестировать модель',
   'Transcription': 'Транскрипция',
   'Speech': 'Речь',

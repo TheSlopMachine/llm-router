@@ -8,6 +8,7 @@
 package credential
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -379,4 +380,46 @@ func (s *Service) UpdateUsage(id string, success bool) error {
 		c.UpdatedAt = util.Now()
 		return nil
 	})
+}
+
+// ─────────────────────────────────────────────
+// Manual Refresh
+// ─────────────────────────────────────────────
+
+// ManualRefresh triggers a credential refresh for the given credential ID,
+// typically from a user action in the dashboard. It resolves the provider
+// type and dispatches to the appropriate refresh handler (Lua or Go adapter).
+// If the provider does not support refresh, it returns an error.
+func (s *Service) ManualRefresh(credentialID string) error {
+	cred, err := s.repo.Get(credentialID)
+	if err != nil {
+		return fmt.Errorf("credential not found: %w", err)
+	}
+
+	resolved, err := provider.Resolve(s.providerSvc, cred.ProviderID)
+	if err != nil {
+		return fmt.Errorf("provider not found: %w", err)
+	}
+
+	var data map[string]any
+	if resolved.IsLua() {
+		data, err = s.providerSvc.LuaService().RefreshCredential(context.Background(), resolved.Instance.TypeKey, cred)
+	} else {
+		data, err = resolved.Go.RefreshCredential(context.Background(), cred)
+	}
+	if err != nil {
+		return fmt.Errorf("refresh failed: %w", err)
+	}
+
+	// Update the credential with the refreshed data
+	err = s.Update(credentialID, data, nil)
+	if err != nil {
+		return fmt.Errorf("failed to update credential: %w", err)
+	}
+
+	if s.logger != nil {
+		s.logger.Info("credential manually refreshed", "credential_id", credentialID, "provider_id", cred.ProviderID)
+	}
+
+	return nil
 }
