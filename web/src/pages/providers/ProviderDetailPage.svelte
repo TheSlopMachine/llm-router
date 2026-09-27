@@ -442,7 +442,7 @@
             {/each}
           </HStack>
         {/if}
-      {:else if proxyMode === 'auto' && hasAutoDisable}
+      {:else if proxyMode === 'auto'}
         <HStack align="center" gap={3} wrap>
           <Picker
             bind:value={geoMode}
