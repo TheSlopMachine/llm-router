@@ -27,12 +27,18 @@ func (m modelView) serves(endpoint string) bool {
 }
 
 // skipCodes are wire codes that skip a check with reason instead of failing.
+// content_policy, model_unavailable and geo_blocked say nothing about the
+// router: the prompt, the model state and the exit are at fault.
+// structural_fault stays a failure: broken provider config must be loud.
 var skipCodes = map[string]bool{
 	"payment_required":       true,
 	"quota_exceeded":         true,
 	"model_not_found":        true,
 	"not_found":              true,
 	"endpoint_not_supported": true,
+	"content_policy":         true,
+	"model_unavailable":      true,
+	"geo_blocked":            true,
 }
 
 // classifyRetryEmpty classifies a check, retrying once on degenerate
@@ -213,11 +219,13 @@ func deleteVirtual(cfg config, vmID string) {
 
 // contCodes are probe codes that move to the next model instead of
 // failing: limits, gone models and malformed-model answers say nothing
-// about the credential or the router.
+// about the credential or the router. structural_fault is absent on
+// purpose: it fails, broken config must be loud.
 var contCodes = map[string]bool{
 	"quota_exceeded": true, "payment_required": true, "rate_limit": true,
 	"model_not_found": true, "not_found": true,
 	"endpoint_not_supported": true, "invalid_request_error": true,
+	"content_policy": true, "model_unavailable": true, "geo_blocked": true,
 }
 
 type probeResult struct {

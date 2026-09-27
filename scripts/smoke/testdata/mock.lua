@@ -1,7 +1,7 @@
 --- @plugin Smoke Mock
 --- @author llm-router
---- @version 1.1.0
---- @router_version 0.1.2
+--- @version 1.2.0
+--- @router_version 0.3.0
 --- @description Deterministic mock provider for the smoke harness. No network use.
 --- @allow_host example.com
 -- NOTE: bump @version on every edit of this file. The harness skips
