@@ -6,6 +6,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/geoban"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
@@ -32,6 +33,7 @@ type Params struct {
 	LuaSvc       *luaplugin.Service
 	RepoSvc      *pluginrepo.Service
 	ProxySvc     *proxypool.Service
+	GeoBanSvc    *geoban.Service
 	Logger       *slog.Logger
 	// NoAuth skips session checks: dashboard APIs serve without login.
 	NoAuth bool
@@ -60,6 +62,7 @@ func New(p Params) (*Handler, error) {
 		luaSvc:       p.LuaSvc,
 		repoSvc:      p.RepoSvc,
 		proxySvc:     p.ProxySvc,
+		geobanSvc:    p.GeoBanSvc,
 		logger:       p.Logger,
 		noAuth:       p.NoAuth,
 	}, nil

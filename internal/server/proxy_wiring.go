@@ -3,19 +3,24 @@ package server
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
+	"github.com/TheSlopMachine/llm-router/internal/services/geoban"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 )
 
 // wireProxy connects the Lua HTTP client to the proxy pool: ordered picks
-// for plugin calls, filtered by exhausted proxy combinations after ranking.
-// Multi-type plugins resolve through the requesting type key: the caller
-// scopes the plugin record before invoking the resolver.
-func wireProxy(luaSvc *luaplugin.Service, proxySvc *proxypool.Service, exhaustedSvc *exhausted.Service) {
+// for plugin calls, filtered by exhausted proxy combinations and indefinite
+// geo flags after ranking. Multi-type plugins resolve through the requesting
+// type key: the caller scopes the plugin record before invoking the resolver.
+// After a geo ban, unbanned picks from other regions float above unbanned
+// picks sharing a banned region, so same-key geo retries land on another
+// region instead of re-hitting the blocked country.
+func wireProxy(luaSvc *luaplugin.Service, proxySvc *proxypool.Service, exhaustedSvc *exhausted.Service, geobanSvc *geoban.Service, logger *slog.Logger) {
 	luaSvc.SetProxyResolver(func(goCtx context.Context, rec *luaplugin.PluginRecord, providerConfig map[string]any, known exhausted.Segments) ([]luaplugin.ProxyPick, error) {
 		proxyCfg, err := models.ParseProxyConfig(providerConfig)
 		if err != nil {
@@ -37,14 +42,67 @@ func wireProxy(luaSvc *luaplugin.Service, proxySvc *proxypool.Service, exhausted
 			return nil, err
 		}
 		known.Plugin, known.Provider = rec.ID, typeKey
-		out := make([]luaplugin.ProxyPick, 0, len(picks))
+		regionOf := make(map[string]string, len(picks))
+		for _, p := range picks {
+			regionOf[p.ID] = p.Location
+		}
+		bannedRegions := map[string]bool{}
+		if geobanSvc != nil {
+			if regions, err := geobanSvc.BannedRegions(rec.ID, typeKey, func(proxyID string) string {
+				return regionOf[proxyID]
+			}); err == nil {
+				bannedRegions = regions
+			}
+		}
+		type rankedPick struct {
+			pick        proxypool.Pick
+			otherRegion bool
+		}
+		ranked := make([]rankedPick, 0, len(picks))
+		droppedExhausted := 0
+		droppedGeoban := 0
 		for _, p := range picks {
 			candidate := known
 			candidate.Proxy = p.ID
 			if dropExhaustedProxy(exhaustedSvc, candidate) {
+				droppedExhausted++
 				continue
 			}
-			out = append(out, luaplugin.ProxyPick{ID: p.ID, URL: p.URL})
+			if geobanSvc != nil {
+				if banned, err := geobanSvc.IsBanned(rec.ID, typeKey, p.ID); err == nil && banned {
+					droppedGeoban++
+					continue
+				}
+			}
+			ranked = append(ranked, rankedPick{pick: p, otherRegion: p.Location == "" || !bannedRegions[p.Location]})
+		}
+		if logger != nil {
+			logger.Debug("proxy: filtered picks",
+				"plugin_id", rec.ID, "type", typeKey,
+				"total", len(picks), "kept", len(ranked),
+				"dropped_exhausted", droppedExhausted, "dropped_geoban", droppedGeoban)
+		}
+		if proxyCfg.Mode == models.ProxyModeAuto {
+			// Stable partition: other-region picks first, same speed order
+			// within each group. Manual order stays sacred.
+			var other, same []rankedPick
+			for _, rp := range ranked {
+				if rp.otherRegion {
+					other = append(other, rp)
+				} else {
+					same = append(same, rp)
+				}
+			}
+			if logger != nil {
+				logger.Debug("proxy: sorted regions",
+					"plugin_id", rec.ID, "type", typeKey,
+					"other_region", len(other), "same_region", len(same))
+			}
+			ranked = append(other, same...)
+		}
+		out := make([]luaplugin.ProxyPick, 0, len(ranked))
+		for _, rp := range ranked {
+			out = append(out, luaplugin.ProxyPick{ID: rp.pick.ID, URL: rp.pick.URL, Region: rp.pick.Location})
 		}
 		if proxyCfg.Mode == models.ProxyModeManual && len(picks) > 0 && len(out) == 0 {
 			return nil, fmt.Errorf("provider proxy: no usable proxy among %d selected", len(picks))

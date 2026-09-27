@@ -406,6 +406,25 @@ func TestChoose_Matrix(t *testing.T) {
 	}
 }
 
+func TestRankManual_EmptyMeansDirect(t *testing.T) {
+	svc := setupPool(t)
+	seedProxy(t, svc, "http://10.1.0.1:8080", "US", 100, 1000, ManualSource)
+	// Manual mode with nothing selected must go direct, never fail:
+	// an empty selection is "no proxies wanted", not "proxies missing".
+	picks, err := svc.Rank(nil, models.ProxyModeManual, nil, "groq")
+	if err != nil || len(picks) != 0 {
+		t.Fatalf("manual empty must rank direct: %+v, %v", picks, err)
+	}
+	if id, url, err := svc.Choose(nil, models.ProxyModeManual, nil, "groq"); err != nil || id != "" || url != "" {
+		t.Fatalf("manual empty must choose direct: %q %q %v", id, url, err)
+	}
+	// An explicit selection that resolves to nothing still fails loudly:
+	// silent direct would leak traffic outside the chosen exits.
+	if _, err := svc.Rank(nil, models.ProxyModeManual, []string{"px-missing"}, "groq"); err == nil {
+		t.Fatal("manual with only missing proxies must error")
+	}
+}
+
 func TestChoose_FastestFirst(t *testing.T) {
 	svc := setupPool(t)
 	fast := seedProxy(t, svc, "http://10.1.0.1:8080", "US", 10, 1000, ManualSource)

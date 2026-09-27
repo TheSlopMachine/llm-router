@@ -164,12 +164,16 @@ func probeSummary(err error) string {
 			return "invalid request"
 		case models.ErrorTypeUpstream:
 			return "upstream error"
-		case models.ErrorTypeTimeout:
-			return "request timed out"
 		case models.ErrorTypeGeo:
 			return "region blocked"
 		case models.ErrorTypePaymentRequired:
 			return "payment required"
+		case models.ErrorTypeContentPolicy:
+			return "content rejected by upstream"
+		case models.ErrorTypeModelUnavailable:
+			return "model temporarily unavailable"
+		case models.ErrorTypeStructuralFault:
+			return "provider misconfigured or unreachable"
 		}
 	}
 	return "probe failed"

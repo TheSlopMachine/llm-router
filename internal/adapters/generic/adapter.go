@@ -155,7 +155,7 @@ func classifyHTTPError(status int, body string) error {
 		message = fmt.Sprintf("unexpected status %d: %s", status, body)
 	}
 	perr := apierrors.MapUpstream(status, code, errType, message)
-	if perr.Type == models.ErrorTypeQuotaExceeded {
+	if (perr.Type == models.ErrorTypeQuotaExceeded || perr.Type == models.ErrorTypeRateLimit) && perr.RetryAfter == nil {
 		retryAfter := time.Now().Add(time.Minute)
 		perr.RetryAfter = &retryAfter
 	}

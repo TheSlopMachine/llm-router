@@ -20,8 +20,10 @@ var quotaWords = []string{"per day", "perday", "daily", "quota", "free_tier", "f
 // Status plus the structured envelope code/type decide the type; message
 // text only feeds quota wording on bare 429s and the human message.
 // Retry delay resolves from the retry-after header (delta seconds) or a
-// "retry in N" hint in the body; quota errors without any hint default to
-// now+60s, matching the contract layer backstop.
+// "retry in N" hint in the body; rate/quota errors without any hint default
+// to now+60s at this layer. The strict retry_after requirement applies to
+// plugin-supplied override tables, not to the core default: accepting the
+// default (nil return) is always valid.
 func defaultClassify(status int, headers map[string]string, body string) *models.ProviderError {
 	code, errType, message := apierrors.ParseEnvelope(body)
 	if message == "" {
@@ -31,10 +33,12 @@ func defaultClassify(status int, headers map[string]string, body string) *models
 		code = "quota_exceeded"
 	}
 	perr := apierrors.MapUpstream(status, code, errType, message)
+	perr.UpstreamStatus = status
+	perr.UpstreamBody = body
 	if wait, ok := retryDelay(headers, message); ok {
 		t := time.Now().Add(wait)
 		perr.RetryAfter = &t
-	} else if perr.Type == models.ErrorTypeQuotaExceeded && perr.RetryAfter == nil {
+	} else if (perr.Type == models.ErrorTypeQuotaExceeded || perr.Type == models.ErrorTypeRateLimit) && perr.RetryAfter == nil {
 		t := time.Now().Add(time.Minute)
 		perr.RetryAfter = &t
 	}
@@ -92,8 +96,6 @@ func contractTypeName(t models.ErrorType) string {
 		return "auth"
 	case models.ErrorTypeUpstream:
 		return "upstream"
-	case models.ErrorTypeTimeout:
-		return "timeout"
 	case models.ErrorTypeInvalidRequest:
 		return "invalid_request"
 	case models.ErrorTypeGeo:
@@ -102,6 +104,12 @@ func contractTypeName(t models.ErrorType) string {
 		return "payment_required"
 	case models.ErrorTypeNotFound:
 		return "not_found"
+	case models.ErrorTypeContentPolicy:
+		return "content_policy"
+	case models.ErrorTypeModelUnavailable:
+		return "model_unavailable"
+	case models.ErrorTypeStructuralFault:
+		return "structural_fault"
 	default:
 		return "upstream"
 	}
@@ -121,6 +129,12 @@ func contractToLua(L *lua.LState, perr *models.ProviderError) *lua.LTable {
 			scope.Append(lua.LString(s))
 		}
 		tbl.RawSetString("scope", scope)
+	}
+	if perr.UpstreamStatus != 0 {
+		tbl.RawSetString("upstream_status", lua.LNumber(perr.UpstreamStatus))
+	}
+	if perr.UpstreamBody != "" {
+		tbl.RawSetString("upstream_body", lua.LString(perr.UpstreamBody))
 	}
 	return tbl
 }
@@ -183,6 +197,9 @@ func classifyErrorFunc(ctx *execContext) func(*lua.LState) int {
 		ret := L.Get(-1)
 		L.Pop(1)
 		if ret == lua.LNil {
+			if ctx.logger != nil {
+				ctx.logger.Debug("classify_error accepted default", "plugin_id", ctx.pluginID, "type", ctx.typeKey, "error_type", contractTypeName(dflt.Type))
+			}
 			L.SetTop(0)
 			L.Push(contractToLua(L, dflt))
 			return 1
@@ -193,10 +210,14 @@ func classifyErrorFunc(ctx *execContext) func(*lua.LState) int {
 			L.RaiseError("classify_error extension must return a table or nil")
 			return 0
 		}
-		if _, ok := asProviderError(tbl); !ok {
+		over, ok := asProviderError(tbl)
+		if !ok {
 			L.SetTop(0)
 			L.RaiseError("classify_error extension returned an invalid error table")
 			return 0
+		}
+		if ctx.logger != nil {
+			ctx.logger.Debug("classify_error override applied", "plugin_id", ctx.pluginID, "type", ctx.typeKey, "error_type", contractTypeName(over.Type))
 		}
 		L.SetTop(0)
 		L.Push(tbl)

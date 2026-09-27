@@ -15,7 +15,7 @@ func TestClassifyError_DefaultMatrix(t *testing.T) {
 	src := `--- @plugin Classify Matrix
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 
 llm_router.register("matrix-type", {
@@ -93,7 +93,7 @@ func TestClassifyError_ExtensionOverrideAndNil(t *testing.T) {
 	src := `--- @plugin Classify Ext
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 
 llm_router.register("ext-type", {
@@ -143,7 +143,7 @@ func TestClassifyError_ExtensionGarbageIsInternal(t *testing.T) {
 	src := `--- @plugin Classify Garbage
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 
 llm_router.register("garbage-type", {
@@ -175,7 +175,7 @@ func TestClassifyError_ExtensionRecursionIsInternal(t *testing.T) {
 	src := `--- @plugin Classify Recurse
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 
 llm_router.register("recurse-type", {

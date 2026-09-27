@@ -15,7 +15,7 @@ import (
 const streamAPIPluginSource = `--- @plugin Stream API Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 
 llm_router.register("sapi-type", {
@@ -107,7 +107,7 @@ func TestStreamAPI_DefaultNon2xxIsUpstream(t *testing.T) {
 	src := `--- @plugin Stream Default
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 
 llm_router.register("sdef-type", {

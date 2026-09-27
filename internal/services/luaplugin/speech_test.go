@@ -13,7 +13,7 @@ import (
 const speechPluginSource = `--- @plugin Speech Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @description Speech and image test plugin
 --- @allow_host example.com
 
@@ -98,7 +98,7 @@ func TestSpeech_ContractError(t *testing.T) {
       audio_b64 = "RkFLRU9HRA==",
       format = "ogg",
     }`,
-		`do return nil, { type = "quota_exceeded", message = "out of quota" } end`, 1)
+		`do return nil, { type = "quota_exceeded", message = "out of quota", retry_after = os.time() + 3600 } end`, 1)
 	src = strings.Replace(src, "Speech Plugin", "Speech Err", 1)
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)

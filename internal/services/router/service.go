@@ -121,11 +121,17 @@ func (s *Service) loadCredentials(ctx context.Context, resolved *provider.Resolv
 	p := resolved.Instance
 	creds, err := s.credSvc.All(p.ID)
 	if err != nil {
+		s.logger.Debug("router: no available credentials", "provider_id", p.ID, "reason", "no_available_credentials")
 		return nil, fmt.Errorf("%w for provider %q", apierrors.ErrNoCredential, p.Name)
 	}
+	total := len(creds)
 	creds = s.dropExhausted(resolved, model, creds)
+	afterExhausted := len(creds)
 	creds = s.filterCredentials(p.ID, creds, effectiveToken(ctx, token))
 	if len(creds) == 0 {
+		s.logger.Debug("router: credential pool empty after filtering",
+			"provider_id", p.ID, "model", model.String(), "reason", "empty_after_filter",
+			"total", total, "after_exhausted", afterExhausted)
 		return nil, fmt.Errorf("%w for provider %q", apierrors.ErrCredentialNotAllowed, p.Name)
 	}
 	return creds, nil
@@ -164,7 +170,8 @@ func (s *Service) dropExhausted(resolved *provider.Resolved, model models.ModelI
 	}
 	if len(kept) == 0 {
 		s.logger.Info("router: every credential limited, keeping full pool as last resort",
-			"provider_id", resolved.Instance.ID, "model", model.String())
+			"provider_id", resolved.Instance.ID, "model", model.String(),
+			"plugin_id", rec.ID, "type", resolved.Instance.TypeKey, "credential_count", len(creds))
 		return creds
 	}
 	return kept

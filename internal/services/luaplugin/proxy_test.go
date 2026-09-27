@@ -27,7 +27,7 @@ func markerProxy(t *testing.T, marker string) string {
 const proxyFetchPluginSource = `--- @plugin Proxy Fetch Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 
 llm_router.register("proxy-fetch-type", {
@@ -140,7 +140,7 @@ func TestDoWithProxyRotation_BadTransportNeverGoesDirect(t *testing.T) {
 	}
 	c := &pluginHTTPClient{ctx: ctx, guard: newSSRFGuard([]string{"example.com"})}
 	req, _ := http.NewRequest("GET", "http://example.com/", nil)
-	if _, _, _, err := c.doWithProxyRotation(req); err == nil {
+	if _, _, _, _, err := c.doWithProxyRotation(req); err == nil {
 		t.Fatal("expected loud error for unbuildable proxy transport")
 	}
 }

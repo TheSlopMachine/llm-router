@@ -13,7 +13,7 @@ import (
 const markPluginSource = `--- @plugin Mark Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 
 llm_router.register("mark-type", {
@@ -126,11 +126,14 @@ func TestMarkNonRateTypesIgnored(t *testing.T) {
 
 func TestMarkRateWithoutHintDefaultsMinute(t *testing.T) {
 	svc, exSvc, pluginID := setupMarkService(t)
-	markComplete(t, svc, "bare")
+	err := markComplete(t, svc, "bare")
+	if _, ok := err.(*models.PluginInternalError); !ok {
+		t.Fatalf("hintless rate must be a plugin bug, got %T (%v)", err, err)
+	}
 
 	any := exhausted.Segments{Plugin: pluginID, Provider: "mark-type", Account: "c1", Model: "mark-type/m"}
 	hit, err := exSvc.LimitedAny(any)
-	if err != nil || hit == "" {
-		t.Fatalf("hintless rate must mark: %q, %v", hit, err)
+	if err != nil || hit != "" {
+		t.Fatalf("hintless rate must not mark: %q, %v", hit, err)
 	}
 }

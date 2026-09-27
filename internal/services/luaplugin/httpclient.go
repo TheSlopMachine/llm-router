@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -13,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
@@ -253,10 +255,13 @@ func (c *pluginHTTPClient) proxyClient() (*http.Client, error) {
 // doWithProxyRotation executes one plugin HTTP request. The picks resolve
 // fresh per request; a failed proxied attempt moves to the next untried
 // pick. Direct requests and an exhausted pick list surface the last error.
-// Proxy-to-direct fallback never happens.
-func (c *pluginHTTPClient) doWithProxyRotation(req *http.Request) (*http.Response, string, time.Time, error) {
+// Proxy-to-direct fallback never happens. The direct flag reports whether
+// a surfaced failure happened on the direct leg (true) or after exhausting
+// proxied picks / in the resolver (false); callers map direct config and
+// network failures to structural_fault and everything else to upstream.
+func (c *pluginHTTPClient) doWithProxyRotation(req *http.Request) (*http.Response, string, time.Time, bool, error) {
 	if err := c.ctx.beginRequest(req.Context()); err != nil {
-		return nil, "", time.Time{}, err
+		return nil, "", time.Time{}, false, err
 	}
 	for {
 		client := c.client
@@ -266,7 +271,7 @@ func (c *pluginHTTPClient) doWithProxyRotation(req *http.Request) (*http.Respons
 			if berr != nil {
 				c.logProxyDebug("plugin proxy client build failed, rotating", proxyID, berr)
 				if !c.ctx.rotateProxy() {
-					return nil, "", time.Time{}, berr
+					return nil, "", time.Time{}, false, berr
 				}
 				continue
 			}
@@ -284,14 +289,14 @@ func (c *pluginHTTPClient) doWithProxyRotation(req *http.Request) (*http.Respons
 			if proxyID != "" && c.ctx.logger != nil {
 				c.ctx.logger.Debug("plugin http request succeeded", "proxy_id", proxyID)
 			}
-			return resp, c.ctx.proxyID, start, nil
+			return resp, c.ctx.proxyID, start, false, nil
 		}
 		if c.ctx.proxyURL == "" {
-			return nil, "", time.Time{}, derr
+			return nil, "", time.Time{}, true, derr
 		}
 		c.logProxyDebug("plugin proxy attempt failed, rotating", proxyID, derr)
 		if !c.ctx.rotateProxy() {
-			return nil, "", time.Time{}, derr
+			return nil, "", time.Time{}, false, derr
 		}
 	}
 }
@@ -411,11 +416,18 @@ func (c *pluginHTTPClient) luaRequest(L *lua.LState) int {
 	if req == nil {
 		return 0
 	}
-	resp, _, _, err := c.doWithProxyRotation(req)
+	resp, _, _, direct, err := c.doWithProxyRotation(req)
 	if err != nil {
 		// Contract is (resp, err): nil response first, error table second.
+		if c.ctx != nil && c.ctx.logger != nil {
+			reason := "upstream"
+			if direct && isStructuralTransport(err) {
+				reason = "structural_fault"
+			}
+			c.ctx.logger.Debug("transport error mapped", "plugin_id", c.ctx.pluginID, "type", c.ctx.typeKey, "reason", reason, "direct", direct)
+		}
 		L.Push(lua.LNil)
-		pushLuaErr(L, "upstream", err.Error())
+		pushTransportErr(L, err, direct)
 		return 2
 	}
 	defer resp.Body.Close()
@@ -475,10 +487,17 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 	if req == nil {
 		return 0
 	}
-	resp, _, _, err := c.doWithProxyRotation(req)
+	resp, _, _, direct, err := c.doWithProxyRotation(req)
 	if err != nil {
+		if c.ctx != nil && c.ctx.logger != nil {
+			reason := "upstream"
+			if direct && isStructuralTransport(err) {
+				reason = "structural_fault"
+			}
+			c.ctx.logger.Debug("transport error mapped", "plugin_id", c.ctx.pluginID, "type", c.ctx.typeKey, "reason", reason, "direct", direct)
+		}
 		L.Push(lua.LNil)
-		pushLuaErr(L, "upstream", err.Error())
+		pushTransportErr(L, err, direct)
 		return 2
 	}
 	defer resp.Body.Close()
@@ -611,6 +630,41 @@ func pushLuaErr(L *lua.LState, errType, message string) {
 	tbl.RawSetString("type", lua.LString(errType))
 	tbl.RawSetString("message", lua.LString(message))
 	L.Push(tbl)
+}
+
+// pushTransportErr pushes a transport failure: direct-leg config and network
+// failures (unresolvable host, refused connection, broken TLS identity)
+// become structural_fault — the provider endpoint itself is broken for every
+// key. Timeouts, resets, proxy-leg exhaustion and resolver failures stay
+// upstream: they are transient or owned by the proxy subsystem.
+func pushTransportErr(L *lua.LState, err error, direct bool) {
+	if direct && isStructuralTransport(err) {
+		pushLuaErr(L, "structural_fault", err.Error())
+		return
+	}
+	pushLuaErr(L, "upstream", err.Error())
+}
+
+// isStructuralTransport matches typed network failures, never message
+// substrings: DNS resolution, address parsing, TLS identity, refused
+// connections. url.Error and net.OpError unwrap to these via errors.As/Is.
+func isStructuralTransport(err error) bool {
+	var dns *net.DNSError
+	if errors.As(err, &dns) {
+		return true
+	}
+	var addr *net.AddrError
+	if errors.As(err, &addr) {
+		return true
+	}
+	var cert *tls.CertificateVerificationError
+	if errors.As(err, &cert) {
+		return true
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return true
+	}
+	return false
 }
 
 func luaTableString(tbl *lua.LTable, key, def string) string {

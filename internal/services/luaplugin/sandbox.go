@@ -51,9 +51,23 @@ type execContext struct {
 	// goCtx carries the caller request context into HTTP requests built by
 	// this call's clients, so cancellation propagates (nil = Background).
 	goCtx context.Context
-	// exhausted records joint limit keys for rate/quota outcomes
-	// (nil = disabled).
+	// exhausted records joint limit keys for rate/quota/model_unavailable
+	// outcomes (nil = disabled).
 	exhausted *exhausted.Service
+	// geoban records indefinite (plugin, provider, proxy) geo flags
+	// (nil = disabled).
+	geoban interface {
+		Mark(plugin, provider, proxy, reason string) error
+	}
+	// disableCredential disables one credential with first-wins semantics
+	// (nil = disabled). Called per attempt on auth/payment_required.
+	disableCredential func(credentialID, reason string)
+	// disableProvider disables one provider instance with first-wins
+	// semantics (nil = disabled). Called per attempt on structural_fault.
+	disableProvider func(providerID, reason string)
+	// dumpDir receives full upstream bodies over dumpSnippetCap when debug
+	// logging is on ("" = keep in memory only).
+	dumpDir string
 
 	registrations map[string]*lua.LTable
 	proxySources  map[string]*lua.LTable

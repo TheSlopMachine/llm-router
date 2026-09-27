@@ -21,6 +21,7 @@ internal/services/
   metrics/               1m buckets, 90d retention
   maintenance/           refresh + cleanup (refresh, modelsync, proxy, auth jobs)
   exhausted/             joint limit keys (account/model/proxy), subset match, expiry auto-delete
+  geoban/                indefinite (plugin, provider, proxy) geo flags, no expiry, explicit clear
 internal/pool/           single-pass credential failover (unary + stream)
 internal/streamgate/     first-byte gate: failover stops after first SSE byte
 internal/httpkit/        shared transport helpers (SSE headers)
@@ -58,18 +59,25 @@ Keep changes shallow. Touch service internals only when the task requires it.
 ## Pool invariants
 
 - `pool.Run / pool.RunStream`: one attempt per key, pool order, no repeats,
-  no backoff. Fatal errors (`ErrHandlerNotFound`, `invalid_request`) stop
-  immediately.
+  no backoff. Fatal errors (`ErrHandlerNotFound`, `invalid_request`,
+  `content_policy`, `structural_fault`, `geo` in `fail_fast` mode) stop
+  immediately. Unary pools retry `geo` with the same credential on another
+  region's proxy up to `config.geo.max_proxies` in `retry_same_key` mode;
+  streams fail over to the next credential while pre-first-byte.
 - Proxy source keys qualify per plugin (`<recordID>/<name>`);
   `proxypool.RekeySource` migrates legacy bare tags once at startup.
 - `streamgate.Writer`: failover continues only before the first byte reaches
   the client. After that the stream belongs to one upstream.
 - Usage tracking is best-effort but never silent: failures log with the
-  credential ID. Limit state lives only in `exhausted.Service`: rate/quota
+  credential ID. Limit state lives in `exhausted.Service`: rate/quota
   outcomes mark the scoped joint key (or the full combination without
-  scope) in the exec defer; nothing else writes limit state.
+  scope) with the plugin-supplied TTL, `model_unavailable` marks
+  `(provider, model)` for a fixed 2 minutes, all in the exec defer.
+  `auth` / `payment_required` disable the attempt credential and
+  `structural_fault` disables the provider instance (first cause wins,
+  manual re-enable clears it). `geo` records the indefinite geoban flag.
 
-## Exhausted store
+## Exhausted store and geo bans
 
 - Stored keys act as filters over candidate dimensions (plugin, provider
   type, account, model, proxy). A candidate matching every stored dimension
@@ -77,21 +85,35 @@ Keep changes shallow. Touch service internals only when the task requires it.
 - Credential pools drop matching combinations before the token filter; an
   all-limited pool stays as last resort. Proxy picks filter after ranking;
   manual mode with nothing usable left fails loudly.
-- Expired entries delete on read; `Prune` sweeps the rest. `geo`, `auth`
-  and other non-rate types never mark.
+- Expired entries delete on read; `Prune` sweeps the rest. Content,
+  malformed-request, missing-model and transient failures never mark.
+- Geo bans (`geoban.Service`, bucket `geo_bans`) carry no expiry: proxy
+  picks filter banned `(plugin, provider, proxy)` triples after ranking,
+  and unbanned picks from other regions sort above same-region picks.
+  Flags clear on proxy delete or explicit admin clear
+  (`DELETE /dashboard/providers/{id}/geo-bans[/{proxyId}]`).
 
 ## Error contract
 
 - Domain errors live in `internal/errors`: sentinels (`ErrNotFound`,
   `ErrTimeout`, `ErrRateLimited`, …) + `models.ProviderError` with a typed
-  `ErrorType`. No `strings.Contains` matching anywhere.
+  `ErrorType` (11 types; `timeout` merged into `upstream`). No
+  `strings.Contains` matching anywhere.
 - `MapUpstream(status, code, type, message)`: exact status/code matching
-  from the upstream envelope; message text never decides (except quota
-  wording on bare 429s in the Lua classify helper).
+  from the upstream envelope with code fallbacks before the bare-status
+  default, so quota/content/loading signals through 400 classify correctly;
+  message text never decides (except quota wording on bare 429s in the Lua
+  classify helper). 403 with moderation codes maps to `content_policy`,
+  bare 403 stays `auth`.
 - `ToAPIError(err)`: the single domain→wire table for both surfaces.
   `ErrorTypeForCode` maps wire codes to OpenAI error types.
 - Provider 404 (`ErrorTypeNotFound`) → wire `not_found`, evicts the model
   from the info cache on every routed path.
+- Contract tables validate strictly at the Go/Lua boundary: unknown types,
+  missing or past `retry_after` on rate/quota, and `scope`/`retry_after`
+  where forbidden reject the table as `PluginInternalError`.
+- `ProviderError` carries `UpstreamStatus`/`UpstreamBody` for logs only;
+  bodies over 4KiB spill to `upstream_dumps/` files in debug mode.
 
 ## Transactions
 
@@ -119,7 +141,7 @@ services map it with `errors.Is`, never by string.
 `proxy_limits`) drop at startup; legacy rows migrate explicitly
 (`migrateLegacyCustom` inside `EnsureSeeded`, `migrateDropProxyLimits` /
 `migrateClearCredentialQuota` in `server`); migrations never silently
-discard user data.
+discard user data. `geo_bans` is created alongside the rest.
 
 ## Smoke harness
 

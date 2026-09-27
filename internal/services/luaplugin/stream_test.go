@@ -11,7 +11,7 @@ import (
 const streamPluginSource = `--- @plugin Stream Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @description Stream plugin
 --- @allow_host example.com
 
@@ -68,7 +68,7 @@ func TestCompleteStream_UsageOnlyChunkAllowed(t *testing.T) {
 const badStreamPluginSource = `--- @plugin Bad Stream Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @description Bad stream plugin
 --- @allow_host example.com
 

@@ -11,8 +11,9 @@ import (
 
 // Pick is one ranked proxy candidate.
 type Pick struct {
-	ID  string
-	URL string
+	ID       string
+	URL      string
+	Location string
 }
 
 // Rank returns the ordered proxy list for a provider call: whitelist
@@ -106,12 +107,18 @@ func (s *Service) rankAuto(whitelist []string, provider string) []Pick {
 	sort.Slice(ranked, func(i, j int) bool { return lessProxy(ranked[i], ranked[j]) })
 	picks := make([]Pick, 0, len(ranked))
 	for _, p := range ranked {
-		picks = append(picks, Pick{ID: p.ID, URL: p.URL})
+		picks = append(picks, Pick{ID: p.ID, URL: p.URL, Location: p.Location})
 	}
 	return picks
 }
 
 func (s *Service) rankManual(ids []string, provider string) ([]Pick, error) {
+	// No proxies selected means direct: manual mode without picks must not
+	// fail requests, only an explicit selection that filters down to
+	// nothing fails loudly.
+	if len(ids) == 0 {
+		return nil, nil
+	}
 	picks := []Pick{}
 	for _, id := range ids {
 		p, err := s.proxies.Get(id)
@@ -121,7 +128,7 @@ func (s *Service) rankManual(ids []string, provider string) ([]Pick, error) {
 		if !usable(p, nil) {
 			continue
 		}
-		picks = append(picks, Pick{ID: p.ID, URL: p.URL})
+		picks = append(picks, Pick{ID: p.ID, URL: p.URL, Location: p.Location})
 	}
 	if len(picks) == 0 {
 		return nil, fmt.Errorf("provider proxy: no usable proxy among %d selected", len(ids))

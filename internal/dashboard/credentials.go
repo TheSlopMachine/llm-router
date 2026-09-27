@@ -11,32 +11,38 @@ import (
 )
 
 type credView struct {
-	ID           string     `json:"id"`
-	ProviderID   string     `json:"provider_id"`
-	ProviderName string     `json:"provider_name"`
-	Label        string     `json:"label"`
-	IsExpired    bool       `json:"is_expired"`
-	Disabled     bool       `json:"disabled"`
-	Order        int        `json:"order,omitempty"`
-	RequestCount int64      `json:"request_count"`
-	SuccessCount int64      `json:"success_count"`
-	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	ID             string     `json:"id"`
+	ProviderID     string     `json:"provider_id"`
+	ProviderName   string     `json:"provider_name"`
+	Label          string     `json:"label"`
+	IsExpired      bool       `json:"is_expired"`
+	Disabled       bool       `json:"disabled"`
+	DisabledBy     string     `json:"disabled_by,omitempty"`
+	DisabledReason string     `json:"disabled_reason,omitempty"`
+	DisabledAt     *time.Time `json:"disabled_at,omitempty"`
+	Order          int        `json:"order,omitempty"`
+	RequestCount   int64      `json:"request_count"`
+	SuccessCount   int64      `json:"success_count"`
+	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 func toCredView(c *models.Credential, providerName string) credView {
 	return credView{
-		ID:           c.ID,
-		ProviderID:   c.ProviderID,
-		ProviderName: providerName,
-		Label:        c.Label,
-		IsExpired:    c.IsExpired(),
-		Disabled:     c.Disabled,
-		Order:        c.Order,
-		RequestCount: c.RequestCount,
-		SuccessCount: c.SuccessCount,
-		ExpiresAt:    c.ExpiresAt,
-		UpdatedAt:    c.UpdatedAt,
+		ID:             c.ID,
+		ProviderID:     c.ProviderID,
+		ProviderName:   providerName,
+		Label:          c.Label,
+		IsExpired:      c.IsExpired(),
+		Disabled:       c.Disabled,
+		DisabledBy:     c.DisabledBy,
+		DisabledReason: c.DisabledReason,
+		DisabledAt:     c.DisabledAt,
+		Order:          c.Order,
+		RequestCount:   c.RequestCount,
+		SuccessCount:   c.SuccessCount,
+		ExpiresAt:      c.ExpiresAt,
+		UpdatedAt:      c.UpdatedAt,
 	}
 }
 
@@ -153,6 +159,9 @@ func (h *Handler) apiCredentialsUpdate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.jsonErr(w, http.StatusNotFound, "credential not found")
 		return
+	}
+	if body.Disabled != nil {
+		h.logger.Info("credential admin state change", "credential_id", id, "disabled", *body.Disabled)
 	}
 	name := ""
 	if p, err := h.providerSvc.Get(cred.ProviderID); err == nil {

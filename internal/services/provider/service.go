@@ -287,6 +287,16 @@ func (s *Service) Update(id string, opts UpdateOptions) (*models.ProviderInstanc
 		}
 		if opts.Disabled != nil {
 			p.Disabled = *opts.Disabled
+			if *opts.Disabled {
+				now := time.Now()
+				p.DisabledBy = "admin"
+				p.DisabledReason = "disabled by admin"
+				p.DisabledAt = &now
+			} else {
+				p.DisabledBy = ""
+				p.DisabledReason = ""
+				p.DisabledAt = nil
+			}
 		}
 		p.IconURL = strings.TrimSpace(opts.IconURL)
 		p.UpdatedAt = time.Now()
@@ -297,10 +307,47 @@ func (s *Service) Update(id string, opts UpdateOptions) (*models.ProviderInstanc
 		return nil, err
 	}
 	if s.logger != nil {
-		s.logger.Info("provider updated", "provider_id", id)
+		s.logger.Info("provider updated", "provider_id", id, "type", updated.TypeKey, "disabled", updated.Disabled, "disabled_by", updated.DisabledBy)
 	}
 	s.notifyChanged(strings.TrimSpace(id))
 	return updated, nil
+}
+
+// SystemDisable disables a provider on structural_fault outcomes.
+// First wins: an already-disabled provider keeps its original cause, so a
+// late duplicate error cannot rewrite the admin-visible reason. Manual admin
+// re-enable clears the flag; the next failure disables again with a fresh
+// cause.
+func (s *Service) SystemDisable(id, reason string) error {
+	if reason == "" {
+		reason = "disabled by system"
+	}
+	if len(reason) > 1024 {
+		reason = reason[:1024] + "…[truncated]"
+	}
+	id = strings.TrimSpace(id)
+	disabled := false
+	err := s.providers.Update(id, func(p *models.ProviderInstance) error {
+		if p.Disabled {
+			return nil
+		}
+		now := time.Now()
+		p.Disabled = true
+		p.DisabledBy = "system"
+		p.DisabledReason = reason
+		p.DisabledAt = &now
+		p.UpdatedAt = now
+		disabled = true
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if disabled && s.logger != nil {
+		s.logger.Info("provider disabled by system", "provider_id", id, "reason", reason)
+	}
+	s.notifyChanged(id)
+	return nil
 }
 
 // Delete removes a provider and cascades its credentials in one transaction.

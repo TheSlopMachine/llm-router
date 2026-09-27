@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -60,6 +61,7 @@ func (h *Handler) apiProxiesAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := h.proxySvc.AddManual(body.URL, body.Location)
 	if err != nil {
+		h.logger.Warn("manual proxy rejected", "proxy", redactProxyURL(body.URL), "location", body.Location, "error", err)
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -79,7 +81,22 @@ func (h *Handler) apiProxiesDelete(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Dead proxies never leave orphan geo flags behind.
+	if h.geobanSvc != nil {
+		_, _ = h.geobanSvc.ClearProxy(r.PathValue("id"))
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// redactProxyURL renders a proxy URL without credentials: userinfo never
+// reaches logs, only the scheme and host portion do.
+func redactProxyURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return "unparseable-proxy-url"
+	}
+	u.User = nil
+	return u.String()
 }
 
 // apiProxySources lists proxy-list source plugins with fetch stats

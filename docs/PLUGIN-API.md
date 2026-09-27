@@ -5,10 +5,10 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Router version: **0.1.2** (`models.CurrentVersion`). A plugin using a feature
+Router version: **0.3.0** (`models.CurrentVersion`). A plugin using a feature
 declares the `@router_version` that introduced it; older routers refuse to
-install it. Routers serve no contract older than **0.1.1**: plugins declaring
-`0.0.x` fail install and need reissue.
+install it. Routers serve no contract older than **0.3.0**: plugins declaring
+`0.2.x` and below fail install and need reissue.
 
 `@version` and `@router_version` accept `MAJOR.MINOR[.PATCH]` (missing patch
 means `.0`, one leading `v` allowed); anything else fails install.
@@ -23,21 +23,30 @@ means `.0`, one leading `v` allowed); anything else fails install.
 | 0.0.7 | proxy pool rework: repeatable `@proxy_location` whitelist, `@proxy_default_option`, per-pair rate limits and blocks |
 | 0.1.1 | unified exhausted store (`scope` on the error contract); `classify_error` handler slot + `llm_router.classify_error` helper; `request.model_name`; `embed.encoding_format`; `client:stream` returns `(resp, err)` with `on_response` hook; `llm_router.http_client` (renamed); `invalid_request` stops pool failover; manifest floor 0.1.1 |
 | 0.1.2 | `payment_required` error type for upstream paywalls (status 402) |
+| 0.2.0 | DynamicForm Step gaps (`flow`/`grid` `gap` and `spacer` `size` accept int Step `0..8` alongside legacy `sm\|md\|lg`), `input_type=secret`, `flow.justify` gains `around`/`evenly`, strict `link.url` schemes, `provider_config` in auth `ctx` |
+| 0.3.0 | error contract rework: `timeout` merged into `upstream`; new types `content_policy` / `model_unavailable` / `structural_fault`; `rate_limit` and `quota_exceeded` require plugin-supplied future `retry_after`; `scope` strictly validated per type; `upstream_status` / `upstream_body` passthrough; geo becomes an indefinite per-provider proxy ban with same-key retry on another region (`config.geo`); `auth` / `payment_required` disable the credential, `structural_fault` disables the provider (`disabled_by/reason/at`); transport DNS/TLS/refused failures surface as `structural_fault`; manifest floor 0.3.0 |
 
 ## Responsibility split
 
 The router owns orchestration; the plugin owns wire translation.
 
 - Router: credential pool order and single-pass iteration, token filtering,
-  proxy pick order and rotation, exhausted skip filtering, stream first-byte
-  gate, model cache, metrics, sandboxing, version gating, crash accounting.
+  proxy pick order and rotation, exhausted skip filtering, geo-ban
+  filtering and region preference, stream first-byte gate, model cache,
+  metrics, sandboxing, version gating, crash accounting, credential and
+  provider auto-disable with first-wins cause.
 - Plugin: request payload building, response normalization, error
-  classification (via the helper below), model catalog mapping, and the
-  limit semantics of its upstream expressed as error `scope`.
+  classification (via the helper below), model catalog mapping, the limit
+  TTL of its upstream expressed as `retry_after`, and the limit dimensions
+  expressed as error `scope`.
 
 Plugins keep no limit state of their own: no quota tables in
 `llm_router.storage`, no retry parsing duplicated per method. All of that
-lives in `classify_error` plus `scope`.
+lives in `classify_error` plus `scope` and `retry_after`. The router holds
+plugins to the contract strictly: unknown types, missing or past
+`retry_after` where required, and `scope`/`retry_after` where forbidden
+reject the whole error table as a plugin crash. The router never adapts to
+malformed plugin output.
 
 ## Manifest reference
 
@@ -49,7 +58,7 @@ Unknown `@tags` fail install.
 | `@plugin` | required, once | non-empty display name |
 | `@author` | required, once | non-empty |
 | `@version` | required, once | valid semver |
-| `@router_version` | required, once | valid semver, `>= 0.1.1` |
+| `@router_version` | required, once | valid semver, `>= 0.3.0` |
 | `@allow_host` | required, repeatable | bare hostname; `*` marks the plugin unsafe and stands alone |
 | `@description` | optional, once | free text |
 | `@license` | optional, once | free text |
@@ -118,32 +127,50 @@ llm_router.register_proxy_source(name, {
 
 ### Error contract
 
-`err` is `{ type = ..., message = ..., retry_after = ..., scope = ... }`:
+`err` is `{ type = ..., message = ..., retry_after = ..., scope = ..., upstream_status = ..., upstream_body = ... }`:
 
-- `type`: `rate_limit` | `quota_exceeded` | `auth` | `upstream` | `timeout` | `invalid_request` | `geo` | `not_found` | `payment_required`
-- `message`: human string, required.
-- `retry_after`: optional unix timestamp; mandatory for `quota_exceeded`
-  (defaults to now+60s when absent). A bare `rate_limit` without a hint
-  also cools down for 60s.
+- `type`: `rate_limit` | `quota_exceeded` | `auth` | `upstream` | `invalid_request` | `geo` | `not_found` | `payment_required` | `content_policy` | `model_unavailable` | `structural_fault`. Unknown types (including the removed `timeout`: use `upstream`) reject the table.
+- `message`: human string, required, non-empty.
+- `retry_after`: unix timestamp. Mandatory for `rate_limit` and `quota_exceeded`, and must lie in the future: missing or past values reject the table. Forbidden on every other type: presence rejects the table. An explicit plugin override carries the upstream's own statement (parsed from its `retry-after` header or body hint, or known by the plugin). The core default resolves the same sources and falls back to now+60s; returning `nil` (accepting the default) is always valid. `model_unavailable` carries no TTL from the plugin: the router cools the model down for a fixed 2 minutes.
 - `scope`: optional array naming the exhausted dimensions the error
-  limits: any combination of `account`, `model`, `proxy`. The provider
-  is always part of the key and needs no naming. Only `rate_limit` and
-  `quota_exceeded` read scope; other types ignore it. Without scope a
-  rate/quota error marks the full combination of the request. Unknown
-  words reject the whole table (`PluginInternalError`).
+  limits. Allowed only on `rate_limit` (`account`, `model`, `proxy`) and
+  `quota_exceeded` (`account`, `model`); any `scope` on other types rejects
+  the table. Without scope a rate/quota error marks the full combination
+  of the request. Unknown words reject the whole table (`PluginInternalError`).
+- `upstream_status` / `upstream_body`: optional passthrough of the raw
+  upstream failure for logs and debugging. Routing never reads them.
+  Bodies over 4KiB truncate to a snippet; full bodies spill to disk files
+  in debug mode with the path on the log line.
 - `not_found`: the requested model does not exist upstream. The router
   drops the model from the info cache (best-effort) and returns the error
   as-is. Emit it only when the upstream names the model as missing — never
   for bad endpoints or malformed requests.
-- `payment_required`: the upstream paywall (subscription, credits, 402).
-  Skip, never mark: the exhausted store ignores it like `auth`.
+- `content_policy`: the upstream rejected the content of this request
+  (moderation, safety, content filter). Stops the pool like
+  `invalid_request` but surfaces a distinct wire code so clients tell
+  "fix the prompt" apart from "fix the request shape".
+- `model_unavailable`: the model exists but is not serving (cold start,
+  loading, overloaded engine). Marks `(provider, model)` for 2 minutes and
+  moves to the next credential.
+- `structural_fault`: the provider endpoint itself is broken for every key
+  and model (unresolvable host, refused connection, broken TLS identity —
+  mapped by the router from direct-leg transport failures). Stops the pool
+  and disables the provider with the cause attached; re-enable is manual.
+  Never emit it for HTTP statuses: classify those normally.
+- `auth` / `payment_required`: disable the attempt credential with the
+  cause attached (`disabled_by=system`); re-enable is manual. The pool
+  moves to the next credential.
+- `geo`: the proxy exit is geo-blocked for this provider. Records the
+  indefinite `(provider, proxy)` flag and, in `retry_same_key` mode,
+  retries the same credential on a proxy from another region.
 
 Pool semantics: the core tries the sorted credential pool in order, at most
-once per key, and returns the first success or the last error.
-`invalid_request` stops the pool after the first key. Streaming stops
-failover after the first byte reaches the client. Any other error form
-(raised errors, wrong shapes) becomes `PluginInternalError` and counts as
-a plugin crash.
+once per key (plus same-key geo retries up to `max_proxies`), and returns
+the first success or the last error. `invalid_request`, `content_policy`
+and `structural_fault` stop the pool after the first key. Streaming stops
+failover after the first byte reaches the client; same-key geo retries do
+not apply to streams. Any other error form (raised errors, wrong shapes)
+becomes `PluginInternalError` and counts as a plugin crash.
 
 ### Request handlers
 
@@ -319,7 +346,10 @@ attempt gets a fresh budget.
 
 - `resp` — `{ status, headers, body }` with lowercased header names. Bodies
   truncate silently at 16MiB.
-- `err` — transport failure only, `{ type = "upstream", message = ... }`.
+- `err` — transport failure only: `{ type = "structural_fault", message = ... }`
+  for direct-leg endpoint breakage (unresolvable host, refused connection,
+  broken TLS identity), `{ type = "upstream", message = ... }` for
+  timeouts, resets, resolver failures and proxy-leg exhaustion.
   HTTP statuses arrive as data: the plugin classifies them itself.
 
 `client:stream({method, url, headers, body, on_response?, on_line?, on_chunk?})`
@@ -359,12 +389,18 @@ an optional lowercase-keyed map; `body` is the raw string (default `""`).
 The default maps status plus the structured envelope code/type
 (`{"error":{"code","type","message"}}`); message text only feeds quota
 wording on bare 429s (`per day`, `perday`, `daily`, `quota`, `free_tier`,
-`free tier`, `billing`) and the human message. `retry_after` resolves from
-the `retry-after` header (delta seconds) or a `retry in N` hint in the body
-(seconds, or milliseconds with `ms`); quota errors without any hint default
-to now+60s. Unknown shapes degrade to `upstream` — the default never
-asserts `auth`, `geo`, `quota_exceeded` or `payment_required` on weak
-signals.
+`free tier`, `billing`) and the human message. Code fallbacks run before
+the bare-status default so quota/content/loading signals through 400
+classify correctly. `retry_after` resolves from the `retry-after` header
+(delta seconds) or a `retry in N` hint in the body (seconds, or
+milliseconds with `ms`); rate/quota errors without any hint default to
+now+60s at this layer. The strict `retry_after` requirement applies to
+plugin override tables, not to the core default: returning `nil` (accept
+the default) is always valid. Unknown shapes degrade to `upstream` — the
+default never asserts `auth`, `geo`, `quota_exceeded` or `payment_required`
+on weak signals. Direct-leg transport failures (DNS, TLS identity,
+refused connection) surface as `structural_fault`; timeouts, resets and
+proxy-leg failures surface as `upstream`.
 
 ### llm_router.multipart(parts) → body, content_type
 
@@ -416,9 +452,9 @@ must subset `options`; `link` needs `url`; `button` defaults
 nodes. Buttons render in host-owned footers, never inline. No raw HTML from
 plugins, ever — new widgets ship as first-class node kinds, not markup.
 
-## Exhausted store (0.1.1)
+## Exhausted store (0.1.1) and geo bans (0.3.0)
 
-Rate and quota outcomes record joint limit keys; later requests skip
+Rate, quota and model-availability outcomes record joint limit keys; later requests skip
 combinations matching a stored key until its timestamp passes. Expired
 entries delete on read.
 
@@ -446,8 +482,18 @@ Behavior:
   When every credential is limited the full pool is kept as a last resort:
   a stale but unexpired mark never denies a request that could succeed.
   Manual proxy mode with nothing usable left fails loudly.
-- `geo` marks nothing: the exit stays usable for other providers; persistent
-  proxy state no longer exists.
+- `model_unavailable` marks `(provider, model)` for a fixed 2 minutes.
+- `geo` records no TTL: the `(provider, proxy)` flag is indefinite and
+  lives until the proxy is deleted or an admin clears it
+  (`DELETE /dashboard/providers/{id}/geo-bans`). In `auto` proxy mode,
+  unbanned picks from other regions sort above unbanned picks sharing a
+  banned region, so retries land on another country instead of re-hitting
+  the blocked one (`manual` order stays sacred).
+- `auth` / `payment_required` disable the attempt credential
+  (`disabled_by=system` with the cause); `structural_fault` disables the
+  provider the same way. First cause wins; re-enable is manual and clears
+  the cause. Content, malformed-request, missing-model and transient
+  failures record no state.
 - Keys never cross plugins or provider types: a limit for one provider
   never affects the others.
 
@@ -457,11 +503,19 @@ Provider HTTP (`http_client`) routes through the pooled proxy picked for
 the calling provider. Pick = fastest proxy whose location is in the plugin
 whitelist. Rotation walks untried picks on transport failure and never falls
 back to direct: an empty list means direct was requested, an exhausted list
-surfaces the last error.
+surfaces the last error. Transport failures on the direct leg map to
+`structural_fault` when the endpoint itself is broken (DNS, TLS identity,
+refused connection) and to `upstream` otherwise; proxy-leg failures always
+surface as `upstream`.
 
 Provider proxy mode lives in the provider config (`proxy: { mode, ids? }`,
-`disabled` default, `manual` takes explicit proxy IDs) and reaches handlers
-as `ctx.provider_config`. Manifest tags:
+`disabled` default, `manual` takes explicit proxy IDs; `manual` with no
+IDs selected goes direct, only an explicit selection resolving to nothing
+fails loudly) and reaches handlers
+as `ctx.provider_config`. Provider geo reaction lives beside it
+(`geo: { mode, max_proxies? }`, `fail_fast` default, `retry_same_key`
+retries the same credential on another region's proxy up to `max_proxies`,
+default 3, cap 10). Manifest tags:
 
 ```lua
 --- @proxy_location US   -- repeatable whitelist, empty allows any location

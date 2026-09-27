@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/adapters/generic"
@@ -19,6 +21,7 @@ import (
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
+	"github.com/TheSlopMachine/llm-router/internal/services/geoban"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/maintenance"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
@@ -78,6 +81,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	adminSvc := admin.New(database, providerSvc)
 	tokenSvc := token.New(database)
 	credSvc := credential.New(database, providerSvc)
+	credSvc.SetLogger(logger)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 	virtualSvc := virtual.New(database, providerSvc, modelInfoSvc)
 	configSvc := configsvc.New(database)
@@ -93,17 +97,37 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		return nil, fmt.Errorf("load router config: %w", err)
 	}
 	exhaustedSvc := exhausted.New(database)
+	geobanSvc := geoban.New(database)
+	geobanSvc.SetLogger(logger)
 	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, exhaustedSvc, logger)
 	virtualAdapter := virtualadapter.New(routerSvc, virtualSvc, logger)
 	providerSvc.RegisterGoAdapter(virtualAdapter)
 	luaSvc.SetUsageTracker(credSvc)
 	luaSvc.SetExhaustedStore(exhaustedSvc)
+	luaSvc.SetGeoBanStore(geobanSvc)
+	luaSvc.SetCredentialDisabler(func(id, reason string) {
+		if err := credSvc.SystemDisable(id, reason); err != nil && logger != nil {
+			logger.Warn("system credential disable failed", "credential_id", id, "error", err)
+		}
+	})
+	luaSvc.SetProviderDisabler(func(id, reason string) {
+		if err := providerSvc.SystemDisable(id, reason); err != nil && logger != nil {
+			logger.Warn("system provider disable failed", "provider_id", id, "error", err)
+		}
+	})
+	if dumpDir := upstreamDumpDir(cfg.DBPath); dumpDir != "" {
+		if err := os.MkdirAll(dumpDir, 0700); err != nil && logger != nil {
+			logger.Warn("upstream dump dir init failed", "dir", dumpDir, "error", err)
+		} else {
+			luaSvc.SetDumpDir(dumpDir)
+		}
+	}
 	genericAdapter.SetUsageTracker(credSvc)
 
 	// Proxy subsystem: pool, plugin proxy resolution, pair outcome reports.
 	proxySvc := proxypool.New(database)
 	proxySvc.SetConfig(routerCfg.MinDownloadSpeedKbps, routerCfg.MaxProxiesPerLocation)
-	wireProxy(luaSvc, proxySvc, exhaustedSvc)
+	wireProxy(luaSvc, proxySvc, exhaustedSvc, geobanSvc, logger)
 
 	maintSvc := maintenance.New(credSvc, providerSvc, database, logger)
 	maintSvc.SetProxyServices(proxySvc, luaSvc)
@@ -142,7 +166,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		AdminSvc: adminSvc, ProviderSvc: providerSvc, CredSvc: credSvc,
 		TokenSvc: tokenSvc, ModelInfoSvc: modelInfoSvc, MetricsSvc: metricsSvc,
 		VirtualSvc: virtualSvc, RouterSvc: routerSvc, ConfigSvc: configSvc,
-		LuaSvc: luaSvc, RepoSvc: repoSvc, ProxySvc: proxySvc, Logger: logger,
+		LuaSvc: luaSvc, RepoSvc: repoSvc, ProxySvc: proxySvc, GeoBanSvc: geobanSvc,
+		Logger: logger,
 		NoAuth: cfg.NoAuth,
 	})
 	if err != nil {
@@ -183,6 +208,15 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		metricsSvc:   metricsSvc,
 		proxySvc:     proxySvc,
 	}, nil
+}
+
+// upstreamDumpDir resolves the debug spill directory for full upstream
+// bodies next to the database file. Empty when the DB path is empty.
+func upstreamDumpDir(dbPath string) string {
+	if dbPath == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(dbPath), "upstream_dumps")
 }
 
 // Run starts the maintenance loop and blocks on both HTTP servers.

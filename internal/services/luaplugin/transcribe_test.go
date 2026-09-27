@@ -12,7 +12,7 @@ import (
 const transcribePluginSource = `--- @plugin Transcribe Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @description Transcribe test plugin
 --- @allow_host example.com
 
@@ -95,7 +95,7 @@ func TestTranscribe_HandlerNotFound(t *testing.T) {
 func TestTranscribe_ContractError(t *testing.T) {
 	svc := setupService(t)
 	src := strings.Replace(transcribePluginSource, `local echoed = request.file`,
-		`do return nil, { type = "rate_limit", message = "slow down" } end
+		`do return nil, { type = "rate_limit", message = "slow down", retry_after = os.time() + 60 } end
     local echoed = request.file`, 1)
 	src = strings.Replace(src, "Transcribe Plugin", "Transcribe Err", 1)
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
@@ -115,7 +115,7 @@ func TestMultipartHelper(t *testing.T) {
 	src := `--- @plugin Multipart Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @description Multipart test plugin
 --- @allow_host example.com
 
@@ -173,7 +173,7 @@ func TestMultipartHelperValidation(t *testing.T) {
 	src := `--- @plugin Multipart Bad Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @description Multipart validation test
 --- @allow_host example.com
 

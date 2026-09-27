@@ -18,7 +18,7 @@ import (
 const exhEchoPluginSource = `--- @plugin Exh Echo
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @description Echoes the attempt credential id
 --- @allow_host example.com
 

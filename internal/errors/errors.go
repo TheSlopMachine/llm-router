@@ -49,7 +49,7 @@ var (
 
 	// ErrTimeout marks upstream timeouts outside the ProviderError path
 	// (e.g. transport-level deadlines). Prefer ProviderError with
-	// ErrorTypeTimeout when an upstream response exists.
+	// ErrorTypeUpstream when an upstream response exists.
 	ErrTimeout = errors.New("upstream timeout")
 
 	// ErrRateLimited marks upstream rate limits outside the ProviderError

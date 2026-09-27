@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,6 +14,10 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	lua "github.com/yuin/gopher-lua"
 )
+
+// dumpSnippetCap bounds the upstream body kept in memory and info logs.
+// Larger bodies spill to dumpDir files in debug mode.
+const dumpSnippetCap = 4096
 
 // scopedProxyRec attributes proxy pair outcomes to the requesting type key.
 // A plugin serving several keys shares one record; limits apply per key.
@@ -48,6 +55,30 @@ func exhaustedJointKey(ctx *execContext, scope []string) (string, error) {
 		}
 	}
 	return exhausted.KeyFromScope(ctx.pluginID, ctx.typeKey, ctx.credentialID, ctx.model.String(), ctx.lastProxyID, scope)
+}
+
+// spillUpstreamBody moves oversized upstream bodies out of memory: bodies
+// over dumpSnippetCap truncate to the snippet, and in debug mode the full
+// body spills to a dumpDir file with the path on the log line.
+func spillUpstreamBody(ctx *execContext, perr *models.ProviderError) {
+	if perr == nil || len(perr.UpstreamBody) <= dumpSnippetCap {
+		return
+	}
+	full := perr.UpstreamBody
+	perr.UpstreamBody = full[:dumpSnippetCap] + "…[truncated]"
+	if ctx == nil || ctx.logger == nil || !ctx.logger.Enabled(ctx.goCtx, slog.LevelDebug) {
+		return
+	}
+	if ctx.dumpDir == "" {
+		return
+	}
+	name := fmt.Sprintf("%s_%s_%d.body", ctx.pluginID, ctx.typeKey, time.Now().UnixNano())
+	path := filepath.Join(ctx.dumpDir, name)
+	if err := os.WriteFile(path, []byte(full), 0600); err != nil {
+		ctx.logger.Warn("upstream dump failed", "error", err)
+		return
+	}
+	ctx.logger.Debug("upstream body spilled to file", "path", path, "size", len(full))
 }
 
 // handlerCall loads plugin source in a fresh state and invokes one handler.
@@ -95,37 +126,91 @@ func (s *Service) handlerCallRouted(
 		credentialID:        meta.credentialID(),
 		model:               meta.Model,
 		exhausted:           s.exhausted,
+		geoban:              s.geoban,
+		disableCredential:   s.credDisabler,
+		disableProvider:     s.provDisabler,
+		dumpDir:             s.dumpDir,
 		goCtx:               goCtx,
 	}
-	// Joint limit marking: a rate/quota outcome records the scoped joint
-	// key (or the full combination without scope) in the exhausted store.
-	// The single site owns every identity dimension: plugin, type,
-	// credential, model and the last proxy of the call.
+	// Outcome effects: the single site owning every error side effect.
+	// rate_limit/quota_exceeded record the scoped joint key with the
+	// plugin-supplied TTL; model_unavailable records the model key for a
+	// fixed 2 minutes; geo records the indefinite (plugin, provider, proxy)
+	// flag; auth/payment_required disable the attempt credential;
+	// structural_fault disables the provider instance. Everything else
+	// carries no state. Disables are first-wins inside the owning service.
 	defer func() {
-		if err == nil || ctx.exhausted == nil {
+		if err == nil {
 			return
 		}
 		var perr *models.ProviderError
 		if !errors.As(err, &perr) {
 			return
 		}
-		if perr.Type != models.ErrorTypeRateLimit && perr.Type != models.ErrorTypeQuotaExceeded {
-			return
-		}
-		resetsAt := time.Now().Add(time.Minute)
-		if perr.RetryAfter != nil {
-			resetsAt = *perr.RetryAfter
-		}
-		key, kerr := exhaustedJointKey(ctx, perr.Scope)
-		if kerr != nil {
-			if ctx.logger != nil {
-				ctx.logger.Warn("exhausted: skip marking on empty dimension",
-					"plugin_id", ctx.pluginID, "type", ctx.typeKey, "error", kerr)
+		// Debug spill: bodies over the snippet cap go to disk with the path
+		// on the log line; the in-memory body is truncated to the snippet
+		// unless debug logging is on.
+		spillUpstreamBody(ctx, perr)
+		switch perr.Type {
+		case models.ErrorTypeRateLimit, models.ErrorTypeQuotaExceeded:
+			if ctx.exhausted == nil {
+				return
 			}
-			return
-		}
-		if merr := ctx.exhausted.Mark(key, resetsAt, perr.Message); merr != nil && ctx.logger != nil {
-			ctx.logger.Warn("exhausted: mark failed", "key", key, "error", merr)
+			resetsAt := time.Now().Add(time.Minute)
+			if perr.RetryAfter != nil {
+				resetsAt = *perr.RetryAfter
+			}
+			key, kerr := exhaustedJointKey(ctx, perr.Scope)
+			if kerr != nil {
+				if ctx.logger != nil {
+					ctx.logger.Warn("exhausted: skip marking on empty dimension",
+						"plugin_id", ctx.pluginID, "type", ctx.typeKey, "error", kerr)
+				}
+				return
+			}
+			if merr := ctx.exhausted.Mark(key, resetsAt, perr.Message); merr != nil && ctx.logger != nil {
+				ctx.logger.Warn("exhausted: mark failed", "key", key, "error", merr)
+			} else if ctx.logger != nil {
+				ctx.logger.Debug("exhausted: marked limit key", "plugin_id", ctx.pluginID, "type", ctx.typeKey, "key", key)
+			}
+		case models.ErrorTypeModelUnavailable:
+			if ctx.exhausted == nil || ctx.model == "" {
+				return
+			}
+			key, kerr := exhausted.KeyFromScope(ctx.pluginID, ctx.typeKey, "", ctx.model.String(), "", []string{models.ExhaustedScopeModel})
+			if kerr != nil {
+				return
+			}
+			if merr := ctx.exhausted.Mark(key, time.Now().Add(2*time.Minute), perr.Message); merr != nil && ctx.logger != nil {
+				ctx.logger.Warn("exhausted: model_unavailable mark failed", "key", key, "error", merr)
+			} else if ctx.logger != nil {
+				ctx.logger.Debug("exhausted: marked model key", "plugin_id", ctx.pluginID, "type", ctx.typeKey, "key", key)
+			}
+		case models.ErrorTypeGeo:
+			if ctx.geoban == nil || ctx.lastProxyID == "" {
+				return
+			}
+			if merr := ctx.geoban.Mark(ctx.pluginID, ctx.typeKey, ctx.lastProxyID, perr.Message); merr != nil && ctx.logger != nil {
+				ctx.logger.Warn("geoban: mark failed", "proxy", ctx.lastProxyID, "error", merr)
+			} else if ctx.logger != nil {
+				ctx.logger.Debug("geoban: marked proxy", "plugin_id", ctx.pluginID, "type", ctx.typeKey, "proxy", ctx.lastProxyID)
+			}
+		case models.ErrorTypeAuth, models.ErrorTypePaymentRequired:
+			if ctx.disableCredential == nil || ctx.credentialID == "" {
+				return
+			}
+			ctx.disableCredential(ctx.credentialID, perr.Message)
+			if ctx.logger != nil {
+				ctx.logger.Info("credential disabled by system", "credential_id", ctx.credentialID, "plugin_id", ctx.pluginID, "type", ctx.typeKey, "reason", contractTypeName(perr.Type))
+			}
+		case models.ErrorTypeStructuralFault:
+			if ctx.disableProvider == nil || ctx.providerID == "" {
+				return
+			}
+			ctx.disableProvider(ctx.providerID, perr.Message)
+			if ctx.logger != nil {
+				ctx.logger.Info("provider disabled by system", "provider_id", ctx.providerID, "plugin_id", ctx.pluginID, "type", ctx.typeKey, "reason", contractTypeName(perr.Type))
+			}
 		}
 	}()
 	L := newSandboxState(ctx)
@@ -190,27 +275,30 @@ func asProviderError(v lua.LValue) (*models.ProviderError, bool) {
 	msgVal := tbl.RawGetString("message")
 	typeStr, ok1 := typeVal.(lua.LString)
 	msgStr, ok2 := msgVal.(lua.LString)
-	if !ok1 || !ok2 {
+	if !ok1 || !ok2 || string(msgStr) == "" {
 		return nil, false
 	}
 	var errType models.ErrorType
 	var status int
+	var scopeAllowed []string
+	retryRequired := false
 	switch strings.ToLower(string(typeStr)) {
 	case "rate_limit":
 		errType = models.ErrorTypeRateLimit
 		status = 429
+		scopeAllowed = []string{models.ExhaustedScopeAccount, models.ExhaustedScopeModel, models.ExhaustedScopeProxy}
+		retryRequired = true
 	case "quota_exceeded":
 		errType = models.ErrorTypeQuotaExceeded
 		status = 429
+		scopeAllowed = []string{models.ExhaustedScopeAccount, models.ExhaustedScopeModel}
+		retryRequired = true
 	case "auth":
 		errType = models.ErrorTypeAuth
 		status = 401
 	case "upstream":
 		errType = models.ErrorTypeUpstream
 		status = 502
-	case "timeout":
-		errType = models.ErrorTypeTimeout
-		status = 504
 	case "invalid_request":
 		errType = models.ErrorTypeInvalidRequest
 		status = 400
@@ -223,26 +311,65 @@ func asProviderError(v lua.LValue) (*models.ProviderError, bool) {
 	case "not_found":
 		errType = models.ErrorTypeNotFound
 		status = 404
+	case "content_policy":
+		errType = models.ErrorTypeContentPolicy
+		status = 400
+	case "model_unavailable":
+		errType = models.ErrorTypeModelUnavailable
+		status = 503
+	case "structural_fault":
+		errType = models.ErrorTypeStructuralFault
+		status = 502
 	default:
 		return nil, false
 	}
 	perr := &models.ProviderError{StatusCode: status, Message: string(msgStr), Type: errType}
 	if rv := tbl.RawGetString("retry_after"); rv != lua.LNil {
-		if n, ok := rv.(lua.LNumber); ok {
-			t := time.Unix(int64(n), 0)
-			perr.RetryAfter = &t
+		n, ok := rv.(lua.LNumber)
+		if !ok {
+			return nil, false
 		}
-	}
-	if errType == models.ErrorTypeQuotaExceeded && perr.RetryAfter == nil {
-		t := time.Now().Add(time.Minute)
+		t := time.Unix(int64(n), 0)
 		perr.RetryAfter = &t
 	}
+	if retryRequired {
+		if perr.RetryAfter == nil || !perr.RetryAfter.After(time.Now()) {
+			return nil, false
+		}
+	} else if perr.RetryAfter != nil {
+		return nil, false
+	}
 	if sv := tbl.RawGetString("scope"); sv != lua.LNil {
+		if scopeAllowed == nil {
+			return nil, false
+		}
 		scope, ok := parseScope(sv)
 		if !ok {
 			return nil, false
 		}
+		for _, w := range scope {
+			allowed := false
+			for _, a := range scopeAllowed {
+				if w == a {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				return nil, false
+			}
+		}
 		perr.Scope = scope
+	}
+	if uv := tbl.RawGetString("upstream_status"); uv != lua.LNil {
+		if n, ok := uv.(lua.LNumber); ok && int(n) > 0 {
+			perr.UpstreamStatus = int(n)
+		}
+	}
+	if bv := tbl.RawGetString("upstream_body"); bv != lua.LNil {
+		if s, ok := bv.(lua.LString); ok {
+			perr.UpstreamBody = string(s)
+		}
 	}
 	return perr, true
 }

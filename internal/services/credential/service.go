@@ -9,6 +9,7 @@ package credential
 
 import (
 	"fmt"
+	"log/slog"
 	"sort"
 	"time"
 
@@ -25,7 +26,11 @@ type Service struct {
 	providerSvc *provider.Service
 	repo        *repository.Repository[models.Credential]
 	onChanged   func(providerID string)
+	logger      *slog.Logger
 }
+
+// SetLogger wires structured logging.
+func (s *Service) SetLogger(l *slog.Logger) { s.logger = l }
 
 // SetOnChanged registers a callback fired after credential add/delete for a provider.
 func (s *Service) SetOnChanged(fn func(providerID string)) { s.onChanged = fn }
@@ -221,6 +226,16 @@ func (s *Service) UpdateDetails(id string, label *string, disabled *bool, data m
 		}
 		if disabled != nil {
 			c.Disabled = *disabled
+			if *disabled {
+				now := util.Now()
+				c.DisabledBy = "admin"
+				c.DisabledReason = "disabled by admin"
+				c.DisabledAt = &now
+			} else {
+				c.DisabledBy = ""
+				c.DisabledReason = ""
+				c.DisabledAt = nil
+			}
 		}
 		if data != nil {
 			c.Data = data
@@ -230,7 +245,54 @@ func (s *Service) UpdateDetails(id string, label *string, disabled *bool, data m
 	}); err != nil {
 		return err
 	}
+	if disabled != nil && s.logger != nil {
+		if *disabled {
+			s.logger.Info("credential disabled by admin", "credential_id", id, "provider_id", cred.ProviderID)
+		} else {
+			s.logger.Info("credential enabled by admin", "credential_id", id, "provider_id", cred.ProviderID)
+		}
+	}
 	if disabled != nil {
+		s.notifyChanged(cred.ProviderID)
+	}
+	return nil
+}
+
+// SystemDisable disables a credential on auth/payment_required outcomes.
+// First wins: already-disabled credentials keep their original cause, so a
+// late duplicate error cannot rewrite the admin-visible reason. Manual admin
+// re-enable clears the flag; the next failure disables again with a fresh
+// cause.
+func (s *Service) SystemDisable(id, reason string) error {
+	if reason == "" {
+		reason = "disabled by system"
+	}
+	if len(reason) > 1024 {
+		reason = reason[:1024] + "…[truncated]"
+	}
+	disabled := false
+	providerID := ""
+	err := s.repo.Update(id, func(c *models.Credential) error {
+		providerID = c.ProviderID
+		if c.Disabled {
+			return nil
+		}
+		now := util.Now()
+		c.Disabled = true
+		c.DisabledBy = "system"
+		c.DisabledReason = reason
+		c.DisabledAt = &now
+		c.UpdatedAt = now
+		disabled = true
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if disabled && s.logger != nil {
+		s.logger.Info("credential disabled by system", "credential_id", id, "provider_id", providerID, "reason", reason)
+	}
+	if cred, gerr := s.repo.Get(id); gerr == nil && cred != nil {
 		s.notifyChanged(cred.ProviderID)
 	}
 	return nil

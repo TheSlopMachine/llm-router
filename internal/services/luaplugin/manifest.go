@@ -160,11 +160,13 @@ func dedupeStrings(in []string) []string {
 	return out
 }
 
-// minRouterVersion is the oldest plugin contract served: 0.1.1 replaced
-// pair limits and credential quota with the unified exhausted store and
-// reworked the stream idiom. Older plugins are rejected at install, not
-// adapted: the contract break is explicit.
-const minRouterVersion = "0.1.1"
+// minRouterVersion is the oldest plugin contract served: 0.3.0 reworked
+// the error contract (timeout merged into upstream, content_policy /
+// model_unavailable / structural_fault added, retry_after and scope
+// strictly validated, geo bans, credential/provider auto-disable). Older
+// plugins are rejected at install, not adapted: the contract break is
+// explicit.
+const minRouterVersion = "0.3.0"
 
 // CheckRouterVersion rejects plugins requiring a newer router.
 func CheckRouterVersion(manifest *Manifest, current string) error {

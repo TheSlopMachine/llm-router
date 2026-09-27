@@ -14,6 +14,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/geoban"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
@@ -44,6 +45,7 @@ type Handler struct {
 	luaSvc       *luaplugin.Service
 	repoSvc      *pluginrepo.Service
 	proxySvc     *proxypool.Service
+	geobanSvc    *geoban.Service
 	logger       *slog.Logger
 	noAuth       bool
 
@@ -117,6 +119,11 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("POST /api/llm-router/dashboard/providers/{id}/virtual-models/sync", h.requireAuth(h.apiProviderVirtualModelsSync))
 	mux.HandleFunc("PUT /api/llm-router/dashboard/providers/{id}/models/{model...}", h.requireAuth(h.apiProviderModelSetOverride))
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/providers/{id}/models/{model...}", h.requireAuth(h.apiProviderModelDeleteOverride))
+
+	// Geo bans: indefinite (provider, proxy) flags
+	mux.HandleFunc("GET /api/llm-router/dashboard/providers/{id}/geo-bans", h.requireAuth(h.apiGeoBansList))
+	mux.HandleFunc("DELETE /api/llm-router/dashboard/providers/{id}/geo-bans", h.requireAuth(h.apiGeoBansClearAll))
+	mux.HandleFunc("DELETE /api/llm-router/dashboard/providers/{id}/geo-bans/{proxyId}", h.requireAuth(h.apiGeoBansClearOne))
 
 	// Virtual model APIs
 	mux.HandleFunc("GET /api/llm-router/dashboard/virtual-models", h.requireAuth(h.apiVirtualModelsList))

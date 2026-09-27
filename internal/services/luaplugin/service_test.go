@@ -13,7 +13,7 @@ import (
 const testPluginSource = `--- @plugin Test Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @description Test plugin
 --- @allow_host example.com
 
@@ -63,7 +63,7 @@ func setupService(t *testing.T) *Service {
 const iconPluginSource = `--- @plugin Icon Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @description Icon plugin
 --- @allow_host example.com
 
@@ -159,7 +159,7 @@ func TestParseManifest(t *testing.T) {
 }
 
 func TestParseManifestWildcard(t *testing.T) {
-	src := "--- @plugin P\n--- @author a\n--- @version 1.0.0\n--- @router_version 0.1.1\n--- @allow_host *\n"
+	src := "--- @plugin P\n--- @author a\n--- @version 1.0.0\n--- @router_version 0.3.0\n--- @allow_host *\n"
 	m, err := ParseManifest([]byte(src))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -173,7 +173,7 @@ func TestParseManifestMissing(t *testing.T) {
 	for _, src := range []string{
 		"--- @plugin P\n--- @author a\n",
 		"print('no header')\n",
-		"--- @plugin P\n--- @author a\n--- @version 1.0.0\n--- @router_version 0.1.1\n",
+		"--- @plugin P\n--- @author a\n--- @version 1.0.0\n--- @router_version 0.3.0\n",
 	} {
 		if _, err := ParseManifest([]byte(src)); err == nil {
 			t.Fatalf("expected error for %q", src)
@@ -182,18 +182,18 @@ func TestParseManifestMissing(t *testing.T) {
 }
 
 func TestCheckRouterVersion(t *testing.T) {
-	m := &Manifest{RouterVersion: "0.1.1"}
-	if err := CheckRouterVersion(m, "0.1.1"); err != nil {
+	m := &Manifest{RouterVersion: "0.3.0"}
+	if err := CheckRouterVersion(m, "0.3.0"); err != nil {
 		t.Fatalf("equal versions: %v", err)
 	}
 	m.RouterVersion = "99.0.0"
-	if err := CheckRouterVersion(m, "0.1.1"); err == nil {
+	if err := CheckRouterVersion(m, "0.3.0"); err == nil {
 		t.Fatal("expected rejection of newer router requirement")
 	}
-	for _, old := range []string{"0.0.7", "0.0.4", "0.0.3"} {
+	for _, old := range []string{"0.2.0", "0.1.2", "0.1.1", "0.0.7"} {
 		m.RouterVersion = old
-		if err := CheckRouterVersion(m, "0.1.1"); err == nil {
-			t.Fatalf("pre-0.1.1 contract %s must be rejected", old)
+		if err := CheckRouterVersion(m, "0.3.0"); err == nil {
+			t.Fatalf("pre-0.3.0 contract %s must be rejected", old)
 		}
 	}
 }
@@ -245,7 +245,7 @@ func TestSandboxDeniesUnsafeGlobals(t *testing.T) {
 	bad := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 
 local x = os.execute("echo hi")
@@ -263,12 +263,12 @@ func TestErrorContract(t *testing.T) {
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 
 llm_router.register("err-type", {
   complete = function(ctx, credential, request)
-    return nil, { type = "rate_limit", message = "slow down" }
+    return nil, { type = "rate_limit", message = "slow down", retry_after = os.time() + 60 }
   end,
 })
 `
@@ -291,13 +291,13 @@ func TestErrorContractScope(t *testing.T) {
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 
 llm_router.register("scope-type", {
   complete = function(ctx, credential, request)
     return nil, { type = "quota_exceeded", message = "out",
-      retry_after = 1700000060, scope = { "account", "model" } }
+      retry_after = os.time() + 3600, scope = { "account", "model" } }
   end,
 })
 `
@@ -320,7 +320,7 @@ func TestErrorContractBadScopeIsInternal(t *testing.T) {
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 
 llm_router.register("badscope-type", {
@@ -344,6 +344,8 @@ func TestIsFatalPoolError(t *testing.T) {
 	fatal := []error{
 		ErrHandlerNotFound,
 		&models.ProviderError{Type: models.ErrorTypeInvalidRequest},
+		&models.ProviderError{Type: models.ErrorTypeContentPolicy},
+		&models.ProviderError{Type: models.ErrorTypeStructuralFault},
 		&models.ProviderError{Type: models.ErrorTypeGeo},
 	}
 	for _, err := range fatal {
@@ -351,14 +353,17 @@ func TestIsFatalPoolError(t *testing.T) {
 			t.Fatalf("must be fatal: %v", err)
 		}
 	}
+	if isFatalWithGeo(&models.ProviderError{Type: models.ErrorTypeGeo}, models.GeoModeRetrySameKey) {
+		t.Fatal("geo must not be fatal in retry_same_key mode")
+	}
 	nonFatal := []error{
 		&models.ProviderError{Type: models.ErrorTypeRateLimit},
 		&models.ProviderError{Type: models.ErrorTypeQuotaExceeded},
 		&models.ProviderError{Type: models.ErrorTypeAuth},
 		&models.ProviderError{Type: models.ErrorTypeUpstream},
-		&models.ProviderError{Type: models.ErrorTypeTimeout},
 		&models.ProviderError{Type: models.ErrorTypeNotFound},
 		&models.ProviderError{Type: models.ErrorTypePaymentRequired},
+		&models.ProviderError{Type: models.ErrorTypeModelUnavailable},
 		errors.New("boom"),
 		nil,
 	}
@@ -374,7 +379,7 @@ func TestCompletePool_InvalidRequestStopsAfterFirstKey(t *testing.T) {
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 
 llm_router.register("fatal-type", {
@@ -411,7 +416,7 @@ func TestCompletePool_GeoStopsAfterFirstKey(t *testing.T) {
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 
 llm_router.register("geo-type", {
@@ -449,7 +454,7 @@ func TestErrorContractPaymentRequired(t *testing.T) {
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 
 llm_router.register("pay-type", {
@@ -477,7 +482,7 @@ func TestRuntimeCrashIsInternal(t *testing.T) {
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 
 llm_router.register("crash-type", {

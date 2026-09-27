@@ -2,7 +2,9 @@ package dashboard
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
@@ -21,6 +23,9 @@ type providerView struct {
 	IsUIReadonly     bool           `json:"is_ui_readonly"`
 	IsUIHidden       bool           `json:"is_ui_hidden"`
 	Disabled         bool           `json:"disabled"`
+	DisabledBy       string         `json:"disabled_by,omitempty"`
+	DisabledReason   string         `json:"disabled_reason,omitempty"`
+	DisabledAt       *time.Time     `json:"disabled_at,omitempty"`
 }
 
 func toProviderView(p *models.ProviderInstance, svc *provider.Service) providerView {
@@ -34,7 +39,8 @@ func toProviderView(p *models.ProviderInstance, svc *provider.Service) providerV
 		Qualifier: p.Qualifier, Config: config, BaseURL: baseURL, IconURL: p.IconURL,
 		SupportsAuthFlow: svc.SupportsAuthFlow(p.TypeKey),
 		IsUIReadonly:     p.IsUIReadonly, IsUIHidden: p.IsUIHidden,
-		Disabled: p.Disabled,
+		Disabled: p.Disabled, DisabledBy: p.DisabledBy, DisabledReason: p.DisabledReason,
+		DisabledAt: p.DisabledAt,
 	}
 }
 
@@ -178,6 +184,10 @@ func (h *Handler) apiProvidersCreate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	if err := validateGeoConfig(body.Config); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// Backward-compatible custom shape: {name, base_url, icon_url}.
 	if body.TypeKey == "" {
@@ -243,12 +253,16 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	if err := validateGeoConfig(body.Config); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	if existing.IsUIReadonly {
 		// Seeded providers are managed automatically; only operational keys
-		// (proxy mode, model automation) and the disabled toggle may be edited.
-		// Other config keys are preserved.
-		allowed := map[string]bool{"proxy": true, "models_auto_sync": true, "disable_failed_models": true}
+		// (proxy mode, geo reaction, model automation) and the disabled
+		// toggle may be edited. Other config keys are preserved.
+		allowed := map[string]bool{"proxy": true, "geo": true, "models_auto_sync": true, "disable_failed_models": true}
 		if body.Name != "" && body.Name != existing.Name {
 			h.jsonErr(w, http.StatusForbidden, "provider is managed automatically")
 			return
@@ -272,6 +286,9 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			h.jsonErr(w, http.StatusBadRequest, err.Error())
 			return
+		}
+		if body.Disabled != nil {
+			h.logger.Info("provider admin state change", "provider_id", id, "disabled", *body.Disabled)
 		}
 		h.json(w, http.StatusOK, toProviderView(inst, h.providerSvc))
 		return
@@ -302,6 +319,9 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if body.Disabled != nil {
+		h.logger.Info("provider admin state change", "provider_id", id, "disabled", *body.Disabled)
 	}
 
 	h.json(w, http.StatusOK, toProviderView(inst, h.providerSvc))
@@ -451,4 +471,43 @@ func (h *Handler) apiProviderCredentialSchema(w http.ResponseWriter, r *http.Req
 		return
 	}
 	h.json(w, http.StatusOK, map[string]any{"nodes": nodes})
+}
+
+// validateGeoConfig rejects unknown geo modes and out-of-range max_proxies
+// at the dashboard edge so bad admin input fails loudly instead of
+// degrading silently to fail_fast at request time. ParseGeoConfig still
+// clamps as a last resort for hand-edited rows.
+func validateGeoConfig(cfg map[string]any) error {
+	if cfg == nil {
+		return nil
+	}
+	raw, ok := cfg["geo"]
+	if !ok || raw == nil {
+		return nil
+	}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("geo must be an object with mode and max_proxies")
+	}
+	if _, err := models.ParseGeoConfig(map[string]any{"geo": m}); err != nil {
+		return err
+	}
+	if v, ok := m["max_proxies"]; ok && v != nil {
+		var n int
+		switch t := v.(type) {
+		case float64:
+			if t != float64(int(t)) {
+				return fmt.Errorf("geo max_proxies must be an integer 1..10")
+			}
+			n = int(t)
+		case int:
+			n = t
+		default:
+			return fmt.Errorf("geo max_proxies must be an integer 1..10")
+		}
+		if n < 1 || n > models.MaxGeoMaxProxies {
+			return fmt.Errorf("geo max_proxies must be an integer 1..10")
+		}
+	}
+	return nil
 }

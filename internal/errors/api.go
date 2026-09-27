@@ -26,8 +26,6 @@ func ToAPIError(err error) APIError {
 			return APIError{http.StatusBadGateway, "quota_exceeded"}
 		case models.ErrorTypeAuth:
 			return APIError{http.StatusUnauthorized, "auth_error"}
-		case models.ErrorTypeTimeout:
-			return APIError{http.StatusBadGateway, "timeout"}
 		case models.ErrorTypeNotFound:
 			return APIError{http.StatusNotFound, "not_found"}
 		case models.ErrorTypeInvalidRequest:
@@ -36,6 +34,12 @@ func ToAPIError(err error) APIError {
 			return APIError{http.StatusBadRequest, "geo_blocked"}
 		case models.ErrorTypePaymentRequired:
 			return APIError{http.StatusPaymentRequired, "payment_required"}
+		case models.ErrorTypeContentPolicy:
+			return APIError{http.StatusBadRequest, "content_policy"}
+		case models.ErrorTypeModelUnavailable:
+			return APIError{http.StatusServiceUnavailable, "model_unavailable"}
+		case models.ErrorTypeStructuralFault:
+			return APIError{http.StatusBadGateway, "structural_fault"}
 		case models.ErrorTypeUpstream:
 			return APIError{http.StatusBadGateway, "upstream_error"}
 		default:
@@ -79,7 +83,7 @@ func ErrorTypeForCode(code string) string {
 		return "invalid_request_error"
 	case "rate_limit", "quota_exceeded":
 		return "rate_limit_error"
-	case "server_error", "upstream_error", "timeout", "internal_error":
+	case "server_error", "upstream_error", "model_unavailable", "structural_fault", "internal_error":
 		return "server_error"
 	default:
 		return "invalid_request_error"

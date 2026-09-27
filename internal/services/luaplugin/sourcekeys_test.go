@@ -9,7 +9,7 @@ func sourcePlugin(name, source string) string {
 	return `--- @plugin ` + name + `
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 --- @proxy_source true
 
@@ -70,7 +70,7 @@ func TestRollbackRestoresProxySourceKeys(t *testing.T) {
 	v2 := `--- @plugin Source RB
 --- @author tester
 --- @version 2.0.0
---- @router_version 0.1.1
+--- @router_version 0.3.0
 --- @allow_host example.com
 
 llm_router.register("rb-type", {

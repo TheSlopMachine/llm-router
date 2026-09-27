@@ -25,7 +25,13 @@ import (
 // 0.2.0 adds DynamicForm Step gaps (flow/grid gap and spacer size accept
 // Step int 0..8 alongside the legacy sm|md|lg enum), input_type=secret,
 // around/evenly justify values, and strict link URL schemes.
-const CurrentVersion = "0.2.0"
+// 0.3.0 reworks the provider error contract: timeout merges into upstream,
+// content_policy/model_unavailable/structural_fault added, rate_limit and
+// quota_exceeded require plugin-supplied retry_after, geo becomes an
+// indefinite per-provider proxy ban with same-key retry on another region,
+// auth/payment_required disable the credential, structural_fault disables
+// the provider (DisabledBy/Reason/At on both).
+const CurrentVersion = "0.3.0"
 
 // ─────────────────────────────────────────────
 // ModelId
@@ -797,16 +803,18 @@ type ModelOverride struct {
 type ErrorType int
 
 const (
-	ErrorTypeUnknown         ErrorType = iota
-	ErrorTypeRateLimit                 // Temporary rate limit on this key
-	ErrorTypeQuotaExceeded             // Credential quota exhausted, deprioritize (MUST have RetryAfter)
-	ErrorTypeAuth                      // Auth failure, credential may be invalid
-	ErrorTypeUpstream                  // Transient upstream failure (5xx, overload)
-	ErrorTypeTimeout                   // Transient timeout
-	ErrorTypeInvalidRequest            // Invalid request
-	ErrorTypeGeo                       // Geo-blocked upstream; proxy used is at fault, mark it bad
-	ErrorTypeNotFound                  // Model does not exist upstream; drop it from the cache
-	ErrorTypePaymentRequired           // Upstream paywall (subscription, credits): skip, never mark
+	ErrorTypeUnknown          ErrorType = iota
+	ErrorTypeRateLimit                  // Temporary rate limit; plugin MUST supply RetryAfter
+	ErrorTypeQuotaExceeded              // Quota exhausted; plugin MUST supply RetryAfter
+	ErrorTypeAuth                       // Auth failure: disable the credential (system)
+	ErrorTypeUpstream                   // Transient upstream failure (5xx, timeout, reset)
+	ErrorTypeInvalidRequest             // Malformed request; fatal for the pool
+	ErrorTypeGeo                        // Exit geo-blocked: indefinite (provider, proxy) ban, same-key retry on another region
+	ErrorTypeNotFound                   // Model does not exist upstream; drop it from the cache
+	ErrorTypePaymentRequired            // Upstream paywall: disable the credential (system)
+	ErrorTypeContentPolicy              // Upstream rejected the content; fatal for the pool
+	ErrorTypeModelUnavailable           // Model exists but not serving; exhausted on (provider, model) for 2m
+	ErrorTypeStructuralFault            // Provider config/network broken for all keys and models; disable the provider (system), fatal for the pool
 )
 
 // ProviderError represents errors returned by provider backends.
@@ -816,9 +824,17 @@ type ProviderError struct {
 	Type       ErrorType
 	RetryAfter *time.Time
 	// Scope names the exhausted dimensions the error limits (account, model,
-	// proxy). Empty on rate/quota errors marks the full combination. Other
-	// types ignore scope.
+	// proxy). Allowed only on rate_limit (account, model, proxy) and
+	// quota_exceeded (account, model). Empty marks the full combination.
+	// Any scope on other types rejects the error table as a plugin bug.
 	Scope []string
+	// UpstreamStatus is the raw HTTP status received from the upstream.
+	// UpstreamBody is the raw upstream response body (possibly truncated by
+	// the HTTP client). Routing never reads these; they exist for logging
+	// and debugging. Large bodies are spilled to disk in debug mode with
+	// the path carried alongside the log line.
+	UpstreamStatus int
+	UpstreamBody   string
 }
 
 func (e *ProviderError) Error() string {
@@ -972,9 +988,16 @@ type ProviderInstance struct {
 	IsUIHidden   bool           `json:"is_ui_hidden"`
 	// Disabled takes the provider out of routing and model listings.
 	// Settings and discovery keep working.
-	Disabled  bool      `json:"disabled,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Disabled bool `json:"disabled,omitempty"`
+	// DisabledBy names who disabled the provider: "admin" (dashboard PUT)
+	// or "system" (structural_fault auto-disable). Empty when enabled.
+	DisabledBy string `json:"disabled_by,omitempty"`
+	// DisabledReason carries the human reason (system cause or admin note).
+	DisabledReason string `json:"disabled_reason,omitempty"`
+	// DisabledAt marks when the provider was disabled. Nil when enabled.
+	DisabledAt *time.Time `json:"disabled_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
 }
 
 // Provider is kept as an alias so existing call sites keep compiling
@@ -1050,6 +1073,13 @@ type Credential struct {
 
 	// Disabled excludes the credential from routing and fallthrough.
 	Disabled bool `json:"disabled,omitempty"`
+	// DisabledBy names who disabled the credential: "admin" (dashboard PUT)
+	// or "system" (auth/payment_required auto-disable). Empty when enabled.
+	DisabledBy string `json:"disabled_by,omitempty"`
+	// DisabledReason carries the human reason (system cause or admin note).
+	DisabledReason string `json:"disabled_reason,omitempty"`
+	// DisabledAt marks when the credential was disabled. Nil when enabled.
+	DisabledAt *time.Time `json:"disabled_at,omitempty"`
 	// Order is the admin-defined pool position (1-based). 0 means unordered:
 	// unordered credentials sort after ordered ones by computed priority.
 	Order int `json:"order,omitempty"`
@@ -1357,6 +1387,75 @@ type ProxyCandidate struct {
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
 	Country  string `json:"country"`
+}
+
+// ─────────────────────────────────────────────
+// Geo policy (0.3.0)
+// ─────────────────────────────────────────────
+
+// Geo mode constants for the provider-level geo policy stored in
+// ProviderInstance.Config["geo"].
+const (
+	GeoModeFailFast     = "fail_fast"
+	GeoModeRetrySameKey = "retry_same_key"
+)
+
+// DefaultGeoMaxProxies bounds same-key geo retries when max_proxies is absent.
+const DefaultGeoMaxProxies = 3
+
+// MaxGeoMaxProxies caps same-key geo retries.
+const MaxGeoMaxProxies = 10
+
+// GeoConfig is the provider-level geo-block reaction policy.
+type GeoConfig struct {
+	Mode       string `json:"mode"` // fail_fast (default) or retry_same_key
+	MaxProxies int    `json:"max_proxies,omitempty"`
+}
+
+// ParseGeoConfig reads the provider-level geo policy from a provider config
+// map. Absent or non-map geo sections mean fail_fast; an explicitly unknown
+// mode is an error, never a silent fallback.
+func ParseGeoConfig(providerConfig map[string]any) (GeoConfig, error) {
+	cfg := GeoConfig{Mode: GeoModeFailFast, MaxProxies: DefaultGeoMaxProxies}
+	raw, ok := providerConfig["geo"].(map[string]any)
+	if !ok {
+		return cfg, nil
+	}
+	if m, ok := raw["mode"].(string); ok && m != "" {
+		switch m {
+		case GeoModeFailFast, GeoModeRetrySameKey:
+			cfg.Mode = m
+		default:
+			return cfg, fmt.Errorf("unknown geo mode %q: expected fail_fast or retry_same_key", m)
+		}
+	}
+	if n, ok := raw["max_proxies"]; ok {
+		switch v := n.(type) {
+		case float64:
+			cfg.MaxProxies = int(v)
+		case int:
+			cfg.MaxProxies = v
+		}
+		if cfg.MaxProxies < 1 {
+			cfg.MaxProxies = 1
+		}
+		if cfg.MaxProxies > MaxGeoMaxProxies {
+			cfg.MaxProxies = MaxGeoMaxProxies
+		}
+	}
+	return cfg, nil
+}
+
+// GeoBanEntry is one indefinite geo-block flag: proxy ProxyID is unusable
+// for provider type Provider of plugin Plugin. No expiry: the flag lives
+// until the proxy is deleted or an admin clears it explicitly.
+type GeoBanEntry struct {
+	Key      string    `json:"key"`
+	Plugin   string    `json:"plugin"`
+	Provider string    `json:"provider"`
+	Proxy    string    `json:"proxy"`
+	Reason   string    `json:"reason,omitempty"`
+	BannedAt time.Time `json:"banned_at"`
 }
 
 // ─────────────────────────────────────────────

@@ -31,6 +31,7 @@ var (
 	BucketModelInfos          = []byte("model_infos")          // Persisted per-provider model metadata cache
 	BucketProxies             = []byte("proxies_v2")           // Proxy pool records (manual + list-sourced)
 	BucketExhausted           = []byte("exhausted")            // Unified joint limit keys: key → ExhaustedEntry
+	BucketGeoBans             = []byte("geo_bans")             // Indefinite geo flags: key → GeoBanEntry (no expiry)
 	BucketActiveRegions       = []byte("active_regions")       // Demanded proxy exit locations
 	BucketProxySourceMeta     = []byte("proxy_source_meta")    // Last fetch totals per proxy list source
 )
@@ -79,6 +80,7 @@ func (db *DB) initBuckets() error {
 			BucketModelInfos,
 			BucketProxies,
 			BucketExhausted,
+			BucketGeoBans,
 			BucketActiveRegions,
 			BucketProxySourceMeta,
 		}

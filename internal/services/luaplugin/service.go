@@ -101,6 +101,22 @@ type Service struct {
 	// (nil = disabled).
 	exhausted *exhausted.Service
 
+	// geoban records indefinite geo flags (nil = disabled).
+	geoban interface {
+		Mark(plugin, provider, proxy, reason string) error
+	}
+
+	// credDisabler disables one credential per auth/payment outcome
+	// (nil = disabled).
+	credDisabler func(credentialID, reason string)
+
+	// provDisabler disables one provider per structural outcome
+	// (nil = disabled).
+	provDisabler func(providerID, reason string)
+
+	// dumpDir receives full upstream bodies in debug mode ("" = disabled).
+	dumpDir string
+
 	// proxyResolver returns the ordered proxy picks for a plugin call
 	// (nil/empty = direct). Auto mode waits for ready or no-proxies. known
 	// carries the account and model already fixed for this attempt, so the
@@ -111,8 +127,9 @@ type Service struct {
 
 // ProxyPick is one ordered proxy candidate for a plugin call.
 type ProxyPick struct {
-	ID  string
-	URL string
+	ID     string
+	URL    string
+	Region string
 }
 
 // ProxyResolution is the resolver result for one plugin call.
@@ -650,6 +667,9 @@ func (s *Service) recordCrash(pluginID, typeKey, cause string) {
 		entries = entries[len(entries)-50:]
 	}
 	s.crashes[pluginID] = entries
+	if s.logger != nil {
+		s.logger.Debug("plugin crash recorded", "plugin_id", pluginID, "type", typeKey, "cause", cause)
+	}
 }
 
 // Logs returns recent print() lines for a plugin, never nil.

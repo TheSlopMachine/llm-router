@@ -1,5 +1,15 @@
 # Changelog
 
+## Done (2026-09-27, v0.3.0)
+
+- **Error contract rework** — removed `ErrorTypeTimeout` (merged into `upstream`); added `content_policy` (wire `400`), `model_unavailable` (wire `503`, fixed 2-minute model cooldown), `structural_fault` (wire `502`, stops the pool and disables the provider). Fixed `MapUpstream` order so code fallbacks run before the bare 400 default. Contract tables validated strictly at the boundary: unknown types, missing/past `retry_after` on rate/quota, and `scope`/`retry_after` where forbidden became `PluginInternalError`. Added `upstream_status`/`upstream_body` passthrough with 4KiB snippet cap and debug spill files in `upstream_dumps/`.
+- **Geo bans** — added `geoban.Service` (bucket `geo_bans`): indefinite `(plugin, provider, proxy)` flags cleared on proxy delete or explicit admin clear. Proxy picks filter bans after ranking with other-region preference. Provider `config.geo` (`fail_fast` default, `retry_same_key` with `max_proxies` 1..10) drove same-key retries for unary pools; streams kept pool failover only.
+- **Auto-disable** — `auth`/`payment_required` disabled the attempt credential and `structural_fault` disabled the provider instance (first cause won, `DisabledBy/Reason/At` on both models, manual re-enable cleared them). Direct-leg DNS/TLS/refused transport failures surfaced as `structural_fault`; timeouts, resets and proxy-leg failures stayed `upstream`.
+- **Manifest floor 0.3.0** — older plugin contracts rejected at install; test fixtures and the smoke mock reissued.
+- **Manual proxy without selection goes direct** — `manual` mode with empty `ids` no longer failed requests with `no usable proxy among 0 selected`; only an explicit selection resolving to nothing fails loudly.
+
+Tests: `internal/errors/api_test.go`, `internal/models/geo_test.go`, `internal/services/geoban/service_test.go`, `internal/services/luaplugin/{contract_strict_test,service_test,exhausted_test}.go`, `internal/services/{credential/disable_test,provider/disable_test}.go`. `make go-test` green.
+
 ## Done (2026-09-25, v0.1.2)
 
 - **`payment_required` error type** — added `ErrorTypePaymentRequired` for upstream paywalls (status 402 mapped to wire `402` + `payment_required`). Exhausted marking ignored it like `auth`; smoke harnesses treated it as a skip with reason, not a failure.
