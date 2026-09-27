@@ -1319,7 +1319,8 @@ type Proxy struct {
 // ─────────────────────────────────────────────
 
 // ExhaustedScope dimensions nameable in the error contract scope field.
-// Provider and plugin are always part of every key and need no naming.
+// Provider (the configured instance ID) and plugin are always part of every
+// key and need no naming.
 const (
 	ExhaustedScopeAccount = "account"
 	ExhaustedScopeModel   = "model"

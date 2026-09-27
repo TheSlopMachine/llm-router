@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 // Valid SMOKE_TARGETS tokens: text-only by default, heavy on request.
@@ -23,6 +24,11 @@ type config struct {
 	targets map[string]bool
 	store   string
 	cleanup bool
+	// vmName is this run's ad-hoc virtual model name: unique per run so a
+	// leftover row from an earlier, interrupted run can never collide with
+	// it. Keeps the "smoke-vm" prefix so cleanupStaleVirtualModels can find
+	// and remove any such leftovers before this run starts.
+	vmName string
 }
 
 func getenv(key, def string) string {
@@ -73,6 +79,7 @@ func loadConfig() (config, error) {
 		targets: targets,
 		store:   getenv("SMOKE_STORE_DIR", "../../llm-router-store/llm-router-plugins"),
 		cleanup: getenv("SMOKE_CLEANUP", "1") == "1",
+		vmName:  fmt.Sprintf("smoke-vm-%d", time.Now().UnixNano()),
 	}, nil
 }
 

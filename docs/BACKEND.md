@@ -21,7 +21,7 @@ internal/services/
   metrics/               1m buckets, 90d retention
   maintenance/           refresh + cleanup (refresh, modelsync, proxy, auth jobs)
   exhausted/             joint limit keys (account/model/proxy), subset match, expiry auto-delete
-  geoban/                indefinite (plugin, provider, proxy) geo flags, no expiry, explicit clear
+  geoban/                indefinite (plugin, provider type, proxy) geo flags, no expiry, explicit clear
   admin/                 admin password change
   config/                instance-wide router configuration
   datamanagement/        subsystem export/import/clear + provider export/import/purge
@@ -95,8 +95,9 @@ Keep changes shallow. Touch service internals only when the task requires it.
 ## Exhausted store and geo bans
 
 - Stored keys act as filters over candidate dimensions (plugin, provider
-  type, account, model, proxy). A candidate matching every stored dimension
-  skips until `ResetsAt` passes.
+  instance, account, model, proxy). A candidate matching every stored dimension
+  skips until `ResetsAt` passes. Two instances of one adapter type never
+  share an account-less mark.
 - Credential pools drop matching combinations before the token filter; when
   every credential is limited the router keeps the full pool as a last resort
   (`router/service.go:dropExhausted`). Proxy picks filter after ranking;
@@ -104,7 +105,7 @@ Keep changes shallow. Touch service internals only when the task requires it.
 - Expired entries delete on read; `Prune` sweeps the rest. Content,
   malformed-request, missing-model and transient failures never mark.
 - Geo bans (`geoban.Service`, bucket `geo_bans`) carry no expiry: proxy
-  picks filter banned `(plugin, provider, proxy)` triples after ranking,
+  picks filter banned `(plugin, provider type, proxy)` triples after ranking,
   and unbanned picks from other regions sort above same-region picks.
   Flags clear on proxy delete or explicit admin clear
   (`DELETE /dashboard/providers/{id}/geo-bans[/{proxyId}]`).

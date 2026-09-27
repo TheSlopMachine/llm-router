@@ -176,6 +176,18 @@ func (m *MockAdapter) WithModelInfos(infos []models.ModelInfo) *MockAdapter {
 	return m
 }
 
+// WithNeedsRefreshFunc configures the NeedsRefresh behavior.
+func (m *MockAdapter) WithNeedsRefreshFunc(f func(*models.Credential) bool) *MockAdapter {
+	m.needsRefreshFunc = f
+	return m
+}
+
+// WithRefreshFunc configures the RefreshCredential behavior.
+func (m *MockAdapter) WithRefreshFunc(f func(context.Context, *models.Credential) (map[string]any, error)) *MockAdapter {
+	m.refreshFunc = f
+	return m
+}
+
 // BuildCredential creates a test credential with defaults.
 func BuildCredential(providerID string, opts ...func(*models.Credential)) *models.Credential {
 	cred := &models.Credential{

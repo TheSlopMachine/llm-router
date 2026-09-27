@@ -7,10 +7,13 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// testMeta builds a HandlerMeta for handler tests: fixed test provider,
-// given type key, credential, model and config.
+// testMeta builds a HandlerMeta for handler tests: the given type key,
+// credential, model and config. ProviderID defaults to typeKey, mirroring
+// the real unqualified-instance case where instance ID equals the type key;
+// tests exercising multiple instances of one type build HandlerMeta
+// directly with distinct ProviderID values instead of using this helper.
 func testMeta(typeKey string, cred *models.Credential, model models.ModelId, cfg map[string]any) HandlerMeta {
-	return HandlerMeta{ProviderID: "test-provider", TypeKey: typeKey, Credential: cred, Model: model, ProviderConfig: cfg}
+	return HandlerMeta{ProviderID: typeKey, TypeKey: typeKey, Credential: cred, Model: model, ProviderConfig: cfg}
 }
 
 func luaTestTableString(t *testing.T, tbl *lua.LTable, key string) string {

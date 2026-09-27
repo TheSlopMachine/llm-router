@@ -32,9 +32,21 @@ func scopedProxyRec(rec *PluginRecord, typeKey string) *PluginRecord {
 // plugin and provider). A scope word naming an empty dimension skips
 // marking: a degraded key would bench wider than the error warrants (e.g. a
 // credential-less call marking the whole provider via scope account).
+//
+// Provider identity is the specific configured instance (ctx.providerID),
+// not the shared adapter type key: two instances of one type (two "custom"
+// endpoints, say) have independent quotas and must not share an
+// account-less mark. A handful of non-routed handler calls (validate
+// credentials, refresh, auth, fetch_proxies) don't carry an instance ID;
+// those fall back to the type key rather than marking under an empty,
+// collision-prone identity.
 func exhaustedJointKey(ctx *execContext, scope []string) (string, error) {
+	providerKey := ctx.providerID
+	if providerKey == "" {
+		providerKey = ctx.typeKey
+	}
 	if len(scope) == 0 {
-		return exhausted.FullKey(ctx.pluginID, ctx.typeKey, ctx.credentialID, ctx.model.String(), ctx.lastProxyID), nil
+		return exhausted.FullKey(ctx.pluginID, providerKey, ctx.credentialID, ctx.model.String(), ctx.lastProxyID), nil
 	}
 	for _, w := range scope {
 		switch w {
@@ -54,7 +66,7 @@ func exhaustedJointKey(ctx *execContext, scope []string) (string, error) {
 			return "", fmt.Errorf("exhausted: unknown scope word %q", w)
 		}
 	}
-	return exhausted.KeyFromScope(ctx.pluginID, ctx.typeKey, ctx.credentialID, ctx.model.String(), ctx.lastProxyID, scope)
+	return exhausted.KeyFromScope(ctx.pluginID, providerKey, ctx.credentialID, ctx.model.String(), ctx.lastProxyID, scope)
 }
 
 // spillUpstreamBody moves oversized upstream bodies out of memory: bodies
@@ -177,7 +189,11 @@ func (s *Service) handlerCallRouted(
 			if ctx.exhausted == nil || ctx.model == "" {
 				return
 			}
-			key, kerr := exhausted.KeyFromScope(ctx.pluginID, ctx.typeKey, "", ctx.model.String(), "", []string{models.ExhaustedScopeModel})
+			providerKey := ctx.providerID
+			if providerKey == "" {
+				providerKey = ctx.typeKey
+			}
+			key, kerr := exhausted.KeyFromScope(ctx.pluginID, providerKey, "", ctx.model.String(), "", []string{models.ExhaustedScopeModel})
 			if kerr != nil {
 				return
 			}
@@ -190,6 +206,11 @@ func (s *Service) handlerCallRouted(
 			if ctx.geoban == nil || ctx.lastProxyID == "" {
 				return
 			}
+			// Geo bans stay keyed by adapter type, not instance: the block
+			// is a property of the upstream region policy for this provider
+			// type (the exit country is refused), shared by every instance
+			// of the type. Exhausted quota marks isolate per instance;
+			// geo flags deliberately do not.
 			if merr := ctx.geoban.Mark(ctx.pluginID, ctx.typeKey, ctx.lastProxyID, perr.Message); merr != nil && ctx.logger != nil {
 				ctx.logger.Warn("geoban: mark failed", "proxy", ctx.lastProxyID, "error", merr)
 			} else if ctx.logger != nil {

@@ -137,3 +137,57 @@ func TestMarkRateWithoutHintDefaultsMinute(t *testing.T) {
 		t.Fatalf("hintless rate must not mark: %q, %v", hit, err)
 	}
 }
+
+const instanceMarkPluginSource = `--- @plugin Instance Mark Plugin
+--- @author tester
+--- @version 1.0.0
+--- @router_version 0.3.0
+--- @allow_host example.com
+
+llm_router.register("instance-type", {
+  complete = function(ctx, credential, request)
+    return nil, { type = "quota_exceeded", message = "out of quota", retry_after = os.time() + 3600, scope = { "model" } }
+  end,
+})
+`
+
+func TestMarkInstanceIsolation(t *testing.T) {
+	// Two configured instances of one adapter type (same TypeKey, distinct
+	// ProviderID) — the way two "custom" endpoints would be set up. A
+	// model-wide mark written through one instance's call must not be
+	// visible when checked against the other, even though both share a
+	// plugin and a type key.
+	database := testutil.SetupTestDB(t)
+	svc, err := New(database, nil)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	if _, err := svc.Install([]byte(instanceMarkPluginSource), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	exSvc := exhausted.New(database)
+	svc.SetExhaustedStore(exSvc)
+	rec, err := svc.Lookup("instance-type")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+
+	model := models.ModelId("instance-a/model-x")
+	req := &models.ChatCompletionRequest{Model: model, Messages: []models.ChatMessage{{Role: "user", Content: "hi"}}}
+	metaA := HandlerMeta{ProviderID: "instance-a", TypeKey: "instance-type", Credential: &models.Credential{ID: "cred-a"}, Model: model}
+	if _, _, err := svc.CompleteRouted(context.Background(), metaA, req); !isProviderType(err, models.ErrorTypeQuotaExceeded) {
+		t.Fatalf("fixture must return quota_exceeded, got %v", err)
+	}
+
+	hitA, err := exSvc.LimitedAny(exhausted.Segments{Plugin: rec.ID, Provider: "instance-a", Model: model.String()})
+	if err != nil || hitA == "" {
+		t.Fatalf("instance-a's model-wide mark must be visible for instance-a: %q, %v", hitA, err)
+	}
+	hitB, err := exSvc.LimitedAny(exhausted.Segments{Plugin: rec.ID, Provider: "instance-b", Model: model.String()})
+	if err != nil {
+		t.Fatalf("limited any b: %v", err)
+	}
+	if hitB != "" {
+		t.Fatalf("instance-a's mark must not be visible for instance-b, despite sharing a type key: %q", hitB)
+	}
+}

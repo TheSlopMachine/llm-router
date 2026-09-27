@@ -18,7 +18,8 @@ import (
 )
 
 // Segments is the full identity of one request attempt. Plugin and Provider
-// always participate; Account, Model and Proxy narrow the key when non-empty.
+// always participate (Provider is the configured instance ID, not the
+// adapter type key); Account, Model and Proxy narrow the key when non-empty.
 type Segments struct {
 	Plugin   string
 	Provider string

@@ -22,7 +22,10 @@ func (ctx *execContext) beginRequest(goCtx context.Context) error {
 	if ctx.proxyResolver == nil {
 		return nil
 	}
-	known := exhausted.Segments{Account: ctx.credentialID, Model: ctx.model.String()}
+	known := exhausted.Segments{Account: ctx.credentialID, Model: ctx.model.String(), Provider: ctx.providerID}
+	if known.Provider == "" {
+		known.Provider = ctx.typeKey
+	}
 	picks, err := ctx.proxyResolver(goCtx, ctx.proxyRec, ctx.proxyProviderConfig, known)
 	if err != nil {
 		return err

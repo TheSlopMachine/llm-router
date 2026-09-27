@@ -219,8 +219,20 @@ func upstreamDumpDir(dbPath string) string {
 	return filepath.Join(filepath.Dir(dbPath), "upstream_dumps")
 }
 
+// startupRefreshTimeout bounds the synchronous credential refresh before
+// the server listens: a pathological many-stale-keys state must delay
+// startup, never block it. Expiry serves traffic anyway and the ticker
+// retries whatever was skipped.
+const startupRefreshTimeout = 30 * time.Second
+
 // Run starts the maintenance loop and blocks on both HTTP servers.
 func (s *Server) Run(ctx context.Context) error {
+	// Refresh stale credentials before serving traffic: a restarted router
+	// must not expose expired keys to live requests while the background
+	// loop is still rotating proxies.
+	rgate, cancel := context.WithTimeout(ctx, startupRefreshTimeout)
+	s.maintSvc.RunStartupRefresh(rgate)
+	cancel()
 	s.maintSvc.Start(ctx)
 	s.logger.Info("llm-router started", "dashboard", s.cfg.DashboardAddr, "api", s.cfg.APIAddr, "db", s.cfg.DBPath)
 

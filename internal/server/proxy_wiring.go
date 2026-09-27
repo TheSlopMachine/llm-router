@@ -17,6 +17,10 @@ import (
 // for plugin calls, filtered by exhausted proxy combinations and indefinite
 // geo flags after ranking. Multi-type plugins resolve through the requesting
 // type key: the caller scopes the plugin record before invoking the resolver.
+// known.Provider already carries the calling provider instance ID (set by the
+// caller); this only fills in Plugin, which the resolver alone knows. Geo
+// flags stay keyed by adapter type (see exec.go), so the type key below is
+// deliberate, not a leftover.
 // After a geo ban, unbanned picks from other regions float above unbanned
 // picks sharing a banned region, so same-key geo retries land on another
 // region instead of re-hitting the blocked country.
@@ -41,7 +45,7 @@ func wireProxy(luaSvc *luaplugin.Service, proxySvc *proxypool.Service, exhausted
 		if err != nil {
 			return nil, err
 		}
-		known.Plugin, known.Provider = rec.ID, typeKey
+		known.Plugin = rec.ID
 		regionOf := make(map[string]string, len(picks))
 		for _, p := range picks {
 			regionOf[p.ID] = p.Location

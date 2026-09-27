@@ -192,7 +192,7 @@ func checkVirtualChat(cfg config, member string) error {
 
 func createVirtual(cfg config, member string) (string, error) {
 	status, raw, err := doJSON("POST", cfg.web+"/api/llm-router/dashboard/virtual-models", map[string]any{
-		"name":   "smoke-vm",
+		"name":   cfg.vmName,
 		"models": []any{map[string]any{"model_id": member}},
 	})
 	if err != nil {
@@ -214,6 +214,35 @@ func deleteVirtual(cfg config, vmID string) {
 	status, raw, err := doJSON("DELETE", cfg.web+"/api/llm-router/dashboard/virtual-models/"+vmID, nil)
 	if err == nil {
 		_ = requireOK(status, raw, nil)
+	}
+}
+
+// cleanupStaleVirtualModels removes any virtual model left over from an
+// earlier, interrupted run before this run creates its own. createVirtual
+// only ever registers cleanup for a create it made itself succeed, so a row
+// orphaned by a crash, a Ctrl+C, or an older harness build never self-heals
+// on its own — it just permanently blocks every future run's virtual-chat
+// check, since virtual model names must be globally unique and the harness
+// always asks for the same name. Best-effort: a failure here must not stop
+// the run, since the harness's own unique-per-run name still avoids
+// colliding with whatever this sweep could not remove.
+func cleanupStaleVirtualModels(cfg config) {
+	status, raw, err := doJSON("GET", cfg.web+"/api/llm-router/dashboard/virtual-models", nil)
+	if err != nil {
+		return
+	}
+	var vms []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if requireOK(status, raw, &vms) != nil {
+		return
+	}
+	for _, vm := range vms {
+		if vm.ID == "" || !strings.HasPrefix(strings.ToLower(vm.Name), "smoke-vm") {
+			continue
+		}
+		deleteVirtual(cfg, vm.ID)
 	}
 }
 

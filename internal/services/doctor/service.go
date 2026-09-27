@@ -90,8 +90,10 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 		return nil, fmt.Errorf("list providers: %w", err)
 	}
 	validProviders := map[string]bool{}
+	validProviderTypes := map[string]bool{}
 	for _, p := range providers {
 		validProviders[p.ID] = true
+		validProviderTypes[p.TypeKey] = true
 	}
 
 	validProxies := map[string]bool{}
@@ -179,7 +181,9 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 		})
 	}
 
-	// 3. Orphan Geo Bans
+	// 3. Orphan Geo Bans. Geo flags stay keyed by adapter type (shared
+	// upstream region policy), so a stored provider value is valid when it
+	// names either a live instance ID or a live adapter type key.
 	var orphanGeoBanKeys []string
 	_ = s.db.View(func(tx *bolt.Tx) error {
 		bBans := tx.Bucket(db.BucketGeoBans)
@@ -187,7 +191,8 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 			_ = bBans.ForEach(func(k, v []byte) error {
 				var entry models.GeoBanEntry
 				if err := json.Unmarshal(v, &entry); err == nil {
-					if (entry.Provider != "" && !validProviders[entry.Provider]) || (entry.Proxy != "" && !validProxies[entry.Proxy]) {
+					providerLive := entry.Provider == "" || validProviders[entry.Provider] || validProviderTypes[entry.Provider]
+					if !providerLive || (entry.Proxy != "" && !validProxies[entry.Proxy]) {
 						orphanGeoBanKeys = append(orphanGeoBanKeys, string(k))
 					}
 				}

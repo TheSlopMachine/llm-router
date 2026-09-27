@@ -264,9 +264,14 @@ func (s *Service) PurgeProvider(id string) error {
 		})
 	}
 
-	// 3. Clear geobans for this provider
-	if s.geobanSvc != nil {
-		_, _ = s.geobanSvc.ClearProvider(p.TypeKey, p.TypeKey)
+	// 3. Clear geobans for this provider (geo flags stay keyed by adapter
+	// type: the upstream region policy is shared by every instance of the
+	// type). Resolve the plugin record for the correct plugin namespace;
+	// lookup failures skip the clear rather than clearing under a wrong key.
+	if s.geobanSvc != nil && s.luaSvc != nil {
+		if rec, err := s.luaSvc.Lookup(p.TypeKey); err == nil {
+			_, _ = s.geobanSvc.ClearProvider(rec.ID, p.TypeKey)
+		}
 	}
 
 	// 4. Delete managed virtual models associated with this provider

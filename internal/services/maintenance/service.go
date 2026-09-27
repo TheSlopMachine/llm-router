@@ -85,6 +85,19 @@ func (s *Service) WithInterval(d time.Duration) *Service {
 	return s
 }
 
+// RunStartupRefresh refreshes stale credentials and cleans expired auth
+// flows synchronously. The server calls it before listening so a restarted
+// router never exposes expired keys to live traffic while the background
+// loop is still rotating proxies. Slow jobs (proxy rotation, model sync)
+// stay on the ticker. It never fails startup: every outcome logs inside
+// the pass, and cancellation only stops launching new workers.
+func (s *Service) RunStartupRefresh(ctx context.Context) {
+	if n := s.refreshStaleCredentials(ctx); n > 0 {
+		s.logger.Info("maintenance: startup credential refresh completed", "refreshed", n)
+	}
+	s.cleanupAuthFlows()
+}
+
 // Start launches the maintenance loop in a background goroutine.
 // It stops when ctx is cancelled.
 func (s *Service) Start(ctx context.Context) {
@@ -92,7 +105,11 @@ func (s *Service) Start(ctx context.Context) {
 	go func() {
 		// Rotate the proxy pool at once instead of waiting for the first
 		// tick: a restarted router re-verifies its pool immediately.
+		// Credential refresh runs synchronously in RunStartupRefresh before
+		// the server listens, so the loop below only repeats the full
+		// cycle on the ticker.
 		s.rotateProxyOnce(ctx)
+
 		ticker := time.NewTicker(s.interval)
 		defer ticker.Stop()
 		for {

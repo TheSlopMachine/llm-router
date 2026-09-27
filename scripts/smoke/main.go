@@ -17,6 +17,7 @@ func main() {
 	if err := waitReady(cfg); err != nil {
 		shared.Failf("%v", err)
 	}
+	cleanupStaleVirtualModels(cfg)
 	rep := &report{}
 	for _, pluginType := range cfg.plugins {
 		if !knownTypes[pluginType] {

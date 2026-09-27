@@ -1,5 +1,13 @@
 # Changelog
 
+## Done (2026-09-28, v0.3.2)
+
+- **Limit keys scoped to provider instance** — exhausted rate/quota/model marks and all read paths (credential filter, pool skip, proxy pick filter, virtual fan-out pre-checks) keyed by configured provider instance ID instead of the shared adapter type key; two instances of one type no longer shared account-less marks. Geo bans stayed keyed by adapter type (shared upstream region policy). Fixed the pool skip resolving the plugin namespace via lookup, the data-management purge clearing geobans under the resolved plugin ID, and the doctor flagging every geo ban as orphan.
+- **Maintenance startup refresh** — server refreshed stale credentials synchronously before listening (30s cap, serves anyway on expiry) instead of racing the first tick behind the slow proxy rotation; refreshes ran through a bounded pool (4 workers) so many stale keys no longer serialize. Added regression tests for the gate, worker overlap, and the worker cap.
+- **Smoke virtual-model collisions** — harness generated a unique virtual-model name per run and swept stale `smoke-vm*` rows at startup.
+
+Tests: `internal/services/maintenance/refresh_test.go`, `internal/services/luaplugin/exhausted_test.go`, `internal/services/router/exhausted_test.go`. `make go-test` green.
+
 ## Done (2026-09-27, v0.3.1)
 
 - **Credential pool pre-skip** — pools skipped credentials with a live exhausted key before the attempt (unary and stream) and virtual fan-out applied the same filter to member calls.

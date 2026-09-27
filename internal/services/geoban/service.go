@@ -1,5 +1,8 @@
 // Package geoban owns indefinite geo-block flags: (plugin, provider type,
 // proxy) triples whose exit the upstream refuses for that provider.
+// Provider is the adapter type key here, deliberately shared by every
+// instance of the type: the block is a property of the upstream region
+// policy, unlike exhausted quota marks which isolate per instance.
 // No expiry: a flag lives until the proxy is deleted or an admin clears it.
 // Expired-state self-healing does not apply; a wrongly banned proxy is
 // recovered by explicit clear, never by timer.

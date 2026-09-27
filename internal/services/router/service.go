@@ -137,11 +137,15 @@ func (s *Service) loadCredentials(ctx context.Context, resolved *provider.Resolv
 	return creds, nil
 }
 
-// dropExhausted removes credentials whose joint combination (plugin, type,
-// account, model) matches a stored limit key. Matching runs on Lua-resolved
-// providers only; Go backends carry no plugin namespace. When every
-// credential is limited the full pool is kept as a last resort: a stale but
-// unexpired mark must never deny a request that could succeed.
+// dropExhausted removes credentials whose joint combination (plugin,
+// provider instance, account, model) matches a stored limit key. Matching
+// runs on Lua-resolved providers only; Go backends carry no plugin
+// namespace. Provider identity is the specific configured instance
+// (resolved.Instance.ID), not the shared adapter type key: two instances of
+// one type (two "custom" endpoints, say) have independent quotas and must
+// not share an account-less mark. When every credential is limited the full
+// pool is kept as a last resort: a stale but unexpired mark must never deny
+// a request that could succeed.
 func (s *Service) dropExhausted(resolved *provider.Resolved, model models.ModelId, creds []*models.Credential) []*models.Credential {
 	if s.exhaustedSvc == nil || !resolved.IsLua() {
 		return creds
@@ -154,7 +158,7 @@ func (s *Service) dropExhausted(resolved *provider.Resolved, model models.ModelI
 	for _, c := range creds {
 		hit, err := s.exhaustedSvc.LimitedAny(exhausted.Segments{
 			Plugin:   rec.ID,
-			Provider: resolved.Instance.TypeKey,
+			Provider: resolved.Instance.ID,
 			Account:  c.ID,
 			Model:    model.String(),
 		})
@@ -262,7 +266,7 @@ func (s *Service) LikelyExhausted(model models.ModelId) bool {
 	}
 	hit, err := s.exhaustedSvc.LimitedAny(exhausted.Segments{
 		Plugin:   rec.ID,
-		Provider: resolved.Instance.TypeKey,
+		Provider: resolved.Instance.ID,
 		Model:    model.String(),
 	})
 	if err != nil {
@@ -300,7 +304,7 @@ func (s *Service) HasUsableCredential(model models.ModelId) bool {
 	for _, c := range creds {
 		hit, err := s.exhaustedSvc.LimitedAny(exhausted.Segments{
 			Plugin:   rec.ID,
-			Provider: resolved.Instance.TypeKey,
+			Provider: resolved.Instance.ID,
 			Account:  c.ID,
 			Model:    model.String(),
 		})

@@ -141,6 +141,8 @@ llm_router.register_proxy_source(name, {
   `quota_exceeded` (`account`, `model`); any `scope` on other types rejects
   the table. Without scope a rate/quota error marks the full combination
   of the request. Unknown words reject the whole table (`PluginInternalError`).
+  Stored keys always carry the calling provider instance ID, never just the
+  adapter type: two instances of one type never share an account-less mark.
 - `upstream_status` / `upstream_body`: optional passthrough of the raw
   upstream failure for logs and debugging. Routing never reads them.
   Wrong types are ignored (non-number status, non-string body).
@@ -167,7 +169,9 @@ llm_router.register_proxy_source(name, {
   cause attached (`disabled_by=system`); re-enable is manual. The pool
   moves to the next credential.
 - `geo`: the proxy exit is geo-blocked for this provider. Records the
-  indefinite `(provider, proxy)` flag and, in `retry_same_key` mode,
+  indefinite `(provider type, proxy)` flag keyed by adapter type (the upstream
+  region policy is shared by every instance of the type) and, in
+  `retry_same_key` mode,
   retries the same credential on a proxy from another region.
 
 Pool semantics: the router drops exhausted matches before the token filter
@@ -499,7 +503,7 @@ Behavior:
   Manual proxy mode with nothing usable left fails loudly.
 - `model_unavailable` marks `(provider, model)` for a fixed 2 minutes and
   disables nothing: the credential and the provider stay enabled.
-- `geo` records no TTL: the `(provider, proxy)` flag is indefinite and
+- `geo` records no TTL: the `(provider type, proxy)` flag is indefinite and
   lives until the proxy is deleted or an admin clears it
   (`DELETE /dashboard/providers/{id}/geo-bans`). In `auto` proxy mode,
   unbanned picks from other regions sort above unbanned picks sharing a
@@ -510,8 +514,9 @@ Behavior:
   provider the same way. First cause wins; re-enable is manual and clears
   the cause. Content, malformed-request, missing-model and transient
   failures record no state.
-- Keys never cross plugins or provider types: a limit for one provider
-  never affects the others.
+- Keys never cross plugins or provider instances: a limit for one provider
+  never affects the others. Geo flags scope wider by design (adapter type,
+  shared upstream region policy).
 
 ## Proxy pool
 

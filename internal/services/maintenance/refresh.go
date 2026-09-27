@@ -3,6 +3,7 @@ package maintenance
 import (
 	"context"
 	"errors"
+	"sync"
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
@@ -10,24 +11,59 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 )
 
+// maxRefreshWorkers bounds concurrent credential refreshes: refreshes are
+// independent per credential, but an unbounded fan-out would storm one
+// upstream (e.g. Kiro OIDC) when many keys expire together.
+const maxRefreshWorkers = 4
+
 // runCycle refreshes stale credentials, then syncs opted-in model lists.
 // A credential-list failure never skips the model sync: the jobs are
 // independent and share only the tick.
 func (s *Service) runCycle(ctx context.Context) {
-	if creds, err := s.credSvc.ListAll(); err != nil {
-		s.logger.Error("maintenance: list credentials failed", "err", err)
-	} else {
-		for _, cred := range creds {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-			s.maybeRefresh(ctx, cred)
-		}
-	}
-
+	s.refreshStaleCredentials(ctx)
 	s.syncProviderModels(ctx)
+}
+
+// refreshStaleCredentials refreshes every stale credential through a bounded
+// worker pool. Workers are independent: one credential's failure never
+// affects the others (maybeRefresh logs internally and never reports).
+// Cancellation stops launching new workers; in-flight workers run to
+// completion so no refresh is abandoned mid-persist.
+func (s *Service) refreshStaleCredentials(ctx context.Context) int {
+	creds, err := s.credSvc.ListAll()
+	if err != nil {
+		s.logger.Error("maintenance: list credentials failed", "err", err)
+		return 0
+	}
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxRefreshWorkers)
+	refreshed := make(chan struct{}, len(creds))
+loop:
+	for _, cred := range creds {
+		select {
+		case <-ctx.Done():
+			break loop
+		case sem <- struct{}{}:
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if s.maybeRefresh(ctx, cred) {
+				select {
+				case refreshed <- struct{}{}:
+				default:
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(refreshed)
+	n := 0
+	for range refreshed {
+		n++
+	}
+	return n
 }
 
 // syncProviderModels warms the model metadata cache for providers that opted
@@ -61,7 +97,9 @@ func (s *Service) syncProviderModels(ctx context.Context) {
 
 // maybeRefresh checks a single credential and refreshes it when the backend
 // reports it needs refreshing. Backends without refresh handlers are skipped.
-func (s *Service) maybeRefresh(ctx context.Context, cred *models.Credential) {
+// It reports whether the credential was refreshed; every other outcome logs
+// internally, so callers never branch on the result beyond counting.
+func (s *Service) maybeRefresh(ctx context.Context, cred *models.Credential) bool {
 	resolved, err := provider.Resolve(s.providerSvc, cred.ProviderID)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
@@ -71,20 +109,20 @@ func (s *Service) maybeRefresh(ctx context.Context, cred *models.Credential) {
 			s.logger.Warn("maintenance: provider resolution failed",
 				"credential_id", cred.ID, "provider_id", cred.ProviderID, "err", err)
 		}
-		return
+		return false
 	}
 
 	needs, err := s.needsRefresh(resolved, cred)
 	if err != nil {
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
-			return
+			return false
 		}
 		s.logger.Warn("maintenance: needs-refresh check failed",
 			"credential_id", cred.ID, "provider_id", cred.ProviderID, "err", err)
-		return
+		return false
 	}
 	if !needs {
-		return
+		return false
 	}
 
 	s.logger.Debug("maintenance: refreshing credential",
@@ -93,21 +131,22 @@ func (s *Service) maybeRefresh(ctx context.Context, cred *models.Credential) {
 	data, err := s.refresh(ctx, resolved, cred)
 	if err != nil {
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) || errors.Is(err, provider.ErrNotRefreshable) {
-			return
+			return false
 		}
 		s.logger.Error("maintenance: refresh failed",
 			"credential_id", cred.ID, "provider", resolved.Instance.Name, "err", err)
-		return
+		return false
 	}
 
 	if err := s.credSvc.Update(cred.ID, data, nil); err != nil {
 		s.logger.Error("maintenance: persist refreshed credential failed",
 			"credential_id", cred.ID, "err", err)
-		return
+		return false
 	}
 
 	s.logger.Info("maintenance: credential refreshed successfully",
 		"credential_id", cred.ID, "provider", resolved.Instance.Name)
+	return true
 }
 
 func (s *Service) needsRefresh(resolved *provider.Resolved, cred *models.Credential) (bool, error) {
