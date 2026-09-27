@@ -11,10 +11,10 @@
   import { n, t } from '$lib/i18n.svelte'
 
   const tokenColumns: TableColumn[] = [
-    { key: 'name', title: t('Name'), width: '1fr' },
-    { key: 'created', title: t('Created'), width: '140px' },
-    { key: 'used', title: t('Last Used'), width: '1fr' },
-    { key: 'actions', title: t('Actions'), width: 'auto', align: 'right' },
+    { key: 'name', title: t('Name'), width: '1fr', priority: 1 },
+    { key: 'created', title: t('Created'), width: '140px', priority: 3 },
+    { key: 'used', title: t('Last Used'), width: '1fr', priority: 2 },
+    { key: 'actions', title: t('Actions'), width: 'auto', align: 'right', priority: 1 },
   ]
 
   const resource = createListResource<{ tokens: Token[]; providers: Provider[]; tokenUsage: Record<string, TokenUsageInfo> }>(
@@ -70,7 +70,8 @@
     if (!name || !cloneSource || cloneSaving) return
     cloneSaving = true
     try {
-      await api.tokens.create({ name, rules: cloneSource.rules } as any)
+      const res: any = await api.tokens.create({ name, rules: cloneSource.rules } as any)
+      newTokenSecret = res?.token ?? null
       await resource.reload()
       cloneSource = null
       modal.close()
