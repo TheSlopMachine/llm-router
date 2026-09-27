@@ -1,5 +1,5 @@
 import { apiCall as _apiCall } from './api-client'
-import type { Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate, ProviderModel, ProviderVMGroup, TestResult, Proxy, ProxyStatus, ProxySourceInfo, ProxySourceProxies } from './types'
+import type { Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate, ProviderModel, ProviderVMGroup, TestResult, Proxy, ProxyStatus, ProxySourceInfo, ProxySourceProxies, SubsystemStats, DoctorReport, DoctorCategory, ProviderBundle } from './types'
 
 const apiCall = _apiCall
 
@@ -431,6 +431,15 @@ export const api = {
 
     clearSubsystem: (subsystem: string): Promise<{ ok: boolean }> =>
       postJson(`/api/llm-router/dashboard/data/${encodeURIComponent(subsystem)}/clear`, {}),
+
+    exportProvider: (providerId: string): Promise<ProviderBundle> =>
+      fetch(`/api/llm-router/dashboard/providers/${encodeURIComponent(providerId)}/export`).then(assertOk),
+
+    importProvider: (providerId: string, bundle: ProviderBundle): Promise<{ ok: boolean }> =>
+      postJson(`/api/llm-router/dashboard/providers/${encodeURIComponent(providerId)}/import`, bundle),
+
+    purgeProvider: (providerId: string): Promise<{ ok: boolean }> =>
+      fetch(`/api/llm-router/dashboard/providers/${encodeURIComponent(providerId)}/purge`, { method: 'DELETE' }).then(assertOkVoid),
   },
 
   // Database Doctor

@@ -2,6 +2,8 @@ package datamanagement
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
@@ -204,6 +206,83 @@ func (s *Service) ImportProviders(bundles []*ProviderBundle) error {
 			}
 		}
 	}
+	return nil
+}
+
+func (s *Service) ExportProvider(id string) (*ProviderBundle, error) {
+	p, err := s.providerSvc.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	creds, err := s.credSvc.ListByProvider(id)
+	if err != nil {
+		creds = nil
+	}
+	var overrides []*models.ModelOverride
+	if s.modelInfoSvc != nil {
+		if ovs, err := s.modelInfoSvc.ListOverrides(id); err == nil {
+			overrides = ovs
+		}
+	}
+	return &ProviderBundle{
+		Instance:    p,
+		Credentials: creds,
+		Overrides:   overrides,
+	}, nil
+}
+
+func (s *Service) ImportProvider(b *ProviderBundle) error {
+	if b == nil || b.Instance == nil {
+		return fmt.Errorf("empty provider bundle")
+	}
+	return s.ImportProviders([]*ProviderBundle{b})
+}
+
+func (s *Service) PurgeProvider(id string) error {
+	p, err := s.providerSvc.Get(id)
+	if err != nil {
+		return err
+	}
+	// 1. Delete provider instance and cascade credentials
+	_ = s.providerSvc.Delete(id)
+
+	// 2. Delete model overrides and model infos
+	if s.modelInfoSvc != nil {
+		_ = s.modelInfoSvc.InvalidateProvider(id)
+		_ = s.db.Update(func(tx *bolt.Tx) error {
+			b := tx.Bucket(db.BucketModelOverrides)
+			if b != nil {
+				prefix := []byte(id + ":")
+				c := b.Cursor()
+				for k, _ := c.Seek(prefix); k != nil && strings.HasPrefix(string(k), string(prefix)); {
+					nextK, _ := c.Next()
+					_ = b.Delete(k)
+					k = nextK
+				}
+			}
+			return nil
+		})
+	}
+
+	// 3. Clear geobans for this provider
+	if s.geobanSvc != nil {
+		_, _ = s.geobanSvc.ClearProvider(p.TypeKey, p.TypeKey)
+	}
+
+	// 4. Delete managed virtual models associated with this provider
+	if s.virtualSvc != nil {
+		if vms, err := s.virtualSvc.List(); err == nil {
+			for _, vm := range vms {
+				if vm.ManagedBy != "" {
+					markerProvider, _, err := virtual.ParseMarker(vm.ManagedBy)
+					if err == nil && markerProvider == id {
+						_ = s.virtualSvc.Delete(vm.ID)
+					}
+				}
+			}
+		}
+	}
+
 	return nil
 }
 

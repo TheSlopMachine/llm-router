@@ -180,6 +180,9 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("GET /api/llm-router/dashboard/data/{subsystem}/export", h.requireAuth(h.apiDataExport))
 	mux.HandleFunc("POST /api/llm-router/dashboard/data/{subsystem}/import", h.requireAuth(h.apiDataImport))
 	mux.HandleFunc("POST /api/llm-router/dashboard/data/{subsystem}/clear", h.requireAuth(h.apiDataClear))
+	mux.HandleFunc("GET /api/llm-router/dashboard/providers/{id}/export", h.requireAuth(h.apiProviderExport))
+	mux.HandleFunc("POST /api/llm-router/dashboard/providers/import", h.requireAuth(h.apiProviderImport))
+	mux.HandleFunc("DELETE /api/llm-router/dashboard/providers/{id}/purge", h.requireAuth(h.apiProviderPurge))
 
 	// Database Doctor
 	mux.HandleFunc("GET /api/llm-router/dashboard/doctor/inspect", h.requireAuth(h.apiDoctorInspect))

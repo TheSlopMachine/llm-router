@@ -47,6 +47,12 @@
   let statsLoading = $state(false)
   let importFileMap = $state<Record<string, File | null>>({})
 
+  let allProviders = $state<Provider[]>([])
+  let providerOptions = $derived(allProviders.map(p => ({ value: p.id, label: p.name })))
+  let selectedProviderId = $state('')
+  let providerImportFile = $state<File | null>(null)
+  let providersLoading = $state(false)
+
   // Database Doctor
   let doctorReport = $state<DoctorReport | null>(null)
   let doctorLoading = $state(false)
@@ -57,8 +63,22 @@
   let error = $state('')
 
   onMount(async () => {
-    await Promise.all([loadConfig(), loadDataStats(), runDoctorInspect()])
+    await Promise.all([loadConfig(), loadDataStats(), runDoctorInspect(), loadProviders()])
   })
+
+  async function loadProviders(): Promise<void> {
+    providersLoading = true
+    try {
+      allProviders = await api.providers.list()
+      if (allProviders.length > 0) {
+        selectedProviderId = allProviders[0].id
+      }
+    } catch (e) {
+      toast.error(getErrorMessage(e))
+    } finally {
+      providersLoading = false
+    }
+  }
 
   async function loadConfig(): Promise<void> {
     try {
@@ -122,10 +142,6 @@
     passwordError = ''
     if (newPassword !== confirmPassword) {
       passwordError = t('Passwords do not match')
-      return
-    }
-    if (newPassword.length < 6) {
-      passwordError = t('Password must be at least 6 characters')
       return
     }
     passwordSaving = true
@@ -204,7 +220,7 @@
     doctorFixing = true
     try {
       const res = await api.doctor.fix([])
-      toast.success(`${res.fixed} issues resolved successfully`)
+      toast.success(`${res.fixed} ${t('issues resolved successfully')}`)
       await Promise.all([loadDataStats(), runDoctorInspect()])
     } catch (e) {
       toast.error(getErrorMessage(e))
@@ -212,6 +228,61 @@
       doctorFixing = false
     }
   }
+
+  // Individual Provider Management actions
+  async function exportIndividualProvider(providerId: string): Promise<void> {
+    try {
+      const data = await api.data.exportProvider(providerId)
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `llm_router_provider_${providerId}_export.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast.success(t('Provider exported successfully'))
+    } catch (e) {
+      toast.error(getErrorMessage(e))
+    }
+  }
+
+  async function handleIndividualProviderFileChange(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement
+    providerImportFile = input.files?.[0] ?? null
+  }
+
+  async function importIndividualProvider(providerId: string): Promise<void> {
+    if (!providerImportFile) {
+      toast.error(t('Please select a file first'))
+      return
+    }
+    try {
+      const text = await providerImportFile.text()
+      const json = JSON.parse(text)
+      await api.data.importProvider(providerId, json)
+      toast.success(t('Provider imported successfully'))
+      providerImportFile = null
+      await Promise.all([loadDataStats(), runDoctorInspect(), loadProviders()])
+    } catch (e) {
+      toast.error(getErrorMessage(e))
+    }
+  }
+
+  async function purgeIndividualProvider(providerId: string): Promise<void> {
+    if (!confirm(t('Are you sure you want to completely purge this provider and all its data? This action is irreversible.'))) {
+      return
+    }
+    try {
+      await api.data.purgeProvider(providerId)
+      toast.success(t('Provider purged successfully'))
+      await Promise.all([loadDataStats(), runDoctorInspect(), loadProviders()])
+    } catch (e) {
+      toast.error(getErrorMessage(e))
+    }
+  }
+
 </script>
 
 <VStack gap={6}>
@@ -373,6 +444,38 @@
       </VStack>
     {/if}
   </SectionCard>
+
+  <!-- Individual Provider Management section -->
+  <SectionCard title="Individual Provider Management" description="Export, import or purge a specific provider">
+    {#if providersLoading}
+      <Text tone="soft" size="sm">{t('Loading providers...')}</Text>
+    {:else if allProviders.length === 0}
+      <Text tone="soft" size="sm">{t('No providers available for individual management.')}</Text>
+    {:else}
+      <VStack gap={3}>
+        <VStack gap={1}>
+          <Text tag="label" size="sm" weight="medium" for="select-provider">{t('Select a provider')}</Text>
+          <Select id="select-provider" bind:value={selectedProviderId} options={providerOptions} />
+        </VStack>
+
+        <HStack gap={2} align="center">
+          <Button size="small" icon={{ name: 'download' }} onclick={() => exportIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('Export')}</Button>
+          <Button size="small" style="text" tint="var(--color-text-danger)" icon={{ name: 'delete' }} onclick={() => purgeIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('Purge provider')}</Button>
+        </HStack>
+
+        <HStack gap={3} align="center" class="file-action-row">
+          <input type="file" accept=".json" onchange={handleIndividualProviderFileChange} class="file-input" id="file-individual-provider" />
+          <label for="file-individual-provider" class="file-label">
+            <Icon name="attach_file" />
+            <span>{providerImportFile ? providerImportFile?.name : t('Select JSON')}</span>
+          </label>
+          {#if providerImportFile}
+            <Button size="small" style="prominent" onclick={() => importIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('Import')}</Button>
+          {/if}
+        </HStack>
+      </VStack>
+    {/if}
+  </SectionCard>
 </VStack>
 
 <style>
@@ -405,9 +508,9 @@
   }
   :global(.subsystem-box) {
     padding: var(--space-4);
-    background: var(--color-surface-container);
+    background: var(--elev);
     border-radius: var(--radius-md);
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--color-outline-soft);
   }
   :global(.file-action-row) {
     margin-top: var(--space-2);

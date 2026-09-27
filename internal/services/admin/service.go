@@ -57,6 +57,11 @@ func New(database *db.DB, providerSvc *provider.Service) *Service {
 // Bootstrap
 // ─────────────────────────────────────────────
 
+// DB returns the underlying database instance.
+func (s *Service) DB() *db.DB {
+	return s.db
+}
+
 // Bootstrap creates the initial admin account and marks the DB as bootstrapped.
 // Returns an error if already bootstrapped.
 func (s *Service) Bootstrap(username, password string) error {
@@ -88,9 +93,6 @@ func (s *Service) Bootstrap(username, password string) error {
 
 // ChangePassword verifies the current password and updates to a new one.
 func (s *Service) ChangePassword(username, oldPassword, newPassword string) error {
-	if len(newPassword) < 6 {
-		return fmt.Errorf("password must be at least 6 characters")
-	}
 	user, err := s.repo.Get(username)
 	if err != nil {
 		return ErrInvalidCredentials

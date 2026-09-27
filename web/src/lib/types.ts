@@ -37,6 +37,42 @@ export interface Credential {
   updated_at: string
 }
 
+export interface Provider {
+  id: string
+  name: string
+  type: string
+  type_key: string
+  qualifier: string
+  config: Record<string, unknown>
+  auth_type: string
+  base_url: string
+  icon_url: string
+  supports_auth_flow: boolean
+  is_ui_readonly: boolean
+  is_ui_hidden: boolean
+  disabled: boolean
+  disabled_by?: 'admin' | 'system' | null
+  disabled_reason?: string | null
+  disabled_at?: string | null
+}
+
+export interface ModelOverride {
+  provider_id: string
+  name: string
+  disabled?: boolean
+  custom?: boolean
+  display_name?: string
+  capabilities?: string[]
+  input_modalities?: string[]
+  output_modalities?: string[]
+}
+
+export interface ProviderBundle {
+  instance: Provider
+  credentials: Credential[]
+  overrides?: ModelOverride[]
+}
+
 export interface ModelReasoning {
   supported_efforts?: string[]
   default_effort?: string

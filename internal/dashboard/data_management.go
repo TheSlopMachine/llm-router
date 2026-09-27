@@ -174,3 +174,62 @@ func (h *Handler) apiDataClear(w http.ResponseWriter, r *http.Request) {
 	h.logger.Info("subsystem data cleared", "subsystem", sub)
 	h.json(w, http.StatusOK, map[string]any{"ok": true})
 }
+
+// apiProviderExport exports a single provider with its credentials and overrides.
+// @Summary      Export provider data
+// @Tags         Data
+// @Produce      json
+// @Param        id path string true "Provider ID"
+// @Success      200 {object} datamanagement.ProviderBundle
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/providers/{id}/export [get]
+func (h *Handler) apiProviderExport(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	bundle, err := h.dataSvc.ExportProvider(id)
+	if err != nil {
+		h.jsonErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	h.json(w, http.StatusOK, bundle)
+}
+
+// apiProviderImport imports a single provider bundle.
+// @Summary      Import provider data
+// @Tags         Data
+// @Accept       json
+// @Produce      json
+// @Param        payload body datamanagement.ProviderBundle true "Provider bundle payload"
+// @Success      200 {object} object{ok=bool}
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/providers/import [post]
+func (h *Handler) apiProviderImport(w http.ResponseWriter, r *http.Request) {
+	var bundle datamanagement.ProviderBundle
+	if err := json.NewDecoder(r.Body).Decode(&bundle); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, "invalid provider bundle payload")
+		return
+	}
+	if err := h.dataSvc.ImportProvider(&bundle); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h.logger.Info("provider data imported", "provider_id", bundle.Instance.ID)
+	h.json(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// apiProviderPurge completely removes a provider and all associated data.
+// @Summary      Purge provider completely
+// @Tags         Data
+// @Produce      json
+// @Param        id path string true "Provider ID"
+// @Success      200 {object} object{ok=bool}
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/providers/{id}/purge [delete]
+func (h *Handler) apiProviderPurge(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := h.dataSvc.PurgeProvider(id); err != nil {
+		h.jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.logger.Info("provider completely purged", "provider_id", id)
+	h.json(w, http.StatusOK, map[string]any{"ok": true})
+}

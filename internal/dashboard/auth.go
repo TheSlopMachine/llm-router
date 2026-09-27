@@ -2,7 +2,10 @@ package dashboard
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+
+	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 )
 
 // apiStatus returns system status
