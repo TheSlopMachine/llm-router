@@ -230,9 +230,11 @@
   .uit-cell:last-child {
     padding-right: var(--space-5);
   }
-  /* Header band tiles per cell (no grid gap inside the widget). */
+  /* Header cells stay transparent: the root already paints one uniform
+     elev band. Per-cell backgrounds tile the band and subpixel rounding of
+     fractional tracks opens hairline seams between them. */
   .uit-th {
-    background: var(--elev);
+    background: transparent;
   }
   /* Row dividers live on the cells: display:contents rows render nothing. */
   .uit-cell {

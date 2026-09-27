@@ -26,7 +26,6 @@
   const proxyColumns: TableColumn[] = [
     { key: 'url', title: t('URL'), width: '1fr', priority: 1 },
     { key: 'protocol', title: t('Protocol'), width: '80px', priority: 3 },
-    { key: 'location', title: t('Location'), width: '80px', priority: 2 },
     { key: 'ping', title: t('Ping'), width: '80px', align: 'right', priority: 2 },
     { key: 'speed', title: t('Speed'), width: '80px', align: 'right', priority: 2 },
     { key: 'actions', title: '', width: '44px', align: 'right', priority: 1 },
@@ -117,6 +116,11 @@
   function openSource(s: ProxySourceInfo): void {
     window.location.hash = `#/proxy/source/${encodeURIComponent(s.key)}`
   }
+
+  function sourceName(p: Proxy): string {
+    if (p.source === 'manual') return t('Manual')
+    return sources.find((s) => s.key === p.source)?.name ?? p.source
+  }
 </script>
 
 <VStack gap={6}>
@@ -129,7 +133,7 @@
     <Text tone="danger" size="sm">{error}</Text>
   {/if}
 
-  <SectionCard title="Proxy Sources" description="Plugins providing dynamic proxy lists.">
+  <SectionCard title={t('Proxy Sources')} description={t('Plugins providing dynamic proxy lists.')}>
     {#if sources.length === 0}
       <Text tone="soft" size="sm">{t('No proxy list sources installed. Install a proxy-source plugin (e.g. proxifly).')}</Text>
     {:else}
@@ -172,7 +176,7 @@
     {/if}
   </SectionCard>
 
-  <SectionCard title="Add Manual Proxy" description="Directly add a proxy server to the pool.">
+  <SectionCard title={t('Add Manual Proxy')} description={t('Directly add a proxy server to the pool.')}>
     <HStack gap={4} align="end">
       <VStack gap={1} grow>
         <Text size="xs" weight="medium" tone="soft" tag="label">{t('Proxy URL')}</Text>
@@ -209,13 +213,14 @@
         {@const p = row as Proxy}
         {#if column.key === 'url'}
           <VStack gap={0}>
-            <Text size="base" weight="medium" mono truncate>{p.url}</Text>
-            <Text size="xs" tone="soft">{p.source}</Text>
+            <HStack gap={2} align="center">
+              {#if p.location}<Chip text={p.location} size="small" />{/if}
+              <Text size="base" weight="medium" mono truncate>{p.url}</Text>
+            </HStack>
+            <Text size="xs" tone="soft">{sourceName(p)}</Text>
           </VStack>
         {:else if column.key === 'protocol'}
           <Text size="sm">{p.protocol.toUpperCase()}</Text>
-        {:else if column.key === 'location'}
-          <Text size="sm" weight="bold">{p.location || '—'}</Text>
         {:else if column.key === 'ping'}
           <Text size="sm" tone={p.handshake_ms > 0 ? (p.handshake_ms < 500 ? 'success' : 'warning') : 'soft'}>
             {p.handshake_ms > 0 ? `${p.handshake_ms}ms` : '—'}

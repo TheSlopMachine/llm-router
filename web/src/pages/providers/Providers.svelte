@@ -1,5 +1,6 @@
 <script lang="ts">
   import Button from '../../components/ui/controls/Button.svelte'
+  import Text from '../../components/ui/controls/Text.svelte'
   import { modal } from '../../lib/modal.svelte'
   import { api } from '../../lib/api'
   import { createListResource } from '../../lib/list-resource.svelte'
@@ -106,6 +107,9 @@
           <span class="name-col">
             <span class="display-name">{provider.name}</span>
             <span class="subtle">{provider.type}{provider.qualifier ? ':' + provider.qualifier : ''}</span>
+            {#if provider.disabled && provider.disabled_by === 'system'}
+              <Text size="sm" tone="danger">{t('Disabled automatically')}{provider.disabled_reason ? `: ${provider.disabled_reason}` : ''}</Text>
+            {/if}
           </span>
         </span>
         <span class="col-creds">{n(stats?.credential_count ?? 0, 'active', 'active', 'активен', 'активны', 'активно')}</span>

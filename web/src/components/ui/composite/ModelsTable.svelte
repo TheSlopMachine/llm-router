@@ -93,8 +93,8 @@
           { key: 'capabilities', title: t('Capabilities'), width: readonly ? '1.1fr' : '1.2fr', sortable, align: 'left' as const },
         ]
       : mode === 'merged'
-        ? [{ key: 'ctxmods', title: t('Context'), width: '2.1fr', sortable }]
-        : [{ key: 'all', title: t('Details'), width: '2.5fr' }]),
+        ? [{ key: 'ctxmods', title: t('Context & Modalities'), width: '2.1fr', sortable }]
+        : [{ key: 'all', title: t('Capabilities'), width: '2.5fr' }]),
     ...(!readonly ? [{ key: 'actions', title: t('Actions'), width: '0.9fr', align: 'right' as const }] : []),
   ])
 
@@ -266,12 +266,12 @@
       {:else if column.key === 'ctxmods'}
         <VStack gap={2} align="start">
           {@render ctxBlock({ model })}
-          {@render modsBlock({ model }, 'small', 'horizontal')}
+          {@render modsBlock({ model }, 'large', 'horizontal')}
         </VStack>
       {:else if column.key === 'all'}
-        <VStack gap={2} align="start">
+        <VStack gap={4} align="start">
           {@render ctxBlock({ model })}
-          {@render modsBlock({ model }, 'small', 'horizontal')}
+          {@render modsBlock({ model }, 'large', 'horizontal')}
           {@render capsBlock({ model }, 'small')}
         </VStack>
       {:else if column.key === 'actions'}

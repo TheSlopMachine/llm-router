@@ -32,6 +32,11 @@
   let proxyIds = $state<Record<string, boolean>>({})
   let poolManual = $state<Proxy[]>([])
   let savingProxy = $state(false)
+  let geoMode = $state<'fail_fast' | 'retry_same_key'>('fail_fast')
+  let geoMax = $state('3')
+  // Backend 0.3.0 marker: the auto-disable view always carries disabled_by.
+  // Absent = old backend, geo UI stays hidden (feature-detect).
+  let hasAutoDisable = $derived(provider != null && 'disabled_by' in provider)
 
   const providerIdValue = $derived(provider?.id ?? '')
 
@@ -256,6 +261,9 @@
     proxyMode = raw.mode === 'auto' || raw.mode === 'manual' ? raw.mode : 'disabled'
     proxyIds = {}
     for (const id of raw.ids ?? []) proxyIds[id] = true
+    const geo = (provider?.config?.geo ?? {}) as { mode?: string; max_proxies?: number }
+    geoMode = geo.mode === 'retry_same_key' ? 'retry_same_key' : 'fail_fast'
+    geoMax = geo.max_proxies != null ? String(geo.max_proxies) : '3'
   }
 
   async function loadProxyPool(): Promise<void> {
@@ -277,6 +285,7 @@
         config: {
           ...(provider.config ?? {}),
           proxy: { mode: proxyMode, ...(proxyMode === 'manual' ? { ids } : {}) },
+          ...(hasAutoDisable ? { geo: { mode: geoMode, max_proxies: Number(geoMax) } } : {}),
         },
       })
       const providers = await api.providers.list()
@@ -355,6 +364,9 @@
                 <Chip text={t('Expired')} color="chip-red" />
               {/if}
             </HStack>
+            {#if cred.disabled && cred.disabled_by === 'system'}
+              <Text size="sm" tone="danger">{t('Disabled automatically')}{cred.disabled_reason ? `: ${cred.disabled_reason}` : ''}</Text>
+            {/if}
           {:else}
             {@const ti = testIcon(credentialTestResults[cred.id], t('Test key'))}
             <HStack gap={3} justify="end">
@@ -386,8 +398,8 @@
     </VStack>
 
     <VStack tag="section" gap={4} align="start" class="provider-section">
-      <HStack align="center" gap={3}>
-        <Text tag="h2" size="md" weight="medium">{t('Proxy')}</Text>
+      <Text tag="h2" size="md" weight="medium">{t('Proxy')}</Text>
+      <HStack align="center" gap={3} wrap>
         <Picker
           bind:value={proxyMode}
           options={[
@@ -398,19 +410,19 @@
           ariaLabel={t('Proxy mode')}
           onchange={() => void saveProxyConfig()}
         />
+        <Text size="sm" tone="soft">
+          {#if proxyMode === 'disabled'}
+            {t('Direct connection, no proxying.')}
+          {:else if proxyMode === 'auto'}
+            {t('Route through the fastest pooled proxy matching the plugin locations.')}
+          {:else}
+            {t('Route through the proxies you select below (first usable wins).')}
+          {/if}
+        </Text>
         {#if savingProxy}
           <Text size="xs" tone="soft">{t('Saving…')}</Text>
         {/if}
       </HStack>
-      <Text size="sm" tone="soft">
-        {#if proxyMode === 'disabled'}
-          {t('Direct connection, no proxying.')}
-        {:else if proxyMode === 'auto'}
-          {t('Route through the fastest pooled proxy matching the plugin locations.')}
-        {:else}
-          {t('Route through the proxies you select below (first usable wins).')}
-        {/if}
-      </Text>
       {#if proxyMode === 'manual'}
         {#if poolManual.length === 0}
           <Text size="sm" tone="soft">{t('No manual proxies in the pool. Add them on the Proxies page.')}</Text>
@@ -430,6 +442,26 @@
             {/each}
           </HStack>
         {/if}
+      {:else if proxyMode === 'auto' && hasAutoDisable}
+        <HStack align="center" gap={3} wrap>
+          <Picker
+            bind:value={geoMode}
+            options={[
+              { value: 'fail_fast', label: t('Fail fast') },
+              { value: 'retry_same_key', label: t('Try next proxy') },
+            ]}
+            ariaLabel={t('Geo mode')}
+            onchange={() => void saveProxyConfig()}
+          />
+          <Text size="sm" tone="soft">
+            {#if geoMode === 'fail_fast'}
+              {t('A geo error ends the attempt at once.')}
+            {:else}
+              {t('A geo error retries the same key through the next proxy.')}
+            {/if}
+          </Text>
+        </HStack>
+        <TextEdit bind:value={geoMax} hint={t('Max proxies')} regex="^[0-9]*$" onchange={() => void saveProxyConfig()} />
       {/if}
     </VStack>
 
