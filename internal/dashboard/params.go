@@ -6,6 +6,8 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/datamanagement"
+	"github.com/TheSlopMachine/llm-router/internal/services/doctor"
 	"github.com/TheSlopMachine/llm-router/internal/services/geoban"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
@@ -49,6 +51,29 @@ func EffectiveBootstrapped(bootstrapped, noAuth bool) bool {
 
 // New constructs a dashboard Handler.
 func New(p Params) (*Handler, error) {
+	dataSvc := datamanagement.New(
+		p.AdminSvc.DB(),
+		p.ProviderSvc,
+		p.CredSvc,
+		p.VirtualSvc,
+		p.TokenSvc,
+		p.ProxySvc,
+		p.LuaSvc,
+		p.RepoSvc,
+		p.ModelInfoSvc,
+		p.GeoBanSvc,
+	)
+	doctorSvc := doctor.New(
+		p.AdminSvc.DB(),
+		p.ProviderSvc,
+		p.CredSvc,
+		p.VirtualSvc,
+		p.TokenSvc,
+		p.ProxySvc,
+		p.LuaSvc,
+		p.ModelInfoSvc,
+		p.GeoBanSvc,
+	)
 	return &Handler{
 		adminSvc:     p.AdminSvc,
 		providerSvc:  p.ProviderSvc,
@@ -63,6 +88,8 @@ func New(p Params) (*Handler, error) {
 		repoSvc:      p.RepoSvc,
 		proxySvc:     p.ProxySvc,
 		geobanSvc:    p.GeoBanSvc,
+		dataSvc:      dataSvc,
+		doctorSvc:    doctorSvc,
 		logger:       p.Logger,
 		noAuth:       p.NoAuth,
 	}, nil

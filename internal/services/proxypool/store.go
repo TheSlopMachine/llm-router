@@ -208,3 +208,16 @@ func (s *Service) SetSourceFailed(sourceKey string, err error) {
 	s.setSourceStatus(ListSource(sourceKey), SourceStatusIdle, 0, msg)
 	_ = s.meta.Put(ListSource(sourceKey), &sourceFetchMeta{LastFetchAt: util.Now(), LastError: msg})
 }
+
+// Clear removes all pooled proxies.
+func (s *Service) Clear() error {
+	all, err := s.proxies.List()
+	if err != nil {
+		return err
+	}
+	for _, p := range all {
+		_ = s.proxies.Delete(p.ID)
+	}
+	s.notify()
+	return nil
+}

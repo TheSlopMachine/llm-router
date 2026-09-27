@@ -14,6 +14,8 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/datamanagement"
+	"github.com/TheSlopMachine/llm-router/internal/services/doctor"
 	"github.com/TheSlopMachine/llm-router/internal/services/geoban"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
@@ -46,6 +48,8 @@ type Handler struct {
 	repoSvc      *pluginrepo.Service
 	proxySvc     *proxypool.Service
 	geobanSvc    *geoban.Service
+	dataSvc      *datamanagement.Service
+	doctorSvc    *doctor.Service
 	logger       *slog.Logger
 	noAuth       bool
 
@@ -171,6 +175,16 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("GET /api/llm-router/dashboard/config", h.requireAuth(h.apiConfigGet))
 	mux.HandleFunc("PUT /api/llm-router/dashboard/config", h.requireAuth(h.apiConfigPut))
 
+	// Data management
+	mux.HandleFunc("GET /api/llm-router/dashboard/data/stats", h.requireAuth(h.apiDataStats))
+	mux.HandleFunc("GET /api/llm-router/dashboard/data/{subsystem}/export", h.requireAuth(h.apiDataExport))
+	mux.HandleFunc("POST /api/llm-router/dashboard/data/{subsystem}/import", h.requireAuth(h.apiDataImport))
+	mux.HandleFunc("POST /api/llm-router/dashboard/data/{subsystem}/clear", h.requireAuth(h.apiDataClear))
+
+	// Database Doctor
+	mux.HandleFunc("GET /api/llm-router/dashboard/doctor/inspect", h.requireAuth(h.apiDoctorInspect))
+	mux.HandleFunc("POST /api/llm-router/dashboard/doctor/fix", h.requireAuth(h.apiDoctorFix))
+
 	// Proxy pool
 	mux.HandleFunc("GET /api/llm-router/dashboard/proxies", h.requireAuth(h.apiProxiesList))
 	mux.HandleFunc("POST /api/llm-router/dashboard/proxies", h.requireAuth(h.apiProxiesAdd))
@@ -250,6 +264,22 @@ func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+// sessionUser resolves the authenticated username from the session cookie.
+func (h *Handler) sessionUser(r *http.Request) string {
+	if h.noAuth {
+		return "admin"
+	}
+	c, err := r.Cookie(sessionCookie)
+	if err != nil || c.Value == "" {
+		return ""
+	}
+	username, ok := h.adminSvc.ValidateSession(c.Value)
+	if !ok {
+		return ""
+	}
+	return username
 }
 
 func (h *Handler) json(w http.ResponseWriter, status int, data any) {
