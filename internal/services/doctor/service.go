@@ -133,17 +133,23 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 		}
 	}
 
-	// 2. Orphan Model Overrides & Model Infos
+	// 2. Orphan Model Overrides & Model Infos. Override keys are
+	// providerID/modelName (owned by modelinfo), so the check validates the
+	// stored ProviderID value instead of splitting the key: key parsing
+	// once flagged every live override as orphaned. Unparseable rows are
+	// skipped, matching prior behavior.
 	var orphanOverrideKeys []string
 	var orphanInfoKeys []string
 	_ = s.db.View(func(tx *bolt.Tx) error {
 		bOvs := tx.Bucket(db.BucketModelOverrides)
 		if bOvs != nil {
 			_ = bOvs.ForEach(func(k, v []byte) error {
-				keyStr := string(k)
-				parts := strings.SplitN(keyStr, ":", 2)
-				if len(parts) > 0 && !validProviders[parts[0]] {
-					orphanOverrideKeys = append(orphanOverrideKeys, keyStr)
+				var ov models.ModelOverride
+				if err := json.Unmarshal(v, &ov); err != nil {
+					return nil
+				}
+				if ov.ProviderID == "" || !validProviders[ov.ProviderID] {
+					orphanOverrideKeys = append(orphanOverrideKeys, string(k))
 				}
 				return nil
 			})
@@ -259,16 +265,17 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 		}
 	}
 
-	// 5. Orphan Plugin Storage
+	// 5. Orphan Plugin Storage. Storage keys are pluginID/scope/key
+	// joined by NUL bytes (luaplugin.ParseStorageKey); the plugin half is
+	// the record ID. Unparseable rows are flagged: no writer builds them.
 	var orphanStorageKeys []string
 	_ = s.db.View(func(tx *bolt.Tx) error {
 		bStorage := tx.Bucket(db.BucketPluginStorage)
 		if bStorage != nil {
 			_ = bStorage.ForEach(func(k, v []byte) error {
-				keyStr := string(k)
-				parts := strings.SplitN(keyStr, ":", 2)
-				if len(parts) > 0 && !validPlugins[parts[0]] {
-					orphanStorageKeys = append(orphanStorageKeys, keyStr)
+				pluginID, _, _, ok := luaplugin.ParseStorageKey(string(k))
+				if !ok || !validPlugins[pluginID] {
+					orphanStorageKeys = append(orphanStorageKeys, string(k))
 				}
 				return nil
 			})

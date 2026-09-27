@@ -24,6 +24,17 @@ func storageKey(pluginID, scope, key string) string {
 	return pluginID + "\x00" + scope + "\x00" + key
 }
 
+// ParseStorageKey splits a storage key into plugin ID, scope and key.
+// It reports false when the key was not built by storageKey, so callers
+// (e.g. database inspection) never reimplement the separator.
+func ParseStorageKey(raw string) (pluginID, scope, key string, ok bool) {
+	parts := strings.SplitN(raw, "\x00", 3)
+	if len(parts) != 3 || parts[0] == "" {
+		return "", "", "", false
+	}
+	return parts[0], parts[1], parts[2], true
+}
+
 func (b *storageBackend) set(pluginID, scope, key string, value any) error {
 	if strings.TrimSpace(scope) == "" {
 		return fmt.Errorf("storage scope is required")

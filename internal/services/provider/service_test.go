@@ -77,6 +77,25 @@ func TestProviderService_CreateLuaType(t *testing.T) {
 	}
 }
 
+func TestProviderService_GetByTypeAndQualifierSlugifies(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+	svc := provider.NewService(database)
+
+	inst, err := svc.Create(provider.CreateOptions{Name: "West", TypeKey: "q-type", Qualifier: "EU West"})
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if inst.ID != "q-type:eu-west" {
+		t.Fatalf("id: got %q, want q-type:eu-west", inst.ID)
+	}
+	// The lookup must slugify exactly like uniqueID: the raw qualifier
+	// "EU West" never appears in a stored ID.
+	got, err := svc.GetByTypeAndQualifier("q-type", "EU West")
+	if err != nil || got.ID != inst.ID {
+		t.Fatalf("slugified lookup failed: %+v %v", got, err)
+	}
+}
+
 func TestProviderService_Create_Validation(t *testing.T) {
 	database := testutil.SetupTestDB(t)
 	svc := provider.NewService(database)

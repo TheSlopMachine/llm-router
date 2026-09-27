@@ -247,10 +247,13 @@ func (s *Service) GetByType(typeKey string) ([]*models.ProviderInstance, error) 
 }
 
 // GetByTypeAndQualifier returns a specific provider by type and qualifier.
+// The qualifier runs through the same slugify as uniqueID, so lookups use
+// the stored form ("My Qual" finds type:my-qual). Dedup-suffixed duplicates
+// (type:qual-2) resolve only by exact ID via Get.
 func (s *Service) GetByTypeAndQualifier(typeKey, qualifier string) (*models.ProviderInstance, error) {
 	id := typeKey
 	if qualifier != "" {
-		id = typeKey + ":" + qualifier
+		id = typeKey + ":" + slugify(qualifier)
 	}
 	return s.Get(id)
 }

@@ -3,7 +3,6 @@ package datamanagement
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
@@ -175,13 +174,20 @@ func (s *Service) ImportProviders(bundles []*ProviderBundle) error {
 				Disabled: &inst.Disabled,
 			})
 		} else {
-			_, _ = s.providerSvc.Create(provider.CreateOptions{
+			// Create regenerates the ID (dedup suffixes on collision), so
+			// credentials and overrides below must follow the created
+			// instance, not the bundle's: otherwise they point at an ID
+			// that was never stored. On creation failure keep the bundle
+			// instance so the error surfaces at the credential write.
+			if created, cerr := s.providerSvc.Create(provider.CreateOptions{
 				Name:      inst.Name,
 				TypeKey:   inst.TypeKey,
 				Qualifier: inst.Qualifier,
 				Config:    inst.Config,
 				IconURL:   inst.IconURL,
-			})
+			}); cerr == nil && created != nil {
+				inst = created
+			}
 		}
 		for _, c := range b.Credentials {
 			if c == nil {
@@ -246,22 +252,19 @@ func (s *Service) PurgeProvider(id string) error {
 	// 1. Delete provider instance and cascade credentials
 	_ = s.providerSvc.Delete(id)
 
-	// 2. Delete model overrides and model infos
+	// 2. Delete model overrides and model infos through the owning
+	// service: override keys are providerID/modelName inside modelinfo,
+	// so listing by provider value removes exactly this provider's rows
+	// without reimplementing the key format here.
 	if s.modelInfoSvc != nil {
 		_ = s.modelInfoSvc.InvalidateProvider(id)
-		_ = s.db.Update(func(tx *bolt.Tx) error {
-			b := tx.Bucket(db.BucketModelOverrides)
-			if b != nil {
-				prefix := []byte(id + ":")
-				c := b.Cursor()
-				for k, _ := c.Seek(prefix); k != nil && strings.HasPrefix(string(k), string(prefix)); {
-					nextK, _ := c.Next()
-					_ = b.Delete(k)
-					k = nextK
+		if ovs, err := s.modelInfoSvc.ListOverrides(id); err == nil {
+			for _, ov := range ovs {
+				if ov != nil {
+					_ = s.modelInfoSvc.DeleteOverride(id, ov.Name)
 				}
 			}
-			return nil
-		})
+		}
 	}
 
 	// 3. Clear geobans for this provider (geo flags stay keyed by adapter
