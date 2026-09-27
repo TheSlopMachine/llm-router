@@ -21,7 +21,7 @@ import (
 type IssueCategory string
 
 const (
-	CategoryOrphanCredentials     IssueCategory = "orphan_credentials"
+	CategoryOrphanCredentials      IssueCategory = "orphan_credentials"
 	CategoryOrphanModelOverrides   IssueCategory = "orphan_model_overrides"
 	CategoryOrphanModelInfos       IssueCategory = "orphan_model_infos"
 	CategoryOrphanGeoBans          IssueCategory = "orphan_geo_bans"

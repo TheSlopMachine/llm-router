@@ -345,7 +345,7 @@ func (s *Service) ClearVirtualModels() error {
 // ─────────────────────────────────────────────
 
 type PluginsExportBundle struct {
-	Repos   []*pluginrepo.RepoRecord `json:"repos"`
+	Repos   []*pluginrepo.RepoRecord  `json:"repos"`
 	Plugins []*luaplugin.PluginRecord `json:"plugins"`
 }
 
