@@ -2,7 +2,8 @@
   import type { Snippet } from 'svelte'
   import { squircle } from '../../../lib/squircle'
   import type { Size } from '../tokens'
-  import { tintFill } from '../../../lib/tint'
+  import { tintFill, tintSoft } from '../../../lib/tint'
+  import { theme } from '../../../lib/theme.svelte'
 
   interface ButtonIcon {
     /** Material Symbols ligature name */
@@ -18,13 +19,16 @@
   // Icon-only chrome (squircle square) derives itself: icon set with neither
   // text nor children. style 'text' applies on top of the icon geometry.
   // tint recolors the fill (or the text, for style 'text') via inline
-  // --tint-* vars; style 'none' ignores tint.
+  // --tint-* vars; style 'none' ignores tint — unless selected is set:
+  // selected=true forces the prominent fill, selected=false paints a soft
+  // tint wash (toggle-chip pattern), both driven by the button itself.
   let {
     text = '',
     icon,
     title = '',
     tint,
     style = 'none',
+    selected,
     size = 'medium',
     disabled = false,
     ariaLabel,
@@ -38,6 +42,7 @@
     title?: string
     tint?: string
     style?: 'prominent' | 'none' | 'text'
+    selected?: boolean
     size?: Size
     disabled?: boolean
     ariaLabel?: string
@@ -50,16 +55,26 @@
   let iconMode = $derived(
     (icon?.name != null || icon?.src != null) && !text && !children
   )
+  // Selected state wins over style: on = prominent fill, off = soft wash.
+  let effStyle = $derived(
+    selected === true ? 'prominent' : selected === false ? 'soft' : style
+  )
   let styleClass = $derived(
     iconMode
-      ? style === 'text'
+      ? effStyle === 'text'
         ? 'btn-icon btn-text'
-        : 'btn-icon'
-      : style === 'prominent'
+        : effStyle === 'soft'
+          ? 'btn-icon btn-soft'
+          : effStyle === 'prominent'
+            ? 'btn-icon btn-primary'
+            : 'btn-icon'
+      : effStyle === 'prominent'
         ? 'btn-primary'
-        : style === 'text'
+        : effStyle === 'text'
           ? 'btn-text'
-          : 'btn-secondary'
+          : effStyle === 'soft'
+            ? 'btn-soft'
+            : 'btn-secondary'
   )
   let sizeClass = $derived(
     size === 'small' ? 'btn-small ctl-small' : size === 'large' ? 'btn-large ctl-large' : 'ctl-medium'
@@ -70,7 +85,14 @@
   let iconSide = $derived(!iconMode && icon ? (icon.placement ?? 'left') : null)
 
   let tintVars = $derived.by(() => {
-    if (!tint || (!iconMode && style === 'none')) return null
+    if (!tint) return null
+    if (selected === false) {
+      void theme.value
+      const dark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+      const s = tintSoft(tint, dark)
+      return `--tint-bg:${s.bg};--tint-hover:${s.bg};--tint-text:${s.text}`
+    }
+    if (!iconMode && style === 'none') return null
     if (style === 'text') {
       return `--tint-bg:${tint}`
     }

@@ -615,7 +615,8 @@
           {@const meta = CAPABILITY_META[cap]}
           <Button
             size="small"
-            style={customCaps[cap] ? 'prominent' : 'none'}
+            selected={!!customCaps[cap]}
+            tint={meta?.tint}
             icon={meta?.icon ? { name: meta.icon } : undefined}
             title={meta ? t(meta.hint) : cap}
             ariaLabel={meta ? t(meta.label) : cap}

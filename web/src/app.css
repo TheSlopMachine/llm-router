@@ -456,6 +456,16 @@ textarea:focus-visible {
 .btn-text.btn-tinted:focus-visible {
   background: color-mix(in srgb, var(--tint-bg) 15%, transparent);
 }
+/* Selected-off toggle state (Button selected={false} + tint): soft wash
+   instead of the accent fill. Hover deepens toward the tint text. */
+.btn-soft {
+  background: var(--tint-bg);
+  color: var(--tint-text);
+  border-color: transparent;
+}
+.btn-soft:hover:not([disabled]) {
+  background: color-mix(in srgb, var(--tint-bg) 70%, var(--tint-text));
+}
 
 /* Image glyph inside a Button (icon={src:...}); font icons size themselves. */
 .btn-glyph {
