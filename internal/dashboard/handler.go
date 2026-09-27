@@ -83,6 +83,7 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("POST /api/llm-router/login", h.apiLogin)
 	mux.HandleFunc("POST /api/llm-router/logout", h.apiLogout)
 	mux.HandleFunc("POST /api/llm-router/bootstrap", h.apiBootstrap)
+	mux.HandleFunc("POST /api/llm-router/dashboard/admin/password", h.requireAuth(h.apiAdminChangePassword))
 	mux.HandleFunc("GET /api/llm-router/status", h.apiStatus(db))
 
 	// Dashboard APIs

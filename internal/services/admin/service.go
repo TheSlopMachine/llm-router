@@ -86,6 +86,26 @@ func (s *Service) Bootstrap(username, password string) error {
 	return s.db.SetBootstrapped()
 }
 
+// ChangePassword verifies the current password and updates to a new one.
+func (s *Service) ChangePassword(username, oldPassword, newPassword string) error {
+	if len(newPassword) < 6 {
+		return fmt.Errorf("password must be at least 6 characters")
+	}
+	user, err := s.repo.Get(username)
+	if err != nil {
+		return ErrInvalidCredentials
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(oldPassword)); err != nil {
+		return ErrInvalidCredentials
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcryptCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+	user.PasswordHash = string(hash)
+	return s.repo.Put(username, user)
+}
+
 // ─────────────────────────────────────────────
 // Authentication
 // ─────────────────────────────────────────────

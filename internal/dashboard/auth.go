@@ -121,3 +121,41 @@ func (h *Handler) apiBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 	h.json(w, http.StatusOK, map[string]any{"ok": true})
 }
+
+// apiAdminChangePassword updates the authenticated admin's password.
+// @Summary      Change admin password
+// @Description  Verifies current password and sets a new one for the active admin.
+// @Tags         Admin
+// @Accept       json
+// @Produce      json
+// @Param        passwords body object{current_password=string,new_password=string} true "Password payload"
+// @Success      200 {object} object{ok=bool}
+// @Failure      400 {object} models.ErrorResponse
+// @Failure      401 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/admin/password [post]
+func (h *Handler) apiAdminChangePassword(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	username := h.sessionUser(r)
+	if username == "" {
+		h.jsonErr(w, http.StatusUnauthorized, "session required")
+		return
+	}
+	if err := h.adminSvc.ChangePassword(username, body.CurrentPassword, body.NewPassword); err != nil {
+		if errors.Is(err, admin.ErrInvalidCredentials) {
+			h.jsonErr(w, http.StatusUnauthorized, "current password is incorrect")
+			return
+		}
+		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h.logger.Info("admin password changed", "username", username)
+	h.json(w, http.StatusOK, map[string]any{"ok": true})
+}
