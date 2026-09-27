@@ -39,6 +39,7 @@ web/openapi.yaml
 web/swagger.yaml
 web/swagger.json
 web/docs.go
+web/problems.md
 
 # Local Go workspace leftovers
 .workspace/
@@ -47,4 +48,5 @@ go.work.sum
 
 # Local tooling and scratch (live API keys, dev harness)
 .opencode/
+.crush/
 test_shit/

@@ -34,9 +34,6 @@
   let savingProxy = $state(false)
   let geoMode = $state<'fail_fast' | 'retry_same_key'>('fail_fast')
   let geoMax = $state('3')
-  // Backend 0.3.0 marker: the auto-disable view always carries disabled_by.
-  // Absent = old backend, geo UI stays hidden (feature-detect).
-  let hasAutoDisable = $derived(provider != null && 'disabled_by' in provider)
 
   const providerIdValue = $derived(provider?.id ?? '')
 
@@ -285,7 +282,7 @@
         config: {
           ...(provider.config ?? {}),
           proxy: { mode: proxyMode, ...(proxyMode === 'manual' ? { ids } : {}) },
-          ...(hasAutoDisable ? { geo: { mode: geoMode, max_proxies: Number(geoMax) } } : {}),
+          geo: { mode: geoMode, max_proxies: Number(geoMax) },
         },
       })
       const providers = await api.providers.list()
@@ -461,7 +458,9 @@
             {/if}
           </Text>
         </HStack>
-        <TextEdit bind:value={geoMax} hint={t('Max proxies')} regex="^[0-9]*$" onchange={() => void saveProxyConfig()} />
+        {#if geoMode === 'retry_same_key'}
+          <TextEdit bind:value={geoMax} hint={t('Max proxies')} regex="^[0-9]*$" onchange={() => void saveProxyConfig()} />
+        {/if}
       {/if}
     </VStack>
 
