@@ -411,6 +411,36 @@ export const api = {
     completions: (payload: { model: string; messages: Array<{ role: string; content: string }>; stream?: boolean }) =>
       apiCall('post', '/api/llm-router/dashboard/chat/completions', { body: payload as unknown as never } as never),
   },
+
+  // Admin Account & Security
+  admin: {
+    changePassword: (currentPassword: string, newPassword: string): Promise<{ ok: boolean }> =>
+      postJson('/api/llm-router/dashboard/admin/password', { current_password: currentPassword, new_password: newPassword }),
+  },
+
+  // Subsystem Data Management
+  data: {
+    stats: (): Promise<SubsystemStats> =>
+      fetch('/api/llm-router/dashboard/data/stats').then(assertOk),
+
+    exportSubsystem: (subsystem: string): Promise<any> =>
+      fetch(`/api/llm-router/dashboard/data/${encodeURIComponent(subsystem)}/export`).then(assertOk),
+
+    importSubsystem: (subsystem: string, payload: any): Promise<{ ok: boolean }> =>
+      postJson(`/api/llm-router/dashboard/data/${encodeURIComponent(subsystem)}/import`, payload),
+
+    clearSubsystem: (subsystem: string): Promise<{ ok: boolean }> =>
+      postJson(`/api/llm-router/dashboard/data/${encodeURIComponent(subsystem)}/clear`, {}),
+  },
+
+  // Database Doctor
+  doctor: {
+    inspect: (): Promise<DoctorReport> =>
+      fetch('/api/llm-router/dashboard/doctor/inspect').then(assertOk),
+
+    fix: (categories: DoctorCategory[]): Promise<{ fixed: number }> =>
+      postJson('/api/llm-router/dashboard/doctor/fix', { categories }),
+  },
 }
 
 async function assertOk(res: Response): Promise<any> {

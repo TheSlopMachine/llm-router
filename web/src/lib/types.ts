@@ -321,3 +321,36 @@ export interface PluginUpdate {
 export type { ApiPath, ApiMethod, ApiResponse, ApiError, ApiRequestBody, ApiQueryParams } from './api-client'
 export { apiCall } from './api-client'
 export type { ModalButton, ModalMenu, ModalMenuAction } from './modal.svelte'
+
+export interface SubsystemStats {
+  providers: number
+  credentials: number
+  virtual_models: number
+  plugins: number
+  plugin_repos: number
+  proxies: number
+  tokens: number
+}
+
+export type DoctorCategory =
+  | 'orphan_credentials'
+  | 'orphan_model_overrides'
+  | 'orphan_model_infos'
+  | 'orphan_geo_bans'
+  | 'orphan_virtual_models'
+  | 'duplicate_virtual_models'
+  | 'orphan_plugin_storage'
+  | 'broken_token_indexes'
+
+export interface DoctorIssue {
+  category: DoctorCategory
+  title: string
+  description: string
+  count: number
+  keys?: string[]
+}
+
+export interface DoctorReport {
+  issues: DoctorIssue[]
+  total_issues: number
+}
