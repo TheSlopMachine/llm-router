@@ -143,24 +143,27 @@ func shouldRetryGeo(err error, route string, geo models.GeoConfig, attempt int) 
 // attempt ("" = direct). Every key is tried at most once; there are no
 // repeat passes or backoff pauses. A missing handler fails immediately: it
 // is identical for every key. Otherwise the last error is returned.
-func runPool[T any](ctx context.Context, s *Service, model string, creds []*models.Credential, attempt func(context.Context, *models.Credential) (T, string, error), isFatal func(error) bool) (T, string, error) {
+// skip bypasses credentials the exhausted store holds a live rate-limit key
+// for (plugin, type, account, model).
+func runPool[T any](ctx context.Context, s *Service, model string, creds []*models.Credential, attempt func(context.Context, *models.Credential) (T, string, error), isFatal func(error) bool, skip pool.SkipFunc) (T, string, error) {
 	log := s.logger
 	if log != nil && model != "" {
 		log = log.With("model", model)
 	}
-	return pool.RunWithProxy(ctx, log, creds, s.usage, attempt, isFatal)
+	return pool.RunWithProxy(ctx, log, creds, s.usage, attempt, isFatal, skip)
 }
 
 // runPoolStream is runPool for streaming calls. Failover is allowed only
 // before the first byte reaches the client. Same-key geo retries do not
 // apply to streams: a geo outcome fails over to the next credential while
-// pre-first-byte, exactly like any other non-fatal error.
-func (s *Service) runPoolStream(ctx context.Context, model string, w io.Writer, creds []*models.Credential, attempt func(context.Context, *models.Credential, io.Writer) (string, error), isFatal func(error) bool) (string, error) {
+// pre-first-byte, exactly like any other non-fatal error. skip bypasses
+// credentials the exhausted store holds a live rate-limit key for.
+func (s *Service) runPoolStream(ctx context.Context, model string, w io.Writer, creds []*models.Credential, attempt func(context.Context, *models.Credential, io.Writer) (string, error), isFatal func(error) bool, skip pool.SkipFunc) (string, error) {
 	log := s.logger
 	if log != nil && model != "" {
 		log = log.With("model", model)
 	}
-	return pool.RunStreamWithProxy(ctx, log, w, creds, s.usage, attempt, isFatal)
+	return pool.RunStreamWithProxy(ctx, log, w, creds, s.usage, attempt, isFatal, skip)
 }
 
 // withCredential pins one pool credential into a copy of the base meta.
@@ -180,6 +183,7 @@ func (s *Service) CompletePool(
 ) (*models.ChatCompletionResponse, string, error) {
 	geo := s.geoPolicy(meta.ProviderConfig)
 	isFatal := s.fatalWithLog(meta, geo)
+	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, string, error) {
 		var res *models.ChatCompletionResponse
 		var route string
@@ -196,7 +200,7 @@ func (s *Service) CompletePool(
 				s.logger.Debug("pool: geo retry with same credential", "type", meta.TypeKey, "provider_id", meta.ProviderID, "attempt", i+1, "route", route, "max_proxies", geo.MaxProxies)
 			}
 		}
-	}, isFatal)
+	}, isFatal, skip)
 }
 
 // CompleteStreamPool tries the credential pool in order through the
@@ -211,9 +215,10 @@ func (s *Service) CompleteStreamPool(
 ) (string, error) {
 	geo := s.geoPolicy(meta.ProviderConfig)
 	isFatal := s.fatalWithLog(meta, geo)
+	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return s.runPoolStream(ctx, req.Model.String(), w, creds, func(ctx context.Context, cred *models.Credential, w io.Writer) (string, error) {
 		return s.CompleteStreamRouted(ctx, withCredential(meta, cred), req, w)
-	}, isFatal)
+	}, isFatal, skip)
 }
 
 // TranscribePool tries the credential pool in order through the transcribe
@@ -227,6 +232,7 @@ func (s *Service) TranscribePool(
 ) (*models.TranscriptionResponse, string, error) {
 	geo := s.geoPolicy(meta.ProviderConfig)
 	isFatal := s.fatalWithLog(meta, geo)
+	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.TranscriptionResponse, string, error) {
 		var res *models.TranscriptionResponse
 		var route string
@@ -243,7 +249,7 @@ func (s *Service) TranscribePool(
 				s.logger.Debug("pool: geo retry with same credential", "type", meta.TypeKey, "provider_id", meta.ProviderID, "attempt", i+1, "route", route, "max_proxies", geo.MaxProxies)
 			}
 		}
-	}, isFatal)
+	}, isFatal, skip)
 }
 
 // SpeechPool tries the credential pool in order through the speech handler,
@@ -257,6 +263,7 @@ func (s *Service) SpeechPool(
 ) (*models.SpeechResponse, string, error) {
 	geo := s.geoPolicy(meta.ProviderConfig)
 	isFatal := s.fatalWithLog(meta, geo)
+	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.SpeechResponse, string, error) {
 		var res *models.SpeechResponse
 		var route string
@@ -273,7 +280,7 @@ func (s *Service) SpeechPool(
 				s.logger.Debug("pool: geo retry with same credential", "type", meta.TypeKey, "provider_id", meta.ProviderID, "attempt", i+1, "route", route, "max_proxies", geo.MaxProxies)
 			}
 		}
-	}, isFatal)
+	}, isFatal, skip)
 }
 
 // GenerateImagePool tries the credential pool in order through the
@@ -287,6 +294,7 @@ func (s *Service) GenerateImagePool(
 ) (*models.ImageGenerationResponse, string, error) {
 	geo := s.geoPolicy(meta.ProviderConfig)
 	isFatal := s.fatalWithLog(meta, geo)
+	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ImageGenerationResponse, string, error) {
 		var res *models.ImageGenerationResponse
 		var route string
@@ -303,7 +311,7 @@ func (s *Service) GenerateImagePool(
 				s.logger.Debug("pool: geo retry with same credential", "type", meta.TypeKey, "provider_id", meta.ProviderID, "attempt", i+1, "route", route, "max_proxies", geo.MaxProxies)
 			}
 		}
-	}, isFatal)
+	}, isFatal, skip)
 }
 
 // EmbedPool tries the credential pool in order through the embed handler, at
@@ -317,6 +325,7 @@ func (s *Service) EmbedPool(
 ) (*models.EmbeddingsResponse, string, error) {
 	geo := s.geoPolicy(meta.ProviderConfig)
 	isFatal := s.fatalWithLog(meta, geo)
+	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.EmbeddingsResponse, string, error) {
 		var res *models.EmbeddingsResponse
 		var route string
@@ -333,5 +342,5 @@ func (s *Service) EmbedPool(
 				s.logger.Debug("pool: geo retry with same credential", "type", meta.TypeKey, "provider_id", meta.ProviderID, "attempt", i+1, "route", route, "max_proxies", geo.MaxProxies)
 			}
 		}
-	}, isFatal)
+	}, isFatal, skip)
 }

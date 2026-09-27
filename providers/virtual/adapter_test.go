@@ -30,6 +30,10 @@ func (f *fakeCompleter) LikelyExhausted(model models.ModelId) bool {
 	return f.exhausted[model.String()]
 }
 
+func (f *fakeCompleter) HasUsableCredential(model models.ModelId) bool {
+	return !f.exhausted[model.String()]
+}
+
 func (f *fakeCompleter) Complete(_ context.Context, req *models.ChatCompletionRequest, _ *models.RouterToken) (*models.ChatCompletionResponse, error) {
 	f.attempted = append(f.attempted, req.Model.String())
 	if req.Model.String() == f.succeedAt {

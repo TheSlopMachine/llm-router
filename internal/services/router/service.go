@@ -271,6 +271,49 @@ func (s *Service) LikelyExhausted(model models.ModelId) bool {
 	return hit != ""
 }
 
+// HasUsableCredential reports whether at least one credential for the model
+// is not rate-limited in the exhausted store. It checks per-account-model
+// keys for every credential in the pool. A true result means the model is
+// worth attempting; a false result means every credential is in cooldown.
+// The last-resort fallback in dropExhausted still applies: a fully-limited
+// pool is kept as a last resort, so this is a pre-check, not a guarantee.
+func (s *Service) HasUsableCredential(model models.ModelId) bool {
+	if s.exhaustedSvc == nil {
+		return true
+	}
+	providerID, _, err := model.Parse()
+	if err != nil {
+		return true
+	}
+	resolved, err := provider.Resolve(s.providerSvc, providerID)
+	if err != nil || !resolved.IsLua() {
+		return true
+	}
+	rec, err := s.providerSvc.LuaService().Lookup(resolved.Instance.TypeKey)
+	if err != nil {
+		return true
+	}
+	creds, err := s.credSvc.All(resolved.Instance.ID)
+	if err != nil || len(creds) == 0 {
+		return true
+	}
+	for _, c := range creds {
+		hit, err := s.exhaustedSvc.LimitedAny(exhausted.Segments{
+			Plugin:   rec.ID,
+			Provider: resolved.Instance.TypeKey,
+			Account:  c.ID,
+			Model:    model.String(),
+		})
+		if err != nil {
+			return true
+		}
+		if hit == "" {
+			return true
+		}
+	}
+	return false
+}
+
 // Complete routes a non-streaming chat completion request. The backend tries
 // the credential pool in order, at most once per key; the first success wins
 // and the last error is returned as-is.

@@ -19,4 +19,9 @@ type Completer interface {
 	// attempt. False is not a guarantee of success. Implementations with no
 	// exhausted store wired always return false.
 	LikelyExhausted(model models.ModelId) bool
+	// HasUsableCredential reports whether at least one credential for the
+	// model is not rate-limited. True means the model is worth attempting;
+	// false means every credential is in cooldown. Implementations with no
+	// exhausted store wired always return true.
+	HasUsableCredential(model models.ModelId) bool
 }

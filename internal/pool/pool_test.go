@@ -57,7 +57,7 @@ func TestRunFirstSuccess(t *testing.T) {
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			calls++
 			return okResp()
-		}, nil)
+		}, nil, nil)
 	if err != nil || resp.ID != "ok" || calls != 1 {
 		t.Fatalf("got resp=%v err=%v calls=%d", resp, err, calls)
 	}
@@ -76,7 +76,7 @@ func TestRunTriesEachKeyOnceInOrder(t *testing.T) {
 				return nil, &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeRateLimit, Message: "limited"}
 			}
 			return okResp()
-		}, nil)
+		}, nil, nil)
 	if err != nil || resp.ID != "ok" {
 		t.Fatalf("got resp=%v err=%v", resp, err)
 	}
@@ -94,7 +94,7 @@ func TestRunReturnsLastError(t *testing.T) {
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			calls++
 			return nil, &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeRateLimit, Message: "fail-" + cred.ID}
-		}, nil)
+		}, nil, nil)
 	if err == nil || calls != 2 {
 		t.Fatalf("got err=%v calls=%d", err, calls)
 	}
@@ -107,7 +107,7 @@ func TestRunEmpty(t *testing.T) {
 	if _, err := Run(context.Background(), nil, nil, nil,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			return okResp()
-		}, nil); !errors.Is(err, NoCredentials) {
+		}, nil, nil); !errors.Is(err, NoCredentials) {
 		t.Fatalf("expected NoCredentials, got %v", err)
 	}
 }
@@ -118,7 +118,7 @@ func TestRunFatalStopsImmediately(t *testing.T) {
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			calls++
 			return nil, errFatal
-		}, func(err error) bool { return errors.Is(err, errFatal) })
+		}, func(err error) bool { return errors.Is(err, errFatal) }, nil)
 	if !errors.Is(err, errFatal) {
 		t.Fatalf("expected fatal error, got %v", err)
 	}
@@ -132,7 +132,7 @@ func TestRunFailureTracksUsageOnly(t *testing.T) {
 	_, _ = Run(context.Background(), nil, poolCreds("a"), tracker,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			return nil, &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeQuotaExceeded, Message: "quota"}
-		}, nil)
+		}, nil, nil)
 	if tracker.failure["a"] != 1 {
 		t.Errorf("failure: got %v", tracker.failure)
 	}
@@ -146,7 +146,7 @@ func TestRunCanceledContext(t *testing.T) {
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			calls++
 			return okResp()
-		}, nil)
+		}, nil, nil)
 	if err == nil || calls != 0 {
 		t.Fatalf("got err=%v calls=%d", err, calls)
 	}
@@ -158,7 +158,7 @@ func TestRunTrackingErrorsDoNotFailAttempts(t *testing.T) {
 	resp, err := Run(context.Background(), slog.Default(), poolCreds("a"), tracker,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			return okResp()
-		}, nil)
+		}, nil, nil)
 	if err != nil || resp.ID != "ok" {
 		t.Fatalf("tracking failure must not fail the attempt: resp=%v err=%v", resp, err)
 	}
@@ -174,7 +174,7 @@ func TestRunStreamFallsThrough(t *testing.T) {
 			}
 			_, _ = io.WriteString(w, "data: ok\n\n")
 			return nil
-		}, nil)
+		}, nil, nil)
 	if err != nil || calls != 2 {
 		t.Fatalf("got err=%v calls=%d", err, calls)
 	}
@@ -187,7 +187,7 @@ func TestRunStreamStopsAfterFirstByte(t *testing.T) {
 			calls++
 			_, _ = io.WriteString(w, "data: partial\n\n")
 			return &models.ProviderError{StatusCode: 500, Type: models.ErrorTypeUpstream, Message: "died mid-stream"}
-		}, nil)
+		}, nil, nil)
 	if err == nil || calls != 1 {
 		t.Fatalf("stream must stop after first byte: err=%v calls=%d", err, calls)
 	}
@@ -195,7 +195,7 @@ func TestRunStreamStopsAfterFirstByte(t *testing.T) {
 
 func TestRunStreamEmpty(t *testing.T) {
 	err := RunStream(context.Background(), nil, io.Discard, nil, nil,
-		func(ctx context.Context, cred *models.Credential, w io.Writer) error { return nil }, nil)
+		func(ctx context.Context, cred *models.Credential, w io.Writer) error { return nil }, nil, nil)
 	if !errors.Is(err, NoCredentials) {
 		t.Fatalf("expected NoCredentials, got %v", err)
 	}
@@ -234,7 +234,7 @@ func TestRunWithProxy_ReturnsLastProxy(t *testing.T) {
 	_, proxy, err := RunWithProxy(context.Background(), nil, poolCreds("a", "b"), nil,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, string, error) {
 			return nil, "proxy-" + cred.ID + ":8080", &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeRateLimit, Message: "limited"}
-		}, nil)
+		}, nil, nil)
 	if err == nil {
 		t.Fatal("expected failure")
 	}
@@ -249,7 +249,7 @@ func TestRunWithProxy_LogsProxyPerAttempt(t *testing.T) {
 	_, _, _ = RunWithProxy(context.Background(), log, poolCreds("a", "b"), nil,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, string, error) {
 			return nil, "10.0.0.1:8080", &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeRateLimit, Message: "limited"}
-		}, nil)
+		}, nil, nil)
 	if len(h.records) != 2 {
 		t.Fatalf("expected trying-next plus all-failed, got %d records", len(h.records))
 	}
@@ -267,7 +267,7 @@ func TestRunWithProxy_OmitsProxyWhenDirect(t *testing.T) {
 	_, _, _ = RunWithProxy(context.Background(), log, poolCreds("a", "b"), nil,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, string, error) {
 			return nil, "", &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeRateLimit, Message: "limited"}
-		}, nil)
+		}, nil, nil)
 	for _, r := range h.records {
 		if _, ok := recordProxy(r); ok {
 			t.Fatalf("direct request must omit proxy attr: %+v", h.records)
@@ -279,7 +279,7 @@ func TestRunStreamWithProxy_ReturnsLastProxy(t *testing.T) {
 	proxy, err := RunStreamWithProxy(context.Background(), nil, io.Discard, poolCreds("a", "b"), nil,
 		func(ctx context.Context, cred *models.Credential, w io.Writer) (string, error) {
 			return "proxy-" + cred.ID + ":8080", &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeRateLimit, Message: "limited"}
-		}, nil)
+		}, nil, nil)
 	if err == nil {
 		t.Fatal("expected failure")
 	}

@@ -85,7 +85,7 @@ func (a *Adapter) Complete(
 			apiKey = cred.DataString("api_key")
 		}
 		return client.ChatCompletion(ctx, apiKey, modelName, req)
-	}, nil)
+	}, nil, nil)
 }
 
 func (a *Adapter) CompleteStream(
@@ -120,7 +120,7 @@ func (a *Adapter) CompleteStream(
 			apiKey = cred.DataString("api_key")
 		}
 		return client.ChatCompletionStream(ctx, apiKey, modelName, req, w)
-	}, nil)
+	}, nil, nil)
 }
 
 func (a *Adapter) NeedsRefresh(cred *models.Credential) bool { return false }

@@ -47,6 +47,39 @@ func credentialID(cred *models.Credential) string {
 	return cred.ID
 }
 
+// shortError renders an error for logs: a typed provider error becomes its
+// category name, everything else keeps the full message.
+func shortError(err error) string {
+	var perr *models.ProviderError
+	if errors.As(err, &perr) {
+		switch perr.Type {
+		case models.ErrorTypeRateLimit:
+			return "rate_limit"
+		case models.ErrorTypeQuotaExceeded:
+			return "quota_exceeded"
+		case models.ErrorTypeAuth:
+			return "auth"
+		case models.ErrorTypePaymentRequired:
+			return "payment_required"
+		case models.ErrorTypeGeo:
+			return "geo"
+		case models.ErrorTypeInvalidRequest:
+			return "invalid_request"
+		case models.ErrorTypeContentPolicy:
+			return "content_policy"
+		case models.ErrorTypeModelUnavailable:
+			return "model_unavailable"
+		case models.ErrorTypeStructuralFault:
+			return "structural_fault"
+		case models.ErrorTypeNotFound:
+			return "not_found"
+		default:
+			return "upstream"
+		}
+	}
+	return err.Error()
+}
+
 func logTryingNext(log *slog.Logger, cred *models.Credential, proxy string, err error) {
 	args := make([]any, 0, 6)
 	if id := credentialID(cred); id != "" {
@@ -55,7 +88,7 @@ func logTryingNext(log *slog.Logger, cred *models.Credential, proxy string, err 
 	if proxy != "" {
 		args = append(args, "proxy", proxy)
 	}
-	args = append(args, "error", err)
+	args = append(args, "error", shortError(err))
 	loggerOrDefault(log).Info("credential failed, trying next", args...)
 }
 
@@ -64,7 +97,7 @@ func logAllFailed(log *slog.Logger, proxy string, lastErr error) {
 	if proxy != "" {
 		args = append(args, "proxy", proxy)
 	}
-	args = append(args, "last_error", lastErr)
+	args = append(args, "last_error", shortError(lastErr))
 	loggerOrDefault(log).Warn("all credentials failed", args...)
 }
 
@@ -77,22 +110,29 @@ func trackFailure(log *slog.Logger, tracker UsageTracker, cred *models.Credentia
 	}
 }
 
+// SkipFunc reports whether a credential should be skipped before attempting
+// it (e.g. because the exhausted store holds a live rate-limit key for the
+// credential-model pair). Returning true skips the attempt without counting
+// it as a failure.
+type SkipFunc func(cred *models.Credential) bool
+
 // Run tries one attempt per credential in pool order and returns the first
 // success. Fatal attempt errors (isFatal) stop the pool immediately: they
 // are identical for every key.
-func Run[T any](ctx context.Context, log *slog.Logger, creds []*models.Credential, tracker UsageTracker, attempt func(context.Context, *models.Credential) (T, error), isFatal func(error) bool) (T, error) {
+func Run[T any](ctx context.Context, log *slog.Logger, creds []*models.Credential, tracker UsageTracker, attempt func(context.Context, *models.Credential) (T, error), isFatal func(error) bool, skip SkipFunc) (T, error) {
 	res, _, err := RunWithProxy(ctx, log, creds, tracker, func(ctx context.Context, cred *models.Credential) (T, string, error) {
 		res, err := attempt(ctx, cred)
 		return res, "", err
-	}, isFatal)
+	}, isFatal, skip)
 	return res, err
 }
 
 // RunWithProxy is Run plus the redacted proxy host:port of the last attempt
 // ("" = direct or no proxy tracking). The attempt reports the proxy used by
 // that credential try; per-attempt values appear on trying-next lines, the
-// last one on the all-failed line.
-func RunWithProxy[T any](ctx context.Context, log *slog.Logger, creds []*models.Credential, tracker UsageTracker, attempt func(context.Context, *models.Credential) (T, string, error), isFatal func(error) bool) (T, string, error) {
+// last one on the all-failed line. Skip consults skip before each attempt:
+// a true result bypasses the credential without a request.
+func RunWithProxy[T any](ctx context.Context, log *slog.Logger, creds []*models.Credential, tracker UsageTracker, attempt func(context.Context, *models.Credential) (T, string, error), isFatal func(error) bool, skip SkipFunc) (T, string, error) {
 	var zero T
 	if len(creds) == 0 {
 		return zero, "", NoCredentials
@@ -103,9 +143,16 @@ func RunWithProxy[T any](ctx context.Context, log *slog.Logger, creds []*models.
 		if err := ctx.Err(); err != nil {
 			return zero, lastProxy, err
 		}
+		if skip != nil && skip(cred) {
+			loggerOrDefault(log).Info("credential skipped due to rate limit",
+				"credential_id", credentialID(cred))
+			continue
+		}
 		res, proxy, err := attempt(ctx, cred)
 		if err == nil {
 			trackSuccess(log, tracker, cred)
+			loggerOrDefault(log).Debug("model responded successfully",
+				"credential_id", credentialID(cred))
 			return res, proxy, nil
 		}
 		trackFailure(log, tracker, cred, err)
@@ -127,16 +174,17 @@ func RunWithProxy[T any](ctx context.Context, log *slog.Logger, creds []*models.
 // RunStream is Run for streaming calls. Failover continues only while no
 // byte reached the client; afterwards the stream belongs to one upstream
 // and ends with its error.
-func RunStream(ctx context.Context, log *slog.Logger, w io.Writer, creds []*models.Credential, tracker UsageTracker, attempt func(context.Context, *models.Credential, io.Writer) error, isFatal func(error) bool) error {
+func RunStream(ctx context.Context, log *slog.Logger, w io.Writer, creds []*models.Credential, tracker UsageTracker, attempt func(context.Context, *models.Credential, io.Writer) error, isFatal func(error) bool, skip SkipFunc) error {
 	_, err := RunStreamWithProxy(ctx, log, w, creds, tracker, func(ctx context.Context, cred *models.Credential, w io.Writer) (string, error) {
 		return "", attempt(ctx, cred, w)
-	}, isFatal)
+	}, isFatal, skip)
 	return err
 }
 
 // RunStreamWithProxy is RunStream plus the redacted proxy host:port of the
-// last attempt ("" = direct or no proxy tracking).
-func RunStreamWithProxy(ctx context.Context, log *slog.Logger, w io.Writer, creds []*models.Credential, tracker UsageTracker, attempt func(context.Context, *models.Credential, io.Writer) (string, error), isFatal func(error) bool) (string, error) {
+// last attempt ("" = direct or no proxy tracking). Skip consults skip before
+// each attempt: a true result bypasses the credential without a request.
+func RunStreamWithProxy(ctx context.Context, log *slog.Logger, w io.Writer, creds []*models.Credential, tracker UsageTracker, attempt func(context.Context, *models.Credential, io.Writer) (string, error), isFatal func(error) bool, skip SkipFunc) (string, error) {
 	if len(creds) == 0 {
 		return "", NoCredentials
 	}
@@ -147,9 +195,16 @@ func RunStreamWithProxy(ctx context.Context, log *slog.Logger, w io.Writer, cred
 		if err := ctx.Err(); err != nil {
 			return lastProxy, err
 		}
+		if skip != nil && skip(cred) {
+			loggerOrDefault(log).Info("credential skipped due to rate limit",
+				"credential_id", credentialID(cred))
+			continue
+		}
 		proxy, err := attempt(ctx, cred, gate)
 		if err == nil {
 			trackSuccess(log, tracker, cred)
+			loggerOrDefault(log).Debug("model responded successfully",
+				"credential_id", credentialID(cred))
 			return proxy, nil
 		}
 		trackFailure(log, tracker, cred, err)
