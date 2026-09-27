@@ -10,6 +10,9 @@
     // Default left.
     align?: 'left' | 'center' | 'right'
     sortable?: boolean
+    // Responsive hiding: 1 never hides, 2 hides when very narrow,
+    // 3 hides first. Unset means 1.
+    priority?: 1 | 2 | 3
   }
 
   export type TableSortDir = 'asc' | 'desc'
@@ -50,8 +53,30 @@
   // Sortable and draggable never mix: drag wins, sort renders plain.
   const sortOn = $derived(!draggable)
 
+  // Responsive columns: the table measures itself and drops low-priority
+  // columns as it narrows (<1024 hides p3, <640 hides p2 too). Never hide
+  // everything: fall back to the full set rather than an empty table.
+  let rootEl = $state<HTMLElement | null>(null)
+  let tableWidth = $state<number | null>(null)
+  $effect(() => {
+    const el = rootEl
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver((entries) => {
+      tableWidth = entries[0]?.contentRect.width ?? null
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  })
+  const visibleColumns = $derived.by(() => {
+    const w = tableWidth
+    if (w == null) return columns
+    const maxP = w < 640 ? 1 : w < 1024 ? 2 : 3
+    const vis = columns.filter((c: TableColumn) => (c.priority ?? 1) <= maxP)
+    return vis.length > 0 ? vis : columns
+  })
+
   const template = $derived(
-    (draggable ? '28px ' : '') + columns.map((c: TableColumn) => c.width ?? 'auto').join(' ')
+    (draggable ? '28px ' : '') + visibleColumns.map((c: TableColumn) => c.width ?? 'auto').join(' ')
   )
 
   function alignCls(col: TableColumn): string {
@@ -84,10 +109,10 @@
   }
 </script>
 
-<div class="uit-table" role="table" style="grid-template-columns: {template}"  use:squircle={18}>
+<div bind:this={rootEl} class="uit-table" role="table" style="grid-template-columns: {template}"  use:squircle={18}>
   <div class="uit-head" role="row">
     {#if draggable}<span class="uit-th uit-draghead" aria-hidden="true"></span>{/if}
-    {#each columns as col (col.key)}
+    {#each visibleColumns as col (col.key)}
       <span
         class="uit-th {alignCls(col)}"
         role="columnheader"
@@ -108,7 +133,7 @@
     {#each Array(skeletonRows) as _, r}
       <div class="uit-row" role="row" aria-hidden="true">
         {#if draggable}<span class="uit-cell align-c"></span>{/if}
-        {#each columns as col, c}
+        {#each visibleColumns as col, c}
           <span class="uit-cell {alignCls(col)}"><span class="skel" style:width={`${[72, 48, 88, 60, 78][(r + c) % 5]}%`}></span></span>
         {/each}
       </div>
@@ -135,7 +160,7 @@
             <span class="icon uit-grip" aria-hidden="true">drag_indicator</span>
           </span>
         {/if}
-        {#each columns as col (col.key)}
+        {#each visibleColumns as col (col.key)}
           <span class="uit-cell {alignCls(col)} {cls}" role="cell">
             {@render cell({ column: col, row, rowIndex: i })}
           </span>

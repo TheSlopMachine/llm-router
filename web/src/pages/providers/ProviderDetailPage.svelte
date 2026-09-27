@@ -36,9 +36,9 @@
   const providerIdValue = $derived(provider?.id ?? '')
 
   const credentialColumns: TableColumn[] = [
-    { key: 'priority', title: '#', width: '72px', align: 'center' },
-    { key: 'name', title: t('Name'), width: '1fr' },
-    { key: 'actions', title: t('Actions'), width: 'auto', align: 'right' },
+    { key: 'priority', title: '#', width: '72px', align: 'center', priority: 3 },
+    { key: 'name', title: t('Name'), width: '1fr', priority: 1 },
+    { key: 'actions', title: t('Actions'), width: 'auto', align: 'right', priority: 1 },
   ]
 
   $effect(() => {

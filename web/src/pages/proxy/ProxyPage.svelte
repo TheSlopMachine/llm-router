@@ -24,12 +24,12 @@
   let poolBusy = $derived(sourcesActive || poolChecking)
 
   const proxyColumns: TableColumn[] = [
-    { key: 'url', title: t('URL'), width: '1fr' },
-    { key: 'protocol', title: t('Protocol'), width: '80px' },
-    { key: 'location', title: t('Location'), width: '80px' },
-    { key: 'ping', title: t('Ping'), width: '80px', align: 'right' },
-    { key: 'speed', title: t('Speed'), width: '80px', align: 'right' },
-    { key: 'actions', title: '', width: '44px', align: 'right' },
+    { key: 'url', title: t('URL'), width: '1fr', priority: 1 },
+    { key: 'protocol', title: t('Protocol'), width: '80px', priority: 3 },
+    { key: 'location', title: t('Location'), width: '80px', priority: 2 },
+    { key: 'ping', title: t('Ping'), width: '80px', align: 'right', priority: 2 },
+    { key: 'speed', title: t('Speed'), width: '80px', align: 'right', priority: 2 },
+    { key: 'actions', title: '', width: '44px', align: 'right', priority: 1 },
   ]
 
   onMount(() => {

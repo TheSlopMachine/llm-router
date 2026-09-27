@@ -62,11 +62,39 @@
   let sortKey = $state<string | null>(null)
   let sortDir = $state<TableSortDir | null>(null)
 
+  // Responsive merge stages: when narrow, context folds into modalities
+  // first, then everything folds into one column. Measured on a local
+  // wrapper — Table only sees the resulting column set.
+  let wrapEl = $state<HTMLElement | null>(null)
+  let tableWidth = $state<number | null>(null)
+  $effect(() => {
+    const el = wrapEl
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver((entries) => {
+      tableWidth = entries[0]?.contentRect.width ?? null
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  })
+  const mode = $derived.by((): 'full' | 'merged' | 'compact' => {
+    const w = tableWidth
+    if (w == null) return 'full'
+    if (w < 640) return 'compact'
+    if (w < 900) return 'merged'
+    return 'full'
+  })
+
   const columns = $derived<TableColumn[]>([
     { key: 'model', title: t('Model'), width: readonly ? '3.6fr' : '3.2fr', sortable },
-    { key: 'context', title: t('Context'), width: '0.9fr', sortable },
-    { key: 'modalities', title: t('Modalities'), width: '1.2fr', sortable, align: 'center' },
-    { key: 'capabilities', title: t('Capabilities'), width: readonly ? '1.1fr' : '1.2fr', sortable, align: 'left' },
+    ...(mode === 'full'
+      ? [
+          { key: 'context', title: t('Context'), width: '0.9fr', sortable },
+          { key: 'modalities', title: t('Modalities'), width: '1.2fr', sortable, align: 'center' as const },
+          { key: 'capabilities', title: t('Capabilities'), width: readonly ? '1.1fr' : '1.2fr', sortable, align: 'left' as const },
+        ]
+      : mode === 'merged'
+        ? [{ key: 'ctxmods', title: t('Context'), width: '2.1fr', sortable }]
+        : [{ key: 'all', title: t('Details'), width: '2.5fr' }]),
     ...(!readonly ? [{ key: 'actions', title: t('Actions'), width: '0.9fr', align: 'right' as const }] : []),
   ])
 
@@ -90,6 +118,7 @@
       case 'model':
         return model.kind === 'virtual' ? model.id : (model.name || model.id)
       case 'context':
+      case 'ctxmods':
         return model.contextWindow ?? 0
       case 'modalities':
         return `${model.inputModalities?.join(',') ?? ''}|${model.outputModalities?.join(',') ?? ''}`
@@ -130,6 +159,57 @@
   }
 </script>
 
+{#snippet ctxBlock({ model }: { model: ModelsTableModel })}
+  <VStack gap={1} align="start" class="ctx-text">
+    {#if model.contextWindow}
+      <Text size="sm" tone="soft" title={t('Context window — up to') + ` ${model.contextWindow.toLocaleString()} ` + t('input tokens')}>
+        {(model.contextWindow / 1000).toFixed(0)}k {t('context')}
+      </Text>
+    {/if}
+    {#if model.maxTokens}
+      <Text size="sm" tone="soft" title={t('Max output — up to') + ` ${model.maxTokens.toLocaleString()} ` + t('tokens per response')}>
+        {(model.maxTokens / 1000).toFixed(0)}k {t('output')}
+      </Text>
+    {/if}
+    {#if !model.contextWindow && !model.maxTokens}
+      <Text size="sm" tone="disabled">—</Text>
+    {/if}
+  </VStack>
+{/snippet}
+
+{#snippet modsBlock({ model }: { model: ModelsTableModel }, size: 'small' | 'large' = 'large', direction: 'vertical' | 'horizontal' = 'vertical')}
+  <ModalitiesFlow
+    modalities={{ input: model.inputModalities, output: model.outputModalities }}
+    chipsDirection={direction}
+    size={size}
+  />
+  {#if (model.inputModalities?.length ?? 0) === 0 && (model.outputModalities?.length ?? 0) === 0}
+    <Text size="sm" tone="disabled">—</Text>
+  {/if}
+{/snippet}
+
+{#snippet capsBlock({ model }: { model: ModelsTableModel }, size: 'small' | 'large' = 'large')}
+  <HStack gap={2} wrap class="cap-chips">
+    {#each model.capabilities ?? [] as cap}
+      {@const meta = CAPABILITY_META[cap]}
+      <Chip
+        icon={meta?.icon ?? 'help_outline'}
+        text=""
+        color={meta?.color ?? 'chip-neutral'}
+        title={meta ? t(meta.hint) : cap}
+        size={size}
+      />
+    {/each}
+    {#if model.custom}
+      <Chip icon="tune" text="" color="chip-teal" title={t('Custom model')} size={size} />
+    {/if}
+    {#if (model.capabilities?.length ?? 0) === 0 && !model.custom}
+      <Text size="sm" tone="disabled">—</Text>
+    {/if}
+  </HStack>
+{/snippet}
+
+<div class="mt-wrap" bind:this={wrapEl}>
   <Table
     {columns}
     rows={sortedModels}
@@ -178,49 +258,22 @@
           {/if}
         </VStack>
       {:else if column.key === 'context'}
-        <VStack gap={1} align="start" class="ctx-text">
-          {#if model.contextWindow}
-            <Text size="sm" tone="soft" title={t('Context window — up to') + ` ${model.contextWindow.toLocaleString()} ` + t('input tokens')}>
-              {(model.contextWindow / 1000).toFixed(0)}k {t('context')}
-            </Text>
-          {/if}
-          {#if model.maxTokens}
-            <Text size="sm" tone="soft" title={t('Max output — up to') + ` ${model.maxTokens.toLocaleString()} ` + t('tokens per response')}>
-              {(model.maxTokens / 1000).toFixed(0)}k {t('output')}
-            </Text>
-          {/if}
-          {#if !model.contextWindow && !model.maxTokens}
-            <Text size="sm" tone="disabled">—</Text>
-          {/if}
-        </VStack>
+        {@render ctxBlock({ model })}
       {:else if column.key === 'modalities'}
-        <ModalitiesFlow
-          modalities={{ input: model.inputModalities, output: model.outputModalities }}
-          chipsDirection="vertical"
-          size="large"
-        />
-        {#if (model.inputModalities?.length ?? 0) === 0 && (model.outputModalities?.length ?? 0) === 0}
-          <Text size="sm" tone="disabled">—</Text>
-        {/if}
+        {@render modsBlock({ model })}
       {:else if column.key === 'capabilities'}
-        <HStack gap={2} wrap class="cap-chips">
-          {#each model.capabilities ?? [] as cap}
-            {@const meta = CAPABILITY_META[cap]}
-            <Chip
-              icon={meta?.icon ?? 'help_outline'}
-              text=""
-              color={meta?.color ?? 'chip-neutral'}
-              title={meta ? t(meta.hint) : cap}
-              size="large"
-            />
-          {/each}
-          {#if model.custom}
-            <Chip icon="tune" text="" color="chip-teal" title={t('Custom model')} />
-          {/if}
-          {#if (model.capabilities?.length ?? 0) === 0 && !model.custom}
-            <Text size="sm" tone="disabled">—</Text>
-          {/if}
-        </HStack>
+        {@render capsBlock({ model })}
+      {:else if column.key === 'ctxmods'}
+        <VStack gap={2} align="start">
+          {@render ctxBlock({ model })}
+          {@render modsBlock({ model }, 'small', 'horizontal')}
+        </VStack>
+      {:else if column.key === 'all'}
+        <VStack gap={2} align="start">
+          {@render ctxBlock({ model })}
+          {@render modsBlock({ model }, 'small', 'horizontal')}
+          {@render capsBlock({ model }, 'small')}
+        </VStack>
       {:else if column.key === 'actions'}
         <HStack justify="end" gap={2} class="actions-cell">
           {#if actions}{@render actions({ model })}{/if}
@@ -228,3 +281,12 @@
       {/if}
     {/snippet}
   </Table>
+</div>
+
+<style>
+  /* Measurement host for the merge stages: full width, no visuals. */
+  .mt-wrap {
+    width: 100%;
+    min-width: 0;
+  }
+</style>
