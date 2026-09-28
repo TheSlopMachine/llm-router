@@ -116,8 +116,9 @@ func TestInspect_OrphanOverrideFlaggedAndFixed(t *testing.T) {
 
 // TestInspect_PluginStorageNamespaces covers the second separator bug:
 // storage rows live under pluginID NUL scope NUL key. A row for the
-// installed plugin passes, a removed plugin's row and an unparseable row
-// flag, and fix keeps the live row.
+// installed plugin passes, a removed plugin's row flags orphan and
+// auto-fix deletes it, and an unparseable row flags corrupt and survives
+// fix-all: no writer builds it, so no one can prove it orphaned.
 func TestInspect_PluginStorageNamespaces(t *testing.T) {
 	svc, _, pluginID := docStack(t)
 	put := func(key string) {
@@ -138,27 +139,99 @@ func TestInspect_PluginStorageNamespaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inspect: %v", err)
 	}
-	var keys []string
+	byCategory := map[IssueCategory][]string{}
 	for _, issue := range rep.Issues {
-		if issue.Category == CategoryOrphanPluginStorage {
-			keys = issue.Keys
-		}
+		byCategory[issue.Category] = issue.Keys
 	}
-	if len(keys) != 2 {
-		t.Fatalf("flagged storage rows = %v, want the removed-plugin and garbage rows", keys)
+	if len(byCategory[CategoryOrphanPluginStorage]) != 1 {
+		t.Fatalf("orphan storage rows = %v, want exactly the removed-plugin row", byCategory[CategoryOrphanPluginStorage])
 	}
-	if _, err := svc.Fix([]IssueCategory{CategoryOrphanPluginStorage}); err != nil {
-		t.Fatalf("fix: %v", err)
+	if len(byCategory[CategoryCorruptPluginStorage]) != 1 {
+		t.Fatalf("corrupt storage rows = %v, want exactly the garbage row", byCategory[CategoryCorruptPluginStorage])
+	}
+	if _, err := svc.Fix(nil); err != nil {
+		t.Fatalf("fix-all: %v", err)
 	}
 	rep, err = svc.Inspect()
 	if err != nil {
 		t.Fatalf("re-inspect: %v", err)
 	}
 	if hasCategory(rep, CategoryOrphanPluginStorage) {
-		t.Fatalf("storage still flagged after fix: %+v", rep.Issues)
+		t.Fatalf("orphan storage still flagged after fix: %+v", rep.Issues)
+	}
+	if !hasCategory(rep, CategoryCorruptPluginStorage) {
+		t.Fatal("corrupt row must survive fix-all: no writer builds it, no one proves it orphaned")
 	}
 	live, err := svc.luaSvc.List()
 	if err != nil || len(live) == 0 {
 		t.Fatalf("installed plugin must survive storage fix: %v", live)
+	}
+}
+
+// TestInspect_MissingBackendFlaggedAndDisabled covers providers whose type
+// has no installed plugin or built-in backend: inspecting flags the
+// provider ID, fixing disables it (first-wins, manual re-enable clears),
+// and re-inspecting stays clean since parked providers skip.
+func TestInspect_MissingBackendFlaggedAndDisabled(t *testing.T) {
+	svc, _, _ := docStack(t)
+	ghost, err := svc.providerSvc.Create(provider.CreateOptions{Name: "Ghost", TypeKey: "ghost-type"})
+	if err != nil {
+		t.Fatalf("create ghost provider: %v", err)
+	}
+	rep, err := svc.Inspect()
+	if err != nil {
+		t.Fatalf("inspect: %v", err)
+	}
+	var keys []string
+	for _, issue := range rep.Issues {
+		if issue.Category == CategoryMissingProviderBackend {
+			keys = issue.Keys
+		}
+	}
+	if len(keys) != 1 || keys[0] != ghost.ID {
+		t.Fatalf("missing-backend keys = %v, want [%q]", keys, ghost.ID)
+	}
+	fixed, err := svc.Fix([]IssueCategory{CategoryMissingProviderBackend})
+	if err != nil {
+		t.Fatalf("fix: %v", err)
+	}
+	if fixed != 1 {
+		t.Fatalf("fixed %d providers, want 1", fixed)
+	}
+	got, err := svc.providerSvc.Get(ghost.ID)
+	if err != nil || !got.Disabled || got.DisabledBy != "system" {
+		t.Fatalf("ghost must disable by system: %+v %v", got, err)
+	}
+	rep, err = svc.Inspect()
+	if err != nil {
+		t.Fatalf("re-inspect: %v", err)
+	}
+	if hasCategory(rep, CategoryMissingProviderBackend) {
+		t.Fatalf("disabled provider still flagged: %+v", rep.Issues)
+	}
+}
+
+// TestInspect_MissingBackendSkipsParkedAndBacked proves the check stays
+// quiet for intentional states: a disabled provider without backend and a
+// Go-backed provider with no plugin both pass.
+func TestInspect_MissingBackendSkipsParkedAndBacked(t *testing.T) {
+	svc, _, _ := docStack(t)
+	svc.providerSvc.RegisterGoAdapter(testutil.NewMockAdapter("go-type"))
+	if _, err := svc.providerSvc.Create(provider.CreateOptions{Name: "Go", TypeKey: "go-type"}); err != nil {
+		t.Fatalf("create go provider: %v", err)
+	}
+	parked, err := svc.providerSvc.Create(provider.CreateOptions{Name: "Parked", TypeKey: "parked-type"})
+	if err != nil {
+		t.Fatalf("create parked provider: %v", err)
+	}
+	if err := svc.providerSvc.SystemDisable(parked.ID, "test"); err != nil {
+		t.Fatalf("disable parked: %v", err)
+	}
+	rep, err := svc.Inspect()
+	if err != nil {
+		t.Fatalf("inspect: %v", err)
+	}
+	if hasCategory(rep, CategoryMissingProviderBackend) {
+		t.Fatalf("parked and Go-backed providers must pass: %+v", rep.Issues)
 	}
 }

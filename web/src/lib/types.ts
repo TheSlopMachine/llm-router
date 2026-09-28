@@ -378,6 +378,8 @@ export type DoctorCategory =
   | 'orphan_virtual_models'
   | 'duplicate_virtual_models'
   | 'orphan_plugin_storage'
+  | 'corrupt_plugin_storage'
+  | 'missing_provider_backend'
   | 'broken_token_indexes'
 
 export interface DoctorIssue {

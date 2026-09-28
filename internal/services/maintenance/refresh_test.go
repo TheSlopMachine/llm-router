@@ -16,7 +16,7 @@ import (
 
 // staleStack seeds one provider of type "stale-type" with n stale
 // credentials. The adapter's refresh behavior comes from the caller.
-func staleStack(t *testing.T, adapter *testutil.MockAdapter, n int) (*Service, *credential.Service, []string) {
+func staleStack(t *testing.T, adapter *testutil.MockAdapter, n int) (*Service, *credential.Service, *provider.Service, []string) {
 	t.Helper()
 	database := testutil.SetupTestDB(t)
 	providerSvc := provider.NewService(database)
@@ -40,7 +40,7 @@ func staleStack(t *testing.T, adapter *testutil.MockAdapter, n int) (*Service, *
 		ids = append(ids, cred.ID)
 	}
 	svc := New(credSvc, providerSvc, database, slog.Default())
-	return svc, credSvc, ids
+	return svc, credSvc, providerSvc, ids
 }
 
 // TestRunStartupRefresh_RefreshesStaleCredentials proves the startup gate:
@@ -54,7 +54,7 @@ func TestRunStartupRefresh_RefreshesStaleCredentials(t *testing.T) {
 			calls.Add(1)
 			return map[string]any{"api_key": "fresh-key"}, nil
 		})
-	svc, credSvc, ids := staleStack(t, adapter, 3)
+	svc, credSvc, _, ids := staleStack(t, adapter, 3)
 
 	svc.RunStartupRefresh(context.Background())
 
@@ -91,7 +91,7 @@ func TestRefreshStaleCredentials_RunsConcurrently(t *testing.T) {
 			}
 			return map[string]any{"api_key": "fresh-key"}, nil
 		})
-	svc, _, _ := staleStack(t, adapter, n)
+	svc, _, _, _ := staleStack(t, adapter, n)
 
 	done := make(chan int, 1)
 	go func() {
@@ -136,7 +136,7 @@ func TestRefreshStaleCredentials_BoundsWorkers(t *testing.T) {
 			calls.Add(1)
 			return map[string]any{"api_key": "fresh-key"}, nil
 		})
-	svc, _, _ := staleStack(t, adapter, n)
+	svc, _, _, _ := staleStack(t, adapter, n)
 
 	if got := svc.refreshStaleCredentials(context.Background()); got != n {
 		t.Fatalf("refreshed %d credentials, want %d", got, n)
@@ -162,7 +162,7 @@ func TestStart_TicksRefresh(t *testing.T) {
 			}
 			return map[string]any{"api_key": "fresh-key"}, nil
 		})
-	svc, _, _ := staleStack(t, adapter, 1)
+	svc, _, _, _ := staleStack(t, adapter, 1)
 	svc.WithInterval(50 * time.Millisecond)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -191,7 +191,7 @@ func TestRunStartupRefresh_RespectsCancellation(t *testing.T) {
 				return nil, ctx.Err()
 			}
 		})
-	svc, _, _ := staleStack(t, adapter, maxRefreshWorkers+2)
+	svc, _, _, _ := staleStack(t, adapter, maxRefreshWorkers+2)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
@@ -208,5 +208,74 @@ func TestRunStartupRefresh_RespectsCancellation(t *testing.T) {
 	wg.Wait()
 	if got := calls.Load(); got > maxRefreshWorkers {
 		t.Fatalf("cancelled gate launched %d refreshes, want at most %d", got, maxRefreshWorkers)
+	}
+}
+
+// TestMaybeRefresh_SkipsDisabledProvider proves parked providers cost
+// nothing: their credentials are never refreshed and resolve failures
+// behind them stay silent instead of warning every tick.
+func TestMaybeRefresh_SkipsDisabledProvider(t *testing.T) {
+	var calls atomic.Int32
+	adapter := testutil.NewMockAdapter("stale-type").
+		WithNeedsRefreshFunc(func(*models.Credential) bool { return true }).
+		WithRefreshFunc(func(_ context.Context, _ *models.Credential) (map[string]any, error) {
+			calls.Add(1)
+			return map[string]any{"api_key": "fresh-key"}, nil
+		})
+	svc, _, providerSvc, ids := staleStack(t, adapter, 2)
+	inst, err := providerSvc.Get("stale-type")
+	if err != nil {
+		t.Fatalf("get provider: %v", err)
+	}
+	if err := providerSvc.SystemDisable(inst.ID, "test"); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+
+	svc.RunStartupRefresh(context.Background())
+
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("disabled provider refreshed %d credentials, want 0", got)
+	}
+	for _, id := range ids {
+		cred, err := svc.credSvc.Get(id)
+		if err != nil {
+			t.Fatalf("get credential: %v", err)
+		}
+		if cred.Data["api_key"] != "stale-key" {
+			t.Fatalf("disabled credential %s was rewritten: %v", id, cred.Data)
+		}
+	}
+}
+
+// TestMaybeRefresh_SkipsDisabledProviderWithoutBackend is the exact reported
+// shape: a disabled provider whose type has no backend. The credential row
+// outlives its plugin, so it cannot go through Add (validation resolves the
+// backend); the pass takes the stored value directly. Resolution would fail,
+// so the disabled check must run first: zero backend calls, no warning path.
+func TestMaybeRefresh_SkipsDisabledProviderWithoutBackend(t *testing.T) {
+	var calls atomic.Int32
+	adapter := testutil.NewMockAdapter("stale-type").
+		WithNeedsRefreshFunc(func(*models.Credential) bool {
+			calls.Add(1)
+			return true
+		}).
+		WithRefreshFunc(func(_ context.Context, _ *models.Credential) (map[string]any, error) {
+			calls.Add(1)
+			return map[string]any{"api_key": "fresh-key"}, nil
+		})
+	svc, _, providerSvc, _ := staleStack(t, adapter, 0)
+	ghost, err := providerSvc.Create(provider.CreateOptions{Name: "Ghost", TypeKey: "ghost-type"})
+	if err != nil {
+		t.Fatalf("create ghost provider: %v", err)
+	}
+	if err := providerSvc.SystemDisable(ghost.ID, "test"); err != nil {
+		t.Fatalf("disable ghost: %v", err)
+	}
+
+	if got := svc.maybeRefresh(context.Background(), &models.Credential{ID: "ghost-cred", ProviderID: ghost.ID}); got {
+		t.Fatal("disabled backend-less credential must not refresh")
+	}
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("disabled backend-less provider reached the backend %d times, want 0", got)
 	}
 }

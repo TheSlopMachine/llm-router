@@ -100,6 +100,18 @@ func (s *Service) syncProviderModels(ctx context.Context) {
 // It reports whether the credential was refreshed; every other outcome logs
 // internally, so callers never branch on the result beyond counting.
 func (s *Service) maybeRefresh(ctx context.Context, cred *models.Credential) bool {
+	// Parked providers serve nothing: skip their credentials before
+	// resolving the backend, so a disabled provider without backend stays
+	// silent instead of warning every tick about a lookup that cannot
+	// succeed. The instance fetch needs no backend; a missing row falls
+	// through to Resolve, which keeps its orphan handling. Re-enable
+	// resumes refreshing.
+	if inst, err := s.providerSvc.Get(cred.ProviderID); err == nil && inst.Disabled {
+		s.logger.Debug("maintenance: skip refresh for disabled provider",
+			"credential_id", cred.ID, "provider_id", cred.ProviderID)
+		return false
+	}
+
 	resolved, err := provider.Resolve(s.providerSvc, cred.ProviderID)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
