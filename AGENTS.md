@@ -134,6 +134,8 @@ Keep changes shallow. Do not touch service internals unless the task requires it
 
 `check-frontend-deps` and `check-publish-deps` are prerequisites, not direct targets. Never run them standalone.
 
+`make go-test` runs the full suite by default. Scope with `make go-test PKG=...` only to iterate on one failing package. Never chain scoped runs to cover the tree; run one global pass instead.
+
 ### 4.2 Banned — raw equivalents of the above
 
 | DO | DON'T |
@@ -196,8 +198,11 @@ If the task needs `browser`, `publish`, or `clean`: STOP. Ask the human to run i
   (route patterns validate only at startup — hence `mux_test.go`).
 - Verify through execution whenever reasonable: run checks, tests, or smoke
   after implementing, fixing, or refactoring. `make go-vet`, `make go-test`,
-  `make go-fmt-check` gate every Go change; `make smoke` gates request-path
-  changes against live upstreams.
+  `make go-fmt-check` gate every Go change; `make smoke SMOKE_PLUGINS=mock`
+  gates request-path changes (Request flow in `docs/BACKEND.md`: `router`,
+  `pool`/`streamgate`, `proxypool`, `exhausted`/`geoban`, `virtual`,
+  `luaplugin`/`PLUGIN-API`, `api/v1`, `errors`). Scope to a real plugin only
+  to debug that plugin.
 
 ## 7. Design defaults
 
