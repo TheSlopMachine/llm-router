@@ -19,20 +19,20 @@ internal/services/
   pluginrepo/            plugin store: single-URL index repos (repo URL or direct index.json, files resolved against the index directory); code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
   modelinfo/             model metadata cache (1h TTL)
   metrics/               1m buckets, 90d retention
-  maintenance/           refresh + cleanup (refresh, modelsync, proxy, auth jobs)
+  maintenance/           credential refresh, model sync, auth cleanup
   exhausted/             joint limit keys (account/model/proxy), subset match, expiry auto-delete
   geoban/                indefinite (plugin, provider type, proxy) geo flags, no expiry, explicit clear
   admin/                 admin password change
   config/                instance-wide router configuration
   datamanagement/        subsystem export/import/clear + provider export/import/purge
   doctor/                database inspection and repair
-  proxypool/             pooled proxy selection, probing, rotation, demand fetch
+  proxypool/             external library adapter, Lua source bridge, bbolt cache, provider policy and adaptive refresh schedule
 internal/pool/           single-pass credential failover (unary + stream)
 internal/streamgate/     first-byte gate: failover stops after first SSE byte
 internal/httpkit/        shared transport helpers (SSE headers)
 internal/errors/         domain sentinels + MapUpstream + ToAPIError
 internal/repository/     bbolt buckets
-internal/dashboard/      admin REST API (providers, tokens, credentials + refresh, models, virtual-models, metrics, plugins, repos, config, data export/import/clear, doctor, proxies, geo bans)
+internal/dashboard/      admin REST API (providers, tokens, credentials + refresh, models, virtual-models, metrics, plugins, repos, config, data export/import/clear, doctor, proxy status/refresh, geo bans)
 internal/api/v1/         OpenAI-compatible endpoints: chat/completions, audio/transcriptions, audio/speech, images/generations, embeddings, messages, models list + retrieve
 internal/models/         shared wire types
 internal/config/         Config struct
@@ -79,8 +79,11 @@ Keep changes shallow. Touch service internals only when the task requires it.
   (`luaplugin/exhausted_skip.go`); the router also drops exhausted matches
   before the token filter and keeps the full pool when every credential is
   limited.
-- Proxy source keys qualify per plugin (`<recordID>/<name>`);
-  `proxypool.RekeySource` migrates legacy bare tags once at startup.
+- Proxy source keys qualify per plugin (`<recordID>/<name>`). The router
+  bridge accepts unauthenticated HTTP entries from each Lua source. The external
+  proxypool library owns candidate ingestion, health checks, scoring and
+  cache lifecycle. `proxypool.Service` owns provider filters, proxy limit
+  metadata and the adaptive refresh schedule.
 - `streamgate.Writer`: failover continues only before the first byte reaches
   the client. After that the stream belongs to one upstream.
 - Usage tracking is best-effort but never silent: failures log with the
@@ -101,14 +104,18 @@ Keep changes shallow. Touch service internals only when the task requires it.
 - Credential pools drop matching combinations before the token filter; when
   every credential is limited the router keeps the full pool as a last resort
   (`router/service.go:dropExhausted`). Proxy picks filter after ranking;
-  manual mode with nothing usable left fails loudly.
+  joint limits stay in `exhausted.Service`, while proxy-scoped limits use
+  library-managed metadata. Limit-store errors stop routing. Manual mode with
+  no IDs goes direct; selected IDs that resolve to no healthy proxy fail.
 - Expired entries delete on read; `Prune` sweeps the rest. Content,
   malformed-request, missing-model and transient failures never mark.
 - Geo bans (`geoban.Service`, bucket `geo_bans`) carry no expiry: proxy
   picks filter banned `(plugin, provider type, proxy)` triples after ranking,
   and unbanned picks from other regions sort above same-region picks.
-  Flags clear on proxy delete or explicit admin clear
-  (`DELETE /dashboard/providers/{id}/geo-bans[/{proxyId}]`).
+  Flags clear through explicit admin clear
+  (`DELETE /dashboard/providers/{id}/geo-bans[/{proxyId}]`). The pool does
+  not expose manual proxy deletion; the library retains dead entries for
+  health retries.
 
 ## Error contract
 
@@ -146,26 +153,34 @@ services map it with `errors.Is`, never by string.
   flush (`flushAll`, no age cutoff). Periodic aggregation persists only
   buckets older than 1h and evicts from memory after durable writes.
 - `maintenance.Start(ctx)`: one goroutine, one tick, independent jobs
-  (credential refresh, model sync, proxy rotation/fetch, auth cleanup).
-  A credential-list failure never skips model sync. Proxy fetch state is
-  per source; one failing source never delays the others.
-- Constructors perform no I/O. Legacy migration runs in `EnsureSeeded`,
-  where failures surface as errors.
+  (credential refresh, model sync, auth cleanup). A credential-list failure
+  never skips model sync.
+- `proxypool.Service.Start(ctx)`: startup refresh and independent adaptive
+  schedule. Refreshes run each minute during proxy use, then every five,
+  ten and fifteen minutes while idle. A request after eight idle minutes
+  starts a refresh immediately.
+- `proxypool.New` loads the persisted library cache and surfaces read errors
+  during server construction. Legacy migration runs in `EnsureSeeded` and
+  `proxypool.MigrateLegacy`, where failures surface as errors.
 
 ## Buckets
 
-`internal/db` owns bucket names and creation. Removed buckets (`agents`,
-`proxy_limits`) drop at startup; legacy rows migrate explicitly
-(`migrateLegacyCustom` inside `EnsureSeeded`, `migrateDropProxyLimits` /
-`migrateClearCredentialQuota` in `server`); migrations never silently
-discard user data. `geo_bans` is created alongside the rest.
+`internal/db` owns bucket names and creation. The DB initializer drops the
+legacy `agents` bucket. `proxypool.MigrateLegacy` drops `proxies`,
+`proxies_v2`, `active_regions`, `proxy_source_meta`, and `proxy_limits`.
+Supported unauthenticated HTTP proxy rows move to `proxy_cache_v1`; proxy limits move into library
+metadata; geo-ban IDs are rewritten in `geo_bans`; and old pool settings are
+removed from `router_configuration`. Unsupported rows and references are
+counted or removed. Other legacy rows migrate
+explicitly (`migrateLegacyCustom` inside `EnsureSeeded`,
+`migrateClearCredentialQuota` in `server`).
 
 Live buckets (`internal/db/db.go`): `meta`, `admin`, `tokens`,
 `token_index`, `provider_instances`, `credentials`, `plugins`,
 `plugin_repos`, `plugin_storage`, `auth`, `sessions`, `metrics`,
 `virtual_models`, `router_configuration`, `model_overrides`, `model_infos`,
-`proxies_v2`, `exhausted`, `geo_bans`, `active_regions`,
-`proxy_source_meta`. Legacy `providers`, `custom_providers`, `model_info`
+`proxy_cache_v1`, `exhausted`, `geo_bans`. Legacy `providers`,
+`custom_providers`, `model_info`
 remain defined but are not created; `EnsureSeeded` migrates them.
 
 ## Smoke harness

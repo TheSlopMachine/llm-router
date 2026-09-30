@@ -12,7 +12,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/pluginrepo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
-	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 	"github.com/TheSlopMachine/llm-router/internal/services/token"
 	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
 	bolt "go.etcd.io/bbolt"
@@ -20,7 +19,6 @@ import (
 
 // Aliases for clean API import payloads
 type VirtualModelImport = models.VirtualModel
-type ProxyImport = models.Proxy
 type TokenImport = models.RouterToken
 
 // ProviderBundle packages a provider instance with its credentials and model overrides.
@@ -37,7 +35,6 @@ type SubsystemStats struct {
 	VirtualModels int `json:"virtual_models"`
 	Plugins       int `json:"plugins"`
 	PluginRepos   int `json:"plugin_repos"`
-	Proxies       int `json:"proxies"`
 	Tokens        int `json:"tokens"`
 }
 
@@ -48,7 +45,6 @@ type Service struct {
 	credSvc      *credential.Service
 	virtualSvc   *virtual.Service
 	tokenSvc     *token.Service
-	proxySvc     *proxypool.Service
 	luaSvc       *luaplugin.Service
 	repoSvc      *pluginrepo.Service
 	modelInfoSvc *modelinfo.Service
@@ -61,7 +57,6 @@ func New(
 	credSvc *credential.Service,
 	virtualSvc *virtual.Service,
 	tokenSvc *token.Service,
-	proxySvc *proxypool.Service,
 	luaSvc *luaplugin.Service,
 	repoSvc *pluginrepo.Service,
 	modelInfoSvc *modelinfo.Service,
@@ -73,7 +68,6 @@ func New(
 		credSvc:      credSvc,
 		virtualSvc:   virtualSvc,
 		tokenSvc:     tokenSvc,
-		proxySvc:     proxySvc,
 		luaSvc:       luaSvc,
 		repoSvc:      repoSvc,
 		modelInfoSvc: modelInfoSvc,
@@ -99,12 +93,6 @@ func (s *Service) Stats() (SubsystemStats, error) {
 	tokens, err := s.tokenSvc.List()
 	if err == nil {
 		st.Tokens = len(tokens)
-	}
-	if s.proxySvc != nil {
-		proxies, err := s.proxySvc.List()
-		if err == nil {
-			st.Proxies = len(proxies)
-		}
 	}
 	if s.luaSvc != nil {
 		plugins, err := s.luaSvc.List()
@@ -430,47 +418,6 @@ func (s *Service) ClearPlugins() error {
 		return nil
 	})
 	return nil
-}
-
-// ─────────────────────────────────────────────
-// Proxies
-// ─────────────────────────────────────────────
-
-func (s *Service) ExportProxies() ([]*models.Proxy, error) {
-	if s.proxySvc == nil {
-		return nil, nil
-	}
-	all, err := s.proxySvc.List()
-	if err != nil {
-		return nil, err
-	}
-	manual := make([]*models.Proxy, 0, len(all))
-	for _, p := range all {
-		if p.Source == proxypool.ManualSource {
-			manual = append(manual, p)
-		}
-	}
-	return manual, nil
-}
-
-func (s *Service) ImportProxies(proxies []*models.Proxy) error {
-	if s.proxySvc == nil {
-		return nil
-	}
-	for _, p := range proxies {
-		if p == nil || p.URL == "" {
-			continue
-		}
-		_, _ = s.proxySvc.AddManual(p.URL, p.Location)
-	}
-	return nil
-}
-
-func (s *Service) ClearProxies() error {
-	if s.proxySvc == nil {
-		return nil
-	}
-	return s.proxySvc.Clear()
 }
 
 // ─────────────────────────────────────────────

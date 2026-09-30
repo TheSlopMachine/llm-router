@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
@@ -52,11 +51,13 @@ func wireProxy(luaSvc *luaplugin.Service, proxySvc *proxypool.Service, exhausted
 		}
 		bannedRegions := map[string]bool{}
 		if geobanSvc != nil {
-			if regions, err := geobanSvc.BannedRegions(rec.ID, typeKey, func(proxyID string) string {
+			regions, err := geobanSvc.BannedRegions(rec.ID, typeKey, func(proxyID string) string {
 				return regionOf[proxyID]
-			}); err == nil {
-				bannedRegions = regions
+			})
+			if err != nil {
+				return nil, fmt.Errorf("provider proxy: load geo bans: %w", err)
 			}
+			bannedRegions = regions
 		}
 		type rankedPick struct {
 			pick        proxypool.Pick
@@ -64,16 +65,29 @@ func wireProxy(luaSvc *luaplugin.Service, proxySvc *proxypool.Service, exhausted
 		}
 		ranked := make([]rankedPick, 0, len(picks))
 		droppedExhausted := 0
+		droppedProxyLimit := 0
 		droppedGeoban := 0
 		for _, p := range picks {
 			candidate := known
 			candidate.Proxy = p.ID
-			if dropExhaustedProxy(exhaustedSvc, candidate) {
+			dropExhausted, dropProxyLimit, err := checkProxyLimits(exhaustedSvc, proxySvc, candidate)
+			if err != nil {
+				return nil, err
+			}
+			if dropExhausted {
 				droppedExhausted++
 				continue
 			}
+			if dropProxyLimit {
+				droppedProxyLimit++
+				continue
+			}
 			if geobanSvc != nil {
-				if banned, err := geobanSvc.IsBanned(rec.ID, typeKey, p.ID); err == nil && banned {
+				banned, err := geobanSvc.IsBanned(rec.ID, typeKey, p.ID)
+				if err != nil {
+					return nil, fmt.Errorf("provider proxy: check geo ban: %w", err)
+				}
+				if banned {
 					droppedGeoban++
 					continue
 				}
@@ -84,10 +98,10 @@ func wireProxy(luaSvc *luaplugin.Service, proxySvc *proxypool.Service, exhausted
 			logger.Debug("proxy: filtered picks",
 				"plugin_id", rec.ID, "type", typeKey,
 				"total", len(picks), "kept", len(ranked),
-				"dropped_exhausted", droppedExhausted, "dropped_geoban", droppedGeoban)
+				"dropped_exhausted", droppedExhausted, "dropped_proxy_limit", droppedProxyLimit, "dropped_geoban", droppedGeoban)
 		}
 		if proxyCfg.Mode == models.ProxyModeAuto {
-			// Stable partition: other-region picks first, same speed order
+			// Stable partition: other-region picks first, same latency order
 			// within each group. Manual order stays sacred.
 			var other, same []rankedPick
 			for _, rp := range ranked {
@@ -115,26 +129,24 @@ func wireProxy(luaSvc *luaplugin.Service, proxySvc *proxypool.Service, exhausted
 	})
 }
 
-// dropExhaustedProxy reports whether candidate — plugin, type, proxy, and
-// whatever account/model the caller already fixed for this attempt —
-// matches a stored limit key at any narrowing. A nil store disables
-// filtering; lookup failures fail open so a struggling store never blocks
-// traffic.
-func dropExhaustedProxy(exhaustedSvc *exhausted.Service, candidate exhausted.Segments) bool {
-	if exhaustedSvc == nil {
-		return false
+// checkProxyLimits applies joint request limits. Storage errors stop routing
+// instead of allowing a proxy whose limit state could not be read.
+func checkProxyLimits(exhaustedSvc *exhausted.Service, proxySvc *proxypool.Service, candidate exhausted.Segments) (bool, bool, error) {
+	if exhaustedSvc != nil {
+		hit, err := exhaustedSvc.LimitedAny(candidate)
+		if err != nil {
+			return false, false, fmt.Errorf("provider proxy: check exhausted key: %w", err)
+		}
+		if hit != "" {
+			return true, false, nil
+		}
 	}
-	hit, err := exhaustedSvc.LimitedAny(candidate)
+	if proxySvc == nil {
+		return false, false, nil
+	}
+	limited, err := proxySvc.LimitedAny(candidate.Proxy, exhausted.SubKeys(candidate))
 	if err != nil {
-		return false
+		return false, false, fmt.Errorf("provider proxy: check proxy limit: %w", err)
 	}
-	return hit != ""
-}
-
-// proxyTickInterval converts the configured rotation period.
-func proxyTickInterval(cfg models.RouterConfiguration) time.Duration {
-	if cfg.UpdateIntervalMinutes < 1 {
-		return time.Duration(models.DefaultUpdateIntervalMinutes) * time.Minute
-	}
-	return time.Duration(cfg.UpdateIntervalMinutes) * time.Minute
+	return false, limited, nil
 }

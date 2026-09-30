@@ -1,178 +1,292 @@
-// Package proxypool implements the outbound proxy pool.
-//
-// Design: two-stage probe (CONNECT handshake, download speed), one live
-// state per proxy-provider pair (rate limit, block), demand-driven fetch.
-// Presence in the bucket means the proxy answered the last probe;
-// dead proxies are deleted, never flagged.
+// Package proxypool adapts the proxypool library to router policy and storage.
 package proxypool
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"log/slog"
+	"sort"
+	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
-	"github.com/TheSlopMachine/llm-router/internal/repository"
+	proxypoollib "github.com/TheSlopMachine/proxypool"
 )
 
-// ManualSource marks user-registered proxies.
-const ManualSource = "manual"
-
-// ListSource builds the source tag for a list plugin.
-func ListSource(typeKey string) string { return "list:" + typeKey }
-
-// checkConcurrency bounds parallel probes. Each probe egresses through its
-// own proxy, so per-IP rate limits apply per proxy, never globally.
-const checkConcurrency = 64
-
-// handshakeTimeout bounds the CONNECT tunnel stage.
-const handshakeTimeout = 10 * time.Second
-
-// downloadTimeout bounds the speed test stage.
-const downloadTimeout = 15 * time.Second
-
-// fetchWindowSize caps candidates covered per source fetch. Coverage
-// proceeds in fetchChunkSize slices while shortfall persists, so a full
-// pool costs zero probes and a cold pool costs at most one window.
-const fetchWindowSize = 1500
-
-// fetchChunkSize is one probe batch inside a fetch window.
-const fetchChunkSize = 150
-
-// demandWriteThrottle bounds demand bucket writes per region.
-const demandWriteThrottle = time.Hour
-
-// demandExpiry drops demand unseen for this long. Defaults never expire.
-const demandExpiry = 48 * time.Hour
-
-// DefaultRegions seeds demand so the pool fills even before the first
-// whitelisted request arrives.
-var DefaultRegions = []string{"US", "DE", "NL", "GB", "FR", "CA"}
-
-// ErrBusy reports a rotation already in progress. Rotation runs under a
-// semaphore of size one: a tick or a manual refresh arriving while another
-// pass runs is skipped, never queued.
-var ErrBusy = errors.New("proxypool: rotation already in progress")
-
-// ErrNoProxies reports a settled pool with no usable pick: nothing is
-// running that could add one, so waiting longer is pointless.
-var ErrNoProxies = errors.New("proxypool: no usable proxy")
-
-// recheckInterval bounds staleness while waiting for a proxy (pair limit
-// expiry, scheduled fetch). Waiting never gives up on its own; the request
-// context still aborts it.
-const recheckInterval = 5 * time.Second
-
-var supportedProtocols = map[string]bool{"http": true, "https": true, "socks4": true, "socks5": true}
-
-// Service manages the proxy pool.
-type Service struct {
-	proxies *repository.Repository[models.Proxy]
-	regions *repository.Repository[models.ActiveRegion]
-	meta    *repository.Repository[sourceFetchMeta]
-	// CheckURL is the speed test download endpoint.
-	CheckURL string
-	// HandshakeHost is the CONNECT tunnel target (host:port).
-	HandshakeHost string
-	// hsTimeout bounds the CONNECT tunnel stage; dlTimeout the download.
-	// Unexported so tests can shrink them; production uses the consts.
-	hsTimeout time.Duration
-	dlTimeout time.Duration
-
-	mu             sync.Mutex
-	minSpeedKbps   int64
-	maxPerLocation int
-	rotationSem    chan struct{}
-	sourceStatus   map[string]*sourceState
-	// checking reports live probe work (rotation or candidate adds).
-	// It drives the dashboard busy signal; transitions own the details.
-	checking atomic.Bool
-	// bcastCh wakes RankWait waiters on every pool change. It is closed
-	// and replaced under bcastMu; waiters hold the channel, never the lock.
-	bcastMu sync.Mutex
-	bcastCh chan struct{}
-}
-
-// sourceFetchMeta persists the last fetch outcome per source. Offset rotates
-// the fetch window across fetches.
-type sourceFetchMeta struct {
-	Total       int       `json:"total"`
-	Offset      int       `json:"offset"`
-	LastFetchAt time.Time `json:"last_fetch_at"`
-	LastError   string    `json:"last_error,omitempty"`
-}
-
-// sourceState is the dashboard-facing runtime state of one source.
-type sourceState struct {
-	status      string
-	total       int
-	lastFetchAt time.Time
-	lastError   string
-}
-
-// Source lifecycle statuses reported to the dashboard.
-const (
-	SourceStatusIdle     = "idle"
-	SourceStatusFetching = "fetching"
-	SourceStatusAdding   = "adding"
-	SourceStatusRotating = "rotating"
+var (
+	ErrNoProxies = errors.New("proxy pool has no usable proxy")
 )
 
-// SourceInfo is the dashboard-facing snapshot of one source.
+// Proxy is the stable router-facing view of a validated library entry.
+type Proxy struct {
+	ID          string        `json:"id"`
+	URL         string        `json:"url"`
+	Location    string        `json:"location"`
+	Latency     time.Duration `json:"latency"`
+	Score       float64       `json:"score"`
+	LastChecked time.Time     `json:"last_checked"`
+}
+
+// Pick is one ordered proxy candidate for a provider request.
+type Pick struct {
+	ID       string
+	URL      string
+	Location string
+}
+
+// SourceInfo reports router-plugin feed diagnostics without claiming source
+// ownership of proxies retained by the library cache.
 type SourceInfo struct {
 	Key         string    `json:"key"`
 	Name        string    `json:"name"`
-	Status      string    `json:"status"`
-	Total       int       `json:"total"`
-	Pooled      int       `json:"pooled"`
 	LastFetchAt time.Time `json:"last_fetch_at,omitempty"`
+	Total       int       `json:"total"`
+	Unsupported int       `json:"unsupported"`
 	LastError   string    `json:"last_error,omitempty"`
 }
 
-// New constructs the proxy pool service with default pool settings.
-// Tune with SetConfig once RouterConfiguration is loaded.
-func New(database *db.DB) *Service {
-	return &Service{
-		proxies:        repository.New[models.Proxy](database, db.BucketProxies, "proxy"),
-		regions:        repository.New[models.ActiveRegion](database, db.BucketActiveRegions, "active_region"),
-		meta:           repository.New[sourceFetchMeta](database, db.BucketProxySourceMeta, "proxy_source_meta"),
-		CheckURL:       "https://speed.cloudflare.com/__down?bytes=1048576",
-		HandshakeHost:  "speed.cloudflare.com:443",
-		hsTimeout:      handshakeTimeout,
-		dlTimeout:      downloadTimeout,
-		minSpeedKbps:   models.DefaultMinDownloadSpeedKbps,
-		maxPerLocation: models.DefaultMaxProxiesPerLocation,
-		rotationSem:    make(chan struct{}, 1),
-		sourceStatus:   map[string]*sourceState{},
-		bcastCh:        make(chan struct{}),
+// Status describes pool activity and the next scheduled refresh.
+type Status struct {
+	Total           int           `json:"total"`
+	Active          int           `json:"active"`
+	Refreshing      bool          `json:"refreshing"`
+	LastRefreshAt   time.Time     `json:"last_refresh_at,omitempty"`
+	LastRefreshTime time.Duration `json:"last_refresh_duration"`
+	NextRefreshAt   time.Time     `json:"next_refresh_at,omitempty"`
+	RefreshInterval time.Duration `json:"refresh_interval"`
+	LastError       string        `json:"last_error,omitempty"`
+}
+
+// Service owns the adapter boundary, persistence, request policy and refresh
+// schedule. Proxy health and lifecycle remain in the proxypool library.
+type Service struct {
+	pool  *proxypoollib.ProxyPool
+	cache *dbCache
+	src   *pluginSource
+	log   *slog.Logger
+
+	mu           sync.Mutex
+	refreshMu    sync.Mutex
+	refreshing   bool
+	refreshWake  chan struct{}
+	changed      chan struct{}
+	rootCtx      context.Context
+	lastUse      time.Time
+	lastRefresh  time.Time
+	lastDuration time.Duration
+	lastError    string
+	nextRefresh  time.Time
+	interval     time.Duration
+
+	keys  func() ([]string, error)
+	fetch func(context.Context, string) ([]models.ProxyCandidate, error)
+
+	sourceMu sync.Mutex
+	sources  map[string]SourceInfo
+}
+
+// New constructs the library-backed pool and restores its persistent cache.
+func New(database *db.DB) (*Service, error) {
+	cache, err := newDBCache(database)
+	if err != nil {
+		return nil, err
+	}
+	s := &Service{
+		cache:       cache,
+		log:         slog.Default(),
+		refreshWake: make(chan struct{}, 1),
+		changed:     make(chan struct{}),
+		interval:    time.Minute,
+		sources:     map[string]SourceInfo{},
+	}
+	s.pool = proxypoollib.NewPool()
+	s.pool.RegisterCacheSource(cache)
+	s.src = &pluginSource{service: s}
+	s.pool.RegisterProxySource(s.src)
+	return s, nil
+}
+
+// SetLogger installs structured service logging.
+func (s *Service) SetLogger(logger *slog.Logger) {
+	if logger != nil {
+		s.log = logger
 	}
 }
 
-// SetConfig installs the pool settings from RouterConfiguration.
-func (s *Service) SetConfig(minSpeedKbps int64, maxPerLocation int) {
+// SetSourceHandlers connects registered Lua proxy-source plugins.
+func (s *Service) SetSourceHandlers(keys func() ([]string, error), fetch func(context.Context, string) ([]models.ProxyCandidate, error)) {
+	s.mu.Lock()
+	s.keys = keys
+	s.fetch = fetch
+	s.mu.Unlock()
+}
+
+// RequestRefresh coalesces a background refresh request.
+func (s *Service) RequestRefresh() bool {
+	s.mu.Lock()
+	if s.refreshing {
+		s.mu.Unlock()
+		return false
+	}
+	s.refreshing = true
+	s.notifyLocked()
+	s.mu.Unlock()
+	go func() {
+		started := time.Now()
+		s.refreshMu.Lock()
+		s.pool.Refresh()
+		cacheErr := s.cache.takeError()
+		s.refreshMu.Unlock()
+
+		s.mu.Lock()
+		s.refreshing = false
+		s.lastRefresh = started
+		s.lastDuration = time.Since(started)
+		s.lastError = ""
+		if cacheErr != nil {
+			s.lastError = cacheErr.Error()
+			if s.log != nil {
+				s.log.Error("proxy refresh persistence failed", "error", cacheErr)
+			}
+		}
+		s.notifyLocked()
+		s.mu.Unlock()
+	}()
+	return true
+}
+
+// Start begins the initial refresh and adaptive refresh schedule.
+func (s *Service) Start(ctx context.Context) {
+	s.mu.Lock()
+	s.rootCtx = ctx
+	s.mu.Unlock()
+	s.RequestRefresh()
+	go s.schedule(ctx)
+}
+
+// Touch records active pool use and wakes the scheduler after an idle period.
+func (s *Service) Touch() {
+	now := time.Now()
+	s.mu.Lock()
+	idle := s.lastUse.IsZero() || now.Sub(s.lastUse) >= 8*time.Minute
+	s.lastUse = now
+	s.mu.Unlock()
+	if idle {
+		select {
+		case s.refreshWake <- struct{}{}:
+		default:
+		}
+		s.RequestRefresh()
+	}
+}
+
+// List returns verified live proxies in library rank order.
+func (s *Service) List() ([]*Proxy, error) {
+	if err := s.cache.peekError(); err != nil {
+		return nil, err
+	}
+	infos := s.healthyProxies()
+	out := make([]*Proxy, 0, len(infos))
+	for _, p := range infos {
+		out = append(out, &Proxy{ID: proxyID(p.URL), URL: p.URL, Location: NormalizeCountryCode(p.Location), Latency: p.Latency, Score: p.Score, LastChecked: p.LastChecked})
+	}
+	return out, nil
+}
+
+func (s *Service) healthyProxies() []proxypoollib.ProxyInfo {
+	infos := s.pool.ListProxies(proxypoollib.ProxyFilter{})
+	healthy := make([]proxypoollib.ProxyInfo, 0, len(infos))
+	for _, info := range infos {
+		// New entries are visible to ListProxies before their first check ends.
+		if !info.LastChecked.IsZero() {
+			healthy = append(healthy, info)
+		}
+	}
+	return healthy
+}
+
+// Get returns a cached proxy by its stable router ID, including dead entries.
+func (s *Service) Get(id string) (*Proxy, error) {
+	if err := s.cache.peekError(); err != nil {
+		return nil, err
+	}
+	for _, state := range s.cache.All() {
+		if proxyID(state.URL) == id {
+			return stateView(state), nil
+		}
+	}
+	return nil, fmt.Errorf("proxy %q not found", id)
+}
+
+// KnownIDs returns IDs for all cached proxies, including dead entries.
+func (s *Service) KnownIDs() ([]string, error) {
+	if err := s.cache.peekError(); err != nil {
+		return nil, err
+	}
+	states := s.cache.All()
+	ids := make([]string, 0, len(states))
+	for _, state := range states {
+		ids = append(ids, proxyID(state.URL))
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+// Status returns pool counts and scheduler state.
+func (s *Service) Status() (Status, error) {
+	if err := s.cache.peekError(); err != nil {
+		return Status{}, err
+	}
+	all := s.cache.All()
+	active := len(s.healthyProxies())
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if minSpeedKbps > 0 {
-		s.minSpeedKbps = minSpeedKbps
-	}
-	if maxPerLocation > 0 {
-		s.maxPerLocation = maxPerLocation
-	}
+	return Status{
+		Total:           len(all),
+		Active:          active,
+		Refreshing:      s.refreshing,
+		LastRefreshAt:   s.lastRefresh,
+		LastRefreshTime: s.lastDuration,
+		NextRefreshAt:   s.nextRefresh,
+		RefreshInterval: s.interval,
+		LastError:       s.lastError,
+	}, nil
 }
 
-func (s *Service) settings() (minSpeedKbps int64, maxPerLocation int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.minSpeedKbps, s.maxPerLocation
+// SourceInfos returns last-fetch diagnostics for currently registered feeds.
+func (s *Service) SourceInfos() []SourceInfo {
+	s.sourceMu.Lock()
+	defer s.sourceMu.Unlock()
+	out := make([]SourceInfo, 0, len(s.sources))
+	for _, info := range s.sources {
+		out = append(out, info)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out
 }
 
-// lessProxy orders proxies fastest-first, ties by quicker handshake.
-// Single source of truth for every ranking in the pool.
-func lessProxy(a, b *models.Proxy) bool {
-	if a.SpeedKbps != b.SpeedKbps {
-		return a.SpeedKbps > b.SpeedKbps
+func (s *Service) notifyLocked() {
+	close(s.changed)
+	s.changed = make(chan struct{})
+}
+
+func stateView(state proxypoollib.ProxyState) *Proxy {
+	return &Proxy{ID: proxyID(state.URL), URL: state.URL, Location: NormalizeCountryCode(state.Location), Latency: state.Latency, Score: state.Score, LastChecked: state.LastCheckedAt}
+}
+
+func proxyID(proxyURL string) string {
+	sum := sha256.Sum256([]byte(proxyURL))
+	return "px-" + hex.EncodeToString(sum[:8])
+}
+
+func sourceDisplayName(key string) string {
+	if idx := strings.LastIndex(key, "/"); idx >= 0 {
+		return key[idx+1:]
 	}
-	return a.HandshakeMs < b.HandshakeMs
+	return key
 }

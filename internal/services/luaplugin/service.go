@@ -100,6 +100,8 @@ type Service struct {
 	// exhausted records joint limit keys for rate/quota outcomes
 	// (nil = disabled).
 	exhausted *exhausted.Service
+	// proxyLimits stores joint limit keys that include a proxy dimension.
+	proxyLimits ProxyLimitStore
 
 	// geoban records indefinite geo flags (nil = disabled).
 	geoban interface {

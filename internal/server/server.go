@@ -16,7 +16,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/config"
 	"github.com/TheSlopMachine/llm-router/internal/dashboard"
 	"github.com/TheSlopMachine/llm-router/internal/db"
-	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
@@ -52,6 +51,13 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	database, err := db.Open(cfg.DBPath)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
+	}
+	proxyMigration, err := proxypool.MigrateLegacy(database)
+	if err != nil {
+		return nil, fmt.Errorf("migrate proxy pool: %w", err)
+	}
+	if proxyMigration.Imported+proxyMigration.Skipped+proxyMigration.Limits+proxyMigration.GeoBans+proxyMigration.ConfigFields+proxyMigration.SelectedIDsRemoved > 0 && logger != nil {
+		logger.Info("proxy pool migration completed", "imported", proxyMigration.Imported, "skipped", proxyMigration.Skipped, "limits", proxyMigration.Limits, "geo_bans", proxyMigration.GeoBans, "config_fields", proxyMigration.ConfigFields, "selected_ids_removed", proxyMigration.SelectedIDsRemoved)
 	}
 
 	dashboardAddr := cfg.DashboardAddr
@@ -92,10 +98,6 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	if err := repoSvc.EnsureBuiltinRepos(); err != nil {
 		return nil, fmt.Errorf("seed built-in plugin repos: %w", err)
 	}
-	routerCfg, err := configSvc.Get()
-	if err != nil {
-		return nil, fmt.Errorf("load router config: %w", err)
-	}
 	exhaustedSvc := exhausted.New(database)
 	geobanSvc := geoban.New(database)
 	geobanSvc.SetLogger(logger)
@@ -124,19 +126,18 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	}
 	genericAdapter.SetUsageTracker(credSvc)
 
-	// Proxy subsystem: pool, plugin proxy resolution, pair outcome reports.
-	proxySvc := proxypool.New(database)
-	proxySvc.SetConfig(routerCfg.MinDownloadSpeedKbps, routerCfg.MaxProxiesPerLocation)
+	// Proxy subsystem: library-backed pool, source bridge and router policy.
+	proxySvc, err := proxypool.New(database)
+	if err != nil {
+		return nil, fmt.Errorf("init proxy cache: %w", err)
+	}
+	proxySvc.SetLogger(logger)
+	proxySvc.SetSourceHandlers(luaSvc.ProxySourceKeys, luaSvc.FetchProxies)
+	luaSvc.SetProxyLimitStore(proxySvc)
 	wireProxy(luaSvc, proxySvc, exhaustedSvc, geobanSvc, logger)
 
 	maintSvc := maintenance.New(credSvc, providerSvc, database, logger)
-	maintSvc.SetProxyServices(proxySvc, luaSvc)
-	maintSvc.SetProxyTickInterval(proxyTickInterval(routerCfg))
 	maintSvc.SetModelInfoService(modelInfoSvc)
-	configSvc.SetOnChanged(func(cfg models.RouterConfiguration) {
-		proxySvc.SetConfig(cfg.MinDownloadSpeedKbps, cfg.MaxProxiesPerLocation)
-		maintSvc.SetProxyTickInterval(proxyTickInterval(cfg))
-	})
 	metricsSvc := metrics.New(database, logger)
 	metricsSvc.Start()
 
@@ -148,8 +149,6 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	go modelInfoSvc.WarmMissing(context.Background())
 
 	startupCleanup(logger, credSvc, providerSvc)
-	migrateProxySourceKeys(logger, luaSvc, proxySvc)
-	migrateDropProxyLimits(logger, database)
 	migrateClearCredentialQuota(logger, database)
 
 	if cfg.NoAuth {
@@ -227,12 +226,12 @@ const startupRefreshTimeout = 30 * time.Second
 
 // Run starts the maintenance loop and blocks on both HTTP servers.
 func (s *Server) Run(ctx context.Context) error {
-	// Refresh stale credentials before serving traffic: a restarted router
-	// must not expose expired keys to live requests while the background
-	// loop is still rotating proxies.
+	// Refresh stale credentials before serving traffic so a restarted router
+	// does not expose expired keys while the background refresh runs.
 	rgate, cancel := context.WithTimeout(ctx, startupRefreshTimeout)
 	s.maintSvc.RunStartupRefresh(rgate)
 	cancel()
+	s.proxySvc.Start(ctx)
 	s.maintSvc.Start(ctx)
 	s.logger.Info("llm-router started", "dashboard", s.cfg.DashboardAddr, "api", s.cfg.APIAddr, "db", s.cfg.DBPath)
 

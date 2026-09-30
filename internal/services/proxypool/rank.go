@@ -7,131 +7,98 @@ import (
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	proxypoollib "github.com/TheSlopMachine/proxypool"
 )
 
-// Pick is one ranked proxy candidate.
-type Pick struct {
-	ID       string
-	URL      string
-	Location string
-}
-
-// Rank returns the ordered proxy list for a provider call: whitelist
-// filtered, fastest first. Limit filtering lives downstream of ranking, in
-// the exhausted store. Disabled mode returns nil (direct). Manual mode
-// follows the ids order and fails loudly when nothing usable is pooled.
-// An empty whitelist allows any location.
-func (s *Service) Rank(whitelist []string, mode string, ids []string, provider string) ([]Pick, error) {
-	if mode != models.ProxyModeDisabled {
-		s.NoteDemand(whitelist)
-	}
-	switch mode {
-	case models.ProxyModeManual:
-		return s.rankManual(ids, provider)
-	case models.ProxyModeAuto:
-		return s.rankAuto(whitelist, provider), nil
-	default:
+// Rank returns library-ranked proxies allowed by the provider policy.
+func (s *Service) Rank(whitelist []string, mode string, ids []string, _ string) ([]Pick, error) {
+	if mode == models.ProxyModeDisabled || (mode == models.ProxyModeManual && len(ids) == 0) {
 		return nil, nil
 	}
+	s.Touch()
+	if err := s.cache.peekError(); err != nil {
+		return nil, err
+	}
+	infos := s.healthyProxies()
+	byID := make(map[string]proxypoollib.ProxyInfo, len(infos))
+	allow := make(map[string]bool, len(whitelist))
+	for _, location := range whitelist {
+		if location = NormalizeCountryCode(location); location != "" {
+			allow[location] = true
+		}
+	}
+	for _, info := range infos {
+		byID[proxyID(info.URL)] = info
+	}
+	if mode == models.ProxyModeManual {
+		picks := make([]Pick, 0, len(ids))
+		for _, id := range ids {
+			info, ok := byID[id]
+			if !ok {
+				continue
+			}
+			picks = append(picks, Pick{ID: id, URL: info.URL, Location: NormalizeCountryCode(info.Location)})
+		}
+		if len(picks) == 0 {
+			return nil, fmt.Errorf("provider proxy: no usable proxy among %d selected", len(ids))
+		}
+		return picks, nil
+	}
+	if mode != models.ProxyModeAuto {
+		return nil, fmt.Errorf("provider proxy: unsupported mode %q", mode)
+	}
+	ordered := make([]proxypoollib.ProxyInfo, 0, len(infos))
+	for _, info := range infos {
+		if len(allow) > 0 && !allow[NormalizeCountryCode(info.Location)] {
+			continue
+		}
+		ordered = append(ordered, info)
+	}
+	// The library orders by latency; keep a deterministic URL tie-breaker.
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if ordered[i].Latency != ordered[j].Latency {
+			return ordered[i].Latency < ordered[j].Latency
+		}
+		return ordered[i].URL < ordered[j].URL
+	})
+	picks := make([]Pick, 0, len(ordered))
+	for _, info := range ordered {
+		picks = append(picks, Pick{ID: proxyID(info.URL), URL: info.URL, Location: NormalizeCountryCode(info.Location)})
+	}
+	return picks, nil
 }
 
-// RankWait is Rank for auto mode with waiting: empty picks while probe
-// work runs or a fetch is still due block until a pick appears, the pool
-// settles empty (ErrNoProxies), or the context aborts. Providers wait for
-// ready or no-proxies instead of silently going direct.
+// RankWait waits for an in-progress library refresh when no proxy is ready.
 func (s *Service) RankWait(ctx context.Context, whitelist []string, ids []string, provider string) ([]Pick, error) {
 	for {
 		picks, err := s.Rank(whitelist, models.ProxyModeAuto, ids, provider)
-		if err != nil {
-			return nil, err
+		if err != nil || len(picks) > 0 {
+			return picks, err
 		}
-		if len(picks) > 0 {
-			return picks, nil
-		}
-		if !s.Checking() && !s.NeedsSearch() {
+		s.mu.Lock()
+		refreshing := s.refreshing
+		changed := s.changed
+		s.mu.Unlock()
+		if !refreshing {
 			return nil, ErrNoProxies
 		}
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-s.changed():
-		case <-time.After(recheckInterval):
+		case <-changed:
 		}
 	}
 }
 
-// Choose returns the fastest usable proxy, or ("", "", nil) for direct.
-func (s *Service) Choose(whitelist []string, mode string, ids []string, provider string) (string, string, error) {
-	picks, err := s.Rank(whitelist, mode, ids, provider)
-	if err != nil {
-		return "", "", err
-	}
-	if len(picks) == 0 {
-		return "", "", nil
-	}
-	return picks[0].ID, picks[0].URL, nil
-}
-
-// usable applies the location whitelist to one proxy. Limit state lives in
-// the exhausted store and filters downstream of ranking, never here.
-func usable(p *models.Proxy, allow map[string]bool) bool {
-	return allow == nil || allow[p.Location]
-}
-
-func whitelistSet(whitelist []string) map[string]bool {
-	if len(whitelist) == 0 {
-		return nil
-	}
-	allow := map[string]bool{}
-	for _, loc := range whitelist {
-		if loc = NormalizeCountryCode(loc); loc != "" {
-			allow[loc] = true
+func (s *Service) LimitedAny(id string, keys []string) (bool, error) {
+	for _, key := range keys {
+		limited, err := s.IsLimited(id, key, time.Now())
+		if err != nil {
+			return false, err
+		}
+		if limited {
+			return true, nil
 		}
 	}
-	return allow
-}
-
-func (s *Service) rankAuto(whitelist []string, provider string) []Pick {
-	all, err := s.proxies.List()
-	if err != nil {
-		return nil
-	}
-	allow := whitelistSet(whitelist)
-	ranked := make([]*models.Proxy, 0, len(all))
-	for _, p := range all {
-		if !usable(p, allow) {
-			continue
-		}
-		ranked = append(ranked, p)
-	}
-	sort.Slice(ranked, func(i, j int) bool { return lessProxy(ranked[i], ranked[j]) })
-	picks := make([]Pick, 0, len(ranked))
-	for _, p := range ranked {
-		picks = append(picks, Pick{ID: p.ID, URL: p.URL, Location: p.Location})
-	}
-	return picks
-}
-
-func (s *Service) rankManual(ids []string, provider string) ([]Pick, error) {
-	// No proxies selected means direct: manual mode without picks must not
-	// fail requests, only an explicit selection that filters down to
-	// nothing fails loudly.
-	if len(ids) == 0 {
-		return nil, nil
-	}
-	picks := []Pick{}
-	for _, id := range ids {
-		p, err := s.proxies.Get(id)
-		if err != nil || p == nil {
-			continue
-		}
-		if !usable(p, nil) {
-			continue
-		}
-		picks = append(picks, Pick{ID: p.ID, URL: p.URL, Location: p.Location})
-	}
-	if len(picks) == 0 {
-		return nil, fmt.Errorf("provider proxy: no usable proxy among %d selected", len(ids))
-	}
-	return picks, nil
+	return false, nil
 }

@@ -1,5 +1,5 @@
 import { apiCall as _apiCall } from './api-client'
-import type { Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate, ProviderModel, ProviderVMGroup, TestResult, Proxy, ProxyStatus, ProxySourceInfo, ProxySourceProxies, SubsystemStats, DoctorReport, DoctorCategory, ProviderBundle } from './types'
+import type { Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate, ProviderModel, ProviderVMGroup, TestResult, Proxy, ProxyStatus, ProxySourceInfo, SubsystemStats, DoctorReport, DoctorCategory, ProviderBundle } from './types'
 
 const apiCall = _apiCall
 
@@ -326,21 +326,13 @@ export const api = {
       const raw = (await assertOk(res)) as unknown
       return Array.isArray(raw) ? (raw as Proxy[]) : []
     },
-    add: (url: string, location?: string) =>
-      postJson('/api/llm-router/dashboard/proxies', { url, location: location ?? '' }),
-    delete: (id: string) =>
-      fetch(`/api/llm-router/dashboard/proxies/${id}`, { method: 'DELETE' }).then(assertOkVoid),
     sources: async (): Promise<ProxySourceInfo[]> => {
       const res = await fetch('/api/llm-router/dashboard/proxy-sources')
       const raw = (await assertOk(res)) as unknown
       return Array.isArray(raw) ? (raw as ProxySourceInfo[]) : []
     },
-    refreshSource: (key: string): Promise<{ started: boolean; reason?: string }> =>
-      postJson(`/api/llm-router/dashboard/proxy-sources/refresh?key=${encodeURIComponent(key)}`, {}),
-    sourceProxies: async (key: string, offset: number, limit: number): Promise<ProxySourceProxies> => {
-      const res = await fetch(`/api/llm-router/dashboard/proxy-sources/proxies?key=${encodeURIComponent(key)}&offset=${offset}&limit=${limit}`)
-      return (await assertOk(res)) as ProxySourceProxies
-    },
+    refresh: (): Promise<{ started: boolean; reason?: string }> =>
+      postJson('/api/llm-router/dashboard/proxies/refresh', {}),
     status: async (): Promise<ProxyStatus> => {
       const res = await fetch('/api/llm-router/dashboard/proxy/status')
       return (await assertOk(res)) as ProxyStatus
@@ -392,20 +384,16 @@ export const api = {
   },
 
   // Router configuration (instance-wide, RouterConfiguration bucket)
-  // Proxy pool fields pass through untouched: no UI controls edit them yet.
   config: {
-    get: async (): Promise<{ is_cluster_node: boolean; disable_telemetry: boolean; models_filter?: string; min_download_speed_kbps: number; max_proxies_per_location: number; update_interval_minutes: number }> => {
+    get: async (): Promise<{ is_cluster_node: boolean; disable_telemetry: boolean; models_filter?: string }> => {
       const raw = (await apiCall('get', '/api/llm-router/dashboard/config' as never)) as unknown as Record<string, unknown>
       return {
         is_cluster_node: (raw?.is_cluster_node as boolean) ?? false,
         disable_telemetry: (raw?.disable_telemetry as boolean) ?? false,
         models_filter: raw?.models_filter as string | undefined,
-        min_download_speed_kbps: (raw?.min_download_speed_kbps as number) ?? 15000,
-        max_proxies_per_location: (raw?.max_proxies_per_location as number) ?? 10,
-        update_interval_minutes: (raw?.update_interval_minutes as number) ?? 15,
       }
     },
-    update: (payload: { is_cluster_node: boolean; disable_telemetry: boolean; models_filter?: string; min_download_speed_kbps: number; max_proxies_per_location: number; update_interval_minutes: number }) =>
+    update: (payload: { is_cluster_node: boolean; disable_telemetry: boolean; models_filter?: string }) =>
       apiCall('put', '/api/llm-router/dashboard/config' as never, { body: payload as unknown as never } as never),
   },
 
@@ -441,7 +429,7 @@ export const api = {
     importProvider: (providerId: string, bundle: ProviderBundle): Promise<{ ok: boolean }> =>
       postJson(`/api/llm-router/dashboard/providers/${encodeURIComponent(providerId)}/import`, bundle),
 
-    purgeProvider: (providerId: string): Promise<{ ok: boolean }> =>
+    purgeProvider: (providerId: string): Promise<void> =>
       fetch(`/api/llm-router/dashboard/providers/${encodeURIComponent(providerId)}/purge`, { method: 'DELETE' }).then(assertOkVoid),
   },
 

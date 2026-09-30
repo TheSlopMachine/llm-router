@@ -69,6 +69,15 @@ func exhaustedJointKey(ctx *execContext, scope []string) (string, error) {
 	return exhausted.KeyFromScope(ctx.pluginID, providerKey, ctx.credentialID, ctx.model.String(), ctx.lastProxyID, scope)
 }
 
+func keyHasProxy(key string) bool {
+	for _, part := range strings.Split(key, "\x00") {
+		if strings.HasPrefix(part, "x=") {
+			return true
+		}
+	}
+	return false
+}
+
 // spillUpstreamBody moves oversized upstream bodies out of memory: bodies
 // over dumpSnippetCap truncate to the snippet, and in debug mode the full
 // body spills to a dumpDir file with the path on the log line.
@@ -138,6 +147,7 @@ func (s *Service) handlerCallRouted(
 		credentialID:        meta.credentialID(),
 		model:               meta.Model,
 		exhausted:           s.exhausted,
+		proxyLimits:         s.proxyLimits,
 		geoban:              s.geoban,
 		disableCredential:   s.credDisabler,
 		disableProvider:     s.provDisabler,
@@ -165,7 +175,7 @@ func (s *Service) handlerCallRouted(
 		spillUpstreamBody(ctx, perr)
 		switch perr.Type {
 		case models.ErrorTypeRateLimit, models.ErrorTypeQuotaExceeded:
-			if ctx.exhausted == nil {
+			if ctx.exhausted == nil && ctx.proxyLimits == nil {
 				return
 			}
 			resetsAt := time.Now().Add(time.Minute)
@@ -180,8 +190,20 @@ func (s *Service) handlerCallRouted(
 				}
 				return
 			}
-			if merr := ctx.exhausted.Mark(key, resetsAt, perr.Message); merr != nil && ctx.logger != nil {
-				ctx.logger.Warn("exhausted: mark failed", "key", key, "error", merr)
+			var markErr error
+			if keyHasProxy(key) {
+				if ctx.proxyLimits == nil {
+					markErr = fmt.Errorf("proxy limit store is not configured")
+				} else {
+					markErr = ctx.proxyLimits.MarkLimit(ctx.lastProxyID, key, resetsAt, perr.Message)
+				}
+			} else if ctx.exhausted == nil {
+				return
+			} else {
+				markErr = ctx.exhausted.Mark(key, resetsAt, perr.Message)
+			}
+			if markErr != nil && ctx.logger != nil {
+				ctx.logger.Warn("exhausted: mark failed", "key", key, "error", markErr)
 			} else if ctx.logger != nil {
 				ctx.logger.Debug("exhausted: marked limit key", "plugin_id", ctx.pluginID, "type", ctx.typeKey, "key", key)
 			}

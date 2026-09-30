@@ -3,7 +3,7 @@
 // Provider is the adapter type key here, deliberately shared by every
 // instance of the type: the block is a property of the upstream region
 // policy, unlike exhausted quota marks which isolate per instance.
-// No expiry: a flag lives until the proxy is deleted or an admin clears it.
+// No expiry: a flag lives until an admin clears it.
 // Expired-state self-healing does not apply; a wrongly banned proxy is
 // recovered by explicit clear, never by timer.
 package geoban
@@ -114,29 +114,6 @@ func (s *Service) ClearProvider(plugin, provider string) (int, error) {
 	}
 	if s.logger != nil {
 		s.logger.Debug("geoban: cleared provider bans", "plugin_id", plugin, "type", provider, "count", removed)
-	}
-	return removed, nil
-}
-
-// ClearProxy removes every flag naming the proxy (any plugin/provider) and
-// returns the removed count. Call when a proxy is deleted so dead proxies
-// never leave orphan flags behind.
-func (s *Service) ClearProxy(proxy string) (int, error) {
-	all, err := s.repo.List()
-	if err != nil {
-		return 0, err
-	}
-	removed := 0
-	for _, e := range all {
-		if e.Proxy == proxy {
-			if err := s.repo.DeleteIfExists(e.Key); err != nil {
-				return removed, err
-			}
-			removed++
-		}
-	}
-	if s.logger != nil {
-		s.logger.Debug("geoban: cleared proxy bans", "proxy_id", proxy, "count", removed)
 	}
 	return removed, nil
 }

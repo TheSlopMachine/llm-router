@@ -27,7 +27,7 @@ func (h *Handler) apiDataStats(w http.ResponseWriter, r *http.Request) {
 // @Summary      Export subsystem data
 // @Tags         Data
 // @Produce      json
-// @Param        subsystem path string true "Subsystem name (providers, virtual_models, plugins, proxies, tokens)"
+// @Param        subsystem path string true "Subsystem name (providers, virtual_models, plugins, tokens)"
 // @Success      200 {object} object
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/data/{subsystem}/export [get]
@@ -43,8 +43,6 @@ func (h *Handler) apiDataExport(w http.ResponseWriter, r *http.Request) {
 		data, err = h.dataSvc.ExportVirtualModels()
 	case "plugins":
 		data, err = h.dataSvc.ExportPlugins()
-	case "proxies":
-		data, err = h.dataSvc.ExportProxies()
 	case "tokens":
 		data, err = h.dataSvc.ExportTokens()
 	default:
@@ -109,16 +107,6 @@ func (h *Handler) apiDataImport(w http.ResponseWriter, r *http.Request) {
 			h.jsonErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-	case "proxies":
-		var proxies []*datamanagement.ProxyImport
-		if err := decoder.Decode(&proxies); err != nil {
-			h.jsonErr(w, http.StatusBadRequest, "invalid proxies payload")
-			return
-		}
-		if err := h.dataSvc.ImportProxies(proxies); err != nil {
-			h.jsonErr(w, http.StatusBadRequest, err.Error())
-			return
-		}
 	case "tokens":
 		var tokens []*datamanagement.TokenImport
 		if err := decoder.Decode(&tokens); err != nil {
@@ -157,8 +145,6 @@ func (h *Handler) apiDataClear(w http.ResponseWriter, r *http.Request) {
 		err = h.dataSvc.ClearVirtualModels()
 	case "plugins":
 		err = h.dataSvc.ClearPlugins()
-	case "proxies":
-		err = h.dataSvc.ClearProxies()
 	case "tokens":
 		err = h.dataSvc.ClearTokens()
 	default:

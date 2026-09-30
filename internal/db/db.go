@@ -29,11 +29,9 @@ var (
 	BucketRouterConfiguration = []byte("router_configuration") // Instance configuration (RouterConfiguration)
 	BucketModelOverrides      = []byte("model_overrides")      // Per-provider model enable/disable and custom models
 	BucketModelInfos          = []byte("model_infos")          // Persisted per-provider model metadata cache
-	BucketProxies             = []byte("proxies_v2")           // Proxy pool records (manual + list-sourced)
+	BucketProxyCache          = []byte("proxy_cache_v1")       // proxypool ProxyState records keyed by canonical URL
 	BucketExhausted           = []byte("exhausted")            // Unified joint limit keys: key → ExhaustedEntry
 	BucketGeoBans             = []byte("geo_bans")             // Indefinite geo flags: key → GeoBanEntry (no expiry)
-	BucketActiveRegions       = []byte("active_regions")       // Demanded proxy exit locations
-	BucketProxySourceMeta     = []byte("proxy_source_meta")    // Last fetch totals per proxy list source
 )
 
 // DB wraps a bbolt.DB and ensures all required buckets exist.
@@ -78,11 +76,9 @@ func (db *DB) initBuckets() error {
 			BucketRouterConfiguration,
 			BucketModelOverrides,
 			BucketModelInfos,
-			BucketProxies,
+			BucketProxyCache,
 			BucketExhausted,
 			BucketGeoBans,
-			BucketActiveRegions,
-			BucketProxySourceMeta,
 		}
 		for _, name := range buckets {
 			if _, err := tx.CreateBucketIfNotExists(name); err != nil {

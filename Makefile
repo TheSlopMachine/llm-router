@@ -25,7 +25,7 @@ endif
 export DEV_DB
 
 BUN_MIN := 1.2
-GO_MIN  := 1.25
+GO_MIN  := 1.27.1
 BUN     := bun
 
 .PHONY: help check-frontend-deps check-publish-deps go-tidy go-fmt go-fmt-check init start stop restart status browser log log-frontend clean publish go-vet go-test check-frontend smoke

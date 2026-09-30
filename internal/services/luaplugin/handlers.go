@@ -692,10 +692,10 @@ func QualifiedSourceKey(recordID, name string) string {
 
 // ProxySourceKeys lists proxy-list sources registered by installed plugins,
 // one qualified key per (record, declared name), first-seen order.
-func (s *Service) ProxySourceKeys() []string {
+func (s *Service) ProxySourceKeys() ([]string, error) {
 	records, err := s.List()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var keys []string
 	seen := map[string]bool{}
@@ -708,7 +708,7 @@ func (s *Service) ProxySourceKeys() []string {
 			}
 		}
 	}
-	return keys
+	return keys, nil
 }
 
 // FetchProxies invokes the fetch_proxies handler of a proxy source plugin.

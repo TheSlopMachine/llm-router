@@ -165,7 +165,8 @@ func dedupeStrings(in []string) []string {
 // model_unavailable / structural_fault added, retry_after and scope
 // strictly validated, geo bans, credential/provider auto-disable). Older
 // plugins are rejected at install, not adapted: the contract break is
-// explicit.
+// explicit. Version 0.3.1 narrows proxy-source candidates to HTTP without
+// removing the otherwise compatible 0.3.0 provider contract.
 const minRouterVersion = "0.3.0"
 
 // CheckRouterVersion rejects plugins requiring a newer router.

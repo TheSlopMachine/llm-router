@@ -118,36 +118,30 @@ export interface TestResult {
 export interface Proxy {
   id: string
   url: string
-  protocol: string
-  host: string
-  port: number
   location: string
-  source: string
-  handshake_ms: number
-  speed_kbps: number
-  last_check_at?: string
-  created_at: string
+  latency: number
+  score: number
+  last_checked: string
 }
 
 export interface ProxyStatus {
   total: number
-  searching: boolean
-  checking: boolean
+  active: number
+  refreshing: boolean
+  last_refresh_at?: string
+  last_refresh_duration: number
+  next_refresh_at?: string
+  refresh_interval: number
+  last_error?: string
 }
 
 export interface ProxySourceInfo {
   key: string
   name: string
-  status: 'idle' | 'fetching' | 'adding' | 'rotating'
   total: number
-  pooled: number
+  unsupported: number
   last_fetch_at?: string
   last_error?: string
-}
-
-export interface ProxySourceProxies {
-  items: Proxy[]
-  total: number
 }
 
 export interface ModelInfo {
@@ -366,7 +360,6 @@ export interface SubsystemStats {
   virtual_models: number
   plugins: number
   plugin_repos: number
-  proxies: number
   tokens: number
 }
 

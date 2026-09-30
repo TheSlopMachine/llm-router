@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/pool"
@@ -15,6 +16,11 @@ import (
 // package free of import cycles.
 type UsageTracker = pool.UsageTracker
 
+// ProxyLimitStore persists proxy-scoped limit keys in pool metadata.
+type ProxyLimitStore interface {
+	MarkLimit(proxyID, key string, resetsAt time.Time, reason string) error
+}
+
 // SetUsageTracker wires per-credential usage accounting for pool calls.
 // Unset (nil) disables accounting; attempts still run.
 func (s *Service) SetUsageTracker(t UsageTracker) { s.usage = t }
@@ -22,6 +28,9 @@ func (s *Service) SetUsageTracker(t UsageTracker) { s.usage = t }
 // SetExhaustedStore wires joint limit-key recording for rate/quota/
 // model_unavailable outcomes. Unset (nil) disables marking; attempts still run.
 func (s *Service) SetExhaustedStore(e *exhausted.Service) { s.exhausted = e }
+
+// SetProxyLimitStore routes proxy-scoped limits to the proxy library cache.
+func (s *Service) SetProxyLimitStore(p ProxyLimitStore) { s.proxyLimits = p }
 
 // SetGeoBanStore wires indefinite geo-flag recording for geo outcomes.
 // Unset (nil) disables flagging; attempts still run.

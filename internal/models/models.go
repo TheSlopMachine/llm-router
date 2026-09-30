@@ -31,7 +31,9 @@ import (
 // indefinite per-provider proxy ban with same-key retry on another region,
 // auth/payment_required disable the credential, structural_fault disables
 // the provider (DisabledBy/Reason/At on both).
-const CurrentVersion = "0.3.0"
+// 0.3.1 restricts proxy-source candidates to unauthenticated HTTP URLs;
+// the proxypool library owns proxy health and cache lifecycle.
+const CurrentVersion = "0.3.1"
 
 // ─────────────────────────────────────────────
 // ModelId
@@ -1295,25 +1297,6 @@ type TimeSeriesPoint struct {
 // Proxies
 // ─────────────────────────────────────────────
 
-// Proxy is one outbound proxy endpoint, either manually registered or
-// synced from a proxy-list source plugin. Presence in the bucket means the
-// proxy answered the last probe; dead proxies are deleted, never flagged.
-type Proxy struct {
-	ID       string `json:"id"`
-	URL      string `json:"url"`      // scheme://[user:pass@]host:port
-	Protocol string `json:"protocol"` // http, https, socks4, socks5
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Location string `json:"location"` // ISO 3166-1 alpha-2 exit location, empty when unknown
-	Source   string `json:"source"`   // "manual" or "list:<source type key>"
-
-	HandshakeMs int64     `json:"handshake_ms"`
-	SpeedKbps   int64     `json:"speed_kbps"`
-	LastCheckAt time.Time `json:"last_check_at,omitempty"`
-
-	CreatedAt time.Time `json:"created_at"`
-}
-
 // ─────────────────────────────────────────────
 // Exhausted store (0.1.1)
 // ─────────────────────────────────────────────
@@ -1334,12 +1317,6 @@ type ExhaustedEntry struct {
 	Key      string    `json:"key"`
 	ResetsAt time.Time `json:"resets_at"`
 	Reason   string    `json:"reason,omitempty"`
-}
-
-// ActiveRegion is one demanded proxy exit location.
-type ActiveRegion struct {
-	Region   string    `json:"region"`
-	LastSeen time.Time `json:"last_seen"`
 }
 
 // ProxyConfig is the provider-level proxy mode stored in ProviderInstance.Config.
@@ -1449,7 +1426,7 @@ func ParseGeoConfig(providerConfig map[string]any) (GeoConfig, error) {
 
 // GeoBanEntry is one indefinite geo-block flag: proxy ProxyID is unusable
 // for provider type Provider of plugin Plugin. No expiry: the flag lives
-// until the proxy is deleted or an admin clears it explicitly.
+// until an admin clears it explicitly.
 type GeoBanEntry struct {
 	Key      string    `json:"key"`
 	Plugin   string    `json:"plugin"`
@@ -1509,23 +1486,7 @@ type RouterConfiguration struct {
 	// ModelsFilter remembers the dashboard model visibility filter
 	// ("all", "enabled", "disabled"). Empty means "all".
 	ModelsFilter string `json:"models_filter,omitempty"`
-	// MinDownloadSpeedKbps floors the pooled proxy download speed. Slower
-	// proxies are displaced once their location holds more than
-	// MaxProxiesPerLocation.
-	MinDownloadSpeedKbps int64 `json:"min_download_speed_kbps"`
-	// MaxProxiesPerLocation caps pooled proxies per exit location to the
-	// fastest N. Locations below the cap keep even slow proxies as fallback.
-	MaxProxiesPerLocation int `json:"max_proxies_per_location"`
-	// UpdateIntervalMinutes sets the automatic proxy rotation period.
-	UpdateIntervalMinutes int `json:"update_interval_minutes"`
 }
-
-// Default proxy pool settings.
-const (
-	DefaultMinDownloadSpeedKbps  int64 = 15000
-	DefaultMaxProxiesPerLocation       = 10
-	DefaultUpdateIntervalMinutes       = 15
-)
 
 // Validate checks the configuration ranges.
 func (c RouterConfiguration) Validate() error {
@@ -1533,15 +1494,6 @@ func (c RouterConfiguration) Validate() error {
 	case "", "all", "enabled", "disabled":
 	default:
 		return fmt.Errorf("models_filter must be one of all, enabled, disabled")
-	}
-	if c.MinDownloadSpeedKbps <= 0 {
-		return fmt.Errorf("min_download_speed_kbps must be positive")
-	}
-	if c.MaxProxiesPerLocation <= 0 {
-		return fmt.Errorf("max_proxies_per_location must be positive")
-	}
-	if c.UpdateIntervalMinutes < 1 || c.UpdateIntervalMinutes > 1440 {
-		return fmt.Errorf("update_interval_minutes must be between 1 and 1440")
 	}
 	return nil
 }

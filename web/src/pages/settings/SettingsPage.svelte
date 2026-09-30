@@ -10,7 +10,7 @@
   import { accent, accents } from '$lib/accent.svelte'
   import { Button, HStack, SectionCard, Select, Spacer, Switch, Text, VStack, TextEdit, Banner, Icon, Chip } from '$ui'
   import { squircle } from '$lib/squircle'
-  import type { SubsystemStats, DoctorReport } from '$lib/types'
+  import type { Provider, SubsystemStats, DoctorReport } from '$lib/types'
   import { toast } from '$lib/toast.svelte'
 
   let languageOptions = $derived([
@@ -31,9 +31,6 @@
   // Config
   let isClusterNode = $state(false)
   let disableTelemetry = $state(false)
-  let minDownloadSpeedKbps = $state(15000)
-  let maxProxiesPerLocation = $state(10)
-  let updateIntervalMinutes = $state(15)
 
   // Security
   let currentPassword = $state('')
@@ -85,9 +82,6 @@
       const cfg = await api.config.get()
       isClusterNode = cfg.is_cluster_node
       disableTelemetry = cfg.disable_telemetry
-      minDownloadSpeedKbps = cfg.min_download_speed_kbps
-      maxProxiesPerLocation = cfg.max_proxies_per_location
-      updateIntervalMinutes = cfg.update_interval_minutes
     } catch (e) {
       error = getErrorMessage(e)
     }
@@ -124,10 +118,7 @@
       theme.value = th
       await api.config.update({
         is_cluster_node: isClusterNode,
-        disable_telemetry: disableTelemetry,
-        min_download_speed_kbps: minDownloadSpeedKbps,
-        max_proxies_per_location: maxProxiesPerLocation,
-        update_interval_minutes: updateIntervalMinutes
+        disable_telemetry: disableTelemetry
       })
       toast.success(t('Changes saved'))
     } catch (e) {
@@ -415,7 +406,6 @@
           { key: 'providers', label: t('Providers & Keys'), count: stats.providers },
           { key: 'virtual_models', label: t('Virtual Models'), count: stats.virtual_models },
           { key: 'plugins', label: t('Plugins & Repos'), count: stats.plugins },
-          { key: 'proxies', label: t('Proxies'), count: stats.proxies },
           { key: 'tokens', label: t('Access Tokens'), count: stats.tokens }
         ] as sub}
           <VStack gap={2} class="subsystem-box">
@@ -454,8 +444,8 @@
     {:else}
       <VStack gap={3}>
         <VStack gap={1}>
-          <Text tag="label" size="sm" weight="medium" for="select-provider">{t('Select a provider')}</Text>
-          <Select id="select-provider" bind:value={selectedProviderId} options={providerOptions} />
+          <Text size="sm" weight="medium">{t('Select a provider')}</Text>
+          <Select ariaLabel={t('Select a provider')} bind:value={selectedProviderId} options={providerOptions} />
         </VStack>
 
         <HStack gap={2} align="center">

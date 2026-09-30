@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Router version: **0.3.0** (`models.CurrentVersion`). A plugin using a feature
+Router version: **0.3.1** (`models.CurrentVersion`). A plugin using a feature
 declares the `@router_version` that introduced it; older routers refuse to
 install it. Routers serve no contract older than **0.3.0**: plugins declaring
 `0.2.x` and below fail install and need reissue.
@@ -25,13 +25,14 @@ means `.0`, one leading `v` allowed); anything else fails install.
 | 0.1.2 | `payment_required` error type for upstream paywalls (status 402) |
 | 0.2.0 | DynamicForm Step gaps (`flow`/`grid` `gap` and `spacer` `size` accept int Step `0..8` alongside legacy `sm\|md\|lg`), `input_type=secret`, `flow.justify` gains `around`/`evenly`, strict `link.url` schemes, `provider_config` in auth `ctx` |
 | 0.3.0 | error contract rework: `timeout` merged into `upstream`; new types `content_policy` / `model_unavailable` / `structural_fault`; `rate_limit` and `quota_exceeded` require plugin-supplied future `retry_after`; `scope` strictly validated per type; `upstream_status` / `upstream_body` passthrough; geo becomes an indefinite per-provider proxy ban with same-key retry on another region (`config.geo`); `auth` / `payment_required` disable the credential, `structural_fault` disables the provider (`disabled_by/reason/at`); transport DNS/TLS/refused failures surface as `structural_fault`; manifest floor 0.3.0 |
+| 0.3.1 | Proxy sources accept unauthenticated HTTP candidates only; the proxypool library owns health checks, scoring, cache lifecycle and revival |
 
 ## Responsibility split
 
 The router owns orchestration; the plugin owns wire translation.
 
 - Router: credential pool order and single-pass iteration, token filtering,
-  proxy pick order and rotation, exhausted skip filtering, geo-ban
+  provider proxy policy and request failover, exhausted skip filtering, geo-ban
   filtering and region preference, stream first-byte gate, model cache,
   metrics, sandboxing, version gating, crash accounting, credential and
   provider auto-disable with first-wins cause.
@@ -332,8 +333,13 @@ list. Document the choice in `@description`.
 ### fetch_proxies (proxy sources)
 
 `fetch_proxies()` — no arguments. Returns an array of `{ protocol, host,
-port, country }` (`protocol` is `http`/`https`/`socks4`/`socks5`, `port` a
-number) or `nil` (means none). Only probed-alive entries pool.
+port, country }` (`protocol` and `host` are strings, `port` is a number) or
+`nil` (means no candidates). The router bridge accepts only unauthenticated
+`protocol = "http"` entries with a non-empty host and port in `1..65535`;
+other protocols and invalid endpoints are ignored and counted as unsupported.
+`country` is not trusted: the pool discovers the exit location. `nil` or an
+empty list, including one returned after HTTP `304 Not Modified`, means no new
+candidates. It does not remove cached proxies.
 
 ## llm_router API
 
@@ -504,7 +510,7 @@ Behavior:
 - `model_unavailable` marks `(provider, model)` for a fixed 2 minutes and
   disables nothing: the credential and the provider stay enabled.
 - `geo` records no TTL: the `(provider type, proxy)` flag is indefinite and
-  lives until the proxy is deleted or an admin clears it
+  lives until an admin clears it
   (`DELETE /dashboard/providers/{id}/geo-bans`). In `auto` proxy mode,
   unbanned picks from other regions sort above unbanned picks sharing a
   banned region, so retries land on another country instead of re-hitting
@@ -520,14 +526,24 @@ Behavior:
 
 ## Proxy pool
 
-Provider HTTP (`http_client`) routes through the pooled proxy picked for
-the calling provider. Pick = fastest proxy whose location is in the plugin
-whitelist. Rotation walks untried picks on transport failure and never falls
-back to direct: an empty list means direct was requested, an exhausted list
-surfaces the last error. Transport failures on the direct leg map to
+The router uses the `github.com/TheSlopMachine/proxypool` library for proxy
+URL ingestion, health checks, scoring, cache lifecycle and refresh probes.
+The router owns the Lua source bridge, provider policy, request-limit
+metadata and the refresh schedule. Source plugins return the existing
+`{ protocol, host, port, country }` shape; the bridge converts unauthenticated
+HTTP entries to URLs. The library probes the exit location and ignores entries
+omitted from a source on later fetches rather than deleting them.
+
+Provider HTTP (`http_client`) routes through the selected healthy proxy.
+Auto mode filters the library's latency-ranked list by the plugin's
+`@proxy_location` whitelist. Manual mode uses configured proxy IDs in their
+configured order and does not apply the location whitelist. On transport
+failure, the client tries the remaining picks and never falls back to direct.
+An empty list means direct mode was requested; an exhausted list surfaces
+the last error. Transport failures on the direct leg map to
 `structural_fault` when the endpoint itself is broken (DNS, TLS identity,
-refused connection) and to `upstream` otherwise; proxy-leg failures always
-surface as `upstream`.
+refused connection) and to `upstream` otherwise; proxy-leg failures surface
+as `upstream`.
 
 Provider proxy mode lives in the provider config (`proxy: { mode, ids? }`,
 `disabled` default, `manual` takes explicit proxy IDs; `manual` with no
@@ -544,33 +560,31 @@ default 3, cap 10). Manifest tags:
 --- @proxy_default_option auto  -- disabled (default) | auto | manual
 ```
 
-Pool rules (`RouterConfiguration`: `min_download_speed_kbps = 15000`,
-`max_proxies_per_location = 10`, `update_interval_minutes = 15`):
+The library retains proxy state in the router's bbolt `proxy_cache_v1`
+bucket. It probes cached and newly discovered entries, applies its own
+failure cooldowns and scores, and retains dead entries for later retries.
+The dashboard lists healthy entries and exposes one global refresh action;
+it does not add or delete individual proxies or refresh individual feeds.
+Source diagnostics report candidate counts, unsupported entries, fetch
+times and errors without claiming which source owns a cached proxy.
 
-* Two-stage probe, both legs through the proxy: CONNECT tunnel
-  (`Ping`, handshake ms), then a 1MB download (`Speed`, kbit/s). Tunnel
-  failure deletes at once; download failure deletes; a timed-out download
-  still records the achieved speed.
-* Dead proxies are deleted. Slow proxies (under the speed floor) are kept
-  as fallback until their location fills, then displaced one-for-one by
-  faster newcomers; rotation trims each location to the fastest N.
-  Manual proxies stay out of scheduled rotation and trimming; removal happens
-  by explicit delete or by a failed explicit re-probe.
-* Exit locations are verified by probing through the proxy on add; list
-  metadata is only a fallback.
-* Demand-driven fetch: request whitelists accumulate in `active_regions`
-  (defaults `US, DE, NL, GB, FR, CA` always apply, observed entries expire
-  after 48h). Scheduled fetch pauses while every demanded region holds N
-  fast proxies and resumes on shortage; manual refresh short-circuits on a
-  full pool. Rotation ticks on schedule regardless; source refresh fetches,
-  adds, then rotates the whole pool. One rotation at a time, 64 probe
-  workers.
-* Source fetch covers a rotating window of 1500 candidates per fetch,
-  probed in chunks of 150 while shortfall persists; a full pool costs zero
-  probes.
+The router starts one background refresh at startup. While a provider
+requests a proxy, refreshes run every minute. After eight minutes without a
+proxy request, the schedule backs off through five, ten and fifteen
+minutes. A proxy request after that idle period starts a refresh immediately
+and resets the schedule to one minute. An empty source response does not
+remove cached entries; the library controls proxy health and revival.
 
-`fetch_proxies` returns proxy candidates
-`{ protocol, host, port, country }`; only probed-alive entries pool.
+Proxy-scoped rate and quota limits live in library metadata through
+`UpdateMetadata` and `GetMetadata`. Other joint limit shapes remain in the
+router's exhausted store. The router namespaces limit metadata and removes
+expired keys when it reads them.
+
+Proxy-source plugins can use conditional requests with `llm_router.storage`.
+Persist the upstream `ETag` or `Last-Modified` value per plugin, send it as
+`If-None-Match` or `If-Modified-Since`, and return `nil` on `304`.
+The library then reuses its cache without downloading or ingesting a new
+list. The HTTP client returns lowercased response header names.
 
 Source identity: declare a bare name in `register_proxy_source(name, ...)`
 (the `^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$` pattern). The runtime qualifies it

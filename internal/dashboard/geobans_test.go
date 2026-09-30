@@ -42,7 +42,10 @@ func newGeoBansHandler(t *testing.T) (*Handler, *geoban.Service, string) {
 	h, providerSvc, database := newProvidersUIHandler(t)
 	luaSvc := seedUIRows(t, providerSvc, database)
 	geobanSvc := geoban.New(database)
-	proxySvc := proxypool.New(database)
+	proxySvc, err := proxypool.New(database)
+	if err != nil {
+		t.Fatalf("init proxy pool: %v", err)
+	}
 	h.luaSvc = luaSvc
 	h.geobanSvc = geobanSvc
 	h.proxySvc = proxySvc

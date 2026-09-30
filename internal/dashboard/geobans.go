@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"net/http"
+	"net/url"
 )
 
 type geoBanView struct {
@@ -52,10 +53,12 @@ func (h *Handler) apiGeoBansList(w http.ResponseWriter, r *http.Request) {
 		}
 		if h.proxySvc != nil {
 			if px, err := h.proxySvc.Get(b.Proxy); err == nil && px != nil {
-				v.ProxyHost = px.Host
-				if px.Port != 0 {
-					v.ProxyHost += ":" + itoa(px.Port)
+				proxyURL, err := url.Parse(px.URL)
+				if err != nil {
+					h.jsonErr(w, http.StatusInternalServerError, "invalid cached proxy URL")
+					return
 				}
+				v.ProxyHost = proxyURL.Host
 				v.Region = px.Location
 			}
 		}
@@ -144,18 +147,4 @@ func (h *Handler) apiGeoBansClearOne(w http.ResponseWriter, r *http.Request) {
 	}
 	h.logger.Info("geo ban cleared by admin", "provider_id", r.PathValue("id"), "proxy_id", proxyID)
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return ""
-	}
-	var buf [8]byte
-	pos := len(buf)
-	for n > 0 {
-		pos--
-		buf[pos] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[pos:])
 }

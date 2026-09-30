@@ -54,6 +54,8 @@ type execContext struct {
 	// exhausted records joint limit keys for rate/quota/model_unavailable
 	// outcomes (nil = disabled).
 	exhausted *exhausted.Service
+	// proxyLimits stores joint limit keys containing a proxy dimension.
+	proxyLimits ProxyLimitStore
 	// geoban records indefinite (plugin, provider, proxy) geo flags
 	// (nil = disabled).
 	geoban interface {

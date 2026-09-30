@@ -36,7 +36,10 @@ func TestProxySourceKeysQualifyByRecord(t *testing.T) {
 	if recA.ID == recB.ID {
 		t.Fatalf("records must differ: %q", recA.ID)
 	}
-	keys := svc.ProxySourceKeys()
+	keys, err := svc.ProxySourceKeys()
+	if err != nil {
+		t.Fatalf("list source keys: %v", err)
+	}
 	if len(keys) != 2 {
 		t.Fatalf("keys: got %v", keys)
 	}

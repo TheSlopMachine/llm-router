@@ -100,10 +100,12 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 
 	validProxies := map[string]bool{}
 	if s.proxySvc != nil {
-		if proxies, err := s.proxySvc.List(); err == nil {
-			for _, px := range proxies {
-				validProxies[px.ID] = true
-			}
+		proxyIDs, err := s.proxySvc.KnownIDs()
+		if err != nil {
+			return nil, fmt.Errorf("list cached proxies: %w", err)
+		}
+		for _, id := range proxyIDs {
+			validProxies[id] = true
 		}
 	}
 

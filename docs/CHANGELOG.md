@@ -1,5 +1,14 @@
 # Changelog
 
+## Done (2026-09-30, v0.3.3)
+
+- **Library-backed proxy pool.** Added the external `proxypool` dependency, a Lua source adapter, and a bbolt `CacheSource`. Migrated supported HTTP proxies, selected provider IDs, proxy-scoped limits, and geo-ban references. Removed old pool settings from `router_configuration`, deleted the router-owned probe, health, ranking, rotation, CRUD, and per-source refresh code, and dropped the obsolete `proxies` bucket.
+- **Adaptive refresh.** Started a refresh at startup. Refreshed every minute during proxy use, then backed off to five, ten, and fifteen minutes after eight idle minutes. Moved proxy-scoped limits to library metadata.
+- **Proxy API and dashboard.** Removed manual proxy add/delete, per-source refresh/detail, and proxy export/import/clear controls. Kept read-only health, source diagnostics, status, and one global refresh action.
+- **Proxy source contract.** Restricted candidates to unauthenticated HTTP proxies. Updated both Proxifly feeds to use ETag/Last-Modified conditional requests and handle `304 Not Modified` responses.
+
+Tests: `make go-test`, `make go-vet`, and `make go-fmt-check` passed. `make check-frontend` completed with two existing accessibility warnings.
+
 ## Done (2026-09-28, v0.3.2)
 
 - **Limit keys scoped to provider instance** — exhausted rate/quota/model marks and all read paths (credential filter, pool skip, proxy pick filter, virtual fan-out pre-checks) keyed by configured provider instance ID instead of the shared adapter type key; two instances of one type no longer shared account-less marks. Geo bans stayed keyed by adapter type (shared upstream region policy). Fixed the pool skip resolving the plugin namespace via lookup, the data-management purge clearing geobans under the resolved plugin ID, and the doctor flagging every geo ban as orphan.

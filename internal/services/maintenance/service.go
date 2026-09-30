@@ -18,10 +18,8 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
-	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
-	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 )
 
 const defaultCheckInterval = 60 * time.Second
@@ -34,14 +32,7 @@ type Service struct {
 	logger      *slog.Logger
 	db          *db.DB
 
-	proxySvc *proxypool.Service
-	luaSvc   *luaplugin.Service
-
 	modelInfoSvc modelInfoRefresher
-
-	proxyTickInterval time.Duration
-	lastProxyRotate   time.Time
-	lastProxyFetch    map[string]time.Time
 }
 
 // modelInfoRefresher is the slice of modelinfo the maintenance loop needs.
@@ -58,25 +49,12 @@ func (s *Service) SetModelInfoService(mi modelInfoRefresher) {
 // New constructs a new maintenance Service with the default check interval.
 func New(credSvc *credential.Service, providerSvc *provider.Service, db *db.DB, logger *slog.Logger) *Service {
 	return &Service{
-		credSvc:        credSvc,
-		providerSvc:    providerSvc,
-		interval:       defaultCheckInterval,
-		logger:         logger,
-		db:             db,
-		lastProxyFetch: map[string]time.Time{},
+		credSvc:     credSvc,
+		providerSvc: providerSvc,
+		interval:    defaultCheckInterval,
+		logger:      logger,
+		db:          db,
 	}
-}
-
-// SetProxyServices wires the proxy pool and plugin service for periodic
-// pool rotation and source fetching.
-func (s *Service) SetProxyServices(proxySvc *proxypool.Service, luaSvc *luaplugin.Service) {
-	s.proxySvc = proxySvc
-	s.luaSvc = luaSvc
-}
-
-// SetProxyTickInterval sets the automatic proxy rotation period.
-func (s *Service) SetProxyTickInterval(d time.Duration) {
-	s.proxyTickInterval = d
 }
 
 // WithInterval overrides the check interval (useful for testing).
@@ -87,10 +65,9 @@ func (s *Service) WithInterval(d time.Duration) *Service {
 
 // RunStartupRefresh refreshes stale credentials and cleans expired auth
 // flows synchronously. The server calls it before listening so a restarted
-// router never exposes expired keys to live traffic while the background
-// loop is still rotating proxies. Slow jobs (proxy rotation, model sync)
-// stay on the ticker. It never fails startup: every outcome logs inside
-// the pass, and cancellation only stops launching new workers.
+// router never exposes expired keys to live traffic. Model sync stays on the
+// ticker. It never fails startup: every outcome logs inside the pass, and
+// cancellation only stops launching new workers.
 func (s *Service) RunStartupRefresh(ctx context.Context) {
 	if n := s.refreshStaleCredentials(ctx); n > 0 {
 		s.logger.Info("maintenance: startup credential refresh completed", "refreshed", n)
@@ -103,13 +80,6 @@ func (s *Service) RunStartupRefresh(ctx context.Context) {
 func (s *Service) Start(ctx context.Context) {
 	s.logger.Info("maintenance service started", "interval", s.interval)
 	go func() {
-		// Rotate the proxy pool at once instead of waiting for the first
-		// tick: a restarted router re-verifies its pool immediately.
-		// Credential refresh runs synchronously in RunStartupRefresh before
-		// the server listens, so the loop below only repeats the full
-		// cycle on the ticker.
-		s.rotateProxyOnce(ctx)
-
 		ticker := time.NewTicker(s.interval)
 		defer ticker.Stop()
 		for {
@@ -120,7 +90,6 @@ func (s *Service) Start(ctx context.Context) {
 			case <-ticker.C:
 				s.runCycle(ctx)
 				s.cleanupAuthFlows()
-				s.maintainProxyPool(ctx)
 			}
 		}
 	}()

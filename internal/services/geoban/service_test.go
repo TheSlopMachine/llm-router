@@ -59,16 +59,15 @@ func TestClearFlows(t *testing.T) {
 	if banned, _ := svc.IsBanned("plug", "prov", "px1"); banned {
 		t.Fatal("cleared ban must pass")
 	}
-	n, err := svc.ClearProxy("px1")
-	if err != nil || n != 1 {
-		t.Fatalf("clear proxy: %d %v", n, err)
-	}
-	n, err = svc.ClearProvider("plug", "prov")
+	n, err := svc.ClearProvider("plug", "prov")
 	if err != nil || n != 1 {
 		t.Fatalf("clear provider: %d %v", n, err)
 	}
 	if banned, _ := svc.IsBanned("plug", "prov", "px2"); banned {
 		t.Fatal("provider clear must pass")
+	}
+	if banned, _ := svc.IsBanned("plug", "other", "px1"); !banned {
+		t.Fatal("provider clear must preserve another provider's ban")
 	}
 }
 

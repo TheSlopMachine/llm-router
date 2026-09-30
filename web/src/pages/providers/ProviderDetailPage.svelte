@@ -31,12 +31,18 @@
 
   let proxyMode = $state<'disabled' | 'auto' | 'manual'>('disabled')
   let proxyIds = $state<Record<string, boolean>>({})
-  let poolManual = $state<Proxy[]>([])
+  let poolProxies = $state<Proxy[]>([])
+  let proxyPoolLoaded = $state(false)
   let savingProxy = $state(false)
   let geoMode = $state<'fail_fast' | 'retry_same_key'>('fail_fast')
   let geoMax = $state('3')
 
   const providerIdValue = $derived(provider?.id ?? '')
+  const unavailableProxyIds = $derived(
+    proxyPoolLoaded
+      ? Object.keys(proxyIds).filter((id) => proxyIds[id] && !poolProxies.some((proxy) => proxy.id === id))
+      : [],
+  )
 
   const credentialColumns: TableColumn[] = [
     { key: 'priority', title: '#', width: '72px', align: 'center', priority: 3 },
@@ -278,8 +284,10 @@
   }
 
   async function loadProxyPool(): Promise<void> {
+    proxyPoolLoaded = false
     try {
-      poolManual = (await api.proxies.list()).filter((p: Proxy) => p.source === 'manual')
+      poolProxies = await api.proxies.list()
+      proxyPoolLoaded = true
     } catch (e) {
       error = getErrorMessage(e)
     }
@@ -436,7 +444,7 @@
           {:else if proxyMode === 'auto'}
             {t('Route through the fastest pooled proxy matching the plugin locations.')}
           {:else}
-            {t('Route through the proxies you select below (first usable wins).')}
+            {t('Route through the healthy proxies you select below, in order.')}
           {/if}
         </Text>
         {#if savingProxy}
@@ -444,11 +452,29 @@
         {/if}
       </HStack>
       {#if proxyMode === 'manual'}
-        {#if poolManual.length === 0}
-          <Text size="sm" tone="soft">{t('No manual proxies in the pool. Add them on the Proxies page.')}</Text>
+        {#if unavailableProxyIds.length > 0}
+          <VStack gap={2}>
+            <Text size="sm" tone="warning">{t('Selected proxies that are not currently healthy will not be used.')}</Text>
+            <HStack wrap align="start" gap={2}>
+              {#each unavailableProxyIds as id (id)}
+                <Button
+                  size="small"
+                  tint="#dc2626"
+                  title={id}
+                  onclick={() => {
+                    proxyIds = { ...proxyIds, [id]: false }
+                    void saveProxyConfig()
+                  }}
+                >{`${t('Remove unavailable selection')}: ${id}`}</Button>
+              {/each}
+            </HStack>
+          </VStack>
+        {/if}
+        {#if poolProxies.length === 0}
+          <Text size="sm" tone="soft">{t('No healthy proxies are available. Refresh the pool from the Proxies page.')}</Text>
         {:else}
           <HStack wrap align="start" gap={2}>
-            {#each poolManual as p (p.id)}
+            {#each poolProxies as p (p.id)}
               <Button
                 size="small"
                 style={proxyIds[p.id] ? 'prominent' : 'none'}

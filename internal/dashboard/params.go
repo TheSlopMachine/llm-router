@@ -57,7 +57,6 @@ func New(p Params) (*Handler, error) {
 		p.CredSvc,
 		p.VirtualSvc,
 		p.TokenSvc,
-		p.ProxySvc,
 		p.LuaSvc,
 		p.RepoSvc,
 		p.ModelInfoSvc,
