@@ -1,16 +1,21 @@
 package luaplugin
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
+	"github.com/TheSlopMachine/llm-router/internal/streamgate"
 )
 
 // markerProxy answers every absolute-form GET with a fixed marker body.
@@ -107,6 +112,151 @@ func TestComplete_RotatesToNextProxyOnFailure(t *testing.T) {
 	}
 	if got := resp.Choices[0].Message.TextContent(); !strings.Contains(got, "via-second-proxy") {
 		t.Fatalf("did not rotate to live proxy: %q", got)
+	}
+}
+
+const proxyLimitRetryPluginSource = `--- @plugin Proxy Limit Retry
+--- @author tester
+--- @version 1.0.0
+--- @router_version 0.3.4
+--- @allow_host example.com
+
+llm_router.register("proxy-limit-type", {
+  complete = function(ctx, credential, request)
+    local client = llm_router.http_client({ timeout_ms = 5000 })
+    local resp, req_err = client:request({ method = "GET", url = "http://example.com/probe" })
+    if req_err ~= nil then
+      return nil, { type = "upstream", message = req_err.message }
+    end
+    if resp.status == 429 then
+      local scope = request.user == "account" and { "account" } or { "proxy" }
+      local error_type = request.user == "quota" and "quota_exceeded" or "rate_limit"
+      return nil, {
+        type = error_type, message = "exit limit", retry_after = os.time() + 60,
+        scope = scope,
+      }
+    end
+    return {
+      id = "chatcmpl-proxy-limit",
+      object = "chat.completion",
+      created = 1700000000,
+      model = request.model,
+      choices = {
+        { index = 0, message = { role = "assistant", content = resp.body }, finish_reason = "stop" },
+      },
+      usage = { prompt_tokens = 1, completion_tokens = 1, total_tokens = 2 },
+    }
+  end,
+})
+`
+
+type proxyLimitRecorder struct {
+	proxyIDs []string
+}
+
+func (r *proxyLimitRecorder) MarkLimit(proxyID, _ string, _ time.Time, _ string) error {
+	r.proxyIDs = append(r.proxyIDs, proxyID)
+	return nil
+}
+
+func installProxyLimitRetryPlugin(t *testing.T, svc *Service) {
+	t.Helper()
+	if _, err := svc.Install([]byte(proxyLimitRetryPluginSource), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+}
+
+func countedStatusProxy(t *testing.T, status int, body string, hits *atomic.Int32) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func TestCompletePool_RetriesProxyScopedQuotaOnAlternateProxy(t *testing.T) {
+	svc := setupService(t)
+	installProxyLimitRetryPlugin(t, svc)
+	var limitedHits, alternateHits atomic.Int32
+	limitedURL := countedStatusProxy(t, http.StatusTooManyRequests, "limit", &limitedHits)
+	alternateURL := countedStatusProxy(t, http.StatusOK, "alternate response", &alternateHits)
+	svc.SetProxyResolver(func(context.Context, *PluginRecord, map[string]any, exhausted.Segments) ([]ProxyPick, error) {
+		return []ProxyPick{{ID: "px-limited", URL: limitedURL}, {ID: "px-alternate", URL: alternateURL}}, nil
+	})
+	recorder := &proxyLimitRecorder{}
+	svc.SetProxyLimitStore(recorder)
+
+	mode := "quota"
+	req := &models.ChatCompletionRequest{
+		Model: "proxy-limit-type/m", User: &mode,
+		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
+	}
+	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
+	resp, route, err := svc.CompletePool(t.Context(), testMeta("proxy-limit-type", nil, req.Model, nil), []*models.Credential{cred}, req)
+	if err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if got := resp.Choices[0].Message.TextContent(); got != "alternate response" {
+		t.Fatalf("response: got %q", got)
+	}
+	if route == "" || limitedHits.Load() != 1 || alternateHits.Load() != 1 {
+		t.Fatalf("routes: last=%q limited=%d alternate=%d", route, limitedHits.Load(), alternateHits.Load())
+	}
+	if len(recorder.proxyIDs) != 1 || recorder.proxyIDs[0] != "px-limited" {
+		t.Fatalf("limited proxies: %v", recorder.proxyIDs)
+	}
+}
+
+func TestCompletePool_NoAlternateProxyReturnsOriginalLimit(t *testing.T) {
+	svc := setupService(t)
+	installProxyLimitRetryPlugin(t, svc)
+	var limitedHits atomic.Int32
+	limitedURL := countedStatusProxy(t, http.StatusTooManyRequests, "limit", &limitedHits)
+	svc.SetProxyResolver(func(context.Context, *PluginRecord, map[string]any, exhausted.Segments) ([]ProxyPick, error) {
+		return []ProxyPick{{ID: "px-limited", URL: limitedURL}}, nil
+	})
+	svc.SetProxyLimitStore(&proxyLimitRecorder{})
+
+	mode := "quota"
+	req := &models.ChatCompletionRequest{
+		Model: "proxy-limit-type/m", User: &mode,
+		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
+	}
+	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
+	_, _, err := svc.CompletePool(t.Context(), testMeta("proxy-limit-type", nil, req.Model, nil), []*models.Credential{cred}, req)
+	if !isProviderType(err, models.ErrorTypeQuotaExceeded) {
+		t.Fatalf("expected original quota error, got %T (%v)", err, err)
+	}
+	if got := limitedHits.Load(); got != 1 {
+		t.Fatalf("limited proxy was called %d times", got)
+	}
+}
+
+func TestCompletePool_DoesNotRetryAccountScopedLimit(t *testing.T) {
+	svc := setupService(t)
+	installProxyLimitRetryPlugin(t, svc)
+	var firstHits, secondHits atomic.Int32
+	firstURL := countedStatusProxy(t, http.StatusTooManyRequests, "limit", &firstHits)
+	secondURL := countedStatusProxy(t, http.StatusOK, "alternate response", &secondHits)
+	svc.SetProxyResolver(func(context.Context, *PluginRecord, map[string]any, exhausted.Segments) ([]ProxyPick, error) {
+		return []ProxyPick{{ID: "px-first", URL: firstURL}, {ID: "px-second", URL: secondURL}}, nil
+	})
+
+	mode := "account"
+	req := &models.ChatCompletionRequest{
+		Model: "proxy-limit-type/m", User: &mode,
+		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
+	}
+	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
+	_, _, err := svc.CompletePool(t.Context(), testMeta("proxy-limit-type", nil, req.Model, nil), []*models.Credential{cred}, req)
+	if !isProviderType(err, models.ErrorTypeRateLimit) {
+		t.Fatalf("expected account-scoped rate limit, got %T (%v)", err, err)
+	}
+	if firstHits.Load() != 1 || secondHits.Load() != 0 {
+		t.Fatalf("account-scoped request used proxies %d and %d times", firstHits.Load(), secondHits.Load())
 	}
 }
 
@@ -245,5 +395,42 @@ func TestCompleteRouted_DirectOmitsProxy(t *testing.T) {
 	})
 	if proxy != "" {
 		t.Fatalf("direct: got %q want empty", proxy)
+	}
+}
+
+func TestRunRoutedRetries_ProxyLimitStopsAtStreamCommit(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		write     bool
+		wantCalls int
+	}{
+		{name: "before first byte", wantCalls: maxProxyScopedAttempts},
+		{name: "after first byte", write: true, wantCalls: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writer := streamgate.New(&bytes.Buffer{})
+			calls := 0
+			_, route, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, writer,
+				func(context.Context) (int, string, error) {
+					calls++
+					if tc.write {
+						if _, writeErr := io.WriteString(writer, "data: chunk\n\n"); writeErr != nil {
+							t.Fatalf("write: %v", writeErr)
+						}
+					}
+					return 0, fmt.Sprintf("proxy-%d:8080", calls), &models.ProviderError{
+						Type: models.ErrorTypeRateLimit, Scope: []string{models.ExhaustedScopeProxy},
+					}
+				})
+			if !isProviderType(err, models.ErrorTypeRateLimit) {
+				t.Fatalf("expected rate limit, got %T (%v)", err, err)
+			}
+			if calls != tc.wantCalls {
+				t.Fatalf("attempts: got %d want %d", calls, tc.wantCalls)
+			}
+			if want := fmt.Sprintf("proxy-%d:8080", calls); route != want {
+				t.Fatalf("last route: got %q want %q", route, want)
+			}
+		})
 	}
 }

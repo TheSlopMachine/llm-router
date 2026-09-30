@@ -35,13 +35,16 @@ type execContext struct {
 	// Proxy routing: the resolver returns the ordered picks for one
 	// request; the HTTP layer walks them while attempts fail.
 	// proxyURL == "" means the current request goes direct.
-	proxyResolver       func(ctx context.Context, rec *PluginRecord, providerConfig map[string]any, known exhausted.Segments) ([]ProxyPick, error)
-	proxyRec            *PluginRecord
-	proxyProviderConfig map[string]any
-	proxyPicks          []ProxyPick
-	proxyIdx            int
-	proxyID             string
-	proxyURL            string
+	proxyResolver         func(ctx context.Context, rec *PluginRecord, providerConfig map[string]any, known exhausted.Segments) ([]ProxyPick, error)
+	proxyRec              *PluginRecord
+	proxyProviderConfig   map[string]any
+	proxyPicks            []ProxyPick
+	proxyIdx              int
+	proxyID               string
+	proxyURL              string
+	proxyRetryPicks       []ProxyPick
+	proxyRetryPicksSet    bool
+	proxyRetryUnavailable bool
 	// lastProxyID is the proxy of the most recent attempt, used for
 	// joint limit marking on rate/quota outcomes.
 	lastProxyID string

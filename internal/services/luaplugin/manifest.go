@@ -166,7 +166,8 @@ func dedupeStrings(in []string) []string {
 // strictly validated, geo bans, credential/provider auto-disable). Older
 // plugins are rejected at install, not adapted: the contract break is
 // explicit. Version 0.3.1 narrows proxy-source candidates to HTTP without
-// removing the otherwise compatible 0.3.0 provider contract.
+// removing the otherwise compatible 0.3.0 provider contract. Version 0.3.4
+// adds proxy scope for quota errors without removing older error forms.
 const minRouterVersion = "0.3.0"
 
 // CheckRouterVersion rejects plugins requiring a newer router.

@@ -33,7 +33,9 @@ import (
 // the provider (DisabledBy/Reason/At on both).
 // 0.3.1 restricts proxy-source candidates to unauthenticated HTTP URLs;
 // the proxypool library owns proxy health and cache lifecycle.
-const CurrentVersion = "0.3.1"
+// 0.3.4 permits proxy scope for quota_exceeded and retries proxy-scoped
+// rate/quota failures on another proxy with the same credential.
+const CurrentVersion = "0.3.4"
 
 // ─────────────────────────────────────────────
 // ModelId
@@ -826,8 +828,8 @@ type ProviderError struct {
 	Type       ErrorType
 	RetryAfter *time.Time
 	// Scope names the exhausted dimensions the error limits (account, model,
-	// proxy). Allowed only on rate_limit (account, model, proxy) and
-	// quota_exceeded (account, model). Empty marks the full combination.
+	// proxy). Allowed only on rate_limit and quota_exceeded. Empty marks the
+	// full combination. Proxy-scoped limits can retry on another proxy.
 	// Any scope on other types rejects the error table as a plugin bug.
 	Scope []string
 	// UpstreamStatus is the raw HTTP status received from the upstream.

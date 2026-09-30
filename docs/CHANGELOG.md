@@ -1,5 +1,12 @@
 # Changelog
 
+## Done (2026-09-30, v0.3.4)
+
+- Allowed `proxy` scope for `quota_exceeded` and retried proxy-scoped limits with the same credential on alternate routes, up to three attempts. Streaming retries stop after the first byte reaches the client, and requests return the original limit error when no alternate route is available.
+- Reclassified OpenCode Free 429 responses as proxy-scoped rate limits or quotas instead of geo blocks. Classified the OpenCode-only 401 response as `upstream` so it does not geoban a proxy or disable a credential.
+- Prevented proxy routing from falling through to direct when every ranked candidate was filtered. Updated the plugin contract and OpenCode Free plugin version.
+- Fixed pool skip returning a silent empty success when every credential carried a live limit mark. An all-skipped pool now attempts in order as a last resort, matching the router drop-exhausted fallback.
+
 ## Done (2026-09-30, v0.3.3)
 
 - **Library-backed proxy pool.** Added the external `proxypool` dependency, a Lua source adapter, and a bbolt `CacheSource`. Migrated supported HTTP proxies, selected provider IDs, proxy-scoped limits, and geo-ban references. Removed old pool settings from `router_configuration`, deleted the router-owned probe, health, ranking, rotation, CRUD, and per-source refresh code, and dropped the obsolete `proxies` bucket.

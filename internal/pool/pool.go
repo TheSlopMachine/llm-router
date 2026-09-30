@@ -113,7 +113,8 @@ func trackFailure(log *slog.Logger, tracker UsageTracker, cred *models.Credentia
 // SkipFunc reports whether a credential should be skipped before attempting
 // it (e.g. because the exhausted store holds a live rate-limit key for the
 // credential-model pair). Returning true skips the attempt without counting
-// it as a failure.
+// it as a failure. Skipping never bypasses every credential: an all-skipped
+// pool attempts all of them as a last resort.
 type SkipFunc func(cred *models.Credential) bool
 
 // Run tries one attempt per credential in pool order and returns the first
@@ -130,23 +131,37 @@ func Run[T any](ctx context.Context, log *slog.Logger, creds []*models.Credentia
 // RunWithProxy is Run plus the redacted proxy host:port of the last attempt
 // ("" = direct or no proxy tracking). The attempt reports the proxy used by
 // that credential try; per-attempt values appear on trying-next lines, the
-// last one on the all-failed line. Skip consults skip before each attempt:
-// a true result bypasses the credential without a request.
+// last one on the all-failed line. Skip bypasses credentials with a live
+// limit mark without a request, but never bypasses every credential: an
+// all-limited pool attempts in order as a last resort, so a stale mark
+// cannot produce a silent empty success.
 func RunWithProxy[T any](ctx context.Context, log *slog.Logger, creds []*models.Credential, tracker UsageTracker, attempt func(context.Context, *models.Credential) (T, string, error), isFatal func(error) bool, skip SkipFunc) (T, string, error) {
 	var zero T
 	if len(creds) == 0 {
 		return zero, "", NoCredentials
 	}
+	pending := creds
+	if skip != nil {
+		kept := make([]*models.Credential, 0, len(creds))
+		for _, cred := range creds {
+			if skip(cred) {
+				loggerOrDefault(log).Info("credential skipped due to rate limit",
+					"credential_id", credentialID(cred))
+			} else {
+				kept = append(kept, cred)
+			}
+		}
+		if len(kept) > 0 {
+			pending = kept
+		} else {
+			loggerOrDefault(log).Info("pool: every credential skipped, trying full pool as last resort")
+		}
+	}
 	var lastErr error
 	lastProxy := ""
-	for i, cred := range creds {
+	for i, cred := range pending {
 		if err := ctx.Err(); err != nil {
 			return zero, lastProxy, err
-		}
-		if skip != nil && skip(cred) {
-			loggerOrDefault(log).Info("credential skipped due to rate limit",
-				"credential_id", credentialID(cred))
-			continue
 		}
 		res, proxy, err := attempt(ctx, cred)
 		if err == nil {
@@ -161,7 +176,7 @@ func RunWithProxy[T any](ctx context.Context, log *slog.Logger, creds []*models.
 		}
 		lastErr = err
 		lastProxy = proxy
-		if i < len(creds)-1 {
+		if i < len(pending)-1 {
 			logTryingNext(log, cred, proxy, err)
 		}
 	}
@@ -182,23 +197,36 @@ func RunStream(ctx context.Context, log *slog.Logger, w io.Writer, creds []*mode
 }
 
 // RunStreamWithProxy is RunStream plus the redacted proxy host:port of the
-// last attempt ("" = direct or no proxy tracking). Skip consults skip before
-// each attempt: a true result bypasses the credential without a request.
+// last attempt ("" = direct or no proxy tracking). Skip bypasses credentials
+// with a live limit mark without a request, but never bypasses every
+// credential: an all-limited pool attempts in order as a last resort.
 func RunStreamWithProxy(ctx context.Context, log *slog.Logger, w io.Writer, creds []*models.Credential, tracker UsageTracker, attempt func(context.Context, *models.Credential, io.Writer) (string, error), isFatal func(error) bool, skip SkipFunc) (string, error) {
 	if len(creds) == 0 {
 		return "", NoCredentials
 	}
+	pending := creds
+	if skip != nil {
+		kept := make([]*models.Credential, 0, len(creds))
+		for _, cred := range creds {
+			if skip(cred) {
+				loggerOrDefault(log).Info("credential skipped due to rate limit",
+					"credential_id", credentialID(cred))
+			} else {
+				kept = append(kept, cred)
+			}
+		}
+		if len(kept) > 0 {
+			pending = kept
+		} else {
+			loggerOrDefault(log).Info("pool: every credential skipped, trying full pool as last resort")
+		}
+	}
 	gate := streamgate.New(w)
 	var lastErr error
 	lastProxy := ""
-	for i, cred := range creds {
+	for i, cred := range pending {
 		if err := ctx.Err(); err != nil {
 			return lastProxy, err
-		}
-		if skip != nil && skip(cred) {
-			loggerOrDefault(log).Info("credential skipped due to rate limit",
-				"credential_id", credentialID(cred))
-			continue
 		}
 		proxy, err := attempt(ctx, cred, gate)
 		if err == nil {
@@ -216,7 +244,7 @@ func RunStreamWithProxy(ctx context.Context, log *slog.Logger, w io.Writer, cred
 		if gate.Written() {
 			return lastProxy, lastErr
 		}
-		if i < len(creds)-1 {
+		if i < len(pending)-1 {
 			logTryingNext(log, cred, proxy, err)
 		}
 	}

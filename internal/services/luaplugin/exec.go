@@ -256,6 +256,9 @@ func (s *Service) handlerCallRouted(
 			}
 		}
 	}()
+	if err := ctx.prepareProxyRetry(goCtx); err != nil {
+		return true, "", err
+	}
 	L := newSandboxState(ctx)
 	defer L.Close()
 	L.SetContext(goCtx)
@@ -300,6 +303,10 @@ func (s *Service) handlerCallRouted(
 		L.SetTop(top)
 		return true, ctx.proxyDisplay(), err
 	}
+	if ctx.proxyRetryUnavailable {
+		L.SetTop(top)
+		return true, ctx.proxyDisplay(), ErrNoProxyRoute
+	}
 	defer L.SetTop(top)
 	if applyRet != nil {
 		if err := applyRet(L); err != nil {
@@ -334,7 +341,7 @@ func asProviderError(v lua.LValue) (*models.ProviderError, bool) {
 	case "quota_exceeded":
 		errType = models.ErrorTypeQuotaExceeded
 		status = 429
-		scopeAllowed = []string{models.ExhaustedScopeAccount, models.ExhaustedScopeModel}
+		scopeAllowed = []string{models.ExhaustedScopeAccount, models.ExhaustedScopeModel, models.ExhaustedScopeProxy}
 		retryRequired = true
 	case "auth":
 		errType = models.ErrorTypeAuth

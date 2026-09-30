@@ -122,8 +122,8 @@ func wireProxy(luaSvc *luaplugin.Service, proxySvc *proxypool.Service, exhausted
 		for _, rp := range ranked {
 			out = append(out, luaplugin.ProxyPick{ID: rp.pick.ID, URL: rp.pick.URL, Region: rp.pick.Location})
 		}
-		if proxyCfg.Mode == models.ProxyModeManual && len(picks) > 0 && len(out) == 0 {
-			return nil, fmt.Errorf("provider proxy: no usable proxy among %d selected", len(picks))
+		if len(picks) > 0 && len(out) == 0 {
+			return nil, fmt.Errorf("provider proxy: %w (%d selected)", luaplugin.ErrNoProxyRoute, len(picks))
 		}
 		return out, nil
 	})

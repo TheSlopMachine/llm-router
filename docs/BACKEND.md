@@ -68,17 +68,21 @@ Keep changes shallow. Touch service internals only when the task requires it.
 
 ## Pool invariants
 
-- `pool.Run / pool.RunStream`: one attempt per key, pool order, no repeats,
+- `pool.Run / pool.RunStream`: one credential attempt per key, pool order,
   no backoff. Fatal errors (`ErrHandlerNotFound`, `invalid_request`,
   `content_policy`, `structural_fault`, `geo` in `fail_fast` mode) stop
   immediately. Unary pools retry `geo` with the same credential on another
   region's proxy up to the provider `geo.max_proxies` (`fail_fast` default,
-  `retry_same_key` default 3, cap 10) in `retry_same_key` mode;
-  streams fail over to the next credential while pre-first-byte (no same-key
-  retries). Per-attempt `skip` bypasses credentials with a live exhausted key
-  (`luaplugin/exhausted_skip.go`); the router also drops exhausted matches
-  before the token filter and keeps the full pool when every credential is
-  limited.
+  `retry_same_key` default 3, cap 10) in `retry_same_key` mode. Proxy-scoped
+  rate/quota errors retry the same credential on another route up to three
+  total attempts; a full-combination error also retries when the request used
+  a proxy. Streams allow this retry only before the first byte reaches the
+  client. Geo errors do not retry with the same credential on streams.
+  Per-attempt `skip` bypasses credentials with a live exhausted key
+  (`luaplugin/exhausted_skip.go`), but never bypasses every credential: an
+  all-skipped pool attempts in order as a last resort. The router also drops
+  exhausted matches before the token filter and keeps the full pool when
+  every credential is limited.
 - Proxy source keys qualify per plugin (`<recordID>/<name>`). The router
   bridge accepts unauthenticated HTTP entries from each Lua source. The external
   proxypool library owns candidate ingestion, health checks, scoring and
@@ -105,8 +109,11 @@ Keep changes shallow. Touch service internals only when the task requires it.
   every credential is limited the router keeps the full pool as a last resort
   (`router/service.go:dropExhausted`). Proxy picks filter after ranking;
   joint limits stay in `exhausted.Service`, while proxy-scoped limits use
-  library-managed metadata. Limit-store errors stop routing. Manual mode with
-  no IDs goes direct; selected IDs that resolve to no healthy proxy fail.
+  library-managed metadata. A proxy-scoped rate/quota outcome cools the route
+  and retries the same credential through another route. If no alternate
+  route is usable, the router returns the original provider error. Limit-store
+  errors stop routing. Manual mode with no IDs goes direct; selected IDs that
+  resolve to no healthy proxy fail.
 - Expired entries delete on read; `Prune` sweeps the rest. Content,
   malformed-request, missing-model and transient failures never mark.
 - Geo bans (`geoban.Service`, bucket `geo_bans`) carry no expiry: proxy

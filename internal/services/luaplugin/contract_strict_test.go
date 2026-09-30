@@ -92,16 +92,29 @@ func TestAsProviderErrorStrict(t *testing.T) {
 			t.Fatal("auth with scope must be invalid")
 		}
 	})
-	t.Run("quota proxy scope rejected", func(t *testing.T) {
+	t.Run("quota proxy scope accepted", func(t *testing.T) {
 		L := lua.NewState()
 		defer L.Close()
 		scope := L.NewTable()
 		scope.Append(lua.LString("proxy"))
+		perr, ok := asProviderError(contractTable(t, map[string]lua.LValue{
+			"type": lua.LString("quota_exceeded"), "message": lua.LString("m"),
+			"retry_after": num(future), "scope": scope,
+		}))
+		if !ok || perr.Type != models.ErrorTypeQuotaExceeded || len(perr.Scope) != 1 || perr.Scope[0] != models.ExhaustedScopeProxy {
+			t.Fatalf("quota with proxy scope must parse, got %v", perr)
+		}
+	})
+	t.Run("unknown quota scope rejected", func(t *testing.T) {
+		L := lua.NewState()
+		defer L.Close()
+		scope := L.NewTable()
+		scope.Append(lua.LString("region"))
 		if _, ok := asProviderError(contractTable(t, map[string]lua.LValue{
 			"type": lua.LString("quota_exceeded"), "message": lua.LString("m"),
 			"retry_after": num(future), "scope": scope,
 		})); ok {
-			t.Fatal("quota with proxy scope must be invalid")
+			t.Fatal("quota with an unknown scope must be invalid")
 		}
 	})
 	t.Run("empty message rejected", func(t *testing.T) {

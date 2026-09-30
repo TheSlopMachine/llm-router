@@ -21,6 +21,8 @@ type ProxyLimitStore interface {
 	MarkLimit(proxyID, key string, resetsAt time.Time, reason string) error
 }
 
+const maxProxyScopedAttempts = 3
+
 // SetUsageTracker wires per-credential usage accounting for pool calls.
 // Unset (nil) disables accounting; attempts still run.
 func (s *Service) SetUsageTracker(t UsageTracker) { s.usage = t }
@@ -147,11 +149,94 @@ func shouldRetryGeo(err error, route string, geo models.GeoConfig, attempt int) 
 	return attempt+1 < geo.MaxProxies
 }
 
-// runPool tries one attempt per credential in pool order and returns the
-// first success with the redacted proxy host:port of the winning or last
-// attempt ("" = direct). Every key is tried at most once; there are no
-// repeat passes or backoff pauses. A missing handler fails immediately: it
-// is identical for every key. Otherwise the last error is returned.
+func shouldRetryProxyLimit(err error, route string) bool {
+	if route == "" {
+		return false
+	}
+	var perr *models.ProviderError
+	if !errors.As(err, &perr) || (perr.Type != models.ErrorTypeRateLimit && perr.Type != models.ErrorTypeQuotaExceeded) {
+		return false
+	}
+	if len(perr.Scope) == 0 {
+		return true
+	}
+	for _, scope := range perr.Scope {
+		if scope == models.ExhaustedScopeProxy {
+			return true
+		}
+	}
+	return false
+}
+
+func streamCommitted(w io.Writer) bool {
+	if w == nil {
+		return false
+	}
+	tracker, ok := w.(interface{ Written() bool })
+	return !ok || tracker.Written()
+}
+
+func runRoutedRetries[T any](
+	ctx context.Context,
+	s *Service,
+	meta HandlerMeta,
+	geo models.GeoConfig,
+	w io.Writer,
+	attempt func(context.Context) (T, string, error),
+) (T, string, error) {
+	var lastRetryResult T
+	var lastRetryRoute string
+	var lastRetryErr error
+	var excludedRoutes []string
+	proxyLimitAttempts := 0
+	geoAttempts := 0
+
+	for {
+		attemptCtx := withProxyRetryExclusions(ctx, excludedRoutes)
+		result, route, err := attempt(attemptCtx)
+		if errors.Is(err, ErrNoProxyRoute) && lastRetryErr != nil {
+			if s.logger != nil {
+				s.logger.Debug("pool: no alternate proxy for retry", "type", meta.TypeKey, "provider_id", meta.ProviderID)
+			}
+			return lastRetryResult, lastRetryRoute, lastRetryErr
+		}
+		if err == nil || ctx.Err() != nil || streamCommitted(w) {
+			return result, route, err
+		}
+
+		retry := false
+		if shouldRetryProxyLimit(err, route) {
+			proxyLimitAttempts++
+			retry = proxyLimitAttempts < maxProxyScopedAttempts
+			if retry && s.logger != nil {
+				s.logger.Debug("pool: retrying proxy-scoped limit with same credential",
+					"type", meta.TypeKey, "provider_id", meta.ProviderID,
+					"attempt", proxyLimitAttempts+1, "max_attempts", maxProxyScopedAttempts, "proxy", route)
+			}
+		} else if w == nil && shouldRetryGeo(err, route, geo, geoAttempts) {
+			geoAttempts++
+			retry = true
+			if s.logger != nil {
+				s.logger.Debug("pool: geo retry with same credential", "type", meta.TypeKey,
+					"provider_id", meta.ProviderID, "attempt", geoAttempts+1,
+					"route", route, "max_proxies", geo.MaxProxies)
+			}
+		}
+		if !retry {
+			return result, route, err
+		}
+		lastRetryResult, lastRetryRoute, lastRetryErr = result, route, err
+		if route != "" {
+			excludedRoutes = append(excludedRoutes, route)
+		}
+	}
+}
+
+// runPool tries each credential once in pool order and returns the first
+// success with the proxy host:port of the winning or last attempt. Bounded
+// route retries happen inside one credential attempt. There are no repeat
+// credential passes or backoff pauses. A missing handler fails immediately;
+// otherwise the last error is returned.
 // skip bypasses credentials the exhausted store holds a live rate-limit key
 // for (plugin, type, account, model).
 func runPool[T any](ctx context.Context, s *Service, model string, creds []*models.Credential, attempt func(context.Context, *models.Credential) (T, string, error), isFatal func(error) bool, skip pool.SkipFunc) (T, string, error) {
@@ -162,11 +247,10 @@ func runPool[T any](ctx context.Context, s *Service, model string, creds []*mode
 	return pool.RunWithProxy(ctx, log, creds, s.usage, attempt, isFatal, skip)
 }
 
-// runPoolStream is runPool for streaming calls. Failover is allowed only
-// before the first byte reaches the client. Same-key geo retries do not
-// apply to streams: a geo outcome fails over to the next credential while
-// pre-first-byte, exactly like any other non-fatal error. skip bypasses
-// credentials the exhausted store holds a live rate-limit key for.
+// runPoolStream is runPool for streaming calls. Same-credential proxy-limit
+// retries stop after the first byte reaches the client. Geo errors do not
+// retry with the same credential on streams. skip bypasses credentials the
+// exhausted store holds a live rate-limit key for.
 func (s *Service) runPoolStream(ctx context.Context, model string, w io.Writer, creds []*models.Credential, attempt func(context.Context, *models.Credential, io.Writer) (string, error), isFatal func(error) bool, skip pool.SkipFunc) (string, error) {
 	log := s.logger
 	if log != nil && model != "" {
@@ -182,8 +266,8 @@ func withCredential(meta HandlerMeta, cred *models.Credential) HandlerMeta {
 }
 
 // CompletePool tries the credential pool in order through the complete
-// handler, at most once per credential. It returns the redacted proxy
-// host:port of the winning or last attempt ("" = direct).
+// handler. Proxy-scoped limits can retry up to three routes with the same
+// credential. It returns the winning or last proxy host:port ("" = direct).
 func (s *Service) CompletePool(
 	ctx context.Context,
 	meta HandlerMeta,
@@ -194,27 +278,16 @@ func (s *Service) CompletePool(
 	isFatal := s.fatalWithLog(meta, geo)
 	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, string, error) {
-		var res *models.ChatCompletionResponse
-		var route string
-		var err error
-		for i := 0; ; i++ {
-			res, route, err = s.CompleteRouted(ctx, withCredential(meta, cred), req)
-			if err == nil || !shouldRetryGeo(err, route, geo, i) {
-				return res, route, err
-			}
-			if ctx.Err() != nil {
-				return res, route, err
-			}
-			if s.logger != nil {
-				s.logger.Debug("pool: geo retry with same credential", "type", meta.TypeKey, "provider_id", meta.ProviderID, "attempt", i+1, "route", route, "max_proxies", geo.MaxProxies)
-			}
-		}
+		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
+			func(ctx context.Context) (*models.ChatCompletionResponse, string, error) {
+				return s.CompleteRouted(ctx, withCredential(meta, cred), req)
+			})
 	}, isFatal, skip)
 }
 
 // CompleteStreamPool tries the credential pool in order through the
-// complete_stream handler, at most once per credential. It returns the
-// redacted proxy host:port of the winning or last attempt ("" = direct).
+// complete_stream handler. Proxy-scoped limits can retry before the first
+// byte reaches the client. It returns the winning or last proxy host:port.
 func (s *Service) CompleteStreamPool(
 	ctx context.Context,
 	meta HandlerMeta,
@@ -226,13 +299,18 @@ func (s *Service) CompleteStreamPool(
 	isFatal := s.fatalWithLog(meta, geo)
 	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return s.runPoolStream(ctx, req.Model.String(), w, creds, func(ctx context.Context, cred *models.Credential, w io.Writer) (string, error) {
-		return s.CompleteStreamRouted(ctx, withCredential(meta, cred), req, w)
+		_, route, err := runRoutedRetries(ctx, s, withCredential(meta, cred), geo, w,
+			func(ctx context.Context) (struct{}, string, error) {
+				route, err := s.CompleteStreamRouted(ctx, withCredential(meta, cred), req, w)
+				return struct{}{}, route, err
+			})
+		return route, err
 	}, isFatal, skip)
 }
 
-// TranscribePool tries the credential pool in order through the transcribe
-// handler, at most once per credential. It returns the redacted proxy
-// host:port of the winning or last attempt ("" = direct).
+// TranscribePool tries credentials through the transcribe handler. Proxy-
+// scoped limits can retry up to three routes with the same credential.
+// It returns the winning or last proxy host:port ("" = direct).
 func (s *Service) TranscribePool(
 	ctx context.Context,
 	meta HandlerMeta,
@@ -243,27 +321,16 @@ func (s *Service) TranscribePool(
 	isFatal := s.fatalWithLog(meta, geo)
 	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.TranscriptionResponse, string, error) {
-		var res *models.TranscriptionResponse
-		var route string
-		var err error
-		for i := 0; ; i++ {
-			res, route, err = s.TranscribeRouted(ctx, withCredential(meta, cred), req)
-			if err == nil || !shouldRetryGeo(err, route, geo, i) {
-				return res, route, err
-			}
-			if ctx.Err() != nil {
-				return res, route, err
-			}
-			if s.logger != nil {
-				s.logger.Debug("pool: geo retry with same credential", "type", meta.TypeKey, "provider_id", meta.ProviderID, "attempt", i+1, "route", route, "max_proxies", geo.MaxProxies)
-			}
-		}
+		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
+			func(ctx context.Context) (*models.TranscriptionResponse, string, error) {
+				return s.TranscribeRouted(ctx, withCredential(meta, cred), req)
+			})
 	}, isFatal, skip)
 }
 
-// SpeechPool tries the credential pool in order through the speech handler,
-// at most once per credential. It returns the redacted proxy host:port of
-// the winning or last attempt ("" = direct).
+// SpeechPool tries credentials through the speech handler. Proxy-scoped
+// limits can retry up to three routes with the same credential. It returns
+// the winning or last proxy host:port ("" = direct).
 func (s *Service) SpeechPool(
 	ctx context.Context,
 	meta HandlerMeta,
@@ -274,27 +341,16 @@ func (s *Service) SpeechPool(
 	isFatal := s.fatalWithLog(meta, geo)
 	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.SpeechResponse, string, error) {
-		var res *models.SpeechResponse
-		var route string
-		var err error
-		for i := 0; ; i++ {
-			res, route, err = s.SpeechRouted(ctx, withCredential(meta, cred), req)
-			if err == nil || !shouldRetryGeo(err, route, geo, i) {
-				return res, route, err
-			}
-			if ctx.Err() != nil {
-				return res, route, err
-			}
-			if s.logger != nil {
-				s.logger.Debug("pool: geo retry with same credential", "type", meta.TypeKey, "provider_id", meta.ProviderID, "attempt", i+1, "route", route, "max_proxies", geo.MaxProxies)
-			}
-		}
+		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
+			func(ctx context.Context) (*models.SpeechResponse, string, error) {
+				return s.SpeechRouted(ctx, withCredential(meta, cred), req)
+			})
 	}, isFatal, skip)
 }
 
-// GenerateImagePool tries the credential pool in order through the
-// generate_image handler, at most once per credential. It returns the
-// redacted proxy host:port of the winning or last attempt ("" = direct).
+// GenerateImagePool tries credentials through the generate_image handler.
+// Proxy-scoped limits can retry up to three routes with the same credential.
+// It returns the winning or last proxy host:port ("" = direct).
 func (s *Service) GenerateImagePool(
 	ctx context.Context,
 	meta HandlerMeta,
@@ -305,27 +361,16 @@ func (s *Service) GenerateImagePool(
 	isFatal := s.fatalWithLog(meta, geo)
 	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ImageGenerationResponse, string, error) {
-		var res *models.ImageGenerationResponse
-		var route string
-		var err error
-		for i := 0; ; i++ {
-			res, route, err = s.GenerateImageRouted(ctx, withCredential(meta, cred), req)
-			if err == nil || !shouldRetryGeo(err, route, geo, i) {
-				return res, route, err
-			}
-			if ctx.Err() != nil {
-				return res, route, err
-			}
-			if s.logger != nil {
-				s.logger.Debug("pool: geo retry with same credential", "type", meta.TypeKey, "provider_id", meta.ProviderID, "attempt", i+1, "route", route, "max_proxies", geo.MaxProxies)
-			}
-		}
+		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
+			func(ctx context.Context) (*models.ImageGenerationResponse, string, error) {
+				return s.GenerateImageRouted(ctx, withCredential(meta, cred), req)
+			})
 	}, isFatal, skip)
 }
 
-// EmbedPool tries the credential pool in order through the embed handler, at
-// most once per credential. It returns the redacted proxy host:port of the
-// winning or last attempt ("" = direct).
+// EmbedPool tries credentials through the embed handler. Proxy-scoped limits
+// can retry up to three routes with the same credential. It returns the
+// winning or last proxy host:port ("" = direct).
 func (s *Service) EmbedPool(
 	ctx context.Context,
 	meta HandlerMeta,
@@ -336,20 +381,9 @@ func (s *Service) EmbedPool(
 	isFatal := s.fatalWithLog(meta, geo)
 	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.EmbeddingsResponse, string, error) {
-		var res *models.EmbeddingsResponse
-		var route string
-		var err error
-		for i := 0; ; i++ {
-			res, route, err = s.EmbedRouted(ctx, withCredential(meta, cred), req)
-			if err == nil || !shouldRetryGeo(err, route, geo, i) {
-				return res, route, err
-			}
-			if ctx.Err() != nil {
-				return res, route, err
-			}
-			if s.logger != nil {
-				s.logger.Debug("pool: geo retry with same credential", "type", meta.TypeKey, "provider_id", meta.ProviderID, "attempt", i+1, "route", route, "max_proxies", geo.MaxProxies)
-			}
-		}
+		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
+			func(ctx context.Context) (*models.EmbeddingsResponse, string, error) {
+				return s.EmbedRouted(ctx, withCredential(meta, cred), req)
+			})
 	}, isFatal, skip)
 }

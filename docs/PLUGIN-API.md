@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Router version: **0.3.1** (`models.CurrentVersion`). A plugin using a feature
+Router version: **0.3.4** (`models.CurrentVersion`). A plugin using a feature
 declares the `@router_version` that introduced it; older routers refuse to
 install it. Routers serve no contract older than **0.3.0**: plugins declaring
 `0.2.x` and below fail install and need reissue.
@@ -26,6 +26,7 @@ means `.0`, one leading `v` allowed); anything else fails install.
 | 0.2.0 | DynamicForm Step gaps (`flow`/`grid` `gap` and `spacer` `size` accept int Step `0..8` alongside legacy `sm\|md\|lg`), `input_type=secret`, `flow.justify` gains `around`/`evenly`, strict `link.url` schemes, `provider_config` in auth `ctx` |
 | 0.3.0 | error contract rework: `timeout` merged into `upstream`; new types `content_policy` / `model_unavailable` / `structural_fault`; `rate_limit` and `quota_exceeded` require plugin-supplied future `retry_after`; `scope` strictly validated per type; `upstream_status` / `upstream_body` passthrough; geo becomes an indefinite per-provider proxy ban with same-key retry on another region (`config.geo`); `auth` / `payment_required` disable the credential, `structural_fault` disables the provider (`disabled_by/reason/at`); transport DNS/TLS/refused failures surface as `structural_fault`; manifest floor 0.3.0 |
 | 0.3.1 | Proxy sources accept unauthenticated HTTP candidates only; the proxypool library owns health checks, scoring, cache lifecycle and revival |
+| 0.3.4 | `quota_exceeded` accepts `proxy` scope; proxy-scoped rate/quota outcomes retry the same credential on another proxy, up to three total attempts and only before stream output reaches the client |
 
 ## Responsibility split
 
@@ -138,12 +139,16 @@ llm_router.register_proxy_source(name, {
 - `message`: human string, required, non-empty.
 - `retry_after`: unix timestamp. Mandatory for `rate_limit` and `quota_exceeded`, and must lie in the future: missing or past values reject the table. Forbidden on every other type: presence rejects the table. An explicit plugin override carries the upstream's own statement (parsed from its `retry-after` header or body hint, or known by the plugin). The core default resolves the same sources and falls back to now+60s; returning `nil` (accepting the default) is always valid. `model_unavailable` carries no TTL from the plugin: the router cools the model down for a fixed 2 minutes.
 - `scope`: optional array naming the exhausted dimensions the error
-  limits. Allowed only on `rate_limit` (`account`, `model`, `proxy`) and
-  `quota_exceeded` (`account`, `model`); any `scope` on other types rejects
+  limits. Allowed only on `rate_limit` and `quota_exceeded` (`account`,
+  `model`, `proxy`); any `scope` on other types rejects
   the table. Without scope a rate/quota error marks the full combination
   of the request. Unknown words reject the whole table (`PluginInternalError`).
   Stored keys always carry the calling provider instance ID, never just the
   adapter type: two instances of one type never share an account-less mark.
+  A proxy-scoped error, or an unscoped error that marks the full combination,
+  retries the same credential through another proxy up to three total
+  attempts. The router returns the original limit error when no alternate
+  proxy is available. Account/model-only limits do not trigger this retry.
 - `upstream_status` / `upstream_body`: optional passthrough of the raw
   upstream failure for logs and debugging. Routing never reads them.
   Wrong types are ignored (non-number status, non-string body).
@@ -178,12 +183,15 @@ llm_router.register_proxy_source(name, {
 Pool semantics: the router drops exhausted matches before the token filter
 and keeps the full pool as a last resort when every credential is limited.
 The core then tries the sorted pool in order, at most
-once per key (plus same-key geo retries up to `max_proxies`), and returns
+once per key (plus same-key geo retries up to `max_proxies` and proxy-scoped
+rate/quota retries up to three total proxy attempts), and returns
 the first success or the last error. Per-attempt skip bypasses credentials
-with a live rate-limit key without a request. `invalid_request`, `content_policy`
+with a live rate-limit key without a request, but never bypasses every
+credential: an all-skipped pool attempts in order as a last resort. `invalid_request`, `content_policy`
 and `structural_fault` stop the pool after the first key. Streaming stops
-failover after the first byte reaches the client; same-key geo retries do
-not apply to streams. Any other error form (raised errors, wrong shapes)
+same-key retries after the first byte reaches the client. Proxy-scoped
+rate/quota errors can retry before that point; geo errors move to the next
+credential without a same-key retry. Any other error form (raised errors, wrong shapes)
 becomes `PluginInternalError` and counts as a plugin crash.
 
 ### Request handlers
