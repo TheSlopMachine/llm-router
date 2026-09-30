@@ -35,7 +35,9 @@ import (
 // the proxypool library owns proxy health and cache lifecycle.
 // 0.3.4 permits proxy scope for quota_exceeded and retries proxy-scoped
 // rate/quota failures on another proxy with the same credential.
-const CurrentVersion = "0.3.4"
+// 0.3.5 adds the transport error type for connectivity failures and retries
+// it with the same credential on another proxy.
+const CurrentVersion = "0.3.5"
 
 // ─────────────────────────────────────────────
 // ModelId
@@ -811,7 +813,8 @@ const (
 	ErrorTypeRateLimit                  // Temporary rate limit; plugin MUST supply RetryAfter
 	ErrorTypeQuotaExceeded              // Quota exhausted; plugin MUST supply RetryAfter
 	ErrorTypeAuth                       // Auth failure: disable the credential (system)
-	ErrorTypeUpstream                   // Transient upstream failure (5xx, timeout, reset)
+	ErrorTypeUpstream                   // Transient upstream failure (5xx,timeout, reset)
+	ErrorTypeTransport                  // Connectivity failure (EOF, reset, broken tunnel); carries no state, retries on another proxy
 	ErrorTypeInvalidRequest             // Malformed request; fatal for the pool
 	ErrorTypeGeo                        // Exit geo-blocked: indefinite (provider, proxy) ban, same-key retry on another region
 	ErrorTypeNotFound                   // Model does not exist upstream; drop it from the cache

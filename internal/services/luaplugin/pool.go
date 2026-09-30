@@ -21,7 +21,7 @@ type ProxyLimitStore interface {
 	MarkLimit(proxyID, key string, resetsAt time.Time, reason string) error
 }
 
-const maxProxyScopedAttempts = 3
+const maxRouteAttempts = 3
 
 // SetUsageTracker wires per-credential usage accounting for pool calls.
 // Unset (nil) disables accounting; attempts still run.
@@ -168,6 +168,21 @@ func shouldRetryProxyLimit(err error, route string) bool {
 	return false
 }
 
+// shouldRetryTransport reports whether a connectivity failure warrants
+// another attempt with the same credential on another route: a proxied
+// route (direct transport failures fail over to the next credential, as
+// there is no other exit to try) carrying a transport error.
+func shouldRetryTransport(err error, route string) bool {
+	if route == "" {
+		return false
+	}
+	var perr *models.ProviderError
+	if !errors.As(err, &perr) || perr.Type != models.ErrorTypeTransport {
+		return false
+	}
+	return true
+}
+
 func streamCommitted(w io.Writer) bool {
 	if w == nil {
 		return false
@@ -188,7 +203,7 @@ func runRoutedRetries[T any](
 	var lastRetryRoute string
 	var lastRetryErr error
 	var excludedRoutes []string
-	proxyLimitAttempts := 0
+	routeAttempts := 0
 	geoAttempts := 0
 
 	for {
@@ -205,13 +220,13 @@ func runRoutedRetries[T any](
 		}
 
 		retry := false
-		if shouldRetryProxyLimit(err, route) {
-			proxyLimitAttempts++
-			retry = proxyLimitAttempts < maxProxyScopedAttempts
+		if shouldRetryProxyLimit(err, route) || shouldRetryTransport(err, route) {
+			routeAttempts++
+			retry = routeAttempts < maxRouteAttempts
 			if retry && s.logger != nil {
-				s.logger.Debug("pool: retrying proxy-scoped limit with same credential",
+				s.logger.Debug("pool: retrying route failure with same credential",
 					"type", meta.TypeKey, "provider_id", meta.ProviderID,
-					"attempt", proxyLimitAttempts+1, "max_attempts", maxProxyScopedAttempts, "proxy", route)
+					"attempt", routeAttempts+1, "max_attempts", maxRouteAttempts, "proxy", route)
 			}
 		} else if w == nil && shouldRetryGeo(err, route, geo, geoAttempts) {
 			geoAttempts++
@@ -286,8 +301,9 @@ func (s *Service) CompletePool(
 }
 
 // CompleteStreamPool tries the credential pool in order through the
-// complete_stream handler. Proxy-scoped limits can retry before the first
-// byte reaches the client. It returns the winning or last proxy host:port.
+// complete_stream handler. Proxy-scoped limits or transport failures can
+// retry before the first byte reaches the client. It returns the winning
+// or last proxy host:port.
 func (s *Service) CompleteStreamPool(
 	ctx context.Context,
 	meta HandlerMeta,
@@ -309,7 +325,7 @@ func (s *Service) CompleteStreamPool(
 }
 
 // TranscribePool tries credentials through the transcribe handler. Proxy-
-// scoped limits can retry up to three routes with the same credential.
+// scoped limits or transport failures can retry up to three routes with the same credential.
 // It returns the winning or last proxy host:port ("" = direct).
 func (s *Service) TranscribePool(
 	ctx context.Context,
@@ -329,7 +345,7 @@ func (s *Service) TranscribePool(
 }
 
 // SpeechPool tries credentials through the speech handler. Proxy-scoped
-// limits can retry up to three routes with the same credential. It returns
+// limits or transport failures can retry up to three routes with the same credential. It returns
 // the winning or last proxy host:port ("" = direct).
 func (s *Service) SpeechPool(
 	ctx context.Context,
@@ -349,7 +365,7 @@ func (s *Service) SpeechPool(
 }
 
 // GenerateImagePool tries credentials through the generate_image handler.
-// Proxy-scoped limits can retry up to three routes with the same credential.
+// Proxy-scoped limits or transport failures can retry up to three routes with the same credential.
 // It returns the winning or last proxy host:port ("" = direct).
 func (s *Service) GenerateImagePool(
 	ctx context.Context,
@@ -369,7 +385,7 @@ func (s *Service) GenerateImagePool(
 }
 
 // EmbedPool tries credentials through the embed handler. Proxy-scoped limits
-// can retry up to three routes with the same credential. It returns the
+// or transport failures can retry up to three routes with the same credential. It returns the
 // winning or last proxy host:port ("" = direct).
 func (s *Service) EmbedPool(
 	ctx context.Context,

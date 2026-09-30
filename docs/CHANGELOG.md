@@ -1,5 +1,9 @@
 # Changelog
 
+## Done (2026-09-30, v0.3.5)
+
+- Added the `transport` error type for connectivity failures (EOF, reset, broken tunnel, timeouts) with wire code `transport_error`. Transport failures carry no marks or disables and retry the same credential on another proxy within the three-attempt route budget. The HTTP client reports transport failures with the new type; plugins forward `req_err` tables as-is to preserve it.
+
 ## Done (2026-09-30, v0.3.4)
 
 - Allowed `proxy` scope for `quota_exceeded` and retried proxy-scoped limits with the same credential on alternate routes, up to three attempts. Streaming retries stop after the first byte reaches the client, and requests return the original limit error when no alternate route is available.

@@ -96,6 +96,8 @@ func contractTypeName(t models.ErrorType) string {
 		return "auth"
 	case models.ErrorTypeUpstream:
 		return "upstream"
+	case models.ErrorTypeTransport:
+		return "transport"
 	case models.ErrorTypeInvalidRequest:
 		return "invalid_request"
 	case models.ErrorTypeGeo:

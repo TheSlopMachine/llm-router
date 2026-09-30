@@ -164,6 +164,8 @@ func probeSummary(err error) string {
 			return "invalid request"
 		case models.ErrorTypeUpstream:
 			return "upstream error"
+		case models.ErrorTypeTransport:
+			return "connection failed"
 		case models.ErrorTypeGeo:
 			return "region blocked"
 		case models.ErrorTypePaymentRequired:

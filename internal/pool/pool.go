@@ -73,6 +73,8 @@ func shortError(err error) string {
 			return "structural_fault"
 		case models.ErrorTypeNotFound:
 			return "not_found"
+		case models.ErrorTypeTransport:
+			return "transport"
 		default:
 			return "upstream"
 		}

@@ -73,9 +73,10 @@ Keep changes shallow. Touch service internals only when the task requires it.
   `content_policy`, `structural_fault`, `geo` in `fail_fast` mode) stop
   immediately. Unary pools retry `geo` with the same credential on another
   region's proxy up to the provider `geo.max_proxies` (`fail_fast` default,
-  `retry_same_key` default 3, cap 10) in `retry_same_key` mode. Proxy-scoped
-  rate/quota errors retry the same credential on another route up to three
-  total attempts; a full-combination error also retries when the request used
+  `retry_same_key` default 3, cap 10) in `retry_same_key` mode. Route
+  failures — proxy-scoped rate/quota errors and `transport` connectivity
+  failures — retry the same credential on another route up to three total
+  attempts; a full-combination error also retries when the request used
   a proxy. Streams allow this retry only before the first byte reaches the
   client. Geo errors do not retry with the same credential on streams.
   Per-attempt `skip` bypasses credentials with a live exhausted key
@@ -128,7 +129,7 @@ Keep changes shallow. Touch service internals only when the task requires it.
 
 - Domain errors live in `internal/errors`: sentinels (`ErrNotFound`,
   `ErrTimeout` → status `timeout`, `ErrRateLimited`, …) + `models.ProviderError` with a typed
-  `ErrorType` (11 plugin types plus `Unknown`; the removed `timeout` type merged into `upstream`). No
+  `ErrorType` (12 plugin types plus `Unknown`; the removed `timeout` type merged into `upstream`). No
   `strings.Contains` matching anywhere.
 - `MapUpstream(status, code, type, message)`: exact status/code matching
   from the upstream envelope with code fallbacks before the bare-status

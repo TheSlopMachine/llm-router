@@ -404,7 +404,7 @@ func TestRunRoutedRetries_ProxyLimitStopsAtStreamCommit(t *testing.T) {
 		write     bool
 		wantCalls int
 	}{
-		{name: "before first byte", wantCalls: maxProxyScopedAttempts},
+		{name: "before first byte", wantCalls: maxRouteAttempts},
 		{name: "after first byte", write: true, wantCalls: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -424,6 +424,176 @@ func TestRunRoutedRetries_ProxyLimitStopsAtStreamCommit(t *testing.T) {
 				})
 			if !isProviderType(err, models.ErrorTypeRateLimit) {
 				t.Fatalf("expected rate limit, got %T (%v)", err, err)
+			}
+			if calls != tc.wantCalls {
+				t.Fatalf("attempts: got %d want %d", calls, tc.wantCalls)
+			}
+			if want := fmt.Sprintf("proxy-%d:8080", calls); route != want {
+				t.Fatalf("last route: got %q want %q", route, want)
+			}
+		})
+	}
+}
+
+const transportRetryPluginSource = `--- @plugin Transport Retry
+--- @author tester
+--- @version 1.0.0
+--- @router_version 0.3.5
+--- @allow_host example.com
+
+llm_router.register("transport-retry-type", {
+  complete = function(ctx, credential, request)
+    local client = llm_router.http_client({ timeout_ms = 5000 })
+    local resp, req_err = client:request({ method = "GET", url = "http://example.com/probe" })
+    if req_err ~= nil then
+      return nil, req_err
+    end
+    return {
+      id = "chatcmpl-transport-retry",
+      object = "chat.completion",
+      created = 1700000000,
+      model = request.model,
+      choices = {
+        { index = 0, message = { role = "assistant", content = resp.body }, finish_reason = "stop" },
+      },
+      usage = { prompt_tokens = 1, completion_tokens = 1, total_tokens = 2 },
+    }
+  end,
+})
+`
+
+// flakyProxy drops its first tunneled request mid-response, then answers
+// every later request with marker. It models a proxy that fails once: the
+// first pool attempt exhausts its picks with a transport error, and the
+// same-credential retry lands back on it and succeeds.
+func flakyProxy(t *testing.T, marker string, hits *atomic.Int32) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if hits.Add(1) == 1 {
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				t.Error("response writer does not hijack")
+				return
+			}
+			conn, _, err := hj.Hijack()
+			if err != nil {
+				t.Errorf("hijack: %v", err)
+				return
+			}
+			_ = conn.Close()
+			return
+		}
+		_, _ = io.WriteString(w, marker)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func TestCompletePool_RetriesTransportOnAlternateProxy(t *testing.T) {
+	svc := setupService(t)
+	if _, err := svc.Install([]byte(transportRetryPluginSource), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	var flakyHits atomic.Int32
+	flakyURL := flakyProxy(t, "transport retry marker", &flakyHits)
+	svc.SetProxyResolver(func(context.Context, *PluginRecord, map[string]any, exhausted.Segments) ([]ProxyPick, error) {
+		return []ProxyPick{{ID: "px-flaky", URL: flakyURL}, {ID: "px-dead", URL: "http://127.0.0.1:1"}}, nil
+	})
+	recorder := &proxyLimitRecorder{}
+	svc.SetProxyLimitStore(recorder)
+
+	req := &models.ChatCompletionRequest{
+		Model:    "transport-retry-type/m",
+		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
+	}
+	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
+	resp, route, err := svc.CompletePool(t.Context(), testMeta("transport-retry-type", nil, req.Model, nil), []*models.Credential{cred}, req)
+	if err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if got := resp.Choices[0].Message.TextContent(); got != "transport retry marker" {
+		t.Fatalf("response: got %q", got)
+	}
+	if route == "" {
+		t.Fatal("expected a proxied route")
+	}
+	if got := flakyHits.Load(); got != 2 {
+		t.Fatalf("flaky proxy was called %d times, want 2", got)
+	}
+	if len(recorder.proxyIDs) != 0 {
+		t.Fatalf("transport must not mark proxy limits: %v", recorder.proxyIDs)
+	}
+}
+
+func TestRunRoutedRetries_TransportRetriesWithSameCredential(t *testing.T) {
+	calls := 0
+	res, route, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, nil,
+		func(context.Context) (int, string, error) {
+			calls++
+			if calls < 3 {
+				return 0, fmt.Sprintf("proxy-%d:8080", calls), &models.ProviderError{Type: models.ErrorTypeTransport, Message: "eof"}
+			}
+			return 7, fmt.Sprintf("proxy-%d:8080", calls), nil
+		})
+	if err != nil || res != 7 || route != "proxy-3:8080" || calls != 3 {
+		t.Fatalf("got res=%v route=%q err=%v calls=%d", res, route, err, calls)
+	}
+}
+
+func TestRunRoutedRetries_TransportBudgetAndScope(t *testing.T) {
+	calls := 0
+	_, _, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, nil,
+		func(context.Context) (int, string, error) {
+			calls++
+			return 0, "proxy-1:8080", &models.ProviderError{Type: models.ErrorTypeTransport, Message: "eof"}
+		})
+	if !isProviderType(err, models.ErrorTypeTransport) || calls != maxRouteAttempts {
+		t.Fatalf("persistent transport must stop at the route budget: err=%v calls=%d", err, calls)
+	}
+	direct := 0
+	_, _, err = runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, nil,
+		func(context.Context) (int, string, error) {
+			direct++
+			return 0, "", &models.ProviderError{Type: models.ErrorTypeTransport, Message: "eof"}
+		})
+	if !isProviderType(err, models.ErrorTypeTransport) || direct != 1 {
+		t.Fatalf("direct transport must not retry: err=%v calls=%d", err, direct)
+	}
+	up := 0
+	_, _, err = runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, nil,
+		func(context.Context) (int, string, error) {
+			up++
+			return 0, "proxy-1:8080", &models.ProviderError{Type: models.ErrorTypeUpstream, Message: "502"}
+		})
+	if !isProviderType(err, models.ErrorTypeUpstream) || up != 1 {
+		t.Fatalf("plain upstream must not retry: err=%v calls=%d", err, up)
+	}
+}
+
+func TestRunRoutedRetries_TransportStopsAtStreamCommit(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		write     bool
+		wantCalls int
+	}{
+		{name: "before first byte", wantCalls: maxRouteAttempts},
+		{name: "after first byte", write: true, wantCalls: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writer := streamgate.New(&bytes.Buffer{})
+			calls := 0
+			_, route, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, writer,
+				func(context.Context) (int, string, error) {
+					calls++
+					if tc.write {
+						if _, writeErr := io.WriteString(writer, "data: chunk\n\n"); writeErr != nil {
+							t.Fatalf("write: %v", writeErr)
+						}
+					}
+					return 0, fmt.Sprintf("proxy-%d:8080", calls), &models.ProviderError{Type: models.ErrorTypeTransport, Message: "eof"}
+				})
+			if !isProviderType(err, models.ErrorTypeTransport) {
+				t.Fatalf("expected transport, got %T (%v)", err, err)
 			}
 			if calls != tc.wantCalls {
 				t.Fatalf("attempts: got %d want %d", calls, tc.wantCalls)

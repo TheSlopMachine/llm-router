@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Router version: **0.3.4** (`models.CurrentVersion`). A plugin using a feature
+Router version: **0.3.5** (`models.CurrentVersion`). A plugin using a feature
 declares the `@router_version` that introduced it; older routers refuse to
 install it. Routers serve no contract older than **0.3.0**: plugins declaring
 `0.2.x` and below fail install and need reissue.
@@ -27,6 +27,7 @@ means `.0`, one leading `v` allowed); anything else fails install.
 | 0.3.0 | error contract rework: `timeout` merged into `upstream`; new types `content_policy` / `model_unavailable` / `structural_fault`; `rate_limit` and `quota_exceeded` require plugin-supplied future `retry_after`; `scope` strictly validated per type; `upstream_status` / `upstream_body` passthrough; geo becomes an indefinite per-provider proxy ban with same-key retry on another region (`config.geo`); `auth` / `payment_required` disable the credential, `structural_fault` disables the provider (`disabled_by/reason/at`); transport DNS/TLS/refused failures surface as `structural_fault`; manifest floor 0.3.0 |
 | 0.3.1 | Proxy sources accept unauthenticated HTTP candidates only; the proxypool library owns health checks, scoring, cache lifecycle and revival |
 | 0.3.4 | `quota_exceeded` accepts `proxy` scope; proxy-scoped rate/quota outcomes retry the same credential on another proxy, up to three total attempts and only before stream output reaches the client |
+| 0.3.5 | `transport` error type for connectivity failures (wire `transport_error`, 502); transport failures retry the same credential on another proxy within the three-attempt route budget, carry no marks or disables, and forbid `scope`/`retry_after` |
 
 ## Responsibility split
 
@@ -135,7 +136,7 @@ llm_router.register_proxy_source(name, {
 
 `err` is `{ type = ..., message = ..., retry_after = ..., scope = ..., upstream_status = ..., upstream_body = ... }`:
 
-- `type`: `rate_limit` | `quota_exceeded` | `auth` | `upstream` | `invalid_request` | `geo` | `not_found` | `payment_required` | `content_policy` | `model_unavailable` | `structural_fault`. Unknown types (including the removed `timeout`: use `upstream`) reject the table.
+- `type`: `rate_limit` | `quota_exceeded` | `auth` | `upstream` | `transport` | `invalid_request` | `geo` | `not_found` | `payment_required` | `content_policy` | `model_unavailable` | `structural_fault`. Unknown types (including the removed `timeout`: use `upstream`) reject the table.
 - `message`: human string, required, non-empty.
 - `retry_after`: unix timestamp. Mandatory for `rate_limit` and `quota_exceeded`, and must lie in the future: missing or past values reject the table. Forbidden on every other type: presence rejects the table. An explicit plugin override carries the upstream's own statement (parsed from its `retry-after` header or body hint, or known by the plugin). The core default resolves the same sources and falls back to now+60s; returning `nil` (accepting the default) is always valid. `model_unavailable` carries no TTL from the plugin: the router cools the model down for a fixed 2 minutes.
 - `scope`: optional array naming the exhausted dimensions the error
@@ -179,18 +180,25 @@ llm_router.register_proxy_source(name, {
   region policy is shared by every instance of the type) and, in
   `retry_same_key` mode,
   retries the same credential on a proxy from another region.
+- `transport`: the connection failed before the upstream answered
+  (EOF, reset, broken tunnel, timeout). Carries no marks, no disables, no
+  `scope`, no `retry_after`; the router retries the same credential on
+  another proxy within the three-attempt route budget. The HTTP client
+  reports its own transport failures with this type; plugins forward
+  `req_err` tables as-is to preserve it.
 
 Pool semantics: the router drops exhausted matches before the token filter
 and keeps the full pool as a last resort when every credential is limited.
 The core then tries the sorted pool in order, at most
-once per key (plus same-key geo retries up to `max_proxies` and proxy-scoped
-rate/quota retries up to three total proxy attempts), and returns
+once per key (plus same-key geo retries up to `max_proxies` and route
+retries — proxy-scoped rate/quota errors and transport failures — up to
+three total proxy attempts), and returns
 the first success or the last error. Per-attempt skip bypasses credentials
 with a live rate-limit key without a request, but never bypasses every
 credential: an all-skipped pool attempts in order as a last resort. `invalid_request`, `content_policy`
 and `structural_fault` stop the pool after the first key. Streaming stops
-same-key retries after the first byte reaches the client. Proxy-scoped
-rate/quota errors can retry before that point; geo errors move to the next
+same-key retries after the first byte reaches the client. Route failures
+can retry before that point; geo errors move to the next
 credential without a same-key retry. Any other error form (raised errors, wrong shapes)
 becomes `PluginInternalError` and counts as a plugin crash.
 
@@ -376,9 +384,11 @@ attempt gets a fresh budget.
   truncate silently at 16MiB.
 - `err` — transport failure only: `{ type = "structural_fault", message = ... }`
   for direct-leg endpoint breakage (unresolvable host, refused connection,
-  broken TLS identity), `{ type = "upstream", message = ... }` for
+  broken TLS identity), `{ type = "transport", message = ... }` for
   timeouts, resets, resolver failures and proxy-leg exhaustion.
-  HTTP statuses arrive as data: the plugin classifies them itself.
+  HTTP statuses arrive as data: the plugin classifies them itself. Forward
+  `req_err` as-is when the call fails so the core sees the transport type;
+  rebuilding it as `upstream` loses the same-credential retry.
 
 `client:stream({method, url, headers, body, on_response?, on_line?, on_chunk?})`
 → `(resp, err)`:
@@ -428,7 +438,7 @@ the default) is always valid. Unknown shapes degrade to `upstream` — the
 default never asserts `auth`, `geo`, `quota_exceeded` or `payment_required`
 on weak signals. Direct-leg transport failures (DNS, TLS identity,
 refused connection) surface as `structural_fault`; timeouts, resets and
-proxy-leg failures surface as `upstream`.
+proxy-leg failures surface as `transport`.
 
 ### llm_router.multipart(parts) → body, content_type
 
@@ -550,8 +560,8 @@ failure, the client tries the remaining picks and never falls back to direct.
 An empty list means direct mode was requested; an exhausted list surfaces
 the last error. Transport failures on the direct leg map to
 `structural_fault` when the endpoint itself is broken (DNS, TLS identity,
-refused connection) and to `upstream` otherwise; proxy-leg failures surface
-as `upstream`.
+refused connection) and to `transport` otherwise; proxy-leg failures surface
+as `transport`.
 
 Provider proxy mode lives in the provider config (`proxy: { mode, ids? }`,
 `disabled` default, `manual` takes explicit proxy IDs; `manual` with no

@@ -28,6 +28,7 @@ func TestAsProviderErrorStrict(t *testing.T) {
 			"model_unavailable": models.ErrorTypeModelUnavailable,
 			"structural_fault":  models.ErrorTypeStructuralFault,
 			"upstream":          models.ErrorTypeUpstream,
+			"transport":         models.ErrorTypeTransport,
 			"geo":               models.ErrorTypeGeo,
 		} {
 			L := lua.NewState()
@@ -71,7 +72,7 @@ func TestAsProviderErrorStrict(t *testing.T) {
 		}
 	})
 	t.Run("retry_after forbidden elsewhere", func(t *testing.T) {
-		for _, typ := range []string{"auth", "upstream", "geo", "model_unavailable", "structural_fault", "content_policy", "invalid_request", "not_found", "payment_required"} {
+		for _, typ := range []string{"auth", "upstream", "transport", "geo", "model_unavailable", "structural_fault", "content_policy", "invalid_request", "not_found", "payment_required"} {
 			if _, ok := asProviderError(contractTable(t, map[string]lua.LValue{
 				"type": lua.LString(typ), "message": lua.LString("m"),
 				"retry_after": num(future),
@@ -81,15 +82,17 @@ func TestAsProviderErrorStrict(t *testing.T) {
 		}
 	})
 	t.Run("scope forbidden outside rate and quota", func(t *testing.T) {
-		L := lua.NewState()
-		defer L.Close()
-		scope := L.NewTable()
-		scope.Append(lua.LString("account"))
-		if _, ok := asProviderError(contractTable(t, map[string]lua.LValue{
-			"type": lua.LString("auth"), "message": lua.LString("m"),
-			"scope": scope,
-		})); ok {
-			t.Fatal("auth with scope must be invalid")
+		for _, typ := range []string{"auth", "transport"} {
+			L := lua.NewState()
+			defer L.Close()
+			scope := L.NewTable()
+			scope.Append(lua.LString("account"))
+			if _, ok := asProviderError(contractTable(t, map[string]lua.LValue{
+				"type": lua.LString(typ), "message": lua.LString("m"),
+				"scope": scope,
+			})); ok {
+				t.Fatalf("%s with scope must be invalid", typ)
+			}
 		}
 	})
 	t.Run("quota proxy scope accepted", func(t *testing.T) {

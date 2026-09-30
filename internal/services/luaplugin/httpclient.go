@@ -636,13 +636,14 @@ func pushLuaErr(L *lua.LState, errType, message string) {
 // failures (unresolvable host, refused connection, broken TLS identity)
 // become structural_fault — the provider endpoint itself is broken for every
 // key. Timeouts, resets, proxy-leg exhaustion and resolver failures stay
-// upstream: they are transient or owned by the proxy subsystem.
+// transport: they are connectivity failures without application meaning,
+// retried with the same credential on another route.
 func pushTransportErr(L *lua.LState, err error, direct bool) {
 	if direct && isStructuralTransport(err) {
 		pushLuaErr(L, "structural_fault", err.Error())
 		return
 	}
-	pushLuaErr(L, "upstream", err.Error())
+	pushLuaErr(L, "transport", err.Error())
 }
 
 // isStructuralTransport matches typed network failures, never message

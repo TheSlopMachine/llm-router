@@ -42,6 +42,8 @@ func ToAPIError(err error) APIError {
 			return APIError{http.StatusBadGateway, "structural_fault"}
 		case models.ErrorTypeUpstream:
 			return APIError{http.StatusBadGateway, "upstream_error"}
+		case models.ErrorTypeTransport:
+			return APIError{http.StatusBadGateway, "transport_error"}
 		default:
 			return APIError{http.StatusBadGateway, "upstream_error"}
 		}
@@ -83,6 +85,8 @@ func ErrorTypeForCode(code string) string {
 		return "invalid_request_error"
 	case "rate_limit", "quota_exceeded":
 		return "rate_limit_error"
+	case "transport_error":
+		return "server_error"
 	case "server_error", "upstream_error", "model_unavailable", "structural_fault", "internal_error":
 		return "server_error"
 	default:

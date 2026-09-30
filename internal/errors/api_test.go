@@ -51,6 +51,7 @@ func TestToAPIErrorProviderTypes(t *testing.T) {
 		{models.ErrorTypeGeo, http.StatusBadRequest, "geo_blocked"},
 		{models.ErrorTypePaymentRequired, http.StatusPaymentRequired, "payment_required"},
 		{models.ErrorTypeUpstream, http.StatusBadGateway, "upstream_error"},
+		{models.ErrorTypeTransport, http.StatusBadGateway, "transport_error"},
 		{models.ErrorTypeContentPolicy, http.StatusBadRequest, "content_policy"},
 		{models.ErrorTypeModelUnavailable, http.StatusServiceUnavailable, "model_unavailable"},
 		{models.ErrorTypeStructuralFault, http.StatusBadGateway, "structural_fault"},

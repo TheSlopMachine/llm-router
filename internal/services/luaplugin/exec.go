@@ -349,6 +349,9 @@ func asProviderError(v lua.LValue) (*models.ProviderError, bool) {
 	case "upstream":
 		errType = models.ErrorTypeUpstream
 		status = 502
+	case "transport":
+		errType = models.ErrorTypeTransport
+		status = 502
 	case "invalid_request":
 		errType = models.ErrorTypeInvalidRequest
 		status = 400
