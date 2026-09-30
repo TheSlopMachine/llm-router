@@ -37,7 +37,9 @@ import (
 // rate/quota failures on another proxy with the same credential.
 // 0.3.5 adds the transport error type for connectivity failures and retries
 // it with the same credential on another proxy.
-const CurrentVersion = "0.3.5"
+// 0.3.6 adds the plugin model_specs table: pinned per-model rows merged
+// over discovered catalog rows in GetModelInfos.
+const CurrentVersion = "0.3.6"
 
 // ─────────────────────────────────────────────
 // ModelId

@@ -513,6 +513,7 @@ func (s *Service) GetModelInfos(
 	if !found {
 		return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "get_model_infos"}
 	}
+	infos = applyModelSpecs(infos, rec.ModelSpecs[typeKey])
 	if infos == nil {
 		infos = []models.ModelInfo{}
 	}

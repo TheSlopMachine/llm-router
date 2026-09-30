@@ -15,7 +15,7 @@ internal/services/
   provider/              ProviderInstance CRUD (all types, one path)
   credential/            credential pool, usage stats
   virtual/               virtual models (fall-through lists + instruction)
-  luaplugin/             Lua execution core: manifest, sandbox, HTTP+SSRF, storage
+  luaplugin/             Lua execution core: manifest, sandbox, HTTP+SSRF, storage, model_specs merge
   pluginrepo/            plugin store: single-URL index repos (repo URL or direct index.json, files resolved against the index directory); code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
   modelinfo/             model metadata cache (1h TTL)
   metrics/               1m buckets, 90d retention

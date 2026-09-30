@@ -29,12 +29,13 @@ type PluginOrigin struct {
 
 // PluginVersionSnapshot is one rollback entry.
 type PluginVersionSnapshot struct {
-	Version         string              `json:"version"`
-	Source          []byte              `json:"source"`
-	TypeKeys        []string            `json:"type_keys"`
-	Handlers        map[string][]string `json:"handlers"`
-	Icons           map[string]string   `json:"icons"`
-	ProxySourceKeys []string            `json:"proxy_source_keys,omitempty"`
+	Version         string                                 `json:"version"`
+	Source          []byte                                 `json:"source"`
+	TypeKeys        []string                               `json:"type_keys"`
+	Handlers        map[string][]string                    `json:"handlers"`
+	Icons           map[string]string                      `json:"icons"`
+	ModelSpecs      map[string]map[string]models.ModelInfo `json:"model_specs,omitempty"`
+	ProxySourceKeys []string                               `json:"proxy_source_keys,omitempty"`
 }
 
 // PluginRecord is the stored plugin row in BucketPlugins.
@@ -54,15 +55,18 @@ type PluginRecord struct {
 	// from this plugin. Empty means disabled.
 	ProxyDefaultOption string `json:"proxy_default_option,omitempty"`
 	// ProxySourceKeys lists registered proxy-list sources in this plugin.
-	ProxySourceKeys []string                `json:"proxy_source_keys,omitempty"`
-	TypeKeys        []string                `json:"type_keys"`
-	Handlers        map[string][]string     `json:"handlers"`
-	Icons           map[string]string       `json:"icons"`
-	Source          []byte                  `json:"source"`
-	History         []PluginVersionSnapshot `json:"history"`
-	Origin          PluginOrigin            `json:"origin"`
-	InstalledAt     time.Time               `json:"installed_at"`
-	UpdatedAt       time.Time               `json:"updated_at"`
+	ProxySourceKeys []string `json:"proxy_source_keys,omitempty"`
+	// ModelSpecs holds per-type pinned model rows from the registration
+	// model_specs table, merged over discovered rows in GetModelInfos.
+	ModelSpecs  map[string]map[string]models.ModelInfo `json:"model_specs,omitempty"`
+	TypeKeys    []string                               `json:"type_keys"`
+	Handlers    map[string][]string                    `json:"handlers"`
+	Icons       map[string]string                      `json:"icons"`
+	Source      []byte                                 `json:"source"`
+	History     []PluginVersionSnapshot                `json:"history"`
+	Origin      PluginOrigin                           `json:"origin"`
+	InstalledAt time.Time                              `json:"installed_at"`
+	UpdatedAt   time.Time                              `json:"updated_at"`
 }
 
 // LogEntry is one print() line captured from a plugin.
@@ -303,7 +307,7 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 	if err != nil {
 		return nil, err
 	}
-	typeKeys, handlers, icons, sourceKeys, err := s.dryRun(id, source, manifest)
+	typeKeys, handlers, icons, specs, sourceKeys, err := s.dryRun(id, source, manifest)
 	if err != nil {
 		return nil, err
 	}
@@ -316,7 +320,7 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 	if err == nil && existing != nil {
 		history := append(existing.History, PluginVersionSnapshot{
 			Version: existing.Version, Source: existing.Source, TypeKeys: existing.TypeKeys,
-			Handlers: existing.Handlers, Icons: existing.Icons, ProxySourceKeys: existing.ProxySourceKeys,
+			Handlers: existing.Handlers, Icons: existing.Icons, ModelSpecs: existing.ModelSpecs, ProxySourceKeys: existing.ProxySourceKeys,
 		})
 		if len(history) > 10 {
 			history = history[len(history)-10:]
@@ -328,6 +332,7 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 			AllowHosts: manifest.AllowHosts, Unsafe: manifest.Unsafe,
 			ProxyLocations: manifest.ProxyLocations, ProxyDefaultOption: manifest.ProxyDefaultOption,
 			ProxySourceKeys: sourceKeys,
+			ModelSpecs:      specs,
 			TypeKeys:        typeKeys, Handlers: handlers, Icons: icons, Source: append([]byte(nil), source...),
 			History: history, Origin: origin,
 			InstalledAt: existing.InstalledAt, UpdatedAt: now,
@@ -349,6 +354,7 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 		AllowHosts: manifest.AllowHosts, Unsafe: manifest.Unsafe,
 		ProxyLocations: manifest.ProxyLocations, ProxyDefaultOption: manifest.ProxyDefaultOption,
 		ProxySourceKeys: sourceKeys,
+		ModelSpecs:      specs,
 		TypeKeys:        typeKeys, Handlers: handlers, Icons: icons, Source: append([]byte(nil), source...),
 		Origin:      origin,
 		InstalledAt: now, UpdatedAt: now,
@@ -375,7 +381,7 @@ func (s *Service) Rollback(id string) (*PluginRecord, error) {
 	}
 	prev := rec.History[len(rec.History)-1]
 	rest := rec.History[:len(rec.History)-1]
-	rest = append(rest, PluginVersionSnapshot{Version: rec.Version, Source: rec.Source, TypeKeys: rec.TypeKeys, Handlers: rec.Handlers, Icons: rec.Icons, ProxySourceKeys: rec.ProxySourceKeys})
+	rest = append(rest, PluginVersionSnapshot{Version: rec.Version, Source: rec.Source, TypeKeys: rec.TypeKeys, Handlers: rec.Handlers, Icons: rec.Icons, ModelSpecs: rec.ModelSpecs, ProxySourceKeys: rec.ProxySourceKeys})
 	if len(rest) > 10 {
 		rest = rest[len(rest)-10:]
 	}
@@ -385,10 +391,11 @@ func (s *Service) Rollback(id string) (*PluginRecord, error) {
 	}
 	handlers := prev.Handlers
 	icons := prev.Icons
+	specs := prev.ModelSpecs
 	sourceKeys := prev.ProxySourceKeys
 	if handlers == nil {
 		var derr error
-		_, handlers, icons, sourceKeys, derr = s.dryRun(id, prev.Source, manifest)
+		_, handlers, icons, specs, sourceKeys, derr = s.dryRun(id, prev.Source, manifest)
 		if derr != nil {
 			return nil, fmt.Errorf("previous version dry-run: %w", derr)
 		}
@@ -398,6 +405,7 @@ func (s *Service) Rollback(id string) (*PluginRecord, error) {
 	rec.TypeKeys = prev.TypeKeys
 	rec.Handlers = handlers
 	rec.Icons = icons
+	rec.ModelSpecs = specs
 	rec.DisplayName = manifest.Plugin
 	rec.Author = manifest.Author
 	rec.RouterVersion = manifest.RouterVersion
@@ -458,9 +466,9 @@ func validateIcon(typeKey, value string) error {
 }
 
 // dryRun executes the plugin top-level code in a fully configured sandbox
-// and returns the registered type keys, declared handler names and icons.
-// Handlers are not invoked.
-func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) ([]string, map[string][]string, map[string]string, []string, error) {
+// and returns the registered type keys, declared handler names, icons and
+// model specs. Handlers are not invoked.
+func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) ([]string, map[string][]string, map[string]string, map[string]map[string]models.ModelInfo, []string, error) {
 	ctx := &execContext{
 		pluginID:      pluginID,
 		allowHosts:    manifest.AllowHosts,
@@ -480,16 +488,17 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) ([]
 		if cause == "" || cause == "nil" {
 			cause = err.Error()
 		}
-		return nil, nil, nil, nil, &models.PluginInternalError{
+		return nil, nil, nil, nil, nil, &models.PluginInternalError{
 			PluginID: pluginID, Cause: fmt.Sprintf("top-level: %s (source %d bytes)", cause, len(source)),
 		}
 	}
 	if len(ctx.registrations) == 0 && len(ctx.proxySources) == 0 {
-		return nil, nil, nil, nil, fmt.Errorf("plugin declares no type keys: missing llm_router.register call")
+		return nil, nil, nil, nil, nil, fmt.Errorf("plugin declares no type keys: missing llm_router.register call")
 	}
 	keys := make([]string, 0, len(ctx.registrations))
 	handlers := map[string][]string{}
 	icons := map[string]string{}
+	specs := map[string]map[string]models.ModelInfo{}
 	sourceKeys := make([]string, 0, len(ctx.proxySources))
 	for k := range ctx.proxySources {
 		sourceKeys = append(sourceKeys, k)
@@ -508,18 +517,29 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) ([]
 		if v := tbl.RawGetString("icon"); v != lua.LNil {
 			icon, ok := v.(lua.LString)
 			if !ok {
-				return nil, nil, nil, nil, fmt.Errorf("plugin type %q: icon must be a string", k)
+				return nil, nil, nil, nil, nil, fmt.Errorf("plugin type %q: icon must be a string", k)
 			}
 			if err := validateIcon(k, string(icon)); err != nil {
-				return nil, nil, nil, nil, err
+				return nil, nil, nil, nil, nil, err
 			}
 			if string(icon) != "" {
 				icons[k] = string(icon)
 			}
 		}
+		if v := tbl.RawGetString("model_specs"); v != lua.LNil {
+			specTbl, ok := v.(*lua.LTable)
+			if !ok {
+				return nil, nil, nil, nil, nil, fmt.Errorf("plugin type %q: model_specs must be a table", k)
+			}
+			parsed, err := parseModelSpecs(specTbl, k)
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			specs[k] = parsed
+		}
 	}
 	sort.Strings(keys)
-	return keys, handlers, icons, sourceKeys, nil
+	return keys, handlers, icons, specs, sourceKeys, nil
 }
 
 // HasHandler reports whether a type key declares a handler.

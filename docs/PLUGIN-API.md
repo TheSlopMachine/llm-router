@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Router version: **0.3.5** (`models.CurrentVersion`). A plugin using a feature
+Router version: **0.3.6** (`models.CurrentVersion`). A plugin using a feature
 declares the `@router_version` that introduced it; older routers refuse to
 install it. Routers serve no contract older than **0.3.0**: plugins declaring
 `0.2.x` and below fail install and need reissue.
@@ -28,6 +28,7 @@ means `.0`, one leading `v` allowed); anything else fails install.
 | 0.3.1 | Proxy sources accept unauthenticated HTTP candidates only; the proxypool library owns health checks, scoring, cache lifecycle and revival |
 | 0.3.4 | `quota_exceeded` accepts `proxy` scope; proxy-scoped rate/quota outcomes retry the same credential on another proxy, up to three total attempts and only before stream output reaches the client |
 | 0.3.5 | `transport` error type for connectivity failures (wire `transport_error`, 502); transport failures retry the same credential on another proxy within the three-attempt route budget, carry no marks or disables, and forbid `scope`/`retry_after` |
+| 0.3.6 | `model_specs` registration table: pinned per-model rows merged over `get_model_infos` rows, every field except the id; unknown ids ignored, unknown fields and mistyped values fail install |
 
 ## Responsibility split
 
@@ -91,6 +92,19 @@ llm_router.register_proxy_source(name, {
   names are ignored.
 - An optional `icon` string on the registration table selects the dashboard
   icon: `https://` URL or `data:image/` URI, 32KiB cap. Empty means no icon.
+- An optional `model_specs` table pins per-model rows that clarify
+  discovered catalog rows:
+  ```lua
+  model_specs = {
+    ["glm-5"] = { context_window = 200000 },
+  }
+  ```
+  Every field merges over the `get_model_infos` row except the id, which
+  the entry key selects. Fields absent from the spec pass through;
+  entries for undiscovered ids are ignored (specs never resurrect removed
+  models). Unknown fields and mistyped values fail install — a typo'd key
+  must never deploy as a silent no-op. Routers older than the spec
+  feature ignore the table.
 - `classify_error` absent means the core default decides alone.
 - One bare source name may be claimed by several plugins; the runtime
   qualifies each as `<recordID>/<name>`.

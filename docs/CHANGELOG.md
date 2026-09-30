@@ -1,5 +1,9 @@
 # Changelog
 
+## Done (2026-09-30, v0.3.6)
+
+- Added the plugin `model_specs` registration table: pinned per-model rows merged over discovered catalog rows in `GetModelInfos`. Specs win per field except the id, unknown ids are ignored, and unknown fields or mistyped values reject the plugin at install. Old routers ignore the unknown field.
+
 ## Done (2026-09-30, v0.3.5)
 
 - Added the `transport` error type for connectivity failures (EOF, reset, broken tunnel, timeouts) with wire code `transport_error`. Transport failures carry no marks or disables and retry the same credential on another proxy within the three-attempt route budget. The HTTP client reports transport failures with the new type; plugins forward `req_err` tables as-is to preserve it.

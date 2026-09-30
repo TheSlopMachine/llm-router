@@ -169,6 +169,7 @@ func dedupeStrings(in []string) []string {
 // removing the otherwise compatible 0.3.0 provider contract. Version 0.3.4
 // adds proxy scope for quota errors without removing older error forms.
 // Version 0.3.5 adds the transport error type for connectivity failures.
+// Version 0.3.6 adds the model_specs registration table.
 const minRouterVersion = "0.3.0"
 
 // CheckRouterVersion rejects plugins requiring a newer router.
