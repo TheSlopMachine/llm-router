@@ -201,8 +201,14 @@ If the task needs `browser`, `publish`, or `clean`: STOP. Ask the human to run i
   `make go-fmt-check` gate every Go change; `make smoke SMOKE_PLUGINS=mock`
   gates request-path changes (Request flow in `docs/BACKEND.md`: `router`,
   `pool`/`streamgate`, `proxypool`, `exhausted`/`geoban`, `virtual`,
-  `luaplugin`/`PLUGIN-API`, `api/v1`, `errors`). Scope to a real plugin only
-  to debug that plugin.
+   `luaplugin`/`PLUGIN-API`, `api/v1`, `errors`). Scope to a real plugin only
+   to debug that plugin.
+- Attribute failures before fixing: when smoke fails after the change,
+  reproduce on the clean tree first with a scoped run. `git stash` is
+  permitted for baselines but dangerous: confirm clean `git status` before
+  stashing, pop immediately after the baseline run, and prefer a separate
+  worktree when unrelated work is in flight. A forgotten stash loses work
+  silently.
 
 ## 7. Design defaults
 
@@ -309,12 +315,14 @@ Smoke harness (`scripts/smoke/`, `make smoke` restarts with `NO_AUTH=1` first):
 - Accounts come from the dev database, never from env. Missing credentials skip the plugin, never fail it.
 - Matrix iterates models per capability until first success; `quota`/`payment`/`rate`/`not_found`/`invalid_request` move on, `auth` fails, exhaustion without success skips with reason.
 - Mock provider ships in `testdata/mock.lua`; bump its `@version` on every edit (the harness skips reinstall on version match).
+- Check semantics differ per target: streams assert delivery (`[DONE]`/`message_stop`), dashboard-chat asserts non-empty `choices`, unary asserts content. A unary-only failure with passing streams means empty upstream text, not transport.
+- Diagnose from the log first: failing calls' full upstream bodies are already in the debug log (`make smoke SMOKE_PLUGINS=... LOG_LEVEL=debug`, then grep `HTTP_RESPONSE`/`COMPLETE`). Reproduce single-model failures with direct `/v1` calls before running the matrix.
 
 ## 11. Plugin Store Repo (sibling checkout)
 
 Provider plugins ship from plugin store repositories, not from the binary. Built-in repos live in `pluginrepo.BuiltinRepos` and seed on startup via `EnsureBuiltinRepos`; they cannot be removed (`ErrBuiltinRepoProtected`). To ship a plugin upgrade, bump `@version` in the store repository.
 
-- Reissue checklist per plugin: `@version` bump (major on contract breaks), `@router_version` floor, classify through the helper, `(resp, err)` stream idiom with `on_response`, `scope` on rate/quota, `request.model_name` (never forward request tables verbatim upstream).
+- Reissue checklist per plugin: `@version` bump on every content edit (major on contract breaks) — version-match reinstall skips same-version sources, so rewritten content under a fixed version never deploys; `@router_version` floor, classify through the helper, `(resp, err)` stream idiom with `on_response`, `scope` on rate/quota, `request.model_name` (never forward request tables verbatim upstream).
 - Verify reissues without live keys: install dry-run plus classify extensions against synthetic `{status, headers, body}` inputs. Live streams and impersonation paths verify on `make start` with real accounts only.
 
 ## 12. Documentation
