@@ -24,6 +24,9 @@ import (
 // picks sharing a banned region, so same-key geo retries land on another
 // region instead of re-hitting the blocked country.
 func wireProxy(luaSvc *luaplugin.Service, proxySvc *proxypool.Service, exhaustedSvc *exhausted.Service, geobanSvc *geoban.Service, logger *slog.Logger) {
+	if proxySvc != nil {
+		luaSvc.SetProxyPenalizer(proxySvc.PenalizeProxy)
+	}
 	luaSvc.SetProxyResolver(func(goCtx context.Context, rec *luaplugin.PluginRecord, providerConfig map[string]any, known exhausted.Segments) ([]luaplugin.ProxyPick, error) {
 		proxyCfg, err := models.ParseProxyConfig(providerConfig)
 		if err != nil {

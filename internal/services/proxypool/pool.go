@@ -237,6 +237,25 @@ func (s *Service) KnownIDs() ([]string, error) {
 	return ids, nil
 }
 
+// PenalizeProxy forces a failure penalty on the proxy with the given
+// canonical URL. Unknown URLs return false. The library owns scoring,
+// dead status and revival; the penalty persists through the bbolt cache.
+func (s *Service) PenalizeProxy(url, reason string) bool {
+	if s == nil || s.pool == nil || url == "" {
+		return false
+	}
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
+	penalized := s.pool.PenalizeProxy(url, reason)
+	if !penalized {
+		return false
+	}
+	if err := s.cache.takeError(); err != nil && s.log != nil {
+		s.log.Warn("proxy penalize persistence failed", "error", err)
+	}
+	return true
+}
+
 // Status returns pool counts and scheduler state.
 func (s *Service) Status() (Status, error) {
 	if err := s.cache.peekError(); err != nil {

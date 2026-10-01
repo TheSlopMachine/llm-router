@@ -151,6 +151,7 @@ func (s *Service) handlerCallRouted(
 		geoban:              s.geoban,
 		disableCredential:   s.credDisabler,
 		disableProvider:     s.provDisabler,
+		penalizeProxy:       s.penalizeProxy,
 		dumpDir:             s.dumpDir,
 		goCtx:               goCtx,
 	}

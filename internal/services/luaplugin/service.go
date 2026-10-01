@@ -120,6 +120,10 @@ type Service struct {
 	// (nil = disabled).
 	provDisabler func(providerID, reason string)
 
+	// penalizeProxy forces a library backoff penalty on one proxy URL
+	// (nil = disabled).
+	penalizeProxy func(url, reason string) bool
+
 	// dumpDir receives full upstream bodies in debug mode ("" = disabled).
 	dumpDir string
 

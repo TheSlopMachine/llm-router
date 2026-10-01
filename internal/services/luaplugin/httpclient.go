@@ -266,9 +266,11 @@ func (c *pluginHTTPClient) doWithProxyRotation(req *http.Request) (*http.Respons
 	for {
 		client := c.client
 		proxyID := c.ctx.proxyID
-		if c.ctx.proxyURL != "" {
+		proxyURL := c.ctx.proxyURL
+		if proxyURL != "" {
 			pc, berr := c.proxyClient()
 			if berr != nil {
+				c.penalizeCurrentProxy("proxy_client_build")
 				c.logProxyDebug("plugin proxy client build failed, rotating", proxyID, berr)
 				if !c.ctx.rotateProxy() {
 					return nil, "", time.Time{}, false, berr
@@ -294,10 +296,22 @@ func (c *pluginHTTPClient) doWithProxyRotation(req *http.Request) (*http.Respons
 		if c.ctx.proxyURL == "" {
 			return nil, "", time.Time{}, true, derr
 		}
+		if reason := structuralPenaltyReason(derr); reason != "" {
+			c.penalizeCurrentProxy(reason)
+		}
 		c.logProxyDebug("plugin proxy attempt failed, rotating", proxyID, derr)
 		if !c.ctx.rotateProxy() {
 			return nil, "", time.Time{}, false, derr
 		}
+	}
+}
+
+func (c *pluginHTTPClient) penalizeCurrentProxy(reason string) {
+	if c.ctx == nil || c.ctx.penalizeProxy == nil || c.ctx.proxyURL == "" {
+		return
+	}
+	if c.ctx.penalizeProxy(c.ctx.proxyURL, reason) && c.ctx.logger != nil {
+		c.ctx.logger.Debug("proxy penalized", "proxy_id", c.ctx.proxyID, "reason", reason)
 	}
 }
 
@@ -650,22 +664,28 @@ func pushTransportErr(L *lua.LState, err error, direct bool) {
 // substrings: DNS resolution, address parsing, TLS identity, refused
 // connections. url.Error and net.OpError unwrap to these via errors.As/Is.
 func isStructuralTransport(err error) bool {
+	return structuralPenaltyReason(err) != ""
+}
+
+// structuralPenaltyReason names the structural fault for penalty reporting.
+// Empty means the error carries no proxy blame.
+func structuralPenaltyReason(err error) string {
 	var dns *net.DNSError
 	if errors.As(err, &dns) {
-		return true
+		return "dns_resolution"
 	}
 	var addr *net.AddrError
 	if errors.As(err, &addr) {
-		return true
+		return "address_parse"
 	}
 	var cert *tls.CertificateVerificationError
 	if errors.As(err, &cert) {
-		return true
+		return "tls_certificate_verification"
 	}
 	if errors.Is(err, syscall.ECONNREFUSED) {
-		return true
+		return "connection_refused"
 	}
-	return false
+	return ""
 }
 
 func luaTableString(tbl *lua.LTable, key, def string) string {

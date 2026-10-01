@@ -70,6 +70,9 @@ type execContext struct {
 	// disableProvider disables one provider instance with first-wins
 	// semantics (nil = disabled). Called per attempt on structural_fault.
 	disableProvider func(providerID, reason string)
+	// penalizeProxy forces a backoff penalty on one proxy URL
+	// (nil = disabled). Called per attempt on structural proxy faults.
+	penalizeProxy func(url, reason string) bool
 	// dumpDir receives full upstream bodies over dumpSnippetCap when debug
 	// logging is on ("" = keep in memory only).
 	dumpDir string

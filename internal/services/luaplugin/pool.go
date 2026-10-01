@@ -54,6 +54,12 @@ func (s *Service) SetProviderDisabler(f func(providerID, reason string)) {
 	s.provDisabler = f
 }
 
+// SetProxyPenalizer wires forced backoff penalties for proxies blamed for
+// structural network failures. Unset (nil) disables it.
+func (s *Service) SetProxyPenalizer(f func(url, reason string) bool) {
+	s.penalizeProxy = f
+}
+
 // SetDumpDir wires the directory for full upstream-body spill files in
 // debug mode. Empty disables spilling.
 func (s *Service) SetDumpDir(dir string) { s.dumpDir = dir }
