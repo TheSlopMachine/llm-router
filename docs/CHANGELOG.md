@@ -1,5 +1,9 @@
 # Changelog
 
+## Done (2026-10-01, v0.3.8)
+
+- Added manual proxy exclusion: structural proxy faults (DNS, address, TLS identity and handshake, refused, reset, early EOF, client-build failures) mark the proxy dead on an escalating 15m-4h schedule with 24h forgiveness, without touching probe scoring. Refresh write-back preserves newer manual marks over stale pipeline snapshots. Rotation stops at once on client cancellation instead of burning the pick list.
+
 ## Done (2026-09-30, v0.3.7)
 
 - Added the `overloaded` error type for congested backends (exact `service_overloaded` code, wire `overloaded`, 503). Overloads retry the same credential on another proxy within the route budget with no marks or cooldown. Unary JSON errors now carry `Retry-After` when the router knows a wait time, and the contract documents the client backoff rules per wire code.

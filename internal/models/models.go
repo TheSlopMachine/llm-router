@@ -41,7 +41,9 @@ import (
 // over discovered catalog rows in GetModelInfos.
 // 0.3.7 adds the overloaded error type for congested backends: distinct
 // code, same-credential proxy retry, no marks or cooldown.
-const CurrentVersion = "0.3.7"
+// 0.3.8 adds manual proxy exclusion: structural proxy faults mark the
+// proxy dead on an escalating schedule without touching probe scoring.
+const CurrentVersion = "0.3.8"
 
 // ─────────────────────────────────────────────
 // ModelId
