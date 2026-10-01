@@ -29,6 +29,7 @@ func TestAsProviderErrorStrict(t *testing.T) {
 			"structural_fault":  models.ErrorTypeStructuralFault,
 			"upstream":          models.ErrorTypeUpstream,
 			"transport":         models.ErrorTypeTransport,
+			"overloaded":        models.ErrorTypeOverloaded,
 			"geo":               models.ErrorTypeGeo,
 		} {
 			L := lua.NewState()
@@ -72,7 +73,7 @@ func TestAsProviderErrorStrict(t *testing.T) {
 		}
 	})
 	t.Run("retry_after forbidden elsewhere", func(t *testing.T) {
-		for _, typ := range []string{"auth", "upstream", "transport", "geo", "model_unavailable", "structural_fault", "content_policy", "invalid_request", "not_found", "payment_required"} {
+		for _, typ := range []string{"auth", "upstream", "transport", "overloaded", "geo", "model_unavailable", "structural_fault", "content_policy", "invalid_request", "not_found", "payment_required"} {
 			if _, ok := asProviderError(contractTable(t, map[string]lua.LValue{
 				"type": lua.LString(typ), "message": lua.LString("m"),
 				"retry_after": num(future),
@@ -82,7 +83,7 @@ func TestAsProviderErrorStrict(t *testing.T) {
 		}
 	})
 	t.Run("scope forbidden outside rate and quota", func(t *testing.T) {
-		for _, typ := range []string{"auth", "transport"} {
+		for _, typ := range []string{"auth", "transport", "overloaded"} {
 			L := lua.NewState()
 			defer L.Close()
 			scope := L.NewTable()

@@ -1047,6 +1047,9 @@ func extractBearer(r *http.Request) string {
 
 func (h *Handler) handleRouterError(w http.ResponseWriter, err error) {
 	re := h.classifyError(err)
+	if secs, ok := apierrors.RetryAfterDelay(err); ok {
+		w.Header().Set("Retry-After", strconv.FormatInt(secs, 10))
+	}
 	h.writeError(w, re.status, re.code, err.Error(), nil)
 }
 

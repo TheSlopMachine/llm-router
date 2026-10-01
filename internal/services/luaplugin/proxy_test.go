@@ -604,3 +604,131 @@ func TestRunRoutedRetries_TransportStopsAtStreamCommit(t *testing.T) {
 		})
 	}
 }
+
+const overloadedRetryPluginSource = `--- @plugin Overloaded Retry
+--- @author tester
+--- @version 1.0.0
+--- @router_version 0.3.7
+--- @allow_host example.com
+
+llm_router.register("overloaded-retry-type", {
+  complete = function(ctx, credential, request)
+    local client = llm_router.http_client({ timeout_ms = 5000 })
+    local _, req_err = client:request({ method = "GET", url = "http://example.com/probe" })
+    if req_err ~= nil then
+      return nil, req_err
+    end
+    return nil, { type = "overloaded", message = "backend busy" }
+  end,
+})
+`
+
+func TestCompletePool_RetriesOverloadedOnAlternateProxy(t *testing.T) {
+	svc := setupService(t)
+	if _, err := svc.Install([]byte(overloadedRetryPluginSource), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	var aHits, bHits atomic.Int32
+	aURL := countedStatusProxy(t, http.StatusOK, "a", &aHits)
+	bURL := countedStatusProxy(t, http.StatusOK, "b", &bHits)
+	var resolved atomic.Int32
+	svc.SetProxyResolver(func(context.Context, *PluginRecord, map[string]any, exhausted.Segments) ([]ProxyPick, error) {
+		resolved.Add(1)
+		return []ProxyPick{{ID: "px-a", URL: aURL}, {ID: "px-b", URL: bURL}}, nil
+	})
+	recorder := &proxyLimitRecorder{}
+	svc.SetProxyLimitStore(recorder)
+
+	req := &models.ChatCompletionRequest{
+		Model:    "overloaded-retry-type/m",
+		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
+	}
+	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
+	_, route, err := svc.CompletePool(t.Context(), testMeta("overloaded-retry-type", nil, req.Model, nil), []*models.Credential{cred}, req)
+	if !isProviderType(err, models.ErrorTypeOverloaded) {
+		t.Fatalf("expected overloaded error, got %T (%v)", err, err)
+	}
+	if want := redactedProxyHostPort(bURL, "px-b"); route != want {
+		t.Fatalf("last route: got %q want %q", route, want)
+	}
+	if got := resolved.Load(); got != 3 {
+		t.Fatalf("resolver calls: got %d want 3 (initial plus two retries)", got)
+	}
+	if aHits.Load() != 1 || bHits.Load() != 1 {
+		t.Fatalf("proxy hits: a=%d b=%d want 1 each", aHits.Load(), bHits.Load())
+	}
+	if len(recorder.proxyIDs) != 0 {
+		t.Fatalf("overloaded must not mark proxy limits: %v", recorder.proxyIDs)
+	}
+}
+
+func TestRunRoutedRetries_OverloadedRetriesWithSameCredential(t *testing.T) {
+	calls := 0
+	res, route, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, nil,
+		func(context.Context) (int, string, error) {
+			calls++
+			if calls < 3 {
+				return 0, fmt.Sprintf("proxy-%d:8080", calls), &models.ProviderError{Type: models.ErrorTypeOverloaded, Message: "busy"}
+			}
+			return 7, fmt.Sprintf("proxy-%d:8080", calls), nil
+		})
+	if err != nil || res != 7 || route != "proxy-3:8080" || calls != 3 {
+		t.Fatalf("got res=%v route=%q err=%v calls=%d", res, route, err, calls)
+	}
+}
+
+func TestRunRoutedRetries_OverloadedBudgetAndScope(t *testing.T) {
+	calls := 0
+	_, _, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, nil,
+		func(context.Context) (int, string, error) {
+			calls++
+			return 0, "proxy-1:8080", &models.ProviderError{Type: models.ErrorTypeOverloaded, Message: "busy"}
+		})
+	if !isProviderType(err, models.ErrorTypeOverloaded) || calls != maxRouteAttempts {
+		t.Fatalf("persistent overload must stop at the route budget: err=%v calls=%d", err, calls)
+	}
+	direct := 0
+	_, _, err = runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, nil,
+		func(context.Context) (int, string, error) {
+			direct++
+			return 0, "", &models.ProviderError{Type: models.ErrorTypeOverloaded, Message: "busy"}
+		})
+	if !isProviderType(err, models.ErrorTypeOverloaded) || direct != 1 {
+		t.Fatalf("direct overload must not retry: err=%v calls=%d", err, direct)
+	}
+}
+
+func TestRunRoutedRetries_OverloadedStopsAtStreamCommit(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		write     bool
+		wantCalls int
+	}{
+		{name: "before first byte", wantCalls: maxRouteAttempts},
+		{name: "after first byte", write: true, wantCalls: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writer := streamgate.New(&bytes.Buffer{})
+			calls := 0
+			_, route, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, writer,
+				func(context.Context) (int, string, error) {
+					calls++
+					if tc.write {
+						if _, writeErr := io.WriteString(writer, "data: chunk\n\n"); writeErr != nil {
+							t.Fatalf("write: %v", writeErr)
+						}
+					}
+					return 0, fmt.Sprintf("proxy-%d:8080", calls), &models.ProviderError{Type: models.ErrorTypeOverloaded, Message: "busy"}
+				})
+			if !isProviderType(err, models.ErrorTypeOverloaded) {
+				t.Fatalf("expected overloaded, got %T (%v)", err, err)
+			}
+			if calls != tc.wantCalls {
+				t.Fatalf("attempts: got %d want %d", calls, tc.wantCalls)
+			}
+			if want := fmt.Sprintf("proxy-%d:8080", calls); route != want {
+				t.Fatalf("last route: got %q want %q", route, want)
+			}
+		})
+	}
+}

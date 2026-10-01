@@ -3,6 +3,7 @@ package errors
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
@@ -38,6 +39,8 @@ func ToAPIError(err error) APIError {
 			return APIError{http.StatusBadRequest, "content_policy"}
 		case models.ErrorTypeModelUnavailable:
 			return APIError{http.StatusServiceUnavailable, "model_unavailable"}
+		case models.ErrorTypeOverloaded:
+			return APIError{http.StatusServiceUnavailable, "overloaded"}
 		case models.ErrorTypeStructuralFault:
 			return APIError{http.StatusBadGateway, "structural_fault"}
 		case models.ErrorTypeUpstream:
@@ -76,6 +79,23 @@ func ToAPIError(err error) APIError {
 	}
 }
 
+// RetryAfterDelay reports how long the caller should wait before retrying:
+// the ProviderError RetryAfter instant when it lies in the future, rounded
+// up to whole seconds. Anything else reports false: the server offers no
+// wait hint, and clients back off blindly. In practice only rate_limit and
+// quota_exceeded carry RetryAfter; the contract forbids it elsewhere.
+func RetryAfterDelay(err error) (int64, bool) {
+	var provErr *models.ProviderError
+	if !errors.As(err, &provErr) || provErr.RetryAfter == nil {
+		return 0, false
+	}
+	d := time.Until(*provErr.RetryAfter)
+	if d <= 0 {
+		return 0, false
+	}
+	return int64(d.Seconds()) + 1, true
+}
+
 // ErrorTypeForCode maps a wire code to its OpenAI error type.
 func ErrorTypeForCode(code string) string {
 	switch code {
@@ -85,7 +105,7 @@ func ErrorTypeForCode(code string) string {
 		return "invalid_request_error"
 	case "rate_limit", "quota_exceeded":
 		return "rate_limit_error"
-	case "transport_error":
+	case "transport_error", "overloaded":
 		return "server_error"
 	case "server_error", "upstream_error", "model_unavailable", "structural_fault", "internal_error":
 		return "server_error"

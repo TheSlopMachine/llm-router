@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
@@ -131,6 +132,9 @@ func (h *Handler) handleChatStream(w http.ResponseWriter, r *http.Request, req *
 
 func handleChatRouterError(w http.ResponseWriter, err error, h *Handler) {
 	re := classifyChatError(err)
+	if secs, ok := apierrors.RetryAfterDelay(err); ok {
+		w.Header().Set("Retry-After", strconv.FormatInt(secs, 10))
+	}
 	h.json(w, re.status, models.OpenAIError{
 		Error: models.OpenAIErrorBody{
 			Message: err.Error(),

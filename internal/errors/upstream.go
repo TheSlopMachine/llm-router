@@ -35,6 +35,8 @@ func MapUpstream(status int, code, errType, message string) *models.ProviderErro
 		perr.Type = models.ErrorTypeRateLimit
 	case status >= 500 && isModelUnavailableCode(code, errType):
 		perr.Type = models.ErrorTypeModelUnavailable
+	case status >= 500 && isOverloadedCode(code, errType):
+		perr.Type = models.ErrorTypeOverloaded
 	case status >= 500:
 		perr.Type = models.ErrorTypeUpstream
 	case isQuotaCode(code, errType):
@@ -51,7 +53,11 @@ func MapUpstream(status int, code, errType, message string) *models.ProviderErro
 	return perr
 }
 
-// isQuotaCode matches exact upstream quota identifiers.
+// isOverloadedCode matches the observed upstream congestion identifier:
+// the backend is temporarily saturated, safe to retry with client backoff.
+func isOverloadedCode(code, errType string) bool {
+	return code == "service_overloaded" || errType == "service_overloaded"
+}
 func isQuotaCode(code, errType string) bool {
 	switch code {
 	case "insufficient_quota", "billing_hard_limit_exceeded", "out_of_quota", "quota_exceeded":

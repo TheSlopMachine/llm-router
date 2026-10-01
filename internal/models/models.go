@@ -39,7 +39,9 @@ import (
 // it with the same credential on another proxy.
 // 0.3.6 adds the plugin model_specs table: pinned per-model rows merged
 // over discovered catalog rows in GetModelInfos.
-const CurrentVersion = "0.3.6"
+// 0.3.7 adds the overloaded error type for congested backends: distinct
+// code, same-credential proxy retry, no marks or cooldown.
+const CurrentVersion = "0.3.7"
 
 // ─────────────────────────────────────────────
 // ModelId
@@ -823,6 +825,7 @@ const (
 	ErrorTypePaymentRequired            // Upstream paywall: disable the credential (system)
 	ErrorTypeContentPolicy              // Upstream rejected the content; fatal for the pool
 	ErrorTypeModelUnavailable           // Model exists but not serving; exhausted on (provider, model) for 2m
+	ErrorTypeOverloaded                 // Backend congested; retryable, no marks or cooldown
 	ErrorTypeStructuralFault            // Provider config/network broken for all keys and models; disable the provider (system), fatal for the pool
 )
 

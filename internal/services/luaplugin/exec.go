@@ -370,6 +370,9 @@ func asProviderError(v lua.LValue) (*models.ProviderError, bool) {
 	case "model_unavailable":
 		errType = models.ErrorTypeModelUnavailable
 		status = 503
+	case "overloaded":
+		errType = models.ErrorTypeOverloaded
+		status = 503
 	case "structural_fault":
 		errType = models.ErrorTypeStructuralFault
 		status = 502

@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Router version: **0.3.6** (`models.CurrentVersion`). A plugin using a feature
+Router version: **0.3.7** (`models.CurrentVersion`). A plugin using a feature
 declares the `@router_version` that introduced it; older routers refuse to
 install it. Routers serve no contract older than **0.3.0**: plugins declaring
 `0.2.x` and below fail install and need reissue.
@@ -29,6 +29,7 @@ means `.0`, one leading `v` allowed); anything else fails install.
 | 0.3.4 | `quota_exceeded` accepts `proxy` scope; proxy-scoped rate/quota outcomes retry the same credential on another proxy, up to three total attempts and only before stream output reaches the client |
 | 0.3.5 | `transport` error type for connectivity failures (wire `transport_error`, 502); transport failures retry the same credential on another proxy within the three-attempt route budget, carry no marks or disables, and forbid `scope`/`retry_after` |
 | 0.3.6 | `model_specs` registration table: pinned per-model rows merged over `get_model_infos` rows, every field except the id; unknown ids ignored, unknown fields and mistyped values fail install |
+| 0.3.7 | `overloaded` error type for congested backends (wire `overloaded`, 503); same-credential proxy retry within the route budget, no marks or cooldown; unary JSON errors carry `Retry-After` when the router knows a wait time |
 
 ## Responsibility split
 
@@ -150,7 +151,7 @@ llm_router.register_proxy_source(name, {
 
 `err` is `{ type = ..., message = ..., retry_after = ..., scope = ..., upstream_status = ..., upstream_body = ... }`:
 
-- `type`: `rate_limit` | `quota_exceeded` | `auth` | `upstream` | `transport` | `invalid_request` | `geo` | `not_found` | `payment_required` | `content_policy` | `model_unavailable` | `structural_fault`. Unknown types (including the removed `timeout`: use `upstream`) reject the table.
+- `type`: `rate_limit` | `quota_exceeded` | `auth` | `upstream` | `transport` | `overloaded` | `invalid_request` | `geo` | `not_found` | `payment_required` | `content_policy` | `model_unavailable` | `structural_fault`. Unknown types (including the removed `timeout`: use `upstream`) reject the table.
 - `message`: human string, required, non-empty.
 - `retry_after`: unix timestamp. Mandatory for `rate_limit` and `quota_exceeded`, and must lie in the future: missing or past values reject the table. Forbidden on every other type: presence rejects the table. An explicit plugin override carries the upstream's own statement (parsed from its `retry-after` header or body hint, or known by the plugin). The core default resolves the same sources and falls back to now+60s; returning `nil` (accepting the default) is always valid. `model_unavailable` carries no TTL from the plugin: the router cools the model down for a fixed 2 minutes.
 - `scope`: optional array naming the exhausted dimensions the error
@@ -200,12 +201,18 @@ llm_router.register_proxy_source(name, {
   another proxy within the three-attempt route budget. The HTTP client
   reports its own transport failures with this type; plugins forward
   `req_err` tables as-is to preserve it.
+- `overloaded`: the backend answered that it is congested (exact
+  `service_overloaded` code). Same retry rule as `transport`, no marks,
+  no disables, no `scope`, no `retry_after`. Unlike `model_unavailable`
+  it carries no cooldown: congestion is transient, and spacing retries is
+  the client's job (see below).
 
 Pool semantics: the router drops exhausted matches before the token filter
 and keeps the full pool as a last resort when every credential is limited.
 The core then tries the sorted pool in order, at most
 once per key (plus same-key geo retries up to `max_proxies` and route
-retries — proxy-scoped rate/quota errors and transport failures — up to
+retries — proxy-scoped rate/quota errors, transport failures and
+overloads — up to
 three total proxy attempts), and returns
 the first success or the last error. Per-attempt skip bypasses credentials
 with a live rate-limit key without a request, but never bypasses every
@@ -215,6 +222,18 @@ same-key retries after the first byte reaches the client. Route failures
 can retry before that point; geo errors move to the next
 credential without a same-key retry. Any other error form (raised errors, wrong shapes)
 becomes `PluginInternalError` and counts as a plugin crash.
+
+### Client backoff
+
+Unary JSON error responses carry `Retry-After` (seconds) when the router
+knows a wait time — in practice `rate_limit` and `quota_exceeded` from the
+plugin-supplied instant. Client rules by wire code: 429
+`rate_limit`/`quota_exceeded` with `Retry-After` means wait that long;
+502 `overloaded`/`transport_error`/`upstream_error` means retry with own
+backoff (the server offers no wait hint); 503 `model_unavailable` means
+the router already cools the model for 2 minutes. Streams cannot carry
+headers after the first byte: mid-stream failures arrive as SSE error
+events with the same codes.
 
 ### Request handlers
 

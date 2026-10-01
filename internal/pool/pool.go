@@ -69,6 +69,8 @@ func shortError(err error) string {
 			return "content_policy"
 		case models.ErrorTypeModelUnavailable:
 			return "model_unavailable"
+		case models.ErrorTypeOverloaded:
+			return "overloaded"
 		case models.ErrorTypeStructuralFault:
 			return "structural_fault"
 		case models.ErrorTypeNotFound:

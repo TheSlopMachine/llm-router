@@ -170,6 +170,7 @@ func dedupeStrings(in []string) []string {
 // adds proxy scope for quota errors without removing older error forms.
 // Version 0.3.5 adds the transport error type for connectivity failures.
 // Version 0.3.6 adds the model_specs registration table.
+// Version 0.3.7 adds the overloaded error type for congested backends.
 const minRouterVersion = "0.3.0"
 
 // CheckRouterVersion rejects plugins requiring a newer router.

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
@@ -52,6 +53,8 @@ func TestToAPIErrorProviderTypes(t *testing.T) {
 		{models.ErrorTypePaymentRequired, http.StatusPaymentRequired, "payment_required"},
 		{models.ErrorTypeUpstream, http.StatusBadGateway, "upstream_error"},
 		{models.ErrorTypeTransport, http.StatusBadGateway, "transport_error"},
+		{models.ErrorTypeOverloaded, http.StatusServiceUnavailable, "overloaded"},
+		{models.ErrorTypeTransport, http.StatusBadGateway, "transport_error"},
 		{models.ErrorTypeContentPolicy, http.StatusBadRequest, "content_policy"},
 		{models.ErrorTypeModelUnavailable, http.StatusServiceUnavailable, "model_unavailable"},
 		{models.ErrorTypeStructuralFault, http.StatusBadGateway, "structural_fault"},
@@ -96,6 +99,14 @@ func TestMapUpstreamExactCodes(t *testing.T) {
 	if loading503.Type != models.ErrorTypeModelUnavailable {
 		t.Errorf("503 loading code: got %v", loading503.Type)
 	}
+	overloaded503 := MapUpstream(503, "service_overloaded", "", "backend temporarily overloaded")
+	if overloaded503.Type != models.ErrorTypeOverloaded {
+		t.Errorf("503 overloaded code: got %v", overloaded503.Type)
+	}
+	plain503 := MapUpstream(503, "", "", "internal error")
+	if plain503.Type != models.ErrorTypeUpstream {
+		t.Errorf("503 bare: got %v", plain503.Type)
+	}
 	// 403 with moderation wording is content, bare 403 stays auth.
 	content403 := MapUpstream(403, "content_filter", "", "filtered")
 	if content403.Type != models.ErrorTypeContentPolicy {
@@ -112,5 +123,23 @@ func TestMapUpstreamExactCodes(t *testing.T) {
 	payment := MapUpstream(402, "", "", "subscription required")
 	if payment.Type != models.ErrorTypePaymentRequired {
 		t.Errorf("402: got %v", payment.Type)
+	}
+}
+
+func TestRetryAfterDelay(t *testing.T) {
+	future := time.Now().Add(90 * time.Second)
+	secs, ok := RetryAfterDelay(&models.ProviderError{Type: models.ErrorTypeRateLimit, RetryAfter: &future})
+	if !ok || secs < 90 || secs > 91 {
+		t.Errorf("future retry_after: got %d,%v", secs, ok)
+	}
+	past := time.Now().Add(-time.Second)
+	if _, ok := RetryAfterDelay(&models.ProviderError{Type: models.ErrorTypeRateLimit, RetryAfter: &past}); ok {
+		t.Error("past retry_after must report no hint")
+	}
+	if _, ok := RetryAfterDelay(&models.ProviderError{Type: models.ErrorTypeUpstream, Message: "boom"}); ok {
+		t.Error("hint-less errors must report no hint")
+	}
+	if _, ok := RetryAfterDelay(nil); ok {
+		t.Error("nil error must report no hint")
 	}
 }

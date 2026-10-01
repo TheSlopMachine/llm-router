@@ -174,6 +174,8 @@ func probeSummary(err error) string {
 			return "content rejected by upstream"
 		case models.ErrorTypeModelUnavailable:
 			return "model temporarily unavailable"
+		case models.ErrorTypeOverloaded:
+			return "backend overloaded"
 		case models.ErrorTypeStructuralFault:
 			return "provider misconfigured or unreachable"
 		}

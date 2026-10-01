@@ -1,5 +1,9 @@
 # Changelog
 
+## Done (2026-09-30, v0.3.7)
+
+- Added the `overloaded` error type for congested backends (exact `service_overloaded` code, wire `overloaded`, 503). Overloads retry the same credential on another proxy within the route budget with no marks or cooldown. Unary JSON errors now carry `Retry-After` when the router knows a wait time, and the contract documents the client backoff rules per wire code.
+
 ## Done (2026-09-30, v0.3.6)
 
 - Added the plugin `model_specs` registration table: pinned per-model rows merged over discovered catalog rows in `GetModelInfos`. Specs win per field except the id, unknown ids are ignored, and unknown fields or mistyped values reject the plugin at install. Old routers ignore the unknown field.

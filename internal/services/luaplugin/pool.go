@@ -183,6 +183,21 @@ func shouldRetryTransport(err error, route string) bool {
 	return true
 }
 
+// shouldRetryOverloaded reports whether a congested-backend failure
+// warrants another attempt with the same credential on another route.
+// Like transport, it requires a proxied route to exclude; direct
+// overloads fail over to the next credential.
+func shouldRetryOverloaded(err error, route string) bool {
+	if route == "" {
+		return false
+	}
+	var perr *models.ProviderError
+	if !errors.As(err, &perr) || perr.Type != models.ErrorTypeOverloaded {
+		return false
+	}
+	return true
+}
+
 func streamCommitted(w io.Writer) bool {
 	if w == nil {
 		return false
@@ -191,6 +206,11 @@ func streamCommitted(w io.Writer) bool {
 	return !ok || tracker.Written()
 }
 
+// runRoutedRetries attempts one credential with bounded same-credential
+// route retries: proxy-scoped rate/quota limits, transport failures and
+// overloads each retry on an untried route up to maxRouteAttempts total
+// attempts, stopping early when no alternate route remains, the context
+// ends, or the stream committed its first byte.
 func runRoutedRetries[T any](
 	ctx context.Context,
 	s *Service,
@@ -220,7 +240,7 @@ func runRoutedRetries[T any](
 		}
 
 		retry := false
-		if shouldRetryProxyLimit(err, route) || shouldRetryTransport(err, route) {
+		if shouldRetryProxyLimit(err, route) || shouldRetryTransport(err, route) || shouldRetryOverloaded(err, route) {
 			routeAttempts++
 			retry = routeAttempts < maxRouteAttempts
 			if retry && s.logger != nil {
@@ -301,7 +321,7 @@ func (s *Service) CompletePool(
 }
 
 // CompleteStreamPool tries the credential pool in order through the
-// complete_stream handler. Proxy-scoped limits or transport failures can
+// complete_stream handler. Route failures can
 // retry before the first byte reaches the client. It returns the winning
 // or last proxy host:port.
 func (s *Service) CompleteStreamPool(
@@ -365,7 +385,7 @@ func (s *Service) SpeechPool(
 }
 
 // GenerateImagePool tries credentials through the generate_image handler.
-// Proxy-scoped limits or transport failures can retry up to three routes with the same credential.
+// Route failures can retry up to three routes with the same credential.
 // It returns the winning or last proxy host:port ("" = direct).
 func (s *Service) GenerateImagePool(
 	ctx context.Context,
