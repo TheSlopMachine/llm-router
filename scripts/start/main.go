@@ -73,6 +73,9 @@ func main() {
 	binPath := filepath.Join(os.TempDir(), "llm-router-dev-backend"+exeSuffix)
 	build := exec.Command("go", "build", "-o", binPath, ".")
 	build.Dir = root
+	// Project-root builds run in the workspace: GOWORK=off applies to the
+	// scripts module only and must not leak into this command.
+	build.Env = shared.EnvWithoutGowork()
 	if out, err := build.CombinedOutput(); err != nil {
 		shared.Failf("backend build: %v\n%s", err, out)
 	}

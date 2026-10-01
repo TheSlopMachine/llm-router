@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Router version: **0.3.7** (`models.CurrentVersion`). A plugin using a feature
+Router version: **0.3.9** (`models.CurrentVersion`). A plugin using a feature
 declares the `@router_version` that introduced it; older routers refuse to
 install it. Routers serve no contract older than **0.3.0**: plugins declaring
 `0.2.x` and below fail install and need reissue.
@@ -30,6 +30,7 @@ means `.0`, one leading `v` allowed); anything else fails install.
 | 0.3.5 | `transport` error type for connectivity failures (wire `transport_error`, 502); transport failures retry the same credential on another proxy within the three-attempt route budget, carry no marks or disables, and forbid `scope`/`retry_after` |
 | 0.3.6 | `model_specs` registration table: pinned per-model rows merged over `get_model_infos` rows, every field except the id; unknown ids ignored, unknown fields and mistyped values fail install |
 | 0.3.7 | `overloaded` error type for congested backends (wire `overloaded`, 503); same-credential proxy retry within the route budget, no marks or cooldown; unary JSON errors carry `Retry-After` when the router knows a wait time |
+| 0.3.9 | request tables carry `cache_key`: stable cross-turn prefix-cache partition (model, first message, sorted tool names); `"prefix-boot"` for empty histories; old routers omit it |
 
 ## Responsibility split
 
@@ -139,11 +140,13 @@ llm_router.register_proxy_source(name, {
   also carry `flow_id`; `provider_config` reaches them inside `ctx`.
 - `credential` — `{ id = "...", data = {...} }`; `data` holds the fields
   saved through `credential_schema`. Unpinned calls pass `{ id = "", data = {} }`.
-- Every `request` table carries `model` (full `provider/model` id) and
-  `model_name` (bare name for upstream payloads). `stream` is absent by
+- Every `request` table carries `model` (full `provider/model` id),
+  `model_name` (bare name for upstream payloads) and `cache_key` (opaque
+  cross-turn prefix-cache partition: model, first message and sorted tool
+  names hashed; `"prefix-boot"` for empty histories). `stream` is absent by
   contract: streaming is served by `complete_stream`, never by a flag.
-  Never forward a request table verbatim upstream: `model_name` is
-  router-only and upstreams reject unknown properties.
+  Never forward a request table verbatim upstream: `model_name` and
+  `cache_key` are router-only and upstreams reject unknown properties.
 - Request handlers return `(result, nil)` or `(nil, err)`; `nil` result is
   always a schema violation.
 

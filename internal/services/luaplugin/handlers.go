@@ -2,9 +2,13 @@ package luaplugin
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
@@ -52,7 +56,42 @@ func requestTable(L *lua.LState, req *models.ChatCompletionRequest) *lua.LTable 
 	// model_name is the bare model without the provider prefix, for
 	// upstream payloads. model keeps the full ModelId.
 	tbl.RawSetString("model_name", lua.LString(req.Model.Name()))
+	// cache_key is the cross-turn prefix-cache partition, stable for the
+	// whole conversation (see prefixCacheKey).
+	tbl.RawSetString("cache_key", lua.LString(prefixCacheKey(req)))
 	return tbl
+}
+
+// prefixCacheKey hashes the conversation root (model, first message,
+// sorted tool names) into a stable opaque partition key. Appends keep the
+// root identical, so every turn of one conversation reuses the partition
+// and upstream prefix caches hit on the shared part. Different roots only
+// miss, never poison: content still addresses the cache within a partition.
+func prefixCacheKey(req *models.ChatCompletionRequest) string {
+	if len(req.Messages) == 0 {
+		return "prefix-boot"
+	}
+	names := make([]string, 0, len(req.Tools))
+	for _, t := range req.Tools {
+		name := t.Name
+		if t.Function != nil && t.Function.Name != "" {
+			name = t.Function.Name
+		}
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	raw, err := json.Marshal(map[string]any{
+		"model": req.Model.String(),
+		"first": req.Messages[0],
+		"tools": names,
+	})
+	if err != nil {
+		return "prefix-boot"
+	}
+	sum := sha256.Sum256(raw)
+	return "pck_" + hex.EncodeToString(sum[:16])
 }
 
 // Complete invokes the complete handler and validates the response shape.

@@ -61,3 +61,49 @@ func TestRequestTables_CarryModelAndModelName(t *testing.T) {
 		t.Fatalf("embed encoding_format: %q", got)
 	}
 }
+
+func TestPrefixCacheKey_SharedAcrossTurnBoundary(t *testing.T) {
+	turn1 := &models.ChatCompletionRequest{
+		Model:    "opencode-free/muse-spark",
+		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
+	}
+	turn2 := &models.ChatCompletionRequest{
+		Model: "opencode-free/muse-spark",
+		Messages: []models.ChatMessage{
+			{Role: "user", Content: "hi"},
+			{Role: "assistant", Content: "hello"},
+			{Role: "user", Content: "more"},
+		},
+	}
+	k1 := prefixCacheKey(turn1)
+	k2 := prefixCacheKey(turn2)
+	if k1 == "" || k2 == "" {
+		t.Fatal("cache keys must be non-empty")
+	}
+	if k1 == "prefix-boot" {
+		t.Fatal("non-empty history must hash a real key")
+	}
+	// Appends keep the conversation root: every turn shares one key.
+	if k1 != k2 {
+		t.Fatalf("appended turn must reuse the root key: %q vs %q", k1, k2)
+	}
+	// Different roots partition apart.
+	other := &models.ChatCompletionRequest{
+		Model:    "opencode-free/muse-spark",
+		Messages: []models.ChatMessage{{Role: "user", Content: "other"}},
+	}
+	if prefixCacheKey(other) == k1 {
+		t.Fatal("distinct roots must hash distinct keys")
+	}
+	// Empty history falls back to the boot constant.
+	if got := prefixCacheKey(&models.ChatCompletionRequest{Model: "x/y"}); got != "prefix-boot" {
+		t.Fatalf("empty history key: %q", got)
+	}
+	// requestTable carries the key.
+	L := newLuaState(t)
+	defer L.Close()
+	tbl := requestTable(L, turn2)
+	if got := luaTestTableString(t, tbl, "cache_key"); got != k2 {
+		t.Fatalf("table cache_key: %q vs %q", got, k2)
+	}
+}
