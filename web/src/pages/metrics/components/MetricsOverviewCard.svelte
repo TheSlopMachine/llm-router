@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from '../../../components/ui/controls/Icon.svelte'
   import { SectionCard, HStack, VStack, Text, Spacer } from '$ui'
   import { t } from '$lib/i18n.svelte'
 
@@ -12,7 +13,7 @@
 
 <SectionCard {title}>
   {#snippet badge()}
-    <span class="icon">{icon}</span>
+    <Icon name={icon} />
   {/snippet}
   <VStack align="center" justify="center" style="min-height: 100px;">
     {#if loading}

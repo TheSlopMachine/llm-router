@@ -1,17 +1,22 @@
 <script lang="ts">
-  // Font-glyph icon (Material Symbols ligature). The `.icon` base class
-  // (level 0) owns the font; size/tone are optional token overrides —
-  // unset inherits from context, like a raw ligature span.
+  // Font-glyph icon (Material Symbols ligature). Owns the icon font itself;
+  // size/tone are optional token overrides, unset inherits from context.
   let {
     name,
     size,
     tone,
+    filled = false,
+    spin = false,
     class: cls = '',
   } = $props<{
     /** Material Symbols ligature name */
     name: string
     size?: 'xs' | 'sm' | 'base' | 'md' | 'lg' | 'xl' | '2xl'
     tone?: 'default' | 'soft' | 'disabled' | 'accent' | 'danger' | 'success' | 'warning'
+    /** filled glyph variant */
+    filled?: boolean
+    /** busy indicator: pair with name="progress_activity" */
+    spin?: boolean
     class?: string
   }>()
 
@@ -37,7 +42,40 @@
 
 <span
   class="icon {cls}"
+  class:filled
+  class:spin
   aria-hidden="true"
   style:font-size={size ? SIZE[size] : undefined}
   style:color={tone ? TONE[tone] : undefined}
 >{name}</span>
+
+<style>
+  /* The only place the icon font is declared (@font-face lives in
+     /fonts/fonts.css). Every glyph in the app goes through this component. */
+  .icon {
+    font-family: "Material Symbols Outlined";
+    font-size: var(--text-lg);
+    vertical-align: middle;
+    display: inline-block;
+    font-weight: normal;
+    font-style: normal;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-feature-settings: "liga";
+    font-feature-settings: "liga";
+    font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 20;
+  }
+  .filled {
+    font-variation-settings: "FILL" 1, "wght" 300, "GRAD" 0, "opsz" 20;
+  }
+  .spin {
+    animation: icon-spin 1s linear infinite;
+  }
+  @keyframes icon-spin {
+    to { transform: rotate(360deg); }
+  }
+</style>

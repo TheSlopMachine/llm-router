@@ -124,11 +124,13 @@
               <Text tag="h2" id="modal-title-{index}" size="md" weight="medium" truncate>{config.title}</Text>
             {/if}
             {#if config.subtitle}
-              <Text size="sm" tone="soft" truncate class="modal-subtitle">{config.subtitle}</Text>
+              <div class="modal-subtitle"><Text size="sm" tone="soft" truncate>{config.subtitle}</Text></div>
             {/if}
           </div>
           {#if config.type !== 'confirm'}
-            <Button icon={{ name: 'close' }} ariaLabel={t('Close')} onclick={() => modal.close()} class="modal-close" />
+            <div class="modal-close">
+              <Button icon={{ name: 'close' }} ariaLabel={t('Close')} onclick={() => modal.close()} />
+            </div>
           {/if}
         </div>
       {/if}
@@ -239,8 +241,9 @@
   }
 
   /* Hover fill lands 14px from the corner, same as the footer buttons.
-     :global — the class rides a Button root in another component. */
-  :global(.modal-close) {
+     The offset lives on a wrapper this component owns, not on a class
+     pushed into Button (which needed :global and leaked app-wide). */
+  .modal-close {
     flex-shrink: 0;
     margin: -6px -6px 0 0;
   }
@@ -253,7 +256,7 @@
     min-width: 0;
   }
 
-  :global(.modal-subtitle) {
+  .modal-subtitle {
     line-height: 16px;
   }
 

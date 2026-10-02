@@ -514,6 +514,10 @@
 {/if}
 
 <style>
+  .is-disabled {
+    opacity: 0.55;
+    pointer-events: none;
+  }
   .provider-row { display: block; padding: var(--space-4) var(--space-5); cursor: pointer; }
   .head-check { margin-right: var(--space-5); display: grid; place-content: center; }
   .head-check-even { margin: 0 var(--space-5); display: grid; place-content: center; }

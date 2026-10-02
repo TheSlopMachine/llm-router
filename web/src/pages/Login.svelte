@@ -2,6 +2,8 @@
   import { api } from '../lib/api'
   import { t } from '../lib/i18n.svelte'
   import { squircle } from '../lib/squircle'
+  import Button from '../components/ui/controls/Button.svelte'
+  import TextEdit from '../components/ui/controls/TextEdit.svelte'
   import Checkbox from '../components/ui/controls/Checkbox.svelte'
 
   let { ondone } = $props<{ ondone: () => void }>()
@@ -39,18 +41,18 @@
 
     <div class="form-group">
       <label for="u">{t('Username')}</label>
-      <input id="u" type="text" bind:value={username} autocomplete="username" onkeydown={(e) => e.key === 'Enter' && submit()} use:squircle={12} />
+      <TextEdit id="u" bind:value={username} autocomplete="username" onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && submit()} />
     </div>
     <div class="form-group" style="margin-top: 12px;">
       <label for="p">{t('Password')}</label>
-      <input id="p" type="password" bind:value={password} autocomplete="current-password" onkeydown={(e) => e.key === 'Enter' && submit()} use:squircle={12} />
+      <TextEdit id="p" type="secret" bind:value={password} autocomplete="current-password" onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && submit()} />
     </div>
     <div class="remember-me">
       <Checkbox bind:checked={rememberMe} label={t('Keep me signed in')} />
     </div>
-    <button class="btn btn-primary submit-btn" onclick={submit} disabled={loading} use:squircle={12}>
-      {loading ? t('Signing in…') : t('Sign in')}
-    </button>
+    <div class="submit">
+      <Button style="prominent" block onclick={submit} disabled={loading}>{loading ? t('Signing in…') : t('Sign in')}</Button>
+    </div>
   </div>
 </div>
 
@@ -90,18 +92,8 @@
     font-size: var(--text-base); 
     margin-bottom: var(--space-6); 
   }
-  /* Same shape and height as the text fields above: field line-height and
-     paddings, global control radius. */
-  .submit-btn {
-    width: 100%;
-    justify-content: center;
+  .submit {
     margin-top: 20px;
-    line-height: 20px;
-    padding: var(--field-pad-v) var(--field-pad-h);
-    transition: transform 120ms ease;
-  }
-  .submit-btn:active {
-    transform: scale(0.97);
   }
   .remember-me {
     margin-top: var(--space-5);

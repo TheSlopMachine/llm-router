@@ -3,6 +3,7 @@
   // aspect lock that reserves space before load, a fallback glyph on error,
   // and lazy loading by default.
   import type { Step } from '../tokens'
+  import Icon from './Icon.svelte'
 
   let {
     src,
@@ -45,13 +46,15 @@
 
 {#if failed || !src}
   <span
-    class="icon img-fallback {cls}"
+    class="img-fallback {cls}"
     style:width={dim(width)}
     style:height={dim(height)}
     style:aspect-ratio={ratio}
     aria-label={alt || undefined}
     role={alt ? 'img' : 'presentation'}
-  >{fallbackIcon}</span>
+  >
+    <Icon name={fallbackIcon} tone="disabled" />
+  </span>
 {:else}
   <img
     class="img {cls}"
@@ -80,6 +83,5 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    color: var(--color-text-disabled);
   }
 </style>

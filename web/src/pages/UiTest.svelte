@@ -452,7 +452,7 @@
   </div>
   <div class="row">
     {#each tintedChips as tc}
-      <span class="chip" style="background: {tc.bg}; color: {tc.text}">tint {tc.c}</span>
+      <span class="tint-swatch" style="background: {tc.bg}; color: {tc.text}">tint {tc.c}</span>
     {/each}
   </div>
 </SectionCard>
@@ -801,6 +801,13 @@
 {/snippet}
 
 <style>
+  .tint-swatch {
+    display: inline-flex;
+    padding: 6px 12px;
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    font-weight: 500;
+  }
   /* Composer owns spacing: widgets render marginless, the stack gaps them. */
   .uit-stack {
     display: flex;

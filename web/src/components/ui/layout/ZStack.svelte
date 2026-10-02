@@ -31,3 +31,16 @@
 >
   {@render children()}
 </div>
+
+<style>
+  /* Children share one cell and paint in source order. The child rule has to
+     reach caller-rendered snippet children, hence :global(*) under a scoped
+     parent. */
+  .zstk {
+    display: grid;
+    min-width: 0;
+  }
+  .zstk > :global(*) {
+    grid-area: 1 / 1;
+  }
+</style>

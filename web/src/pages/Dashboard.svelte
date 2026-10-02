@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from '../components/ui/controls/Icon.svelte'
   import Button from '../components/ui/controls/Button.svelte'
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
@@ -154,7 +155,7 @@
           aria-label={t('Close menu')}
           title={t('Close menu')}
         >
-          <span class="icon">close</span>
+          <Icon name="close" />
         </button>
       {:else}
         <button
@@ -163,7 +164,7 @@
           aria-label={collapsed ? t('Expand sidebar') : t('Collapse sidebar')}
           title={collapsed ? t('Expand sidebar') : t('Collapse sidebar')}
         >
-          <span class="icon">{collapsed ? 'left_panel_open' : 'left_panel_close'}</span>
+          <Icon name={collapsed ? 'left_panel_open' : 'left_panel_close'} />
         </button>
       {/if}
     </div>
@@ -175,18 +176,18 @@
           onclick={() => navigateTo(item.id)}
           title={collapsed ? t(item.label) : undefined}
         >
-          <span class="icon">{item.icon}</span>
+          <Icon name={item.icon} size="lg" />
           <span class="label">{t(item.label)}</span>
         </button>
       {/each}
     </nav>
     <div class="sidebar-footer">
       <button class="logout-btn" class:active={panel === 'settings'} onclick={openSettings} aria-label={t('Open settings')} title={collapsed ? t('Settings') : undefined}>
-        <span class="icon">settings</span>
+        <Icon name="settings" size="lg" />
         <span class="label">{t('Settings')}</span>
       </button>
       <button class="logout-btn" onclick={logout} title={collapsed ? t('Sign out') : undefined}>
-        <span class="icon">logout</span>
+        <Icon name="logout" size="lg" />
         <span class="label">{t('Sign out')}</span>
       </button>
     </div>
@@ -356,9 +357,6 @@
     background: var(--color-nav-active);
     color: var(--color-text);
   }
-  .nav-item .icon {
-    font-size: var(--text-lg);
-  }
   .sidebar-footer {
     margin-top: auto;
     padding: 0 var(--space-4);
@@ -392,9 +390,6 @@
   .logout-btn:hover {
     color: var(--color-text);
     background: var(--color-nav-hover);
-  }
-  .logout-btn .icon {
-    font-size: var(--text-lg);
   }
   .main {
     flex: 1;

@@ -26,6 +26,7 @@
   import Table from './Table.svelte'
   import type { TableColumn, TableSortDir } from './Table.svelte'
   import Chip from '../controls/Chip.svelte'
+  import Icon from '../controls/Icon.svelte'
   import VStack from '../layout/VStack.svelte'
   import HStack from '../layout/HStack.svelte'
   import Text from '../controls/Text.svelte'
@@ -248,12 +249,12 @@
           {#if showProviderLink && model.providerId && model.providerName}
             <a class="provider-link" href={`#/providers/${model.providerId}`}>
               <Text size="sm">{model.providerName}</Text>
-              <span class="icon" aria-hidden="true">chevron_right</span>
+              <Icon name="chevron_right" />
             </a>
           {:else if showProviderLink && model.kind === 'virtual'}
             <a class="provider-link" href="#/virtual">
               <Text size="sm">{t('Virtual models')}</Text>
-              <span class="icon" aria-hidden="true">chevron_right</span>
+              <Icon name="chevron_right" />
             </a>
           {/if}
         </VStack>

@@ -9,7 +9,7 @@
     hint = '',
     disabled = false,
     required = false,
-    minRows = 2,
+    minRows = 4,
     maxRows = 10,
     id,
     ariaLabel,
@@ -82,9 +82,6 @@
   .text-area > :not(.text-area-bg) {
     position: relative;
   }
-  .text-area > :not(.text-area-bg) {
-    position: relative;
-  }
   .text-area.disabled {
     opacity: 0.6;
   }
@@ -97,6 +94,7 @@
     flex: 1;
     min-width: 0;
     resize: none;
+    min-height: 0;
     padding: 0;
     border: none;
     /* No radius here: this element is a scroll container (overflow-y),

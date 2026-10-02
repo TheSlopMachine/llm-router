@@ -2,8 +2,7 @@
   // The one layout primitive. VStack / HStack are three-line aliases over it.
   //
   // Structural rules live scoped below (.stk); everything variable arrives
-  // as inline custom properties. .stk-grow stays global in app.css:
-  // ScrollView consumes it outside Stack.
+  // as inline custom properties.
   import type { Snippet } from 'svelte'
   import { ALIGN, JUSTIFY, space, type Step, type Align, type Justify } from '../tokens'
 
@@ -50,7 +49,7 @@
   class="stk {cls}"
   class:stk-h={axis === 'h'}
   class:stk-wrap={wrap}
-  class:stk-grow={grow}
+  class:grow
   class:stk-fill={fill}
   class:stk-pad={pad !== undefined}
   class:stk-scroll-y={scroll === 'y'}
@@ -81,6 +80,7 @@
     align-items: var(--stk-align, center);
   }
   .stk-wrap { flex-wrap: wrap; }
+  .grow { flex: 1 1 0; }
   .stk-fill { width: 100%; }
   .stk-scroll-y { overflow-y: auto; }
   .stk-scroll-x { overflow-x: auto; }

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import Text from '../controls/Text.svelte'
+  import Icon from '../controls/Icon.svelte'
 
   // Stepped progress: circles with step titles, 2px rails between them.
   // States come from the current binding: done (check), current (number),
@@ -89,7 +90,7 @@
       <div class="step-cell" role="listitem" aria-current={state === 'current' ? 'step' : undefined}>
         <span class="step-circle" class:done={state === 'done'} class:current={state === 'current'}>
           {#if state === 'done'}
-            <span class="icon step-check" aria-hidden="true">check</span>
+            <Icon name="check" size="md" />
           {:else}
             <Text size={state === 'current' ? 'md' : 'sm'} weight="medium">{node.index + 1}</Text>
           {/if}
@@ -171,9 +172,6 @@
     line-height: 1;
     display: inline-block;
     transform: translateY(-0.12em);
-  }
-  .step-check {
-    font-size: var(--text-md);
   }
   .step-title {
     min-width: 0;

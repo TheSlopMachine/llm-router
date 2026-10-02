@@ -2,12 +2,11 @@
   // Floating action list. Pairs with an ordinary Button as its trigger:
   // the button opens it, this component draws the anchored layer.
   // Select stays a separate widget; this covers the menu case.
-  import { fly, fade } from 'svelte/transition'
-  import { cubicOut, cubicIn } from 'svelte/easing'
   import { untrack } from 'svelte'
-  import { portal } from '../../../lib/portal'
-  import { squircle } from '../../../lib/squircle'
   import { bindDismiss, MENU_ROW_HEIGHT, MENU_MAX_HEIGHT } from '../../../lib/popover'
+  import MenuPanel from '../internal/MenuPanel.svelte'
+  import MenuItem from '../internal/MenuItem.svelte'
+  import Icon from './Icon.svelte'
 
   export type FloatingAction = {
     id: string
@@ -117,40 +116,28 @@
   )
 </script>
 
-{#if open}
-  <div
-    use:portal
-    bind:this={menuElement}
-    class="dropdown-menu"
-    style="top: {menuTop}px; left: {menuLeft}px; min-width: {menuWidth}px;"
-    role="menu"
-    aria-label={label}
-    tabindex="-1"
-    use:squircle={12}
-    in:fly={{ y: flipped ? 8 : -8, duration: 200, easing: cubicOut, opacity: 0 }}
-    out:fade={{ duration: 150, easing: cubicIn }}
-    onkeydown={handleKeydown}
-  >
-    <div class="dropdown-options">
-      {#each actions as act (act.id)}
-        <button
-          class="dropdown-option"
-          style={act.tint ? `color: ${act.tint}` : undefined}
-          onclick={() => run(act)}
-          disabled={act.disabled}
-          role="menuitem"
-        >
-          {#if act.icon}<span class="icon menu-glyph">{act.icon}</span>{/if}
-          {act.label}
-        </button>
-      {/each}
-    </div>
-  </div>
-{/if}
+<MenuPanel
+  {open}
+  bind:el={menuElement}
+  top={menuTop}
+  left={menuLeft}
+  minWidth={menuWidth}
+  {flipped}
+  role="menu"
+  {label}
+  onkeydown={handleKeydown}
+>
+  {#each actions as act (act.id)}
+    <MenuItem role="menuitem" tint={act.tint} disabled={act.disabled} onclick={() => run(act)}>
+      {#if act.icon}<span class="glyph"><Icon name={act.icon} size="md" /></span>{/if}
+      {act.label}
+    </MenuItem>
+  {/each}
+</MenuPanel>
 
 <style>
-  .menu-glyph {
-    font-size: var(--text-md);
+  .glyph {
+    display: inline-flex;
     margin-right: var(--space-3);
   }
 </style>

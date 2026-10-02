@@ -2,14 +2,14 @@
   // Listbox select. Split out of the old Dropdown god-component, which drove
   // a listbox and an action menu from one `isActionMode` branch: two ARIA
   // roles, two keyboard models and two sets of props in one 470-line file.
-  import { fly, fade } from 'svelte/transition'
-  import { cubicOut, cubicIn } from 'svelte/easing'
   import { untrack } from 'svelte'
-  import { portal } from '../../../lib/portal'
   import { squircle } from '../../../lib/squircle'
   import { anchorTo, bindDismiss, MENU_ROW_HEIGHT, MENU_MAX_HEIGHT } from '../../../lib/popover'
   import { t } from '../../../lib/i18n.svelte'
   import type { Size } from '../tokens'
+  import Icon from './Icon.svelte'
+  import MenuPanel from '../internal/MenuPanel.svelte'
+  import MenuItem from '../internal/MenuItem.svelte'
 
   export type SelectOption = { value: string; label: string }
 
@@ -42,7 +42,6 @@
   // aria-controls needs a stable unique id per instance: several selects can
   // be open in one modal, and a shared literal id would cross-wire them.
   const menuId = `select-menu-${Math.random().toString(36).slice(2, 9)}`
-  const sizeClass = $derived(size === 'small' ? 'ctl-small' : size === 'large' ? 'ctl-large' : 'ctl-medium')
 
   let isOpen = $state(false)
   let searchQuery = $state('')
@@ -159,7 +158,8 @@
 
 <div class="dropdown" class:disabled class:autoWidth bind:this={rootElement}>
   <button
-    class="dropdown-trigger {sizeClass}"
+    class="trigger"
+    data-size={size}
     class:open={isOpen}
     class:rounded-lg={rounded === 'lg'}
     bind:this={triggerElement}
@@ -174,28 +174,24 @@
     aria-label={ariaLabel}
     use:squircle={12}
   >
-    <span class="dropdown-label">{selectedLabel}</span>
-    <span class="icon chevron" class:open={isOpen}>expand_more</span>
+    <span class="label">{selectedLabel}</span>
+    <span class="chevron" class:open={isOpen}><Icon name="expand_more" size="lg" tone="soft" /></span>
   </button>
 
-  {#if isOpen}
-    {@const menuStyle = autoWidth
-      ? `top: ${menuTop}px; left: ${menuLeft}px; min-width: ${menuWidth}px;`
-      : `top: ${menuTop}px; left: ${menuLeft}px; width: ${menuWidth}px;`}
-    <div
-      use:portal
-      bind:this={menuElement}
-      class="dropdown-menu"
-      class:full-width={!autoWidth}
-      style={menuStyle}
-      id={menuId}
-      role="listbox"
-      use:squircle={12}
-      in:fly={{ y: flipped ? 8 : -8, duration: 200, easing: cubicOut, opacity: 0 }}
-      out:fade={{ duration: 150, easing: cubicIn }}
-    >
+  <MenuPanel
+    open={isOpen}
+    bind:el={menuElement}
+    top={menuTop}
+    left={menuLeft}
+    width={autoWidth ? undefined : menuWidth}
+    minWidth={autoWidth ? menuWidth : undefined}
+    {flipped}
+    role="listbox"
+    id={menuId}
+  >
+    {#snippet header()}
       {#if showSearch}
-        <div class="dropdown-search">
+        <div class="search">
           <input
             type="text"
             placeholder={t('Search...')}
@@ -206,31 +202,25 @@
           />
         </div>
       {/if}
-      <div class="dropdown-options">
-        {#each filteredOptions as option (option.value)}
-          <button
-            class="dropdown-option"
-            class:selected={option.value === value}
-            class:highlighted={filteredOptions.indexOf(option) === highlightedIndex}
-            onclick={() => select(option.value)}
-            role="option"
-            aria-selected={option.value === value}
-          >
-            {option.label}
-          </button>
-        {:else}
-          <div class="dropdown-empty">{t('No options found')}</div>
-        {/each}
-      </div>
-    </div>
-  {/if}
+    {/snippet}
+    {#each filteredOptions as option (option.value)}
+      <MenuItem
+        role="option"
+        selected={option.value === value}
+        highlighted={filteredOptions.indexOf(option) === highlightedIndex}
+        onclick={() => select(option.value)}
+      >
+        {option.label}
+      </MenuItem>
+    {:else}
+      <div class="empty">{t('No options found')}</div>
+    {/each}
+  </MenuPanel>
 </div>
 
 <style>
-  /* Listbox trigger geometry. The menu surface (.dropdown-menu,
-     .dropdown-options, .dropdown-option) stays global, shared with
-     FloatingList. Scoped selectors outrank the global button rules
-     they override, so states render as before. */
+  /* Everything the trigger looks like lives here. The menu surface and rows
+     live in internal/MenuPanel + MenuItem, shared with FloatingList. */
   .dropdown {
     position: relative;
     width: 100%;
@@ -241,13 +231,12 @@
     display: inline-flex;
   }
 
-  .dropdown.autoWidth .dropdown-trigger {
+  .dropdown.autoWidth .trigger {
     width: auto;
     /* autoWidth changes width only: padding, fill and type stay identical to
        the full-width trigger. The gap only keeps the chevron off the label
        once space-between has no free space to distribute. */
     gap: var(--space-3);
-    border: none;
   }
 
   .dropdown.disabled {
@@ -255,12 +244,13 @@
     cursor: not-allowed;
   }
 
-  .dropdown-trigger {
+  .trigger {
     display: flex;
     align-items: center;
     justify-content: space-between;
     width: 100%;
-    padding: var(--field-pad-v) var(--field-pad-h);
+    height: var(--ctl-medium);
+    padding: 6px var(--field-pad-h);
     font-family: inherit;
     font-size: var(--text-base);
     line-height: 20px;
@@ -273,84 +263,75 @@
     transition: background-color 0.15s ease;
     text-align: left;
   }
-
-  .dropdown-trigger.rounded-lg {
-    border-radius: var(--radius-lg);
-  }
-
-  .dropdown-trigger.ctl-small {
+  .trigger[data-size='small'] {
+    height: var(--ctl-small);
     padding-top: 2px;
     padding-bottom: 2px;
   }
-  .dropdown-trigger.ctl-medium {
-    padding-top: 6px;
-    padding-bottom: 6px;
-  }
-  .dropdown-trigger.ctl-large {
+  .trigger[data-size='large'] {
+    height: var(--ctl-large);
     padding-top: 10px;
     padding-bottom: 10px;
   }
+  .trigger.rounded-lg {
+    border-radius: var(--radius-lg);
+  }
 
-  .dropdown-trigger:hover:not(:disabled) {
+  .trigger:hover:not(:disabled) {
     background: var(--color-outline-light);
   }
-
-  /* The trigger opts out of the global press bounce — the menu opening is
-     the feedback. The button-qualified selector outranks the global
-     button:active rule, so wide triggers no longer shrink. */
-  button.dropdown-trigger:active:not([disabled]) {
-    transform: none;
-    border: none;
-  }
-
-  .dropdown-trigger:focus {
+  /* The menu opening is the feedback: no press bounce on a wide trigger. */
+  .trigger:focus-visible {
     outline: none;
-    box-shadow: inset 0 0 0 2px var(--color-accent);
-    border: none;
+    box-shadow: var(--focus-ring);
   }
-
-  .dropdown-trigger:disabled {
+  .trigger:disabled {
     background-color: var(--color-surface-container);
     color: var(--color-text-disabled);
-    border-color: var(--color-outline-soft);
     cursor: not-allowed;
   }
 
-  .dropdown-label {
+  .label {
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    border: none;
   }
 
   .chevron {
-    font-size: var(--text-lg);
-    color: var(--color-text-soft);
+    display: inline-flex;
     transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
     flex-shrink: 0;
   }
-
   .chevron.open {
     transform: rotate(180deg);
   }
 
-  .dropdown-search {
+  .search {
     padding: var(--space-3);
     border-bottom: 1px solid var(--color-outline-light);
   }
-
-  /* Compact variant of the global field: same fill/ring system, tighter padding. */
-  .dropdown-search input {
+  /* Compact field: same fill/ring system as TextEdit, tighter padding. */
+  .search input {
     width: 100%;
-    padding: 6px 12px;
+    padding: 6px var(--field-pad-h);
+    font: inherit;
+    line-height: 20px;
+    color: var(--color-text);
+    background: var(--elev);
+    border: 1px solid transparent;
+    border-radius: var(--ctl-radius);
+    outline: none;
+  }
+  .search input:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
   }
 
-  .dropdown-empty {
+  .empty {
     padding: var(--space-4);
     text-align: center;
     color: var(--color-text-soft);
     font-size: var(--text-base);
   }
 </style>
-

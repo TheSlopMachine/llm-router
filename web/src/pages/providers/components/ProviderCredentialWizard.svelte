@@ -5,8 +5,8 @@
   import { getErrorMessage } from '$lib/errors'
   import type { Provider, UINode, ModalButton } from '$lib/types'
   import DynamicForm, { collectButtons, buttonVariant } from '../../../../src/components/domain/DynamicForm.svelte'
+  import TextArea from '../../../../src/components/ui/controls/TextArea.svelte'
   import Picker from '../../../../src/components/ui/controls/Picker.svelte'
-  import { squircle } from '$lib/squircle'
   import { t } from '$lib/i18n.svelte'
 
   let {
@@ -261,7 +261,7 @@
   <p class="form-text">{t('This provider type has no credential form. Paste credential data as JSON.')}</p>
   <div class="form-group">
     <label for="cred-raw">{t('Credential JSON')}</label>
-    <textarea id="cred-raw" rows="6" bind:value={rawJson} autocomplete="off" use:squircle={12}></textarea>
+    <TextArea id="cred-raw" minRows={6} bind:value={rawJson} />
   </div>
   <div class="form-actions">
     <Button style="prominent" onclick={submitRaw} disabled={loading}>{t('Save')}</Button>

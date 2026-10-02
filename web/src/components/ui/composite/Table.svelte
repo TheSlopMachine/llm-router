@@ -1,5 +1,6 @@
 <script module lang="ts">
   import { squircle } from '../../../lib/squircle'
+  import Icon from '../controls/Icon.svelte'
   // Column block: header title plus the cells beneath it.
   export interface TableColumn {
     key: string
@@ -121,7 +122,7 @@
         {#if sortOn && col.sortable}
           <button type="button" class="thead-sort {alignCls(col)}" onclick={() => onsort?.(col.key)}>
             <span class="thead-title">{col.title ?? ''}</span>
-            <span class="icon thead-sort-icon" aria-hidden="true">{sortIcon(col)}</span>
+            <span class="thead-sort-icon"><Icon name={sortIcon(col)} size="base" /></span>
           </button>
         {:else}
           {col.title ?? ''}
@@ -157,7 +158,7 @@
       >
         {#if draggable}
           <span class="uit-cell align-c {cls}" role="cell">
-            <span class="icon uit-grip" aria-hidden="true">drag_indicator</span>
+            <span class="uit-grip"><Icon name="drag_indicator" size="md" tone="soft" /></span>
           </span>
         {/if}
         {#each visibleColumns as col (col.key)}
@@ -174,29 +175,33 @@
   .uit-table {
     display: grid;
     width: 100%;
-    /* Transparent, square root: the page wrapper owns the single base
-       layer and the squircle silhouette. A painted, rounded root would
-       stack a second elev level and peek out at the corners. */
+    /* The root is the table's base layer (one elev wash) and its squircle
+       silhouette; the header band stacks a second wash on top. */
     background: var(--elev);
     border-radius: 0;
   }
-  /* One shared grid: header rows are transparent so every track sizes once.
-     Draggable body rows own a box (display:contents elements cannot start a
-     native drag), so they lay out as subgrids spanning all tracks: same
-     column alignment, plus a real drag source. */
+  /* One shared grid: head and rows lay their cells on the root's tracks, so
+     every column sizes once. The head is a subgrid box (not display:contents)
+     so it can own a background: one elev wash over the body's, i.e. the
+     header sits one level above (L*N), painted once across all tracks, no
+     per-cell fills and so no subpixel seams. */
   .uit-head {
-    display: contents;
+    display: grid;
+    grid-template-columns: subgrid;
+    grid-column: 1 / -1;
+    background: var(--elev);
+    cursor: default;
   }
   .uit-row {
     display: contents;
   }
+  /* Draggable body rows own a box too (display:contents elements cannot
+     start a native drag), same subgrid pattern: same column alignment, plus
+     a real drag source. */
   .uit-row-drag {
     display: grid;
     grid-template-columns: subgrid;
     grid-column: 1 / -1;
-  }
-  .uit-head {
-    cursor: default;
   }
   .uit-th {
     display: flex;
@@ -230,9 +235,6 @@
   .uit-cell:last-child {
     padding-right: var(--space-5);
   }
-  /* Header cells stay transparent: the root already paints one uniform
-     elev band. Per-cell backgrounds tile the band and subpixel rounding of
-     fractional tracks opens hairline seams between them. */
   .uit-th {
     background: transparent;
   }
@@ -243,7 +245,7 @@
   .uit-th.align-l { justify-content: flex-start; }
   .uit-th.align-c { justify-content: center; }
   .uit-th.align-r { justify-content: flex-end; }
-  /* Sort control: no hover fill, full header-cell click target. */
+  /* Sort control: bare text button, no fill, full header-cell click target. */
   .thead-sort {
     display: inline-flex;
     align-items: center;
@@ -255,15 +257,13 @@
     color: inherit;
     cursor: pointer;
   }
-  .thead-sort:hover {
-    background: transparent;
-  }
   .thead-sort:focus-visible {
+    outline: none;
     background: var(--color-button-container-high);
     border-radius: 6px;
   }
   .thead-sort-icon {
-    font-size: var(--text-base);
+    display: inline-flex;
     opacity: 0.7;
   }
   /* Column direction now: align-items positions the stacked content
@@ -272,8 +272,7 @@
   .uit-cell.align-c { align-items: center; }
   .uit-cell.align-r { align-items: flex-end; }
   .uit-grip {
-    color: var(--color-text-soft);
-    font-size: var(--text-md);
+    display: inline-flex;
     cursor: grab;
     margin-right: var(--space-3);
   }

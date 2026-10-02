@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from '../../components/ui/controls/Icon.svelte'
   import Button from '../../components/ui/controls/Button.svelte'
   import Text from '../../components/ui/controls/Text.svelte'
   import { modal } from '../../lib/modal.svelte'
@@ -100,7 +101,7 @@
           {#if provider.icon_url}
             <img src={provider.icon_url} alt="" class="provider-icon" use:squircle={10} />
           {:else}
-            <span class="icon provider-icon-fallback">cloud</span>
+            <span class="provider-icon-fallback"><Icon name="cloud" size="lg" /></span>
           {/if}
         </span>
         <span class="col-name">

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from '../../components/ui/controls/Icon.svelte'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -240,7 +241,7 @@
 
     {#if modelsLoadState === 'empty'}
       <div class="warning-banner">
-        <span class="icon">warning</span>
+        <span class="warning-icon"><Icon name="warning" size="xl" /></span>
         <VStack gap={2}>
           <Text weight="medium">{t('No models available')}</Text>
           <Text size="base" tone="soft">{t('Configure at least one provider with credentials to create virtual models.')}</Text>
@@ -293,7 +294,7 @@
               role="listitem"
             >
               <HStack gap={0} align="center" class="col-priority">
-                <span class="icon drag-handle" title={t('Drag to reorder')}>drag_indicator</span>
+                <span class="drag-handle" title={t('Drag to reorder')}><Icon name="drag_indicator" /></span>
                 <Text size="sm" tone="soft" align="center" class="row-num">{i + 1}</Text>
               </HStack>
               <Select value={id} options={modelOptions} searchable={true} placeholder={t('Select a model...')} onchange={(v) => setModel(i, v)} disabled={!!vm?.managed_by} />
@@ -401,8 +402,8 @@
     border-radius: 8px;
   }
 
-  .warning-banner .icon {
-    font-size: var(--text-xl);
+  .warning-icon {
+    display: inline-flex;
     color: var(--color-notification-warning-icon);
     flex-shrink: 0;
   }

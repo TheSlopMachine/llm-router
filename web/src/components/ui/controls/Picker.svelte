@@ -28,7 +28,6 @@
   let rootEl = $state<HTMLElement>()
   let pillX = $state(0)
   let pillW = $state(0)
-  const sizeClass = $derived(size === 'small' ? 'ctl-small' : size === 'large' ? 'ctl-large' : 'ctl-medium')
   // No transition before the first measure: the pill must appear in place,
   // not slide in from position zero.
   let pillReady = $state(false)
@@ -56,7 +55,7 @@
   })
 </script>
 
-<div class="segmented {sizeClass}" role="group" aria-label={ariaLabel} bind:this={rootEl} use:squircle={12}>
+<div class="segmented" data-size={size} role="group" aria-label={ariaLabel} bind:this={rootEl} use:squircle={12}>
   <span
     class="seg-pill"
     class:ready={pillReady}
@@ -86,6 +85,7 @@
      both derived from the system control radius. Height comes from content
      (line-height + shared button padding), never fixed pixels. */
   .segmented {
+    height: var(--ctl-medium);
     position: relative;
     display: inline-flex;
     align-items: stretch;
@@ -129,28 +129,27 @@
     transition: color 0.15s;
   }
 
-  /* Segments opt out of the global press bounce — the sliding pill is the
-     only motion here. */
-  .seg-btn:active {
-    transform: none;
+  .segmented[data-size='small'] {
+    height: var(--ctl-small);
   }
-
-  .segmented.ctl-small .seg-btn {
+  .segmented[data-size='large'] {
+    height: var(--ctl-large);
+  }
+  .segmented[data-size='small'] .seg-btn {
     line-height: 18px;
     padding: 2px var(--btn-pad-h);
     font-size: var(--text-sm);
   }
-  .segmented.ctl-large .seg-btn {
+  .segmented[data-size='large'] .seg-btn {
     line-height: 24px;
     padding: 6px var(--btn-pad-h);
   }
 
-  /* No hover fill on any segment — selection is the only state this control
-     shows. The override must cover the active segment too: the global
-     button:hover rule would otherwise paint a gray fill over the pill. */
-  .seg-btn:hover,
-  .seg-btn.active {
-    background: transparent;
+  /* No hover fill, no press bounce: selection (the sliding pill) is the only
+     state this control shows. */
+  .seg-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
   }
 
   .seg-div {

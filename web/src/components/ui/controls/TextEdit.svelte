@@ -5,9 +5,7 @@
   import { untrack } from 'svelte'
   import { squircle } from '../../../lib/squircle'
   import Button from './Button.svelte'
-  import Text from './Text.svelte'
-  import HStack from '../layout/HStack.svelte'
-    import { accent } from '$lib/accent.svelte';
+  import Icon from './Icon.svelte'
 
   export interface TrailingAction {
     icon: string
@@ -92,17 +90,14 @@
   }
 </script>
 
-<!-- TextEdit is always large: single height by design. -->
-<div class="text-edit ctl-medium {cls}" class:disabled class:invalid={showInvalid}>
-  <div class="text-edit-bg" use:squircle={12} aria-hidden="true"></div>
-  <div class="text-edit-tint" use:squircle={12} aria-hidden="true"></div>
+<!-- TextEdit has a single height by design (--ctl-medium). -->
+<div class="text-edit {cls}" class:disabled class:invalid={showInvalid}>
+  <div class="bg" use:squircle={12} aria-hidden="true"></div>
+  <div class="tint" use:squircle={12} aria-hidden="true"></div>
   {#if resolvedLeading}
-    <Text
-      class="icon edit-leading{leadingStatic ? ' edit-leading-static' : ''}"
-      text={resolvedLeading}
-      aria-hidden="true"
-      style="margin-right: 6px;"
-    />
+    <span class="leading" class:leading-static={leadingStatic} aria-hidden="true">
+      <Icon name={resolvedLeading} size="base" />
+    </span>
   {/if}
   <input
     {id}
@@ -119,58 +114,70 @@
     {...rest}
   />
   {#if trailing.length > 0}
-    <HStack gap={0} class="edit-trailing">
+    <div class="actions trailing">
       {#each trailing as action (action.icon + action.label)}
-        <Button
-          size="small"
-          icon={{ name: action.icon }}
-          title={action.label}
-          ariaLabel={action.label}
-          disabled={action.disabled}
-          onclick={() => action.onclick()}
-          onmousedown={keepFocus}
-        />
+        <span class="slot">
+          <Button
+            size="small"
+            embedded
+            icon={{ name: action.icon }}
+            title={action.label}
+            ariaLabel={action.label}
+            disabled={action.disabled}
+            onclick={() => action.onclick()}
+            onmousedown={keepFocus}
+          />
+        </span>
       {/each}
-    </HStack>
+    </div>
   {/if}
   {#if isSecret || showClear}
-    <HStack gap={0} class="edit-system">
+    <div class="actions">
       {#if isSecret}
+        <span class="slot">
+          <Button
+            size="small"
+            embedded
+            icon={{ name: revealed ? 'visibility_off' : 'visibility' }}
+            title={revealed ? 'Hide secret' : 'Show secret'}
+            ariaLabel={revealed ? 'Hide secret' : 'Show secret'}
+            disabled={disabled}
+            onclick={() => { revealed = !revealed }}
+            onmousedown={keepFocus}
+          />
+        </span>
+      {/if}
+      <span class="slot clear" class:clear-hidden={!showClear}>
         <Button
           size="small"
-          icon={{ name: revealed ? 'visibility_off' : 'visibility' }}
-          title={revealed ? 'Hide secret' : 'Show secret'}
-          ariaLabel={revealed ? 'Hide secret' : 'Show secret'}
-          disabled={disabled}
-          onclick={() => { revealed = !revealed }}
+          embedded
+          icon={{ name: 'close' }}
+          title="Clear"
+          ariaLabel="Clear"
+          onclick={clearValue}
           onmousedown={keepFocus}
         />
-      {/if}
-      <Button
-        size="small"
-        icon={{ name: 'close' }}
-        title="Clear"
-        ariaLabel="Clear"
-        onclick={clearValue}
-        onmousedown={keepFocus}
-        class={showClear ? 'edit-clear' : 'edit-clear edit-clear-hidden'}
-      />
-    </HStack>
+      </span>
+    </div>
   {/if}
 </div>
 
 <style>
   /* Composite field: the background layer wears the fill (squircle-clipped),
-     content above it is never clipped. Outer box owns layout only. */
+     content above it is never clipped. Outer box owns layout only.
+     Every element that gets a rule here is a plain element of this
+     component: scoped CSS cannot reach a class passed to a child component's
+     root, which is how the previous leading/trailing rules went dead. */
   .text-edit {
     position: relative;
     display: flex;
     align-items: center;
+    height: var(--ctl-medium);
     padding: var(--field-pad-h) var(--field-pad-h);
     border: 1px solid transparent;
     border-radius: var(--ctl-radius);
   }
-  .text-edit-bg {
+  .bg {
     position: absolute;
     inset: 0;
     border-radius: var(--ctl-radius);
@@ -178,7 +185,7 @@
   }
   /* Tint crossfades fast: background gradients cannot interpolate, so the
      tint lives on its own layer driven by opacity. */
-  .text-edit-tint {
+  .tint {
     position: absolute;
     inset: 0;
     border-radius: var(--ctl-radius);
@@ -188,7 +195,7 @@
     opacity: 0;
     transition: opacity 0.15s ease;
   }
-  .text-edit > :not(.text-edit-bg):not(.text-edit-tint) {
+  .text-edit > :not(.bg):not(.tint) {
     position: relative;
   }
 
@@ -197,46 +204,42 @@
   }
 
   /* Focus glow and invalid marking tint the tint layer only. */
-  .text-edit:focus-within .text-edit-tint {
+  .text-edit:focus-within .tint {
     opacity: 1;
   }
-  .text-edit.invalid .text-edit-tint {
+  .text-edit.invalid .tint {
     opacity: 1;
     background:
       linear-gradient(var(--color-notification-error-bg), var(--color-notification-error-bg)),
       var(--elev);
   }
 
-  .text-edit input {
+  input {
     flex: 1;
     min-width: 0;
     padding: 0;
     border: none;
-    /* Square box: a radius here is harmless today (no overflow), but one
-       future overflow declaration would turn it into self-clipped text.
-       Corners belong to the background layer below. */
+    /* Square box: corners belong to the background layer. A radius here would
+       turn into self-clipped text the day someone adds overflow. */
     border-radius: 0;
     background: transparent;
     box-shadow: none;
+    outline: none;
+    font-family: inherit;
     font-size: var(--text-base);
     line-height: 20px;
     color: var(--color-text);
   }
 
-  .text-edit input:focus {
-    background: transparent;
-    box-shadow: none;
-    outline: none;
-  }
-
   /* Leading glyph: uniform padding on all four sides. Caller icons collapse
-     on focus, the forced lock stays. */
-  .edit-leading {
+     on focus, the forced secret lock stays. */
+  .leading {
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
     padding: var(--space-2);
+    margin-right: 6px;
     max-width: 48px;
     overflow: hidden;
     transition:
@@ -246,60 +249,47 @@
       opacity 0.15s ease-in,
       transform 0.15s ease-in;
   }
-  .text-edit:focus-within .edit-leading:not(.edit-leading-static) {
+  .leading :global(.icon) {
+    line-height: var(--leading-base);
+  }
+  .text-edit:focus-within .leading:not(.leading-static) {
     max-width: 0;
     padding: 0;
+    margin-right: 0;
     opacity: 0;
     transform: scale(0.8);
   }
 
-  /* Trailing rows: the outer box owns the right inset, containers keep
-     vertical padding only, every button keeps a left margin, so icon
-     spacing is uniform on both axes. */
-  .edit-trailing {
+  /* Action rows. Each button sits in a .slot that owns its left margin, so
+     icon spacing is uniform and the clear button can collapse its own slot. */
+  .actions {
+    display: flex;
+    align-items: center;
+  }
+  .slot {
+    display: inline-flex;
+    margin-left: var(--space-2);
+  }
+  /* Caller trailing actions slide in on focus, left of the system buttons. */
+  .trailing {
     max-width: 0;
     opacity: 0;
     overflow: hidden;
     pointer-events: none;
     transition:
       max-width 0.2s ease-in,
-      padding 0.2s ease-in,
       opacity 0.18s ease-in,
       transform 0.18s ease-in;
   }
-  .text-edit:focus-within .edit-trailing {
+  .text-edit:focus-within .trailing {
     /* generous ceiling: real width is intrinsic, this only unlocks it */
     max-width: 200px;
     opacity: 1;
     pointer-events: auto;
   }
-  .edit-system {
-    padding: 0 0;
-  }
-
-  /* Embedded icon buttons (iconMode forces btn-icon chrome): fixed 22px
-     tile, soft glyph, no double chrome over the field. */
-  .edit-trailing :global(.btn),
-  .edit-system :global(.btn) {
-    height: 22px;
-    min-height: 22px;
-    width: 22px;
-    min-width: 22px;
-    padding: 0;
-    margin-left: var(--space-2);
-  }
-  .edit-trailing :global(.btn-icon),
-  .edit-system :global(.btn-icon) {
-    color: var(--color-text-soft);
-  }
-  .edit-trailing :global(.btn-icon:hover:not([disabled])),
-  .edit-system :global(.btn-icon:hover:not([disabled])) {
-    background: color-mix(in srgb, var(--color-accent) 12%, var(--elev));
-    color: var(--color-accent);
-  }
 
   /* Clear zoom: ease-in both ways, collapses its slot when hidden. */
-  .edit-system :global(.edit-clear) {
+  .clear {
     overflow: hidden;
     max-width: 22px;
     transition:
@@ -308,7 +298,7 @@
       max-width 0.15s ease-in,
       margin 0.15s ease-in;
   }
-  .edit-system :global(.edit-clear-hidden) {
+  .clear-hidden {
     transform: scale(0);
     opacity: 0;
     max-width: 0;

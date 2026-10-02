@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from './Icon.svelte'
   import type { Snippet } from 'svelte'
   import { squircle } from '../../../lib/squircle'
   import type { Size } from '../tokens'
@@ -32,6 +33,8 @@
     active = false,
     ariaExpanded,
     size = 'medium',
+    block = false,
+    embedded = false,
     disabled = false,
     ariaLabel,
     onclick,
@@ -48,6 +51,10 @@
     active?: boolean
     ariaExpanded?: boolean
     size?: Size
+    /** stretch to the full width of the parent */
+    block?: boolean
+    /** compact 22px tile for use inside another control (TextEdit trailing actions) */
+    embedded?: boolean
     disabled?: boolean
     ariaLabel?: string
     onclick?: (e: MouseEvent) => void
@@ -63,29 +70,21 @@
   let effStyle = $derived(
     selected === true ? 'prominent' : selected === false ? 'soft' : style
   )
-  let styleClass = $derived(
-    iconMode
-      ? effStyle === 'text'
-        ? 'btn-icon btn-text'
+  // Variant drives colour only; geometry comes from the iconMode / size flags.
+  let variant = $derived(
+    effStyle === 'prominent'
+      ? 'prominent'
+      : effStyle === 'text'
+        ? 'text'
         : effStyle === 'soft'
-          ? 'btn-icon btn-soft'
-          : effStyle === 'prominent'
-            ? 'btn-icon btn-primary'
-            : 'btn-icon'
-      : effStyle === 'prominent'
-        ? 'btn-primary'
-        : effStyle === 'text'
-          ? 'btn-text'
-          : effStyle === 'soft'
-            ? 'btn-soft'
-            : 'btn-secondary'
-  )
-  let sizeClass = $derived(
-    size === 'small' ? 'btn-small ctl-small' : size === 'large' ? 'btn-large ctl-large' : 'ctl-medium'
+          ? 'soft'
+          : iconMode
+            ? 'ghost' // icon-only neutral is a bare glyph, no fill
+            : 'neutral'
   )
 
   // Icon+text: the icon glyph carries optical side bearings, so the icon edge
-  // reads wider than the text edge — .btn-iconed-* pulls that side back.
+  // reads wider than the text edge — the iconed-* flags pull that side back.
   let iconSide = $derived(!iconMode && icon ? (icon.placement ?? 'left') : null)
 
   let tintVars = $derived.by(() => {
@@ -111,10 +110,15 @@
 </script>
 
 <button
-  class="btn {styleClass} {sizeClass} {cls}"
-  class:btn-tinted={tintVars !== null}
-  class:btn-iconed-left={iconSide === 'left'}
-  class:btn-iconed-right={iconSide === 'right'}
+  class="btn {cls}"
+  data-variant={variant}
+  data-size={size}
+  data-tinted={tintVars !== null ? '' : undefined}
+  class:icon-only={iconMode}
+  class:block
+  class:embedded
+  class:iconed-left={iconSide === 'left'}
+  class:iconed-right={iconSide === 'right'}
   class:active={active}
   style={tintVars ?? ''}
   type="button"
@@ -128,25 +132,185 @@
 >
   {#if iconMode}
     {#if icon?.src}
-      <img class="btn-glyph" src={icon.src} alt="" />
+      <img class="glyph" src={icon.src} alt="" />
     {:else}
-      <span class="icon">{icon?.name ?? 'add'}</span>
+      <Icon name={icon?.name ?? 'add'} />
     {/if}
   {:else}
     {#if icon && (icon.placement ?? 'left') === 'left'}
       {#if icon.src}
-        <img class="btn-glyph" src={icon.src} alt="" />
+        <img class="glyph" src={icon.src} alt="" />
       {:else}
-        <span class="icon">{icon.name}</span>
+        <Icon name={icon.name} />
       {/if}
     {/if}
     {#if children}{@render children()}{:else}{label}{/if}
     {#if icon && icon.placement === 'right'}
       {#if icon.src}
-        <img class="btn-glyph" src={icon.src} alt="" />
+        <img class="glyph" src={icon.src} alt="" />
       {:else}
-        <span class="icon">{icon.name}</span>
+        <Icon name={icon.name} />
       {/if}
     {/if}
   {/if}
 </button>
+
+<style>
+  /* Button owns its entire look. Nothing here depends on app.css except
+     tokens (--color-*, --text-*, --btn-pad-*, --ctl-*, --focus-ring*).
+     Colour is driven by four custom properties set per variant, so every
+     state rule is written once instead of once per variant. */
+  .btn {
+    --_bg: transparent;
+    --_bg-hover: var(--color-button-container-high);
+    --_bg-focus: var(--_bg-hover);
+    --_fg: var(--color-text-on-button);
+    --_ring: var(--focus-ring);
+
+    font-family: inherit;
+    font-size: var(--text-base);
+    font-weight: 500;
+    line-height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* horizontal rhythm: icon-text gap is half the edge padding */
+    gap: calc(var(--btn-pad-h) / 2);
+    height: var(--ctl-medium);
+    padding: var(--btn-pad-v) var(--btn-pad-h);
+    border: 1px solid transparent;
+    border-radius: var(--ctl-radius);
+    background: var(--_bg);
+    color: var(--_fg);
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+    transition:
+      transform 120ms ease,
+      background 0.15s ease;
+  }
+
+  /* ── variants ───────────────────────────────────────────────────────── */
+  .btn[data-variant='prominent'] {
+    --_bg: var(--color-accent);
+    --_bg-hover: var(--color-accent-hover);
+    --_fg: var(--color-text-on-button-reverse);
+    --_ring: var(--focus-ring-contrast);
+  }
+  .btn[data-variant='neutral'] {
+    --_bg: var(--elev);
+    --_bg-hover: var(--color-outline-light);
+    --_bg-focus: var(--color-button-container-high);
+  }
+  /* TextButton (SwiftUI borderless): transparent idle, accent wash on hover. */
+  .btn[data-variant='text'] {
+    --_fg: var(--color-text);
+    --_bg-hover: color-mix(in srgb, var(--color-accent) 15%, transparent);
+  }
+  /* Selected-off toggle: soft tint wash, hover deepens toward the tint text. */
+  .btn[data-variant='soft'] {
+    --_bg: var(--tint-bg, var(--elev));
+    --_bg-hover: color-mix(in srgb, var(--tint-bg, var(--elev)) 70%, var(--tint-text, currentColor));
+    --_fg: var(--tint-text, var(--color-text-on-button));
+  }
+  /* Tint: colours arrive as inline --tint-* vars computed by lib/tint.ts.
+     :where() keeps specificity equal to the variant rules above, so the
+     disabled rule below still wins. */
+  .btn[data-tinted]:where(:not([data-variant='text']):not([data-variant='soft'])) {
+    --_bg: var(--tint-bg);
+    --_bg-hover: var(--tint-hover);
+    --_fg: var(--tint-text);
+  }
+  .btn[data-variant='text']:where([data-tinted]) {
+    --_fg: var(--tint-bg);
+    --_bg-hover: color-mix(in srgb, var(--tint-bg) 15%, transparent);
+  }
+
+  /* ── states ─────────────────────────────────────────────────────────── */
+  .btn:is(:hover, .active, [aria-expanded='true']):not(:disabled) {
+    --_bg: var(--_bg-hover);
+  }
+  .btn:focus-visible {
+    outline: none;
+    --_bg: var(--_bg-focus);
+    box-shadow: var(--_ring);
+  }
+  /* press feedback: a small inward bounce */
+  .btn:active:not(:disabled) {
+    transform: scale(0.96);
+  }
+  .btn:disabled {
+    --_bg: var(--color-disabled-bg);
+    --_fg: var(--color-disabled-text);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  :global(.dark) .btn:disabled {
+    opacity: 0.8;
+  }
+
+  /* ── sizes: same shape, one scale factor for font, padding and radius ── */
+  .btn[data-size='small'] {
+    height: var(--ctl-small);
+    font-size: var(--text-sm);
+    line-height: 18px;
+    padding: calc(var(--btn-pad-v) * 0.9) calc(var(--btn-pad-h) * 0.85);
+    border-radius: calc(var(--ctl-radius) * 0.85);
+  }
+  .btn[data-size='large'] {
+    height: var(--ctl-large);
+    font-size: var(--text-md);
+    line-height: 24px;
+    padding: calc(var(--btn-pad-v) * 1.33) calc(var(--btn-pad-h) * 1.15);
+    border-radius: calc(var(--ctl-radius) * 1.15);
+  }
+
+  /* ── geometry flags ─────────────────────────────────────────────────── */
+  /* Icon-only: squircle tile, width pinned to line box + padding. */
+  .btn.icon-only {
+    padding: var(--btn-pad-v);
+    width: calc(var(--btn-pad-v) * 2 + 24px);
+    border-radius: var(--ctl-radius);
+  }
+  .btn.icon-only :global(.icon) {
+    line-height: inherit;
+  }
+  .btn.icon-only[data-size='small'] {
+    /* 18px line box + 2*0.9*pad-v + 2px border */
+    width: calc(var(--btn-pad-v) * 1.8 + 20px);
+  }
+  .btn.icon-only[data-size='small'] :global(.icon) {
+    font-size: var(--text-md);
+  }
+  /* Font icons carry ~4px of optical side bearing: pull that side back. */
+  .btn.iconed-left {
+    padding-left: calc(var(--btn-pad-h) - 4px);
+  }
+  .btn.iconed-right {
+    padding-right: calc(var(--btn-pad-h) - 4px);
+  }
+  .btn.block {
+    display: flex;
+    width: 100%;
+  }
+  /* Compact tile for use inside another control (TextEdit actions). */
+  .btn.embedded {
+    --_fg: var(--color-text-soft);
+    --_bg-hover: color-mix(in srgb, var(--color-accent) 12%, var(--elev));
+    width: 22px;
+    min-width: 22px;
+    height: 22px;
+    min-height: 22px;
+    padding: 0;
+  }
+  .btn.embedded:is(:hover, :focus-visible):not(:disabled) {
+    --_fg: var(--color-accent);
+  }
+
+  /* Image glyph inside a Button (icon={{ src }}); font icons size themselves. */
+  .glyph {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+  }
+</style>

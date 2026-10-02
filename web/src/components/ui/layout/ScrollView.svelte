@@ -28,7 +28,7 @@
   class="scrollview {cls}"
   class:sv-y={axis === 'y' || axis === 'both'}
   class:sv-x={axis === 'x' || axis === 'both'}
-  class:stk-grow={grow}
+  class:grow
   style:padding={space(pad)}
   {...rest}
 >
@@ -43,4 +43,5 @@
   }
   .sv-y { overflow-y: auto; }
   .sv-x { overflow-x: auto; }
+  .grow { flex: 1 1 0; }
 </style>

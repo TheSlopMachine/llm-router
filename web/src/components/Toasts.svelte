@@ -1,7 +1,9 @@
 <script lang="ts">
+  import Icon from './ui/controls/Icon.svelte'
   import { toast } from '../lib/toast.svelte'
   import type { ToastItem } from '../lib/toast.svelte'
   import { squircle } from '../lib/squircle'
+  import Button from './ui/controls/Button.svelte'
 
   let copiedId = $state(0)
   let copyTimer: ReturnType<typeof setTimeout> | undefined = undefined
@@ -30,26 +32,28 @@
       onmouseleave={() => toast.resume(item.id)}
       use:squircle={12}
     >
-      <span class="icon">{item.kind === 'success' ? 'check_circle' : 'error'}</span>
+      <span class="toast-icon">
+        <Icon name={item.kind === 'success' ? 'check_circle' : 'error'} size="lg" tone={item.kind === 'success' ? 'success' : 'danger'} />
+      </span>
       <span class="toast-text">{item.text}</span>
-      <button
-        class="btn-icon toast-btn"
-        onclick={() => void copy(item)}
-        aria-label="Copy to clipboard"
-        title="Copy"
-        use:squircle={8}
-      >
-        <span class="icon">{copiedId === item.id ? 'check' : 'content_copy'}</span>
-      </button>
-      <button
-        class="btn-icon toast-btn"
-        onclick={() => toast.dismiss(item.id)}
-        aria-label="Dismiss"
-        title="Dismiss"
-        use:squircle={8}
-      >
-        <span class="icon">close</span>
-      </button>
+      <div class="toast-actions">
+        <Button
+          size="small"
+          style="text"
+          icon={{ name: copiedId === item.id ? 'check' : 'content_copy' }}
+          ariaLabel="Copy to clipboard"
+          title="Copy"
+          onclick={() => void copy(item)}
+        />
+        <Button
+          size="small"
+          style="text"
+          icon={{ name: 'close' }}
+          ariaLabel="Dismiss"
+          title="Dismiss"
+          onclick={() => toast.dismiss(item.id)}
+        />
+      </div>
     </div>
   {/each}
 </div>
@@ -91,15 +95,9 @@
       transform: translateX(24px) scale(0.96);
     }
   }
-  .toast .icon {
-    font-size: var(--text-lg);
+  .toast-icon {
+    display: inline-flex;
     flex-shrink: 0;
-  }
-  .toast-success > .icon {
-    color: var(--color-success-text);
-  }
-  .toast-error > .icon {
-    color: var(--color-error-text);
   }
   .toast-text {
     flex: 1;
@@ -113,24 +111,17 @@
     scrollbar-gutter: stable;
     padding-right: var(--space-2);
   }
-  /* Action buttons: fixed square so padding is even on all sides. */
-  .toast-btn {
-    opacity: 0;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    transition: opacity 0.15s ease;
+  /* Actions fade in on hover/focus; the wrapper owns the motion so the
+     Buttons stay plain library Buttons. */
+  .toast-actions {
+    display: flex;
+    gap: var(--space-2);
     flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.15s ease;
   }
-  .toast-btn .icon {
-    font-size: var(--text-md);
-    line-height: 1;
-  }
-  .toast:hover .toast-btn,
-  .toast:focus-within .toast-btn {
+  .toast:hover .toast-actions,
+  .toast:focus-within .toast-actions {
     opacity: 1;
   }
 </style>

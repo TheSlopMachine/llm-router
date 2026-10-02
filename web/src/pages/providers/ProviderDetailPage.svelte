@@ -4,6 +4,7 @@
   import { getErrorMessage } from '../../lib/errors'
   import { toast } from '../../lib/toast.svelte'
   import type { Credential, Provider, Proxy, TestResult } from '../../lib/types'
+  import EditCredentialLabel from './components/EditCredentialLabel.svelte'
   import CustomProviderWizard from '../../components/wizards/CustomProviderWizard.svelte'
   import ProviderCredentialWizard from './components/ProviderCredentialWizard.svelte'
   import ModelsSection from './components/ModelsSection.svelte'
@@ -24,10 +25,6 @@
   let credentialRefreshing = $state<Record<string, boolean>>({})
   const resultTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
-  let editingCred = $state<Credential | null>(null)
-  let editingCredLabel = $state('')
-  let savingCred = $state(false)
-  let editCredError = $state('')
 
   let proxyMode = $state<'disabled' | 'auto' | 'manual'>('disabled')
   let proxyIds = $state<Record<string, boolean>>({})
@@ -168,24 +165,19 @@
   }
 
   function openEditCredential(cred: Credential): void {
-    editingCred = cred
-    editingCredLabel = cred.label || ''
-    editCredError = ''
-  }
-
-  async function saveCredentialLabel(): Promise<void> {
-    if (!editingCred) return
-    savingCred = true
-    editCredError = ''
-    try {
-      await api.credentials.update(editingCred.id, { label: editingCredLabel.trim() })
-      editingCred = null
-      await reloadCredentials()
-    } catch (e) {
-      editCredError = getErrorMessage(e)
-    } finally {
-      savingCred = false
-    }
+    modal.open({
+      title: t('Edit Key'),
+      content: EditCredentialLabel,
+      severity: 'medium',
+      size: 'small',
+      props: {
+        cred,
+        onComplete: async () => {
+          modal.close()
+          await reloadCredentials()
+        },
+      },
+    })
   }
 
   async function deleteCredential(cred: Credential): Promise<void> {
@@ -515,50 +507,6 @@
 
     <ModelsSection bind:provider onrefresh={loadPage} />
   </VStack>
-{/if}
-
-{#if editingCred}
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div class="modal-backdrop" onclick={() => { editingCred = null }} role="presentation">
-    <div
-      class="modal-card modal-small"
-      role="dialog"
-      aria-modal="true"
-      onclick={(e) => e.stopPropagation()}
-      use:squircle
-    >
-      <div class="modal-header">
-        <div class="modal-title-col">
-          <h2>{t('Edit Key')}</h2>
-        </div>
-        <button class="btn-icon modal-close" onclick={() => { editingCred = null }} aria-label={t('Close')}>
-          <span class="icon">close</span>
-        </button>
-      </div>
-      <div class="modal-body">
-        <VStack gap={4}>
-          {#if editCredError}
-            <Text tone="danger" size="sm">{editCredError}</Text>
-          {/if}
-          <VStack gap={1}>
-            <Text size="sm" weight="medium">{t('Name')}</Text>
-            <TextEdit
-              id="cred-edit-label"
-              bind:value={editingCredLabel}
-              hint={t('e.g. Work account')}
-              onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') void saveCredentialLabel() }}
-            />
-          </VStack>
-        </VStack>
-      </div>
-      <div class="modal-footer footer-bordered">
-        <Button onclick={() => { editingCred = null }}>{t('Cancel')}</Button>
-        <Button style="prominent" onclick={saveCredentialLabel} disabled={savingCred}>
-          {savingCred ? t('Saving…') : t('Save')}
-        </Button>
-      </div>
-    </div>
-  </div>
 {/if}
 
 <style>

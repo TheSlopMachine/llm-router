@@ -94,9 +94,24 @@
     background: var(--color-switch-on);
   }
 
-  /* The thumb slide is the feedback; no global press bounce on the track. */
-  .switch:active {
-    transform: none;
+  /* The thumb slide is the feedback: no hover/press transform on the track. */
+  .switch:hover:not(.on):not(:disabled) {
+    background: var(--color-button-container-high);
+  }
+  .switch:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+  .switch.on:focus-visible {
+    /* accent ring on an accent track would vanish */
+    box-shadow: var(--focus-ring-contrast);
+  }
+  .switch:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  :global(.dark) .switch:disabled {
+    opacity: 0.8;
   }
 
   .switch-thumb {

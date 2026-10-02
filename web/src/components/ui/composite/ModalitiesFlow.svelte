@@ -39,7 +39,7 @@
           <Chip icon={modalityIcon(mod)} text="" color={modalityColor(mod)} title={mod} {size} />
         {/each}
       </VStack>
-      <Icon name="arrow_forward" size="base" tone="disabled" class="mods-arrow" />
+      <span class="arrow"><Icon name="arrow_forward" size="base" tone="disabled" /></span>
       <VStack gap={2} align="center" wrap>
         {#each output as mod}
           <Chip icon={modalityIcon(mod)} text="" color={modalityColor(mod)} title={mod} {size} />
@@ -49,7 +49,7 @@
       {#each input as mod}
         <Chip icon={modalityIcon(mod)} text="" color={modalityColor(mod)} title={mod} {size} />
       {/each}
-      <Icon name="arrow_forward" size="base" tone="disabled" class="mods-arrow" />
+      <span class="arrow"><Icon name="arrow_forward" size="base" tone="disabled" /></span>
       {#each output as mod}
         <Chip icon={modalityIcon(mod)} text="" color={modalityColor(mod)} title={mod} {size} />
       {/each}
@@ -58,9 +58,8 @@
 {/if}
 
 <style>
-  /* Global: the class rides the Icon root in another component, Svelte
-     drops component-passed classes from scoped CSS as unused. */
-  :global(.mods-arrow) {
+  .arrow {
+    display: inline-flex;
     flex: none;
   }
 </style>

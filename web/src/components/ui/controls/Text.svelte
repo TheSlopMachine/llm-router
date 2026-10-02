@@ -40,7 +40,8 @@
 
 <svelte:element
   this={tag}
-  class="txt txt-{size} txt-{weight} txt-{tone} {mono ? 'mono' : ''} {cls}"
+  class="txt txt-{size} txt-{weight} txt-{tone} {cls}"
+  class:txt-mono={mono}
   class:txt-left={align === 'left'}
   class:txt-center={align === 'center'}
   class:txt-right={align === 'right'}
@@ -57,8 +58,8 @@
 <style>
   /* Text: every size/weight/colour combination the system allows, addressed
      by token rather than by literal. Scoped here: Text is the sole renderer
-     of txt-* classes. (The global block declared .txt-mono/.txt-italic
-     twice, verbatim; the duplicate is dropped.) */
+     of txt-* classes. `mono` used to emit the global .mono class (which also
+     forced font-size); it now uses the scoped .txt-mono below. */
   .txt { margin: 0; min-width: 0; }
   .txt-xs   { font-size: var(--text-xs);   line-height: var(--leading-tight); }
   .txt-sm   { font-size: var(--text-sm);   line-height: var(--leading-base); }
@@ -73,7 +74,6 @@
   .txt-bold   { font-weight: var(--weight-bold); }
 
   .txt-mono   { font-family: var(--font-mono); }
-  .txt-italic { font-style: italic; }
 
   .txt-default  { color: var(--color-text); }
   .txt-soft     { color: var(--color-text-soft); }

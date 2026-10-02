@@ -2,6 +2,8 @@
   import { api } from '../lib/api'
   import { getErrorMessage } from '../lib/errors'
   import { squircle } from '../lib/squircle'
+  import Button from '../components/ui/controls/Button.svelte'
+  import TextEdit from '../components/ui/controls/TextEdit.svelte'
 
   let { ondone } = $props<{ ondone: () => void }>()
 
@@ -38,22 +40,22 @@
 
     <div class="form-group">
       <label for="u">Username</label>
-      <input id="u" type="text" bind:value={username} autocomplete="username" use:squircle={12} />
+      <TextEdit id="u" bind:value={username} autocomplete="username" />
     </div>
     <div class="form-group" style="margin-top: 12px;">
       <label for="p">Password</label>
-      <input id="p" type="password" bind:value={password} autocomplete="new-password" use:squircle={12} />
+      <TextEdit id="p" type="secret" bind:value={password} autocomplete="new-password" />
       {#if password.length > 0 && password.length < 8}
         <div class="field-hint">Recommendation: use at least 8 characters for a stronger password.</div>
       {/if}
     </div>
     <div class="form-group" style="margin-top: 12px;">
       <label for="p2">Confirm password</label>
-      <input id="p2" type="password" bind:value={password2} autocomplete="new-password" onkeydown={(e) => e.key === 'Enter' && submit()} use:squircle={12} />
+      <TextEdit id="p2" type="secret" bind:value={password2} autocomplete="new-password" onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && submit()} />
     </div>
-    <button class="btn btn-primary submit-btn" onclick={submit} disabled={loading} use:squircle={12}>
-      {loading ? 'Creating…' : 'Create account'}
-    </button>
+    <div class="submit">
+      <Button style="prominent" block onclick={submit} disabled={loading}>{loading ? 'Creating…' : 'Create account'}</Button>
+    </div>
   </div>
 </div>
 
@@ -98,17 +100,7 @@
     font-size: var(--text-sm);
     color: var(--color-warning-text);
   }
-  /* Same shape and height as the text fields above: field line-height and
-     paddings, global control radius. */
-  .submit-btn {
-    width: 100%;
-    justify-content: center;
+  .submit {
     margin-top: 20px;
-    line-height: 20px;
-    padding: var(--field-pad-v) var(--field-pad-h);
-    transition: transform 120ms ease;
-  }
-  .submit-btn:active {
-    transform: scale(0.97);
   }
 </style>

@@ -1,3 +1,5 @@
+import './styles/tokens.css'
+import './styles/base.css'
 import './app.css'
 import './lib/accent.svelte'
 import { mount } from 'svelte'
