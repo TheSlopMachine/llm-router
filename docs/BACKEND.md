@@ -20,6 +20,7 @@ internal/services/
   modelinfo/             model metadata cache (1h TTL)
   metrics/               1m buckets, 90d retention
   maintenance/           credential refresh, model sync, auth cleanup
+  videojobs/             router-side video job rows (local id → upstream job)
   exhausted/             joint limit keys (account/model/proxy), subset match, expiry auto-delete
   geoban/                indefinite (plugin, provider type, proxy) geo flags, no expiry, explicit clear
   admin/                 admin password change
@@ -33,7 +34,7 @@ internal/httpkit/        shared transport helpers (SSE headers)
 internal/errors/         domain sentinels + MapUpstream + ToAPIError
 internal/repository/     bbolt buckets
 internal/dashboard/      admin REST API (providers, tokens, credentials + refresh, models, virtual-models, metrics, plugins, repos, config, data export/import/clear, doctor, proxy status/refresh, geo bans)
-internal/api/v1/         OpenAI-compatible endpoints: chat/completions, audio/transcriptions, audio/speech, images/generations, embeddings, messages, models list + retrieve
+internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/messages, /v1/models list + retrieve, /v1/videos submit + poll + content + models, audio/transcriptions, audio/speech, images/generations, embeddings
 internal/models/         shared wire types
 internal/config/         Config struct
 internal/adapters/generic/ built-in custom backend (Go)
@@ -55,8 +56,11 @@ Keep changes shallow. Touch service internals only when the task requires it.
 - `router/route.go:resolveRequest` owns the shared prefix (parse, resolve,
   disabled gate, model-override gate, endpoint gate). Endpoint code in
   `router/service.go` adds virtual short-circuit, capability pre-check
-  (`HasHandler` / `Transcriber` / `Speaker` / `ImageGenerator` / `Embedder`),
-  credential load and pool call; metrics record in `api/v1/handler.go`.
+  (`HasHandler` / `Transcriber` / `Speaker` / `ImageGenerator` / `Embedder` /
+  `VideoGenerator` / `VideoSubmitter`), credential load and pool call; metrics
+  record in `api/v1/handler.go`. Video submits persist a `videojobs` row
+  mapping the local job id to the upstream one; polls and content downloads
+  resolve that row first and re-enter the pool with fresh credentials.
 - `allowDisabled` probe paths bypass the disabled gate; virtual short-circuit
   runs before credential load.
 - Virtual models fan out through the router re-entrantly. The outer token
@@ -188,7 +192,7 @@ Live buckets (`internal/db/db.go`): `meta`, `admin`, `tokens`,
 `token_index`, `provider_instances`, `credentials`, `plugins`,
 `plugin_repos`, `plugin_storage`, `auth`, `sessions`, `metrics`,
 `virtual_models`, `router_configuration`, `model_overrides`, `model_infos`,
-`proxy_cache_v1`, `exhausted`, `geo_bans`. Legacy `providers`,
+`proxy_cache_v1`, `exhausted`, `geo_bans`, `video_jobs`. Legacy `providers`,
 `custom_providers`, `model_info`
 remain defined but are not created; `EnsureSeeded` migrates them.
 
@@ -205,7 +209,7 @@ reason; anything else fails. Exit 0 means clean (skips allowed).
 ## Adding an endpoint
 
 1. `models`: `Endpoint*` constant + `SupportsEndpoint` coverage.
-2. `provider`: capability interface (`Transcriber` / `Speaker` / `ImageGenerator` / `Embedder`) for Go backends.
+2. `provider`: capability interface (`Transcriber` / `Speaker` / `ImageGenerator` / `Embedder` / `VideoGenerator`) for Go backends.
 3. `luaplugin`: `Handler*` constant in `handler_names.go` (+ sandbox
    registration + `callAndDecode` wiring in `decode.go`).
 4. `router`: resolve + capability + pool call (see `route.go`).

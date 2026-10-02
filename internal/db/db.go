@@ -32,6 +32,7 @@ var (
 	BucketProxyCache          = []byte("proxy_cache_v1")       // proxypool ProxyState records keyed by canonical URL
 	BucketExhausted           = []byte("exhausted")            // Unified joint limit keys: key → ExhaustedEntry
 	BucketGeoBans             = []byte("geo_bans")             // Indefinite geo flags: key → GeoBanEntry (no expiry)
+	BucketVideoJobs           = []byte("video_jobs")           // Router-side video generation jobs: ID → VideoJob
 )
 
 // DB wraps a bbolt.DB and ensures all required buckets exist.
@@ -79,6 +80,7 @@ func (db *DB) initBuckets() error {
 			BucketProxyCache,
 			BucketExhausted,
 			BucketGeoBans,
+			BucketVideoJobs,
 		}
 		for _, name := range buckets {
 			if _, err := tx.CreateBucketIfNotExists(name); err != nil {

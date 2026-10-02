@@ -14,6 +14,9 @@ import (
 type Completer interface {
 	Complete(ctx context.Context, req *models.ChatCompletionRequest, token *models.RouterToken) (*models.ChatCompletionResponse, error)
 	CompleteStream(ctx context.Context, req *models.ChatCompletionRequest, w io.Writer, token *models.RouterToken) error
+	// SubmitVideo routes one video generation submit through the
+	// credential pool and persists the router-side job row.
+	SubmitVideo(ctx context.Context, req *models.VideoGenerationRequest, token *models.RouterToken) (*models.VideoGenerationResponse, error)
 	// LikelyExhausted is a cheap, best-effort pre-check: true means model
 	// carries a model-wide limit key and is worth skipping without an
 	// attempt. False is not a guarantee of success. Implementations with no

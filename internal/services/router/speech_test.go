@@ -14,6 +14,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
+	"github.com/TheSlopMachine/llm-router/internal/services/videojobs"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
 
@@ -59,7 +60,7 @@ func setupSpeechRouter(t *testing.T) (*Service, *credential.Service, *modelinfo.
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 
-	return New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), slog.Default()), credSvc, modelInfoSvc, mock
+	return New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), slog.Default()), credSvc, modelInfoSvc, mock
 }
 
 func speechReq(model string) *models.SpeechRequest {
@@ -246,7 +247,7 @@ func setupEmbedRouter(t *testing.T) (*Service, *credential.Service, *modelinfo.S
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 
-	return New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), slog.Default()), credSvc, modelInfoSvc, mock
+	return New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), slog.Default()), credSvc, modelInfoSvc, mock
 }
 
 func embedReq(model string) *models.EmbeddingsRequest {

@@ -12,6 +12,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
+	"github.com/TheSlopMachine/llm-router/internal/services/videojobs"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
 
@@ -67,7 +68,7 @@ func setupExhaustedRouter(t *testing.T) (*Service, *exhausted.Service, string, *
 	}
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 	exhaustedSvc := exhausted.New(database)
-	routerSvc := New(providerSvc, credSvc, modelInfoSvc, exhaustedSvc, slog.Default())
+	routerSvc := New(providerSvc, credSvc, modelInfoSvc, exhaustedSvc, videojobs.New(database), slog.Default())
 	return routerSvc, exhaustedSvc, inst.ID, credA, credB
 }
 

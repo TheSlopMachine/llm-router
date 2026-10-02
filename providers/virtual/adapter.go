@@ -227,6 +227,82 @@ func (a *Adapter) CompleteStream(
 	return lastErr
 }
 
+// SubmitVideo fans one video generation submit out over the member queue
+// in list order. The first success wins and its router-side job row (keyed
+// by the winning member model) is returned as-is: later polls authorize
+// against that member model and route to it directly. Otherwise the last
+// error is returned as-is.
+func (a *Adapter) SubmitVideo(
+	ctx context.Context,
+	_ []*models.Credential,
+	req *models.VideoGenerationRequest,
+	_ map[string]any,
+) (*models.VideoGenerationResponse, error) {
+	routerSvc := a.routerSvc
+	if routerSvc == nil {
+		return nil, fmt.Errorf("router service not initialized")
+	}
+	_, agentID, err := req.Model.Parse()
+	if err != nil || agentID == "" {
+		return nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: "virtual model id is required"}
+	}
+	virtualSvc := a.virtualSvc
+	if virtualSvc == nil {
+		return nil, fmt.Errorf("virtual model service not initialized")
+	}
+	agent, err := virtualSvc.Get(agentID)
+	if err != nil {
+		return nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: fmt.Sprintf("virtual model %q not found", agentID)}
+	}
+	if agent.Disabled {
+		return nil, fmt.Errorf("%w: virtual/%s", apierrors.ErrModelDisabled, agentID)
+	}
+	members, err := virtualSvc.LiveMembers(agent)
+	if err != nil {
+		return nil, fmt.Errorf("virtual model %q members: %w", agent.Name, err)
+	}
+	logger := a.logger
+	var lastErr error
+	for i, memberID := range members {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if i < len(members)-1 && (routerSvc.LikelyExhausted(memberID) || !routerSvc.HasUsableCredential(memberID)) {
+			logger.Info("member model likely exhausted, skipping without an attempt",
+				"virtual_model", agent.Name,
+				"skipped_model", memberID.String())
+			continue
+		}
+		memberReq := *req
+		memberReq.Model = memberID
+		logger.Debug("virtual model trying video model",
+			"virtual_model", agent.Name,
+			"model", memberID)
+		resp, err := routerSvc.SubmitVideo(ctx, &memberReq, nil)
+		if err == nil {
+			logger.Debug("virtual model video request succeeded",
+				"virtual_model", agent.Name,
+				"model", memberID)
+			return resp, nil
+		}
+		lastErr = err
+		if i < len(members)-1 {
+			logger.Info("member video model failed, trying next",
+				"virtual_model", agent.Name,
+				"failed_model", memberID.String(),
+				"next_model", members[i+1].String(),
+				"error", err)
+		}
+	}
+	if lastErr == nil {
+		return nil, fmt.Errorf("virtual model %q has no models to try", agent.Name)
+	}
+	logger.Warn("all member video models failed",
+		"virtual_model", agent.Name,
+		"last_error", lastErr)
+	return nil, lastErr
+}
+
 func (a *Adapter) NeedsRefresh(cred *models.Credential) bool {
 	return false
 }

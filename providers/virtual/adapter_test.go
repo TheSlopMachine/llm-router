@@ -50,6 +50,14 @@ func (f *fakeCompleter) CompleteStream(_ context.Context, req *models.ChatComple
 	return fmt.Errorf("fake failure for %s", req.Model)
 }
 
+func (f *fakeCompleter) SubmitVideo(_ context.Context, req *models.VideoGenerationRequest, _ *models.RouterToken) (*models.VideoGenerationResponse, error) {
+	f.attempted = append(f.attempted, req.Model.String())
+	if req.Model.String() == f.succeedAt {
+		return &models.VideoGenerationResponse{ID: "job-1", PollingURL: "/v1/videos/job-1", Status: models.VideoStatusCompleted}, nil
+	}
+	return nil, fmt.Errorf("fake failure for %s", req.Model)
+}
+
 func newVirtualModelStack(t *testing.T) *virtual.Service {
 	t.Helper()
 	database := testutil.SetupTestDB(t)

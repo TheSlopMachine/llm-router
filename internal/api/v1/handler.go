@@ -51,6 +51,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/audio/speech", h.auth(h.audioSpeech, false))
 	mux.HandleFunc("POST /v1/images/generations", h.auth(h.imageGenerations, false))
 	mux.HandleFunc("POST /v1/embeddings", h.auth(h.embeddings, false))
+	mux.HandleFunc("POST /v1/videos", h.auth(h.submitVideo, false))
+	mux.HandleFunc("GET /v1/videos/models", h.auth(h.listVideoModels, true))
+	mux.HandleFunc("GET /v1/videos/{jobId}", h.auth(h.pollVideo, false))
+	mux.HandleFunc("GET /v1/videos/{jobId}/content", h.auth(h.videoContent, false))
 	mux.HandleFunc("POST /v1/messages", h.auth(h.anthropicMessages, false))
 	mux.HandleFunc("GET /v1/models", h.auth(h.listModels, true))
 	mux.HandleFunc("HEAD /v1/models", h.auth(h.listModels, true))
@@ -990,6 +994,9 @@ func isSafeWithoutAuth(r *http.Request) bool {
 		return false
 	}
 	if r.URL.Path == "/v1/models" {
+		return true
+	}
+	if r.URL.Path == "/v1/videos/models" {
 		return true
 	}
 	if strings.HasPrefix(r.URL.Path, "/v1/models/") {

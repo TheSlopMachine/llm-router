@@ -30,6 +30,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 	"github.com/TheSlopMachine/llm-router/internal/services/router"
 	"github.com/TheSlopMachine/llm-router/internal/services/token"
+	"github.com/TheSlopMachine/llm-router/internal/services/videojobs"
 	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
 	virtualadapter "github.com/TheSlopMachine/llm-router/providers/virtual"
 )
@@ -101,7 +102,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	exhaustedSvc := exhausted.New(database)
 	geobanSvc := geoban.New(database)
 	geobanSvc.SetLogger(logger)
-	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, exhaustedSvc, logger)
+	videoJobsSvc := videojobs.New(database)
+	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, exhaustedSvc, videoJobsSvc, logger)
 	virtualAdapter := virtualadapter.New(routerSvc, virtualSvc, logger)
 	providerSvc.RegisterGoAdapter(virtualAdapter)
 	luaSvc.SetUsageTracker(credSvc)

@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Router version: **0.3.9** (`models.CurrentVersion`). A plugin using a feature
+Router version: **0.4.0** (`models.CurrentVersion`). A plugin using a feature
 declares the `@router_version` that introduced it; older routers refuse to
 install it. Routers serve no contract older than **0.3.0**: plugins declaring
 `0.2.x` and below fail install and need reissue.
@@ -31,6 +31,7 @@ means `.0`, one leading `v` allowed); anything else fails install.
 | 0.3.6 | `model_specs` registration table: pinned per-model rows merged over `get_model_infos` rows, every field except the id; unknown ids ignored, unknown fields and mistyped values fail install |
 | 0.3.7 | `overloaded` error type for congested backends (wire `overloaded`, 503); same-credential proxy retry within the route budget, no marks or cooldown; unary JSON errors carry `Retry-After` when the router knows a wait time |
 | 0.3.9 | request tables carry `cache_key`: stable cross-turn prefix-cache partition (model, first message, sorted tool names); `"prefix-boot"` for empty histories; old routers omit it |
+| 0.4.0 | `generate_video` / `poll_video` / `video_content` handlers serving `POST /v1/videos`, `GET /v1/videos/{jobId}`, `GET /v1/videos/{jobId}/content`; `videos` endpoint in `ModelInfo.endpoints`; router-side job rows map local IDs to upstream jobs |
 
 ## Responsibility split
 
@@ -80,6 +81,9 @@ llm_router.register(type_key, {
   complete = function(ctx, credential, request) ... end,  -- required
   classify_error = function(raw, default_err) ... end,    -- optional
   transcribe = function(ctx, credential, request) ... end, -- optional
+  generate_video = function(ctx, credential, request) ... end, -- optional
+  poll_video = function(ctx, credential, request) ... end,     -- optional
+  video_content = function(ctx, credential, request) ... end,  -- optional
   ...
 })
 
@@ -121,6 +125,9 @@ llm_router.register_proxy_source(name, {
 | `speech` | no | `(ctx, credential, request)` | `(result, err)` |
 | `generate_image` | no | `(ctx, credential, request)` | `(result, err)` |
 | `embed` | no | `(ctx, credential, request)` | `(result, err)` |
+| `generate_video` | no | `(ctx, credential, request)` | `(result, err)` |
+| `poll_video` | no | `(ctx, credential, request)` | `(result, err)` |
+| `video_content` | no | `(ctx, credential, request)` | `(result, err)` |
 | `classify_error` | no | `(raw, default_err)` | `err table` or `nil` |
 | `validate_credentials` | no | `(data)` | `(boolean, err?)` |
 | `get_model_infos` | no | `(ctx, credential, provider_config)` | `(array, err)` |
@@ -319,6 +326,41 @@ empty vectors are plugin crashes, indexes are assigned by the router.
 `encoding_format=base64` renders at the edge (base64 float32-LE).
 `dimensions` is a request, not a guarantee.
 
+`generate_video(ctx, credential, request)` → video job table:
+
+| Field | Type | Notes |
+|---|---|---|
+| `model` / `model_name` | string | full id / bare name |
+| `prompt` | string? | text prompt, when set (required unless frame/image references carry the subject) |
+| `duration` | number? | seconds, when positive |
+| `resolution` / `aspect_ratio` / `size` | string? | e.g. `720p`, `16:9`, `1280x720`, when set |
+| `seed` | number? | deterministic sampling hint, when set |
+| `generate_audio` | boolean? | audio track request, when set |
+| `frame_images` | array? | `{type, image_url={url}, frame_type=first_frame\|last_frame}` entries |
+| `input_references` | array? | `{type=image_url\|audio_url\|video_url, <type>={url}}` entries |
+| `previous_job_id` | string? | upstream job id of the continued generation, when set (the router translates its local id before the call) |
+| `callback_url` | string? | stored only; upstreams must not expect webhook delivery through the router |
+| `provider` | table? | `{options={...}}` provider-specific passthrough, when set |
+| `user` / `session_id` | string? | observability markers, never sent upstream |
+
+Returns the OpenRouter video job shape (`id` required, `status` one of
+`pending|in_progress|completed|failed|cancelled|expired`, `generation_id` /
+`unsigned_urls` / `usage{cost,is_byok}` / `error` optional). Missing `id`
+or unknown `status` is a plugin crash. The router stores the upstream id
+under its own local id and rewrites `id`/`polling_url` on every response.
+
+`poll_video(ctx, credential, request)` → same job table. `request` carries
+`model` / `model_name` plus `job_id` (the upstream id from the submit
+return). Poll with the pool credential on every call; upstream state is
+the source of truth, the router only caches the last status.
+
+`video_content(ctx, credential, request)` → `{ video_b64, content_type }`.
+`request` carries `model` / `model_name`, `job_id` (upstream id) and
+`index` (asset number, `0`-based). Video crosses the boundary
+base64-encoded and non-empty like speech audio (both violations are
+plugin crashes). The router serves the bytes with the matching
+Content-Type; `content_type` empty defaults to `video/mp4`.
+
 ### classify_error (optional)
 
 `classify_error(raw, default_err)` → final error table or `nil`.
@@ -375,7 +417,7 @@ model cards (empty array, never nil):
 | `input_modalities` / `output_modalities` | array? | e.g. `text`, `image`, `audio` |
 | `supported_parameters` | array? | OpenAI parameter names the model accepts |
 | `reasoning` | table? | `{ supported_efforts, default_effort, default_enabled, mandatory }` |
-| `endpoints` | array? | `chat/completions`, `audio/transcriptions`, `audio/speech`, `images/generations`, `embeddings`; empty means chat-only |
+| `endpoints` | array? | `chat/completions`, `audio/transcriptions`, `audio/speech`, `images/generations`, `embeddings`, `videos`; empty means chat-only |
 
 The router rejects requests against a declared-but-absent endpoint with
 `endpoint_not_supported`. Listing policy is the plugin's choice: live fetch

@@ -21,6 +21,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
+	"github.com/TheSlopMachine/llm-router/internal/services/videojobs"
 )
 
 // Service routes validated API requests to the appropriate provider.
@@ -29,17 +30,20 @@ type Service struct {
 	credSvc      *credential.Service
 	modelInfoSvc *modelinfo.Service
 	exhaustedSvc *exhausted.Service
+	videoJobsSvc *videojobs.Service
 	logger       *slog.Logger
 }
 
 // New constructs a new router Service. exhaustedSvc may be nil (no exhausted
-// filtering); production always wires it.
-func New(providerSvc *provider.Service, credSvc *credential.Service, modelInfoSvc *modelinfo.Service, exhaustedSvc *exhausted.Service, logger *slog.Logger) *Service {
+// filtering); videoJobsSvc may be nil (video submits fail closed).
+// Production always wires both.
+func New(providerSvc *provider.Service, credSvc *credential.Service, modelInfoSvc *modelinfo.Service, exhaustedSvc *exhausted.Service, videoJobsSvc *videojobs.Service, logger *slog.Logger) *Service {
 	return &Service{
 		providerSvc:  providerSvc,
 		credSvc:      credSvc,
 		modelInfoSvc: modelInfoSvc,
 		exhaustedSvc: exhaustedSvc,
+		videoJobsSvc: videoJobsSvc,
 		logger:       logger,
 	}
 }

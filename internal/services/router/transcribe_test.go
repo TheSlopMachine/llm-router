@@ -14,6 +14,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
+	"github.com/TheSlopMachine/llm-router/internal/services/videojobs"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
 
@@ -48,7 +49,7 @@ func setupTranscribeRouter(t *testing.T) (*Service, *credential.Service, *modeli
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 
-	return New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), slog.Default()), credSvc, modelInfoSvc, mock
+	return New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), slog.Default()), credSvc, modelInfoSvc, mock
 }
 
 func addTranscribeCred(t *testing.T, credSvc *credential.Service, label string) {

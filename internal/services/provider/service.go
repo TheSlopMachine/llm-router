@@ -70,6 +70,21 @@ type Embedder interface {
 	Embed(ctx context.Context, creds []*models.Credential, req *models.EmbeddingsRequest, providerConfig map[string]any) (*models.EmbeddingsResponse, error)
 }
 
+// VideoSubmitter is the narrow video capability virtual fan-out needs:
+// submit one video job. Full backends implement VideoGenerator.
+type VideoSubmitter interface {
+	SubmitVideo(ctx context.Context, creds []*models.Credential, req *models.VideoGenerationRequest, providerConfig map[string]any) (*models.VideoGenerationResponse, error)
+}
+
+// VideoGenerator is an optional GoAdapter capability serving
+// /v1/videos. Lua plugin types implement the equivalent via the
+// generate_video, poll_video and video_content handlers.
+type VideoGenerator interface {
+	VideoSubmitter
+	PollVideo(ctx context.Context, creds []*models.Credential, model models.ModelId, upstreamJobID string, providerConfig map[string]any) (*models.VideoGenerationResponse, error)
+	VideoContent(ctx context.Context, creds []*models.Credential, model models.ModelId, upstreamJobID string, index int, providerConfig map[string]any) (*models.VideoContentResponse, error)
+}
+
 // Built-in type keys served by Go code.
 const (
 	TypeCustom  = "custom"

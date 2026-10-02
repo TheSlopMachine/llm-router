@@ -1,7 +1,7 @@
 --- @plugin Smoke Mock
 --- @author llm-router
---- @version 1.2.0
---- @router_version 0.3.0
+--- @version 1.3.0
+--- @router_version 0.4.0
 --- @description Deterministic mock provider for the smoke harness. No network use.
 --- @allow_host example.com
 -- NOTE: bump @version on every edit of this file. The harness skips
@@ -39,6 +39,7 @@ llm_router.register("mock", {
       { name = "mock-tts", display_name = "Mock TTS", endpoints = { "audio/speech" } },
       { name = "mock-img", display_name = "Mock Image", endpoints = { "images/generations" } },
       { name = "mock-emb", display_name = "Mock Embeddings", endpoints = { "embeddings" } },
+      { name = "mock-vid", display_name = "Mock Video", endpoints = { "videos" } },
       { name = "mock-limited", display_name = "Mock Limited", endpoints = { "chat/completions" } },
       { name = "mock-tools", display_name = "Mock Tools", endpoints = { "chat/completions" } },
     }
@@ -119,5 +120,43 @@ llm_router.register("mock", {
       table.insert(data, { embedding = { 0.1, 0.2, 0.3 } })
     end
     return { data = data }
+  end,
+
+  -- Deterministic mock video pipeline: submit and poll report a completed
+  -- job at once; content serves a minimal ftyp/mdat MP4 synthesized below.
+  -- The 720p test-pattern fixture on disk is the shape reference for the
+  -- harness assert (mp4 magic, video content type), never an embedded blob.
+  generate_video = function(ctx, credential, request)
+    local id = "gen-vid-" .. os.time() .. "-AaBbCcDdEeFfGgHhIiJj"
+    return {
+      id = id,
+      polling_url = "/v1/videos/" .. id,
+      status = "completed",
+      generation_id = id,
+      unsigned_urls = { "http://example.com/smoke.mp4" },
+    }
+  end,
+
+  poll_video = function(ctx, credential, request)
+    return {
+      id = request.job_id,
+      polling_url = "/v1/videos/" .. request.job_id,
+      status = "completed",
+      generation_id = request.job_id,
+      unsigned_urls = { "http://example.com/smoke.mp4" },
+    }
+  end,
+
+  video_content = function(ctx, credential, request)
+    local function be32(n)
+      return string.char(
+        math.floor(n / 16777216) % 256,
+        math.floor(n / 65536) % 256,
+        math.floor(n / 256) % 256,
+        n % 256)
+    end
+    local mp4 = be32(24) .. "ftyp" .. "isom" .. be32(0) .. "isom" .. "iso2"
+      .. be32(16) .. "mdat" .. "SMOKEMP4"
+    return { video_b64 = llm_router.base64_encode(mp4), content_type = "video/mp4" }
   end,
 })

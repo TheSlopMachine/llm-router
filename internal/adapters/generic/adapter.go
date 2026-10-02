@@ -146,6 +146,114 @@ func (a *Adapter) GetModelInfos(
 	return client.ListModels(ctx, apiKey)
 }
 
+// SubmitVideo routes one video generation submit over the credential pool.
+func (a *Adapter) SubmitVideo(
+	ctx context.Context,
+	creds []*models.Credential,
+	req *models.VideoGenerationRequest,
+	providerConfig map[string]any,
+) (*models.VideoGenerationResponse, error) {
+	adapterType, _, modelName, err := req.Model.ParseFull()
+	if err != nil {
+		return nil, fmt.Errorf("invalid model id: %w", err)
+	}
+	if adapterType != adapterTypeKey {
+		return nil, fmt.Errorf("generic adapter called for non-custom model %q", req.Model)
+	}
+	baseURL, err := baseURLFromConfig(providerConfig)
+	if err != nil {
+		return nil, err
+	}
+	if len(creds) == 0 {
+		return nil, fmt.Errorf("no credentials available")
+	}
+	client := newClient(baseURL)
+	log := a.logger
+	if log != nil {
+		log = log.With("model", req.Model.String())
+	}
+	return pool.Run(ctx, log, creds, a.usage, func(ctx context.Context, cred *models.Credential) (*models.VideoGenerationResponse, error) {
+		var apiKey string
+		if cred != nil {
+			apiKey = cred.DataString("api_key")
+		}
+		return client.SubmitVideo(ctx, apiKey, modelName, req)
+	}, nil, nil)
+}
+
+// PollVideo routes one video status poll over the credential pool.
+func (a *Adapter) PollVideo(
+	ctx context.Context,
+	creds []*models.Credential,
+	model models.ModelId,
+	upstreamJobID string,
+	providerConfig map[string]any,
+) (*models.VideoGenerationResponse, error) {
+	adapterType, _, _, err := model.ParseFull()
+	if err != nil {
+		return nil, fmt.Errorf("invalid model id: %w", err)
+	}
+	if adapterType != adapterTypeKey {
+		return nil, fmt.Errorf("generic adapter called for non-custom model %q", model)
+	}
+	baseURL, err := baseURLFromConfig(providerConfig)
+	if err != nil {
+		return nil, err
+	}
+	if len(creds) == 0 {
+		return nil, fmt.Errorf("no credentials available")
+	}
+	client := newClient(baseURL)
+	log := a.logger
+	if log != nil {
+		log = log.With("model", model.String())
+	}
+	return pool.Run(ctx, log, creds, a.usage, func(ctx context.Context, cred *models.Credential) (*models.VideoGenerationResponse, error) {
+		var apiKey string
+		if cred != nil {
+			apiKey = cred.DataString("api_key")
+		}
+		return client.PollVideo(ctx, apiKey, upstreamJobID)
+	}, nil, nil)
+}
+
+// VideoContent routes one video asset download over the credential pool.
+func (a *Adapter) VideoContent(
+	ctx context.Context,
+	creds []*models.Credential,
+	model models.ModelId,
+	upstreamJobID string,
+	index int,
+	providerConfig map[string]any,
+) (*models.VideoContentResponse, error) {
+	adapterType, _, _, err := model.ParseFull()
+	if err != nil {
+		return nil, fmt.Errorf("invalid model id: %w", err)
+	}
+	if adapterType != adapterTypeKey {
+		return nil, fmt.Errorf("generic adapter called for non-custom model %q", model)
+	}
+	baseURL, err := baseURLFromConfig(providerConfig)
+	if err != nil {
+		return nil, err
+	}
+	if len(creds) == 0 {
+		return nil, fmt.Errorf("no credentials available")
+	}
+	client := newClient(baseURL)
+	log := a.logger
+	if log != nil {
+		log = log.With("model", model.String())
+	}
+	return pool.Run(ctx, log, creds, a.usage, func(ctx context.Context, cred *models.Credential) (*models.VideoContentResponse, error) {
+		var apiKey string
+		if cred != nil {
+			apiKey = cred.DataString("api_key")
+		}
+		return client.VideoContent(ctx, apiKey, upstreamJobID, index)
+	}, nil, nil)
+}
+
 // classifyHTTPError maps upstream status codes to the error contract.
 // Structured code/type fields of the upstream envelope decide; message
 // text never does.

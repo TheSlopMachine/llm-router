@@ -1,5 +1,9 @@
 # Changelog
 
+## Done (2026-10-02, v0.4.0)
+
+- Added the OpenRouter-compatible video generation endpoint: `POST /v1/videos` returns 202 with a router-local job id and polling URL, `GET /v1/videos/{jobId}` polls upstream status, `GET /v1/videos/{jobId}/content` streams the video bytes, and `GET /v1/videos/models` lists video-capable models. Job rows persist in the new `video_jobs` bucket (local id maps to the upstream job; polls re-enter the credential pool with fresh credentials). Lua plugins serve `generate_video`/`poll_video`/`video_content`, `custom` providers proxy the same paths upstream, and virtual models fan submits out over members. The mock provider serves a deterministic completed job with synthesized ftyp/mdat bytes, and the smoke harness covers submit, poll, content and the chat-only negative path under `SMOKE_TARGETS=video`.
+
 ## Done (2026-10-02, v0.3.10)
 
 - Restricted manual provider creation to `custom` (OpenAI-compatible) rows: `POST /dashboard/providers` rejected other type keys, the Type picker and qualifier input left the New Provider wizard, and the `adapter-types` and `type-schemas` endpoints with their `TypeKeys`/`IsCreatableTypeKey` helpers were removed. Plugin type registration and core seeding stayed unchanged.

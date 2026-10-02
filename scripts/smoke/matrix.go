@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 )
@@ -498,6 +499,93 @@ func checkEmbeddings(cfg config, model string) error {
 	return nil
 }
 
+// getBytes fetches a binary asset with its content type. The 32MiB cap
+// covers generated clips; the mock serves bytes.
+func getBytes(url string) (int, string, []byte, error) {
+	resp, err := apiClient.Get(url)
+	if err != nil {
+		return 0, "", nil, err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	if err != nil {
+		return 0, "", nil, err
+	}
+	return resp.StatusCode, resp.Header.Get("Content-Type"), raw, nil
+}
+
+// checkVideo exercises the full video pipeline: submit (202) → poll
+// (completed) → content (mp4 bytes with ftyp magic).
+func checkVideo(cfg config, model string) error {
+	status, raw, err := doJSON("POST", cfg.api+"/v1/videos", map[string]any{
+		"model": model, "prompt": "a cat", "duration": 1,
+	})
+	if err != nil {
+		return err
+	}
+	var sub struct {
+		ID         string `json:"id"`
+		PollingURL string `json:"polling_url"`
+		Status     string `json:"status"`
+	}
+	if err := requireOK(status, raw, &sub); err != nil {
+		return err
+	}
+	if sub.ID == "" || sub.PollingURL == "" {
+		return fmt.Errorf("video submit without job id")
+	}
+	pollURL := sub.PollingURL
+	if !strings.HasPrefix(pollURL, "http") {
+		pollURL = cfg.api + pollURL
+	}
+	status, raw, err = doJSON("GET", pollURL, nil)
+	if err != nil {
+		return err
+	}
+	var job struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}
+	if err := requireOK(status, raw, &job); err != nil {
+		return err
+	}
+	if job.Status != "completed" {
+		return fmt.Errorf("video job status %q, want completed", job.Status)
+	}
+	status, ctype, body, err := getBytes(cfg.api + "/v1/videos/" + sub.ID + "/content?index=0")
+	if err != nil {
+		return err
+	}
+	if status < 200 || status >= 300 {
+		return &wireError{status: status, code: wireCode(body), msg: strings.TrimSpace(string(body))}
+	}
+	if !strings.Contains(ctype, "video/") {
+		return fmt.Errorf("video content type %q, want video/*", ctype)
+	}
+	if len(body) < 8 || string(body[4:8]) != "ftyp" {
+		return fmt.Errorf("video bytes without ftyp magic")
+	}
+	return nil
+}
+
+// checkVideoGate asserts the negative path: submitting video on a
+// chat-only model must fail closed with endpoint_not_supported.
+func checkVideoGate(cfg config, chatModel string) error {
+	status, raw, err := doJSON("POST", cfg.api+"/v1/videos", map[string]any{
+		"model": chatModel, "prompt": "a cat",
+	})
+	if err != nil {
+		return err
+	}
+	if status < 200 || status >= 300 {
+		if code := wireCode(raw); code == "endpoint_not_supported" {
+			return nil
+		}
+		return &wireError{status: status, code: wireCode(raw), msg: strings.TrimSpace(string(raw))}
+	}
+	return fmt.Errorf("video submit on chat-only model must not succeed")
+}
+
 // runMatrix tests requested capabilities, trying serving models in list
 // order until one passes. First success closes the capability; quota and
 // sibling skips move to the next model, real failures stop. Quota on one
@@ -508,7 +596,7 @@ func runMatrix(cfg config, rep *report, pluginType, providerID string, models []
 		if m.Disabled {
 			continue
 		}
-		for _, e := range []string{"chat/completions", "audio/transcriptions", "audio/speech", "images/generations", "embeddings"} {
+		for _, e := range []string{"chat/completions", "audio/transcriptions", "audio/speech", "images/generations", "embeddings", "videos"} {
 			if m.serves(e) {
 				byEndpoint[e] = append(byEndpoint[e], providerID+"/"+m.Name)
 			}
@@ -624,6 +712,11 @@ func runMatrix(cfg config, rep *report, pluginType, providerID string, models []
 			return checkEmbeddings(cfg, m)
 		})
 	}
+	if cfg.targets["video"] {
+		runFallback("video", byEndpoint["videos"], func(m string) error {
+			return checkVideo(cfg, m)
+		})
+	}
 	// Mock self-check: mock-limited must skip with quota, proving the
 	// harness skip pipeline end to end.
 	if pluginType == "mock" && cfg.targets["completions"] {
@@ -642,6 +735,9 @@ func runMatrix(cfg config, rep *report, pluginType, providerID string, models []
 	if len(chat) > 0 {
 		run("endpoint-gate", chat[0], func() error {
 			return checkEndpointGate(cfg, chat[0])
+		})
+		run("endpoint-gate-video", chat[0], func() error {
+			return checkVideoGate(cfg, chat[0])
 		})
 	}
 	// Virtual fan-out through one ad-hoc virtual model per provider.

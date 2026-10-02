@@ -429,3 +429,65 @@ func (s *Service) EmbedPool(
 			})
 	}, isFatal, skip)
 }
+
+// SubmitVideoPool tries credentials through the generate_video handler.
+// Route failures can retry up to three routes with the same credential.
+// It returns the winning or last proxy host:port ("" = direct).
+func (s *Service) SubmitVideoPool(
+	ctx context.Context,
+	meta HandlerMeta,
+	creds []*models.Credential,
+	req *models.VideoGenerationRequest,
+) (*models.VideoGenerationResponse, string, error) {
+	geo := s.geoPolicy(meta.ProviderConfig)
+	isFatal := s.fatalWithLog(meta, geo)
+	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
+	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.VideoGenerationResponse, string, error) {
+		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
+			func(ctx context.Context) (*models.VideoGenerationResponse, string, error) {
+				return s.SubmitVideoRouted(ctx, withCredential(meta, cred), req)
+			})
+	}, isFatal, skip)
+}
+
+// PollVideoPool tries credentials through the poll_video handler for one
+// upstream job ID. It returns the winning or last proxy host:port.
+func (s *Service) PollVideoPool(
+	ctx context.Context,
+	meta HandlerMeta,
+	creds []*models.Credential,
+	model models.ModelId,
+	upstreamJobID string,
+) (*models.VideoGenerationResponse, string, error) {
+	geo := s.geoPolicy(meta.ProviderConfig)
+	isFatal := s.fatalWithLog(meta, geo)
+	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, model.String())
+	return runPool(ctx, s, model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.VideoGenerationResponse, string, error) {
+		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
+			func(ctx context.Context) (*models.VideoGenerationResponse, string, error) {
+				return s.PollVideoRouted(ctx, withCredential(meta, cred), model, upstreamJobID)
+			})
+	}, isFatal, skip)
+}
+
+// VideoContentPool tries credentials through the video_content handler for
+// one upstream job ID and asset index. It returns the winning or last
+// proxy host:port.
+func (s *Service) VideoContentPool(
+	ctx context.Context,
+	meta HandlerMeta,
+	creds []*models.Credential,
+	model models.ModelId,
+	upstreamJobID string,
+	index int,
+) (*models.VideoContentResponse, string, error) {
+	geo := s.geoPolicy(meta.ProviderConfig)
+	isFatal := s.fatalWithLog(meta, geo)
+	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, model.String())
+	return runPool(ctx, s, model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.VideoContentResponse, string, error) {
+		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
+			func(ctx context.Context) (*models.VideoContentResponse, string, error) {
+				return s.VideoContentRouted(ctx, withCredential(meta, cred), model, upstreamJobID, index)
+			})
+	}, isFatal, skip)
+}

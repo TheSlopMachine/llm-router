@@ -16,6 +16,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/router"
+	"github.com/TheSlopMachine/llm-router/internal/services/videojobs"
 	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 	virtualadapter "github.com/TheSlopMachine/llm-router/providers/virtual"
@@ -47,7 +48,7 @@ func setupVirtualStack(t *testing.T) (*router.Service, *virtual.Service, *creden
 
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 	virtualSvc := virtual.New(database, providerSvc, modelInfoSvc)
-	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), slog.Default())
+	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), slog.Default())
 
 	virtualAdapter := virtualadapter.New(routerSvc, virtualSvc, slog.Default())
 	providerSvc.RegisterGoAdapter(virtualAdapter)
@@ -137,7 +138,7 @@ func TestRouterVirtualFallsThroughToSecondModel(t *testing.T) {
 
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 	virtualSvc := virtual.New(database, providerSvc, modelInfoSvc)
-	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), slog.Default())
+	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), slog.Default())
 
 	virtualAdapter := virtualadapter.New(routerSvc, virtualSvc, slog.Default())
 	providerSvc.RegisterGoAdapter(virtualAdapter)

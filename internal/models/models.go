@@ -2,6 +2,7 @@
 package models
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -46,7 +47,10 @@ import (
 // 0.3.9 adds the request cache_key: a stable cross-turn prefix-cache
 // partition (model, first message, sorted tool names). Old routers serve
 // no cache_key and plugins fall back to their own hash.
-const CurrentVersion = "0.3.9"
+// 0.4.0 adds the video generation endpoint (POST /v1/videos, GET
+// /v1/videos/{jobId}, GET /v1/videos/{jobId}/content, GET /v1/videos/models)
+// with generate_video/poll_video/video_content plugin handlers.
+const CurrentVersion = "0.4.0"
 
 // ─────────────────────────────────────────────
 // ModelId
@@ -490,6 +494,7 @@ const (
 	EndpointAudioSpeech        = "audio/speech"
 	EndpointImagesGenerations  = "images/generations"
 	EndpointEmbeddings         = "embeddings"
+	EndpointVideos             = "videos"
 )
 
 // SupportsEndpoint reports whether the model serves endpoint. Empty
@@ -762,6 +767,175 @@ func EmbeddingBase64(values []float64) string {
 		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(float32(v)))
 	}
 	return base64.StdEncoding.EncodeToString(buf)
+}
+
+// ─────────────────────────────────────────────
+// Video generation wire types (OpenRouter-compatible /v1/videos)
+// ─────────────────────────────────────────────
+
+// Video statuses carried by VideoGenerationResponse.Status.
+const (
+	VideoStatusPending    = "pending"
+	VideoStatusInProgress = "in_progress"
+	VideoStatusCompleted  = "completed"
+	VideoStatusFailed     = "failed"
+	VideoStatusCancelled  = "cancelled"
+	VideoStatusExpired    = "expired"
+)
+
+// ValidVideoStatus reports whether status is a known video job status.
+func ValidVideoStatus(status string) bool {
+	switch status {
+	case VideoStatusPending, VideoStatusInProgress, VideoStatusCompleted,
+		VideoStatusFailed, VideoStatusCancelled, VideoStatusExpired:
+		return true
+	}
+	return false
+}
+
+// VideoReferenceURL is the `{url}` object of one video reference asset.
+type VideoReferenceURL struct {
+	URL string `json:"url,omitempty"`
+}
+
+// VideoFrameImage pins one image as the first or last frame of the
+// generated video. FrameType is `first_frame` or `last_frame`.
+type VideoFrameImage struct {
+	Type      string             `json:"type,omitempty"`
+	ImageURL  *VideoReferenceURL `json:"image_url,omitempty"`
+	FrameType string             `json:"frame_type,omitempty"`
+}
+
+// VideoInputReference is one reference asset guiding video generation.
+// Exactly one of ImageURL, AudioURL, VideoURL is set; Type names it
+// (`image_url`, `audio_url`, `video_url`).
+type VideoInputReference struct {
+	Type     string             `json:"type,omitempty"`
+	ImageURL *VideoReferenceURL `json:"image_url,omitempty"`
+	AudioURL *VideoReferenceURL `json:"audio_url,omitempty"`
+	VideoURL *VideoReferenceURL `json:"video_url,omitempty"`
+}
+
+// VideoGenerationRequest is the parsed body of POST /v1/videos.
+type VideoGenerationRequest struct {
+	Model           ModelId               `json:"model"`
+	Prompt          string                `json:"prompt,omitempty"`
+	Duration        int                   `json:"duration,omitempty"`
+	Resolution      string                `json:"resolution,omitempty"`
+	AspectRatio     string                `json:"aspect_ratio,omitempty"`
+	Size            string                `json:"size,omitempty"`
+	Seed            *int64                `json:"seed,omitempty"`
+	GenerateAudio   *bool                 `json:"generate_audio,omitempty"`
+	FrameImages     []VideoFrameImage     `json:"frame_images,omitempty"`
+	InputReferences []VideoInputReference `json:"input_references,omitempty"`
+	PreviousJobID   string                `json:"previous_job_id,omitempty"`
+	CallbackURL     string                `json:"callback_url,omitempty"`
+	ProviderOptions map[string]any        `json:"provider,omitempty"`
+	User            string                `json:"user,omitempty"`
+	SessionID       string                `json:"session_id,omitempty"`
+}
+
+// VideoGenerationUsage carries cost metadata of a completed video job.
+type VideoGenerationUsage struct {
+	Cost   *float64 `json:"cost,omitempty"`
+	IsBYOK bool     `json:"is_byok,omitempty"`
+}
+
+// VideoGenerationResponse is the submit/poll wire shape: the OpenRouter
+// video generation response. On submit the router returns 202 with the
+// router-local ID and polling URL; on poll the same shape carries the
+// terminal state, unsigned download URLs and usage.
+type VideoGenerationResponse struct {
+	ID           string                `json:"id"`
+	PollingURL   string                `json:"polling_url"`
+	Status       string                `json:"status"`
+	GenerationID string                `json:"generation_id,omitempty"`
+	UnsignedURLs []string              `json:"unsigned_urls,omitempty"`
+	Usage        *VideoGenerationUsage `json:"usage,omitempty"`
+	Error        string                `json:"error,omitempty"`
+}
+
+// VideoContentResponse is the normalized plugin return for one video
+// content fetch: raw video bytes plus their media type. The router serves
+// the bytes with the matching Content-Type; no transcoding happens inside
+// the router.
+type VideoContentResponse struct {
+	Video       []byte
+	ContentType string
+}
+
+// VideoContentType defaults empty content types to video/mp4.
+func VideoContentType(contentType string) string {
+	if strings.TrimSpace(contentType) == "" {
+		return "video/mp4"
+	}
+	return contentType
+}
+
+// VideoUpscaleRange bounds the supported upscale factor of a video
+// upscaling model.
+type VideoUpscaleRange struct {
+	Min *float64 `json:"min,omitempty"`
+	Max *float64 `json:"max,omitempty"`
+}
+
+// VideoModel describes one entry of GET /v1/videos/models: the OpenRouter
+// video model card. Capability fields stay nil when the backend does not
+// report them.
+type VideoModel struct {
+	ID                           string             `json:"id"`
+	CanonicalSlug                string             `json:"canonical_slug"`
+	Name                         string             `json:"name"`
+	Created                      int64              `json:"created"`
+	Description                  string             `json:"description,omitempty"`
+	SupportedResolutions         []string           `json:"supported_resolutions"`
+	SupportedAspectRatios        []string           `json:"supported_aspect_ratios"`
+	SupportedSizes               []string           `json:"supported_sizes"`
+	SupportedDurations           []int              `json:"supported_durations"`
+	SupportedFrameImages         []string           `json:"supported_frame_images"`
+	UpscaleFactor                *VideoUpscaleRange `json:"upscale_factor"`
+	Creativity                   []int              `json:"creativity"`
+	GenerateAudio                *bool              `json:"generate_audio"`
+	Seed                         *bool              `json:"seed"`
+	AllowedPassthroughParameters []string           `json:"allowed_passthrough_parameters"`
+}
+
+// VideoModelsListResponse is the wire shape of GET /v1/videos/models.
+type VideoModelsListResponse struct {
+	Data []VideoModel `json:"data"`
+}
+
+// VideoJob persists one router-side video generation job: the local ID
+// handed to the client plus the upstream job it polls. Model is the
+// original request model (token authorization on every poll); BackendModel
+// is the model polled upstream (differs for virtual fan-out winners).
+type VideoJob struct {
+	ID            string    `json:"id"`
+	Model         ModelId   `json:"model"`
+	BackendModel  ModelId   `json:"backend_model"`
+	ProviderID    string    `json:"provider_id"`
+	TypeKey       string    `json:"type_key"`
+	UpstreamJobID string    `json:"upstream_job_id"`
+	Status        string    `json:"status"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// NewVideoJobID mints a router-local video job ID in the OpenRouter
+// `gen-vid-<timestamp>-<20 alphanumerics>` format.
+func NewVideoJobID(now time.Time) string {
+	const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	suffix := make([]byte, 20)
+	if _, err := rand.Read(suffix); err != nil {
+		for i := range suffix {
+			suffix[i] = alphabet[int(now.UnixNano()+int64(i))%len(alphabet)]
+		}
+		return fmt.Sprintf("gen-vid-%d-%s", now.Unix(), string(suffix))
+	}
+	for i := range suffix {
+		suffix[i] = alphabet[int(suffix[i])%len(alphabet)]
+	}
+	return fmt.Sprintf("gen-vid-%d-%s", now.Unix(), string(suffix))
 }
 
 // DeriveCapabilities fills Capabilities from the OpenRouter-style fields.

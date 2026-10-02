@@ -461,6 +461,214 @@ func (s *Service) EmbedRouted(
 	})
 }
 
+// videoSubmitTable builds the generate_video request table. Optional fields
+// enter only when set; callback_url travels for storage only and upstreams
+// must ignore unknown properties the same way they ignore model_name.
+func videoSubmitTable(L *lua.LState, req *models.VideoGenerationRequest) *lua.LTable {
+	tbl := L.NewTable()
+	tbl.RawSetString("model", lua.LString(req.Model.String()))
+	tbl.RawSetString("model_name", lua.LString(req.Model.Name()))
+	if req.Prompt != "" {
+		tbl.RawSetString("prompt", lua.LString(req.Prompt))
+	}
+	if req.Duration > 0 {
+		tbl.RawSetString("duration", lua.LNumber(req.Duration))
+	}
+	if req.Resolution != "" {
+		tbl.RawSetString("resolution", lua.LString(req.Resolution))
+	}
+	if req.AspectRatio != "" {
+		tbl.RawSetString("aspect_ratio", lua.LString(req.AspectRatio))
+	}
+	if req.Size != "" {
+		tbl.RawSetString("size", lua.LString(req.Size))
+	}
+	if req.Seed != nil {
+		tbl.RawSetString("seed", lua.LNumber(*req.Seed))
+	}
+	if req.GenerateAudio != nil {
+		tbl.RawSetString("generate_audio", lua.LBool(*req.GenerateAudio))
+	}
+	if len(req.FrameImages) > 0 {
+		frames := L.NewTable()
+		for _, f := range req.FrameImages {
+			entry := L.NewTable()
+			if f.Type != "" {
+				entry.RawSetString("type", lua.LString(f.Type))
+			}
+			if f.ImageURL != nil {
+				url := L.NewTable()
+				url.RawSetString("url", lua.LString(f.ImageURL.URL))
+				entry.RawSetString("image_url", url)
+			}
+			if f.FrameType != "" {
+				entry.RawSetString("frame_type", lua.LString(f.FrameType))
+			}
+			frames.Append(entry)
+		}
+		tbl.RawSetString("frame_images", frames)
+	}
+	if len(req.InputReferences) > 0 {
+		refs := L.NewTable()
+		for _, r := range req.InputReferences {
+			entry := L.NewTable()
+			if r.Type != "" {
+				entry.RawSetString("type", lua.LString(r.Type))
+			}
+			setRefURL := func(key string, u *models.VideoReferenceURL) {
+				if u == nil {
+					return
+				}
+				url := L.NewTable()
+				url.RawSetString("url", lua.LString(u.URL))
+				entry.RawSetString(key, url)
+			}
+			setRefURL("image_url", r.ImageURL)
+			setRefURL("audio_url", r.AudioURL)
+			setRefURL("video_url", r.VideoURL)
+			refs.Append(entry)
+		}
+		tbl.RawSetString("input_references", refs)
+	}
+	if req.PreviousJobID != "" {
+		tbl.RawSetString("previous_job_id", lua.LString(req.PreviousJobID))
+	}
+	if req.CallbackURL != "" {
+		tbl.RawSetString("callback_url", lua.LString(req.CallbackURL))
+	}
+	if len(req.ProviderOptions) > 0 {
+		tbl.RawSetString("provider", toLuaValue(L, map[string]any{"options": req.ProviderOptions}))
+	}
+	if req.User != "" {
+		tbl.RawSetString("user", lua.LString(req.User))
+	}
+	if req.SessionID != "" {
+		tbl.RawSetString("session_id", lua.LString(req.SessionID))
+	}
+	return tbl
+}
+
+// validateVideoResponse rejects job tables without an ID or with an
+// unknown status.
+func validateVideoResponse(out *models.VideoGenerationResponse) error {
+	if out.ID == "" {
+		return errEmptyVideoJobID
+	}
+	if !models.ValidVideoStatus(out.Status) {
+		return errUnknownVideoStatus
+	}
+	return nil
+}
+
+// SubmitVideo invokes the generate_video handler. A missing handler reports
+// ErrHandlerNotFound so the router maps it to a clean "endpoint not
+// supported" error.
+func (s *Service) SubmitVideo(
+	goCtx context.Context,
+	meta HandlerMeta,
+	req *models.VideoGenerationRequest,
+) (*models.VideoGenerationResponse, error) {
+	resp, _, err := s.SubmitVideoRouted(goCtx, meta, req)
+	return resp, err
+}
+
+// SubmitVideoRouted is SubmitVideo plus the redacted proxy host:port of the
+// call ("" = direct).
+func (s *Service) SubmitVideoRouted(
+	goCtx context.Context,
+	meta HandlerMeta,
+	req *models.VideoGenerationRequest,
+) (*models.VideoGenerationResponse, string, error) {
+	return callAndDecode(s, goCtx, meta, "generate_video", func(L *lua.LState) {
+		L.Push(ctxTable(L, "", meta.ProviderConfig))
+		L.Push(credTable(L, meta.Credential))
+		L.Push(videoSubmitTable(L, req))
+	}, []string{"unsigned_urls"}, validateVideoResponse)
+}
+
+// videoJobTable builds the poll_video / video_content request table: the
+// upstream job ID plus the model pair for payload building.
+func videoJobTable(L *lua.LState, model models.ModelId, upstreamJobID string, index int, withIndex bool) *lua.LTable {
+	tbl := L.NewTable()
+	tbl.RawSetString("model", lua.LString(model.String()))
+	tbl.RawSetString("model_name", lua.LString(model.Name()))
+	tbl.RawSetString("job_id", lua.LString(upstreamJobID))
+	if withIndex {
+		tbl.RawSetString("index", lua.LNumber(index))
+	}
+	return tbl
+}
+
+// PollVideo invokes the poll_video handler for one upstream job ID.
+func (s *Service) PollVideo(
+	goCtx context.Context,
+	meta HandlerMeta,
+	model models.ModelId,
+	upstreamJobID string,
+) (*models.VideoGenerationResponse, error) {
+	resp, _, err := s.PollVideoRouted(goCtx, meta, model, upstreamJobID)
+	return resp, err
+}
+
+// PollVideoRouted is PollVideo plus the redacted proxy host:port of the
+// call ("" = direct).
+func (s *Service) PollVideoRouted(
+	goCtx context.Context,
+	meta HandlerMeta,
+	model models.ModelId,
+	upstreamJobID string,
+) (*models.VideoGenerationResponse, string, error) {
+	return callAndDecode(s, goCtx, meta, "poll_video", func(L *lua.LState) {
+		L.Push(ctxTable(L, "", meta.ProviderConfig))
+		L.Push(credTable(L, meta.Credential))
+		L.Push(videoJobTable(L, model, upstreamJobID, 0, false))
+	}, []string{"unsigned_urls"}, validateVideoResponse)
+}
+
+// VideoContent invokes the video_content handler for one upstream job ID
+// and asset index. Video bytes cross the boundary base64-encoded like
+// speech audio. A missing handler reports ErrHandlerNotFound.
+func (s *Service) VideoContent(
+	goCtx context.Context,
+	meta HandlerMeta,
+	model models.ModelId,
+	upstreamJobID string,
+	index int,
+) (*models.VideoContentResponse, error) {
+	resp, _, err := s.VideoContentRouted(goCtx, meta, model, upstreamJobID, index)
+	return resp, err
+}
+
+// VideoContentRouted is VideoContent plus the redacted proxy host:port of
+// the call ("" = direct).
+func (s *Service) VideoContentRouted(
+	goCtx context.Context,
+	meta HandlerMeta,
+	model models.ModelId,
+	upstreamJobID string,
+	index int,
+) (*models.VideoContentResponse, string, error) {
+	out, proxy, err := callAndDecode(s, goCtx, meta, "video_content", func(L *lua.LState) {
+		L.Push(ctxTable(L, "", meta.ProviderConfig))
+		L.Push(credTable(L, meta.Credential))
+		L.Push(videoJobTable(L, model, upstreamJobID, index, true))
+	}, nil, func(payload *videoContentPayload) error {
+		video, derr := base64.StdEncoding.DecodeString(payload.VideoB64)
+		if derr != nil {
+			return errInvalidVideoB64
+		}
+		if len(video) == 0 {
+			return errEmptyVideo
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, proxy, err
+	}
+	video, _ := base64.StdEncoding.DecodeString(out.VideoB64)
+	return &models.VideoContentResponse{Video: video, ContentType: out.ContentType}, proxy, nil
+}
+
 // ValidateCredentials calls validate_credentials. Missing handler accepts
 // any data. Returns valid=false with a ProviderError on rejection.
 func (s *Service) ValidateCredentials(typeKey string, data map[string]any) (bool, error) {

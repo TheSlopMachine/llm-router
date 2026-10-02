@@ -15,6 +15,7 @@ var validTargets = map[string]bool{
 	"speech":      true,
 	"image":       true,
 	"embeddings":  true,
+	"video":       true,
 }
 
 type config struct {
@@ -56,7 +57,7 @@ func loadConfig() (config, error) {
 			continue
 		}
 		if !validTargets[t] {
-			return config{}, fmt.Errorf("unknown SMOKE_TARGETS entry %q (want completions,messages,transcribe,speech,image,embeddings)", t)
+			return config{}, fmt.Errorf("unknown SMOKE_TARGETS entry %q (want completions,messages,transcribe,speech,image,embeddings,video)", t)
 		}
 		targets[t] = true
 	}

@@ -26,6 +26,24 @@ var errEmbedLengthMismatch = errors.New("data length does not match input length
 // errEmptyEmbeddingVector marks an embed response with an empty vector.
 var errEmptyEmbeddingVector = errors.New("empty embedding vector")
 
+// errInvalidVideoB64 marks a video content payload with undecodable video.
+var errInvalidVideoB64 = errors.New("video_b64 is not valid base64")
+
+// errEmptyVideo marks a video content payload with zero video bytes.
+var errEmptyVideo = errors.New("returned empty video")
+
+// errEmptyVideoJobID marks a video job response without an ID.
+var errEmptyVideoJobID = errors.New("empty job id")
+
+// errUnknownVideoStatus marks a video job response with an unknown status.
+var errUnknownVideoStatus = errors.New("unknown job status")
+
+// videoContentPayload is the wire shape of the video_content handler result.
+type videoContentPayload struct {
+	VideoB64    string `json:"video_b64"`
+	ContentType string `json:"content_type"`
+}
+
 // speechPayload is the wire shape of the speech handler result.
 type speechPayload struct {
 	AudioB64 string `json:"audio_b64"`
