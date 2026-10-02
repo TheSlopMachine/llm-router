@@ -119,7 +119,7 @@
       <Text tag="h1" size="lg" weight="bold">{t('Virtual models')}</Text>
       <Text tone="soft" size="sm">{t('Virtual models route requests across multiple models with fall-through.')}</Text>
     </VStack>
-    <Button text={t('Add')} style="prominent" icon={{ name: 'add' }} onclick={openNew} />
+    <Button text={t('New model')} style="prominent" icon={{ name: 'add' }} onclick={openNew} />
   </HStack>
 
   {#if resource.error}

@@ -268,6 +268,7 @@ const ru: Record<string, string> = {
   'New Chat': 'Новый чат',
   'New Provider': 'Новый провайдер',
   'New Token': 'Новый токен',
+  'New model': 'Новая модель',
   'New token': 'Новый токен',
   'New token name': 'Новое название токена',
   'Next': 'Далее',
