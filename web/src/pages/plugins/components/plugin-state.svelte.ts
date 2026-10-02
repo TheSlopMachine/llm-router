@@ -43,36 +43,54 @@ export function createPluginState(opts: {
     }
   }
 
-  async function rollback(plugin: Plugin): Promise<void> {
-    const confirmed = await modal.confirm({
-      title: t('Roll back plugin'),
-      message: `${t('Roll')} "${plugin.display_name}" ${t('back to the previous version?')}`,
-      severity: 'medium',
-      confirmText: t('Roll back'),
-    })
-    if (!confirmed) return
-    try {
-      await api.plugins.rollback(plugin.id)
-      await opts.onReload()
-    } catch (e) {
-      opts.onError(getErrorMessage(e))
+  let pendingDelete = $state<{ plugin: Plugin; anchor?: HTMLElement } | null>(null)
+  let deleting = $state(false)
+  let pendingRollback = $state<{ plugin: Plugin; anchor?: HTMLElement } | null>(null)
+  let rollingBack = $state(false)
+
+  function openDelete(plugin: Plugin, anchor?: HTMLElement): void {
+    if (pendingDelete?.plugin.id === plugin.id) {
+      pendingDelete = null
+    } else {
+      pendingDelete = { plugin, anchor }
     }
   }
 
-  async function removePlugin(plugin: Plugin): Promise<void> {
-    const confirmed = await modal.confirm({
-      title: t('Delete plugin'),
-      message: `${t('Delete')} "${plugin.display_name}"? ${t('Providers using its types will stop working.')}`,
-      severity: 'high',
-      confirmText: t('Delete'),
-      confirmRole: 'destructive'
-    })
-    if (!confirmed) return
+  async function doDelete(): Promise<void> {
+    const target = pendingDelete
+    if (!target || deleting) return
+    deleting = true
     try {
-      await api.plugins.remove(plugin.id)
+      await api.plugins.remove(target.plugin.id)
+      pendingDelete = null
       await opts.onReload()
     } catch (e) {
       opts.onError(getErrorMessage(e))
+    } finally {
+      deleting = false
+    }
+  }
+
+  function openRollback(plugin: Plugin, anchor?: HTMLElement): void {
+    if (pendingRollback?.plugin.id === plugin.id) {
+      pendingRollback = null
+    } else {
+      pendingRollback = { plugin, anchor }
+    }
+  }
+
+  async function doRollback(): Promise<void> {
+    const target = pendingRollback
+    if (!target || rollingBack) return
+    rollingBack = true
+    try {
+      await api.plugins.rollback(target.plugin.id)
+      pendingRollback = null
+      await opts.onReload()
+    } catch (e) {
+      opts.onError(getErrorMessage(e))
+    } finally {
+      rollingBack = false
     }
   }
 
@@ -135,7 +153,7 @@ export function createPluginState(opts: {
     input.click()
   }
 
-  async function handleAction(plugin: Plugin, id: string): Promise<void> {
+  async function handleAction(plugin: Plugin, id: string, anchor?: HTMLElement): Promise<void> {
     switch (id) {
       case 'update':
         await updatePlugin(plugin, 'Update')
@@ -147,20 +165,40 @@ export function createPluginState(opts: {
         await updateFromFile(plugin)
         break
       case 'rollback':
-        await rollback(plugin)
+        openRollback(plugin, anchor)
         break
       case 'delete':
-        await removePlugin(plugin)
+        openDelete(plugin, anchor)
         break
     }
   }
 
   return {
     openDetails,
-    rollback,
-    removePlugin,
+    openDelete,
+    doDelete,
+    openRollback,
+    doRollback,
     updatePlugin,
     buildActions,
-    handleAction
+    handleAction,
+    get pendingDelete(): { plugin: Plugin; anchor?: HTMLElement } | null {
+      return pendingDelete
+    },
+    set pendingDelete(v: { plugin: Plugin; anchor?: HTMLElement } | null) {
+      pendingDelete = v
+    },
+    get deleting(): boolean {
+      return deleting
+    },
+    get pendingRollback(): { plugin: Plugin; anchor?: HTMLElement } | null {
+      return pendingRollback
+    },
+    set pendingRollback(v: { plugin: Plugin; anchor?: HTMLElement } | null) {
+      pendingRollback = v
+    },
+    get rollingBack(): boolean {
+      return rollingBack
+    }
   }
 }

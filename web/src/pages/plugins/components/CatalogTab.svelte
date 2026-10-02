@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, HStack, VStack, Text, Switch, SearchField, TextEdit, List, SectionCard, Chip, Spacer } from '$ui'
+  import { Button, FloatingView, HStack, VStack, Text, Switch, SearchField, TextEdit, List, SectionCard, Chip, Spacer } from '$ui'
   import EmptyState from '../../../components/EmptyState.svelte'
   import PluginCard from './PluginCard.svelte'
   import PluginDetailsModal from './PluginDetailsModal.svelte'
@@ -122,7 +122,7 @@
     }
   }
 
-  async function handleCatalogAction(plugin: Plugin, file: StoreFile, id: string): Promise<void> {
+  async function handleCatalogAction(plugin: Plugin, file: StoreFile, id: string, anchor?: HTMLElement): Promise<void> {
     if (id === 'update') {
       await confirmAndInstall(file, 'Update')
       return
@@ -131,7 +131,7 @@
       await confirmAndInstall(file, 'Reinstall')
       return
     }
-    await pluginState.handleAction(plugin, id)
+    await pluginState.handleAction(plugin, id, anchor)
   }
 
   async function confirmAndInstall(file: StoreFile, label: string): Promise<void> {
@@ -185,19 +185,31 @@
     }
   }
 
-  async function removeRepo(id: string): Promise<void> {
-    const confirmed = await modal.confirm({
-      title: t('Remove repository'),
-      message: t('Remove this repository from the store? Installed plugins stay installed.'),
-      severity: 'medium',
-      confirmText: t('Remove'),
-    })
-    if (!confirmed) return
+  let removeRepoTarget = $state<{ id: string; title: string } | null>(null)
+  let removeRepoAnchor = $state<HTMLElement>()
+  let removingRepo = $state(false)
+
+  function openRemoveRepo(entry: RepoEntry, anchorEl?: HTMLElement): void {
+    if (removeRepoTarget?.id === entry.repo.id) {
+      removeRepoTarget = null
+    } else {
+      removeRepoTarget = { id: entry.repo.id, title: entry.repo.title || entry.repo.id }
+      removeRepoAnchor = anchorEl
+    }
+  }
+
+  async function confirmRemoveRepo(): Promise<void> {
+    const target = removeRepoTarget
+    if (!target || removingRepo) return
+    removingRepo = true
     try {
-      await api.repos.remove(id)
+      await api.repos.remove(target.id)
+      removeRepoTarget = null
       await onReload()
     } catch (e) {
       actionError = getErrorMessage(e)
+    } finally {
+      removingRepo = false
     }
   }
 </script>
@@ -295,7 +307,7 @@
                 tint="#dc2626"
                 icon={{ name: 'delete' }}
                 size="small"
-                onclick={() => removeRepo(entry.repo.id)}
+                onclick={(e) => openRemoveRepo(entry, e.currentTarget as HTMLElement)}
                 ariaLabel={t('Remove repository')}
               />
             {/if}
@@ -322,7 +334,7 @@
                   unsafe={f.unsafe}
                   hasUpdate={!!update}
                   onDetails={() => pluginState.openDetails(plugin)}
-                  onaction={(id) => handleCatalogAction(plugin, f, id)}
+                  onaction={(id, anchor) => handleCatalogAction(plugin, f, id, anchor)}
                 />
               {:else}
                 <PluginCard
@@ -344,6 +356,95 @@
       </VStack>
     {/each}
   {/if}
+
+  <FloatingView
+    open={Boolean(removeRepoTarget)}
+    anchor={removeRepoAnchor}
+    onclose={() => { removeRepoTarget = null }}
+    label={t('Remove repository')}
+  >
+    {#snippet children({ close })}
+      <VStack gap={3} style="max-width: 280px;">
+        <VStack gap={1}>
+          <Text weight="medium" size="base">{t('Remove repository')}</Text>
+          <Text size="sm" tone="soft">
+            {t('Remove this repository from the store? Installed plugins stay installed.')}
+          </Text>
+        </VStack>
+        <HStack justify="end" gap={2}>
+          <Button size="small" style="text" onclick={close} disabled={removingRepo}>{t('Cancel')}</Button>
+          <Button
+            size="small"
+            style="prominent"
+            tint="#dc2626"
+            disabled={removingRepo}
+            onclick={confirmRemoveRepo}
+          >
+            {removingRepo ? t('Removing…') : t('Remove')}
+          </Button>
+        </HStack>
+      </VStack>
+    {/snippet}
+  </FloatingView>
+
+  <FloatingView
+    open={Boolean(pluginState.pendingDelete)}
+    anchor={pluginState.pendingDelete?.anchor}
+    onclose={() => { pluginState.pendingDelete = null }}
+    label={t('Delete plugin')}
+  >
+    {#snippet children({ close })}
+      <VStack gap={3} style="max-width: 280px;">
+        <VStack gap={1}>
+          <Text weight="medium" size="base">{t('Delete plugin')}</Text>
+          <Text size="sm" tone="soft">
+            {t('Delete')} "{pluginState.pendingDelete?.plugin.display_name}"? {t('Providers using its types will stop working.')}
+          </Text>
+        </VStack>
+        <HStack justify="end" gap={2}>
+          <Button size="small" style="text" onclick={close} disabled={pluginState.deleting}>{t('Cancel')}</Button>
+          <Button
+            size="small"
+            style="prominent"
+            tint="#dc2626"
+            disabled={pluginState.deleting}
+            onclick={() => void pluginState.doDelete()}
+          >
+            {pluginState.deleting ? t('Deleting…') : t('Delete')}
+          </Button>
+        </HStack>
+      </VStack>
+    {/snippet}
+  </FloatingView>
+
+  <FloatingView
+    open={Boolean(pluginState.pendingRollback)}
+    anchor={pluginState.pendingRollback?.anchor}
+    onclose={() => { pluginState.pendingRollback = null }}
+    label={t('Roll back plugin')}
+  >
+    {#snippet children({ close })}
+      <VStack gap={3} style="max-width: 280px;">
+        <VStack gap={1}>
+          <Text weight="medium" size="base">{t('Roll back plugin')}</Text>
+          <Text size="sm" tone="soft">
+            {t('Roll')} "{pluginState.pendingRollback?.plugin.display_name}" {t('back to the previous version?')}
+          </Text>
+        </VStack>
+        <HStack justify="end" gap={2}>
+          <Button size="small" style="text" onclick={close} disabled={pluginState.rollingBack}>{t('Cancel')}</Button>
+          <Button
+            size="small"
+            style="prominent"
+            disabled={pluginState.rollingBack}
+            onclick={() => void pluginState.doRollback()}
+          >
+            {pluginState.rollingBack ? t('Rolling back…') : t('Roll back')}
+          </Button>
+        </HStack>
+      </VStack>
+    {/snippet}
+  </FloatingView>
 </VStack>
 
 

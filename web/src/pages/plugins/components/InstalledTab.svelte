@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { SearchField, Button, List, VStack, HStack, Text } from '$ui'
+  import { SearchField, Button, FloatingView, List, VStack, HStack, Text } from '$ui'
   import EmptyState from '../../../components/EmptyState.svelte'
   import PluginCard from './PluginCard.svelte'
   import { createPluginState } from './plugin-state.svelte'
@@ -148,11 +148,70 @@
           isManual={plugin.origin?.manual ?? false}
           hasUpdate={!!update}
           onDetails={() => pluginState.openDetails(plugin)}
-          onaction={(id) => pluginState.handleAction(plugin, id)}
+          onaction={(id, anchor) => pluginState.handleAction(plugin, id, anchor)}
         />
       {/each}
     </List>
   {/if}
+
+  <FloatingView
+    open={Boolean(pluginState.pendingDelete)}
+    anchor={pluginState.pendingDelete?.anchor}
+    onclose={() => { pluginState.pendingDelete = null }}
+    label={t('Delete plugin')}
+  >
+    {#snippet children({ close })}
+      <VStack gap={3} style="max-width: 280px;">
+        <VStack gap={1}>
+          <Text weight="medium" size="base">{t('Delete plugin')}</Text>
+          <Text size="sm" tone="soft">
+            {t('Delete')} "{pluginState.pendingDelete?.plugin.display_name}"? {t('Providers using its types will stop working.')}
+          </Text>
+        </VStack>
+        <HStack justify="end" gap={2}>
+          <Button size="small" style="text" onclick={close} disabled={pluginState.deleting}>{t('Cancel')}</Button>
+          <Button
+            size="small"
+            style="prominent"
+            tint="#dc2626"
+            disabled={pluginState.deleting}
+            onclick={() => void pluginState.doDelete()}
+          >
+            {pluginState.deleting ? t('Deleting…') : t('Delete')}
+          </Button>
+        </HStack>
+      </VStack>
+    {/snippet}
+  </FloatingView>
+
+  <FloatingView
+    open={Boolean(pluginState.pendingRollback)}
+    anchor={pluginState.pendingRollback?.anchor}
+    onclose={() => { pluginState.pendingRollback = null }}
+    label={t('Roll back plugin')}
+  >
+    {#snippet children({ close })}
+      <VStack gap={3} style="max-width: 280px;">
+        <VStack gap={1}>
+          <Text weight="medium" size="base">{t('Roll back plugin')}</Text>
+          <Text size="sm" tone="soft">
+            {t('Roll')} "{pluginState.pendingRollback?.plugin.display_name}" {t('back to the previous version?')}
+          </Text>
+        </VStack>
+        <HStack justify="end" gap={2}>
+          <Button size="small" style="text" onclick={close} disabled={pluginState.rollingBack}>{t('Cancel')}</Button>
+          <Button
+            size="small"
+            style="prominent"
+            disabled={pluginState.rollingBack}
+            onclick={() => void pluginState.doRollback()}
+          >
+            {pluginState.rollingBack ? t('Rolling back…') : t('Roll back')}
+          </Button>
+        </HStack>
+      </VStack>
+    {/snippet}
+  </FloatingView>
 </VStack>
 
 

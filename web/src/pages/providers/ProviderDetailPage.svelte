@@ -8,7 +8,7 @@
   import CustomProviderWizard from '../../components/wizards/CustomProviderWizard.svelte'
   import ProviderCredentialWizard from './components/ProviderCredentialWizard.svelte'
   import ModelsSection from './components/ModelsSection.svelte'
-  import { Button, Chip, HStack, Image, Picker, Spacer, Switch, Table, Text, TextEdit, VStack } from '../../components/ui'
+  import { Button, Chip, FloatingView, HStack, Image, Picker, Spacer, Switch, Table, Text, TextEdit, VStack } from '../../components/ui'
   import type { TableColumn } from '../../components/ui'
   import { squircle } from '../../lib/squircle'
   import { t } from '../../lib/i18n.svelte'
@@ -106,21 +106,29 @@
     })
   }
 
-  async function deleteProvider(): Promise<void> {
-    if (!provider) return
-    const confirmed = await modal.confirm({
-      title: t('Delete Provider'),
-      message: `${t('Are you sure you want to delete')} "${provider.name}"? ${t('Credentials for this provider will be removed as well.')}`,
-      severity: 'high',
-      confirmText: t('Delete'),
-      confirmRole: 'destructive',
-    })
-    if (!confirmed) return
+  let deleteProviderAnchor = $state<HTMLElement>()
+  let deletingProvider = $state(false)
+
+  function openDeleteProvider(anchorEl?: HTMLElement): void {
+    if (deleteProviderAnchor) {
+      deleteProviderAnchor = undefined
+    } else {
+      deleteProviderAnchor = anchorEl
+    }
+  }
+
+  async function confirmDeleteProvider(): Promise<void> {
+    if (!provider || deletingProvider) return
+    deletingProvider = true
     try {
       await api.providers.delete(provider.id)
+      deleteProviderAnchor = undefined
       back()
     } catch (e) {
       error = getErrorMessage(e)
+      deleteProviderAnchor = undefined
+    } finally {
+      deletingProvider = false
     }
   }
 
@@ -180,20 +188,31 @@
     })
   }
 
-  async function deleteCredential(cred: Credential): Promise<void> {
-    const confirmed = await modal.confirm({
-      title: t('Delete key'),
-      message: `${t('Are you sure you want to delete')} "${cred.label || t('Unnamed')}"? ${t('This action cannot be undone.')}`,
-      severity: 'medium',
-      confirmText: t('Delete'),
-      confirmRole: 'destructive',
-    })
-    if (!confirmed) return
+  let deleteCredTarget = $state<Credential | null>(null)
+  let deleteCredAnchor = $state<HTMLElement>()
+  let deletingCred = $state(false)
+
+  function openDeleteCredential(cred: Credential, anchorEl?: HTMLElement): void {
+    if (deleteCredTarget?.id === cred.id) {
+      deleteCredTarget = null
+    } else {
+      deleteCredTarget = cred
+      deleteCredAnchor = anchorEl
+    }
+  }
+
+  async function confirmDeleteCredential(): Promise<void> {
+    const cred = deleteCredTarget
+    if (!cred || deletingCred) return
+    deletingCred = true
     try {
       await api.credentials.delete(cred.id)
       credentials = credentials.filter((c) => c.id !== cred.id)
+      deleteCredTarget = null
     } catch (e) {
       error = getErrorMessage(e)
+    } finally {
+      deletingCred = false
     }
   }
 
@@ -331,7 +350,7 @@
       {#if !provider.is_ui_readonly}
         <HStack gap={2}>
           <Button onclick={openEditProvider} icon={{ name: 'edit' }}>{t('Edit')}</Button>
-          <Button tint="#dc2626" onclick={deleteProvider} icon={{ name: 'delete' }}>{t('Delete')}</Button>
+          <Button tint="#dc2626" onclick={(e) => openDeleteProvider(e.currentTarget as HTMLElement)} icon={{ name: 'delete' }}>{t('Delete')}</Button>
         </HStack>
       {/if}
       <Switch
@@ -400,7 +419,7 @@
                 onclick={() => testCredential(cred)}
               />
               <Button size="small" style="text" icon={{ name: 'edit' }} ariaLabel={t('Edit key')} title={t('Edit key')} onclick={() => openEditCredential(cred)} />
-              <Button size="small" tint="#dc2626" style="text" icon={{ name: 'delete' }} ariaLabel={t('Delete key')} title={t('Delete key')} onclick={() => deleteCredential(cred)} />
+              <Button size="small" tint="#dc2626" style="text" icon={{ name: 'delete' }} ariaLabel={t('Delete key')} title={t('Delete key')} onclick={(e) => openDeleteCredential(cred, e.currentTarget as HTMLElement)} />
               <Switch
                 checked={!cred.disabled}
                 ariaLabel={t('Enable key')}
@@ -508,6 +527,66 @@
     <ModelsSection bind:provider onrefresh={loadPage} />
   </VStack>
 {/if}
+
+<FloatingView
+  open={Boolean(deleteCredTarget)}
+  anchor={deleteCredAnchor}
+  onclose={() => { deleteCredTarget = null }}
+  label={t('Delete key')}
+>
+  {#snippet children({ close })}
+    <VStack gap={3} style="max-width: 280px;">
+      <VStack gap={1}>
+        <Text weight="medium" size="base">{t('Delete key')}</Text>
+        <Text size="sm" tone="soft">
+          {t('Are you sure you want to delete')} "{deleteCredTarget?.label || t('Unnamed')}"? {t('This action cannot be undone.')}
+        </Text>
+      </VStack>
+      <HStack justify="end" gap={2}>
+        <Button size="small" style="text" onclick={close} disabled={deletingCred}>{t('Cancel')}</Button>
+        <Button
+          size="small"
+          style="prominent"
+          tint="#dc2626"
+          disabled={deletingCred}
+          onclick={confirmDeleteCredential}
+        >
+          {deletingCred ? t('Deleting…') : t('Delete')}
+        </Button>
+      </HStack>
+    </VStack>
+  {/snippet}
+</FloatingView>
+
+<FloatingView
+  open={Boolean(deleteProviderAnchor)}
+  anchor={deleteProviderAnchor}
+  onclose={() => { deleteProviderAnchor = undefined }}
+  label={t('Delete Provider')}
+>
+  {#snippet children({ close })}
+    <VStack gap={3} style="max-width: 280px;">
+      <VStack gap={1}>
+        <Text weight="medium" size="base">{t('Delete Provider')}</Text>
+        <Text size="sm" tone="soft">
+          {t('Are you sure you want to delete')} "{provider?.name}"? {t('Credentials for this provider will be removed as well.')}
+        </Text>
+      </VStack>
+      <HStack justify="end" gap={2}>
+        <Button size="small" style="text" onclick={close} disabled={deletingProvider}>{t('Cancel')}</Button>
+        <Button
+          size="small"
+          style="prominent"
+          tint="#dc2626"
+          disabled={deletingProvider}
+          onclick={confirmDeleteProvider}
+        >
+          {deletingProvider ? t('Deleting…') : t('Delete')}
+        </Button>
+      </HStack>
+    </VStack>
+  {/snippet}
+</FloatingView>
 
 <style>
   :global(.provider-detail),

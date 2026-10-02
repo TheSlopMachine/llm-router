@@ -1,13 +1,12 @@
 <script lang="ts">
   import { api } from '$lib/api'
-  import { modal } from '$lib/modal.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { createListResource } from '$lib/list-resource.svelte'
   import type { VirtualModel, AvailableModel } from '$lib/types'
   import { setPendingClone } from '$lib/virtual-clone'
   import { t } from '$lib/i18n.svelte'
   import EmptyState from '../../components/EmptyState.svelte'
-  import { Button, ModelsTable, HStack, Switch, Text, VStack } from '$ui'
+  import { Button, FloatingView, ModelsTable, HStack, Switch, Text, VStack } from '$ui'
 
   const resource = createListResource<VirtualModel[]>(
     async () => {
@@ -92,23 +91,31 @@
     }
   }
 
-  async function remove(vm: VirtualModel) {
-    const confirmed = await modal.confirm({
-      title: t('Delete virtual model'),
-      message: `${t('Are you sure you want to delete')} "${vm.name}"? ${t('This action cannot be undone.')}`,
-      severity: 'high',
-      size: 'small',
-      confirmText: t('Delete'),
-      confirmRole: 'destructive'
-    })
+  let deleteTarget = $state<VirtualModel | null>(null)
+  let deleteAnchor = $state<HTMLElement>()
+  let deleting = $state(false)
 
-    if (!confirmed) return
+  function openDelete(vm: VirtualModel, anchorEl?: HTMLElement): void {
+    if (deleteTarget?.id === vm.id) {
+      deleteTarget = null
+    } else {
+      deleteTarget = vm
+      deleteAnchor = anchorEl
+    }
+  }
 
+  async function confirmDelete(): Promise<void> {
+    const vm = deleteTarget
+    if (!vm || deleting) return
+    deleting = true
     try {
       await api.virtualModels.delete(vm.id)
+      deleteTarget = null
       await resource.reload()
     } catch (e) {
       resource.error = getErrorMessage(e)
+    } finally {
+      deleting = false
     }
   }
 </script>
@@ -150,7 +157,7 @@
           <Button style="text" icon={{ name: 'content_copy' }} ariaLabel={t('Clone')} title={t('Clone')} size="small" onclick={() => clone(vm)} />
           {#if !vm.managed_by}
             <Button style="text" icon={{ name: 'edit' }} ariaLabel={t('Edit')} title={t('Edit')} size="small" onclick={() => openEdit(vm)} />
-            <Button style="text" tint="#dc2626" icon={{ name: 'delete' }} ariaLabel={t('Delete')} title={t('Delete')} size="small" onclick={() => remove(vm)} />
+            <Button style="text" tint="#dc2626" icon={{ name: 'delete' }} ariaLabel={t('Delete')} title={t('Delete')} size="small" onclick={(e) => openDelete(vm, e.currentTarget as HTMLElement)} />
           {/if}
           <Switch
             checked={!vm.disabled}
@@ -171,4 +178,34 @@
       {/snippet}
     </ModelsTable>
   {/if}
+
+  <FloatingView
+    open={Boolean(deleteTarget)}
+    anchor={deleteAnchor}
+    onclose={() => { deleteTarget = null }}
+    label={t('Delete virtual model')}
+  >
+    {#snippet children({ close })}
+      <VStack gap={3} style="max-width: 280px;">
+        <VStack gap={1}>
+          <Text weight="medium" size="base">{t('Delete virtual model')}</Text>
+          <Text size="sm" tone="soft">
+            {t('Are you sure you want to delete')} "{deleteTarget?.name}"? {t('This action cannot be undone.')}
+          </Text>
+        </VStack>
+        <HStack justify="end" gap={2}>
+          <Button size="small" style="text" onclick={close} disabled={deleting}>{t('Cancel')}</Button>
+          <Button
+            size="small"
+            style="prominent"
+            tint="#dc2626"
+            disabled={deleting}
+            onclick={confirmDelete}
+          >
+            {deleting ? t('Deleting…') : t('Delete')}
+          </Button>
+        </HStack>
+      </VStack>
+    {/snippet}
+  </FloatingView>
 </VStack>

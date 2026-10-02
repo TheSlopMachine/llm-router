@@ -3,7 +3,7 @@
   import { t } from '../../../lib/i18n.svelte'
   import { getErrorMessage } from '../../../lib/errors'
   import { toast } from '../../../lib/toast.svelte'
-  import { modal } from '../../../lib/modal.svelte'
+  import FloatingView from '../../../components/ui/controls/FloatingView.svelte'
   import { CAPABILITY_META } from '../../../lib/capabilities'
   import Table from '../../../components/ui/composite/Table.svelte'
   import ModelsTable from '../../../components/ui/composite/ModelsTable.svelte'
@@ -388,20 +388,31 @@
     }
   }
 
-  async function deleteCustomModel(m: ProviderModel): Promise<void> {
-    const confirmed = await modal.confirm({
-      title: t('Delete custom model'),
-      message: `${t('Remove')} "${m.name}" ${t('from this provider?')}`,
-      severity: 'medium',
-      confirmText: t('Delete'),
-      confirmRole: 'destructive',
-    })
-    if (!confirmed) return
+  let deleteCustomTarget = $state<ProviderModel | null>(null)
+  let deleteCustomAnchor = $state<HTMLElement>()
+  let deletingCustom = $state(false)
+
+  function openDeleteCustomModel(m: ProviderModel, anchorEl?: HTMLElement): void {
+    if (deleteCustomTarget?.name === m.name) {
+      deleteCustomTarget = null
+    } else {
+      deleteCustomTarget = m
+      deleteCustomAnchor = anchorEl
+    }
+  }
+
+  async function confirmDeleteCustomModel(): Promise<void> {
+    const m = deleteCustomTarget
+    if (!m || deletingCustom) return
+    deletingCustom = true
     try {
       await api.models.deleteOverride(providerId, m.name)
+      deleteCustomTarget = null
       await reloadModels()
     } catch (e) {
       modelsError = getErrorMessage(e)
+    } finally {
+      deletingCustom = false
     }
   }
 
@@ -649,7 +660,7 @@
         icon={{ name: 'delete' }}
         title={t('Delete custom model')}
         ariaLabel={t('Delete custom model')}
-        onclick={() => deleteCustomModel(m)}
+        onclick={(e) => openDeleteCustomModel(m, e.currentTarget as HTMLElement)}
       />
     {/if}
     <Switch
@@ -701,3 +712,33 @@
     {/snippet}
   </ModelsTable>
 {/snippet}
+
+<FloatingView
+  open={Boolean(deleteCustomTarget)}
+  anchor={deleteCustomAnchor}
+  onclose={() => { deleteCustomTarget = null }}
+  label={t('Delete custom model')}
+>
+  {#snippet children({ close })}
+    <VStack gap={3} style="max-width: 280px;">
+      <VStack gap={1}>
+        <Text weight="medium" size="base">{t('Delete custom model')}</Text>
+        <Text size="sm" tone="soft">
+          {t('Remove')} "{deleteCustomTarget?.name}" {t('from this provider?')}
+        </Text>
+      </VStack>
+      <HStack justify="end" gap={2}>
+        <Button size="small" style="text" onclick={close} disabled={deletingCustom}>{t('Cancel')}</Button>
+        <Button
+          size="small"
+          style="prominent"
+          tint="#dc2626"
+          disabled={deletingCustom}
+          onclick={confirmDeleteCustomModel}
+        >
+          {deletingCustom ? t('Deleting…') : t('Delete')}
+        </Button>
+      </HStack>
+    </VStack>
+  {/snippet}
+</FloatingView>

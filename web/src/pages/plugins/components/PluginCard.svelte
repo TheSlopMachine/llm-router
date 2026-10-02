@@ -29,7 +29,7 @@
     installLabel?: string
     onDetails?: () => void
     onInstall?: () => void
-    onaction?: (id: string) => void
+    onaction?: (id: string, anchor?: HTMLElement) => void
   }>()
 
   let enabled = $state(true)
@@ -71,7 +71,7 @@
             icon={{ name: 'upload_file' }}
             title={t('Update from file…')}
             ariaLabel={t('Update from file…')}
-            onclick={() => onaction?.('update_file')}
+            onclick={(e) => onaction?.('update_file', e.currentTarget as HTMLElement)}
           />
         {/if}
         {#if hasUpdate}
@@ -81,7 +81,7 @@
             icon={{ name: 'upgrade' }}
             title={t('Update')}
             ariaLabel={t('Update')}
-            onclick={() => onaction?.('update')}
+            onclick={(e) => onaction?.('update', e.currentTarget as HTMLElement)}
           />
         {/if}
         <Button
@@ -91,7 +91,7 @@
           icon={{ name: 'delete' }}
           title={t('Delete')}
           ariaLabel={t('Delete')}
-          onclick={() => onaction?.('delete')}
+          onclick={(e) => onaction?.('delete', e.currentTarget as HTMLElement)}
         />
         <Switch
           bind:checked={enabled}
