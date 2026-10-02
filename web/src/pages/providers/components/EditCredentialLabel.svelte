@@ -2,6 +2,7 @@
   // Body of the "Edit Key" modal. Rendered by the shared Modal (title, close
   // button, footer chrome), replacing a hand-rolled dialog in
   // ProviderDetailPage whose .modal-* classes had no CSS left.
+  import { untrack } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
@@ -40,10 +41,13 @@
   }
 
   $effect(() => {
-    updateButtons([
-      { label: t('Cancel'), variant: 'secondary', onClick: closeModal, disabled: saving },
-      { label: saving ? t('Saving…') : t('Save'), variant: 'primary', onClick: () => void save(), disabled: saving },
-    ])
+    void saving
+    untrack(() => {
+      updateButtons([
+        { label: t('Cancel'), variant: 'secondary', onClick: closeModal, disabled: saving },
+        { label: saving ? t('Saving…') : t('Save'), variant: 'primary', onClick: () => void save(), disabled: saving },
+      ])
+    })
   })
 </script>
 
