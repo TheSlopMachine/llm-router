@@ -264,13 +264,18 @@ func (c *pluginHTTPClient) doWithProxyRotation(req *http.Request) (*http.Respons
 		return nil, "", time.Time{}, false, err
 	}
 	for {
+		// A dead client owns no retries: return at once instead of
+		// burning the pick list on guaranteed failures.
+		if err := req.Context().Err(); err != nil {
+			return nil, "", time.Time{}, false, err
+		}
 		client := c.client
 		proxyID := c.ctx.proxyID
 		proxyURL := c.ctx.proxyURL
 		if proxyURL != "" {
 			pc, berr := c.proxyClient()
 			if berr != nil {
-				c.penalizeCurrentProxy("proxy_client_build")
+				c.markCurrentDead("proxy_client_build")
 				c.logProxyDebug("plugin proxy client build failed, rotating", proxyID, berr)
 				if !c.ctx.rotateProxy() {
 					return nil, "", time.Time{}, false, berr
@@ -296,8 +301,8 @@ func (c *pluginHTTPClient) doWithProxyRotation(req *http.Request) (*http.Respons
 		if c.ctx.proxyURL == "" {
 			return nil, "", time.Time{}, true, derr
 		}
-		if reason := structuralPenaltyReason(derr); reason != "" {
-			c.penalizeCurrentProxy(reason)
+		if reason := markDeadReason(derr); reason != "" {
+			c.markCurrentDead(reason)
 		}
 		c.logProxyDebug("plugin proxy attempt failed, rotating", proxyID, derr)
 		if !c.ctx.rotateProxy() {
@@ -306,12 +311,12 @@ func (c *pluginHTTPClient) doWithProxyRotation(req *http.Request) (*http.Respons
 	}
 }
 
-func (c *pluginHTTPClient) penalizeCurrentProxy(reason string) {
-	if c.ctx == nil || c.ctx.penalizeProxy == nil || c.ctx.proxyURL == "" {
+func (c *pluginHTTPClient) markCurrentDead(reason string) {
+	if c.ctx == nil || c.ctx.markDead == nil || c.ctx.proxyURL == "" {
 		return
 	}
-	if c.ctx.penalizeProxy(c.ctx.proxyURL, reason) && c.ctx.logger != nil {
-		c.ctx.logger.Debug("proxy penalized", "proxy_id", c.ctx.proxyID, "reason", reason)
+	if c.ctx.markDead(c.ctx.proxyURL, reason) && c.ctx.logger != nil {
+		c.ctx.logger.Debug("proxy marked dead", "proxy_id", c.ctx.proxyID, "reason", reason)
 	}
 }
 
@@ -664,12 +669,13 @@ func pushTransportErr(L *lua.LState, err error, direct bool) {
 // substrings: DNS resolution, address parsing, TLS identity, refused
 // connections. url.Error and net.OpError unwrap to these via errors.As/Is.
 func isStructuralTransport(err error) bool {
-	return structuralPenaltyReason(err) != ""
+	return markDeadReason(err) != ""
 }
 
-// structuralPenaltyReason names the structural fault for penalty reporting.
-// Empty means the error carries no proxy blame.
-func structuralPenaltyReason(err error) string {
+// markDeadReason names the proxy fault for dead-mark reporting. Empty
+// means the error carries no proxy blame. Only first-byte failures
+// qualify: the proxy owns the leg until headers arrive.
+func markDeadReason(err error) string {
 	var dns *net.DNSError
 	if errors.As(err, &dns) {
 		return "dns_resolution"
@@ -682,8 +688,18 @@ func structuralPenaltyReason(err error) string {
 	if errors.As(err, &cert) {
 		return "tls_certificate_verification"
 	}
+	var header tls.RecordHeaderError
+	if errors.As(err, &header) {
+		return "tls_handshake"
+	}
 	if errors.Is(err, syscall.ECONNREFUSED) {
 		return "connection_refused"
+	}
+	if errors.Is(err, syscall.ECONNRESET) {
+		return "connection_reset"
+	}
+	if errors.Is(err, io.EOF) {
+		return "early_eof"
 	}
 	return ""
 }

@@ -237,21 +237,21 @@ func (s *Service) KnownIDs() ([]string, error) {
 	return ids, nil
 }
 
-// PenalizeProxy forces a failure penalty on the proxy with the given
-// canonical URL. Unknown URLs return false. The library owns scoring,
-// dead status and revival; the penalty persists through the bbolt cache.
-func (s *Service) PenalizeProxy(url, reason string) bool {
+// MarkDead excludes the proxy with the given canonical URL until an
+// escalating ban expires. Unknown URLs return false. The library owns
+// dead status and revival; the mark persists through the bbolt cache.
+// No lock taken: library merge preserves concurrent marks, so the hot
+// path never waits on background refresh.
+func (s *Service) MarkDead(url, reason string) bool {
 	if s == nil || s.pool == nil || url == "" {
 		return false
 	}
-	s.refreshMu.Lock()
-	defer s.refreshMu.Unlock()
-	penalized := s.pool.PenalizeProxy(url, reason)
-	if !penalized {
+	marked := s.pool.MarkDead(url, reason)
+	if !marked {
 		return false
 	}
 	if err := s.cache.takeError(); err != nil && s.log != nil {
-		s.log.Warn("proxy penalize persistence failed", "error", err)
+		s.log.Warn("proxy mark dead persistence failed", "error", err)
 	}
 	return true
 }

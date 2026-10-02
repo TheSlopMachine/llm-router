@@ -151,7 +151,7 @@ func (s *Service) handlerCallRouted(
 		geoban:              s.geoban,
 		disableCredential:   s.credDisabler,
 		disableProvider:     s.provDisabler,
-		penalizeProxy:       s.penalizeProxy,
+		markDead:            s.markDead,
 		dumpDir:             s.dumpDir,
 		goCtx:               goCtx,
 	}
@@ -474,9 +474,7 @@ func (s *Service) luaCallError(rec *PluginRecord, typeKey string, L *lua.LState,
 		cause = callErr.Error()
 	}
 	if goCtx := L.Context(); goCtx != nil {
-		if ctxErr := goCtx.Err(); ctxErr != nil && ctxErr != context.Canceled {
-			cause = "cancelled: " + ctxErr.Error()
-		} else if ctxErr != nil {
+		if ctxErr := goCtx.Err(); ctxErr != nil {
 			cause = "cancelled: " + ctxErr.Error()
 		}
 	}

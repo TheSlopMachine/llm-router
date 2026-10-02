@@ -27,7 +27,13 @@ func main() {
 		shared.Stepf("Running go vet (%s)...", patterns[i])
 		cmd := exec.Command("go", "vet", patterns[i])
 		cmd.Dir = dir
-		cmd.Env = shared.EnvWithoutGowork()
+		// The scripts module stays hermetic (never in go.work): vet it
+		// with the workspace off. The root module vets inside it.
+		env := shared.EnvWithoutGowork()
+		if dir != root {
+			env = shared.EnvWith([]string{"GOWORK=off"})
+		}
+		cmd.Env = env
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {

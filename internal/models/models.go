@@ -41,7 +41,12 @@ import (
 // over discovered catalog rows in GetModelInfos.
 // 0.3.7 adds the overloaded error type for congested backends: distinct
 // code, same-credential proxy retry, no marks or cooldown.
-const CurrentVersion = "0.3.7"
+// 0.3.8 adds manual proxy exclusion: structural proxy faults mark the
+// proxy dead on an escalating schedule without touching probe scoring.
+// 0.3.9 adds the request cache_key: a stable cross-turn prefix-cache
+// partition (model, first message, sorted tool names). Old routers serve
+// no cache_key and plugins fall back to their own hash.
+const CurrentVersion = "0.3.9"
 
 // ─────────────────────────────────────────────
 // ModelId
