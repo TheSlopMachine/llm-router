@@ -3,11 +3,8 @@
   import { api } from '../../lib/api'
   import { getErrorMessage } from '../../lib/errors'
   import { t } from '../../lib/i18n.svelte'
-  import type { ModalButton, Provider, UINode } from '../../lib/types'
-  import DynamicForm, { collectButtons, buttonVariant } from '../domain/DynamicForm.svelte'
+  import type { ModalButton, Provider } from '../../lib/types'
   import TextEdit from '../ui/controls/TextEdit.svelte'
-  import TextArea from '../ui/controls/TextArea.svelte'
-  import Select from '../ui/controls/Select.svelte'
   import Text from '../ui/controls/Text.svelte'
   import VStack from '../ui/layout/VStack.svelte'
 
@@ -23,127 +20,57 @@
     closeModal: () => void
   }>()
 
-  let types = $state<string[]>([])
-  let typeKey = $state('custom')
   let name = $state('')
-  let qualifier = $state('')
+  let baseURL = $state('')
   let iconURL = $state('')
-  let configNodes = $state<UINode[] | null>(null)
-  let configValues = $state<Record<string, unknown>>({})
-  let rawConfig = $state('{}')
-  let useRawConfig = $state(false)
   let creating = $state(false)
   let error = $state('')
 
   const isEdit = $derived(!!editingProvider)
 
-  onMount(async (): Promise<void> => {
-    try {
-      types = await api.providers.adapterTypes()
-    } catch (e) {
-      error = getErrorMessage(e)
-    }
+  onMount((): void => {
     if (editingProvider) {
       name = editingProvider.name ?? ''
-      typeKey = editingProvider.type_key || editingProvider.type || 'custom'
-      qualifier = editingProvider.qualifier ?? ''
+      const cfg = (editingProvider.config ?? {}) as Record<string, unknown>
+      const fromConfig = typeof cfg.base_url === 'string' ? cfg.base_url : ''
+      baseURL = fromConfig || editingProvider.base_url || ''
       iconURL = editingProvider.icon_url ?? ''
-      configValues = { ...(editingProvider.config ?? {}) }
-      if (typeKey === 'custom' && editingProvider.base_url) {
-        configValues = { ...configValues, base_url: editingProvider.base_url }
-      }
     }
-    await loadConfigSchema()
     syncButtons()
   })
 
-  async function loadConfigSchema(): Promise<void> {
-    configNodes = null
-    useRawConfig = false
-    if (!typeKey || typeKey === 'virtual') return
-    try {
-      const schema = await api.providers.configSchemaForType(typeKey)
-      if (schema.nodes) {
-        configNodes = schema.nodes
-      } else {
-        useRawConfig = true
-        rawConfig = JSON.stringify(configValues, null, 2)
-      }
-    } catch (e) {
-      error = getErrorMessage(e)
-      useRawConfig = true
-    }
-  }
-
-  async function onTypeChange(next: string): Promise<void> {
-    typeKey = next
-    configValues = {}
-    await loadConfigSchema()
-    syncButtons()
-  }
-
   function syncButtons(): void {
-    const tree = collectButtons(configNodes ?? [])
-    // Config trees carry no server-side steps: any tree button saves the
-    // whole form, its action is display-only.
-    const buttons: ModalButton[] = tree.map((n) => ({
-      label: n.text || (isEdit ? t('Save') : t('Add')),
-      variant: buttonVariant(n),
-      onClick: save,
-      disabled: !name.trim() || creating,
-      loading: creating,
-    }))
-    if (!tree.some((n) => (n.form_action || 'submit') === 'cancel')) {
-      buttons.push({ label: t('Cancel'), variant: 'secondary', onClick: closeModal })
-    }
-    if (tree.length === 0) {
-      buttons.push({
+    updateButtons([
+      {
         label: isEdit ? t('Save') : t('Add'),
         variant: 'primary',
         onClick: save,
-        disabled: !name.trim() || creating,
+        disabled: !name.trim() || !baseURL.trim() || creating,
         loading: creating,
-      })
-    }
-    updateButtons(buttons)
-  }
-
-  function collectConfig(): Record<string, unknown> | null {
-    if (useRawConfig) {
-      try {
-        return JSON.parse(rawConfig) as Record<string, unknown>
-      } catch {
-        error = t('Config is not valid JSON')
-        return null
-      }
-    }
-    return { ...configValues }
+      },
+      { label: t('Cancel'), variant: 'secondary', onClick: closeModal },
+    ])
   }
 
   async function save(): Promise<void> {
-    if (!name.trim()) return
+    if (!name.trim() || !baseURL.trim()) return
     creating = true
     error = ''
     syncButtons()
     try {
-      const config = collectConfig()
-      if (config === null) {
-        creating = false
-        syncButtons()
-        return
-      }
+      const trimmedBase = baseURL.trim()
       if (editingProvider) {
+        const cfg = { ...((editingProvider.config ?? {}) as Record<string, unknown>), base_url: trimmedBase }
         await api.providers.updateInstance(editingProvider.id, {
           name: name.trim(),
-          config,
+          config: cfg,
           icon_url: iconURL.trim()
         })
       } else {
         await api.providers.createInstance({
           name: name.trim(),
-          type_key: typeKey,
-          qualifier: qualifier.trim() || undefined,
-          config,
+          type_key: 'custom',
+          config: { base_url: trimmedBase },
           icon_url: iconURL.trim() || undefined
         })
       }
@@ -161,17 +88,6 @@
     <div class="error-msg">{error}</div>
   {/if}
 
-  {#if !isEdit}
-    <VStack gap={1}>
-      <Text size="sm" weight="medium">{t('Type')} *</Text>
-      <Select
-        value={typeKey}
-        options={types.map((t) => ({ value: t, label: t }))}
-        onchange={onTypeChange}
-      />
-    </VStack>
-  {/if}
-
   <VStack gap={1}>
     <Text size="sm" weight="medium">{t('Name')} *</Text>
     <TextEdit
@@ -182,26 +98,16 @@
     />
   </VStack>
 
-  {#if !isEdit && typeKey !== 'custom' && typeKey !== 'virtual'}
-    <VStack gap={1}>
-      <Text size="sm" weight="medium">{t('Qualifier')} ({t('optional')})</Text>
-      <TextEdit
-        id="provider-qualifier"
-        bind:value={qualifier}
-        hint="eu"
-      />
-      <Text size="sm" tone="soft">{t('Distinguishes multiple providers of the same type')}</Text>
-    </VStack>
-  {/if}
-
-  {#if configNodes}
-    <DynamicForm nodes={configNodes} bind:values={configValues} busy={creating} />
-  {:else if useRawConfig}
-    <VStack gap={1}>
-      <Text size="sm" weight="medium">{t('Config JSON')}</Text>
-      <TextArea id="provider-config" minRows={5} bind:value={rawConfig} />
-    </VStack>
-  {/if}
+  <VStack gap={1}>
+    <Text size="sm" weight="medium">{t('Base URL')} *</Text>
+    <TextEdit
+      id="provider-base-url"
+      bind:value={baseURL}
+      hint="https://api.example.com/v1"
+      onchange={syncButtons}
+    />
+    <Text size="sm" tone="soft">{t('OpenAI-compatible endpoint details.')}</Text>
+  </VStack>
 
   <VStack gap={1}>
     <Text size="sm" weight="medium">{t('Icon URL')} ({t('optional')})</Text>

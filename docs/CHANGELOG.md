@@ -1,5 +1,9 @@
 # Changelog
 
+## Done (2026-10-02, v0.3.10)
+
+- Restricted manual provider creation to `custom` (OpenAI-compatible) rows: `POST /dashboard/providers` rejected other type keys, the Type picker and qualifier input left the New Provider wizard, and the `adapter-types` and `type-schemas` endpoints with their `TypeKeys`/`IsCreatableTypeKey` helpers were removed. Plugin type registration and core seeding stayed unchanged.
+
 ## Done (2026-10-01, v0.3.9)
 
 - Added the request `cache_key`: a stable cross-turn prefix-cache partition (model, first message, sorted tool names) so consecutive turns of one conversation reuse the upstream prefix cache. Request tables carry it; old routers omit it.

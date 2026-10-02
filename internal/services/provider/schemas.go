@@ -3,34 +3,10 @@ package provider
 import (
 	"errors"
 	"fmt"
-	"sort"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 )
-
-// TypeKeys returns every known provider type: Go backends plus enabled
-// Lua plugin type keys.
-func (s *Service) TypeKeys() []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, k := range s.GoAdapterTypes() {
-		if !seen[k] {
-			seen[k] = true
-			out = append(out, k)
-		}
-	}
-	if s.luaSvc != nil {
-		for _, k := range s.luaSvc.Registered() {
-			if !seen[k] {
-				seen[k] = true
-				out = append(out, k)
-			}
-		}
-	}
-	sort.Strings(out)
-	return out
-}
 
 // IsTypeAvailable reports whether a backend serves typeKey right now:
 // a built-in Go adapter or a currently registered Lua plugin type.
@@ -56,13 +32,6 @@ func (s *Service) SupportsAuthFlow(typeKey string) bool {
 		return false
 	}
 	return s.luaSvc.HasHandler(typeKey, "auth_initiate")
-}
-
-// IsCreatableTypeKey reports whether users may create provider rows of a
-// type through the UI. The agents singleton is core-managed and excluded;
-// every other known type stays creatable (qualifier rows included).
-func IsCreatableTypeKey(typeKey string) bool {
-	return typeKey != TypeVirtual
 }
 
 // ConfigSchema returns the config UI tree for a type key.

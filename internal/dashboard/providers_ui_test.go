@@ -16,7 +16,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
-	virtualadapter "github.com/TheSlopMachine/llm-router/providers/virtual"
 )
 
 func newProvidersUIHandler(t *testing.T) (*Handler, *provider.Service, *db.DB) {
@@ -236,34 +235,25 @@ func TestProviderSchemasHidden404(t *testing.T) {
 	}
 }
 
-func TestAdapterTypesCarryCreatableFlag(t *testing.T) {
-	h, svc, database := newProvidersUIHandler(t)
-	seedUIRows(t, svc, database)
-	svc.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
-	svc.RegisterGoAdapter(&virtualadapter.Adapter{})
+func TestProvidersCreateAllowsOnlyCustom(t *testing.T) {
+	h, svc, _ := newProvidersUIHandler(t)
+	svc.RegisterGoAdapter(testutil.NewMockAdapter("custom"))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/llm-router/dashboard/adapter-types", nil)
-	rec := httptest.NewRecorder()
-	h.apiAdapterTypes(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d, body %s", rec.Code, rec.Body.String())
+	call := func(body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/llm-router/dashboard/providers", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		h.apiProvidersCreate(rec, req)
+		return rec.Code
 	}
-	var out []map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode adapter-types: %v", err)
+
+	if code := call(`{"name":"Mine","type_key":"custom","config":{"base_url":"https://api.example.com/v1"}}`); code != http.StatusOK {
+		t.Errorf("custom create: got %d, want 200", code)
 	}
-	byKey := map[string]any{}
-	for _, e := range out {
-		k, _ := e["type_key"].(string)
-		byKey[k] = e["creatable"]
+	if code := call(`{"name":"Zen 2","type_key":"zen","config":{}}`); code != http.StatusBadRequest {
+		t.Errorf("plugin type create: got %d, want 400", code)
 	}
-	if byKey["virtual"] != false {
-		t.Errorf("virtual must be non-creatable: %v", byKey)
-	}
-	for _, k := range []string{"mock", "zen"} {
-		if byKey[k] != true {
-			t.Errorf("type %q must be creatable: %v", k, byKey)
-		}
+	if code := call(`{"name":"V","type_key":"virtual","config":{}}`); code != http.StatusBadRequest {
+		t.Errorf("virtual create: got %d, want 400", code)
 	}
 }
 

@@ -111,24 +111,6 @@ func (h *Handler) apiProvidersList(w http.ResponseWriter, r *http.Request) {
 	h.json(w, http.StatusOK, out)
 }
 
-// apiAdapterTypes lists available provider type keys (Go backends + Lua plugins).
-// @Summary      List provider types
-// @Description  Returns all registered provider type keys with UI creation flags.
-// @Tags         Providers
-// @Produce      json
-// @Success      200 {array} object{type_key=string,creatable=bool}
-// @Failure      401 {object} models.ErrorResponse
-// @Security     SessionAuth
-// @Router       /api/llm-router/dashboard/adapter-types [get]
-func (h *Handler) apiAdapterTypes(w http.ResponseWriter, r *http.Request) {
-	keys := h.providerSvc.TypeKeys()
-	out := make([]map[string]any, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, map[string]any{"type_key": k, "creatable": provider.IsCreatableTypeKey(k)})
-	}
-	h.json(w, http.StatusOK, out)
-}
-
 // apiProvidersStats returns aggregated statistics for all providers
 // @Summary      Get provider statistics
 // @Description  Returns aggregated statistics for all providers (cached model count, credential count). Never fetches from upstreams.
@@ -166,9 +148,11 @@ func (h *Handler) apiProvidersStats(w http.ResponseWriter, r *http.Request) {
 	h.json(w, http.StatusOK, stats)
 }
 
-// apiProvidersCreate creates a new provider instance for any type.
+// apiProvidersCreate creates a new custom (OpenAI-compatible) provider instance.
+// Plugin types are registered by plugins and seeded by the core; users
+// cannot create rows for other types through this endpoint.
 // @Summary      Create provider
-// @Description  Creates a new provider instance for any registered type.
+// @Description  Creates a new custom OpenAI-compatible provider instance.
 // @Tags         Providers
 // @Accept       json
 // @Produce      json
@@ -208,9 +192,13 @@ func (h *Handler) apiProvidersCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if body.TypeKey != provider.TypeCustom {
+		h.jsonErr(w, http.StatusBadRequest, "only custom providers can be created")
+		return
+	}
 
 	inst, err := h.providerSvc.Create(provider.CreateOptions{
-		Name: body.Name, TypeKey: body.TypeKey, Qualifier: body.Qualifier,
+		Name: body.Name, TypeKey: provider.TypeCustom,
 		Config: body.Config, IconURL: body.IconURL,
 	})
 	if err != nil {
@@ -383,56 +371,6 @@ func (h *Handler) apiProviderConfigSchema(w http.ResponseWriter, r *http.Request
 		return
 	}
 	nodes, err := h.providerSvc.ConfigSchema(p.TypeKey)
-	if err != nil {
-		h.jsonErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if nodes == nil {
-		h.json(w, http.StatusOK, map[string]any{"nodes": nil, "fallback": "raw_json"})
-		return
-	}
-	h.json(w, http.StatusOK, map[string]any{"nodes": nodes})
-}
-
-// apiTypeSchemas returns config or credential UI trees for a type key.
-// Used when creating a provider before any instance exists.
-// @Summary      Get type schemas
-// @Description  Returns config or credential UI trees for a provider type key.
-// @Tags         Providers
-// @Produce      json
-// @Param        kind query string true "Schema kind: config or credential"
-// @Param        type_key query string true "Provider type key"
-// @Success      200 {object} object{nodes=[]models.UINode,fallback=string}
-// @Failure      400 {object} models.ErrorResponse
-// @Failure      401 {object} models.ErrorResponse
-// @Security     SessionAuth
-// @Router       /api/llm-router/dashboard/type-schemas [get]
-func (h *Handler) apiTypeSchemas(w http.ResponseWriter, r *http.Request) {
-	kind := r.URL.Query().Get("kind")
-	typeKey := r.URL.Query().Get("type_key")
-	if typeKey == "" {
-		h.jsonErr(w, http.StatusBadRequest, "type_key is required")
-		return
-	}
-	var nodes []models.UINode
-	var err error
-	switch kind {
-	case "config":
-		var n []*models.UINode
-		n, err = h.providerSvc.ConfigSchema(typeKey)
-		for _, node := range n {
-			nodes = append(nodes, *node)
-		}
-	case "credential":
-		var n []*models.UINode
-		n, err = h.providerSvc.CredentialSchema(typeKey)
-		for _, node := range n {
-			nodes = append(nodes, *node)
-		}
-	default:
-		h.jsonErr(w, http.StatusBadRequest, "kind must be config or credential")
-		return
-	}
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return

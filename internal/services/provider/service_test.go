@@ -358,23 +358,6 @@ func TestProviderService_MigratesLegacyCustom(t *testing.T) {
 	}
 }
 
-func TestProviderService_TypeKeysIncludesGoAdapters(t *testing.T) {
-	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
-	svc.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
-
-	keys := svc.TypeKeys()
-	found := false
-	for _, k := range keys {
-		if k == "mock" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("type keys missing mock: %v", keys)
-	}
-}
-
 func TestProviderService_CustomSchemas(t *testing.T) {
 	database := testutil.SetupTestDB(t)
 	svc := provider.NewService(database)
@@ -571,17 +554,6 @@ llm_router.register("avail-type", {
 	}
 	if !svc.IsTypeAvailable("avail-type") {
 		t.Error("reinstalled plugin type must be available again")
-	}
-}
-
-func TestIsCreatableTypeKey(t *testing.T) {
-	if provider.IsCreatableTypeKey("virtual") {
-		t.Error("virtual type must not be creatable through the UI")
-	}
-	for _, k := range []string{"custom", "opencode-zen", "google", "mock"} {
-		if !provider.IsCreatableTypeKey(k) {
-			t.Errorf("type %q must stay creatable", k)
-		}
 	}
 }
 

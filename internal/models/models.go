@@ -1050,7 +1050,9 @@ type ProviderStats struct {
 	CredentialCount int `json:"credential_count" example:"2"`
 }
 
-// ProviderInstanceCreateRequest is the generic create body for any provider type.
+// ProviderInstanceCreateRequest is the create body for custom providers.
+// TypeKey must be "custom"; Qualifier is ignored by the dashboard handler
+// and kept only for backward compatibility with older clients.
 type ProviderInstanceCreateRequest struct {
 	Name      string         `json:"name"`
 	TypeKey   string         `json:"type_key"`

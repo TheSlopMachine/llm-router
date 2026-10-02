@@ -82,7 +82,7 @@ export const api = {
     create: (payload: { name: string; base_url: string; icon_url?: string }) =>
       apiCall('post', '/api/llm-router/dashboard/providers', { body: payload as unknown as never }),
 
-    createInstance: (payload: { name: string; type_key: string; qualifier?: string; config?: Record<string, unknown>; icon_url?: string }) =>
+    createInstance: (payload: { name: string; type_key: string; config?: Record<string, unknown>; icon_url?: string }) =>
       apiCall('post', '/api/llm-router/dashboard/providers', { body: payload as unknown as never }),
 
     update: (id: string, payload: { name: string; base_url: string; icon_url?: string }) =>
@@ -93,11 +93,6 @@ export const api = {
 
     delete: (id: string) =>
       apiCall('delete', `/api/llm-router/dashboard/providers/${id}` as '/api/llm-router/dashboard/providers/{id}'),
-
-    adapterTypes: async (): Promise<string[]> => {
-      const raw = (await apiCall('get', '/api/llm-router/dashboard/adapter-types')) as unknown as Array<{ type_key: string; creatable: boolean }>
-      return raw.filter((t) => t.creatable).map((t) => t.type_key)
-    },
 
     virtualModels: async (id: string): Promise<ProviderVMGroup[]> => {
       const res = await fetch(`/api/llm-router/dashboard/providers/${id}/virtual-models`)
@@ -124,9 +119,6 @@ export const api = {
 
     credentialSchema: (id: string): Promise<SchemaResponse> =>
       fetch(`/api/llm-router/dashboard/providers/${encodeURIComponent(id)}/credential-schema`).then(assertOk),
-
-    configSchemaForType: (type_key: string): Promise<SchemaResponse> =>
-      fetch(`/api/llm-router/dashboard/type-schemas?kind=config&type_key=${encodeURIComponent(type_key)}`).then(assertOk),
   },
 
   // Auth wizards (lua UI-tree)
