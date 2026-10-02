@@ -27,6 +27,7 @@ var videoSizePattern = regexp.MustCompile(`^[1-9][0-9]*x[1-9][0-9]*$`)
 // @Accept       json
 // @Produce      json
 // @Param        request body models.VideoGenerationRequest true "Video generation request"
+// @Param        x-api-key header string false "Router token alias for Authorization: Bearer"
 // @Success      202 {object} models.VideoGenerationResponse "Request accepted"
 // @Failure      400 {object} models.OpenAIError "Invalid request"
 // @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
@@ -98,6 +99,7 @@ func validateVideoRequest(req *models.VideoGenerationRequest) error {
 // @Tags         OpenAI API
 // @Produce      json
 // @Param        jobId path string true "Video job ID"
+// @Param        x-api-key header string false "Router token alias for Authorization: Bearer"
 // @Success      200 {object} models.VideoGenerationResponse "Job status"
 // @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
 // @Failure      404 {object} models.OpenAIError "Unknown job"
@@ -126,6 +128,7 @@ func (h *Handler) pollVideo(w http.ResponseWriter, r *http.Request, t *models.Ro
 // @Produce      video/mp4
 // @Param        jobId path string true "Video job ID"
 // @Param        index query int false "Asset index (default 0)"
+// @Param        x-api-key header string false "Router token alias for Authorization: Bearer"
 // @Success      200 "Video bytes"
 // @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
 // @Failure      404 {object} models.OpenAIError "Unknown job"
@@ -159,9 +162,18 @@ func (h *Handler) videoContent(w http.ResponseWriter, r *http.Request, t *models
 	_, _ = w.Write(resp.Video)
 }
 
-// listVideoModels handles GET /v1/videos/models - global, independent of
-// token rules. Entries derive from the cached model catalog filtered to
+// listVideoModels handles GET /v1/videos/models - token-authenticated
+// listing. Entries derive from the cached model catalog filtered to
 // the videos endpoint; capability details stay null when unreported.
+// @Summary      List video models
+// @Description  Lists models serving the videos endpoint as provider/model ids.
+// @Tags         OpenAI API
+// @Produce      json
+// @Param        x-api-key header string false "Router token alias for Authorization: Bearer"
+// @Success      200 {object} models.VideoModelsListResponse "Video model list"
+// @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
+// @Router       /v1/videos/models [get]
+// @Security     BearerAuth
 func (h *Handler) listVideoModels(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
 	byFullID := map[string]modelinfo.ModelView{}
 	var entries []models.VideoModel

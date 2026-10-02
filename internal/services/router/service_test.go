@@ -39,7 +39,7 @@ func setupRouterService(t *testing.T) (*Service, *credential.Service, *modelinfo
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 
-	routerSvc := New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), slog.Default())
+	routerSvc := New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), nil, nil, slog.Default())
 
 	return routerSvc, credSvc, modelInfoSvc, mock
 }

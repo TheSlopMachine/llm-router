@@ -27,6 +27,11 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any) error {
 	return nil
 }
 
+// isBodyTooLarge reports an over-limit JSON body for negotiated envelopes.
+func isBodyTooLarge(err error) bool {
+	return errors.Is(err, errBodyTooLarge)
+}
+
 // writeDecodeError maps body decode failures: oversized bodies are 413,
 // everything else keeps the existing 400 shape.
 func (h *Handler) writeDecodeError(w http.ResponseWriter, err error) {

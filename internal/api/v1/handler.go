@@ -43,25 +43,67 @@ type Handler struct {
 	noAuth       bool
 }
 
-// Register mounts all /v1 routes onto mux.
-// Safe endpoints (GET /v1/models) are whitelisted to allow anonymous access.
+// Register mounts all /v1 routes onto mux. Every route requires a valid
+// router token: discovery endpoints included, so anonymous listing can no
+// longer leak provider inventory.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/chat/completions", h.auth(h.chatCompletions, false))
+	mux.HandleFunc("POST /v1/completions", h.auth(h.legacyCompletions, false))
 	mux.HandleFunc("POST /v1/audio/transcriptions", h.auth(h.audioTranscriptions, false))
+	mux.HandleFunc("POST /v1/audio/translations", h.auth(h.audioTranslations, false))
 	mux.HandleFunc("POST /v1/audio/speech", h.auth(h.audioSpeech, false))
 	mux.HandleFunc("POST /v1/images/generations", h.auth(h.imageGenerations, false))
+	mux.HandleFunc("POST /v1/images/edits", h.auth(h.imageEdits, false))
+	mux.HandleFunc("POST /v1/images/variations", h.auth(h.imageVariations, false))
 	mux.HandleFunc("POST /v1/embeddings", h.auth(h.embeddings, false))
+	mux.HandleFunc("POST /v1/moderations", h.auth(h.moderations, false))
 	mux.HandleFunc("POST /v1/videos", h.auth(h.submitVideo, false))
-	mux.HandleFunc("GET /v1/videos/models", h.auth(h.listVideoModels, true))
+	mux.HandleFunc("GET /v1/videos/models", h.auth(h.listVideoModels, false))
 	mux.HandleFunc("GET /v1/videos/{jobId}", h.auth(h.pollVideo, false))
 	mux.HandleFunc("GET /v1/videos/{jobId}/content", h.auth(h.videoContent, false))
 	mux.HandleFunc("POST /v1/messages", h.auth(h.anthropicMessages, false))
-	mux.HandleFunc("GET /v1/models", h.auth(h.listModels, true))
-	mux.HandleFunc("HEAD /v1/models", h.auth(h.listModels, true))
-	mux.HandleFunc("OPTIONS /v1/models", h.auth(h.listModels, true))
-	mux.HandleFunc("GET /v1/models/{model}", h.auth(h.retrieveModel, true))
-	mux.HandleFunc("HEAD /v1/models/{model}", h.auth(h.retrieveModel, true))
-	mux.HandleFunc("OPTIONS /v1/models/{model}", h.auth(h.retrieveModel, true))
+	mux.HandleFunc("POST /v1/messages/count_tokens", h.auth(h.anthropicCountTokens, false))
+	mux.HandleFunc("POST /v1/complete", h.auth(h.anthropicComplete, false))
+	mux.HandleFunc("POST /v1/messages/batches", h.auth(h.createBatch, false))
+	mux.HandleFunc("GET /v1/messages/batches", h.auth(h.listBatches, false))
+	mux.HandleFunc("GET /v1/messages/batches/{batch_id}", h.auth(h.getBatch, false))
+	mux.HandleFunc("GET /v1/messages/batches/{batch_id}/results", h.auth(h.getBatchResults, false))
+	mux.HandleFunc("POST /v1/messages/batches/{batch_id}/cancel", h.auth(h.cancelBatch, false))
+	mux.HandleFunc("DELETE /v1/messages/batches/{batch_id}", h.auth(h.deleteBatch, false))
+	mux.HandleFunc("POST /v1/responses", h.auth(h.createResponse, false))
+	mux.HandleFunc("GET /v1/responses/{response_id}", h.auth(h.getResponse, false))
+	mux.HandleFunc("POST /v1/responses/{response_id}/cancel", h.auth(h.cancelResponse, false))
+	mux.HandleFunc("GET /v1/responses/{response_id}/input_items", h.auth(h.listResponseInputItems, false))
+	mux.HandleFunc("POST /v1/responses/compact", h.auth(h.compactResponse, false))
+	mux.HandleFunc("POST /v1/responses/input_tokens", h.auth(h.countResponseInputTokens, false))
+	mux.HandleFunc("POST /v1/conversations", h.auth(h.createConversation, false))
+	mux.HandleFunc("GET /v1/conversations/{conversation_id}", h.auth(h.getConversation, false))
+	mux.HandleFunc("DELETE /v1/conversations/{conversation_id}", h.auth(h.deleteConversation, false))
+	mux.HandleFunc("GET /v1/conversations/{conversation_id}/items", h.auth(h.listConversationItems, false))
+	mux.HandleFunc("POST /v1/conversations/{conversation_id}/items", h.auth(h.createConversationItems, false))
+	mux.HandleFunc("POST /v1/assistants", h.auth(h.createAssistant, false))
+	mux.HandleFunc("GET /v1/assistants", h.auth(h.listAssistants, false))
+	mux.HandleFunc("GET /v1/assistants/{assistant_id}", h.auth(h.getAssistant, false))
+	mux.HandleFunc("POST /v1/assistants/{assistant_id}", h.auth(h.updateAssistant, false))
+	mux.HandleFunc("DELETE /v1/assistants/{assistant_id}", h.auth(h.deleteAssistant, false))
+	mux.HandleFunc("POST /v1/threads", h.auth(h.createThread, false))
+	mux.HandleFunc("GET /v1/threads/{thread_id}", h.auth(h.getThread, false))
+	mux.HandleFunc("POST /v1/threads/{thread_id}", h.auth(h.updateThread, false))
+	mux.HandleFunc("DELETE /v1/threads/{thread_id}", h.auth(h.deleteThread, false))
+	mux.HandleFunc("POST /v1/threads/{thread_id}/messages", h.auth(h.createThreadMessage, false))
+	mux.HandleFunc("GET /v1/threads/{thread_id}/messages", h.auth(h.listThreadMessages, false))
+	mux.HandleFunc("GET /v1/threads/{thread_id}/messages/{message_id}", h.auth(h.getThreadMessage, false))
+	mux.HandleFunc("POST /v1/threads/{thread_id}/runs", h.auth(h.createRun, false))
+	mux.HandleFunc("GET /v1/threads/{thread_id}/runs", h.auth(h.listRuns, false))
+	mux.HandleFunc("GET /v1/threads/{thread_id}/runs/{run_id}", h.auth(h.getRun, false))
+	mux.HandleFunc("POST /v1/threads/{thread_id}/runs/{run_id}/cancel", h.auth(h.cancelRun, false))
+	mux.HandleFunc("POST /v1/threads/{thread_id}/runs/{run_id}/submit_tool_outputs", h.auth(h.submitRunToolOutputs, false))
+	mux.HandleFunc("GET /v1/models", h.auth(h.listModels, false))
+	mux.HandleFunc("HEAD /v1/models", h.auth(h.listModels, false))
+	mux.HandleFunc("OPTIONS /v1/models", h.auth(h.listModels, false))
+	mux.HandleFunc("GET /v1/models/{model}", h.auth(h.retrieveModel, false))
+	mux.HandleFunc("HEAD /v1/models/{model}", h.auth(h.retrieveModel, false))
+	mux.HandleFunc("OPTIONS /v1/models/{model}", h.auth(h.retrieveModel, false))
 	// Fallback for unknown paths - always JSON, never SPA/redirect
 	// Also handles slashed ModelIds like kiro/claude-haiku-4.5 via notFound delegation
 	mux.HandleFunc("/", h.notFoundWithModelFallback)
@@ -74,10 +116,15 @@ func (h *Handler) Register(mux *http.ServeMux) {
 // chatCompletions handles POST /v1/chat/completions
 // @Summary      Create chat completion
 // @Description  Creates a completion for the chat message. Supports both streaming and non-streaming responses.
+// @Description  Derivative-client aliases translate without new paths: random_seed→seed,
+// @Description  reasoning{effort,max_tokens}, options{temperature,top_p,seed,stop,num_predict},
+// @Description  format→response_format. prompt_cache_key, guardrails, think, keep_alive and
+// @Description  top_k are accepted. OpenAI SSE terminates with data: [DONE].
 // @Tags         OpenAI API
 // @Accept       json
 // @Produce      json
 // @Param        request body models.ChatCompletionRequest true "Chat completion request"
+// @Param        x-api-key header string false "Router token alias for Authorization: Bearer"
 // @Success      200 {object} models.ChatCompletionResponse "Successful response"
 // @Failure      400 {object} models.OpenAIError "Invalid request"
 // @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
@@ -93,6 +140,7 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request, t *mod
 		h.writeDecodeError(w, err)
 		return
 	}
+	req.NormalizeAliases()
 	if req.Model == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", strPtr("model"))
 		return
@@ -137,10 +185,12 @@ const maxAudioUploadBytes = 32 << 20
 // @Summary      Create audio transcription
 // @Description  Transcribes an uploaded audio file. Multipart form: file (required),
 // @Description  model (required), language, prompt, response_format (json|text|srt|verbose_json|vtt),
-// @Description  temperature, timestamp_granularities[] (word|segment).
+// @Description  temperature, timestamp_granularities[] (word|segment). The OpenRouter
+// @Description  JSON variant (input_audio{data,format}, base64 or URL) is accepted.
 // @Tags         OpenAI API
 // @Accept       mpfd
 // @Produce      json
+// @Param        x-api-key header string false "Router token alias for Authorization: Bearer"
 // @Success      200 {object} models.TranscriptionResponse "Successful response"
 // @Failure      400 {object} models.OpenAIError "Invalid request"
 // @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
@@ -172,10 +222,14 @@ func (h *Handler) audioTranscriptions(w http.ResponseWriter, r *http.Request, t 
 }
 
 // parseTranscriptionRequest reads the multipart body of
-// POST /v1/audio/transcriptions into a TranscriptionRequest.
+// POST /v1/audio/transcriptions into a TranscriptionRequest. The OpenRouter
+// JSON variant (model plus input_audio{data,format}, data base64 or URL) is
+// accepted by translation: URLs download under the same size cap.
 func parseTranscriptionRequest(r *http.Request) (*models.TranscriptionRequest, error) {
-	ct := r.Header.Get("Content-Type")
-	if !strings.HasPrefix(ct, "multipart/form-data") {
+	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "multipart/form-data") {
+		if strings.HasPrefix(ct, "application/json") {
+			return parseJSONTranscriptionRequest(r)
+		}
 		return nil, fmt.Errorf("Content-Type must be multipart/form-data")
 	}
 	r.Body = http.MaxBytesReader(nil, r.Body, maxAudioUploadBytes)
@@ -275,6 +329,7 @@ func (h *Handler) writeTranscriptionResponse(w http.ResponseWriter, format strin
 // @Tags         OpenAI API
 // @Accept       json
 // @Produce      audio/mpeg
+// @Param        x-api-key header string false "Router token alias for Authorization: Bearer"
 // @Success      200 "Audio stream"
 // @Failure      400 {object} models.OpenAIError "Invalid request"
 // @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
@@ -337,6 +392,7 @@ func (h *Handler) audioSpeech(w http.ResponseWriter, r *http.Request, t *models.
 // @Tags         OpenAI API
 // @Accept       json
 // @Produce      json
+// @Param        x-api-key header string false "Router token alias for Authorization: Bearer"
 // @Success      200 {object} models.ImageGenerationResponse "Successful response"
 // @Failure      400 {object} models.OpenAIError "Invalid request"
 // @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
@@ -389,10 +445,11 @@ func (h *Handler) imageGenerations(w http.ResponseWriter, r *http.Request, t *mo
 // @Summary      Create embeddings
 // @Description  Generates embedding vectors for the input. JSON body: model (required),
 // @Description  input (string or array of strings, required), encoding_format (float|base64),
-// @Description  dimensions.
+// @Description  dimensions (output_dimension alias), output_dtype and truncate accepted.
 // @Tags         OpenAI API
 // @Accept       json
 // @Produce      json
+// @Param        x-api-key header string false "Router token alias for Authorization: Bearer"
 // @Success      200 {object} models.EmbeddingsResponse "Successful response"
 // @Failure      400 {object} models.OpenAIError "Invalid request"
 // @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
@@ -461,39 +518,53 @@ func (h *Handler) embeddings(w http.ResponseWriter, r *http.Request, t *models.R
 // @Description  Anthropic-compatible endpoint. The request is converted to the OpenAI
 // @Description  chat shape, routed normally, and the answer converted back. Supports
 // @Description  streaming (SSE), tools, system prompts, images and tool results.
+// @Description  Document blocks are refused; cache_control, top_k and thinking budgets
+// @Description  are accepted. Errors serialize as {type:error,error:{type,message}} when
+// @Description  anthropic-version is present, OpenAIError otherwise. SSE uses
+// @Description  event: message_start|content_block_delta|message_stop.
 // @Tags         Anthropic API
 // @Accept       json
 // @Produce      json
+// @Param        request body models.AnthropicMessageRequest true "Message request"
+// @Param        anthropic-version header string false "Anthropic API version (accepted, never pinned)"
+// @Param        anthropic-beta header string false "Anthropic beta flags (passthrough)"
+// @Param        x-api-key header string false "Router token alias for Authorization: Bearer"
+// @Success      200 {object} models.AnthropicMessage "Successful response"
+// @Failure      400 {object} models.OpenAIError "Invalid request"
+// @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
+// @Failure      403 {object} models.OpenAIError "Forbidden - model not allowed by token rules"
+// @Failure      502 {object} models.OpenAIError "Bad Gateway - upstream provider error"
+// @Failure      503 {object} models.OpenAIError "Service Unavailable - no credential available"
 // @Router       /v1/messages [post]
 // @Security     BearerAuth
 func (h *Handler) anthropicMessages(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
 	start := time.Now()
 	var req anthropicRequest
 	if err := decodeJSONBody(w, r, &req); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeCompatDecodeError(w, r, err)
 		return
 	}
 	if req.Model == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", strPtr("model"))
+		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", strPtr("model"))
 		return
 	}
 	if req.MaxTokens <= 0 {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'max_tokens'", strPtr("max_tokens"))
+		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'max_tokens'", strPtr("max_tokens"))
 		return
 	}
 	if len(req.Messages) == 0 {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'messages'", strPtr("messages"))
+		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'messages'", strPtr("messages"))
 		return
 	}
 
-	chatReq, err := req.toOpenAI()
+	chatReq, err := anthropicToOpenAI(&req)
 	if err != nil {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
+		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
 		return
 	}
 
 	if deny := authorizeModel(t, chatReq.Model); deny != nil {
-		h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+		h.writeCompatError(w, r, deny.status, deny.code, deny.msg, deny.param)
 		return
 	}
 
@@ -512,9 +583,10 @@ func (h *Handler) anthropicMessages(w http.ResponseWriter, r *http.Request, t *m
 	h.recordRouteMetric(r.Context(), start, chatReq.Model, t, duration, err, usage)
 
 	if err != nil {
-		h.handleRouterError(w, err)
+		h.handleCompatRouterError(w, r, err)
 		return
 	}
+	echoAnthropicVersion(w, r)
 	h.writeJSON(w, http.StatusOK, anthropicFromOpenAI(resp, req.Model))
 }
 
@@ -621,35 +693,25 @@ func (h *Handler) handleStreamWithMetrics(w http.ResponseWriter, r *http.Request
 	h.metrics.RecordRequest(event)
 }
 
-// listModels handles GET /v1/models - global, independent of token rules
+// listModels handles GET /v1/models - token-filtered discovery listing.
+// Entries the token rules deny are omitted silently. With anthropic-version
+// present the same entries serialize in the Anthropic models shape.
+// @Summary      List models
+// @Description  Lists routable models as provider/model ids. TokenRules filter the
+// @Description  listing: denied models are omitted, never error. Dual-serves the
+// @Description  Anthropic models shape when anthropic-version is present.
+// @Tags         OpenAI API
+// @Tags         Anthropic API
+// @Produce      json
+// @Param        anthropic-version header string false "Anthropic API version (accepted, never pinned)"
+// @Param        x-api-key header string false "Router token alias for Authorization: Bearer"
+// @Success      200 {object} models.ModelListResponse "Model list (Anthropic shape when anthropic-version is present)"
+// @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
+// @Router       /v1/models [get]
+// @Security     BearerAuth
 func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
-	// OpenAI canonical fields plus the moderate OpenRouter-style extension set.
-	type modelArchitecture struct {
-		InputModalities  []string `json:"input_modalities,omitempty"`
-		OutputModalities []string `json:"output_modalities,omitempty"`
-		Modality         string   `json:"modality,omitempty"`
-	}
-	type modelEntry struct {
-		ID                  string                 `json:"id"`
-		Object              string                 `json:"object"`
-		Created             int64                  `json:"created"`
-		OwnedBy             string                 `json:"owned_by"`
-		Name                string                 `json:"name,omitempty"`
-		Description         string                 `json:"description,omitempty"`
-		ContextLength       int64                  `json:"context_length,omitempty"`
-		MaxCompletionTokens int64                  `json:"max_completion_tokens,omitempty"`
-		Architecture        *modelArchitecture     `json:"architecture,omitempty"`
-		Reasoning           *models.ModelReasoning `json:"reasoning,omitempty"`
-		SupportedParameters []string               `json:"supported_parameters,omitempty"`
-		Capabilities        []string               `json:"capabilities,omitempty"`
-	}
-	type modelList struct {
-		Object string       `json:"object"`
-		Data   []modelEntry `json:"data"`
-	}
-
-	entryFor := func(p *models.ProviderInstance, mi modelinfo.ModelView) modelEntry {
-		e := modelEntry{
+	entryFor := func(p *models.ProviderInstance, mi modelinfo.ModelView) models.ModelEntry {
+		e := models.ModelEntry{
 			ID:                  p.ID + "/" + mi.Name,
 			Object:              "model",
 			Created:             p.CreatedAt.Unix(),
@@ -662,17 +724,17 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 			SupportedParameters: mi.SupportedParameters,
 		}
 		if len(mi.InputModalities) > 0 || len(mi.OutputModalities) > 0 {
-			arch := &modelArchitecture{
+			arch := &models.ModelArchitecture{
 				InputModalities:  mi.InputModalities,
 				OutputModalities: mi.OutputModalities,
 			}
-			arch.Modality = joinModalities(mi.InputModalities) + "->" + joinModalities(mi.OutputModalities)
+			arch.Modality = models.JoinModalities(mi.InputModalities) + "->" + models.JoinModalities(mi.OutputModalities)
 			e.Architecture = arch
 		}
 		return e
 	}
 
-	var entries []modelEntry
+	var entries []models.ModelEntry
 	// byFullID indexes the already-fetched member views for virtual-model
 	// resolution below: no second lookup pass.
 	byFullID := map[string]modelinfo.ModelView{}
@@ -689,7 +751,7 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 					h.logger.Warn("v1 listModels: model discovery failed", "provider_id", p.ID, "err", err)
 					if p.TypeKey == "custom" {
 						// Compat servers may not implement GET /models — still advertise provider as routable.
-						entries = append(entries, modelEntry{
+						entries = append(entries, models.ModelEntry{
 							ID:      p.ID + "/*",
 							Object:  "model",
 							Created: p.CreatedAt.Unix(),
@@ -700,7 +762,7 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 				}
 				if len(infos) == 0 {
 					if p.TypeKey == "custom" {
-						entries = append(entries, modelEntry{
+						entries = append(entries, models.ModelEntry{
 							ID:      p.ID + "/*",
 							Object:  "model",
 							Created: p.CreatedAt.Unix(),
@@ -765,7 +827,7 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 			wg.Wait()
 			for _, rv := range resolved {
 				a, agg := rv.agent, rv.agg
-				e := modelEntry{
+				e := models.ModelEntry{
 					ID:                  provider.TypeVirtual + "/" + a.ID,
 					Object:              "model",
 					Created:             a.CreatedAt.Unix(),
@@ -779,10 +841,10 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 					Capabilities:        agg.Capabilities,
 				}
 				if len(agg.InputModalities) > 0 || len(agg.OutputModalities) > 0 {
-					e.Architecture = &modelArchitecture{
+					e.Architecture = &models.ModelArchitecture{
 						InputModalities:  agg.InputModalities,
 						OutputModalities: agg.OutputModalities,
-						Modality:         joinModalities(agg.InputModalities) + "->" + joinModalities(agg.OutputModalities),
+						Modality:         models.JoinModalities(agg.InputModalities) + "->" + models.JoinModalities(agg.OutputModalities),
 					}
 				}
 				entries = append(entries, e)
@@ -791,13 +853,72 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, t *models.R
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].ID < entries[j].ID })
 	if entries == nil {
-		entries = []modelEntry{}
+		entries = []models.ModelEntry{}
+	}
+	if t != nil {
+		entries = filterModelsByToken(t, entries)
 	}
 
-	h.writeJSON(w, http.StatusOK, modelList{Object: "list", Data: entries})
+	if isAnthropicStyle(r) {
+		echoAnthropicVersion(w, r)
+		h.writeJSON(w, http.StatusOK, anthropicModelList(entries))
+		return
+	}
+	h.writeJSON(w, http.StatusOK, models.ModelListResponse{Object: "list", Data: entries})
 }
 
-// retrieveModel handles GET /v1/models/{model} - global
+// filterModelsByToken omits entries the token rules deny. Synthetic custom
+// "provider/*" cards survive only under AllowAllModels: a literal wildcard
+// never equals a listed model.
+func filterModelsByToken(t *models.RouterToken, entries []models.ModelEntry) []models.ModelEntry {
+	kept := entries[:0]
+	for _, e := range entries {
+		if t.Rules.Allows(models.ModelId(e.ID)) {
+			kept = append(kept, e)
+		}
+	}
+	if kept == nil {
+		kept = []models.ModelEntry{}
+	}
+	return kept
+}
+
+// anthropicModelList renders model entries in the Anthropic models shape.
+func anthropicModelList(entries []models.ModelEntry) models.AnthropicModelListResponse {
+	out := models.AnthropicModelListResponse{Data: make([]models.AnthropicModelEntry, 0, len(entries))}
+	for _, e := range entries {
+		entry := models.AnthropicModelEntry{Type: "model", ID: e.ID, DisplayName: e.Name}
+		if e.Created > 0 {
+			entry.CreatedAt = time.Unix(e.Created, 0).UTC().Format(time.RFC3339)
+		}
+		out.Data = append(out.Data, entry)
+	}
+	if n := len(out.Data); n > 0 {
+		first, last := out.Data[0].ID, out.Data[n-1].ID
+		out.FirstID, out.LastID = &first, &last
+	}
+	return out
+}
+
+// retrieveModel handles GET /v1/models/{model} - token-filtered lookup.
+// Unknown and token-denied ids both return 404 with the same message, so
+// denied models are indistinguishable from missing ones. With
+// anthropic-version present the card serializes in the Anthropic shape.
+// @Summary      Retrieve model
+// @Description  Retrieves one model card by provider/model id. Unknown or token-denied
+// @Description  ids return 404. Dual-serves the Anthropic model shape when
+// @Description  anthropic-version is present.
+// @Tags         OpenAI API
+// @Tags         Anthropic API
+// @Produce      json
+// @Param        model path string true "Model id (provider/model)"
+// @Param        anthropic-version header string false "Anthropic API version (accepted, never pinned)"
+// @Param        x-api-key header string false "Router token alias for Authorization: Bearer"
+// @Success      200 {object} models.ModelEntry "Model card (Anthropic shape when anthropic-version is present)"
+// @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
+// @Failure      404 {object} models.OpenAIError "Unknown or denied model"
+// @Router       /v1/models/{model} [get]
+// @Security     BearerAuth
 func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
 	modelID := strings.TrimPrefix(r.URL.Path, "/v1/models/")
 	if modelID == "" || modelID == r.URL.Path {
@@ -807,13 +928,17 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, t *model
 	}
 	modelID = strings.TrimSuffix(modelID, "/")
 	if modelID == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "model id is required", strPtr("model"))
+		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "model id is required", strPtr("model"))
 		return
 	}
 	mid := models.ModelId(modelID)
 	providerID, modelName, err := mid.Parse()
 	if err != nil || providerID == "" || modelName == "" {
-		h.writeError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("The model '%s' does not exist", modelID), nil)
+		h.writeCompatError(w, r, http.StatusNotFound, "not_found", fmt.Sprintf("The model '%s' does not exist", modelID), nil)
+		return
+	}
+	if t != nil && !t.Rules.Allows(mid) {
+		h.writeCompatError(w, r, http.StatusNotFound, "not_found", fmt.Sprintf("The model '%s' does not exist", modelID), nil)
 		return
 	}
 	// Check global existence via modelInfo or virtual models
@@ -895,7 +1020,23 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, t *model
 		}
 	}
 	if !exists {
-		h.writeError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("The model '%s' does not exist", modelID), nil)
+		h.writeCompatError(w, r, http.StatusNotFound, "not_found", fmt.Sprintf("The model '%s' does not exist", modelID), nil)
+		return
+	}
+	if isAnthropicStyle(r) {
+		echoAnthropicVersion(w, r)
+		name := ""
+		if virtualAgent != nil {
+			name = virtualAgent.Name
+		}
+		if info != nil && info.DisplayName != "" {
+			name = info.DisplayName
+		}
+		entry := models.AnthropicModelEntry{Type: "model", ID: modelID, DisplayName: name}
+		if created > 0 {
+			entry.CreatedAt = time.Unix(created, 0).UTC().Format(time.RFC3339)
+		}
+		h.writeJSON(w, http.StatusOK, entry)
 		return
 	}
 	out := map[string]any{
@@ -922,7 +1063,7 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, t *model
 			out["architecture"] = map[string]any{
 				"input_modalities":  virtualAgg.InputModalities,
 				"output_modalities": virtualAgg.OutputModalities,
-				"modality":          joinModalities(virtualAgg.InputModalities) + "->" + joinModalities(virtualAgg.OutputModalities),
+				"modality":          models.JoinModalities(virtualAgg.InputModalities) + "->" + models.JoinModalities(virtualAgg.OutputModalities),
 			}
 		}
 		if virtualAgg.Reasoning != nil {
@@ -949,7 +1090,7 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, t *model
 			out["architecture"] = map[string]any{
 				"input_modalities":  info.InputModalities,
 				"output_modalities": info.OutputModalities,
-				"modality":          joinModalities(info.InputModalities) + "->" + joinModalities(info.OutputModalities),
+				"modality":          models.JoinModalities(info.InputModalities) + "->" + models.JoinModalities(info.OutputModalities),
 			}
 		}
 		if info.Reasoning != nil {
@@ -969,8 +1110,7 @@ func (h *Handler) notFound(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) notFoundWithModelFallback(w http.ResponseWriter, r *http.Request) {
 	// Handle slashed ModelIds like kiro/claude-haiku-4.5 which don't match {model} pattern
 	if strings.HasPrefix(r.URL.Path, "/v1/models/") && r.URL.Path != "/v1/models/" {
-		// Delegate to retrieveModel with same auth logic (safe whitelist applies)
-		h.auth(h.retrieveModel, true)(w, r)
+		h.auth(h.retrieveModel, false)(w, r)
 		return
 	}
 	h.notFound(w, r)
@@ -982,47 +1122,26 @@ func (h *Handler) notFoundWithModelFallback(w http.ResponseWriter, r *http.Reque
 
 type authedHandler func(w http.ResponseWriter, r *http.Request, t *models.RouterToken)
 
-// whitelist for safe anonymous access: method -> path -> allow without token
-var safeMethods = map[string]bool{
-	"GET":     true,
-	"HEAD":    true,
-	"OPTIONS": true,
-}
-
-func isSafeWithoutAuth(r *http.Request) bool {
-	if !safeMethods[r.Method] {
-		return false
-	}
-	if r.URL.Path == "/v1/models" {
-		return true
-	}
-	if r.URL.Path == "/v1/videos/models" {
-		return true
-	}
-	if strings.HasPrefix(r.URL.Path, "/v1/models/") {
-		return true
-	}
-	return false
-}
-
-// auth extracts and validates the Bearer token. Safe endpoints allow anonymous access.
-// With NoAuth every request routes with a nil token, skipping validation.
+// auth extracts and validates the router token. Authorization: Bearer
+// llmr_* and the x-api-key: llmr_* alias (Anthropic SDK style) both work on
+// every /v1 route. allowAnonymous stays for the NoAuth-adjacent probes only;
+// production routes pass false.
 func (h *Handler) auth(next authedHandler, allowAnonymous bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if h.noAuth {
 			next(w, r, nil)
 			return
 		}
-		raw := extractBearer(r)
+		raw := extractToken(r)
 
 		// Whitelisted safe paths allow missing token
 		if raw == "" {
-			if allowAnonymous || isSafeWithoutAuth(r) {
+			if allowAnonymous {
 				// Anonymous access - pass nil token (handlers must handle nil)
 				next(w, r, nil)
 				return
 			}
-			h.writeError(w, http.StatusUnauthorized, "invalid_request_error", "You didn't provide an API key. You need to provide your API key in an Authorization header using Bearer auth.", strPtr("Authorization"))
+			h.writeError(w, http.StatusUnauthorized, "invalid_request_error", "You didn't provide an API key. Provide it in an Authorization: Bearer header or an x-api-key header.", strPtr("Authorization"))
 			return
 		}
 
@@ -1044,12 +1163,31 @@ func (h *Handler) auth(next authedHandler, allowAnonymous bool) http.HandlerFunc
 // Helpers
 // ─────────────────────────────────────────────
 
-func extractBearer(r *http.Request) string {
-	v := r.Header.Get("Authorization")
-	if after, ok := strings.CutPrefix(v, "Bearer "); ok {
-		return strings.TrimSpace(after)
+// extractToken reads the router token from Authorization: Bearer or the
+// x-api-key alias. Bearer wins when both are present.
+func extractToken(r *http.Request) string {
+	if v := r.Header.Get("Authorization"); v != "" {
+		if after, ok := strings.CutPrefix(v, "Bearer "); ok {
+			if key := strings.TrimSpace(after); key != "" {
+				return key
+			}
+		}
+	}
+	if v := strings.TrimSpace(r.Header.Get("x-api-key")); v != "" {
+		if after, ok := strings.CutPrefix(v, "Bearer "); ok {
+			return strings.TrimSpace(after)
+		}
+		return v
 	}
 	return ""
+}
+
+// isAnthropicStyle reports whether the request wants Anthropic shapes: the
+// anthropic-version header opts a /v1 route into Anthropic serialization
+// (success and error envelopes, SSE event names). The header value itself
+// is accepted and echoed, never pinned.
+func isAnthropicStyle(r *http.Request) bool {
+	return strings.TrimSpace(r.Header.Get("anthropic-version")) != ""
 }
 
 func (h *Handler) handleRouterError(w http.ResponseWriter, err error) {
@@ -1084,11 +1222,6 @@ func (h *Handler) writeError(w http.ResponseWriter, status int, code, msg string
 }
 
 func strPtr(s string) *string { return &s }
-
-// joinModalities renders OpenRouter-style modality strings: ["text","image"] -> "text+image".
-func joinModalities(mods []string) string {
-	return strings.Join(mods, "+")
-}
 
 func errorTypeForCode(code string) string {
 	return apierrors.ErrorTypeForCode(code)

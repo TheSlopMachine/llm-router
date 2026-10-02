@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Router version: **0.4.0** (`models.CurrentVersion`). A plugin using a feature
+Router version: **0.5.0** (`models.CurrentVersion`). A plugin using a feature
 declares the `@router_version` that introduced it; older routers refuse to
 install it. Routers serve no contract older than **0.3.0**: plugins declaring
 `0.2.x` and below fail install and need reissue.
@@ -32,6 +32,7 @@ means `.0`, one leading `v` allowed); anything else fails install.
 | 0.3.7 | `overloaded` error type for congested backends (wire `overloaded`, 503); same-credential proxy retry within the route budget, no marks or cooldown; unary JSON errors carry `Retry-After` when the router knows a wait time |
 | 0.3.9 | request tables carry `cache_key`: stable cross-turn prefix-cache partition (model, first message, sorted tool names); `"prefix-boot"` for empty histories; old routers omit it |
 | 0.4.0 | `generate_video` / `poll_video` / `video_content` handlers serving `POST /v1/videos`, `GET /v1/videos/{jobId}`, `GET /v1/videos/{jobId}/content`; `videos` endpoint in `ModelInfo.endpoints`; router-side job rows map local IDs to upstream jobs |
+| 0.5.0 | `moderate` handler serving `POST /v1/moderations`; `image_b64` / `image_name` / `mask_b64` `generate_image` request fields serving `POST /v1/images/edits` and `POST /v1/images/variations` (old plugins ignore the extra fields) |
 
 ## Responsibility split
 
@@ -125,6 +126,7 @@ llm_router.register_proxy_source(name, {
 | `speech` | no | `(ctx, credential, request)` | `(result, err)` |
 | `generate_image` | no | `(ctx, credential, request)` | `(result, err)` |
 | `embed` | no | `(ctx, credential, request)` | `(result, err)` |
+| `moderate` | no | `(ctx, credential, request)` | `(result, err)` |
 | `generate_video` | no | `(ctx, credential, request)` | `(result, err)` |
 | `poll_video` | no | `(ctx, credential, request)` | `(result, err)` |
 | `video_content` | no | `(ctx, credential, request)` | `(result, err)` |
@@ -306,11 +308,29 @@ format in `format`; the response Content-Type follows it, not the request.
 | `n` | number? | 1..10, when positive |
 | `size` / `quality` / `style` | string? | client's values, when set |
 | `response_format` | string? | `url` or `b64_json` |
+| `image_b64` | string? | base64 source image for edits/variations, when set |
+| `image_name` | string? | uploaded file name for logging, when set |
+| `mask_b64` | string? | base64 edit mask (edits only), when set |
 
 Each `data` entry carries `b64_json` or `url` (or both); empty `data` is
 a plugin crash. The client's `response_format` is a preference: base64-only
 upstreams may return `b64_json` for a `url` request. `created` defaults to
-now when absent.
+now when absent. Plugins predating `image_b64` ignore the extra fields and
+serve generations; edits route to them as prompt generations.
+
+`moderate(ctx, credential, request)` → moderation table:
+
+| Field | Type | Notes |
+|---|---|---|
+| `model` / `model_name` | string | full id / bare name |
+| `input` | array of strings | one verdict per entry, order preserved |
+
+Return `{ id?, model?, results }`: one result per input in order
+(`results` length mismatch is a plugin crash); each result carries
+`flagged` (boolean), `categories` (name→boolean) and `category_scores`
+(name→number). Missing `id`/`model` default to the router's (`modr_*`,
+request model). Providers without this handler report
+`endpoint_not_supported` on `POST /v1/moderations`.
 
 `embed(ctx, credential, request)` → embeddings table:
 

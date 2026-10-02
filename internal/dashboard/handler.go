@@ -1,4 +1,34 @@
 // Package dashboard serves the admin SPA and its backing JSON API.
+//
+// @title        llm-router API
+// @version      0.5.0
+// @description  OpenAI-compatible plus Anthropic-compatible LLM routing gateway.
+// @description  Public AI surface (/v1, BearerAuth or x-api-key alias):
+// @description  chat/completions, completions, embeddings, images/generations,
+// @description  images/edits, images/variations, audio/speech,
+// @description  audio/transcriptions (multipart or JSON input_audio),
+// @description  audio/translations, moderations, videos submit/poll/content,
+// @description  messages, messages/count_tokens, messages/batches, complete,
+// @description  models list/retrieve (TokenRules-filtered; Anthropic shape
+// @description  when anthropic-version is present), responses (+cancel,
+// @description  input_items, compact, input_tokens), conversations (+items),
+// @description  assistants, threads (+messages, runs, cancel,
+// @description  submit_tool_outputs). Derivative-client aliases (Mistral
+// @description  random_seed/output_dimension, Ollama options/format,
+// @description  OpenRouter reasoning envelope) translate at the edge; no
+// @description  separate paths. Deprecated upstream flags are ignored: prior
+// @description  generation endpoints stay first-class, never deprecated:true.
+// @description  Dashboard surface (/api/llm-router, SessionAuth) is unchanged.
+//
+// @securityDefinitions.apikey BearerAuth
+// @in                          header
+// @name                        Authorization
+// @description                 Router token as "Bearer llmr_*".
+//
+// @securityDefinitions.apikey SessionAuth
+// @in                          cookie
+// @name                        llmr_session
+// @description                 Dashboard login session cookie.
 package dashboard
 
 import (

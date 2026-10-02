@@ -15,6 +15,8 @@ internal/services/
   provider/              ProviderInstance CRUD (all types, one path)
   credential/            credential pool, usage stats
   virtual/               virtual models (fall-through lists + instruction)
+  responses/             router-side compat records (responses, conversations, assistants, threads, messages, runs)
+  batches/               router-side Anthropic message batches (entries + JSONL-ready results)
   luaplugin/             Lua execution core: manifest, sandbox, HTTP+SSRF, storage, model_specs merge
   pluginrepo/            plugin store: single-URL index repos (repo URL or direct index.json, files resolved against the index directory); code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
   modelinfo/             model metadata cache (1h TTL)
@@ -34,7 +36,7 @@ internal/httpkit/        shared transport helpers (SSE headers)
 internal/errors/         domain sentinels + MapUpstream + ToAPIError
 internal/repository/     bbolt buckets
 internal/dashboard/      admin REST API (providers, tokens, credentials + refresh, models, virtual-models, metrics, plugins, repos, config, data export/import/clear, doctor, proxy status/refresh, geo bans)
-internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/messages, /v1/models list + retrieve, /v1/videos submit + poll + content + models, audio/transcriptions, audio/speech, images/generations, embeddings
+internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/completions, /v1/messages (+count_tokens, +batches, /v1/complete), /v1/models list + retrieve (TokenRules-filtered, Anthropic dual shape), /v1/videos submit + poll + content + models, audio/transcriptions (+JSON variant)/translations/speech, images/generations/edits/variations, embeddings, moderations, responses (+cancel/input_items/compact/input_tokens) + conversations (+items), assistants, threads (+messages/runs/cancel/submit_tool_outputs)
 internal/models/         shared wire types
 internal/config/         Config struct
 internal/adapters/generic/ built-in custom backend (Go)
@@ -192,7 +194,8 @@ Live buckets (`internal/db/db.go`): `meta`, `admin`, `tokens`,
 `token_index`, `provider_instances`, `credentials`, `plugins`,
 `plugin_repos`, `plugin_storage`, `auth`, `sessions`, `metrics`,
 `virtual_models`, `router_configuration`, `model_overrides`, `model_infos`,
-`proxy_cache_v1`, `exhausted`, `geo_bans`, `video_jobs`. Legacy `providers`,
+`proxy_cache_v1`, `exhausted`, `geo_bans`, `video_jobs`, `responses`,
+`message_batches`. Legacy `providers`,
 `custom_providers`, `model_info`
 remain defined but are not created; `EnsureSeeded` migrates them.
 
@@ -209,9 +212,18 @@ reason; anything else fails. Exit 0 means clean (skips allowed).
 ## Adding an endpoint
 
 1. `models`: `Endpoint*` constant + `SupportsEndpoint` coverage.
-2. `provider`: capability interface (`Transcriber` / `Speaker` / `ImageGenerator` / `Embedder` / `VideoGenerator`) for Go backends.
+2. `provider`: capability interface (`Transcriber` / `Speaker` / `ImageGenerator` / `Embedder` / `Moderator` / `VideoGenerator`) for Go backends.
 3. `luaplugin`: `Handler*` constant in `handler_names.go` (+ sandbox
    registration + `callAndDecode` wiring in `decode.go`).
 4. `router`: resolve + capability + pool call (see `route.go`).
 5. `api/v1`: handler + `authorizeModel` + `recordRouteMetric`.
 6. Plugin contract: extend `docs/PLUGIN-API.md` in the same change.
+
+Edge-only shims (completions, translations, responses, assistants,
+threads, runs, batches, legacy complete) map onto the chat pipeline in
+`router/` with no new plugin handler: they skip step 3 and persist async
+state in `responses` / `message_batches` (see `responses/service.go`,
+`batches/service.go`). Auth accepts `Authorization: Bearer` and the
+`x-api-key` alias on every `/v1` route; the `anthropic-version` header
+selects the Anthropic success/error envelope via `writeCompatError` /
+`handleCompatRouterError`.

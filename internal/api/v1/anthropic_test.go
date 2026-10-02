@@ -24,7 +24,7 @@ func TestAnthropicToOpenAI_Basic(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &req); err != nil {
 		t.Fatal(err)
 	}
-	chat, err := req.toOpenAI()
+	chat, err := anthropicToOpenAI(&req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestAnthropicToOpenAI_ToolRoundTrip(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &req); err != nil {
 		t.Fatal(err)
 	}
-	chat, err := req.toOpenAI()
+	chat, err := anthropicToOpenAI(&req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestAnthropicToOpenAI_ToolChoiceNamed(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &req); err != nil {
 		t.Fatal(err)
 	}
-	chat, err := req.toOpenAI()
+	chat, err := anthropicToOpenAI(&req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestAnthropicToOpenAI_ImageBase64(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &req); err != nil {
 		t.Fatal(err)
 	}
-	chat, err := req.toOpenAI()
+	chat, err := anthropicToOpenAI(&req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestAnthropicToOpenAI_Rejects(t *testing.T) {
 			if err := json.Unmarshal([]byte(tc.raw), &req); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := req.toOpenAI(); err == nil {
+			if _, err := anthropicToOpenAI(&req); err == nil {
 				t.Fatal("expected rejection")
 			}
 		})

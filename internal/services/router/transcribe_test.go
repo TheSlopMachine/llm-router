@@ -49,7 +49,7 @@ func setupTranscribeRouter(t *testing.T) (*Service, *credential.Service, *modeli
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 
-	return New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), slog.Default()), credSvc, modelInfoSvc, mock
+	return New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), nil, nil, slog.Default()), credSvc, modelInfoSvc, mock
 }
 
 func addTranscribeCred(t *testing.T, credSvc *credential.Service, label string) {

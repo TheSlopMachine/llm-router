@@ -68,7 +68,7 @@ func setupExhaustedRouter(t *testing.T) (*Service, *exhausted.Service, string, *
 	}
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 	exhaustedSvc := exhausted.New(database)
-	routerSvc := New(providerSvc, credSvc, modelInfoSvc, exhaustedSvc, videojobs.New(database), slog.Default())
+	routerSvc := New(providerSvc, credSvc, modelInfoSvc, exhaustedSvc, videojobs.New(database), nil, nil, slog.Default())
 	return routerSvc, exhaustedSvc, inst.ID, credA, credB
 }
 

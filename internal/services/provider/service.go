@@ -70,6 +70,13 @@ type Embedder interface {
 	Embed(ctx context.Context, creds []*models.Credential, req *models.EmbeddingsRequest, providerConfig map[string]any) (*models.EmbeddingsResponse, error)
 }
 
+// Moderator is an optional GoAdapter capability serving
+// POST /v1/moderations. Lua plugin types implement the equivalent
+// via the moderate handler.
+type Moderator interface {
+	Moderate(ctx context.Context, creds []*models.Credential, req *models.ModerationRequest, providerConfig map[string]any) (*models.ModerationResponse, error)
+}
+
 // VideoSubmitter is the narrow video capability virtual fan-out needs:
 // submit one video job. Full backends implement VideoGenerator.
 type VideoSubmitter interface {

@@ -17,6 +17,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/dashboard"
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
+	"github.com/TheSlopMachine/llm-router/internal/services/batches"
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
@@ -28,6 +29,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/pluginrepo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
+	"github.com/TheSlopMachine/llm-router/internal/services/responses"
 	"github.com/TheSlopMachine/llm-router/internal/services/router"
 	"github.com/TheSlopMachine/llm-router/internal/services/token"
 	"github.com/TheSlopMachine/llm-router/internal/services/videojobs"
@@ -103,7 +105,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	geobanSvc := geoban.New(database)
 	geobanSvc.SetLogger(logger)
 	videoJobsSvc := videojobs.New(database)
-	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, exhaustedSvc, videoJobsSvc, logger)
+	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, exhaustedSvc, videoJobsSvc, responses.New(database), batches.New(database), logger)
 	virtualAdapter := virtualadapter.New(routerSvc, virtualSvc, logger)
 	providerSvc.RegisterGoAdapter(virtualAdapter)
 	luaSvc.SetUsageTracker(credSvc)

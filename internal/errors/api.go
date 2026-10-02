@@ -96,6 +96,42 @@ func RetryAfterDelay(err error) (int64, bool) {
 	return int64(d.Seconds()) + 1, true
 }
 
+// AnthropicErrorType maps a wire code to its Anthropic error type. Single
+// source of truth for the negotiated {type:error,error:{type,message}}
+// envelope served on Anthropic-style requests.
+func AnthropicErrorType(code string) string {
+	switch code {
+	case "invalid_request_error", "not_found", "model_not_allowed", "provider_not_allowed", "credential_not_allowed", "provider_not_found":
+		return "invalid_request_error"
+	case "auth_error", "missing_token", "invalid_token":
+		return "authentication_error"
+	case "payment_required":
+		return "permission_error"
+	case "rate_limit", "quota_exceeded":
+		return "rate_limit_error"
+	case "overloaded":
+		return "overloaded_error"
+	case "timeout", "transport_error", "upstream_error", "model_unavailable", "structural_fault", "server_error", "internal_error":
+		return "api_error"
+	default:
+		return "api_error"
+	}
+}
+
+// AnthropicStatus maps a wire status to the Anthropic HTTP status: rate
+// limits surface as 429 and congestion as 529; everything else keeps the
+// shared status.
+func AnthropicStatus(code string, status int) int {
+	switch code {
+	case "rate_limit", "quota_exceeded":
+		return 429
+	case "overloaded":
+		return 529
+	default:
+		return status
+	}
+}
+
 // ErrorTypeForCode maps a wire code to its OpenAI error type.
 func ErrorTypeForCode(code string) string {
 	switch code {

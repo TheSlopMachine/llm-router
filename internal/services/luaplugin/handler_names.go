@@ -15,6 +15,7 @@ const (
 	HandlerSpeech              Handler = "speech"
 	HandlerGenerateImage       Handler = "generate_image"
 	HandlerEmbed               Handler = "embed"
+	HandlerModerate            Handler = "moderate"
 	HandlerGenerateVideo       Handler = "generate_video"
 	HandlerPollVideo           Handler = "poll_video"
 	HandlerVideoContent        Handler = "video_content"
@@ -37,6 +38,7 @@ func OptionalHandlerNames() []string {
 		string(HandlerSpeech),
 		string(HandlerGenerateImage),
 		string(HandlerEmbed),
+		string(HandlerModerate),
 		string(HandlerGenerateVideo),
 		string(HandlerPollVideo),
 		string(HandlerVideoContent),

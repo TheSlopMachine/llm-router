@@ -48,7 +48,7 @@ func setupVirtualStack(t *testing.T) (*router.Service, *virtual.Service, *creden
 
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 	virtualSvc := virtual.New(database, providerSvc, modelInfoSvc)
-	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), slog.Default())
+	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), nil, nil, slog.Default())
 
 	virtualAdapter := virtualadapter.New(routerSvc, virtualSvc, slog.Default())
 	providerSvc.RegisterGoAdapter(virtualAdapter)
@@ -138,7 +138,7 @@ func TestRouterVirtualFallsThroughToSecondModel(t *testing.T) {
 
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 	virtualSvc := virtual.New(database, providerSvc, modelInfoSvc)
-	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), slog.Default())
+	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), nil, nil, slog.Default())
 
 	virtualAdapter := virtualadapter.New(routerSvc, virtualSvc, slog.Default())
 	providerSvc.RegisterGoAdapter(virtualAdapter)

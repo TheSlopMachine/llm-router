@@ -50,7 +50,10 @@ import (
 // 0.4.0 adds the video generation endpoint (POST /v1/videos, GET
 // /v1/videos/{jobId}, GET /v1/videos/{jobId}/content, GET /v1/videos/models)
 // with generate_video/poll_video/video_content plugin handlers.
-const CurrentVersion = "0.4.0"
+// 0.5.0 adds the moderate handler serving POST /v1/moderations and the
+// image_b64/image_name/mask_b64 generate_image request fields serving
+// POST /v1/images/edits and POST /v1/images/variations.
+const CurrentVersion = "0.5.0"
 
 // ─────────────────────────────────────────────
 // ModelId
@@ -248,10 +251,16 @@ type ChatTool struct {
 }
 
 // ChatMessage is a single turn in a conversation.
+//
+// Content carries plain-text turns. ContentParts carries vision/audio turns:
+// on the wire both serialize as the OpenAI `content` field (string or part
+// array); the split property exists so the generated API schema documents
+// both shapes. Custom MarshalJSON/UnmarshalJSON own the wire mapping, so
+// these tags serve the spec generator only.
 type ChatMessage struct {
 	Role         string                   `json:"role" example:"user" enums:"system,user,assistant,tool,developer"`
-	Content      string                   `json:"-" example:"Hello, how are you?"`
-	ContentParts []ChatMessageContentPart `json:"-"`
+	Content      string                   `json:"content,omitempty" example:"Hello, how are you?"`
+	ContentParts []ChatMessageContentPart `json:"content_parts,omitempty"`
 	ToolCalls    []ChatToolCall           `json:"tool_calls,omitempty"`
 	ToolCallID   string                   `json:"tool_call_id,omitempty"`
 	Name         string                   `json:"name,omitempty"`
@@ -365,6 +374,13 @@ type StreamOptions struct {
 }
 
 // ChatCompletionRequest is the incoming /v1/chat/completions body.
+//
+// Alias fields translate derivative clients without new paths: RandomSeed
+// (Mistral `random_seed`), Options/Format/Think/KeepAlive (Ollama `options`,
+// `format`, `think`, `keep_alive`), Reasoning (OpenRouter
+// `reasoning{effort,max_tokens}`), PromptCacheKey/Guardrails (accepted and
+// ignored). NormalizeAliases folds every mapped alias into its canonical
+// field; unknown fields are ignored by the JSON decoder.
 type ChatCompletionRequest struct {
 	Model               ModelId        `json:"model" example:"openai/gpt-4o"`
 	Messages            []ChatMessage  `json:"messages"`
@@ -378,17 +394,110 @@ type ChatCompletionRequest struct {
 	Temperature         float64        `json:"temperature,omitempty" example:"0.7"`
 	TopP                float64        `json:"top_p,omitempty" example:"1.0"`
 	N                   *int           `json:"n,omitempty"`
-	Stop                any            `json:"stop,omitempty"`
-	Seed                *int64         `json:"seed,omitempty"`
-	FrequencyPenalty    *float64       `json:"frequency_penalty,omitempty"`
-	PresencePenalty     *float64       `json:"presence_penalty,omitempty"`
-	Logprobs            *bool          `json:"logprobs,omitempty"`
-	TopLogprobs         *int           `json:"top_logprobs,omitempty"`
-	ResponseFormat      any            `json:"response_format,omitempty"`
-	User                *string        `json:"user,omitempty"`
-	ServiceTier         *string        `json:"service_tier,omitempty"`
-	ReasoningEffort     *string        `json:"reasoning_effort,omitempty"`
-	Verbosity           *string        `json:"verbosity,omitempty"`
+	// Stop is a string, a list of strings, or nil (polymorphic by design).
+	Stop             any      `json:"stop,omitempty"`
+	Seed             *int64   `json:"seed,omitempty"`
+	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"`
+	PresencePenalty  *float64 `json:"presence_penalty,omitempty"`
+	Logprobs         *bool    `json:"logprobs,omitempty"`
+	TopLogprobs      *int     `json:"top_logprobs,omitempty"`
+	// ResponseFormat is a free-form object (json_object, json_schema, ...).
+	ResponseFormat  any     `json:"response_format,omitempty"`
+	User            *string `json:"user,omitempty"`
+	ServiceTier     *string `json:"service_tier,omitempty"`
+	ReasoningEffort *string `json:"reasoning_effort,omitempty"`
+	Verbosity       *string `json:"verbosity,omitempty"`
+	// RandomSeed is the Mistral `random_seed` alias for Seed.
+	RandomSeed *int64 `json:"random_seed,omitempty"`
+	// Options carries Ollama `options{temperature,top_p,seed,stop,num_predict,num_ctx,top_k}`.
+	Options map[string]any `json:"options,omitempty"`
+	// Format carries the Ollama `format` alias for ResponseFormat.
+	Format any `json:"format,omitempty"`
+	// Think carries the Ollama `think` flag (accepted, reasoning stays model-driven).
+	Think any `json:"think,omitempty"`
+	// KeepAlive carries the Ollama `keep_alive` hint (accepted, ignored).
+	KeepAlive any `json:"keep_alive,omitempty"`
+	// Reasoning carries the OpenRouter `reasoning{effort,max_tokens}` envelope.
+	Reasoning *ReasoningConfig `json:"reasoning,omitempty"`
+	// PromptCacheKey is accepted and ignored (provider-side caching hint).
+	PromptCacheKey any `json:"prompt_cache_key,omitempty"`
+	// Guardrails is accepted and ignored (Mistral-side safety config).
+	Guardrails any `json:"guardrails,omitempty"`
+}
+
+// ReasoningConfig is the OpenRouter `reasoning` envelope: effort maps to
+// ReasoningEffort, MaxTokens caps reasoning output.
+type ReasoningConfig struct {
+	Effort    string `json:"effort,omitempty"`
+	MaxTokens *int   `json:"max_tokens,omitempty"`
+	Exclude   *bool  `json:"exclude,omitempty"`
+	Enabled   *bool  `json:"enabled,omitempty"`
+}
+
+// NormalizeAliases folds derivative-client alias fields into their canonical
+// counterparts. Canonical fields win on conflict; unmapped aliases stay
+// accepted and ignored.
+func (r *ChatCompletionRequest) NormalizeAliases() {
+	if r.Seed == nil && r.RandomSeed != nil {
+		r.Seed = r.RandomSeed
+	}
+	if r.Reasoning != nil {
+		if r.ReasoningEffort == nil && r.Reasoning.Effort != "" {
+			e := r.Reasoning.Effort
+			r.ReasoningEffort = &e
+		}
+		if r.MaxCompletionTokens == nil && r.Reasoning.MaxTokens != nil {
+			m := *r.Reasoning.MaxTokens
+			r.MaxCompletionTokens = &m
+		}
+	}
+	if r.ResponseFormat == nil && r.Format != nil {
+		r.ResponseFormat = r.Format
+	}
+	if len(r.Options) == 0 {
+		return
+	}
+	num := func(key string) (float64, bool) {
+		v, ok := r.Options[key]
+		if !ok {
+			return 0, false
+		}
+		switch n := v.(type) {
+		case float64:
+			return n, true
+		case int:
+			return float64(n), true
+		case int64:
+			return float64(n), true
+		}
+		return 0, false
+	}
+	if r.Temperature == 0 {
+		if v, ok := num("temperature"); ok {
+			r.Temperature = v
+		}
+	}
+	if r.TopP == 0 {
+		if v, ok := num("top_p"); ok {
+			r.TopP = v
+		}
+	}
+	if r.Seed == nil {
+		if v, ok := num("seed"); ok {
+			s := int64(v)
+			r.Seed = &s
+		}
+	}
+	if r.Stop == nil {
+		if v, ok := r.Options["stop"]; ok {
+			r.Stop = v
+		}
+	}
+	if r.MaxTokens == 0 {
+		if v, ok := num("num_predict"); ok && v > 0 {
+			r.MaxTokens = int(v)
+		}
+	}
 }
 
 // ChatCompletionResponse mirrors the OpenAI response schema.
@@ -484,6 +593,58 @@ type ModelInfo struct {
 	Endpoints []string `json:"endpoints,omitempty"`
 }
 
+// ModelArchitecture carries OpenRouter-style modality details on a model card.
+type ModelArchitecture struct {
+	InputModalities  []string `json:"input_modalities,omitempty"`
+	OutputModalities []string `json:"output_modalities,omitempty"`
+	Modality         string   `json:"modality,omitempty"`
+}
+
+// ModelEntry is one /v1/models card: OpenAI canonical fields plus the
+// OpenRouter-style extension set.
+type ModelEntry struct {
+	ID                  string             `json:"id"`
+	Object              string             `json:"object"`
+	Created             int64              `json:"created"`
+	OwnedBy             string             `json:"owned_by"`
+	Name                string             `json:"name,omitempty"`
+	Description         string             `json:"description,omitempty"`
+	ContextLength       int64              `json:"context_length,omitempty"`
+	MaxCompletionTokens int64              `json:"max_completion_tokens,omitempty"`
+	Architecture        *ModelArchitecture `json:"architecture,omitempty"`
+	Reasoning           *ModelReasoning    `json:"reasoning,omitempty"`
+	SupportedParameters []string           `json:"supported_parameters,omitempty"`
+	Capabilities        []string           `json:"capabilities,omitempty"`
+}
+
+// ModelListResponse is the GET /v1/models wire response.
+type ModelListResponse struct {
+	Object string       `json:"object"`
+	Data   []ModelEntry `json:"data"`
+}
+
+// AnthropicModelEntry is one model card in the Anthropic models shape.
+type AnthropicModelEntry struct {
+	Type        string `json:"type"`
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
+}
+
+// AnthropicModelListResponse is the Anthropic GET /v1/models wire response.
+type AnthropicModelListResponse struct {
+	Data    []AnthropicModelEntry `json:"data"`
+	HasMore bool                  `json:"has_more"`
+	FirstID *string               `json:"first_id"`
+	LastID  *string               `json:"last_id"`
+}
+
+// JoinModalities renders OpenRouter-style modality strings:
+// ["text","image"] -> "text+image".
+func JoinModalities(mods []string) string {
+	return strings.Join(mods, "+")
+}
+
 // Endpoint identifiers listed in ModelInfo.Endpoints. The router rejects a
 // request when the resolved model declares Endpoints and the target endpoint
 // is absent; an empty Endpoints list means chat/completions only (legacy
@@ -495,6 +656,16 @@ const (
 	EndpointImagesGenerations  = "images/generations"
 	EndpointEmbeddings         = "embeddings"
 	EndpointVideos             = "videos"
+	// EndpointModerations names the moderation capability in model cards.
+	// Request gates key on EndpointChatCompletions (every moderation
+	// request names a chat-serving model); the backend capability
+	// pre-check (moderate handler) decides support.
+	EndpointModerations = "moderations"
+	// EndpointResponses names the responses capability in model cards.
+	// Responses, conversations, assistants, threads and runs execute on
+	// the chat pipeline, so request gates key on
+	// EndpointChatCompletions, exactly like POST /v1/messages.
+	EndpointResponses = "responses"
 )
 
 // SupportsEndpoint reports whether the model serves endpoint. Empty
@@ -531,13 +702,15 @@ type TranscriptionRequest struct {
 
 // TranscriptionResponse is the normalized plugin return: the OpenAI
 // verbose_json shape. The router renders the client-facing response_format
-// from these fields.
+// from these fields. Task echoes the requested task (transcribe/translate)
+// when the edge set one.
 type TranscriptionResponse struct {
 	Text     string                 `json:"text"`
 	Language string                 `json:"language,omitempty"`
 	Duration float64                `json:"duration,omitempty"`
 	Segments []TranscriptionSegment `json:"segments,omitempty"`
 	Words    []TranscriptionWord    `json:"words,omitempty"`
+	Task     *string                `json:"task,omitempty"`
 }
 
 type TranscriptionSegment struct {
@@ -638,7 +811,11 @@ func SpeechContentType(format string) string {
 // Image generation wire types (POST /v1/images/generations)
 // ─────────────────────────────────────────────
 
-// ImageGenerationRequest is the parsed body of POST /v1/images/generations.
+// ImageGenerationRequest is the parsed body of POST /v1/images/generations
+// and, with edit fields set, of POST /v1/images/edits and POST
+// /v1/images/variations. ImageB64/MaskB64 carry the multipart uploads as
+// base64 (never serialized to clients); plugins that predate them ignore
+// the extra table fields.
 type ImageGenerationRequest struct {
 	Model          ModelId `json:"model"`
 	Prompt         string  `json:"prompt"`
@@ -647,6 +824,12 @@ type ImageGenerationRequest struct {
 	Quality        string  `json:"quality,omitempty"`
 	Style          string  `json:"style,omitempty"`
 	ResponseFormat string  `json:"response_format,omitempty"` // url or b64_json
+	// ImageB64 holds the base64 source image for edits/variations.
+	ImageB64 string `json:"image_b64,omitempty"`
+	// ImageName carries the uploaded file name for logging only.
+	ImageName string `json:"image_name,omitempty"`
+	// MaskB64 holds the base64 edit mask (edits only).
+	MaskB64 string `json:"mask_b64,omitempty"`
 }
 
 // ImageGenerationResponse is the normalized plugin return and the client
@@ -670,20 +853,41 @@ type ImageData struct {
 // normalized to a list of strings at the edge: OpenAI accepts a single
 // string, a list of strings, or token arrays; token arrays are decoded by
 // clients upstream of this router and are refused here.
+//
+// Alias fields translate derivative clients: OutputDimension (Mistral
+// `output_dimension`), OutputDtype (accepted, plugins always return float
+// vectors), Truncate (accepted, inputs are used whole). NormalizeAliases
+// folds OutputDimension into Dimensions.
 type EmbeddingsRequest struct {
 	Model          ModelId  `json:"model"`
-	Input          []string `json:"-"`
+	Input          []string `json:"input,omitempty"`
 	EncodingFormat string   `json:"encoding_format,omitempty"` // float (default) or base64
 	Dimensions     int      `json:"dimensions,omitempty"`
+	// OutputDimension is the Mistral alias for Dimensions.
+	OutputDimension int `json:"output_dimension,omitempty"`
+	// OutputDtype is accepted and documented; vectors stay float32.
+	OutputDtype string `json:"output_dtype,omitempty"`
+	// Truncate is accepted; over-long inputs are embedded whole.
+	Truncate any `json:"truncate,omitempty"`
+}
+
+// NormalizeAliases folds the output_dimension alias into Dimensions.
+func (r *EmbeddingsRequest) NormalizeAliases() {
+	if r.Dimensions == 0 && r.OutputDimension != 0 {
+		r.Dimensions = r.OutputDimension
+	}
 }
 
 // embeddingsRequestJSON decodes the polymorphic OpenAI input field.
 func (r *EmbeddingsRequest) UnmarshalJSON(raw []byte) error {
 	var probe struct {
-		Model          ModelId         `json:"model"`
-		Input          json.RawMessage `json:"input"`
-		EncodingFormat string          `json:"encoding_format,omitempty"`
-		Dimensions     int             `json:"dimensions,omitempty"`
+		Model           ModelId         `json:"model"`
+		Input           json.RawMessage `json:"input"`
+		EncodingFormat  string          `json:"encoding_format,omitempty"`
+		Dimensions      int             `json:"dimensions,omitempty"`
+		OutputDimension int             `json:"output_dimension,omitempty"`
+		OutputDtype     string          `json:"output_dtype,omitempty"`
+		Truncate        any             `json:"truncate,omitempty"`
 	}
 	if err := json.Unmarshal(raw, &probe); err != nil {
 		return err
@@ -691,6 +895,10 @@ func (r *EmbeddingsRequest) UnmarshalJSON(raw []byte) error {
 	r.Model = probe.Model
 	r.EncodingFormat = probe.EncodingFormat
 	r.Dimensions = probe.Dimensions
+	r.OutputDimension = probe.OutputDimension
+	r.OutputDtype = probe.OutputDtype
+	r.Truncate = probe.Truncate
+	r.NormalizeAliases()
 	if len(probe.Input) == 0 {
 		return fmt.Errorf("missing required field 'input'")
 	}
@@ -717,8 +925,13 @@ type EmbeddingsResponse struct {
 }
 
 type Embedding struct {
-	Index     int       `json:"index"`
-	Values    []float64 `json:"-"`
+	Index int `json:"index"`
+	// Object is always "embedding" on the wire; Values holds the float
+	// vector, B64Values the base64 float32-LE rendering (exactly one is
+	// set when marshaled). Custom MarshalJSON/UnmarshalJSON own the wire
+	// mapping; these tags serve the spec generator only.
+	Object    string    `json:"object,omitempty" example:"embedding"`
+	Values    []float64 `json:"embedding,omitempty"`
 	B64Values string    `json:"-"`
 }
 

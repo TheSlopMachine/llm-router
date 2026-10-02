@@ -33,6 +33,8 @@ var (
 	BucketExhausted           = []byte("exhausted")            // Unified joint limit keys: key → ExhaustedEntry
 	BucketGeoBans             = []byte("geo_bans")             // Indefinite geo flags: key → GeoBanEntry (no expiry)
 	BucketVideoJobs           = []byte("video_jobs")           // Router-side video generation jobs: ID → VideoJob
+	BucketResponses           = []byte("responses")            // Router-side compat records: ID → ResponseRecord (responses, conversations, assistants, threads, messages, runs)
+	BucketMessageBatches      = []byte("message_batches")      // Router-side Anthropic message batches: ID → BatchRecord
 )
 
 // DB wraps a bbolt.DB and ensures all required buckets exist.
@@ -81,6 +83,8 @@ func (db *DB) initBuckets() error {
 			BucketExhausted,
 			BucketGeoBans,
 			BucketVideoJobs,
+			BucketResponses,
+			BucketMessageBatches,
 		}
 		for _, name := range buckets {
 			if _, err := tx.CreateBucketIfNotExists(name); err != nil {

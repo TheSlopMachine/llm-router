@@ -430,6 +430,26 @@ func (s *Service) EmbedPool(
 	}, isFatal, skip)
 }
 
+// ModeratePool tries credentials through the moderate handler. Proxy-scoped
+// limits or transport failures can retry up to three routes with the same
+// credential. It returns the winning or last proxy host:port ("" = direct).
+func (s *Service) ModeratePool(
+	ctx context.Context,
+	meta HandlerMeta,
+	creds []*models.Credential,
+	req *models.ModerationRequest,
+) (*models.ModerationResponse, string, error) {
+	geo := s.geoPolicy(meta.ProviderConfig)
+	isFatal := s.fatalWithLog(meta, geo)
+	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
+	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ModerationResponse, string, error) {
+		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
+			func(ctx context.Context) (*models.ModerationResponse, string, error) {
+				return s.ModerateRouted(ctx, withCredential(meta, cred), req)
+			})
+	}, isFatal, skip)
+}
+
 // SubmitVideoPool tries credentials through the generate_video handler.
 // Route failures can retry up to three routes with the same credential.
 // It returns the winning or last proxy host:port ("" = direct).

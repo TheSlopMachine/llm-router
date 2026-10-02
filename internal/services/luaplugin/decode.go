@@ -38,6 +38,9 @@ var errEmptyVideoJobID = errors.New("empty job id")
 // errUnknownVideoStatus marks a video job response with an unknown status.
 var errUnknownVideoStatus = errors.New("unknown job status")
 
+// errModerationLengthMismatch marks a moderate response miscounted against inputs.
+var errModerationLengthMismatch = errors.New("results length does not match input length")
+
 // videoContentPayload is the wire shape of the video_content handler result.
 type videoContentPayload struct {
 	VideoB64    string `json:"video_b64"`

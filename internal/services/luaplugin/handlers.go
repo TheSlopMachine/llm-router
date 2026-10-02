@@ -371,6 +371,15 @@ func imageRequestTable(L *lua.LState, req *models.ImageGenerationRequest) *lua.L
 	if req.ResponseFormat != "" {
 		tbl.RawSetString("response_format", lua.LString(req.ResponseFormat))
 	}
+	if req.ImageB64 != "" {
+		tbl.RawSetString("image_b64", lua.LString(req.ImageB64))
+	}
+	if req.ImageName != "" {
+		tbl.RawSetString("image_name", lua.LString(req.ImageName))
+	}
+	if req.MaskB64 != "" {
+		tbl.RawSetString("mask_b64", lua.LString(req.MaskB64))
+	}
 	return tbl
 }
 
@@ -459,6 +468,64 @@ func (s *Service) EmbedRouted(
 		}
 		return nil
 	})
+}
+
+// Moderate invokes the moderate handler. A missing handler reports
+// ErrHandlerNotFound so the router maps it to a clean "endpoint not
+// supported" error.
+func (s *Service) Moderate(
+	goCtx context.Context,
+	meta HandlerMeta,
+	req *models.ModerationRequest,
+) (*models.ModerationResponse, error) {
+	resp, _, err := s.ModerateRouted(goCtx, meta, req)
+	return resp, err
+}
+
+// ModerateRouted is Moderate plus the redacted proxy host:port of the call
+// ("" = direct).
+func (s *Service) ModerateRouted(
+	goCtx context.Context,
+	meta HandlerMeta,
+	req *models.ModerationRequest,
+) (*models.ModerationResponse, string, error) {
+	return callAndDecode(s, goCtx, meta, "moderate", func(L *lua.LState) {
+		L.Push(ctxTable(L, "", meta.ProviderConfig))
+		L.Push(credTable(L, meta.Credential))
+		L.Push(moderateRequestTable(L, req))
+	}, []string{"results"}, func(out *models.ModerationResponse) error {
+		if len(out.Results) != len(req.Input) {
+			return errModerationLengthMismatch
+		}
+		if out.ID == "" {
+			out.ID = "modr_router"
+		}
+		if out.Model == "" {
+			out.Model = req.Model.String()
+		}
+		for i := range out.Results {
+			if out.Results[i].Categories == nil {
+				out.Results[i].Categories = map[string]bool{}
+			}
+			if out.Results[i].CategoryScores == nil {
+				out.Results[i].CategoryScores = map[string]float64{}
+			}
+		}
+		return nil
+	})
+}
+
+// moderateRequestTable builds the moderate request table.
+func moderateRequestTable(L *lua.LState, req *models.ModerationRequest) *lua.LTable {
+	tbl := L.NewTable()
+	tbl.RawSetString("model", lua.LString(req.Model.String()))
+	tbl.RawSetString("model_name", lua.LString(req.Model.Name()))
+	input := L.NewTable()
+	for _, s := range req.Input {
+		input.Append(lua.LString(s))
+	}
+	tbl.RawSetString("input", input)
+	return tbl
 }
 
 // videoSubmitTable builds the generate_video request table. Optional fields
