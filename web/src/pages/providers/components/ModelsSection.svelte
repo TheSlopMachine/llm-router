@@ -255,6 +255,10 @@
     toast.error(`${m.name} failed: ${res.summary ? t(res.summary) : t('probe failed')}`)
   }
 
+  function isFailingModel(res: TestResult): boolean {
+    return res.code === 'model_unavailable' || res.code === 'not_found'
+  }
+
   async function probeModel(m: ProviderModel): Promise<TestResult> {
     modelTestResults = { ...modelTestResults, [m.name]: 'loading' }
     let res: TestResult
@@ -287,10 +291,9 @@
     const res = await probeModel(m)
     probeToast(m, res)
     if (!res.ok) {
-      // Temporary quota is not death: never disable over it.
-      // model_unavailable (code=model_unavailable) disables here with a 2m
-      // router cooldown and no credential disable.
-      if (disableFailedModels && !res.quota_exceeded) {
+      // Disable only on model failures. Credential, provider, and transport
+      // errors never disable a model.
+      if (disableFailedModels && isFailingModel(res)) {
         await api.models.setOverride(providerId, m.name, { disabled: true })
         await reloadModels()
       }
@@ -326,10 +329,9 @@
         const res = await probeModel(m)
         probeToast(m, res)
         if (!res.ok) {
-          // Temporary quota is not death: never disable over it.
-          // model_unavailable (code=model_unavailable) lands here with a 2m
-          // router cooldown and no credential disable.
-          if (!res.quota_exceeded) failed.push(m)
+          // Disable only on model failures. Credential, provider, and transport
+          // errors never disable a model.
+          if (isFailingModel(res)) failed.push(m)
         }
       }
       if (!testAllCancel && disableFailedModels) {
