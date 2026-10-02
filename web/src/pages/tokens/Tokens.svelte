@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, CodeBlock, HStack, Table, Text, TextEdit, VStack } from '$ui'
+  import { Button, CodeBlock, FloatingView, HStack, Table, Text, TextEdit, VStack } from '$ui'
   import type { TableColumn } from '$ui'
   import { api } from '$lib/api'
   import { modal } from '$lib/modal.svelte'
@@ -48,74 +48,46 @@
   function openEdit(token: Token): void { openWizard('edit', token) }
 
   let cloneSource = $state<Token | null>(null)
+  let cloneAnchor = $state<HTMLElement>()
   let cloneName = $state('')
   let cloneSaving = $state(false)
   let cloneError = $state('')
 
-  function openClone(token: Token): void {
-    resource.error = ''
-    cloneSource = token
-    cloneName = `${token.name} (copy)`
-    cloneError = ''
-    modal.open({
-      title: t('Clone token'),
-      contentSnippet: cloneDialog,
-      severity: 'medium',
-      size: 'small'
-    })
-  }
-
-  async function createClone(): Promise<void> {
-    const name = cloneName.trim()
-    if (!name || !cloneSource || cloneSaving) return
-    cloneSaving = true
-    try {
-      const res: any = await api.tokens.create({ name, rules: cloneSource.rules } as any)
-      newTokenSecret = res?.token ?? null
-      await resource.reload()
+  function openClone(token: Token, anchorEl?: HTMLElement): void {
+    if (cloneSource?.id === token.id) {
       cloneSource = null
-      modal.close()
-    } catch (e) {
-      cloneError = getErrorMessage(e)
-    } finally {
-      cloneSaving = false
+    } else {
+      resource.error = ''
+      cloneSource = token
+      cloneName = `${token.name} (copy)`
+      cloneError = ''
+      cloneAnchor = anchorEl
     }
   }
 
-  async function regenerate(id: string, name: string): Promise<void> {
-    const confirmed = await modal.confirm({
-      title: t('Regenerate token'),
-      message: `${t('Regenerate secret for')} "${name}"? ${t('The old secret will be invalidated immediately.')}`,
-      severity: 'high',
-      confirmText: t('Regenerate'),
-      confirmRole: 'destructive'
-    })
-    if (!confirmed) return
-    try {
-      const res: any = await api.tokens.regenerate(id)
-      newTokenSecret = res?.token ?? res?.Token ?? res?.token_hash ?? null
-      await resource.reload()
-    } catch (e) {
-      resource.error = getErrorMessage(e)
+  let revokeTarget = $state<{ id: string; name: string } | null>(null)
+  let revokeAnchor = $state<HTMLElement>()
+  let revoking = $state(false)
+
+  function openRevoke(token: Token, anchorEl?: HTMLElement): void {
+    if (revokeTarget?.id === token.id) {
+      revokeTarget = null
+    } else {
+      revokeTarget = { id: token.id, name: token.name }
+      revokeAnchor = anchorEl
     }
   }
 
-  async function remove(id: string, name: string): Promise<void> {
-    const confirmed = await modal.confirm({
-      title: t('Revoke token'),
-      message: `${t('Are you sure you want to revoke token')} "${name}"? ${t('This action cannot be undone.')}`,
-      severity: 'medium',
-      confirmText: t('Revoke'),
-      confirmRole: 'destructive'
-    })
+  let regenerateTarget = $state<{ id: string; name: string } | null>(null)
+  let regenerateAnchor = $state<HTMLElement>()
+  let regenerating = $state(false)
 
-    if (!confirmed) return
-
-    try {
-      await api.tokens.delete(id)
-      await resource.reload()
-    } catch (e) {
-      resource.error = getErrorMessage(e)
+  function openRegenerate(token: Token, anchorEl?: HTMLElement): void {
+    if (regenerateTarget?.id === token.id) {
+      regenerateTarget = null
+    } else {
+      regenerateTarget = { id: token.id, name: token.name }
+      regenerateAnchor = anchorEl
     }
   }
 
@@ -130,21 +102,6 @@
     return formatRelativeTime(resource.data.tokenUsage[tokenId]?.last_used, 'long')
   }
 </script>
-
-{#snippet cloneDialog()}
-  <VStack gap={4}>
-    {#if cloneError}<Text tone="danger" size="sm">{cloneError}</Text>{/if}
-    <TextEdit bind:value={cloneName} hint={t('New token name')} />
-    <HStack justify="end" gap={2}>
-      <Button onclick={() => modal.close()} disabled={cloneSaving}>{t('Cancel')}</Button>
-      <Button
-        style="prominent"
-        onclick={() => void createClone()}
-        disabled={!cloneName.trim() || cloneSaving}
-      >{cloneSaving ? t('Creating…') : t('Create')}</Button>
-    </HStack>
-  </VStack>
-{/snippet}
 
 <VStack gap={4}>
   <HStack align="center" gap={4}>
@@ -189,7 +146,7 @@
             title={t('Regenerate')}
             size="small"
             ariaLabel={t('Regenerate')}
-            onclick={() => regenerate(tok.id, tok.name)}
+            onclick={(e) => openRegenerate(tok, e.currentTarget as HTMLElement)}
           />
           <Button
             style="text"
@@ -197,7 +154,7 @@
             title={t('Clone')}
             size="small"
             ariaLabel={t('Clone')}
-            onclick={() => openClone(tok)}
+            onclick={(e) => openClone(tok, e.currentTarget as HTMLElement)}
           />
           <Button
             style="text"
@@ -214,7 +171,7 @@
             icon={{ name: 'delete' }}
             title={t('Revoke')}
             ariaLabel={t('Revoke')}
-            onclick={() => remove(tok.id, tok.name)}
+            onclick={(e) => openRevoke(tok, e.currentTarget as HTMLElement)}
           />
         </HStack>
       {/if}
@@ -227,4 +184,132 @@
       </VStack>
     {/snippet}
   </Table>
+
+  <FloatingView
+    open={Boolean(cloneSource)}
+    anchor={cloneAnchor}
+    onclose={() => { cloneSource = null; cloneError = '' }}
+    label={t('Clone token')}
+  >
+    {#snippet children({ close })}
+      <VStack gap={3} style="width: 280px;">
+        <Text weight="medium" size="base">{t('Clone token')}</Text>
+        {#if cloneError}<Text tone="danger" size="sm">{cloneError}</Text>{/if}
+        <TextEdit bind:value={cloneName} hint={t('New token name')} />
+        <HStack justify="end" gap={2}>
+          <Button size="small" onclick={close} disabled={cloneSaving}>{t('Cancel')}</Button>
+          <Button
+            size="small"
+            style="prominent"
+            disabled={!cloneName.trim() || cloneSaving}
+            onclick={async () => {
+              const name = cloneName.trim()
+              if (!name || !cloneSource || cloneSaving) return
+              cloneSaving = true
+              try {
+                const res: any = await api.tokens.create({ name, rules: cloneSource.rules } as any)
+                newTokenSecret = res?.token ?? null
+                close()
+                cloneSource = null
+                await resource.reload()
+              } catch (e) {
+                cloneError = getErrorMessage(e)
+              } finally {
+                cloneSaving = false
+              }
+            }}
+          >
+            {cloneSaving ? t('Creating…') : t('Create')}
+          </Button>
+        </HStack>
+      </VStack>
+    {/snippet}
+  </FloatingView>
+
+  <FloatingView
+    open={Boolean(revokeTarget)}
+    anchor={revokeAnchor}
+    onclose={() => { revokeTarget = null }}
+    label={t('Revoke token')}
+  >
+    {#snippet children({ close })}
+      <VStack gap={3} style="max-width: 280px;">
+        <VStack gap={1}>
+          <Text weight="medium" size="base">{t('Revoke token')}</Text>
+          <Text size="sm" tone="soft">
+            {t('Are you sure you want to revoke token')} "{revokeTarget?.name}"? {t('This action cannot be undone.')}
+          </Text>
+        </VStack>
+        <HStack justify="end" gap={2}>
+          <Button size="small" style="text" onclick={close} disabled={revoking}>{t('Cancel')}</Button>
+          <Button
+            size="small"
+            style="prominent"
+            tint="#dc2626"
+            disabled={revoking}
+            onclick={async () => {
+              if (!revokeTarget) return
+              revoking = true
+              try {
+                await api.tokens.delete(revokeTarget.id)
+                close()
+                revokeTarget = null
+                await resource.reload()
+              } catch (e) {
+                resource.error = getErrorMessage(e)
+              } finally {
+                revoking = false
+              }
+            }}
+          >
+            {revoking ? t('Revoking…') : t('Revoke')}
+          </Button>
+        </HStack>
+      </VStack>
+    {/snippet}
+  </FloatingView>
+
+  <FloatingView
+    open={Boolean(regenerateTarget)}
+    anchor={regenerateAnchor}
+    onclose={() => { regenerateTarget = null }}
+    label={t('Regenerate token')}
+  >
+    {#snippet children({ close })}
+      <VStack gap={3} style="max-width: 280px;">
+        <VStack gap={1}>
+          <Text weight="medium" size="base">{t('Regenerate token')}</Text>
+          <Text size="sm" tone="soft">
+            {t('Regenerate secret for')} "{regenerateTarget?.name}"? {t('The old secret will be invalidated immediately.')}
+          </Text>
+        </VStack>
+        <HStack justify="end" gap={2}>
+          <Button size="small" style="text" onclick={close} disabled={regenerating}>{t('Cancel')}</Button>
+          <Button
+            size="small"
+            style="prominent"
+            tint="#dc2626"
+            disabled={regenerating}
+            onclick={async () => {
+              if (!regenerateTarget) return
+              regenerating = true
+              try {
+                const res: any = await api.tokens.regenerate(regenerateTarget.id)
+                newTokenSecret = res?.token ?? res?.Token ?? res?.token_hash ?? null
+                close()
+                regenerateTarget = null
+                await resource.reload()
+              } catch (e) {
+                resource.error = getErrorMessage(e)
+              } finally {
+                regenerating = false
+              }
+            }}
+          >
+            {regenerating ? t('Regenerating…') : t('Regenerate')}
+          </Button>
+        </HStack>
+      </VStack>
+    {/snippet}
+  </FloatingView>
 </VStack>

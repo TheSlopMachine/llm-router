@@ -148,7 +148,8 @@
   /* No hover fill on any segment — selection is the only state this control
      shows. The override must cover the active segment too: the global
      button:hover rule would otherwise paint a gray fill over the pill. */
-  .seg-btn:hover {
+  .seg-btn:hover,
+  .seg-btn.active {
     background: transparent;
   }
 

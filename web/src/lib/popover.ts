@@ -31,18 +31,31 @@ export function anchorTo(anchor: HTMLElement, options: AnchorOptions): AnchorRec
   const rect = anchor.getBoundingClientRect()
   const width = Math.max(rect.width, minWidth)
 
-  const spaceBelow = window.innerHeight - rect.bottom
-  const spaceAbove = rect.top
+  const vv = typeof window !== 'undefined' ? window.visualViewport : null
+  const vvTop = vv ? vv.offsetTop : 0
+  const vvLeft = vv ? vv.offsetLeft : 0
+  const vvHeight = vv ? vv.height : window.innerHeight
+  const vvWidth = vv ? vv.width : window.innerWidth
+
+  const anchorTop = rect.top + vvTop
+  const anchorBottom = rect.bottom + vvTop
+  const anchorLeft = rect.left + vvLeft
+  const anchorRight = rect.right + vvLeft
+
+  const spaceBelow = vvTop + vvHeight - anchorBottom
+  const spaceAbove = anchorTop - vvTop
   const flipped = spaceBelow < height && spaceAbove > spaceBelow
 
-  const top = flipped ? Math.max(margin, rect.top - height - gap) : rect.bottom + gap
+  const top = flipped
+    ? Math.max(vvTop + margin, anchorTop - height - gap)
+    : Math.min(vvTop + vvHeight - height - margin, anchorBottom + gap)
 
-  const overflowsRight = rect.left + width > window.innerWidth - margin
+  const overflowsRight = anchorLeft + width > vvLeft + vvWidth - margin
   const left = overflowsRight
-    ? Math.max(margin, rect.right - width)
-    : Math.max(margin, rect.left)
+    ? Math.max(vvLeft + margin, anchorRight - width)
+    : Math.max(vvLeft + margin, anchorLeft)
 
-  return { top, left, width: Math.max(1, Math.round(rect.width)), flipped }
+  return { top: Math.round(top), left: Math.round(left), width: Math.max(1, Math.round(rect.width)), flipped }
 }
 
 /**
@@ -68,10 +81,20 @@ export function bindDismiss(params: {
   window.addEventListener('resize', handleReposition)
   window.addEventListener('scroll', handleReposition, true)
 
+  const vv = typeof window !== 'undefined' ? window.visualViewport : null
+  if (vv) {
+    vv.addEventListener('resize', handleReposition)
+    vv.addEventListener('scroll', handleReposition)
+  }
+
   return () => {
     document.removeEventListener('click', handleClick)
     window.removeEventListener('resize', handleReposition)
     window.removeEventListener('scroll', handleReposition, true)
+    if (vv) {
+      vv.removeEventListener('resize', handleReposition)
+      vv.removeEventListener('scroll', handleReposition)
+    }
   }
 }
 

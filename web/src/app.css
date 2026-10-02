@@ -347,7 +347,10 @@ button, .btn {
 button:active:not([disabled]), .btn:active:not([disabled]) {
   transform: scale(0.96);
 }
-button:hover:not([disabled]), .btn:hover:not([disabled]) {
+button:hover:not([disabled]),
+.btn:hover:not([disabled]),
+.btn.active:not([disabled]),
+.btn[aria-expanded="true"]:not([disabled]) {
   background: var(--color-button-container-high);
 }
 button:disabled, .btn:disabled {
@@ -390,7 +393,9 @@ textarea:focus-visible {
   background: var(--color-accent);
   color: var(--color-text-on-button-reverse);
 }
-.btn-primary:hover:not([disabled]) {
+.btn-primary:hover:not([disabled]),
+.btn-primary.active:not([disabled]),
+.btn-primary[aria-expanded="true"]:not([disabled]) {
   background: var(--color-accent-hover);
 }
 
@@ -399,7 +404,9 @@ textarea:focus-visible {
   background: var(--elev);
   color: var(--color-text-on-button);
 }
-.btn-secondary:hover:not([disabled]) {
+.btn-secondary:hover:not([disabled]),
+.btn-secondary.active:not([disabled]),
+.btn-secondary[aria-expanded="true"]:not([disabled]) {
   background: var(--color-outline-light);
 }
 
@@ -408,7 +415,9 @@ textarea:focus-visible {
   border-color: transparent;
   color: #fff;
 }
-.btn-danger:hover:not([disabled]) {
+.btn-danger:hover:not([disabled]),
+.btn-danger.active:not([disabled]),
+.btn-danger[aria-expanded="true"]:not([disabled]) {
   background: var(--color-danger-hover);
 }
 
@@ -421,19 +430,25 @@ textarea:focus-visible {
   color: var(--color-text);
 }
 .btn-text:hover:not([disabled]),
-.btn-text:focus-visible {
+.btn-text:focus-visible,
+.btn-text.active:not([disabled]),
+.btn-text[aria-expanded="true"]:not([disabled]) {
   background: color-mix(in srgb, var(--color-accent) 15%, transparent);
 }
 .btn-text.danger {
   color: var(--color-danger);
 }
-.btn-text.danger:hover:not([disabled]) {
+.btn-text.danger:hover:not([disabled]),
+.btn-text.danger.active:not([disabled]),
+.btn-text.danger[aria-expanded="true"]:not([disabled]) {
   background: var(--color-notification-error-bg);
 }
 .btn-text.plain {
   color: var(--color-text-soft);
 }
-.btn-text.plain:hover:not([disabled]) {
+.btn-text.plain:hover:not([disabled]),
+.btn-text.plain.active:not([disabled]),
+.btn-text.plain[aria-expanded="true"]:not([disabled]) {
   background: var(--color-hover-bg);
 }
 
@@ -445,7 +460,9 @@ textarea:focus-visible {
   color: var(--tint-text);
   border-color: transparent;
 }
-.btn-tinted:hover:not([disabled]) {
+.btn-tinted:hover:not([disabled]),
+.btn-tinted.active:not([disabled]),
+.btn-tinted[aria-expanded="true"]:not([disabled]) {
   background: var(--tint-hover);
 }
 .btn-text.btn-tinted {
@@ -453,7 +470,9 @@ textarea:focus-visible {
   color: var(--tint-bg);
 }
 .btn-text.btn-tinted:hover:not([disabled]),
-.btn-text.btn-tinted:focus-visible {
+.btn-text.btn-tinted:focus-visible,
+.btn-text.btn-tinted.active:not([disabled]),
+.btn-text.btn-tinted[aria-expanded="true"]:not([disabled]) {
   background: color-mix(in srgb, var(--tint-bg) 15%, transparent);
 }
 /* Selected-off toggle state (Button selected={false} + tint): soft wash
@@ -463,7 +482,9 @@ textarea:focus-visible {
   color: var(--tint-text);
   border-color: transparent;
 }
-.btn-soft:hover:not([disabled]) {
+.btn-soft:hover:not([disabled]),
+.btn-soft.active:not([disabled]),
+.btn-soft[aria-expanded="true"]:not([disabled]) {
   background: color-mix(in srgb, var(--tint-bg) 70%, var(--tint-text));
 }
 

@@ -29,6 +29,8 @@
     tint,
     style = 'none',
     selected,
+    active = false,
+    ariaExpanded,
     size = 'medium',
     disabled = false,
     ariaLabel,
@@ -43,6 +45,8 @@
     tint?: string
     style?: 'prominent' | 'none' | 'text'
     selected?: boolean
+    active?: boolean
+    ariaExpanded?: boolean
     size?: Size
     disabled?: boolean
     ariaLabel?: string
@@ -106,15 +110,17 @@
   let label = $derived(text ? text[0].toUpperCase() + text.slice(1) : text)
 </script>
 
-  <button
+<button
   class="btn {styleClass} {sizeClass} {cls}"
   class:btn-tinted={tintVars !== null}
   class:btn-iconed-left={iconSide === 'left'}
   class:btn-iconed-right={iconSide === 'right'}
+  class:active={active}
   style={tintVars ?? ''}
   type="button"
   {disabled}
   aria-label={ariaLabel}
+  aria-expanded={ariaExpanded ?? (active ? true : undefined)}
   {title}
   {onclick}
   {onmousedown}

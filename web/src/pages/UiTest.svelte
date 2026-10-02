@@ -10,6 +10,7 @@
   import DynamicForm from '../components/domain/DynamicForm.svelte'
   import Select from '../components/ui/controls/Select.svelte'
   import FloatingList from '../components/ui/controls/FloatingList.svelte'
+  import FloatingView from '../components/ui/controls/FloatingView.svelte'
   import Chip from '../components/ui/controls/Chip.svelte'
   import Banner from '../components/ui/composite/Banner.svelte'
   import Icon from '../components/ui/controls/Icon.svelte'
@@ -95,6 +96,13 @@
   let lastAction = $state('(none)')
   let demoMenuOpen = $state(false)
   let demoMenuAnchor = $state<HTMLElement>()
+  let floatingConfirmOpen = $state(false)
+  let floatingConfirmAnchor = $state<HTMLElement>()
+  let floatingConfirmResult = $state('(none)')
+  let floatingFormOpen = $state(false)
+  let floatingFormAnchor = $state<HTMLElement>()
+  let floatingFormText = $state('Quick value')
+  let floatingFormSubmitted = $state('(none)')
   let confirmResult = $state('(not asked)')
   let toastText = $state('Custom toast text — edit me and show')
 
@@ -481,6 +489,84 @@
       onaction={(id) => { lastAction = id }}
     />
     <span class="hint">Action: <span class="mono">{lastAction}</span></span>
+  </div>
+</SectionCard>
+
+<SectionCard title="FloatingView">
+  <p class="hint">Generic anchored popup layer with ease-in bounce animation from caller anchor.</p>
+  <div class="row">
+    <Button
+      text="Delete item…"
+      icon={{ name: 'delete' }}
+      tint="#dc2626"
+      onclick={(e) => {
+        floatingConfirmAnchor = e.currentTarget as HTMLElement
+        floatingConfirmOpen = !floatingConfirmOpen
+      }}
+    />
+    <FloatingView
+      bind:open={floatingConfirmOpen}
+      anchor={floatingConfirmAnchor}
+      label="Confirm delete"
+    >
+      {#snippet children({ close })}
+        <VStack gap={3} style="max-width: 260px;">
+          <VStack gap={1}>
+            <Text weight="medium" size="base">Delete item?</Text>
+            <Text size="sm" tone="soft">This action cannot be undone. Are you sure you want to proceed?</Text>
+          </VStack>
+          <HStack justify="end" gap={2}>
+            <Button size="small" style="text" onclick={() => { floatingConfirmResult = 'cancelled'; close() }}>Cancel</Button>
+            <Button
+              size="small"
+              style="prominent"
+              tint="#dc2626"
+              onclick={() => { floatingConfirmResult = 'confirmed'; close() }}
+            >
+              Delete
+            </Button>
+          </HStack>
+        </VStack>
+      {/snippet}
+    </FloatingView>
+    <span class="hint">Confirm result: <span class="mono">{floatingConfirmResult}</span></span>
+  </div>
+
+  <div class="row">
+    <Button
+      text="Quick edit…"
+      icon={{ name: 'edit' }}
+      onclick={(e) => {
+        floatingFormAnchor = e.currentTarget as HTMLElement
+        floatingFormOpen = !floatingFormOpen
+      }}
+    />
+    <FloatingView
+      bind:open={floatingFormOpen}
+      anchor={floatingFormAnchor}
+      label="Quick edit form"
+    >
+      {#snippet children({ close })}
+        <VStack gap={3} style="width: 260px;">
+          <Text weight="medium" size="base">Edit name</Text>
+          <TextEdit bind:value={floatingFormText} hint="Enter name" />
+          <HStack justify="end" gap={2}>
+            <Button size="small" onclick={close}>Cancel</Button>
+            <Button
+              size="small"
+              style="prominent"
+              onclick={() => {
+                floatingFormSubmitted = floatingFormText
+                close()
+              }}
+            >
+              Save
+            </Button>
+          </HStack>
+        </VStack>
+      {/snippet}
+    </FloatingView>
+    <span class="hint">Saved: <span class="mono">{floatingFormSubmitted}</span></span>
   </div>
 </SectionCard>
 
