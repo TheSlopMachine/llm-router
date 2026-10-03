@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { VStack, HStack, Text, Button, Table, SectionCard, List, Spacer, Chip, FloatingView } from '$ui'
+  import { VStack, HStack, Text, Button, Table, SectionCard, Spacer, Chip, FloatingView } from '$ui'
   import type { TableColumn } from '$ui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
@@ -30,6 +30,13 @@
     { key: 'name', title: t('Name'), width: '1fr', priority: 1 },
     { key: 'proxies', title: t('Proxies'), width: '120px', align: 'right', priority: 2 },
     { key: 'actions', title: t('Actions'), width: 'auto', align: 'right', priority: 1 },
+  ]
+
+  const sourceColumns: TableColumn[] = [
+    { key: 'name', title: t('Name'), width: '1fr', priority: 1 },
+    { key: 'fetched', title: t('Last fetched'), width: '160px', align: 'right', priority: 2 },
+    { key: 'candidates', title: t('Candidates'), width: '110px', align: 'right', priority: 1 },
+    { key: 'unsupported', title: t('Unsupported'), width: '110px', align: 'right', priority: 2 },
   ]
 
   onMount(() => {
@@ -177,35 +184,6 @@
     {/if}
   </SectionCard>
 
-  <SectionCard title={t('Proxy sources')} description={t('Plugins provide candidate URLs. The library retains and checks them.')}>
-    {#if sources.length === 0}
-      <Text tone="soft" size="sm">{t('No proxy list sources installed. Install a proxy-source plugin (e.g. proxifly).')}</Text>
-    {:else}
-      <List>
-        {#each sources as source (source.key)}
-          <div style="padding: var(--space-4);">
-            <VStack gap={2}>
-              <HStack align="center" gap={3}>
-                <VStack gap={0} grow>
-                  <Text weight="bold" size="base">{source.name}</Text>
-                  <Text size="xs" tone="soft">{source.key}</Text>
-                </VStack>
-                <Text size="sm" tone="soft">{t('Candidates returned')}: {source.total}</Text>
-              </HStack>
-              <HStack gap={3} wrap>
-                <Text size="xs" tone="soft">{t('Last fetched')}: {formatTime(source.last_fetch_at)}</Text>
-                <Text size="xs" tone="soft">{t('Unsupported')}: {source.unsupported}</Text>
-              </HStack>
-              {#if source.last_error}
-                <Text size="xs" tone="danger">{source.last_error}</Text>
-              {/if}
-            </VStack>
-          </div>
-        {/each}
-      </List>
-    {/if}
-  </SectionCard>
-
   <VStack gap={4}>
     <HStack align="center" gap={4}>
       <VStack gap={1} grow>
@@ -250,6 +228,39 @@
       {/snippet}
       {#snippet empty()}
         <Text tone="soft" size="sm" align="center">{t('No custom pools yet.')}</Text>
+      {/snippet}
+    </Table>
+  </VStack>
+
+  <VStack gap={4}>
+    <VStack gap={1}>
+      <Text tag="h2" size="md" weight="bold">{t('Proxy sources')}</Text>
+      <Text tone="soft" size="sm">{t('Plugins provide candidate URLs. The library retains and checks them.')}</Text>
+    </VStack>
+    <Table
+      columns={sourceColumns}
+      rows={sources}
+      rowKey={(source) => (source as ProxySourceInfo).key}
+      loading={loading}
+    >
+      {#snippet cell({ column, row })}
+        {@const source = row as ProxySourceInfo}
+        {#if column.key === 'name'}
+          <Text size="base" weight="medium">{source.name}</Text>
+          <Text size="xs" tone="soft">{source.key}</Text>
+          {#if source.last_error}
+            <Text size="xs" tone="danger">{source.last_error}</Text>
+          {/if}
+        {:else if column.key === 'fetched'}
+          <Text size="sm">{formatTime(source.last_fetch_at)}</Text>
+        {:else if column.key === 'candidates'}
+          <Text size="sm">{source.total}</Text>
+        {:else if column.key === 'unsupported'}
+          <Text size="sm">{source.unsupported}</Text>
+        {/if}
+      {/snippet}
+      {#snippet empty()}
+        <Text tone="soft" size="sm" align="center">{t('No proxy list sources installed. Install a proxy-source plugin (e.g. proxifly).')}</Text>
       {/snippet}
     </Table>
   </VStack>
