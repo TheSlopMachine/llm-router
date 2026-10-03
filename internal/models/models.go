@@ -53,7 +53,13 @@ import (
 // 0.5.0 adds the moderate handler serving POST /v1/moderations and the
 // image_b64/image_name/mask_b64 generate_image request fields serving
 // POST /v1/images/edits and POST /v1/images/variations.
-const CurrentVersion = "0.5.0"
+// 0.5.1 removes traffic-driven disables: auth/payment_required fail over
+// without disabling the credential, structural_fault fails the pool without
+// disabling the provider; only admin actions and doctor fix disable.
+// 0.5.2 adds the check_health handler plus per-type healthcheck_cooldown:
+// failure-triggered detached account verification, disable on explicit
+// unhealthy only.
+const CurrentVersion = "0.5.2"
 
 // ─────────────────────────────────────────────
 // ModelId
@@ -1208,17 +1214,17 @@ const (
 	ErrorTypeUnknown          ErrorType = iota
 	ErrorTypeRateLimit                  // Temporary rate limit; plugin MUST supply RetryAfter
 	ErrorTypeQuotaExceeded              // Quota exhausted; plugin MUST supply RetryAfter
-	ErrorTypeAuth                       // Auth failure: disable the credential (system)
+	ErrorTypeAuth                       // Auth failure: fails over, carries no state
 	ErrorTypeUpstream                   // Transient upstream failure (5xx,timeout, reset)
 	ErrorTypeTransport                  // Connectivity failure (EOF, reset, broken tunnel); carries no state, retries on another proxy
 	ErrorTypeInvalidRequest             // Malformed request; fatal for the pool
 	ErrorTypeGeo                        // Exit geo-blocked: indefinite (provider, proxy) ban, same-key retry on another region
 	ErrorTypeNotFound                   // Model does not exist upstream; drop it from the cache
-	ErrorTypePaymentRequired            // Upstream paywall: disable the credential (system)
+	ErrorTypePaymentRequired            // Upstream paywall: fails over, carries no state
 	ErrorTypeContentPolicy              // Upstream rejected the content; fatal for the pool
 	ErrorTypeModelUnavailable           // Model exists but not serving; exhausted on (provider, model) for 2m
 	ErrorTypeOverloaded                 // Backend congested; retryable, no marks or cooldown
-	ErrorTypeStructuralFault            // Provider config/network broken for all keys and models; disable the provider (system), fatal for the pool
+	ErrorTypeStructuralFault            // Provider config/network broken for all keys and models; fatal for the pool, carries no state
 )
 
 // ProviderError represents errors returned by provider backends.
@@ -1394,7 +1400,7 @@ type ProviderInstance struct {
 	// Settings and discovery keep working.
 	Disabled bool `json:"disabled,omitempty"`
 	// DisabledBy names who disabled the provider: "admin" (dashboard PUT)
-	// or "system" (structural_fault auto-disable). Empty when enabled.
+	// or "system" (doctor fix for backend-less types). Empty when enabled.
 	DisabledBy string `json:"disabled_by,omitempty"`
 	// DisabledReason carries the human reason (system cause or admin note).
 	DisabledReason string `json:"disabled_reason,omitempty"`
@@ -1479,10 +1485,10 @@ type Credential struct {
 
 	// Disabled excludes the credential from routing and fallthrough.
 	Disabled bool `json:"disabled,omitempty"`
-	// DisabledBy names who disabled the credential: "admin" (dashboard PUT)
-	// or "system" (auth/payment_required auto-disable). Empty when enabled.
+	// DisabledBy names who disabled the credential: "admin" (dashboard PUT).
+	// Empty when enabled.
 	DisabledBy string `json:"disabled_by,omitempty"`
-	// DisabledReason carries the human reason (system cause or admin note).
+	// DisabledReason carries the human reason (admin note).
 	DisabledReason string `json:"disabled_reason,omitempty"`
 	// DisabledAt marks when the credential was disabled. Nil when enabled.
 	DisabledAt *time.Time `json:"disabled_at,omitempty"`

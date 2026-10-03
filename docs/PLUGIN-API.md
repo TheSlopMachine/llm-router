@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Router version: **0.5.0** (`models.CurrentVersion`). A plugin using a feature
+Router version: **0.5.2** (`models.CurrentVersion`). A plugin using a feature
 declares the `@router_version` that introduced it; older routers refuse to
 install it. Routers serve no contract older than **0.3.0**: plugins declaring
 `0.2.x` and below fail install and need reissue.
@@ -33,6 +33,8 @@ means `.0`, one leading `v` allowed); anything else fails install.
 | 0.3.9 | request tables carry `cache_key`: stable cross-turn prefix-cache partition (model, first message, sorted tool names); `"prefix-boot"` for empty histories; old routers omit it |
 | 0.4.0 | `generate_video` / `poll_video` / `video_content` handlers serving `POST /v1/videos`, `GET /v1/videos/{jobId}`, `GET /v1/videos/{jobId}/content`; `videos` endpoint in `ModelInfo.endpoints`; router-side job rows map local IDs to upstream jobs |
 | 0.5.0 | `moderate` handler serving `POST /v1/moderations`; `image_b64` / `image_name` / `mask_b64` `generate_image` request fields serving `POST /v1/images/edits` and `POST /v1/images/variations` (old plugins ignore the extra fields) |
+| 0.5.1 | traffic-driven disables removed: `auth` / `payment_required` fail over without disabling the credential, `structural_fault` stops the pool without disabling the provider; disables come only from admin actions and doctor fix for backend-less types (old plugins unchanged) |
+| 0.5.2 | `check_health` handler plus per-type `healthcheck_cooldown` registration value (whole seconds, 60..86400, default 300): failure-triggered detached account verification, at most once per window; only an explicit `unhealthy` verdict disables (`disabled_by=healthcheck`) |
 
 ## Responsibility split
 
@@ -41,8 +43,7 @@ The router owns orchestration; the plugin owns wire translation.
 - Router: credential pool order and single-pass iteration, token filtering,
   provider proxy policy and request failover, exhausted limit ordering, geo-ban
   filtering and region preference, stream first-byte gate, model cache,
-  metrics, sandboxing, version gating, crash accounting, credential and
-  provider auto-disable with first-wins cause.
+  metrics, sandboxing, version gating, crash accounting.
 - Plugin: request payload building, response normalization, error
   classification (via the helper below), model catalog mapping, the limit
   TTL of its upstream expressed as `retry_after`, and the limit dimensions
@@ -112,6 +113,11 @@ llm_router.register_proxy_source(name, {
   models). Unknown fields and mistyped values fail install — a typo'd key
   must never deploy as a silent no-op. Routers older than the spec
   feature ignore the table.
+- An optional `healthcheck_cooldown` number sets the per-type account
+  health-check cooldown in whole seconds (60..86400, default 300): after an
+  attempt failure the router runs `check_health` at most once per window.
+  Mistyped and out-of-range values fail install. Routers older than the
+  feature ignore the value (and the `check_health` handler).
 - `classify_error` absent means the core default decides alone.
 - One bare source name may be claimed by several plugins; the runtime
   qualifies each as `<recordID>/<name>`.
@@ -135,6 +141,7 @@ llm_router.register_proxy_source(name, {
 | `get_model_infos` | no | `(ctx, credential, provider_config)` | `(array, err)` |
 | `needs_refresh` | no | `(credential)` | `boolean` |
 | `refresh_credential` | no | `(ctx, credential)` | `(data table, err)` |
+| `check_health` | no | `(ctx, credential)` | `health table` |
 | `config_schema` | no | `()` | `array?` |
 | `credential_schema` | no | `()` | `array?` |
 | `auth_initiate` | no | `(ctx)` | `auth result` |
@@ -197,11 +204,11 @@ llm_router.register_proxy_source(name, {
 - `structural_fault`: the provider endpoint itself is broken for every key
   and model (unresolvable host, refused connection, broken TLS identity —
   mapped by the router from direct-leg transport failures). Stops the pool
-  and disables the provider with the cause attached; re-enable is manual.
-  Never emit it for HTTP statuses: classify those normally.
-- `auth` / `payment_required`: disable the attempt credential with the
-  cause attached (`disabled_by=system`); re-enable is manual. The pool
-  moves to the next credential.
+  and records no state; re-attempts fail the same way until the endpoint
+  heals. Never emit it for HTTP statuses: classify those normally.
+- `auth` / `payment_required`: fail over to the next credential and record
+  no state. Nothing disables an account from traffic: repeated failures
+  surface the last error, and only an admin disables a credential.
 - `geo`: the proxy exit is geo-blocked for this provider. Records the
   indefinite `(provider type, proxy)` flag keyed by adapter type (the upstream
   region policy is shared by every instance of the type) and, in
@@ -407,6 +414,13 @@ Content-Type; `content_type` empty defaults to `video/mp4`.
   else crashes). Absent means never.
 - `refresh_credential(ctx, credential)` → `(data table, err)`. Absent means
   not refreshable.
+- `check_health(ctx, credential)` → `{ status = "healthy" | "unhealthy" | "unknown", message? }`.
+  Runs detached after an attempt failure, at most once per cooldown window
+  (default 5 minutes, `healthcheck_cooldown` registration value in whole
+  seconds within 60..86400 overrides per type). Only an explicit
+  `"unhealthy"` disables the account (`disabled_by=healthcheck`);
+  `"unknown"`, handler errors and invalid shapes change nothing. Absent
+  means the type never health-checks.
 - `config_schema()` / `credential_schema()` → UI node array or `nil`.
   Absent means raw JSON editing in the dashboard.
 
@@ -630,11 +644,11 @@ Behavior:
   unbanned picks from other regions sort above unbanned picks sharing a
   banned region, so retries land on another country instead of re-hitting
   the blocked one (`manual` order stays sacred).
-- `auth` / `payment_required` disable the attempt credential
-  (`disabled_by=system` with the cause); `structural_fault` disables the
-  provider the same way. First cause wins; re-enable is manual and clears
-  the cause. Content, malformed-request, missing-model and transient
-  failures record no state.
+- `auth` / `payment_required` / `structural_fault` record no state: the pool
+  fails over (`structural_fault` stops it) and surfaces the last error.
+  Accounts disable by admin action only; providers disable by admin action
+  or doctor fix for backend-less types. Content, malformed-request,
+  missing-model and transient failures record no state.
 - Keys never cross plugins or provider instances: a limit for one provider
   never affects the others. Geo flags scope wider by design (adapter type,
   shared upstream region policy).

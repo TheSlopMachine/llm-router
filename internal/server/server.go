@@ -22,6 +22,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	"github.com/TheSlopMachine/llm-router/internal/services/geoban"
+	"github.com/TheSlopMachine/llm-router/internal/services/healthcheck"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/maintenance"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
@@ -111,16 +112,9 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	luaSvc.SetUsageTracker(credSvc)
 	luaSvc.SetExhaustedStore(exhaustedSvc)
 	luaSvc.SetGeoBanStore(geobanSvc)
-	luaSvc.SetCredentialDisabler(func(id, reason string) {
-		if err := credSvc.SystemDisable(id, reason); err != nil && logger != nil {
-			logger.Warn("system credential disable failed", "credential_id", id, "error", err)
-		}
-	})
-	luaSvc.SetProviderDisabler(func(id, reason string) {
-		if err := providerSvc.SystemDisable(id, reason); err != nil && logger != nil {
-			logger.Warn("system provider disable failed", "provider_id", id, "error", err)
-		}
-	})
+	healthSvc := healthcheck.New(database, luaSvc, credSvc)
+	healthSvc.SetLogger(logger)
+	luaSvc.SetHealthTrigger(healthSvc)
 	if dumpDir := upstreamDumpDir(cfg.DBPath); dumpDir != "" {
 		if err := os.MkdirAll(dumpDir, 0700); err != nil && logger != nil {
 			logger.Warn("upstream dump dir init failed", "dir", dumpDir, "error", err)

@@ -394,7 +394,7 @@
                 <Chip text={t('Expired')} color="chip-red" />
               {/if}
             </HStack>
-            {#if cred.disabled && cred.disabled_by === 'system'}
+            {#if cred.disabled && (cred.disabled_by === 'system' || cred.disabled_by === 'healthcheck')}
               <Text size="sm" tone="danger">{t('Disabled automatically')}{cred.disabled_reason ? `: ${cred.disabled_reason}` : ''}</Text>
             {/if}
           {:else}

@@ -42,17 +42,9 @@ func (s *Service) SetGeoBanStore(g interface {
 	s.geoban = g
 }
 
-// SetCredentialDisabler wires per-attempt credential auto-disable for
-// auth/payment_required outcomes. Unset (nil) disables it.
-func (s *Service) SetCredentialDisabler(f func(credentialID, reason string)) {
-	s.credDisabler = f
-}
-
-// SetProviderDisabler wires per-attempt provider auto-disable for
-// structural_fault outcomes. Unset (nil) disables it.
-func (s *Service) SetProviderDisabler(f func(providerID, reason string)) {
-	s.provDisabler = f
-}
+// SetHealthTrigger wires failure-triggered health-check dispatch.
+// Unset (nil) disables it; attempts still run.
+func (s *Service) SetHealthTrigger(t HealthTrigger) { s.healthTrigger = t }
 
 // SetMarkDead wires manual proxy exclusion for upstream-observed faults.
 // Unset (nil) disables it.

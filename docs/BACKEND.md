@@ -25,6 +25,7 @@ internal/services/
   videojobs/             router-side video job rows (local id → upstream job)
   exhausted/             joint limit keys (account/model/proxy), subset match, expiry auto-delete
   geoban/                indefinite (plugin, provider type, proxy) geo flags, no expiry, explicit clear
+  healthcheck/           failure-triggered account verification (check_health, cooldown, singleflight, disable on unhealthy only)
   admin/                 admin password change
   config/                instance-wide router configuration
   datamanagement/        subsystem export/import/clear + provider export/import/purge
@@ -102,9 +103,9 @@ Keep changes shallow. Touch service internals only when the task requires it.
   outcomes mark the scoped joint key (or the full combination without
   scope) with the plugin-supplied TTL, `model_unavailable` marks
   `(provider, model)` for a fixed 2 minutes, all in the exec defer.
-  `auth` / `payment_required` disable the attempt credential and
-  `structural_fault` disables the provider instance (first cause wins,
-  manual re-enable clears it). `geo` records the indefinite geoban flag.
+  `auth` / `payment_required` / `structural_fault` record no state: the pool
+  fails over (`structural_fault` stops it) and surfaces the last error.
+  `geo` records the indefinite geoban flag.
 
 ## Exhausted store and geo bans
 

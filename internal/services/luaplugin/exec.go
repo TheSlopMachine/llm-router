@@ -149,8 +149,7 @@ func (s *Service) handlerCallRouted(
 		exhausted:           s.exhausted,
 		proxyLimits:         s.proxyLimits,
 		geoban:              s.geoban,
-		disableCredential:   s.credDisabler,
-		disableProvider:     s.provDisabler,
+		healthTrigger:       s.healthTrigger,
 		markDead:            s.markDead,
 		dumpDir:             s.dumpDir,
 		goCtx:               goCtx,
@@ -159,9 +158,8 @@ func (s *Service) handlerCallRouted(
 	// rate_limit/quota_exceeded record the scoped joint key with the
 	// plugin-supplied TTL; model_unavailable records the model key for a
 	// fixed 2 minutes; geo records the indefinite (plugin, provider, proxy)
-	// flag; auth/payment_required disable the attempt credential;
-	// structural_fault disables the provider instance. Everything else
-	// carries no state. Disables are first-wins inside the owning service.
+	// flag. Nothing disables: auth, payment_required and structural_fault
+	// fail over to the next credential and surface the last error.
 	defer func() {
 		if err == nil {
 			return
@@ -174,6 +172,13 @@ func (s *Service) handlerCallRouted(
 		// on the log line; the in-memory body is truncated to the snippet
 		// unless debug logging is on.
 		spillUpstreamBody(ctx, perr)
+		// Failure-triggered health verification runs detached: any attempt
+		// failure marks the credential suspect, the healthcheck service
+		// bounds check frequency by cooldown and disables only on an
+		// explicit unhealthy verdict.
+		if ctx.healthTrigger != nil && ctx.credentialID != "" {
+			ctx.healthTrigger.SuspectFailed(ctx.pluginID, ctx.typeKey, ctx.credentialID)
+		}
 		switch perr.Type {
 		case models.ErrorTypeRateLimit, models.ErrorTypeQuotaExceeded:
 			if ctx.exhausted == nil && ctx.proxyLimits == nil {
@@ -238,22 +243,6 @@ func (s *Service) handlerCallRouted(
 				ctx.logger.Warn("geoban: mark failed", "proxy", ctx.lastProxyID, "error", merr)
 			} else if ctx.logger != nil {
 				ctx.logger.Debug("geoban: marked proxy", "plugin_id", ctx.pluginID, "type", ctx.typeKey, "proxy", ctx.lastProxyID)
-			}
-		case models.ErrorTypeAuth, models.ErrorTypePaymentRequired:
-			if ctx.disableCredential == nil || ctx.credentialID == "" {
-				return
-			}
-			ctx.disableCredential(ctx.credentialID, perr.Message)
-			if ctx.logger != nil {
-				ctx.logger.Info("credential disabled by system", "credential_id", ctx.credentialID, "plugin_id", ctx.pluginID, "type", ctx.typeKey, "reason", contractTypeName(perr.Type))
-			}
-		case models.ErrorTypeStructuralFault:
-			if ctx.disableProvider == nil || ctx.providerID == "" {
-				return
-			}
-			ctx.disableProvider(ctx.providerID, perr.Message)
-			if ctx.logger != nil {
-				ctx.logger.Info("provider disabled by system", "provider_id", ctx.providerID, "plugin_id", ctx.pluginID, "type", ctx.typeKey, "reason", contractTypeName(perr.Type))
 			}
 		}
 	}()

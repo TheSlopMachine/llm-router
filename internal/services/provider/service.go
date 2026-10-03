@@ -338,11 +338,11 @@ func (s *Service) Update(id string, opts UpdateOptions) (*models.ProviderInstanc
 	return updated, nil
 }
 
-// SystemDisable disables a provider on structural_fault outcomes.
-// First wins: an already-disabled provider keeps its original cause, so a
-// late duplicate error cannot rewrite the admin-visible reason. Manual admin
-// re-enable clears the flag; the next failure disables again with a fresh
-// cause.
+// SystemDisable disables a provider on explicit system request (doctor fix
+// for backend-less types). Traffic outcomes never call it. First wins: an
+// already-disabled provider keeps its original cause, so a late duplicate
+// cannot rewrite the admin-visible reason. Manual admin re-enable clears
+// the flag.
 func (s *Service) SystemDisable(id, reason string) error {
 	if reason == "" {
 		reason = "disabled by system"

@@ -35,6 +35,7 @@ var (
 	BucketVideoJobs           = []byte("video_jobs")           // Router-side video generation jobs: ID → VideoJob
 	BucketResponses           = []byte("responses")            // Router-side compat records: ID → ResponseRecord (responses, conversations, assistants, threads, messages, runs)
 	BucketMessageBatches      = []byte("message_batches")      // Router-side Anthropic message batches: ID → BatchRecord
+	BucketCredentialHealth    = []byte("credential_health")    // Account health-check state: credential ID → last check
 )
 
 // DB wraps a bbolt.DB and ensures all required buckets exist.
@@ -85,6 +86,7 @@ func (db *DB) initBuckets() error {
 			BucketVideoJobs,
 			BucketResponses,
 			BucketMessageBatches,
+			BucketCredentialHealth,
 		}
 		for _, name := range buckets {
 			if _, err := tx.CreateBucketIfNotExists(name); err != nil {

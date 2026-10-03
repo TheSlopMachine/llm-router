@@ -26,8 +26,9 @@ export interface Credential {
   label: string
   is_expired: boolean
   disabled?: boolean
-  // Backend 0.3.0 auto-disable contract: absent until it lands.
-  disabled_by?: 'admin' | 'system' | null
+  // Who disabled the account: admin action, health-check verdict, or legacy
+  // traffic auto-disable rows predating 0.5.1.
+  disabled_by?: 'admin' | 'system' | 'healthcheck' | null
   disabled_reason?: string | null
   disabled_at?: string | null
   order?: number

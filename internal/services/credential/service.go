@@ -259,28 +259,24 @@ func (s *Service) UpdateDetails(id string, label *string, disabled *bool, data m
 	return nil
 }
 
-// SystemDisable disables a credential on auth/payment_required outcomes.
-// First wins: already-disabled credentials keep their original cause, so a
-// late duplicate error cannot rewrite the admin-visible reason. Manual admin
-// re-enable clears the flag; the next failure disables again with a fresh
-// cause.
-func (s *Service) SystemDisable(id, reason string) error {
+// DisableUnhealthy disables a credential on an explicit unhealthy
+// health-check verdict. First wins: an already-disabled credential keeps
+// its original cause. Manual admin re-enable clears the flag.
+func (s *Service) DisableUnhealthy(id, reason string) error {
 	if reason == "" {
-		reason = "disabled by system"
+		reason = "health check reported unhealthy"
 	}
 	if len(reason) > 1024 {
 		reason = reason[:1024] + "…[truncated]"
 	}
 	disabled := false
-	providerID := ""
 	err := s.repo.Update(id, func(c *models.Credential) error {
-		providerID = c.ProviderID
 		if c.Disabled {
 			return nil
 		}
 		now := util.Now()
 		c.Disabled = true
-		c.DisabledBy = "system"
+		c.DisabledBy = "healthcheck"
 		c.DisabledReason = reason
 		c.DisabledAt = &now
 		c.UpdatedAt = now
@@ -291,7 +287,7 @@ func (s *Service) SystemDisable(id, reason string) error {
 		return err
 	}
 	if disabled && s.logger != nil {
-		s.logger.Info("credential disabled by system", "credential_id", id, "provider_id", providerID, "reason", reason)
+		s.logger.Info("credential disabled by healthcheck", "credential_id", id, "reason", reason)
 	}
 	if cred, gerr := s.repo.Get(id); gerr == nil && cred != nil {
 		s.notifyChanged(cred.ProviderID)

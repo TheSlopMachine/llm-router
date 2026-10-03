@@ -24,6 +24,7 @@ const (
 	HandlerClassifyError       Handler = "classify_error"
 	HandlerNeedsRefresh        Handler = "needs_refresh"
 	HandlerRefreshCredential   Handler = "refresh_credential"
+	HandlerCheckHealth         Handler = "check_health"
 	HandlerConfigSchema        Handler = "config_schema"
 	HandlerCredentialSchema    Handler = "credential_schema"
 	HandlerAuthInitiate        Handler = "auth_initiate"
@@ -47,6 +48,7 @@ func OptionalHandlerNames() []string {
 		string(HandlerClassifyError),
 		string(HandlerNeedsRefresh),
 		string(HandlerRefreshCredential),
+		string(HandlerCheckHealth),
 		string(HandlerConfigSchema),
 		string(HandlerCredentialSchema),
 		string(HandlerAuthInitiate),

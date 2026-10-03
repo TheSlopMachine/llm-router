@@ -64,12 +64,9 @@ type execContext struct {
 	geoban interface {
 		Mark(plugin, provider, proxy, reason string) error
 	}
-	// disableCredential disables one credential with first-wins semantics
-	// (nil = disabled). Called per attempt on auth/payment_required.
-	disableCredential func(credentialID, reason string)
-	// disableProvider disables one provider instance with first-wins
-	// semantics (nil = disabled). Called per attempt on structural_fault.
-	disableProvider func(providerID, reason string)
+	// healthTrigger receives the failed attempt identity for detached
+	// health-check dispatch (nil = disabled).
+	healthTrigger HealthTrigger
 	// markDead excludes one proxy URL until an escalating ban expires
 	// (nil = disabled). Called per attempt on structural proxy faults.
 	markDead func(url, reason string) bool
