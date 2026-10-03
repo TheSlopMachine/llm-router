@@ -20,7 +20,7 @@ func dmStack(t *testing.T) (*Service, *provider.Service, *credential.Service, *m
 	providerSvc.RegisterGoAdapter(testutil.NewMockAdapter("dm-type"))
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, time.Hour)
-	svc := New(database, providerSvc, credSvc, nil, nil, nil, nil, modelInfoSvc, nil)
+	svc := New(database, providerSvc, credSvc, nil, nil, nil, nil, modelInfoSvc)
 	return svc, providerSvc, credSvc, modelInfoSvc
 }
 

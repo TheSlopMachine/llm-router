@@ -13,7 +13,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/batches"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
-	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/responses"
@@ -41,7 +40,7 @@ func setupCompatRouter(t *testing.T, mock provider.GoAdapter) *Service {
 		t.Fatalf("add credential: %v", err)
 	}
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
-	return New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database),
+	return New(providerSvc, credSvc, modelInfoSvc, videojobs.New(database),
 		responses.New(database), batches.New(database), slog.Default())
 }
 

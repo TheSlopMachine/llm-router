@@ -20,6 +20,9 @@ type credView struct {
 	DisabledBy     string     `json:"disabled_by,omitempty"`
 	DisabledReason string     `json:"disabled_reason,omitempty"`
 	DisabledAt     *time.Time `json:"disabled_at,omitempty"`
+	Parked         bool       `json:"parked,omitempty"`
+	ParkedUntil    *time.Time `json:"parked_until,omitempty"`
+	ParkReason     string     `json:"park_reason,omitempty"`
 	Order          int        `json:"order,omitempty"`
 	RequestCount   int64      `json:"request_count"`
 	SuccessCount   int64      `json:"success_count"`
@@ -27,8 +30,8 @@ type credView struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
-func toCredView(c *models.Credential, providerName string) credView {
-	return credView{
+func (h *Handler) toCredView(c *models.Credential, providerName string) credView {
+	view := credView{
 		ID:             c.ID,
 		ProviderID:     c.ProviderID,
 		ProviderName:   providerName,
@@ -44,6 +47,12 @@ func toCredView(c *models.Credential, providerName string) credView {
 		ExpiresAt:      c.ExpiresAt,
 		UpdatedAt:      c.UpdatedAt,
 	}
+	if park, err := h.credSvc.Parked(c.ID); err == nil && park != nil {
+		view.Parked = true
+		view.ParkedUntil = &park.Until
+		view.ParkReason = park.Reason
+	}
+	return view
 }
 
 // apiCredentialsList lists all credentials
@@ -69,7 +78,7 @@ func (h *Handler) apiCredentialsList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]credView, len(creds))
 	for i, c := range creds {
-		out[i] = toCredView(c, providerMap[c.ProviderID])
+		out[i] = h.toCredView(c, providerMap[c.ProviderID])
 	}
 	h.json(w, http.StatusOK, out)
 }
@@ -119,7 +128,7 @@ func (h *Handler) apiCredentialsCreate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	h.json(w, http.StatusOK, toCredView(cred, p.Name))
+	h.json(w, http.StatusOK, h.toCredView(cred, p.Name))
 }
 
 // apiCredentialsUpdate edits label, enable/disable state or data of a credential
@@ -167,38 +176,7 @@ func (h *Handler) apiCredentialsUpdate(w http.ResponseWriter, r *http.Request) {
 	if p, err := h.providerSvc.Get(cred.ProviderID); err == nil {
 		name = p.Name
 	}
-	h.json(w, http.StatusOK, toCredView(cred, name))
-}
-
-// apiCredentialsReorder sets the manual pool order of a provider's credentials
-// @Summary      Reorder credentials
-// @Description  Sets the routing priority order; ids must cover all credentials of the provider.
-// @Tags         Credentials
-// @Accept       json
-// @Param        body body object{provider_id=string,ids=[]string} true "Ordered credential IDs"
-// @Success      204 "No Content"
-// @Failure      400 {object} models.ErrorResponse
-// @Failure      401 {object} models.ErrorResponse
-// @Security     SessionAuth
-// @Router       /api/llm-router/dashboard/credentials/reorder [put]
-func (h *Handler) apiCredentialsReorder(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		ProviderID string   `json:"provider_id"`
-		IDs        []string `json:"ids"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if body.ProviderID == "" || len(body.IDs) == 0 {
-		h.jsonErr(w, http.StatusBadRequest, "provider_id and ids are required")
-		return
-	}
-	if err := h.credSvc.Reorder(body.ProviderID, body.IDs); err != nil {
-		h.jsonErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	h.json(w, http.StatusOK, h.toCredView(cred, name))
 }
 
 // apiCredentialsTest verifies a credential through the provider's check_health
@@ -239,27 +217,6 @@ func (h *Handler) apiCredentialsTest(w http.ResponseWriter, r *http.Request) {
 	h.json(w, http.StatusOK, res)
 }
 
-// apiCredentialsRefresh manually refreshes a credential
-// @Summary      Refresh credential
-// @Description  Triggers a credential refresh via the provider backend (Lua or Go adapter)
-// @Tags         Credentials
-// @Produce      json
-// @Param        id path string true "Credential ID"
-// @Success      200 {object} object{ok=bool}
-// @Failure      400 {object} models.ErrorResponse
-// @Failure      401 {object} models.ErrorResponse
-// @Failure      404 {object} models.ErrorResponse
-// @Security     SessionAuth
-// @Router       /api/llm-router/dashboard/credentials/{id}/refresh [post]
-func (h *Handler) apiCredentialsRefresh(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := h.credSvc.ManualRefresh(id); err != nil {
-		h.jsonErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	h.json(w, http.StatusOK, map[string]any{"ok": true})
-}
-
 // apiCredentialsDelete deletes a credential
 // @Summary      Delete credential
 // @Description  Removes a stored credential.
@@ -277,6 +234,33 @@ func (h *Handler) apiCredentialsDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// apiCredentialsUnpark clears a unified cooldown park so the credential
+// serves immediately. Missing parks succeed: unparking is idempotent.
+// Unknown credential IDs fail loudly.
+// @Summary      Unpark credential
+// @Description  Clears a unified cooldown park, returning the credential to rotation at once.
+// @Tags         Credentials
+// @Produce      json
+// @Param        id path string true "Credential ID"
+// @Success      200 {object} object{ok=bool}
+// @Failure      400 {object} models.ErrorResponse
+// @Failure      401 {object} models.ErrorResponse
+// @Failure      404 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/credentials/{id}/unpark [post]
+func (h *Handler) apiCredentialsUnpark(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := h.credSvc.Get(id); err != nil {
+		h.jsonErr(w, http.StatusNotFound, "credential not found")
+		return
+	}
+	if err := h.credSvc.Unpark(id); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h.json(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // apiModels fetches models for providers

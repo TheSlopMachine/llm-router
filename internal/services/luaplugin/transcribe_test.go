@@ -12,12 +12,12 @@ import (
 const transcribePluginSource = `--- @plugin Transcribe Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @description Transcribe test plugin
 --- @allow_host example.com
 
 llm_router.register("stt-type", {
-  complete = function(ctx, credential, request)
+  complete = function(ctx, request)
     return {
       id = "chatcmpl-stt",
       object = "chat.completion",
@@ -30,7 +30,7 @@ llm_router.register("stt-type", {
     }
   end,
 
-  transcribe = function(ctx, credential, request)
+  transcribe = function(ctx, request)
     -- Echo request fields back through the response for assertions.
     local echoed = request.file .. "|" .. request.file_name .. "|" .. request.content_type
       .. "|" .. tostring(request.needs_segments) .. "|" .. (request.language or "")
@@ -95,7 +95,7 @@ func TestTranscribe_HandlerNotFound(t *testing.T) {
 func TestTranscribe_ContractError(t *testing.T) {
 	svc := setupService(t)
 	src := strings.Replace(transcribePluginSource, `local echoed = request.file`,
-		`do return nil, { type = "rate_limit", message = "slow down", retry_after = os.time() + 60 } end
+		`do return nil, { message = "slow down", code = "rate_limit", status = 429 } end
     local echoed = request.file`, 1)
 	src = strings.Replace(src, "Transcribe Plugin", "Transcribe Err", 1)
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
@@ -105,8 +105,8 @@ func TestTranscribe_ContractError(t *testing.T) {
 		&models.Credential{ID: "c1"}, "stt-type/m", nil),
 		&models.TranscriptionRequest{Model: "stt-type/m", File: []byte("x"), FileName: "a.wav"})
 	perr, ok := err.(*models.ProviderError)
-	if !ok || perr.Type != models.ErrorTypeRateLimit {
-		t.Fatalf("expected rate_limit ProviderError, got %T (%v)", err, err)
+	if !ok || perr.Code != "rate_limit" || perr.StatusCode != 429 {
+		t.Fatalf("expected terminal rate_limit ProviderError, got %T (%v)", err, err)
 	}
 }
 
@@ -115,12 +115,12 @@ func TestMultipartHelper(t *testing.T) {
 	src := `--- @plugin Multipart Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @description Multipart test plugin
 --- @allow_host example.com
 
 llm_router.register("mp-type", {
-  complete = function(ctx, credential, request)
+  complete = function(ctx, request)
     return {
       id = "x", object = "chat.completion", created = 1, model = request.model,
       choices = { { index = 0, message = { role = "assistant", content = "hi" }, finish_reason = "stop" } },
@@ -128,7 +128,7 @@ llm_router.register("mp-type", {
     }
   end,
 
-  transcribe = function(ctx, credential, request)
+  transcribe = function(ctx, request)
     local body, ctype = llm_router.multipart({
       { name = "model", value = "whisper-large-v3" },
       { name = "file", filename = request.file_name, content_type = request.content_type, data = request.file },
@@ -173,12 +173,12 @@ func TestMultipartHelperValidation(t *testing.T) {
 	src := `--- @plugin Multipart Bad Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @description Multipart validation test
 --- @allow_host example.com
 
 llm_router.register("mpbad-type", {
-  complete = function(ctx, credential, request)
+  complete = function(ctx, request)
     return {
       id = "x", object = "chat.completion", created = 1, model = request.model,
       choices = { { index = 0, message = { role = "assistant", content = "hi" }, finish_reason = "stop" } },
@@ -186,7 +186,7 @@ llm_router.register("mpbad-type", {
     }
   end,
 
-  transcribe = function(ctx, credential, request)
+  transcribe = function(ctx, request)
     local body, ctype = llm_router.multipart({ { value = "no name" } })
     return { text = body }
   end,

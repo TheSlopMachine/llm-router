@@ -67,7 +67,7 @@ Open every session by identifying the platform and shell. Never assume them.
 
 `llm-router` — single-binary OpenAI-compatible LLM routing gateway. Go backend + embedded Svelte SPA + embedded bbolt DB.
 
-- Routes `ModelId = provider/model` (e.g. `opencode-zen/gpt-5`, `virtual/my-model`) → backend + `CredentialPool`.
+- Routes `ModelId = provider/model` (e.g. `opencode-zen/gpt-5`, `virtual/my-model`) → backend; plugins select credentials under the token allow-list gate.
 - Provider backends are single-file Lua plugins (installed store records in `BucketPlugins`, sourced from plugin store repositories). Built-in Go backends exist only for `custom` (OpenAI-compatible passthrough) and `virtual` (virtual models).
 
 ## 3. Structure
@@ -77,20 +77,26 @@ cmd/root.go              CLI entrypoint (--web/--api/--db)
 internal/server/         HTTP server: dashboard (38080), /v1 API (38081)
 internal/services/
   token/                 router-token issue/validate
-  router/                ModelId → backend + CredentialPool, single pass, no repeats
+  router/                ModelId → backend, token allow-list gate, single pass, no repeats
   provider/              ProviderInstance CRUD (all types, one path)
-  credential/            credential pool, usage stats
+  credential/            credential storage + admin mutation + plugin lifecycle writes
   virtual/               virtual models (fall-through lists + instruction)
-  luaplugin/             Lua execution core: manifest, sandbox, HTTP+SSRF, storage
+  responses/             router-side compat records (responses, conversations, assistants, threads, messages, runs)
+  batches/               router-side Anthropic message batches
+  luaplugin/             Lua execution core: manifest, sandbox, HTTP+SSRF, storage+TTL, credentials/proxies tables, jobs
   pluginrepo/            plugin store: single-URL index repos (repo URL or direct index.json, files resolved against the index directory); code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
   modelinfo/             model metadata cache (1h TTL)
   metrics/               1m buckets, 90d retention
-  maintenance/           refresh + cleanup (refresh, modelsync, proxy, auth jobs)
-  exhausted/             joint limit keys (account/model/proxy), subset match, expiry auto-delete
-internal/pool/           single-pass credential failover (unary + stream)
-internal/streamgate/     first-byte gate: failover stops after first SSE byte
+  maintenance/           plugin job scheduler, model sync, auth cleanup
+  videojobs/             router-side video job rows (local id → upstream job)
+  healthcheck/           failure-triggered credential verification (check_health, cooldown, disable on unhealthy only with automation on)
+  admin/                 admin password change
+  config/                instance-wide router configuration
+  datamanagement/        subsystem export/import/clear + provider export/import/purge
+  doctor/                database inspection and repair
+  proxypool/             free-pool hosting, Lua feed bridge, bbolt cache, custom pools, adaptive refresh schedule
 internal/httpkit/        shared transport helpers (SSE headers)
-internal/errors/         domain sentinels + MapUpstream + ToAPIError
+internal/errors/         domain sentinels + ToAPIError
 internal/repository/     bbolt buckets
 internal/dashboard/      admin REST API
 internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/models, /v1/messages
@@ -200,9 +206,8 @@ If the task needs `browser`, `publish`, or `clean`: STOP. Ask the human to run i
 - Verify through execution whenever reasonable: run checks, tests, or smoke
   after implementing, fixing, or refactoring. `make go-vet`, `make go-test`,
   `make go-fmt-check` gate every Go change; `make smoke SMOKE_PLUGINS=mock`
-  gates request-path changes (Request flow in `docs/BACKEND.md`: `router`,
-  `pool`/`streamgate`, `proxypool`, `exhausted`/`geoban`, `virtual`,
-   `luaplugin`/`PLUGIN-API`, `api/v1`, `errors`). Scope to a real plugin only
+   gates request-path changes (Request flow in `docs/BACKEND.md`: `router`,
+   `proxypool`, `virtual`, `luaplugin`/`PLUGIN-API`, `api/v1`, `errors`). Scope to a real plugin only
    to debug that plugin.
 - Attribute failures before fixing: when smoke fails after the change,
   reproduce on the clean tree first with a scoped run. `git stash` is
@@ -274,10 +279,9 @@ Before finishing any `.svelte` change, re-check every `$effect` touched against 
 ## 9. Lua Plugins
 
 - New provider backends are single-file Lua plugins: one `.lua` file with a `--- @` manifest header. Install via dashboard Plugins → Catalog tab or `POST /api/llm-router/dashboard/plugins/install-file`.
-- Manifest: required tags `@plugin`, `@author`, `@version`, `@router_version`, one or more `@allow_host` (`*` marks the plugin unsafe). Routers serve no contract older than `0.3.0`. `internal/services/luaplugin/manifest.go` validates.
-- API: `llm_router.register(type_key, {complete, ...})`, `llm_router.http_client`, `llm_router.classify_error`, `llm_router.multipart`, `llm_router.storage`, `llm_router.uuid_v5(namespace, name)` (RFC 4122), `llm_router.random_hex(nbytes)`, `json.encode/decode`. Error contract `{type=, message=, retry_after=, scope=}` with `account`/`model`/`proxy` scope words; empty scope on rate/quota marks the full combination. **docs/PLUGIN-API.md is the binding contract for plugin authors — keep it in sync with every handler/API change.**
-- Error parallels: `classify_error(raw, default)` extension handles provider specifics; the core default stays safe (`auth`/`geo`/`quota` only on explicit signals, else `upstream`).
-- Exhausted store: joint limit keys over plugin, provider type, account, model, proxy. Stored keys filter candidates by subset match; expired entries delete on read. `rate_limit`/`quota_exceeded` mark, everything else does not.
+- Manifest: required tags `@plugin`, `@author`, `@version`, `@router_version`, one or more `@allow_host` (`*` marks the plugin unsafe). Routers serve no contract older than `0.7.0`. `internal/services/luaplugin/manifest.go` validates.
+- API: `llm_router.register(type_key, {complete, ...})`, `llm_router.http_client({timeout_ms?})` with per-request `proxy_url` (router owns TLS-fault `MarkDead`, plugins never mark proxies), `llm_router.proxies.query`, `llm_router.credentials` (`list`/`get` plus job-only `update`, switch-gated `disable`/`enable`, ungated `park`/`unpark`/`parked`), `llm_router.storage` with TTL, colocated `jobs`, `llm_router.multipart`, `llm_router.uuid_v5(namespace, name)` (RFC 4122), `llm_router.random_hex(nbytes)`, `json.encode/decode`. Terminal errors are OpenAI-shaped `{message, code?, param?, status?}` and render verbatim; no `type`/`scope`/`retry_after` fields exist. **docs/PLUGIN-API.md is the binding contract for plugin authors — keep it in sync with every handler/API change.**
+- Park (transient, TTL, self-healing, invisible; `list()` auto-excludes parked) vs disable (dead, sticky, dashboard-visible): rate limits and quota windows park, rejected keys disable under the provider `disable_failed_credentials` switch. The manual dashboard toggle and switch-gated probe win over plugin writes.
 - UI trees for `config_schema`/`credential_schema`/`auth_initiate`/`auth_step` render through `DynamicForm.svelte`. Node kinds: leafs `text`, `input`, `select`, `checkbox`, `button`, `link`, `banner`, `secret`, `code`; containers `group`, `flow`, `grid`, `section`, `spacer`, `divider`. No raw HTML from plugins, ever — new widgets ship as first-class node kinds, not markup.
 - Built-in Go backends exist only for `custom` (`internal/adapters/generic/`) and `virtual` (`providers/virtual/`), both implementing `provider.GoAdapter`.
 - Verification: `make go-vet` for static checks, `make smoke` for black-box checks against live upstreams.

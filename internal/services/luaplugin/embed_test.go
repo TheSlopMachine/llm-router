@@ -12,12 +12,12 @@ import (
 const embedPluginSource = `--- @plugin Embed Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @description Embed test plugin
 --- @allow_host example.com
 
 llm_router.register("emb-type", {
-  complete = function(ctx, credential, request)
+  complete = function(ctx, request)
     return {
       id = "chatcmpl-emb",
       object = "chat.completion",
@@ -30,7 +30,7 @@ llm_router.register("emb-type", {
     }
   end,
 
-  embed = function(ctx, credential, request)
+  embed = function(ctx, request)
     local data = {}
     for i, text in ipairs(request.input) do
       table.insert(data, { embedding = { 0.1 * i, 0.2, -0.3 } })
@@ -92,7 +92,7 @@ func TestEmbed_HandlerNotFound(t *testing.T) {
 func TestEmbed_ContractError(t *testing.T) {
 	svc := setupService(t)
 	src := strings.Replace(embedPluginSource, `local data = {}`,
-		`do return nil, { type = "auth", message = "bad key" } end
+		`do return nil, { message = "bad key", code = "authentication_error", status = 401 } end
     local data = {}`, 1)
 	src = strings.Replace(src, "Embed Plugin", "Embed Err", 1)
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
@@ -102,8 +102,8 @@ func TestEmbed_ContractError(t *testing.T) {
 		&models.Credential{ID: "c1"}, "emb-type/m", nil),
 		&models.EmbeddingsRequest{Model: "emb-type/m", Input: []string{"x"}})
 	perr, ok := err.(*models.ProviderError)
-	if !ok || perr.Type != models.ErrorTypeAuth {
-		t.Fatalf("expected auth ProviderError, got %T (%v)", err, err)
+	if !ok || perr.Code != "authentication_error" || perr.StatusCode != 401 {
+		t.Fatalf("expected terminal auth ProviderError, got %T (%v)", err, err)
 	}
 }
 

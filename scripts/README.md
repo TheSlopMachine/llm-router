@@ -41,7 +41,7 @@ Configuration flows one way: `Makefile` vars → env → scripts. Scripts take n
 
 ## Smoke (`make smoke`)
 
-Restarts the dev stack with `NO_AUTH=1`, waits for readiness, then drives the request paths black-box: status → bootstrap → plugin install → provider + dev-database credentials → model matrix (one model per capability, first success closes it) → cleanup of created credentials. Missing credentials skip the plugin, never fail it. Quota, payment, rate and missing-model outcomes skip with reason; anything else fails. Exit 0 means clean (skips allowed).
+Restarts the dev stack with `NO_AUTH=1`, waits for readiness, then drives the request paths black-box: status → bootstrap → plugin install → provider + dev-database credentials → model matrix (one model per capability, first success closes it) → cleanup of created credentials. Missing credentials skip keyed plugins, never fail them; credential-less provider types run the matrix without accounts. Quota, payment, rate and missing-model outcomes skip with reason; anything else fails. Exit 0 means clean (skips allowed).
 
 ## Caching (`NO_SKIP`)
 

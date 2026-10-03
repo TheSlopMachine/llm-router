@@ -3,7 +3,6 @@ package errors
 import (
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
@@ -17,39 +16,21 @@ type APIError struct {
 
 // ToAPIError maps any domain error to its wire representation. Single source
 // of truth for status/code selection; no message-substring matching.
+// ProviderError carries its own status and code: the plugin already
+// produced the terminal OpenAI-shaped error, so the router renders it
+// verbatim after sanitizing the status into range.
 func ToAPIError(err error) APIError {
 	var provErr *models.ProviderError
 	if errors.As(err, &provErr) {
-		switch provErr.Type {
-		case models.ErrorTypeRateLimit:
-			return APIError{http.StatusBadGateway, "rate_limit"}
-		case models.ErrorTypeQuotaExceeded:
-			return APIError{http.StatusBadGateway, "quota_exceeded"}
-		case models.ErrorTypeAuth:
-			return APIError{http.StatusUnauthorized, "auth_error"}
-		case models.ErrorTypeNotFound:
-			return APIError{http.StatusNotFound, "not_found"}
-		case models.ErrorTypeInvalidRequest:
-			return APIError{http.StatusBadRequest, "invalid_request_error"}
-		case models.ErrorTypeGeo:
-			return APIError{http.StatusBadRequest, "geo_blocked"}
-		case models.ErrorTypePaymentRequired:
-			return APIError{http.StatusPaymentRequired, "payment_required"}
-		case models.ErrorTypeContentPolicy:
-			return APIError{http.StatusBadRequest, "content_policy"}
-		case models.ErrorTypeModelUnavailable:
-			return APIError{http.StatusServiceUnavailable, "model_unavailable"}
-		case models.ErrorTypeOverloaded:
-			return APIError{http.StatusServiceUnavailable, "overloaded"}
-		case models.ErrorTypeStructuralFault:
-			return APIError{http.StatusBadGateway, "structural_fault"}
-		case models.ErrorTypeUpstream:
-			return APIError{http.StatusBadGateway, "upstream_error"}
-		case models.ErrorTypeTransport:
-			return APIError{http.StatusBadGateway, "transport_error"}
-		default:
-			return APIError{http.StatusBadGateway, "upstream_error"}
+		status := provErr.StatusCode
+		if status < 400 || status > 599 {
+			status = http.StatusBadGateway
 		}
+		code := provErr.Code
+		if code == "" {
+			code = "server_error"
+		}
+		return APIError{Status: status, Code: code}
 	}
 	switch {
 	case errors.Is(err, ErrProviderNotFound):
@@ -77,23 +58,6 @@ func ToAPIError(err error) APIError {
 	default:
 		return APIError{http.StatusBadGateway, "upstream_error"}
 	}
-}
-
-// RetryAfterDelay reports how long the caller should wait before retrying:
-// the ProviderError RetryAfter instant when it lies in the future, rounded
-// up to whole seconds. Anything else reports false: the server offers no
-// wait hint, and clients back off blindly. In practice only rate_limit and
-// quota_exceeded carry RetryAfter; the contract forbids it elsewhere.
-func RetryAfterDelay(err error) (int64, bool) {
-	var provErr *models.ProviderError
-	if !errors.As(err, &provErr) || provErr.RetryAfter == nil {
-		return 0, false
-	}
-	d := time.Until(*provErr.RetryAfter)
-	if d <= 0 {
-		return 0, false
-	}
-	return int64(d.Seconds()) + 1, true
 }
 
 // AnthropicErrorType maps a wire code to its Anthropic error type. Single

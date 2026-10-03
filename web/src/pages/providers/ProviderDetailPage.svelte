@@ -3,12 +3,13 @@
   import { modal } from '../../lib/modal.svelte'
   import { getErrorMessage } from '../../lib/errors'
   import { toast } from '../../lib/toast.svelte'
-  import type { Credential, Provider, Proxy, TestResult } from '../../lib/types'
+  import type { Credential, Provider, ProxyPool, TestResult, UINode } from '../../lib/types'
   import EditCredentialLabel from './components/EditCredentialLabel.svelte'
   import CustomProviderWizard from '../../components/wizards/CustomProviderWizard.svelte'
   import ProviderCredentialWizard from './components/ProviderCredentialWizard.svelte'
   import ModelsSection from './components/ModelsSection.svelte'
-  import { Button, Chip, FloatingView, HStack, Image, Picker, Spacer, Switch, Table, Text, TextEdit, VStack } from '../../components/ui'
+  import DynamicForm from '../../components/domain/DynamicForm.svelte'
+  import { Button, Chip, FloatingView, HStack, Image, Picker, Spacer, Switch, Table, Text, VStack } from '../../components/ui'
   import type { TableColumn } from '../../components/ui'
   import { squircle } from '../../lib/squircle'
   import { t } from '../../lib/i18n.svelte'
@@ -22,30 +23,30 @@
   let credentials = $state<Credential[]>([])
   let credentialsLoading = $state(false)
   let credentialTestResults = $state<Record<string, TestResult | 'loading'>>({})
-  let credentialRefreshing = $state<Record<string, boolean>>({})
   const resultTimers = new Map<string, ReturnType<typeof setTimeout>>()
   let disableFailedCredentials = $state(false)
   let testingAllCreds = $state(false)
   let testAllCredsCancel = $state(false)
+  let credentialsEnabled = $state(true)
 
+  // Bumped on credential add so ModelsSection retries discovery: a key
+  // added to a credential-less provider heals the catalog without clicks.
+  let credRevision = $state(0)
 
-  let proxyMode = $state<'disabled' | 'auto' | 'manual'>('disabled')
-  let proxyIds = $state<Record<string, boolean>>({})
-  let poolProxies = $state<Proxy[]>([])
-  let proxyPoolLoaded = $state(false)
+  let proxyEnabled = $state(false)
+  let proxyPool = $state('auto')
+  let poolOptions = $state<ProxyPool[]>([])
+  let proxyNodes = $state<UINode[]>([])
+  let proxiesEnabled = $state(false)
   let savingProxy = $state(false)
-  let retryMode = $state<'fail_fast' | 'next_proxy'>('fail_fast')
-  let retryMax = $state('3')
+
+  let settingsNodes = $state<UINode[]>([])
+  let settingsValues = $state<Record<string, unknown>>({})
+  let savingSettings = $state(false)
 
   const providerIdValue = $derived(provider?.id ?? '')
-  const unavailableProxyIds = $derived(
-    proxyPoolLoaded
-      ? Object.keys(proxyIds).filter((id) => proxyIds[id] && !poolProxies.some((proxy) => proxy.id === id))
-      : [],
-  )
 
   const credentialColumns: TableColumn[] = [
-    { key: 'priority', title: '#', width: '72px', align: 'center', priority: 3 },
     { key: 'name', title: t('Name'), width: '1fr', priority: 1 },
     { key: 'actions', title: t('Actions'), width: 'auto', align: 'right', priority: 1 },
   ]
@@ -57,9 +58,10 @@
 
   $effect(() => {
     if (!provider) return
+    void loadCapabilities()
     void reloadCredentials()
     initProxyConfig()
-    void loadProxyPool()
+    void loadPools()
     disableFailedCredentials = provider.config?.disable_failed_credentials === true
   })
 
@@ -171,6 +173,7 @@
         onComplete: async () => {
           modal.close()
           await reloadCredentials()
+          credRevision += 1
         },
       },
     })
@@ -273,6 +276,16 @@
     return res
   }
 
+  async function unparkCredential(cred: Credential): Promise<void> {
+    try {
+      await api.credentials.unpark(cred.id)
+      toast.success(`"${cred.label || t('Unnamed')}" ${t('unparked')}`)
+      await reloadCredentials()
+    } catch (e) {
+      toast.error(`${t('Unpark failed')}: ${getErrorMessage(e)}`)
+    }
+  }
+
   async function testCredential(cred: Credential): Promise<void> {
     const res = await probeCredential(cred)
     if (res.ok) toast.success(`"${cred.label || t('Unnamed')}" ${t('is healthy')} · ${res.latency_ms}ms`)
@@ -320,16 +333,21 @@
     }
   }
 
-  async function refreshCredential(cred: Credential): Promise<void> {
-    credentialRefreshing = { ...credentialRefreshing, [cred.id]: true }
+  async function loadCapabilities(): Promise<void> {
+    if (!provider) return
     try {
-      await api.credentials.refresh(cred.id)
-      toast.success(`"${cred.label || t('Unnamed')}" ${t('refreshed')}`)
-      await reloadCredentials()
+      const [credSchema, settingsSchema, proxySchema] = await Promise.all([
+        api.providers.credentialSchema(provider.id).catch(() => null),
+        api.providers.settingsSchema(provider.id).catch(() => null),
+        api.providers.proxySchema(provider.id).catch(() => null),
+      ])
+      credentialsEnabled = (credSchema?.enabled ?? false) || (credSchema?.nodes?.length ?? 0) > 0
+      settingsNodes = settingsSchema?.nodes ?? []
+      settingsValues = { ...((provider.config?.settings ?? {}) as Record<string, unknown>) }
+      proxyNodes = proxySchema?.nodes ?? []
+      proxiesEnabled = (proxySchema?.enabled ?? false) || proxyNodes.length > 0
     } catch (e) {
-      toast.error(`Refresh failed: ${getErrorMessage(e)}`)
-    } finally {
-      credentialRefreshing = { ...credentialRefreshing, [cred.id]: false }
+      error = getErrorMessage(e)
     }
   }
 
@@ -340,36 +358,16 @@
     return { icon: 'error', title: res.error ?? t('Failed') }
   }
 
-  async function reorderCredentials(from: number, to: number): Promise<void> {
-    if (!provider) return
-    const next = [...credentials]
-    const [moved] = next.splice(from, 1)
-    next.splice(to, 0, moved)
-    credentials = next
-    try {
-      await api.credentials.reorder(provider.id, next.map((c) => c.id))
-      await reloadCredentials()
-    } catch (e) {
-      error = getErrorMessage(e)
-      await reloadCredentials()
-    }
-  }
-
   function initProxyConfig(): void {
-    const raw = (provider?.config?.proxy ?? {}) as { mode?: string; ids?: string[] }
-    proxyMode = raw.mode === 'auto' || raw.mode === 'manual' ? raw.mode : 'disabled'
-    proxyIds = {}
-    for (const id of raw.ids ?? []) proxyIds[id] = true
-    const retry = (provider?.config?.proxy_retry ?? {}) as { mode?: string; max_attempts?: number }
-    retryMode = retry.mode === 'next_proxy' ? 'next_proxy' : 'fail_fast'
-    retryMax = retry.max_attempts != null ? String(retry.max_attempts) : '3'
+    const raw = (provider?.config?.proxy ?? null) as { pool?: string } | null
+    const pool = typeof raw?.pool === 'string' ? raw.pool : ''
+    proxyEnabled = pool !== ''
+    proxyPool = pool || 'auto'
   }
 
-  async function loadProxyPool(): Promise<void> {
-    proxyPoolLoaded = false
+  async function loadPools(): Promise<void> {
     try {
-      poolProxies = await api.proxies.list()
-      proxyPoolLoaded = true
+      poolOptions = await api.proxies.pools.list()
     } catch (e) {
       error = getErrorMessage(e)
     }
@@ -380,21 +378,38 @@
     savingProxy = true
     error = ''
     try {
-      const ids = Object.keys(proxyIds).filter((id) => proxyIds[id])
-      await api.providers.updateInstance(provider.id, {
-        name: provider.name,
-        config: {
-          ...(provider.config ?? {}),
-          proxy: { mode: proxyMode, ...(proxyMode === 'manual' ? { ids } : {}) },
-          proxy_retry: { mode: retryMode, max_attempts: Number(retryMax) },
-        },
-      })
+      const next = { ...(provider.config ?? {}) } as Record<string, unknown>
+      if (proxyEnabled) {
+        next.proxy = { pool: proxyPool || 'auto' }
+      } else {
+        delete next.proxy
+      }
+      await api.providers.updateInstance(provider.id, { name: provider.name, config: next })
       const providers = await api.providers.list()
-      provider = (providers as Provider[]).find((p) => p.id === providerIdValue) ?? provider
+      provider = (providers as Provider[]).find((p) => p.id === providerId) ?? provider
     } catch (e) {
       error = getErrorMessage(e)
     } finally {
       savingProxy = false
+    }
+  }
+
+  async function saveSettings(): Promise<void> {
+    if (!provider) return
+    savingSettings = true
+    error = ''
+    try {
+      await api.providers.updateInstance(provider.id, {
+        name: provider.name,
+        config: { ...(provider.config ?? {}), settings: settingsValues },
+      })
+      const providers = await api.providers.list()
+      provider = (providers as Provider[]).find((p) => p.id === providerId) ?? provider
+      toast.success(t('Settings saved'))
+    } catch (e) {
+      error = getErrorMessage(e)
+    } finally {
+      savingSettings = false
     }
   }
 </script>
@@ -438,13 +453,14 @@
       </VStack>
     {/if}
 
-    <VStack tag="section" gap={4} class="provider-section">
-      <HStack align="center" gap={2}>
-        <Text tag="h2" size="md" weight="medium">{t('Credentials')}</Text>
-        <Text size="xs" tone="soft">{credentials.length}</Text>
-        <Spacer />
-        <Button style="prominent" onclick={openAddCredential} icon={{ name: 'add' }}>{t('Add credential')}</Button>
-      </HStack>
+    {#if credentialsEnabled}
+      <VStack tag="section" gap={4} class="provider-section">
+        <HStack align="center" gap={2}>
+          <Text tag="h2" size="md" weight="medium">{t('Credentials')}</Text>
+          <Text size="xs" tone="soft">{credentials.length}</Text>
+          <Spacer />
+          <Button style="prominent" onclick={openAddCredential} icon={{ name: 'add' }}>{t('Add credential')}</Button>
+        </HStack>
       <HStack align="center" gap={4} wrap>
         <Switch
           checked={disableFailedCredentials}
@@ -460,15 +476,11 @@
         rows={credentials}
         rowKey={(cred) => cred.id}
         loading={credentialsLoading}
-        draggable
-        onReorder={(from, to) => void reorderCredentials(from, to)}
         rowClass={(cred) => cred.disabled ? 'row-off' : ''}
       >
         {#snippet cell({ column, row })}
           {@const cred = row as Credential}
-          {#if column.key === 'priority'}
-            <Text size="sm">{credentials.indexOf(cred) + 1}</Text>
-          {:else if column.key === 'name'}
+          {#if column.key === 'name'}
             <HStack gap={2} align="center" wrap>
               <Text size="base" weight="medium">{cred.label || t('Unnamed')}</Text>
               {#if cred.is_expired}
@@ -477,19 +489,22 @@
             </HStack>
             {#if cred.disabled && (cred.disabled_by === 'system' || cred.disabled_by === 'healthcheck')}
               <Text size="sm" tone="danger">{t('Disabled automatically')}{cred.disabled_reason ? `: ${cred.disabled_reason}` : ''}</Text>
+            {:else if cred.disabled && cred.disabled_by === 'plugin'}
+              <Text size="sm" tone="danger">{t('Disabled by plugin')}{cred.disabled_reason ? `: ${cred.disabled_reason}` : ''}</Text>
             {/if}
           {:else}
             {@const ti = testIcon(credentialTestResults[cred.id], t('Test credential'))}
             <HStack gap={3} justify="end">
-              <Button
-                size="small"
-                style="text"
-                icon={{ name: 'refresh' }}
-                ariaLabel={t('Refresh credential')}
-                title={t('Refresh credential')}
-                disabled={credentialRefreshing[cred.id]}
-                onclick={() => refreshCredential(cred)}
-              />
+              {#if cred.parked}
+                <Button
+                  size="small"
+                  style="text"
+                  icon={{ name: 'ac_unit' }}
+                  ariaLabel={t('Unpark credential')}
+                  title={`${t('Unpark credential')}${cred.park_reason ? `: ${cred.park_reason}` : ''}`}
+                  onclick={() => unparkCredential(cred)}
+                />
+              {/if}
               <Button
                 size="small"
                 icon={{ name: ti.icon }}
@@ -515,97 +530,53 @@
           </VStack>
         {/snippet}
       </Table>
-    </VStack>
+      </VStack>
+    {/if}
 
-    <VStack tag="section" gap={4} align="start" class="provider-section">
-      <Text tag="h2" size="md" weight="medium">{t('Proxy')}</Text>
-      <HStack align="center" gap={3} wrap>
-        <Picker
-          bind:value={proxyMode}
-          options={[
-            { value: 'disabled', label: t('Disabled') },
-            { value: 'auto', label: t('Auto') },
-            { value: 'manual', label: t('Manual') },
-          ]}
-          ariaLabel={t('Proxy mode')}
-          onchange={() => void saveProxyConfig()}
-        />
-        <Text size="sm" tone="soft">
-          {#if proxyMode === 'disabled'}
-            {t('Direct connection, no proxying.')}
-          {:else if proxyMode === 'auto'}
-            {t('Route through the fastest pooled proxy matching the plugin locations.')}
-          {:else}
-            {t('Route through the healthy proxies you select below, in order.')}
-          {/if}
-        </Text>
-        {#if savingProxy}
-          <Text size="xs" tone="soft">{t('Saving…')}</Text>
-        {/if}
-      </HStack>
-      {#if proxyMode === 'manual'}
-        {#if unavailableProxyIds.length > 0}
-          <VStack gap={2}>
-            <Text size="sm" tone="warning">{t('Selected proxies that are not currently healthy will not be used.')}</Text>
-            <HStack wrap align="start" gap={2}>
-              {#each unavailableProxyIds as id (id)}
-                <Button
-                  size="small"
-                  tint="#dc2626"
-                  title={id}
-                  onclick={() => {
-                    proxyIds = { ...proxyIds, [id]: false }
-                    void saveProxyConfig()
-                  }}
-                >{`${t('Remove unavailable selection')}: ${id}`}</Button>
-              {/each}
-            </HStack>
-          </VStack>
-        {/if}
-        {#if poolProxies.length === 0}
-          <Text size="sm" tone="soft">{t('No healthy proxies are available. Refresh the pool from the Proxies page.')}</Text>
-        {:else}
-          <HStack wrap align="start" gap={2}>
-            {#each poolProxies as p (p.id)}
-              <Button
-                size="small"
-                style={proxyIds[p.id] ? 'prominent' : 'none'}
-                title={p.url}
-                ariaLabel={p.url}
-                onclick={() => {
-                  proxyIds = { ...proxyIds, [p.id]: !proxyIds[p.id] }
-                  void saveProxyConfig()
-                }}
-              >{`${p.url}${p.location ? ` · ${p.location}` : ''}`}</Button>
-            {/each}
-          </HStack>
-        {/if}
-      {:else if proxyMode === 'auto'}
+    {#if proxiesEnabled}
+      <VStack tag="section" gap={4} align="start" class="provider-section">
+        <Text tag="h2" size="md" weight="medium">{t('Proxy')}</Text>
         <HStack align="center" gap={3} wrap>
-          <Picker
-            bind:value={retryMode}
-            options={[
-              { value: 'fail_fast', label: t('Fail fast') },
-              { value: 'next_proxy', label: t('Try next proxy') },
-            ]}
-            ariaLabel={t('Proxy retry mode')}
-            onchange={() => void saveProxyConfig()}
+          <Switch
+            checked={proxyEnabled}
+            label={t('Route through a proxy pool')}
+            onchange={(v) => { proxyEnabled = v; void saveProxyConfig() }}
           />
-          <Text size="sm" tone="soft">
-            {#if retryMode === 'fail_fast'}
-              {t('A proxy failure ends the attempt at once.')}
-            {:else}
-              {t('A proxy failure retries the same key through the next proxy.')}
-            {/if}
-          </Text>
+          {#if proxyEnabled}
+            <Picker
+              bind:value={proxyPool}
+              options={[
+                { value: 'auto', label: t('Auto pool') },
+                ...poolOptions.map((p) => ({ value: p.id, label: p.name })),
+              ]}
+              ariaLabel={t('Proxy pool')}
+              onchange={() => void saveProxyConfig()}
+            />
+          {/if}
+          {#if savingProxy}
+            <Text size="xs" tone="soft">{t('Saving…')}</Text>
+          {/if}
         </HStack>
-        {#if retryMode === 'next_proxy'}
-          <TextEdit bind:value={retryMax} hint={t('Max attempts')} regex="^[0-9]*$" onchange={() => void saveProxyConfig()} />
+        {#if proxyEnabled && proxyNodes.length > 0}
+          <DynamicForm nodes={proxyNodes} bind:values={settingsValues} busy={savingProxy} />
         {/if}
-      {/if}
-    </VStack>
+      </VStack>
+    {/if}
 
-    <ModelsSection bind:provider onrefresh={loadPage} />
+    {#if settingsNodes.length > 0}
+      <VStack tag="section" gap={4} align="start" class="provider-section">
+        <HStack align="center" gap={2}>
+          <Text tag="h2" size="md" weight="medium">{t('Plugin settings')}</Text>
+          <Spacer />
+          <Button style="prominent" onclick={() => void saveSettings()} disabled={savingSettings}>
+            {savingSettings ? t('Saving…') : t('Save settings')}
+          </Button>
+        </HStack>
+        <DynamicForm nodes={settingsNodes} bind:values={settingsValues} busy={savingSettings} />
+      </VStack>
+    {/if}
+
+    <ModelsSection bind:provider onrefresh={loadPage} credRevision={credRevision} />
   </VStack>
 {/if}
 

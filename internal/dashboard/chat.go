@@ -2,9 +2,9 @@ package dashboard
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
@@ -132,16 +132,23 @@ func (h *Handler) handleChatStream(w http.ResponseWriter, r *http.Request, req *
 
 func handleChatRouterError(w http.ResponseWriter, err error, h *Handler) {
 	re := classifyChatError(err)
-	if secs, ok := apierrors.RetryAfterDelay(err); ok {
-		w.Header().Set("Retry-After", strconv.FormatInt(secs, 10))
-	}
 	h.json(w, re.status, models.OpenAIError{
 		Error: models.OpenAIErrorBody{
-			Message: err.Error(),
+			Message: chatWireMessage(err),
 			Type:    apierrors.ErrorTypeForCode(re.code),
 			Code:    re.code,
 		},
 	})
+}
+
+// chatWireMessage renders the raw plugin message for terminal provider
+// errors, the Go error otherwise.
+func chatWireMessage(err error) string {
+	var perr *models.ProviderError
+	if errors.As(err, &perr) && perr.Message != "" {
+		return perr.Message
+	}
+	return err.Error()
 }
 
 type chatRouterError struct {

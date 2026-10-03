@@ -23,7 +23,11 @@
   import type { Provider, ProviderModel, ProviderVMGroup, TestResult, VirtualModel } from '../../../lib/types'
   import { api } from '../../../lib/api'
 
-  let { provider = $bindable(), onrefresh } = $props<{ provider: Provider | null; onrefresh?: () => void }>()
+  let { provider = $bindable(), onrefresh, credRevision = 0 } = $props<{
+    provider: Provider | null
+    onrefresh?: () => void
+    credRevision?: number
+  }>()
   const providerId = $derived(provider?.id ?? '')
 
   let error = $state('')
@@ -36,6 +40,10 @@
   })
 
   $effect(() => {
+    // Parent-notification effect: every dependency listed explicitly.
+    // credRevision bumps only on credential add, so a key added to a
+    // credential-less provider retries discovery without clicks.
+    void credRevision
     if (provider) {
       void reloadModels()
       void loadVmGroups()
@@ -47,6 +55,11 @@
   let modelsLoading = $state(true)
 
   let modelsError = $state('')
+
+  // Discovery failure is tracked separately from action errors: only a
+  // failed catalog load hides the model sections. Failed toggles, tests
+  // and imports write modelsError alone and leave everything visible.
+  let discoveryFailed = $state(false)
 
   let modelSearch = $state('')
   let importing = $state(false)
@@ -184,11 +197,13 @@
     // does not flash and scroll does not jump.
     modelsLoading = true
     modelsError = ''
+    discoveryFailed = false
     try {
       models = await api.models.forProvider(providerId)
     } catch (e) {
       modelsError = getErrorMessage(e)
       models = []
+      discoveryFailed = true
     } finally {
       modelsLoading = false
     }
@@ -450,6 +465,11 @@
   }
 </script>
 
+  {#if discoveryFailed && !modelsLoading}
+    <VStack class="error-msg" gap={0}>
+      <Text tone="danger" size="sm">{modelsError}</Text>
+    </VStack>
+  {:else}
   <VStack tag="section" gap={4} class="provider-section">
     <Text tag="h2" size="md" weight="medium">{t('Available models')}</Text>
 
@@ -645,6 +665,7 @@
       </HStack>
     </VStack>
   </VStack>
+  {/if}
 
 {#snippet modelActions(m: ProviderModel)}
   {@const ti = testIcon(modelTestResults[m.name], t('Test model'))}

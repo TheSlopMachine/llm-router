@@ -344,26 +344,21 @@ func TestCredential_ExpiresIn_NoExpiry(t *testing.T) {
 	}
 }
 
-func TestParseProxyConfig(t *testing.T) {
-	cfg, err := ParseProxyConfig(nil)
-	if err != nil || cfg.Mode != ProxyModeDisabled {
+func TestParseProxyPoolRef(t *testing.T) {
+	cfg, err := ParseProxyPoolRef(nil)
+	if err != nil || cfg.Pool != "" {
 		t.Fatalf("absent proxy: got %+v %v", cfg, err)
 	}
-	cfg, err = ParseProxyConfig(map[string]any{"proxy": map[string]any{"mode": "disabled"}})
-	if err != nil || cfg.Mode != ProxyModeDisabled {
-		t.Fatalf("explicit disabled: got %+v %v", cfg, err)
+	cfg, err = ParseProxyPoolRef(map[string]any{"proxy": map[string]any{"pool": "custom-1"}})
+	if err != nil || cfg.Pool != "custom-1" {
+		t.Fatalf("named pool: got %+v %v", cfg, err)
 	}
-	cfg, err = ParseProxyConfig(map[string]any{"proxy": map[string]any{"mode": "auto"}})
-	if err != nil || cfg.Mode != ProxyModeAuto {
-		t.Fatalf("auto: got %+v %v", cfg, err)
+	cfg, err = ParseProxyPoolRef(map[string]any{"proxy": map[string]any{}})
+	if err != nil || cfg.Pool != "" {
+		t.Fatalf("empty proxy section: got %+v %v", cfg, err)
 	}
-	cfg, err = ParseProxyConfig(map[string]any{
-		"proxy": map[string]any{"mode": "manual", "ids": []any{"px-1", 42}},
-	})
-	if err != nil || cfg.Mode != ProxyModeManual || len(cfg.IDs) != 1 || cfg.IDs[0] != "px-1" {
-		t.Fatalf("manual: got %+v %v", cfg, err)
-	}
-	if _, err = ParseProxyConfig(map[string]any{"proxy": map[string]any{"mode": "socks"}}); err == nil {
-		t.Fatal("unknown mode must error")
+	cfg, err = ParseProxyPoolRef(map[string]any{"proxy": map[string]any{"pool": "auto"}})
+	if err != nil || cfg.Pool != DefaultProxyPool {
+		t.Fatalf("auto pool: got %+v %v", cfg, err)
 	}
 }

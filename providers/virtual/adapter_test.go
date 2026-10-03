@@ -17,21 +17,11 @@ import (
 )
 
 // fakeCompleter is a minimal provider.Completer for exercising the
-// fall-through loop without a real router service: exhausted names the
-// models LikelyExhausted reports true for, and succeedAt is the model whose
-// attempt succeeds (empty = every attempt fails).
+// fall-through loop without a real router service: succeedAt is the model
+// whose attempt succeeds (empty = every attempt fails).
 type fakeCompleter struct {
-	exhausted map[string]bool
 	succeedAt string
 	attempted []string
-}
-
-func (f *fakeCompleter) LikelyExhausted(model models.ModelId) bool {
-	return f.exhausted[model.String()]
-}
-
-func (f *fakeCompleter) HasUsableCredential(model models.ModelId) bool {
-	return !f.exhausted[model.String()]
 }
 
 func (f *fakeCompleter) Complete(_ context.Context, req *models.ChatCompletionRequest, _ *models.RouterToken) (*models.ChatCompletionResponse, error) {
@@ -71,7 +61,7 @@ func newVirtualModelStack(t *testing.T) *virtual.Service {
 	return virtualSvc
 }
 
-func TestComplete_DeprioritizesLikelyExhaustedMember(t *testing.T) {
+func TestComplete_FallsThroughInListOrder(t *testing.T) {
 	virtualSvc := newVirtualModelStack(t)
 	vm := &models.VirtualModel{
 		Name: "Fallback",
@@ -85,21 +75,20 @@ func TestComplete_DeprioritizesLikelyExhaustedMember(t *testing.T) {
 		t.Fatalf("create virtual model: %v", err)
 	}
 
-	fake := &fakeCompleter{exhausted: map[string]bool{"demo/model-a": true}, succeedAt: "demo/model-b"}
+	fake := &fakeCompleter{succeedAt: "demo/model-b"}
 	adapter := New(fake, virtualSvc, nil)
 	req := &models.ChatCompletionRequest{Model: models.ModelId("virtual/" + vm.ID)}
 	if _, err := adapter.Complete(context.Background(), nil, req, nil); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
-	if len(fake.attempted) != 1 || fake.attempted[0] != "demo/model-b" {
-		t.Fatalf("attempted = %v, want exactly [demo/model-b] (model-a deprioritized, model-c never reached)", fake.attempted)
+	if len(fake.attempted) != 2 || fake.attempted[0] != "demo/model-a" || fake.attempted[1] != "demo/model-b" {
+		t.Fatalf("attempted = %v, want [demo/model-a demo/model-b] (list order, model-c never reached)", fake.attempted)
 	}
 }
 
-func TestComplete_NeverDropsExhaustedMembers(t *testing.T) {
-	// Every member is flagged exhausted, including the last. All members
-	// are still attempted in list order as last resort: a stale or wrong
-	// mark must never deny the request outright.
+func TestComplete_TriesEveryMemberInOrder(t *testing.T) {
+	// Every member fails. All members are attempted in list order and the
+	// last error surfaces: nothing is skipped or deprioritized.
 	virtualSvc := newVirtualModelStack(t)
 	vm := &models.VirtualModel{
 		Name: "AllFlagged",
@@ -112,7 +101,7 @@ func TestComplete_NeverDropsExhaustedMembers(t *testing.T) {
 		t.Fatalf("create virtual model: %v", err)
 	}
 
-	fake := &fakeCompleter{exhausted: map[string]bool{"demo/model-a": true, "demo/model-b": true}}
+	fake := &fakeCompleter{}
 	adapter := New(fake, virtualSvc, nil)
 	req := &models.ChatCompletionRequest{Model: models.ModelId("virtual/" + vm.ID)}
 	_, err := adapter.Complete(context.Background(), nil, req, nil)
@@ -120,11 +109,11 @@ func TestComplete_NeverDropsExhaustedMembers(t *testing.T) {
 		t.Fatal("expected an error: every member fails and none should silently succeed")
 	}
 	if len(fake.attempted) != 2 || fake.attempted[0] != "demo/model-a" || fake.attempted[1] != "demo/model-b" {
-		t.Fatalf("attempted = %v, want [demo/model-a demo/model-b]: all exhausted members tried in order", fake.attempted)
+		t.Fatalf("attempted = %v, want [demo/model-a demo/model-b]: members tried in order", fake.attempted)
 	}
 }
 
-func TestCompleteStream_DeprioritizesLikelyExhaustedMember(t *testing.T) {
+func TestCompleteStream_FallsThroughInListOrder(t *testing.T) {
 	virtualSvc := newVirtualModelStack(t)
 	vm := &models.VirtualModel{
 		Name: "FallbackStream",
@@ -137,15 +126,15 @@ func TestCompleteStream_DeprioritizesLikelyExhaustedMember(t *testing.T) {
 		t.Fatalf("create virtual model: %v", err)
 	}
 
-	fake := &fakeCompleter{exhausted: map[string]bool{"demo/model-a": true}, succeedAt: "demo/model-b"}
+	fake := &fakeCompleter{succeedAt: "demo/model-b"}
 	adapter := New(fake, virtualSvc, nil)
 	req := &models.ChatCompletionRequest{Model: models.ModelId("virtual/" + vm.ID)}
 	var buf bytes.Buffer
 	if err := adapter.CompleteStream(context.Background(), nil, req, &buf, nil); err != nil {
 		t.Fatalf("complete stream: %v", err)
 	}
-	if len(fake.attempted) != 1 || fake.attempted[0] != "demo/model-b" {
-		t.Fatalf("attempted = %v, want exactly [demo/model-b]", fake.attempted)
+	if len(fake.attempted) != 2 || fake.attempted[0] != "demo/model-a" || fake.attempted[1] != "demo/model-b" {
+		t.Fatalf("attempted = %v, want [demo/model-a demo/model-b]", fake.attempted)
 	}
 }
 

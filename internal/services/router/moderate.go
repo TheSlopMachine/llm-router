@@ -11,14 +11,15 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 )
 
-// moderateOne runs a single moderation pass against the credential pool.
-func (s *Service) moderateOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, req *models.ModerationRequest) (*models.ModerationResponse, string, error) {
+// moderateOne runs a single moderation pass. Lua plugins iterate
+// internally; Go adapters receive the gated pool.
+func (s *Service) moderateOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, allowed []string, req *models.ModerationRequest) (*models.ModerationResponse, string, error) {
 	if resolved.IsLua() {
-		resp, proxy, err := s.providerSvc.LuaService().ModeratePool(ctx, s.meta(resolved, req.Model), creds, req)
+		resp, err := s.providerSvc.LuaService().Moderate(ctx, s.meta(resolved, req.Model, allowed), req)
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
-			return nil, proxy, fmt.Errorf("%w: provider %q has no moderate handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+			return nil, "", fmt.Errorf("%w: provider %q has no moderate handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 		}
-		return resp, proxy, err
+		return resp, "", err
 	}
 	mo, ok := resolved.Go.(provider.Moderator)
 	if !ok {
@@ -64,7 +65,7 @@ func (s *Service) moderateWithProxy(
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
 		return nil, "", fmt.Errorf("%w: virtual models do not serve moderations", apierrors.ErrEndpointNotSupported)
 	}
-	// Capability pre-check: fail loudly before touching the credential pool.
+	// Capability pre-check: fail loudly before touching the credential gate.
 	if resolved.IsLua() {
 		if !s.providerSvc.LuaService().HasHandler(resolved.Instance.TypeKey, "moderate") {
 			return nil, "", fmt.Errorf("%w: provider %q has no moderate handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
@@ -72,11 +73,11 @@ func (s *Service) moderateWithProxy(
 	} else if _, ok := resolved.Go.(provider.Moderator); !ok {
 		return nil, "", fmt.Errorf("%w: provider %q does not support moderations", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
-	creds, err := s.loadCredentials(ctx, resolved, req.Model, token)
+	allowed, creds, err := s.gateCredentials(ctx, resolved, req.Model, token)
 	if err != nil {
 		return nil, "", err
 	}
-	resp, proxy, err := s.moderateOne(ctx, resolved, creds, req)
+	resp, _, err := s.moderateOne(ctx, resolved, creds, allowed, req)
 	s.dropMissingModel(rr.providerID, rr.modelName, err)
-	return resp, proxy, err
+	return resp, "", err
 }

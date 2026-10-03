@@ -4,9 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/TheSlopMachine/llm-router/internal/models"
-	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 )
 
 // Manifest is the parsed "--- @tag value" header of a plugin file.
@@ -20,15 +17,6 @@ type Manifest struct {
 	AllowHosts    []string
 	// Unsafe is true when the plugin requests a wildcard allow_host.
 	Unsafe bool
-	// ProxyLocations is the whitelist of ISO country codes the upstream
-	// expects requests to originate from. Empty allows any location.
-	ProxyLocations []string
-	// ProxyDefaultOption is the default proxy mode for providers registered
-	// from this plugin: disabled, auto or manual. Empty means disabled.
-	ProxyDefaultOption string
-	// ProxySource marks this plugin as a proxy-list source with a
-	// fetch_proxies handler instead of a provider backend.
-	ProxySource bool
 }
 
 // ParseManifest parses the leading "---" header block. The header is the
@@ -37,7 +25,10 @@ func ParseManifest(source []byte) (*Manifest, error) {
 	m := &Manifest{}
 	seen := map[string]int{}
 	allowHosts := []string{}
-	locations := []string{}
+	// Unknown tags defer past the version floor below: an outdated plugin
+	// reports the reissue error, never a tag error for a contract it
+	// predates.
+	unknownTag := ""
 
 	text := strings.ReplaceAll(string(source), "\r\n", "\n")
 	lines := strings.Split(text, "\n")
@@ -81,28 +72,28 @@ func ParseManifest(source []byte) (*Manifest, error) {
 			if value != "" {
 				allowHosts = append(allowHosts, value)
 			}
-		case "@proxy_location":
-			if value != "" {
-				locations = append(locations, proxypool.NormalizeCountryCode(value))
-			}
-		case "@proxy_default_option":
-			switch value {
-			case models.ProxyModeDisabled, models.ProxyModeAuto, models.ProxyModeManual:
-				m.ProxyDefaultOption = value
-			default:
-				return nil, fmt.Errorf("invalid @proxy_default_option %q: want disabled, auto or manual", value)
-			}
-		case "@proxy_force_on_mismatch":
-			// Removed directive: force-on-mismatch no longer exists. Tolerate
-			// the tag so previously valid plugins keep installing.
-		case "@proxy_source":
-			m.ProxySource = value == "true" || value == ""
 		default:
-			return nil, fmt.Errorf("unknown manifest tag %q", tag)
+			if unknownTag == "" {
+				unknownTag = tag
+			}
 		}
 	}
 	if headerLen == 0 {
 		return nil, fmt.Errorf("missing manifest header: file must start with \"--- @\" lines")
+	}
+	// The router-version floor gates every other field: a plugin too old
+	// to serve is discarded here with the reissue error, never validated
+	// further. Missing, duplicated or malformed tags fall through to the
+	// precise errors below.
+	if seen["@router_version"] == 1 {
+		if _, _, _, serr := parseSemver(m.RouterVersion); serr == nil {
+			if older, cerr := CompareVersions(m.RouterVersion, minRouterVersion); cerr == nil && older < 0 {
+				return nil, fmt.Errorf("plugin @router_version %s predates the oldest served contract %s: reissue the plugin", m.RouterVersion, minRouterVersion)
+			}
+		}
+	}
+	if unknownTag != "" {
+		return nil, fmt.Errorf("unknown manifest tag %q", unknownTag)
 	}
 	for _, tag := range []string{"@plugin", "@author", "@version", "@router_version"} {
 		if seen[tag] == 0 {
@@ -112,8 +103,7 @@ func ParseManifest(source []byte) (*Manifest, error) {
 			return nil, fmt.Errorf("duplicate manifest tag %q", tag)
 		}
 	}
-	if seen["@description"] > 1 || seen["@license"] > 1 ||
-		seen["@proxy_default_option"] > 1 || seen["@proxy_source"] > 1 {
+	if seen["@description"] > 1 || seen["@license"] > 1 {
 		return nil, fmt.Errorf("duplicate single-value manifest tag")
 	}
 	if len(allowHosts) == 0 {
@@ -137,7 +127,6 @@ func ParseManifest(source []byte) (*Manifest, error) {
 	}
 	m.AllowHosts = allowHosts
 	m.Unsafe = wildcard
-	m.ProxyLocations = dedupeStrings(locations)
 	if _, _, _, err := parseSemver(m.Version); err != nil {
 		return nil, fmt.Errorf("invalid @version %q: %w", m.Version, err)
 	}
@@ -160,18 +149,12 @@ func dedupeStrings(in []string) []string {
 	return out
 }
 
-// minRouterVersion is the oldest plugin contract served: 0.3.0 reworked
-// the error contract (timeout merged into upstream, content_policy /
-// model_unavailable / structural_fault added, retry_after and scope
-// strictly validated, geo bans, credential/provider auto-disable). Older
-// plugins are rejected at install, not adapted: the contract break is
-// explicit. Version 0.3.1 narrows proxy-source candidates to HTTP without
-// removing the otherwise compatible 0.3.0 provider contract. Version 0.3.4
-// adds proxy scope for quota errors without removing older error forms.
-// Version 0.3.5 adds the transport error type for connectivity failures.
-// Version 0.3.6 adds the model_specs registration table.
-// Version 0.3.7 adds the overloaded error type for congested backends.
-const minRouterVersion = "0.3.0"
+// minRouterVersion is the oldest plugin contract served. 0.7.0
+// decentralizes orchestration to plugins (credential/proxy selection,
+// retries and rate handling in Lua; schemas as static tables; colocated
+// jobs; OpenAI-shaped terminal errors). Older plugins are rejected at
+// install, not adapted.
+const minRouterVersion = "0.7.0"
 
 // CheckRouterVersion rejects plugins requiring a newer router.
 func CheckRouterVersion(manifest *Manifest, current string) error {

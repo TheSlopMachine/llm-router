@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -168,10 +167,6 @@ func (h *Handler) apiProvidersCreate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := validateProxyRetryConfig(body.Config); err != nil {
-		h.jsonErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
 
 	// Backward-compatible custom shape: {name, base_url, icon_url}.
 	if body.TypeKey == "" {
@@ -241,16 +236,12 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := validateProxyRetryConfig(body.Config); err != nil {
-		h.jsonErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
 
 	if existing.IsUIReadonly {
 		// Seeded providers are managed automatically; only operational keys
-		// (proxy mode, proxy retry reaction, model automation) and the disabled
+		// (proxy pool selection, model automation) and the disabled
 		// toggle may be edited. Other config keys are preserved.
-		allowed := map[string]bool{"proxy": true, "proxy_retry": true, "models_auto_sync": true, "disable_failed_models": true, "disable_failed_credentials": true}
+		allowed := map[string]bool{"proxy": true, "models_auto_sync": true, "disable_failed_models": true, "disable_failed_credentials": true}
 		if body.Name != "" && body.Name != existing.Name {
 			h.jsonErr(w, http.StatusForbidden, "provider is managed automatically")
 			return
@@ -265,9 +256,15 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 		for k, v := range existing.Config {
 			cfg[k] = v
 		}
+		// Absent or null allowed keys are removals, not untouched state:
+		// the dashboard sends the full config, so a missing key means the
+		// operator cleared it. Preserving it instead makes disables
+		// impossible to persist.
 		for k := range allowed {
-			if v, ok := body.Config[k]; ok {
+			if v, ok := body.Config[k]; ok && v != nil {
 				cfg[k] = v
+			} else {
+				delete(cfg, k)
 			}
 		}
 		inst, err := h.providerSvc.Update(id, provider.UpdateOptions{Name: existing.Name, Config: cfg, IconURL: existing.IconURL, Disabled: body.Disabled})
@@ -405,51 +402,78 @@ func (h *Handler) apiProviderCredentialSchema(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if nodes == nil {
-		h.json(w, http.StatusOK, map[string]any{"nodes": nil, "fallback": "raw_json"})
+		h.json(w, http.StatusOK, map[string]any{
+			"nodes":   nil,
+			"enabled": h.providerSvc.CredentialsEnabled(p.TypeKey),
+		})
+		return
+	}
+	h.json(w, http.StatusOK, map[string]any{"nodes": nodes, "enabled": true})
+}
+
+// apiProviderSettingsSchema returns the plugin settings UI tree.
+func (h *Handler) apiProviderSettingsSchema(w http.ResponseWriter, r *http.Request) {
+	p, ok := h.loadVisibleProvider(r.PathValue("id"))
+	if !ok {
+		h.jsonErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	nodes, err := h.providerSvc.SettingsSchema(p.TypeKey)
+	if err != nil {
+		h.jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if nodes == nil {
+		h.json(w, http.StatusOK, map[string]any{"nodes": nil})
 		return
 	}
 	h.json(w, http.StatusOK, map[string]any{"nodes": nodes})
 }
 
-// validateProxyRetryConfig rejects unknown retry modes, out-of-range
-// max_attempts and legacy geo sections at the dashboard edge so bad admin
-// input fails loudly instead of degrading silently to fail_fast at request
-// time. ParseProxyRetryConfig still clamps as a last resort for hand-edited
-// rows.
-func validateProxyRetryConfig(cfg map[string]any) error {
-	if cfg == nil {
-		return nil
-	}
-	if _, ok := cfg["geo"]; ok {
-		return fmt.Errorf("geo policy migrated to proxy_retry; re-save provider settings")
-	}
-	raw, ok := cfg["proxy_retry"]
-	if !ok || raw == nil {
-		return nil
-	}
-	m, ok := raw.(map[string]any)
+// apiProviderProxySchema returns the extra proxy settings UI tree plus the
+// capability flag driving the proxy tab.
+func (h *Handler) apiProviderProxySchema(w http.ResponseWriter, r *http.Request) {
+	p, ok := h.loadVisibleProvider(r.PathValue("id"))
 	if !ok {
-		return fmt.Errorf("proxy_retry must be an object with mode and max_attempts")
+		h.jsonErr(w, http.StatusNotFound, "provider not found")
+		return
 	}
-	if _, err := models.ParseProxyRetryConfig(map[string]any{"proxy_retry": m}); err != nil {
-		return err
+	nodes, err := h.providerSvc.ProxySchema(p.TypeKey)
+	if err != nil {
+		h.jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	if v, ok := m["max_attempts"]; ok && v != nil {
-		var n int
-		switch t := v.(type) {
-		case float64:
-			if t != float64(int(t)) {
-				return fmt.Errorf("proxy_retry max_attempts must be an integer 1..10")
-			}
-			n = int(t)
-		case int:
-			n = t
-		default:
-			return fmt.Errorf("proxy_retry max_attempts must be an integer 1..10")
-		}
-		if n < 1 || n > models.MaxProxyRetryMaxAttempts {
-			return fmt.Errorf("proxy_retry max_attempts must be an integer 1..10")
-		}
+	h.json(w, http.StatusOK, map[string]any{
+		"nodes":   nodes,
+		"enabled": h.providerSvc.ProxiesEnabled(p.TypeKey),
+	})
+}
+
+// apiProviderJobRun triggers one plugin job for a provider on demand.
+// @Summary      Run provider job
+// @Description  Triggers one colocated plugin job for a provider instance.
+// @Tags         Providers
+// @Param        id path string true "Provider ID"
+// @Param        job path string true "Job name"
+// @Success      200 {object} object{ok=bool}
+// @Failure      400 {object} models.ErrorResponse
+// @Failure      401 {object} models.ErrorResponse
+// @Failure      404 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/providers/{id}/jobs/{job} [post]
+func (h *Handler) apiProviderJobRun(w http.ResponseWriter, r *http.Request) {
+	p, ok := h.loadVisibleProvider(r.PathValue("id"))
+	if !ok {
+		h.jsonErr(w, http.StatusNotFound, "provider not found")
+		return
 	}
-	return nil
+	if h.maintSvc == nil {
+		h.jsonErr(w, http.StatusInternalServerError, "job scheduler not wired")
+		return
+	}
+	if err := h.maintSvc.RunJob(r.Context(), p.ID, r.PathValue("job")); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h.json(w, http.StatusOK, map[string]any{"ok": true})
 }

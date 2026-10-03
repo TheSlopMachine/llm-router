@@ -11,7 +11,6 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
-	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/videojobs"
@@ -39,7 +38,7 @@ func setupRouterService(t *testing.T) (*Service, *credential.Service, *modelinfo
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 
-	routerSvc := New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), nil, nil, slog.Default())
+	routerSvc := New(providerSvc, credSvc, modelInfoSvc, videojobs.New(database), nil, nil, slog.Default())
 
 	return routerSvc, credSvc, modelInfoSvc, mock
 }
@@ -169,12 +168,10 @@ func TestRouterService_Complete_BackendErrorSurfacesWithoutRepeat(t *testing.T) 
 	})
 
 	mock.WithCompleteFunc(func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
-		resetAt := time.Now().Add(60 * time.Second)
 		return nil, &models.ProviderError{
 			StatusCode: 429,
 			Message:    "rate limit exceeded",
-			Type:       models.ErrorTypeRateLimit,
-			RetryAfter: &resetAt,
+			Code:       "rate_limit",
 		}
 	})
 
@@ -251,7 +248,7 @@ func TestRouterService_Complete_AuthErrorSingleAttempt(t *testing.T) {
 		return nil, &models.ProviderError{
 			StatusCode: 401,
 			Message:    "authentication failed",
-			Type:       models.ErrorTypeAuth,
+			Code:       "authentication_error",
 		}
 	})
 
@@ -282,7 +279,7 @@ func TestRouterService_TestModel_MarksQuotaExceeded(t *testing.T) {
 		return nil, &models.ProviderError{
 			StatusCode: 429,
 			Message:    "quota exhausted",
-			Type:       models.ErrorTypeQuotaExceeded,
+			Code:       "quota_exceeded",
 		}
 	})
 

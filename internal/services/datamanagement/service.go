@@ -7,7 +7,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
-	"github.com/TheSlopMachine/llm-router/internal/services/geoban"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/pluginrepo"
@@ -48,7 +47,6 @@ type Service struct {
 	luaSvc       *luaplugin.Service
 	repoSvc      *pluginrepo.Service
 	modelInfoSvc *modelinfo.Service
-	geobanSvc    *geoban.Service
 }
 
 func New(
@@ -60,7 +58,6 @@ func New(
 	luaSvc *luaplugin.Service,
 	repoSvc *pluginrepo.Service,
 	modelInfoSvc *modelinfo.Service,
-	geobanSvc *geoban.Service,
 ) *Service {
 	return &Service{
 		db:           database,
@@ -71,7 +68,6 @@ func New(
 		luaSvc:       luaSvc,
 		repoSvc:      repoSvc,
 		modelInfoSvc: modelInfoSvc,
-		geobanSvc:    geobanSvc,
 	}
 }
 
@@ -233,8 +229,7 @@ func (s *Service) ImportProvider(b *ProviderBundle) error {
 }
 
 func (s *Service) PurgeProvider(id string) error {
-	p, err := s.providerSvc.Get(id)
-	if err != nil {
+	if _, err := s.providerSvc.Get(id); err != nil {
 		return err
 	}
 	// 1. Delete provider instance and cascade credentials
@@ -255,17 +250,7 @@ func (s *Service) PurgeProvider(id string) error {
 		}
 	}
 
-	// 3. Clear geobans for this provider (geo flags stay keyed by adapter
-	// type: the upstream region policy is shared by every instance of the
-	// type). Resolve the plugin record for the correct plugin namespace;
-	// lookup failures skip the clear rather than clearing under a wrong key.
-	if s.geobanSvc != nil && s.luaSvc != nil {
-		if rec, err := s.luaSvc.Lookup(p.TypeKey); err == nil {
-			_, _ = s.geobanSvc.ClearProvider(rec.ID, p.TypeKey)
-		}
-	}
-
-	// 4. Delete managed virtual models associated with this provider
+	// 3. Delete managed virtual models associated with this provider
 	if s.virtualSvc != nil {
 		if vms, err := s.virtualSvc.List(); err == nil {
 			for _, vm := range vms {
@@ -289,13 +274,6 @@ func (s *Service) ClearProviders() error {
 	}
 	for _, p := range providers {
 		_ = s.providerSvc.Delete(p.ID)
-	}
-	if s.geobanSvc != nil {
-		_ = s.db.Update(func(tx *bolt.Tx) error {
-			_ = tx.DeleteBucket(db.BucketGeoBans)
-			_, _ = tx.CreateBucketIfNotExists(db.BucketGeoBans)
-			return nil
-		})
 	}
 	return nil
 }

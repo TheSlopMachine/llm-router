@@ -11,12 +11,12 @@ import (
 const streamPluginSource = `--- @plugin Stream Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @description Stream plugin
 --- @allow_host example.com
 
 llm_router.register("stream-type", {
-  complete = function(ctx, credential, request)
+  complete = function(ctx, request)
     return {
       id = "c1", object = "chat.completion", created = 1, model = request.model,
       choices = { { index = 0, message = { role = "assistant", content = "hi" }, finish_reason = "stop" } },
@@ -24,7 +24,7 @@ llm_router.register("stream-type", {
     }
   end,
 
-  complete_stream = function(ctx, credential, request, emit)
+  complete_stream = function(ctx, request, emit)
     emit({
       id = "s1", object = "chat.completion.chunk", created = 1, model = request.model,
       choices = { { index = 0, delta = { role = "assistant", content = "he" } } },
@@ -68,12 +68,12 @@ func TestCompleteStream_UsageOnlyChunkAllowed(t *testing.T) {
 const badStreamPluginSource = `--- @plugin Bad Stream Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @description Bad stream plugin
 --- @allow_host example.com
 
 llm_router.register("bad-stream-type", {
-  complete = function(ctx, credential, request)
+  complete = function(ctx, request)
     return {
       id = "c1", object = "chat.completion", created = 1, model = request.model,
       choices = { { index = 0, message = { role = "assistant", content = "hi" }, finish_reason = "stop" } },
@@ -81,7 +81,7 @@ llm_router.register("bad-stream-type", {
     }
   end,
 
-  complete_stream = function(ctx, credential, request, emit)
+  complete_stream = function(ctx, request, emit)
     -- Neither choices nor usage: must be rejected.
     emit({ id = "s1", object = "chat.completion.chunk", created = 1, model = request.model })
   end,

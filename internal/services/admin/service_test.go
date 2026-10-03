@@ -6,7 +6,6 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
@@ -94,8 +93,8 @@ func TestAdminService_Bootstrap_DoesNotCreateProvidersBucket(t *testing.T) {
 	}
 
 	if err := svc.db.View(func(tx *bolt.Tx) error {
-		if tx.Bucket(db.BucketProviders) != nil {
-			t.Fatalf("providers bucket should not be created during bootstrap")
+		if tx.Bucket([]byte("providers")) != nil {
+			t.Fatalf("legacy providers bucket must stay dropped")
 		}
 		return nil
 	}); err != nil {

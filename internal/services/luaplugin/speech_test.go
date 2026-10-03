@@ -13,12 +13,12 @@ import (
 const speechPluginSource = `--- @plugin Speech Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @description Speech and image test plugin
 --- @allow_host example.com
 
 llm_router.register("tts-type", {
-  complete = function(ctx, credential, request)
+  complete = function(ctx, request)
     return {
       id = "chatcmpl-tts",
       object = "chat.completion",
@@ -31,14 +31,14 @@ llm_router.register("tts-type", {
     }
   end,
 
-  speech = function(ctx, credential, request)
+  speech = function(ctx, request)
     return {
       audio_b64 = "RkFLRU9HRA==",
       format = "ogg",
     }
   end,
 
-  generate_image = function(ctx, credential, request)
+  generate_image = function(ctx, request)
     return {
       created = 1700000001,
       data = {
@@ -98,7 +98,7 @@ func TestSpeech_ContractError(t *testing.T) {
       audio_b64 = "RkFLRU9HRA==",
       format = "ogg",
     }`,
-		`do return nil, { type = "quota_exceeded", message = "out of quota", retry_after = os.time() + 3600 } end`, 1)
+		`do return nil, { message = "out of quota", code = "insufficient_quota", status = 429 } end`, 1)
 	src = strings.Replace(src, "Speech Plugin", "Speech Err", 1)
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
@@ -107,8 +107,8 @@ func TestSpeech_ContractError(t *testing.T) {
 		&models.Credential{ID: "c1"}, "tts-type/m", nil),
 		&models.SpeechRequest{Model: "tts-type/m", Input: "hi"})
 	perr, ok := err.(*models.ProviderError)
-	if !ok || perr.Type != models.ErrorTypeQuotaExceeded {
-		t.Fatalf("expected quota_exceeded ProviderError, got %T (%v)", err, err)
+	if !ok || perr.Code != "insufficient_quota" || perr.StatusCode != 429 {
+		t.Fatalf("expected terminal quota ProviderError, got %T (%v)", err, err)
 	}
 }
 

@@ -11,7 +11,6 @@ import (
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
-	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/videojobs"
@@ -38,7 +37,7 @@ func (m *videoMockAdapter) SubmitVideo(ctx context.Context, creds []*models.Cred
 
 func (m *videoMockAdapter) PollVideo(ctx context.Context, creds []*models.Credential, model models.ModelId, upstreamJobID string, _ map[string]any) (*models.VideoGenerationResponse, error) {
 	if upstreamJobID != "up-123" {
-		return nil, &models.ProviderError{StatusCode: 404, Type: models.ErrorTypeNotFound, Message: "job not found upstream"}
+		return nil, &models.ProviderError{StatusCode: 404, Code: "not_found", Message: "job not found upstream"}
 	}
 	return &models.VideoGenerationResponse{
 		ID:           upstreamJobID,
@@ -65,7 +64,7 @@ func setupVideoRouter(t *testing.T) (*Service, *credential.Service, *modelinfo.S
 	credSvc := credential.New(database, providerSvc)
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 
-	return New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), nil, nil, slog.Default()), credSvc, modelInfoSvc, mock
+	return New(providerSvc, credSvc, modelInfoSvc, videojobs.New(database), nil, nil, slog.Default()), credSvc, modelInfoSvc, mock
 }
 
 func videoReq(model string) *models.VideoGenerationRequest {
@@ -163,7 +162,7 @@ func TestRouterService_Video_PreviousJobTranslates(t *testing.T) {
 	bad.PreviousJobID = "gen-vid-0-AAAAAAAAAAAAAAAAAAAA"
 	_, err = svc.SubmitVideo(context.Background(), bad, nil)
 	var perr *models.ProviderError
-	if !errors.As(err, &perr) || perr.Type != models.ErrorTypeInvalidRequest {
+	if !errors.As(err, &perr) || perr.Code != "invalid_request_error" {
 		t.Fatalf("expected invalid_request for unknown previous job, got %v", err)
 	}
 }

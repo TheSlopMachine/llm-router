@@ -1,18 +1,22 @@
 <script lang="ts">
-  import { VStack, HStack, Text, Button, Table, SectionCard, List, Spacer, Chip } from '$ui'
+  import { VStack, HStack, Text, Button, Table, SectionCard, List, Spacer, Chip, TextEdit, TextArea } from '$ui'
   import type { TableColumn } from '$ui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
-  import type { Proxy, ProxyStatus, ProxySourceInfo } from '$lib/types'
+  import type { Proxy, ProxyStatus, ProxySourceInfo, ProxyPool } from '$lib/types'
   import { t } from '$lib/i18n.svelte'
 
   let proxies = $state<Proxy[]>([])
   let sources = $state<ProxySourceInfo[]>([])
   let status = $state<ProxyStatus | null>(null)
+  let pools = $state<ProxyPool[]>([])
   let loading = $state(true)
   let requestingRefresh = $state(false)
   let error = $state('')
+  let newPoolName = $state('')
+  let newPoolEntries = $state('')
+  let savingPool = $state(false)
 
   const proxyColumns: TableColumn[] = [
     { key: 'url', title: t('URL'), width: '1fr', priority: 1 },
@@ -28,14 +32,16 @@
 
   async function loadAll(): Promise<void> {
     try {
-      const [nextProxies, nextSources, nextStatus] = await Promise.all([
+      const [nextProxies, nextSources, nextStatus, nextPools] = await Promise.all([
         api.proxies.list(),
         api.proxies.sources(),
         api.proxies.status(),
+        api.proxies.pools.list(),
       ])
       proxies = nextProxies
       sources = nextSources
       status = nextStatus
+      pools = nextPools
       error = ''
     } catch (e) {
       error = getErrorMessage(e)
@@ -69,6 +75,40 @@
   function formatTime(value?: string): string {
     if (!value || value.startsWith('0001-')) return '—'
     return new Date(value).toLocaleString()
+  }
+
+  async function savePool(): Promise<void> {
+    if (!newPoolName.trim()) return
+    savingPool = true
+    error = ''
+    try {
+      const entries = newPoolEntries
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line !== '')
+        .map((line) => {
+          const [url, country] = line.split(/\s+/, 2)
+          return country ? { url, country } : { url }
+        })
+      await api.proxies.pools.save({ name: newPoolName.trim(), entries })
+      newPoolName = ''
+      newPoolEntries = ''
+      await loadAll()
+    } catch (e) {
+      error = getErrorMessage(e)
+    } finally {
+      savingPool = false
+    }
+  }
+
+  async function deletePool(id: string): Promise<void> {
+    error = ''
+    try {
+      await api.proxies.pools.remove(id)
+      await loadAll()
+    } catch (e) {
+      error = getErrorMessage(e)
+    }
   }
 </script>
 
@@ -150,6 +190,33 @@
       </List>
     {/if}
   </SectionCard>
+
+  <VStack gap={4}>
+    <Text tag="h2" size="md" weight="bold">{t('Custom pools')}</Text>
+    <Text tone="soft" size="sm">{t('Manually managed pools. One URL per line, optional country code after a space.')}</Text>
+    {#if pools.length === 0}
+      <Text tone="soft" size="sm">{t('No custom pools yet.')}</Text>
+    {:else}
+      <List>
+        {#each pools as pool (pool.id)}
+          <div style="padding: var(--space-4);">
+            <HStack align="center" gap={3}>
+              <VStack gap={0} grow>
+                <Text weight="bold" size="base">{pool.name}</Text>
+                <Text size="xs" tone="soft">{pool.id} · {pool.entries.length} {t('entries')}</Text>
+              </VStack>
+              <Button size="small" tint="#dc2626" onclick={() => void deletePool(pool.id)}>{t('Delete')}</Button>
+            </HStack>
+          </div>
+        {/each}
+      </List>
+    {/if}
+    <TextEdit bind:value={newPoolName} hint={t('Pool name')} />
+    <TextArea bind:value={newPoolEntries} hint={t('One proxy URL per line')} />
+    <Button style="prominent" disabled={savingPool || !newPoolName.trim()} onclick={() => void savePool()}>
+      {savingPool ? t('Saving…') : t('Save pool')}
+    </Button>
+  </VStack>
 
   <VStack gap={4}>
     <Text tag="h2" size="md" weight="bold">{t('Healthy proxies')}</Text>

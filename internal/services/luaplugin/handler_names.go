@@ -1,8 +1,9 @@
 package luaplugin
 
-// Handler names a Lua-callable slot of llm_router.register. The two handler
-// inventories (registration-time validation in sandbox.go and install-time
-// discovery in service.go) both derive from these lists.
+// Handler names a Lua-callable function slot of llm_router.register. Static
+// schema tables (credential_schema, config_schema, settings_schema,
+// proxy_schema) and colocated job specs are not handlers: they are
+// validated at install, never invoked.
 type Handler string
 
 // Required handler: every registered type serves it.
@@ -21,12 +22,7 @@ const (
 	HandlerVideoContent        Handler = "video_content"
 	HandlerValidateCredentials Handler = "validate_credentials"
 	HandlerGetModelInfos       Handler = "get_model_infos"
-	HandlerClassifyError       Handler = "classify_error"
-	HandlerNeedsRefresh        Handler = "needs_refresh"
-	HandlerRefreshCredential   Handler = "refresh_credential"
 	HandlerCheckHealth         Handler = "check_health"
-	HandlerConfigSchema        Handler = "config_schema"
-	HandlerCredentialSchema    Handler = "credential_schema"
 	HandlerAuthInitiate        Handler = "auth_initiate"
 	HandlerAuthStep            Handler = "auth_step"
 )
@@ -45,12 +41,7 @@ func OptionalHandlerNames() []string {
 		string(HandlerVideoContent),
 		string(HandlerValidateCredentials),
 		string(HandlerGetModelInfos),
-		string(HandlerClassifyError),
-		string(HandlerNeedsRefresh),
-		string(HandlerRefreshCredential),
 		string(HandlerCheckHealth),
-		string(HandlerConfigSchema),
-		string(HandlerCredentialSchema),
 		string(HandlerAuthInitiate),
 		string(HandlerAuthStep),
 	}

@@ -13,8 +13,25 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
-	"github.com/TheSlopMachine/llm-router/internal/streamgate"
 )
+
+// firstByteGate tracks whether the first upstream byte reached the client.
+// Once written, the stream belongs to that member: failover stops and the
+// member's error ends the stream instead of trying the next member.
+type firstByteGate struct {
+	w       io.Writer
+	written bool
+}
+
+func (g *firstByteGate) Write(p []byte) (int, error) {
+	n, err := g.w.Write(p)
+	if n > 0 {
+		g.written = true
+	}
+	return n, err
+}
+
+func (g *firstByteGate) Written() bool { return g.written }
 
 // Adapter implements the provider.GoAdapter interface for virtual models.
 type Adapter struct {
@@ -40,10 +57,10 @@ func New(completer provider.Completer, virtualSvc *virtual.Service, logger *slog
 func (a *Adapter) resolve(req *models.ChatCompletionRequest) (*models.VirtualModel, []models.ModelId, *models.ChatCompletionRequest, error) {
 	_, agentID, err := req.Model.Parse()
 	if err != nil {
-		return nil, nil, nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: fmt.Sprintf("invalid model id: %s", err)}
+		return nil, nil, nil, &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: fmt.Sprintf("invalid model id: %s", err)}
 	}
 	if agentID == "" {
-		return nil, nil, nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: "virtual model id is required"}
+		return nil, nil, nil, &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: "virtual model id is required"}
 	}
 	virtualSvc := a.virtualSvc
 	if virtualSvc == nil {
@@ -51,7 +68,7 @@ func (a *Adapter) resolve(req *models.ChatCompletionRequest) (*models.VirtualMod
 	}
 	agent, err := virtualSvc.Get(agentID)
 	if err != nil {
-		return nil, nil, nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: fmt.Sprintf("virtual model %q not found", agentID)}
+		return nil, nil, nil, &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: fmt.Sprintf("virtual model %q not found", agentID)}
 	}
 	if agent.Disabled {
 		return nil, nil, nil, fmt.Errorf("%w: virtual/%s", apierrors.ErrModelDisabled, agentID)
@@ -70,28 +87,6 @@ func (a *Adapter) resolve(req *models.ChatCompletionRequest) (*models.VirtualMod
 		modifiedReq.Messages = append([]models.ChatMessage{{Role: "user", Content: agent.Instruction}}, req.Messages...)
 	}
 	return agent, members, &modifiedReq, nil
-}
-
-// orderMembers deprioritizes exhausted members to the tail preserving list
-// order within each group: healthy members first, members with a model-wide
-// limit key or every credential in cooldown last as last resort.
-func (a *Adapter) orderMembers(members []models.ModelId) []models.ModelId {
-	if a.routerSvc == nil {
-		return members
-	}
-	clean := make([]models.ModelId, 0, len(members))
-	var held []models.ModelId
-	for _, m := range members {
-		if a.routerSvc.LikelyExhausted(m) || !a.routerSvc.HasUsableCredential(m) {
-			held = append(held, m)
-			continue
-		}
-		clean = append(clean, m)
-	}
-	if len(held) == 0 {
-		return clean
-	}
-	return append(clean, held...)
 }
 
 // ─────────────────────────────────────────────
@@ -138,10 +133,8 @@ func (a *Adapter) Complete(
 	}
 	logger := a.logger
 
-	// Fall-through queue, not retries: each member is tried at most once,
-	// healthy members first, exhausted members last as last resort. The
-	// first success wins; otherwise the last error is returned as-is.
-	members = a.orderMembers(members)
+	// Fall-through queue in list order: each member is tried at most once.
+	// The first success wins; otherwise the last error is returned as-is.
 	var lastErr error
 	for i, memberID := range members {
 		if err := ctx.Err(); err != nil {
@@ -198,8 +191,7 @@ func (a *Adapter) CompleteStream(
 	// Same fall-through queue as Complete, with one guard: once the first
 	// byte reaches the client the stream belongs to that member and ends
 	// with its error instead of continuing to the next member.
-	gate := streamgate.New(w)
-	members = a.orderMembers(members)
+	gate := &firstByteGate{w: w}
 	var lastErr error
 	for i, memberID := range members {
 		if err := ctx.Err(); err != nil {
@@ -252,7 +244,7 @@ func (a *Adapter) SubmitVideo(
 	}
 	_, agentID, err := req.Model.Parse()
 	if err != nil || agentID == "" {
-		return nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: "virtual model id is required"}
+		return nil, &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: "virtual model id is required"}
 	}
 	virtualSvc := a.virtualSvc
 	if virtualSvc == nil {
@@ -260,7 +252,7 @@ func (a *Adapter) SubmitVideo(
 	}
 	agent, err := virtualSvc.Get(agentID)
 	if err != nil {
-		return nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: fmt.Sprintf("virtual model %q not found", agentID)}
+		return nil, &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: fmt.Sprintf("virtual model %q not found", agentID)}
 	}
 	if agent.Disabled {
 		return nil, fmt.Errorf("%w: virtual/%s", apierrors.ErrModelDisabled, agentID)
@@ -270,7 +262,6 @@ func (a *Adapter) SubmitVideo(
 		return nil, fmt.Errorf("virtual model %q members: %w", agent.Name, err)
 	}
 	logger := a.logger
-	members = a.orderMembers(members)
 	var lastErr error
 	for i, memberID := range members {
 		if err := ctx.Err(); err != nil {

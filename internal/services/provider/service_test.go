@@ -3,11 +3,9 @@ package provider_test
 import (
 	"encoding/json"
 	"testing"
-	"time"
 
 	bolt "go.etcd.io/bbolt"
 
-	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
@@ -120,7 +118,8 @@ func TestProviderService_UpdateDelete(t *testing.T) {
 	database := testutil.SetupTestDB(t)
 	svc := provider.NewService(database)
 
-	cp, err := svc.CreateCustom("My LLM", "https://api.example.com/v1/", "https://example.com/icon.svg")
+	cp, err := svc.Create(provider.CreateOptions{Name: "My LLM", TypeKey: "custom",
+		Config: map[string]any{"base_url": "https://api.example.com/v1/"}, IconURL: "https://example.com/icon.svg"})
 	if err != nil {
 		t.Fatalf("create failed: %v", err)
 	}
@@ -146,7 +145,7 @@ func TestProviderService_UpdateDelete(t *testing.T) {
 		t.Fatal("custom provider missing from list")
 	}
 
-	if err := svc.DeleteCustom("my-llm"); err != nil {
+	if err := svc.Delete("custom:my-llm"); err != nil {
 		t.Fatalf("delete failed: %v", err)
 	}
 	if _, err := svc.Get("custom:my-llm"); err == nil {
@@ -205,7 +204,7 @@ func TestProviderService_EnsureSeededCopiesPluginIcon(t *testing.T) {
 	const iconSource = `--- @plugin Seeded Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("seeded-type", {
@@ -246,7 +245,7 @@ func TestProviderService_SyncDefaultProvidersAfterRuntimeInstall(t *testing.T) {
 	const runtimeSource = `--- @plugin Runtime Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("runtime-type", {
@@ -282,7 +281,7 @@ func TestProviderService_EnsureSeededBackfillsMissingIcon(t *testing.T) {
 	const iconSource = `--- @plugin Backfill Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("backfill-type", {
@@ -326,21 +325,15 @@ llm_router.register("backfill-type", {
 	}
 }
 
-func TestProviderService_MigratesLegacyCustom(t *testing.T) {
+func TestProviderService_LegacyCustomBucketStaysDropped(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	type legacyCustomProvider struct {
-		ID        string    `json:"id"`
-		Name      string    `json:"name"`
-		BaseURL   string    `json:"base_url"`
-		IconURL   string    `json:"icon_url"`
-		CreatedAt time.Time `json:"created_at"`
-		UpdatedAt time.Time `json:"updated_at"`
-	}
-	legacy := legacyCustomProvider{ID: "old-one", Name: "Old One", BaseURL: "https://old.example.com/v1/"}
 	if err := database.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketCustomProviders)
-		raw, _ := json.Marshal(legacy)
-		return b.Put([]byte(legacy.ID), raw)
+		b, err := tx.CreateBucketIfNotExists([]byte("custom_providers"))
+		if err != nil {
+			return err
+		}
+		raw, _ := json.Marshal(map[string]any{"id": "old-one"})
+		return b.Put([]byte("old-one"), raw)
 	}); err != nil {
 		t.Fatalf("seed legacy: %v", err)
 	}
@@ -349,12 +342,8 @@ func TestProviderService_MigratesLegacyCustom(t *testing.T) {
 	if err := svc.EnsureSeeded(); err != nil {
 		t.Fatalf("seed after legacy: %v", err)
 	}
-	got, err := svc.Get("custom:old-one")
-	if err != nil {
-		t.Fatalf("migrated provider missing: %v", err)
-	}
-	if got.BaseURL() != "https://old.example.com/v1" {
-		t.Fatalf("migrated base_url: %q", got.BaseURL())
+	if _, err := svc.Get("custom:old-one"); err == nil {
+		t.Fatal("legacy custom rows must not resurrect")
 	}
 }
 
@@ -416,7 +405,7 @@ func TestProviderService_EnsureSeededMarksLuaSingletonsReadonly(t *testing.T) {
 	const src = `--- @plugin Flag Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("flag-type", {
@@ -466,7 +455,7 @@ func TestProviderService_BackfillsSeedFlags(t *testing.T) {
 	const src = `--- @plugin Flag Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("flag-type", {
@@ -527,7 +516,7 @@ func TestProviderService_IsTypeAvailable(t *testing.T) {
 	const src = `--- @plugin Availability Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("avail-type", {

@@ -426,29 +426,3 @@ func (s *Service) Delete(id string) error {
 	s.notifyChanged(id)
 	return nil
 }
-
-// MigrateProxyRetry converts stored legacy geo policy sections to the
-// unified proxy_retry section. Named one-shot migration: runs at startup,
-// rewrites each affected provider row once, and never runs inside request
-// handling.
-func (s *Service) MigrateProxyRetry() (int, error) {
-	items, err := s.providers.List()
-	if err != nil {
-		return 0, err
-	}
-	migrated := 0
-	for _, p := range items {
-		if p.Config == nil || !models.MigrateGeoToProxyRetry(p.Config) {
-			continue
-		}
-		p.UpdatedAt = time.Now()
-		if err := s.providers.Put(p.ID, p); err != nil {
-			return migrated, fmt.Errorf("migrate provider %s: %w", p.ID, err)
-		}
-		migrated++
-		if s.logger != nil {
-			s.logger.Info("provider proxy retry migrated", "provider_id", p.ID)
-		}
-	}
-	return migrated, nil
-}

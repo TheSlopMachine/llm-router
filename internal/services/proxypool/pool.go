@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/repository"
 	proxypoollib "github.com/TheSlopMachine/proxypool"
 )
 
@@ -32,15 +34,13 @@ type Proxy struct {
 	LastChecked time.Time     `json:"last_checked"`
 }
 
-// Pick is one ordered proxy candidate for a provider request.
-type Pick struct {
-	ID       string
-	URL      string
-	Location string
+// Candidate is one proxy endpoint produced by a Lua proxy-source feed.
+type Candidate struct {
+	URL     string
+	Country string
 }
 
-// SourceInfo reports router-plugin feed diagnostics without claiming source
-// ownership of proxies retained by the library cache.
+// SourceInfo reports feed diagnostics for registered Lua proxy sources.
 type SourceInfo struct {
 	Key         string    `json:"key"`
 	Name        string    `json:"name"`
@@ -62,13 +62,17 @@ type Status struct {
 	LastError       string        `json:"last_error,omitempty"`
 }
 
-// Service owns the adapter boundary, persistence, request policy and refresh
-// schedule. Proxy health and lifecycle remain in the proxypool library.
+// Service owns the adapter boundary, persistence and refresh schedule.
+// Proxy health and lifecycle remain in the proxypool library. Provider
+// request routing never consults this service: plugins select proxies
+// through Query and assign proxy_url per request.
 type Service struct {
 	pool  *proxypoollib.ProxyPool
 	cache *dbCache
 	src   *pluginSource
 	log   *slog.Logger
+	db    *db.DB
+	pools *repository.Repository[models.CustomProxyPool]
 
 	mu           sync.Mutex
 	refreshMu    sync.Mutex
@@ -84,7 +88,7 @@ type Service struct {
 	interval     time.Duration
 
 	keys  func() ([]string, error)
-	fetch func(context.Context, string) ([]models.ProxyCandidate, error)
+	fetch func(context.Context, string) ([]Candidate, error)
 
 	sourceMu sync.Mutex
 	sources  map[string]SourceInfo
@@ -98,6 +102,8 @@ func New(database *db.DB) (*Service, error) {
 	}
 	s := &Service{
 		cache:       cache,
+		db:          database,
+		pools:       repository.New[models.CustomProxyPool](database, db.BucketCustomPools, "custom proxy pool"),
 		log:         slog.Default(),
 		refreshWake: make(chan struct{}, 1),
 		changed:     make(chan struct{}),
@@ -118,8 +124,8 @@ func (s *Service) SetLogger(logger *slog.Logger) {
 	}
 }
 
-// SetSourceHandlers connects registered Lua proxy-source plugins.
-func (s *Service) SetSourceHandlers(keys func() ([]string, error), fetch func(context.Context, string) ([]models.ProxyCandidate, error)) {
+// SetSourceHandlers connects registered Lua proxy-source feeds.
+func (s *Service) SetSourceHandlers(keys func() ([]string, error), fetch func(context.Context, string) ([]Candidate, error)) {
 	s.mu.Lock()
 	s.keys = keys
 	s.fetch = fetch
@@ -185,6 +191,59 @@ func (s *Service) Touch() {
 	}
 }
 
+// Query returns proxy endpoints for plugin selection. Pool "auto" reads
+// the library free pool in rank order; empty pool means direct and returns
+// no endpoints; any other name reads a custom pool by ID or name. Country
+// filters case-insensitively; limit caps the result (<=0 means all).
+func (s *Service) Query(pool, country string, limit int) ([]models.ProxyView, error) {
+	if err := s.cache.peekError(); err != nil {
+		return nil, err
+	}
+	if pool == "" {
+		return []models.ProxyView{}, nil
+	}
+	if pool == models.DefaultProxyPool {
+		return s.queryAuto(country, limit), nil
+	}
+	return s.queryCustom(pool, country, limit)
+}
+
+func (s *Service) queryAuto(country string, limit int) []models.ProxyView {
+	infos := s.healthyProxies()
+	out := make([]models.ProxyView, 0, len(infos))
+	for _, p := range infos {
+		if country != "" && !strings.EqualFold(p.Location, country) {
+			continue
+		}
+		out = append(out, models.ProxyView{ID: proxyID(p.URL), URL: p.URL, Country: p.Location, Pool: models.DefaultProxyPool})
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func (s *Service) queryCustom(pool, country string, limit int) ([]models.ProxyView, error) {
+	custom, err := s.findCustomPool(pool)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]models.ProxyView, 0, len(custom.Entries))
+	for _, e := range custom.Entries {
+		if e.URL == "" {
+			continue
+		}
+		if country != "" && !strings.EqualFold(e.Country, country) {
+			continue
+		}
+		out = append(out, models.ProxyView{ID: proxyID(e.URL), URL: e.URL, Country: e.Country, Pool: custom.ID})
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
 // List returns verified live proxies in library rank order.
 func (s *Service) List() ([]*Proxy, error) {
 	if err := s.cache.peekError(); err != nil {
@@ -193,7 +252,7 @@ func (s *Service) List() ([]*Proxy, error) {
 	infos := s.healthyProxies()
 	out := make([]*Proxy, 0, len(infos))
 	for _, p := range infos {
-		out = append(out, &Proxy{ID: proxyID(p.URL), URL: p.URL, Location: NormalizeCountryCode(p.Location), Latency: p.Latency, Score: p.Score, LastChecked: p.LastChecked})
+		out = append(out, &Proxy{ID: proxyID(p.URL), URL: p.URL, Location: p.Location, Latency: p.Latency, Score: p.Score, LastChecked: p.LastChecked})
 	}
 	return out, nil
 }
@@ -240,8 +299,8 @@ func (s *Service) KnownIDs() ([]string, error) {
 // MarkDead excludes the proxy with the given canonical URL until an
 // escalating ban expires. Unknown URLs return false. The library owns
 // dead status and revival; the mark persists through the bbolt cache.
-// No lock taken: library merge preserves concurrent marks, so the hot
-// path never waits on background refresh.
+// Called only from the plugin HTTP client on structural TLS faults:
+// plugins never mark proxies directly.
 func (s *Service) MarkDead(url, reason string) bool {
 	if s == nil || s.pool == nil || url == "" {
 		return false
@@ -295,7 +354,7 @@ func (s *Service) notifyLocked() {
 }
 
 func stateView(state proxypoollib.ProxyState) *Proxy {
-	return &Proxy{ID: proxyID(state.URL), URL: state.URL, Location: NormalizeCountryCode(state.Location), Latency: state.Latency, Score: state.Score, LastChecked: state.LastCheckedAt}
+	return &Proxy{ID: proxyID(state.URL), URL: state.URL, Location: state.Location, Latency: state.Latency, Score: state.Score, LastChecked: state.LastCheckedAt}
 }
 
 func proxyID(proxyURL string) string {
@@ -308,4 +367,13 @@ func sourceDisplayName(key string) string {
 		return key[idx+1:]
 	}
 	return key
+}
+
+// candidateURL validates one Lua feed candidate: unauthenticated HTTP only.
+func candidateURL(c Candidate) (string, bool) {
+	u, err := url.Parse(c.URL)
+	if err != nil || u.Scheme != "http" || u.Host == "" || u.User != nil {
+		return "", false
+	}
+	return u.String(), true
 }

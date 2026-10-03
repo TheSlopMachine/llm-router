@@ -19,18 +19,16 @@ func schemaNodes(t *testing.T, body string) ([]*models.UINode, error) {
 	src := `--- @plugin Schema Probe
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("probe", {
   complete = function() end,
-  credential_schema = function()
-    return { ` + body + ` }
-  end,
+  credential_schema = { ` + body + ` },
 })
 `
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
-		t.Fatalf("install probe plugin: %v", err)
+		return nil, err
 	}
 	return svc.Schema("probe", "credential_schema")
 }

@@ -234,97 +234,66 @@ func newPluginHTTPClient(ctx *execContext, timeoutMs int) *pluginHTTPClient {
 	return c
 }
 
-// proxyClient returns the cached client for the currently resolved proxy,
-// building its transport once. A build failure is a loud error: the request
-// rotates to the next proxy or fails, it never falls back to direct.
-func (c *pluginHTTPClient) proxyClient() (*http.Client, error) {
+// proxyClient returns the cached client for one explicit proxy URL,
+// building its transport once.
+func (c *pluginHTTPClient) proxyClient(proxyURL string) (*http.Client, error) {
 	c.proxyMu.Lock()
 	defer c.proxyMu.Unlock()
-	if client, ok := c.proxyClients[c.ctx.proxyURL]; ok {
+	if client, ok := c.proxyClients[proxyURL]; ok {
 		return client, nil
 	}
-	transport, err := proxypool.TransportFor(c.ctx.proxyURL, c.timeout)
+	transport, err := proxypool.TransportFor(proxyURL, c.timeout)
 	if err != nil {
 		return nil, err
 	}
 	client := &http.Client{Timeout: c.timeout, Transport: transport, CheckRedirect: c.checkRedirect}
-	c.proxyClients[c.ctx.proxyURL] = client
+	c.proxyClients[proxyURL] = client
 	return client, nil
 }
 
-// doWithProxyRotation executes one plugin HTTP request. The picks resolve
-// fresh per request; a failed proxied attempt moves to the next untried
-// pick. Direct requests and an exhausted pick list surface the last error.
-// Proxy-to-direct fallback never happens. The direct flag reports whether
-// a surfaced failure happened on the direct leg (true) or after exhausting
-// proxied picks / in the resolver (false); callers map direct config and
-// network failures to structural_fault and everything else to upstream.
-func (c *pluginHTTPClient) doWithProxyRotation(req *http.Request) (*http.Response, string, time.Time, bool, error) {
-	if err := c.ctx.beginRequest(req.Context()); err != nil {
-		return nil, "", time.Time{}, false, err
+// doSingle executes one plugin HTTP request through an explicit proxy URL
+// ("" = direct). No rotation happens here: the plugin selects the next
+// proxy itself. Structural TLS faults on a proxied leg mark the proxy dead
+// through the router-owned hook; plugins never mark proxies directly.
+// Direct reports whether the attempt went direct (true) or proxied (false).
+func (c *pluginHTTPClient) doSingle(req *http.Request, proxyURL string) (*http.Response, bool, error) {
+	if err := req.Context().Err(); err != nil {
+		return nil, proxyURL == "", err
 	}
-	for {
-		// A dead client owns no retries: return at once instead of
-		// burning the pick list on guaranteed failures.
-		if err := req.Context().Err(); err != nil {
-			return nil, "", time.Time{}, false, err
+	client := c.client
+	direct := true
+	if proxyURL != "" {
+		pc, berr := c.proxyClient(proxyURL)
+		if berr != nil {
+			return nil, false, berr
 		}
-		client := c.client
-		proxyID := c.ctx.proxyID
-		proxyURL := c.ctx.proxyURL
-		if proxyURL != "" {
-			pc, berr := c.proxyClient()
-			if berr != nil {
-				c.markCurrentDead("proxy_client_build")
-				c.logProxyDebug("plugin proxy client build failed, rotating", proxyID, berr)
-				if !c.ctx.rotateProxy() {
-					return nil, "", time.Time{}, false, berr
-				}
-				continue
-			}
-			client = pc
-		}
-		if req.GetBody != nil {
-			if body, gerr := req.GetBody(); gerr == nil {
-				req.Body = body
-			}
-		}
-		start := time.Now()
-		resp, derr := client.Do(req)
-		if derr == nil {
-			c.ctx.lastProxyID = c.ctx.proxyID
-			if proxyID != "" && c.ctx.logger != nil {
-				c.ctx.logger.Debug("plugin http request succeeded", "proxy_id", proxyID)
-			}
-			return resp, c.ctx.proxyID, start, false, nil
-		}
-		if c.ctx.proxyURL == "" {
-			return nil, "", time.Time{}, true, derr
-		}
-		if reason := markDeadReason(derr); reason != "" {
-			c.markCurrentDead(reason)
-		}
-		c.logProxyDebug("plugin proxy attempt failed, rotating", proxyID, derr)
-		if !c.ctx.rotateProxy() {
-			return nil, "", time.Time{}, false, derr
+		client = pc
+		direct = false
+	}
+	if req.GetBody != nil {
+		if body, gerr := req.GetBody(); gerr == nil {
+			req.Body = body
 		}
 	}
+	resp, derr := client.Do(req)
+	if derr != nil {
+		if !direct {
+			if reason := markDeadReason(derr); reason != "" {
+				c.markDead(proxyURL, reason)
+			}
+		}
+		return nil, direct, derr
+	}
+	return resp, direct, nil
 }
 
-func (c *pluginHTTPClient) markCurrentDead(reason string) {
-	if c.ctx == nil || c.ctx.markDead == nil || c.ctx.proxyURL == "" {
+func (c *pluginHTTPClient) markDead(proxyURL, reason string) {
+	if c.ctx == nil || c.ctx.markDead == nil || proxyURL == "" {
 		return
 	}
-	if c.ctx.markDead(c.ctx.proxyURL, reason) && c.ctx.logger != nil {
-		c.ctx.logger.Debug("proxy marked dead", "proxy_id", c.ctx.proxyID, "reason", reason)
+	if c.ctx.markDead(proxyURL, reason) && c.ctx.logger != nil {
+		c.ctx.logger.Debug("proxy marked dead", "reason", reason)
 	}
-}
-
-func (c *pluginHTTPClient) logProxyDebug(msg, proxyID string, err error) {
-	if c.ctx == nil || c.ctx.logger == nil || proxyID == "" {
-		return
-	}
-	c.ctx.logger.Debug(msg, "proxy_id", proxyID, "error", err)
 }
 
 // checkRedirect validates every redirect hop against the plugin allow-list.
@@ -382,17 +351,26 @@ func checkCustomHostHeader(L *lua.LState, c *pluginHTTPClient, headers map[strin
 	}
 }
 
-func (c *pluginHTTPClient) buildRequest(L *lua.LState, arg *lua.LTable) *http.Request {
+func (c *pluginHTTPClient) buildRequest(L *lua.LState, arg *lua.LTable) (*http.Request, string) {
 	method := strings.ToUpper(strings.TrimSpace(luaTableString(arg, "method", "GET")))
 	rawURL := strings.TrimSpace(luaTableString(arg, "url", ""))
 	if rawURL == "" {
 		L.RaiseError("request: url is required")
-		return nil
+		return nil, ""
 	}
 	u, err := c.guard.checkURL(rawURL)
 	if err != nil {
 		L.RaiseError("request blocked: %s", err.Error())
-		return nil
+		return nil, ""
+	}
+	proxyURL := ""
+	if v := arg.RawGetString("proxy_url"); v != lua.LNil {
+		s, ok := v.(lua.LString)
+		if !ok || strings.TrimSpace(string(s)) == "" {
+			L.RaiseError("request: proxy_url must be a non-empty string")
+			return nil, ""
+		}
+		proxyURL = strings.TrimSpace(string(s))
 	}
 	headers := luaTableStringMap(arg, "headers")
 	checkCustomHostHeader(L, c, headers)
@@ -404,16 +382,15 @@ func (c *pluginHTTPClient) buildRequest(L *lua.LState, arg *lua.LTable) *http.Re
 			body = bytes.NewReader(bodyBytes)
 		} else {
 			L.RaiseError("request: body must be a string")
-			return nil
+			return nil, ""
 		}
 	}
 	req, err := http.NewRequestWithContext(goCtxOf(c), method, u.String(), body)
 	if err != nil {
 		L.RaiseError("request: %s", err.Error())
-		return nil
+		return nil, ""
 	}
 	if bodyBytes != nil {
-		// Rotation replays the body on every proxy attempt.
 		req.GetBody = func() (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader(bodyBytes)), nil
 		}
@@ -425,26 +402,19 @@ func (c *pluginHTTPClient) buildRequest(L *lua.LState, arg *lua.LTable) *http.Re
 		}
 		req.Header.Set(k, v)
 	}
-	return req
+	return req, proxyURL
 }
 
 // luaRequest implements client:request({...}) -> (resp, err).
 func (c *pluginHTTPClient) luaRequest(L *lua.LState) int {
 	arg := L.CheckTable(2)
-	req := c.buildRequest(L, arg)
+	req, proxyURL := c.buildRequest(L, arg)
 	if req == nil {
 		return 0
 	}
-	resp, _, _, direct, err := c.doWithProxyRotation(req)
+	resp, direct, err := c.doSingle(req, proxyURL)
 	if err != nil {
 		// Contract is (resp, err): nil response first, error table second.
-		if c.ctx != nil && c.ctx.logger != nil {
-			reason := "upstream"
-			if direct && isStructuralTransport(err) {
-				reason = "structural_fault"
-			}
-			c.ctx.logger.Debug("transport error mapped", "plugin_id", c.ctx.pluginID, "type", c.ctx.typeKey, "reason", reason, "direct", direct)
-		}
 		L.Push(lua.LNil)
 		pushTransportErr(L, err, direct)
 		return 2
@@ -453,7 +423,7 @@ func (c *pluginHTTPClient) luaRequest(L *lua.LState) int {
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if err != nil {
 		L.Push(lua.LNil)
-		pushLuaErr(L, "upstream", err.Error())
+		pushLuaErr(L, "server_error", err.Error())
 		return 2
 	}
 	out := L.NewTable()
@@ -502,19 +472,12 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 			return 0
 		}
 	}
-	req := c.buildRequest(L, arg)
+	req, proxyURL := c.buildRequest(L, arg)
 	if req == nil {
 		return 0
 	}
-	resp, _, _, direct, err := c.doWithProxyRotation(req)
+	resp, direct, err := c.doSingle(req, proxyURL)
 	if err != nil {
-		if c.ctx != nil && c.ctx.logger != nil {
-			reason := "upstream"
-			if direct && isStructuralTransport(err) {
-				reason = "structural_fault"
-			}
-			c.ctx.logger.Debug("transport error mapped", "plugin_id", c.ctx.pluginID, "type", c.ctx.typeKey, "reason", reason, "direct", direct)
-		}
 		L.Push(lua.LNil)
 		pushTransportErr(L, err, direct)
 		return 2
@@ -538,7 +501,7 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 			return 2
 		}
 		L.Push(lua.LNil)
-		pushLuaErr(L, "upstream", fmt.Sprintf("unexpected status %d: %s", resp.StatusCode, string(errBody)))
+		pushLuaErr(L, "server_error", fmt.Sprintf("unexpected status %d: %s", resp.StatusCode, string(errBody)))
 		return 2
 	}
 	if fn, ok := onChunk.(*lua.LFunction); ok {
@@ -548,7 +511,7 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 			if n > 0 {
 				if callErr := protectedCallback(L, fn, lua.LString(string(buf[:n]))); callErr != nil {
 					L.Push(lua.LNil)
-					pushLuaErr(L, "upstream", fmt.Sprintf("on_chunk failed: %s", callErr.Error()))
+					pushLuaErr(L, "server_error", fmt.Sprintf("on_chunk failed: %s", callErr.Error()))
 					return 2
 				}
 			}
@@ -557,7 +520,7 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 			}
 			if err != nil {
 				L.Push(lua.LNil)
-				pushLuaErr(L, "upstream", err.Error())
+				pushLuaErr(L, "server_error", err.Error())
 				return 2
 			}
 		}
@@ -572,13 +535,13 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 		line := scanner.Text()
 		if callErr := protectedCallback(L, fn, lua.LString(line)); callErr != nil {
 			L.Push(lua.LNil)
-			pushLuaErr(L, "upstream", fmt.Sprintf("on_line failed: %s", callErr.Error()))
+			pushLuaErr(L, "server_error", fmt.Sprintf("on_line failed: %s", callErr.Error()))
 			return 2
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		L.Push(lua.LNil)
-		pushLuaErr(L, "upstream", err.Error())
+		pushLuaErr(L, "server_error", err.Error())
 		return 2
 	}
 	L.Push(head)
@@ -643,26 +606,19 @@ func protectedCallback(L *lua.LState, fn *lua.LFunction, args ...lua.LValue) err
 	return err
 }
 
-// pushLuaErr pushes an error-table {type=, message=} onto the stack.
-func pushLuaErr(L *lua.LState, errType, message string) {
+// pushLuaErr pushes a terminal error table {message=, code=} onto the stack.
+func pushLuaErr(L *lua.LState, code, message string) {
 	tbl := L.NewTable()
-	tbl.RawSetString("type", lua.LString(errType))
 	tbl.RawSetString("message", lua.LString(message))
+	tbl.RawSetString("code", lua.LString(code))
 	L.Push(tbl)
 }
 
-// pushTransportErr pushes a transport failure: direct-leg config and network
-// failures (unresolvable host, refused connection, broken TLS identity)
-// become structural_fault — the provider endpoint itself is broken for every
-// key. Timeouts, resets, proxy-leg exhaustion and resolver failures stay
-// transport: they are connectivity failures without application meaning,
-// retried with the same credential on another route.
+// pushTransportErr pushes a transport failure as a terminal error table.
+// Direct and proxied legs surface identically: the plugin already knows
+// which proxy_url it assigned and selects the next one itself.
 func pushTransportErr(L *lua.LState, err error, direct bool) {
-	if direct && isStructuralTransport(err) {
-		pushLuaErr(L, "structural_fault", err.Error())
-		return
-	}
-	pushLuaErr(L, "transport", err.Error())
+	pushLuaErr(L, "server_error", err.Error())
 }
 
 // isStructuralTransport matches typed network failures, never message

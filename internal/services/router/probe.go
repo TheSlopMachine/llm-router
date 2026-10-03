@@ -78,6 +78,11 @@ func (s *Service) TestCredential(ctx context.Context, providerID, credentialID s
 		if reason == "" {
 			reason = "health check reported unhealthy"
 		}
+		// The provider automation switch masters every non-manual disable:
+		// off reports the verdict without touching the credential.
+		if !disableFailedCredentials(resolved) {
+			return TestResult{Error: reason, Code: "unhealthy", Summary: "credential unhealthy", Latency: latency}
+		}
 		if derr := s.credSvc.DisableUnhealthy(credentialID, reason); derr != nil {
 			return TestResult{Error: derr.Error(), Code: "upstream_error", Summary: "disable failed", Latency: latency}
 		}
@@ -154,8 +159,11 @@ func probeResult(start time.Time, respText, proxy string, err error) TestResult 
 		res.Summary = probeSummary(err)
 		res.Code = apierrors.ToAPIError(err).Code
 		var perr *models.ProviderError
-		if errors.As(err, &perr) && (perr.Type == models.ErrorTypeRateLimit || perr.Type == models.ErrorTypeQuotaExceeded) {
-			res.QuotaExceeded = true
+		if errors.As(err, &perr) {
+			switch perr.Code {
+			case "rate_limit", "quota_exceeded", "insufficient_quota":
+				res.QuotaExceeded = true
+			}
 		}
 		return res
 	}
@@ -167,32 +175,34 @@ func probeResult(start time.Time, respText, proxy string, err error) TestResult 
 func probeSummary(err error) string {
 	var perr *models.ProviderError
 	if errors.As(err, &perr) {
-		switch perr.Type {
-		case models.ErrorTypeRateLimit, models.ErrorTypeQuotaExceeded:
+		switch perr.Code {
+		case "rate_limit", "quota_exceeded", "insufficient_quota":
 			return "quota exceeded, temporary"
-		case models.ErrorTypeAuth:
+		case "authentication_error", "auth_error":
 			return "authentication failed"
-		case models.ErrorTypeInvalidRequest:
+		case "invalid_request_error":
 			return "invalid request"
-		case models.ErrorTypeUpstream:
+		case "server_error", "upstream_error":
 			return "upstream error"
-		case models.ErrorTypeTransport:
+		case "transport_error":
 			return "connection failed"
-		case models.ErrorTypeGeo:
-			return "region blocked"
-		case models.ErrorTypePaymentRequired:
+		case "payment_required":
 			return "payment required"
-		case models.ErrorTypeContentPolicy:
-			return "content rejected by upstream"
-		case models.ErrorTypeModelUnavailable:
-			return "model temporarily unavailable"
-		case models.ErrorTypeOverloaded:
+		case "overloaded":
 			return "backend overloaded"
-		case models.ErrorTypeStructuralFault:
-			return "provider misconfigured or unreachable"
 		}
 	}
 	return "probe failed"
+}
+
+// disableFailedCredentials reports whether a provider opts into automatic
+// credential disables. Absent means off, matching the dashboard default:
+// probes and health checks report verdicts without mutating.
+func disableFailedCredentials(resolved *provider.Resolved) bool {
+	if resolved == nil || resolved.Instance == nil {
+		return false
+	}
+	return models.CredentialAutomationOn(resolved.Instance.Config)
 }
 
 // TestVision runs a minimal image-input probe, bypassing manual disable.

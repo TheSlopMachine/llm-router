@@ -247,13 +247,26 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 		}
 		return nil, fmt.Errorf("list credentials for provider %s: %w", p.Name, err)
 	}
+	// Lua plugins select their own discovery credential internally: one
+	// call serves every case, credentialed or not. The provider ID scopes
+	// credentials.list() to this provider's rows.
+	if resolved.IsLua() {
+		modelInfos, err := s.providerSvc.LuaService().GetModelInfos(ctx, providerID, p.TypeKey, config)
+		if err != nil {
+			if s.logger != nil {
+				s.logger.Warn("model discovery failed", "provider_id", providerID, "qualifier", p.Qualifier, "err", err)
+			}
+			return nil, fmt.Errorf("provider %q discovery: %w", providerID, err)
+		}
+		if s.logger != nil {
+			s.logger.Debug("model discovery succeeded", "provider_id", providerID, "models", len(modelInfos))
+		}
+		return s.store(providerID, modelInfos), nil
+	}
 	var modelInfos []models.ModelInfo
 	var lastErr error
 
 	fetch := func(cred *models.Credential) ([]models.ModelInfo, error) {
-		if resolved.IsLua() {
-			return s.providerSvc.LuaService().GetModelInfos(ctx, p.TypeKey, cred, config)
-		}
 		return safeGetModelInfos(ctx, resolved.Go, cred, config)
 	}
 

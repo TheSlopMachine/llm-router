@@ -1,7 +1,6 @@
 package luaplugin
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"path"
@@ -13,7 +12,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/repository"
-	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -27,6 +25,13 @@ type PluginOrigin struct {
 	Manual bool   `json:"manual"`
 }
 
+// JobSpec is the validated schedule of one colocated plugin job.
+type JobSpec struct {
+	IntervalSeconds int64 `json:"interval_seconds"`
+	RunOnStartup    bool  `json:"run_on_startup"`
+	TimeoutMs       int   `json:"timeout_ms"`
+}
+
 // PluginVersionSnapshot is one rollback entry.
 type PluginVersionSnapshot struct {
 	Version         string                                 `json:"version"`
@@ -37,6 +42,8 @@ type PluginVersionSnapshot struct {
 	ModelSpecs      map[string]map[string]models.ModelInfo `json:"model_specs,omitempty"`
 	HealthCooldown  map[string]int64                       `json:"health_cooldown,omitempty"`
 	ProxySourceKeys []string                               `json:"proxy_source_keys,omitempty"`
+	Schemas         map[string]map[string][]*models.UINode `json:"schemas,omitempty"`
+	Jobs            map[string]map[string]JobSpec          `json:"jobs,omitempty"`
 }
 
 // PluginRecord is the stored plugin row in BucketPlugins.
@@ -50,27 +57,29 @@ type PluginRecord struct {
 	License       string   `json:"license"`
 	AllowHosts    []string `json:"allow_hosts"`
 	Unsafe        bool     `json:"unsafe"`
-	// ProxyLocations and ProxyDefaultOption mirror the manifest proxy tags.
-	ProxyLocations []string `json:"proxy_locations,omitempty"`
-	// ProxyDefaultOption is the default proxy mode for providers registered
-	// from this plugin. Empty means disabled.
-	ProxyDefaultOption string `json:"proxy_default_option,omitempty"`
-	// ProxySourceKeys lists registered proxy-list sources in this plugin.
+	// ProxySourceKeys lists registered proxy-list feeds in this plugin.
 	ProxySourceKeys []string `json:"proxy_source_keys,omitempty"`
 	// ModelSpecs holds per-type pinned model rows from the registration
 	// model_specs table, merged over discovered rows in GetModelInfos.
 	ModelSpecs map[string]map[string]models.ModelInfo `json:"model_specs,omitempty"`
 	// HealthCooldown holds per-type healthcheck_cooldown values in seconds
 	// from the registration table. Absent means DefaultHealthCooldown.
-	HealthCooldown map[string]int64        `json:"health_cooldown,omitempty"`
-	TypeKeys       []string                `json:"type_keys"`
-	Handlers       map[string][]string     `json:"handlers"`
-	Icons          map[string]string       `json:"icons"`
-	Source         []byte                  `json:"source"`
-	History        []PluginVersionSnapshot `json:"history"`
-	Origin         PluginOrigin            `json:"origin"`
-	InstalledAt    time.Time               `json:"installed_at"`
-	UpdatedAt      time.Time               `json:"updated_at"`
+	HealthCooldown map[string]int64 `json:"health_cooldown,omitempty"`
+	// Schemas holds per-type static UI tables: credential_schema,
+	// config_schema, settings_schema, proxy_schema. A missing table means
+	// the surface stays hidden.
+	Schemas map[string]map[string][]*models.UINode `json:"schemas,omitempty"`
+	// Jobs holds per-type colocated job schedules. Function bodies live in
+	// plugin source and load fresh on every run.
+	Jobs        map[string]map[string]JobSpec `json:"jobs,omitempty"`
+	TypeKeys    []string                      `json:"type_keys"`
+	Handlers    map[string][]string           `json:"handlers"`
+	Icons       map[string]string             `json:"icons"`
+	Source      []byte                        `json:"source"`
+	History     []PluginVersionSnapshot       `json:"history"`
+	Origin      PluginOrigin                  `json:"origin"`
+	InstalledAt time.Time                     `json:"installed_at"`
+	UpdatedAt   time.Time                     `json:"updated_at"`
 }
 
 // LogEntry is one print() line captured from a plugin.
@@ -102,57 +111,84 @@ type Service struct {
 
 	onChanged func(typeKey string)
 
-	// usage records per-credential outcomes for pool calls (nil = disabled).
-	usage UsageTracker
-
-	// exhausted records joint limit keys for rate/quota outcomes
-	// (nil = disabled).
-	exhausted *exhausted.Service
-	// proxyLimits stores joint limit keys that include a proxy dimension.
-	proxyLimits ProxyLimitStore
-
-	// geoban records indefinite geo flags (nil = disabled).
-	geoban interface {
-		Mark(plugin, provider, proxy, reason string) error
-	}
-
 	// healthTrigger receives failed attempt identities for detached
 	// health-check dispatch (nil = disabled).
 	healthTrigger HealthTrigger
 
 	// markDead excludes one proxy URL until an escalating ban expires
-	// (nil = disabled).
+	// (nil = disabled). Called only from the plugin HTTP client on
+	// structural TLS faults; plugins never call it directly.
 	markDead func(url, reason string) bool
 
-	// dumpDir receives full upstream bodies in debug mode ("" = disabled).
-	dumpDir string
+	// proxyQuery returns read-only proxy endpoints for plugin selection.
+	proxyQuery func(pool, country string, limit int) ([]models.ProxyView, error)
 
-	// proxyResolver returns the ordered proxy picks for a plugin call
-	// (nil/empty = direct). Auto mode waits for ready or no-proxies. known
-	// carries the credential and model already fixed for this attempt, so the
-	// resolver can drop a proxy that is limited jointly with them, not just
-	// on its own.
-	proxyResolver func(ctx context.Context, rec *PluginRecord, providerConfig map[string]any, known exhausted.Segments) ([]ProxyPick, error)
+	// credential access for plugins. list/get serve request and job
+	// contexts; update serves job contexts only; disable/enable serve
+	// every context but require the automation switch (see automationOn).
+	credList    func(providerID string) ([]*models.Credential, error)
+	credGet     func(id string) (*models.Credential, error)
+	credUpdate  func(id string, data map[string]any) error
+	credDisable func(id string, reason string) error
+	credEnable  func(id string) error
+	credPark    func(id string, ttl time.Duration, reason string) error
+	credUnpark  func(id string) error
+	credParked  func(id string) (*models.ParkEntry, error)
+	// automationOn reports the provider disable_failed_credentials switch
+	// gating shared disable/enable writes; nil reads off.
+	automationOn func(providerID string) bool
 }
 
-// ProxyPick is one ordered proxy candidate for a plugin call.
-type ProxyPick struct {
-	ID     string
-	URL    string
-	Region string
+// SetHealthTrigger wires detached health-check dispatch for failed
+// attempts that carry a credential identity.
+func (s *Service) SetHealthTrigger(t HealthTrigger) {
+	s.healthTrigger = t
 }
 
-// ProxyResolution is the resolver result for one plugin call.
-type ProxyResolution struct {
-	ProxyID  string
-	ProxyURL string
+// SetMarkDead wires proxy exclusion for structural TLS faults observed by
+// the plugin HTTP client.
+func (s *Service) SetMarkDead(f func(url, reason string) bool) {
+	s.markDead = f
 }
 
-// SetProxyResolver wires pool-based proxy selection for plugin HTTP calls.
-// Resolution is lazy per request; a non-nil error fails the request loudly
-// (manual mode with no usable proxy pooled, settled pool with none).
-func (s *Service) SetProxyResolver(fn func(ctx context.Context, rec *PluginRecord, providerConfig map[string]any, known exhausted.Segments) ([]ProxyPick, error)) {
-	s.proxyResolver = fn
+// SetProxyQuery wires the read-only proxy pool query for plugins.
+func (s *Service) SetProxyQuery(f func(pool, country string, limit int) ([]models.ProxyView, error)) {
+	s.proxyQuery = f
+}
+
+// SetCredentialAccess wires credential list/get (request and job contexts)
+// and update (job contexts only) for plugins.
+func (s *Service) SetCredentialAccess(
+	list func(providerID string) ([]*models.Credential, error),
+	get func(id string) (*models.Credential, error),
+	update func(id string, data map[string]any) error,
+) {
+	s.credList = list
+	s.credGet = get
+	s.credUpdate = update
+}
+
+// SetCredentialLifecycle wires plugin disable/enable writes plus the
+// automation-switch gate for the shared disabled state.
+func (s *Service) SetCredentialLifecycle(
+	disable func(id string, reason string) error,
+	enable func(id string) error,
+	automationOn func(providerID string) bool,
+) {
+	s.credDisable = disable
+	s.credEnable = enable
+	s.automationOn = automationOn
+}
+
+// SetCredentialParks wires the unified cooldown park store for plugins.
+func (s *Service) SetCredentialParks(
+	park func(id string, ttl time.Duration, reason string) error,
+	unpark func(id string) error,
+	parked func(id string) (*models.ParkEntry, error),
+) {
+	s.credPark = park
+	s.credUnpark = unpark
+	s.credParked = parked
 }
 
 // New loads all enabled plugins into the in-memory registry.
@@ -244,29 +280,80 @@ func (s *Service) Lookup(typeKey string) (*PluginRecord, error) {
 	return nil, fmt.Errorf("no plugin registered for type key %q", typeKey)
 }
 
-// DefaultProxyMode returns the manifest default proxy mode for typeKey.
-// Empty and unknown values mean disabled.
-func (s *Service) DefaultProxyMode(typeKey string) string {
-	rec, err := s.Lookup(typeKey)
-	if err != nil {
-		return models.ProxyModeDisabled
+// capabilitiesFor resolves sandbox table gating for one type key from the
+// stored record.
+func (s *Service) capabilitiesFor(typeKey string) capabilities {
+	caps := capabilities{}
+	s.mu.RLock()
+	rec, ok := s.registry[typeKey]
+	s.mu.RUnlock()
+	if !ok {
+		return caps
 	}
-	switch rec.ProxyDefaultOption {
-	case models.ProxyModeAuto, models.ProxyModeManual:
-		return rec.ProxyDefaultOption
-	default:
-		return models.ProxyModeDisabled
+	if nodes, ok := rec.Schemas[typeKey]["credential_schema"]; ok && nodes != nil {
+		caps.credentials = true
+	} else {
+		for _, h := range rec.Handlers[typeKey] {
+			if h == string(HandlerAuthInitiate) {
+				caps.credentials = true
+				break
+			}
+		}
 	}
+	_, caps.proxies = rec.Schemas[typeKey]["proxy_schema"]
+	return caps
 }
 
-// ProxyWhitelist returns the manifest location whitelist for typeKey.
-// Empty means any location is allowed.
-func (s *Service) ProxyWhitelist(typeKey string) []string {
-	rec, err := s.Lookup(typeKey)
-	if err != nil {
+// CredentialsEnabled reports whether a type key serves credentials:
+// a credential_schema table or an auth_initiate handler is present.
+func (s *Service) CredentialsEnabled(typeKey string) bool {
+	if s.HasHandler(typeKey, string(HandlerAuthInitiate)) {
+		return true
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rec, ok := s.registry[typeKey]
+	if !ok {
+		return false
+	}
+	nodes, ok := rec.Schemas[typeKey]["credential_schema"]
+	return ok && nodes != nil
+}
+
+// ProxiesEnabled reports whether a type key serves proxy settings:
+// a proxy_schema table is present (empty tables enable defaults).
+func (s *Service) ProxiesEnabled(typeKey string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rec, ok := s.registry[typeKey]
+	if !ok {
+		return false
+	}
+	_, ok = rec.Schemas[typeKey]["proxy_schema"]
+	return ok
+}
+
+// Schemas returns the stored static UI tables for a type key, or nil when
+// the plugin declares none.
+func (s *Service) Schemas(typeKey string) map[string][]*models.UINode {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rec, ok := s.registry[typeKey]
+	if !ok {
 		return nil
 	}
-	return append([]string{}, rec.ProxyLocations...)
+	return rec.Schemas[typeKey]
+}
+
+// Jobs returns the stored job schedules for a type key, or nil.
+func (s *Service) Jobs(typeKey string) map[string]JobSpec {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rec, ok := s.registry[typeKey]
+	if !ok {
+		return nil
+	}
+	return rec.Jobs[typeKey]
 }
 
 // Registered returns all enabled type keys, sorted.
@@ -311,10 +398,11 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 	if err != nil {
 		return nil, err
 	}
-	typeKeys, handlers, icons, specs, cooldowns, sourceKeys, err := s.dryRun(id, source, manifest)
+	dry, err := s.dryRun(id, source, manifest)
 	if err != nil {
 		return nil, err
 	}
+	typeKeys := dry.keys
 	if err := s.checkTypeKeyConflicts(id, typeKeys); err != nil {
 		return nil, err
 	}
@@ -325,6 +413,7 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 		history := append(existing.History, PluginVersionSnapshot{
 			Version: existing.Version, Source: existing.Source, TypeKeys: existing.TypeKeys,
 			Handlers: existing.Handlers, Icons: existing.Icons, ModelSpecs: existing.ModelSpecs, HealthCooldown: existing.HealthCooldown, ProxySourceKeys: existing.ProxySourceKeys,
+			Schemas: existing.Schemas, Jobs: existing.Jobs,
 		})
 		if len(history) > 10 {
 			history = history[len(history)-10:]
@@ -334,11 +423,12 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 			Version: manifest.Version, RouterVersion: manifest.RouterVersion,
 			Description: manifest.Description, License: manifest.License,
 			AllowHosts: manifest.AllowHosts, Unsafe: manifest.Unsafe,
-			ProxyLocations: manifest.ProxyLocations, ProxyDefaultOption: manifest.ProxyDefaultOption,
-			ProxySourceKeys: sourceKeys,
-			ModelSpecs:      specs,
-			HealthCooldown:  cooldowns,
-			TypeKeys:        typeKeys, Handlers: handlers, Icons: icons, Source: append([]byte(nil), source...),
+			ProxySourceKeys: dry.sourceKeys,
+			ModelSpecs:      dry.specs,
+			HealthCooldown:  dry.cooldowns,
+			Schemas:         dry.schemas,
+			Jobs:            dry.jobs,
+			TypeKeys:        typeKeys, Handlers: dry.handlers, Icons: dry.icons, Source: append([]byte(nil), source...),
 			History: history, Origin: origin,
 			InstalledAt: existing.InstalledAt, UpdatedAt: now,
 		}
@@ -357,11 +447,12 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 		Version: manifest.Version, RouterVersion: manifest.RouterVersion,
 		Description: manifest.Description, License: manifest.License,
 		AllowHosts: manifest.AllowHosts, Unsafe: manifest.Unsafe,
-		ProxyLocations: manifest.ProxyLocations, ProxyDefaultOption: manifest.ProxyDefaultOption,
-		ProxySourceKeys: sourceKeys,
-		ModelSpecs:      specs,
-		HealthCooldown:  cooldowns,
-		TypeKeys:        typeKeys, Handlers: handlers, Icons: icons, Source: append([]byte(nil), source...),
+		ProxySourceKeys: dry.sourceKeys,
+		ModelSpecs:      dry.specs,
+		HealthCooldown:  dry.cooldowns,
+		Schemas:         dry.schemas,
+		Jobs:            dry.jobs,
+		TypeKeys:        typeKeys, Handlers: dry.handlers, Icons: dry.icons, Source: append([]byte(nil), source...),
 		Origin:      origin,
 		InstalledAt: now, UpdatedAt: now,
 	}
@@ -387,7 +478,7 @@ func (s *Service) Rollback(id string) (*PluginRecord, error) {
 	}
 	prev := rec.History[len(rec.History)-1]
 	rest := rec.History[:len(rec.History)-1]
-	rest = append(rest, PluginVersionSnapshot{Version: rec.Version, Source: rec.Source, TypeKeys: rec.TypeKeys, Handlers: rec.Handlers, Icons: rec.Icons, ModelSpecs: rec.ModelSpecs, HealthCooldown: rec.HealthCooldown, ProxySourceKeys: rec.ProxySourceKeys})
+	rest = append(rest, PluginVersionSnapshot{Version: rec.Version, Source: rec.Source, TypeKeys: rec.TypeKeys, Handlers: rec.Handlers, Icons: rec.Icons, ModelSpecs: rec.ModelSpecs, HealthCooldown: rec.HealthCooldown, ProxySourceKeys: rec.ProxySourceKeys, Schemas: rec.Schemas, Jobs: rec.Jobs})
 	if len(rest) > 10 {
 		rest = rest[len(rest)-10:]
 	}
@@ -400,12 +491,16 @@ func (s *Service) Rollback(id string) (*PluginRecord, error) {
 	specs := prev.ModelSpecs
 	cooldowns := prev.HealthCooldown
 	sourceKeys := prev.ProxySourceKeys
+	schemas := prev.Schemas
+	jobs := prev.Jobs
 	if handlers == nil {
 		var derr error
-		_, handlers, icons, specs, cooldowns, sourceKeys, derr = s.dryRun(id, prev.Source, manifest)
+		dry, derr := s.dryRun(id, prev.Source, manifest)
 		if derr != nil {
 			return nil, fmt.Errorf("previous version dry-run: %w", derr)
 		}
+		handlers, icons, specs, cooldowns, sourceKeys, schemas, jobs =
+			dry.handlers, dry.icons, dry.specs, dry.cooldowns, dry.sourceKeys, dry.schemas, dry.jobs
 	}
 	rec.Version = prev.Version
 	rec.Source = prev.Source
@@ -414,6 +509,8 @@ func (s *Service) Rollback(id string) (*PluginRecord, error) {
 	rec.Icons = icons
 	rec.ModelSpecs = specs
 	rec.HealthCooldown = cooldowns
+	rec.Schemas = schemas
+	rec.Jobs = jobs
 	rec.DisplayName = manifest.Plugin
 	rec.Author = manifest.Author
 	rec.RouterVersion = manifest.RouterVersion
@@ -421,8 +518,6 @@ func (s *Service) Rollback(id string) (*PluginRecord, error) {
 	rec.License = manifest.License
 	rec.AllowHosts = manifest.AllowHosts
 	rec.Unsafe = manifest.Unsafe
-	rec.ProxyLocations = manifest.ProxyLocations
-	rec.ProxyDefaultOption = manifest.ProxyDefaultOption
 	rec.ProxySourceKeys = sourceKeys
 	rec.History = rest
 	rec.UpdatedAt = time.Now()
@@ -473,10 +568,33 @@ func validateIcon(typeKey, value string) error {
 	return fmt.Errorf("plugin type %q: icon must be an https:// URL or data:image URI", typeKey)
 }
 
+// dryResult is the validated install-time surface of one plugin source.
+type dryResult struct {
+	keys       []string
+	handlers   map[string][]string
+	icons      map[string]string
+	specs      map[string]map[string]models.ModelInfo
+	cooldowns  map[string]int64
+	sourceKeys []string
+	schemas    map[string]map[string][]*models.UINode
+	jobs       map[string]map[string]JobSpec
+}
+
+// schemaKinds are the static UI tables validated at install, never invoked.
+var schemaKinds = []string{"credential_schema", "config_schema", "settings_schema", "proxy_schema"}
+
 // dryRun executes the plugin top-level code in a fully configured sandbox
-// and returns the registered type keys, declared handler names, icons,
-// model specs and health-check cooldowns. Handlers are not invoked.
-func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) ([]string, map[string][]string, map[string]string, map[string]map[string]models.ModelInfo, map[string]int64, []string, error) {
+// and returns the validated registration surface. Handlers and job bodies
+// are not invoked.
+func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) (*dryResult, error) {
+	out := &dryResult{
+		handlers:  map[string][]string{},
+		icons:     map[string]string{},
+		specs:     map[string]map[string]models.ModelInfo{},
+		cooldowns: map[string]int64{},
+		schemas:   map[string]map[string][]*models.UINode{},
+		jobs:      map[string]map[string]JobSpec{},
+	}
 	ctx := &execContext{
 		pluginID:      pluginID,
 		allowHosts:    manifest.AllowHosts,
@@ -496,25 +614,19 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) ([]
 		if cause == "" || cause == "nil" {
 			cause = err.Error()
 		}
-		return nil, nil, nil, nil, nil, nil, &models.PluginInternalError{
+		return nil, &models.PluginInternalError{
 			PluginID: pluginID, Cause: fmt.Sprintf("top-level: %s (source %d bytes)", cause, len(source)),
 		}
 	}
 	if len(ctx.registrations) == 0 && len(ctx.proxySources) == 0 {
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("plugin declares no type keys: missing llm_router.register call")
+		return nil, fmt.Errorf("plugin declares no type keys: missing llm_router.register call")
 	}
-	keys := make([]string, 0, len(ctx.registrations))
-	handlers := map[string][]string{}
-	icons := map[string]string{}
-	specs := map[string]map[string]models.ModelInfo{}
-	cooldowns := map[string]int64{}
-	sourceKeys := make([]string, 0, len(ctx.proxySources))
 	for k := range ctx.proxySources {
-		sourceKeys = append(sourceKeys, k)
+		out.sourceKeys = append(out.sourceKeys, k)
 	}
-	sort.Strings(sourceKeys)
+	sort.Strings(out.sourceKeys)
 	for k, tbl := range ctx.registrations {
-		keys = append(keys, k)
+		out.keys = append(out.keys, k)
 		var names []string
 		for _, name := range AllHandlerNames() {
 			if v := tbl.RawGetString(name); v != lua.LNil {
@@ -522,40 +634,67 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) ([]
 			}
 		}
 		sort.Strings(names)
-		handlers[k] = names
+		out.handlers[k] = names
 		if v := tbl.RawGetString("icon"); v != lua.LNil {
 			icon, ok := v.(lua.LString)
 			if !ok {
-				return nil, nil, nil, nil, nil, nil, fmt.Errorf("plugin type %q: icon must be a string", k)
+				return nil, fmt.Errorf("plugin type %q: icon must be a string", k)
 			}
 			if err := validateIcon(k, string(icon)); err != nil {
-				return nil, nil, nil, nil, nil, nil, err
+				return nil, err
 			}
 			if string(icon) != "" {
-				icons[k] = string(icon)
+				out.icons[k] = string(icon)
 			}
 		}
 		if v := tbl.RawGetString("model_specs"); v != lua.LNil {
 			specTbl, ok := v.(*lua.LTable)
 			if !ok {
-				return nil, nil, nil, nil, nil, nil, fmt.Errorf("plugin type %q: model_specs must be a table", k)
+				return nil, fmt.Errorf("plugin type %q: model_specs must be a table", k)
 			}
 			parsed, err := parseModelSpecs(specTbl, k)
 			if err != nil {
-				return nil, nil, nil, nil, nil, nil, err
+				return nil, err
 			}
-			specs[k] = parsed
+			out.specs[k] = parsed
 		}
 		if v := tbl.RawGetString("healthcheck_cooldown"); v != lua.LNil {
 			d, err := parseHealthCooldown(v, k)
 			if err != nil {
-				return nil, nil, nil, nil, nil, nil, err
+				return nil, err
 			}
-			cooldowns[k] = int64(d / time.Second)
+			out.cooldowns[k] = int64(d / time.Second)
+		}
+		for _, kind := range schemaKinds {
+			if v := tbl.RawGetString(kind); v != lua.LNil {
+				schemaTbl, ok := v.(*lua.LTable)
+				if !ok {
+					return nil, fmt.Errorf("plugin type %q: %s must be a table", k, kind)
+				}
+				nodes, err := parseUINodes(schemaTbl)
+				if err != nil {
+					return nil, fmt.Errorf("plugin type %q: %s: %w", k, kind, err)
+				}
+				if out.schemas[k] == nil {
+					out.schemas[k] = map[string][]*models.UINode{}
+				}
+				out.schemas[k][kind] = nodes
+			}
+		}
+		if v := tbl.RawGetString("jobs"); v != lua.LNil {
+			jobsTbl, ok := v.(*lua.LTable)
+			if !ok {
+				return nil, fmt.Errorf("plugin type %q: jobs must be a table", k)
+			}
+			parsed, err := parseJobSpecs(jobsTbl, k)
+			if err != nil {
+				return nil, err
+			}
+			out.jobs[k] = parsed
 		}
 	}
-	sort.Strings(keys)
-	return keys, handlers, icons, specs, cooldowns, sourceKeys, nil
+	sort.Strings(out.keys)
+	return out, nil
 }
 
 // HasHandler reports whether a type key declares a handler.

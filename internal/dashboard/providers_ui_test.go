@@ -34,7 +34,7 @@ func seedUIRows(t *testing.T, svc *provider.Service, database *db.DB) *luaplugin
 	const src = `--- @plugin Seed Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("zen", {
@@ -152,7 +152,7 @@ func TestProvidersListHidesUnavailableBackend(t *testing.T) {
 	const src = `--- @plugin Seed Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("zen", {
@@ -170,6 +170,60 @@ llm_router.register("zen", {
 	}
 	if !restored {
 		t.Fatal("zen must be listed again after plugin reinstall")
+	}
+}
+
+func TestProvidersUpdateReadonlyRemovalPersists(t *testing.T) {
+	h, svc, database := newProvidersUIHandler(t)
+	seedUIRows(t, svc, database)
+
+	put := func(body string) int {
+		req := httptest.NewRequest(http.MethodPut, "/api/llm-router/dashboard/providers/zen", strings.NewReader(body))
+		req.SetPathValue("id", "zen")
+		rec := httptest.NewRecorder()
+		h.apiProvidersUpdate(rec, req)
+		return rec.Code
+	}
+	configOf := func() map[string]any {
+		t.Helper()
+		inst, err := svc.Get("zen")
+		if err != nil {
+			t.Fatalf("get zen: %v", err)
+		}
+		if inst.Config == nil {
+			return map[string]any{}
+		}
+		return inst.Config
+	}
+
+	if code := put(`{"config":{"proxy":{"pool":"auto"},"models_auto_sync":true}}`); code != http.StatusOK {
+		t.Fatalf("set proxy: got %d", code)
+	}
+	if _, ok := configOf()["proxy"]; !ok {
+		t.Fatal("proxy key must persist after set")
+	}
+
+	// Omitted allowed keys are removals: the switch-off must survive.
+	if code := put(`{"config":{"models_auto_sync":true}}`); code != http.StatusOK {
+		t.Fatalf("drop proxy: got %d", code)
+	}
+	cfg := configOf()
+	if _, ok := cfg["proxy"]; ok {
+		t.Fatalf("omitted proxy key must be deleted, got %v", cfg)
+	}
+	if cfg["models_auto_sync"] != true {
+		t.Fatalf("unrelated keys must survive removal, got %v", cfg)
+	}
+
+	// Explicit null clears the same way, without storing nulls.
+	if code := put(`{"config":{"proxy":{"pool":"auto"}}}`); code != http.StatusOK {
+		t.Fatalf("re-set proxy: got %d", code)
+	}
+	if code := put(`{"config":{"proxy":null}}`); code != http.StatusOK {
+		t.Fatalf("null proxy: got %d", code)
+	}
+	if _, ok := configOf()["proxy"]; ok {
+		t.Fatalf("null proxy key must be deleted, got %v", configOf())
 	}
 }
 
@@ -314,7 +368,8 @@ func postAuthInitiate(t *testing.T, h *Handler, providerID string) *httptest.Res
 func TestAuthInitiateGoBackendFallsBack409(t *testing.T) {
 	h, providerSvc, _ := newProvidersUIHandler(t)
 	providerSvc.RegisterGoAdapter(testutil.NewMockAdapter("custom"))
-	inst, err := providerSvc.CreateCustom("OmniRoute", "https://example.com/v1", "")
+	inst, err := providerSvc.Create(provider.CreateOptions{Name: "OmniRoute", TypeKey: "custom",
+		Config: map[string]any{"base_url": "https://example.com/v1"}})
 	if err != nil {
 		t.Fatalf("create custom provider: %v", err)
 	}

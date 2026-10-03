@@ -5,10 +5,10 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Router version: **0.5.3** (`models.CurrentVersion`). A plugin using a feature
+Router version: **0.7.0** (`models.CurrentVersion`). A plugin using a feature
 declares the `@router_version` that introduced it; older routers refuse to
-install it. Routers serve no contract older than **0.3.0**: plugins declaring
-`0.2.x` and below fail install and need reissue.
+install it. Routers serve no contract older than **0.7.0**: plugins declaring
+`0.6.x` and below fail install and need reissue.
 
 `@version` and `@router_version` accept `MAJOR.MINOR[.PATCH]` (missing patch
 means `.0`, one leading `v` allowed); anything else fails install.
@@ -36,19 +36,23 @@ means `.0`, one leading `v` allowed); anything else fails install.
 | 0.5.1 | traffic-driven disables removed: `auth` / `payment_required` fail over without disabling the credential, `structural_fault` stops the pool without disabling the provider; disables come only from admin actions and doctor fix for backend-less types (old plugins unchanged) |
 | 0.5.2 | `check_health` handler plus per-type `healthcheck_cooldown` registration value (whole seconds, 60..86400, default 300): failure-triggered detached credential verification, at most once per window; only an explicit `unhealthy` verdict disables (`disabled_by=healthcheck`) |
 | 0.5.3 | unified `proxy_retry` provider policy (`mode` `fail_fast`/`next_proxy`, `max_attempts` 1..10, default 3) for every retryable proxy failure; legacy `geo` sections migrate at startup; fresh discovery refreshes known model rows |
+| 0.7.0 | decentralized orchestration: plugins select credentials (`credentials.list/get`) and proxies (`proxies.query` + per-request `proxy_url`), retry internally, and return OpenAI-shaped terminal errors only when exhausted. Static schema tables (`credential_schema`, `config_schema`, `settings_schema`, `proxy_schema`); presence drives dashboard surfaces, no `_enabled` flags. Colocated `jobs` with per-job `run` (`interval_seconds` 60..86400, `run_on_startup`, `timeout_ms`); `credentials.update` exists in job contexts only. `storage.set` gains `{ttl}` seconds. `credentials.park/unpark/parked` shelve credentials transiently (`list()` skips parked rows); `credentials.disable/enable` set the shared flag under the provider `disable_failed_credentials` switch. Removed: `classify_error` slot + helper, `needs_refresh` / `refresh_credential`, error `type`/`scope`/`retry_after`/`upstream_*` contract, `@proxy_location` / `@proxy_default_option` / `@proxy_source` tags, router credential ordering, exhausted store, geo bans. Manifest floor 0.7.0. |
 
 ## Responsibility split
 
-The router owns orchestration; the plugin owns wire translation.
+The plugin owns wire translation and orchestration; the router owns routing,
+authorization, hosting and rendering.
 
-- Router: credential pool order and single-pass iteration, token filtering,
-  provider proxy policy and request failover, exhausted limit ordering, geo-ban
-  filtering and region preference, stream first-byte gate, model cache,
-  metrics, sandboxing, version gating, crash accounting.
-- Plugin: request payload building, response normalization, error
-  classification (via the helper below), model catalog mapping, the limit
-  TTL of its upstream expressed as `retry_after`, and the limit dimensions
-  expressed as error `scope`.
+- Router: `ModelId` parse/resolve/disabled/model-override/endpoint gates,
+  token allow-list gate over credential IDs, proxy-pool hosting (free pool,
+  custom pools, adaptive refresh, TLS-fault `MarkDead`), model cache,
+  metrics, sandboxing, version gating, crash accounting, job scheduling
+  (trigger + bounds, never policy), OpenAI/Anthropic envelope rendering.
+- Plugin: credential selection/rotation/parking, proxy selection and
+  per-request assignment, backoff/retry loops, rate-limit interpretation,
+  request payload building, response normalization, background refresh jobs.
+  Limit state lives in `llm_router.storage` with TTL; the router holds no
+  quota tables.
 
 Endpoint translation stays in the router: one handler serves several edge
 routes (`messages` / `completions` / `responses` / `batches` entries run
@@ -56,17 +60,11 @@ routes (`messages` / `completions` / `responses` / `batches` entries run
 `generate_image`). Plugins never see Anthropic shapes. `docs/BACKEND.md`
 maps every route.
 
-Plugins keep no limit state of their own: no quota tables in
-`llm_router.storage`, no retry parsing duplicated per method. All of that
-lives in `classify_error` plus `scope` and `retry_after`. The router holds
-plugins to the contract strictly: unknown types, missing or past
-`retry_after` where required, and `scope`/`retry_after` where forbidden
-reject the whole error table as a plugin crash. The router never adapts to
-malformed plugin output.
-
 ## Manifest reference
 
 The header is the contiguous run of `---` lines at byte 0 of the file.
+`@router_version` validates first: a version older than the floor discards
+the plugin with the reissue error before any other field is examined.
 Unknown `@tags` fail install.
 
 | Tag | Cardinality | Constraint |
@@ -74,26 +72,28 @@ Unknown `@tags` fail install.
 | `@plugin` | required, once | non-empty display name |
 | `@author` | required, once | non-empty |
 | `@version` | required, once | valid semver |
-| `@router_version` | required, once | valid semver, `>= 0.3.0` |
+| `@router_version` | required, once | valid semver, `>= 0.7.0` |
 | `@allow_host` | required, repeatable | bare hostname; `*` marks the plugin unsafe and stands alone |
 | `@description` | optional, once | free text |
 | `@license` | optional, once | free text |
-| `@proxy_location` | optional, repeatable | ISO country code, normalized and deduped |
-| `@proxy_default_option` | optional, once | `disabled` \| `auto` \| `manual` |
-| `@proxy_source` | optional, once | `true` (or bare) marks a proxy-list source |
-| `@proxy_force_on_mismatch` | removed | tolerated on install, means nothing |
 
 ## Registration
 
 ```lua
 llm_router.register(type_key, {
-  complete = function(ctx, credential, request) ... end,  -- required
-  classify_error = function(raw, default_err) ... end,    -- optional
-  transcribe = function(ctx, credential, request) ... end, -- optional
-  generate_video = function(ctx, credential, request) ... end, -- optional
-  poll_video = function(ctx, credential, request) ... end,     -- optional
-  video_content = function(ctx, credential, request) ... end,  -- optional
-  ...
+  complete = function(ctx, request) ... end,  -- required
+  complete_stream = function(ctx, request, emit) ... end,
+  transcribe = function(ctx, request) ... end,
+  credential_schema = {
+    { type = "secret", name = "api_key", label = "API Key" },
+  },
+  proxy_schema = {},  -- present (even empty) enables the proxy tab
+  jobs = {
+    refresh = {
+      interval_seconds = 300, run_on_startup = true, timeout_ms = 30000,
+      run = function(ctx) ... end,
+    },
+  },
 })
 
 llm_router.register_proxy_source(name, {
@@ -105,6 +105,15 @@ llm_router.register_proxy_source(name, {
 - `complete` is required. Undeclared optional handlers report
   `endpoint_not_supported` — loud, never a silent fallback. Unknown handler
   names are ignored.
+- Schema tables are static: `credential_schema`, `config_schema`,
+  `settings_schema`, `proxy_schema` must be tables when present; functions
+  fail install. Presence drives surfaces: credentials iff
+  `credential_schema` or `auth_initiate` exists, proxies iff `proxy_schema`
+  exists, settings iff `settings_schema` exists. Missing tables hide the
+  surface; the sandbox omits the matching `llm_router` tables.
+- `jobs` keys match `^[a-z0-9_]{1,32}$`, max 8 per type. Each entry needs
+  `run` (function) and `interval_seconds` (60..86400); `run_on_startup`
+  defaults false, `timeout_ms` defaults 60000 (bounds 1000..300000).
 - An optional `icon` string on the registration table selects the dashboard
   icon: `https://` URL or `data:image/` URI, 32KiB cap. Empty means no icon.
 - An optional `model_specs` table pins per-model rows that clarify
@@ -118,14 +127,10 @@ llm_router.register_proxy_source(name, {
   the entry key selects. Fields absent from the spec pass through;
   entries for undiscovered ids are ignored (specs never resurrect removed
   models). Unknown fields and mistyped values fail install — a typo'd key
-  must never deploy as a silent no-op. Routers older than the spec
-  feature ignore the table.
+  must never deploy as a silent no-op.
 - An optional `healthcheck_cooldown` number sets the per-type credential
-  health-check cooldown in whole seconds (60..86400, default 300): after an
-  attempt failure the router runs `check_health` at most once per window.
-  Mistyped and out-of-range values fail install. Routers older than the
-  feature ignore the value (and the `check_health` handler).
-- `classify_error` absent means the core default decides alone.
+  health-check cooldown in whole seconds (60..86400, default 300).
+  Mistyped and out-of-range values fail install.
 - One bare source name may be claimed by several plugins; the runtime
   qualifies each as `<recordID>/<name>`.
 
@@ -133,36 +138,30 @@ llm_router.register_proxy_source(name, {
 
 | Slot | Required | Args | Returns |
 |---|---|---|---|
-| `complete` | yes | `(ctx, credential, request)` | `(result, err)` |
-| `complete_stream` | no | `(ctx, credential, request, emit)` | `(nil, err)` |
-| `transcribe` | no | `(ctx, credential, request)` | `(result, err)` |
-| `speech` | no | `(ctx, credential, request)` | `(result, err)` |
-| `generate_image` | no | `(ctx, credential, request)` | `(result, err)` |
-| `embed` | no | `(ctx, credential, request)` | `(result, err)` |
-| `moderate` | no | `(ctx, credential, request)` | `(result, err)` |
-| `generate_video` | no | `(ctx, credential, request)` | `(result, err)` |
-| `poll_video` | no | `(ctx, credential, request)` | `(result, err)` |
-| `video_content` | no | `(ctx, credential, request)` | `(result, err)` |
-| `classify_error` | no | `(raw, default_err)` | `err table` or `nil` |
+| `complete` | yes | `(ctx, request)` | `(result, err)` |
+| `complete_stream` | no | `(ctx, request, emit)` | `(nil, err)` |
+| `transcribe` | no | `(ctx, request)` | `(result, err)` |
+| `speech` | no | `(ctx, request)` | `(result, err)` |
+| `generate_image` | no | `(ctx, request)` | `(result, err)` |
+| `embed` | no | `(ctx, request)` | `(result, err)` |
+| `moderate` | no | `(ctx, request)` | `(result, err)` |
+| `generate_video` | no | `(ctx, request)` | `(result, err)` |
+| `poll_video` | no | `(ctx, request)` | `(result, err)` |
+| `video_content` | no | `(ctx, request)` | `(result, err)` |
 | `validate_credentials` | no | `(data)` | `(boolean, err?)` |
-| `get_model_infos` | no | `(ctx, credential, provider_config)` | `(array, err)` |
-| `needs_refresh` | no | `(credential)` | `boolean` |
-| `refresh_credential` | no | `(ctx, credential)` | `(data table, err)` |
+| `get_model_infos` | no | `(ctx)` | `(array, err)` |
 | `check_health` | no | `(ctx, credential)` | `health table` |
-| `config_schema` | no | `()` | `array?` |
-| `credential_schema` | no | `()` | `array?` |
 | `auth_initiate` | no | `(ctx)` | `auth result` |
 | `auth_step` | no | `(ctx, {action, values})` | `auth result` |
 | `fetch_proxies` | no | `()` | `array?` |
 
 ### Common arguments
 
-- `ctx` — `{ provider_config = {...} }` when the provider has config rows
-  (request handlers; `get_model_infos` receives config as its third argument
-  with an empty `ctx` instead). Auth handlers (`auth_initiate`, `auth_step`)
-  also carry `flow_id`; `provider_config` reaches them inside `ctx`.
+- `ctx` — `{ provider_config = {...} }` when the provider has config rows.
+  Auth handlers also carry `flow_id`. Job `run` receives
+  `{ job_name, run_reason = "tick"|"startup"|"manual", provider_config? }`.
 - `credential` — `{ id = "...", data = {...} }`; `data` holds the fields
-  saved through `credential_schema`. Unpinned calls pass `{ id = "", data = {} }`.
+  saved through `credential_schema`. Only `check_health` receives one.
 - Every `request` table carries `model` (full `provider/model` id),
   `model_name` (bare name for upstream payloads) and `cache_key` (opaque
   cross-turn prefix-cache partition: model, first message and sorted tool
@@ -171,568 +170,164 @@ llm_router.register_proxy_source(name, {
   Never forward a request table verbatim upstream: `model_name` and
   `cache_key` are router-only and upstreams reject unknown properties.
 - Request handlers return `(result, nil)` or `(nil, err)`; `nil` result is
-  always a schema violation.
+  always a schema violation. Streams must not fail over after the first
+  `emit` call: the stream belongs to that attempt.
 
 ### Error contract
 
-`err` is `{ type = ..., message = ..., retry_after = ..., scope = ..., upstream_status = ..., upstream_body = ... }`:
+`err` is `{ message = ..., code = ..., param = ..., status = ... }`:
 
-- `type`: `rate_limit` | `quota_exceeded` | `auth` | `upstream` | `transport` | `overloaded` | `invalid_request` | `geo` | `not_found` | `payment_required` | `content_policy` | `model_unavailable` | `structural_fault`. Unknown types (including the removed `timeout`: use `upstream`) reject the table.
-- `message`: human string, required, non-empty.
-- `retry_after`: unix timestamp. Mandatory for `rate_limit` and `quota_exceeded`, and must lie in the future: missing or past values reject the table. Forbidden on every other type: presence rejects the table. An explicit plugin override carries the upstream's own statement (parsed from its `retry-after` header or body hint, or known by the plugin). The core default resolves the same sources and falls back to now+60s; returning `nil` (accepting the default) is always valid. `model_unavailable` carries no TTL from the plugin: the router cools the model down for a fixed 2 minutes.
-- `scope`: optional array naming the exhausted dimensions the error
-  limits. Allowed only on `rate_limit` and `quota_exceeded` (`account`,
-  `model`, `proxy` — the `account` word selects the credential dimension);
-  any `scope` on other types rejects
-  the table. Without scope a rate/quota error marks the full combination
-  of the request. Unknown words reject the whole table (`PluginInternalError`).
-  Stored keys always carry the calling provider instance ID, never just the
-  adapter type: two instances of one type never share a credential-less mark.
-  A proxy-scoped error, or an unscoped error that marks the full combination,
-  retries the same credential through another proxy up to three total
-  attempts. The router returns the original limit error when no alternate
-  proxy is available. Credential/model-only limits do not trigger this retry.
-- `upstream_status` / `upstream_body`: optional passthrough of the raw
-  upstream failure for logs and debugging. Routing never reads them.
-  Wrong types are ignored (non-number status, non-string body).
-  Bodies over 4KiB truncate to a snippet; full bodies spill to disk files
-  in debug mode with the path on the log line.
+- `message`: human string, required, non-empty. Missing or empty messages
+  reject the table as a plugin crash.
+- `code`: wire code string, defaults to `server_error`. Use OpenAI codes
+  (`invalid_request_error`, `authentication_error`, `payment_required`,
+  `not_found`, `rate_limit`, `insufficient_quota`, `server_error`).
+- `param`: optional offending field name.
+- `status`: optional HTTP status override 400..599, defaults to 502.
+- The router renders `message`/`code` verbatim into the OpenAI
+  `{"error":{"message","type","code"}}` envelope (Anthropic envelope on
+  Anthropic-style requests). No `type`/`scope`/`retry_after`/
+  `upstream_status`/`upstream_body` fields exist: rate interpretation,
+  parking and backoff live in plugin code backed by `storage` TTL.
 - `not_found`: the requested model does not exist upstream. The router
   drops the model from the info cache (best-effort) and returns the error
   as-is. Emit it only when the upstream names the model as missing — never
   for bad endpoints or malformed requests.
-- `content_policy`: the upstream rejected the content of this request
-  (moderation, safety, content filter). Stops the pool like
-  `invalid_request` but surfaces a distinct status code so clients tell
-  "fix the prompt" apart from "fix the request shape".
-- `model_unavailable`: the model exists but is not serving (cold start,
-  loading, overloaded engine, or an upstream that reports the model without
-  an API key binding). Marks `(provider, model)` for 2 minutes and
-  moves to the next credential. Records no credential or provider disable.
-- `structural_fault`: the provider endpoint itself is broken for every key
-  and model (unresolvable host, refused connection, broken TLS identity —
-  mapped by the router from direct-leg transport failures). Stops the pool
-  and records no state; re-attempts fail the same way until the endpoint
-  heals. Never emit it for HTTP statuses: classify those normally.
-- `auth` / `payment_required`: fail over to the next credential and record
-  no state. Nothing disables a credential from traffic: repeated failures
-  surface the last error, and only an admin disables a credential.
-- `geo`: the proxy exit is geo-blocked for this provider. Records the
-  indefinite `(provider type, proxy)` flag keyed by adapter type (the upstream
-  region policy is shared by every instance of the type) and, in
-  `next_proxy` mode,
-  retries the same credential on a proxy from another region.
-- `transport`: the connection failed before the upstream answered
-  (EOF, reset, broken tunnel, timeout). Carries no marks, no disables, no
-  `scope`, no `retry_after`; the router retries the same credential on
-  another proxy within the proxy retry budget. The HTTP client
-  reports its own transport failures with this type; plugins forward
-  `req_err` tables as-is to preserve it.
-- `overloaded`: the backend answered that it is congested (exact
-  `service_overloaded` code). Same retry rule as `transport`, no marks,
-  no disables, no `scope`, no `retry_after`. Unlike `model_unavailable`
-  it carries no cooldown: congestion is transient, and spacing retries is
-  the client's job (see below).
 
-Pool semantics: the router reorders exhausted matches before the token filter:
-unlimited first, limited last ordered by earliest reset first as last resort.
-The core then tries the sorted pool in order, at most
-once per key (plus same-credential proxy retries up to the provider
-`proxy_retry.max_attempts`, default 3, for geo blocks in `next_proxy` mode,
-proxy-scoped rate/quota errors, transport failures and overloads), and returns
-the first success or the last error. Per-attempt limit ordering moves credentials
-with a live rate-limit key to the tail without a request. `invalid_request`, `content_policy`
-and `structural_fault` stop the pool after the first key. Streaming stops
-same-credential retries after the first byte reaches the client. Route failures
-can retry before that point; geo errors never retry on streams and, in
-`fail_fast` mode, stop the pool without a same-credential retry. Any other error form (raised errors, wrong shapes)
-becomes `PluginInternalError` and counts as a plugin crash.
+## `llm_router` APIs
 
-### Client backoff
+### `http_client({timeout_ms?})`
 
-Unary JSON error responses carry `Retry-After` (seconds) when the router
-knows a wait time — in practice `rate_limit` and `quota_exceeded` from the
-plugin-supplied instant. Client rules by wire code: 429
-`rate_limit`/`quota_exceeded` with `Retry-After` means wait that long;
-502 `overloaded`/`transport_error`/`upstream_error` means retry with own
-backoff (the server offers no wait hint); 503 `model_unavailable` means
-the router already cools the model for 2 minutes. Streams cannot carry
-headers after the first byte: mid-stream failures arrive as SSE error
-events with the same codes.
-
-### Request handlers
-
-`complete(ctx, credential, request)` → ChatCompletionResponse table.
-`request` mirrors the OpenAI chat completion body plus `model_name`. The
-response needs a non-empty `choices` array.
-
-`complete_stream(ctx, credential, request, emit)` → `nil, err`. Calls
-`emit(chunk)` per chunk; each chunk carries `choices` or `usage`
-(usage-only final chunks pass, anything else raises a plugin crash). When
-absent, the core emulates streaming from `complete` output. Native
-streaming is required for non-SSE upstreams (binary protocols),
-gate-compliant anonymous paths, and faithful thought/tool deltas — the
-emulator only splits plain text.
-
-`transcribe(ctx, credential, request)` → normalized transcription table:
-
-| Field | Type | Notes |
-|---|---|---|
-| `model` / `model_name` | string | full id / bare name |
-| `file` | string | raw audio bytes (Lua strings are byte arrays) |
-| `file_name` | string | original upload filename |
-| `content_type` | string | upload MIME type, `application/octet-stream` fallback |
-| `language` | string? | ISO-639-1, when set |
-| `prompt` | string? | style/vocabulary hint, when set |
-| `response_format` | string? | client's: `json` (default), `text`, `srt`, `verbose_json`, `vtt` |
-| `temperature` | number? | when set |
-| `timestamp_granularities` | array? | `word`, `segment`, when non-empty |
-| `needs_segments` | boolean | always present; true when the client asked for `srt`/`vtt` |
-
-Returns the OpenAI `verbose_json` shape (`text` required, `language` /
-`duration` optional, `segments` required when `needs_segments`, `words`
-optional). Always fetch the most detailed upstream format; the router
-renders the client's `response_format` from it. When `needs_segments` is
-true and the model cannot return segments, the endpoint fails with
-`upstream_error` (502).
-Upload size is capped at 32 MB at the router edge.
-
-`speech(ctx, credential, request)` → `{ audio_b64, format }`:
-
-| Field | Type | Notes |
-|---|---|---|
-| `model` / `model_name` | string | full id / bare name |
-| `input` | string | text to speak, non-empty |
-| `voice` | string? | client's voice name, when set |
-| `response_format` | string? | `mp3` (default), `opus`, `aac`, `flac`, `wav`, `pcm` |
-| `speed` | number? | 0.25..4.0, when set |
-| `instructions` | string? | style hint, when set |
-
-Audio crosses the boundary base64-encoded and non-empty (both violations
-are plugin crashes). The router does not transcode: return the native
-format in `format`; the response Content-Type follows it, not the request.
-
-`generate_image(ctx, credential, request)` → OpenAI images table:
-
-| Field | Type | Notes |
-|---|---|---|
-| `model` / `model_name` | string | full id / bare name |
-| `prompt` | string | required, non-empty |
-| `n` | number? | 1..10, when positive |
-| `size` / `quality` / `style` | string? | client's values, when set |
-| `response_format` | string? | `url` or `b64_json` |
-| `image_b64` | string? | base64 source image for edits/variations, when set |
-| `image_name` | string? | uploaded file name for logging, when set |
-| `mask_b64` | string? | base64 edit mask (edits only), when set |
-
-Each `data` entry carries `b64_json` or `url` (or both); empty `data` is
-a plugin crash. The client's `response_format` is a preference: base64-only
-upstreams may return `b64_json` for a `url` request. `created` defaults to
-now when absent. Plugins predating `image_b64` ignore the extra fields and
-serve generations; edits route to them as prompt generations.
-
-`moderate(ctx, credential, request)` → moderation table:
-
-| Field | Type | Notes |
-|---|---|---|
-| `model` / `model_name` | string | full id / bare name |
-| `input` | array of strings | one verdict per entry, order preserved |
-
-Return `{ id?, model?, results }`: one result per input in order
-(`results` length mismatch is a plugin crash); each result carries
-`flagged` (boolean), `categories` (name→boolean) and `category_scores`
-(name→number). Missing `id`/`model` default to the router's (`modr_*`,
-request model). Providers without this handler report
-`endpoint_not_supported` on `POST /v1/moderations`.
-
-`embed(ctx, credential, request)` → embeddings table:
-
-| Field | Type | Notes |
-|---|---|---|
-| `model` / `model_name` | string | full id / bare name |
-| `input` | array of strings | one embedding per entry, order preserved |
-| `encoding_format` | string? | `float` (default) or `base64` |
-| `dimensions` | number? | requested dimensionality, when positive |
-
-Return float vectors, one per input string in order; short results and
-empty vectors are plugin crashes, indexes are assigned by the router.
-`encoding_format=base64` renders at the edge (base64 float32-LE).
-`dimensions` is a request, not a guarantee.
-
-`generate_video(ctx, credential, request)` → video job table:
-
-| Field | Type | Notes |
-|---|---|---|
-| `model` / `model_name` | string | full id / bare name |
-| `prompt` | string? | text prompt, when set (required unless frame/image references carry the subject) |
-| `duration` | number? | seconds, when positive |
-| `resolution` / `aspect_ratio` / `size` | string? | e.g. `720p`, `16:9`, `1280x720`, when set |
-| `seed` | number? | deterministic sampling hint, when set |
-| `generate_audio` | boolean? | audio track request, when set |
-| `frame_images` | array? | `{type, image_url={url}, frame_type=first_frame\|last_frame}` entries |
-| `input_references` | array? | `{type=image_url\|audio_url\|video_url, <type>={url}}` entries |
-| `previous_job_id` | string? | upstream job id of the continued generation, when set (the router translates its local id before the call) |
-| `callback_url` | string? | stored only; upstreams must not expect webhook delivery through the router |
-| `provider` | table? | `{options={...}}` provider-specific passthrough, when set |
-| `user` / `session_id` | string? | observability markers, never sent upstream |
-
-Returns the OpenRouter video job shape (`id` required, `status` one of
-`pending|in_progress|completed|failed|cancelled|expired`, `generation_id` /
-`unsigned_urls` / `usage{cost,is_byok}` / `error` optional). Missing `id`
-or unknown `status` is a plugin crash. The router stores the upstream id
-under its own local id and rewrites `id`/`polling_url` on every response.
-
-`poll_video(ctx, credential, request)` → same job table. `request` carries
-`model` / `model_name` plus `job_id` (the upstream id from the submit
-return). Poll with the pool credential on every call; upstream state is
-the source of truth, the router only caches the last status.
-
-`video_content(ctx, credential, request)` → `{ video_b64, content_type }`.
-`request` carries `model` / `model_name`, `job_id` (upstream id) and
-`index` (asset number, `0`-based). Video crosses the boundary
-base64-encoded and non-empty like speech audio (both violations are
-plugin crashes). The router serves the bytes with the matching
-Content-Type; `content_type` empty defaults to `video/mp4`.
-
-### classify_error (optional)
-
-`classify_error(raw, default_err)` → final error table or `nil`.
-
-- `raw` — the untouched upstream failure: `{ status, headers, body }`
-  (body is the raw string as received).
-- `default_err` — the core verdict, always present: `{ type, message,
-  retry_after?, scope? }`.
-- Return the final contract table to override, or `nil` to accept the
-  default. Returning anything else is a schema violation (plugin crash).
-- The handler must be pure: no network, no storage. Calling
-  `llm_router.classify_error` from inside the extension is rejected
-  (no recursion).
-- Put limit semantics here, once, instead of repeating them per method:
-  adjust `type` and set `scope` where the upstream needs it. All request
-  handlers then collapse to one line:
-  `return nil, llm_router.classify_error({ status, headers, body })`.
-
-### Credential handlers
-
-- `validate_credentials(data)` → `(boolean, err?)`. `false` without error
-  means rejected (`invalid_request`); `true` with an error surfaces the
-  error; non-boolean returns crash. Absent means accept everything.
-- `needs_refresh(credential)` → `boolean` (`nil` counts as false; anything
-  else crashes). Absent means never.
-- `refresh_credential(ctx, credential)` → `(data table, err)`. Absent means
-  not refreshable.
-- `check_health(ctx, credential)` → `{ status = "healthy" | "unhealthy" | "unknown", message? }`.
-  Runs detached after an attempt failure, at most once per cooldown window
-  (default 5 minutes, `healthcheck_cooldown` registration value in whole
-  seconds within 60..86400 overrides per type). Only an explicit
-  `"unhealthy"` disables the credential (`disabled_by=healthcheck`);
-  `"unknown"`, handler errors and invalid shapes change nothing. Absent
-  means the type never health-checks.
-- `config_schema()` / `credential_schema()` → UI node array or `nil`.
-  Absent means raw JSON editing in the dashboard.
-
-### Auth handlers
-
-- `auth_initiate(ctx)` → auth result. `auth_step(ctx, {action, values})`
-  → auth result. `ctx` carries `flow_id`; storage scopes per flow under
-  `"auth_flow:" .. flow_id` by convention.
-- Auth result is exactly one of: `{ render = <UI tree> }`,
-  `{ redirect_url = "<non-empty>" }`, `{ credentials = {<string fields>} }`.
-  Anything else crashes. Absent handlers mean single-step manual credential entry.
-
-### get_model_infos (optional)
-
-`get_model_infos(ctx, credential, provider_config)` — note `provider_config`
-arrives as the third argument here, not inside `ctx`. Returns an array of
-model cards (empty array, never nil):
-
-| Field | Type | Notes |
-|---|---|---|
-| `name` | string | upstream model id, required |
-| `display_name` | string | falls back to `name` |
-| `description` | string? | |
-| `rpm` / `tpm` / `rpd` | number | rate estimates, 0 when unknown |
-| `context_window` / `max_tokens` | number? | |
-| `capabilities` | array? | explicit wins; else derived (`tools` from `supported_parameters`, `json_mode` from `response_format`, `structured_outputs` from `supported_parameters`, `reasoning` flag) |
-| `input_modalities` / `output_modalities` | array? | e.g. `text`, `image`, `audio` |
-| `supported_parameters` | array? | OpenAI parameter names the model accepts |
-| `reasoning` | table? | `{ supported_efforts, default_effort, default_enabled, mandatory }` |
-| `endpoints` | array? | `chat/completions`, `audio/transcriptions`, `audio/speech`, `images/generations`, `embeddings`, `videos`; empty means chat-only |
-
-The router rejects requests against a declared-but-absent endpoint with
-`endpoint_not_supported`. Listing policy is the plugin's choice: live fetch
-failing closed, live fetch with a hardcoded fallback list, or a static
-list. Document the choice in `@description`. Fresh discovery refreshes
-stored rows for known models; names the fetch omits are retained until the
-backend reports them missing. Admin overrides still win per field.
-
-### fetch_proxies (proxy sources)
-
-`fetch_proxies()` — no arguments. Returns an array of `{ protocol, host,
-port, country }` (`protocol` and `host` are strings, `port` is a number) or
-`nil` (means no candidates). The router bridge accepts only unauthenticated
-`protocol = "http"` entries with a non-empty host and port in `1..65535`;
-other protocols and invalid endpoints are ignored and counted as unsupported.
-`country` is not trusted: the pool discovers the exit location. `nil` or an
-empty list, including one returned after HTTP `304 Not Modified`, means no new
-candidates. It does not remove cached proxies.
-
-## llm_router API
-
-| Function | Purpose |
-|---|---|
-| `llm_router.register(type_key, handlers)` | claim a provider type key |
-| `llm_router.register_proxy_source(key, {fetch_proxies})` | claim a proxy list source |
-| `llm_router.http_client({timeout_ms})` | SSRF-guarded client: `request({...})` → `(resp, err)`, `stream({...})` → `(resp, err)` |
-| `llm_router.classify_error({status, headers, body})` | default classification, then the `classify_error` extension when declared; returns the final contract table |
-| `llm_router.multipart(parts)` | build a multipart/form-data body |
-| `llm_router.base64_encode(s)` / `llm_router.base64_decode(s)` | binary-safe base64 codec |
-| `llm_router.storage` | per-plugin key-value storage, no quotas |
-| `llm_router.uuid_v5(namespace, name)` | RFC 4122 UUIDv5 |
-| `llm_router.random_hex(nbytes)` | 1..1024 bytes as hex string |
-| `json.encode` / `json.decode` | JSON codec |
-
-### llm_router.http_client({timeout_ms}) → client
-
-Timeout in milliseconds, clamped to 1000..300000 (default 60000). One
-timeout budget covers one attempt, including whole streams; every key
-attempt gets a fresh budget.
-
-`client:request({method, url, headers, body})` → `(resp, err)`:
-
-- `resp` — `{ status, headers, body }` with lowercased header names. Bodies
-  truncate silently at 16MiB.
-- `err` — transport failure only: `{ type = "structural_fault", message = ... }`
-  for direct-leg endpoint breakage (unresolvable host, refused connection,
-  broken TLS identity), `{ type = "transport", message = ... }` for
-  timeouts, resets, resolver failures and proxy-leg exhaustion.
-  HTTP statuses arrive as data: the plugin classifies them itself. Forward
-  `req_err` as-is when the call fails so the core sees the transport type;
-  rebuilding it as `upstream` loses the same-credential retry.
-
-`client:stream({method, url, headers, body, on_response?, on_line?, on_chunk?})`
-→ `(resp, err)`:
-
-- Exactly one of `on_line` / `on_chunk` is required; with both,
-  `on_chunk` wins. Lines over 1MiB fail the stream; chunks stream in
-  32KiB slices.
-- `resp` — `{ status, headers }` on success.
-- `on_response(resp)` (optional) runs on the response head before the body
-  streams: return an error table to abort with it, `nil` to continue. On
-  error statuses the bounded body (64KiB cap) is buffered first, so the
-  hook sees full context — `{status, headers, body}` — and classifies once,
-  with no string re-parsing downstream. On success the hook sees `{status,
-  headers}`. The canonical use is early classification:
-  `on_response = function(r) if r.status ~= 200 then return
-  llm_router.classify_error({ status = r.status, headers = r.headers,
-  body = r.body or "" }) end end`.
-- Without a hook decision, a non-2xx surfaces as `upstream`, never as a
-  silent stream. Callback failures surface as `upstream` with the cause in
-  the message. `on_response` must return a contract table or `nil`;
-  anything else is a plugin crash.
-- Header tables accept string values; non-string entries drop silently.
-  Custom `Host` headers validate against the allow-list like URLs do.
-
-SSRF guard: only `http`/`https` URLs; private and link-local addresses
-never dial (even with wildcard `*`); direct dials pin the resolved IP
-(closing DNS rebinding), proxied requests check hostnames with DNS at the
-proxy; at most 10 redirects, each revalidated.
-
-### llm_router.classify_error({status, headers, body}) → err
-
-Default classification, then the plugin `classify_error` extension when the
-plugin declares one. `status` is required (positive number); `headers` is
-an optional lowercase-keyed map; `body` is the raw string (default `""`).
-
-The default maps status plus the structured envelope code/type
-(`{"error":{"code","type","message"}}`); message text only feeds quota
-wording on bare 429s (`per day`, `perday`, `daily`, `quota`, `free_tier`,
-`free tier`, `billing`) and the human message. Code fallbacks run before
-the bare-status default so quota/content/loading signals through 400
-classify correctly. `retry_after` resolves from the `retry-after` header
-(delta seconds) or a `retry in N` hint in the body (seconds, or
-milliseconds with `ms`); rate/quota errors without any hint default to
-now+60s at this layer. The strict `retry_after` requirement applies to
-plugin override tables, not to the core default: returning `nil` (accept
-the default) is always valid. Unknown shapes degrade to `upstream` — the
-default never asserts `auth`, `geo`, `quota_exceeded` or `payment_required`
-on weak signals. Direct-leg transport failures (DNS, TLS identity,
-refused connection) surface as `structural_fault`; timeouts, resets and
-proxy-leg failures surface as `transport`.
-
-### llm_router.multipart(parts) → body, content_type
+`timeout_ms` defaults 60000, clamped 1000..300000. Per-request tables
+carry `proxy_url`: an explicit proxy endpoint (`""`/absent = direct).
+The router tracks TLS faults on the assigned leg and marks the proxy dead
+internally; plugins never mark proxies. Transport failures surface as
+`(nil, {message, code="server_error"})`; the plugin selects the next
+`proxy_url` itself.
 
 ```lua
-local body, ctype = llm_router.multipart({
-  { name = "model", value = "whisper-large-v3" },                -- plain field
-  { name = "file", filename = "a.wav",                            -- file field
-    content_type = "audio/wav", data = request.file },
+local client = llm_router.http_client({ timeout_ms = 15000 })
+local resp, err = client:request({
+  method = "POST", url = "https://api.example.com/v1/chat/completions",
+  headers = { ["Authorization"] = "Bearer " .. key },
+  body = json.encode(payload),
+  proxy_url = proxy_url,  -- explicit per-request assignment
 })
--- ctype = "multipart/form-data; boundary=..."; send body as the request body
+-- resp = { status, headers, body }; err follows the error contract or nil
+local resp, err = client:stream({
+  method = "POST", url = url, headers = headers, body = body,
+  proxy_url = proxy_url,
+  on_response = function(r)  -- optional head classifier
+    if r.status ~= 200 then
+      return { message = "status " .. tostring(r.status), code = "server_error", status = r.status }
+    end
+  end,
+  on_line = function(line) ... end,  -- or on_chunk = function(bytes) ... end
+})
 ```
 
-1..64 parts (empty arrays rejected). Each part needs `name` plus `value`
-or `data` (both strings); `filename` defaults to `""`, `content_type` to
-`application/octet-stream`. Header metacharacters in names/filenames are
-stripped.
+### `proxies.query({pool?, country?, limit?})`
 
-### llm_router.storage → set/get/delete
-
-`storage.set(scope, key, value)` → `true`. `storage.get(scope, key)` →
-value or `nil` on miss. `storage.delete(scope, key)` → `true` (missing
-keys still succeed). Scopes and keys are namespaced per plugin; blank ones
-are rejected. Values are JSON (no functions, no sparse or mixed tables).
-No quotas enforced: no size caps, no TTL, no eviction — prune what is stored.
-
-### Small utilities
-
-- `llm_router.uuid_v5(namespace, name)` — RFC 4122 UUIDv5; the namespace
-  is a UUID string.
-- `llm_router.random_hex(nbytes)` — `crypto/rand` hex, `nbytes` 1..1024.
-- `json.encode` / `json.decode` — JSON codec (Lua strings carry raw bytes).
-
-## UI trees
-
-`config_schema`, `credential_schema`, `auth_initiate` and `auth_step` return
-UI node arrays rendered by `DynamicForm`. Node kinds (15):
-
-- Leafs: `text`, `input`, `select`, `checkbox`, `button`, `link`,
-  `banner`, `secret`, `code`.
-- Containers: `group`, `flow`, `grid`, `section`, `spacer`, `divider`.
-
-Key validations: `input`/`select`/`checkbox`/`secret` need `name`;
-`input.input_type` is `text`/`password`/`number`/`secret`; `select.option_labels`
-must subset `options`; `link` needs `url` (`http`/`https`/`mailto` or a
-relative path); `button` defaults
-`form_action="submit"`, `variant` is `primary`/`secondary`/`danger`;
-`banner.variant` is `info`/`error`/`success`; `section` needs `title`
-(max 120 chars, subtitle max 240); `flow` defaults to
-`direction=vertical`, `align=stretch`, `justify=start`, `gap=4`
-(`justify` accepts `start`/`center`/`end`/`between`/`around`/`evenly`);
-`grid.columns` is 1..6 with default `gap=4`; `group`/`flow`/`grid`/`section`
-need non-empty `content`; `spacer`/`divider` forbid `content`
-(`spacer.size` accepts Step `0..8`); `code` needs `text`. Trees cap at depth 8 and 200
-nodes. Buttons render in host-owned footers, never inline. No raw HTML from
-plugins, ever — new widgets ship as first-class node kinds, not markup.
-
-## Exhausted store (0.1.1) and geo bans (0.3.0)
-
-Rate, quota and model-availability outcomes record joint limit keys; later requests deprioritize
-combinations matching a stored key until its timestamp passes. Expired
-entries delete on read.
-
-A stored key is a filter over dimensions, not a set of per-entity marks: a
-candidate combination moves to the tail when it matches **every** dimension the key
-names. The provider (backend type key) and the plugin are always part of
-every key and need no naming.
-
-Examples — the plugin only names dimensions, the router resolves instances:
+Read-only snapshot of the router pool. `pool` defaults to no selection:
+pass `"auto"` for the free pool or a custom pool ID/name (provider config
+`proxy.pool`, default direct when absent). Installed only when the type
+declares `proxy_schema`.
 
 ```lua
--- per-model quota (Gemini style): this model on this credential cools down,
--- other models on the same credential keep serving
-err.scope = { "account", "model" }
--- per-IP limit (anonymous free tiers): every combination through this proxy
-err.scope = { "proxy" }
--- per-credential quota (Groq style): every combination of this credential
-err.scope = { "account" }
+local proxies = llm_router.proxies.query({ pool = "auto", limit = 3 })
+-- [{ id, url, country, pool }]
 ```
 
-Behavior:
+### `credentials.list()` / `get(id)` / `update(id, data)` / `disable(id, reason?)` / `enable(id)` / `park(id, ttl_seconds, reason?)` / `unpark(id)` / `parked(id)`
 
-- Checks run where selection happens: limited credentials move to the tail
-  before the token filter ordered by earliest reset first; limited proxies move
-  to the tail of the pick list after ranking.
-  A stale but unexpired mark never denies a request that could succeed.
-  Manual proxy mode with nothing usable left fails loudly.
-- `model_unavailable` marks `(provider, model)` for a fixed 2 minutes and
-  disables nothing: the credential and the provider stay enabled.
-- `geo` records no TTL: the `(provider type, proxy)` flag is indefinite and
-  lives until an admin clears it
-  (`DELETE /dashboard/providers/{id}/geo-bans`). In `auto` proxy mode,
-  unbanned picks from other regions sort above unbanned picks sharing a
-  banned region, so retries land on another country instead of re-hitting
-  the blocked one (`manual` order stays sacred).
-- `auth` / `payment_required` / `structural_fault` record no state: the pool
-  fails over (`structural_fault` stops it) and surfaces the last error.
-  Credentials disable by admin action only; providers disable by admin action
-  or doctor fix for backend-less types. Content, malformed-request,
-  missing-model and transient failures record no state.
-- Keys never cross plugins or provider instances: a limit for one provider
-  never affects the others. Geo flags scope wider by design (adapter type,
-  shared upstream region policy).
+Provider credential access. Installed only when the type serves
+credentials. `list` returns enabled credentials `[{id, data}]` filtered by
+the router-token allow-list; parked rows are skipped automatically, so
+loops never test them twice. `get` returns one row or nil (expired and
+disabled rows read as missing). `update` persists refreshed data and exists
+in job contexts only — request paths calling it fail loudly. `disable` sets
+the shared disabled flag (`DisabledBy="plugin"`, first-wins against other
+causes) and `enable` clears plugin-caused disables only; both serve request
+and job contexts but require the provider `disable_failed_credentials`
+switch, failing loudly without it so plugins fall back to parking.
+`park` shelves a credential for `ttl_seconds` with an optional `reason`
+and returns true; `unpark` clears the entry early and returns true; both
+serve request and job contexts with no switch. `parked` returns nil for a
+live credential or `{reason, until}` (`until` is a unix timestamp) for a
+parked one. Misuse (non-numeric ttl, non-string reason) raises a Lua error.
 
-## Proxy pool
+Park (router-owned entry with TTL, invisible, self-healing) is for transient
+states: rate limits, quota windows. Disable (shared flag, dashboard-visible,
+sticky until cleared) is for dead states: rejected keys. Prefer `park` over
+hand-rolled KV cooldowns: parked rows skip `list()` on every path while KV
+entries only hide rows the plugin remembers to check. The manual
+dashboard toggle and switch-gated probe always win over plugin writes.
 
-The router uses the `github.com/TheSlopMachine/proxypool` library for proxy
-URL ingestion, health checks, scoring, cache lifecycle and refresh probes.
-The router owns the Lua source bridge, provider policy, request-limit
-metadata and the refresh schedule. Source plugins return the existing
-`{ protocol, host, port, country }` shape; the bridge converts unauthenticated
-HTTP entries to URLs. The library probes the exit location and ignores entries
-omitted from a source on later fetches rather than deleting them.
+### `storage.set(scope, key, value, {ttl?})` / `get` / `delete`
 
-Provider HTTP (`http_client`) routes through the selected healthy proxy.
-Auto mode filters the library's latency-ranked list by the plugin's
-`@proxy_location` whitelist. Manual mode uses configured proxy IDs in their
-configured order and does not apply the location whitelist. On transport
-failure, the client tries the remaining picks and never falls back to direct.
-An empty list means direct mode was requested; an exhausted list surfaces
-the last error. Transport failures on the direct leg map to
-`structural_fault` when the endpoint itself is broken (DNS, TLS identity,
-refused connection) and to `transport` otherwise; proxy-leg failures surface
-as `transport`.
-
-Provider proxy mode lives in the provider config (`proxy: { mode, ids? }`,
-`disabled` default, `manual` takes explicit proxy IDs; `manual` with no
-IDs selected goes direct, only an explicit selection resolving to nothing
-fails loudly) and reaches handlers
-as `ctx.provider_config`. Provider proxy retry lives beside it
-(`proxy_retry: { mode, max_attempts? }`, `fail_fast` default, `next_proxy`
-retries the same credential on another proxy up to `max_attempts`,
-default 3, cap 10; legacy `geo` sections migrate to `proxy_retry` at
-startup). Manifest tags:
+Persistent per-plugin KV. `ttl` seconds bounds entry lifetime (max 90
+days); expired rows read as missing and delete on read. Pre-0.7.0 bare
+rows serve without expiry.
 
 ```lua
---- @proxy_location US   -- repeatable whitelist, empty allows any location
---- @proxy_location GB
---- @proxy_default_option auto  -- disabled (default) | auto | manual
+llm_router.storage.set("cooldown", cred_id, { until = os.time() + wait }, { ttl = wait })
 ```
 
-The library retains proxy state in the router's bbolt `proxy_cache_v1`
-bucket. It probes cached and newly discovered entries, applies its own
-failure cooldowns and scores, and retains dead entries for later retries.
-The dashboard lists healthy entries and exposes one global refresh action;
-it does not add or delete individual proxies or refresh individual feeds.
-Source diagnostics report candidate counts, unsupported entries, fetch
-times and errors without claiming which source owns a cached proxy.
+### `multipart`, `base64_*`, `uuid_v5`, `random_hex`, `json`
 
-The router starts one background refresh at startup. While a provider
-requests a proxy, refreshes run every minute. After eight minutes without a
-proxy request, the schedule backs off through five, ten and fifteen
-minutes. A proxy request after that idle period starts a refresh immediately
-and resets the schedule to one minute. An empty source response does not
-remove cached entries; the library controls proxy health and revival.
+Unchanged: `multipart(parts)→(body, ctype)` (1..64 parts),
+`base64_encode/decode`, `uuid_v5(ns, name)` (RFC 4122), `random_hex(n)`
+(1..1024 bytes), `json.encode/decode`.
 
-Proxy-scoped rate and quota limits live in library metadata through
-`UpdateMetadata` and `GetMetadata`. Other joint limit shapes remain in the
-router's exhausted store. The router namespaces limit metadata and removes
-expired keys when it reads them.
+### Sandbox limits
 
-Proxy-source plugins can use conditional requests with `llm_router.storage`.
-Persist the upstream `ETag` or `Last-Modified` value per plugin, send it as
-`If-None-Match` or `If-Modified-Since`, and return `nil` on `304`.
-The library then reuses its cache without downloading or ingesting a new
-list. The HTTP client returns lowercased response header names.
+Fresh `LState` per call; `Base/Table/String/Math/Os(time/clock/date)`
+only. No `io/debug/package/coroutine/require/load/dofile/print`
+(`print` routes to the plugin log). Response bodies cap at 16 MiB;
+stream error bodies at 64 KiB; redirects cap at 10 hops validated against
+`@allow_host`; private/link-local dial targets are blocked even under
+wildcard hosts.
 
-Source identity: declare a bare name in `register_proxy_source(name, ...)`
-(the `^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$` pattern). The runtime qualifies it
-per plugin as `<recordID>/<name>`: two different plugins may claim one name
-and each serves its own list. The dashboard shows the bare name with the
-qualified key beneath it.
+## Worked example
 
-## Planned endpoints (not implemented)
-
-None pending. Registration ignores handler names the router version does not
-know, so declaring them early has no effect. Wait for the router version
-that announces them.
+```lua
+complete = function(ctx, request)
+  -- Unconfigured providers go direct: only an explicit pool selection
+  -- (dashboard proxy switch) routes through pooled exits.
+  local pool = nil
+  if ctx.provider_config and ctx.provider_config.proxy
+    and ctx.provider_config.proxy.pool ~= "" then
+    pool = ctx.provider_config.proxy.pool
+  end
+  local client = llm_router.http_client({})
+  local last_err = nil
+  for _, cred in ipairs(llm_router.credentials.list()) do
+    local key = (cred.data or {}).api_key or ""
+    for _, px in ipairs(llm_router.proxies.query({ pool = pool, limit = 3 })) do
+      local resp, err = client:request({
+        method = "POST", url = "https://api.example.com/v1/chat/completions",
+        headers = { ["Authorization"] = "Bearer " .. key },
+        body = json.encode({ model = request.model_name, messages = request.messages }),
+        proxy_url = px.url,
+      })
+      if err == nil and resp.status == 200 then
+        local out = json.decode(resp.body)
+        out.model = request.model
+        return out
+      elseif err ~= nil then
+        last_err = err
+      elseif resp.status == 401 then
+        break  -- next credential
+      elseif resp.status == 429 then
+        llm_router.credentials.park(cred.id, 60, "rate limited")
+        break  -- next credential
+      elseif resp.status == 400 or resp.status == 404 then
+        return nil, { message = "upstream rejected the request", code = "invalid_request_error", status = resp.status }
+      else
+        last_err = { message = "upstream status " .. tostring(resp.status), code = "server_error", status = resp.status }
+      end
+    end
+  end
+  return nil, last_err or { message = "all credentials exhausted", code = "server_error" }
+end
+```

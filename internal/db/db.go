@@ -14,15 +14,12 @@ var (
 	BucketAdmin               = []byte("admin")                // AdminUser records
 	BucketTokens              = []byte("tokens")               // RouterToken records (keyed by ID)
 	BucketTokenIndex          = []byte("token_index")          // token value → token ID lookup
-	BucketProviders           = []byte("providers")            // Legacy bucket, no longer used as provider source of truth
 	BucketProviderInstances   = []byte("provider_instances")   // Unified provider records (all types)
-	BucketCustomProviders     = []byte("custom_providers")     // Legacy custom providers, migrated to provider_instances on startup
 	BucketCredentials         = []byte("credentials")          // Credential records
 	BucketPlugins             = []byte("plugins")              // Installed Lua plugin records
 	BucketPluginRepos         = []byte("plugin_repos")         // Added plugin repositories
 	BucketPluginStorage       = []byte("plugin_storage")       // llm_router.storage.* key/value per plugin
 	BucketAuth                = []byte("auth")                 // Ephemeral auth state
-	BucketModelInfo           = []byte("model_info")           // Legacy bucket, no longer used for model metadata caching
 	BucketSessions            = []byte("sessions")             // Dashboard sessions
 	BucketMetrics             = []byte("metrics")              // Time-series metrics data
 	BucketVirtualModels       = []byte("virtual_models")       // VirtualModel records
@@ -30,12 +27,12 @@ var (
 	BucketModelOverrides      = []byte("model_overrides")      // Per-provider model enable/disable and custom models
 	BucketModelInfos          = []byte("model_infos")          // Persisted per-provider model metadata cache
 	BucketProxyCache          = []byte("proxy_cache_v1")       // proxypool ProxyState records keyed by canonical URL
-	BucketExhausted           = []byte("exhausted")            // Unified joint limit keys: key → ExhaustedEntry
-	BucketGeoBans             = []byte("geo_bans")             // Indefinite geo flags: key → GeoBanEntry (no expiry)
+	BucketCustomPools         = []byte("custom_pools")         // Manually managed proxy pools: ID → CustomProxyPool
 	BucketVideoJobs           = []byte("video_jobs")           // Router-side video generation jobs: ID → VideoJob
 	BucketResponses           = []byte("responses")            // Router-side compat records: ID → ResponseRecord (responses, conversations, assistants, threads, messages, runs)
 	BucketMessageBatches      = []byte("message_batches")      // Router-side Anthropic message batches: ID → BatchRecord
 	BucketCredentialHealth    = []byte("credential_health")    // Credential health-check state: credential ID → last check
+	BucketCredentialParks     = []byte("credential_parks")     // Unified cooldown parks: credential ID → ParkEntry
 )
 
 // DB wraps a bbolt.DB and ensures all required buckets exist.
@@ -68,7 +65,6 @@ func (db *DB) initBuckets() error {
 			BucketTokens,
 			BucketTokenIndex,
 			BucketProviderInstances,
-			BucketCustomProviders,
 			BucketCredentials,
 			BucketPlugins,
 			BucketPluginRepos,
@@ -81,22 +77,38 @@ func (db *DB) initBuckets() error {
 			BucketModelOverrides,
 			BucketModelInfos,
 			BucketProxyCache,
-			BucketExhausted,
-			BucketGeoBans,
+			BucketCustomPools,
 			BucketVideoJobs,
 			BucketResponses,
 			BucketMessageBatches,
 			BucketCredentialHealth,
+			BucketCredentialParks,
 		}
 		for _, name := range buckets {
 			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
 				return fmt.Errorf("create bucket %q: %w", name, err)
 			}
 		}
-		// The pre-rework "agents" bucket is dead weight; virtual models live in
-		// virtual_models now.
-		if err := tx.DeleteBucket([]byte("agents")); err != nil && !errors.Is(err, bolt.ErrBucketNotFound) {
-			return fmt.Errorf("drop legacy agents bucket: %w", err)
+		// Dropped pre-0.7.0 buckets stay dropped: exhausted joint keys,
+		// geo bans, legacy agents/providers/custom_providers/model_info.
+		// Fresh opens never recreate them; the 0.7.0 purge removes them
+		// from existing databases at startup.
+		for _, name := range [][]byte{
+			[]byte("agents"),
+			[]byte("exhausted"),
+			[]byte("geo_bans"),
+			[]byte("providers"),
+			[]byte("custom_providers"),
+			[]byte("model_info"),
+			[]byte("proxies"),
+			[]byte("proxies_v2"),
+			[]byte("active_regions"),
+			[]byte("proxy_source_meta"),
+			[]byte("proxy_limits"),
+		} {
+			if err := tx.DeleteBucket(name); err != nil && !errors.Is(err, bolt.ErrBucketNotFound) {
+				return fmt.Errorf("drop legacy %q bucket: %w", name, err)
+			}
 		}
 		return nil
 	})

@@ -1,32 +1,30 @@
 --- @plugin Smoke Mock
 --- @author llm-router
---- @version 1.4.0
---- @router_version 0.4.0
+--- @version 2.0.0
+--- @router_version 0.7.0
 --- @description Deterministic mock provider for the smoke harness. No network use.
 --- @allow_host example.com
 -- NOTE: bump @version on every edit of this file. The harness skips
 -- reinstalling when the installed version matches the source.
 
--- Model routing by bare name: mock-limited always reports quota_exceeded so
--- the harness exercises its skip path deterministically.
+-- Model routing by bare name: mock-limited always reports quota exhaustion
+-- so the harness exercises its skip path deterministically.
 local function limited(model_name)
   return model_name == "mock-limited"
 end
 
 local function quota_err()
-  return { type = "quota_exceeded", message = "smoke quota", retry_after = os.time() + 60, scope = { "account" } }
+  return { message = "smoke quota", code = "insufficient_quota", status = 429 }
 end
 
 llm_router.register("mock", {
-  credential_schema = function()
-    return {
-      { type = "section", title = "Smoke Mock",
-        content = {
-          { type = "secret", name = "api_key", label = "API Key" },
-          { type = "button", text = "Save", form_action = "submit" },
-        } },
-    }
-  end,
+  credential_schema = {
+    { type = "section", title = "Smoke Mock",
+      content = {
+        { type = "secret", name = "api_key", label = "API Key" },
+        { type = "button", text = "Save", form_action = "submit" },
+      } },
+  },
 
   validate_credentials = function(data)
     return true
@@ -36,7 +34,16 @@ llm_router.register("mock", {
     return { status = "healthy" }
   end,
 
-  get_model_infos = function(ctx, credential, provider_config)
+  jobs = {
+    noop = {
+      interval_seconds = 3600,
+      run = function(ctx)
+        return true
+      end,
+    },
+  },
+
+  get_model_infos = function(ctx)
     return {
       { name = "mock-chat", display_name = "Mock Chat", endpoints = { "chat/completions" } },
       { name = "mock-stt", display_name = "Mock STT", endpoints = { "audio/transcriptions" } },
@@ -49,7 +56,7 @@ llm_router.register("mock", {
     }
   end,
 
-  complete = function(ctx, credential, request)
+  complete = function(ctx, request)
     if limited(request.model_name) then return nil, quota_err() end
     if request.model_name == "mock-tools" and type(request.tools) == "table" and #request.tools > 0 then
       local name = "get_weather"
@@ -83,7 +90,7 @@ llm_router.register("mock", {
     }
   end,
 
-  complete_stream = function(ctx, credential, request, emit)
+  complete_stream = function(ctx, request, emit)
     if limited(request.model_name) then return nil, quota_err() end
     emit({ id = "smoke-stream", object = "chat.completion.chunk", created = os.time(), model = request.model,
       choices = { { index = 0, delta = { role = "assistant", content = "smoke " } } } })
@@ -91,7 +98,7 @@ llm_router.register("mock", {
       choices = { { index = 0, delta = { content = "ok" }, finish_reason = "stop" } } })
   end,
 
-  transcribe = function(ctx, credential, request)
+  transcribe = function(ctx, request)
     if request.needs_segments then
       return { text = "smoke transcript",
         segments = { { id = 0, start = 0.0, ["end"] = 1.0, text = "smoke transcript" } } }
@@ -99,7 +106,7 @@ llm_router.register("mock", {
     return { text = "smoke transcript" }
   end,
 
-  speech = function(ctx, credential, request)
+  speech = function(ctx, request)
     local function u16(n)
       return string.char(n % 256, math.floor(n / 256) % 256)
     end
@@ -111,14 +118,14 @@ llm_router.register("mock", {
     return { audio_b64 = llm_router.base64_encode(wav), format = "wav" }
   end,
 
-  generate_image = function(ctx, credential, request)
+  generate_image = function(ctx, request)
     if request.response_format == "url" then
       return { created = os.time(), data = { { url = "http://example.com/smoke.png" } } }
     end
     return { created = os.time(), data = { { b64_json = "aGk=" } } }
   end,
 
-  embed = function(ctx, credential, request)
+  embed = function(ctx, request)
     local data = {}
     for i in ipairs(request.input) do
       table.insert(data, { embedding = { 0.1, 0.2, 0.3 } })
@@ -130,7 +137,7 @@ llm_router.register("mock", {
   -- job at once; content serves a minimal ftyp/mdat MP4 synthesized below.
   -- The 720p test-pattern fixture on disk is the shape reference for the
   -- harness assert (mp4 magic, video content type), never an embedded blob.
-  generate_video = function(ctx, credential, request)
+  generate_video = function(ctx, request)
     local id = "gen-vid-" .. os.time() .. "-AaBbCcDdEeFfGgHhIiJj"
     return {
       id = id,
@@ -141,7 +148,7 @@ llm_router.register("mock", {
     }
   end,
 
-  poll_video = function(ctx, credential, request)
+  poll_video = function(ctx, request)
     return {
       id = request.job_id,
       polling_url = "/v1/videos/" .. request.job_id,
@@ -151,7 +158,7 @@ llm_router.register("mock", {
     }
   end,
 
-  video_content = function(ctx, credential, request)
+  video_content = function(ctx, request)
     local function be32(n)
       return string.char(
         math.floor(n / 16777216) % 256,

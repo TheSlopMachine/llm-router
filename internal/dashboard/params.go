@@ -8,8 +8,8 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/datamanagement"
 	"github.com/TheSlopMachine/llm-router/internal/services/doctor"
-	"github.com/TheSlopMachine/llm-router/internal/services/geoban"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
+	"github.com/TheSlopMachine/llm-router/internal/services/maintenance"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/pluginrepo"
@@ -35,7 +35,7 @@ type Params struct {
 	LuaSvc       *luaplugin.Service
 	RepoSvc      *pluginrepo.Service
 	ProxySvc     *proxypool.Service
-	GeoBanSvc    *geoban.Service
+	MaintSvc     *maintenance.Service
 	Logger       *slog.Logger
 	// NoAuth skips session checks: dashboard APIs serve without login.
 	NoAuth bool
@@ -60,7 +60,6 @@ func New(p Params) (*Handler, error) {
 		p.LuaSvc,
 		p.RepoSvc,
 		p.ModelInfoSvc,
-		p.GeoBanSvc,
 	)
 	doctorSvc := doctor.New(
 		p.AdminSvc.DB(),
@@ -71,7 +70,6 @@ func New(p Params) (*Handler, error) {
 		p.ProxySvc,
 		p.LuaSvc,
 		p.ModelInfoSvc,
-		p.GeoBanSvc,
 	)
 	return &Handler{
 		adminSvc:     p.AdminSvc,
@@ -86,7 +84,7 @@ func New(p Params) (*Handler, error) {
 		luaSvc:       p.LuaSvc,
 		repoSvc:      p.RepoSvc,
 		proxySvc:     p.ProxySvc,
-		geobanSvc:    p.GeoBanSvc,
+		maintSvc:     p.MaintSvc,
 		dataSvc:      dataSvc,
 		doctorSvc:    doctorSvc,
 		logger:       p.Logger,

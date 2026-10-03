@@ -2,7 +2,6 @@ package v1
 
 import (
 	"net/http"
-	"strconv"
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 )
@@ -26,14 +25,12 @@ func (h *Handler) writeCompatError(w http.ResponseWriter, r *http.Request, statu
 	})
 }
 
-// handleCompatRouterError maps a router error through the shared classifier
-// and writes it in the negotiated envelope.
+// handleCompatRouterError renders a router error in the negotiated
+// envelope. The plugin already produced the terminal OpenAI-shaped error,
+// so the layer only translates the envelope, never reclassifies.
 func (h *Handler) handleCompatRouterError(w http.ResponseWriter, r *http.Request, err error) {
 	re := h.classifyError(err)
-	if secs, ok := apierrors.RetryAfterDelay(err); ok {
-		w.Header().Set("Retry-After", strconv.FormatInt(secs, 10))
-	}
-	h.writeCompatError(w, r, re.status, re.code, err.Error(), nil)
+	h.writeCompatError(w, r, re.status, re.code, wireMessage(err), nil)
 }
 
 // writeCompatDecodeError maps body decode failures in the negotiated

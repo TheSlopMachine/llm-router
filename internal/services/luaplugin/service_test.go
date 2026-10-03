@@ -13,12 +13,12 @@ import (
 const testPluginSource = `--- @plugin Test Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @description Test plugin
 --- @allow_host example.com
 
 llm_router.register("test-type", {
-  complete = function(ctx, credential, request)
+  complete = function(ctx, request)
     return {
       id = "chatcmpl-test",
       object = "chat.completion",
@@ -33,21 +33,19 @@ llm_router.register("test-type", {
 
   validate_credentials = function(data)
     if data.api_key == nil or data.api_key == "" then
-      return false, { type = "invalid_request", message = "api_key required" }
+      return false, { message = "api_key required", code = "invalid_request_error" }
     end
     return true
   end,
 
-  get_model_infos = function(ctx, credential, provider_config)
+  get_model_infos = function(ctx)
     return { { name = "model-a", display_name = "Model A" } }
   end,
 
-  credential_schema = function()
-    return {
-      { type = "input", name = "api_key", input_type = "password", label = "API Key", required = true },
-      { type = "button", text = "Save", form_action = "submit" },
-    }
-  end,
+  credential_schema = {
+    { type = "input", name = "api_key", input_type = "password", label = "API Key", required = true },
+    { type = "button", text = "Save", form_action = "submit" },
+  },
 })
 `
 
@@ -63,13 +61,13 @@ func setupService(t *testing.T) *Service {
 const iconPluginSource = `--- @plugin Icon Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @description Icon plugin
 --- @allow_host example.com
 
 llm_router.register("icon-type", {
   icon = "https://example.com/icon.svg",
-  complete = function(ctx, credential, request)
+  complete = function(ctx, request)
     return {
       id = "chatcmpl-icon",
       object = "chat.completion",
@@ -159,7 +157,7 @@ func TestParseManifest(t *testing.T) {
 }
 
 func TestParseManifestWildcard(t *testing.T) {
-	src := "--- @plugin P\n--- @author a\n--- @version 1.0.0\n--- @router_version 0.3.0\n--- @allow_host *\n"
+	src := "--- @plugin P\n--- @author a\n--- @version 1.0.0\n--- @router_version 0.7.0\n--- @allow_host *\n"
 	m, err := ParseManifest([]byte(src))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -173,7 +171,7 @@ func TestParseManifestMissing(t *testing.T) {
 	for _, src := range []string{
 		"--- @plugin P\n--- @author a\n",
 		"print('no header')\n",
-		"--- @plugin P\n--- @author a\n--- @version 1.0.0\n--- @router_version 0.3.0\n",
+		"--- @plugin P\n--- @author a\n--- @version 1.0.0\n--- @router_version 0.7.0\n",
 	} {
 		if _, err := ParseManifest([]byte(src)); err == nil {
 			t.Fatalf("expected error for %q", src)
@@ -182,18 +180,18 @@ func TestParseManifestMissing(t *testing.T) {
 }
 
 func TestCheckRouterVersion(t *testing.T) {
-	m := &Manifest{RouterVersion: "0.3.0"}
-	if err := CheckRouterVersion(m, "0.3.0"); err != nil {
+	m := &Manifest{RouterVersion: "0.7.0"}
+	if err := CheckRouterVersion(m, "0.7.0"); err != nil {
 		t.Fatalf("equal versions: %v", err)
 	}
 	m.RouterVersion = "99.0.0"
-	if err := CheckRouterVersion(m, "0.3.0"); err == nil {
+	if err := CheckRouterVersion(m, "0.7.0"); err == nil {
 		t.Fatal("expected rejection of newer router requirement")
 	}
-	for _, old := range []string{"0.2.0", "0.1.2", "0.1.1", "0.0.7"} {
+	for _, old := range []string{"0.6.0", "0.5.3", "0.3.0", "0.1.1"} {
 		m.RouterVersion = old
-		if err := CheckRouterVersion(m, "0.3.0"); err == nil {
-			t.Fatalf("pre-0.3.0 contract %s must be rejected", old)
+		if err := CheckRouterVersion(m, "0.7.0"); err == nil {
+			t.Fatalf("pre-0.7.0 contract %s must be rejected", old)
 		}
 	}
 }
@@ -245,7 +243,7 @@ func TestSandboxDeniesUnsafeGlobals(t *testing.T) {
 	bad := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 local x = os.execute("echo hi")
@@ -263,12 +261,12 @@ func TestErrorContract(t *testing.T) {
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("err-type", {
-  complete = function(ctx, credential, request)
-    return nil, { type = "rate_limit", message = "slow down", retry_after = os.time() + 60 }
+  complete = function(ctx, request)
+    return nil, { message = "slow down", code = "rate_limit", status = 429 }
   end,
 })
 `
@@ -281,23 +279,22 @@ llm_router.register("err-type", {
 	if !ok {
 		t.Fatalf("expected ProviderError, got %T (%v)", err, err)
 	}
-	if perr.Type != models.ErrorTypeRateLimit {
-		t.Fatalf("type: %v", perr.Type)
+	if perr.Code != "rate_limit" || perr.StatusCode != 429 || perr.Message != "slow down" {
+		t.Fatalf("terminal: %+v", perr)
 	}
 }
 
-func TestErrorContractScope(t *testing.T) {
+func TestErrorContractDefaults(t *testing.T) {
 	svc := setupService(t)
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("scope-type", {
-  complete = function(ctx, credential, request)
-    return nil, { type = "quota_exceeded", message = "out",
-      retry_after = os.time() + 3600, scope = { "account", "model" } }
+  complete = function(ctx, request)
+    return nil, { message = "out", code = "insufficient_quota", param = "model" }
   end,
 })
 `
@@ -310,22 +307,22 @@ llm_router.register("scope-type", {
 	if !ok {
 		t.Fatalf("expected ProviderError, got %T (%v)", err, err)
 	}
-	if len(perr.Scope) != 2 || perr.Scope[0] != "account" || perr.Scope[1] != "model" {
-		t.Fatalf("scope: %v", perr.Scope)
+	if perr.Code != "insufficient_quota" || perr.Param != "model" || perr.StatusCode != 502 {
+		t.Fatalf("defaults: %+v", perr)
 	}
 }
 
-func TestErrorContractBadScopeIsInternal(t *testing.T) {
+func TestErrorContractMissingMessageIsInternal(t *testing.T) {
 	svc := setupService(t)
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("badscope-type", {
-  complete = function(ctx, credential, request)
-    return nil, { type = "rate_limit", message = "slow", scope = { "region" } }
+  complete = function(ctx, request)
+    return nil, { code = "rate_limit" }
   end,
 })
 `
@@ -336,116 +333,7 @@ llm_router.register("badscope-type", {
 		&models.Credential{ID: "c1"}, "x/y", nil), &models.ChatCompletionRequest{Model: "x/y"})
 	var ierr *models.PluginInternalError
 	if !errors.As(err, &ierr) {
-		t.Fatalf("unknown scope word must fail closed, got %T (%v)", err, err)
-	}
-}
-
-func TestIsFatalPoolError(t *testing.T) {
-	fatal := []error{
-		ErrHandlerNotFound,
-		&models.ProviderError{Type: models.ErrorTypeInvalidRequest},
-		&models.ProviderError{Type: models.ErrorTypeContentPolicy},
-		&models.ProviderError{Type: models.ErrorTypeStructuralFault},
-		&models.ProviderError{Type: models.ErrorTypeGeo},
-	}
-	for _, err := range fatal {
-		if !isFatalPoolError(err) {
-			t.Fatalf("must be fatal: %v", err)
-		}
-	}
-	if isFatalWithRetry(&models.ProviderError{Type: models.ErrorTypeGeo}, models.ProxyRetryNextProxy) {
-		t.Fatal("geo must not be fatal in next_proxy mode")
-	}
-	nonFatal := []error{
-		&models.ProviderError{Type: models.ErrorTypeRateLimit},
-		&models.ProviderError{Type: models.ErrorTypeQuotaExceeded},
-		&models.ProviderError{Type: models.ErrorTypeAuth},
-		&models.ProviderError{Type: models.ErrorTypeUpstream},
-		&models.ProviderError{Type: models.ErrorTypeNotFound},
-		&models.ProviderError{Type: models.ErrorTypePaymentRequired},
-		&models.ProviderError{Type: models.ErrorTypeModelUnavailable},
-		errors.New("boom"),
-		nil,
-	}
-	for _, err := range nonFatal {
-		if isFatalPoolError(err) {
-			t.Fatalf("must not be fatal: %v", err)
-		}
-	}
-}
-
-func TestCompletePool_InvalidRequestStopsAfterFirstKey(t *testing.T) {
-	svc := setupService(t)
-	src := `--- @plugin P
---- @author a
---- @version 1.0.0
---- @router_version 0.3.0
---- @allow_host example.com
-
-llm_router.register("fatal-type", {
-  complete = function(ctx, credential, request)
-    print("attempt " .. credential.id)
-    return nil, { type = "invalid_request", message = "bad prompt" }
-  end,
-})
-`
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
-		t.Fatalf("install: %v", err)
-	}
-	creds := []*models.Credential{{ID: "a"}, {ID: "b"}}
-	req := &models.ChatCompletionRequest{Model: "fatal-type/m"}
-	meta := testMeta("fatal-type", nil, req.Model, nil)
-	if _, _, err := svc.CompletePool(context.Background(), meta, creds, req); !isFatalPoolError(err) {
-		t.Fatalf("invalid_request must surface as fatal pool error, got %v", err)
-	}
-	rec, err := svc.Lookup("fatal-type")
-	if err != nil {
-		t.Fatalf("lookup: %v", err)
-	}
-	if got := len(svc.Logs(rec.ID)); got != 1 {
-		t.Fatalf("invalid_request must stop after 1 attempt, got %d log lines", got)
-	}
-}
-
-func TestCompletePool_GeoStopsAfterFirstKey(t *testing.T) {
-	// A geo block is a property of the network path, not the credential:
-	// cycling the rest of the pool would very likely repeat the same
-	// failure through the same top-ranked (unrelated to credential) exit,
-	// so it must stop and surface immediately, exactly like invalid_request.
-	svc := setupService(t)
-	src := `--- @plugin P
---- @author a
---- @version 1.0.0
---- @router_version 0.3.0
---- @allow_host example.com
-
-llm_router.register("geo-type", {
-  complete = function(ctx, credential, request)
-    print("attempt " .. credential.id)
-    return nil, { type = "geo", message = "not available in your region" }
-  end,
-})
-`
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
-		t.Fatalf("install: %v", err)
-	}
-	creds := []*models.Credential{{ID: "a"}, {ID: "b"}}
-	req := &models.ChatCompletionRequest{Model: "geo-type/m"}
-	meta := testMeta("geo-type", nil, req.Model, nil)
-	_, _, err := svc.CompletePool(context.Background(), meta, creds, req)
-	var perr *models.ProviderError
-	if !errors.As(err, &perr) || perr.Type != models.ErrorTypeGeo {
-		t.Fatalf("expected a geo provider error, got %v", err)
-	}
-	if !isFatalPoolError(err) {
-		t.Fatalf("geo must surface as fatal pool error, got %v", err)
-	}
-	rec, err := svc.Lookup("geo-type")
-	if err != nil {
-		t.Fatalf("lookup: %v", err)
-	}
-	if got := len(svc.Logs(rec.ID)); got != 1 {
-		t.Fatalf("geo must stop after 1 attempt, got %d log lines", got)
+		t.Fatalf("missing message must fail closed, got %T (%v)", err, err)
 	}
 }
 
@@ -454,12 +342,12 @@ func TestErrorContractPaymentRequired(t *testing.T) {
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("pay-type", {
-  complete = function(ctx, credential, request)
-    return nil, { type = "payment_required", message = "subscription required" }
+  complete = function(ctx, request)
+    return nil, { message = "subscription required", code = "payment_required", status = 402 }
   end,
 })
 `
@@ -472,7 +360,7 @@ llm_router.register("pay-type", {
 	if !ok {
 		t.Fatalf("expected ProviderError, got %T (%v)", err, err)
 	}
-	if perr.Type != models.ErrorTypePaymentRequired || perr.StatusCode != 402 {
+	if perr.Code != "payment_required" || perr.StatusCode != 402 {
 		t.Fatalf("payment: %+v", perr)
 	}
 }
@@ -482,11 +370,11 @@ func TestRuntimeCrashIsInternal(t *testing.T) {
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("crash-type", {
-  complete = function(ctx, credential, request)
+  complete = function(ctx, request)
     local x = nil
     return x.field
   end,

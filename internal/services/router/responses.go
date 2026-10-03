@@ -15,11 +15,11 @@ import (
 // the edge renders the correct 400/404 envelope through the shared
 // classifier (video.go:79 precedent).
 func invalidRequest(msg string) error {
-	return &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: msg}
+	return &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: msg}
 }
 
 func compatNotFound(resource, id string) error {
-	return &models.ProviderError{StatusCode: 404, Type: models.ErrorTypeNotFound, Message: fmt.Sprintf("%s %q not found", resource, id)}
+	return &models.ProviderError{StatusCode: 404, Code: "not_found", Message: fmt.Sprintf("%s %q not found", resource, id)}
 }
 
 func (s *Service) mustResponseStore() error {

@@ -34,6 +34,7 @@ func (m modelView) serves(endpoint string) bool {
 var skipCodes = map[string]bool{
 	"payment_required":       true,
 	"quota_exceeded":         true,
+	"insufficient_quota":     true,
 	"model_not_found":        true,
 	"not_found":              true,
 	"endpoint_not_supported": true,
@@ -253,7 +254,7 @@ func cleanupStaleVirtualModels(cfg config) {
 // purpose: it fails, broken config must be loud. unsupported (no
 // check_health handler) skips the same way: nothing to verify.
 var contCodes = map[string]bool{
-	"quota_exceeded": true, "payment_required": true, "rate_limit": true,
+	"quota_exceeded": true, "insufficient_quota": true, "payment_required": true, "rate_limit": true,
 	"model_not_found": true, "not_found": true,
 	"endpoint_not_supported": true, "invalid_request_error": true,
 	"content_policy": true, "model_unavailable": true, "geo_blocked": true,
@@ -292,6 +293,10 @@ func checkCredentialTest(cfg config, rep *report, pluginType, providerID string,
 	}
 	if len(chat) == 0 {
 		rep.add(pluginType, "-", "credential-test", skip, "no chat model to probe", 0)
+		return
+	}
+	if len(creds) == 0 {
+		rep.add(pluginType, "-", "credential-test", skip, "no credential to probe", 0)
 		return
 	}
 	var sawAuth bool

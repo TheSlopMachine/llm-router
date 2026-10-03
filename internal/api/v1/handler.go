@@ -1192,10 +1192,17 @@ func isAnthropicStyle(r *http.Request) bool {
 
 func (h *Handler) handleRouterError(w http.ResponseWriter, err error) {
 	re := h.classifyError(err)
-	if secs, ok := apierrors.RetryAfterDelay(err); ok {
-		w.Header().Set("Retry-After", strconv.FormatInt(secs, 10))
+	h.writeError(w, re.status, re.code, wireMessage(err), nil)
+}
+
+// wireMessage renders the client-facing message: the raw plugin message
+// for terminal provider errors, the Go error otherwise.
+func wireMessage(err error) string {
+	var perr *models.ProviderError
+	if errors.As(err, &perr) && perr.Message != "" {
+		return perr.Message
 	}
-	h.writeError(w, re.status, re.code, err.Error(), nil)
+	return err.Error()
 }
 
 type routerError struct {

@@ -88,3 +88,75 @@ func (s *Service) CredentialSchema(typeKey string) ([]*models.UINode, error) {
 	}
 	return nodes, nil
 }
+
+// SettingsSchema returns the plugin settings UI tree for a type key.
+// Nil means the plugin declares no settings section.
+func (s *Service) SettingsSchema(typeKey string) ([]*models.UINode, error) {
+	if typeKey == TypeCustom || typeKey == TypeVirtual {
+		return nil, nil
+	}
+	if s.luaSvc == nil {
+		return nil, fmt.Errorf("no plugin service wired")
+	}
+	nodes, err := s.luaSvc.Schema(typeKey, "settings_schema")
+	if err != nil {
+		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return nodes, nil
+}
+
+// ProxySchema returns the extra proxy settings UI tree for a type key.
+// Nil means the plugin declares no proxy surface.
+func (s *Service) ProxySchema(typeKey string) ([]*models.UINode, error) {
+	if typeKey == TypeCustom || typeKey == TypeVirtual {
+		return nil, nil
+	}
+	if s.luaSvc == nil {
+		return nil, fmt.Errorf("no plugin service wired")
+	}
+	nodes, err := s.luaSvc.Schema(typeKey, "proxy_schema")
+	if err != nil {
+		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return nodes, nil
+}
+
+// CredentialsEnabled reports whether a type serves the credential table:
+// a credential_schema table or an auth flow is present.
+func (s *Service) CredentialsEnabled(typeKey string) bool {
+	if typeKey == TypeCustom {
+		return true
+	}
+	if typeKey == TypeVirtual {
+		return false
+	}
+	if s.luaSvc == nil {
+		return false
+	}
+	return s.luaSvc.CredentialsEnabled(typeKey)
+}
+
+// ProxiesEnabled reports whether a type serves proxy settings.
+func (s *Service) ProxiesEnabled(typeKey string) bool {
+	if typeKey == TypeCustom || typeKey == TypeVirtual {
+		return false
+	}
+	if s.luaSvc == nil {
+		return false
+	}
+	return s.luaSvc.ProxiesEnabled(typeKey)
+}
+
+// JobSpecs returns the stored job schedules for a type key.
+func (s *Service) JobSpecs(typeKey string) map[string]luaplugin.JobSpec {
+	if s.luaSvc == nil {
+		return nil
+	}
+	return s.luaSvc.Jobs(typeKey)
+}

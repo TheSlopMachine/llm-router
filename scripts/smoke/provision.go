@@ -46,6 +46,13 @@ func provision(cfg config, pluginType string) (providerID string, creds []credCa
 		}
 		return providerID, me, func() { deleteCredential(cfg, credID) }, nil
 	}
+	if enabled, err := credentialsEnabled(cfg, providerID); err != nil {
+		return "", nil, nil, err
+	} else if !enabled {
+		// Credential-less provider types (anonymous tiers) run the
+		// matrix without accounts; keyed types still skip below.
+		return providerID, nil, nil, nil
+	}
 	creds, err = listUsableCredentials(cfg, providerID)
 	if err != nil {
 		return "", nil, nil, err
@@ -54,6 +61,24 @@ func provision(cfg config, pluginType string) (providerID string, creds []credCa
 		return "", nil, nil, errNoCredential
 	}
 	return providerID, creds, nil, nil
+}
+
+// credentialsEnabled reports the provider's credential-schema capability
+// flag: false means the type serves no credential table. Unknown endpoints
+// fail loudly: the harness tracks the in-tree router, so a missing flag
+// is incompatibility, never a skip.
+func credentialsEnabled(cfg config, providerID string) (bool, error) {
+	status, raw, err := doJSON("GET", cfg.web+"/api/llm-router/dashboard/providers/"+providerID+"/credential-schema", nil)
+	if err != nil {
+		return false, fmt.Errorf("credential schema: %w", err)
+	}
+	var view struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := requireOK(status, raw, &view); err != nil {
+		return false, err
+	}
+	return view.Enabled, nil
 }
 
 // waitReady polls status until the backend listens or the deadline passes.

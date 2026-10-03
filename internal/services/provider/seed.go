@@ -12,35 +12,22 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// EnsureSeeded creates the built-in agents provider row and one provider
-// row per enabled Lua plugin type key when none exists yet, keeping fresh
-// installs routable without manual provider setup. Missing icons on existing
-// rows are backfilled from the plugin; user-set icons are never overwritten.
+// EnsureSeeded creates the virtual-models row and one provider row per
+// enabled Lua plugin type key when none exists yet, keeping fresh installs
+// routable without manual provider setup. Missing icons on existing rows
+// are backfilled from the plugin; user-set icons are never overwritten.
 // Seeded rows are marked UI-readonly (set automatically by the core, never
 // from Lua or the dashboard); the virtual-models row is additionally UI-hidden.
-//
-// Legacy custom rows migrate first: seeding must see the post-migration
-// state, and migration failures surface here instead of hiding in the
-// constructor.
 func (s *Service) EnsureSeeded() error {
-	if err := s.migrateLegacyCustom(); err != nil {
-		return err
-	}
 	now := time.Now()
 	ensure := func(id, name, typeKey, icon string) error {
 		if _, err := s.providers.Get(id); err == nil {
 			return nil
 		}
 		hidden := typeKey == TypeVirtual
-		config := map[string]any{}
-		if s.luaSvc != nil && typeKey != TypeVirtual {
-			if mode := s.luaSvc.DefaultProxyMode(typeKey); mode != models.ProxyModeDisabled {
-				config["proxy"] = map[string]any{"mode": mode}
-			}
-		}
 		inst := &models.ProviderInstance{
 			ID: id, Name: name, TypeKey: typeKey,
-			Config: config, IconURL: icon,
+			Config: map[string]any{}, IconURL: icon,
 			IsUIReadonly: true, IsUIHidden: hidden,
 			CreatedAt: now, UpdatedAt: now,
 		}

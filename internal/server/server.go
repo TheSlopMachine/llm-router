@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/adapters/generic"
@@ -16,12 +14,11 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/config"
 	"github.com/TheSlopMachine/llm-router/internal/dashboard"
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	"github.com/TheSlopMachine/llm-router/internal/services/batches"
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
-	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
-	"github.com/TheSlopMachine/llm-router/internal/services/geoban"
 	"github.com/TheSlopMachine/llm-router/internal/services/healthcheck"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/maintenance"
@@ -56,13 +53,6 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
-	proxyMigration, err := proxypool.MigrateLegacy(database)
-	if err != nil {
-		return nil, fmt.Errorf("migrate proxy pool: %w", err)
-	}
-	if proxyMigration.Imported+proxyMigration.Skipped+proxyMigration.Limits+proxyMigration.GeoBans+proxyMigration.ConfigFields+proxyMigration.SelectedIDsRemoved > 0 && logger != nil {
-		logger.Info("proxy pool migration completed", "imported", proxyMigration.Imported, "skipped", proxyMigration.Skipped, "limits", proxyMigration.Limits, "geo_bans", proxyMigration.GeoBans, "config_fields", proxyMigration.ConfigFields, "selected_ids_removed", proxyMigration.SelectedIDsRemoved)
-	}
 
 	dashboardAddr := cfg.DashboardAddr
 	if dashboardAddr == "" {
@@ -87,11 +77,6 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	if err := providerSvc.EnsureSeeded(); err != nil {
 		return nil, fmt.Errorf("seed providers: %w", err)
 	}
-	if n, err := providerSvc.MigrateProxyRetry(); err != nil {
-		return nil, fmt.Errorf("migrate proxy retry policy: %w", err)
-	} else if n > 0 && logger != nil {
-		logger.Info("migrated proxy retry policy", "providers", n)
-	}
 
 	adminSvc := admin.New(database, providerSvc)
 	tokenSvc := token.New(database)
@@ -107,39 +92,45 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	if err := repoSvc.EnsureBuiltinRepos(); err != nil {
 		return nil, fmt.Errorf("seed built-in plugin repos: %w", err)
 	}
-	exhaustedSvc := exhausted.New(database)
-	geobanSvc := geoban.New(database)
-	geobanSvc.SetLogger(logger)
 	videoJobsSvc := videojobs.New(database)
-	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, exhaustedSvc, videoJobsSvc, responses.New(database), batches.New(database), logger)
-	virtualAdapter := virtualadapter.New(routerSvc, virtualSvc, logger)
-	providerSvc.RegisterGoAdapter(virtualAdapter)
-	luaSvc.SetUsageTracker(credSvc)
-	luaSvc.SetExhaustedStore(exhaustedSvc)
-	luaSvc.SetGeoBanStore(geobanSvc)
-	healthSvc := healthcheck.New(database, luaSvc, credSvc)
-	healthSvc.SetLogger(logger)
-	luaSvc.SetHealthTrigger(healthSvc)
-	if dumpDir := upstreamDumpDir(cfg.DBPath); dumpDir != "" {
-		if err := os.MkdirAll(dumpDir, 0700); err != nil && logger != nil {
-			logger.Warn("upstream dump dir init failed", "dir", dumpDir, "error", err)
-		} else {
-			luaSvc.SetDumpDir(dumpDir)
-		}
-	}
-	genericAdapter.SetUsageTracker(credSvc)
 
-	// Proxy subsystem: library-backed pool, source bridge and router policy.
+	// Proxy subsystem first: the plugin runtime and dashboard both read
+	// from it. Provider request routing never consults it: plugins query
+	// read-only and assign proxy_url per request.
 	proxySvc, err := proxypool.New(database)
 	if err != nil {
 		return nil, fmt.Errorf("init proxy cache: %w", err)
 	}
 	proxySvc.SetLogger(logger)
 	proxySvc.SetSourceHandlers(luaSvc.ProxySourceKeys, luaSvc.FetchProxies)
-	luaSvc.SetProxyLimitStore(proxySvc)
-	wireProxy(luaSvc, proxySvc, exhaustedSvc, geobanSvc, logger)
 
-	maintSvc := maintenance.New(credSvc, providerSvc, database, logger)
+	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, videoJobsSvc, responses.New(database), batches.New(database), logger)
+	virtualAdapter := virtualadapter.New(routerSvc, virtualSvc, logger)
+	providerSvc.RegisterGoAdapter(virtualAdapter)
+	healthSvc := healthcheck.New(database, luaSvc, credSvc, providerSvc)
+	healthSvc.SetLogger(logger)
+	luaSvc.SetHealthTrigger(healthSvc)
+	luaSvc.SetMarkDead(proxySvc.MarkDead)
+	luaSvc.SetProxyQuery(proxySvc.Query)
+	luaSvc.SetCredentialAccess(
+		func(providerID string) ([]*models.Credential, error) { return credSvc.ListUsable(providerID) },
+		func(id string) (*models.Credential, error) { return credSvc.Get(id) },
+		func(id string, data map[string]any) error { return credSvc.Update(id, data, nil) },
+	)
+	luaSvc.SetCredentialLifecycle(
+		credSvc.DisableByPlugin,
+		credSvc.EnableByPlugin,
+		func(providerID string) bool {
+			inst, err := providerSvc.Get(providerID)
+			if err != nil || inst == nil {
+				return false
+			}
+			return models.CredentialAutomationOn(inst.Config)
+		},
+	)
+	luaSvc.SetCredentialParks(credSvc.Park, credSvc.Unpark, credSvc.Parked)
+
+	maintSvc := maintenance.New(luaSvc, providerSvc, database, logger)
 	maintSvc.SetModelInfoService(modelInfoSvc)
 	metricsSvc := metrics.New(database, logger)
 	metricsSvc.Start()
@@ -168,7 +159,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		AdminSvc: adminSvc, ProviderSvc: providerSvc, CredSvc: credSvc,
 		TokenSvc: tokenSvc, ModelInfoSvc: modelInfoSvc, MetricsSvc: metricsSvc,
 		VirtualSvc: virtualSvc, RouterSvc: routerSvc, ConfigSvc: configSvc,
-		LuaSvc: luaSvc, RepoSvc: repoSvc, ProxySvc: proxySvc, GeoBanSvc: geobanSvc,
+		LuaSvc: luaSvc, RepoSvc: repoSvc, ProxySvc: proxySvc, MaintSvc: maintSvc,
 		Logger: logger,
 		NoAuth: cfg.NoAuth,
 	})
@@ -212,25 +203,15 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	}, nil
 }
 
-// upstreamDumpDir resolves the debug spill directory for full upstream
-// bodies next to the database file. Empty when the DB path is empty.
-func upstreamDumpDir(dbPath string) string {
-	if dbPath == "" {
-		return ""
-	}
-	return filepath.Join(filepath.Dir(dbPath), "upstream_dumps")
-}
-
-// startupRefreshTimeout bounds the synchronous credential refresh before
-// the server listens: a pathological many-stale-keys state must delay
-// startup, never block it. Expiry serves traffic anyway and the ticker
-// retries whatever was skipped.
+// startupRefreshTimeout bounds the synchronous startup jobs before the
+// server listens: a pathological slow upstream must delay startup, never
+// block it. The ticker retries whatever was skipped.
 const startupRefreshTimeout = 30 * time.Second
 
 // Run starts the maintenance loop and blocks on both HTTP servers.
 func (s *Server) Run(ctx context.Context) error {
-	// Refresh stale credentials before serving traffic so a restarted router
-	// does not expose expired keys while the background refresh runs.
+	// Run startup plugin jobs before serving traffic so a restarted
+	// router refreshes-around stale state while the ticker runs.
 	rgate, cancel := context.WithTimeout(ctx, startupRefreshTimeout)
 	s.maintSvc.RunStartupRefresh(rgate)
 	cancel()

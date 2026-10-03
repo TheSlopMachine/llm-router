@@ -7,7 +7,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
-	"github.com/TheSlopMachine/llm-router/internal/services/geoban"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
@@ -20,12 +19,12 @@ import (
 const docPluginSource = `--- @plugin Doc Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("doc-type", {
-  complete = function(ctx, credential, request)
-    return nil, { type = "upstream", message = "doc stub" }
+  complete = function(ctx, request)
+    return nil, { message = "doc stub", code = "server_error" }
   end,
 })
 `
@@ -62,7 +61,7 @@ func docStack(t *testing.T) (*Service, string, string) {
 	}
 	svc := New(database, providerSvc, credSvc,
 		virtual.New(database, providerSvc, modelInfoSvc),
-		token.New(database), nil, luaSvc, modelInfoSvc, geoban.New(database))
+		token.New(database), nil, luaSvc, modelInfoSvc)
 	return svc, inst.ID, rec.ID
 }
 

@@ -12,12 +12,12 @@ import (
 const videoPluginSource = `--- @plugin Video Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.4.0
+--- @router_version 0.7.0
 --- @description Video test plugin
 --- @allow_host example.com
 
 llm_router.register("vid-type", {
-  complete = function(ctx, credential, request)
+  complete = function(ctx, request)
     return {
       id = "chatcmpl-vid",
       object = "chat.completion",
@@ -30,7 +30,7 @@ llm_router.register("vid-type", {
     }
   end,
 
-  generate_video = function(ctx, credential, request)
+  generate_video = function(ctx, request)
     return {
       id = "up-123",
       polling_url = "https://upstream.example.com/v/up-123",
@@ -39,7 +39,7 @@ llm_router.register("vid-type", {
     }
   end,
 
-  poll_video = function(ctx, credential, request)
+  poll_video = function(ctx, request)
     return {
       id = request.job_id,
       polling_url = "/v1/videos/" .. request.job_id,
@@ -49,7 +49,7 @@ llm_router.register("vid-type", {
     }
   end,
 
-  video_content = function(ctx, credential, request)
+  video_content = function(ctx, request)
     return {
       video_b64 = "RkFLRUZUWVA=",
       content_type = "video/mp4",

@@ -2,9 +2,8 @@
 //
 // Responsibilities:
 //   - Resolving a ModelId to the correct Provider
-//   - Fetching live Credentials from the Credential Pool
+//   - Enforcing router-token credential rules as an allow-list for plugins
 //   - Single-pass delegation to Lua plugins or built-in Go adapters
-//   - Translating backend-specific errors back to OpenAI-compatible ones
 package router
 
 import (
@@ -13,14 +12,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"sort"
-	"time"
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/batches"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
-	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
@@ -33,23 +29,20 @@ type Service struct {
 	providerSvc  *provider.Service
 	credSvc      *credential.Service
 	modelInfoSvc *modelinfo.Service
-	exhaustedSvc *exhausted.Service
 	videoJobsSvc *videojobs.Service
 	responseSvc  *responses.Service
 	batchSvc     *batches.Service
 	logger       *slog.Logger
 }
 
-// New constructs a new router Service. exhaustedSvc may be nil (no exhausted
-// filtering); videoJobsSvc may be nil (video submits fail closed).
-// responseSvc and batchSvc may be nil (responses/batches fail closed).
-// Production always wires all of them.
-func New(providerSvc *provider.Service, credSvc *credential.Service, modelInfoSvc *modelinfo.Service, exhaustedSvc *exhausted.Service, videoJobsSvc *videojobs.Service, responseSvc *responses.Service, batchSvc *batches.Service, logger *slog.Logger) *Service {
+// New constructs a new router Service. videoJobsSvc may be nil (video
+// submits fail closed). responseSvc and batchSvc may be nil
+// (responses/batches fail closed). Production always wires all of them.
+func New(providerSvc *provider.Service, credSvc *credential.Service, modelInfoSvc *modelinfo.Service, videoJobsSvc *videojobs.Service, responseSvc *responses.Service, batchSvc *batches.Service, logger *slog.Logger) *Service {
 	return &Service{
 		providerSvc:  providerSvc,
 		credSvc:      credSvc,
 		modelInfoSvc: modelInfoSvc,
-		exhaustedSvc: exhaustedSvc,
 		videoJobsSvc: videoJobsSvc,
 		responseSvc:  responseSvc,
 		batchSvc:     batchSvc,
@@ -103,107 +96,65 @@ func (s *Service) filterCredentials(providerID string, creds []*models.Credentia
 	return out
 }
 
-func (s *Service) completeOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, string, error) {
+func (s *Service) completeOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, allowed []string, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, string, error) {
 	if resolved.IsLua() {
-		return s.providerSvc.LuaService().CompletePool(ctx, s.meta(resolved, req.Model), creds, req)
+		resp, err := s.providerSvc.LuaService().Complete(ctx, s.meta(resolved, req.Model, allowed), req)
+		return resp, "", err
 	}
 	resp, err := resolved.Go.Complete(ctx, creds, req, resolved.Instance.Config)
 	return resp, "", err
 }
 
-func (s *Service) completeStreamOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, req *models.ChatCompletionRequest, w io.Writer) (string, error) {
+func (s *Service) completeStreamOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, allowed []string, req *models.ChatCompletionRequest, w io.Writer) (string, error) {
 	if resolved.IsLua() {
-		return s.providerSvc.LuaService().CompleteStreamPool(ctx, s.meta(resolved, req.Model), creds, req, w)
+		return "", s.providerSvc.LuaService().CompleteStream(ctx, s.meta(resolved, req.Model, allowed), req, w)
 	}
 	return "", resolved.Go.CompleteStream(ctx, creds, req, w, resolved.Instance.Config)
 }
 
 // meta builds the handler identity for one routed request: the provider
-// instance and type serving it, the requested model, and the provider
-// config. The attempt credential is pinned later by the pool.
-func (s *Service) meta(resolved *provider.Resolved, model models.ModelId) luaplugin.HandlerMeta {
+// instance and type serving it, the requested model, the provider config,
+// and the token allow-list of credential IDs the plugin may use.
+// A nil allow-list means unrestricted (admin probes).
+func (s *Service) meta(resolved *provider.Resolved, model models.ModelId, allowed []string) luaplugin.HandlerMeta {
 	return luaplugin.HandlerMeta{
-		ProviderID:     resolved.Instance.ID,
-		TypeKey:        resolved.Instance.TypeKey,
-		Model:          model,
-		ProviderConfig: resolved.Instance.Config,
+		ProviderID:         resolved.Instance.ID,
+		TypeKey:            resolved.Instance.TypeKey,
+		Model:              model,
+		ProviderConfig:     resolved.Instance.Config,
+		AllowedCredentials: allowed,
 	}
 }
 
-func (s *Service) loadCredentials(ctx context.Context, resolved *provider.Resolved, model models.ModelId, token *models.RouterToken) ([]*models.Credential, error) {
+// gateCredentials resolves the token allow-list of credential IDs for one
+// routed request. Types without credential surfaces (anonymous plugins)
+// skip the gate entirely: nil means unrestricted and no credentials are
+// required. Otherwise unavailable pools deny with NoCredential; token rules
+// filtering out every credential deny with CredentialNotAllowed. A nil
+// token means unrestricted: every available credential ID is allowed.
+// Virtual providers carry no credentials and skip the gate at the call site.
+func (s *Service) gateCredentials(ctx context.Context, resolved *provider.Resolved, model models.ModelId, token *models.RouterToken) ([]string, []*models.Credential, error) {
 	p := resolved.Instance
+	if resolved.IsLua() && !s.providerSvc.CredentialsEnabled(p.TypeKey) {
+		return nil, nil, nil
+	}
 	creds, err := s.credSvc.All(p.ID)
 	if err != nil {
 		s.logger.Debug("router: no available credentials", "provider_id", p.ID, "reason", "no_available_credentials")
-		return nil, fmt.Errorf("%w for provider %q", apierrors.ErrNoCredential, p.Name)
+		return nil, nil, fmt.Errorf("%w for provider %q", apierrors.ErrNoCredential, p.Name)
 	}
-	total := len(creds)
-	creds = s.dropExhausted(resolved, model, creds)
-	creds = s.filterCredentials(p.ID, creds, effectiveToken(ctx, token))
-	if len(creds) == 0 {
+	filtered := s.filterCredentials(p.ID, creds, effectiveToken(ctx, token))
+	if len(filtered) == 0 {
 		s.logger.Debug("router: credential pool empty after filtering",
 			"provider_id", p.ID, "model", model.String(), "reason", "empty_after_filter",
-			"total", total)
-		return nil, fmt.Errorf("%w for provider %q", apierrors.ErrCredentialNotAllowed, p.Name)
+			"total", len(creds))
+		return nil, nil, fmt.Errorf("%w for provider %q", apierrors.ErrCredentialNotAllowed, p.Name)
 	}
-	return creds, nil
-}
-
-// dropExhausted deprioritizes credentials whose joint combination (plugin,
-// provider instance, credential, model) matches a stored limit key: unlimited
-// first in pool order, limited after ordered by earliest reset first.
-// Matching runs on Lua-resolved providers only; Go backends carry no plugin
-// namespace. Provider identity is the specific configured instance
-// (resolved.Instance.ID), not the shared adapter type key: two instances of
-// one type (two "custom" endpoints, say) have independent quotas and must
-// not share a credential-less mark. Limited credentials stay in the pool as
-// last resort: a stale but unexpired mark must never deny a request that
-// could succeed.
-func (s *Service) dropExhausted(resolved *provider.Resolved, model models.ModelId, creds []*models.Credential) []*models.Credential {
-	if s.exhaustedSvc == nil || !resolved.IsLua() {
-		return creds
+	allowed := make([]string, 0, len(filtered))
+	for _, c := range filtered {
+		allowed = append(allowed, c.ID)
 	}
-	rec, err := s.providerSvc.LuaService().Lookup(resolved.Instance.TypeKey)
-	if err != nil {
-		return creds
-	}
-	type deferred struct {
-		cred     *models.Credential
-		resetsAt time.Time
-	}
-	clean := make([]*models.Credential, 0, len(creds))
-	var held []deferred
-	for _, c := range creds {
-		resetsAt, limited, err := s.exhaustedSvc.MatchExpiry(exhausted.Segments{
-			Plugin:     rec.ID,
-			Provider:   resolved.Instance.ID,
-			Credential: c.ID,
-			Model:      model.String(),
-		})
-		if err != nil {
-			s.logger.Warn("router: exhausted check failed, keeping credential",
-				"credential_id", c.ID, "error", err)
-			clean = append(clean, c)
-			continue
-		}
-		if !limited {
-			clean = append(clean, c)
-			continue
-		}
-		held = append(held, deferred{cred: c, resetsAt: resetsAt})
-	}
-	if len(held) == 0 {
-		return clean
-	}
-	sort.SliceStable(held, func(i, j int) bool {
-		return held[i].resetsAt.Before(held[j].resetsAt)
-	})
-	out := make([]*models.Credential, 0, len(creds))
-	out = append(out, clean...)
-	for _, h := range held {
-		out = append(out, h.cred)
-	}
-	return out
+	return allowed, filtered, nil
 }
 
 // checkEndpoint rejects the request when the cached model card declares an
@@ -247,7 +198,7 @@ func (s *Service) dropMissingModel(providerID, modelName string, err error) {
 		return
 	}
 	var perr *models.ProviderError
-	if !errors.As(err, &perr) || perr.Type != models.ErrorTypeNotFound {
+	if !errors.As(err, &perr) || perr.Code != "not_found" {
 		return
 	}
 	removed, rerr := s.modelInfoSvc.RemoveModel(providerID, modelName)
@@ -262,86 +213,9 @@ func (s *Service) dropMissingModel(providerID, modelName string, err error) {
 	}
 }
 
-// LikelyExhausted reports whether model is already known to be entirely
-// unusable: a model-wide limit key exists for its resolved provider,
-// independent of which credential or proxy would be tried. It is a cheap,
-// best-effort pre-check for a caller ordering several candidate models
-// (virtual-model fan-out): exhausted members move to the tail instead of
-// being skipped. It never touches the credential pool or the exhausted
-// store's credential/proxy dimensions, so it cannot detect "every credential
-// happens to be limited" short of an explicit model-wide mark.
-func (s *Service) LikelyExhausted(model models.ModelId) bool {
-	if s.exhaustedSvc == nil {
-		return false
-	}
-	providerID, _, err := model.Parse()
-	if err != nil {
-		return false
-	}
-	resolved, err := provider.Resolve(s.providerSvc, providerID)
-	if err != nil || !resolved.IsLua() {
-		return false
-	}
-	rec, err := s.providerSvc.LuaService().Lookup(resolved.Instance.TypeKey)
-	if err != nil {
-		return false
-	}
-	hit, err := s.exhaustedSvc.LimitedAny(exhausted.Segments{
-		Plugin:   rec.ID,
-		Provider: resolved.Instance.ID,
-		Model:    model.String(),
-	})
-	if err != nil {
-		return false
-	}
-	return hit != ""
-}
-
-// HasUsableCredential reports whether at least one credential for the model
-// is not rate-limited in the exhausted store. It checks per-credential-model
-// keys for every credential in the pool. A true result means the model is
-// worth attempting first; a false result means every credential is in
-// cooldown and the member belongs at the tail.
-func (s *Service) HasUsableCredential(model models.ModelId) bool {
-	if s.exhaustedSvc == nil {
-		return true
-	}
-	providerID, _, err := model.Parse()
-	if err != nil {
-		return true
-	}
-	resolved, err := provider.Resolve(s.providerSvc, providerID)
-	if err != nil || !resolved.IsLua() {
-		return true
-	}
-	rec, err := s.providerSvc.LuaService().Lookup(resolved.Instance.TypeKey)
-	if err != nil {
-		return true
-	}
-	creds, err := s.credSvc.All(resolved.Instance.ID)
-	if err != nil || len(creds) == 0 {
-		return true
-	}
-	for _, c := range creds {
-		hit, err := s.exhaustedSvc.LimitedAny(exhausted.Segments{
-			Plugin:     rec.ID,
-			Provider:   resolved.Instance.ID,
-			Credential: c.ID,
-			Model:      model.String(),
-		})
-		if err != nil {
-			return true
-		}
-		if hit == "" {
-			return true
-		}
-	}
-	return false
-}
-
-// Complete routes a non-streaming chat completion request. The backend tries
-// the credential pool in order, at most once per key; the first success wins
-// and the last error is returned as-is.
+// Complete routes a non-streaming chat completion request in a single
+// backend pass. Lua plugins run their own credential/proxy iteration and
+// return the first success or the terminal error as-is.
 func (s *Service) Complete(
 	ctx context.Context,
 	req *models.ChatCompletionRequest,
@@ -362,8 +236,8 @@ func (s *Service) complete(
 	return resp, err
 }
 
-// completeWithProxy is complete plus the redacted proxy host:port of the
-// last attempt ("" = direct).
+// completeWithProxy is complete plus a proxy placeholder kept for caller
+// compatibility. Plugins own proxy selection in 0.7.0: it always returns "".
 func (s *Service) completeWithProxy(
 	ctx context.Context,
 	req *models.ChatCompletionRequest,
@@ -379,15 +253,15 @@ func (s *Service) completeWithProxy(
 	// credentials of their own; the outer token snapshot in ctx still
 	// restricts the credentials of the member models tried inside.
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		return s.completeOne(ctx, resolved, nil, req)
+		return s.completeOne(ctx, resolved, nil, nil, req)
 	}
-	creds, err := s.loadCredentials(ctx, resolved, req.Model, token)
+	allowed, creds, err := s.gateCredentials(ctx, resolved, req.Model, token)
 	if err != nil {
 		return nil, "", err
 	}
-	resp, proxy, err := s.completeOne(ctx, resolved, creds, req)
+	resp, _, err := s.completeOne(ctx, resolved, creds, allowed, req)
 	s.dropMissingModel(rr.providerID, rr.modelName, err)
-	return resp, proxy, err
+	return resp, "", err
 }
 
 // CompleteStream routes a streaming chat completion request.
@@ -404,26 +278,27 @@ func (s *Service) CompleteStream(
 	}
 	resolved := rr.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		_, err := s.completeStreamOne(ctx, resolved, nil, req, w)
+		_, err := s.completeStreamOne(ctx, resolved, nil, nil, req, w)
 		return err
 	}
-	creds, err := s.loadCredentials(ctx, resolved, req.Model, token)
+	allowed, creds, err := s.gateCredentials(ctx, resolved, req.Model, token)
 	if err != nil {
 		return err
 	}
-	_, err = s.completeStreamOne(ctx, resolved, creds, req, w)
+	_, err = s.completeStreamOne(ctx, resolved, creds, allowed, req, w)
 	s.dropMissingModel(rr.providerID, rr.modelName, err)
 	return err
 }
 
-// transcribeOne runs a single transcription pass against the credential pool.
-func (s *Service) transcribeOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, req *models.TranscriptionRequest) (*models.TranscriptionResponse, string, error) {
+// transcribeOne runs a single transcription pass. Lua plugins iterate
+// credentials and proxies internally; Go adapters receive the gated pool.
+func (s *Service) transcribeOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, allowed []string, req *models.TranscriptionRequest) (*models.TranscriptionResponse, string, error) {
 	if resolved.IsLua() {
-		resp, proxy, err := s.providerSvc.LuaService().TranscribePool(ctx, s.meta(resolved, req.Model), creds, req)
+		resp, err := s.providerSvc.LuaService().Transcribe(ctx, s.meta(resolved, req.Model, allowed), req)
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
-			return nil, proxy, fmt.Errorf("%w: provider %q has no transcribe handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+			return nil, "", fmt.Errorf("%w: provider %q has no transcribe handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 		}
-		return resp, proxy, err
+		return resp, "", err
 	}
 	tr, ok := resolved.Go.(provider.Transcriber)
 	if !ok {
@@ -453,8 +328,8 @@ func (s *Service) transcribe(
 	return resp, err
 }
 
-// transcribeWithProxy is transcribe plus the redacted proxy host:port of
-// the last attempt ("" = direct).
+// transcribeWithProxy is transcribe plus a proxy placeholder kept for
+// caller compatibility. Plugins own proxy selection: it always returns "".
 func (s *Service) transcribeWithProxy(
 	ctx context.Context,
 	req *models.TranscriptionRequest,
@@ -469,7 +344,7 @@ func (s *Service) transcribeWithProxy(
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
 		return nil, "", fmt.Errorf("%w: virtual models do not serve audio transcription", apierrors.ErrEndpointNotSupported)
 	}
-	// Capability pre-check: fail loudly before touching the credential pool.
+	// Capability pre-check: fail loudly before touching the credential gate.
 	if resolved.IsLua() {
 		if !s.providerSvc.LuaService().HasHandler(resolved.Instance.TypeKey, "transcribe") {
 			return nil, "", fmt.Errorf("%w: provider %q has no transcribe handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
@@ -477,23 +352,24 @@ func (s *Service) transcribeWithProxy(
 	} else if _, ok := resolved.Go.(provider.Transcriber); !ok {
 		return nil, "", fmt.Errorf("%w: provider %q does not support audio transcription", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
-	creds, err := s.loadCredentials(ctx, resolved, req.Model, token)
+	allowed, creds, err := s.gateCredentials(ctx, resolved, req.Model, token)
 	if err != nil {
 		return nil, "", err
 	}
-	resp, proxy, err := s.transcribeOne(ctx, resolved, creds, req)
+	resp, _, err := s.transcribeOne(ctx, resolved, creds, allowed, req)
 	s.dropMissingModel(rr.providerID, rr.modelName, err)
-	return resp, proxy, err
+	return resp, "", err
 }
 
-// speechOne runs a single speech pass against the credential pool.
-func (s *Service) speechOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, req *models.SpeechRequest) (*models.SpeechResponse, string, error) {
+// speechOne runs a single speech pass. Lua plugins iterate internally;
+// Go adapters receive the gated pool.
+func (s *Service) speechOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, allowed []string, req *models.SpeechRequest) (*models.SpeechResponse, string, error) {
 	if resolved.IsLua() {
-		resp, proxy, err := s.providerSvc.LuaService().SpeechPool(ctx, s.meta(resolved, req.Model), creds, req)
+		resp, err := s.providerSvc.LuaService().Speech(ctx, s.meta(resolved, req.Model, allowed), req)
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
-			return nil, proxy, fmt.Errorf("%w: provider %q has no speech handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+			return nil, "", fmt.Errorf("%w: provider %q has no speech handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 		}
-		return resp, proxy, err
+		return resp, "", err
 	}
 	sp, ok := resolved.Go.(provider.Speaker)
 	if !ok {
@@ -523,8 +399,8 @@ func (s *Service) speech(
 	return resp, err
 }
 
-// speechWithProxy is speech plus the redacted proxy host:port of the last
-// attempt ("" = direct).
+// speechWithProxy is speech plus a proxy placeholder kept for caller
+// compatibility. Plugins own proxy selection: it always returns "".
 func (s *Service) speechWithProxy(
 	ctx context.Context,
 	req *models.SpeechRequest,
@@ -539,7 +415,7 @@ func (s *Service) speechWithProxy(
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
 		return nil, "", fmt.Errorf("%w: virtual models do not serve text-to-speech", apierrors.ErrEndpointNotSupported)
 	}
-	// Capability pre-check: fail loudly before touching the credential pool.
+	// Capability pre-check: fail loudly before touching the credential gate.
 	if resolved.IsLua() {
 		if !s.providerSvc.LuaService().HasHandler(resolved.Instance.TypeKey, "speech") {
 			return nil, "", fmt.Errorf("%w: provider %q has no speech handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
@@ -547,23 +423,24 @@ func (s *Service) speechWithProxy(
 	} else if _, ok := resolved.Go.(provider.Speaker); !ok {
 		return nil, "", fmt.Errorf("%w: provider %q does not support text-to-speech", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
-	creds, err := s.loadCredentials(ctx, resolved, req.Model, token)
+	allowed, creds, err := s.gateCredentials(ctx, resolved, req.Model, token)
 	if err != nil {
 		return nil, "", err
 	}
-	resp, proxy, err := s.speechOne(ctx, resolved, creds, req)
+	resp, _, err := s.speechOne(ctx, resolved, creds, allowed, req)
 	s.dropMissingModel(rr.providerID, rr.modelName, err)
-	return resp, proxy, err
+	return resp, "", err
 }
 
-// generateImageOne runs a single image generation pass against the credential pool.
-func (s *Service) generateImageOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, req *models.ImageGenerationRequest) (*models.ImageGenerationResponse, string, error) {
+// generateImageOne runs a single image generation pass. Lua plugins iterate
+// internally; Go adapters receive the gated pool.
+func (s *Service) generateImageOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, allowed []string, req *models.ImageGenerationRequest) (*models.ImageGenerationResponse, string, error) {
 	if resolved.IsLua() {
-		resp, proxy, err := s.providerSvc.LuaService().GenerateImagePool(ctx, s.meta(resolved, req.Model), creds, req)
+		resp, err := s.providerSvc.LuaService().GenerateImage(ctx, s.meta(resolved, req.Model, allowed), req)
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
-			return nil, proxy, fmt.Errorf("%w: provider %q has no generate_image handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+			return nil, "", fmt.Errorf("%w: provider %q has no generate_image handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 		}
-		return resp, proxy, err
+		return resp, "", err
 	}
 	ig, ok := resolved.Go.(provider.ImageGenerator)
 	if !ok {
@@ -593,8 +470,8 @@ func (s *Service) generateImage(
 	return resp, err
 }
 
-// generateImageWithProxy is generateImage plus the redacted proxy host:port
-// of the last attempt ("" = direct).
+// generateImageWithProxy is generateImage plus a proxy placeholder kept
+// for caller compatibility. Plugins own proxy selection: always "".
 func (s *Service) generateImageWithProxy(
 	ctx context.Context,
 	req *models.ImageGenerationRequest,
@@ -609,7 +486,7 @@ func (s *Service) generateImageWithProxy(
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
 		return nil, "", fmt.Errorf("%w: virtual models do not serve image generation", apierrors.ErrEndpointNotSupported)
 	}
-	// Capability pre-check: fail loudly before touching the credential pool.
+	// Capability pre-check: fail loudly before touching the credential gate.
 	if resolved.IsLua() {
 		if !s.providerSvc.LuaService().HasHandler(resolved.Instance.TypeKey, "generate_image") {
 			return nil, "", fmt.Errorf("%w: provider %q has no generate_image handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
@@ -617,23 +494,24 @@ func (s *Service) generateImageWithProxy(
 	} else if _, ok := resolved.Go.(provider.ImageGenerator); !ok {
 		return nil, "", fmt.Errorf("%w: provider %q does not support image generation", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
-	creds, err := s.loadCredentials(ctx, resolved, req.Model, token)
+	allowed, creds, err := s.gateCredentials(ctx, resolved, req.Model, token)
 	if err != nil {
 		return nil, "", err
 	}
-	resp, proxy, err := s.generateImageOne(ctx, resolved, creds, req)
+	resp, _, err := s.generateImageOne(ctx, resolved, creds, allowed, req)
 	s.dropMissingModel(rr.providerID, rr.modelName, err)
-	return resp, proxy, err
+	return resp, "", err
 }
 
-// embedOne runs a single embeddings pass against the credential pool.
-func (s *Service) embedOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, req *models.EmbeddingsRequest) (*models.EmbeddingsResponse, string, error) {
+// embedOne runs a single embeddings pass. Lua plugins iterate internally;
+// Go adapters receive the gated pool.
+func (s *Service) embedOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, allowed []string, req *models.EmbeddingsRequest) (*models.EmbeddingsResponse, string, error) {
 	if resolved.IsLua() {
-		resp, proxy, err := s.providerSvc.LuaService().EmbedPool(ctx, s.meta(resolved, req.Model), creds, req)
+		resp, err := s.providerSvc.LuaService().Embed(ctx, s.meta(resolved, req.Model, allowed), req)
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
-			return nil, proxy, fmt.Errorf("%w: provider %q has no embed handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+			return nil, "", fmt.Errorf("%w: provider %q has no embed handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 		}
-		return resp, proxy, err
+		return resp, "", err
 	}
 	em, ok := resolved.Go.(provider.Embedder)
 	if !ok {
@@ -663,8 +541,8 @@ func (s *Service) embed(
 	return resp, err
 }
 
-// embedWithProxy is embed plus the redacted proxy host:port of the last
-// attempt ("" = direct).
+// embedWithProxy is embed plus a proxy placeholder kept for caller
+// compatibility. Plugins own proxy selection: it always returns "".
 func (s *Service) embedWithProxy(
 	ctx context.Context,
 	req *models.EmbeddingsRequest,
@@ -679,7 +557,7 @@ func (s *Service) embedWithProxy(
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
 		return nil, "", fmt.Errorf("%w: virtual models do not serve embeddings", apierrors.ErrEndpointNotSupported)
 	}
-	// Capability pre-check: fail loudly before touching the credential pool.
+	// Capability pre-check: fail loudly before touching the credential gate.
 	if resolved.IsLua() {
 		if !s.providerSvc.LuaService().HasHandler(resolved.Instance.TypeKey, "embed") {
 			return nil, "", fmt.Errorf("%w: provider %q has no embed handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
@@ -687,13 +565,13 @@ func (s *Service) embedWithProxy(
 	} else if _, ok := resolved.Go.(provider.Embedder); !ok {
 		return nil, "", fmt.Errorf("%w: provider %q does not support embeddings", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
-	creds, err := s.loadCredentials(ctx, resolved, req.Model, token)
+	allowed, creds, err := s.gateCredentials(ctx, resolved, req.Model, token)
 	if err != nil {
 		return nil, "", err
 	}
-	resp, proxy, err := s.embedOne(ctx, resolved, creds, req)
+	resp, _, err := s.embedOne(ctx, resolved, creds, allowed, req)
 	s.dropMissingModel(rr.providerID, rr.modelName, err)
-	return resp, proxy, err
+	return resp, "", err
 }
 
 // GetProviderIDForModel returns the composite provider ID for a given model.

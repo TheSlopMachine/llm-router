@@ -138,8 +138,8 @@ func InstallPlugin(web, pluginType string, source []byte) (bool, error) {
 	if v != "" {
 		for _, p := range rows {
 			for _, k := range p.TypeKeys {
-				if k == pluginType {
-					return p.Version != v, nil
+				if k == pluginType && p.Version == v {
+					return false, nil
 				}
 			}
 		}

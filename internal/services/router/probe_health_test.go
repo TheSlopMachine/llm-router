@@ -7,7 +7,6 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
-	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
@@ -19,12 +18,12 @@ import (
 const healthProbePluginSource = `--- @plugin Health Probe
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("health-probe-type", {
-  complete = function(ctx, credential, request)
-    return nil, { type = "upstream", message = "unused" }
+  complete = function(ctx, request)
+    return nil, { message = "unused", code = "server_error" }
   end,
 
   check_health = function(ctx, credential)
@@ -73,7 +72,7 @@ func setupHealthProbeRouter(t *testing.T) (*Service, string, *models.Credential,
 	dead := add("dead", "dead-key")
 	flaky := add("flaky", "flaky-key")
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
-	routerSvc := New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), nil, nil, slog.Default())
+	routerSvc := New(providerSvc, credSvc, modelInfoSvc, videojobs.New(database), nil, nil, slog.Default())
 	return routerSvc, inst.ID, live, dead, flaky
 }
 
@@ -91,6 +90,12 @@ func TestRouterService_TestCredentialHealthy(t *testing.T) {
 
 func TestRouterService_TestCredentialUnhealthyDisables(t *testing.T) {
 	svc, providerID, _, dead, _ := setupHealthProbeRouter(t)
+	if _, err := svc.providerSvc.Update(providerID, provider.UpdateOptions{
+		Name:   "Health",
+		Config: map[string]any{"disable_failed_credentials": true},
+	}); err != nil {
+		t.Fatalf("enable automation: %v", err)
+	}
 	res := svc.TestCredential(context.Background(), providerID, dead.ID, "")
 	if res.OK || res.Code != "unhealthy" {
 		t.Fatalf("unhealthy must fail with code: %+v", res)
@@ -98,6 +103,21 @@ func TestRouterService_TestCredentialUnhealthyDisables(t *testing.T) {
 	got, err := svc.credSvc.Get(dead.ID)
 	if err != nil || !got.Disabled || got.DisabledBy != "healthcheck" {
 		t.Fatalf("unhealthy must disable by healthcheck: %+v %v", got, err)
+	}
+}
+
+func TestRouterService_TestCredentialUnhealthyKeepsWhenAutomationOff(t *testing.T) {
+	svc, providerID, _, dead, _ := setupHealthProbeRouter(t)
+	res := svc.TestCredential(context.Background(), providerID, dead.ID, "")
+	if res.OK || res.Code != "unhealthy" {
+		t.Fatalf("unhealthy must fail with code: %+v", res)
+	}
+	if res.Summary != "credential unhealthy" {
+		t.Fatalf("summary must not claim a disable: %+v", res)
+	}
+	got, err := svc.credSvc.Get(dead.ID)
+	if err != nil || got.Disabled {
+		t.Fatalf("automation off must keep the credential enabled: %+v %v", got, err)
 	}
 }
 
@@ -115,10 +135,21 @@ func TestRouterService_TestCredentialUnknownKeeps(t *testing.T) {
 
 func TestRouterService_TestCredentialUnsupported(t *testing.T) {
 	svc, _, _, _, _ := setupHealthProbeRouter(t)
-	if _, err := svc.providerSvc.LuaService().Install([]byte(exhEchoPluginSource), luaplugin.PluginOrigin{Manual: true}); err != nil {
-		t.Fatalf("install echo plugin: %v", err)
+	if _, err := svc.providerSvc.LuaService().Install([]byte(`--- @plugin Plain Plugin
+--- @author tester
+--- @version 1.0.0
+--- @router_version 0.7.0
+--- @allow_host example.com
+
+llm_router.register("plain-type", {
+  complete = function(ctx, request)
+    return nil, { message = "plain", code = "server_error" }
+  end,
+  validate_credentials = function(data) return true end,
+})`), luaplugin.PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install plain plugin: %v", err)
 	}
-	inst, err := svc.providerSvc.Create(provider.CreateOptions{Name: "Plain", TypeKey: "exh-type"})
+	inst, err := svc.providerSvc.Create(provider.CreateOptions{Name: "Plain", TypeKey: "plain-type"})
 	if err != nil {
 		t.Fatalf("create plain provider: %v", err)
 	}

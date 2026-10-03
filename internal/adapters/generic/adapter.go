@@ -7,32 +7,19 @@ import (
 	"io"
 	"log/slog"
 	"strings"
-	"time"
 
-	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
-	"github.com/TheSlopMachine/llm-router/internal/pool"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 )
 
 const adapterTypeKey = "custom"
 
-// UsageTracker records per-credential outcomes. It is implemented by the
-// credential pool service and injected via SetUsageTracker.
-type UsageTracker = pool.UsageTracker
-
 // Adapter implements the generic OpenAI-compatible backend for "custom" providers.
 type Adapter struct {
-	usage  UsageTracker
 	logger *slog.Logger
 }
 
-// SetUsageTracker wires per-credential usage accounting for pool calls.
-// Unset (nil) disables accounting; attempts still run.
-func (a *Adapter) SetUsageTracker(t UsageTracker) { a.usage = t }
-
-// SetLogger wires the logger for pool failover lines. Unset falls back to
-// slog.Default inside the pool.
+// SetLogger wires the logger for backend lines.
 func (a *Adapter) SetLogger(l *slog.Logger) { a.logger = l }
 
 func (a *Adapter) TypeKey() string { return adapterTypeKey }
@@ -75,17 +62,19 @@ func (a *Adapter) Complete(
 		return nil, fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
-	log := a.logger
-	if log != nil {
-		log = log.With("model", req.Model.String())
-	}
-	return pool.Run(ctx, log, creds, a.usage, func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
+	var lastErr error
+	for _, cred := range creds {
 		var apiKey string
 		if cred != nil {
 			apiKey = cred.DataString("api_key")
 		}
-		return client.ChatCompletion(ctx, apiKey, modelName, req)
-	}, nil, nil)
+		resp, err := client.ChatCompletion(ctx, apiKey, modelName, req)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
 }
 
 func (a *Adapter) CompleteStream(
@@ -110,17 +99,22 @@ func (a *Adapter) CompleteStream(
 		return fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
-	log := a.logger
-	if log != nil {
-		log = log.With("model", req.Model.String())
-	}
-	return pool.RunStream(ctx, log, w, creds, a.usage, func(ctx context.Context, cred *models.Credential, w io.Writer) error {
+	var lastErr error
+	for _, cred := range creds {
 		var apiKey string
 		if cred != nil {
 			apiKey = cred.DataString("api_key")
 		}
-		return client.ChatCompletionStream(ctx, apiKey, modelName, req, w)
-	}, nil, nil)
+		if err := client.ChatCompletionStream(ctx, apiKey, modelName, req, w); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no credentials available")
+	}
+	return lastErr
 }
 
 func (a *Adapter) NeedsRefresh(cred *models.Credential) bool { return false }
@@ -168,17 +162,19 @@ func (a *Adapter) SubmitVideo(
 		return nil, fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
-	log := a.logger
-	if log != nil {
-		log = log.With("model", req.Model.String())
-	}
-	return pool.Run(ctx, log, creds, a.usage, func(ctx context.Context, cred *models.Credential) (*models.VideoGenerationResponse, error) {
+	var lastErr error
+	for _, cred := range creds {
 		var apiKey string
 		if cred != nil {
 			apiKey = cred.DataString("api_key")
 		}
-		return client.SubmitVideo(ctx, apiKey, modelName, req)
-	}, nil, nil)
+		resp, err := client.SubmitVideo(ctx, apiKey, modelName, req)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
 }
 
 // PollVideo routes one video status poll over the credential pool.
@@ -204,17 +200,19 @@ func (a *Adapter) PollVideo(
 		return nil, fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
-	log := a.logger
-	if log != nil {
-		log = log.With("model", model.String())
-	}
-	return pool.Run(ctx, log, creds, a.usage, func(ctx context.Context, cred *models.Credential) (*models.VideoGenerationResponse, error) {
+	var lastErr error
+	for _, cred := range creds {
 		var apiKey string
 		if cred != nil {
 			apiKey = cred.DataString("api_key")
 		}
-		return client.PollVideo(ctx, apiKey, upstreamJobID)
-	}, nil, nil)
+		resp, err := client.PollVideo(ctx, apiKey, upstreamJobID)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
 }
 
 // VideoContent routes one video asset download over the credential pool.
@@ -241,31 +239,44 @@ func (a *Adapter) VideoContent(
 		return nil, fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
-	log := a.logger
-	if log != nil {
-		log = log.With("model", model.String())
-	}
-	return pool.Run(ctx, log, creds, a.usage, func(ctx context.Context, cred *models.Credential) (*models.VideoContentResponse, error) {
+	var lastErr error
+	for _, cred := range creds {
 		var apiKey string
 		if cred != nil {
 			apiKey = cred.DataString("api_key")
 		}
-		return client.VideoContent(ctx, apiKey, upstreamJobID, index)
-	}, nil, nil)
+		resp, err := client.VideoContent(ctx, apiKey, upstreamJobID, index)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
 }
 
-// classifyHTTPError maps upstream status codes to the error contract.
-// Structured code/type fields of the upstream envelope decide; message
-// text never does.
+// classifyHTTPError maps upstream status codes to terminal OpenAI-shaped
+// errors. The body rides the message (bounded); message text never decides
+// the code.
 func classifyHTTPError(status int, body string) error {
-	code, errType, message := apierrors.ParseEnvelope(body)
+	message := strings.TrimSpace(body)
 	if message == "" {
-		message = fmt.Sprintf("unexpected status %d: %s", status, body)
+		message = fmt.Sprintf("unexpected status %d", status)
 	}
-	perr := apierrors.MapUpstream(status, code, errType, message)
-	if (perr.Type == models.ErrorTypeQuotaExceeded || perr.Type == models.ErrorTypeRateLimit) && perr.RetryAfter == nil {
-		retryAfter := time.Now().Add(time.Minute)
-		perr.RetryAfter = &retryAfter
+	if len(message) > 1024 {
+		message = message[:1024] + "…[truncated]"
 	}
-	return perr
+	code := "server_error"
+	switch status {
+	case 400:
+		code = "invalid_request_error"
+	case 401:
+		code = "authentication_error"
+	case 402:
+		code = "payment_required"
+	case 404:
+		code = "not_found"
+	case 429:
+		code = "rate_limit"
+	}
+	return &models.ProviderError{StatusCode: status, Message: message, Code: code}
 }

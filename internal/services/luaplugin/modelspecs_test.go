@@ -11,11 +11,11 @@ import (
 const specPluginSource = `--- @plugin Spec Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("spec-type", {
-  complete = function(ctx, credential, request)
+  complete = function(ctx, request)
     return {
       id = "chatcmpl-spec", object = "chat.completion", created = 1700000000,
       model = request.model,
@@ -26,7 +26,7 @@ llm_router.register("spec-type", {
     }
   end,
 
-  get_model_infos = function(ctx, credential, provider_config)
+  get_model_infos = function(ctx)
     return {
       { name = "m-one", display_name = "One", context_window = 1000 },
       { name = "m-two", display_name = "Two" },
@@ -45,11 +45,11 @@ func TestInstallRejectsBadModelSpecs(t *testing.T) {
 	nonTable := `--- @plugin Spec Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("spec-type", {
-  complete = function(ctx, credential, request) return nil, { type = "upstream", message = "x" } end,
+  complete = function(ctx, request) return nil, { message = "x", code = "server_error" } end,
   model_specs = 42,
 })
 `
@@ -79,7 +79,7 @@ func TestGetModelInfosAppliesSpecs(t *testing.T) {
 	if _, err := svc.Install([]byte(specPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	infos, err := svc.GetModelInfos(t.Context(), "spec-type", &models.Credential{ID: "c1"}, nil)
+	infos, err := svc.GetModelInfos(t.Context(), "spec-provider", "spec-type", nil)
 	if err != nil {
 		t.Fatalf("get_model_infos: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestRollbackRestoresModelSpecs(t *testing.T) {
 	if _, err := svc.Install([]byte(v2), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install v2: %v", err)
 	}
-	infos, err := svc.GetModelInfos(t.Context(), "spec-type", &models.Credential{ID: "c1"}, nil)
+	infos, err := svc.GetModelInfos(t.Context(), "spec-provider", "spec-type", nil)
 	if err != nil || infos[0].ContextWindow != 300000 {
 		t.Fatalf("v2 specs: %+v %v", infos, err)
 	}
@@ -162,7 +162,7 @@ func TestRollbackRestoresModelSpecs(t *testing.T) {
 	if got := rolled.ModelSpecs["spec-type"]["m-one"].ContextWindow; got != 200000 {
 		t.Fatalf("rolled-back specs: got %d", got)
 	}
-	infos, err = svc.GetModelInfos(t.Context(), "spec-type", &models.Credential{ID: "c1"}, nil)
+	infos, err = svc.GetModelInfos(t.Context(), "spec-provider", "spec-type", nil)
 	if err != nil || infos[0].ContextWindow != 200000 {
 		t.Fatalf("specs after rollback: %+v %v", infos, err)
 	}

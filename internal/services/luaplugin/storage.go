@@ -4,14 +4,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	lua "github.com/yuin/gopher-lua"
 	bolt "go.etcd.io/bbolt"
 )
 
+// maxStorageTTL bounds entry lifetimes to 90 days.
+const maxStorageTTL = 90 * 24 * time.Hour
+
 // storageBackend persists llm_router.storage.* entries in BucketPluginStorage
 // under the composite key pluginID + "\x00" + scope + "\x00" + key.
+// Values carry an optional expiry: expired rows read as missing and are
+// removed on read.
 type storageBackend struct {
 	database *db.DB
 }
@@ -35,14 +41,31 @@ func ParseStorageKey(raw string) (pluginID, scope, key string, ok bool) {
 	return parts[0], parts[1], parts[2], true
 }
 
-func (b *storageBackend) set(pluginID, scope, key string, value any) error {
+// storageEnvelope wraps every stored value with an optional expiry.
+type storageEnvelope struct {
+	Value     any        `json:"value"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+func (b *storageBackend) set(pluginID, scope, key string, value any, ttl time.Duration) error {
 	if strings.TrimSpace(scope) == "" {
 		return fmt.Errorf("storage scope is required")
 	}
 	if strings.TrimSpace(key) == "" {
 		return fmt.Errorf("storage key is required")
 	}
-	raw, err := json.Marshal(value)
+	if ttl < 0 {
+		return fmt.Errorf("storage ttl must not be negative")
+	}
+	if ttl > maxStorageTTL {
+		return fmt.Errorf("storage ttl exceeds 90 days")
+	}
+	env := storageEnvelope{Value: value}
+	if ttl > 0 {
+		exp := time.Now().UTC().Add(ttl)
+		env.ExpiresAt = &exp
+	}
+	raw, err := json.Marshal(env)
 	if err != nil {
 		return fmt.Errorf("marshal storage value: %w", err)
 	}
@@ -80,11 +103,32 @@ func (b *storageBackend) get(pluginID, scope, key string) (any, error) {
 	if raw == nil {
 		return nil, nil
 	}
-	var out any
-	if err := json.Unmarshal(raw, &out); err != nil {
+	var shape map[string]any
+	if err := json.Unmarshal(raw, &shape); err != nil || shape == nil {
+		// Pre-0.7.0 rows hold bare scalars: serve them without expiry.
+		var bare any
+		if berr := json.Unmarshal(raw, &bare); berr != nil {
+			return nil, fmt.Errorf("decode storage value: %w", err)
+		}
+		return bare, nil
+	}
+	if _, ok := shape["value"]; !ok {
+		// Pre-0.7.0 rows hold bare objects: serve them without expiry.
+		var bare any
+		if berr := json.Unmarshal(raw, &bare); berr != nil {
+			return nil, fmt.Errorf("decode storage value: %w", err)
+		}
+		return bare, nil
+	}
+	var env storageEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
 		return nil, fmt.Errorf("decode storage value: %w", err)
 	}
-	return out, nil
+	if env.ExpiresAt != nil && !time.Now().UTC().Before(*env.ExpiresAt) {
+		_ = b.delete(pluginID, scope, key)
+		return nil, nil
+	}
+	return env.Value, nil
 }
 
 func (b *storageBackend) delete(pluginID, scope, key string) error {
@@ -134,11 +178,27 @@ func newStorageTable(L *lua.LState, ctx *execContext) *lua.LTable {
 			L.RaiseError("llm_router.storage.set: %s", verr.Error())
 			return 0
 		}
+		var ttl time.Duration
+		if opts := L.Get(4); opts != lua.LNil {
+			optsTbl, ok := opts.(*lua.LTable)
+			if !ok {
+				L.RaiseError("llm_router.storage.set: options must be a table")
+				return 0
+			}
+			if tv := optsTbl.RawGetString("ttl"); tv != lua.LNil {
+				n, ok := tv.(lua.LNumber)
+				if !ok {
+					L.RaiseError("llm_router.storage.set: ttl must be a number of seconds")
+					return 0
+				}
+				ttl = time.Duration(float64(n) * float64(time.Second))
+			}
+		}
 		if ctx == nil || ctx.storage == nil {
 			L.RaiseError("llm_router.storage: no execution context")
 			return 0
 		}
-		if err := ctx.storage.set(ctx.pluginID, scope, key, val); err != nil {
+		if err := ctx.storage.set(ctx.pluginID, scope, key, val, ttl); err != nil {
 			L.RaiseError("llm_router.storage.set: %s", err.Error())
 			return 0
 		}

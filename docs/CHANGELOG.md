@@ -1,5 +1,15 @@
 # Changelog
 
+## Done (2026-10-03, v0.7.0)
+
+- Decentralized request orchestration to Lua plugins: credential selection, proxy selection, retry loops and rate-limit handling moved out of the core router into plugin code. Removed the credential failover pool, the stream first-byte gate package, router credential ordering and usage accounting, the exhausted joint-key store, geo bans, proxy rank/metadata/source policy, provider proxy mode/retry config and the `classify_error` slot plus helper.
+- Shipped the 0.7.0 plugin runtime: explicit per-request `proxy_url` on the HTTP client with router-owned TLS-fault `MarkDead`, read-only `proxies.query` over the free pool and custom pools, `credentials.list/get` plus job-only `credentials.update`, KV `storage.set` with TTL, static schema tables (`credential_schema`, `config_schema`, `settings_schema`, `proxy_schema`) with presence-driven dashboard surfaces, and colocated `jobs` with interval/startup/timeout schedules. Terminal errors are OpenAI-shaped (`message`, `code`, `param`, `status`) and render verbatim.
+- Replaced credential refresh with the plugin job scheduler: per-provider-instance tickers with overlap-skip and a 4-worker bound, `run_on_startup` jobs before listen, model autosync and auth cleanup retained, plus a dashboard manual job trigger.
+- Purged legacy state without backward compatibility: dropped `exhausted`, `geo_bans`, `providers`, `custom_providers`, `model_info`, `proxies`, `proxies_v2`, `active_regions`, `proxy_source_meta` and `proxy_limits` buckets on open; added the `custom_pools` bucket with Proxies-page CRUD and a provider pool selector defaulting to direct.
+- Rewrote all dashboard and `/v1` error paths around terminal plugin errors: no `MapUpstream`, no envelope parsing, no `Retry-After` synthesis, no per-route reclassification. Rewrote the mock provider to the 0.7.0 contract and extended the smoke harness skip codes with `insufficient_quota`.
+- Made the provider `disable_failed_credentials` switch master every non-manual credential disable: single probes and detached health checks report `unhealthy` without disabling while off, and disable as before while on. Threaded the provider ID into discovery so `credentials.list()` sees the provider's rows; empty pools yield empty lists via `ListUsable` instead of errors.
+- Unified the credential-disabled state across dashboard and plugins: `credentials.disable/enable` set the shared flag (`DisabledBy="plugin"`, first-wins, plugin restore clears only plugin causes), gated on the automation switch; KV parking stays for transient cooldowns while dead keys disable visibly.
+
 ## Done (2026-10-03, v0.5.3)
 
 - Unified same-credential proxy retries under one provider `proxy_retry` policy (`fail_fast`/`next_proxy`, `max_attempts` 1..10, default 3): geo blocks, proxy-scoped rate/quota limits, transport failures and overloads now share a single attempt budget instead of the detached geo count plus the hardcoded route budget of three. Legacy `geo` sections migrated to `proxy_retry` at startup. Credential failover and stream first-byte rules stayed unchanged.

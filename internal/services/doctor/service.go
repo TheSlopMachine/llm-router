@@ -8,7 +8,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
-	"github.com/TheSlopMachine/llm-router/internal/services/geoban"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
@@ -24,7 +23,6 @@ const (
 	CategoryOrphanCredentials      IssueCategory = "orphan_credentials"
 	CategoryOrphanModelOverrides   IssueCategory = "orphan_model_overrides"
 	CategoryOrphanModelInfos       IssueCategory = "orphan_model_infos"
-	CategoryOrphanGeoBans          IssueCategory = "orphan_geo_bans"
 	CategoryOrphanVirtualModels    IssueCategory = "orphan_virtual_models"
 	CategoryDuplicateVirtualModels IssueCategory = "duplicate_virtual_models"
 	CategoryOrphanPluginStorage    IssueCategory = "orphan_plugin_storage"
@@ -55,7 +53,6 @@ type Service struct {
 	proxySvc     *proxypool.Service
 	luaSvc       *luaplugin.Service
 	modelInfoSvc *modelinfo.Service
-	geobanSvc    *geoban.Service
 }
 
 func New(
@@ -67,7 +64,6 @@ func New(
 	proxySvc *proxypool.Service,
 	luaSvc *luaplugin.Service,
 	modelInfoSvc *modelinfo.Service,
-	geobanSvc *geoban.Service,
 ) *Service {
 	return &Service{
 		db:           database,
@@ -78,7 +74,6 @@ func New(
 		proxySvc:     proxySvc,
 		luaSvc:       luaSvc,
 		modelInfoSvc: modelInfoSvc,
-		geobanSvc:    geobanSvc,
 	}
 }
 
@@ -224,38 +219,7 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 		})
 	}
 
-	// 3. Orphan Geo Bans. Geo flags stay keyed by adapter type (shared
-	// upstream region policy), so a stored provider value is valid when it
-	// names either a live instance ID or a live adapter type key.
-	var orphanGeoBanKeys []string
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		bBans := tx.Bucket(db.BucketGeoBans)
-		if bBans != nil {
-			_ = bBans.ForEach(func(k, v []byte) error {
-				var entry models.GeoBanEntry
-				if err := json.Unmarshal(v, &entry); err == nil {
-					providerLive := entry.Provider == "" || validProviders[entry.Provider] || validProviderTypes[entry.Provider]
-					if !providerLive || (entry.Proxy != "" && !validProxies[entry.Proxy]) {
-						orphanGeoBanKeys = append(orphanGeoBanKeys, string(k))
-					}
-				}
-				return nil
-			})
-		}
-		return nil
-	})
-
-	if len(orphanGeoBanKeys) > 0 {
-		issues = append(issues, Issue{
-			Category:    CategoryOrphanGeoBans,
-			Title:       "Orphan Geo Bans",
-			Description: "Geo ban entries for deleted providers or proxies",
-			Count:       len(orphanGeoBanKeys),
-			Keys:        orphanGeoBanKeys,
-		})
-	}
-
-	// 4. Virtual Models issues (orphan managedBy or duplicate names)
+	// 3. Virtual Models issues (orphan managedBy or duplicate names)
 	if vms, err := s.virtualSvc.List(); err == nil {
 		var orphanVmKeys []string
 		var duplicateVmKeys []string
@@ -445,19 +409,6 @@ func (s *Service) Fix(categories []IssueCategory) (int, error) {
 		case CategoryOrphanModelInfos:
 			_ = s.db.Update(func(tx *bolt.Tx) error {
 				b := tx.Bucket(db.BucketModelInfos)
-				if b != nil {
-					for _, k := range issue.Keys {
-						if err := b.Delete([]byte(k)); err == nil {
-							totalFixed++
-						}
-					}
-				}
-				return nil
-			})
-
-		case CategoryOrphanGeoBans:
-			_ = s.db.Update(func(tx *bolt.Tx) error {
-				b := tx.Bucket(db.BucketGeoBans)
 				if b != nil {
 					for _, k := range issue.Keys {
 						if err := b.Delete([]byte(k)); err == nil {

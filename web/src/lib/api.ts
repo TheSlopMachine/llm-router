@@ -1,5 +1,5 @@
 import { apiCall as _apiCall } from './api-client'
-import type { Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate, ProviderModel, ProviderVMGroup, TestResult, Proxy, ProxyStatus, ProxySourceInfo, SubsystemStats, DoctorReport, DoctorCategory, ProviderBundle } from './types'
+import type { Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, ProxySchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate, ProviderModel, ProviderVMGroup, TestResult, Proxy, ProxyStatus, ProxySourceInfo, ProxyPool, SubsystemStats, DoctorReport, DoctorCategory, ProviderBundle } from './types'
 
 const apiCall = _apiCall
 
@@ -119,6 +119,15 @@ export const api = {
 
     credentialSchema: (id: string): Promise<SchemaResponse> =>
       fetch(`/api/llm-router/dashboard/providers/${encodeURIComponent(id)}/credential-schema`).then(assertOk),
+
+    settingsSchema: (id: string): Promise<SchemaResponse> =>
+      fetch(`/api/llm-router/dashboard/providers/${encodeURIComponent(id)}/settings-schema`).then(assertOk),
+
+    proxySchema: (id: string): Promise<ProxySchemaResponse> =>
+      fetch(`/api/llm-router/dashboard/providers/${encodeURIComponent(id)}/proxy-schema`).then(assertOk),
+
+    runJob: (id: string, job: string): Promise<{ ok: boolean }> =>
+      postJson(`/api/llm-router/dashboard/providers/${encodeURIComponent(id)}/jobs/${encodeURIComponent(job)}`, {}),
   },
 
   // Auth wizards (lua UI-tree)
@@ -231,14 +240,11 @@ export const api = {
     update: (id: string, payload: { label?: string; disabled?: boolean; data?: Record<string, unknown> }) =>
       putJson(`/api/llm-router/dashboard/credentials/${id}`, payload),
 
-    reorder: (providerId: string, ids: string[]) =>
-      putJson('/api/llm-router/dashboard/credentials/reorder', { provider_id: providerId, ids }),
-
     test: (id: string, model?: string): Promise<TestResult> =>
       postJson(`/api/llm-router/dashboard/credentials/${id}/test`, model ? { model } : {}),
 
-    refresh: (id: string): Promise<{ ok: boolean }> =>
-      postJson(`/api/llm-router/dashboard/credentials/${id}/refresh`, {}),
+    unpark: (id: string): Promise<{ ok: boolean }> =>
+      postJson(`/api/llm-router/dashboard/credentials/${id}/unpark`, {}),
 
     delete: (id: string) =>
       apiCall('delete', `/api/llm-router/dashboard/credentials/${id}` as '/api/llm-router/dashboard/credentials/{id}'),
@@ -328,6 +334,17 @@ export const api = {
     status: async (): Promise<ProxyStatus> => {
       const res = await fetch('/api/llm-router/dashboard/proxy/status')
       return (await assertOk(res)) as ProxyStatus
+    },
+    pools: {
+      list: async (): Promise<ProxyPool[]> => {
+        const res = await fetch('/api/llm-router/dashboard/proxy-pools')
+        const raw = (await assertOk(res)) as unknown
+        return Array.isArray(raw) ? (raw as ProxyPool[]) : []
+      },
+      save: (pool: { id?: string; name: string; entries: Array<{ url: string; country?: string }> }): Promise<ProxyPool> =>
+        postJson('/api/llm-router/dashboard/proxy-pools', pool),
+      remove: (id: string): Promise<void> =>
+        fetch(`/api/llm-router/dashboard/proxy-pools/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(assertOkVoid),
     },
   },
 

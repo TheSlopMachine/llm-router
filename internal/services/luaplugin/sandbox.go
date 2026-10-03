@@ -7,13 +7,21 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
-	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	lua "github.com/yuin/gopher-lua"
 )
 
 var typeKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
+
+// capabilities gates sandbox tables per type key. Credentials resolve from
+// the stored record (credential_schema or auth_initiate present); proxies
+// from proxy_schema presence.
+type capabilities struct {
+	credentials bool
+	proxies     bool
+}
 
 // execContext carries per-call plugin identity into every sandboxed state.
 type execContext struct {
@@ -25,54 +33,47 @@ type execContext struct {
 	storage    *storageBackend
 	timeoutMs  int
 
-	// Request identity from HandlerMeta: the provider instance and type
-	// serving the request, the attempt credential, and the requested model.
+	// Request identity: the provider instance and type serving the call
+	// and the requested model. Credential selection belongs to the
+	// plugin; the traffic path carries no credential identity.
 	providerID   string
 	typeKey      string
 	credentialID string
 	model        models.ModelId
 
-	// Proxy routing: the resolver returns the ordered picks for one
-	// request; the HTTP layer walks them while attempts fail.
-	// proxyURL == "" means the current request goes direct.
-	proxyResolver         func(ctx context.Context, rec *PluginRecord, providerConfig map[string]any, known exhausted.Segments) ([]ProxyPick, error)
-	proxyRec              *PluginRecord
-	proxyProviderConfig   map[string]any
-	proxyPicks            []ProxyPick
-	proxyIdx              int
-	proxyID               string
-	proxyURL              string
-	proxyRetryPicks       []ProxyPick
-	proxyRetryPicksSet    bool
-	proxyRetryUnavailable bool
-	// lastProxyID is the proxy of the most recent attempt, used for
-	// joint limit marking on rate/quota outcomes.
-	lastProxyID string
-	// inClassify guards the classify_error helper against re-entrant calls
-	// from its own extension.
-	inClassify bool
+	// allowCredentialWrite gates credentials.update to job contexts.
+	allowCredentialWrite bool
+	// allowedCredentials is the router-token allow-list enforced on
+	// credentials.list/get; nil means unrestricted.
+	allowedCredentials []string
+	// jobName carries the running job for crash attribution ("" = request).
+	jobName string
 	// goCtx carries the caller request context into HTTP requests built by
 	// this call's clients, so cancellation propagates (nil = Background).
 	goCtx context.Context
-	// exhausted records joint limit keys for rate/quota/model_unavailable
-	// outcomes (nil = disabled).
-	exhausted *exhausted.Service
-	// proxyLimits stores joint limit keys containing a proxy dimension.
-	proxyLimits ProxyLimitStore
-	// geoban records indefinite (plugin, provider, proxy) geo flags
-	// (nil = disabled).
-	geoban interface {
-		Mark(plugin, provider, proxy, reason string) error
-	}
 	// healthTrigger receives the failed attempt identity for detached
 	// health-check dispatch (nil = disabled).
 	healthTrigger HealthTrigger
 	// markDead excludes one proxy URL until an escalating ban expires
-	// (nil = disabled). Called per attempt on structural proxy faults.
+	// (nil = disabled). Called only on structural TLS faults.
 	markDead func(url, reason string) bool
-	// dumpDir receives full upstream bodies over dumpSnippetCap when debug
-	// logging is on ("" = keep in memory only).
-	dumpDir string
+	// proxyQuery serves the read-only proxies.query table (nil = disabled).
+	proxyQuery func(pool, country string, limit int) ([]models.ProxyView, error)
+	// Credential access: list/get serve every context, update serves jobs.
+	// disable/enable serve every context but require the provider
+	// automation switch (checkAutomation).
+	credList   func(providerID string) ([]*models.Credential, error)
+	credGet    func(id string) (*models.Credential, error)
+	credUpdate func(id string, data map[string]any) error
+	credDisable func(id string, reason string) error
+	credEnable  func(id string) error
+	credPark    func(id string, ttl time.Duration, reason string) error
+	credUnpark  func(id string) error
+	credParked  func(id string) (*models.ParkEntry, error)
+	// automationOn reports the provider disable_failed_credentials switch
+	// for shared disable/enable writes; nil reads off.
+	automationOn func(providerID string) bool // capabilities gates the credentials/proxies tables for this type key.
+	capabilities capabilities
 
 	registrations map[string]*lua.LTable
 	proxySources  map[string]*lua.LTable
@@ -249,6 +250,25 @@ func installRouterTable(L *lua.LState, ctx *execContext) {
 				}
 			}
 		}
+		for _, kind := range schemaKinds {
+			if v := handlers.RawGetString(kind); v != lua.LNil {
+				if _, ok := v.(*lua.LTable); !ok {
+					L.RaiseError("llm_router.register: %s must be a table", kind)
+					return 0
+				}
+			}
+		}
+		if v := handlers.RawGetString("jobs"); v != lua.LNil {
+			jobsTbl, ok := v.(*lua.LTable)
+			if !ok {
+				L.RaiseError("llm_router.register: jobs must be a table")
+				return 0
+			}
+			if _, err := parseJobSpecs(jobsTbl, typeKey); err != nil {
+				L.RaiseError("llm_router.register: %s", err.Error())
+				return 0
+			}
+		}
 		ctx.registrations[typeKey] = handlers
 		return 0
 	}))
@@ -317,9 +337,15 @@ func installRouterTable(L *lua.LState, ctx *execContext) {
 		return 1
 	}))
 
-	router.RawSetString("classify_error", L.NewFunction(classifyErrorFunc(ctx)))
-
 	router.RawSetString("storage", newStorageTable(L, ctx))
+
+	if ctx != nil && ctx.capabilities.credentials {
+		router.RawSetString("credentials", newCredentialsTable(L, ctx))
+	}
+
+	if ctx != nil && ctx.capabilities.proxies {
+		router.RawSetString("proxies", newProxiesTable(L, ctx))
+	}
 
 	router.RawSetString("uuid_v5", L.NewFunction(func(L *lua.LState) int {
 		namespace := L.CheckString(1)

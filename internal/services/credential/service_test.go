@@ -109,7 +109,23 @@ func TestCredentialService_Next_NeverUsed(t *testing.T) {
 	}
 }
 
-func TestCredentialService_Next_LRU(t *testing.T) {
+func TestCredentialService_ListUsable_EmptyPoolYieldsEmpty(t *testing.T) {
+	svc, _ := setupCredentialService(t)
+
+	got, err := svc.ListUsable("mock")
+	if err != nil {
+		t.Fatalf("empty pool must not error, got %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("empty pool must yield empty slice, got %v", got)
+	}
+
+	if _, err := svc.All("mock"); err == nil {
+		t.Fatal("All must deny empty pools for the router gate")
+	}
+}
+
+func TestCredentialService_All_ReturnsBoth(t *testing.T) {
 	svc, _ := setupCredentialService(t)
 
 	cred1, _ := svc.Add(AddOptions{
@@ -123,20 +139,22 @@ func TestCredentialService_Next_LRU(t *testing.T) {
 		Data:       map[string]any{"api_key": "key2"},
 	})
 
-	if err := svc.UpdateUsage(cred1.ID, true); err != nil {
-		t.Fatalf("update usage failed: %v", err)
-	}
-
-	next, err := svc.All("mock")
+	all, err := svc.All("mock")
 	if err != nil {
 		t.Fatalf("all failed: %v", err)
 	}
 
-	if len(next) != 2 {
-		t.Fatalf("expected 2 credentials, got %d", len(next))
+	if len(all) != 2 {
+		t.Fatalf("expected 2 credentials, got %d", len(all))
 	}
-	if next[0].ID != cred2.ID {
-		t.Errorf("expected cred2 (never used) at pool head, got %s", next[0].ID)
+	seen := map[string]bool{cred1.ID: false, cred2.ID: false}
+	for _, c := range all {
+		seen[c.ID] = true
+	}
+	for id, ok := range seen {
+		if !ok {
+			t.Errorf("missing credential %s", id)
+		}
 	}
 }
 
@@ -150,10 +168,10 @@ func TestCredentialService_Next_NoCredentials(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────
-// All Tests (Priority Ordering)
+// All Tests (Stored Set)
 // ─────────────────────────────────────────────
 
-func TestCredentialService_All_SortedByPriority(t *testing.T) {
+func TestCredentialService_All_ContainsBoth(t *testing.T) {
 	svc, _ := setupCredentialService(t)
 
 	neverUsed, _ := svc.Add(AddOptions{
@@ -167,7 +185,6 @@ func TestCredentialService_All_SortedByPriority(t *testing.T) {
 		Label:      "Normal",
 		Data:       map[string]any{"api_key": "key2"},
 	})
-	svc.UpdateUsage(normal.ID, true)
 
 	all, err := svc.All("mock")
 	if err != nil {
@@ -178,11 +195,12 @@ func TestCredentialService_All_SortedByPriority(t *testing.T) {
 		t.Fatalf("expected 2 credentials, got %d", len(all))
 	}
 
-	if all[0].ID != neverUsed.ID {
-		t.Errorf("first should be never used, got %s", all[0].ID)
+	seen := map[string]bool{}
+	for _, c := range all {
+		seen[c.ID] = true
 	}
-	if all[1].ID != normal.ID {
-		t.Errorf("second should be normal, got %s", all[1].ID)
+	if !seen[neverUsed.ID] || !seen[normal.ID] {
+		t.Errorf("stored set incomplete: %v", seen)
 	}
 }
 
@@ -214,10 +232,10 @@ func TestCredentialService_All_ExcludesExpired(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────
-// UpdateUsage Tests
+// Job Refresh Persist Tests
 // ─────────────────────────────────────────────
 
-func TestCredentialService_UpdateUsage_Success(t *testing.T) {
+func TestCredentialService_Update_PersistsJobRefresh(t *testing.T) {
 	svc, _ := setupCredentialService(t)
 
 	cred, _ := svc.Add(AddOptions{
@@ -226,8 +244,9 @@ func TestCredentialService_UpdateUsage_Success(t *testing.T) {
 		Data:       map[string]any{"api_key": "key1"},
 	})
 
-	if err := svc.UpdateUsage(cred.ID, true); err != nil {
-		t.Fatalf("update usage failed: %v", err)
+	refreshed := map[string]any{"api_key": "key1", "access_token": "tok"}
+	if err := svc.Update(cred.ID, refreshed, nil); err != nil {
+		t.Fatalf("update failed: %v", err)
 	}
 
 	updated, err := svc.Get(cred.ID)
@@ -235,40 +254,8 @@ func TestCredentialService_UpdateUsage_Success(t *testing.T) {
 		t.Fatalf("get failed: %v", err)
 	}
 
-	if updated.RequestCount != 1 {
-		t.Errorf("request count: got %d, want 1", updated.RequestCount)
-	}
-	if updated.SuccessCount != 1 {
-		t.Errorf("success count: got %d, want 1", updated.SuccessCount)
-	}
-	if updated.LastUsedAt == nil {
-		t.Error("last used should be set")
-	}
-}
-
-func TestCredentialService_UpdateUsage_Failure(t *testing.T) {
-	svc, _ := setupCredentialService(t)
-
-	cred, _ := svc.Add(AddOptions{
-		ProviderID: "mock",
-		Label:      "Test",
-		Data:       map[string]any{"api_key": "key1"},
-	})
-
-	if err := svc.UpdateUsage(cred.ID, false); err != nil {
-		t.Fatalf("update usage failed: %v", err)
-	}
-
-	updated, err := svc.Get(cred.ID)
-	if err != nil {
-		t.Fatalf("get failed: %v", err)
-	}
-
-	if updated.RequestCount != 1 {
-		t.Errorf("request count: got %d, want 1", updated.RequestCount)
-	}
-	if updated.FailureCount != 1 {
-		t.Errorf("failure count: got %d, want 1", updated.FailureCount)
+	if updated.Data["access_token"] != "tok" {
+		t.Errorf("refreshed data not persisted: %v", updated.Data)
 	}
 }
 

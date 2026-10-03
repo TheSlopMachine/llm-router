@@ -7,10 +7,10 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
-func TestProbeResultModelUnavailable(t *testing.T) {
+func TestProbeResultTerminalPassthrough(t *testing.T) {
 	res := probeResult(time.Now(), "", "", &models.ProviderError{
 		StatusCode: 503,
-		Type:       models.ErrorTypeModelUnavailable,
+		Code:       "model_unavailable",
 		Message:    "missing api key",
 	})
 	if res.OK {
@@ -22,15 +22,12 @@ func TestProbeResultModelUnavailable(t *testing.T) {
 	if res.QuotaExceeded {
 		t.Errorf("model_unavailable probe: QuotaExceeded must stay false so the dashboard disables the model")
 	}
-	if res.Summary != "model temporarily unavailable" {
-		t.Errorf("model_unavailable probe: got summary=%q", res.Summary)
-	}
 }
 
 func TestProbeResultQuotaStaysTemporary(t *testing.T) {
 	res := probeResult(time.Now(), "", "", &models.ProviderError{
 		StatusCode: 429,
-		Type:       models.ErrorTypeRateLimit,
+		Code:       "rate_limit",
 		Message:    "slow down",
 	})
 	if res.Code != "rate_limit" {

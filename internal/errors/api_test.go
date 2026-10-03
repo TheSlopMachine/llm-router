@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
@@ -38,108 +37,24 @@ func TestToAPIErrorTable(t *testing.T) {
 	}
 }
 
-func TestToAPIErrorProviderTypes(t *testing.T) {
+func TestToAPIErrorProviderErrors(t *testing.T) {
 	cases := []struct {
-		typ    models.ErrorType
+		name   string
+		err    *models.ProviderError
 		status int
 		code   string
 	}{
-		{models.ErrorTypeRateLimit, http.StatusBadGateway, "rate_limit"},
-		{models.ErrorTypeQuotaExceeded, http.StatusBadGateway, "quota_exceeded"},
-		{models.ErrorTypeAuth, http.StatusUnauthorized, "auth_error"},
-		{models.ErrorTypeNotFound, http.StatusNotFound, "not_found"},
-		{models.ErrorTypeInvalidRequest, http.StatusBadRequest, "invalid_request_error"},
-		{models.ErrorTypeGeo, http.StatusBadRequest, "geo_blocked"},
-		{models.ErrorTypePaymentRequired, http.StatusPaymentRequired, "payment_required"},
-		{models.ErrorTypeUpstream, http.StatusBadGateway, "upstream_error"},
-		{models.ErrorTypeTransport, http.StatusBadGateway, "transport_error"},
-		{models.ErrorTypeOverloaded, http.StatusServiceUnavailable, "overloaded"},
-		{models.ErrorTypeTransport, http.StatusBadGateway, "transport_error"},
-		{models.ErrorTypeContentPolicy, http.StatusBadRequest, "content_policy"},
-		{models.ErrorTypeModelUnavailable, http.StatusServiceUnavailable, "model_unavailable"},
-		{models.ErrorTypeStructuralFault, http.StatusBadGateway, "structural_fault"},
+		{"verbatim passthrough", &models.ProviderError{StatusCode: 429, Message: "slow", Code: "rate_limit"}, 429, "rate_limit"},
+		{"invalid request", &models.ProviderError{StatusCode: 400, Message: "bad", Code: "invalid_request_error"}, 400, "invalid_request_error"},
+		{"default code", &models.ProviderError{StatusCode: 502, Message: "boom"}, 502, "server_error"},
+		{"out of range status", &models.ProviderError{StatusCode: 200, Message: "weird", Code: "server_error"}, 502, "server_error"},
 	}
 	for _, tc := range cases {
-		got := ToAPIError(&models.ProviderError{StatusCode: 500, Type: tc.typ})
-		if got.Status != tc.status || got.Code != tc.code {
-			t.Errorf("type %d: got %+v, want status=%d code=%q", tc.typ, got, tc.status, tc.code)
-		}
-	}
-}
-
-func TestMapUpstreamExactCodes(t *testing.T) {
-	quota := MapUpstream(429, "insufficient_quota", "", "quota msg")
-	if quota.Type != models.ErrorTypeQuotaExceeded {
-		t.Errorf("quota code: got %v", quota.Type)
-	}
-	plain := MapUpstream(429, "rate_limit_exceeded", "rate_limit", "slow down")
-	if plain.Type != models.ErrorTypeRateLimit {
-		t.Errorf("rate limit code: got %v", plain.Type)
-	}
-	// Message text alone never decides: quota word without exact code stays rate limit.
-	textOnly := MapUpstream(429, "", "", "quota exceeded for key")
-	if textOnly.Type != models.ErrorTypeRateLimit {
-		t.Errorf("text-only quota: got %v", textOnly.Type)
-	}
-	timeout := MapUpstream(504, "", "", "gateway timeout")
-	if timeout.Type != models.ErrorTypeUpstream {
-		t.Errorf("504: got %v", timeout.Type)
-	}
-	// Code fallbacks run before the bare 400 default: quota/content/model
-	// signals through 400 classify correctly instead of invalid_request.
-	quota400 := MapUpstream(400, "insufficient_quota", "", "balance low")
-	if quota400.Type != models.ErrorTypeQuotaExceeded {
-		t.Errorf("400 quota code: got %v", quota400.Type)
-	}
-	content400 := MapUpstream(400, "moderation_blocked", "", "blocked")
-	if content400.Type != models.ErrorTypeContentPolicy {
-		t.Errorf("400 moderation code: got %v", content400.Type)
-	}
-	loading503 := MapUpstream(503, "model_loading", "", "loading")
-	if loading503.Type != models.ErrorTypeModelUnavailable {
-		t.Errorf("503 loading code: got %v", loading503.Type)
-	}
-	overloaded503 := MapUpstream(503, "service_overloaded", "", "backend temporarily overloaded")
-	if overloaded503.Type != models.ErrorTypeOverloaded {
-		t.Errorf("503 overloaded code: got %v", overloaded503.Type)
-	}
-	plain503 := MapUpstream(503, "", "", "internal error")
-	if plain503.Type != models.ErrorTypeUpstream {
-		t.Errorf("503 bare: got %v", plain503.Type)
-	}
-	// 403 with moderation wording is content, bare 403 stays auth.
-	content403 := MapUpstream(403, "content_filter", "", "filtered")
-	if content403.Type != models.ErrorTypeContentPolicy {
-		t.Errorf("403 content code: got %v", content403.Type)
-	}
-	auth403 := MapUpstream(403, "", "", "forbidden")
-	if auth403.Type != models.ErrorTypeAuth {
-		t.Errorf("403 bare: got %v", auth403.Type)
-	}
-	notFound := MapUpstream(404, "", "", "no such model")
-	if notFound.Type != models.ErrorTypeNotFound {
-		t.Errorf("404: got %v", notFound.Type)
-	}
-	payment := MapUpstream(402, "", "", "subscription required")
-	if payment.Type != models.ErrorTypePaymentRequired {
-		t.Errorf("402: got %v", payment.Type)
-	}
-}
-
-func TestRetryAfterDelay(t *testing.T) {
-	future := time.Now().Add(90 * time.Second)
-	secs, ok := RetryAfterDelay(&models.ProviderError{Type: models.ErrorTypeRateLimit, RetryAfter: &future})
-	if !ok || secs < 90 || secs > 91 {
-		t.Errorf("future retry_after: got %d,%v", secs, ok)
-	}
-	past := time.Now().Add(-time.Second)
-	if _, ok := RetryAfterDelay(&models.ProviderError{Type: models.ErrorTypeRateLimit, RetryAfter: &past}); ok {
-		t.Error("past retry_after must report no hint")
-	}
-	if _, ok := RetryAfterDelay(&models.ProviderError{Type: models.ErrorTypeUpstream, Message: "boom"}); ok {
-		t.Error("hint-less errors must report no hint")
-	}
-	if _, ok := RetryAfterDelay(nil); ok {
-		t.Error("nil error must report no hint")
+		t.Run(tc.name, func(t *testing.T) {
+			got := ToAPIError(tc.err)
+			if got.Status != tc.status || got.Code != tc.code {
+				t.Errorf("got %+v, want status=%d code=%q", got, tc.status, tc.code)
+			}
+		})
 	}
 }

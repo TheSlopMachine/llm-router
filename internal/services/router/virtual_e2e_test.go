@@ -12,7 +12,6 @@ import (
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
-	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/router"
@@ -48,7 +47,7 @@ func setupVirtualStack(t *testing.T) (*router.Service, *virtual.Service, *creden
 
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 	virtualSvc := virtual.New(database, providerSvc, modelInfoSvc)
-	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), nil, nil, slog.Default())
+	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, videojobs.New(database), nil, nil, slog.Default())
 
 	virtualAdapter := virtualadapter.New(routerSvc, virtualSvc, slog.Default())
 	providerSvc.RegisterGoAdapter(virtualAdapter)
@@ -109,7 +108,7 @@ func TestRouterVirtualFallsThroughToSecondModel(t *testing.T) {
 	mock := testutil.NewMockAdapter("mock").WithCompleteFunc(
 		func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
 			if req.Model == "mock/bad-model" {
-				return nil, &models.ProviderError{StatusCode: 502, Type: models.ErrorTypeUpstream, Message: "overloaded"}
+				return nil, &models.ProviderError{StatusCode: 502, Code: "server_error", Message: "overloaded"}
 			}
 			return &models.ChatCompletionResponse{
 				ID:      "second-ok",
@@ -138,7 +137,7 @@ func TestRouterVirtualFallsThroughToSecondModel(t *testing.T) {
 
 	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
 	virtualSvc := virtual.New(database, providerSvc, modelInfoSvc)
-	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, exhausted.New(database), videojobs.New(database), nil, nil, slog.Default())
+	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, videojobs.New(database), nil, nil, slog.Default())
 
 	virtualAdapter := virtualadapter.New(routerSvc, virtualSvc, slog.Default())
 	providerSvc.RegisterGoAdapter(virtualAdapter)
@@ -174,8 +173,8 @@ func TestRouterVirtualUnknownAgentIsInvalidRequest(t *testing.T) {
 	if !errors.As(err, &provErr) {
 		t.Fatalf("expected ProviderError, got %T (%v)", err, err)
 	}
-	if provErr.Type != models.ErrorTypeInvalidRequest {
-		t.Errorf("error type: got %v, want invalid_request", provErr.Type)
+	if provErr.Code != "invalid_request_error" {
+		t.Errorf("error code: got %q, want invalid_request_error", provErr.Code)
 	}
 	if provErr.StatusCode != 400 {
 		t.Errorf("status: got %d, want 400", provErr.StatusCode)

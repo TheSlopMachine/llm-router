@@ -12,12 +12,12 @@ import (
 const healthPluginSource = `--- @plugin Health Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("health-type", {
-  complete = function(ctx, credential, request)
-    return nil, { type = "upstream", message = "boom" }
+  complete = function(ctx, request)
+    return nil, { message = "boom", code = "server_error" }
   end,
 
   check_health = function(ctx, credential)
@@ -76,7 +76,15 @@ func TestCheckHealth_InvalidShapeIsInternal(t *testing.T) {
 
 func TestCheckHealth_MissingHandler(t *testing.T) {
 	svc := setupService(t)
-	if _, err := svc.Install([]byte(markPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := svc.Install([]byte(`--- @plugin Bare Plugin
+--- @author tester
+--- @version 1.0.0
+--- @router_version 0.7.0
+--- @allow_host example.com
+
+llm_router.register("mark-type", {
+  complete = function(ctx, request) return nil, { message = "no", code = "server_error" } end,
+})`), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, _, err := svc.CheckHealth(context.Background(), "mark-type", &models.Credential{ID: "c1"})
@@ -104,11 +112,11 @@ func TestParseHealthCooldown_Bounds(t *testing.T) {
 		src := `--- @plugin Bad Cooldown
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("bad-type", {
-  complete = function(ctx, credential, request) end,
+  complete = function(ctx, request) end,
   healthcheck_cooldown = ` + v + `,
 })
 `

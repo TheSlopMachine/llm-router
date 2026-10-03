@@ -3,30 +3,32 @@ package luaplugin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
-	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 )
 
-const streamAPIPluginSource = `--- @plugin Stream API Plugin
+const streamAPIPluginTemplate = `--- @plugin Stream API Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("sapi-type", {
-  complete = function(ctx, credential, request)
+  proxy_schema = {},
+  complete = function(ctx, request)
     local client = llm_router.http_client({})
     local seen = {}
+    local proxy_url = (llm_router.proxies.query({})[1] or {}).url
     local resp, err = client:stream({
-      method = "GET", url = "http://example.com/sse",
+      method = "GET", url = "http://example.com/sse", proxy_url = proxy_url,
       on_response = function(r)
         if r.status ~= 200 then
-          return llm_router.classify_error({ status = r.status, headers = r.headers, body = r.body })
+          return { message = "upstream status " .. tostring(r.status) .. ": " .. tostring(r.body), code = "server_error", status = 502 }
         end
       end,
       on_line = function(line)
@@ -35,7 +37,7 @@ llm_router.register("sapi-type", {
     })
     if err then return nil, err end
     if resp.status ~= 200 then
-      return nil, { type = "upstream", message = "bad head" }
+      return nil, { message = "bad head", code = "server_error" }
     end
     return {
       id = "s", object = "chat.completion", created = 1, model = request.model,
@@ -61,11 +63,11 @@ func streamProxyStub(t *testing.T, status int, body string) string {
 func setupStreamAPIService(t *testing.T, proxyURL string) *Service {
 	t.Helper()
 	svc := setupService(t)
-	if _, err := svc.Install([]byte(streamAPIPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := svc.Install([]byte(streamAPIPluginTemplate), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	svc.SetProxyResolver(func(_ context.Context, _ *PluginRecord, _ map[string]any, _ exhausted.Segments) ([]ProxyPick, error) {
-		return []ProxyPick{{ID: "px-test", URL: proxyURL}}, nil
+	svc.SetProxyQuery(func(pool, country string, limit int) ([]models.ProxyView, error) {
+		return []models.ProxyView{{ID: "px-test", URL: proxyURL, Pool: "auto"}}, nil
 	})
 	return svc
 }
@@ -91,42 +93,45 @@ func TestStreamAPI_SuccessReturnsResp(t *testing.T) {
 	}
 }
 
-func TestStreamAPI_OnResponseHookClassifies(t *testing.T) {
-	// Quota wording rides the error body: only a hook receiving the body
-	// classifies quota_exceeded instead of rate_limit.
+func TestStreamAPI_OnResponseHookTerminal(t *testing.T) {
 	svc := setupStreamAPIService(t, streamProxyStub(t, 429, "quota exceeded for today"))
 	_, err := sapiComplete(t, svc)
 	var perr *models.ProviderError
-	if !errors.As(err, &perr) || perr.Type != models.ErrorTypeQuotaExceeded {
-		t.Fatalf("hook must classify quota from the error body, got %T (%v)", err, err)
+	if !errors.As(err, &perr) || perr.Code != "server_error" || perr.StatusCode != 502 {
+		t.Fatalf("hook must return the terminal table, got %T (%v)", err, err)
+	}
+	if perr.Message == "" {
+		t.Fatal("terminal message must survive")
 	}
 }
 
-func TestStreamAPI_DefaultNon2xxIsUpstream(t *testing.T) {
+func TestStreamAPI_DefaultNon2xxIsTerminal(t *testing.T) {
 	svc := setupService(t)
-	src := `--- @plugin Stream Default
+	src := fmt.Sprintf(`--- @plugin Stream Default
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("sdef-type", {
-  complete = function(ctx, credential, request)
+  proxy_schema = {},
+  complete = function(ctx, request)
     local client = llm_router.http_client({})
+    local proxy_url = (llm_router.proxies.query({})[1] or {}).url
     local resp, err = client:stream({
-      method = "GET", url = "http://example.com/sse",
+      method = "GET", url = "http://example.com/sse", proxy_url = proxy_url,
       on_line = function(line) end,
     })
     if err then return nil, err end
-    return nil, { type = "upstream", message = "should not happen" }
+    return nil, { message = "should not happen", code = "server_error" }
   end,
 })
-`
+`)
 	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	svc.SetProxyResolver(func(_ context.Context, _ *PluginRecord, _ map[string]any, _ exhausted.Segments) ([]ProxyPick, error) {
-		return []ProxyPick{{ID: "px-test", URL: streamProxyStub(t, 500, "boom")}}, nil
+	svc.SetProxyQuery(func(pool, country string, limit int) ([]models.ProxyView, error) {
+		return []models.ProxyView{{ID: "px-test", URL: streamProxyStub(t, 500, "boom"), Pool: "auto"}}, nil
 	})
 	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
 	_, err := svc.Complete(context.Background(), testMeta("sdef-type", cred, "sdef-type/m", nil),
@@ -135,7 +140,7 @@ llm_router.register("sdef-type", {
 			Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
 		})
 	var perr *models.ProviderError
-	if !errors.As(err, &perr) || perr.Type != models.ErrorTypeUpstream {
-		t.Fatalf("default non-2xx must be upstream, got %T (%v)", err, err)
+	if !errors.As(err, &perr) || perr.Code != "server_error" {
+		t.Fatalf("default non-2xx must be terminal server_error, got %T (%v)", err, err)
 	}
 }

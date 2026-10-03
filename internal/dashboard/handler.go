@@ -1,7 +1,7 @@
 // Package dashboard serves the admin SPA and its backing JSON API.
 //
 // @title        llm-router API
-// @version      0.5.0
+// @version      0.7.0
 // @description  OpenAI-compatible plus Anthropic-compatible LLM routing gateway.
 // @description  Public AI surface (/v1, BearerAuth or x-api-key alias):
 // @description  chat/completions, completions, embeddings, images/generations,
@@ -46,8 +46,8 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/datamanagement"
 	"github.com/TheSlopMachine/llm-router/internal/services/doctor"
-	"github.com/TheSlopMachine/llm-router/internal/services/geoban"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
+	"github.com/TheSlopMachine/llm-router/internal/services/maintenance"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/pluginrepo"
@@ -77,7 +77,7 @@ type Handler struct {
 	luaSvc       *luaplugin.Service
 	repoSvc      *pluginrepo.Service
 	proxySvc     *proxypool.Service
-	geobanSvc    *geoban.Service
+	maintSvc     *maintenance.Service
 	dataSvc      *datamanagement.Service
 	doctorSvc    *doctor.Service
 	logger       *slog.Logger
@@ -128,6 +128,8 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("GET /api/llm-router/dashboard/providers/stats", h.requireAuth(h.apiProvidersStats))
 	mux.HandleFunc("GET /api/llm-router/dashboard/providers/{id}/config-schema", h.requireAuth(h.apiProviderConfigSchema))
 	mux.HandleFunc("GET /api/llm-router/dashboard/providers/{id}/credential-schema", h.requireAuth(h.apiProviderCredentialSchema))
+	mux.HandleFunc("GET /api/llm-router/dashboard/providers/{id}/settings-schema", h.requireAuth(h.apiProviderSettingsSchema))
+	mux.HandleFunc("GET /api/llm-router/dashboard/providers/{id}/proxy-schema", h.requireAuth(h.apiProviderProxySchema))
 
 	mux.HandleFunc("GET /api/llm-router/dashboard/tokens", h.requireAuth(h.apiTokensList))
 	mux.HandleFunc("POST /api/llm-router/dashboard/tokens", h.requireAuth(h.apiTokensCreate))
@@ -137,11 +139,10 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 
 	mux.HandleFunc("GET /api/llm-router/dashboard/credentials", h.requireAuth(h.apiCredentialsList))
 	mux.HandleFunc("POST /api/llm-router/dashboard/credentials", h.requireAuth(h.apiCredentialsCreate))
-	mux.HandleFunc("PUT /api/llm-router/dashboard/credentials/reorder", h.requireAuth(h.apiCredentialsReorder))
 	mux.HandleFunc("PUT /api/llm-router/dashboard/credentials/{id}", h.requireAuth(h.apiCredentialsUpdate))
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/credentials/{id}", h.requireAuth(h.apiCredentialsDelete))
 	mux.HandleFunc("POST /api/llm-router/dashboard/credentials/{id}/test", h.requireAuth(h.apiCredentialsTest))
-	mux.HandleFunc("POST /api/llm-router/dashboard/credentials/{id}/refresh", h.requireAuth(h.apiCredentialsRefresh))
+	mux.HandleFunc("POST /api/llm-router/dashboard/credentials/{id}/unpark", h.requireAuth(h.apiCredentialsUnpark))
 
 	mux.HandleFunc("GET /api/llm-router/dashboard/models", h.requireAuth(h.apiModels))
 	mux.HandleFunc("GET /api/llm-router/dashboard/models/available", h.requireAuth(h.apiAvailableModels))
@@ -154,10 +155,17 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("PUT /api/llm-router/dashboard/providers/{id}/models/{model...}", h.requireAuth(h.apiProviderModelSetOverride))
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/providers/{id}/models/{model...}", h.requireAuth(h.apiProviderModelDeleteOverride))
 
-	// Geo bans: indefinite (provider, proxy) flags
-	mux.HandleFunc("GET /api/llm-router/dashboard/providers/{id}/geo-bans", h.requireAuth(h.apiGeoBansList))
-	mux.HandleFunc("DELETE /api/llm-router/dashboard/providers/{id}/geo-bans", h.requireAuth(h.apiGeoBansClearAll))
-	mux.HandleFunc("DELETE /api/llm-router/dashboard/providers/{id}/geo-bans/{proxyId}", h.requireAuth(h.apiGeoBansClearOne))
+	// Proxy pool
+	mux.HandleFunc("GET /api/llm-router/dashboard/proxies", h.requireAuth(h.apiProxiesList))
+	mux.HandleFunc("POST /api/llm-router/dashboard/proxies/refresh", h.requireAuth(h.apiProxyRefresh))
+	mux.HandleFunc("GET /api/llm-router/dashboard/proxy-sources", h.requireAuth(h.apiProxySources))
+	mux.HandleFunc("GET /api/llm-router/dashboard/proxy/status", h.requireAuth(h.apiProxyStatus))
+	mux.HandleFunc("GET /api/llm-router/dashboard/proxy-pools", h.requireAuth(h.apiProxyPoolsList))
+	mux.HandleFunc("POST /api/llm-router/dashboard/proxy-pools", h.requireAuth(h.apiProxyPoolsSave))
+	mux.HandleFunc("DELETE /api/llm-router/dashboard/proxy-pools/{id}", h.requireAuth(h.apiProxyPoolsDelete))
+
+	// Plugin jobs
+	mux.HandleFunc("POST /api/llm-router/dashboard/providers/{id}/jobs/{job}", h.requireAuth(h.apiProviderJobRun))
 
 	// Virtual model APIs
 	mux.HandleFunc("GET /api/llm-router/dashboard/virtual-models", h.requireAuth(h.apiVirtualModelsList))
@@ -216,12 +224,6 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	// Database Doctor
 	mux.HandleFunc("GET /api/llm-router/dashboard/doctor/inspect", h.requireAuth(h.apiDoctorInspect))
 	mux.HandleFunc("POST /api/llm-router/dashboard/doctor/fix", h.requireAuth(h.apiDoctorFix))
-
-	// Proxy pool
-	mux.HandleFunc("GET /api/llm-router/dashboard/proxies", h.requireAuth(h.apiProxiesList))
-	mux.HandleFunc("POST /api/llm-router/dashboard/proxies/refresh", h.requireAuth(h.apiProxyRefresh))
-	mux.HandleFunc("GET /api/llm-router/dashboard/proxy-sources", h.requireAuth(h.apiProxySources))
-	mux.HandleFunc("GET /api/llm-router/dashboard/proxy/status", h.requireAuth(h.apiProxyStatus))
 
 	// Chat proxy (dashboard session -> router, no token required)
 	mux.HandleFunc("POST /api/llm-router/dashboard/chat/completions", h.requireAuth(h.apiChatCompletions))

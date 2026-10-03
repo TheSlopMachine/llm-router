@@ -261,7 +261,7 @@ func TestModelInfoService_IgnoresLegacyDatabaseCache(t *testing.T) {
 		t.Fatalf("marshal stale model info: %v", err)
 	}
 	if err := database.Update(func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists(db.BucketModelInfo)
+		b, err := tx.CreateBucketIfNotExists([]byte("model_info"))
 		if err != nil {
 			return err
 		}

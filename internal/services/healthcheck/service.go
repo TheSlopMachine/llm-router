@@ -44,12 +44,19 @@ type CredentialStore interface {
 	DisableUnhealthy(id, reason string) error
 }
 
+// ProviderConfigs reads provider configs for the automation switch. Narrow
+// by design: the service needs one config key, never the provider surface.
+type ProviderConfigs interface {
+	Get(id string) (*models.ProviderInstance, error)
+}
+
 // Service dispatches failure-triggered health checks with per-credential
 // cooldown and singleflight.
 type Service struct {
 	repo   *repository.Repository[Record]
 	lua    PluginHealth
 	creds  CredentialStore
+	provs  ProviderConfigs
 	logger *slog.Logger
 
 	mu       sync.Mutex
@@ -57,12 +64,14 @@ type Service struct {
 }
 
 // New constructs the healthcheck Service. lua and creds may be nil
-// (checks disabled); SetLogger wires structured logging.
-func New(database *db.DB, lua PluginHealth, creds CredentialStore) *Service {
+// (checks disabled); provs may be nil (automation switch reads off).
+// SetLogger wires structured logging.
+func New(database *db.DB, lua PluginHealth, creds CredentialStore, provs ProviderConfigs) *Service {
 	return &Service{
 		repo:     repository.New[Record](database, db.BucketCredentialHealth, "healthcheck"),
 		lua:      lua,
 		creds:    creds,
+		provs:    provs,
 		inflight: map[string]bool{},
 	}
 }
@@ -103,9 +112,23 @@ func (s *Service) done(credentialID string) {
 	s.mu.Unlock()
 }
 
+// automationOn reports whether the credential's provider opts into
+// automatic disables. Absent providers, missing services and absent flags
+// read off, matching the dashboard default.
+func (s *Service) automationOn(cred *models.Credential) bool {
+	if s.provs == nil || cred == nil || cred.ProviderID == "" {
+		return false
+	}
+	inst, err := s.provs.Get(cred.ProviderID)
+	if err != nil || inst == nil {
+		return false
+	}
+	return models.CredentialAutomationOn(inst.Config)
+}
+
 // run executes one detached health check: fetch the credential, invoke the
 // handler with a bounded timeout, stamp the outcome, and disable only on
-// an explicit unhealthy verdict.
+// an explicit unhealthy verdict with the provider automation switch on.
 func (s *Service) run(typeKey, credentialID string) {
 	defer s.done(credentialID)
 	cred, err := s.creds.Get(credentialID)
@@ -134,6 +157,15 @@ func (s *Service) run(typeKey, credentialID string) {
 	reason := message
 	if reason == "" {
 		reason = "health check reported unhealthy"
+	}
+	// The provider automation switch masters every non-manual disable:
+	// off (or unreadable) stamps the verdict without touching the credential.
+	if !s.automationOn(cred) {
+		if s.logger != nil {
+			s.logger.Debug("healthcheck: automation off, keeping credential",
+				"credential_id", credentialID, "type", typeKey)
+		}
+		return
 	}
 	if derr := s.creds.DisableUnhealthy(credentialID, reason); derr != nil && s.logger != nil {
 		s.logger.Warn("healthcheck: disable failed", "credential_id", credentialID, "error", derr)

@@ -1,9 +1,11 @@
 package luaplugin
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
 
@@ -73,33 +75,33 @@ func TestSandboxHelpersExposedToLua(t *testing.T) {
 	source := `--- @plugin helper-probe
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.3.0
+--- @router_version 0.7.0
 --- @allow_host example.com
 
 llm_router.register("helper-probe", {
-  complete = function() end,
-  credential_schema = function()
-    return {
-      { type = "text", text = llm_router.uuid_v5("6ba7b810-9dad-11d1-80b4-00c04fd430c8", "www.example.com") },
-      { type = "text", text = llm_router.random_hex(16) },
-    }
+  complete = function(ctx, request)
+    return nil, { message = llm_router.uuid_v5("6ba7b810-9dad-11d1-80b4-00c04fd430c8", "www.example.com")
+      .. "|" .. llm_router.random_hex(16) }
   end,
 })
 `
 	if _, err := svc.Install([]byte(source), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	nodes, err := svc.Schema("helper-probe", "credential_schema")
-	if err != nil {
-		t.Fatalf("schema: %v", err)
+	_, err = svc.Complete(context.Background(), testMeta("helper-probe", nil, "helper-probe/m", nil),
+		&models.ChatCompletionRequest{Model: "helper-probe/m"})
+	perr, ok := err.(*models.ProviderError)
+	if !ok {
+		t.Fatalf("expected terminal error carrying helper output, got %T (%v)", err, err)
 	}
-	if len(nodes) != 2 {
-		t.Fatalf("expected 2 nodes, got %d", len(nodes))
+	parts := strings.Split(perr.Message, "|")
+	if len(parts) != 2 {
+		t.Fatalf("helper output shape: %q", perr.Message)
 	}
-	if nodes[0].Text != "2ed6657d-e927-568b-95e1-2665a8aea6a2" {
-		t.Fatalf("uuid_v5 through Lua: got %q", nodes[0].Text)
+	if parts[0] != "2ed6657d-e927-568b-95e1-2665a8aea6a2" {
+		t.Fatalf("uuid_v5 through Lua: got %q", parts[0])
 	}
-	if len(nodes[1].Text) != 32 {
-		t.Fatalf("random_hex(16) through Lua: got %q", nodes[1].Text)
+	if len(parts[1]) != 32 {
+		t.Fatalf("random_hex(16) through Lua: got %q", parts[1])
 	}
 }

@@ -28,8 +28,9 @@ func tokenDenies(token *models.RouterToken, model models.ModelId) error {
 	return nil
 }
 
-// submitVideoOne runs a single video submit pass against the credential pool.
-func (s *Service) submitVideoOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, req *models.VideoGenerationRequest) (*models.VideoGenerationResponse, string, error) {
+// submitVideoOne runs a single video submit pass. Lua plugins iterate
+// internally; Go adapters receive the gated pool.
+func (s *Service) submitVideoOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, allowed []string, req *models.VideoGenerationRequest) (*models.VideoGenerationResponse, string, error) {
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
 		vs, ok := resolved.Go.(provider.VideoSubmitter)
 		if !ok {
@@ -39,11 +40,11 @@ func (s *Service) submitVideoOne(ctx context.Context, resolved *provider.Resolve
 		return resp, "", err
 	}
 	if resolved.IsLua() {
-		resp, proxy, err := s.providerSvc.LuaService().SubmitVideoPool(ctx, s.meta(resolved, req.Model), creds, req)
+		resp, err := s.providerSvc.LuaService().SubmitVideo(ctx, s.meta(resolved, req.Model, allowed), req)
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
-			return nil, proxy, fmt.Errorf("%w: provider %q has no generate_video handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+			return nil, "", fmt.Errorf("%w: provider %q has no generate_video handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 		}
-		return resp, proxy, err
+		return resp, "", err
 	}
 	vg, ok := resolved.Go.(provider.VideoGenerator)
 	if !ok {
@@ -76,10 +77,10 @@ func (s *Service) submitVideo(
 	if req.PreviousJobID != "" {
 		prev, err := s.videoJobsSvc.Get(req.PreviousJobID)
 		if err != nil {
-			return nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: fmt.Sprintf("unknown previous_job_id %q", req.PreviousJobID)}
+			return nil, &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: fmt.Sprintf("unknown previous_job_id %q", req.PreviousJobID)}
 		}
 		if prev.UpstreamJobID == "" {
-			return nil, &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: "previous job has no upstream id"}
+			return nil, &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: "previous job has no upstream id"}
 		}
 		continued := *req
 		continued.PreviousJobID = prev.UpstreamJobID
@@ -91,10 +92,10 @@ func (s *Service) submitVideo(
 	}
 	resolved := rr.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		resp, _, err := s.submitVideoOne(ctx, resolved, nil, req)
+		resp, _, err := s.submitVideoOne(ctx, resolved, nil, nil, req)
 		return resp, err
 	}
-	// Capability pre-check: fail loudly before touching the credential pool.
+	// Capability pre-check: fail loudly before touching the credential gate.
 	if resolved.IsLua() {
 		if !s.providerSvc.LuaService().HasHandler(resolved.Instance.TypeKey, "generate_video") {
 			return nil, fmt.Errorf("%w: provider %q has no generate_video handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
@@ -102,11 +103,11 @@ func (s *Service) submitVideo(
 	} else if _, ok := resolved.Go.(provider.VideoGenerator); !ok {
 		return nil, fmt.Errorf("%w: provider %q does not support video generation", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
-	creds, err := s.loadCredentials(ctx, resolved, req.Model, token)
+	allowed, creds, err := s.gateCredentials(ctx, resolved, req.Model, token)
 	if err != nil {
 		return nil, err
 	}
-	resp, _, err := s.submitVideoOne(ctx, resolved, creds, req)
+	resp, _, err := s.submitVideoOne(ctx, resolved, creds, allowed, req)
 	s.dropMissingModel(rr.providerID, rr.modelName, err)
 	if err != nil {
 		return nil, err
@@ -129,14 +130,15 @@ func (s *Service) submitVideo(
 	return &out, nil
 }
 
-// pollVideoOne runs a single video status poll against the credential pool.
-func (s *Service) pollVideoOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, backendModel models.ModelId, upstreamJobID string) (*models.VideoGenerationResponse, string, error) {
+// pollVideoOne runs a single video status poll. Lua plugins iterate
+// internally; Go adapters receive the gated pool.
+func (s *Service) pollVideoOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, allowed []string, backendModel models.ModelId, upstreamJobID string) (*models.VideoGenerationResponse, string, error) {
 	if resolved.IsLua() {
-		resp, proxy, err := s.providerSvc.LuaService().PollVideoPool(ctx, s.meta(resolved, backendModel), creds, backendModel, upstreamJobID)
+		resp, err := s.providerSvc.LuaService().PollVideo(ctx, s.meta(resolved, backendModel, allowed), backendModel, upstreamJobID)
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
-			return nil, proxy, fmt.Errorf("%w: provider %q has no poll_video handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+			return nil, "", fmt.Errorf("%w: provider %q has no poll_video handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 		}
-		return resp, proxy, err
+		return resp, "", err
 	}
 	vg, ok := resolved.Go.(provider.VideoGenerator)
 	if !ok {
@@ -169,11 +171,11 @@ func (s *Service) PollVideo(
 		return nil, err
 	}
 	resolved := rr.resolved
-	creds, err := s.loadCredentials(ctx, resolved, job.BackendModel, token)
+	allowed, creds, err := s.gateCredentials(ctx, resolved, job.BackendModel, token)
 	if err != nil {
 		return nil, err
 	}
-	resp, _, err := s.pollVideoOne(ctx, resolved, creds, job.BackendModel, job.UpstreamJobID)
+	resp, _, err := s.pollVideoOne(ctx, resolved, creds, allowed, job.BackendModel, job.UpstreamJobID)
 	s.dropMissingModel(rr.providerID, rr.modelName, err)
 	if err != nil {
 		return nil, err
@@ -189,14 +191,15 @@ func (s *Service) PollVideo(
 	return &out, nil
 }
 
-// videoContentOne runs a single video asset download against the pool.
-func (s *Service) videoContentOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, backendModel models.ModelId, upstreamJobID string, index int) (*models.VideoContentResponse, string, error) {
+// videoContentOne runs a single video asset download. Lua plugins iterate
+// internally; Go adapters receive the gated pool.
+func (s *Service) videoContentOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, allowed []string, backendModel models.ModelId, upstreamJobID string, index int) (*models.VideoContentResponse, string, error) {
 	if resolved.IsLua() {
-		resp, proxy, err := s.providerSvc.LuaService().VideoContentPool(ctx, s.meta(resolved, backendModel), creds, backendModel, upstreamJobID, index)
+		resp, err := s.providerSvc.LuaService().VideoContent(ctx, s.meta(resolved, backendModel, allowed), backendModel, upstreamJobID, index)
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
-			return nil, proxy, fmt.Errorf("%w: provider %q has no video_content handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+			return nil, "", fmt.Errorf("%w: provider %q has no video_content handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 		}
-		return resp, proxy, err
+		return resp, "", err
 	}
 	vg, ok := resolved.Go.(provider.VideoGenerator)
 	if !ok {
@@ -228,11 +231,11 @@ func (s *Service) VideoContent(
 		return nil, err
 	}
 	resolved := rr.resolved
-	creds, err := s.loadCredentials(ctx, resolved, job.BackendModel, token)
+	allowed, creds, err := s.gateCredentials(ctx, resolved, job.BackendModel, token)
 	if err != nil {
 		return nil, err
 	}
-	resp, _, err := s.videoContentOne(ctx, resolved, creds, job.BackendModel, job.UpstreamJobID, index)
+	resp, _, err := s.videoContentOne(ctx, resolved, creds, allowed, job.BackendModel, job.UpstreamJobID, index)
 	s.dropMissingModel(rr.providerID, rr.modelName, err)
 	if err != nil {
 		return nil, err

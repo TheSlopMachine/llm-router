@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -115,7 +116,6 @@ func (s *Service) CompleteRouted(
 ) (*models.ChatCompletionResponse, string, error) {
 	return callAndDecode(s, goCtx, meta, "complete", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", meta.ProviderConfig))
-		L.Push(credTable(L, meta.Credential))
 		L.Push(requestTable(L, req))
 	}, []string{"choices", "tool_calls"}, func(out *models.ChatCompletionResponse) error {
 		if len(out.Choices) == 0 {
@@ -182,7 +182,6 @@ func (s *Service) CompleteStreamRouted(
 	}
 	found, proxy, callErr := s.handlerCallRouted(goCtx, rec, meta, "complete_stream", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", meta.ProviderConfig))
-		L.Push(credTable(L, meta.Credential))
 		L.Push(requestTable(L, req))
 		L.Push(L.NewFunction(emitFn))
 	}, 2, func(L *lua.LState) error {
@@ -283,7 +282,6 @@ func (s *Service) TranscribeRouted(
 ) (*models.TranscriptionResponse, string, error) {
 	return callAndDecode[models.TranscriptionResponse](s, goCtx, meta, "transcribe", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", meta.ProviderConfig))
-		L.Push(credTable(L, meta.Credential))
 		L.Push(transcriptionRequestTable(L, req))
 	}, []string{"segments", "words"}, nil)
 }
@@ -331,7 +329,6 @@ func (s *Service) SpeechRouted(
 ) (*models.SpeechResponse, string, error) {
 	out, proxy, err := callAndDecode(s, goCtx, meta, "speech", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", meta.ProviderConfig))
-		L.Push(credTable(L, meta.Credential))
 		L.Push(speechRequestTable(L, req))
 	}, nil, func(payload *speechPayload) error {
 		audio, derr := base64.StdEncoding.DecodeString(payload.AudioB64)
@@ -404,7 +401,6 @@ func (s *Service) GenerateImageRouted(
 ) (*models.ImageGenerationResponse, string, error) {
 	return callAndDecode(s, goCtx, meta, "generate_image", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", meta.ProviderConfig))
-		L.Push(credTable(L, meta.Credential))
 		L.Push(imageRequestTable(L, req))
 	}, []string{"data"}, func(out *models.ImageGenerationResponse) error {
 		if len(out.Data) == 0 {
@@ -454,7 +450,6 @@ func (s *Service) EmbedRouted(
 ) (*models.EmbeddingsResponse, string, error) {
 	return callAndDecode(s, goCtx, meta, "embed", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", meta.ProviderConfig))
-		L.Push(credTable(L, meta.Credential))
 		L.Push(embeddingsRequestTable(L, req))
 	}, []string{"data"}, func(out *models.EmbeddingsResponse) error {
 		if len(out.Data) != len(req.Input) {
@@ -491,7 +486,6 @@ func (s *Service) ModerateRouted(
 ) (*models.ModerationResponse, string, error) {
 	return callAndDecode(s, goCtx, meta, "moderate", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", meta.ProviderConfig))
-		L.Push(credTable(L, meta.Credential))
 		L.Push(moderateRequestTable(L, req))
 	}, []string{"results"}, func(out *models.ModerationResponse) error {
 		if len(out.Results) != len(req.Input) {
@@ -648,7 +642,6 @@ func (s *Service) SubmitVideoRouted(
 ) (*models.VideoGenerationResponse, string, error) {
 	return callAndDecode(s, goCtx, meta, "generate_video", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", meta.ProviderConfig))
-		L.Push(credTable(L, meta.Credential))
 		L.Push(videoSubmitTable(L, req))
 	}, []string{"unsigned_urls"}, validateVideoResponse)
 }
@@ -687,7 +680,6 @@ func (s *Service) PollVideoRouted(
 ) (*models.VideoGenerationResponse, string, error) {
 	return callAndDecode(s, goCtx, meta, "poll_video", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", meta.ProviderConfig))
-		L.Push(credTable(L, meta.Credential))
 		L.Push(videoJobTable(L, model, upstreamJobID, 0, false))
 	}, []string{"unsigned_urls"}, validateVideoResponse)
 }
@@ -717,7 +709,6 @@ func (s *Service) VideoContentRouted(
 ) (*models.VideoContentResponse, string, error) {
 	out, proxy, err := callAndDecode(s, goCtx, meta, "video_content", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", meta.ProviderConfig))
-		L.Push(credTable(L, meta.Credential))
 		L.Push(videoJobTable(L, model, upstreamJobID, index, true))
 	}, nil, func(payload *videoContentPayload) error {
 		video, derr := base64.StdEncoding.DecodeString(payload.VideoB64)
@@ -754,7 +745,7 @@ func (s *Service) ValidateCredentials(typeKey string, data map[string]any) (bool
 		if b, ok := result.(lua.LBool); ok && !bool(b) {
 			valid = false
 			if rawErr == lua.LNil {
-				return &models.ProviderError{StatusCode: 400, Type: models.ErrorTypeInvalidRequest, Message: "credentials rejected"}
+				return &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: "credentials rejected"}
 			}
 			return s.contractErrOrInternal(rec, typeKey, rawErr)
 		}
@@ -778,12 +769,15 @@ func (s *Service) ValidateCredentials(typeKey string, data map[string]any) (bool
 	return valid, nil
 }
 
-// GetModelInfos calls get_model_infos. Missing handler reports
-// ErrHandlerNotFound so callers apply the fixed fallback.
+// GetModelInfos calls get_model_infos with the provider config in ctx.
+// The plugin selects its own credential for discovery from the provider's
+// scope: providerID threads into the call so credentials.list() sees the
+// provider's rows. Missing handler reports ErrHandlerNotFound so callers
+// apply the fixed fallback.
 func (s *Service) GetModelInfos(
 	goCtx context.Context,
+	providerID string,
 	typeKey string,
-	cred *models.Credential,
 	providerConfig map[string]any,
 ) ([]models.ModelInfo, error) {
 	rec, err := s.Lookup(typeKey)
@@ -791,15 +785,9 @@ func (s *Service) GetModelInfos(
 		return nil, err
 	}
 	var infos []models.ModelInfo
-	meta := HandlerMeta{TypeKey: typeKey, Credential: cred, ProviderConfig: providerConfig}
+	meta := HandlerMeta{ProviderID: providerID, TypeKey: typeKey, ProviderConfig: providerConfig}
 	found, _, callErr := s.handlerCallRouted(goCtx, rec, meta, "get_model_infos", func(L *lua.LState) {
-		L.Push(ctxTable(L, "", nil))
-		L.Push(credTable(L, cred))
-		if len(providerConfig) > 0 {
-			L.Push(toLuaValue(L, providerConfig))
-		} else {
-			L.Push(L.NewTable())
-		}
+		L.Push(ctxTable(L, "", providerConfig))
 	}, 2, func(L *lua.LState) error {
 		result, rawErr := splitReturn(L)
 		if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
@@ -834,104 +822,22 @@ func (s *Service) GetModelInfos(
 	return infos, nil
 }
 
-// NeedsRefresh calls needs_refresh. Missing handler means not refreshable.
-func (s *Service) NeedsRefresh(typeKey string, cred *models.Credential) (bool, error) {
-	rec, err := s.Lookup(typeKey)
-	if err != nil {
-		return false, err
-	}
-	needs := false
-	found, err := s.handlerCall(context.Background(), rec, typeKey, "needs_refresh", func(L *lua.LState) {
-		L.Push(credTable(L, cred))
-	}, 1, func(L *lua.LState) error {
-		v := L.Get(-1)
-		if b, ok := v.(lua.LBool); ok {
-			needs = bool(b)
-			return nil
-		}
-		if v == lua.LNil {
-			needs = false
-			return nil
-		}
-		s.recordCrash(rec.ID, typeKey, "needs_refresh must return boolean")
-		return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "needs_refresh must return boolean"}
-	}, nil)
-	if err != nil {
-		return false, err
-	}
-	if !found {
-		return false, nil
-	}
-	return needs, nil
-}
-
-// RefreshCredential calls refresh_credential and returns the new data map.
-// Missing handler reports ErrHandlerNotFound (not refreshable).
-func (s *Service) RefreshCredential(
-	goCtx context.Context,
-	typeKey string,
-	cred *models.Credential,
-) (map[string]any, error) {
-	rec, err := s.Lookup(typeKey)
-	if err != nil {
-		return nil, err
-	}
-	var data map[string]any
-	found, err := s.handlerCall(goCtx, rec, typeKey, "refresh_credential", func(L *lua.LState) {
-		L.Push(ctxTable(L, "", nil))
-		L.Push(credTable(L, cred))
-	}, 2, func(L *lua.LState) error {
-		_, rawErr := splitReturn(L)
-		if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
-			return cerr
-		}
-		out, merr := luaValueToMap(L, L.GetTop()-1)
-		if merr != nil {
-			s.recordCrash(rec.ID, typeKey, "refresh_credential must return credential data table: "+merr.Error())
-			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "refresh_credential must return credential data table"}
-		}
-		data = out
-		return nil
-	}, nil)
-	if err != nil {
-		return nil, err
-	}
-	if !found {
-		return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "refresh_credential"}
-	}
-	return data, nil
-}
-
-// Schema calls config_schema or credential_schema. Missing handler reports
-// ErrHandlerNotFound so the dashboard falls back to raw JSON input.
-func (s *Service) Schema(typeKey, handler string) ([]*models.UINode, error) {
-	if handler != "config_schema" && handler != "credential_schema" {
-		return nil, fmt.Errorf("unknown schema handler %q", handler)
+// Schema serves static UI tables from the stored record: credential_schema,
+// config_schema, settings_schema or proxy_schema. Missing tables report
+// ErrHandlerNotFound so callers hide the surface instead of rendering it.
+func (s *Service) Schema(typeKey, kind string) ([]*models.UINode, error) {
+	switch kind {
+	case "credential_schema", "config_schema", "settings_schema", "proxy_schema":
+	default:
+		return nil, fmt.Errorf("unknown schema %q", kind)
 	}
 	rec, err := s.Lookup(typeKey)
 	if err != nil {
 		return nil, err
 	}
-	var nodes []*models.UINode
-	found, err := s.handlerCall(context.Background(), rec, typeKey, handler, nil, 1, func(L *lua.LState) error {
-		v := L.Get(-1)
-		if v == lua.LNil {
-			nodes = nil
-			return nil
-		}
-		parsed, verr := parseUINodes(v)
-		if verr != nil {
-			s.recordCrash(rec.ID, typeKey, handler+" schema violation: "+verr.Error())
-			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: handler + " schema violation: " + verr.Error()}
-		}
-		nodes = parsed
-		return nil
-	}, nil)
-	if err != nil {
-		return nil, err
-	}
-	if !found {
-		return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: handler}
+	nodes, ok := rec.Schemas[typeKey][kind]
+	if !ok {
+		return nil, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: kind}
 	}
 	return nodes, nil
 }
@@ -1029,7 +935,7 @@ func (s *Service) ProxySourceKeys() ([]string, error) {
 // FetchProxies invokes the fetch_proxies handler of a proxy source plugin.
 // sourceKey is qualified; the owning record is resolved exactly, and the
 // routed call uses the declared name the plugin registered.
-func (s *Service) FetchProxies(goCtx context.Context, sourceKey string) ([]models.ProxyCandidate, error) {
+func (s *Service) FetchProxies(goCtx context.Context, sourceKey string) ([]proxypool.Candidate, error) {
 	records, err := s.List()
 	if err != nil {
 		return nil, err
@@ -1048,20 +954,43 @@ func (s *Service) FetchProxies(goCtx context.Context, sourceKey string) ([]model
 	if rec == nil {
 		return nil, fmt.Errorf("proxy source %q not found", sourceKey)
 	}
-	var out []models.ProxyCandidate
+	var out []proxypool.Candidate
 	found, err := s.handlerCall(goCtx, rec, declared, "fetch_proxies", nil, 1, func(L *lua.LState) error {
 		result := L.Get(-1)
 		if result == lua.LNil {
-			out = []models.ProxyCandidate{}
+			out = []proxypool.Candidate{}
 			return nil
 		}
 		raw, merr := marshalLua(result)
 		if merr != nil {
 			return &models.PluginInternalError{PluginID: rec.ID, Cause: "encode proxies: " + merr.Error()}
 		}
-		if uerr := unmarshalTo(raw, &out); uerr != nil {
+		// Feeds emit [{url=, country=}] or [{protocol=, host=, port=,
+		// country=}]: accept both shapes, drop rows without an address.
+		var rows []struct {
+			URL      string `json:"url"`
+			Protocol string `json:"protocol"`
+			Host     string `json:"host"`
+			Port     int    `json:"port"`
+			Country  string `json:"country"`
+		}
+		if uerr := unmarshalTo(raw, &rows); uerr != nil {
 			s.recordCrash(rec.ID, sourceKey, "fetch_proxies schema violation: "+uerr.Error())
 			return &models.PluginInternalError{PluginID: rec.ID, Cause: "fetch_proxies schema violation: " + uerr.Error()}
+		}
+		out = make([]proxypool.Candidate, 0, len(rows))
+		for _, r := range rows {
+			u := r.URL
+			if u == "" && r.Host != "" && r.Port > 0 {
+				proto := r.Protocol
+				if proto == "" {
+					proto = "http"
+				}
+				u = proto + "://" + r.Host + ":" + fmt.Sprintf("%d", r.Port)
+			}
+			if u != "" {
+				out = append(out, proxypool.Candidate{URL: u, Country: r.Country})
+			}
 		}
 		return nil
 	}, nil)

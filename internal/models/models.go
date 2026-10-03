@@ -62,7 +62,12 @@ import (
 // 0.5.3 unifies same-credential proxy retries under provider proxy_retry
 // policy (legacy geo sections migrate at startup) and refreshes known
 // model rows from fresh discovery.
-const CurrentVersion = "0.5.3"
+// 0.7.0 decentralizes orchestration to plugins: credential selection,
+// proxy selection, retry loops and rate-limit handling move into Lua.
+// Provider proxy mode/retry sections, the exhausted joint-key store and
+// geo bans are removed. Plugins query proxies read-only, assign proxy_url
+// per request, and return OpenAI-shaped errors only on terminal failure.
+const CurrentVersion = "0.7.0"
 
 // ─────────────────────────────────────────────
 // ModelId
@@ -1207,48 +1212,18 @@ type ModelOverride struct {
 }
 
 // ─────────────────────────────────────────────
-// Provider errors
+// Provider errors (0.7.0)
 // ─────────────────────────────────────────────
 
-// ErrorType classifies provider errors for key iteration inside backends.
-type ErrorType int
-
-const (
-	ErrorTypeUnknown          ErrorType = iota
-	ErrorTypeRateLimit                  // Temporary rate limit; plugin MUST supply RetryAfter
-	ErrorTypeQuotaExceeded              // Quota exhausted; plugin MUST supply RetryAfter
-	ErrorTypeAuth                       // Auth failure: fails over, carries no state
-	ErrorTypeUpstream                   // Transient upstream failure (5xx,timeout, reset)
-	ErrorTypeTransport                  // Connectivity failure (EOF, reset, broken tunnel); carries no state, retries on another proxy
-	ErrorTypeInvalidRequest             // Malformed request; fatal for the pool
-	ErrorTypeGeo                        // Exit geo-blocked: indefinite (provider, proxy) ban, same-key retry on another region
-	ErrorTypeNotFound                   // Model does not exist upstream; drop it from the cache
-	ErrorTypePaymentRequired            // Upstream paywall: fails over, carries no state
-	ErrorTypeContentPolicy              // Upstream rejected the content; fatal for the pool
-	ErrorTypeModelUnavailable           // Model exists but not serving; exhausted on (provider, model) for 2m
-	ErrorTypeOverloaded                 // Backend congested; retryable, no marks or cooldown
-	ErrorTypeStructuralFault            // Provider config/network broken for all keys and models; fatal for the pool, carries no state
-)
-
-// ProviderError represents errors returned by provider backends.
+// ProviderError is the terminal error a plugin returns when its own
+// retries are exhausted. The shape mirrors the OpenAI error object:
+// a human message plus a wire code. Routing never inspects anything
+// else: no types, no scopes, no retry hints, no upstream passthrough.
 type ProviderError struct {
 	StatusCode int
 	Message    string
-	Type       ErrorType
-	RetryAfter *time.Time
-	// Scope names the exhausted dimensions the error limits (account selects
-	// the credential dimension, plus model, proxy). Allowed only on
-	// rate_limit and quota_exceeded. Empty marks the full combination.
-	// Proxy-scoped limits can retry on another proxy.
-	// Any scope on other types rejects the error table as a plugin bug.
-	Scope []string
-	// UpstreamStatus is the raw HTTP status received from the upstream.
-	// UpstreamBody is the raw upstream response body (possibly truncated by
-	// the HTTP client). Routing never reads these; they exist for logging
-	// and debugging. Large bodies are spilled to disk in debug mode with
-	// the path carried alongside the log line.
-	UpstreamStatus int
-	UpstreamBody   string
+	Code       string
+	Param      string
 }
 
 func (e *ProviderError) Error() string {
@@ -1509,6 +1484,21 @@ func (c *Credential) IsExpired() bool {
 	return time.Now().After(*c.ExpiresAt)
 }
 
+// ParkEntry is one unified cooldown park: the credential stays enabled and
+// dashboard-visible, but plugin rotation skips it until Until passes.
+// Transient states only (rate limits, quota windows); dead keys disable.
+type ParkEntry struct {
+	CredentialID string    `json:"credential_id"`
+	Reason       string    `json:"reason,omitempty"`
+	Until        time.Time `json:"until"`
+	ParkedAt     time.Time `json:"parked_at"`
+}
+
+// Expired reports whether the park no longer holds.
+func (e *ParkEntry) Expired(now time.Time) bool {
+	return !now.Before(e.Until)
+}
+
 // ExpiresIn returns the duration until expiry (negative if already expired).
 func (c *Credential) ExpiresIn() time.Duration {
 	if c.ExpiresAt == nil {
@@ -1708,188 +1698,65 @@ type TimeSeriesPoint struct {
 }
 
 // ─────────────────────────────────────────────
-// Proxies
+// Proxies (0.7.0)
 // ─────────────────────────────────────────────
 
-// ─────────────────────────────────────────────
-// Exhausted store (0.1.1)
-// ─────────────────────────────────────────────
-
-// ExhaustedScope dimensions nameable in the error contract scope field.
-// Provider (the configured instance ID) and plugin are always part of every
-// key and need no naming.
-const (
-	ExhaustedScopeAccount = "account"
-	ExhaustedScopeModel   = "model"
-	ExhaustedScopeProxy   = "proxy"
-)
-
-// ExhaustedEntry is one joint limit key: the stored dimensions act as a
-// filter, and a candidate combination matching every stored dimension is
-// deprioritized until ResetsAt passes.
-type ExhaustedEntry struct {
-	Key      string    `json:"key"`
-	ResetsAt time.Time `json:"resets_at"`
-	Reason   string    `json:"reason,omitempty"`
+// ProxyPoolRef is the provider-level proxy selection stored in
+// ProviderInstance.Config["proxy"]. Empty pool means direct (no proxy):
+// plugins skip proxies.query. "auto" selects the router free pool, any
+// other name selects a custom pool by ID or name.
+type ProxyPoolRef struct {
+	Pool string `json:"pool,omitempty"`
 }
 
-// ProxyConfig is the provider-level proxy mode stored in ProviderInstance.Config.
-type ProxyConfig struct {
-	Mode string   `json:"mode"`          // "disabled" (default), "auto", "manual"
-	IDs  []string `json:"ids,omitempty"` // manual mode: chosen proxy IDs
+// DefaultProxyPool is the pool name for the router free pool.
+const DefaultProxyPool = "auto"
+
+// CredentialAutomationOn reports the provider disable_failed_credentials
+// switch: the single master for every non-manual credential disable
+// (single probes, detached health checks, plugin shared writes). Absent or
+// non-boolean reads off, matching the dashboard default.
+func CredentialAutomationOn(providerConfig map[string]any) bool {
+	enabled, _ := providerConfig["disable_failed_credentials"].(bool)
+	return enabled
 }
 
-// Mode constants for ProxyConfig.
-const (
-	ProxyModeDisabled = "disabled"
-	ProxyModeAuto     = "auto"
-	ProxyModeManual   = "manual"
-)
-
-// ParseProxyConfig reads the provider-level proxy policy from a provider
-// config map. Absent or non-map proxy sections mean disabled; an explicitly
-// unknown mode is an error, never a silent fallback to direct.
-func ParseProxyConfig(providerConfig map[string]any) (ProxyConfig, error) {
-	cfg := ProxyConfig{Mode: ProxyModeDisabled}
+// ParseProxyPoolRef reads the provider-level proxy pool reference from a
+// provider config map. Absent or non-map proxy sections mean direct; an
+// explicitly unknown shape is an error, never a silent fallback.
+func ParseProxyPoolRef(providerConfig map[string]any) (ProxyPoolRef, error) {
+	cfg := ProxyPoolRef{}
 	raw, ok := providerConfig["proxy"].(map[string]any)
 	if !ok {
 		return cfg, nil
 	}
-	if m, ok := raw["mode"].(string); ok && m != "" {
-		switch m {
-		case ProxyModeDisabled, ProxyModeAuto, ProxyModeManual:
-			cfg.Mode = m
-		default:
-			return cfg, fmt.Errorf("unknown proxy mode %q: expected disabled, auto or manual", m)
-		}
-	}
-	if list, ok := raw["ids"].([]any); ok {
-		for _, v := range list {
-			if s, ok := v.(string); ok {
-				cfg.IDs = append(cfg.IDs, s)
-			}
-		}
+	if p, ok := raw["pool"].(string); ok {
+		cfg.Pool = p
 	}
 	return cfg, nil
 }
 
-// ProxyCandidate is one proxy entry produced by a source plugin.
-type ProxyCandidate struct {
-	Protocol string `json:"protocol"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Country  string `json:"country"`
+// ProxyEntry is one proxy endpoint in a custom pool.
+type ProxyEntry struct {
+	URL     string `json:"url"`
+	Country string `json:"country,omitempty"`
 }
 
-// ─────────────────────────────────────────────
-// Proxy retry policy (unified same-credential proxy retry)
-// ─────────────────────────────────────────────
-
-// Proxy retry mode constants for the provider-level retry policy stored in
-// ProviderInstance.Config["proxy_retry"]. One policy governs every
-// retryable proxy failure: geo blocks, proxy-scoped rate/quota limits,
-// transport failures and overloaded backends.
-const (
-	ProxyRetryFailFast  = "fail_fast"
-	ProxyRetryNextProxy = "next_proxy"
-)
-
-// DefaultProxyRetryMaxAttempts bounds same-credential proxy retries when
-// max_attempts is absent.
-const DefaultProxyRetryMaxAttempts = 3
-
-// MaxProxyRetryMaxAttempts caps same-credential proxy retries.
-const MaxProxyRetryMaxAttempts = 10
-
-// ProxyRetryConfig is the provider-level same-credential proxy retry
-// policy: on a retryable proxy failure retry the same credential on an
-// untried proxy up to MaxAttempts total attempts, then fail over.
-type ProxyRetryConfig struct {
-	Mode        string `json:"mode"` // fail_fast (default) or next_proxy
-	MaxAttempts int    `json:"max_attempts,omitempty"`
+// CustomProxyPool is a manually created and populated proxy pool.
+type CustomProxyPool struct {
+	ID        string       `json:"id"`
+	Name      string       `json:"name"`
+	Entries   []ProxyEntry `json:"entries"`
+	CreatedAt time.Time    `json:"created_at"`
+	UpdatedAt time.Time    `json:"updated_at"`
 }
 
-// ParseProxyRetryConfig reads the provider-level retry policy from a
-// provider config map. Absent or non-map proxy_retry sections mean
-// fail_fast; an explicitly unknown mode is an error, never a silent
-// fallback.
-func ParseProxyRetryConfig(providerConfig map[string]any) (ProxyRetryConfig, error) {
-	cfg := ProxyRetryConfig{Mode: ProxyRetryFailFast, MaxAttempts: DefaultProxyRetryMaxAttempts}
-	raw, ok := providerConfig["proxy_retry"].(map[string]any)
-	if !ok {
-		return cfg, nil
-	}
-	if m, ok := raw["mode"].(string); ok && m != "" {
-		switch m {
-		case ProxyRetryFailFast, ProxyRetryNextProxy:
-			cfg.Mode = m
-		default:
-			return cfg, fmt.Errorf("unknown proxy retry mode %q: expected fail_fast or next_proxy", m)
-		}
-	}
-	if n, ok := raw["max_attempts"]; ok {
-		switch v := n.(type) {
-		case float64:
-			cfg.MaxAttempts = int(v)
-		case int:
-			cfg.MaxAttempts = v
-		}
-		if cfg.MaxAttempts < 1 {
-			cfg.MaxAttempts = 1
-		}
-		if cfg.MaxAttempts > MaxProxyRetryMaxAttempts {
-			cfg.MaxAttempts = MaxProxyRetryMaxAttempts
-		}
-	}
-	return cfg, nil
-}
-
-// MigrateGeoToProxyRetry converts a legacy geo policy section to the
-// unified proxy_retry section. Reports whether the config changed.
-// Legacy retry_same_key becomes next_proxy with max_proxies carried over;
-// anything else becomes fail_fast.
-func MigrateGeoToProxyRetry(config map[string]any) bool {
-	if config == nil {
-		return false
-	}
-	raw, ok := config["geo"].(map[string]any)
-	if !ok {
-		return false
-	}
-	maxAttempts := DefaultProxyRetryMaxAttempts
-	if n, ok := raw["max_proxies"]; ok {
-		switch v := n.(type) {
-		case float64:
-			maxAttempts = int(v)
-		case int:
-			maxAttempts = v
-		}
-		if maxAttempts < 1 {
-			maxAttempts = 1
-		}
-		if maxAttempts > MaxProxyRetryMaxAttempts {
-			maxAttempts = MaxProxyRetryMaxAttempts
-		}
-	}
-	mode := ProxyRetryFailFast
-	if m, _ := raw["mode"].(string); m == "retry_same_key" {
-		mode = ProxyRetryNextProxy
-	}
-	delete(config, "geo")
-	config["proxy_retry"] = map[string]any{"mode": mode, "max_attempts": maxAttempts}
-	return true
-}
-
-// GeoBanEntry is one indefinite geo-block flag: proxy ProxyID is unusable
-// for provider type Provider of plugin Plugin. No expiry: the flag lives
-// until an admin clears it explicitly.
-type GeoBanEntry struct {
-	Key      string    `json:"key"`
-	Plugin   string    `json:"plugin"`
-	Provider string    `json:"provider"`
-	Proxy    string    `json:"proxy"`
-	Reason   string    `json:"reason,omitempty"`
-	BannedAt time.Time `json:"banned_at"`
+// ProxyView is one proxy endpoint exposed to plugins through proxies.query.
+type ProxyView struct {
+	ID      string `json:"id"`
+	URL     string `json:"url"`
+	Country string `json:"country,omitempty"`
+	Pool    string `json:"pool"`
 }
 
 // ─────────────────────────────────────────────
