@@ -250,7 +250,7 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 		// Seeded providers are managed automatically; only operational keys
 		// (proxy mode, geo reaction, model automation) and the disabled
 		// toggle may be edited. Other config keys are preserved.
-		allowed := map[string]bool{"proxy": true, "geo": true, "models_auto_sync": true, "disable_failed_models": true}
+		allowed := map[string]bool{"proxy": true, "geo": true, "models_auto_sync": true, "disable_failed_models": true, "disable_failed_credentials": true}
 		if body.Name != "" && body.Name != existing.Name {
 			h.jsonErr(w, http.StatusForbidden, "provider is managed automatically")
 			return

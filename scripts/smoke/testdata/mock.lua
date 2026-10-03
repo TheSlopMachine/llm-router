@@ -1,6 +1,6 @@
 --- @plugin Smoke Mock
 --- @author llm-router
---- @version 1.3.0
+--- @version 1.4.0
 --- @router_version 0.4.0
 --- @description Deterministic mock provider for the smoke harness. No network use.
 --- @allow_host example.com
@@ -30,6 +30,10 @@ llm_router.register("mock", {
 
   validate_credentials = function(data)
     return true
+  end,
+
+  check_health = function(ctx, credential)
+    return { status = "healthy" }
   end,
 
   get_model_infos = function(ctx, credential, provider_config)

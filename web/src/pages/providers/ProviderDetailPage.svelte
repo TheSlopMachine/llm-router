@@ -24,6 +24,9 @@
   let credentialTestResults = $state<Record<string, TestResult | 'loading'>>({})
   let credentialRefreshing = $state<Record<string, boolean>>({})
   const resultTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  let disableFailedCredentials = $state(false)
+  let testingAllCreds = $state(false)
+  let testAllCredsCancel = $state(false)
 
 
   let proxyMode = $state<'disabled' | 'auto' | 'manual'>('disabled')
@@ -57,6 +60,7 @@
     void reloadCredentials()
     initProxyConfig()
     void loadProxyPool()
+    disableFailedCredentials = provider.config?.disable_failed_credentials === true
   })
 
   async function loadPage(): Promise<void> {
@@ -174,7 +178,7 @@
 
   function openEditCredential(cred: Credential): void {
     modal.open({
-      title: t('Edit Key'),
+      title: t('Edit credential'),
       content: EditCredentialLabel,
       severity: 'medium',
       size: 'small',
@@ -231,7 +235,33 @@
     resultTimers.set(key, setTimeout(clear, 3000))
   }
 
-  async function testCredential(cred: Credential): Promise<void> {
+  async function saveCredAutomation(): Promise<void> {
+    if (!provider) return
+    error = ''
+    try {
+      // Patch only the automation field on top of whatever config the
+      // server currently has -- never reconstruct the proxy/geo portion here.
+      await api.providers.updateInstance(provider.id, {
+        name: provider.name,
+        config: {
+          ...(provider.config ?? {}),
+          disable_failed_credentials: disableFailedCredentials,
+        },
+      })
+      const providers = await api.providers.list()
+      provider = (providers as Provider[]).find((p) => p.id === providerIdValue) ?? provider
+    } catch (e) {
+      error = getErrorMessage(e)
+    }
+  }
+
+  function isFailingCredential(res: TestResult): boolean {
+    // Health verdicts only: the credential test runs check_health, so no
+    // traffic codes can surface. Unknown stays enabled.
+    return res.code === 'unhealthy'
+  }
+
+  async function probeCredential(cred: Credential): Promise<TestResult> {
     credentialTestResults = { ...credentialTestResults, [cred.id]: 'loading' }
     let res: TestResult
     try {
@@ -240,8 +270,13 @@
       res = { ok: false, latency_ms: 0, error: getErrorMessage(e) }
     }
     credentialTestResults = { ...credentialTestResults, [cred.id]: res }
-    if (res.ok) toast.success(`Key "${cred.label || 'Unnamed'}" works · ${res.latency_ms}ms`)
-    else toast.error(`Key "${cred.label || 'Unnamed'}" failed: ${res.error}`)
+    return res
+  }
+
+  async function testCredential(cred: Credential): Promise<void> {
+    const res = await probeCredential(cred)
+    if (res.ok) toast.success(`"${cred.label || t('Unnamed')}" ${t('is healthy')} · ${res.latency_ms}ms`)
+    else toast.error(`"${cred.label || t('Unnamed')}" ${t('failed')}: ${res.error}`)
     flashTimer(`cred:${cred.id}`, () => {
       const next = { ...credentialTestResults }
       delete next[cred.id]
@@ -249,11 +284,47 @@
     })
   }
 
+  async function testAllCredentials(): Promise<void> {
+    if (testingAllCreds) {
+      testAllCredsCancel = true
+      return
+    }
+    testingAllCreds = true
+    testAllCredsCancel = false
+    for (const key of [...resultTimers.keys()]) {
+      if (key.startsWith('cred:')) {
+        clearTimeout(resultTimers.get(key))
+        resultTimers.delete(key)
+      }
+    }
+    try {
+      const failed: Credential[] = []
+      for (const cred of credentials) {
+        if (testAllCredsCancel) break
+        if (cred.disabled) continue
+        const res = await probeCredential(cred)
+        if (!res.ok && isFailingCredential(res)) failed.push(cred)
+      }
+      if (!testAllCredsCancel && disableFailedCredentials) {
+        for (const cred of failed) {
+          await api.credentials.update(cred.id, { disabled: true })
+        }
+        if (failed.length > 0) {
+          toast.success(`${failed.length} ${t('failing credentials disabled')}`)
+          await reloadCredentials()
+        }
+      }
+    } finally {
+      testingAllCreds = false
+      testAllCredsCancel = false
+    }
+  }
+
   async function refreshCredential(cred: Credential): Promise<void> {
     credentialRefreshing = { ...credentialRefreshing, [cred.id]: true }
     try {
       await api.credentials.refresh(cred.id)
-      toast.success(`Key "${cred.label || 'Unnamed'}" refreshed`)
+      toast.success(`"${cred.label || t('Unnamed')}" ${t('refreshed')}`)
       await reloadCredentials()
     } catch (e) {
       toast.error(`Refresh failed: ${getErrorMessage(e)}`)
@@ -369,10 +440,20 @@
 
     <VStack tag="section" gap={4} class="provider-section">
       <HStack align="center" gap={2}>
-        <Text tag="h2" size="md" weight="medium">{t('API Keys')}</Text>
+        <Text tag="h2" size="md" weight="medium">{t('Credentials')}</Text>
         <Text size="xs" tone="soft">{credentials.length}</Text>
         <Spacer />
-        <Button style="prominent" onclick={openAddCredential} icon={{ name: 'add' }}>{t('Add key')}</Button>
+        <Button style="prominent" onclick={openAddCredential} icon={{ name: 'add' }}>{t('Add credential')}</Button>
+      </HStack>
+      <HStack align="center" gap={4} wrap>
+        <Switch
+          checked={disableFailedCredentials}
+          label={t('Disable failing credentials')}
+          onchange={(v) => { disableFailedCredentials = v; void saveCredAutomation() }}
+        />
+        <Button icon={{ name: testingAllCreds ? 'stop' : 'network_check' }} onclick={testAllCredentials}>
+          {testingAllCreds ? t('Testing… click to cancel') : t('Test all')}
+        </Button>
       </HStack>
       <Table
         columns={credentialColumns}
@@ -398,14 +479,14 @@
               <Text size="sm" tone="danger">{t('Disabled automatically')}{cred.disabled_reason ? `: ${cred.disabled_reason}` : ''}</Text>
             {/if}
           {:else}
-            {@const ti = testIcon(credentialTestResults[cred.id], t('Test key'))}
+            {@const ti = testIcon(credentialTestResults[cred.id], t('Test credential'))}
             <HStack gap={3} justify="end">
               <Button
                 size="small"
                 style="text"
                 icon={{ name: 'refresh' }}
-                ariaLabel={t('Refresh token')}
-                title={t('Refresh token')}
+                ariaLabel={t('Refresh credential')}
+                title={t('Refresh credential')}
                 disabled={credentialRefreshing[cred.id]}
                 onclick={() => refreshCredential(cred)}
               />
@@ -418,11 +499,11 @@
                 title={ti.title}
                 onclick={() => testCredential(cred)}
               />
-              <Button size="small" style="text" icon={{ name: 'edit' }} ariaLabel={t('Edit key')} title={t('Edit key')} onclick={() => openEditCredential(cred)} />
-              <Button size="small" tint="#dc2626" style="text" icon={{ name: 'delete' }} ariaLabel={t('Delete key')} title={t('Delete key')} onclick={(e) => openDeleteCredential(cred, e.currentTarget as HTMLElement)} />
+              <Button size="small" style="text" icon={{ name: 'edit' }} ariaLabel={t('Edit credential')} title={t('Edit credential')} onclick={() => openEditCredential(cred)} />
+              <Button size="small" tint="#dc2626" style="text" icon={{ name: 'delete' }} ariaLabel={t('Delete credential')} title={t('Delete credential')} onclick={(e) => openDeleteCredential(cred, e.currentTarget as HTMLElement)} />
               <Switch
                 checked={!cred.disabled}
-                ariaLabel={t('Enable key')}
+                ariaLabel={t('Enable credential')}
                 onchange={(v) => toggleCredential(cred, v)}
               />
             </HStack>
@@ -430,7 +511,7 @@
         {/snippet}
         {#snippet empty()}
           <VStack align="center" gap={2} class="table-empty">
-            <Text size="sm" tone="soft">{t('No keys yet. Add one to route traffic to this provider.')}</Text>
+            <Text size="sm" tone="soft">{t('No credentials yet. Add one to route traffic to this provider.')}</Text>
           </VStack>
         {/snippet}
       </Table>
@@ -532,12 +613,12 @@
   open={Boolean(deleteCredTarget)}
   anchor={deleteCredAnchor}
   onclose={() => { deleteCredTarget = null }}
-  label={t('Delete key')}
+  label={t('Delete credential')}
 >
   {#snippet children({ close })}
     <VStack gap={3} style="max-width: 280px;">
       <VStack gap={1}>
-        <Text weight="medium" size="base">{t('Delete key')}</Text>
+        <Text weight="medium" size="base">{t('Delete credential')}</Text>
         <Text size="sm" tone="soft">
           {t('Are you sure you want to delete')} "{deleteCredTarget?.label || t('Unnamed')}"? {t('This action cannot be undone.')}
         </Text>

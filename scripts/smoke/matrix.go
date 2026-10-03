@@ -250,12 +250,14 @@ func cleanupStaleVirtualModels(cfg config) {
 // contCodes are probe codes that move to the next model instead of
 // failing: limits, gone models and malformed-model answers say nothing
 // about the credential or the router. structural_fault is absent on
-// purpose: it fails, broken config must be loud.
+// purpose: it fails, broken config must be loud. unsupported (no
+// check_health handler) skips the same way: nothing to verify.
 var contCodes = map[string]bool{
 	"quota_exceeded": true, "payment_required": true, "rate_limit": true,
 	"model_not_found": true, "not_found": true,
 	"endpoint_not_supported": true, "invalid_request_error": true,
 	"content_policy": true, "model_unavailable": true, "geo_blocked": true,
+	"unsupported": true,
 }
 
 type probeResult struct {

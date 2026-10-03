@@ -201,9 +201,11 @@ func (h *Handler) apiCredentialsReorder(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// apiCredentialsTest probes a credential with a minimal live request
+// apiCredentialsTest verifies a credential through the provider's check_health
+// handler. Explicit unhealthy disables the credential at once; types without
+// the handler report unsupported and run nothing.
 // @Summary      Test credential
-// @Description  Runs a minimal completion pinned to this credential and reports success and latency.
+// @Description  Runs the provider check_health handler for this credential and reports the verdict.
 // @Tags         Credentials
 // @Accept       json
 // @Produce      json

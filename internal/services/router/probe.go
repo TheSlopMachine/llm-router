@@ -9,6 +9,8 @@ import (
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/healthcheck"
+	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 )
 
@@ -38,9 +40,12 @@ func probeRequest(model models.ModelId) *models.ChatCompletionRequest {
 	}
 }
 
-// TestCredential runs a single probe request pinned to one credential,
-// bypassing pool rotation. The probe model is the provider's first listed
-// model, or overrideModel when given.
+// TestCredential verifies one credential through the type's check_health
+// handler. Types without the handler report unsupported: no live request
+// runs, so probing never spends quota or triggers traffic side effects. An
+// explicit unhealthy verdict disables the credential at once
+// (DisabledBy="healthcheck"); unknown and handler failures change nothing.
+// overrideModel is accepted for endpoint compatibility and ignored.
 func (s *Service) TestCredential(ctx context.Context, providerID, credentialID string, overrideModel string) TestResult {
 	resolved, err := provider.Resolve(s.providerSvc, providerID)
 	if err != nil {
@@ -53,29 +58,36 @@ func (s *Service) TestCredential(ctx context.Context, providerID, credentialID s
 	if cred.ProviderID != providerID {
 		return TestResult{Error: "credential does not belong to this provider", Code: "invalid_request_error"}
 	}
-	model := overrideModel
-	if model == "" {
-		infos, err := s.modelInfoSvc.GetModelInfos(ctx, providerID)
-		if err != nil || len(infos) == 0 {
-			code := "upstream_error"
-			if err != nil {
-				code = apierrors.ToAPIError(err).Code
-			}
-			return TestResult{Error: "no model available for probe: model discovery failed", Code: code}
-		}
-		model = infos[0].Name
+	luaSvc := s.providerSvc.LuaService()
+	if luaSvc == nil || !luaSvc.HasHandler(resolved.Instance.TypeKey, string(luaplugin.HandlerCheckHealth)) {
+		return TestResult{Error: "health check not supported for this provider", Code: "unsupported", Summary: "health check not supported"}
 	}
-	req := probeRequest(models.ModelId(providerID + "/" + model))
 	start := time.Now()
-	resp, proxy, err := s.completeOne(ctx, resolved, []*models.Credential{cred}, req)
-	if err != nil {
-		return probeResult(start, "", proxy, err)
+	checkCtx, cancel := context.WithTimeout(ctx, healthcheck.CheckTimeout)
+	defer cancel()
+	status, message, herr := luaSvc.CheckHealth(checkCtx, resolved.Instance.TypeKey, cred)
+	latency := time.Since(start).Milliseconds()
+	if herr != nil {
+		return TestResult{Error: herr.Error(), Code: "upstream_error", Summary: "health check failed", Latency: latency}
 	}
-	text := ""
-	if len(resp.Choices) > 0 {
-		text = resp.Choices[0].Message.TextContent()
+	switch status {
+	case luaplugin.HealthHealthy:
+		return TestResult{OK: true, Latency: latency, Response: "healthy"}
+	case luaplugin.HealthUnhealthy:
+		reason := message
+		if reason == "" {
+			reason = "health check reported unhealthy"
+		}
+		if derr := s.credSvc.DisableUnhealthy(credentialID, reason); derr != nil {
+			return TestResult{Error: derr.Error(), Code: "upstream_error", Summary: "disable failed", Latency: latency}
+		}
+		return TestResult{Error: reason, Code: "unhealthy", Summary: "account unhealthy, disabled", Latency: latency}
+	default:
+		if message == "" {
+			message = "health check inconclusive"
+		}
+		return TestResult{Error: message, Code: "unknown", Summary: "health check inconclusive", Latency: latency}
 	}
-	return probeResult(start, text, proxy, nil)
 }
 
 // TestModel runs a probe through the normal routing path (credential pool
