@@ -39,7 +39,7 @@ means `.0`, one leading `v` allowed); anything else fails install.
 The router owns orchestration; the plugin owns wire translation.
 
 - Router: credential pool order and single-pass iteration, token filtering,
-  provider proxy policy and request failover, exhausted skip filtering, geo-ban
+  provider proxy policy and request failover, exhausted limit ordering, geo-ban
   filtering and region preference, stream first-byte gate, model cache,
   metrics, sandboxing, version gating, crash accounting, credential and
   provider auto-disable with first-wins cause.
@@ -219,16 +219,15 @@ llm_router.register_proxy_source(name, {
   it carries no cooldown: congestion is transient, and spacing retries is
   the client's job (see below).
 
-Pool semantics: the router drops exhausted matches before the token filter
-and keeps the full pool as a last resort when every credential is limited.
+Pool semantics: the router reorders exhausted matches before the token filter:
+unlimited first, limited last ordered by earliest reset first as last resort.
 The core then tries the sorted pool in order, at most
 once per key (plus same-key geo retries up to `max_proxies` and route
 retries — proxy-scoped rate/quota errors, transport failures and
 overloads — up to
 three total proxy attempts), and returns
-the first success or the last error. Per-attempt skip bypasses credentials
-with a live rate-limit key without a request, but never bypasses every
-credential: an all-skipped pool attempts in order as a last resort. `invalid_request`, `content_policy`
+the first success or the last error. Per-attempt limit ordering moves credentials
+with a live rate-limit key to the tail without a request. `invalid_request`, `content_policy`
 and `structural_fault` stop the pool after the first key. Streaming stops
 same-key retries after the first byte reaches the client. Route failures
 can retry before that point; geo errors move to the next
@@ -595,12 +594,12 @@ plugins, ever — new widgets ship as first-class node kinds, not markup.
 
 ## Exhausted store (0.1.1) and geo bans (0.3.0)
 
-Rate, quota and model-availability outcomes record joint limit keys; later requests skip
+Rate, quota and model-availability outcomes record joint limit keys; later requests deprioritize
 combinations matching a stored key until its timestamp passes. Expired
 entries delete on read.
 
 A stored key is a filter over dimensions, not a set of per-entity marks: a
-candidate combination is skipped when it matches **every** dimension the key
+candidate combination moves to the tail when it matches **every** dimension the key
 names. The provider (backend type key) and the plugin are always part of
 every key and need no naming.
 
@@ -618,10 +617,10 @@ err.scope = { "account" }
 
 Behavior:
 
-- Checks run where selection happens: credentials drop out of the pool
-  before the token filter; proxies drop out of the pick list after ranking.
-  When every credential is limited the full pool is kept as a last resort:
-  a stale but unexpired mark never denies a request that could succeed.
+- Checks run where selection happens: limited credentials move to the tail
+  before the token filter ordered by earliest reset first; limited proxies move
+  to the tail of the pick list after ranking.
+  A stale but unexpired mark never denies a request that could succeed.
   Manual proxy mode with nothing usable left fails loudly.
 - `model_unavailable` marks `(provider, model)` for a fixed 2 minutes and
   disables nothing: the credential and the provider stay enabled.

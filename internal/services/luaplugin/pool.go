@@ -278,26 +278,26 @@ func runRoutedRetries[T any](
 // route retries happen inside one credential attempt. There are no repeat
 // credential passes or backoff pauses. A missing handler fails immediately;
 // otherwise the last error is returned.
-// skip bypasses credentials the exhausted store holds a live rate-limit key
-// for (plugin, type, account, model).
-func runPool[T any](ctx context.Context, s *Service, model string, creds []*models.Credential, attempt func(context.Context, *models.Credential) (T, string, error), isFatal func(error) bool, skip pool.SkipFunc) (T, string, error) {
+// limit deprioritizes credentials the exhausted store holds a live
+// rate-limit key for (plugin, type, account, model) to the tail.
+func runPool[T any](ctx context.Context, s *Service, model string, creds []*models.Credential, attempt func(context.Context, *models.Credential) (T, string, error), isFatal func(error) bool, limit pool.LimitFunc) (T, string, error) {
 	log := s.logger
 	if log != nil && model != "" {
 		log = log.With("model", model)
 	}
-	return pool.RunWithProxy(ctx, log, creds, s.usage, attempt, isFatal, skip)
+	return pool.RunWithProxy(ctx, log, creds, s.usage, attempt, isFatal, limit)
 }
 
 // runPoolStream is runPool for streaming calls. Same-credential proxy-limit
 // retries stop after the first byte reaches the client. Geo errors do not
-// retry with the same credential on streams. skip bypasses credentials the
-// exhausted store holds a live rate-limit key for.
-func (s *Service) runPoolStream(ctx context.Context, model string, w io.Writer, creds []*models.Credential, attempt func(context.Context, *models.Credential, io.Writer) (string, error), isFatal func(error) bool, skip pool.SkipFunc) (string, error) {
+// retry with the same credential on streams. limit deprioritizes
+// credentials the exhausted store holds a live rate-limit key for.
+func (s *Service) runPoolStream(ctx context.Context, model string, w io.Writer, creds []*models.Credential, attempt func(context.Context, *models.Credential, io.Writer) (string, error), isFatal func(error) bool, limit pool.LimitFunc) (string, error) {
 	log := s.logger
 	if log != nil && model != "" {
 		log = log.With("model", model)
 	}
-	return pool.RunStreamWithProxy(ctx, log, w, creds, s.usage, attempt, isFatal, skip)
+	return pool.RunStreamWithProxy(ctx, log, w, creds, s.usage, attempt, isFatal, limit)
 }
 
 // withCredential pins one pool credential into a copy of the base meta.
@@ -317,13 +317,13 @@ func (s *Service) CompletePool(
 ) (*models.ChatCompletionResponse, string, error) {
 	geo := s.geoPolicy(meta.ProviderConfig)
 	isFatal := s.fatalWithLog(meta, geo)
-	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
+	limit := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, string, error) {
 		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
 			func(ctx context.Context) (*models.ChatCompletionResponse, string, error) {
 				return s.CompleteRouted(ctx, withCredential(meta, cred), req)
 			})
-	}, isFatal, skip)
+	}, isFatal, limit)
 }
 
 // CompleteStreamPool tries the credential pool in order through the
@@ -339,7 +339,7 @@ func (s *Service) CompleteStreamPool(
 ) (string, error) {
 	geo := s.geoPolicy(meta.ProviderConfig)
 	isFatal := s.fatalWithLog(meta, geo)
-	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
+	limit := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return s.runPoolStream(ctx, req.Model.String(), w, creds, func(ctx context.Context, cred *models.Credential, w io.Writer) (string, error) {
 		_, route, err := runRoutedRetries(ctx, s, withCredential(meta, cred), geo, w,
 			func(ctx context.Context) (struct{}, string, error) {
@@ -347,7 +347,7 @@ func (s *Service) CompleteStreamPool(
 				return struct{}{}, route, err
 			})
 		return route, err
-	}, isFatal, skip)
+	}, isFatal, limit)
 }
 
 // TranscribePool tries credentials through the transcribe handler. Proxy-
@@ -361,13 +361,13 @@ func (s *Service) TranscribePool(
 ) (*models.TranscriptionResponse, string, error) {
 	geo := s.geoPolicy(meta.ProviderConfig)
 	isFatal := s.fatalWithLog(meta, geo)
-	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
+	limit := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.TranscriptionResponse, string, error) {
 		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
 			func(ctx context.Context) (*models.TranscriptionResponse, string, error) {
 				return s.TranscribeRouted(ctx, withCredential(meta, cred), req)
 			})
-	}, isFatal, skip)
+	}, isFatal, limit)
 }
 
 // SpeechPool tries credentials through the speech handler. Proxy-scoped
@@ -381,13 +381,13 @@ func (s *Service) SpeechPool(
 ) (*models.SpeechResponse, string, error) {
 	geo := s.geoPolicy(meta.ProviderConfig)
 	isFatal := s.fatalWithLog(meta, geo)
-	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
+	limit := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.SpeechResponse, string, error) {
 		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
 			func(ctx context.Context) (*models.SpeechResponse, string, error) {
 				return s.SpeechRouted(ctx, withCredential(meta, cred), req)
 			})
-	}, isFatal, skip)
+	}, isFatal, limit)
 }
 
 // GenerateImagePool tries credentials through the generate_image handler.
@@ -401,13 +401,13 @@ func (s *Service) GenerateImagePool(
 ) (*models.ImageGenerationResponse, string, error) {
 	geo := s.geoPolicy(meta.ProviderConfig)
 	isFatal := s.fatalWithLog(meta, geo)
-	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
+	limit := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ImageGenerationResponse, string, error) {
 		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
 			func(ctx context.Context) (*models.ImageGenerationResponse, string, error) {
 				return s.GenerateImageRouted(ctx, withCredential(meta, cred), req)
 			})
-	}, isFatal, skip)
+	}, isFatal, limit)
 }
 
 // EmbedPool tries credentials through the embed handler. Proxy-scoped limits
@@ -421,13 +421,13 @@ func (s *Service) EmbedPool(
 ) (*models.EmbeddingsResponse, string, error) {
 	geo := s.geoPolicy(meta.ProviderConfig)
 	isFatal := s.fatalWithLog(meta, geo)
-	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
+	limit := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.EmbeddingsResponse, string, error) {
 		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
 			func(ctx context.Context) (*models.EmbeddingsResponse, string, error) {
 				return s.EmbedRouted(ctx, withCredential(meta, cred), req)
 			})
-	}, isFatal, skip)
+	}, isFatal, limit)
 }
 
 // ModeratePool tries credentials through the moderate handler. Proxy-scoped
@@ -441,13 +441,13 @@ func (s *Service) ModeratePool(
 ) (*models.ModerationResponse, string, error) {
 	geo := s.geoPolicy(meta.ProviderConfig)
 	isFatal := s.fatalWithLog(meta, geo)
-	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
+	limit := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.ModerationResponse, string, error) {
 		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
 			func(ctx context.Context) (*models.ModerationResponse, string, error) {
 				return s.ModerateRouted(ctx, withCredential(meta, cred), req)
 			})
-	}, isFatal, skip)
+	}, isFatal, limit)
 }
 
 // SubmitVideoPool tries credentials through the generate_video handler.
@@ -461,13 +461,13 @@ func (s *Service) SubmitVideoPool(
 ) (*models.VideoGenerationResponse, string, error) {
 	geo := s.geoPolicy(meta.ProviderConfig)
 	isFatal := s.fatalWithLog(meta, geo)
-	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
+	limit := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, req.Model.String())
 	return runPool(ctx, s, req.Model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.VideoGenerationResponse, string, error) {
 		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
 			func(ctx context.Context) (*models.VideoGenerationResponse, string, error) {
 				return s.SubmitVideoRouted(ctx, withCredential(meta, cred), req)
 			})
-	}, isFatal, skip)
+	}, isFatal, limit)
 }
 
 // PollVideoPool tries credentials through the poll_video handler for one
@@ -481,13 +481,13 @@ func (s *Service) PollVideoPool(
 ) (*models.VideoGenerationResponse, string, error) {
 	geo := s.geoPolicy(meta.ProviderConfig)
 	isFatal := s.fatalWithLog(meta, geo)
-	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, model.String())
+	limit := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, model.String())
 	return runPool(ctx, s, model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.VideoGenerationResponse, string, error) {
 		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
 			func(ctx context.Context) (*models.VideoGenerationResponse, string, error) {
 				return s.PollVideoRouted(ctx, withCredential(meta, cred), model, upstreamJobID)
 			})
-	}, isFatal, skip)
+	}, isFatal, limit)
 }
 
 // VideoContentPool tries credentials through the video_content handler for
@@ -503,11 +503,11 @@ func (s *Service) VideoContentPool(
 ) (*models.VideoContentResponse, string, error) {
 	geo := s.geoPolicy(meta.ProviderConfig)
 	isFatal := s.fatalWithLog(meta, geo)
-	skip := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, model.String())
+	limit := s.exhaustedSkip(meta.ProviderID, meta.TypeKey, model.String())
 	return runPool(ctx, s, model.String(), creds, func(ctx context.Context, cred *models.Credential) (*models.VideoContentResponse, string, error) {
 		return runRoutedRetries(ctx, s, withCredential(meta, cred), geo, nil,
 			func(ctx context.Context) (*models.VideoContentResponse, string, error) {
 				return s.VideoContentRouted(ctx, withCredential(meta, cred), model, upstreamJobID, index)
 			})
-	}, isFatal, skip)
+	}, isFatal, limit)
 }

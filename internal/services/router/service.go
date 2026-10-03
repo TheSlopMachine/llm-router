@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sort"
+	"time"
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
@@ -137,26 +139,26 @@ func (s *Service) loadCredentials(ctx context.Context, resolved *provider.Resolv
 	}
 	total := len(creds)
 	creds = s.dropExhausted(resolved, model, creds)
-	afterExhausted := len(creds)
 	creds = s.filterCredentials(p.ID, creds, effectiveToken(ctx, token))
 	if len(creds) == 0 {
 		s.logger.Debug("router: credential pool empty after filtering",
 			"provider_id", p.ID, "model", model.String(), "reason", "empty_after_filter",
-			"total", total, "after_exhausted", afterExhausted)
+			"total", total)
 		return nil, fmt.Errorf("%w for provider %q", apierrors.ErrCredentialNotAllowed, p.Name)
 	}
 	return creds, nil
 }
 
-// dropExhausted removes credentials whose joint combination (plugin,
-// provider instance, account, model) matches a stored limit key. Matching
-// runs on Lua-resolved providers only; Go backends carry no plugin
+// dropExhausted deprioritizes credentials whose joint combination (plugin,
+// provider instance, account, model) matches a stored limit key: unlimited
+// first in pool order, limited after ordered by earliest reset first.
+// Matching runs on Lua-resolved providers only; Go backends carry no plugin
 // namespace. Provider identity is the specific configured instance
 // (resolved.Instance.ID), not the shared adapter type key: two instances of
 // one type (two "custom" endpoints, say) have independent quotas and must
-// not share an account-less mark. When every credential is limited the full
-// pool is kept as a last resort: a stale but unexpired mark must never deny
-// a request that could succeed.
+// not share an account-less mark. Limited credentials stay in the pool as
+// last resort: a stale but unexpired mark must never deny a request that
+// could succeed.
 func (s *Service) dropExhausted(resolved *provider.Resolved, model models.ModelId, creds []*models.Credential) []*models.Credential {
 	if s.exhaustedSvc == nil || !resolved.IsLua() {
 		return creds
@@ -165,9 +167,14 @@ func (s *Service) dropExhausted(resolved *provider.Resolved, model models.ModelI
 	if err != nil {
 		return creds
 	}
-	kept := creds[:0]
+	type deferred struct {
+		cred     *models.Credential
+		resetsAt time.Time
+	}
+	clean := make([]*models.Credential, 0, len(creds))
+	var held []deferred
 	for _, c := range creds {
-		hit, err := s.exhaustedSvc.LimitedAny(exhausted.Segments{
+		resetsAt, limited, err := s.exhaustedSvc.MatchExpiry(exhausted.Segments{
 			Plugin:   rec.ID,
 			Provider: resolved.Instance.ID,
 			Account:  c.ID,
@@ -176,20 +183,27 @@ func (s *Service) dropExhausted(resolved *provider.Resolved, model models.ModelI
 		if err != nil {
 			s.logger.Warn("router: exhausted check failed, keeping credential",
 				"credential_id", c.ID, "error", err)
-			kept = append(kept, c)
+			clean = append(clean, c)
 			continue
 		}
-		if hit == "" {
-			kept = append(kept, c)
+		if !limited {
+			clean = append(clean, c)
+			continue
 		}
+		held = append(held, deferred{cred: c, resetsAt: resetsAt})
 	}
-	if len(kept) == 0 {
-		s.logger.Info("router: every credential limited, keeping full pool as last resort",
-			"provider_id", resolved.Instance.ID, "model", model.String(),
-			"plugin_id", rec.ID, "type", resolved.Instance.TypeKey, "credential_count", len(creds))
-		return creds
+	if len(held) == 0 {
+		return clean
 	}
-	return kept
+	sort.SliceStable(held, func(i, j int) bool {
+		return held[i].resetsAt.Before(held[j].resetsAt)
+	})
+	out := make([]*models.Credential, 0, len(creds))
+	out = append(out, clean...)
+	for _, h := range held {
+		out = append(out, h.cred)
+	}
+	return out
 }
 
 // checkEndpoint rejects the request when the cached model card declares an
@@ -251,14 +265,11 @@ func (s *Service) dropMissingModel(providerID, modelName string, err error) {
 // LikelyExhausted reports whether model is already known to be entirely
 // unusable: a model-wide limit key exists for its resolved provider,
 // independent of which account or proxy would be tried. It is a cheap,
-// best-effort pre-check for a caller iterating several candidate models
-// (virtual-model fan-out) deciding whether a member is worth attempting at
-// all — it never touches the credential pool or the exhausted store's
-// account/proxy dimensions, so it cannot detect "every account happens to
-// be limited" short of an explicit model-wide mark. A false result is not
-// proof of success: dropExhausted's own last-resort fallback can still let
-// a fully-filtered pool through. Callers must not skip the last remaining
-// candidate on a true result; a stale mark must never fully deny a request.
+// best-effort pre-check for a caller ordering several candidate models
+// (virtual-model fan-out): exhausted members move to the tail instead of
+// being skipped. It never touches the credential pool or the exhausted
+// store's account/proxy dimensions, so it cannot detect "every account
+// happens to be limited" short of an explicit model-wide mark.
 func (s *Service) LikelyExhausted(model models.ModelId) bool {
 	if s.exhaustedSvc == nil {
 		return false
@@ -289,9 +300,8 @@ func (s *Service) LikelyExhausted(model models.ModelId) bool {
 // HasUsableCredential reports whether at least one credential for the model
 // is not rate-limited in the exhausted store. It checks per-account-model
 // keys for every credential in the pool. A true result means the model is
-// worth attempting; a false result means every credential is in cooldown.
-// The last-resort fallback in dropExhausted still applies: a fully-limited
-// pool is kept as a last resort, so this is a pre-check, not a guarantee.
+// worth attempting first; a false result means every credential is in
+// cooldown and the member belongs at the tail.
 func (s *Service) HasUsableCredential(model models.ModelId) bool {
 	if s.exhaustedSvc == nil {
 		return true

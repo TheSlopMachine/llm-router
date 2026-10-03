@@ -45,25 +45,31 @@ func (s *Service) MarkLimit(id, key string, resetsAt time.Time, reason string) e
 
 // IsLimited checks and lazily removes an expired proxy-scoped limit.
 func (s *Service) IsLimited(id, key string, now time.Time) (bool, error) {
+	_, limited, err := s.limitExpiry(id, key, now)
+	return limited, err
+}
+
+// limitExpiry reports the reset time of one proxy-scoped limit key.
+func (s *Service) limitExpiry(id, key string, now time.Time) (time.Time, bool, error) {
 	state, ok, err := s.stateForID(id)
 	if err != nil {
-		return false, fmt.Errorf("load proxy limit state: %w", err)
+		return time.Time{}, false, fmt.Errorf("load proxy limit state: %w", err)
 	}
 	if !ok {
-		return false, fmt.Errorf("proxy %q not found", id)
+		return time.Time{}, false, fmt.Errorf("proxy %q not found", id)
 	}
 	metadata := s.pool.GetMetadata(state.URL)
 	metadataKey := limitMetadataPrefix + key
 	raw, ok := metadata[metadataKey]
 	if !ok {
-		return false, nil
+		return time.Time{}, false, nil
 	}
 	var limit proxyLimit
 	if err := json.Unmarshal([]byte(raw), &limit); err != nil {
-		return false, fmt.Errorf("decode proxy limit: %w", err)
+		return time.Time{}, false, fmt.Errorf("decode proxy limit: %w", err)
 	}
 	if now.Before(limit.ResetsAt) {
-		return true, nil
+		return limit.ResetsAt, true, nil
 	}
 	s.refreshMu.Lock()
 	s.pool.UpdateMetadata(state.URL, func(values map[string]string) {
@@ -72,9 +78,9 @@ func (s *Service) IsLimited(id, key string, now time.Time) (bool, error) {
 	err = s.cache.takeError()
 	s.refreshMu.Unlock()
 	if err != nil {
-		return false, fmt.Errorf("remove expired proxy limit: %w", err)
+		return time.Time{}, false, fmt.Errorf("remove expired proxy limit: %w", err)
 	}
-	return false, nil
+	return time.Time{}, false, nil
 }
 
 func (s *Service) stateForID(id string) (proxypoollib.ProxyState, bool, error) {

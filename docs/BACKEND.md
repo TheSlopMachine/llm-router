@@ -86,11 +86,10 @@ Keep changes shallow. Touch service internals only when the task requires it.
   attempts; a full-combination error also retries when the request used
   a proxy. Streams allow this retry only before the first byte reaches the
   client. Geo errors do not retry with the same credential on streams.
-  Per-attempt `skip` bypasses credentials with a live exhausted key
-  (`luaplugin/exhausted_skip.go`), but never bypasses every credential: an
-  all-skipped pool attempts in order as a last resort. The router also drops
-  exhausted matches before the token filter and keeps the full pool when
-  every credential is limited.
+  Per-attempt limit ordering moves credentials with a live exhausted key
+  (`luaplugin/exhausted_skip.go`) to the tail ordered by earliest reset first.
+  The router also reorders exhausted matches before the token filter: unlimited
+  first, limited last as last resort.
 - Proxy source keys qualify per plugin (`<recordID>/<name>`). The router
   bridge accepts unauthenticated HTTP entries from each Lua source. The external
   proxypool library owns candidate ingestion, health checks, scoring and
@@ -111,11 +110,11 @@ Keep changes shallow. Touch service internals only when the task requires it.
 
 - Stored keys act as filters over candidate dimensions (plugin, provider
   instance, account, model, proxy). A candidate matching every stored dimension
-  skips until `ResetsAt` passes. Two instances of one adapter type never
+  is deprioritized until `ResetsAt` passes. Two instances of one adapter type never
   share an account-less mark.
-- Credential pools drop matching combinations before the token filter; when
-  every credential is limited the router keeps the full pool as a last resort
-  (`router/service.go:dropExhausted`). Proxy picks filter after ranking;
+- Credential pools reorder matching combinations before the token filter: unlimited
+  first, limited after ordered by earliest reset first
+  (`router/service.go:dropExhausted`). Proxy picks deprioritize limited routes after ranking;
   joint limits stay in `exhausted.Service`, while proxy-scoped limits use
   library-managed metadata. A proxy-scoped rate/quota outcome cools the route
   and retries the same credential through another route. If no alternate

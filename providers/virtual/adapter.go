@@ -72,6 +72,28 @@ func (a *Adapter) resolve(req *models.ChatCompletionRequest) (*models.VirtualMod
 	return agent, members, &modifiedReq, nil
 }
 
+// orderMembers deprioritizes exhausted members to the tail preserving list
+// order within each group: healthy members first, members with a model-wide
+// limit key or every credential in cooldown last as last resort.
+func (a *Adapter) orderMembers(members []models.ModelId) []models.ModelId {
+	if a.routerSvc == nil {
+		return members
+	}
+	clean := make([]models.ModelId, 0, len(members))
+	var held []models.ModelId
+	for _, m := range members {
+		if a.routerSvc.LikelyExhausted(m) || !a.routerSvc.HasUsableCredential(m) {
+			held = append(held, m)
+			continue
+		}
+		clean = append(clean, m)
+	}
+	if len(held) == 0 {
+		return clean
+	}
+	return append(clean, held...)
+}
+
 // ─────────────────────────────────────────────
 // GoAdapter Implementation
 // ─────────────────────────────────────────────
@@ -116,23 +138,14 @@ func (a *Adapter) Complete(
 	}
 	logger := a.logger
 
-	// Fall-through queue, not retries: each member is tried at most once, in
-	// list order. The first success wins; otherwise the last error is
-	// returned as-is.
+	// Fall-through queue, not retries: each member is tried at most once,
+	// healthy members first, exhausted members last as last resort. The
+	// first success wins; otherwise the last error is returned as-is.
+	members = a.orderMembers(members)
 	var lastErr error
 	for i, memberID := range members {
 		if err := ctx.Err(); err != nil {
 			return nil, err
-		}
-		// A model-wide limit key or every credential in cooldown means
-		// this member is known to be dead right now; skip the attempt
-		// entirely, unless it's the last member left — a stale mark must
-		// never deny the request outright.
-		if i < len(members)-1 && (routerSvc.LikelyExhausted(memberID) || !routerSvc.HasUsableCredential(memberID)) {
-			logger.Info("member model likely exhausted, skipping without an attempt",
-				"virtual_model", agent.Name,
-				"skipped_model", memberID.String())
-			continue
 		}
 		modelReq := *modifiedReq
 		modelReq.Model = memberID
@@ -186,16 +199,11 @@ func (a *Adapter) CompleteStream(
 	// byte reaches the client the stream belongs to that member and ends
 	// with its error instead of continuing to the next member.
 	gate := streamgate.New(w)
+	members = a.orderMembers(members)
 	var lastErr error
 	for i, memberID := range members {
 		if err := ctx.Err(); err != nil {
 			return err
-		}
-		if i < len(members)-1 && (routerSvc.LikelyExhausted(memberID) || !routerSvc.HasUsableCredential(memberID)) {
-			logger.Info("member model likely exhausted, skipping without an attempt",
-				"virtual_model", agent.Name,
-				"skipped_model", memberID.String())
-			continue
 		}
 		modelReq := *modifiedReq
 		modelReq.Model = memberID
@@ -228,7 +236,7 @@ func (a *Adapter) CompleteStream(
 }
 
 // SubmitVideo fans one video generation submit out over the member queue
-// in list order. The first success wins and its router-side job row (keyed
+// (healthy members first, exhausted members last). The first success wins and its router-side job row (keyed
 // by the winning member model) is returned as-is: later polls authorize
 // against that member model and route to it directly. Otherwise the last
 // error is returned as-is.
@@ -262,16 +270,11 @@ func (a *Adapter) SubmitVideo(
 		return nil, fmt.Errorf("virtual model %q members: %w", agent.Name, err)
 	}
 	logger := a.logger
+	members = a.orderMembers(members)
 	var lastErr error
 	for i, memberID := range members {
 		if err := ctx.Err(); err != nil {
 			return nil, err
-		}
-		if i < len(members)-1 && (routerSvc.LikelyExhausted(memberID) || !routerSvc.HasUsableCredential(memberID)) {
-			logger.Info("member model likely exhausted, skipping without an attempt",
-				"virtual_model", agent.Name,
-				"skipped_model", memberID.String())
-			continue
 		}
 		memberReq := *req
 		memberReq.Model = memberID

@@ -91,14 +91,22 @@ func (s *Service) RankWait(ctx context.Context, whitelist []string, ids []string
 }
 
 func (s *Service) LimitedAny(id string, keys []string) (bool, error) {
+	_, limited, err := s.LimitExpiry(id, keys, time.Now())
+	return limited, err
+}
+
+// LimitExpiry reports the reset time of the first matching live proxy limit,
+// in keys order. False when nothing limits the proxy. Expired entries delete
+// on read through IsLimited.
+func (s *Service) LimitExpiry(id string, keys []string, now time.Time) (time.Time, bool, error) {
 	for _, key := range keys {
-		limited, err := s.IsLimited(id, key, time.Now())
+		resetsAt, limited, err := s.limitExpiry(id, key, now)
 		if err != nil {
-			return false, err
+			return time.Time{}, false, err
 		}
 		if limited {
-			return true, nil
+			return resetsAt, true, nil
 		}
 	}
-	return false, nil
+	return time.Time{}, false, nil
 }

@@ -17,15 +17,15 @@ func TestDropExhaustedProxy(t *testing.T) {
 	}
 	isLimited := func(store *exhausted.Service, candidate exhausted.Segments) bool {
 		t.Helper()
-		exhaustedHit, _, err := checkProxyLimits(store, nil, candidate)
+		_, limited, err := checkProxyLimits(store, nil, candidate)
 		if err != nil {
 			t.Fatalf("check proxy limits: %v", err)
 		}
-		return exhaustedHit
+		return limited
 	}
 
 	if isLimited(nil, seg("", "px-1")) {
-		t.Fatal("nil store must not filter")
+		t.Fatal("nil store must not limit")
 	}
 	if isLimited(svc, seg("", "px-1")) {
 		t.Fatal("unmarked proxy must pass")
@@ -38,12 +38,12 @@ func TestDropExhaustedProxy(t *testing.T) {
 		t.Fatalf("mark: %v", err)
 	}
 	if !isLimited(svc, seg("", "px-1")) {
-		t.Fatal("marked proxy must filter")
+		t.Fatal("marked proxy must report limited")
 	}
 	// A proxy-only key blocks the pairing for every account: the candidate
 	// carrying an account doesn't narrow it away.
 	if !isLimited(svc, seg("some-account", "px-1")) {
-		t.Fatal("proxy-only key must still filter when the candidate also carries an account")
+		t.Fatal("proxy-only key must still limit when the candidate also carries an account")
 	}
 	if isLimited(svc, seg("", "px-2")) {
 		t.Fatal("other proxy must pass")
@@ -64,7 +64,7 @@ func TestDropExhaustedProxy(t *testing.T) {
 		t.Fatalf("mark joint: %v", err)
 	}
 	if !isLimited(svc, seg("acct-a", "px-3")) {
-		t.Fatal("joint account+proxy key must filter that exact pairing")
+		t.Fatal("joint account+proxy key must limit that exact pairing")
 	}
 	if isLimited(svc, seg("acct-a", "px-4")) {
 		t.Fatal("account acct-a must still pass on a different proxy")

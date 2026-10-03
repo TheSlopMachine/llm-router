@@ -171,3 +171,33 @@ func TestPrune_RemovesOnlyExpired(t *testing.T) {
 		t.Fatal("live entry must survive prune")
 	}
 }
+
+func TestMatchExpiry_ReturnsResetAndClearsExpired(t *testing.T) {
+	svc := setupService(t)
+	full := Segments{Plugin: "pl", Provider: "pr", Account: "a1", Model: "m1"}
+	resetsAt := time.Now().Add(time.Hour).Truncate(time.Second)
+	key, err := KeyFromScope("pl", "pr", "a1", "m1", "", []string{"account"})
+	if err != nil {
+		t.Fatalf("scope key: %v", err)
+	}
+	if err := svc.Mark(key, resetsAt, "quota"); err != nil {
+		t.Fatalf("mark: %v", err)
+	}
+	got, limited, err := svc.MatchExpiry(full)
+	if err != nil || !limited {
+		t.Fatalf("match: got %v, %v, %v", got, limited, err)
+	}
+	if got.Sub(resetsAt) > time.Second || resetsAt.Sub(got) > time.Second {
+		t.Fatalf("reset: got %v, want %v", got, resetsAt)
+	}
+	stale, err := KeyFromScope("pl", "pr", "a2", "m1", "", []string{"account"})
+	if err != nil {
+		t.Fatalf("scope key: %v", err)
+	}
+	if err := svc.Mark(stale, time.Now().Add(-time.Minute), "old"); err != nil {
+		t.Fatalf("mark stale: %v", err)
+	}
+	if _, limited, err := svc.MatchExpiry(Segments{Plugin: "pl", Provider: "pr", Account: "a2", Model: "m1"}); err != nil || limited {
+		t.Fatalf("expired must not limit: %v, %v", limited, err)
+	}
+}

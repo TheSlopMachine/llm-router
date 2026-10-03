@@ -71,7 +71,7 @@ func newVirtualModelStack(t *testing.T) *virtual.Service {
 	return virtualSvc
 }
 
-func TestComplete_SkipsLikelyExhaustedMember(t *testing.T) {
+func TestComplete_DeprioritizesLikelyExhaustedMember(t *testing.T) {
 	virtualSvc := newVirtualModelStack(t)
 	vm := &models.VirtualModel{
 		Name: "Fallback",
@@ -92,14 +92,14 @@ func TestComplete_SkipsLikelyExhaustedMember(t *testing.T) {
 		t.Fatalf("complete: %v", err)
 	}
 	if len(fake.attempted) != 1 || fake.attempted[0] != "demo/model-b" {
-		t.Fatalf("attempted = %v, want exactly [demo/model-b] (model-a skipped, model-c never reached)", fake.attempted)
+		t.Fatalf("attempted = %v, want exactly [demo/model-b] (model-a deprioritized, model-c never reached)", fake.attempted)
 	}
 }
 
-func TestComplete_NeverSkipsLastMember(t *testing.T) {
-	// Every member is flagged exhausted, including the last. The last must
-	// still be attempted: a stale or wrong mark must never deny the request
-	// outright.
+func TestComplete_NeverDropsExhaustedMembers(t *testing.T) {
+	// Every member is flagged exhausted, including the last. All members
+	// are still attempted in list order as last resort: a stale or wrong
+	// mark must never deny the request outright.
 	virtualSvc := newVirtualModelStack(t)
 	vm := &models.VirtualModel{
 		Name: "AllFlagged",
@@ -119,12 +119,12 @@ func TestComplete_NeverSkipsLastMember(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error: every member fails and none should silently succeed")
 	}
-	if len(fake.attempted) != 1 || fake.attempted[0] != "demo/model-b" {
-		t.Fatalf("attempted = %v, want exactly [demo/model-b]: model-a skipped, model-b is last and must still be tried", fake.attempted)
+	if len(fake.attempted) != 2 || fake.attempted[0] != "demo/model-a" || fake.attempted[1] != "demo/model-b" {
+		t.Fatalf("attempted = %v, want [demo/model-a demo/model-b]: all exhausted members tried in order", fake.attempted)
 	}
 }
 
-func TestCompleteStream_SkipsLikelyExhaustedMember(t *testing.T) {
+func TestCompleteStream_DeprioritizesLikelyExhaustedMember(t *testing.T) {
 	virtualSvc := newVirtualModelStack(t)
 	vm := &models.VirtualModel{
 		Name: "FallbackStream",

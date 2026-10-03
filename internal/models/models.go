@@ -1716,7 +1716,7 @@ const (
 
 // ExhaustedEntry is one joint limit key: the stored dimensions act as a
 // filter, and a candidate combination matching every stored dimension is
-// skipped until ResetsAt passes.
+// deprioritized until ResetsAt passes.
 type ExhaustedEntry struct {
 	Key      string    `json:"key"`
 	ResetsAt time.Time `json:"resets_at"`

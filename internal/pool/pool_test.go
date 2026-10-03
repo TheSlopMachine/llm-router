@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
@@ -112,42 +113,89 @@ func TestRunEmpty(t *testing.T) {
 	}
 }
 
-func TestRunSkipsLimitedCredential(t *testing.T) {
+func TestRunDeprioritizesLimitedCredential(t *testing.T) {
 	var order []string
 	resp, err := Run(context.Background(), nil, poolCreds("a", "b"), nil,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			order = append(order, cred.ID)
 			return okResp()
-		}, nil, func(cred *models.Credential) bool { return cred.ID == "a" })
+		}, nil, func(cred *models.Credential) (time.Time, bool) {
+			if cred.ID == "a" {
+				return time.Now().Add(time.Hour), true
+			}
+			return time.Time{}, false
+		})
 	if err != nil || resp.ID != "ok" {
 		t.Fatalf("got resp=%v err=%v", resp, err)
 	}
 	if len(order) != 1 || order[0] != "b" {
-		t.Fatalf("skipped credential was attempted: %v", order)
+		t.Fatalf("limited credential must be attempted last: %v", order)
 	}
 }
 
-func TestRunAllSkippedAttemptsLastResort(t *testing.T) {
+func TestRunLimitedTriesUnlimitedFirstThenLimited(t *testing.T) {
+	var order []string
+	_, err := Run(context.Background(), nil, poolCreds("a", "b"), nil,
+		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
+			order = append(order, cred.ID)
+			return nil, &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeRateLimit, Message: "limited"}
+		}, nil, func(cred *models.Credential) (time.Time, bool) {
+			if cred.ID == "a" {
+				return time.Now().Add(time.Hour), true
+			}
+			return time.Time{}, false
+		})
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	if len(order) != 2 || order[0] != "b" || order[1] != "a" {
+		t.Fatalf("unlimited must run before limited: %v", order)
+	}
+}
+
+func TestRunLimitedOldestFirst(t *testing.T) {
+	var order []string
+	now := time.Now()
+	_, _ = Run(context.Background(), nil, poolCreds("a", "b", "c"), nil,
+		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
+			order = append(order, cred.ID)
+			return nil, &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeRateLimit, Message: "limited"}
+		}, nil, func(cred *models.Credential) (time.Time, bool) {
+			switch cred.ID {
+			case "a":
+				return now.Add(2 * time.Hour), true
+			case "b":
+				return now.Add(time.Minute), true
+			default:
+				return time.Time{}, false
+			}
+		})
+	if len(order) != 3 || order[0] != "c" || order[1] != "b" || order[2] != "a" {
+		t.Fatalf("limited must follow earliest reset first: %v", order)
+	}
+}
+
+func TestRunAllLimitedAttemptsLastResort(t *testing.T) {
 	calls := 0
 	resp, err := Run(context.Background(), nil, poolCreds("a"), nil,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			calls++
 			return okResp()
-		}, nil, func(*models.Credential) bool { return true })
+		}, nil, func(*models.Credential) (time.Time, bool) { return time.Now().Add(time.Hour), true })
 	if err != nil || resp.ID != "ok" || calls != 1 {
-		t.Fatalf("all-skipped pool must attempt as last resort: resp=%v err=%v calls=%d", resp, err, calls)
+		t.Fatalf("all-limited pool must attempt as last resort: resp=%v err=%v calls=%d", resp, err, calls)
 	}
 }
 
-func TestRunAllSkippedReturnsLastError(t *testing.T) {
+func TestRunAllLimitedReturnsLastError(t *testing.T) {
 	calls := 0
 	_, err := Run(context.Background(), nil, poolCreds("a", "b"), nil,
 		func(ctx context.Context, cred *models.Credential) (*models.ChatCompletionResponse, error) {
 			calls++
 			return nil, &models.ProviderError{StatusCode: 429, Type: models.ErrorTypeQuotaExceeded, Message: "limited"}
-		}, nil, func(*models.Credential) bool { return true })
+		}, nil, func(*models.Credential) (time.Time, bool) { return time.Now().Add(time.Hour), true })
 	if err == nil || calls != 2 {
-		t.Fatalf("all-skipped pool must surface the attempt error: err=%v calls=%d", err, calls)
+		t.Fatalf("all-limited pool must surface the attempt error: err=%v calls=%d", err, calls)
 	}
 }
 
@@ -240,16 +288,16 @@ func TestRunStreamEmpty(t *testing.T) {
 	}
 }
 
-func TestRunStreamAllSkippedAttemptsLastResort(t *testing.T) {
+func TestRunStreamAllLimitedAttemptsLastResort(t *testing.T) {
 	calls := 0
 	err := RunStream(context.Background(), nil, io.Discard, poolCreds("a"), nil,
 		func(ctx context.Context, cred *models.Credential, w io.Writer) error {
 			calls++
 			_, _ = io.WriteString(w, "data: ok\n\n")
 			return nil
-		}, nil, func(*models.Credential) bool { return true })
+		}, nil, func(*models.Credential) (time.Time, bool) { return time.Now().Add(time.Hour), true })
 	if err != nil || calls != 1 {
-		t.Fatalf("all-skipped stream pool must attempt as last resort: err=%v calls=%d", err, calls)
+		t.Fatalf("all-limited stream pool must attempt as last resort: err=%v calls=%d", err, calls)
 	}
 }
 

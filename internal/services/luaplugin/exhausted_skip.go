@@ -1,19 +1,19 @@
 package luaplugin
 
 import (
+	"time"
+
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/pool"
 	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
 )
 
-// exhaustedSkip returns a pool.SkipFunc that reports true when the exhausted
-// store holds a live rate-limit key for the credential-model pair. The key
-// covers plugin, provider instance, account, and model dimensions. A nil
-// exhausted store disables the check (skip always returns false).
-// providerID is the calling provider instance ID; typeKey resolves the
-// plugin record. Lookup failures fail open (no skip), so a struggling store
+// exhaustedSkip returns a pool.LimitFunc reporting the live rate-limit reset
+// time for the credential-model pair. The key covers plugin, provider
+// instance, account, and model dimensions. A nil exhausted store disables
+// the check. Lookup failures fail open (not limited), so a struggling store
 // never blocks traffic.
-func (s *Service) exhaustedSkip(providerID, typeKey, model string) pool.SkipFunc {
+func (s *Service) exhaustedSkip(providerID, typeKey, model string) pool.LimitFunc {
 	if s.exhausted == nil {
 		return nil
 	}
@@ -22,19 +22,19 @@ func (s *Service) exhaustedSkip(providerID, typeKey, model string) pool.SkipFunc
 		return nil
 	}
 	pluginID := rec.ID
-	return func(cred *models.Credential) bool {
+	return func(cred *models.Credential) (time.Time, bool) {
 		if cred == nil {
-			return false
+			return time.Time{}, false
 		}
-		hit, err := s.exhausted.LimitedAny(exhausted.Segments{
+		resetsAt, limited, err := s.exhausted.MatchExpiry(exhausted.Segments{
 			Plugin:   pluginID,
 			Provider: providerID,
 			Account:  cred.ID,
 			Model:    model,
 		})
 		if err != nil {
-			return false
+			return time.Time{}, false
 		}
-		return hit != ""
+		return resetsAt, limited
 	}
 }

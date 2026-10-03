@@ -101,7 +101,7 @@ func TestRouterService_DropExhaustedCredential(t *testing.T) {
 		t.Fatalf("mark: %v", err)
 	}
 	if got := exhComplete(t, svc, providerID); got != credB.ID {
-		t.Fatalf("limited credential must be skipped: served by %q, want %q", got, credB.ID)
+		t.Fatalf("limited credential must be deprioritized: served by %q, want %q", got, credB.ID)
 	}
 }
 
@@ -123,6 +123,31 @@ func TestRouterService_AllLimitedKeepsPoolAsLastResort(t *testing.T) {
 	got := exhComplete(t, svc, providerID)
 	if got != credA.ID && got != credB.ID {
 		t.Fatalf("last-resort pool must still serve: got %q", got)
+	}
+}
+
+func TestRouterService_AllLimitedTriesOldestFirst(t *testing.T) {
+	svc, exhaustedSvc, providerID, credA, credB := setupExhaustedRouter(t)
+	rec, err := svc.providerSvc.LuaService().Lookup("exh-type")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	keyA, err := exhausted.KeyFromScope(rec.ID, providerID, credA.ID, providerID+"/model-a", "", []string{"account"})
+	if err != nil {
+		t.Fatalf("scope key: %v", err)
+	}
+	keyB, err := exhausted.KeyFromScope(rec.ID, providerID, credB.ID, providerID+"/model-a", "", []string{"account"})
+	if err != nil {
+		t.Fatalf("scope key: %v", err)
+	}
+	if err := exhaustedSvc.Mark(keyA, time.Now().Add(2*time.Hour), "test"); err != nil {
+		t.Fatalf("mark a: %v", err)
+	}
+	if err := exhaustedSvc.Mark(keyB, time.Now().Add(time.Minute), "test"); err != nil {
+		t.Fatalf("mark b: %v", err)
+	}
+	if got := exhComplete(t, svc, providerID); got != credB.ID {
+		t.Fatalf("oldest limit must run first: served by %q, want %q", got, credB.ID)
 	}
 }
 
@@ -211,7 +236,7 @@ func TestRouterService_InstancesOfSameTypeDontCollide(t *testing.T) {
 	}
 
 	// End to end: a completion request against instance B's model-a must
-	// still succeed normally — dropExhausted must not filter its (only)
+	// still succeed normally — dropExhausted must not deprioritize its (only)
 	// credential based on instance A's mark.
 	resp, err := svc.Complete(context.Background(), &models.ChatCompletionRequest{
 		Model:    modelB,

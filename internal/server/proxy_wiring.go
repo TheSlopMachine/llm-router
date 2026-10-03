@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
+	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/exhausted"
@@ -13,8 +15,9 @@ import (
 )
 
 // wireProxy connects the Lua HTTP client to the proxy pool: ordered picks
-// for plugin calls, filtered by exhausted proxy combinations and indefinite
-// geo flags after ranking. Multi-type plugins resolve through the requesting
+// for plugin calls, with exhausted proxy combinations deprioritized to the
+// tail (earliest reset first) and indefinite geo flags still filtered after
+// ranking. Multi-type plugins resolve through the requesting type key: the
 // type key: the caller scopes the plugin record before invoking the resolver.
 // known.Provider already carries the calling provider instance ID (set by the
 // caller); this only fills in Plugin, which the resolver alone knows. Geo
@@ -66,25 +69,18 @@ func wireProxy(luaSvc *luaplugin.Service, proxySvc *proxypool.Service, exhausted
 			pick        proxypool.Pick
 			otherRegion bool
 		}
+		type heldPick struct {
+			pick        proxypool.Pick
+			otherRegion bool
+			resetsAt    time.Time
+		}
 		ranked := make([]rankedPick, 0, len(picks))
-		droppedExhausted := 0
-		droppedProxyLimit := 0
+		var held []heldPick
+		deferredCount := 0
 		droppedGeoban := 0
 		for _, p := range picks {
 			candidate := known
 			candidate.Proxy = p.ID
-			dropExhausted, dropProxyLimit, err := checkProxyLimits(exhaustedSvc, proxySvc, candidate)
-			if err != nil {
-				return nil, err
-			}
-			if dropExhausted {
-				droppedExhausted++
-				continue
-			}
-			if dropProxyLimit {
-				droppedProxyLimit++
-				continue
-			}
 			if geobanSvc != nil {
 				banned, err := geobanSvc.IsBanned(rec.ID, typeKey, p.ID)
 				if err != nil {
@@ -95,13 +91,29 @@ func wireProxy(luaSvc *luaplugin.Service, proxySvc *proxypool.Service, exhausted
 					continue
 				}
 			}
-			ranked = append(ranked, rankedPick{pick: p, otherRegion: p.Location == "" || !bannedRegions[p.Location]})
+			resetsAt, limited, err := checkProxyLimits(exhaustedSvc, proxySvc, candidate)
+			if err != nil {
+				return nil, err
+			}
+			otherRegion := p.Location == "" || !bannedRegions[p.Location]
+			if limited {
+				deferredCount++
+				held = append(held, heldPick{pick: p, otherRegion: otherRegion, resetsAt: resetsAt})
+				continue
+			}
+			ranked = append(ranked, rankedPick{pick: p, otherRegion: otherRegion})
+		}
+		sort.SliceStable(held, func(i, j int) bool {
+			return held[i].resetsAt.Before(held[j].resetsAt)
+		})
+		for _, h := range held {
+			ranked = append(ranked, rankedPick{pick: h.pick, otherRegion: h.otherRegion})
 		}
 		if logger != nil {
 			logger.Debug("proxy: filtered picks",
 				"plugin_id", rec.ID, "type", typeKey,
 				"total", len(picks), "kept", len(ranked),
-				"dropped_exhausted", droppedExhausted, "dropped_proxy_limit", droppedProxyLimit, "dropped_geoban", droppedGeoban)
+				"deferred_limited", deferredCount, "dropped_geoban", droppedGeoban)
 		}
 		if proxyCfg.Mode == models.ProxyModeAuto {
 			// Stable partition: other-region picks first, same latency order
@@ -132,24 +144,31 @@ func wireProxy(luaSvc *luaplugin.Service, proxySvc *proxypool.Service, exhausted
 	})
 }
 
-// checkProxyLimits applies joint request limits. Storage errors stop routing
-// instead of allowing a proxy whose limit state could not be read.
-func checkProxyLimits(exhaustedSvc *exhausted.Service, proxySvc *proxypool.Service, candidate exhausted.Segments) (bool, bool, error) {
+// checkProxyLimits reports the reset time when joint request limits cover the
+// candidate proxy. Exhausted joint keys and proxy-scoped limits both
+// deprioritize; the later reset wins when both apply. Storage errors stop
+// routing instead of allowing a proxy whose limit state could not be read.
+func checkProxyLimits(exhaustedSvc *exhausted.Service, proxySvc *proxypool.Service, candidate exhausted.Segments) (time.Time, bool, error) {
+	var resetsAt time.Time
+	limited := false
 	if exhaustedSvc != nil {
-		hit, err := exhaustedSvc.LimitedAny(candidate)
+		expiry, hit, err := exhaustedSvc.MatchExpiry(candidate)
 		if err != nil {
-			return false, false, fmt.Errorf("provider proxy: check exhausted key: %w", err)
+			return time.Time{}, false, fmt.Errorf("provider proxy: check exhausted key: %w", err)
 		}
-		if hit != "" {
-			return true, false, nil
+		if hit {
+			resetsAt, limited = expiry, true
 		}
 	}
 	if proxySvc == nil {
-		return false, false, nil
+		return resetsAt, limited, nil
 	}
-	limited, err := proxySvc.LimitedAny(candidate.Proxy, exhausted.SubKeys(candidate))
+	expiry, hit, err := proxySvc.LimitExpiry(candidate.Proxy, exhausted.SubKeys(candidate), time.Now())
 	if err != nil {
-		return false, false, fmt.Errorf("provider proxy: check proxy limit: %w", err)
+		return time.Time{}, false, fmt.Errorf("provider proxy: check proxy limit: %w", err)
 	}
-	return false, limited, nil
+	if hit && (!limited || resetsAt.Before(expiry)) {
+		resetsAt, limited = expiry, true
+	}
+	return resetsAt, limited, nil
 }

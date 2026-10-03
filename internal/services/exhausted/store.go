@@ -1,7 +1,7 @@
 // Package exhausted owns the unified joint limit-key store (0.1.1).
 //
 // A stored key is a filter over candidate dimensions: a candidate combination
-// matching every stored dimension is skipped until ResetsAt passes. Expired
+// matching every stored dimension is deprioritized until ResetsAt passes. Expired
 // entries delete on read; Prune sweeps entries nobody reads anymore.
 package exhausted
 
@@ -69,8 +69,8 @@ func KeyFromScope(plugin, provider, account, model, proxy string, scope []string
 }
 
 // FullKey builds the strictest key: every known dimension. Used when a
-// rate/quota error carries no scope: only the exact combination is skipped,
-// so the router bypasses through everything else.
+// rate/quota error carries no scope: only the exact combination is
+// deprioritized, so the router tries everything else first.
 func FullKey(plugin, provider, account, model, proxy string) string {
 	return BuildKey(Segments{Plugin: plugin, Provider: provider, Account: account, Model: model, Proxy: proxy})
 }
@@ -165,6 +165,27 @@ func (s *Service) LimitedAny(full Segments) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// MatchExpiry reports the reset time of the first matching live limit key
+// for the full candidate, most-specific first. False when nothing limits
+// the candidate. Expired entries delete on read through Limited.
+func (s *Service) MatchExpiry(full Segments) (time.Time, bool, error) {
+	for _, key := range SubKeys(full) {
+		e, err := s.repo.Get(key)
+		if err != nil {
+			if errors.Is(err, apierrors.ErrNotFound) {
+				continue
+			}
+			return time.Time{}, false, err
+		}
+		if !time.Now().Before(e.ResetsAt) {
+			_ = s.repo.DeleteIfExists(key)
+			continue
+		}
+		return e.ResetsAt, true, nil
+	}
+	return time.Time{}, false, nil
 }
 
 // Prune deletes expired entries and returns the removed count.
