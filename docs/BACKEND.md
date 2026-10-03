@@ -219,11 +219,26 @@ reason; anything else fails. Exit 0 means clean (skips allowed).
 5. `api/v1`: handler + `authorizeModel` + `recordRouteMetric`.
 6. Plugin contract: extend `docs/PLUGIN-API.md` in the same change.
 
-Edge-only shims (completions, translations, responses, assistants,
-threads, runs, batches, legacy complete) map onto the chat pipeline in
-`router/` with no new plugin handler: they skip step 3 and persist async
-state in `responses` / `message_batches` (see `responses/service.go`,
-`batches/service.go`). Auth accepts `Authorization: Bearer` and the
+Edge translation: one plugin handler serves several edge routes. The edge
+normalizes the wire shape, the router runs one pipeline, the plugin sees
+one request table.
+
+| Edge routes | Router pipeline | Plugin handler |
+|---|---|---|
+| `chat/completions`, `completions` (`ToChat`), `messages` (`ToChat`), `complete` (wraps as messages) | `Complete` / `CompleteStream` | `complete` / `complete_stream` |
+| `responses` family, `threads` runs, `messages/batches` entries | chat pipeline + `responses` / `message_batches` rows | `complete` (`CreateResponse`, `CreateRun`, `CreateBatch` convert first) |
+| `audio/transcriptions`, `audio/translations` | `Transcribe` | `transcribe` (edge marks the translation response) |
+| `images/generations`, `images/edits`, `images/variations` | `GenerateImage` | `generate_image` (`image_b64` / `mask_b64`; old plugins ignore the extra fields) |
+| `audio/speech` | `Speech` | `speech` (edge serves the native `format` bytes, no transcoding) |
+| `embeddings` | `Embed` | `embed` (edge renders `base64` from float vectors) |
+| `moderations` | `Moderate` | `moderate` (request gate keys on `chat/completions`) |
+| `videos` submit/poll/content | `SubmitVideo` / `PollVideo` / `VideoContent` | `generate_video` / `poll_video` / `video_content` (`videojobs` maps local ids to upstream ids) |
+
+`messages/count_tokens` and `responses/input_tokens` run a local heuristic,
+no upstream call. `models` list/retrieve read the cached catalog and
+dual-serve the Anthropic shape. New wire shapes that reuse a pipeline skip
+step 3 and persist async state in `responses` / `message_batches` (see
+`responses/service.go`, `batches/service.go`). Auth accepts `Authorization: Bearer` and the
 `x-api-key` alias on every `/v1` route; the `anthropic-version` header
 selects the Anthropic success/error envelope via `writeCompatError` /
 `handleCompatRouterError`.

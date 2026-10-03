@@ -49,6 +49,12 @@ The router owns orchestration; the plugin owns wire translation.
   TTL of its upstream expressed as `retry_after`, and the limit dimensions
   expressed as error `scope`.
 
+Endpoint translation stays in the router: one handler serves several edge
+routes (`messages` / `completions` / `responses` / `batches` entries run
+`complete`; `translations` runs `transcribe`; `edits` / `variations` run
+`generate_image`). Plugins never see Anthropic shapes. `docs/BACKEND.md`
+maps every route.
+
 Plugins keep no limit state of their own: no quota tables in
 `llm_router.storage`, no retry parsing duplicated per method. All of that
 lives in `classify_error` plus `scope` and `retry_after`. The router holds
