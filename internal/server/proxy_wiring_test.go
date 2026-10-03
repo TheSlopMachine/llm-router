@@ -12,8 +12,8 @@ func TestDropExhaustedProxy(t *testing.T) {
 	database := testutil.SetupTestDB(t)
 	svc := exhausted.New(database)
 
-	seg := func(account, proxyID string) exhausted.Segments {
-		return exhausted.Segments{Plugin: "plug", Provider: "type", Account: account, Proxy: proxyID}
+	seg := func(credentialID, proxyID string) exhausted.Segments {
+		return exhausted.Segments{Plugin: "plug", Provider: "type", Credential: credentialID, Proxy: proxyID}
 	}
 	isLimited := func(store *exhausted.Service, candidate exhausted.Segments) bool {
 		t.Helper()
@@ -40,10 +40,10 @@ func TestDropExhaustedProxy(t *testing.T) {
 	if !isLimited(svc, seg("", "px-1")) {
 		t.Fatal("marked proxy must report limited")
 	}
-	// A proxy-only key blocks the pairing for every account: the candidate
-	// carrying an account doesn't narrow it away.
-	if !isLimited(svc, seg("some-account", "px-1")) {
-		t.Fatal("proxy-only key must still limit when the candidate also carries an account")
+	// A proxy-only key blocks the pairing for every credential: the candidate
+	// carrying a credential doesn't narrow it away.
+	if !isLimited(svc, seg("some-cred", "px-1")) {
+		t.Fatal("proxy-only key must still limit when the candidate also carries a credential")
 	}
 	if isLimited(svc, seg("", "px-2")) {
 		t.Fatal("other proxy must pass")
@@ -52,24 +52,24 @@ func TestDropExhaustedProxy(t *testing.T) {
 		t.Fatal("other plugin must pass")
 	}
 
-	// Joint account+proxy scope: the pairing is limited, but the same
-	// account is fine through a different proxy and the same proxy is fine
-	// for a different account. This is the case the resolver previously
-	// could not see, since it never received the account.
-	jointKey, err := exhausted.KeyFromScope("plug", "type", "acct-a", "", "px-3", []string{"account", "proxy"})
+	// Joint credential+proxy scope: the pairing is limited, but the same
+	// credential is fine through a different proxy and the same proxy is fine
+	// for a different credential. This is the case the resolver previously
+	// could not see, since it never received the credential.
+	jointKey, err := exhausted.KeyFromScope("plug", "type", "cred-a", "", "px-3", []string{"account", "proxy"})
 	if err != nil {
 		t.Fatalf("scope key: %v", err)
 	}
 	if err := svc.Mark(jointKey, time.Now().Add(time.Hour), "test"); err != nil {
 		t.Fatalf("mark joint: %v", err)
 	}
-	if !isLimited(svc, seg("acct-a", "px-3")) {
-		t.Fatal("joint account+proxy key must limit that exact pairing")
+	if !isLimited(svc, seg("cred-a", "px-3")) {
+		t.Fatal("joint credential+proxy key must limit that exact pairing")
 	}
-	if isLimited(svc, seg("acct-a", "px-4")) {
-		t.Fatal("account acct-a must still pass on a different proxy")
+	if isLimited(svc, seg("cred-a", "px-4")) {
+		t.Fatal("credential cred-a must still pass on a different proxy")
 	}
-	if isLimited(svc, seg("acct-b", "px-3")) {
-		t.Fatal("a different account must still pass on proxy px-3")
+	if isLimited(svc, seg("cred-b", "px-3")) {
+		t.Fatal("a different credential must still pass on proxy px-3")
 	}
 }

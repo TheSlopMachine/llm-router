@@ -129,7 +129,7 @@ type Service struct {
 
 	// proxyResolver returns the ordered proxy picks for a plugin call
 	// (nil/empty = direct). Auto mode waits for ready or no-proxies. known
-	// carries the account and model already fixed for this attempt, so the
+	// carries the credential and model already fixed for this attempt, so the
 	// resolver can drop a proxy that is limited jointly with them, not just
 	// on its own.
 	proxyResolver func(ctx context.Context, rec *PluginRecord, providerConfig map[string]any, known exhausted.Segments) ([]ProxyPick, error)

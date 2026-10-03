@@ -57,7 +57,7 @@ import (
 // without disabling the credential, structural_fault fails the pool without
 // disabling the provider; only admin actions and doctor fix disable.
 // 0.5.2 adds the check_health handler plus per-type healthcheck_cooldown:
-// failure-triggered detached account verification, disable on explicit
+// failure-triggered detached credential verification, disable on explicit
 // unhealthy only.
 const CurrentVersion = "0.5.2"
 
@@ -1233,9 +1233,10 @@ type ProviderError struct {
 	Message    string
 	Type       ErrorType
 	RetryAfter *time.Time
-	// Scope names the exhausted dimensions the error limits (account, model,
-	// proxy). Allowed only on rate_limit and quota_exceeded. Empty marks the
-	// full combination. Proxy-scoped limits can retry on another proxy.
+	// Scope names the exhausted dimensions the error limits (account selects
+	// the credential dimension, plus model, proxy). Allowed only on
+	// rate_limit and quota_exceeded. Empty marks the full combination.
+	// Proxy-scoped limits can retry on another proxy.
 	// Any scope on other types rejects the error table as a plugin bug.
 	Scope []string
 	// UpstreamStatus is the raw HTTP status received from the upstream.

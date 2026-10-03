@@ -19,7 +19,7 @@ import (
 // fails over across keys inside every request, so the matrix needs no
 // per-credential loop; the credential-test below iterates them instead.
 // Cleanup is non-nil only for the ephemeral mock credential. No usable
-// credential is errNoAccount.
+// credential is errNoCredential.
 func provision(cfg config, pluginType string) (providerID string, creds []credCandidate, cleanup func(), err error) {
 	if err := ensureBootstrapped(cfg); err != nil {
 		return "", nil, nil, err
@@ -51,7 +51,7 @@ func provision(cfg config, pluginType string) (providerID string, creds []credCa
 		return "", nil, nil, err
 	}
 	if len(creds) == 0 {
-		return "", nil, nil, errNoAccount
+		return "", nil, nil, errNoCredential
 	}
 	return providerID, creds, nil, nil
 }
@@ -239,9 +239,9 @@ func findProvider(cfg config, pluginType string) (string, error) {
 	return "", fmt.Errorf("no provider instance for type %q after install", pluginType)
 }
 
-// errNoAccount reports no usable credential in the dev database: skip the
+// errNoCredential reports no usable credential in the dev database: skip the
 // plugin, never fail.
-var errNoAccount = fmt.Errorf("no credential in db")
+var errNoCredential = fmt.Errorf("no credential in db")
 
 type credRow struct {
 	ID         string `json:"id"`

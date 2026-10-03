@@ -35,7 +35,7 @@ func main() {
 func runPlugin(cfg config, rep *report, pluginType string) {
 	providerID, creds, cleanup, err := provision(cfg, pluginType)
 	if err != nil {
-		if errors.Is(err, errNoAccount) {
+		if errors.Is(err, errNoCredential) {
 			rep.add(pluginType, "-", "-", skip, "no credential in db", 0)
 			return
 		}

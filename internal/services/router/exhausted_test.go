@@ -159,24 +159,24 @@ func TestRouterService_LikelyExhausted(t *testing.T) {
 		t.Fatal("unmarked model must not report likely exhausted")
 	}
 
-	// An account-only mark says nothing about the model as a whole: other
-	// accounts could still serve it.
+	// A credential-only mark says nothing about the model as a whole: other
+	// credentials could still serve it.
 	rec, err := svc.providerSvc.LuaService().Lookup("exh-type")
 	if err != nil {
 		t.Fatalf("lookup: %v", err)
 	}
-	acctKey, err := exhausted.KeyFromScope(rec.ID, providerID, credA.ID, model.String(), "", []string{"account"})
+	credKey, err := exhausted.KeyFromScope(rec.ID, providerID, credA.ID, model.String(), "", []string{"account"})
 	if err != nil {
 		t.Fatalf("scope key: %v", err)
 	}
-	if err := exhaustedSvc.Mark(acctKey, time.Now().Add(time.Hour), "test"); err != nil {
-		t.Fatalf("mark account: %v", err)
+	if err := exhaustedSvc.Mark(credKey, time.Now().Add(time.Hour), "test"); err != nil {
+		t.Fatalf("mark credential: %v", err)
 	}
 	if svc.LikelyExhausted(model) {
-		t.Fatal("account-only mark must not report the model as likely exhausted")
+		t.Fatal("credential-only mark must not report the model as likely exhausted")
 	}
 
-	// A model-wide mark applies regardless of account.
+	// A model-wide mark applies regardless of credential.
 	modelKey, err := exhausted.KeyFromScope(rec.ID, providerID, "", model.String(), "", []string{"model"})
 	if err != nil {
 		t.Fatalf("scope key: %v", err)
@@ -195,7 +195,7 @@ func TestRouterService_LikelyExhausted(t *testing.T) {
 
 func TestRouterService_InstancesOfSameTypeDontCollide(t *testing.T) {
 	// Two configured instances of one adapter type — the way two "custom"
-	// endpoints would be set up — have independent quotas. An account-less
+	// endpoints would be set up — have independent quotas. A credential-less
 	// mark written against one must not affect the other, even though both
 	// share a plugin and a type key.
 	svc, exhaustedSvc, providerAID, _, _ := setupExhaustedRouter(t)

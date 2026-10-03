@@ -10,7 +10,7 @@
   } = $props<{
     token: string | null
     tokenName: string
-    scopeLabel: { providers: string; models: string; accounts: string }
+    scopeLabel: { providers: string; models: string; credentials: string }
     error?: string
   }>()
 </script>
@@ -37,8 +37,8 @@
       <Text size="sm" weight="medium">{scopeLabel.models}</Text>
     </VStack>
     <VStack align="center" gap={2} class="scope-block">
-      <Text size="xs" weight="medium" tone="soft" class="scope-label">{t('Accounts')}</Text>
-      <Text size="sm" weight="medium">{scopeLabel.accounts}</Text>
+      <Text size="xs" weight="medium" tone="soft" class="scope-label">{t('Credentials')}</Text>
+      <Text size="sm" weight="medium">{scopeLabel.credentials}</Text>
     </VStack>
   </Grid>
 </VStack>

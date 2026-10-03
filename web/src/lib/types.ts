@@ -26,7 +26,7 @@ export interface Credential {
   label: string
   is_expired: boolean
   disabled?: boolean
-  // Who disabled the account: admin action, health-check verdict, or legacy
+  // Who disabled the credential: admin action, health-check verdict, or legacy
   // traffic auto-disable rows predating 0.5.1.
   disabled_by?: 'admin' | 'system' | 'healthcheck' | null
   disabled_reason?: string | null

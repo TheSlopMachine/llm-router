@@ -71,7 +71,7 @@ func TestMarkDirectSanity(t *testing.T) {
 	if err := exSvc.Mark(key, time.Now().Add(time.Hour), "direct"); err != nil {
 		t.Fatalf("direct mark: %v", err)
 	}
-	hit, err := exSvc.LimitedAny(exhausted.Segments{Plugin: pluginID, Provider: "mark-type", Account: "c1", Model: "mark-type/other"})
+	hit, err := exSvc.LimitedAny(exhausted.Segments{Plugin: pluginID, Provider: "mark-type", Credential: "c1", Model: "mark-type/other"})
 	if err != nil || hit == "" {
 		t.Fatalf("direct mark must match: %q, %v", hit, err)
 	}
@@ -90,13 +90,13 @@ func TestMarkScopedKey(t *testing.T) {
 	if limited, err := exSvc.Limited(key); err != nil || !limited {
 		t.Fatalf("exact scoped key must limit: %v, %v", limited, err)
 	}
-	same := exhausted.Segments{Plugin: pluginID, Provider: "mark-type", Account: "c1", Model: "mark-type/other"}
+	same := exhausted.Segments{Plugin: pluginID, Provider: "mark-type", Credential: "c1", Model: "mark-type/other"}
 	if hit, err := exSvc.LimitedAny(same); err != nil || hit == "" {
-		t.Fatalf("account scope must match other models: %q, %v", hit, err)
+		t.Fatalf("credential scope must match other models: %q, %v", hit, err)
 	}
-	other := exhausted.Segments{Plugin: pluginID, Provider: "mark-type", Account: "c2", Model: "mark-type/m"}
+	other := exhausted.Segments{Plugin: pluginID, Provider: "mark-type", Credential: "c2", Model: "mark-type/m"}
 	if hit, err := exSvc.LimitedAny(other); err != nil || hit != "" {
-		t.Fatalf("other account must pass: %q, %v", hit, err)
+		t.Fatalf("other credential must pass: %q, %v", hit, err)
 	}
 }
 
@@ -104,13 +104,13 @@ func TestMarkFullKeyWithoutScope(t *testing.T) {
 	svc, exSvc, pluginID := setupMarkService(t)
 	markComplete(t, svc, "full")
 
-	full := exhausted.Segments{Plugin: pluginID, Provider: "mark-type", Account: "c1", Model: "mark-type/m"}
+	full := exhausted.Segments{Plugin: pluginID, Provider: "mark-type", Credential: "c1", Model: "mark-type/m"}
 	if hit, err := exSvc.LimitedAny(full); err != nil || hit == "" {
 		t.Fatalf("full combination must match: %q, %v", hit, err)
 	}
 	proxyOnly := exhausted.Segments{Plugin: pluginID, Provider: "mark-type", Proxy: "px-1"}
 	if hit, err := exSvc.LimitedAny(proxyOnly); err != nil || hit != "" {
-		t.Fatalf("proxy candidate must not match account/model key: %q, %v", hit, err)
+		t.Fatalf("proxy candidate must not match credential/model key: %q, %v", hit, err)
 	}
 }
 
@@ -118,7 +118,7 @@ func TestMarkNonRateTypesIgnored(t *testing.T) {
 	svc, exSvc, pluginID := setupMarkService(t)
 	markComplete(t, svc, "upstream")
 
-	any := exhausted.Segments{Plugin: pluginID, Provider: "mark-type", Account: "c1", Model: "mark-type/m"}
+	any := exhausted.Segments{Plugin: pluginID, Provider: "mark-type", Credential: "c1", Model: "mark-type/m"}
 	if hit, err := exSvc.LimitedAny(any); err != nil || hit != "" {
 		t.Fatalf("upstream must not mark: %q, %v", hit, err)
 	}
@@ -131,7 +131,7 @@ func TestMarkRateWithoutHintDefaultsMinute(t *testing.T) {
 		t.Fatalf("hintless rate must be a plugin bug, got %T (%v)", err, err)
 	}
 
-	any := exhausted.Segments{Plugin: pluginID, Provider: "mark-type", Account: "c1", Model: "mark-type/m"}
+	any := exhausted.Segments{Plugin: pluginID, Provider: "mark-type", Credential: "c1", Model: "mark-type/m"}
 	hit, err := exSvc.LimitedAny(any)
 	if err != nil || hit != "" {
 		t.Fatalf("hintless rate must not mark: %q, %v", hit, err)

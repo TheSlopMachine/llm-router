@@ -23,9 +23,9 @@ internal/services/
   metrics/               1m buckets, 90d retention
   maintenance/           credential refresh, model sync, auth cleanup
   videojobs/             router-side video job rows (local id → upstream job)
-  exhausted/             joint limit keys (account/model/proxy), subset match, expiry auto-delete
+  exhausted/             joint limit keys (credential[`account`]/model/proxy), subset match, expiry auto-delete
   geoban/                indefinite (plugin, provider type, proxy) geo flags, no expiry, explicit clear
-  healthcheck/           failure-triggered account verification (check_health, cooldown, singleflight, disable on unhealthy only)
+  healthcheck/           failure-triggered credential verification (check_health, cooldown, singleflight, disable on unhealthy only)
   admin/                 admin password change
   config/                instance-wide router configuration
   datamanagement/        subsystem export/import/clear + provider export/import/purge
@@ -110,9 +110,9 @@ Keep changes shallow. Touch service internals only when the task requires it.
 ## Exhausted store and geo bans
 
 - Stored keys act as filters over candidate dimensions (plugin, provider
-  instance, account, model, proxy). A candidate matching every stored dimension
+  instance, credential [`account` scope word], model, proxy). A candidate matching every stored dimension
   is deprioritized until `ResetsAt` passes. Two instances of one adapter type never
-  share an account-less mark.
+  share a credential-less mark.
 - Credential pools reorder matching combinations before the token filter: unlimited
   first, limited after ordered by earliest reset first
   (`router/service.go:dropExhausted`). Proxy picks deprioritize limited routes after ranking;

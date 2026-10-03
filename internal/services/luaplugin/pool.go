@@ -271,7 +271,7 @@ func runRoutedRetries[T any](
 // credential passes or backoff pauses. A missing handler fails immediately;
 // otherwise the last error is returned.
 // limit deprioritizes credentials the exhausted store holds a live
-// rate-limit key for (plugin, type, account, model) to the tail.
+// rate-limit key for (plugin, type, credential, model) to the tail.
 func runPool[T any](ctx context.Context, s *Service, model string, creds []*models.Credential, attempt func(context.Context, *models.Credential) (T, string, error), isFatal func(error) bool, limit pool.LimitFunc) (T, string, error) {
 	log := s.logger
 	if log != nil && model != "" {

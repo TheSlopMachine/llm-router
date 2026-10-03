@@ -150,13 +150,13 @@ func (s *Service) loadCredentials(ctx context.Context, resolved *provider.Resolv
 }
 
 // dropExhausted deprioritizes credentials whose joint combination (plugin,
-// provider instance, account, model) matches a stored limit key: unlimited
+// provider instance, credential, model) matches a stored limit key: unlimited
 // first in pool order, limited after ordered by earliest reset first.
 // Matching runs on Lua-resolved providers only; Go backends carry no plugin
 // namespace. Provider identity is the specific configured instance
 // (resolved.Instance.ID), not the shared adapter type key: two instances of
 // one type (two "custom" endpoints, say) have independent quotas and must
-// not share an account-less mark. Limited credentials stay in the pool as
+// not share a credential-less mark. Limited credentials stay in the pool as
 // last resort: a stale but unexpired mark must never deny a request that
 // could succeed.
 func (s *Service) dropExhausted(resolved *provider.Resolved, model models.ModelId, creds []*models.Credential) []*models.Credential {
@@ -175,10 +175,10 @@ func (s *Service) dropExhausted(resolved *provider.Resolved, model models.ModelI
 	var held []deferred
 	for _, c := range creds {
 		resetsAt, limited, err := s.exhaustedSvc.MatchExpiry(exhausted.Segments{
-			Plugin:   rec.ID,
-			Provider: resolved.Instance.ID,
-			Account:  c.ID,
-			Model:    model.String(),
+			Plugin:     rec.ID,
+			Provider:   resolved.Instance.ID,
+			Credential: c.ID,
+			Model:      model.String(),
 		})
 		if err != nil {
 			s.logger.Warn("router: exhausted check failed, keeping credential",
@@ -264,11 +264,11 @@ func (s *Service) dropMissingModel(providerID, modelName string, err error) {
 
 // LikelyExhausted reports whether model is already known to be entirely
 // unusable: a model-wide limit key exists for its resolved provider,
-// independent of which account or proxy would be tried. It is a cheap,
+// independent of which credential or proxy would be tried. It is a cheap,
 // best-effort pre-check for a caller ordering several candidate models
 // (virtual-model fan-out): exhausted members move to the tail instead of
 // being skipped. It never touches the credential pool or the exhausted
-// store's account/proxy dimensions, so it cannot detect "every account
+// store's credential/proxy dimensions, so it cannot detect "every credential
 // happens to be limited" short of an explicit model-wide mark.
 func (s *Service) LikelyExhausted(model models.ModelId) bool {
 	if s.exhaustedSvc == nil {
@@ -298,7 +298,7 @@ func (s *Service) LikelyExhausted(model models.ModelId) bool {
 }
 
 // HasUsableCredential reports whether at least one credential for the model
-// is not rate-limited in the exhausted store. It checks per-account-model
+// is not rate-limited in the exhausted store. It checks per-credential-model
 // keys for every credential in the pool. A true result means the model is
 // worth attempting first; a false result means every credential is in
 // cooldown and the member belongs at the tail.
@@ -324,10 +324,10 @@ func (s *Service) HasUsableCredential(model models.ModelId) bool {
 	}
 	for _, c := range creds {
 		hit, err := s.exhaustedSvc.LimitedAny(exhausted.Segments{
-			Plugin:   rec.ID,
-			Provider: resolved.Instance.ID,
-			Account:  c.ID,
-			Model:    model.String(),
+			Plugin:     rec.ID,
+			Provider:   resolved.Instance.ID,
+			Credential: c.ID,
+			Model:      model.String(),
 		})
 		if err != nil {
 			return true

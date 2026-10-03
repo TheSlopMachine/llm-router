@@ -18,7 +18,7 @@ export interface WizardProviderState {
 export interface WizardTokenState {
   name: string
   fullAccess: boolean
-  allowAllProvidersAccounts: boolean
+  allowAllProvidersCredentials: boolean
   providers: WizardProviderState[]
   allowAllModels: boolean
   models: string[]
@@ -44,11 +44,11 @@ export function buildBackendTokenRules(s: WizardTokenState): BackendTokenRules {
       allow_all_credentials: true
     }
   }
-  const active = s.allowAllProvidersAccounts
+  const active = s.allowAllProvidersCredentials
     ? s.providers
     : s.providers.filter((p) => p.useAll || p.selected.length > 0)
   const creds = new Set<string>()
-  if (!s.allowAllProvidersAccounts) {
+  if (!s.allowAllProvidersCredentials) {
     for (const p of active) {
       if (p.id === 'virtual') continue
       const ids = p.useAll ? p.known : p.selected
@@ -56,12 +56,12 @@ export function buildBackendTokenRules(s: WizardTokenState): BackendTokenRules {
     }
   }
   return {
-    allowed_providers: s.allowAllProvidersAccounts ? null : active.map((p) => p.id),
-    allow_all_providers: s.allowAllProvidersAccounts,
+    allowed_providers: s.allowAllProvidersCredentials ? null : active.map((p) => p.id),
+    allow_all_providers: s.allowAllProvidersCredentials,
     allowed_models: s.allowAllModels ? null : [...s.models],
     allow_all_models: s.allowAllModels,
-    allowed_credentials: s.allowAllProvidersAccounts ? null : [...creds],
-    allow_all_credentials: s.allowAllProvidersAccounts
+    allowed_credentials: s.allowAllProvidersCredentials ? null : [...creds],
+    allow_all_credentials: s.allowAllProvidersCredentials
   }
 }
 
@@ -79,7 +79,7 @@ export interface DesiredTokenRules {
 
 export function buildDesiredTokenRules(s: WizardTokenState): DesiredTokenRules {
   if (s.fullAccess) return { full_access: true, providers: [], models: 'all' }
-  const active = s.allowAllProvidersAccounts
+  const active = s.allowAllProvidersCredentials
     ? s.providers
     : s.providers.filter((p) => p.useAll || p.selected.length > 0)
   return {
@@ -87,7 +87,7 @@ export function buildDesiredTokenRules(s: WizardTokenState): DesiredTokenRules {
     providers: active.map((p) => ({
       provider_id: p.id,
       credentials:
-        p.id === 'virtual' ? [] : s.allowAllProvidersAccounts || p.useAll ? 'all' : [...p.selected]
+        p.id === 'virtual' ? [] : s.allowAllProvidersCredentials || p.useAll ? 'all' : [...p.selected]
     })),
     models: s.allowAllModels ? 'all' : [...s.models]
   }

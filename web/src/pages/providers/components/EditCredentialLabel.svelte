@@ -60,7 +60,7 @@
     <TextEdit
       id="cred-edit-label"
       bind:value={label}
-      hint={t('e.g. Work account')}
+      hint={t('e.g. Work credential')}
       onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') void save() }}
     />
   </VStack>

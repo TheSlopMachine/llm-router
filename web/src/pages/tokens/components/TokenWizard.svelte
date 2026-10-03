@@ -40,8 +40,8 @@
   let tokenName: string = $state('')
   let fullAccess: boolean = $state(false)
 
-  // Step 2: providers and their accounts.
-  let allowAllProvidersAccounts: boolean = $state(false)
+  // Step 2: providers and their credentials.
+  let allowAllProvidersCredentials: boolean = $state(false)
   let providerUseAll: Set<string> = $state(new Set())
   let providerCreds: Set<string> = $state(new Set())
   let virtualEnabled: boolean = $state(false)
@@ -92,7 +92,7 @@
       const r: any = editingToken.rules || {}
       tokenName = editingToken.name
       fullAccess = !!r.allow_all_providers && !!r.allow_all_models && !!r.allow_all_credentials
-      allowAllProvidersAccounts = !!r.allow_all_providers && !!r.allow_all_credentials
+      allowAllProvidersCredentials = !!r.allow_all_providers && !!r.allow_all_credentials
       virtualEnabled = !!r.allow_all_providers || (r.allowed_providers || []).includes('virtual')
       allowAllModels = !!r.allow_all_models
       selectedModels = new Set(r.allowed_models || [])
@@ -151,7 +151,7 @@
   function toggleModel(fullId: string): void { selectedModels = toggleSet(selectedModels, fullId) }
 
   function providerActive(providerId: string): boolean {
-    if (allowAllProvidersAccounts) return true
+    if (allowAllProvidersCredentials) return true
     if (providerId === 'virtual') return virtualEnabled
     return providerUseAll.has(providerId) || credsOf(providerId).some((c) => providerCreds.has(c.id))
   }
@@ -165,7 +165,7 @@
     return model.kind === 'virtual' ? `virtual/${model.id}` : (model.fullId ?? model.id)
   }
 
-  let includeVirtualModels = $derived(allowAllProvidersAccounts || virtualEnabled)
+  let includeVirtualModels = $derived(allowAllProvidersCredentials || virtualEnabled)
 
   // One dashboard request: candidates carry modalities, virtual models
   // fold their members over the same list.
@@ -255,7 +255,7 @@
 
   let coveredCredIds = $derived.by((): Set<string> => {
     const out = new Set<string>()
-    if (allowAllProvidersAccounts) return out
+    if (allowAllProvidersCredentials) return out
     for (const pid of activeProviderIds) {
       if (pid === 'virtual') continue
       const ids = providerUseAll.has(pid) ? credsOf(pid).map((c) => c.id) : [...providerCreds].filter((id) => credsOf(pid).some((c) => c.id === id))
@@ -265,7 +265,7 @@
   })
 
   let step1Valid = $derived(!!tokenName.trim())
-  let step2Valid = $derived(allowAllProvidersAccounts || activeProviderIds.length > 0)
+  let step2Valid = $derived(allowAllProvidersCredentials || activeProviderIds.length > 0)
   let step3Valid = $derived.by(() => {
     if (allowAllModels) return true
     if (!hasAnyModelAvailable) return true
@@ -343,10 +343,10 @@
     return {
       name: tokenName,
       fullAccess,
-      allowAllProvidersAccounts,
+      allowAllProvidersCredentials,
       providers: activeProviderIds.map((id: string) => ({
         id,
-        useAll: id === 'virtual' ? virtualEnabled : allowAllProvidersAccounts || providerUseAll.has(id),
+        useAll: id === 'virtual' ? virtualEnabled : allowAllProvidersCredentials || providerUseAll.has(id),
         selected: [...providerCreds].filter((cid) => credsOf(id).some((c) => c.id === cid)),
         known: credsOf(id).map((c) => c.id)
       })),
@@ -383,7 +383,7 @@
   function handleDone(): void { onComplete({ token: createdToken ?? undefined }); closeModal() }
   function resetWizard(): void {
     tokenName = ''; fullAccess = false
-    allowAllProvidersAccounts = false; providerUseAll = new Set(); providerCreds = new Set(); virtualEnabled = false
+    allowAllProvidersCredentials = false; providerUseAll = new Set(); providerCreds = new Set(); virtualEnabled = false
     availableModels = []; virtualModels = []; allCandidates = []; allowAllModels = false; selectedModels = new Set(); searchModels = ''
     error = ''; createdToken = null
     wizardStep = 1; syncChrome()
@@ -391,7 +391,7 @@
 
   $effect(() => {
     void wizardStep; void tokenName; void fullAccess
-    void allowAllProvidersAccounts; void providerUseAll.size; void providerCreds.size; void virtualEnabled
+    void allowAllProvidersCredentials; void providerUseAll.size; void providerCreds.size; void virtualEnabled
     void allowAllModels; void selectedModels.size; void searchModels
     void wizardLoading; void createdToken; void error; void subtitle; void stepperConfig
     untrack(() => syncChrome())
@@ -403,9 +403,9 @@
     token={createdToken}
     tokenName={tokenName.trim()}
     scopeLabel={{
-      providers: fullAccess || allowAllProvidersAccounts ? t('All providers') : n(activeProviderIds.length, 'provider', 'providers', 'провайдер', 'провайдера', 'провайдеров'),
+      providers: fullAccess || allowAllProvidersCredentials ? t('All providers') : n(activeProviderIds.length, 'provider', 'providers', 'провайдер', 'провайдера', 'провайдеров'),
       models: allowAllModels ? t('All models') : n(selectedModels.size, 'model', 'models', 'модель', 'модели', 'моделей'),
-      accounts: fullAccess || allowAllProvidersAccounts ? t('All accounts') : n(coveredCredIds.size, 'account', 'accounts', 'аккаунт', 'аккаунта', 'аккаунтов')
+      credentials: fullAccess || allowAllProvidersCredentials ? t('All credentials') : n(coveredCredIds.size, 'credential', 'credentials', 'учётные данные', 'учётных данных', 'учётных данных')
     }}
     {error}
   />
@@ -418,10 +418,10 @@
 {:else if wizardStep === 2}
   {#if error}<Text tone="danger" size="sm">{error}</Text>{/if}
   <VStack gap={6}>
-    <Switch bind:checked={allowAllProvidersAccounts} label={t('Access to all providers and accounts')} id="allow-all-providers-accounts" />
+    <Switch bind:checked={allowAllProvidersCredentials} label={t('Access to all providers and credentials')} id="allow-all-providers-credentials" />
     {#each displayProviders as p (p.id)}
       {@const creds = p.type === 'virtual' ? [] : credsOf(p.id)}
-      <div class={allowAllProvidersAccounts ? 'is-disabled' : ''}>
+      <div class={allowAllProvidersCredentials ? 'is-disabled' : ''}>
         <VStack gap={2}>
           <HStack align="center" gap={3}>
             <VStack gap={1}>
@@ -435,7 +435,7 @@
                 onchange={(v) => toggleProviderUseAll(p.id, v)}
                 label={t('Allow all')}
                 id={`use-all-${p.id}`}
-                disabled={allowAllProvidersAccounts}
+                disabled={allowAllProvidersCredentials}
               />
             {/if}
             <div class="switch-check-gap" aria-hidden="true"></div>
@@ -443,25 +443,25 @@
               <Checkbox
                 checked={providerAllChecked(p.id)}
                 onchange={() => toggleProviderAll(p.id)}
-                disabled={allowAllProvidersAccounts}
+                disabled={allowAllProvidersCredentials}
                 ariaLabel={p.name}
               />
             </div>
           </HStack>
           {#if p.type !== 'virtual'}
             {#if creds.length === 0}
-              <Text size="sm" tone="soft">{t('No accounts for this provider')}</Text>
+              <Text size="sm" tone="soft">{t('No credentials for this provider')}</Text>
             {:else}
               <List>
                 {#each creds as c (c.id)}
                   <label class="provider-row">
                     <HStack gap={3} align="center">
-                      <Text size="base">{c.label || t('API Key')}</Text>
+                      <Text size="base">{c.label || t('Credential')}</Text>
                       <Spacer />
                       <Checkbox
                         checked={providerCreds.has(c.id)}
                         onchange={() => toggleCred(c.id)}
-                        disabled={allowAllProvidersAccounts}
+                        disabled={allowAllProvidersCredentials}
                         ariaLabel={c.label || c.id}
                       />
                     </HStack>

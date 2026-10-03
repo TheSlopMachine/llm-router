@@ -30,7 +30,7 @@ func TestKeyFromScope_SelectsDimensions(t *testing.T) {
 		t.Fatalf("proxy must be absent: %q", got)
 	}
 	if !strings.Contains(got, "a=a1") || !strings.Contains(got, "m=m1") {
-		t.Fatalf("account+model must be present: %q", got)
+		t.Fatalf("credential+model must be present: %q", got)
 	}
 }
 
@@ -47,7 +47,7 @@ func TestKeyFromScope_EmptyScopeFails(t *testing.T) {
 }
 
 func TestSubKeys_AllSubsetsMostSpecificFirst(t *testing.T) {
-	keys := SubKeys(Segments{Plugin: "pl", Provider: "pr", Account: "a", Model: "m", Proxy: "x"})
+	keys := SubKeys(Segments{Plugin: "pl", Provider: "pr", Credential: "a", Model: "m", Proxy: "x"})
 	if len(keys) != 7 {
 		t.Fatalf("want 7 subkeys, got %d: %q", len(keys), keys)
 	}
@@ -64,7 +64,7 @@ func TestSubKeys_AllSubsetsMostSpecificFirst(t *testing.T) {
 }
 
 func TestSubKeys_SkipsMissingDims(t *testing.T) {
-	keys := SubKeys(Segments{Plugin: "pl", Provider: "pr", Account: "a"})
+	keys := SubKeys(Segments{Plugin: "pl", Provider: "pr", Credential: "a"})
 	if len(keys) != 1 {
 		t.Fatalf("want 1 subkey, got %q", keys)
 	}
@@ -108,30 +108,30 @@ func TestLimited_MissingKey(t *testing.T) {
 
 func TestLimitedAny_JointFilterSemantics(t *testing.T) {
 	svc := setupService(t)
-	accountKey, err := KeyFromScope("pl", "pr", "a1", "m1", "x1", []string{"account"})
+	credentialKey, err := KeyFromScope("pl", "pr", "a1", "m1", "x1", []string{"account"})
 	if err != nil {
 		t.Fatalf("scope: %v", err)
 	}
-	if err := svc.Mark(accountKey, time.Now().Add(time.Hour), "account quota"); err != nil {
+	if err := svc.Mark(credentialKey, time.Now().Add(time.Hour), "credential quota"); err != nil {
 		t.Fatalf("mark: %v", err)
 	}
-	// Same account, different model and proxy: still skipped.
-	hit, err := svc.LimitedAny(Segments{Plugin: "pl", Provider: "pr", Account: "a1", Model: "m2", Proxy: "x2"})
+	// Same credential, different model and proxy: still limited.
+	hit, err := svc.LimitedAny(Segments{Plugin: "pl", Provider: "pr", Credential: "a1", Model: "m2", Proxy: "x2"})
 	if err != nil || hit == "" {
-		t.Fatalf("account key must match other models: %q, %v", hit, err)
+		t.Fatalf("credential key must match other models: %q, %v", hit, err)
 	}
-	// Different account: passes.
-	hit, err = svc.LimitedAny(Segments{Plugin: "pl", Provider: "pr", Account: "a2", Model: "m1", Proxy: "x1"})
+	// Different credential: passes.
+	hit, err = svc.LimitedAny(Segments{Plugin: "pl", Provider: "pr", Credential: "a2", Model: "m1", Proxy: "x1"})
 	if err != nil || hit != "" {
-		t.Fatalf("other account must pass: %q, %v", hit, err)
+		t.Fatalf("other credential must pass: %q, %v", hit, err)
 	}
 	// Different plugin: passes.
-	hit, err = svc.LimitedAny(Segments{Plugin: "other", Provider: "pr", Account: "a1", Model: "m1", Proxy: "x1"})
+	hit, err = svc.LimitedAny(Segments{Plugin: "other", Provider: "pr", Credential: "a1", Model: "m1", Proxy: "x1"})
 	if err != nil || hit != "" {
 		t.Fatalf("other plugin must pass: %q, %v", hit, err)
 	}
 	// Different provider instance: passes.
-	hit, err = svc.LimitedAny(Segments{Plugin: "pl", Provider: "other", Account: "a1", Model: "m1", Proxy: "x1"})
+	hit, err = svc.LimitedAny(Segments{Plugin: "pl", Provider: "other", Credential: "a1", Model: "m1", Proxy: "x1"})
 	if err != nil || hit != "" {
 		t.Fatalf("other provider must pass: %q, %v", hit, err)
 	}
@@ -147,7 +147,7 @@ func TestLimitedAny_PrefersMostSpecific(t *testing.T) {
 	if err := svc.Mark(narrow, time.Now().Add(time.Hour), "n"); err != nil {
 		t.Fatalf("mark narrow: %v", err)
 	}
-	hit, err := svc.LimitedAny(Segments{Plugin: "pl", Provider: "pr", Account: "a1", Model: "m1", Proxy: "x1"})
+	hit, err := svc.LimitedAny(Segments{Plugin: "pl", Provider: "pr", Credential: "a1", Model: "m1", Proxy: "x1"})
 	if err != nil || hit != narrow {
 		t.Fatalf("want narrowest %q, got %q, %v", narrow, hit, err)
 	}
@@ -174,7 +174,7 @@ func TestPrune_RemovesOnlyExpired(t *testing.T) {
 
 func TestMatchExpiry_ReturnsResetAndClearsExpired(t *testing.T) {
 	svc := setupService(t)
-	full := Segments{Plugin: "pl", Provider: "pr", Account: "a1", Model: "m1"}
+	full := Segments{Plugin: "pl", Provider: "pr", Credential: "a1", Model: "m1"}
 	resetsAt := time.Now().Add(time.Hour).Truncate(time.Second)
 	key, err := KeyFromScope("pl", "pr", "a1", "m1", "", []string{"account"})
 	if err != nil {
@@ -197,7 +197,7 @@ func TestMatchExpiry_ReturnsResetAndClearsExpired(t *testing.T) {
 	if err := svc.Mark(stale, time.Now().Add(-time.Minute), "old"); err != nil {
 		t.Fatalf("mark stale: %v", err)
 	}
-	if _, limited, err := svc.MatchExpiry(Segments{Plugin: "pl", Provider: "pr", Account: "a2", Model: "m1"}); err != nil || limited {
+	if _, limited, err := svc.MatchExpiry(Segments{Plugin: "pl", Provider: "pr", Credential: "a2", Model: "m1"}); err != nil || limited {
 		t.Fatalf("expired must not limit: %v, %v", limited, err)
 	}
 }

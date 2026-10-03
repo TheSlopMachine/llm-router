@@ -34,7 +34,7 @@ means `.0`, one leading `v` allowed); anything else fails install.
 | 0.4.0 | `generate_video` / `poll_video` / `video_content` handlers serving `POST /v1/videos`, `GET /v1/videos/{jobId}`, `GET /v1/videos/{jobId}/content`; `videos` endpoint in `ModelInfo.endpoints`; router-side job rows map local IDs to upstream jobs |
 | 0.5.0 | `moderate` handler serving `POST /v1/moderations`; `image_b64` / `image_name` / `mask_b64` `generate_image` request fields serving `POST /v1/images/edits` and `POST /v1/images/variations` (old plugins ignore the extra fields) |
 | 0.5.1 | traffic-driven disables removed: `auth` / `payment_required` fail over without disabling the credential, `structural_fault` stops the pool without disabling the provider; disables come only from admin actions and doctor fix for backend-less types (old plugins unchanged) |
-| 0.5.2 | `check_health` handler plus per-type `healthcheck_cooldown` registration value (whole seconds, 60..86400, default 300): failure-triggered detached account verification, at most once per window; only an explicit `unhealthy` verdict disables (`disabled_by=healthcheck`) |
+| 0.5.2 | `check_health` handler plus per-type `healthcheck_cooldown` registration value (whole seconds, 60..86400, default 300): failure-triggered detached credential verification, at most once per window; only an explicit `unhealthy` verdict disables (`disabled_by=healthcheck`) |
 
 ## Responsibility split
 
@@ -113,7 +113,7 @@ llm_router.register_proxy_source(name, {
   models). Unknown fields and mistyped values fail install — a typo'd key
   must never deploy as a silent no-op. Routers older than the spec
   feature ignore the table.
-- An optional `healthcheck_cooldown` number sets the per-type account
+- An optional `healthcheck_cooldown` number sets the per-type credential
   health-check cooldown in whole seconds (60..86400, default 300): after an
   attempt failure the router runs `check_health` at most once per window.
   Mistyped and out-of-range values fail install. Routers older than the
@@ -175,15 +175,16 @@ llm_router.register_proxy_source(name, {
 - `retry_after`: unix timestamp. Mandatory for `rate_limit` and `quota_exceeded`, and must lie in the future: missing or past values reject the table. Forbidden on every other type: presence rejects the table. An explicit plugin override carries the upstream's own statement (parsed from its `retry-after` header or body hint, or known by the plugin). The core default resolves the same sources and falls back to now+60s; returning `nil` (accepting the default) is always valid. `model_unavailable` carries no TTL from the plugin: the router cools the model down for a fixed 2 minutes.
 - `scope`: optional array naming the exhausted dimensions the error
   limits. Allowed only on `rate_limit` and `quota_exceeded` (`account`,
-  `model`, `proxy`); any `scope` on other types rejects
+  `model`, `proxy` — the `account` word selects the credential dimension);
+  any `scope` on other types rejects
   the table. Without scope a rate/quota error marks the full combination
   of the request. Unknown words reject the whole table (`PluginInternalError`).
   Stored keys always carry the calling provider instance ID, never just the
-  adapter type: two instances of one type never share an account-less mark.
+  adapter type: two instances of one type never share a credential-less mark.
   A proxy-scoped error, or an unscoped error that marks the full combination,
   retries the same credential through another proxy up to three total
   attempts. The router returns the original limit error when no alternate
-  proxy is available. Account/model-only limits do not trigger this retry.
+  proxy is available. Credential/model-only limits do not trigger this retry.
 - `upstream_status` / `upstream_body`: optional passthrough of the raw
   upstream failure for logs and debugging. Routing never reads them.
   Wrong types are ignored (non-number status, non-string body).
@@ -207,7 +208,7 @@ llm_router.register_proxy_source(name, {
   and records no state; re-attempts fail the same way until the endpoint
   heals. Never emit it for HTTP statuses: classify those normally.
 - `auth` / `payment_required`: fail over to the next credential and record
-  no state. Nothing disables an account from traffic: repeated failures
+  no state. Nothing disables a credential from traffic: repeated failures
   surface the last error, and only an admin disables a credential.
 - `geo`: the proxy exit is geo-blocked for this provider. Records the
   indefinite `(provider type, proxy)` flag keyed by adapter type (the upstream
@@ -418,7 +419,7 @@ Content-Type; `content_type` empty defaults to `video/mp4`.
   Runs detached after an attempt failure, at most once per cooldown window
   (default 5 minutes, `healthcheck_cooldown` registration value in whole
   seconds within 60..86400 overrides per type). Only an explicit
-  `"unhealthy"` disables the account (`disabled_by=healthcheck`);
+  `"unhealthy"` disables the credential (`disabled_by=healthcheck`);
   `"unknown"`, handler errors and invalid shapes change nothing. Absent
   means the type never health-checks.
 - `config_schema()` / `credential_schema()` → UI node array or `nil`.
@@ -431,7 +432,7 @@ Content-Type; `content_type` empty defaults to `video/mp4`.
   `"auth_flow:" .. flow_id` by convention.
 - Auth result is exactly one of: `{ render = <UI tree> }`,
   `{ redirect_url = "<non-empty>" }`, `{ credentials = {<string fields>} }`.
-  Anything else crashes. Absent handlers mean single-step manual token entry.
+  Anything else crashes. Absent handlers mean single-step manual credential entry.
 
 ### get_model_infos (optional)
 
@@ -620,12 +621,12 @@ every key and need no naming.
 Examples — the plugin only names dimensions, the router resolves instances:
 
 ```lua
--- per-model quota (Gemini style): this model on this account cools down,
--- other models on the same account keep serving
+-- per-model quota (Gemini style): this model on this credential cools down,
+-- other models on the same credential keep serving
 err.scope = { "account", "model" }
 -- per-IP limit (anonymous free tiers): every combination through this proxy
 err.scope = { "proxy" }
--- per-account quota (Groq style): every combination of this account
+-- per-credential quota (Groq style): every combination of this credential
 err.scope = { "account" }
 ```
 
@@ -646,7 +647,7 @@ Behavior:
   the blocked one (`manual` order stays sacred).
 - `auth` / `payment_required` / `structural_fault` record no state: the pool
   fails over (`structural_fault` stops it) and surfaces the last error.
-  Accounts disable by admin action only; providers disable by admin action
+  Credentials disable by admin action only; providers disable by admin action
   or doctor fix for backend-less types. Content, malformed-request,
   missing-model and transient failures record no state.
 - Keys never cross plugins or provider instances: a limit for one provider

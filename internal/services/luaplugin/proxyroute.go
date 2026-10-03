@@ -85,7 +85,7 @@ func (ctx *execContext) resolveProxyPicks(goCtx context.Context) ([]ProxyPick, e
 	if ctx.proxyResolver == nil {
 		return nil, nil
 	}
-	known := exhausted.Segments{Account: ctx.credentialID, Model: ctx.model.String(), Provider: ctx.providerID}
+	known := exhausted.Segments{Credential: ctx.credentialID, Model: ctx.model.String(), Provider: ctx.providerID}
 	if known.Provider == "" {
 		known.Provider = ctx.typeKey
 	}

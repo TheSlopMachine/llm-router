@@ -19,21 +19,23 @@ import (
 
 // Segments is the full identity of one request attempt. Plugin and Provider
 // always participate (Provider is the configured instance ID, not the
-// adapter type key); Account, Model and Proxy narrow the key when non-empty.
+// adapter type key); Credential, Model and Proxy narrow the key when
+// non-empty. The credential dimension serializes with the legacy "account"
+// scope word and "a=" key prefix: stored shapes never change.
 type Segments struct {
-	Plugin   string
-	Provider string
-	Account  string
-	Model    string
-	Proxy    string
+	Plugin     string
+	Provider   string
+	Credential string
+	Model      string
+	Proxy      string
 }
 
 // BuildKey assembles the canonical key: fixed dimension order, non-empty
 // dimensions only. Prefixes keep dimensions unambiguous after the join.
 func BuildKey(s Segments) string {
 	parts := []string{"p=" + s.Plugin, "pr=" + s.Provider}
-	if s.Account != "" {
-		parts = append(parts, "a="+s.Account)
+	if s.Credential != "" {
+		parts = append(parts, "a="+s.Credential)
 	}
 	if s.Model != "" {
 		parts = append(parts, "m="+s.Model)
@@ -48,12 +50,12 @@ func BuildKey(s Segments) string {
 // provider always participate, the scope words select the narrowing
 // dimensions. Unknown scope words fail closed so typos never silently drop
 // the marking.
-func KeyFromScope(plugin, provider, account, model, proxy string, scope []string) (string, error) {
+func KeyFromScope(plugin, provider, credentialID, model, proxy string, scope []string) (string, error) {
 	s := Segments{Plugin: plugin, Provider: provider}
 	for _, w := range scope {
 		switch w {
 		case models.ExhaustedScopeAccount:
-			s.Account = account
+			s.Credential = credentialID
 		case models.ExhaustedScopeModel:
 			s.Model = model
 		case models.ExhaustedScopeProxy:
@@ -62,7 +64,7 @@ func KeyFromScope(plugin, provider, account, model, proxy string, scope []string
 			return "", fmt.Errorf("exhausted: unknown scope word %q", w)
 		}
 	}
-	if s.Account == "" && s.Model == "" && s.Proxy == "" {
+	if s.Credential == "" && s.Model == "" && s.Proxy == "" {
 		return "", fmt.Errorf("exhausted: scope selects no dimension")
 	}
 	return BuildKey(s), nil
@@ -71,15 +73,15 @@ func KeyFromScope(plugin, provider, account, model, proxy string, scope []string
 // FullKey builds the strictest key: every known dimension. Used when a
 // rate/quota error carries no scope: only the exact combination is
 // deprioritized, so the router tries everything else first.
-func FullKey(plugin, provider, account, model, proxy string) string {
-	return BuildKey(Segments{Plugin: plugin, Provider: provider, Account: account, Model: model, Proxy: proxy})
+func FullKey(plugin, provider, credentialID, model, proxy string) string {
+	return BuildKey(Segments{Plugin: plugin, Provider: provider, Credential: credentialID, Model: model, Proxy: proxy})
 }
 
 // SubKeys returns every stored-key shape matching the full candidate:
 // plugin and provider fixed, every non-empty subset of the narrowing
 // dimensions present on the candidate, most-specific first.
 func SubKeys(full Segments) []string {
-	values := []string{full.Account, full.Model, full.Proxy}
+	values := []string{full.Credential, full.Model, full.Proxy}
 	present := 0
 	for i, v := range values {
 		if v != "" {
@@ -103,7 +105,7 @@ func SubKeys(full Segments) []string {
 			}
 			sub := Segments{Plugin: full.Plugin, Provider: full.Provider}
 			if mask&1 != 0 {
-				sub.Account = full.Account
+				sub.Credential = full.Credential
 			}
 			if mask&2 != 0 {
 				sub.Model = full.Model

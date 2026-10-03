@@ -238,7 +238,7 @@
       value={entryTab}
       options={[
         { value: 'flow', label: t('Device login') },
-        { value: 'manual', label: t('Paste tokens') },
+        { value: 'manual', label: t('Paste credentials') },
       ]}
       ariaLabel="Credential entry method"
       onchange={(v) => switchEntry(v as 'flow' | 'manual')}

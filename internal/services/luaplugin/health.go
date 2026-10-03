@@ -20,7 +20,7 @@ const (
 // HealthStatus is the verdict of a check_health handler call.
 type HealthStatus string
 
-// Health verdicts: healthy keeps the account, unhealthy disables it,
+// Health verdicts: healthy keeps the credential, unhealthy disables it,
 // unknown (and any handler failure) changes nothing.
 const (
 	HealthHealthy   HealthStatus = "healthy"

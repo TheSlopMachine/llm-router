@@ -129,7 +129,7 @@ llm_router.register("proxy-limit-type", {
       return nil, { type = "upstream", message = req_err.message }
     end
     if resp.status == 429 then
-      local scope = request.user == "account" and { "account" } or { "proxy" }
+      local scope = request.user == "credential" and { "account" } or { "proxy" }
       local error_type = request.user == "quota" and "quota_exceeded" or "rate_limit"
       return nil, {
         type = error_type, message = "exit limit", retry_after = os.time() + 60,
@@ -235,7 +235,7 @@ func TestCompletePool_NoAlternateProxyReturnsOriginalLimit(t *testing.T) {
 	}
 }
 
-func TestCompletePool_DoesNotRetryAccountScopedLimit(t *testing.T) {
+func TestCompletePool_DoesNotRetryCredentialScopedLimit(t *testing.T) {
 	svc := setupService(t)
 	installProxyLimitRetryPlugin(t, svc)
 	var firstHits, secondHits atomic.Int32
@@ -245,7 +245,7 @@ func TestCompletePool_DoesNotRetryAccountScopedLimit(t *testing.T) {
 		return []ProxyPick{{ID: "px-first", URL: firstURL}, {ID: "px-second", URL: secondURL}}, nil
 	})
 
-	mode := "account"
+	mode := "credential"
 	req := &models.ChatCompletionRequest{
 		Model: "proxy-limit-type/m", User: &mode,
 		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
@@ -253,10 +253,10 @@ func TestCompletePool_DoesNotRetryAccountScopedLimit(t *testing.T) {
 	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
 	_, _, err := svc.CompletePool(t.Context(), testMeta("proxy-limit-type", nil, req.Model, nil), []*models.Credential{cred}, req)
 	if !isProviderType(err, models.ErrorTypeRateLimit) {
-		t.Fatalf("expected account-scoped rate limit, got %T (%v)", err, err)
+		t.Fatalf("expected credential-scoped rate limit, got %T (%v)", err, err)
 	}
 	if firstHits.Load() != 1 || secondHits.Load() != 0 {
-		t.Fatalf("account-scoped request used proxies %d and %d times", firstHits.Load(), secondHits.Load())
+		t.Fatalf("credential-scoped request used proxies %d and %d times", firstHits.Load(), secondHits.Load())
 	}
 }
 

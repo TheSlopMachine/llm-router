@@ -81,7 +81,7 @@ func (s *Service) TestCredential(ctx context.Context, providerID, credentialID s
 		if derr := s.credSvc.DisableUnhealthy(credentialID, reason); derr != nil {
 			return TestResult{Error: derr.Error(), Code: "upstream_error", Summary: "disable failed", Latency: latency}
 		}
-		return TestResult{Error: reason, Code: "unhealthy", Summary: "account unhealthy, disabled", Latency: latency}
+		return TestResult{Error: reason, Code: "unhealthy", Summary: "credential unhealthy, disabled", Latency: latency}
 	default:
 		if message == "" {
 			message = "health check inconclusive"

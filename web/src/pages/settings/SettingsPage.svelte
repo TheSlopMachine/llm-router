@@ -403,7 +403,7 @@
     {:else if stats}
       <VStack gap={4} class="data-container">
         {#each [
-          { key: 'providers', label: t('Providers & Keys'), count: stats.providers },
+          { key: 'providers', label: t('Providers & Credentials'), count: stats.providers },
           { key: 'virtual_models', label: t('Virtual Models'), count: stats.virtual_models },
           { key: 'plugins', label: t('Plugins & Repos'), count: stats.plugins },
           { key: 'tokens', label: t('Access Tokens'), count: stats.tokens }

@@ -1,11 +1,11 @@
-// Package healthcheck owns failure-triggered account health verification.
+// Package healthcheck owns failure-triggered credential health verification.
 //
 // A failed attempt marks its credential suspect through SuspectFailed. The
 // service runs the type's check_health handler at most once per cooldown
 // window (default 5 minutes, per-type registration override) in a detached
 // goroutine with a bounded timeout, coalescing concurrent suspects into one
 // in-flight check. Only an explicit "unhealthy" verdict disables the
-// account; "healthy", "unknown" and handler failures only stamp the last
+// credential; "healthy", "unknown" and handler failures only stamp the last
 // check time. Types without a check_health handler never check.
 package healthcheck
 
@@ -38,7 +38,7 @@ type PluginHealth interface {
 	CheckHealth(ctx context.Context, typeKey string, cred *models.Credential) (luaplugin.HealthStatus, string, error)
 }
 
-// CredentialStore fetches credentials and disables unhealthy accounts.
+// CredentialStore fetches credentials and disables unhealthy ones.
 type CredentialStore interface {
 	Get(id string) (*models.Credential, error)
 	DisableUnhealthy(id, reason string) error
@@ -118,7 +118,7 @@ func (s *Service) run(typeKey, credentialID string) {
 	if herr != nil {
 		s.stamp(credentialID, string(luaplugin.HealthUnknown))
 		if s.logger != nil {
-			s.logger.Warn("healthcheck: handler failed, keeping account",
+			s.logger.Warn("healthcheck: handler failed, keeping credential",
 				"credential_id", credentialID, "type", typeKey, "error", herr)
 		}
 		return
@@ -138,7 +138,7 @@ func (s *Service) run(typeKey, credentialID string) {
 	if derr := s.creds.DisableUnhealthy(credentialID, reason); derr != nil && s.logger != nil {
 		s.logger.Warn("healthcheck: disable failed", "credential_id", credentialID, "error", derr)
 	} else if s.logger != nil {
-		s.logger.Info("healthcheck: disabled unhealthy account", "credential_id", credentialID, "type", typeKey)
+		s.logger.Info("healthcheck: disabled unhealthy credential", "credential_id", credentialID, "type", typeKey)
 	}
 }
 
