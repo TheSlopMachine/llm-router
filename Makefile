@@ -28,7 +28,7 @@ BUN_MIN := 1.2
 GO_MIN  := 1.27.1
 BUN     := bun
 
-.PHONY: help check-frontend-deps check-publish-deps go-tidy go-fmt go-fmt-check init start stop restart status browser log log-frontend clean publish go-vet go-test check-frontend smoke
+.PHONY: help check-frontend-deps check-publish-deps go-tidy go-fmt go-fmt-check init start stop restart status browser log log-frontend clean publish go-vet go-test check-frontend smoke upload-plugins
 
 help:
 	@cat scripts/help.txt
@@ -83,6 +83,11 @@ restart:
 smoke: NO_AUTH = 1
 smoke: restart
 	@cd scripts && GOWORK=off go run ./smoke
+
+# Upload every .lua plugin in the store dir to the running dev stack via
+# install-file (version matches skip). Expects NO_AUTH=1 like smoke.
+upload-plugins:
+	@cd scripts && GOWORK=off go run ./uploadplugins
 
 status:
 	@cd scripts && GOWORK=off go run ./status

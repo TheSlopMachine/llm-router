@@ -125,6 +125,7 @@ Keep changes shallow. Do not touch service internals unless the task requires it
 | `make stop` | agent | Stop dev processes |
 | `make restart` | agent | Stop + start, keeping last start params |
 | `make smoke` | agent | Restart with `NO_AUTH=1`, then run the smoke harness (`SMOKE_PLUGINS=...`, `SMOKE_TARGETS=...`) |
+| `make upload-plugins` | agent | Upload every store `.lua` plugin to the running stack (`UPLOAD_STORE_DIR=...`, needs `NO_AUTH=1`, no restart) |
 | `make status` | agent | Show dev server status |
 | `make help` | agent | Print targets and variables |
 | `make go-tidy` | agent | Tidy both Go modules |

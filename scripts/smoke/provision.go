@@ -5,13 +5,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strings"
 	"time"
+
+	"github.com/TheSlopMachine/llm-router/scripts/shared"
 )
 
 // provision ensures the instance is bootstrapped, installs the plugin
@@ -28,7 +28,7 @@ func provision(cfg config, pluginType string) (providerID string, creds []credCa
 	if err != nil {
 		return "", nil, nil, err
 	}
-	if err := installPlugin(cfg, pluginType, source); err != nil {
+	if _, err := shared.InstallPlugin(cfg.web, pluginType, source); err != nil {
 		return "", nil, nil, err
 	}
 	providerID, err = findProvider(cfg, pluginType)
@@ -114,106 +114,7 @@ func pluginSource(cfg config, pluginType string) ([]byte, error) {
 		_, thisFile, _, _ := runtime.Caller(0)
 		return os.ReadFile(filepath.Join(filepath.Dir(thisFile), "testdata", "mock.lua"))
 	}
-	src, err := os.ReadFile(filepath.Join(cfg.store, pluginType+".lua"))
-	if err != nil {
-		return nil, fmt.Errorf("plugin source for %q: %w", pluginType, err)
-	}
-	return src, nil
-}
-
-func installPlugin(cfg config, pluginType string, source []byte) error {
-	if v := manifestVersion(source); v != "" {
-		if ok, err := installedCurrent(cfg, pluginType, v); err != nil {
-			return err
-		} else if ok {
-			return nil
-		}
-	}
-	// A store-installed copy claims the type key: replace it with the
-	// local source under test, then install. Dev DB only.
-	if err := deleteTypeClaimants(cfg, pluginType); err != nil {
-		return err
-	}
-	status, raw, err := doRaw("POST", cfg.web+"/api/llm-router/dashboard/plugins/install-file", source)
-	if err != nil {
-		return fmt.Errorf("install plugin: %w", err)
-	}
-	return requireOK(status, raw, nil)
-}
-
-// manifestVersion reads --- @version from a plugin source.
-func manifestVersion(source []byte) string {
-	for _, line := range strings.Split(string(source), "\n") {
-		line = strings.TrimSpace(line)
-		if v, ok := strings.CutPrefix(line, "--- @version "); ok {
-			return strings.TrimSpace(v)
-		}
-	}
-	return ""
-}
-
-type pluginRow struct {
-	ID       string   `json:"id"`
-	Version  string   `json:"version"`
-	TypeKeys []string `json:"type_keys"`
-}
-
-func listPlugins(cfg config) ([]pluginRow, error) {
-	status, raw, err := doJSON("GET", cfg.web+"/api/llm-router/dashboard/plugins", nil)
-	if err != nil {
-		return nil, fmt.Errorf("list plugins: %w", err)
-	}
-	var rows []pluginRow
-	if err := requireOK(status, raw, &rows); err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
-
-// deleteTypeClaimants removes installed plugins claiming the type key so a
-// local source can take it over. Version drift already failed above; this
-// runs only when testing a different copy of the same type.
-func deleteTypeClaimants(cfg config, pluginType string) error {
-	rows, err := listPlugins(cfg)
-	if err != nil {
-		return err
-	}
-	for _, p := range rows {
-		for _, k := range p.TypeKeys {
-			if k != pluginType {
-				continue
-			}
-			// Record IDs contain slashes: encode like the dashboard
-			// frontend does, the API matches single encoded segments.
-			target := cfg.web + "/api/llm-router/dashboard/plugins/" + url.PathEscape(p.ID)
-			status, raw, derr := doJSON("DELETE", target, nil)
-			if derr != nil {
-				return fmt.Errorf("delete plugin %s: %w", p.ID, derr)
-			}
-			if derr := requireOK(status, raw, nil); derr != nil {
-				return fmt.Errorf("delete plugin %s: %w", p.ID, derr)
-			}
-		}
-	}
-	return nil
-}
-
-// installedCurrent reports whether the type is already installed at the
-// source version: reinstalling would only churn history. A version drift
-// falls through to replacement below.
-func installedCurrent(cfg config, pluginType, version string) (bool, error) {
-	rows, err := listPlugins(cfg)
-	if err != nil {
-		return false, err
-	}
-	for _, p := range rows {
-		for _, k := range p.TypeKeys {
-			if k == pluginType {
-				return p.Version == version, nil
-			}
-		}
-	}
-	return false, nil
+	return shared.PluginSource(cfg.store, pluginType)
 }
 
 type providerRow struct {
