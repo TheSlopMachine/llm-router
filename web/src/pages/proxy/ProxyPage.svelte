@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { VStack, HStack, Text, Button, Table, SectionCard, List, Spacer, Chip, TextEdit, TextArea } from '$ui'
+  import { VStack, HStack, Text, Button, Table, SectionCard, List, Spacer, Chip, FloatingView } from '$ui'
   import type { TableColumn } from '$ui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
+  import { modal } from '$lib/modal.svelte'
   import { getErrorMessage } from '$lib/errors'
   import type { Proxy, ProxyStatus, ProxySourceInfo, ProxyPool } from '$lib/types'
   import { t } from '$lib/i18n.svelte'
+  import CustomPoolModal from './components/CustomPoolModal.svelte'
 
   let proxies = $state<Proxy[]>([])
   let sources = $state<ProxySourceInfo[]>([])
@@ -14,14 +16,20 @@
   let loading = $state(true)
   let requestingRefresh = $state(false)
   let error = $state('')
-  let newPoolName = $state('')
-  let newPoolEntries = $state('')
-  let savingPool = $state(false)
+  let deletePoolTarget = $state<ProxyPool | null>(null)
+  let deletePoolAnchor = $state<HTMLElement>()
+  let deletingPool = $state(false)
 
   const proxyColumns: TableColumn[] = [
     { key: 'url', title: t('URL'), width: '1fr', priority: 1 },
     { key: 'latency', title: t('Latency'), width: '90px', align: 'right', priority: 2 },
     { key: 'score', title: t('Score'), width: '80px', align: 'right', priority: 2 },
+  ]
+
+  const poolColumns: TableColumn[] = [
+    { key: 'name', title: t('Name'), width: '1fr', priority: 1 },
+    { key: 'proxies', title: t('Proxies'), width: '120px', align: 'right', priority: 2 },
+    { key: 'actions', title: t('Actions'), width: 'auto', align: 'right', priority: 1 },
   ]
 
   onMount(() => {
@@ -77,37 +85,44 @@
     return new Date(value).toLocaleString()
   }
 
-  async function savePool(): Promise<void> {
-    if (!newPoolName.trim()) return
-    savingPool = true
+  function openPoolModal(mode: 'create' | 'edit', pool?: ProxyPool): void {
     error = ''
+    modal.open({
+      title: mode === 'edit' ? t('Edit pool') : t('New pool'),
+      content: CustomPoolModal,
+      severity: 'medium',
+      size: 'medium',
+      props: {
+        editingPool: mode === 'edit' ? (pool ?? null) : null,
+        onComplete: async () => {
+          modal.close()
+          await loadAll()
+        },
+      },
+    })
+  }
+
+  function openDeletePool(pool: ProxyPool, anchorEl?: HTMLElement): void {
+    if (deletePoolTarget?.id === pool.id) {
+      deletePoolTarget = null
+    } else {
+      deletePoolTarget = pool
+      deletePoolAnchor = anchorEl
+    }
+  }
+
+  async function confirmDeletePool(): Promise<void> {
+    const pool = deletePoolTarget
+    if (!pool || deletingPool) return
+    deletingPool = true
     try {
-      const entries = newPoolEntries
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line !== '')
-        .map((line) => {
-          const [url, country] = line.split(/\s+/, 2)
-          return country ? { url, country } : { url }
-        })
-      await api.proxies.pools.save({ name: newPoolName.trim(), entries })
-      newPoolName = ''
-      newPoolEntries = ''
+      await api.proxies.pools.remove(pool.id)
+      deletePoolTarget = null
       await loadAll()
     } catch (e) {
       error = getErrorMessage(e)
     } finally {
-      savingPool = false
-    }
-  }
-
-  async function deletePool(id: string): Promise<void> {
-    error = ''
-    try {
-      await api.proxies.pools.remove(id)
-      await loadAll()
-    } catch (e) {
-      error = getErrorMessage(e)
+      deletingPool = false
     }
   }
 </script>
@@ -192,30 +207,51 @@
   </SectionCard>
 
   <VStack gap={4}>
-    <Text tag="h2" size="md" weight="bold">{t('Custom pools')}</Text>
-    <Text tone="soft" size="sm">{t('Manually managed pools. One URL per line, optional country code after a space.')}</Text>
-    {#if pools.length === 0}
-      <Text tone="soft" size="sm">{t('No custom pools yet.')}</Text>
-    {:else}
-      <List>
-        {#each pools as pool (pool.id)}
-          <div style="padding: var(--space-4);">
-            <HStack align="center" gap={3}>
-              <VStack gap={0} grow>
-                <Text weight="bold" size="base">{pool.name}</Text>
-                <Text size="xs" tone="soft">{pool.id} · {pool.entries.length} {t('entries')}</Text>
-              </VStack>
-              <Button size="small" tint="#dc2626" onclick={() => void deletePool(pool.id)}>{t('Delete')}</Button>
-            </HStack>
-          </div>
-        {/each}
-      </List>
-    {/if}
-    <TextEdit bind:value={newPoolName} hint={t('Pool name')} />
-    <TextArea bind:value={newPoolEntries} hint={t('One proxy URL per line')} />
-    <Button style="prominent" disabled={savingPool || !newPoolName.trim()} onclick={() => void savePool()}>
-      {savingPool ? t('Saving…') : t('Save pool')}
-    </Button>
+    <HStack align="center" gap={4}>
+      <VStack gap={1} grow>
+        <Text tag="h2" size="md" weight="bold">{t('Custom pools')}</Text>
+        <Text tone="soft" size="sm">{t('Manually managed pools. One URL per line, optional country code after a space.')}</Text>
+      </VStack>
+      <Button style="prominent" onclick={() => openPoolModal('create')} icon={{ name: 'add' }}>{t('New pool')}</Button>
+    </HStack>
+    <Table
+      columns={poolColumns}
+      rows={pools}
+      rowKey={(pool) => (pool as ProxyPool).id}
+      loading={loading}
+    >
+      {#snippet cell({ column, row })}
+        {@const pool = row as ProxyPool}
+        {#if column.key === 'name'}
+          <Text size="base" weight="medium">{pool.name}</Text>
+        {:else if column.key === 'proxies'}
+          <Text size="sm">{pool.entries.length}</Text>
+        {:else if column.key === 'actions'}
+          <HStack justify="end" gap={2}>
+            <Button
+              style="text"
+              icon={{ name: 'edit' }}
+              title={t('Edit')}
+              size="small"
+              ariaLabel={t('Edit')}
+              onclick={() => openPoolModal('edit', pool)}
+            />
+            <Button
+              style="text"
+              tint="#dc2626"
+              size="small"
+              icon={{ name: 'delete' }}
+              title={t('Delete')}
+              ariaLabel={t('Delete')}
+              onclick={(e) => openDeletePool(pool, e.currentTarget as HTMLElement)}
+            />
+          </HStack>
+        {/if}
+      {/snippet}
+      {#snippet empty()}
+        <Text tone="soft" size="sm" align="center">{t('No custom pools yet.')}</Text>
+      {/snippet}
+    </Table>
   </VStack>
 
   <VStack gap={4}>
@@ -244,4 +280,34 @@
       {/snippet}
     </Table>
   </VStack>
+
+  <FloatingView
+    open={Boolean(deletePoolTarget)}
+    anchor={deletePoolAnchor}
+    onclose={() => { deletePoolTarget = null }}
+    label={t('Delete pool')}
+  >
+    {#snippet children({ close })}
+      <VStack gap={3} style="max-width: 280px;">
+        <VStack gap={1}>
+          <Text weight="medium" size="base">{t('Delete pool')}</Text>
+          <Text size="sm" tone="soft">
+            {t('Are you sure you want to delete')} "{deletePoolTarget?.name}"? {t('This action cannot be undone.')}
+          </Text>
+        </VStack>
+        <HStack justify="end" gap={2}>
+          <Button size="small" style="text" onclick={close} disabled={deletingPool}>{t('Cancel')}</Button>
+          <Button
+            size="small"
+            style="prominent"
+            tint="#dc2626"
+            disabled={deletingPool}
+            onclick={confirmDeletePool}
+          >
+            {deletingPool ? t('Deleting…') : t('Delete')}
+          </Button>
+        </HStack>
+      </VStack>
+    {/snippet}
+  </FloatingView>
 </VStack>

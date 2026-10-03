@@ -179,8 +179,6 @@
     {#snippet empty()}
       <VStack align="center" gap={2}>
         <Text size="sm" tone="soft">{t('No tokens yet')}</Text>
-        <Text size="sm" tone="soft">{t('Create a token to access the /v1 API with model-specific permissions.')}</Text>
-        <Button style="prominent" icon={{ name: 'add' }} onclick={openCreate}>{t('Create Your First Token')}</Button>
       </VStack>
     {/snippet}
   </Table>
