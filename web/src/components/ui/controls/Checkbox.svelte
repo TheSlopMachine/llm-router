@@ -30,10 +30,6 @@
   }
 </script>
 
-<script lang="ts" module>
-  let nextAutoId = 0
-</script>
-
 {#if label}
   <label class="checkbox-wrap labeled" for={id}>
     <input
@@ -85,6 +81,8 @@
   .checkbox-input {
     position: absolute;
     inset: 0;
+    width: 100%;
+    height: 100%;
     opacity: 0;
     margin: 0;
     cursor: pointer;
@@ -96,6 +94,7 @@
     padding: 0;
     border: none;
     border-radius: 6px;
+    pointer-events: none;
     /* Doubled elev: a single wash dissolves into stacked surfaces. */
     background:
       linear-gradient(var(--elev), var(--elev)),
@@ -108,6 +107,7 @@
     width: 14px;
     height: 14px;
     border-radius: 4px;
+    pointer-events: none;
     background: var(--color-accent);
     transform: scale(0);
     transition: transform 80ms ease-out;
