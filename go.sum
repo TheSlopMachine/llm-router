@@ -1,5 +1,7 @@
 github.com/TheSlopMachine/proxypool v1.0.2 h1:Nnu3wSLe49xxrMysjU+d9zrEGW6pEGAwIyEbudNinFU=
 github.com/TheSlopMachine/proxypool v1.0.2/go.mod h1:KroQ1Rxu8trN+mBWgWeV/Lm7SD+zBWDaxLAfi3ngvDM=
+github.com/TheSlopMachine/proxypool v1.0.3 h1:oNd5LMnqCYSM9Fvk7BtO+Je1TDgCHGAdfg7synoqHY8=
+github.com/TheSlopMachine/proxypool v1.0.3/go.mod h1:KroQ1Rxu8trN+mBWgWeV/Lm7SD+zBWDaxLAfi3ngvDM=
 github.com/cpuguy83/go-md2man/v2 v2.0.3/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
