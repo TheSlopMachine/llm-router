@@ -87,6 +87,11 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	if err := providerSvc.EnsureSeeded(); err != nil {
 		return nil, fmt.Errorf("seed providers: %w", err)
 	}
+	if n, err := providerSvc.MigrateProxyRetry(); err != nil {
+		return nil, fmt.Errorf("migrate proxy retry policy: %w", err)
+	} else if n > 0 && logger != nil {
+		logger.Info("migrated proxy retry policy", "providers", n)
+	}
 
 	adminSvc := admin.New(database, providerSvc)
 	tokenSvc := token.New(database)

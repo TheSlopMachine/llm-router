@@ -404,13 +404,13 @@ func TestRunRoutedRetries_ProxyLimitStopsAtStreamCommit(t *testing.T) {
 		write     bool
 		wantCalls int
 	}{
-		{name: "before first byte", wantCalls: maxRouteAttempts},
+		{name: "before first byte", wantCalls: 3},
 		{name: "after first byte", write: true, wantCalls: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			writer := streamgate.New(&bytes.Buffer{})
 			calls := 0
-			_, route, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, writer,
+			_, route, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.ProxyRetryConfig{Mode: models.ProxyRetryFailFast, MaxAttempts: 3}, writer,
 				func(context.Context) (int, string, error) {
 					calls++
 					if tc.write {
@@ -527,7 +527,7 @@ func TestCompletePool_RetriesTransportOnAlternateProxy(t *testing.T) {
 
 func TestRunRoutedRetries_TransportRetriesWithSameCredential(t *testing.T) {
 	calls := 0
-	res, route, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, nil,
+	res, route, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.ProxyRetryConfig{Mode: models.ProxyRetryFailFast, MaxAttempts: 3}, nil,
 		func(context.Context) (int, string, error) {
 			calls++
 			if calls < 3 {
@@ -542,16 +542,16 @@ func TestRunRoutedRetries_TransportRetriesWithSameCredential(t *testing.T) {
 
 func TestRunRoutedRetries_TransportBudgetAndScope(t *testing.T) {
 	calls := 0
-	_, _, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, nil,
+	_, _, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.ProxyRetryConfig{Mode: models.ProxyRetryFailFast, MaxAttempts: 3}, nil,
 		func(context.Context) (int, string, error) {
 			calls++
 			return 0, "proxy-1:8080", &models.ProviderError{Type: models.ErrorTypeTransport, Message: "eof"}
 		})
-	if !isProviderType(err, models.ErrorTypeTransport) || calls != maxRouteAttempts {
-		t.Fatalf("persistent transport must stop at the route budget: err=%v calls=%d", err, calls)
+	if !isProviderType(err, models.ErrorTypeTransport) || calls != 3 {
+		t.Fatalf("persistent transport must stop at the retry budget: err=%v calls=%d", err, calls)
 	}
 	direct := 0
-	_, _, err = runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, nil,
+	_, _, err = runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.ProxyRetryConfig{Mode: models.ProxyRetryFailFast, MaxAttempts: 3}, nil,
 		func(context.Context) (int, string, error) {
 			direct++
 			return 0, "", &models.ProviderError{Type: models.ErrorTypeTransport, Message: "eof"}
@@ -560,7 +560,7 @@ func TestRunRoutedRetries_TransportBudgetAndScope(t *testing.T) {
 		t.Fatalf("direct transport must not retry: err=%v calls=%d", err, direct)
 	}
 	up := 0
-	_, _, err = runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, nil,
+	_, _, err = runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.ProxyRetryConfig{Mode: models.ProxyRetryFailFast, MaxAttempts: 3}, nil,
 		func(context.Context) (int, string, error) {
 			up++
 			return 0, "proxy-1:8080", &models.ProviderError{Type: models.ErrorTypeUpstream, Message: "502"}
@@ -576,13 +576,13 @@ func TestRunRoutedRetries_TransportStopsAtStreamCommit(t *testing.T) {
 		write     bool
 		wantCalls int
 	}{
-		{name: "before first byte", wantCalls: maxRouteAttempts},
+		{name: "before first byte", wantCalls: 3},
 		{name: "after first byte", write: true, wantCalls: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			writer := streamgate.New(&bytes.Buffer{})
 			calls := 0
-			_, route, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, writer,
+			_, route, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.ProxyRetryConfig{Mode: models.ProxyRetryFailFast, MaxAttempts: 3}, writer,
 				func(context.Context) (int, string, error) {
 					calls++
 					if tc.write {
@@ -664,7 +664,7 @@ func TestCompletePool_RetriesOverloadedOnAlternateProxy(t *testing.T) {
 
 func TestRunRoutedRetries_OverloadedRetriesWithSameCredential(t *testing.T) {
 	calls := 0
-	res, route, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, nil,
+	res, route, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.ProxyRetryConfig{Mode: models.ProxyRetryFailFast, MaxAttempts: 3}, nil,
 		func(context.Context) (int, string, error) {
 			calls++
 			if calls < 3 {
@@ -679,16 +679,16 @@ func TestRunRoutedRetries_OverloadedRetriesWithSameCredential(t *testing.T) {
 
 func TestRunRoutedRetries_OverloadedBudgetAndScope(t *testing.T) {
 	calls := 0
-	_, _, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, nil,
+	_, _, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.ProxyRetryConfig{Mode: models.ProxyRetryFailFast, MaxAttempts: 3}, nil,
 		func(context.Context) (int, string, error) {
 			calls++
 			return 0, "proxy-1:8080", &models.ProviderError{Type: models.ErrorTypeOverloaded, Message: "busy"}
 		})
-	if !isProviderType(err, models.ErrorTypeOverloaded) || calls != maxRouteAttempts {
-		t.Fatalf("persistent overload must stop at the route budget: err=%v calls=%d", err, calls)
+	if !isProviderType(err, models.ErrorTypeOverloaded) || calls != 3 {
+		t.Fatalf("persistent overload must stop at the retry budget: err=%v calls=%d", err, calls)
 	}
 	direct := 0
-	_, _, err = runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, nil,
+	_, _, err = runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.ProxyRetryConfig{Mode: models.ProxyRetryFailFast, MaxAttempts: 3}, nil,
 		func(context.Context) (int, string, error) {
 			direct++
 			return 0, "", &models.ProviderError{Type: models.ErrorTypeOverloaded, Message: "busy"}
@@ -704,13 +704,13 @@ func TestRunRoutedRetries_OverloadedStopsAtStreamCommit(t *testing.T) {
 		write     bool
 		wantCalls int
 	}{
-		{name: "before first byte", wantCalls: maxRouteAttempts},
+		{name: "before first byte", wantCalls: 3},
 		{name: "after first byte", write: true, wantCalls: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			writer := streamgate.New(&bytes.Buffer{})
 			calls := 0
-			_, route, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.GeoConfig{}, writer,
+			_, route, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, models.ProxyRetryConfig{Mode: models.ProxyRetryFailFast, MaxAttempts: 3}, writer,
 				func(context.Context) (int, string, error) {
 					calls++
 					if tc.write {
@@ -730,5 +730,50 @@ func TestRunRoutedRetries_OverloadedStopsAtStreamCommit(t *testing.T) {
 				t.Fatalf("last route: got %q want %q", route, want)
 			}
 		})
+	}
+}
+
+func TestRunRoutedRetries_GeoSharesUnifiedBudget(t *testing.T) {
+	nextProxy := models.ProxyRetryConfig{Mode: models.ProxyRetryNextProxy, MaxAttempts: 3}
+	failFast := models.ProxyRetryConfig{Mode: models.ProxyRetryFailFast, MaxAttempts: 3}
+	geoErr := func() (int, string, error) {
+		return 0, "proxy-1:8080", &models.ProviderError{Type: models.ErrorTypeGeo, Message: "blocked"}
+	}
+	calls := 0
+	_, _, err := runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, nextProxy, nil,
+		func(context.Context) (int, string, error) {
+			calls++
+			return geoErr()
+		})
+	if !isProviderType(err, models.ErrorTypeGeo) || calls != 3 {
+		t.Fatalf("next_proxy geo must share the attempt budget: err=%v calls=%d", err, calls)
+	}
+	direct := 0
+	_, _, err = runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, nextProxy, nil,
+		func(context.Context) (int, string, error) {
+			direct++
+			return 0, "", &models.ProviderError{Type: models.ErrorTypeGeo, Message: "blocked"}
+		})
+	if !isProviderType(err, models.ErrorTypeGeo) || direct != 1 {
+		t.Fatalf("direct geo must not retry: err=%v calls=%d", err, direct)
+	}
+	fast := 0
+	_, _, err = runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, failFast, nil,
+		func(context.Context) (int, string, error) {
+			fast++
+			return geoErr()
+		})
+	if !isProviderType(err, models.ErrorTypeGeo) || fast != 1 {
+		t.Fatalf("fail_fast geo must not retry: err=%v calls=%d", err, fast)
+	}
+	writer := streamgate.New(&bytes.Buffer{})
+	streamed := 0
+	_, _, err = runRoutedRetries(context.Background(), &Service{}, HandlerMeta{}, nextProxy, writer,
+		func(context.Context) (int, string, error) {
+			streamed++
+			return geoErr()
+		})
+	if !isProviderType(err, models.ErrorTypeGeo) || streamed != 1 {
+		t.Fatalf("stream geo must not retry: err=%v calls=%d", err, streamed)
 	}
 }

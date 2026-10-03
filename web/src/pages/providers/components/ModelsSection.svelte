@@ -265,8 +265,10 @@
     try {
       const endpoint = probeEndpoint(m)
       res = await api.models.test(`${providerId}/${m.name}`, endpoint)
-      if (res.ok) {
+      if (res.ok && (m.input_modalities ?? []).length === 0 && (m.output_modalities ?? []).length === 0) {
         // Store verified modalities on the model record (full id key).
+        // Rows with plugin-declared modalities skip this: the probe only
+        // proves liveness, and a redundant write would mask model_specs.
         // Best-effort: a failed write must not fail the probe itself.
         try {
           const v = VERIFIED_MODALITIES[endpoint] ?? VERIFIED_MODALITIES.chat

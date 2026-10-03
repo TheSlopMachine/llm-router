@@ -147,7 +147,7 @@ func TestModelInfoService_RefreshKeepsStaleOnFailure(t *testing.T) {
 	}
 }
 
-func TestModelInfoService_StoreMergesNewKeepsExisting(t *testing.T) {
+func TestModelInfoService_StoreMergesNewRefreshesExisting(t *testing.T) {
 	svc, credSvc, providerSvc, _ := setupModelInfoService(t)
 	addModelInfoCredential(t, credSvc, "modelinfo-test")
 	adapter := adapterFor(t, providerSvc, "modelinfo-test")
@@ -167,8 +167,8 @@ func TestModelInfoService_StoreMergesNewKeepsExisting(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("merged list: got %+v", got)
 	}
-	if got[0].Name != "old-model" || got[0].ContextWindow != 100 {
-		t.Errorf("existing record must be kept as-is, got %+v", got[0])
+	if got[0].Name != "old-model" || got[0].ContextWindow != 999 {
+		t.Errorf("existing record must take the fresh row, got %+v", got[0])
 	}
 	if got[1].Name != "new-model" || got[1].ContextWindow != 50 {
 		t.Errorf("new model must be appended, got %+v", got[1])
@@ -315,5 +315,64 @@ func TestModelInfoService_NoCredentialsDoesNotCrashOnAdapterPanic(t *testing.T) 
 	}
 	if !strings.Contains(err.Error(), "no credentials available for provider modelinfo-panic-nocred") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestModelInfoService_MergeRetainedFreshWins(t *testing.T) {
+	svc, credSvc, providerSvc, _ := setupModelInfoService(t)
+	addModelInfoCredential(t, credSvc, "modelinfo-test")
+	ctx := context.Background()
+
+	if _, err := svc.GetModelInfos(ctx, "modelinfo-test"); err != nil {
+		t.Fatalf("initial fetch failed: %v", err)
+	}
+	adapterFor(t, providerSvc, "modelinfo-test").infos = []models.ModelInfo{
+		{Name: "live-model", DisplayName: "Live Model", ContextWindow: 8192,
+			InputModalities: []string{"text", "image"}, OutputModalities: []string{"text"}},
+		{Name: "new-model", DisplayName: "New Model", ContextWindow: 1024},
+	}
+	refreshed, err := svc.Refresh(ctx, "modelinfo-test")
+	if err != nil {
+		t.Fatalf("refresh failed: %v", err)
+	}
+	byName := make(map[string]models.ModelInfo, len(refreshed))
+	for _, mi := range refreshed {
+		byName[mi.Name] = mi
+	}
+	live, ok := byName["live-model"]
+	if !ok {
+		t.Fatalf("live-model missing after refresh: %+v", refreshed)
+	}
+	if live.ContextWindow != 8192 {
+		t.Errorf("live-model kept stale context window %d, want 8192", live.ContextWindow)
+	}
+	if len(live.InputModalities) != 2 || live.InputModalities[1] != "image" {
+		t.Errorf("live-model kept stale modalities %v, want [text image]", live.InputModalities)
+	}
+	if _, ok := byName["new-model"]; !ok {
+		t.Errorf("new-model not appended: %+v", refreshed)
+	}
+
+	// Flap: a fetch omitting a known name retains it; confirmed removals
+	// still go through RemoveModel.
+	adapterFor(t, providerSvc, "modelinfo-test").infos = []models.ModelInfo{
+		{Name: "new-model", DisplayName: "New Model", ContextWindow: 1024},
+	}
+	flapped, err := svc.Refresh(ctx, "modelinfo-test")
+	if err != nil {
+		t.Fatalf("flap refresh failed: %v", err)
+	}
+	if len(flapped) != 2 {
+		t.Fatalf("flap dropped the retained model: %+v", flapped)
+	}
+	removed, err := svc.RemoveModel("modelinfo-test", "live-model")
+	if err != nil || !removed {
+		t.Fatalf("RemoveModel(live-model) = %v, %v", removed, err)
+	}
+	kept := svc.PeekModelInfos("modelinfo-test")
+	for _, mi := range kept {
+		if mi.Name == "live-model" {
+			t.Fatalf("live-model survived RemoveModel: %+v", kept)
+		}
 	}
 }

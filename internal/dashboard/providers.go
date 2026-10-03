@@ -168,7 +168,7 @@ func (h *Handler) apiProvidersCreate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := validateGeoConfig(body.Config); err != nil {
+	if err := validateProxyRetryConfig(body.Config); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -241,16 +241,16 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := validateGeoConfig(body.Config); err != nil {
+	if err := validateProxyRetryConfig(body.Config); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if existing.IsUIReadonly {
 		// Seeded providers are managed automatically; only operational keys
-		// (proxy mode, geo reaction, model automation) and the disabled
+		// (proxy mode, proxy retry reaction, model automation) and the disabled
 		// toggle may be edited. Other config keys are preserved.
-		allowed := map[string]bool{"proxy": true, "geo": true, "models_auto_sync": true, "disable_failed_models": true, "disable_failed_credentials": true}
+		allowed := map[string]bool{"proxy": true, "proxy_retry": true, "models_auto_sync": true, "disable_failed_models": true, "disable_failed_credentials": true}
 		if body.Name != "" && body.Name != existing.Name {
 			h.jsonErr(w, http.StatusForbidden, "provider is managed automatically")
 			return
@@ -411,40 +411,44 @@ func (h *Handler) apiProviderCredentialSchema(w http.ResponseWriter, r *http.Req
 	h.json(w, http.StatusOK, map[string]any{"nodes": nodes})
 }
 
-// validateGeoConfig rejects unknown geo modes and out-of-range max_proxies
-// at the dashboard edge so bad admin input fails loudly instead of
-// degrading silently to fail_fast at request time. ParseGeoConfig still
-// clamps as a last resort for hand-edited rows.
-func validateGeoConfig(cfg map[string]any) error {
+// validateProxyRetryConfig rejects unknown retry modes, out-of-range
+// max_attempts and legacy geo sections at the dashboard edge so bad admin
+// input fails loudly instead of degrading silently to fail_fast at request
+// time. ParseProxyRetryConfig still clamps as a last resort for hand-edited
+// rows.
+func validateProxyRetryConfig(cfg map[string]any) error {
 	if cfg == nil {
 		return nil
 	}
-	raw, ok := cfg["geo"]
+	if _, ok := cfg["geo"]; ok {
+		return fmt.Errorf("geo policy migrated to proxy_retry; re-save provider settings")
+	}
+	raw, ok := cfg["proxy_retry"]
 	if !ok || raw == nil {
 		return nil
 	}
 	m, ok := raw.(map[string]any)
 	if !ok {
-		return fmt.Errorf("geo must be an object with mode and max_proxies")
+		return fmt.Errorf("proxy_retry must be an object with mode and max_attempts")
 	}
-	if _, err := models.ParseGeoConfig(map[string]any{"geo": m}); err != nil {
+	if _, err := models.ParseProxyRetryConfig(map[string]any{"proxy_retry": m}); err != nil {
 		return err
 	}
-	if v, ok := m["max_proxies"]; ok && v != nil {
+	if v, ok := m["max_attempts"]; ok && v != nil {
 		var n int
 		switch t := v.(type) {
 		case float64:
 			if t != float64(int(t)) {
-				return fmt.Errorf("geo max_proxies must be an integer 1..10")
+				return fmt.Errorf("proxy_retry max_attempts must be an integer 1..10")
 			}
 			n = int(t)
 		case int:
 			n = t
 		default:
-			return fmt.Errorf("geo max_proxies must be an integer 1..10")
+			return fmt.Errorf("proxy_retry max_attempts must be an integer 1..10")
 		}
-		if n < 1 || n > models.MaxGeoMaxProxies {
-			return fmt.Errorf("geo max_proxies must be an integer 1..10")
+		if n < 1 || n > models.MaxProxyRetryMaxAttempts {
+			return fmt.Errorf("proxy_retry max_attempts must be an integer 1..10")
 		}
 	}
 	return nil

@@ -1,5 +1,10 @@
 # Changelog
 
+## Done (2026-10-03, v0.5.3)
+
+- Unified same-credential proxy retries under one provider `proxy_retry` policy (`fail_fast`/`next_proxy`, `max_attempts` 1..10, default 3): geo blocks, proxy-scoped rate/quota limits, transport failures and overloads now share a single attempt budget instead of the detached geo count plus the hardcoded route budget of three. Legacy `geo` sections migrated to `proxy_retry` at startup. Credential failover and stream first-byte rules stayed unchanged.
+- Made fresh model discovery refresh known rows (modalities, endpoints, capabilities) instead of freezing the first-seen record; transiently omitted names are still retained until the backend reports them missing. The dashboard Test probe no longer writes modality overrides for rows that already report modalities, so plugin `model_specs` stopped being masked by stale probe data.
+
 ## Done (2026-10-03, v0.5.0)
 
 - Made the gateway a drop-in superset for OpenAI-family and Anthropic clients. Added `POST /v1/completions` (prompt+suffix mapped onto the chat pipeline, Ollama/Mistral aliases translated), `POST /v1/images/edits` and `POST /v1/images/variations` (multipart, same images response, `image_b64`/`mask_b64` passed to the `generate_image` handler), `POST /v1/audio/translations` (transcription pipeline with `task: translate`), `POST /v1/moderations` (new optional `moderate` plugin handler plus `Moderator` Go capability), `POST /v1/messages/count_tokens` (documented 4-chars-per-token heuristic), `POST /v1/complete` (legacy Anthropic completions over the messages pipeline), the `POST /v1/responses` family (create/retrieve/cancel/input_items/compact/input_tokens plus `POST /v1/conversations` with items), prior-generation assistants/threads/messages/runs shims with `requires_action` tool continuations, and the six Anthropic `POST|GET /v1/messages/batches` operations with JSONL results. Responses-family state persists in the new `responses` and `message_batches` buckets.

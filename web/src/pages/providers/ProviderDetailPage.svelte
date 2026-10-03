@@ -34,8 +34,8 @@
   let poolProxies = $state<Proxy[]>([])
   let proxyPoolLoaded = $state(false)
   let savingProxy = $state(false)
-  let geoMode = $state<'fail_fast' | 'retry_same_key'>('fail_fast')
-  let geoMax = $state('3')
+  let retryMode = $state<'fail_fast' | 'next_proxy'>('fail_fast')
+  let retryMax = $state('3')
 
   const providerIdValue = $derived(provider?.id ?? '')
   const unavailableProxyIds = $derived(
@@ -360,9 +360,9 @@
     proxyMode = raw.mode === 'auto' || raw.mode === 'manual' ? raw.mode : 'disabled'
     proxyIds = {}
     for (const id of raw.ids ?? []) proxyIds[id] = true
-    const geo = (provider?.config?.geo ?? {}) as { mode?: string; max_proxies?: number }
-    geoMode = geo.mode === 'retry_same_key' ? 'retry_same_key' : 'fail_fast'
-    geoMax = geo.max_proxies != null ? String(geo.max_proxies) : '3'
+    const retry = (provider?.config?.proxy_retry ?? {}) as { mode?: string; max_attempts?: number }
+    retryMode = retry.mode === 'next_proxy' ? 'next_proxy' : 'fail_fast'
+    retryMax = retry.max_attempts != null ? String(retry.max_attempts) : '3'
   }
 
   async function loadProxyPool(): Promise<void> {
@@ -386,7 +386,7 @@
         config: {
           ...(provider.config ?? {}),
           proxy: { mode: proxyMode, ...(proxyMode === 'manual' ? { ids } : {}) },
-          geo: { mode: geoMode, max_proxies: Number(geoMax) },
+          proxy_retry: { mode: retryMode, max_attempts: Number(retryMax) },
         },
       })
       const providers = await api.providers.list()
@@ -583,24 +583,24 @@
       {:else if proxyMode === 'auto'}
         <HStack align="center" gap={3} wrap>
           <Picker
-            bind:value={geoMode}
+            bind:value={retryMode}
             options={[
               { value: 'fail_fast', label: t('Fail fast') },
-              { value: 'retry_same_key', label: t('Try next proxy') },
+              { value: 'next_proxy', label: t('Try next proxy') },
             ]}
-            ariaLabel={t('Geo mode')}
+            ariaLabel={t('Proxy retry mode')}
             onchange={() => void saveProxyConfig()}
           />
           <Text size="sm" tone="soft">
-            {#if geoMode === 'fail_fast'}
-              {t('A geo error ends the attempt at once.')}
+            {#if retryMode === 'fail_fast'}
+              {t('A proxy failure ends the attempt at once.')}
             {:else}
-              {t('A geo error retries the same key through the next proxy.')}
+              {t('A proxy failure retries the same key through the next proxy.')}
             {/if}
           </Text>
         </HStack>
-        {#if geoMode === 'retry_same_key'}
-          <TextEdit bind:value={geoMax} hint={t('Max proxies')} regex="^[0-9]*$" onchange={() => void saveProxyConfig()} />
+        {#if retryMode === 'next_proxy'}
+          <TextEdit bind:value={retryMax} hint={t('Max attempts')} regex="^[0-9]*$" onchange={() => void saveProxyConfig()} />
         {/if}
       {/if}
     </VStack>

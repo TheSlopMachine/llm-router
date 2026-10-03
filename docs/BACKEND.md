@@ -78,15 +78,14 @@ Keep changes shallow. Touch service internals only when the task requires it.
 - `pool.Run / pool.RunStream`: one credential attempt per key, pool order,
   no backoff. Fatal errors (`ErrHandlerNotFound`, `invalid_request`,
   `content_policy`, `structural_fault`, `geo` in `fail_fast` mode) stop
-  immediately. Unary pools retry `geo` with the same credential on another
-  region's proxy up to the provider `geo.max_proxies` (`fail_fast` default,
-  `retry_same_key` default 3, cap 10) in `retry_same_key` mode. Route
-  failures — proxy-scoped rate/quota errors, `transport` connectivity
-  failures and `overloaded` congestion — retry the same credential on
-  another route up to three total
-  attempts; a full-combination error also retries when the request used
-  a proxy. Streams allow this retry only before the first byte reaches the
-  client. Geo errors do not retry with the same credential on streams.
+  immediately. Every retryable proxy failure (geo blocks in `next_proxy`
+  mode, proxy-scoped rate/quota errors, `transport` connectivity
+  failures, `overloaded` congestion) retries the same credential on an
+  untried proxy up to the provider `proxy_retry.max_attempts`
+  (`fail_fast` default, `next_proxy` default 3, cap 10); a full-combination
+  error also retries when the request used a proxy. Streams allow this
+  retry only before the first byte reaches the client. Geo errors do not
+  retry with the same credential on streams.
   Per-attempt limit ordering moves credentials with a live exhausted key
   (`luaplugin/exhausted_skip.go`) to the tail ordered by earliest reset first.
   The router also reorders exhausted matches before the token filter: unlimited

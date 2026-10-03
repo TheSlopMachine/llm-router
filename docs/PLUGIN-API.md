@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Router version: **0.5.2** (`models.CurrentVersion`). A plugin using a feature
+Router version: **0.5.3** (`models.CurrentVersion`). A plugin using a feature
 declares the `@router_version` that introduced it; older routers refuse to
 install it. Routers serve no contract older than **0.3.0**: plugins declaring
 `0.2.x` and below fail install and need reissue.
@@ -35,6 +35,7 @@ means `.0`, one leading `v` allowed); anything else fails install.
 | 0.5.0 | `moderate` handler serving `POST /v1/moderations`; `image_b64` / `image_name` / `mask_b64` `generate_image` request fields serving `POST /v1/images/edits` and `POST /v1/images/variations` (old plugins ignore the extra fields) |
 | 0.5.1 | traffic-driven disables removed: `auth` / `payment_required` fail over without disabling the credential, `structural_fault` stops the pool without disabling the provider; disables come only from admin actions and doctor fix for backend-less types (old plugins unchanged) |
 | 0.5.2 | `check_health` handler plus per-type `healthcheck_cooldown` registration value (whole seconds, 60..86400, default 300): failure-triggered detached credential verification, at most once per window; only an explicit `unhealthy` verdict disables (`disabled_by=healthcheck`) |
+| 0.5.3 | unified `proxy_retry` provider policy (`mode` `fail_fast`/`next_proxy`, `max_attempts` 1..10, default 3) for every retryable proxy failure; legacy `geo` sections migrate at startup; fresh discovery refreshes known model rows |
 
 ## Responsibility split
 
@@ -219,12 +220,12 @@ llm_router.register_proxy_source(name, {
 - `geo`: the proxy exit is geo-blocked for this provider. Records the
   indefinite `(provider type, proxy)` flag keyed by adapter type (the upstream
   region policy is shared by every instance of the type) and, in
-  `retry_same_key` mode,
+  `next_proxy` mode,
   retries the same credential on a proxy from another region.
 - `transport`: the connection failed before the upstream answered
   (EOF, reset, broken tunnel, timeout). Carries no marks, no disables, no
   `scope`, no `retry_after`; the router retries the same credential on
-  another proxy within the three-attempt route budget. The HTTP client
+  another proxy within the proxy retry budget. The HTTP client
   reports its own transport failures with this type; plugins forward
   `req_err` tables as-is to preserve it.
 - `overloaded`: the backend answered that it is congested (exact
@@ -236,16 +237,15 @@ llm_router.register_proxy_source(name, {
 Pool semantics: the router reorders exhausted matches before the token filter:
 unlimited first, limited last ordered by earliest reset first as last resort.
 The core then tries the sorted pool in order, at most
-once per key (plus same-key geo retries up to `max_proxies` and route
-retries — proxy-scoped rate/quota errors, transport failures and
-overloads — up to
-three total proxy attempts), and returns
+once per key (plus same-credential proxy retries up to the provider
+`proxy_retry.max_attempts`, default 3, for geo blocks in `next_proxy` mode,
+proxy-scoped rate/quota errors, transport failures and overloads), and returns
 the first success or the last error. Per-attempt limit ordering moves credentials
 with a live rate-limit key to the tail without a request. `invalid_request`, `content_policy`
 and `structural_fault` stop the pool after the first key. Streaming stops
-same-key retries after the first byte reaches the client. Route failures
-can retry before that point; geo errors move to the next
-credential without a same-key retry. Any other error form (raised errors, wrong shapes)
+same-credential retries after the first byte reaches the client. Route failures
+can retry before that point; geo errors never retry on streams and, in
+`fail_fast` mode, stop the pool without a same-credential retry. Any other error form (raised errors, wrong shapes)
 becomes `PluginInternalError` and counts as a plugin crash.
 
 ### Client backoff
@@ -462,7 +462,9 @@ model cards (empty array, never nil):
 The router rejects requests against a declared-but-absent endpoint with
 `endpoint_not_supported`. Listing policy is the plugin's choice: live fetch
 failing closed, live fetch with a hardcoded fallback list, or a static
-list. Document the choice in `@description`.
+list. Document the choice in `@description`. Fresh discovery refreshes
+stored rows for known models; names the fetch omits are retained until the
+backend reports them missing. Admin overrides still win per field.
 
 ### fetch_proxies (proxy sources)
 
@@ -685,10 +687,11 @@ Provider proxy mode lives in the provider config (`proxy: { mode, ids? }`,
 `disabled` default, `manual` takes explicit proxy IDs; `manual` with no
 IDs selected goes direct, only an explicit selection resolving to nothing
 fails loudly) and reaches handlers
-as `ctx.provider_config`. Provider geo reaction lives beside it
-(`geo: { mode, max_proxies? }`, `fail_fast` default, `retry_same_key`
-retries the same credential on another region's proxy up to `max_proxies`,
-default 3, cap 10). Manifest tags:
+as `ctx.provider_config`. Provider proxy retry lives beside it
+(`proxy_retry: { mode, max_attempts? }`, `fail_fast` default, `next_proxy`
+retries the same credential on another proxy up to `max_attempts`,
+default 3, cap 10; legacy `geo` sections migrate to `proxy_retry` at
+startup). Manifest tags:
 
 ```lua
 --- @proxy_location US   -- repeatable whitelist, empty allows any location

@@ -12,26 +12,29 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 )
 
-func TestValidateGeoConfig(t *testing.T) {
-	if err := validateGeoConfig(nil); err != nil {
+func TestValidateProxyRetryConfig(t *testing.T) {
+	if err := validateProxyRetryConfig(nil); err != nil {
 		t.Fatalf("nil: %v", err)
 	}
-	if err := validateGeoConfig(map[string]any{}); err != nil {
+	if err := validateProxyRetryConfig(map[string]any{}); err != nil {
 		t.Fatalf("empty: %v", err)
 	}
-	valid := map[string]any{"geo": map[string]any{"mode": "retry_same_key", "max_proxies": 3.0}}
-	if err := validateGeoConfig(valid); err != nil {
+	valid := map[string]any{"proxy_retry": map[string]any{"mode": "next_proxy", "max_attempts": 3.0}}
+	if err := validateProxyRetryConfig(valid); err != nil {
 		t.Fatalf("valid: %v", err)
 	}
+	if err := validateProxyRetryConfig(map[string]any{"geo": map[string]any{}}); err == nil {
+		t.Fatal("legacy geo must be rejected")
+	}
 	for name, cfg := range map[string]map[string]any{
-		"bad mode":     {"geo": map[string]any{"mode": "bogus"}},
-		"zero max":     {"geo": map[string]any{"max_proxies": 0.0}},
-		"huge max":     {"geo": map[string]any{"max_proxies": 99.0}},
-		"fraction max": {"geo": map[string]any{"max_proxies": 2.5}},
-		"string max":   {"geo": map[string]any{"max_proxies": "many"}},
-		"non-object":   {"geo": "retry_same_key"},
+		"bad mode":     {"proxy_retry": map[string]any{"mode": "bogus"}},
+		"zero max":     {"proxy_retry": map[string]any{"max_attempts": 0.0}},
+		"huge max":     {"proxy_retry": map[string]any{"max_attempts": 99.0}},
+		"fraction max": {"proxy_retry": map[string]any{"max_attempts": 2.5}},
+		"string max":   {"proxy_retry": map[string]any{"max_attempts": "many"}},
+		"non-object":   {"proxy_retry": "next_proxy"},
 	} {
-		if err := validateGeoConfig(cfg); err == nil {
+		if err := validateProxyRetryConfig(cfg); err == nil {
 			t.Fatalf("%s must be rejected", name)
 		}
 	}

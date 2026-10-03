@@ -353,8 +353,8 @@ func TestIsFatalPoolError(t *testing.T) {
 			t.Fatalf("must be fatal: %v", err)
 		}
 	}
-	if isFatalWithGeo(&models.ProviderError{Type: models.ErrorTypeGeo}, models.GeoModeRetrySameKey) {
-		t.Fatal("geo must not be fatal in retry_same_key mode")
+	if isFatalWithRetry(&models.ProviderError{Type: models.ErrorTypeGeo}, models.ProxyRetryNextProxy) {
+		t.Fatal("geo must not be fatal in next_proxy mode")
 	}
 	nonFatal := []error{
 		&models.ProviderError{Type: models.ErrorTypeRateLimit},

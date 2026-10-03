@@ -311,26 +311,35 @@ func (s *Service) Refresh(ctx context.Context, providerID string) ([]models.Mode
 	return s.fetchAndCache(ctx, providerID)
 }
 
-// mergeRetained keeps existing cached records by name and appends names
-// the fresh fetch introduces. Records are keyed by full model id
+// mergeRetained refreshes known models from the fresh fetch and appends
+// names the fetch introduces. Records are keyed by full model id
 // (provider + name): the same name on another provider is a separate
-// record verified separately. Known models keep their stored metadata:
-// providers add models, they don't rewrite them. Manual and custom models
-// live in the overrides bucket and never pass through here.
-//
-// Eviction of models the upstream drops is request-driven, not fetch-driven:
-// the router removes a model via RemoveModel when the backend reports
-// ErrorTypeNotFound, so transiently omitted names survive one flap while
-// confirmed removals disappear on next use.
+// record verified separately. Known models take the fresh row: corrected
+// plugin metadata (modalities, endpoints, capabilities) must reach the
+// cache; admin intent lives in the overrides bucket, never in cached rows.
+// Names the fresh fetch omits are retained: eviction of models the upstream
+// drops is request-driven, not fetch-driven (the router removes a model via
+// RemoveModel when the backend reports ErrorTypeNotFound, so transiently
+// omitted names survive one flap while confirmed removals disappear on next
+// use). Manual and custom models live in the overrides bucket and never
+// pass through here.
 func (s *Service) mergeRetained(providerID string, fresh []models.ModelInfo) []models.ModelInfo {
 	existing := s.PeekModelInfos(providerID)
 	if len(existing) == 0 {
 		return fresh
 	}
-	seen := make(map[string]bool, len(existing))
+	byName := make(map[string]models.ModelInfo, len(fresh))
+	for _, mi := range fresh {
+		byName[mi.Name] = mi
+	}
 	merged := make([]models.ModelInfo, 0, len(existing)+len(fresh))
-	merged = append(merged, existing...)
+	seen := make(map[string]bool, len(existing))
 	for _, mi := range existing {
+		if updated, ok := byName[mi.Name]; ok {
+			merged = append(merged, updated)
+		} else {
+			merged = append(merged, mi)
+		}
 		seen[mi.Name] = true
 	}
 	for _, mi := range fresh {

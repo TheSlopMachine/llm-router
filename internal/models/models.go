@@ -59,7 +59,10 @@ import (
 // 0.5.2 adds the check_health handler plus per-type healthcheck_cooldown:
 // failure-triggered detached credential verification, disable on explicit
 // unhealthy only.
-const CurrentVersion = "0.5.2"
+// 0.5.3 unifies same-credential proxy retries under provider proxy_retry
+// policy (legacy geo sections migrate at startup) and refreshes known
+// model rows from fresh discovery.
+const CurrentVersion = "0.5.3"
 
 // ─────────────────────────────────────────────
 // ModelId
@@ -1779,60 +1782,102 @@ type ProxyCandidate struct {
 }
 
 // ─────────────────────────────────────────────
-// Geo policy (0.3.0)
+// Proxy retry policy (unified same-credential proxy retry)
 // ─────────────────────────────────────────────
 
-// Geo mode constants for the provider-level geo policy stored in
-// ProviderInstance.Config["geo"].
+// Proxy retry mode constants for the provider-level retry policy stored in
+// ProviderInstance.Config["proxy_retry"]. One policy governs every
+// retryable proxy failure: geo blocks, proxy-scoped rate/quota limits,
+// transport failures and overloaded backends.
 const (
-	GeoModeFailFast     = "fail_fast"
-	GeoModeRetrySameKey = "retry_same_key"
+	ProxyRetryFailFast  = "fail_fast"
+	ProxyRetryNextProxy = "next_proxy"
 )
 
-// DefaultGeoMaxProxies bounds same-key geo retries when max_proxies is absent.
-const DefaultGeoMaxProxies = 3
+// DefaultProxyRetryMaxAttempts bounds same-credential proxy retries when
+// max_attempts is absent.
+const DefaultProxyRetryMaxAttempts = 3
 
-// MaxGeoMaxProxies caps same-key geo retries.
-const MaxGeoMaxProxies = 10
+// MaxProxyRetryMaxAttempts caps same-credential proxy retries.
+const MaxProxyRetryMaxAttempts = 10
 
-// GeoConfig is the provider-level geo-block reaction policy.
-type GeoConfig struct {
-	Mode       string `json:"mode"` // fail_fast (default) or retry_same_key
-	MaxProxies int    `json:"max_proxies,omitempty"`
+// ProxyRetryConfig is the provider-level same-credential proxy retry
+// policy: on a retryable proxy failure retry the same credential on an
+// untried proxy up to MaxAttempts total attempts, then fail over.
+type ProxyRetryConfig struct {
+	Mode        string `json:"mode"` // fail_fast (default) or next_proxy
+	MaxAttempts int    `json:"max_attempts,omitempty"`
 }
 
-// ParseGeoConfig reads the provider-level geo policy from a provider config
-// map. Absent or non-map geo sections mean fail_fast; an explicitly unknown
-// mode is an error, never a silent fallback.
-func ParseGeoConfig(providerConfig map[string]any) (GeoConfig, error) {
-	cfg := GeoConfig{Mode: GeoModeFailFast, MaxProxies: DefaultGeoMaxProxies}
-	raw, ok := providerConfig["geo"].(map[string]any)
+// ParseProxyRetryConfig reads the provider-level retry policy from a
+// provider config map. Absent or non-map proxy_retry sections mean
+// fail_fast; an explicitly unknown mode is an error, never a silent
+// fallback.
+func ParseProxyRetryConfig(providerConfig map[string]any) (ProxyRetryConfig, error) {
+	cfg := ProxyRetryConfig{Mode: ProxyRetryFailFast, MaxAttempts: DefaultProxyRetryMaxAttempts}
+	raw, ok := providerConfig["proxy_retry"].(map[string]any)
 	if !ok {
 		return cfg, nil
 	}
 	if m, ok := raw["mode"].(string); ok && m != "" {
 		switch m {
-		case GeoModeFailFast, GeoModeRetrySameKey:
+		case ProxyRetryFailFast, ProxyRetryNextProxy:
 			cfg.Mode = m
 		default:
-			return cfg, fmt.Errorf("unknown geo mode %q: expected fail_fast or retry_same_key", m)
+			return cfg, fmt.Errorf("unknown proxy retry mode %q: expected fail_fast or next_proxy", m)
 		}
 	}
-	if n, ok := raw["max_proxies"]; ok {
+	if n, ok := raw["max_attempts"]; ok {
 		switch v := n.(type) {
 		case float64:
-			cfg.MaxProxies = int(v)
+			cfg.MaxAttempts = int(v)
 		case int:
-			cfg.MaxProxies = v
+			cfg.MaxAttempts = v
 		}
-		if cfg.MaxProxies < 1 {
-			cfg.MaxProxies = 1
+		if cfg.MaxAttempts < 1 {
+			cfg.MaxAttempts = 1
 		}
-		if cfg.MaxProxies > MaxGeoMaxProxies {
-			cfg.MaxProxies = MaxGeoMaxProxies
+		if cfg.MaxAttempts > MaxProxyRetryMaxAttempts {
+			cfg.MaxAttempts = MaxProxyRetryMaxAttempts
 		}
 	}
 	return cfg, nil
+}
+
+// MigrateGeoToProxyRetry converts a legacy geo policy section to the
+// unified proxy_retry section. Reports whether the config changed.
+// Legacy retry_same_key becomes next_proxy with max_proxies carried over;
+// anything else becomes fail_fast.
+func MigrateGeoToProxyRetry(config map[string]any) bool {
+	if config == nil {
+		return false
+	}
+	raw, ok := config["geo"].(map[string]any)
+	if !ok {
+		return false
+	}
+	maxAttempts := DefaultProxyRetryMaxAttempts
+	if n, ok := raw["max_proxies"]; ok {
+		switch v := n.(type) {
+		case float64:
+			maxAttempts = int(v)
+		case int:
+			maxAttempts = v
+		}
+		if maxAttempts < 1 {
+			maxAttempts = 1
+		}
+		if maxAttempts > MaxProxyRetryMaxAttempts {
+			maxAttempts = MaxProxyRetryMaxAttempts
+		}
+	}
+	mode := ProxyRetryFailFast
+	if m, _ := raw["mode"].(string); m == "retry_same_key" {
+		mode = ProxyRetryNextProxy
+	}
+	delete(config, "geo")
+	config["proxy_retry"] = map[string]any{"mode": mode, "max_attempts": maxAttempts}
+	return true
 }
 
 // GeoBanEntry is one indefinite geo-block flag: proxy ProxyID is unusable

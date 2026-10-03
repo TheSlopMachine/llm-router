@@ -191,9 +191,9 @@ export interface Provider {
   disabled_at?: string | null
 }
 
-export interface ProviderGeo {
-  mode: 'fail_fast' | 'retry_same_key'
-  max_proxies: number
+export interface ProviderRetry {
+  mode: 'fail_fast' | 'next_proxy'
+  max_attempts: number
 }
 
 export interface AvailableModel {
