@@ -9,7 +9,7 @@
   import ProviderCredentialWizard from './components/ProviderCredentialWizard.svelte'
   import ModelsSection from './components/ModelsSection.svelte'
   import DynamicForm from '../../components/domain/DynamicForm.svelte'
-  import { Button, Chip, FloatingView, HStack, Image, Picker, Spacer, Switch, Table, Text, VStack } from '../../components/ui'
+  import { Button, Chip, FloatingView, HStack, Image, Select, Spacer, Switch, Table, Text, VStack } from '../../components/ui'
   import type { TableColumn } from '../../components/ui'
   import { squircle } from '../../lib/squircle'
   import { t } from '../../lib/i18n.svelte'
@@ -543,13 +543,14 @@
             onchange={(v) => { proxyEnabled = v; void saveProxyConfig() }}
           />
           {#if proxyEnabled}
-            <Picker
+            <Select
               bind:value={proxyPool}
               options={[
                 { value: 'auto', label: t('Auto pool') },
                 ...poolOptions.map((p) => ({ value: p.id, label: p.name })),
               ]}
               ariaLabel={t('Proxy pool')}
+              autoWidth
               onchange={() => void saveProxyConfig()}
             />
           {/if}
