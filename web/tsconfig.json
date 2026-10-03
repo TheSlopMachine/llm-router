@@ -13,11 +13,10 @@
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true,
     "types": ["vite/client"],
-    "baseUrl": ".",
     "paths": {
-      "$ui": ["src/components/ui/index.ts"],
-      "$ui/*": ["src/components/ui/*"],
-      "$lib/*": ["src/lib/*"]
+      "$ui": ["./src/components/ui/index.ts"],
+      "$ui/*": ["./src/components/ui/*"],
+      "$lib/*": ["./src/lib/*"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.svelte", "*.ts"],

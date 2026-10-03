@@ -11,19 +11,19 @@
     "check": "svelte-check --tsconfig ./tsconfig.json"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^4.0.4",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@tsconfig/svelte": "^5.0.8",
-    "@types/dompurify": "^3.0.5",
+    "@types/dompurify": "^3.2.0",
     "openapi-typescript": "^5.4.2",
-    "svelte": "^5.34.0",
-    "svelte-check": "^4.3.1",
-    "typescript": "^5.9.3",
-    "vite": "^5.4.14"
+    "svelte": "^5.57.1",
+    "svelte-check": "^4.7.6",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.2"
   },
   "dependencies": {
-    "dompurify": "^3.4.14",
+    "dompurify": "^3.4.16",
     "highlight.js": "^11.12.0",
-    "marked": "^18.0.11",
+    "marked": "^18.0.14",
     "marked-highlight": "^2.2.4"
   }
 }

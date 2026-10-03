@@ -1,5 +1,9 @@
 # Changelog
 
+## Done (2026-10-04, v0.7.0)
+
+- Bumped the frontend toolchain to latest: Vite 8.3.2, vite-plugin-svelte 7.3.1, Svelte 5.57.1, TypeScript 6.0.3. Pinned openapi-typescript at 5.4.2 (last line reading the Swagger 2.0 spec) and skipped TypeScript 7 (its main export is version-only, which broke codegen). Migrated tsconfig paths to `./`-relative form after dropping the deprecated `baseUrl`. The `failed to load config from vite.config.ts` svelte-check warning disappeared under Vite 8.
+
 ## Done (2026-10-03, v0.7.0)
 
 - Decentralized request orchestration to Lua plugins: credential selection, proxy selection, retry loops and rate-limit handling moved out of the core router into plugin code. Removed the credential failover pool, the stream first-byte gate package, router credential ordering and usage accounting, the exhausted joint-key store, geo bans, proxy rank/metadata/source policy, provider proxy mode/retry config and the `classify_error` slot plus helper.
