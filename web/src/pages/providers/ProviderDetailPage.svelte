@@ -9,10 +9,14 @@
   import ProviderCredentialWizard from './components/ProviderCredentialWizard.svelte'
   import ModelsSection from './components/ModelsSection.svelte'
   import DynamicForm from '../../components/domain/DynamicForm.svelte'
-  import { Button, Chip, FloatingView, HStack, Image, Select, Spacer, Switch, Table, Text, VStack } from '../../components/ui'
-  import type { TableColumn } from '../../components/ui'
-  import { squircle } from '../../lib/squircle'
-  import { t } from '../../lib/i18n.svelte'
+  import EmptyState from '../../components/EmptyState.svelte'
+  import { Button, Chip, FloatingView, HStack, Image, Select, Spacer, Switch, Table, Text, VStack, Banner, ConfirmAction } from '$ui'
+  import type { TableColumn } from '$ui'
+  import { squircle } from '$lib/squircle'
+  import { t } from '$lib/i18n.svelte'
+  import { isAutoDisabled, isPluginDisabled } from '$lib/credential-state'
+  import { formatDisableReason } from '$lib/format'
+  import { hasUiNodes } from '$lib/ui-guards'
 
   let { providerId } = $props<{ providerId: string }>()
 
@@ -341,11 +345,11 @@
         api.providers.settingsSchema(provider.id).catch(() => null),
         api.providers.proxySchema(provider.id).catch(() => null),
       ])
-      credentialsEnabled = (credSchema?.enabled ?? false) || (credSchema?.nodes?.length ?? 0) > 0
+      credentialsEnabled = hasUiNodes(credSchema)
       settingsNodes = settingsSchema?.nodes ?? []
       settingsValues = { ...((provider.config?.settings ?? {}) as Record<string, unknown>) }
       proxyNodes = proxySchema?.nodes ?? []
-      proxiesEnabled = (proxySchema?.enabled ?? false) || proxyNodes.length > 0
+      proxiesEnabled = hasUiNodes(proxySchema)
     } catch (e) {
       error = getErrorMessage(e)
     }
@@ -436,7 +440,7 @@
       {#if !provider.is_ui_readonly}
         <HStack gap={2}>
           <Button onclick={openEditProvider} icon={{ name: 'edit' }}>{t('Edit')}</Button>
-          <Button tint="#dc2626" onclick={(e) => openDeleteProvider(e.currentTarget as HTMLElement)} icon={{ name: 'delete' }}>{t('Delete')}</Button>
+          <Button tint="var(--color-danger)" onclick={(e) => openDeleteProvider(e.currentTarget as HTMLElement)} icon={{ name: 'delete' }}>{t('Delete')}</Button>
         </HStack>
       {/if}
       <Switch
@@ -448,9 +452,7 @@
     </HStack>
 
     {#if error}
-      <VStack class="error-msg" gap={0}>
-        <Text tone="danger" size="sm">{error}</Text>
-      </VStack>
+      <Banner variant="error" text={error} />
     {/if}
 
     {#if credentialsEnabled}
@@ -487,10 +489,10 @@
                 <Chip text={t('Expired')} color="chip-red" />
               {/if}
             </HStack>
-            {#if cred.disabled && (cred.disabled_by === 'system' || cred.disabled_by === 'healthcheck')}
-              <Text size="sm" tone="danger">{t('Disabled automatically')}{cred.disabled_reason ? `: ${cred.disabled_reason}` : ''}</Text>
-            {:else if cred.disabled && cred.disabled_by === 'plugin'}
-              <Text size="sm" tone="danger">{t('Disabled by plugin')}{cred.disabled_reason ? `: ${cred.disabled_reason}` : ''}</Text>
+            {#if isAutoDisabled(cred)}
+              <Text size="sm" tone="danger">{t('Disabled automatically')}{formatDisableReason(cred.disabled_reason)}</Text>
+            {:else if isPluginDisabled(cred)}
+              <Text size="sm" tone="danger">{t('Disabled by plugin')}{formatDisableReason(cred.disabled_reason)}</Text>
             {/if}
           {:else}
             {@const ti = testIcon(credentialTestResults[cred.id], t('Test credential'))}
@@ -515,7 +517,7 @@
                 onclick={() => testCredential(cred)}
               />
               <Button size="small" style="text" icon={{ name: 'edit' }} ariaLabel={t('Edit credential')} title={t('Edit credential')} onclick={() => openEditCredential(cred)} />
-              <Button size="small" tint="#dc2626" style="text" icon={{ name: 'delete' }} ariaLabel={t('Delete credential')} title={t('Delete credential')} onclick={(e) => openDeleteCredential(cred, e.currentTarget as HTMLElement)} />
+              <Button size="small" tint="var(--color-danger)" style="text" icon={{ name: 'delete' }} ariaLabel={t('Delete credential')} title={t('Delete credential')} onclick={(e) => openDeleteCredential(cred, e.currentTarget as HTMLElement)} />
               <Switch
                 checked={!cred.disabled}
                 ariaLabel={t('Enable credential')}
@@ -525,9 +527,7 @@
           {/if}
         {/snippet}
         {#snippet empty()}
-          <VStack align="center" gap={2} class="table-empty">
-            <Text size="sm" tone="soft">{t('No credentials yet. Add one to route traffic to this provider.')}</Text>
-          </VStack>
+          <EmptyState title={t('No credentials yet. Add one to route traffic to this provider.')} />
         {/snippet}
       </Table>
       </VStack>
@@ -588,26 +588,13 @@
   label={t('Delete credential')}
 >
   {#snippet children({ close })}
-    <VStack gap={3} style="max-width: 280px;">
-      <VStack gap={1}>
-        <Text weight="medium" size="base">{t('Delete credential')}</Text>
-        <Text size="sm" tone="soft">
-          {t('Are you sure you want to delete')} "{deleteCredTarget?.label || t('Unnamed')}"? {t('This action cannot be undone.')}
-        </Text>
-      </VStack>
-      <HStack justify="end" gap={2}>
-        <Button size="small" style="text" onclick={close} disabled={deletingCred}>{t('Cancel')}</Button>
-        <Button
-          size="small"
-          style="prominent"
-          tint="#dc2626"
-          disabled={deletingCred}
-          onclick={confirmDeleteCredential}
-        >
-          {deletingCred ? t('Deleting…') : t('Delete')}
-        </Button>
-      </HStack>
-    </VStack>
+    <ConfirmAction
+      title={t('Delete credential')}
+      body={`${t('Are you sure you want to delete')} "${deleteCredTarget?.label || t('Unnamed')}"? ${t('This action cannot be undone.')}`}
+      busy={deletingCred}
+      busyLabel={t('Deleting…')}
+      onCancel={close}
+      onConfirm={confirmDeleteCredential} />
   {/snippet}
 </FloatingView>
 
@@ -618,26 +605,13 @@
   label={t('Delete Provider')}
 >
   {#snippet children({ close })}
-    <VStack gap={3} style="max-width: 280px;">
-      <VStack gap={1}>
-        <Text weight="medium" size="base">{t('Delete Provider')}</Text>
-        <Text size="sm" tone="soft">
-          {t('Are you sure you want to delete')} "{provider?.name}"? {t('Credentials for this provider will be removed as well.')}
-        </Text>
-      </VStack>
-      <HStack justify="end" gap={2}>
-        <Button size="small" style="text" onclick={close} disabled={deletingProvider}>{t('Cancel')}</Button>
-        <Button
-          size="small"
-          style="prominent"
-          tint="#dc2626"
-          disabled={deletingProvider}
-          onclick={confirmDeleteProvider}
-        >
-          {deletingProvider ? t('Deleting…') : t('Delete')}
-        </Button>
-      </HStack>
-    </VStack>
+    <ConfirmAction
+      title={t('Delete Provider')}
+      body={`${t('Are you sure you want to delete')} "${provider?.name}"? ${t('Credentials for this provider will be removed as well.')}`}
+      busy={deletingProvider}
+      busyLabel={t('Deleting…')}
+      onCancel={close}
+      onConfirm={confirmDeleteProvider} />
   {/snippet}
 </FloatingView>
 
@@ -654,12 +628,6 @@
 
   :global(.provider-off) {
     opacity: 0.55;
-  }
-
-  :global(.error-msg) {
-    background: var(--color-notification-error-bg);
-    padding: var(--space-4) var(--space-5);
-    border-radius: var(--radius-md);
   }
 
   :global(.table-empty) {

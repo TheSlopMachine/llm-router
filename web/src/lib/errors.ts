@@ -1,4 +1,21 @@
 /** Central error-message extraction — single source of truth. */
+export function hasApiErrorPayload(json: unknown): boolean {
+  return (
+    !!json &&
+    typeof json === 'object' &&
+    ('error' in (json as Record<string, unknown>) || 'message' in (json as Record<string, unknown>))
+  )
+}
+
+export function isUsableErrorMessage(candidate: unknown): candidate is string {
+  return (
+    typeof candidate === 'string' &&
+    !!candidate &&
+    candidate !== 'Request failed' &&
+    candidate !== '{}' &&
+    candidate !== '[object Object]'
+  )
+}
 export function getErrorMessage(e: unknown): string {
   if (e instanceof Error && typeof e.message === 'string' && e.message) {
     return e.message

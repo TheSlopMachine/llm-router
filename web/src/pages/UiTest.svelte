@@ -484,7 +484,7 @@
       label="Demo actions"
       actions={[
         { id: 'edit', label: 'Edit', icon: 'edit' },
-        { id: 'delete', label: 'Delete', icon: 'delete', tint: '#dc2626' },
+        { id: 'delete', label: 'Delete', icon: 'delete', tint: 'var(--color-danger)' },
       ]}
       onaction={(id) => { lastAction = id }}
     />
@@ -498,7 +498,7 @@
     <Button
       text="Delete item…"
       icon={{ name: 'delete' }}
-      tint="#dc2626"
+      tint="var(--color-danger)"
       onclick={(e) => {
         floatingConfirmAnchor = e.currentTarget as HTMLElement
         floatingConfirmOpen = !floatingConfirmOpen
@@ -520,7 +520,7 @@
             <Button
               size="small"
               style="prominent"
-              tint="#dc2626"
+              tint="var(--color-danger)"
               onclick={() => { floatingConfirmResult = 'confirmed'; close() }}
             >
               Delete

@@ -6,3 +6,19 @@ export const CAPABILITY_META: Record<string, { label: string; color: string; tin
   structured_outputs: { label: 'Structured', color: 'chip-yellow', tint: '#f59e0b', icon: 'schema', hint: 'Structured outputs — responses follow a JSON schema' },
   reasoning: { label: 'Reasoning', color: 'chip-orange', tint: '#f97316', icon: 'psychology', hint: 'Reasoning — thinks before answering (reasoning_content)' },
 }
+
+export function hasModalities(m: {
+  inputModalities?: string[]
+  outputModalities?: string[]
+  input_modalities?: string[]
+  output_modalities?: string[]
+}): boolean {
+  return (
+    (m.inputModalities?.length ?? m.input_modalities?.length ?? 0) > 0 ||
+    (m.outputModalities?.length ?? m.output_modalities?.length ?? 0) > 0
+  )
+}
+
+export function hasCapabilities(m: { capabilities?: string[]; custom?: boolean }): boolean {
+  return (m.capabilities?.length ?? 0) > 0 || !!m.custom
+}

@@ -2,6 +2,7 @@
   import { VStack, HStack, Text, Chip, Spacer } from '$ui'
   import { t } from '$lib/i18n.svelte'
   import type { UpdateAllRow } from './install-confirm'
+  import { hasPermissionChanges } from '$lib/plugin-search'
 
   let { rows } = $props<{ rows: UpdateAllRow[] }>()
 </script>
@@ -31,7 +32,7 @@
           <Text size="xs" mono tone="soft">− {host}</Text>
         {/each}
       {/if}
-      {#if row.added.length === 0 && row.removed.length === 0 && !row.escalatesToUnsafe}
+      {#if !hasPermissionChanges(row)}
         <Text size="xs" tone="soft">{t('Permissions unchanged.')}</Text>
       {/if}
     </VStack>

@@ -1,16 +1,16 @@
 <script lang="ts">
-  import Icon from '../../components/ui/controls/Icon.svelte'
-  import Button from '../../components/ui/controls/Button.svelte'
-  import Text from '../../components/ui/controls/Text.svelte'
-  import { modal } from '../../lib/modal.svelte'
-  import { api } from '../../lib/api'
-  import { createListResource } from '../../lib/list-resource.svelte'
+  import { Button, Text, Switch, List, Banner, Icon } from '$ui'
+  import EmptyState from '../../components/EmptyState.svelte'
+  import { openFormModal } from '$lib/modal-helpers'
+  import { api } from '$lib/api'
+  import { getErrorMessage } from '$lib/errors'
+  import { createListResource } from '$lib/list-resource.svelte'
   import CustomProviderWizard from '../../components/wizards/CustomProviderWizard.svelte'
-  import Switch from '../../components/ui/controls/Switch.svelte'
-  import List from '../../components/ui/composite/List.svelte'
-  import { squircle } from '../../lib/squircle'
-  import type { Provider, ProviderStats } from '../../lib/types'
-  import { t, n } from '../../lib/i18n.svelte'
+  import { squircle } from '$lib/squircle'
+  import type { Provider, ProviderStats } from '$lib/types'
+  import { isSystemDisabled } from '$lib/credential-state'
+  import { formatDisableReason } from '$lib/format'
+  import { t, n } from '$lib/i18n.svelte'
 
   const resource = createListResource<{ providers: Provider[]; providerStats: Record<string, ProviderStats> }>(
     async () => {
@@ -39,25 +39,17 @@
       await api.providers.updateInstance(provider.id, { name: provider.name, disabled: !enabled })
       await resource.reload()
     } catch (e) {
-      resource.error = e instanceof Error ? e.message : String(e)
+      resource.error = getErrorMessage(e)
     }
   }
 
   function openCreate(): void {
     resource.error = ''
-
-    modal.open({
+    openFormModal(CustomProviderWizard, {
       title: 'New Provider',
-      content: CustomProviderWizard,
-      severity: 'medium',
       size: 'medium',
-      props: {
-        editingProvider: null,
-        onComplete: async () => {
-          modal.close()
-          await resource.reload()
-        }
-      }
+      props: { editingProvider: null },
+      onReload: () => void resource.reload()
     })
   }
 </script>
@@ -71,13 +63,13 @@
 </div>
 
 {#if resource.error}
-  <div class="error-msg">{resource.error}</div>
+  <Banner variant="error" text={resource.error} />
 {/if}
 
 {#if resource.loading}
-  <div class="empty">{t('Loading…')}</div>
+  <EmptyState title={t('Loading…')} />
 {:else if visibleProviders.length === 0}
-  <div class="empty">{t('No providers yet. Add one to get started.')}</div>
+  <EmptyState title={t('No providers yet. Add one to get started.')} icon="cloud" />
 {:else}
   <List>
     <div class="table-row table-head">
@@ -108,8 +100,8 @@
           <span class="name-col">
             <span class="display-name">{provider.name}</span>
             <span class="subtle">{provider.type}{provider.qualifier ? ':' + provider.qualifier : ''}</span>
-            {#if provider.disabled && provider.disabled_by === 'system'}
-              <Text size="sm" tone="danger">{t('Disabled automatically')}{provider.disabled_reason ? `: ${provider.disabled_reason}` : ''}</Text>
+            {#if isSystemDisabled(provider)}
+              <Text size="sm" tone="danger">{t('Disabled automatically')}{formatDisableReason(provider.disabled_reason)}</Text>
             {/if}
           </span>
         </span>

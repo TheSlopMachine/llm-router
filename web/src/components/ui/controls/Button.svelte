@@ -5,6 +5,7 @@
   import type { Size } from '../tokens'
   import { tintFill, tintSoft } from '../../../lib/tint'
   import { theme } from '../../../lib/theme.svelte'
+  import { resolveSelectedStyle, resolveButtonVariant, isIconOnly, hasLeftIcon, hasRightIcon } from '../../../lib/button-state'
 
   interface ButtonIcon {
     /** Material Symbols ligature name */
@@ -63,25 +64,11 @@
     class?: string
   }>()
 
-  let iconMode = $derived(
-    (icon?.name != null || icon?.src != null) && !text && !children
-  )
+  let iconMode = $derived(isIconOnly(icon, text, children !== undefined))
   // Selected state wins over style: on = prominent fill, off = soft wash.
-  let effStyle = $derived(
-    selected === true ? 'prominent' : selected === false ? 'soft' : style
-  )
+  let effStyle = $derived(resolveSelectedStyle(selected, style))
   // Variant drives colour only; geometry comes from the iconMode / size flags.
-  let variant = $derived(
-    effStyle === 'prominent'
-      ? 'prominent'
-      : effStyle === 'text'
-        ? 'text'
-        : effStyle === 'soft'
-          ? 'soft'
-          : iconMode
-            ? 'ghost' // icon-only neutral is a bare glyph, no fill
-            : 'neutral'
-  )
+  let variant = $derived(resolveButtonVariant(effStyle, iconMode))
 
   // Icon+text: the icon glyph carries optical side bearings, so the icon edge
   // reads wider than the text edge — the iconed-* flags pull that side back.
@@ -137,7 +124,7 @@
       <Icon name={icon?.name ?? 'add'} />
     {/if}
   {:else}
-    {#if icon && (icon.placement ?? 'left') === 'left'}
+    {#if icon && hasLeftIcon(icon)}
       {#if icon.src}
         <img class="glyph" src={icon.src} alt="" />
       {:else}
@@ -145,7 +132,7 @@
       {/if}
     {/if}
     {#if children}{@render children()}{:else}{label}{/if}
-    {#if icon && icon.placement === 'right'}
+    {#if icon && hasRightIcon(icon)}
       {#if icon.src}
         <img class="glyph" src={icon.src} alt="" />
       {:else}

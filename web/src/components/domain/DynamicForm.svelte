@@ -14,6 +14,8 @@
   import Spacer from '../ui/layout/Spacer.svelte'
   import Divider from '../ui/controls/Divider.svelte'
   import type { Align, Justify, Step } from '../ui/tokens'
+  import { isStepValue, isBannerVariant } from '../../lib/ui-guards'
+  import { isSecretInput } from '../../lib/button-state'
 
   let {
     nodes,
@@ -50,20 +52,19 @@
   // Backend normalizes gap/size to Step int (legacy sm|md|lg accepted).
   const LEGACY_GAP: Record<string, Step> = { sm: 2, md: 4, lg: 6 }
   function toStep(v: unknown, fallback: Step): Step {
-    if (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 8) return v as Step
+    if (isStepValue(v)) return v as Step
     if (typeof v === 'string' && v in LEGACY_GAP) return LEGACY_GAP[v]
     return fallback
   }
 
   function bannerVariant(node: UINode): 'info' | 'warning' | 'error' | 'success' {
-    return node.variant === 'warning' || node.variant === 'error' || node.variant === 'success'
-      ? node.variant
-      : 'info'
+    return node.variant && isBannerVariant(node.variant) ? node.variant : 'info'
   }
 </script>
 
 <script lang="ts" module>
   import type { UINode as UINodeType } from '../../lib/types'
+  import { isButtonVariant } from '../../lib/ui-guards'
 
   // Collects button nodes in tree order for footer rendering.
   // DynamicForm itself never renders buttons; hosts own the footer.
@@ -80,7 +81,7 @@
   }
 
   export function buttonVariant(node: UINodeType): 'primary' | 'secondary' | 'danger' {
-    if (node.variant === 'primary' || node.variant === 'secondary' || node.variant === 'danger') {
+    if (node.variant && isButtonVariant(node.variant)) {
       return node.variant
     }
     const action = node.form_action || 'submit'
@@ -101,7 +102,7 @@
         {/if}
         <TextEdit
           id="dyn-{node.name}"
-          type={node.input_type === 'password' || node.input_type === 'secret' ? 'secret' : 'text'}
+          type={isSecretInput(node.input_type) ? 'secret' : 'text'}
           value={fieldValue(node)}
           hint={node.placeholder ?? ''}
           required={node.required ?? false}

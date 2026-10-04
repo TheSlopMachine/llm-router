@@ -6,7 +6,9 @@
   import { setPendingClone } from '$lib/virtual-clone'
   import { t } from '$lib/i18n.svelte'
   import EmptyState from '../../components/EmptyState.svelte'
-  import { Button, FloatingView, ModelsTable, HStack, Switch, Text, VStack } from '$ui'
+  import { Button, FloatingView, ModelsTable, HStack, Switch, Text, VStack, Banner, ConfirmAction } from '$ui'
+  import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
+  import { isUnauthenticated } from '$lib/credential-state'
 
   const resource = createListResource<VirtualModel[]>(
     async () => {
@@ -14,8 +16,7 @@
         const response = (await api.virtualModels.list()) as unknown
         return Array.isArray(response) ? (response as VirtualModel[]) : []
       } catch (e: unknown) {
-        const rec = e as { status?: number; message?: string }
-        if (rec?.status === 401 || getErrorMessage(e).includes('unauthenticated')) {
+        if (isUnauthenticated(e, getErrorMessage(e))) {
           window.location.href = '/login'
           return []
         }
@@ -46,23 +47,17 @@
   const byId = $derived(new Map(candidates.map((m) => [m.full_model_id, m])))
 
   function unionMembers(vm: VirtualModel, pick: (m: AvailableModel | undefined) => string[] | undefined): string[] {
-    const out: string[] = []
-    for (const e of vm.models ?? []) {
-      for (const x of pick(byId.get(e.model_id)) ?? []) {
-        if (!out.includes(x)) out.push(x)
-      }
-    }
-    return out
+    return unionIds(
+      (vm.models ?? []).map((e) => e.model_id),
+      (id) => pick(byId.get(id))
+    )
   }
 
   function minMembers(vm: VirtualModel, pick: (m: AvailableModel | undefined) => number | undefined): number {
-    let min = 0
-    for (const e of vm.models ?? []) {
-      const v = pick(byId.get(e.model_id))
-      if (v && v > 0 && (min === 0 || v < min)) min = v
-    }
-    return min
+    return minPositive((vm.models ?? []).map((e) => pick(byId.get(e.model_id))))
   }
+
+  let isEditableVm = (vm: VirtualModel): boolean => !vm.managed_by
 
   function openNew() {
     window.location.hash = '#/virtual/new'
@@ -130,7 +125,7 @@
   </HStack>
 
   {#if resource.error}
-    <Text tone="danger" size="sm" class="error-msg">{resource.error}</Text>
+    <Banner variant="error" text={resource.error} />
   {/if}
 
   {#if resource.loading}
@@ -155,9 +150,9 @@
         {@const vm = model.source as VirtualModel}
         <HStack gap={2} class="vm-actions" align="center" justify="end">
           <Button style="text" icon={{ name: 'content_copy' }} ariaLabel={t('Clone')} title={t('Clone')} size="small" onclick={() => clone(vm)} />
-          {#if !vm.managed_by}
+          {#if isEditableVm(vm)}
             <Button style="text" icon={{ name: 'edit' }} ariaLabel={t('Edit')} title={t('Edit')} size="small" onclick={() => openEdit(vm)} />
-            <Button style="text" tint="#dc2626" icon={{ name: 'delete' }} ariaLabel={t('Delete')} title={t('Delete')} size="small" onclick={(e) => openDelete(vm, e.currentTarget as HTMLElement)} />
+            <Button style="text" tint="var(--color-danger)" icon={{ name: 'delete' }} ariaLabel={t('Delete')} title={t('Delete')} size="small" onclick={(e) => openDelete(vm, e.currentTarget as HTMLElement)} />
           {/if}
           <Switch
             checked={!vm.disabled}
@@ -186,26 +181,13 @@
     label={t('Delete virtual model')}
   >
     {#snippet children({ close })}
-      <VStack gap={3} style="max-width: 280px;">
-        <VStack gap={1}>
-          <Text weight="medium" size="base">{t('Delete virtual model')}</Text>
-          <Text size="sm" tone="soft">
-            {t('Are you sure you want to delete')} "{deleteTarget?.name}"? {t('This action cannot be undone.')}
-          </Text>
-        </VStack>
-        <HStack justify="end" gap={2}>
-          <Button size="small" style="text" onclick={close} disabled={deleting}>{t('Cancel')}</Button>
-          <Button
-            size="small"
-            style="prominent"
-            tint="#dc2626"
-            disabled={deleting}
-            onclick={confirmDelete}
-          >
-            {deleting ? t('Deleting…') : t('Delete')}
-          </Button>
-        </HStack>
-      </VStack>
+      <ConfirmAction
+        title={t('Delete virtual model')}
+        body={`${t('Are you sure you want to delete')} "${deleteTarget?.name}"? ${t('This action cannot be undone.')}`}
+        busy={deleting}
+        busyLabel={t('Deleting…')}
+        onCancel={close}
+        onConfirm={confirmDelete} />
     {/snippet}
   </FloatingView>
 </VStack>

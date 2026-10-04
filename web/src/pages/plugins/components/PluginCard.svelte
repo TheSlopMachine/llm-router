@@ -87,7 +87,7 @@
         <Button
           style="text"
           size="medium"
-          tint="#dc2626"
+          tint="var(--color-danger)"
           icon={{ name: 'delete' }}
           title={t('Delete')}
           ariaLabel={t('Delete')}

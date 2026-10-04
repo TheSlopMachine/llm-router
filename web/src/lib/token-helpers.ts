@@ -1,4 +1,5 @@
 import type { Provider } from './types'
+import { matchesAny } from './filter'
 
 export function providerDescription(p: Provider): string {
   if (p.auth_type === 'api_key') return 'API key access'
@@ -11,10 +12,10 @@ export function providerDescription(p: Provider): string {
 export function modelTraits(model: string): string[] {
   const lower = model.toLowerCase()
   const traits: string[] = []
-  if (lower.includes('preview') || lower.includes('beta') || lower.includes('experimental')) traits.push('Preview')
+  if (matchesAny(lower, ['preview', 'beta', 'experimental'])) traits.push('Preview')
   if (lower.includes('vision') || lower.includes('image')) traits.push('Image')
-  if (lower.includes('audio') || lower.includes('whisper') || lower.includes('tts')) traits.push('Audio')
-  if (lower.includes('agent') || lower.includes('tool') || lower.includes('function')) traits.push('Agentic')
+  if (matchesAny(lower, ['audio', 'whisper', 'tts'])) traits.push('Audio')
+  if (matchesAny(lower, ['agent', 'tool', 'function'])) traits.push('Agentic')
   return traits.slice(0, 2)
 }
 

@@ -8,7 +8,10 @@
   import type { Token, Provider, VirtualModel, AvailableModel, ProviderModel } from '$lib/types'
   import type { ModalButton, StepperConfig } from '$lib/modal.svelte'
   import { buildBackendTokenRules } from '$lib/token-rules'
-  import { Switch, Checkbox, SearchField, Text, TextEdit, Spacer, ModelsTable, VStack, HStack, List } from '$ui'
+  import { hasFullAccess, resolveWizardSubtitle, resolveStepValidity, resolveModelId } from '$lib/token-scope'
+  import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
+  import { filterByFields } from '$lib/filter'
+  import { Switch, Checkbox, SearchField, Text, TextEdit, Spacer, ModelsTable, VStack, HStack, List, Banner } from '$ui'
   import type { ModelsTableModel } from '$ui'
   import TokenSuccessView from './TokenSuccessView.svelte'
 
@@ -84,14 +87,14 @@
         ]
   )
   let baseTitle = $derived(editingToken ? t('Edit token') : t('New token'))
-  let subtitle = $derived(wizardStep === 4 ? t('Token created successfully') : tokenName.trim() ? tokenName.trim() : `${t('Step')} ${wizardStep} ${t('of 4')}`)
+  let subtitle = $derived(resolveWizardSubtitle(wizardStep, tokenName, t))
   let stepperConfig: StepperConfig | null = $derived({ current: Math.min(wizardStep, 4), total: 4, labels: [t('Name'), t('Providers'), t('Models'), t('Done')] })
 
   onMount(async () => {
     if (editingToken) {
       const r: any = editingToken.rules || {}
       tokenName = editingToken.name
-      fullAccess = !!r.allow_all_providers && !!r.allow_all_models && !!r.allow_all_credentials
+      fullAccess = hasFullAccess(r)
       allowAllProvidersCredentials = !!r.allow_all_providers && !!r.allow_all_credentials
       virtualEnabled = !!r.allow_all_providers || (r.allowed_providers || []).includes('virtual')
       allowAllModels = !!r.allow_all_models
@@ -162,7 +165,7 @@
   // when virtual is in scope. Selection identity is the token rule string
   // (`type/model`, virtual ones `virtual/<id>`).
   function modelFullId(model: ModelsTableModel): string {
-    return model.kind === 'virtual' ? `virtual/${model.id}` : (model.fullId ?? model.id)
+    return resolveModelId(model)
   }
 
   let includeVirtualModels = $derived(allowAllProvidersCredentials || virtualEnabled)
@@ -175,20 +178,10 @@
     const seen = new Set<string>()
     const candidateById = new Map(allCandidates.map((m) => [m.full_model_id, m]))
     function unionMembers(ids: string[], pick: (m: AvailableModel | undefined) => string[] | undefined): string[] {
-      const union: string[] = []
-      for (const id of ids) {
-        for (const x of pick(candidateById.get(id)) ?? []) {
-          if (!union.includes(x)) union.push(x)
-        }
-      }
-      return union
+      return unionIds(ids, (id) => pick(candidateById.get(id)))
     }
     function minMembers(ids: string[], pick: (m: AvailableModel | undefined) => number | undefined): number | undefined {
-      let min = 0
-      for (const id of ids) {
-        const v = pick(candidateById.get(id))
-        if (v && v > 0 && (min === 0 || v < min)) min = v
-      }
+      const min = minPositive(ids.map((id) => pick(candidateById.get(id))))
       return min || undefined
     }
     function push(model: ModelsTableModel): void {
@@ -233,11 +226,7 @@
   })
 
   let filteredTableModels = $derived.by((): ModelsTableModel[] => {
-    const q = searchModels.trim().toLowerCase()
-    if (!q) return tableModels
-    return tableModels.filter((m) =>
-      [m.name, m.id, m.fullId, m.providerName].some((v) => v?.toLowerCase().includes(q))
-    )
+    return filterByFields(tableModels, searchModels, (m) => [m.name, m.id, m.fullId, m.providerName])
   })
 
   // Header checkbox over the visible rows: same all-or-nothing logic.
@@ -271,7 +260,15 @@
     if (!hasAnyModelAvailable) return true
     return selectedModels.size > 0
   })
-  let currentValid = $derived(wizardStep === 1 ? step1Valid : wizardStep === 2 ? step2Valid : wizardStep === 3 ? step3Valid : true)
+  let currentValid = $derived(resolveStepValidity(wizardStep, { step1Valid, step2Valid, step3Valid }))
+
+  let isDoneStep = $derived(wizardStep === 4 && !!createdToken)
+  let isNameStep = $derived(wizardStep === 1)
+  let isProvidersStep = $derived(wizardStep === 2)
+  let isModelsStep = $derived(wizardStep === 3)
+  let isProviderScopeLocked = $derived(allowAllProvidersCredentials)
+  let isModelScopeLocked = $derived(allowAllModels)
+  let hasBroadProviderScope = $derived(fullAccess || allowAllProvidersCredentials)
 
   function syncChrome(): void {
     untrack(() => {
@@ -398,30 +395,30 @@
   })
 </script>
 
-{#if wizardStep === 4 && createdToken}
+{#if isDoneStep}
   <TokenSuccessView
-    token={createdToken}
+    token={createdToken ?? ''}
     tokenName={tokenName.trim()}
     scopeLabel={{
-      providers: fullAccess || allowAllProvidersCredentials ? t('All providers') : n(activeProviderIds.length, 'provider', 'providers', 'провайдер', 'провайдера', 'провайдеров'),
-      models: allowAllModels ? t('All models') : n(selectedModels.size, 'model', 'models', 'модель', 'модели', 'моделей'),
-      credentials: fullAccess || allowAllProvidersCredentials ? t('All credentials') : n(coveredCredIds.size, 'credential', 'credentials', 'учётные данные', 'учётных данных', 'учётных данных')
+      providers: hasBroadProviderScope ? t('All providers') : n(activeProviderIds.length, 'provider', 'providers', 'провайдер', 'провайдера', 'провайдеров'),
+      models: isModelScopeLocked ? t('All models') : n(selectedModels.size, 'model', 'models', 'модель', 'модели', 'моделей'),
+      credentials: hasBroadProviderScope ? t('All credentials') : n(coveredCredIds.size, 'credential', 'credentials', 'учётные данные', 'учётных данных', 'учётных данных')
     }}
     {error}
   />
-{:else if wizardStep === 1}
-  {#if error}<Text tone="danger" size="sm">{error}</Text>{/if}
+{:else if isNameStep}
+  {#if error}<Banner variant="error" text={error} />{/if}
   <VStack gap={4}>
     <TextEdit id="token-name" bind:value={tokenName} hint={`${t('Token name')} (${t('required')})`} />
     <Switch bind:checked={fullAccess} label={t('Full access to everything')} id="full-access" />
   </VStack>
-{:else if wizardStep === 2}
-  {#if error}<Text tone="danger" size="sm">{error}</Text>{/if}
+{:else if isProvidersStep}
+  {#if error}<Banner variant="error" text={error} />{/if}
   <VStack gap={6}>
     <Switch bind:checked={allowAllProvidersCredentials} label={t('Access to all providers and credentials')} id="allow-all-providers-credentials" />
     {#each displayProviders as p (p.id)}
       {@const creds = p.type === 'virtual' ? [] : credsOf(p.id)}
-      <div class={allowAllProvidersCredentials ? 'is-disabled' : ''}>
+      <div class={isProviderScopeLocked ? 'is-disabled' : ''}>
         <VStack gap={2}>
           <HStack align="center" gap={3}>
             <VStack gap={1}>
@@ -474,8 +471,8 @@
       </div>
     {/each}
   </VStack>
-{:else if wizardStep === 3}
-  {#if error}<Text tone="danger" size="sm">{error}</Text>{/if}
+{:else if isModelsStep}
+  {#if error}<Banner variant="error" text={error} />{/if}
   <VStack gap={4}>
     <Switch bind:checked={allowAllModels} label={t('Allow all models')} id="allow-all-models" />
     <HStack align="center" gap={3}>
@@ -492,7 +489,7 @@
         />
       </div>
     </HStack>
-    <div class={allowAllModels ? 'is-disabled' : ''}>
+    <div class={isModelScopeLocked ? 'is-disabled' : ''}>
       <ModelsTable models={filteredTableModels} loading={wizardLoading}>
         {#snippet actions({ model })}
           {@const fid = modelFullId(model as ModelsTableModel)}

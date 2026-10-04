@@ -1,10 +1,12 @@
 <script lang="ts">
-  import { VStack, HStack, Text, Button, Table, SectionCard, Spacer, Chip, FloatingView } from '$ui'
+  import { VStack, HStack, Text, Button, Table, SectionCard, Spacer, Chip, FloatingView, Banner, ConfirmAction } from '$ui'
   import type { TableColumn } from '$ui'
+  import EmptyState from '../../components/EmptyState.svelte'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
-  import { modal } from '$lib/modal.svelte'
+  import { openFormModal } from '$lib/modal-helpers'
   import { getErrorMessage } from '$lib/errors'
+  import { formatNanoLatency as formatLatency } from '$lib/format'
   import type { Proxy, ProxyStatus, ProxySourceInfo, ProxyPool } from '$lib/types'
   import { t } from '$lib/i18n.svelte'
   import CustomPoolModal from './components/CustomPoolModal.svelte'
@@ -78,10 +80,6 @@
     }
   }
 
-  function formatLatency(nanoseconds: number): string {
-    return `${(nanoseconds / 1_000_000).toFixed(0)}ms`
-  }
-
   function formatMinutes(nanoseconds: number): string {
     const minutes = Math.round(nanoseconds / 60_000_000_000)
     return `${minutes} ${t('min')}`
@@ -94,18 +92,11 @@
 
   function openPoolModal(mode: 'create' | 'edit', pool?: ProxyPool): void {
     error = ''
-    modal.open({
+    openFormModal(CustomPoolModal, {
       title: mode === 'edit' ? t('Edit pool') : t('New pool'),
-      content: CustomPoolModal,
-      severity: 'medium',
       size: 'medium',
-      props: {
-        editingPool: mode === 'edit' ? (pool ?? null) : null,
-        onComplete: async () => {
-          modal.close()
-          await loadAll()
-        },
-      },
+      props: { editingPool: mode === 'edit' ? (pool ?? null) : null },
+      onReload: () => void loadAll()
     })
   }
 
@@ -149,11 +140,11 @@
   </HStack>
 
   {#if error}
-    <Text tone="danger" size="sm">{error}</Text>
+    <Banner variant="error" text={error} />
   {/if}
 
   {#if status?.last_error}
-    <Text tone="danger" size="sm">{status.last_error}</Text>
+    <Banner variant="error" text={status.last_error} />
   {/if}
 
   <SectionCard title={t('Pool status')}>
@@ -216,7 +207,7 @@
             />
             <Button
               style="text"
-              tint="#dc2626"
+              tint="var(--color-danger)"
               size="small"
               icon={{ name: 'delete' }}
               title={t('Delete')}
@@ -227,7 +218,7 @@
         {/if}
       {/snippet}
       {#snippet empty()}
-        <Text tone="soft" size="sm" align="center">{t('No custom pools yet.')}</Text>
+        <EmptyState title={t('No custom pools yet.')} />
       {/snippet}
     </Table>
   </VStack>
@@ -260,7 +251,7 @@
         {/if}
       {/snippet}
       {#snippet empty()}
-        <Text tone="soft" size="sm" align="center">{t('No proxy list sources installed. Install a proxy-source plugin (e.g. proxifly).')}</Text>
+        <EmptyState title={t('No proxy list sources installed. Install a proxy-source plugin (e.g. proxifly).')} icon="extension" />
       {/snippet}
     </Table>
   </VStack>
@@ -287,7 +278,7 @@
         {/if}
       {/snippet}
       {#snippet empty()}
-        <Text tone="soft" size="sm" align="center">{t('No healthy proxies in the pool.')}</Text>
+        <EmptyState title={t('No healthy proxies in the pool.')} />
       {/snippet}
     </Table>
   </VStack>
@@ -299,26 +290,13 @@
     label={t('Delete pool')}
   >
     {#snippet children({ close })}
-      <VStack gap={3} style="max-width: 280px;">
-        <VStack gap={1}>
-          <Text weight="medium" size="base">{t('Delete pool')}</Text>
-          <Text size="sm" tone="soft">
-            {t('Are you sure you want to delete')} "{deletePoolTarget?.name}"? {t('This action cannot be undone.')}
-          </Text>
-        </VStack>
-        <HStack justify="end" gap={2}>
-          <Button size="small" style="text" onclick={close} disabled={deletingPool}>{t('Cancel')}</Button>
-          <Button
-            size="small"
-            style="prominent"
-            tint="#dc2626"
-            disabled={deletingPool}
-            onclick={confirmDeletePool}
-          >
-            {deletingPool ? t('Deleting…') : t('Delete')}
-          </Button>
-        </HStack>
-      </VStack>
+      <ConfirmAction
+        title={t('Delete pool')}
+        body={`${t('Are you sure you want to delete')} "${deletePoolTarget?.name}"? ${t('This action cannot be undone.')}`}
+        busy={deletingPool}
+        busyLabel={t('Deleting…')}
+        onCancel={close}
+        onConfirm={confirmDeletePool} />
     {/snippet}
   </FloatingView>
 </VStack>

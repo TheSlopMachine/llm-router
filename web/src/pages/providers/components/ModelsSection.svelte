@@ -1,27 +1,33 @@
 <script lang="ts">
-  import { squircle } from '../../../lib/squircle'
-  import { t } from '../../../lib/i18n.svelte'
-  import { getErrorMessage } from '../../../lib/errors'
-  import { toast } from '../../../lib/toast.svelte'
-  import FloatingView from '../../../components/ui/controls/FloatingView.svelte'
-  import { CAPABILITY_META } from '../../../lib/capabilities'
-  import Table from '../../../components/ui/composite/Table.svelte'
-  import ModelsTable from '../../../components/ui/composite/ModelsTable.svelte'
+  import { squircle } from '$lib/squircle'
+  import { t } from '$lib/i18n.svelte'
+  import { getErrorMessage } from '$lib/errors'
+  import { toast } from '$lib/toast.svelte'
+  import { CAPABILITY_META, hasModalities } from '$lib/capabilities'
+  import { filterByFields } from '$lib/filter'
+  import type { Provider, ProviderModel, ProviderVMGroup, TestResult, VirtualModel } from '$lib/types'
+  import { api } from '$lib/api'
+  import {
+    FloatingView,
+    Table,
+    ModelsTable,
+    CopyButton,
+    Button,
+    Spacer,
+    HStack,
+    VStack,
+    Text,
+    Switch,
+    Select,
+    FloatingList,
+    Picker,
+    SearchField,
+    TextEdit,
+    Banner,
+    ConfirmAction,
+  } from '$ui'
+  import EmptyState from '../../../components/EmptyState.svelte'
   import type { ModelsTableModel } from '../../../components/ui/composite/ModelsTable.svelte'
-  import CopyButton from '../../../components/ui/composite/CopyButton.svelte'
-  import Button from '../../../components/ui/controls/Button.svelte'
-  import Spacer from '../../../components/ui/layout/Spacer.svelte'
-  import HStack from '../../../components/ui/layout/HStack.svelte'
-  import VStack from '../../../components/ui/layout/VStack.svelte'
-  import Text from '../../../components/ui/controls/Text.svelte'
-  import Switch from '../../../components/ui/controls/Switch.svelte'
-  import Select from '../../../components/ui/controls/Select.svelte'
-  import FloatingList from '../../../components/ui/controls/FloatingList.svelte'
-  import Picker from '../../../components/ui/controls/Picker.svelte'
-  import SearchField from '../../../components/ui/controls/SearchField.svelte'
-  import TextEdit from '../../../components/ui/controls/TextEdit.svelte'
-  import type { Provider, ProviderModel, ProviderVMGroup, TestResult, VirtualModel } from '../../../lib/types'
-  import { api } from '../../../lib/api'
 
   let { provider = $bindable(), onrefresh, credRevision = 0 } = $props<{
     provider: Provider | null
@@ -127,14 +133,12 @@
     let list = models
     if (modelFilter === 'enabled') list = list.filter((m) => !m.disabled)
     if (modelFilter === 'disabled') list = list.filter((m) => m.disabled)
-    const q = modelSearch.trim().toLowerCase()
-    if (q) {
-      list = list.filter((m) =>
-        m.name.toLowerCase().includes(q) || m.display_name.toLowerCase().includes(q)
-      )
-    }
-    return list
+    return filterByFields(list, modelSearch, (m) => [m.name, m.display_name])
   })
+
+  function needsModalityBackfill(res: TestResult, m: ProviderModel): boolean {
+    return res.ok && !hasModalities(m)
+  }
 
   function filterKey(): string {
     return `llm-router:model-filter:${providerId}`
@@ -280,7 +284,7 @@
     try {
       const endpoint = probeEndpoint(m)
       res = await api.models.test(`${providerId}/${m.name}`, endpoint)
-      if (res.ok && (m.input_modalities ?? []).length === 0 && (m.output_modalities ?? []).length === 0) {
+      if (needsModalityBackfill(res, m)) {
         // Store verified modalities on the model record (full id key).
         // Rows with plugin-declared modalities skip this: the probe only
         // proves liveness, and a redundant write would mask model_specs.
@@ -466,9 +470,7 @@
 </script>
 
   {#if discoveryFailed && !modelsLoading}
-    <VStack class="error-msg" gap={0}>
-      <Text tone="danger" size="sm">{modelsError}</Text>
-    </VStack>
+    <Banner variant="error" text={modelsError} />
   {:else}
   <VStack tag="section" gap={4} class="provider-section">
     <Text tag="h2" size="md" weight="medium">{t('Available models')}</Text>
@@ -540,9 +542,7 @@
     </HStack>
 
     {#if modelsError}
-      <VStack class="error-msg" gap={0}>
-        <Text tone="danger" size="sm">{modelsError}</Text>
-      </VStack>
+      <Banner variant="error" text={modelsError} />
     {:else}
       {@render modelsTable()}
     {/if}
@@ -555,9 +555,7 @@
     </VStack>
 
     {#if vmGroups.length === 0}
-      <VStack align="center" gap={2} class="table-empty">
-        <Text tone="soft" size="sm">{t('No endpoint groups on this provider yet.')}</Text>
-      </VStack>
+      <EmptyState title={t('No endpoint groups on this provider yet.')} />
     {:else}
       <Table
         columns={[
@@ -601,9 +599,7 @@
           {/if}
         {/snippet}
         {#snippet empty()}
-          <VStack align="center" gap={2} class="table-empty">
-            <Text tone="soft" size="sm">{t('No endpoint groups on this provider yet.')}</Text>
-          </VStack>
+          <EmptyState title={t('No endpoint groups on this provider yet.')} />
         {/snippet}
       </Table>
     {/if}
@@ -681,7 +677,7 @@
     {#if m.custom}
       <Button
         size="small"
-        tint="#dc2626"
+        tint="var(--color-danger)"
         icon={{ name: 'delete' }}
         title={t('Delete custom model')}
         ariaLabel={t('Delete custom model')}
@@ -733,7 +729,7 @@
       {@render modelActions(m)}
     {/snippet}
     {#snippet empty()}
-      <Text size="sm" tone="soft">{models.length === 0 ? t('No models reported by this provider.') : t('No models match the filter.')}</Text>
+      <EmptyState title={models.length === 0 ? t('No models reported by this provider.') : t('No models match the filter.')} icon="search" />
     {/snippet}
   </ModelsTable>
 {/snippet}
@@ -745,25 +741,12 @@
   label={t('Delete custom model')}
 >
   {#snippet children({ close })}
-    <VStack gap={3} style="max-width: 280px;">
-      <VStack gap={1}>
-        <Text weight="medium" size="base">{t('Delete custom model')}</Text>
-        <Text size="sm" tone="soft">
-          {t('Remove')} "{deleteCustomTarget?.name}" {t('from this provider?')}
-        </Text>
-      </VStack>
-      <HStack justify="end" gap={2}>
-        <Button size="small" style="text" onclick={close} disabled={deletingCustom}>{t('Cancel')}</Button>
-        <Button
-          size="small"
-          style="prominent"
-          tint="#dc2626"
-          disabled={deletingCustom}
-          onclick={confirmDeleteCustomModel}
-        >
-          {deletingCustom ? t('Deleting…') : t('Delete')}
-        </Button>
-      </HStack>
-    </VStack>
+    <ConfirmAction
+      title={t('Delete custom model')}
+      body={`${t('Remove')} "${deleteCustomTarget?.name}" ${t('from this provider?')}`}
+      busy={deletingCustom}
+      busyLabel={t('Deleting…')}
+      onCancel={close}
+      onConfirm={confirmDeleteCustomModel} />
   {/snippet}
 </FloatingView>

@@ -1,12 +1,11 @@
 <script lang="ts">
-  import Button from '../../../../src/components/ui/controls/Button.svelte'
+  import { Button, TextArea, Picker, Banner } from '$ui'
+  import EmptyState from '../../../components/EmptyState.svelte'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import type { Provider, UINode, ModalButton } from '$lib/types'
-  import DynamicForm, { collectButtons, buttonVariant } from '../../../../src/components/domain/DynamicForm.svelte'
-  import TextArea from '../../../../src/components/ui/controls/TextArea.svelte'
-  import Picker from '../../../../src/components/ui/controls/Picker.svelte'
+  import DynamicForm, { collectButtons, buttonVariant } from '../../../components/domain/DynamicForm.svelte'
   import { t } from '$lib/i18n.svelte'
 
   let {
@@ -229,7 +228,7 @@
 </script>
 
 {#if error}
-  <div class="error-msg">{error}</div>
+  <Banner variant="error" text={error} />
 {/if}
 
 {#if manualAvailable}
@@ -247,10 +246,10 @@
 {/if}
 
 {#if mode === 'loading'}
-  <div class="empty-state">{t('Loading…')}</div>
+  <EmptyState title={t('Loading…')} />
 {:else if mode === 'wizard'}
   {#if redirectMessage}
-    <div class="banner banner-info">{redirectMessage}</div>
+    <Banner variant="info" text={redirectMessage} />
   {/if}
   {#if nodes.length > 0}
     <DynamicForm {nodes} bind:values={formValues} busy={loading} />
@@ -275,15 +274,6 @@
     margin-bottom: var(--space-5);
   }
 
-  .banner {
-    padding: 10px 12px;
-    border-radius: 8px;
-    font-size: var(--text-sm);
-    margin-bottom: var(--space-4);
-  }
-  .banner-info {
-    background: var(--color-notification-info-bg);
-  }
   .form-text {
     font-size: var(--text-base);
     color: var(--color-text-soft);

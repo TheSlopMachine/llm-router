@@ -12,6 +12,8 @@
   import { squircle } from '$lib/squircle'
   import type { Provider, SubsystemStats, DoctorReport } from '$lib/types'
   import { toast } from '$lib/toast.svelte'
+  import { downloadJson, readJsonFile } from '$lib/download'
+  import { modal } from '$lib/modal.svelte'
 
   let languageOptions = $derived([
     { value: 'auto', label: t('Auto') },
@@ -38,6 +40,7 @@
   let confirmPassword = $state('')
   let passwordSaving = $state(false)
   let passwordError = $state('')
+  let isPasswordFormValid = $derived(!!currentPassword && !!newPassword && !passwordSaving)
 
   // Data Management
   let stats = $state<SubsystemStats | null>(null)
@@ -153,15 +156,7 @@
   async function exportSubsystem(sub: string): Promise<void> {
     try {
       const data = await api.data.exportSubsystem(sub)
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `llm_router_${sub}_export.json`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      downloadJson(`llm_router_${sub}_export.json`, data)
       toast.success(`${sub} exported successfully`)
     } catch (e) {
       toast.error(getErrorMessage(e))
@@ -181,8 +176,7 @@
       return
     }
     try {
-      const text = await file.text()
-      const json = JSON.parse(text)
+      const json = await readJsonFile(file)
       await api.data.importSubsystem(sub, json)
       toast.success(`${sub} imported successfully`)
       importFileMap = { ...importFileMap, [sub]: null }
@@ -193,9 +187,13 @@
   }
 
   async function clearSubsystem(sub: string): Promise<void> {
-    if (!confirm(t('Are you sure you want to clear all data in this subsystem? This action is irreversible.'))) {
-      return
-    }
+    const confirmed = await modal.confirm({
+      title: t('Clear subsystem'),
+      message: t('Are you sure you want to clear all data in this subsystem? This action is irreversible.'),
+      confirmText: t('Clear'),
+      confirmRole: 'destructive'
+    })
+    if (!confirmed) return
     try {
       await api.data.clearSubsystem(sub)
       toast.success(`${sub} cleared successfully`)
@@ -224,15 +222,7 @@
   async function exportIndividualProvider(providerId: string): Promise<void> {
     try {
       const data = await api.data.exportProvider(providerId)
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `llm_router_provider_${providerId}_export.json`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      downloadJson(`llm_router_provider_${providerId}_export.json`, data)
       toast.success(t('Provider exported successfully'))
     } catch (e) {
       toast.error(getErrorMessage(e))
@@ -250,9 +240,8 @@
       return
     }
     try {
-      const text = await providerImportFile.text()
-      const json = JSON.parse(text)
-      await api.data.importProvider(providerId, json)
+      const json = await readJsonFile(providerImportFile)
+      await api.data.importProvider(providerId, json as never)
       toast.success(t('Provider imported successfully'))
       providerImportFile = null
       await Promise.all([loadDataStats(), runDoctorInspect(), loadProviders()])
@@ -262,9 +251,13 @@
   }
 
   async function purgeIndividualProvider(providerId: string): Promise<void> {
-    if (!confirm(t('Are you sure you want to completely purge this provider and all its data? This action is irreversible.'))) {
-      return
-    }
+    const confirmed = await modal.confirm({
+      title: t('Purge provider'),
+      message: t('Are you sure you want to completely purge this provider and all its data? This action is irreversible.'),
+      confirmText: t('Purge'),
+      confirmRole: 'destructive'
+    })
+    if (!confirmed) return
     try {
       await api.data.purgeProvider(providerId)
       toast.success(t('Provider purged successfully'))
@@ -358,7 +351,7 @@
     </VStack>
 
     <HStack justify="end">
-      <Button style="prominent" onclick={updatePassword} disabled={passwordSaving || !currentPassword || !newPassword}>
+      <Button style="prominent" onclick={updatePassword} disabled={!isPasswordFormValid}>
         {passwordSaving ? t('Saving...') : t('Change password')}
       </Button>
     </HStack>
@@ -387,7 +380,7 @@
             {/each}
           </VStack>
           <HStack justify="end">
-            <Button style="prominent" tint="var(--color-text-danger)" onclick={fixIssues} disabled={doctorFixing}>
+            <Button style="prominent" tint="var(--color-danger)" onclick={fixIssues} disabled={doctorFixing}>
               {doctorFixing ? t('Resolving...') : t('Clean database')}
             </Button>
           </HStack>
@@ -416,7 +409,7 @@
               </VStack>
               <HStack gap={2}>
                 <Button size="small" icon={{ name: 'download' }} onclick={() => exportSubsystem(sub.key)}>{t('Export')}</Button>
-                <Button size="small" style="text" tint="var(--color-text-danger)" icon={{ name: 'delete' }} onclick={() => clearSubsystem(sub.key)}>{t('Clear')}</Button>
+                <Button size="small" style="text" tint="var(--color-danger)" icon={{ name: 'delete' }} onclick={() => clearSubsystem(sub.key)}>{t('Clear')}</Button>
               </HStack>
             </HStack>
             <HStack gap={3} align="center" class="file-action-row">
@@ -450,7 +443,7 @@
 
         <HStack gap={2} align="center">
           <Button size="small" icon={{ name: 'download' }} onclick={() => exportIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('Export')}</Button>
-          <Button size="small" style="text" tint="var(--color-text-danger)" icon={{ name: 'delete' }} onclick={() => purgeIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('Purge provider')}</Button>
+          <Button size="small" style="text" tint="var(--color-danger)" icon={{ name: 'delete' }} onclick={() => purgeIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('Purge provider')}</Button>
         </HStack>
 
         <HStack gap={3} align="center" class="file-action-row">
@@ -505,7 +498,7 @@
   :global(.file-action-row) {
     margin-top: var(--space-2);
     padding-top: var(--space-2);
-    border-top: 1px dashed var(--color-border);
+    border-top: 1px dashed var(--color-outline-soft);
   }
   .file-input {
     display: none;
@@ -515,14 +508,14 @@
     align-items: center;
     gap: var(--space-2);
     cursor: pointer;
-    background: var(--color-button-bg);
+    background: var(--color-button-container);
     padding: var(--space-2) var(--space-3);
     border-radius: var(--ctl-radius);
     font-size: var(--text-sm);
     font-weight: 500;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--color-outline-soft);
   }
   .file-label:hover {
-    background: var(--color-button-hover-bg);
+    background: var(--color-button-container-high);
   }
 </style>

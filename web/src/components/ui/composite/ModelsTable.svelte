@@ -30,7 +30,9 @@
   import VStack from '../layout/VStack.svelte'
   import HStack from '../layout/HStack.svelte'
   import Text from '../controls/Text.svelte'
-  import { CAPABILITY_META } from '../../../lib/capabilities'
+  import { CAPABILITY_META, hasModalities, hasCapabilities } from '../../../lib/capabilities'
+  import { resolveModelId } from '../../../lib/token-scope'
+  import { isSortActive } from '../../../lib/table-layout'
   import ModalitiesFlow from './ModalitiesFlow.svelte'
   import CopyButton from './CopyButton.svelte'
   import { t } from '../../../lib/i18n.svelte'
@@ -85,24 +87,30 @@
     return 'full'
   })
 
+  function modeColumns(mode: 'full' | 'merged' | 'compact', readonly: boolean, sortable: boolean): TableColumn[] {
+    if (mode === 'full') {
+      return [
+        { key: 'context', title: t('Context'), width: '0.9fr', sortable },
+        { key: 'modalities', title: t('Modalities'), width: '1.2fr', sortable, align: 'center' as const },
+        { key: 'capabilities', title: t('Capabilities'), width: readonly ? '1.1fr' : '1.2fr', sortable, align: 'left' as const },
+      ]
+    }
+    if (mode === 'merged') {
+      return [{ key: 'ctxmods', title: t('Context & Modalities'), width: '2.1fr', sortable }]
+    }
+    return [{ key: 'all', title: t('Capabilities'), width: '2.5fr' }]
+  }
+
   const columns = $derived<TableColumn[]>([
     { key: 'model', title: t('Model'), width: readonly ? '3.6fr' : '3.2fr', sortable },
-    ...(mode === 'full'
-      ? [
-          { key: 'context', title: t('Context'), width: '0.9fr', sortable },
-          { key: 'modalities', title: t('Modalities'), width: '1.2fr', sortable, align: 'center' as const },
-          { key: 'capabilities', title: t('Capabilities'), width: readonly ? '1.1fr' : '1.2fr', sortable, align: 'left' as const },
-        ]
-      : mode === 'merged'
-        ? [{ key: 'ctxmods', title: t('Context & Modalities'), width: '2.1fr', sortable }]
-        : [{ key: 'all', title: t('Capabilities'), width: '2.5fr' }]),
+    ...modeColumns(mode, readonly, sortable),
     ...(!readonly ? [{ key: 'actions', title: t('Actions'), width: '0.9fr', align: 'right' as const }] : []),
   ])
 
   const sortedModels = $derived.by(() => {
     const key = sortKey
     const dir = sortDir
-    if (!sortable || !key || !dir) return models
+    if (!isSortActive(sortable, key, dir) || !key || !dir) return models
 
     const next = [...models]
     next.sort((a, b) => {
@@ -152,11 +160,19 @@
   }
 
   function fullId(model: ModelsTableModel): string {
-    return model.fullId ?? (model.kind === 'virtual' ? `virtual/${model.id}` : model.providerId ? `${model.providerId}/${model.id}` : model.id)
+    return resolveModelId(model)
   }
 
   function openProvider(providerId: string): void {
     window.location.hash = `#/providers/${providerId}`
+  }
+
+  function showProviderNameLink(model: ModelsTableModel): boolean {
+    return showProviderLink && !!model.providerId && !!model.providerName
+  }
+
+  function showVirtualLink(model: ModelsTableModel): boolean {
+    return showProviderLink && model.kind === 'virtual'
   }
 </script>
 
@@ -184,7 +200,7 @@
     chipsDirection={direction}
     size={size}
   />
-  {#if (model.inputModalities?.length ?? 0) === 0 && (model.outputModalities?.length ?? 0) === 0}
+  {#if !hasModalities(model)}
     <Text size="sm" tone="disabled">—</Text>
   {/if}
 {/snippet}
@@ -204,7 +220,7 @@
     {#if model.custom}
       <Chip icon="tune" text="" color="chip-teal" title={t('Custom model')} size={size} />
     {/if}
-    {#if (model.capabilities?.length ?? 0) === 0 && !model.custom}
+    {#if !hasCapabilities(model)}
       <Text size="sm" tone="disabled">—</Text>
     {/if}
   </HStack>
@@ -246,12 +262,12 @@
               <CopyButton size="small" text={fullId(model)} title={t('Copy model id')} ariaLabel={t('Copy model id')} />
             </HStack>
           {/if}
-          {#if showProviderLink && model.providerId && model.providerName}
+          {#if showProviderNameLink(model)}
             <a class="provider-link" href={`#/providers/${model.providerId}`}>
               <Text size="sm">{model.providerName}</Text>
               <Icon name="chevron_right" />
             </a>
-          {:else if showProviderLink && model.kind === 'virtual'}
+          {:else if showVirtualLink(model)}
             <a class="provider-link" href="#/virtual">
               <Text size="sm">{t('Virtual models')}</Text>
               <Icon name="chevron_right" />

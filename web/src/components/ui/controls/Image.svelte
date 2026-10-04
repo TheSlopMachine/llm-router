@@ -4,6 +4,7 @@
   // and lazy loading by default.
   import type { Step } from '../tokens'
   import Icon from './Icon.svelte'
+  import { stepToRadiusToken } from '../../../lib/steps'
 
   let {
     src,
@@ -40,7 +41,7 @@
       ? undefined
       : typeof radius === 'string'
         ? `var(--radius-${radius})`
-        : `var(--radius-${radius <= 1 ? 'xs' : radius === 2 ? 'sm' : radius === 3 ? 'md' : 'lg'})`
+        : `var(--radius-${stepToRadiusToken(radius)})`
   )
 </script>
 

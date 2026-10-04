@@ -425,7 +425,7 @@
     position: fixed;
     inset: 0;
     z-index: 30;
-    background: rgba(0, 0, 0, 0.45);
+    background: var(--overlay-scrim);
     border: none;
     padding: 0;
     cursor: default;

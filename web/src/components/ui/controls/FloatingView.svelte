@@ -4,6 +4,7 @@
   import { portal } from '../../../lib/portal'
   import { squircle } from '../../../lib/squircle'
   import { bindDismiss } from '../../../lib/popover'
+  import { resolveFloatingStyle, shouldDismissOnKey } from '../../../lib/steps'
 
   function easeOutBackSoft(x: number): number {
     const c1 = 0.8
@@ -115,6 +116,10 @@
     originX = `${Math.round(anchorCenterX - menuLeft)}px`
   }
 
+  let floatingStyle = $derived(
+    `top: ${menuTop}px; left: ${menuLeft}px; transform-origin: ${originX} ${originY}; ${resolveFloatingStyle(minWidth, maxWidth)}`
+  )
+
   function close(): void {
     open = false
     onclose?.()
@@ -125,7 +130,7 @@
   })
 
   function handleKeydown(e: KeyboardEvent): void {
-    if (closeOnEsc && e.key === 'Escape' && open) {
+    if (shouldDismissOnKey(e, { closeOnEsc, open })) {
       e.preventDefault()
       e.stopPropagation()
       close()
@@ -185,7 +190,7 @@
     use:initLayer
     bind:this={menuElement}
     class="floating-view"
-    style="top: {menuTop}px; left: {menuLeft}px; transform-origin: {originX} {originY}; {minWidth ? `min-width: ${minWidth}px;` : ''} {maxWidth ? `max-width: min(${maxWidth}px, calc(100vw - 16px));` : ''}"
+    style={floatingStyle}
     {role}
     aria-label={label}
     tabindex="-1"
@@ -206,7 +211,7 @@
     background: var(--color-surface-container-high);
     border: none;
     border-radius: var(--radius-lg);
-    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+    box-shadow: var(--shadow-floating);
     overflow: hidden;
     padding: var(--space-4);
     outline: none;

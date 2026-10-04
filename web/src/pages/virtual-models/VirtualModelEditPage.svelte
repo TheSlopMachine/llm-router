@@ -7,7 +7,9 @@
   import { CAPABILITY_META } from '$lib/capabilities'
   import type { VirtualModel, AvailableModel } from '$lib/types'
   import { takePendingClone } from '$lib/virtual-clone'
-  import { Button, Chip, HStack, ModalitiesFlow, SectionCard, Select, Text, TextArea, TextEdit, VStack } from '$ui'
+  import { isUnauthenticated } from '$lib/credential-state'
+  import { intersectMembers, minPositive } from '$lib/model-aggregates'
+  import { Button, Chip, HStack, ModalitiesFlow, SectionCard, Select, Text, TextArea, TextEdit, VStack, Banner } from '$ui'
 
   let { vmId = null } = $props<{ vmId: string | null }>()
 
@@ -58,7 +60,7 @@
       hydrate(fetched)
     } catch (e: unknown) {
       const msg = getErrorMessage(e)
-      if ((e as { status?: number })?.status === 401 || msg.includes('unauthenticated')) {
+      if (isUnauthenticated(e, msg)) {
         window.location.href = '/login'
         return
       }
@@ -102,7 +104,7 @@
       modelsLoadState = availableModels.length === 0 ? 'empty' : 'loaded'
     } catch (e: unknown) {
       const msg = getErrorMessage(e)
-      if ((e as { status?: number })?.status === 401 || msg.includes('unauthenticated')) {
+      if (isUnauthenticated(e, msg)) {
         window.location.href = '/login'
         return
       }
@@ -193,31 +195,23 @@
   let aggregates = $derived.by(() => {
     const infos = models.map(infoOf).filter((m): m is AvailableModel => !!m)
     if (infos.length === 0) return { caps: [] as string[], inMods: [] as string[], outMods: [] as string[], context: 0, output: 0 }
-    const intersect = (pick: (id: string) => string[] | undefined): string[] => {
-      const lists = models.map((id) => pick(id) ?? []).filter((l) => l.length > 0)
-      if (lists.length === 0) return []
-      const first = lists[0]
-      return first.filter((m) => lists.every((l) => l.includes(m)))
-    }
     const count = new Map<string, number>()
     for (const m of infos) for (const c of m.capabilities ?? []) count.set(c, (count.get(c) ?? 0) + 1)
     const caps = [...count.entries()].filter(([, n]) => n === infos.length).map(([c]) => c).sort()
-    const min = (pick: (m: AvailableModel) => number | undefined) =>
-      infos.reduce((acc, m) => {
-        const v = pick(m)
-        return v && v > 0 && (acc === 0 || v < acc) ? v : acc
-      }, 0)
     return {
       caps,
-      inMods: intersect((id) => modalityMap[id]?.input),
-      outMods: intersect((id) => modalityMap[id]?.output),
-      context: min((m) => m.context_window),
-      output: min((m) => m.max_tokens)
+      inMods: intersectMembers(models, (id) => modalityMap[id]?.input),
+      outMods: intersectMembers(models, (id) => modalityMap[id]?.output),
+      context: minPositive(infos.map((m) => m.context_window)),
+      output: minPositive(infos.map((m) => m.max_tokens))
     }
   })
 
   let modelOptions = $derived(availableModels.map((m) => ({ value: m.full_model_id, label: m.display_name })))
   let canSave = $derived(name.trim() !== '' && models.length > 0 && models.every((id) => id !== ''))
+  let isManaged = $derived(!!vm?.managed_by)
+  let isEditable = $derived(!vm?.managed_by)
+  let saveLabel = $derived(saving ? t('Saving…') : vm ? t('Save') : t('Create virtual model'))
 </script>
 
 <VStack gap={4}>
@@ -227,41 +221,34 @@
   </VStack>
 
   {#if error}
-    <Text tone="danger" size="sm">{error}</Text>
+    <Banner variant="error" text={error} />
   {:else if loading}
     <Text tone="soft" size="sm">{t('Loading virtual model...')}</Text>
   {:else}
     {#if formError}
-      <Text tone="danger" size="sm">{formError}</Text>
+      <Banner variant="error" text={formError} />
     {/if}
 
-    {#if vm?.managed_by}
+    {#if isManaged}
       <Text tone="soft" size="sm">{t('Managed by the provider. Members refresh automatically; only the enabled toggle on the lists can change it.')}</Text>
     {/if}
 
     {#if modelsLoadState === 'empty'}
-      <div class="warning-banner">
-        <span class="warning-icon"><Icon name="warning" size="xl" /></span>
-        <VStack gap={2}>
-          <Text weight="medium">{t('No models available')}</Text>
-          <Text size="base" tone="soft">{t('Configure at least one provider with credentials to create virtual models.')}</Text>
-          <Button text={t('Go to Providers')} style="prominent" icon={{ name: 'cloud' }} onclick={() => { window.location.hash = '#/providers' }} />
-        </VStack>
-      </div>
+      <Banner variant="warning" text={t('No models available. Configure at least one provider with credentials to create virtual models.')} />
     {/if}
 
     <SectionCard title="Basic information">
       <VStack gap={1}>
         <Text tag="label" size="sm" weight="medium" for="vm-name">ID *</Text>
-        <TextEdit id="vm-name" bind:value={name} hint={t('How it appears in the model list — lowercase, hyphenated')} disabled={!!vm?.managed_by} />
+        <TextEdit id="vm-name" bind:value={name} hint={t('How it appears in the model list — lowercase, hyphenated')} disabled={isManaged} />
       </VStack>
       <VStack gap={1}>
         <Text tag="label" size="sm" weight="medium" for="vm-description">{t('Description')}</Text>
-        <TextArea id="vm-description" bind:value={description} hint={t('Pretty name, e.g. Gemini fallback')} minRows={2} disabled={!!vm?.managed_by} />
+        <TextArea id="vm-description" bind:value={description} hint={t('Pretty name, e.g. Gemini fallback')} minRows={2} disabled={isManaged} />
       </VStack>
       <VStack gap={1}>
         <Text tag="label" size="sm" weight="medium" for="vm-instruction">{t('System instruction')}</Text>
-        <TextArea id="vm-instruction" bind:value={instruction} hint={t('Additional guidance for the LLM (behavioral, stylistic)')} minRows={4} disabled={!!vm?.managed_by} />
+        <TextArea id="vm-instruction" bind:value={instruction} hint={t('Additional guidance for the LLM (behavioral, stylistic)')} minRows={4} disabled={isManaged} />
       </VStack>
     </SectionCard>
 
@@ -276,7 +263,7 @@
       {:else if models.length === 0}
         {#if modelsLoadState === 'empty'}
           <Text tone="soft" size="sm">{t('No models are currently available. Configure providers first.')}</Text>
-        {:else if !vm?.managed_by}
+        {:else if isEditable}
           <Button text={t('Add model')} icon={{ name: 'add' }} onclick={addModel} />
         {/if}
       {:else}
@@ -287,7 +274,7 @@
           {#each models as id, i (id || `empty-${i}`)}
             <div
               class="model-row"
-              draggable={vm?.managed_by ? 'false' : 'true'}
+              draggable={isManaged ? 'false' : 'true'}
               ondragstart={(e) => onDragStart(e, i)}
               ondragover={onDragOver}
               ondrop={(e) => onDrop(e, i)}
@@ -297,7 +284,7 @@
                 <span class="drag-handle" title={t('Drag to reorder')}><Icon name="drag_indicator" /></span>
                 <Text size="sm" tone="soft" align="center" class="row-num">{i + 1}</Text>
               </HStack>
-              <Select value={id} options={modelOptions} searchable={true} placeholder={t('Select a model...')} onchange={(v) => setModel(i, v)} disabled={!!vm?.managed_by} />
+              <Select value={id} options={modelOptions} searchable={true} placeholder={t('Select a model...')} onchange={(v) => setModel(i, v)} disabled={isManaged} />
               <HStack gap={2} wrap align="center" class="row-caps">
                 <ModalitiesFlow modalities={{ input: modalityMap[id]?.input, output: modalityMap[id]?.output }} chipsDirection="horizontal" />
                 {#each infoOf(id)?.capabilities ?? [] as cap}
@@ -313,12 +300,12 @@
                 {#if infoOf(id)?.context_window}<Text size="sm" tone="soft">{(infoOf(id)!.context_window! / 1000).toFixed(0)}k ctx</Text>{/if}
                 {#if infoOf(id)?.max_tokens}<Text size="sm" tone="soft">{(infoOf(id)!.max_tokens! / 1000).toFixed(0)}k out</Text>{/if}
               </VStack>
-              <Button tint="#dc2626" style="text" icon={{ name: 'delete' }} ariaLabel={t('Remove model')} onclick={() => removeModel(i)} disabled={!!vm?.managed_by} />
+              <Button tint="var(--color-danger)" style="text" icon={{ name: 'delete' }} ariaLabel={t('Remove model')} onclick={() => removeModel(i)} disabled={isManaged} />
             </div>
           {/each}
         </VStack>
-        {#if !vm?.managed_by}
-        <Button text={t('Add model')} icon={{ name: 'add' }} onclick={addModel} />
+        {#if isEditable}
+          <Button text={t('Add model')} icon={{ name: 'add' }} onclick={addModel} />
         {/if}
         <HStack gap={3} wrap align="center">
           <Text size="sm" weight="medium" tone="soft">{t('Virtual model capabilities')}</Text>
@@ -345,11 +332,11 @@
       {/if}
     </SectionCard>
 
-    {#if !vm?.managed_by}
+    {#if isEditable}
     <HStack justify="end" gap={2}>
       <Button text={t('Cancel')} style="text" onclick={backToList} disabled={saving} />
       <Button
-        text={saving ? t('Saving…') : vm ? t('Save') : t('Create virtual model')}
+        text={saveLabel}
         style="prominent"
         disabled={!canSave || saving}
         onclick={save}
@@ -372,39 +359,5 @@
   }
   .model-row[draggable='true']:active {
     cursor: grabbing;
-  }
-
-  /* :global — classes ride HStack/VStack roots in another component. */
-  :global(.col-priority) {
-    color: var(--color-text-soft);
-  }
-
-  /* The number fills the cell past the grip so its center lands exactly
-     between the grip icon and the picker. */
-  :global(.row-num) {
-    flex: 1 1 0;
-  }
-
-  :global(.row-caps) {
-    justify-content: flex-end;
-  }
-
-  :global(.row-ctx) {
-    text-align: right;
-  }
-
-  .warning-banner {
-    display: flex;
-    gap: var(--space-4);
-    padding: var(--space-5);
-    background: var(--color-notification-warning-bg);
-    border: 1px solid var(--color-notification-warning-border);
-    border-radius: 8px;
-  }
-
-  .warning-icon {
-    display: inline-flex;
-    color: var(--color-notification-warning-icon);
-    flex-shrink: 0;
   }
 </style>

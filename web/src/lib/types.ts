@@ -119,6 +119,34 @@ export interface TestResult {
   proxy?: string
 }
 
+// Discriminated success/error result. New code prefers this over the flat
+// TestResult; TestResult stays for existing call sites.
+export type ProbeResult =
+  | { ok: true; latency_ms: number; response?: string; proxy?: string }
+  | { ok: false; latency_ms: number; error: string; code?: string; quota_exceeded?: boolean }
+
+// Discriminated credential status. Replaces independent disabled/parked
+// flag checks at display sites; Credential keeps its wire shape.
+export type CredentialStatus =
+  | { state: 'enabled' }
+  | { state: 'disabled'; by: 'admin' | 'system' | 'healthcheck' | 'plugin'; reason?: string; at?: string }
+  | { state: 'parked'; until?: string; reason?: string }
+
+export function credentialStatus(c: Credential): CredentialStatus {
+  if (c.disabled) {
+    return {
+      state: 'disabled',
+      by: (c.disabled_by ?? 'admin') as CredentialStatus extends { state: 'disabled'; by: infer B } ? B : never,
+      reason: c.disabled_reason ?? undefined,
+      at: c.disabled_at ?? undefined
+    }
+  }
+  if (c.parked) {
+    return { state: 'parked', until: c.parked_until ?? undefined, reason: c.park_reason ?? undefined }
+  }
+  return { state: 'enabled' }
+}
+
 export interface Proxy {
   id: string
   url: string
@@ -179,26 +207,6 @@ export type Stats = Record<string, unknown>
 export type Status = Record<string, unknown>
 export type ErrorResponse = { error: string }
 export type ProviderStats = { model_count: number; credential_count: number }
-
-export interface Provider {
-  id: string
-  name: string
-  type: string
-  type_key: string
-  qualifier: string
-  config: Record<string, unknown>
-  auth_type: string
-  base_url: string
-  icon_url: string
-  supports_auth_flow: boolean
-  is_ui_readonly: boolean
-  is_ui_hidden: boolean
-  disabled: boolean
-  // Backend 0.3.0 auto-disable contract: absent until it lands.
-  disabled_by?: 'admin' | 'system' | null
-  disabled_reason?: string | null
-  disabled_at?: string | null
-}
 
 export interface ProviderRetry {
   mode: 'fail_fast' | 'next_proxy'
@@ -314,6 +322,47 @@ export interface AuthStepResponse {
   provider_id?: string
   message?: string
   credential_id?: string
+}
+
+// Discriminated auth steps. New code prefers this over optional-field
+// AuthStepResponse; the wire interface stays for existing call sites.
+export type AuthStep =
+  | { status: 'render'; nodes: UINode[]; flow_id: string; provider_id?: string }
+  | { status: 'redirect'; redirect_url: string; provider_id?: string }
+  | { status: 'complete'; credential_id: string; provider_id?: string }
+
+// Discriminated UI nodes. New code narrows on `type` instead of reading
+// optional fields; UINode stays for existing DynamicForm call sites.
+export type UITextNode = { type: 'text'; text: string }
+export type UIInputNode = {
+  type: 'input' | 'secret' | 'code'
+  name: string
+  label?: string
+  placeholder?: string
+  input_type?: string
+  required?: boolean
+  value?: unknown
+}
+export type UISelectNode = {
+  type: 'select'
+  name: string
+  label?: string
+  options: string[]
+  option_labels?: Record<string, string>
+  required?: boolean
+}
+export type UIContainerNode = {
+  type: 'group' | 'flow' | 'grid' | 'section'
+  title?: string
+  subtitle?: string
+  content: UINode[]
+  columns?: number
+  direction?: string
+  align?: string
+  justify?: string
+  gap?: string
+  wrap?: boolean
+  grow?: boolean
 }
 
 export interface Plugin {

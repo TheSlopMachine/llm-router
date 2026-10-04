@@ -4,7 +4,7 @@
   import { getErrorMessage } from '$lib/errors'
   import type { MetricsFilters, MetricsOverview, TimeSeriesPoint, Provider } from '$lib/types'
   import { t } from '$lib/i18n.svelte'
-  import { VStack, HStack, Text, Grid, Spacer, Button } from '$ui'
+  import { VStack, HStack, Text, Grid, Spacer, Button, Banner } from '$ui'
   import MetricsFiltersCmp from './components/MetricsFilters.svelte'
   import MetricsOverviewCard from './components/MetricsOverviewCard.svelte'
   import PeakUsageChart from './components/PeakUsageChart.svelte'
@@ -114,7 +114,7 @@
   {#if errors.length > 0}
     <VStack gap={2}>
       {#each errors as error}
-        <Text tone="danger" size="sm">{error}</Text>
+        <Banner variant="error" text={error} />
       {/each}
     </VStack>
   {/if}

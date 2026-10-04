@@ -6,6 +6,7 @@
   import { squircle } from '../../../lib/squircle'
   import Button from './Button.svelte'
   import Icon from './Icon.svelte'
+  import { resolveInputType } from '../../../lib/button-state'
 
   export interface TrailingAction {
     icon: string
@@ -53,7 +54,7 @@
   let focused = $state(false)
   let revealed = $state(false)
   const isSecret = $derived(type === 'secret')
-  const effectiveType = $derived(isSecret ? (revealed ? 'text' : 'password') : type)
+  const effectiveType = $derived(resolveInputType(isSecret, revealed, type))
 
   // Marking only: invalid shows once the field loses focus, never while typing.
   const valid = $derived.by(() => {

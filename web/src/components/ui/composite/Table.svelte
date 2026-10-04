@@ -21,6 +21,7 @@
 
 <script lang="ts" generics="T">
   import type { Snippet } from 'svelte'
+  import { priorityCeiling, alignClass, sortAria } from '../../../lib/table-layout'
   let {
     columns,
     rows,
@@ -71,7 +72,7 @@
   const visibleColumns = $derived.by(() => {
     const w = tableWidth
     if (w == null) return columns
-    const maxP = w < 640 ? 1 : w < 1024 ? 2 : 3
+    const maxP = priorityCeiling(w)
     const vis = columns.filter((c: TableColumn) => (c.priority ?? 1) <= maxP)
     return vis.length > 0 ? vis : columns
   })
@@ -81,7 +82,7 @@
   )
 
   function alignCls(col: TableColumn): string {
-    return col.align === 'center' ? 'align-c' : col.align === 'right' ? 'align-r' : 'align-l'
+    return alignClass(col.align)
   }
 
   function sortIcon(col: TableColumn): string {
@@ -117,7 +118,7 @@
       <span
         class="uit-th {alignCls(col)}"
         role="columnheader"
-        aria-sort={sortOn && sortKey === col.key && sortDir != null ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}
+        aria-sort={sortAria(sortOn, sortKey, col.key, sortDir)}
       >
         {#if sortOn && col.sortable}
           <button type="button" class="thead-sort {alignCls(col)}" onclick={() => onsort?.(col.key)}>

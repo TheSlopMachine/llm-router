@@ -1,6 +1,5 @@
 <script lang="ts">
-  import Icon from '../../../components/ui/controls/Icon.svelte'
-  import { SectionCard, HStack, VStack, Text, Spacer } from '$ui'
+  import { SectionCard, HStack, VStack, Text, Spacer, Icon } from '$ui'
   import { t } from '$lib/i18n.svelte'
 
   let { title, value, loading = false, icon = 'show_chart' } = $props<{

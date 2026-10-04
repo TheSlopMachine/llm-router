@@ -7,6 +7,7 @@
   import Text from '../controls/Text.svelte'
   import FloatingList from '../controls/FloatingList.svelte'
   import StepsView from './StepsView.svelte'
+  import { hasFooterButtons, isTextButtonVariant } from '../../../lib/ui-guards'
 
   let stack = $derived(modal.stack)
 
@@ -62,12 +63,22 @@
 
   function footerStyle(variant: ModalButton['variant']): 'prominent' | 'none' | 'text' {
     if (variant === 'primary') return 'prominent'
-    if (variant === 'text' || variant === 'text danger' || variant === 'text plain') return 'text'
+    if (variant && isTextButtonVariant(variant)) return 'text'
     return variant === 'danger' ? 'prominent' : 'none'
   }
 
   function footerTint(variant: ModalButton['variant']): string | undefined {
-    return variant === 'danger' || variant === 'text danger' ? '#dc2626' : undefined
+    return variant === 'danger' || variant === 'text danger' ? 'var(--color-danger)' : undefined
+  }
+
+  function hasBody(config: ModalConfig): boolean {
+    if (config.type === 'confirm') return !!(config.content || config.message)
+    if (config.type === 'content') return !!config.content
+    return !!config.contentSnippet
+  }
+
+  function hasFooter(config: ModalConfig): boolean {
+    return hasFooterButtons(config.buttons) || !!config.menu
   }
 
   function getContentProps(config: ModalConfig): Record<string, any> {
@@ -145,7 +156,7 @@
         <div class="modal-body">
           {@render config.contentSnippet()}
         </div>
-      {:else if config.type === 'confirm' ? (config.content || config.message) : config.content}
+      {:else if hasBody(config)}
         <div class="modal-body">
           {#if config.type === 'confirm'}
             {#if config.content}
@@ -163,7 +174,7 @@
         </div>
       {/if}
 
-      {#if (config.buttons && config.buttons.length > 0) || config.menu}
+      {#if hasFooter(config)}
         <div class="modal-footer" class:footer-bordered={config.type === 'content'}>
           <div class="footer-actions">
             {#if config.buttons}

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CodeBlock, Grid, VStack, Text } from '$ui'
+  import { CodeBlock, Grid, VStack, Text, Banner, Box } from '$ui'
   import { t } from '$lib/i18n.svelte'
 
   let {
@@ -22,24 +22,30 @@
   </VStack>
 
   {#if error}
-    <Text tone="danger" size="sm">{error}</Text>
+    <Banner variant="error" text={error} />
   {/if}
 
   <CodeBlock text={token ?? ''} />
 
   <Grid cols={3} gap={4} class="scope-summary">
-    <VStack align="center" gap={2} class="scope-block">
-      <Text size="xs" weight="medium" tone="soft" class="scope-label">{t('Providers')}</Text>
-      <Text size="sm" weight="medium">{scopeLabel.providers}</Text>
-    </VStack>
-    <VStack align="center" gap={2} class="scope-block">
-      <Text size="xs" weight="medium" tone="soft" class="scope-label">{t('Models')}</Text>
-      <Text size="sm" weight="medium">{scopeLabel.models}</Text>
-    </VStack>
-    <VStack align="center" gap={2} class="scope-block">
-      <Text size="xs" weight="medium" tone="soft" class="scope-label">{t('Credentials')}</Text>
-      <Text size="sm" weight="medium">{scopeLabel.credentials}</Text>
-    </VStack>
+    <Box elev radius="md" pad={4}>
+      <VStack align="center" gap={2}>
+        <Text size="xs" weight="medium" tone="soft" class="scope-label">{t('Providers')}</Text>
+        <Text size="sm" weight="medium">{scopeLabel.providers}</Text>
+      </VStack>
+    </Box>
+    <Box elev radius="md" pad={4}>
+      <VStack align="center" gap={2}>
+        <Text size="xs" weight="medium" tone="soft" class="scope-label">{t('Models')}</Text>
+        <Text size="sm" weight="medium">{scopeLabel.models}</Text>
+      </VStack>
+    </Box>
+    <Box elev radius="md" pad={4}>
+      <VStack align="center" gap={2}>
+        <Text size="xs" weight="medium" tone="soft" class="scope-label">{t('Credentials')}</Text>
+        <Text size="sm" weight="medium">{scopeLabel.credentials}</Text>
+      </VStack>
+    </Box>
   </Grid>
 </VStack>
 
@@ -47,13 +53,6 @@
   /* :global — every class below rides a ui-component root in another component. */
   :global(.scope-summary) {
     width: 100%;
-  }
-
-  :global(.scope-block) {
-    padding: 14px 12px;
-    border-radius: 12px;
-    background: var(--elev);
-    text-align: center;
   }
 
   :global(.scope-label) {

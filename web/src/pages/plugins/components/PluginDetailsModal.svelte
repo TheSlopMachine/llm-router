@@ -14,6 +14,8 @@
     crashes?: Array<{ at: string; type_key: string; cause: string }>
     loading?: boolean
   }>()
+
+  let hasDiagnostics = $derived(logs.length > 0 || crashes.length > 0 || loading)
 </script>
 
 <VStack gap={4}>
@@ -55,7 +57,7 @@
     {/if}
   </VStack>
 
-  {#if logs.length > 0 || crashes.length > 0 || loading}
+  {#if hasDiagnostics}
     <VStack gap={2}>
       <Text tag="h3" size="sm" weight="bold">{t('Recent crashes')}</Text>
       {#if loading}

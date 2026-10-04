@@ -9,6 +9,7 @@
   import { cubicOut, cubicIn } from 'svelte/easing'
   import { portal } from '../../../lib/portal'
   import { squircle } from '../../../lib/squircle'
+  import { resolveMenuWidth } from '../../../lib/steps'
 
   let {
     open,
@@ -42,9 +43,7 @@
     children: Snippet
   }>()
 
-  const size = $derived(
-    width !== undefined ? `width: ${width}px;` : minWidth !== undefined ? `min-width: ${minWidth}px;` : ''
-  )
+  const size = $derived(resolveMenuWidth(width, minWidth))
 </script>
 
 {#if open}

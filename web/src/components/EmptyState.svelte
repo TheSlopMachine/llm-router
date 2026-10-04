@@ -32,7 +32,7 @@
   /* Global: the class rides the Icon root, Svelte drops
      component-passed classes from scoped CSS as unused. */
   :global(.empty-icon) {
-    font-size: 64px;
+    font-size: var(--text-display);
     color: var(--color-text-soft);
   }
 </style>

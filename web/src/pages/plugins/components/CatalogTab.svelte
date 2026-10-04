@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, FloatingView, HStack, VStack, Text, Switch, SearchField, TextEdit, List, SectionCard, Chip, Spacer } from '$ui'
+  import { Button, FloatingView, HStack, VStack, Text, Switch, SearchField, TextEdit, List, SectionCard, Chip, Spacer, Banner, ConfirmAction } from '$ui'
   import EmptyState from '../../../components/EmptyState.svelte'
   import PluginCard from './PluginCard.svelte'
   import PluginDetailsModal from './PluginDetailsModal.svelte'
@@ -13,6 +13,7 @@
   import { modal } from '$lib/modal.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
+  import { matchesStoreFile, hasStoreOrigin, storeKey } from '$lib/plugin-search'
 
   interface RepoEntry {
     repo: PluginRepo
@@ -47,7 +48,7 @@
   }
 
   function findRepoPath(plugin: Plugin): { repo_id: string; path: string } | null {
-    if (plugin.origin && !plugin.origin.manual && plugin.origin.repo_id && plugin.origin.path) {
+    if (hasStoreOrigin(plugin)) {
       if (!repos.some((entry: RepoEntry) => entry.repo.id === plugin.origin.repo_id)) {
         return null
       }
@@ -64,8 +65,8 @@
     findUpdate,
     findRepoPath,
     findStoreFile: (plugin: Plugin) => {
-      if (plugin.origin && !plugin.origin.manual && plugin.origin.repo_id && plugin.origin.path) {
-        return fileByOrigin.get(`${plugin.origin.repo_id}/${plugin.origin.path}`) ?? null
+      if (hasStoreOrigin(plugin)) {
+        return fileByOrigin.get(storeKey(plugin.origin.repo_id, plugin.origin.path)) ?? null
       }
       return null
     }
@@ -74,8 +75,8 @@
   let pluginByOrigin = $derived.by(() => {
     const map = new Map<string, Plugin>()
     for (const p of plugins) {
-      if (p.origin && !p.origin.manual && p.origin.repo_id && p.origin.path) {
-        map.set(`${p.origin.repo_id}/${p.origin.path}`, p)
+      if (hasStoreOrigin(p)) {
+        map.set(storeKey(p.origin.repo_id, p.origin.path), p)
       }
     }
     return map
@@ -87,21 +88,23 @@
     const map = new Map<string, StoreFile>()
     for (const entry of repos) {
       for (const f of entry.files) {
-        map.set(`${f.repo_id}/${f.path}`, f)
+        map.set(storeKey(f.repo_id, f.path), f)
       }
     }
     return map
   })
 
   function matchesQuery(f: StoreFile): boolean {
-    const q = query.trim().toLowerCase()
-    if (!q) return true
-    return (
-      (f.display_name || '').toLowerCase().includes(q) ||
-      f.path.toLowerCase().includes(q) ||
-      (f.description || '').toLowerCase().includes(q)
-    )
+    return matchesStoreFile(f, query)
   }
+
+  function isRepoVisible(entry: RepoEntry): boolean {
+    if (entry.error) return true
+    if (entry.files.length > 0) return true
+    return !query.trim() && !showUpdatesOnly
+  }
+
+  let showUpdatesBanner = $derived(availableUpdates.length > 0 && !showUpdatesOnly)
 
   let visibleRepos = $derived.by(() => {
     return repos
@@ -112,11 +115,11 @@
           return matchesQuery(f)
         })
       }))
-      .filter((entry: RepoEntry) => entry.error || entry.files.length > 0 || (!query.trim() && !showUpdatesOnly))
+      .filter((entry: RepoEntry) => isRepoVisible(entry))
   })
 
   async function installEntry(repoId: string, path: string): Promise<void> {
-    const key = `${repoId}/${path}`
+    const key = storeKey(repoId, path)
     installingPath = key
     actionError = ''
     try {
@@ -245,13 +248,13 @@
 
 <VStack gap={4}>
   {#if actionError}
-    <Text tone="danger" size="sm">{actionError}</Text>
+    <Banner variant="error" text={actionError} />
   {/if}
 
   <HStack align="center" gap={4}>
-    <div style="flex: 1;">
+    <HStack grow>
       <SearchField bind:value={query} placeholder={t('Search catalog...')} />
-    </div>
+    </HStack>
     <HStack align="center" gap={4}>
       <HStack align="center" gap={2}>
         <Text size="sm">{t('Updates only')}</Text>
@@ -280,11 +283,11 @@
     </SectionCard>
   {/if}
 
-  {#if availableUpdates.length > 0 && !showUpdatesOnly}
+  {#if showUpdatesBanner}
     <SectionCard title="Updates available">
       <List>
         {#each availableUpdates as u}
-          {@const file = fileByOrigin.get(`${u.repo_id}/${u.path}`) ?? null}
+          {@const file = fileByOrigin.get(storeKey(u.repo_id, u.path)) ?? null}
           {@const installed = plugins.find((p: Plugin) => p.id === u.plugin_id) ?? null}
           <div style="padding: var(--space-3) var(--space-4);">
             <HStack align="center" gap={3}>
@@ -334,7 +337,7 @@
             {#if !entry.repo.builtin}
               <Button
                 style="text"
-                tint="#dc2626"
+                tint="var(--color-danger)"
                 icon={{ name: 'delete' }}
                 size="small"
                 onclick={(e) => openRemoveRepo(entry, e.currentTarget as HTMLElement)}
@@ -345,14 +348,14 @@
         </HStack>
 
         {#if entry.error}
-          <Text tone="danger" size="sm">{entry.error}</Text>
+          <Banner variant="error" text={entry.error} />
         {:else if entry.files.length === 0}
-          <Text tone="soft" size="sm" align="center" class="empty">{t('No plugins in this repository.')}</Text>
+          <EmptyState title={t('No plugins in this repository.')} icon="extension" />
         {:else}
           <List>
-            {#each entry.files as f (`${f.repo_id}/${f.path}`)}
-              {@const plugin = pluginByOrigin.get(`${f.repo_id}/${f.path}`) ?? null}
-              {@const key = `${f.repo_id}/${f.path}`}
+            {#each entry.files as f (storeKey(f.repo_id, f.path))}
+              {@const plugin = pluginByOrigin.get(storeKey(f.repo_id, f.path)) ?? null}
+              {@const key = storeKey(f.repo_id, f.path)}
               {#if plugin}
                 {@const update = findUpdate(plugin)}
                 <PluginCard
@@ -394,26 +397,14 @@
     label={t('Remove repository')}
   >
     {#snippet children({ close })}
-      <VStack gap={3} style="max-width: 280px;">
-        <VStack gap={1}>
-          <Text weight="medium" size="base">{t('Remove repository')}</Text>
-          <Text size="sm" tone="soft">
-            {t('Remove this repository from the store? Installed plugins stay installed.')}
-          </Text>
-        </VStack>
-        <HStack justify="end" gap={2}>
-          <Button size="small" style="text" onclick={close} disabled={removingRepo}>{t('Cancel')}</Button>
-          <Button
-            size="small"
-            style="prominent"
-            tint="#dc2626"
-            disabled={removingRepo}
-            onclick={confirmRemoveRepo}
-          >
-            {removingRepo ? t('Removing…') : t('Remove')}
-          </Button>
-        </HStack>
-      </VStack>
+      <ConfirmAction
+        title={t('Remove repository')}
+        body={t('Remove this repository from the store? Installed plugins stay installed.')}
+        confirmLabel={t('Remove')}
+        busy={removingRepo}
+        busyLabel={t('Removing…')}
+        onCancel={close}
+        onConfirm={confirmRemoveRepo} />
     {/snippet}
   </FloatingView>
 
@@ -424,26 +415,13 @@
     label={t('Delete plugin')}
   >
     {#snippet children({ close })}
-      <VStack gap={3} style="max-width: 280px;">
-        <VStack gap={1}>
-          <Text weight="medium" size="base">{t('Delete plugin')}</Text>
-          <Text size="sm" tone="soft">
-            {t('Delete')} "{pluginState.pendingDelete?.plugin.display_name}"? {t('Providers using its types will stop working.')}
-          </Text>
-        </VStack>
-        <HStack justify="end" gap={2}>
-          <Button size="small" style="text" onclick={close} disabled={pluginState.deleting}>{t('Cancel')}</Button>
-          <Button
-            size="small"
-            style="prominent"
-            tint="#dc2626"
-            disabled={pluginState.deleting}
-            onclick={() => void pluginState.doDelete()}
-          >
-            {pluginState.deleting ? t('Deleting…') : t('Delete')}
-          </Button>
-        </HStack>
-      </VStack>
+      <ConfirmAction
+        title={t('Delete plugin')}
+        body={`${t('Delete')} "${pluginState.pendingDelete?.plugin.display_name}"? ${t('Providers using its types will stop working.')}`}
+        busy={pluginState.deleting}
+        busyLabel={t('Deleting…')}
+        onCancel={close}
+        onConfirm={() => void pluginState.doDelete()} />
     {/snippet}
   </FloatingView>
 

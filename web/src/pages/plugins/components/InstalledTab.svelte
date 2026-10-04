@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { SearchField, Button, FloatingView, List, VStack, HStack, Text } from '$ui'
+  import { SearchField, Button, FloatingView, List, VStack, HStack, Text, Banner, ConfirmAction, FilePicker } from '$ui'
   import EmptyState from '../../../components/EmptyState.svelte'
   import PluginCard from './PluginCard.svelte'
   import { createPluginState } from './plugin-state.svelte'
@@ -7,6 +7,7 @@
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
+  import { matchesPlugin, hasStoreOrigin, storeKey } from '$lib/plugin-search'
 
   let {
     plugins,
@@ -27,14 +28,14 @@
   let query = $state('')
   let actionError = $state('')
   let uploading = $state(false)
-  let fileInput = $state<HTMLInputElement>()
+  let uploadLabel = $derived(uploading ? t('Uploading…') : t('Upload file'))
 
   function findUpdate(plugin: Plugin): PluginUpdate | null {
     return updates.find((u: PluginUpdate) => u.plugin_id === plugin.id && u.update_available) ?? null
   }
 
   function findRepoPath(plugin: Plugin): { repo_id: string; path: string } | null {
-    if (plugin.origin && !plugin.origin.manual && plugin.origin.repo_id && plugin.origin.path) {
+    if (hasStoreOrigin(plugin)) {
       if (!knownRepoIDs.includes(plugin.origin.repo_id)) {
         return null
       }
@@ -47,15 +48,15 @@
     const map = new Map<string, StoreFile>()
     for (const entry of repos) {
       for (const f of entry.files) {
-        map.set(`${f.repo_id}/${f.path}`, f)
+        map.set(storeKey(f.repo_id, f.path), f)
       }
     }
     return map
   })
 
   function findStoreFile(plugin: Plugin): StoreFile | null {
-    if (plugin.origin && !plugin.origin.manual && plugin.origin.repo_id && plugin.origin.path) {
-      return storeFileByOrigin.get(`${plugin.origin.repo_id}/${plugin.origin.path}`) ?? null
+    if (hasStoreOrigin(plugin)) {
+      return storeFileByOrigin.get(storeKey(plugin.origin.repo_id, plugin.origin.path)) ?? null
     }
     return null
   }
@@ -85,22 +86,11 @@
 
   let filtered = $derived(
     query.trim()
-      ? plugins.filter((p: Plugin) => {
-          const q = query.trim().toLowerCase()
-          return (
-            p.display_name.toLowerCase().includes(q) ||
-            p.id.toLowerCase().includes(q) ||
-            p.description.toLowerCase().includes(q) ||
-            p.type_keys.some((k: string) => k.toLowerCase().includes(q))
-          )
-        })
+      ? plugins.filter((p: Plugin) => matchesPlugin(p, query))
       : plugins
   )
 
-  async function uploadFile(e: Event): Promise<void> {
-    const input = e.target as HTMLInputElement
-    const file = input.files?.[0]
-    if (!file) return
+  async function uploadPickedFile(file: File): Promise<void> {
     uploading = true
     actionError = ''
     try {
@@ -111,28 +101,26 @@
       actionError = getErrorMessage(err)
     } finally {
       uploading = false
-      input.value = ''
     }
   }
 </script>
 
 <VStack gap={4}>
   {#if actionError}
-    <Text tone="danger" size="sm">{actionError}</Text>
+    <Banner variant="error" text={actionError} />
   {/if}
 
   <HStack align="center" gap={3}>
-    <div style="flex: 1;">
+    <HStack grow>
       <SearchField bind:value={query} placeholder={t('Search installed plugins...')} />
-    </div>
-    <input
-      bind:this={fileInput}
-      type="file"
+    </HStack>
+    <FilePicker
       accept=".lua"
-      onchange={uploadFile}
+      label={t('Upload plugin file')}
+      buttonText={uploadLabel}
+      icon="upload_file"
       disabled={uploading}
-      style="display: none;"
-    />
+      onPick={(file) => void uploadPickedFile(file)} />
     {#if updateCount > 0}
       <Button
         style="prominent"
@@ -142,13 +130,6 @@
         onclick={() => void pluginState.updateAll(plugins)}
       />
     {/if}
-    <Button
-      style="none"
-      icon={{ name: 'upload_file' }}
-      text={uploading ? t('Uploading…') : t('Upload file')}
-      disabled={uploading}
-      onclick={() => fileInput?.click()}
-    />
   </HStack>
 
   {#if plugins.length === 0}
@@ -162,7 +143,7 @@
       action={browseCatalogAction}
     />
   {:else if filtered.length === 0}
-    <Text tone="soft" align="center">{t('No plugins match the search.')}</Text>
+    <EmptyState title={t('No plugins match the search.')} icon="search" />
   {:else}
     <List>
       {#each filtered as plugin (plugin.id)}
@@ -190,26 +171,13 @@
     label={t('Delete plugin')}
   >
     {#snippet children({ close })}
-      <VStack gap={3} style="max-width: 280px;">
-        <VStack gap={1}>
-          <Text weight="medium" size="base">{t('Delete plugin')}</Text>
-          <Text size="sm" tone="soft">
-            {t('Delete')} "{pluginState.pendingDelete?.plugin.display_name}"? {t('Providers using its types will stop working.')}
-          </Text>
-        </VStack>
-        <HStack justify="end" gap={2}>
-          <Button size="small" style="text" onclick={close} disabled={pluginState.deleting}>{t('Cancel')}</Button>
-          <Button
-            size="small"
-            style="prominent"
-            tint="#dc2626"
-            disabled={pluginState.deleting}
-            onclick={() => void pluginState.doDelete()}
-          >
-            {pluginState.deleting ? t('Deleting…') : t('Delete')}
-          </Button>
-        </HStack>
-      </VStack>
+      <ConfirmAction
+        title={t('Delete plugin')}
+        body={`${t('Delete')} "${pluginState.pendingDelete?.plugin.display_name}"? ${t('Providers using its types will stop working.')}`}
+        busy={pluginState.deleting}
+        busyLabel={t('Deleting…')}
+        onCancel={close}
+        onConfirm={() => void pluginState.doDelete()} />
     {/snippet}
   </FloatingView>
 

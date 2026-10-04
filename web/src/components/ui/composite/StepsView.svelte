@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte'
   import Text from '../controls/Text.svelte'
   import Icon from '../controls/Icon.svelte'
+  import { resolveStepState } from '../../../lib/steps'
 
   // Stepped progress: circles with step titles, 2px rails between them.
   // States come from the current binding: done (check), current (number),
@@ -86,7 +87,7 @@
       <span class="step-rail" class:done={rightIndex(nodes, k) <= cur} aria-hidden="true"></span>
     {/if}
     {#if node.kind === 'step'}
-      {@const state = node.index < cur ? 'done' : node.index === cur ? 'current' : 'todo'}
+      {@const state = resolveStepState(node.index, cur)}
       <div class="step-cell" role="listitem" aria-current={state === 'current' ? 'step' : undefined}>
         <span class="step-circle" class:done={state === 'done'} class:current={state === 'current'}>
           {#if state === 'done'}
