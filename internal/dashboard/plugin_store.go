@@ -292,13 +292,15 @@ func (h *Handler) apiStoreUpdates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type updateView struct {
-		PluginID        string `json:"plugin_id"`
-		Current         string `json:"current"`
-		Latest          string `json:"latest"`
-		RepoID          string `json:"repo_id"`
-		Path            string `json:"path"`
-		UpdateAvailable bool   `json:"update_available"`
-		Error           string `json:"error,omitempty"`
+		PluginID        string   `json:"plugin_id"`
+		Current         string   `json:"current"`
+		Latest          string   `json:"latest"`
+		RepoID          string   `json:"repo_id"`
+		Path            string   `json:"path"`
+		NewAllowHosts   []string `json:"new_allow_hosts"`
+		NewUnsafe       bool     `json:"new_unsafe"`
+		UpdateAvailable bool     `json:"update_available"`
+		Error           string   `json:"error,omitempty"`
 	}
 	ch := make(chan updateView, len(installed))
 	count := 0
@@ -308,7 +310,7 @@ func (h *Handler) apiStoreUpdates(w http.ResponseWriter, r *http.Request) {
 		}
 		count++
 		go func(rec *luaplugin.PluginRecord) {
-			view := updateView{PluginID: rec.ID, Current: rec.Version, RepoID: rec.Origin.RepoID, Path: rec.Origin.Path}
+			view := updateView{PluginID: rec.ID, Current: rec.Version, RepoID: rec.Origin.RepoID, Path: rec.Origin.Path, NewAllowHosts: []string{}}
 			source, err := h.repoSvc.FetchFile(r.Context(), rec.Origin.RepoID, rec.Origin.Path)
 			if err != nil {
 				view.Error = err.Error()
@@ -322,6 +324,8 @@ func (h *Handler) apiStoreUpdates(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			view.Latest = manifest.Version
+			view.NewAllowHosts = append([]string{}, manifest.AllowHosts...)
+			view.NewUnsafe = manifest.Unsafe
 			if cmp, cerr := luaplugin.CompareVersions(manifest.Version, rec.Version); cerr == nil && cmp > 0 {
 				view.UpdateAvailable = true
 			}

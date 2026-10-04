@@ -362,6 +362,8 @@ export interface PluginUpdate {
   latest: string
   repo_id: string
   path: string
+  new_allow_hosts: string[]
+  new_unsafe: boolean
   update_available: boolean
   error?: string
 }

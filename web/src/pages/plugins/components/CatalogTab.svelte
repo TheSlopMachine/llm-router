@@ -6,7 +6,8 @@
   import RepoDetailsModal from './RepoDetailsModal.svelte'
   import { createPluginState } from './plugin-state.svelte'
   import { factsFromFile } from './plugin-facts'
-  import { confirmInstall } from './install-confirm'
+  import { diffAllowHosts } from './plugin-permission-diff'
+  import { confirmInstall, confirmUpdate } from './install-confirm'
   import type { Plugin, PluginRepo, PluginUpdate, StoreFile } from '$lib/types'
   import { api } from '$lib/api'
   import { modal } from '$lib/modal.svelte'
@@ -61,7 +62,13 @@
       actionError = message
     },
     findUpdate,
-    findRepoPath
+    findRepoPath,
+    findStoreFile: (plugin: Plugin) => {
+      if (plugin.origin && !plugin.origin.manual && plugin.origin.repo_id && plugin.origin.path) {
+        return fileByOrigin.get(`${plugin.origin.repo_id}/${plugin.origin.path}`) ?? null
+      }
+      return null
+    }
   })
 
   let pluginByOrigin = $derived.by(() => {
@@ -124,17 +131,39 @@
 
   async function handleCatalogAction(plugin: Plugin, file: StoreFile, id: string, anchor?: HTMLElement): Promise<void> {
     if (id === 'update') {
-      await confirmAndInstall(file, 'Update')
+      await confirmAndInstall(file, 'Update', plugin)
       return
     }
     if (id === 'reinstall') {
-      await confirmAndInstall(file, 'Reinstall')
+      await confirmAndInstall(file, 'Reinstall', plugin)
       return
     }
     await pluginState.handleAction(plugin, id, anchor)
   }
 
-  async function confirmAndInstall(file: StoreFile, label: string): Promise<void> {
+  async function confirmAndInstall(file: StoreFile, label: string, plugin?: Plugin): Promise<void> {
+    if (plugin) {
+      const update = findUpdate(plugin)
+      const latest = update?.latest || file.version
+      const diff = diffAllowHosts(plugin.allow_hosts ?? [], plugin.unsafe, file.allow_hosts ?? [], file.unsafe)
+      const confirmed = await confirmUpdate(
+        `${label} ${file.display_name || file.path}`,
+        {
+          displayName: file.display_name || file.path,
+          current: plugin.version,
+          latest,
+          newHosts: [...(file.allow_hosts ?? [])],
+          newUnsafe: file.unsafe,
+          added: diff.added,
+          removed: diff.removed,
+          escalatesToUnsafe: diff.escalatesToUnsafe
+        },
+        label
+      )
+      if (!confirmed) return
+      await installEntry(file.repo_id, file.path)
+      return
+    }
     const confirmed = await confirmInstall(
       `${label} ${file.display_name || file.path}`,
       factsFromFile(file),
@@ -256,12 +285,13 @@
       <List>
         {#each availableUpdates as u}
           {@const file = fileByOrigin.get(`${u.repo_id}/${u.path}`) ?? null}
+          {@const installed = plugins.find((p: Plugin) => p.id === u.plugin_id) ?? null}
           <div style="padding: var(--space-3) var(--space-4);">
             <HStack align="center" gap={3}>
               <Text size="sm">{u.plugin_id}: {u.current} → {u.latest}</Text>
               <Spacer />
               {#if file}
-                <Button style="none" size="small" onclick={() => confirmAndInstall(file, 'Update')}>{t('Update')}</Button>
+                <Button style="none" size="small" onclick={() => confirmAndInstall(file, 'Update', installed ?? undefined)}>{t('Update')}</Button>
               {:else}
                 <Button style="none" size="small" onclick={() => installEntry(u.repo_id, u.path)}>{t('Update')}</Button>
               {/if}

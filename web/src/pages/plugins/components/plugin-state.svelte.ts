@@ -3,10 +3,11 @@ import { modal } from '$lib/modal.svelte'
 import { toast } from '$lib/toast.svelte'
 import { getErrorMessage } from '$lib/errors'
 import { t } from '$lib/i18n.svelte'
-import type { Plugin, PluginUpdate } from '$lib/types'
+import type { Plugin, PluginUpdate, StoreFile } from '$lib/types'
 import PluginDetailsModal from './PluginDetailsModal.svelte'
 import { factsFromPlugin } from './plugin-facts'
-import { confirmInstall } from './install-confirm'
+import { diffAllowHosts } from './plugin-permission-diff'
+import { confirmInstall, confirmUpdate, confirmUpdateAll, type UpdateAllRow } from './install-confirm'
 
 export interface PluginCardAction {
   id: string
@@ -25,6 +26,7 @@ export function createPluginState(opts: {
   onError: (message: string) => void
   findUpdate: (plugin: Plugin) => PluginUpdate | null
   findRepoPath: (plugin: Plugin) => { repo_id: string; path: string } | null
+  findStoreFile?: (plugin: Plugin) => StoreFile | null
 }) {
   async function openDetails(plugin: Plugin): Promise<void> {
     modal.open({
@@ -95,19 +97,96 @@ export function createPluginState(opts: {
   }
 
   async function updatePlugin(plugin: Plugin, confirmLabel: string): Promise<void> {
-    const target = opts.findUpdate(plugin) ?? opts.findRepoPath(plugin)
+    const update = opts.findUpdate(plugin)
+    const target = update ?? opts.findRepoPath(plugin)
     if (!target) return
-    const confirmed = await confirmInstall(
-      `${confirmLabel} ${plugin.display_name}`,
-      factsFromPlugin(plugin),
-      confirmLabel
-    )
-    if (!confirmed) return
+    const file = opts.findStoreFile?.(plugin) ?? null
+    const newHosts = update?.new_allow_hosts ?? file?.allow_hosts ?? null
+    const newUnsafe = update?.new_unsafe ?? file?.unsafe ?? null
+    const latest = update?.latest || file?.version || plugin.version
+    if (newHosts === null || newUnsafe === null) {
+      const confirmed = await confirmInstall(
+        `${confirmLabel} ${plugin.display_name}`,
+        factsFromPlugin(plugin),
+        confirmLabel
+      )
+      if (!confirmed) return
+    } else {
+      const diff = diffAllowHosts(plugin.allow_hosts ?? [], plugin.unsafe, newHosts ?? [], newUnsafe)
+      const confirmed = await confirmUpdate(
+        `${confirmLabel} ${plugin.display_name}`,
+        {
+          displayName: plugin.display_name,
+          current: plugin.version,
+          latest,
+          newHosts: newHosts ?? [],
+          newUnsafe,
+          added: diff.added,
+          removed: diff.removed,
+          escalatesToUnsafe: diff.escalatesToUnsafe
+        },
+        confirmLabel
+      )
+      if (!confirmed) return
+    }
     try {
       await api.plugins.installFromRepo(target.repo_id, target.path)
+      toast.success(`${plugin.display_name} updated to v${latest}`)
       await opts.onReload()
     } catch (e) {
       opts.onError(getErrorMessage(e))
+    }
+  }
+
+  let updatingAll = $state(false)
+
+  async function updateAll(plugins: Plugin[]): Promise<void> {
+    if (updatingAll) return
+    const pending = plugins.filter((p) => opts.findUpdate(p) !== null)
+    if (pending.length === 0) return
+    const rows: UpdateAllRow[] = pending.map((plugin) => {
+      const update = opts.findUpdate(plugin)
+      const file = opts.findStoreFile?.(plugin) ?? null
+      const newHosts = update?.new_allow_hosts ?? file?.allow_hosts ?? [...(plugin.allow_hosts ?? [])]
+      const newUnsafe = update?.new_unsafe ?? file?.unsafe ?? plugin.unsafe
+      const diff = diffAllowHosts(plugin.allow_hosts ?? [], plugin.unsafe, newHosts, newUnsafe)
+      return {
+        pluginId: plugin.id,
+        displayName: plugin.display_name,
+        current: plugin.version,
+        latest: update?.latest || file?.version || plugin.version,
+        added: diff.added,
+        removed: diff.removed,
+        escalatesToUnsafe: diff.escalatesToUnsafe
+      }
+    })
+    const confirmed = await confirmUpdateAll(rows, 'Update all')
+    if (!confirmed) return
+    updatingAll = true
+    const failures: string[] = []
+    let succeeded = 0
+    try {
+      for (const plugin of pending) {
+        const target = opts.findUpdate(plugin) ?? opts.findRepoPath(plugin)
+        if (!target) {
+          failures.push(`${plugin.display_name}: no repository origin`)
+          continue
+        }
+        try {
+          await api.plugins.installFromRepo(target.repo_id, target.path)
+          succeeded++
+        } catch (e) {
+          failures.push(`${plugin.display_name}: ${getErrorMessage(e)}`)
+        }
+      }
+      await opts.onReload()
+      if (failures.length === 0) {
+        toast.success(`${succeeded} plugins updated`)
+      } else {
+        opts.onError(failures.join('\n'))
+      }
+    } finally {
+      updatingAll = false
     }
   }
 
@@ -180,8 +259,12 @@ export function createPluginState(opts: {
     openRollback,
     doRollback,
     updatePlugin,
+    updateAll,
     buildActions,
     handleAction,
+    get updatingAll(): boolean {
+      return updatingAll
+    },
     get pendingDelete(): { plugin: Plugin; anchor?: HTMLElement } | null {
       return pendingDelete
     },

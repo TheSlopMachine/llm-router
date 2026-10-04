@@ -43,6 +43,23 @@
     return null
   }
 
+  let storeFileByOrigin = $derived.by(() => {
+    const map = new Map<string, StoreFile>()
+    for (const entry of repos) {
+      for (const f of entry.files) {
+        map.set(`${f.repo_id}/${f.path}`, f)
+      }
+    }
+    return map
+  })
+
+  function findStoreFile(plugin: Plugin): StoreFile | null {
+    if (plugin.origin && !plugin.origin.manual && plugin.origin.repo_id && plugin.origin.path) {
+      return storeFileByOrigin.get(`${plugin.origin.repo_id}/${plugin.origin.path}`) ?? null
+    }
+    return null
+  }
+
   function getPluginOriginText(plugin: Plugin): string {
     if (plugin.origin?.manual) {
       return t('Installed manually')
@@ -60,8 +77,11 @@
       actionError = message
     },
     findUpdate,
-    findRepoPath
+    findRepoPath,
+    findStoreFile
   })
+
+  let updateCount = $derived(updates.filter((u: PluginUpdate) => u.update_available).length)
 
   let filtered = $derived(
     query.trim()
@@ -113,6 +133,15 @@
       disabled={uploading}
       style="display: none;"
     />
+    {#if updateCount > 0}
+      <Button
+        style="prominent"
+        icon={{ name: 'upgrade' }}
+        text={pluginState.updatingAll ? t('Updating…') : `${t('Update all')} (${updateCount})`}
+        disabled={pluginState.updatingAll}
+        onclick={() => void pluginState.updateAll(plugins)}
+      />
+    {/if}
     <Button
       style="none"
       icon={{ name: 'upload_file' }}
