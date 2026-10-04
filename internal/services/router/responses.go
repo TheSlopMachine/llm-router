@@ -266,13 +266,6 @@ func (s *Service) CountResponseInputTokens(req *models.ResponseRequest) int {
 	if req.Instructions != "" {
 		texts = append(texts, req.Instructions)
 	}
-	n := 0
-	for _, t := range texts {
-		n += len(t)
-	}
-	if n == 0 {
-		return 1
-	}
 	return models.EstimateInputTokens(texts)
 }
 

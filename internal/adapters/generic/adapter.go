@@ -12,9 +12,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 )
 
-const adapterTypeKey = "custom"
-
-// Adapter implements the generic OpenAI-compatible backend for "custom" providers.
+// Adapter implements the generic OpenAI-compatible backend for custom providers.
 type Adapter struct {
 	logger *slog.Logger
 }
@@ -22,7 +20,7 @@ type Adapter struct {
 // SetLogger wires the logger for backend lines.
 func (a *Adapter) SetLogger(l *slog.Logger) { a.logger = l }
 
-func (a *Adapter) TypeKey() string { return adapterTypeKey }
+func (a *Adapter) TypeKey() string { return provider.TypeCustom }
 
 func (a *Adapter) ValidateCredentials(data map[string]any) error {
 	apiKey, _ := data["api_key"].(string)
@@ -51,7 +49,7 @@ func (a *Adapter) Complete(
 	if err != nil {
 		return nil, fmt.Errorf("invalid model id: %w", err)
 	}
-	if adapterType != adapterTypeKey {
+	if adapterType != provider.TypeCustom {
 		return nil, fmt.Errorf("generic adapter called for non-custom model %q", req.Model)
 	}
 	baseURL, err := baseURLFromConfig(providerConfig)
@@ -88,7 +86,7 @@ func (a *Adapter) CompleteStream(
 	if err != nil {
 		return fmt.Errorf("invalid model id: %w", err)
 	}
-	if adapterType != adapterTypeKey {
+	if adapterType != provider.TypeCustom {
 		return fmt.Errorf("generic adapter called for non-custom model %q", req.Model)
 	}
 	baseURL, err := baseURLFromConfig(providerConfig)
@@ -151,7 +149,7 @@ func (a *Adapter) SubmitVideo(
 	if err != nil {
 		return nil, fmt.Errorf("invalid model id: %w", err)
 	}
-	if adapterType != adapterTypeKey {
+	if adapterType != provider.TypeCustom {
 		return nil, fmt.Errorf("generic adapter called for non-custom model %q", req.Model)
 	}
 	baseURL, err := baseURLFromConfig(providerConfig)
@@ -189,7 +187,7 @@ func (a *Adapter) PollVideo(
 	if err != nil {
 		return nil, fmt.Errorf("invalid model id: %w", err)
 	}
-	if adapterType != adapterTypeKey {
+	if adapterType != provider.TypeCustom {
 		return nil, fmt.Errorf("generic adapter called for non-custom model %q", model)
 	}
 	baseURL, err := baseURLFromConfig(providerConfig)
@@ -228,7 +226,7 @@ func (a *Adapter) VideoContent(
 	if err != nil {
 		return nil, fmt.Errorf("invalid model id: %w", err)
 	}
-	if adapterType != adapterTypeKey {
+	if adapterType != provider.TypeCustom {
 		return nil, fmt.Errorf("generic adapter called for non-custom model %q", model)
 	}
 	baseURL, err := baseURLFromConfig(providerConfig)

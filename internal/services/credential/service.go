@@ -217,7 +217,7 @@ func (s *Service) UpdateDetails(id string, label *string, disabled *bool, data m
 			c.Disabled = *disabled
 			if *disabled {
 				now := util.Now()
-				c.DisabledBy = "admin"
+				c.DisabledBy = models.DisabledByAdmin
 				c.DisabledReason = "disabled by admin"
 				c.DisabledAt = &now
 			} else {
@@ -264,7 +264,7 @@ func (s *Service) DisableUnhealthy(id, reason string) error {
 		}
 		now := util.Now()
 		c.Disabled = true
-		c.DisabledBy = "healthcheck"
+		c.DisabledBy = models.DisabledByHealthcheck
 		c.DisabledReason = reason
 		c.DisabledAt = &now
 		c.UpdatedAt = now
@@ -301,7 +301,7 @@ func (s *Service) DisableByPlugin(id, reason string) error {
 		}
 		now := util.Now()
 		c.Disabled = true
-		c.DisabledBy = "plugin"
+		c.DisabledBy = models.DisabledByPlugin
 		c.DisabledReason = reason
 		c.DisabledAt = &now
 		c.UpdatedAt = now
@@ -327,7 +327,7 @@ func (s *Service) DisableByPlugin(id, reason string) error {
 func (s *Service) EnableByPlugin(id string) error {
 	var cleared bool
 	err := s.repo.Update(id, func(c *models.Credential) error {
-		if !c.Disabled || c.DisabledBy != "plugin" {
+		if !c.Disabled || c.DisabledBy != models.DisabledByPlugin {
 			return nil
 		}
 		c.Disabled = false

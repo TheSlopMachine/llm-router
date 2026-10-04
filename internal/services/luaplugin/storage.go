@@ -41,6 +41,24 @@ func ParseStorageKey(raw string) (pluginID, scope, key string, ok bool) {
 	return parts[0], parts[1], parts[2], true
 }
 
+// StorageKey identifies one plugin storage entry.
+type StorageKey struct {
+	PluginID string
+	Scope    string
+	Key      string
+}
+
+// requireStorageKey validates scope and key once for all storage operations.
+func requireStorageKey(scope, key string) error {
+	if strings.TrimSpace(scope) == "" {
+		return fmt.Errorf("storage scope is required")
+	}
+	if strings.TrimSpace(key) == "" {
+		return fmt.Errorf("storage key is required")
+	}
+	return nil
+}
+
 // storageEnvelope wraps every stored value with an optional expiry.
 type storageEnvelope struct {
 	Value     any        `json:"value"`
@@ -48,11 +66,8 @@ type storageEnvelope struct {
 }
 
 func (b *storageBackend) set(pluginID, scope, key string, value any, ttl time.Duration) error {
-	if strings.TrimSpace(scope) == "" {
-		return fmt.Errorf("storage scope is required")
-	}
-	if strings.TrimSpace(key) == "" {
-		return fmt.Errorf("storage key is required")
+	if err := requireStorageKey(scope, key); err != nil {
+		return err
 	}
 	if ttl < 0 {
 		return fmt.Errorf("storage ttl must not be negative")
@@ -79,11 +94,8 @@ func (b *storageBackend) set(pluginID, scope, key string, value any, ttl time.Du
 }
 
 func (b *storageBackend) get(pluginID, scope, key string) (any, error) {
-	if strings.TrimSpace(scope) == "" {
-		return nil, fmt.Errorf("storage scope is required")
-	}
-	if strings.TrimSpace(key) == "" {
-		return nil, fmt.Errorf("storage key is required")
+	if err := requireStorageKey(scope, key); err != nil {
+		return nil, err
 	}
 	var raw []byte
 	err := b.database.View(func(tx *bolt.Tx) error {
@@ -132,11 +144,8 @@ func (b *storageBackend) get(pluginID, scope, key string) (any, error) {
 }
 
 func (b *storageBackend) delete(pluginID, scope, key string) error {
-	if strings.TrimSpace(scope) == "" {
-		return fmt.Errorf("storage scope is required")
-	}
-	if strings.TrimSpace(key) == "" {
-		return fmt.Errorf("storage key is required")
+	if err := requireStorageKey(scope, key); err != nil {
+		return err
 	}
 	return b.database.Update(func(tx *bolt.Tx) error {
 		bkt := tx.Bucket(db.BucketPluginStorage)

@@ -648,6 +648,30 @@ const (
 	ResponseRecordRun           ResponseRecordKind = "run"
 )
 
+// Response lifecycle statuses stored on ResponseRecord.Status.
+const (
+	ResponseStatusCompleted    = "completed"
+	ResponseStatusFailed       = "failed"
+	ResponseStatusCanceled     = "canceled"
+	ResponseStatusInProgress   = "in_progress"
+	ResponseStatusRequiresAct  = "requires_action"
+	ResponseObjectResponse     = "response"
+	ResponseObjectConversation = "conversation"
+	ResponseObjectAssistant    = "assistant"
+	ResponseObjectThread       = "thread"
+	ResponseRoleUser           = "user"
+	ResponseRoleAssistant      = "assistant"
+	BatchObjectType            = "message_batch"
+)
+
+// Per-entry batch result types counted in BatchRequestCounts.
+const (
+	BatchResultSucceeded = "succeeded"
+	BatchResultErrored   = "errored"
+	BatchResultCanceled  = "canceled"
+	BatchResultExpired   = "expired"
+)
+
 // ResponseRecord is one row in the responses bucket: every async compat
 // object (response, conversation, assistant, thread, message, run) shares
 // this envelope. Payload holds the wire object JSON; ParentID links thread
@@ -893,13 +917,13 @@ func (b *BatchRecord) ToBatchInfo(resultsURL string) *BatchInfo {
 			continue
 		}
 		switch probe.Type {
-		case "succeeded":
+		case BatchResultSucceeded:
 			counts.Succeeded++
-		case "errored":
+		case BatchResultErrored:
 			counts.Errored++
-		case "canceled":
+		case BatchResultCanceled:
 			counts.Canceled++
-		case "expired":
+		case BatchResultExpired:
 			counts.Expired++
 		default:
 			counts.Errored++
@@ -913,7 +937,7 @@ func (b *BatchRecord) ToBatchInfo(resultsURL string) *BatchInfo {
 	}
 	out := &BatchInfo{
 		ID:               b.ID,
-		Type:             "message_batch",
+		Type:             BatchObjectType,
 		ProcessingStatus: b.Status,
 		RequestCounts:    counts,
 		CreatedAt:        b.CreatedAt.UTC().Format(time.RFC3339),

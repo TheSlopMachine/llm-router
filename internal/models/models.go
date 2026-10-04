@@ -106,6 +106,30 @@ func (m ModelId) ParseFull() (adapterType, qualifier, model string, err error) {
 	return providerID, "", model, nil
 }
 
+// ParsedModelId groups ModelId parse outputs. New code prefers this over
+// the multi-return Parse/ParseFull pair; existing callers stay untouched.
+type ParsedModelId struct {
+	ProviderID  string
+	AdapterType string
+	Qualifier   string
+	Model       string
+}
+
+// ParseStructured parses a ModelId into its structured form.
+func (m ModelId) ParseStructured() (ParsedModelId, error) {
+	adapterType, qualifier, model, err := m.ParseFull()
+	if err != nil {
+		return ParsedModelId{}, err
+	}
+	providerID, _, _ := m.Parse()
+	return ParsedModelId{
+		ProviderID:  providerID,
+		AdapterType: adapterType,
+		Qualifier:   qualifier,
+		Model:       model,
+	}, nil
+}
+
 // Name returns the model name without the provider prefix: everything after
 // the first '/'. Plugins sending the bare name upstream use this instead of
 // hand-rolled stripping. Invalid ids yield the full id unchanged.
@@ -1364,6 +1388,15 @@ func (r TokenRules) Allows(model ModelId) bool {
 // Providers — unified ProviderInstance
 // ─────────────────────────────────────────────
 
+// Who disabled a provider or credential. Single source of truth for
+// DisabledBy comparisons across credential, provider, and healthcheck.
+const (
+	DisabledByAdmin       = "admin"
+	DisabledBySystem      = "system"
+	DisabledByPlugin      = "plugin"
+	DisabledByHealthcheck = "healthcheck"
+)
+
 // ProviderInstance is the single persisted provider record for every type:
 // lua-plugin type keys, built-in "custom" and "virtual".
 type ProviderInstance struct {
@@ -1378,8 +1411,9 @@ type ProviderInstance struct {
 	// Disabled takes the provider out of routing and model listings.
 	// Settings and discovery keep working.
 	Disabled bool `json:"disabled,omitempty"`
-	// DisabledBy names who disabled the provider: "admin" (dashboard PUT)
-	// or "system" (doctor fix for backend-less types). Empty when enabled.
+	// DisabledBy names who disabled the provider: DisabledByAdmin
+	// (dashboard PUT) or DisabledBySystem (doctor fix for backend-less
+	// types). Empty when enabled.
 	DisabledBy string `json:"disabled_by,omitempty"`
 	// DisabledReason carries the human reason (system cause or admin note).
 	DisabledReason string `json:"disabled_reason,omitempty"`
@@ -1464,7 +1498,7 @@ type Credential struct {
 
 	// Disabled excludes the credential from routing and fallthrough.
 	Disabled bool `json:"disabled,omitempty"`
-	// DisabledBy names who disabled the credential: "admin" (dashboard PUT).
+	// DisabledBy names who disabled the credential: DisabledByAdmin.
 	// Empty when enabled.
 	DisabledBy string `json:"disabled_by,omitempty"`
 	// DisabledReason carries the human reason (admin note).

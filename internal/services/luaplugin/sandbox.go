@@ -62,9 +62,9 @@ type execContext struct {
 	// Credential access: list/get serve every context, update serves jobs.
 	// disable/enable serve every context but require the provider
 	// automation switch (checkAutomation).
-	credList   func(providerID string) ([]*models.Credential, error)
-	credGet    func(id string) (*models.Credential, error)
-	credUpdate func(id string, data map[string]any) error
+	credList    func(providerID string) ([]*models.Credential, error)
+	credGet     func(id string) (*models.Credential, error)
+	credUpdate  func(id string, data map[string]any) error
 	credDisable func(id string, reason string) error
 	credEnable  func(id string) error
 	credPark    func(id string, ttl time.Duration, reason string) error

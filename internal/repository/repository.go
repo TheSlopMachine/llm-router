@@ -25,7 +25,7 @@ type Repository[T any] struct {
 //
 // Parameters:
 //   - database: the bbolt database wrapper
-//   - bucket: the bucket name (e.g., db.BucketProviders)
+//   - bucket: the bucket name (e.g., db.BucketProviderInstances)
 //   - name: human-readable name for error messages (e.g., "provider")
 func New[T any](database *db.DB, bucket []byte, name string) *Repository[T] {
 	return &Repository[T]{

@@ -63,7 +63,8 @@ func TestDisableByPluginFirstWins(t *testing.T) {
 	}
 }
 
-func TestEnableByPluginClearsOnlyPluginCause(t *testing.T) {	svc, _ := setupCredentialService(t)
+func TestEnableByPluginClearsOnlyPluginCause(t *testing.T) {
+	svc, _ := setupCredentialService(t)
 	cred, err := svc.Add(AddOptions{ProviderID: "mock", Label: "c", Data: map[string]any{"api_key": "k"}})
 	if err != nil {
 		t.Fatalf("add: %v", err)

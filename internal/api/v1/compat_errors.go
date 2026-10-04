@@ -1,7 +1,10 @@
 package v1
 
 import (
+	"fmt"
 	"net/http"
+	"slices"
+	"strings"
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 )
@@ -37,10 +40,30 @@ func (h *Handler) handleCompatRouterError(w http.ResponseWriter, r *http.Request
 // envelope: oversized bodies are 413, everything else keeps 400.
 func (h *Handler) writeCompatDecodeError(w http.ResponseWriter, r *http.Request, err error) {
 	if isBodyTooLarge(err) {
-		h.writeCompatError(w, r, http.StatusRequestEntityTooLarge, "invalid_request_error", "request body too large", nil)
+		h.writeCompatError(w, r, http.StatusRequestEntityTooLarge, apierrors.CodeInvalidRequest, "request body too large", nil)
 		return
 	}
-	h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "malformed request body: "+err.Error(), nil)
+	h.writeCompatError(w, r, http.StatusBadRequest, apierrors.CodeInvalidRequest, "malformed request body: "+err.Error(), nil)
+}
+
+// requirePathID reads a path parameter once for all compat handlers.
+// Empty values render invalid_request_error and report false.
+func (h *Handler) requirePathID(w http.ResponseWriter, r *http.Request, name, label string) (string, bool) {
+	id := strings.TrimSpace(r.PathValue(name))
+	if id == "" {
+		h.writeCompatError(w, r, http.StatusBadRequest, apierrors.CodeInvalidRequest, label+" id is required", nil)
+		return "", false
+	}
+	return id, true
+}
+
+// validateEnumFormat validates one response/encoding format value against
+// its endpoint set. Empty passes (server default); unknown values deny.
+func validateEnumFormat(field, value string, allowed []string) error {
+	if value == "" || slices.Contains(allowed, value) {
+		return nil
+	}
+	return fmt.Errorf("invalid %s %q", field, value)
 }
 
 // echoAnthropicVersion reflects the negotiated version header. The value is

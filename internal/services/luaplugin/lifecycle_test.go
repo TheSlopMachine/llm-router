@@ -185,7 +185,8 @@ func TestCredentialsDisableEnableSharedState(t *testing.T) {
 	}
 }
 
-func TestCredentialsLifecycleGatedOff(t *testing.T) {	svc := setupService(t)
+func TestCredentialsLifecycleGatedOff(t *testing.T) {
+	svc := setupService(t)
 	if _, err := svc.Install([]byte(lifecyclePluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}

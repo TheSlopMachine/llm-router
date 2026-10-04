@@ -314,7 +314,7 @@ func (s *Service) Update(id string, opts UpdateOptions) (*models.ProviderInstanc
 			p.Disabled = *opts.Disabled
 			if *opts.Disabled {
 				now := time.Now()
-				p.DisabledBy = "admin"
+				p.DisabledBy = models.DisabledByAdmin
 				p.DisabledReason = "disabled by admin"
 				p.DisabledAt = &now
 			} else {
@@ -358,7 +358,7 @@ func (s *Service) SystemDisable(id, reason string) error {
 		}
 		now := time.Now()
 		p.Disabled = true
-		p.DisabledBy = "system"
+		p.DisabledBy = models.DisabledBySystem
 		p.DisabledReason = reason
 		p.DisabledAt = &now
 		p.UpdatedAt = now

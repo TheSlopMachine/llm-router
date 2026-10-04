@@ -3,11 +3,20 @@ package luaplugin
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	lua "github.com/yuin/gopher-lua"
 )
+
+// requireEnum validates a UI node field against its allowed set.
+func requireEnum(field, value string, allowed []string) error {
+	if slices.Contains(allowed, value) {
+		return nil
+	}
+	return fmt.Errorf("invalid %s %q", field, value)
+}
 
 // parseAuthResult discriminates the three auth outcomes by table shape.
 func parseAuthResult(v lua.LValue) (*models.AuthFlowResult, error) {
@@ -256,10 +265,8 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 			return nil, fmt.Errorf("%s node requires name", node.Type)
 		}
 		if node.Type == "input" && node.InputType != "" {
-			switch node.InputType {
-			case "text", "password", "number", "secret":
-			default:
-				return nil, fmt.Errorf("invalid input_type %q", node.InputType)
+			if err := requireEnum("input_type", node.InputType, []string{"text", "password", "number", "secret"}); err != nil {
+				return nil, err
 			}
 		}
 		if node.Type == "select" && len(node.OptionLabels) > 0 {
@@ -285,18 +292,14 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 			node.FormAction = "submit"
 		}
 		if node.Variant != "" {
-			switch node.Variant {
-			case "primary", "secondary", "danger":
-			default:
-				return nil, fmt.Errorf("invalid button variant %q", node.Variant)
+			if err := requireEnum("button variant", node.Variant, []string{"primary", "secondary", "danger"}); err != nil {
+				return nil, err
 			}
 		}
 	case "banner":
 		if node.Variant != "" {
-			switch node.Variant {
-			case "info", "error", "success":
-			default:
-				return nil, fmt.Errorf("invalid banner variant %q", node.Variant)
+			if err := requireEnum("banner variant", node.Variant, []string{"info", "error", "success"}); err != nil {
+				return nil, err
 			}
 		}
 	case "group":
@@ -310,10 +313,8 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 		if node.Direction == "" {
 			node.Direction = "vertical"
 		}
-		switch node.Direction {
-		case "horizontal", "vertical":
-		default:
-			return nil, fmt.Errorf("invalid flow direction %q", node.Direction)
+		if err := requireEnum("flow direction", node.Direction, []string{"horizontal", "vertical"}); err != nil {
+			return nil, err
 		}
 		if v := tbl.RawGetString("gap"); v != lua.LNil {
 			step, err := parseGapStep(v)
@@ -327,18 +328,14 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 		if node.Align == "" {
 			node.Align = "stretch"
 		}
-		switch node.Align {
-		case "start", "center", "end", "stretch":
-		default:
-			return nil, fmt.Errorf("invalid flow align %q", node.Align)
+		if err := requireEnum("flow align", node.Align, []string{"start", "center", "end", "stretch"}); err != nil {
+			return nil, err
 		}
 		if node.Justify == "" {
 			node.Justify = "start"
 		}
-		switch node.Justify {
-		case "start", "center", "end", "between", "around", "evenly":
-		default:
-			return nil, fmt.Errorf("invalid flow justify %q", node.Justify)
+		if err := requireEnum("flow justify", node.Justify, []string{"start", "center", "end", "between", "around", "evenly"}); err != nil {
+			return nil, err
 		}
 	case "grid":
 		if len(node.Content) == 0 {

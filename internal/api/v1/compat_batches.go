@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
@@ -140,9 +139,8 @@ func (h *Handler) listBatches(w http.ResponseWriter, r *http.Request, t *models.
 // @Router       /v1/messages/batches/{batch_id} [get]
 // @Security     BearerAuth
 func (h *Handler) getBatch(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("batch_id"))
-	if id == "" {
-		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "batch id is required", nil)
+	id, ok := h.requirePathID(w, r, "batch_id", "batch")
+	if !ok {
 		return
 	}
 	info, err := h.router.GetBatch(r.Context(), id, t)
@@ -168,9 +166,8 @@ func (h *Handler) getBatch(w http.ResponseWriter, r *http.Request, t *models.Rou
 // @Router       /v1/messages/batches/{batch_id}/results [get]
 // @Security     BearerAuth
 func (h *Handler) getBatchResults(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("batch_id"))
-	if id == "" {
-		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "batch id is required", nil)
+	id, ok := h.requirePathID(w, r, "batch_id", "batch")
+	if !ok {
 		return
 	}
 	lines, err := h.router.GetBatchResults(r.Context(), id, t)
@@ -200,9 +197,8 @@ func (h *Handler) getBatchResults(w http.ResponseWriter, r *http.Request, t *mod
 // @Router       /v1/messages/batches/{batch_id}/cancel [post]
 // @Security     BearerAuth
 func (h *Handler) cancelBatch(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("batch_id"))
-	if id == "" {
-		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "batch id is required", nil)
+	id, ok := h.requirePathID(w, r, "batch_id", "batch")
+	if !ok {
 		return
 	}
 	info, err := h.router.CancelBatch(r.Context(), id, t)
@@ -228,9 +224,8 @@ func (h *Handler) cancelBatch(w http.ResponseWriter, r *http.Request, t *models.
 // @Router       /v1/messages/batches/{batch_id} [delete]
 // @Security     BearerAuth
 func (h *Handler) deleteBatch(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("batch_id"))
-	if id == "" {
-		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "batch id is required", nil)
+	id, ok := h.requirePathID(w, r, "batch_id", "batch")
+	if !ok {
 		return
 	}
 	_ = t

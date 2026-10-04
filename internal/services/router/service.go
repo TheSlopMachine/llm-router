@@ -96,7 +96,19 @@ func (s *Service) filterCredentials(providerID string, creds []*models.Credentia
 	return out
 }
 
-func (s *Service) completeOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, allowed []string, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, string, error) {
+// BackendAttempt groups one backend pass inputs. Resolved identifies the
+// backend; Creds carries the gated pool; Allowed carries the token
+// allow-list plugins may use (nil means unrestricted).
+type BackendAttempt struct {
+	Resolved *provider.Resolved
+	Creds    []*models.Credential
+	Allowed  []string
+}
+
+func (s *Service) completeOne(ctx context.Context, attempt BackendAttempt, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, string, error) {
+	resolved := attempt.Resolved
+	allowed := attempt.Allowed
+	creds := attempt.Creds
 	if resolved.IsLua() {
 		resp, err := s.providerSvc.LuaService().Complete(ctx, s.meta(resolved, req.Model, allowed), req)
 		return resp, "", err
@@ -105,11 +117,12 @@ func (s *Service) completeOne(ctx context.Context, resolved *provider.Resolved, 
 	return resp, "", err
 }
 
-func (s *Service) completeStreamOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, allowed []string, req *models.ChatCompletionRequest, w io.Writer) (string, error) {
+func (s *Service) completeStreamOne(ctx context.Context, attempt BackendAttempt, req *models.ChatCompletionRequest, w io.Writer) (string, error) {
+	resolved := attempt.Resolved
 	if resolved.IsLua() {
-		return "", s.providerSvc.LuaService().CompleteStream(ctx, s.meta(resolved, req.Model, allowed), req, w)
+		return "", s.providerSvc.LuaService().CompleteStream(ctx, s.meta(resolved, req.Model, attempt.Allowed), req, w)
 	}
-	return "", resolved.Go.CompleteStream(ctx, creds, req, w, resolved.Instance.Config)
+	return "", resolved.Go.CompleteStream(ctx, attempt.Creds, req, w, resolved.Instance.Config)
 }
 
 // meta builds the handler identity for one routed request: the provider
@@ -190,6 +203,44 @@ func (s *Service) requireModelEnabled(providerID, modelName string, model models
 	return nil
 }
 
+// requireCapability rejects requests when the backend lacks the handler.
+// Lua types check the plugin handler table; Go types check the interface.
+func (s *Service) requireCapability(resolved *provider.Resolved, handler string, goOK bool, goMsg string) error {
+	if resolved.IsLua() {
+		if !s.providerSvc.LuaService().HasHandler(resolved.Instance.TypeKey, handler) {
+			return fmt.Errorf("%w: provider %q has no %s handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name, handler)
+		}
+		return nil
+	}
+	if !goOK {
+		return fmt.Errorf("%w: %s", apierrors.ErrEndpointNotSupported, goMsg)
+	}
+	return nil
+}
+
+// mapHandlerNotFound converts a missing Lua handler into the shared
+// endpoint error. Other errors pass through unchanged.
+func mapHandlerNotFound(resolved *provider.Resolved, handler string, err error) error {
+	if errors.Is(err, luaplugin.ErrHandlerNotFound) {
+		return fmt.Errorf("%w: provider %q has no %s handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name, handler)
+	}
+	return err
+}
+
+// isCredentialAllowed reports whether id passes the allow-list. Nil means
+// unrestricted (admin probes).
+func isCredentialAllowed(allowed []string, id string) bool {
+	if allowed == nil {
+		return true
+	}
+	for _, a := range allowed {
+		if a == id {
+			return true
+		}
+	}
+	return false
+}
+
 // dropMissingModel removes the model from the info cache when the backend
 // reports it does not exist upstream. Best-effort: the original error is
 // always returned untouched.
@@ -253,13 +304,13 @@ func (s *Service) completeWithProxy(
 	// credentials of their own; the outer token snapshot in ctx still
 	// restricts the credentials of the member models tried inside.
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		return s.completeOne(ctx, resolved, nil, nil, req)
+		return s.completeOne(ctx, BackendAttempt{Resolved: resolved}, req)
 	}
 	allowed, creds, err := s.gateCredentials(ctx, resolved, req.Model, token)
 	if err != nil {
 		return nil, "", err
 	}
-	resp, _, err := s.completeOne(ctx, resolved, creds, allowed, req)
+	resp, _, err := s.completeOne(ctx, BackendAttempt{Resolved: resolved, Creds: creds, Allowed: allowed}, req)
 	s.dropMissingModel(rr.providerID, rr.modelName, err)
 	return resp, "", err
 }
@@ -278,14 +329,14 @@ func (s *Service) CompleteStream(
 	}
 	resolved := rr.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		_, err := s.completeStreamOne(ctx, resolved, nil, nil, req, w)
+		_, err := s.completeStreamOne(ctx, BackendAttempt{Resolved: resolved}, req, w)
 		return err
 	}
 	allowed, creds, err := s.gateCredentials(ctx, resolved, req.Model, token)
 	if err != nil {
 		return err
 	}
-	_, err = s.completeStreamOne(ctx, resolved, creds, allowed, req, w)
+	_, err = s.completeStreamOne(ctx, BackendAttempt{Resolved: resolved, Creds: creds, Allowed: allowed}, req, w)
 	s.dropMissingModel(rr.providerID, rr.modelName, err)
 	return err
 }
@@ -295,10 +346,10 @@ func (s *Service) CompleteStream(
 func (s *Service) transcribeOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, allowed []string, req *models.TranscriptionRequest) (*models.TranscriptionResponse, string, error) {
 	if resolved.IsLua() {
 		resp, err := s.providerSvc.LuaService().Transcribe(ctx, s.meta(resolved, req.Model, allowed), req)
-		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
-			return nil, "", fmt.Errorf("%w: provider %q has no transcribe handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+		if err = mapHandlerNotFound(resolved, "transcribe", err); err != nil {
+			return nil, "", err
 		}
-		return resp, "", err
+		return resp, "", nil
 	}
 	tr, ok := resolved.Go.(provider.Transcriber)
 	if !ok {
@@ -345,12 +396,9 @@ func (s *Service) transcribeWithProxy(
 		return nil, "", fmt.Errorf("%w: virtual models do not serve audio transcription", apierrors.ErrEndpointNotSupported)
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
-	if resolved.IsLua() {
-		if !s.providerSvc.LuaService().HasHandler(resolved.Instance.TypeKey, "transcribe") {
-			return nil, "", fmt.Errorf("%w: provider %q has no transcribe handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
-		}
-	} else if _, ok := resolved.Go.(provider.Transcriber); !ok {
-		return nil, "", fmt.Errorf("%w: provider %q does not support audio transcription", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+	_, goOK := resolved.Go.(provider.Transcriber)
+	if err := s.requireCapability(resolved, "transcribe", goOK, fmt.Sprintf("provider %q does not support audio transcription", resolved.Instance.Name)); err != nil {
+		return nil, "", err
 	}
 	allowed, creds, err := s.gateCredentials(ctx, resolved, req.Model, token)
 	if err != nil {
@@ -366,10 +414,10 @@ func (s *Service) transcribeWithProxy(
 func (s *Service) speechOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, allowed []string, req *models.SpeechRequest) (*models.SpeechResponse, string, error) {
 	if resolved.IsLua() {
 		resp, err := s.providerSvc.LuaService().Speech(ctx, s.meta(resolved, req.Model, allowed), req)
-		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
-			return nil, "", fmt.Errorf("%w: provider %q has no speech handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+		if err = mapHandlerNotFound(resolved, "speech", err); err != nil {
+			return nil, "", err
 		}
-		return resp, "", err
+		return resp, "", nil
 	}
 	sp, ok := resolved.Go.(provider.Speaker)
 	if !ok {
@@ -416,12 +464,9 @@ func (s *Service) speechWithProxy(
 		return nil, "", fmt.Errorf("%w: virtual models do not serve text-to-speech", apierrors.ErrEndpointNotSupported)
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
-	if resolved.IsLua() {
-		if !s.providerSvc.LuaService().HasHandler(resolved.Instance.TypeKey, "speech") {
-			return nil, "", fmt.Errorf("%w: provider %q has no speech handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
-		}
-	} else if _, ok := resolved.Go.(provider.Speaker); !ok {
-		return nil, "", fmt.Errorf("%w: provider %q does not support text-to-speech", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+	_, goOK := resolved.Go.(provider.Speaker)
+	if err := s.requireCapability(resolved, "speech", goOK, fmt.Sprintf("provider %q does not support text-to-speech", resolved.Instance.Name)); err != nil {
+		return nil, "", err
 	}
 	allowed, creds, err := s.gateCredentials(ctx, resolved, req.Model, token)
 	if err != nil {
@@ -437,10 +482,10 @@ func (s *Service) speechWithProxy(
 func (s *Service) generateImageOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, allowed []string, req *models.ImageGenerationRequest) (*models.ImageGenerationResponse, string, error) {
 	if resolved.IsLua() {
 		resp, err := s.providerSvc.LuaService().GenerateImage(ctx, s.meta(resolved, req.Model, allowed), req)
-		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
-			return nil, "", fmt.Errorf("%w: provider %q has no generate_image handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+		if err = mapHandlerNotFound(resolved, "generate_image", err); err != nil {
+			return nil, "", err
 		}
-		return resp, "", err
+		return resp, "", nil
 	}
 	ig, ok := resolved.Go.(provider.ImageGenerator)
 	if !ok {
@@ -487,12 +532,9 @@ func (s *Service) generateImageWithProxy(
 		return nil, "", fmt.Errorf("%w: virtual models do not serve image generation", apierrors.ErrEndpointNotSupported)
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
-	if resolved.IsLua() {
-		if !s.providerSvc.LuaService().HasHandler(resolved.Instance.TypeKey, "generate_image") {
-			return nil, "", fmt.Errorf("%w: provider %q has no generate_image handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
-		}
-	} else if _, ok := resolved.Go.(provider.ImageGenerator); !ok {
-		return nil, "", fmt.Errorf("%w: provider %q does not support image generation", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+	_, goOK := resolved.Go.(provider.ImageGenerator)
+	if err := s.requireCapability(resolved, "generate_image", goOK, fmt.Sprintf("provider %q does not support image generation", resolved.Instance.Name)); err != nil {
+		return nil, "", err
 	}
 	allowed, creds, err := s.gateCredentials(ctx, resolved, req.Model, token)
 	if err != nil {
@@ -508,10 +550,10 @@ func (s *Service) generateImageWithProxy(
 func (s *Service) embedOne(ctx context.Context, resolved *provider.Resolved, creds []*models.Credential, allowed []string, req *models.EmbeddingsRequest) (*models.EmbeddingsResponse, string, error) {
 	if resolved.IsLua() {
 		resp, err := s.providerSvc.LuaService().Embed(ctx, s.meta(resolved, req.Model, allowed), req)
-		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
-			return nil, "", fmt.Errorf("%w: provider %q has no embed handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+		if err = mapHandlerNotFound(resolved, "embed", err); err != nil {
+			return nil, "", err
 		}
-		return resp, "", err
+		return resp, "", nil
 	}
 	em, ok := resolved.Go.(provider.Embedder)
 	if !ok {
@@ -558,12 +600,9 @@ func (s *Service) embedWithProxy(
 		return nil, "", fmt.Errorf("%w: virtual models do not serve embeddings", apierrors.ErrEndpointNotSupported)
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
-	if resolved.IsLua() {
-		if !s.providerSvc.LuaService().HasHandler(resolved.Instance.TypeKey, "embed") {
-			return nil, "", fmt.Errorf("%w: provider %q has no embed handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
-		}
-	} else if _, ok := resolved.Go.(provider.Embedder); !ok {
-		return nil, "", fmt.Errorf("%w: provider %q does not support embeddings", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+	_, goOK := resolved.Go.(provider.Embedder)
+	if err := s.requireCapability(resolved, "embed", goOK, fmt.Sprintf("provider %q does not support embeddings", resolved.Instance.Name)); err != nil {
+		return nil, "", err
 	}
 	allowed, creds, err := s.gateCredentials(ctx, resolved, req.Model, token)
 	if err != nil {

@@ -35,6 +35,12 @@ var (
 	BucketCredentialParks     = []byte("credential_parks")     // Unified cooldown parks: credential ID → ParkEntry
 )
 
+// Meta keys inside the meta bucket.
+var (
+	MetaKeyBootstrapped = []byte("bootstrapped")
+	MetaValueTrue       = []byte("true")
+)
+
 // DB wraps a bbolt.DB and ensures all required buckets exist.
 type DB struct {
 	*bolt.DB
@@ -119,8 +125,8 @@ func (db *DB) IsBootstrapped() (bool, error) {
 	var bootstrapped bool
 	err := db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(BucketMeta)
-		v := b.Get([]byte("bootstrapped"))
-		bootstrapped = string(v) == "true"
+		v := b.Get(MetaKeyBootstrapped)
+		bootstrapped = string(v) == string(MetaValueTrue)
 		return nil
 	})
 	return bootstrapped, err
@@ -129,6 +135,6 @@ func (db *DB) IsBootstrapped() (bool, error) {
 // SetBootstrapped marks the database as fully initialized.
 func (db *DB) SetBootstrapped() error {
 	return db.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(BucketMeta).Put([]byte("bootstrapped"), []byte("true"))
+		return tx.Bucket(BucketMeta).Put(MetaKeyBootstrapped, MetaValueTrue)
 	})
 }

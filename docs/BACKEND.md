@@ -164,7 +164,7 @@ Live buckets (`internal/db/db.go`): `meta`, `admin`, `tokens`,
 `plugin_repos`, `plugin_storage`, `auth`, `sessions`, `metrics`,
 `virtual_models`, `router_configuration`, `model_overrides`, `model_infos`,
 `proxy_cache_v1`, `custom_pools`, `video_jobs`, `responses`,
-`message_batches`, `credential_health`.
+`message_batches`, `credential_health`, `credential_parks`.
 
 ## Smoke harness
 

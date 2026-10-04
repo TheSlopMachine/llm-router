@@ -151,6 +151,16 @@ func put32(b []byte, v uint32) {
 	b[3] = byte(v >> 24)
 }
 
+// isQuotaCode reports temporary quota exhaustion: the model is alive,
+// the quota is not. Callers must not disable models over it.
+func isQuotaCode(code string) bool {
+	switch code {
+	case apierrors.CodeRateLimit, apierrors.CodeQuotaExceeded, "insufficient_quota":
+		return true
+	}
+	return false
+}
+
 // probeResult builds a TestResult from a probe outcome.
 func probeResult(start time.Time, respText, proxy string, err error) TestResult {
 	res := TestResult{OK: err == nil, Latency: time.Since(start).Milliseconds(), Proxy: proxy}
@@ -159,11 +169,8 @@ func probeResult(start time.Time, respText, proxy string, err error) TestResult 
 		res.Summary = probeSummary(err)
 		res.Code = apierrors.ToAPIError(err).Code
 		var perr *models.ProviderError
-		if errors.As(err, &perr) {
-			switch perr.Code {
-			case "rate_limit", "quota_exceeded", "insufficient_quota":
-				res.QuotaExceeded = true
-			}
+		if errors.As(err, &perr) && isQuotaCode(perr.Code) {
+			res.QuotaExceeded = true
 		}
 		return res
 	}
@@ -175,20 +182,21 @@ func probeResult(start time.Time, respText, proxy string, err error) TestResult 
 func probeSummary(err error) string {
 	var perr *models.ProviderError
 	if errors.As(err, &perr) {
-		switch perr.Code {
-		case "rate_limit", "quota_exceeded", "insufficient_quota":
+		if isQuotaCode(perr.Code) {
 			return "quota exceeded, temporary"
-		case "authentication_error", "auth_error":
+		}
+		switch perr.Code {
+		case "authentication_error", apierrors.CodeAuthError:
 			return "authentication failed"
-		case "invalid_request_error":
+		case apierrors.CodeInvalidRequest:
 			return "invalid request"
-		case "server_error", "upstream_error":
+		case apierrors.CodeServerError, apierrors.CodeUpstreamError:
 			return "upstream error"
-		case "transport_error":
+		case apierrors.CodeTransportError:
 			return "connection failed"
-		case "payment_required":
+		case apierrors.CodePaymentRequired:
 			return "payment required"
-		case "overloaded":
+		case apierrors.CodeOverloaded:
 			return "backend overloaded"
 		}
 	}
