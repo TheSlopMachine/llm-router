@@ -179,7 +179,7 @@
     <HStack align="center" gap={4}>
       <VStack gap={1} grow>
         <Text tag="h2" size="md" weight="bold">{t('Custom pools')}</Text>
-        <Text tone="soft" size="sm">{t('Manually managed pools. One URL per line, optional country code after a space.')}</Text>
+        <Text tone="soft" size="sm">{t('Manually managed pools.')}</Text>
       </VStack>
       <Button style="prominent" onclick={() => openPoolModal('create')} icon={{ name: 'add' }}>{t('New pool')}</Button>
     </HStack>
