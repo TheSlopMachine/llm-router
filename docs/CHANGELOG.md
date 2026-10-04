@@ -2,6 +2,10 @@
 
 ## Done (2026-10-04, v0.7.0)
 
+- Bumped `proxypool` to v1.0.5: unified timeout configuration (separate handshake and probe phases), deadline-bounded SOCKS4/5 implementation, progress reporting every 5000 completions, removed `golang.org/x/net` dependency.
+
+## Done (2026-10-04, v0.7.0)
+
 - Accepted https, socks4 and socks5 proxy candidates (plus the socks4a alias and `user[:pass]@` credentials) in feed validation and per-request transport; bumped `proxypool` to v1.0.4 and delegated `TransportFor` to the library instead of the HTTP-only dialer.
 - Documented the `fetch_proxies` row shapes and accepted protocol set in `PLUGIN-API.md`.
 - Batched proxy cache persistence behind a write-behind flush: `Set` now buffers in memory and `Flush` lands each refresh cycle in 20K-entry transactions instead of one fsync'd write per proxy; manual marks flush synchronously.
