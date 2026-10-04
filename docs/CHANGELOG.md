@@ -2,6 +2,12 @@
 
 ## Done (2026-10-04, v0.7.0)
 
+- Accepted https, socks4 and socks5 proxy candidates (plus the socks4a alias and `user[:pass]@` credentials) in feed validation and per-request transport; bumped `proxypool` to v1.0.4 and delegated `TransportFor` to the library instead of the HTTP-only dialer.
+- Documented the `fetch_proxies` row shapes and accepted protocol set in `PLUGIN-API.md`.
+- Batched proxy cache persistence behind a write-behind flush: `Set` now buffers in memory and `Flush` lands each refresh cycle in 20K-entry transactions instead of one fsync'd write per proxy; manual marks flush synchronously.
+
+## Done (2026-10-04, v0.7.0)
+
 - Bumped the frontend toolchain to latest: Vite 8.3.2, vite-plugin-svelte 7.3.1, Svelte 5.57.1, TypeScript 6.0.3. Pinned openapi-typescript at 5.4.2 (last line reading the Swagger 2.0 spec) and skipped TypeScript 7 (its main export is version-only, which broke codegen). Migrated tsconfig paths to `./`-relative form after dropping the deprecated `baseUrl`. The `failed to load config from vite.config.ts` svelte-check warning disappeared under Vite 8.
 
 ## Done (2026-10-03, v0.7.0)

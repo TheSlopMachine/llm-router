@@ -238,6 +238,21 @@ local proxies = llm_router.proxies.query({ pool = "auto", limit = 3 })
 -- [{ id, url, country, pool }]
 ```
 
+### `fetch_proxies()` (proxy sources)
+
+Feeds return an array of rows in either shape:
+
+```lua
+{ url = "socks5://1.2.3.4:1080", country = "DE" }
+{ protocol = "socks5", host = "1.2.3.4", port = 1080, country = "DE" }
+```
+
+`protocol` is one of `http`, `https`, `socks4`, `socks5` (`socks4a`
+reads as `socks4`); omitted protocols default to `http`. Credentials
+embed as `user[:pass]@` in `url`. Rows without an address are dropped;
+other schemes count as unsupported. `nil` means no changes (304-style).
+The router verifies every candidate through the pool before serving it.
+
 ### `credentials.list()` / `get(id)` / `update(id, data)` / `disable(id, reason?)` / `enable(id)` / `park(id, ttl_seconds, reason?)` / `unpark(id)` / `parked(id)`
 
 Provider credential access. Installed only when the type serves

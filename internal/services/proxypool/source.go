@@ -6,9 +6,9 @@ import (
 )
 
 // pluginSource bridges registered Lua proxy-source feeds into the library
-// pool. Only unauthenticated HTTP candidates are accepted; anything else
-// counts as unsupported. Feeds back databases with 304-style responses by
-// returning no candidates.
+// pool. Only http/https/socks4/socks5 candidates are accepted; anything
+// else counts as unsupported. Feeds back databases with 304-style responses
+// by returning no candidates.
 type pluginSource struct {
 	service *Service
 }

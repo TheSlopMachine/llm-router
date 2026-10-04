@@ -146,6 +146,9 @@ func (s *Service) RequestRefresh() bool {
 		started := time.Now()
 		s.refreshMu.Lock()
 		s.pool.Refresh()
+		if ferr := s.cache.Flush(); ferr != nil {
+			s.cache.remember(ferr)
+		}
 		cacheErr := s.cache.takeError()
 		s.refreshMu.Unlock()
 
@@ -309,6 +312,9 @@ func (s *Service) MarkDead(url, reason string) bool {
 	if !marked {
 		return false
 	}
+	if ferr := s.cache.Flush(); ferr != nil {
+		s.cache.remember(ferr)
+	}
 	if err := s.cache.takeError(); err != nil && s.log != nil {
 		s.log.Warn("proxy mark dead persistence failed", "error", err)
 	}
@@ -369,11 +375,18 @@ func sourceDisplayName(key string) string {
 	return key
 }
 
-// candidateURL validates one Lua feed candidate: unauthenticated HTTP only.
+// candidateURL validates one Lua feed candidate: http/https/socks4/socks5
+// endpoints with optional userinfo credentials. Anything else counts as
+// unsupported.
 func candidateURL(c Candidate) (string, bool) {
 	u, err := url.Parse(c.URL)
-	if err != nil || u.Scheme != "http" || u.Host == "" || u.User != nil {
+	if err != nil || u.Hostname() == "" {
 		return "", false
 	}
-	return u.String(), true
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https", "socks4", "socks4a", "socks5":
+		return u.String(), true
+	default:
+		return "", false
+	}
 }
