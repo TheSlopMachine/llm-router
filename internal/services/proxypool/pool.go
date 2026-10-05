@@ -111,6 +111,7 @@ func New(database *db.DB) (*Service, error) {
 		sources:     map[string]SourceInfo{},
 	}
 	s.pool = proxypoollib.NewPool()
+	s.pool.SetConcurrency(100)
 	s.pool.RegisterCacheSource(cache)
 	s.src = &pluginSource{service: s}
 	s.pool.RegisterProxySource(s.src)
