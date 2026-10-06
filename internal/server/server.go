@@ -129,6 +129,9 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		},
 	)
 	luaSvc.SetCredentialParks(credSvc.Park, credSvc.Unpark, credSvc.Parked)
+	luaSvc.SetOnChanged(func(_ string) {
+		_ = proxySvc.RequestIngest()
+	})
 
 	maintSvc := maintenance.New(luaSvc, providerSvc, database, logger)
 	maintSvc.SetModelInfoService(modelInfoSvc)

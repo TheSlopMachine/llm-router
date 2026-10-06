@@ -36,6 +36,17 @@ func (p *pluginSource) FetchTagged() []proxypoollib.TaggedURL {
 	if err != nil {
 		return nil
 	}
+	active := make(map[string]struct{}, len(list))
+	for _, key := range list {
+		active[key] = struct{}{}
+	}
+	s.sourceMu.Lock()
+	for key := range s.sources {
+		if _, ok := active[key]; !ok {
+			delete(s.sources, key)
+		}
+	}
+	s.sourceMu.Unlock()
 	var out []proxypoollib.TaggedURL
 	for _, key := range list {
 		cands, ferr := fetch(ctx, key)
