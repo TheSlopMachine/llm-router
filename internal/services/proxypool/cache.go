@@ -17,20 +17,22 @@ import (
 const flushChunkSize = 20000
 
 type dbCache struct {
-	mu    sync.RWMutex
-	db    *db.DB
-	repo  *repository.Repository[proxypoollib.ProxyState]
-	items map[string]proxypoollib.ProxyState
-	dirty map[string]struct{}
-	err   error
+	mu      sync.RWMutex
+	db      *db.DB
+	repo    *repository.Repository[proxypoollib.ProxyState]
+	items   map[string]proxypoollib.ProxyState
+	dirty   map[string]struct{}
+	deleted map[string]struct{}
+	err     error
 }
 
 func newDBCache(database *db.DB) (*dbCache, error) {
 	c := &dbCache{
-		db:    database,
-		repo:  repository.New[proxypoollib.ProxyState](database, db.BucketProxyCache, "proxy cache"),
-		items: map[string]proxypoollib.ProxyState{},
-		dirty: map[string]struct{}{},
+		db:      database,
+		repo:    repository.New[proxypoollib.ProxyState](database, db.BucketProxyCache, "proxy cache"),
+		items:   map[string]proxypoollib.ProxyState{},
+		dirty:   map[string]struct{}{},
+		deleted: map[string]struct{}{},
 	}
 	states, err := c.repo.List()
 	if err != nil {
@@ -63,6 +65,10 @@ func (c *dbCache) Set(state proxypoollib.ProxyState) {
 		c.dirty = map[string]struct{}{}
 	}
 	c.dirty[state.URL] = struct{}{}
+	if c.deleted == nil {
+		c.deleted = map[string]struct{}{}
+	}
+	delete(c.deleted, state.URL)
 	c.mu.Unlock()
 }
 
@@ -72,23 +78,39 @@ func (c *dbCache) Set(state proxypoollib.ProxyState) {
 // remember so read gates observe it through the usual takeError path.
 func (c *dbCache) Flush() error {
 	c.mu.Lock()
-	if len(c.dirty) == 0 {
+	if len(c.dirty) == 0 && len(c.deleted) == 0 {
 		c.mu.Unlock()
 		return nil
 	}
 	pending := make([]proxypoollib.ProxyState, 0, len(c.dirty))
 	for url := range c.dirty {
-		pending = append(pending, cloneState(c.items[url]))
+		state, ok := c.items[url]
+		if !ok {
+			continue
+		}
+		pending = append(pending, cloneState(state))
+	}
+	deletions := make([]string, 0, len(c.deleted))
+	for url := range c.deleted {
+		deletions = append(deletions, url)
 	}
 	c.dirty = map[string]struct{}{}
+	c.deleted = map[string]struct{}{}
 	c.mu.Unlock()
 
+	if len(pending) == 0 {
+		return c.writeChunk(nil, deletions)
+	}
 	for start := 0; start < len(pending); start += flushChunkSize {
 		end := start + flushChunkSize
 		if end > len(pending) {
 			end = len(pending)
 		}
-		if err := c.writeChunk(pending[start:end]); err != nil {
+		chunkDeletions := []string(nil)
+		if start == 0 {
+			chunkDeletions = deletions
+		}
+		if err := c.writeChunk(pending[start:end], chunkDeletions); err != nil {
 			return err
 		}
 	}
@@ -98,7 +120,7 @@ func (c *dbCache) Flush() error {
 // writeChunk stores one batch of states in a single transaction, using the
 // same JSON encoding as Repository.Put. Unencodable entries are skipped so
 // one bad row cannot block the batch.
-func (c *dbCache) writeChunk(states []proxypoollib.ProxyState) error {
+func (c *dbCache) writeChunk(states []proxypoollib.ProxyState, deletions []string) error {
 	type record struct {
 		key  string
 		data []byte
@@ -115,7 +137,7 @@ func (c *dbCache) writeChunk(states []proxypoollib.ProxyState) error {
 		}
 		records = append(records, record{key: state.URL, data: enc})
 	}
-	if len(records) == 0 {
+	if len(records) == 0 && len(deletions) == 0 {
 		return nil
 	}
 	return c.db.Update(func(tx *bolt.Tx) error {
@@ -127,6 +149,11 @@ func (c *dbCache) writeChunk(states []proxypoollib.ProxyState) error {
 				return fmt.Errorf("create bucket %q: %w", string(db.BucketProxyCache), err)
 			}
 		}
+		for _, key := range deletions {
+			if err := b.Delete([]byte(key)); err != nil {
+				return err
+			}
+		}
 		for _, r := range records {
 			if err := b.Put([]byte(r.key), r.data); err != nil {
 				return err
@@ -134,6 +161,21 @@ func (c *dbCache) writeChunk(states []proxypoollib.ProxyState) error {
 		}
 		return nil
 	})
+}
+
+// Delete removes a proxy from the in-memory cache and buffers its persistence deletion.
+func (c *dbCache) Delete(url string) {
+	if url == "" {
+		return
+	}
+	c.mu.Lock()
+	delete(c.items, url)
+	if c.deleted == nil {
+		c.deleted = map[string]struct{}{}
+	}
+	delete(c.dirty, url)
+	c.deleted[url] = struct{}{}
+	c.mu.Unlock()
 }
 
 func (c *dbCache) All() []proxypoollib.ProxyState {
@@ -161,6 +203,7 @@ func (c *dbCache) Clear() {
 	c.mu.Lock()
 	c.items = map[string]proxypoollib.ProxyState{}
 	c.dirty = map[string]struct{}{}
+	c.deleted = map[string]struct{}{}
 	c.mu.Unlock()
 }
 

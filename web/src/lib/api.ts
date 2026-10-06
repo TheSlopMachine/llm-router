@@ -335,6 +335,8 @@ export const api = {
       const res = await fetch('/api/llm-router/dashboard/proxy/status')
       return (await assertOk(res)) as ProxyStatus
     },
+    recheckBanned: (payload: { reason?: string; source?: string }): Promise<{ queued: number }> =>
+      postJson('/api/llm-router/dashboard/proxy/recheck-banned', payload),
     pools: {
       list: async (): Promise<ProxyPool[]> => {
         const res = await fetch('/api/llm-router/dashboard/proxy-pools')

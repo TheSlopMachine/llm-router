@@ -94,7 +94,7 @@ internal/services/
   config/                instance-wide router configuration
   datamanagement/        subsystem export/import/clear + provider export/import/purge
   doctor/                database inspection and repair
-  proxypool/             free-pool hosting, Lua feed bridge, bbolt cache, custom pools, adaptive refresh schedule
+  proxypool/             free-pool hosting, Lua feed bridge, bbolt cache, custom pools, lane scheduler adapter
 internal/httpkit/        shared transport helpers (SSE headers)
 internal/errors/         domain sentinels + ToAPIError
 internal/repository/     bbolt buckets

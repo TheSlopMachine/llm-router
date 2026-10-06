@@ -1,5 +1,11 @@
 # Changelog
 
+## Done (2026-10-06, proxypool 1.1.0)
+
+- Moved proxy-pool orchestration to the library-backed lane scheduler: foreground/background modes, liveness/revival lanes, adaptive concurrency and network-health breaker state are now exposed through the dashboard status API.
+- Added `POST /api/llm-router/dashboard/proxy/recheck-banned` with optional reason/source filters and a queued-count response; proxy cache persistence now records only validated entries.
+
+
 ## Done (2026-10-04, v0.7.0)
 
 - Bumped `proxypool` to v1.0.5: unified timeout configuration (separate handshake and probe phases), deadline-bounded SOCKS4/5 implementation, progress reporting every 5000 completions, removed `golang.org/x/net` dependency.

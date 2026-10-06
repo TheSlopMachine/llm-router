@@ -156,14 +156,41 @@ export interface Proxy {
   last_checked: string
 }
 
+export interface ProxyNetStatus {
+  state: string
+  rtt_ms: number
+  updated_at?: string
+}
+
+export interface ProxySourceStat {
+  source: string
+  alive: number
+  suspect: number
+  banned: number
+  queued: number
+  ban_reasons: Record<string, number>
+}
+
+export interface ProxyLaneStat {
+  lane: string
+  inflight: number
+  queued: number
+}
+
 export interface ProxyStatus {
+  mode: string
+  net: ProxyNetStatus
+  limit: number
+  inflight: number
   total: number
-  active: number
-  refreshing: boolean
-  last_refresh_at?: string
-  last_refresh_duration: number
-  next_refresh_at?: string
-  refresh_interval: number
+  alive: number
+  suspect: number
+  banned: number
+  queued: number
+  lanes: ProxyLaneStat[]
+  sources: ProxySourceStat[]
+  ban_reasons: Record<string, number>
+  last_ingest_at?: string
   last_error?: string
 }
 

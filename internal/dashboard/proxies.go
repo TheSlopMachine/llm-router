@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
@@ -30,9 +31,9 @@ func (h *Handler) apiProxiesList(w http.ResponseWriter, _ *http.Request) {
 	h.json(w, http.StatusOK, all)
 }
 
-// apiProxyRefresh requests a full library refresh.
+// apiProxyRefresh requests an immediate source ingest.
 // @Summary      Refresh proxy pool
-// @Description  Requests a background refresh of all registered proxy sources.
+// @Description  Requests an immediate ingest of all registered proxy sources.
 // @Tags         Proxies
 // @Produce      json
 // @Success      202 {object} object{started=bool,reason=string}
@@ -40,10 +41,10 @@ func (h *Handler) apiProxiesList(w http.ResponseWriter, _ *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/proxies/refresh [post]
 func (h *Handler) apiProxyRefresh(w http.ResponseWriter, _ *http.Request) {
-	started := h.proxySvc.RequestRefresh()
+	started := h.proxySvc.RequestIngest()
 	response := map[string]any{"started": started}
 	if !started {
-		response["reason"] = "refresh already running"
+		response["reason"] = "proxy pool is not running"
 	}
 	h.json(w, http.StatusAccepted, response)
 }
@@ -65,9 +66,9 @@ func (h *Handler) apiProxySources(w http.ResponseWriter, _ *http.Request) {
 	h.json(w, http.StatusOK, sources)
 }
 
-// apiProxyStatus reports library cache and refresh schedule state.
+// apiProxyStatus reports the current proxy-pool scheduler, network and source state.
 // @Summary      Proxy status
-// @Description  Returns cached proxy counts and the next scheduled refresh.
+// @Description  Returns adaptive proxy-pool mode, network health, concurrency, lanes and source statistics.
 // @Tags         Proxies
 // @Produce      json
 // @Success      200 {object} proxypool.Status
@@ -82,6 +83,36 @@ func (h *Handler) apiProxyStatus(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	h.json(w, http.StatusOK, status)
+}
+
+// apiProxyRecheckBanned queues manual rechecks for banned proxies.
+// @Summary      Recheck banned proxies
+// @Description  Queues manual rechecks for banned proxies filtered by reason and source.
+// @Tags         Proxies
+// @Accept       json
+// @Produce      json
+// @Param        body body models.RecheckBannedRequest false "Optional ban reason and source filters"
+// @Success      202 {object} models.RecheckBannedResponse
+// @Failure      400 {object} models.ErrorResponse
+// @Failure      401 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/proxy/recheck-banned [post]
+func (h *Handler) apiProxyRecheckBanned(w http.ResponseWriter, r *http.Request) {
+	var body models.RecheckBannedRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	queued, err := h.proxySvc.RecheckBanned(body.Reason, body.Source)
+	if err != nil {
+		if errors.Is(err, proxypool.ErrInvalidBanReason) {
+			h.jsonErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		h.jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.json(w, http.StatusAccepted, models.RecheckBannedResponse{Queued: queued})
 }
 
 // apiProxyPoolsList returns every manually managed proxy pool.

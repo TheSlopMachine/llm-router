@@ -21,7 +21,18 @@ import (
 )
 
 var (
-	ErrNoProxies = errors.New("proxy pool has no usable proxy")
+	ErrNoProxies        = errors.New("proxy pool has no usable proxy")
+	ErrInvalidBanReason = errors.New("invalid proxy ban reason")
+)
+
+const (
+	markDeadEarlyEOFReason          = "early_eof"
+	markDeadConnectionResetReason   = "connection_reset"
+	markDeadConnectionRefusedReason = "connection_refused"
+	markDeadDNSResolutionReason     = "dns_resolution"
+	markDeadAddressParseReason      = "address_parse"
+	markDeadTLSCertificateReason    = "tls_certificate_verification"
+	markDeadTLSHandshakeReason      = "tls_handshake"
 )
 
 // Proxy is the stable router-facing view of a validated library entry.
@@ -50,42 +61,60 @@ type SourceInfo struct {
 	LastError   string    `json:"last_error,omitempty"`
 }
 
-// Status describes pool activity and the next scheduled refresh.
-type Status struct {
-	Total           int           `json:"total"`
-	Active          int           `json:"active"`
-	Refreshing      bool          `json:"refreshing"`
-	LastRefreshAt   time.Time     `json:"last_refresh_at,omitempty"`
-	LastRefreshTime time.Duration `json:"last_refresh_duration"`
-	NextRefreshAt   time.Time     `json:"next_refresh_at,omitempty"`
-	RefreshInterval time.Duration `json:"refresh_interval"`
-	LastError       string        `json:"last_error,omitempty"`
+type NetStatus struct {
+	State     string    `json:"state"`
+	RTTMs     int64     `json:"rtt_ms"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
 }
 
-// Service owns the adapter boundary, persistence and refresh schedule.
+type SourceStat struct {
+	Source     string         `json:"source"`
+	Alive      int            `json:"alive"`
+	Suspect    int            `json:"suspect"`
+	Banned     int            `json:"banned"`
+	Queued     int            `json:"queued"`
+	BanReasons map[string]int `json:"ban_reasons"`
+}
+
+type LaneStat struct {
+	Lane     string `json:"lane"`
+	Inflight int    `json:"inflight"`
+	Queued   int    `json:"queued"`
+}
+
+type Status struct {
+	Mode         string         `json:"mode"`
+	Net          NetStatus      `json:"net"`
+	Limit        int            `json:"limit"`
+	Inflight     int            `json:"inflight"`
+	Total        int            `json:"total"`
+	Alive        int            `json:"alive"`
+	Suspect      int            `json:"suspect"`
+	Banned       int            `json:"banned"`
+	Queued       int            `json:"queued"`
+	Lanes        []LaneStat     `json:"lanes"`
+	Sources      []SourceStat   `json:"sources"`
+	BanReasons   map[string]int `json:"ban_reasons"`
+	LastIngestAt time.Time      `json:"last_ingest_at,omitempty"`
+	LastError    string         `json:"last_error,omitempty"`
+}
+
+// Service owns the adapter boundary, persistence and pool lifecycle.
 // Proxy health and lifecycle remain in the proxypool library. Provider
 // request routing never consults this service: plugins select proxies
 // through Query and assign proxy_url per request.
 type Service struct {
-	pool  *proxypoollib.ProxyPool
-	cache *dbCache
-	src   *pluginSource
-	log   *slog.Logger
-	db    *db.DB
-	pools *repository.Repository[models.CustomProxyPool]
+	pool     *proxypoollib.ProxyPool
+	cache    *dbCache
+	src      *pluginSource
+	log      *slog.Logger
+	reporter *slogReporter
+	db       *db.DB
+	pools    *repository.Repository[models.CustomProxyPool]
 
-	mu           sync.Mutex
-	refreshMu    sync.Mutex
-	refreshing   bool
-	refreshWake  chan struct{}
-	changed      chan struct{}
-	rootCtx      context.Context
-	lastUse      time.Time
-	lastRefresh  time.Time
-	lastDuration time.Duration
-	lastError    string
-	nextRefresh  time.Time
-	interval     time.Duration
+	mu      sync.Mutex
+	rootCtx context.Context
+	running bool
 
 	keys  func() ([]string, error)
 	fetch func(context.Context, string) ([]Candidate, error)
@@ -101,17 +130,16 @@ func New(database *db.DB) (*Service, error) {
 		return nil, err
 	}
 	s := &Service{
-		cache:       cache,
-		db:          database,
-		pools:       repository.New[models.CustomProxyPool](database, db.BucketCustomPools, "custom proxy pool"),
-		log:         slog.Default(),
-		refreshWake: make(chan struct{}, 1),
-		changed:     make(chan struct{}),
-		interval:    time.Minute,
-		sources:     map[string]SourceInfo{},
+		cache:   cache,
+		db:      database,
+		pools:   repository.New[models.CustomProxyPool](database, db.BucketCustomPools, "custom proxy pool"),
+		log:     slog.Default(),
+		sources: map[string]SourceInfo{},
 	}
 	s.pool = proxypoollib.NewPool()
-	s.pool.SetConcurrency(100)
+	s.pool.SetLimits(10, 50, 500)
+	s.reporter = newSlogReporter(s.log)
+	s.pool.RegisterReporter(s.reporter)
 	s.pool.RegisterCacheSource(cache)
 	s.src = &pluginSource{service: s}
 	s.pool.RegisterProxySource(s.src)
@@ -120,8 +148,15 @@ func New(database *db.DB) (*Service, error) {
 
 // SetLogger installs structured service logging.
 func (s *Service) SetLogger(logger *slog.Logger) {
-	if logger != nil {
-		s.log = logger
+	if logger == nil {
+		return
+	}
+	s.mu.Lock()
+	s.log = logger
+	reporter := s.reporter
+	s.mu.Unlock()
+	if reporter != nil {
+		reporter.SetLogger(logger)
 	}
 }
 
@@ -133,65 +168,66 @@ func (s *Service) SetSourceHandlers(keys func() ([]string, error), fetch func(co
 	s.mu.Unlock()
 }
 
-// RequestRefresh coalesces a background refresh request.
-func (s *Service) RequestRefresh() bool {
+// RequestIngest requests an immediate source ingest when the service is running.
+func (s *Service) RequestIngest() bool {
 	s.mu.Lock()
-	if s.refreshing {
-		s.mu.Unlock()
+	running := s.running
+	s.mu.Unlock()
+	if !running {
 		return false
 	}
-	s.refreshing = true
-	s.notifyLocked()
-	s.mu.Unlock()
-	go func() {
-		started := time.Now()
-		s.refreshMu.Lock()
-		s.pool.Refresh()
-		if ferr := s.cache.Flush(); ferr != nil {
-			s.cache.remember(ferr)
-		}
-		cacheErr := s.cache.takeError()
-		s.refreshMu.Unlock()
-
-		s.mu.Lock()
-		s.refreshing = false
-		s.lastRefresh = started
-		s.lastDuration = time.Since(started)
-		s.lastError = ""
-		if cacheErr != nil {
-			s.lastError = cacheErr.Error()
-			if s.log != nil {
-				s.log.Error("proxy refresh persistence failed", "error", cacheErr)
-			}
-		}
-		s.notifyLocked()
-		s.mu.Unlock()
-	}()
+	s.pool.RequestIngest()
 	return true
 }
 
-// Start begins the initial refresh and adaptive refresh schedule.
+// Start begins the pool scheduler and the persistence flush loop.
+// The method is non-blocking and idempotent.
 func (s *Service) Start(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s.mu.Lock()
+	if s.running {
+		s.mu.Unlock()
+		return
+	}
 	s.rootCtx = ctx
+	s.running = true
 	s.mu.Unlock()
-	s.RequestRefresh()
-	go s.schedule(ctx)
+
+	s.pool.Start(ctx)
+	go s.flushLoop(ctx)
 }
 
-// Touch records active pool use and wakes the scheduler after an idle period.
-func (s *Service) Touch() {
-	now := time.Now()
-	s.mu.Lock()
-	idle := s.lastUse.IsZero() || now.Sub(s.lastUse) >= 8*time.Minute
-	s.lastUse = now
-	s.mu.Unlock()
-	if idle {
+// flushLoop persists buffered cache changes and stops the library pool on shutdown.
+func (s *Service) flushLoop(ctx context.Context) {
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+	for {
 		select {
-		case s.refreshWake <- struct{}{}:
-		default:
+		case <-ticker.C:
+			s.flushCache()
+		case <-ctx.Done():
+			s.flushCache()
+			s.pool.Stop()
+			s.mu.Lock()
+			s.running = false
+			s.rootCtx = nil
+			s.mu.Unlock()
+			return
 		}
-		s.RequestRefresh()
+	}
+}
+
+func (s *Service) flushCache() {
+	if err := s.cache.Flush(); err != nil {
+		s.cache.remember(err)
+	}
+	s.mu.Lock()
+	logger := s.log
+	s.mu.Unlock()
+	if err := s.cache.takeError(); err != nil && logger != nil {
+		logger.Error("proxy cache persistence failed", "error", err)
 	}
 }
 
@@ -262,15 +298,7 @@ func (s *Service) List() ([]*Proxy, error) {
 }
 
 func (s *Service) healthyProxies() []proxypoollib.ProxyInfo {
-	infos := s.pool.ListProxies(proxypoollib.ProxyFilter{})
-	healthy := make([]proxypoollib.ProxyInfo, 0, len(infos))
-	for _, info := range infos {
-		// New entries are visible to ListProxies before their first check ends.
-		if !info.LastChecked.IsZero() {
-			healthy = append(healthy, info)
-		}
-	}
-	return healthy
+	return s.pool.ListProxies(proxypoollib.ProxyFilter{})
 }
 
 // Get returns a cached proxy by its stable router ID, including dead entries.
@@ -300,47 +328,79 @@ func (s *Service) KnownIDs() ([]string, error) {
 	return ids, nil
 }
 
-// MarkDead excludes the proxy with the given canonical URL until an
-// escalating ban expires. Unknown URLs return false. The library owns
-// dead status and revival; the mark persists through the bbolt cache.
-// Called only from the plugin HTTP client on structural TLS faults:
-// plugins never mark proxies directly.
+// MarkDead applies the router failure mapping before updating proxy health.
 func (s *Service) MarkDead(url, reason string) bool {
 	if s == nil || s.pool == nil || url == "" {
 		return false
 	}
-	marked := s.pool.MarkDead(url, reason)
-	if !marked {
-		return false
+	switch reason {
+	case markDeadEarlyEOFReason:
+		return s.pool.Suspect(url, proxypoollib.FailEOF)
+	case markDeadConnectionResetReason:
+		return s.pool.Suspect(url, proxypoollib.FailEOF)
+	case markDeadConnectionRefusedReason:
+		return s.pool.Suspect(url, proxypoollib.FailRefused)
+	case markDeadDNSResolutionReason, markDeadAddressParseReason, markDeadTLSCertificateReason, markDeadTLSHandshakeReason:
+		return s.markDeadPersist(url, reason)
+	default:
+		return s.markDeadPersist(url, reason)
 	}
-	if ferr := s.cache.Flush(); ferr != nil {
-		s.cache.remember(ferr)
-	}
-	if err := s.cache.takeError(); err != nil && s.log != nil {
-		s.log.Warn("proxy mark dead persistence failed", "error", err)
-	}
-	return true
 }
 
-// Status returns pool counts and scheduler state.
-func (s *Service) Status() (Status, error) {
-	if err := s.cache.peekError(); err != nil {
-		return Status{}, err
+func (s *Service) markDeadPersist(url, reason string) bool {
+	return s.pool.MarkDead(url, reason)
+}
+
+// RecheckBanned queues manual rechecks for banned proxies matching the filters.
+func (s *Service) RecheckBanned(reason, source string) (int, error) {
+	if reason != "" {
+		fr := proxypoollib.FailReason(reason)
+		if !fr.Valid() {
+			return 0, ErrInvalidBanReason
+		}
+		return s.pool.RecheckBanned(proxypoollib.BanFilter{Reason: fr, Source: source}), nil
 	}
-	all := s.cache.All()
-	active := len(s.healthyProxies())
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return Status{
-		Total:           len(all),
-		Active:          active,
-		Refreshing:      s.refreshing,
-		LastRefreshAt:   s.lastRefresh,
-		LastRefreshTime: s.lastDuration,
-		NextRefreshAt:   s.nextRefresh,
-		RefreshInterval: s.interval,
-		LastError:       s.lastError,
-	}, nil
+	return s.pool.RecheckBanned(proxypoollib.BanFilter{Source: source}), nil
+}
+
+// Status returns the structured dashboard snapshot from the library pool.
+// Persistence errors remain visible in LastError so the dashboard can still
+// render the live scheduler/network state.
+func (s *Service) Status() (Status, error) {
+	snapshot := s.pool.Snapshot()
+	status := Status{
+		Mode:         string(snapshot.Mode),
+		Net:          NetStatus{State: string(snapshot.Net.State), RTTMs: snapshot.Net.RTT.Milliseconds(), UpdatedAt: snapshot.Net.UpdatedAt},
+		Limit:        snapshot.Limit,
+		Inflight:     snapshot.Inflight,
+		Total:        snapshot.Alive + snapshot.Suspect + snapshot.Banned,
+		Alive:        snapshot.Alive,
+		Suspect:      snapshot.Suspect,
+		Banned:       snapshot.Banned,
+		Queued:       snapshot.Queued,
+		Lanes:        make([]LaneStat, 0, len(snapshot.Lanes)),
+		Sources:      make([]SourceStat, 0, len(snapshot.Sources)),
+		BanReasons:   make(map[string]int, len(snapshot.BanReasons)),
+		LastIngestAt: snapshot.LastIngestAt,
+	}
+	if err := s.cache.peekError(); err != nil {
+		status.LastError = err.Error()
+		return status, err
+	}
+	for _, lane := range snapshot.Lanes {
+		status.Lanes = append(status.Lanes, LaneStat{Lane: lane.Lane, Inflight: lane.Inflight, Queued: lane.Queued})
+	}
+	for _, source := range snapshot.Sources {
+		reasons := make(map[string]int, len(source.BanReasons))
+		for reason, count := range source.BanReasons {
+			reasons[string(reason)] = count
+		}
+		status.Sources = append(status.Sources, SourceStat{Source: source.Source, Alive: source.Alive, Suspect: source.Suspect, Banned: source.Banned, Queued: source.Queued, BanReasons: reasons})
+	}
+	for reason, count := range snapshot.BanReasons {
+		status.BanReasons[string(reason)] = count
+	}
+	return status, nil
 }
 
 // SourceInfos returns last-fetch diagnostics for currently registered feeds.
@@ -353,11 +413,6 @@ func (s *Service) SourceInfos() []SourceInfo {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out
-}
-
-func (s *Service) notifyLocked() {
-	close(s.changed)
-	s.changed = make(chan struct{})
 }
 
 func stateView(state proxypoollib.ProxyState) *Proxy {

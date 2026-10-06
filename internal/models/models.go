@@ -1793,6 +1793,18 @@ type ProxyView struct {
 	Pool    string `json:"pool"`
 }
 
+// RecheckBannedRequest selects banned proxies for manual rechecking.
+// Both filters are optional.
+type RecheckBannedRequest struct {
+	Reason string `json:"reason"`
+	Source string `json:"source"`
+}
+
+// RecheckBannedResponse reports the number of queued manual rechecks.
+type RecheckBannedResponse struct {
+	Queued int `json:"queued"`
+}
+
 // ─────────────────────────────────────────────
 // Agents
 // ─────────────────────────────────────────────

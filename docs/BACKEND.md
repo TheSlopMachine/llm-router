@@ -104,7 +104,8 @@ Keep changes shallow. Touch service internals only when the task requires it.
   external proxypool library owns candidate ingestion, health checks,
   scoring and cache lifecycle. `proxypool.Service` owns the read-only
   `Query`, custom-pool CRUD, `MarkDead` (TLS faults only, called from the
-  plugin HTTP client) and the adaptive refresh schedule.
+  plugin HTTP client), lane scheduler adapter, adaptive limiter, foreground/
+  background modes and network-health breaker. Only checked proxies persist.
 - `providers/virtual/adapter.go:firstByteGate`: failover continues only
   before the first byte reaches the client. After that the stream belongs
   to one member.
@@ -143,10 +144,11 @@ One public method = one `db.Update` when the operation must be atomic:
   (due plugin jobs with overlap-skip and 4-worker bound, model sync, auth
   cleanup). `RunStartupRefresh` runs `run_on_startup` jobs before listen
   under a 30s gate plus auth cleanup; failures log, never fail startup.
-- `proxypool.Service.Start(ctx)`: startup refresh and independent adaptive
-  schedule. Refreshes run each minute during proxy use, then every five,
-  ten and fifteen minutes while idle. A request after eight idle minutes
-  starts a refresh immediately.
+- `proxypool.Service.Start(ctx)`: starts the proxypool library scheduler and
+  independent 3s cache-flush loop. Library-owned lanes, foreground/background
+  hysteresis, adaptive concurrency, suspect handling and network breaker drive
+  checks; only validated proxies are persisted. `Stop` occurs via context
+  cancellation rather than an adapter-owned adaptive refresh schedule.
 - `proxypool.New` loads the persisted library cache and surfaces read errors
   during server construction.
 

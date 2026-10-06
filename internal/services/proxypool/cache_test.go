@@ -93,3 +93,30 @@ func TestDBCacheFlushChunks(t *testing.T) {
 		t.Fatalf("bbolt holds %d rows, want %d", len(stored), total)
 	}
 }
+
+func TestDBCacheDeletePersists(t *testing.T) {
+	db := testutil.SetupTestDB(t)
+	service, err := New(db)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	state := proxypoollib.ProxyState{URL: "http://192.0.2.13:8080", IP: "192.0.2.13", Port: 8080}
+	service.cache.Set(state)
+	if err := service.cache.Flush(); err != nil {
+		t.Fatalf("initial flush: %v", err)
+	}
+	service.cache.Delete(state.URL)
+	if _, ok := service.cache.Get(state.URL); ok {
+		t.Fatal("deleted proxy must leave the in-memory cache")
+	}
+	if err := service.cache.Flush(); err != nil {
+		t.Fatalf("delete flush: %v", err)
+	}
+	stored, err := service.cache.repo.List()
+	if err != nil {
+		t.Fatalf("repo list: %v", err)
+	}
+	if len(stored) != 0 {
+		t.Fatalf("bbolt holds %d rows after delete, want 0", len(stored))
+	}
+}

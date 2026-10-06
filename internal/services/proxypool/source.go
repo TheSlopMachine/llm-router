@@ -3,11 +3,13 @@ package proxypool
 import (
 	"context"
 	"time"
+
+	proxypoollib "github.com/TheSlopMachine/proxypool"
 )
 
 // pluginSource bridges registered Lua proxy-source feeds into the library
-// pool. Only http/https/socks4/socks5 candidates are accepted; anything
-// else counts as unsupported. Feeds back databases with 304-style responses
+// pool. Only http/https/socks4/socks5 candidates are accepted; anything else
+// counts as unsupported. Feeds back databases with 304-style responses
 // by returning no candidates.
 type pluginSource struct {
 	service *Service
@@ -16,8 +18,8 @@ type pluginSource struct {
 // Name identifies the aggregate Lua feed to the library.
 func (p *pluginSource) Name() string { return "lua-feeds" }
 
-// FetchList aggregates every registered Lua feed into raw proxy URLs.
-func (p *pluginSource) FetchList() []string {
+// FetchTagged aggregates registered Lua feeds with per-source identity.
+func (p *pluginSource) FetchTagged() []proxypoollib.TaggedURL {
 	s := p.service
 	s.mu.Lock()
 	keys := s.keys
@@ -34,7 +36,7 @@ func (p *pluginSource) FetchList() []string {
 	if err != nil {
 		return nil
 	}
-	var out []string
+	var out []proxypoollib.TaggedURL
 	for _, key := range list {
 		cands, ferr := fetch(ctx, key)
 		info := SourceInfo{Key: key, Name: sourceDisplayName(key), LastFetchAt: time.Now(), Total: len(cands)}
@@ -45,12 +47,23 @@ func (p *pluginSource) FetchList() []string {
 		}
 		for _, c := range cands {
 			if u, ok := candidateURL(c); ok {
-				out = append(out, u)
+				out = append(out, proxypoollib.TaggedURL{URL: u, Source: info.Name})
 			} else {
 				info.Unsupported++
 			}
 		}
 		s.recordSource(info)
+	}
+	return out
+}
+
+// FetchList preserves the library ProxySource contract for callers that do not
+// use TaggedSource.
+func (p *pluginSource) FetchList() []string {
+	tagged := p.FetchTagged()
+	out := make([]string, 0, len(tagged))
+	for _, item := range tagged {
+		out = append(out, item.URL)
 	}
 	return out
 }
