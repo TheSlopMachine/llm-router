@@ -1,5 +1,9 @@
 # Changelog
 
+## Done (2026-10-06, v0.7.0)
+
+- Bumped `proxypool` to v1.0.6: publish builds now resolve the lane-scheduler API (`PoolStats`, `PoolEvent`, `Reporter`, `TaggedURL`, `FailReason`, `SetLimits`, `Start`/`Stop`) used by the router.
+
 ## Done (2026-10-06, proxypool 1.1.0)
 
 - Moved proxy-pool orchestration to the library-backed lane scheduler: foreground/background modes, liveness/revival lanes, adaptive concurrency and network-health breaker state are now exposed through the dashboard status API.
