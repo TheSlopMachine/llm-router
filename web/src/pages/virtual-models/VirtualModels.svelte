@@ -118,10 +118,10 @@
 <VStack gap={4}>
   <HStack align="center" justify="between" gap={3}>
     <VStack gap={1}>
-      <Text tag="h1" size="lg" weight="bold">{t('Virtual models')}</Text>
-      <Text tone="soft" size="sm">{t('Virtual models route requests across multiple models with fall-through.')}</Text>
+      <Text tag="h1" size="lg" weight="bold">{t('virtual.models_plural')}</Text>
+      <Text tone="soft" size="sm">{t('virtual.models_desc')}</Text>
     </VStack>
-    <Button text={t('New model')} style="prominent" icon={{ name: 'add' }} onclick={openNew} />
+    <Button text={t('virtual.actions.new_model')} style="prominent" icon={{ name: 'add' }} onclick={openNew} />
   </HStack>
 
   {#if resource.error}
@@ -129,7 +129,7 @@
   {/if}
 
   {#if resource.loading}
-    <Text tone="soft" size="sm">{t('Loading virtual models...')}</Text>
+    <Text tone="soft" size="sm">{t('virtual.loading')}</Text>
   {:else}
     <ModelsTable
       models={(resource.data ?? []).filter((a) => a).map((vm) => ({
@@ -148,46 +148,46 @@
     >
       {#snippet actions({ model })}
         {@const vm = model.source as VirtualModel}
-        <HStack gap={2} class="vm-actions" align="center" justify="end">
-          <Button style="text" icon={{ name: 'content_copy' }} ariaLabel={t('Clone')} title={t('Clone')} size="small" onclick={() => clone(vm)} />
-          {#if isEditableVm(vm)}
-            <Button style="text" icon={{ name: 'edit' }} ariaLabel={t('Edit')} title={t('Edit')} size="small" onclick={() => openEdit(vm)} />
-            <Button style="text" tint="var(--color-danger)" icon={{ name: 'delete' }} ariaLabel={t('Delete')} title={t('Delete')} size="small" onclick={(e) => openDelete(vm, e.currentTarget as HTMLElement)} />
-          {/if}
-          <Switch
-            checked={!vm.disabled}
-            ariaLabel={vm.disabled ? t('Enable virtual model') : t('Disable virtual model')}
-            onchange={(en) => toggle(vm, en)}
-          />
-        </HStack>
+         <HStack gap={2} class="vm-actions" align="center" justify="end">
+           <Button style="text" icon={{ name: 'content_copy' }} ariaLabel={t('tokens.actions.clone')} title={t('tokens.actions.clone')} size="small" onclick={() => clone(vm)} />
+           {#if isEditableVm(vm)}
+             <Button style="text" icon={{ name: 'edit' }} ariaLabel={t('common.actions.edit')} title={t('common.actions.edit')} size="small" onclick={() => openEdit(vm)} />
+             <Button style="text" tint="var(--color-danger)" icon={{ name: 'delete' }} ariaLabel={t('common.actions.delete')} title={t('common.actions.delete')} size="small" onclick={(e) => openDelete(vm, e.currentTarget as HTMLElement)} />
+           {/if}
+           <Switch
+             checked={!vm.disabled}
+             ariaLabel={vm.disabled ? t('virtual.enable') : t('virtual.disable')}
+             onchange={(en) => toggle(vm, en)}
+           />
+         </HStack>
       {/snippet}
       {#snippet empty()}
-        {#snippet createVmAction()}
-          <Button style="prominent" icon={{ name: 'add' }} onclick={openNew}>{t('Create your first virtual model')}</Button>
-        {/snippet}
-        <EmptyState
-          icon="robot"
-          title={t('No virtual models yet')}
-          action={createVmAction}
-        />
-      {/snippet}
-    </ModelsTable>
-  {/if}
+       {#snippet createVmAction()}
+           <Button style="prominent" icon={{ name: 'add' }} onclick={openNew}>{t('virtual.create.first')}</Button>
+         {/snippet}
+         <EmptyState
+           icon="robot"
+           title={t('virtual.list.empty')}
+           action={createVmAction}
+         />
+       {/snippet}
+     </ModelsTable>
+   {/if}
 
-  <FloatingView
-    open={Boolean(deleteTarget)}
-    anchor={deleteAnchor}
-    onclose={() => { deleteTarget = null }}
-    label={t('Delete virtual model')}
-  >
-    {#snippet children({ close })}
-      <ConfirmAction
-        title={t('Delete virtual model')}
-        body={`${t('Are you sure you want to delete')} "${deleteTarget?.name}"? ${t('This action cannot be undone.')}`}
-        busy={deleting}
-        busyLabel={t('Deleting…')}
-        onCancel={close}
-        onConfirm={confirmDelete} />
-    {/snippet}
-  </FloatingView>
+   <FloatingView
+     open={Boolean(deleteTarget)}
+     anchor={deleteAnchor}
+     onclose={() => { deleteTarget = null }}
+     label={t('virtual.delete_title')}
+   >
+     {#snippet children({ close })}
+       <ConfirmAction
+         title={t('virtual.delete_title')}
+         body={`${t('misc.delete_confirm')} "${deleteTarget?.name}"? ${t('common.undo.cannot_undo')}`}
+         busy={deleting}
+         busyLabel={t('common.actions.deleting')}
+         onCancel={close}
+         onConfirm={confirmDelete} />
+     {/snippet}
+   </FloatingView>
 </VStack>

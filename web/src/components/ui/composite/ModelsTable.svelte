@@ -90,21 +90,21 @@
   function modeColumns(mode: 'full' | 'merged' | 'compact', readonly: boolean, sortable: boolean): TableColumn[] {
     if (mode === 'full') {
       return [
-        { key: 'context', title: t('Context'), width: '0.9fr', sortable },
-        { key: 'modalities', title: t('Modalities'), width: '1.2fr', sortable, align: 'center' as const },
-        { key: 'capabilities', title: t('Capabilities'), width: readonly ? '1.1fr' : '1.2fr', sortable, align: 'left' as const },
+        { key: 'context', title: t('models.context.title'), width: '0.9fr', sortable },
+        { key: 'modalities', title: t('models.modalities.title'), width: '1.2fr', sortable, align: 'center' as const },
+        { key: 'capabilities', title: t('models.capabilities.title'), width: readonly ? '1.1fr' : '1.2fr', sortable, align: 'left' as const },
       ]
     }
     if (mode === 'merged') {
-      return [{ key: 'ctxmods', title: t('Context & Modalities'), width: '2.1fr', sortable }]
+      return [{ key: 'ctxmods', title: t('models.context_modalities'), width: '2.1fr', sortable }]
     }
-    return [{ key: 'all', title: t('Capabilities'), width: '2.5fr' }]
+    return [{ key: 'all', title: t('models.capabilities.title'), width: '2.5fr' }]
   }
 
   const columns = $derived<TableColumn[]>([
-    { key: 'model', title: t('Model'), width: readonly ? '3.6fr' : '3.2fr', sortable },
+    { key: 'model', title: t('models.list.title'), width: readonly ? '3.6fr' : '3.2fr', sortable },
     ...modeColumns(mode, readonly, sortable),
-    ...(!readonly ? [{ key: 'actions', title: t('Actions'), width: '0.9fr', align: 'right' as const }] : []),
+    ...(!readonly ? [{ key: 'actions', title: t('common.actions.all'), width: '0.9fr', align: 'right' as const }] : []),
   ])
 
   const sortedModels = $derived.by(() => {
@@ -179,13 +179,13 @@
 {#snippet ctxBlock({ model }: { model: ModelsTableModel })}
   <VStack gap={1} align="start" class="ctx-text">
     {#if model.contextWindow}
-      <Text size="sm" tone="soft" title={t('Context window — up to') + ` ${model.contextWindow.toLocaleString()} ` + t('input tokens')}>
-        {(model.contextWindow / 1000).toFixed(0)}k {t('context')}
+      <Text size="sm" tone="soft" title={t('models.context.window_up_to') + ` ${model.contextWindow.toLocaleString()} ` + t('models.context.input_tokens')}>
+        {(model.contextWindow / 1000).toFixed(0)}k {t('models.context.lowercase')}
       </Text>
     {/if}
     {#if model.maxTokens}
-      <Text size="sm" tone="soft" title={t('Max output — up to') + ` ${model.maxTokens.toLocaleString()} ` + t('tokens per response')}>
-        {(model.maxTokens / 1000).toFixed(0)}k {t('output')}
+      <Text size="sm" tone="soft" title={t('models.output.max_up_to') + ` ${model.maxTokens.toLocaleString()} ` + t('models.output.tokens_per_response')}>
+        {(model.maxTokens / 1000).toFixed(0)}k {t('models.output.lowercase')}
       </Text>
     {/if}
     {#if !model.contextWindow && !model.maxTokens}
@@ -218,7 +218,7 @@
       />
     {/each}
     {#if model.custom}
-      <Chip icon="tune" text="" color="chip-teal" title={t('Custom model')} size={size} />
+      <Chip icon="tune" text="" color="chip-teal" title={t('models.custom.lowercase')} size={size} />
     {/if}
     {#if !hasCapabilities(model)}
       <Text size="sm" tone="disabled">—</Text>
@@ -250,7 +250,7 @@
               <Text mono size="sm" class="id-text">
                 virtual/{model.id}
               </Text>
-              <CopyButton size="small" text={fullId(model)} title={t('Copy model id')} ariaLabel={t('Copy model id')} />
+              <CopyButton size="small" text={fullId(model)} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
             </HStack>
             <Text size="sm" tone="soft" class="secondary-text">{model.description || '—'}</Text>
           {:else}
@@ -259,7 +259,7 @@
             </HStack>
             <HStack gap={2} align="center" class="identity-line">
               <Text mono size="sm" class="id-text">{fullId(model)}</Text>
-              <CopyButton size="small" text={fullId(model)} title={t('Copy model id')} ariaLabel={t('Copy model id')} />
+              <CopyButton size="small" text={fullId(model)} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
             </HStack>
           {/if}
           {#if showProviderNameLink(model)}
@@ -269,7 +269,7 @@
             </a>
           {:else if showVirtualLink(model)}
             <a class="provider-link" href="#/virtual">
-              <Text size="sm">{t('Virtual models')}</Text>
+              <Text size="sm">{t('virtual.models_plural')}</Text>
               <Icon name="chevron_right" />
             </a>
           {/if}

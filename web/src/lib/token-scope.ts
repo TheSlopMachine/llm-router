@@ -1,17 +1,18 @@
 // Token wizard display + scope predicates. Single owner for the step
 // subtitle/validity chains and full-access checks in TokenWizard.svelte.
 import type { BackendTokenRules } from './token-rules'
+import type { TranslationKey } from './i18n/types'
 
 export function hasFullAccess(r: BackendTokenRules | Record<string, unknown>): boolean {
   const rec = r as Record<string, unknown>
   return !!rec.allow_all_providers && !!rec.allow_all_models && !!rec.allow_all_credentials
 }
 
-export function resolveWizardSubtitle(wizardStep: number, tokenName: string, t: (s: string) => string): string {
-  if (wizardStep === 4) return t('Token created successfully')
+export function resolveWizardSubtitle(wizardStep: number, tokenName: string, t: (key: TranslationKey) => string): string {
+  if (wizardStep === 4) return t('tokens.success.created_done')
   const name = tokenName.trim()
   if (name) return name
-  return `${t('Step')} ${wizardStep} ${t('of 4')}`
+  return `${t('misc.step')} ${wizardStep} ${t('misc.of_4')}`
 }
 
 export function resolveStepValidity(

@@ -23,22 +23,22 @@
   let deletingPool = $state(false)
 
   const proxyColumns: TableColumn[] = [
-    { key: 'url', title: t('URL'), width: '1fr', priority: 1 },
-    { key: 'latency', title: t('Latency'), width: '90px', align: 'right', priority: 2 },
-    { key: 'score', title: t('Score'), width: '80px', align: 'right', priority: 2 },
+    { key: 'url', title: t('proxy.url'), width: '1fr', priority: 1 },
+    { key: 'latency', title: t('proxy.latency'), width: '90px', align: 'right', priority: 2 },
+    { key: 'score', title: t('proxy.score'), width: '80px', align: 'right', priority: 2 },
   ]
 
   const poolColumns: TableColumn[] = [
-    { key: 'name', title: t('Name'), width: '1fr', priority: 1 },
-    { key: 'proxies', title: t('Proxies'), width: '120px', align: 'right', priority: 2 },
-    { key: 'actions', title: t('Actions'), width: 'auto', align: 'right', priority: 1 },
+    { key: 'name', title: t('common.labels.name'), width: '1fr', priority: 1 },
+    { key: 'proxies', title: t('proxy.title'), width: '120px', align: 'right', priority: 2 },
+    { key: 'actions', title: t('common.labels.actions'), width: 'auto', align: 'right', priority: 1 },
   ]
 
   const sourceColumns: TableColumn[] = [
-    { key: 'name', title: t('Name'), width: '1fr', priority: 1 },
-    { key: 'fetched', title: t('Last fetched'), width: '160px', align: 'right', priority: 2 },
-    { key: 'candidates', title: t('Candidates'), width: '110px', align: 'right', priority: 1 },
-    { key: 'unsupported', title: t('Unsupported'), width: '110px', align: 'right', priority: 2 },
+    { key: 'name', title: t('common.labels.name'), width: '1fr', priority: 1 },
+    { key: 'fetched', title: t('proxy.sources.last_fetched'), width: '160px', align: 'right', priority: 2 },
+    { key: 'candidates', title: t('proxy.sources.candidates'), width: '110px', align: 'right', priority: 1 },
+    { key: 'unsupported', title: t('proxy.sources.unsupported'), width: '110px', align: 'right', priority: 2 },
   ]
 
   onMount(() => {
@@ -82,7 +82,7 @@
 
   function formatMinutes(nanoseconds: number): string {
     const minutes = Math.round(nanoseconds / 60_000_000_000)
-    return `${minutes} ${t('min')}`
+    return `${minutes} ${t('common.time.min')}`
   }
 
   function formatTime(value?: string): string {
@@ -93,7 +93,7 @@
   function openPoolModal(mode: 'create' | 'edit', pool?: ProxyPool): void {
     error = ''
     openFormModal(CustomPoolModal, {
-      title: mode === 'edit' ? t('Edit pool') : t('New pool'),
+      title: mode === 'edit' ? t('proxy.custom_pools.edit') : t('proxy.custom_pools.new'),
       size: 'medium',
       props: { editingPool: mode === 'edit' ? (pool ?? null) : null },
       onReload: () => void loadAll()
@@ -128,15 +128,15 @@
 <VStack gap={6}>
   <HStack align="center" gap={4}>
     <VStack gap={1} grow>
-      <Text tag="h1" size="xl" weight="bold">{t('Proxies')}</Text>
-      <Text tone="soft" size="sm">{t('The pool refreshes automatically and keeps unhealthy proxies for later checks.')}</Text>
+      <Text tag="h1" size="xl" weight="bold">{t('proxy.title')}</Text>
+      <Text tone="soft" size="sm">{t('proxy.pool.auto_refresh')}</Text>
     </VStack>
     <Button
       style="prominent"
       icon={{ name: 'refresh' }}
       disabled={requestingRefresh || status?.refreshing}
       onclick={refreshPool}
-    >{status?.refreshing ? t('Refreshing…') : t('Refresh pool')}</Button>
+    >{status?.refreshing ? t('proxy.pool.refreshing') : t('proxy.pool.refresh')}</Button>
   </HStack>
 
   {#if error}
@@ -147,41 +147,41 @@
     <Banner variant="error" text={status.last_error} />
   {/if}
 
-  <SectionCard title={t('Pool status')}>
+  <SectionCard title={t('proxy.pool.status')}>
     {#if status}
       <HStack gap={5} wrap>
         <VStack gap={0}>
-          <Text size="xs" tone="soft">{t('Active proxies')}</Text>
+          <Text size="xs" tone="soft">{t('proxy.pool.active')}</Text>
           <Text size="base" weight="medium">{status.active} / {status.total}</Text>
         </VStack>
         <VStack gap={0}>
-          <Text size="xs" tone="soft">{t('Refresh interval')}</Text>
+          <Text size="xs" tone="soft">{t('proxy.pool.interval')}</Text>
           <Text size="base" weight="medium">{formatMinutes(status.refresh_interval)}</Text>
         </VStack>
         <VStack gap={0}>
-          <Text size="xs" tone="soft">{t('Next refresh')}</Text>
+          <Text size="xs" tone="soft">{t('proxy.pool.next_refresh')}</Text>
           <Text size="base" weight="medium">{formatTime(status.next_refresh_at)}</Text>
         </VStack>
         <VStack gap={0}>
-          <Text size="xs" tone="soft">{t('Last refresh')}</Text>
+          <Text size="xs" tone="soft">{t('proxy.pool.last_refresh')}</Text>
           <Text size="base" weight="medium">{formatTime(status.last_refresh_at)}</Text>
         </VStack>
         {#if status.refreshing}
-          <Chip text={t('Refreshing')} color="chip-accent" size="small" />
+          <Chip text={t('proxy.pool.refreshing_status')} color="chip-accent" size="small" />
         {/if}
       </HStack>
     {:else}
-      <Text tone="soft" size="sm">{t('Loading…')}</Text>
+      <Text tone="soft" size="sm">{t('common.state.loading')}</Text>
     {/if}
   </SectionCard>
 
   <VStack gap={4}>
     <HStack align="center" gap={4}>
       <VStack gap={1} grow>
-        <Text tag="h2" size="md" weight="bold">{t('Custom pools')}</Text>
-        <Text tone="soft" size="sm">{t('Manually managed pools.')}</Text>
+        <Text tag="h2" size="md" weight="bold">{t('proxy.custom_pools.title')}</Text>
+        <Text tone="soft" size="sm">{t('proxy.custom_pools.desc')}</Text>
       </VStack>
-      <Button style="prominent" onclick={() => openPoolModal('create')} icon={{ name: 'add' }}>{t('New pool')}</Button>
+      <Button style="prominent" onclick={() => openPoolModal('create')} icon={{ name: 'add' }}>{t('proxy.custom_pools.new')}</Button>
     </HStack>
     <Table
       columns={poolColumns}
@@ -200,9 +200,9 @@
             <Button
               style="text"
               icon={{ name: 'edit' }}
-              title={t('Edit')}
+              title={t('common.actions.edit')}
               size="small"
-              ariaLabel={t('Edit')}
+              ariaLabel={t('common.actions.edit')}
               onclick={() => openPoolModal('edit', pool)}
             />
             <Button
@@ -210,23 +210,23 @@
               tint="var(--color-danger)"
               size="small"
               icon={{ name: 'delete' }}
-              title={t('Delete')}
-              ariaLabel={t('Delete')}
+              title={t('common.actions.delete')}
+              ariaLabel={t('common.actions.delete')}
               onclick={(e) => openDeletePool(pool, e.currentTarget as HTMLElement)}
             />
           </HStack>
         {/if}
       {/snippet}
       {#snippet empty()}
-        <EmptyState title={t('No custom pools yet.')} />
+        <EmptyState title={t('proxy.custom_pools.empty')} />
       {/snippet}
     </Table>
   </VStack>
 
   <VStack gap={4}>
     <VStack gap={1}>
-      <Text tag="h2" size="md" weight="bold">{t('Proxy sources')}</Text>
-      <Text tone="soft" size="sm">{t('Plugins provide candidate URLs. The library retains and checks them.')}</Text>
+      <Text tag="h2" size="md" weight="bold">{t('proxy.sources.title')}</Text>
+      <Text tone="soft" size="sm">{t('proxy.sources.desc')}</Text>
     </VStack>
     <Table
       columns={sourceColumns}
@@ -251,13 +251,13 @@
         {/if}
       {/snippet}
       {#snippet empty()}
-        <EmptyState title={t('No proxy list sources installed. Install a proxy-source plugin (e.g. proxifly).')} icon="extension" />
+        <EmptyState title={t('proxy.no_sources')} icon="extension" />
       {/snippet}
     </Table>
   </VStack>
 
   <VStack gap={4}>
-    <Text tag="h2" size="md" weight="bold">{t('Healthy proxies')}</Text>
+    <Text tag="h2" size="md" weight="bold">{t('proxy.pool.healthy')}</Text>
     <Table
       columns={proxyColumns}
       rows={proxies}
@@ -278,7 +278,7 @@
         {/if}
       {/snippet}
       {#snippet empty()}
-        <EmptyState title={t('No healthy proxies in the pool.')} />
+        <EmptyState title={t('proxy.pool.empty')} />
       {/snippet}
     </Table>
   </VStack>
@@ -287,14 +287,14 @@
     open={Boolean(deletePoolTarget)}
     anchor={deletePoolAnchor}
     onclose={() => { deletePoolTarget = null }}
-    label={t('Delete pool')}
+    label={t('proxy.custom_pools.delete')}
   >
     {#snippet children({ close })}
       <ConfirmAction
-        title={t('Delete pool')}
-        body={`${t('Are you sure you want to delete')} "${deletePoolTarget?.name}"? ${t('This action cannot be undone.')}`}
+        title={t('proxy.custom_pools.delete')}
+        body={`${t('misc.delete_confirm')} "${deletePoolTarget?.name}"? ${t('common.undo.cannot_undo')}`}
         busy={deletingPool}
-        busyLabel={t('Deleting…')}
+        busyLabel={t('common.actions.deleting')}
         onCancel={close}
         onConfirm={confirmDeletePool} />
     {/snippet}

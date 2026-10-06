@@ -8,7 +8,7 @@
 </script>
 
 <VStack gap={4}>
-  <Text size="sm" tone="soft">{t('Review host changes before updating.')}</Text>
+  <Text size="sm" tone="soft">{t('plugins.update.review_hosts')}</Text>
   {#each rows as row (row.pluginId)}
     <VStack gap={1}>
       <HStack align="center" gap={2}>
@@ -18,8 +18,8 @@
       </HStack>
       {#if row.escalatesToUnsafe}
         <HStack align="center" gap={2}>
-          <Chip text={t('Unrestricted network')} color="chip-red" size="small" />
-          <Text size="xs" tone="danger">{t('Requests unrestricted network access.')}</Text>
+          <Chip text={t('plugins.network.unrestricted')} color="chip-red" size="small" />
+          <Text size="xs" tone="danger">{t('plugins.update.requests_unrestricted')}</Text>
         </HStack>
       {/if}
       {#if row.added.length > 0}
@@ -33,7 +33,7 @@
         {/each}
       {/if}
       {#if !hasPermissionChanges(row)}
-        <Text size="xs" tone="soft">{t('Permissions unchanged.')}</Text>
+        <Text size="xs" tone="soft">{t('plugins.update.permissions_unchanged')}</Text>
       {/if}
     </VStack>
   {/each}

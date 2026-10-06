@@ -276,7 +276,21 @@ Never stack a 2nd/3rd `$effect` with its own guard flag to patch the 1st. That m
 
 Before finishing any `.svelte` change, re-check every `$effect` touched against this section.
 
-## 9. Lua Plugins
+## 9. i18n Robotic Keys
+
+UI text uses categorized robotic keys. English text is the default output. A key shows only when a translation is missing.
+
+- Location: `web/src/lib/i18n/` with `types.ts` (`TranslationKey` union), `en.ts` (source), `ru.ts` (translation), `index.ts` (`t`, `n`, `tb`).
+- API: `t('common.actions.save')` for static text; `n(count, 'time.units.minute.one', 'time.units.minute.many')` for counts with automatic Russian forms; `tb(summary)` for backend probe summaries.
+- Key format: `<domain>.<subdomain>.<entity>.<suffix>`, 2 to 4 levels, `snake_case`, full words, no abbreviations.
+- Domains: `common`, `auth`, `nav`, `providers`, `credentials`, `models`, `tokens`, `virtual`, `plugins`, `proxy`, `settings`, `data`, `metrics`, `upload`, `misc`, `time`, `units`.
+- Suffixes: `.title`, `.label`, `.placeholder`, `.hint`, `.action`, `.status`, `.error`, `.empty`, `.desc`, `.one`/`.many` (English plurals), `.one`/`.few`/`.many` (Russian plurals).
+- Text rules: ASCII only (`...` not Unicode ellipsis, `-` not em dash), short sentences, title case for titles and buttons, sentence case for descriptions.
+- Add a key: extend the `TranslationKey` union, add English text to `en.ts`, add Russian text to `ru.ts`, use `t('domain.entity.suffix')`, run `make check-frontend`.
+- Never pass English strings to `t`. Never pass dynamic strings to `t`; use `tb` for backend summaries.
+- Full guide with examples: `web/src/lib/i18n/README.md`.
+
+## 10. Lua Plugins
 
 - New provider backends are single-file Lua plugins: one `.lua` file with a `--- @` manifest header. Install via dashboard Plugins → Catalog tab or `POST /api/llm-router/dashboard/plugins/install-file`.
 - Manifest: required tags `@plugin`, `@author`, `@version`, `@router_version`, one or more `@allow_host` (`*` marks the plugin unsafe). Routers serve no contract older than `0.7.0`. `internal/services/luaplugin/manifest.go` validates.
@@ -286,7 +300,7 @@ Before finishing any `.svelte` change, re-check every `$effect` touched against 
 - Built-in Go backends exist only for `custom` (`internal/adapters/generic/`) and `virtual` (`providers/virtual/`), both implementing `provider.GoAdapter`.
 - Verification: `make go-vet` for static checks, `make smoke` for black-box checks against live upstreams.
 
-## 10. Runtime, API Testing, Smoke
+## 11. Runtime, API Testing, Smoke
 
 Debug live with `make start NO_AUTH=1` (authorization fully off: no bearer keys, no login), `make log` / `make log-frontend` for output, `make status` for state, `make stop` when done. Fresh DBs still open the bootstrap page once (account creation stays); `status.authenticated` reads true under no-auth. NEVER enable no-auth outside local dev.
 
@@ -323,14 +337,14 @@ Smoke harness (`scripts/smoke/`, `make smoke` restarts with `NO_AUTH=1` first):
 - Check semantics differ per target: streams assert delivery (`[DONE]`/`message_stop`), dashboard-chat asserts non-empty `choices`, unary asserts content. A unary-only failure with passing streams means empty upstream text, not transport.
 - Diagnose from the log first: failing calls' full upstream bodies are already in the debug log (`make smoke SMOKE_PLUGINS=... LOG_LEVEL=debug`, then grep `HTTP_RESPONSE`/`COMPLETE`). Reproduce single-model failures with direct `/v1` calls before running the matrix.
 
-## 11. Plugin Store Repo (sibling checkout)
+## 12. Plugin Store Repo (sibling checkout)
 
 Provider plugins ship from plugin store repositories, not from the binary. Built-in repos live in `pluginrepo.BuiltinRepos` and seed on startup via `EnsureBuiltinRepos`; they cannot be removed (`ErrBuiltinRepoProtected`). To ship a plugin upgrade, bump `@version` in the store repository.
 
 - Reissue checklist per plugin: `@version` bump on every content edit (major on contract breaks) — version-match reinstall skips same-version sources, so rewritten content under a fixed version never deploys; `@router_version` floor, classify through the helper, `(resp, err)` stream idiom with `on_response`, `scope` on rate/quota, `request.model_name` (never forward request tables verbatim upstream).
 - Verify reissues without live keys: install dry-run plus classify extensions against synthetic `{status, headers, body}` inputs. Live streams and impersonation paths verify on `make start` with real accounts only.
 
-## 12. Documentation
+## 13. Documentation
 
 Edit docs in the same change as the code, never deferred. Short formulations: present simple for system state, past simple for history.
 

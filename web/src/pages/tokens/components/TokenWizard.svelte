@@ -71,7 +71,7 @@
           ...providers,
           {
             id: 'virtual',
-            name: t('Virtual models'),
+            name: t('virtual.models_plural'),
             type: 'virtual',
             type_key: 'virtual',
             qualifier: '',
@@ -86,9 +86,9 @@
           } as Provider
         ]
   )
-  let baseTitle = $derived(editingToken ? t('Edit token') : t('New token'))
+  let baseTitle = $derived(editingToken ? t('tokens.edit.title') : t('tokens.actions.new'))
   let subtitle = $derived(resolveWizardSubtitle(wizardStep, tokenName, t))
-  let stepperConfig: StepperConfig | null = $derived({ current: Math.min(wizardStep, 4), total: 4, labels: [t('Name'), t('Providers'), t('Models'), t('Done')] })
+  let stepperConfig: StepperConfig | null = $derived({ current: Math.min(wizardStep, 4), total: 4, labels: [t('tokens.wizard.step_name'), t('tokens.wizard.step_providers'), t('tokens.wizard.step_models'), t('tokens.wizard.step_done')] })
 
   onMount(async () => {
     if (editingToken) {
@@ -277,25 +277,25 @@
       updateStepper(stepperConfig)
       if (wizardStep === 4) {
         updateButtons([
-          { label: t('Create another'), variant: 'secondary', onClick: resetWizard },
-          { label: t('Done'), variant: 'primary', onClick: handleDone }
+          { label: t('tokens.create_another'), variant: 'secondary', onClick: resetWizard },
+          { label: t('common.actions.done'), variant: 'primary', onClick: handleDone }
         ])
         return
       }
       if (wizardStep === 1) {
         updateButtons([
-          { label: t('Cancel'), variant: 'secondary', onClick: closeModal },
-          { label: t('Next'), variant: 'primary', onClick: nextFromStep1, disabled: !currentValid, loading: wizardLoading }
+          { label: t('common.actions.cancel'), variant: 'secondary', onClick: closeModal },
+          { label: t('common.actions.next'), variant: 'primary', onClick: nextFromStep1, disabled: !currentValid, loading: wizardLoading }
         ])
       } else if (wizardStep === 2) {
         updateButtons([
-          { label: t('Back'), variant: 'secondary', onClick: goBackToStep1 },
-          { label: t('Next'), variant: 'primary', onClick: goToStep3, disabled: !currentValid, loading: wizardLoading }
+          { label: t('common.actions.back'), variant: 'secondary', onClick: goBackToStep1 },
+          { label: t('common.actions.next'), variant: 'primary', onClick: goToStep3, disabled: !currentValid, loading: wizardLoading }
         ])
       } else {
         updateButtons([
-          { label: t('Back'), variant: 'secondary', onClick: goBackToStep2 },
-          { label: isEditMode ? t('Update token') : t('Create token'), variant: 'primary', onClick: submit, disabled: !currentValid, loading: wizardLoading }
+          { label: t('common.actions.back'), variant: 'secondary', onClick: goBackToStep2 },
+          { label: isEditMode ? t('tokens.edit.update') : t('tokens.create.create'), variant: 'primary', onClick: submit, disabled: !currentValid, loading: wizardLoading }
         ])
       }
     })
@@ -306,7 +306,7 @@
 
   function nextFromStep1(): void {
     error = ''
-    if (!tokenName.trim()) { error = t('Token name is required.'); return }
+    if (!tokenName.trim()) { error = t('tokens.create.name_required'); return }
     if (fullAccess) {
       void submit()
       return
@@ -400,22 +400,22 @@
     token={createdToken ?? ''}
     tokenName={tokenName.trim()}
     scopeLabel={{
-      providers: hasBroadProviderScope ? t('All providers') : n(activeProviderIds.length, 'provider', 'providers', 'провайдер', 'провайдера', 'провайдеров'),
-      models: isModelScopeLocked ? t('All models') : n(selectedModels.size, 'model', 'models', 'модель', 'модели', 'моделей'),
-      credentials: hasBroadProviderScope ? t('All credentials') : n(coveredCredIds.size, 'credential', 'credentials', 'учётные данные', 'учётных данных', 'учётных данных')
+      providers: hasBroadProviderScope ? t('tokens.permissions.allow_all_providers') : n(activeProviderIds.length, 'units.provider.one', 'units.provider.many'),
+      models: isModelScopeLocked ? t('tokens.permissions.allow_all_models') : n(selectedModels.size, 'units.model.one', 'units.model.many'),
+      credentials: hasBroadProviderScope ? t('credentials.all') : n(coveredCredIds.size, 'units.credential.one', 'units.credential.many')
     }}
     {error}
   />
 {:else if isNameStep}
   {#if error}<Banner variant="error" text={error} />{/if}
   <VStack gap={4}>
-    <TextEdit id="token-name" bind:value={tokenName} hint={`${t('Token name')} (${t('required')})`} />
-    <Switch bind:checked={fullAccess} label={t('Full access to everything')} id="full-access" />
+    <TextEdit id="token-name" bind:value={tokenName} hint={`${t('tokens.create.name_label')} (${t('common.labels.required')})`} />
+    <Switch bind:checked={fullAccess} label={t('tokens.permissions.full_access')} id="full-access" />
   </VStack>
 {:else if isProvidersStep}
   {#if error}<Banner variant="error" text={error} />{/if}
   <VStack gap={6}>
-    <Switch bind:checked={allowAllProvidersCredentials} label={t('Access to all providers and credentials')} id="allow-all-providers-credentials" />
+    <Switch bind:checked={allowAllProvidersCredentials} label={t('tokens.permissions.all_providers_creds')} id="allow-all-providers-credentials" />
     {#each displayProviders as p (p.id)}
       {@const creds = p.type === 'virtual' ? [] : credsOf(p.id)}
       <div class={isProviderScopeLocked ? 'is-disabled' : ''}>
@@ -430,7 +430,7 @@
               <Switch
                 checked={providerUseAll.has(p.id)}
                 onchange={(v) => toggleProviderUseAll(p.id, v)}
-                label={t('Allow all')}
+                label={t('tokens.permissions.allow_all')}
                 id={`use-all-${p.id}`}
                 disabled={allowAllProvidersCredentials}
               />
@@ -447,13 +447,13 @@
           </HStack>
           {#if p.type !== 'virtual'}
             {#if creds.length === 0}
-              <Text size="sm" tone="soft">{t('No credentials for this provider')}</Text>
+              <Text size="sm" tone="soft">{t('credentials.empty_for_provider')}</Text>
             {:else}
               <List>
                 {#each creds as c (c.id)}
                   <label class="provider-row">
                     <HStack gap={3} align="center">
-                      <Text size="base">{c.label || t('Credential')}</Text>
+                      <Text size="base">{c.label || t('credentials.title')}</Text>
                       <Spacer />
                       <Checkbox
                         checked={providerCreds.has(c.id)}
@@ -474,18 +474,18 @@
 {:else if isModelsStep}
   {#if error}<Banner variant="error" text={error} />{/if}
   <VStack gap={4}>
-    <Switch bind:checked={allowAllModels} label={t('Allow all models')} id="allow-all-models" />
+    <Switch bind:checked={allowAllModels} label={t('tokens.permissions.allow_all_models')} id="allow-all-models" />
     <HStack align="center" gap={3}>
-      <Text tag="h2" size="md" weight="medium">{t('Models')}</Text>
+      <Text tag="h2" size="md" weight="medium">{t('models.list.title')}</Text>
       <div class="models-search">
-        <SearchField bind:value={searchModels} placeholder={t('Search models...')} disabled={allowAllModels} />
+        <SearchField bind:value={searchModels} placeholder={t('models.search.placeholder')} disabled={allowAllModels} />
       </div>
       <div class="head-check-even">
         <Checkbox
           checked={modelsAllChecked}
           onchange={toggleModelsAll}
           disabled={allowAllModels || filteredTableModels.length === 0}
-          ariaLabel={t('Models')}
+          ariaLabel={t('models.list.title')}
         />
       </div>
     </HStack>
@@ -502,7 +502,7 @@
         {/snippet}
         {#snippet empty()}
           <VStack align="center" gap={2}>
-            <Text size="sm" tone="soft">{t('No models available. Select providers on the previous step.')}</Text>
+            <Text size="sm" tone="soft">{t('tokens.permissions.no_models_available')}</Text>
           </VStack>
         {/snippet}
       </ModelsTable>

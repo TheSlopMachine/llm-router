@@ -131,8 +131,8 @@
       backToList()
     } catch (e: unknown) {
       const msg = getErrorMessage(e)
-      if (msg.includes('modified by another process')) formError = t('This virtual model was modified elsewhere. Please refresh and try again.')
-      else if (msg.includes('already exists')) formError = t('A virtual model with this name already exists. Please choose a different name.')
+      if (msg.includes('modified by another process')) formError = t('virtual.errors.modified_elsewhere')
+      else if (msg.includes('already exists')) formError = t('virtual.errors.duplicate_name')
       else formError = msg
       saving = false
     }
@@ -143,7 +143,7 @@
     // backend rejects duplicates on save.
     const next = availableModels.map((m) => m.full_model_id).find((id) => id && !models.includes(id))
     if (next === undefined) {
-      formError = t('All available models are already in the list.')
+      formError = t('virtual.all_models_in_list')
       return
     }
     formError = ''
@@ -154,7 +154,7 @@
   }
   function setModel(index: number, id: string) {
     if (id && models.some((m, i) => i !== index && m === id)) {
-      formError = t('This model is already in the list.')
+      formError = t('virtual.model_already_in_list')
       return
     }
     formError = ''
@@ -211,60 +211,60 @@
   let canSave = $derived(name.trim() !== '' && models.length > 0 && models.every((id) => id !== ''))
   let isManaged = $derived(!!vm?.managed_by)
   let isEditable = $derived(!vm?.managed_by)
-  let saveLabel = $derived(saving ? t('Saving…') : vm ? t('Save') : t('Create virtual model'))
+  let saveLabel = $derived(saving ? t('common.actions.saving') : vm ? t('common.actions.save') : t('virtual.create.title'))
 </script>
 
-<VStack gap={4}>
+  <VStack gap={4}>
   <VStack gap={1}>
-    <Text tag="h1" size="lg" weight="bold">{vmId ? t('Edit virtual model') : t('New virtual model')}</Text>
-    <Text tone="soft" size="sm">{vmId ? t('Update the fall-through list and instruction for this virtual model.') : t('Create a virtual model that routes requests across multiple models with fall-through.')}</Text>
+    <Text tag="h1" size="lg" weight="bold">{vmId ? t('virtual.edit.title') : t('virtual.create.title')}</Text>
+    <Text tone="soft" size="sm">{vmId ? t('virtual.update_desc') : t('virtual.create_desc')}</Text>
   </VStack>
 
   {#if error}
     <Banner variant="error" text={error} />
   {:else if loading}
-    <Text tone="soft" size="sm">{t('Loading virtual model...')}</Text>
+    <Text tone="soft" size="sm">{t('virtual.loading_single')}</Text>
   {:else}
     {#if formError}
       <Banner variant="error" text={formError} />
     {/if}
 
     {#if isManaged}
-      <Text tone="soft" size="sm">{t('Managed by the provider. Members refresh automatically; only the enabled toggle on the lists can change it.')}</Text>
+      <Text tone="soft" size="sm">{t('virtual.managed_by_provider')}</Text>
     {/if}
 
     {#if modelsLoadState === 'empty'}
-      <Banner variant="warning" text={t('No models available. Configure at least one provider with credentials to create virtual models.')} />
+      <Banner variant="warning" text={t('virtual.configure_first')} />
     {/if}
 
-    <SectionCard title="Basic information">
+    <SectionCard title={t('virtual.basic_info')}>
       <VStack gap={1}>
         <Text tag="label" size="sm" weight="medium" for="vm-name">ID *</Text>
-        <TextEdit id="vm-name" bind:value={name} hint={t('How it appears in the model list — lowercase, hyphenated')} disabled={isManaged} />
+        <TextEdit id="vm-name" bind:value={name} hint={t('virtual.model')} disabled={isManaged} />
       </VStack>
       <VStack gap={1}>
-        <Text tag="label" size="sm" weight="medium" for="vm-description">{t('Description')}</Text>
-        <TextArea id="vm-description" bind:value={description} hint={t('Pretty name, e.g. Gemini fallback')} minRows={2} disabled={isManaged} />
+        <Text tag="label" size="sm" weight="medium" for="vm-description">{t('virtual.description_for_decision')}</Text>
+        <TextArea id="vm-description" bind:value={description} hint={t('virtual.description_example')} minRows={2} disabled={isManaged} />
       </VStack>
       <VStack gap={1}>
-        <Text tag="label" size="sm" weight="medium" for="vm-instruction">{t('System instruction')}</Text>
-        <TextArea id="vm-instruction" bind:value={instruction} hint={t('Additional guidance for the LLM (behavioral, stylistic)')} minRows={4} disabled={isManaged} />
+        <Text tag="label" size="sm" weight="medium" for="vm-instruction">{t('virtual.instruction_label')}</Text>
+        <TextArea id="vm-instruction" bind:value={instruction} hint={t('virtual.general_instructions')} minRows={4} disabled={isManaged} />
       </VStack>
     </SectionCard>
 
-    <SectionCard title="Models">
+    <SectionCard title={t('models.list.title')}>
       {#if modelsLoadState === 'loading'}
-        <Text tone="soft" size="sm">{t('Loading available models...')}</Text>
+        <Text tone="soft" size="sm">{t('models.list.loading')}</Text>
       {:else if modelsLoadState === 'error'}
         <VStack gap={2} align="center">
-          <Text tone="danger" size="sm">{t('Failed to load models. Please try again.')}</Text>
-          <Button text={t('Reload')} onclick={loadAvailableModels} />
+          <Text tone="danger" size="sm">{t('models.list.failed_load')}</Text>
+          <Button text={t('common.actions.reload')} onclick={loadAvailableModels} />
         </VStack>
       {:else if models.length === 0}
         {#if modelsLoadState === 'empty'}
-          <Text tone="soft" size="sm">{t('No models are currently available. Configure providers first.')}</Text>
+          <Text tone="soft" size="sm">{t('virtual.no_models_configure')}</Text>
         {:else if isEditable}
-          <Button text={t('Add model')} icon={{ name: 'add' }} onclick={addModel} />
+          <Button text={t('models.actions.add')} icon={{ name: 'add' }} onclick={addModel} />
         {/if}
       {:else}
         <VStack gap={3}>
@@ -281,10 +281,10 @@
               role="listitem"
             >
               <HStack gap={0} align="center" class="col-priority">
-                <span class="drag-handle" title={t('Drag to reorder')}><Icon name="drag_indicator" /></span>
+                <span class="drag-handle" title={t('models.drag_reorder')}><Icon name="drag_indicator" /></span>
                 <Text size="sm" tone="soft" align="center" class="row-num">{i + 1}</Text>
               </HStack>
-              <Select value={id} options={modelOptions} searchable={true} placeholder={t('Select a model...')} onchange={(v) => setModel(i, v)} disabled={isManaged} />
+              <Select value={id} options={modelOptions} searchable={true} placeholder={t('models.select.placeholder')} onchange={(v) => setModel(i, v)} disabled={isManaged} />
               <HStack gap={2} wrap align="center" class="row-caps">
                 <ModalitiesFlow modalities={{ input: modalityMap[id]?.input, output: modalityMap[id]?.output }} chipsDirection="horizontal" />
                 {#each infoOf(id)?.capabilities ?? [] as cap}
@@ -300,15 +300,15 @@
                 {#if infoOf(id)?.context_window}<Text size="sm" tone="soft">{(infoOf(id)!.context_window! / 1000).toFixed(0)}k ctx</Text>{/if}
                 {#if infoOf(id)?.max_tokens}<Text size="sm" tone="soft">{(infoOf(id)!.max_tokens! / 1000).toFixed(0)}k out</Text>{/if}
               </VStack>
-              <Button tint="var(--color-danger)" style="text" icon={{ name: 'delete' }} ariaLabel={t('Remove model')} onclick={() => removeModel(i)} disabled={isManaged} />
+              <Button tint="var(--color-danger)" style="text" icon={{ name: 'delete' }} ariaLabel={t('virtual.remove_model')} onclick={() => removeModel(i)} disabled={isManaged} />
             </div>
           {/each}
         </VStack>
         {#if isEditable}
-          <Button text={t('Add model')} icon={{ name: 'add' }} onclick={addModel} />
+          <Button text={t('models.actions.add')} icon={{ name: 'add' }} onclick={addModel} />
         {/if}
         <HStack gap={3} wrap align="center">
-          <Text size="sm" weight="medium" tone="soft">{t('Virtual model capabilities')}</Text>
+          <Text size="sm" weight="medium" tone="soft">{t('virtual.capabilities')}</Text>
           <ModalitiesFlow modalities={{ input: aggregates.inMods, output: aggregates.outMods }} chipsDirection="horizontal" />
           {#if aggregates.caps.length > 0}
             {#each aggregates.caps as cap}
@@ -323,10 +323,10 @@
             <Text tone="disabled" size="sm">—</Text>
           {/if}
           {#if aggregates.context > 0}
-            <Text size="sm" tone="soft" title={t('Smallest context window across the models')}>{(aggregates.context / 1000).toFixed(0)}k ctx</Text>
+            <Text size="sm" tone="soft" title={t('virtual.smallest_context')}>{(aggregates.context / 1000).toFixed(0)}k ctx</Text>
           {/if}
           {#if aggregates.output > 0}
-            <Text size="sm" tone="soft" title={t('Smallest max output across the models')}>{(aggregates.output / 1000).toFixed(0)}k out</Text>
+            <Text size="sm" tone="soft" title={t('virtual.smallest_output')}>{(aggregates.output / 1000).toFixed(0)}k out</Text>
           {/if}
         </HStack>
       {/if}
@@ -334,7 +334,7 @@
 
     {#if isEditable}
     <HStack justify="end" gap={2}>
-      <Button text={t('Cancel')} style="text" onclick={backToList} disabled={saving} />
+      <Button text={t('common.actions.cancel')} style="text" onclick={backToList} disabled={saving} />
       <Button
         text={saveLabel}
         style="prominent"

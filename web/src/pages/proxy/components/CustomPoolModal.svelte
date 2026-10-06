@@ -71,9 +71,9 @@
     void name
     untrack(() => {
       updateButtons([
-        { label: t('Cancel'), variant: 'secondary', onClick: closeModal, disabled: saving },
+        { label: t('common.actions.cancel'), variant: 'secondary', onClick: closeModal, disabled: saving },
         {
-          label: saving ? t('Saving…') : t('Save'),
+          label: saving ? t('common.actions.saving') : t('common.actions.save'),
           variant: 'primary',
           onClick: () => void save(),
           disabled: saving || !name.trim(),
@@ -88,18 +88,18 @@
     <Text tone="danger" size="sm">{error}</Text>
   {/if}
   <VStack gap={1}>
-    <Text size="sm" weight="medium">{t('Name')}</Text>
+    <Text size="sm" weight="medium">{t('common.labels.name')}</Text>
     <TextEdit
       bind:value={name}
-      hint={t('Pool name')}
+      hint={t('proxy.custom_pools.name')}
       onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') void save() }}
     />
   </VStack>
   <VStack gap={1}>
-    <Text size="sm" weight="medium">{t('Proxies')}</Text>
+    <Text size="sm" weight="medium">{t('proxy.title')}</Text>
     <TextArea
       bind:value={entriesText}
-      hint={t('One proxy URL per line, optional country code after a space')}
+      hint={t('proxy.custom_pools.hint')}
     />
   </VStack>
 </VStack>

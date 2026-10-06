@@ -106,7 +106,7 @@
 
 <VStack gap={4}>
   <HStack gap={4} align="center">
-    <Text tag="h1" size="lg" weight="bold">{t('Models')}</Text>
+    <Text tag="h1" size="lg" weight="bold">{t('models.list.title')}</Text>
     {#if hasModels}
       <Text tone="soft" size="base">{allModels.length + virtualModels.length}</Text>
     {/if}
@@ -116,14 +116,14 @@
     <Banner variant="error" text={error} />
   {/if}
 
-  <SearchField bind:value={query} placeholder={t('Search by model name, provider, or full model ID')} />
+  <SearchField bind:value={query} placeholder={t('models.search.full_id')} />
 
   <ModelsTable models={tableModels} readonly sortable showProviderLink loading={loading}>
     {#snippet empty()}
       {#if isEmptyCatalog}
-        <EmptyState title={t('No available models yet. Configure providers with working credentials first.')} icon="cloud" />
+        <EmptyState title={t('models.list.empty_configure_first')} icon="cloud" />
       {:else}
-        <EmptyState title={t('No matching models found.')} icon="search" />
+        <EmptyState title={t('models.list.no_match')} icon="search" />
       {/if}
     {/snippet}
   </ModelsTable>

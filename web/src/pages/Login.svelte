@@ -21,28 +21,28 @@
       await api.login(username, password)
       ondone?.()
     } catch (e) {
-      error = t('Invalid username or password.')
+      error = t('auth.errors.invalid_credentials')
     } finally {
       loading = false
     }
   }
 </script>
 
-<AuthCard title={t('Sign in')} subtitle={t('Manage providers, tokens, and credentials.')}>
+<AuthCard title={t('auth.sign_in.title')} subtitle={t('auth.subtitle.manage')}>
   <VStack gap={4}>
     {#if error}
       <Banner variant="error" text={error} />
     {/if}
 
     <VStack gap={1}>
-      <label for="u">{t('Username')}</label>
+      <label for="u">{t('auth.username.label')}</label>
       <TextEdit id="u" bind:value={username} autocomplete="username" onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && submit()} />
     </VStack>
     <VStack gap={1}>
-      <label for="p">{t('Password')}</label>
+      <label for="p">{t('auth.password.label')}</label>
       <TextEdit id="p" type="secret" bind:value={password} autocomplete="current-password" onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && submit()} />
     </VStack>
-    <Checkbox bind:checked={rememberMe} label={t('Keep me signed in')} />
-    <Button style="prominent" block onclick={submit} disabled={!isLoginReady}>{loading ? t('Signing in…') : t('Sign in')}</Button>
+    <Checkbox bind:checked={rememberMe} label={t('auth.remember_me.label')} />
+    <Button style="prominent" block onclick={submit} disabled={!isLoginReady}>{loading ? t('auth.sign_in.signing_in') : t('auth.sign_in.title')}</Button>
   </VStack>
 </AuthCard>

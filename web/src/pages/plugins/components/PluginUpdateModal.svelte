@@ -30,14 +30,14 @@
 
   {#if escalatesToUnsafe}
     <VStack gap={1}>
-      <div><Chip text={t('Unrestricted network')} color="chip-red" size="small" /></div>
-      <Text size="sm" tone="danger">{t('This update requests unrestricted network access.')}</Text>
+      <div><Chip text={t('plugins.network.unrestricted')} color="chip-red" size="small" /></div>
+      <Text size="sm" tone="danger">{t('plugins.update.this_requests_unrestricted')}</Text>
     </VStack>
   {/if}
 
   {#if added.length > 0}
     <VStack gap={1}>
-      <Text tag="h3" size="sm" weight="bold">{t('New hosts')}</Text>
+      <Text tag="h3" size="sm" weight="bold">{t('plugins.update.new_hosts')}</Text>
       {#each added as host}
         <Text size="xs" mono>+ {host}</Text>
       {/each}
@@ -46,7 +46,7 @@
 
   {#if removed.length > 0}
     <VStack gap={1}>
-      <Text tag="h3" size="sm" weight="bold">{t('Removed hosts')}</Text>
+      <Text tag="h3" size="sm" weight="bold">{t('plugins.update.removed_hosts')}</Text>
       {#each removed as host}
         <Text size="xs" mono tone="soft">− {host}</Text>
       {/each}
@@ -55,11 +55,11 @@
 
   {#if !hasChanges}
     <VStack gap={1}>
-      <Text tag="h3" size="sm" weight="bold">{t('Network permissions')}</Text>
+      <Text tag="h3" size="sm" weight="bold">{t('plugins.update.network_permissions')}</Text>
       {#if newUnsafe}
-        <div><Chip text={t('Unrestricted network')} color="chip-red" size="small" /></div>
+        <div><Chip text={t('plugins.network.unrestricted')} color="chip-red" size="small" /></div>
       {:else if newHosts.length === 0}
-        <Text size="sm" tone="soft">{t('No network hosts.')}</Text>
+        <Text size="sm" tone="soft">{t('plugins.network.none')}</Text>
       {:else}
         {#each newHosts as host}
           <Text size="xs" mono tone="soft">{host}</Text>
@@ -68,9 +68,9 @@
     </VStack>
   {:else if !escalatesToUnsafe}
     <VStack gap={1}>
-      <Text tag="h3" size="sm" weight="bold">{t('All requested hosts')}</Text>
+      <Text tag="h3" size="sm" weight="bold">{t('plugins.update.all_hosts')}</Text>
       {#if newUnsafe}
-        <div><Chip text={t('Unrestricted network')} color="chip-red" size="small" /></div>
+        <div><Chip text={t('plugins.network.unrestricted')} color="chip-red" size="small" /></div>
       {:else}
         {#each newHosts as host}
           <Text size="xs" mono tone="soft">{host}</Text>

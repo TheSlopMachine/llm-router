@@ -1,6 +1,6 @@
 <script lang="ts">
   import { squircle } from '$lib/squircle'
-  import { t } from '$lib/i18n.svelte'
+  import { t, tb } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { toast } from '$lib/toast.svelte'
   import { CAPABILITY_META, hasModalities } from '$lib/capabilities'
@@ -87,10 +87,16 @@
     return { destroy: () => ro.disconnect() }
   }
 
+  const filterLabels = {
+    all: 'common.actions.all',
+    enabled: 'common.labels.enabled',
+    disabled: 'common.labels.disabled'
+  } as const
+
   let overflowActions = $derived.by(() => {
     return (['all', 'enabled', 'disabled'] as const).map((v) => ({
       id: 'filter:' + v,
-      label: `${t('Show')}: ` + t(v[0].toUpperCase() + v.slice(1)),
+      label: `${t('common.actions.show')}: ` + t(filterLabels[v]),
       icon: modelFilter === v ? 'check' : undefined,
     }))
   })
@@ -188,12 +194,12 @@
     }
   }
 
-  const VM_ENDPOINTS: Record<string, { path: string; hint: string }> = {
-    chat: { path: '/v1/chat/completions', hint: 'Text chat' },
-    transcription: { path: '/v1/audio/transcriptions', hint: 'Speech-to-text' },
-    speech: { path: '/v1/audio/speech', hint: 'Text-to-speech' },
-    images: { path: '/v1/images/generations', hint: 'Image generation' },
-    embeddings: { path: '/v1/embeddings', hint: 'Text embeddings' },
+  const VM_ENDPOINTS: Record<string, { path: string; hint: import('$lib/i18n.svelte').TranslationKey }> = {
+    chat: { path: '/v1/chat/completions', hint: 'models.endpoints.text_chat' },
+    transcription: { path: '/v1/audio/transcriptions', hint: 'models.endpoints.speech_to_text' },
+    speech: { path: '/v1/audio/speech', hint: 'models.endpoints.text_to_speech' },
+    images: { path: '/v1/images/generations', hint: 'models.endpoints.image_gen' },
+    embeddings: { path: '/v1/embeddings', hint: 'models.endpoints.text_embeddings' },
   }
 
   async function reloadModels(): Promise<void> {
@@ -271,7 +277,7 @@
       toast.success(`${m.name} works · ${res.latency_ms}ms`)
       return
     }
-    toast.error(`${m.name} failed: ${res.summary ? t(res.summary) : t('probe failed')}`)
+    toast.error(`${m.name} failed: ${res.summary ? tb(res.summary) : t('credentials.probe_failed')}`)
   }
 
   function isFailingModel(res: TestResult): boolean {
@@ -441,9 +447,9 @@
 
   function testIcon(res: TestResult | 'loading' | undefined, idleTitle: string): { icon: string; title: string } {
     if (!res) return { icon: 'network_check', title: idleTitle }
-    if (res === 'loading') return { icon: 'progress_activity', title: t('Testing…') }
+    if (res === 'loading') return { icon: 'progress_activity', title: t('credentials.testing') }
     if (res.ok) return { icon: 'check_circle', title: `OK · ${res.latency_ms}ms` }
-    return { icon: 'error', title: res.error ?? t('Failed') }
+    return { icon: 'error', title: res.error ?? t('common.state.failed') }
   }
 
   async function saveAutomation(): Promise<void> {
@@ -473,28 +479,28 @@
     <Banner variant="error" text={modelsError} />
   {:else}
   <VStack tag="section" gap={4} class="provider-section">
-    <Text tag="h2" size="md" weight="medium">{t('Available models')}</Text>
+    <Text tag="h2" size="md" weight="medium">{t('models.list.available')}</Text>
 
       <HStack align="center" gap={3}>
         {#if toolbarStage !== 'compact'}
-          <SearchField bind:value={modelSearch} placeholder={t('Filter models…')} />
+          <SearchField bind:value={modelSearch} placeholder={t('models.filter.placeholder')} />
         {:else if searchOpen}
           <HStack align="center" gap={1} grow>
-            <SearchField bind:value={modelSearch} placeholder={t('Filter models…')} />
-            <Button size="small" icon={{ name: 'close' }} ariaLabel={t('Close search')} onclick={() => { searchOpen = false }} />
+            <SearchField bind:value={modelSearch} placeholder={t('models.filter.placeholder')} />
+            <Button size="small" icon={{ name: 'close' }} ariaLabel={t('nav.search.close')} onclick={() => { searchOpen = false }} />
           </HStack>
         {:else}
-          <Button size="small" icon={{ name: 'search' }} ariaLabel={t('Open search')} title={t('Filter models')} onclick={() => { searchOpen = true }} />
+          <Button size="small" icon={{ name: 'search' }} ariaLabel={t('nav.search.open')} title={t('models.filter.placeholder')} onclick={() => { searchOpen = true }} />
         {/if}
         {#if toolbarStage !== 'compact'}
           <Picker
             bind:value={modelFilter}
             options={[
-              { value: 'all', label: t('All') },
-              { value: 'enabled', label: t('Enabled') },
-              { value: 'disabled', label: t('Disabled') },
+              { value: 'all', label: t('common.actions.all') },
+              { value: 'enabled', label: t('common.labels.enabled') },
+              { value: 'disabled', label: t('common.labels.disabled') },
             ]}
-            ariaLabel={t('Model visibility filter')}
+            ariaLabel={t('models.filter.visibility')}
             onchange={(v) => void saveModelsFilter(v as typeof modelFilter)}
           />
         {/if}
@@ -502,17 +508,17 @@
 
     <HStack align="center" gap={2} wrap class="models-subbar">
       <Button icon={{ name: importing ? 'sync' : 'download' }} onclick={importModels} disabled={importing}>
-        {importing ? t('Importing…') : t('Import from /models')}
+        {importing ? t('providers.detail.importing') : t('providers.detail.import_models')}
       </Button>
       <Button icon={{ name: testingAll ? 'stop' : 'network_check' }} onclick={testAllModels}>
-        {testingAll ? t('Testing… click to cancel') : t('Test all')}
+        {testingAll ? t('credentials.testing_click_cancel') : t('credentials.test_all')}
       </Button>
       {#if toolbarStage === 'compact'}
         <Button
           size="small"
           icon={{ name: 'more_vert' }}
-          ariaLabel={t('More actions')}
-          title={t('More actions')}
+          ariaLabel={t('providers.detail.more_actions')}
+          title={t('providers.detail.more_actions')}
           onclick={(e) => {
             overflowAnchor = e.currentTarget as HTMLElement
             overflowOpen = !overflowOpen
@@ -521,7 +527,7 @@
         <FloatingList
           bind:open={overflowOpen}
           anchor={overflowAnchor}
-          label={t('More actions')}
+          label={t('providers.detail.more_actions')}
           actions={overflowActions}
           onaction={handleOverflowAction}
         />
@@ -531,12 +537,12 @@
     <HStack gap={4} wrap class="models-toggles">
       <Switch
         checked={disableFailedModels}
-        label={t('Disable failing models')}
+        label={t('providers.detail.disable_failing')}
         onchange={(v) => { disableFailedModels = v; saveAutomation() }}
       />
       <Switch
         checked={autoSyncModels}
-        label={t('Auto-sync models')}
+        label={t('providers.detail.auto_sync')}
         onchange={(v) => { autoSyncModels = v; saveAutomation() }}
       />
     </HStack>
@@ -550,18 +556,18 @@
 
   <VStack tag="section" gap={4} class="provider-section">
     <VStack gap={1}>
-      <Text tag="h2" size="md" weight="medium">{t('Virtual models')}</Text>
-      <Text tone="soft" size="sm">{t('One managed fall-through model per served endpoint. Members follow enabled models and refresh on import.')}</Text>
+      <Text tag="h2" size="md" weight="medium">{t('virtual.models_plural')}</Text>
+      <Text tone="soft" size="sm">{t('providers.models.fallthrough_description')}</Text>
     </VStack>
 
     {#if vmGroups.length === 0}
-      <EmptyState title={t('No endpoint groups on this provider yet.')} />
+      <EmptyState title={t('providers.models.no_endpoint_groups')} />
     {:else}
       <Table
         columns={[
-          { key: 'vm', title: t('Virtual model'), width: '1.4fr' },
-          { key: 'endpoint', title: t('Endpoint'), width: '1.2fr' },
-          { key: 'count', title: t('Models'), width: '0.4fr' },
+          { key: 'vm', title: t('virtual.model'), width: '1.4fr' },
+          { key: 'endpoint', title: t('providers.models.endpoint'), width: '1.2fr' },
+          { key: 'count', title: t('models.list.title'), width: '0.4fr' },
           { key: 'toggle', width: 'auto' },
         ]}
         rows={vmGroups}
@@ -576,7 +582,7 @@
                 <Text size="base" weight="medium">{v.name}</Text>
                 <HStack gap={2} align="center">
                   <Text mono size="sm" class="id-text">virtual/{v.id}</Text>
-                  <CopyButton size="small" text={`virtual/${v.id}`} title={t('Copy model id')} ariaLabel={t('Copy model id')} />
+                  <CopyButton size="small" text={`virtual/${v.id}`} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
                 </HStack>
               </VStack>
             {:else}
@@ -592,14 +598,14 @@
               {@const v = g.virtual}
               <Switch
                 checked={!v.disabled}
-                ariaLabel={t('Enable virtual model')}
+                ariaLabel={t('virtual.enable')}
                 onchange={(en) => toggleVirtualModel(v, en)}
               />
             {/if}
           {/if}
         {/snippet}
         {#snippet empty()}
-          <EmptyState title={t('No endpoint groups on this provider yet.')} />
+          <EmptyState title={t('providers.models.no_endpoint_groups')} />
         {/snippet}
       </Table>
     {/if}
@@ -607,20 +613,20 @@
 
   <VStack tag="section" gap={4} class="provider-section">
     <VStack gap={1}>
-      <Text tag="h2" size="md" weight="medium">{t('Add custom model')}</Text>
-      <Text tone="soft" size="sm">{t('For models the provider does not list in /models.')}</Text>
+      <Text tag="h2" size="md" weight="medium">{t('models.actions.add_custom')}</Text>
+      <Text tone="soft" size="sm">{t('models.custom.not_listed')}</Text>
     </VStack>
 
     <VStack gap={3}>
       <HStack gap={2} align="center" wrap>
         <TextEdit
           bind:value={customId}
-          hint={t('Model id (e.g. my-model-v1)')}
+          hint={t('models.custom.id_hint')}
           class="custom-model-input"
         />
         <TextEdit
           bind:value={customName}
-          hint={t('Display name')}
+          hint={t('models.custom.display_name')}
           class="custom-model-input"
         />
         <Spacer/>
@@ -629,7 +635,7 @@
           disabled={!customId.trim() || probingCustom}
           onclick={probeCustomCapabilities}
         >
-          {t('Check')}
+          {t('common.actions.check')}
         </Button>
         <Button
           style="prominent"
@@ -637,7 +643,7 @@
           disabled={!customId.trim() || addingCustom}
           onclick={addCustomModel}
         >
-          {t('Add model')}
+          {t('models.actions.add')}
         </Button>
       </HStack>
 
@@ -664,7 +670,7 @@
   {/if}
 
 {#snippet modelActions(m: ProviderModel)}
-  {@const ti = testIcon(modelTestResults[m.name], t('Test model'))}
+  {@const ti = testIcon(modelTestResults[m.name], t('models.actions.test'))}
   <HStack gap={2} class="model-actions">
     <Button
       size="small"
@@ -679,14 +685,14 @@
         size="small"
         tint="var(--color-danger)"
         icon={{ name: 'delete' }}
-        title={t('Delete custom model')}
-        ariaLabel={t('Delete custom model')}
+        title={t('models.actions.delete_custom')}
+        ariaLabel={t('models.actions.delete_custom')}
         onclick={(e) => openDeleteCustomModel(m, e.currentTarget as HTMLElement)}
       />
     {/if}
     <Switch
       checked={!m.disabled}
-      ariaLabel={t('Enable model')}
+      ariaLabel={t('models.actions.enable')}
       onchange={(v) => toggleModel(m, v)}
     />
   </HStack>
@@ -729,7 +735,7 @@
       {@render modelActions(m)}
     {/snippet}
     {#snippet empty()}
-      <EmptyState title={models.length === 0 ? t('No models reported by this provider.') : t('No models match the filter.')} icon="search" />
+      <EmptyState title={models.length === 0 ? t('providers.models.empty') : t('providers.models.no_filter_match')} icon="search" />
     {/snippet}
   </ModelsTable>
 {/snippet}
@@ -738,14 +744,14 @@
   open={Boolean(deleteCustomTarget)}
   anchor={deleteCustomAnchor}
   onclose={() => { deleteCustomTarget = null }}
-  label={t('Delete custom model')}
+  label={t('models.actions.delete_custom')}
 >
   {#snippet children({ close })}
     <ConfirmAction
-      title={t('Delete custom model')}
-      body={`${t('Remove')} "${deleteCustomTarget?.name}" ${t('from this provider?')}`}
+      title={t('models.actions.delete_custom')}
+      body={`${t('common.actions.remove')} "${deleteCustomTarget?.name}" ${t('providers.models.delete_from')}`}
       busy={deletingCustom}
-      busyLabel={t('Deleting…')}
+      busyLabel={t('common.actions.deleting')}
       onCancel={close}
       onConfirm={confirmDeleteCustomModel} />
   {/snippet}

@@ -12,22 +12,22 @@ export function formatRelativeTime(iso: string | undefined, style: RelativeStyle
   const min = Math.floor(sec / 60)
   const hr = Math.floor(min / 60)
   const day = Math.floor(hr / 24)
-  const ago = t('ago')
+  const ago = t('common.time.ago')
   if (style === 'short') {
-    if (sec < 60) return t('Just now')
+    if (sec < 60) return t('common.time.just_now')
     if (min < 60) return `${min}m ${ago}`
     if (hr < 24) return `${hr}h ${ago}`
     if (day < 30) return `${day}d ${ago}`
     return d.toLocaleDateString()
   }
-  if (sec < 60) return t('Just now')
-  if (min < 60) return `${n(min, 'minute', 'minutes', 'минуту', 'минуты', 'минут')} ${ago}`
-  if (hr < 24) return `${n(hr, 'hour', 'hours', 'час', 'часа', 'часов')} ${ago}`
-  if (day < 30) return `${n(day, 'day', 'days', 'день', 'дня', 'дней')} ${ago}`
+  if (sec < 60) return t('common.time.just_now')
+  if (min < 60) return `${n(min, 'time.units.minute.one', 'time.units.minute.many')} ${ago}`
+  if (hr < 24) return `${n(hr, 'time.units.hour.one', 'time.units.hour.many')} ${ago}`
+  if (day < 30) return `${n(day, 'time.units.day.one', 'time.units.day.many')} ${ago}`
   if (day < 365) {
     const months = Math.floor(day / 30)
-    return `${n(months, 'month', 'months', 'месяц', 'месяца', 'месяцев')} ${ago}`
+    return `${n(months, 'time.units.month.one', 'time.units.month.many')} ${ago}`
   }
   const years = Math.floor(day / 365)
-  return `${n(years, 'year', 'years', 'год', 'года', 'лет')} ${ago}`
+  return `${n(years, 'time.units.year.one', 'time.units.year.many')} ${ago}`
 }

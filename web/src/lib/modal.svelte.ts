@@ -87,21 +87,21 @@ export const modal = {
           ...config,
           // Title is mandatory for confirm modals: fall back rather than
           // render a headless dialog.
-          title: config.title?.trim() ? config.title : t('Confirm'),
+          title: config.title?.trim() ? config.title : t('common.actions.confirm'),
           onClose: () => {
             resolve(false)
             config.onClose?.()
           },
           buttons: [
             {
-              label: t('Cancel'),
+              label: t('common.actions.cancel'),
               variant: 'text plain' as ModalButton['variant'],
               onClick: () => {
                 modal.close()
               }
             },
             {
-              label: config.confirmText || t('Confirm'),
+              label: config.confirmText || t('common.actions.confirm'),
               variant: (config.confirmRole === 'destructive' ? 'danger' : 'primary') as ModalButton['variant'],
               onClick: () => {
                 resolve(true)

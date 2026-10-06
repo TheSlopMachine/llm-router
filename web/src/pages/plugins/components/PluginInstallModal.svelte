@@ -15,12 +15,12 @@
   {/if}
 
   <VStack gap={2}>
-    <Text tag="h3" size="sm" weight="bold">{t('Requested permissions')}</Text>
+    <Text tag="h3" size="sm" weight="bold">{t('plugins.permissions_requested')}</Text>
     {#if facts.unsafe}
-      <div><Chip text={t('Unrestricted network')} color="chip-red" size="small" /></div>
+      <div><Chip text={t('plugins.network.unrestricted')} color="chip-red" size="small" /></div>
     {/if}
     {#if facts.allowHosts.length === 0}
-      <Text size="sm" tone="soft">{t('No network hosts.')}</Text>
+      <Text size="sm" tone="soft">{t('plugins.network.none')}</Text>
     {:else}
       <VStack gap={1}>
         {#each facts.allowHosts as host}

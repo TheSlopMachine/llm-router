@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
-  import { t } from '../../../lib/i18n.svelte'
   import { squircle } from '../../../lib/squircle'
 
   let {
@@ -20,11 +19,11 @@
   <div class="card-header">
     <div class="section-title-col">
       <h3>
-        {t(title)}
+        {title}
         {#if badge}{@render badge()}{/if}
       </h3>
       {#if description}
-        <p class="help-text">{t(description)}</p>
+        <p class="help-text">{description}</p>
       {/if}
     </div>
   </div>

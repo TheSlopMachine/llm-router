@@ -28,7 +28,7 @@
   let query = $state('')
   let actionError = $state('')
   let uploading = $state(false)
-  let uploadLabel = $derived(uploading ? t('Uploading…') : t('Upload file'))
+  let uploadLabel = $derived(uploading ? t('plugins.uploading') : t('upload.file'))
 
   function findUpdate(plugin: Plugin): PluginUpdate | null {
     return updates.find((u: PluginUpdate) => u.plugin_id === plugin.id && u.update_available) ?? null
@@ -63,13 +63,13 @@
 
   function getPluginOriginText(plugin: Plugin): string {
     if (plugin.origin?.manual) {
-      return t('Installed manually')
+      return t('plugins.installed_manually')
     }
     if (plugin.origin?.repo_id) {
       const match = repos.find((r: { repo: PluginRepo }) => r.repo.id === plugin.origin.repo_id)
       return match?.repo.title || plugin.origin.repo_id
     }
-    return t('Unknown repository')
+    return t('plugins.repo.unknown')
   }
 
   const pluginState = createPluginState({
@@ -112,11 +112,11 @@
 
   <HStack align="center" gap={3}>
     <HStack grow>
-      <SearchField bind:value={query} placeholder={t('Search installed plugins...')} />
+      <SearchField bind:value={query} placeholder={t('plugins.search.installed')} />
     </HStack>
     <FilePicker
       accept=".lua"
-      label={t('Upload plugin file')}
+      label={t('plugins.upload_file')}
       buttonText={uploadLabel}
       icon="upload_file"
       disabled={uploading}
@@ -125,7 +125,7 @@
       <Button
         style="prominent"
         icon={{ name: 'upgrade' }}
-        text={pluginState.updatingAll ? t('Updating…') : `${t('Update all')} (${updateCount})`}
+        text={pluginState.updatingAll ? t('plugins.updating') : `${t('plugins.update_all')} (${updateCount})`}
         disabled={pluginState.updatingAll}
         onclick={() => void pluginState.updateAll(plugins)}
       />
@@ -134,16 +134,16 @@
 
   {#if plugins.length === 0}
     {#snippet browseCatalogAction()}
-      <Button style="prominent" icon={{ name: 'download' }} onclick={() => onBrowseCatalog?.()}>{t('Browse catalog')}</Button>
+      <Button style="prominent" icon={{ name: 'download' }} onclick={() => onBrowseCatalog?.()}>{t('plugins.installed.browse_catalog')}</Button>
     {/snippet}
     <EmptyState
       icon="extension"
-      title={t('No plugins installed')}
-      caption={t('Browse the catalog to install a provider plugin.')}
+      title={t('plugins.installed.empty')}
+      caption={t('plugins.installed.browse')}
       action={browseCatalogAction}
     />
   {:else if filtered.length === 0}
-    <EmptyState title={t('No plugins match the search.')} icon="search" />
+    <EmptyState title={t('plugins.catalog.no_match')} icon="search" />
   {:else}
     <List>
       {#each filtered as plugin (plugin.id)}
@@ -168,14 +168,14 @@
     open={Boolean(pluginState.pendingDelete)}
     anchor={pluginState.pendingDelete?.anchor}
     onclose={() => { pluginState.pendingDelete = null }}
-    label={t('Delete plugin')}
+    label={t('plugins.delete')}
   >
     {#snippet children({ close })}
       <ConfirmAction
-        title={t('Delete plugin')}
-        body={`${t('Delete')} "${pluginState.pendingDelete?.plugin.display_name}"? ${t('Providers using its types will stop working.')}`}
+        title={t('plugins.delete')}
+        body={`${t('common.actions.delete')} "${pluginState.pendingDelete?.plugin.display_name}"? ${t('plugins.delete_warning')}`}
         busy={pluginState.deleting}
-        busyLabel={t('Deleting…')}
+        busyLabel={t('common.actions.deleting')}
         onCancel={close}
         onConfirm={() => void pluginState.doDelete()} />
     {/snippet}
@@ -185,25 +185,25 @@
     open={Boolean(pluginState.pendingRollback)}
     anchor={pluginState.pendingRollback?.anchor}
     onclose={() => { pluginState.pendingRollback = null }}
-    label={t('Roll back plugin')}
+    label={t('plugins.rollback_title')}
   >
     {#snippet children({ close })}
       <VStack gap={3} style="max-width: 280px;">
         <VStack gap={1}>
-          <Text weight="medium" size="base">{t('Roll back plugin')}</Text>
+          <Text weight="medium" size="base">{t('plugins.rollback_title')}</Text>
           <Text size="sm" tone="soft">
-            {t('Roll')} "{pluginState.pendingRollback?.plugin.display_name}" {t('back to the previous version?')}
+            {t('plugins.rollback')} "{pluginState.pendingRollback?.plugin.display_name}" {t('plugins.rollback_confirm')}
           </Text>
         </VStack>
         <HStack justify="end" gap={2}>
-          <Button size="small" style="text" onclick={close} disabled={pluginState.rollingBack}>{t('Cancel')}</Button>
+          <Button size="small" style="text" onclick={close} disabled={pluginState.rollingBack}>{t('common.actions.cancel')}</Button>
           <Button
             size="small"
             style="prominent"
             disabled={pluginState.rollingBack}
             onclick={() => void pluginState.doRollback()}
           >
-            {pluginState.rollingBack ? t('Rolling back…') : t('Roll back')}
+            {pluginState.rollingBack ? t('plugins.rollbacking') : t('plugins.rollback_title')}
           </Button>
         </HStack>
       </VStack>

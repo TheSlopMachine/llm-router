@@ -46,7 +46,7 @@
   function openCreate(): void {
     resource.error = ''
     openFormModal(CustomProviderWizard, {
-      title: 'New Provider',
+      title: t('providers.actions.new'),
       size: 'medium',
       props: { editingProvider: null },
       onReload: () => void resource.reload()
@@ -56,10 +56,10 @@
 
 <div class="page-header">
   <div>
-    <h1>{t('Providers')}</h1>
-    <p>{t('Registered upstream LLM backends.')}</p>
+    <h1>{t('providers.list.title')}</h1>
+    <p>{t('providers.list.subtitle')}</p>
   </div>
-  <Button style="prominent" onclick={openCreate} icon={{ name: 'add' }}>{t('New Provider')}</Button>
+  <Button style="prominent" onclick={openCreate} icon={{ name: 'add' }}>{t('providers.actions.new')}</Button>
 </div>
 
 {#if resource.error}
@@ -67,16 +67,16 @@
 {/if}
 
 {#if resource.loading}
-  <EmptyState title={t('Loading…')} />
+  <EmptyState title={t('common.state.loading')} />
 {:else if visibleProviders.length === 0}
-  <EmptyState title={t('No providers yet. Add one to get started.')} icon="cloud" />
+  <EmptyState title={t('providers.list.empty')} icon="cloud" />
 {:else}
   <List>
     <div class="table-row table-head">
       <span class="col-icon"></span>
-      <span class="col-name">{t('Provider')}</span>
-      <span class="col-creds">{t('Credentials')}</span>
-      <span class="col-models">{t('Models')}</span>
+      <span class="col-name">{t('providers.detail.title')}</span>
+      <span class="col-creds">{t('credentials.title_plural')}</span>
+      <span class="col-models">{t('models.list.title')}</span>
       <span class="col-toggle"></span>
     </div>
     {#each visibleProviders as provider (provider.id)}
@@ -101,11 +101,11 @@
             <span class="display-name">{provider.name}</span>
             <span class="subtle">{provider.type}{provider.qualifier ? ':' + provider.qualifier : ''}</span>
             {#if isSystemDisabled(provider)}
-              <Text size="sm" tone="danger">{t('Disabled automatically')}{formatDisableReason(provider.disabled_reason)}</Text>
+              <Text size="sm" tone="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(provider.disabled_reason)}</Text>
             {/if}
           </span>
         </span>
-        <span class="col-creds">{n(stats?.credential_count ?? 0, 'active', 'active', 'активен', 'активны', 'активно')}</span>
+        <span class="col-creds">{n(stats?.credential_count ?? 0, 'credentials.status.active.one', 'credentials.status.active.many')}</span>
         <span class="col-models">{stats?.model_count ?? 0}</span>
         <!-- The switch eats its own clicks/keys so row activation never fires
              from the toggle cell. -->
@@ -117,7 +117,7 @@
         >
           <Switch
             checked={!provider.disabled}
-            ariaLabel={t('Enable provider')}
+            ariaLabel={t('providers.detail.enable')}
             onchange={(v) => toggleProvider(provider, v)}
           />
         </span>

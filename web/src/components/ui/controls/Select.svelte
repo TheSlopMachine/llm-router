@@ -194,7 +194,7 @@
         <div class="search">
           <input
             type="text"
-            placeholder={t('Search...')}
+            placeholder={t('common.search.placeholder')}
             bind:value={searchQuery}
             onclick={(e) => e.stopPropagation()}
             onkeydown={(e) => e.stopPropagation()}
@@ -213,7 +213,7 @@
         {option.label}
       </MenuItem>
     {:else}
-      <div class="empty">{t('No options found')}</div>
+      <div class="empty">{t('common.empty.no_options')}</div>
     {/each}
   </MenuPanel>
 </div>

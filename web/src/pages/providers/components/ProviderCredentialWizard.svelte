@@ -183,7 +183,7 @@
       } else if (res.status === 'complete') {
         onComplete()
       } else {
-        error = t('Unexpected auth response')
+        error = t('credentials.unexpected_auth')
       }
     } catch (e) {
       error = getErrorMessage(e)
@@ -236,8 +236,8 @@
     <Picker
       value={entryTab}
       options={[
-        { value: 'flow', label: t('Device login') },
-        { value: 'manual', label: t('Paste credentials') },
+        { value: 'flow', label: t('credentials.device_login') },
+        { value: 'manual', label: t('credentials.paste') },
       ]}
       ariaLabel="Credential entry method"
       onchange={(v) => switchEntry(v as 'flow' | 'manual')}
@@ -246,7 +246,7 @@
 {/if}
 
 {#if mode === 'loading'}
-  <EmptyState title={t('Loading…')} />
+  <EmptyState title={t('common.state.loading')} />
 {:else if mode === 'wizard'}
   {#if redirectMessage}
     <Banner variant="info" text={redirectMessage} />
@@ -257,13 +257,13 @@
 {:else if mode === 'single'}
   <DynamicForm {nodes} bind:values={formValues} busy={loading} />
 {:else}
-  <p class="form-text">{t('This provider type has no credential form. Paste credential data as JSON.')}</p>
+  <p class="form-text">{t('credentials.no_form_hint')}</p>
   <div class="form-group">
-    <label for="cred-raw">{t('Credential JSON')}</label>
+    <label for="cred-raw">{t('credentials.json_label')}</label>
     <TextArea id="cred-raw" minRows={6} bind:value={rawJson} />
   </div>
   <div class="form-actions">
-    <Button style="prominent" onclick={submitRaw} disabled={loading}>{t('Save')}</Button>
+    <Button style="prominent" onclick={submitRaw} disabled={loading}>{t('common.actions.save')}</Button>
   </div>
 {/if}
 

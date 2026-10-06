@@ -5,7 +5,7 @@
   import { language } from '$lib/language.svelte'
   import type { Language } from '$lib/language.svelte'
   import { api } from '$lib/api'
-  import { t } from '$lib/i18n.svelte'
+  import { t, n } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { accent, accents } from '$lib/accent.svelte'
   import { Button, HStack, SectionCard, Select, Spacer, Switch, Text, VStack, TextEdit, Banner, Icon, Chip } from '$ui'
@@ -16,14 +16,14 @@
   import { modal } from '$lib/modal.svelte'
 
   let languageOptions = $derived([
-    { value: 'auto', label: t('Auto') },
-    { value: 'en', label: t('English') },
-    { value: 'ru', label: t('Russian') }
+    { value: 'auto', label: t('common.auto') },
+    { value: 'en', label: t('settings.language.english') },
+    { value: 'ru', label: t('settings.language.russian') }
   ])
   let themeOptions: Array<{ value: string; label: string }> = $derived([
-    { value: 'auto', label: t('Auto') },
-    { value: 'light', label: t('Light') },
-    { value: 'dark', label: t('Dark') }
+    { value: 'auto', label: t('common.auto') },
+    { value: 'light', label: t('settings.theme.light') },
+    { value: 'dark', label: t('settings.theme.dark') }
   ])
 
   // Preferences
@@ -123,7 +123,7 @@
         is_cluster_node: isClusterNode,
         disable_telemetry: disableTelemetry
       })
-      toast.success(t('Changes saved'))
+      toast.success(t('settings.saved'))
     } catch (e) {
       error = getErrorMessage(e)
     } finally {
@@ -135,13 +135,13 @@
     if (passwordSaving) return
     passwordError = ''
     if (newPassword !== confirmPassword) {
-      passwordError = t('Passwords do not match')
+      passwordError = t('settings.password.mismatch')
       return
     }
     passwordSaving = true
     try {
       await api.admin.changePassword(currentPassword, newPassword)
-      toast.success(t('Password updated successfully'))
+      toast.success(t('settings.password.success'))
       currentPassword = ''
       newPassword = ''
       confirmPassword = ''
@@ -172,7 +172,7 @@
   async function importSubsystem(sub: string): Promise<void> {
     const file = importFileMap[sub]
     if (!file) {
-      toast.error(t('Please select a file first'))
+      toast.error(t('data.select_file_first'))
       return
     }
     try {
@@ -188,9 +188,9 @@
 
   async function clearSubsystem(sub: string): Promise<void> {
     const confirmed = await modal.confirm({
-      title: t('Clear subsystem'),
-      message: t('Are you sure you want to clear all data in this subsystem? This action is irreversible.'),
-      confirmText: t('Clear'),
+      title: t('data.clear_subsystem'),
+      message: t('data.clear_confirm'),
+      confirmText: t('data.clear'),
       confirmRole: 'destructive'
     })
     if (!confirmed) return
@@ -209,7 +209,7 @@
     doctorFixing = true
     try {
       const res = await api.doctor.fix([])
-      toast.success(`${res.fixed} ${t('issues resolved successfully')}`)
+      toast.success(`${res.fixed} ${t('data.doctor.resolved')}`)
       await Promise.all([loadDataStats(), runDoctorInspect()])
     } catch (e) {
       toast.error(getErrorMessage(e))
@@ -223,7 +223,7 @@
     try {
       const data = await api.data.exportProvider(providerId)
       downloadJson(`llm_router_provider_${providerId}_export.json`, data)
-      toast.success(t('Provider exported successfully'))
+      toast.success(t('providers.export.success'))
     } catch (e) {
       toast.error(getErrorMessage(e))
     }
@@ -236,13 +236,13 @@
 
   async function importIndividualProvider(providerId: string): Promise<void> {
     if (!providerImportFile) {
-      toast.error(t('Please select a file first'))
+      toast.error(t('data.select_file_first'))
       return
     }
     try {
       const json = await readJsonFile(providerImportFile)
       await api.data.importProvider(providerId, json as never)
-      toast.success(t('Provider imported successfully'))
+      toast.success(t('providers.import.success'))
       providerImportFile = null
       await Promise.all([loadDataStats(), runDoctorInspect(), loadProviders()])
     } catch (e) {
@@ -252,15 +252,15 @@
 
   async function purgeIndividualProvider(providerId: string): Promise<void> {
     const confirmed = await modal.confirm({
-      title: t('Purge provider'),
-      message: t('Are you sure you want to completely purge this provider and all its data? This action is irreversible.'),
-      confirmText: t('Purge'),
+      title: t('data.purge_provider'),
+      message: t('data.purge_confirm'),
+      confirmText: t('data.purge'),
       confirmRole: 'destructive'
     })
     if (!confirmed) return
     try {
       await api.data.purgeProvider(providerId)
-      toast.success(t('Provider purged successfully'))
+      toast.success(t('providers.purge.success'))
       await Promise.all([loadDataStats(), runDoctorInspect(), loadProviders()])
     } catch (e) {
       toast.error(getErrorMessage(e))
@@ -271,27 +271,27 @@
 
 <VStack gap={6}>
   <VStack gap={1}>
-    <Text tag="h1" size="lg" weight="bold">{t('Settings')}</Text>
-    <Text tone="soft" size="sm">{t('Preferences and instance configuration.')}</Text>
+    <Text tag="h1" size="lg" weight="bold">{t('settings.title')}</Text>
+    <Text tone="soft" size="sm">{t('settings.subtitle')}</Text>
   </VStack>
 
   {#if error}
     <Banner variant="error" text={error} />
   {/if}
 
-  <SectionCard title="Preferences" description="This browser only">
+  <SectionCard title={t('settings.preferences')} description={t('settings.preferences.desc')}>
     <VStack gap={1}>
-      <Text tag="label" size="sm" weight="medium" for="settings-language">{t('Language')}</Text>
+      <Text tag="label" size="sm" weight="medium" for="settings-language">{t('settings.language.label')}</Text>
       <Select value={lang} options={languageOptions} onchange={(v) => (lang = v as Language)} />
     </VStack>
 
     <VStack gap={1}>
-      <Text tag="label" size="sm" weight="medium" for="settings-theme">{t('Theme')}</Text>
+      <Text tag="label" size="sm" weight="medium" for="settings-theme">{t('settings.theme.label')}</Text>
       <Select value={th} options={themeOptions} onchange={(v) => (th = v as Theme)} />
     </VStack>
 
     <VStack gap={1}>
-      <Text size="sm" weight="medium">{t('Accent')}</Text>
+      <Text size="sm" weight="medium">{t('settings.accent')}</Text>
       <div class="accent-grid">
         {#each accents as a}
           <button
@@ -309,64 +309,64 @@
     </VStack>
   </SectionCard>
 
-  <SectionCard title="Instance configuration" description="This deployment">
+  <SectionCard title={t('settings.instance.title')} description={t('settings.instance.desc')}>
     <HStack align="center" gap={4}>
-      <Text>{t('Make this instance a cluster node')}</Text>
+      <Text>{t('settings.cluster_node')}</Text>
       <Spacer />
       <Switch bind:checked={isClusterNode} />
     </HStack>
 
     <HStack align="center" gap={4}>
-      <Text>{t('Disable anonymized telemetry')}</Text>
+      <Text>{t('settings.disable_telemetry')}</Text>
       <Spacer />
       <Switch bind:checked={disableTelemetry} />
     </HStack>
 
     <HStack justify="end">
       <Button style="prominent" onclick={save} disabled={saving}>
-        {saving ? t('Saving...') : t('Save changes')}
+        {saving ? t('common.actions.saving') : t('common.actions.save_changes')}
       </Button>
     </HStack>
   </SectionCard>
 
   <!-- Security section -->
-  <SectionCard title="Security" description="Update administrator password">
+  <SectionCard title={t('settings.security')} description={t('settings.password.title')}>
     {#if passwordError}
       <Banner variant="error" text={passwordError} />
     {/if}
 
     <VStack gap={1}>
-      <Text tag="label" size="sm" weight="medium" for="current-password">{t('Current password')}</Text>
+      <Text tag="label" size="sm" weight="medium" for="current-password">{t('settings.password.current')}</Text>
       <TextEdit id="current-password" bind:value={currentPassword} type="secret" />
     </VStack>
 
     <VStack gap={1}>
-      <Text tag="label" size="sm" weight="medium" for="new-password">{t('New password')}</Text>
+      <Text tag="label" size="sm" weight="medium" for="new-password">{t('settings.password.new')}</Text>
       <TextEdit id="new-password" bind:value={newPassword} type="secret" />
     </VStack>
 
     <VStack gap={1}>
-      <Text tag="label" size="sm" weight="medium" for="confirm-password">{t('Confirm new password')}</Text>
+      <Text tag="label" size="sm" weight="medium" for="confirm-password">{t('settings.password.confirm')}</Text>
       <TextEdit id="confirm-password" bind:value={confirmPassword} type="secret" />
     </VStack>
 
     <HStack justify="end">
       <Button style="prominent" onclick={updatePassword} disabled={!isPasswordFormValid}>
-        {passwordSaving ? t('Saving...') : t('Change password')}
+        {passwordSaving ? t('common.actions.saving') : t('settings.password.change')}
       </Button>
     </HStack>
   </SectionCard>
 
   <!-- Database Doctor Section -->
-  <SectionCard title="Database Doctor" description="Audit and clean orphaned data">
+  <SectionCard title={t('data.doctor.title')} description={t('data.doctor.desc')}>
     {#if doctorLoading}
-      <Text tone="soft" size="sm">{t('Scanning database for anomalies...')}</Text>
+      <Text tone="soft" size="sm">{t('data.doctor.scanning')}</Text>
     {:else if doctorReport}
       {#if doctorReport.total_issues === 0}
-        <Banner variant="success" text={t('No issues found. Your database is perfectly clean!')} />
+        <Banner variant="success" text={t('data.doctor.no_issues')} />
       {:else}
         <VStack gap={3}>
-          <Banner variant="warning" text={`${t('Found issues in database')}: ${doctorReport.total_issues}`} />
+          <Banner variant="warning" text={`${t('data.doctor.found')}: ${doctorReport.total_issues}`} />
           <VStack gap={2} class="issues-container">
             {#each doctorReport.issues as issue}
               <HStack align="center" gap={3} class="issue-row">
@@ -381,7 +381,7 @@
           </VStack>
           <HStack justify="end">
             <Button style="prominent" tint="var(--color-danger)" onclick={fixIssues} disabled={doctorFixing}>
-              {doctorFixing ? t('Resolving...') : t('Clean database')}
+              {doctorFixing ? t('data.doctor.resolving') : t('data.doctor.clean')}
             </Button>
           </HStack>
         </VStack>
@@ -390,36 +390,36 @@
   </SectionCard>
 
   <!-- Data Management section -->
-  <SectionCard title="Data Management" description="Export, import and purge subsystem data">
+  <SectionCard title={t('data.title')} description={t('data.subtitle')}>
     {#if statsLoading}
-      <Text tone="soft" size="sm">{t('Loading stats...')}</Text>
+      <Text tone="soft" size="sm">{t('data.loading_stats')}</Text>
     {:else if stats}
       <VStack gap={4} class="data-container">
         {#each [
-          { key: 'providers', label: t('Providers & Credentials'), count: stats.providers },
-          { key: 'virtual_models', label: t('Virtual Models'), count: stats.virtual_models },
-          { key: 'plugins', label: t('Plugins & Repos'), count: stats.plugins },
-          { key: 'tokens', label: t('Access Tokens'), count: stats.tokens }
+          { key: 'providers', label: t('data.providers_credentials'), count: stats.providers },
+          { key: 'virtual_models', label: t('data.virtual_models'), count: stats.virtual_models },
+          { key: 'plugins', label: t('data.plugins_repos'), count: stats.plugins },
+          { key: 'tokens', label: t('data.access_tokens'), count: stats.tokens }
         ] as sub}
           <VStack gap={2} class="subsystem-box">
             <HStack align="center" gap={3}>
               <VStack gap={0} grow>
                 <Text weight="medium" size="base">{sub.label}</Text>
-                <Text size="xs" tone="soft">{sub.count} {t('items')}</Text>
+                <Text size="xs" tone="soft">{n(sub.count, 'units.item.one', 'units.item.many')}</Text>
               </VStack>
               <HStack gap={2}>
-                <Button size="small" icon={{ name: 'download' }} onclick={() => exportSubsystem(sub.key)}>{t('Export')}</Button>
-                <Button size="small" style="text" tint="var(--color-danger)" icon={{ name: 'delete' }} onclick={() => clearSubsystem(sub.key)}>{t('Clear')}</Button>
+                <Button size="small" icon={{ name: 'download' }} onclick={() => exportSubsystem(sub.key)}>{t('data.export')}</Button>
+                <Button size="small" style="text" tint="var(--color-danger)" icon={{ name: 'delete' }} onclick={() => clearSubsystem(sub.key)}>{t('data.clear')}</Button>
               </HStack>
             </HStack>
             <HStack gap={3} align="center" class="file-action-row">
               <input type="file" accept=".json" onchange={(e) => handleFileChange(sub.key, e)} class="file-input" id="file-{sub.key}" />
               <label for="file-{sub.key}" class="file-label">
                 <Icon name="attach_file" />
-                <span>{importFileMap[sub.key] ? importFileMap[sub.key]?.name : t('Select JSON')}</span>
+                <span>{importFileMap[sub.key] ? importFileMap[sub.key]?.name : t('data.select_json')}</span>
               </label>
               {#if importFileMap[sub.key]}
-                <Button size="small" style="prominent" onclick={() => importSubsystem(sub.key)}>{t('Import')}</Button>
+                <Button size="small" style="prominent" onclick={() => importSubsystem(sub.key)}>{t('data.import')}</Button>
               {/if}
             </HStack>
           </VStack>
@@ -429,31 +429,31 @@
   </SectionCard>
 
   <!-- Individual Provider Management section -->
-  <SectionCard title="Individual Provider Management" description="Export, import or purge a specific provider">
+  <SectionCard title={t('data.provider.title')} description={t('data.provider.desc')}>
     {#if providersLoading}
-      <Text tone="soft" size="sm">{t('Loading providers...')}</Text>
+      <Text tone="soft" size="sm">{t('providers.list.loading')}</Text>
     {:else if allProviders.length === 0}
-      <Text tone="soft" size="sm">{t('No providers available for individual management.')}</Text>
+      <Text tone="soft" size="sm">{t('providers.manage.none_available')}</Text>
     {:else}
       <VStack gap={3}>
         <VStack gap={1}>
-          <Text size="sm" weight="medium">{t('Select a provider')}</Text>
-          <Select ariaLabel={t('Select a provider')} bind:value={selectedProviderId} options={providerOptions} />
+          <Text size="sm" weight="medium">{t('data.provider.select')}</Text>
+          <Select ariaLabel={t('data.provider.select')} bind:value={selectedProviderId} options={providerOptions} />
         </VStack>
 
         <HStack gap={2} align="center">
-          <Button size="small" icon={{ name: 'download' }} onclick={() => exportIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('Export')}</Button>
-          <Button size="small" style="text" tint="var(--color-danger)" icon={{ name: 'delete' }} onclick={() => purgeIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('Purge provider')}</Button>
+          <Button size="small" icon={{ name: 'download' }} onclick={() => exportIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.export')}</Button>
+          <Button size="small" style="text" tint="var(--color-danger)" icon={{ name: 'delete' }} onclick={() => purgeIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.purge_provider')}</Button>
         </HStack>
 
         <HStack gap={3} align="center" class="file-action-row">
           <input type="file" accept=".json" onchange={handleIndividualProviderFileChange} class="file-input" id="file-individual-provider" />
           <label for="file-individual-provider" class="file-label">
             <Icon name="attach_file" />
-            <span>{providerImportFile ? providerImportFile?.name : t('Select JSON')}</span>
+            <span>{providerImportFile ? providerImportFile?.name : t('data.select_json')}</span>
           </label>
           {#if providerImportFile}
-            <Button size="small" style="prominent" onclick={() => importIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('Import')}</Button>
+            <Button size="small" style="prominent" onclick={() => importIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.import')}</Button>
           {/if}
         </HStack>
       </VStack>

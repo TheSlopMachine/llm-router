@@ -134,11 +134,11 @@
 
   async function handleCatalogAction(plugin: Plugin, file: StoreFile, id: string, anchor?: HTMLElement): Promise<void> {
     if (id === 'update') {
-      await confirmAndInstall(file, 'Update', plugin)
+      await confirmAndInstall(file, t('common.actions.update'), plugin)
       return
     }
     if (id === 'reinstall') {
-      await confirmAndInstall(file, 'Reinstall', plugin)
+      await confirmAndInstall(file, t('plugins.reinstall'), plugin)
       return
     }
     await pluginState.handleAction(plugin, id, anchor)
@@ -253,38 +253,38 @@
 
   <HStack align="center" gap={4}>
     <HStack grow>
-      <SearchField bind:value={query} placeholder={t('Search catalog...')} />
+      <SearchField bind:value={query} placeholder={t('plugins.search.catalog')} />
     </HStack>
     <HStack align="center" gap={4}>
       <HStack align="center" gap={2}>
-        <Text size="sm">{t('Updates only')}</Text>
-        <Switch bind:checked={showUpdatesOnly} ariaLabel={t('Updates only')} />
+        <Text size="sm">{t('plugins.updates_only')}</Text>
+        <Switch bind:checked={showUpdatesOnly} ariaLabel={t('plugins.updates_only')} />
       </HStack>
       <Button
         style="prominent"
         icon={{ name: 'add' }}
         onclick={() => { showAddRepo = !showAddRepo }}
-      >{t('Add repository')}</Button>
+      >{t('plugins.repo.add')}</Button>
     </HStack>
   </HStack>
 
   {#if showAddRepo}
-    <SectionCard title="Add repository" description="Paste a repository URL or a direct index.json URL.">
+    <SectionCard title={t('plugins.repo.add')} description={t('plugins.repo.url_hint')}>
       <VStack gap={4}>
         <VStack gap={1}>
-          <Text size="sm" weight="medium" tag="label" for="repo-url">{t('Repository or index URL')}</Text>
+          <Text size="sm" weight="medium" tag="label" for="repo-url">{t('plugins.repo.url_label')}</Text>
           <TextEdit id="repo-url" bind:value={repoUrl} hint="https://github.com/..." />
         </VStack>
         <HStack gap={2} justify="end">
-          <Button onclick={() => { showAddRepo = false }}>{t('Cancel')}</Button>
-          <Button style="prominent" onclick={addRepo} disabled={adding || !repoUrl.trim()}>{t('Add')}</Button>
+          <Button onclick={() => { showAddRepo = false }}>{t('common.actions.cancel')}</Button>
+          <Button style="prominent" onclick={addRepo} disabled={adding || !repoUrl.trim()}>{t('common.actions.add')}</Button>
         </HStack>
       </VStack>
     </SectionCard>
   {/if}
 
   {#if showUpdatesBanner}
-    <SectionCard title="Updates available">
+    <SectionCard title={t('plugins.updates_available')}>
       <List>
         {#each availableUpdates as u}
           {@const file = fileByOrigin.get(storeKey(u.repo_id, u.path)) ?? null}
@@ -294,9 +294,9 @@
               <Text size="sm">{u.plugin_id}: {u.current} → {u.latest}</Text>
               <Spacer />
               {#if file}
-                <Button style="none" size="small" onclick={() => confirmAndInstall(file, 'Update', installed ?? undefined)}>{t('Update')}</Button>
+                <Button style="none" size="small" onclick={() => confirmAndInstall(file, t('common.actions.update'), installed ?? undefined)}>{t('common.actions.update')}</Button>
               {:else}
-                <Button style="none" size="small" onclick={() => installEntry(u.repo_id, u.path)}>{t('Update')}</Button>
+                <Button style="none" size="small" onclick={() => installEntry(u.repo_id, u.path)}>{t('common.actions.update')}</Button>
               {/if}
             </HStack>
           </div>
@@ -307,16 +307,16 @@
 
   {#if repos.length === 0}
     {#snippet addRepoAction()}
-      <Button style="prominent" icon={{ name: 'add' }} onclick={() => { showAddRepo = true }}>{t('Add repository')}</Button>
+      <Button style="prominent" icon={{ name: 'add' }} onclick={() => { showAddRepo = true }}>{t('plugins.repo.add')}</Button>
     {/snippet}
     <EmptyState
       icon="download"
-      title={t('No repositories added yet')}
-      caption={t('Add a plugin repository to install a plugin.')}
+      title={t('plugins.repo.empty')}
+      caption={t('plugins.repo.add_short')}
       action={addRepoAction}
     />
   {:else if visibleRepos.length === 0}
-    <Text tone="soft" align="center">{t('No plugins match the current filter.')}</Text>
+    <Text tone="soft" align="center">{t('plugins.catalog.no_filter_match')}</Text>
   {:else}
     {#each visibleRepos as entry (entry.repo.id)}
       <VStack gap={3}>
@@ -326,13 +326,13 @@
             {#if entry.repo.description}<Text size="xs" tone="soft">{entry.repo.description}</Text>{/if}
           </VStack>
           <HStack gap={2}>
-            {#if entry.repo.builtin}<Chip text={t('Built-in')} color="chip-neutral" size="small" />{/if}
+            {#if entry.repo.builtin}<Chip text={t('plugins.repo.builtin')} color="chip-neutral" size="small" />{/if}
             <Button
               style="text"
               icon={{ name: 'info' }}
               size="small"
               onclick={() => openRepoDetails(entry)}
-              ariaLabel={t('Repository details')}
+              ariaLabel={t('plugins.repo.details')}
             />
             {#if !entry.repo.builtin}
               <Button
@@ -341,7 +341,7 @@
                 icon={{ name: 'delete' }}
                 size="small"
                 onclick={(e) => openRemoveRepo(entry, e.currentTarget as HTMLElement)}
-                ariaLabel={t('Remove repository')}
+                ariaLabel={t('plugins.repo.remove')}
               />
             {/if}
           </HStack>
@@ -350,7 +350,7 @@
         {#if entry.error}
           <Banner variant="error" text={entry.error} />
         {:else if entry.files.length === 0}
-          <EmptyState title={t('No plugins in this repository.')} icon="extension" />
+          <EmptyState title={t('plugins.repo.no_plugins')} icon="extension" />
         {:else}
           <List>
             {#each entry.files as f (storeKey(f.repo_id, f.path))}
@@ -379,7 +379,7 @@
                   unsafe={f.unsafe}
                   installing={installingPath === key}
                   onDetails={() => openFileDetails(f)}
-                  onInstall={() => confirmAndInstall(f, 'Install')}
+                  onInstall={() => confirmAndInstall(f, t('plugins.install'))}
                 />
               {/if}
               {#if f.error}<Text tone="danger" size="xs">{f.error}</Text>{/if}
@@ -394,15 +394,15 @@
     open={Boolean(removeRepoTarget)}
     anchor={removeRepoAnchor}
     onclose={() => { removeRepoTarget = null }}
-    label={t('Remove repository')}
+    label={t('plugins.repo.remove')}
   >
     {#snippet children({ close })}
       <ConfirmAction
-        title={t('Remove repository')}
-        body={t('Remove this repository from the store? Installed plugins stay installed.')}
-        confirmLabel={t('Remove')}
+        title={t('plugins.repo.remove')}
+        body={t('plugins.repo.remove_confirm')}
+        confirmLabel={t('common.actions.remove')}
         busy={removingRepo}
-        busyLabel={t('Removing…')}
+        busyLabel={t('common.actions.removing')}
         onCancel={close}
         onConfirm={confirmRemoveRepo} />
     {/snippet}
@@ -412,14 +412,14 @@
     open={Boolean(pluginState.pendingDelete)}
     anchor={pluginState.pendingDelete?.anchor}
     onclose={() => { pluginState.pendingDelete = null }}
-    label={t('Delete plugin')}
+    label={t('plugins.delete')}
   >
     {#snippet children({ close })}
       <ConfirmAction
-        title={t('Delete plugin')}
-        body={`${t('Delete')} "${pluginState.pendingDelete?.plugin.display_name}"? ${t('Providers using its types will stop working.')}`}
+        title={t('plugins.delete')}
+        body={`${t('common.actions.delete')} "${pluginState.pendingDelete?.plugin.display_name}"? ${t('plugins.delete_warning')}`}
         busy={pluginState.deleting}
-        busyLabel={t('Deleting…')}
+        busyLabel={t('common.actions.deleting')}
         onCancel={close}
         onConfirm={() => void pluginState.doDelete()} />
     {/snippet}
@@ -429,25 +429,25 @@
     open={Boolean(pluginState.pendingRollback)}
     anchor={pluginState.pendingRollback?.anchor}
     onclose={() => { pluginState.pendingRollback = null }}
-    label={t('Roll back plugin')}
+    label={t('plugins.rollback_title')}
   >
     {#snippet children({ close })}
       <VStack gap={3} style="max-width: 280px;">
         <VStack gap={1}>
-          <Text weight="medium" size="base">{t('Roll back plugin')}</Text>
+          <Text weight="medium" size="base">{t('plugins.rollback_title')}</Text>
           <Text size="sm" tone="soft">
-            {t('Roll')} "{pluginState.pendingRollback?.plugin.display_name}" {t('back to the previous version?')}
+            {t('plugins.rollback')} "{pluginState.pendingRollback?.plugin.display_name}" {t('plugins.rollback_confirm')}
           </Text>
         </VStack>
         <HStack justify="end" gap={2}>
-          <Button size="small" style="text" onclick={close} disabled={pluginState.rollingBack}>{t('Cancel')}</Button>
+          <Button size="small" style="text" onclick={close} disabled={pluginState.rollingBack}>{t('common.actions.cancel')}</Button>
           <Button
             size="small"
             style="prominent"
             disabled={pluginState.rollingBack}
             onclick={() => void pluginState.doRollback()}
           >
-            {pluginState.rollingBack ? t('Rolling back…') : t('Roll back')}
+            {pluginState.rollingBack ? t('plugins.rollbacking') : t('plugins.rollback_title')}
           </Button>
         </HStack>
       </VStack>

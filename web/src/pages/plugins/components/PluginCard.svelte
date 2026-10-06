@@ -12,7 +12,7 @@
     isManual = false,
     hasUpdate = false,
     installing = false,
-    installLabel = t('Install'),
+    installLabel = t('plugins.install'),
     onDetails,
     onInstall,
     onaction
@@ -42,7 +42,7 @@
         <Text tag="h2" size="base" weight="bold">{title}</Text>
         <Chip text={version} color="chip-accent" size="small" />
         {#if unsafe}
-          <Chip text={t('Unrestricted network')} color="chip-red" size="small" />
+          <Chip text={t('plugins.network.unrestricted')} color="chip-red" size="small" />
         {/if}
       </HStack>
       <HStack align="center" gap={1}>
@@ -52,7 +52,7 @@
           icon={{ name: 'info' }}
           size="small"
           onclick={onDetails}
-          ariaLabel={t('Details')}
+          ariaLabel={t('common.labels.details')}
         />
       </HStack>
       {#if description}
@@ -69,8 +69,8 @@
             style="none"
             size="medium"
             icon={{ name: 'upload_file' }}
-            title={t('Update from file…')}
-            ariaLabel={t('Update from file…')}
+            title={t('plugins.update_from_file')}
+            ariaLabel={t('plugins.update_from_file')}
             onclick={(e) => onaction?.('update_file', e.currentTarget as HTMLElement)}
           />
         {/if}
@@ -79,8 +79,8 @@
             style="none"
             size="medium"
             icon={{ name: 'upgrade' }}
-            title={t('Update')}
-            ariaLabel={t('Update')}
+            title={t('common.actions.update')}
+            ariaLabel={t('common.actions.update')}
             onclick={(e) => onaction?.('update', e.currentTarget as HTMLElement)}
           />
         {/if}
@@ -89,19 +89,19 @@
           size="medium"
           tint="var(--color-danger)"
           icon={{ name: 'delete' }}
-          title={t('Delete')}
-          ariaLabel={t('Delete')}
+          title={t('common.actions.delete')}
+          ariaLabel={t('common.actions.delete')}
           onclick={(e) => onaction?.('delete', e.currentTarget as HTMLElement)}
         />
         <Switch
           bind:checked={enabled}
-          ariaLabel={t('Toggle plugin active')}
+          ariaLabel={t('plugins.toggle_active')}
         />
       {:else}
         <Button
           style="none"
           icon={{ name: 'download' }}
-          text={installing ? t('Installing…') : installLabel}
+          text={installing ? t('plugins.installing') : installLabel}
           disabled={installing}
           onclick={onInstall}
         />

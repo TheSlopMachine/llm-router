@@ -12,10 +12,10 @@
   import { n, t } from '$lib/i18n.svelte'
 
   const tokenColumns: TableColumn[] = [
-    { key: 'name', title: t('Name'), width: '1fr', priority: 1 },
-    { key: 'created', title: t('Created'), width: '140px', priority: 3 },
-    { key: 'used', title: t('Last Used'), width: '1fr', priority: 2 },
-    { key: 'actions', title: t('Actions'), width: 'auto', align: 'right', priority: 1 },
+    { key: 'name', title: t('common.labels.name'), width: '1fr', priority: 1 },
+    { key: 'created', title: t('common.actions.created'), width: '140px', priority: 3 },
+    { key: 'used', title: t('credentials.last_used'), width: '1fr', priority: 2 },
+    { key: 'actions', title: t('common.labels.actions'), width: 'auto', align: 'right', priority: 1 },
   ]
 
   const resource = createListResource<{ tokens: Token[]; providers: Provider[]; tokenUsage: Record<string, TokenUsageInfo> }>(
@@ -29,7 +29,7 @@
 
   function openWizard(mode: 'create' | 'edit', token?: Token): void {
     resource.error = ''
-    const title = mode === 'edit' ? t('Edit token') : t('New token')
+    const title = mode === 'edit' ? t('tokens.edit.title') : t('tokens.actions.new')
     modal.open({
       title,
       content: TokenWizard,
@@ -140,10 +140,10 @@
 <VStack gap={4}>
   <HStack align="center" gap={4}>
     <VStack gap={1} grow>
-      <Text tag="h1" size="lg" weight="bold">{t('Tokens')}</Text>
-      <Text tone="soft" size="sm">{t('Router tokens for the')} <code>/v1</code> {t('API. Each token enforces its own model allowlist.')}</Text>
+      <Text tag="h1" size="lg" weight="bold">{t('tokens.list.title')}</Text>
+      <Text tone="soft" size="sm">{t('tokens.list.router_for')} <code>/v1</code> {t('tokens.list.subtitle')}</Text>
     </VStack>
-    <Button style="prominent" onclick={openCreate} icon={{ name: 'add' }}>{t('New Token')}</Button>
+    <Button style="prominent" onclick={openCreate} icon={{ name: 'add' }}>{t('tokens.actions.new')}</Button>
   </HStack>
 
   {#if resource.error}
@@ -152,7 +152,7 @@
 
   {#if newTokenSecret}
     <VStack gap={2}>
-      <Text tone="success" size="sm">{t('Token created. Copy it now — it will not be shown again:')}</Text>
+      <Text tone="success" size="sm">{t('tokens.success.copy_warning')}</Text>
       <CodeBlock text={newTokenSecret} />
     </VStack>
   {/if}
@@ -171,31 +171,31 @@
         <Text size="sm" tone="soft">{fmt(tok.created_at)}</Text>
       {:else if column.key === 'used'}
         <Text size="sm">{getLastUsed(tok.id)}</Text>
-        <Text size="sm" tone="soft">{n(getUsage(tok.id), 'API call', 'API calls', 'вызов API', 'вызова API', 'вызовов API')}</Text>
+        <Text size="sm" tone="soft">{n(getUsage(tok.id), 'units.api_call.one', 'units.api_call.many')}</Text>
       {:else if column.key === 'actions'}
         <HStack justify="end" gap={2}>
           <Button
             style="text"
             icon={{ name: 'refresh' }}
-            title={t('Regenerate')}
+            title={t('tokens.actions.regenerate')}
             size="small"
-            ariaLabel={t('Regenerate')}
+            ariaLabel={t('tokens.actions.regenerate')}
             onclick={(e) => openRegenerate(tok, e.currentTarget as HTMLElement)}
           />
           <Button
             style="text"
             icon={{ name: 'content_copy' }}
-            title={t('Clone')}
+            title={t('tokens.actions.clone')}
             size="small"
-            ariaLabel={t('Clone')}
+            ariaLabel={t('tokens.actions.clone')}
             onclick={(e) => openClone(tok, e.currentTarget as HTMLElement)}
           />
           <Button
             style="text"
             icon={{ name: 'edit' }}
-            title={t('Edit')}
+            title={t('common.actions.edit')}
             size="small"
-            ariaLabel={t('Edit')}
+            ariaLabel={t('common.actions.edit')}
             onclick={() => openEdit(tok)}
           />
           <Button
@@ -203,15 +203,15 @@
             tint="var(--color-danger)"
             size="small"
             icon={{ name: 'delete' }}
-            title={t('Revoke')}
-            ariaLabel={t('Revoke')}
+            title={t('tokens.actions.revoke')}
+            ariaLabel={t('tokens.actions.revoke')}
             onclick={(e) => openRevoke(tok, e.currentTarget as HTMLElement)}
           />
         </HStack>
       {/if}
     {/snippet}
     {#snippet empty()}
-      <EmptyState title={t('No tokens yet')} caption={t('Create a token to call the API')} />
+      <EmptyState title={t('tokens.list.empty')} caption={t('tokens.create.api_desc')} />
     {/snippet}
   </Table>
 
@@ -219,15 +219,15 @@
     open={Boolean(cloneSource)}
     anchor={cloneAnchor}
     onclose={() => { cloneSource = null; cloneError = '' }}
-    label={t('Clone token')}
+    label={t('tokens.actions.clone_title')}
   >
     {#snippet children({ close })}
       <VStack gap={3} style="width: 280px;">
-        <Text weight="medium" size="base">{t('Clone token')}</Text>
+        <Text weight="medium" size="base">{t('tokens.actions.clone_title')}</Text>
         {#if cloneError}<Text tone="danger" size="sm">{cloneError}</Text>{/if}
-        <TextEdit bind:value={cloneName} hint={t('New token name')} />
+        <TextEdit bind:value={cloneName} hint={t('tokens.create.name_placeholder')} />
         <HStack justify="end" gap={2}>
-          <Button size="small" onclick={close} disabled={cloneSaving}>{t('Cancel')}</Button>
+          <Button size="small" onclick={close} disabled={cloneSaving}>{t('common.actions.cancel')}</Button>
           <Button
             size="small"
             style="prominent"
@@ -249,7 +249,7 @@
               }
             }}
           >
-            {cloneSaving ? t('Creating…') : t('Create')}
+            {cloneSaving ? t('common.actions.creating') : t('common.actions.create')}
           </Button>
         </HStack>
       </VStack>
@@ -260,15 +260,15 @@
     open={Boolean(revokeTarget)}
     anchor={revokeAnchor}
     onclose={() => { revokeTarget = null }}
-    label={t('Revoke token')}
+    label={t('tokens.actions.revoke_title')}
   >
     {#snippet children({ close })}
       <ConfirmAction
-        title={t('Revoke token')}
-        body={`${t('Are you sure you want to revoke token')} "${revokeTarget?.name}"? ${t('This action cannot be undone.')}`}
-        confirmLabel={t('Revoke')}
+        title={t('tokens.actions.revoke_title')}
+        body={`${t('tokens.actions.revoke_confirm')} "${revokeTarget?.name}"? ${t('common.undo.cannot_undo')}`}
+        confirmLabel={t('tokens.actions.revoke')}
         busy={revoking}
-        busyLabel={t('Revoking…')}
+        busyLabel={t('tokens.actions.revoking')}
         onCancel={close}
         onConfirm={() => void confirmRevoke(close)} />
     {/snippet}
@@ -278,15 +278,15 @@
     open={Boolean(regenerateTarget)}
     anchor={regenerateAnchor}
     onclose={() => { regenerateTarget = null }}
-    label={t('Regenerate token')}
+    label={t('tokens.actions.regenerate_title')}
   >
     {#snippet children({ close })}
       <ConfirmAction
-        title={t('Regenerate token')}
-        body={`${t('Regenerate secret for')} "${regenerateTarget?.name}"? ${t('The old secret will be invalidated immediately.')}`}
-        confirmLabel={t('Regenerate')}
+        title={t('tokens.actions.regenerate_title')}
+        body={`${t('tokens.actions.regenerate_for')} "${regenerateTarget?.name}"? ${t('tokens.actions.regenerate_warning')}`}
+        confirmLabel={t('tokens.actions.regenerate')}
         busy={regenerating}
-        busyLabel={t('Regenerating…')}
+        busyLabel={t('tokens.actions.regenerating')}
         onCancel={close}
         onConfirm={() => void confirmRegenerate(close)} />
     {/snippet}

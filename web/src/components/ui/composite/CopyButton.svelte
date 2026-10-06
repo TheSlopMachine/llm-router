@@ -9,8 +9,8 @@
   let {
     text,
     size = 'small',
-    title = t('Copy model id'),
-    ariaLabel = t('Copy model id'),
+    title = t('models.actions.copy_id'),
+    ariaLabel = t('models.actions.copy_id'),
     disabled = false,
   } = $props<{
     text: string

@@ -44,24 +44,24 @@
   let knownRepoIDs = $derived(resource.data.repos.map((entry) => entry.repo.id))
 </script>
 
-<VStack gap={6}>
+  <VStack gap={6}>
   <VStack gap={1}>
-    <Text tag="h1" size="xl" weight="bold">{t('Plugins')}</Text>
-    <Text tone="soft" size="sm">{t('Manage installed plugins and install new ones from the catalog.')}</Text>
+    <Text tag="h1" size="xl" weight="bold">{t('plugins.title')}</Text>
+    <Text tone="soft" size="sm">{t('plugins.manage_desc')}</Text>
   </VStack>
 
   <Picker
     value={tab}
     onchange={(next) => ontabchange(next as PluginsTab)}
     options={[
-      { value: 'installed', label: `${t('Installed')} (${installedCount})` },
-      { value: 'catalog', label: `${t('Catalog')} (${catalogCount})` }
+      { value: 'installed', label: `${t('plugins.tabs.installed')} (${installedCount})` },
+      { value: 'catalog', label: `${t('plugins.tabs.catalog')} (${catalogCount})` }
     ]}
-    ariaLabel={t('Plugin views')}
+    ariaLabel={t('plugins.views')}
   />
 
   {#if resource.loading}
-    <Text tone="soft" align="center" class="empty">{t('Loading…')}</Text>
+    <Text tone="soft" align="center" class="empty">{t('common.state.loading')}</Text>
   {:else if resource.error}
     <Text tone="danger" size="sm">{resource.error}</Text>
   {:else if tab === 'installed'}

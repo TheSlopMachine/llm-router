@@ -27,7 +27,7 @@
 
   interface NavItem {
     id: PanelId
-    label: string
+    label: import('../lib/i18n.svelte').TranslationKey
     icon: string
   }
 
@@ -84,13 +84,13 @@
   }
 
   const nav: NavItem[] = [
-    { id: 'metrics',      label: 'Metrics',      icon: 'analytics' },
-    { id: 'providers',    label: 'Providers',    icon: 'cloud' },
-    { id: 'models',       label: 'Models',       icon: 'view_list' },
-    { id: 'plugins',      label: 'Plugins',      icon: 'extension' },
-    { id: 'virtual',      label: 'Virtual models', icon: 'robot' },
-    { id: 'tokens',       label: 'Tokens',       icon: 'key' },
-    { id: 'proxy',        label: 'Proxies',      icon: 'vpn_lock' },
+    { id: 'metrics',      label: 'metrics.title',      icon: 'analytics' },
+    { id: 'providers',    label: 'providers.list.title',    icon: 'cloud' },
+    { id: 'models',       label: 'models.list.title',       icon: 'view_list' },
+    { id: 'plugins',      label: 'plugins.title',      icon: 'extension' },
+    { id: 'virtual',      label: 'virtual.models_plural', icon: 'robot' },
+    { id: 'tokens',       label: 'tokens.list.title',       icon: 'key' },
+    { id: 'proxy',        label: 'proxy.title',      icon: 'vpn_lock' },
   ]
 
   let pluginsTab = $derived<PluginsTab>(routeSegments[0] === 'catalog' ? 'catalog' : 'installed')
@@ -138,32 +138,32 @@
 <div class="layout" class:mobile>
   {#if mobile}
     <header class="appbar">
-      <Button onclick={() => { drawerOpen = true }} ariaLabel={t('Open menu')} title={t('Menu')} icon={{ name: 'menu' }} />
+      <Button onclick={() => { drawerOpen = true }} ariaLabel={t('nav.menu.open')} title={t('nav.menu.title')} icon={{ name: 'menu' }} />
       <div class="appbar-brand">llm-router</div>
     </header>
     {#if drawerOpen}
-      <button class="scrim" aria-label={t('Close menu')} onclick={() => { drawerOpen = false }}></button>
+       <button class="scrim" aria-label={t('nav.menu.close')} onclick={() => { drawerOpen = false }}></button>
     {/if}
   {/if}
   <aside class="sidebar" class:collapsed={collapsed && !mobile} class:drawer={mobile} class:drawer-open={drawerOpen}>
     <div class="brand-row">
       <div class="brand">llm-router</div>
       {#if mobile}
-        <button
-          class="collapse-btn"
-          onclick={() => { drawerOpen = false }}
-          aria-label={t('Close menu')}
-          title={t('Close menu')}
-        >
+         <button
+           class="collapse-btn"
+           onclick={() => { drawerOpen = false }}
+           aria-label={t('nav.menu.close')}
+           title={t('nav.menu.close')}
+         >
           <Icon name="close" />
         </button>
       {:else}
-        <button
-          class="collapse-btn"
-          onclick={toggleSidebar}
-          aria-label={collapsed ? t('Expand sidebar') : t('Collapse sidebar')}
-          title={collapsed ? t('Expand sidebar') : t('Collapse sidebar')}
-        >
+         <button
+           class="collapse-btn"
+           onclick={toggleSidebar}
+           aria-label={collapsed ? t('nav.sidebar.expand') : t('nav.sidebar.collapse')}
+           title={collapsed ? t('nav.sidebar.expand') : t('nav.sidebar.collapse')}
+         >
           <Icon name={collapsed ? 'left_panel_open' : 'left_panel_close'} />
         </button>
       {/if}
@@ -182,14 +182,14 @@
       {/each}
     </nav>
     <div class="sidebar-footer">
-      <button class="logout-btn" class:active={panel === 'settings'} onclick={openSettings} aria-label={t('Open settings')} title={collapsed ? t('Settings') : undefined}>
-        <Icon name="settings" size="lg" />
-        <span class="label">{t('Settings')}</span>
-      </button>
-      <button class="logout-btn" onclick={logout} title={collapsed ? t('Sign out') : undefined}>
-        <Icon name="logout" size="lg" />
-        <span class="label">{t('Sign out')}</span>
-      </button>
+       <button class="logout-btn" class:active={panel === 'settings'} onclick={openSettings} aria-label={t('nav.settings.open')} title={collapsed ? t('settings.title') : undefined}>
+         <Icon name="settings" size="lg" />
+         <span class="label">{t('settings.title')}</span>
+       </button>
+       <button class="logout-btn" onclick={logout} title={collapsed ? t('auth.sign_out.action') : undefined}>
+         <Icon name="logout" size="lg" />
+         <span class="label">{t('auth.sign_out.action')}</span>
+       </button>
     </div>
   </aside>
 

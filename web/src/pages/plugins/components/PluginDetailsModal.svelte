@@ -32,7 +32,7 @@
 
   {#if facts.typeKeys.length > 0}
     <VStack gap={2}>
-      <Text tag="h3" size="sm" weight="bold">{t('Provides')}</Text>
+      <Text tag="h3" size="sm" weight="bold">{t('plugins.provides')}</Text>
       <HStack gap={2} wrap>
         {#each facts.typeKeys as key}
           <Chip text={key} color="chip-neutral" size="small" />
@@ -42,12 +42,12 @@
   {/if}
 
   <VStack gap={2}>
-    <Text tag="h3" size="sm" weight="bold">{t('Permissions')}</Text>
+    <Text tag="h3" size="sm" weight="bold">{t('tokens.permissions.title')}</Text>
     {#if facts.unsafe}
-      <div><Chip text={t('Unrestricted network')} color="chip-red" size="small" /></div>
+      <div><Chip text={t('plugins.network.unrestricted')} color="chip-red" size="small" /></div>
     {/if}
     {#if facts.allowHosts.length === 0}
-      <Text size="sm" tone="soft">{t('No network hosts.')}</Text>
+      <Text size="sm" tone="soft">{t('plugins.network.none')}</Text>
     {:else}
       <VStack gap={1}>
         {#each facts.allowHosts as host}
@@ -59,11 +59,11 @@
 
   {#if hasDiagnostics}
     <VStack gap={2}>
-      <Text tag="h3" size="sm" weight="bold">{t('Recent crashes')}</Text>
+      <Text tag="h3" size="sm" weight="bold">{t('plugins.crashes')}</Text>
       {#if loading}
-        <Text size="sm" tone="soft">{t('Loading…')}</Text>
+        <Text size="sm" tone="soft">{t('common.state.loading')}</Text>
       {:else if crashes.length === 0}
-        <Text size="sm" tone="soft">{t('None recorded.')}</Text>
+        <Text size="sm" tone="soft">{t('common.empty.none_recorded')}</Text>
       {:else}
         <VStack gap={1}>
           {#each crashes as crash}
@@ -74,11 +74,11 @@
     </VStack>
 
     <VStack gap={2}>
-      <Text tag="h3" size="sm" weight="bold">{t('Recent log output')}</Text>
+      <Text tag="h3" size="sm" weight="bold">{t('plugins.log_output')}</Text>
       {#if loading}
-        <Text size="sm" tone="soft">{t('Loading…')}</Text>
+        <Text size="sm" tone="soft">{t('common.state.loading')}</Text>
       {:else if logs.length === 0}
-        <Text size="sm" tone="soft">{t('None recorded.')}</Text>
+        <Text size="sm" tone="soft">{t('common.empty.none_recorded')}</Text>
       {:else}
         <VStack gap={1}>
           {#each logs as log}

@@ -44,7 +44,7 @@
 <SectionCard {title}>
   <div class="chart-container">
     {#if loading}
-      <Text tone="soft" size="sm">{t('Loading...')}</Text>
+      <Text tone="soft" size="sm">{t('common.state.loading')}</Text>
     {:else}
       <HStack gap={3} fill>
         <div class="y-axis-labels">

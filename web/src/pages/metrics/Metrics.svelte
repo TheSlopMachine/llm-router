@@ -105,8 +105,8 @@
 
 <VStack gap={6}>
   <VStack gap={1}>
-    <Text tag="h1" size="xl" weight="bold">{t('Metrics')}</Text>
-    <Text tone="soft" size="sm">{t('Provider API usage statistics and trends.')}</Text>
+    <Text tag="h1" size="xl" weight="bold">{t('metrics.title')}</Text>
+    <Text tone="soft" size="sm">{t('metrics.subtitle')}</Text>
   </VStack>
 
   <MetricsFiltersCmp bind:filters {providers} {models} onchange={handleFilterChange} />
@@ -121,19 +121,19 @@
 
   <VStack gap={4}>
     <HStack align="center" gap={2}>
-      <Text tag="h2" size="md" weight="bold">{t('Overview')}</Text>
-      <Button style="text" size="small" icon={{ name: 'info' }} title={t('Overview information')} />
+      <Text tag="h2" size="md" weight="bold">{t('metrics.overview')}</Text>
+      <Button style="text" size="small" icon={{ name: 'info' }} title={t('metrics.overview_info')} />
     </HStack>
 
     <Grid cols={2} gap={5}>
       <MetricsOverviewCard
-        title={t('Total API Requests')}
+        title={t('metrics.total_requests')}
         value={overview?.total_requests ?? null}
         {loading}
         icon="show_chart"
       />
       <MetricsOverviewCard
-        title={t('Total API Errors')}
+        title={t('metrics.total_errors')}
         value={overview?.total_errors ?? null}
         {loading}
         icon="show_chart"
@@ -142,11 +142,11 @@
   </VStack>
 
   <VStack gap={4}>
-    <Text tag="h2" size="md" weight="bold">{t('Peak usage trends')}</Text>
+    <Text tag="h2" size="md" weight="bold">{t('metrics.peak_trends')}</Text>
     <Grid cols={3} gap={5}>
-      <PeakUsageChart title={t('Peak requests')} data={requestsData} {loading} />
-      <PeakUsageChart title={t('Peak input tokens')} data={inputTokensData} {loading} />
-      <PeakUsageChart title={t('Peak output tokens')} data={outputTokensData} {loading} />
+      <PeakUsageChart title={t('metrics.peak_requests')} data={requestsData} {loading} />
+      <PeakUsageChart title={t('metrics.peak_input')} data={inputTokensData} {loading} />
+      <PeakUsageChart title={t('metrics.peak_output')} data={outputTokensData} {loading} />
     </Grid>
   </VStack>
 </VStack>

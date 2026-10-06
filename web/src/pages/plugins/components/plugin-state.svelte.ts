@@ -195,17 +195,17 @@ export function createPluginState(opts: {
     const origin = opts.findRepoPath(plugin)
     const actions: PluginCardAction[] = []
     if (update) {
-      actions.push({ id: 'update', label: `${t('Update to')} v${update.latest}`, icon: 'upgrade' })
+      actions.push({ id: 'update', label: `${t('plugins.update_to')} v${update.latest}`, icon: 'upgrade' })
     } else if (origin) {
-      actions.push({ id: 'reinstall', label: t('Reinstall'), icon: 'refresh' })
+      actions.push({ id: 'reinstall', label: t('plugins.reinstall'), icon: 'refresh' })
     }
     if (plugin.origin?.manual) {
-      actions.push({ id: 'update_file', label: t('Update from file…'), icon: 'upload_file' })
+      actions.push({ id: 'update_file', label: t('plugins.update_from_file'), icon: 'upload_file' })
     }
     if (plugin.history_count > 0) {
-      actions.push({ id: 'rollback', label: t('Roll back'), icon: 'history' })
+      actions.push({ id: 'rollback', label: t('plugins.rollback_title'), icon: 'history' })
     }
-    actions.push({ id: 'delete', label: t('Delete'), icon: 'delete', tint: '#dc2626' })
+    actions.push({ id: 'delete', label: t('common.actions.delete'), icon: 'delete', tint: '#dc2626' })
     return actions
   }
 

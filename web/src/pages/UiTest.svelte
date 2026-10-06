@@ -785,9 +785,9 @@
 
 {#snippet demoModalContent()}
   <VStack align="center" gap={4}>
-    <Text size="xl">{t('No plugins installed')}</Text>
-    <Text tone="soft" align="center">{t('Browse the catalog to install a provider plugin.')}</Text>
-    <Button style="prominent" icon={{ name: 'download' }} onclick={() => toast.success('Browse catalog clicked')}>{t('Browse catalog')}</Button>
+    <Text size="xl">{t('plugins.installed.empty')}</Text>
+    <Text tone="soft" align="center">{t('plugins.installed.browse')}</Text>
+    <Button style="prominent" icon={{ name: 'download' }} onclick={() => toast.success('Browse catalog clicked')}>{t('plugins.installed.browse_catalog')}</Button>
   </VStack>
 {/snippet}
 

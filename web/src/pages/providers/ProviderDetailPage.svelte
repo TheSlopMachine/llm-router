@@ -51,8 +51,8 @@
   const providerIdValue = $derived(provider?.id ?? '')
 
   const credentialColumns: TableColumn[] = [
-    { key: 'name', title: t('Name'), width: '1fr', priority: 1 },
-    { key: 'actions', title: t('Actions'), width: 'auto', align: 'right', priority: 1 },
+    { key: 'name', title: t('common.labels.name'), width: '1fr', priority: 1 },
+    { key: 'actions', title: t('common.labels.actions'), width: 'auto', align: 'right', priority: 1 },
   ]
 
   $effect(() => {
@@ -102,7 +102,7 @@
   function openEditProvider(): void {
     if (!provider) return
     modal.open({
-      title: t('Edit Provider'),
+      title: t('providers.detail.edit'),
       content: CustomProviderWizard,
       severity: 'medium',
       size: 'medium',
@@ -185,7 +185,7 @@
 
   function openEditCredential(cred: Credential): void {
     modal.open({
-      title: t('Edit credential'),
+      title: t('credentials.edit'),
       content: EditCredentialLabel,
       severity: 'medium',
       size: 'small',
@@ -283,17 +283,17 @@
   async function unparkCredential(cred: Credential): Promise<void> {
     try {
       await api.credentials.unpark(cred.id)
-      toast.success(`"${cred.label || t('Unnamed')}" ${t('unparked')}`)
+      toast.success(`"${cred.label || t('common.labels.unnamed')}" ${t('credentials.status.unparked')}`)
       await reloadCredentials()
     } catch (e) {
-      toast.error(`${t('Unpark failed')}: ${getErrorMessage(e)}`)
+      toast.error(`${t('credentials.unpark_failed')}: ${getErrorMessage(e)}`)
     }
   }
 
   async function testCredential(cred: Credential): Promise<void> {
     const res = await probeCredential(cred)
-    if (res.ok) toast.success(`"${cred.label || t('Unnamed')}" ${t('is healthy')} · ${res.latency_ms}ms`)
-    else toast.error(`"${cred.label || t('Unnamed')}" ${t('failed')}: ${res.error}`)
+    if (res.ok) toast.success(`"${cred.label || t('common.labels.unnamed')}" ${t('credentials.status.healthy')} · ${res.latency_ms}ms`)
+    else toast.error(`"${cred.label || t('common.labels.unnamed')}" ${t('credentials.status.failed')}: ${res.error}`)
     flashTimer(`cred:${cred.id}`, () => {
       const next = { ...credentialTestResults }
       delete next[cred.id]
@@ -327,7 +327,7 @@
           await api.credentials.update(cred.id, { disabled: true })
         }
         if (failed.length > 0) {
-          toast.success(`${failed.length} ${t('failing credentials disabled')}`)
+          toast.success(`${failed.length} ${t('credentials.status.failing_disabled')}`)
           await reloadCredentials()
         }
       }
@@ -357,9 +357,9 @@
 
   function testIcon(res: TestResult | 'loading' | undefined, idleTitle: string): { icon: string; title: string } {
     if (!res) return { icon: 'network_check', title: idleTitle }
-    if (res === 'loading') return { icon: 'progress_activity', title: t('Testing…') }
+    if (res === 'loading') return { icon: 'progress_activity', title: t('credentials.testing') }
     if (res.ok) return { icon: 'check_circle', title: `OK · ${res.latency_ms}ms` }
-    return { icon: 'error', title: res.error ?? t('Failed') }
+    return { icon: 'error', title: res.error ?? t('common.state.failed') }
   }
 
   function initProxyConfig(): void {
@@ -409,7 +409,7 @@
       })
       const providers = await api.providers.list()
       provider = (providers as Provider[]).find((p) => p.id === providerId) ?? provider
-      toast.success(t('Settings saved'))
+      toast.success(t('providers.detail.settings_saved'))
     } catch (e) {
       error = getErrorMessage(e)
     } finally {
@@ -420,17 +420,17 @@
 
 {#if loading}
   <VStack align="center" gap={2} class="provider-state">
-    <Text tone="soft">{t('Loading…')}</Text>
+    <Text tone="soft">{t('common.state.loading')}</Text>
   </VStack>
 {:else if !provider}
   <VStack align="center" gap={4} class="provider-state">
-    <Text tone="soft">{t('Provider not found.')}</Text>
-    <Button onclick={back}>{t('Back to providers')}</Button>
+    <Text tone="soft">{t('providers.detail.not_found')}</Text>
+    <Button onclick={back}>{t('providers.detail.back_to_providers')}</Button>
   </VStack>
 {:else}
   <VStack gap={6} class="provider-detail">
     <HStack gap={4} align="center" class="detail-header">
-      <Button onclick={back} ariaLabel={t('Back to providers')} title={t('Back to providers')} icon={{ name: 'arrow_back' }} />
+      <Button onclick={back} ariaLabel={t('providers.detail.back_to_providers')} title={t('providers.detail.back_to_providers')} icon={{ name: 'arrow_back' }} />
       <Image src={provider.icon_url} alt={provider.name} width={40} height={40} radius={3} fit="contain" fallbackIcon="cloud" />
       <VStack gap={0} grow class={provider.disabled ? 'provider-off' : ''}>
         <Text tag="h1" size="lg" weight="bold">{provider.name}</Text>
@@ -439,13 +439,13 @@
       <Spacer />
       {#if !provider.is_ui_readonly}
         <HStack gap={2}>
-          <Button onclick={openEditProvider} icon={{ name: 'edit' }}>{t('Edit')}</Button>
-          <Button tint="var(--color-danger)" onclick={(e) => openDeleteProvider(e.currentTarget as HTMLElement)} icon={{ name: 'delete' }}>{t('Delete')}</Button>
+          <Button onclick={openEditProvider} icon={{ name: 'edit' }}>{t('common.actions.edit')}</Button>
+          <Button tint="var(--color-danger)" onclick={(e) => openDeleteProvider(e.currentTarget as HTMLElement)} icon={{ name: 'delete' }}>{t('common.actions.delete')}</Button>
         </HStack>
       {/if}
       <Switch
         checked={!provider.disabled}
-        ariaLabel={t('Enable provider')}
+        ariaLabel={t('providers.detail.enable')}
         size="xl"
         onchange={(v) => toggleProviderEnabled(v)}
       />
@@ -458,19 +458,19 @@
     {#if credentialsEnabled}
       <VStack tag="section" gap={4} class="provider-section">
         <HStack align="center" gap={2}>
-          <Text tag="h2" size="md" weight="medium">{t('Credentials')}</Text>
+          <Text tag="h2" size="md" weight="medium">{t('credentials.title_plural')}</Text>
           <Text size="xs" tone="soft">{credentials.length}</Text>
           <Spacer />
-          <Button style="prominent" onclick={openAddCredential} icon={{ name: 'add' }}>{t('Add credential')}</Button>
+          <Button style="prominent" onclick={openAddCredential} icon={{ name: 'add' }}>{t('credentials.add')}</Button>
         </HStack>
       <HStack align="center" gap={4} wrap>
         <Switch
           checked={disableFailedCredentials}
-          label={t('Disable failing credentials')}
+          label={t('credentials.disable_failing')}
           onchange={(v) => { disableFailedCredentials = v; void saveCredAutomation() }}
         />
         <Button icon={{ name: testingAllCreds ? 'stop' : 'network_check' }} onclick={testAllCredentials}>
-          {testingAllCreds ? t('Testing… click to cancel') : t('Test all')}
+          {testingAllCreds ? t('credentials.testing_click_cancel') : t('credentials.test_all')}
         </Button>
       </HStack>
       <Table
@@ -484,26 +484,26 @@
           {@const cred = row as Credential}
           {#if column.key === 'name'}
             <HStack gap={2} align="center" wrap>
-              <Text size="base" weight="medium">{cred.label || t('Unnamed')}</Text>
+              <Text size="base" weight="medium">{cred.label || t('common.labels.unnamed')}</Text>
               {#if cred.is_expired}
-                <Chip text={t('Expired')} color="chip-red" />
+                <Chip text={t('tokens.status.expired')} color="chip-red" />
               {/if}
             </HStack>
             {#if isAutoDisabled(cred)}
-              <Text size="sm" tone="danger">{t('Disabled automatically')}{formatDisableReason(cred.disabled_reason)}</Text>
+              <Text size="sm" tone="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(cred.disabled_reason)}</Text>
             {:else if isPluginDisabled(cred)}
-              <Text size="sm" tone="danger">{t('Disabled by plugin')}{formatDisableReason(cred.disabled_reason)}</Text>
+              <Text size="sm" tone="danger">{t('providers.detail.disabled_by_plugin')}{formatDisableReason(cred.disabled_reason)}</Text>
             {/if}
           {:else}
-            {@const ti = testIcon(credentialTestResults[cred.id], t('Test credential'))}
+            {@const ti = testIcon(credentialTestResults[cred.id], t('credentials.test'))}
             <HStack gap={3} justify="end">
               {#if cred.parked}
                 <Button
                   size="small"
                   style="text"
                   icon={{ name: 'ac_unit' }}
-                  ariaLabel={t('Unpark credential')}
-                  title={`${t('Unpark credential')}${cred.park_reason ? `: ${cred.park_reason}` : ''}`}
+                  ariaLabel={t('credentials.unpark_action')}
+                  title={`${t('credentials.unpark_action')}${cred.park_reason ? `: ${cred.park_reason}` : ''}`}
                   onclick={() => unparkCredential(cred)}
                 />
               {/if}
@@ -516,18 +516,18 @@
                 title={ti.title}
                 onclick={() => testCredential(cred)}
               />
-              <Button size="small" style="text" icon={{ name: 'edit' }} ariaLabel={t('Edit credential')} title={t('Edit credential')} onclick={() => openEditCredential(cred)} />
-              <Button size="small" tint="var(--color-danger)" style="text" icon={{ name: 'delete' }} ariaLabel={t('Delete credential')} title={t('Delete credential')} onclick={(e) => openDeleteCredential(cred, e.currentTarget as HTMLElement)} />
+              <Button size="small" style="text" icon={{ name: 'edit' }} ariaLabel={t('credentials.edit')} title={t('credentials.edit')} onclick={() => openEditCredential(cred)} />
+              <Button size="small" tint="var(--color-danger)" style="text" icon={{ name: 'delete' }} ariaLabel={t('credentials.delete')} title={t('credentials.delete')} onclick={(e) => openDeleteCredential(cred, e.currentTarget as HTMLElement)} />
               <Switch
                 checked={!cred.disabled}
-                ariaLabel={t('Enable credential')}
+                ariaLabel={t('credentials.enable')}
                 onchange={(v) => toggleCredential(cred, v)}
               />
             </HStack>
           {/if}
         {/snippet}
         {#snippet empty()}
-          <EmptyState title={t('No credentials yet. Add one to route traffic to this provider.')} />
+          <EmptyState title={t('credentials.empty')} />
         {/snippet}
       </Table>
       </VStack>
@@ -535,27 +535,27 @@
 
     {#if proxiesEnabled}
       <VStack tag="section" gap={4} align="start" class="provider-section">
-        <Text tag="h2" size="md" weight="medium">{t('Proxy')}</Text>
+        <Text tag="h2" size="md" weight="medium">{t('proxy.title_singular')}</Text>
         <HStack align="center" gap={3} wrap>
           <Switch
             checked={proxyEnabled}
-            label={t('Route through a proxy pool')}
+            label={t('providers.detail.route_pool')}
             onchange={(v) => { proxyEnabled = v; void saveProxyConfig() }}
           />
           {#if proxyEnabled}
             <Select
               bind:value={proxyPool}
               options={[
-                { value: 'auto', label: t('Auto pool') },
+                { value: 'auto', label: t('providers.detail.auto_pool') },
                 ...poolOptions.map((p) => ({ value: p.id, label: p.name })),
               ]}
-              ariaLabel={t('Proxy pool')}
+              ariaLabel={t('providers.detail.proxy_pool')}
               autoWidth
               onchange={() => void saveProxyConfig()}
             />
           {/if}
           {#if savingProxy}
-            <Text size="xs" tone="soft">{t('Saving…')}</Text>
+            <Text size="xs" tone="soft">{t('common.actions.saving')}</Text>
           {/if}
         </HStack>
         {#if proxyEnabled && proxyNodes.length > 0}
@@ -567,10 +567,10 @@
     {#if settingsNodes.length > 0}
       <VStack tag="section" gap={4} align="start" class="provider-section">
         <HStack align="center" gap={2}>
-          <Text tag="h2" size="md" weight="medium">{t('Plugin settings')}</Text>
+          <Text tag="h2" size="md" weight="medium">{t('providers.detail.plugin_settings')}</Text>
           <Spacer />
           <Button style="prominent" onclick={() => void saveSettings()} disabled={savingSettings}>
-            {savingSettings ? t('Saving…') : t('Save settings')}
+            {savingSettings ? t('common.actions.saving') : t('providers.detail.save_settings')}
           </Button>
         </HStack>
         <DynamicForm nodes={settingsNodes} bind:values={settingsValues} busy={savingSettings} />
@@ -585,14 +585,14 @@
   open={Boolean(deleteCredTarget)}
   anchor={deleteCredAnchor}
   onclose={() => { deleteCredTarget = null }}
-  label={t('Delete credential')}
+  label={t('credentials.delete')}
 >
   {#snippet children({ close })}
     <ConfirmAction
-      title={t('Delete credential')}
-      body={`${t('Are you sure you want to delete')} "${deleteCredTarget?.label || t('Unnamed')}"? ${t('This action cannot be undone.')}`}
+      title={t('credentials.delete')}
+      body={`${t('misc.delete_confirm')} "${deleteCredTarget?.label || t('common.labels.unnamed')}"? ${t('common.undo.cannot_undo')}`}
       busy={deletingCred}
-      busyLabel={t('Deleting…')}
+      busyLabel={t('common.actions.deleting')}
       onCancel={close}
       onConfirm={confirmDeleteCredential} />
   {/snippet}
@@ -602,14 +602,14 @@
   open={Boolean(deleteProviderAnchor)}
   anchor={deleteProviderAnchor}
   onclose={() => { deleteProviderAnchor = undefined }}
-  label={t('Delete Provider')}
+  label={t('providers.detail.delete')}
 >
   {#snippet children({ close })}
     <ConfirmAction
-      title={t('Delete Provider')}
-      body={`${t('Are you sure you want to delete')} "${provider?.name}"? ${t('Credentials for this provider will be removed as well.')}`}
+      title={t('providers.detail.delete')}
+      body={`${t('misc.delete_confirm')} "${provider?.name}"? ${t('providers.detail.credentials_removed')}`}
       busy={deletingProvider}
-      busyLabel={t('Deleting…')}
+      busyLabel={t('common.actions.deleting')}
       onCancel={close}
       onConfirm={confirmDeleteProvider} />
   {/snippet}

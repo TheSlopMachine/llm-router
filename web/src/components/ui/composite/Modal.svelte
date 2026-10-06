@@ -140,7 +140,7 @@
           </div>
           {#if config.type !== 'confirm'}
             <div class="modal-close">
-              <Button icon={{ name: 'close' }} ariaLabel={t('Close')} onclick={() => modal.close()} />
+              <Button icon={{ name: 'close' }} ariaLabel={t('common.actions.close')} onclick={() => modal.close()} />
             </div>
           {/if}
         </div>

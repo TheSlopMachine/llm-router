@@ -16,9 +16,9 @@
   {/snippet}
   <VStack align="center" justify="center" style="min-height: 100px;">
     {#if loading}
-      <Text tone="soft" size="sm">{t('Loading...')}</Text>
+      <Text tone="soft" size="sm">{t('common.state.loading')}</Text>
     {:else if value === null || value === 0}
-      <Text tone="soft" size="sm">{t('No data available')}</Text>
+      <Text tone="soft" size="sm">{t('common.empty.no_data')}</Text>
     {:else}
       <Text size="2xl" weight="bold">{value.toLocaleString()}</Text>
     {/if}

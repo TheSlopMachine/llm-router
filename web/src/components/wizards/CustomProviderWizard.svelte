@@ -42,13 +42,13 @@
   function syncButtons(): void {
     updateButtons([
       {
-        label: isEdit ? t('Save') : t('Add'),
+        label: isEdit ? t('common.actions.save') : t('common.actions.add'),
         variant: 'primary',
         onClick: save,
         disabled: !name.trim() || !baseURL.trim() || creating,
         loading: creating,
       },
-      { label: t('Cancel'), variant: 'secondary', onClick: closeModal },
+      { label: t('common.actions.cancel'), variant: 'secondary', onClick: closeModal },
     ])
   }
 
@@ -89,28 +89,28 @@
   {/if}
 
   <VStack gap={1}>
-    <Text size="sm" weight="medium">{t('Name')} *</Text>
+    <Text size="sm" weight="medium">{t('common.labels.name')} *</Text>
     <TextEdit
       id="provider-name"
       bind:value={name}
-      hint={t('My LLM Provider')}
+      hint={t('providers.fields.my_provider')}
       onchange={syncButtons}
     />
   </VStack>
 
   <VStack gap={1}>
-    <Text size="sm" weight="medium">{t('Base URL')} *</Text>
+    <Text size="sm" weight="medium">{t('providers.fields.base_url')} *</Text>
     <TextEdit
       id="provider-base-url"
       bind:value={baseURL}
       hint="https://api.example.com/v1"
       onchange={syncButtons}
     />
-    <Text size="sm" tone="soft">{t('OpenAI-compatible endpoint details.')}</Text>
+    <Text size="sm" tone="soft">{t('providers.fields.endpoint_details')}</Text>
   </VStack>
 
   <VStack gap={1}>
-    <Text size="sm" weight="medium">{t('Icon URL')} ({t('optional')})</Text>
+    <Text size="sm" weight="medium">{t('providers.fields.icon_url')} ({t('common.labels.optional')})</Text>
     <TextEdit
       id="icon-url"
       bind:value={iconURL}
