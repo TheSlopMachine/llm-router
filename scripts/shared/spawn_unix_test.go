@@ -8,9 +8,9 @@ import "testing"
 // new process group: with only Setpgid, SIGHUP on terminal close still
 // reaches it.
 func TestDetachedAttrSurvivesTerminalClose(t *testing.T) {
-	attr := detachedAttr()
+	attr := newConsoleAttr()
 	if attr == nil {
-		t.Fatal("detachedAttr is nil")
+		t.Fatal("newConsoleAttr is nil")
 	}
 	if !attr.Setsid {
 		t.Error("missing Setsid: child keeps the controlling terminal and dies with it")

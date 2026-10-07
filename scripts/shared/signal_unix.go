@@ -18,7 +18,7 @@ func Alive(pid int) bool {
 }
 
 // terminate sends SIGTERM to pid's process group, not just pid itself.
-// detachedAttr's Setpgid made the spawned process (e.g. `bun run dev`) the
+// newConsoleAttr's Setsid made the spawned process (e.g. `bun run dev`) the
 // leader of its own group, with any child it forks (vite, esbuild) inheriting
 // that pgid automatically. A plain Kill(pid, ...) only reaches the group
 // leader: if that leader exits on SIGTERM without forwarding the signal to
@@ -44,7 +44,7 @@ func terminate(pid int) error {
 	return err
 }
 
-// registerSession is a no-op on unix. detachedAttr already sets Setpgid,
+// registerSession is a no-op on unix. newConsoleAttr already sets Setsid,
 // making the spawned process the leader of its own new process group;
 // anything it forks inherits that pgid automatically, so forceKillAll's
 // -pid signal already reaches the whole tree with no extra bookkeeping.
