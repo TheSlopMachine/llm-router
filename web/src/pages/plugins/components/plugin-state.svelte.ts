@@ -1,13 +1,8 @@
 import { api } from '$lib/api'
-import { modal } from '$lib/modal.svelte'
 import { toast } from '$lib/toast.svelte'
 import { getErrorMessage } from '$lib/errors'
 import { t } from '$lib/i18n.svelte'
 import type { Plugin, PluginUpdate, StoreFile } from '$lib/types'
-import PluginDetailsModal from './PluginDetailsModal.svelte'
-import { factsFromPlugin } from './plugin-facts'
-import { diffAllowHosts } from './plugin-permission-diff'
-import { confirmInstall, confirmUpdate, confirmUpdateAll, type UpdateAllRow } from './install-confirm'
 
 export interface PluginCardAction {
   id: string
@@ -19,32 +14,17 @@ export interface PluginCardAction {
 
 /**
  * Shared installed-plugin behavior for Installed and Catalog tabs.
- * Details open in a modal; install/update/reinstall confirm permissions.
+ * Mutations report back through onPluginSaved/onPluginRemoved; no full reload.
  */
 export function createPluginState(opts: {
-  onReload: () => Promise<void>
+  onPluginSaved: (plugin: Plugin) => void
+  onPluginRemoved: (id: string) => void
+  onUpdatesRefresh?: () => Promise<void>
   onError: (message: string) => void
   findUpdate: (plugin: Plugin) => PluginUpdate | null
   findRepoPath: (plugin: Plugin) => { repo_id: string; path: string } | null
   findStoreFile?: (plugin: Plugin) => StoreFile | null
 }) {
-  async function openDetails(plugin: Plugin): Promise<void> {
-    modal.open({
-      title: plugin.display_name,
-      content: PluginDetailsModal,
-      severity: 'medium',
-      size: 'medium',
-      props: { facts: factsFromPlugin(plugin), logs: [], crashes: [], loading: true }
-    })
-    try {
-      const [logs, crashes] = await Promise.all([api.plugins.logs(plugin.id), api.plugins.crashes(plugin.id)])
-      modal.updateProps({ logs, crashes, loading: false })
-    } catch (e) {
-      modal.close()
-      opts.onError(getErrorMessage(e))
-    }
-  }
-
   let pendingDelete = $state<{ plugin: Plugin; anchor?: HTMLElement } | null>(null)
   let deleting = $state(false)
   let pendingRollback = $state<{ plugin: Plugin; anchor?: HTMLElement } | null>(null)
@@ -65,7 +45,7 @@ export function createPluginState(opts: {
     try {
       await api.plugins.remove(target.plugin.id)
       pendingDelete = null
-      await opts.onReload()
+      opts.onPluginRemoved(target.plugin.id)
     } catch (e) {
       opts.onError(getErrorMessage(e))
     } finally {
@@ -86,9 +66,9 @@ export function createPluginState(opts: {
     if (!target || rollingBack) return
     rollingBack = true
     try {
-      await api.plugins.rollback(target.plugin.id)
+      const rec = await api.plugins.rollback(target.plugin.id)
       pendingRollback = null
-      await opts.onReload()
+      opts.onPluginSaved(rec)
     } catch (e) {
       opts.onError(getErrorMessage(e))
     } finally {
@@ -96,43 +76,17 @@ export function createPluginState(opts: {
     }
   }
 
-  async function updatePlugin(plugin: Plugin, confirmLabel: string): Promise<void> {
+  async function updatePlugin(plugin: Plugin): Promise<void> {
     const update = opts.findUpdate(plugin)
     const target = update ?? opts.findRepoPath(plugin)
     if (!target) return
     const file = opts.findStoreFile?.(plugin) ?? null
-    const newHosts = update?.new_allow_hosts ?? file?.allow_hosts ?? null
-    const newUnsafe = update?.new_unsafe ?? file?.unsafe ?? null
     const latest = update?.latest || file?.version || plugin.version
-    if (newHosts === null || newUnsafe === null) {
-      const confirmed = await confirmInstall(
-        `${confirmLabel} ${plugin.display_name}`,
-        factsFromPlugin(plugin),
-        confirmLabel
-      )
-      if (!confirmed) return
-    } else {
-      const diff = diffAllowHosts(plugin.allow_hosts ?? [], plugin.unsafe, newHosts ?? [], newUnsafe)
-      const confirmed = await confirmUpdate(
-        `${confirmLabel} ${plugin.display_name}`,
-        {
-          displayName: plugin.display_name,
-          current: plugin.version,
-          latest,
-          newHosts: newHosts ?? [],
-          newUnsafe,
-          added: diff.added,
-          removed: diff.removed,
-          escalatesToUnsafe: diff.escalatesToUnsafe
-        },
-        confirmLabel
-      )
-      if (!confirmed) return
-    }
     try {
-      await api.plugins.installFromRepo(target.repo_id, target.path)
+      const rec = await api.plugins.installFromRepo(target.repo_id, target.path)
       toast.success(`${plugin.display_name} updated to v${latest}`)
-      await opts.onReload()
+      opts.onPluginSaved(rec)
+      await opts.onUpdatesRefresh?.()
     } catch (e) {
       opts.onError(getErrorMessage(e))
     }
@@ -144,24 +98,6 @@ export function createPluginState(opts: {
     if (updatingAll) return
     const pending = plugins.filter((p) => opts.findUpdate(p) !== null)
     if (pending.length === 0) return
-    const rows: UpdateAllRow[] = pending.map((plugin) => {
-      const update = opts.findUpdate(plugin)
-      const file = opts.findStoreFile?.(plugin) ?? null
-      const newHosts = update?.new_allow_hosts ?? file?.allow_hosts ?? [...(plugin.allow_hosts ?? [])]
-      const newUnsafe = update?.new_unsafe ?? file?.unsafe ?? plugin.unsafe
-      const diff = diffAllowHosts(plugin.allow_hosts ?? [], plugin.unsafe, newHosts, newUnsafe)
-      return {
-        pluginId: plugin.id,
-        displayName: plugin.display_name,
-        current: plugin.version,
-        latest: update?.latest || file?.version || plugin.version,
-        added: diff.added,
-        removed: diff.removed,
-        escalatesToUnsafe: diff.escalatesToUnsafe
-      }
-    })
-    const confirmed = await confirmUpdateAll(rows, 'Update all')
-    if (!confirmed) return
     updatingAll = true
     const failures: string[] = []
     let succeeded = 0
@@ -173,13 +109,14 @@ export function createPluginState(opts: {
           continue
         }
         try {
-          await api.plugins.installFromRepo(target.repo_id, target.path)
+          const rec = await api.plugins.installFromRepo(target.repo_id, target.path)
+          opts.onPluginSaved(rec)
           succeeded++
         } catch (e) {
           failures.push(`${plugin.display_name}: ${getErrorMessage(e)}`)
         }
       }
-      await opts.onReload()
+      await opts.onUpdatesRefresh?.()
       if (failures.length === 0) {
         toast.success(`${succeeded} plugins updated`)
       } else {
@@ -224,7 +161,7 @@ export function createPluginState(opts: {
         } else {
           toast.success(`${rec.display_name} updated to v${rec.version}`)
         }
-        await opts.onReload()
+        opts.onPluginSaved(rec)
       } catch (e) {
         opts.onError(getErrorMessage(e))
       }
@@ -235,10 +172,10 @@ export function createPluginState(opts: {
   async function handleAction(plugin: Plugin, id: string, anchor?: HTMLElement): Promise<void> {
     switch (id) {
       case 'update':
-        await updatePlugin(plugin, 'Update')
+        await updatePlugin(plugin)
         break
       case 'reinstall':
-        await updatePlugin(plugin, 'Reinstall')
+        await updatePlugin(plugin)
         break
       case 'update_file':
         await updateFromFile(plugin)
@@ -253,7 +190,6 @@ export function createPluginState(opts: {
   }
 
   return {
-    openDetails,
     openDelete,
     doDelete,
     openRollback,

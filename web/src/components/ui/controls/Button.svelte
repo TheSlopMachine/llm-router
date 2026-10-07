@@ -86,6 +86,9 @@
     if (style === 'text') {
       return `--tint-bg:${tint}`
     }
+    if (!tint.startsWith('#')) {
+      return `--tint-bg:${tint};--tint-hover:${tint};--tint-text:#ffffff`
+    }
     const f = tintFill(tint)
     return `--tint-bg:${f.bg};--tint-hover:${f.hover};--tint-text:${f.text}`
   })
@@ -214,7 +217,7 @@
   }
 
   /* ── states ─────────────────────────────────────────────────────────── */
-  .btn:is(:hover, .active, [aria-expanded='true']):not(:disabled) {
+  .btn:is(:hover, .active, [aria-expanded='true']):not(:disabled):not([data-variant='prominent']) {
     --_bg: var(--_bg-hover);
   }
   .btn:focus-visible {

@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { Button, HStack, VStack, Text, Chip, Spacer, Switch } from '$ui'
+  import { Button, FloatingView, HStack, VStack, Text, Chip, Spacer, Switch } from '$ui'
+  import InstallConfirm from './InstallConfirm.svelte'
   import { t } from '$lib/i18n.svelte'
 
   let {
     title,
     version,
-    origin,
     description = '',
     mode,
     unsafe = false,
@@ -13,13 +13,18 @@
     hasUpdate = false,
     installing = false,
     installLabel = t('plugins.install'),
-    onDetails,
+    allowHosts = [],
+    newHosts = [],
+    added = [],
+    removed = [],
+    escalatesToUnsafe = false,
+    latestVersion = '',
     onInstall,
+    onUpdate,
     onaction
   } = $props<{
     title: string
     version: string
-    origin: string
     description?: string
     mode: 'installed' | 'uninstalled'
     unsafe?: boolean
@@ -27,12 +32,31 @@
     hasUpdate?: boolean
     installing?: boolean
     installLabel?: string
-    onDetails?: () => void
+    allowHosts?: string[]
+    newHosts?: string[]
+    added?: string[]
+    removed?: string[]
+    escalatesToUnsafe?: boolean
+    latestVersion?: string
     onInstall?: () => void
+    onUpdate?: () => void
     onaction?: (id: string, anchor?: HTMLElement) => void
   }>()
 
   let enabled = $state(true)
+  let confirmAnchor = $state<HTMLElement>()
+  let confirmOpen = $state(false)
+
+  function openConfirm(anchor: HTMLElement): void {
+    confirmAnchor = anchor
+    confirmOpen = true
+  }
+
+  function handleConfirm(): void {
+    confirmOpen = false
+    if (mode === 'installed') onUpdate?.()
+    else onInstall?.()
+  }
 </script>
 
 <div class="plugin-card-row">
@@ -44,16 +68,6 @@
         {#if unsafe}
           <Chip text={t('plugins.network.unrestricted')} color="chip-red" size="small" />
         {/if}
-      </HStack>
-      <HStack align="center" gap={1}>
-        <Text size="xs" tone="soft">{origin}</Text>
-        <Button
-          style="text"
-          icon={{ name: 'info' }}
-          size="small"
-          onclick={onDetails}
-          ariaLabel={t('common.labels.details')}
-        />
       </HStack>
       {#if description}
         <Text tag="h3" size="sm" tone="soft">{description}</Text>
@@ -81,7 +95,7 @@
             icon={{ name: 'upgrade' }}
             title={t('common.actions.update')}
             ariaLabel={t('common.actions.update')}
-            onclick={(e) => onaction?.('update', e.currentTarget as HTMLElement)}
+            onclick={(e) => openConfirm(e.currentTarget as HTMLElement)}
           />
         {/if}
         <Button
@@ -103,11 +117,32 @@
           icon={{ name: 'download' }}
           text={installing ? t('plugins.installing') : installLabel}
           disabled={installing}
-          onclick={onInstall}
+          onclick={(e) => openConfirm(e.currentTarget as HTMLElement)}
         />
       {/if}
     </HStack>
   </HStack>
+
+  <FloatingView
+    open={confirmOpen}
+    anchor={confirmAnchor}
+    onclose={() => { confirmOpen = false }}
+    label={mode === 'installed' ? t('common.actions.update') : installLabel}
+  >
+    {#snippet children({ close })}
+      <InstallConfirm
+        allowHosts={mode === 'installed' && newHosts.length > 0 ? newHosts : allowHosts}
+        unsafe={unsafe}
+        added={added}
+        removed={removed}
+        escalatesToUnsafe={escalatesToUnsafe}
+        confirmLabel={mode === 'installed' ? t('common.actions.update') : installLabel}
+        busy={installing}
+        onCancel={close}
+        onConfirm={handleConfirm}
+      />
+    {/snippet}
+  </FloatingView>
 </div>
 
 <style>

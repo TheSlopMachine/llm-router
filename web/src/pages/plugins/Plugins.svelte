@@ -42,6 +42,43 @@
   let installedCount = $derived(resource.data.plugins.length)
   let catalogCount = $derived(resource.data.repos.reduce((n, entry) => n + entry.files.length, 0))
   let knownRepoIDs = $derived(resource.data.repos.map((entry) => entry.repo.id))
+
+  function applySaved(plugin: Plugin): void {
+    const i = resource.data.plugins.findIndex((p) => p.id === plugin.id)
+    resource.data = {
+      ...resource.data,
+      plugins: i >= 0
+        ? resource.data.plugins.map((p) => (p.id === plugin.id ? plugin : p))
+        : [...resource.data.plugins, plugin],
+      updates: resource.data.updates.filter((u) => u.plugin_id !== plugin.id)
+    }
+  }
+
+  function applyRemoved(id: string): void {
+    resource.data = {
+      ...resource.data,
+      plugins: resource.data.plugins.filter((p) => p.id !== id),
+      updates: resource.data.updates.filter((u) => u.plugin_id !== id)
+    }
+  }
+
+  async function refreshUpdates(): Promise<void> {
+    try {
+      const updateList = await api.store.updates().catch(() => ({ updates: [] as PluginUpdate[] }))
+      resource.data = { ...resource.data, updates: updateList.updates ?? [] }
+    } catch {
+      // updates banner keeps stale data; banner errors surface per-action
+    }
+  }
+
+  function applyRepoAdded(repo: PluginRepo): void {
+    if (resource.data.repos.some((e) => e.repo.id === repo.id)) return
+    resource.data = { ...resource.data, repos: [...resource.data.repos, { repo, files: [], error: '' }] }
+  }
+
+  function applyRepoRemoved(id: string): void {
+    resource.data = { ...resource.data, repos: resource.data.repos.filter((e) => e.repo.id !== id) }
+  }
 </script>
 
   <VStack gap={6}>
@@ -60,9 +97,9 @@
     ariaLabel={t('plugins.views')}
   />
 
-  {#if resource.loading}
+  {#if resource.loading && resource.data.plugins.length === 0 && resource.data.repos.length === 0}
     <Text tone="soft" align="center" class="empty">{t('common.state.loading')}</Text>
-  {:else if resource.error}
+  {:else if resource.error && resource.data.plugins.length === 0 && resource.data.repos.length === 0}
     <Text tone="danger" size="sm">{resource.error}</Text>
   {:else if tab === 'installed'}
     <InstalledTab
@@ -70,7 +107,8 @@
       updates={resource.data.updates}
       repos={resource.data.repos}
       {knownRepoIDs}
-      onReload={resource.reload}
+      onPluginSaved={applySaved}
+      onPluginRemoved={applyRemoved}
       onBrowseCatalog={() => ontabchange('catalog')}
     />
   {:else}
@@ -78,7 +116,11 @@
       repos={resource.data.repos}
       plugins={resource.data.plugins}
       updates={resource.data.updates}
-      onReload={resource.reload}
+      onPluginSaved={applySaved}
+      onPluginRemoved={applyRemoved}
+      onUpdatesRefresh={refreshUpdates}
+      onRepoAdded={applyRepoAdded}
+      onRepoRemoved={applyRepoRemoved}
     />
   {/if}
 </VStack>

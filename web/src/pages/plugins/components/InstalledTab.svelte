@@ -3,6 +3,7 @@
   import EmptyState from '../../../components/EmptyState.svelte'
   import PluginCard from './PluginCard.svelte'
   import { createPluginState } from './plugin-state.svelte'
+  import { diffAllowHosts } from './plugin-permission-diff'
   import type { Plugin, PluginRepo, PluginUpdate, StoreFile } from '$lib/types'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -14,14 +15,16 @@
     updates,
     repos,
     knownRepoIDs,
-    onReload,
+    onPluginSaved,
+    onPluginRemoved,
     onBrowseCatalog
   } = $props<{
     plugins: Plugin[]
     updates: PluginUpdate[]
     repos: Array<{ repo: PluginRepo; files: StoreFile[]; error: string }>
     knownRepoIDs: string[]
-    onReload: () => Promise<void>
+    onPluginSaved: (plugin: Plugin) => void
+    onPluginRemoved: (id: string) => void
     onBrowseCatalog?: () => void
   }>()
 
@@ -61,19 +64,9 @@
     return null
   }
 
-  function getPluginOriginText(plugin: Plugin): string {
-    if (plugin.origin?.manual) {
-      return t('plugins.installed_manually')
-    }
-    if (plugin.origin?.repo_id) {
-      const match = repos.find((r: { repo: PluginRepo }) => r.repo.id === plugin.origin.repo_id)
-      return match?.repo.title || plugin.origin.repo_id
-    }
-    return t('plugins.repo.unknown')
-  }
-
   const pluginState = createPluginState({
-    onReload: () => onReload(),
+    onPluginSaved: (p) => onPluginSaved(p),
+    onPluginRemoved: (id) => onPluginRemoved(id),
     onError: (message: string) => {
       actionError = message
     },
@@ -95,8 +88,8 @@
     actionError = ''
     try {
       const text = await file.text()
-      await api.plugins.installFile(text)
-      await onReload()
+      const rec = await api.plugins.installFile(text)
+      onPluginSaved(rec)
     } catch (err) {
       actionError = getErrorMessage(err)
     } finally {
@@ -148,16 +141,25 @@
     <List>
       {#each filtered as plugin (plugin.id)}
         {@const update = findUpdate(plugin)}
+        {@const file = findStoreFile(plugin)}
+        {@const newHosts = update?.new_allow_hosts ?? file?.allow_hosts ?? []}
+        {@const newUnsafe = update?.new_unsafe ?? file?.unsafe ?? plugin.unsafe}
+        {@const diff = diffAllowHosts(plugin.allow_hosts ?? [], plugin.unsafe, newHosts, newUnsafe)}
         <PluginCard
           title={plugin.display_name}
           version={`v${plugin.version}`}
-          origin={getPluginOriginText(plugin)}
           description={plugin.description}
           mode="installed"
           unsafe={plugin.unsafe}
           isManual={plugin.origin?.manual ?? false}
           hasUpdate={!!update}
-          onDetails={() => pluginState.openDetails(plugin)}
+          allowHosts={plugin.allow_hosts ?? []}
+          newHosts={newHosts}
+          added={diff.added}
+          removed={diff.removed}
+          escalatesToUnsafe={diff.escalatesToUnsafe}
+          latestVersion={update?.latest ?? file?.version ?? ''}
+          onUpdate={() => void pluginState.updatePlugin(plugin)}
           onaction={(id, anchor) => pluginState.handleAction(plugin, id, anchor)}
         />
       {/each}

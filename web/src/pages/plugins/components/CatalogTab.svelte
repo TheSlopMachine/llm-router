@@ -2,12 +2,9 @@
   import { Button, FloatingView, HStack, VStack, Text, Switch, SearchField, TextEdit, List, SectionCard, Chip, Spacer, Banner, ConfirmAction } from '$ui'
   import EmptyState from '../../../components/EmptyState.svelte'
   import PluginCard from './PluginCard.svelte'
-  import PluginDetailsModal from './PluginDetailsModal.svelte'
   import RepoDetailsModal from './RepoDetailsModal.svelte'
   import { createPluginState } from './plugin-state.svelte'
-  import { factsFromFile } from './plugin-facts'
   import { diffAllowHosts } from './plugin-permission-diff'
-  import { confirmInstall, confirmUpdate } from './install-confirm'
   import type { Plugin, PluginRepo, PluginUpdate, StoreFile } from '$lib/types'
   import { api } from '$lib/api'
   import { modal } from '$lib/modal.svelte'
@@ -25,12 +22,20 @@
     repos,
     plugins,
     updates,
-    onReload
+    onPluginSaved,
+    onPluginRemoved,
+    onUpdatesRefresh,
+    onRepoAdded,
+    onRepoRemoved
   } = $props<{
     repos: RepoEntry[]
     plugins: Plugin[]
     updates: PluginUpdate[]
-    onReload: () => Promise<void>
+    onPluginSaved: (plugin: Plugin) => void
+    onPluginRemoved: (id: string) => void
+    onUpdatesRefresh: () => Promise<void>
+    onRepoAdded: (repo: PluginRepo) => void
+    onRepoRemoved: (id: string) => void
   }>()
 
   let query = $state('')
@@ -58,7 +63,9 @@
   }
 
   const pluginState = createPluginState({
-    onReload: () => onReload(),
+    onPluginSaved: (p) => onPluginSaved(p),
+    onPluginRemoved: (id) => onPluginRemoved(id),
+    onUpdatesRefresh: () => onUpdatesRefresh(),
     onError: (message: string) => {
       actionError = message
     },
@@ -123,8 +130,9 @@
     installingPath = key
     actionError = ''
     try {
-      await api.plugins.installFromRepo(repoId, path)
-      await onReload()
+      const rec = await api.plugins.installFromRepo(repoId, path)
+      onPluginSaved(rec)
+      await onUpdatesRefresh()
     } catch (e) {
       actionError = getErrorMessage(e)
     } finally {
@@ -133,57 +141,11 @@
   }
 
   async function handleCatalogAction(plugin: Plugin, file: StoreFile, id: string, anchor?: HTMLElement): Promise<void> {
-    if (id === 'update') {
-      await confirmAndInstall(file, t('common.actions.update'), plugin)
-      return
-    }
-    if (id === 'reinstall') {
-      await confirmAndInstall(file, t('plugins.reinstall'), plugin)
-      return
-    }
-    await pluginState.handleAction(plugin, id, anchor)
-  }
-
-  async function confirmAndInstall(file: StoreFile, label: string, plugin?: Plugin): Promise<void> {
-    if (plugin) {
-      const update = findUpdate(plugin)
-      const latest = update?.latest || file.version
-      const diff = diffAllowHosts(plugin.allow_hosts ?? [], plugin.unsafe, file.allow_hosts ?? [], file.unsafe)
-      const confirmed = await confirmUpdate(
-        `${label} ${file.display_name || file.path}`,
-        {
-          displayName: file.display_name || file.path,
-          current: plugin.version,
-          latest,
-          newHosts: [...(file.allow_hosts ?? [])],
-          newUnsafe: file.unsafe,
-          added: diff.added,
-          removed: diff.removed,
-          escalatesToUnsafe: diff.escalatesToUnsafe
-        },
-        label
-      )
-      if (!confirmed) return
+    if (id === 'update' || id === 'reinstall') {
       await installEntry(file.repo_id, file.path)
       return
     }
-    const confirmed = await confirmInstall(
-      `${label} ${file.display_name || file.path}`,
-      factsFromFile(file),
-      label
-    )
-    if (!confirmed) return
-    await installEntry(file.repo_id, file.path)
-  }
-
-  function openFileDetails(file: StoreFile): void {
-    modal.open({
-      title: file.display_name || file.path,
-      content: PluginDetailsModal,
-      severity: 'medium',
-      size: 'medium',
-      props: { facts: factsFromFile(file) }
-    })
+    await pluginState.handleAction(plugin, id, anchor)
   }
 
   function openRepoDetails(entry: RepoEntry): void {
@@ -206,10 +168,10 @@
     adding = true
     actionError = ''
     try {
-      await api.repos.addRepo(repoUrl.trim())
+      const repo = await api.repos.addRepo(repoUrl.trim())
       showAddRepo = false
       repoUrl = ''
-      await onReload()
+      onRepoAdded(repo)
     } catch (e) {
       actionError = getErrorMessage(e)
     } finally {
@@ -237,7 +199,7 @@
     try {
       await api.repos.remove(target.id)
       removeRepoTarget = null
-      await onReload()
+      onRepoRemoved(target.id)
     } catch (e) {
       actionError = getErrorMessage(e)
     } finally {
@@ -287,17 +249,11 @@
     <SectionCard title={t('plugins.updates_available')}>
       <List>
         {#each availableUpdates as u}
-          {@const file = fileByOrigin.get(storeKey(u.repo_id, u.path)) ?? null}
-          {@const installed = plugins.find((p: Plugin) => p.id === u.plugin_id) ?? null}
           <div style="padding: var(--space-3) var(--space-4);">
             <HStack align="center" gap={3}>
               <Text size="sm">{u.plugin_id}: {u.current} → {u.latest}</Text>
               <Spacer />
-              {#if file}
-                <Button style="none" size="small" onclick={() => confirmAndInstall(file, t('common.actions.update'), installed ?? undefined)}>{t('common.actions.update')}</Button>
-              {:else}
-                <Button style="none" size="small" onclick={() => installEntry(u.repo_id, u.path)}>{t('common.actions.update')}</Button>
-              {/if}
+              <Button style="none" size="small" onclick={() => void installEntry(u.repo_id, u.path)}>{t('common.actions.update')}</Button>
             </HStack>
           </div>
         {/each}
@@ -358,28 +314,35 @@
               {@const key = storeKey(f.repo_id, f.path)}
               {#if plugin}
                 {@const update = findUpdate(plugin)}
+                {@const newHosts = update?.new_allow_hosts ?? f.allow_hosts ?? []}
+                {@const newUnsafe = update?.new_unsafe ?? f.unsafe}
+                {@const diff = diffAllowHosts(plugin.allow_hosts ?? [], plugin.unsafe, newHosts, newUnsafe)}
                 <PluginCard
                   title={f.display_name || f.path}
-                  version={f.version ? `v${f.version}` : ''}
-                  origin={entry.repo.title || entry.repo.id}
+                  version={`v${plugin.version}`}
                   description={f.description}
                   mode="installed"
-                  unsafe={f.unsafe}
+                  unsafe={plugin.unsafe}
                   hasUpdate={!!update}
-                  onDetails={() => pluginState.openDetails(plugin)}
+                  allowHosts={plugin.allow_hosts ?? []}
+                  newHosts={newHosts}
+                  added={diff.added}
+                  removed={diff.removed}
+                  escalatesToUnsafe={diff.escalatesToUnsafe}
+                  latestVersion={update?.latest ?? f.version}
+                  onUpdate={() => void installEntry(f.repo_id, f.path)}
                   onaction={(id, anchor) => handleCatalogAction(plugin, f, id, anchor)}
                 />
               {:else}
                 <PluginCard
                   title={f.display_name || f.path}
                   version={f.version ? `v${f.version}` : ''}
-                  origin={entry.repo.title || entry.repo.id}
                   description={f.description}
                   mode="uninstalled"
                   unsafe={f.unsafe}
                   installing={installingPath === key}
-                  onDetails={() => openFileDetails(f)}
-                  onInstall={() => confirmAndInstall(f, t('plugins.install'))}
+                  allowHosts={f.allow_hosts ?? []}
+                  onInstall={() => void installEntry(f.repo_id, f.path)}
                 />
               {/if}
               {#if f.error}<Text tone="danger" size="xs">{f.error}</Text>{/if}
