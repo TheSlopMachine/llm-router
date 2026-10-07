@@ -4,6 +4,15 @@
 
 - Bumped `proxypool` to v1.0.6: publish builds now resolve the lane-scheduler API (`PoolStats`, `PoolEvent`, `Reporter`, `TaggedURL`, `FailReason`, `SetLimits`, `Start`/`Stop`) used by the router.
 
+## Done (2026-10-07, v0.8.0)
+
+- Classified body-read failures on proxied legs (connection reset, broken pipe, truncated body) alongside the existing first-byte faults: the proxy is marked suspect and re-verified by the pool instead of banned. Added `EPIPE` plus Windows Winsock equivalents for reset, refused and broken pipe through platform-specific helpers.
+- Added `transport`, `reason`, `proxy_fault` and `retryable` to transport error tables. `retryable` turns false once stream output reached the client, so plugins retry on another proxy only before the first delivered byte.
+- Added `llm_router.proxies.require`: demand-driven proxy acquisition with an OR country list, exclusion list, limit, request-wide wait deadline and an explicit `direct`/`fail` fallback chosen by the plugin. The free pool no longer returns an empty list for a missing country; it registers a demand, prioritizes finding that country and waits. Custom pools answer from their entries without waiting. `proxies.query` is unchanged.
+- Passed per-feed country hints from Lua proxy sources to the pool so candidates of a demanded country are checked first.
+- Exposed registered demands (countries, state, waiters, alive, target, served) in the proxy status and in the periodic pool log.
+- Bumped the router contract version to 0.8.0; the oldest served plugin contract stays 0.7.0.
+
 ## Done (2026-10-06, proxypool 1.1.0)
 
 - Moved proxy-pool orchestration to the library-backed lane scheduler: foreground/background modes, liveness/revival lanes, adaptive concurrency and network-health breaker state are now exposed through the dashboard status API.

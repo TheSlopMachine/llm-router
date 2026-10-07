@@ -14,7 +14,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
@@ -416,14 +415,15 @@ func (c *pluginHTTPClient) luaRequest(L *lua.LState) int {
 	if err != nil {
 		// Contract is (resp, err): nil response first, error table second.
 		L.Push(lua.LNil)
-		pushTransportErr(L, err, direct)
+		c.pushFault(L, err, direct)
 		return 2
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if err != nil {
+		c.markBodyFault(proxyURL, direct, err)
 		L.Push(lua.LNil)
-		pushLuaErr(L, "server_error", err.Error())
+		c.pushFault(L, err, direct)
 		return 2
 	}
 	out := L.NewTable()
@@ -479,7 +479,7 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 	resp, direct, err := c.doSingle(req, proxyURL)
 	if err != nil {
 		L.Push(lua.LNil)
-		pushTransportErr(L, err, direct)
+		c.pushFault(L, err, direct)
 		return 2
 	}
 	defer resp.Body.Close()
@@ -519,8 +519,9 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 				break
 			}
 			if err != nil {
+				c.markBodyFault(proxyURL, direct, err)
 				L.Push(lua.LNil)
-				pushLuaErr(L, "server_error", err.Error())
+				c.pushFault(L, err, direct)
 				return 2
 			}
 		}
@@ -540,8 +541,9 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		c.markBodyFault(proxyURL, direct, err)
 		L.Push(lua.LNil)
-		pushLuaErr(L, "server_error", err.Error())
+		c.pushFault(L, err, direct)
 		return 2
 	}
 	L.Push(head)
@@ -614,11 +616,47 @@ func pushLuaErr(L *lua.LState, code, message string) {
 	L.Push(tbl)
 }
 
-// pushTransportErr pushes a transport failure as a terminal error table.
-// Direct and proxied legs surface identically: the plugin already knows
-// which proxy_url it assigned and selects the next one itself.
-func pushTransportErr(L *lua.LState, err error, direct bool) {
-	pushLuaErr(L, "server_error", err.Error())
+// pushFault pushes a failed exchange as a terminal error table. Network-level
+// failures carry transport fields so the plugin can decide on its own whether
+// another proxy is worth trying:
+//
+//	transport    true for a network-level failure
+//	reason       dead-mark reason, or "network" when none applies
+//	proxy_fault  true when the failure happened on a proxied leg
+//	retryable    proxy_fault and no stream output has reached the client yet
+//
+// Cancellation of the caller context is never a transport failure.
+func (c *pluginHTTPClient) pushFault(L *lua.LState, err error, direct bool) {
+	tbl := L.NewTable()
+	tbl.RawSetString("message", lua.LString(err.Error()))
+	tbl.RawSetString("code", lua.LString("server_error"))
+	if isNetworkFailure(err) && goCtxOf(c).Err() == nil {
+		reason := markDeadReason(err)
+		if reason == "" {
+			reason = bodyReadReason(err)
+		}
+		if reason == "" {
+			reason = "network"
+		}
+		proxyFault := !direct
+		tbl.RawSetString("transport", lua.LTrue)
+		tbl.RawSetString("reason", lua.LString(reason))
+		tbl.RawSetString("proxy_fault", lua.LBool(proxyFault))
+		tbl.RawSetString("retryable", lua.LBool(proxyFault && !c.ctx.streamDelivered()))
+	}
+	L.Push(tbl)
+}
+
+// markBodyFault reports a body-read failure on a proxied leg. The mark only
+// suspects the proxy: the pool re-verifies it before any ban, so an upstream
+// that closed the connection costs one recheck, not a ban.
+func (c *pluginHTTPClient) markBodyFault(proxyURL string, direct bool, err error) {
+	if direct {
+		return
+	}
+	if reason := bodyReadReason(err); reason != "" {
+		c.markDead(proxyURL, reason)
+	}
 }
 
 // isStructuralTransport matches typed network failures, never message
@@ -648,16 +686,48 @@ func markDeadReason(err error) string {
 	if errors.As(err, &header) {
 		return "tls_handshake"
 	}
-	if errors.Is(err, syscall.ECONNREFUSED) {
+	if isConnRefused(err) {
 		return "connection_refused"
 	}
-	if errors.Is(err, syscall.ECONNRESET) {
+	if isConnReset(err) {
 		return "connection_reset"
+	}
+	if isBrokenPipe(err) {
+		return "broken_pipe"
 	}
 	if errors.Is(err, io.EOF) {
 		return "early_eof"
 	}
 	return ""
+}
+
+// bodyReadReason names the proxy fault behind a failed body read after the
+// headers arrived. A clean io.EOF ends a stream and never reaches this
+// function as an error; a truncated body surfaces as io.ErrUnexpectedEOF.
+func bodyReadReason(err error) string {
+	switch {
+	case err == nil, errors.Is(err, context.Canceled):
+		return ""
+	case isConnReset(err):
+		return "connection_reset"
+	case isBrokenPipe(err):
+		return "broken_pipe"
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		return "unexpected_eof"
+	}
+	return ""
+}
+
+// isNetworkFailure matches typed network failures: net.Error (including
+// timeouts), truncated or early-closed bodies, and every dead-mark reason.
+func isNetworkFailure(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		markDeadReason(err) != "" || bodyReadReason(err) != ""
 }
 
 func luaTableString(tbl *lua.LTable, key, def string) string {

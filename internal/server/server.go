@@ -112,6 +112,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	luaSvc.SetHealthTrigger(healthSvc)
 	luaSvc.SetMarkDead(proxySvc.MarkDead)
 	luaSvc.SetProxyQuery(proxySvc.Query)
+	luaSvc.SetProxyRequire(proxySvc.Require)
 	luaSvc.SetCredentialAccess(
 		func(providerID string) ([]*models.Credential, error) { return credSvc.ListUsable(providerID) },
 		func(id string) (*models.Credential, error) { return credSvc.Get(id) },

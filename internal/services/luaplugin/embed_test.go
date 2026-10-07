@@ -12,7 +12,7 @@ import (
 const embedPluginSource = `--- @plugin Embed Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @description Embed test plugin
 --- @allow_host example.com
 

@@ -5,13 +5,16 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Router version: **0.7.0** (`models.CurrentVersion`). A plugin using a feature
-declares the `@router_version` that introduced it; older routers refuse to
-install it. Routers serve no contract older than **0.7.0**: plugins declaring
-`0.6.x` and below fail install and need reissue.
+Plugin API: **1.0** (`luaplugin.PluginAPIVersion`). A plugin declares the
+`@plugin_api` contract it speaks; the router label (`main.RouterVersion`,
+stamped from the release tag) carries no compatibility meaning. Install
+compares majors only: plugin major above the served one fails with `too_new`,
+below fails with `too_old`, a missing tag fails with `no_api_version`. Minor
+is informational for plugin maintainers.
 
-`@version` and `@router_version` accept `MAJOR.MINOR[.PATCH]` (missing patch
-means `.0`, one leading `v` allowed); anything else fails install.
+`@version` accepts `MAJOR.MINOR[.PATCH]` (missing patch means `.0`, one
+leading `v` allowed); `@plugin_api` accepts `MAJOR.MINOR[.PATCH]` in the same
+spelling. Anything else fails install.
 
 ## Version history
 
@@ -37,6 +40,8 @@ means `.0`, one leading `v` allowed); anything else fails install.
 | 0.5.2 | `check_health` handler plus per-type `healthcheck_cooldown` registration value (whole seconds, 60..86400, default 300): failure-triggered detached credential verification, at most once per window; only an explicit `unhealthy` verdict disables (`disabled_by=healthcheck`) |
 | 0.5.3 | unified `proxy_retry` provider policy (`mode` `fail_fast`/`next_proxy`, `max_attempts` 1..10, default 3) for every retryable proxy failure; legacy `geo` sections migrate at startup; fresh discovery refreshes known model rows |
 | 0.7.0 | decentralized orchestration: plugins select credentials (`credentials.list/get`) and proxies (`proxies.query` + per-request `proxy_url`), retry internally, and return OpenAI-shaped terminal errors only when exhausted. Static schema tables (`credential_schema`, `config_schema`, `settings_schema`, `proxy_schema`); presence drives dashboard surfaces, no `_enabled` flags. Colocated `jobs` with per-job `run` (`interval_seconds` 60..86400, `run_on_startup`, `timeout_ms`); `credentials.update` exists in job contexts only. `storage.set` gains `{ttl}` seconds. `credentials.park/unpark/parked` shelve credentials transiently (`list()` skips parked rows); `credentials.disable/enable` set the shared flag under the provider `disable_failed_credentials` switch. Removed: `classify_error` slot + helper, `needs_refresh` / `refresh_credential`, error `type`/`scope`/`retry_after`/`upstream_*` contract, `@proxy_location` / `@proxy_default_option` / `@proxy_source` tags, router credential ordering, exhausted store, geo bans. Manifest floor 0.7.0. |
+| 0.8.0 | `proxies.require({pool?, countries?, exclude?, limit?, want?, timeout_ms?, fallback?})`: demand-driven proxy acquisition. The free pool waits for a live proxy in the requested countries instead of returning an empty list; the plugin chooses `fallback` `direct` or `fail` explicitly. `proxies.query` is unchanged. Transport error tables from `http_client` gain `transport`, `reason`, `proxy_fault`, `retryable`; body-read failures on proxied legs suspect the proxy. |
+| 1.0 | Plugin API split: `@plugin_api x.y` replaces `@router_version`. Install gates on the major only (`too_new` / `too_old` / `no_api_version`); minor is informational. All store plugins reissued under `1.0`. Router identity moves to the release tag (`main.RouterVersion`), short `X.Y` when the fix is 0. |
 
 ## Responsibility split
 
@@ -63,16 +68,15 @@ maps every route.
 ## Manifest reference
 
 The header is the contiguous run of `---` lines at byte 0 of the file.
-`@router_version` validates first: a version older than the floor discards
-the plugin with the reissue error before any other field is examined.
-Unknown `@tags` fail install.
+`@plugin_api` validates as semver; an unparsable value fails install before
+any other field is examined. Unknown `@tags` fail install.
 
 | Tag | Cardinality | Constraint |
 |---|---|---|
 | `@plugin` | required, once | non-empty display name |
 | `@author` | required, once | non-empty |
 | `@version` | required, once | valid semver |
-| `@router_version` | required, once | valid semver, `>= 0.7.0` |
+| `@plugin_api` | required, once | valid `x.y[.z]`, major must equal the served contract |
 | `@allow_host` | required, repeatable | bare hostname; `*` marks the plugin unsafe and stands alone |
 | `@description` | optional, once | free text |
 | `@license` | optional, once | free text |
@@ -205,6 +209,24 @@ internally; plugins never mark proxies. Transport failures surface as
 `(nil, {message, code="server_error"})`; the plugin selects the next
 `proxy_url` itself.
 
+Network-level failures add fields to that error table so the plugin can
+decide whether another proxy is worth trying:
+
+| Field | Meaning |
+|---|---|
+| `transport` | `true` for a network-level failure: connect, TLS, truncated or reset body, timeout. Absent for status errors and callback errors. |
+| `reason` | `connection_refused`, `connection_reset`, `broken_pipe`, `early_eof`, `unexpected_eof`, `dns_resolution`, `address_parse`, `tls_certificate_verification`, `tls_handshake`, or `network` for any other network failure. |
+| `proxy_fault` | `true` when the failure happened on a proxied leg (`proxy_url` set). |
+| `retryable` | `proxy_fault` and no stream output has reached the client yet. Retry on another proxy only when this is `true`. |
+
+The retry boundary is the first byte delivered to the client through `emit`.
+After it, a failure is final: the plugin returns the error. Before it the
+plugin may retry, but must discard anything it accumulated from the failed
+attempt. A clean end of stream is not an error. A reset, broken pipe or
+truncated body on a proxied leg marks the proxy as suspect: the pool
+re-verifies it before any ban, so a reset caused by the upstream costs one
+recheck. Cancelling the client request is never a transport failure.
+
 ```lua
 local client = llm_router.http_client({ timeout_ms = 15000 })
 local resp, err = client:request({
@@ -236,6 +258,48 @@ declares `proxy_schema`.
 ```lua
 local proxies = llm_router.proxies.query({ pool = "auto", limit = 3 })
 -- [{ id, url, country, pool }]
+```
+
+### `proxies.require({pool?, countries?, exclude?, limit?, want?, timeout_ms?, fallback?})`
+
+Acquires live proxies for one attempt. Installed with `proxies.query`.
+
+| Option | Meaning |
+|---|---|
+| `pool` | `""`/absent: direct. `"auto"`: free pool. Otherwise a custom pool ID/name. |
+| `countries` | Array of two-letter ISO codes, OR semantics. Empty or absent accepts any country. Invalid codes raise an error. |
+| `exclude` | Array of proxy URLs that must not be returned, for example exits the plugin already marked. |
+| `limit` | Maximum number of distinct proxies returned, 1..50, default 1. |
+| `want` | Free pool only: alive proxies the pool keeps in stock for these countries, 1..200. Default is the pool default. |
+| `timeout_ms` | Free pool only: wait deadline, default 60000, at most 300000. |
+| `fallback` | `"fail"` (default) or `"direct"`: what to do when no proxy is available. |
+
+The free pool returns matching live proxies immediately. Without a match it
+registers a demand, prioritizes finding the requested country, and waits until
+a match is alive or the deadline passes. The wait deadline is shared by every
+`require` call of one request: the first call fixes it. Cancelling the client
+request stops only the wait; the pool keeps working on the demand for a while
+so the next request finds a proxy. A custom pool answers from its own entries
+and never waits. The router never falls back to a direct connection on its own.
+
+Returns a table `{ proxies = { {id, url, country, pool}, ... }, timed_out, direct }`:
+
+- `direct` is true when `pool` is empty. `proxies` is then empty.
+- `timed_out` is true when the free pool had no match before the deadline and `fallback` is `"direct"`; `proxies` is empty and the plugin goes direct.
+
+With `fallback = "fail"` an unavailable proxy returns `nil, code` instead:
+`"timeout"` (free pool deadline passed), `"no_match"` (custom pool has no
+matching entry) or `"canceled"` (request cancelled). The same `"canceled"`
+return applies with `fallback = "direct"`. Malformed options raise an error.
+
+```lua
+local res, err = llm_router.proxies.require({
+  pool = "auto", countries = { "US", "CA" }, exclude = marked_urls,
+  limit = 3, fallback = "fail",
+})
+if not res then return nil, err end   -- plugin maps to its terminal error
+local px = res.proxies[1]
+local proxy_url = px and px.url or "" -- "" = direct
 ```
 
 ### `fetch_proxies()` (proxy sources)

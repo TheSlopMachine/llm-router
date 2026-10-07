@@ -1,9 +1,11 @@
 package luaplugin
 
 import (
+	"context"
 	"errors"
 	"time"
 
+	"github.com/TheSlopMachine/llm-router/internal/models"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -234,10 +236,157 @@ func newCredentialsTable(L *lua.LState, ctx *execContext) *lua.LTable {
 	return tbl
 }
 
+const (
+	defaultProxyRequireTimeout = 60 * time.Second
+	maxProxyRequireTimeout     = 5 * time.Minute
+	maxProxyRequireLimit       = 50
+	maxProxyRequireWant        = 200
+	proxyFallbackDirect        = "direct"
+	proxyFallbackFail          = "fail"
+)
+
+// luaStringList reads an optional array-of-strings option of proxies.require.
+func luaStringList(L *lua.LState, opts *lua.LTable, field string) []string {
+	v := opts.RawGetString(field)
+	if v == lua.LNil {
+		return nil
+	}
+	list, ok := v.(*lua.LTable)
+	if !ok {
+		L.RaiseError("llm_router.proxies.require: %s must be an array of strings", field)
+		return nil
+	}
+	out := make([]string, 0, list.Len())
+	for i := 1; i <= list.Len(); i++ {
+		s, ok := list.RawGetInt(i).(lua.LString)
+		if !ok {
+			L.RaiseError("llm_router.proxies.require: %s[%d] must be a string", field, i)
+			return nil
+		}
+		out = append(out, string(s))
+	}
+	return out
+}
+
+// luaIntOption reads an optional whole-number option within [min, max].
+func luaIntOption(L *lua.LState, opts *lua.LTable, field string, min, max int) (int, bool) {
+	v := opts.RawGetString(field)
+	if v == lua.LNil {
+		return 0, false
+	}
+	n, ok := v.(lua.LNumber)
+	if !ok || float64(n) != float64(int(n)) || int(n) < min || int(n) > max {
+		L.RaiseError("llm_router.proxies.require: %s must be a whole number between %d and %d", field, min, max)
+		return 0, false
+	}
+	return int(n), true
+}
+
+// requireProxies implements llm_router.proxies.require.
+func requireProxies(L *lua.LState, ctx *execContext) int {
+	req := models.ProxyRequire{Limit: 1}
+	fallback := proxyFallbackFail
+	timeout := defaultProxyRequireTimeout
+	if arg := L.Get(1); arg != lua.LNil {
+		opts, ok := arg.(*lua.LTable)
+		if !ok {
+			L.RaiseError("llm_router.proxies.require: options must be a table")
+			return 0
+		}
+		if v := opts.RawGetString("pool"); v != lua.LNil {
+			s, ok := v.(lua.LString)
+			if !ok {
+				L.RaiseError("llm_router.proxies.require: pool must be a string")
+				return 0
+			}
+			req.Pool = string(s)
+		}
+		req.Countries = luaStringList(L, opts, "countries")
+		req.Exclude = luaStringList(L, opts, "exclude")
+		if n, ok := luaIntOption(L, opts, "limit", 1, maxProxyRequireLimit); ok {
+			req.Limit = n
+		}
+		if n, ok := luaIntOption(L, opts, "want", 1, maxProxyRequireWant); ok {
+			req.Want = n
+		}
+		if n, ok := luaIntOption(L, opts, "timeout_ms", 1, int(maxProxyRequireTimeout/time.Millisecond)); ok {
+			timeout = time.Duration(n) * time.Millisecond
+		}
+		if v := opts.RawGetString("fallback"); v != lua.LNil {
+			s, ok := v.(lua.LString)
+			if !ok || (string(s) != proxyFallbackDirect && string(s) != proxyFallbackFail) {
+				L.RaiseError("llm_router.proxies.require: fallback must be %q or %q", proxyFallbackDirect, proxyFallbackFail)
+				return 0
+			}
+			fallback = string(s)
+		}
+	}
+	if ctx == nil {
+		L.RaiseError("llm_router.proxies: no execution context")
+		return 0
+	}
+	if ctx.proxyRequire == nil {
+		L.RaiseError("llm_router.proxies.require: proxy pool is not wired")
+		return 0
+	}
+
+	// One wait deadline covers every require call of this execution: the first
+	// call fixes it, later calls only consume what is left.
+	now := time.Now()
+	if ctx.proxyDeadline.IsZero() {
+		ctx.proxyDeadline = now.Add(timeout)
+	}
+	req.Timeout = min(timeout, max(ctx.proxyDeadline.Sub(now), time.Millisecond))
+
+	goCtx := ctx.goCtx
+	if goCtx == nil {
+		goCtx = context.Background()
+	}
+	res, err := ctx.proxyRequire(goCtx, req)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			L.Push(lua.LNil)
+			L.Push(lua.LString("canceled"))
+			return 2
+		}
+		L.RaiseError("llm_router.proxies.require: %s", err.Error())
+		return 0
+	}
+	if len(res.Proxies) == 0 && !res.Direct && fallback == proxyFallbackFail {
+		code := "no_match"
+		if res.TimedOut {
+			code = "timeout"
+		}
+		L.Push(lua.LNil)
+		L.Push(lua.LString(code))
+		return 2
+	}
+	proxies := L.NewTable()
+	for _, v := range res.Proxies {
+		row := L.NewTable()
+		row.RawSetString("id", lua.LString(v.ID))
+		row.RawSetString("url", lua.LString(v.URL))
+		if v.Country != "" {
+			row.RawSetString("country", lua.LString(v.Country))
+		}
+		row.RawSetString("pool", lua.LString(v.Pool))
+		proxies.Append(row)
+	}
+	out := L.NewTable()
+	out.RawSetString("proxies", proxies)
+	out.RawSetString("timed_out", lua.LBool(res.TimedOut))
+	out.RawSetString("direct", lua.LBool(res.Direct))
+	L.Push(out)
+	return 1
+}
+
 // newProxiesTable builds the read-only llm_router.proxies query interface.
 // Installed only when the type key serves proxy settings.
 func newProxiesTable(L *lua.LState, ctx *execContext) *lua.LTable {
 	tbl := L.NewTable()
+	tbl.RawSetString("require", L.NewFunction(func(L *lua.LState) int {
+		return requireProxies(L, ctx)
+	}))
 	tbl.RawSetString("query", L.NewFunction(func(L *lua.LState) int {
 		var pool, country string
 		limit := 0

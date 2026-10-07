@@ -65,7 +65,7 @@ func TestStoreUpdatesExposeNewAllowHosts(t *testing.T) {
 		_, _ = w.Write([]byte(`{"title":"Upd store","description":"Upd plugins","plugins":["a.lua"]}`))
 	})
 	mux.HandleFunc("/files/a.lua", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("--- @plugin Upd\n--- @author tester\n--- @version 1.1.0\n--- @router_version 0.7.0\n--- @allow_host old.example.com\n--- @allow_host new.example.com\n\nllm_router.register(\"upd-type\", {\n  complete = function() end,\n})\n"))
+		_, _ = w.Write([]byte("--- @plugin Upd\n--- @author tester\n--- @version 1.1.0\n--- @plugin_api 1.0\n--- @allow_host old.example.com\n--- @allow_host new.example.com\n\nllm_router.register(\"upd-type\", {\n  complete = function() end,\n})\n"))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -86,7 +86,7 @@ func TestStoreUpdatesExposeNewAllowHosts(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("put repo: %v", err)
 	}
-	installed := "--- @plugin Upd\n--- @author tester\n--- @version 1.0.0\n--- @router_version 0.7.0\n--- @allow_host old.example.com\n\nllm_router.register(\"upd-type\", {\n  complete = function() end,\n})\n"
+	installed := "--- @plugin Upd\n--- @author tester\n--- @version 1.0.0\n--- @plugin_api 1.0\n--- @allow_host old.example.com\n\nllm_router.register(\"upd-type\", {\n  complete = function() end,\n})\n"
 	if _, err := luaSvc.Install([]byte(installed), luaplugin.PluginOrigin{RepoID: rec.ID, Path: "llm-router-plugins/a.lua"}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestStoreSearchReturnsIndexTitle(t *testing.T) {
 		_, _ = w.Write([]byte(`{"title":"Titled store","description":"Titled plugins","plugins":["a.lua"]}`))
 	})
 	mux.HandleFunc("/files/a.lua", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("--- @plugin Titled\n--- @author tester\n--- @version 1.0.0\n--- @router_version 0.7.0\n--- @allow_host example.com\n\nllm_router.register(\"titled-type\", {\n  complete = function() end,\n})\n"))
+		_, _ = w.Write([]byte("--- @plugin Titled\n--- @author tester\n--- @version 1.0.0\n--- @plugin_api 1.0\n--- @allow_host example.com\n\nllm_router.register(\"titled-type\", {\n  complete = function() end,\n})\n"))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()

@@ -12,8 +12,8 @@ import (
 	"time"
 )
 
-// CurrentVersion is the router version plugins declare compatibility with
-// via the @router_version manifest tag.
+// Plugin API history lives with luaplugin.PluginAPIVersion (1.0).
+// Past router contract notes:
 //
 // 0.0.5 adds the transcribe handler and llm_router.multipart.
 // 0.0.6 adds the speech and generate_image handlers.
@@ -67,7 +67,12 @@ import (
 // Provider proxy mode/retry sections, the exhausted joint-key store and
 // geo bans are removed. Plugins query proxies read-only, assign proxy_url
 // per request, and return OpenAI-shaped errors only on terminal failure.
-const CurrentVersion = "0.7.0"
+// 0.8.0 adds proxies.require: demand-driven proxy acquisition with country
+// filters, exclusion lists, a request-wide wait deadline and an explicit
+// direct/fail fallback policy chosen by the plugin.
+
+// RouterVersion is obsolete: router identity ships via main.RouterVersion,
+// plugin compatibility via luaplugin.PluginAPIVersion.
 
 // ─────────────────────────────────────────────
 // ModelId
@@ -1791,6 +1796,31 @@ type ProxyView struct {
 	URL     string `json:"url"`
 	Country string `json:"country,omitempty"`
 	Pool    string `json:"pool"`
+}
+
+// ProxyRequire is one proxies.require call.
+type ProxyRequire struct {
+	// Pool is "" (direct), "auto" (free pool) or a custom pool ID/name.
+	Pool string
+	// Countries is an OR list of ISO codes; empty accepts any country.
+	Countries []string
+	// Exclude lists proxy URLs that must not be returned.
+	Exclude []string
+	// Limit is the maximum number of proxies returned (at least 1).
+	Limit int
+	// Want is the free-pool country stock to maintain; zero uses the pool default.
+	Want int
+	// Timeout bounds the wait on the free pool.
+	Timeout time.Duration
+}
+
+// ProxyRequireResult is the outcome of proxies.require. Proxies is empty for
+// a direct pool, a timeout, or a custom pool without a matching entry.
+type ProxyRequireResult struct {
+	Proxies  []ProxyView
+	TimedOut bool
+	// Direct reports that the provider is configured without a proxy pool.
+	Direct bool
 }
 
 // RecheckBannedRequest selects banned proxies for manual rechecking.

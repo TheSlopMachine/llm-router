@@ -74,6 +74,8 @@ func (s *Service) handlerCallEx(
 		markDead:             s.markDead,
 		healthTrigger:        s.healthTrigger,
 		proxyQuery:           s.proxyQuery,
+		proxyRequire:         s.proxyRequire,
+		delivered:            meta.delivered,
 		credList:             s.credList,
 		credGet:              s.credGet,
 		credUpdate:           s.credUpdate,

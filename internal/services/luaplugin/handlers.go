@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
@@ -150,6 +151,10 @@ func (s *Service) CompleteStreamRouted(
 	if err != nil {
 		return "", err
 	}
+	// Tracks whether any stream output reached the client: before the first
+	// write a transport failure may still be retried on another proxy.
+	var delivered atomic.Bool
+	meta.delivered = &delivered
 	emitFn := func(L *lua.LState) int {
 		chunkVal := L.Get(1)
 		raw, merr := marshalLua(chunkVal)
@@ -178,6 +183,7 @@ func (s *Service) CompleteStreamRouted(
 			L.RaiseError("emit: write: %s", werr.Error())
 			return 0
 		}
+		delivered.Store(true)
 		return 0
 	}
 	found, proxy, callErr := s.handlerCallRouted(goCtx, rec, meta, "complete_stream", func(L *lua.LState) {

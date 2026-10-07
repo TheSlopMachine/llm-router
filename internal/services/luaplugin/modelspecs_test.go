@@ -11,7 +11,7 @@ import (
 const specPluginSource = `--- @plugin Spec Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("spec-type", {
@@ -45,7 +45,7 @@ func TestInstallRejectsBadModelSpecs(t *testing.T) {
 	nonTable := `--- @plugin Spec Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("spec-type", {

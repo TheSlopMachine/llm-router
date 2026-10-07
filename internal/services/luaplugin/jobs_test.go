@@ -15,7 +15,7 @@ import (
 const jobsPluginSource = `--- @plugin Jobs Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("jobs-type", {
@@ -79,7 +79,7 @@ func TestJobSpecsInvalid(t *testing.T) {
 		src := `--- @plugin Jobs Bad
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("jobs-bad", {
@@ -117,7 +117,7 @@ func TestRunJobWritesCredentials(t *testing.T) {
 	src := `--- @plugin Jobs Writer
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("jobs-writer", {
@@ -175,7 +175,7 @@ func TestCredentialsTableGating(t *testing.T) {
 	src := `--- @plugin Gate Probe
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("gate-type", {

@@ -1,6 +1,8 @@
 package luaplugin
 
 import (
+	"sync/atomic"
+
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
@@ -16,6 +18,10 @@ type HandlerMeta struct {
 	Model              models.ModelId
 	ProviderConfig     map[string]any
 	AllowedCredentials []string
+
+	// delivered records that stream output reached the client. Set by the
+	// streaming caller; nil outside streaming.
+	delivered *atomic.Bool
 }
 
 // credentialID returns the attempt credential ID, empty when unpinned.

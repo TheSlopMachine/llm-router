@@ -204,7 +204,7 @@ func TestProviderService_EnsureSeededCopiesPluginIcon(t *testing.T) {
 	const iconSource = `--- @plugin Seeded Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("seeded-type", {
@@ -245,7 +245,7 @@ func TestProviderService_SyncDefaultProvidersAfterRuntimeInstall(t *testing.T) {
 	const runtimeSource = `--- @plugin Runtime Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("runtime-type", {
@@ -281,7 +281,7 @@ func TestProviderService_EnsureSeededBackfillsMissingIcon(t *testing.T) {
 	const iconSource = `--- @plugin Backfill Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("backfill-type", {
@@ -405,7 +405,7 @@ func TestProviderService_EnsureSeededMarksLuaSingletonsReadonly(t *testing.T) {
 	const src = `--- @plugin Flag Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("flag-type", {
@@ -455,7 +455,7 @@ func TestProviderService_BackfillsSeedFlags(t *testing.T) {
 	const src = `--- @plugin Flag Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("flag-type", {
@@ -516,7 +516,7 @@ func TestProviderService_IsTypeAvailable(t *testing.T) {
 	const src = `--- @plugin Availability Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("avail-type", {

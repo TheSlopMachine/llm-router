@@ -34,7 +34,7 @@ func seedUIRows(t *testing.T, svc *provider.Service, database *db.DB) *luaplugin
 	const src = `--- @plugin Seed Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("zen", {
@@ -152,7 +152,7 @@ func TestProvidersListHidesUnavailableBackend(t *testing.T) {
 	const src = `--- @plugin Seed Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("zen", {

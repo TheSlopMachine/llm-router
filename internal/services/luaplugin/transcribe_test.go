@@ -12,7 +12,7 @@ import (
 const transcribePluginSource = `--- @plugin Transcribe Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @description Transcribe test plugin
 --- @allow_host example.com
 
@@ -115,7 +115,7 @@ func TestMultipartHelper(t *testing.T) {
 	src := `--- @plugin Multipart Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @description Multipart test plugin
 --- @allow_host example.com
 
@@ -173,7 +173,7 @@ func TestMultipartHelperValidation(t *testing.T) {
 	src := `--- @plugin Multipart Bad Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @description Multipart validation test
 --- @allow_host example.com
 

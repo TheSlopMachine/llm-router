@@ -12,7 +12,7 @@ import (
 const healthPluginSource = `--- @plugin Health Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("health-type", {
@@ -79,7 +79,7 @@ func TestCheckHealth_MissingHandler(t *testing.T) {
 	if _, err := svc.Install([]byte(`--- @plugin Bare Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("mark-type", {
@@ -112,7 +112,7 @@ func TestParseHealthCooldown_Bounds(t *testing.T) {
 		src := `--- @plugin Bad Cooldown
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("bad-type", {

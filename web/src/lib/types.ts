@@ -397,7 +397,7 @@ export interface Plugin {
   display_name: string
   author: string
   version: string
-  router_version: string
+  plugin_api_version: string
   description: string
   license: string
   allow_hosts: string[]

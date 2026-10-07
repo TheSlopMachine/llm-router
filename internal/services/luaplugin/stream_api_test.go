@@ -15,7 +15,7 @@ import (
 const streamAPIPluginTemplate = `--- @plugin Stream API Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("sapi-type", {
@@ -110,7 +110,7 @@ func TestStreamAPI_DefaultNon2xxIsTerminal(t *testing.T) {
 	src := fmt.Sprintf(`--- @plugin Stream Default
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("sdef-type", {

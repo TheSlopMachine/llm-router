@@ -18,7 +18,7 @@ import (
 const healthProbePluginSource = `--- @plugin Health Probe
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("health-probe-type", {
@@ -138,7 +138,7 @@ func TestRouterService_TestCredentialUnsupported(t *testing.T) {
 	if _, err := svc.providerSvc.LuaService().Install([]byte(`--- @plugin Plain Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("plain-type", {

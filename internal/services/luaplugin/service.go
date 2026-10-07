@@ -1,6 +1,7 @@
 package luaplugin
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"path"
@@ -48,15 +49,15 @@ type PluginVersionSnapshot struct {
 
 // PluginRecord is the stored plugin row in BucketPlugins.
 type PluginRecord struct {
-	ID            string   `json:"id"`
-	DisplayName   string   `json:"display_name"`
-	Author        string   `json:"author"`
-	Version       string   `json:"version"`
-	RouterVersion string   `json:"router_version"`
-	Description   string   `json:"description"`
-	License       string   `json:"license"`
-	AllowHosts    []string `json:"allow_hosts"`
-	Unsafe        bool     `json:"unsafe"`
+	ID          string   `json:"id"`
+	DisplayName string   `json:"display_name"`
+	Author      string   `json:"author"`
+	Version     string   `json:"version"`
+	PluginAPI   string   `json:"plugin_api_version"`
+	Description string   `json:"description"`
+	License     string   `json:"license"`
+	AllowHosts  []string `json:"allow_hosts"`
+	Unsafe      bool     `json:"unsafe"`
 	// ProxySourceKeys lists registered proxy-list feeds in this plugin.
 	ProxySourceKeys []string `json:"proxy_source_keys,omitempty"`
 	// ModelSpecs holds per-type pinned model rows from the registration
@@ -123,6 +124,10 @@ type Service struct {
 	// proxyQuery returns read-only proxy endpoints for plugin selection.
 	proxyQuery func(pool, country string, limit int) ([]models.ProxyView, error)
 
+	// proxyRequire serves proxies.require: it waits for matching proxies
+	// within the request context (nil = disabled).
+	proxyRequire func(ctx context.Context, req models.ProxyRequire) (models.ProxyRequireResult, error)
+
 	// credential access for plugins. list/get serve request and job
 	// contexts; update serves job contexts only; disable/enable serve
 	// every context but require the automation switch (see automationOn).
@@ -154,6 +159,11 @@ func (s *Service) SetMarkDead(f func(url, reason string) bool) {
 // SetProxyQuery wires the read-only proxy pool query for plugins.
 func (s *Service) SetProxyQuery(f func(pool, country string, limit int) ([]models.ProxyView, error)) {
 	s.proxyQuery = f
+}
+
+// SetProxyRequire wires the demand-driven proxy acquisition for plugins.
+func (s *Service) SetProxyRequire(f func(ctx context.Context, req models.ProxyRequire) (models.ProxyRequireResult, error)) {
+	s.proxyRequire = f
 }
 
 // SetCredentialAccess wires credential list/get (request and job contexts)
@@ -391,7 +401,7 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 	if err != nil {
 		return nil, fmt.Errorf("manifest: %w", err)
 	}
-	if err := CheckRouterVersion(manifest, models.CurrentVersion); err != nil {
+	if err := CheckPluginAPI(manifest); err != nil {
 		return nil, err
 	}
 	id, err := BuildID(origin, manifest)
@@ -420,7 +430,7 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 		}
 		updated := &PluginRecord{
 			ID: id, DisplayName: manifest.Plugin, Author: manifest.Author,
-			Version: manifest.Version, RouterVersion: manifest.RouterVersion,
+			Version: manifest.Version, PluginAPI: manifest.PluginAPI,
 			Description: manifest.Description, License: manifest.License,
 			AllowHosts: manifest.AllowHosts, Unsafe: manifest.Unsafe,
 			ProxySourceKeys: dry.sourceKeys,
@@ -444,7 +454,7 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 
 	rec := &PluginRecord{
 		ID: id, DisplayName: manifest.Plugin, Author: manifest.Author,
-		Version: manifest.Version, RouterVersion: manifest.RouterVersion,
+		Version: manifest.Version, PluginAPI: manifest.PluginAPI,
 		Description: manifest.Description, License: manifest.License,
 		AllowHosts: manifest.AllowHosts, Unsafe: manifest.Unsafe,
 		ProxySourceKeys: dry.sourceKeys,
@@ -513,7 +523,7 @@ func (s *Service) Rollback(id string) (*PluginRecord, error) {
 	rec.Jobs = jobs
 	rec.DisplayName = manifest.Plugin
 	rec.Author = manifest.Author
-	rec.RouterVersion = manifest.RouterVersion
+	rec.PluginAPI = manifest.PluginAPI
 	rec.Description = manifest.Description
 	rec.License = manifest.License
 	rec.AllowHosts = manifest.AllowHosts

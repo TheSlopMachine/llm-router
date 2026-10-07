@@ -136,10 +136,11 @@ Keep changes shallow. Do not touch service internals unless the task requires it
 | `make help` | agent | Print targets and variables |
 | `make go-tidy` | agent | Tidy both Go modules |
 | `make browser` | human | Open dashboard in browser |
-| `make publish` | human | Build frontend + release binaries |
+| `make build` | human | Build frontend + release binaries (`PLATFORMS=...`, `VERSION=...`) |
+| `make publish` | human | Cut and push the next release tag (`TYPE=fix|minor|major` or `VERSION=X.Y[.Z]`); CI builds |
 | `make clean` | human | Stop processes + clean ignored files |
 
-`check-frontend-deps` and `check-publish-deps` are prerequisites, not direct targets. Never run them standalone.
+`check-frontend-deps` and `check-build-deps` are prerequisites, not direct targets. Never run them standalone.
 
 `make go-test` runs the full suite by default. Scope with `make go-test PKG=...` only to iterate on one failing package. Never chain scoped runs to cover the tree; run one global pass instead.
 
@@ -161,7 +162,7 @@ When no target covers an operation, add one (`Makefile` + `scripts/help.txt` + `
 
 ### 4.3 Human-only handoff
 
-If the task needs `browser`, `publish`, or `clean`: STOP. Ask the human to run it and report back (terminal output, logs, curl/browser result).
+If the task needs `browser`, `build`, `publish`, or `clean`: STOP. Ask the human to run it and report back (terminal output, logs, curl/browser result).
 
 | DO | DON'T |
 |---|---|
@@ -293,7 +294,7 @@ UI text uses categorized robotic keys. English text is the default output. A key
 ## 10. Lua Plugins
 
 - New provider backends are single-file Lua plugins: one `.lua` file with a `--- @` manifest header. Install via dashboard Plugins → Catalog tab or `POST /api/llm-router/dashboard/plugins/install-file`.
-- Manifest: required tags `@plugin`, `@author`, `@version`, `@router_version`, one or more `@allow_host` (`*` marks the plugin unsafe). Routers serve no contract older than `0.7.0`. `internal/services/luaplugin/manifest.go` validates.
+- Manifest: required tags `@plugin`, `@author`, `@version`, `@plugin_api`, one or more `@allow_host` (`*` marks the plugin unsafe). Plugin API format `x.y`: `x` breaks, `y` extends. Install compares majors only: newer reports `too_new`, older reports `too_old`, missing reports `no_api_version`. `internal/services/luaplugin/manifest.go` validates; `luaplugin.PluginAPIVersion` (`1.0`) owns the served contract.
 - API: `llm_router.register(type_key, {complete, ...})`, `llm_router.http_client({timeout_ms?})` with per-request `proxy_url` (router owns TLS-fault `MarkDead`, plugins never mark proxies), `llm_router.proxies.query`, `llm_router.credentials` (`list`/`get` plus job-only `update`, switch-gated `disable`/`enable`, ungated `park`/`unpark`/`parked`), `llm_router.storage` with TTL, colocated `jobs`, `llm_router.multipart`, `llm_router.uuid_v5(namespace, name)` (RFC 4122), `llm_router.random_hex(nbytes)`, `json.encode/decode`. Terminal errors are OpenAI-shaped `{message, code?, param?, status?}` and render verbatim; no `type`/`scope`/`retry_after` fields exist. **docs/PLUGIN-API.md is the binding contract for plugin authors — keep it in sync with every handler/API change.**
 - Park (transient, TTL, self-healing, invisible; `list()` auto-excludes parked) vs disable (dead, sticky, dashboard-visible): rate limits and quota windows park, rejected keys disable under the provider `disable_failed_credentials` switch. The manual dashboard toggle and switch-gated probe win over plugin writes.
 - UI trees for `config_schema`/`credential_schema`/`auth_initiate`/`auth_step` render through `DynamicForm.svelte`. Node kinds: leafs `text`, `input`, `select`, `checkbox`, `button`, `link`, `banner`, `secret`, `code`; containers `group`, `flow`, `grid`, `section`, `spacer`, `divider`. No raw HTML from plugins, ever — new widgets ship as first-class node kinds, not markup.
@@ -308,7 +309,7 @@ To get runtime facts from a human-run instance instead:
 
 1. State exactly what's needed: endpoint, log line, or behavior.
 2. Ask human to run `make start` / `make restart` / `make init` and report back.
-3. Interpret: dev dashboard = `http://HOST:WEB_PORT` proxying `/api/llm-router/*` → backend `HOST:38473` (dev-internal, hardcoded); publish dashboard = `:8080` (embedded). API = `:8081/v1` (dev values come from `WEB_PORT`/`API_PORT`, defaults `38080`/`38081`). Pidfile is JSON `{backend,frontend,vitePort}` at `%TEMP%/llm-router-dev.pid`.
+3. Interpret: dev dashboard = `http://HOST:WEB_PORT` proxying `/api/llm-router/*` → backend `HOST:38473` (dev-internal, hardcoded); release dashboard = `:8080` (embedded). API = `:8081/v1` (dev values come from `WEB_PORT`/`API_PORT`, defaults `38080`/`38081`). Pidfile is JSON `{backend,frontend,vitePort}` at `%TEMP%/llm-router-dev.pid`.
 
 Under `NO_AUTH=1` every call below needs no headers. With auth on, add `-H "Authorization: Bearer <token>"` to `/v1` and use a logged-in session (cookie) for `/api/llm-router/*`; `401` without them is expected, not a bug.
 
@@ -341,7 +342,7 @@ Smoke harness (`scripts/smoke/`, `make smoke` restarts with `NO_AUTH=1` first):
 
 Provider plugins ship from plugin store repositories, not from the binary. Built-in repos live in `pluginrepo.BuiltinRepos` and seed on startup via `EnsureBuiltinRepos`; they cannot be removed (`ErrBuiltinRepoProtected`). To ship a plugin upgrade, bump `@version` in the store repository.
 
-- Reissue checklist per plugin: `@version` bump on every content edit (major on contract breaks) — version-match reinstall skips same-version sources, so rewritten content under a fixed version never deploys; `@router_version` floor, classify through the helper, `(resp, err)` stream idiom with `on_response`, `scope` on rate/quota, `request.model_name` (never forward request tables verbatim upstream).
+- Reissue checklist per plugin: `@version` bump on every content edit (major on contract breaks) — version-match reinstall skips same-version sources, so rewritten content under a fixed version never deploys; `@plugin_api` major must equal the served contract, classify through the helper, `(resp, err)` stream idiom with `on_response`, `scope` on rate/quota, `request.model_name` (never forward request tables verbatim upstream).
 - Verify reissues without live keys: install dry-run plus classify extensions against synthetic `{status, headers, body}` inputs. Live streams and impersonation paths verify on `make start` with real accounts only.
 
 ## 13. Documentation
@@ -354,6 +355,6 @@ Edit docs in the same change as the code, never deferred. Short formulations: pr
 - `scripts/README.md`: a new script or env variable adds a table row with semantics.
 - `scripts/help.txt`: a new target or variable adds a line; verify with a live `make help`.
 - Root `README.md` is human-owned: never edit it.
-- Plugin store reissues bump `@version` (major on contract breaks) and honor the `@router_version` floor.
-- Move together: `CurrentVersion`, history rows, `minRouterVersion`. New make targets already ride the §4.2 rule.
+- Plugin store reissues bump `@version` (major on contract breaks) and declare the served `@plugin_api` major.
+- Move together: `luaplugin.PluginAPIVersion`, history rows. New make targets already ride the §4.2 rule.
 - Verify doc edits by re-reading the whole file plus grepping stale markers (old API names, removed buckets or fields).

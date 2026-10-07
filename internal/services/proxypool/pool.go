@@ -29,6 +29,8 @@ const (
 	markDeadEarlyEOFReason          = "early_eof"
 	markDeadConnectionResetReason   = "connection_reset"
 	markDeadConnectionRefusedReason = "connection_refused"
+	markDeadUnexpectedEOFReason     = "unexpected_eof"
+	markDeadBrokenPipeReason        = "broken_pipe"
 	markDeadDNSResolutionReason     = "dns_resolution"
 	markDeadAddressParseReason      = "address_parse"
 	markDeadTLSCertificateReason    = "tls_certificate_verification"
@@ -82,6 +84,20 @@ type LaneStat struct {
 	Queued   int    `json:"queued"`
 }
 
+// DemandStat reports one registered country demand.
+type DemandStat struct {
+	Countries       []string  `json:"countries"`
+	State           string    `json:"state"`
+	Waiters         int       `json:"waiters"`
+	Alive           int       `json:"alive"`
+	Target          int       `json:"target"`
+	Served          int64     `json:"served"`
+	CreatedAt       time.Time `json:"created_at,omitempty"`
+	ExpiresAt       time.Time `json:"expires_at,omitempty"`
+	ReplenishUntil  time.Time `json:"replenish_until,omitempty"`
+	LastSatisfiedAt time.Time `json:"last_satisfied_at,omitempty"`
+}
+
 type Status struct {
 	Mode         string         `json:"mode"`
 	Net          NetStatus      `json:"net"`
@@ -95,6 +111,7 @@ type Status struct {
 	Lanes        []LaneStat     `json:"lanes"`
 	Sources      []SourceStat   `json:"sources"`
 	BanReasons   map[string]int `json:"ban_reasons"`
+	Demands      []DemandStat   `json:"demands"`
 	LastIngestAt time.Time      `json:"last_ingest_at,omitempty"`
 	LastError    string         `json:"last_error,omitempty"`
 }
@@ -284,6 +301,80 @@ func (s *Service) queryCustom(pool, country string, limit int) ([]models.ProxyVi
 	return out, nil
 }
 
+// Require serves proxies.require. The free pool waits for a matching live
+// proxy up to req.Timeout; an empty pool means direct; a custom pool answers
+// from its own entries without waiting.
+func (s *Service) Require(ctx context.Context, req models.ProxyRequire) (models.ProxyRequireResult, error) {
+	if err := s.cache.peekError(); err != nil {
+		return models.ProxyRequireResult{}, err
+	}
+	switch req.Pool {
+	case "":
+		return models.ProxyRequireResult{Direct: true}, nil
+	case models.DefaultProxyPool:
+		res, err := s.pool.Require(ctx, proxypoollib.RequireOptions{
+			Countries: req.Countries,
+			Exclude:   req.Exclude,
+			Limit:     req.Limit,
+			Want:      req.Want,
+			Timeout:   req.Timeout,
+		})
+		if err != nil {
+			return models.ProxyRequireResult{}, err
+		}
+		views := make([]models.ProxyView, 0, len(res.Proxies))
+		for _, p := range res.Proxies {
+			views = append(views, models.ProxyView{ID: proxyID(p.URL), URL: p.URL, Country: p.Location, Pool: models.DefaultProxyPool})
+		}
+		return models.ProxyRequireResult{Proxies: views, TimedOut: res.TimedOut}, nil
+	default:
+		views, err := s.requireCustom(req)
+		if err != nil {
+			return models.ProxyRequireResult{}, err
+		}
+		return models.ProxyRequireResult{Proxies: views}, nil
+	}
+}
+
+// requireCustom filters one custom pool by the OR country list and exclusions.
+func (s *Service) requireCustom(req models.ProxyRequire) ([]models.ProxyView, error) {
+	custom, err := s.findCustomPool(req.Pool)
+	if err != nil {
+		return nil, err
+	}
+	excluded := make(map[string]struct{}, len(req.Exclude))
+	for _, u := range req.Exclude {
+		excluded[u] = struct{}{}
+	}
+	limit := max(req.Limit, 1)
+	out := make([]models.ProxyView, 0, min(limit, len(custom.Entries)))
+	for _, e := range custom.Entries {
+		if e.URL == "" {
+			continue
+		}
+		if _, skip := excluded[e.URL]; skip {
+			continue
+		}
+		if len(req.Countries) > 0 && !countryInList(req.Countries, e.Country) {
+			continue
+		}
+		out = append(out, models.ProxyView{ID: proxyID(e.URL), URL: e.URL, Country: e.Country, Pool: custom.ID})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func countryInList(list []string, country string) bool {
+	for _, c := range list {
+		if strings.EqualFold(strings.TrimSpace(c), country) {
+			return true
+		}
+	}
+	return false
+}
+
 // List returns verified live proxies in library rank order.
 func (s *Service) List() ([]*Proxy, error) {
 	if err := s.cache.peekError(); err != nil {
@@ -336,7 +427,7 @@ func (s *Service) MarkDead(url, reason string) bool {
 	switch reason {
 	case markDeadEarlyEOFReason:
 		return s.pool.Suspect(url, proxypoollib.FailEOF)
-	case markDeadConnectionResetReason:
+	case markDeadConnectionResetReason, markDeadUnexpectedEOFReason, markDeadBrokenPipeReason:
 		return s.pool.Suspect(url, proxypoollib.FailEOF)
 	case markDeadConnectionRefusedReason:
 		return s.pool.Suspect(url, proxypoollib.FailRefused)
@@ -381,6 +472,7 @@ func (s *Service) Status() (Status, error) {
 		Lanes:        make([]LaneStat, 0, len(snapshot.Lanes)),
 		Sources:      make([]SourceStat, 0, len(snapshot.Sources)),
 		BanReasons:   make(map[string]int, len(snapshot.BanReasons)),
+		Demands:      make([]DemandStat, 0, len(snapshot.Demands)),
 		LastIngestAt: snapshot.LastIngestAt,
 	}
 	if err := s.cache.peekError(); err != nil {
@@ -399,6 +491,16 @@ func (s *Service) Status() (Status, error) {
 	}
 	for reason, count := range snapshot.BanReasons {
 		status.BanReasons[string(reason)] = count
+	}
+	for _, d := range snapshot.Demands {
+		countries := d.Countries
+		if countries == nil {
+			countries = []string{}
+		}
+		status.Demands = append(status.Demands, DemandStat{
+			Countries: countries, State: d.State, Waiters: d.Waiters, Alive: d.Alive, Target: d.Target, Served: d.Served,
+			CreatedAt: d.CreatedAt, ExpiresAt: d.ExpiresAt, ReplenishUntil: d.ReplenishUntil, LastSatisfiedAt: d.LastSatisfiedAt,
+		})
 	}
 	return status, nil
 }

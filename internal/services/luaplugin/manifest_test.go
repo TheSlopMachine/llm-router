@@ -50,59 +50,36 @@ func TestCompareVersionsMinorOnly(t *testing.T) {
 	}
 }
 
-func TestParseManifestFloorFirst(t *testing.T) {
-	// Old router version plus every other defect class: the floor error
-	// wins, never the field errors.
-	old := `--- @plugin P
+func TestParseManifestRequiresPluginAPI(t *testing.T) {
+	// Missing @plugin_api: precise missing-tag error.
+	missing := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.5.3
---- @allow_host bad/host
---- @bogus_tag x
-`
-	_, err := ParseManifest([]byte(old))
-	if err == nil {
-		t.Fatal("old router version must fail")
-	}
-	msg := err.Error()
-	if !strings.Contains(msg, "predates the oldest served contract") {
-		t.Fatalf("floor must fire first, got: %v", err)
-	}
-	for _, leaked := range []string{"bad/host", "bogus_tag", "@allow_host", "unknown manifest tag"} {
-		if strings.Contains(msg, leaked) {
-			t.Fatalf("floor must not leak field errors, got: %v", err)
-		}
-	}
-
-	// Old version with missing required tags: floor still fires first.
-	missing := `--- @router_version 0.3.0
 --- @allow_host example.com
 `
 	if _, err := ParseManifest([]byte(missing)); err == nil ||
-		!strings.Contains(err.Error(), "predates the oldest served contract") {
-		t.Fatalf("floor must beat missing-tag errors, got: %v", err)
+		!strings.Contains(err.Error(), `missing required manifest tag "@plugin_api"`) {
+		t.Fatalf("missing API must report the tag, got: %v", err)
 	}
-}
 
-func TestParseManifestVersionDefectsUnchanged(t *testing.T) {
-	// Malformed version: precise invalid-version error, not the floor.
+	// Malformed @plugin_api: precise invalid error.
 	malformed := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version old
+--- @plugin_api old
 --- @allow_host example.com
 `
 	if _, err := ParseManifest([]byte(malformed)); err == nil ||
-		!strings.Contains(err.Error(), "invalid @router_version") {
-		t.Fatalf("malformed version must report invalid, got: %v", err)
+		!strings.Contains(err.Error(), "invalid @plugin_api") {
+		t.Fatalf("malformed API must report invalid, got: %v", err)
 	}
 
-	// Duplicated version tag: precise duplicate error, not the floor.
+	// Duplicated @plugin_api: precise duplicate error.
 	dupe := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.5.3
---- @router_version 0.7.0
+--- @plugin_api 1.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 `
 	if _, err := ParseManifest([]byte(dupe)); err == nil ||
@@ -110,15 +87,15 @@ func TestParseManifestVersionDefectsUnchanged(t *testing.T) {
 		t.Fatalf("duplicated tag must report duplicate, got: %v", err)
 	}
 
-	// Current version with a field defect: the field error, never the floor.
+	// Current API with a field defect: the field error, never the API error.
 	current := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host bad/host
 `
 	if _, err := ParseManifest([]byte(current)); err == nil ||
-		strings.Contains(err.Error(), "predates") {
-		t.Fatalf("current version must report the field defect, got: %v", err)
+		strings.Contains(err.Error(), "@plugin_api") {
+		t.Fatalf("current API must report the field defect, got: %v", err)
 	}
 }

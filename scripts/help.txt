@@ -14,7 +14,8 @@ Targets:
   log-frontend      Tail frontend log (follows on TTY, dumps and exits otherwise)
   browser           Open dashboard in browser (http://localhost:38080)
   clean             Stop + git clean -fdX (preserves untracked source)
-  publish           Init, then build frontend + all PUBLISH_PLATFORMS binaries
+  build             Init, then build frontend + all PLATFORMS binaries
+  publish           Cut and push the next release tag (TYPE or VERSION; CI builds)
   go-vet            Run go vet (PKG scopes packages, default "./...")
   go-test           Run go test (PKG scopes packages, default "./...")
   go-fmt            Apply gofmt to both Go modules (PATHS scopes files/dirs)
@@ -23,7 +24,7 @@ Targets:
   check-frontend    Run svelte-check (frontend type check)
 
 Variables:
-  VERSION            Release version for publish. Default: "dev"
+  VERSION            Release version for build. Default: latest git tag, else "dev"
   HOST               Bind host. Default: "localhost"
   WEB_PORT           Dashboard port. Default: "38080"
   API_PORT           API port. Default: "38081"
@@ -34,7 +35,8 @@ Variables:
   SMOKE_PLUGINS      Comma plugin types for smoke (or "all"). Default: "mock"
   SMOKE_TARGETS      Comma targets for smoke. Default: "completions,messages"
   UPLOAD_STORE_DIR   Store dir for upload-plugins. Default: "../../llm-router-store/llm-router-plugins"
-  PUBLISH_PLATFORMS  Platforms for publish. Default: "windows/amd64 ..."
+  PLATFORMS          Platforms for build. Default: "windows/amd64 ..."
+  TYPE               Release bump for publish: fix|minor|major (or VERSION=X.Y[.Z] to force)
   PKG                Package scope for go-vet and go-test. Default: "./..."
   PATHS              Space-separated files/dirs for go-fmt and go-fmt-check. Default: whole tree
   LINES              Initial tail size for log and log-frontend. Default: "100"
@@ -49,5 +51,7 @@ Examples:
   make start
   make start HOST=0.0.0.0 WEB_PORT=3000 API_PORT=3001
   make restart
-  make publish
-  make publish PUBLISH_PLATFORMS="linux/amd64 darwin/arm64"
+  make build
+  make build PLATFORMS="linux/amd64 darwin/arm64"
+  make publish TYPE=fix
+  make publish VERSION=1.3.1

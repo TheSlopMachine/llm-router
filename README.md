@@ -84,8 +84,15 @@ make start HOST=localhost WEB_PORT=8080 API_PORT=8081
 ### Production builds
 
 ```bash
-make publish
-make publish PUBLISH_PLATFORMS="windows/amd64 linux/amd64 darwin/amd64 freebsd/amd64"
+make build
+make build PLATFORMS="windows/amd64 linux/amd64 darwin/amd64 freebsd/amd64"
+```
+
+### Release tags
+
+```bash
+make publish TYPE=fix
+make publish VERSION=1.3.1
 ```
 
 ### Dashboard setup

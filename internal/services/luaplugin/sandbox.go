@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
@@ -59,6 +60,14 @@ type execContext struct {
 	markDead func(url, reason string) bool
 	// proxyQuery serves the read-only proxies.query table (nil = disabled).
 	proxyQuery func(pool, country string, limit int) ([]models.ProxyView, error)
+	// proxyRequire serves proxies.require (nil = disabled).
+	proxyRequire func(ctx context.Context, req models.ProxyRequire) (models.ProxyRequireResult, error)
+	// delivered is set once stream output has reached the client; after that
+	// a transport failure is no longer retryable (nil outside streaming).
+	delivered *atomic.Bool
+	// proxyDeadline is the wait deadline shared by every proxies.require call
+	// of this execution. The first call fixes it.
+	proxyDeadline time.Time
 	// Credential access: list/get serve every context, update serves jobs.
 	// disable/enable serve every context but require the provider
 	// automation switch (checkAutomation).
@@ -424,4 +433,9 @@ func luaErrorString(v lua.LValue) string {
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+// streamDelivered reports whether stream output already reached the client.
+func (ctx *execContext) streamDelivered() bool {
+	return ctx != nil && ctx.delivered != nil && ctx.delivered.Load()
 }

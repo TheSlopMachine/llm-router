@@ -1,171 +1,189 @@
+// Command publish creates and pushes the next release tag.
+// Tags are the source of truth: vX.Y.Z, short vX.Y when Fix is 0.
+// Version math duplicates internal/version (separate Go module by design).
+//
+// Usage: make publish TYPE=fix|minor|major [NOTES=...]
+//
+//	or: make publish VERSION=X.Y[.Z] [NOTES=...] (force a version)
+//
+// TYPE and VERSION are mutually exclusive. The tree must be clean and
+// HEAD must equal origin/main. This command never builds: CI builds on tag.
 package main
 
 import (
-	"archive/zip"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"sort"
+	"strconv"
 	"strings"
-	"time"
 
 	"github.com/TheSlopMachine/llm-router/scripts/shared"
-
-	"github.com/bitfield/script"
 )
 
-const binary = "llm-router"
+type triple struct {
+	major, minor, fix int
+}
+
+func parseTriple(s string) (triple, error) {
+	t := strings.TrimSpace(s)
+	t = strings.TrimPrefix(t, "v")
+	t = strings.TrimPrefix(t, "V")
+	parts := strings.Split(t, ".")
+	if len(parts) < 2 || len(parts) > 3 {
+		return triple{}, fmt.Errorf("expected X.Y[.Z], got %q", s)
+	}
+	nums := make([]int, 3)
+	for i, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return triple{}, fmt.Errorf("invalid empty component in %q", s)
+		}
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return triple{}, fmt.Errorf("invalid numeric component %q in %q", p, s)
+		}
+		nums[i] = n
+	}
+	return triple{major: nums[0], minor: nums[1], fix: nums[2]}, nil
+}
+
+func (t triple) tag() string {
+	if t.fix == 0 {
+		return fmt.Sprintf("v%d.%d", t.major, t.minor)
+	}
+	return fmt.Sprintf("v%d.%d.%d", t.major, t.minor, t.fix)
+}
+
+func (t triple) String() string {
+	return strings.TrimPrefix(t.tag(), "v")
+}
+
+func (t triple) less(o triple) bool {
+	if t.major != o.major {
+		return t.major < o.major
+	}
+	if t.minor != o.minor {
+		return t.minor < o.minor
+	}
+	return t.fix < o.fix
+}
+
+func git(args ...string) string {
+	cmd := exec.Command("git", args...)
+	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	if err != nil {
+		shared.Failf("git %s: %v", strings.Join(args, " "), err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func gitOK(args ...string) (string, bool) {
+	cmd := exec.Command("git", args...)
+	cmd.Stderr = nil
+	out, err := cmd.Output()
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(out)), true
+}
 
 func main() {
-	version := shared.Getenv("VERSION", "dev")
-	platforms := shared.RequireEnv("PUBLISH_PLATFORMS")
-
-	root, err := shared.RootDir()
-	if err != nil {
-		shared.Failf("%v", err)
+	typ := strings.ToLower(strings.TrimSpace(os.Getenv("TYPE")))
+	forced := strings.TrimSpace(os.Getenv("VERSION"))
+	if forced == "dev" {
+		forced = ""
+	}
+	notes := os.Getenv("NOTES")
+	if typ != "" && forced != "" {
+		shared.Failf("TYPE and VERSION are mutually exclusive: set one")
+	}
+	if typ == "" && forced == "" {
+		shared.Failf("set TYPE=fix|minor|major or VERSION=X.Y[.Z]")
 	}
 
-	// Strict: frontend build must succeed.
-	shared.Stepf("Building frontend (vite build)...")
-	if err := runViteBuild(root); err != nil {
-		shared.Failf("%v", err)
+	// Preflight: git checkout, clean tree, synced with origin/main.
+	if _, ok := gitOK("rev-parse", "--git-dir"); !ok {
+		shared.Failf("not a git checkout: publish requires git tags")
+	}
+	if status := git("status", "--porcelain"); status != "" {
+		shared.Failf("tree is dirty: commit or stash first:\n%s", status)
+	}
+	branch := git("rev-parse", "--abbrev-ref", "HEAD")
+	if branch != "main" {
+		shared.Failf("publish only from main, current branch is %q", branch)
+	}
+	if _, ok := gitOK("fetch", "origin"); !ok {
+		shared.Failf("git fetch origin failed")
+	}
+	head := git("rev-parse", "HEAD")
+	upstream, ok := gitOK("rev-parse", "origin/main")
+	if !ok {
+		shared.Failf("origin/main is unreachable: push main first")
+	}
+	if head != upstream {
+		shared.Failf("HEAD (%s) differs from origin/main (%s): push or pull first", head, upstream)
 	}
 
-	gitCommit, err := script.Exec("git rev-parse --short HEAD").String()
-	if err != nil {
-		shared.Failf("git rev-parse --short HEAD: %v", err)
+	latestRaw, ok := gitOK("describe", "--tags", "--abbrev=0", "--match", "v*")
+	if !ok || latestRaw == "" {
+		if forced == "" {
+			shared.Failf("no tags found: bootstrap with make publish VERSION=X.Y.Z")
+		}
+		latestRaw = ""
 	}
-	gitCommit = strings.TrimSpace(gitCommit)
-	if gitCommit == "" {
-		shared.Failf("git rev-parse returned empty commit")
-	}
-	buildTime := time.Now().UTC().Format(time.RFC3339)
-
-	fmt.Printf("\n== Publish - %s ==\n", version)
-	fmt.Printf("  Commit:     %s\n", gitCommit)
-	fmt.Printf("  Build time: %s\n\n", buildTime)
-
-	publishDir := filepath.Join(root, "build", "release")
-	_ = os.RemoveAll(publishDir)
-	if err := os.MkdirAll(publishDir, 0755); err != nil {
-		shared.Failf("create %s: %v", publishDir, err)
-	}
-
-	ldflags := fmt.Sprintf("-s -w -X main.Version=%s -X main.GitCommit=%s -X main.BuildTime=%s",
-		version, gitCommit, buildTime)
-
-	plats := strings.Fields(platforms)
-	shared.Stepf("Building %d platforms...", len(plats))
-
-	var checksums []string
-	for _, plat := range plats {
-		parts := strings.SplitN(plat, "/", 2)
-		if len(parts) != 2 {
-			shared.Failf("invalid platform %q: must be GOOS/GOARCH", plat)
-		}
-		goos, goarch := parts[0], parts[1]
-		binName := binary
-		if goos == "windows" {
-			binName += ".exe"
-		}
-		outDir := filepath.Join(publishDir, goos+"_"+goarch)
-		if err := os.MkdirAll(outDir, 0755); err != nil {
-			shared.Failf("create %s: %v", outDir, err)
-		}
-		outBin := filepath.Join(outDir, binName)
-		shared.Stepf("Building %s/%s...", goos, goarch)
-		cmd := exec.Command("go", "build", "-ldflags", ldflags, "-o", outBin, ".")
-		cmd.Dir = root
-		cmd.Env = shared.EnvWith([]string{"GOOS=" + goos, "GOARCH=" + goarch})
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			shared.Failf("go build %s/%s: %v", goos, goarch, err)
-		}
-
-		zipName := fmt.Sprintf("%s_%s_%s.zip", binary, goos, goarch)
-		zipPath := filepath.Join(outDir, zipName)
-		if err := zipFile(zipPath, outBin); err != nil {
-			shared.Failf("zip %s/%s: %v", goos, goarch, err)
-		}
-
-		sum, err := sha256File(zipPath)
+	var latest triple
+	if latestRaw != "" {
+		var err error
+		latest, err = parseTriple(latestRaw)
 		if err != nil {
-			shared.Failf("sha256 %s: %v", zipPath, err)
+			shared.Failf("latest tag %q is not a version: %v", latestRaw, err)
 		}
-		line := fmt.Sprintf("%s  %s_%s/%s", sum, goos, goarch, zipName)
-		checksums = append(checksums, line)
-		shared.OKf("Done: %s/%s", goos, goarch)
+		if tagCommit, ok := gitOK("rev-list", "-n", "1", latestRaw); ok && tagCommit == head {
+			shared.Failf("nothing changed since %s: HEAD already tagged", latestRaw)
+		}
 	}
 
-	sort.Strings(checksums)
-	csPath := filepath.Join(publishDir, "checksums.txt")
-	if err := os.WriteFile(csPath, []byte(strings.Join(checksums, "\n")+"\n"), 0644); err != nil {
-		shared.Failf("write checksums.txt: %v", err)
+	var target triple
+	switch {
+	case forced != "":
+		var err error
+		target, err = parseTriple(forced)
+		if err != nil {
+			shared.Failf("invalid VERSION %q: %v", forced, err)
+		}
+		if _, exists := gitOK("rev-parse", "-q", "--verify", "refs/tags/"+target.tag()); exists {
+			shared.Failf("tag %s already exists", target.tag())
+		}
+		if latestRaw != "" && target.less(latest) {
+			fmt.Printf("[WARN] target %s is older than latest %s\n", target.tag(), latestRaw)
+		}
+	case typ == "fix":
+		target = triple{major: latest.major, minor: latest.minor, fix: latest.fix + 1}
+	case typ == "minor":
+		target = triple{major: latest.major, minor: latest.minor + 1}
+	case typ == "major":
+		target = triple{major: latest.major + 1}
+	default:
+		shared.Failf("invalid TYPE %q: want fix|minor|major", os.Getenv("TYPE"))
+	}
+	if latestRaw != "" {
+		if _, exists := gitOK("rev-parse", "-q", "--verify", "refs/tags/"+target.tag()); exists {
+			shared.Failf("tag %s already exists", target.tag())
+		}
 	}
 
-	fmt.Printf("\n[OK] Artifacts in  %s/\n", publishDir)
-	fmt.Printf("[OK] Checksums in  %s\n", csPath)
-}
-
-func runViteBuild(root string) error {
-	shared.Stepf("Running vite build...")
-	webDir := filepath.Join(root, "web")
-	cmd := exec.Command("bun", "run", "build")
-	cmd.Dir = webDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("vite build: %w", err)
+	tagName := target.tag()
+	args := []string{"tag", "-a", tagName, "-m", "Release " + tagName}
+	if strings.TrimSpace(notes) != "" {
+		args = append(args, "-m", notes)
 	}
-	return nil
-}
-
-func zipFile(dst, src string) error {
-	f, err := os.Create(dst)
-	if err != nil {
-		return err
+	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+		shared.Failf("git tag %s: %v\n%s", tagName, err, string(out))
 	}
-	defer f.Close()
-	w := zip.NewWriter(f)
-	defer w.Close()
-
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
+	if out, err := exec.Command("git", "push", "origin", tagName).CombinedOutput(); err != nil {
+		shared.Failf("git push origin %s: %v\n%s", tagName, err, string(out))
 	}
-	hdr, err := zip.FileInfoHeader(info)
-	if err != nil {
-		return err
-	}
-	hdr.Name = filepath.Base(src)
-	hdr.Method = zip.Deflate
-	fw, err := w.CreateHeader(hdr)
-	if err != nil {
-		return err
-	}
-	r, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer r.Close()
-	_, err = io.Copy(fw, r)
-	return err
-}
-
-func sha256File(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	fmt.Printf("\n[OK] Published %s (from %s, commit %s)\n", tagName, latestRaw, head)
+	fmt.Printf("[OK] CI builds on tag push\n")
 }

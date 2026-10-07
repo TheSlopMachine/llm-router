@@ -10,20 +10,20 @@ import (
 )
 
 type pluginView struct {
-	ID            string                 `json:"id"`
-	DisplayName   string                 `json:"display_name"`
-	Author        string                 `json:"author"`
-	Version       string                 `json:"version"`
-	RouterVersion string                 `json:"router_version"`
-	Description   string                 `json:"description"`
-	License       string                 `json:"license"`
-	AllowHosts    []string               `json:"allow_hosts"`
-	Unsafe        bool                   `json:"unsafe"`
-	TypeKeys      []string               `json:"type_keys"`
-	Origin        luaplugin.PluginOrigin `json:"origin"`
-	InstalledAt   time.Time              `json:"installed_at"`
-	UpdatedAt     time.Time              `json:"updated_at"`
-	HistoryCount  int                    `json:"history_count"`
+	ID           string                 `json:"id"`
+	DisplayName  string                 `json:"display_name"`
+	Author       string                 `json:"author"`
+	Version      string                 `json:"version"`
+	PluginAPI    string                 `json:"plugin_api_version"`
+	Description  string                 `json:"description"`
+	License      string                 `json:"license"`
+	AllowHosts   []string               `json:"allow_hosts"`
+	Unsafe       bool                   `json:"unsafe"`
+	TypeKeys     []string               `json:"type_keys"`
+	Origin       luaplugin.PluginOrigin `json:"origin"`
+	InstalledAt  time.Time              `json:"installed_at"`
+	UpdatedAt    time.Time              `json:"updated_at"`
+	HistoryCount int                    `json:"history_count"`
 }
 
 func toPluginView(rec *luaplugin.PluginRecord) pluginView {
@@ -32,7 +32,7 @@ func toPluginView(rec *luaplugin.PluginRecord) pluginView {
 	sort.Strings(typeKeys)
 	return pluginView{
 		ID: rec.ID, DisplayName: rec.DisplayName, Author: rec.Author,
-		Version: rec.Version, RouterVersion: rec.RouterVersion,
+		Version: rec.Version, PluginAPI: rec.PluginAPI,
 		Description: rec.Description, License: rec.License,
 		AllowHosts: allowHosts, Unsafe: rec.Unsafe,
 		TypeKeys: typeKeys, Origin: rec.Origin,

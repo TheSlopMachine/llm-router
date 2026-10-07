@@ -58,7 +58,7 @@ func (p *pluginSource) FetchTagged() []proxypoollib.TaggedURL {
 		}
 		for _, c := range cands {
 			if u, ok := candidateURL(c); ok {
-				out = append(out, proxypoollib.TaggedURL{URL: u, Source: info.Name})
+				out = append(out, proxypoollib.TaggedURL{URL: u, Source: info.Name, Country: c.Country})
 			} else {
 				info.Unsupported++
 			}

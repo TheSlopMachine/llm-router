@@ -6,7 +6,7 @@ VERSION    ?= dev
 NO_SKIP    ?= 0
 export NO_SKIP
 
-PUBLISH_PLATFORMS ?= windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64
+PLATFORMS ?= windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64
 
 HOST      ?= localhost
 WEB_PORT  ?= 38080
@@ -15,7 +15,7 @@ URL       ?= http://$(HOST):$(WEB_PORT)
 LOG_LEVEL ?= info
 NO_AUTH   ?= 0
 PKG       ?= ./...
-export HOST WEB_PORT API_PORT URL VERSION PUBLISH_PLATFORMS LOG_LEVEL NO_AUTH PKG
+export HOST WEB_PORT API_PORT URL VERSION PLATFORMS LOG_LEVEL NO_AUTH PKG
 
 ifeq ($(OS),Windows_NT)
   DEV_DB  ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.db
@@ -28,7 +28,7 @@ BUN_MIN := 1.2
 GO_MIN  := 1.27.1
 BUN     := bun
 
-.PHONY: help check-frontend-deps check-publish-deps go-tidy go-fmt go-fmt-check init start stop restart status browser log log-frontend clean publish go-vet go-test check-frontend smoke upload-plugins
+.PHONY: help check-frontend-deps check-build-deps go-tidy go-fmt go-fmt-check init start stop restart status browser log log-frontend clean build publish go-vet go-test check-frontend smoke upload-plugins
 
 help:
 	@cat scripts/help.txt
@@ -42,8 +42,8 @@ check-frontend-deps:
 	 printf '[OK] bun v%s\n' "$$_bun_ver"
 	@printf '[OK] Frontend deps OK\n'
 
-check-publish-deps:
-	@printf '[>] Checking publish deps (bun >=$(BUN_MIN), go >=$(GO_MIN))...\n'
+check-build-deps:
+	@printf '[>] Checking build deps (bun >=$(BUN_MIN), go >=$(GO_MIN))...\n'
 	@if ! command -v $(BUN) >/dev/null 2>&1; then printf '[FAIL] bun not found (requires >=$(BUN_MIN) https://bun.sh)\n' >&2; exit 1; fi
 	@_bun_ver=$$($(BUN) --version 2>/dev/null | sed -E 's/^v//'); \
 	 if [ -z "$$_bun_ver" ]; then printf '[FAIL] cannot parse bun version (%s)\n' "$$($(BUN) --version 2>/dev/null)" >&2; exit 1; fi; \
@@ -54,7 +54,7 @@ check-publish-deps:
 	 if [ -z "$$_go_ver" ]; then printf '[FAIL] cannot parse go version (%s)\n' "$$(go version 2>/dev/null)" >&2; exit 1; fi; \
 	 if [ "$$(printf '%s\n%s\n' "$$_go_ver" "$(GO_MIN)" | sort -V | head -n1)" != "$(GO_MIN)" ]; then printf '[FAIL] go >=$(GO_MIN) required, found %s\n' "$$_go_ver" >&2; exit 1; fi; \
 	 printf '[OK] go %s\n' "$$_go_ver"
-	@printf '[OK] Publish deps OK\n'
+	@printf '[OK] Build deps OK\n'
 
 go-tidy:
 	@go mod tidy
@@ -105,7 +105,13 @@ clean:
 	@cd scripts && GOWORK=off go run ./stop
 	@git clean -fdX
 
-publish: check-publish-deps init
+build: check-build-deps init
+	@cd scripts && GOWORK=off go run ./build
+
+# Publish cuts and pushes the next release tag (TYPE=fix|minor|major or
+# VERSION=X.Y[.Z]). Tags are the source of truth. CI builds on tag push.
+# Requires a clean tree with HEAD synced to origin/main.
+publish:
 	@cd scripts && GOWORK=off go run ./publish
 
 go-vet:

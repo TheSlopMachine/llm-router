@@ -13,7 +13,7 @@ import (
 const testPluginSource = `--- @plugin Test Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @description Test plugin
 --- @allow_host example.com
 
@@ -61,7 +61,7 @@ func setupService(t *testing.T) *Service {
 const iconPluginSource = `--- @plugin Icon Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @description Icon plugin
 --- @allow_host example.com
 
@@ -157,7 +157,7 @@ func TestParseManifest(t *testing.T) {
 }
 
 func TestParseManifestWildcard(t *testing.T) {
-	src := "--- @plugin P\n--- @author a\n--- @version 1.0.0\n--- @router_version 0.7.0\n--- @allow_host *\n"
+	src := "--- @plugin P\n--- @author a\n--- @version 1.0.0\n--- @plugin_api 1.0\n--- @allow_host *\n"
 	m, err := ParseManifest([]byte(src))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -171,7 +171,7 @@ func TestParseManifestMissing(t *testing.T) {
 	for _, src := range []string{
 		"--- @plugin P\n--- @author a\n",
 		"print('no header')\n",
-		"--- @plugin P\n--- @author a\n--- @version 1.0.0\n--- @router_version 0.7.0\n",
+		"--- @plugin P\n--- @author a\n--- @version 1.0.0\n--- @plugin_api 1.0\n",
 	} {
 		if _, err := ParseManifest([]byte(src)); err == nil {
 			t.Fatalf("expected error for %q", src)
@@ -179,19 +179,38 @@ func TestParseManifestMissing(t *testing.T) {
 	}
 }
 
-func TestCheckRouterVersion(t *testing.T) {
-	m := &Manifest{RouterVersion: "0.7.0"}
-	if err := CheckRouterVersion(m, "0.7.0"); err != nil {
-		t.Fatalf("equal versions: %v", err)
+func TestCheckPluginAPI(t *testing.T) {
+	// Same major passes; minor is informational only.
+	for _, api := range []string{"1.0", "1.5", "v1.2"} {
+		if err := CheckPluginAPI(&Manifest{PluginAPI: api}); err != nil {
+			t.Fatalf("API %s must pass: %v", api, err)
+		}
 	}
-	m.RouterVersion = "99.0.0"
-	if err := CheckRouterVersion(m, "0.7.0"); err == nil {
-		t.Fatal("expected rejection of newer router requirement")
+	// Newer major reports too_new.
+	if err := CheckPluginAPI(&Manifest{PluginAPI: "2.0"}); err == nil {
+		t.Fatal("expected rejection of newer plugin API")
+	} else {
+		var compat *APICompatError
+		if !errors.As(err, &compat) || compat.Reason != "too_new" {
+			t.Fatalf("expected too_new, got: %v", err)
+		}
 	}
-	for _, old := range []string{"0.6.0", "0.5.3", "0.3.0", "0.1.1"} {
-		m.RouterVersion = old
-		if err := CheckRouterVersion(m, "0.7.0"); err == nil {
-			t.Fatalf("pre-0.7.0 contract %s must be rejected", old)
+	// Older major reports too_old.
+	if err := CheckPluginAPI(&Manifest{PluginAPI: "0.7"}); err == nil {
+		t.Fatal("expected rejection of older plugin API")
+	} else {
+		var compat *APICompatError
+		if !errors.As(err, &compat) || compat.Reason != "too_old" {
+			t.Fatalf("expected too_old, got: %v", err)
+		}
+	}
+	// Missing tag reports no_api_version.
+	if err := CheckPluginAPI(&Manifest{}); err == nil {
+		t.Fatal("expected rejection of missing plugin API")
+	} else {
+		var compat *APICompatError
+		if !errors.As(err, &compat) || compat.Reason != "no_api_version" {
+			t.Fatalf("expected no_api_version, got: %v", err)
 		}
 	}
 }
@@ -243,7 +262,7 @@ func TestSandboxDeniesUnsafeGlobals(t *testing.T) {
 	bad := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 local x = os.execute("echo hi")
@@ -261,7 +280,7 @@ func TestErrorContract(t *testing.T) {
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("err-type", {
@@ -289,7 +308,7 @@ func TestErrorContractDefaults(t *testing.T) {
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("scope-type", {
@@ -317,7 +336,7 @@ func TestErrorContractMissingMessageIsInternal(t *testing.T) {
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("badscope-type", {
@@ -342,7 +361,7 @@ func TestErrorContractPaymentRequired(t *testing.T) {
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("pay-type", {
@@ -370,7 +389,7 @@ func TestRuntimeCrashIsInternal(t *testing.T) {
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @allow_host example.com
 
 llm_router.register("crash-type", {

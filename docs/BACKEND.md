@@ -28,13 +28,14 @@ internal/services/
   config/                instance-wide router configuration
   datamanagement/        subsystem export/import/clear + provider export/import/purge
   doctor/                database inspection and repair
-  proxypool/             free-pool hosting, Lua feed bridge, bbolt cache, custom pools, adaptive refresh schedule
+  proxypool/             free-pool hosting, Lua feed bridge, bbolt cache, custom pools, lane scheduler adapter
 internal/httpkit/        shared transport helpers (SSE headers)
 internal/errors/         domain sentinels + ToAPIError
 internal/repository/     bbolt buckets
 internal/dashboard/      admin REST API (providers, tokens, credentials, models, virtual-models, metrics, plugins, repos, config, data export/import/clear, doctor, proxy status/refresh/pools, provider jobs)
 internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/completions, /v1/messages (+count_tokens, +batches, /v1/complete), /v1/models list + retrieve (TokenRules-filtered, Anthropic dual shape), /v1/videos submit + poll + content + models, audio/transcriptions (+JSON variant)/translations/speech, images/generations/edits/variations, embeddings, moderations, responses (+cancel/input_items/compact/input_tokens) + conversations (+items), assistants, threads (+messages/runs/cancel/submit_tool_outputs)
 internal/models/         shared wire types
+internal/version/        Version struct (Parse/String, short X.Y when fix is 0); router label in main, plugin API contract in luaplugin
 internal/config/         Config struct
 internal/adapters/generic/ built-in custom backend (Go, single pass over gated pool)
 providers/virtual/       built-in virtual-models backend (Go, list-order fall-through + first-byte gate)
@@ -103,8 +104,10 @@ Keep changes shallow. Touch service internals only when the task requires it.
   bridge accepts unauthenticated HTTP entries into the free pool. The
   external proxypool library owns candidate ingestion, health checks,
   scoring and cache lifecycle. `proxypool.Service` owns the read-only
-  `Query`, custom-pool CRUD, `MarkDead` (TLS faults only, called from the
-  plugin HTTP client), lane scheduler adapter, adaptive limiter, foreground/
+  `Query`, `Require` (demand-driven acquisition: waits on the free pool, never
+  falls back to direct itself), custom-pool CRUD, `MarkDead` (proxy faults only, called from the
+  plugin HTTP client: TLS/DNS faults ban, reset/refused/broken-pipe/truncated
+  body mark the proxy suspect), lane scheduler adapter, adaptive limiter, foreground/
   background modes and network-health breaker. Only checked proxies persist.
 - `providers/virtual/adapter.go:firstByteGate`: failover continues only
   before the first byte reaches the client. After that the stream belongs

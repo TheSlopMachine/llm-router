@@ -12,7 +12,7 @@ import (
 const videoPluginSource = `--- @plugin Video Plugin
 --- @author tester
 --- @version 1.0.0
---- @router_version 0.7.0
+--- @plugin_api 1.0
 --- @description Video test plugin
 --- @allow_host example.com
 

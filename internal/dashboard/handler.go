@@ -1,7 +1,7 @@
 // Package dashboard serves the admin SPA and its backing JSON API.
 //
 // @title        llm-router API
-// @version      0.7.0
+// @version      0.8.0
 // @description  OpenAI-compatible plus Anthropic-compatible LLM routing gateway.
 // @description  Public AI surface (/v1, BearerAuth or x-api-key alias):
 // @description  chat/completions, completions, embeddings, images/generations,

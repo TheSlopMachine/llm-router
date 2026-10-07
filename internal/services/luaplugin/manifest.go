@@ -4,17 +4,42 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/TheSlopMachine/llm-router/internal/version"
 )
+
+// PluginAPIVersion is the plugin API contract served by this router.
+// Format x.y: x breaks, y extends without breaking.
+var PluginAPIVersion = version.Version{Major: 1, Minor: 0}
+
+// APICompatError reports a plugin API mismatch with a machine-readable
+// Reason for the dashboard toast: "too_new", "too_old", "no_api_version".
+type APICompatError struct {
+	Reason    string
+	RouterAPI version.Version
+	PluginAPI version.Version
+}
+
+func (e *APICompatError) Error() string {
+	switch e.Reason {
+	case "no_api_version":
+		return "missing required manifest tag \"@plugin_api\""
+	case "too_new":
+		return fmt.Sprintf("plugin API %s is newer than router API %s: update the router", e.PluginAPI.String(), e.RouterAPI.String())
+	default:
+		return fmt.Sprintf("plugin API %s is older than router API %s: reissue the plugin", e.PluginAPI.String(), e.RouterAPI.String())
+	}
+}
 
 // Manifest is the parsed "--- @tag value" header of a plugin file.
 type Manifest struct {
-	Plugin        string
-	Author        string
-	Version       string
-	RouterVersion string
-	Description   string
-	License       string
-	AllowHosts    []string
+	Plugin      string
+	Author      string
+	Version     string
+	PluginAPI   string
+	Description string
+	License     string
+	AllowHosts  []string
 	// Unsafe is true when the plugin requests a wildcard allow_host.
 	Unsafe bool
 }
@@ -62,8 +87,8 @@ func ParseManifest(source []byte) (*Manifest, error) {
 			m.Author = value
 		case "@version":
 			m.Version = value
-		case "@router_version":
-			m.RouterVersion = value
+		case "@plugin_api":
+			m.PluginAPI = value
 		case "@description":
 			m.Description = value
 		case "@license":
@@ -81,21 +106,11 @@ func ParseManifest(source []byte) (*Manifest, error) {
 	if headerLen == 0 {
 		return nil, fmt.Errorf("missing manifest header: file must start with \"--- @\" lines")
 	}
-	// The router-version floor gates every other field: a plugin too old
-	// to serve is discarded here with the reissue error, never validated
-	// further. Missing, duplicated or malformed tags fall through to the
-	// precise errors below.
-	if seen["@router_version"] == 1 {
-		if _, _, _, serr := parseSemver(m.RouterVersion); serr == nil {
-			if older, cerr := CompareVersions(m.RouterVersion, minRouterVersion); cerr == nil && older < 0 {
-				return nil, fmt.Errorf("plugin @router_version %s predates the oldest served contract %s: reissue the plugin", m.RouterVersion, minRouterVersion)
-			}
-		}
-	}
+	// Unknown tags fail here; @plugin_api presence is enforced below.
 	if unknownTag != "" {
 		return nil, fmt.Errorf("unknown manifest tag %q", unknownTag)
 	}
-	for _, tag := range []string{"@plugin", "@author", "@version", "@router_version"} {
+	for _, tag := range []string{"@plugin", "@author", "@version", "@plugin_api"} {
 		if seen[tag] == 0 {
 			return nil, fmt.Errorf("missing required manifest tag %q", tag)
 		}
@@ -130,8 +145,8 @@ func ParseManifest(source []byte) (*Manifest, error) {
 	if _, _, _, err := parseSemver(m.Version); err != nil {
 		return nil, fmt.Errorf("invalid @version %q: %w", m.Version, err)
 	}
-	if _, _, _, err := parseSemver(m.RouterVersion); err != nil {
-		return nil, fmt.Errorf("invalid @router_version %q: %w", m.RouterVersion, err)
+	if _, err := version.Parse(m.PluginAPI); err != nil {
+		return nil, fmt.Errorf("invalid @plugin_api %q: %w", m.PluginAPI, err)
 	}
 	return m, nil
 }
@@ -149,39 +164,24 @@ func dedupeStrings(in []string) []string {
 	return out
 }
 
-// minRouterVersion is the oldest plugin contract served. 0.7.0
-// decentralizes orchestration to plugins (credential/proxy selection,
-// retries and rate handling in Lua; schemas as static tables; colocated
-// jobs; OpenAI-shaped terminal errors). Older plugins are rejected at
-// install, not adapted.
-const minRouterVersion = "0.7.0"
-
-// CheckRouterVersion rejects plugins requiring a newer router.
-func CheckRouterVersion(manifest *Manifest, current string) error {
-	cMaj, cMin, cPatch, err := parseSemver(current)
+// CheckPluginAPI compares the plugin @plugin_api major against the served
+// contract. Minor is informational only. Missing tag reports no_api_version.
+func CheckPluginAPI(manifest *Manifest) error {
+	if manifest == nil || manifest.PluginAPI == "" {
+		return &APICompatError{Reason: "no_api_version", RouterAPI: PluginAPIVersion}
+	}
+	p, err := version.Parse(manifest.PluginAPI)
 	if err != nil {
-		return fmt.Errorf("invalid router version %q: %w", current, err)
+		return fmt.Errorf("invalid @plugin_api %q: %w", manifest.PluginAPI, err)
 	}
-	rMaj, rMin, rPatch, err := parseSemver(manifest.RouterVersion)
-	if err != nil {
-		return fmt.Errorf("invalid plugin @router_version %q: %w", manifest.RouterVersion, err)
-	}
-	if older, err := CompareVersions(manifest.RouterVersion, minRouterVersion); err != nil || older < 0 {
-		if err != nil {
-			return fmt.Errorf("invalid plugin @router_version %q: %w", manifest.RouterVersion, err)
-		}
-		return fmt.Errorf("plugin @router_version %s predates the oldest served contract %s: reissue the plugin", manifest.RouterVersion, minRouterVersion)
-	}
-	if cMaj != rMaj {
-		if cMaj < rMaj {
-			return fmt.Errorf("plugin requires router %s, current is %s", manifest.RouterVersion, current)
-		}
+	switch {
+	case p.Major > PluginAPIVersion.Major:
+		return &APICompatError{Reason: "too_new", RouterAPI: PluginAPIVersion, PluginAPI: p}
+	case p.Major < PluginAPIVersion.Major:
+		return &APICompatError{Reason: "too_old", RouterAPI: PluginAPIVersion, PluginAPI: p}
+	default:
 		return nil
 	}
-	if cMin < rMin || (cMin == rMin && cPatch < rPatch) {
-		return fmt.Errorf("plugin requires router %s, current is %s", manifest.RouterVersion, current)
-	}
-	return nil
 }
 
 func parseSemver(s string) (maj, min, patch int, err error) {
