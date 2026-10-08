@@ -1,6 +1,6 @@
 // Modal launch helpers. Single owner for the repeated resource.error reset
 // + modal.open wizard stanza.
-import { modal } from './modal.svelte'
+import { modal } from '../FUI/core/modal.svelte'
 
 export function openFormModal(
   content: unknown,

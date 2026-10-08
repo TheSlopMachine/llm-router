@@ -1,0 +1,279 @@
+/* Design tokens ONLY: colors, spacing, type scale, radii, control metrics.
+   No selectors other than :root / .dark. Components read these; nothing here
+   may style an element or a class. */
+:root {
+  /* Color scheme — only these tokens (chips are exempt, any colors).
+     text: primary --fui-color-text, secondary --fui-color-text-soft, tertiary --fui-color-text-disabled
+     backgrounds: page --fui-color-background, raised --fui-color-surface, containers --fui-color-surface-container[-high[-est]]
+     elevation: --fui-elev alpha overlay, once per nesting level (L*N);
+       overlays (modals, toasts) stay solid
+     actions: --fui-color-accent (+hover/soft), danger --fui-color-danger (+hover)
+     feedback triples: --fui-color-notification-{info,warning,error,success}-{bg,border,text}
+     disabled: --fui-color-disabled-bg/text
+     switch: --fui-color-switch-off/on (on follows --fui-color-accent) */
+  /* Light Theme Tokens */
+
+  --fui-color-surface: #ffffff;
+  --fui-color-surface-container: #ffffff;
+  --fui-color-surface-container-high: #ececf0;
+  --fui-color-surface-container-highest: #e1e2e8;
+  --fui-color-background: #f8f8fa;
+
+  /* Elevation: one overlay constant per theme, applied once per nesting
+     level. Brightness compounds automatically (L*N): a header inside a
+     table is two levels up. Overlays (modals, toasts) are separate
+     screens: they restart from the page base. */
+  --fui-elev-rgb: 0 0 0;
+  --fui-elev-a: 0.075;
+  --fui-elev: rgb(var(--fui-elev-rgb) / var(--fui-elev-a));
+
+
+  /* ── Spacing scale ────────────────────────────────────────────────────
+     One ladder for every gap, padding and margin in the system. Widgets
+     take a step number (gap={3}), never a pixel value, so a literal like
+     5px or 13px becomes impossible to write by accident. Steps are the
+     values that already dominated the codebase, deduplicated. */
+  --fui-space-0: 0px;
+  --fui-space-1: 2px;
+  --fui-space-2: 4px;
+  --fui-space-3: 8px;
+  --fui-space-4: 12px;
+  --fui-space-5: 16px;
+  --fui-space-6: 24px;
+  --fui-space-7: 32px;
+  --fui-space-8: 48px;
+
+  /* Control heights: one height per size step, shared by Button, TextEdit,
+     Picker and Select so matching sizes always align. */
+  --fui-ctl-small: 28px;
+  --fui-ctl-medium: 36px;
+  --fui-ctl-large: 44px;
+
+  /* ── Typography scale ─────────────────────────────────────────────────
+     13px was folded into 12/14: two sizes one pixel apart are drift, not
+     a decision. Line heights are unitless so they compose under nesting. */
+  --fui-text-xs: 11px;
+  --fui-text-sm: 12px;
+  --fui-text-base: 14px;
+  --fui-text-md: 16px;
+  --fui-text-lg: 20px;
+  --fui-text-xl: 24px;
+  --fui-text-2xl: 32px;
+
+  --fui-font-normal: "Raleway", sans-serif;
+  --fui-font-mono: "Red Hat Mono", monospace;
+
+  --fui-leading-none: 1;
+  --fui-leading-tight: 1.3;
+  --fui-leading-base: 1.5;
+  --fui-leading-loose: 1.7;
+
+  --fui-weight-normal: 400;
+  --fui-weight-medium: 500;
+  --fui-weight-bold: 700;
+
+  /* Radius scale. Elements get squircle corners via the use:squircle action. */
+  --fui-radius-xs: 8px;
+  --fui-radius-sm: 10px;
+  --fui-radius-md: 12px;
+  --fui-radius-lg: 24px;
+
+  --fui-color-sidebar-bg: #e2e3ea;
+  --fui-color-nav-hover: #d8d9e0;
+  --fui-color-nav-active: #cfd0d8;
+
+  --fui-color-text: #2b2d31;
+  --fui-color-text-soft: #6c717a;
+  --fui-color-text-disabled: #9aa0a6;
+  --fui-color-text-link: #2483e2;
+  --fui-color-text-on-button: #2b2d31;
+  --fui-color-text-on-button-reverse: #ffffff;
+
+  --fui-color-outline-light: #d5d7d9;
+  --fui-color-outline-soft: #dfe0e1;
+  --fui-color-outline: #76777b;
+  --fui-color-outline-variant: #c6c6ca;
+
+  --fui-color-button-container: #ffffff;
+  --fui-color-button-container-high: #e1e2e8;
+  --fui-color-button-container-accent: #dbeafe;
+
+  --fui-color-hover-bg: #e4e5ea;
+
+  --fui-color-accent-yellow: #fcbd00;
+  --fui-color-accent-yellow-light: #fff7e0;
+
+  --fui-color-notification-info-bg: #eff6ff;
+  --fui-color-notification-info-border: #bfdbfe;
+  --fui-color-notification-info-text: #1e40af;
+  --fui-color-notification-info-icon: #3b82f6;
+  --fui-color-notification-warning-bg: #fef3c7;
+  --fui-color-notification-warning-border: #fde68a;
+  --fui-color-notification-warning-text: #92400e;
+  --fui-color-notification-warning-icon: #f59e0b;
+
+  --fui-color-badge-blue-bg: rgba(59, 130, 246, 0.1);
+  --fui-color-badge-blue-text: #2563eb;
+  --fui-color-badge-green-bg: rgba(34, 197, 94, 0.1);
+  --fui-color-badge-green-text: #16a34a;
+  --fui-color-badge-yellow-bg: rgba(234, 179, 8, 0.1);
+  --fui-color-badge-yellow-text: #ca8a04;
+  --fui-color-badge-red-bg: rgba(239, 68, 68, 0.1);
+  --fui-color-badge-red-text: #dc2626;
+
+  --fui-color-accent: #2483e2;
+  --fui-color-accent-hover: #1b6dca;
+  --fui-color-accent-soft: rgba(59, 130, 246, 0.1);
+
+  --fui-color-switch-off: #dcdde2;
+  --fui-color-switch-on: var(--fui-color-accent);
+
+  --fui-color-chip-neutral-bg: #e4e6e8;
+  --fui-color-chip-neutral-text: #4b4f55;
+
+  --fui-color-badge-purple-bg: rgba(139, 92, 246, 0.1);
+  --fui-color-badge-purple-text: #7c3aed;
+  --fui-color-badge-teal-bg: rgba(20, 184, 166, 0.1);
+  --fui-color-badge-teal-text: #0d9488;
+  --fui-color-badge-orange-bg: rgba(249, 115, 22, 0.1);
+  --fui-color-badge-orange-text: #ea580c;
+
+  --fui-color-warning-text: #ca8a04;
+  --fui-color-error-text: #dc2626;
+  --fui-color-success-text: #16a34a;
+  --fui-color-disabled-bg: #f3f3f6;
+  --fui-color-disabled-text: #989da4;
+
+  --fui-color-danger: #dc2626;
+  --fui-color-danger-hover: #b91c1c;
+
+  --fui-color-notification-error-bg: rgba(239, 68, 68, 0.1);
+  --fui-color-notification-error-border: rgba(239, 68, 68, 0.3);
+  --fui-color-notification-error-text: #dc2626;
+  --fui-color-notification-success-bg: rgba(34, 197, 94, 0.1);
+  --fui-color-notification-success-border: rgba(34, 197, 94, 0.3);
+  --fui-color-notification-success-text: #16a34a;
+
+  --fui-sidebar-w: 240px;
+
+  /* Playground-tunable control metrics (see UI test polygon). */
+  --fui-btn-pad-v: 4px;
+  --fui-btn-pad-h: 16px;
+  --fui-field-pad-v: 8px;
+  --fui-field-pad-h: 12px;
+  --fui-ctl-radius: 16px;
+
+  /* Focus ring. An outline is painted outside the border box, so a squircle
+     clip-path cuts it away; an *inset* box-shadow is painted inside the box,
+     so the clip only rounds its corners and the ring survives. */
+  --fui-focus-ring: inset 0 0 0 2px var(--fui-color-accent);
+  --fui-focus-ring-contrast: inset 0 0 0 2px var(--fui-color-text-on-button-reverse);
+
+  /* Overlay + elevation + display size. Scrim dims page content behind
+     floating layers; floating shadow lifts popovers/menus off the page;
+     display icon size serves EmptyState hero glyphs. */
+  --fui-overlay-scrim: rgba(0, 0, 0, 0.45);
+  --fui-shadow-floating: 0 10px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+  --fui-text-display: 64px;
+}
+
+.dark {
+  /* Dark Theme Tokens */
+  --fui-color-surface: #1f1f1f;
+  /* Layering always adds elev: container sits between surface and high. */
+  --fui-color-surface-container: #262626;
+  --fui-color-surface-container-high: #2d2d2d;
+  --fui-color-surface-container-highest: #343434;
+  --fui-color-background: #141313;
+
+  /* Elevation overlays: nest to brighten automatically on dark theme. */
+  --fui-elev-rgb: 255 255 255;
+  --fui-elev-a: 0.03;
+  --fui-elev: rgb(var(--fui-elev-rgb) / var(--fui-elev-a));
+
+  --fui-color-sidebar-bg: #1a1a1a;
+  --fui-color-nav-hover: #252525;
+  --fui-color-nav-active: #2a2a2a;
+
+  --fui-color-text: #e5e2e1;
+  --fui-color-text-soft: #a0a0a0;
+  --fui-color-text-disabled: #707070;
+  --fui-color-text-link: #87a9ff;
+  --fui-color-text-on-button: #e5e2e1;
+  --fui-color-text-on-button-reverse: #141313;
+
+  --fui-color-outline-light: #404040;
+  --fui-color-outline-soft: #3a3a3a;
+  --fui-color-outline: #8e9192;
+  --fui-color-outline-variant: #444748;
+
+  --fui-color-button-container: #313131;
+  --fui-color-button-container-high: #3d3d3d;
+  --fui-color-button-container-accent: #2d3548;
+
+  --fui-color-hover-bg: #333333;
+
+  --fui-color-accent-yellow: #fcbd00;
+  --fui-color-accent-yellow-light: #3a321b;
+
+  --fui-color-notification-info-bg: #1e2a3a;
+  --fui-color-notification-info-border: #2d4a6f;
+  --fui-color-notification-info-text: #93c5fd;
+  --fui-color-notification-info-icon: #60a5fa;
+  --fui-color-notification-warning-bg: #3a321b;
+  --fui-color-notification-warning-border: #4a4020;
+  --fui-color-notification-warning-text: #fbbf24;
+  --fui-color-notification-warning-icon: #f59e0b;
+
+  --fui-color-badge-blue-bg: rgba(96, 165, 250, 0.15);
+  --fui-color-badge-blue-text: #60a5fa;
+  --fui-color-badge-green-bg: rgba(74, 222, 128, 0.15);
+  --fui-color-badge-green-text: #4ade80;
+  --fui-color-badge-yellow-bg: rgba(251, 191, 36, 0.15);
+  --fui-color-badge-yellow-text: #fbbf24;
+  --fui-color-badge-red-bg: rgba(248, 113, 113, 0.15);
+  --fui-color-badge-red-text: #f87171;
+
+  --fui-color-accent: #87a9ff;
+  --fui-color-accent-hover: #a5bfff;
+  --fui-color-accent-soft: rgba(96, 165, 250, 0.15);
+
+  --fui-color-switch-off: #3a3c40;
+  --fui-color-switch-on: var(--fui-color-accent);
+
+  --fui-color-chip-neutral-bg: #3a3c40;
+  --fui-color-chip-neutral-text: #c9cdd3;
+
+  --fui-color-badge-purple-bg: rgba(167, 139, 250, 0.15);
+  --fui-color-badge-purple-text: #a78bfa;
+  --fui-color-badge-teal-bg: rgba(45, 212, 191, 0.15);
+  --fui-color-badge-teal-text: #2dd4bf;
+  --fui-color-badge-orange-bg: rgba(251, 146, 60, 0.15);
+  --fui-color-badge-orange-text: #fb923c;
+
+  --fui-color-warning-text: #fbbf24;
+  --fui-color-error-text: #f87171;
+  --fui-color-success-text: #4ade80;
+  --fui-color-disabled-bg: #262626;
+  --fui-color-disabled-text: #747474;
+
+  --fui-color-danger: #ef4444;
+  --fui-color-danger-hover: #dc2626;
+
+  --fui-color-notification-error-bg: rgba(248, 113, 113, 0.15);
+  --fui-color-notification-error-border: rgba(248, 113, 113, 0.35);
+  --fui-color-notification-error-text: #f87171;
+  --fui-color-notification-success-bg: rgba(74, 222, 128, 0.15);
+  --fui-color-notification-success-border: rgba(74, 222, 128, 0.35);
+  --fui-color-notification-success-text: #4ade80;
+}
+
+/* Elevation tint: opt-in by the site via setAccent(color, { tintElev: true }),
+   which sets data-fui-tint-elev on <html>. Mixes the accent into the elevation
+   overlay by --fui-elev-accent-mix; the overlay's alpha is unchanged. */
+:root { --fui-elev-accent-mix: 10%; }
+@supports (color: rgb(from red r g b)) {
+  :root[data-fui-tint-elev] {
+    --fui-elev: rgb(from color-mix(in srgb, rgb(var(--fui-elev-rgb)) calc(100% - var(--fui-elev-accent-mix)), var(--fui-color-accent) var(--fui-elev-accent-mix)) r g b / var(--fui-elev-a));
+  }
+}

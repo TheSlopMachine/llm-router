@@ -5,8 +5,8 @@
   import Login from './pages/Login.svelte'
   import Bootstrap from './pages/Bootstrap.svelte'
   import Dashboard from './pages/Dashboard.svelte'
-  import Modal from './components/ui/composite/Modal.svelte'
-  import Toasts from './components/Toasts.svelte'
+  import Modal from './FUI/composite/Modal.svelte'
+  import Toasts from './FUI/composite/Toasts.svelte'
   import { startSecureHardening } from './lib/secure'
 
   type AppState = 'loading' | 'bootstrap' | 'login' | 'dashboard'
@@ -70,7 +70,7 @@
   <div class="splash">
     {#if error}
       <div style="max-width: 400px; text-align: center;">
-        <div style="font-size: var(--text-lg); font-weight: 600; margin-bottom: 16px;">llm-router</div>
+        <div style="font-size: var(--fui-text-lg); font-weight: 600; margin-bottom: 16px;">llm-router</div>
         <div class="error-msg">{error}</div>
       </div>
     {:else}
@@ -94,9 +94,9 @@
     align-items: center;
     justify-content: center;
     height: 100vh;
-    font-size: var(--text-lg);
+    font-size: var(--fui-text-lg);
     font-weight: 600;
-    color: var(--color-text-soft);
+    color: var(--fui-color-text-soft);
     letter-spacing: 0.1em;
   }
 </style>

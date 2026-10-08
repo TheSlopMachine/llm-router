@@ -1,3 +1,4 @@
+import { setTheme } from '../FUI/core/theme.svelte'
 export type Theme = 'auto' | 'light' | 'dark'
 
 const STORAGE_KEY = 'theme'
@@ -24,9 +25,9 @@ function applyTheme(theme: Theme): void {
 
   if (theme === 'auto') {
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-    root.classList.toggle('dark', prefersDark)
+    setTheme(prefersDark ? 'dark' : 'light')
   } else {
-    root.classList.toggle('dark', theme === 'dark')
+    setTheme(theme === 'dark' ? 'dark' : 'light')
   }
 }
 

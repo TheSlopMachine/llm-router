@@ -101,7 +101,7 @@
         <Button
           style="text"
           size="medium"
-          tint="var(--color-danger)"
+          tint="var(--fui-color-danger)"
           icon={{ name: 'delete' }}
           title={t('common.actions.delete')}
           ariaLabel={t('common.actions.delete')}
@@ -147,6 +147,6 @@
 
 <style>
   .plugin-card-row {
-    padding: var(--space-4);
+    padding: var(--fui-space-4);
   }
 </style>

@@ -1,0 +1,52 @@
+/* Site-level reset (formerly styles/base.css). FUI widgets do not depend on it. */
+/* Document-level base: reset, body typography, links. Nothing here styles a
+   widget (the icon font lives in ui/controls/Icon.svelte). Form-control
+   resets use :where() so their specificity is zero and any component rule
+   wins without a fight. */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--fui-font-normal);
+  font-size: var(--fui-text-base);
+  font-weight: 400;
+  line-height: var(--fui-leading-base);
+  background: var(--fui-color-background);
+  color: var(--fui-color-text);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--fui-color-text-link);
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+a:hover { text-decoration: underline; }
+
+/* Neutralise browser chrome on native controls, nothing more. The look of a
+   button / field belongs to Button / TextEdit / TextArea / Select. */
+:where(button) {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+:where(button:disabled) { cursor: not-allowed; }
+:where(input, select, textarea) {
+  font: inherit;
+  color: inherit;
+}
+
+/* Accessibility floor for raw focusable elements that no component owns.
+   Inset shadow, not outline: survives squircle clip-path. */
+:where(button, [role="button"]):focus-visible {
+  outline: none;
+  box-shadow: var(--fui-focus-ring);
+}
+:where(input, select, textarea):focus-visible {
+  outline: 2px solid var(--fui-color-accent);
+  outline-offset: 1px;
+}

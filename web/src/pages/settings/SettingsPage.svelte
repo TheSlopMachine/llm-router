@@ -9,11 +9,11 @@
   import { getErrorMessage } from '$lib/errors'
   import { accent, accents } from '$lib/accent.svelte'
   import { Button, HStack, SectionCard, Select, Spacer, Switch, Text, VStack, TextEdit, Banner, Icon, Chip } from '$ui'
-  import { squircle } from '$lib/squircle'
+  import { squircle } from '../../FUI/core/squircle'
   import type { Provider, SubsystemStats, DoctorReport } from '$lib/types'
-  import { toast } from '$lib/toast.svelte'
+  import { toast } from '../../FUI/core/toast.svelte'
   import { downloadJson, readJsonFile } from '$lib/download'
-  import { modal } from '$lib/modal.svelte'
+  import { modal } from '../../FUI/core/modal.svelte'
 
   let languageOptions = $derived([
     { value: 'auto', label: t('common.auto') },
@@ -380,7 +380,7 @@
             {/each}
           </VStack>
           <HStack justify="end">
-            <Button style="prominent" tint="var(--color-danger)" onclick={fixIssues} disabled={doctorFixing}>
+            <Button style="prominent" tint="var(--fui-color-danger)" onclick={fixIssues} disabled={doctorFixing}>
               {doctorFixing ? t('data.doctor.resolving') : t('data.doctor.clean')}
             </Button>
           </HStack>
@@ -409,7 +409,7 @@
               </VStack>
               <HStack gap={2}>
                 <Button size="small" icon={{ name: 'download' }} onclick={() => exportSubsystem(sub.key)}>{t('data.export')}</Button>
-                <Button size="small" style="text" tint="var(--color-danger)" icon={{ name: 'delete' }} onclick={() => clearSubsystem(sub.key)}>{t('data.clear')}</Button>
+                <Button size="small" style="text" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} onclick={() => clearSubsystem(sub.key)}>{t('data.clear')}</Button>
               </HStack>
             </HStack>
             <HStack gap={3} align="center" class="file-action-row">
@@ -443,7 +443,7 @@
 
         <HStack gap={2} align="center">
           <Button size="small" icon={{ name: 'download' }} onclick={() => exportIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.export')}</Button>
-          <Button size="small" style="text" tint="var(--color-danger)" icon={{ name: 'delete' }} onclick={() => purgeIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.purge_provider')}</Button>
+          <Button size="small" style="text" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} onclick={() => purgeIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.purge_provider')}</Button>
         </HStack>
 
         <HStack gap={3} align="center" class="file-action-row">
@@ -465,40 +465,40 @@
   .accent-grid {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-3);
+    gap: var(--fui-space-3);
   }
   .accent-swatch {
     width: 44px;
     height: 44px;
-    border-radius: var(--ctl-radius);
+    border-radius: var(--fui-ctl-radius);
     border: none;
-    font-size: var(--text-base);
+    font-size: var(--fui-text-base);
     font-weight: 700;
     cursor: pointer;
     padding: 0;
   }
   .accent-swatch.selected {
-    outline: 2px solid var(--color-text);
+    outline: 2px solid var(--fui-color-text);
     outline-offset: 2px;
   }
   :global(.issues-container), :global(.data-container) {
     width: 100%;
   }
   :global(.issue-row) {
-    padding: var(--space-3) var(--space-4);
-    background: var(--color-surface-container);
-    border-radius: var(--radius-md);
+    padding: var(--fui-space-3) var(--fui-space-4);
+    background: var(--fui-color-surface-container);
+    border-radius: var(--fui-radius-md);
   }
   :global(.subsystem-box) {
-    padding: var(--space-4);
-    background: var(--elev);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--color-outline-soft);
+    padding: var(--fui-space-4);
+    background: var(--fui-elev);
+    border-radius: var(--fui-radius-md);
+    border: 1px solid var(--fui-color-outline-soft);
   }
   :global(.file-action-row) {
-    margin-top: var(--space-2);
-    padding-top: var(--space-2);
-    border-top: 1px dashed var(--color-outline-soft);
+    margin-top: var(--fui-space-2);
+    padding-top: var(--fui-space-2);
+    border-top: 1px dashed var(--fui-color-outline-soft);
   }
   .file-input {
     display: none;
@@ -506,16 +506,16 @@
   .file-label {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-2);
+    gap: var(--fui-space-2);
     cursor: pointer;
-    background: var(--color-button-container);
-    padding: var(--space-2) var(--space-3);
-    border-radius: var(--ctl-radius);
-    font-size: var(--text-sm);
+    background: var(--fui-color-button-container);
+    padding: var(--fui-space-2) var(--fui-space-3);
+    border-radius: var(--fui-ctl-radius);
+    font-size: var(--fui-text-sm);
     font-weight: 500;
-    border: 1px solid var(--color-outline-soft);
+    border: 1px solid var(--fui-color-outline-soft);
   }
   .file-label:hover {
-    background: var(--color-button-container-high);
+    background: var(--fui-color-button-container-high);
   }
 </style>

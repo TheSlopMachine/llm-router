@@ -1,5 +1,6 @@
 <script lang="ts">
-  import Icon from '../../components/ui/controls/Icon.svelte'
+  import ModalitiesFlow from '../../components/domain/ModalitiesFlow.svelte'
+  import Icon from '../../FUI/controls/Icon.svelte'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -9,7 +10,7 @@
   import { takePendingClone } from '$lib/virtual-clone'
   import { isUnauthenticated } from '$lib/credential-state'
   import { intersectMembers, minPositive } from '$lib/model-aggregates'
-  import { Button, Chip, HStack, ModalitiesFlow, SectionCard, Select, Text, TextArea, TextEdit, VStack, Banner } from '$ui'
+  import { Button, Chip, HStack, SectionCard, Select, Text, TextArea, TextEdit, VStack, Banner } from '$ui'
 
   let { vmId = null } = $props<{ vmId: string | null }>()
 
@@ -300,7 +301,7 @@
                 {#if infoOf(id)?.context_window}<Text size="sm" tone="soft">{(infoOf(id)!.context_window! / 1000).toFixed(0)}k ctx</Text>{/if}
                 {#if infoOf(id)?.max_tokens}<Text size="sm" tone="soft">{(infoOf(id)!.max_tokens! / 1000).toFixed(0)}k out</Text>{/if}
               </VStack>
-              <Button tint="var(--color-danger)" style="text" icon={{ name: 'delete' }} ariaLabel={t('virtual.remove_model')} onclick={() => removeModel(i)} disabled={isManaged} />
+              <Button tint="var(--fui-color-danger)" style="text" icon={{ name: 'delete' }} ariaLabel={t('virtual.remove_model')} onclick={() => removeModel(i)} disabled={isManaged} />
             </div>
           {/each}
         </VStack>
@@ -351,7 +352,7 @@
     display: grid;
     grid-template-columns: 56px minmax(220px, 1fr) auto auto auto;
     align-items: center;
-    gap: var(--space-4);
+    gap: var(--fui-space-4);
   }
 
   .model-row[draggable='true'] {

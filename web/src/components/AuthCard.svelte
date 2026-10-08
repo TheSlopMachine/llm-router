@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
-  import VStack from './ui/layout/VStack.svelte'
-  import Text from './ui/controls/Text.svelte'
+  import VStack from '../FUI/layout/VStack.svelte'
+  import Text from '../FUI/controls/Text.svelte'
 
   // Shared auth shell for Bootstrap + Login. Owns the page wrap, card box,
   // brand mark, title and subtitle so the two pages share one stylesheet.
@@ -35,13 +35,13 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: var(--space-6);
-    background: var(--color-background);
+    padding: var(--fui-space-6);
+    background: var(--fui-color-background);
   }
   .auth-card {
-    background: var(--color-surface-container-high);
-    border-radius: var(--radius-lg);
-    padding: var(--space-6);
+    background: var(--fui-color-surface-container-high);
+    border-radius: var(--fui-radius-lg);
+    padding: var(--fui-space-6);
     width: 100%;
     max-width: 400px;
   }

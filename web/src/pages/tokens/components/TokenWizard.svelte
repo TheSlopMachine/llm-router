@@ -1,4 +1,6 @@
 <script lang="ts">
+  import ModelsTable from '../../../components/domain/ModelsTable.svelte'
+  import type { ModelsTableModel } from '../../../components/domain/ModelsTable.svelte'
   import { onMount } from 'svelte'
   import { untrack } from 'svelte'
   import { api } from '$lib/api'
@@ -6,14 +8,13 @@
   import { toggleSet } from '$lib/token-helpers'
   import { t, n } from '$lib/i18n.svelte'
   import type { Token, Provider, VirtualModel, AvailableModel, ProviderModel } from '$lib/types'
-  import type { ModalButton, StepperConfig } from '$lib/modal.svelte'
+  import type { ModalButton, StepperConfig } from '../../../FUI/core/modal.svelte'
   import { buildBackendTokenRules } from '$lib/token-rules'
   import { hasFullAccess, resolveWizardSubtitle, resolveStepValidity, resolveModelId } from '$lib/token-scope'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
   import { filterByFields } from '$lib/filter'
-  import { Switch, Checkbox, SearchField, Text, TextEdit, Spacer, ModelsTable, VStack, HStack, List, Banner } from '$ui'
-  import type { ModelsTableModel } from '$ui'
-  import TokenSuccessView from './TokenSuccessView.svelte'
+  import { Switch, Checkbox, SearchField, Text, TextEdit, Spacer, VStack, HStack, List, Banner } from '$ui'
+    import TokenSuccessView from './TokenSuccessView.svelte'
 
   let {
     providers,
@@ -515,9 +516,9 @@
     opacity: 0.55;
     pointer-events: none;
   }
-  .provider-row { display: block; padding: var(--space-4) var(--space-5); cursor: pointer; }
-  .head-check { margin-right: var(--space-5); display: grid; place-content: center; }
-  .head-check-even { margin: 0 var(--space-5); display: grid; place-content: center; }
+  .provider-row { display: block; padding: var(--fui-space-4) var(--fui-space-5); cursor: pointer; }
+  .head-check { margin-right: var(--fui-space-5); display: grid; place-content: center; }
+  .head-check-even { margin: 0 var(--fui-space-5); display: grid; place-content: center; }
   .switch-check-gap { flex: 0 0 30%; }
   .models-search { flex: 1 1 220px; min-width: 0; }
 </style>

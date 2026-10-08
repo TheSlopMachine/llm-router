@@ -446,7 +446,7 @@ export interface PluginUpdate {
 
 export type { ApiPath, ApiMethod, ApiResponse, ApiError, ApiRequestBody, ApiQueryParams } from './api-client'
 export { apiCall } from './api-client'
-export type { ModalButton, ModalMenu, ModalMenuAction } from './modal.svelte'
+export type { ModalButton, ModalMenu, ModalMenuAction } from '../FUI/core/modal.svelte'
 
 export interface SubsystemStats {
   providers: number

@@ -1,33 +1,16 @@
 <script lang="ts">
-  import { squircle } from '$lib/squircle'
+  import ModelsTable from '../../../components/domain/ModelsTable.svelte'
+  import { squircle } from '../../../FUI/core/squircle'
   import { t, tb } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
-  import { toast } from '$lib/toast.svelte'
+  import { toast } from '../../../FUI/core/toast.svelte'
   import { CAPABILITY_META, hasModalities } from '$lib/capabilities'
   import { filterByFields } from '$lib/filter'
   import type { Provider, ProviderModel, ProviderVMGroup, TestResult, VirtualModel } from '$lib/types'
   import { api } from '$lib/api'
-  import {
-    FloatingView,
-    Table,
-    ModelsTable,
-    CopyButton,
-    Button,
-    Spacer,
-    HStack,
-    VStack,
-    Text,
-    Switch,
-    Select,
-    FloatingList,
-    Picker,
-    SearchField,
-    TextEdit,
-    Banner,
-    ConfirmAction,
-  } from '$ui'
-  import EmptyState from '../../../components/EmptyState.svelte'
-  import type { ModelsTableModel } from '../../../components/ui/composite/ModelsTable.svelte'
+  import { FloatingView, Table, CopyButton, Button, Spacer, HStack, VStack, Text, Switch, Select, FloatingList, Picker, SearchField, TextEdit, Banner, ConfirmAction } from '$ui'
+  import EmptyState from '../../../FUI/composite/EmptyState.svelte'
+  import type { ModelsTableModel } from '../../../components/domain/ModelsTable.svelte'
 
   let { provider = $bindable(), onrefresh, credRevision = 0 } = $props<{
     provider: Provider | null
@@ -683,7 +666,7 @@
     {#if m.custom}
       <Button
         size="small"
-        tint="var(--color-danger)"
+        tint="var(--fui-color-danger)"
         icon={{ name: 'delete' }}
         title={t('models.actions.delete_custom')}
         ariaLabel={t('models.actions.delete_custom')}

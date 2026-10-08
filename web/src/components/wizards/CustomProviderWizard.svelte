@@ -4,9 +4,9 @@
   import { getErrorMessage } from '../../lib/errors'
   import { t } from '../../lib/i18n.svelte'
   import type { ModalButton, Provider } from '../../lib/types'
-  import TextEdit from '../ui/controls/TextEdit.svelte'
-  import Text from '../ui/controls/Text.svelte'
-  import VStack from '../ui/layout/VStack.svelte'
+  import TextEdit from '../../FUI/controls/TextEdit.svelte'
+  import Text from '../../FUI/controls/Text.svelte'
+  import VStack from '../../FUI/layout/VStack.svelte'
 
   let {
     editingProvider = null,

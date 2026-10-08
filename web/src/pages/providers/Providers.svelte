@@ -1,12 +1,12 @@
 <script lang="ts">
   import { Button, Text, Switch, List, Banner, Icon } from '$ui'
-  import EmptyState from '../../components/EmptyState.svelte'
+  import EmptyState from '../../FUI/composite/EmptyState.svelte'
   import { openFormModal } from '$lib/modal-helpers'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import { createListResource } from '$lib/list-resource.svelte'
   import CustomProviderWizard from '../../components/wizards/CustomProviderWizard.svelte'
-  import { squircle } from '$lib/squircle'
+  import { squircle } from '../../FUI/core/squircle'
   import type { Provider, ProviderStats } from '$lib/types'
   import { isSystemDisabled } from '$lib/credential-state'
   import { formatDisableReason } from '$lib/format'
@@ -132,12 +132,12 @@
     display: grid;
     align-items: center;
     padding: 10px 16px;
-    gap: var(--space-4);
+    gap: var(--fui-space-4);
   }
   .table-head {
-    font-size: var(--text-sm);
+    font-size: var(--fui-text-sm);
     font-weight: 600;
-    color: var(--color-text-soft);
+    color: var(--fui-color-text-soft);
   }
   .table-row {
     grid-template-columns: 44px minmax(0, 2fr) minmax(0, 0.8fr) minmax(0, 0.7fr) 72px;
@@ -146,11 +146,11 @@
   .row-clickable { cursor: pointer; }
 
   .row-clickable:hover {
-    background: var(--color-hover-bg);
+    background: var(--fui-color-hover-bg);
   }
 
   .row-clickable:focus-visible {
-    box-shadow: inset 0 0 0 2px var(--color-accent);
+    box-shadow: inset 0 0 0 2px var(--fui-color-accent);
     outline: none;
   }
 
@@ -176,10 +176,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--color-surface-container-highest);
+    background: var(--fui-color-surface-container-highest);
     border-radius: 10px;
-    font-size: var(--text-lg);
-    color: var(--color-text-soft);
+    font-size: var(--fui-text-lg);
+    color: var(--fui-color-text-soft);
     flex-shrink: 0;
   }
 
@@ -193,21 +193,21 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: var(--fui-space-1);
   }
 
   .display-name {
-    font-size: var(--text-base);
+    font-size: var(--fui-text-base);
     font-weight: 500;
-    color: var(--color-text);
+    color: var(--fui-color-text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .subtle {
-    color: var(--color-text-soft);
-    font-size: var(--text-sm);
+    color: var(--fui-color-text-soft);
+    font-size: var(--fui-text-sm);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -215,8 +215,8 @@
 
   .col-creds,
   .col-models {
-    font-size: var(--text-sm);
-    color: var(--color-text-soft);
+    font-size: var(--fui-text-sm);
+    color: var(--fui-color-text-soft);
     white-space: nowrap;
   }
 

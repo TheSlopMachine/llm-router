@@ -1,12 +1,13 @@
 <script lang="ts">
+  import ModelsTable from '../../components/domain/ModelsTable.svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import { createListResource } from '$lib/list-resource.svelte'
   import type { VirtualModel, AvailableModel } from '$lib/types'
   import { setPendingClone } from '$lib/virtual-clone'
   import { t } from '$lib/i18n.svelte'
-  import EmptyState from '../../components/EmptyState.svelte'
-  import { Button, FloatingView, ModelsTable, HStack, Switch, Text, VStack, Banner, ConfirmAction } from '$ui'
+  import EmptyState from '../../FUI/composite/EmptyState.svelte'
+  import { Button, FloatingView, HStack, Switch, Text, VStack, Banner, ConfirmAction } from '$ui'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
   import { isUnauthenticated } from '$lib/credential-state'
 
@@ -152,7 +153,7 @@
            <Button style="text" icon={{ name: 'content_copy' }} ariaLabel={t('tokens.actions.clone')} title={t('tokens.actions.clone')} size="small" onclick={() => clone(vm)} />
            {#if isEditableVm(vm)}
              <Button style="text" icon={{ name: 'edit' }} ariaLabel={t('common.actions.edit')} title={t('common.actions.edit')} size="small" onclick={() => openEdit(vm)} />
-             <Button style="text" tint="var(--color-danger)" icon={{ name: 'delete' }} ariaLabel={t('common.actions.delete')} title={t('common.actions.delete')} size="small" onclick={(e) => openDelete(vm, e.currentTarget as HTMLElement)} />
+             <Button style="text" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} ariaLabel={t('common.actions.delete')} title={t('common.actions.delete')} size="small" onclick={(e) => openDelete(vm, e.currentTarget as HTMLElement)} />
            {/if}
            <Switch
              checked={!vm.disabled}

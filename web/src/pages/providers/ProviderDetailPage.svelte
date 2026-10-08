@@ -1,22 +1,22 @@
 <script lang="ts">
   import { api } from '../../lib/api'
-  import { modal } from '../../lib/modal.svelte'
+  import { modal } from '../../FUI/core/modal.svelte'
   import { getErrorMessage } from '../../lib/errors'
-  import { toast } from '../../lib/toast.svelte'
+  import { toast } from '../../FUI/core/toast.svelte'
   import type { Credential, Provider, ProxyPool, TestResult, UINode } from '../../lib/types'
   import EditCredentialLabel from './components/EditCredentialLabel.svelte'
   import CustomProviderWizard from '../../components/wizards/CustomProviderWizard.svelte'
   import ProviderCredentialWizard from './components/ProviderCredentialWizard.svelte'
   import ModelsSection from './components/ModelsSection.svelte'
   import DynamicForm from '../../components/domain/DynamicForm.svelte'
-  import EmptyState from '../../components/EmptyState.svelte'
+  import EmptyState from '../../FUI/composite/EmptyState.svelte'
   import { Button, Chip, FloatingView, HStack, Image, Select, Spacer, Switch, Table, Text, VStack, Banner, ConfirmAction } from '$ui'
   import type { TableColumn } from '$ui'
-  import { squircle } from '$lib/squircle'
+  import { squircle } from '../../FUI/core/squircle'
   import { t } from '$lib/i18n.svelte'
   import { isAutoDisabled, isPluginDisabled } from '$lib/credential-state'
   import { formatDisableReason } from '$lib/format'
-  import { hasUiNodes } from '$lib/ui-guards'
+  import { hasUiNodes } from '../../FUI/core/ui-guards'
 
   let { providerId } = $props<{ providerId: string }>()
 
@@ -440,7 +440,7 @@
       {#if !provider.is_ui_readonly}
         <HStack gap={2}>
           <Button onclick={openEditProvider} icon={{ name: 'edit' }}>{t('common.actions.edit')}</Button>
-          <Button tint="var(--color-danger)" onclick={(e) => openDeleteProvider(e.currentTarget as HTMLElement)} icon={{ name: 'delete' }}>{t('common.actions.delete')}</Button>
+          <Button tint="var(--fui-color-danger)" onclick={(e) => openDeleteProvider(e.currentTarget as HTMLElement)} icon={{ name: 'delete' }}>{t('common.actions.delete')}</Button>
         </HStack>
       {/if}
       <Switch
@@ -517,7 +517,7 @@
                 onclick={() => testCredential(cred)}
               />
               <Button size="small" style="text" icon={{ name: 'edit' }} ariaLabel={t('credentials.edit')} title={t('credentials.edit')} onclick={() => openEditCredential(cred)} />
-              <Button size="small" tint="var(--color-danger)" style="text" icon={{ name: 'delete' }} ariaLabel={t('credentials.delete')} title={t('credentials.delete')} onclick={(e) => openDeleteCredential(cred, e.currentTarget as HTMLElement)} />
+              <Button size="small" tint="var(--fui-color-danger)" style="text" icon={{ name: 'delete' }} ariaLabel={t('credentials.delete')} title={t('credentials.delete')} onclick={(e) => openDeleteCredential(cred, e.currentTarget as HTMLElement)} />
               <Switch
                 checked={!cred.disabled}
                 ariaLabel={t('credentials.enable')}
@@ -632,7 +632,7 @@
 
   :global(.table-empty) {
     width: 100%;
-    padding: var(--space-4);
+    padding: var(--fui-space-4);
   }
 
   @media (max-width: 768px) {

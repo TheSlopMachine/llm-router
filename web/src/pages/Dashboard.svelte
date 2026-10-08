@@ -1,6 +1,6 @@
 <script lang="ts">
-  import Icon from '../components/ui/controls/Icon.svelte'
-  import Button from '../components/ui/controls/Button.svelte'
+  import Icon from '../FUI/controls/Icon.svelte'
+  import Button from '../FUI/controls/Button.svelte'
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
   import Metrics from './metrics/Metrics.svelte'
@@ -235,10 +235,10 @@
     overflow: hidden;
   }
   .sidebar {
-    width: var(--sidebar-w);
+    width: var(--fui-sidebar-w);
     flex-shrink: 0;
-    background: var(--color-sidebar-bg);
-    border-right: 1px solid var(--color-outline-light);
+    background: var(--fui-color-sidebar-bg);
+    border-right: 1px solid var(--fui-color-outline-light);
     display: flex;
     flex-direction: column;
     padding: 20px 0;
@@ -254,15 +254,15 @@
     align-items: center;
     justify-content: space-between;
     padding: 0 20px;
-    margin-bottom: var(--space-6);
+    margin-bottom: var(--fui-space-6);
     min-height: 24px;
   }
   .brand {
-    font-size: var(--text-sm);
+    font-size: var(--fui-text-sm);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--color-text);
+    color: var(--fui-color-text);
     white-space: nowrap;
     overflow: hidden;
     max-width: 200px;
@@ -282,17 +282,17 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: var(--space-2);
+    padding: var(--fui-space-2);
     border-radius: 6px;
-    color: var(--color-text-soft);
+    color: var(--fui-color-text-soft);
     background: none;
     border: none;
     cursor: pointer;
     transition: background-color 0.15s ease, transform 0.12s ease;
   }
   .collapse-btn:hover {
-    background: var(--color-nav-hover);
-    color: var(--color-text);
+    background: var(--fui-color-nav-hover);
+    color: var(--fui-color-text);
   }
   .collapse-btn:active {
     transform: scale(0.88);
@@ -321,20 +321,20 @@
   nav {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
-    padding: 0 var(--space-4);
+    gap: var(--fui-space-2);
+    padding: 0 var(--fui-space-4);
   }
   .nav-item {
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    gap: var(--space-3);
+    gap: var(--fui-space-3);
     text-align: left;
-    padding: var(--space-3) var(--space-4);
+    padding: var(--fui-space-3) var(--fui-space-4);
     border-radius: 8px;
-    font-size: var(--text-base);
+    font-size: var(--fui-text-base);
     font-weight: 500;
-    color: var(--color-text-soft);
+    color: var(--fui-color-text-soft);
     background: none;
     border: none;
     cursor: pointer;
@@ -349,32 +349,32 @@
     transform: scale(0.96);
   }
   .nav-item:hover {
-    background: var(--color-nav-hover);
-    color: var(--color-text);
+    background: var(--fui-color-nav-hover);
+    color: var(--fui-color-text);
   }
   .nav-item.active,
   .logout-btn.active {
-    background: var(--color-nav-active);
-    color: var(--color-text);
+    background: var(--fui-color-nav-active);
+    color: var(--fui-color-text);
   }
   .sidebar-footer {
     margin-top: auto;
-    padding: 0 var(--space-4);
+    padding: 0 var(--fui-space-4);
     display: flex;
     flex-direction: column;
-    gap: var(--space-3);
+    gap: var(--fui-space-3);
   }
   .logout-btn {
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    gap: var(--space-3);
+    gap: var(--fui-space-3);
     width: 100%;
     text-align: left;
-    padding: var(--space-3) var(--space-4);
+    padding: var(--fui-space-3) var(--fui-space-4);
     border-radius: 8px;
-    font-size: var(--text-base);
-    color: var(--color-text-soft);
+    font-size: var(--fui-text-base);
+    color: var(--fui-color-text-soft);
     background: none;
     border: none;
     cursor: pointer;
@@ -388,14 +388,14 @@
     transform: scale(0.96);
   }
   .logout-btn:hover {
-    color: var(--color-text);
-    background: var(--color-nav-hover);
+    color: var(--fui-color-text);
+    background: var(--fui-color-nav-hover);
   }
   .main {
     flex: 1;
     overflow-y: auto;
-    padding: var(--space-7);
-    background: var(--color-surface);
+    padding: var(--fui-space-7);
+    background: var(--fui-color-surface);
   }
   .main-content {
     width: 100%;
@@ -407,25 +407,25 @@
   .appbar {
     display: flex;
     align-items: center;
-    gap: var(--space-4);
+    gap: var(--fui-space-4);
     height: 52px;
-    padding: 0 var(--space-5);
+    padding: 0 var(--fui-space-5);
     flex-shrink: 0;
-    background: var(--color-sidebar-bg);
-    border-bottom: 1px solid var(--color-outline-light);
+    background: var(--fui-color-sidebar-bg);
+    border-bottom: 1px solid var(--fui-color-outline-light);
   }
   .appbar-brand {
-    font-size: var(--text-sm);
+    font-size: var(--fui-text-sm);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--color-text);
+    color: var(--fui-color-text);
   }
   .scrim {
     position: fixed;
     inset: 0;
     z-index: 30;
-    background: var(--overlay-scrim);
+    background: var(--fui-overlay-scrim);
     border: none;
     padding: 0;
     cursor: default;
@@ -449,7 +449,7 @@
     transition:
       transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
       visibility 0s linear 0.3s;
-    border-right: 1px solid var(--color-outline-soft);
+    border-right: 1px solid var(--fui-color-outline-soft);
   }
   .layout.mobile .sidebar.drawer-open {
     transform: translateX(0);
@@ -459,6 +459,6 @@
       visibility 0s;
   }
   .layout.mobile .main {
-    padding: var(--space-5);
+    padding: var(--fui-space-5);
   }
 </style>

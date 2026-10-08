@@ -1,13 +1,13 @@
 <script lang="ts">
   import { Button, FloatingView, HStack, VStack, Text, Switch, SearchField, TextEdit, List, SectionCard, Chip, Spacer, Banner, ConfirmAction } from '$ui'
-  import EmptyState from '../../../components/EmptyState.svelte'
+  import EmptyState from '../../../FUI/composite/EmptyState.svelte'
   import PluginCard from './PluginCard.svelte'
   import RepoDetailsModal from './RepoDetailsModal.svelte'
   import { createPluginState } from './plugin-state.svelte'
   import { diffAllowHosts } from './plugin-permission-diff'
   import type { Plugin, PluginRepo, PluginUpdate, StoreFile } from '$lib/types'
   import { api } from '$lib/api'
-  import { modal } from '$lib/modal.svelte'
+  import { modal } from '../../../FUI/core/modal.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
   import { matchesStoreFile, hasStoreOrigin, storeKey } from '$lib/plugin-search'
@@ -249,7 +249,7 @@
     <SectionCard title={t('plugins.updates_available')}>
       <List>
         {#each availableUpdates as u}
-          <div style="padding: var(--space-3) var(--space-4);">
+          <div style="padding: var(--fui-space-3) var(--fui-space-4);">
             <HStack align="center" gap={3}>
               <Text size="sm">{u.plugin_id}: {u.current} → {u.latest}</Text>
               <Spacer />
@@ -293,7 +293,7 @@
             {#if !entry.repo.builtin}
               <Button
                 style="text"
-                tint="var(--color-danger)"
+                tint="var(--fui-color-danger)"
                 icon={{ name: 'delete' }}
                 size="small"
                 onclick={(e) => openRemoveRepo(entry, e.currentTarget as HTMLElement)}

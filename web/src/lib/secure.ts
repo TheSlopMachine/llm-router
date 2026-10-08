@@ -6,7 +6,7 @@
 // Password fields (type="password" with autocomplete="current-password" / "new-password")
 // are intentionally NOT marked secure — password managers handle those separately.
 
-import { trackElements } from './observers'
+import { trackElements } from '../FUI/core/observers'
 
 function harden(el: HTMLInputElement | HTMLTextAreaElement): void {
   el.setAttribute('autocomplete', 'off')

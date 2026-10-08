@@ -1,21 +1,22 @@
 <script lang="ts">
+  import Link from '../../FUI/controls/Link.svelte'
   import type { UINode } from '../../lib/types'
-  import Banner from '../ui/composite/Banner.svelte'
-  import CodeBlock from '../ui/composite/CodeBlock.svelte'
-  import SectionCard from '../ui/composite/SectionCard.svelte'
-  import Grid from '../ui/layout/Grid.svelte'
-  import Box from '../ui/layout/Box.svelte'
-  import TextEdit from '../ui/controls/TextEdit.svelte'
-  import Select from '../ui/controls/Select.svelte'
-  import Switch from '../ui/controls/Switch.svelte'
-  import Text from '../ui/controls/Text.svelte'
-  import VStack from '../ui/layout/VStack.svelte'
-  import HStack from '../ui/layout/HStack.svelte'
-  import Spacer from '../ui/layout/Spacer.svelte'
-  import Divider from '../ui/controls/Divider.svelte'
-  import type { Align, Justify, Step } from '../ui/tokens'
-  import { isStepValue, isBannerVariant } from '../../lib/ui-guards'
-  import { isSecretInput } from '../../lib/button-state'
+  import Banner from '../../FUI/composite/Banner.svelte'
+  import CodeBlock from '../../FUI/composite/CodeBlock.svelte'
+  import SectionCard from '../../FUI/composite/SectionCard.svelte'
+  import Grid from '../../FUI/layout/Grid.svelte'
+  import Box from '../../FUI/layout/Box.svelte'
+  import TextEdit from '../../FUI/controls/TextEdit.svelte'
+  import Select from '../../FUI/controls/Select.svelte'
+  import Switch from '../../FUI/controls/Switch.svelte'
+  import Text from '../../FUI/controls/Text.svelte'
+  import VStack from '../../FUI/layout/VStack.svelte'
+  import HStack from '../../FUI/layout/HStack.svelte'
+  import Spacer from '../../FUI/layout/Spacer.svelte'
+  import Divider from '../../FUI/controls/Divider.svelte'
+  import type { Align, Justify, Step } from '../../FUI/tokens'
+  import { isStepValue, isBannerVariant } from '../../FUI/core/ui-guards'
+  import { isSecretInput } from '../../FUI/core/button-state'
 
   let {
     nodes,
@@ -64,7 +65,7 @@
 
 <script lang="ts" module>
   import type { UINode as UINodeType } from '../../lib/types'
-  import { isButtonVariant } from '../../lib/ui-guards'
+  import { isButtonVariant } from '../../FUI/core/ui-guards'
 
   // Collects button nodes in tree order for footer rendering.
   // DynamicForm itself never renders buttons; hosts own the footer.
@@ -130,7 +131,7 @@
         onchange={(v) => setValue(node.name ?? '', v)}
       />
     {:else if node.type === 'link'}
-      <Text size="base"><a href={node.url} target="_blank" rel="noopener noreferrer">{node.text || node.url}</a></Text>
+      <Text size="base"><Link href={node.url ?? ''} external text={node.text || node.url} /></Text>
     {:else if node.type === 'secret'}
       <VStack gap={1}>
         {#if node.label}

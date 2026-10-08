@@ -1,3 +1,4 @@
+import type { Plugin } from 'vite'
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 
@@ -6,13 +7,34 @@ const backendHost = process.env.VITE_BACKEND_HOST || 'localhost'
 const backendPort = process.env.VITE_BACKEND_PORT || '38473'
 const backendTarget = `http://${backendHost}:${backendPort}`
 
+
+// Preload the (hashed) icon font so icons never flash as raw ligature text.
+function preloadIconFont(): Plugin {
+  return {
+    name: 'fui-preload-icon-font',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, ctx) {
+        const bundle = ctx.bundle
+        if (!bundle) return html
+        const file = Object.keys(bundle).find((k) => /material-symbols-outlined.*\.woff2$/.test(k))
+        if (!file) return html
+        return {
+          html,
+          tags: [{ tag: 'link', attrs: { rel: 'preload', as: 'font', type: 'font/woff2', crossorigin: '', href: '/' + file }, injectTo: 'head-prepend' }],
+        }
+      },
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [
+  plugins: [preloadIconFont(), 
     svelte(),
   ],
   resolve: {
     alias: {
-      $ui: '/src/components/ui/index.ts',
+      $ui: '/src/FUI/index.ts',
       $lib: '/src/lib',
     },
   },

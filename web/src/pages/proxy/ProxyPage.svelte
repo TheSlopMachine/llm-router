@@ -1,7 +1,7 @@
 <script lang="ts">
   import { VStack, HStack, Text, Button, Table, SectionCard, Spacer, Chip, FloatingView, Banner, ConfirmAction, Select } from '$ui'
   import type { TableColumn } from '$ui'
-  import EmptyState from '../../components/EmptyState.svelte'
+  import EmptyState from '../../FUI/composite/EmptyState.svelte'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { openFormModal } from '$lib/modal-helpers'
@@ -361,7 +361,7 @@
             />
             <Button
               style="text"
-              tint="var(--color-danger)"
+              tint="var(--fui-color-danger)"
               size="small"
               icon={{ name: 'delete' }}
               title={t('common.actions.delete')}

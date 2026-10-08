@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Button, TextArea, Picker, Banner } from '$ui'
-  import EmptyState from '../../../components/EmptyState.svelte'
+  import EmptyState from '../../../FUI/composite/EmptyState.svelte'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -271,21 +271,21 @@
   .entry-switch {
     display: flex;
     justify-content: center;
-    margin-bottom: var(--space-5);
+    margin-bottom: var(--fui-space-5);
   }
 
   .form-text {
-    font-size: var(--text-base);
-    color: var(--color-text-soft);
+    font-size: var(--fui-text-base);
+    color: var(--fui-color-text-soft);
   }
 
   .form-group label {
-    font-size: var(--text-sm);
+    font-size: var(--fui-text-sm);
     font-weight: 500;
   }
   .form-actions {
     display: flex;
-    gap: var(--space-3);
-    margin-top: var(--space-4);
+    gap: var(--fui-space-3);
+    margin-top: var(--fui-space-4);
   }
 </style>

@@ -1,44 +1,44 @@
 <script lang="ts">
-  import Switch from '../components/ui/controls/Switch.svelte'
-  import Button from '../components/ui/controls/Button.svelte'
-  import Picker from '../components/ui/controls/Picker.svelte'
-  import SearchField from '../components/ui/controls/SearchField.svelte'
-  import TextEdit from '../components/ui/controls/TextEdit.svelte'
-  import TextArea from '../components/ui/controls/TextArea.svelte'
-  import SectionCard from '../components/ui/composite/SectionCard.svelte'
-  import CodeBlock from '../components/ui/composite/CodeBlock.svelte'
+  import Switch from '../FUI/controls/Switch.svelte'
+  import Button from '../FUI/controls/Button.svelte'
+  import Picker from '../FUI/controls/Picker.svelte'
+  import SearchField from '../FUI/controls/SearchField.svelte'
+  import TextEdit from '../FUI/controls/TextEdit.svelte'
+  import TextArea from '../FUI/controls/TextArea.svelte'
+  import SectionCard from '../FUI/composite/SectionCard.svelte'
+  import CodeBlock from '../FUI/composite/CodeBlock.svelte'
   import DynamicForm from '../components/domain/DynamicForm.svelte'
-  import Select from '../components/ui/controls/Select.svelte'
-  import FloatingList from '../components/ui/controls/FloatingList.svelte'
-  import FloatingView from '../components/ui/controls/FloatingView.svelte'
-  import Chip from '../components/ui/controls/Chip.svelte'
-  import Banner from '../components/ui/composite/Banner.svelte'
-  import Icon from '../components/ui/controls/Icon.svelte'
-  import Checkbox from '../components/ui/controls/Checkbox.svelte'
-  import Divider from '../components/ui/controls/Divider.svelte'
-  import Image from '../components/ui/controls/Image.svelte'
-  import Stack from '../components/ui/layout/Stack.svelte'
-  import HStack from '../components/ui/layout/HStack.svelte'
-  import ZStack from '../components/ui/layout/ZStack.svelte'
-  import Grid from '../components/ui/layout/Grid.svelte'
-  import Spacer from '../components/ui/layout/Spacer.svelte'
-  import ScrollView from '../components/ui/layout/ScrollView.svelte'
-  import Box from '../components/ui/layout/Box.svelte'
-  import List from '../components/ui/composite/List.svelte'
-  import CopyButton from '../components/ui/composite/CopyButton.svelte'
-  import StepsView from '../components/ui/composite/StepsView.svelte'
-  import ModalitiesFlow from '../components/ui/composite/ModalitiesFlow.svelte'
+  import Select from '../FUI/controls/Select.svelte'
+  import FloatingList from '../FUI/controls/FloatingList.svelte'
+  import FloatingView from '../FUI/controls/FloatingView.svelte'
+  import Chip from '../FUI/controls/Chip.svelte'
+  import Banner from '../FUI/composite/Banner.svelte'
+  import Icon from '../FUI/controls/Icon.svelte'
+  import Checkbox from '../FUI/controls/Checkbox.svelte'
+  import Divider from '../FUI/controls/Divider.svelte'
+  import Image from '../FUI/controls/Image.svelte'
+  import Stack from '../FUI/layout/Stack.svelte'
+  import HStack from '../FUI/layout/HStack.svelte'
+  import ZStack from '../FUI/layout/ZStack.svelte'
+  import Grid from '../FUI/layout/Grid.svelte'
+  import Spacer from '../FUI/layout/Spacer.svelte'
+  import ScrollView from '../FUI/layout/ScrollView.svelte'
+  import Box from '../FUI/layout/Box.svelte'
+  import List from '../FUI/composite/List.svelte'
+  import CopyButton from '../FUI/composite/CopyButton.svelte'
+  import StepsView from '../FUI/composite/StepsView.svelte'
+  import ModalitiesFlow from '../components/domain/ModalitiesFlow.svelte'
   import { t } from '../lib/i18n.svelte'
   import { VStack, Text } from '$ui'
-  import Table from '../components/ui/composite/Table.svelte'
-  import type { TableColumn, TableSortDir } from '../components/ui/composite/Table.svelte'
-  import ModelsTable from '../components/ui/composite/ModelsTable.svelte'
-  import type { ModelsTableModel } from '../components/ui/composite/ModelsTable.svelte'
-  import { modal } from '../lib/modal.svelte'
-  import { toast } from '../lib/toast.svelte'
+  import Table from '../FUI/composite/Table.svelte'
+  import type { TableColumn, TableSortDir } from '../FUI/composite/Table.svelte'
+  import ModelsTable from '../components/domain/ModelsTable.svelte'
+  import type { ModelsTableModel } from '../components/domain/ModelsTable.svelte'
+  import { modal } from '../FUI/core/modal.svelte'
+  import { toast } from '../FUI/core/toast.svelte'
   import { theme } from '../lib/theme.svelte'
-  import { squircle } from '../lib/squircle'
-  import { tintSoft } from '../lib/tint'
+  import { squircle } from '../FUI/core/squircle'
+  import { tintSoft } from '../FUI/core/tint'
   import type { UINode } from '../lib/types'
 
   // Buttons
@@ -484,7 +484,7 @@
       label="Demo actions"
       actions={[
         { id: 'edit', label: 'Edit', icon: 'edit' },
-        { id: 'delete', label: 'Delete', icon: 'delete', tint: 'var(--color-danger)' },
+        { id: 'delete', label: 'Delete', icon: 'delete', tint: 'var(--fui-color-danger)' },
       ]}
       onaction={(id) => { lastAction = id }}
     />
@@ -498,7 +498,7 @@
     <Button
       text="Delete item…"
       icon={{ name: 'delete' }}
-      tint="var(--color-danger)"
+      tint="var(--fui-color-danger)"
       onclick={(e) => {
         floatingConfirmAnchor = e.currentTarget as HTMLElement
         floatingConfirmOpen = !floatingConfirmOpen
@@ -520,7 +520,7 @@
             <Button
               size="small"
               style="prominent"
-              tint="var(--color-danger)"
+              tint="var(--fui-color-danger)"
               onclick={() => { floatingConfirmResult = 'confirmed'; close() }}
             >
               Delete
@@ -804,42 +804,42 @@
   .tint-swatch {
     display: inline-flex;
     padding: 6px 12px;
-    border-radius: var(--radius-md);
-    font-size: var(--text-sm);
+    border-radius: var(--fui-radius-md);
+    font-size: var(--fui-text-sm);
     font-weight: 500;
   }
   /* Composer owns spacing: widgets render marginless, the stack gaps them. */
   .uit-stack {
     display: flex;
     flex-direction: column;
-    gap: var(--space-6);
+    gap: var(--fui-space-6);
   }
   .uit-stack > .page-header {
-    margin-bottom: var(--space-3);
+    margin-bottom: var(--fui-space-3);
   }
   .row {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-4);
+    gap: var(--fui-space-4);
     align-items: center;
-    margin-bottom: var(--space-5);
+    margin-bottom: var(--fui-space-5);
   }
   .uit-empty-note {
-    color: var(--color-text-soft);
-    font-size: var(--text-sm);
+    color: var(--fui-color-text-soft);
+    font-size: var(--fui-text-sm);
   }
   .row:last-child {
     margin-bottom: 0;
   }
   .demo-table {
-    margin-bottom: var(--space-5);
-    border-radius: var(--radius-lg);
+    margin-bottom: var(--fui-space-5);
+    border-radius: var(--fui-radius-lg);
     overflow: hidden;
   }
   .confirm-col {
     display: flex;
     flex-direction: column;
-    gap: var(--space-3);
+    gap: var(--fui-space-3);
     align-items: flex-start;
   }
 </style>

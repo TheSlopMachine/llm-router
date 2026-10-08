@@ -14,8 +14,8 @@
     "isolatedModules": true,
     "types": ["vite/client"],
     "paths": {
-      "$ui": ["./src/components/ui/index.ts"],
-      "$ui/*": ["./src/components/ui/*"],
+      "$ui": ["./src/FUI/index.ts"],
+      "$ui/*": ["./src/FUI/*"],
       "$lib/*": ["./src/lib/*"]
     }
   },

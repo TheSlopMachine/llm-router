@@ -1,0 +1,10 @@
+/* FUI page baseline: OPTIONAL. Zero specificity (:where), so any site rule wins.
+   Widgets do not depend on this file for layout: each one carries its own
+   box-sizing / margin / padding reset. Priority: widget internals > tokens > site. */
+:where(body) {
+  font-family: var(--fui-font-normal);
+  font-size: var(--fui-text-base);
+  background: var(--fui-color-background);
+  color: var(--fui-color-text);
+  -webkit-font-smoothing: antialiased;
+}

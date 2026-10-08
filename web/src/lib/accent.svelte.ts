@@ -1,3 +1,4 @@
+import { setAccent } from '../FUI/core/accent.svelte'
 // Accent color: user-picked in Settings, persisted per browser, applied to
 // both themes. Widgets read --color-accent (+hover/soft) and
 // --color-text-on-button-reverse; inline properties beat theme rules, so one
@@ -36,21 +37,11 @@ function getInitialAccent(): Accent {
   return accents[0]
 }
 
-// --color-accent-soft: the accent at 10% alpha, used for tint fills.
-function softOf(hex: string): string {
-  const r = parseInt(hex.slice(1, 3), 16)
-  const g = parseInt(hex.slice(3, 5), 16)
-  const b = parseInt(hex.slice(5, 7), 16)
-  return `rgba(${r}, ${g}, ${b}, 0.1)`
-}
+// Site decision: should elevation overlays pick up the accent?
+const ELEV_TINT = false
 
 function applyAccent(a: Accent): void {
-  if (typeof window === 'undefined') return
-  const root = document.documentElement
-  root.style.setProperty('--color-accent', a.bg)
-  root.style.setProperty('--color-accent-hover', a.hover)
-  root.style.setProperty('--color-accent-soft', softOf(a.bg))
-  root.style.setProperty('--color-text-on-button-reverse', a.text)
+  setAccent(a.bg, { hover: a.hover, text: a.text, tintElev: ELEV_TINT })
 }
 
 let current = $state<Accent>(getInitialAccent())

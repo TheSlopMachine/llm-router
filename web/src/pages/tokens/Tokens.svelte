@@ -1,9 +1,9 @@
 <script lang="ts">
   import { Button, CodeBlock, FloatingView, HStack, Table, Text, TextEdit, VStack, Banner, ConfirmAction } from '$ui'
   import type { TableColumn } from '$ui'
-  import EmptyState from '../../components/EmptyState.svelte'
+  import EmptyState from '../../FUI/composite/EmptyState.svelte'
   import { api } from '$lib/api'
-  import { modal } from '$lib/modal.svelte'
+  import { modal } from '../../FUI/core/modal.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { formatRelativeTime } from '$lib/time'
   import { createListResource } from '$lib/list-resource.svelte'
@@ -200,7 +200,7 @@
           />
           <Button
             style="text"
-            tint="var(--color-danger)"
+            tint="var(--fui-color-danger)"
             size="small"
             icon={{ name: 'delete' }}
             title={t('tokens.actions.revoke')}

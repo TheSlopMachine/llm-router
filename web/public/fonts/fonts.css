@@ -24,10 +24,3 @@
   src: url('/fonts/redhat-mono-variable.woff2') format('woff2-variations');
 }
 
-@font-face {
-  font-family: 'Material Symbols Outlined';
-  font-style: normal;
-  font-weight: 300;
-  font-display: block;
-  src: url('/fonts/material-symbols-outlined.woff2') format('woff2');
-}
