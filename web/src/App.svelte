@@ -35,7 +35,7 @@
         appState = 'login'
       } else {
         if (path !== '/') {
-          window.location.replace('/#/metrics')
+          window.location.replace('/' + (window.location.hash || '#/metrics'))
           return
         }
         if (!window.location.hash) {

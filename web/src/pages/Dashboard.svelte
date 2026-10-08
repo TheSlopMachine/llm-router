@@ -14,6 +14,7 @@
   import VirtualModels from './virtual-models/VirtualModels.svelte'
   import SettingsPage from './settings/SettingsPage.svelte'
   import UiTest from './UiTest.svelte'
+  import UiTestNew from './UiTestNew.svelte'
   import type { PluginsTab } from './plugins/Plugins.svelte'
   import { t } from '../lib/i18n.svelte'
 
@@ -22,7 +23,7 @@
   // One source of truth: the tuple drives both the type and the runtime
   // validation below. Previously the same nine ids were written twice and
   // drifted apart the moment a section was added.
-  const PANELS = ['metrics', 'providers', 'models', 'virtual', 'tokens', 'plugins', 'proxy', 'settings', 'ui-test'] as const
+  const PANELS = ['metrics', 'providers', 'models', 'virtual', 'tokens', 'plugins', 'proxy', 'settings', 'ui-test', 'ui-test-new'] as const
   type PanelId = (typeof PANELS)[number]
 
   interface NavItem {
@@ -223,6 +224,8 @@
         <SettingsPage />
       {:else if panel === 'ui-test'}
         <UiTest />
+      {:else if panel === 'ui-test-new'}
+        <UiTestNew />
       {/if}
     </div>
   </main>
