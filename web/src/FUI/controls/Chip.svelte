@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte'
-  import { squircle } from '../core/squircle'
+  import { squircleAuto } from '../core/squircle-baked'
 
   // Static tag. Never interactive: toggling is a small Button's job.
   // `color` keeps the historical 'chip-<hue>' strings (lib/capabilities,
@@ -26,7 +26,7 @@
   const hue = $derived(color.replace(/^chip-/, ''))
 </script>
 
-<span use:squircle class="chip" data-hue={hue} data-size={size} class:icon-only={!text} {title}>
+<span use:squircleAuto={{ bake: text ? undefined : `chip-icon-${size}`, fonts: true }} class="chip" data-hue={hue} data-size={size} class:icon-only={!text} {title}>
   {#if icon && iconSide === 'left'}<Icon name={icon} />{/if}
   {#if text}<span class="label">{text}</span>{/if}
   {#if icon && iconSide === 'right'}<Icon name={icon} />{/if}
@@ -41,11 +41,11 @@
     display: inline-flex;
     align-items: center;
     gap: var(--fui-space-2);
-    padding: 6px 12px;
+    padding: var(--fui-chip-pad-y) var(--fui-chip-pad-x);
     border-radius: var(--fui-radius-md);
     font-size: var(--fui-text-sm);
     font-weight: 500;
-    line-height: 18px;
+    line-height: var(--fui-chip-line);
     white-space: nowrap;
     background: var(--_bg);
     color: var(--_fg);
@@ -64,22 +64,22 @@
 
   /* sizes: sm 20px / base 24px / lg 28px row height */
   .chip[data-size='small'] {
-    padding: 5px 10px;
-    border-radius: 10px;
-    font-size: 10px;
-    line-height: 14px;
+    padding: var(--fui-chip-sm-pad-y) var(--fui-chip-sm-pad-x);
+    border-radius: var(--fui-chip-sm-radius);
+    font-size: var(--fui-chip-sm-text);
+    line-height: var(--fui-chip-sm-line);
   }
-  .chip[data-size='small'] :global(.icon) { font-size: 10px; }
+  .chip[data-size='small'] :global(.icon) { font-size: var(--fui-chip-sm-text); }
   .chip[data-size='large'] {
-    padding: 7px 14px;
-    border-radius: 14px;
+    padding: var(--fui-chip-md-pad-y) var(--fui-chip-md-pad-x);
+    border-radius: var(--fui-chip-md-radius);
     font-size: var(--fui-text-base);
-    line-height: 20px;
+    line-height: var(--fui-chip-md-line);
   }
   .chip[data-size='large'] :global(.icon) { font-size: var(--fui-text-base); }
 
   /* icon-only: geometry scales with size */
-  .chip.icon-only { padding: 3px; border-radius: 8px; }
-  .chip.icon-only[data-size='small'] { padding: 2px; border-radius: 6px; }
-  .chip.icon-only[data-size='large'] { padding: 4px; border-radius: 12px; }
+  .chip.icon-only { padding: var(--fui-chip-icon-pad); border-radius: var(--fui-chip-icon-radius); }
+  .chip.icon-only[data-size='small'] { padding: var(--fui-chip-icon-sm-pad); border-radius: var(--fui-chip-icon-sm-radius); }
+  .chip.icon-only[data-size='large'] { padding: var(--fui-chip-icon-lg-pad); border-radius: var(--fui-chip-icon-lg-radius); }
 </style>

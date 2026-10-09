@@ -7,6 +7,7 @@
   import Button from './Button.svelte'
   import Icon from './Icon.svelte'
   import { resolveInputType } from '../core/button-state'
+  import { fillStyle, type FillSize } from '../tokens'
 
   export interface TrailingAction {
     icon: string
@@ -28,6 +29,7 @@
     ariaLabel,
     onchange,
     onvalid,
+    fill,
     class: cls = '',
     ...rest
   } = $props<{
@@ -47,6 +49,7 @@
     ariaLabel?: string
     onchange?: (value: string) => void
     onvalid?: (valid: boolean) => void
+    fill?: FillSize
     class?: string
     [key: string]: unknown
   }>()
@@ -92,9 +95,8 @@
 </script>
 
 <!-- TextEdit has a single height by design (--ctl-medium). -->
-<div class="text-edit {cls}" class:disabled class:invalid={showInvalid}>
-  <div class="bg" use:squircle={12} aria-hidden="true"></div>
-  <div class="tint" use:squircle={12} aria-hidden="true"></div>
+<div class="text-edit {cls}" class:disabled class:invalid={showInvalid} style:flex={fillStyle(fill)} style:min-width={fill == null || fill === false ? undefined : '0'}>
+  <div class="bg" use:squircle aria-hidden="true"><div class="tint"></div></div>
   {#if resolvedLeading}
     <span class="leading" class:leading-static={leadingStatic} aria-hidden="true">
       <Icon name={resolvedLeading} size="base" />
@@ -175,9 +177,10 @@
     position: relative;
     display: flex;
     align-items: center;
+    min-width: 0;
     height: var(--fui-ctl-medium);
     padding: var(--fui-field-pad-h) var(--fui-field-pad-h);
-    border: 1px solid transparent;
+    border: var(--fui-border-w) solid transparent;
     border-radius: var(--fui-ctl-radius);
   }
   .bg {
@@ -191,19 +194,18 @@
   .tint {
     position: absolute;
     inset: 0;
-    border-radius: var(--fui-ctl-radius);
     background:
       linear-gradient(var(--fui-color-accent-soft), var(--fui-color-accent-soft)),
       var(--fui-elev);
     opacity: 0;
-    transition: opacity 0.15s ease;
+    transition: opacity var(--fui-dur-base) ease;
   }
   .text-edit > :not(.bg):not(.tint) {
     position: relative;
   }
 
   .text-edit.disabled {
-    opacity: 0.6;
+    opacity: var(--fui-opacity-dim);
   }
 
   /* Focus glow and invalid marking tint the tint layer only. */
@@ -230,7 +232,7 @@
     outline: none;
     font-family: inherit;
     font-size: var(--fui-text-base);
-    line-height: 20px;
+    line-height: var(--fui-select-line);
     color: var(--fui-color-text);
   }
 
@@ -242,15 +244,15 @@
     justify-content: center;
     flex-shrink: 0;
     padding: var(--fui-space-2);
-    margin-right: 6px;
-    max-width: 48px;
+    margin-right: var(--fui-textedit-icon-gap);
+    max-width: var(--fui-textedit-collapsed-w);
     overflow: hidden;
     transition:
-      max-width 0.2s ease-in,
-      padding 0.2s ease-in,
-      margin 0.2s ease-in,
-      opacity 0.15s ease-in,
-      transform 0.15s ease-in;
+      max-width var(--fui-dur-base) ease-in,
+      padding var(--fui-dur-base) ease-in,
+      margin var(--fui-dur-base) ease-in,
+      opacity var(--fui-dur-base) ease-in,
+      transform var(--fui-dur-base) ease-in;
   }
   .leading :global(.icon) {
     line-height: var(--fui-leading-base);
@@ -280,13 +282,13 @@
     overflow: hidden;
     pointer-events: none;
     transition:
-      max-width 0.2s ease-in,
-      opacity 0.18s ease-in,
-      transform 0.18s ease-in;
+      max-width var(--fui-dur-base) ease-in,
+      opacity var(--fui-dur-base) ease-in,
+      transform var(--fui-dur-base) ease-in;
   }
   .text-edit:focus-within .trailing {
     /* generous ceiling: real width is intrinsic, this only unlocks it */
-    max-width: 200px;
+    max-width: var(--fui-textedit-expanded-w);
     opacity: 1;
     pointer-events: auto;
   }
@@ -294,12 +296,12 @@
   /* Clear zoom: ease-in both ways, collapses its slot when hidden. */
   .clear {
     overflow: hidden;
-    max-width: 22px;
+    max-width: var(--fui-textedit-icon-box);
     transition:
-      transform 0.15s ease-in,
-      opacity 0.15s ease-in,
-      max-width 0.15s ease-in,
-      margin 0.15s ease-in;
+      transform var(--fui-dur-base) ease-in,
+      opacity var(--fui-dur-base) ease-in,
+      max-width var(--fui-dur-base) ease-in,
+      margin var(--fui-dur-base) ease-in;
   }
   .clear-hidden {
     transform: scale(0);

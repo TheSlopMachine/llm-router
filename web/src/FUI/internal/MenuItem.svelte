@@ -46,13 +46,13 @@
     align-items: center;
     justify-content: flex-start;
     width: 100%;
-    padding: 6px 12px;
+    padding: var(--fui-menu-item-pad-y) var(--fui-menu-item-pad-x);
     font-size: var(--fui-text-base);
     font-weight: 400;
-    line-height: 21px;
+    line-height: var(--fui-menu-item-line);
     text-align: left;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--fui-menu-item-radius);
     background: transparent;
     color: var(--fui-color-text);
     cursor: pointer;
@@ -73,7 +73,7 @@
     box-shadow: var(--fui-focus-ring);
   }
   .item:disabled {
-    opacity: 0.5;
+    opacity: var(--fui-opacity-muted);
     cursor: not-allowed;
   }
 </style>

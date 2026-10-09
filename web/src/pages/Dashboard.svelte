@@ -16,7 +16,9 @@
   import UiTest from './UiTest.svelte'
   import UiTestNew from './UiTestNew.svelte'
   import type { PluginsTab } from './plugins/Plugins.svelte'
+  import type { ProxyTab } from './proxy/ProxyPage.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { BP_NARROW, BP_MOBILE } from '../lib/breakpoints'
 
   let { onlogout } = $props<{ onlogout: () => void }>()
 
@@ -100,6 +102,14 @@
     window.location.hash = '#/plugins/' + next
   }
 
+  let proxyTab = $derived<ProxyTab>(
+    routeSegments[0] === 'sources' ? 'sources' : routeSegments[0] === 'pools' ? 'pools' : 'status'
+  )
+
+  function selectProxyTab(next: ProxyTab): void {
+    window.location.hash = '#/proxy/' + next
+  }
+
   const SIDEBAR_KEY = 'llmr_sidebar_collapsed'
   let collapsedOverride = $state<boolean | null>(
     localStorage.getItem(SIDEBAR_KEY) === null ? null : localStorage.getItem(SIDEBAR_KEY) === '1'
@@ -113,8 +123,8 @@
   let collapsed = $derived(collapsedOverride ?? (narrow && !mobile))
 
   onMount(() => {
-    const narrowMql = window.matchMedia('(max-width: 1024px)')
-    const mobileMql = window.matchMedia('(max-width: 768px)')
+    const narrowMql = window.matchMedia(`(max-width: ${BP_NARROW}px)`)
+    const mobileMql = window.matchMedia(`(max-width: ${BP_MOBILE}px)`)
     narrow = narrowMql.matches
     mobile = mobileMql.matches
     const onNarrow = (e: MediaQueryListEvent) => { narrow = e.matches }
@@ -219,7 +229,7 @@
       {:else if panel === 'plugins'}
         <Plugins tab={pluginsTab} ontabchange={selectPluginsTab} />
       {:else if panel === 'proxy'}
-        <ProxyPage />
+        <ProxyPage tab={proxyTab} ontabchange={selectProxyTab} />
       {:else if panel === 'settings'}
         <SettingsPage />
       {:else if panel === 'ui-test'}
@@ -235,20 +245,21 @@
   .layout {
     display: flex;
     height: 100vh;
+    height: 100dvh;
     overflow: hidden;
   }
   .sidebar {
     width: var(--fui-sidebar-w);
     flex-shrink: 0;
     background: var(--fui-color-sidebar-bg);
-    border-right: 1px solid var(--fui-color-outline-light);
+    border-right: var(--fui-border-w) solid var(--fui-color-outline-light);
     display: flex;
     flex-direction: column;
-    padding: 20px 0;
-    transition: width 0.28s cubic-bezier(0.3, 1.15, 0.5, 1);
+    padding: var(--fui-dashboard-pad-y) 0;
+    transition: width var(--fui-dur-slow) var(--fui-ease-spring);
   }
   .sidebar.collapsed {
-    width: 68px;
+    width: var(--fui-sidebar-w-rail);
   }
   /* Padding and justify stay constant in both states: when the brand
      collapses to zero width, the toggle button lands exactly centered. */
@@ -256,42 +267,42 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 20px;
+    padding: 0 var(--fui-dashboard-pad-x);
     margin-bottom: var(--fui-space-6);
-    min-height: 24px;
+    min-height: var(--fui-dashboard-brand-h);
   }
   .brand {
     font-size: var(--fui-text-sm);
     font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: var(--fui-tracking-caps);
     text-transform: uppercase;
     color: var(--fui-color-text);
     white-space: nowrap;
     overflow: hidden;
-    max-width: 200px;
+    max-width: var(--fui-dashboard-brand-max);
     opacity: 1;
     transform: translateX(0);
     transition:
-      max-width 0.28s cubic-bezier(0.3, 1.15, 0.5, 1),
-      opacity 0.15s ease,
-      transform 0.22s ease;
+      max-width var(--fui-dur-slow) var(--fui-ease-spring),
+      opacity var(--fui-dur-base) ease,
+      transform var(--fui-dur-base) ease;
   }
   .sidebar.collapsed .brand {
     max-width: 0;
     opacity: 0;
-    transform: translateX(-10px);
+    transform: translateX(calc(var(--fui-dashboard-shift) * -1));
   }
   .collapse-btn {
     display: flex;
     align-items: center;
     justify-content: center;
     padding: var(--fui-space-2);
-    border-radius: 6px;
+    border-radius: var(--fui-dashboard-collapse-radius);
     color: var(--fui-color-text-soft);
     background: none;
     border: none;
     cursor: pointer;
-    transition: background-color 0.15s ease, transform 0.12s ease;
+    transition: background-color var(--fui-dur-base) ease, transform var(--fui-dur-fast) ease;
   }
   .collapse-btn:hover {
     background: var(--fui-color-nav-hover);
@@ -304,11 +315,11 @@
   .logout-btn .label {
     white-space: nowrap;
     overflow: hidden;
-    max-width: 160px;
+    max-width: var(--fui-dashboard-label-max);
     opacity: 1;
     transition:
-      max-width 0.28s cubic-bezier(0.3, 1.15, 0.5, 1),
-      opacity 0.15s ease;
+      max-width var(--fui-dur-slow) var(--fui-ease-spring),
+      opacity var(--fui-dur-base) ease;
   }
   .sidebar.collapsed .label {
     max-width: 0;
@@ -327,31 +338,36 @@
     gap: var(--fui-space-2);
     padding: 0 var(--fui-space-4);
   }
-  .nav-item {
+  .nav-item,
+  .logout-btn {
     display: flex;
     align-items: center;
     justify-content: flex-start;
     gap: var(--fui-space-3);
     text-align: left;
     padding: var(--fui-space-3) var(--fui-space-4);
-    border-radius: 8px;
+    border-radius: var(--fui-dashboard-nav-radius);
     font-size: var(--fui-text-base);
-    font-weight: 500;
     color: var(--fui-color-text-soft);
     background: none;
     border: none;
     cursor: pointer;
     width: 100%;
     transition:
-      background-color 0.15s ease,
-      color 0.15s ease,
-      transform 0.12s ease,
-      gap 0.28s cubic-bezier(0.3, 1.15, 0.5, 1);
+      background-color var(--fui-dur-base) ease,
+      color var(--fui-dur-base) ease,
+      transform var(--fui-dur-fast) ease,
+      gap var(--fui-dur-slow) var(--fui-ease-spring);
   }
-  .nav-item:active {
+  .nav-item {
+    font-weight: 500;
+  }
+  .nav-item:active,
+  .logout-btn:active {
     transform: scale(0.96);
   }
-  .nav-item:hover {
+  .nav-item:hover,
+  .logout-btn:hover {
     background: var(--fui-color-nav-hover);
     color: var(--fui-color-text);
   }
@@ -367,42 +383,20 @@
     flex-direction: column;
     gap: var(--fui-space-3);
   }
-  .logout-btn {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: var(--fui-space-3);
-    width: 100%;
-    text-align: left;
-    padding: var(--fui-space-3) var(--fui-space-4);
-    border-radius: 8px;
-    font-size: var(--fui-text-base);
-    color: var(--fui-color-text-soft);
-    background: none;
-    border: none;
-    cursor: pointer;
-    transition:
-      background-color 0.15s ease,
-      color 0.15s ease,
-      transform 0.12s ease,
-      gap 0.28s cubic-bezier(0.3, 1.15, 0.5, 1);
-  }
-  .logout-btn:active {
-    transform: scale(0.96);
-  }
-  .logout-btn:hover {
-    color: var(--fui-color-text);
-    background: var(--fui-color-nav-hover);
-  }
   .main {
     flex: 1;
+    min-width: 0;
     overflow-y: auto;
     padding: var(--fui-space-7);
+    padding-left: calc(var(--fui-space-7) + env(safe-area-inset-left));
+    padding-right: calc(var(--fui-space-7) + env(safe-area-inset-right));
+    padding-bottom: calc(var(--fui-space-7) + env(safe-area-inset-bottom));
     background: var(--fui-color-surface);
   }
   .main-content {
     width: 100%;
-    max-width: 1200px;
+    max-width: var(--fui-content-max-w);
+    min-width: 0;
     margin: 0 auto;
   }
 
@@ -411,28 +405,31 @@
     display: flex;
     align-items: center;
     gap: var(--fui-space-4);
-    height: 52px;
+    height: var(--fui-appbar-h);
     padding: 0 var(--fui-space-5);
+    padding-left: calc(var(--fui-space-5) + env(safe-area-inset-left));
+    padding-right: calc(var(--fui-space-5) + env(safe-area-inset-right));
+    padding-top: env(safe-area-inset-top);
     flex-shrink: 0;
     background: var(--fui-color-sidebar-bg);
-    border-bottom: 1px solid var(--fui-color-outline-light);
+    border-bottom: var(--fui-border-w) solid var(--fui-color-outline-light);
   }
   .appbar-brand {
     font-size: var(--fui-text-sm);
     font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: var(--fui-tracking-caps);
     text-transform: uppercase;
     color: var(--fui-color-text);
   }
   .scrim {
     position: fixed;
     inset: 0;
-    z-index: 30;
+    z-index: var(--fui-z-scrim);
     background: var(--fui-overlay-scrim);
     border: none;
     padding: 0;
     cursor: default;
-    animation: scrim-in 0.2s ease;
+    animation: scrim-in var(--fui-dur-base) ease;
   }
   @keyframes scrim-in {
     from { opacity: 0; }
@@ -445,21 +442,21 @@
     top: 0;
     left: 0;
     bottom: 0;
-    width: 270px;
-    z-index: 40;
+    width: var(--fui-sidebar-w-drawer);
+    z-index: var(--fui-z-drawer);
     transform: translateX(-105%);
     visibility: hidden;
     transition:
-      transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
-      visibility 0s linear 0.3s;
-    border-right: 1px solid var(--fui-color-outline-soft);
+      transform var(--fui-dur-slow) var(--fui-ease-standard),
+      visibility var(--fui-dur-instant) linear var(--fui-dur-slow);
+    border-right: var(--fui-border-w) solid var(--fui-color-outline-soft);
   }
   .layout.mobile .sidebar.drawer-open {
     transform: translateX(0);
     visibility: visible;
     transition:
-      transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
-      visibility 0s;
+      transform var(--fui-dur-slow) var(--fui-ease-standard),
+      visibility var(--fui-dur-instant);
   }
   .layout.mobile .main {
     padding: var(--fui-space-5);

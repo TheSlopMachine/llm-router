@@ -32,6 +32,7 @@
 <style>
   .auth-page {
     min-height: 100vh;
+    min-height: 100dvh;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -43,10 +44,10 @@
     border-radius: var(--fui-radius-lg);
     padding: var(--fui-space-6);
     width: 100%;
-    max-width: 400px;
+    max-width: var(--fui-auth-max-w);
   }
   :global(.brand) {
-    letter-spacing: 0.08em;
+    letter-spacing: var(--fui-tracking-caps);
     text-transform: uppercase;
   }
 </style>

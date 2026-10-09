@@ -4,7 +4,7 @@
   import { getErrorMessage } from '$lib/errors'
   import type { MetricsFilters, MetricsOverview, TimeSeriesPoint, Provider } from '$lib/types'
   import { t } from '$lib/i18n.svelte'
-  import { VStack, HStack, Text, Grid, Spacer, Button, Banner } from '$ui'
+  import { VStack, HStack, Text, Grid, Spacer, Button, Banner, Header, EmptyState } from '$ui'
   import MetricsFiltersCmp from './components/MetricsFilters.svelte'
   import MetricsOverviewCard from './components/MetricsOverviewCard.svelte'
   import PeakUsageChart from './components/PeakUsageChart.svelte'
@@ -104,10 +104,7 @@
 </script>
 
 <VStack gap={6}>
-  <VStack gap={1}>
-    <Text tag="h1" size="xl" weight="bold">{t('metrics.title')}</Text>
-    <Text tone="soft" size="sm">{t('metrics.subtitle')}</Text>
-  </VStack>
+  <Header title={t('metrics.title')} subtitle={t('metrics.subtitle')} />
 
   <MetricsFiltersCmp bind:filters {providers} {models} onchange={handleFilterChange} />
 
@@ -121,11 +118,11 @@
 
   <VStack gap={4}>
     <HStack align="center" gap={2}>
-      <Text tag="h2" size="md" weight="bold">{t('metrics.overview')}</Text>
+      <Text variant="section-title">{t('metrics.overview')}</Text>
       <Button style="text" size="small" icon={{ name: 'info' }} title={t('metrics.overview_info')} />
     </HStack>
 
-    <Grid cols={2} gap={5}>
+    <Grid min="md" gap={5}>
       <MetricsOverviewCard
         title={t('metrics.total_requests')}
         value={overview?.total_requests ?? null}
@@ -142,8 +139,8 @@
   </VStack>
 
   <VStack gap={4}>
-    <Text tag="h2" size="md" weight="bold">{t('metrics.peak_trends')}</Text>
-    <Grid cols={3} gap={5}>
+    <Text variant="section-title">{t('metrics.peak_trends')}</Text>
+    <Grid min="md" gap={5}>
       <PeakUsageChart title={t('metrics.peak_requests')} data={requestsData} {loading} />
       <PeakUsageChart title={t('metrics.peak_input')} data={inputTokensData} {loading} />
       <PeakUsageChart title={t('metrics.peak_output')} data={outputTokensData} {loading} />

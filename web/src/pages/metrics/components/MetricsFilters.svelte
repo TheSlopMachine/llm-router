@@ -41,8 +41,8 @@
   ])
 </script>
 
-<HStack gap={6} align="end">
-  <VStack gap={1} grow>
+<HStack gap={3} align="end" wrap>
+  <VStack gap={1} fill="sm">
     <Text size="sm" weight="medium" tone="soft" tag="label">{t('providers.detail.title')}</Text>
     <Select
       bind:value={filters.provider_id}
@@ -51,7 +51,7 @@
     />
   </VStack>
 
-  <VStack gap={1} grow>
+  <VStack gap={1} fill="sm">
     <Text size="sm" weight="medium" tone="soft" tag="label">{t('metrics.time_range')}</Text>
     <Select
       bind:value={filters.time_range}
@@ -60,7 +60,7 @@
     />
   </VStack>
 
-  <VStack gap={1} grow>
+  <VStack gap={1} fill="sm">
     <Text size="sm" weight="medium" tone="soft" tag="label">{t('models.list.title')}</Text>
     <Select
       bind:value={filters.model}

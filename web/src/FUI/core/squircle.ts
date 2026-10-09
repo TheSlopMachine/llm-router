@@ -52,6 +52,14 @@ export function setSquircleExponent(n: number): void {
   superellipseExp = 2 / n
   pathCache.clear()
   invalidateAll()
+  for (const cb of changeListeners) cb()
+}
+
+const changeListeners = new Set<() => void>()
+/** Subscribe to global squircle changes (exponent). Returns an unsubscribe fn. */
+export function onSquircleChange(cb: () => void): () => void {
+  changeListeners.add(cb)
+  return () => changeListeners.delete(cb)
 }
 
 const CORNER_SAMPLES = 24
@@ -116,7 +124,7 @@ export function squirclePath(width: number, height: number, radius: number): str
 }
 
 // Tier 1: native corner-shape (Chromium). Tier 2: clip-path (below). Tier 3: plain border-radius.
-const supportsNative = typeof CSS !== 'undefined' && CSS.supports('corner-shape', 'squircle')
+export const supportsNative = typeof CSS !== 'undefined' && CSS.supports('corner-shape', 'squircle')
 // n = 2.5 (Lamé exponent) <-> superellipse(K) with n = 2^K
 const NATIVE_K = Math.log2(2.5).toFixed(4)
 let nativeStyleInjected = false
@@ -222,9 +230,9 @@ function queueApply(item: ApplyItem): void {
 
 export function squircle(
   node: HTMLElement,
-  radius = 10
-): { update(r: number): void; destroy(): void } {
-  const fallbackBox = { value: radius }
+  radius: number | string = 10
+): { update(r: number | string): void; destroy(): void } {
+  const fallbackBox = { value: typeof radius === 'number' ? radius : 10 }
 
   if (supportsNative && squircleEnabled) {
     ensureNativeStyle()
@@ -232,19 +240,23 @@ export function squircle(
     // Same contract as the clip-path tier: a CSS radius wins, the numeric
     // argument is the fallback when the CSS radius is 0/unset.
     let inline = ''
-    const sync = (r: number) => {
+    const sync = (r: number | string) => {
+      if (typeof r === 'string') {
+        node.style.borderRadius = ''
+        return
+      }
       node.style.borderRadius = ''
       const px = parseFloat(getComputedStyle(node).borderTopLeftRadius)
       inline = px > 0 ? '' : `${r}px`
       if (inline) node.style.borderRadius = inline
     }
     sync(radius)
-    // A style={...} rewrite on the node wipes the inline radius: re-assert it.
     const stopAttr = observeStyleAttribute(node, () => {
       if (inline && node.style.borderRadius !== inline) node.style.borderRadius = inline
     })
     return {
-      update(next: number) {
+      update(next: number | string) {
+        if (typeof next === 'string') { inline = ''; node.style.borderRadius = ''; return }
         sync(next)
       },
       destroy() {
@@ -255,21 +267,25 @@ export function squircle(
     }
   }
 
-  if (!supportsPath) {
-    // No clip-path support: the CSS border-radius fallback is the whole
-    // behaviour, so skip every observer and measurement.
+  if (typeof radius === 'string') {
     return {
-      update(next: number) {
-        fallbackBox.value = next
+      update(next: number | string) {},
+      destroy() {},
+    }
+  }
+
+  if (!supportsPath) {
+    return {
+      update(next: number | string) {
+        if (typeof next === 'number') fallbackBox.value = next
       },
       destroy() {},
     }
   }
 
-  // Early return if squircle is disabled
   if (!squircleEnabled) {
     return {
-      update(next: number) {},
+      update(next: number | string) {},
       destroy() {},
     }
   }
@@ -300,7 +316,8 @@ export function squircle(
   hookViewport()
 
   return {
-    update(next: number) {
+    update(next: number | string) {
+      if (typeof next === 'string') return
       fallbackBox.value = next
       keyBox.value = ''
       resolveAndCommit([item])

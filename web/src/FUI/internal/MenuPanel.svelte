@@ -16,8 +16,7 @@
     el = $bindable(),
     top,
     left,
-    width,
-    minWidth,
+    constrainWidth = false,
     flipped = false,
     role,
     label,
@@ -30,9 +29,7 @@
     el?: HTMLDivElement | undefined
     top: number
     left: number
-    /** fixed width (px); mutually exclusive with minWidth */
-    width?: number
-    minWidth?: number
+    constrainWidth?: boolean
     flipped?: boolean
     role: 'listbox' | 'menu'
     label?: string
@@ -43,7 +40,7 @@
     children: Snippet
   }>()
 
-  const size = $derived(resolveMenuWidth(width, minWidth))
+  const size = $derived(resolveMenuWidth(constrainWidth))
 </script>
 
 {#if open}
@@ -59,7 +56,7 @@
     aria-label={label}
     tabindex={role === 'menu' ? -1 : undefined}
     {onkeydown}
-    use:squircle={12}
+    use:squircle
     in:fly={{ y: flipped ? 8 : -8, duration: 200, easing: cubicOut, opacity: 0 }}
     out:fade={{ duration: 150, easing: cubicIn }}
   >
@@ -74,9 +71,9 @@
   :where(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
   .panel {
     position: fixed;
-    z-index: 2000;
+    z-index: var(--fui-z-popover);
     width: max-content;
-    max-width: min(480px, calc(100vw - 16px));
+    max-width: min(var(--fui-popover-w-lg), calc(100vw - var(--fui-toast-offset)));
     /* Overlay surface: solid like toasts, never the translucent --elev wash. */
     background: var(--fui-color-surface-container-highest);
     /* borderless by squircle design: borders do not follow the clip */
@@ -85,7 +82,7 @@
     overflow: hidden;
   }
   .options {
-    max-height: 180px;
+    max-height: var(--fui-menu-max-h);
     overflow-y: auto;
     padding: var(--fui-space-2);
     display: flex;

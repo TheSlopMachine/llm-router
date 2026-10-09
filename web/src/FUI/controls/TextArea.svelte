@@ -3,6 +3,7 @@
   // scrolls -- no leading icon, no trailing buttons, no animation: just a
   // plain expanding text box.
   import { squircle } from '../core/squircle'
+  import { fillStyle, type FillSize } from '../tokens'
 
   let {
     value = $bindable(''),
@@ -14,6 +15,7 @@
     id,
     ariaLabel,
     onchange,
+    fill,
     class: cls = '',
     ...rest
   } = $props<{
@@ -26,6 +28,7 @@
     id?: string
     ariaLabel?: string
     onchange?: (value: string) => void
+    fill?: FillSize
     class?: string
     [key: string]: unknown
   }>()
@@ -46,8 +49,8 @@
   })
 </script>
 
-<div class="text-area {cls}" class:disabled>
-  <div class="text-area-bg" use:squircle={12} aria-hidden="true"></div>
+<div class="text-area {cls}" class:disabled style:flex={fillStyle(fill)} style:min-width={fill == null || fill === false ? undefined : '0'}>
+  <div class="text-area-bg" use:squircle aria-hidden="true"></div>
   <textarea
     bind:this={el}
     {id}
@@ -71,7 +74,7 @@
     position: relative;
     display: flex;
     padding: var(--fui-field-pad-v) var(--fui-field-pad-h);
-    border: 1px solid transparent;
+    border: var(--fui-border-w) solid transparent;
     border-radius: var(--fui-ctl-radius);
   }
   .text-area-bg {
@@ -79,13 +82,13 @@
     inset: 0;
     border-radius: var(--fui-ctl-radius);
     background: var(--fui-elev);
-    transition: background 0.2s ease;
+    transition: background var(--fui-dur-base) ease;
   }
   .text-area > :not(.text-area-bg) {
     position: relative;
   }
   .text-area.disabled {
-    opacity: 0.6;
+    opacity: var(--fui-opacity-dim);
   }
   .text-area:focus-within .text-area-bg {
     background:

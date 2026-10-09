@@ -13,21 +13,21 @@
     class="divider-v {cls}"
     role="separator"
     aria-orientation="vertical"
-    style:margin="0 {space(margin) ?? '0px'}"
+    style:margin="0 {space(margin) ?? 'var(--fui-space-0)'}"
   ></div>
 {:else}
-  <hr class="divider {cls}" style:margin="{space(margin) ?? '0px'} 0" />
+  <hr class="divider {cls}" style:margin="{space(margin) ?? 'var(--fui-space-0)'} 0" />
 {/if}
 
 <style>
   :where(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
   .divider {
     border: none;
-    border-top: 1px solid var(--fui-color-outline-soft);
+    border-top: var(--fui-border-w) solid var(--fui-color-outline-soft);
     margin: var(--fui-space-5) 0;
   }
   .divider-v {
-    width: 1px;
+    width: var(--fui-border-w);
     align-self: stretch;
     background: var(--fui-color-outline-soft);
     flex: none;

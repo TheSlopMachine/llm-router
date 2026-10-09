@@ -4,7 +4,7 @@
   import { portal } from '../core/portal'
   import { squircle } from '../core/squircle'
   import { bindDismiss } from '../core/popover'
-  import { resolveFloatingStyle, shouldDismissOnKey } from '../core/steps'
+  import { shouldDismissOnKey } from '../core/steps'
 
   function easeOutBackSoft(x: number): number {
     const c1 = 0.8
@@ -25,8 +25,7 @@
     align = 'end',
     gap = 4,
     margin = 8,
-    minWidth,
-    maxWidth = 480,
+    width,
     role = 'dialog',
     label,
     closeOnOutside = true,
@@ -41,8 +40,7 @@
     align?: 'start' | 'end' | 'center'
     gap?: number
     margin?: number
-    minWidth?: number
-    maxWidth?: number
+    width?: 'sm' | 'md' | 'lg'
     role?: string
     label?: string
     closeOnOutside?: boolean
@@ -63,8 +61,8 @@
     if (!anchor) return
     const rect = anchor.getBoundingClientRect()
     const el = node || menuElement
-    const width = el ? el.offsetWidth : (minWidth || 240)
-    const height = el ? el.offsetHeight : 140
+    const width = el ? el.offsetWidth : 0
+    const height = el ? el.offsetHeight : 0
 
     const vv = typeof window !== 'undefined' ? window.visualViewport : null
     const vvTop = vv ? vv.offsetTop : 0
@@ -117,7 +115,7 @@
   }
 
   let floatingStyle = $derived(
-    `top: ${menuTop}px; left: ${menuLeft}px; transform-origin: ${originX} ${originY}; ${resolveFloatingStyle(minWidth, maxWidth)}`
+    `top: ${menuTop}px; left: ${menuLeft}px; transform-origin: ${originX} ${originY};`
   )
 
   function close(): void {
@@ -190,11 +188,14 @@
     use:initLayer
     bind:this={menuElement}
     class="floating-view"
+    class:floating-sm={width === 'sm'}
+    class:floating-md={width === 'md'}
+    class:floating-lg={width === 'lg'}
     style={floatingStyle}
     {role}
     aria-label={label}
     tabindex="-1"
-    use:squircle={14}
+    use:squircle
     in:scale={{ start: 0.85, duration: 200, easing: easeOutBackSoft, opacity: 0 }}
     out:scale={{ start: 0.85, duration: 160, easing: easeInBackSoft, opacity: 0 }}
     onkeydown={handleKeydown}
@@ -207,15 +208,23 @@
   :where(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
   .floating-view {
     position: fixed;
-    z-index: 2000;
+    z-index: var(--fui-z-popover);
     width: max-content;
     background: var(--fui-color-surface-container-high);
     border: none;
     border-radius: var(--fui-radius-lg);
-    box-shadow: var(--fui-shadow-floating);
     overflow: hidden;
     padding: var(--fui-space-4);
     outline: none;
     box-sizing: border-box;
+  }
+  .floating-sm {
+    width: min(var(--fui-popover-w-sm), calc(100vw - 2 * var(--fui-space-5)));
+  }
+  .floating-md {
+    width: min(var(--fui-popover-w-md), calc(100vw - 2 * var(--fui-space-5)));
+  }
+  .floating-lg {
+    width: min(var(--fui-popover-w-lg), calc(100vw - 2 * var(--fui-space-5)));
   }
 </style>

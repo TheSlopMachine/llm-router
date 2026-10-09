@@ -14,7 +14,7 @@
   {#snippet badge()}
     <Icon name={icon} />
   {/snippet}
-  <VStack align="center" justify="center" style="min-height: 100px;">
+  <VStack align="center" justify="center" style="min-height: var(--fui-metrics-card-min-h);">
     {#if loading}
       <Text tone="soft" size="sm">{t('common.state.loading')}</Text>
     {:else if value === null || value === 0}

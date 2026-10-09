@@ -27,7 +27,7 @@
   let hasChanges = $derived(added.length > 0 || removed.length > 0 || escalatesToUnsafe)
 </script>
 
-<VStack gap={3} style="max-width: 320px;">
+<VStack gap={3}>
   <VStack gap={2}>
     <Text tag="h3" size="sm" weight="bold">{t('plugins.permissions_requested')}</Text>
     {#if unsafe || escalatesToUnsafe}

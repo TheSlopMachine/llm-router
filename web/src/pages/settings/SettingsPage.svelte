@@ -8,7 +8,7 @@
   import { t, n } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { accent, accents } from '$lib/accent.svelte'
-  import { Button, HStack, SectionCard, Select, Spacer, Switch, Text, VStack, TextEdit, Banner, Icon, Chip } from '$ui'
+  import { Button, HStack, SectionCard, Select, Spacer, Switch, Text, VStack, TextEdit, Banner, Icon, Chip, Header, EmptyState } from '$ui'
   import { squircle } from '../../FUI/core/squircle'
   import type { Provider, SubsystemStats, DoctorReport } from '$lib/types'
   import { toast } from '../../FUI/core/toast.svelte'
@@ -270,10 +270,7 @@
 </script>
 
 <VStack gap={6}>
-  <VStack gap={1}>
-    <Text tag="h1" size="lg" weight="bold">{t('settings.title')}</Text>
-    <Text tone="soft" size="sm">{t('settings.subtitle')}</Text>
-  </VStack>
+  <Header title={t('settings.title')} subtitle={t('settings.subtitle')} />
 
   {#if error}
     <Banner variant="error" text={error} />
@@ -302,7 +299,7 @@
             onclick={() => { accent.value = a }}
             title="{a.name} ({a.bg})"
             aria-label={a.name}
-            use:squircle={12}
+            use:squircle
           >Aa</button>
         {/each}
       </div>
@@ -360,7 +357,7 @@
   <!-- Database Doctor Section -->
   <SectionCard title={t('data.doctor.title')} description={t('data.doctor.desc')}>
     {#if doctorLoading}
-      <Text tone="soft" size="sm">{t('data.doctor.scanning')}</Text>
+      <EmptyState title={t('common.state.loading')} />
     {:else if doctorReport}
       {#if doctorReport.total_issues === 0}
         <Banner variant="success" text={t('data.doctor.no_issues')} />
@@ -392,7 +389,7 @@
   <!-- Data Management section -->
   <SectionCard title={t('data.title')} description={t('data.subtitle')}>
     {#if statsLoading}
-      <Text tone="soft" size="sm">{t('data.loading_stats')}</Text>
+      <EmptyState title={t('common.state.loading')} />
     {:else if stats}
       <VStack gap={4} class="data-container">
         {#each [
@@ -407,12 +404,12 @@
                 <Text weight="medium" size="base">{sub.label}</Text>
                 <Text size="xs" tone="soft">{n(sub.count, 'units.item.one', 'units.item.many')}</Text>
               </VStack>
-              <HStack gap={2}>
+              <HStack gap={2} wrap>
                 <Button size="small" icon={{ name: 'download' }} onclick={() => exportSubsystem(sub.key)}>{t('data.export')}</Button>
                 <Button size="small" style="text" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} onclick={() => clearSubsystem(sub.key)}>{t('data.clear')}</Button>
               </HStack>
             </HStack>
-            <HStack gap={3} align="center" class="file-action-row">
+            <HStack gap={3} align="center" wrap class="file-action-row">
               <input type="file" accept=".json" onchange={(e) => handleFileChange(sub.key, e)} class="file-input" id="file-{sub.key}" />
               <label for="file-{sub.key}" class="file-label">
                 <Icon name="attach_file" />
@@ -431,9 +428,9 @@
   <!-- Individual Provider Management section -->
   <SectionCard title={t('data.provider.title')} description={t('data.provider.desc')}>
     {#if providersLoading}
-      <Text tone="soft" size="sm">{t('providers.list.loading')}</Text>
+      <EmptyState title={t('common.state.loading')} />
     {:else if allProviders.length === 0}
-      <Text tone="soft" size="sm">{t('providers.manage.none_available')}</Text>
+      <EmptyState title={t('providers.manage.none_available')} />
     {:else}
       <VStack gap={3}>
         <VStack gap={1}>
@@ -441,12 +438,12 @@
           <Select ariaLabel={t('data.provider.select')} bind:value={selectedProviderId} options={providerOptions} />
         </VStack>
 
-        <HStack gap={2} align="center">
+        <HStack gap={2} align="center" wrap>
           <Button size="small" icon={{ name: 'download' }} onclick={() => exportIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.export')}</Button>
           <Button size="small" style="text" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} onclick={() => purgeIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.purge_provider')}</Button>
         </HStack>
 
-        <HStack gap={3} align="center" class="file-action-row">
+        <HStack gap={3} align="center" wrap class="file-action-row">
           <input type="file" accept=".json" onchange={handleIndividualProviderFileChange} class="file-input" id="file-individual-provider" />
           <label for="file-individual-provider" class="file-label">
             <Icon name="attach_file" />
@@ -463,13 +460,13 @@
 
 <style>
   .accent-grid {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(var(--fui-ctl-large), 1fr));
     gap: var(--fui-space-3);
   }
   .accent-swatch {
-    width: 44px;
-    height: 44px;
+    width: 100%;
+    height: var(--fui-ctl-large);
     border-radius: var(--fui-ctl-radius);
     border: none;
     font-size: var(--fui-text-base);
@@ -478,8 +475,8 @@
     padding: 0;
   }
   .accent-swatch.selected {
-    outline: 2px solid var(--fui-color-text);
-    outline-offset: 2px;
+    outline: var(--fui-settings-accent-outline) solid var(--fui-color-text);
+    outline-offset: var(--fui-settings-accent-offset);
   }
   :global(.issues-container), :global(.data-container) {
     width: 100%;
@@ -493,12 +490,12 @@
     padding: var(--fui-space-4);
     background: var(--fui-elev);
     border-radius: var(--fui-radius-md);
-    border: 1px solid var(--fui-color-outline-soft);
+    border: var(--fui-border-w) solid var(--fui-color-outline-soft);
   }
   :global(.file-action-row) {
     margin-top: var(--fui-space-2);
     padding-top: var(--fui-space-2);
-    border-top: 1px dashed var(--fui-color-outline-soft);
+    border-top: var(--fui-border-w) dashed var(--fui-color-outline-soft);
   }
   .file-input {
     display: none;
@@ -513,7 +510,7 @@
     border-radius: var(--fui-ctl-radius);
     font-size: var(--fui-text-sm);
     font-weight: 500;
-    border: 1px solid var(--fui-color-outline-soft);
+    border: var(--fui-border-w) solid var(--fui-color-outline-soft);
   }
   .file-label:hover {
     background: var(--fui-color-button-container-high);

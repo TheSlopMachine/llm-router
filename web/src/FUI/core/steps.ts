@@ -14,19 +14,9 @@ export function stepToRadiusToken(radius: number): 'xs' | 'sm' | 'md' | 'lg' {
   return 'lg'
 }
 
-export function resolveFloatingStyle(minWidth: number | undefined, maxWidth: number | undefined): string {
-  const min = minWidth ? `min-width: ${minWidth}px;` : ''
-  const max = maxWidth ? `max-width: min(${maxWidth}px, calc(100vw - 16px));` : ''
-  return `${min} ${max}`.trim()
-}
-
-export function resolveMenuWidth(
-  width: number | undefined,
-  minWidth: number | undefined
-): string {
-  if (width !== undefined) return `width: ${width}px;`
-  if (minWidth !== undefined) return `min-width: ${minWidth}px;`
-  return ''
+export function resolveMenuWidth(enabled: boolean): string {
+  if (!enabled) return ''
+  return `min-width: var(--fui-toast-offset);`
 }
 
 export function shouldDismissOnKey(e: KeyboardEvent, opts: { closeOnEsc: boolean; open: boolean }): boolean {

@@ -17,7 +17,7 @@
 
 <VStack gap={4}>
   <VStack gap={1} align="center">
-    <Text tag="h2" size="md" weight="medium" align="center">{t('tokens.success.created_named').replace('{name}', tokenName)}</Text>
+    <Text variant="section-title" align="center">{t('tokens.success.created_named').replace('{name}', tokenName)}</Text>
     <Text tag="h3" size="sm" tone="soft" align="center">{t('tokens.success.copy_now')}</Text>
   </VStack>
 
@@ -27,7 +27,7 @@
 
   <CodeBlock text={token ?? ''} />
 
-  <Grid cols={3} gap={4} class="scope-summary">
+  <Grid min="sm" gap={4} class="scope-summary">
     <Box elev radius="md" pad={4}>
       <VStack align="center" gap={2}>
         <Text size="xs" weight="medium" tone="soft" class="scope-label">{t('providers.list.title')}</Text>
@@ -57,6 +57,6 @@
 
   :global(.scope-label) {
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: var(--fui-tracking-label);
   }
 </style>

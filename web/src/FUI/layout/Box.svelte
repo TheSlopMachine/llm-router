@@ -3,7 +3,7 @@
   // a widget either carries one elev wash or none — nesting accumulates it.
   // Use when you need padding (+ optional elev) but not a flex context.
   import type { Snippet } from 'svelte'
-  import { space, type Step } from '../tokens'
+  import { space, fillStyle, type FillSize, type Step } from '../tokens'
   import { squircle } from '../core/squircle'
 
   let {
@@ -11,6 +11,7 @@
     elev = false,
     radius,
     squircled = false,
+    fill,
     tag = 'div',
     class: cls = '',
     children,
@@ -22,6 +23,7 @@
     radius?: 'xs' | 'sm' | 'md' | 'lg'
     /** clip-path corners; leave false for anything that scrolls or overflows */
     squircled?: boolean
+    fill?: FillSize
     tag?: 'div' | 'section' | 'article' | 'aside'
     class?: string
     children: Snippet
@@ -39,6 +41,7 @@
     style:--fui-box-pad={space(pad)}
     style:--fui-box-bg={bg}
     style:--fui-box-radius={rad}
+    style:flex={fillStyle(fill)}
     use:squircle
     {...rest}
   >
@@ -51,6 +54,7 @@
     style:--fui-box-pad={space(pad)}
     style:--fui-box-bg={bg}
     style:--fui-box-radius={rad}
+    style:flex={fillStyle(fill)}
     {...rest}
   >
     {@render children()}

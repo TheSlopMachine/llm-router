@@ -3,16 +3,19 @@
   // is a named value here, so `font-size: var(--fui-text-sm)` has nowhere to enter from.
   import type { Snippet } from 'svelte'
 
+  type TextVariant = 'page-title' | 'section-title' | 'subtitle' | 'label' | 'caption' | 'value'
+
   let {
-    size = 'base',
-    weight = 'normal',
-    tone = 'default',
+    size,
+    weight,
+    tone,
+    variant,
     align,
     truncate = false,
     lines,
     break: allowBreak = false,
     mono = false,
-    tag = 'span',
+    tag,
     text = '',
     title,
     class: cls = '',
@@ -22,6 +25,7 @@
     size?: 'xs' | 'sm' | 'base' | 'md' | 'lg' | 'xl' | '2xl'
     weight?: 'normal' | 'medium' | 'bold'
     tone?: 'default' | 'soft' | 'disabled' | 'accent' | 'danger' | 'success' | 'warning'
+    variant?: TextVariant
     align?: 'left' | 'center' | 'right'
     truncate?: boolean
     /** clamp to N lines; overrides truncate */
@@ -36,11 +40,26 @@
     children?: Snippet
     [key: string]: unknown
   }>()
+
+  const VARIANTS: Record<TextVariant, { size: 'xs' | 'sm' | 'base' | 'md' | 'lg' | 'xl' | '2xl'; weight: 'normal' | 'medium' | 'bold'; tone: 'default' | 'soft' | 'disabled' | 'accent' | 'danger' | 'success' | 'warning'; tag: 'span' | 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'div' | 'label' | 'code' }> = {
+    'page-title': { size: 'lg', weight: 'bold', tone: 'default', tag: 'h1' },
+    'section-title': { size: 'md', weight: 'medium', tone: 'default', tag: 'h2' },
+    subtitle: { size: 'sm', weight: 'normal', tone: 'soft', tag: 'p' },
+    label: { size: 'sm', weight: 'medium', tone: 'soft', tag: 'label' },
+    caption: { size: 'xs', weight: 'normal', tone: 'soft', tag: 'span' },
+    value: { size: 'base', weight: 'medium', tone: 'default', tag: 'span' }
+  }
+
+  const v = $derived(variant != null ? VARIANTS[variant as TextVariant] : undefined)
+  const effSize = $derived(size ?? v?.size ?? 'base')
+  const effWeight = $derived(weight ?? v?.weight ?? 'normal')
+  const effTone = $derived(tone ?? v?.tone ?? 'default')
+  const effTag = $derived(tag ?? v?.tag ?? 'span')
 </script>
 
 <svelte:element
-  this={tag}
-  class="txt txt-{size} txt-{weight} txt-{tone} {cls}"
+  this={effTag}
+  class="txt txt-{effSize} txt-{effWeight} txt-{effTone} {cls}"
   class:txt-mono={mono}
   class:txt-left={align === 'left'}
   class:txt-center={align === 'center'}

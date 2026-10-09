@@ -35,3 +35,12 @@ export function space(step: Step | undefined): string | undefined {
 export function controlHeight(size: Size | undefined): string | undefined {
   return size === undefined ? undefined : `var(--fui-ctl-${size})`
 }
+
+export type FillSize = boolean | 'sm' | 'md' | 'lg'
+
+/** Growing flex item: true -> 'md', otherwise the named basis. `undefined` means "do not set". */
+export function fillStyle(fill: FillSize | undefined): string | undefined {
+  if (fill === undefined || fill === false) return undefined
+  const size = fill === true ? 'md' : fill
+  return `1 1 var(--fui-basis-${size})`
+}

@@ -10,7 +10,7 @@
   import { takePendingClone } from '$lib/virtual-clone'
   import { isUnauthenticated } from '$lib/credential-state'
   import { intersectMembers, minPositive } from '$lib/model-aggregates'
-  import { Button, Chip, HStack, SectionCard, Select, Text, TextArea, TextEdit, VStack, Banner } from '$ui'
+  import { Button, Chip, HStack, SectionCard, Select, Text, TextArea, TextEdit, VStack, Banner, Header, EmptyState } from '$ui'
 
   let { vmId = null } = $props<{ vmId: string | null }>()
 
@@ -215,16 +215,13 @@
   let saveLabel = $derived(saving ? t('common.actions.saving') : vm ? t('common.actions.save') : t('virtual.create.title'))
 </script>
 
-  <VStack gap={4}>
-  <VStack gap={1}>
-    <Text tag="h1" size="lg" weight="bold">{vmId ? t('virtual.edit.title') : t('virtual.create.title')}</Text>
-    <Text tone="soft" size="sm">{vmId ? t('virtual.update_desc') : t('virtual.create_desc')}</Text>
-  </VStack>
+  <VStack gap={6}>
+  <Header title={vmId ? t('virtual.edit.title') : t('virtual.create.title')} subtitle={vmId ? t('virtual.update_desc') : t('virtual.create_desc')} />
 
   {#if error}
     <Banner variant="error" text={error} />
   {:else if loading}
-    <Text tone="soft" size="sm">{t('virtual.loading_single')}</Text>
+    <EmptyState title={t('common.state.loading')} />
   {:else}
     {#if formError}
       <Banner variant="error" text={formError} />
@@ -255,15 +252,15 @@
 
     <SectionCard title={t('models.list.title')}>
       {#if modelsLoadState === 'loading'}
-        <Text tone="soft" size="sm">{t('models.list.loading')}</Text>
+        <EmptyState title={t('common.state.loading')} />
       {:else if modelsLoadState === 'error'}
         <VStack gap={2} align="center">
-          <Text tone="danger" size="sm">{t('models.list.failed_load')}</Text>
+          <Banner variant="error" text={t('models.list.failed_load')} />
           <Button text={t('common.actions.reload')} onclick={loadAvailableModels} />
         </VStack>
       {:else if models.length === 0}
         {#if modelsLoadState === 'empty'}
-          <Text tone="soft" size="sm">{t('virtual.no_models_configure')}</Text>
+          <EmptyState title={t('virtual.no_models_configure')} />
         {:else if isEditable}
           <Button text={t('models.actions.add')} icon={{ name: 'add' }} onclick={addModel} />
         {/if}
@@ -281,27 +278,33 @@
               ondrop={(e) => onDrop(e, i)}
               role="listitem"
             >
-              <HStack gap={0} align="center" class="col-priority">
-                <span class="drag-handle" title={t('models.drag_reorder')}><Icon name="drag_indicator" /></span>
-                <Text size="sm" tone="soft" align="center" class="row-num">{i + 1}</Text>
-              </HStack>
-              <Select value={id} options={modelOptions} searchable={true} placeholder={t('models.select.placeholder')} onchange={(v) => setModel(i, v)} disabled={isManaged} />
-              <HStack gap={2} wrap align="center" class="row-caps">
-                <ModalitiesFlow modalities={{ input: modalityMap[id]?.input, output: modalityMap[id]?.output }} chipsDirection="horizontal" />
-                {#each infoOf(id)?.capabilities ?? [] as cap}
-                  {@const meta = CAPABILITY_META[cap]}
-                  {#if meta}
-                    <Chip icon={meta.icon} color={meta.color} size="medium" title={t(meta.hint)} />
-                  {:else}
-                    <Chip text={cap} size="medium" title={cap} />
-                  {/if}
-                {/each}
-              </HStack>
-              <VStack gap={0} class="row-ctx">
-                {#if infoOf(id)?.context_window}<Text size="sm" tone="soft">{(infoOf(id)!.context_window! / 1000).toFixed(0)}k ctx</Text>{/if}
-                {#if infoOf(id)?.max_tokens}<Text size="sm" tone="soft">{(infoOf(id)!.max_tokens! / 1000).toFixed(0)}k out</Text>{/if}
-              </VStack>
-              <Button tint="var(--fui-color-danger)" style="text" icon={{ name: 'delete' }} ariaLabel={t('virtual.remove_model')} onclick={() => removeModel(i)} disabled={isManaged} />
+              <div class="model-row-top">
+                <HStack gap={0} align="center" class="col-priority">
+                  <span class="drag-handle" title={t('models.drag_reorder')}><Icon name="drag_indicator" /></span>
+                  <Text size="sm" tone="soft" align="center" class="row-num">{i + 1}</Text>
+                </HStack>
+                <div class="model-row-select">
+                  <Select value={id} options={modelOptions} searchable={true} placeholder={t('models.select.placeholder')} onchange={(v) => setModel(i, v)} disabled={isManaged} />
+                </div>
+                <Button tint="var(--fui-color-danger)" style="text" icon={{ name: 'delete' }} ariaLabel={t('virtual.remove_model')} onclick={() => removeModel(i)} disabled={isManaged} />
+              </div>
+              <div class="model-row-bottom">
+                <HStack gap={2} wrap align="center" class="row-caps">
+                  <ModalitiesFlow modalities={{ input: modalityMap[id]?.input, output: modalityMap[id]?.output }} chipsDirection="horizontal" />
+                  {#each infoOf(id)?.capabilities ?? [] as cap}
+                    {@const meta = CAPABILITY_META[cap]}
+                    {#if meta}
+                      <Chip icon={meta.icon} color={meta.color} size="medium" title={t(meta.hint)} />
+                    {:else}
+                      <Chip text={cap} size="medium" title={cap} />
+                    {/if}
+                  {/each}
+                </HStack>
+                <VStack gap={0} class="row-ctx">
+                  {#if infoOf(id)?.context_window}<Text size="sm" tone="soft">{(infoOf(id)!.context_window! / 1000).toFixed(0)}k ctx</Text>{/if}
+                  {#if infoOf(id)?.max_tokens}<Text size="sm" tone="soft">{(infoOf(id)!.max_tokens! / 1000).toFixed(0)}k out</Text>{/if}
+                </VStack>
+              </div>
             </div>
           {/each}
         </VStack>
@@ -349,10 +352,26 @@
 
 <style>
   .model-row {
-    display: grid;
-    grid-template-columns: 56px minmax(220px, 1fr) auto auto auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--fui-space-2);
+    min-width: 0;
+  }
+  .model-row-top {
+    display: flex;
     align-items: center;
-    gap: var(--fui-space-4);
+    gap: var(--fui-space-3);
+    min-width: 0;
+  }
+  .model-row-select {
+    flex: 1 1 var(--fui-vmedit-name-min);
+    min-width: 0;
+  }
+  .model-row-bottom {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--fui-space-2);
+    min-width: 0;
   }
 
   .model-row[draggable='true'] {

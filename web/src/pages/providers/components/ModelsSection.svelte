@@ -8,7 +8,7 @@
   import { filterByFields } from '$lib/filter'
   import type { Provider, ProviderModel, ProviderVMGroup, TestResult, VirtualModel } from '$lib/types'
   import { api } from '$lib/api'
-  import { FloatingView, Table, CopyButton, Button, Spacer, HStack, VStack, Text, Switch, Select, FloatingList, Picker, SearchField, TextEdit, Banner, ConfirmAction } from '$ui'
+  import { FloatingView, Table, CopyButton, Button, Spacer, HStack, VStack, Text, Switch, Select, Picker, SearchField, Toolbar, ToolbarItem, TextEdit, Banner, ConfirmAction } from '$ui'
   import EmptyState from '../../../FUI/composite/EmptyState.svelte'
   import type { ModelsTableModel } from '../../../components/domain/ModelsTable.svelte'
 
@@ -53,43 +53,6 @@
   let modelSearch = $state('')
   let importing = $state(false)
   let modelFilter = $state<'all' | 'enabled' | 'disabled'>(loadFilter())
-
-  let toolbarWidth = $state(1200)
-
-  let searchOpen = $state(false)
-
-  let toolbarStage = $derived<'full' | 'compact'>(
-    toolbarWidth < 640 ? 'compact' : 'full'
-  )
-
-  function measure(node: HTMLElement) {
-    const ro = new ResizeObserver((entries) => {
-      toolbarWidth = entries[0].contentRect.width
-    })
-    ro.observe(node)
-    return { destroy: () => ro.disconnect() }
-  }
-
-  const filterLabels = {
-    all: 'common.actions.all',
-    enabled: 'common.labels.enabled',
-    disabled: 'common.labels.disabled'
-  } as const
-
-  let overflowActions = $derived.by(() => {
-    return (['all', 'enabled', 'disabled'] as const).map((v) => ({
-      id: 'filter:' + v,
-      label: `${t('common.actions.show')}: ` + t(filterLabels[v]),
-      icon: modelFilter === v ? 'check' : undefined,
-    }))
-  })
-
-  function handleOverflowAction(id: string): void {
-    if (id.startsWith('filter:')) void saveModelsFilter(id.slice(7) as typeof modelFilter)
-  }
-
-  let overflowOpen = $state(false)
-  let overflowAnchor = $state<HTMLElement>()
 
   let modelTestResults = $state<Record<string, TestResult | 'loading'>>({})
 
@@ -462,73 +425,57 @@
     <Banner variant="error" text={modelsError} />
   {:else}
   <VStack tag="section" gap={4} class="provider-section">
-    <Text tag="h2" size="md" weight="medium">{t('models.list.available')}</Text>
+    <Text variant="section-title">{t('models.list.available')}</Text>
 
-      <HStack align="center" gap={3}>
-        {#if toolbarStage !== 'compact'}
-          <SearchField bind:value={modelSearch} placeholder={t('models.filter.placeholder')} />
-        {:else if searchOpen}
-          <HStack align="center" gap={1} grow>
-            <SearchField bind:value={modelSearch} placeholder={t('models.filter.placeholder')} />
-            <Button size="small" icon={{ name: 'close' }} ariaLabel={t('nav.search.close')} onclick={() => { searchOpen = false }} />
-          </HStack>
-        {:else}
-          <Button size="small" icon={{ name: 'search' }} ariaLabel={t('nav.search.open')} title={t('models.filter.placeholder')} onclick={() => { searchOpen = true }} />
-        {/if}
-        {#if toolbarStage !== 'compact'}
-          <Picker
-            bind:value={modelFilter}
-            options={[
-              { value: 'all', label: t('common.actions.all') },
-              { value: 'enabled', label: t('common.labels.enabled') },
-              { value: 'disabled', label: t('common.labels.disabled') },
-            ]}
-            ariaLabel={t('models.filter.visibility')}
-            onchange={(v) => void saveModelsFilter(v as typeof modelFilter)}
-          />
-        {/if}
-      </HStack>
-
-    <HStack align="center" gap={2} wrap class="models-subbar">
-      <Button icon={{ name: importing ? 'sync' : 'download' }} onclick={importModels} disabled={importing}>
-        {importing ? t('providers.detail.importing') : t('providers.detail.import_models')}
-      </Button>
-      <Button icon={{ name: testingAll ? 'stop' : 'network_check' }} onclick={testAllModels}>
-        {testingAll ? t('credentials.testing_click_cancel') : t('credentials.test_all')}
-      </Button>
-      {#if toolbarStage === 'compact'}
+    <Toolbar overflow="wrap" gap={3}>
+      <ToolbarItem pinned fill="md">
+        <SearchField bind:value={modelSearch} placeholder={t('models.filter.placeholder')} />
+      </ToolbarItem>
+      <Picker
+        bind:value={modelFilter}
+        options={[
+          { value: 'all', label: t('common.actions.all') },
+          { value: 'enabled', label: t('common.labels.enabled') },
+          { value: 'disabled', label: t('common.labels.disabled') },
+        ]}
+        ariaLabel={t('models.filter.visibility')}
+        onchange={(v) => void saveModelsFilter(v as typeof modelFilter)}
+      />
+      <ToolbarItem priority={2}>
         <Button
-          size="small"
-          icon={{ name: 'more_vert' }}
-          ariaLabel={t('providers.detail.more_actions')}
-          title={t('providers.detail.more_actions')}
-          onclick={(e) => {
-            overflowAnchor = e.currentTarget as HTMLElement
-            overflowOpen = !overflowOpen
-          }}
+          icon={{ name: importing ? 'sync' : 'download' }}
+          text={importing ? t('providers.detail.importing') : t('providers.detail.import_models')}
+          onclick={importModels}
+          disabled={importing}
         />
-        <FloatingList
-          bind:open={overflowOpen}
-          anchor={overflowAnchor}
-          label={t('providers.detail.more_actions')}
-          actions={overflowActions}
-          onaction={handleOverflowAction}
+      </ToolbarItem>
+      <ToolbarItem priority={1}>
+        <Button
+          icon={{ name: testingAll ? 'stop' : 'network_check' }}
+          text={testingAll ? t('credentials.testing_click_cancel') : t('credentials.test_all')}
+          onclick={testAllModels}
         />
-      {/if}
-    </HStack>
+      </ToolbarItem>
+    </Toolbar>
 
-    <HStack gap={4} wrap class="models-toggles">
-      <Switch
-        checked={disableFailedModels}
-        label={t('providers.detail.disable_failing')}
-        onchange={(v) => { disableFailedModels = v; saveAutomation() }}
-      />
-      <Switch
-        checked={autoSyncModels}
-        label={t('providers.detail.auto_sync')}
-        onchange={(v) => { autoSyncModels = v; saveAutomation() }}
-      />
-    </HStack>
+    <VStack gap={3}>
+      <HStack align="center" justify="between" gap={3}>
+        <Text grow>{t('providers.detail.disable_failing')}</Text>
+        <Switch
+          checked={disableFailedModels}
+          ariaLabel={t('providers.detail.disable_failing')}
+          onchange={(v) => { disableFailedModels = v; saveAutomation() }}
+        />
+      </HStack>
+      <HStack align="center" justify="between" gap={3}>
+        <Text grow>{t('providers.detail.auto_sync')}</Text>
+        <Switch
+          checked={autoSyncModels}
+          ariaLabel={t('providers.detail.auto_sync')}
+          onchange={(v) => { autoSyncModels = v; saveAutomation() }}
+        />
+      </HStack>
+    </VStack>
 
     {#if modelsError}
       <Banner variant="error" text={modelsError} />
@@ -539,7 +486,7 @@
 
   <VStack tag="section" gap={4} class="provider-section">
     <VStack gap={1}>
-      <Text tag="h2" size="md" weight="medium">{t('virtual.models_plural')}</Text>
+      <Text variant="section-title">{t('virtual.models_plural')}</Text>
       <Text tone="soft" size="sm">{t('providers.models.fallthrough_description')}</Text>
     </VStack>
 
@@ -587,6 +534,36 @@
             {/if}
           {/if}
         {/snippet}
+        {#snippet card({ row })}
+          {@const g = row as ProviderVMGroup}
+          <HStack gap={3} align="center">
+            <VStack gap={1} grow>
+              {#if g.virtual}
+                {@const v = g.virtual}
+                <Text variant="value">{v.name}</Text>
+                <Text variant="caption" mono>virtual/{v.id}</Text>
+              {:else}
+                <Text tone="disabled">—</Text>
+              {/if}
+            </VStack>
+            {#if g.virtual}
+              {@const v = g.virtual}
+              <span
+                role="presentation"
+                onclick={(e) => e.stopPropagation()}
+                onkeydown={(e) => e.stopPropagation()}
+              >
+                <Switch
+                  checked={!v.disabled}
+                  ariaLabel={t('virtual.enable')}
+                  onchange={(en) => toggleVirtualModel(v, en)}
+                />
+              </span>
+            {/if}
+          </HStack>
+          {@const ep = VM_ENDPOINTS[g.endpoint] ?? { path: g.endpoint, hint: g.label }}
+          <Text variant="caption">{ep.path} · {g.models.length} {t('models.list.title')}</Text>
+        {/snippet}
         {#snippet empty()}
           <EmptyState title={t('providers.models.no_endpoint_groups')} />
         {/snippet}
@@ -596,7 +573,7 @@
 
   <VStack tag="section" gap={4} class="provider-section">
     <VStack gap={1}>
-      <Text tag="h2" size="md" weight="medium">{t('models.actions.add_custom')}</Text>
+      <Text variant="section-title">{t('models.actions.add_custom')}</Text>
       <Text tone="soft" size="sm">{t('models.custom.not_listed')}</Text>
     </VStack>
 
@@ -726,6 +703,7 @@
 <FloatingView
   open={Boolean(deleteCustomTarget)}
   anchor={deleteCustomAnchor}
+  width="sm"
   onclose={() => { deleteCustomTarget = null }}
   label={t('models.actions.delete_custom')}
 >
@@ -739,3 +717,6 @@
       onConfirm={confirmDeleteCustomModel} />
   {/snippet}
 </FloatingView>
+
+<style>
+</style>

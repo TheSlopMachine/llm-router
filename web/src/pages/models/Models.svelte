@@ -5,8 +5,8 @@
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import type { AvailableModel, VirtualModel } from '$lib/types'
-  import { t } from '$lib/i18n.svelte'
-  import { HStack, SearchField, Text, VStack, Banner } from '$ui'
+  import { t, n } from '$lib/i18n.svelte'
+  import { HStack, SearchField, Text, VStack, Banner, Header } from '$ui'
     import EmptyState from '../../FUI/composite/EmptyState.svelte'
   import { rankModels, normalize } from '$lib/model-search'
   import type { Ranked } from '$lib/model-search'
@@ -105,19 +105,14 @@
   type RankedModel = Ranked<AvailableModel>
 </script>
 
-<VStack gap={4}>
-  <HStack gap={4} align="center">
-    <Text tag="h1" size="lg" weight="bold">{t('models.list.title')}</Text>
-    {#if hasModels}
-      <Text tone="soft" size="base">{allModels.length + virtualModels.length}</Text>
-    {/if}
-  </HStack>
+<VStack gap={6}>
+  <Header title={t('models.list.title')} subtitle={hasModels ? n(allModels.length + virtualModels.length, 'units.model.one', 'units.model.many') : undefined} />
 
   {#if error}
     <Banner variant="error" text={error} />
   {/if}
 
-  <SearchField bind:value={query} placeholder={t('models.search.full_id')} />
+  <SearchField bind:value={query} placeholder={t('models.search.placeholder')} />
 
   <ModelsTable models={tableModels} readonly sortable showProviderLink loading={loading}>
     {#snippet empty()}

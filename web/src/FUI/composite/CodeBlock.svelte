@@ -56,7 +56,7 @@
     min-width: 0;
     font-family: var(--fui-font-mono);
     font-size: var(--fui-text-md);
-    letter-spacing: 0.04em;
+    letter-spacing: var(--fui-tracking-code);
     overflow-wrap: anywhere;
   }
 </style>

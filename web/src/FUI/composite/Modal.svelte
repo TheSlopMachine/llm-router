@@ -63,6 +63,7 @@
 
   function footerStyle(variant: ModalButton['variant']): 'prominent' | 'none' | 'text' {
     if (variant === 'primary') return 'prominent'
+    if (variant === 'secondary') return 'text'
     if (variant && isTextButtonVariant(variant)) return 'text'
     return variant === 'danger' ? 'prominent' : 'none'
   }
@@ -132,7 +133,7 @@
         <div class="modal-header">
           <div class="modal-title-col">
             {#if config.title}
-              <Text tag="h2" id="modal-title-{index}" size="md" weight="medium" truncate>{config.title}</Text>
+              <Text variant="section-title" id="modal-title-{index}" truncate>{config.title}</Text>
             {/if}
             {#if config.subtitle}
               <div class="modal-subtitle"><Text size="sm" tone="soft" truncate>{config.subtitle}</Text></div>
@@ -221,11 +222,11 @@
     right: 0;
     bottom: 0;
     background: transparent;
-    backdrop-filter: blur(4px);
+    backdrop-filter: blur(var(--fui-modal-blur));
     display: flex;
     align-items: center;
     justify-content: center;
-    animation: fadeIn 0.15s ease-out;
+    animation: fadeIn var(--fui-dur-base) ease-out;
   }
 
   .modal-card {
@@ -233,18 +234,19 @@
     border: none;
     border-radius: var(--fui-radius-lg);
     max-height: 90vh;
+    max-height: 90dvh;
     display: flex;
     flex-direction: column;
-    animation: scaleIn 0.15s ease-out;
+    animation: scaleIn var(--fui-dur-base) ease-out;
   }
 
-  .modal-small { width: 90%; max-width: 400px; }
-  .modal-medium { width: 90%; max-width: 600px; }
-  .modal-large { width: 90%; max-width: 800px; }
-  .modal-extra-large { width: 90%; max-width: 1100px; }
+  .modal-small { width: min(var(--fui-modal-w-sm), calc(100% - 2 * var(--fui-space-3))); max-width: var(--fui-modal-w-sm); }
+  .modal-medium { width: min(var(--fui-modal-w-md), calc(100% - 2 * var(--fui-space-3))); max-width: var(--fui-modal-w-md); }
+  .modal-large { width: min(var(--fui-modal-w-lg), calc(100% - 2 * var(--fui-space-3))); max-width: var(--fui-modal-w-lg); }
+  .modal-extra-large { width: min(var(--fui-modal-w-xl), calc(100% - 2 * var(--fui-space-3))); max-width: var(--fui-modal-w-xl); }
 
   .modal-header {
-    padding: 20px 20px 0;
+    padding: var(--fui-modal-pad-header) var(--fui-modal-pad-header) 0;
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
@@ -257,7 +259,7 @@
      pushed into Button (which needed :global and leaked app-wide). */
   .modal-close {
     flex-shrink: 0;
-    margin: -6px -6px 0 0;
+    margin: calc(var(--fui-modal-close-offset) * -1) calc(var(--fui-modal-close-offset) * -1) 0 0;
   }
 
   .modal-title-col {
@@ -269,16 +271,16 @@
   }
 
   .modal-subtitle {
-    line-height: 16px;
+    line-height: var(--fui-modal-subtitle-leading);
   }
 
   .modal-stepper {
-    padding: 14px 14px 0 14px;
+    padding: var(--fui-modal-pad-body) var(--fui-modal-pad-body) 0 var(--fui-modal-pad-body);
     flex-shrink: 0;
   }
 
   .modal-body {
-    padding: 14px;
+    padding: var(--fui-modal-pad-body);
     overflow-y: auto;
     flex: 1;
     min-height: 0;
@@ -287,7 +289,7 @@
   /* One spacing rhythm N=12: edge-to-last-button, buttons-to-bottom edge,
      and between adjacent buttons are all the same N. */
   .modal-footer {
-    padding: 14px;
+    padding: var(--fui-modal-pad-body);
     display: flex;
     justify-content: flex-end;
     align-items: center;
@@ -296,7 +298,7 @@
   }
 
   .modal-footer.footer-bordered {
-    border-top: 1px solid var(--fui-color-outline-soft);
+    border-top: var(--fui-border-w) solid var(--fui-color-outline-soft);
   }
 
   .footer-actions {
@@ -309,18 +311,18 @@
 
   /* Confirm specifics: larger message text, tighter button pair. */
   .modal-card.modal-confirm {
-    max-width: 300px;
+    max-width: var(--fui-modal-confirm-w);
   }
 
   /* Confirm message is fill-less text: it sits on the 20px header grid,
      not on the 14px content grid. */
   .modal-confirm .modal-body {
-    padding: 14px 20px;
+    padding: var(--fui-modal-pad-body) var(--fui-modal-confirm-pad-x);
   }
 
   /* Title-less confirm: the message is the first text — 20px off the top. */
   .modal-confirm .modal-body:first-child {
-    padding-top: 20px;
+    padding-top: var(--fui-modal-pad-header);
   }
 
   .modal-confirm .footer-actions {

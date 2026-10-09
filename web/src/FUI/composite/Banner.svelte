@@ -36,7 +36,7 @@
   class="banner"
   style:background={soft.bg}
   style:color={soft.text}
-  use:squircle={12}
+  use:squircle
 >
   {text}
 </div>

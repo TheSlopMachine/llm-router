@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, FloatingView, HStack, VStack, Text, Switch, SearchField, TextEdit, List, SectionCard, Chip, Spacer, Banner, ConfirmAction } from '$ui'
+  import { Button, Toolbar, ToolbarItem, FloatingView, HStack, VStack, Text, Switch, SearchField, TextEdit, List, SectionCard, Chip, Spacer, Banner, ConfirmAction } from '$ui'
   import EmptyState from '../../../FUI/composite/EmptyState.svelte'
   import PluginCard from './PluginCard.svelte'
   import RepoDetailsModal from './RepoDetailsModal.svelte'
@@ -213,22 +213,22 @@
     <Banner variant="error" text={actionError} />
   {/if}
 
-  <HStack align="center" gap={4}>
-    <HStack grow>
+  <Toolbar overflow="menu" gap={3} moreLabel={t('providers.detail.more_actions')}>
+    <ToolbarItem pinned fill="md">
       <SearchField bind:value={query} placeholder={t('plugins.search.catalog')} />
-    </HStack>
-    <HStack align="center" gap={4}>
-      <HStack align="center" gap={2}>
-        <Text size="sm">{t('plugins.updates_only')}</Text>
-        <Switch bind:checked={showUpdatesOnly} ariaLabel={t('plugins.updates_only')} />
-      </HStack>
+    </ToolbarItem>
+    <ToolbarItem priority={2} active={showUpdatesOnly}>
+      <Switch bind:checked={showUpdatesOnly} label={t('plugins.updates_only')} ariaLabel={t('plugins.updates_only')} />
+    </ToolbarItem>
+    <ToolbarItem priority={1}>
       <Button
         style="prominent"
         icon={{ name: 'add' }}
+        text={t('plugins.repo.add')}
         onclick={() => { showAddRepo = !showAddRepo }}
-      >{t('plugins.repo.add')}</Button>
-    </HStack>
-  </HStack>
+      />
+    </ToolbarItem>
+  </Toolbar>
 
   {#if showAddRepo}
     <SectionCard title={t('plugins.repo.add')} description={t('plugins.repo.url_hint')}>
@@ -278,7 +278,7 @@
       <VStack gap={3}>
         <HStack align="center" gap={3}>
           <VStack gap={0} grow>
-            <Text tag="h2" size="md" weight="bold">{entry.repo.title || entry.repo.id}</Text>
+            <Text variant="section-title">{entry.repo.title || entry.repo.id}</Text>
             {#if entry.repo.description}<Text size="xs" tone="soft">{entry.repo.description}</Text>{/if}
           </VStack>
           <HStack gap={2}>
@@ -345,7 +345,7 @@
                   onInstall={() => void installEntry(f.repo_id, f.path)}
                 />
               {/if}
-              {#if f.error}<Text tone="danger" size="xs">{f.error}</Text>{/if}
+              {#if f.error}<Text tone="danger" variant="caption">{f.error}</Text>{/if}
             {/each}
           </List>
         {/if}
@@ -356,6 +356,7 @@
   <FloatingView
     open={Boolean(removeRepoTarget)}
     anchor={removeRepoAnchor}
+    width="sm"
     onclose={() => { removeRepoTarget = null }}
     label={t('plugins.repo.remove')}
   >
@@ -374,6 +375,7 @@
   <FloatingView
     open={Boolean(pluginState.pendingDelete)}
     anchor={pluginState.pendingDelete?.anchor}
+    width="sm"
     onclose={() => { pluginState.pendingDelete = null }}
     label={t('plugins.delete')}
   >
@@ -391,11 +393,12 @@
   <FloatingView
     open={Boolean(pluginState.pendingRollback)}
     anchor={pluginState.pendingRollback?.anchor}
+    width="sm"
     onclose={() => { pluginState.pendingRollback = null }}
     label={t('plugins.rollback_title')}
   >
     {#snippet children({ close })}
-      <VStack gap={3} style="max-width: 280px;">
+      <VStack gap={3}>
         <VStack gap={1}>
           <Text weight="medium" size="base">{t('plugins.rollback_title')}</Text>
           <Text size="sm" tone="soft">

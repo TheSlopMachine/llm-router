@@ -1,11 +1,13 @@
 <script lang="ts">
   import Icon from './Icon.svelte'
   import type { Snippet } from 'svelte'
-  import { squircle } from '../core/squircle'
+  import { squircleAuto } from '../core/squircle-baked'
   import type { Size } from '../tokens'
   import { tintFill, tintSoft } from '../core/tint'
   import { theme } from '../core/theme.svelte'
   import { resolveSelectedStyle, resolveButtonVariant, isIconOnly, hasLeftIcon, hasRightIcon } from '../core/button-state'
+  import { fillStyle, type FillSize } from '../tokens'
+  import { getToolbarCtx, getToolbarPlacement } from '../composite/toolbar.svelte'
 
   interface ButtonIcon {
     /** Material Symbols ligature name */
@@ -35,6 +37,8 @@
     ariaExpanded,
     size = 'medium',
     block = false,
+    fill,
+    collapse = true,
     embedded = false,
     disabled = false,
     ariaLabel,
@@ -54,6 +58,9 @@
     size?: Size
     /** stretch to the full width of the parent */
     block?: boolean
+    fill?: FillSize
+    /** allow collapsing to icon-only inside Toolbar */
+    collapse?: boolean
     /** compact 22px tile for use inside another control (TextEdit trailing actions) */
     embedded?: boolean
     disabled?: boolean
@@ -64,11 +71,20 @@
     class?: string
   }>()
 
-  let iconMode = $derived(isIconOnly(icon, text, children !== undefined))
+  // Inside a Toolbar: icon+text buttons drop the text from level 1 up (text moves to title/aria-label);
+  // inside the Toolbar menu a button is a full-width row.
+  const tb = getToolbarCtx()
+  const placement = getToolbarPlacement()
+  const textHidden = $derived(!!tb && placement === 'panel' && collapse && !!icon && !!text && tb.level >= 1)
+  const effText = $derived(textHidden ? '' : text)
+  const isBlock = $derived(block || placement === 'menu')
+  const inMenu = placement === 'menu'
+
+  let iconMode = $derived(isIconOnly(icon, effText, children !== undefined))
   // Selected state wins over style: on = prominent fill, off = soft wash.
   let effStyle = $derived(resolveSelectedStyle(selected, style))
   // Variant drives colour only; geometry comes from the iconMode / size flags.
-  let variant = $derived(resolveButtonVariant(effStyle, iconMode))
+  let variant = $derived(resolveButtonVariant(placement === 'menu' ? 'text' : effStyle, iconMode))
 
   // Icon+text: the icon glyph carries optical side bearings, so the icon edge
   // reads wider than the text edge — the iconed-* flags pull that side back.
@@ -93,10 +109,9 @@
     return `--fui-tint-bg:${f.bg};--fui-tint-hover:${f.hover};--fui-tint-text:${f.text}`
   })
 
-  let radius = $derived(size === 'small' ? 8 : 12)
 
   // Sentence case by contract: first letter uppercase, the rest untouched.
-  let label = $derived(text ? text[0].toUpperCase() + text.slice(1) : text)
+  let label = $derived(effText ? effText[0].toUpperCase() + effText.slice(1) : effText)
 </script>
 
 <button
@@ -105,20 +120,23 @@
   data-size={size}
   data-tinted={tintVars !== null ? '' : undefined}
   class:icon-only={iconMode}
-  class:block
+  class:block={isBlock}
+  class:in-menu={inMenu}
   class:embedded
   class:iconed-left={iconSide === 'left'}
   class:iconed-right={iconSide === 'right'}
   class:active={active}
+  style:flex={isBlock ? undefined : fillStyle(fill)}
+  style:min-width={isBlock || fill == null || fill === false ? undefined : '0'}
   style={tintVars ?? ''}
   type="button"
   {disabled}
-  aria-label={ariaLabel}
+  aria-label={ariaLabel ?? (textHidden ? text : undefined)}
   aria-expanded={ariaExpanded ?? (active ? true : undefined)}
-  {title}
+  title={title || (textHidden ? text : '')}
   {onclick}
   {onmousedown}
-  use:squircle={radius}
+  use:squircleAuto={{ bake: iconMode && !isBlock && !fill ? `btn-icon-${size}` : undefined, fonts: true }}
 >
   {#if iconMode}
     {#if icon?.src}
@@ -163,7 +181,7 @@
     font-family: inherit;
     font-size: var(--fui-text-base);
     font-weight: 500;
-    line-height: 22px;
+    line-height: var(--fui-btn-line-md);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -171,7 +189,7 @@
     gap: calc(var(--fui-btn-pad-h) / 2);
     height: var(--fui-ctl-medium);
     padding: var(--fui-btn-pad-v) var(--fui-btn-pad-h);
-    border: 1px solid transparent;
+    border: var(--fui-border-w) solid transparent;
     border-radius: var(--fui-ctl-radius);
     background: var(--_bg);
     color: var(--_fg);
@@ -179,8 +197,8 @@
     white-space: nowrap;
     user-select: none;
     transition:
-      transform 120ms ease,
-      background 0.15s ease;
+      transform var(--fui-dur-fast) ease,
+      background var(--fui-dur-base) ease;
   }
 
   /* ── variants ───────────────────────────────────────────────────────── */
@@ -236,24 +254,24 @@
     --_bg: var(--fui-color-disabled-bg);
     --_fg: var(--fui-color-disabled-text);
     cursor: not-allowed;
-    opacity: 0.6;
+    opacity: var(--fui-opacity-dim);
   }
   :global(.dark) .btn:disabled {
-    opacity: 0.8;
+    opacity: var(--fui-opacity-hover);
   }
 
   /* ── sizes: same shape, one scale factor for font, padding and radius ── */
   .btn[data-size='small'] {
     height: var(--fui-ctl-small);
     font-size: var(--fui-text-sm);
-    line-height: 18px;
+    line-height: var(--fui-btn-line-sm);
     padding: calc(var(--fui-btn-pad-v) * 0.9) calc(var(--fui-btn-pad-h) * 0.85);
     border-radius: calc(var(--fui-ctl-radius) * 0.85);
   }
   .btn[data-size='large'] {
     height: var(--fui-ctl-large);
     font-size: var(--fui-text-md);
-    line-height: 24px;
+    line-height: var(--fui-btn-line-lg);
     padding: calc(var(--fui-btn-pad-v) * 1.33) calc(var(--fui-btn-pad-h) * 1.15);
     border-radius: calc(var(--fui-ctl-radius) * 1.15);
   }
@@ -262,7 +280,7 @@
   /* Icon-only: squircle tile, width pinned to line box + padding. */
   .btn.icon-only {
     padding: var(--fui-btn-pad-v);
-    width: calc(var(--fui-btn-pad-v) * 2 + 24px);
+    width: calc(var(--fui-btn-pad-v) * 2 + var(--fui-btn-icon-md));
     border-radius: var(--fui-ctl-radius);
   }
   .btn.icon-only :global(.icon) {
@@ -270,18 +288,20 @@
   }
   .btn.icon-only[data-size='small'] {
     /* 18px line box + 2*0.9*pad-v + 2px border */
-    width: calc(var(--fui-btn-pad-v) * 1.8 + 20px);
+    width: calc(var(--fui-btn-pad-v) * 1.8 + var(--fui-btn-icon-sm));
   }
   .btn.icon-only[data-size='small'] :global(.icon) {
     font-size: var(--fui-text-md);
   }
   /* Font icons carry ~4px of optical side bearing: pull that side back. */
   .btn.iconed-left {
-    padding-left: calc(var(--fui-btn-pad-h) - 4px);
+    padding-left: calc(var(--fui-btn-pad-h) - var(--fui-btn-icon-inset));
   }
   .btn.iconed-right {
-    padding-right: calc(var(--fui-btn-pad-h) - 4px);
+    padding-right: calc(var(--fui-btn-pad-h) - var(--fui-btn-icon-inset));
   }
+  /* Toolbar menu: a plain list row — text look, own height, full width, left-aligned */
+  .btn.in-menu { justify-content: flex-start; }
   .btn.block {
     display: flex;
     width: 100%;
@@ -290,10 +310,10 @@
   .btn.embedded {
     --_fg: var(--fui-color-text-soft);
     --_bg-hover: color-mix(in srgb, var(--fui-color-accent) 12%, var(--fui-elev));
-    width: 22px;
-    min-width: 22px;
-    height: 22px;
-    min-height: 22px;
+    width: var(--fui-btn-icon-md);
+    min-width: var(--fui-btn-icon-md);
+    height: var(--fui-btn-icon-md);
+    min-height: var(--fui-btn-icon-md);
     padding: 0;
   }
   .btn.embedded:is(:hover, :focus-visible):not(:disabled) {
@@ -302,8 +322,8 @@
 
   /* Image glyph inside a Button (icon={{ src }}); font icons size themselves. */
   .glyph {
-    width: 18px;
-    height: 18px;
+    width: var(--fui-btn-icon-sm);
+    height: var(--fui-btn-icon-sm);
     object-fit: contain;
   }
 </style>

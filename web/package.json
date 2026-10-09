@@ -8,7 +8,8 @@
     "generate:api-types": "openapi-typescript ./openapi.yaml -o ./src/lib/generated/api-types.ts",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "svelte-check --tsconfig ./tsconfig.json"
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "lint:hardcode": "node scripts/no-hardcode.mjs"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

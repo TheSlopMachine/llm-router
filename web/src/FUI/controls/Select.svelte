@@ -6,7 +6,7 @@
   import { squircle } from '../core/squircle'
   import { anchorTo, bindDismiss, MENU_ROW_HEIGHT, MENU_MAX_HEIGHT } from '../core/popover'
   import { fuiText } from '../core/texts'
-  import type { Size } from '../tokens'
+  import { fillStyle, type FillSize, type Size } from '../tokens'
   import Icon from './Icon.svelte'
   import MenuPanel from '../internal/MenuPanel.svelte'
   import MenuItem from '../internal/MenuItem.svelte'
@@ -23,6 +23,7 @@
     autoWidth = false,
     rounded = 'sm',
     size = 'medium',
+    fill,
     ariaLabel,
     onchange,
   } = $props<{
@@ -35,6 +36,7 @@
     autoWidth?: boolean
     rounded?: 'sm' | 'lg'
     size?: Size
+    fill?: FillSize
     ariaLabel?: string
     onchange?: (v: string) => void
   }>()
@@ -156,7 +158,7 @@
   )
 </script>
 
-<div class="dropdown" class:disabled class:autoWidth bind:this={rootElement}>
+<div class="dropdown" class:disabled class:autoWidth bind:this={rootElement} style:flex={fillStyle(fill)} style:min-width={fill == null || fill === false ? undefined : '0'}>
   <button
     class="trigger"
     data-size={size}
@@ -172,7 +174,7 @@
     aria-expanded={isOpen}
     aria-controls={menuId}
     aria-label={ariaLabel}
-    use:squircle={12}
+    use:squircle
   >
     <span class="label">{selectedLabel}</span>
     <span class="chevron" class:open={isOpen}><Icon name="expand_more" size="lg" tone="soft" /></span>
@@ -183,8 +185,7 @@
     bind:el={menuElement}
     top={menuTop}
     left={menuLeft}
-    width={autoWidth ? undefined : menuWidth}
-    minWidth={autoWidth ? menuWidth : undefined}
+    constrainWidth
     {flipped}
     role="listbox"
     id={menuId}
@@ -198,7 +199,7 @@
             bind:value={searchQuery}
             onclick={(e) => e.stopPropagation()}
             onkeydown={(e) => e.stopPropagation()}
-            use:squircle={12}
+            use:squircle
           />
         </div>
       {/if}
@@ -244,7 +245,7 @@
   }
 
   .dropdown.disabled {
-    opacity: 0.6;
+    opacity: var(--fui-opacity-dim);
     cursor: not-allowed;
   }
 
@@ -254,28 +255,28 @@
     justify-content: space-between;
     width: 100%;
     height: var(--fui-ctl-medium);
-    padding: 6px var(--fui-field-pad-h);
+    padding: var(--fui-select-pad-y) var(--fui-field-pad-h);
     font-family: inherit;
     font-size: var(--fui-text-base);
-    line-height: 20px;
+    line-height: var(--fui-select-line);
     font-weight: 400;
     border-radius: var(--fui-ctl-radius);
     border: none;
     background: var(--fui-elev);
     color: var(--fui-color-text);
     cursor: pointer;
-    transition: background-color 0.15s ease;
+    transition: background-color var(--fui-dur-base) ease;
     text-align: left;
   }
   .trigger[data-size='small'] {
     height: var(--fui-ctl-small);
-    padding-top: 2px;
-    padding-bottom: 2px;
+    padding-top: var(--fui-select-pad-y-sm);
+    padding-bottom: var(--fui-select-pad-y-sm);
   }
   .trigger[data-size='large'] {
     height: var(--fui-ctl-large);
-    padding-top: 10px;
-    padding-bottom: 10px;
+    padding-top: var(--fui-select-pad-y-lg);
+    padding-bottom: var(--fui-select-pad-y-lg);
   }
   .trigger.rounded-lg {
     border-radius: var(--fui-radius-lg);
@@ -304,7 +305,7 @@
 
   .chevron {
     display: inline-flex;
-    transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform var(--fui-dur-base) var(--fui-ease-standard);
     flex-shrink: 0;
   }
   .chevron.open {
@@ -313,23 +314,23 @@
 
   .search {
     padding: var(--fui-space-3);
-    border-bottom: 1px solid var(--fui-color-outline-light);
+    border-bottom: var(--fui-border-w) solid var(--fui-color-outline-light);
   }
   /* Compact field: same fill/ring system as TextEdit, tighter padding. */
   .search input {
     width: 100%;
-    padding: 6px var(--fui-field-pad-h);
+    padding: var(--fui-select-pad-y) var(--fui-field-pad-h);
     font: inherit;
-    line-height: 20px;
+    line-height: var(--fui-select-line);
     color: var(--fui-color-text);
     background: var(--fui-elev);
-    border: 1px solid transparent;
+    border: var(--fui-border-w) solid transparent;
     border-radius: var(--fui-ctl-radius);
     outline: none;
   }
   .search input:focus-visible {
-    outline: 2px solid var(--fui-color-accent);
-    outline-offset: 1px;
+    outline: var(--fui-select-focus-w) solid var(--fui-color-accent);
+    outline-offset: var(--fui-select-focus-offset);
   }
 
   .empty {

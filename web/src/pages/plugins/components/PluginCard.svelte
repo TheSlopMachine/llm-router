@@ -60,21 +60,19 @@
 </script>
 
 <div class="plugin-card-row">
-  <HStack align="center" gap={4}>
-    <VStack gap={1} grow>
-      <HStack align="center" gap={2}>
-        <Text tag="h2" size="base" weight="bold">{title}</Text>
+  <HStack align="center" gap={4} wrap>
+    <div class="plugin-title">
+      <HStack align="center" gap={2} wrap>
+        <span class="plugin-name"><Text variant="value">{title}</Text></span>
         <Chip text={version} color="chip-accent" size="small" />
         {#if unsafe}
           <Chip text={t('plugins.network.unrestricted')} color="chip-red" size="small" />
         {/if}
       </HStack>
       {#if description}
-        <Text tag="h3" size="sm" tone="soft">{description}</Text>
+        <Text variant="subtitle">{description}</Text>
       {/if}
-    </VStack>
-
-    <Spacer />
+    </div>
 
     <HStack align="center" gap={2}>
       {#if mode === 'installed'}
@@ -126,6 +124,7 @@
   <FloatingView
     open={confirmOpen}
     anchor={confirmAnchor}
+    width="md"
     onclose={() => { confirmOpen = false }}
     label={mode === 'installed' ? t('common.actions.update') : installLabel}
   >
@@ -148,5 +147,17 @@
 <style>
   .plugin-card-row {
     padding: var(--fui-space-4);
+    min-width: 0;
+  }
+  .plugin-title {
+    flex: 1 1 var(--fui-grid-min-lg);
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--fui-space-1);
+  }
+  .plugin-name {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 </style>

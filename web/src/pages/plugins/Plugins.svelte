@@ -1,7 +1,8 @@
 <script lang="ts">
   import { api } from '$lib/api'
   import { createListResource } from '$lib/list-resource.svelte'
-  import { Picker, Text, VStack, HStack } from '$ui'
+  import { Picker, Text, VStack, HStack, Header, Banner } from '$ui'
+  import EmptyState from '../../FUI/composite/EmptyState.svelte'
   import InstalledTab from './components/InstalledTab.svelte'
   import CatalogTab from './components/CatalogTab.svelte'
   import type { Plugin, PluginRepo, PluginUpdate, StoreFile } from '$lib/types'
@@ -82,10 +83,7 @@
 </script>
 
   <VStack gap={6}>
-  <VStack gap={1}>
-    <Text tag="h1" size="xl" weight="bold">{t('plugins.title')}</Text>
-    <Text tone="soft" size="sm">{t('plugins.manage_desc')}</Text>
-  </VStack>
+  <Header title={t('plugins.title')} subtitle={t('plugins.manage_desc')} />
 
   <Picker
     value={tab}
@@ -98,9 +96,9 @@
   />
 
   {#if resource.loading && resource.data.plugins.length === 0 && resource.data.repos.length === 0}
-    <Text tone="soft" align="center" class="empty">{t('common.state.loading')}</Text>
+    <EmptyState title={t('common.state.loading')} />
   {:else if resource.error && resource.data.plugins.length === 0 && resource.data.repos.length === 0}
-    <Text tone="danger" size="sm">{resource.error}</Text>
+    <Banner variant="error" text={resource.error} />
   {:else if tab === 'installed'}
     <InstalledTab
       plugins={resource.data.plugins}

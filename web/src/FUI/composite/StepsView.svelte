@@ -123,7 +123,7 @@
      their cell symmetrically below the rails, never overlapping them. */
   .step-cell {
     flex: none;
-    width: 28px;
+    width: var(--fui-steps-dot);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -131,7 +131,7 @@
   }
   .step-title {
     width: max-content;
-    max-width: 120px;
+    max-width: var(--fui-steps-label-max);
     align-self: center;
     text-align: center;
   }
@@ -146,8 +146,8 @@
     text-align: right;
   }
   .step-circle {
-    width: 28px;
-    height: 28px;
+    width: var(--fui-steps-dot);
+    height: var(--fui-steps-dot);
     flex: none;
     display: grid;
     place-content: center;
@@ -173,7 +173,7 @@
   .step-circle > :global(.txt-md) {
     line-height: 1;
     display: inline-block;
-    transform: translateY(-0.12em);
+    transform: translateY(calc(var(--fui-steps-tick-lift) * -1));
   }
   .step-title {
     min-width: 0;
@@ -182,10 +182,10 @@
   /* Rails ride at circle-center height: (28 - 2) / 2. */
   .step-rail {
     flex: 1 1 0;
-    min-width: 8px;
-    height: 2px;
-    margin-top: 13px;
-    border-radius: 2px;
+    min-width: var(--fui-steps-rail-min);
+    height: var(--fui-steps-rail-h);
+    margin-top: var(--fui-steps-rail-offset);
+    border-radius: var(--fui-steps-rail-radius);
     background: var(--fui-color-text-disabled);
   }
   .step-rail.done {
@@ -193,7 +193,7 @@
   }
   .step-dots {
     flex: none;
-    height: 28px;
+    height: var(--fui-steps-dot);
     display: grid;
     place-content: center;
   }

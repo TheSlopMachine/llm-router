@@ -121,7 +121,7 @@
   bind:el={menuElement}
   top={menuTop}
   left={menuLeft}
-  minWidth={menuWidth}
+  constrainWidth
   {flipped}
   role="menu"
   {label}

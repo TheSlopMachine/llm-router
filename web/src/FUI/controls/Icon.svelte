@@ -80,7 +80,7 @@
     font-variation-settings: "FILL" 1, "wght" 300, "GRAD" 0, "opsz" 20;
   }
   .spin {
-    animation: icon-spin 1s linear infinite;
+    animation: icon-spin var(--fui-dur-spin) linear infinite;
   }
   @keyframes icon-spin {
     to { transform: rotate(360deg); }

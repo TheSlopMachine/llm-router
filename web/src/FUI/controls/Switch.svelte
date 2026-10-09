@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { squircle } from '../core/squircle'
+  import { squircleAuto } from '../core/squircle-baked'
 
   let {
     checked = $bindable(false),
@@ -41,9 +41,9 @@
       class:xl={size === 'xl'}
       {disabled}
       onclick={toggle}
-      use:squircle
+      use:squircleAuto={{ bake: size === 'xl' ? 'switch-xl' : 'switch' }}
     >
-      <span class="switch-thumb" use:squircle></span>
+      <span class="switch-thumb" use:squircleAuto={{ bake: size === 'xl' ? 'switch-thumb-xl' : 'switch-thumb' }}></span>
     </button>
   </label>
 {:else}
@@ -58,9 +58,9 @@
       class:xl={size === 'xl'}
       {disabled}
       onclick={toggle}
-      use:squircle
+      use:squircleAuto={{ bake: size === 'xl' ? 'switch-xl' : 'switch' }}
     >
-    <span class="switch-thumb" use:squircle></span>
+    <span class="switch-thumb" use:squircleAuto={{ bake: size === 'xl' ? 'switch-thumb-xl' : 'switch-thumb' }}></span>
   </button>
 {/if}
 
@@ -81,16 +81,16 @@
   }
 
   .switch {
-    width: 36px;
-    height: 20px;
-    border-radius: 9999px;
+    width: var(--fui-switch-w);
+    height: var(--fui-switch-h);
+    border-radius: var(--fui-switch-pill);
     border: none;
     background: var(--fui-elev);
     position: relative;
     cursor: pointer;
     padding: 0;
     flex-shrink: 0;
-    transition: background 0.15s;
+    transition: background var(--fui-dur-base);
   }
 
   .switch.on {
@@ -110,40 +110,40 @@
     box-shadow: var(--fui-focus-ring-contrast);
   }
   .switch:disabled {
-    opacity: 0.6;
+    opacity: var(--fui-opacity-dim);
     cursor: not-allowed;
   }
   :global(.dark) .switch:disabled {
-    opacity: 0.8;
+    opacity: var(--fui-opacity-hover);
   }
 
   .switch-thumb {
     position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 16px;
-    height: 16px;
+    top: var(--fui-switch-knob-offset);
+    left: var(--fui-switch-knob-offset);
+    width: var(--fui-switch-knob);
+    height: var(--fui-switch-knob);
     border-radius: 50%;
-    background: #fff;
-    transition: transform 0.15s;
+    background: var(--fui-switch-knob-bg);
+    transition: transform var(--fui-dur-base);
   }
 
   .switch.on .switch-thumb {
-    transform: translateX(16px);
+    transform: translateX(var(--fui-switch-knob-travel));
   }
 
   /* XL is 2x linear scale for hero placement (provider header). */
   .switch.xl {
-    width: 72px;
-    height: 40px;
+    width: var(--fui-switch-xl-w);
+    height: var(--fui-switch-xl-h);
   }
   .switch.xl .switch-thumb {
-    top: 4px;
-    left: 4px;
-    width: 32px;
-    height: 32px;
+    top: var(--fui-switch-xl-offset);
+    left: var(--fui-switch-xl-offset);
+    width: var(--fui-switch-xl-knob);
+    height: var(--fui-switch-xl-knob);
   }
   .switch.xl.on .switch-thumb {
-    transform: translateX(32px);
+    transform: translateX(var(--fui-switch-xl-travel));
   }
 </style>

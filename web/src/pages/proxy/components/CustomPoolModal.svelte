@@ -6,7 +6,7 @@
   import { getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
   import type { ModalButton, ProxyPool } from '$lib/types'
-  import { Text, TextArea, TextEdit, VStack } from '$ui'
+  import { Text, TextArea, TextEdit, VStack, Banner } from '$ui'
 
   let {
     editingPool = null,
@@ -85,7 +85,7 @@
 
 <VStack gap={4}>
   {#if error}
-    <Text tone="danger" size="sm">{error}</Text>
+    <Banner variant="error" text={error} />
   {/if}
   <VStack gap={1}>
     <Text size="sm" weight="medium">{t('common.labels.name')}</Text>

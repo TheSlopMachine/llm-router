@@ -7,7 +7,7 @@
   import { getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
   import type { Credential, ModalButton } from '$lib/types'
-  import { Text, TextEdit, VStack } from '$ui'
+  import { Text, TextEdit, VStack, Banner } from '$ui'
 
   let {
     cred,
@@ -53,7 +53,7 @@
 
 <VStack gap={4}>
   {#if error}
-    <Text tone="danger" size="sm">{error}</Text>
+    <Banner variant="error" text={error} />
   {/if}
   <VStack gap={1}>
     <Text size="sm" weight="medium">{t('common.labels.name')}</Text>

@@ -96,10 +96,11 @@
 
 <style>
   .chart-container {
-    min-height: 140px;
+    min-height: var(--fui-chart-min-h);
     display: flex;
     align-items: center;
     justify-content: center;
+    width: 100%;
   }
 
   .y-axis-labels {
@@ -107,14 +108,14 @@
     flex-direction: column;
     justify-content: space-between;
     padding: var(--fui-space-1) 0;
-    min-width: 40px;
+    min-width: var(--fui-chart-axis-min);
     text-align: right;
-    height: 120px;
+    height: var(--fui-chart-h);
   }
 
   .chart-area {
     flex: 1;
     position: relative;
-    height: 120px;
+    height: var(--fui-chart-h);
   }
 </style>

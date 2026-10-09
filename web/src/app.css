@@ -2,42 +2,25 @@
    only page-level layout helpers used by pages/ (never by components/ui).
    Rule of thumb: if a rule needs a widget's internals, it does not belong here. */
 
-/* ── Page chrome ───────────────────────────────────────────────────────── */
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: var(--fui-space-6);
-  margin-bottom: var(--fui-space-7);
-}
-.page-header h1 {
-  font-size: var(--fui-text-xl);
-  font-weight: 400;
-  margin: 0 0 var(--fui-space-3) 0;
-  color: var(--fui-color-text);
-}
-.page-header p {
-  margin: 0;
-  color: var(--fui-color-text-soft);
-  font-size: var(--fui-text-base);
-}
-
-.detail-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--fui-space-6);
-  margin-bottom: var(--fui-space-6);
+/* ── Shell metrics (Dashboard + Settings accent grid) ── */
+:root {
+  --fui-sidebar-w-rail: 68px;
+  --fui-sidebar-w-drawer: 270px;
+  --fui-appbar-h: 52px;
+  --fui-content-max-w: 1200px;
+  --fui-dashboard-brand-h: 24px;
+  --fui-dashboard-brand-max: 200px;
+  --fui-dashboard-label-max: 160px;
+  --fui-dashboard-shift: 10px;
+  --fui-dashboard-nav-radius: 8px;
+  --fui-dashboard-collapse-radius: 6px;
+  --fui-dashboard-pad-y: 20px;
+  --fui-dashboard-pad-x: 20px;
+  --fui-settings-accent-outline: 2px;
+  --fui-settings-accent-offset: 2px;
 }
 
 /* ── Status blocks ─────────────────────────────────────────────────────── */
-.empty,
-.loading {
-  padding: var(--fui-space-8);
-  text-align: center;
-  color: var(--fui-color-text-soft);
-  font-size: var(--fui-text-base);
-}
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -47,14 +30,6 @@
   padding: var(--fui-space-8) var(--fui-space-6);
   text-align: center;
   color: var(--fui-color-text-soft);
-}
-.error-msg {
-  background: var(--fui-color-notification-error-bg);
-  color: var(--fui-color-notification-error-text);
-  padding: var(--fui-space-4) var(--fui-space-5);
-  border-radius: var(--fui-radius-md);
-  margin-bottom: var(--fui-space-5);
-  font-size: var(--fui-text-sm);
 }
 
 /* ── Form layout (labels over native-looking fields built from ui/) ───── */

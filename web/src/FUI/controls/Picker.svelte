@@ -1,19 +1,21 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { squircle } from '../core/squircle'
-  import type { Size } from '../tokens'
+  import { fillStyle, type FillSize, type Size } from '../tokens'
 
   let {
     value = $bindable(''),
     options,
     ariaLabel,
     size = 'medium',
+    fill,
     onchange
   } = $props<{
     value: string
     options: Array<{ value: string; label: string }>
     ariaLabel?: string
     size?: Size
+    fill?: FillSize
     onchange?: (value: string) => void
   }>()
 
@@ -39,6 +41,7 @@
     if (!btn) return
     pillX = btn.offsetLeft
     pillW = btn.offsetWidth
+    btn.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }
 
   onMount(() => {
@@ -55,7 +58,7 @@
   })
 </script>
 
-<div class="segmented" data-size={size} role="group" aria-label={ariaLabel} bind:this={rootEl} use:squircle={12}>
+<div class="segmented" data-size={size} role="group" aria-label={ariaLabel} bind:this={rootEl} style:flex={fillStyle(fill)} style:min-width={fill == null || fill === false ? undefined : '0'} use:squircle={12}>
   <span
     class="seg-pill"
     class:ready={pillReady}
@@ -93,16 +96,22 @@
     display: inline-flex;
     align-items: stretch;
     align-self: flex-start;
-    padding: 3px;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: var(--fui-picker-pad);
     background: var(--fui-elev);
     border: none;
-    border-radius: calc(var(--fui-ctl-radius) * 0.75 + 3px);
+    border-radius: calc(var(--fui-ctl-radius) * 0.75 + var(--fui-picker-pad));
+  }
+  .segmented::-webkit-scrollbar {
+    display: none;
   }
 
   .seg-pill {
     position: absolute;
-    top: 3px;
-    bottom: 3px;
+    top: var(--fui-picker-pad);
+    bottom: var(--fui-picker-pad);
     left: 0;
     background: var(--fui-color-accent);
     border-radius: calc(var(--fui-ctl-radius) * 0.75);
@@ -111,8 +120,8 @@
   .seg-pill.ready {
     /* smooth slide, no overshoot */
     transition:
-      transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-      width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      transform var(--fui-dur-slow) var(--fui-ease-standard),
+      width var(--fui-dur-slow) var(--fui-ease-standard);
   }
 
   /* position:relative lifts labels above the absolutely-positioned pill. */
@@ -120,16 +129,18 @@
     position: relative;
     display: flex;
     align-items: center;
+    white-space: nowrap;
+    flex-shrink: 0;
     padding: var(--fui-btn-pad-v) var(--fui-btn-pad-h);
     border-radius: calc(var(--fui-ctl-radius) * 0.75);
     border: none;
     background: transparent;
     color: var(--fui-color-text-soft);
     font-size: var(--fui-text-base);
-    line-height: 22px;
+    line-height: var(--fui-picker-line-md);
     font-weight: 500;
     cursor: pointer;
-    transition: color 0.15s;
+    transition: color var(--fui-dur-base);
   }
 
   .segmented[data-size='small'] {
@@ -139,13 +150,13 @@
     height: var(--fui-ctl-large);
   }
   .segmented[data-size='small'] .seg-btn {
-    line-height: 18px;
-    padding: 2px var(--fui-btn-pad-h);
+    line-height: var(--fui-picker-line-sm);
+    padding: var(--fui-picker-field-pad-y) var(--fui-btn-pad-h);
     font-size: var(--fui-text-sm);
   }
   .segmented[data-size='large'] .seg-btn {
-    line-height: 24px;
-    padding: 6px var(--fui-btn-pad-h);
+    line-height: var(--fui-picker-line-lg);
+    padding: var(--fui-picker-field-pad-y-lg) var(--fui-btn-pad-h);
   }
 
   /* No hover fill, no press bounce: selection (the sliding pill) is the only
@@ -157,8 +168,8 @@
 
   .seg-div {
     align-self: center;
-    width: 1px;
-    height: 16px;
+    width: var(--fui-picker-sep-w);
+    height: var(--fui-picker-sep-h);
     flex: none;
     background: transparent;
   }

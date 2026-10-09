@@ -47,6 +47,6 @@ a:hover { text-decoration: underline; }
   box-shadow: var(--fui-focus-ring);
 }
 :where(input, select, textarea):focus-visible {
-  outline: 2px solid var(--fui-color-accent);
-  outline-offset: 1px;
+  outline: var(--fui-select-focus-w) solid var(--fui-color-accent);
+  outline-offset: var(--fui-select-focus-offset);
 }

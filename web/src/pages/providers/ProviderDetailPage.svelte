@@ -10,7 +10,7 @@
   import ModelsSection from './components/ModelsSection.svelte'
   import DynamicForm from '../../components/domain/DynamicForm.svelte'
   import EmptyState from '../../FUI/composite/EmptyState.svelte'
-  import { Button, Chip, FloatingView, HStack, Image, Select, Spacer, Switch, Table, Text, VStack, Banner, ConfirmAction } from '$ui'
+  import { Button, Chip, FloatingView, HStack, Image, Select, Spacer, Switch, Table, Text, VStack, Banner, ConfirmAction, Header } from '$ui'
   import type { TableColumn } from '$ui'
   import { squircle } from '../../FUI/core/squircle'
   import { t } from '$lib/i18n.svelte'
@@ -419,37 +419,34 @@
 </script>
 
 {#if loading}
-  <VStack align="center" gap={2} class="provider-state">
-    <Text tone="soft">{t('common.state.loading')}</Text>
-  </VStack>
+  <EmptyState title={t('common.state.loading')} />
 {:else if !provider}
   <VStack align="center" gap={4} class="provider-state">
-    <Text tone="soft">{t('providers.detail.not_found')}</Text>
-    <Button onclick={back}>{t('providers.detail.back_to_providers')}</Button>
+    <EmptyState title={t('providers.detail.not_found')} />
+    <Button style="text" onclick={back}>{t('providers.detail.back_to_providers')}</Button>
   </VStack>
 {:else}
+  {@const p = provider}
   <VStack gap={6} class="provider-detail">
-    <HStack gap={4} align="center" class="detail-header">
-      <Button onclick={back} ariaLabel={t('providers.detail.back_to_providers')} title={t('providers.detail.back_to_providers')} icon={{ name: 'arrow_back' }} />
-      <Image src={provider.icon_url} alt={provider.name} width={40} height={40} radius={3} fit="contain" fallbackIcon="cloud" />
-      <VStack gap={0} grow class={provider.disabled ? 'provider-off' : ''}>
-        <Text tag="h1" size="lg" weight="bold">{provider.name}</Text>
-        <Text tone="soft" size="sm">{provider.type_key}</Text>
-      </VStack>
-      <Spacer />
-      {#if !provider.is_ui_readonly}
-        <HStack gap={2}>
-          <Button onclick={openEditProvider} icon={{ name: 'edit' }}>{t('common.actions.edit')}</Button>
-          <Button tint="var(--fui-color-danger)" onclick={(e) => openDeleteProvider(e.currentTarget as HTMLElement)} icon={{ name: 'delete' }}>{t('common.actions.delete')}</Button>
+    <Header title={p.name} subtitle={p.type_key}>
+      {#snippet leading()}
+        <Button onclick={back} ariaLabel={t('providers.detail.back_to_providers')} title={t('providers.detail.back_to_providers')} icon={{ name: 'arrow_back' }} />
+      {/snippet}
+      {#snippet actions()}
+        {#if !p.is_ui_readonly}
+          <Button style="text" onclick={openEditProvider} icon={{ name: 'edit' }}>{t('common.actions.edit')}</Button>
+          <Button style="text" tint="var(--fui-color-danger)" onclick={(e) => openDeleteProvider(e.currentTarget as HTMLElement)} icon={{ name: 'delete' }}>{t('common.actions.delete')}</Button>
+        {/if}
+        <HStack gap={2} align="center">
+          <Text size="sm" tone="soft">{t('providers.detail.enable')}</Text>
+          <Switch
+            checked={!p.disabled}
+            ariaLabel={t('providers.detail.enable')}
+            onchange={(v) => toggleProviderEnabled(v)}
+          />
         </HStack>
-      {/if}
-      <Switch
-        checked={!provider.disabled}
-        ariaLabel={t('providers.detail.enable')}
-        size="xl"
-        onchange={(v) => toggleProviderEnabled(v)}
-      />
-    </HStack>
+      {/snippet}
+    </Header>
 
     {#if error}
       <Banner variant="error" text={error} />
@@ -457,12 +454,11 @@
 
     {#if credentialsEnabled}
       <VStack tag="section" gap={4} class="provider-section">
-        <HStack align="center" gap={2}>
-          <Text tag="h2" size="md" weight="medium">{t('credentials.title_plural')}</Text>
-          <Text size="xs" tone="soft">{credentials.length}</Text>
-          <Spacer />
-          <Button style="prominent" onclick={openAddCredential} icon={{ name: 'add' }}>{t('credentials.add')}</Button>
-        </HStack>
+        <Header level="section" title={t('credentials.title_plural')} subtitle={String(credentials.length)}>
+          {#snippet actions()}
+            <Button style="prominent" onclick={openAddCredential} icon={{ name: 'add' }}>{t('credentials.add')}</Button>
+          {/snippet}
+        </Header>
       <HStack align="center" gap={4} wrap>
         <Switch
           checked={disableFailedCredentials}
@@ -480,19 +476,51 @@
         loading={credentialsLoading}
         rowClass={(cred) => cred.disabled ? 'row-off' : ''}
       >
+        {#snippet card({ row })}
+          {@const cred = row as Credential}
+          <HStack gap={3} align="center">
+            <VStack gap={1} grow>
+              <Text variant="value">{cred.label || t('common.labels.unnamed')}</Text>
+              {#if isAutoDisabled(cred)}
+                <Text variant="caption" tone="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(cred.disabled_reason)}</Text>
+              {:else if isPluginDisabled(cred)}
+                <Text variant="caption" tone="danger">{t('providers.detail.disabled_by_plugin')}{formatDisableReason(cred.disabled_reason)}</Text>
+              {/if}
+              {#if cred.is_expired}
+                <Text variant="caption" tone="danger">{t('tokens.status.expired')}</Text>
+              {/if}
+            </VStack>
+            <HStack gap={2}>
+              <Button size="small" style="text" icon={{ name: 'edit' }} ariaLabel={t('credentials.edit')} title={t('credentials.edit')} onclick={() => openEditCredential(cred)} />
+              <Button size="small" tint="var(--fui-color-danger)" style="text" icon={{ name: 'delete' }} ariaLabel={t('credentials.delete')} title={t('credentials.delete')} onclick={(e) => openDeleteCredential(cred, e.currentTarget as HTMLElement)} />
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <span
+                role="presentation"
+                onclick={(e) => e.stopPropagation()}
+                onkeydown={(e) => e.stopPropagation()}
+              >
+                <Switch
+                  checked={!cred.disabled}
+                  ariaLabel={t('credentials.enable')}
+                  onchange={(v) => toggleCredential(cred, v)}
+                />
+              </span>
+            </HStack>
+          </HStack>
+        {/snippet}
         {#snippet cell({ column, row })}
           {@const cred = row as Credential}
           {#if column.key === 'name'}
             <HStack gap={2} align="center" wrap>
-              <Text size="base" weight="medium">{cred.label || t('common.labels.unnamed')}</Text>
+              <Text variant="value">{cred.label || t('common.labels.unnamed')}</Text>
               {#if cred.is_expired}
                 <Chip text={t('tokens.status.expired')} color="chip-red" />
               {/if}
             </HStack>
             {#if isAutoDisabled(cred)}
-              <Text size="sm" tone="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(cred.disabled_reason)}</Text>
+              <Text variant="caption" tone="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(cred.disabled_reason)}</Text>
             {:else if isPluginDisabled(cred)}
-              <Text size="sm" tone="danger">{t('providers.detail.disabled_by_plugin')}{formatDisableReason(cred.disabled_reason)}</Text>
+              <Text variant="caption" tone="danger">{t('providers.detail.disabled_by_plugin')}{formatDisableReason(cred.disabled_reason)}</Text>
             {/if}
           {:else}
             {@const ti = testIcon(credentialTestResults[cred.id], t('credentials.test'))}
@@ -535,14 +563,17 @@
 
     {#if proxiesEnabled}
       <VStack tag="section" gap={4} align="start" class="provider-section">
-        <Text tag="h2" size="md" weight="medium">{t('proxy.title_singular')}</Text>
-        <HStack align="center" gap={3} wrap>
+        <Text variant="section-title">{t('proxy.title_singular')}</Text>
+        <HStack align="center" justify="between" gap={3}>
+          <Text grow>{t('providers.detail.route_pool')}</Text>
           <Switch
             checked={proxyEnabled}
-            label={t('providers.detail.route_pool')}
+            ariaLabel={t('providers.detail.route_pool')}
             onchange={(v) => { proxyEnabled = v; void saveProxyConfig() }}
           />
-          {#if proxyEnabled}
+        </HStack>
+        {#if proxyEnabled}
+          <HStack align="center" gap={3} wrap>
             <Select
               bind:value={proxyPool}
               options={[
@@ -553,11 +584,11 @@
               autoWidth
               onchange={() => void saveProxyConfig()}
             />
-          {/if}
-          {#if savingProxy}
-            <Text size="xs" tone="soft">{t('common.actions.saving')}</Text>
-          {/if}
-        </HStack>
+            {#if savingProxy}
+              <Text size="xs" tone="soft">{t('common.actions.saving')}</Text>
+            {/if}
+          </HStack>
+        {/if}
         {#if proxyEnabled && proxyNodes.length > 0}
           <DynamicForm nodes={proxyNodes} bind:values={settingsValues} busy={savingProxy} />
         {/if}
@@ -566,13 +597,13 @@
 
     {#if settingsNodes.length > 0}
       <VStack tag="section" gap={4} align="start" class="provider-section">
-        <HStack align="center" gap={2}>
-          <Text tag="h2" size="md" weight="medium">{t('providers.detail.plugin_settings')}</Text>
-          <Spacer />
-          <Button style="prominent" onclick={() => void saveSettings()} disabled={savingSettings}>
-            {savingSettings ? t('common.actions.saving') : t('providers.detail.save_settings')}
-          </Button>
-        </HStack>
+        <Header level="section" title={t('providers.detail.plugin_settings')}>
+          {#snippet actions()}
+            <Button style="prominent" onclick={() => void saveSettings()} disabled={savingSettings}>
+              {savingSettings ? t('common.actions.saving') : t('providers.detail.save_settings')}
+            </Button>
+          {/snippet}
+        </Header>
         <DynamicForm nodes={settingsNodes} bind:values={settingsValues} busy={savingSettings} />
       </VStack>
     {/if}
@@ -584,6 +615,7 @@
 <FloatingView
   open={Boolean(deleteCredTarget)}
   anchor={deleteCredAnchor}
+  width="sm"
   onclose={() => { deleteCredTarget = null }}
   label={t('credentials.delete')}
 >
@@ -601,6 +633,7 @@
 <FloatingView
   open={Boolean(deleteProviderAnchor)}
   anchor={deleteProviderAnchor}
+  width="sm"
   onclose={() => { deleteProviderAnchor = undefined }}
   label={t('providers.detail.delete')}
 >
@@ -622,22 +655,16 @@
   }
 
   :global(.provider-state) {
-    min-height: 240px;
+    min-height: var(--fui-provider-state-min-h);
     justify-content: center;
   }
 
   :global(.provider-off) {
-    opacity: 0.55;
+    opacity: var(--fui-opacity-disabled);
   }
 
   :global(.table-empty) {
     width: 100%;
     padding: var(--fui-space-4);
-  }
-
-  @media (max-width: 768px) {
-    :global(.detail-header) {
-      flex-wrap: wrap;
-    }
   }
 </style>

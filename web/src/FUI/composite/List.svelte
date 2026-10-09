@@ -30,7 +30,7 @@
     background: var(--fui-elev);
   }
   .lst-dividers > :global(*) + :global(*) {
-    border-top: 1px solid var(--fui-color-outline-soft);
+    border-top: var(--fui-border-w) solid var(--fui-color-outline-soft);
   }
   .lst > :global(*) {
     display: block;

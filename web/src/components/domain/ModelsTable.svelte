@@ -297,6 +297,25 @@
         </HStack>
       {/if}
     {/snippet}
+    {#snippet card({ row })}
+      {@const model = row as ModelsTableModel}
+      <HStack gap={3} align="center">
+        <VStack gap={1} grow>
+          <Text variant="value">{model.kind === 'virtual' ? `virtual/${model.id}` : model.name || model.id}</Text>
+          {#if model.kind === 'virtual'}
+            <Text variant="caption">{model.description || '—'}</Text>
+          {:else}
+            <Text variant="caption" mono>{fullId(model)}</Text>
+          {/if}
+        </VStack>
+        {#if actions}<HStack gap={2}>{@render actions({ model })}</HStack>{/if}
+      </HStack>
+      <HStack gap={2} wrap>
+        {#if model.contextWindow}<Text variant="caption">{(model.contextWindow / 1000).toFixed(0)}k ctx</Text>{/if}
+        {#if model.maxTokens}<Text variant="caption">{(model.maxTokens / 1000).toFixed(0)}k out</Text>{/if}
+        {#if (model.capabilities ?? []).length > 0}<Text variant="caption">{(model.capabilities ?? []).join(', ')}</Text>{/if}
+      </HStack>
+    {/snippet}
   </Table>
 </div>
 

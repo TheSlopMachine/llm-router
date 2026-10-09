@@ -155,6 +155,162 @@
   --fui-color-notification-success-text: #16a34a;
 
   --fui-sidebar-w: 240px;
+  --fui-grid-min-xs: 120px;
+  --fui-grid-min-sm: 160px;
+  --fui-grid-min-md: 240px;
+  --fui-grid-min-lg: 320px;
+  --fui-basis-sm: 160px;
+  --fui-basis-md: 240px;
+  --fui-basis-lg: 320px;
+  --fui-header-title-basis: 160px;
+  --fui-popover-w-sm: 280px;
+  --fui-popover-w-md: 320px;
+  --fui-popover-w-lg: 480px;
+  --fui-size-icon-sm: 16px;
+  --fui-size-icon-md: 24px;
+  --fui-size-icon-lg: 32px;
+  --fui-size-avatar: 40px;
+
+  /* Durations / easing */
+  --fui-dur-fast: 0.12s;
+  --fui-dur-base: 0.15s;
+  --fui-dur-slow: 0.28s;
+  --fui-dur-instant: 0s;
+  --fui-dur-skeleton: 1.2s;
+  --fui-dur-spin: 1s;
+  --fui-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --fui-ease-spring: cubic-bezier(0.3, 1.15, 0.5, 1);
+
+  /* Layers */
+  --fui-z-drawer: 40;
+  --fui-z-scrim: 30;
+  --fui-z-modal: 1000;
+  --fui-z-popover: 2000;
+  --fui-z-toast: 100;
+
+  /* Misc */
+  --fui-opacity-disabled: 0.55;
+  --fui-opacity-faint: 0.7;
+  --fui-opacity-dim: 0.6;
+  --fui-opacity-muted: 0.5;
+  --fui-opacity-hover: 0.8;
+  --fui-border-w: 1px;
+  --fui-tracking-caps: 0.08em;
+  --fui-tracking-wide: 0.1em;
+  --fui-tracking-label: 0.05em;
+  --fui-tracking-code: 0.04em;
+
+  /* Table column widths */
+  --fui-table-col-xs: 80px;
+  --fui-table-col-sm: 90px;
+  --fui-table-col-md: 110px;
+  --fui-table-col-lg: 120px;
+  --fui-table-col-xl: 140px;
+  --fui-table-col-2xl: 160px;
+
+  /* ── Component metrics ── */
+  --fui-modal-blur: 4px;
+  --fui-modal-pad-header: 20px;
+  --fui-modal-pad-body: 14px;
+  --fui-modal-close-offset: 6px;
+  --fui-modal-subtitle-leading: 16px;
+  --fui-modal-w-sm: 400px;
+  --fui-modal-w-md: 600px;
+  --fui-modal-w-lg: 800px;
+  --fui-modal-w-xl: 1100px;
+  --fui-modal-confirm-w: 300px;
+  --fui-modal-confirm-pad-x: 20px;
+  --fui-table-drag-col: 28px;
+  --fui-table-skel-h: 12px;
+  --fui-table-skel-radius: 6px;
+  --fui-table-focus-radius: 6px;
+  --fui-toast-offset: 16px;
+  --fui-toast-min-w: 320px;
+  --fui-toast-shift: 24px;
+  --fui-toast-max-h-reduce: 24px;
+  --fui-btn-line-sm: 18px;
+  --fui-btn-line-md: 22px;
+  --fui-btn-line-lg: 24px;
+  --fui-btn-icon-sm: 18px;
+  --fui-btn-icon-md: 22px;
+  --fui-btn-icon-inset: 4px;
+  --fui-chip-pad-y: 6px;
+  --fui-chip-pad-x: 12px;
+  --fui-chip-line: 18px;
+  --fui-chip-sm-pad-y: 5px;
+  --fui-chip-sm-pad-x: 10px;
+  --fui-chip-sm-radius: 10px;
+  --fui-chip-sm-text: 10px;
+  --fui-chip-sm-line: 14px;
+  --fui-chip-md-pad-y: 7px;
+  --fui-chip-md-pad-x: 14px;
+  --fui-chip-md-radius: 14px;
+  --fui-chip-md-line: 20px;
+  --fui-chip-icon-pad: 3px;
+  --fui-chip-icon-radius: 8px;
+  --fui-chip-icon-sm-pad: 2px;
+  --fui-chip-icon-sm-radius: 6px;
+  --fui-chip-icon-lg-pad: 4px;
+  --fui-chip-icon-lg-radius: 12px;
+  --fui-checkbox-box: 18px;
+  --fui-checkbox-radius: 6px;
+  --fui-checkbox-check: 14px;
+  --fui-checkbox-check-radius: 4px;
+  --fui-picker-pad: 3px;
+  --fui-picker-line-sm: 18px;
+  --fui-picker-line-md: 22px;
+  --fui-picker-line-lg: 24px;
+  --fui-picker-field-pad-y: 2px;
+  --fui-picker-field-pad-y-lg: 6px;
+  --fui-picker-sep-w: 1px;
+  --fui-picker-sep-h: 16px;
+  --fui-select-line: 20px;
+  --fui-select-pad-y: 6px;
+  --fui-select-pad-y-sm: 2px;
+  --fui-select-pad-y-lg: 10px;
+  --fui-select-focus-w: 2px;
+  --fui-select-focus-offset: 1px;
+  --fui-switch-w: 36px;
+  --fui-switch-h: 20px;
+  --fui-switch-pill: 9999px;
+  --fui-switch-knob: 16px;
+  --fui-switch-knob-offset: 2px;
+  --fui-switch-knob-travel: 16px;
+  --fui-switch-xl-w: 72px;
+  --fui-switch-xl-h: 40px;
+  --fui-switch-xl-knob: 32px;
+  --fui-switch-xl-offset: 4px;
+  --fui-switch-xl-travel: 32px;
+  --fui-switch-knob-bg: #fff;
+  --fui-textedit-line: 20px;
+  --fui-textedit-icon-gap: 6px;
+  --fui-textedit-collapsed-w: 48px;
+  --fui-textedit-expanded-w: 200px;
+  --fui-textedit-icon-box: 22px;
+  --fui-textarea-line: 20px;
+  --fui-steps-dot: 28px;
+  --fui-steps-label-max: 120px;
+  --fui-steps-rail-h: 2px;
+  --fui-steps-rail-radius: 2px;
+  --fui-steps-rail-offset: 13px;
+  --fui-steps-rail-min: 8px;
+  --fui-steps-tick-lift: 0.12em;
+  --fui-menu-item-pad-y: 6px;
+  --fui-menu-item-pad-x: 12px;
+  --fui-menu-item-line: 21px;
+  --fui-menu-item-radius: 6px;
+  --fui-menu-max-h: 180px;
+  --fui-chart-min-h: 140px;
+  --fui-chart-axis-min: 40px;
+  --fui-chart-h: 120px;
+  --fui-metrics-card-min-h: 100px;
+  --fui-provider-state-min-h: 240px;
+  --fui-token-search-min: 220px;
+  --fui-vmedit-id-col: 56px;
+  --fui-vmedit-name-min: 220px;
+  --fui-auth-max-w: 400px;
+  --fui-splash-max-w: 400px;
+  --fui-splash-gap: 16px;
 
   /* Playground-tunable control metrics (see UI test polygon). */
   --fui-btn-pad-v: 4px;
@@ -173,7 +329,6 @@
      floating layers; floating shadow lifts popovers/menus off the page;
      display icon size serves EmptyState hero glyphs. */
   --fui-overlay-scrim: rgba(0, 0, 0, 0.45);
-  --fui-shadow-floating: 0 10px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
   --fui-text-display: 64px;
 }
 
@@ -275,5 +430,13 @@
 @supports (color: rgb(from red r g b)) {
   :root[data-fui-tint-elev] {
     --fui-elev: rgb(from color-mix(in srgb, rgb(var(--fui-elev-rgb)) calc(100% - var(--fui-elev-accent-mix)), var(--fui-color-accent) var(--fui-elev-accent-mix)) r g b / var(--fui-elev-a));
+  }
+}
+
+@media (pointer: coarse) {
+  :root {
+    --fui-ctl-small: 36px;
+    --fui-ctl-medium: 40px;
+    --fui-ctl-large: 48px;
   }
 }

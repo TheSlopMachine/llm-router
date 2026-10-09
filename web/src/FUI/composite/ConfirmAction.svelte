@@ -28,7 +28,7 @@
   let pendingLabel = $derived(busyLabel ?? `${confirmLabel}…`)
 </script>
 
-<VStack gap={3} style="max-width: 280px">
+<VStack gap={3}>
   <VStack gap={1}>
     <Text weight="medium">{title}</Text>
     <Text size="sm" tone="soft">{body}</Text>

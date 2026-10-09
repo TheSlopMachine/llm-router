@@ -7,7 +7,7 @@
   import { setPendingClone } from '$lib/virtual-clone'
   import { t } from '$lib/i18n.svelte'
   import EmptyState from '../../FUI/composite/EmptyState.svelte'
-  import { Button, FloatingView, HStack, Switch, Text, VStack, Banner, ConfirmAction } from '$ui'
+  import { Button, FloatingView, HStack, Switch, Text, VStack, Banner, ConfirmAction, Header } from '$ui'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
   import { isUnauthenticated } from '$lib/credential-state'
 
@@ -116,21 +116,22 @@
   }
 </script>
 
-<VStack gap={4}>
-  <HStack align="center" justify="between" gap={3}>
-    <VStack gap={1}>
-      <Text tag="h1" size="lg" weight="bold">{t('virtual.models_plural')}</Text>
-      <Text tone="soft" size="sm">{t('virtual.models_desc')}</Text>
-    </VStack>
-    <Button text={t('virtual.actions.new_model')} style="prominent" icon={{ name: 'add' }} onclick={openNew} />
-  </HStack>
+<VStack gap={6}>
+  <Header
+    title={t('virtual.models_plural')}
+    subtitle={t('virtual.models_desc')}
+  >
+    {#snippet actions()}
+      <Button text={t('virtual.actions.new_model')} style="prominent" icon={{ name: 'add' }} onclick={openNew} />
+    {/snippet}
+  </Header>
 
   {#if resource.error}
     <Banner variant="error" text={resource.error} />
   {/if}
 
   {#if resource.loading}
-    <Text tone="soft" size="sm">{t('virtual.loading')}</Text>
+    <EmptyState title={t('common.state.loading')} />
   {:else}
     <ModelsTable
       models={(resource.data ?? []).filter((a) => a).map((vm) => ({
@@ -175,12 +176,13 @@
      </ModelsTable>
    {/if}
 
-   <FloatingView
-     open={Boolean(deleteTarget)}
-     anchor={deleteAnchor}
-     onclose={() => { deleteTarget = null }}
-     label={t('virtual.delete_title')}
-   >
+    <FloatingView
+      open={Boolean(deleteTarget)}
+      anchor={deleteAnchor}
+      width="sm"
+      onclose={() => { deleteTarget = null }}
+      label={t('virtual.delete_title')}
+    >
      {#snippet children({ close })}
        <ConfirmAction
          title={t('virtual.delete_title')}

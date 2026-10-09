@@ -50,7 +50,11 @@ let resizeObserver: ResizeObserver | null = null
 function ensureResizeObserver(): ResizeObserver {
   if (resizeObserver) return resizeObserver
   resizeObserver = new ResizeObserver((entries) => {
-    for (const entry of entries) schedule(entry.target as HTMLElement)
+    // ResizeObserver callbacks run after layout and BEFORE paint, so applying here
+    // (not in a later rAF) means the very frame that shows the new size already
+    // has the matching clip-path. A rAF here leaves one frame with a stale path.
+    for (const entry of entries) pending.add(entry.target as HTMLElement)
+    flush()
   })
   return resizeObserver
 }

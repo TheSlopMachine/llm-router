@@ -8,25 +8,27 @@
     badge,
     children
   } = $props<{
-    title: string
+    title?: string
     description?: string
     badge?: Snippet
     children: Snippet
   }>()
 </script>
 
-<section class="card section-card" use:squircle={18}>
-  <div class="card-header">
-    <div class="section-title-col">
-      <h3>
-        {title}
-        {#if badge}{@render badge()}{/if}
-      </h3>
-      {#if description}
-        <p class="help-text">{description}</p>
-      {/if}
+<section class="card section-card" use:squircle>
+  {#if title}
+    <div class="card-header">
+      <div class="section-title-col">
+        <h3>
+          {title}
+          {#if badge}{@render badge()}{/if}
+        </h3>
+        {#if description}
+          <p class="help-text">{description}</p>
+        {/if}
+      </div>
     </div>
-  </div>
+  {/if}
   <div class="section-body">
     {@render children()}
   </div>
@@ -48,7 +50,7 @@
     align-items: center;
     justify-content: space-between;
     padding: var(--fui-space-5);
-    border-bottom: 1px solid var(--fui-color-outline-soft);
+    border-bottom: var(--fui-border-w) solid var(--fui-color-outline-soft);
   }
 
   .section-card {

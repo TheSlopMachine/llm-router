@@ -1,4 +1,5 @@
 // Table layout helpers. Single owner for breakpoint and alignment chains.
+export const CARD_BELOW = 640
 export function priorityCeiling(width: number): 1 | 2 | 3 {
   if (width < 640) return 1
   if (width < 1024) return 2

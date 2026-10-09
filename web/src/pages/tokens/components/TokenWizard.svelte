@@ -423,7 +423,7 @@
         <VStack gap={2}>
           <HStack align="center" gap={3}>
             <VStack gap={1}>
-              <Text tag="h2" size="md" weight="medium">{p.name}</Text>
+              <Text variant="section-title">{p.name}</Text>
               <Text size="xs" tone="soft" mono>{p.id}</Text>
             </VStack>
             <Spacer />
@@ -477,7 +477,7 @@
   <VStack gap={4}>
     <Switch bind:checked={allowAllModels} label={t('tokens.permissions.allow_all_models')} id="allow-all-models" />
     <HStack align="center" gap={3}>
-      <Text tag="h2" size="md" weight="medium">{t('models.list.title')}</Text>
+      <Text variant="section-title">{t('models.list.title')}</Text>
       <div class="models-search">
         <SearchField bind:value={searchModels} placeholder={t('models.search.placeholder')} disabled={allowAllModels} />
       </div>
@@ -513,12 +513,12 @@
 
 <style>
   .is-disabled {
-    opacity: 0.55;
+    opacity: var(--fui-opacity-disabled);
     pointer-events: none;
   }
   .provider-row { display: block; padding: var(--fui-space-4) var(--fui-space-5); cursor: pointer; }
   .head-check { margin-right: var(--fui-space-5); display: grid; place-content: center; }
   .head-check-even { margin: 0 var(--fui-space-5); display: grid; place-content: center; }
   .switch-check-gap { flex: 0 0 30%; }
-  .models-search { flex: 1 1 220px; min-width: 0; }
+  .models-search { flex: 1 1 var(--fui-token-search-min); min-width: 0; }
 </style>

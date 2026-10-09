@@ -7,6 +7,7 @@
   import TextEdit from '../../FUI/controls/TextEdit.svelte'
   import Text from '../../FUI/controls/Text.svelte'
   import VStack from '../../FUI/layout/VStack.svelte'
+  import Banner from '../../FUI/composite/Banner.svelte'
 
   let {
     editingProvider = null,
@@ -85,7 +86,7 @@
 
 <VStack gap={4}>
   {#if error}
-    <div class="error-msg">{error}</div>
+    <Banner variant="error" text={error} />
   {/if}
 
   <VStack gap={1}>

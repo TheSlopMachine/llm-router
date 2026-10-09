@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { squircle } from '../core/squircle'
+  import { squircleAuto } from '../core/squircle-baked'
 
   // Native checkbox device: the input carries state, keyboard and
   // screen-reader semantics; the span paints the box. With `label` the text
@@ -40,8 +40,8 @@
       {disabled}
       onchange={handleChange}
     />
-    <span class="checkbox" aria-hidden="true" use:squircle={6}>
-      <span class="checkbox-mark" use:squircle={4}></span>
+    <span class="checkbox" aria-hidden="true" use:squircleAuto={{ bake: 'checkbox' }}>
+      <span class="checkbox-mark" use:squircleAuto={{ bake: 'checkbox-mark' }}></span>
     </span>
     <span class="checkbox-label">{label}</span>
   </label>
@@ -56,8 +56,8 @@
       aria-label={ariaLabel}
       onchange={handleChange}
     />
-    <span class="checkbox" aria-hidden="true" use:squircle={6}>
-      <span class="checkbox-mark" use:squircle={4}></span>
+    <span class="checkbox" aria-hidden="true" use:squircleAuto={{ bake: 'checkbox' }}>
+      <span class="checkbox-mark" use:squircleAuto={{ bake: 'checkbox-mark' }}></span>
     </span>
   </span>
 {/if}
@@ -90,12 +90,12 @@
     cursor: pointer;
   }
   .checkbox {
-    width: 18px;
-    height: 18px;
+    width: var(--fui-checkbox-box);
+    height: var(--fui-checkbox-box);
     margin: 0;
     padding: 0;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--fui-checkbox-radius);
     pointer-events: none;
     /* Doubled elev: a single wash dissolves into stacked surfaces. */
     background:
@@ -106,13 +106,13 @@
     flex: none;
   }
   .checkbox-mark {
-    width: 14px;
-    height: 14px;
-    border-radius: 4px;
+    width: var(--fui-checkbox-check);
+    height: var(--fui-checkbox-check);
+    border-radius: var(--fui-checkbox-check-radius);
     pointer-events: none;
     background: var(--fui-color-accent);
     transform: scale(0);
-    transition: transform 80ms ease-out;
+    transition: transform var(--fui-dur-fast) ease-out;
   }
   .checkbox-input:checked + .checkbox .checkbox-mark {
     transform: scale(1);
@@ -123,7 +123,7 @@
   }
   .checkbox-input:disabled + .checkbox,
   .checkbox-input:disabled ~ .checkbox-label {
-    opacity: 0.5;
+    opacity: var(--fui-opacity-muted);
   }
   .checkbox-input:disabled {
     cursor: not-allowed;

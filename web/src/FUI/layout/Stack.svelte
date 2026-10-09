@@ -4,7 +4,7 @@
   // Structural rules live scoped below (.stk); everything variable arrives
   // as inline custom properties.
   import type { Snippet } from 'svelte'
-  import { ALIGN, JUSTIFY, space, type Step, type Align, type Justify } from '../tokens'
+  import { ALIGN, JUSTIFY, space, fillStyle, type Step, type Align, type Justify, type FillSize } from '../tokens'
 
   let {
     axis = 'v',
@@ -14,7 +14,7 @@
     justify = 'start',
     wrap = false,
     grow = false,
-    fill = false,
+    fill = undefined as FillSize | undefined,
     scroll,
     tag = 'div',
     class: cls = '',
@@ -30,7 +30,7 @@
     wrap?: boolean
     /** take the free space along the parent's axis */
     grow?: boolean
-    fill?: boolean
+    fill?: FillSize
     scroll?: 'x' | 'y'
     tag?: 'div' | 'section' | 'nav' | 'header' | 'footer' | 'aside' | 'ul' | 'li' | 'form'
     class?: string
@@ -50,7 +50,6 @@
   class:stk-h={axis === 'h'}
   class:stk-wrap={wrap}
   class:grow
-  class:stk-fill={fill}
   class:stk-pad={pad !== undefined}
   class:stk-scroll-y={scroll === 'y'}
   class:stk-scroll-x={scroll === 'x'}
@@ -58,6 +57,8 @@
   style:--fui-stk-pad={space(pad)}
   style:--fui-stk-align={alignValue}
   style:--fui-stk-justify={JUSTIFY[justify as Justify]}
+  style:flex={fill != null && fill !== false ? fillStyle(fill) : undefined}
+  style:min-width={fill != null && fill !== false ? '0' : undefined}
   {...rest}
 >
   {@render children()}

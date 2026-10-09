@@ -170,7 +170,7 @@
         </VStack>
       {/if}
     {:else if node.type === 'grid'}
-      <Grid cols={node.columns ?? 1} gap={toStep(node.gap, 4)} class="dyn-grid">
+      <Grid min="md" gap={toStep(node.gap, 4)} class="dyn-grid">
         {@render nodeList(node.content ?? [])}
       </Grid>
     {:else if node.type === 'section'}
@@ -198,13 +198,7 @@
 </VStack>
 
 <style>
-  /* Grid has no responsive prop: narrow screens collapse plugin grids. */
   :global(.dyn-grid) {
     width: 100%;
-  }
-  @media (max-width: 560px) {
-    :global(.dyn-grid) {
-      grid-template-columns: 1fr !important;
-    }
   }
 </style>

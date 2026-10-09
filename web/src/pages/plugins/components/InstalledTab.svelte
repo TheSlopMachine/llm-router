@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { SearchField, Button, FloatingView, List, VStack, HStack, Text, Banner, ConfirmAction, FilePicker } from '$ui'
+  import { SearchField, Toolbar, ToolbarItem, Button, FloatingView, List, VStack, HStack, Text, Banner, ConfirmAction, FilePicker } from '$ui'
   import EmptyState from '../../../FUI/composite/EmptyState.svelte'
   import PluginCard from './PluginCard.svelte'
   import { createPluginState } from './plugin-state.svelte'
@@ -103,10 +103,10 @@
     <Banner variant="error" text={actionError} />
   {/if}
 
-  <HStack align="center" gap={3}>
-    <HStack grow>
+  <Toolbar overflow="wrap" gap={3}>
+    <ToolbarItem pinned fill="md">
       <SearchField bind:value={query} placeholder={t('plugins.search.installed')} />
-    </HStack>
+    </ToolbarItem>
     <FilePicker
       accept=".lua"
       label={t('plugins.upload_file')}
@@ -115,15 +115,17 @@
       disabled={uploading}
       onPick={(file) => void uploadPickedFile(file)} />
     {#if updateCount > 0}
-      <Button
-        style="prominent"
-        icon={{ name: 'upgrade' }}
-        text={pluginState.updatingAll ? t('plugins.updating') : `${t('plugins.update_all')} (${updateCount})`}
-        disabled={pluginState.updatingAll}
-        onclick={() => void pluginState.updateAll(plugins)}
-      />
+      <ToolbarItem priority={1}>
+        <Button
+          style="prominent"
+          icon={{ name: 'upgrade' }}
+          text={pluginState.updatingAll ? t('plugins.updating') : `${t('plugins.update_all')} (${updateCount})`}
+          disabled={pluginState.updatingAll}
+          onclick={() => void pluginState.updateAll(plugins)}
+        />
+      </ToolbarItem>
     {/if}
-  </HStack>
+  </Toolbar>
 
   {#if plugins.length === 0}
     {#snippet browseCatalogAction()}
@@ -169,6 +171,7 @@
   <FloatingView
     open={Boolean(pluginState.pendingDelete)}
     anchor={pluginState.pendingDelete?.anchor}
+    width="sm"
     onclose={() => { pluginState.pendingDelete = null }}
     label={t('plugins.delete')}
   >
@@ -186,11 +189,12 @@
   <FloatingView
     open={Boolean(pluginState.pendingRollback)}
     anchor={pluginState.pendingRollback?.anchor}
+    width="sm"
     onclose={() => { pluginState.pendingRollback = null }}
     label={t('plugins.rollback_title')}
   >
     {#snippet children({ close })}
-      <VStack gap={3} style="max-width: 280px;">
+      <VStack gap={3}>
         <VStack gap={1}>
           <Text weight="medium" size="base">{t('plugins.rollback_title')}</Text>
           <Text size="sm" tone="soft">

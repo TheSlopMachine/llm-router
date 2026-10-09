@@ -30,7 +30,7 @@
       role="status"
       onmouseenter={() => toast.pause(item.id)}
       onmouseleave={() => toast.resume(item.id)}
-      use:squircle={12}
+      use:squircle
     >
       <span class="toast-icon">
         <Icon name={item.kind === 'success' ? 'check_circle' : 'error'} size="lg" tone={item.kind === 'success' ? 'success' : 'danger'} />
@@ -62,9 +62,9 @@
   :where(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
   .toast-stack {
     position: fixed;
-    top: 16px;
-    right: 16px;
-    z-index: 100;
+    top: var(--fui-toast-offset);
+    right: var(--fui-toast-offset);
+    z-index: var(--fui-z-toast);
     display: flex;
     flex-direction: column;
     /* right edge anchored: each toast takes the width its text needs */
@@ -78,8 +78,8 @@
     gap: var(--fui-space-4);
     width: fit-content;
     /* grows with content up to 1.5x the base width, then wraps in height */
-    min-width: 320px;
-    max-width: min(480px, calc(100vw - 32px));
+    min-width: var(--fui-toast-min-w);
+    max-width: min(var(--fui-popover-w-lg), calc(100vw - var(--fui-toast-max-h-reduce) - var(--fui-space-3)));
     /* ...and up to a third of the viewport in height, then scrolls */
     max-height: 33vh;
     padding: var(--fui-space-4) var(--fui-space-5);
@@ -88,12 +88,12 @@
     color: var(--fui-color-text);
     font-size: var(--fui-text-base);
     text-align: left;
-    animation: toast-in 0.28s cubic-bezier(0.3, 1.15, 0.5, 1);
+    animation: toast-in var(--fui-dur-slow) var(--fui-ease-spring);
   }
   @keyframes toast-in {
     from {
       opacity: 0;
-      transform: translateX(24px) scale(0.96);
+      transform: translateX(var(--fui-toast-shift)) scale(0.96);
     }
   }
   .toast-icon {
@@ -107,7 +107,7 @@
     word-break: break-word;
     /* the icon stays pinned while overshoot text scrolls inside;
        the gutter keeps the scrollbar off the glyphs */
-    max-height: calc(33vh - 24px);
+    max-height: calc(33vh - var(--fui-toast-max-h-reduce));
     overflow-y: auto;
     scrollbar-gutter: stable;
     padding-right: var(--fui-space-2);
@@ -119,7 +119,7 @@
     gap: var(--fui-space-2);
     flex-shrink: 0;
     opacity: 0;
-    transition: opacity 0.15s ease;
+    transition: opacity var(--fui-dur-base) ease;
   }
   .toast:hover .toast-actions,
   .toast:focus-within .toast-actions {

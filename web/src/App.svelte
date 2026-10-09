@@ -7,6 +7,7 @@
   import Dashboard from './pages/Dashboard.svelte'
   import Modal from './FUI/composite/Modal.svelte'
   import Toasts from './FUI/composite/Toasts.svelte'
+  import Banner from './FUI/composite/Banner.svelte'
   import { startSecureHardening } from './lib/secure'
 
   type AppState = 'loading' | 'bootstrap' | 'login' | 'dashboard'
@@ -69,9 +70,9 @@
 {#if appState === 'loading'}
   <div class="splash">
     {#if error}
-      <div style="max-width: 400px; text-align: center;">
-        <div style="font-size: var(--fui-text-lg); font-weight: 600; margin-bottom: 16px;">llm-router</div>
-        <div class="error-msg">{error}</div>
+      <div style="max-width: var(--fui-splash-max-w); text-align: center;">
+        <div style="font-size: var(--fui-text-lg); font-weight: 600; margin-bottom: var(--fui-splash-gap);">llm-router</div>
+        <Banner variant="error" text={error} />
       </div>
     {:else}
       llm-router
@@ -94,9 +95,10 @@
     align-items: center;
     justify-content: center;
     height: 100vh;
+    height: 100dvh;
     font-size: var(--fui-text-lg);
     font-weight: 600;
     color: var(--fui-color-text-soft);
-    letter-spacing: 0.1em;
+    letter-spacing: var(--fui-tracking-wide);
   }
 </style>
