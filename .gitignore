@@ -40,7 +40,8 @@ web/swagger.yaml
 web/swagger.json
 web/docs.go
 web/problems.md
-
+web/.vite
+web/task.md
 # Local Go workspace leftovers
 .workspace/
 go.work
