@@ -33,6 +33,7 @@ func (h *Handler) writeCompatError(w http.ResponseWriter, r *http.Request, statu
 // so the layer only translates the envelope, never reclassifies.
 func (h *Handler) handleCompatRouterError(w http.ResponseWriter, r *http.Request, err error) {
 	re := h.classifyError(err)
+	apierrors.WriteResponseHeaders(w, pluginResponseHeaders(err))
 	h.writeCompatError(w, r, re.status, re.code, wireMessage(err), nil)
 }
 

@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// Plugin API history lives with luaplugin.PluginAPIVersion (1.0).
+// Plugin API history lives with luaplugin.PluginAPIVersion (1.1).
 // Past router contract notes:
 //
 // 0.0.5 adds the transcribe handler and llm_router.multipart.
@@ -1247,12 +1247,15 @@ type ModelOverride struct {
 // ProviderError is the terminal error a plugin returns when its own
 // retries are exhausted. The shape mirrors the OpenAI error object:
 // a human message plus a wire code. Routing never inspects anything
-// else: no types, no scopes, no retry hints, no upstream passthrough.
+// else, except the optional response Headers map, which the HTTP layer
+// renders through its allow-list (Retry-After today). Headers never
+// reach JSON envelopes or stored records.
 type ProviderError struct {
 	StatusCode int
 	Message    string
 	Code       string
 	Param      string
+	Headers    map[string]string `json:"-"`
 }
 
 func (e *ProviderError) Error() string {

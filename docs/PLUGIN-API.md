@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Plugin API: **1.0** (`luaplugin.PluginAPIVersion`). A plugin declares the
+Plugin API: **1.1** (`luaplugin.PluginAPIVersion`). A plugin declares the
 `@plugin_api` contract it speaks; the router label (`main.RouterVersion`,
 stamped from the release tag) carries no compatibility meaning. Install
 compares majors only: plugin major above the served one fails with `too_new`,
@@ -42,6 +42,7 @@ spelling. Anything else fails install.
 | 0.7.0 | decentralized orchestration: plugins select credentials (`credentials.list/get`) and proxies (`proxies.query` + per-request `proxy_url`), retry internally, and return OpenAI-shaped terminal errors only when exhausted. Static schema tables (`credential_schema`, `config_schema`, `settings_schema`, `proxy_schema`); presence drives dashboard surfaces, no `_enabled` flags. Colocated `jobs` with per-job `run` (`interval_seconds` 60..86400, `run_on_startup`, `timeout_ms`); `credentials.update` exists in job contexts only. `storage.set` gains `{ttl}` seconds. `credentials.park/unpark/parked` shelve credentials transiently (`list()` skips parked rows); `credentials.disable/enable` set the shared flag under the provider `disable_failed_credentials` switch. Removed: `classify_error` slot + helper, `needs_refresh` / `refresh_credential`, error `type`/`scope`/`retry_after`/`upstream_*` contract, `@proxy_location` / `@proxy_default_option` / `@proxy_source` tags, router credential ordering, exhausted store, geo bans. Manifest floor 0.7.0. |
 | 0.8.0 | `proxies.require({pool?, countries?, exclude?, limit?, want?, timeout_ms?, fallback?})`: demand-driven proxy acquisition. The free pool waits for a live proxy in the requested countries instead of returning an empty list; the plugin chooses `fallback` `direct` or `fail` explicitly. `proxies.query` is unchanged. Transport error tables from `http_client` gain `transport`, `reason`, `proxy_fault`, `retryable`; body-read failures on proxied legs suspect the proxy. |
 | 1.0 | Plugin API split: `@plugin_api x.y` replaces `@router_version`. Install gates on the major only (`too_new` / `too_old` / `no_api_version`); minor is informational. All store plugins reissued under `1.0`. Router identity moves to the release tag (`main.RouterVersion`), short `X.Y` when the fix is 0. |
+| 1.1 | Optional `headers` string table on the error contract, rendered through a strict allow-list (`Retry-After` today) on unary `/v1` errors in both envelopes; streams and dashboard excluded. |
 
 ## Responsibility split
 
@@ -179,7 +180,7 @@ llm_router.register_proxy_source(name, {
 
 ### Error contract
 
-`err` is `{ message = ..., code = ..., param = ..., status = ... }`:
+`err` is `{ message = ..., code = ..., param = ..., status = ..., headers = ... }`:
 
 - `message`: human string, required, non-empty. Missing or empty messages
   reject the table as a plugin crash.
@@ -188,6 +189,12 @@ llm_router.register_proxy_source(name, {
   `not_found`, `rate_limit`, `insufficient_quota`, `server_error`).
 - `param`: optional offending field name.
 - `status`: optional HTTP status override 400..599, defaults to 502.
+- `headers`: optional string-to-string table rendered as response headers on
+  unary `/v1` errors (both envelopes). Names pass a strict allow-list
+  (`Retry-After` today); anything else is dropped, never an error.
+  `Retry-After` accepts non-negative integer seconds or an HTTP date.
+  Mid-stream SSE failures carry no headers (status already 200). Non-string
+  keys or values are dropped, never fatal.
 - The router renders `message`/`code` verbatim into the OpenAI
   `{"error":{"message","type","code"}}` envelope (Anthropic envelope on
   Anthropic-style requests). No `type`/`scope`/`retry_after`/

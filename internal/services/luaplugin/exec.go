@@ -221,7 +221,8 @@ func isTerminalProviderError(err error, out **models.ProviderError) bool {
 // asTerminalError parses the terminal OpenAI-shaped error table:
 // message is required and non-empty; code defaults to server_error;
 // param is optional; status is an optional 400..599 override defaulting
-// to 502. Anything else is not a terminal error.
+// to 502; headers is an optional string-to-string table rendered through
+// the HTTP layer allow-list. Anything else is not a terminal error.
 func asTerminalError(v lua.LValue) (*models.ProviderError, bool) {
 	tbl, ok := v.(*lua.LTable)
 	if !ok {
@@ -255,8 +256,36 @@ func asTerminalError(v lua.LValue) (*models.ProviderError, bool) {
 		}
 		param = string(ps)
 	}
-	return &models.ProviderError{StatusCode: status, Message: string(msgVal), Code: code, Param: param}, true
+	headers := readStringTable(tbl.RawGetString("headers"))
+	return &models.ProviderError{StatusCode: status, Message: string(msgVal), Code: code, Param: param, Headers: headers}, true
 }
+
+func readStringTable(v lua.LValue) map[string]string {
+	tbl, ok := v.(*lua.LTable)
+	if !ok {
+		return nil
+	}
+	out := map[string]string{}
+	tbl.ForEach(func(k, val lua.LValue) {
+		ks, ok := k.(lua.LString)
+		if !ok {
+			return
+		}
+		vs, ok := val.(lua.LString)
+		if !ok {
+			return
+		}
+		out[string(ks)] = string(vs)
+	})
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// readStringTable converts an optional Lua string-to-string table into a Go
+// map. Non-table values yield nil; non-string keys or values are dropped so
+// a malformed table never fails the error it rides on.
 
 // luaCallError converts a failed PCall into ProviderError or PluginInternalError.
 func (s *Service) luaCallError(rec *PluginRecord, typeKey string, L *lua.LState, callErr error, prefix string) error {

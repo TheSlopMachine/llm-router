@@ -331,6 +331,38 @@ llm_router.register("scope-type", {
 	}
 }
 
+func TestErrorContractHeaders(t *testing.T) {
+	svc := setupService(t)
+	src := `--- @plugin P
+--- @author a
+--- @version 1.0.0
+--- @plugin_api 1.0
+--- @allow_host example.com
+
+llm_router.register("hdr-type", {
+  complete = function(ctx, request)
+    return nil, { message = "slow down", code = "rate_limit", status = 429,
+      headers = { ["retry-after"] = "3", ["x-drop"] = 7 } }
+  end,
+})
+`
+	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	_, err := svc.Complete(context.Background(), testMeta("hdr-type",
+		&models.Credential{ID: "c1"}, "x/y", nil), &models.ChatCompletionRequest{Model: "x/y"})
+	perr, ok := err.(*models.ProviderError)
+	if !ok {
+		t.Fatalf("expected ProviderError, got %T (%v)", err, err)
+	}
+	if perr.Headers["retry-after"] != "3" {
+		t.Fatalf("headers: %+v", perr.Headers)
+	}
+	if _, leaked := perr.Headers["x-drop"]; leaked {
+		t.Fatalf("non-string header survived: %+v", perr.Headers)
+	}
+}
+
 func TestErrorContractMissingMessageIsInternal(t *testing.T) {
 	svc := setupService(t)
 	src := `--- @plugin P

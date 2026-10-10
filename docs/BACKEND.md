@@ -30,7 +30,7 @@ internal/services/
   doctor/                database inspection and repair
   proxypool/             free-pool hosting, Lua feed bridge, bbolt cache, custom pools, lane scheduler adapter
 internal/httpkit/        shared transport helpers (SSE headers)
-internal/errors/         domain sentinels + ToAPIError
+internal/errors/         domain sentinels + ToAPIError + response header allow-list
 internal/repository/     bbolt buckets
 internal/dashboard/      admin REST API (providers, tokens, credentials, models, virtual-models, metrics, plugins, repos, config, data export/import/clear, doctor, proxy status/refresh/pools, provider jobs)
 internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/completions, /v1/messages (+count_tokens, +batches, /v1/complete), /v1/models list + retrieve (TokenRules-filtered, Anthropic dual shape), /v1/videos submit + poll + content + models, audio/transcriptions (+JSON variant)/translations/speech, images/generations/edits/variations, embeddings, moderations, responses (+cancel/input_items/compact/input_tokens) + conversations (+items), assistants, threads (+messages/runs/cancel/submit_tool_outputs)

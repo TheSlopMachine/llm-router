@@ -1192,7 +1192,19 @@ func isAnthropicStyle(r *http.Request) bool {
 
 func (h *Handler) handleRouterError(w http.ResponseWriter, err error) {
 	re := h.classifyError(err)
+	apierrors.WriteResponseHeaders(w, pluginResponseHeaders(err))
 	h.writeError(w, re.status, re.code, wireMessage(err), nil)
+}
+
+// pluginResponseHeaders returns the sanitized response headers a plugin
+// attached to its terminal error, or nil. Only unary paths call it: once
+// streaming starts, headers no longer reach the client.
+func pluginResponseHeaders(err error) map[string]string {
+	var perr *models.ProviderError
+	if errors.As(err, &perr) {
+		return perr.Headers
+	}
+	return nil
 }
 
 // wireMessage renders the client-facing message: the raw plugin message
