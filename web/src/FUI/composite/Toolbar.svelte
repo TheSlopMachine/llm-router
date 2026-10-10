@@ -4,7 +4,7 @@
   import Button from '../controls/Button.svelte'
   import FloatingView from '../controls/FloatingView.svelte'
   import { space, type Step } from '../tokens'
-  import { ToolbarCtx, setToolbarCtx } from './toolbar.svelte'
+  import { ToolbarCtx, setToolbarCtx } from './toolbar-state.svelte'
   import ToolbarMenuRow from './ToolbarMenuRow.svelte'
 
   // Panel with a degradation ladder, applied while the content does not fit:

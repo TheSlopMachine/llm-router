@@ -2,7 +2,7 @@
   import type { Snippet } from 'svelte'
   import { onDestroy } from 'svelte'
   import type { FillSize } from '../tokens'
-  import { getToolbarCtx, setToolbarPinned, type ToolbarItemReg } from './toolbar.svelte'
+  import { getToolbarCtx, setToolbarPinned, type ToolbarItemReg } from './toolbar-state.svelte'
 
   // Wraps ONE Button / Switch / Checkbox. Unwrapped Toolbar children never go to the menu.
   // pinned: never leaves the panel. priority: higher number leaves first (default: DOM order).

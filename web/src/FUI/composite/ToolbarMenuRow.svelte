@@ -1,6 +1,6 @@
 <script lang="ts">
   import Text from '../controls/Text.svelte'
-  import { setToolbarPlacement, type ToolbarItemReg } from './toolbar.svelte'
+  import { setToolbarPlacement, type ToolbarItemReg } from './toolbar-state.svelte'
   let { item } = $props<{ item: ToolbarItemReg }>()
   setToolbarPlacement('menu')
 </script>

@@ -3,7 +3,7 @@
   import TextEdit from './TextEdit.svelte'
   import Button from './Button.svelte'
   import { fillStyle, type FillSize } from '../tokens'
-  import { getToolbarCtx, getToolbarPinned } from '../composite/toolbar.svelte'
+  import { getToolbarCtx, getToolbarPinned } from '../composite/toolbar-state.svelte'
 
   // Collapsible search. Where it does not fit (Toolbar level >= 2, not pinned) it is a prominent
   // "magnifier + hint" button that MORPHS into the text field: one element, its width animates

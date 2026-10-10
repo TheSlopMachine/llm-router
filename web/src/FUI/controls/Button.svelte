@@ -7,7 +7,7 @@
   import { theme } from '../core/theme.svelte'
   import { resolveSelectedStyle, resolveButtonVariant, isIconOnly, hasLeftIcon, hasRightIcon } from '../core/button-state'
   import { fillStyle, type FillSize } from '../tokens'
-  import { getToolbarCtx, getToolbarPlacement } from '../composite/toolbar.svelte'
+  import { getToolbarCtx, getToolbarPlacement } from '../composite/toolbar-state.svelte'
 
   interface ButtonIcon {
     /** Material Symbols ligature name */
