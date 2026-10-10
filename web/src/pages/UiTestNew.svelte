@@ -8,53 +8,30 @@
   import { Text } from '$ui'
   import { theme, setTheme } from '../FUI/core/theme.svelte'
   import { setAccent } from '../FUI/core/accent.svelte'
-  import Field from '../FUI/lab/Field.svelte'
-  import Label from '../FUI/lab/Label.svelte'
-  import GroupBox from '../FUI/lab/GroupBox.svelte'
-  import Tabs from '../FUI/lab/Tabs.svelte'
-  import Accordion from '../FUI/lab/Accordion.svelte'
-  import Breadcrumbs from '../FUI/lab/Breadcrumbs.svelte'
-  import Pagination from '../FUI/lab/Pagination.svelte'
-  import Tooltip from '../FUI/lab/Tooltip.svelte'
-  import Badge from '../FUI/lab/Badge.svelte'
-  import Avatar from '../FUI/lab/Avatar.svelte'
-  import Kbd from '../FUI/lab/Kbd.svelte'
-  import Slider from '../FUI/lab/Slider.svelte'
-  import RangeSlider from '../FUI/lab/RangeSlider.svelte'
-  import NumberField from '../FUI/lab/NumberField.svelte'
-  import Rating from '../FUI/lab/Rating.svelte'
-  import Progress from '../FUI/lab/Progress.svelte'
-  import Skeleton from '../FUI/lab/Skeleton.svelte'
-  import Stat from '../FUI/lab/Stat.svelte'
-  import DescriptionList from '../FUI/lab/DescriptionList.svelte'
-  import Timeline from '../FUI/lab/Timeline.svelte'
-  import Sparkline from '../FUI/lab/Sparkline.svelte'
-  import Gauge from '../FUI/lab/Gauge.svelte'
-  import Donut from '../FUI/lab/Donut.svelte'
-  import StackedBar from '../FUI/lab/StackedBar.svelte'
-  import UptimeBar from '../FUI/lab/UptimeBar.svelte'
-  import PercentileBar from '../FUI/lab/PercentileBar.svelte'
-  import RateMeter from '../FUI/lab/RateMeter.svelte'
-  import NumberTicker from '../FUI/lab/NumberTicker.svelte'
-  import RelativeTime from '../FUI/lab/RelativeTime.svelte'
-  import DurationField from '../FUI/lab/DurationField.svelte'
-  import Digits from '../FUI/lab/Digits.svelte'
-  import Wrap from '../FUI/lab/Wrap.svelte'
-  import ViewThatFits from '../FUI/lab/ViewThatFits.svelte'
-  import AspectRatio from '../FUI/lab/AspectRatio.svelte'
-  import Masonry from '../FUI/lab/Masonry.svelte'
-  import AnimatedSwitcher from '../FUI/lab/AnimatedSwitcher.svelte'
-  import AnimatedList from '../FUI/lab/AnimatedList.svelte'
-  import InView from '../FUI/lab/InView.svelte'
-  import VirtualList from '../FUI/lab/VirtualList.svelte'
-  import Sortable from '../FUI/lab/Sortable.svelte'
-  import ScrollArea from '../FUI/lab/ScrollArea.svelte'
-  import StickySectionHeader from '../FUI/lab/StickySectionHeader.svelte'
-  import LoadingOverlay from '../FUI/lab/LoadingOverlay.svelte'
-  import VisuallyHidden from '../FUI/lab/VisuallyHidden.svelte'
-  import { size, SizeReader } from '../FUI/lab/size.svelte'
-  import { focusTrap } from '../FUI/lab/focusTrap.svelte'
-  import { clickOutside, hotkey } from '../FUI/lab/clicks.svelte'
+  import Field from '../FUI/composite/Field.svelte'
+  import Accordion from '../FUI/composite/Accordion.svelte'
+  import Pagination from '../FUI/composite/Pagination.svelte'
+  import Tooltip from '../FUI/controls/Tooltip.svelte'
+  import Badge from '../FUI/controls/Badge.svelte'
+  import Kbd from '../FUI/controls/Kbd.svelte'
+  import Slider from '../FUI/controls/Slider.svelte'
+  import NumberField from '../FUI/controls/NumberField.svelte'
+  import Progress from '../FUI/charts/Progress.svelte'
+  import Skeleton from '../FUI/controls/Skeleton.svelte'
+  import DescriptionList from '../FUI/composite/DescriptionList.svelte'
+  import Timeline from '../FUI/composite/Timeline.svelte'
+  import Sparkline from '../FUI/charts/Sparkline.svelte'
+  import Gauge from '../FUI/charts/Gauge.svelte'
+  import Donut from '../FUI/charts/Donut.svelte'
+  import StackedBar from '../FUI/charts/StackedBar.svelte'
+  import UptimeBar from '../FUI/charts/UptimeBar.svelte'
+  import PercentileBar from '../FUI/charts/PercentileBar.svelte'
+  import RateMeter from '../FUI/charts/RateMeter.svelte'
+  import NumberTicker from '../FUI/controls/NumberTicker.svelte'
+  import RelativeTime from '../FUI/controls/RelativeTime.svelte'
+  import { size, SizeReader } from '../FUI/core/size.svelte'
+  import { focusTrap } from '../FUI/core/focusTrap.svelte'
+  import { clickOutside, hotkey } from '../FUI/core/clicks.svelte'
 
   let dark = $state(theme.value === 'dark')
   let accentHex = $state('#7c3aed')
@@ -226,30 +203,8 @@
         </div>
       </SectionCard>
 
-      <SectionCard title="Label">
-        <Label text={labelText} icon={labelIcon.trim() || undefined} size={labelSize as 'xs' | 'sm' | 'base' | 'md' | 'lg'} tone={labelTone as 'default' | 'soft' | 'accent' | 'danger' | 'success' | 'warning'} iconPosition={labelIconPos as 'start' | 'end'} />
-        <div class="row">
-          <TextEdit bind:value={labelText} hint="Text" />
-          <TextEdit bind:value={labelIcon} hint="Icon" />
-          <Select bind:value={labelSize} options={['xs', 'sm', 'base', 'md', 'lg'].map((v) => ({ value: v, label: v }))} />
-          <Select bind:value={labelTone} options={['default', 'soft', 'accent', 'danger', 'success', 'warning'].map((v) => ({ value: v, label: v }))} />
-          <Picker bind:value={labelIconPos} ariaLabel="Icon position" options={[{ value: 'start', label: 'start' }, { value: 'end', label: 'end' }]} />
-        </div>
-      </SectionCard>
 
-      <SectionCard title="GroupBox">
-        <GroupBox title={groupTitle}><Text size="sm">Inner content</Text></GroupBox>
-        <div class="row"><TextEdit bind:value={groupTitle} hint="Title" /></div>
-      </SectionCard>
 
-      <SectionCard title="Tabs">
-        <Tabs items={[{ id: 'a', label: 'Alpha' }, { id: 'b', label: 'Beta', badge: '3' }, { id: 'c', label: 'Gamma' }]} bind:value={tabsVal} size={tabsSize as 'small' | 'medium' | 'large'} fullWidth={tabsFull} />
-        <div class="row">
-          <Picker bind:value={tabsSize} ariaLabel="Size" options={[{ value: 'small', label: 'small' }, { value: 'medium', label: 'medium' }, { value: 'large', label: 'large' }]} />
-          <Switch bind:checked={tabsFull} label="Full width" />
-          <Text size="sm">Value: {tabsVal}</Text>
-        </div>
-      </SectionCard>
 
       <SectionCard title="Accordion">
         <Accordion items={[{ id: 'one', title: 'First', body: accA }, { id: 'two', title: 'Second', body: accB }]} multiple={accMultiple} bind:value={accOpen} />
@@ -259,10 +214,6 @@
         </div>
       </SectionCard>
 
-      <SectionCard title="Breadcrumbs">
-        <Breadcrumbs items={crumbs} maxItems={4} />
-        <div class="row"><Text size="sm">Static trail of 3 items</Text></div>
-      </SectionCard>
 
       <SectionCard title="Pagination">
         <Pagination bind:page={pgPage} pageCount={Number(pgCount) || 1} siblings={Number(pgSiblings) || 1} showEdges={pgEdges} />
@@ -293,14 +244,6 @@
         </div>
       </SectionCard>
 
-      <SectionCard title="Avatar">
-        <Avatar name={avatarName} size={Number(avatarSize) || 32} />
-        <Avatar group={[{ name: 'Ada' }, { name: 'Bob' }, { name: 'Cid' }, { name: 'Dan' }, { name: 'Eve' }]} max={4} />
-        <div class="row">
-          <TextEdit bind:value={avatarName} hint="Name" />
-          <TextEdit bind:value={avatarSize} hint="Size" regex="^[0-9]*$" />
-        </div>
-      </SectionCard>
 
       <SectionCard title="Kbd">
         <Kbd keys={['Ctrl', 'K']} size={kbdSize as 'small' | 'medium' | 'large'} />
@@ -318,13 +261,6 @@
         </div>
       </SectionCard>
 
-      <SectionCard title="RangeSlider">
-        <RangeSlider bind:value={rangeVal} minGap={Number(rangeGap) || 0} />
-        <div class="row">
-          <TextEdit bind:value={rangeGap} hint="Min gap" regex="^[0-9.]*$" />
-          <Text size="sm">Range: {rangeVal[0]} – {rangeVal[1]}</Text>
-        </div>
-      </SectionCard>
 
       <SectionCard title="NumberField">
         <NumberField bind:value={numVal} step={Number(numStep) || 1} unit={numUnit} />
@@ -334,14 +270,6 @@
         </div>
       </SectionCard>
 
-      <SectionCard title="Rating">
-        <Rating bind:value={rateVal} max={Number(rateMax) || 5} allowHalf={rateHalf} readonly={rateRO} />
-        <div class="row">
-          <TextEdit bind:value={rateMax} hint="Max" regex="^[0-9.]*$" />
-          <Switch bind:checked={rateHalf} label="Half" />
-          <Switch bind:checked={rateRO} label="Readonly" />
-        </div>
-      </SectionCard>
     </div>
   </details>
 
@@ -371,15 +299,6 @@
         {#if skRedacted}<Skeleton redacted active={skActive}><Text size="sm">Hidden value</Text></Skeleton>{/if}
       </SectionCard>
 
-      <SectionCard title="Stat">
-        <Stat label="Requests" value="12 400" delta={Number(statDelta) || 0} invert={statInvert} hint="vs prev week">
-          {#snippet sparkline()}<Sparkline values={sparkVals} />{/snippet}
-        </Stat>
-        <div class="row">
-          <TextEdit bind:value={statDelta} hint="Delta %" regex="^[0-9.]*$" />
-          <Switch bind:checked={statInvert} label="Invert" />
-        </div>
-      </SectionCard>
 
       <SectionCard title="DescriptionList">
         <DescriptionList items={dlItems} columns={Number(dlCols) || 1} orientation={dlOrient as 'horizontal' | 'vertical'} />
@@ -460,135 +379,25 @@
         <div class="row"><Text size="sm">Fixed: 5 min ago, auto-updates</Text></div>
       </SectionCard>
 
-      <SectionCard title="DurationField">
-        <DurationField bind:value={durVal} />
-        <div class="row"><Text size="sm">Seconds: {durVal}</Text></div>
-      </SectionCard>
 
-      <SectionCard title="Digits">
-        <Digits value={digitsVal} tone={digitsTone} />
-        <div class="row">
-          <TextEdit bind:value={digitsVal} hint="0-9 . : -" />
-          <Select bind:value={digitsTone} options={['accent', 'ok', 'err', 'warn'].map((v) => ({ value: v, label: v }))} />
-        </div>
-      </SectionCard>
     </div>
   </details>
 
   <details open class="grp">
     <summary>Лейауты и утилиты</summary>
     <div class="cards">
-      <SectionCard title="Wrap">
-        <Wrap gap={Number(wrapGap) || 3}>
-          <Button text="One" /><Button text="Two" /><Button text="Three" /><Button text="Four" />
-        </Wrap>
-        <div class="row"><TextEdit bind:value={wrapGap} hint="Gap 0..8" regex="^[0-9.]*$" /></div>
-      </SectionCard>
 
-      <SectionCard title="ViewThatFits">
-        <ViewThatFits variants={[vtfWide, vtfNarrow]} />
-        <div class="row"><Text size="sm">Single live variant (fit=0), narrow in fallback set</Text></div>
-      </SectionCard>
 
-      <SectionCard title="AspectRatio">
-        <AspectRatio ratio={Number(arRatio) || 16 / 9} fit={arFit as 'cover' | 'contain'}>
-          <div class="ar-fill">ratio {arRatio}</div>
-        </AspectRatio>
-        <div class="row">
-          <TextEdit bind:value={arRatio} hint="Ratio" regex="^[0-9.]*$" />
-          <Picker bind:value={arFit} ariaLabel="Fit" options={[{ value: 'cover', label: 'cover' }, { value: 'contain', label: 'contain' }]} />
-        </div>
-      </SectionCard>
 
-      <SectionCard title="Masonry">
-        <Masonry columns={Number(masCols) || 3}>
-          {#snippet items()}
-            <div class="m">Card one</div>
-            <div class="m tall">Tall card</div>
-            <div class="m">Card three</div>
-            <div class="m">Card four</div>
-          {/snippet}
-        </Masonry>
-        <div class="row"><TextEdit bind:value={masCols} hint="Columns" regex="^[0-9.]*$" /></div>
-      </SectionCard>
 
-      <SectionCard title="AnimatedSwitcher">
-        <AnimatedSwitcher mode={swMode as 'fade' | 'slide' | 'scale'}>
-          {#snippet child()}<Text size="sm">{swAlt ? 'Second state' : 'First state'}</Text>{/snippet}
-        </AnimatedSwitcher>
-        <div class="row">
-          <Picker bind:value={swMode} ariaLabel="Mode" options={['fade', 'slide', 'scale'].map((v) => ({ value: v, label: v }))} />
-          <Button text="Toggle" onclick={() => { swAlt = !swAlt }} />
-        </div>
-      </SectionCard>
 
-      <SectionCard title="AnimatedList">
-        <AnimatedList items={alItems}>
-          {#snippet row(it, i)}<span>{i + 1}. {String(it)}</span>{/snippet}
-        </AnimatedList>
-        <div class="row">
-          <TextEdit bind:value={alDraft} hint="New row" />
-          <Button text="Add" onclick={() => { if (alDraft.trim()) { alItems = [...alItems, alDraft.trim()]; alDraft = '' } }} />
-          <Button text="Remove last" onclick={() => { alItems = alItems.slice(0, -1) }} />
-        </div>
-      </SectionCard>
 
-      <SectionCard title="InView">
-        <InView once={ivOnce} animation={ivAnim as 'fade-up' | 'none'}>
-          <Text size="sm">Scroll to reveal</Text>
-        </InView>
-        <div class="row">
-          <Switch bind:checked={ivOnce} label="Once" />
-          <Picker bind:value={ivAnim} ariaLabel="Animation" options={[{ value: 'fade-up', label: 'fade-up' }, { value: 'none', label: 'none' }]} />
-        </div>
-      </SectionCard>
 
-      <SectionCard title="VirtualList">
-        <VirtualList items={big} itemHeight={Number(vlH) || 32} overscan={Number(vlOver) || 0}>
-          {#snippet row(it, i)}<span>{i}: {String(it)}</span>{/snippet}
-        </VirtualList>
-        <div class="row">
-          <TextEdit bind:value={vlH} hint="Row px" regex="^[0-9.]*$" />
-          <TextEdit bind:value={vlOver} hint="Overscan" regex="^[0-9.]*$" />
-          <Text size="sm">100000 rows · visible ≈ {vlVisible}</Text>
-        </div>
-      </SectionCard>
 
-      <SectionCard title="Sortable">
-        <Sortable bind:items={sortItems}>
-          {#snippet row(it, i)}<span>{i + 1}. {it}</span>{/snippet}
-        </Sortable>
-        <div class="row"><Text size="sm">Order: {sortItems.join(' · ')}</Text></div>
-      </SectionCard>
 
-      <SectionCard title="ScrollArea">
-        <ScrollArea maxHeight={Number(saMax) || 160} autoHide={saHide}>
-          {#each Array(20) as _, i}<div class="sa-row">Line {i + 1}</div>{/each}
-        </ScrollArea>
-        <div class="row">
-          <TextEdit bind:value={saMax} hint="Max px" regex="^[0-9.]*$" />
-          <Switch bind:checked={saHide} label="Auto hide" />
-        </div>
-      </SectionCard>
 
-      <SectionCard title="StickySectionHeader">
-        <StickySectionHeader sections={stickySecs} />
-        <div class="row"><Text size="sm">Scroll inner box, headers stick</Text></div>
-      </SectionCard>
 
-      <SectionCard title="LoadingOverlay">
-        <LoadingOverlay active={loActive}>
-          {#snippet label()}<Text size="sm">Loading…</Text>{/snippet}
-          <Text size="sm">Content under veil</Text>
-        </LoadingOverlay>
-        <div class="row"><Switch bind:checked={loActive} label="Active" /></div>
-      </SectionCard>
 
-      <SectionCard title="VisuallyHidden">
-        <Button text="Visible button" />
-        <VisuallyHidden text="Screen-reader only text" />
-        <div class="row"><Text size="sm">Hidden text present in DOM, not visible</Text></div>
-      </SectionCard>
 
       <SectionCard title="size action">
         <div class="demo-box" use:size={(s) => { sizeInfo = s }}>

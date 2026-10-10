@@ -6,6 +6,7 @@ export interface ToolbarItemReg {
   priority: number | undefined
   label: string | undefined
   active: boolean
+  primary: boolean
   children: Snippet
 }
 
@@ -13,6 +14,8 @@ export interface ToolbarItemReg {
 export class ToolbarCtx {
   /** 0 full, 1 icon-only buttons, 2 compact search, 3+ items moving to the menu / wrapping */
   level = $state(0)
+  /** false: skip the icon-only / compact-search steps (AppBar: buttons keep their text) */
+  collapse = $state(true)
   items = $state<ToolbarItemReg[]>([])
   menuIds = $state<string[]>([])
 

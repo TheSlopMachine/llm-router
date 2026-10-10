@@ -22,9 +22,9 @@
 <style>
   :where(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
   .sl { display: inline-flex; align-items: center; gap: var(--fui-space-3); min-width: var(--fui-space-8); }
-  .track { position: relative; flex: 1; height: var(--fui-space-2); background: var(--fui-elev); border-radius: 9999px; }
+  .track { position: relative; flex: 1; height: var(--fui-space-2); background: var(--fui-elev); border-radius: var(--fui-radius-full); }
   .track:focus-visible { box-shadow: var(--fui-focus-ring); }
-  .fill { position: absolute; inset: 0 auto 0 0; background: var(--fui-color-accent); border-radius: 9999px; }
-  .knob { position: absolute; top: 50%; width: var(--fui-text-md); height: var(--fui-text-md); border-radius: 9999px; background: var(--fui-color-text-on-button-reverse); transform: translate(-50%, -50%); }
+  .fill { position: absolute; inset: 0 auto 0 0; background: var(--fui-color-accent); border-radius: var(--fui-radius-full); }
+  .knob { position: absolute; top: 50%; width: var(--fui-text-md); height: var(--fui-text-md); border-radius: var(--fui-radius-full); background: var(--fui-color-text-on-button-reverse); transform: translate(-50%, -50%); }
   .val { font-family: var(--fui-font-mono); font-size: var(--fui-text-sm); color: var(--fui-color-text-soft); }
 </style>

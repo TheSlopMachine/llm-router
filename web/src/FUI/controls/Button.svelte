@@ -75,7 +75,7 @@
   // inside the Toolbar menu a button is a full-width row.
   const tb = getToolbarCtx()
   const placement = getToolbarPlacement()
-  const textHidden = $derived(!!tb && placement === 'panel' && collapse && !!icon && !!text && tb.level >= 1)
+  const textHidden = $derived(!!tb && placement === 'panel' && collapse && tb.collapse && !!icon && !!text && tb.level >= 1)
   const effText = $derived(textHidden ? '' : text)
   const isBlock = $derived(block || placement === 'menu')
   const inMenu = placement === 'menu'

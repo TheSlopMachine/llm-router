@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
 // NumberTicker: докрутка числа (rAF + easing). Пропсы: value, duration, locale, options, prefix, suffix.
   let { value = 0, duration = 600, locale = 'en', options = {}, prefix = '', suffix = '' } = $props<{ value?: number; duration?: number; locale?: string; options?: Intl.NumberFormatOptions; prefix?: string; suffix?: string }>();
-  let shown = $state(value); let raf = 0;
+  let shown = $state(untrack(() => value)); let raf = 0;
   const fmt = (v: number) => prefix + new Intl.NumberFormat(locale, options).format(v) + suffix;
   $effect(() => {
     const from = shown; const to = value; const t0 = performance.now();

@@ -17,5 +17,5 @@
   .soft { color: var(--fui-color-text-soft); }
   .track { height: var(--fui-space-3); background: var(--fui-color-surface-container-highest); border-radius: var(--fui-radius-xs); overflow: hidden; }
   .fill { height: 100%; }
-  @media (prefers-reduced-motion: no-preference) { .fill { transition: width 0.3s; } }
+  @media (prefers-reduced-motion: no-preference) { .fill { transition: width var(--fui-dur-slow); } }
 </style>

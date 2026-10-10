@@ -7,8 +7,10 @@
   // Wraps ONE Button / Switch / Checkbox. Unwrapped Toolbar children never go to the menu.
   // pinned: never leaves the panel. priority: higher number leaves first (default: DOM order).
   // label: text shown beside a Switch/Checkbox when it lives in the menu.
-  let { pinned = false, priority, label, active = false, fill, children } = $props<{
+  let { pinned = false, primary = false, priority, label, active = false, fill, children } = $props<{
     pinned?: boolean
+    /** the main action: leaves the panel last and comes first in the menu */
+    primary?: boolean
     priority?: number
     label?: string
     /** shows a dot on the "more" button while this item sits in the menu (e.g. an enabled filter) */
@@ -21,10 +23,10 @@
   const ctx = getToolbarCtx()
   const id = `tbi-${Math.random().toString(36).slice(2)}`
   setToolbarPinned(pinned)
-  const reg = (): ToolbarItemReg => ({ id, pinned, priority, label, active, children })
+  const reg = (): ToolbarItemReg => ({ id, pinned, primary, priority, label, active, children })
   ctx?.register(reg())
   $effect(() => {
-    void pinned; void priority; void label; void active
+    void pinned; void primary; void priority; void label; void active
     ctx?.update(reg())
   })
   onDestroy(() => ctx?.unregister(id))

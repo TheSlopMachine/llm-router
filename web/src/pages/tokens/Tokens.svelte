@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, CodeBlock, FloatingView, HStack, Table, Text, TextEdit, VStack, Banner, ConfirmAction, Header, Spacer } from '$ui'
+  import { Button, CodeBlock, FloatingView, HStack, Table, Text, TextEdit, VStack, Banner, ConfirmAction, Header, Spacer, ToolbarItem, RelativeTime } from '$ui'
   import type { TableColumn } from '$ui'
   import EmptyState from '../../FUI/composite/EmptyState.svelte'
   import { api } from '$lib/api'
@@ -9,7 +9,7 @@
   import { createListResource } from '$lib/list-resource.svelte'
   import TokenWizard from './components/TokenWizard.svelte'
   import type { Token, Provider, TokenUsageInfo } from '$lib/types'
-  import { n, t } from '$lib/i18n.svelte'
+  import { n, t, locale } from '$lib/i18n.svelte'
 
   const tokenColumns: TableColumn[] = [
     { key: 'name', title: t('common.labels.name'), width: '1fr', priority: 1 },
@@ -139,11 +139,11 @@
 
 <VStack gap={6}>
   <Header title={t('tokens.list.title')}>
-    {#snippet subtitle()}
+    {#snippet info()}
       {t('tokens.list.router_for')} <code>/v1</code> {t('tokens.list.subtitle')}
     {/snippet}
     {#snippet actions()}
-      <Button style="prominent" onclick={openCreate} icon={{ name: 'add' }}>{t('tokens.actions.new')}</Button>
+      <ToolbarItem primary><Button style="prominent" onclick={openCreate} icon={{ name: 'add' }}>{t('tokens.actions.new')}</Button></ToolbarItem>
     {/snippet}
   </Header>
 
@@ -214,7 +214,7 @@
       {:else if column.key === 'created'}
         <Text size="sm" tone="soft">{fmt(tok.created_at)}</Text>
       {:else if column.key === 'used'}
-        <Text size="sm">{getLastUsed(tok.id)}</Text>
+        {@const lu = resource.data.tokenUsage[tok.id]?.last_used}{#if lu}<RelativeTime date={lu} locale={locale()} />{:else}<Text size="sm">—</Text>{/if}
         <Text size="sm" tone="soft">{n(getUsage(tok.id), 'units.api_call.one', 'units.api_call.many')}</Text>
       {:else if column.key === 'actions'}
         <HStack justify="end" gap={2}>

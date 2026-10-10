@@ -458,24 +458,20 @@
       </ToolbarItem>
     </Toolbar>
 
-    <VStack gap={3}>
-      <HStack align="center" justify="between" gap={3}>
-        <Text grow>{t('providers.detail.disable_failing')}</Text>
-        <Switch
-          checked={disableFailedModels}
-          ariaLabel={t('providers.detail.disable_failing')}
-          onchange={(v) => { disableFailedModels = v; saveAutomation() }}
-        />
-      </HStack>
-      <HStack align="center" justify="between" gap={3}>
-        <Text grow>{t('providers.detail.auto_sync')}</Text>
-        <Switch
-          checked={autoSyncModels}
-          ariaLabel={t('providers.detail.auto_sync')}
-          onchange={(v) => { autoSyncModels = v; saveAutomation() }}
-        />
-      </HStack>
-    </VStack>
+    <div class="setting-grid">
+      <Text>{t('providers.detail.disable_failing')}</Text>
+      <Switch
+        checked={disableFailedModels}
+        ariaLabel={t('providers.detail.disable_failing')}
+        onchange={(v) => { disableFailedModels = v; saveAutomation() }}
+      />
+      <Text>{t('providers.detail.auto_sync')}</Text>
+      <Switch
+        checked={autoSyncModels}
+        ariaLabel={t('providers.detail.auto_sync')}
+        onchange={(v) => { autoSyncModels = v; saveAutomation() }}
+      />
+    </div>
 
     {#if modelsError}
       <Banner variant="error" text={modelsError} />
@@ -719,4 +715,12 @@
 </FloatingView>
 
 <style>
+  /* label | switch pairs: switches sit in one column right after the longest label */
+  .setting-grid {
+    display: grid;
+    grid-template-columns: auto auto;
+    justify-content: start;
+    align-items: center;
+    gap: var(--fui-space-3) var(--fui-space-5);
+  }
 </style>

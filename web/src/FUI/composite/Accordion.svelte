@@ -29,11 +29,11 @@
   .head { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: var(--fui-space-3); padding: var(--fui-space-4) var(--fui-space-5); text-align: left; border-radius: var(--fui-radius-md); }
   .head:focus-visible { box-shadow: var(--fui-focus-ring); }
   .title { font-size: var(--fui-text-base); font-weight: var(--fui-weight-medium); color: var(--fui-color-text); }
-  .chev { display: inline-flex; transition: transform 0.2s; color: var(--fui-color-text-soft); }
+  .chev { display: inline-flex; transition: transform var(--fui-dur-base); color: var(--fui-color-text-soft); }
   .chev.open { transform: rotate(180deg); }
-  .wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.2s ease; }
+  .wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--fui-dur-base) ease; }
   .wrap.open { grid-template-rows: 1fr; }
-  .body { overflow: hidden; min-height: 0; font-size: var(--fui-text-sm); color: var(--fui-color-text-soft); }
+  .body { overflow: hidden; min-height: 0; }
   .wrap.open .body { padding: 0 var(--fui-space-5) var(--fui-space-4); }
   @media (prefers-reduced-motion: reduce) { .wrap, .chev { transition: none; } }
 </style>

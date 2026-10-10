@@ -14,7 +14,7 @@
 <style>
   :where(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
   .wrap { position: relative; display: inline-flex; }
-  .badge { position: absolute; display: inline-flex; align-items: center; justify-content: center; min-width: var(--fui-text-md); height: var(--fui-text-md); padding: 0 var(--fui-space-1); border-radius: 9999px; font-size: var(--fui-text-xs); font-weight: var(--fui-weight-medium); }
+  .badge { position: absolute; display: inline-flex; align-items: center; justify-content: center; min-width: var(--fui-text-md); height: var(--fui-text-md); padding: 0 var(--fui-space-1); border-radius: var(--fui-radius-full); font-size: var(--fui-text-xs); font-weight: var(--fui-weight-medium); }
   .badge[data-pos='tr'] { top: 0; right: 0; transform: translate(40%, -40%); }
   .badge[data-pos='tl'] { top: 0; left: 0; transform: translate(-40%, -40%); }
   .badge[data-pos='br'] { bottom: 0; right: 0; transform: translate(40%, 40%); }

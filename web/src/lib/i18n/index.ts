@@ -11,6 +11,11 @@ function resolveLang(): 'en' | 'ru' {
   return 'en'
 }
 
+/** Resolved UI language code for Intl-based widgets. */
+export function locale(): 'en' | 'ru' {
+  return resolveLang()
+}
+
 export function t(key: TranslationKey): string {
   const dict = resolveLang() === 'ru' ? ru : en
   return dict[key] ?? key

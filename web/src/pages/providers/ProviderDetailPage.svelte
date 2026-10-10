@@ -10,7 +10,7 @@
   import ModelsSection from './components/ModelsSection.svelte'
   import DynamicForm from '../../components/domain/DynamicForm.svelte'
   import EmptyState from '../../FUI/composite/EmptyState.svelte'
-  import { Button, Chip, FloatingView, HStack, Image, Select, Spacer, Switch, Table, Text, VStack, Banner, ConfirmAction, Header } from '$ui'
+  import { Button, Chip, FloatingView, HStack, Image, Select, Spacer, Switch, Table, Text, VStack, Banner, ConfirmAction, Header, ToolbarItem } from '$ui'
   import type { TableColumn } from '$ui'
   import { squircle } from '../../FUI/core/squircle'
   import { t } from '$lib/i18n.svelte'
@@ -429,22 +429,19 @@
   {@const p = provider}
   <VStack gap={6} class="provider-detail">
     <Header title={p.name} subtitle={p.type_key}>
-      {#snippet leading()}
-        <Button onclick={back} ariaLabel={t('providers.detail.back_to_providers')} title={t('providers.detail.back_to_providers')} icon={{ name: 'arrow_back' }} />
-      {/snippet}
       {#snippet actions()}
         {#if !p.is_ui_readonly}
-          <Button style="text" onclick={openEditProvider} icon={{ name: 'edit' }}>{t('common.actions.edit')}</Button>
-          <Button style="text" tint="var(--fui-color-danger)" onclick={(e) => openDeleteProvider(e.currentTarget as HTMLElement)} icon={{ name: 'delete' }}>{t('common.actions.delete')}</Button>
+          <ToolbarItem priority={2}><Button style="text" onclick={openEditProvider} icon={{ name: 'edit' }}>{t('common.actions.edit')}</Button></ToolbarItem>
+          <ToolbarItem priority={3}><Button style="text" tint="var(--fui-color-danger)" onclick={(e) => openDeleteProvider(e.currentTarget as HTMLElement)} icon={{ name: 'delete' }}>{t('common.actions.delete')}</Button></ToolbarItem>
         {/if}
-        <HStack gap={2} align="center">
-          <Text size="sm" tone="soft">{t('providers.detail.enable')}</Text>
+        <ToolbarItem primary label={t('providers.detail.enable')}>
           <Switch
+            size="xl"
             checked={!p.disabled}
             ariaLabel={t('providers.detail.enable')}
             onchange={(v) => toggleProviderEnabled(v)}
           />
-        </HStack>
+        </ToolbarItem>
       {/snippet}
     </Header>
 

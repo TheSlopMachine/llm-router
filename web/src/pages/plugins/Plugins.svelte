@@ -83,7 +83,7 @@
 </script>
 
   <VStack gap={6}>
-  <Header title={t('plugins.title')} subtitle={t('plugins.manage_desc')} />
+  <Header title={t('plugins.title')} info={t('plugins.manage_desc')} />
 
   <Picker
     value={tab}

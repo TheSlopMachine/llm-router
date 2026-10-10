@@ -1,53 +1,68 @@
-// Baked squircle clip-paths for elements whose size never depends on content:
-// icon-only chips, square icon buttons, checkboxes, switches.
+// Shared-rule squircles for elements whose size is fixed by design (icon-only chips and
+// buttons, checkboxes, switches). Instead of one clip-path + observers PER element, each
+// element is measured once and tagged  data-sq="<w>x<h>r<radius>" ; one CSS rule per distinct
+// shape does the clipping, so a page with hundreds of switches costs a handful of rules.
 //
-// use:squircleAuto={{ bake: 'name' }} measures the FIRST element of that name once,
-// writes one shared rule  [data-sq="name"] { clip-path: path(...) }  and tags every
-// element of that name with the attribute. Those elements then carry no ResizeObserver,
-// no style observer and no per-element work at all.
+// There is no name-to-size contract to get wrong: the key IS the measured size. One shared
+// ResizeObserver re-tags an element (synchronously, before paint) if its size ever differs,
+// so this is always as correct as the dynamic action, just much cheaper.
 //
-// Everything else keeps the dynamic path: use:squircleAuto without `bake` is exactly
-// use:squircle. Native corner-shape engines (Chrome) already shape elements for free,
-// so they always take the dynamic branch.
-//
-// Re-bake triggers: pointer coarse/fine switch (control sizes change), exponent change,
-// fonts finishing (icon glyph sizes), and rebakeSquircles() / the "fui:rebake-squircles"
-// window event (token edits in the polygon).
+// Native corner-shape engines (Chrome) shape elements for free and always take the dynamic path.
+// Re-measure triggers: pointer coarse/fine, exponent change, fonts finishing, and
+// rebakeSquircles() / the "fui:rebake-squircles" window event (token edits in the polygon).
 
 import { squircle, squirclePath, supportsNative, onSquircleChange } from './squircle'
 
 export interface SquircleAutoOpts {
-  /** Shape name. Same name MUST mean same size and radius. */
+  /** Opt in to the shared-rule path (the string is only a debugging label). */
   bake?: string
-  /** Wait for web fonts before the first measurement (icon glyph sized elements). */
+  /** Wait for the icon font before measuring (icon-sized boxes). */
   fonts?: boolean
   /** Dynamic fallback radius (only used when the CSS radius is 0). Prefer none. */
   radius?: number | string
-  /** Disable shaping entirely (e.g. a wrapper that no longer paints anything). */
+  /** Disable shaping entirely. */
   off?: boolean
 }
 
-interface Shape { w: number; h: number; r: number }
+interface Rec {
+  fonts: boolean
+  r: number
+  key: string
+}
 
-const isDev = Boolean((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV)
-const shapes = new Map<string, Shape>()
-const pending = new Map<string, Promise<void>>()
-const live = new Map<HTMLElement, { name: string }>()
-const warned = new Set<string>()
-let styleEl: HTMLStyleElement | null = null
+const live = new Map<HTMLElement, Rec>()
+const rules = new Set<string>()
+let sheet: CSSStyleSheet | null = null
+let ro: ResizeObserver | null = null
+let iconFont: Promise<void> | null = null
+const pendingMeasure = new Set<HTMLElement>()
+let microtaskQueued = false
 
-function rebuildStyle(): void {
-  if (typeof document === 'undefined') return
-  if (!styleEl) {
-    styleEl = document.createElement('style')
-    styleEl.setAttribute('data-fui', 'squircle-baked')
-    document.head.appendChild(styleEl)
-  }
-  let css = ''
-  for (const [name, s] of shapes) {
-    css += `[data-sq="${name}"]{clip-path:path('${squirclePath(s.w, s.h, s.r)}') !important;border-radius:0 !important}`
-  }
-  styleEl.textContent = css
+function getSheet(): CSSStyleSheet | null {
+  if (sheet) return sheet
+  if (typeof document === 'undefined') return null
+  const el = document.createElement('style')
+  el.setAttribute('data-fui', 'squircle-baked')
+  document.head.appendChild(el)
+  sheet = el.sheet
+  return sheet
+}
+
+function ensureRule(key: string, w: number, h: number, r: number): void {
+  if (rules.has(key)) return
+  const s = getSheet()
+  if (!s) return
+  s.insertRule(
+    `[data-sq="${key}"]{clip-path:path('${squirclePath(w, h, r)}') !important;border-radius:0 !important}`,
+    s.cssRules.length,
+  )
+  rules.add(key)
+}
+
+function clearRules(): void {
+  const s = getSheet()
+  while (s && s.cssRules.length > 0) s.deleteRule(0)
+  rules.clear()
 }
 
 function readRadius(cs: CSSStyleDeclaration, w: number, h: number): number {
@@ -58,73 +73,88 @@ function readRadius(cs: CSSStyleDeclaration, w: number, h: number): number {
   return Math.max(0, Math.min(px, w / 2, h / 2))
 }
 
-/** Node must be in the DOM and must NOT carry data-sq (its radius is zeroed by the rule). */
-function measure(node: HTMLElement): Shape | null {
-  const w = node.offsetWidth
-  const h = node.offsetHeight
-  if (!w || !h) return null
-  return { w, h, r: readRadius(getComputedStyle(node), w, h) }
+function paint(node: HTMLElement, rec: Rec, w: number, h: number): void {
+  const key = `${w}x${h}r${rec.r.toFixed(1)}`
+  if (key === rec.key) return
+  ensureRule(key, w, h, rec.r)
+  node.setAttribute('data-sq', key)
+  rec.key = key
 }
 
-function devCheck(node: HTMLElement, name: string): void {
-  if (!isDev) return
-  const s = shapes.get(name)
-  if (!s || warned.has(name)) return
-  if (Math.abs(node.offsetWidth - s.w) > 1 || Math.abs(node.offsetHeight - s.h) > 1) {
-    warned.add(name)
-    console.warn(
-      `[FUI] baked squircle "${name}" is ${s.w}x${s.h} but an element measures ` +
-        `${node.offsetWidth}x${node.offsetHeight}. Same name must mean same size; use a dynamic squircle there.`,
-    )
+/** Reads first, writes after: one layout for the whole batch. Nodes must not carry data-sq. */
+function measureAll(nodes: Iterable<HTMLElement>): void {
+  const reads: [HTMLElement, number, number, number][] = []
+  for (const n of nodes) {
+    if (!n.isConnected || !live.has(n)) continue
+    const w = n.offsetWidth
+    const h = n.offsetHeight
+    if (!w || !h) continue // not laid out yet; the ResizeObserver will bring it back
+    reads.push([n, w, h, readRadius(getComputedStyle(n), w, h)])
+  }
+  for (const [n, w, h, r] of reads) {
+    const rec = live.get(n)
+    if (!rec) continue
+    rec.r = r
+    rec.key = ''
+    paint(n, rec, w, h)
   }
 }
 
-async function bakeFor(node: HTMLElement, name: string, fonts: boolean): Promise<void> {
-  if (!shapes.has(name)) {
-    let p = pending.get(name)
-    if (!p) {
-      p = (async () => {
-        if (fonts && document.fonts) {
-          // The icon font is requested lazily; force it so icon-sized boxes are measured with real glyphs.
-          try { await document.fonts.load('1em "Material Symbols Outlined"') } catch { /* keep fallback metrics; loadingdone re-bakes */ }
-          if (document.fonts.status === 'loading') await document.fonts.ready
-        }
-        if (!node.isConnected || node.hasAttribute('data-sq')) return
-        const s = measure(node)
-        if (s) {
-          shapes.set(name, s)
-          rebuildStyle()
-        }
-      })()
-      pending.set(name, p)
-      void p.finally(() => pending.delete(name))
+async function flushPending(): Promise<void> {
+  microtaskQueued = false
+  const batch = [...pendingMeasure]
+  pendingMeasure.clear()
+  if (batch.some((n) => live.get(n)?.fonts) && typeof document !== 'undefined' && document.fonts) {
+    iconFont ??= document.fonts
+      .load('1em "Material Symbols Outlined"')
+      .then(() => undefined)
+      .catch(() => undefined)
+    await iconFont
+  }
+  measureAll(batch.filter((n) => !n.hasAttribute('data-sq')))
+}
+
+function queueMeasure(node: HTMLElement): void {
+  pendingMeasure.add(node)
+  if (microtaskQueued) return
+  microtaskQueued = true
+  queueMicrotask(() => void flushPending())
+}
+
+function ensureObserver(): ResizeObserver {
+  ro ??= new ResizeObserver((entries) => {
+    // Runs after layout and before paint: re-tagging here is visible in the same frame.
+    const unmeasured: HTMLElement[] = []
+    for (const e of entries) {
+      const n = e.target as HTMLElement
+      const rec = live.get(n)
+      if (!rec) continue
+      if (rec.key === '') {
+        unmeasured.push(n)
+        continue
+      }
+      const w = n.offsetWidth
+      const h = n.offsetHeight
+      if (w && h) paint(n, rec, w, h)
     }
-    await p
-  }
-  if (live.get(node)?.name === name && shapes.has(name)) {
-    node.setAttribute('data-sq', name)
-    devCheck(node, name)
-  }
+    if (unmeasured.length) measureAll(unmeasured)
+  })
+  return ro
 }
 
 let rebakeFrame = 0
 export function rebakeSquircles(): void {
-  if (rebakeFrame) return
+  if (rebakeFrame || typeof requestAnimationFrame === 'undefined') return
   rebakeFrame = requestAnimationFrame(() => {
     rebakeFrame = 0
-    const nodes = [...live.entries()]
-    for (const [n] of nodes) n.removeAttribute('data-sq') // writes first ...
-    shapes.clear()
-    const first = new Map<string, HTMLElement>()
-    for (const [n, v] of nodes) if (!first.has(v.name)) first.set(v.name, n)
-    for (const [name, n] of first) {
-      // ... then reads, one layout for all
-      const s = measure(n)
-      if (s) shapes.set(name, s)
+    clearRules()
+    const nodes = [...live.keys()]
+    for (const n of nodes) {
+      n.removeAttribute('data-sq') // writes first ...
+      const rec = live.get(n)
+      if (rec) rec.key = ''
     }
-    warned.clear()
-    rebuildStyle()
-    for (const [n, v] of nodes) if (shapes.has(v.name)) n.setAttribute('data-sq', v.name)
+    measureAll(nodes) // ... then one batched read
   })
 }
 
@@ -141,12 +171,13 @@ function wire(): void {
 export function squircleAuto(node: HTMLElement, opts: SquircleAutoOpts = {}) {
   let mode: 'dyn' | 'baked' | 'off' | null = null
   let dyn: { update(r: number | string): void; destroy(): void } | null = null
-  let name = ''
 
   function teardown(): void {
     if (mode === 'dyn') dyn?.destroy()
     if (mode === 'baked') {
+      ro?.unobserve(node)
       live.delete(node)
+      pendingMeasure.delete(node)
       node.removeAttribute('data-sq')
     }
     dyn = null
@@ -155,7 +186,7 @@ export function squircleAuto(node: HTMLElement, opts: SquircleAutoOpts = {}) {
 
   function apply(o: SquircleAutoOpts): void {
     const want: 'dyn' | 'baked' | 'off' = o.off ? 'off' : o.bake && !supportsNative ? 'baked' : 'dyn'
-    if (want === mode && (want !== 'baked' || o.bake === name)) {
+    if (want === mode) {
       if (want === 'dyn') dyn?.update(o.radius ?? 10)
       return
     }
@@ -165,9 +196,9 @@ export function squircleAuto(node: HTMLElement, opts: SquircleAutoOpts = {}) {
       dyn = squircle(node, o.radius ?? 10)
     } else if (want === 'baked') {
       wire()
-      name = o.bake as string
-      live.set(node, { name })
-      void bakeFor(node, name, o.fonts ?? false)
+      live.set(node, { fonts: o.fonts ?? false, r: 0, key: '' })
+      ensureObserver().observe(node)
+      queueMeasure(node)
     }
   }
 

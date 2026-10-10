@@ -216,7 +216,7 @@
 </script>
 
   <VStack gap={6}>
-  <Header title={vmId ? t('virtual.edit.title') : t('virtual.create.title')} subtitle={vmId ? t('virtual.update_desc') : t('virtual.create_desc')} />
+  <Header title={vmId ? t('virtual.edit.title') : t('virtual.create.title')} info={vmId ? t('virtual.update_desc') : t('virtual.create_desc')} />
 
   {#if error}
     <Banner variant="error" text={error} />

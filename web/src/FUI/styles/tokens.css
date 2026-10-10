@@ -182,6 +182,10 @@
   --fui-ease-spring: cubic-bezier(0.3, 1.15, 0.5, 1);
 
   /* Layers */
+  --fui-shadow-sidebar: 6px 0 24px -6px rgba(0, 0, 0, 0.45);
+  --fui-radius-full: 9999px;
+  --fui-sliver: 2px;
+  --fui-z-sidebar: 2;
   --fui-z-drawer: 40;
   --fui-z-scrim: 30;
   --fui-z-modal: 1000;

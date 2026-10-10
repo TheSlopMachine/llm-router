@@ -7,7 +7,7 @@
   import { setPendingClone } from '$lib/virtual-clone'
   import { t } from '$lib/i18n.svelte'
   import EmptyState from '../../FUI/composite/EmptyState.svelte'
-  import { Button, FloatingView, HStack, Switch, Text, VStack, Banner, ConfirmAction, Header } from '$ui'
+  import { Button, FloatingView, HStack, Switch, Text, VStack, Banner, ConfirmAction, Header, ToolbarItem } from '$ui'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
   import { isUnauthenticated } from '$lib/credential-state'
 
@@ -119,10 +119,10 @@
 <VStack gap={6}>
   <Header
     title={t('virtual.models_plural')}
-    subtitle={t('virtual.models_desc')}
+    info={t('virtual.models_desc')}
   >
     {#snippet actions()}
-      <Button text={t('virtual.actions.new_model')} style="prominent" icon={{ name: 'add' }} onclick={openNew} />
+      <ToolbarItem primary><Button text={t('virtual.actions.new_model')} style="prominent" icon={{ name: 'add' }} onclick={openNew} /></ToolbarItem>
     {/snippet}
   </Header>
 

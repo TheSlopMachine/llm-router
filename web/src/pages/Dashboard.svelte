@@ -1,6 +1,8 @@
 <script lang="ts">
   import Icon from '../FUI/controls/Icon.svelte'
   import Button from '../FUI/controls/Button.svelte'
+  import AppBar from '../FUI/composite/AppBar.svelte'
+  import { AppBarState, setAppBarState } from '../FUI/core/appbar.svelte'
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
   import Metrics from './metrics/Metrics.svelte'
@@ -96,6 +98,17 @@
     { id: 'proxy',        label: 'proxy.title',      icon: 'vpn_lock' },
   ]
 
+  // Pages write <Header> as before; it hands title/subtitle/actions to this bar.
+  const bar = new AppBarState()
+  setAppBarState(bar)
+
+  // Parent crumbs come from the route shape; the page title itself comes from the page.
+  const crumbs = $derived.by(() => {
+    if (panel === 'providers' && routeSegments[0]) return [{ label: t('providers.list.title'), href: '#/providers' }]
+    if (panel === 'virtual' && routeSegments[0]) return [{ label: t('virtual.models_plural'), href: '#/virtual' }]
+    return []
+  })
+
   let pluginsTab = $derived<PluginsTab>(routeSegments[0] === 'catalog' ? 'catalog' : 'installed')
 
   function selectPluginsTab(next: PluginsTab): void {
@@ -148,10 +161,6 @@
 
 <div class="layout" class:mobile>
   {#if mobile}
-    <header class="appbar">
-      <Button onclick={() => { drawerOpen = true }} ariaLabel={t('nav.menu.open')} title={t('nav.menu.title')} icon={{ name: 'menu' }} />
-      <div class="appbar-brand">llm-router</div>
-    </header>
     {#if drawerOpen}
        <button class="scrim" aria-label={t('nav.menu.close')} onclick={() => { drawerOpen = false }}></button>
     {/if}
@@ -204,7 +213,23 @@
     </div>
   </aside>
 
+  {#snippet burger()}
+    <Button onclick={() => { drawerOpen = true }} ariaLabel={t('nav.menu.open')} title={t('nav.menu.title')} icon={{ name: 'menu' }} />
+  {/snippet}
+
   <main class="main">
+    {#if bar.content || mobile}
+      <AppBar
+        title={bar.content?.title ?? ''}
+        {crumbs}
+        subtitle={bar.content?.subtitle}
+        info={bar.content?.info}
+        actions={bar.content?.actions}
+        infoLabel={bar.content?.title}
+        leading={mobile ? burger : undefined}
+      />
+    {/if}
+    <div class="main-scroll">
     <div class="main-content">
       {#if panel === 'metrics'}
         <Metrics />
@@ -238,6 +263,7 @@
         <UiTestNew />
       {/if}
     </div>
+    </div>
   </main>
 </div>
 
@@ -252,7 +278,9 @@
     width: var(--fui-sidebar-w);
     flex-shrink: 0;
     background: var(--fui-color-sidebar-bg);
-    border-right: var(--fui-border-w) solid var(--fui-color-outline-light);
+    box-shadow: var(--fui-shadow-sidebar);
+    position: relative;
+    z-index: var(--fui-z-sidebar);
     display: flex;
     flex-direction: column;
     padding: var(--fui-dashboard-pad-y) 0;
@@ -386,12 +414,20 @@
   .main {
     flex: 1;
     min-width: 0;
-    overflow-y: auto;
-    padding: var(--fui-space-7);
-    padding-left: calc(var(--fui-space-7) + env(safe-area-inset-left));
-    padding-right: calc(var(--fui-space-7) + env(safe-area-inset-right));
-    padding-bottom: calc(var(--fui-space-7) + env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     background: var(--fui-color-surface);
+    --fui-page-pad: var(--fui-space-5);
+  }
+  .main-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--fui-page-pad);
+    padding-left: calc(var(--fui-page-pad) + env(safe-area-inset-left));
+    padding-right: calc(var(--fui-page-pad) + env(safe-area-inset-right));
+    padding-bottom: calc(var(--fui-page-pad) + env(safe-area-inset-bottom));
   }
   .main-content {
     width: 100%;
@@ -401,26 +437,6 @@
   }
 
   /* ── Phone layout: app bar + drawer sidebar ── */
-  .appbar {
-    display: flex;
-    align-items: center;
-    gap: var(--fui-space-4);
-    height: var(--fui-appbar-h);
-    padding: 0 var(--fui-space-5);
-    padding-left: calc(var(--fui-space-5) + env(safe-area-inset-left));
-    padding-right: calc(var(--fui-space-5) + env(safe-area-inset-right));
-    padding-top: env(safe-area-inset-top);
-    flex-shrink: 0;
-    background: var(--fui-color-sidebar-bg);
-    border-bottom: var(--fui-border-w) solid var(--fui-color-outline-light);
-  }
-  .appbar-brand {
-    font-size: var(--fui-text-sm);
-    font-weight: 700;
-    letter-spacing: var(--fui-tracking-caps);
-    text-transform: uppercase;
-    color: var(--fui-color-text);
-  }
   .scrim {
     position: fixed;
     inset: 0;
@@ -457,8 +473,5 @@
     transition:
       transform var(--fui-dur-slow) var(--fui-ease-standard),
       visibility var(--fui-dur-instant);
-  }
-  .layout.mobile .main {
-    padding: var(--fui-space-5);
   }
 </style>

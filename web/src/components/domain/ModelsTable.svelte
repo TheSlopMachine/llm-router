@@ -104,7 +104,7 @@
   const columns = $derived<TableColumn[]>([
     { key: 'model', title: t('models.list.title'), width: readonly ? '3.6fr' : '3.2fr', sortable },
     ...modeColumns(mode, readonly, sortable),
-    ...(!readonly ? [{ key: 'actions', title: t('common.actions.all'), width: '0.9fr', align: 'right' as const }] : []),
+    ...(!readonly ? [{ key: 'actions', title: '', width: '0.9fr', align: 'right' as const }] : []),
   ])
 
   const sortedModels = $derived.by(() => {
@@ -206,7 +206,7 @@
 {/snippet}
 
 {#snippet capsBlock({ model }: { model: ModelsTableModel }, size: 'small' | 'large' = 'large')}
-  <HStack gap={2} wrap class="cap-chips">
+  <div class="cap-grid">
     {#each model.capabilities ?? [] as cap}
       {@const meta = CAPABILITY_META[cap]}
       <Chip
@@ -223,7 +223,7 @@
     {#if !hasCapabilities(model)}
       <Text size="sm" tone="disabled">—</Text>
     {/if}
-  </HStack>
+  </div>
 {/snippet}
 
 <div class="mt-wrap" bind:this={wrapEl}>
@@ -320,6 +320,15 @@
 </div>
 
 <style>
+  /* two rows at most; more chips add columns */
+  .cap-grid {
+    display: grid;
+    grid-auto-flow: column;
+    grid-template-rows: repeat(2, auto);
+    gap: var(--fui-space-2);
+    justify-content: start;
+    align-items: center;
+  }
   /* Measurement host for the merge stages: full width, no visuals. */
   .mt-wrap {
     width: 100%;

@@ -34,17 +34,17 @@
 {#if input.length > 0 || output.length > 0}
   <HStack gap={2} align="center">
     {#if chipsDirection === 'vertical'}
-      <VStack gap={2} align="center" wrap>
+      <div class="mods">
         {#each input as mod}
           <Chip icon={modalityIcon(mod)} text="" color={modalityColor(mod)} title={mod} {size} />
         {/each}
-      </VStack>
+      </div>
       <span class="arrow"><Icon name="arrow_forward" size="base" tone="disabled" /></span>
-      <VStack gap={2} align="center" wrap>
+      <div class="mods">
         {#each output as mod}
           <Chip icon={modalityIcon(mod)} text="" color={modalityColor(mod)} title={mod} {size} />
         {/each}
-      </VStack>
+      </div>
     {:else}
       {#each input as mod}
         <Chip icon={modalityIcon(mod)} text="" color={modalityColor(mod)} title={mod} {size} />
@@ -61,5 +61,14 @@
   .arrow {
     display: inline-flex;
     flex: none;
+  }
+  /* at most two rows; more chips add columns */
+  .mods {
+    display: grid;
+    grid-auto-flow: column;
+    grid-template-rows: repeat(2, auto);
+    gap: var(--fui-space-2);
+    justify-items: center;
+    align-items: center;
   }
 </style>

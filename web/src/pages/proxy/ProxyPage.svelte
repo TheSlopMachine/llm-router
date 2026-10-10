@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { VStack, HStack, Text, Button, Table, SectionCard, Chip, FloatingView, Banner, ConfirmAction, Select, Header, Stat, Grid, Picker, Spacer } from '$ui'
+  import { VStack, HStack, Text, Button, Table, SectionCard, Chip, FloatingView, Banner, ConfirmAction, Select, Header, Stat, Grid, Picker, Spacer, ToolbarItem, Accordion, StackedBar, Progress, RelativeTime, Field } from '$ui'
   import type { TableColumn } from '$ui'
   import EmptyState from '../../FUI/composite/EmptyState.svelte'
   import { onMount } from 'svelte'
@@ -8,7 +8,7 @@
   import { getErrorMessage } from '$lib/errors'
   import { formatNanoLatency as formatLatency } from '$lib/format'
   import type { Proxy, ProxyStatus, ProxySourceInfo, ProxyPool } from '$lib/types'
-  import { t } from '$lib/i18n.svelte'
+  import { t, locale } from '$lib/i18n.svelte'
   import CustomPoolModal from './components/CustomPoolModal.svelte'
 
   export type ProxyTab = 'status' | 'sources' | 'pools'
@@ -45,21 +45,32 @@
     { key: 'actions', title: t('common.labels.actions'), width: 'auto', align: 'right', priority: 1 },
   ]
 
+  // One table for sources: the configuration row (name, key, last fetch, candidates) joined with
+  // the live pool counters by source name.
   const sourceColumns: TableColumn[] = [
     { key: 'name', title: t('common.labels.name'), width: '1fr', priority: 1 },
-    { key: 'fetched', title: t('proxy.sources.last_fetched'), width: 'max-content', align: 'right', priority: 2 },
-    { key: 'candidates', title: t('proxy.sources.candidates'), width: 'max-content', align: 'right', priority: 1 },
-    { key: 'unsupported', title: t('proxy.sources.unsupported'), width: 'max-content', align: 'right', priority: 2 },
+    { key: 'fetched', title: t('proxy.sources.last_fetched'), width: 'max-content', align: 'right', priority: 3 },
+    { key: 'candidates', title: t('proxy.sources.candidates'), width: 'max-content', align: 'right', priority: 2 },
+    { key: 'alive', title: t('proxy.pool.alive'), width: 'max-content', align: 'right', priority: 1 },
+    { key: 'suspect', title: t('proxy.pool.suspect'), width: 'max-content', align: 'right', priority: 2 },
+    { key: 'banned', title: t('proxy.pool.banned'), width: 'max-content', align: 'right', priority: 1 },
   ]
 
-  const liveSourceColumns: TableColumn[] = [
-    { key: 'source', title: t('common.labels.name'), width: '1fr', priority: 1 },
-    { key: 'alive', title: t('proxy.pool.alive'), width: 'max-content', align: 'right', priority: 2 },
-    { key: 'suspect', title: t('proxy.pool.suspect'), width: 'max-content', align: 'right', priority: 2 },
-    { key: 'banned', title: t('proxy.pool.banned'), width: 'max-content', align: 'right', priority: 2 },
-    { key: 'queued', title: t('proxy.pool.queued'), width: 'max-content', align: 'right', priority: 2 },
-    { key: 'ban_reasons', title: t('proxy.pool.ban_reasons'), width: '1fr', priority: 1 },
-  ]
+  type LiveSource = ProxyStatus['sources'][number]
+  interface MergedSource { name: string; cfg: ProxySourceInfo | null; live: LiveSource | null }
+  const mergedSources = $derived.by<MergedSource[]>(() => {
+    const live = status?.sources ?? []
+    const rows: MergedSource[] = sources.map((cfg) => ({
+      name: cfg.name,
+      cfg,
+      live: live.find((l) => l.source === cfg.name) ?? null,
+    }))
+    for (const l of live) if (!rows.some((r) => r.name === l.source)) rows.push({ name: l.source, cfg: null, live: l })
+    return rows
+  })
+
+  let openSections = $state<string[]>([])
+  const loadLabel = $derived(status ? `${status.inflight} / ${status.limit}` : '')
 
   const laneColumns: TableColumn[] = [
     { key: 'lane', title: t('common.labels.name'), width: '1fr', priority: 1 },
@@ -202,16 +213,69 @@
   const hasBanReasons = $derived(status && Object.keys(status.ban_reasons ?? {}).some((k) => (status?.ban_reasons[k] ?? 0) > 0))
 </script>
 
+{#snippet healthyBody()}
+  <Table columns={proxyColumns} rows={proxies} rowKey={(proxy) => (proxy as Proxy).id} loading={loading}>
+    {#snippet cell({ column, row })}
+      {@const proxy = row as Proxy}
+      {#if column.key === 'url'}
+        <HStack gap={2} align="center">
+          {#if proxy.location}<Chip text={proxy.location} size="small" />{/if}
+          <Text variant="value" mono truncate>{proxy.url}</Text>
+        </HStack>
+      {:else if column.key === 'latency'}
+        <Text size="sm">{formatLatency(proxy.latency)}</Text>
+      {:else if column.key === 'score'}
+        <Text size="sm">{proxy.score.toFixed(2)}</Text>
+      {/if}
+    {/snippet}
+    {#snippet card({ row })}
+      {@const proxy = row as Proxy}
+      <HStack gap={2} align="center">
+        {#if proxy.location}<Chip text={proxy.location} size="small" />{/if}
+        <Text variant="value" mono truncate>{proxy.url}</Text>
+      </HStack>
+      <Text variant="caption">{t('proxy.latency')}: {formatLatency(proxy.latency)} · {t('proxy.score')}: {proxy.score.toFixed(2)}</Text>
+    {/snippet}
+    {#snippet empty()}
+      <EmptyState title={t('proxy.pool.empty')} />
+    {/snippet}
+  </Table>
+{/snippet}
+
+{#snippet recheckBody()}
+  <VStack gap={4}>
+    <Text variant="subtitle" text={t('proxy.recheck_banned.desc')} />
+    <Grid min="md" gap={4}>
+      <Field label={t('proxy.recheck_banned.reason')}>
+        <Select value={recheckReason} options={recheckReasonOptions} onchange={(value) => { recheckReason = value }} />
+      </Field>
+      <Field label={t('proxy.recheck_banned.source')}>
+        <Select value={recheckSource} options={recheckSourceOptions} onchange={(value) => { recheckSource = value }} searchable={true} />
+      </Field>
+    </Grid>
+    <HStack gap={3} align="center" wrap>
+      <Button style="prominent" disabled={recheckingBanned} onclick={recheckBanned}>
+        {recheckingBanned ? t('proxy.pool.refreshing') : t('proxy.recheck_banned.action')}
+      </Button>
+      {#if recheckQueued !== null}
+        <Text variant="caption">{t('proxy.recheck_banned.queued')}: {recheckQueued}. {t('proxy.recheck_banned.success')}</Text>
+      {/if}
+    </HStack>
+  </VStack>
+{/snippet}
+
 <VStack gap={6}>
-  <Header title={t('proxy.title')} subtitle={t('proxy.pool.auto_refresh')}>
+  <Header title={t('proxy.title')} info={t('proxy.pool.auto_refresh')}>
     {#snippet actions()}
       {#if tab !== 'pools'}
-        <Button
-          style="prominent"
-          icon={{ name: 'refresh' }}
-          disabled={requestingRefresh}
-          onclick={refreshPool}
-        >{requestingRefresh ? t('proxy.pool.refreshing') : t('proxy.pool.refresh')}</Button>
+        <ToolbarItem primary>
+                  <Button
+            style="prominent"
+            icon={{ name: 'refresh' }}
+            disabled={requestingRefresh}
+            onclick={refreshPool}
+          >{requestingRefresh ? t('proxy.pool.refreshing') : t('proxy.pool.refresh')}</Button>
+        </ToolbarItem>
       {/if}
     {/snippet}
   </Header>
@@ -245,14 +309,20 @@
             <Chip text={status.mode} color="chip-accent" size="small" />
           </Stat>
           <Stat label={t('proxy.pool.net')} value={status.net.rtt_ms > 0 ? `${status.net.state} ${status.net.rtt_ms} ms` : status.net.state} />
-          <Stat label={`${t('proxy.pool.inflight')} / ${t('proxy.pool.limit')}`} value={`${status.inflight} / ${status.limit}`} />
+          <Stat label={`${t('proxy.pool.inflight')} / ${t('proxy.pool.limit')}`}>
+            <Progress value={status.limit > 0 ? status.inflight / status.limit : 0} tone={status.limit > 0 && status.inflight >= status.limit ? 'warning' : 'accent'}>
+              {#snippet label()}<Text size="sm" text={loadLabel} />{/snippet}
+            </Progress>
+          </Stat>
           <Stat label={t('proxy.pool.total')} value={status.total} />
-          <Stat label={t('proxy.pool.alive')} value={status.alive} tone="success" />
-          <Stat label={t('proxy.pool.suspect')} value={status.suspect} tone="warning" />
-          <Stat label={t('proxy.pool.banned')} value={status.banned} tone="danger" />
-          <Stat label={t('proxy.pool.queued')} value={status.queued} />
-          <Stat label={t('proxy.pool.last_ingest')} value={formatTime(status.last_ingest_at)} />
         </Grid>
+        <StackedBar
+          items={[
+            { label: `${t('proxy.pool.alive')} · ${status.alive}`, value: status.alive, tone: 'success' },
+            { label: `${t('proxy.pool.suspect')} · ${status.suspect}`, value: status.suspect, tone: 'warning' },
+            { label: `${t('proxy.pool.banned')} · ${status.banned}`, value: status.banned, tone: 'danger' },
+          ]}
+        />
         {#if hasBanReasons}
           <HStack gap={3} wrap>
             <Text variant="label">{t('proxy.pool.ban_reasons')}</Text>
@@ -280,136 +350,59 @@
             <Text variant="caption">{t('proxy.pool.inflight')}: {lane.inflight} · {t('proxy.pool.queued')}: {lane.queued}</Text>
           {/snippet}
           {#snippet empty()}
-            <EmptyState title={t('proxy.no_sources')} icon="extension" />
-          {/snippet}
-        </Table>
-      </VStack>
-
-      <VStack gap={4}>
-        <Header level="section" title={t('proxy.pool.healthy')} />
-        <Table
-          columns={proxyColumns}
-          rows={proxies}
-          rowKey={(proxy) => (proxy as Proxy).id}
-          loading={loading}
-        >
-          {#snippet cell({ column, row })}
-            {@const proxy = row as Proxy}
-            {#if column.key === 'url'}
-              <HStack gap={2} align="center">
-                {#if proxy.location}<Chip text={proxy.location} size="small" />{/if}
-                <Text variant="value" mono truncate>{proxy.url}</Text>
-              </HStack>
-            {:else if column.key === 'latency'}
-              <Text size="sm">{formatLatency(proxy.latency)}</Text>
-            {:else if column.key === 'score'}
-              <Text size="sm">{proxy.score.toFixed(2)}</Text>
-            {/if}
-          {/snippet}
-          {#snippet card({ row })}
-            {@const proxy = row as Proxy}
-            <HStack gap={2} align="center">
-              {#if proxy.location}<Chip text={proxy.location} size="small" />{/if}
-              <Text variant="value" mono truncate>{proxy.url}</Text>
-            </HStack>
-            <Text variant="caption">{t('proxy.latency')}: {formatLatency(proxy.latency)} · {t('proxy.score')}: {proxy.score.toFixed(2)}</Text>
-          {/snippet}
-          {#snippet empty()}
             <EmptyState title={t('proxy.pool.empty')} />
           {/snippet}
         </Table>
       </VStack>
 
-      <SectionCard title={t('proxy.recheck_banned.title')} description={t('proxy.recheck_banned.desc')}>
-        <Grid min="md" gap={4}>
-          <VStack gap={1}>
-            <Text variant="label">{t('proxy.recheck_banned.reason')}</Text>
-            <Select value={recheckReason} options={recheckReasonOptions} onchange={(value) => { recheckReason = value }} />
-          </VStack>
-          <VStack gap={1}>
-            <Text variant="label">{t('proxy.recheck_banned.source')}</Text>
-            <Select value={recheckSource} options={recheckSourceOptions} onchange={(value) => { recheckSource = value }} searchable={true} />
-          </VStack>
-        </Grid>
-        <Button style="prominent" disabled={recheckingBanned} onclick={recheckBanned}>
-          {recheckingBanned ? t('proxy.pool.refreshing') : t('proxy.recheck_banned.action')}
-        </Button>
-        {#if recheckQueued !== null}
-          <Text variant="caption">{t('proxy.recheck_banned.queued')}: {recheckQueued}. {t('proxy.recheck_banned.success')}</Text>
-        {/if}
-      </SectionCard>
+      <!-- rarely needed: folded away so the overview stays short -->
+      <Accordion multiple bind:value={openSections} items={[
+        { id: 'proxies', title: `${t('proxy.pool.healthy')} (${proxies.length})`, body: healthyBody },
+        { id: 'recheck', title: t('proxy.recheck_banned.title'), body: recheckBody },
+      ]} />
     {:else}
       <EmptyState title={t('common.state.loading')} />
     {/if}
   {:else if tab === 'sources'}
     <VStack gap={4}>
-      <Header level="section" title={t('proxy.pool.sources')} />
-      <Table
-        columns={liveSourceColumns}
-        rows={status?.sources ?? []}
-        rowKey={(source) => source.source}
-        loading={loading}
-      >
-        {#snippet cell({ column, row })}
-          {@const source = row as ProxyStatus['sources'][number]}
-          {#if column.key === 'source'}
-            <Text variant="value">{source.source}</Text>
-          {:else if column.key === 'alive'}
-            <Text size="sm">{source.alive}</Text>
-          {:else if column.key === 'suspect'}
-            <Text size="sm">{source.suspect}</Text>
-          {:else if column.key === 'banned'}
-            <Text size="sm">{source.banned}</Text>
-          {:else if column.key === 'queued'}
-            <Text size="sm">{source.queued}</Text>
-          {:else if column.key === 'ban_reasons'}
-            <Text size="sm" mono>{formatBanReasons(source.ban_reasons)}</Text>
-          {/if}
-        {/snippet}
-        {#snippet card({ row })}
-          {@const source = row as ProxyStatus['sources'][number]}
-          <Text variant="value">{source.source}</Text>
-          <Text variant="caption">{t('proxy.pool.alive')}: {source.alive} · {t('proxy.pool.suspect')}: {source.suspect} · {t('proxy.pool.banned')}: {source.banned} · {t('proxy.pool.queued')}: {source.queued}</Text>
-          <Text size="sm" mono>{formatBanReasons(source.ban_reasons)}</Text>
-        {/snippet}
-        {#snippet empty()}
-          <EmptyState title={t('proxy.no_sources')} icon="extension" />
-        {/snippet}
-      </Table>
-    </VStack>
-
-    <VStack gap={4}>
       <Header level="section" title={t('proxy.sources.title')} subtitle={t('proxy.sources.desc')} />
       <Table
         columns={sourceColumns}
-        rows={sources}
-        rowKey={(source) => (source as ProxySourceInfo).key}
+        rows={mergedSources}
+        rowKey={(row) => (row as MergedSource).name}
         loading={loading}
       >
         {#snippet cell({ column, row })}
-          {@const source = row as ProxySourceInfo}
+          {@const src = row as MergedSource}
           {#if column.key === 'name'}
-            <Text variant="value">{source.name}</Text>
-            <Text variant="caption">{source.key}</Text>
-            {#if source.last_error}
-              <Text tone="danger" variant="caption">{source.last_error}</Text>
-            {/if}
+            <Text variant="value">{src.name}</Text>
+            {#if src.cfg}<Text variant="caption" class="src-key">{src.cfg.key}</Text>{/if}
+            {#if src.cfg?.last_error}<Text tone="danger" variant="caption">{src.cfg.last_error}</Text>{/if}
           {:else if column.key === 'fetched'}
-            <Text size="sm">{formatTime(source.last_fetch_at)}</Text>
+            {@const lf = src.cfg?.last_fetch_at}{#if lf && !lf.startsWith('0001-')}<RelativeTime date={lf} locale={locale()} />{:else}<Text size="sm">—</Text>{/if}
           {:else if column.key === 'candidates'}
-            <Text size="sm">{source.total}</Text>
-          {:else if column.key === 'unsupported'}
-            <Text size="sm">{source.unsupported}</Text>
+            <Text size="sm">{src.cfg ? src.cfg.total : '—'}</Text>
+            {#if src.cfg && src.cfg.unsupported > 0}<Text variant="caption">{t('proxy.sources.unsupported')}: {src.cfg.unsupported}</Text>{/if}
+          {:else if column.key === 'alive'}
+            <Text size="sm" tone="success">{src.live?.alive ?? '—'}</Text>
+          {:else if column.key === 'suspect'}
+            <Text size="sm" tone="warning">{src.live?.suspect ?? '—'}</Text>
+          {:else if column.key === 'banned'}
+            <span title={src.live ? formatBanReasons(src.live.ban_reasons) : ''}><Text size="sm" tone="danger">{src.live?.banned ?? '—'}</Text></span>
           {/if}
         {/snippet}
         {#snippet card({ row })}
-          {@const source = row as ProxySourceInfo}
-          <Text variant="value">{source.name}</Text>
-          <Text variant="caption" class="src-key">{source.key}</Text>
-          <Text variant="caption">{t('proxy.sources.last_fetched')}: {formatTime(source.last_fetch_at)} · {t('proxy.sources.candidates')}: {source.total} · {t('proxy.sources.unsupported')}: {source.unsupported}</Text>
-          {#if source.last_error}
-            <Text tone="danger" variant="caption">{source.last_error}</Text>
+          {@const src = row as MergedSource}
+          <Text variant="value">{src.name}</Text>
+          {#if src.cfg}<Text variant="caption" class="src-key">{src.cfg.key}</Text>{/if}
+          {#if src.live}
+            <Text variant="caption">{t('proxy.pool.alive')}: {src.live.alive} · {t('proxy.pool.suspect')}: {src.live.suspect} · {t('proxy.pool.banned')}: {src.live.banned}</Text>
           {/if}
+          {#if src.cfg}
+            <Text variant="caption">{t('proxy.sources.last_fetched')}: {formatTime(src.cfg.last_fetch_at)} · {t('proxy.sources.candidates')}: {src.cfg.total} · {t('proxy.sources.unsupported')}: {src.cfg.unsupported}</Text>
+          {/if}
+          {#if src.live && formatBanReasons(src.live.ban_reasons)}<Text size="sm" mono>{formatBanReasons(src.live.ban_reasons)}</Text>{/if}
+          {#if src.cfg?.last_error}<Text tone="danger" variant="caption">{src.cfg.last_error}</Text>{/if}
         {/snippet}
         {#snippet empty()}
           <EmptyState title={t('proxy.no_sources')} icon="extension" />

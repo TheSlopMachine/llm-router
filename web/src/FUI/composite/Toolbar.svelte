@@ -17,6 +17,7 @@
     halign = 'start',
     valign = 'center',
     moreLabel = 'More',
+    collapseButtons = true,
     children,
   } = $props<{
     overflow?: 'wrap' | 'menu'
@@ -24,11 +25,14 @@
     halign?: 'start' | 'center' | 'end'
     valign?: 'start' | 'center' | 'end' | 'baseline'
     moreLabel?: string
+    /** false: buttons keep their text; the ladder goes straight to the menu / wrap */
+    collapseButtons?: boolean
     children: Snippet
   }>()
 
   const ctx = new ToolbarCtx()
   setToolbarCtx(ctx)
+  $effect(() => { ctx.collapse = collapseButtons })
 
   let host = $state<HTMLElement>()
   let row = $state<HTMLElement>()
@@ -39,16 +43,21 @@
   let thresholds: number[] = []
 
   // Items that can leave, in leaving order (highest priority number first).
+  const key = (x: { it: { primary: boolean; priority: number | undefined }; order: number }): number =>
+    x.it.primary ? -1e9 : (x.it.priority ?? x.order)
   const movable = $derived(
     ctx.items
       .map((it, order) => ({ it, order }))
       .filter((x) => !x.it.pinned)
-      .sort((a, b) => (b.it.priority ?? b.order) - (a.it.priority ?? a.order) || b.order - a.order)
+      .sort((a, b) => key(b) - key(a) || b.order - a.order)
       .map((x) => x.it),
   )
   const wrapLevel = $derived(overflow === 'menu' ? 3 + movable.length : 3)
   const wrapping = $derived(ctx.level >= wrapLevel)
-  const menuItems = $derived(movable.filter((m) => ctx.menuIds.includes(m.id)))
+  // menu order: the primary action first, then document order
+  const menuItems = $derived(
+    ctx.items.filter((m) => ctx.menuIds.includes(m.id)).sort((a, b) => Number(b.primary) - Number(a.primary)),
+  )
   const dot = $derived(menuItems.some((m) => m.active))
 
   $effect(() => {
@@ -73,12 +82,16 @@
     if (!wrapping && row.scrollWidth > cw + 1) {
       thresholds[ctx.level] = Math.max(thresholds[ctx.level] ?? 0, row.scrollWidth)
       ctx.level += 1
+      if (!ctx.collapse && ctx.level < 3) ctx.level = 3
       schedule()
       return
     }
-    if (ctx.level > 0 && cw >= (thresholds[ctx.level - 1] ?? Infinity)) {
-      ctx.level -= 1
-      schedule()
+    if (ctx.level > 0) {
+      const prev = !ctx.collapse && ctx.level === 3 ? 0 : ctx.level - 1
+      if (cw >= (thresholds[prev] ?? Infinity)) {
+        ctx.level = prev
+        schedule()
+      }
     }
   }
 
@@ -113,11 +126,16 @@
   }
 </script>
 
-<div class="tbar" bind:this={host} style:--fui-tbar-gap={space(gap)}>
+<div
+  class="tbar"
+  bind:this={host}
+  style:--fui-tbar-gap={space(gap)}
+  style:justify-content={halign === 'start' ? 'flex-start' : halign === 'center' ? 'center' : 'flex-end'}
+>
   <div
     class="tbar-row"
     class:wrapping
-    style:justify-content={halign === 'start' ? 'flex-start' : halign === 'center' ? 'center' : 'flex-end'}
+    style:justify-content={wrapping ? (halign === 'start' ? 'flex-start' : halign === 'center' ? 'center' : 'flex-end') : undefined}
     style:align-items={valign === 'start' ? 'flex-start' : valign === 'end' ? 'flex-end' : valign === 'baseline' ? 'baseline' : 'center'}
     bind:this={row}
   >
@@ -153,15 +171,18 @@
 
 <style>
   :where(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
-  .tbar { min-width: 0; max-width: 100%; }
+  /* The host aligns the row; the row itself stays start-justified, because content that
+     overflows a right-aligned flex row spills to the LEFT where scrollWidth cannot see it. */
+  .tbar { display: flex; min-width: 0; max-width: 100%; }
   .tbar-row {
     display: flex;
     flex-wrap: nowrap;
     gap: var(--fui-tbar-gap, 0);
     min-width: 0;
+    flex: 0 1 auto;
   }
   .tbar-row > :global(*) { flex-shrink: 0; }
-  .tbar-row.wrapping { flex-wrap: wrap; }
+  .tbar-row.wrapping { flex-wrap: wrap; flex: 1 1 auto; }
   .tbar-row.wrapping > :global(*) { flex-shrink: 1; }
   .tbar-more { display: inline-flex; position: relative; flex-shrink: 0; margin-inline-start: auto; }
   .tbar-dot {

@@ -33,9 +33,9 @@
   .pg { display: flex; align-items: center; gap: var(--fui-space-1); }
   .btn { min-width: var(--fui-ctl-small); height: var(--fui-ctl-small); padding: 0 var(--fui-space-3); display: inline-flex; align-items: center; justify-content: center; border-radius: var(--fui-radius-sm); font-size: var(--fui-text-sm); color: var(--fui-color-text-soft); background: var(--fui-elev); }
   .btn.on { background: var(--fui-color-accent); color: var(--fui-color-text-on-button-reverse); }
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn:disabled { opacity: var(--fui-opacity-disabled); cursor: not-allowed; }
   .btn:not(:disabled):not(.on):hover { background: var(--fui-color-hover-bg); color: var(--fui-color-text); }
   .btn:focus-visible { box-shadow: var(--fui-focus-ring); }
   .dots { color: var(--fui-color-text-disabled); padding: 0 var(--fui-space-1); }
-  .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .vh { position: absolute; width: var(--fui-sliver); height: var(--fui-sliver); overflow: hidden; clip: rect(0 0 0 0); }
 </style>

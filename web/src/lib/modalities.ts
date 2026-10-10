@@ -10,6 +10,7 @@ export function modalityColor(mod: string): string {
     case 'transcription': return 'chip-teal'
     case 'video': return 'chip-orange'
     case 'file': return 'chip-yellow'
+    case 'pdf': return 'chip-red'
     case 'embedding': return 'chip-neutral'
     default: return 'chip-neutral'
   }
@@ -21,6 +22,7 @@ export function modalityIcon(mod: string): string {
     case 'image': return 'image'
     case 'audio': return 'graphic_eq'
     case 'file': return 'attach_file'
+    case 'pdf': return 'picture_as_pdf'
     case 'video': return 'videocam'
     case 'embedding': return 'scatter_plot'
     case 'speech': return 'record_voice_over'

@@ -270,7 +270,7 @@
 </script>
 
 <VStack gap={6}>
-  <Header title={t('settings.title')} subtitle={t('settings.subtitle')} />
+  <Header title={t('settings.title')} info={t('settings.subtitle')} />
 
   {#if error}
     <Banner variant="error" text={error} />

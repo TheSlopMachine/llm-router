@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Text, Switch, Banner, Icon, Table, Header, HStack, VStack } from '$ui'
+  import { Button, Text, Switch, Banner, Icon, Table, Header, HStack, VStack, ToolbarItem } from '$ui'
   import type { TableColumn } from '$ui'
   import EmptyState from '../../FUI/composite/EmptyState.svelte'
   import { openFormModal } from '$lib/modal-helpers'
@@ -56,9 +56,9 @@
 </script>
 
 <VStack gap={6}>
-  <Header title={t('providers.list.title')} subtitle={t('providers.list.subtitle')}>
+  <Header title={t('providers.list.title')} info={t('providers.list.subtitle')}>
     {#snippet actions()}
-      <Button style="prominent" onclick={openCreate} icon={{ name: 'add' }}>{t('providers.actions.new')}</Button>
+      <ToolbarItem primary><Button style="prominent" onclick={openCreate} icon={{ name: 'add' }}>{t('providers.actions.new')}</Button></ToolbarItem>
     {/snippet}
   </Header>
 

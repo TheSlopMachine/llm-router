@@ -104,7 +104,7 @@
 </script>
 
 <VStack gap={6}>
-  <Header title={t('metrics.title')} subtitle={t('metrics.subtitle')} />
+  <Header title={t('metrics.title')} info={t('metrics.subtitle')} />
 
   <MetricsFiltersCmp bind:filters {providers} {models} onchange={handleFilterChange} />
 
