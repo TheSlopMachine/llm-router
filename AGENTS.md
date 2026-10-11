@@ -147,6 +147,7 @@ Keep changes shallow. Do not touch service internals unless the task requires it
 | `make check-frontend` | agent | Frontend compile/type-check |
 | `make go-vet` | agent | Go static check (`PKG=...` scopes packages, default `./...`) |
 | `make go-test` | agent | Go tests (`PKG=...` scopes packages, default `./...`) |
+| `make sql-policy` | agent | Enforce typed GORM conditions (no raw SQL outside `internal/db/maintenance.go`) |
 | `make go-fmt` | agent | Apply `gofmt` to both Go modules (`PATHS=...` scopes files/dirs, default whole tree) |
 | `make go-fmt-check` | agent | Fail when `gofmt` would reformat anything (`PATHS=...` scopes files/dirs) |
 | `make init` | agent | Project init/re-init: bun install, openapi.yaml, api-types, embed stub; skips fresh outputs unless `NO_SKIP=1` |

@@ -18,6 +18,7 @@ Targets:
   publish           Cut and push the next release tag (TYPE or VERSION; CI builds)
   go-vet            Run go vet (PKG scopes packages, default "./...")
   go-test           Run go test (PKG scopes packages, default "./...")
+  sql-policy        Enforce typed GORM conditions (no raw SQL outside allowlist)
   go-fmt            Apply gofmt to both Go modules (PATHS scopes files/dirs)
   go-fmt-check      Fail when gofmt would reformat anything (PATHS scopes)
   go-tidy           Tidy both Go modules

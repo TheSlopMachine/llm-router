@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -37,6 +38,24 @@ func SetupTestDB(t *testing.T) *db.DB {
 	t.Cleanup(func() {
 		database.Close()
 		os.Remove(path)
+	})
+
+	return database
+}
+
+// SetupTestSQLite creates a temporary SQLite database for testing with the
+// full migrated schema. Cleanup closes the pool and removes the file.
+func SetupTestSQLite(t *testing.T) *db.Database {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "llm-router-test.sqlite3")
+	database, err := db.OpenSQLite(context.Background(), path)
+	if err != nil {
+		t.Fatalf("open test sqlite: %v", err)
+	}
+
+	t.Cleanup(func() {
+		database.Close()
 	})
 
 	return database
