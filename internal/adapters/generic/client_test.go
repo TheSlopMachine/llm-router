@@ -11,7 +11,7 @@ func TestPassthroughPayloadForwardsAllFields(t *testing.T) {
 	user := "u-1"
 	tier := "flex"
 	effort := "high"
-	req := &models.ChatCompletionRequest{
+	request := &models.ChatCompletionRequest{
 		Model:           "custom/gpt-5",
 		Messages:        []models.ChatMessage{{Role: "user", Content: "hi"}},
 		Temperature:     0,
@@ -22,7 +22,7 @@ func TestPassthroughPayloadForwardsAllFields(t *testing.T) {
 		ResponseFormat:  map[string]any{"type": "json_object"},
 		ToolChoice:      "auto",
 	}
-	payload, err := passthroughPayload(req, "gpt-5-upstream")
+	payload, err := passthroughPayload(request, "gpt-5-upstream")
 	if err != nil {
 		t.Fatalf("passthrough: %v", err)
 	}

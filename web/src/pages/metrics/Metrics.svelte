@@ -46,9 +46,9 @@
       providers = result || []
       errors = errors.filter((e) => !e.includes('providers'))
     } catch (err) {
-      const msg = `Failed to load providers: ${getErrorMessage(err)}`
-      if (!errors.includes(msg)) {
-        errors = [...errors, msg]
+      const message = `Failed to load providers: ${getErrorMessage(err)}`
+      if (!errors.includes(message)) {
+        errors = [...errors, message]
       }
       providers = []
     }
@@ -60,9 +60,9 @@
       models = result || []
       errors = errors.filter((e) => !e.includes('models'))
     } catch (err) {
-      const msg = `Failed to load models: ${getErrorMessage(err)}`
-      if (!errors.includes(msg)) {
-        errors = [...errors, msg]
+      const message = `Failed to load models: ${getErrorMessage(err)}`
+      if (!errors.includes(message)) {
+        errors = [...errors, message]
       }
       models = []
     }
@@ -85,9 +85,9 @@
       outputTokensData = outSeries || []
       errors = errors.filter((e) => !e.includes('metrics'))
     } catch (err) {
-      const msg = `Failed to load metrics: ${getErrorMessage(err)}`
-      if (!errors.includes(msg)) {
-        errors = [...errors, msg]
+      const message = `Failed to load metrics: ${getErrorMessage(err)}`
+      if (!errors.includes(message)) {
+        errors = [...errors, message]
       }
       requestsData = []
       inputTokensData = []

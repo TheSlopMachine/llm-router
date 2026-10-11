@@ -20,62 +20,62 @@ import (
 // per-credential loop; the credential-test below iterates them instead.
 // Cleanup is non-nil only for the ephemeral mock credential. No usable
 // credential is errNoCredential.
-func provision(cfg config, pluginType string) (providerID string, creds []credCandidate, cleanup func(), err error) {
-	if err := ensureBootstrapped(cfg); err != nil {
+func provision(testConfiguration configuration, pluginType string) (providerID string, credentials []credentialCandidate, cleanup func(), err error) {
+	if err := ensureBootstrapped(testConfiguration); err != nil {
 		return "", nil, nil, err
 	}
-	source, err := pluginSource(cfg, pluginType)
+	source, err := pluginSource(testConfiguration, pluginType)
 	if err != nil {
 		return "", nil, nil, err
 	}
-	if _, err := shared.InstallPlugin(cfg.web, pluginType, source); err != nil {
+	if _, err := shared.InstallPlugin(testConfiguration.web, pluginType, source); err != nil {
 		return "", nil, nil, err
 	}
-	providerID, err = findProvider(cfg, pluginType)
+	providerID, err = findProvider(testConfiguration, pluginType)
 	if err != nil {
 		return "", nil, nil, err
 	}
 	if pluginType == "mock" {
-		credID, err := addCredential(cfg, providerID, map[string]any{})
+		credentialID, err := addCredential(testConfiguration, providerID, map[string]any{})
 		if err != nil {
 			return "", nil, nil, err
 		}
-		me := []credCandidate{{ID: credID, Label: "smoke", ProviderID: providerID}}
-		if !cfg.cleanup {
-			return providerID, me, nil, nil
+		mockCredentials := []credentialCandidate{{ID: credentialID, Label: "smoke", ProviderID: providerID}}
+		if !testConfiguration.cleanup {
+			return providerID, mockCredentials, nil, nil
 		}
-		return providerID, me, func() { deleteCredential(cfg, credID) }, nil
+		return providerID, mockCredentials, func() { deleteCredential(testConfiguration, credentialID) }, nil
 	}
-	if enabled, err := credentialsEnabled(cfg, providerID); err != nil {
+	if enabled, err := credentialsEnabled(testConfiguration, providerID); err != nil {
 		return "", nil, nil, err
 	} else if !enabled {
 		// Credential-less provider types (anonymous tiers) run the
 		// matrix without accounts; keyed types still skip below.
 		return providerID, nil, nil, nil
 	}
-	creds, err = listUsableCredentials(cfg, providerID)
+	credentials, err = listUsableCredentials(testConfiguration, providerID)
 	if err != nil {
 		return "", nil, nil, err
 	}
-	if len(creds) == 0 {
+	if len(credentials) == 0 {
 		return "", nil, nil, errNoCredential
 	}
-	return providerID, creds, nil, nil
+	return providerID, credentials, nil, nil
 }
 
 // credentialsEnabled reports the provider's credential-schema capability
 // flag: false means the type serves no credential table. Unknown endpoints
 // fail loudly: the harness tracks the in-tree router, so a missing flag
 // is incompatibility, never a skip.
-func credentialsEnabled(cfg config, providerID string) (bool, error) {
-	status, raw, err := doJSON("GET", cfg.web+"/api/llm-router/dashboard/providers/"+providerID+"/credential-schema", nil)
+func credentialsEnabled(testConfiguration configuration, providerID string) (bool, error) {
+	statusCode, raw, err := doJSON("GET", testConfiguration.web+"/api/llm-router/dashboard/providers/"+providerID+"/credential-schema", nil)
 	if err != nil {
 		return false, fmt.Errorf("credential schema: %w", err)
 	}
 	var view struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := requireOK(status, raw, &view); err != nil {
+	if err := requireOK(statusCode, raw, &view); err != nil {
 		return false, err
 	}
 	return view.Enabled, nil
@@ -83,15 +83,15 @@ func credentialsEnabled(cfg config, providerID string) (bool, error) {
 
 // waitReady polls status until the backend listens or the deadline passes.
 // Restart returns before the backend accepts connections.
-func waitReady(cfg config) error {
+func waitReady(testConfiguration configuration) error {
 	deadline := time.Now().Add(120 * time.Second)
 	for {
-		status, raw, err := doJSON("GET", cfg.web+"/api/llm-router/status", nil)
+		statusCode, raw, err := doJSON("GET", testConfiguration.web+"/api/llm-router/status", nil)
 		if err == nil {
-			var st struct {
+			var bootstrapStatus struct {
 				Bootstrapped bool `json:"bootstrapped"`
 			}
-			if jerr := json.Unmarshal(raw, &st); jerr == nil && status == 200 {
+			if jerr := json.Unmarshal(raw, &bootstrapStatus); jerr == nil && statusCode == 200 {
 				return nil
 			}
 		}
@@ -99,47 +99,47 @@ func waitReady(cfg config) error {
 			if err != nil {
 				return fmt.Errorf("backend not ready: %w", err)
 			}
-			return fmt.Errorf("backend not ready: status %d", status)
+			return fmt.Errorf("backend not ready: status %d", statusCode)
 		}
 		time.Sleep(2 * time.Second)
 	}
 }
 
-func ensureBootstrapped(cfg config) error {
-	status, raw, err := doJSON("GET", cfg.web+"/api/llm-router/status", nil)
+func ensureBootstrapped(testConfiguration configuration) error {
+	statusCode, raw, err := doJSON("GET", testConfiguration.web+"/api/llm-router/status", nil)
 	if err != nil {
 		return fmt.Errorf("status: %w", err)
 	}
-	var st struct {
+	var bootstrapStatus struct {
 		Bootstrapped bool `json:"bootstrapped"`
 	}
-	if err := requireOK(status, raw, &st); err != nil {
+	if err := requireOK(statusCode, raw, &bootstrapStatus); err != nil {
 		return err
 	}
-	if st.Bootstrapped {
+	if bootstrapStatus.Bootstrapped {
 		return nil
 	}
-	var rnd [16]byte
-	if _, err := rand.Read(rnd[:]); err != nil {
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
 		return err
 	}
-	status, raw, err = doJSON("POST", cfg.web+"/api/llm-router/bootstrap", map[string]any{
+	statusCode, raw, err = doJSON("POST", testConfiguration.web+"/api/llm-router/bootstrap", map[string]any{
 		"username": "smoke",
-		"password": hex.EncodeToString(rnd[:]),
+		"password": hex.EncodeToString(random[:]),
 	})
 	if err != nil {
 		return fmt.Errorf("bootstrap: %w", err)
 	}
-	return requireOK(status, raw, nil)
+	return requireOK(statusCode, raw, nil)
 }
 
 // pluginSource reads the .lua source: the bundled mock or storeDir/<type>.lua.
-func pluginSource(cfg config, pluginType string) ([]byte, error) {
+func pluginSource(testConfiguration configuration, pluginType string) ([]byte, error) {
 	if pluginType == "mock" {
 		_, thisFile, _, _ := runtime.Caller(0)
 		return os.ReadFile(filepath.Join(filepath.Dir(thisFile), "testdata", "mock.lua"))
 	}
-	return shared.PluginSource(cfg.store, pluginType)
+	return shared.PluginSource(testConfiguration.store, pluginType)
 }
 
 type providerRow struct {
@@ -148,18 +148,18 @@ type providerRow struct {
 	TypeKey string `json:"type_key"`
 }
 
-func findProvider(cfg config, pluginType string) (string, error) {
-	status, raw, err := doJSON("GET", cfg.web+"/api/llm-router/dashboard/providers", nil)
+func findProvider(testConfiguration configuration, pluginType string) (string, error) {
+	statusCode, raw, err := doJSON("GET", testConfiguration.web+"/api/llm-router/dashboard/providers", nil)
 	if err != nil {
 		return "", fmt.Errorf("list providers: %w", err)
 	}
 	var rows []providerRow
-	if err := requireOK(status, raw, &rows); err != nil {
+	if err := requireOK(statusCode, raw, &rows); err != nil {
 		return "", err
 	}
-	for _, p := range rows {
-		if p.TypeKey == pluginType {
-			return p.ID, nil
+	for _, provider := range rows {
+		if provider.TypeKey == pluginType {
+			return provider.ID, nil
 		}
 	}
 	return "", fmt.Errorf("no provider instance for type %q after install", pluginType)
@@ -169,7 +169,7 @@ func findProvider(cfg config, pluginType string) (string, error) {
 // plugin, never fail.
 var errNoCredential = fmt.Errorf("no credential in db")
 
-type credRow struct {
+type credentialRow struct {
 	ID         string `json:"id"`
 	ProviderID string `json:"provider_id"`
 	Label      string `json:"label"`
@@ -178,8 +178,8 @@ type credRow struct {
 	UpdatedAt  string `json:"updated_at"`
 }
 
-// credCandidate is one enabled, non-expired credential row.
-type credCandidate struct {
+// credentialCandidate is one enabled, non-expired credential row.
+type credentialCandidate struct {
 	ID         string
 	Label      string
 	ProviderID string
@@ -188,34 +188,34 @@ type credCandidate struct {
 
 // listUsableCredentials returns enabled, non-expired credentials of the
 // provider, most recently updated first.
-func listUsableCredentials(cfg config, providerID string) ([]credCandidate, error) {
-	status, raw, err := doJSON("GET", cfg.web+"/api/llm-router/dashboard/credentials", nil)
+func listUsableCredentials(testConfiguration configuration, providerID string) ([]credentialCandidate, error) {
+	statusCode, raw, err := doJSON("GET", testConfiguration.web+"/api/llm-router/dashboard/credentials", nil)
 	if err != nil {
 		return nil, fmt.Errorf("list credentials: %w", err)
 	}
-	var rows []credRow
-	if err := requireOK(status, raw, &rows); err != nil {
+	var rows []credentialRow
+	if err := requireOK(statusCode, raw, &rows); err != nil {
 		return nil, err
 	}
-	var out []credCandidate
-	for _, c := range rows {
-		if c.ProviderID == providerID && !c.Disabled && !c.IsExpired {
-			out = append(out, credCandidate{ID: c.ID, Label: c.Label, ProviderID: c.ProviderID, UpdatedAt: c.UpdatedAt})
+	var output []credentialCandidate
+	for _, credential := range rows {
+		if credential.ProviderID == providerID && !credential.Disabled && !credential.IsExpired {
+			output = append(output, credentialCandidate{ID: credential.ID, Label: credential.Label, ProviderID: credential.ProviderID, UpdatedAt: credential.UpdatedAt})
 		}
 	}
 	// Most recently touched first (RFC3339 sorts lexically); stable IDs
 	// break ties deterministically.
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].UpdatedAt != out[j].UpdatedAt {
-			return out[i].UpdatedAt > out[j].UpdatedAt
+	sort.Slice(output, func(i, j int) bool {
+		if output[i].UpdatedAt != output[j].UpdatedAt {
+			return output[i].UpdatedAt > output[j].UpdatedAt
 		}
-		return out[i].ID < out[j].ID
+		return output[i].ID < output[j].ID
 	})
-	return out, nil
+	return output, nil
 }
 
-func addCredential(cfg config, providerID string, data map[string]any) (string, error) {
-	status, raw, err := doJSON("POST", cfg.web+"/api/llm-router/dashboard/credentials", map[string]any{
+func addCredential(testConfiguration configuration, providerID string, data map[string]any) (string, error) {
+	statusCode, raw, err := doJSON("POST", testConfiguration.web+"/api/llm-router/dashboard/credentials", map[string]any{
 		"provider_id": providerID,
 		"label":       "smoke",
 		"data":        data,
@@ -223,21 +223,21 @@ func addCredential(cfg config, providerID string, data map[string]any) (string, 
 	if err != nil {
 		return "", fmt.Errorf("add credential: %w", err)
 	}
-	var cred struct {
+	var credential struct {
 		ID string `json:"id"`
 	}
-	if err := requireOK(status, raw, &cred); err != nil {
+	if err := requireOK(statusCode, raw, &credential); err != nil {
 		return "", err
 	}
-	if cred.ID == "" {
+	if credential.ID == "" {
 		return "", fmt.Errorf("add credential: empty id")
 	}
-	return cred.ID, nil
+	return credential.ID, nil
 }
 
-func deleteCredential(cfg config, credID string) {
-	status, raw, err := doJSON("DELETE", cfg.web+"/api/llm-router/dashboard/credentials/"+credID, nil)
+func deleteCredential(testConfiguration configuration, credentialID string) {
+	statusCode, raw, err := doJSON("DELETE", testConfiguration.web+"/api/llm-router/dashboard/credentials/"+credentialID, nil)
 	if err == nil {
-		_ = requireOK(status, raw, nil)
+		_ = requireOK(statusCode, raw, nil)
 	}
 }

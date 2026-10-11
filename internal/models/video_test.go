@@ -23,14 +23,14 @@ func TestNewVideoJobID_Format(t *testing.T) {
 }
 
 func TestValidVideoStatus(t *testing.T) {
-	for _, s := range []string{"pending", "in_progress", "completed", "failed", "cancelled", "expired"} {
-		if !ValidVideoStatus(s) {
-			t.Fatalf("status %q must be valid", s)
+	for _, status := range []string{"pending", "in_progress", "completed", "failed", "cancelled", "expired"} {
+		if !ValidVideoStatus(status) {
+			t.Fatalf("status %q must be valid", status)
 		}
 	}
-	for _, s := range []string{"", "queued", "COMPLETED", "done"} {
-		if ValidVideoStatus(s) {
-			t.Fatalf("status %q must be invalid", s)
+	for _, status := range []string{"", "queued", "COMPLETED", "done"} {
+		if ValidVideoStatus(status) {
+			t.Fatalf("status %q must be invalid", status)
 		}
 	}
 }

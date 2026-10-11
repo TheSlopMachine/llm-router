@@ -51,11 +51,11 @@ llm_router.register("test-type", {
 
 func setupService(t *testing.T) *Service {
 	t.Helper()
-	svc, err := New(testutil.SetupTestDB(t), nil)
+	service, err := New(testutil.SetupTestDB(t), nil)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
-	return svc
+	return service
 }
 
 const iconPluginSource = `--- @plugin Icon Plugin
@@ -83,21 +83,21 @@ llm_router.register("icon-type", {
 `
 
 func TestInstallCapturesIcon(t *testing.T) {
-	svc := setupService(t)
-	rec, err := svc.Install([]byte(iconPluginSource), PluginOrigin{Manual: true})
+	service := setupService(t)
+	rec, err := service.Install([]byte(iconPluginSource), PluginOrigin{Manual: true})
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	if got := rec.Icons["icon-type"]; got != "https://example.com/icon.svg" {
 		t.Fatalf("record icon: got %q", got)
 	}
-	if got := svc.Icon("icon-type"); got != "https://example.com/icon.svg" {
+	if got := service.Icon("icon-type"); got != "https://example.com/icon.svg" {
 		t.Fatalf("registry icon: got %q", got)
 	}
 }
 
 func TestInstallRejectsBadIcon(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	cases := map[string]string{
 		"plain string":   `icon = "not a url"`,
 		"wrong scheme":   `icon = "ftp://example.com/icon.svg"`,
@@ -108,34 +108,34 @@ func TestInstallRejectsBadIcon(t *testing.T) {
 	}
 	for name, iconLine := range cases {
 		src := strings.Replace(iconPluginSource, `icon = "https://example.com/icon.svg",`, iconLine+",", 1)
-		if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err == nil {
+		if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err == nil {
 			t.Errorf("%s: expected install error", name)
 		}
 	}
 }
 
 func TestRollbackRestoresIcon(t *testing.T) {
-	svc := setupService(t)
-	rec, err := svc.Install([]byte(iconPluginSource), PluginOrigin{Manual: true})
+	service := setupService(t)
+	record, err := service.Install([]byte(iconPluginSource), PluginOrigin{Manual: true})
 	if err != nil {
 		t.Fatalf("install v1: %v", err)
 	}
 	v2 := strings.Replace(iconPluginSource, "@version 1.0.0", "@version 2.0.0", 1)
 	v2 = strings.Replace(v2, `icon = "https://example.com/icon.svg",`, `icon = "https://example.com/icon2.svg",`, 1)
-	if _, err := svc.Install([]byte(v2), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(v2), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install v2: %v", err)
 	}
-	if got := svc.Icon("icon-type"); got != "https://example.com/icon2.svg" {
+	if got := service.Icon("icon-type"); got != "https://example.com/icon2.svg" {
 		t.Fatalf("v2 icon: got %q", got)
 	}
-	rolled, err := svc.Rollback(rec.ID)
+	rolled, err := service.Rollback(record.ID)
 	if err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
 	if got := rolled.Icons["icon-type"]; got != "https://example.com/icon.svg" {
 		t.Fatalf("rolled-back icon: got %q", got)
 	}
-	if got := svc.Icon("icon-type"); got != "https://example.com/icon.svg" {
+	if got := service.Icon("icon-type"); got != "https://example.com/icon.svg" {
 		t.Fatalf("registry icon after rollback: got %q", got)
 	}
 }
@@ -216,8 +216,8 @@ func TestCheckPluginAPI(t *testing.T) {
 }
 
 func TestInstallAndComplete(t *testing.T) {
-	svc := setupService(t)
-	rec, err := svc.Install([]byte(testPluginSource), PluginOrigin{Manual: true})
+	service := setupService(t)
+	rec, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true})
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -227,38 +227,38 @@ func TestInstallAndComplete(t *testing.T) {
 	if len(rec.TypeKeys) != 1 || rec.TypeKeys[0] != "test-type" {
 		t.Fatalf("type keys: %v", rec.TypeKeys)
 	}
-	if _, err := svc.Lookup("test-type"); err != nil {
+	if _, err := service.Lookup("test-type"); err != nil {
 		t.Fatalf("lookup: %v", err)
 	}
 
-	resp, err := svc.Complete(context.Background(), testMeta("test-type",
+	response, err := service.Complete(context.Background(), testMetadata("test-type",
 		&models.Credential{ID: "c1", Data: map[string]any{"api_key": "k"}}, "test-type/model-a", nil),
 		&models.ChatCompletionRequest{Model: "test-type/model-a", Messages: []models.ChatMessage{{Role: "user", Content: "hi"}}})
 	if err != nil {
 		t.Fatalf("complete: %v", err)
 	}
-	if len(resp.Choices) != 1 || resp.Choices[0].Message.Content != "hello" {
-		t.Fatalf("unexpected response: %+v", resp)
+	if len(response.Choices) != 1 || response.Choices[0].Message.Content != "hello" {
+		t.Fatalf("unexpected response: %+v", response)
 	}
 }
 
 func TestValidateCredentials(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	ok, err := svc.ValidateCredentials("test-type", map[string]any{"api_key": "secret"})
+	ok, err := service.ValidateCredentials("test-type", map[string]any{"api_key": "secret"})
 	if err != nil || !ok {
 		t.Fatalf("valid creds rejected: ok=%v err=%v", ok, err)
 	}
-	ok, err = svc.ValidateCredentials("test-type", map[string]any{})
+	ok, err = service.ValidateCredentials("test-type", map[string]any{})
 	if err == nil || ok {
 		t.Fatalf("invalid creds accepted: ok=%v err=%v", ok, err)
 	}
 }
 
 func TestSandboxDeniesUnsafeGlobals(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	bad := `--- @plugin P
 --- @author a
 --- @version 1.0.0
@@ -268,7 +268,7 @@ func TestSandboxDeniesUnsafeGlobals(t *testing.T) {
 local x = os.execute("echo hi")
 llm_router.register("bad", { complete = function() end })
 `
-	if _, err := svc.Install([]byte(bad), PluginOrigin{Manual: true}); err == nil {
+	if _, err := service.Install([]byte(bad), PluginOrigin{Manual: true}); err == nil {
 		t.Fatal("expected install failure for os.execute access")
 	} else if !strings.Contains(err.Error(), "non-function") {
 		t.Fatalf("unexpected error: %v", err)
@@ -276,7 +276,7 @@ llm_router.register("bad", { complete = function() end })
 }
 
 func TestErrorContract(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
@@ -289,10 +289,10 @@ llm_router.register("err-type", {
   end,
 })
 `
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Complete(context.Background(), testMeta("err-type",
+	_, err := service.Complete(context.Background(), testMetadata("err-type",
 		&models.Credential{ID: "c1"}, "x/y", nil), &models.ChatCompletionRequest{Model: "x/y"})
 	perr, ok := err.(*models.ProviderError)
 	if !ok {
@@ -304,7 +304,7 @@ llm_router.register("err-type", {
 }
 
 func TestErrorContractDefaults(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
@@ -317,10 +317,10 @@ llm_router.register("scope-type", {
   end,
 })
 `
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Complete(context.Background(), testMeta("scope-type",
+	_, err := service.Complete(context.Background(), testMetadata("scope-type",
 		&models.Credential{ID: "c1"}, "x/y", nil), &models.ChatCompletionRequest{Model: "x/y"})
 	perr, ok := err.(*models.ProviderError)
 	if !ok {
@@ -332,7 +332,7 @@ llm_router.register("scope-type", {
 }
 
 func TestErrorContractHeaders(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
@@ -346,10 +346,10 @@ llm_router.register("hdr-type", {
   end,
 })
 `
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Complete(context.Background(), testMeta("hdr-type",
+	_, err := service.Complete(context.Background(), testMetadata("hdr-type",
 		&models.Credential{ID: "c1"}, "x/y", nil), &models.ChatCompletionRequest{Model: "x/y"})
 	perr, ok := err.(*models.ProviderError)
 	if !ok {
@@ -364,7 +364,7 @@ llm_router.register("hdr-type", {
 }
 
 func TestErrorContractMissingMessageIsInternal(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
@@ -377,10 +377,10 @@ llm_router.register("badscope-type", {
   end,
 })
 `
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Complete(context.Background(), testMeta("badscope-type",
+	_, err := service.Complete(context.Background(), testMetadata("badscope-type",
 		&models.Credential{ID: "c1"}, "x/y", nil), &models.ChatCompletionRequest{Model: "x/y"})
 	var ierr *models.PluginInternalError
 	if !errors.As(err, &ierr) {
@@ -389,7 +389,7 @@ llm_router.register("badscope-type", {
 }
 
 func TestErrorContractPaymentRequired(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
@@ -402,10 +402,10 @@ llm_router.register("pay-type", {
   end,
 })
 `
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Complete(context.Background(), testMeta("pay-type",
+	_, err := service.Complete(context.Background(), testMetadata("pay-type",
 		&models.Credential{ID: "c1"}, "x/y", nil), &models.ChatCompletionRequest{Model: "x/y"})
 	perr, ok := err.(*models.ProviderError)
 	if !ok {
@@ -417,7 +417,7 @@ llm_router.register("pay-type", {
 }
 
 func TestRuntimeCrashIsInternal(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	src := `--- @plugin P
 --- @author a
 --- @version 1.0.0
@@ -431,10 +431,10 @@ llm_router.register("crash-type", {
   end,
 })
 `
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Complete(context.Background(), testMeta("crash-type",
+	_, err := service.Complete(context.Background(), testMetadata("crash-type",
 		&models.Credential{ID: "c1"}, "x/y", nil), &models.ChatCompletionRequest{Model: "x/y"})
 	perr, ok := err.(*models.PluginInternalError)
 	if !ok {
@@ -443,25 +443,25 @@ llm_router.register("crash-type", {
 	if perr.Cause == "" {
 		t.Fatal("plugin crash must carry a cause")
 	}
-	if len(svc.Crashes("manual/a/P")) == 0 {
+	if len(service.Crashes("manual/a/P")) == 0 {
 		t.Fatal("crash must be recorded")
 	}
 }
 
 func TestRollback(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install v1: %v", err)
 	}
 	v2 := strings.Replace(testPluginSource, "@version 1.0.0", "@version 2.0.0", 1)
-	rec2, err := svc.Install([]byte(v2), PluginOrigin{Manual: true})
+	rec2, err := service.Install([]byte(v2), PluginOrigin{Manual: true})
 	if err != nil {
 		t.Fatalf("install v2: %v", err)
 	}
 	if rec2.Version != "2.0.0" || len(rec2.History) != 1 {
 		t.Fatalf("unexpected v2 record: %+v", rec2)
 	}
-	rolled, err := svc.Rollback(rec2.ID)
+	rolled, err := service.Rollback(rec2.ID)
 	if err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
@@ -471,11 +471,11 @@ func TestRollback(t *testing.T) {
 }
 
 func TestLookupResolvesInstalled(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	if _, err := svc.Lookup("test-type"); err != nil {
+	if _, err := service.Lookup("test-type"); err != nil {
 		t.Fatalf("installed plugin must resolve: %v", err)
 	}
 }

@@ -32,8 +32,8 @@
   onMount((): void => {
     if (editingProvider) {
       name = editingProvider.name ?? ''
-      const cfg = (editingProvider.config ?? {}) as Record<string, unknown>
-      const fromConfig = typeof cfg.base_url === 'string' ? cfg.base_url : ''
+      const providerConfig = (editingProvider.config ?? {}) as Record<string, unknown>
+      const fromConfig = typeof providerConfig.base_url === 'string' ? providerConfig.base_url : ''
       baseURL = fromConfig || editingProvider.base_url || ''
       iconURL = editingProvider.icon_url ?? ''
     }
@@ -61,10 +61,10 @@
     try {
       const trimmedBase = baseURL.trim()
       if (editingProvider) {
-        const cfg = { ...((editingProvider.config ?? {}) as Record<string, unknown>), base_url: trimmedBase }
+        const updatedConfig = { ...((editingProvider.config ?? {}) as Record<string, unknown>), base_url: trimmedBase }
         await api.providers.updateInstance(editingProvider.id, {
           name: name.trim(),
-          config: cfg,
+          config: updatedConfig,
           icon_url: iconURL.trim()
         })
       } else {

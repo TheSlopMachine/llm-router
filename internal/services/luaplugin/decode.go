@@ -59,39 +59,39 @@ type speechPayload struct {
 // recorded as a plugin crash.
 func decodeHandlerResult[T any](
 	s *Service,
-	rec *PluginRecord,
+	record *PluginRecord,
 	typeKey, handler string,
-	result, rawErr lua.LValue,
+	result, returnError lua.LValue,
 	emptyKeys []string,
 	validate func(*T) error,
 ) (*T, error) {
-	if cerr := s.contractErrOrInternal(rec, typeKey, rawErr); cerr != nil {
+	if cerr := s.contractErrOrInternal(record, typeKey, returnError); cerr != nil {
 		return nil, cerr
 	}
 	if result == lua.LNil {
-		return nil, &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: handler + " returned nil result"}
+		return nil, &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: handler + " returned nil result"}
 	}
 	raw, merr := marshalLua(result)
 	if merr != nil {
-		return nil, &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "encode response: " + merr.Error()}
+		return nil, &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "encode response: " + merr.Error()}
 	}
 	out := new(T)
 	if uerr := unmarshalTo(normalizeEmptyObjects(raw, emptyKeys...), out); uerr != nil {
-		return nil, s.schemaViolation(rec, typeKey, handler, uerr.Error())
+		return nil, s.schemaViolation(record, typeKey, handler, uerr.Error())
 	}
 	if validate != nil {
 		if verr := validate(out); verr != nil {
-			return nil, s.schemaViolation(rec, typeKey, handler, verr.Error())
+			return nil, s.schemaViolation(record, typeKey, handler, verr.Error())
 		}
 	}
 	return out, nil
 }
 
 // schemaViolation records a crash and wraps the cause as a plugin error.
-func (s *Service) schemaViolation(rec *PluginRecord, typeKey, handler, cause string) error {
+func (s *Service) schemaViolation(record *PluginRecord, typeKey, handler, cause string) error {
 	msg := handler + " schema violation: " + cause
-	s.recordCrash(rec.ID, typeKey, msg)
-	return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: msg}
+	s.recordCrash(record.ID, typeKey, msg)
+	return &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: msg}
 }
 
 // callAndDecode runs one request handler (Lookup, routed call, decode) and
@@ -100,32 +100,32 @@ func (s *Service) schemaViolation(rec *PluginRecord, typeKey, handler, cause str
 func callAndDecode[T any](
 	s *Service,
 	goCtx context.Context,
-	meta HandlerMeta,
+	handlerMetadata HandlerMeta,
 	handler string,
 	pushArgs func(*lua.LState),
 	emptyKeys []string,
 	validate func(*T) error,
 ) (*T, string, error) {
-	typeKey := meta.TypeKey
-	rec, err := s.Lookup(typeKey)
+	typeKey := handlerMetadata.TypeKey
+	record, err := s.Lookup(typeKey)
 	if err != nil {
 		return nil, "", err
 	}
 	var out *T
-	found, proxy, callErr := s.handlerCallRouted(goCtx, rec, meta, handler, pushArgs, 2, func(L *lua.LState) error {
-		result, rawErr := splitReturn(L)
-		decoded, derr := decodeHandlerResult(s, rec, typeKey, handler, result, rawErr, emptyKeys, validate)
+	found, proxy, callError := s.handlerCallRouted(goCtx, record, handlerMetadata, handler, pushArgs, 2, func(L *lua.LState) error {
+		result, returnError := splitReturn(L)
+		decoded, derr := decodeHandlerResult(s, record, typeKey, handler, result, returnError, emptyKeys, validate)
 		if derr != nil {
 			return derr
 		}
 		out = decoded
 		return nil
 	})
-	if callErr != nil {
-		return nil, proxy, callErr
+	if callError != nil {
+		return nil, proxy, callError
 	}
 	if !found {
-		return nil, proxy, &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: handler}
+		return nil, proxy, &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: handler}
 	}
 	return out, proxy, nil
 }

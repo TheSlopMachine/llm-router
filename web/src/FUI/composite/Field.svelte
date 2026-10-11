@@ -5,12 +5,12 @@
     label: string; hint?: string; error?: string; required?: boolean;
     orientation?: 'vertical' | 'horizontal'; children: Snippet;
   }>();
-  const msg = $derived(error || hint);
+  const message = $derived(error || hint);
 </script>
 <div class="field" class:hor={orientation === 'horizontal'}>
   <span class="lab">{label}{#if required}<span class="req" aria-hidden="true">*</span>{/if}</span>
   <div class="ctl">{@render children()}</div>
-  {#if msg}<span class="msg" class:err={!!error} role={error ? 'alert' : undefined}>{msg}</span>{/if}
+  {#if message}<span class="message" class:err={!!error} role={error ? 'alert' : undefined}>{message}</span>{/if}
 </div>
 <style>
   :where(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
@@ -20,6 +20,6 @@
   .lab { font-family: var(--fui-font-normal); font-size: var(--fui-text-sm); font-weight: var(--fui-weight-medium); color: var(--fui-color-text); }
   .req { color: var(--fui-color-error-text); }
   .ctl { min-width: 0; }
-  .msg { font-size: var(--fui-text-sm); color: var(--fui-color-text-soft); line-height: var(--fui-leading-base); }
-  .msg.err { color: var(--fui-color-error-text); }
+  .message { font-size: var(--fui-text-sm); color: var(--fui-color-text-soft); line-height: var(--fui-leading-base); }
+  .message.err { color: var(--fui-color-error-text); }
 </style>

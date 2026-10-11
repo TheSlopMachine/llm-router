@@ -123,10 +123,10 @@ type Status struct {
 type Service struct {
 	pool     *proxypoollib.ProxyPool
 	cache    *dbCache
-	src      *pluginSource
-	log      *slog.Logger
+	source   *pluginSource
+	logger   *slog.Logger
 	reporter *slogReporter
-	db       *db.DB
+	database *db.DB
 	pools    *repository.Repository[models.CustomProxyPool]
 
 	mu      sync.Mutex
@@ -147,19 +147,19 @@ func New(database *db.DB) (*Service, error) {
 		return nil, err
 	}
 	s := &Service{
-		cache:   cache,
-		db:      database,
-		pools:   repository.New[models.CustomProxyPool](database, db.BucketCustomPools, "custom proxy pool"),
-		log:     slog.Default(),
-		sources: map[string]SourceInfo{},
+		cache:    cache,
+		database: database,
+		pools:    repository.New[models.CustomProxyPool](database, db.BucketCustomPools, "custom proxy pool"),
+		logger:   slog.Default(),
+		sources:  map[string]SourceInfo{},
 	}
 	s.pool = proxypoollib.NewPool()
 	s.pool.SetLimits(10, 50, 500)
-	s.reporter = newSlogReporter(s.log)
+	s.reporter = newSlogReporter(s.logger)
 	s.pool.RegisterReporter(s.reporter)
 	s.pool.RegisterCacheSource(cache)
-	s.src = &pluginSource{service: s}
-	s.pool.RegisterProxySource(s.src)
+	s.source = &pluginSource{service: s}
+	s.pool.RegisterProxySource(s.source)
 	return s, nil
 }
 
@@ -169,7 +169,7 @@ func (s *Service) SetLogger(logger *slog.Logger) {
 		return
 	}
 	s.mu.Lock()
-	s.log = logger
+	s.logger = logger
 	reporter := s.reporter
 	s.mu.Unlock()
 	if reporter != nil {
@@ -241,7 +241,7 @@ func (s *Service) flushCache() {
 		s.cache.remember(err)
 	}
 	s.mu.Lock()
-	logger := s.log
+	logger := s.logger
 	s.mu.Unlock()
 	if err := s.cache.takeError(); err != nil && logger != nil {
 		logger.Error("proxy cache persistence failed", "error", err)
@@ -267,17 +267,17 @@ func (s *Service) Query(pool, country string, limit int) ([]models.ProxyView, er
 
 func (s *Service) queryAuto(country string, limit int) []models.ProxyView {
 	infos := s.healthyProxies()
-	out := make([]models.ProxyView, 0, len(infos))
-	for _, p := range infos {
-		if country != "" && !strings.EqualFold(p.Location, country) {
+	output := make([]models.ProxyView, 0, len(infos))
+	for _, proxyInfo := range infos {
+		if country != "" && !strings.EqualFold(proxyInfo.Location, country) {
 			continue
 		}
-		out = append(out, models.ProxyView{ID: proxyID(p.URL), URL: p.URL, Country: p.Location, Pool: models.DefaultProxyPool})
-		if limit > 0 && len(out) >= limit {
+		output = append(output, models.ProxyView{ID: proxyID(proxyInfo.URL), URL: proxyInfo.URL, Country: proxyInfo.Location, Pool: models.DefaultProxyPool})
+		if limit > 0 && len(output) >= limit {
 			break
 		}
 	}
-	return out
+	return output
 }
 
 func (s *Service) queryCustom(pool, country string, limit int) ([]models.ProxyView, error) {
@@ -285,50 +285,50 @@ func (s *Service) queryCustom(pool, country string, limit int) ([]models.ProxyVi
 	if err != nil {
 		return nil, err
 	}
-	out := make([]models.ProxyView, 0, len(custom.Entries))
-	for _, e := range custom.Entries {
-		if e.URL == "" {
+	output := make([]models.ProxyView, 0, len(custom.Entries))
+	for _, entry := range custom.Entries {
+		if entry.URL == "" {
 			continue
 		}
-		if country != "" && !strings.EqualFold(e.Country, country) {
+		if country != "" && !strings.EqualFold(entry.Country, country) {
 			continue
 		}
-		out = append(out, models.ProxyView{ID: proxyID(e.URL), URL: e.URL, Country: e.Country, Pool: custom.ID})
-		if limit > 0 && len(out) >= limit {
+		output = append(output, models.ProxyView{ID: proxyID(entry.URL), URL: entry.URL, Country: entry.Country, Pool: custom.ID})
+		if limit > 0 && len(output) >= limit {
 			break
 		}
 	}
-	return out, nil
+	return output, nil
 }
 
 // Require serves proxies.require. The free pool waits for a matching live
-// proxy up to req.Timeout; an empty pool means direct; a custom pool answers
+// proxy up to request.Timeout; an empty pool means direct; a custom pool answers
 // from its own entries without waiting.
-func (s *Service) Require(ctx context.Context, req models.ProxyRequire) (models.ProxyRequireResult, error) {
+func (s *Service) Require(ctx context.Context, request models.ProxyRequire) (models.ProxyRequireResult, error) {
 	if err := s.cache.peekError(); err != nil {
 		return models.ProxyRequireResult{}, err
 	}
-	switch req.Pool {
+	switch request.Pool {
 	case "":
 		return models.ProxyRequireResult{Direct: true}, nil
 	case models.DefaultProxyPool:
-		res, err := s.pool.Require(ctx, proxypoollib.RequireOptions{
-			Countries: req.Countries,
-			Exclude:   req.Exclude,
-			Limit:     req.Limit,
-			Want:      req.Want,
-			Timeout:   req.Timeout,
+		result, err := s.pool.Require(ctx, proxypoollib.RequireOptions{
+			Countries: request.Countries,
+			Exclude:   request.Exclude,
+			Limit:     request.Limit,
+			Want:      request.Want,
+			Timeout:   request.Timeout,
 		})
 		if err != nil {
 			return models.ProxyRequireResult{}, err
 		}
-		views := make([]models.ProxyView, 0, len(res.Proxies))
-		for _, p := range res.Proxies {
-			views = append(views, models.ProxyView{ID: proxyID(p.URL), URL: p.URL, Country: p.Location, Pool: models.DefaultProxyPool})
+		views := make([]models.ProxyView, 0, len(result.Proxies))
+		for _, proxyInfo := range result.Proxies {
+			views = append(views, models.ProxyView{ID: proxyID(proxyInfo.URL), URL: proxyInfo.URL, Country: proxyInfo.Location, Pool: models.DefaultProxyPool})
 		}
-		return models.ProxyRequireResult{Proxies: views, TimedOut: res.TimedOut}, nil
+		return models.ProxyRequireResult{Proxies: views, TimedOut: result.TimedOut}, nil
 	default:
-		views, err := s.requireCustom(req)
+		views, err := s.requireCustom(request)
 		if err != nil {
 			return models.ProxyRequireResult{}, err
 		}
@@ -337,38 +337,38 @@ func (s *Service) Require(ctx context.Context, req models.ProxyRequire) (models.
 }
 
 // requireCustom filters one custom pool by the OR country list and exclusions.
-func (s *Service) requireCustom(req models.ProxyRequire) ([]models.ProxyView, error) {
-	custom, err := s.findCustomPool(req.Pool)
+func (s *Service) requireCustom(request models.ProxyRequire) ([]models.ProxyView, error) {
+	custom, err := s.findCustomPool(request.Pool)
 	if err != nil {
 		return nil, err
 	}
-	excluded := make(map[string]struct{}, len(req.Exclude))
-	for _, u := range req.Exclude {
-		excluded[u] = struct{}{}
+	excluded := make(map[string]struct{}, len(request.Exclude))
+	for _, excludedURL := range request.Exclude {
+		excluded[excludedURL] = struct{}{}
 	}
-	limit := max(req.Limit, 1)
-	out := make([]models.ProxyView, 0, min(limit, len(custom.Entries)))
-	for _, e := range custom.Entries {
-		if e.URL == "" {
+	limit := max(request.Limit, 1)
+	output := make([]models.ProxyView, 0, min(limit, len(custom.Entries)))
+	for _, entry := range custom.Entries {
+		if entry.URL == "" {
 			continue
 		}
-		if _, skip := excluded[e.URL]; skip {
+		if _, skip := excluded[entry.URL]; skip {
 			continue
 		}
-		if len(req.Countries) > 0 && !countryInList(req.Countries, e.Country) {
+		if len(request.Countries) > 0 && !countryInList(request.Countries, entry.Country) {
 			continue
 		}
-		out = append(out, models.ProxyView{ID: proxyID(e.URL), URL: e.URL, Country: e.Country, Pool: custom.ID})
-		if len(out) >= limit {
+		output = append(output, models.ProxyView{ID: proxyID(entry.URL), URL: entry.URL, Country: entry.Country, Pool: custom.ID})
+		if len(output) >= limit {
 			break
 		}
 	}
-	return out, nil
+	return output, nil
 }
 
 func countryInList(list []string, country string) bool {
-	for _, c := range list {
-		if strings.EqualFold(strings.TrimSpace(c), country) {
+	for _, candidate := range list {
+		if strings.EqualFold(strings.TrimSpace(candidate), country) {
 			return true
 		}
 	}
@@ -381,11 +381,11 @@ func (s *Service) List() ([]*Proxy, error) {
 		return nil, err
 	}
 	infos := s.healthyProxies()
-	out := make([]*Proxy, 0, len(infos))
-	for _, p := range infos {
-		out = append(out, &Proxy{ID: proxyID(p.URL), URL: p.URL, Location: p.Location, Latency: p.Latency, Score: p.Score, LastChecked: p.LastChecked})
+	output := make([]*Proxy, 0, len(infos))
+	for _, proxyInfo := range infos {
+		output = append(output, &Proxy{ID: proxyID(proxyInfo.URL), URL: proxyInfo.URL, Location: proxyInfo.Location, Latency: proxyInfo.Latency, Score: proxyInfo.Score, LastChecked: proxyInfo.LastChecked})
 	}
-	return out, nil
+	return output, nil
 }
 
 func (s *Service) healthyProxies() []proxypoollib.ProxyInfo {
@@ -445,11 +445,11 @@ func (s *Service) markDeadPersist(url, reason string) bool {
 // RecheckBanned queues manual rechecks for banned proxies matching the filters.
 func (s *Service) RecheckBanned(reason, source string) (int, error) {
 	if reason != "" {
-		fr := proxypoollib.FailReason(reason)
-		if !fr.Valid() {
+		failReason := proxypoollib.FailReason(reason)
+		if !failReason.Valid() {
 			return 0, ErrInvalidBanReason
 		}
-		return s.pool.RecheckBanned(proxypoollib.BanFilter{Reason: fr, Source: source}), nil
+		return s.pool.RecheckBanned(proxypoollib.BanFilter{Reason: failReason, Source: source}), nil
 	}
 	return s.pool.RecheckBanned(proxypoollib.BanFilter{Source: source}), nil
 }
@@ -492,14 +492,14 @@ func (s *Service) Status() (Status, error) {
 	for reason, count := range snapshot.BanReasons {
 		status.BanReasons[string(reason)] = count
 	}
-	for _, d := range snapshot.Demands {
-		countries := d.Countries
+	for _, demand := range snapshot.Demands {
+		countries := demand.Countries
 		if countries == nil {
 			countries = []string{}
 		}
 		status.Demands = append(status.Demands, DemandStat{
-			Countries: countries, State: d.State, Waiters: d.Waiters, Alive: d.Alive, Target: d.Target, Served: d.Served,
-			CreatedAt: d.CreatedAt, ExpiresAt: d.ExpiresAt, ReplenishUntil: d.ReplenishUntil, LastSatisfiedAt: d.LastSatisfiedAt,
+			Countries: countries, State: demand.State, Waiters: demand.Waiters, Alive: demand.Alive, Target: demand.Target, Served: demand.Served,
+			CreatedAt: demand.CreatedAt, ExpiresAt: demand.ExpiresAt, ReplenishUntil: demand.ReplenishUntil, LastSatisfiedAt: demand.LastSatisfiedAt,
 		})
 	}
 	return status, nil
@@ -509,12 +509,12 @@ func (s *Service) Status() (Status, error) {
 func (s *Service) SourceInfos() []SourceInfo {
 	s.sourceMu.Lock()
 	defer s.sourceMu.Unlock()
-	out := make([]SourceInfo, 0, len(s.sources))
-	for _, info := range s.sources {
-		out = append(out, info)
+	output := make([]SourceInfo, 0, len(s.sources))
+	for _, sourceInfo := range s.sources {
+		output = append(output, sourceInfo)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
-	return out
+	sort.Slice(output, func(i, j int) bool { return output[i].Key < output[j].Key })
+	return output
 }
 
 func stateView(state proxypoollib.ProxyState) *Proxy {
@@ -527,8 +527,8 @@ func proxyID(proxyURL string) string {
 }
 
 func sourceDisplayName(key string) string {
-	if idx := strings.LastIndex(key, "/"); idx >= 0 {
-		return key[idx+1:]
+	if index := strings.LastIndex(key, "/"); index >= 0 {
+		return key[index+1:]
 	}
 	return key
 }
@@ -536,14 +536,14 @@ func sourceDisplayName(key string) string {
 // candidateURL validates one Lua feed candidate: http/https/socks4/socks5
 // endpoints with optional userinfo credentials. Anything else counts as
 // unsupported.
-func candidateURL(c Candidate) (string, bool) {
-	u, err := url.Parse(c.URL)
-	if err != nil || u.Hostname() == "" {
+func candidateURL(candidate Candidate) (string, bool) {
+	parsedURL, err := url.Parse(candidate.URL)
+	if err != nil || parsedURL.Hostname() == "" {
 		return "", false
 	}
-	switch strings.ToLower(u.Scheme) {
+	switch strings.ToLower(parsedURL.Scheme) {
 	case "http", "https", "socks4", "socks4a", "socks5":
-		return u.String(), true
+		return parsedURL.String(), true
 	default:
 		return "", false
 	}

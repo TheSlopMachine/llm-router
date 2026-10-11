@@ -23,14 +23,14 @@ func TestRegisterBuildsMux(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new proxy service: %v", err)
 	}
-	h.proxySvc = service
+	h.proxyService = service
 	h.noAuth = true
 	mux = http.NewServeMux()
 	h.Register(mux, database)
-	req := httptest.NewRequest(http.MethodPost, "/api/llm-router/dashboard/proxy/recheck-banned", strings.NewReader(`{"reason":"bad_status"}`))
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("recheck route: got %d (%s)", rec.Code, rec.Body.String())
+	request := httptest.NewRequest(http.MethodPost, "/api/llm-router/dashboard/proxy/recheck-banned", strings.NewReader(`{"reason":"bad_status"}`))
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("recheck route: got %d (%s)", recorder.Code, recorder.Body.String())
 	}
 }

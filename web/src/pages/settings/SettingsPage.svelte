@@ -43,8 +43,8 @@
   let isPasswordFormValid = $derived(!!currentPassword && !!newPassword && !passwordSaving)
 
   // Data Management
-  let stats = $state<SubsystemStats | null>(null)
-  let statsLoading = $state(false)
+  let subsystemStatistics = $state<SubsystemStats | null>(null)
+  let subsystemStatisticsLoading = $state(false)
   let importFileMap = $state<Record<string, File | null>>({})
 
   let allProviders = $state<Provider[]>([])
@@ -82,22 +82,22 @@
 
   async function loadConfig(): Promise<void> {
     try {
-      const cfg = await api.config.get()
-      isClusterNode = cfg.is_cluster_node
-      disableTelemetry = cfg.disable_telemetry
+      const routerConfig = await api.config.get()
+      isClusterNode = routerConfig.is_cluster_node
+      disableTelemetry = routerConfig.disable_telemetry
     } catch (e) {
       error = getErrorMessage(e)
     }
   }
 
   async function loadDataStats(): Promise<void> {
-    statsLoading = true
+    subsystemStatisticsLoading = true
     try {
-      stats = await api.data.stats()
+      subsystemStatistics = await api.data.stats()
     } catch (e) {
       toast.error(getErrorMessage(e))
     } finally {
-      statsLoading = false
+      subsystemStatisticsLoading = false
     }
   }
 
@@ -208,8 +208,8 @@
     if (doctorFixing) return
     doctorFixing = true
     try {
-      const res = await api.doctor.fix([])
-      toast.success(`${res.fixed} ${t('data.doctor.resolved')}`)
+      const fixResult = await api.doctor.fix([])
+      toast.success(`${fixResult.fixed} ${t('data.doctor.resolved')}`)
       await Promise.all([loadDataStats(), runDoctorInspect()])
     } catch (e) {
       toast.error(getErrorMessage(e))
@@ -388,15 +388,15 @@
 
   <!-- Data Management section -->
   <SectionCard title={t('data.title')} description={t('data.subtitle')}>
-    {#if statsLoading}
+    {#if subsystemStatisticsLoading}
       <EmptyState title={t('common.state.loading')} />
-    {:else if stats}
+    {:else if subsystemStatistics}
       <VStack gap={4} class="data-container">
         {#each [
-          { key: 'providers', label: t('data.providers_credentials'), count: stats.providers },
-          { key: 'virtual_models', label: t('data.virtual_models'), count: stats.virtual_models },
-          { key: 'plugins', label: t('data.plugins_repos'), count: stats.plugins },
-          { key: 'tokens', label: t('data.access_tokens'), count: stats.tokens }
+          { key: 'providers', label: t('data.providers_credentials'), count: subsystemStatistics.providers },
+          { key: 'virtual_models', label: t('data.virtual_models'), count: subsystemStatistics.virtual_models },
+          { key: 'plugins', label: t('data.plugins_repos'), count: subsystemStatistics.plugins },
+          { key: 'tokens', label: t('data.access_tokens'), count: subsystemStatistics.tokens }
         ] as sub}
           <VStack gap={2} class="subsystem-box">
             <HStack align="center" gap={3}>

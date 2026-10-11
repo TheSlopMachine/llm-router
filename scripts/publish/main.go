@@ -24,81 +24,81 @@ type triple struct {
 	major, minor, fix int
 }
 
-func parseTriple(s string) (triple, error) {
-	t := strings.TrimSpace(s)
-	t = strings.TrimPrefix(t, "v")
-	t = strings.TrimPrefix(t, "V")
-	parts := strings.Split(t, ".")
+func parseTriple(tag string) (triple, error) {
+	trimmed := strings.TrimSpace(tag)
+	trimmed = strings.TrimPrefix(trimmed, "v")
+	trimmed = strings.TrimPrefix(trimmed, "V")
+	parts := strings.Split(trimmed, ".")
 	if len(parts) < 2 || len(parts) > 3 {
-		return triple{}, fmt.Errorf("expected X.Y[.Z], got %q", s)
+		return triple{}, fmt.Errorf("expected X.Y[.Z], got %q", tag)
 	}
-	nums := make([]int, 3)
-	for i, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			return triple{}, fmt.Errorf("invalid empty component in %q", s)
+	numbers := make([]int, 3)
+	for i, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return triple{}, fmt.Errorf("invalid empty component in %q", tag)
 		}
-		n, err := strconv.Atoi(p)
-		if err != nil || n < 0 {
-			return triple{}, fmt.Errorf("invalid numeric component %q in %q", p, s)
+		number, err := strconv.Atoi(part)
+		if err != nil || number < 0 {
+			return triple{}, fmt.Errorf("invalid numeric component %q in %q", part, tag)
 		}
-		nums[i] = n
+		numbers[i] = number
 	}
-	return triple{major: nums[0], minor: nums[1], fix: nums[2]}, nil
+	return triple{major: numbers[0], minor: numbers[1], fix: numbers[2]}, nil
 }
 
-func (t triple) tag() string {
-	if t.fix == 0 {
-		return fmt.Sprintf("v%d.%d", t.major, t.minor)
+func (receiver triple) tag() string {
+	if receiver.fix == 0 {
+		return fmt.Sprintf("v%d.%d", receiver.major, receiver.minor)
 	}
-	return fmt.Sprintf("v%d.%d.%d", t.major, t.minor, t.fix)
+	return fmt.Sprintf("v%d.%d.%d", receiver.major, receiver.minor, receiver.fix)
 }
 
-func (t triple) String() string {
-	return strings.TrimPrefix(t.tag(), "v")
+func (receiver triple) String() string {
+	return strings.TrimPrefix(receiver.tag(), "v")
 }
 
-func (t triple) less(o triple) bool {
-	if t.major != o.major {
-		return t.major < o.major
+func (receiver triple) less(other triple) bool {
+	if receiver.major != other.major {
+		return receiver.major < other.major
 	}
-	if t.minor != o.minor {
-		return t.minor < o.minor
+	if receiver.minor != other.minor {
+		return receiver.minor < other.minor
 	}
-	return t.fix < o.fix
+	return receiver.fix < other.fix
 }
 
 func git(args ...string) string {
 	cmd := exec.Command("git", args...)
 	cmd.Stderr = os.Stderr
-	out, err := cmd.Output()
+	output, err := cmd.Output()
 	if err != nil {
 		shared.Failf("git %s: %v", strings.Join(args, " "), err)
 	}
-	return strings.TrimSpace(string(out))
+	return strings.TrimSpace(string(output))
 }
 
 func gitOK(args ...string) (string, bool) {
 	cmd := exec.Command("git", args...)
 	cmd.Stderr = nil
-	out, err := cmd.Output()
+	output, err := cmd.Output()
 	if err != nil {
 		return "", false
 	}
-	return strings.TrimSpace(string(out)), true
+	return strings.TrimSpace(string(output)), true
 }
 
 func main() {
-	typ := strings.ToLower(strings.TrimSpace(os.Getenv("TYPE")))
+	releaseType := strings.ToLower(strings.TrimSpace(os.Getenv("TYPE")))
 	forced := strings.TrimSpace(os.Getenv("VERSION"))
 	if forced == "dev" {
 		forced = ""
 	}
 	notes := os.Getenv("NOTES")
-	if typ != "" && forced != "" {
+	if releaseType != "" && forced != "" {
 		shared.Failf("TYPE and VERSION are mutually exclusive: set one")
 	}
-	if typ == "" && forced == "" {
+	if releaseType == "" && forced == "" {
 		shared.Failf("set TYPE=fix|minor|major or VERSION=X.Y[.Z]")
 	}
 
@@ -106,8 +106,8 @@ func main() {
 	if _, ok := gitOK("rev-parse", "--git-dir"); !ok {
 		shared.Failf("not a git checkout: publish requires git tags")
 	}
-	if status := git("status", "--porcelain"); status != "" {
-		shared.Failf("tree is dirty: commit or stash first:\n%s", status)
+	if treeStatus := git("status", "--porcelain"); treeStatus != "" {
+		shared.Failf("tree is dirty: commit or stash first:\n%s", treeStatus)
 	}
 	branch := git("rev-parse", "--abbrev-ref", "HEAD")
 	if branch != "main" {
@@ -158,11 +158,11 @@ func main() {
 		if latestRaw != "" && target.less(latest) {
 			fmt.Printf("[WARN] target %s is older than latest %s\n", target.tag(), latestRaw)
 		}
-	case typ == "fix":
+	case releaseType == "fix":
 		target = triple{major: latest.major, minor: latest.minor, fix: latest.fix + 1}
-	case typ == "minor":
+	case releaseType == "minor":
 		target = triple{major: latest.major, minor: latest.minor + 1}
-	case typ == "major":
+	case releaseType == "major":
 		target = triple{major: latest.major + 1}
 	default:
 		shared.Failf("invalid TYPE %q: want fix|minor|major", os.Getenv("TYPE"))
@@ -174,15 +174,15 @@ func main() {
 	}
 
 	tagName := target.tag()
-	args := []string{"tag", "-a", tagName, "-m", "Release " + tagName}
+	arguments := []string{"tag", "-a", tagName, "-m", "Release " + tagName}
 	if strings.TrimSpace(notes) != "" {
-		args = append(args, "-m", notes)
+		arguments = append(arguments, "-m", notes)
 	}
-	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
-		shared.Failf("git tag %s: %v\n%s", tagName, err, string(out))
+	if output, err := exec.Command("git", arguments...).CombinedOutput(); err != nil {
+		shared.Failf("git tag %s: %v\n%s", tagName, err, string(output))
 	}
-	if out, err := exec.Command("git", "push", "origin", tagName).CombinedOutput(); err != nil {
-		shared.Failf("git push origin %s: %v\n%s", tagName, err, string(out))
+	if output, err := exec.Command("git", "push", "origin", tagName).CombinedOutput(); err != nil {
+		shared.Failf("git push origin %s: %v\n%s", tagName, err, string(output))
 	}
 	fmt.Printf("\n[OK] Published %s (from %s, commit %s)\n", tagName, latestRaw, head)
 	fmt.Printf("[OK] CI builds on tag push\n")

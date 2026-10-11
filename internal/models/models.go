@@ -87,14 +87,14 @@ func (m ModelId) String() string { return string(m) }
 // non-empty: "/model" and "provider/" are rejected instead of routing with
 // an empty half.
 func (m ModelId) Parse() (providerID, model string, err error) {
-	s := string(m)
-	idx := strings.Index(s, "/")
+	idString := string(m)
+	idx := strings.Index(idString, "/")
 	if idx == -1 {
-		return "", "", fmt.Errorf("invalid ModelId %q: missing '/' separator (expected provider/model-name)", s)
+		return "", "", fmt.Errorf("invalid ModelId %q: missing '/' separator (expected provider/model-name)", idString)
 	}
-	providerID, model = s[:idx], s[idx+1:]
+	providerID, model = idString[:idx], idString[idx+1:]
 	if providerID == "" || model == "" {
-		return "", "", fmt.Errorf("invalid ModelId %q: provider and model must be non-empty", s)
+		return "", "", fmt.Errorf("invalid ModelId %q: provider and model must be non-empty", idString)
 	}
 	return providerID, model, nil
 }
@@ -199,18 +199,18 @@ func (p *ChatMessageContentPart) UnmarshalJSON(data []byte) error {
 	p.Name = raw.Name
 	p.Input = raw.Input
 	if trimmed := strings.TrimSpace(string(raw.ImageURL)); trimmed != "" && trimmed != "null" {
-		var iu ChatMessageImageURL
-		if err := json.Unmarshal(raw.ImageURL, &iu); err != nil {
+		var imageURL ChatMessageImageURL
+		if err := json.Unmarshal(raw.ImageURL, &imageURL); err != nil {
 			return err
 		}
-		p.ImageURL = &iu
+		p.ImageURL = &imageURL
 	}
 	if trimmed := strings.TrimSpace(string(raw.InputAudio)); trimmed != "" && trimmed != "null" {
-		var ia ChatMessageInputAudio
-		if err := json.Unmarshal(raw.InputAudio, &ia); err != nil {
+		var inputAudio ChatMessageInputAudio
+		if err := json.Unmarshal(raw.InputAudio, &inputAudio); err != nil {
 			return err
 		}
-		p.InputAudio = &ia
+		p.InputAudio = &inputAudio
 	}
 	rawContent := strings.TrimSpace(string(raw.Content))
 	switch {
@@ -789,23 +789,23 @@ func srtTimestamp(sec float64, sep byte) string {
 
 // SRT renders segments as a SubRip subtitle document.
 func (r *TranscriptionResponse) SRT() string {
-	var b strings.Builder
+	var builder strings.Builder
 	for i, seg := range r.Segments {
-		fmt.Fprintf(&b, "%d\n%s --> %s\n%s\n\n",
+		fmt.Fprintf(&builder, "%d\n%s --> %s\n%s\n\n",
 			i+1, srtTimestamp(seg.Start, ','), srtTimestamp(seg.End, ','), strings.TrimSpace(seg.Text))
 	}
-	return b.String()
+	return builder.String()
 }
 
 // VTT renders segments as a WebVTT subtitle document.
 func (r *TranscriptionResponse) VTT() string {
-	var b strings.Builder
-	b.WriteString("WEBVTT\n\n")
+	var builder strings.Builder
+	builder.WriteString("WEBVTT\n\n")
 	for _, seg := range r.Segments {
-		fmt.Fprintf(&b, "%s --> %s\n%s\n\n",
+		fmt.Fprintf(&builder, "%s --> %s\n%s\n\n",
 			srtTimestamp(seg.Start, '.'), srtTimestamp(seg.End, '.'), strings.TrimSpace(seg.Text))
 	}
-	return b.String()
+	return builder.String()
 }
 
 // ─────────────────────────────────────────────
@@ -1767,15 +1767,15 @@ func CredentialAutomationOn(providerConfig map[string]any) bool {
 // provider config map. Absent or non-map proxy sections mean direct; an
 // explicitly unknown shape is an error, never a silent fallback.
 func ParseProxyPoolRef(providerConfig map[string]any) (ProxyPoolRef, error) {
-	cfg := ProxyPoolRef{}
+	poolReference := ProxyPoolRef{}
 	raw, ok := providerConfig["proxy"].(map[string]any)
 	if !ok {
-		return cfg, nil
+		return poolReference, nil
 	}
 	if p, ok := raw["pool"].(string); ok {
-		cfg.Pool = p
+		poolReference.Pool = p
 	}
-	return cfg, nil
+	return poolReference, nil
 }
 
 // ProxyEntry is one proxy endpoint in a custom pool.

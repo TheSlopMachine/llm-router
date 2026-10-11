@@ -22,14 +22,14 @@ func TestCandidateURL(t *testing.T) {
 		{name: "empty rejected", raw: "", valid: false},
 		{name: "missing host rejected", raw: "http://:8080", valid: false},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, ok := candidateURL(Candidate{URL: tc.raw})
-			if ok != tc.valid {
-				t.Fatalf("candidateURL(%q) valid=%v, want %v", tc.raw, ok, tc.valid)
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, ok := candidateURL(Candidate{URL: testCase.raw})
+			if ok != testCase.valid {
+				t.Fatalf("candidateURL(%q) valid=%v, want %v", testCase.raw, ok, testCase.valid)
 			}
-			if ok && got != tc.want {
-				t.Fatalf("candidateURL(%q) = %q, want %q", tc.raw, got, tc.want)
+			if ok && got != testCase.want {
+				t.Fatalf("candidateURL(%q) = %q, want %q", testCase.raw, got, testCase.want)
 			}
 		})
 	}

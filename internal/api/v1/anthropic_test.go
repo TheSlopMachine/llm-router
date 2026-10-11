@@ -20,11 +20,11 @@ func TestAnthropicToOpenAI_Basic(t *testing.T) {
 		"temperature": 0.5,
 		"stop_sequences": ["END"]
 	}`
-	var req anthropicRequest
-	if err := json.Unmarshal([]byte(raw), &req); err != nil {
+	var request anthropicRequest
+	if err := json.Unmarshal([]byte(raw), &request); err != nil {
 		t.Fatal(err)
 	}
-	chat, err := anthropicToOpenAI(&req)
+	chat, err := anthropicToOpenAI(&request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,11 +73,11 @@ func TestAnthropicToOpenAI_ToolRoundTrip(t *testing.T) {
 		"tools": [{"name":"get_weather","description":"Get weather","input_schema":{"type":"object","properties":{"city":{"type":"string"}}}}],
 		"tool_choice": {"type":"any"}
 	}`
-	var req anthropicRequest
-	if err := json.Unmarshal([]byte(raw), &req); err != nil {
+	var request anthropicRequest
+	if err := json.Unmarshal([]byte(raw), &request); err != nil {
 		t.Fatal(err)
 	}
-	chat, err := anthropicToOpenAI(&req)
+	chat, err := anthropicToOpenAI(&request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,11 +111,11 @@ func TestAnthropicToOpenAI_ToolRoundTrip(t *testing.T) {
 func TestAnthropicToOpenAI_ToolChoiceNamed(t *testing.T) {
 	raw := `{"model":"m","max_tokens":1,"messages":[{"role":"user","content":"x"}],
 		"tool_choice":{"type":"tool","name":"get_weather","disable_parallel_tool_use":true}}`
-	var req anthropicRequest
-	if err := json.Unmarshal([]byte(raw), &req); err != nil {
+	var request anthropicRequest
+	if err := json.Unmarshal([]byte(raw), &request); err != nil {
 		t.Fatal(err)
 	}
-	chat, err := anthropicToOpenAI(&req)
+	chat, err := anthropicToOpenAI(&request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,11 +137,11 @@ func TestAnthropicToOpenAI_ImageBase64(t *testing.T) {
 		{"type":"text","text":"what is this?"},
 		{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aVBORw=="}}
 	]}]}`
-	var req anthropicRequest
-	if err := json.Unmarshal([]byte(raw), &req); err != nil {
+	var request anthropicRequest
+	if err := json.Unmarshal([]byte(raw), &request); err != nil {
 		t.Fatal(err)
 	}
-	chat, err := anthropicToOpenAI(&req)
+	chat, err := anthropicToOpenAI(&request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,13 +161,13 @@ func TestAnthropicToOpenAI_Rejects(t *testing.T) {
 		{"document block", `{"model":"m","max_tokens":1,"messages":[{"role":"user","content":[{"type":"document"}]}]}`},
 		{"bad tool choice", `{"model":"m","max_tokens":1,"messages":[{"role":"user","content":"x"}],"tool_choice":{"type":"sometimes"}}`},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var req anthropicRequest
-			if err := json.Unmarshal([]byte(tc.raw), &req); err != nil {
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			var request anthropicRequest
+			if err := json.Unmarshal([]byte(testCase.raw), &request); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := anthropicToOpenAI(&req); err == nil {
+			if _, err := anthropicToOpenAI(&request); err == nil {
 				t.Fatal("expected rejection")
 			}
 		})
@@ -175,7 +175,7 @@ func TestAnthropicToOpenAI_Rejects(t *testing.T) {
 }
 
 func TestAnthropicFromOpenAI_TextAndTools(t *testing.T) {
-	resp := &models.ChatCompletionResponse{
+	response := &models.ChatCompletionResponse{
 		ID:    "chatcmpl-1",
 		Model: "google/gemini-2.5-flash",
 		Usage: models.ChatCompletionUsage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
@@ -197,29 +197,29 @@ func TestAnthropicFromOpenAI_TextAndTools(t *testing.T) {
 			},
 		}},
 	}
-	out := anthropicFromOpenAI(resp, "google/gemini-2.5-flash")
-	if out.Type != "message" || out.Role != "assistant" || out.Model != "google/gemini-2.5-flash" {
-		t.Fatalf("envelope: %+v", out)
+	output := anthropicFromOpenAI(response, "google/gemini-2.5-flash")
+	if output.Type != "message" || output.Role != "assistant" || output.Model != "google/gemini-2.5-flash" {
+		t.Fatalf("envelope: %+v", output)
 	}
-	if out.StopReason != "tool_use" {
-		t.Fatalf("stop reason: %q", out.StopReason)
+	if output.StopReason != "tool_use" {
+		t.Fatalf("stop reason: %q", output.StopReason)
 	}
-	if out.Usage.InputTokens != 10 || out.Usage.OutputTokens != 5 {
-		t.Fatalf("usage: %+v", out.Usage)
+	if output.Usage.InputTokens != 10 || output.Usage.OutputTokens != 5 {
+		t.Fatalf("usage: %+v", output.Usage)
 	}
-	if len(out.Content) != 3 {
-		t.Fatalf("content blocks: %+v", out.Content)
+	if len(output.Content) != 3 {
+		t.Fatalf("content blocks: %+v", output.Content)
 	}
-	if out.Content[0]["type"] != "thinking" || out.Content[0]["thinking"] != "thinking out loud" {
-		t.Fatalf("thinking block: %+v", out.Content[0])
+	if output.Content[0]["type"] != "thinking" || output.Content[0]["thinking"] != "thinking out loud" {
+		t.Fatalf("thinking block: %+v", output.Content[0])
 	}
-	if out.Content[1]["type"] != "text" || out.Content[1]["text"] != "checking" {
-		t.Fatalf("text block: %+v", out.Content[1])
+	if output.Content[1]["type"] != "text" || output.Content[1]["text"] != "checking" {
+		t.Fatalf("text block: %+v", output.Content[1])
 	}
-	if out.Content[2]["type"] != "tool_use" || out.Content[2]["name"] != "get_weather" {
-		t.Fatalf("tool block: %+v", out.Content[2])
+	if output.Content[2]["type"] != "tool_use" || output.Content[2]["name"] != "get_weather" {
+		t.Fatalf("tool block: %+v", output.Content[2])
 	}
-	input, _ := out.Content[2]["input"].(map[string]any)
+	input, _ := output.Content[2]["input"].(map[string]any)
 	if input["city"] != "Paris" {
 		t.Fatalf("tool input: %+v", input)
 	}

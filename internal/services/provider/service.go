@@ -35,52 +35,52 @@ import (
 type GoAdapter interface {
 	TypeKey() string
 	ValidateCredentials(data map[string]any) error
-	Complete(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, providerConfig map[string]any) (*models.ChatCompletionResponse, error)
-	CompleteStream(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, w io.Writer, providerConfig map[string]any) error
-	NeedsRefresh(cred *models.Credential) bool
-	RefreshCredential(ctx context.Context, cred *models.Credential) (map[string]any, error)
-	GetModelInfos(ctx context.Context, cred *models.Credential, providerConfig map[string]any) ([]models.ModelInfo, error)
+	Complete(ctx context.Context, credentials []*models.Credential, request *models.ChatCompletionRequest, providerConfig map[string]any) (*models.ChatCompletionResponse, error)
+	CompleteStream(ctx context.Context, credentials []*models.Credential, request *models.ChatCompletionRequest, w io.Writer, providerConfig map[string]any) error
+	NeedsRefresh(credential *models.Credential) bool
+	RefreshCredential(ctx context.Context, credential *models.Credential) (map[string]any, error)
+	GetModelInfos(ctx context.Context, credential *models.Credential, providerConfig map[string]any) ([]models.ModelInfo, error)
 }
 
 // Transcriber is an optional GoAdapter capability serving
 // POST /v1/audio/transcriptions. Lua plugin types implement the equivalent
 // via the transcribe handler.
 type Transcriber interface {
-	Transcribe(ctx context.Context, creds []*models.Credential, req *models.TranscriptionRequest, providerConfig map[string]any) (*models.TranscriptionResponse, error)
+	Transcribe(ctx context.Context, credentials []*models.Credential, request *models.TranscriptionRequest, providerConfig map[string]any) (*models.TranscriptionResponse, error)
 }
 
 // Speaker is an optional GoAdapter capability serving
 // POST /v1/audio/speech. Lua plugin types implement the equivalent
 // via the speech handler.
 type Speaker interface {
-	Speech(ctx context.Context, creds []*models.Credential, req *models.SpeechRequest, providerConfig map[string]any) (*models.SpeechResponse, error)
+	Speech(ctx context.Context, credentials []*models.Credential, request *models.SpeechRequest, providerConfig map[string]any) (*models.SpeechResponse, error)
 }
 
 // ImageGenerator is an optional GoAdapter capability serving
 // POST /v1/images/generations. Lua plugin types implement the equivalent
 // via the generate_image handler.
 type ImageGenerator interface {
-	GenerateImage(ctx context.Context, creds []*models.Credential, req *models.ImageGenerationRequest, providerConfig map[string]any) (*models.ImageGenerationResponse, error)
+	GenerateImage(ctx context.Context, credentials []*models.Credential, request *models.ImageGenerationRequest, providerConfig map[string]any) (*models.ImageGenerationResponse, error)
 }
 
 // Embedder is an optional GoAdapter capability serving
 // POST /v1/embeddings. Lua plugin types implement the equivalent
 // via the embed handler.
 type Embedder interface {
-	Embed(ctx context.Context, creds []*models.Credential, req *models.EmbeddingsRequest, providerConfig map[string]any) (*models.EmbeddingsResponse, error)
+	Embed(ctx context.Context, credentials []*models.Credential, request *models.EmbeddingsRequest, providerConfig map[string]any) (*models.EmbeddingsResponse, error)
 }
 
 // Moderator is an optional GoAdapter capability serving
 // POST /v1/moderations. Lua plugin types implement the equivalent
 // via the moderate handler.
 type Moderator interface {
-	Moderate(ctx context.Context, creds []*models.Credential, req *models.ModerationRequest, providerConfig map[string]any) (*models.ModerationResponse, error)
+	Moderate(ctx context.Context, credentials []*models.Credential, request *models.ModerationRequest, providerConfig map[string]any) (*models.ModerationResponse, error)
 }
 
 // VideoSubmitter is the narrow video capability virtual fan-out needs:
 // submit one video job. Full backends implement VideoGenerator.
 type VideoSubmitter interface {
-	SubmitVideo(ctx context.Context, creds []*models.Credential, req *models.VideoGenerationRequest, providerConfig map[string]any) (*models.VideoGenerationResponse, error)
+	SubmitVideo(ctx context.Context, credentials []*models.Credential, request *models.VideoGenerationRequest, providerConfig map[string]any) (*models.VideoGenerationResponse, error)
 }
 
 // VideoGenerator is an optional GoAdapter capability serving
@@ -88,8 +88,8 @@ type VideoSubmitter interface {
 // generate_video, poll_video and video_content handlers.
 type VideoGenerator interface {
 	VideoSubmitter
-	PollVideo(ctx context.Context, creds []*models.Credential, model models.ModelId, upstreamJobID string, providerConfig map[string]any) (*models.VideoGenerationResponse, error)
-	VideoContent(ctx context.Context, creds []*models.Credential, model models.ModelId, upstreamJobID string, index int, providerConfig map[string]any) (*models.VideoContentResponse, error)
+	PollVideo(ctx context.Context, credentials []*models.Credential, model models.ModelId, upstreamJobID string, providerConfig map[string]any) (*models.VideoGenerationResponse, error)
+	VideoContent(ctx context.Context, credentials []*models.Credential, model models.ModelId, upstreamJobID string, index int, providerConfig map[string]any) (*models.VideoContentResponse, error)
 }
 
 // Built-in type keys served by Go code.
@@ -103,11 +103,11 @@ var ErrNotRefreshable = errors.New("credential type does not support refresh")
 
 // Service exposes unified ProviderInstance CRUD.
 type Service struct {
-	db        *db.DB
-	providers *repository.Repository[models.ProviderInstance]
-	luaSvc    *luaplugin.Service
+	database   *db.DB
+	providers  *repository.Repository[models.ProviderInstance]
+	luaService *luaplugin.Service
 
-	mu         sync.RWMutex
+	mutex      sync.RWMutex
 	goAdapters map[string]GoAdapter
 
 	onChanged func(providerID string)
@@ -118,7 +118,7 @@ type Service struct {
 // legacy migration runs in EnsureSeeded, where failures surface as errors.
 func NewService(database *db.DB) *Service {
 	s := &Service{
-		db:         database,
+		database:   database,
 		providers:  repository.New[models.ProviderInstance](database, db.BucketProviderInstances, "provider"),
 		goAdapters: map[string]GoAdapter{},
 	}
@@ -129,13 +129,13 @@ func NewService(database *db.DB) *Service {
 func (s *Service) SetLogger(l *slog.Logger) { s.logger = l }
 
 // SetLuaService wires the Lua plugin service for plugin-backed types.
-func (s *Service) SetLuaService(svc *luaplugin.Service) { s.luaSvc = svc }
+func (s *Service) SetLuaService(service *luaplugin.Service) { s.luaService = service }
 
 // LuaService returns the wired Lua plugin service, if any.
-func (s *Service) LuaService() *luaplugin.Service { return s.luaSvc }
+func (s *Service) LuaService() *luaplugin.Service { return s.luaService }
 
 // SetOnChanged registers a callback fired after provider create/update/delete.
-func (s *Service) SetOnChanged(fn func(providerID string)) { s.onChanged = fn }
+func (s *Service) SetOnChanged(function func(providerID string)) { s.onChanged = function }
 
 func (s *Service) notifyChanged(providerID string) {
 	if s.onChanged != nil {
@@ -166,11 +166,11 @@ func configBaseURL(config map[string]any) string {
 }
 
 // Create persists a new provider instance with a generated unique ID.
-func (s *Service) Create(opts CreateOptions) (*models.ProviderInstance, error) {
-	name := strings.TrimSpace(opts.Name)
-	typeKey := strings.TrimSpace(opts.TypeKey)
-	qualifier := strings.TrimSpace(opts.Qualifier)
-	iconURL := strings.TrimSpace(opts.IconURL)
+func (s *Service) Create(options CreateOptions) (*models.ProviderInstance, error) {
+	name := strings.TrimSpace(options.Name)
+	typeKey := strings.TrimSpace(options.TypeKey)
+	qualifier := strings.TrimSpace(options.Qualifier)
+	iconURL := strings.TrimSpace(options.IconURL)
 	if name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
@@ -183,7 +183,7 @@ func (s *Service) Create(opts CreateOptions) (*models.ProviderInstance, error) {
 	if strings.Contains(typeKey, "/") || strings.Contains(typeKey, ":") {
 		return nil, fmt.Errorf("type_key must not contain '/' or ':'")
 	}
-	config := opts.Config
+	config := options.Config
 	if config == nil {
 		config = map[string]any{}
 	}
@@ -263,8 +263,8 @@ func (s *Service) List() ([]*models.ProviderInstance, error) {
 
 // GetByType returns all providers served by a type key.
 func (s *Service) GetByType(typeKey string) ([]*models.ProviderInstance, error) {
-	return s.providers.ListFiltered(func(p *models.ProviderInstance) bool {
-		return p.TypeKey == typeKey
+	return s.providers.ListFiltered(func(provider *models.ProviderInstance) bool {
+		return provider.TypeKey == typeKey
 	})
 }
 
@@ -289,8 +289,8 @@ type UpdateOptions struct {
 }
 
 // Update replaces a provider's mutable fields.
-func (s *Service) Update(id string, opts UpdateOptions) (*models.ProviderInstance, error) {
-	name := strings.TrimSpace(opts.Name)
+func (s *Service) Update(id string, options UpdateOptions) (*models.ProviderInstance, error) {
+	name := strings.TrimSpace(options.Name)
 	if name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
@@ -298,34 +298,34 @@ func (s *Service) Update(id string, opts UpdateOptions) (*models.ProviderInstanc
 		return nil, fmt.Errorf("name must be 100 characters or less")
 	}
 	var updated *models.ProviderInstance
-	err := s.providers.Update(strings.TrimSpace(id), func(p *models.ProviderInstance) error {
-		if p.TypeKey == TypeCustom && opts.Config != nil {
-			normalized, err := models.NormalizeBaseURL(configBaseURL(opts.Config))
+	err := s.providers.Update(strings.TrimSpace(id), func(provider *models.ProviderInstance) error {
+		if provider.TypeKey == TypeCustom && options.Config != nil {
+			normalized, err := models.NormalizeBaseURL(configBaseURL(options.Config))
 			if err != nil {
 				return err
 			}
-			opts.Config["base_url"] = normalized
+			options.Config["base_url"] = normalized
 		}
-		p.Name = name
-		if opts.Config != nil {
-			p.Config = opts.Config
+		provider.Name = name
+		if options.Config != nil {
+			provider.Config = options.Config
 		}
-		if opts.Disabled != nil {
-			p.Disabled = *opts.Disabled
-			if *opts.Disabled {
+		if options.Disabled != nil {
+			provider.Disabled = *options.Disabled
+			if *options.Disabled {
 				now := time.Now()
-				p.DisabledBy = models.DisabledByAdmin
-				p.DisabledReason = "disabled by admin"
-				p.DisabledAt = &now
+				provider.DisabledBy = models.DisabledByAdmin
+				provider.DisabledReason = "disabled by admin"
+				provider.DisabledAt = &now
 			} else {
-				p.DisabledBy = ""
-				p.DisabledReason = ""
-				p.DisabledAt = nil
+				provider.DisabledBy = ""
+				provider.DisabledReason = ""
+				provider.DisabledAt = nil
 			}
 		}
-		p.IconURL = strings.TrimSpace(opts.IconURL)
-		p.UpdatedAt = time.Now()
-		updated = p
+		provider.IconURL = strings.TrimSpace(options.IconURL)
+		provider.UpdatedAt = time.Now()
+		updated = provider
 		return nil
 	})
 	if err != nil {
@@ -352,16 +352,16 @@ func (s *Service) SystemDisable(id, reason string) error {
 	}
 	id = strings.TrimSpace(id)
 	disabled := false
-	err := s.providers.Update(id, func(p *models.ProviderInstance) error {
-		if p.Disabled {
+	err := s.providers.Update(id, func(provider *models.ProviderInstance) error {
+		if provider.Disabled {
 			return nil
 		}
 		now := time.Now()
-		p.Disabled = true
-		p.DisabledBy = models.DisabledBySystem
-		p.DisabledReason = reason
-		p.DisabledAt = &now
-		p.UpdatedAt = now
+		provider.Disabled = true
+		provider.DisabledBy = models.DisabledBySystem
+		provider.DisabledReason = reason
+		provider.DisabledAt = &now
+		provider.UpdatedAt = now
 		disabled = true
 		return nil
 	})
@@ -384,44 +384,44 @@ func (s *Service) Delete(id string) error {
 		}
 		return err
 	}
-	n := 0
-	if err := s.db.Update(func(tx *bolt.Tx) error {
-		pb := tx.Bucket(db.BucketProviderInstances)
-		if pb == nil || pb.Get([]byte(id)) == nil {
+	deletedCount := 0
+	if err := s.database.Update(func(tx *bolt.Tx) error {
+		providerBucket := tx.Bucket(db.BucketProviderInstances)
+		if providerBucket == nil || providerBucket.Get([]byte(id)) == nil {
 			return fmt.Errorf("provider %q not found", id)
 		}
-		if err := pb.Delete([]byte(id)); err != nil {
+		if err := providerBucket.Delete([]byte(id)); err != nil {
 			return err
 		}
-		b := tx.Bucket(db.BucketCredentials)
-		if b == nil {
+		bucket := tx.Bucket(db.BucketCredentials)
+		if bucket == nil {
 			return nil
 		}
 		var toDelete [][]byte
-		if err := b.ForEach(func(k, v []byte) error {
-			var c models.Credential
-			if err := json.Unmarshal(v, &c); err != nil {
+		if err := bucket.ForEach(func(key, value []byte) error {
+			var credential models.Credential
+			if err := json.Unmarshal(value, &credential); err != nil {
 				return fmt.Errorf("unmarshal credential: %w", err)
 			}
-			if strings.TrimSpace(c.ProviderID) == id {
-				toDelete = append(toDelete, append([]byte(nil), k...))
+			if strings.TrimSpace(credential.ProviderID) == id {
+				toDelete = append(toDelete, append([]byte(nil), key...))
 			}
 			return nil
 		}); err != nil {
 			return err
 		}
-		for _, k := range toDelete {
-			if err := b.Delete(k); err != nil {
+		for _, key := range toDelete {
+			if err := bucket.Delete(key); err != nil {
 				return err
 			}
-			n++
+			deletedCount++
 		}
 		return nil
 	}); err != nil {
 		return err
 	}
 	if s.logger != nil {
-		s.logger.Info("provider deleted", "provider_id", id, "cascaded_credentials", n)
+		s.logger.Info("provider deleted", "provider_id", id, "cascaded_credentials", deletedCount)
 	}
 	s.notifyChanged(id)
 	return nil

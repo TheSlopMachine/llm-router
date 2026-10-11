@@ -14,8 +14,8 @@ import (
 // Router-side validation and missing-record failures use ProviderError so
 // the edge renders the correct 400/404 envelope through the shared
 // classifier (video.go:79 precedent).
-func invalidRequest(msg string) error {
-	return &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: msg}
+func invalidRequest(message string) error {
+	return &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: message}
 }
 
 func compatNotFound(resource, id string) error {
@@ -23,75 +23,75 @@ func compatNotFound(resource, id string) error {
 }
 
 func (s *Service) mustResponseStore() error {
-	if s.responseSvc == nil {
+	if s.responseService == nil {
 		return errors.New("responses store is not wired")
 	}
 	return nil
 }
 
-func mustPayload(v any) json.RawMessage {
-	raw, err := json.Marshal(v)
+func mustPayload(value any) json.RawMessage {
+	raw, err := json.Marshal(value)
 	if err != nil {
 		return json.RawMessage("{}")
 	}
 	return raw
 }
 
-func decodePayload(rec *models.ResponseRecord, out any) error {
-	if len(rec.Payload) == 0 {
+func decodePayload(record *models.ResponseRecord, output any) error {
+	if len(record.Payload) == 0 {
 		return invalidRequest("stored record has no payload")
 	}
-	if err := json.Unmarshal(rec.Payload, out); err != nil {
+	if err := json.Unmarshal(record.Payload, output); err != nil {
 		return fmt.Errorf("stored record is corrupt: %w", err)
 	}
 	return nil
 }
 
 // responseFromChat maps one chat completion onto a ResponseObject.
-func responseFromChat(id string, req *models.ResponseRequest, resp *models.ChatCompletionResponse) *models.ResponseObject {
-	out := &models.ResponseObject{
+func responseFromChat(id string, request *models.ResponseRequest, response *models.ChatCompletionResponse) *models.ResponseObject {
+	output := &models.ResponseObject{
 		ID:                 id,
 		Object:             "response",
 		CreatedAt:          time.Now().Unix(),
-		Model:              req.Model.String(),
+		Model:              request.Model.String(),
 		Status:             "completed",
 		Output:             []models.ResponseOutputItem{},
-		Instructions:       req.Instructions,
-		PreviousResponseID: req.PreviousResponseID,
-		ConversationID:     req.ConversationID,
-		Metadata:           req.Metadata,
+		Instructions:       request.Instructions,
+		PreviousResponseID: request.PreviousResponseID,
+		ConversationID:     request.ConversationID,
+		Metadata:           request.Metadata,
 	}
-	if len(resp.Choices) == 0 {
-		return out
+	if len(response.Choices) == 0 {
+		return output
 	}
-	choice := resp.Choices[0]
-	msg := choice.Message
-	if msg.Content != "" {
-		out.Output = append(out.Output, models.ResponseOutputItem{
+	choice := response.Choices[0]
+	message := choice.Message
+	if message.Content != "" {
+		output.Output = append(output.Output, models.ResponseOutputItem{
 			Type:   "message",
-			Text:   msg.Content,
+			Text:   message.Content,
 			Status: "completed",
 		})
 	}
-	for _, tc := range msg.ToolCalls {
-		out.Output = append(out.Output, models.ResponseOutputItem{
+	for _, toolCall := range message.ToolCalls {
+		output.Output = append(output.Output, models.ResponseOutputItem{
 			Type:   "function_call",
-			ID:     tc.ID,
-			Name:   tc.Function.Name,
+			ID:     toolCall.ID,
+			Name:   toolCall.Function.Name,
 			Status: "completed",
-			Extra:  json.RawMessage(`{"arguments":` + quoteJSONString(tc.Function.Arguments) + `}`),
+			Extra:  json.RawMessage(`{"arguments":` + quoteJSONString(toolCall.Function.Arguments) + `}`),
 		})
 	}
-	out.Usage = &models.ResponseUsage{
-		InputTokens:  resp.Usage.PromptTokens,
-		OutputTokens: resp.Usage.CompletionTokens,
-		TotalTokens:  resp.Usage.TotalTokens,
+	output.Usage = &models.ResponseUsage{
+		InputTokens:  response.Usage.PromptTokens,
+		OutputTokens: response.Usage.CompletionTokens,
+		TotalTokens:  response.Usage.TotalTokens,
 	}
-	return out
+	return output
 }
 
-func quoteJSONString(s string) string {
-	raw, err := json.Marshal(s)
+func quoteJSONString(value string) string {
+	raw, err := json.Marshal(value)
 	if err != nil {
 		return `""`
 	}
@@ -108,43 +108,43 @@ func quoteJSONString(s string) string {
 // object always returns completed or failed.
 func (s *Service) CreateResponse(
 	ctx context.Context,
-	req *models.ResponseRequest,
+	request *models.ResponseRequest,
 	token *models.RouterToken,
 ) (*models.ResponseObject, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	chatReq := req.ToChat()
-	if len(chatReq.Messages) == 0 {
+	chatRequest := request.ToChat()
+	if len(chatRequest.Messages) == 0 {
 		return nil, invalidRequest("input is required: provide a string or input items")
 	}
-	if req.PreviousResponseID != "" {
-		if _, err := s.responseSvc.Get(req.PreviousResponseID, models.ResponseRecordResponse); err != nil {
+	if request.PreviousResponseID != "" {
+		if _, err := s.responseService.Get(request.PreviousResponseID, models.ResponseRecordResponse); err != nil {
 			if errors.Is(err, apierrors.ErrNotFound) {
-				return nil, compatNotFound("response", req.PreviousResponseID)
+				return nil, compatNotFound("response", request.PreviousResponseID)
 			}
 			return nil, err
 		}
 	}
-	resp, err := s.complete(ctx, chatReq, token, false)
+	response, err := s.complete(ctx, chatRequest, token, false)
 	if err != nil {
 		return nil, err
 	}
-	out := responseFromChat(models.NewResponseID(), req, resp)
-	if req.Store == nil || *req.Store {
-		if err := s.responseSvc.Create(&models.ResponseRecord{
-			ID:      out.ID,
+	output := responseFromChat(models.NewResponseID(), request, response)
+	if request.Store == nil || *request.Store {
+		if err := s.responseService.Create(&models.ResponseRecord{
+			ID:      output.ID,
 			Kind:    models.ResponseRecordResponse,
-			Model:   req.Model,
-			Status:  out.Status,
-			RefID:   req.PreviousResponseID,
-			Input:   req.Input,
-			Payload: mustPayload(out),
+			Model:   request.Model,
+			Status:  output.Status,
+			RefID:   request.PreviousResponseID,
+			Input:   request.Input,
+			Payload: mustPayload(output),
 		}); err != nil {
 			return nil, err
 		}
 	}
-	return out, nil
+	return output, nil
 }
 
 // GetResponse returns one stored response. Token rules apply to the stored
@@ -157,21 +157,21 @@ func (s *Service) GetResponse(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	rec, err := s.responseSvc.Get(id, models.ResponseRecordResponse)
+	record, err := s.responseService.Get(id, models.ResponseRecordResponse)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("response", id)
 		}
 		return nil, err
 	}
-	if deny := tokenDenies(token, rec.Model); deny != nil {
+	if deny := tokenDenies(token, record.Model); deny != nil {
 		return nil, deny
 	}
-	var out models.ResponseObject
-	if err := decodePayload(rec, &out); err != nil {
+	var output models.ResponseObject
+	if err := decodePayload(record, &output); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return &output, nil
 }
 
 // CancelResponse marks a non-terminal response canceled. Synchronously
@@ -185,30 +185,30 @@ func (s *Service) CancelResponse(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	rec, err := s.responseSvc.Get(id, models.ResponseRecordResponse)
+	record, err := s.responseService.Get(id, models.ResponseRecordResponse)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("response", id)
 		}
 		return nil, err
 	}
-	if deny := tokenDenies(token, rec.Model); deny != nil {
+	if deny := tokenDenies(token, record.Model); deny != nil {
 		return nil, deny
 	}
-	if rec.Status == "completed" || rec.Status == "failed" || rec.Status == "canceled" {
-		return nil, invalidRequest(fmt.Sprintf("response %q is already %s", id, rec.Status))
+	if record.Status == "completed" || record.Status == "failed" || record.Status == "canceled" {
+		return nil, invalidRequest(fmt.Sprintf("response %q is already %s", id, record.Status))
 	}
-	var out models.ResponseObject
-	if err := decodePayload(rec, &out); err != nil {
+	var output models.ResponseObject
+	if err := decodePayload(record, &output); err != nil {
 		return nil, err
 	}
-	out.Status = "canceled"
-	rec.Status = "canceled"
-	rec.Payload = mustPayload(&out)
-	if err := s.responseSvc.Update(rec); err != nil {
+	output.Status = "canceled"
+	record.Status = "canceled"
+	record.Payload = mustPayload(&output)
+	if err := s.responseService.Update(record); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return &output, nil
 }
 
 // ListResponseInputItems returns the stored input of a response as items: a
@@ -221,17 +221,17 @@ func (s *Service) ListResponseInputItems(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	rec, err := s.responseSvc.Get(id, models.ResponseRecordResponse)
+	record, err := s.responseService.Get(id, models.ResponseRecordResponse)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("response", id)
 		}
 		return nil, err
 	}
-	if deny := tokenDenies(token, rec.Model); deny != nil {
+	if deny := tokenDenies(token, record.Model); deny != nil {
 		return nil, deny
 	}
-	return responseInputItems(rec.Input), nil
+	return responseInputItems(record.Input), nil
 }
 
 func responseInputItems(raw json.RawMessage) []models.ResponseInputItem {
@@ -261,10 +261,10 @@ func (s *Service) CompactResponse(
 
 // CountResponseInputTokens estimates input tokens for a response request
 // with the documented 4-chars-per-token heuristic.
-func (s *Service) CountResponseInputTokens(req *models.ResponseRequest) int {
-	texts := req.InputTexts()
-	if req.Instructions != "" {
-		texts = append(texts, req.Instructions)
+func (s *Service) CountResponseInputTokens(request *models.ResponseRequest) int {
+	texts := request.InputTexts()
+	if request.Instructions != "" {
+		texts = append(texts, request.Instructions)
 	}
 	return models.EstimateInputTokens(texts)
 }
@@ -284,7 +284,7 @@ func (s *Service) CreateConversation(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	out := &models.ConversationObject{
+	output := &models.ConversationObject{
 		ID:        models.NewConversationID(),
 		Object:    "conversation",
 		CreatedAt: time.Now().Unix(),
@@ -293,17 +293,17 @@ func (s *Service) CreateConversation(
 	if items == nil {
 		items = []models.ResponseInputItem{}
 	}
-	if err := s.responseSvc.Create(&models.ResponseRecord{
-		ID:      out.ID,
+	if err := s.responseService.Create(&models.ResponseRecord{
+		ID:      output.ID,
 		Kind:    models.ResponseRecordConversation,
 		Model:   model,
 		Status:  "active",
 		Input:   mustPayload(items),
-		Payload: mustPayload(out),
+		Payload: mustPayload(output),
 	}); err != nil {
 		return nil, err
 	}
-	return out, nil
+	return output, nil
 }
 
 // GetConversation returns one stored conversation.
@@ -315,21 +315,21 @@ func (s *Service) GetConversation(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	rec, err := s.responseSvc.Get(id, models.ResponseRecordConversation)
+	record, err := s.responseService.Get(id, models.ResponseRecordConversation)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("conversation", id)
 		}
 		return nil, err
 	}
-	if deny := tokenDenies(token, rec.Model); deny != nil {
+	if deny := tokenDenies(token, record.Model); deny != nil {
 		return nil, deny
 	}
-	var out models.ConversationObject
-	if err := decodePayload(rec, &out); err != nil {
+	var output models.ConversationObject
+	if err := decodePayload(record, &output); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return &output, nil
 }
 
 // DeleteConversation removes a conversation container. Items stored as
@@ -338,13 +338,13 @@ func (s *Service) DeleteConversation(_ context.Context, id string) error {
 	if err := s.mustResponseStore(); err != nil {
 		return err
 	}
-	if _, err := s.responseSvc.Get(id, models.ResponseRecordConversation); err != nil {
+	if _, err := s.responseService.Get(id, models.ResponseRecordConversation); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return compatNotFound("conversation", id)
 		}
 		return err
 	}
-	return s.responseSvc.Delete(id)
+	return s.responseService.Delete(id)
 }
 
 // ListConversationItems returns the items appended to a conversation.
@@ -356,17 +356,17 @@ func (s *Service) ListConversationItems(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	rec, err := s.responseSvc.Get(id, models.ResponseRecordConversation)
+	record, err := s.responseService.Get(id, models.ResponseRecordConversation)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("conversation", id)
 		}
 		return nil, err
 	}
-	if deny := tokenDenies(token, rec.Model); deny != nil {
+	if deny := tokenDenies(token, record.Model); deny != nil {
 		return nil, deny
 	}
-	return responseInputItems(rec.Input), nil
+	return responseInputItems(record.Input), nil
 }
 
 // AppendConversationItems appends items to a conversation.
@@ -379,23 +379,23 @@ func (s *Service) AppendConversationItems(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	rec, err := s.responseSvc.Get(id, models.ResponseRecordConversation)
+	record, err := s.responseService.Get(id, models.ResponseRecordConversation)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("conversation", id)
 		}
 		return nil, err
 	}
-	if deny := tokenDenies(token, rec.Model); deny != nil {
+	if deny := tokenDenies(token, record.Model); deny != nil {
 		return nil, deny
 	}
-	cur := responseInputItems(rec.Input)
-	cur = append(cur, items...)
-	rec.Input = mustPayload(cur)
-	if err := s.responseSvc.Update(rec); err != nil {
+	current := responseInputItems(record.Input)
+	current = append(current, items...)
+	record.Input = mustPayload(current)
+	if err := s.responseService.Update(record); err != nil {
 		return nil, err
 	}
-	return cur, nil
+	return current, nil
 }
 
 // ─────────────────────────────────────────────
@@ -406,39 +406,39 @@ func (s *Service) AppendConversationItems(
 // execute runs through the chat pipeline.
 func (s *Service) CreateAssistant(
 	_ context.Context,
-	req *models.AssistantRequest,
+	request *models.AssistantRequest,
 ) (*models.Assistant, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	if req.Model == "" {
+	if request.Model == "" {
 		return nil, invalidRequest("model is required")
 	}
-	if _, _, err := req.Model.Parse(); err != nil {
+	if _, _, err := request.Model.Parse(); err != nil {
 		return nil, invalidRequest(fmt.Sprintf("invalid model id: %s", err))
 	}
-	out := &models.Assistant{
+	output := &models.Assistant{
 		ID:             models.NewAssistantID(),
 		Object:         "assistant",
 		CreatedAt:      time.Now().Unix(),
-		Model:          req.Model.String(),
-		Name:           req.Name,
-		Description:    req.Description,
-		Instructions:   req.Instructions,
-		Tools:          req.Tools,
-		ResponseFormat: req.ResponseFormat,
-		Metadata:       req.Metadata,
+		Model:          request.Model.String(),
+		Name:           request.Name,
+		Description:    request.Description,
+		Instructions:   request.Instructions,
+		Tools:          request.Tools,
+		ResponseFormat: request.ResponseFormat,
+		Metadata:       request.Metadata,
 	}
-	if err := s.responseSvc.Create(&models.ResponseRecord{
-		ID:      out.ID,
+	if err := s.responseService.Create(&models.ResponseRecord{
+		ID:      output.ID,
 		Kind:    models.ResponseRecordAssistant,
-		Model:   req.Model,
+		Model:   request.Model,
 		Status:  "active",
-		Payload: mustPayload(out),
+		Payload: mustPayload(output),
 	}); err != nil {
 		return nil, err
 	}
-	return out, nil
+	return output, nil
 }
 
 // GetAssistant returns one stored assistant.
@@ -450,21 +450,21 @@ func (s *Service) GetAssistant(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	rec, err := s.responseSvc.Get(id, models.ResponseRecordAssistant)
+	record, err := s.responseService.Get(id, models.ResponseRecordAssistant)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("assistant", id)
 		}
 		return nil, err
 	}
-	if deny := tokenDenies(token, rec.Model); deny != nil {
+	if deny := tokenDenies(token, record.Model); deny != nil {
 		return nil, deny
 	}
-	var out models.Assistant
-	if err := decodePayload(rec, &out); err != nil {
+	var output models.Assistant
+	if err := decodePayload(record, &output); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return &output, nil
 }
 
 // UpdateAssistant patches name, description, instructions, tools,
@@ -473,55 +473,55 @@ func (s *Service) UpdateAssistant(
 	_ context.Context,
 	id string,
 	token *models.RouterToken,
-	req *models.AssistantRequest,
+	request *models.AssistantRequest,
 ) (*models.Assistant, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	rec, err := s.responseSvc.Get(id, models.ResponseRecordAssistant)
+	record, err := s.responseService.Get(id, models.ResponseRecordAssistant)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("assistant", id)
 		}
 		return nil, err
 	}
-	if deny := tokenDenies(token, rec.Model); deny != nil {
+	if deny := tokenDenies(token, record.Model); deny != nil {
 		return nil, deny
 	}
-	var out models.Assistant
-	if err := decodePayload(rec, &out); err != nil {
+	var output models.Assistant
+	if err := decodePayload(record, &output); err != nil {
 		return nil, err
 	}
-	if req.Model != "" {
-		if _, _, err := req.Model.Parse(); err != nil {
+	if request.Model != "" {
+		if _, _, err := request.Model.Parse(); err != nil {
 			return nil, invalidRequest(fmt.Sprintf("invalid model id: %s", err))
 		}
-		out.Model = req.Model.String()
-		rec.Model = req.Model
+		output.Model = request.Model.String()
+		record.Model = request.Model
 	}
-	if req.Name != "" {
-		out.Name = req.Name
+	if request.Name != "" {
+		output.Name = request.Name
 	}
-	if req.Description != "" {
-		out.Description = req.Description
+	if request.Description != "" {
+		output.Description = request.Description
 	}
-	if req.Instructions != "" {
-		out.Instructions = req.Instructions
+	if request.Instructions != "" {
+		output.Instructions = request.Instructions
 	}
-	if req.Tools != nil {
-		out.Tools = req.Tools
+	if request.Tools != nil {
+		output.Tools = request.Tools
 	}
-	if len(req.ResponseFormat) > 0 {
-		out.ResponseFormat = req.ResponseFormat
+	if len(request.ResponseFormat) > 0 {
+		output.ResponseFormat = request.ResponseFormat
 	}
-	if req.Metadata != nil {
-		out.Metadata = req.Metadata
+	if request.Metadata != nil {
+		output.Metadata = request.Metadata
 	}
-	rec.Payload = mustPayload(&out)
-	if err := s.responseSvc.Update(rec); err != nil {
+	record.Payload = mustPayload(&output)
+	if err := s.responseService.Update(record); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return &output, nil
 }
 
 // DeleteAssistant removes an assistant preset. Runs referencing it stay
@@ -530,13 +530,13 @@ func (s *Service) DeleteAssistant(_ context.Context, id string) error {
 	if err := s.mustResponseStore(); err != nil {
 		return err
 	}
-	if _, err := s.responseSvc.Get(id, models.ResponseRecordAssistant); err != nil {
+	if _, err := s.responseService.Get(id, models.ResponseRecordAssistant); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return compatNotFound("assistant", id)
 		}
 		return err
 	}
-	return s.responseSvc.Delete(id)
+	return s.responseService.Delete(id)
 }
 
 // ListAssistants returns all stored assistants, oldest first.
@@ -544,19 +544,19 @@ func (s *Service) ListAssistants(_ context.Context) ([]*models.Assistant, error)
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	recs, err := s.responseSvc.List([]models.ResponseRecordKind{models.ResponseRecordAssistant}, "")
+	records, err := s.responseService.List([]models.ResponseRecordKind{models.ResponseRecordAssistant}, "")
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*models.Assistant, 0, len(recs))
-	for _, rec := range recs {
-		var a models.Assistant
-		if err := decodePayload(rec, &a); err != nil {
+	output := make([]*models.Assistant, 0, len(records))
+	for _, record := range records {
+		var assistant models.Assistant
+		if err := decodePayload(record, &assistant); err != nil {
 			return nil, err
 		}
-		out = append(out, &a)
+		output = append(output, &assistant)
 	}
-	return out, nil
+	return output, nil
 }
 
 // ─────────────────────────────────────────────
@@ -571,21 +571,21 @@ func (s *Service) CreateThread(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	out := &models.Thread{
+	output := &models.Thread{
 		ID:        models.NewThreadID(),
 		Object:    "thread",
 		CreatedAt: time.Now().Unix(),
 		Metadata:  metadata,
 	}
-	if err := s.responseSvc.Create(&models.ResponseRecord{
-		ID:      out.ID,
+	if err := s.responseService.Create(&models.ResponseRecord{
+		ID:      output.ID,
 		Kind:    models.ResponseRecordThread,
 		Status:  "active",
-		Payload: mustPayload(out),
+		Payload: mustPayload(output),
 	}); err != nil {
 		return nil, err
 	}
-	return out, nil
+	return output, nil
 }
 
 // GetThread returns one stored thread.
@@ -597,21 +597,21 @@ func (s *Service) GetThread(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	rec, err := s.responseSvc.Get(id, models.ResponseRecordThread)
+	record, err := s.responseService.Get(id, models.ResponseRecordThread)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("thread", id)
 		}
 		return nil, err
 	}
-	if deny := tokenDenies(token, rec.Model); deny != nil {
+	if deny := tokenDenies(token, record.Model); deny != nil {
 		return nil, deny
 	}
-	var out models.Thread
-	if err := decodePayload(rec, &out); err != nil {
+	var output models.Thread
+	if err := decodePayload(record, &output); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return &output, nil
 }
 
 // UpdateThread patches thread metadata.
@@ -623,25 +623,25 @@ func (s *Service) UpdateThread(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	rec, err := s.responseSvc.Get(id, models.ResponseRecordThread)
+	record, err := s.responseService.Get(id, models.ResponseRecordThread)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("thread", id)
 		}
 		return nil, err
 	}
-	var out models.Thread
-	if err := decodePayload(rec, &out); err != nil {
+	var output models.Thread
+	if err := decodePayload(record, &output); err != nil {
 		return nil, err
 	}
 	if metadata != nil {
-		out.Metadata = metadata
+		output.Metadata = metadata
 	}
-	rec.Payload = mustPayload(&out)
-	if err := s.responseSvc.Update(rec); err != nil {
+	record.Payload = mustPayload(&output)
+	if err := s.responseService.Update(record); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return &output, nil
 }
 
 // DeleteThread removes a thread handle. Messages and runs referencing it
@@ -650,58 +650,58 @@ func (s *Service) DeleteThread(_ context.Context, id string) error {
 	if err := s.mustResponseStore(); err != nil {
 		return err
 	}
-	if _, err := s.responseSvc.Get(id, models.ResponseRecordThread); err != nil {
+	if _, err := s.responseService.Get(id, models.ResponseRecordThread); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return compatNotFound("thread", id)
 		}
 		return err
 	}
-	return s.responseSvc.Delete(id)
+	return s.responseService.Delete(id)
 }
 
 // CreateThreadMessage appends a user or assistant message to a thread.
 func (s *Service) CreateThreadMessage(
 	_ context.Context,
 	threadID string,
-	req *models.ThreadMessageRequest,
+	request *models.ThreadMessageRequest,
 ) (*models.ThreadMessage, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	if _, err := s.responseSvc.Get(threadID, models.ResponseRecordThread); err != nil {
+	if _, err := s.responseService.Get(threadID, models.ResponseRecordThread); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("thread", threadID)
 		}
 		return nil, err
 	}
-	if req.Role != "user" && req.Role != "assistant" {
+	if request.Role != "user" && request.Role != "assistant" {
 		return nil, invalidRequest(`role must be "user" or "assistant"`)
 	}
-	texts := req.ThreadMessageTexts()
+	texts := request.ThreadMessageTexts()
 	if len(texts) == 0 {
 		return nil, invalidRequest("content is required: provide a string or text blocks")
 	}
-	out := &models.ThreadMessage{
+	output := &models.ThreadMessage{
 		ID:        models.NewThreadMessageID(),
 		Object:    "thread.message",
 		CreatedAt: time.Now().Unix(),
 		ThreadID:  threadID,
-		Role:      req.Role,
-		Metadata:  req.Metadata,
+		Role:      request.Role,
+		Metadata:  request.Metadata,
 	}
-	for _, t := range texts {
-		out.Content = append(out.Content, models.ThreadContent{Type: "text", Text: t})
+	for _, text := range texts {
+		output.Content = append(output.Content, models.ThreadContent{Type: "text", Text: text})
 	}
-	if err := s.responseSvc.Create(&models.ResponseRecord{
-		ID:       out.ID,
+	if err := s.responseService.Create(&models.ResponseRecord{
+		ID:       output.ID,
 		Kind:     models.ResponseRecordThreadMessage,
 		Status:   "completed",
 		ParentID: threadID,
-		Payload:  mustPayload(out),
+		Payload:  mustPayload(output),
 	}); err != nil {
 		return nil, err
 	}
-	return out, nil
+	return output, nil
 }
 
 // GetThreadMessage returns one thread message, asserting thread membership.
@@ -712,21 +712,21 @@ func (s *Service) GetThreadMessage(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	rec, err := s.responseSvc.Get(messageID, models.ResponseRecordThreadMessage)
+	record, err := s.responseService.Get(messageID, models.ResponseRecordThreadMessage)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("message", messageID)
 		}
 		return nil, err
 	}
-	if rec.ParentID != threadID {
+	if record.ParentID != threadID {
 		return nil, compatNotFound("message", messageID)
 	}
-	var out models.ThreadMessage
-	if err := decodePayload(rec, &out); err != nil {
+	var output models.ThreadMessage
+	if err := decodePayload(record, &output); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return &output, nil
 }
 
 // ListThreadMessages returns all messages of a thread, oldest first.
@@ -737,67 +737,67 @@ func (s *Service) ListThreadMessages(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	if _, err := s.responseSvc.Get(threadID, models.ResponseRecordThread); err != nil {
+	if _, err := s.responseService.Get(threadID, models.ResponseRecordThread); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("thread", threadID)
 		}
 		return nil, err
 	}
-	recs, err := s.responseSvc.List([]models.ResponseRecordKind{models.ResponseRecordThreadMessage}, threadID)
+	records, err := s.responseService.List([]models.ResponseRecordKind{models.ResponseRecordThreadMessage}, threadID)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*models.ThreadMessage, 0, len(recs))
-	for _, rec := range recs {
-		var m models.ThreadMessage
-		if err := decodePayload(rec, &m); err != nil {
+	output := make([]*models.ThreadMessage, 0, len(records))
+	for _, record := range records {
+		var message models.ThreadMessage
+		if err := decodePayload(record, &message); err != nil {
 			return nil, err
 		}
-		out = append(out, &m)
+		output = append(output, &message)
 	}
-	return out, nil
+	return output, nil
 }
 
 // ─────────────────────────────────────────────
 // Runs
 // ─────────────────────────────────────────────
 
-func threadChatMessages(msgs []*models.ThreadMessage) []models.ChatMessage {
-	out := make([]models.ChatMessage, 0, len(msgs))
-	for _, m := range msgs {
+func threadChatMessages(messages []*models.ThreadMessage) []models.ChatMessage {
+	output := make([]models.ChatMessage, 0, len(messages))
+	for _, message := range messages {
 		var texts []string
-		for _, c := range m.Content {
-			if c.Text != "" {
-				texts = append(texts, c.Text)
+		for _, content := range message.Content {
+			if content.Text != "" {
+				texts = append(texts, content.Text)
 			}
 		}
 		if len(texts) == 0 {
 			continue
 		}
-		role := m.Role
+		role := message.Role
 		if role != "user" && role != "assistant" {
 			role = "user"
 		}
 		joined := ""
-		for i, t := range texts {
+		for i, text := range texts {
 			if i > 0 {
 				joined += "\n"
 			}
-			joined += t
+			joined += text
 		}
-		out = append(out, models.ChatMessage{Role: role, Content: joined})
+		output = append(output, models.ChatMessage{Role: role, Content: joined})
 	}
-	return out
+	return output
 }
 
 // runFromChat maps a chat completion onto a run: tool calls park the run in
 // requires_action with the pending turns stashed for submit_tool_outputs.
-func runFromChat(run *models.Run, resp *models.ChatCompletionResponse) ([]models.ChatMessage, bool) {
-	if len(resp.Choices) == 0 {
+func runFromChat(run *models.Run, response *models.ChatCompletionResponse) ([]models.ChatMessage, bool) {
+	if len(response.Choices) == 0 {
 		run.Status = "completed"
 		return nil, false
 	}
-	choice := resp.Choices[0]
+	choice := response.Choices[0]
 	if len(choice.Message.ToolCalls) == 0 {
 		run.Status = "completed"
 		return nil, false
@@ -808,13 +808,13 @@ func runFromChat(run *models.Run, resp *models.ChatCompletionResponse) ([]models
 		SubmitToolOutputs: &models.SubmitToolOutputs{},
 	}
 	pending := []models.ChatMessage{choice.Message}
-	for _, tc := range choice.Message.ToolCalls {
+	for _, toolCall := range choice.Message.ToolCalls {
 		action.SubmitToolOutputs.ToolCalls = append(action.SubmitToolOutputs.ToolCalls, models.RunToolCall{
-			ID:   tc.ID,
+			ID:   toolCall.ID,
 			Type: "function",
 		})
-		action.SubmitToolOutputs.ToolCalls[len(action.SubmitToolOutputs.ToolCalls)-1].Function.Name = tc.Function.Name
-		action.SubmitToolOutputs.ToolCalls[len(action.SubmitToolOutputs.ToolCalls)-1].Function.Arguments = tc.Function.Arguments
+		action.SubmitToolOutputs.ToolCalls[len(action.SubmitToolOutputs.ToolCalls)-1].Function.Name = toolCall.Function.Name
+		action.SubmitToolOutputs.ToolCalls[len(action.SubmitToolOutputs.ToolCalls)-1].Function.Arguments = toolCall.Function.Arguments
 	}
 	run.RequiredAction = action
 	return pending, true
@@ -826,72 +826,72 @@ func runFromChat(run *models.Run, resp *models.ChatCompletionResponse) ([]models
 func (s *Service) CreateRun(
 	ctx context.Context,
 	threadID string,
-	req *models.RunRequest,
+	request *models.RunRequest,
 	token *models.RouterToken,
 ) (*models.Run, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	if _, err := s.responseSvc.Get(threadID, models.ResponseRecordThread); err != nil {
+	if _, err := s.responseService.Get(threadID, models.ResponseRecordThread); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("thread", threadID)
 		}
 		return nil, err
 	}
-	if req.AssistantID == "" {
+	if request.AssistantID == "" {
 		return nil, invalidRequest("assistant_id is required")
 	}
-	assistantRec, err := s.responseSvc.Get(req.AssistantID, models.ResponseRecordAssistant)
+	assistantRecord, err := s.responseService.Get(request.AssistantID, models.ResponseRecordAssistant)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
-			return nil, compatNotFound("assistant", req.AssistantID)
+			return nil, compatNotFound("assistant", request.AssistantID)
 		}
 		return nil, err
 	}
 	var assistant models.Assistant
-	if err := decodePayload(assistantRec, &assistant); err != nil {
+	if err := decodePayload(assistantRecord, &assistant); err != nil {
 		return nil, err
 	}
-	model := req.Model
+	model := request.Model
 	if model == "" {
 		model = models.ModelId(assistant.Model)
 	}
 	if model == "" {
 		return nil, invalidRequest("model is required: set it on the run or the assistant")
 	}
-	instructions := req.Instructions
+	instructions := request.Instructions
 	if instructions == "" {
 		instructions = assistant.Instructions
 	}
-	msgs, err := s.ListThreadMessages(ctx, threadID)
+	messages, err := s.ListThreadMessages(ctx, threadID)
 	if err != nil {
 		return nil, err
 	}
-	chatReq := &models.ChatCompletionRequest{Model: model}
+	chatRequest := &models.ChatCompletionRequest{Model: model}
 	if instructions != "" {
-		chatReq.Messages = append(chatReq.Messages, models.ChatMessage{Role: "system", Content: instructions})
+		chatRequest.Messages = append(chatRequest.Messages, models.ChatMessage{Role: "system", Content: instructions})
 	}
-	history := threadChatMessages(msgs)
-	chatReq.Messages = append(chatReq.Messages, history...)
-	if len(chatReq.Messages) == 0 {
+	history := threadChatMessages(messages)
+	chatRequest.Messages = append(chatRequest.Messages, history...)
+	if len(chatRequest.Messages) == 0 {
 		return nil, invalidRequest("thread has no messages to run")
 	}
 	for _, raw := range assistant.Tools {
-		var fn struct {
+		var function struct {
 			Type        string         `json:"type"`
 			Name        string         `json:"name"`
 			Description string         `json:"description,omitempty"`
 			Parameters  map[string]any `json:"parameters,omitempty"`
 		}
-		if err := json.Unmarshal(raw, &fn); err != nil || fn.Name == "" {
+		if err := json.Unmarshal(raw, &function); err != nil || function.Name == "" {
 			continue
 		}
-		if fn.Type != "" && fn.Type != "function" {
+		if function.Type != "" && function.Type != "function" {
 			continue
 		}
-		chatReq.Tools = append(chatReq.Tools, models.ChatTool{
+		chatRequest.Tools = append(chatRequest.Tools, models.ChatTool{
 			Type:     "function",
-			Function: &models.ChatToolFunction{Name: fn.Name, Description: fn.Description, Parameters: fn.Parameters},
+			Function: &models.ChatToolFunction{Name: function.Name, Description: function.Description, Parameters: function.Parameters},
 		})
 	}
 	run := &models.Run{
@@ -899,51 +899,51 @@ func (s *Service) CreateRun(
 		Object:      "thread.run",
 		CreatedAt:   time.Now().Unix(),
 		ThreadID:    threadID,
-		AssistantID: req.AssistantID,
+		AssistantID: request.AssistantID,
 		Model:       model.String(),
 		Status:      "in_progress",
-		Metadata:    req.Metadata,
+		Metadata:    request.Metadata,
 	}
 	if instructions != "" {
 		run.Instructions = instructions
 	}
-	resp, err := s.complete(ctx, chatReq, token, false)
+	response, err := s.complete(ctx, chatRequest, token, false)
 	if err != nil {
 		run.Status = "failed"
-		if rerr := s.responseSvc.Create(&models.ResponseRecord{
+		if createError := s.responseService.Create(&models.ResponseRecord{
 			ID:       run.ID,
 			Kind:     models.ResponseRecordRun,
 			Model:    model,
 			Status:   run.Status,
 			ParentID: threadID,
-			RefID:    req.AssistantID,
+			RefID:    request.AssistantID,
 			Payload:  mustPayload(run),
-		}); rerr != nil {
-			return nil, rerr
+		}); createError != nil {
+			return nil, createError
 		}
 		return nil, err
 	}
-	pending, waiting := runFromChat(run, resp)
-	rec := &models.ResponseRecord{
+	pending, waiting := runFromChat(run, response)
+	record := &models.ResponseRecord{
 		ID:       run.ID,
 		Kind:     models.ResponseRecordRun,
 		Model:    model,
 		Status:   run.Status,
 		ParentID: threadID,
-		RefID:    req.AssistantID,
+		RefID:    request.AssistantID,
 		Payload:  mustPayload(run),
 	}
 	if waiting {
-		turns := append(append([]models.ChatMessage{}, chatReq.Messages...), pending...)
-		rec.Input = mustPayload(turns)
+		turns := append(append([]models.ChatMessage{}, chatRequest.Messages...), pending...)
+		record.Input = mustPayload(turns)
 	}
-	if err := s.responseSvc.Create(rec); err != nil {
+	if err := s.responseService.Create(record); err != nil {
 		return nil, err
 	}
-	if !waiting && len(resp.Choices) > 0 && resp.Choices[0].Message.Content != "" {
+	if !waiting && len(response.Choices) > 0 && response.Choices[0].Message.Content != "" {
 		_, _ = s.CreateThreadMessage(ctx, threadID, &models.ThreadMessageRequest{
 			Role:    "assistant",
-			Content: json.RawMessage(quoteJSONString(resp.Choices[0].Message.Content)),
+			Content: json.RawMessage(quoteJSONString(response.Choices[0].Message.Content)),
 		})
 	}
 	return run, nil
@@ -958,24 +958,24 @@ func (s *Service) GetRun(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	rec, err := s.responseSvc.Get(runID, models.ResponseRecordRun)
+	record, err := s.responseService.Get(runID, models.ResponseRecordRun)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("run", runID)
 		}
 		return nil, err
 	}
-	if rec.ParentID != threadID {
+	if record.ParentID != threadID {
 		return nil, compatNotFound("run", runID)
 	}
-	if deny := tokenDenies(token, rec.Model); deny != nil {
+	if deny := tokenDenies(token, record.Model); deny != nil {
 		return nil, deny
 	}
-	var out models.Run
-	if err := decodePayload(rec, &out); err != nil {
+	var output models.Run
+	if err := decodePayload(record, &output); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return &output, nil
 }
 
 // ListRuns returns all runs of a thread, oldest first.
@@ -986,25 +986,25 @@ func (s *Service) ListRuns(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	if _, err := s.responseSvc.Get(threadID, models.ResponseRecordThread); err != nil {
+	if _, err := s.responseService.Get(threadID, models.ResponseRecordThread); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("thread", threadID)
 		}
 		return nil, err
 	}
-	recs, err := s.responseSvc.List([]models.ResponseRecordKind{models.ResponseRecordRun}, threadID)
+	records, err := s.responseService.List([]models.ResponseRecordKind{models.ResponseRecordRun}, threadID)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*models.Run, 0, len(recs))
-	for _, rec := range recs {
-		var r models.Run
-		if err := decodePayload(rec, &r); err != nil {
+	output := make([]*models.Run, 0, len(records))
+	for _, record := range records {
+		var run models.Run
+		if err := decodePayload(record, &run); err != nil {
 			return nil, err
 		}
-		out = append(out, &r)
+		output = append(output, &run)
 	}
-	return out, nil
+	return output, nil
 }
 
 // CancelRun marks a non-terminal run canceled.
@@ -1016,35 +1016,35 @@ func (s *Service) CancelRun(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	rec, err := s.responseSvc.Get(runID, models.ResponseRecordRun)
+	record, err := s.responseService.Get(runID, models.ResponseRecordRun)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("run", runID)
 		}
 		return nil, err
 	}
-	if rec.ParentID != threadID {
+	if record.ParentID != threadID {
 		return nil, compatNotFound("run", runID)
 	}
-	if deny := tokenDenies(token, rec.Model); deny != nil {
+	if deny := tokenDenies(token, record.Model); deny != nil {
 		return nil, deny
 	}
-	var out models.Run
-	if err := decodePayload(rec, &out); err != nil {
+	var output models.Run
+	if err := decodePayload(record, &output); err != nil {
 		return nil, err
 	}
-	switch out.Status {
+	switch output.Status {
 	case "completed", "failed", "canceled":
-		return nil, invalidRequest(fmt.Sprintf("run %q is already %s", runID, out.Status))
+		return nil, invalidRequest(fmt.Sprintf("run %q is already %s", runID, output.Status))
 	}
-	out.Status = "canceled"
-	out.RequiredAction = nil
-	rec.Status = "canceled"
-	rec.Payload = mustPayload(&out)
-	if err := s.responseSvc.Update(rec); err != nil {
+	output.Status = "canceled"
+	output.RequiredAction = nil
+	record.Status = "canceled"
+	record.Payload = mustPayload(&output)
+	if err := s.responseService.Update(record); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return &output, nil
 }
 
 // SubmitToolOutputs continues a requires_action run: tool outputs join the
@@ -1059,70 +1059,70 @@ func (s *Service) SubmitToolOutputs(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	rec, err := s.responseSvc.Get(runID, models.ResponseRecordRun)
+	record, err := s.responseService.Get(runID, models.ResponseRecordRun)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("run", runID)
 		}
 		return nil, err
 	}
-	if rec.ParentID != threadID {
+	if record.ParentID != threadID {
 		return nil, compatNotFound("run", runID)
 	}
-	if deny := tokenDenies(token, rec.Model); deny != nil {
+	if deny := tokenDenies(token, record.Model); deny != nil {
 		return nil, deny
 	}
-	var out models.Run
-	if err := decodePayload(rec, &out); err != nil {
+	var output models.Run
+	if err := decodePayload(record, &output); err != nil {
 		return nil, err
 	}
-	if out.Status != "requires_action" {
-		return nil, invalidRequest(fmt.Sprintf("run %q is %s, not requires_action", runID, out.Status))
+	if output.Status != "requires_action" {
+		return nil, invalidRequest(fmt.Sprintf("run %q is %s, not requires_action", runID, output.Status))
 	}
 	var turns []models.ChatMessage
-	if len(rec.Input) > 0 {
-		if err := json.Unmarshal(rec.Input, &turns); err != nil {
+	if len(record.Input) > 0 {
+		if err := json.Unmarshal(record.Input, &turns); err != nil {
 			return nil, invalidRequest("stored run turns are corrupt")
 		}
 	}
 	byID := map[string]string{}
-	for _, o := range outputs {
-		byID[o.ToolCallID] = o.Output
+	for _, toolOutput := range outputs {
+		byID[toolOutput.ToolCallID] = toolOutput.Output
 	}
-	if out.RequiredAction == nil || out.RequiredAction.SubmitToolOutputs == nil {
+	if output.RequiredAction == nil || output.RequiredAction.SubmitToolOutputs == nil {
 		return nil, invalidRequest("run has no pending tool calls")
 	}
-	for _, tc := range out.RequiredAction.SubmitToolOutputs.ToolCalls {
-		text, ok := byID[tc.ID]
+	for _, toolCall := range output.RequiredAction.SubmitToolOutputs.ToolCalls {
+		text, ok := byID[toolCall.ID]
 		if !ok {
-			return nil, invalidRequest(fmt.Sprintf("missing output for tool call %q", tc.ID))
+			return nil, invalidRequest(fmt.Sprintf("missing output for tool call %q", toolCall.ID))
 		}
-		turns = append(turns, models.ChatMessage{Role: "tool", ToolCallID: tc.ID, Content: text})
+		turns = append(turns, models.ChatMessage{Role: "tool", ToolCallID: toolCall.ID, Content: text})
 	}
-	chatReq := &models.ChatCompletionRequest{Model: rec.Model, Messages: turns}
-	resp, err := s.complete(ctx, chatReq, token, false)
+	chatRequest := &models.ChatCompletionRequest{Model: record.Model, Messages: turns}
+	response, err := s.complete(ctx, chatRequest, token, false)
 	if err != nil {
 		return nil, err
 	}
-	pending, waiting := runFromChat(&out, resp)
+	pending, waiting := runFromChat(&output, response)
 	if !waiting {
-		out.RequiredAction = nil
+		output.RequiredAction = nil
 	}
-	rec.Status = out.Status
-	rec.Payload = mustPayload(&out)
+	record.Status = output.Status
+	record.Payload = mustPayload(&output)
 	if waiting {
-		rec.Input = mustPayload(append(turns, pending...))
+		record.Input = mustPayload(append(turns, pending...))
 	} else {
-		rec.Input = mustPayload(turns)
+		record.Input = mustPayload(turns)
 	}
-	if err := s.responseSvc.Update(rec); err != nil {
+	if err := s.responseService.Update(record); err != nil {
 		return nil, err
 	}
-	if !waiting && len(resp.Choices) > 0 && resp.Choices[0].Message.Content != "" {
+	if !waiting && len(response.Choices) > 0 && response.Choices[0].Message.Content != "" {
 		_, _ = s.CreateThreadMessage(ctx, threadID, &models.ThreadMessageRequest{
 			Role:    "assistant",
-			Content: json.RawMessage(quoteJSONString(resp.Choices[0].Message.Content)),
+			Content: json.RawMessage(quoteJSONString(response.Choices[0].Message.Content)),
 		})
 	}
-	return &out, nil
+	return &output, nil
 }

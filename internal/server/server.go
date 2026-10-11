@@ -17,7 +17,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	"github.com/TheSlopMachine/llm-router/internal/services/batches"
-	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
+	configservice "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/healthcheck"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
@@ -37,173 +37,173 @@ import (
 
 // Server is the fully-wired llm-router application with two listeners.
 type Server struct {
-	cfg          *config.Config
-	db           *db.DB
-	logger       *slog.Logger
-	dashboardSrv *http.Server
-	apiSrv       *http.Server
-	maintSvc     *maintenance.Service
-	metricsSvc   *metrics.Service
-	proxySvc     *proxypool.Service
+	applicationConfig  *config.Config
+	database           *db.DB
+	logger             *slog.Logger
+	dashboardServer    *http.Server
+	apiServer          *http.Server
+	maintenanceService *maintenance.Service
+	metricsService     *metrics.Service
+	proxyService       *proxypool.Service
 }
 
 // New builds the full Server from config.
-func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
-	database, err := db.Open(cfg.DBPath)
+func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error) {
+	database, err := db.Open(applicationConfig.DBPath)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
-	dashboardAddr := cfg.DashboardAddr
+	dashboardAddr := applicationConfig.DashboardAddr
 	if dashboardAddr == "" {
 		return nil, fmt.Errorf("dashboard listen address is required")
 	}
-	apiAddr := cfg.APIAddr
+	apiAddr := applicationConfig.APIAddr
 	if apiAddr == "" {
 		return nil, fmt.Errorf("api listen address is required")
 	}
 
-	luaSvc, err := luaplugin.New(database, logger)
+	luaService, err := luaplugin.New(database, logger)
 	if err != nil {
 		return nil, fmt.Errorf("init plugin service: %w", err)
 	}
 
-	providerSvc := provider.NewService(database)
-	providerSvc.SetLogger(logger)
-	providerSvc.SetLuaService(luaSvc)
+	providerService := provider.NewService(database)
+	providerService.SetLogger(logger)
+	providerService.SetLuaService(luaService)
 	genericAdapter := &generic.Adapter{}
 	genericAdapter.SetLogger(logger)
-	providerSvc.RegisterGoAdapter(genericAdapter)
-	if err := providerSvc.EnsureSeeded(); err != nil {
+	providerService.RegisterGoAdapter(genericAdapter)
+	if err := providerService.EnsureSeeded(); err != nil {
 		return nil, fmt.Errorf("seed providers: %w", err)
 	}
 
-	adminSvc := admin.New(database, providerSvc)
-	tokenSvc := token.New(database)
-	credSvc := credential.New(database, providerSvc)
-	credSvc.SetLogger(logger)
-	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
-	virtualSvc := virtual.New(database, providerSvc, modelInfoSvc)
-	configSvc := configsvc.New(database)
-	repoSvc := pluginrepo.New(database)
-	if err := repoSvc.PruneLegacyRepos(); err != nil {
+	adminService := admin.New(database, providerService)
+	tokenService := token.New(database)
+	credentialService := credential.New(database, providerService)
+	credentialService.SetLogger(logger)
+	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
+	virtualService := virtual.New(database, providerService, modelInfoService)
+	configService := configservice.New(database)
+	repositoryService := pluginrepo.New(database)
+	if err := repositoryService.PruneLegacyRepos(); err != nil {
 		return nil, fmt.Errorf("prune legacy plugin repos: %w", err)
 	}
-	if err := repoSvc.EnsureBuiltinRepos(); err != nil {
+	if err := repositoryService.EnsureBuiltinRepos(); err != nil {
 		return nil, fmt.Errorf("seed built-in plugin repos: %w", err)
 	}
-	videoJobsSvc := videojobs.New(database)
+	videoJobsService := videojobs.New(database)
 
 	// Proxy subsystem first: the plugin runtime and dashboard both read
 	// from it. Provider request routing never consults it: plugins query
 	// read-only and assign proxy_url per request.
-	proxySvc, err := proxypool.New(database)
+	proxyService, err := proxypool.New(database)
 	if err != nil {
 		return nil, fmt.Errorf("init proxy cache: %w", err)
 	}
-	proxySvc.SetLogger(logger)
-	proxySvc.SetSourceHandlers(luaSvc.ProxySourceKeys, luaSvc.FetchProxies)
+	proxyService.SetLogger(logger)
+	proxyService.SetSourceHandlers(luaService.ProxySourceKeys, luaService.FetchProxies)
 
-	routerSvc := router.New(providerSvc, credSvc, modelInfoSvc, videoJobsSvc, responses.New(database), batches.New(database), logger)
-	virtualAdapter := virtualadapter.New(routerSvc, virtualSvc, logger)
-	providerSvc.RegisterGoAdapter(virtualAdapter)
-	healthSvc := healthcheck.New(database, luaSvc, credSvc, providerSvc)
-	healthSvc.SetLogger(logger)
-	luaSvc.SetHealthTrigger(healthSvc)
-	luaSvc.SetMarkDead(proxySvc.MarkDead)
-	luaSvc.SetProxyQuery(proxySvc.Query)
-	luaSvc.SetProxyRequire(proxySvc.Require)
-	luaSvc.SetCredentialAccess(
-		func(providerID string) ([]*models.Credential, error) { return credSvc.ListUsable(providerID) },
-		func(id string) (*models.Credential, error) { return credSvc.Get(id) },
-		func(id string, data map[string]any) error { return credSvc.Update(id, data, nil) },
+	routerService := router.New(providerService, credentialService, modelInfoService, videoJobsService, responses.New(database), batches.New(database), logger)
+	virtualAdapter := virtualadapter.New(routerService, virtualService, logger)
+	providerService.RegisterGoAdapter(virtualAdapter)
+	healthService := healthcheck.New(database, luaService, credentialService, providerService)
+	healthService.SetLogger(logger)
+	luaService.SetHealthTrigger(healthService)
+	luaService.SetMarkDead(proxyService.MarkDead)
+	luaService.SetProxyQuery(proxyService.Query)
+	luaService.SetProxyRequire(proxyService.Require)
+	luaService.SetCredentialAccess(
+		func(providerID string) ([]*models.Credential, error) { return credentialService.ListUsable(providerID) },
+		func(id string) (*models.Credential, error) { return credentialService.Get(id) },
+		func(id string, data map[string]any) error { return credentialService.Update(id, data, nil) },
 	)
-	luaSvc.SetCredentialLifecycle(
-		credSvc.DisableByPlugin,
-		credSvc.EnableByPlugin,
+	luaService.SetCredentialLifecycle(
+		credentialService.DisableByPlugin,
+		credentialService.EnableByPlugin,
 		func(providerID string) bool {
-			inst, err := providerSvc.Get(providerID)
-			if err != nil || inst == nil {
+			instance, err := providerService.Get(providerID)
+			if err != nil || instance == nil {
 				return false
 			}
-			return models.CredentialAutomationOn(inst.Config)
+			return models.CredentialAutomationOn(instance.Config)
 		},
 	)
-	luaSvc.SetCredentialParks(credSvc.Park, credSvc.Unpark, credSvc.Parked)
-	luaSvc.SetOnChanged(func(_ string) {
-		_ = proxySvc.RequestIngest()
+	luaService.SetCredentialParks(credentialService.Park, credentialService.Unpark, credentialService.Parked)
+	luaService.SetOnChanged(func(_ string) {
+		_ = proxyService.RequestIngest()
 	})
 
-	maintSvc := maintenance.New(luaSvc, providerSvc, database, logger)
-	maintSvc.SetModelInfoService(modelInfoSvc)
-	metricsSvc := metrics.New(database, logger)
-	metricsSvc.Start()
+	maintenanceService := maintenance.New(luaService, providerService, database, logger)
+	maintenanceService.SetModelInfoService(modelInfoService)
+	metricsService := metrics.New(database, logger)
+	metricsService.Start()
 
-	modelInfoSvc.SetLogger(logger)
-	virtualSvc.SetLogger(logger)
+	modelInfoService.SetLogger(logger)
+	virtualService.SetLogger(logger)
 
 	// Model caches persist in bbolt; warm the missing ones in the background
 	// so first clicks never wait on upstream discovery.
-	go modelInfoSvc.WarmMissing(context.Background())
+	go modelInfoService.WarmMissing(context.Background())
 
-	startupCleanup(logger, credSvc, providerSvc)
+	startupCleanup(logger, credentialService, providerService)
 	migrateClearCredentialQuota(logger, database)
 
-	if cfg.NoAuth {
+	if applicationConfig.NoAuth {
 		bootstrapped, err := database.IsBootstrapped()
 		if err != nil || !bootstrapped {
 			logger.Warn("no-auth mode with no admin account: dropping --no-auth later will require bootstrap")
 		}
 	}
 
-	wireInvalidation(logger, providerSvc, modelInfoSvc, luaSvc)
+	wireInvalidation(logger, providerService, modelInfoService, luaService)
 
-	dashMux := http.NewServeMux()
-	dash, err := dashboard.New(dashboard.Params{
-		AdminSvc: adminSvc, ProviderSvc: providerSvc, CredSvc: credSvc,
-		TokenSvc: tokenSvc, ModelInfoSvc: modelInfoSvc, MetricsSvc: metricsSvc,
-		VirtualSvc: virtualSvc, RouterSvc: routerSvc, ConfigSvc: configSvc,
-		LuaSvc: luaSvc, RepoSvc: repoSvc, ProxySvc: proxySvc, MaintSvc: maintSvc,
+	dashboardMux := http.NewServeMux()
+	dashboardHandler, err := dashboard.New(dashboard.Params{
+		AdminSvc: adminService, ProviderSvc: providerService, CredSvc: credentialService,
+		TokenSvc: tokenService, ModelInfoSvc: modelInfoService, MetricsSvc: metricsService,
+		VirtualSvc: virtualService, RouterSvc: routerService, ConfigSvc: configService,
+		LuaSvc: luaService, RepoSvc: repositoryService, ProxySvc: proxyService, MaintSvc: maintenanceService,
 		Logger: logger,
-		NoAuth: cfg.NoAuth,
+		NoAuth: applicationConfig.NoAuth,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard handler: %w", err)
 	}
-	if cfg.DevUIRedirect != "" {
-		dash.SetDevRedirect(cfg.DevUIRedirect)
+	if applicationConfig.DevUIRedirect != "" {
+		dashboardHandler.SetDevRedirect(applicationConfig.DevUIRedirect)
 	}
-	dash.Register(dashMux, database)
-	dashHandler := bootstrapMiddleware(database, cfg.NoAuth)(requestLogger(logger, dashMux))
+	dashboardHandler.Register(dashboardMux, database)
+	dashHandler := bootstrapMiddleware(database, applicationConfig.NoAuth)(requestLogger(logger, dashboardMux))
 
 	apiMux := http.NewServeMux()
 	apiV1 := v1.New(v1.Params{
-		Tokens: tokenSvc, RouterSvc: routerSvc, MetricsSvc: metricsSvc,
-		ProviderSvc: providerSvc, ModelInfoSvc: modelInfoSvc,
-		VirtualSvc: virtualSvc, Logger: logger, NoAuth: cfg.NoAuth,
+		Tokens: tokenService, RouterSvc: routerService, MetricsSvc: metricsService,
+		ProviderSvc: providerService, ModelInfoSvc: modelInfoService,
+		VirtualSvc: virtualService, Logger: logger, NoAuth: applicationConfig.NoAuth,
 	})
 	apiV1.Register(apiMux)
 
 	apiHandler := requestLogger(logger, apiMux)
 
-	dashboardSrv := &http.Server{
+	dashboardServer := &http.Server{
 		Addr:    dashboardAddr,
 		Handler: dashHandler,
 	}
-	apiSrv := &http.Server{
+	apiServer := &http.Server{
 		Addr:    apiAddr,
 		Handler: apiHandler,
 	}
 
 	return &Server{
-		cfg:          cfg,
-		db:           database,
-		logger:       logger,
-		dashboardSrv: dashboardSrv,
-		apiSrv:       apiSrv,
-		maintSvc:     maintSvc,
-		metricsSvc:   metricsSvc,
-		proxySvc:     proxySvc,
+		applicationConfig:  applicationConfig,
+		database:           database,
+		logger:             logger,
+		dashboardServer:    dashboardServer,
+		apiServer:          apiServer,
+		maintenanceService: maintenanceService,
+		metricsService:     metricsService,
+		proxyService:       proxyService,
 	}, nil
 }
 
@@ -217,40 +217,40 @@ func (s *Server) Run(ctx context.Context) error {
 	// Run startup plugin jobs before serving traffic so a restarted
 	// router refreshes-around stale state while the ticker runs.
 	rgate, cancel := context.WithTimeout(ctx, startupRefreshTimeout)
-	s.maintSvc.RunStartupRefresh(rgate)
+	s.maintenanceService.RunStartupRefresh(rgate)
 	cancel()
-	s.proxySvc.Start(ctx)
-	s.maintSvc.Start(ctx)
-	s.logger.Info("llm-router started", "dashboard", s.cfg.DashboardAddr, "api", s.cfg.APIAddr, "db", s.cfg.DBPath)
+	s.proxyService.Start(ctx)
+	s.maintenanceService.Start(ctx)
+	s.logger.Info("llm-router started", "dashboard", s.applicationConfig.DashboardAddr, "api", s.applicationConfig.APIAddr, "db", s.applicationConfig.DBPath)
 
-	errCh := make(chan error, 2)
+	errorChannel := make(chan error, 2)
 	go func() {
-		if err := s.dashboardSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errCh <- fmt.Errorf("dashboard server: %w", err)
+		if err := s.dashboardServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errorChannel <- fmt.Errorf("dashboard server: %w", err)
 		}
 	}()
 	go func() {
-		if err := s.apiSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errCh <- fmt.Errorf("api server: %w", err)
+		if err := s.apiServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errorChannel <- fmt.Errorf("api server: %w", err)
 		}
 	}()
 
 	select {
 	case <-ctx.Done():
 		s.logger.Info("shutting down gracefully...")
-		s.metricsSvc.Stop()
-		_ = s.dashboardSrv.Shutdown(context.Background())
-		_ = s.apiSrv.Shutdown(context.Background())
+		s.metricsService.Stop()
+		_ = s.dashboardServer.Shutdown(context.Background())
+		_ = s.apiServer.Shutdown(context.Background())
 		return nil
-	case err := <-errCh:
-		s.metricsSvc.Stop()
-		_ = s.dashboardSrv.Shutdown(context.Background())
-		_ = s.apiSrv.Shutdown(context.Background())
+	case err := <-errorChannel:
+		s.metricsService.Stop()
+		_ = s.dashboardServer.Shutdown(context.Background())
+		_ = s.apiServer.Shutdown(context.Background())
 		return fmt.Errorf("http server: %w", err)
 	}
 }
 
 // Close releases the database handle. Call after Run returns.
 func (s *Server) Close() error {
-	return s.db.Close()
+	return s.database.Close()
 }

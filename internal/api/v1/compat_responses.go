@@ -44,45 +44,45 @@ func listEnvelope[T any](items []*T) map[string]any {
 // @Failure      503 {object} models.OpenAIError "Service Unavailable - no credential available"
 // @Router       /v1/responses [post]
 // @Security     BearerAuth
-func (h *Handler) createResponse(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) createResponse(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	start := time.Now()
-	var req models.ResponseRequest
-	if err := decodeJSONBody(w, r, &req); err != nil {
+	var request models.ResponseRequest
+	if err := decodeJSONBody(w, r, &request); err != nil {
 		h.writeDecodeError(w, err)
 		return
 	}
-	if req.Model == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", strPtr("model"))
+	if request.Model == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", stringPointer("model"))
 		return
 	}
-	if deny := authorizeModel(t, req.Model); deny != nil {
-		h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
-	resp, err := h.router.CreateResponse(r.Context(), &req, t)
+	response, err := h.router.CreateResponse(r.Context(), &request, token)
 	duration := time.Since(start)
 	var usage *models.ChatCompletionUsage
-	if err == nil && resp != nil && resp.Usage != nil {
+	if err == nil && response != nil && response.Usage != nil {
 		usage = &models.ChatCompletionUsage{
-			PromptTokens:     resp.Usage.InputTokens,
-			CompletionTokens: resp.Usage.OutputTokens,
-			TotalTokens:      resp.Usage.TotalTokens,
+			PromptTokens:     response.Usage.InputTokens,
+			CompletionTokens: response.Usage.OutputTokens,
+			TotalTokens:      response.Usage.TotalTokens,
 		}
 	}
-	h.recordRouteMetric(r.Context(), start, req.Model, t, duration, err, usage)
+	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, usage)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	if req.Stream {
-		h.streamResponseObject(w, r, resp)
+	if request.Stream {
+		h.streamResponseObject(w, r, response)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, resp)
+	h.writeJSON(w, http.StatusOK, response)
 }
 
 // streamResponseObject emits a completed response as response.* SSE events.
-func (h *Handler) streamResponseObject(w http.ResponseWriter, r *http.Request, resp *models.ResponseObject) {
+func (h *Handler) streamResponseObject(w http.ResponseWriter, r *http.Request, response *models.ResponseObject) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		h.writeError(w, http.StatusInternalServerError, "server_error", "streaming is not supported by this server", nil)
@@ -91,23 +91,23 @@ func (h *Handler) streamResponseObject(w http.ResponseWriter, r *http.Request, r
 	httpkit.WriteSSEHeaders(w)
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
-	emit := func(event string, v any) {
-		raw, err := json.Marshal(v)
+	emit := func(event string, value any) {
+		raw, err := json.Marshal(value)
 		if err != nil {
 			return
 		}
 		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, string(raw))
 		flusher.Flush()
 	}
-	creating := *resp
+	creating := *response
 	creating.Status = "in_progress"
 	emit("response.created", creating)
-	for i, item := range resp.Output {
+	for i, item := range response.Output {
 		if item.Type == "message" && item.Text != "" {
 			emit("response.output_text.delta", map[string]any{"output_index": i, "delta": item.Text})
 		}
 	}
-	emit("response.completed", resp)
+	emit("response.completed", response)
 }
 
 // getResponse handles GET /v1/responses/{response_id}
@@ -123,18 +123,18 @@ func (h *Handler) streamResponseObject(w http.ResponseWriter, r *http.Request, r
 // @Failure      404 {object} models.OpenAIError "Unknown response"
 // @Router       /v1/responses/{response_id} [get]
 // @Security     BearerAuth
-func (h *Handler) getResponse(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) getResponse(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id := strings.TrimSpace(r.PathValue("response_id"))
 	if id == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "response id is required", nil)
 		return
 	}
-	resp, err := h.router.GetResponse(r.Context(), id, t)
+	response, err := h.router.GetResponse(r.Context(), id, token)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, resp)
+	h.writeJSON(w, http.StatusOK, response)
 }
 
 // cancelResponse handles POST /v1/responses/{response_id}/cancel
@@ -151,18 +151,18 @@ func (h *Handler) getResponse(w http.ResponseWriter, r *http.Request, t *models.
 // @Failure      404 {object} models.OpenAIError "Unknown response"
 // @Router       /v1/responses/{response_id}/cancel [post]
 // @Security     BearerAuth
-func (h *Handler) cancelResponse(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) cancelResponse(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id := strings.TrimSpace(r.PathValue("response_id"))
 	if id == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "response id is required", nil)
 		return
 	}
-	resp, err := h.router.CancelResponse(r.Context(), id, t)
+	response, err := h.router.CancelResponse(r.Context(), id, token)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, resp)
+	h.writeJSON(w, http.StatusOK, response)
 }
 
 // listResponseInputItems handles GET /v1/responses/{response_id}/input_items
@@ -177,13 +177,13 @@ func (h *Handler) cancelResponse(w http.ResponseWriter, r *http.Request, t *mode
 // @Failure      404 {object} models.OpenAIError "Unknown response"
 // @Router       /v1/responses/{response_id}/input_items [get]
 // @Security     BearerAuth
-func (h *Handler) listResponseInputItems(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) listResponseInputItems(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id := strings.TrimSpace(r.PathValue("response_id"))
 	if id == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "response id is required", nil)
 		return
 	}
-	items, err := h.router.ListResponseInputItems(r.Context(), id, t)
+	items, err := h.router.ListResponseInputItems(r.Context(), id, token)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
@@ -204,7 +204,7 @@ func (h *Handler) listResponseInputItems(w http.ResponseWriter, r *http.Request,
 // @Failure      404 {object} models.OpenAIError "Unknown response"
 // @Router       /v1/responses/compact [post]
 // @Security     BearerAuth
-func (h *Handler) compactResponse(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) compactResponse(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	var body struct {
 		ResponseID string `json:"response_id"`
 	}
@@ -213,15 +213,15 @@ func (h *Handler) compactResponse(w http.ResponseWriter, r *http.Request, t *mod
 		return
 	}
 	if strings.TrimSpace(body.ResponseID) == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'response_id'", strPtr("response_id"))
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'response_id'", stringPointer("response_id"))
 		return
 	}
-	resp, err := h.router.CompactResponse(r.Context(), strings.TrimSpace(body.ResponseID), t)
+	response, err := h.router.CompactResponse(r.Context(), strings.TrimSpace(body.ResponseID), token)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, resp)
+	h.writeJSON(w, http.StatusOK, response)
 }
 
 // countResponseInputTokens handles POST /v1/responses/input_tokens
@@ -237,19 +237,19 @@ func (h *Handler) compactResponse(w http.ResponseWriter, r *http.Request, t *mod
 // @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
 // @Router       /v1/responses/input_tokens [post]
 // @Security     BearerAuth
-func (h *Handler) countResponseInputTokens(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
-	var req models.ResponseRequest
-	if err := decodeJSONBody(w, r, &req); err != nil {
+func (h *Handler) countResponseInputTokens(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
+	var request models.ResponseRequest
+	if err := decodeJSONBody(w, r, &request); err != nil {
 		h.writeDecodeError(w, err)
 		return
 	}
-	if req.Model != "" {
-		if deny := authorizeModel(t, req.Model); deny != nil {
-			h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+	if request.Model != "" {
+		if deny := authorizeModel(token, request.Model); deny != nil {
+			h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 			return
 		}
 	}
-	h.writeJSON(w, http.StatusOK, map[string]any{"input_tokens": h.router.CountResponseInputTokens(&req)})
+	h.writeJSON(w, http.StatusOK, map[string]any{"input_tokens": h.router.CountResponseInputTokens(&request)})
 }
 
 // listEnvelopeItems wraps input items in the list envelope.
@@ -276,7 +276,7 @@ func listEnvelopeItems(items []models.ResponseInputItem) map[string]any {
 // @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
 // @Router       /v1/conversations [post]
 // @Security     BearerAuth
-func (h *Handler) createConversation(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) createConversation(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	var body struct {
 		Metadata map[string]string          `json:"metadata"`
 		Items    []models.ResponseInputItem `json:"items"`
@@ -285,12 +285,12 @@ func (h *Handler) createConversation(w http.ResponseWriter, r *http.Request, t *
 		h.writeDecodeError(w, err)
 		return
 	}
-	conv, err := h.router.CreateConversation(r.Context(), "", body.Metadata, body.Items)
+	conversation, err := h.router.CreateConversation(r.Context(), "", body.Metadata, body.Items)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, conv)
+	h.writeJSON(w, http.StatusOK, conversation)
 }
 
 // getConversation handles GET /v1/conversations/{conversation_id}
@@ -305,18 +305,18 @@ func (h *Handler) createConversation(w http.ResponseWriter, r *http.Request, t *
 // @Failure      404 {object} models.OpenAIError "Unknown conversation"
 // @Router       /v1/conversations/{conversation_id} [get]
 // @Security     BearerAuth
-func (h *Handler) getConversation(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) getConversation(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id := strings.TrimSpace(r.PathValue("conversation_id"))
 	if id == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "conversation id is required", nil)
 		return
 	}
-	conv, err := h.router.GetConversation(r.Context(), id, t)
+	conversation, err := h.router.GetConversation(r.Context(), id, token)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, conv)
+	h.writeJSON(w, http.StatusOK, conversation)
 }
 
 // deleteConversation handles DELETE /v1/conversations/{conversation_id}
@@ -332,7 +332,7 @@ func (h *Handler) getConversation(w http.ResponseWriter, r *http.Request, t *mod
 // @Failure      404 {object} models.OpenAIError "Unknown conversation"
 // @Router       /v1/conversations/{conversation_id} [delete]
 // @Security     BearerAuth
-func (h *Handler) deleteConversation(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) deleteConversation(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id := strings.TrimSpace(r.PathValue("conversation_id"))
 	if id == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "conversation id is required", nil)
@@ -357,13 +357,13 @@ func (h *Handler) deleteConversation(w http.ResponseWriter, r *http.Request, t *
 // @Failure      404 {object} models.OpenAIError "Unknown conversation"
 // @Router       /v1/conversations/{conversation_id}/items [get]
 // @Security     BearerAuth
-func (h *Handler) listConversationItems(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) listConversationItems(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id := strings.TrimSpace(r.PathValue("conversation_id"))
 	if id == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "conversation id is required", nil)
 		return
 	}
-	items, err := h.router.ListConversationItems(r.Context(), id, t)
+	items, err := h.router.ListConversationItems(r.Context(), id, token)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
@@ -384,7 +384,7 @@ func (h *Handler) listConversationItems(w http.ResponseWriter, r *http.Request, 
 // @Failure      404 {object} models.OpenAIError "Unknown conversation"
 // @Router       /v1/conversations/{conversation_id}/items [post]
 // @Security     BearerAuth
-func (h *Handler) createConversationItems(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) createConversationItems(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id := strings.TrimSpace(r.PathValue("conversation_id"))
 	if id == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "conversation id is required", nil)
@@ -397,7 +397,7 @@ func (h *Handler) createConversationItems(w http.ResponseWriter, r *http.Request
 		h.writeDecodeError(w, err)
 		return
 	}
-	items, err := h.router.AppendConversationItems(r.Context(), id, t, body.Items)
+	items, err := h.router.AppendConversationItems(r.Context(), id, token, body.Items)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return

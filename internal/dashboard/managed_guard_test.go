@@ -6,7 +6,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
-func managedVM() *models.VirtualModel {
+func managedVirtualModel() *models.VirtualModel {
 	return &models.VirtualModel{
 		Name:        "P Chat",
 		Description: "auto",
@@ -17,8 +17,8 @@ func managedVM() *models.VirtualModel {
 }
 
 func TestManagedUpdateIsToggleOnly_AllowsDisabledFlip(t *testing.T) {
-	existing := managedVM()
-	incoming := managedVM()
+	existing := managedVirtualModel()
+	incoming := managedVirtualModel()
 	incoming.Disabled = !existing.Disabled
 	if !managedUpdateIsToggleOnly(existing, incoming) {
 		t.Fatal("disabled-only flip must be allowed")
@@ -26,17 +26,17 @@ func TestManagedUpdateIsToggleOnly_AllowsDisabledFlip(t *testing.T) {
 }
 
 func TestManagedUpdateIsToggleOnly_RejectsEdits(t *testing.T) {
-	cases := map[string]func(vm *models.VirtualModel){
-		"name":        func(vm *models.VirtualModel) { vm.Name = "other" },
-		"description": func(vm *models.VirtualModel) { vm.Description = "other" },
-		"instruction": func(vm *models.VirtualModel) { vm.Instruction = "other" },
-		"marker":      func(vm *models.VirtualModel) { vm.ManagedBy = "provider:p:tts" },
-		"members":     func(vm *models.VirtualModel) { vm.Models = vm.Models[:1] },
+	cases := map[string]func(virtualModel *models.VirtualModel){
+		"name":        func(virtualModel *models.VirtualModel) { virtualModel.Name = "other" },
+		"description": func(virtualModel *models.VirtualModel) { virtualModel.Description = "other" },
+		"instruction": func(virtualModel *models.VirtualModel) { virtualModel.Instruction = "other" },
+		"marker":      func(virtualModel *models.VirtualModel) { virtualModel.ManagedBy = "provider:p:tts" },
+		"members":     func(virtualModel *models.VirtualModel) { virtualModel.Models = virtualModel.Models[:1] },
 	}
 	for label, mutate := range cases {
-		incoming := managedVM()
+		incoming := managedVirtualModel()
 		mutate(incoming)
-		if managedUpdateIsToggleOnly(managedVM(), incoming) {
+		if managedUpdateIsToggleOnly(managedVirtualModel(), incoming) {
 			t.Fatalf("%s edit must be rejected", label)
 		}
 	}

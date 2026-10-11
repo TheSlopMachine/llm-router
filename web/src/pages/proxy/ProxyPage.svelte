@@ -57,15 +57,15 @@
   ]
 
   type LiveSource = ProxyStatus['sources'][number]
-  interface MergedSource { name: string; cfg: ProxySourceInfo | null; live: LiveSource | null }
+  interface MergedSource { name: string; configuration: ProxySourceInfo | null; live: LiveSource | null }
   const mergedSources = $derived.by<MergedSource[]>(() => {
     const live = status?.sources ?? []
-    const rows: MergedSource[] = sources.map((cfg) => ({
-      name: cfg.name,
-      cfg,
-      live: live.find((l) => l.source === cfg.name) ?? null,
+    const rows: MergedSource[] = sources.map((source) => ({
+      name: source.name,
+      configuration: source,
+      live: live.find((l) => l.source === source.name) ?? null,
     }))
-    for (const l of live) if (!rows.some((r) => r.name === l.source)) rows.push({ name: l.source, cfg: null, live: l })
+    for (const l of live) if (!rows.some((r) => r.name === l.source)) rows.push({ name: l.source, configuration: null, live: l })
     return rows
   })
 
@@ -376,13 +376,13 @@
           {@const src = row as MergedSource}
           {#if column.key === 'name'}
             <Text variant="value">{src.name}</Text>
-            {#if src.cfg}<Text variant="caption" class="src-key">{src.cfg.key}</Text>{/if}
-            {#if src.cfg?.last_error}<Text tone="danger" variant="caption">{src.cfg.last_error}</Text>{/if}
+            {#if src.configuration}<Text variant="caption" class="src-key">{src.configuration.key}</Text>{/if}
+            {#if src.configuration?.last_error}<Text tone="danger" variant="caption">{src.configuration.last_error}</Text>{/if}
           {:else if column.key === 'fetched'}
-            {@const lf = src.cfg?.last_fetch_at}{#if lf && !lf.startsWith('0001-')}<RelativeTime date={lf} locale={locale()} />{:else}<Text size="sm">—</Text>{/if}
+            {@const lf = src.configuration?.last_fetch_at}{#if lf && !lf.startsWith('0001-')}<RelativeTime date={lf} locale={locale()} />{:else}<Text size="sm">—</Text>{/if}
           {:else if column.key === 'candidates'}
-            <Text size="sm">{src.cfg ? src.cfg.total : '—'}</Text>
-            {#if src.cfg && src.cfg.unsupported > 0}<Text variant="caption">{t('proxy.sources.unsupported')}: {src.cfg.unsupported}</Text>{/if}
+            <Text size="sm">{src.configuration ? src.configuration.total : '—'}</Text>
+            {#if src.configuration && src.configuration.unsupported > 0}<Text variant="caption">{t('proxy.sources.unsupported')}: {src.configuration.unsupported}</Text>{/if}
           {:else if column.key === 'alive'}
             <Text size="sm" tone="success">{src.live?.alive ?? '—'}</Text>
           {:else if column.key === 'suspect'}
@@ -394,15 +394,15 @@
         {#snippet card({ row })}
           {@const src = row as MergedSource}
           <Text variant="value">{src.name}</Text>
-          {#if src.cfg}<Text variant="caption" class="src-key">{src.cfg.key}</Text>{/if}
+          {#if src.configuration}<Text variant="caption" class="src-key">{src.configuration.key}</Text>{/if}
           {#if src.live}
             <Text variant="caption">{t('proxy.pool.alive')}: {src.live.alive} · {t('proxy.pool.suspect')}: {src.live.suspect} · {t('proxy.pool.banned')}: {src.live.banned}</Text>
           {/if}
-          {#if src.cfg}
-            <Text variant="caption">{t('proxy.sources.last_fetched')}: {formatTime(src.cfg.last_fetch_at)} · {t('proxy.sources.candidates')}: {src.cfg.total} · {t('proxy.sources.unsupported')}: {src.cfg.unsupported}</Text>
+          {#if src.configuration}
+            <Text variant="caption">{t('proxy.sources.last_fetched')}: {formatTime(src.configuration.last_fetch_at)} · {t('proxy.sources.candidates')}: {src.configuration.total} · {t('proxy.sources.unsupported')}: {src.configuration.unsupported}</Text>
           {/if}
           {#if src.live && formatBanReasons(src.live.ban_reasons)}<Text size="sm" mono>{formatBanReasons(src.live.ban_reasons)}</Text>{/if}
-          {#if src.cfg?.last_error}<Text tone="danger" variant="caption">{src.cfg.last_error}</Text>{/if}
+          {#if src.configuration?.last_error}<Text tone="danger" variant="caption">{src.configuration.last_error}</Text>{/if}
         {/snippet}
         {#snippet empty()}
           <EmptyState title={t('proxy.no_sources')} icon="extension" />

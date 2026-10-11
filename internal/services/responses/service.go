@@ -2,7 +2,7 @@
 //
 // Responses, conversations, assistants, threads, thread messages and runs
 // share one bucket (ResponseRecord envelope with a Kind discriminator),
-// modeled on the videojobs service: one public method, one db.Update.
+// modeled on the videojobs service: one public method, one database.Update.
 package responses
 
 import (
@@ -18,80 +18,80 @@ import (
 
 // Service owns ResponseRecord rows in the responses bucket.
 type Service struct {
-	repo *repository.Repository[models.ResponseRecord]
+	store *repository.Repository[models.ResponseRecord]
 }
 
 // New constructs a responses Service. Construction performs no I/O.
 func New(database *db.DB) *Service {
 	return &Service{
-		repo: repository.New[models.ResponseRecord](database, db.BucketResponses, "compat record"),
+		store: repository.New[models.ResponseRecord](database, db.BucketResponses, "compat record"),
 	}
 }
 
-// Create persists a new record: one public method, one db.Update.
-func (s *Service) Create(rec *models.ResponseRecord) error {
-	if rec == nil {
+// Create persists a new record: one public method, one database.Update.
+func (s *Service) Create(record *models.ResponseRecord) error {
+	if record == nil {
 		return errors.New("compat record is required")
 	}
-	if rec.ID == "" {
+	if record.ID == "" {
 		return errors.New("compat record id is required")
 	}
 	now := time.Now()
-	rec.CreatedAt = now
-	rec.UpdatedAt = now
-	return s.repo.Put(rec.ID, rec)
+	record.CreatedAt = now
+	record.UpdatedAt = now
+	return s.store.Put(record.ID, record)
 }
 
 // Get returns the record by ID, optionally asserting its kind.
 func (s *Service) Get(id string, kinds ...models.ResponseRecordKind) (*models.ResponseRecord, error) {
-	rec, err := s.repo.Get(id)
+	record, err := s.store.Get(id)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, apierrors.NewNotFoundError("compat record", id)
 		}
 		return nil, err
 	}
-	for _, k := range kinds {
-		if rec.Kind == k {
-			return rec, nil
+	for _, kind := range kinds {
+		if record.Kind == kind {
+			return record, nil
 		}
 	}
 	if len(kinds) > 0 {
 		return nil, apierrors.NewNotFoundError("compat record", id)
 	}
-	return rec, nil
+	return record, nil
 }
 
-// Update rewrites a record in place: one public method, one db.Update.
-func (s *Service) Update(rec *models.ResponseRecord) error {
-	if rec == nil || rec.ID == "" {
+// Update rewrites a record in place: one public method, one database.Update.
+func (s *Service) Update(record *models.ResponseRecord) error {
+	if record == nil || record.ID == "" {
 		return errors.New("compat record id is required")
 	}
-	return s.repo.Update(rec.ID, func(cur *models.ResponseRecord) error {
-		rec.CreatedAt = cur.CreatedAt
-		rec.UpdatedAt = time.Now()
-		*cur = *rec
+	return s.store.Update(record.ID, func(current *models.ResponseRecord) error {
+		record.CreatedAt = current.CreatedAt
+		record.UpdatedAt = time.Now()
+		*current = *record
 		return nil
 	})
 }
 
 // Delete removes a record. Missing rows are not errors.
 func (s *Service) Delete(id string) error {
-	return s.repo.DeleteIfExists(id)
+	return s.store.DeleteIfExists(id)
 }
 
 // List returns records of the given kinds (empty kinds = all), oldest first.
 // ParentID filters thread children and run bindings when non-empty.
 func (s *Service) List(kinds []models.ResponseRecordKind, parentID string) ([]*models.ResponseRecord, error) {
-	want := map[models.ResponseRecordKind]bool{}
-	for _, k := range kinds {
-		want[k] = true
+	wantedKinds := map[models.ResponseRecordKind]bool{}
+	for _, kind := range kinds {
+		wantedKinds[kind] = true
 	}
-	recs, err := s.repo.ListFiltered(func(r *models.ResponseRecord) bool {
-		if len(want) > 0 && !want[r.Kind] {
+	records, err := s.store.ListFiltered(func(record *models.ResponseRecord) bool {
+		if len(wantedKinds) > 0 && !wantedKinds[record.Kind] {
 			return false
 		}
-		if parentID != "" && r.ParentID != parentID {
+		if parentID != "" && record.ParentID != parentID {
 			return false
 		}
 		return true
@@ -99,16 +99,16 @@ func (s *Service) List(kinds []models.ResponseRecordKind, parentID string) ([]*m
 	if err != nil {
 		return nil, err
 	}
-	if recs == nil {
-		recs = []*models.ResponseRecord{}
+	if records == nil {
+		records = []*models.ResponseRecord{}
 	}
 	// Oldest first: bucket order is key-lexicographic, and IDs are random,
 	// so creation order needs an explicit sort (ID tiebreaks clock ties).
-	sort.Slice(recs, func(i, j int) bool {
-		if recs[i].CreatedAt.Equal(recs[j].CreatedAt) {
-			return recs[i].ID < recs[j].ID
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].CreatedAt.Equal(records[j].CreatedAt) {
+			return records[i].ID < records[j].ID
 		}
-		return recs[i].CreatedAt.Before(recs[j].CreatedAt)
+		return records[i].CreatedAt.Before(records[j].CreatedAt)
 	})
-	return recs, nil
+	return records, nil
 }

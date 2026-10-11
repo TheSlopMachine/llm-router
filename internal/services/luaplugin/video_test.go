@@ -59,21 +59,21 @@ llm_router.register("vid-type", {
 `
 
 func videoMeta() HandlerMeta {
-	return testMeta("vid-type",
+	return testMetadata("vid-type",
 		&models.Credential{ID: "c1", Data: map[string]any{"api_key": "k"}}, "vid-type/veo", nil)
 }
 
 func TestVideoHandlers_Success(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(videoPluginSource), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(videoPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	for _, h := range []string{"generate_video", "poll_video", "video_content"} {
-		if !svc.HasHandler("vid-type", h) {
+		if !service.HasHandler("vid-type", h) {
 			t.Fatalf("%s handler must be registered", h)
 		}
 	}
-	sub, err := svc.SubmitVideo(context.Background(), videoMeta(), &models.VideoGenerationRequest{
+	sub, err := service.SubmitVideo(context.Background(), videoMeta(), &models.VideoGenerationRequest{
 		Model: "vid-type/veo", Prompt: "a cat", Duration: 8, Resolution: "720p",
 		FrameImages: []models.VideoFrameImage{{
 			Type:      "image_url",
@@ -87,7 +87,7 @@ func TestVideoHandlers_Success(t *testing.T) {
 	if sub.ID != "up-123" || sub.Status != models.VideoStatusPending {
 		t.Fatalf("submit: %+v", sub)
 	}
-	polled, err := svc.PollVideo(context.Background(), videoMeta(), "vid-type/veo", "up-123")
+	polled, err := service.PollVideo(context.Background(), videoMeta(), "vid-type/veo", "up-123")
 	if err != nil {
 		t.Fatalf("poll: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestVideoHandlers_Success(t *testing.T) {
 	if polled.Usage == nil || polled.Usage.Cost == nil || *polled.Usage.Cost != 0.5 {
 		t.Fatalf("usage: %+v", polled.Usage)
 	}
-	content, err := svc.VideoContent(context.Background(), videoMeta(), "vid-type/veo", "up-123", 0)
+	content, err := service.VideoContent(context.Background(), videoMeta(), "vid-type/veo", "up-123", 0)
 	if err != nil {
 		t.Fatalf("content: %v", err)
 	}
@@ -107,30 +107,30 @@ func TestVideoHandlers_Success(t *testing.T) {
 }
 
 func TestVideoHandlers_NotFound(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	meta := testMeta("test-type", &models.Credential{ID: "c1"}, "test-type/model-a", nil)
-	if _, err := svc.SubmitVideo(context.Background(), meta, &models.VideoGenerationRequest{Model: "test-type/model-a"}); !errors.Is(err, ErrHandlerNotFound) {
+	handlerMetadata := testMetadata("test-type", &models.Credential{ID: "c1"}, "test-type/model-a", nil)
+	if _, err := service.SubmitVideo(context.Background(), handlerMetadata, &models.VideoGenerationRequest{Model: "test-type/model-a"}); !errors.Is(err, ErrHandlerNotFound) {
 		t.Fatalf("submit: expected ErrHandlerNotFound, got %v", err)
 	}
-	if _, err := svc.PollVideo(context.Background(), meta, "test-type/model-a", "up-1"); !errors.Is(err, ErrHandlerNotFound) {
+	if _, err := service.PollVideo(context.Background(), handlerMetadata, "test-type/model-a", "up-1"); !errors.Is(err, ErrHandlerNotFound) {
 		t.Fatalf("poll: expected ErrHandlerNotFound, got %v", err)
 	}
-	if _, err := svc.VideoContent(context.Background(), meta, "test-type/model-a", "up-1", 0); !errors.Is(err, ErrHandlerNotFound) {
+	if _, err := service.VideoContent(context.Background(), handlerMetadata, "test-type/model-a", "up-1", 0); !errors.Is(err, ErrHandlerNotFound) {
 		t.Fatalf("content: expected ErrHandlerNotFound, got %v", err)
 	}
 }
 
 func TestVideoHandlers_UnknownStatus(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	src := strings.Replace(videoPluginSource, `status = "pending",`, `status = "queued",`, 1)
 	src = strings.Replace(src, "Video Plugin", "Video Bad Status", 1)
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.SubmitVideo(context.Background(), videoMeta(), &models.VideoGenerationRequest{Model: "vid-type/veo"})
+	_, err := service.SubmitVideo(context.Background(), videoMeta(), &models.VideoGenerationRequest{Model: "vid-type/veo"})
 	var perr *models.PluginInternalError
 	if !errors.As(err, &perr) || !strings.Contains(perr.Cause, "unknown job status") {
 		t.Fatalf("expected PluginInternalError about unknown status, got %v", err)
@@ -138,13 +138,13 @@ func TestVideoHandlers_UnknownStatus(t *testing.T) {
 }
 
 func TestVideoHandlers_BadBase64(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	src := strings.Replace(videoPluginSource, `video_b64 = "RkFLRUZUWVA="`, `video_b64 = "!!!not-base64!!!"`, 1)
 	src = strings.Replace(src, "Video Plugin", "Video Bad B64", 1)
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.VideoContent(context.Background(), videoMeta(), "vid-type/veo", "up-123", 0)
+	_, err := service.VideoContent(context.Background(), videoMeta(), "vid-type/veo", "up-123", 0)
 	var perr *models.PluginInternalError
 	if !errors.As(err, &perr) || !strings.Contains(perr.Cause, "base64") {
 		t.Fatalf("expected PluginInternalError about base64, got %v", err)

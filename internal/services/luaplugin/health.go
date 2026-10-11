@@ -61,8 +61,8 @@ type HealthTrigger interface {
 func (s *Service) HealthCooldown(typeKey string) time.Duration {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if rec, ok := s.registry[typeKey]; ok {
-		if secs, ok := rec.HealthCooldown[typeKey]; ok {
+	if record, ok := s.registry[typeKey]; ok {
+		if secs, ok := record.HealthCooldown[typeKey]; ok {
 			return time.Duration(secs) * time.Second
 		}
 	}
@@ -74,39 +74,39 @@ func (s *Service) HealthCooldown(typeKey string) time.Duration {
 // type never health-checks). Invalid verdict shapes become
 // PluginInternalError and change nothing: only an explicit "unhealthy"
 // may disable.
-func (s *Service) CheckHealth(goCtx context.Context, typeKey string, cred *models.Credential) (HealthStatus, string, error) {
-	rec, err := s.Lookup(typeKey)
+func (s *Service) CheckHealth(goCtx context.Context, typeKey string, credential *models.Credential) (HealthStatus, string, error) {
+	record, err := s.Lookup(typeKey)
 	if err != nil {
 		return "", "", err
 	}
 	var status HealthStatus
 	var message string
-	found, err := s.handlerCall(goCtx, rec, typeKey, string(HandlerCheckHealth), func(L *lua.LState) {
+	found, err := s.handlerCall(goCtx, record, typeKey, string(HandlerCheckHealth), func(L *lua.LState) {
 		L.Push(ctxTable(L, "", nil))
-		L.Push(credTable(L, cred))
+		L.Push(credentialTable(L, credential))
 	}, 1, func(L *lua.LState) error {
-		tbl, ok := L.Get(-1).(*lua.LTable)
+		table, ok := L.Get(-1).(*lua.LTable)
 		if !ok {
-			s.recordCrash(rec.ID, typeKey, "check_health must return a table")
-			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "check_health must return a table"}
+			s.recordCrash(record.ID, typeKey, "check_health must return a table")
+			return &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "check_health must return a table"}
 		}
-		raw, ok := tbl.RawGetString("status").(lua.LString)
+		raw, ok := table.RawGetString("status").(lua.LString)
 		if !ok {
-			s.recordCrash(rec.ID, typeKey, "check_health table needs a status string")
-			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "check_health table needs a status string"}
+			s.recordCrash(record.ID, typeKey, "check_health table needs a status string")
+			return &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "check_health table needs a status string"}
 		}
 		switch HealthStatus(raw) {
 		case HealthHealthy, HealthUnhealthy, HealthUnknown:
 			status = HealthStatus(raw)
 		default:
-			s.recordCrash(rec.ID, typeKey, "check_health has unknown status")
-			return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: fmt.Sprintf("check_health has unknown status %q", string(raw))}
+			s.recordCrash(record.ID, typeKey, "check_health has unknown status")
+			return &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: fmt.Sprintf("check_health has unknown status %q", string(raw))}
 		}
-		if mv := tbl.RawGetString("message"); mv != lua.LNil {
+		if mv := table.RawGetString("message"); mv != lua.LNil {
 			ms, ok := mv.(lua.LString)
 			if !ok {
-				s.recordCrash(rec.ID, typeKey, "check_health message must be a string")
-				return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "check_health message must be a string"}
+				s.recordCrash(record.ID, typeKey, "check_health message must be a string")
+				return &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "check_health message must be a string"}
 			}
 			message = string(ms)
 		}
@@ -116,7 +116,7 @@ func (s *Service) CheckHealth(goCtx context.Context, typeKey string, cred *model
 		return "", "", err
 	}
 	if !found {
-		return "", "", &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: string(HandlerCheckHealth)}
+		return "", "", &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: string(HandlerCheckHealth)}
 	}
 	return status, message, nil
 }

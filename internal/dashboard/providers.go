@@ -27,19 +27,19 @@ type providerView struct {
 	DisabledAt       *time.Time     `json:"disabled_at,omitempty"`
 }
 
-func toProviderView(p *models.ProviderInstance, svc *provider.Service) providerView {
-	config := p.Config
+func toProviderView(provider *models.ProviderInstance, providerService *provider.Service) providerView {
+	config := provider.Config
 	if config == nil {
 		config = map[string]any{}
 	}
 	baseURL, _ := config["base_url"].(string)
 	return providerView{
-		ID: p.ID, Name: p.Name, TypeKey: p.TypeKey, Type: p.TypeKey,
-		Qualifier: p.Qualifier, Config: config, BaseURL: baseURL, IconURL: p.IconURL,
-		SupportsAuthFlow: svc.SupportsAuthFlow(p.TypeKey),
-		IsUIReadonly:     p.IsUIReadonly, IsUIHidden: p.IsUIHidden,
-		Disabled: p.Disabled, DisabledBy: p.DisabledBy, DisabledReason: p.DisabledReason,
-		DisabledAt: p.DisabledAt,
+		ID: provider.ID, Name: provider.Name, TypeKey: provider.TypeKey, Type: provider.TypeKey,
+		Qualifier: provider.Qualifier, Config: config, BaseURL: baseURL, IconURL: provider.IconURL,
+		SupportsAuthFlow: providerService.SupportsAuthFlow(provider.TypeKey),
+		IsUIReadonly:     provider.IsUIReadonly, IsUIHidden: provider.IsUIHidden,
+		Disabled: provider.Disabled, DisabledBy: provider.DisabledBy, DisabledReason: provider.DisabledReason,
+		DisabledAt: provider.DisabledAt,
 	}
 }
 
@@ -50,10 +50,10 @@ func (h *Handler) providerTypeKnown(typeKey string) bool {
 	if typeKey == provider.TypeCustom || typeKey == provider.TypeVirtual {
 		return true
 	}
-	if h.luaSvc == nil {
+	if h.luaService == nil {
 		return true
 	}
-	_, err := h.luaSvc.Lookup(typeKey)
+	_, err := h.luaService.Lookup(typeKey)
 	return err == nil
 }
 
@@ -61,14 +61,14 @@ func (h *Handler) providerTypeKnown(typeKey string) bool {
 // Router, models and metrics keep using the full service-level list.
 func (h *Handler) visibleProviders(all []*models.ProviderInstance) []*models.ProviderInstance {
 	out := make([]*models.ProviderInstance, 0, len(all))
-	for _, p := range all {
-		if p.IsUIHidden || !h.providerTypeKnown(p.TypeKey) {
+	for _, provider := range all {
+		if provider.IsUIHidden || !h.providerTypeKnown(provider.TypeKey) {
 			continue
 		}
-		if h.providerSvc != nil && !h.providerSvc.IsTypeAvailable(p.TypeKey) {
+		if h.providerService != nil && !h.providerService.IsTypeAvailable(provider.TypeKey) {
 			continue
 		}
-		out = append(out, p)
+		out = append(out, provider)
 	}
 	return out
 }
@@ -76,14 +76,14 @@ func (h *Handler) visibleProviders(all []*models.ProviderInstance) []*models.Pro
 // loadVisibleProvider resolves a provider for UI management endpoints.
 // Hidden rows and rows with an uninstalled plugin behave as nonexistent.
 func (h *Handler) loadVisibleProvider(id string) (*models.ProviderInstance, bool) {
-	p, err := h.providerSvc.Get(id)
-	if err != nil || p.IsUIHidden || !h.providerTypeKnown(p.TypeKey) {
+	provider, err := h.providerService.Get(id)
+	if err != nil || provider.IsUIHidden || !h.providerTypeKnown(provider.TypeKey) {
 		return nil, false
 	}
-	if !h.providerSvc.IsTypeAvailable(p.TypeKey) {
+	if !h.providerService.IsTypeAvailable(provider.TypeKey) {
 		return nil, false
 	}
-	return p, true
+	return provider, true
 }
 
 // apiProvidersList lists all providers
@@ -97,15 +97,15 @@ func (h *Handler) loadVisibleProvider(id string) (*models.ProviderInstance, bool
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/providers [get]
 func (h *Handler) apiProvidersList(w http.ResponseWriter, r *http.Request) {
-	providers, err := h.providerSvc.List()
+	providers, err := h.providerService.List()
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	providers = h.visibleProviders(providers)
 	out := make([]providerView, 0, len(providers))
-	for _, p := range providers {
-		out = append(out, toProviderView(p, h.providerSvc))
+	for _, provider := range providers {
+		out = append(out, toProviderView(provider, h.providerService))
 	}
 	h.json(w, http.StatusOK, out)
 }
@@ -121,30 +121,30 @@ func (h *Handler) apiProvidersList(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/providers/stats [get]
 func (h *Handler) apiProvidersStats(w http.ResponseWriter, r *http.Request) {
-	providers, err := h.providerSvc.List()
+	providers, err := h.providerService.List()
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	providers = h.visibleProviders(providers)
 
-	stats := make(map[string]*models.ProviderStats)
+	statistics := make(map[string]*models.ProviderStats)
 
-	for _, p := range providers {
-		stat := &models.ProviderStats{}
+	for _, provider := range providers {
+		entry := &models.ProviderStats{}
 
 		// Cache peek only: a stats read must never fetch from the upstream.
-		stat.ModelCount = len(h.modelInfoSvc.PeekModelInfos(p.ID))
+		entry.ModelCount = len(h.modelInfoService.PeekModelInfos(provider.ID))
 
-		creds, err := h.credSvc.ListByProvider(p.ID)
+		credentials, err := h.credentialService.ListByProvider(provider.ID)
 		if err == nil {
-			stat.CredentialCount = len(creds)
+			entry.CredentialCount = len(credentials)
 		}
 
-		stats[p.ID] = stat
+		statistics[provider.ID] = entry
 	}
 
-	h.json(w, http.StatusOK, stats)
+	h.json(w, http.StatusOK, statistics)
 }
 
 // apiProvidersCreate creates a new custom (OpenAI-compatible) provider instance.
@@ -192,7 +192,7 @@ func (h *Handler) apiProvidersCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst, err := h.providerSvc.Create(provider.CreateOptions{
+	instance, err := h.providerService.Create(provider.CreateOptions{
 		Name: body.Name, TypeKey: provider.TypeCustom,
 		Config: body.Config, IconURL: body.IconURL,
 	})
@@ -201,7 +201,7 @@ func (h *Handler) apiProvidersCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.json(w, http.StatusOK, toProviderView(inst, h.providerSvc))
+	h.json(w, http.StatusOK, toProviderView(instance, h.providerService))
 }
 
 // apiProvidersUpdate updates an existing provider instance.
@@ -246,28 +246,28 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 			h.jsonErr(w, http.StatusForbidden, "provider is managed automatically")
 			return
 		}
-		for k := range body.Config {
-			if !allowed[k] {
+		for key := range body.Config {
+			if !allowed[key] {
 				h.jsonErr(w, http.StatusForbidden, "provider is managed automatically")
 				return
 			}
 		}
-		cfg := map[string]any{}
-		for k, v := range existing.Config {
-			cfg[k] = v
+		mergedConfig := map[string]any{}
+		for key, value := range existing.Config {
+			mergedConfig[key] = value
 		}
 		// Absent or null allowed keys are removals, not untouched state:
 		// the dashboard sends the full config, so a missing key means the
 		// operator cleared it. Preserving it instead makes disables
 		// impossible to persist.
-		for k := range allowed {
-			if v, ok := body.Config[k]; ok && v != nil {
-				cfg[k] = v
+		for key := range allowed {
+			if value, ok := body.Config[key]; ok && value != nil {
+				mergedConfig[key] = value
 			} else {
-				delete(cfg, k)
+				delete(mergedConfig, key)
 			}
 		}
-		inst, err := h.providerSvc.Update(id, provider.UpdateOptions{Name: existing.Name, Config: cfg, IconURL: existing.IconURL, Disabled: body.Disabled})
+		instance, err := h.providerService.Update(id, provider.UpdateOptions{Name: existing.Name, Config: mergedConfig, IconURL: existing.IconURL, Disabled: body.Disabled})
 		if err != nil {
 			h.jsonErr(w, http.StatusBadRequest, err.Error())
 			return
@@ -275,7 +275,7 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 		if body.Disabled != nil {
 			h.logger.Info("provider admin state change", "provider_id", id, "disabled", *body.Disabled)
 		}
-		h.json(w, http.StatusOK, toProviderView(inst, h.providerSvc))
+		h.json(w, http.StatusOK, toProviderView(instance, h.providerService))
 		return
 	}
 
@@ -298,7 +298,7 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	inst, err := h.providerSvc.Update(id, provider.UpdateOptions{
+	instance, err := h.providerService.Update(id, provider.UpdateOptions{
 		Name: body.Name, Config: body.Config, IconURL: body.IconURL, Disabled: body.Disabled,
 	})
 	if err != nil {
@@ -309,7 +309,7 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 		h.logger.Info("provider admin state change", "provider_id", id, "disabled", *body.Disabled)
 	}
 
-	h.json(w, http.StatusOK, toProviderView(inst, h.providerSvc))
+	h.json(w, http.StatusOK, toProviderView(instance, h.providerService))
 }
 
 // apiProvidersDelete deletes a provider and cascades its credentials.
@@ -341,7 +341,7 @@ func (h *Handler) apiProvidersDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.providerSvc.Delete(id); err != nil {
+	if err := h.providerService.Delete(id); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -362,12 +362,12 @@ func (h *Handler) apiProvidersDelete(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/providers/{id}/config-schema [get]
 func (h *Handler) apiProviderConfigSchema(w http.ResponseWriter, r *http.Request) {
-	p, ok := h.loadVisibleProvider(r.PathValue("id"))
+	provider, ok := h.loadVisibleProvider(r.PathValue("id"))
 	if !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	nodes, err := h.providerSvc.ConfigSchema(p.TypeKey)
+	nodes, err := h.providerService.ConfigSchema(provider.TypeKey)
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -391,12 +391,12 @@ func (h *Handler) apiProviderConfigSchema(w http.ResponseWriter, r *http.Request
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/providers/{id}/credential-schema [get]
 func (h *Handler) apiProviderCredentialSchema(w http.ResponseWriter, r *http.Request) {
-	p, ok := h.loadVisibleProvider(r.PathValue("id"))
+	provider, ok := h.loadVisibleProvider(r.PathValue("id"))
 	if !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	nodes, err := h.providerSvc.CredentialSchema(p.TypeKey)
+	nodes, err := h.providerService.CredentialSchema(provider.TypeKey)
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -404,7 +404,7 @@ func (h *Handler) apiProviderCredentialSchema(w http.ResponseWriter, r *http.Req
 	if nodes == nil {
 		h.json(w, http.StatusOK, map[string]any{
 			"nodes":   nil,
-			"enabled": h.providerSvc.CredentialsEnabled(p.TypeKey),
+			"enabled": h.providerService.CredentialsEnabled(provider.TypeKey),
 		})
 		return
 	}
@@ -413,12 +413,12 @@ func (h *Handler) apiProviderCredentialSchema(w http.ResponseWriter, r *http.Req
 
 // apiProviderSettingsSchema returns the plugin settings UI tree.
 func (h *Handler) apiProviderSettingsSchema(w http.ResponseWriter, r *http.Request) {
-	p, ok := h.loadVisibleProvider(r.PathValue("id"))
+	provider, ok := h.loadVisibleProvider(r.PathValue("id"))
 	if !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	nodes, err := h.providerSvc.SettingsSchema(p.TypeKey)
+	nodes, err := h.providerService.SettingsSchema(provider.TypeKey)
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -433,19 +433,19 @@ func (h *Handler) apiProviderSettingsSchema(w http.ResponseWriter, r *http.Reque
 // apiProviderProxySchema returns the extra proxy settings UI tree plus the
 // capability flag driving the proxy tab.
 func (h *Handler) apiProviderProxySchema(w http.ResponseWriter, r *http.Request) {
-	p, ok := h.loadVisibleProvider(r.PathValue("id"))
+	provider, ok := h.loadVisibleProvider(r.PathValue("id"))
 	if !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	nodes, err := h.providerSvc.ProxySchema(p.TypeKey)
+	nodes, err := h.providerService.ProxySchema(provider.TypeKey)
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	h.json(w, http.StatusOK, map[string]any{
 		"nodes":   nodes,
-		"enabled": h.providerSvc.ProxiesEnabled(p.TypeKey),
+		"enabled": h.providerService.ProxiesEnabled(provider.TypeKey),
 	})
 }
 
@@ -462,16 +462,16 @@ func (h *Handler) apiProviderProxySchema(w http.ResponseWriter, r *http.Request)
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/providers/{id}/jobs/{job} [post]
 func (h *Handler) apiProviderJobRun(w http.ResponseWriter, r *http.Request) {
-	p, ok := h.loadVisibleProvider(r.PathValue("id"))
+	provider, ok := h.loadVisibleProvider(r.PathValue("id"))
 	if !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	if h.maintSvc == nil {
+	if h.maintenanceService == nil {
 		h.jsonErr(w, http.StatusInternalServerError, "job scheduler not wired")
 		return
 	}
-	if err := h.maintSvc.RunJob(r.Context(), p.ID, r.PathValue("job")); err != nil {
+	if err := h.maintenanceService.RunJob(r.Context(), provider.ID, r.PathValue("job")); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}

@@ -35,14 +35,14 @@ func (h *Handler) authInitiate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, ok := h.loadVisibleProvider(body.ProviderID)
+	provider, ok := h.loadVisibleProvider(body.ProviderID)
 	if !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
 
 	// Go backends never offer stepped flows; fall back without touching Lua.
-	if _, ok := h.providerSvc.GoAdapterFor(p.TypeKey); ok {
+	if _, ok := h.providerService.GoAdapterFor(provider.TypeKey); ok {
 		h.jsonErr(w, http.StatusConflict, "provider does not support stepped auth flows")
 		return
 	}
@@ -53,7 +53,7 @@ func (h *Handler) authInitiate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.luaSvc.AuthInitiate(r.Context(), p.TypeKey, flowID, p.Config)
+	result, err := h.luaService.AuthInitiate(r.Context(), provider.TypeKey, flowID, provider.Config)
 	if err != nil {
 		if isAuthFallback(err) {
 			h.jsonErr(w, http.StatusConflict, "provider does not support stepped auth flows")
@@ -95,18 +95,18 @@ func (h *Handler) authStep(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, ok := h.loadVisibleProvider(body.ProviderID)
+	provider, ok := h.loadVisibleProvider(body.ProviderID)
 	if !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
 
-	if _, ok := h.providerSvc.GoAdapterFor(p.TypeKey); ok {
+	if _, ok := h.providerService.GoAdapterFor(provider.TypeKey); ok {
 		h.jsonErr(w, http.StatusConflict, "provider does not support stepped auth flows")
 		return
 	}
 
-	result, err := h.luaSvc.AuthStep(r.Context(), p.TypeKey, body.FlowID, body.Action, body.Values, p.Config)
+	result, err := h.luaService.AuthStep(r.Context(), provider.TypeKey, body.FlowID, body.Action, body.Values, provider.Config)
 	if err != nil {
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
 			h.jsonErr(w, http.StatusBadRequest, "auth flow step is not supported by this provider")
@@ -140,7 +140,7 @@ func (h *Handler) renderAuthResult(w http.ResponseWriter, result *models.AuthFlo
 			"provider_id":  providerID,
 		})
 	case result.Credentials != nil:
-		cred, err := h.credSvc.Add(credential.AddOptions{
+		credential, err := h.credentialService.Add(credential.AddOptions{
 			ProviderID: providerID,
 			Label:      buildAutoCredentialLabel(providerID, result.Credentials),
 			Data:       result.Credentials,
@@ -152,7 +152,7 @@ func (h *Handler) renderAuthResult(w http.ResponseWriter, result *models.AuthFlo
 		h.json(w, http.StatusOK, map[string]any{
 			"status":        "complete",
 			"message":       "Credentials saved successfully",
-			"credential_id": cred.ID,
+			"credential_id": credential.ID,
 		})
 	default:
 		h.jsonErr(w, http.StatusInternalServerError, "invalid auth flow state")

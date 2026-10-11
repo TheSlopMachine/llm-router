@@ -21,7 +21,7 @@ func TestMarkDead(t *testing.T) {
 	}
 
 	t.Run("structural failures mark suspect", func(t *testing.T) {
-		for _, tc := range []struct {
+		for _, testCase := range []struct {
 			name   string
 			reason string
 			fail   proxypoollib.FailReason
@@ -30,10 +30,10 @@ func TestMarkDead(t *testing.T) {
 			{name: "connection reset", reason: markDeadConnectionResetReason, fail: proxypoollib.FailEOF},
 			{name: "connection refused", reason: markDeadConnectionRefusedReason, fail: proxypoollib.FailRefused},
 		} {
-			t.Run(tc.name, func(t *testing.T) {
+			t.Run(testCase.name, func(t *testing.T) {
 				url := "http://192.0.2.40:8080"
 				service.cache.Set(proxypoollib.ProxyState{URL: url, IP: "192.0.2.40", Port: 8080, Score: 8})
-				if !service.MarkDead(url, tc.reason) {
+				if !service.MarkDead(url, testCase.reason) {
 					t.Fatal("known URL must become suspect")
 				}
 				state, ok := service.cache.Get(url)
@@ -43,8 +43,8 @@ func TestMarkDead(t *testing.T) {
 				if !state.Suspect || state.IsDead {
 					t.Fatalf("state = suspect:%v dead:%v", state.Suspect, state.IsDead)
 				}
-				if state.FailReason != tc.fail {
-					t.Fatalf("FailReason = %q, want %q", state.FailReason, tc.fail)
+				if state.FailReason != testCase.fail {
+					t.Fatalf("FailReason = %q, want %q", state.FailReason, testCase.fail)
 				}
 			})
 		}

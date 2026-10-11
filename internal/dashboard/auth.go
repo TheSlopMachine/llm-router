@@ -22,26 +22,26 @@ func (h *Handler) apiStatus(db interface{ IsBootstrapped() (bool, error) }) http
 		authenticated := h.noAuth
 		if !authenticated {
 			if c, err := r.Cookie(sessionCookie); err == nil {
-				_, authenticated = h.adminSvc.ValidateSession(c.Value)
+				_, authenticated = h.adminService.ValidateSession(c.Value)
 			}
 		}
 
-		var stats map[string]int
+		var statistics map[string]int
 		if authenticated {
-			providers, _ := h.providerSvc.List()
-			toks, _ := h.tokenSvc.List()
-			creds, _ := h.credSvc.ListAll()
-			stats = map[string]int{
+			providers, _ := h.providerService.List()
+			tokens, _ := h.tokenService.List()
+			credentials, _ := h.credentialService.ListAll()
+			statistics = map[string]int{
 				"providers":   len(providers),
-				"tokens":      len(toks),
-				"credentials": len(creds),
+				"tokens":      len(tokens),
+				"credentials": len(credentials),
 			}
 		}
 
 		h.json(w, http.StatusOK, map[string]any{
 			"bootstrapped":  bootstrapped,
 			"authenticated": authenticated,
-			"stats":         stats,
+			"stats":         statistics,
 		})
 	}
 }
@@ -67,7 +67,7 @@ func (h *Handler) apiLogin(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	sessionToken, expiresAt, err := h.adminSvc.Login(body.Username, body.Password, body.RememberMe)
+	sessionToken, expiresAt, err := h.adminService.Login(body.Username, body.Password, body.RememberMe)
 	if err != nil {
 		h.jsonErr(w, http.StatusUnauthorized, "invalid username or password")
 		return
@@ -93,7 +93,7 @@ func (h *Handler) apiLogin(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/llm-router/logout [post]
 func (h *Handler) apiLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
-		h.adminSvc.Logout(c.Value)
+		h.adminService.Logout(c.Value)
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, MaxAge: -1, Path: "/"})
 	h.json(w, http.StatusOK, map[string]any{"ok": true})
@@ -118,7 +118,7 @@ func (h *Handler) apiBootstrap(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := h.adminSvc.Bootstrap(body.Username, body.Password); err != nil {
+	if err := h.adminService.Bootstrap(body.Username, body.Password); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -151,7 +151,7 @@ func (h *Handler) apiAdminChangePassword(w http.ResponseWriter, r *http.Request)
 		h.jsonErr(w, http.StatusUnauthorized, "session required")
 		return
 	}
-	if err := h.adminSvc.ChangePassword(username, body.CurrentPassword, body.NewPassword); err != nil {
+	if err := h.adminService.ChangePassword(username, body.CurrentPassword, body.NewPassword); err != nil {
 		if errors.Is(err, admin.ErrInvalidCredentials) {
 			h.jsonErr(w, http.StatusUnauthorized, "current password is incorrect")
 			return

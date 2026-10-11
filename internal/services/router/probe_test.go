@@ -8,32 +8,32 @@ import (
 )
 
 func TestProbeResultTerminalPassthrough(t *testing.T) {
-	res := probeResult(time.Now(), "", "", &models.ProviderError{
+	result := probeResult(time.Now(), "", "", &models.ProviderError{
 		StatusCode: 503,
 		Code:       "model_unavailable",
 		Message:    "missing api key",
 	})
-	if res.OK {
+	if result.OK {
 		t.Errorf("model_unavailable probe: got OK=true")
 	}
-	if res.Code != "model_unavailable" {
-		t.Errorf("model_unavailable probe: got code=%q", res.Code)
+	if result.Code != "model_unavailable" {
+		t.Errorf("model_unavailable probe: got code=%q", result.Code)
 	}
-	if res.QuotaExceeded {
+	if result.QuotaExceeded {
 		t.Errorf("model_unavailable probe: QuotaExceeded must stay false so the dashboard disables the model")
 	}
 }
 
 func TestProbeResultQuotaStaysTemporary(t *testing.T) {
-	res := probeResult(time.Now(), "", "", &models.ProviderError{
+	result := probeResult(time.Now(), "", "", &models.ProviderError{
 		StatusCode: 429,
 		Code:       "rate_limit",
 		Message:    "slow down",
 	})
-	if res.Code != "rate_limit" {
-		t.Errorf("rate_limit probe: got code=%q", res.Code)
+	if result.Code != "rate_limit" {
+		t.Errorf("rate_limit probe: got code=%q", result.Code)
 	}
-	if !res.QuotaExceeded {
+	if !result.QuotaExceeded {
 		t.Errorf("rate_limit probe: QuotaExceeded must be true so the dashboard never disables the model")
 	}
 }

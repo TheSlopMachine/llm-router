@@ -22,10 +22,10 @@ func TestTailLines(t *testing.T) {
 		{"negative means all", "a\nb\n", -5, []string{"a", "b"}},
 		{"single line", "only\n", 10, []string{"only"}},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := TailLines([]byte(tc.data), tc.n); !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("got %q, want %q", got, tc.want)
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := TailLines([]byte(testCase.data), testCase.n); !reflect.DeepEqual(got, testCase.want) {
+				t.Errorf("got %q, want %q", got, testCase.want)
 			}
 		})
 	}

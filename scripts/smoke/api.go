@@ -18,16 +18,16 @@ var apiClient = &http.Client{Timeout: 120 * time.Second}
 // wireError carries an HTTP failure with the OpenAI wire code when the
 // envelope carries one.
 type wireError struct {
-	status int
-	code   string
-	msg    string
+	status  int
+	code    string
+	message string
 }
 
 func (e *wireError) Error() string {
 	if e.code != "" {
-		return fmt.Sprintf("http %d (%s): %s", e.status, e.code, e.msg)
+		return fmt.Sprintf("http %d (%s): %s", e.status, e.code, e.message)
 	}
-	return fmt.Sprintf("http %d: %s", e.status, e.msg)
+	return fmt.Sprintf("http %d: %s", e.status, e.message)
 }
 
 // wireCode extracts error.code from an OpenAI error envelope.
@@ -44,94 +44,94 @@ func wireCode(body []byte) string {
 }
 
 func doJSON(method, url string, body any) (int, []byte, error) {
-	var rdr io.Reader
+	var bodyReader io.Reader
 	if body != nil {
-		enc, err := json.Marshal(body)
+		encoded, err := json.Marshal(body)
 		if err != nil {
 			return 0, nil, err
 		}
-		rdr = bytes.NewReader(enc)
+		bodyReader = bytes.NewReader(encoded)
 	}
-	req, err := http.NewRequest(method, url, rdr)
+	request, err := http.NewRequest(method, url, bodyReader)
 	if err != nil {
 		return 0, nil, err
 	}
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := apiClient.Do(req)
+	response, err := apiClient.Do(request)
 	if err != nil {
 		return 0, nil, err
 	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	defer response.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
 	if err != nil {
 		return 0, nil, err
 	}
-	return resp.StatusCode, raw, nil
+	return response.StatusCode, raw, nil
 }
 
 // doRaw POSTs raw bytes (plugin sources) and returns status plus body.
 func doRaw(method, url string, body []byte) (int, []byte, error) {
-	req, err := http.NewRequest(method, url, bytes.NewReader(body))
+	request, err := http.NewRequest(method, url, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, err
 	}
-	req.Header.Set("Content-Type", "application/octet-stream")
-	resp, err := apiClient.Do(req)
+	request.Header.Set("Content-Type", "application/octet-stream")
+	response, err := apiClient.Do(request)
 	if err != nil {
 		return 0, nil, err
 	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	defer response.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
 	if err != nil {
 		return 0, nil, err
 	}
-	return resp.StatusCode, raw, nil
+	return response.StatusCode, raw, nil
 }
 
-// requireOK decodes a 2xx JSON body into out, else returns a wireError.
-func requireOK(status int, raw []byte, out any) error {
+// requireOK decodes a 2xx JSON body into output, else returns a wireError.
+func requireOK(status int, raw []byte, output any) error {
 	if status < 200 || status >= 300 {
-		return &wireError{status: status, code: wireCode(raw), msg: strings.TrimSpace(string(raw))}
+		return &wireError{status: status, code: wireCode(raw), message: strings.TrimSpace(string(raw))}
 	}
-	if out == nil {
+	if output == nil {
 		return nil
 	}
-	if err := json.Unmarshal(raw, out); err != nil {
+	if err := json.Unmarshal(raw, output); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil
 }
 
 func postMultipart(url, model, fileName string, file []byte, format string) (int, []byte, error) {
-	var buf bytes.Buffer
-	w := multipart.NewWriter(&buf)
-	_ = w.WriteField("model", model)
-	_ = w.WriteField("response_format", format)
-	fw, err := w.CreateFormFile("file", fileName)
+	var buffer bytes.Buffer
+	writer := multipart.NewWriter(&buffer)
+	_ = writer.WriteField("model", model)
+	_ = writer.WriteField("response_format", format)
+	fileWriter, err := writer.CreateFormFile("file", fileName)
 	if err != nil {
 		return 0, nil, err
 	}
-	if _, err := fw.Write(file); err != nil {
+	if _, err := fileWriter.Write(file); err != nil {
 		return 0, nil, err
 	}
-	if err := w.Close(); err != nil {
+	if err := writer.Close(); err != nil {
 		return 0, nil, err
 	}
-	req, err := http.NewRequest("POST", url, &buf)
+	request, err := http.NewRequest("POST", url, &buffer)
 	if err != nil {
 		return 0, nil, err
 	}
-	req.Header.Set("Content-Type", w.FormDataContentType())
-	resp, err := apiClient.Do(req)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response, err := apiClient.Do(request)
 	if err != nil {
 		return 0, nil, err
 	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	defer response.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
 	if err != nil {
 		return 0, nil, err
 	}
-	return resp.StatusCode, raw, nil
+	return response.StatusCode, raw, nil
 }

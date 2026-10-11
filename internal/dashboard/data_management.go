@@ -15,12 +15,12 @@ import (
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/data/stats [get]
 func (h *Handler) apiDataStats(w http.ResponseWriter, r *http.Request) {
-	st, err := h.dataSvc.Stats()
+	statistics, err := h.dataService.Stats()
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	h.json(w, http.StatusOK, st)
+	h.json(w, http.StatusOK, statistics)
 }
 
 // apiDataExport export a subsystem.
@@ -32,19 +32,19 @@ func (h *Handler) apiDataStats(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/data/{subsystem}/export [get]
 func (h *Handler) apiDataExport(w http.ResponseWriter, r *http.Request) {
-	sub := r.PathValue("subsystem")
+	subsystem := r.PathValue("subsystem")
 	var data any
 	var err error
 
-	switch sub {
+	switch subsystem {
 	case "providers":
-		data, err = h.dataSvc.ExportProviders()
+		data, err = h.dataService.ExportProviders()
 	case "virtual_models":
-		data, err = h.dataSvc.ExportVirtualModels()
+		data, err = h.dataService.ExportVirtualModels()
 	case "plugins":
-		data, err = h.dataSvc.ExportPlugins()
+		data, err = h.dataService.ExportPlugins()
 	case "tokens":
-		data, err = h.dataSvc.ExportTokens()
+		data, err = h.dataService.ExportTokens()
 	default:
 		h.jsonErr(w, http.StatusBadRequest, "unknown subsystem")
 		return
@@ -68,32 +68,32 @@ func (h *Handler) apiDataExport(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/data/{subsystem}/import [post]
 func (h *Handler) apiDataImport(w http.ResponseWriter, r *http.Request) {
-	sub := r.PathValue("subsystem")
+	subsystem := r.PathValue("subsystem")
 	decoder := json.NewDecoder(r.Body)
 
-	switch sub {
+	switch subsystem {
 	case "providers":
 		var bundles []*datamanagement.ProviderBundle
 		if err := decoder.Decode(&bundles); err != nil {
 			h.jsonErr(w, http.StatusBadRequest, "invalid providers bundle payload")
 			return
 		}
-		if err := h.dataSvc.ImportProviders(bundles); err != nil {
+		if err := h.dataService.ImportProviders(bundles); err != nil {
 			h.jsonErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	case "virtual_models":
-		var vms []*datamanagement.VirtualModelImport
-		if err := decoder.Decode(&vms); err != nil {
+		var virtualModels []*datamanagement.VirtualModelImport
+		if err := decoder.Decode(&virtualModels); err != nil {
 			// Try plain VirtualModel slice
 			var plain []*datamanagement.VirtualModelImport
 			if err := decoder.Decode(&plain); err != nil {
 				h.jsonErr(w, http.StatusBadRequest, "invalid virtual models payload")
 				return
 			}
-			vms = plain
+			virtualModels = plain
 		}
-		if err := h.dataSvc.ImportVirtualModels(vms); err != nil {
+		if err := h.dataService.ImportVirtualModels(virtualModels); err != nil {
 			h.jsonErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -103,7 +103,7 @@ func (h *Handler) apiDataImport(w http.ResponseWriter, r *http.Request) {
 			h.jsonErr(w, http.StatusBadRequest, "invalid plugins payload")
 			return
 		}
-		if err := h.dataSvc.ImportPlugins(r.Context(), &bundle); err != nil {
+		if err := h.dataService.ImportPlugins(r.Context(), &bundle); err != nil {
 			h.jsonErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -113,7 +113,7 @@ func (h *Handler) apiDataImport(w http.ResponseWriter, r *http.Request) {
 			h.jsonErr(w, http.StatusBadRequest, "invalid tokens payload")
 			return
 		}
-		if err := h.dataSvc.ImportTokens(tokens); err != nil {
+		if err := h.dataService.ImportTokens(tokens); err != nil {
 			h.jsonErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -122,7 +122,7 @@ func (h *Handler) apiDataImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.logger.Info("subsystem data imported", "subsystem", sub)
+	h.logger.Info("subsystem data imported", "subsystem", subsystem)
 	h.json(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -135,18 +135,18 @@ func (h *Handler) apiDataImport(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/data/{subsystem}/clear [post]
 func (h *Handler) apiDataClear(w http.ResponseWriter, r *http.Request) {
-	sub := r.PathValue("subsystem")
+	subsystem := r.PathValue("subsystem")
 	var err error
 
-	switch sub {
+	switch subsystem {
 	case "providers":
-		err = h.dataSvc.ClearProviders()
+		err = h.dataService.ClearProviders()
 	case "virtual_models":
-		err = h.dataSvc.ClearVirtualModels()
+		err = h.dataService.ClearVirtualModels()
 	case "plugins":
-		err = h.dataSvc.ClearPlugins()
+		err = h.dataService.ClearPlugins()
 	case "tokens":
-		err = h.dataSvc.ClearTokens()
+		err = h.dataService.ClearTokens()
 	default:
 		h.jsonErr(w, http.StatusBadRequest, "unknown subsystem")
 		return
@@ -157,7 +157,7 @@ func (h *Handler) apiDataClear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.logger.Info("subsystem data cleared", "subsystem", sub)
+	h.logger.Info("subsystem data cleared", "subsystem", subsystem)
 	h.json(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -171,7 +171,7 @@ func (h *Handler) apiDataClear(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/llm-router/dashboard/providers/{id}/export [get]
 func (h *Handler) apiProviderExport(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	bundle, err := h.dataSvc.ExportProvider(id)
+	bundle, err := h.dataService.ExportProvider(id)
 	if err != nil {
 		h.jsonErr(w, http.StatusNotFound, err.Error())
 		return
@@ -194,7 +194,7 @@ func (h *Handler) apiProviderImport(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid provider bundle payload")
 		return
 	}
-	if err := h.dataSvc.ImportProvider(&bundle); err != nil {
+	if err := h.dataService.ImportProvider(&bundle); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -212,7 +212,7 @@ func (h *Handler) apiProviderImport(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/llm-router/dashboard/providers/{id}/purge [delete]
 func (h *Handler) apiProviderPurge(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := h.dataSvc.PurgeProvider(id); err != nil {
+	if err := h.dataService.PurgeProvider(id); err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

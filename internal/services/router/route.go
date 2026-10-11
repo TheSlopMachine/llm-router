@@ -21,25 +21,25 @@ type resolvedRequest struct {
 
 // resolveRequest runs the shared routing pipeline for one request model.
 func (s *Service) resolveRequest(ctx context.Context, model models.ModelId, token *models.RouterToken, allowDisabled bool, endpoint string) (context.Context, resolvedRequest, error) {
-	var out resolvedRequest
+	var resolution resolvedRequest
 	ctx = withTokenRules(ctx, token)
 	providerID, modelName, err := model.Parse()
 	if err != nil {
-		return ctx, out, fmt.Errorf("invalid model id: %w", err)
+		return ctx, resolution, fmt.Errorf("invalid model id: %w", err)
 	}
-	resolved, err := provider.Resolve(s.providerSvc, providerID)
+	resolved, err := provider.Resolve(s.providerService, providerID)
 	if err != nil {
-		return ctx, out, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
+		return ctx, resolution, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
 	}
 	if resolved.Instance.Disabled {
-		return ctx, out, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
+		return ctx, resolution, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
 	}
 	if err := s.requireModelEnabled(providerID, modelName, model, allowDisabled); err != nil {
-		return ctx, out, err
+		return ctx, resolution, err
 	}
 	if err := s.checkEndpoint(providerID, modelName, endpoint); err != nil {
-		return ctx, out, err
+		return ctx, resolution, err
 	}
-	out = resolvedRequest{providerID: providerID, modelName: modelName, resolved: resolved}
-	return ctx, out, nil
+	resolution = resolvedRequest{providerID: providerID, modelName: modelName, resolved: resolved}
+	return ctx, resolution, nil
 }

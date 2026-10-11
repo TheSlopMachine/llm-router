@@ -28,34 +28,34 @@ llm_router.register("slash-type", {
 // and the API must resolve them back to the record.
 func TestPluginIDRoutesAcceptEncodedSlashes(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	luaSvc, err := luaplugin.New(database, nil)
+	luaService, err := luaplugin.New(database, nil)
 	if err != nil {
 		t.Fatalf("lua service: %v", err)
 	}
-	rec, err := luaSvc.Install([]byte(slashIDPluginSource), luaplugin.PluginOrigin{Manual: true})
+	record, err := luaService.Install([]byte(slashIDPluginSource), luaplugin.PluginOrigin{Manual: true})
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	if !strings.Contains(rec.ID, "/") {
-		t.Fatalf("fixture must produce a slash ID, got %q", rec.ID)
+	if !strings.Contains(record.ID, "/") {
+		t.Fatalf("fixture must produce a slash ID, got %q", record.ID)
 	}
-	h := &Handler{luaSvc: luaSvc, noAuth: true}
+	h := &Handler{luaService: luaService, noAuth: true}
 	mux := http.NewServeMux()
 	h.Register(mux, database)
 
 	serve := func(method, target string) *httptest.ResponseRecorder {
 		t.Helper()
-		req := httptest.NewRequest(method, target, nil)
+		request := httptest.NewRequest(method, target, nil)
 		recorder := httptest.NewRecorder()
-		mux.ServeHTTP(recorder, req)
+		mux.ServeHTTP(recorder, request)
 		return recorder
 	}
 
-	raw := "/api/llm-router/dashboard/plugins/" + rec.ID
+	raw := "/api/llm-router/dashboard/plugins/" + record.ID
 	if got := serve(http.MethodGet, raw); got.Code == http.StatusOK {
 		t.Logf("note: raw slashes resolve (mux behavior change)")
 	}
-	encoded := "/api/llm-router/dashboard/plugins/" + url.PathEscape(rec.ID)
+	encoded := "/api/llm-router/dashboard/plugins/" + url.PathEscape(record.ID)
 	if got := serve(http.MethodGet, encoded); got.Code != http.StatusOK {
 		t.Fatalf("encoded GET: got %d (%s)", got.Code, got.Body.String())
 	}

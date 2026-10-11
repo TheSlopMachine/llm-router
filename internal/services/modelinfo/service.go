@@ -23,12 +23,12 @@ import (
 
 // Service manages model metadata caching
 type Service struct {
-	providerSvc *provider.Service
-	credSvc     *credential.Service
-	cacheTTL    time.Duration
-	logger      *slog.Logger
-	overrides   *repository.Repository[models.ModelOverride]
-	records     *repository.Repository[modelInfoRecord]
+	providerService   *provider.Service
+	credentialService *credential.Service
+	cacheTTL          time.Duration
+	logger            *slog.Logger
+	overrides         *repository.Repository[models.ModelOverride]
+	records           *repository.Repository[modelInfoRecord]
 
 	mu       sync.RWMutex
 	cache    map[string]cacheEntry
@@ -44,8 +44,8 @@ type cacheEntry struct {
 // inflightCall tracks one in-progress upstream fetch so concurrent waiters
 // share the leader's result, including its error, instead of stampeding.
 type inflightCall struct {
-	wg  sync.WaitGroup
-	err error
+	waitGroup sync.WaitGroup
+	err       error
 }
 
 // modelInfoRecord is the persisted form of a cache entry: the model cache
@@ -56,19 +56,19 @@ type modelInfoRecord struct {
 }
 
 // New creates a ModelInfo service
-func New(database *db.DB, providerSvc *provider.Service, credSvc *credential.Service, cacheTTL time.Duration) *Service {
+func New(database *db.DB, providerService *provider.Service, credentialService *credential.Service, cacheTTL time.Duration) *Service {
 	if cacheTTL == 0 {
 		cacheTTL = 1 * time.Hour
 	}
 
 	return &Service{
-		providerSvc: providerSvc,
-		credSvc:     credSvc,
-		cacheTTL:    cacheTTL,
-		overrides:   repository.New[models.ModelOverride](database, db.BucketModelOverrides, "model_override"),
-		records:     repository.New[modelInfoRecord](database, db.BucketModelInfos, "model_info_record"),
-		cache:       make(map[string]cacheEntry),
-		inflight:    make(map[string]*inflightCall),
+		providerService:   providerService,
+		credentialService: credentialService,
+		cacheTTL:          cacheTTL,
+		overrides:         repository.New[models.ModelOverride](database, db.BucketModelOverrides, "model_override"),
+		records:           repository.New[modelInfoRecord](database, db.BucketModelInfos, "model_info_record"),
+		cache:             make(map[string]cacheEntry),
+		inflight:          make(map[string]*inflightCall),
 	}
 }
 
@@ -85,70 +85,70 @@ func (s *Service) PeekModelInfos(providerID string) []models.ModelInfo {
 	entry, ok := s.cache[providerID]
 	s.mu.RUnlock()
 	if ok {
-		return stripModalityCaps(entry.models)
+		return stripModalityCapabilities(entry.models)
 	}
-	rec, err := s.records.Get(providerID)
-	if err != nil || rec == nil {
+	record, err := s.records.Get(providerID)
+	if err != nil || record == nil {
 		return nil
 	}
 	s.mu.Lock()
 	s.cache[providerID] = cacheEntry{
-		models:    rec.Models,
-		cachedAt:  rec.CachedAt,
-		expiresAt: rec.CachedAt.Add(s.cacheTTL),
+		models:    record.Models,
+		cachedAt:  record.CachedAt,
+		expiresAt: record.CachedAt.Add(s.cacheTTL),
 	}
 	s.mu.Unlock()
-	return stripModalityCaps(rec.Models)
+	return stripModalityCapabilities(record.Models)
 }
 
-// modalityCaps are capability chips duplicated by the modalities column.
-var modalityCaps = map[string]bool{"vision": true, "audio": true}
+// modalityCapabilities are capability chips duplicated by the modalities column.
+var modalityCapabilities = map[string]bool{"vision": true, "audio": true}
 
-// stripModalityCaps drops modality-duplicate chips. Capabilities render in
+// stripModalityCapabilities drops modality-duplicate chips. Capabilities render in
 // their own column; modalities render separately. Copies: cached slices
 // stay untouched.
-func stripModalityCaps(infos []models.ModelInfo) []models.ModelInfo {
-	out := make([]models.ModelInfo, 0, len(infos))
-	for _, mi := range infos {
-		if len(mi.Capabilities) == 0 {
-			out = append(out, mi)
+func stripModalityCapabilities(modelList []models.ModelInfo) []models.ModelInfo {
+	output := make([]models.ModelInfo, 0, len(modelList))
+	for _, model := range modelList {
+		if len(model.Capabilities) == 0 {
+			output = append(output, model)
 			continue
 		}
-		kept := make([]string, 0, len(mi.Capabilities))
-		for _, c := range mi.Capabilities {
-			if !modalityCaps[c] {
+		kept := make([]string, 0, len(model.Capabilities))
+		for _, c := range model.Capabilities {
+			if !modalityCapabilities[c] {
 				kept = append(kept, c)
 			}
 		}
-		mi.Capabilities = kept
-		out = append(out, mi)
+		model.Capabilities = kept
+		output = append(output, model)
 	}
-	return out
+	return output
 }
 
 // WarmMissing creates model caches for providers that have none. Runs in the
 // background at startup; refresh afterwards stays opt-in (models_auto_sync)
 // or manual.
 func (s *Service) WarmMissing(ctx context.Context) {
-	providers, err := s.providerSvc.List()
+	providers, err := s.providerService.List()
 	if err != nil {
 		if s.logger != nil {
 			s.logger.Warn("model cache warm: list providers failed", "err", err)
 		}
 		return
 	}
-	for _, p := range providers {
+	for _, provider := range providers {
 		if ctx.Err() != nil {
 			return
 		}
-		if p.Disabled {
+		if provider.Disabled {
 			continue
 		}
-		if len(s.PeekModelInfos(p.ID)) > 0 {
+		if len(s.PeekModelInfos(provider.ID)) > 0 {
 			continue
 		}
-		if _, err := s.GetModelInfos(ctx, p.ID); err != nil && s.logger != nil {
-			s.logger.Warn("model cache warm failed", "provider_id", p.ID, "err", err)
+		if _, err := s.GetModelInfos(ctx, provider.ID); err != nil && s.logger != nil {
+			s.logger.Warn("model cache warm failed", "provider_id", provider.ID, "err", err)
 		}
 	}
 }
@@ -158,7 +158,7 @@ func (s *Service) GetModelInfos(ctx context.Context, providerID string) ([]model
 	s.mu.RLock()
 	if entry, exists := s.cache[providerID]; exists && util.Now().Before(entry.expiresAt) {
 		s.mu.RUnlock()
-		return stripModalityCaps(entry.models), nil
+		return stripModalityCapabilities(entry.models), nil
 	}
 	s.mu.RUnlock()
 
@@ -166,12 +166,12 @@ func (s *Service) GetModelInfos(ctx context.Context, providerID string) ([]model
 	call, exists := s.inflight[providerID]
 	if exists {
 		s.mu.Unlock()
-		call.wg.Wait()
+		call.waitGroup.Wait()
 
 		s.mu.RLock()
 		defer s.mu.RUnlock()
 		if entry, exists := s.cache[providerID]; exists {
-			return stripModalityCaps(entry.models), nil
+			return stripModalityCapabilities(entry.models), nil
 		}
 		if call.err != nil {
 			return nil, call.err
@@ -180,17 +180,17 @@ func (s *Service) GetModelInfos(ctx context.Context, providerID string) ([]model
 	}
 
 	call = &inflightCall{}
-	call.wg.Add(1)
+	call.waitGroup.Add(1)
 	s.inflight[providerID] = call
 	s.mu.Unlock()
 
-	models, err := s.fetchAndCache(ctx, providerID)
+	modelInfos, err := s.fetchAndCache(ctx, providerID)
 	call.err = err
 	s.mu.Lock()
 	delete(s.inflight, providerID)
 	s.mu.Unlock()
-	call.wg.Done()
-	return models, err
+	call.waitGroup.Done()
+	return modelInfos, err
 }
 
 // GetModelInfo retrieves metadata for a specific model
@@ -230,31 +230,31 @@ func (s *Service) GetModels(ctx context.Context, providerID string) ([]string, e
 
 // fetchAndCache fetches model metadata from the provider backend and caches it.
 func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]models.ModelInfo, error) {
-	resolved, err := provider.Resolve(s.providerSvc, providerID)
+	resolved, err := provider.Resolve(s.providerService, providerID)
 	if err != nil {
 		if s.logger != nil {
 			s.logger.Warn("model discovery: provider lookup failed", "provider_id", providerID, "err", err)
 		}
 		return nil, fmt.Errorf("provider lookup failed: %w", err)
 	}
-	p := resolved.Instance
-	config := p.Config
+	instance := resolved.Instance
+	config := instance.Config
 
-	creds, err := s.credSvc.ListByProvider(providerID)
+	credentials, err := s.credentialService.ListByProvider(providerID)
 	if err != nil {
 		if s.logger != nil {
 			s.logger.Warn("model discovery: list credentials failed", "provider_id", providerID, "err", err)
 		}
-		return nil, fmt.Errorf("list credentials for provider %s: %w", p.Name, err)
+		return nil, fmt.Errorf("list credentials for provider %s: %w", instance.Name, err)
 	}
 	// Lua plugins select their own discovery credential internally: one
 	// call serves every case, credentialed or not. The provider ID scopes
 	// credentials.list() to this provider's rows.
 	if resolved.IsLua() {
-		modelInfos, err := s.providerSvc.LuaService().GetModelInfos(ctx, providerID, p.TypeKey, config)
+		modelInfos, err := s.providerService.LuaService().GetModelInfos(ctx, providerID, instance.TypeKey, config)
 		if err != nil {
 			if s.logger != nil {
-				s.logger.Warn("model discovery failed", "provider_id", providerID, "qualifier", p.Qualifier, "err", err)
+				s.logger.Warn("model discovery failed", "provider_id", providerID, "qualifier", instance.Qualifier, "err", err)
 			}
 			return nil, fmt.Errorf("provider %q discovery: %w", providerID, err)
 		}
@@ -266,13 +266,13 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 	var modelInfos []models.ModelInfo
 	var lastErr error
 
-	fetch := func(cred *models.Credential) ([]models.ModelInfo, error) {
-		return safeGetModelInfos(ctx, resolved.Go, cred, config)
+	fetch := func(credential *models.Credential) ([]models.ModelInfo, error) {
+		return safeGetModelInfos(ctx, resolved.Go, credential, config)
 	}
 
 	// Credential-free fetch first for backends that do not need credentials
 	// for discovery, such as the built-in agents provider or keyless plugins.
-	if len(creds) == 0 {
+	if len(credentials) == 0 {
 		modelInfos, lastErr = fetch(nil)
 		if lastErr == nil {
 			if s.logger != nil {
@@ -281,23 +281,23 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 			return s.store(providerID, modelInfos), nil
 		}
 		if s.logger != nil {
-			s.logger.Warn("model discovery failed", "provider_id", providerID, "qualifier", p.Qualifier, "err", lastErr, "attempts", 1)
+			s.logger.Warn("model discovery failed", "provider_id", providerID, "qualifier", instance.Qualifier, "err", lastErr, "attempts", 1)
 		}
-		return nil, fmt.Errorf("no credentials available for provider %s: %w", p.Name, lastErr)
+		return nil, fmt.Errorf("no credentials available for provider %s: %w", instance.Name, lastErr)
 	}
 
-	for _, cred := range creds {
-		modelInfos, lastErr = fetch(cred)
+	for _, credential := range credentials {
+		modelInfos, lastErr = fetch(credential)
 		if lastErr == nil {
 			if s.logger != nil {
-				s.logger.Debug("model discovery succeeded", "provider_id", providerID, "credential_id", cred.ID, "models", len(modelInfos))
+				s.logger.Debug("model discovery succeeded", "provider_id", providerID, "credential_id", credential.ID, "models", len(modelInfos))
 			}
 			return s.store(providerID, modelInfos), nil
 		}
 	}
 
 	if s.logger != nil {
-		s.logger.Warn("model discovery failed", "provider_id", providerID, "qualifier", p.Qualifier, "err", lastErr, "attempts", len(creds))
+		s.logger.Warn("model discovery failed", "provider_id", providerID, "qualifier", instance.Qualifier, "err", lastErr, "attempts", len(credentials))
 	}
 	return nil, fmt.Errorf("provider %q discovery: %w", providerID, lastErr)
 }
@@ -305,7 +305,7 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 func safeGetModelInfos(
 	ctx context.Context,
 	adapter provider.GoAdapter,
-	cred *models.Credential,
+	credential *models.Credential,
 	providerConfig map[string]any,
 ) (modelInfos []models.ModelInfo, err error) {
 	defer func() {
@@ -314,7 +314,7 @@ func safeGetModelInfos(
 		}
 	}()
 
-	return adapter.GetModelInfos(ctx, cred, providerConfig)
+	return adapter.GetModelInfos(ctx, credential, providerConfig)
 }
 
 // Refresh forces an upstream fetch and stores it. The previous cache is
@@ -342,23 +342,23 @@ func (s *Service) mergeRetained(providerID string, fresh []models.ModelInfo) []m
 		return fresh
 	}
 	byName := make(map[string]models.ModelInfo, len(fresh))
-	for _, mi := range fresh {
-		byName[mi.Name] = mi
+	for _, model := range fresh {
+		byName[model.Name] = model
 	}
 	merged := make([]models.ModelInfo, 0, len(existing)+len(fresh))
 	seen := make(map[string]bool, len(existing))
-	for _, mi := range existing {
-		if updated, ok := byName[mi.Name]; ok {
+	for _, model := range existing {
+		if updated, ok := byName[model.Name]; ok {
 			merged = append(merged, updated)
 		} else {
-			merged = append(merged, mi)
+			merged = append(merged, model)
 		}
-		seen[mi.Name] = true
+		seen[model.Name] = true
 	}
-	for _, mi := range fresh {
-		if !seen[mi.Name] {
-			merged = append(merged, mi)
-			seen[mi.Name] = true
+	for _, model := range fresh {
+		if !seen[model.Name] {
+			merged = append(merged, model)
+			seen[model.Name] = true
 		}
 	}
 	return merged
@@ -368,18 +368,18 @@ func (s *Service) mergeRetained(providerID string, fresh []models.ModelInfo) []m
 // reports it does not exist. A missing provider record is a no-op.
 // Reports whether anything was removed.
 func (s *Service) RemoveModel(providerID, name string) (bool, error) {
-	rec, err := s.records.Get(providerID)
-	if err != nil || rec == nil {
+	record, err := s.records.Get(providerID)
+	if err != nil || record == nil {
 		return false, nil
 	}
-	kept := make([]models.ModelInfo, 0, len(rec.Models))
+	kept := make([]models.ModelInfo, 0, len(record.Models))
 	removed := false
-	for _, mi := range rec.Models {
-		if mi.Name == name {
+	for _, model := range record.Models {
+		if model.Name == name {
 			removed = true
 			continue
 		}
-		kept = append(kept, mi)
+		kept = append(kept, model)
 	}
 	if !removed {
 		return false, nil
@@ -390,7 +390,7 @@ func (s *Service) RemoveModel(providerID, name string) (bool, error) {
 		s.cache[providerID] = e
 	}
 	s.mu.Unlock()
-	if err := s.records.Put(providerID, &modelInfoRecord{Models: kept, CachedAt: rec.CachedAt}); err != nil {
+	if err := s.records.Put(providerID, &modelInfoRecord{Models: kept, CachedAt: record.CachedAt}); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -409,12 +409,12 @@ func (s *Service) InvalidateAll() error {
 	s.mu.Lock()
 	s.cache = make(map[string]cacheEntry)
 	s.mu.Unlock()
-	providers, err := s.providerSvc.List()
+	providers, err := s.providerService.List()
 	if err != nil {
 		return err
 	}
-	for _, p := range providers {
-		_ = s.records.DeleteIfExists(p.ID)
+	for _, provider := range providers {
+		_ = s.records.DeleteIfExists(provider.ID)
 	}
 	return nil
 }
@@ -435,11 +435,11 @@ type ModelView struct {
 }
 
 // SetOverride creates or replaces the override for one model.
-func (s *Service) SetOverride(ov models.ModelOverride) error {
-	if ov.ProviderID == "" || ov.Name == "" {
+func (s *Service) SetOverride(override models.ModelOverride) error {
+	if override.ProviderID == "" || override.Name == "" {
 		return fmt.Errorf("override requires provider id and model name")
 	}
-	return s.overrides.Put(overrideKey(ov.ProviderID, ov.Name), &ov)
+	return s.overrides.Put(overrideKey(override.ProviderID, override.Name), &override)
 }
 
 // DeleteOverride removes the override for one model. For custom models this
@@ -450,8 +450,8 @@ func (s *Service) DeleteOverride(providerID, modelName string) error {
 
 // ListOverrides returns all overrides of a provider.
 func (s *Service) ListOverrides(providerID string) ([]*models.ModelOverride, error) {
-	return s.overrides.ListFiltered(func(ov *models.ModelOverride) bool {
-		return ov.ProviderID == providerID
+	return s.overrides.ListFiltered(func(override *models.ModelOverride) bool {
+		return override.ProviderID == providerID
 	})
 }
 
@@ -459,93 +459,93 @@ func (s *Service) ListOverrides(providerID string) ([]*models.ModelOverride, err
 // unless an override disables them. Missing overrides allow routing;
 // storage failures deny routing.
 func (s *Service) IsModelEnabled(providerID, modelName string) (bool, error) {
-	ov, err := s.overrides.Get(overrideKey(providerID, modelName))
+	override, err := s.overrides.Get(overrideKey(providerID, modelName))
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return true, nil
 		}
 		return false, err
 	}
-	if ov == nil {
+	if override == nil {
 		return true, nil
 	}
-	return !ov.Disabled, nil
+	return !override.Disabled, nil
 }
 
 // MergedView merges the cached upstream model list with admin overrides:
 // disabled models are flagged, custom models appended, display metadata applied.
 // Fetches from the upstream on a cache miss — explicit refresh paths only.
 func (s *Service) MergedView(ctx context.Context, providerID string) ([]ModelView, error) {
-	infos, err := s.GetModelInfos(ctx, providerID)
+	modelList, err := s.GetModelInfos(ctx, providerID)
 	if err != nil {
 		return nil, err
 	}
-	ovs, err := s.ListOverrides(providerID)
+	overrides, err := s.ListOverrides(providerID)
 	if err != nil {
 		return nil, err
 	}
-	return mergeModelViews(infos, ovs), nil
+	return mergeModelViews(modelList, overrides), nil
 }
 
 // PeekMergedView is MergedView over the cache (stale entries count) with no
 // upstream fetch. Browsing paths use it: upstream sync is opt-in
 // (models_auto_sync) or an explicit user action.
 func (s *Service) PeekMergedView(providerID string) ([]ModelView, error) {
-	ovs, err := s.ListOverrides(providerID)
+	overrides, err := s.ListOverrides(providerID)
 	if err != nil {
 		return nil, err
 	}
-	return mergeModelViews(s.PeekModelInfos(providerID), ovs), nil
+	return mergeModelViews(s.PeekModelInfos(providerID), overrides), nil
 }
 
-func mergeModelViews(infos []models.ModelInfo, ovs []*models.ModelOverride) []ModelView {
-	byName := make(map[string]*models.ModelOverride, len(ovs))
-	for _, ov := range ovs {
-		byName[ov.Name] = ov
+func mergeModelViews(modelList []models.ModelInfo, overrides []*models.ModelOverride) []ModelView {
+	byName := make(map[string]*models.ModelOverride, len(overrides))
+	for _, override := range overrides {
+		byName[override.Name] = override
 	}
-	out := make([]ModelView, 0, len(infos)+len(ovs))
-	for _, mi := range infos {
-		v := ModelView{ModelInfo: mi}
-		if ov, ok := byName[mi.Name]; ok {
-			v.Disabled = ov.Disabled
-			v.Custom = ov.Custom
-			if ov.DisplayName != "" {
-				v.DisplayName = ov.DisplayName
+	views := make([]ModelView, 0, len(modelList)+len(overrides))
+	for _, model := range modelList {
+		view := ModelView{ModelInfo: model}
+		if override, ok := byName[model.Name]; ok {
+			view.Disabled = override.Disabled
+			view.Custom = override.Custom
+			if override.DisplayName != "" {
+				view.DisplayName = override.DisplayName
 			}
-			if len(ov.Capabilities) > 0 {
-				v.Capabilities = ov.Capabilities
+			if len(override.Capabilities) > 0 {
+				view.Capabilities = override.Capabilities
 			}
-			if len(ov.InputModalities) > 0 {
-				v.InputModalities = ov.InputModalities
+			if len(override.InputModalities) > 0 {
+				view.InputModalities = override.InputModalities
 			}
-			if len(ov.OutputModalities) > 0 {
-				v.OutputModalities = ov.OutputModalities
+			if len(override.OutputModalities) > 0 {
+				view.OutputModalities = override.OutputModalities
 			}
-			delete(byName, mi.Name)
+			delete(byName, model.Name)
 		}
-		out = append(out, v)
+		views = append(views, view)
 	}
-	for _, ov := range byName {
-		if !ov.Custom {
+	for _, override := range byName {
+		if !override.Custom {
 			continue
 		}
-		mi := models.ModelInfo{
-			Name:         ov.Name,
-			DisplayName:  ov.DisplayName,
-			Capabilities: ov.Capabilities,
+		model := models.ModelInfo{
+			Name:         override.Name,
+			DisplayName:  override.DisplayName,
+			Capabilities: override.Capabilities,
 		}
-		mi.DeriveCapabilities()
-		out = append(out, ModelView{
-			ModelInfo: mi,
-			Disabled:  ov.Disabled,
+		model.DeriveCapabilities()
+		views = append(views, ModelView{
+			ModelInfo: model,
+			Disabled:  override.Disabled,
 			Custom:    true,
 		})
 	}
-	return out
+	return views
 }
 
 func (s *Service) store(providerID string, fresh []models.ModelInfo) []models.ModelInfo {
-	modelInfos := stripModalityCaps(s.mergeRetained(providerID, fresh))
+	modelInfos := stripModalityCapabilities(s.mergeRetained(providerID, fresh))
 	for i := range modelInfos {
 		modelInfos[i].DeriveCapabilities()
 	}

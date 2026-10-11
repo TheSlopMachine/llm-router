@@ -25,8 +25,8 @@ function flush(): void {
   pending.clear()
   for (const node of batch) {
     if (!node.isConnected) continue
-    const cbs = resizeCallbacks.get(node)
-    if (cbs) for (const cb of cbs) cb(node)
+    const callbacks = resizeCallbacks.get(node)
+    if (callbacks) for (const callback of callbacks) callback(node)
   }
 }
 
@@ -59,7 +59,7 @@ function ensureResizeObserver(): ResizeObserver {
   return resizeObserver
 }
 
-export function observeResize(node: HTMLElement, cb: NodeCallback): () => void {
+export function observeResize(node: HTMLElement, callback: NodeCallback): () => void {
   let set = resizeCallbacks.get(node)
   if (!set) {
     set = new Set()
@@ -71,12 +71,12 @@ export function observeResize(node: HTMLElement, cb: NodeCallback): () => void {
       ro.observe(node)
     }
   }
-  set.add(cb)
+  set.add(callback)
 
   return () => {
     const current = resizeCallbacks.get(node)
     if (!current) return
-    current.delete(cb)
+    current.delete(callback)
     if (current.size === 0) {
       resizeCallbacks.delete(node)
       resizeObserver?.unobserve(node)
@@ -99,26 +99,26 @@ function ensureAttrObserver(): MutationObserver {
   attrObserver = new MutationObserver((mutations) => {
     for (const m of mutations) {
       const node = m.target as HTMLElement
-      const cbs = attrCallbacks.get(node)
-      if (cbs) for (const cb of cbs) cb(node)
+      const callbacks = attrCallbacks.get(node)
+      if (callbacks) for (const callback of callbacks) callback(node)
     }
   })
   return attrObserver
 }
 
-export function observeStyleAttribute(node: HTMLElement, cb: NodeCallback): () => void {
+export function observeStyleAttribute(node: HTMLElement, callback: NodeCallback): () => void {
   let set = attrCallbacks.get(node)
   if (!set) {
     set = new Set()
     attrCallbacks.set(node, set)
     ensureAttrObserver().observe(node, { attributes: true, attributeFilter: ['style'] })
   }
-  set.add(cb)
+  set.add(callback)
 
   return () => {
     const current = attrCallbacks.get(node)
     if (!current) return
-    current.delete(cb)
+    current.delete(callback)
     if (current.size === 0) attrCallbacks.delete(node)
     // MutationObserver has no per-node unobserve; the map lookup above is the
     // guard. Entries are dropped when the last callback leaves, so a detached
@@ -134,8 +134,8 @@ export function observeStyleAttribute(node: HTMLElement, cb: NodeCallback): () =
 
 interface TrackerOptions {
   selector: string
-  attach: (el: HTMLElement) => void
-  detach?: (el: HTMLElement) => void
+  attach: (element: HTMLElement) => void
+  detach?: (element: HTMLElement) => void
 }
 
 const trackers: TrackerOptions[] = []
@@ -149,14 +149,14 @@ function runTrackers(added: Node[], removed: Node[]): void {
       if (!(node instanceof HTMLElement)) continue
       if (node.matches(tracker.selector)) tracker.attach(node)
       const nested = node.querySelectorAll<HTMLElement>(tracker.selector)
-      for (const el of nested) tracker.attach(el)
+      for (const element of nested) tracker.attach(element)
     }
     if (!tracker.detach) continue
     for (const node of removed) {
       if (!(node instanceof HTMLElement)) continue
       if (node.matches(tracker.selector)) tracker.detach(node)
       const nested = node.querySelectorAll<HTMLElement>(tracker.selector)
-      for (const el of nested) tracker.detach(el)
+      for (const element of nested) tracker.detach(element)
     }
   }
 }
@@ -202,7 +202,7 @@ export function trackElements(options: TrackerOptions): () => void {
   ensureTrackerObserver()
 
   const initial = document.body.querySelectorAll<HTMLElement>(options.selector)
-  for (const el of initial) options.attach(el)
+  for (const element of initial) options.attach(element)
 
   return () => {
     const i = trackers.indexOf(options)

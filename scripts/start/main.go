@@ -35,8 +35,8 @@ func main() {
 	// Refuse to clobber an already-running dev server. Spawning a second
 	// backend/frontend pair here would silently overwrite the pidfile,
 	// orphaning the first pair — no `make stop` could ever reach them again.
-	if p, err := shared.ReadPidFile(pidFile); err == nil {
-		if shared.AliveMatches(p.Backend, p.BackendPath) || shared.AliveMatches(p.Frontend, p.FrontendPath) {
+	if recorded, err := shared.ReadPidFile(pidFile); err == nil {
+		if shared.AliveMatches(recorded.Backend, recorded.BackendPath) || shared.AliveMatches(recorded.Frontend, recorded.FrontendPath) {
 			shared.Failf("already running (see `make status`); run `make stop` or `make restart` first")
 		}
 		// Stale pidfile pointing at dead processes: safe to remove and continue.
@@ -52,11 +52,11 @@ func main() {
 	}
 
 	// Ensure parent dirs for db and pidfile.
-	for _, p := range []string{dbPath, pidFile, shared.DefaultBackendLog(), shared.DefaultFrontendLog()} {
-		dir := filepath.Dir(p)
-		if dir != "." && dir != "" {
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				shared.Failf("create dir %s: %v", dir, err)
+	for _, path := range []string{dbPath, pidFile, shared.DefaultBackendLog(), shared.DefaultFrontendLog()} {
+		parent := filepath.Dir(path)
+		if parent != "." && parent != "" {
+			if err := os.MkdirAll(parent, 0755); err != nil {
+				shared.Failf("create dir %s: %v", parent, err)
 			}
 		}
 	}
@@ -76,8 +76,8 @@ func main() {
 	// Project-root builds run in the workspace: GOWORK=off applies to the
 	// scripts module only and must not leak into this command.
 	build.Env = shared.EnvWithoutGowork()
-	if out, err := build.CombinedOutput(); err != nil {
-		shared.Failf("backend build: %v\n%s", err, out)
+	if output, err := build.CombinedOutput(); err != nil {
+		shared.Failf("backend build: %v\n%s", err, output)
 	}
 
 	shared.Stepf("Starting backend and frontend (vite)...")
@@ -121,14 +121,14 @@ func main() {
 		fmt.Fprintln(os.Stderr, "[WARN] stop falls back to best-effort termination")
 	}
 
-	proc := shared.Proc{
+	process := shared.Proc{
 		Backend:      backendPID,
 		Frontend:     frontendPID,
 		VitePort:     mustAtoi(webPort),
 		BackendPath:  snapshotPath(backendPID, binPath),
 		FrontendPath: snapshotPath(frontendPID, resolveBun()),
 	}
-	raw, _ := json.MarshalIndent(proc, "", "  ")
+	raw, _ := json.MarshalIndent(process, "", "  ")
 	if err := os.WriteFile(pidFile, append(raw, '\n'), 0644); err != nil {
 		shared.Failf("write pidfile: %v", err)
 	}
@@ -156,15 +156,15 @@ func main() {
 	fmt.Printf("Pidfile: %s\n", pidFile)
 }
 
-func mustAtoi(s string) int {
-	n := 0
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			shared.Failf("invalid port %q", s)
+func mustAtoi(portString string) int {
+	number := 0
+	for _, digit := range portString {
+		if digit < '0' || digit > '9' {
+			shared.Failf("invalid port %q", portString)
 		}
-		n = n*10 + int(c-'0')
+		number = number*10 + int(digit-'0')
 	}
-	return n
+	return number
 }
 
 // snapshotPath records the executable identity for a spawned PID. The live

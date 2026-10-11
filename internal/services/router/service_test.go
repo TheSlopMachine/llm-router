@@ -21,26 +21,26 @@ func setupRouterService(t *testing.T) (*Service, *credential.Service, *modelinfo
 	t.Helper()
 	database := testutil.SetupTestDB(t)
 
-	providerSvc := provider.NewService(database)
-	mock := testutil.NewMockAdapter("mock").WithCompleteFunc(func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+	providerService := provider.NewService(database)
+	mock := testutil.NewMockAdapter("mock").WithCompleteFunc(func(ctx context.Context, creds []*models.Credential, request *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
 		return &models.ChatCompletionResponse{
 			ID:      "test-response",
 			Object:  "chat.completion",
 			Created: time.Now().Unix(),
-			Model:   string(req.Model),
+			Model:   string(request.Model),
 			Choices: []models.ChatCompletionChoice{{Index: 0, Message: models.ChatMessage{Role: "assistant", Content: "test"}, FinishReason: "stop"}},
 		}, nil
 	})
-	providerSvc.RegisterGoAdapter(mock)
-	if _, err := providerSvc.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
+	providerService.RegisterGoAdapter(mock)
+	if _, err := providerService.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
 	}
-	credSvc := credential.New(database, providerSvc)
-	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
+	credentialService := credential.New(database, providerService)
+	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
 
-	routerSvc := New(providerSvc, credSvc, modelInfoSvc, videojobs.New(database), nil, nil, slog.Default())
+	routerService := New(providerService, credentialService, modelInfoService, videojobs.New(database), nil, nil, slog.Default())
 
-	return routerSvc, credSvc, modelInfoSvc, mock
+	return routerService, credentialService, modelInfoService, mock
 }
 
 // ─────────────────────────────────────────────
@@ -48,66 +48,66 @@ func setupRouterService(t *testing.T) (*Service, *credential.Service, *modelinfo
 // ─────────────────────────────────────────────
 
 func TestRouterService_Complete_Success(t *testing.T) {
-	svc, credSvc, _, _ := setupRouterService(t)
+	service, credentialService, _, _ := setupRouterService(t)
 
-	credSvc.Add(credential.AddOptions{
+	credentialService.Add(credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Test Cred",
 		Data:       map[string]any{"api_key": "test-key"},
 	})
 
-	req := &models.ChatCompletionRequest{
+	request := &models.ChatCompletionRequest{
 		Model:    "mock/test-model",
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
 
-	resp, err := svc.Complete(context.Background(), req, nil)
+	response, err := service.Complete(context.Background(), request, nil)
 	if err != nil {
 		t.Fatalf("complete failed: %v", err)
 	}
 
-	if resp.ID != "test-response" {
-		t.Errorf("response ID: got %q, want %q", resp.ID, "test-response")
+	if response.ID != "test-response" {
+		t.Errorf("response ID: got %q, want %q", response.ID, "test-response")
 	}
 }
 
 func TestRouterService_Complete_InvalidModelId(t *testing.T) {
-	svc, _, _, _ := setupRouterService(t)
+	service, _, _, _ := setupRouterService(t)
 
-	req := &models.ChatCompletionRequest{
+	request := &models.ChatCompletionRequest{
 		Model:    "invalid-model-id",
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
 
-	_, err := svc.Complete(context.Background(), req, nil)
+	_, err := service.Complete(context.Background(), request, nil)
 	if err == nil {
 		t.Error("expected error for invalid model ID, got nil")
 	}
 }
 
 func TestRouterService_Complete_ProviderNotFound(t *testing.T) {
-	svc, _, _, _ := setupRouterService(t)
+	service, _, _, _ := setupRouterService(t)
 
-	req := &models.ChatCompletionRequest{
+	request := &models.ChatCompletionRequest{
 		Model:    "nonexistent/test-model",
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
 
-	_, err := svc.Complete(context.Background(), req, nil)
+	_, err := service.Complete(context.Background(), request, nil)
 	if err == nil {
 		t.Error("expected error for nonexistent provider, got nil")
 	}
 }
 
 func TestRouterService_Complete_NoCredentials(t *testing.T) {
-	svc, _, _, _ := setupRouterService(t)
+	service, _, _, _ := setupRouterService(t)
 
-	req := &models.ChatCompletionRequest{
+	request := &models.ChatCompletionRequest{
 		Model:    "mock/test-model",
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
 
-	_, err := svc.Complete(context.Background(), req, nil)
+	_, err := service.Complete(context.Background(), request, nil)
 	if err == nil {
 		t.Error("expected error when no credentials available, got nil")
 	}
@@ -119,30 +119,30 @@ func TestRouterService_Complete_NoCredentials(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestRouterService_Complete_PassesFullPoolInSingleCall(t *testing.T) {
-	svc, credSvc, _, mock := setupRouterService(t)
+	service, credentialService, _, mock := setupRouterService(t)
 
-	credSvc.Add(credential.AddOptions{
+	credentialService.Add(credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "key1"},
 	})
-	credSvc.Add(credential.AddOptions{
+	credentialService.Add(credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 2",
 		Data:       map[string]any{"api_key": "key2"},
 	})
 
-	req := &models.ChatCompletionRequest{
+	request := &models.ChatCompletionRequest{
 		Model:    "mock/test-model",
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
 
-	resp, err := svc.Complete(context.Background(), req, nil)
+	response, err := service.Complete(context.Background(), request, nil)
 	if err != nil {
 		t.Fatalf("complete failed: %v", err)
 	}
-	if resp.ID != "test-response" {
-		t.Errorf("expected test response, got %q", resp.ID)
+	if response.ID != "test-response" {
+		t.Errorf("expected test response, got %q", response.ID)
 	}
 
 	if mock.Calls != 1 {
@@ -154,20 +154,20 @@ func TestRouterService_Complete_PassesFullPoolInSingleCall(t *testing.T) {
 }
 
 func TestRouterService_Complete_BackendErrorSurfacesWithoutRepeat(t *testing.T) {
-	svc, credSvc, _, mock := setupRouterService(t)
+	service, credentialService, _, mock := setupRouterService(t)
 
-	credSvc.Add(credential.AddOptions{
+	credentialService.Add(credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "key1"},
 	})
-	credSvc.Add(credential.AddOptions{
+	credentialService.Add(credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 2",
 		Data:       map[string]any{"api_key": "key2"},
 	})
 
-	mock.WithCompleteFunc(func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+	mock.WithCompleteFunc(func(ctx context.Context, creds []*models.Credential, request *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
 		return nil, &models.ProviderError{
 			StatusCode: 429,
 			Message:    "rate limit exceeded",
@@ -175,12 +175,12 @@ func TestRouterService_Complete_BackendErrorSurfacesWithoutRepeat(t *testing.T) 
 		}
 	})
 
-	req := &models.ChatCompletionRequest{
+	request := &models.ChatCompletionRequest{
 		Model:    "mock/test-model",
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
 
-	_, err := svc.Complete(context.Background(), req, nil)
+	_, err := service.Complete(context.Background(), request, nil)
 	if err == nil {
 		t.Error("expected backend error, got nil")
 	}
@@ -191,29 +191,29 @@ func TestRouterService_Complete_BackendErrorSurfacesWithoutRepeat(t *testing.T) 
 }
 
 func TestRouterService_TestVision_Success(t *testing.T) {
-	svc, credSvc, _, _ := setupRouterService(t)
+	service, credentialService, _, _ := setupRouterService(t)
 
-	credSvc.Add(credential.AddOptions{
+	credentialService.Add(credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "key1"},
 	})
 
-	res := svc.TestVision(context.Background(), "mock/test-model")
-	if !res.OK {
-		t.Fatalf("vision probe failed: %v", res.Error)
+	result := service.TestVision(context.Background(), "mock/test-model")
+	if !result.OK {
+		t.Fatalf("vision probe failed: %v", result.Error)
 	}
 }
 
 func TestRouterService_TestModel_BypassesManualDisable(t *testing.T) {
-	svc, credSvc, modelInfoSvc, _ := setupRouterService(t)
+	service, credentialService, modelInfoService, _ := setupRouterService(t)
 
-	credSvc.Add(credential.AddOptions{
+	credentialService.Add(credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "key1"},
 	})
-	if err := modelInfoSvc.SetOverride(models.ModelOverride{
+	if err := modelInfoService.SetOverride(models.ModelOverride{
 		ProviderID: "mock",
 		Name:       "test-model",
 		Disabled:   true,
@@ -221,30 +221,30 @@ func TestRouterService_TestModel_BypassesManualDisable(t *testing.T) {
 		t.Fatalf("disable model: %v", err)
 	}
 
-	req := &models.ChatCompletionRequest{
+	request := &models.ChatCompletionRequest{
 		Model:    "mock/test-model",
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
-	if _, err := svc.Complete(context.Background(), req, nil); !errors.Is(err, apierrors.ErrModelDisabled) {
+	if _, err := service.Complete(context.Background(), request, nil); !errors.Is(err, apierrors.ErrModelDisabled) {
 		t.Fatalf("expected ErrModelDisabled from routing, got %v", err)
 	}
 
-	res := svc.TestModel(context.Background(), "mock/test-model")
-	if !res.OK {
-		t.Fatalf("probe of disabled model must go through, got %v", res.Error)
+	result := service.TestModel(context.Background(), "mock/test-model")
+	if !result.OK {
+		t.Fatalf("probe of disabled model must go through, got %v", result.Error)
 	}
 }
 
 func TestRouterService_Complete_AuthErrorSingleAttempt(t *testing.T) {
-	svc, credSvc, _, mock := setupRouterService(t)
+	service, credentialService, _, mock := setupRouterService(t)
 
-	credSvc.Add(credential.AddOptions{
+	credentialService.Add(credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "key1"},
 	})
 
-	mock.WithCompleteFunc(func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+	mock.WithCompleteFunc(func(ctx context.Context, creds []*models.Credential, request *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
 		return nil, &models.ProviderError{
 			StatusCode: 401,
 			Message:    "authentication failed",
@@ -252,12 +252,12 @@ func TestRouterService_Complete_AuthErrorSingleAttempt(t *testing.T) {
 		}
 	})
 
-	req := &models.ChatCompletionRequest{
+	request := &models.ChatCompletionRequest{
 		Model:    "mock/test-model",
 		Messages: []models.ChatMessage{{Role: "user", Content: "test"}},
 	}
 
-	_, err := svc.Complete(context.Background(), req, nil)
+	_, err := service.Complete(context.Background(), request, nil)
 	if err == nil {
 		t.Error("expected error for auth failure, got nil")
 	}
@@ -268,14 +268,14 @@ func TestRouterService_Complete_AuthErrorSingleAttempt(t *testing.T) {
 }
 
 func TestRouterService_TestModel_MarksQuotaExceeded(t *testing.T) {
-	svc, credSvc, _, mock := setupRouterService(t)
+	service, credentialService, _, mock := setupRouterService(t)
 
-	credSvc.Add(credential.AddOptions{
+	credentialService.Add(credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "key1"},
 	})
-	mock.WithCompleteFunc(func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+	mock.WithCompleteFunc(func(ctx context.Context, creds []*models.Credential, request *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
 		return nil, &models.ProviderError{
 			StatusCode: 429,
 			Message:    "quota exhausted",
@@ -283,14 +283,14 @@ func TestRouterService_TestModel_MarksQuotaExceeded(t *testing.T) {
 		}
 	})
 
-	res := svc.TestModel(context.Background(), "mock/test-model")
-	if res.OK {
+	result := service.TestModel(context.Background(), "mock/test-model")
+	if result.OK {
 		t.Fatal("expected failed probe, got ok")
 	}
-	if !res.QuotaExceeded {
+	if !result.QuotaExceeded {
 		t.Error("quota failure must set quota_exceeded so callers never disable over it")
 	}
-	if res.Code != "quota_exceeded" {
-		t.Errorf("probe must carry machine-readable code, got %q", res.Code)
+	if result.Code != "quota_exceeded" {
+		t.Errorf("probe must carry machine-readable code, got %q", result.Code)
 	}
 }

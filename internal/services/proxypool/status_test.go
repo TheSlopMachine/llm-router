@@ -40,9 +40,9 @@ func TestStatusUsesLibrarySnapshotAndNonNilCollections(t *testing.T) {
 	}
 }
 
-func contains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
+func contains(value, substring string) bool {
+	for i := 0; i+len(substring) <= len(value); i++ {
+		if value[i:i+len(substring)] == substring {
 			return true
 		}
 	}

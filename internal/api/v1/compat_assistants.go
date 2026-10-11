@@ -31,26 +31,26 @@ import (
 // @Failure      403 {object} models.OpenAIError "Forbidden - model not allowed by token rules"
 // @Router       /v1/assistants [post]
 // @Security     BearerAuth
-func (h *Handler) createAssistant(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
-	var req models.AssistantRequest
-	if err := decodeJSONBody(w, r, &req); err != nil {
+func (h *Handler) createAssistant(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
+	var request models.AssistantRequest
+	if err := decodeJSONBody(w, r, &request); err != nil {
 		h.writeDecodeError(w, err)
 		return
 	}
-	if req.Model == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", strPtr("model"))
+	if request.Model == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", stringPointer("model"))
 		return
 	}
-	if deny := authorizeModel(t, req.Model); deny != nil {
-		h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
-	out, err := h.router.CreateAssistant(r.Context(), &req)
+	output, err := h.router.CreateAssistant(r.Context(), &request)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, out)
+	h.writeJSON(w, http.StatusOK, output)
 }
 
 // listAssistants handles GET /v1/assistants
@@ -63,8 +63,8 @@ func (h *Handler) createAssistant(w http.ResponseWriter, r *http.Request, t *mod
 // @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
 // @Router       /v1/assistants [get]
 // @Security     BearerAuth
-func (h *Handler) listAssistants(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
-	_ = t
+func (h *Handler) listAssistants(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
+	_ = token
 	items, err := h.router.ListAssistants(r.Context())
 	if err != nil {
 		h.handleRouterError(w, err)
@@ -85,18 +85,18 @@ func (h *Handler) listAssistants(w http.ResponseWriter, r *http.Request, t *mode
 // @Failure      404 {object} models.OpenAIError "Unknown assistant"
 // @Router       /v1/assistants/{assistant_id} [get]
 // @Security     BearerAuth
-func (h *Handler) getAssistant(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) getAssistant(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id := strings.TrimSpace(r.PathValue("assistant_id"))
 	if id == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "assistant id is required", nil)
 		return
 	}
-	out, err := h.router.GetAssistant(r.Context(), id, t)
+	output, err := h.router.GetAssistant(r.Context(), id, token)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, out)
+	h.writeJSON(w, http.StatusOK, output)
 }
 
 // updateAssistant handles POST /v1/assistants/{assistant_id}
@@ -112,29 +112,29 @@ func (h *Handler) getAssistant(w http.ResponseWriter, r *http.Request, t *models
 // @Failure      404 {object} models.OpenAIError "Unknown assistant"
 // @Router       /v1/assistants/{assistant_id} [post]
 // @Security     BearerAuth
-func (h *Handler) updateAssistant(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) updateAssistant(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id := strings.TrimSpace(r.PathValue("assistant_id"))
 	if id == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "assistant id is required", nil)
 		return
 	}
-	var req models.AssistantRequest
-	if err := decodeJSONBody(w, r, &req); err != nil {
+	var request models.AssistantRequest
+	if err := decodeJSONBody(w, r, &request); err != nil {
 		h.writeDecodeError(w, err)
 		return
 	}
-	if req.Model != "" {
-		if deny := authorizeModel(t, req.Model); deny != nil {
-			h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+	if request.Model != "" {
+		if deny := authorizeModel(token, request.Model); deny != nil {
+			h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 			return
 		}
 	}
-	out, err := h.router.UpdateAssistant(r.Context(), id, t, &req)
+	output, err := h.router.UpdateAssistant(r.Context(), id, token, &request)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, out)
+	h.writeJSON(w, http.StatusOK, output)
 }
 
 // deleteAssistant handles DELETE /v1/assistants/{assistant_id}
@@ -149,13 +149,13 @@ func (h *Handler) updateAssistant(w http.ResponseWriter, r *http.Request, t *mod
 // @Failure      404 {object} models.OpenAIError "Unknown assistant"
 // @Router       /v1/assistants/{assistant_id} [delete]
 // @Security     BearerAuth
-func (h *Handler) deleteAssistant(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) deleteAssistant(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id := strings.TrimSpace(r.PathValue("assistant_id"))
 	if id == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "assistant id is required", nil)
 		return
 	}
-	_ = t
+	_ = token
 	if err := h.router.DeleteAssistant(r.Context(), id); err != nil {
 		h.handleRouterError(w, err)
 		return
@@ -178,7 +178,7 @@ func (h *Handler) deleteAssistant(w http.ResponseWriter, r *http.Request, t *mod
 // @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
 // @Router       /v1/threads [post]
 // @Security     BearerAuth
-func (h *Handler) createThread(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) createThread(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	var body struct {
 		Metadata map[string]string `json:"metadata"`
 	}
@@ -186,13 +186,13 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request, t *models
 		h.writeDecodeError(w, err)
 		return
 	}
-	_ = t
-	out, err := h.router.CreateThread(r.Context(), body.Metadata)
+	_ = token
+	output, err := h.router.CreateThread(r.Context(), body.Metadata)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, out)
+	h.writeJSON(w, http.StatusOK, output)
 }
 
 // getThread handles GET /v1/threads/{thread_id}
@@ -207,18 +207,18 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request, t *models
 // @Failure      404 {object} models.OpenAIError "Unknown thread"
 // @Router       /v1/threads/{thread_id} [get]
 // @Security     BearerAuth
-func (h *Handler) getThread(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) getThread(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id := strings.TrimSpace(r.PathValue("thread_id"))
 	if id == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread id is required", nil)
 		return
 	}
-	out, err := h.router.GetThread(r.Context(), id, t)
+	output, err := h.router.GetThread(r.Context(), id, token)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, out)
+	h.writeJSON(w, http.StatusOK, output)
 }
 
 // updateThread handles POST /v1/threads/{thread_id}
@@ -234,7 +234,7 @@ func (h *Handler) getThread(w http.ResponseWriter, r *http.Request, t *models.Ro
 // @Failure      404 {object} models.OpenAIError "Unknown thread"
 // @Router       /v1/threads/{thread_id} [post]
 // @Security     BearerAuth
-func (h *Handler) updateThread(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) updateThread(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id := strings.TrimSpace(r.PathValue("thread_id"))
 	if id == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread id is required", nil)
@@ -247,13 +247,13 @@ func (h *Handler) updateThread(w http.ResponseWriter, r *http.Request, t *models
 		h.writeDecodeError(w, err)
 		return
 	}
-	_ = t
-	out, err := h.router.UpdateThread(r.Context(), id, body.Metadata)
+	_ = token
+	output, err := h.router.UpdateThread(r.Context(), id, body.Metadata)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, out)
+	h.writeJSON(w, http.StatusOK, output)
 }
 
 // deleteThread handles DELETE /v1/threads/{thread_id}
@@ -269,13 +269,13 @@ func (h *Handler) updateThread(w http.ResponseWriter, r *http.Request, t *models
 // @Failure      404 {object} models.OpenAIError "Unknown thread"
 // @Router       /v1/threads/{thread_id} [delete]
 // @Security     BearerAuth
-func (h *Handler) deleteThread(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) deleteThread(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id := strings.TrimSpace(r.PathValue("thread_id"))
 	if id == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread id is required", nil)
 		return
 	}
-	_ = t
+	_ = token
 	if err := h.router.DeleteThread(r.Context(), id); err != nil {
 		h.handleRouterError(w, err)
 		return
@@ -298,24 +298,24 @@ func (h *Handler) deleteThread(w http.ResponseWriter, r *http.Request, t *models
 // @Failure      404 {object} models.OpenAIError "Unknown thread"
 // @Router       /v1/threads/{thread_id}/messages [post]
 // @Security     BearerAuth
-func (h *Handler) createThreadMessage(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) createThreadMessage(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id := strings.TrimSpace(r.PathValue("thread_id"))
 	if id == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread id is required", nil)
 		return
 	}
-	var req models.ThreadMessageRequest
-	if err := decodeJSONBody(w, r, &req); err != nil {
+	var request models.ThreadMessageRequest
+	if err := decodeJSONBody(w, r, &request); err != nil {
 		h.writeDecodeError(w, err)
 		return
 	}
-	_ = t
-	out, err := h.router.CreateThreadMessage(r.Context(), id, &req)
+	_ = token
+	output, err := h.router.CreateThreadMessage(r.Context(), id, &request)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, out)
+	h.writeJSON(w, http.StatusOK, output)
 }
 
 // listThreadMessages handles GET /v1/threads/{thread_id}/messages
@@ -330,13 +330,13 @@ func (h *Handler) createThreadMessage(w http.ResponseWriter, r *http.Request, t 
 // @Failure      404 {object} models.OpenAIError "Unknown thread"
 // @Router       /v1/threads/{thread_id}/messages [get]
 // @Security     BearerAuth
-func (h *Handler) listThreadMessages(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) listThreadMessages(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id := strings.TrimSpace(r.PathValue("thread_id"))
 	if id == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread id is required", nil)
 		return
 	}
-	_ = t
+	_ = token
 	items, err := h.router.ListThreadMessages(r.Context(), id)
 	if err != nil {
 		h.handleRouterError(w, err)
@@ -358,20 +358,20 @@ func (h *Handler) listThreadMessages(w http.ResponseWriter, r *http.Request, t *
 // @Failure      404 {object} models.OpenAIError "Unknown message"
 // @Router       /v1/threads/{thread_id}/messages/{message_id} [get]
 // @Security     BearerAuth
-func (h *Handler) getThreadMessage(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) getThreadMessage(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	threadID := strings.TrimSpace(r.PathValue("thread_id"))
 	messageID := strings.TrimSpace(r.PathValue("message_id"))
 	if threadID == "" || messageID == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread and message ids are required", nil)
 		return
 	}
-	_ = t
-	out, err := h.router.GetThreadMessage(r.Context(), threadID, messageID)
+	_ = token
+	output, err := h.router.GetThreadMessage(r.Context(), threadID, messageID)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, out)
+	h.writeJSON(w, http.StatusOK, output)
 }
 
 // ─────────────────────────────────────────────
@@ -399,36 +399,36 @@ func (h *Handler) getThreadMessage(w http.ResponseWriter, r *http.Request, t *mo
 // @Failure      503 {object} models.OpenAIError "Service Unavailable - no credential available"
 // @Router       /v1/threads/{thread_id}/runs [post]
 // @Security     BearerAuth
-func (h *Handler) createRun(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) createRun(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	start := time.Now()
 	threadID := strings.TrimSpace(r.PathValue("thread_id"))
 	if threadID == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread id is required", nil)
 		return
 	}
-	var req models.RunRequest
-	if err := decodeJSONBody(w, r, &req); err != nil {
+	var request models.RunRequest
+	if err := decodeJSONBody(w, r, &request); err != nil {
 		h.writeDecodeError(w, err)
 		return
 	}
-	if req.AssistantID == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'assistant_id'", strPtr("assistant_id"))
+	if request.AssistantID == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'assistant_id'", stringPointer("assistant_id"))
 		return
 	}
-	if req.Model != "" {
-		if deny := authorizeModel(t, req.Model); deny != nil {
-			h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+	if request.Model != "" {
+		if deny := authorizeModel(token, request.Model); deny != nil {
+			h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 			return
 		}
 	}
-	run, err := h.router.CreateRun(r.Context(), threadID, &req, t)
+	run, err := h.router.CreateRun(r.Context(), threadID, &request, token)
 	duration := time.Since(start)
-	h.recordRouteMetric(r.Context(), start, req.Model, t, duration, err, nil)
+	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, nil)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	if req.Stream {
+	if request.Stream {
 		h.streamRun(w, run)
 		return
 	}
@@ -445,8 +445,8 @@ func (h *Handler) streamRun(w http.ResponseWriter, run *models.Run) {
 	httpkit.WriteSSEHeaders(w)
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
-	emit := func(event string, v any) {
-		raw, err := json.Marshal(v)
+	emit := func(event string, value any) {
+		raw, err := json.Marshal(value)
 		if err != nil {
 			return
 		}
@@ -472,13 +472,13 @@ func (h *Handler) streamRun(w http.ResponseWriter, run *models.Run) {
 // @Failure      404 {object} models.OpenAIError "Unknown thread"
 // @Router       /v1/threads/{thread_id}/runs [get]
 // @Security     BearerAuth
-func (h *Handler) listRuns(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) listRuns(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	threadID := strings.TrimSpace(r.PathValue("thread_id"))
 	if threadID == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread id is required", nil)
 		return
 	}
-	_ = t
+	_ = token
 	items, err := h.router.ListRuns(r.Context(), threadID)
 	if err != nil {
 		h.handleRouterError(w, err)
@@ -500,19 +500,19 @@ func (h *Handler) listRuns(w http.ResponseWriter, r *http.Request, t *models.Rou
 // @Failure      404 {object} models.OpenAIError "Unknown run"
 // @Router       /v1/threads/{thread_id}/runs/{run_id} [get]
 // @Security     BearerAuth
-func (h *Handler) getRun(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) getRun(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	threadID := strings.TrimSpace(r.PathValue("thread_id"))
 	runID := strings.TrimSpace(r.PathValue("run_id"))
 	if threadID == "" || runID == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread and run ids are required", nil)
 		return
 	}
-	out, err := h.router.GetRun(r.Context(), threadID, runID, t)
+	output, err := h.router.GetRun(r.Context(), threadID, runID, token)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, out)
+	h.writeJSON(w, http.StatusOK, output)
 }
 
 // cancelRun handles POST /v1/threads/{thread_id}/runs/{run_id}/cancel
@@ -529,19 +529,19 @@ func (h *Handler) getRun(w http.ResponseWriter, r *http.Request, t *models.Route
 // @Failure      404 {object} models.OpenAIError "Unknown run"
 // @Router       /v1/threads/{thread_id}/runs/{run_id}/cancel [post]
 // @Security     BearerAuth
-func (h *Handler) cancelRun(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) cancelRun(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	threadID := strings.TrimSpace(r.PathValue("thread_id"))
 	runID := strings.TrimSpace(r.PathValue("run_id"))
 	if threadID == "" || runID == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread and run ids are required", nil)
 		return
 	}
-	out, err := h.router.CancelRun(r.Context(), threadID, runID, t)
+	output, err := h.router.CancelRun(r.Context(), threadID, runID, token)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, out)
+	h.writeJSON(w, http.StatusOK, output)
 }
 
 // submitRunToolOutputs handles POST
@@ -561,7 +561,7 @@ func (h *Handler) cancelRun(w http.ResponseWriter, r *http.Request, t *models.Ro
 // @Failure      404 {object} models.OpenAIError "Unknown run"
 // @Router       /v1/threads/{thread_id}/runs/{run_id}/submit_tool_outputs [post]
 // @Security     BearerAuth
-func (h *Handler) submitRunToolOutputs(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) submitRunToolOutputs(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	threadID := strings.TrimSpace(r.PathValue("thread_id"))
 	runID := strings.TrimSpace(r.PathValue("run_id"))
 	if threadID == "" || runID == "" {
@@ -576,13 +576,13 @@ func (h *Handler) submitRunToolOutputs(w http.ResponseWriter, r *http.Request, t
 		return
 	}
 	if len(body.ToolOutputs) == 0 {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'tool_outputs'", strPtr("tool_outputs"))
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'tool_outputs'", stringPointer("tool_outputs"))
 		return
 	}
-	out, err := h.router.SubmitToolOutputs(r.Context(), threadID, runID, t, body.ToolOutputs)
+	output, err := h.router.SubmitToolOutputs(r.Context(), threadID, runID, token, body.ToolOutputs)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, out)
+	h.writeJSON(w, http.StatusOK, output)
 }

@@ -13,15 +13,15 @@ type Port uint16
 
 func (p *Port) String() string { return strconv.Itoa(int(*p)) }
 func (p *Port) Type() string   { return "Port" }
-func (p *Port) Set(s string) error {
-	n, err := strconv.Atoi(strings.TrimSpace(s))
+func (p *Port) Set(value string) error {
+	port, err := strconv.Atoi(strings.TrimSpace(value))
 	if err != nil {
-		return fmt.Errorf("invalid port %q", s)
+		return fmt.Errorf("invalid port %q", value)
 	}
-	if n < 1 || n > 65535 {
+	if port < 1 || port > 65535 {
 		return fmt.Errorf("port must be between 1 and 65535")
 	}
-	*p = Port(n)
+	*p = Port(port)
 	return nil
 }
 
@@ -37,14 +37,14 @@ const (
 
 func (l *LogLevel) String() string { return string(*l) }
 func (l *LogLevel) Type() string   { return "LogLevel" }
-func (l *LogLevel) Set(s string) error {
-	n := strings.ToLower(strings.TrimSpace(s))
-	switch n {
+func (l *LogLevel) Set(value string) error {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
 	case "debug", "info", "warn", "warning", "error":
-		if n == "warning" {
-			n = "warn"
+		if normalized == "warning" {
+			normalized = "warn"
 		}
-		*l = LogLevel(n)
+		*l = LogLevel(normalized)
 		return nil
 	default:
 		return fmt.Errorf("must be one of debug, info, warn, error")
@@ -95,20 +95,20 @@ type Config struct {
 }
 
 // Validate checks that all required configuration fields are set.
-func (c *Config) Validate() error {
-	if c.DashboardAddr == "" {
+func (configuration *Config) Validate() error {
+	if configuration.DashboardAddr == "" {
 		return fmt.Errorf("dashboard listen address is required")
 	}
-	if c.APIAddr == "" {
+	if configuration.APIAddr == "" {
 		return fmt.Errorf("api listen address is required")
 	}
-	if c.DBPath == "" {
+	if configuration.DBPath == "" {
 		return fmt.Errorf("database path is required")
 	}
-	switch c.LogLevel {
+	switch configuration.LogLevel {
 	case "", LogLevelDebug, LogLevelInfo, LogLevelWarn, LogLevelError:
 	default:
-		if string(c.LogLevel) == "warning" {
+		if string(configuration.LogLevel) == "warning" {
 			break
 		}
 		return fmt.Errorf("log-level must be one of debug, info, warn, error")

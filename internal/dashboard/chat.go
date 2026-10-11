@@ -25,68 +25,68 @@ import (
 // @Failure      502 {object} models.OpenAIError
 // @Router       /api/llm-router/dashboard/chat/completions [post]
 func (h *Handler) apiChatCompletions(w http.ResponseWriter, r *http.Request) {
-	var req models.ChatCompletionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var request models.ChatCompletionRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, fmt.Sprintf("malformed request body: %s", err))
 		return
 	}
 	// Basic validation — mirror OpenAI requirements
-	if string(req.Model) == "" {
+	if string(request.Model) == "" {
 		h.jsonErr(w, http.StatusBadRequest, "field 'model' is required")
 		return
 	}
-	if len(req.Messages) == 0 {
+	if len(request.Messages) == 0 {
 		h.jsonErr(w, http.StatusBadRequest, "field 'messages' must contain at least one message")
 		return
 	}
 	// Validate model exists (provider lookup)
-	if _, _, err := req.Model.Parse(); err != nil {
+	if _, _, err := request.Model.Parse(); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, fmt.Sprintf("invalid model id: %s", err))
 		return
 	}
 
 	start := time.Now()
 
-	if req.Stream {
-		h.handleChatStream(w, r, &req, start)
+	if request.Stream {
+		h.handleChatStream(w, r, &request, start)
 		return
 	}
 
-	resp, err := h.routerSvc.Complete(r.Context(), &req, nil)
+	response, err := h.routerService.Complete(r.Context(), &request, nil)
 	duration := time.Since(start)
 
 	// Metrics — use dashboard as token id
-	providerType, _, _ := req.Model.Parse()
-	providerID, _ := h.routerSvc.GetProviderIDForModel(r.Context(), req.Model)
+	providerType, _, _ := request.Model.Parse()
+	providerID, _ := h.routerService.GetProviderIDForModel(r.Context(), request.Model)
 	event := models.MetricEvent{
 		Timestamp:    start,
 		ProviderID:   providerID,
 		ProviderType: providerType,
-		Model:        req.Model,
+		Model:        request.Model,
 		TokenID:      "dashboard",
 		Duration:     duration,
 		StatusCode:   http.StatusOK,
 	}
-	if err == nil && resp != nil && resp.Usage.TotalTokens > 0 {
-		event.TokensInput = int64(resp.Usage.PromptTokens)
-		event.TokensOutput = int64(resp.Usage.CompletionTokens)
+	if err == nil && response != nil && response.Usage.TotalTokens > 0 {
+		event.TokensInput = int64(response.Usage.PromptTokens)
+		event.TokensOutput = int64(response.Usage.CompletionTokens)
 	}
 	if err != nil {
-		re := classifyChatError(err)
-		event.StatusCode = re.status
-		event.ErrorType = re.code
+		routerError := classifyChatError(err)
+		event.StatusCode = routerError.status
+		event.ErrorType = routerError.code
 	}
-	h.metricsSvc.RecordRequest(event)
+	h.metricsService.RecordRequest(event)
 
 	if err != nil {
 		handleChatRouterError(w, err, h)
 		return
 	}
 
-	h.json(w, http.StatusOK, resp)
+	h.json(w, http.StatusOK, response)
 }
 
-func (h *Handler) handleChatStream(w http.ResponseWriter, r *http.Request, req *models.ChatCompletionRequest, start time.Time) {
+func (h *Handler) handleChatStream(w http.ResponseWriter, r *http.Request, request *models.ChatCompletionRequest, start time.Time) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		h.jsonErr(w, http.StatusInternalServerError, "streaming not supported")
@@ -96,47 +96,47 @@ func (h *Handler) handleChatStream(w http.ResponseWriter, r *http.Request, req *
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	err := h.routerSvc.CompleteStream(r.Context(), req, w, nil)
+	err := h.routerService.CompleteStream(r.Context(), request, w, nil)
 	duration := time.Since(start)
-	providerType, _, _ := req.Model.Parse()
-	providerID, _ := h.routerSvc.GetProviderIDForModel(r.Context(), req.Model)
+	providerType, _, _ := request.Model.Parse()
+	providerID, _ := h.routerService.GetProviderIDForModel(r.Context(), request.Model)
 	event := models.MetricEvent{
 		Timestamp:    start,
 		ProviderID:   providerID,
 		ProviderType: providerType,
-		Model:        req.Model,
+		Model:        request.Model,
 		TokenID:      "dashboard",
 		Duration:     duration,
 		StatusCode:   http.StatusOK,
 	}
 	if err != nil {
 		event.StatusCode = http.StatusInternalServerError
-		re := classifyChatError(err)
-		event.ErrorType = re.code
+		routerError := classifyChatError(err)
+		event.ErrorType = routerError.code
 		h.logger.Error("chat stream error", "err", err)
 		// Send error as SSE event for frontend
-		errorObj := models.OpenAIError{
+		errorResponse := models.OpenAIError{
 			Error: models.OpenAIErrorBody{
 				Message: err.Error(),
-				Type:    apierrors.ErrorTypeForCode(re.code),
-				Code:    re.code,
+				Type:    apierrors.ErrorTypeForCode(routerError.code),
+				Code:    routerError.code,
 			},
 		}
-		if b, e := json.Marshal(errorObj); e == nil {
-			fmt.Fprintf(w, "data: %s\n\n", b)
+		if errorBytes, e := json.Marshal(errorResponse); e == nil {
+			fmt.Fprintf(w, "data: %s\n\n", errorBytes)
 			flusher.Flush()
 		}
 	}
-	h.metricsSvc.RecordRequest(event)
+	h.metricsService.RecordRequest(event)
 }
 
 func handleChatRouterError(w http.ResponseWriter, err error, h *Handler) {
-	re := classifyChatError(err)
-	h.json(w, re.status, models.OpenAIError{
+	routerError := classifyChatError(err)
+	h.json(w, routerError.status, models.OpenAIError{
 		Error: models.OpenAIErrorBody{
 			Message: chatWireMessage(err),
-			Type:    apierrors.ErrorTypeForCode(re.code),
-			Code:    re.code,
+			Type:    apierrors.ErrorTypeForCode(routerError.code),
+			Code:    routerError.code,
 		},
 	})
 }
@@ -144,9 +144,9 @@ func handleChatRouterError(w http.ResponseWriter, err error, h *Handler) {
 // chatWireMessage renders the raw plugin message for terminal provider
 // errors, the Go error otherwise.
 func chatWireMessage(err error) string {
-	var perr *models.ProviderError
-	if errors.As(err, &perr) && perr.Message != "" {
-		return perr.Message
+	var providerError *models.ProviderError
+	if errors.As(err, &providerError) && providerError.Message != "" {
+		return providerError.Message
 	}
 	return err.Error()
 }
@@ -157,6 +157,6 @@ type chatRouterError struct {
 }
 
 func classifyChatError(err error) chatRouterError {
-	re := apierrors.ToAPIError(err)
-	return chatRouterError{re.Status, re.Code}
+	routerError := apierrors.ToAPIError(err)
+	return chatRouterError{routerError.Status, routerError.Code}
 }

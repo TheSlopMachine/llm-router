@@ -9,24 +9,24 @@ import (
 // NormalizeExecPath returns a comparable form of an executable path.
 // Windows comparison is case-insensitive with unified separators.
 // Empty input yields empty output.
-func NormalizeExecPath(p string) string {
-	q := strings.TrimSpace(p)
-	if q == "" {
+func NormalizeExecPath(input string) string {
+	normalizedPath := strings.TrimSpace(input)
+	if normalizedPath == "" {
 		return ""
 	}
-	if strings.HasPrefix(q, `\\?\`) {
-		q = strings.TrimPrefix(q, `\\?\`)
-		if strings.HasPrefix(q, `UNC\`) {
-			q = `\\` + strings.TrimPrefix(q, `UNC\`)
+	if strings.HasPrefix(normalizedPath, `\\?\`) {
+		normalizedPath = strings.TrimPrefix(normalizedPath, `\\?\`)
+		if strings.HasPrefix(normalizedPath, `UNC\`) {
+			normalizedPath = `\\` + strings.TrimPrefix(normalizedPath, `UNC\`)
 		}
 	}
 	if runtime.GOOS == "windows" {
-		q = strings.ReplaceAll(q, "/", `\`)
-		q = filepath.Clean(q)
-		return strings.ToLower(q)
+		normalizedPath = strings.ReplaceAll(normalizedPath, "/", `\`)
+		normalizedPath = filepath.Clean(normalizedPath)
+		return strings.ToLower(normalizedPath)
 	}
-	q = strings.ReplaceAll(q, `\`, "/")
-	return filepath.Clean(q)
+	normalizedPath = strings.ReplaceAll(normalizedPath, `\`, "/")
+	return filepath.Clean(normalizedPath)
 }
 
 // SameExecutable reports whether actual and expected name the same binary.
@@ -73,20 +73,20 @@ func AliveMatches(pid int, expectedPath string) bool {
 // reach the kill call. An empty match set returns nil.
 func ForceKillTargets(pidFile string, targets ...KillTarget) error {
 	matched := make([]int, 0, len(targets))
-	for _, t := range targets {
-		if t.PID <= 0 {
+	for _, target := range targets {
+		if target.PID <= 0 {
 			continue
 		}
-		if !Alive(t.PID) {
+		if !Alive(target.PID) {
 			continue
 		}
-		if strings.TrimSpace(t.ExpectedPath) != "" {
-			actual := processPath(t.PID)
-			if actual != "unknown" && !SameExecutable(actual, t.ExpectedPath) {
+		if strings.TrimSpace(target.ExpectedPath) != "" {
+			actual := processPath(target.PID)
+			if actual != "unknown" && !SameExecutable(actual, target.ExpectedPath) {
 				continue
 			}
 		}
-		matched = append(matched, t.PID)
+		matched = append(matched, target.PID)
 	}
 	if len(matched) == 0 {
 		return nil

@@ -4,7 +4,7 @@ import { modal } from '../FUI/core/modal.svelte'
 
 export function openFormModal(
   content: unknown,
-  opts: {
+  options: {
     title: string
     size?: 'small' | 'medium' | 'large' | 'extra-large'
     props?: Record<string, unknown>
@@ -12,14 +12,14 @@ export function openFormModal(
   }
 ): void {
   modal.open({
-    title: opts.title,
-    size: opts.size ?? 'medium',
+    title: options.title,
+    size: options.size ?? 'medium',
     content: content as never,
     props: {
-      ...(opts.props ?? {}),
+      ...(options.props ?? {}),
       onComplete: () => {
         modal.close()
-        opts.onReload?.()
+        options.onReload?.()
       }
     }
   })

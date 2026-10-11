@@ -63,19 +63,19 @@ func TestResolveIndexCandidates(t *testing.T) {
 			},
 		},
 	}
-	for _, tc := range cases {
-		got, err := resolveIndexCandidates(tc.in)
+	for _, testCase := range cases {
+		got, err := resolveIndexCandidates(testCase.in)
 		if err != nil {
-			t.Errorf("%s: unexpected error: %v", tc.name, err)
+			t.Errorf("%s: unexpected error: %v", testCase.name, err)
 			continue
 		}
-		if len(got) != len(tc.want) {
-			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		if len(got) != len(testCase.want) {
+			t.Errorf("%s: got %v, want %v", testCase.name, got, testCase.want)
 			continue
 		}
 		for i := range got {
-			if got[i] != tc.want[i] {
-				t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+			if got[i] != testCase.want[i] {
+				t.Errorf("%s: got %v, want %v", testCase.name, got, testCase.want)
 				break
 			}
 		}
@@ -97,13 +97,13 @@ func TestResolveIndexCandidates(t *testing.T) {
 	}
 }
 
-func TestRepoIDForIndexStable(t *testing.T) {
-	a := repoIDForIndex("https://example.com/files/index.json")
-	b := repoIDForIndex("https://example.com/files/index.json")
+func TestRepositoryIDForIndexStable(t *testing.T) {
+	a := repositoryIDForIndex("https://example.com/files/index.json")
+	b := repositoryIDForIndex("https://example.com/files/index.json")
 	if a != b || !strings.HasPrefix(a, "index/") {
 		t.Fatalf("unstable id: %q %q", a, b)
 	}
-	c := repoIDForIndex("https://example.com/other/index.json")
+	c := repositoryIDForIndex("https://example.com/other/index.json")
 	if a == c {
 		t.Fatalf("colliding ids: %q", a)
 	}
@@ -131,97 +131,97 @@ func newIndexTestServer() *httptest.Server {
 }
 
 func TestIndexProvider(t *testing.T) {
-	srv := newIndexTestServer()
-	defer srv.Close()
-	p := &indexProvider{client: srv.Client()}
+	server := newIndexTestServer()
+	defer server.Close()
+	provider := &indexProvider{client: server.Client()}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	ref := RepoRef{ID: "index/test", IndexURL: srv.URL + "/files/index.json"}
+	repositoryRef := RepoRef{ID: "index/test", IndexURL: server.URL + "/files/index.json"}
 
-	files, err := p.ListPluginFiles(ctx, ref)
+	files, err := provider.ListPluginFiles(ctx, repositoryRef)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	if len(files) != 1 || files[0].Path != "llm-router-plugins/a.lua" {
 		t.Fatalf("files: %+v", files)
 	}
-	if files[0].URL != srv.URL+"/files/a.lua" {
+	if files[0].URL != server.URL+"/files/a.lua" {
 		t.Fatalf("url: %q", files[0].URL)
 	}
 
-	body, err := p.FetchFile(ctx, ref, "llm-router-plugins/a.lua")
+	body, err := provider.FetchFile(ctx, repositoryRef, "llm-router-plugins/a.lua")
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
 	if string(body) != "-- plugin a" {
 		t.Fatalf("body: %q", body)
 	}
-	if _, err := p.FetchFile(ctx, ref, "other/a.lua"); err == nil {
+	if _, err := provider.FetchFile(ctx, repositoryRef, "other/a.lua"); err == nil {
 		t.Fatalf("expected error for path outside llm-router-plugins/")
 	}
-	if _, err := p.FetchFile(ctx, ref, "llm-router-plugins/missing.lua"); err == nil {
+	if _, err := provider.FetchFile(ctx, repositoryRef, "llm-router-plugins/missing.lua"); err == nil {
 		t.Fatalf("expected error for file missing from index")
 	}
 
-	content, ok, err := p.ReadMe(ctx, ref)
+	content, ok, err := provider.ReadMe(ctx, repositoryRef)
 	if err != nil || !ok || content != "# dir readme" {
 		t.Fatalf("readme: %q %v %v", content, ok, err)
 	}
-	content, ok, err = p.License(ctx, ref)
+	content, ok, err = provider.License(ctx, repositoryRef)
 	if err != nil || !ok || content != "parent license" {
 		t.Fatalf("license: %q %v %v", content, ok, err)
 	}
 }
 
 func TestGetIndex(t *testing.T) {
-	srv := newIndexTestServer()
-	defer srv.Close()
-	svc := New(testutil.SetupTestDB(t))
+	server := newIndexTestServer()
+	defer server.Close()
+	service := New(testutil.SetupTestDB(t))
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	rec, err := svc.AddRepo(ctx, srv.URL+"/files/index.json")
+	record, err := service.AddRepo(ctx, server.URL+"/files/index.json")
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	doc, err := svc.GetIndex(ctx, rec.ID)
+	indexDocument, err := service.GetIndex(ctx, record.ID)
 	if err != nil {
 		t.Fatalf("get index: %v", err)
 	}
-	if doc.Title != "Test store" || doc.Description != "Test plugins" {
-		t.Fatalf("doc: %+v", doc)
+	if indexDocument.Title != "Test store" || indexDocument.Description != "Test plugins" {
+		t.Fatalf("doc: %+v", indexDocument)
 	}
-	if len(doc.Files) != 1 || doc.Files[0].Path != "llm-router-plugins/a.lua" {
-		t.Fatalf("files: %+v", doc.Files)
+	if len(indexDocument.Files) != 1 || indexDocument.Files[0].Path != "llm-router-plugins/a.lua" {
+		t.Fatalf("files: %+v", indexDocument.Files)
 	}
 }
 
 func TestAddRepoDirectIndex(t *testing.T) {
-	srv := newIndexTestServer()
-	defer srv.Close()
-	svc := New(testutil.SetupTestDB(t))
+	server := newIndexTestServer()
+	defer server.Close()
+	service := New(testutil.SetupTestDB(t))
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	raw := srv.URL + "/files/index.json"
-	rec, err := svc.AddRepo(ctx, raw)
+	raw := server.URL + "/files/index.json"
+	record, err := service.AddRepo(ctx, raw)
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	if rec.Kind != "index" || rec.IndexURL != raw || rec.SourceURL != raw {
-		t.Fatalf("record: %+v", rec)
+	if record.Kind != "index" || record.IndexURL != raw || record.SourceURL != raw {
+		t.Fatalf("record: %+v", record)
 	}
-	if rec.Title != "Test store" || rec.Description != "Test plugins" {
-		t.Fatalf("snapshot: %+v", rec)
+	if record.Title != "Test store" || record.Description != "Test plugins" {
+		t.Fatalf("snapshot: %+v", record)
 	}
-	again, err := svc.AddRepo(ctx, raw)
+	again, err := service.AddRepo(ctx, raw)
 	if err != nil {
 		t.Fatalf("re-add: %v", err)
 	}
-	if again.ID != rec.ID {
-		t.Fatalf("re-add changed id: %q -> %q", rec.ID, again.ID)
+	if again.ID != record.ID {
+		t.Fatalf("re-add changed id: %q -> %q", record.ID, again.ID)
 	}
-	if _, err := svc.AddRepo(ctx, srv.URL+"/files/plugins.json"); err == nil {
+	if _, err := service.AddRepo(ctx, server.URL+"/files/plugins.json"); err == nil {
 		t.Fatalf("expected error for non-index url on unknown host")
 	}
 }

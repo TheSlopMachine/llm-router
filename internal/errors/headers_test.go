@@ -25,15 +25,15 @@ func TestSanitizeResponseHeaders(t *testing.T) {
 		{"mixed", map[string]string{"Retry-After": "3", "Connection": "close"},
 			map[string]string{"Retry-After": "3"}},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := SanitizeResponseHeaders(tc.in)
-			if len(got) != len(tc.want) {
-				t.Fatalf("got %v, want %v", got, tc.want)
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := SanitizeResponseHeaders(testCase.in)
+			if len(got) != len(testCase.want) {
+				t.Fatalf("got %v, want %v", got, testCase.want)
 			}
-			for k, v := range tc.want {
+			for k, v := range testCase.want {
 				if got[k] != v {
-					t.Fatalf("got %v, want %v", got, tc.want)
+					t.Fatalf("got %v, want %v", got, testCase.want)
 				}
 			}
 		})
@@ -41,13 +41,13 @@ func TestSanitizeResponseHeaders(t *testing.T) {
 }
 
 func TestWriteResponseHeaders(t *testing.T) {
-	rr := httptest.NewRecorder()
-	WriteResponseHeaders(rr, map[string]string{"Retry-After": "30", "X-Drop": "1"})
-	if got := rr.Header().Get("Retry-After"); got != "30" {
+	recorder := httptest.NewRecorder()
+	WriteResponseHeaders(recorder, map[string]string{"Retry-After": "30", "X-Drop": "1"})
+	if got := recorder.Header().Get("Retry-After"); got != "30" {
 		t.Fatalf("Retry-After = %q, want %q", got, "30")
 	}
-	if got := rr.Header().Get("X-Drop"); got != "" {
+	if got := recorder.Header().Get("X-Drop"); got != "" {
 		t.Fatalf("non-allow-listed header leaked, got %q", got)
 	}
-	WriteResponseHeaders(rr, nil)
+	WriteResponseHeaders(recorder, nil)
 }

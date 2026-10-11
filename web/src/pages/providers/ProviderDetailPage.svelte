@@ -64,7 +64,7 @@
     if (!provider) return
     void loadCapabilities()
     void reloadCredentials()
-    initProxyConfig()
+    initializeProxyConfig()
     void loadPools()
     disableFailedCredentials = provider.config?.disable_failed_credentials === true
   })
@@ -262,22 +262,22 @@
     }
   }
 
-  function isFailingCredential(res: TestResult): boolean {
+  function isFailingCredential(result: TestResult): boolean {
     // Health verdicts only: the credential test runs check_health, so no
     // traffic codes can surface. Unknown stays enabled.
-    return res.code === 'unhealthy'
+    return result.code === 'unhealthy'
   }
 
   async function probeCredential(cred: Credential): Promise<TestResult> {
     credentialTestResults = { ...credentialTestResults, [cred.id]: 'loading' }
-    let res: TestResult
+    let result: TestResult
     try {
-      res = await api.credentials.test(cred.id)
+      result = await api.credentials.test(cred.id)
     } catch (e) {
-      res = { ok: false, latency_ms: 0, error: getErrorMessage(e) }
+      result = { ok: false, latency_ms: 0, error: getErrorMessage(e) }
     }
-    credentialTestResults = { ...credentialTestResults, [cred.id]: res }
-    return res
+    credentialTestResults = { ...credentialTestResults, [cred.id]: result }
+    return result
   }
 
   async function unparkCredential(cred: Credential): Promise<void> {
@@ -291,9 +291,9 @@
   }
 
   async function testCredential(cred: Credential): Promise<void> {
-    const res = await probeCredential(cred)
-    if (res.ok) toast.success(`"${cred.label || t('common.labels.unnamed')}" ${t('credentials.status.healthy')} · ${res.latency_ms}ms`)
-    else toast.error(`"${cred.label || t('common.labels.unnamed')}" ${t('credentials.status.failed')}: ${res.error}`)
+    const result = await probeCredential(cred)
+    if (result.ok) toast.success(`"${cred.label || t('common.labels.unnamed')}" ${t('credentials.status.healthy')} · ${result.latency_ms}ms`)
+    else toast.error(`"${cred.label || t('common.labels.unnamed')}" ${t('credentials.status.failed')}: ${result.error}`)
     flashTimer(`cred:${cred.id}`, () => {
       const next = { ...credentialTestResults }
       delete next[cred.id]
@@ -319,8 +319,8 @@
       for (const cred of credentials) {
         if (testAllCredsCancel) break
         if (cred.disabled) continue
-        const res = await probeCredential(cred)
-        if (!res.ok && isFailingCredential(res)) failed.push(cred)
+        const result = await probeCredential(cred)
+        if (!result.ok && isFailingCredential(result)) failed.push(cred)
       }
       if (!testAllCredsCancel && disableFailedCredentials) {
         for (const cred of failed) {
@@ -355,14 +355,14 @@
     }
   }
 
-  function testIcon(res: TestResult | 'loading' | undefined, idleTitle: string): { icon: string; title: string } {
-    if (!res) return { icon: 'network_check', title: idleTitle }
-    if (res === 'loading') return { icon: 'progress_activity', title: t('credentials.testing') }
-    if (res.ok) return { icon: 'check_circle', title: `OK · ${res.latency_ms}ms` }
-    return { icon: 'error', title: res.error ?? t('common.state.failed') }
+  function testIcon(result: TestResult | 'loading' | undefined, idleTitle: string): { icon: string; title: string } {
+    if (!result) return { icon: 'network_check', title: idleTitle }
+    if (result === 'loading') return { icon: 'progress_activity', title: t('credentials.testing') }
+    if (result.ok) return { icon: 'check_circle', title: `OK · ${result.latency_ms}ms` }
+    return { icon: 'error', title: result.error ?? t('common.state.failed') }
   }
 
-  function initProxyConfig(): void {
+  function initializeProxyConfig(): void {
     const raw = (provider?.config?.proxy ?? null) as { pool?: string } | null
     const pool = typeof raw?.pool === 'string' ? raw.pool : ''
     proxyEnabled = pool !== ''

@@ -11,32 +11,32 @@ import (
 // anthropicCountTokens handles POST /v1/messages/count_tokens: same body as
 // messages minus output controls, answered with the documented token
 // heuristic (4 chars per token). No upstream call runs.
-func countAnthropicTexts(chatReq *models.ChatCompletionRequest) []string {
-	var out []string
-	for _, m := range chatReq.Messages {
-		if strings.TrimSpace(m.Content) != "" {
-			out = append(out, m.Content)
+func countAnthropicTexts(chatRequest *models.ChatCompletionRequest) []string {
+	var output []string
+	for _, message := range chatRequest.Messages {
+		if strings.TrimSpace(message.Content) != "" {
+			output = append(output, message.Content)
 		}
-		for _, p := range m.ContentParts {
-			if t := strings.TrimSpace(p.TextContent()); t != "" {
-				out = append(out, t)
+		for _, part := range message.ContentParts {
+			if text := strings.TrimSpace(part.TextContent()); text != "" {
+				output = append(output, text)
 			}
 		}
-		for _, tc := range m.ToolCalls {
-			if tc.Function.Name != "" {
-				out = append(out, tc.Function.Name)
+		for _, toolCall := range message.ToolCalls {
+			if toolCall.Function.Name != "" {
+				output = append(output, toolCall.Function.Name)
 			}
-			if strings.TrimSpace(tc.Function.Arguments) != "" {
-				out = append(out, tc.Function.Arguments)
+			if strings.TrimSpace(toolCall.Function.Arguments) != "" {
+				output = append(output, toolCall.Function.Arguments)
 			}
 		}
 	}
-	for _, t := range chatReq.Tools {
-		if t.Function != nil && t.Function.Name != "" {
-			out = append(out, t.Function.Name)
+	for _, tool := range chatRequest.Tools {
+		if tool.Function != nil && tool.Function.Name != "" {
+			output = append(output, tool.Function.Name)
 		}
 	}
-	return out
+	return output
 }
 
 // anthropicCountTokens handles POST /v1/messages/count_tokens
@@ -57,32 +57,32 @@ func countAnthropicTexts(chatReq *models.ChatCompletionRequest) []string {
 // @Failure      403 {object} models.OpenAIError "Forbidden - model not allowed by token rules"
 // @Router       /v1/messages/count_tokens [post]
 // @Security     BearerAuth
-func (h *Handler) anthropicCountTokens(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
-	var req anthropicRequest
-	if err := decodeJSONBody(w, r, &req); err != nil {
+func (h *Handler) anthropicCountTokens(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
+	var request anthropicRequest
+	if err := decodeJSONBody(w, r, &request); err != nil {
 		h.writeCompatDecodeError(w, r, err)
 		return
 	}
-	if req.Model == "" {
-		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", strPtr("model"))
+	if request.Model == "" {
+		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", stringPointer("model"))
 		return
 	}
-	if len(req.Messages) == 0 {
-		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'messages'", strPtr("messages"))
+	if len(request.Messages) == 0 {
+		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'messages'", stringPointer("messages"))
 		return
 	}
-	chatReq, err := anthropicToOpenAI(&req)
+	chatRequest, err := anthropicToOpenAI(&request)
 	if err != nil {
 		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
 		return
 	}
-	if deny := authorizeModel(t, chatReq.Model); deny != nil {
-		h.writeCompatError(w, r, deny.status, deny.code, deny.msg, deny.param)
+	if deny := authorizeModel(token, chatRequest.Model); deny != nil {
+		h.writeCompatError(w, r, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
 	echoAnthropicVersion(w, r)
 	h.writeJSON(w, http.StatusOK, models.AnthropicTokenCount{
-		InputTokens: models.EstimateInputTokens(countAnthropicTexts(chatReq)),
+		InputTokens: models.EstimateInputTokens(countAnthropicTexts(chatRequest)),
 	})
 }
 
@@ -109,73 +109,73 @@ func (h *Handler) anthropicCountTokens(w http.ResponseWriter, r *http.Request, t
 // @Failure      503 {object} models.OpenAIError "Service Unavailable - no credential available"
 // @Router       /v1/complete [post]
 // @Security     BearerAuth
-func (h *Handler) anthropicComplete(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) anthropicComplete(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	start := time.Now()
-	var req models.AnthropicCompleteRequest
-	if err := decodeJSONBody(w, r, &req); err != nil {
+	var request models.AnthropicCompleteRequest
+	if err := decodeJSONBody(w, r, &request); err != nil {
 		h.writeCompatDecodeError(w, r, err)
 		return
 	}
-	if req.Model == "" {
-		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", strPtr("model"))
+	if request.Model == "" {
+		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", stringPointer("model"))
 		return
 	}
-	if req.Prompt == "" {
-		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'prompt'", strPtr("prompt"))
+	if request.Prompt == "" {
+		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'prompt'", stringPointer("prompt"))
 		return
 	}
-	if req.MaxTokensToSample <= 0 {
-		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'max_tokens_to_sample'", strPtr("max_tokens_to_sample"))
+	if request.MaxTokensToSample <= 0 {
+		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'max_tokens_to_sample'", stringPointer("max_tokens_to_sample"))
 		return
 	}
-	msgReq := req.ToMessageRequest()
-	chatReq, err := anthropicToOpenAI(msgReq)
+	messageRequest := request.ToMessageRequest()
+	chatRequest, err := anthropicToOpenAI(messageRequest)
 	if err != nil {
 		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
 		return
 	}
-	if deny := authorizeModel(t, chatReq.Model); deny != nil {
-		h.writeCompatError(w, r, deny.status, deny.code, deny.msg, deny.param)
+	if deny := authorizeModel(token, chatRequest.Model); deny != nil {
+		h.writeCompatError(w, r, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
-	if req.Stream {
-		h.anthropicStream(w, r, chatReq, t, start)
+	if request.Stream {
+		h.anthropicStream(w, r, chatRequest, token, start)
 		return
 	}
-	resp, err := h.router.Complete(r.Context(), chatReq, t)
+	response, err := h.router.Complete(r.Context(), chatRequest, token)
 	duration := time.Since(start)
 	var usage *models.ChatCompletionUsage
-	if err == nil && resp != nil {
-		usage = &resp.Usage
+	if err == nil && response != nil {
+		usage = &response.Usage
 	}
-	h.recordRouteMetric(r.Context(), start, chatReq.Model, t, duration, err, usage)
+	h.recordRouteMetric(r.Context(), start, chatRequest.Model, token, duration, err, usage)
 	if err != nil {
 		h.handleCompatRouterError(w, r, err)
 		return
 	}
 	echoAnthropicVersion(w, r)
-	h.writeJSON(w, http.StatusOK, completeFromOpenAI(resp, req.Model))
+	h.writeJSON(w, http.StatusOK, completeFromOpenAI(response, request.Model))
 }
 
 // completeFromOpenAI renders a chat completion as a legacy completion:
 // first-choice text, stop mapped to stop_sequence|max_tokens.
-func completeFromOpenAI(resp *models.ChatCompletionResponse, model string) *models.AnthropicCompleteResponse {
-	out := &models.AnthropicCompleteResponse{
+func completeFromOpenAI(response *models.ChatCompletionResponse, model string) *models.AnthropicCompleteResponse {
+	output := &models.AnthropicCompleteResponse{
 		ID:         "cmpl_router",
 		Type:       "completion",
 		StopReason: "stop_sequence",
 		Model:      model,
 	}
-	if len(resp.Choices) == 0 {
-		return out
+	if len(response.Choices) == 0 {
+		return output
 	}
-	choice := resp.Choices[0]
-	if resp.ID != "" {
-		out.ID = resp.ID
+	choice := response.Choices[0]
+	if response.ID != "" {
+		output.ID = response.ID
 	}
-	out.Completion = choice.Message.Content
+	output.Completion = choice.Message.Content
 	if choice.FinishReason == "length" {
-		out.StopReason = "max_tokens"
+		output.StopReason = "max_tokens"
 	}
-	return out
+	return output
 }

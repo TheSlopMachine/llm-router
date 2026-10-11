@@ -7,19 +7,19 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
 
-func installCfgProbe(t *testing.T) *Service {
+func installConfigurationProbe(t *testing.T) *Service {
 	t.Helper()
-	svc, err := New(testutil.SetupTestDB(t), nil)
+	service, err := New(testutil.SetupTestDB(t), nil)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
-	src := `--- @plugin Cfg Probe
+	src := `--- @plugin Configuration Probe
 --- @author tester
 --- @version 1.0.0
 --- @plugin_api 1.0
 --- @allow_host example.com
 
-llm_router.register("cfgprobe", {
+llm_router.register("configprobe", {
   complete = function() end,
   auth_initiate = function(ctx)
     local v = ""
@@ -33,46 +33,46 @@ llm_router.register("cfgprobe", {
   end,
 })
 `
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
-		t.Fatalf("install cfg probe: %v", err)
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install configuration probe: %v", err)
 	}
-	return svc
+	return service
 }
 
 func TestAuthCtxCarriesProviderConfig(t *testing.T) {
-	svc := installCfgProbe(t)
+	service := installConfigurationProbe(t)
 	ctx := context.Background()
-	cfg := map[string]any{"base_url": "https://example.com/v1"}
+	providerConfig := map[string]any{"base_url": "https://example.com/v1"}
 
-	res, err := svc.AuthInitiate(ctx, "cfgprobe", "flow1", cfg)
+	response, err := service.AuthInitiate(ctx, "configprobe", "flow1", providerConfig)
 	if err != nil {
 		t.Fatalf("auth initiate: %v", err)
 	}
-	if res.Credentials["base_url"] != "https://example.com/v1" {
-		t.Errorf("initiate config wrong: %+v", res.Credentials)
+	if response.Credentials["base_url"] != "https://example.com/v1" {
+		t.Errorf("initiate config wrong: %+v", response.Credentials)
 	}
 
-	res, err = svc.AuthStep(ctx, "cfgprobe", "flow1", "next", map[string]any{}, cfg)
+	response, err = service.AuthStep(ctx, "configprobe", "flow1", "next", map[string]any{}, providerConfig)
 	if err != nil {
 		t.Fatalf("auth step: %v", err)
 	}
-	if res.Credentials["base_url"] != "https://example.com/v1" {
-		t.Errorf("step config wrong: %+v", res.Credentials)
+	if response.Credentials["base_url"] != "https://example.com/v1" {
+		t.Errorf("step config wrong: %+v", response.Credentials)
 	}
-	if res.Credentials["action"] != "next" {
-		t.Errorf("step action wrong: %+v", res.Credentials)
+	if response.Credentials["action"] != "next" {
+		t.Errorf("step action wrong: %+v", response.Credentials)
 	}
 }
 
 func TestAuthCtxNilConfig(t *testing.T) {
-	svc := installCfgProbe(t)
+	service := installConfigurationProbe(t)
 	ctx := context.Background()
 
-	res, err := svc.AuthInitiate(ctx, "cfgprobe", "flow1", nil)
+	response, err := service.AuthInitiate(ctx, "configprobe", "flow1", nil)
 	if err != nil {
 		t.Fatalf("auth initiate: %v", err)
 	}
-	if res.Credentials["base_url"] != "" {
-		t.Errorf("nil config must yield empty value: %+v", res.Credentials)
+	if response.Credentials["base_url"] != "" {
+		t.Errorf("nil config must yield empty value: %+v", response.Credentials)
 	}
 }

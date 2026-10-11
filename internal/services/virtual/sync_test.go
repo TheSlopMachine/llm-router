@@ -15,35 +15,35 @@ import (
 func newSyncTestStack(t *testing.T) (*Service, *modelinfo.Service) {
 	t.Helper()
 	database := testutil.SetupTestDB(t)
-	providerSvc := provider.NewService(database)
-	providerSvc.RegisterGoAdapter(testutil.NewMockAdapter("demo").WithModelInfos([]models.ModelInfo{
+	providerService := provider.NewService(database)
+	providerService.RegisterGoAdapter(testutil.NewMockAdapter("demo").WithModelInfos([]models.ModelInfo{
 		{Name: "chat-a", Endpoints: []string{models.EndpointChatCompletions}},
 		{Name: "voice-a", Endpoints: []string{models.EndpointAudioSpeech}},
 	}))
-	if _, err := providerSvc.Create(provider.CreateOptions{Name: "Demo", TypeKey: "demo"}); err != nil {
+	if _, err := providerService.Create(provider.CreateOptions{Name: "Demo", TypeKey: "demo"}); err != nil {
 		t.Fatalf("seed demo provider: %v", err)
 	}
-	credSvc := credential.New(database, providerSvc)
-	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
-	if _, err := modelInfoSvc.GetModelInfos(context.Background(), "demo"); err != nil {
+	credentialService := credential.New(database, providerService)
+	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
+	if _, err := modelInfoService.GetModelInfos(context.Background(), "demo"); err != nil {
 		t.Fatalf("warm model cache: %v", err)
 	}
-	return New(database, providerSvc, modelInfoSvc), modelInfoSvc
+	return New(database, providerService, modelInfoService), modelInfoService
 }
 
 func groupByEndpoint(groups []ProviderVMGroup) map[string]ProviderVMGroup {
-	out := map[string]ProviderVMGroup{}
-	for _, g := range groups {
-		out[g.Endpoint] = g
+	output := map[string]ProviderVMGroup{}
+	for _, group := range groups {
+		output[group.Endpoint] = group
 	}
-	return out
+	return output
 }
 
 func TestSyncProviderModelsCreatesOnePerEndpoint(t *testing.T) {
-	svc, _ := newSyncTestStack(t)
+	service, _ := newSyncTestStack(t)
 	ctx := context.Background()
 
-	groups, err := svc.SyncProviderModels(ctx, "demo")
+	groups, err := service.SyncProviderModels(ctx, "demo")
 	if err != nil {
 		t.Fatalf("sync: %v", err)
 	}
@@ -67,40 +67,40 @@ func TestSyncProviderModelsCreatesOnePerEndpoint(t *testing.T) {
 	}
 
 	// Idempotent: resync changes nothing.
-	again, err := svc.SyncProviderModels(ctx, "demo")
+	again, err := service.SyncProviderModels(ctx, "demo")
 	if err != nil {
 		t.Fatalf("resync: %v", err)
 	}
 	if groupByEndpoint(again)["chat"].Virtual.ID != chat.Virtual.ID {
 		t.Fatal("resync must not recreate")
 	}
-	if all, _ := svc.List(); len(all) != 2 {
-		t.Fatalf("expected 2 managed VMs, got %d", len(all))
+	if all, _ := service.List(); len(all) != 2 {
+		t.Fatalf("expected 2 managed virtual models, got %d", len(all))
 	}
 }
 
 func TestSyncProviderModelsDropsEmptiedGroup(t *testing.T) {
-	svc, modelInfoSvc := newSyncTestStack(t)
+	service, modelInfoService := newSyncTestStack(t)
 	ctx := context.Background()
 
-	if _, err := svc.SyncProviderModels(ctx, "demo"); err != nil {
+	if _, err := service.SyncProviderModels(ctx, "demo"); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
-	if err := modelInfoSvc.SetOverride(models.ModelOverride{
+	if err := modelInfoService.SetOverride(models.ModelOverride{
 		ProviderID: "demo",
 		Name:       "voice-a",
 		Disabled:   true,
 	}); err != nil {
 		t.Fatalf("disable: %v", err)
 	}
-	groups, err := svc.SyncProviderModels(ctx, "demo")
+	groups, err := service.SyncProviderModels(ctx, "demo")
 	if err != nil {
 		t.Fatalf("resync: %v", err)
 	}
 	if _, ok := groupByEndpoint(groups)["speech"]; ok {
 		t.Fatal("emptied group must vanish")
 	}
-	if all, _ := svc.List(); len(all) != 1 {
-		t.Fatalf("managed VM of emptied group must be deleted, got %d", len(all))
+	if all, _ := service.List(); len(all) != 1 {
+		t.Fatalf("managed virtual model of emptied group must be deleted, got %d", len(all))
 	}
 }

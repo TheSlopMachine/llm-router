@@ -24,8 +24,8 @@ type capabilities struct {
 	proxies     bool
 }
 
-// execContext carries per-call plugin identity into every sandboxed state.
-type execContext struct {
+// executionContext carries per-call plugin identity into every sandboxed state.
+type executionContext struct {
 	pluginID   string
 	allowHosts []string
 	unsafe     bool
@@ -61,7 +61,7 @@ type execContext struct {
 	// proxyQuery serves the read-only proxies.query table (nil = disabled).
 	proxyQuery func(pool, country string, limit int) ([]models.ProxyView, error)
 	// proxyRequire serves proxies.require (nil = disabled).
-	proxyRequire func(ctx context.Context, req models.ProxyRequire) (models.ProxyRequireResult, error)
+	proxyRequire func(ctx context.Context, request models.ProxyRequire) (models.ProxyRequireResult, error)
 	// delivered is set once stream output has reached the client; after that
 	// a transport failure is no longer retryable (nil outside streaming).
 	delivered *atomic.Bool
@@ -71,14 +71,14 @@ type execContext struct {
 	// Credential access: list/get serve every context, update serves jobs.
 	// disable/enable serve every context but require the provider
 	// automation switch (checkAutomation).
-	credList    func(providerID string) ([]*models.Credential, error)
-	credGet     func(id string) (*models.Credential, error)
-	credUpdate  func(id string, data map[string]any) error
-	credDisable func(id string, reason string) error
-	credEnable  func(id string) error
-	credPark    func(id string, ttl time.Duration, reason string) error
-	credUnpark  func(id string) error
-	credParked  func(id string) (*models.ParkEntry, error)
+	credentialList    func(providerID string) ([]*models.Credential, error)
+	credentialGet     func(id string) (*models.Credential, error)
+	credentialUpdate  func(id string, data map[string]any) error
+	credentialDisable func(id string, reason string) error
+	credentialEnable  func(id string) error
+	credentialPark    func(id string, ttl time.Duration, reason string) error
+	credentialUnpark  func(id string) error
+	credentialParked  func(id string) (*models.ParkEntry, error)
 	// automationOn reports the provider disable_failed_credentials switch
 	// for shared disable/enable writes; nil reads off.
 	automationOn func(providerID string) bool // capabilities gates the credentials/proxies tables for this type key.
@@ -96,7 +96,7 @@ func openLib(L *lua.LState, fn lua.LGFunction, name string) {
 }
 
 // newSandboxState builds a fresh locked-down Lua state for one plugin call.
-func newSandboxState(ctx *execContext) *lua.LState {
+func newSandboxState(ctx *executionContext) *lua.LState {
 	L := lua.NewState(lua.Options{SkipOpenLibs: true})
 
 	openLib(L, lua.OpenBase, lua.BaseLibName)
@@ -138,49 +138,49 @@ func curatesBase(L *lua.LState) {
 }
 
 func curatesOs(L *lua.LState) {
-	osVal := L.GetGlobal("os")
-	osTbl, ok := osVal.(*lua.LTable)
+	osValue := L.GetGlobal("os")
+	osTable, ok := osValue.(*lua.LTable)
 	if !ok {
 		return
 	}
 	keep := map[string]bool{"time": true, "clock": true, "date": true}
 	var drop []string
-	osTbl.ForEach(func(k, _ lua.LValue) {
+	osTable.ForEach(func(k, _ lua.LValue) {
 		if ks, ok := k.(lua.LString); ok && !keep[string(ks)] {
 			drop = append(drop, string(ks))
 		}
 	})
 	for _, k := range drop {
-		osTbl.RawSetString(k, lua.LNil)
+		osTable.RawSetString(k, lua.LNil)
 	}
 }
 
-func installPrint(L *lua.LState, ctx *execContext) {
+func installPrint(L *lua.LState, ctx *executionContext) {
 	L.SetGlobal("print", L.NewFunction(func(L *lua.LState) int {
-		n := L.GetTop()
-		parts := make([]string, 0, n)
-		for i := 1; i <= n; i++ {
-			v := L.Get(i)
-			var s string
-			switch t := v.(type) {
+		top := L.GetTop()
+		parts := make([]string, 0, top)
+		for i := 1; i <= top; i++ {
+			value := L.Get(i)
+			var text string
+			switch typed := value.(type) {
 			case lua.LString:
-				s = string(t)
+				text = string(typed)
 			case lua.LNumber, lua.LBool:
-				s = t.String()
+				text = typed.String()
 			case *lua.LTable:
-				raw, err := marshalLua(t)
+				raw, err := marshalLua(typed)
 				if err != nil {
-					s = "<table>"
+					text = "<table>"
 				} else {
-					s = string(raw)
+					text = string(raw)
 				}
 			default:
-				s = v.String()
+				text = value.String()
 			}
-			if len(s) > 2048 {
-				s = s[:2048] + "…[truncated]"
+			if len(text) > 2048 {
+				text = text[:2048] + "…[truncated]"
 			}
-			parts = append(parts, s)
+			parts = append(parts, text)
 		}
 		msg := strings.Join(parts, "\t")
 		if ctx != nil {
@@ -196,8 +196,8 @@ func installPrint(L *lua.LState, ctx *execContext) {
 }
 
 func installJSON(L *lua.LState) {
-	tbl := L.NewTable()
-	tbl.RawSetString("encode", L.NewFunction(func(L *lua.LState) int {
+	table := L.NewTable()
+	table.RawSetString("encode", L.NewFunction(func(L *lua.LState) int {
 		v := L.Get(1)
 		raw, err := marshalLua(v)
 		if err != nil {
@@ -207,10 +207,10 @@ func installJSON(L *lua.LState) {
 		L.Push(lua.LString(string(raw)))
 		return 1
 	}))
-	tbl.RawSetString("decode", L.NewFunction(func(L *lua.LState) int {
-		s := L.CheckString(1)
+	table.RawSetString("decode", L.NewFunction(func(L *lua.LState) int {
+		text := L.CheckString(1)
 		var decoded any
-		if err := unmarshalTo([]byte(s), &decoded); err != nil {
+		if err := unmarshalTo([]byte(text), &decoded); err != nil {
 			L.RaiseError("json.decode: %s", err.Error())
 			return 0
 		}
@@ -221,10 +221,10 @@ func installJSON(L *lua.LState) {
 		L.Push(toLuaValue(L, decoded))
 		return 1
 	}))
-	L.SetGlobal("json", tbl)
+	L.SetGlobal("json", table)
 }
 
-func installRouterTable(L *lua.LState, ctx *execContext) {
+func installRouterTable(L *lua.LState, ctx *executionContext) {
 	router := L.NewTable()
 
 	router.RawSetString("register", L.NewFunction(func(L *lua.LState) int {
@@ -273,7 +273,7 @@ func installRouterTable(L *lua.LState, ctx *execContext) {
 				L.RaiseError("llm_router.register: jobs must be a table")
 				return 0
 			}
-			if _, err := parseJobSpecs(jobsTbl, typeKey); err != nil {
+			if _, err := parseJobSpecifications(jobsTbl, typeKey); err != nil {
 				L.RaiseError("llm_router.register: %s", err.Error())
 				return 0
 			}
@@ -321,12 +321,12 @@ func installRouterTable(L *lua.LState, ctx *execContext) {
 		}
 		timeoutMs := defaultHTTPTimeoutMs
 		if L.GetTop() >= 1 && L.Get(1) != lua.LNil {
-			opts, ok := L.Get(1).(*lua.LTable)
+			options, ok := L.Get(1).(*lua.LTable)
 			if !ok {
 				L.RaiseError("llm_router.http_client: options must be a table")
 				return 0
 			}
-			if v := opts.RawGetString("timeout_ms"); v != lua.LNil {
+			if v := options.RawGetString("timeout_ms"); v != lua.LNil {
 				if n, ok := v.(lua.LNumber); ok {
 					timeoutMs = int(n)
 				} else {
@@ -436,6 +436,6 @@ func luaErrorString(v lua.LValue) string {
 }
 
 // streamDelivered reports whether stream output already reached the client.
-func (ctx *execContext) streamDelivered() bool {
+func (ctx *executionContext) streamDelivered() bool {
 	return ctx != nil && ctx.delivered != nil && ctx.delivered.Load()
 }

@@ -38,116 +38,116 @@ import (
 // @Failure      503 {object} models.OpenAIError "Service Unavailable - no credential available"
 // @Router       /v1/completions [post]
 // @Security     BearerAuth
-func (h *Handler) legacyCompletions(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) legacyCompletions(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	start := time.Now()
-	var req models.CompletionRequest
-	if err := decodeJSONBody(w, r, &req); err != nil {
+	var request models.CompletionRequest
+	if err := decodeJSONBody(w, r, &request); err != nil {
 		h.writeDecodeError(w, err)
 		return
 	}
-	if req.Model == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", strPtr("model"))
+	if request.Model == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", stringPointer("model"))
 		return
 	}
-	if len(req.Prompt) == 0 {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'prompt'", strPtr("prompt"))
+	if len(request.Prompt) == 0 {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'prompt'", stringPointer("prompt"))
 		return
 	}
-	if deny := authorizeModel(t, req.Model); deny != nil {
-		h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
-	chatReq := req.ToChat()
-	if req.Stream {
-		h.handleCompletionStreamWithMetrics(w, r, chatReq, &req, t, start)
+	chatRequest := request.ToChat()
+	if request.Stream {
+		h.handleCompletionStreamWithMetrics(w, r, chatRequest, &request, token, start)
 		return
 	}
-	resp, err := h.router.Complete(r.Context(), chatReq, t)
+	response, err := h.router.Complete(r.Context(), chatRequest, token)
 	duration := time.Since(start)
 	var usage *models.ChatCompletionUsage
-	if err == nil && resp != nil {
-		usage = &resp.Usage
+	if err == nil && response != nil {
+		usage = &response.Usage
 	}
-	h.recordRouteMetric(r.Context(), start, req.Model, t, duration, err, usage)
+	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, usage)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, completionFromOpenAI(resp, &req))
+	h.writeJSON(w, http.StatusOK, completionFromOpenAI(response, &request))
 }
 
 // completionFromOpenAI renders a chat completion as a text_completion: first
 // prompt plus echo prefix, per-choice text, usage carried over.
-func completionFromOpenAI(resp *models.ChatCompletionResponse, req *models.CompletionRequest) *models.CompletionResponse {
-	out := &models.CompletionResponse{
-		ID:      resp.ID,
+func completionFromOpenAI(response *models.ChatCompletionResponse, request *models.CompletionRequest) *models.CompletionResponse {
+	output := &models.CompletionResponse{
+		ID:      response.ID,
 		Object:  "text_completion",
-		Created: resp.Created,
-		Model:   resp.Model,
-		Usage:   resp.Usage,
+		Created: response.Created,
+		Model:   response.Model,
+		Usage:   response.Usage,
 	}
-	if out.ID == "" {
-		out.ID = "cmpl_router"
+	if output.ID == "" {
+		output.ID = "cmpl_router"
 	}
 	prefix := ""
-	if req.Echo != nil && *req.Echo {
-		prefix = strings.Join(req.Prompt, "\n")
-		if req.Suffix != "" {
-			prefix += req.Suffix
+	if request.Echo != nil && *request.Echo {
+		prefix = strings.Join(request.Prompt, "\n")
+		if request.Suffix != "" {
+			prefix += request.Suffix
 		}
 	}
-	for i, c := range resp.Choices {
-		choice := models.CompletionChoice{
+	for i, choice := range response.Choices {
+		completionChoice := models.CompletionChoice{
 			Index:        i,
-			Text:         prefix + c.Message.Content,
-			FinishReason: c.FinishReason,
-			Logprobs:     c.Logprobs,
+			Text:         prefix + choice.Message.Content,
+			FinishReason: choice.FinishReason,
+			Logprobs:     choice.Logprobs,
 		}
-		out.Choices = append(out.Choices, choice)
+		output.Choices = append(output.Choices, completionChoice)
 	}
-	if out.Choices == nil {
-		out.Choices = []models.CompletionChoice{}
+	if output.Choices == nil {
+		output.Choices = []models.CompletionChoice{}
 	}
-	return out
+	return output
 }
 
 // completionStreamWriter translates chat chunk SSE frames into
 // text_completion frames. Non-chunk frames ([DONE], error objects) pass
 // through untouched.
 type completionStreamWriter struct {
-	w   io.Writer
-	buf bytes.Buffer
+	w      io.Writer
+	buffer bytes.Buffer
 }
 
-func (c *completionStreamWriter) Write(p []byte) (int, error) {
-	c.buf.Write(p)
+func (writer *completionStreamWriter) Write(p []byte) (int, error) {
+	writer.buffer.Write(p)
 	for {
-		raw := c.buf.String()
-		idx := strings.Index(raw, "\n\n")
-		if idx < 0 {
+		raw := writer.buffer.String()
+		index := strings.Index(raw, "\n\n")
+		if index < 0 {
 			break
 		}
-		frame := raw[:idx]
-		c.buf.Next(idx + 2)
-		c.emitFrame(frame)
+		frame := raw[:index]
+		writer.buffer.Next(index + 2)
+		writer.emitFrame(frame)
 	}
 	return len(p), nil
 }
 
-func (c *completionStreamWriter) emitFrame(frame string) {
+func (writer *completionStreamWriter) emitFrame(frame string) {
 	line := strings.TrimSpace(frame)
 	if !strings.HasPrefix(line, "data: ") {
-		_, _ = io.WriteString(c.w, frame+"\n\n")
+		_, _ = io.WriteString(writer.w, frame+"\n\n")
 		return
 	}
 	payload := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
 	if payload == "" || payload == "[DONE]" {
-		_, _ = io.WriteString(c.w, frame+"\n\n")
+		_, _ = io.WriteString(writer.w, frame+"\n\n")
 		return
 	}
 	var chunk models.StreamChunk
 	if err := json.Unmarshal([]byte(payload), &chunk); err != nil || len(chunk.Choices) == 0 {
-		_, _ = io.WriteString(c.w, frame+"\n\n")
+		_, _ = io.WriteString(writer.w, frame+"\n\n")
 		return
 	}
 	type completionDelta struct {
@@ -162,29 +162,29 @@ func (c *completionStreamWriter) emitFrame(frame string) {
 		Model   string            `json:"model"`
 		Choices []completionDelta `json:"choices"`
 	}
-	out := completionChunk{ID: chunk.ID, Object: "text_completion", Created: chunk.Created, Model: chunk.Model}
-	for _, ch := range chunk.Choices {
+	output := completionChunk{ID: chunk.ID, Object: "text_completion", Created: chunk.Created, Model: chunk.Model}
+	for _, choice := range chunk.Choices {
 		var finish any
-		if ch.FinishReason != nil {
-			finish = *ch.FinishReason
+		if choice.FinishReason != nil {
+			finish = *choice.FinishReason
 		}
-		out.Choices = append(out.Choices, completionDelta{
-			Text:         ch.Delta.TextContent(),
-			Index:        ch.Index,
+		output.Choices = append(output.Choices, completionDelta{
+			Text:         choice.Delta.TextContent(),
+			Index:        choice.Index,
 			FinishReason: finish,
 		})
 	}
-	raw, err := json.Marshal(out)
+	raw, err := json.Marshal(output)
 	if err != nil {
-		_, _ = io.WriteString(c.w, frame+"\n\n")
+		_, _ = io.WriteString(writer.w, frame+"\n\n")
 		return
 	}
-	_, _ = io.WriteString(c.w, "data: "+string(raw)+"\n\n")
+	_, _ = io.WriteString(writer.w, "data: "+string(raw)+"\n\n")
 }
 
 // handleCompletionStreamWithMetrics wraps completion streaming with metrics
 // collection, translating chat chunks into text_completion frames.
-func (h *Handler) handleCompletionStreamWithMetrics(w http.ResponseWriter, r *http.Request, chatReq *models.ChatCompletionRequest, req *models.CompletionRequest, t *models.RouterToken, start time.Time) {
+func (h *Handler) handleCompletionStreamWithMetrics(w http.ResponseWriter, r *http.Request, chatRequest *models.ChatCompletionRequest, request *models.CompletionRequest, token *models.RouterToken, start time.Time) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		h.writeError(w, http.StatusInternalServerError, "server_error", "streaming is not supported by this server", nil)
@@ -194,35 +194,35 @@ func (h *Handler) handleCompletionStreamWithMetrics(w http.ResponseWriter, r *ht
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	tw := &completionStreamWriter{w: w}
-	err := h.router.CompleteStream(r.Context(), chatReq, tw, t)
+	translatedWriter := &completionStreamWriter{w: w}
+	err := h.router.CompleteStream(r.Context(), chatRequest, translatedWriter, token)
 	duration := time.Since(start)
 
-	providerType, _, _ := req.Model.Parse()
-	providerID, _ := h.router.GetProviderIDForModel(r.Context(), req.Model)
+	providerType, _, _ := request.Model.Parse()
+	providerID, _ := h.router.GetProviderIDForModel(r.Context(), request.Model)
 	tokenID := ""
-	if t != nil {
-		tokenID = t.ID
+	if token != nil {
+		tokenID = token.ID
 	}
 	event := models.MetricEvent{
 		Timestamp:    start,
 		ProviderID:   providerID,
 		ProviderType: providerType,
-		Model:        req.Model,
+		Model:        request.Model,
 		TokenID:      tokenID,
 		Duration:     duration,
 		StatusCode:   http.StatusOK,
 	}
 	if err != nil {
 		event.StatusCode = http.StatusInternalServerError
-		re := h.classifyError(err)
-		event.ErrorType = re.code
+		routerError := h.classifyError(err)
+		event.ErrorType = routerError.code
 		h.logger.Error("completion stream error", "err", err)
 		errorObj := models.OpenAIError{
 			Error: models.OpenAIErrorBody{
 				Message: err.Error(),
-				Type:    errorTypeForCode(re.code),
-				Code:    re.code,
+				Type:    errorTypeForCode(routerError.code),
+				Code:    routerError.code,
 			},
 		}
 		errorJSON, _ := json.Marshal(errorObj)
@@ -250,27 +250,27 @@ func (h *Handler) handleCompletionStreamWithMetrics(w http.ResponseWriter, r *ht
 // @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
 // @Router       /v1/audio/translations [post]
 // @Security     BearerAuth
-func (h *Handler) audioTranslations(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) audioTranslations(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	start := time.Now()
-	req, err := parseTranscriptionRequest(r)
+	request, err := parseTranscriptionRequest(r)
 	if err != nil {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
 		return
 	}
-	if deny := authorizeModel(t, req.Model); deny != nil {
-		h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
-	resp, err := h.router.Transcribe(r.Context(), req, t)
+	response, err := h.router.Transcribe(r.Context(), request, token)
 	duration := time.Since(start)
-	h.recordRouteMetric(r.Context(), start, req.Model, t, duration, err, nil)
+	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, nil)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
 	task := "translate"
-	resp.Task = &task
-	h.writeTranscriptionResponse(w, req.ResponseFormat, resp)
+	response.Task = &task
+	h.writeTranscriptionResponse(w, request.ResponseFormat, response)
 }
 
 // ─────────────────────────────────────────────
@@ -296,39 +296,39 @@ func (h *Handler) audioTranslations(w http.ResponseWriter, r *http.Request, t *m
 // @Failure      503 {object} models.OpenAIError "Service Unavailable - no credential available"
 // @Router       /v1/moderations [post]
 // @Security     BearerAuth
-func (h *Handler) moderations(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) moderations(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	start := time.Now()
-	var req models.ModerationRequest
-	if err := decodeJSONBody(w, r, &req); err != nil {
+	var request models.ModerationRequest
+	if err := decodeJSONBody(w, r, &request); err != nil {
 		h.writeDecodeError(w, err)
 		return
 	}
-	if req.Model == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", strPtr("model"))
+	if request.Model == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", stringPointer("model"))
 		return
 	}
-	if len(req.Input) == 0 {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'input'", strPtr("input"))
+	if len(request.Input) == 0 {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'input'", stringPointer("input"))
 		return
 	}
-	if deny := authorizeModel(t, req.Model); deny != nil {
-		h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
-	resp, err := h.router.Moderate(r.Context(), &req, t)
+	response, err := h.router.Moderate(r.Context(), &request, token)
 	duration := time.Since(start)
-	h.recordRouteMetric(r.Context(), start, req.Model, t, duration, err, nil)
+	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, nil)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	if resp.ID == "" {
-		resp.ID = models.NewModerationID()
+	if response.ID == "" {
+		response.ID = models.NewModerationID()
 	}
-	if resp.Model == "" {
-		resp.Model = req.Model.String()
+	if response.Model == "" {
+		response.Model = request.Model.String()
 	}
-	h.writeJSON(w, http.StatusOK, resp)
+	h.writeJSON(w, http.StatusOK, response)
 }
 
 // parseJSONTranscriptionRequest reads the OpenRouter JSON STT variant:
@@ -384,17 +384,17 @@ func fetchSTTAudio(data, format string) (audio []byte, fileName, contentType str
 	fileName, contentType = sttFileShape(format)
 	if strings.HasPrefix(data, "http://") || strings.HasPrefix(data, "https://") {
 		client := &http.Client{Timeout: 60 * time.Second}
-		resp, derr := client.Get(data)
-		if derr != nil {
-			return nil, "", "", fmt.Errorf("download input_audio: %s", derr)
+		fetchResponse, downloadError := client.Get(data)
+		if downloadError != nil {
+			return nil, "", "", fmt.Errorf("download input_audio: %s", downloadError)
 		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return nil, "", "", fmt.Errorf("download input_audio: unexpected status %s", resp.Status)
+		defer fetchResponse.Body.Close()
+		if fetchResponse.StatusCode != http.StatusOK {
+			return nil, "", "", fmt.Errorf("download input_audio: unexpected status %s", fetchResponse.Status)
 		}
-		raw, derr := io.ReadAll(io.LimitReader(resp.Body, maxAudioUploadBytes+1))
-		if derr != nil {
-			return nil, "", "", fmt.Errorf("download input_audio: %s", derr)
+		raw, downloadError := io.ReadAll(io.LimitReader(fetchResponse.Body, maxAudioUploadBytes+1))
+		if downloadError != nil {
+			return nil, "", "", fmt.Errorf("download input_audio: %s", downloadError)
 		}
 		if len(raw) == 0 {
 			return nil, "", "", fmt.Errorf("downloaded audio is empty")
@@ -404,8 +404,8 @@ func fetchSTTAudio(data, format string) (audio []byte, fileName, contentType str
 		}
 		return raw, fileName, contentType, nil
 	}
-	raw, derr := base64.StdEncoding.DecodeString(data)
-	if derr != nil {
+	raw, downloadError := base64.StdEncoding.DecodeString(data)
+	if downloadError != nil {
 		return nil, "", "", fmt.Errorf("input_audio.data is not base64 audio or an http(s) URL")
 	}
 	if len(raw) == 0 {
@@ -445,8 +445,8 @@ const maxImageUploadBytes = 32 << 20
 // and POST /v1/images/variations. Edits require prompt; variations accept
 // an empty prompt (the router substitutes a variation instruction).
 func parseImageEditRequest(r *http.Request, needPrompt bool) (*models.ImageGenerationRequest, error) {
-	ct := r.Header.Get("Content-Type")
-	if !strings.HasPrefix(ct, "multipart/form-data") {
+	contentType := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(contentType, "multipart/form-data") {
 		return nil, fmt.Errorf("Content-Type must be multipart/form-data")
 	}
 	r.Body = http.MaxBytesReader(nil, r.Body, maxImageUploadBytes)
@@ -473,27 +473,27 @@ func parseImageEditRequest(r *http.Request, needPrompt bool) (*models.ImageGener
 	if len(data) == 0 {
 		return nil, fmt.Errorf("image is empty")
 	}
-	req := &models.ImageGenerationRequest{
+	request := &models.ImageGenerationRequest{
 		Model:     models.ModelId(model),
 		Prompt:    prompt,
 		ImageB64:  base64.StdEncoding.EncodeToString(data),
 		ImageName: header.Filename,
 	}
-	if n := strings.TrimSpace(r.FormValue("n")); n != "" {
-		v, err := strconv.Atoi(n)
-		if err != nil || v < 1 || v > 10 {
-			return nil, fmt.Errorf("invalid n %q: expected 1..10", n)
+	if countText := strings.TrimSpace(r.FormValue("n")); countText != "" {
+		count, err := strconv.Atoi(countText)
+		if err != nil || count < 1 || count > 10 {
+			return nil, fmt.Errorf("invalid n %q: expected 1..10", countText)
 		}
-		req.N = v
+		request.N = count
 	}
-	if v := strings.TrimSpace(r.FormValue("size")); v != "" {
-		req.Size = v
+	if value := strings.TrimSpace(r.FormValue("size")); value != "" {
+		request.Size = value
 	}
-	if v := strings.TrimSpace(r.FormValue("response_format")); v != "" {
-		if v != "url" && v != "b64_json" {
-			return nil, fmt.Errorf("invalid response_format %q: expected url or b64_json", v)
+	if value := strings.TrimSpace(r.FormValue("response_format")); value != "" {
+		if value != "url" && value != "b64_json" {
+			return nil, fmt.Errorf("invalid response_format %q: expected url or b64_json", value)
 		}
-		req.ResponseFormat = v
+		request.ResponseFormat = value
 	}
 	if mask, maskHeader, err := r.FormFile("mask"); err == nil {
 		defer mask.Close()
@@ -502,11 +502,11 @@ func parseImageEditRequest(r *http.Request, needPrompt bool) (*models.ImageGener
 			return nil, fmt.Errorf("read mask: %s", err)
 		}
 		if len(maskData) > 0 {
-			req.MaskB64 = base64.StdEncoding.EncodeToString(maskData)
+			request.MaskB64 = base64.StdEncoding.EncodeToString(maskData)
 		}
 		_ = maskHeader
 	}
-	return req, nil
+	return request, nil
 }
 
 // imageEdits handles POST /v1/images/edits
@@ -526,28 +526,28 @@ func parseImageEditRequest(r *http.Request, needPrompt bool) (*models.ImageGener
 // @Failure      503 {object} models.OpenAIError "Service Unavailable - no credential available"
 // @Router       /v1/images/edits [post]
 // @Security     BearerAuth
-func (h *Handler) imageEdits(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) imageEdits(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	start := time.Now()
-	req, err := parseImageEditRequest(r, true)
+	request, err := parseImageEditRequest(r, true)
 	if err != nil {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
 		return
 	}
-	if deny := authorizeModel(t, req.Model); deny != nil {
-		h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
-	resp, err := h.router.GenerateImage(r.Context(), req, t)
+	response, err := h.router.GenerateImage(r.Context(), request, token)
 	duration := time.Since(start)
-	h.recordRouteMetric(r.Context(), start, req.Model, t, duration, err, nil)
+	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, nil)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	if resp.Created == 0 {
-		resp.Created = time.Now().Unix()
+	if response.Created == 0 {
+		response.Created = time.Now().Unix()
 	}
-	h.writeJSON(w, http.StatusOK, resp)
+	h.writeJSON(w, http.StatusOK, response)
 }
 
 // imageVariations handles POST /v1/images/variations
@@ -567,29 +567,29 @@ func (h *Handler) imageEdits(w http.ResponseWriter, r *http.Request, t *models.R
 // @Failure      503 {object} models.OpenAIError "Service Unavailable - no credential available"
 // @Router       /v1/images/variations [post]
 // @Security     BearerAuth
-func (h *Handler) imageVariations(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) imageVariations(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	start := time.Now()
-	req, err := parseImageEditRequest(r, false)
+	request, err := parseImageEditRequest(r, false)
 	if err != nil {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
 		return
 	}
-	if strings.TrimSpace(req.Prompt) == "" {
-		req.Prompt = "Generate a variation of the input image."
+	if strings.TrimSpace(request.Prompt) == "" {
+		request.Prompt = "Generate a variation of the input image."
 	}
-	if deny := authorizeModel(t, req.Model); deny != nil {
-		h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
-	resp, err := h.router.GenerateImage(r.Context(), req, t)
+	response, err := h.router.GenerateImage(r.Context(), request, token)
 	duration := time.Since(start)
-	h.recordRouteMetric(r.Context(), start, req.Model, t, duration, err, nil)
+	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, nil)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	if resp.Created == 0 {
-		resp.Created = time.Now().Unix()
+	if response.Created == 0 {
+		response.Created = time.Now().Unix()
 	}
-	h.writeJSON(w, http.StatusOK, resp)
+	h.writeJSON(w, http.StatusOK, response)
 }

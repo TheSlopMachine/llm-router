@@ -91,26 +91,26 @@ func (s *Service) GetDistinctModels() ([]string, error) {
 	modelSet := make(map[string]bool)
 
 	// Check in-memory buckets
-	s.mu.RLock()
+	s.mutex.RLock()
 	for _, bucket := range s.recentBuckets {
 		for model := range bucket.ByModel {
 			modelSet[model] = true
 		}
 	}
-	s.mu.RUnlock()
+	s.mutex.RUnlock()
 
 	// Check database for historical models
-	err := s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketMetrics)
-		if b == nil {
+	err := s.database.View(func(tx *bolt.Tx) error {
+		metricsBucket := tx.Bucket(db.BucketMetrics)
+		if metricsBucket == nil {
 			return nil
 		}
 
-		c := b.Cursor()
-		for k, v := c.First(); k != nil; k, v = c.Next() {
+		cursor := metricsBucket.Cursor()
+		for key, value := cursor.First(); key != nil; key, value = cursor.Next() {
 			var bucket MetricBucket
-			if err := json.Unmarshal(v, &bucket); err != nil {
-				s.logger.Warn("failed to unmarshal bucket", "key", string(k), "err", err)
+			if err := json.Unmarshal(value, &bucket); err != nil {
+				s.logger.Warn("failed to unmarshal bucket", "key", string(key), "err", err)
 				continue
 			}
 
@@ -139,21 +139,21 @@ func (s *Service) fetchBuckets(start, end time.Time) ([]*MetricBucket, error) {
 	var buckets []*MetricBucket
 
 	// Fetch from in-memory (recent data)
-	s.mu.RLock()
-	for ts, bucket := range s.recentBuckets {
-		if (ts.Equal(start) || ts.After(start)) && (ts.Equal(end) || ts.Before(end)) {
+	s.mutex.RLock()
+	for timestamp, bucket := range s.recentBuckets {
+		if (timestamp.Equal(start) || timestamp.After(start)) && (timestamp.Equal(end) || timestamp.Before(end)) {
 			buckets = append(buckets, bucket)
 		}
 	}
-	s.mu.RUnlock()
+	s.mutex.RUnlock()
 
 	// Fetch from database (historical data)
-	dbBuckets, err := s.loadBucketsInRange(start, end)
+	databaseBuckets, err := s.loadBucketsInRange(start, end)
 	if err != nil {
 		return nil, err
 	}
 
-	buckets = append(buckets, dbBuckets...)
+	buckets = append(buckets, databaseBuckets...)
 	sort.Slice(buckets, func(i, j int) bool {
 		return buckets[i].Timestamp.Before(buckets[j].Timestamp)
 	})
@@ -189,16 +189,16 @@ func (s *Service) filterBucket(bucket *MetricBucket, filters models.MetricsFilte
 
 	// Filter by provider ID
 	if filters.ProviderID != "" {
-		if pm, exists := bucket.ByProviderID[filters.ProviderID]; exists {
-			filtered.TotalRequests = pm.Requests
-			filtered.TotalErrors = pm.Errors
-			filtered.TokensInput = pm.TokensInput
-			filtered.TokensOutput = pm.TokensOutput
-			filtered.PeakRequests = pm.PeakRequests
-			filtered.PeakInputTokens = pm.PeakInputTokens
-			filtered.PeakOutputTokens = pm.PeakOutputTokens
-			filtered.DurationSum = pm.DurationSum
-			filtered.DurationCount = pm.DurationCount
+		if providerMetrics, exists := bucket.ByProviderID[filters.ProviderID]; exists {
+			filtered.TotalRequests = providerMetrics.Requests
+			filtered.TotalErrors = providerMetrics.Errors
+			filtered.TokensInput = providerMetrics.TokensInput
+			filtered.TokensOutput = providerMetrics.TokensOutput
+			filtered.PeakRequests = providerMetrics.PeakRequests
+			filtered.PeakInputTokens = providerMetrics.PeakInputTokens
+			filtered.PeakOutputTokens = providerMetrics.PeakOutputTokens
+			filtered.DurationSum = providerMetrics.DurationSum
+			filtered.DurationCount = providerMetrics.DurationCount
 		} else {
 			return nil
 		}
@@ -216,14 +216,14 @@ func (s *Service) filterBucket(bucket *MetricBucket, filters models.MetricsFilte
 
 	// Filter by model
 	if filters.Model != "" {
-		if mm, exists := bucket.ByModel[string(filters.Model)]; exists {
-			filtered.TotalRequests = mm.Requests
-			filtered.TotalErrors = mm.Errors
-			filtered.TokensInput = mm.TokensInput
-			filtered.TokensOutput = mm.TokensOutput
-			filtered.PeakRequests = mm.PeakRequests
-			filtered.PeakInputTokens = mm.PeakInputTokens
-			filtered.PeakOutputTokens = mm.PeakOutputTokens
+		if modelMetrics, exists := bucket.ByModel[string(filters.Model)]; exists {
+			filtered.TotalRequests = modelMetrics.Requests
+			filtered.TotalErrors = modelMetrics.Errors
+			filtered.TokensInput = modelMetrics.TokensInput
+			filtered.TokensOutput = modelMetrics.TokensOutput
+			filtered.PeakRequests = modelMetrics.PeakRequests
+			filtered.PeakInputTokens = modelMetrics.PeakInputTokens
+			filtered.PeakOutputTokens = modelMetrics.PeakOutputTokens
 		} else {
 			return nil
 		}
@@ -294,41 +294,41 @@ func (s *Service) GetTokenUsage() (map[string]*TokenUsageInfo, error) {
 	usage := make(map[string]*TokenUsageInfo)
 
 	// Aggregate from in-memory buckets
-	s.mu.RLock()
+	s.mutex.RLock()
 	for _, bucket := range s.recentBuckets {
-		for tokenID, tm := range bucket.ByTokenID {
+		for tokenID, tokenMetrics := range bucket.ByTokenID {
 			if usage[tokenID] == nil {
 				usage[tokenID] = &TokenUsageInfo{}
 			}
-			usage[tokenID].Requests += tm.Requests
+			usage[tokenID].Requests += tokenMetrics.Requests
 
 			// Keep most recent LastUsed
-			if tm.LastUsed != nil {
-				if usage[tokenID].LastUsed == nil || tm.LastUsed.After(*usage[tokenID].LastUsed) {
-					usage[tokenID].LastUsed = tm.LastUsed
+			if tokenMetrics.LastUsed != nil {
+				if usage[tokenID].LastUsed == nil || tokenMetrics.LastUsed.After(*usage[tokenID].LastUsed) {
+					usage[tokenID].LastUsed = tokenMetrics.LastUsed
 				}
 			}
 		}
 	}
-	s.mu.RUnlock()
+	s.mutex.RUnlock()
 
 	// Aggregate from database (all historical data)
-	dbUsage, err := s.loadTokenUsageFromDB()
+	databaseUsage, err := s.loadTokenUsageFromDB()
 	if err != nil {
 		return nil, err
 	}
 
 	// Merge database usage
-	for tokenID, info := range dbUsage {
+	for tokenID, information := range databaseUsage {
 		if usage[tokenID] == nil {
-			usage[tokenID] = info
+			usage[tokenID] = information
 		} else {
-			usage[tokenID].Requests += info.Requests
+			usage[tokenID].Requests += information.Requests
 
 			// Keep most recent LastUsed
-			if info.LastUsed != nil {
-				if usage[tokenID].LastUsed == nil || info.LastUsed.After(*usage[tokenID].LastUsed) {
-					usage[tokenID].LastUsed = info.LastUsed
+			if information.LastUsed != nil {
+				if usage[tokenID].LastUsed == nil || information.LastUsed.After(*usage[tokenID].LastUsed) {
+					usage[tokenID].LastUsed = information.LastUsed
 				}
 			}
 		}

@@ -88,18 +88,18 @@ func (r *slogReporter) ReportStats(stats proxypoollib.PoolStats) {
 }
 
 func (r *slogReporter) reportDemands(logger *slog.Logger, demands []proxypoollib.DemandStat) {
-	for _, d := range demands {
+	for _, demand := range demands {
 		countries := "any"
-		if len(d.Countries) > 0 {
-			countries = strings.Join(d.Countries, ",")
+		if len(demand.Countries) > 0 {
+			countries = strings.Join(demand.Countries, ",")
 		}
 		logger.Info("proxy demand stats",
 			"countries", countries,
-			"state", d.State,
-			"waiters", d.Waiters,
-			"alive", d.Alive,
-			"target", d.Target,
-			"served", d.Served,
+			"state", demand.State,
+			"waiters", demand.Waiters,
+			"alive", demand.Alive,
+			"target", demand.Target,
+			"served", demand.Served,
 		)
 	}
 }

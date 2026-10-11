@@ -10,7 +10,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 )
 
-type credView struct {
+type credentialView struct {
 	ID             string     `json:"id"`
 	ProviderID     string     `json:"provider_id"`
 	ProviderName   string     `json:"provider_name"`
@@ -30,24 +30,24 @@ type credView struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
-func (h *Handler) toCredView(c *models.Credential, providerName string) credView {
-	view := credView{
-		ID:             c.ID,
-		ProviderID:     c.ProviderID,
+func (h *Handler) toCredentialView(credential *models.Credential, providerName string) credentialView {
+	view := credentialView{
+		ID:             credential.ID,
+		ProviderID:     credential.ProviderID,
 		ProviderName:   providerName,
-		Label:          c.Label,
-		IsExpired:      c.IsExpired(),
-		Disabled:       c.Disabled,
-		DisabledBy:     c.DisabledBy,
-		DisabledReason: c.DisabledReason,
-		DisabledAt:     c.DisabledAt,
-		Order:          c.Order,
-		RequestCount:   c.RequestCount,
-		SuccessCount:   c.SuccessCount,
-		ExpiresAt:      c.ExpiresAt,
-		UpdatedAt:      c.UpdatedAt,
+		Label:          credential.Label,
+		IsExpired:      credential.IsExpired(),
+		Disabled:       credential.Disabled,
+		DisabledBy:     credential.DisabledBy,
+		DisabledReason: credential.DisabledReason,
+		DisabledAt:     credential.DisabledAt,
+		Order:          credential.Order,
+		RequestCount:   credential.RequestCount,
+		SuccessCount:   credential.SuccessCount,
+		ExpiresAt:      credential.ExpiresAt,
+		UpdatedAt:      credential.UpdatedAt,
 	}
-	if park, err := h.credSvc.Parked(c.ID); err == nil && park != nil {
+	if park, err := h.credentialService.Parked(credential.ID); err == nil && park != nil {
 		view.Parked = true
 		view.ParkedUntil = &park.Until
 		view.ParkReason = park.Reason
@@ -66,19 +66,19 @@ func (h *Handler) toCredView(c *models.Credential, providerName string) credView
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/credentials [get]
 func (h *Handler) apiCredentialsList(w http.ResponseWriter, r *http.Request) {
-	providers, _ := h.providerSvc.List()
+	providers, _ := h.providerService.List()
 	providerMap := make(map[string]string, len(providers))
-	for _, p := range providers {
-		providerMap[p.ID] = p.Name
+	for _, provider := range providers {
+		providerMap[provider.ID] = provider.Name
 	}
-	creds, err := h.credSvc.ListAll()
+	credentials, err := h.credentialService.ListAll()
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	out := make([]credView, len(creds))
-	for i, c := range creds {
-		out[i] = h.toCredView(c, providerMap[c.ProviderID])
+	out := make([]credentialView, len(credentials))
+	for i, credential := range credentials {
+		out[i] = h.toCredentialView(credential, providerMap[credential.ProviderID])
 	}
 	h.json(w, http.StatusOK, out)
 }
@@ -110,16 +110,16 @@ func (h *Handler) apiCredentialsCreate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "provider_id is required")
 		return
 	}
-	p, ok := h.loadVisibleProvider(body.ProviderID)
+	provider, ok := h.loadVisibleProvider(body.ProviderID)
 	if !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
 	label := body.Label
 	if label == "" {
-		label = buildAutoCredentialLabel(p.Name, body.Data)
+		label = buildAutoCredentialLabel(provider.Name, body.Data)
 	}
-	cred, err := h.credSvc.Add(credential.AddOptions{
+	credential, err := h.credentialService.Add(credential.AddOptions{
 		ProviderID: body.ProviderID,
 		Label:      label,
 		Data:       body.Data,
@@ -128,7 +128,7 @@ func (h *Handler) apiCredentialsCreate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	h.json(w, http.StatusOK, h.toCredView(cred, p.Name))
+	h.json(w, http.StatusOK, h.toCredentialView(credential, provider.Name))
 }
 
 // apiCredentialsUpdate edits label, enable/disable state or data of a credential
@@ -160,11 +160,11 @@ func (h *Handler) apiCredentialsUpdate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "nothing to update")
 		return
 	}
-	if err := h.credSvc.UpdateDetails(id, body.Label, body.Disabled, body.Data); err != nil {
+	if err := h.credentialService.UpdateDetails(id, body.Label, body.Disabled, body.Data); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	cred, err := h.credSvc.Get(id)
+	credential, err := h.credentialService.Get(id)
 	if err != nil {
 		h.jsonErr(w, http.StatusNotFound, "credential not found")
 		return
@@ -173,10 +173,10 @@ func (h *Handler) apiCredentialsUpdate(w http.ResponseWriter, r *http.Request) {
 		h.logger.Info("credential admin state change", "credential_id", id, "disabled", *body.Disabled)
 	}
 	name := ""
-	if p, err := h.providerSvc.Get(cred.ProviderID); err == nil {
-		name = p.Name
+	if provider, err := h.providerService.Get(credential.ProviderID); err == nil {
+		name = provider.Name
 	}
-	h.json(w, http.StatusOK, h.toCredView(cred, name))
+	h.json(w, http.StatusOK, h.toCredentialView(credential, name))
 }
 
 // apiCredentialsTest verifies a credential through the provider's check_health
@@ -195,7 +195,7 @@ func (h *Handler) apiCredentialsUpdate(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/llm-router/dashboard/credentials/{id}/test [post]
 func (h *Handler) apiCredentialsTest(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	cred, err := h.credSvc.Get(id)
+	credential, err := h.credentialService.Get(id)
 	if err != nil {
 		h.jsonErr(w, http.StatusNotFound, "credential not found")
 		return
@@ -206,15 +206,15 @@ func (h *Handler) apiCredentialsTest(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 	}
-	res := h.routerSvc.TestCredential(r.Context(), cred.ProviderID, id, body.Model)
-	if !res.OK {
-		args := []any{"credential", id, "provider", cred.ProviderID, "err", res.Error}
-		if res.Proxy != "" {
-			args = append(args, "proxy", res.Proxy)
+	result := h.routerService.TestCredential(r.Context(), credential.ProviderID, id, body.Model)
+	if !result.OK {
+		arguments := []any{"credential", id, "provider", credential.ProviderID, "err", result.Error}
+		if result.Proxy != "" {
+			arguments = append(arguments, "proxy", result.Proxy)
 		}
-		h.logger.Warn("credential probe failed", args...)
+		h.logger.Warn("credential probe failed", arguments...)
 	}
-	h.json(w, http.StatusOK, res)
+	h.json(w, http.StatusOK, result)
 }
 
 // apiCredentialsDelete deletes a credential
@@ -229,7 +229,7 @@ func (h *Handler) apiCredentialsTest(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/credentials/{id} [delete]
 func (h *Handler) apiCredentialsDelete(w http.ResponseWriter, r *http.Request) {
-	if err := h.credSvc.Delete(r.PathValue("id")); err != nil {
+	if err := h.credentialService.Delete(r.PathValue("id")); err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -252,11 +252,11 @@ func (h *Handler) apiCredentialsDelete(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/llm-router/dashboard/credentials/{id}/unpark [post]
 func (h *Handler) apiCredentialsUnpark(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, err := h.credSvc.Get(id); err != nil {
+	if _, err := h.credentialService.Get(id); err != nil {
 		h.jsonErr(w, http.StatusNotFound, "credential not found")
 		return
 	}
-	if err := h.credSvc.Unpark(id); err != nil {
+	if err := h.credentialService.Unpark(id); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -291,45 +291,45 @@ func (h *Handler) apiModels(w http.ResponseWriter, r *http.Request) {
 		Error        string             `json:"error,omitempty"`
 	}
 
-	type result struct{ pm ProviderModels }
-	ch := make(chan result, len(providerIDs))
+	type result struct{ providerModels ProviderModels }
+	channel := make(chan result, len(providerIDs))
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	for _, pid := range providerIDs {
-		go func(providerID string) {
-			p, err := h.providerSvc.Get(providerID)
+	for _, providerID := range providerIDs {
+		go func(currentProviderID string) {
+			provider, err := h.providerService.Get(currentProviderID)
 			if err != nil {
-				ch <- result{pm: ProviderModels{ProviderID: providerID, Error: "provider not found"}}
+				channel <- result{providerModels: ProviderModels{ProviderID: currentProviderID, Error: "provider not found"}}
 				return
 			}
 
-			pm := ProviderModels{
-				ProviderID:   p.ID,
-				ProviderName: p.Name,
-				ProviderType: p.TypeKey,
+			providerModels := ProviderModels{
+				ProviderID:   provider.ID,
+				ProviderName: provider.Name,
+				ProviderType: provider.TypeKey,
 			}
 
-			modelInfos, err := h.modelInfoSvc.GetModelInfos(ctx, providerID)
+			modelInfos, err := h.modelInfoService.GetModelInfos(ctx, currentProviderID)
 			if err != nil {
-				h.logger.Warn("dashboard apiModels: model discovery failed", "provider_id", providerID, "err", err)
-				pm.Error = err.Error()
+				h.logger.Warn("dashboard apiModels: model discovery failed", "provider_id", currentProviderID, "err", err)
+				providerModels.Error = err.Error()
 			} else {
-				pm.ModelInfo = modelInfos
+				providerModels.ModelInfo = modelInfos
 
-				pm.Models = make([]string, len(modelInfos))
-				for i, m := range modelInfos {
-					pm.Models[i] = m.Name
+				providerModels.Models = make([]string, len(modelInfos))
+				for i, model := range modelInfos {
+					providerModels.Models[i] = model.Name
 				}
 			}
 
-			ch <- result{pm: pm}
-		}(pid)
+			channel <- result{providerModels: providerModels}
+		}(providerID)
 	}
 
 	results := make([]ProviderModels, 0, len(providerIDs))
 	for range providerIDs {
-		results = append(results, (<-ch).pm)
+		results = append(results, (<-channel).providerModels)
 	}
 	h.json(w, http.StatusOK, map[string]any{"providers": results})
 }

@@ -177,9 +177,9 @@ func (b *storageBackend) deletePlugin(pluginID string) error {
 	})
 }
 
-func newStorageTable(L *lua.LState, ctx *execContext) *lua.LTable {
-	tbl := L.NewTable()
-	tbl.RawSetString("set", L.NewFunction(func(L *lua.LState) int {
+func newStorageTable(L *lua.LState, ctx *executionContext) *lua.LTable {
+	table := L.NewTable()
+	table.RawSetString("set", L.NewFunction(func(L *lua.LState) int {
 		scope := L.CheckString(1)
 		key := L.CheckString(2)
 		val, verr := fromLuaValue(L.Get(3))
@@ -188,13 +188,13 @@ func newStorageTable(L *lua.LState, ctx *execContext) *lua.LTable {
 			return 0
 		}
 		var ttl time.Duration
-		if opts := L.Get(4); opts != lua.LNil {
-			optsTbl, ok := opts.(*lua.LTable)
+		if options := L.Get(4); options != lua.LNil {
+			optionsTable, ok := options.(*lua.LTable)
 			if !ok {
 				L.RaiseError("llm_router.storage.set: options must be a table")
 				return 0
 			}
-			if tv := optsTbl.RawGetString("ttl"); tv != lua.LNil {
+			if tv := optionsTable.RawGetString("ttl"); tv != lua.LNil {
 				n, ok := tv.(lua.LNumber)
 				if !ok {
 					L.RaiseError("llm_router.storage.set: ttl must be a number of seconds")
@@ -214,7 +214,7 @@ func newStorageTable(L *lua.LState, ctx *execContext) *lua.LTable {
 		L.Push(lua.LTrue)
 		return 1
 	}))
-	tbl.RawSetString("get", L.NewFunction(func(L *lua.LState) int {
+	table.RawSetString("get", L.NewFunction(func(L *lua.LState) int {
 		scope := L.CheckString(1)
 		key := L.CheckString(2)
 		if ctx == nil || ctx.storage == nil {
@@ -233,7 +233,7 @@ func newStorageTable(L *lua.LState, ctx *execContext) *lua.LTable {
 		L.Push(toLuaValue(L, val))
 		return 1
 	}))
-	tbl.RawSetString("delete", L.NewFunction(func(L *lua.LState) int {
+	table.RawSetString("delete", L.NewFunction(func(L *lua.LState) int {
 		scope := L.CheckString(1)
 		key := L.CheckString(2)
 		if ctx == nil || ctx.storage == nil {
@@ -247,5 +247,5 @@ func newStorageTable(L *lua.LState, ctx *execContext) *lua.LTable {
 		L.Push(lua.LTrue)
 		return 1
 	}))
-	return tbl
+	return table
 }

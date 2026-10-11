@@ -12,7 +12,7 @@ import (
 
 func schemaNodes(t *testing.T, body string) ([]*models.UINode, error) {
 	t.Helper()
-	svc, err := New(testutil.SetupTestDB(t), nil)
+	service, err := New(testutil.SetupTestDB(t), nil)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
@@ -27,10 +27,10 @@ llm_router.register("probe", {
   credential_schema = { ` + body + ` },
 })
 `
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		return nil, err
 	}
-	return svc.Schema("probe", "credential_schema")
+	return service.Schema("probe", "credential_schema")
 }
 
 func TestUINodeNewKindsValid(t *testing.T) {

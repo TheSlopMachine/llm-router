@@ -11,7 +11,7 @@ import (
 // Virtual Model API Handlers
 // ─────────────────────────────────────────────
 
-// apiVirtualModelsList godoc
+// apiVirtualModelsList documentation
 // @Summary      List all virtual models
 // @Description  Returns a list of all configured virtual models
 // @Tags         virtual-models
@@ -22,16 +22,16 @@ import (
 // @Failure      500  {object}  models.ErrorResponse
 // @Router       /api/llm-router/dashboard/virtual-models [get]
 func (h *Handler) apiVirtualModelsList(w http.ResponseWriter, r *http.Request) {
-	vms, err := h.virtualSvc.List()
+	virtualModels, err := h.virtualService.List()
 	if err != nil {
 		h.logger.Error("failed to list virtual models", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, "failed to list virtual models")
 		return
 	}
-	h.json(w, http.StatusOK, vms)
+	h.json(w, http.StatusOK, virtualModels)
 }
 
-// apiVirtualModelsCreate godoc
+// apiVirtualModelsCreate documentation
 // @Summary      Create a new virtual model
 // @Description  Creates a new virtual model with the provided configuration
 // @Tags         virtual-models
@@ -45,22 +45,22 @@ func (h *Handler) apiVirtualModelsList(w http.ResponseWriter, r *http.Request) {
 // @Failure      500    {object}  models.ErrorResponse
 // @Router       /api/llm-router/dashboard/virtual-models [post]
 func (h *Handler) apiVirtualModelsCreate(w http.ResponseWriter, r *http.Request) {
-	var vm models.VirtualModel
-	if err := json.NewDecoder(r.Body).Decode(&vm); err != nil {
+	var virtualModel models.VirtualModel
+	if err := json.NewDecoder(r.Body).Decode(&virtualModel); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if err := h.virtualSvc.Create(&vm); err != nil {
+	if err := h.virtualService.Create(&virtualModel); err != nil {
 		h.logger.Error("failed to create virtual model", "error", err)
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	h.json(w, http.StatusCreated, vm)
+	h.json(w, http.StatusCreated, virtualModel)
 }
 
-// apiVirtualModelsGet godoc
+// apiVirtualModelsGet documentation
 // @Summary      Get virtual model by ID
 // @Description  Returns a single virtual model by ID
 // @Tags         virtual-models
@@ -79,14 +79,14 @@ func (h *Handler) apiVirtualModelsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vm, err := h.virtualSvc.Get(id)
+	virtualModel, err := h.virtualService.Get(id)
 	if err != nil {
 		h.logger.Error("failed to get virtual model", "id", id, "error", err)
 		h.jsonErr(w, http.StatusNotFound, "virtual model not found")
 		return
 	}
 
-	h.json(w, http.StatusOK, vm)
+	h.json(w, http.StatusOK, virtualModel)
 }
 
 // managedUpdateIsToggleOnly reports whether an update to a managed virtual
@@ -111,7 +111,7 @@ func managedUpdateIsToggleOnly(existing *models.VirtualModel, incoming *models.V
 	return true
 }
 
-// apiVirtualModelsUpdate godoc
+// apiVirtualModelsUpdate documentation
 // @Summary      Update a virtual model
 // @Description  Updates an existing virtual model with the provided configuration
 // @Tags         virtual-models
@@ -133,30 +133,30 @@ func (h *Handler) apiVirtualModelsUpdate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var vm models.VirtualModel
-	if err := json.NewDecoder(r.Body).Decode(&vm); err != nil {
+	var virtualModel models.VirtualModel
+	if err := json.NewDecoder(r.Body).Decode(&virtualModel); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	// Managed virtual models are system-owned: members refresh from the
 	// provider list, so only the disabled toggle is user-editable.
-	if existing, err := h.virtualSvc.Get(id); err == nil && existing.ManagedBy != "" {
-		if !managedUpdateIsToggleOnly(existing, &vm) {
+	if existing, err := h.virtualService.Get(id); err == nil && existing.ManagedBy != "" {
+		if !managedUpdateIsToggleOnly(existing, &virtualModel) {
 			h.jsonErr(w, http.StatusBadRequest, "managed virtual model is read-only except for the disabled toggle")
 			return
 		}
-		vm.ManagedBy = existing.ManagedBy
+		virtualModel.ManagedBy = existing.ManagedBy
 	}
 
-	if err := h.virtualSvc.Update(id, &vm); err != nil {
+	if err := h.virtualService.Update(id, &virtualModel); err != nil {
 		h.logger.Error("failed to update virtual model", "id", id, "error", err)
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	// Fetch updated virtual model
-	updated, err := h.virtualSvc.Get(id)
+	updated, err := h.virtualService.Get(id)
 	if err != nil {
 		h.logger.Error("failed to get updated virtual model", "id", id, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, "failed to get updated virtual model")
@@ -166,7 +166,7 @@ func (h *Handler) apiVirtualModelsUpdate(w http.ResponseWriter, r *http.Request)
 	h.json(w, http.StatusOK, updated)
 }
 
-// apiVirtualModelsDelete godoc
+// apiVirtualModelsDelete documentation
 // @Summary      Delete a virtual model
 // @Description  Deletes a virtual model by ID
 // @Tags         virtual-models
@@ -185,7 +185,7 @@ func (h *Handler) apiVirtualModelsDelete(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.virtualSvc.Delete(id); err != nil {
+	if err := h.virtualService.Delete(id); err != nil {
 		h.logger.Error("failed to delete virtual model", "id", id, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, "failed to delete virtual model")
 		return

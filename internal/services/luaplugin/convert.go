@@ -24,47 +24,47 @@ var (
 // toLuaValue converts JSON-compatible Go values into Lua values.
 // Maps become string-keyed tables, slices become 1-based array tables.
 func toLuaValue(L *lua.LState, v any) lua.LValue {
-	switch t := v.(type) {
+	switch typed := v.(type) {
 	case nil:
 		return lua.LNil
 	case bool:
-		return lua.LBool(t)
+		return lua.LBool(typed)
 	case string:
-		return lua.LString(t)
+		return lua.LString(typed)
 	case float64:
-		return lua.LNumber(t)
+		return lua.LNumber(typed)
 	case float32:
-		return lua.LNumber(float64(t))
+		return lua.LNumber(float64(typed))
 	case int:
-		return lua.LNumber(t)
+		return lua.LNumber(typed)
 	case int64:
-		return lua.LNumber(t)
+		return lua.LNumber(typed)
 	case int32:
-		return lua.LNumber(t)
+		return lua.LNumber(typed)
 	case json.Number:
-		if f, err := t.Float64(); err == nil {
+		if f, err := typed.Float64(); err == nil {
 			return lua.LNumber(f)
 		}
-		return lua.LString(t.String())
+		return lua.LString(typed.String())
 	case map[string]any:
-		tbl := L.NewTable()
-		keys := make([]string, 0, len(t))
-		for k := range t {
+		table := L.NewTable()
+		keys := make([]string, 0, len(typed))
+		for k := range typed {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			tbl.RawSetString(k, toLuaValue(L, t[k]))
+			table.RawSetString(k, toLuaValue(L, typed[k]))
 		}
-		return tbl
+		return table
 	case []any:
-		tbl := L.NewTable()
-		for _, item := range t {
-			tbl.Append(toLuaValue(L, item))
+		table := L.NewTable()
+		for _, item := range typed {
+			table.Append(toLuaValue(L, item))
 		}
-		return tbl
+		return table
 	default:
-		raw, err := json.Marshal(t)
+		raw, err := json.Marshal(typed)
 		if err != nil {
 			return lua.LNil
 		}
@@ -81,32 +81,32 @@ func toLuaValue(L *lua.LState, v any) lua.LValue {
 // all other tables become map[string]any. Functions, userdata and threads,
 // sparse arrays, mixed tables and non-string object keys are errors.
 func fromLuaValue(v lua.LValue) (any, error) {
-	switch t := v.(type) {
+	switch typed := v.(type) {
 	case *lua.LNilType:
 		return nil, nil
 	case lua.LBool:
-		return bool(t), nil
+		return bool(typed), nil
 	case lua.LString:
-		return string(t), nil
+		return string(typed), nil
 	case lua.LNumber:
-		return float64(t), nil
+		return float64(typed), nil
 	case *lua.LTable:
-		return tableToGo(t)
+		return tableToGo(typed)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedLuaType, v.Type().String())
 	}
 }
 
-func tableToGo(tbl *lua.LTable) (any, error) {
-	if tbl == nil {
+func tableToGo(table *lua.LTable) (any, error) {
+	if table == nil {
 		return nil, nil
 	}
-	n := tbl.Len()
-	if n == 0 {
+	count := table.Len()
+	if count == 0 {
 		empty := true
 		obj := map[string]any{}
 		var convErr error
-		tbl.ForEach(func(k, v lua.LValue) {
+		table.ForEach(func(k, v lua.LValue) {
 			if convErr != nil {
 				return
 			}
@@ -133,28 +133,28 @@ func tableToGo(tbl *lua.LTable) (any, error) {
 	}
 	// Array-like fast path, but verify every index 1..n exists and
 	// reject mixed tables (array part plus string keys).
-	arr := make([]any, 0, n)
-	for i := 1; i <= n; i++ {
-		v := tbl.RawGetInt(i)
-		if v == lua.LNil {
+	array := make([]any, 0, count)
+	for i := 1; i <= count; i++ {
+		value := table.RawGetInt(i)
+		if value == lua.LNil {
 			return nil, fmt.Errorf("%w: missing index %d", ErrSparseArray, i)
 		}
-		child, err := fromLuaValue(v)
+		child, err := fromLuaValue(value)
 		if err != nil {
 			return nil, err
 		}
-		arr = append(arr, child)
+		array = append(array, child)
 	}
 	mixed := false
-	tbl.ForEach(func(k, _ lua.LValue) {
+	table.ForEach(func(k, _ lua.LValue) {
 		if _, ok := k.(lua.LNumber); !ok {
 			mixed = true
 		}
 	})
 	if mixed {
-		return nil, fmt.Errorf("%w: %d array items plus object keys", ErrMixedTable, n)
+		return nil, fmt.Errorf("%w: %d array items plus object keys", ErrMixedTable, count)
 	}
-	return arr, nil
+	return array, nil
 }
 
 // marshalLua encodes a Lua value to JSON via the Go intermediate form.
@@ -203,12 +203,12 @@ func normalizeEmptyObjects(raw []byte, keys ...string) []byte {
 
 func normalizeValue(v any, keys map[string]bool) bool {
 	changed := false
-	switch t := v.(type) {
+	switch typed := v.(type) {
 	case map[string]any:
-		for k, child := range t {
+		for k, child := range typed {
 			if keys[k] {
 				if m, isObj := child.(map[string]any); isObj && len(m) == 0 {
-					t[k] = []any{}
+					typed[k] = []any{}
 					changed = true
 					continue
 				}
@@ -218,7 +218,7 @@ func normalizeValue(v any, keys map[string]bool) bool {
 			}
 		}
 	case []any:
-		for _, child := range t {
+		for _, child := range typed {
 			if normalizeValue(child, keys) {
 				changed = true
 			}
@@ -264,11 +264,11 @@ func luaValueToMap(L *lua.LState, idx int) (map[string]any, error) {
 	if v == lua.LNil {
 		return map[string]any{}, nil
 	}
-	tbl, ok := v.(*lua.LTable)
+	table, ok := v.(*lua.LTable)
 	if !ok {
 		return nil, fmt.Errorf("expected table, got %s", v.Type().String())
 	}
-	raw, err := marshalLua(tbl)
+	raw, err := marshalLua(table)
 	if err != nil {
 		return nil, err
 	}

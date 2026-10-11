@@ -12,7 +12,7 @@ import (
 // checkAutomation enforces the provider automation switch on shared
 // disable/enable writes. Off (or unreadable) denies loudly so plugins fall
 // back to private KV parking instead of silently skipping the write.
-func (ctx *execContext) checkAutomation(op string) error {
+func (ctx *executionContext) checkAutomation(op string) error {
 	if ctx == nil {
 		return errors.New("no execution context")
 	}
@@ -25,61 +25,61 @@ func (ctx *execContext) checkAutomation(op string) error {
 // newCredentialsTable builds the llm_router.credentials query interface.
 // Installed only when the type key serves credentials. list/get serve
 // every context; update serves job contexts only and fails elsewhere.
-func newCredentialsTable(L *lua.LState, ctx *execContext) *lua.LTable {
-	tbl := L.NewTable()
-	tbl.RawSetString("list", L.NewFunction(func(L *lua.LState) int {
+func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
+	table := L.NewTable()
+	table.RawSetString("list", L.NewFunction(func(L *lua.LState) int {
 		if ctx == nil {
 			L.RaiseError("llm_router.credentials: no execution context")
 			return 0
 		}
-		if ctx.credList == nil {
+		if ctx.credentialList == nil {
 			L.RaiseError("llm_router.credentials.list: credential store is not wired")
 			return 0
 		}
-		creds, err := ctx.credList(ctx.providerID)
+		credentials, err := ctx.credentialList(ctx.providerID)
 		if err != nil {
 			L.RaiseError("llm_router.credentials.list: %s", err.Error())
 			return 0
 		}
 		out := L.NewTable()
-		for _, c := range creds {
-			if c == nil || c.Disabled {
+		for _, credential := range credentials {
+			if credential == nil || credential.Disabled {
 				continue
 			}
-			if !credentialAllowed(ctx, c.ID) {
+			if !credentialAllowed(ctx, credential.ID) {
 				continue
 			}
-			if ctx.credParked != nil {
-				if p, _ := ctx.credParked(c.ID); p != nil {
+			if ctx.credentialParked != nil {
+				if p, _ := ctx.credentialParked(credential.ID); p != nil {
 					continue
 				}
 			}
-			out.Append(credTable(L, c))
+			out.Append(credentialTable(L, credential))
 		}
 		L.Push(out)
 		return 1
 	}))
-	tbl.RawSetString("get", L.NewFunction(func(L *lua.LState) int {
+	table.RawSetString("get", L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
 		if ctx == nil {
 			L.RaiseError("llm_router.credentials: no execution context")
 			return 0
 		}
-		if ctx.credGet == nil {
+		if ctx.credentialGet == nil {
 			L.RaiseError("llm_router.credentials.get: credential store is not wired")
 			return 0
 		}
-		cred, err := ctx.credGet(id)
-		if err != nil || cred == nil || cred.Disabled || !credentialAllowed(ctx, cred.ID) {
+		credential, err := ctx.credentialGet(id)
+		if err != nil || credential == nil || credential.Disabled || !credentialAllowed(ctx, credential.ID) {
 			L.Push(lua.LNil)
 			return 1
 		}
-		L.Push(credTable(L, cred))
+		L.Push(credentialTable(L, credential))
 		return 1
 	}))
-	tbl.RawSetString("update", L.NewFunction(func(L *lua.LState) int {
+	table.RawSetString("update", L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
-		dataTbl := L.CheckTable(2)
+		dataTable := L.CheckTable(2)
 		if ctx == nil {
 			L.RaiseError("llm_router.credentials: no execution context")
 			return 0
@@ -88,11 +88,11 @@ func newCredentialsTable(L *lua.LState, ctx *execContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.update: allowed in job contexts only")
 			return 0
 		}
-		if ctx.credUpdate == nil {
+		if ctx.credentialUpdate == nil {
 			L.RaiseError("llm_router.credentials.update: credential store is not wired")
 			return 0
 		}
-		data, err := fromLuaValue(dataTbl)
+		data, err := fromLuaValue(dataTable)
 		if err != nil {
 			L.RaiseError("llm_router.credentials.update: %s", err.Error())
 			return 0
@@ -102,14 +102,14 @@ func newCredentialsTable(L *lua.LState, ctx *execContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.update: data must be a table")
 			return 0
 		}
-		if uerr := ctx.credUpdate(id, dataMap); uerr != nil {
+		if uerr := ctx.credentialUpdate(id, dataMap); uerr != nil {
 			L.RaiseError("llm_router.credentials.update: %s", uerr.Error())
 			return 0
 		}
 		L.Push(lua.LTrue)
 		return 1
 	}))
-	tbl.RawSetString("disable", L.NewFunction(func(L *lua.LState) int {
+	table.RawSetString("disable", L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
 		reason := ""
 		if v := L.Get(2); v != lua.LNil {
@@ -128,18 +128,18 @@ func newCredentialsTable(L *lua.LState, ctx *execContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.disable: %s", err.Error())
 			return 0
 		}
-		if ctx.credDisable == nil {
+		if ctx.credentialDisable == nil {
 			L.RaiseError("llm_router.credentials.disable: credential store is not wired")
 			return 0
 		}
-		if uerr := ctx.credDisable(id, reason); uerr != nil {
+		if uerr := ctx.credentialDisable(id, reason); uerr != nil {
 			L.RaiseError("llm_router.credentials.disable: %s", uerr.Error())
 			return 0
 		}
 		L.Push(lua.LTrue)
 		return 1
 	}))
-	tbl.RawSetString("enable", L.NewFunction(func(L *lua.LState) int {
+	table.RawSetString("enable", L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
 		if ctx == nil {
 			L.RaiseError("llm_router.credentials: no execution context")
@@ -149,18 +149,18 @@ func newCredentialsTable(L *lua.LState, ctx *execContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.enable: %s", err.Error())
 			return 0
 		}
-		if ctx.credEnable == nil {
+		if ctx.credentialEnable == nil {
 			L.RaiseError("llm_router.credentials.enable: credential store is not wired")
 			return 0
 		}
-		if uerr := ctx.credEnable(id); uerr != nil {
+		if uerr := ctx.credentialEnable(id); uerr != nil {
 			L.RaiseError("llm_router.credentials.enable: %s", uerr.Error())
 			return 0
 		}
 		L.Push(lua.LTrue)
 		return 1
 	}))
-	tbl.RawSetString("park", L.NewFunction(func(L *lua.LState) int {
+	table.RawSetString("park", L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
 		secs, ok := L.Get(2).(lua.LNumber)
 		if !ok {
@@ -180,45 +180,45 @@ func newCredentialsTable(L *lua.LState, ctx *execContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials: no execution context")
 			return 0
 		}
-		if ctx.credPark == nil {
+		if ctx.credentialPark == nil {
 			L.RaiseError("llm_router.credentials.park: credential store is not wired")
 			return 0
 		}
-		if uerr := ctx.credPark(id, time.Duration(float64(secs))*time.Second, reason); uerr != nil {
+		if uerr := ctx.credentialPark(id, time.Duration(float64(secs))*time.Second, reason); uerr != nil {
 			L.RaiseError("llm_router.credentials.park: %s", uerr.Error())
 			return 0
 		}
 		L.Push(lua.LTrue)
 		return 1
 	}))
-	tbl.RawSetString("unpark", L.NewFunction(func(L *lua.LState) int {
+	table.RawSetString("unpark", L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
 		if ctx == nil {
 			L.RaiseError("llm_router.credentials: no execution context")
 			return 0
 		}
-		if ctx.credUnpark == nil {
+		if ctx.credentialUnpark == nil {
 			L.RaiseError("llm_router.credentials.unpark: credential store is not wired")
 			return 0
 		}
-		if uerr := ctx.credUnpark(id); uerr != nil {
+		if uerr := ctx.credentialUnpark(id); uerr != nil {
 			L.RaiseError("llm_router.credentials.unpark: %s", uerr.Error())
 			return 0
 		}
 		L.Push(lua.LTrue)
 		return 1
 	}))
-	tbl.RawSetString("parked", L.NewFunction(func(L *lua.LState) int {
+	table.RawSetString("parked", L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
 		if ctx == nil {
 			L.RaiseError("llm_router.credentials: no execution context")
 			return 0
 		}
-		if ctx.credParked == nil {
+		if ctx.credentialParked == nil {
 			L.RaiseError("llm_router.credentials.parked: credential store is not wired")
 			return 0
 		}
-		entry, uerr := ctx.credParked(id)
+		entry, uerr := ctx.credentialParked(id)
 		if uerr != nil {
 			L.RaiseError("llm_router.credentials.parked: %s", uerr.Error())
 			return 0
@@ -233,7 +233,7 @@ func newCredentialsTable(L *lua.LState, ctx *execContext) *lua.LTable {
 		L.Push(out)
 		return 1
 	}))
-	return tbl
+	return table
 }
 
 const (
@@ -246,8 +246,8 @@ const (
 )
 
 // luaStringList reads an optional array-of-strings option of proxies.require.
-func luaStringList(L *lua.LState, opts *lua.LTable, field string) []string {
-	v := opts.RawGetString(field)
+func luaStringList(L *lua.LState, optionsTable *lua.LTable, field string) []string {
+	v := optionsTable.RawGetString(field)
 	if v == lua.LNil {
 		return nil
 	}
@@ -269,8 +269,8 @@ func luaStringList(L *lua.LState, opts *lua.LTable, field string) []string {
 }
 
 // luaIntOption reads an optional whole-number option within [min, max].
-func luaIntOption(L *lua.LState, opts *lua.LTable, field string, min, max int) (int, bool) {
-	v := opts.RawGetString(field)
+func luaIntOption(L *lua.LState, optionsTable *lua.LTable, field string, min, max int) (int, bool) {
+	v := optionsTable.RawGetString(field)
 	if v == lua.LNil {
 		return 0, false
 	}
@@ -283,36 +283,36 @@ func luaIntOption(L *lua.LState, opts *lua.LTable, field string, min, max int) (
 }
 
 // requireProxies implements llm_router.proxies.require.
-func requireProxies(L *lua.LState, ctx *execContext) int {
-	req := models.ProxyRequire{Limit: 1}
+func requireProxies(L *lua.LState, ctx *executionContext) int {
+	request := models.ProxyRequire{Limit: 1}
 	fallback := proxyFallbackFail
 	timeout := defaultProxyRequireTimeout
 	if arg := L.Get(1); arg != lua.LNil {
-		opts, ok := arg.(*lua.LTable)
+		optionsTable, ok := arg.(*lua.LTable)
 		if !ok {
 			L.RaiseError("llm_router.proxies.require: options must be a table")
 			return 0
 		}
-		if v := opts.RawGetString("pool"); v != lua.LNil {
+		if v := optionsTable.RawGetString("pool"); v != lua.LNil {
 			s, ok := v.(lua.LString)
 			if !ok {
 				L.RaiseError("llm_router.proxies.require: pool must be a string")
 				return 0
 			}
-			req.Pool = string(s)
+			request.Pool = string(s)
 		}
-		req.Countries = luaStringList(L, opts, "countries")
-		req.Exclude = luaStringList(L, opts, "exclude")
-		if n, ok := luaIntOption(L, opts, "limit", 1, maxProxyRequireLimit); ok {
-			req.Limit = n
+		request.Countries = luaStringList(L, optionsTable, "countries")
+		request.Exclude = luaStringList(L, optionsTable, "exclude")
+		if n, ok := luaIntOption(L, optionsTable, "limit", 1, maxProxyRequireLimit); ok {
+			request.Limit = n
 		}
-		if n, ok := luaIntOption(L, opts, "want", 1, maxProxyRequireWant); ok {
-			req.Want = n
+		if n, ok := luaIntOption(L, optionsTable, "want", 1, maxProxyRequireWant); ok {
+			request.Want = n
 		}
-		if n, ok := luaIntOption(L, opts, "timeout_ms", 1, int(maxProxyRequireTimeout/time.Millisecond)); ok {
+		if n, ok := luaIntOption(L, optionsTable, "timeout_ms", 1, int(maxProxyRequireTimeout/time.Millisecond)); ok {
 			timeout = time.Duration(n) * time.Millisecond
 		}
-		if v := opts.RawGetString("fallback"); v != lua.LNil {
+		if v := optionsTable.RawGetString("fallback"); v != lua.LNil {
 			s, ok := v.(lua.LString)
 			if !ok || (string(s) != proxyFallbackDirect && string(s) != proxyFallbackFail) {
 				L.RaiseError("llm_router.proxies.require: fallback must be %q or %q", proxyFallbackDirect, proxyFallbackFail)
@@ -336,13 +336,13 @@ func requireProxies(L *lua.LState, ctx *execContext) int {
 	if ctx.proxyDeadline.IsZero() {
 		ctx.proxyDeadline = now.Add(timeout)
 	}
-	req.Timeout = min(timeout, max(ctx.proxyDeadline.Sub(now), time.Millisecond))
+	request.Timeout = min(timeout, max(ctx.proxyDeadline.Sub(now), time.Millisecond))
 
 	goCtx := ctx.goCtx
 	if goCtx == nil {
 		goCtx = context.Background()
 	}
-	res, err := ctx.proxyRequire(goCtx, req)
+	res, err := ctx.proxyRequire(goCtx, request)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			L.Push(lua.LNil)
@@ -382,21 +382,21 @@ func requireProxies(L *lua.LState, ctx *execContext) int {
 
 // newProxiesTable builds the read-only llm_router.proxies query interface.
 // Installed only when the type key serves proxy settings.
-func newProxiesTable(L *lua.LState, ctx *execContext) *lua.LTable {
-	tbl := L.NewTable()
-	tbl.RawSetString("require", L.NewFunction(func(L *lua.LState) int {
+func newProxiesTable(L *lua.LState, ctx *executionContext) *lua.LTable {
+	table := L.NewTable()
+	table.RawSetString("require", L.NewFunction(func(L *lua.LState) int {
 		return requireProxies(L, ctx)
 	}))
-	tbl.RawSetString("query", L.NewFunction(func(L *lua.LState) int {
+	table.RawSetString("query", L.NewFunction(func(L *lua.LState) int {
 		var pool, country string
 		limit := 0
 		if arg := L.Get(1); arg != lua.LNil {
-			opts, ok := arg.(*lua.LTable)
+			optionsTable, ok := arg.(*lua.LTable)
 			if !ok {
 				L.RaiseError("llm_router.proxies.query: options must be a table")
 				return 0
 			}
-			if v := opts.RawGetString("pool"); v != lua.LNil {
+			if v := optionsTable.RawGetString("pool"); v != lua.LNil {
 				s, ok := v.(lua.LString)
 				if !ok {
 					L.RaiseError("llm_router.proxies.query: pool must be a string")
@@ -404,7 +404,7 @@ func newProxiesTable(L *lua.LState, ctx *execContext) *lua.LTable {
 				}
 				pool = string(s)
 			}
-			if v := opts.RawGetString("country"); v != lua.LNil {
+			if v := optionsTable.RawGetString("country"); v != lua.LNil {
 				s, ok := v.(lua.LString)
 				if !ok {
 					L.RaiseError("llm_router.proxies.query: country must be a string")
@@ -412,7 +412,7 @@ func newProxiesTable(L *lua.LState, ctx *execContext) *lua.LTable {
 				}
 				country = string(s)
 			}
-			if v := opts.RawGetString("limit"); v != lua.LNil {
+			if v := optionsTable.RawGetString("limit"); v != lua.LNil {
 				n, ok := v.(lua.LNumber)
 				if !ok {
 					L.RaiseError("llm_router.proxies.query: limit must be a number")
@@ -448,12 +448,12 @@ func newProxiesTable(L *lua.LState, ctx *execContext) *lua.LTable {
 		L.Push(out)
 		return 1
 	}))
-	return tbl
+	return table
 }
 
 // credentialAllowed enforces the router-token allow-list: nil means
 // unrestricted (admin probes), otherwise only listed IDs serve.
-func credentialAllowed(ctx *execContext, id string) bool {
+func credentialAllowed(ctx *executionContext, id string) bool {
 	if ctx == nil || ctx.allowedCredentials == nil {
 		return true
 	}

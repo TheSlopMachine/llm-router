@@ -17,24 +17,24 @@ import (
 const flushChunkSize = 20000
 
 type dbCache struct {
-	mu      sync.RWMutex
-	db      *db.DB
-	repo    *repository.Repository[proxypoollib.ProxyState]
-	items   map[string]proxypoollib.ProxyState
-	dirty   map[string]struct{}
-	deleted map[string]struct{}
-	err     error
+	mu       sync.RWMutex
+	database *db.DB
+	store    *repository.Repository[proxypoollib.ProxyState]
+	items    map[string]proxypoollib.ProxyState
+	dirty    map[string]struct{}
+	deleted  map[string]struct{}
+	err      error
 }
 
 func newDBCache(database *db.DB) (*dbCache, error) {
 	c := &dbCache{
-		db:      database,
-		repo:    repository.New[proxypoollib.ProxyState](database, db.BucketProxyCache, "proxy cache"),
-		items:   map[string]proxypoollib.ProxyState{},
-		dirty:   map[string]struct{}{},
-		deleted: map[string]struct{}{},
+		database: database,
+		store:    repository.New[proxypoollib.ProxyState](database, db.BucketProxyCache, "proxy cache"),
+		items:    map[string]proxypoollib.ProxyState{},
+		dirty:    map[string]struct{}{},
+		deleted:  map[string]struct{}{},
 	}
-	states, err := c.repo.List()
+	states, err := c.store.List()
 	if err != nil {
 		return nil, fmt.Errorf("load proxy cache: %w", err)
 	}
@@ -121,41 +121,41 @@ func (c *dbCache) Flush() error {
 // same JSON encoding as Repository.Put. Unencodable entries are skipped so
 // one bad row cannot block the batch.
 func (c *dbCache) writeChunk(states []proxypoollib.ProxyState, deletions []string) error {
-	type record struct {
+	type cacheRecord struct {
 		key  string
 		data []byte
 	}
-	records := make([]record, 0, len(states))
+	records := make([]cacheRecord, 0, len(states))
 	for _, state := range states {
 		if state.URL == "" {
 			continue
 		}
-		enc, err := json.Marshal(&state)
+		encoded, err := json.Marshal(&state)
 		if err != nil {
 			c.remember(fmt.Errorf("marshal proxy cache: %w", err))
 			continue
 		}
-		records = append(records, record{key: state.URL, data: enc})
+		records = append(records, cacheRecord{key: state.URL, data: encoded})
 	}
 	if len(records) == 0 && len(deletions) == 0 {
 		return nil
 	}
-	return c.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketProxyCache)
-		if b == nil {
+	return c.database.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(db.BucketProxyCache)
+		if bucket == nil {
 			var err error
-			b, err = tx.CreateBucketIfNotExists(db.BucketProxyCache)
+			bucket, err = tx.CreateBucketIfNotExists(db.BucketProxyCache)
 			if err != nil {
 				return fmt.Errorf("create bucket %q: %w", string(db.BucketProxyCache), err)
 			}
 		}
 		for _, key := range deletions {
-			if err := b.Delete([]byte(key)); err != nil {
+			if err := bucket.Delete([]byte(key)); err != nil {
 				return err
 			}
 		}
-		for _, r := range records {
-			if err := b.Put([]byte(r.key), r.data); err != nil {
+		for _, record := range records {
+			if err := bucket.Put([]byte(record.key), record.data); err != nil {
 				return err
 			}
 		}
@@ -189,7 +189,7 @@ func (c *dbCache) All() []proxypoollib.ProxyState {
 }
 
 func (c *dbCache) Clear() {
-	err := c.db.Update(func(tx *bolt.Tx) error {
+	err := c.database.Update(func(tx *bolt.Tx) error {
 		if err := tx.DeleteBucket(db.BucketProxyCache); err != nil && !errors.Is(err, bolt.ErrBucketNotFound) {
 			return err
 		}

@@ -30,7 +30,7 @@ func (h *Handler) apiMetricsOverview(w http.ResponseWriter, r *http.Request) {
 		filters.TimeRange = models.TimeRangeHour
 	}
 
-	overview, err := h.metricsSvc.QueryOverview(filters)
+	overview, err := h.metricsService.QueryOverview(filters)
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -71,7 +71,7 @@ func (h *Handler) apiMetricsTimeSeries(w http.ResponseWriter, r *http.Request) {
 		filters.TimeRange = models.TimeRangeHour
 	}
 
-	points, err := h.metricsSvc.QueryTimeSeries(metric, filters)
+	points, err := h.metricsService.QueryTimeSeries(metric, filters)
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -91,13 +91,13 @@ func (h *Handler) apiMetricsTimeSeries(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/metrics/models [get]
 func (h *Handler) apiMetricsModels(w http.ResponseWriter, r *http.Request) {
-	models, err := h.metricsSvc.GetDistinctModels()
+	distinctModels, err := h.metricsService.GetDistinctModels()
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	h.json(w, http.StatusOK, models)
+	h.json(w, http.StatusOK, distinctModels)
 }
 
 // apiTokenUsage returns request counts for all tokens
@@ -111,7 +111,7 @@ func (h *Handler) apiMetricsModels(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/tokens/usage [get]
 func (h *Handler) apiTokenUsage(w http.ResponseWriter, r *http.Request) {
-	usage, err := h.metricsSvc.GetTokenUsage()
+	usage, err := h.metricsService.GetTokenUsage()
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return

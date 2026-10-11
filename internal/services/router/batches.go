@@ -13,12 +13,12 @@ import (
 
 // batchResult builds one JSONL-ready result line: succeeded carries the
 // Anthropic message, errored carries the negotiated error shape.
-func batchResult(customID string, msg *models.AnthropicMessage) models.BatchResultLine {
+func batchResult(customID string, message *models.AnthropicMessage) models.BatchResultLine {
 	return models.BatchResultLine{
 		CustomID: customID,
 		Result: mustPayload(map[string]any{
 			"type":    "succeeded",
-			"message": msg,
+			"message": message,
 		}),
 	}
 }
@@ -44,70 +44,70 @@ func batchErrorResult(customID string, err error) models.BatchResultLine {
 // a deferred worker. Custom IDs must be unique within the batch.
 func (s *Service) CreateBatch(
 	ctx context.Context,
-	req *models.BatchCreateRequest,
+	request *models.BatchCreateRequest,
 	token *models.RouterToken,
 ) (*models.BatchInfo, error) {
-	if s.batchSvc == nil {
+	if s.batchService == nil {
 		return nil, errors.New("message batch store is not wired")
 	}
-	if len(req.Requests) == 0 {
+	if len(request.Requests) == 0 {
 		return nil, invalidRequest("requests must not be empty")
 	}
 	seen := map[string]bool{}
 	type parsed struct {
-		entry models.BatchEntry
-		msg   *models.AnthropicMessageRequest
+		entry   models.BatchEntry
+		message *models.AnthropicMessageRequest
 	}
-	items := make([]parsed, 0, len(req.Requests))
-	for _, e := range req.Requests {
-		if e.CustomID == "" {
+	items := make([]parsed, 0, len(request.Requests))
+	for _, entry := range request.Requests {
+		if entry.CustomID == "" {
 			return nil, invalidRequest("requests entry is missing custom_id")
 		}
-		if seen[e.CustomID] {
+		if seen[entry.CustomID] {
 			return nil, invalidRequest("duplicate custom_id in requests")
 		}
-		seen[e.CustomID] = true
-		var msg models.AnthropicMessageRequest
-		if err := json.Unmarshal(e.Params, &msg); err != nil {
+		seen[entry.CustomID] = true
+		var message models.AnthropicMessageRequest
+		if err := json.Unmarshal(entry.Params, &message); err != nil {
 			return nil, invalidRequest("requests entry params are not a message request")
 		}
-		if msg.Model == "" {
+		if message.Model == "" {
 			return nil, invalidRequest("requests entry is missing params.model")
 		}
-		if msg.MaxTokens <= 0 {
+		if message.MaxTokens <= 0 {
 			return nil, invalidRequest("requests entry is missing params.max_tokens")
 		}
-		if len(msg.Messages) == 0 {
+		if len(message.Messages) == 0 {
 			return nil, invalidRequest("requests entry is missing params.messages")
 		}
-		items = append(items, parsed{entry: e, msg: &msg})
+		items = append(items, parsed{entry: entry, message: &message})
 	}
-	rec := &models.BatchRecord{
+	record := &models.BatchRecord{
 		ID:      models.NewBatchID(),
-		Model:   models.ModelId(items[0].msg.Model),
+		Model:   models.ModelId(items[0].message.Model),
 		Status:  batches.StatusInProgress,
-		Entries: req.Requests,
+		Entries: request.Requests,
 	}
-	for _, it := range items {
-		chatReq, err := it.msg.ToChat()
+	for _, item := range items {
+		chatRequest, err := item.message.ToChat()
 		if err != nil {
-			rec.Results = append(rec.Results, batchErrorResult(it.entry.CustomID, err))
+			record.Results = append(record.Results, batchErrorResult(item.entry.CustomID, err))
 			continue
 		}
-		resp, err := s.complete(ctx, chatReq, token, false)
+		response, err := s.complete(ctx, chatRequest, token, false)
 		if err != nil {
-			rec.Results = append(rec.Results, batchErrorResult(it.entry.CustomID, err))
+			record.Results = append(record.Results, batchErrorResult(item.entry.CustomID, err))
 			continue
 		}
-		rec.Results = append(rec.Results, batchResult(it.entry.CustomID, models.AnthropicMessageFromChat(resp, it.msg.Model)))
+		record.Results = append(record.Results, batchResult(item.entry.CustomID, models.AnthropicMessageFromChat(response, item.message.Model)))
 	}
 	now := time.Now()
-	rec.Status = batches.StatusEnded
-	rec.EndedAt = &now
-	if err := s.batchSvc.Create(rec); err != nil {
+	record.Status = batches.StatusEnded
+	record.EndedAt = &now
+	if err := s.batchService.Create(record); err != nil {
 		return nil, err
 	}
-	return rec.ToBatchInfo("/v1/messages/batches/" + rec.ID + "/results"), nil
+	return record.ToBatchInfo("/v1/messages/batches/" + record.ID + "/results"), nil
 }
 
 // GetBatch returns one stored batch.
@@ -116,36 +116,36 @@ func (s *Service) GetBatch(
 	id string,
 	token *models.RouterToken,
 ) (*models.BatchInfo, error) {
-	if s.batchSvc == nil {
+	if s.batchService == nil {
 		return nil, errors.New("message batch store is not wired")
 	}
-	rec, err := s.batchSvc.Get(id)
+	record, err := s.batchService.Get(id)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("message batch", id)
 		}
 		return nil, err
 	}
-	if deny := tokenDenies(token, rec.Model); deny != nil {
+	if deny := tokenDenies(token, record.Model); deny != nil {
 		return nil, deny
 	}
-	return rec.ToBatchInfo("/v1/messages/batches/" + rec.ID + "/results"), nil
+	return record.ToBatchInfo("/v1/messages/batches/" + record.ID + "/results"), nil
 }
 
 // ListBatches returns all stored batches, oldest first.
 func (s *Service) ListBatches(_ context.Context) ([]*models.BatchInfo, error) {
-	if s.batchSvc == nil {
+	if s.batchService == nil {
 		return nil, errors.New("message batch store is not wired")
 	}
-	recs, err := s.batchSvc.List()
+	records, err := s.batchService.List()
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*models.BatchInfo, 0, len(recs))
-	for _, rec := range recs {
-		out = append(out, rec.ToBatchInfo("/v1/messages/batches/"+rec.ID+"/results"))
+	output := make([]*models.BatchInfo, 0, len(records))
+	for _, record := range records {
+		output = append(output, record.ToBatchInfo("/v1/messages/batches/"+record.ID+"/results"))
 	}
-	return out, nil
+	return output, nil
 }
 
 // CancelBatch marks a non-terminal batch canceled. Synchronously executed
@@ -155,44 +155,44 @@ func (s *Service) CancelBatch(
 	id string,
 	token *models.RouterToken,
 ) (*models.BatchInfo, error) {
-	if s.batchSvc == nil {
+	if s.batchService == nil {
 		return nil, errors.New("message batch store is not wired")
 	}
-	rec, err := s.batchSvc.Get(id)
+	record, err := s.batchService.Get(id)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("message batch", id)
 		}
 		return nil, err
 	}
-	if deny := tokenDenies(token, rec.Model); deny != nil {
+	if deny := tokenDenies(token, record.Model); deny != nil {
 		return nil, deny
 	}
-	if rec.Status == batches.StatusEnded || rec.Status == batches.StatusCanceled {
-		return nil, invalidRequest("message batch is already " + rec.Status)
+	if record.Status == batches.StatusEnded || record.Status == batches.StatusCanceled {
+		return nil, invalidRequest("message batch is already " + record.Status)
 	}
 	now := time.Now()
-	rec.Status = batches.StatusCanceled
-	rec.EndedAt = &now
-	if err := s.batchSvc.Update(rec); err != nil {
+	record.Status = batches.StatusCanceled
+	record.EndedAt = &now
+	if err := s.batchService.Update(record); err != nil {
 		return nil, err
 	}
-	return rec.ToBatchInfo("/v1/messages/batches/" + rec.ID + "/results"), nil
+	return record.ToBatchInfo("/v1/messages/batches/" + record.ID + "/results"), nil
 }
 
 // DeleteBatch removes a batch row. Missing rows are not errors only when
 // the row never existed? No: missing rows are 404, matching the catalog.
 func (s *Service) DeleteBatch(_ context.Context, id string) error {
-	if s.batchSvc == nil {
+	if s.batchService == nil {
 		return errors.New("message batch store is not wired")
 	}
-	if _, err := s.batchSvc.Get(id); err != nil {
+	if _, err := s.batchService.Get(id); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return compatNotFound("message batch", id)
 		}
 		return err
 	}
-	return s.batchSvc.Delete(id)
+	return s.batchService.Delete(id)
 }
 
 // GetBatchResults renders stored results as JSONL.
@@ -201,18 +201,18 @@ func (s *Service) GetBatchResults(
 	id string,
 	token *models.RouterToken,
 ) (string, error) {
-	if s.batchSvc == nil {
+	if s.batchService == nil {
 		return "", errors.New("message batch store is not wired")
 	}
-	rec, err := s.batchSvc.Get(id)
+	record, err := s.batchService.Get(id)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return "", compatNotFound("message batch", id)
 		}
 		return "", err
 	}
-	if deny := tokenDenies(token, rec.Model); deny != nil {
+	if deny := tokenDenies(token, record.Model); deny != nil {
 		return "", deny
 	}
-	return rec.BatchResults(), nil
+	return record.BatchResults(), nil
 }

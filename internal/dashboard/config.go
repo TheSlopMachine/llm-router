@@ -18,12 +18,12 @@ import (
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/config [get]
 func (h *Handler) apiConfigGet(w http.ResponseWriter, r *http.Request) {
-	cfg, err := h.configSvc.Get()
+	routerConfig, err := h.configService.Get()
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	h.json(w, http.StatusOK, cfg)
+	h.json(w, http.StatusOK, routerConfig)
 }
 
 // apiConfigPut updates the instance RouterConfiguration
@@ -49,7 +49,7 @@ func (h *Handler) apiConfigPut(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.configSvc.Put(body); err != nil {
+	if err := h.configService.Put(body); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}

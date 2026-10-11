@@ -13,8 +13,8 @@ import (
 func setupAdminService(t *testing.T) *Service {
 	t.Helper()
 	database := testutil.SetupTestDB(t)
-	providerSvc := provider.NewService(database)
-	return New(database, providerSvc)
+	providerService := provider.NewService(database)
+	return New(database, providerService)
 }
 
 // ─────────────────────────────────────────────
@@ -22,15 +22,15 @@ func setupAdminService(t *testing.T) *Service {
 // ─────────────────────────────────────────────
 
 func TestAdminService_Bootstrap_FirstTime(t *testing.T) {
-	svc := setupAdminService(t)
+	service := setupAdminService(t)
 
-	err := svc.Bootstrap("admin", "password123")
+	err := service.Bootstrap("admin", "password123")
 	if err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 
 	// Verify admin user was created
-	user, err := svc.repo.Get("admin")
+	user, err := service.store.Get("admin")
 	if err != nil {
 		t.Fatalf("get admin user failed: %v", err)
 	}
@@ -44,25 +44,25 @@ func TestAdminService_Bootstrap_FirstTime(t *testing.T) {
 }
 
 func TestAdminService_Bootstrap_AlreadyBootstrapped(t *testing.T) {
-	svc := setupAdminService(t)
+	service := setupAdminService(t)
 
 	// First bootstrap
-	if err := svc.Bootstrap("admin", "password123"); err != nil {
+	if err := service.Bootstrap("admin", "password123"); err != nil {
 		t.Fatalf("first bootstrap failed: %v", err)
 	}
 
 	// Second bootstrap should fail
-	err := svc.Bootstrap("admin2", "password456")
+	err := service.Bootstrap("admin2", "password456")
 	if err == nil {
 		t.Error("expected error for second bootstrap, got nil")
 	}
 }
 
 func TestAdminService_IsBootstrapped(t *testing.T) {
-	svc := setupAdminService(t)
+	service := setupAdminService(t)
 
 	// Should not be bootstrapped initially
-	ok, err := svc.db.IsBootstrapped()
+	ok, err := service.database.IsBootstrapped()
 	if err != nil {
 		t.Fatalf("is bootstrapped check failed: %v", err)
 	}
@@ -71,12 +71,12 @@ func TestAdminService_IsBootstrapped(t *testing.T) {
 	}
 
 	// Bootstrap
-	if err := svc.Bootstrap("admin", "password123"); err != nil {
+	if err := service.Bootstrap("admin", "password123"); err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 
 	// Should be bootstrapped now
-	ok, err = svc.db.IsBootstrapped()
+	ok, err = service.database.IsBootstrapped()
 	if err != nil {
 		t.Fatalf("is bootstrapped check failed: %v", err)
 	}
@@ -86,13 +86,13 @@ func TestAdminService_IsBootstrapped(t *testing.T) {
 }
 
 func TestAdminService_Bootstrap_DoesNotCreateProvidersBucket(t *testing.T) {
-	svc := setupAdminService(t)
+	service := setupAdminService(t)
 
-	if err := svc.Bootstrap("admin", "password123"); err != nil {
+	if err := service.Bootstrap("admin", "password123"); err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 
-	if err := svc.db.View(func(tx *bolt.Tx) error {
+	if err := service.database.View(func(tx *bolt.Tx) error {
 		if tx.Bucket([]byte("providers")) != nil {
 			t.Fatalf("legacy providers bucket must stay dropped")
 		}
@@ -107,15 +107,15 @@ func TestAdminService_Bootstrap_DoesNotCreateProvidersBucket(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestAdminService_Login_ValidCredentials(t *testing.T) {
-	svc := setupAdminService(t)
+	service := setupAdminService(t)
 
 	// Bootstrap first
-	if err := svc.Bootstrap("admin", "password123"); err != nil {
+	if err := service.Bootstrap("admin", "password123"); err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 
 	// Login
-	token, expiresAt, err := svc.Login("admin", "password123", false)
+	token, expiresAt, err := service.Login("admin", "password123", false)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
@@ -132,15 +132,15 @@ func TestAdminService_Login_ValidCredentials(t *testing.T) {
 }
 
 func TestAdminService_Login_InvalidPassword(t *testing.T) {
-	svc := setupAdminService(t)
+	service := setupAdminService(t)
 
 	// Bootstrap first
-	if err := svc.Bootstrap("admin", "password123"); err != nil {
+	if err := service.Bootstrap("admin", "password123"); err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 
 	// Login with wrong password
-	_, _, err := svc.Login("admin", "wrongpassword", false)
+	_, _, err := service.Login("admin", "wrongpassword", false)
 	if err == nil {
 		t.Error("expected error for invalid password, got nil")
 	}
@@ -150,10 +150,10 @@ func TestAdminService_Login_InvalidPassword(t *testing.T) {
 }
 
 func TestAdminService_Login_UserNotFound(t *testing.T) {
-	svc := setupAdminService(t)
+	service := setupAdminService(t)
 
 	// Login without bootstrap
-	_, _, err := svc.Login("nonexistent", "password", false)
+	_, _, err := service.Login("nonexistent", "password", false)
 	if err == nil {
 		t.Error("expected error for nonexistent user, got nil")
 	}
@@ -163,15 +163,15 @@ func TestAdminService_Login_UserNotFound(t *testing.T) {
 }
 
 func TestAdminService_Login_RememberMe(t *testing.T) {
-	svc := setupAdminService(t)
+	service := setupAdminService(t)
 
 	// Bootstrap first
-	if err := svc.Bootstrap("admin", "password123"); err != nil {
+	if err := service.Bootstrap("admin", "password123"); err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 
 	// Login with remember me
-	token, expiresAt, err := svc.Login("admin", "password123", true)
+	token, expiresAt, err := service.Login("admin", "password123", true)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
@@ -192,20 +192,20 @@ func TestAdminService_Login_RememberMe(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestAdminService_ValidateSession_Valid(t *testing.T) {
-	svc := setupAdminService(t)
+	service := setupAdminService(t)
 
 	// Bootstrap and login
-	if err := svc.Bootstrap("admin", "password123"); err != nil {
+	if err := service.Bootstrap("admin", "password123"); err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 
-	token, _, err := svc.Login("admin", "password123", false)
+	token, _, err := service.Login("admin", "password123", false)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
 
 	// Validate session
-	username, valid := svc.ValidateSession(token)
+	username, valid := service.ValidateSession(token)
 	if !valid {
 		t.Error("session should be valid")
 	}
@@ -215,24 +215,24 @@ func TestAdminService_ValidateSession_Valid(t *testing.T) {
 }
 
 func TestAdminService_ValidateSession_Invalid(t *testing.T) {
-	svc := setupAdminService(t)
+	service := setupAdminService(t)
 
 	// Validate non-existent session
-	_, valid := svc.ValidateSession("invalid-token")
+	_, valid := service.ValidateSession("invalid-token")
 	if valid {
 		t.Error("session should not be valid")
 	}
 }
 
 func TestAdminService_ValidateSession_SlidingWindow(t *testing.T) {
-	svc := setupAdminService(t)
+	service := setupAdminService(t)
 
 	// Bootstrap and login
-	if err := svc.Bootstrap("admin", "password123"); err != nil {
+	if err := service.Bootstrap("admin", "password123"); err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 
-	token, _, err := svc.Login("admin", "password123", false)
+	token, _, err := service.Login("admin", "password123", false)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestAdminService_ValidateSession_SlidingWindow(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Validate session (should refresh expiry)
-	username, valid := svc.ValidateSession(token)
+	username, valid := service.ValidateSession(token)
 	if !valid {
 		t.Error("session should be valid")
 	}
@@ -259,29 +259,29 @@ func TestAdminService_ValidateSession_SlidingWindow(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestAdminService_Logout(t *testing.T) {
-	svc := setupAdminService(t)
+	service := setupAdminService(t)
 
 	// Bootstrap and login
-	if err := svc.Bootstrap("admin", "password123"); err != nil {
+	if err := service.Bootstrap("admin", "password123"); err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 
-	token, _, err := svc.Login("admin", "password123", false)
+	token, _, err := service.Login("admin", "password123", false)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
 
 	// Verify session is valid
-	_, valid := svc.ValidateSession(token)
+	_, valid := service.ValidateSession(token)
 	if !valid {
 		t.Error("session should be valid before logout")
 	}
 
 	// Logout
-	svc.Logout(token)
+	service.Logout(token)
 
 	// Verify session is invalid
-	_, valid = svc.ValidateSession(token)
+	_, valid = service.ValidateSession(token)
 	if valid {
 		t.Error("session should be invalid after logout")
 	}
@@ -292,31 +292,31 @@ func TestAdminService_Logout(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestAdminService_CleanupExpiredSessions(t *testing.T) {
-	svc := setupAdminService(t)
+	service := setupAdminService(t)
 
 	// Bootstrap and login
-	if err := svc.Bootstrap("admin", "password123"); err != nil {
+	if err := service.Bootstrap("admin", "password123"); err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 
-	token, _, err := svc.Login("admin", "password123", false)
+	token, _, err := service.Login("admin", "password123", false)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
 
 	// Session should be valid
-	_, valid := svc.ValidateSession(token)
+	_, valid := service.ValidateSession(token)
 	if !valid {
 		t.Error("session should be valid")
 	}
 
 	// Cleanup should not remove valid sessions
-	if err := svc.CleanupExpiredSessions(); err != nil {
+	if err := service.CleanupExpiredSessions(); err != nil {
 		t.Fatalf("cleanup failed: %v", err)
 	}
 
 	// Session should still be valid
-	_, valid = svc.ValidateSession(token)
+	_, valid = service.ValidateSession(token)
 	if !valid {
 		t.Error("session should still be valid after cleanup")
 	}

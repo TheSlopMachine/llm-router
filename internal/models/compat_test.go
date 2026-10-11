@@ -33,7 +33,7 @@ func TestCompletionRequest_PromptShapes(t *testing.T) {
 
 func TestCompletionRequest_ToChat(t *testing.T) {
 	seed := int64(7)
-	req := CompletionRequest{
+	request := CompletionRequest{
 		Model:   "mock/m",
 		Prompt:  []string{"hello"},
 		Suffix:  " world",
@@ -42,8 +42,8 @@ func TestCompletionRequest_ToChat(t *testing.T) {
 		Images:  []string{"https://x/y.png"},
 		Options: map[string]any{"temperature": 0.5, "num_predict": float64(32)},
 	}
-	req.NormalizeAliases()
-	chat := req.ToChat()
+	request.NormalizeAliases()
+	chat := request.ToChat()
 	if len(chat.Messages) != 2 {
 		t.Fatalf("messages: %d", len(chat.Messages))
 	}
@@ -88,52 +88,52 @@ func TestModerationRequest_Shapes(t *testing.T) {
 }
 
 func TestChatCompletionRequest_NormalizeAliases(t *testing.T) {
-	var req ChatCompletionRequest
+	var request ChatCompletionRequest
 	raw := `{"model":"mock/m","messages":[],"random_seed":42,"reasoning":{"effort":"high","max_tokens":500},"format":{"type":"json_object"},"options":{"temperature":0.3,"top_p":0.9,"seed":11,"stop":["x"],"num_predict":64}}`
-	if err := json.Unmarshal([]byte(raw), &req); err != nil {
+	if err := json.Unmarshal([]byte(raw), &request); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	req.NormalizeAliases()
-	if req.Seed == nil || *req.Seed != 42 {
-		t.Fatalf("random_seed: %+v", req.Seed)
+	request.NormalizeAliases()
+	if request.Seed == nil || *request.Seed != 42 {
+		t.Fatalf("random_seed: %+v", request.Seed)
 	}
-	if req.ReasoningEffort == nil || *req.ReasoningEffort != "high" {
-		t.Fatalf("reasoning effort: %+v", req.ReasoningEffort)
+	if request.ReasoningEffort == nil || *request.ReasoningEffort != "high" {
+		t.Fatalf("reasoning effort: %+v", request.ReasoningEffort)
 	}
-	if req.MaxCompletionTokens == nil || *req.MaxCompletionTokens != 500 {
-		t.Fatalf("reasoning max tokens: %+v", req.MaxCompletionTokens)
+	if request.MaxCompletionTokens == nil || *request.MaxCompletionTokens != 500 {
+		t.Fatalf("reasoning max tokens: %+v", request.MaxCompletionTokens)
 	}
-	if req.ResponseFormat == nil {
+	if request.ResponseFormat == nil {
 		t.Fatal("format must map to response_format")
 	}
-	if req.Temperature != 0.3 || req.TopP != 0.9 {
-		t.Fatalf("options: %+v", req)
+	if request.Temperature != 0.3 || request.TopP != 0.9 {
+		t.Fatalf("options: %+v", request)
 	}
-	if req.MaxTokens != 64 {
-		t.Fatalf("num_predict: %d", req.MaxTokens)
+	if request.MaxTokens != 64 {
+		t.Fatalf("num_predict: %d", request.MaxTokens)
 	}
 }
 
 func TestEmbeddingsRequest_NormalizeAliases(t *testing.T) {
-	var req EmbeddingsRequest
-	if err := json.Unmarshal([]byte(`{"model":"mock/m","input":"hi","output_dimension":1536,"output_dtype":"float32"}`), &req); err != nil {
+	var request EmbeddingsRequest
+	if err := json.Unmarshal([]byte(`{"model":"mock/m","input":"hi","output_dimension":1536,"output_dtype":"float32"}`), &request); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if req.Dimensions != 1536 {
-		t.Fatalf("output_dimension: %d", req.Dimensions)
+	if request.Dimensions != 1536 {
+		t.Fatalf("output_dimension: %d", request.Dimensions)
 	}
-	if len(req.Input) != 1 {
-		t.Fatalf("input: %+v", req.Input)
+	if len(request.Input) != 1 {
+		t.Fatalf("input: %+v", request.Input)
 	}
 }
 
 func TestResponseRequest_ToChat(t *testing.T) {
 	raw := `{"model":"mock/m","instructions":"be nice","input":[{"type":"message","role":"user","content":"hi"}],"tools":[{"type":"function","name":"f","description":"d"}]}`
-	var req ResponseRequest
-	if err := json.Unmarshal([]byte(raw), &req); err != nil {
+	var request ResponseRequest
+	if err := json.Unmarshal([]byte(raw), &request); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	chat := req.ToChat()
+	chat := request.ToChat()
 	if len(chat.Messages) != 2 {
 		t.Fatalf("messages: %+v", chat.Messages)
 	}
@@ -150,18 +150,18 @@ func TestResponseRequest_ToChat(t *testing.T) {
 }
 
 func TestThreadMessageRequest_Texts(t *testing.T) {
-	var req ThreadMessageRequest
-	if err := json.Unmarshal([]byte(`{"role":"user","content":[{"type":"text","text":"a"},{"type":"text","text":"b"}]}`), &req); err != nil {
+	var request ThreadMessageRequest
+	if err := json.Unmarshal([]byte(`{"role":"user","content":[{"type":"text","text":"a"},{"type":"text","text":"b"}]}`), &request); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if texts := req.ThreadMessageTexts(); len(texts) != 2 {
+	if texts := request.ThreadMessageTexts(); len(texts) != 2 {
 		t.Fatalf("texts: %+v", texts)
 	}
 }
 
 func TestAnthropicCompleteRequest_ToMessageRequest(t *testing.T) {
-	req := AnthropicCompleteRequest{Model: "mock/m", Prompt: "hi", MaxTokensToSample: 16}
-	msg := req.ToMessageRequest()
+	request := AnthropicCompleteRequest{Model: "mock/m", Prompt: "hi", MaxTokensToSample: 16}
+	msg := request.ToMessageRequest()
 	if msg.Model != "mock/m" || msg.MaxTokens != 16 || len(msg.Messages) != 1 {
 		t.Fatalf("message request: %+v", msg)
 	}
@@ -175,16 +175,16 @@ func TestAnthropicCompleteRequest_ToMessageRequest(t *testing.T) {
 }
 
 func TestBatchRecord_InfoAndResults(t *testing.T) {
-	rec := &BatchRecord{ID: "batch_x", Entries: []BatchEntry{{CustomID: "a"}, {CustomID: "b"}}}
-	rec.Results = []BatchResultLine{
+	record := &BatchRecord{ID: "batch_x", Entries: []BatchEntry{{CustomID: "a"}, {CustomID: "b"}}}
+	record.Results = []BatchResultLine{
 		{CustomID: "a", Result: json.RawMessage(`{"type":"succeeded","message":{}}`)},
 		{CustomID: "b", Result: json.RawMessage(`{"type":"errored","error":{}}`)},
 	}
-	info := rec.ToBatchInfo("/results")
-	if info.RequestCounts.Succeeded != 1 || info.RequestCounts.Errored != 1 || info.RequestCounts.Processing != 0 {
-		t.Fatalf("counts: %+v", info.RequestCounts)
+	batch := record.ToBatchInfo("/results")
+	if batch.RequestCounts.Succeeded != 1 || batch.RequestCounts.Errored != 1 || batch.RequestCounts.Processing != 0 {
+		t.Fatalf("counts: %+v", batch.RequestCounts)
 	}
-	lines := rec.BatchResults()
+	lines := record.BatchResults()
 	if strings.Count(lines, "\n") != 2 || !strings.Contains(lines, `"custom_id":"a"`) {
 		t.Fatalf("jsonl: %q", lines)
 	}

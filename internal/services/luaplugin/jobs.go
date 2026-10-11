@@ -23,14 +23,14 @@ const (
 	maxJobIntervalSeconds = 86400
 )
 
-// parseJobSpecs validates the colocated jobs table of one registration:
+// parseJobSpecifications validates the colocated jobs table of one registration:
 // { name = { interval_seconds, run_on_startup?, timeout_ms?, run } }.
 // Bodies are not invoked; schedules persist in the plugin record.
-func parseJobSpecs(tbl *lua.LTable, typeKey string) (map[string]JobSpec, error) {
+func parseJobSpecifications(table *lua.LTable, typeKey string) (map[string]JobSpec, error) {
 	out := map[string]JobSpec{}
 	var names []string
 	var firstErr error
-	tbl.ForEach(func(k, v lua.LValue) {
+	table.ForEach(func(k, v lua.LValue) {
 		ks, ok := k.(lua.LString)
 		if !ok {
 			firstErr = fmt.Errorf("plugin type %q: job name must be a string", typeKey)
@@ -46,14 +46,14 @@ func parseJobSpecs(tbl *lua.LTable, typeKey string) (map[string]JobSpec, error) 
 		return nil, fmt.Errorf("plugin type %q: at most %d jobs", typeKey, maxJobsPerType)
 	}
 	for _, name := range names {
-		specTbl, ok := tbl.RawGetString(name).(*lua.LTable)
+		specificationTable, ok := table.RawGetString(name).(*lua.LTable)
 		if !ok {
 			return nil, fmt.Errorf("plugin type %q: job %q must be a table", typeKey, name)
 		}
 		if !jobNamePattern.MatchString(name) {
 			return nil, fmt.Errorf("plugin type %q: invalid job name %q", typeKey, name)
 		}
-		iv, ok := specTbl.RawGetString("interval_seconds").(lua.LNumber)
+		iv, ok := specificationTable.RawGetString("interval_seconds").(lua.LNumber)
 		if !ok {
 			return nil, fmt.Errorf("plugin type %q: job %q interval_seconds must be a number", typeKey, name)
 		}
@@ -63,7 +63,7 @@ func parseJobSpecs(tbl *lua.LTable, typeKey string) (map[string]JobSpec, error) 
 				typeKey, name, interval, minJobIntervalSeconds, maxJobIntervalSeconds)
 		}
 		runOnStartup := false
-		if v := specTbl.RawGetString("run_on_startup"); v != lua.LNil {
+		if v := specificationTable.RawGetString("run_on_startup"); v != lua.LNil {
 			b, ok := v.(lua.LBool)
 			if !ok {
 				return nil, fmt.Errorf("plugin type %q: job %q run_on_startup must be a boolean", typeKey, name)
@@ -71,7 +71,7 @@ func parseJobSpecs(tbl *lua.LTable, typeKey string) (map[string]JobSpec, error) 
 			runOnStartup = bool(b)
 		}
 		timeoutMs := defaultHTTPTimeoutMs
-		if v := specTbl.RawGetString("timeout_ms"); v != lua.LNil {
+		if v := specificationTable.RawGetString("timeout_ms"); v != lua.LNil {
 			n, ok := v.(lua.LNumber)
 			if !ok {
 				return nil, fmt.Errorf("plugin type %q: job %q timeout_ms must be a number", typeKey, name)
@@ -84,7 +84,7 @@ func parseJobSpecs(tbl *lua.LTable, typeKey string) (map[string]JobSpec, error) 
 		if timeoutMs > maxHTTPTimeoutMs {
 			timeoutMs = maxHTTPTimeoutMs
 		}
-		if fn := specTbl.RawGetString("run"); fn == lua.LNil {
+		if fn := specificationTable.RawGetString("run"); fn == lua.LNil {
 			return nil, fmt.Errorf("plugin type %q: job %q run is required", typeKey, name)
 		} else if _, ok := fn.(*lua.LFunction); !ok {
 			return nil, fmt.Errorf("plugin type %q: job %q run must be a function", typeKey, name)
@@ -94,33 +94,33 @@ func parseJobSpecs(tbl *lua.LTable, typeKey string) (map[string]JobSpec, error) 
 	return out, nil
 }
 
-// RunJob invokes the colocated run function of one job spec. Reason is one
+// RunJob invokes the colocated run function of one job specification. Reason is one
 // of "tick", "startup" or "manual". The job owns its iteration: list
 // credentials, refresh what is stale, persist through credentials.update.
 func (s *Service) RunJob(goCtx context.Context, typeKey, name, reason, providerID string, providerConfig map[string]any) error {
-	rec, err := s.Lookup(typeKey)
+	record, err := s.Lookup(typeKey)
 	if err != nil {
 		return err
 	}
-	spec, ok := rec.Jobs[typeKey][name]
+	jobSpecification, ok := record.Jobs[typeKey][name]
 	if !ok {
-		return &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "job:" + name}
+		return &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: "job:" + name}
 	}
-	timeoutMs := spec.TimeoutMs
+	timeoutMs := jobSpecification.TimeoutMs
 	if timeoutMs <= 0 {
 		timeoutMs = defaultHTTPTimeoutMs
 	}
 	ctx, cancel := context.WithTimeout(goCtx, time.Duration(timeoutMs)*time.Millisecond)
 	defer cancel()
-	applyErr := error(nil)
-	found, _, err := s.handlerCallEx(ctx, rec, HandlerMeta{TypeKey: typeKey, ProviderID: providerID, ProviderConfig: providerConfig}, "job:"+name, func(L *lua.LState) {
-		tbl := L.NewTable()
-		tbl.RawSetString("job_name", lua.LString(name))
-		tbl.RawSetString("run_reason", lua.LString(reason))
+	applyError := error(nil)
+	found, _, err := s.handlerCallEx(ctx, record, HandlerMeta{TypeKey: typeKey, ProviderID: providerID, ProviderConfig: providerConfig}, "job:"+name, func(L *lua.LState) {
+		table := L.NewTable()
+		table.RawSetString("job_name", lua.LString(name))
+		table.RawSetString("run_reason", lua.LString(reason))
 		if len(providerConfig) > 0 {
-			tbl.RawSetString("provider_config", toLuaValue(L, providerConfig))
+			table.RawSetString("provider_config", toLuaValue(L, providerConfig))
 		}
-		L.Push(tbl)
+		L.Push(table)
 	}, 1, func(L *lua.LState) error {
 		v := L.Get(-1)
 		if v == lua.LNil {
@@ -130,17 +130,17 @@ func (s *Service) RunJob(goCtx context.Context, typeKey, name, reason, providerI
 			return nil
 		}
 		if perr, ok := asTerminalError(v); ok {
-			applyErr = perr
+			applyError = perr
 			return nil
 		}
-		applyErr = &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "job " + name + " must return true or an error table"}
-		return applyErr
-	}, &callConfig{providerID: providerID, providerConfig: providerConfig, allowCredentialWrite: true, timeoutMs: timeoutMs, jobName: name})
+		applyError = &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "job " + name + " must return true or an error table"}
+		return applyError
+	}, &callConfiguration{providerID: providerID, providerConfig: providerConfig, allowCredentialWrite: true, timeoutMs: timeoutMs, jobName: name})
 	if err != nil {
 		return err
 	}
 	if !found {
-		return &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: "job:" + name}
+		return &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: "job:" + name}
 	}
-	return applyErr
+	return applyError
 }

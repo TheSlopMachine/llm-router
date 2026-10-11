@@ -10,8 +10,8 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
-func wireParks(svc *Service, store *lifecycleStore) {
-	svc.SetCredentialParks(store.park, store.unpark, store.parked)
+func wireParks(service *Service, store *lifecycleStore) {
+	service.SetCredentialParks(store.park, store.unpark, store.parked)
 }
 
 const lifecyclePluginSource = `--- @plugin Lifecycle Plugin
@@ -84,13 +84,13 @@ func (s *lifecycleStore) expired(id string) bool {
 }
 
 func (s *lifecycleStore) list(providerID string) ([]*models.Credential, error) {
-	var out []*models.Credential
+	var output []*models.Credential
 	for _, c := range s.creds {
 		if c.ProviderID == providerID && !c.Disabled {
-			out = append(out, c)
+			output = append(output, c)
 		}
 	}
-	return out, nil
+	return output, nil
 }
 
 func (s *lifecycleStore) park(id string, ttl time.Duration, reason string) error {
@@ -141,9 +141,9 @@ func (s *lifecycleStore) enable(id string) error {
 	return nil
 }
 
-func lifecycleCall(t *testing.T, svc *Service, model string) *models.ProviderError {
+func lifecycleCall(t *testing.T, service *Service, model string) *models.ProviderError {
 	t.Helper()
-	_, err := svc.Complete(context.Background(), testMeta("life-type", nil, models.ModelId("life-type/"+model), nil),
+	_, err := service.Complete(context.Background(), testMetadata("life-type", nil, models.ModelId("life-type/"+model), nil),
 		&models.ChatCompletionRequest{Model: models.ModelId("life-type/" + model)})
 	perr, ok := err.(*models.ProviderError)
 	if !ok {
@@ -153,20 +153,20 @@ func lifecycleCall(t *testing.T, svc *Service, model string) *models.ProviderErr
 }
 
 func TestCredentialsDisableEnableSharedState(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(lifecyclePluginSource), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(lifecyclePluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	store := newLifecycleStore()
 	automate := true
-	svc.SetCredentialAccess(
+	service.SetCredentialAccess(
 		store.list,
 		func(id string) (*models.Credential, error) { return store.creds[id], nil },
 		func(id string, data map[string]any) error { return nil },
 	)
-	svc.SetCredentialLifecycle(store.disable, store.enable, func(providerID string) bool { return automate })
+	service.SetCredentialLifecycle(store.disable, store.enable, func(providerID string) bool { return automate })
 
-	if got := lifecycleCall(t, svc, "disable"); got.Message != "disabled" {
+	if got := lifecycleCall(t, service, "disable"); got.Message != "disabled" {
 		t.Fatalf("disable: %+v", got)
 	}
 	c1 := store.creds["c1"]
@@ -174,10 +174,10 @@ func TestCredentialsDisableEnableSharedState(t *testing.T) {
 		t.Fatalf("shared state: %+v", c1)
 	}
 	// Disabled rows leave list results at once.
-	if got := lifecycleCall(t, svc, "list"); got.Message != "list:c2" {
+	if got := lifecycleCall(t, service, "list"); got.Message != "list:c2" {
 		t.Fatalf("list after disable: %+v", got)
 	}
-	if got := lifecycleCall(t, svc, "enable"); got.Message != "enabled" {
+	if got := lifecycleCall(t, service, "enable"); got.Message != "enabled" {
 		t.Fatalf("enable: %+v", got)
 	}
 	if c1.Disabled || c1.DisabledBy != "" {
@@ -186,19 +186,19 @@ func TestCredentialsDisableEnableSharedState(t *testing.T) {
 }
 
 func TestCredentialsLifecycleGatedOff(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(lifecyclePluginSource), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(lifecyclePluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	store := newLifecycleStore()
-	svc.SetCredentialAccess(
+	service.SetCredentialAccess(
 		store.list,
 		func(id string) (*models.Credential, error) { return store.creds[id], nil },
 		func(id string, data map[string]any) error { return nil },
 	)
-	svc.SetCredentialLifecycle(store.disable, store.enable, func(providerID string) bool { return false })
+	service.SetCredentialLifecycle(store.disable, store.enable, func(providerID string) bool { return false })
 
-	_, err := svc.Complete(context.Background(), testMeta("life-type", nil, "life-type/disable", nil),
+	_, err := service.Complete(context.Background(), testMetadata("life-type", nil, "life-type/disable", nil),
 		&models.ChatCompletionRequest{Model: "life-type/disable"})
 	var ierr *models.PluginInternalError
 	if !errors.As(err, &ierr) || !strings.Contains(ierr.Cause, "automation disabled") {
@@ -210,32 +210,32 @@ func TestCredentialsLifecycleGatedOff(t *testing.T) {
 }
 
 func TestCredentialsParkRoundTrip(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(lifecyclePluginSource), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(lifecyclePluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	store := newLifecycleStore()
-	svc.SetCredentialAccess(
+	service.SetCredentialAccess(
 		store.list,
 		func(id string) (*models.Credential, error) { return store.creds[id], nil },
 		func(id string, data map[string]any) error { return nil },
 	)
-	wireParks(svc, store)
+	wireParks(service, store)
 
-	if got := lifecycleCall(t, svc, "park"); got.Message != "parked" {
+	if got := lifecycleCall(t, service, "park"); got.Message != "parked" {
 		t.Fatalf("park: %+v", got)
 	}
-	if got := lifecycleCall(t, svc, "parked"); got.Message != "parked=quota" {
+	if got := lifecycleCall(t, service, "parked"); got.Message != "parked=quota" {
 		t.Fatalf("parked introspection: %+v", got)
 	}
 	// Parked rows leave list results at once.
-	if got := lifecycleCall(t, svc, "list"); got.Message != "list:c2" {
+	if got := lifecycleCall(t, service, "list"); got.Message != "list:c2" {
 		t.Fatalf("list after park: %+v", got)
 	}
-	if got := lifecycleCall(t, svc, "unpark"); got.Message != "unparked" {
+	if got := lifecycleCall(t, service, "unpark"); got.Message != "unparked" {
 		t.Fatalf("unpark: %+v", got)
 	}
-	if got := lifecycleCall(t, svc, "parked"); got.Message != "parked=nil" {
+	if got := lifecycleCall(t, service, "parked"); got.Message != "parked=nil" {
 		t.Fatalf("parked after unpark: %+v", got)
 	}
 }

@@ -10,12 +10,12 @@ import (
 
 // recordRouteMetric builds and records the shared MetricEvent for one routed
 // non-streaming request. Chat usage attaches only when provided.
-func (h *Handler) recordRouteMetric(ctx context.Context, start time.Time, model models.ModelId, t *models.RouterToken, duration time.Duration, err error, usage *models.ChatCompletionUsage) {
+func (h *Handler) recordRouteMetric(ctx context.Context, start time.Time, model models.ModelId, token *models.RouterToken, duration time.Duration, err error, usage *models.ChatCompletionUsage) {
 	providerType, _, _ := model.Parse()
 	providerID, _ := h.router.GetProviderIDForModel(ctx, model)
 	tokenID := ""
-	if t != nil {
-		tokenID = t.ID
+	if token != nil {
+		tokenID = token.ID
 	}
 	event := models.MetricEvent{
 		Timestamp:    start,
@@ -31,9 +31,9 @@ func (h *Handler) recordRouteMetric(ctx context.Context, start time.Time, model 
 		event.TokensOutput = int64(usage.CompletionTokens)
 	}
 	if err != nil {
-		re := h.classifyError(err)
-		event.StatusCode = re.status
-		event.ErrorType = re.code
+		routerError := h.classifyError(err)
+		event.StatusCode = routerError.status
+		event.ErrorType = routerError.code
 	}
 	h.metrics.RecordRequest(event)
 }

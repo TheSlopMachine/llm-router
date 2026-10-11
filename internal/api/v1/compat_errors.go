@@ -16,15 +16,15 @@ import (
 
 // writeCompatError writes one error in the negotiated envelope. Param names
 // the offending field on OpenAI shape only; Anthropic has no param member.
-func (h *Handler) writeCompatError(w http.ResponseWriter, r *http.Request, status int, code, msg string, param *string) {
+func (h *Handler) writeCompatError(w http.ResponseWriter, r *http.Request, status int, code, message string, parameter *string) {
 	echoAnthropicVersion(w, r)
 	if !isAnthropicStyle(r) {
-		h.writeError(w, status, code, msg, param)
+		h.writeError(w, status, code, message, parameter)
 		return
 	}
 	h.writeJSON(w, apierrors.AnthropicStatus(code, status), map[string]any{
 		"type":  "error",
-		"error": map[string]any{"type": apierrors.AnthropicErrorType(code), "message": msg},
+		"error": map[string]any{"type": apierrors.AnthropicErrorType(code), "message": message},
 	})
 }
 
@@ -32,9 +32,9 @@ func (h *Handler) writeCompatError(w http.ResponseWriter, r *http.Request, statu
 // envelope. The plugin already produced the terminal OpenAI-shaped error,
 // so the layer only translates the envelope, never reclassifies.
 func (h *Handler) handleCompatRouterError(w http.ResponseWriter, r *http.Request, err error) {
-	re := h.classifyError(err)
+	routerError := h.classifyError(err)
 	apierrors.WriteResponseHeaders(w, pluginResponseHeaders(err))
-	h.writeCompatError(w, r, re.status, re.code, wireMessage(err), nil)
+	h.writeCompatError(w, r, routerError.status, routerError.code, wireMessage(err), nil)
 }
 
 // writeCompatDecodeError maps body decode failures in the negotiated
@@ -70,7 +70,7 @@ func validateEnumFormat(field, value string, allowed []string) error {
 // echoAnthropicVersion reflects the negotiated version header. The value is
 // never pinned: any non-empty version is accepted.
 func echoAnthropicVersion(w http.ResponseWriter, r *http.Request) {
-	if v := r.Header.Get("anthropic-version"); v != "" {
-		w.Header().Set("anthropic-version", v)
+	if value := r.Header.Get("anthropic-version"); value != "" {
+		w.Header().Set("anthropic-version", value)
 	}
 }

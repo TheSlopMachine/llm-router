@@ -68,15 +68,15 @@
   // Responsive merge stages: when narrow, context folds into modalities
   // first, then everything folds into one column. Measured on a local
   // wrapper — Table only sees the resulting column set.
-  let wrapEl = $state<HTMLElement | null>(null)
+  let wrapperElement = $state<HTMLElement | null>(null)
   let tableWidth = $state<number | null>(null)
   $effect(() => {
-    const el = wrapEl
-    if (!el || typeof ResizeObserver === 'undefined') return
+    const element = wrapperElement
+    if (!element || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver((entries) => {
       tableWidth = entries[0]?.contentRect.width ?? null
     })
-    ro.observe(el)
+    ro.observe(element)
     return () => ro.disconnect()
   })
   const mode = $derived.by((): 'full' | 'merged' | 'compact' => {
@@ -208,12 +208,12 @@
 {#snippet capsBlock({ model }: { model: ModelsTableModel }, size: 'small' | 'large' = 'large')}
   <div class="cap-grid">
     {#each model.capabilities ?? [] as cap}
-      {@const meta = CAPABILITY_META[cap]}
+      {@const capability = CAPABILITY_META[cap]}
       <Chip
-        icon={meta?.icon ?? 'help_outline'}
+        icon={capability?.icon ?? 'help_outline'}
         text=""
-        color={meta?.color ?? 'chip-neutral'}
-        title={meta ? t(meta.hint) : cap}
+        color={capability?.color ?? 'chip-neutral'}
+        title={capability ? t(capability.hint) : cap}
         size={size}
       />
     {/each}
@@ -226,7 +226,7 @@
   </div>
 {/snippet}
 
-<div class="mt-wrap" bind:this={wrapEl}>
+<div class="mt-wrap" bind:this={wrapperElement}>
   <Table
     {columns}
     rows={sortedModels}

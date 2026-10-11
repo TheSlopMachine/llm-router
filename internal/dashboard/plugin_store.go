@@ -10,7 +10,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/pluginrepo"
 )
 
-type repoView struct {
+type repositoryView struct {
 	ID          string `json:"id"`
 	URL         string `json:"url"`
 	Title       string `json:"title"`
@@ -18,8 +18,8 @@ type repoView struct {
 	Builtin     bool   `json:"builtin"`
 }
 
-func toRepoView(rec *pluginrepo.RepoRecord) repoView {
-	return repoView{ID: rec.ID, URL: rec.SourceURL, Title: rec.Title, Description: rec.Description, Builtin: rec.Builtin}
+func toRepositoryView(record *pluginrepo.RepoRecord) repositoryView {
+	return repositoryView{ID: record.ID, URL: record.SourceURL, Title: record.Title, Description: record.Description, Builtin: record.Builtin}
 }
 
 // apiReposList lists added plugin repositories.
@@ -32,14 +32,14 @@ func toRepoView(rec *pluginrepo.RepoRecord) repoView {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugin-repos [get]
 func (h *Handler) apiReposList(w http.ResponseWriter, r *http.Request) {
-	records, err := h.repoSvc.List()
+	records, err := h.repositoryService.List()
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	out := make([]repoView, 0, len(records))
-	for _, rec := range records {
-		out = append(out, toRepoView(rec))
+	out := make([]repositoryView, 0, len(records))
+	for _, record := range records {
+		out = append(out, toRepositoryView(record))
 	}
 	h.json(w, http.StatusOK, out)
 }
@@ -65,12 +65,12 @@ func (h *Handler) apiReposAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	rec, err := h.repoSvc.AddRepo(ctx, body.URL)
+	record, err := h.repositoryService.AddRepo(ctx, body.URL)
 	if err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	h.json(w, http.StatusOK, toRepoView(rec))
+	h.json(w, http.StatusOK, toRepositoryView(record))
 }
 
 // apiReposDelete removes a repository.
@@ -86,7 +86,7 @@ func (h *Handler) apiReposAdd(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugin-repos/{id} [delete]
 func (h *Handler) apiReposDelete(w http.ResponseWriter, r *http.Request) {
-	if err := h.repoSvc.Remove(r.PathValue("id")); err != nil {
+	if err := h.repositoryService.Remove(r.PathValue("id")); err != nil {
 		if errors.Is(err, pluginrepo.ErrBuiltinRepoProtected) {
 			h.jsonErr(w, http.StatusForbidden, err.Error())
 			return
@@ -110,7 +110,7 @@ func (h *Handler) apiReposDelete(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/llm-router/dashboard/plugin-repos/{id}/files [get]
 func (h *Handler) apiReposFiles(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	files, err := h.repoSvc.ListPluginFiles(r.Context(), id)
+	files, err := h.repositoryService.ListPluginFiles(r.Context(), id)
 	if err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -128,47 +128,47 @@ func (h *Handler) apiReposFiles(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugin-store/search [get]
 func (h *Handler) apiStoreSearch(w http.ResponseWriter, r *http.Request) {
-	repos, err := h.repoSvc.List()
+	repositories, err := h.repositoryService.List()
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	type repoResult struct {
-		repo  repoView
+	type repositoryResult struct {
+		view  repositoryView
 		files []storeFileView
 		err   string
 	}
-	ch := make(chan repoResult, len(repos))
-	for _, rec := range repos {
-		go func(rec *pluginrepo.RepoRecord) {
-			doc, err := h.repoSvc.GetIndex(r.Context(), rec.ID)
-			view := toRepoView(rec)
+	channel := make(chan repositoryResult, len(repositories))
+	for _, record := range repositories {
+		go func(record *pluginrepo.RepoRecord) {
+			indexDocument, err := h.repositoryService.GetIndex(r.Context(), record.ID)
+			view := toRepositoryView(record)
 			if err != nil {
-				ch <- repoResult{repo: view, err: err.Error()}
+				channel <- repositoryResult{view: view, err: err.Error()}
 				return
 			}
-			if doc.Title != "" {
-				view.Title = doc.Title
+			if indexDocument.Title != "" {
+				view.Title = indexDocument.Title
 			}
-			if doc.Description != "" {
-				view.Description = doc.Description
+			if indexDocument.Description != "" {
+				view.Description = indexDocument.Description
 			}
-			ch <- repoResult{repo: view, files: h.describeFiles(r, rec.ID, doc.Files)}
-		}(rec)
+			channel <- repositoryResult{view: view, files: h.describeFiles(r, record.ID, indexDocument.Files)}
+		}(record)
 	}
-	out := make([]map[string]any, 0, len(repos))
-	for range repos {
-		res := <-ch
-		if res.files == nil {
-			res.files = []storeFileView{}
+	out := make([]map[string]any, 0, len(repositories))
+	for range repositories {
+		result := <-channel
+		if result.files == nil {
+			result.files = []storeFileView{}
 		}
 		out = append(out, map[string]any{
-			"repo": res.repo, "files": res.files, "error": res.err,
+			"repo": result.view, "files": result.files, "error": result.err,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
-		a, _ := out[i]["repo"].(repoView)
-		b, _ := out[j]["repo"].(repoView)
+		a, _ := out[i]["repo"].(repositoryView)
+		b, _ := out[j]["repo"].(repositoryView)
 		if a.Title != b.Title {
 			return a.Title < b.Title
 		}
@@ -196,20 +196,20 @@ func (h *Handler) describeFiles(r *http.Request, repoID string, files []pluginre
 	type fileResult struct {
 		view storeFileView
 	}
-	ch := make(chan fileResult, len(files))
-	for _, f := range files {
-		go func(f pluginrepo.RepoFile) {
-			view := storeFileView{RepoID: repoID, Path: f.Path}
-			source, err := h.repoSvc.FetchFile(r.Context(), repoID, f.Path)
+	channel := make(chan fileResult, len(files))
+	for _, file := range files {
+		go func(file pluginrepo.RepoFile) {
+			view := storeFileView{RepoID: repoID, Path: file.Path}
+			source, err := h.repositoryService.FetchFile(r.Context(), repoID, file.Path)
 			if err != nil {
 				view.Error = err.Error()
-				ch <- fileResult{view: view}
+				channel <- fileResult{view: view}
 				return
 			}
 			manifest, err := luaplugin.ParseManifest(source)
 			if err != nil {
 				view.Error = "manifest: " + err.Error()
-				ch <- fileResult{view: view}
+				channel <- fileResult{view: view}
 				return
 			}
 			view.DisplayName = manifest.Plugin
@@ -218,21 +218,21 @@ func (h *Handler) describeFiles(r *http.Request, repoID string, files []pluginre
 			view.Description = manifest.Description
 			view.AllowHosts = append([]string{}, manifest.AllowHosts...)
 			view.Unsafe = manifest.Unsafe
-			if id, err := luaplugin.BuildID(luaplugin.PluginOrigin{RepoID: repoID, Path: f.Path}, manifest); err == nil {
-				if existing, err := h.luaSvc.Get(id); err == nil && existing != nil {
+			if id, err := luaplugin.BuildID(luaplugin.PluginOrigin{RepoID: repoID, Path: file.Path}, manifest); err == nil {
+				if existing, err := h.luaService.Get(id); err == nil && existing != nil {
 					view.Installed = true
 					view.InstalledVersion = existing.Version
-					if cmp, cerr := luaplugin.CompareVersions(manifest.Version, existing.Version); cerr == nil && cmp > 0 {
+					if comparison, comparisonError := luaplugin.CompareVersions(manifest.Version, existing.Version); comparisonError == nil && comparison > 0 {
 						view.UpdateAvailable = true
 					}
 				}
 			}
-			ch <- fileResult{view: view}
-		}(f)
+			channel <- fileResult{view: view}
+		}(file)
 	}
 	out := make([]storeFileView, 0, len(files))
 	for range files {
-		out = append(out, (<-ch).view)
+		out = append(out, (<-channel).view)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
@@ -263,17 +263,17 @@ func (h *Handler) apiPluginsInstallFromRepo(w http.ResponseWriter, r *http.Reque
 		h.jsonErr(w, http.StatusBadRequest, "repo_id and path are required")
 		return
 	}
-	source, err := h.repoSvc.FetchFile(r.Context(), body.RepoID, body.Path)
+	source, err := h.repositoryService.FetchFile(r.Context(), body.RepoID, body.Path)
 	if err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	rec, err := h.luaSvc.Install(source, luaplugin.PluginOrigin{RepoID: body.RepoID, Path: body.Path})
+	record, err := h.luaService.Install(source, luaplugin.PluginOrigin{RepoID: body.RepoID, Path: body.Path})
 	if err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	h.json(w, http.StatusOK, toPluginView(rec))
+	h.json(w, http.StatusOK, toPluginView(record))
 }
 
 // apiStoreUpdates lists installed repo-backed plugins with newer upstream versions.
@@ -286,7 +286,7 @@ func (h *Handler) apiPluginsInstallFromRepo(w http.ResponseWriter, r *http.Reque
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugin-store/updates [get]
 func (h *Handler) apiStoreUpdates(w http.ResponseWriter, r *http.Request) {
-	installed, err := h.luaSvc.List()
+	installed, err := h.luaService.List()
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -302,39 +302,39 @@ func (h *Handler) apiStoreUpdates(w http.ResponseWriter, r *http.Request) {
 		UpdateAvailable bool     `json:"update_available"`
 		Error           string   `json:"error,omitempty"`
 	}
-	ch := make(chan updateView, len(installed))
+	channel := make(chan updateView, len(installed))
 	count := 0
-	for _, rec := range installed {
-		if rec.Origin.Manual || rec.Origin.RepoID == "" {
+	for _, record := range installed {
+		if record.Origin.Manual || record.Origin.RepoID == "" {
 			continue
 		}
 		count++
-		go func(rec *luaplugin.PluginRecord) {
-			view := updateView{PluginID: rec.ID, Current: rec.Version, RepoID: rec.Origin.RepoID, Path: rec.Origin.Path, NewAllowHosts: []string{}}
-			source, err := h.repoSvc.FetchFile(r.Context(), rec.Origin.RepoID, rec.Origin.Path)
+		go func(record *luaplugin.PluginRecord) {
+			view := updateView{PluginID: record.ID, Current: record.Version, RepoID: record.Origin.RepoID, Path: record.Origin.Path, NewAllowHosts: []string{}}
+			source, err := h.repositoryService.FetchFile(r.Context(), record.Origin.RepoID, record.Origin.Path)
 			if err != nil {
 				view.Error = err.Error()
-				ch <- view
+				channel <- view
 				return
 			}
 			manifest, err := luaplugin.ParseManifest(source)
 			if err != nil {
 				view.Error = err.Error()
-				ch <- view
+				channel <- view
 				return
 			}
 			view.Latest = manifest.Version
 			view.NewAllowHosts = append([]string{}, manifest.AllowHosts...)
 			view.NewUnsafe = manifest.Unsafe
-			if cmp, cerr := luaplugin.CompareVersions(manifest.Version, rec.Version); cerr == nil && cmp > 0 {
+			if comparison, comparisonError := luaplugin.CompareVersions(manifest.Version, record.Version); comparisonError == nil && comparison > 0 {
 				view.UpdateAvailable = true
 			}
-			ch <- view
-		}(rec)
+			channel <- view
+		}(record)
 	}
 	out := make([]updateView, 0, count)
 	for i := 0; i < count; i++ {
-		out = append(out, <-ch)
+		out = append(out, <-channel)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].PluginID < out[j].PluginID })
 	h.json(w, http.StatusOK, map[string]any{"updates": out})

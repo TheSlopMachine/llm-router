@@ -41,10 +41,10 @@ let microtaskQueued = false
 function getSheet(): CSSStyleSheet | null {
   if (sheet) return sheet
   if (typeof document === 'undefined') return null
-  const el = document.createElement('style')
-  el.setAttribute('data-fui', 'squircle-baked')
-  document.head.appendChild(el)
-  sheet = el.sheet
+  const styleElement = document.createElement('style')
+  styleElement.setAttribute('data-fui', 'squircle-baked')
+  document.head.appendChild(styleElement)
+  sheet = styleElement.sheet
   return sheet
 }
 
@@ -168,7 +168,7 @@ function wire(): void {
   onSquircleChange(rebakeSquircles)
 }
 
-export function squircleAuto(node: HTMLElement, opts: SquircleAutoOpts = {}) {
+export function squircleAuto(node: HTMLElement, options: SquircleAutoOpts = {}) {
   let mode: 'dyn' | 'baked' | 'off' | null = null
   let dyn: { update(r: number | string): void; destroy(): void } | null = null
 
@@ -184,28 +184,28 @@ export function squircleAuto(node: HTMLElement, opts: SquircleAutoOpts = {}) {
     mode = null
   }
 
-  function apply(o: SquircleAutoOpts): void {
-    const want: 'dyn' | 'baked' | 'off' = o.off ? 'off' : o.bake && !supportsNative ? 'baked' : 'dyn'
+  function apply(autoOptions: SquircleAutoOpts): void {
+    const want: 'dyn' | 'baked' | 'off' = autoOptions.off ? 'off' : autoOptions.bake && !supportsNative ? 'baked' : 'dyn'
     if (want === mode) {
-      if (want === 'dyn') dyn?.update(o.radius ?? 10)
+      if (want === 'dyn') dyn?.update(autoOptions.radius ?? 10)
       return
     }
     teardown()
     mode = want
     if (want === 'dyn') {
-      dyn = squircle(node, o.radius ?? 10)
+      dyn = squircle(node, autoOptions.radius ?? 10)
     } else if (want === 'baked') {
       wire()
-      live.set(node, { fonts: o.fonts ?? false, r: 0, key: '' })
+      live.set(node, { fonts: autoOptions.fonts ?? false, r: 0, key: '' })
       ensureObserver().observe(node)
       queueMeasure(node)
     }
   }
 
-  apply(opts)
+  apply(options)
   return {
-    update(o: SquircleAutoOpts) {
-      apply(o)
+    update(autoOptions: SquircleAutoOpts) {
+      apply(autoOptions)
     },
     destroy() {
       teardown()

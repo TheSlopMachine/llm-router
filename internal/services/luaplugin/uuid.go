@@ -12,11 +12,11 @@ import (
 // and name, formatted as xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.
 // The namespace must itself be a UUID string.
 func uuidV5(namespace, name string) (string, error) {
-	ns, err := parseUUID(namespace)
+	namespaceBytes, err := parseUUID(namespace)
 	if err != nil {
 		return "", fmt.Errorf("invalid namespace UUID %q: %w", namespace, err)
 	}
-	sum := sha1.Sum(append(ns[:], name...))
+	sum := sha1.Sum(append(namespaceBytes[:], name...))
 	sum[6] = (sum[6] & 0x0f) | 0x50
 	sum[8] = (sum[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
@@ -28,9 +28,9 @@ func uuidV5(namespace, name string) (string, error) {
 	), nil
 }
 
-func parseUUID(s string) ([16]byte, error) {
+func parseUUID(text string) ([16]byte, error) {
 	var out [16]byte
-	clean := strings.ReplaceAll(s, "-", "")
+	clean := strings.ReplaceAll(text, "-", "")
 	if len(clean) != 32 {
 		return out, fmt.Errorf("expected 32 hex digits")
 	}

@@ -43,15 +43,15 @@ type APIError struct {
 	Code   string
 }
 
-// wireCodeMeta consolidates the three code tables below: Anthropic error
+// wireCodeMetadata consolidates the three code tables below: Anthropic error
 // type, OpenAI error type, and Anthropic status override (0 keeps status).
-type wireCodeMeta struct {
+type wireCodeMetadata struct {
 	anthropicType string
 	openAIType    string
 	anthropicHTTP int
 }
 
-var wireMeta = map[string]wireCodeMeta{
+var wireMetadata = map[string]wireCodeMetadata{
 	CodeInvalidRequest:     {anthropicType: CodeInvalidRequest, openAIType: CodeInvalidRequest},
 	CodeNotFound:           {anthropicType: CodeInvalidRequest, openAIType: CodeInvalidRequest},
 	CodeModelNotAllowed:    {anthropicType: CodeInvalidRequest, openAIType: CodeInvalidRequest},
@@ -80,13 +80,13 @@ var wireMeta = map[string]wireCodeMeta{
 // produced the terminal OpenAI-shaped error, so the router renders it
 // verbatim after sanitizing the status into range.
 func ToAPIError(err error) APIError {
-	var provErr *models.ProviderError
-	if errors.As(err, &provErr) {
-		status := provErr.StatusCode
+	var providerError *models.ProviderError
+	if errors.As(err, &providerError) {
+		status := providerError.StatusCode
 		if status < 400 || status > 599 {
 			status = http.StatusBadGateway
 		}
-		code := provErr.Code
+		code := providerError.Code
 		if code == "" {
 			code = CodeServerError
 		}
@@ -124,7 +124,7 @@ func ToAPIError(err error) APIError {
 // source of truth for the negotiated {type:error,error:{type,message}}
 // envelope served on Anthropic-style requests.
 func AnthropicErrorType(code string) string {
-	if m, ok := wireMeta[code]; ok {
+	if m, ok := wireMetadata[code]; ok {
 		return m.anthropicType
 	}
 	return "api_error"
@@ -134,7 +134,7 @@ func AnthropicErrorType(code string) string {
 // limits surface as 429 and congestion as 529; everything else keeps the
 // shared status.
 func AnthropicStatus(code string, status int) int {
-	if m, ok := wireMeta[code]; ok && m.anthropicHTTP != 0 {
+	if m, ok := wireMetadata[code]; ok && m.anthropicHTTP != 0 {
 		return m.anthropicHTTP
 	}
 	return status
@@ -142,7 +142,7 @@ func AnthropicStatus(code string, status int) int {
 
 // ErrorTypeForCode maps a wire code to its OpenAI error type.
 func ErrorTypeForCode(code string) string {
-	if m, ok := wireMeta[code]; ok {
+	if m, ok := wireMetadata[code]; ok {
 		return m.openAIType
 	}
 	return CodeInvalidRequest

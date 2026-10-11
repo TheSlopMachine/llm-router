@@ -75,8 +75,8 @@ export const api = {
   providers: {
     list: async (): Promise<Provider[]> => {
       const raw = (await apiCall('get', '/api/llm-router/dashboard/providers')) as unknown
-      const arr = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []
-      return arr.map(toProvider)
+      const records = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []
+      return records.map(toProvider)
     },
 
     create: (payload: { name: string; base_url: string; icon_url?: string }) =>
@@ -95,8 +95,8 @@ export const api = {
       apiCall('delete', `/api/llm-router/dashboard/providers/${id}` as '/api/llm-router/dashboard/providers/{id}'),
 
     virtualModels: async (id: string): Promise<ProviderVMGroup[]> => {
-      const res = await fetch(`/api/llm-router/dashboard/providers/${id}/virtual-models`)
-      const raw = (await assertOk(res)) as unknown
+      const response = await fetch(`/api/llm-router/dashboard/providers/${id}/virtual-models`)
+      const raw = (await assertOk(response)) as unknown
       return Array.isArray(raw) ? (raw as ProviderVMGroup[]) : []
     },
 
@@ -197,8 +197,8 @@ export const api = {
   tokens: {
     list: async (): Promise<Token[]> => {
       const raw = (await apiCall('get', '/api/llm-router/dashboard/tokens')) as unknown
-      const arr = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []
-      return arr.map(toToken)
+      const records = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []
+      return records.map(toToken)
     },
 
     create: (payload: { name: string; rules: { allowed_providers: string[] | null; allow_all_providers: boolean; allowed_models: string[] | null; allow_all_models: boolean; allowed_credentials: string[] | null; allow_all_credentials: boolean } }) =>
@@ -257,10 +257,10 @@ export const api = {
 
     // Merged view for one provider: upstream models + admin overrides.
     forProvider: async (providerId: string): Promise<ProviderModel[]> => {
-      const res = await fetch(`/api/llm-router/dashboard/providers/${providerId}/models`)
-      const raw = (await assertOk(res)) as unknown
-      const arr = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []
-      return arr.map((r) => ({
+      const response = await fetch(`/api/llm-router/dashboard/providers/${providerId}/models`)
+      const raw = (await assertOk(response)) as unknown
+      const records = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []
+      return records.map((r) => ({
         name: (r.name as string) ?? '',
         display_name: (r.display_name as string) ?? '',
         rpm: (r.rpm as number) ?? 0,
@@ -297,8 +297,8 @@ export const api = {
 
     available: async (): Promise<AvailableModel[]> => {
       const raw = (await apiCall('get', '/api/llm-router/dashboard/models/available')) as unknown
-      const arr = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []
-      return arr.map((r) => ({
+      const records = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []
+      return records.map((r) => ({
         full_model_id: (r.full_model_id as string) ?? '',
         provider_id: (r.provider_id as string) ?? '',
         provider_name: (r.provider_name as string) ?? '',
@@ -320,27 +320,27 @@ export const api = {
   // Proxies
   proxies: {
     list: async (): Promise<Proxy[]> => {
-      const res = await fetch('/api/llm-router/dashboard/proxies')
-      const raw = (await assertOk(res)) as unknown
+      const response = await fetch('/api/llm-router/dashboard/proxies')
+      const raw = (await assertOk(response)) as unknown
       return Array.isArray(raw) ? (raw as Proxy[]) : []
     },
     sources: async (): Promise<ProxySourceInfo[]> => {
-      const res = await fetch('/api/llm-router/dashboard/proxy-sources')
-      const raw = (await assertOk(res)) as unknown
+      const response = await fetch('/api/llm-router/dashboard/proxy-sources')
+      const raw = (await assertOk(response)) as unknown
       return Array.isArray(raw) ? (raw as ProxySourceInfo[]) : []
     },
     refresh: (): Promise<{ started: boolean; reason?: string }> =>
       postJson('/api/llm-router/dashboard/proxies/refresh', {}),
     status: async (): Promise<ProxyStatus> => {
-      const res = await fetch('/api/llm-router/dashboard/proxy/status')
-      return (await assertOk(res)) as ProxyStatus
+      const response = await fetch('/api/llm-router/dashboard/proxy/status')
+      return (await assertOk(response)) as ProxyStatus
     },
     recheckBanned: (payload: { reason?: string; source?: string }): Promise<{ queued: number }> =>
       postJson('/api/llm-router/dashboard/proxy/recheck-banned', payload),
     pools: {
       list: async (): Promise<ProxyPool[]> => {
-        const res = await fetch('/api/llm-router/dashboard/proxy-pools')
-        const raw = (await assertOk(res)) as unknown
+        const response = await fetch('/api/llm-router/dashboard/proxy-pools')
+        const raw = (await assertOk(response)) as unknown
         return Array.isArray(raw) ? (raw as ProxyPool[]) : []
       },
       save: (pool: { id?: string; name: string; entries: Array<{ url: string; country?: string }> }): Promise<ProxyPool> =>
@@ -383,8 +383,8 @@ export const api = {
 
     timeSeries: async (metric: string, filters: { provider_id?: string; model?: string; time_range?: TimeRange | string }): Promise<TimeSeriesPoint[]> => {
       const raw = (await apiCall('get', '/api/llm-router/dashboard/metrics/timeseries', { query: { metric, ...filters } as unknown as never })) as unknown
-      const arr = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []
-      return arr.map((r) => ({
+      const records = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []
+      return records.map((r) => ({
         timestamp: (r.timestamp as string) ?? '',
         value: (r.value as number) ?? 0,
       }))
@@ -454,42 +454,42 @@ export const api = {
   },
 }
 
-async function assertOk(res: Response): Promise<any> {
-  if (!res.ok) {
-    throw new Error(await errorText(res))
+async function assertOk(response: Response): Promise<any> {
+  if (!response.ok) {
+    throw new Error(await errorText(response))
   }
-  // 204/empty bodies are valid answers; res.json() on them throws.
-  const text = await res.text()
+  // 204/empty bodies are valid answers; response.json() on them throws.
+  const text = await response.text()
   return text ? JSON.parse(text) : undefined
 }
 
-async function assertOkVoid(res: Response): Promise<void> {
-  if (!res.ok) {
-    throw new Error(await errorText(res))
+async function assertOkVoid(response: Response): Promise<void> {
+  if (!response.ok) {
+    throw new Error(await errorText(response))
   }
 }
 
 async function postJson(path: string, payload: unknown, signal?: AbortSignal): Promise<any> {
-  const res = await fetch(path, {
+  const response = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
     signal: signal ?? null,
   })
-  return assertOk(res)
+  return assertOk(response)
 }
 
 async function putJson(path: string, payload: unknown): Promise<any> {
-  const res = await fetch(path, {
+  const response = await fetch(path, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
-  return assertOk(res)
+  return assertOk(response)
 }
 
-async function errorText(res: Response): Promise<string> {
-  const text = await res.text()
+async function errorText(response: Response): Promise<string> {
+  const text = await response.text()
   try {
     const json = JSON.parse(text) as unknown
     if (json && typeof json === 'object' && 'error' in (json as Record<string, unknown>)) {
@@ -497,5 +497,5 @@ async function errorText(res: Response): Promise<string> {
       if (typeof candidate === 'string' && candidate) return candidate
     }
   } catch {}
-  return `HTTP ${res.status}`
+  return `HTTP ${response.status}`
 }

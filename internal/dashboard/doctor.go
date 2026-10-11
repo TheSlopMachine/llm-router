@@ -15,7 +15,7 @@ import (
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/doctor/inspect [get]
 func (h *Handler) apiDoctorInspect(w http.ResponseWriter, r *http.Request) {
-	report, err := h.doctorSvc.Inspect()
+	report, err := h.doctorService.Inspect()
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -40,7 +40,7 @@ func (h *Handler) apiDoctorFix(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 	}
 
-	fixed, err := h.doctorSvc.Fix(body.Categories)
+	fixed, err := h.doctorService.Fix(body.Categories)
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return

@@ -25,7 +25,7 @@ type availableModelView struct {
 	SupportedParameters []string               `json:"supported_parameters,omitempty"`
 }
 
-// apiAvailableModels godoc
+// apiAvailableModels documentation
 // @Summary      List available models
 // @Description  Returns a flat list of currently available models from providers with usable credentials.
 // @Tags         Models
@@ -46,7 +46,7 @@ func (h *Handler) apiAvailableModels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) availableModels() ([]availableModelView, error) {
-	providers, err := h.providerSvc.List()
+	providers, err := h.providerService.List()
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func (h *Handler) availableModels() ([]availableModelView, error) {
 		}
 
 		// Cache peek only: browsing the models tab must not ping upstreams.
-		modelInfos, err := h.modelInfoSvc.PeekMergedView(providerRecord.ID)
+		modelInfos, err := h.modelInfoService.PeekMergedView(providerRecord.ID)
 		if err != nil {
 			continue
 		}

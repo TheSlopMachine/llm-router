@@ -15,9 +15,9 @@ func (s *Service) persistBucket(bucket *MetricBucket, granularity string) error 
 		return nil
 	}
 
-	return s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketMetrics)
-		if b == nil {
+	return s.database.Update(func(tx *bolt.Tx) error {
+		metricsBucket := tx.Bucket(db.BucketMetrics)
+		if metricsBucket == nil {
 			return fmt.Errorf("metrics bucket not found")
 		}
 
@@ -27,7 +27,7 @@ func (s *Service) persistBucket(bucket *MetricBucket, granularity string) error 
 			return fmt.Errorf("marshal bucket: %w", err)
 		}
 
-		return b.Put([]byte(key), data)
+		return metricsBucket.Put([]byte(key), data)
 	})
 }
 
@@ -35,14 +35,14 @@ func (s *Service) persistBucket(bucket *MetricBucket, granularity string) error 
 func (s *Service) loadBucket(timestamp time.Time, granularity string) (*MetricBucket, error) {
 	var bucket MetricBucket
 
-	err := s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketMetrics)
-		if b == nil {
+	err := s.database.View(func(tx *bolt.Tx) error {
+		metricsBucket := tx.Bucket(db.BucketMetrics)
+		if metricsBucket == nil {
 			return fmt.Errorf("metrics bucket not found")
 		}
 
 		key := bucketKey(timestamp, granularity)
-		data := b.Get([]byte(key))
+		data := metricsBucket.Get([]byte(key))
 		if data == nil {
 			return fmt.Errorf("bucket not found")
 		}
@@ -61,24 +61,24 @@ func (s *Service) loadBucket(timestamp time.Time, granularity string) (*MetricBu
 func (s *Service) loadBucketsInRange(start, end time.Time) ([]*MetricBucket, error) {
 	var buckets []*MetricBucket
 
-	err := s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketMetrics)
-		if b == nil {
+	err := s.database.View(func(tx *bolt.Tx) error {
+		metricsBucket := tx.Bucket(db.BucketMetrics)
+		if metricsBucket == nil {
 			return nil
 		}
 
-		c := b.Cursor()
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			ts, _, err := parseBucketKey(string(k))
+		cursor := metricsBucket.Cursor()
+		for key, value := cursor.First(); key != nil; key, value = cursor.Next() {
+			timestamp, _, err := parseBucketKey(string(key))
 			if err != nil {
 				continue
 			}
 
 			// Check if timestamp is within range
-			if (ts.Equal(start) || ts.After(start)) && (ts.Equal(end) || ts.Before(end)) {
+			if (timestamp.Equal(start) || timestamp.After(start)) && (timestamp.Equal(end) || timestamp.Before(end)) {
 				var bucket MetricBucket
-				if err := json.Unmarshal(v, &bucket); err != nil {
-					s.logger.Warn("failed to unmarshal bucket", "key", string(k), "err", err)
+				if err := json.Unmarshal(value, &bucket); err != nil {
+					s.logger.Warn("failed to unmarshal bucket", "key", string(key), "err", err)
 					continue
 				}
 				buckets = append(buckets, &bucket)
@@ -95,21 +95,21 @@ func (s *Service) deleteBucketsOlderThan(cutoff time.Time) error {
 	var toDelete []string
 
 	// First, collect keys to delete
-	err := s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketMetrics)
-		if b == nil {
+	err := s.database.View(func(tx *bolt.Tx) error {
+		metricsBucket := tx.Bucket(db.BucketMetrics)
+		if metricsBucket == nil {
 			return nil
 		}
 
-		c := b.Cursor()
-		for k, _ := c.First(); k != nil; k, _ = c.Next() {
-			ts, _, err := parseBucketKey(string(k))
+		cursor := metricsBucket.Cursor()
+		for key, _ := cursor.First(); key != nil; key, _ = cursor.Next() {
+			timestamp, _, err := parseBucketKey(string(key))
 			if err != nil {
 				continue
 			}
 
-			if ts.Before(cutoff) {
-				toDelete = append(toDelete, string(k))
+			if timestamp.Before(cutoff) {
+				toDelete = append(toDelete, string(key))
 			}
 		}
 		return nil
@@ -124,14 +124,14 @@ func (s *Service) deleteBucketsOlderThan(cutoff time.Time) error {
 	}
 
 	// Delete collected keys
-	err = s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketMetrics)
-		if b == nil {
+	err = s.database.Update(func(tx *bolt.Tx) error {
+		metricsBucket := tx.Bucket(db.BucketMetrics)
+		if metricsBucket == nil {
 			return nil
 		}
 
 		for _, key := range toDelete {
-			if err := b.Delete([]byte(key)); err != nil {
+			if err := metricsBucket.Delete([]byte(key)); err != nil {
 				return err
 			}
 		}
@@ -149,30 +149,30 @@ func (s *Service) deleteBucketsOlderThan(cutoff time.Time) error {
 func (s *Service) loadTokenUsageFromDB() (map[string]*TokenUsageInfo, error) {
 	usage := make(map[string]*TokenUsageInfo)
 
-	err := s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketMetrics)
-		if b == nil {
+	err := s.database.View(func(tx *bolt.Tx) error {
+		metricsBucket := tx.Bucket(db.BucketMetrics)
+		if metricsBucket == nil {
 			return nil
 		}
 
-		c := b.Cursor()
-		for k, v := c.First(); k != nil; k, v = c.Next() {
+		cursor := metricsBucket.Cursor()
+		for key, value := cursor.First(); key != nil; key, value = cursor.Next() {
 			var bucket MetricBucket
-			if err := json.Unmarshal(v, &bucket); err != nil {
-				s.logger.Warn("failed to unmarshal bucket", "key", string(k), "err", err)
+			if err := json.Unmarshal(value, &bucket); err != nil {
+				s.logger.Warn("failed to unmarshal bucket", "key", string(key), "err", err)
 				continue
 			}
 
-			for tokenID, tm := range bucket.ByTokenID {
+			for tokenID, tokenMetrics := range bucket.ByTokenID {
 				if usage[tokenID] == nil {
 					usage[tokenID] = &TokenUsageInfo{}
 				}
-				usage[tokenID].Requests += tm.Requests
+				usage[tokenID].Requests += tokenMetrics.Requests
 
 				// Keep most recent LastUsed
-				if tm.LastUsed != nil {
-					if usage[tokenID].LastUsed == nil || tm.LastUsed.After(*usage[tokenID].LastUsed) {
-						usage[tokenID].LastUsed = tm.LastUsed
+				if tokenMetrics.LastUsed != nil {
+					if usage[tokenID].LastUsed == nil || tokenMetrics.LastUsed.After(*usage[tokenID].LastUsed) {
+						usage[tokenID].LastUsed = tokenMetrics.LastUsed
 					}
 				}
 			}

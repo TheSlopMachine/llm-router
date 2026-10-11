@@ -37,36 +37,36 @@ llm_router.register("jobs-type", {
 })
 `
 
-func installJobsPlugin(t *testing.T, svc *Service) {
+func installJobsPlugin(t *testing.T, service *Service) {
 	t.Helper()
-	if _, err := svc.Install([]byte(jobsPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(jobsPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 }
 
-func TestJobSpecsStored(t *testing.T) {
-	svc := setupService(t)
-	installJobsPlugin(t, svc)
-	jobs := svc.Jobs("jobs-type")
-	spec, ok := jobs["refresh"]
+func TestJobSpecificationsStored(t *testing.T) {
+	service := setupService(t)
+	installJobsPlugin(t, service)
+	jobs := service.Jobs("jobs-type")
+	jobSpecification, ok := jobs["refresh"]
 	if !ok {
 		t.Fatalf("jobs: %v", jobs)
 	}
-	if spec.IntervalSeconds != 300 || !spec.RunOnStartup || spec.TimeoutMs != 5000 {
-		t.Fatalf("spec: %+v", spec)
+	if jobSpecification.IntervalSeconds != 300 || !jobSpecification.RunOnStartup || jobSpecification.TimeoutMs != 5000 {
+		t.Fatalf("job specification: %+v", jobSpecification)
 	}
-	if !svc.CredentialsEnabled("jobs-type") {
+	if !service.CredentialsEnabled("jobs-type") {
 		t.Fatal("credential_schema must enable credentials")
 	}
-	if !svc.ProxiesEnabled("jobs-type") {
+	if !service.ProxiesEnabled("jobs-type") {
 		t.Fatal("proxy_schema must enable proxies")
 	}
-	if svc.CredentialsEnabled("no-such-type") || svc.ProxiesEnabled("no-such-type") {
+	if service.CredentialsEnabled("no-such-type") || service.ProxiesEnabled("no-such-type") {
 		t.Fatal("unknown types must report disabled")
 	}
 }
 
-func TestJobSpecsInvalid(t *testing.T) {
+func TestJobSpecificationsInvalid(t *testing.T) {
 	cases := map[string]string{
 		"missing run":      `refresh = { interval_seconds = 300 }`,
 		"interval low":     `refresh = { interval_seconds = 30, run = function(ctx) return true end }`,
@@ -75,7 +75,7 @@ func TestJobSpecsInvalid(t *testing.T) {
 		"bad name":         `["has-dash"] = { interval_seconds = 300, run = function(ctx) return true end }`,
 	}
 	for name, jobsBody := range cases {
-		svc := setupService(t)
+		service := setupService(t)
 		src := `--- @plugin Jobs Bad
 --- @author tester
 --- @version 1.0.0
@@ -87,33 +87,33 @@ llm_router.register("jobs-bad", {
   jobs = { ` + jobsBody + ` },
 })
 `
-		if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err == nil {
+		if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err == nil {
 			t.Errorf("%s: expected install error", name)
 		}
 	}
 }
 
 func TestRunJobSuccess(t *testing.T) {
-	svc := setupService(t)
-	installJobsPlugin(t, svc)
-	if err := svc.RunJob(context.Background(), "jobs-type", "refresh", "manual", "p1", nil); err != nil {
+	service := setupService(t)
+	installJobsPlugin(t, service)
+	if err := service.RunJob(context.Background(), "jobs-type", "refresh", "manual", "p1", nil); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 }
 
 func TestRunJobUnknown(t *testing.T) {
-	svc := setupService(t)
-	installJobsPlugin(t, svc)
-	if err := svc.RunJob(context.Background(), "jobs-type", "missing", "manual", "p1", nil); err == nil {
+	service := setupService(t)
+	installJobsPlugin(t, service)
+	if err := service.RunJob(context.Background(), "jobs-type", "missing", "manual", "p1", nil); err == nil {
 		t.Fatal("unknown job must fail")
 	}
-	if err := svc.RunJob(context.Background(), "no-such-type", "refresh", "manual", "p1", nil); err == nil {
+	if err := service.RunJob(context.Background(), "no-such-type", "refresh", "manual", "p1", nil); err == nil {
 		t.Fatal("unknown type must fail")
 	}
 }
 
 func TestRunJobWritesCredentials(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	src := `--- @plugin Jobs Writer
 --- @author tester
 --- @version 1.0.0
@@ -140,18 +140,18 @@ llm_router.register("jobs-writer", {
   },
 })
 `
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	updated := map[string]map[string]any{}
-	svc.SetCredentialAccess(
+	service.SetCredentialAccess(
 		func(providerID string) ([]*models.Credential, error) {
 			return []*models.Credential{{ID: "c1", ProviderID: "p1", Data: map[string]any{"refresh_token": "r"}}, {ID: "c2", ProviderID: "p1", Disabled: true}}, nil
 		},
 		func(id string) (*models.Credential, error) { return nil, nil },
 		func(id string, data map[string]any) error { updated[id] = data; return nil },
 	)
-	if err := svc.RunJob(context.Background(), "jobs-writer", "refresh", "tick", "p1", nil); err != nil {
+	if err := service.RunJob(context.Background(), "jobs-writer", "refresh", "tick", "p1", nil); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if len(updated) != 1 || updated["c1"]["access_token"] != "refreshed" {
@@ -160,10 +160,10 @@ llm_router.register("jobs-writer", {
 }
 
 func TestCredentialsTableGating(t *testing.T) {
-	svc := setupService(t)
-	installJobsPlugin(t, svc)
+	service := setupService(t)
+	installJobsPlugin(t, service)
 	// Request context: update must fail, list/get serve.
-	svc.SetCredentialAccess(
+	service.SetCredentialAccess(
 		func(providerID string) ([]*models.Credential, error) {
 			return []*models.Credential{{ID: "c1", Data: map[string]any{"api_key": "k"}}}, nil
 		},
@@ -189,10 +189,10 @@ llm_router.register("gate-type", {
   },
 })
 `
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Complete(context.Background(), testMeta("gate-type", nil, "gate-type/m", nil),
+	_, err := service.Complete(context.Background(), testMetadata("gate-type", nil, "gate-type/m", nil),
 		&models.ChatCompletionRequest{Model: "gate-type/m"})
 	perr, ok := err.(*models.ProviderError)
 	if !ok || !strings.Contains(perr.Message, "n=1") || !strings.Contains(perr.Message, "update_ok=false") {

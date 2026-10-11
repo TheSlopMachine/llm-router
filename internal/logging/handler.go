@@ -18,16 +18,16 @@ const TimeFormat = "02.01.2006 15:04:05.000"
 // Handler formats records as bracket groups. Each attribute renders as its
 // own [key: value] group in call order. Groups flatten with dot separators.
 type Handler struct {
-	level  slog.Level
-	w      io.Writer
-	mu     *sync.Mutex
-	attrs  []slog.Attr
-	groups []string
+	level      slog.Level
+	writer     io.Writer
+	mu         *sync.Mutex
+	attributes []slog.Attr
+	groups     []string
 }
 
-// NewHandler builds a Handler writing to w at level.
-func NewHandler(w io.Writer, level slog.Level) *Handler {
-	return &Handler{w: w, level: level, mu: &sync.Mutex{}}
+// NewHandler builds a Handler writing to writer at level.
+func NewHandler(writer io.Writer, level slog.Level) *Handler {
+	return &Handler{writer: writer, level: level, mu: &sync.Mutex{}}
 }
 
 // Enabled reports whether level passes the configured threshold.
@@ -35,90 +35,90 @@ func (h *Handler) Enabled(_ context.Context, level slog.Level) bool {
 	return level >= h.level
 }
 
-// WithAttrs returns a Handler with attrs appended, qualified by groups.
-func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	nh := &Handler{w: h.w, level: h.level, mu: h.mu}
-	nh.groups = append([]string(nil), h.groups...)
-	nh.attrs = append(append([]slog.Attr(nil), h.attrs...), qualify(h.groups, attrs)...)
-	return nh
+// WithAttrs returns a Handler with attributes appended, qualified by groups.
+func (h *Handler) WithAttrs(attributes []slog.Attr) slog.Handler {
+	cloned := &Handler{writer: h.writer, level: h.level, mu: h.mu}
+	cloned.groups = append([]string(nil), h.groups...)
+	cloned.attributes = append(append([]slog.Attr(nil), h.attributes...), qualify(h.groups, attributes)...)
+	return cloned
 }
 
-// WithGroup returns a Handler scoping subsequent attrs under name.
+// WithGroup returns a Handler scoping subsequent attributes under name.
 func (h *Handler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
-	nh := &Handler{w: h.w, level: h.level, mu: h.mu}
-	nh.groups = append(append([]string(nil), h.groups...), name)
-	nh.attrs = append([]slog.Attr(nil), h.attrs...)
-	return nh
+	cloned := &Handler{writer: h.writer, level: h.level, mu: h.mu}
+	cloned.groups = append(append([]string(nil), h.groups...), name)
+	cloned.attributes = append([]slog.Attr(nil), h.attributes...)
+	return cloned
 }
 
 // Handle renders one record in bracket format.
-func (h *Handler) Handle(_ context.Context, r slog.Record) error {
-	level := strings.ToUpper(r.Level.String())
-	ts := r.Time
-	if ts.IsZero() {
-		ts = time.Now()
+func (h *Handler) Handle(_ context.Context, record slog.Record) error {
+	level := strings.ToUpper(record.Level.String())
+	timestamp := record.Time
+	if timestamp.IsZero() {
+		timestamp = time.Now()
 	}
-	var b strings.Builder
-	b.WriteString("[")
-	b.WriteString(level)
-	b.WriteString("][")
-	b.WriteString(ts.Format(TimeFormat))
-	b.WriteString("]")
-	for _, a := range h.attrs {
-		writeFlat(&b, a)
+	var builder strings.Builder
+	builder.WriteString("[")
+	builder.WriteString(level)
+	builder.WriteString("][")
+	builder.WriteString(timestamp.Format(TimeFormat))
+	builder.WriteString("]")
+	for _, attribute := range h.attributes {
+		writeFlat(&builder, attribute)
 	}
-	for _, a := range qualify(h.groups, recordAttrs(r)) {
-		writeFlat(&b, a)
+	for _, attribute := range qualify(h.groups, recordAttrs(record)) {
+		writeFlat(&builder, attribute)
 	}
-	if r.Message != "" {
-		b.WriteString(" ")
-		b.WriteString(r.Message)
+	if record.Message != "" {
+		builder.WriteString(" ")
+		builder.WriteString(record.Message)
 	}
-	b.WriteString("\n")
+	builder.WriteString("\n")
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	_, err := io.WriteString(h.w, b.String())
+	_, err := io.WriteString(h.writer, builder.String())
 	return err
 }
 
-func recordAttrs(r slog.Record) []slog.Attr {
-	var out []slog.Attr
-	r.Attrs(func(a slog.Attr) bool {
-		out = append(out, a)
+func recordAttrs(record slog.Record) []slog.Attr {
+	var output []slog.Attr
+	record.Attrs(func(attribute slog.Attr) bool {
+		output = append(output, attribute)
 		return true
 	})
-	return out
+	return output
 }
 
-// qualify flattens attrs, prefixing keys with groups and expanding groups.
-func qualify(groups []string, attrs []slog.Attr) []slog.Attr {
+// qualify flattens attributes, prefixing keys with groups and expanding groups.
+func qualify(groups []string, attributes []slog.Attr) []slog.Attr {
 	prefix := strings.Join(groups, ".")
-	var out []slog.Attr
-	for _, a := range attrs {
-		out = append(out, flatten(prefix, a)...)
+	var output []slog.Attr
+	for _, attribute := range attributes {
+		output = append(output, flatten(prefix, attribute)...)
 	}
-	return out
+	return output
 }
 
-func flatten(prefix string, a slog.Attr) []slog.Attr {
-	a.Value = a.Value.Resolve()
-	if a.Value.Kind() == slog.KindGroup {
-		name := a.Key
+func flatten(prefix string, attribute slog.Attr) []slog.Attr {
+	attribute.Value = attribute.Value.Resolve()
+	if attribute.Value.Kind() == slog.KindGroup {
+		name := attribute.Key
 		if prefix != "" && name != "" {
 			name = prefix + "." + name
 		} else if name == "" {
 			name = prefix
 		}
-		var out []slog.Attr
-		for _, sub := range a.Value.Group() {
-			out = append(out, flatten(name, sub)...)
+		var output []slog.Attr
+		for _, sub := range attribute.Value.Group() {
+			output = append(output, flatten(name, sub)...)
 		}
-		return out
+		return output
 	}
-	key := a.Key
+	key := attribute.Key
 	if key == "" {
 		if prefix == "" {
 			return nil
@@ -127,43 +127,43 @@ func flatten(prefix string, a slog.Attr) []slog.Attr {
 	} else if prefix != "" {
 		key = prefix + "." + key
 	}
-	return []slog.Attr{slog.String(key, formatValue(a.Value))}
+	return []slog.Attr{slog.String(key, formatValue(attribute.Value))}
 }
 
-func writeFlat(b *strings.Builder, a slog.Attr) {
-	if a.Key == "" {
+func writeFlat(builder *strings.Builder, attribute slog.Attr) {
+	if attribute.Key == "" {
 		return
 	}
-	b.WriteString("[")
-	b.WriteString(a.Key)
-	b.WriteString(": ")
-	b.WriteString(a.Value.String())
-	b.WriteString("]")
+	builder.WriteString("[")
+	builder.WriteString(attribute.Key)
+	builder.WriteString(": ")
+	builder.WriteString(attribute.Value.String())
+	builder.WriteString("]")
 }
 
-func formatValue(v slog.Value) string {
-	v = v.Resolve()
-	switch v.Kind() {
+func formatValue(value slog.Value) string {
+	value = value.Resolve()
+	switch value.Kind() {
 	case slog.KindString:
-		return v.String()
+		return value.String()
 	case slog.KindInt64:
-		return fmt.Sprintf("%d", v.Int64())
+		return fmt.Sprintf("%d", value.Int64())
 	case slog.KindUint64:
-		return fmt.Sprintf("%d", v.Uint64())
+		return fmt.Sprintf("%d", value.Uint64())
 	case slog.KindFloat64:
-		return fmt.Sprintf("%v", v.Float64())
+		return fmt.Sprintf("%v", value.Float64())
 	case slog.KindBool:
-		return fmt.Sprintf("%v", v.Bool())
+		return fmt.Sprintf("%v", value.Bool())
 	case slog.KindDuration:
-		return v.Duration().String()
+		return value.Duration().String()
 	case slog.KindTime:
-		return v.Time().Format(TimeFormat)
+		return value.Time().Format(TimeFormat)
 	case slog.KindGroup:
-		return fmt.Sprintf("%v", v.Any())
+		return fmt.Sprintf("%v", value.Any())
 	default:
-		if err, ok := v.Any().(error); ok && err != nil {
+		if err, ok := value.Any().(error); ok && err != nil {
 			return err.Error()
 		}
-		return fmt.Sprintf("%v", v.Any())
+		return fmt.Sprintf("%v", value.Any())
 	}
 }

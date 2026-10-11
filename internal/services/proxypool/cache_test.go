@@ -19,7 +19,7 @@ func TestDBCacheBuffersUntilFlush(t *testing.T) {
 	if got := len(service.cache.All()); got != 2 {
 		t.Fatalf("All holds %d states, want 2", got)
 	}
-	stored, err := service.cache.repo.List()
+	stored, err := service.cache.store.List()
 	if err != nil {
 		t.Fatalf("repo list: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestDBCacheBuffersUntilFlush(t *testing.T) {
 	if err := service.cache.Flush(); err != nil {
 		t.Fatalf("flush: %v", err)
 	}
-	stored, err = service.cache.repo.List()
+	stored, err = service.cache.store.List()
 	if err != nil {
 		t.Fatalf("repo list: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestDBCacheBuffersUntilFlush(t *testing.T) {
 	if err := service.cache.Flush(); err != nil {
 		t.Fatalf("empty flush: %v", err)
 	}
-	stored, err = service.cache.repo.List()
+	stored, err = service.cache.store.List()
 	if err != nil {
 		t.Fatalf("repo list: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestDBCacheClearDropsDirty(t *testing.T) {
 	if got := len(service.cache.All()); got != 0 {
 		t.Fatalf("All holds %d states, want 0", got)
 	}
-	stored, err := service.cache.repo.List()
+	stored, err := service.cache.store.List()
 	if err != nil {
 		t.Fatalf("repo list: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestDBCacheFlushChunks(t *testing.T) {
 	if err := service.cache.Flush(); err != nil {
 		t.Fatalf("flush: %v", err)
 	}
-	stored, err := service.cache.repo.List()
+	stored, err := service.cache.store.List()
 	if err != nil {
 		t.Fatalf("repo list: %v", err)
 	}
@@ -95,8 +95,8 @@ func TestDBCacheFlushChunks(t *testing.T) {
 }
 
 func TestDBCacheDeletePersists(t *testing.T) {
-	db := testutil.SetupTestDB(t)
-	service, err := New(db)
+	database := testutil.SetupTestDB(t)
+	service, err := New(database)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestDBCacheDeletePersists(t *testing.T) {
 	if err := service.cache.Flush(); err != nil {
 		t.Fatalf("delete flush: %v", err)
 	}
-	stored, err := service.cache.repo.List()
+	stored, err := service.cache.store.List()
 	if err != nil {
 		t.Fatalf("repo list: %v", err)
 	}

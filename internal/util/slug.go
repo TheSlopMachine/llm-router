@@ -6,8 +6,8 @@ import (
 )
 
 var (
-	slugStripReg = regexp.MustCompile(`[^a-z0-9-]+`)
-	slugDashReg  = regexp.MustCompile(`-+`)
+	slugStripRegexp = regexp.MustCompile(`[^a-z0-9-]+`)
+	slugDashRegexp  = regexp.MustCompile(`-+`)
 )
 
 // Slugify converts a name to a URL-safe slug, or "" when unusable.
@@ -17,8 +17,8 @@ func Slugify(name string) string {
 	slug := strings.ToLower(name)
 	slug = strings.ReplaceAll(slug, " ", "-")
 	slug = strings.ReplaceAll(slug, "_", "-")
-	slug = slugStripReg.ReplaceAllString(slug, "")
+	slug = slugStripRegexp.ReplaceAllString(slug, "")
 	slug = strings.Trim(slug, "-")
-	slug = slugDashReg.ReplaceAllString(slug, "-")
+	slug = slugDashRegexp.ReplaceAllString(slug, "-")
 	return slug
 }

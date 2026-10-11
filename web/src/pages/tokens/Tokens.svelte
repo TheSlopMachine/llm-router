@@ -117,8 +117,8 @@
     if (!regenerateTarget || regenerating) return
     regenerating = true
     try {
-      const res: any = await api.tokens.regenerate(regenerateTarget.id)
-      newTokenSecret = res?.token ?? res?.Token ?? res?.token_hash ?? null
+      const regenerated: any = await api.tokens.regenerate(regenerateTarget.id)
+      newTokenSecret = regenerated?.token ?? regenerated?.Token ?? regenerated?.token_hash ?? null
       close()
       regenerateTarget = null
       await resource.reload()
@@ -282,8 +282,8 @@
               const name = cloneName.trim()
               cloneSaving = true
               try {
-                const res: any = await api.tokens.create({ name, rules: cloneSource.rules } as any)
-                newTokenSecret = res?.token ?? null
+                const created: any = await api.tokens.create({ name, rules: cloneSource.rules } as any)
+                newTokenSecret = created?.token ?? null
                 close()
                 cloneSource = null
                 await resource.reload()

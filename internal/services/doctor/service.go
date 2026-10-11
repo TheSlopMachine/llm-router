@@ -45,35 +45,35 @@ type InspectionReport struct {
 }
 
 type Service struct {
-	db           *db.DB
-	providerSvc  *provider.Service
-	credSvc      *credential.Service
-	virtualSvc   *virtual.Service
-	tokenSvc     *token.Service
-	proxySvc     *proxypool.Service
-	luaSvc       *luaplugin.Service
-	modelInfoSvc *modelinfo.Service
+	database          *db.DB
+	providerService   *provider.Service
+	credentialService *credential.Service
+	virtualService    *virtual.Service
+	tokenService      *token.Service
+	proxyService      *proxypool.Service
+	luaService        *luaplugin.Service
+	modelInfoService  *modelinfo.Service
 }
 
 func New(
 	database *db.DB,
-	providerSvc *provider.Service,
-	credSvc *credential.Service,
-	virtualSvc *virtual.Service,
-	tokenSvc *token.Service,
-	proxySvc *proxypool.Service,
-	luaSvc *luaplugin.Service,
-	modelInfoSvc *modelinfo.Service,
+	providerService *provider.Service,
+	credentialService *credential.Service,
+	virtualService *virtual.Service,
+	tokenService *token.Service,
+	proxyService *proxypool.Service,
+	luaService *luaplugin.Service,
+	modelInfoService *modelinfo.Service,
 ) *Service {
 	return &Service{
-		db:           database,
-		providerSvc:  providerSvc,
-		credSvc:      credSvc,
-		virtualSvc:   virtualSvc,
-		tokenSvc:     tokenSvc,
-		proxySvc:     proxySvc,
-		luaSvc:       luaSvc,
-		modelInfoSvc: modelInfoSvc,
+		database:          database,
+		providerService:   providerService,
+		credentialService: credentialService,
+		virtualService:    virtualService,
+		tokenService:      tokenService,
+		proxyService:      proxyService,
+		luaService:        luaService,
+		modelInfoService:  modelInfoService,
 	}
 }
 
@@ -82,20 +82,20 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 	var issues []Issue
 
 	// Build lookup maps of valid entities
-	providers, err := s.providerSvc.List()
+	providers, err := s.providerService.List()
 	if err != nil {
 		return nil, fmt.Errorf("list providers: %w", err)
 	}
 	validProviders := map[string]bool{}
 	validProviderTypes := map[string]bool{}
-	for _, p := range providers {
-		validProviders[p.ID] = true
-		validProviderTypes[p.TypeKey] = true
+	for _, providerInstance := range providers {
+		validProviders[providerInstance.ID] = true
+		validProviderTypes[providerInstance.TypeKey] = true
 	}
 
 	validProxies := map[string]bool{}
-	if s.proxySvc != nil {
-		proxyIDs, err := s.proxySvc.KnownIDs()
+	if s.proxyService != nil {
+		proxyIDs, err := s.proxyService.KnownIDs()
 		if err != nil {
 			return nil, fmt.Errorf("list cached proxies: %w", err)
 		}
@@ -105,20 +105,20 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 	}
 
 	validPlugins := map[string]bool{}
-	if s.luaSvc != nil {
-		if plugins, err := s.luaSvc.List(); err == nil {
-			for _, pl := range plugins {
-				validPlugins[pl.ID] = true
+	if s.luaService != nil {
+		if plugins, err := s.luaService.List(); err == nil {
+			for _, plugin := range plugins {
+				validPlugins[plugin.ID] = true
 			}
 		}
 	}
 
 	// 1. Orphan Credentials
-	if creds, err := s.credSvc.ListAll(); err == nil {
+	if credentials, err := s.credentialService.ListAll(); err == nil {
 		var keys []string
-		for _, c := range creds {
-			if !validProviders[c.ProviderID] {
-				keys = append(keys, c.ID)
+		for _, credentialItem := range credentials {
+			if !validProviders[credentialItem.ProviderID] {
+				keys = append(keys, credentialItem.ID)
 			}
 		}
 		if len(keys) > 0 {
@@ -140,20 +140,20 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 	// Fix disables the provider (first-wins, manual re-enable clears);
 	// installing the missing plugin then re-enabling restores it.
 	var missingBackendKeys []string
-	for _, p := range providers {
-		if p.Disabled {
+	for _, providerInstance := range providers {
+		if providerInstance.Disabled {
 			continue
 		}
-		if _, ok := s.providerSvc.GoAdapterFor(p.TypeKey); ok {
+		if _, ok := s.providerService.GoAdapterFor(providerInstance.TypeKey); ok {
 			continue
 		}
-		if s.luaSvc == nil {
+		if s.luaService == nil {
 			continue
 		}
-		if _, err := s.luaSvc.Lookup(p.TypeKey); err == nil {
+		if _, err := s.luaService.Lookup(providerInstance.TypeKey); err == nil {
 			continue
 		}
-		missingBackendKeys = append(missingBackendKeys, p.ID)
+		missingBackendKeys = append(missingBackendKeys, providerInstance.ID)
 	}
 	if len(missingBackendKeys) > 0 {
 		issues = append(issues, Issue{
@@ -172,26 +172,26 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 	// skipped, matching prior behavior.
 	var orphanOverrideKeys []string
 	var orphanInfoKeys []string
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		bOvs := tx.Bucket(db.BucketModelOverrides)
-		if bOvs != nil {
-			_ = bOvs.ForEach(func(k, v []byte) error {
-				var ov models.ModelOverride
-				if err := json.Unmarshal(v, &ov); err != nil {
+	_ = s.database.View(func(tx *bolt.Tx) error {
+		overridesBucket := tx.Bucket(db.BucketModelOverrides)
+		if overridesBucket != nil {
+			_ = overridesBucket.ForEach(func(k, v []byte) error {
+				var override models.ModelOverride
+				if err := json.Unmarshal(v, &override); err != nil {
 					return nil
 				}
-				if ov.ProviderID == "" || !validProviders[ov.ProviderID] {
+				if override.ProviderID == "" || !validProviders[override.ProviderID] {
 					orphanOverrideKeys = append(orphanOverrideKeys, string(k))
 				}
 				return nil
 			})
 		}
-		bInfos := tx.Bucket(db.BucketModelInfos)
-		if bInfos != nil {
-			_ = bInfos.ForEach(func(k, v []byte) error {
-				keyStr := string(k)
-				if !validProviders[keyStr] {
-					orphanInfoKeys = append(orphanInfoKeys, keyStr)
+		infosBucket := tx.Bucket(db.BucketModelInfos)
+		if infosBucket != nil {
+			_ = infosBucket.ForEach(func(k, v []byte) error {
+				keyString := string(k)
+				if !validProviders[keyString] {
+					orphanInfoKeys = append(orphanInfoKeys, keyString)
 				}
 				return nil
 			})
@@ -220,48 +220,48 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 	}
 
 	// 3. Virtual Models issues (orphan managedBy or duplicate names)
-	if vms, err := s.virtualSvc.List(); err == nil {
-		var orphanVmKeys []string
-		var duplicateVmKeys []string
+	if virtualModels, err := s.virtualService.List(); err == nil {
+		var orphanVirtualModelKeys []string
+		var duplicateVirtualModelKeys []string
 		nameCounts := map[string]int{}
 		nameToID := map[string][]string{}
 
-		for _, vm := range vms {
-			lowerName := strings.ToLower(vm.Name)
+		for _, virtualModel := range virtualModels {
+			lowerName := strings.ToLower(virtualModel.Name)
 			nameCounts[lowerName]++
-			nameToID[lowerName] = append(nameToID[lowerName], vm.ID)
+			nameToID[lowerName] = append(nameToID[lowerName], virtualModel.ID)
 
-			if vm.ManagedBy != "" {
-				markerProvider, _, err := virtual.ParseMarker(vm.ManagedBy)
+			if virtualModel.ManagedBy != "" {
+				markerProvider, _, err := virtual.ParseMarker(virtualModel.ManagedBy)
 				if err == nil && markerProvider != "" && !validProviders[markerProvider] {
-					orphanVmKeys = append(orphanVmKeys, vm.ID)
+					orphanVirtualModelKeys = append(orphanVirtualModelKeys, virtualModel.ID)
 				}
 			}
 		}
 
 		for name, count := range nameCounts {
 			if count > 1 {
-				duplicateVmKeys = append(duplicateVmKeys, nameToID[name]...)
+				duplicateVirtualModelKeys = append(duplicateVirtualModelKeys, nameToID[name]...)
 			}
 		}
 
-		if len(orphanVmKeys) > 0 {
+		if len(orphanVirtualModelKeys) > 0 {
 			issues = append(issues, Issue{
 				Category:    CategoryOrphanVirtualModels,
 				Title:       "Orphan Virtual Models",
 				Description: "Managed virtual models associated with deleted providers",
-				Count:       len(orphanVmKeys),
-				Keys:        orphanVmKeys,
+				Count:       len(orphanVirtualModelKeys),
+				Keys:        orphanVirtualModelKeys,
 			})
 		}
 
-		if len(duplicateVmKeys) > 0 {
+		if len(duplicateVirtualModelKeys) > 0 {
 			issues = append(issues, Issue{
 				Category:    CategoryDuplicateVirtualModels,
 				Title:       "Duplicate Virtual Models",
 				Description: "Multiple virtual models sharing the same name",
-				Count:       len(duplicateVmKeys),
-				Keys:        duplicateVmKeys,
+				Count:       len(duplicateVirtualModelKeys),
+				Keys:        duplicateVirtualModelKeys,
 			})
 		}
 	}
@@ -273,10 +273,10 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 	// can prove them orphaned, and Fix has no case for the category.
 	var orphanStorageKeys []string
 	var corruptStorageKeys []string
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		bStorage := tx.Bucket(db.BucketPluginStorage)
-		if bStorage != nil {
-			_ = bStorage.ForEach(func(k, v []byte) error {
+	_ = s.database.View(func(tx *bolt.Tx) error {
+		storageBucket := tx.Bucket(db.BucketPluginStorage)
+		if storageBucket != nil {
+			_ = storageBucket.ForEach(func(k, v []byte) error {
 				pluginID, _, _, ok := luaplugin.ParseStorageKey(string(k))
 				if !ok {
 					corruptStorageKeys = append(corruptStorageKeys, string(k))
@@ -313,15 +313,15 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 
 	// 6. Broken Token Indexes
 	var brokenIndexKeys []string
-	if tokens, err := s.tokenSvc.List(); err == nil {
+	if tokens, err := s.tokenService.List(); err == nil {
 		validTokenIDs := map[string]bool{}
-		for _, t := range tokens {
-			validTokenIDs[t.ID] = true
+		for _, tokenRecord := range tokens {
+			validTokenIDs[tokenRecord.ID] = true
 		}
-		_ = s.db.View(func(tx *bolt.Tx) error {
-			bIdx := tx.Bucket(db.BucketTokenIndex)
-			if bIdx != nil {
-				_ = bIdx.ForEach(func(k, v []byte) error {
+		_ = s.database.View(func(tx *bolt.Tx) error {
+			indexBucket := tx.Bucket(db.BucketTokenIndex)
+			if indexBucket != nil {
+				_ = indexBucket.ForEach(func(k, v []byte) error {
 					tokenID := string(v)
 					if !validTokenIDs[tokenID] {
 						brokenIndexKeys = append(brokenIndexKeys, string(k))
@@ -361,44 +361,44 @@ func (s *Service) Fix(categories []IssueCategory) (int, error) {
 		return 0, err
 	}
 
-	catMap := map[IssueCategory]bool{}
-	for _, c := range categories {
-		catMap[c] = true
+	categoryMap := map[IssueCategory]bool{}
+	for _, category := range categories {
+		categoryMap[category] = true
 	}
 	allCategories := len(categories) == 0
 
 	totalFixed := 0
 
 	for _, issue := range report.Issues {
-		if !allCategories && !catMap[issue.Category] {
+		if !allCategories && !categoryMap[issue.Category] {
 			continue
 		}
 
 		switch issue.Category {
 		case CategoryMissingProviderBackend:
 			for _, key := range issue.Keys {
-				inst, err := s.providerSvc.Get(key)
-				if err != nil || inst == nil {
+				instance, err := s.providerService.Get(key)
+				if err != nil || instance == nil {
 					continue
 				}
-				if err := s.providerSvc.SystemDisable(key, "doctor: no installed plugin or built-in backend for type "+inst.TypeKey); err == nil {
+				if err := s.providerService.SystemDisable(key, "doctor: no installed plugin or built-in backend for type "+instance.TypeKey); err == nil {
 					totalFixed++
 				}
 			}
 
 		case CategoryOrphanCredentials:
 			for _, key := range issue.Keys {
-				if err := s.credSvc.Delete(key); err == nil {
+				if err := s.credentialService.Delete(key); err == nil {
 					totalFixed++
 				}
 			}
 
 		case CategoryOrphanModelOverrides:
-			_ = s.db.Update(func(tx *bolt.Tx) error {
-				b := tx.Bucket(db.BucketModelOverrides)
-				if b != nil {
-					for _, k := range issue.Keys {
-						if err := b.Delete([]byte(k)); err == nil {
+			_ = s.database.Update(func(tx *bolt.Tx) error {
+				bucket := tx.Bucket(db.BucketModelOverrides)
+				if bucket != nil {
+					for _, key := range issue.Keys {
+						if err := bucket.Delete([]byte(key)); err == nil {
 							totalFixed++
 						}
 					}
@@ -407,11 +407,11 @@ func (s *Service) Fix(categories []IssueCategory) (int, error) {
 			})
 
 		case CategoryOrphanModelInfos:
-			_ = s.db.Update(func(tx *bolt.Tx) error {
-				b := tx.Bucket(db.BucketModelInfos)
-				if b != nil {
-					for _, k := range issue.Keys {
-						if err := b.Delete([]byte(k)); err == nil {
+			_ = s.database.Update(func(tx *bolt.Tx) error {
+				bucket := tx.Bucket(db.BucketModelInfos)
+				if bucket != nil {
+					for _, key := range issue.Keys {
+						if err := bucket.Delete([]byte(key)); err == nil {
 							totalFixed++
 						}
 					}
@@ -421,7 +421,7 @@ func (s *Service) Fix(categories []IssueCategory) (int, error) {
 
 		case CategoryOrphanVirtualModels:
 			for _, key := range issue.Keys {
-				if err := s.virtualSvc.Delete(key); err == nil {
+				if err := s.virtualService.Delete(key); err == nil {
 					totalFixed++
 				}
 			}
@@ -429,17 +429,17 @@ func (s *Service) Fix(categories []IssueCategory) (int, error) {
 		case CategoryDuplicateVirtualModels:
 			// Delete duplicates, keeping the first created or lowest ID
 			for _, key := range issue.Keys {
-				if err := s.virtualSvc.Delete(key); err == nil {
+				if err := s.virtualService.Delete(key); err == nil {
 					totalFixed++
 				}
 			}
 
 		case CategoryOrphanPluginStorage:
-			_ = s.db.Update(func(tx *bolt.Tx) error {
-				b := tx.Bucket(db.BucketPluginStorage)
-				if b != nil {
-					for _, k := range issue.Keys {
-						if err := b.Delete([]byte(k)); err == nil {
+			_ = s.database.Update(func(tx *bolt.Tx) error {
+				bucket := tx.Bucket(db.BucketPluginStorage)
+				if bucket != nil {
+					for _, key := range issue.Keys {
+						if err := bucket.Delete([]byte(key)); err == nil {
 							totalFixed++
 						}
 					}
@@ -448,11 +448,11 @@ func (s *Service) Fix(categories []IssueCategory) (int, error) {
 			})
 
 		case CategoryBrokenTokenIndexes:
-			_ = s.db.Update(func(tx *bolt.Tx) error {
-				b := tx.Bucket(db.BucketTokenIndex)
-				if b != nil {
-					for _, k := range issue.Keys {
-						if err := b.Delete([]byte(k)); err == nil {
+			_ = s.database.Update(func(tx *bolt.Tx) error {
+				bucket := tx.Bucket(db.BucketTokenIndex)
+				if bucket != nil {
+					for _, key := range issue.Keys {
+						if err := bucket.Delete([]byte(key)); err == nil {
 							totalFixed++
 						}
 					}

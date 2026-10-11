@@ -11,14 +11,14 @@ import (
 
 // decodeBatchParams parses one batch entry's params for edge authorization.
 // Full entry validation stays in the router; the edge needs only the model.
-func decodeBatchParams(raw json.RawMessage, msg *models.AnthropicMessageRequest) error {
+func decodeBatchParams(raw json.RawMessage, message *models.AnthropicMessageRequest) error {
 	if len(raw) == 0 {
 		return errMissingBatchParams()
 	}
-	if err := json.Unmarshal(raw, msg); err != nil {
+	if err := json.Unmarshal(raw, message); err != nil {
 		return errMissingBatchParams()
 	}
-	if msg.Model == "" {
+	if message.Model == "" {
 		return errMissingBatchParams()
 	}
 	return nil
@@ -29,11 +29,11 @@ func errMissingBatchParams() error {
 }
 
 // batchModel reports the first entry model for metrics.
-func batchModel(req *models.BatchCreateRequest) models.ModelId {
-	for _, e := range req.Requests {
-		var msg models.AnthropicMessageRequest
-		if err := json.Unmarshal(e.Params, &msg); err == nil && msg.Model != "" {
-			return models.ModelId(msg.Model)
+func batchModel(request *models.BatchCreateRequest) models.ModelId {
+	for _, entry := range request.Requests {
+		var message models.AnthropicMessageRequest
+		if err := json.Unmarshal(entry.Params, &message); err == nil && message.Model != "" {
+			return models.ModelId(message.Model)
 		}
 	}
 	return ""
@@ -67,37 +67,37 @@ func batchModel(req *models.BatchCreateRequest) models.ModelId {
 // @Failure      503 {object} models.OpenAIError "Service Unavailable - no credential available"
 // @Router       /v1/messages/batches [post]
 // @Security     BearerAuth
-func (h *Handler) createBatch(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) createBatch(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	start := time.Now()
-	var req models.BatchCreateRequest
-	if err := decodeJSONBody(w, r, &req); err != nil {
+	var request models.BatchCreateRequest
+	if err := decodeJSONBody(w, r, &request); err != nil {
 		h.writeCompatDecodeError(w, r, err)
 		return
 	}
-	if len(req.Requests) == 0 {
-		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'requests'", strPtr("requests"))
+	if len(request.Requests) == 0 {
+		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'requests'", stringPointer("requests"))
 		return
 	}
-	for _, e := range req.Requests {
-		var msg models.AnthropicMessageRequest
-		if err := decodeBatchParams(e.Params, &msg); err != nil {
+	for _, entry := range request.Requests {
+		var message models.AnthropicMessageRequest
+		if err := decodeBatchParams(entry.Params, &message); err != nil {
 			h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
 			return
 		}
-		if deny := authorizeModel(t, models.ModelId(msg.Model)); deny != nil {
-			h.writeCompatError(w, r, deny.status, deny.code, deny.msg, deny.param)
+		if deny := authorizeModel(token, models.ModelId(message.Model)); deny != nil {
+			h.writeCompatError(w, r, deny.status, deny.code, deny.message, deny.parameter)
 			return
 		}
 	}
-	info, err := h.router.CreateBatch(r.Context(), &req, t)
+	batch, err := h.router.CreateBatch(r.Context(), &request, token)
 	duration := time.Since(start)
-	h.recordRouteMetric(r.Context(), start, batchModel(&req), t, duration, err, nil)
+	h.recordRouteMetric(r.Context(), start, batchModel(&request), token, duration, err, nil)
 	if err != nil {
 		h.handleCompatRouterError(w, r, err)
 		return
 	}
 	echoAnthropicVersion(w, r)
-	h.writeJSON(w, http.StatusOK, info)
+	h.writeJSON(w, http.StatusOK, batch)
 }
 
 // listBatches handles GET /v1/messages/batches
@@ -111,8 +111,8 @@ func (h *Handler) createBatch(w http.ResponseWriter, r *http.Request, t *models.
 // @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
 // @Router       /v1/messages/batches [get]
 // @Security     BearerAuth
-func (h *Handler) listBatches(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
-	_ = t
+func (h *Handler) listBatches(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
+	_ = token
 	items, err := h.router.ListBatches(r.Context())
 	if err != nil {
 		h.handleCompatRouterError(w, r, err)
@@ -138,18 +138,18 @@ func (h *Handler) listBatches(w http.ResponseWriter, r *http.Request, t *models.
 // @Failure      404 {object} models.OpenAIError "Unknown batch"
 // @Router       /v1/messages/batches/{batch_id} [get]
 // @Security     BearerAuth
-func (h *Handler) getBatch(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) getBatch(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id, ok := h.requirePathID(w, r, "batch_id", "batch")
 	if !ok {
 		return
 	}
-	info, err := h.router.GetBatch(r.Context(), id, t)
+	batch, err := h.router.GetBatch(r.Context(), id, token)
 	if err != nil {
 		h.handleCompatRouterError(w, r, err)
 		return
 	}
 	echoAnthropicVersion(w, r)
-	h.writeJSON(w, http.StatusOK, info)
+	h.writeJSON(w, http.StatusOK, batch)
 }
 
 // getBatchResults handles GET /v1/messages/batches/{batch_id}/results
@@ -165,12 +165,12 @@ func (h *Handler) getBatch(w http.ResponseWriter, r *http.Request, t *models.Rou
 // @Failure      404 {object} models.OpenAIError "Unknown batch"
 // @Router       /v1/messages/batches/{batch_id}/results [get]
 // @Security     BearerAuth
-func (h *Handler) getBatchResults(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) getBatchResults(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id, ok := h.requirePathID(w, r, "batch_id", "batch")
 	if !ok {
 		return
 	}
-	lines, err := h.router.GetBatchResults(r.Context(), id, t)
+	lines, err := h.router.GetBatchResults(r.Context(), id, token)
 	if err != nil {
 		h.handleCompatRouterError(w, r, err)
 		return
@@ -196,18 +196,18 @@ func (h *Handler) getBatchResults(w http.ResponseWriter, r *http.Request, t *mod
 // @Failure      404 {object} models.OpenAIError "Unknown batch"
 // @Router       /v1/messages/batches/{batch_id}/cancel [post]
 // @Security     BearerAuth
-func (h *Handler) cancelBatch(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) cancelBatch(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id, ok := h.requirePathID(w, r, "batch_id", "batch")
 	if !ok {
 		return
 	}
-	info, err := h.router.CancelBatch(r.Context(), id, t)
+	batch, err := h.router.CancelBatch(r.Context(), id, token)
 	if err != nil {
 		h.handleCompatRouterError(w, r, err)
 		return
 	}
 	echoAnthropicVersion(w, r)
-	h.writeJSON(w, http.StatusOK, info)
+	h.writeJSON(w, http.StatusOK, batch)
 }
 
 // deleteBatch handles DELETE /v1/messages/batches/{batch_id}
@@ -223,12 +223,12 @@ func (h *Handler) cancelBatch(w http.ResponseWriter, r *http.Request, t *models.
 // @Failure      404 {object} models.OpenAIError "Unknown batch"
 // @Router       /v1/messages/batches/{batch_id} [delete]
 // @Security     BearerAuth
-func (h *Handler) deleteBatch(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) deleteBatch(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	id, ok := h.requirePathID(w, r, "batch_id", "batch")
 	if !ok {
 		return
 	}
-	_ = t
+	_ = token
 	if err := h.router.DeleteBatch(r.Context(), id); err != nil {
 		h.handleCompatRouterError(w, r, err)
 		return

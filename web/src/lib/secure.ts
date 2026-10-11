@@ -8,9 +8,9 @@
 
 import { trackElements } from '../FUI/core/observers'
 
-function harden(el: HTMLInputElement | HTMLTextAreaElement): void {
-  el.setAttribute('autocomplete', 'off')
-  const form = el.closest('form')
+function harden(element: HTMLInputElement | HTMLTextAreaElement): void {
+  element.setAttribute('autocomplete', 'off')
+  const form = element.closest('form')
   if (form && form.getAttribute('autocomplete') !== 'off') {
     form.setAttribute('autocomplete', 'off')
   }
@@ -37,6 +37,6 @@ export function hardenSecureElements(root: ParentNode = document): void {
 export function startSecureHardening(): () => void {
   return trackElements({
     selector: 'input.secure, textarea.secure',
-    attach: (el) => harden(el as HTMLInputElement | HTMLTextAreaElement),
+    attach: (element) => harden(element as HTMLInputElement | HTMLTextAreaElement),
   })
 }

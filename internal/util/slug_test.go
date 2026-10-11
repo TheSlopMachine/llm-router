@@ -14,9 +14,9 @@ func TestSlugify(t *testing.T) {
 		{"gpt-4o", "gpt-4o"},
 		{"a  b__c", "a-b-c"},
 	}
-	for _, tc := range cases {
-		if got := Slugify(tc.in); got != tc.want {
-			t.Errorf("Slugify(%q) = %q, want %q", tc.in, got, tc.want)
+	for _, testCase := range cases {
+		if got := Slugify(testCase.in); got != testCase.want {
+			t.Errorf("Slugify(%q) = %q, want %q", testCase.in, got, testCase.want)
 		}
 	}
 }

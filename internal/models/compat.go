@@ -280,10 +280,10 @@ func (r *ModerationRequest) UnmarshalJSON(raw []byte) error {
 		Content string `json:"content"`
 	}
 	if err := json.Unmarshal(probe.Input, &parts); err == nil {
-		for _, p := range parts {
-			t := p.Text
+		for _, part := range parts {
+			t := part.Text
 			if t == "" {
-				t = p.Content
+				t = part.Content
 			}
 			r.Input = append(r.Input, t)
 		}
@@ -370,27 +370,27 @@ func (r *ResponseRequest) InputTexts() []string {
 	if trimmed == "" || trimmed == "null" {
 		return nil
 	}
-	var s string
-	if err := json.Unmarshal(r.Input, &s); err == nil {
-		if strings.TrimSpace(s) == "" {
+	var single string
+	if err := json.Unmarshal(r.Input, &single); err == nil {
+		if strings.TrimSpace(single) == "" {
 			return nil
 		}
-		return []string{s}
+		return []string{single}
 	}
 	var items []ResponseInputItem
 	if err := json.Unmarshal(r.Input, &items); err != nil {
 		return nil
 	}
 	var out []string
-	for _, it := range items {
-		t := strings.TrimSpace(string(it.Content))
+	for _, item := range items {
+		t := strings.TrimSpace(string(item.Content))
 		if t == "" || t == "null" {
 			continue
 		}
-		var cs string
-		if err := json.Unmarshal(it.Content, &cs); err == nil {
-			if strings.TrimSpace(cs) != "" {
-				out = append(out, cs)
+		var contentString string
+		if err := json.Unmarshal(item.Content, &contentString); err == nil {
+			if strings.TrimSpace(contentString) != "" {
+				out = append(out, contentString)
 			}
 			continue
 		}
@@ -398,10 +398,10 @@ func (r *ResponseRequest) InputTexts() []string {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		}
-		if err := json.Unmarshal(it.Content, &blocks); err == nil {
-			for _, b := range blocks {
-				if strings.TrimSpace(b.Text) != "" {
-					out = append(out, b.Text)
+		if err := json.Unmarshal(item.Content, &blocks); err == nil {
+			for _, block := range blocks {
+				if strings.TrimSpace(block.Text) != "" {
+					out = append(out, block.Text)
 				}
 			}
 		}
@@ -434,27 +434,27 @@ func (r *ResponseRequest) ToChat() *ChatCompletionRequest {
 		out.Messages = append(out.Messages, ChatMessage{Role: "user", Content: t})
 	}
 	for _, raw := range r.Tools {
-		var fn struct {
+		var tool struct {
 			Type        string         `json:"type"`
 			Name        string         `json:"name"`
 			Description string         `json:"description,omitempty"`
 			Parameters  map[string]any `json:"parameters,omitempty"`
 		}
-		if err := json.Unmarshal(raw, &fn); err != nil {
+		if err := json.Unmarshal(raw, &tool); err != nil {
 			continue
 		}
-		if fn.Type != "" && fn.Type != "function" {
+		if tool.Type != "" && tool.Type != "function" {
 			continue
 		}
-		if fn.Name == "" {
+		if tool.Name == "" {
 			continue
 		}
 		out.Tools = append(out.Tools, ChatTool{
 			Type: "function",
 			Function: &ChatToolFunction{
-				Name:        fn.Name,
-				Description: fn.Description,
-				Parameters:  fn.Parameters,
+				Name:        tool.Name,
+				Description: tool.Description,
+				Parameters:  tool.Parameters,
 			},
 		})
 	}
@@ -561,19 +561,19 @@ func (r *ThreadMessageRequest) ThreadMessageTexts() []string {
 	if trimmed == "" || trimmed == "null" {
 		return nil
 	}
-	var s string
-	if err := json.Unmarshal(r.Content, &s); err == nil {
-		if strings.TrimSpace(s) == "" {
+	var single string
+	if err := json.Unmarshal(r.Content, &single); err == nil {
+		if strings.TrimSpace(single) == "" {
 			return nil
 		}
-		return []string{s}
+		return []string{single}
 	}
 	var blocks []ThreadContent
 	if err := json.Unmarshal(r.Content, &blocks); err == nil {
 		var out []string
-		for _, b := range blocks {
-			if strings.TrimSpace(b.Text) != "" {
-				out = append(out, b.Text)
+		for _, block := range blocks {
+			if strings.TrimSpace(block.Text) != "" {
+				out = append(out, block.Text)
 			}
 		}
 		return out
@@ -892,27 +892,27 @@ type BatchRecord struct {
 
 // BatchResults renders stored results as JSONL lines.
 func (b *BatchRecord) BatchResults() string {
-	var sb strings.Builder
-	for _, r := range b.Results {
-		raw, err := json.Marshal(r)
+	var builder strings.Builder
+	for _, result := range b.Results {
+		raw, err := json.Marshal(result)
 		if err != nil {
 			continue
 		}
-		sb.Write(raw)
-		sb.WriteByte('\n')
+		builder.Write(raw)
+		builder.WriteByte('\n')
 	}
-	return sb.String()
+	return builder.String()
 }
 
 // ToBatchInfo renders the wire batch object. ResultsURL points at the
 // router-local results endpoint when results exist.
 func (b *BatchRecord) ToBatchInfo(resultsURL string) *BatchInfo {
 	counts := BatchRequestCounts{}
-	for _, r := range b.Results {
+	for _, result := range b.Results {
 		var probe struct {
 			Type string `json:"type"`
 		}
-		if err := json.Unmarshal(r.Result, &probe); err != nil {
+		if err := json.Unmarshal(result.Result, &probe); err != nil {
 			counts.Errored++
 			continue
 		}

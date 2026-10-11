@@ -91,26 +91,26 @@ export async function apiCall<
     fetchOptions.body = JSON.stringify(options.body)
   }
 
-  const res = await fetch(url.toString(), fetchOptions)
-  
-  if (!res.ok) {
-    const text = await res.text()
-    let msg = `HTTP ${res.status}`
+  const response = await fetch(url.toString(), fetchOptions)
+
+  if (!response.ok) {
+    const text = await response.text()
+    let message = `HTTP ${response.status}`
     try {
       const json = JSON.parse(text) as unknown
       if (json && typeof json === 'object' && ('error' in (json as Record<string, unknown>) || 'message' in (json as Record<string, unknown>))) {
         const candidate = getErrorMessage(json)
         if (candidate && candidate !== 'Request failed' && candidate !== '{}' && candidate !== '[object Object]') {
-          msg = candidate
+          message = candidate
         }
       }
     } catch {}
-    throw new Error(msg)
+    throw new Error(message)
   }
 
-  if (res.status === 204) {
+  if (response.status === 204) {
     return null as ApiResponse<P, M>
   }
 
-  return res.json() as Promise<ApiResponse<P, M>>
+  return response.json() as Promise<ApiResponse<P, M>>
 }

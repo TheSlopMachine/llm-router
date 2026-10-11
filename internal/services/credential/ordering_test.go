@@ -6,9 +6,9 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
-func addKey(t *testing.T, svc *Service, label string) *models.Credential {
+func addKey(t *testing.T, service *Service, label string) *models.Credential {
 	t.Helper()
-	cred, err := svc.Add(AddOptions{
+	cred, err := service.Add(AddOptions{
 		ProviderID: "mock",
 		Label:      label,
 		Data:       map[string]any{"api_key": "key-" + label},
@@ -20,16 +20,16 @@ func addKey(t *testing.T, svc *Service, label string) *models.Credential {
 }
 
 func TestCredentialService_All_ExcludesDisabled(t *testing.T) {
-	svc, _ := setupCredentialService(t)
-	a := addKey(t, svc, "a")
-	addKey(t, svc, "b")
+	service, _ := setupCredentialService(t)
+	a := addKey(t, service, "a")
+	addKey(t, service, "b")
 
 	disabled := true
-	if err := svc.UpdateDetails(a.ID, nil, &disabled, nil); err != nil {
+	if err := service.UpdateDetails(a.ID, nil, &disabled, nil); err != nil {
 		t.Fatalf("disable: %v", err)
 	}
 
-	creds, err := svc.All("mock")
+	creds, err := service.All("mock")
 	if err != nil {
 		t.Fatalf("all: %v", err)
 	}
@@ -39,14 +39,14 @@ func TestCredentialService_All_ExcludesDisabled(t *testing.T) {
 }
 
 func TestCredentialService_UpdateDetails_LabelAndData(t *testing.T) {
-	svc, _ := setupCredentialService(t)
-	cred := addKey(t, svc, "old")
+	service, _ := setupCredentialService(t)
+	cred := addKey(t, service, "old")
 
 	label := "new"
-	if err := svc.UpdateDetails(cred.ID, &label, nil, map[string]any{"api_key": "rotated"}); err != nil {
+	if err := service.UpdateDetails(cred.ID, &label, nil, map[string]any{"api_key": "rotated"}); err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	got, _ := svc.Get(cred.ID)
+	got, _ := service.Get(cred.ID)
 	if got.Label != "new" {
 		t.Errorf("label: got %q, want %q", got.Label, "new")
 	}
@@ -54,17 +54,17 @@ func TestCredentialService_UpdateDetails_LabelAndData(t *testing.T) {
 		t.Errorf("data not replaced: %v", got.Data)
 	}
 
-	if err := svc.UpdateDetails(cred.ID, nil, nil, map[string]any{}); err == nil {
+	if err := service.UpdateDetails(cred.ID, nil, nil, map[string]any{}); err == nil {
 		t.Error("expected validation error for empty replacement data")
 	}
 }
 
 func TestCredentialService_All_StoredOrder(t *testing.T) {
-	svc, _ := setupCredentialService(t)
-	a := addKey(t, svc, "a")
-	addKey(t, svc, "b")
+	service, _ := setupCredentialService(t)
+	a := addKey(t, service, "a")
+	addKey(t, service, "b")
 
-	creds, err := svc.All("mock")
+	creds, err := service.All("mock")
 	if err != nil {
 		t.Fatalf("all: %v", err)
 	}
@@ -74,10 +74,10 @@ func TestCredentialService_All_StoredOrder(t *testing.T) {
 
 	// Disabled credentials stay stored but out of the routable set.
 	disabled := true
-	if err := svc.UpdateDetails(a.ID, nil, &disabled, nil); err != nil {
+	if err := service.UpdateDetails(a.ID, nil, &disabled, nil); err != nil {
 		t.Fatalf("disable: %v", err)
 	}
-	creds, _ = svc.All("mock")
+	creds, _ = service.All("mock")
 	if len(creds) != 1 || creds[0].Label != "b" {
 		t.Fatalf("pool after disable: %v", creds)
 	}

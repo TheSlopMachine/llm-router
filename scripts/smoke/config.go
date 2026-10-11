@@ -18,18 +18,18 @@ var validTargets = map[string]bool{
 	"video":       true,
 }
 
-type config struct {
+type configuration struct {
 	web     string
 	api     string
 	plugins []string
 	targets map[string]bool
 	store   string
 	cleanup bool
-	// vmName is this run's ad-hoc virtual model name: unique per run so a
+	// virtualModelName is this run's ad-hoc virtual model name: unique per run so a
 	// leftover row from an earlier, interrupted run can never collide with
 	// it. Keeps the "smoke-vm" prefix so cleanupStaleVirtualModels can find
 	// and remove any such leftovers before this run starts.
-	vmName string
+	virtualModelName string
 }
 
 func getenv(key, def string) string {
@@ -49,38 +49,38 @@ func baseURL(override, port string) string {
 	return fmt.Sprintf("http://%s:%s", host, port)
 }
 
-func loadConfig() (config, error) {
+func loadConfig() (configuration, error) {
 	targets := map[string]bool{}
-	for _, t := range strings.Split(getenv("SMOKE_TARGETS", "completions,messages"), ",") {
-		t = strings.ToLower(strings.TrimSpace(t))
-		if t == "" {
+	for _, target := range strings.Split(getenv("SMOKE_TARGETS", "completions,messages"), ",") {
+		target = strings.ToLower(strings.TrimSpace(target))
+		if target == "" {
 			continue
 		}
-		if !validTargets[t] {
-			return config{}, fmt.Errorf("unknown SMOKE_TARGETS entry %q (want completions,messages,transcribe,speech,image,embeddings,video)", t)
+		if !validTargets[target] {
+			return configuration{}, fmt.Errorf("unknown SMOKE_TARGETS entry %q (want completions,messages,transcribe,speech,image,embeddings,video)", target)
 		}
-		targets[t] = true
+		targets[target] = true
 	}
 	plugins := []string{}
-	for _, p := range strings.Split(getenv("SMOKE_PLUGINS", "mock"), ",") {
-		p = strings.ToLower(strings.TrimSpace(p))
-		if p == "" {
+	for _, plugin := range strings.Split(getenv("SMOKE_PLUGINS", "mock"), ",") {
+		plugin = strings.ToLower(strings.TrimSpace(plugin))
+		if plugin == "" {
 			continue
 		}
-		if p == "all" {
+		if plugin == "all" {
 			plugins = []string{"mock", "groq", "google", "kiro", "opencode-zen", "opencode-free"}
 			break
 		}
-		plugins = append(plugins, p)
+		plugins = append(plugins, plugin)
 	}
-	return config{
-		web:     baseURL("SMOKE_WEB", getenv("WEB_PORT", "38080")),
-		api:     baseURL("SMOKE_API", getenv("API_PORT", "38081")),
-		plugins: plugins,
-		targets: targets,
-		store:   getenv("SMOKE_STORE_DIR", "../../llm-router-store/llm-router-plugins"),
-		cleanup: getenv("SMOKE_CLEANUP", "1") == "1",
-		vmName:  fmt.Sprintf("smoke-vm-%d", time.Now().UnixNano()),
+	return configuration{
+		web:              baseURL("SMOKE_WEB", getenv("WEB_PORT", "38080")),
+		api:              baseURL("SMOKE_API", getenv("API_PORT", "38081")),
+		plugins:          plugins,
+		targets:          targets,
+		store:            getenv("SMOKE_STORE_DIR", "../../llm-router-store/llm-router-plugins"),
+		cleanup:          getenv("SMOKE_CLEANUP", "1") == "1",
+		virtualModelName: fmt.Sprintf("smoke-vm-%d", time.Now().UnixNano()),
 	}, nil
 }
 

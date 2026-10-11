@@ -19,12 +19,12 @@ import (
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/tokens [get]
 func (h *Handler) apiTokensList(w http.ResponseWriter, r *http.Request) {
-	toks, err := h.tokenSvc.List()
+	tokens, err := h.tokenService.List()
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	h.json(w, http.StatusOK, toks)
+	h.json(w, http.StatusOK, tokens)
 }
 
 // apiTokensCreate creates a new router token
@@ -48,7 +48,7 @@ func (h *Handler) apiTokensCreate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	t, err := h.tokenSvc.Create(token.CreateOptions{
+	tokenRecord, err := h.tokenService.Create(token.CreateOptions{
 		Name:  body.Name,
 		Rules: body.Rules,
 	})
@@ -56,7 +56,7 @@ func (h *Handler) apiTokensCreate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	h.json(w, http.StatusCreated, t)
+	h.json(w, http.StatusCreated, tokenRecord)
 }
 
 // apiTokensUpdate updates a router token
@@ -81,7 +81,7 @@ func (h *Handler) apiTokensUpdate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := h.tokenSvc.UpdateRules(r.PathValue("id"), body.Rules); err != nil {
+	if err := h.tokenService.UpdateRules(r.PathValue("id"), body.Rules); err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -100,12 +100,12 @@ func (h *Handler) apiTokensUpdate(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/tokens/{id}/regenerate [post]
 func (h *Handler) apiTokensRegenerate(w http.ResponseWriter, r *http.Request) {
-	t, err := h.tokenSvc.Regenerate(r.PathValue("id"))
+	tokenRecord, err := h.tokenService.Regenerate(r.PathValue("id"))
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	h.json(w, http.StatusOK, t)
+	h.json(w, http.StatusOK, tokenRecord)
 }
 
 // apiTokensDelete revokes a router token
@@ -120,7 +120,7 @@ func (h *Handler) apiTokensRegenerate(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/tokens/{id} [delete]
 func (h *Handler) apiTokensDelete(w http.ResponseWriter, r *http.Request) {
-	if err := h.tokenSvc.Delete(r.PathValue("id")); err != nil {
+	if err := h.tokenService.Delete(r.PathValue("id")); err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

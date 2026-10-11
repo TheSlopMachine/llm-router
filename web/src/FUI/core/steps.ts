@@ -19,6 +19,6 @@ export function resolveMenuWidth(enabled: boolean): string {
   return `min-width: var(--fui-toast-offset);`
 }
 
-export function shouldDismissOnKey(e: KeyboardEvent, opts: { closeOnEsc: boolean; open: boolean }): boolean {
-  return !!opts.closeOnEsc && e.key === 'Escape' && opts.open
+export function shouldDismissOnKey(e: KeyboardEvent, options: { closeOnEsc: boolean; open: boolean }): boolean {
+  return !!options.closeOnEsc && e.key === 'Escape' && options.open
 }

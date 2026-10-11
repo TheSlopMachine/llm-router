@@ -34,8 +34,8 @@ llm_router.register("scope-type", {
 `
 
 func TestGetModelInfosScopesCredentialsByProvider(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(scopePluginSource), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(scopePluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	rows := map[string][]*models.Credential{
@@ -48,7 +48,7 @@ func TestGetModelInfosScopesCredentialsByProvider(t *testing.T) {
 		},
 	}
 	var seenScopes []string
-	svc.SetCredentialAccess(
+	service.SetCredentialAccess(
 		func(providerID string) ([]*models.Credential, error) {
 			seenScopes = append(seenScopes, providerID)
 			return rows[providerID], nil
@@ -57,20 +57,20 @@ func TestGetModelInfosScopesCredentialsByProvider(t *testing.T) {
 		func(id string, data map[string]any) error { return nil },
 	)
 
-	infos, err := svc.GetModelInfos(t.Context(), "provider-a", "scope-type", nil)
+	modelInfos, err := service.GetModelInfos(t.Context(), "provider-a", "scope-type", nil)
 	if err != nil {
 		t.Fatalf("discovery: %v", err)
 	}
-	if len(infos) != 1 || infos[0].Name != "seen:a1,a2" {
-		t.Fatalf("provider-a sees: %+v", infos)
+	if len(modelInfos) != 1 || modelInfos[0].Name != "seen:a1,a2" {
+		t.Fatalf("provider-a sees: %+v", modelInfos)
 	}
 
-	infos, err = svc.GetModelInfos(t.Context(), "provider-b", "scope-type", nil)
+	modelInfos, err = service.GetModelInfos(t.Context(), "provider-b", "scope-type", nil)
 	if err != nil {
 		t.Fatalf("discovery: %v", err)
 	}
-	if len(infos) != 1 || infos[0].Name != "seen:b1" {
-		t.Fatalf("provider-b sees: %+v", infos)
+	if len(modelInfos) != 1 || modelInfos[0].Name != "seen:b1" {
+		t.Fatalf("provider-b sees: %+v", modelInfos)
 	}
 
 	if len(seenScopes) != 2 || seenScopes[0] != "provider-a" || seenScopes[1] != "provider-b" {

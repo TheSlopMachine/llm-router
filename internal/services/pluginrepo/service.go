@@ -71,7 +71,7 @@ type indexProvider struct {
 
 // Service owns repository records.
 type Service struct {
-	repo  *repository.Repository[RepoRecord]
+	store *repository.Repository[RepoRecord]
 	index *indexProvider
 }
 
@@ -79,18 +79,18 @@ type Service struct {
 func New(database *db.DB) *Service {
 	client := &http.Client{Timeout: 30 * time.Second}
 	return &Service{
-		repo:  repository.New[RepoRecord](database, db.BucketPluginRepos, "plugin repo"),
+		store: repository.New[RepoRecord](database, db.BucketPluginRepos, "plugin repo"),
 		index: &indexProvider{client: client},
 	}
 }
 
-func (s *Service) refOf(rec *RepoRecord) RepoRef {
-	return RepoRef{ID: rec.ID, IndexURL: rec.IndexURL}
+func (s *Service) referenceOf(record *RepoRecord) RepoRef {
+	return RepoRef{ID: record.ID, IndexURL: record.IndexURL}
 }
 
 // List returns all added repositories sorted by ID.
 func (s *Service) List() ([]*RepoRecord, error) {
-	items, err := s.repo.List()
+	items, err := s.store.List()
 	if err != nil {
 		return nil, err
 	}
@@ -100,11 +100,11 @@ func (s *Service) List() ([]*RepoRecord, error) {
 
 // Get returns one repository by ID.
 func (s *Service) Get(id string) (*RepoRecord, error) {
-	return s.repo.Get(id)
+	return s.store.Get(id)
 }
 
-// repoIDForIndex derives a stable record ID from a resolved index URL.
-func repoIDForIndex(indexURL string) string {
+// repositoryIDForIndex derives a stable record ID from a resolved index URL.
+func repositoryIDForIndex(indexURL string) string {
 	sum := fnv.New32a()
 	_, _ = sum.Write([]byte(indexURL))
 	return "index/" + slugURL(indexURL) + "-" + strconv.FormatUint(uint64(sum.Sum32()), 16)
@@ -115,19 +115,19 @@ func repoIDForIndex(indexURL string) string {
 // index locations for a repository URL on a known git host.
 func resolveIndexCandidates(raw string) ([]string, error) {
 	raw = strings.TrimSpace(raw)
-	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	repositoryURL, err := url.Parse(raw)
+	if err != nil || (repositoryURL.Scheme != "http" && repositoryURL.Scheme != "https") || repositoryURL.Host == "" {
 		return nil, fmt.Errorf("invalid repository url")
 	}
-	if u.Path == "/index.json" || strings.HasSuffix(u.Path, "/index.json") {
-		u.Fragment = ""
-		return []string{u.String()}, nil
+	if repositoryURL.Path == "/index.json" || strings.HasSuffix(repositoryURL.Path, "/index.json") {
+		repositoryURL.Fragment = ""
+		return []string{repositoryURL.String()}, nil
 	}
-	repoPath := strings.Trim(strings.TrimSuffix(strings.Trim(u.Path, "/"), ".git"), "/")
-	if repoPath == "" || strings.Contains(repoPath, "..") {
+	repositoryPath := strings.Trim(strings.TrimSuffix(strings.Trim(repositoryURL.Path, "/"), ".git"), "/")
+	if repositoryPath == "" || strings.Contains(repositoryPath, "..") {
 		return nil, fmt.Errorf("invalid repository url")
 	}
-	segments := strings.Split(repoPath, "/")
+	segments := strings.Split(repositoryPath, "/")
 	for _, segment := range segments {
 		if segment == "" || segment == "." {
 			return nil, fmt.Errorf("invalid repository url")
@@ -139,29 +139,29 @@ func resolveIndexCandidates(raw string) ([]string, error) {
 			base + "/master/llm-router-plugins/index.json",
 		}
 	}
-	switch strings.ToLower(u.Host) {
+	switch strings.ToLower(repositoryURL.Host) {
 	case "github.com":
 		if len(segments) != 2 {
 			return nil, fmt.Errorf("github url must be owner/repo, or paste the index.json url directly")
 		}
-		return branchIndex("https://raw.githubusercontent.com/" + repoPath), nil
+		return branchIndex("https://raw.githubusercontent.com/" + repositoryPath), nil
 	case "gitlab.com":
 		if len(segments) < 2 {
 			return nil, fmt.Errorf("gitlab url must be group/repo, or paste the index.json url directly")
 		}
-		return branchIndex("https://" + u.Host + "/" + repoPath + "/-/raw"), nil
+		return branchIndex("https://" + repositoryURL.Host + "/" + repositoryPath + "/-/raw"), nil
 	case "bitbucket.org":
 		if len(segments) != 2 {
 			return nil, fmt.Errorf("bitbucket url must be owner/repo, or paste the index.json url directly")
 		}
-		return branchIndex("https://bitbucket.org/" + repoPath + "/raw"), nil
+		return branchIndex("https://bitbucket.org/" + repositoryPath + "/raw"), nil
 	case "codeberg.org":
 		if len(segments) != 2 {
 			return nil, fmt.Errorf("codeberg url must be owner/repo, or paste the index.json url directly")
 		}
-		return branchIndex("https://codeberg.org/" + repoPath + "/raw/branch"), nil
+		return branchIndex("https://codeberg.org/" + repositoryPath + "/raw/branch"), nil
 	default:
-		return nil, fmt.Errorf("unsupported host %q: paste the index.json url directly", u.Host)
+		return nil, fmt.Errorf("unsupported host %q: paste the index.json url directly", repositoryURL.Host)
 	}
 }
 
@@ -174,23 +174,23 @@ func (s *Service) AddRepo(ctx context.Context, rawURL string) (*RepoRecord, erro
 	}
 	var lastErr error
 	for _, indexURL := range candidates {
-		id := repoIDForIndex(indexURL)
-		if existing, err := s.repo.Get(id); err == nil && existing != nil {
+		id := repositoryIDForIndex(indexURL)
+		if existing, err := s.store.Get(id); err == nil && existing != nil {
 			return existing, nil
 		}
-		idx, err := s.index.fetchIndex(ctx, indexURL)
+		repositoryIndex, err := s.index.fetchIndex(ctx, indexURL)
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		rec := &RepoRecord{
+		record := &RepoRecord{
 			ID: id, Kind: "index", IndexURL: indexURL, SourceURL: strings.TrimSpace(rawURL),
-			Title: idx.Title, Description: idx.Description, AddedAt: time.Now(),
+			Title: repositoryIndex.Title, Description: repositoryIndex.Description, AddedAt: time.Now(),
 		}
-		if err := s.repo.Put(id, rec); err != nil {
+		if err := s.store.Put(id, record); err != nil {
 			return nil, err
 		}
-		return rec, nil
+		return record, nil
 	}
 	if lastErr != nil {
 		return nil, fmt.Errorf("no usable index: %w", lastErr)
@@ -203,23 +203,23 @@ func (s *Service) AddRepo(ctx context.Context, rawURL string) (*RepoRecord, erro
 // with the same ID are marked built-in.
 func (s *Service) EnsureBuiltinRepos() error {
 	for _, builtin := range BuiltinRepos {
-		id := repoIDForIndex(builtin.Index)
-		if existing, err := s.repo.Get(id); err == nil && existing != nil {
+		id := repositoryIDForIndex(builtin.Index)
+		if existing, err := s.store.Get(id); err == nil && existing != nil {
 			if !existing.Builtin || existing.IndexURL != builtin.Index || existing.SourceURL != builtin.Source {
 				existing.Builtin = true
 				existing.IndexURL = builtin.Index
 				existing.SourceURL = builtin.Source
-				if err := s.repo.Put(id, existing); err != nil {
+				if err := s.store.Put(id, existing); err != nil {
 					return err
 				}
 			}
 			continue
 		}
-		rec := &RepoRecord{
+		record := &RepoRecord{
 			ID: id, Kind: "index", IndexURL: builtin.Index, SourceURL: builtin.Source,
 			Builtin: true, AddedAt: time.Now(),
 		}
-		if err := s.repo.Put(id, rec); err != nil {
+		if err := s.store.Put(id, record); err != nil {
 			return err
 		}
 	}
@@ -229,15 +229,15 @@ func (s *Service) EnsureBuiltinRepos() error {
 // PruneLegacyRepos deletes repository rows from retired schemes. Installed
 // plugins keep working; updates resume after reinstall from the catalog.
 func (s *Service) PruneLegacyRepos() error {
-	items, err := s.repo.List()
+	items, err := s.store.List()
 	if err != nil {
 		return err
 	}
-	for _, rec := range items {
-		if rec.Kind == "index" {
+	for _, record := range items {
+		if record.Kind == "index" {
 			continue
 		}
-		if err := s.repo.Delete(rec.ID); err != nil {
+		if err := s.store.Delete(record.ID); err != nil {
 			return err
 		}
 	}
@@ -246,82 +246,82 @@ func (s *Service) PruneLegacyRepos() error {
 
 // Remove deletes a repository record.
 func (s *Service) Remove(id string) error {
-	if existing, err := s.repo.Get(id); err == nil && existing != nil && existing.Builtin {
+	if existing, err := s.store.Get(id); err == nil && existing != nil && existing.Builtin {
 		return fmt.Errorf("remove repo %q: %w", id, ErrBuiltinRepoProtected)
 	}
-	return s.repo.Delete(id)
+	return s.store.Delete(id)
 }
 
 // GetIndex fetches the index document with display info and files.
 func (s *Service) GetIndex(ctx context.Context, id string) (IndexDoc, error) {
-	rec, err := s.repo.Get(id)
+	record, err := s.store.Get(id)
 	if err != nil {
 		return IndexDoc{}, err
 	}
-	files, idx, err := s.index.listWithIndex(ctx, s.refOf(rec))
+	files, repositoryIndex, err := s.index.listWithIndex(ctx, s.referenceOf(record))
 	if err != nil {
 		return IndexDoc{}, err
 	}
-	return IndexDoc{Title: idx.Title, Description: idx.Description, Files: files}, nil
+	return IndexDoc{Title: repositoryIndex.Title, Description: repositoryIndex.Description, Files: files}, nil
 }
 
 // ListPluginFiles lists plugin files for one repository.
 func (s *Service) ListPluginFiles(ctx context.Context, id string) ([]RepoFile, error) {
-	rec, err := s.repo.Get(id)
+	record, err := s.store.Get(id)
 	if err != nil {
 		return nil, err
 	}
-	return s.index.ListPluginFiles(ctx, s.refOf(rec))
+	return s.index.ListPluginFiles(ctx, s.referenceOf(record))
 }
 
 // FetchFile downloads one plugin file.
 func (s *Service) FetchFile(ctx context.Context, id, path string) ([]byte, error) {
-	rec, err := s.repo.Get(id)
+	record, err := s.store.Get(id)
 	if err != nil {
 		return nil, err
 	}
-	return s.index.FetchFile(ctx, s.refOf(rec), path)
+	return s.index.FetchFile(ctx, s.referenceOf(record), path)
 }
 
 // ReadMe returns the repository README when present.
 func (s *Service) ReadMe(ctx context.Context, id string) (string, bool, error) {
-	rec, err := s.repo.Get(id)
+	record, err := s.store.Get(id)
 	if err != nil {
 		return "", false, err
 	}
-	return s.index.ReadMe(ctx, s.refOf(rec))
+	return s.index.ReadMe(ctx, s.referenceOf(record))
 }
 
 // License returns the repository license when present.
 func (s *Service) License(ctx context.Context, id string) (string, bool, error) {
-	rec, err := s.repo.Get(id)
+	record, err := s.store.Get(id)
 	if err != nil {
 		return "", false, err
 	}
-	return s.index.License(ctx, s.refOf(rec))
+	return s.index.License(ctx, s.referenceOf(record))
 }
 
-func slugURL(s string) string {
-	s = strings.ToLower(s)
-	var b strings.Builder
+func slugURL(value string) string {
+	value = strings.ToLower(value)
+	var builder strings.Builder
 	prevDash := false
-	for _, r := range s {
+	for _, r := range value {
 		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
+			builder.WriteRune(r)
 			prevDash = false
 		} else if !prevDash {
-			b.WriteRune('-')
+			builder.WriteRune('-')
 			prevDash = true
 		}
 	}
-	out := strings.Trim(b.String(), "-")
-	if len(out) > 64 {
-		out = out[:64]
+	output := strings.Trim(builder.String(), "-")
+	if len(output) > 64 {
+		output = output[:64]
 	}
-	if out == "" {
-		out = "index"
+	if output == "" {
+		output = "index"
 	}
-	return out
+	return output
 }
 
 // ─────────────────────────────────────────────
@@ -330,55 +330,55 @@ func slugURL(s string) string {
 
 var errRawNotFound = errors.New("raw file not found")
 
-// repoIndex is index.json: repository display info and plugin file names.
+// repositoryIndex is index.json: repository display info and plugin file names.
 // Versions and descriptions come from manifests at runtime.
-type repoIndex struct {
+type repositoryIndex struct {
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
 	Plugins     []string `json:"plugins"`
 }
 
 func (p *indexProvider) download(ctx context.Context, url string, limit int64) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	request, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := p.client.Do(req)
+	response, err := p.client.Do(request)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
 		return nil, errRawNotFound
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download %q: status %d", url, resp.StatusCode)
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download %q: status %d", url, response.StatusCode)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, limit))
+	return io.ReadAll(io.LimitReader(response.Body, limit))
 }
 
-func (p *indexProvider) fetchIndex(ctx context.Context, indexURL string) (*repoIndex, error) {
+func (p *indexProvider) fetchIndex(ctx context.Context, indexURL string) (*repositoryIndex, error) {
 	body, err := p.download(ctx, indexURL, 64<<10)
 	if err != nil {
 		return nil, err
 	}
-	var idx repoIndex
-	if err := json.Unmarshal(body, &idx); err != nil {
+	var index repositoryIndex
+	if err := json.Unmarshal(body, &index); err != nil {
 		return nil, fmt.Errorf("decode index: %w", err)
 	}
-	if len(idx.Plugins) == 0 {
+	if len(index.Plugins) == 0 {
 		return nil, fmt.Errorf("index lists no plugins")
 	}
-	return &idx, nil
+	return &index, nil
 }
 
-// indexDir returns the directory holding index.json.
-func indexDir(indexURL string) string {
+// indexDirectory returns the directory holding index.json.
+func indexDirectory(indexURL string) string {
 	return strings.TrimSuffix(indexURL, "/index.json")
 }
 
-func (p *indexProvider) ListPluginFiles(ctx context.Context, ref RepoRef) ([]RepoFile, error) {
-	files, _, err := p.listWithIndex(ctx, ref)
+func (p *indexProvider) ListPluginFiles(ctx context.Context, repositoryRef RepoRef) ([]RepoFile, error) {
+	files, _, err := p.listWithIndex(ctx, repositoryRef)
 	return files, err
 }
 
@@ -389,15 +389,15 @@ type IndexDoc struct {
 	Files       []RepoFile
 }
 
-func (p *indexProvider) listWithIndex(ctx context.Context, ref RepoRef) ([]RepoFile, *repoIndex, error) {
-	idx, err := p.fetchIndex(ctx, ref.IndexURL)
+func (p *indexProvider) listWithIndex(ctx context.Context, repositoryRef RepoRef) ([]RepoFile, *repositoryIndex, error) {
+	index, err := p.fetchIndex(ctx, repositoryRef.IndexURL)
 	if err != nil {
 		return nil, nil, err
 	}
-	dir := indexDir(ref.IndexURL)
-	out := []RepoFile{}
+	directory := indexDirectory(repositoryRef.IndexURL)
+	output := []RepoFile{}
 	seen := map[string]bool{}
-	for _, name := range idx.Plugins {
+	for _, name := range index.Plugins {
 		name = strings.TrimSpace(name)
 		if name == "" || !strings.HasSuffix(name, ".lua") || strings.Contains(name, "/") {
 			continue
@@ -406,23 +406,23 @@ func (p *indexProvider) listWithIndex(ctx context.Context, ref RepoRef) ([]RepoF
 			continue
 		}
 		seen[name] = true
-		out = append(out, RepoFile{Path: "llm-router-plugins/" + name, URL: dir + "/" + name})
+		output = append(output, RepoFile{Path: "llm-router-plugins/" + name, URL: directory + "/" + name})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
-	return out, idx, nil
+	sort.Slice(output, func(i, j int) bool { return output[i].Path < output[j].Path })
+	return output, index, nil
 }
 
-func (p *indexProvider) FetchFile(ctx context.Context, ref RepoRef, path string) ([]byte, error) {
+func (p *indexProvider) FetchFile(ctx context.Context, repositoryRef RepoRef, path string) ([]byte, error) {
 	if !strings.HasPrefix(path, "llm-router-plugins/") || strings.Contains(strings.TrimPrefix(path, "llm-router-plugins/"), "/") {
 		return nil, fmt.Errorf("invalid plugin path %q", path)
 	}
-	files, err := p.ListPluginFiles(ctx, ref)
+	files, err := p.ListPluginFiles(ctx, repositoryRef)
 	if err != nil {
 		return nil, err
 	}
-	for _, f := range files {
-		if f.Path == path {
-			body, err := p.download(ctx, f.URL, 1<<20)
+	for _, file := range files {
+		if file.Path == path {
+			body, err := p.download(ctx, file.URL, 1<<20)
 			if err != nil {
 				if errors.Is(err, errRawNotFound) {
 					return nil, fmt.Errorf("plugin %q not found", path)
@@ -443,21 +443,21 @@ func (p *indexProvider) fetchText(ctx context.Context, url string) (string, bool
 	return string(body), true
 }
 
-// docCandidates probes well-known doc names next to the index, then one
+// documentCandidates probes well-known doc names next to the index, then one
 // level up, covering flat layouts and llm-router-plugins/ subdirectories.
-func (p *indexProvider) docCandidates(ctx context.Context, ref RepoRef, names []string) (string, bool) {
-	dir := indexDir(ref.IndexURL)
-	parent := dir
-	if i := strings.LastIndex(dir, "/"); i > 0 {
-		parent = dir[:i]
+func (p *indexProvider) documentCandidates(ctx context.Context, repositoryRef RepoRef, names []string) (string, bool) {
+	directory := indexDirectory(repositoryRef.IndexURL)
+	parent := directory
+	if i := strings.LastIndex(directory, "/"); i > 0 {
+		parent = directory[:i]
 	}
-	dirs := []string{dir}
-	if parent != dir {
-		dirs = append(dirs, parent)
+	directories := []string{directory}
+	if parent != directory {
+		directories = append(directories, parent)
 	}
-	for _, d := range dirs {
+	for _, candidateDirectory := range directories {
 		for _, name := range names {
-			if content, ok := p.fetchText(ctx, d+"/"+name); ok {
+			if content, ok := p.fetchText(ctx, candidateDirectory+"/"+name); ok {
 				return content, true
 			}
 		}
@@ -465,12 +465,12 @@ func (p *indexProvider) docCandidates(ctx context.Context, ref RepoRef, names []
 	return "", false
 }
 
-func (p *indexProvider) ReadMe(ctx context.Context, ref RepoRef) (string, bool, error) {
-	content, ok := p.docCandidates(ctx, ref, []string{"README.md"})
+func (p *indexProvider) ReadMe(ctx context.Context, repositoryRef RepoRef) (string, bool, error) {
+	content, ok := p.documentCandidates(ctx, repositoryRef, []string{"README.md"})
 	return content, ok, nil
 }
 
-func (p *indexProvider) License(ctx context.Context, ref RepoRef) (string, bool, error) {
-	content, ok := p.docCandidates(ctx, ref, []string{"LICENSE.md", "LICENSE", "LICENSE.txt"})
+func (p *indexProvider) License(ctx context.Context, repositoryRef RepoRef) (string, bool, error) {
+	content, ok := p.documentCandidates(ctx, repositoryRef, []string{"LICENSE.md", "LICENSE", "LICENSE.txt"})
 	return content, ok, nil
 }

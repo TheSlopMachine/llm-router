@@ -65,15 +65,15 @@
   // Responsive columns: the table measures itself and drops low-priority
   // columns as it narrows (<1024 hides p3, <640 hides p2 too). Never hide
   // everything: fall back to the full set rather than an empty table.
-  let rootEl = $state<HTMLElement | null>(null)
+  let rootElement = $state<HTMLElement | null>(null)
   let tableWidth = $state<number | null>(null)
   $effect(() => {
-    const el = rootEl
-    if (!el || typeof ResizeObserver === 'undefined') return
+    const element = rootElement
+    if (!element || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver((entries) => {
       tableWidth = entries[0]?.contentRect.width ?? null
     })
-    ro.observe(el)
+    ro.observe(element)
     return () => ro.disconnect()
   })
   const visibleColumns = $derived.by(() => {
@@ -128,7 +128,7 @@
   }
 </script>
 
-<div bind:this={rootEl} class="uit-table" class:uit-cards-mode={isCard} role="table" style:grid-template-columns={template} use:squircleAuto={{ off: isCard }}>
+<div bind:this={rootElement} class="uit-table" class:uit-cards-mode={isCard} role="table" style:grid-template-columns={template} use:squircleAuto={{ off: isCard }}>
   {#if isCard}
     {#if loading}
       {#each Array(skeletonRows) as _}

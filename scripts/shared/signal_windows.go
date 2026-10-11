@@ -107,37 +107,37 @@ func registerSession(pidFile string, pids []int) error {
 	if err != nil {
 		return fmt.Errorf("job object name: %w", err)
 	}
-	jh, _, jerr := procCreateJobObjectW.Call(0, uintptr(unsafe.Pointer(namePtr)))
-	if jh == 0 {
+	jobHandle, _, jerr := procCreateJobObjectW.Call(0, uintptr(unsafe.Pointer(namePtr)))
+	if jobHandle == 0 {
 		return fmt.Errorf("CreateJobObjectW: %w", jerr)
 	}
-	defer procCloseHandle.Call(jh)
+	defer procCloseHandle.Call(jobHandle)
 
-	curProc, _, _ := procGetCurrentProcess.Call() // pseudo-handle, no cleanup needed
+	currentProcess, _, _ := procGetCurrentProcess.Call() // pseudo-handle, no cleanup needed
 
 	for _, pid := range pids {
 		if pid <= 0 {
 			continue
 		}
-		ph, _, perr := procOpenProcess.Call(
+		processHandle, _, perr := procOpenProcess.Call(
 			uintptr(processSetQuota|processTerminateRight|processDupHandle), 0, uintptr(pid))
-		if ph == 0 {
+		if processHandle == 0 {
 			return fmt.Errorf("OpenProcess PID %d: %w", pid, perr)
 		}
 
-		if ok, _, aerr := procAssignProcessToJobObject.Call(jh, ph); ok == 0 {
-			procCloseHandle.Call(ph)
+		if ok, _, aerr := procAssignProcessToJobObject.Call(jobHandle, processHandle); ok == 0 {
+			procCloseHandle.Call(processHandle)
 			return fmt.Errorf("AssignProcessToJobObject PID %d: %w", pid, aerr)
 		}
 
-		var dup uintptr
+		var duplicatedHandle uintptr
 		ok, _, derr := procDuplicateHandle.Call(
-			curProc, jh, ph, uintptr(unsafe.Pointer(&dup)), 0, 0, duplicateSameAccess)
-		procCloseHandle.Call(ph)
+			currentProcess, jobHandle, processHandle, uintptr(unsafe.Pointer(&duplicatedHandle)), 0, 0, duplicateSameAccess)
+		procCloseHandle.Call(processHandle)
 		if ok == 0 {
 			return fmt.Errorf("DuplicateHandle pin job to PID %d: %w", pid, derr)
 		}
-		// dup now lives in pid's handle table. Never closed here.
+		// duplicatedHandle now lives in pid's handle table. Never closed here.
 	}
 	return nil
 }
@@ -152,13 +152,13 @@ func forceKillAll(pidFile string, pids []int) error {
 	if err != nil {
 		return fmt.Errorf("job object name: %w", err)
 	}
-	jh, _, _ := procOpenJobObjectW.Call(uintptr(jobObjectTerminateRight), 0, uintptr(unsafe.Pointer(namePtr)))
-	if jh == 0 {
+	jobHandle, _, _ := procOpenJobObjectW.Call(uintptr(jobObjectTerminateRight), 0, uintptr(unsafe.Pointer(namePtr)))
+	if jobHandle == 0 {
 		return forceKillFallback(pids)
 	}
-	defer procCloseHandle.Call(jh)
+	defer procCloseHandle.Call(jobHandle)
 
-	ok, _, terr := procTerminateJobObject.Call(jh, 1)
+	ok, _, terr := procTerminateJobObject.Call(jobHandle, 1)
 	if ok == 0 {
 		return fmt.Errorf("TerminateJobObject: %w", terr)
 	}
@@ -198,17 +198,17 @@ func forceKillFallback(pids []int) error {
 // processPath resolves pid's executable path, best-effort. Returns
 // "unknown" on any failure.
 func processPath(pid int) string {
-	h, _, _ := procOpenProcess.Call(uintptr(processQueryLimitedInformation), 0, uintptr(pid))
-	if h == 0 {
+	processHandle, _, _ := procOpenProcess.Call(uintptr(processQueryLimitedInformation), 0, uintptr(pid))
+	if processHandle == 0 {
 		return "unknown"
 	}
-	defer procCloseHandle.Call(h)
+	defer procCloseHandle.Call(processHandle)
 	// 32K chars: diagnostic-only and cheap, and Windows paths exceed 260.
-	buf := make([]uint16, 32768)
-	size := uint32(len(buf))
-	ok, _, _ := procQueryFullProcessImageNameW.Call(h, 0, uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)))
+	buffer := make([]uint16, 32768)
+	size := uint32(len(buffer))
+	ok, _, _ := procQueryFullProcessImageNameW.Call(processHandle, 0, uintptr(unsafe.Pointer(&buffer[0])), uintptr(unsafe.Pointer(&size)))
 	if ok == 0 {
 		return "unknown"
 	}
-	return syscall.UTF16ToString(buf[:size])
+	return syscall.UTF16ToString(buffer[:size])
 }

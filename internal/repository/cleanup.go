@@ -22,7 +22,7 @@ import (
 //	})
 func CleanupExpired[T any](
 	database *db.DB,
-	bucket []byte,
+	bucketName []byte,
 	threshold time.Time,
 	getTimestamp func(*T) time.Time,
 ) error {
@@ -30,20 +30,20 @@ func CleanupExpired[T any](
 
 	// Phase 1: Collect keys to delete
 	err := database.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucket)
-		if b == nil {
+		bucket := tx.Bucket(bucketName)
+		if bucket == nil {
 			return nil
 		}
-		return b.ForEach(func(k, v []byte) error {
+		return bucket.ForEach(func(key, value []byte) error {
 			var item T
-			if err := json.Unmarshal(v, &item); err != nil {
+			if err := json.Unmarshal(value, &item); err != nil {
 				// Skip malformed records
 				return nil
 			}
 			if getTimestamp(&item).Before(threshold) {
 				// Make a copy of the key since it's only valid during the transaction
-				keyCopy := make([]byte, len(k))
-				copy(keyCopy, k)
+				keyCopy := make([]byte, len(key))
+				copy(keyCopy, key)
 				toDelete = append(toDelete, keyCopy)
 			}
 			return nil
@@ -59,9 +59,9 @@ func CleanupExpired[T any](
 
 	// Phase 2: Delete collected keys
 	return database.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucket)
-		for _, k := range toDelete {
-			if err := b.Delete(k); err != nil {
+		bucket := tx.Bucket(bucketName)
+		for _, key := range toDelete {
+			if err := bucket.Delete(key); err != nil {
 				return err
 			}
 		}

@@ -12,9 +12,9 @@ func main() {
 	if err != nil {
 		shared.Failf("%v", err)
 	}
-	pkg := shared.Getenv("PKG", "./...")
-	shared.Stepf("Running go test (PKG=%s)...", pkg)
-	cmd := exec.Command("go", "test", pkg)
+	packagePattern := shared.Getenv("PKG", "./...")
+	shared.Stepf("Running go test (PKG=%s)...", packagePattern)
+	cmd := exec.Command("go", "test", packagePattern)
 	cmd.Dir = root
 	cmd.Env = shared.EnvWithoutGowork()
 	cmd.Stdout = os.Stdout

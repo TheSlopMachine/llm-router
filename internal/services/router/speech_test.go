@@ -25,20 +25,20 @@ type speechMockAdapter struct {
 	imageFunc  func(context.Context, []*models.Credential, *models.ImageGenerationRequest) (*models.ImageGenerationResponse, error)
 }
 
-func (m *speechMockAdapter) GetModelInfos(ctx context.Context, cred *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {
+func (m *speechMockAdapter) GetModelInfos(ctx context.Context, credential *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {
 	return m.infos, nil
 }
 
-func (m *speechMockAdapter) Speech(ctx context.Context, creds []*models.Credential, req *models.SpeechRequest, _ map[string]any) (*models.SpeechResponse, error) {
+func (m *speechMockAdapter) Speech(ctx context.Context, creds []*models.Credential, request *models.SpeechRequest, _ map[string]any) (*models.SpeechResponse, error) {
 	if m.speechFunc != nil {
-		return m.speechFunc(ctx, creds, req)
+		return m.speechFunc(ctx, creds, request)
 	}
 	return &models.SpeechResponse{Audio: []byte("AUDIO"), Format: "mp3"}, nil
 }
 
-func (m *speechMockAdapter) GenerateImage(ctx context.Context, creds []*models.Credential, req *models.ImageGenerationRequest, _ map[string]any) (*models.ImageGenerationResponse, error) {
+func (m *speechMockAdapter) GenerateImage(ctx context.Context, creds []*models.Credential, request *models.ImageGenerationRequest, _ map[string]any) (*models.ImageGenerationResponse, error) {
 	if m.imageFunc != nil {
-		return m.imageFunc(ctx, creds, req)
+		return m.imageFunc(ctx, creds, request)
 	}
 	return &models.ImageGenerationResponse{
 		Created: 1700000001,
@@ -50,80 +50,80 @@ func setupSpeechRouter(t *testing.T) (*Service, *credential.Service, *modelinfo.
 	t.Helper()
 	database := testutil.SetupTestDB(t)
 
-	providerSvc := provider.NewService(database)
+	providerService := provider.NewService(database)
 	mock := &speechMockAdapter{MockAdapter: testutil.NewMockAdapter("mock")}
-	providerSvc.RegisterGoAdapter(mock)
-	if _, err := providerSvc.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
+	providerService.RegisterGoAdapter(mock)
+	if _, err := providerService.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
 	}
-	credSvc := credential.New(database, providerSvc)
-	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
+	credentialService := credential.New(database, providerService)
+	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
 
-	return New(providerSvc, credSvc, modelInfoSvc, videojobs.New(database), nil, nil, slog.Default()), credSvc, modelInfoSvc, mock
+	return New(providerService, credentialService, modelInfoService, videojobs.New(database), nil, nil, slog.Default()), credentialService, modelInfoService, mock
 }
 
-func speechReq(model string) *models.SpeechRequest {
+func speechRequest(model string) *models.SpeechRequest {
 	return &models.SpeechRequest{Model: models.ModelId(model), Input: "hello", Voice: "Kore"}
 }
 
-func imageReq(model string) *models.ImageGenerationRequest {
+func imageRequest(model string) *models.ImageGenerationRequest {
 	return &models.ImageGenerationRequest{Model: models.ModelId(model), Prompt: "a cat", N: 1}
 }
 
 func TestRouterService_Speech_Success(t *testing.T) {
-	svc, credSvc, _, _ := setupSpeechRouter(t)
-	addTranscribeCred(t, credSvc, "Cred 1")
+	service, credentialService, _, _ := setupSpeechRouter(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
 
-	resp, err := svc.Speech(context.Background(), speechReq("mock/gemini-tts"), nil)
+	response, err := service.Speech(context.Background(), speechRequest("mock/gemini-tts"), nil)
 	if err != nil {
 		t.Fatalf("speech failed: %v", err)
 	}
-	if string(resp.Audio) != "AUDIO" || resp.Format != "mp3" {
-		t.Fatalf("response: %+v", resp)
+	if string(response.Audio) != "AUDIO" || response.Format != "mp3" {
+		t.Fatalf("response: %+v", response)
 	}
 }
 
 func TestRouterService_Speech_UnsupportedAdapter(t *testing.T) {
-	svc, credSvc, _, _ := setupRouterService(t)
-	addTranscribeCred(t, credSvc, "Cred 1")
+	service, credentialService, _, _ := setupRouterService(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
 
-	_, err := svc.Speech(context.Background(), speechReq("mock/test-model"), nil)
+	_, err := service.Speech(context.Background(), speechRequest("mock/test-model"), nil)
 	if !errors.Is(err, apierrors.ErrEndpointNotSupported) {
 		t.Fatalf("expected ErrEndpointNotSupported, got %v", err)
 	}
 }
 
 func TestRouterService_Speech_ModelGateRejects(t *testing.T) {
-	svc, credSvc, modelInfoSvc, mock := setupSpeechRouter(t)
-	addTranscribeCred(t, credSvc, "Cred 1")
+	service, credentialService, modelInfoService, mock := setupSpeechRouter(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
 	mock.infos = []models.ModelInfo{
 		{Name: "chat-model", DisplayName: "Chat", Endpoints: []string{models.EndpointChatCompletions}},
 	}
-	if _, err := modelInfoSvc.GetModelInfos(context.Background(), "mock"); err != nil {
+	if _, err := modelInfoService.GetModelInfos(context.Background(), "mock"); err != nil {
 		t.Fatalf("warm model cache: %v", err)
 	}
 
-	_, err := svc.Speech(context.Background(), speechReq("mock/chat-model"), nil)
+	_, err := service.Speech(context.Background(), speechRequest("mock/chat-model"), nil)
 	if !errors.Is(err, apierrors.ErrEndpointNotSupported) {
 		t.Fatalf("expected ErrEndpointNotSupported, got %v", err)
 	}
 }
 
 func TestRouterService_Speech_ModelGateAllowsAndBlocksChat(t *testing.T) {
-	svc, credSvc, modelInfoSvc, mock := setupSpeechRouter(t)
-	addTranscribeCred(t, credSvc, "Cred 1")
+	service, credentialService, modelInfoService, mock := setupSpeechRouter(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
 	mock.infos = []models.ModelInfo{
 		{Name: "tts-model", DisplayName: "TTS", Endpoints: []string{models.EndpointAudioSpeech}},
 	}
-	if _, err := modelInfoSvc.GetModelInfos(context.Background(), "mock"); err != nil {
+	if _, err := modelInfoService.GetModelInfos(context.Background(), "mock"); err != nil {
 		t.Fatalf("warm model cache: %v", err)
 	}
 
-	if _, err := svc.Speech(context.Background(), speechReq("mock/tts-model"), nil); err != nil {
+	if _, err := service.Speech(context.Background(), speechRequest("mock/tts-model"), nil); err != nil {
 		t.Fatalf("speech failed: %v", err)
 	}
 
-	_, err := svc.Complete(context.Background(), &models.ChatCompletionRequest{
+	_, err := service.Complete(context.Background(), &models.ChatCompletionRequest{
 		Model:    "mock/tts-model",
 		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
 	}, nil)
@@ -133,81 +133,81 @@ func TestRouterService_Speech_ModelGateAllowsAndBlocksChat(t *testing.T) {
 }
 
 func TestRouterService_Speech_PassesPoolToBackend(t *testing.T) {
-	svc, credSvc, _, mock := setupSpeechRouter(t)
-	addTranscribeCred(t, credSvc, "Cred 1")
-	addTranscribeCred(t, credSvc, "Cred 2")
+	service, credentialService, _, mock := setupSpeechRouter(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
+	addTranscribeCred(t, credentialService, "Cred 2")
 
-	mock.speechFunc = func(ctx context.Context, creds []*models.Credential, req *models.SpeechRequest) (*models.SpeechResponse, error) {
+	mock.speechFunc = func(ctx context.Context, creds []*models.Credential, request *models.SpeechRequest) (*models.SpeechResponse, error) {
 		if len(creds) != 2 {
 			return nil, fmt.Errorf("expected 2-credential pool, got %d", len(creds))
 		}
 		return &models.SpeechResponse{Audio: []byte("SECOND"), Format: "mp3"}, nil
 	}
 
-	resp, err := svc.Speech(context.Background(), speechReq("mock/gemini-tts"), nil)
+	response, err := service.Speech(context.Background(), speechRequest("mock/gemini-tts"), nil)
 	if err != nil {
 		t.Fatalf("speech failed: %v", err)
 	}
-	if string(resp.Audio) != "SECOND" {
-		t.Fatalf("audio: got %q", resp.Audio)
+	if string(response.Audio) != "SECOND" {
+		t.Fatalf("audio: got %q", response.Audio)
 	}
 }
 
 func TestRouterService_GenerateImage_Success(t *testing.T) {
-	svc, credSvc, _, _ := setupSpeechRouter(t)
-	addTranscribeCred(t, credSvc, "Cred 1")
+	service, credentialService, _, _ := setupSpeechRouter(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
 
-	resp, err := svc.GenerateImage(context.Background(), imageReq("mock/imagen-3"), nil)
+	response, err := service.GenerateImage(context.Background(), imageRequest("mock/imagen-3"), nil)
 	if err != nil {
 		t.Fatalf("generate image failed: %v", err)
 	}
-	if len(resp.Data) != 1 || resp.Data[0].B64JSON != "aW1n" {
-		t.Fatalf("response: %+v", resp)
+	if len(response.Data) != 1 || response.Data[0].B64JSON != "aW1n" {
+		t.Fatalf("response: %+v", response)
 	}
 }
 
 func TestRouterService_GenerateImage_UnsupportedAdapter(t *testing.T) {
-	svc, credSvc, _, _ := setupRouterService(t)
-	addTranscribeCred(t, credSvc, "Cred 1")
+	service, credentialService, _, _ := setupRouterService(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
 
-	_, err := svc.GenerateImage(context.Background(), imageReq("mock/test-model"), nil)
+	_, err := service.GenerateImage(context.Background(), imageRequest("mock/test-model"), nil)
 	if !errors.Is(err, apierrors.ErrEndpointNotSupported) {
 		t.Fatalf("expected ErrEndpointNotSupported, got %v", err)
 	}
 }
 
 func TestRouterService_GenerateImage_ModelGateRejects(t *testing.T) {
-	svc, credSvc, modelInfoSvc, mock := setupSpeechRouter(t)
-	addTranscribeCred(t, credSvc, "Cred 1")
+	service, credentialService, modelInfoService, mock := setupSpeechRouter(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
 	mock.infos = []models.ModelInfo{
 		{Name: "chat-model", DisplayName: "Chat", Endpoints: []string{models.EndpointChatCompletions}},
 	}
-	if _, err := modelInfoSvc.GetModelInfos(context.Background(), "mock"); err != nil {
+	if _, err := modelInfoService.GetModelInfos(context.Background(), "mock"); err != nil {
 		t.Fatalf("warm model cache: %v", err)
 	}
 
-	_, err := svc.GenerateImage(context.Background(), imageReq("mock/chat-model"), nil)
+	_, err := service.GenerateImage(context.Background(), imageRequest("mock/chat-model"), nil)
 	if !errors.Is(err, apierrors.ErrEndpointNotSupported) {
 		t.Fatalf("expected ErrEndpointNotSupported, got %v", err)
 	}
 }
 
 func TestRouterService_GenerateImage_ModelGateAllows(t *testing.T) {
-	svc, credSvc, modelInfoSvc, mock := setupSpeechRouter(t)
-	addTranscribeCred(t, credSvc, "Cred 1")
+	service, credentialService, modelInfoService, mock := setupSpeechRouter(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
 	mock.infos = []models.ModelInfo{
 		{Name: "image-model", DisplayName: "Image", Endpoints: []string{models.EndpointImagesGenerations}},
 	}
-	if _, err := modelInfoSvc.GetModelInfos(context.Background(), "mock"); err != nil {
+	if _, err := modelInfoService.GetModelInfos(context.Background(), "mock"); err != nil {
 		t.Fatalf("warm model cache: %v", err)
 	}
 
-	resp, err := svc.GenerateImage(context.Background(), imageReq("mock/image-model"), nil)
+	response, err := service.GenerateImage(context.Background(), imageRequest("mock/image-model"), nil)
 	if err != nil {
 		t.Fatalf("generate image failed: %v", err)
 	}
-	if len(resp.Data) != 1 {
-		t.Fatalf("data len: %d", len(resp.Data))
+	if len(response.Data) != 1 {
+		t.Fatalf("data len: %d", len(response.Data))
 	}
 }
 
@@ -218,16 +218,16 @@ type embedMockAdapter struct {
 	embedFunc func(context.Context, []*models.Credential, *models.EmbeddingsRequest) (*models.EmbeddingsResponse, error)
 }
 
-func (m *embedMockAdapter) GetModelInfos(ctx context.Context, cred *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {
+func (m *embedMockAdapter) GetModelInfos(ctx context.Context, credential *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {
 	return m.infos, nil
 }
 
-func (m *embedMockAdapter) Embed(ctx context.Context, creds []*models.Credential, req *models.EmbeddingsRequest, _ map[string]any) (*models.EmbeddingsResponse, error) {
+func (m *embedMockAdapter) Embed(ctx context.Context, creds []*models.Credential, request *models.EmbeddingsRequest, _ map[string]any) (*models.EmbeddingsResponse, error) {
 	if m.embedFunc != nil {
-		return m.embedFunc(ctx, creds, req)
+		return m.embedFunc(ctx, creds, request)
 	}
-	data := make([]models.Embedding, len(req.Input))
-	for i := range req.Input {
+	data := make([]models.Embedding, len(request.Input))
+	for i := range request.Input {
 		data[i] = models.Embedding{Index: i, Values: []float64{0.1, 0.2}}
 	}
 	return &models.EmbeddingsResponse{Data: data}, nil
@@ -237,76 +237,76 @@ func setupEmbedRouter(t *testing.T) (*Service, *credential.Service, *modelinfo.S
 	t.Helper()
 	database := testutil.SetupTestDB(t)
 
-	providerSvc := provider.NewService(database)
+	providerService := provider.NewService(database)
 	mock := &embedMockAdapter{MockAdapter: testutil.NewMockAdapter("mock")}
-	providerSvc.RegisterGoAdapter(mock)
-	if _, err := providerSvc.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
+	providerService.RegisterGoAdapter(mock)
+	if _, err := providerService.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
 	}
-	credSvc := credential.New(database, providerSvc)
-	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
+	credentialService := credential.New(database, providerService)
+	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
 
-	return New(providerSvc, credSvc, modelInfoSvc, videojobs.New(database), nil, nil, slog.Default()), credSvc, modelInfoSvc, mock
+	return New(providerService, credentialService, modelInfoService, videojobs.New(database), nil, nil, slog.Default()), credentialService, modelInfoService, mock
 }
 
-func embedReq(model string) *models.EmbeddingsRequest {
+func embedRequest(model string) *models.EmbeddingsRequest {
 	return &models.EmbeddingsRequest{Model: models.ModelId(model), Input: []string{"hello", "world"}}
 }
 
 func TestRouterService_Embed_Success(t *testing.T) {
-	svc, credSvc, _, _ := setupEmbedRouter(t)
-	addTranscribeCred(t, credSvc, "Cred 1")
+	service, credentialService, _, _ := setupEmbedRouter(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
 
-	resp, err := svc.Embed(context.Background(), embedReq("mock/gemini-embedding-001"), nil)
+	response, err := service.Embed(context.Background(), embedRequest("mock/gemini-embedding-001"), nil)
 	if err != nil {
 		t.Fatalf("embed failed: %v", err)
 	}
-	if len(resp.Data) != 2 || len(resp.Data[0].Values) != 2 {
-		t.Fatalf("response: %+v", resp)
+	if len(response.Data) != 2 || len(response.Data[0].Values) != 2 {
+		t.Fatalf("response: %+v", response)
 	}
 }
 
 func TestRouterService_Embed_UnsupportedAdapter(t *testing.T) {
-	svc, credSvc, _, _ := setupRouterService(t)
-	addTranscribeCred(t, credSvc, "Cred 1")
+	service, credentialService, _, _ := setupRouterService(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
 
-	_, err := svc.Embed(context.Background(), embedReq("mock/test-model"), nil)
+	_, err := service.Embed(context.Background(), embedRequest("mock/test-model"), nil)
 	if !errors.Is(err, apierrors.ErrEndpointNotSupported) {
 		t.Fatalf("expected ErrEndpointNotSupported, got %v", err)
 	}
 }
 
 func TestRouterService_Embed_ModelGateRejects(t *testing.T) {
-	svc, credSvc, modelInfoSvc, mock := setupEmbedRouter(t)
-	addTranscribeCred(t, credSvc, "Cred 1")
+	service, credentialService, modelInfoService, mock := setupEmbedRouter(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
 	mock.infos = []models.ModelInfo{
 		{Name: "chat-model", DisplayName: "Chat", Endpoints: []string{models.EndpointChatCompletions}},
 	}
-	if _, err := modelInfoSvc.GetModelInfos(context.Background(), "mock"); err != nil {
+	if _, err := modelInfoService.GetModelInfos(context.Background(), "mock"); err != nil {
 		t.Fatalf("warm model cache: %v", err)
 	}
 
-	_, err := svc.Embed(context.Background(), embedReq("mock/chat-model"), nil)
+	_, err := service.Embed(context.Background(), embedRequest("mock/chat-model"), nil)
 	if !errors.Is(err, apierrors.ErrEndpointNotSupported) {
 		t.Fatalf("expected ErrEndpointNotSupported, got %v", err)
 	}
 }
 
 func TestRouterService_Embed_ModelGateAllowsAndBlocksChat(t *testing.T) {
-	svc, credSvc, modelInfoSvc, mock := setupEmbedRouter(t)
-	addTranscribeCred(t, credSvc, "Cred 1")
+	service, credentialService, modelInfoService, mock := setupEmbedRouter(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
 	mock.infos = []models.ModelInfo{
 		{Name: "emb-model", DisplayName: "Emb", Endpoints: []string{models.EndpointEmbeddings}},
 	}
-	if _, err := modelInfoSvc.GetModelInfos(context.Background(), "mock"); err != nil {
+	if _, err := modelInfoService.GetModelInfos(context.Background(), "mock"); err != nil {
 		t.Fatalf("warm model cache: %v", err)
 	}
 
-	if _, err := svc.Embed(context.Background(), embedReq("mock/emb-model"), nil); err != nil {
+	if _, err := service.Embed(context.Background(), embedRequest("mock/emb-model"), nil); err != nil {
 		t.Fatalf("embed failed: %v", err)
 	}
 
-	_, err := svc.Complete(context.Background(), &models.ChatCompletionRequest{
+	_, err := service.Complete(context.Background(), &models.ChatCompletionRequest{
 		Model:    "mock/emb-model",
 		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
 	}, nil)
@@ -316,11 +316,11 @@ func TestRouterService_Embed_ModelGateAllowsAndBlocksChat(t *testing.T) {
 }
 
 func TestRouterService_Embed_PassesPoolToBackend(t *testing.T) {
-	svc, credSvc, _, mock := setupEmbedRouter(t)
-	addTranscribeCred(t, credSvc, "Cred 1")
-	addTranscribeCred(t, credSvc, "Cred 2")
+	service, credentialService, _, mock := setupEmbedRouter(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
+	addTranscribeCred(t, credentialService, "Cred 2")
 
-	mock.embedFunc = func(ctx context.Context, creds []*models.Credential, req *models.EmbeddingsRequest) (*models.EmbeddingsResponse, error) {
+	mock.embedFunc = func(ctx context.Context, creds []*models.Credential, request *models.EmbeddingsRequest) (*models.EmbeddingsResponse, error) {
 		if len(creds) != 2 {
 			return nil, fmt.Errorf("expected 2-credential pool, got %d", len(creds))
 		}
@@ -329,41 +329,41 @@ func TestRouterService_Embed_PassesPoolToBackend(t *testing.T) {
 		}, nil
 	}
 
-	resp, err := svc.Embed(context.Background(), embedReq("mock/gemini-embedding-001"), nil)
+	response, err := service.Embed(context.Background(), embedRequest("mock/gemini-embedding-001"), nil)
 	if err != nil {
 		t.Fatalf("embed failed: %v", err)
 	}
-	if resp.Data[0].Values[0] != 9.9 {
-		t.Fatalf("expected backend response, got %+v", resp.Data[0])
+	if response.Data[0].Values[0] != 9.9 {
+		t.Fatalf("expected backend response, got %+v", response.Data[0])
 	}
 }
 
 func TestRouterService_TestSpeech_Probe(t *testing.T) {
-	svc, credSvc, _, _ := setupSpeechRouter(t)
-	addTranscribeCred(t, credSvc, "Cred 1")
+	service, credentialService, _, _ := setupSpeechRouter(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
 
-	res := svc.TestSpeech(context.Background(), "mock/gemini-tts")
-	if !res.OK {
-		t.Fatalf("speech probe failed: %v", res.Error)
+	result := service.TestSpeech(context.Background(), "mock/gemini-tts")
+	if !result.OK {
+		t.Fatalf("speech probe failed: %v", result.Error)
 	}
 }
 
 func TestRouterService_TestImageGeneration_Probe(t *testing.T) {
-	svc, credSvc, _, _ := setupSpeechRouter(t)
-	addTranscribeCred(t, credSvc, "Cred 1")
+	service, credentialService, _, _ := setupSpeechRouter(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
 
-	res := svc.TestImageGeneration(context.Background(), "mock/imagen-3")
-	if !res.OK {
-		t.Fatalf("image probe failed: %v", res.Error)
+	result := service.TestImageGeneration(context.Background(), "mock/imagen-3")
+	if !result.OK {
+		t.Fatalf("image probe failed: %v", result.Error)
 	}
 }
 
 func TestRouterService_TestEmbeddings_Probe(t *testing.T) {
-	svc, credSvc, _, _ := setupEmbedRouter(t)
-	addTranscribeCred(t, credSvc, "Cred 1")
+	service, credentialService, _, _ := setupEmbedRouter(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
 
-	res := svc.TestEmbeddings(context.Background(), "mock/gemini-embedding-001")
-	if !res.OK {
-		t.Fatalf("embeddings probe failed: %v", res.Error)
+	result := service.TestEmbeddings(context.Background(), "mock/gemini-embedding-001")
+	if !result.OK {
+		t.Fatalf("embeddings probe failed: %v", result.Error)
 	}
 }

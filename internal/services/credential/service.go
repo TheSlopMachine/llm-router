@@ -23,19 +23,19 @@ import (
 
 // Service manages Credential records.
 type Service struct {
-	db          *db.DB
-	providerSvc *provider.Service
-	repo        *repository.Repository[models.Credential]
-	parks       *repository.Repository[models.ParkEntry]
-	onChanged   func(providerID string)
-	logger      *slog.Logger
+	database        *db.DB
+	providerService *provider.Service
+	store           *repository.Repository[models.Credential]
+	parks           *repository.Repository[models.ParkEntry]
+	onChanged       func(providerID string)
+	logger          *slog.Logger
 }
 
 // SetLogger wires structured logging.
 func (s *Service) SetLogger(l *slog.Logger) { s.logger = l }
 
 // SetOnChanged registers a callback fired after credential add/delete for a provider.
-func (s *Service) SetOnChanged(fn func(providerID string)) { s.onChanged = fn }
+func (s *Service) SetOnChanged(function func(providerID string)) { s.onChanged = function }
 
 func (s *Service) notifyChanged(providerID string) {
 	if s.onChanged != nil {
@@ -44,12 +44,12 @@ func (s *Service) notifyChanged(providerID string) {
 }
 
 // New constructs a new credential Service.
-func New(database *db.DB, providerSvc *provider.Service) *Service {
+func New(database *db.DB, providerService *provider.Service) *Service {
 	return &Service{
-		db:          database,
-		providerSvc: providerSvc,
-		repo:        repository.New[models.Credential](database, db.BucketCredentials, "credential"),
-		parks:       repository.New[models.ParkEntry](database, db.BucketCredentialParks, "park"),
+		database:        database,
+		providerService: providerService,
+		store:           repository.New[models.Credential](database, db.BucketCredentials, "credential"),
+		parks:           repository.New[models.ParkEntry](database, db.BucketCredentialParks, "park"),
 	}
 }
 
@@ -67,19 +67,19 @@ type AddOptions struct {
 // Add validates and persists a new Credential for the given provider.
 // Validation dispatches to the Go adapter or the Lua validate_credentials
 // handler for the provider's type key.
-func (s *Service) Add(opts AddOptions) (*models.Credential, error) {
-	resolved, err := provider.Resolve(s.providerSvc, opts.ProviderID)
+func (s *Service) Add(options AddOptions) (*models.Credential, error) {
+	resolved, err := provider.Resolve(s.providerService, options.ProviderID)
 	if err != nil {
 		return nil, err
 	}
-	data := opts.Data
+	data := options.Data
 	if data == nil {
 		data = map[string]any{}
 	}
 	if resolved.IsLua() {
-		ok, verr := s.providerSvc.LuaService().ValidateCredentials(resolved.Instance.TypeKey, data)
-		if verr != nil {
-			return nil, fmt.Errorf("invalid credentials: %w", verr)
+		ok, validateError := s.providerService.LuaService().ValidateCredentials(resolved.Instance.TypeKey, data)
+		if validateError != nil {
+			return nil, fmt.Errorf("invalid credentials: %w", validateError)
 		}
 		if !ok {
 			return nil, fmt.Errorf("invalid credentials: rejected by provider")
@@ -96,20 +96,20 @@ func (s *Service) Add(opts AddOptions) (*models.Credential, error) {
 	}
 
 	now := util.Now()
-	cred := &models.Credential{
+	credential := &models.Credential{
 		ID:         id,
-		ProviderID: opts.ProviderID,
-		Label:      opts.Label,
+		ProviderID: options.ProviderID,
+		Label:      options.Label,
 		Data:       data,
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
 
-	if err := s.repo.Put(id, cred); err != nil {
+	if err := s.store.Put(id, credential); err != nil {
 		return nil, err
 	}
-	s.notifyChanged(opts.ProviderID)
-	return cred, nil
+	s.notifyChanged(options.ProviderID)
+	return credential, nil
 }
 
 // ─────────────────────────────────────────────
@@ -118,7 +118,7 @@ func (s *Service) Add(opts AddOptions) (*models.Credential, error) {
 
 // Get returns a single Credential by ID.
 func (s *Service) Get(id string) (*models.Credential, error) {
-	return s.repo.Get(id)
+	return s.store.Get(id)
 }
 
 // ListUsable returns routable credentials for a provider: non-expired and
@@ -126,7 +126,7 @@ func (s *Service) Get(id string) (*models.Credential, error) {
 // an error: plugin discovery and dashboard reads handle absence themselves.
 // Selection among them belongs to the plugin.
 func (s *Service) ListUsable(providerID string) ([]*models.Credential, error) {
-	all, err := s.repo.ListFiltered(func(c *models.Credential) bool {
+	all, err := s.store.ListFiltered(func(c *models.Credential) bool {
 		return c.ProviderID == providerID
 	})
 	if err != nil {
@@ -134,9 +134,9 @@ func (s *Service) ListUsable(providerID string) ([]*models.Credential, error) {
 	}
 
 	available := make([]*models.Credential, 0, len(all))
-	for _, c := range all {
-		if !c.IsExpired() && !c.Disabled {
-			available = append(available, c)
+	for _, credential := range all {
+		if !credential.IsExpired() && !credential.Disabled {
+			available = append(available, credential)
 		}
 	}
 
@@ -160,14 +160,14 @@ func (s *Service) All(providerID string) ([]*models.Credential, error) {
 
 // ListByProvider returns all Credentials for a given provider.
 func (s *Service) ListByProvider(providerID string) ([]*models.Credential, error) {
-	return s.repo.ListFiltered(func(c *models.Credential) bool {
+	return s.store.ListFiltered(func(c *models.Credential) bool {
 		return c.ProviderID == providerID
 	})
 }
 
 // ListAll returns every Credential across all providers.
 func (s *Service) ListAll() ([]*models.Credential, error) {
-	return s.repo.List()
+	return s.store.List()
 }
 
 // ─────────────────────────────────────────────
@@ -176,10 +176,10 @@ func (s *Service) ListAll() ([]*models.Credential, error) {
 
 // Update replaces a Credential's mutable fields (data, expiry).
 func (s *Service) Update(id string, data map[string]any, expiresAt *time.Time) error {
-	return s.repo.Update(id, func(c *models.Credential) error {
-		c.Data = data
-		c.ExpiresAt = expiresAt
-		c.UpdatedAt = util.Now()
+	return s.store.Update(id, func(credential *models.Credential) error {
+		credential.Data = data
+		credential.ExpiresAt = expiresAt
+		credential.UpdatedAt = util.Now()
 		return nil
 	})
 }
@@ -188,19 +188,19 @@ func (s *Service) Update(id string, data map[string]any, expiresAt *time.Time) e
 // optionally the credential data (revalidated against the provider backend
 // when replaced).
 func (s *Service) UpdateDetails(id string, label *string, disabled *bool, data map[string]any) error {
-	cred, err := s.repo.Get(id)
+	credential, err := s.store.Get(id)
 	if err != nil {
 		return err
 	}
 	if data != nil {
-		resolved, err := provider.Resolve(s.providerSvc, cred.ProviderID)
+		resolved, err := provider.Resolve(s.providerService, credential.ProviderID)
 		if err != nil {
 			return err
 		}
 		if resolved.IsLua() {
-			ok, verr := s.providerSvc.LuaService().ValidateCredentials(resolved.Instance.TypeKey, data)
-			if verr != nil {
-				return fmt.Errorf("invalid credentials: %w", verr)
+			ok, validateError := s.providerService.LuaService().ValidateCredentials(resolved.Instance.TypeKey, data)
+			if validateError != nil {
+				return fmt.Errorf("invalid credentials: %w", validateError)
 			}
 			if !ok {
 				return fmt.Errorf("invalid credentials: rejected by provider")
@@ -209,40 +209,40 @@ func (s *Service) UpdateDetails(id string, label *string, disabled *bool, data m
 			return fmt.Errorf("invalid credentials: %w", err)
 		}
 	}
-	if err := s.repo.Update(id, func(c *models.Credential) error {
+	if err := s.store.Update(id, func(current *models.Credential) error {
 		if label != nil {
-			c.Label = *label
+			current.Label = *label
 		}
 		if disabled != nil {
-			c.Disabled = *disabled
+			current.Disabled = *disabled
 			if *disabled {
 				now := util.Now()
-				c.DisabledBy = models.DisabledByAdmin
-				c.DisabledReason = "disabled by admin"
-				c.DisabledAt = &now
+				current.DisabledBy = models.DisabledByAdmin
+				current.DisabledReason = "disabled by admin"
+				current.DisabledAt = &now
 			} else {
-				c.DisabledBy = ""
-				c.DisabledReason = ""
-				c.DisabledAt = nil
+				current.DisabledBy = ""
+				current.DisabledReason = ""
+				current.DisabledAt = nil
 			}
 		}
 		if data != nil {
-			c.Data = data
+			current.Data = data
 		}
-		c.UpdatedAt = util.Now()
+		current.UpdatedAt = util.Now()
 		return nil
 	}); err != nil {
 		return err
 	}
 	if disabled != nil && s.logger != nil {
 		if *disabled {
-			s.logger.Info("credential disabled by admin", "credential_id", id, "provider_id", cred.ProviderID)
+			s.logger.Info("credential disabled by admin", "credential_id", id, "provider_id", credential.ProviderID)
 		} else {
-			s.logger.Info("credential enabled by admin", "credential_id", id, "provider_id", cred.ProviderID)
+			s.logger.Info("credential enabled by admin", "credential_id", id, "provider_id", credential.ProviderID)
 		}
 	}
 	if disabled != nil {
-		s.notifyChanged(cred.ProviderID)
+		s.notifyChanged(credential.ProviderID)
 	}
 	return nil
 }
@@ -258,16 +258,16 @@ func (s *Service) DisableUnhealthy(id, reason string) error {
 		reason = reason[:1024] + "…[truncated]"
 	}
 	disabled := false
-	err := s.repo.Update(id, func(c *models.Credential) error {
-		if c.Disabled {
+	err := s.store.Update(id, func(credential *models.Credential) error {
+		if credential.Disabled {
 			return nil
 		}
 		now := util.Now()
-		c.Disabled = true
-		c.DisabledBy = models.DisabledByHealthcheck
-		c.DisabledReason = reason
-		c.DisabledAt = &now
-		c.UpdatedAt = now
+		credential.Disabled = true
+		credential.DisabledBy = models.DisabledByHealthcheck
+		credential.DisabledReason = reason
+		credential.DisabledAt = &now
+		credential.UpdatedAt = now
 		disabled = true
 		return nil
 	})
@@ -277,8 +277,8 @@ func (s *Service) DisableUnhealthy(id, reason string) error {
 	if disabled && s.logger != nil {
 		s.logger.Info("credential disabled by healthcheck", "credential_id", id, "reason", reason)
 	}
-	if cred, gerr := s.repo.Get(id); gerr == nil && cred != nil {
-		s.notifyChanged(cred.ProviderID)
+	if credential, getError := s.store.Get(id); getError == nil && credential != nil {
+		s.notifyChanged(credential.ProviderID)
 	}
 	return nil
 }
@@ -295,16 +295,16 @@ func (s *Service) DisableByPlugin(id, reason string) error {
 		reason = reason[:1024] + "…[truncated]"
 	}
 	disabled := false
-	err := s.repo.Update(id, func(c *models.Credential) error {
-		if c.Disabled {
+	err := s.store.Update(id, func(credential *models.Credential) error {
+		if credential.Disabled {
 			return nil
 		}
 		now := util.Now()
-		c.Disabled = true
-		c.DisabledBy = models.DisabledByPlugin
-		c.DisabledReason = reason
-		c.DisabledAt = &now
-		c.UpdatedAt = now
+		credential.Disabled = true
+		credential.DisabledBy = models.DisabledByPlugin
+		credential.DisabledReason = reason
+		credential.DisabledAt = &now
+		credential.UpdatedAt = now
 		disabled = true
 		return nil
 	})
@@ -314,8 +314,8 @@ func (s *Service) DisableByPlugin(id, reason string) error {
 	if disabled && s.logger != nil {
 		s.logger.Info("credential disabled by plugin", "credential_id", id, "reason", reason)
 	}
-	if cred, gerr := s.repo.Get(id); gerr == nil && cred != nil {
-		s.notifyChanged(cred.ProviderID)
+	if credential, getError := s.store.Get(id); getError == nil && credential != nil {
+		s.notifyChanged(credential.ProviderID)
 	}
 	return nil
 }
@@ -326,15 +326,15 @@ func (s *Service) DisableByPlugin(id, reason string) error {
 // manual admin toggle which clears every cause.
 func (s *Service) EnableByPlugin(id string) error {
 	var cleared bool
-	err := s.repo.Update(id, func(c *models.Credential) error {
-		if !c.Disabled || c.DisabledBy != models.DisabledByPlugin {
+	err := s.store.Update(id, func(credential *models.Credential) error {
+		if !credential.Disabled || credential.DisabledBy != models.DisabledByPlugin {
 			return nil
 		}
-		c.Disabled = false
-		c.DisabledBy = ""
-		c.DisabledReason = ""
-		c.DisabledAt = nil
-		c.UpdatedAt = util.Now()
+		credential.Disabled = false
+		credential.DisabledBy = ""
+		credential.DisabledReason = ""
+		credential.DisabledAt = nil
+		credential.UpdatedAt = util.Now()
 		cleared = true
 		return nil
 	})
@@ -342,8 +342,8 @@ func (s *Service) EnableByPlugin(id string) error {
 		return err
 	}
 	if cleared {
-		if cred, gerr := s.repo.Get(id); gerr == nil && cred != nil {
-			s.notifyChanged(cred.ProviderID)
+		if credential, getError := s.store.Get(id); getError == nil && credential != nil {
+			s.notifyChanged(credential.ProviderID)
 		}
 	}
 	return nil
@@ -362,7 +362,7 @@ func (s *Service) Park(id string, ttl time.Duration, reason string) error {
 	if ttl > maxParkTTL {
 		return fmt.Errorf("park ttl exceeds 90 days")
 	}
-	if _, err := s.repo.Get(id); err != nil {
+	if _, err := s.store.Get(id); err != nil {
 		return err
 	}
 	now := util.Now()
@@ -396,12 +396,12 @@ func (s *Service) Parked(id string) (*models.ParkEntry, error) {
 
 // Delete removes a Credential by ID.
 func (s *Service) Delete(id string) error {
-	cred, _ := s.repo.Get(id)
+	credential, _ := s.store.Get(id)
 	providerID := ""
-	if cred != nil {
-		providerID = cred.ProviderID
+	if credential != nil {
+		providerID = credential.ProviderID
 	}
-	if err := s.repo.Delete(id); err != nil {
+	if err := s.store.Delete(id); err != nil {
 		return err
 	}
 	if providerID != "" {
@@ -413,17 +413,17 @@ func (s *Service) Delete(id string) error {
 // DeleteByProvider removes every Credential of one provider.
 // Returns the removed count.
 func (s *Service) DeleteByProvider(providerID string) (int, error) {
-	creds, err := s.ListByProvider(providerID)
+	credentials, err := s.ListByProvider(providerID)
 	if err != nil {
 		return 0, err
 	}
-	for _, c := range creds {
-		if err := s.repo.Delete(c.ID); err != nil {
+	for _, credential := range credentials {
+		if err := s.store.Delete(credential.ID); err != nil {
 			return 0, err
 		}
 	}
-	if len(creds) > 0 {
+	if len(credentials) > 0 {
 		s.notifyChanged(providerID)
 	}
-	return len(creds), nil
+	return len(credentials), nil
 }

@@ -23,12 +23,12 @@ func TestStorePluginsInstall(t *testing.T) {
 			continue
 		}
 		t.Run(entry.Name(), func(t *testing.T) {
-			svc := setupService(t)
+			service := setupService(t)
 			source, err := os.ReadFile(filepath.Join(storeDir, entry.Name()))
 			if err != nil {
 				t.Fatalf("read: %v", err)
 			}
-			if _, err := svc.Install(source, PluginOrigin{Manual: true}); err != nil {
+			if _, err := service.Install(source, PluginOrigin{Manual: true}); err != nil {
 				t.Fatalf("install: %v", err)
 			}
 		})
@@ -42,12 +42,12 @@ func TestStoreGooglePluginHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plugin store not checked out: %v", err)
 	}
-	svc := setupService(t)
-	if _, err := svc.Install(source, PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install(source, PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	for _, handler := range []string{"complete", "complete_stream", "speech", "generate_image", "embed", "get_model_infos"} {
-		if !svc.HasHandler("google", handler) {
+		if !service.HasHandler("google", handler) {
 			t.Fatalf("google plugin must register %q", handler)
 		}
 	}

@@ -50,9 +50,9 @@ func TestChatCompletionUsage_Details_RoundTrip(t *testing.T) {
 	if u.CompletionTokensDetails == nil || u.CompletionTokensDetails.ReasoningTokens != 29 {
 		t.Fatalf("completion_tokens_details: %+v", u.CompletionTokensDetails)
 	}
-	out, _ := json.Marshal(u)
-	if !strings.Contains(string(out), `"reasoning_tokens":29`) || !strings.Contains(string(out), `"cached_tokens":64`) {
-		t.Fatalf("marshal lost details: %s", out)
+	output, _ := json.Marshal(u)
+	if !strings.Contains(string(output), `"reasoning_tokens":29`) || !strings.Contains(string(output), `"cached_tokens":64`) {
+		t.Fatalf("marshal lost details: %s", output)
 	}
 }
 
@@ -78,21 +78,21 @@ func TestChatMessage_MultimodalParts_RoundTrip(t *testing.T) {
 	if got := m.Content; got != "what is this?" {
 		t.Fatalf("text flatten polluted: %q", got)
 	}
-	out, err := json.Marshal(m)
+	output, err := json.Marshal(m)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{`"image_url":{"url":"data:image/png;base64,AAA"`, `"input_audio":{"data":"BBB","format":"wav"}`} {
-		if !strings.Contains(string(out), want) {
-			t.Fatalf("marshal lost multimodal part %s: %s", want, out)
+		if !strings.Contains(string(output), want) {
+			t.Fatalf("marshal lost multimodal part %s: %s", want, output)
 		}
 	}
 }
 
 func TestChatCompletionUsage_NoDetails_Omitted(t *testing.T) {
-	out, _ := json.Marshal(ChatCompletionUsage{PromptTokens: 1, CompletionTokens: 2, TotalTokens: 3})
-	if strings.Contains(string(out), "_details") {
-		t.Fatalf("absent details must be omitted: %s", out)
+	output, _ := json.Marshal(ChatCompletionUsage{PromptTokens: 1, CompletionTokens: 2, TotalTokens: 3})
+	if strings.Contains(string(output), "_details") {
+		t.Fatalf("absent details must be omitted: %s", output)
 	}
 }
 

@@ -66,18 +66,18 @@
     mode = 'loading'
     error = ''
     try {
-      const res = await api.auth.initiate(provider.id)
-      if (res.status === 'render' && res.nodes) {
-        nodes = res.nodes
-        flowId = res.flow_id ?? ''
+      const flow = await api.auth.initiate(provider.id)
+      if (flow.status === 'render' && flow.nodes) {
+        nodes = flow.nodes
+        flowId = flow.flow_id ?? ''
         mode = 'wizard'
-      } else if (res.status === 'redirect' && res.redirect_url) {
-        window.open(res.redirect_url, '_blank')
+      } else if (flow.status === 'redirect' && flow.redirect_url) {
+        window.open(flow.redirect_url, '_blank')
         redirectMessage = 'Complete authentication in the new window, then close this dialog.'
         mode = 'wizard'
         nodes = []
-        flowId = res.flow_id ?? ''
-      } else if (res.status === 'complete') {
+        flowId = flow.flow_id ?? ''
+      } else if (flow.status === 'complete') {
         onComplete()
         return
       } else {
@@ -169,18 +169,18 @@
     error = ''
     syncFooter()
     try {
-      const res = await api.auth.step({
+      const flow = await api.auth.step({
         provider_id: provider.id,
         flow_id: flowId,
         action,
         values: formValues,
       })
-      if (res.status === 'render' && res.nodes) {
-        nodes = res.nodes
-      } else if (res.status === 'redirect' && res.redirect_url) {
-        window.open(res.redirect_url, '_blank')
+      if (flow.status === 'render' && flow.nodes) {
+        nodes = flow.nodes
+      } else if (flow.status === 'redirect' && flow.redirect_url) {
+        window.open(flow.redirect_url, '_blank')
         redirectMessage = 'Complete authentication in the new window.'
-      } else if (res.status === 'complete') {
+      } else if (flow.status === 'complete') {
         onComplete()
       } else {
         error = t('credentials.unexpected_auth')

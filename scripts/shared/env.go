@@ -14,36 +14,36 @@ func IsNoSkip() bool {
 
 // IsWriteMode reports whether the named env var is truthy (1/true/yes/on).
 func IsWriteMode(name string) bool {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
-	return v == "1" || v == "true" || v == "yes" || v == "on"
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	return value == "1" || value == "true" || value == "yes" || value == "on"
 }
 
 // Getenv returns the value of an env var or def when unset or blank.
 func Getenv(name, def string) string {
-	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
-		return v
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
 	}
 	return def
 }
 
 // RequireEnv returns the value of an env var, failing when unset or blank.
 func RequireEnv(name string) string {
-	v := strings.TrimSpace(os.Getenv(name))
-	if v == "" {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
 		Failf("missing %s env", name)
 	}
-	return v
+	return value
 }
 
 // NormalizeLogLevel lowercases and trims a log level, failing on values
 // outside debug/info/warn/warning/error — the set cmd/root.go accepts.
-func NormalizeLogLevel(v string) string {
-	n := strings.ToLower(strings.TrimSpace(v))
-	switch n {
+func NormalizeLogLevel(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
 	case "debug", "info", "warn", "warning", "error":
-		return n
+		return normalized
 	default:
-		Failf("invalid LOG_LEVEL %q: must be one of debug, info, warn, error", v)
+		Failf("invalid LOG_LEVEL %q: must be one of debug, info, warn, error", value)
 		return ""
 	}
 }
@@ -61,14 +61,14 @@ func DefaultDevDB() string {
 // must not inherit GOWORK=off which is used only to run the scripts module itself.
 func EnvWithoutGowork() []string {
 	env := os.Environ()
-	out := make([]string, 0, len(env))
-	for _, kv := range env {
-		if strings.HasPrefix(kv, "GOWORK=") {
+	output := make([]string, 0, len(env))
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "GOWORK=") {
 			continue
 		}
-		out = append(out, kv)
+		output = append(output, entry)
 	}
-	return out
+	return output
 }
 
 // EnvWith returns EnvWithoutGowork plus extra entries.
@@ -76,7 +76,7 @@ func EnvWith(extra []string) []string {
 	if len(extra) == 0 {
 		return EnvWithoutGowork()
 	}
-	out := EnvWithoutGowork()
-	out = append(out, extra...)
-	return out
+	output := EnvWithoutGowork()
+	output = append(output, extra...)
+	return output
 }

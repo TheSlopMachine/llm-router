@@ -19,12 +19,12 @@ func EnsureBunInstall(root string, noSkip bool) error {
 	nodeModules := filepath.Join(webDir, "node_modules")
 
 	need := false
-	if st, err := os.Stat(nodeModules); err != nil || !st.IsDir() {
+	if status, err := os.Stat(nodeModules); err != nil || !status.IsDir() {
 		need = true
 	} else {
-		modTime := st.ModTime()
-		for _, p := range []string{lockFile, pkgFile} {
-			if st2, err := os.Stat(p); err == nil && st2.ModTime().After(modTime) {
+		modTime := status.ModTime()
+		for _, path := range []string{lockFile, pkgFile} {
+			if entryStatus, err := os.Stat(path); err == nil && entryStatus.ModTime().After(modTime) {
 				need = true
 				break
 			}
@@ -104,13 +104,13 @@ func RunAPITypes(root string, noSkip bool) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("generate:api-types: %w", err)
 	}
-	out := filepath.Join(webDir, "src", "lib", "generated", "api-types.ts")
-	if _, err := os.Stat(out); err != nil {
-		return fmt.Errorf("api-types.ts not generated at %s: %w", out, err)
+	output := filepath.Join(webDir, "src", "lib", "generated", "api-types.ts")
+	if _, err := os.Stat(output); err != nil {
+		return fmt.Errorf("api-types.ts not generated at %s: %w", output, err)
 	}
 	// Bump mtime to satisfy freshness checks.
 	now := time.Now()
-	_ = os.Chtimes(out, now, now)
+	_ = os.Chtimes(output, now, now)
 	return nil
 }
 
@@ -118,24 +118,24 @@ func RunAPITypes(root string, noSkip bool) error {
 // file under internal/.
 func OpenAPIUpToDate(root string) bool {
 	openapiYAML := filepath.Join(root, "web", "openapi.yaml")
-	st, err := os.Stat(openapiYAML)
+	status, err := os.Stat(openapiYAML)
 	if err != nil {
 		return false
 	}
-	cutoff := st.ModTime()
+	cutoff := status.ModTime()
 	internalDir := filepath.Join(root, "internal")
 	upToDate := true
-	_ = filepath.WalkDir(internalDir, func(path string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(internalDir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
-		if d.IsDir() {
+		if entry.IsDir() {
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") {
 			return nil
 		}
-		info, err := d.Info()
+		info, err := entry.Info()
 		if err != nil {
 			return nil
 		}
@@ -150,13 +150,13 @@ func OpenAPIUpToDate(root string) bool {
 // APITypesUpToDate reports whether api-types.ts is newer than openapi.yaml.
 func APITypesUpToDate(root string) bool {
 	openapiYAML := filepath.Join(root, "web", "openapi.yaml")
-	out := filepath.Join(root, "web", "src", "lib", "generated", "api-types.ts")
-	stOpenapi, err1 := os.Stat(openapiYAML)
-	stOut, err2 := os.Stat(out)
+	output := filepath.Join(root, "web", "src", "lib", "generated", "api-types.ts")
+	statusOpenapi, err1 := os.Stat(openapiYAML)
+	statusOutput, err2 := os.Stat(output)
 	if err1 != nil || err2 != nil {
 		return false
 	}
-	return !stOpenapi.ModTime().After(stOut.ModTime())
+	return !statusOpenapi.ModTime().After(statusOutput.ModTime())
 }
 
 // EnsureEmbedStub creates the dev placeholder for the //go:embed directive

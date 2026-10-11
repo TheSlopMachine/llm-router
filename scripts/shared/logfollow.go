@@ -12,18 +12,18 @@ import (
 // inotify, portable across Windows and unix.
 const followPollInterval = 250 * time.Millisecond
 
-// TailLines returns the last n lines of data, split without the trailing
-// newline. n <= 0 means all lines. Empty input yields no lines.
-func TailLines(data []byte, n int) []string {
+// TailLines returns the last tailSize lines of data, split without the trailing
+// newline. tailSize <= 0 means all lines. Empty input yields no lines.
+func TailLines(data []byte, tailSize int) []string {
 	text := strings.TrimSuffix(string(data), "\n")
 	if text == "" {
 		return nil
 	}
 	lines := strings.Split(text, "\n")
-	if n <= 0 || n >= len(lines) {
+	if tailSize <= 0 || tailSize >= len(lines) {
 		return lines
 	}
-	return lines[len(lines)-n:]
+	return lines[len(lines)-tailSize:]
 }
 
 // LinesFromEnv reads the LINES tail size: positive integer, default
@@ -33,11 +33,11 @@ func LinesFromEnv(defaultLines int) int {
 	if raw == "" {
 		return defaultLines
 	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
+	number, err := strconv.Atoi(raw)
+	if err != nil || number <= 0 {
 		return defaultLines
 	}
-	return n
+	return number
 }
 
 // FollowFromEnv resolves whether to follow: FOLLOW=1/true/yes/on forces
@@ -57,11 +57,11 @@ func FollowFromEnv() bool {
 // IsTTY reports whether stdout is a character device (interactive
 // terminal) rather than a pipe or file.
 func IsTTY() bool {
-	fi, err := os.Stdout.Stat()
+	fileInfo, err := os.Stdout.Stat()
 	if err != nil {
 		return false
 	}
-	return fi.Mode()&os.ModeCharDevice != 0
+	return fileInfo.Mode()&os.ModeCharDevice != 0
 }
 
 // DumpAndFollow prints the last lines of path, then follows appends like
@@ -81,11 +81,11 @@ func DumpAndFollow(path string, lines int, follow bool) error {
 	offset := int64(len(data))
 	for {
 		time.Sleep(followPollInterval)
-		fi, err := os.Stat(path)
+		fileInfo, err := os.Stat(path)
 		if err != nil {
 			continue
 		}
-		size := fi.Size()
+		size := fileInfo.Size()
 		if size < offset {
 			offset = size
 			fmt.Println("-- log truncated, following from end --")
@@ -94,18 +94,18 @@ func DumpAndFollow(path string, lines int, follow bool) error {
 		if size == offset {
 			continue
 		}
-		f, err := os.Open(path)
+		file, err := os.Open(path)
 		if err != nil {
 			continue
 		}
-		if _, err := f.Seek(offset, 0); err != nil {
-			f.Close()
+		if _, err := file.Seek(offset, 0); err != nil {
+			file.Close()
 			continue
 		}
-		buf := make([]byte, size-offset)
-		n, _ := f.Read(buf)
-		f.Close()
-		offset += int64(n)
-		fmt.Print(string(buf[:n]))
+		buffer := make([]byte, size-offset)
+		bytesRead, _ := file.Read(buffer)
+		file.Close()
+		offset += int64(bytesRead)
+		fmt.Print(string(buffer[:bytesRead]))
 	}
 }

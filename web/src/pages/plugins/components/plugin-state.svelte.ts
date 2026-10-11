@@ -16,7 +16,7 @@ export interface PluginCardAction {
  * Shared installed-plugin behavior for Installed and Catalog tabs.
  * Mutations report back through onPluginSaved/onPluginRemoved; no full reload.
  */
-export function createPluginState(opts: {
+export function createPluginState(options: {
   onPluginSaved: (plugin: Plugin) => void
   onPluginRemoved: (id: string) => void
   onUpdatesRefresh?: () => Promise<void>
@@ -45,9 +45,9 @@ export function createPluginState(opts: {
     try {
       await api.plugins.remove(target.plugin.id)
       pendingDelete = null
-      opts.onPluginRemoved(target.plugin.id)
+      options.onPluginRemoved(target.plugin.id)
     } catch (e) {
-      opts.onError(getErrorMessage(e))
+      options.onError(getErrorMessage(e))
     } finally {
       deleting = false
     }
@@ -68,27 +68,27 @@ export function createPluginState(opts: {
     try {
       const rec = await api.plugins.rollback(target.plugin.id)
       pendingRollback = null
-      opts.onPluginSaved(rec)
+      options.onPluginSaved(rec)
     } catch (e) {
-      opts.onError(getErrorMessage(e))
+      options.onError(getErrorMessage(e))
     } finally {
       rollingBack = false
     }
   }
 
   async function updatePlugin(plugin: Plugin): Promise<void> {
-    const update = opts.findUpdate(plugin)
-    const target = update ?? opts.findRepoPath(plugin)
+    const update = options.findUpdate(plugin)
+    const target = update ?? options.findRepoPath(plugin)
     if (!target) return
-    const file = opts.findStoreFile?.(plugin) ?? null
+    const file = options.findStoreFile?.(plugin) ?? null
     const latest = update?.latest || file?.version || plugin.version
     try {
       const rec = await api.plugins.installFromRepo(target.repo_id, target.path)
       toast.success(`${plugin.display_name} updated to v${latest}`)
-      opts.onPluginSaved(rec)
-      await opts.onUpdatesRefresh?.()
+      options.onPluginSaved(rec)
+      await options.onUpdatesRefresh?.()
     } catch (e) {
-      opts.onError(getErrorMessage(e))
+      options.onError(getErrorMessage(e))
     }
   }
 
@@ -96,31 +96,31 @@ export function createPluginState(opts: {
 
   async function updateAll(plugins: Plugin[]): Promise<void> {
     if (updatingAll) return
-    const pending = plugins.filter((p) => opts.findUpdate(p) !== null)
+    const pending = plugins.filter((p) => options.findUpdate(p) !== null)
     if (pending.length === 0) return
     updatingAll = true
     const failures: string[] = []
     let succeeded = 0
     try {
       for (const plugin of pending) {
-        const target = opts.findUpdate(plugin) ?? opts.findRepoPath(plugin)
+        const target = options.findUpdate(plugin) ?? options.findRepoPath(plugin)
         if (!target) {
           failures.push(`${plugin.display_name}: no repository origin`)
           continue
         }
         try {
           const rec = await api.plugins.installFromRepo(target.repo_id, target.path)
-          opts.onPluginSaved(rec)
+          options.onPluginSaved(rec)
           succeeded++
         } catch (e) {
           failures.push(`${plugin.display_name}: ${getErrorMessage(e)}`)
         }
       }
-      await opts.onUpdatesRefresh?.()
+      await options.onUpdatesRefresh?.()
       if (failures.length === 0) {
         toast.success(`${succeeded} plugins updated`)
       } else {
-        opts.onError(failures.join('\n'))
+        options.onError(failures.join('\n'))
       }
     } finally {
       updatingAll = false
@@ -128,8 +128,8 @@ export function createPluginState(opts: {
   }
 
   function buildActions(plugin: Plugin): PluginCardAction[] {
-    const update = opts.findUpdate(plugin)
-    const origin = opts.findRepoPath(plugin)
+    const update = options.findUpdate(plugin)
+    const origin = options.findRepoPath(plugin)
     const actions: PluginCardAction[] = []
     if (update) {
       actions.push({ id: 'update', label: `${t('plugins.update_to')} v${update.latest}`, icon: 'upgrade' })
@@ -161,9 +161,9 @@ export function createPluginState(opts: {
         } else {
           toast.success(`${rec.display_name} updated to v${rec.version}`)
         }
-        opts.onPluginSaved(rec)
+        options.onPluginSaved(rec)
       } catch (e) {
-        opts.onError(getErrorMessage(e))
+        options.onError(getErrorMessage(e))
       }
     }
     input.click()

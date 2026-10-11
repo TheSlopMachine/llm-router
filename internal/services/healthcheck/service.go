@@ -35,7 +35,7 @@ type Record struct {
 type PluginHealth interface {
 	HasHandler(typeKey, handler string) bool
 	HealthCooldown(typeKey string) time.Duration
-	CheckHealth(ctx context.Context, typeKey string, cred *models.Credential) (luaplugin.HealthStatus, string, error)
+	CheckHealth(ctx context.Context, typeKey string, credential *models.Credential) (luaplugin.HealthStatus, string, error)
 }
 
 // CredentialStore fetches credentials and disables unhealthy ones.
@@ -53,26 +53,26 @@ type ProviderConfigs interface {
 // Service dispatches failure-triggered health checks with per-credential
 // cooldown and singleflight.
 type Service struct {
-	repo   *repository.Repository[Record]
-	lua    PluginHealth
-	creds  CredentialStore
-	provs  ProviderConfigs
-	logger *slog.Logger
+	store           *repository.Repository[Record]
+	lua             PluginHealth
+	credentialStore CredentialStore
+	providerConfigs ProviderConfigs
+	logger          *slog.Logger
 
 	mu       sync.Mutex
 	inflight map[string]bool
 }
 
-// New constructs the healthcheck Service. lua and creds may be nil
-// (checks disabled); provs may be nil (automation switch reads off).
+// New constructs the healthcheck Service. lua and credentialStore may be nil
+// (checks disabled); providerConfigs may be nil (automation switch reads off).
 // SetLogger wires structured logging.
-func New(database *db.DB, lua PluginHealth, creds CredentialStore, provs ProviderConfigs) *Service {
+func New(database *db.DB, lua PluginHealth, credentialStore CredentialStore, providerConfigs ProviderConfigs) *Service {
 	return &Service{
-		repo:     repository.New[Record](database, db.BucketCredentialHealth, "healthcheck"),
-		lua:      lua,
-		creds:    creds,
-		provs:    provs,
-		inflight: map[string]bool{},
+		store:           repository.New[Record](database, db.BucketCredentialHealth, "healthcheck"),
+		lua:             lua,
+		credentialStore: credentialStore,
+		providerConfigs: providerConfigs,
+		inflight:        map[string]bool{},
 	}
 }
 
@@ -84,15 +84,15 @@ func (s *Service) SetLogger(l *slog.Logger) { s.logger = l }
 // within the cooldown window, or one is already in flight. Never blocks;
 // never fails the caller.
 func (s *Service) SuspectFailed(pluginID, typeKey, credentialID string) {
-	if s.lua == nil || s.creds == nil || credentialID == "" {
+	if s.lua == nil || s.credentialStore == nil || credentialID == "" {
 		return
 	}
 	if !s.lua.HasHandler(typeKey, string(luaplugin.HandlerCheckHealth)) {
 		return
 	}
 	cooldown := s.lua.HealthCooldown(typeKey)
-	if rec, err := s.repo.Get(credentialID); err == nil && rec != nil {
-		if time.Now().Before(rec.LastCheckAt.Add(cooldown)) {
+	if record, err := s.store.Get(credentialID); err == nil && record != nil {
+		if time.Now().Before(record.LastCheckAt.Add(cooldown)) {
 			return
 		}
 	}
@@ -115,15 +115,15 @@ func (s *Service) done(credentialID string) {
 // automationOn reports whether the credential's provider opts into
 // automatic disables. Absent providers, missing services and absent flags
 // read off, matching the dashboard default.
-func (s *Service) automationOn(cred *models.Credential) bool {
-	if s.provs == nil || cred == nil || cred.ProviderID == "" {
+func (s *Service) automationOn(credential *models.Credential) bool {
+	if s.providerConfigs == nil || credential == nil || credential.ProviderID == "" {
 		return false
 	}
-	inst, err := s.provs.Get(cred.ProviderID)
-	if err != nil || inst == nil {
+	instance, err := s.providerConfigs.Get(credential.ProviderID)
+	if err != nil || instance == nil {
 		return false
 	}
-	return models.CredentialAutomationOn(inst.Config)
+	return models.CredentialAutomationOn(instance.Config)
 }
 
 // run executes one detached health check: fetch the credential, invoke the
@@ -131,18 +131,18 @@ func (s *Service) automationOn(cred *models.Credential) bool {
 // an explicit unhealthy verdict with the provider automation switch on.
 func (s *Service) run(typeKey, credentialID string) {
 	defer s.done(credentialID)
-	cred, err := s.creds.Get(credentialID)
+	credential, err := s.credentialStore.Get(credentialID)
 	if err != nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), CheckTimeout)
 	defer cancel()
-	status, message, herr := s.lua.CheckHealth(ctx, typeKey, cred)
-	if herr != nil {
+	status, message, checkError := s.lua.CheckHealth(ctx, typeKey, credential)
+	if checkError != nil {
 		s.stamp(credentialID, string(luaplugin.HealthUnknown))
 		if s.logger != nil {
 			s.logger.Warn("healthcheck: handler failed, keeping credential",
-				"credential_id", credentialID, "type", typeKey, "error", herr)
+				"credential_id", credentialID, "type", typeKey, "error", checkError)
 		}
 		return
 	}
@@ -160,22 +160,22 @@ func (s *Service) run(typeKey, credentialID string) {
 	}
 	// The provider automation switch masters every non-manual disable:
 	// off (or unreadable) stamps the verdict without touching the credential.
-	if !s.automationOn(cred) {
+	if !s.automationOn(credential) {
 		if s.logger != nil {
 			s.logger.Debug("healthcheck: automation off, keeping credential",
 				"credential_id", credentialID, "type", typeKey)
 		}
 		return
 	}
-	if derr := s.creds.DisableUnhealthy(credentialID, reason); derr != nil && s.logger != nil {
-		s.logger.Warn("healthcheck: disable failed", "credential_id", credentialID, "error", derr)
+	if disableError := s.credentialStore.DisableUnhealthy(credentialID, reason); disableError != nil && s.logger != nil {
+		s.logger.Warn("healthcheck: disable failed", "credential_id", credentialID, "error", disableError)
 	} else if s.logger != nil {
 		s.logger.Info("healthcheck: disabled unhealthy credential", "credential_id", credentialID, "type", typeKey)
 	}
 }
 
 func (s *Service) stamp(credentialID, status string) {
-	_ = s.repo.Put(credentialID, &Record{
+	_ = s.store.Put(credentialID, &Record{
 		CredentialID: credentialID,
 		LastCheckAt:  time.Now(),
 		LastStatus:   status,

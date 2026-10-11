@@ -46,7 +46,7 @@ func TestMarkDeadReason(t *testing.T) {
 
 func TestMarkDeadCallsHook(t *testing.T) {
 	var gotURL, gotReason string
-	c := &pluginHTTPClient{ctx: &execContext{
+	c := &pluginHTTPClient{ctx: &executionContext{
 		markDead: func(url, reason string) bool {
 			gotURL, gotReason = url, reason
 			return true
@@ -59,7 +59,7 @@ func TestMarkDeadCallsHook(t *testing.T) {
 }
 
 func TestMarkDeadDisabled(t *testing.T) {
-	c := &pluginHTTPClient{ctx: &execContext{}}
+	c := &pluginHTTPClient{ctx: &executionContext{}}
 	c.markDead("", "dns_resolution")
 	c.ctx.markDead = func(url, reason string) bool {
 		t.Fatal("empty proxy URL must not mark")
@@ -69,14 +69,14 @@ func TestMarkDeadDisabled(t *testing.T) {
 }
 
 func TestDoSingleStopsOnDeadContext(t *testing.T) {
-	reqCtx, cancel := context.WithCancel(context.Background())
+	requestContext, cancel := context.WithCancel(context.Background())
 	cancel()
-	req, err := http.NewRequestWithContext(reqCtx, "GET", "http://example.com/", nil)
+	request, err := http.NewRequestWithContext(requestContext, "GET", "http://example.com/", nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
-	c := &pluginHTTPClient{ctx: &execContext{}}
-	_, _, err = c.doSingle(req, "")
+	c := &pluginHTTPClient{ctx: &executionContext{}}
+	_, _, err = c.doSingle(request, "")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("dead context must surface cancellation, got %v", err)
 	}

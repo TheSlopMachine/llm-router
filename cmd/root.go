@@ -19,14 +19,14 @@ import (
 )
 
 var (
-	webPort       config.Port = 8080
-	apiPort       config.Port = 8081
-	dbPath        string
-	noAuth        bool
-	logLevel      config.LogLevel = config.LogLevelInfo
-	devUIRedirect string
-	versionFlag   bool
-	versionInfo   struct {
+	webPort            config.Port = 8080
+	apiPort            config.Port = 8081
+	databasePath       string
+	noAuth             bool
+	logLevel           config.LogLevel = config.LogLevelInfo
+	devUIRedirect      string
+	versionFlag        bool
+	versionInformation struct {
 		Version   string
 		GitCommit string
 		BuildTime string
@@ -35,9 +35,9 @@ var (
 
 // SetVersionInfo is called from main to inject build-time version info
 func SetVersionInfo(version, commit, buildTime string) {
-	versionInfo.Version = version
-	versionInfo.GitCommit = commit
-	versionInfo.BuildTime = buildTime
+	versionInformation.Version = version
+	versionInformation.GitCommit = commit
+	versionInformation.BuildTime = buildTime
 }
 
 // rootCmd is the single CLI command — no sub-commands by design.
@@ -62,7 +62,7 @@ func Execute() {
 func init() {
 	rootCmd.Flags().Var(&webPort, "web", "port for dashboard UI")
 	rootCmd.Flags().Var(&apiPort, "api", "port for /v1 OpenAI-compatible API")
-	rootCmd.Flags().StringVar(&dbPath, "db", "llm-router.db", "path to the database file")
+	rootCmd.Flags().StringVar(&databasePath, "db", "llm-router.db", "path to the database file")
 	rootCmd.Flags().BoolVar(&noAuth, "no-auth", false, "disable all authorization (dev and AI debugging only)")
 	rootCmd.Flags().Var(&logLevel, "log-level", "log level: debug, info, warn, error")
 	rootCmd.Flags().BoolVarP(&versionFlag, "version", "v", false, "print version information and exit")
@@ -70,27 +70,27 @@ func init() {
 	_ = rootCmd.Flags().MarkHidden("dev-ui-redirect")
 }
 
-func run(cmd *cobra.Command, args []string) error {
+func run(cmd *cobra.Command, arguments []string) error {
 	if versionFlag {
-		fmt.Printf("llm-router version %s\n", versionInfo.Version)
-		fmt.Printf("  commit: %s\n", versionInfo.GitCommit)
-		fmt.Printf("  built:  %s\n", versionInfo.BuildTime)
+		fmt.Printf("llm-router version %s\n", versionInformation.Version)
+		fmt.Printf("  commit: %s\n", versionInformation.GitCommit)
+		fmt.Printf("  built:  %s\n", versionInformation.BuildTime)
 		return nil
 	}
 
 	host := "localhost"
-	if len(args) == 1 {
-		host = args[0]
+	if len(arguments) == 1 {
+		host = arguments[0]
 	}
 
 	if webPort == apiPort {
 		return fmt.Errorf("dashboard and api ports must differ (both %s)", webPort.String())
 	}
 
-	cfg := &config.Config{
+	applicationConfig := &config.Config{
 		DashboardAddr: net.JoinHostPort(host, webPort.String()),
 		APIAddr:       net.JoinHostPort(host, apiPort.String()),
-		DBPath:        dbPath,
+		DBPath:        databasePath,
 		LogLevel:      logLevel,
 		NoAuth:        noAuth,
 		DevUIRedirect: strings.TrimSpace(devUIRedirect),
@@ -99,20 +99,20 @@ func run(cmd *cobra.Command, args []string) error {
 	// Logger
 	logger := slog.New(logging.NewHandler(os.Stderr, logLevel.SlogLevel()))
 
-	if cfg.NoAuth {
+	if applicationConfig.NoAuth {
 		logger.Warn("authorization disabled (--no-auth): dev and AI debugging only")
 	}
 
 	// Build server
-	srv, err := server.New(cfg, logger)
+	applicationServer, err := server.New(applicationConfig, logger)
 	if err != nil {
 		return fmt.Errorf("init server: %w", err)
 	}
-	defer srv.Close()
+	defer applicationServer.Close()
 
 	// Graceful shutdown on SIGINT / SIGTERM
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	return srv.Run(ctx)
+	return applicationServer.Run(ctx)
 }

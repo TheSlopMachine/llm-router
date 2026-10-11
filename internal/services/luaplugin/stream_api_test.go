@@ -62,40 +62,40 @@ func streamProxyStub(t *testing.T, status int, body string) string {
 
 func setupStreamAPIService(t *testing.T, proxyURL string) *Service {
 	t.Helper()
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(streamAPIPluginTemplate), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(streamAPIPluginTemplate), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	svc.SetProxyQuery(func(pool, country string, limit int) ([]models.ProxyView, error) {
+	service.SetProxyQuery(func(pool, country string, limit int) ([]models.ProxyView, error) {
 		return []models.ProxyView{{ID: "px-test", URL: proxyURL, Pool: "auto"}}, nil
 	})
-	return svc
+	return service
 }
 
-func sapiComplete(t *testing.T, svc *Service) (*models.ChatCompletionResponse, error) {
+func sapiComplete(t *testing.T, service *Service) (*models.ChatCompletionResponse, error) {
 	t.Helper()
 	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
-	return svc.Complete(context.Background(), testMeta("sapi-type", cred, "sapi-type/m", nil),
+	return service.Complete(context.Background(), testMetadata("sapi-type", cred, "sapi-type/m", nil),
 		&models.ChatCompletionRequest{
 			Model:    "sapi-type/m",
 			Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
 		})
 }
 
-func TestStreamAPI_SuccessReturnsResp(t *testing.T) {
-	svc := setupStreamAPIService(t, streamProxyStub(t, 200, "data: one\n\ndata: two\n\n"))
-	resp, err := sapiComplete(t, svc)
+func TestStreamAPI_SuccessReturnsResponse(t *testing.T) {
+	service := setupStreamAPIService(t, streamProxyStub(t, 200, "data: one\n\ndata: two\n\n"))
+	response, err := sapiComplete(t, service)
 	if err != nil {
 		t.Fatalf("stream: %v", err)
 	}
-	if got := resp.Choices[0].Message.TextContent(); got != "data: one||data: two|" {
+	if got := response.Choices[0].Message.TextContent(); got != "data: one||data: two|" {
 		t.Fatalf("lines: %q", got)
 	}
 }
 
 func TestStreamAPI_OnResponseHookTerminal(t *testing.T) {
-	svc := setupStreamAPIService(t, streamProxyStub(t, 429, "quota exceeded for today"))
-	_, err := sapiComplete(t, svc)
+	service := setupStreamAPIService(t, streamProxyStub(t, 429, "quota exceeded for today"))
+	_, err := sapiComplete(t, service)
 	var perr *models.ProviderError
 	if !errors.As(err, &perr) || perr.Code != "server_error" || perr.StatusCode != 502 {
 		t.Fatalf("hook must return the terminal table, got %T (%v)", err, err)
@@ -106,7 +106,7 @@ func TestStreamAPI_OnResponseHookTerminal(t *testing.T) {
 }
 
 func TestStreamAPI_DefaultNon2xxIsTerminal(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	src := fmt.Sprintf(`--- @plugin Stream Default
 --- @author tester
 --- @version 1.0.0
@@ -127,14 +127,14 @@ llm_router.register("sdef-type", {
   end,
 })
 `)
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	svc.SetProxyQuery(func(pool, country string, limit int) ([]models.ProxyView, error) {
+	service.SetProxyQuery(func(pool, country string, limit int) ([]models.ProxyView, error) {
 		return []models.ProxyView{{ID: "px-test", URL: streamProxyStub(t, 500, "boom"), Pool: "auto"}}, nil
 	})
 	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
-	_, err := svc.Complete(context.Background(), testMeta("sdef-type", cred, "sdef-type/m", nil),
+	_, err := service.Complete(context.Background(), testMetadata("sdef-type", cred, "sdef-type/m", nil),
 		&models.ChatCompletionRequest{
 			Model:    "sdef-type/m",
 			Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},

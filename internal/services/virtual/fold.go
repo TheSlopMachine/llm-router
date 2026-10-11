@@ -19,13 +19,13 @@ type Metadata struct {
 
 // intersectStrings keeps elements of first present in every other list, in first's order.
 func intersectStrings(first []string, rest ...[]string) []string {
-	out := make([]string, 0, len(first))
-	for _, v := range first {
+	output := make([]string, 0, len(first))
+	for _, value := range first {
 		keep := true
-		for _, o := range rest {
+		for _, other := range rest {
 			found := false
-			for _, x := range o {
-				if x == v {
+			for _, x := range other {
+				if x == value {
 					found = true
 					break
 				}
@@ -36,40 +36,40 @@ func intersectStrings(first []string, rest ...[]string) []string {
 			}
 		}
 		if keep {
-			out = append(out, v)
+			output = append(output, value)
 		}
 	}
-	return out
+	return output
 }
 
 // minPositive returns the smallest positive value, or 0 when none is positive.
-func minPositive(vals ...int64) int64 {
+func minPositive(values ...int64) int64 {
 	min := int64(0)
-	for _, v := range vals {
-		if v <= 0 {
+	for _, value := range values {
+		if value <= 0 {
 			continue
 		}
-		if min == 0 || v < min {
-			min = v
+		if min == 0 || value < min {
+			min = value
 		}
 	}
 	return min
 }
 
-// FoldMembers folds member infos into one virtual metadata record.
+// FoldMembers folds member models into one virtual metadata record.
 // Callers pass only available (known, enabled) members; an empty input
 // yields a zero Metadata.
 func FoldMembers(members []models.ModelInfo) Metadata {
-	var agg Metadata
+	var aggregate Metadata
 	if len(members) == 0 {
-		return agg
+		return aggregate
 	}
-	caps := append([]string(nil), members[0].Capabilities...)
-	params := append([]string(nil), members[0].SupportedParameters...)
-	ins := append([]string(nil), members[0].InputModalities...)
-	outs := append([]string(nil), members[0].OutputModalities...)
-	ctx := members[0].ContextWindow
-	maxTok := members[0].MaxTokens
+	capabilities := append([]string(nil), members[0].Capabilities...)
+	parameters := append([]string(nil), members[0].SupportedParameters...)
+	inputs := append([]string(nil), members[0].InputModalities...)
+	outputs := append([]string(nil), members[0].OutputModalities...)
+	contextLength := members[0].ContextWindow
+	maxTokens := members[0].MaxTokens
 	allReasoning := members[0].Reasoning != nil
 	var efforts []string
 	defaultEffort := ""
@@ -82,39 +82,39 @@ func FoldMembers(members []models.ModelInfo) Metadata {
 		defaultEnabled = members[0].Reasoning.DefaultEnabled
 		mandatory = members[0].Reasoning.Mandatory
 	}
-	for _, m := range members[1:] {
-		caps = intersectStrings(caps, m.Capabilities)
-		params = intersectStrings(params, m.SupportedParameters)
-		ins = intersectStrings(ins, m.InputModalities)
-		outs = intersectStrings(outs, m.OutputModalities)
-		ctx = minPositive(ctx, m.ContextWindow)
-		maxTok = minPositive(maxTok, m.MaxTokens)
-		if m.Reasoning == nil {
+	for _, member := range members[1:] {
+		capabilities = intersectStrings(capabilities, member.Capabilities)
+		parameters = intersectStrings(parameters, member.SupportedParameters)
+		inputs = intersectStrings(inputs, member.InputModalities)
+		outputs = intersectStrings(outputs, member.OutputModalities)
+		contextLength = minPositive(contextLength, member.ContextWindow)
+		maxTokens = minPositive(maxTokens, member.MaxTokens)
+		if member.Reasoning == nil {
 			allReasoning = false
 			continue
 		}
-		efforts = intersectStrings(efforts, m.Reasoning.SupportedEfforts)
-		if defaultEffort != m.Reasoning.DefaultEffort {
+		efforts = intersectStrings(efforts, member.Reasoning.SupportedEfforts)
+		if defaultEffort != member.Reasoning.DefaultEffort {
 			defaultEffortSame = false
 		}
-		defaultEnabled = defaultEnabled && m.Reasoning.DefaultEnabled
-		mandatory = mandatory && m.Reasoning.Mandatory
+		defaultEnabled = defaultEnabled && member.Reasoning.DefaultEnabled
+		mandatory = mandatory && member.Reasoning.Mandatory
 	}
-	agg.Capabilities = caps
-	agg.SupportedParameters = params
-	agg.InputModalities = ins
-	agg.OutputModalities = outs
-	agg.ContextLength = ctx
-	agg.MaxCompletionTokens = maxTok
+	aggregate.Capabilities = capabilities
+	aggregate.SupportedParameters = parameters
+	aggregate.InputModalities = inputs
+	aggregate.OutputModalities = outputs
+	aggregate.ContextLength = contextLength
+	aggregate.MaxCompletionTokens = maxTokens
 	if allReasoning {
-		agg.Reasoning = &models.ModelReasoning{
+		aggregate.Reasoning = &models.ModelReasoning{
 			SupportedEfforts: efforts,
 			DefaultEnabled:   defaultEnabled,
 			Mandatory:        mandatory,
 		}
 		if defaultEffortSame {
-			agg.Reasoning.DefaultEffort = defaultEffort
+			aggregate.Reasoning.DefaultEffort = defaultEffort
 		}
 	}
-	return agg
+	return aggregate
 }

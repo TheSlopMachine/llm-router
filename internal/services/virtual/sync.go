@@ -9,7 +9,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
-// syncEndpoint is one managed virtual-model group: one VM per endpoint.
+// syncEndpoint is one managed virtual-model group: one virtual model per endpoint.
 type syncEndpoint struct {
 	Slug     string
 	Label    string
@@ -37,11 +37,11 @@ func ParseMarker(marker string) (providerID, slug string, err error) {
 	if !ok {
 		return "", "", fmt.Errorf("invalid managed marker %q: missing provider: prefix", marker)
 	}
-	idx := strings.LastIndex(rest, ":")
-	if idx == -1 {
+	index := strings.LastIndex(rest, ":")
+	if index == -1 {
 		return "", "", fmt.Errorf("invalid managed marker %q: missing endpoint slug", marker)
 	}
-	providerID, slug = rest[:idx], rest[idx+1:]
+	providerID, slug = rest[:index], rest[index+1:]
 	if providerID == "" || slug == "" {
 		return "", "", fmt.Errorf("invalid managed marker %q: empty provider or slug", marker)
 	}
@@ -60,7 +60,7 @@ type ProviderVMGroup struct {
 // (no upstream fetch) with managed markers resolved. Only non-empty groups
 // are returned; disabled models never become members.
 func (s *Service) GroupsForProvider(providerID string) ([]ProviderVMGroup, error) {
-	views, err := s.modelInfoSvc.PeekMergedView(providerID)
+	views, err := s.modelInfoService.PeekMergedView(providerID)
 	if err != nil {
 		return nil, err
 	}
@@ -69,41 +69,41 @@ func (s *Service) GroupsForProvider(providerID string) ([]ProviderVMGroup, error
 		return nil, err
 	}
 	byMarker := map[string]*models.VirtualModel{}
-	for _, vm := range managed {
-		if vm.ManagedBy != "" {
-			byMarker[vm.ManagedBy] = vm
+	for _, virtualModel := range managed {
+		if virtualModel.ManagedBy != "" {
+			byMarker[virtualModel.ManagedBy] = virtualModel
 		}
 	}
 	groups := []ProviderVMGroup{}
-	for _, se := range syncEndpoints {
-		g := ProviderVMGroup{Endpoint: se.Slug, Label: se.Label, Models: []string{}}
-		for _, v := range views {
-			if v.Disabled {
+	for _, endpoint := range syncEndpoints {
+		group := ProviderVMGroup{Endpoint: endpoint.Slug, Label: endpoint.Label, Models: []string{}}
+		for _, view := range views {
+			if view.Disabled {
 				continue
 			}
-			if !v.SupportsEndpoint(se.Endpoint) {
+			if !view.SupportsEndpoint(endpoint.Endpoint) {
 				continue
 			}
-			g.Models = append(g.Models, v.Name)
+			group.Models = append(group.Models, view.Name)
 		}
-		if len(g.Models) == 0 {
+		if len(group.Models) == 0 {
 			continue
 		}
-		if vm, ok := byMarker[ProviderMarker(providerID, se.Slug)]; ok {
-			cp := *vm
-			g.Virtual = &cp
+		if virtualModel, ok := byMarker[ProviderMarker(providerID, endpoint.Slug)]; ok {
+			cp := *virtualModel
+			group.Virtual = &cp
 		}
-		groups = append(groups, g)
+		groups = append(groups, group)
 	}
 	return groups, nil
 }
 
-func sameMembers(a []models.VirtualModelEntry, b []models.VirtualModelEntry) bool {
-	if len(a) != len(b) {
+func sameMembers(current []models.VirtualModelEntry, desired []models.VirtualModelEntry) bool {
+	if len(current) != len(desired) {
 		return false
 	}
-	for i := range a {
-		if a[i].ModelID != b[i].ModelID {
+	for i := range current {
+		if current[i].ModelID != desired[i].ModelID {
 			return false
 		}
 	}
@@ -117,7 +117,7 @@ func sameMembers(a []models.VirtualModelEntry, b []models.VirtualModelEntry) boo
 // member list is rewritten. Per-group failures accumulate into the returned
 // error; completed groups still apply.
 func (s *Service) SyncProviderModels(ctx context.Context, providerID string) ([]ProviderVMGroup, error) {
-	inst, err := s.providerSvc.Get(providerID)
+	instance, err := s.providerService.Get(providerID)
 	if err != nil {
 		return nil, err
 	}
@@ -129,94 +129,94 @@ func (s *Service) SyncProviderModels(ctx context.Context, providerID string) ([]
 	// adopted instead of colliding with it.
 	orphans := map[string]*models.VirtualModel{}
 	if all, err := s.List(); err == nil {
-		for _, vm := range all {
-			if vm.ManagedBy == "" {
-				orphans[strings.ToLower(vm.Name)] = vm
+		for _, virtualModel := range all {
+			if virtualModel.ManagedBy == "" {
+				orphans[strings.ToLower(virtualModel.Name)] = virtualModel
 			}
 		}
 	}
 	live := map[string]bool{}
-	var syncErrs []error
-	fail := func(endpoint, op string, err error) {
-		syncErrs = append(syncErrs, fmt.Errorf("endpoint %s %s: %w", endpoint, op, err))
-		s.log().Warn("managed virtual model "+op+" failed",
+	var syncErrors []error
+	fail := func(endpoint, operation string, err error) {
+		syncErrors = append(syncErrors, fmt.Errorf("endpoint %s %s: %w", endpoint, operation, err))
+		s.log().Warn("managed virtual model "+operation+" failed",
 			"provider_id", providerID, "endpoint", endpoint, "error", err)
 	}
 	for i := range groups {
 		if err := ctx.Err(); err != nil {
-			return groups, errors.Join(append(syncErrs, fmt.Errorf("sync canceled: %w", err))...)
+			return groups, errors.Join(append(syncErrors, fmt.Errorf("sync canceled: %w", err))...)
 		}
-		g := &groups[i]
-		live[g.Endpoint] = true
-		entries := make([]models.ModelId, 0, len(g.Models))
-		for _, name := range g.Models {
+		group := &groups[i]
+		live[group.Endpoint] = true
+		entries := make([]models.ModelId, 0, len(group.Models))
+		for _, name := range group.Models {
 			entries = append(entries, models.ModelId(providerID+"/"+name))
 		}
-		marker := ProviderMarker(providerID, g.Endpoint)
-		if g.Virtual == nil {
-			autoName := fmt.Sprintf("%s %s", inst.Name, g.Label)
+		marker := ProviderMarker(providerID, group.Endpoint)
+		if group.Virtual == nil {
+			autoName := fmt.Sprintf("%s %s", instance.Name, group.Label)
 			if orphan, ok := orphans[strings.ToLower(autoName)]; ok {
 				adopted := *orphan
 				adopted.ManagedBy = marker
 				adopted.Models = toEntries(entries)
 				if err := s.Update(adopted.ID, &adopted); err != nil {
-					fail(g.Endpoint, "adopt", err)
+					fail(group.Endpoint, "adopt", err)
 					continue
 				}
 				if fresh, err := s.Get(adopted.ID); err == nil {
-					g.Virtual = fresh
+					group.Virtual = fresh
 				} else {
-					g.Virtual = &adopted
+					group.Virtual = &adopted
 				}
 				continue
 			}
-			vm := &models.VirtualModel{
+			virtualModel := &models.VirtualModel{
 				Name:        autoName,
-				Description: fmt.Sprintf("Automatic fall-through across %s %s models. Members refresh on import.", inst.Name, strings.ToLower(g.Label)),
+				Description: fmt.Sprintf("Automatic fall-through across %s %s models. Members refresh on import.", instance.Name, strings.ToLower(group.Label)),
 				Models:      toEntries(entries),
 				ManagedBy:   marker,
 			}
-			if err := s.Create(vm); err != nil {
-				fail(g.Endpoint, "create", err)
+			if err := s.Create(virtualModel); err != nil {
+				fail(group.Endpoint, "create", err)
 				continue
 			}
-			g.Virtual = vm
+			group.Virtual = virtualModel
 			continue
 		}
-		if sameMembers(g.Virtual.Models, toEntries(entries)) {
+		if sameMembers(group.Virtual.Models, toEntries(entries)) {
 			continue
 		}
-		updated := *g.Virtual
+		updated := *group.Virtual
 		updated.Models = toEntries(entries)
 		if err := s.Update(updated.ID, &updated); err != nil {
-			fail(g.Endpoint, "update", err)
+			fail(group.Endpoint, "update", err)
 			continue
 		}
 		if fresh, err := s.Get(updated.ID); err == nil {
-			g.Virtual = fresh
+			group.Virtual = fresh
 		} else {
-			g.Virtual = &updated
+			group.Virtual = &updated
 		}
 	}
 	all, err := s.List()
 	if err != nil {
-		return groups, errors.Join(append(syncErrs, err)...)
+		return groups, errors.Join(append(syncErrors, err)...)
 	}
-	for _, vm := range all {
+	for _, virtualModel := range all {
 		if err := ctx.Err(); err != nil {
-			return groups, errors.Join(append(syncErrs, fmt.Errorf("sync canceled: %w", err))...)
+			return groups, errors.Join(append(syncErrors, fmt.Errorf("sync canceled: %w", err))...)
 		}
-		markerProvider, _, merr := ParseMarker(vm.ManagedBy)
-		if merr != nil || markerProvider != providerID {
+		markerProvider, _, markerError := ParseMarker(virtualModel.ManagedBy)
+		if markerError != nil || markerProvider != providerID {
 			continue
 		}
-		if !live[strings.TrimPrefix(vm.ManagedBy, "provider:"+providerID+":")] {
-			if err := s.Delete(vm.ID); err != nil {
-				fail(vm.ID, "delete", err)
+		if !live[strings.TrimPrefix(virtualModel.ManagedBy, "provider:"+providerID+":")] {
+			if err := s.Delete(virtualModel.ID); err != nil {
+				fail(virtualModel.ID, "delete", err)
 			}
 		}
 	}
-	return groups, errors.Join(syncErrs...)
+	return groups, errors.Join(syncErrors...)
 }
 
 func toEntries(ids []models.ModelId) []models.VirtualModelEntry {

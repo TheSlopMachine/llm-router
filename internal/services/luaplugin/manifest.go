@@ -47,7 +47,7 @@ type Manifest struct {
 // ParseManifest parses the leading "---" header block. The header is the
 // contiguous run of "---"-prefixed lines at the very start of the file.
 func ParseManifest(source []byte) (*Manifest, error) {
-	m := &Manifest{}
+	manifest := &Manifest{}
 	seen := map[string]int{}
 	allowHosts := []string{}
 	// Unknown tags defer past the version floor below: an outdated plugin
@@ -82,17 +82,17 @@ func ParseManifest(source []byte) (*Manifest, error) {
 		seen[tag]++
 		switch tag {
 		case "@plugin":
-			m.Plugin = value
+			manifest.Plugin = value
 		case "@author":
-			m.Author = value
+			manifest.Author = value
 		case "@version":
-			m.Version = value
+			manifest.Version = value
 		case "@plugin_api":
-			m.PluginAPI = value
+			manifest.PluginAPI = value
 		case "@description":
-			m.Description = value
+			manifest.Description = value
 		case "@license":
-			m.License = value
+			manifest.License = value
 		case "@allow_host":
 			if value != "" {
 				allowHosts = append(allowHosts, value)
@@ -140,26 +140,26 @@ func ParseManifest(source []byte) (*Manifest, error) {
 			}
 		}
 	}
-	m.AllowHosts = allowHosts
-	m.Unsafe = wildcard
-	if _, _, _, err := parseSemver(m.Version); err != nil {
-		return nil, fmt.Errorf("invalid @version %q: %w", m.Version, err)
+	manifest.AllowHosts = allowHosts
+	manifest.Unsafe = wildcard
+	if _, _, _, err := parseSemver(manifest.Version); err != nil {
+		return nil, fmt.Errorf("invalid @version %q: %w", manifest.Version, err)
 	}
-	if _, err := version.Parse(m.PluginAPI); err != nil {
-		return nil, fmt.Errorf("invalid @plugin_api %q: %w", m.PluginAPI, err)
+	if _, err := version.Parse(manifest.PluginAPI); err != nil {
+		return nil, fmt.Errorf("invalid @plugin_api %q: %w", manifest.PluginAPI, err)
 	}
-	return m, nil
+	return manifest, nil
 }
 
-func dedupeStrings(in []string) []string {
+func dedupeStrings(input []string) []string {
 	seen := map[string]bool{}
 	out := []string{}
-	for _, s := range in {
-		if s == "" || seen[s] {
+	for _, value := range input {
+		if value == "" || seen[value] {
 			continue
 		}
-		seen[s] = true
-		out = append(out, s)
+		seen[value] = true
+		out = append(out, value)
 	}
 	return out
 }
@@ -184,10 +184,10 @@ func CheckPluginAPI(manifest *Manifest) error {
 	}
 }
 
-func parseSemver(s string) (maj, min, patch int, err error) {
-	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(s, "v")
-	parts := strings.Split(s, ".")
+func parseSemver(text string) (maj, min, patch int, err error) {
+	text = strings.TrimSpace(text)
+	text = strings.TrimPrefix(text, "v")
+	parts := strings.Split(text, ".")
 	if len(parts) < 2 || len(parts) > 3 {
 		return 0, 0, 0, fmt.Errorf("expected MAJOR.MINOR[.PATCH]")
 	}

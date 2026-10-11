@@ -8,7 +8,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
-const specPluginSource = `--- @plugin Spec Plugin
+const specificationPluginSource = `--- @plugin Spec Plugin
 --- @author tester
 --- @version 1.0.0
 --- @plugin_api 1.0
@@ -40,8 +40,8 @@ llm_router.register("spec-type", {
 })
 `
 
-func TestInstallRejectsBadModelSpecs(t *testing.T) {
-	svc := setupService(t)
+func TestInstallRejectsBadModelSpecifications(t *testing.T) {
+	service := setupService(t)
 	nonTable := `--- @plugin Spec Plugin
 --- @author tester
 --- @version 1.0.0
@@ -53,7 +53,7 @@ llm_router.register("spec-type", {
   model_specs = 42,
 })
 `
-	if _, err := svc.Install([]byte(nonTable), PluginOrigin{Manual: true}); err == nil {
+	if _, err := service.Install([]byte(nonTable), PluginOrigin{Manual: true}); err == nil {
 		t.Error("non-table specs: expected install error")
 	}
 	cases := map[string]func(string) string{
@@ -68,38 +68,38 @@ llm_router.register("spec-type", {
 		},
 	}
 	for name, mutate := range cases {
-		if _, err := svc.Install([]byte(mutate(specPluginSource)), PluginOrigin{Manual: true}); err == nil {
+		if _, err := service.Install([]byte(mutate(specificationPluginSource)), PluginOrigin{Manual: true}); err == nil {
 			t.Errorf("%s: expected install error", name)
 		}
 	}
 }
 
-func TestGetModelInfosAppliesSpecs(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(specPluginSource), PluginOrigin{Manual: true}); err != nil {
+func TestGetModelInfosAppliesSpecifications(t *testing.T) {
+	service := setupService(t)
+	if _, err := service.Install([]byte(specificationPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	infos, err := svc.GetModelInfos(t.Context(), "spec-provider", "spec-type", nil)
+	modelInfos, err := service.GetModelInfos(t.Context(), "spec-provider", "spec-type", nil)
 	if err != nil {
 		t.Fatalf("get_model_infos: %v", err)
 	}
-	if len(infos) != 2 {
-		t.Fatalf("rows: got %d want 2 (ghost specs never resurrect)", len(infos))
+	if len(modelInfos) != 2 {
+		t.Fatalf("rows: got %d want 2 (ghost specs never resurrect)", len(modelInfos))
 	}
-	one := infos[0]
+	one := modelInfos[0]
 	if one.Name != "m-one" || one.DisplayName != "One" {
 		t.Fatalf("identity must pass through: %+v", one)
 	}
 	if one.ContextWindow != 200000 || one.RPM != 60 {
 		t.Fatalf("spec must win: %+v", one)
 	}
-	two := infos[1]
+	two := modelInfos[1]
 	if two.Name != "m-two" || two.ContextWindow != 0 {
 		t.Fatalf("unspecced rows must pass through: %+v", two)
 	}
 }
 
-func TestModelSpecFieldsMatchModelInfo(t *testing.T) {
+func TestModelSpecificationFieldsMatchModelInfo(t *testing.T) {
 	want := map[string]bool{}
 	typ := reflect.TypeOf(models.ModelInfo{})
 	for i := 0; i < typ.NumField(); i++ {
@@ -109,12 +109,12 @@ func TestModelSpecFieldsMatchModelInfo(t *testing.T) {
 		}
 		want[name] = true
 	}
-	if !reflect.DeepEqual(modelSpecFields, want) {
-		t.Fatalf("spec fields %v do not match ModelInfo %v", modelSpecFields, want)
+	if !reflect.DeepEqual(modelSpecificationFields, want) {
+		t.Fatalf("spec fields %v do not match ModelInfo %v", modelSpecificationFields, want)
 	}
 }
 
-func TestOverlayCoversEverySpecField(t *testing.T) {
+func TestOverlayCoversEverySpecificationField(t *testing.T) {
 	var src models.ModelInfo
 	v := reflect.ValueOf(&src).Elem()
 	for i := 0; i < v.NumField(); i++ {
@@ -140,30 +140,30 @@ func TestOverlayCoversEverySpecField(t *testing.T) {
 	}
 }
 
-func TestRollbackRestoresModelSpecs(t *testing.T) {
-	svc := setupService(t)
-	rec, err := svc.Install([]byte(specPluginSource), PluginOrigin{Manual: true})
+func TestRollbackRestoresModelSpecifications(t *testing.T) {
+	service := setupService(t)
+	record, err := service.Install([]byte(specificationPluginSource), PluginOrigin{Manual: true})
 	if err != nil {
 		t.Fatalf("install v1: %v", err)
 	}
-	v2 := strings.Replace(specPluginSource, "@version 1.0.0", "@version 2.0.0", 1)
+	v2 := strings.Replace(specificationPluginSource, "@version 1.0.0", "@version 2.0.0", 1)
 	v2 = strings.Replace(v2, "context_window = 200000", "context_window = 300000", 1)
-	if _, err := svc.Install([]byte(v2), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(v2), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install v2: %v", err)
 	}
-	infos, err := svc.GetModelInfos(t.Context(), "spec-provider", "spec-type", nil)
-	if err != nil || infos[0].ContextWindow != 300000 {
-		t.Fatalf("v2 specs: %+v %v", infos, err)
+	modelInfos, err := service.GetModelInfos(t.Context(), "spec-provider", "spec-type", nil)
+	if err != nil || modelInfos[0].ContextWindow != 300000 {
+		t.Fatalf("v2 specs: %+v %v", modelInfos, err)
 	}
-	rolled, err := svc.Rollback(rec.ID)
+	rolled, err := service.Rollback(record.ID)
 	if err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
-	if got := rolled.ModelSpecs["spec-type"]["m-one"].ContextWindow; got != 200000 {
+	if got := rolled.ModelSpecifications["spec-type"]["m-one"].ContextWindow; got != 200000 {
 		t.Fatalf("rolled-back specs: got %d", got)
 	}
-	infos, err = svc.GetModelInfos(t.Context(), "spec-provider", "spec-type", nil)
-	if err != nil || infos[0].ContextWindow != 200000 {
-		t.Fatalf("specs after rollback: %+v %v", infos, err)
+	modelInfos, err = service.GetModelInfos(t.Context(), "spec-provider", "spec-type", nil)
+	if err != nil || modelInfos[0].ContextWindow != 200000 {
+		t.Fatalf("specs after rollback: %+v %v", modelInfos, err)
 	}
 }

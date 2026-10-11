@@ -22,25 +22,35 @@ DO:
 - "Also update the router."
 - "The test now passes."
 
-### 0.2 No implementation-detail asides in UI or CLI
+### 0.2 Over-explaining in UI is forbidden
 
-Surface actions and facts only in UI text, CLI output, log lines, and error messages. Never narrate internal conditions there.
+Do not explain what happened internally. Instead, surface the intent only:
+- BAD: `"Retrying... (3 seconds passed already)"`
+- GOOD: `"Retrying..."`
+
+Do not over-explain the functionality.
+- BAD: `"Access the dedicated plugin management interface to review, inspect, configure, and otherwise manage plugins that have already been installed and are currently available within your environment."`
+- GOOD: `"Manage plugins and install more plugins."`
+
+Do not guide the UX with text:
+- BAD: `"Press 'Done' to close."`
+- GOOD: UI that guides visually, without text.
+
+### 0.3 No redundant wording
+
+Do not repeat the same idea using synonyms or unnecessary modifiers. Every word must contribute distinct information.
 
 DON'T:
-- `"Skip validation... (because SKIP_VALIDATION was true)"`
-- `"Load models... (isCacheValid == false)"`
-- `"Retry request... (attempt < maxRetries)"`
-- `"Save credential... (credential.Token != "")"`
+- "View, browse, and explore available plugins."
+- "Completely remove all existing entries."
+- "Create a new plugin to add an additional capability."
 
 DO:
-- `"Skip validation"`
-- `"Load models"`
-- `"Retry request"`
-- `"Save credential"`
+- "Browse available plugins."
+- "Remove all entries."
+- "Create a plugin to add a capability."
 
-Move the reasoning to a code comment, a commit message, or drop it. Log debuggable conditions at debug level with structured fields (`reason=rate_limited`).
-
-### 0.3 No casual or vague wording
+### 0.4 No casual or vague wording
 
 Use precise technical terms in code, comments, commits, logs, and docs. Banned examples: "blow up", "wire", "sweep", "spin up", "juice", "nuke", "hack", "magic".
 
@@ -55,6 +65,21 @@ DO:
 - "Register the new adapter with the router."
 - "Remove stale credentials on startup."
 - "Start a goroutine to poll the queue."
+
+### 0.5. Naming Policy: No Arbitrary Abbreviations
+
+Prefer complete, descriptive names. The less conventional or recognizable an abbreviation is, the more severe the violation. Single-letter names can be critical violations.
+
+- **Level 0 — Accept:** `id`, `url`, `http`, `json`, `uuid`, `min`, `max`, `avg`, `i`/`j` in short loops, `x`/`y` in mathematical contexts, `stdin`/`stdout`/`stderr`, `ctx` where conventional.
+- **Level 1 — Fix:** `repo` → `repository`, `args` → `arguments`, `params` → `parameters`, `opts` → `options`, `deps` → `dependencies`, `impl` → `implementation`, `auth` → `authentication`/`authorization`.
+- **Level 2 — Serious:** `hndl` → `handler`, `prc` → `process`, `mthd` → `method`, `vl` → `value`, `itm` → `item`, `cnfg` → `configuration`, `rqst` → `request`, `rsps` → `response`.
+- **Level 3 — Critical:** Stacked truncations (`hndlReq` → `handleRequest`), arbitrary single-letter names (`r` → `request`), or compound identifiers with multiple abbreviations (`getUsrCfg` → `getUserConfiguration`).
+
+Apply the rule to every component of compound identifiers and all project-authored code, tests, scripts, configuration, documentation, comments, logs, and error messages.
+
+Established technical terms, conventional notation, language-mandated names, and compatibility-sensitive external interfaces are exempt where necessary.
+
+All new and modified code must comply.
 
 ## 1. Session start
 

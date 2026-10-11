@@ -34,13 +34,13 @@ const maxJobWorkers = 4
 
 // Service runs background jobs for provider plugins.
 type Service struct {
-	luaSvc      *luaplugin.Service
-	providerSvc *provider.Service
-	interval    time.Duration
-	logger      *slog.Logger
-	db          *db.DB
+	luaService      *luaplugin.Service
+	providerService *provider.Service
+	interval        time.Duration
+	logger          *slog.Logger
+	db              *db.DB
 
-	modelInfoSvc modelInfoRefresher
+	modelInfoRefresher modelInfoRefresher
 
 	mu      sync.Mutex
 	lastRun map[string]time.Time
@@ -54,26 +54,26 @@ type modelInfoRefresher interface {
 
 // SetModelInfoService wires model metadata refresh for providers with
 // config.models_auto_sync enabled.
-func (s *Service) SetModelInfoService(mi modelInfoRefresher) {
-	s.modelInfoSvc = mi
+func (s *Service) SetModelInfoService(refresher modelInfoRefresher) {
+	s.modelInfoRefresher = refresher
 }
 
 // New constructs a new maintenance Service with the default check interval.
-func New(luaSvc *luaplugin.Service, providerSvc *provider.Service, database *db.DB, logger *slog.Logger) *Service {
+func New(luaService *luaplugin.Service, providerService *provider.Service, database *db.DB, logger *slog.Logger) *Service {
 	return &Service{
-		luaSvc:      luaSvc,
-		providerSvc: providerSvc,
-		interval:    defaultCheckInterval,
-		logger:      logger,
-		db:          database,
-		lastRun:     map[string]time.Time{},
-		running:     map[string]bool{},
+		luaService:      luaService,
+		providerService: providerService,
+		interval:        defaultCheckInterval,
+		logger:          logger,
+		db:              database,
+		lastRun:         map[string]time.Time{},
+		running:         map[string]bool{},
 	}
 }
 
 // WithInterval overrides the check interval (useful for testing).
-func (s *Service) WithInterval(d time.Duration) *Service {
-	s.interval = d
+func (s *Service) WithInterval(duration time.Duration) *Service {
+	s.interval = duration
 	return s
 }
 
@@ -110,13 +110,13 @@ func (s *Service) Start(ctx context.Context) {
 // RunJob triggers one job for one provider on demand (dashboard).
 // Unknown jobs fail loudly; running jobs report busy.
 func (s *Service) RunJob(ctx context.Context, providerID, jobName string) error {
-	inst, err := s.providerSvc.Get(providerID)
+	instance, err := s.providerService.Get(providerID)
 	if err != nil {
 		return err
 	}
-	jobs := s.luaSvc.Jobs(inst.TypeKey)
+	jobs := s.luaService.Jobs(instance.TypeKey)
 	if _, ok := jobs[jobName]; !ok {
 		return fmt.Errorf("job %q not found for provider %q", jobName, providerID)
 	}
-	return s.launch(ctx, inst, jobName, "manual")
+	return s.launch(ctx, instance, jobName, "manual")
 }

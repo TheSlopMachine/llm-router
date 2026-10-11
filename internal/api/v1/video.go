@@ -33,61 +33,61 @@ var videoSizePattern = regexp.MustCompile(`^[1-9][0-9]*x[1-9][0-9]*$`)
 // @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
 // @Router       /v1/videos [post]
 // @Security     BearerAuth
-func (h *Handler) submitVideo(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) submitVideo(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	start := time.Now()
-	var req models.VideoGenerationRequest
-	if err := decodeJSONBody(w, r, &req); err != nil {
+	var request models.VideoGenerationRequest
+	if err := decodeJSONBody(w, r, &request); err != nil {
 		h.writeDecodeError(w, err)
 		return
 	}
-	if err := validateVideoRequest(&req); err != nil {
+	if err := validateVideoRequest(&request); err != nil {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
 		return
 	}
-	if deny := authorizeModel(t, req.Model); deny != nil {
-		h.writeError(w, deny.status, deny.code, deny.msg, deny.param)
+	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
-	resp, err := h.router.SubmitVideo(r.Context(), &req, t)
+	response, err := h.router.SubmitVideo(r.Context(), &request, token)
 	duration := time.Since(start)
-	h.recordRouteMetric(r.Context(), start, req.Model, t, duration, err, nil)
+	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, nil)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusAccepted, resp)
+	h.writeJSON(w, http.StatusAccepted, response)
 }
 
 // validateVideoRequest enforces edge validation for POST /v1/videos.
-func validateVideoRequest(req *models.VideoGenerationRequest) error {
-	if req.Model == "" {
+func validateVideoRequest(request *models.VideoGenerationRequest) error {
+	if request.Model == "" {
 		return fmt.Errorf("missing required field 'model'")
 	}
-	if strings.TrimSpace(req.Prompt) == "" && len(req.FrameImages) == 0 && len(req.InputReferences) == 0 {
+	if strings.TrimSpace(request.Prompt) == "" && len(request.FrameImages) == 0 && len(request.InputReferences) == 0 {
 		return fmt.Errorf("missing required field 'prompt' (or provide frame_images/input_references)")
 	}
-	if req.Duration < 0 {
+	if request.Duration < 0 {
 		return fmt.Errorf("duration must be positive")
 	}
-	if req.Size != "" && !videoSizePattern.MatchString(req.Size) {
-		return fmt.Errorf("invalid size %q: expected WIDTHxHEIGHT", req.Size)
+	if request.Size != "" && !videoSizePattern.MatchString(request.Size) {
+		return fmt.Errorf("invalid size %q: expected WIDTHxHEIGHT", request.Size)
 	}
-	for _, f := range req.FrameImages {
-		if f.FrameType != "" && f.FrameType != "first_frame" && f.FrameType != "last_frame" {
-			return fmt.Errorf("invalid frame_type %q: expected first_frame or last_frame", f.FrameType)
+	for _, frame := range request.FrameImages {
+		if frame.FrameType != "" && frame.FrameType != "first_frame" && frame.FrameType != "last_frame" {
+			return fmt.Errorf("invalid frame_type %q: expected first_frame or last_frame", frame.FrameType)
 		}
-		if f.ImageURL == nil || strings.TrimSpace(f.ImageURL.URL) == "" {
+		if frame.ImageURL == nil || strings.TrimSpace(frame.ImageURL.URL) == "" {
 			return fmt.Errorf("frame_images entries require image_url.url")
 		}
 	}
-	for _, ref := range req.InputReferences {
-		switch ref.Type {
+	for _, reference := range request.InputReferences {
+		switch reference.Type {
 		case "image_url", "audio_url", "video_url":
 		default:
-			return fmt.Errorf("invalid input reference type %q: expected image_url, audio_url or video_url", ref.Type)
+			return fmt.Errorf("invalid input reference type %q: expected image_url, audio_url or video_url", reference.Type)
 		}
 	}
-	if req.CallbackURL != "" && !strings.HasPrefix(req.CallbackURL, "https://") {
+	if request.CallbackURL != "" && !strings.HasPrefix(request.CallbackURL, "https://") {
 		return fmt.Errorf("callback_url must be an HTTPS URL")
 	}
 	return nil
@@ -105,20 +105,20 @@ func validateVideoRequest(req *models.VideoGenerationRequest) error {
 // @Failure      404 {object} models.OpenAIError "Unknown job"
 // @Router       /v1/videos/{jobId} [get]
 // @Security     BearerAuth
-func (h *Handler) pollVideo(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) pollVideo(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	start := time.Now()
 	jobID := r.PathValue("jobId")
 	if jobID == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "job id is required", nil)
 		return
 	}
-	resp, err := h.router.PollVideo(r.Context(), jobID, t)
+	response, err := h.router.PollVideo(r.Context(), jobID, token)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.recordRouteMetric(r.Context(), start, "", t, time.Since(start), nil, nil)
-	h.writeJSON(w, http.StatusOK, resp)
+	h.recordRouteMetric(r.Context(), start, "", token, time.Since(start), nil, nil)
+	h.writeJSON(w, http.StatusOK, response)
 }
 
 // videoContent handles GET /v1/videos/{jobId}/content
@@ -134,7 +134,7 @@ func (h *Handler) pollVideo(w http.ResponseWriter, r *http.Request, t *models.Ro
 // @Failure      404 {object} models.OpenAIError "Unknown job"
 // @Router       /v1/videos/{jobId}/content [get]
 // @Security     BearerAuth
-func (h *Handler) videoContent(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) videoContent(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	start := time.Now()
 	jobID := r.PathValue("jobId")
 	if jobID == "" {
@@ -143,23 +143,23 @@ func (h *Handler) videoContent(w http.ResponseWriter, r *http.Request, t *models
 	}
 	index := 0
 	if raw := strings.TrimSpace(r.URL.Query().Get("index")); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 0 || n > maxVideoContentIndex {
+		parsedIndex, err := strconv.Atoi(raw)
+		if err != nil || parsedIndex < 0 || parsedIndex > maxVideoContentIndex {
 			h.writeError(w, http.StatusBadRequest, "invalid_request_error",
 				fmt.Sprintf("invalid index %q: expected 0..%d", raw, maxVideoContentIndex), nil)
 			return
 		}
-		index = n
+		index = parsedIndex
 	}
-	resp, err := h.router.VideoContent(r.Context(), jobID, index, t)
+	response, err := h.router.VideoContent(r.Context(), jobID, index, token)
 	if err != nil {
 		h.handleRouterError(w, err)
 		return
 	}
-	h.recordRouteMetric(r.Context(), start, "", t, time.Since(start), nil, nil)
-	w.Header().Set("Content-Type", models.VideoContentType(resp.ContentType))
+	h.recordRouteMetric(r.Context(), start, "", token, time.Since(start), nil, nil)
+	w.Header().Set("Content-Type", models.VideoContentType(response.ContentType))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(resp.Video)
+	_, _ = w.Write(response.Video)
 }
 
 // listVideoModels handles GET /v1/videos/models - token-authenticated
@@ -174,33 +174,33 @@ func (h *Handler) videoContent(w http.ResponseWriter, r *http.Request, t *models
 // @Failure      401 {object} models.OpenAIError "Unauthorized - invalid or missing token"
 // @Router       /v1/videos/models [get]
 // @Security     BearerAuth
-func (h *Handler) listVideoModels(w http.ResponseWriter, r *http.Request, t *models.RouterToken) {
+func (h *Handler) listVideoModels(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	byFullID := map[string]modelinfo.ModelView{}
 	var entries []models.VideoModel
 	if h.providerSvc != nil && h.modelInfoSvc != nil {
 		if providers, err := h.providerSvc.List(); err == nil {
-			for _, p := range providers {
-				if p.TypeKey == provider.TypeVirtual || p.Disabled {
+			for _, providerInstance := range providers {
+				if providerInstance.TypeKey == provider.TypeVirtual || providerInstance.Disabled {
 					continue
 				}
-				infos, err := h.modelInfoSvc.MergedView(r.Context(), p.ID)
+				modelViews, err := h.modelInfoSvc.MergedView(r.Context(), providerInstance.ID)
 				if err != nil {
 					continue
 				}
-				for _, mi := range infos {
-					if mi.Disabled {
+				for _, memberView := range modelViews {
+					if memberView.Disabled {
 						continue
 					}
-					byFullID[p.ID+"/"+mi.Name] = mi
-					if !mi.SupportsEndpoint(models.EndpointVideos) {
+					byFullID[providerInstance.ID+"/"+memberView.Name] = memberView
+					if !memberView.SupportsEndpoint(models.EndpointVideos) {
 						continue
 					}
 					entries = append(entries, models.VideoModel{
-						ID:            p.ID + "/" + mi.Name,
-						CanonicalSlug: p.ID + "/" + mi.Name,
-						Name:          mi.DisplayName,
-						Created:       p.CreatedAt.Unix(),
-						Description:   mi.Description,
+						ID:            providerInstance.ID + "/" + memberView.Name,
+						CanonicalSlug: providerInstance.ID + "/" + memberView.Name,
+						Name:          memberView.DisplayName,
+						Created:       providerInstance.CreatedAt.Unix(),
+						Description:   memberView.Description,
 					})
 				}
 			}
@@ -208,23 +208,23 @@ func (h *Handler) listVideoModels(w http.ResponseWriter, r *http.Request, t *mod
 	}
 	if h.virtualSvc != nil {
 		if agents, err := h.virtualSvc.List(); err == nil {
-			var mu sync.Mutex
+			var mutex sync.Mutex
 			var resolved []*models.VirtualModel
-			var wg sync.WaitGroup
-			for _, a := range agents {
-				if a.Disabled {
+			var waitGroup sync.WaitGroup
+			for _, agent := range agents {
+				if agent.Disabled {
 					continue
 				}
-				wg.Add(1)
-				go func(a *models.VirtualModel) {
-					defer wg.Done()
+				waitGroup.Add(1)
+				go func(agent *models.VirtualModel) {
+					defer waitGroup.Done()
 					serves := false
-					for _, e := range a.Models {
-						mv, ok := byFullID[string(e.ModelID)]
+					for _, entry := range agent.Models {
+						memberView, ok := byFullID[string(entry.ModelID)]
 						if !ok {
 							continue
 						}
-						if mv.SupportsEndpoint(models.EndpointVideos) {
+						if memberView.SupportsEndpoint(models.EndpointVideos) {
 							serves = true
 							break
 						}
@@ -232,19 +232,19 @@ func (h *Handler) listVideoModels(w http.ResponseWriter, r *http.Request, t *mod
 					if !serves {
 						return
 					}
-					mu.Lock()
-					resolved = append(resolved, a)
-					mu.Unlock()
-				}(a)
+					mutex.Lock()
+					resolved = append(resolved, agent)
+					mutex.Unlock()
+				}(agent)
 			}
-			wg.Wait()
-			for _, a := range resolved {
+			waitGroup.Wait()
+			for _, agent := range resolved {
 				entries = append(entries, models.VideoModel{
-					ID:            provider.TypeVirtual + "/" + a.ID,
-					CanonicalSlug: provider.TypeVirtual + "/" + a.ID,
-					Name:          a.Name,
-					Created:       a.CreatedAt.Unix(),
-					Description:   a.Description,
+					ID:            provider.TypeVirtual + "/" + agent.ID,
+					CanonicalSlug: provider.TypeVirtual + "/" + agent.ID,
+					Name:          agent.Name,
+					Created:       agent.CreatedAt.Unix(),
+					Description:   agent.Description,
 				})
 			}
 		}

@@ -16,27 +16,27 @@ type Version struct {
 
 // Parse builds a Version from "X.Y[.Z]" with an optional "v" prefix.
 // "X.Y" reads as Fix 0. Extra whitespace around components is allowed.
-func Parse(s string) (Version, error) {
-	t := strings.TrimSpace(s)
-	t = strings.TrimPrefix(t, "v")
-	t = strings.TrimPrefix(t, "V")
-	parts := strings.Split(t, ".")
+func Parse(version string) (Version, error) {
+	trimmed := strings.TrimSpace(version)
+	trimmed = strings.TrimPrefix(trimmed, "v")
+	trimmed = strings.TrimPrefix(trimmed, "V")
+	parts := strings.Split(trimmed, ".")
 	if len(parts) < 2 || len(parts) > 3 {
-		return Version{}, fmt.Errorf("expected MAJOR.MINOR[.FIX], got %q", s)
+		return Version{}, fmt.Errorf("expected MAJOR.MINOR[.FIX], got %q", version)
 	}
-	nums := make([]int, 3)
-	for i, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			return Version{}, fmt.Errorf("invalid empty component in %q", s)
+	numbers := make([]int, 3)
+	for i, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return Version{}, fmt.Errorf("invalid empty component in %q", version)
 		}
-		n, err := strconv.Atoi(p)
-		if err != nil || n < 0 {
-			return Version{}, fmt.Errorf("invalid numeric component %q in %q", p, s)
+		number, err := strconv.Atoi(part)
+		if err != nil || number < 0 {
+			return Version{}, fmt.Errorf("invalid numeric component %q in %q", part, version)
 		}
-		nums[i] = n
+		numbers[i] = number
 	}
-	return Version{Major: nums[0], Minor: nums[1], Fix: nums[2]}, nil
+	return Version{Major: numbers[0], Minor: numbers[1], Fix: numbers[2]}, nil
 }
 
 // String renders "X.Y" when Fix is 0, otherwise "X.Y.Z".

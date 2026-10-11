@@ -51,15 +51,15 @@ llm_router.register("tts-type", {
 `
 
 func TestSpeech_Success(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(speechPluginSource), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(speechPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	if !svc.HasHandler("tts-type", "speech") {
+	if !service.HasHandler("tts-type", "speech") {
 		t.Fatal("speech handler must be registered")
 	}
 	speed := 1.25
-	resp, err := svc.Speech(context.Background(), testMeta("tts-type",
+	response, err := service.Speech(context.Background(), testMetadata("tts-type",
 		&models.Credential{ID: "c1", Data: map[string]any{"api_key": "k"}}, "tts-type/gemini-tts", nil),
 		&models.SpeechRequest{
 			Model:          "tts-type/gemini-tts",
@@ -71,20 +71,20 @@ func TestSpeech_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("speech: %v", err)
 	}
-	if string(resp.Audio) != "FAKEOGD" {
-		t.Fatalf("audio: got %q", resp.Audio)
+	if string(response.Audio) != "FAKEOGD" {
+		t.Fatalf("audio: got %q", response.Audio)
 	}
-	if resp.Format != "ogg" {
-		t.Fatalf("format: got %q", resp.Format)
+	if response.Format != "ogg" {
+		t.Fatalf("format: got %q", response.Format)
 	}
 }
 
 func TestSpeech_HandlerNotFound(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Speech(context.Background(), testMeta("test-type",
+	_, err := service.Speech(context.Background(), testMetadata("test-type",
 		&models.Credential{ID: "c1"}, "test-type/model-a", nil),
 		&models.SpeechRequest{Model: "test-type/model-a", Input: "hi"})
 	if !errors.Is(err, ErrHandlerNotFound) {
@@ -93,17 +93,17 @@ func TestSpeech_HandlerNotFound(t *testing.T) {
 }
 
 func TestSpeech_ContractError(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	src := strings.Replace(speechPluginSource, `return {
       audio_b64 = "RkFLRU9HRA==",
       format = "ogg",
     }`,
 		`do return nil, { message = "out of quota", code = "insufficient_quota", status = 429 } end`, 1)
 	src = strings.Replace(src, "Speech Plugin", "Speech Err", 1)
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Speech(context.Background(), testMeta("tts-type",
+	_, err := service.Speech(context.Background(), testMetadata("tts-type",
 		&models.Credential{ID: "c1"}, "tts-type/m", nil),
 		&models.SpeechRequest{Model: "tts-type/m", Input: "hi"})
 	perr, ok := err.(*models.ProviderError)
@@ -113,13 +113,13 @@ func TestSpeech_ContractError(t *testing.T) {
 }
 
 func TestSpeech_BadBase64(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	src := strings.Replace(speechPluginSource, `audio_b64 = "RkFLRU9HRA=="`, `audio_b64 = "!!!not-base64!!!"`, 1)
 	src = strings.Replace(src, "Speech Plugin", "Speech Bad B64", 1)
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Speech(context.Background(), testMeta("tts-type",
+	_, err := service.Speech(context.Background(), testMetadata("tts-type",
 		&models.Credential{ID: "c1"}, "tts-type/m", nil),
 		&models.SpeechRequest{Model: "tts-type/m", Input: "hi"})
 	var perr *models.PluginInternalError
@@ -129,13 +129,13 @@ func TestSpeech_BadBase64(t *testing.T) {
 }
 
 func TestSpeech_EmptyAudio(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	src := strings.Replace(speechPluginSource, `audio_b64 = "RkFLRU9HRA=="`, `audio_b64 = ""`, 1)
 	src = strings.Replace(src, "Speech Plugin", "Speech Empty", 1)
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Speech(context.Background(), testMeta("tts-type",
+	_, err := service.Speech(context.Background(), testMetadata("tts-type",
 		&models.Credential{ID: "c1"}, "tts-type/m", nil),
 		&models.SpeechRequest{Model: "tts-type/m", Input: "hi"})
 	var perr *models.PluginInternalError
@@ -145,14 +145,14 @@ func TestSpeech_EmptyAudio(t *testing.T) {
 }
 
 func TestGenerateImage_Success(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(speechPluginSource), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(speechPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	if !svc.HasHandler("tts-type", "generate_image") {
+	if !service.HasHandler("tts-type", "generate_image") {
 		t.Fatal("generate_image handler must be registered")
 	}
-	resp, err := svc.GenerateImage(context.Background(), testMeta("tts-type",
+	response, err := service.GenerateImage(context.Background(), testMetadata("tts-type",
 		&models.Credential{ID: "c1"}, "tts-type/imagen-3", nil),
 		&models.ImageGenerationRequest{
 			Model:  "tts-type/imagen-3",
@@ -163,30 +163,30 @@ func TestGenerateImage_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate_image: %v", err)
 	}
-	if resp.Created != 1700000001 {
-		t.Fatalf("created: %d", resp.Created)
+	if response.Created != 1700000001 {
+		t.Fatalf("created: %d", response.Created)
 	}
-	if len(resp.Data) != 2 {
-		t.Fatalf("data len: %d", len(resp.Data))
+	if len(response.Data) != 2 {
+		t.Fatalf("data len: %d", len(response.Data))
 	}
-	decoded, derr := base64.StdEncoding.DecodeString(resp.Data[0].B64JSON)
+	decoded, derr := base64.StdEncoding.DecodeString(response.Data[0].B64JSON)
 	if derr != nil || string(decoded) != "image-bytes" {
 		t.Fatalf("b64: %q err=%v", decoded, derr)
 	}
-	if resp.Data[0].RevisedPrompt != "a cat (revised)" {
-		t.Fatalf("revised prompt: %q", resp.Data[0].RevisedPrompt)
+	if response.Data[0].RevisedPrompt != "a cat (revised)" {
+		t.Fatalf("revised prompt: %q", response.Data[0].RevisedPrompt)
 	}
-	if resp.Data[1].URL != "https://example.com/img.png" {
-		t.Fatalf("url: %q", resp.Data[1].URL)
+	if response.Data[1].URL != "https://example.com/img.png" {
+		t.Fatalf("url: %q", response.Data[1].URL)
 	}
 }
 
 func TestGenerateImage_HandlerNotFound(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.GenerateImage(context.Background(), testMeta("test-type",
+	_, err := service.GenerateImage(context.Background(), testMetadata("test-type",
 		&models.Credential{ID: "c1"}, "test-type/model-a", nil),
 		&models.ImageGenerationRequest{Model: "test-type/model-a", Prompt: "x"})
 	if !errors.Is(err, ErrHandlerNotFound) {
@@ -195,16 +195,16 @@ func TestGenerateImage_HandlerNotFound(t *testing.T) {
 }
 
 func TestGenerateImage_EmptyData(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	src := strings.Replace(speechPluginSource, `data = {
         { b64_json = "aW1hZ2UtYnl0ZXM=", revised_prompt = request.prompt .. " (revised)" },
         { url = "https://example.com/img.png" },
       },`, `data = {},`, 1)
 	src = strings.Replace(src, "Speech Plugin", "Image Empty", 1)
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.GenerateImage(context.Background(), testMeta("tts-type",
+	_, err := service.GenerateImage(context.Background(), testMetadata("tts-type",
 		&models.Credential{ID: "c1"}, "tts-type/m", nil),
 		&models.ImageGenerationRequest{Model: "tts-type/m", Prompt: "x"})
 	var perr *models.PluginInternalError

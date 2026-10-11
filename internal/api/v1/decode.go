@@ -15,9 +15,9 @@ const maxJSONBodyBytes = 8 << 20
 var errBodyTooLarge = errors.New("request body too large")
 
 // decodeJSONBody parses a JSON request body under the shared size limit.
-func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any) error {
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, target any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
 			return errBodyTooLarge

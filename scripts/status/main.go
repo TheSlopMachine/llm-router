@@ -18,7 +18,7 @@ func main() {
 		fmt.Printf("Frontend log: %s\n", shared.DefaultFrontendLog())
 		return
 	}
-	p, err := shared.ReadPidFile(pidFile)
+	process, err := shared.ReadPidFile(pidFile)
 	if err != nil {
 		shared.Failf("parse pidfile %s: %v", pidFile, err)
 	}
@@ -39,8 +39,8 @@ func main() {
 		}
 		fmt.Printf("%s PID %d is not running\n", name, pid)
 	}
-	report("backend", p.Backend, p.BackendPath)
-	report("frontend", p.Frontend, p.FrontendPath)
+	report("backend", process.Backend, process.BackendPath)
+	report("frontend", process.Frontend, process.FrontendPath)
 
 	reportPort := func(label string, port int) {
 		if port <= 0 {
@@ -52,7 +52,7 @@ func main() {
 			fmt.Printf("%s (:%d): held by %s\n", label, port, holder)
 		}
 	}
-	reportPort("frontend port", p.VitePort)
+	reportPort("frontend port", process.VitePort)
 	reportPort("backend api port", mustAtoiSoft(shared.Getenv("API_PORT", "38081")))
 	reportPort("backend internal port", mustAtoiSoft(devBackendWebPort))
 
@@ -60,13 +60,13 @@ func main() {
 	fmt.Printf("Frontend log: %s\n", shared.DefaultFrontendLog())
 }
 
-func mustAtoiSoft(s string) int {
-	n := 0
-	for _, c := range s {
-		if c < '0' || c > '9' {
+func mustAtoiSoft(portString string) int {
+	number := 0
+	for _, digit := range portString {
+		if digit < '0' || digit > '9' {
 			return 0
 		}
-		n = n*10 + int(c-'0')
+		number = number*10 + int(digit-'0')
 	}
-	return n
+	return number
 }

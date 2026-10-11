@@ -33,12 +33,12 @@
     [key: string]: unknown
   }>()
 
-  let el = $state<HTMLTextAreaElement>()
+  let textArea = $state<HTMLTextAreaElement>()
 
   function resize(): void {
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${el.scrollHeight}px`
+    if (!textArea) return
+    textArea.style.height = 'auto'
+    textArea.style.height = `${textArea.scrollHeight}px`
   }
 
   // Re-measure whenever the bound value changes -- covers programmatic
@@ -52,7 +52,7 @@
 <div class="text-area {cls}" class:disabled style:flex={fillStyle(fill)} style:min-width={fill == null || fill === false ? undefined : '0'}>
   <div class="text-area-bg" use:squircle aria-hidden="true"></div>
   <textarea
-    bind:this={el}
+    bind:this={textArea}
     {id}
     {disabled}
     {required}

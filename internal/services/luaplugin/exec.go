@@ -9,12 +9,12 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// callConfig carries per-invocation identity and capability gates into the
+// callConfiguration carries per-invocation identity and capability gates into the
 // sandbox. Request paths never set credentialID or allowCredentialWrite:
 // plugins select credentials themselves and persist only from jobs.
 // allowedCredentials carries the router-token allow-list; nil means
 // unrestricted.
-type callConfig struct {
+type callConfiguration struct {
 	providerID           string
 	providerConfig       map[string]any
 	credentialID         string
@@ -30,60 +30,60 @@ type callConfig struct {
 // shape become ProviderError; everything else becomes PluginInternalError.
 func (s *Service) handlerCall(
 	goCtx context.Context,
-	rec *PluginRecord,
+	record *PluginRecord,
 	typeKey, handler string,
 	pushArgs func(L *lua.LState),
-	nret int,
+	returnCount int,
 	applyRet func(L *lua.LState) error,
 	providerConfig map[string]any,
 ) (bool, error) {
-	found, _, err := s.handlerCallEx(goCtx, rec, HandlerMeta{TypeKey: typeKey, ProviderConfig: providerConfig}, handler, pushArgs, nret, applyRet, nil)
+	found, _, err := s.handlerCallEx(goCtx, record, HandlerMeta{TypeKey: typeKey, ProviderConfig: providerConfig}, handler, pushArgs, returnCount, applyRet, nil)
 	return found, err
 }
 
-// handlerCallEx is handlerCall with an explicit call config.
+// handlerCallEx is handlerCall with an explicit call configuration.
 func (s *Service) handlerCallEx(
 	goCtx context.Context,
-	rec *PluginRecord,
-	meta HandlerMeta,
+	record *PluginRecord,
+	handlerMetadata HandlerMeta,
 	handler string,
 	pushArgs func(L *lua.LState),
-	nret int,
+	returnCount int,
 	applyRet func(L *lua.LState) error,
-	cfg *callConfig,
+	configuration *callConfiguration,
 ) (found bool, route string, err error) {
-	typeKey := meta.TypeKey
-	if cfg == nil {
-		cfg = &callConfig{providerID: meta.ProviderID, providerConfig: meta.ProviderConfig, credentialID: meta.credentialID(), model: meta.Model, allowedCredentials: meta.AllowedCredentials}
+	typeKey := handlerMetadata.TypeKey
+	if configuration == nil {
+		configuration = &callConfiguration{providerID: handlerMetadata.ProviderID, providerConfig: handlerMetadata.ProviderConfig, credentialID: handlerMetadata.credentialID(), model: handlerMetadata.Model, allowedCredentials: handlerMetadata.AllowedCredentials}
 	}
-	ctx := &execContext{
-		pluginID:             rec.ID,
-		allowHosts:           rec.AllowHosts,
-		unsafe:               rec.Unsafe,
+	ctx := &executionContext{
+		pluginID:             record.ID,
+		allowHosts:           record.AllowHosts,
+		unsafe:               record.Unsafe,
 		logger:               s.logger,
 		logSink:              s.appendLog,
 		storage:              s.storage,
-		timeoutMs:            cfg.timeoutMs,
-		providerID:           cfg.providerID,
+		timeoutMs:            configuration.timeoutMs,
+		providerID:           configuration.providerID,
 		typeKey:              typeKey,
-		credentialID:         cfg.credentialID,
-		model:                cfg.model,
-		allowedCredentials:   cfg.allowedCredentials,
-		allowCredentialWrite: cfg.allowCredentialWrite,
-		jobName:              cfg.jobName,
+		credentialID:         configuration.credentialID,
+		model:                configuration.model,
+		allowedCredentials:   configuration.allowedCredentials,
+		allowCredentialWrite: configuration.allowCredentialWrite,
+		jobName:              configuration.jobName,
 		markDead:             s.markDead,
 		healthTrigger:        s.healthTrigger,
 		proxyQuery:           s.proxyQuery,
 		proxyRequire:         s.proxyRequire,
-		delivered:            meta.delivered,
-		credList:             s.credList,
-		credGet:              s.credGet,
-		credUpdate:           s.credUpdate,
-		credDisable:          s.credDisable,
-		credEnable:           s.credEnable,
-		credPark:             s.credPark,
-		credUnpark:           s.credUnpark,
-		credParked:           s.credParked,
+		delivered:            handlerMetadata.delivered,
+		credentialList:       s.credentialList,
+		credentialGet:        s.credentialGet,
+		credentialUpdate:     s.credentialUpdate,
+		credentialDisable:    s.credentialDisable,
+		credentialEnable:     s.credentialEnable,
+		credentialPark:       s.credentialPark,
+		credentialUnpark:     s.credentialUnpark,
+		credentialParked:     s.credentialParked,
 		automationOn:         s.automationOn,
 		capabilities:         s.capabilitiesFor(typeKey),
 		goCtx:                goCtx,
@@ -111,41 +111,41 @@ func (s *Service) handlerCallEx(
 	defer L.Close()
 	L.SetContext(goCtx)
 
-	if err := L.DoString(string(rec.Source)); err != nil {
+	if err := L.DoString(string(record.Source)); err != nil {
 		cause := luaErrorString(L.Get(-1))
 		if cause == "" || cause == "nil" {
 			cause = err.Error()
 		}
-		cause = fmt.Sprintf("%s (source %d bytes)", cause, len(rec.Source))
-		s.recordCrash(rec.ID, typeKey, s.crashPrefix(ctx)+"load: "+cause)
-		return true, "", &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: "load: " + cause}
+		cause = fmt.Sprintf("%s (source %d bytes)", cause, len(record.Source))
+		s.recordCrash(record.ID, typeKey, s.crashPrefix(ctx)+"load: "+cause)
+		return true, "", &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "load: " + cause}
 	}
 	handlers, ok := ctx.registrations[typeKey]
 	if !ok {
 		if srcHandlers, isSource := ctx.proxySources[typeKey]; isSource {
 			handlers = srcHandlers
 		} else {
-			return false, "", &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: handler}
+			return false, "", &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: handler}
 		}
 	}
-	fn := lookupCallable(handlers, handler)
-	if fn == nil {
-		// Job specs carry colocated run functions under jobs.<name>.run.
-		if jobFn := lookupJobRun(handlers, handler); jobFn != nil {
-			fn = jobFn
+	handlerFunction := lookupCallable(handlers, handler)
+	if handlerFunction == nil {
+		// Job specifications carry colocated run functions under jobs.<name>.run.
+		if jobFunction := lookupJobRun(handlers, handler); jobFunction != nil {
+			handlerFunction = jobFunction
 		} else {
-			return false, "", &notFoundError{PluginID: rec.ID, TypeKey: typeKey, Handler: handler}
+			return false, "", &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: handler}
 		}
 	}
 
 	top := L.GetTop()
-	L.Push(fn)
+	L.Push(handlerFunction)
 	if pushArgs != nil {
 		pushArgs(L)
 	}
-	nargs := L.GetTop() - top - 1
-	if callErr := L.PCall(nargs, nret, nil); callErr != nil {
-		err := s.luaCallError(rec, typeKey, L, callErr, s.crashPrefix(ctx))
+	argumentCount := L.GetTop() - top - 1
+	if callError := L.PCall(argumentCount, returnCount, nil); callError != nil {
+		err := s.luaCallError(record, typeKey, L, callError, s.crashPrefix(ctx))
 		L.SetTop(top)
 		return true, "", err
 	}
@@ -162,17 +162,17 @@ func (s *Service) handlerCallEx(
 // caller compatibility. Proxy routes no longer exist: it always returns "".
 func (s *Service) handlerCallRouted(
 	goCtx context.Context,
-	rec *PluginRecord,
-	meta HandlerMeta,
+	record *PluginRecord,
+	handlerMetadata HandlerMeta,
 	handler string,
 	pushArgs func(L *lua.LState),
-	nret int,
+	returnCount int,
 	applyRet func(L *lua.LState) error,
 ) (found bool, route string, err error) {
-	return s.handlerCallEx(goCtx, rec, meta, handler, pushArgs, nret, applyRet, nil)
+	return s.handlerCallEx(goCtx, record, handlerMetadata, handler, pushArgs, returnCount, applyRet, nil)
 }
 
-func (s *Service) crashPrefix(ctx *execContext) string {
+func (s *Service) crashPrefix(ctx *executionContext) string {
 	if ctx != nil && ctx.jobName != "" {
 		return "job " + ctx.jobName + ": "
 	}
@@ -180,11 +180,11 @@ func (s *Service) crashPrefix(ctx *execContext) string {
 }
 
 func lookupCallable(handlers *lua.LTable, handler string) *lua.LFunction {
-	fn, ok := handlers.RawGetString(handler).(*lua.LFunction)
+	function, ok := handlers.RawGetString(handler).(*lua.LFunction)
 	if !ok {
 		return nil
 	}
-	return fn
+	return function
 }
 
 // lookupJobRun resolves "job:<name>" to the colocated jobs.<name>.run
@@ -202,11 +202,11 @@ func lookupJobRun(handlers *lua.LTable, handler string) *lua.LFunction {
 	if !ok {
 		return nil
 	}
-	fn, ok := entry.RawGetString("run").(*lua.LFunction)
+	function, ok := entry.RawGetString("run").(*lua.LFunction)
 	if !ok {
 		return nil
 	}
-	return fn
+	return function
 }
 
 func isTerminalProviderError(err error, out **models.ProviderError) bool {
@@ -224,16 +224,16 @@ func isTerminalProviderError(err error, out **models.ProviderError) bool {
 // to 502; headers is an optional string-to-string table rendered through
 // the HTTP layer allow-list. Anything else is not a terminal error.
 func asTerminalError(v lua.LValue) (*models.ProviderError, bool) {
-	tbl, ok := v.(*lua.LTable)
+	table, ok := v.(*lua.LTable)
 	if !ok {
 		return nil, false
 	}
-	msgVal, ok := tbl.RawGetString("message").(lua.LString)
+	msgVal, ok := table.RawGetString("message").(lua.LString)
 	if !ok || strings.TrimSpace(string(msgVal)) == "" {
 		return nil, false
 	}
 	status := 502
-	if sv := tbl.RawGetString("status"); sv != lua.LNil {
+	if sv := table.RawGetString("status"); sv != lua.LNil {
 		n, ok := sv.(lua.LNumber)
 		if !ok || int(n) < 400 || int(n) > 599 {
 			return nil, false
@@ -241,7 +241,7 @@ func asTerminalError(v lua.LValue) (*models.ProviderError, bool) {
 		status = int(n)
 	}
 	code := "server_error"
-	if cv := tbl.RawGetString("code"); cv != lua.LNil {
+	if cv := table.RawGetString("code"); cv != lua.LNil {
 		cs, ok := cv.(lua.LString)
 		if !ok || strings.TrimSpace(string(cs)) == "" {
 			return nil, false
@@ -249,24 +249,24 @@ func asTerminalError(v lua.LValue) (*models.ProviderError, bool) {
 		code = string(cs)
 	}
 	param := ""
-	if pv := tbl.RawGetString("param"); pv != lua.LNil {
+	if pv := table.RawGetString("param"); pv != lua.LNil {
 		ps, ok := pv.(lua.LString)
 		if !ok {
 			return nil, false
 		}
 		param = string(ps)
 	}
-	headers := readStringTable(tbl.RawGetString("headers"))
+	headers := readStringTable(table.RawGetString("headers"))
 	return &models.ProviderError{StatusCode: status, Message: string(msgVal), Code: code, Param: param, Headers: headers}, true
 }
 
 func readStringTable(v lua.LValue) map[string]string {
-	tbl, ok := v.(*lua.LTable)
+	table, ok := v.(*lua.LTable)
 	if !ok {
 		return nil
 	}
 	out := map[string]string{}
-	tbl.ForEach(func(k, val lua.LValue) {
+	table.ForEach(func(k, val lua.LValue) {
 		ks, ok := k.(lua.LString)
 		if !ok {
 			return
@@ -288,7 +288,7 @@ func readStringTable(v lua.LValue) map[string]string {
 // a malformed table never fails the error it rides on.
 
 // luaCallError converts a failed PCall into ProviderError or PluginInternalError.
-func (s *Service) luaCallError(rec *PluginRecord, typeKey string, L *lua.LState, callErr error, prefix string) error {
+func (s *Service) luaCallError(record *PluginRecord, typeKey string, L *lua.LState, callError error, prefix string) error {
 	top := L.GetTop()
 	if top >= 1 {
 		if perr, ok := asTerminalError(L.Get(top)); ok {
@@ -296,8 +296,8 @@ func (s *Service) luaCallError(rec *PluginRecord, typeKey string, L *lua.LState,
 		}
 	}
 	cause := luaErrorString(L.Get(-1))
-	if callErr != nil && (cause == "" || cause == "nil") {
-		cause = callErr.Error()
+	if callError != nil && (cause == "" || cause == "nil") {
+		cause = callError.Error()
 	}
 	if goCtx := L.Context(); goCtx != nil {
 		if ctxErr := goCtx.Err(); ctxErr != nil {
@@ -305,13 +305,13 @@ func (s *Service) luaCallError(rec *PluginRecord, typeKey string, L *lua.LState,
 		}
 	}
 	cause = prefix + cause
-	s.recordCrash(rec.ID, typeKey, cause)
-	return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: cause}
+	s.recordCrash(record.ID, typeKey, cause)
+	return &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: cause}
 }
 
 // splitReturn reads the (result, err) pair left by a 2-value handler call.
 // Stack layout: [..., result, err].
-func splitReturn(L *lua.LState) (result lua.LValue, rawErr lua.LValue) {
+func splitReturn(L *lua.LState) (result lua.LValue, returnError lua.LValue) {
 	top := L.GetTop()
 	if top < 2 {
 		return lua.LNil, lua.LNil
@@ -322,14 +322,14 @@ func splitReturn(L *lua.LState) (result lua.LValue, rawErr lua.LValue) {
 // contractErrOrInternal resolves the err slot of a (result, err) return:
 // a valid terminal table becomes ProviderError, any other non-nil value
 // becomes PluginInternalError.
-func (s *Service) contractErrOrInternal(rec *PluginRecord, typeKey string, rawErr lua.LValue) error {
-	if rawErr == nil || rawErr == lua.LNil {
+func (s *Service) contractErrOrInternal(record *PluginRecord, typeKey string, returnError lua.LValue) error {
+	if returnError == nil || returnError == lua.LNil {
 		return nil
 	}
-	if perr, ok := asTerminalError(rawErr); ok {
+	if perr, ok := asTerminalError(returnError); ok {
 		return perr
 	}
-	cause := "handler returned invalid error value: " + luaErrorString(rawErr)
-	s.recordCrash(rec.ID, typeKey, cause)
-	return &models.PluginInternalError{PluginID: rec.ID, TypeKey: typeKey, Cause: cause}
+	cause := "handler returned invalid error value: " + luaErrorString(returnError)
+	s.recordCrash(record.ID, typeKey, cause)
+	return &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: cause}
 }

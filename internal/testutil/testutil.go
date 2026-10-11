@@ -21,12 +21,12 @@ import (
 func SetupTestDB(t *testing.T) *db.DB {
 	t.Helper()
 
-	f, err := os.CreateTemp("", "llm-router-test-*.db")
+	file, err := os.CreateTemp("", "llm-router-test-*.db")
 	if err != nil {
 		t.Fatalf("create temp db file: %v", err)
 	}
-	path := f.Name()
-	f.Close()
+	path := file.Name()
+	file.Close()
 
 	database, err := db.Open(path)
 	if err != nil {
@@ -60,12 +60,12 @@ type MockAdapter struct {
 func NewMockAdapter(typeKey string) *MockAdapter {
 	return &MockAdapter{
 		typeKey: typeKey,
-		completeFunc: func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+		completeFunc: func(ctx context.Context, credentials []*models.Credential, request *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
 			return &models.ChatCompletionResponse{
 				ID:      "mock-" + fmt.Sprintf("%d", time.Now().Unix()),
 				Object:  "chat.completion",
 				Created: time.Now().Unix(),
-				Model:   string(req.Model),
+				Model:   string(request.Model),
 				Choices: []models.ChatCompletionChoice{
 					{
 						Index: 0,
@@ -83,12 +83,12 @@ func NewMockAdapter(typeKey string) *MockAdapter {
 				},
 			}, nil
 		},
-		completeStreamFunc: func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, w io.Writer) error {
+		completeStreamFunc: func(ctx context.Context, credentials []*models.Credential, request *models.ChatCompletionRequest, writer io.Writer) error {
 			chunk := models.StreamChunk{
 				ID:      "mock-stream",
 				Object:  "chat.completion.chunk",
 				Created: time.Now().Unix(),
-				Model:   string(req.Model),
+				Model:   string(request.Model),
 				Choices: []models.StreamChunkChoice{
 					{
 						Index: 0,
@@ -100,7 +100,7 @@ func NewMockAdapter(typeKey string) *MockAdapter {
 				},
 			}
 			data, _ := json.Marshal(chunk)
-			fmt.Fprintf(w, "data: %s\n\n", data)
+			fmt.Fprintf(writer, "data: %s\n\n", data)
 			return nil
 		},
 		validateFunc: func(data map[string]any) error {
@@ -109,13 +109,13 @@ func NewMockAdapter(typeKey string) *MockAdapter {
 			}
 			return nil
 		},
-		needsRefreshFunc: func(cred *models.Credential) bool {
+		needsRefreshFunc: func(credential *models.Credential) bool {
 			return false
 		},
-		refreshFunc: func(ctx context.Context, cred *models.Credential) (map[string]any, error) {
+		refreshFunc: func(ctx context.Context, credential *models.Credential) (map[string]any, error) {
 			return nil, fmt.Errorf("no refresh needed")
 		},
-		modelInfosFunc: func(ctx context.Context, cred *models.Credential, qualifier string) ([]models.ModelInfo, error) {
+		modelInfosFunc: func(ctx context.Context, credential *models.Credential, qualifier string) ([]models.ModelInfo, error) {
 			return []models.ModelInfo{
 				{
 					Name:          "mock-model",
@@ -132,22 +132,24 @@ func (m *MockAdapter) TypeKey() string { return m.typeKey }
 func (m *MockAdapter) ValidateCredentials(data map[string]any) error {
 	return m.validateFunc(data)
 }
-func (m *MockAdapter) Complete(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, _ map[string]any) (*models.ChatCompletionResponse, error) {
+func (m *MockAdapter) Complete(ctx context.Context, credentials []*models.Credential, request *models.ChatCompletionRequest, _ map[string]any) (*models.ChatCompletionResponse, error) {
 	m.Calls++
-	m.SeenPools = append(m.SeenPools, creds)
-	return m.completeFunc(ctx, creds, req)
+	m.SeenPools = append(m.SeenPools, credentials)
+	return m.completeFunc(ctx, credentials, request)
 }
-func (m *MockAdapter) CompleteStream(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest, w io.Writer, _ map[string]any) error {
+func (m *MockAdapter) CompleteStream(ctx context.Context, credentials []*models.Credential, request *models.ChatCompletionRequest, writer io.Writer, _ map[string]any) error {
 	m.Calls++
-	m.SeenPools = append(m.SeenPools, creds)
-	return m.completeStreamFunc(ctx, creds, req, w)
+	m.SeenPools = append(m.SeenPools, credentials)
+	return m.completeStreamFunc(ctx, credentials, request, writer)
 }
-func (m *MockAdapter) NeedsRefresh(cred *models.Credential) bool { return m.needsRefreshFunc(cred) }
-func (m *MockAdapter) RefreshCredential(ctx context.Context, cred *models.Credential) (map[string]any, error) {
-	return m.refreshFunc(ctx, cred)
+func (m *MockAdapter) NeedsRefresh(credential *models.Credential) bool {
+	return m.needsRefreshFunc(credential)
 }
-func (m *MockAdapter) GetModelInfos(ctx context.Context, cred *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {
-	return m.modelInfosFunc(ctx, cred, "")
+func (m *MockAdapter) RefreshCredential(ctx context.Context, credential *models.Credential) (map[string]any, error) {
+	return m.refreshFunc(ctx, credential)
+}
+func (m *MockAdapter) GetModelInfos(ctx context.Context, credential *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {
+	return m.modelInfosFunc(ctx, credential, "")
 }
 
 // WithCompleteFunc configures the Complete behavior.
@@ -169,9 +171,9 @@ func (m *MockAdapter) WithValidateFunc(f func(map[string]any) error) *MockAdapte
 }
 
 // WithModelInfos configures the GetModelInfos behavior.
-func (m *MockAdapter) WithModelInfos(infos []models.ModelInfo) *MockAdapter {
-	m.modelInfosFunc = func(ctx context.Context, cred *models.Credential, qualifier string) ([]models.ModelInfo, error) {
-		return infos, nil
+func (m *MockAdapter) WithModelInfos(modelInfos []models.ModelInfo) *MockAdapter {
+	m.modelInfosFunc = func(ctx context.Context, credential *models.Credential, qualifier string) ([]models.ModelInfo, error) {
+		return modelInfos, nil
 	}
 	return m
 }
@@ -189,8 +191,8 @@ func (m *MockAdapter) WithRefreshFunc(f func(context.Context, *models.Credential
 }
 
 // BuildCredential creates a test credential with defaults.
-func BuildCredential(providerID string, opts ...func(*models.Credential)) *models.Credential {
-	cred := &models.Credential{
+func BuildCredential(providerID string, options ...func(*models.Credential)) *models.Credential {
+	credential := &models.Credential{
 		ID:         fmt.Sprintf("cred-%d", time.Now().UnixNano()),
 		ProviderID: providerID,
 		Data: map[string]any{
@@ -200,140 +202,140 @@ func BuildCredential(providerID string, opts ...func(*models.Credential)) *model
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
-	for _, opt := range opts {
-		opt(cred)
+	for _, option := range options {
+		option(credential)
 	}
-	return cred
+	return credential
 }
 
 // WithCredentialData sets credential data.
 func WithCredentialData(data map[string]any) func(*models.Credential) {
-	return func(c *models.Credential) {
-		c.Data = data
+	return func(credential *models.Credential) {
+		credential.Data = data
 	}
 }
 
 // WithCredentialExpiry sets credential expiry time.
 func WithCredentialExpiry(t time.Time) func(*models.Credential) {
-	return func(c *models.Credential) {
-		c.ExpiresAt = &t
+	return func(credential *models.Credential) {
+		credential.ExpiresAt = &t
 	}
 }
 
 // WithCredentialLastUsed sets last used time.
 func WithCredentialLastUsed(t time.Time) func(*models.Credential) {
-	return func(c *models.Credential) {
-		c.LastUsedAt = &t
+	return func(credential *models.Credential) {
+		credential.LastUsedAt = &t
 	}
 }
 
 // BuildToken creates a test token with defaults.
-func BuildToken(opts ...func(*models.RouterToken)) *models.RouterToken {
-	tok := &models.RouterToken{
+func BuildToken(options ...func(*models.RouterToken)) *models.RouterToken {
+	token := &models.RouterToken{
 		ID:        fmt.Sprintf("tok-%d", time.Now().UnixNano()),
 		Name:      "test-token",
 		TokenHash: "",
 		Rules:     models.TokenRules{AllowedModels: []models.ModelId{}},
 		CreatedAt: time.Now(),
 	}
-	for _, opt := range opts {
-		opt(tok)
+	for _, option := range options {
+		option(token)
 	}
-	return tok
+	return token
 }
 
 // WithTokenRules sets token rules.
 func WithTokenRules(rules models.TokenRules) func(*models.RouterToken) {
-	return func(t *models.RouterToken) {
-		t.Rules = rules
+	return func(token *models.RouterToken) {
+		token.Rules = rules
 	}
 }
 
 // WithTokenName sets token name.
 func WithTokenName(name string) func(*models.RouterToken) {
-	return func(t *models.RouterToken) {
-		t.Name = name
+	return func(token *models.RouterToken) {
+		token.Name = name
 	}
 }
 
 // WithTokenHash sets token hash.
 func WithTokenHash(hash string) func(*models.RouterToken) {
-	return func(t *models.RouterToken) {
-		t.TokenHash = hash
+	return func(token *models.RouterToken) {
+		token.TokenHash = hash
 	}
 }
 
 // BuildRequest creates a test chat completion request.
-func BuildRequest(model models.ModelId, opts ...func(*models.ChatCompletionRequest)) *models.ChatCompletionRequest {
-	req := &models.ChatCompletionRequest{
+func BuildRequest(model models.ModelId, options ...func(*models.ChatCompletionRequest)) *models.ChatCompletionRequest {
+	request := &models.ChatCompletionRequest{
 		Model: model,
 		Messages: []models.ChatMessage{
 			{Role: "user", Content: "test message"},
 		},
 	}
-	for _, opt := range opts {
-		opt(req)
+	for _, option := range options {
+		option(request)
 	}
-	return req
+	return request
 }
 
 // WithMessages sets request messages.
-func WithMessages(msgs []models.ChatMessage) func(*models.ChatCompletionRequest) {
-	return func(r *models.ChatCompletionRequest) {
-		r.Messages = msgs
+func WithMessages(messages []models.ChatMessage) func(*models.ChatCompletionRequest) {
+	return func(request *models.ChatCompletionRequest) {
+		request.Messages = messages
 	}
 }
 
 // WithStreaming sets streaming flag.
 func WithStreaming(stream bool) func(*models.ChatCompletionRequest) {
-	return func(r *models.ChatCompletionRequest) {
-		r.Stream = stream
+	return func(request *models.ChatCompletionRequest) {
+		request.Stream = stream
 	}
 }
 
 // BuildProvider creates a test provider instance.
-func BuildProvider(typeKey string, opts ...func(*models.ProviderInstance)) *models.ProviderInstance {
-	p := &models.ProviderInstance{
+func BuildProvider(typeKey string, options ...func(*models.ProviderInstance)) *models.ProviderInstance {
+	providerInstance := &models.ProviderInstance{
 		ID:      typeKey,
 		Name:    typeKey,
 		TypeKey: typeKey,
 	}
-	for _, opt := range opts {
-		opt(p)
+	for _, option := range options {
+		option(providerInstance)
 	}
-	return p
+	return providerInstance
 }
 
 // WithProviderName sets provider name.
 func WithProviderName(name string) func(*models.ProviderInstance) {
-	return func(p *models.ProviderInstance) {
-		p.Name = name
+	return func(providerInstance *models.ProviderInstance) {
+		providerInstance.Name = name
 	}
 }
 
 // WithProviderQualifier sets provider qualifier.
-func WithProviderQualifier(q string) func(*models.ProviderInstance) {
-	return func(p *models.ProviderInstance) {
-		p.Qualifier = q
-		if q != "" {
-			p.ID = p.TypeKey + ":" + q
+func WithProviderQualifier(qualifier string) func(*models.ProviderInstance) {
+	return func(providerInstance *models.ProviderInstance) {
+		providerInstance.Qualifier = qualifier
+		if qualifier != "" {
+			providerInstance.ID = providerInstance.TypeKey + ":" + qualifier
 		}
 	}
 }
 
 // MakeAuthRequest creates an HTTP request with bearer token.
 func MakeAuthRequest(method, url, token string, body io.Reader) *http.Request {
-	req := httptest.NewRequest(method, url, body)
+	request := httptest.NewRequest(method, url, body)
 	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+		request.Header.Set("Authorization", "Bearer "+token)
 	}
-	return req
+	return request
 }
 
 // ParseSSEStream parses Server-Sent Events from response body.
-func ParseSSEStream(r io.Reader) ([]models.StreamChunk, error) {
+func ParseSSEStream(reader io.Reader) ([]models.StreamChunk, error) {
 	var chunks []models.StreamChunk
-	decoder := json.NewDecoder(r)
+	decoder := json.NewDecoder(reader)
 
 	for {
 		var chunk models.StreamChunk

@@ -35,16 +35,16 @@ type JobSpec struct {
 
 // PluginVersionSnapshot is one rollback entry.
 type PluginVersionSnapshot struct {
-	Version         string                                 `json:"version"`
-	Source          []byte                                 `json:"source"`
-	TypeKeys        []string                               `json:"type_keys"`
-	Handlers        map[string][]string                    `json:"handlers"`
-	Icons           map[string]string                      `json:"icons"`
-	ModelSpecs      map[string]map[string]models.ModelInfo `json:"model_specs,omitempty"`
-	HealthCooldown  map[string]int64                       `json:"health_cooldown,omitempty"`
-	ProxySourceKeys []string                               `json:"proxy_source_keys,omitempty"`
-	Schemas         map[string]map[string][]*models.UINode `json:"schemas,omitempty"`
-	Jobs            map[string]map[string]JobSpec          `json:"jobs,omitempty"`
+	Version             string                                 `json:"version"`
+	Source              []byte                                 `json:"source"`
+	TypeKeys            []string                               `json:"type_keys"`
+	Handlers            map[string][]string                    `json:"handlers"`
+	Icons               map[string]string                      `json:"icons"`
+	ModelSpecifications map[string]map[string]models.ModelInfo `json:"model_specs,omitempty"`
+	HealthCooldown      map[string]int64                       `json:"health_cooldown,omitempty"`
+	ProxySourceKeys     []string                               `json:"proxy_source_keys,omitempty"`
+	Schemas             map[string]map[string][]*models.UINode `json:"schemas,omitempty"`
+	Jobs                map[string]map[string]JobSpec          `json:"jobs,omitempty"`
 }
 
 // PluginRecord is the stored plugin row in BucketPlugins.
@@ -60,9 +60,9 @@ type PluginRecord struct {
 	Unsafe      bool     `json:"unsafe"`
 	// ProxySourceKeys lists registered proxy-list feeds in this plugin.
 	ProxySourceKeys []string `json:"proxy_source_keys,omitempty"`
-	// ModelSpecs holds per-type pinned model rows from the registration
+	// ModelSpecifications holds per-type pinned model rows from the registration
 	// model_specs table, merged over discovered rows in GetModelInfos.
-	ModelSpecs map[string]map[string]models.ModelInfo `json:"model_specs,omitempty"`
+	ModelSpecifications map[string]map[string]models.ModelInfo `json:"model_specs,omitempty"`
 	// HealthCooldown holds per-type healthcheck_cooldown values in seconds
 	// from the registration table. Absent means DefaultHealthCooldown.
 	HealthCooldown map[string]int64 `json:"health_cooldown,omitempty"`
@@ -99,7 +99,7 @@ type CrashEntry struct {
 // Service owns the plugin lifecycle, the type key registry and handler calls.
 type Service struct {
 	database *db.DB
-	repo     *repository.Repository[PluginRecord]
+	store    *repository.Repository[PluginRecord]
 	storage  *storageBackend
 	logger   *slog.Logger
 
@@ -126,19 +126,19 @@ type Service struct {
 
 	// proxyRequire serves proxies.require: it waits for matching proxies
 	// within the request context (nil = disabled).
-	proxyRequire func(ctx context.Context, req models.ProxyRequire) (models.ProxyRequireResult, error)
+	proxyRequire func(ctx context.Context, request models.ProxyRequire) (models.ProxyRequireResult, error)
 
 	// credential access for plugins. list/get serve request and job
 	// contexts; update serves job contexts only; disable/enable serve
 	// every context but require the automation switch (see automationOn).
-	credList    func(providerID string) ([]*models.Credential, error)
-	credGet     func(id string) (*models.Credential, error)
-	credUpdate  func(id string, data map[string]any) error
-	credDisable func(id string, reason string) error
-	credEnable  func(id string) error
-	credPark    func(id string, ttl time.Duration, reason string) error
-	credUnpark  func(id string) error
-	credParked  func(id string) (*models.ParkEntry, error)
+	credentialList    func(providerID string) ([]*models.Credential, error)
+	credentialGet     func(id string) (*models.Credential, error)
+	credentialUpdate  func(id string, data map[string]any) error
+	credentialDisable func(id string, reason string) error
+	credentialEnable  func(id string) error
+	credentialPark    func(id string, ttl time.Duration, reason string) error
+	credentialUnpark  func(id string) error
+	credentialParked  func(id string) (*models.ParkEntry, error)
 	// automationOn reports the provider disable_failed_credentials switch
 	// gating shared disable/enable writes; nil reads off.
 	automationOn func(providerID string) bool
@@ -162,7 +162,7 @@ func (s *Service) SetProxyQuery(f func(pool, country string, limit int) ([]model
 }
 
 // SetProxyRequire wires the demand-driven proxy acquisition for plugins.
-func (s *Service) SetProxyRequire(f func(ctx context.Context, req models.ProxyRequire) (models.ProxyRequireResult, error)) {
+func (s *Service) SetProxyRequire(f func(ctx context.Context, request models.ProxyRequire) (models.ProxyRequireResult, error)) {
 	s.proxyRequire = f
 }
 
@@ -173,9 +173,9 @@ func (s *Service) SetCredentialAccess(
 	get func(id string) (*models.Credential, error),
 	update func(id string, data map[string]any) error,
 ) {
-	s.credList = list
-	s.credGet = get
-	s.credUpdate = update
+	s.credentialList = list
+	s.credentialGet = get
+	s.credentialUpdate = update
 }
 
 // SetCredentialLifecycle wires plugin disable/enable writes plus the
@@ -185,8 +185,8 @@ func (s *Service) SetCredentialLifecycle(
 	enable func(id string) error,
 	automationOn func(providerID string) bool,
 ) {
-	s.credDisable = disable
-	s.credEnable = enable
+	s.credentialDisable = disable
+	s.credentialEnable = enable
 	s.automationOn = automationOn
 }
 
@@ -196,16 +196,16 @@ func (s *Service) SetCredentialParks(
 	unpark func(id string) error,
 	parked func(id string) (*models.ParkEntry, error),
 ) {
-	s.credPark = park
-	s.credUnpark = unpark
-	s.credParked = parked
+	s.credentialPark = park
+	s.credentialUnpark = unpark
+	s.credentialParked = parked
 }
 
 // New loads all enabled plugins into the in-memory registry.
 func New(database *db.DB, logger *slog.Logger) (*Service, error) {
 	s := &Service{
 		database: database,
-		repo:     repository.New[PluginRecord](database, db.BucketPlugins, "plugin"),
+		store:    repository.New[PluginRecord](database, db.BucketPlugins, "plugin"),
 		storage:  newStorageBackend(database),
 		logger:   logger,
 		registry: map[string]*PluginRecord{},
@@ -237,7 +237,7 @@ func (s *Service) notify(keys ...string) {
 // checkTypeKeyConflicts rejects type keys already served by another plugin.
 // Updating the same plugin ID is allowed; claiming a foreign key is not.
 func (s *Service) checkTypeKeyConflicts(id string, typeKeys []string) error {
-	records, err := s.repo.List()
+	records, err := s.store.List()
 	if err != nil {
 		return err
 	}
@@ -245,13 +245,13 @@ func (s *Service) checkTypeKeyConflicts(id string, typeKeys []string) error {
 	for _, key := range typeKeys {
 		claimed[key] = id
 	}
-	for _, rec := range records {
-		if rec.ID == id {
+	for _, record := range records {
+		if record.ID == id {
 			continue
 		}
-		for _, key := range rec.TypeKeys {
+		for _, key := range record.TypeKeys {
 			if owner, ok := claimed[key]; ok && owner == id {
-				return fmt.Errorf("%w: type key %q claimed by plugin %q", ErrTypeKeyConflict, key, rec.ID)
+				return fmt.Errorf("%w: type key %q claimed by plugin %q", ErrTypeKeyConflict, key, record.ID)
 			}
 		}
 	}
@@ -259,17 +259,17 @@ func (s *Service) checkTypeKeyConflicts(id string, typeKeys []string) error {
 }
 
 func (s *Service) rebuild() error {
-	records, err := s.repo.List()
+	records, err := s.store.List()
 	if err != nil {
 		return err
 	}
 	reg := map[string]*PluginRecord{}
-	for _, rec := range records {
-		for _, key := range rec.TypeKeys {
+	for _, record := range records {
+		for _, key := range record.TypeKeys {
 			if prev, exists := reg[key]; exists {
-				return fmt.Errorf("duplicate type key %q across plugins %q and %q: resolve by uninstalling one", key, prev.ID, rec.ID)
+				return fmt.Errorf("duplicate type key %q across plugins %q and %q: resolve by uninstalling one", key, prev.ID, record.ID)
 			}
-			cp := *rec
+			cp := *record
 			reg[key] = &cp
 		}
 	}
@@ -282,10 +282,10 @@ func (s *Service) rebuild() error {
 // Lookup returns the plugin record serving typeKey.
 func (s *Service) Lookup(typeKey string) (*PluginRecord, error) {
 	s.mu.RLock()
-	rec, ok := s.registry[typeKey]
+	record, ok := s.registry[typeKey]
 	s.mu.RUnlock()
 	if ok {
-		return rec, nil
+		return record, nil
 	}
 	return nil, fmt.Errorf("no plugin registered for type key %q", typeKey)
 }
@@ -295,22 +295,22 @@ func (s *Service) Lookup(typeKey string) (*PluginRecord, error) {
 func (s *Service) capabilitiesFor(typeKey string) capabilities {
 	caps := capabilities{}
 	s.mu.RLock()
-	rec, ok := s.registry[typeKey]
+	record, ok := s.registry[typeKey]
 	s.mu.RUnlock()
 	if !ok {
 		return caps
 	}
-	if nodes, ok := rec.Schemas[typeKey]["credential_schema"]; ok && nodes != nil {
+	if nodes, ok := record.Schemas[typeKey]["credential_schema"]; ok && nodes != nil {
 		caps.credentials = true
 	} else {
-		for _, h := range rec.Handlers[typeKey] {
+		for _, h := range record.Handlers[typeKey] {
 			if h == string(HandlerAuthInitiate) {
 				caps.credentials = true
 				break
 			}
 		}
 	}
-	_, caps.proxies = rec.Schemas[typeKey]["proxy_schema"]
+	_, caps.proxies = record.Schemas[typeKey]["proxy_schema"]
 	return caps
 }
 
@@ -322,11 +322,11 @@ func (s *Service) CredentialsEnabled(typeKey string) bool {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	rec, ok := s.registry[typeKey]
+	record, ok := s.registry[typeKey]
 	if !ok {
 		return false
 	}
-	nodes, ok := rec.Schemas[typeKey]["credential_schema"]
+	nodes, ok := record.Schemas[typeKey]["credential_schema"]
 	return ok && nodes != nil
 }
 
@@ -335,11 +335,11 @@ func (s *Service) CredentialsEnabled(typeKey string) bool {
 func (s *Service) ProxiesEnabled(typeKey string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	rec, ok := s.registry[typeKey]
+	record, ok := s.registry[typeKey]
 	if !ok {
 		return false
 	}
-	_, ok = rec.Schemas[typeKey]["proxy_schema"]
+	_, ok = record.Schemas[typeKey]["proxy_schema"]
 	return ok
 }
 
@@ -348,22 +348,22 @@ func (s *Service) ProxiesEnabled(typeKey string) bool {
 func (s *Service) Schemas(typeKey string) map[string][]*models.UINode {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	rec, ok := s.registry[typeKey]
+	record, ok := s.registry[typeKey]
 	if !ok {
 		return nil
 	}
-	return rec.Schemas[typeKey]
+	return record.Schemas[typeKey]
 }
 
 // Jobs returns the stored job schedules for a type key, or nil.
 func (s *Service) Jobs(typeKey string) map[string]JobSpec {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	rec, ok := s.registry[typeKey]
+	record, ok := s.registry[typeKey]
 	if !ok {
 		return nil
 	}
-	return rec.Jobs[typeKey]
+	return record.Jobs[typeKey]
 }
 
 // Registered returns all enabled type keys, sorted.
@@ -380,12 +380,12 @@ func (s *Service) Registered() []string {
 
 // Get returns a plugin record by composite ID.
 func (s *Service) Get(id string) (*PluginRecord, error) {
-	return s.repo.Get(id)
+	return s.store.Get(id)
 }
 
 // List returns all installed plugin records.
 func (s *Service) List() ([]*PluginRecord, error) {
-	return s.repo.List()
+	return s.store.List()
 }
 
 // Install validates source and stores it as a new or updated plugin.
@@ -408,21 +408,21 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 	if err != nil {
 		return nil, err
 	}
-	dry, err := s.dryRun(id, source, manifest)
+	dryResult, err := s.dryRun(id, source, manifest)
 	if err != nil {
 		return nil, err
 	}
-	typeKeys := dry.keys
+	typeKeys := dryResult.keys
 	if err := s.checkTypeKeyConflicts(id, typeKeys); err != nil {
 		return nil, err
 	}
 
 	now := time.Now()
-	existing, err := s.repo.Get(id)
+	existing, err := s.store.Get(id)
 	if err == nil && existing != nil {
 		history := append(existing.History, PluginVersionSnapshot{
 			Version: existing.Version, Source: existing.Source, TypeKeys: existing.TypeKeys,
-			Handlers: existing.Handlers, Icons: existing.Icons, ModelSpecs: existing.ModelSpecs, HealthCooldown: existing.HealthCooldown, ProxySourceKeys: existing.ProxySourceKeys,
+			Handlers: existing.Handlers, Icons: existing.Icons, ModelSpecifications: existing.ModelSpecifications, HealthCooldown: existing.HealthCooldown, ProxySourceKeys: existing.ProxySourceKeys,
 			Schemas: existing.Schemas, Jobs: existing.Jobs,
 		})
 		if len(history) > 10 {
@@ -433,16 +433,16 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 			Version: manifest.Version, PluginAPI: manifest.PluginAPI,
 			Description: manifest.Description, License: manifest.License,
 			AllowHosts: manifest.AllowHosts, Unsafe: manifest.Unsafe,
-			ProxySourceKeys: dry.sourceKeys,
-			ModelSpecs:      dry.specs,
-			HealthCooldown:  dry.cooldowns,
-			Schemas:         dry.schemas,
-			Jobs:            dry.jobs,
-			TypeKeys:        typeKeys, Handlers: dry.handlers, Icons: dry.icons, Source: append([]byte(nil), source...),
+			ProxySourceKeys:     dryResult.sourceKeys,
+			ModelSpecifications: dryResult.specifications,
+			HealthCooldown:      dryResult.cooldowns,
+			Schemas:             dryResult.schemas,
+			Jobs:                dryResult.jobs,
+			TypeKeys:            typeKeys, Handlers: dryResult.handlers, Icons: dryResult.icons, Source: append([]byte(nil), source...),
 			History: history, Origin: origin,
 			InstalledAt: existing.InstalledAt, UpdatedAt: now,
 		}
-		if err := s.repo.Put(id, updated); err != nil {
+		if err := s.store.Put(id, updated); err != nil {
 			return nil, err
 		}
 		if err := s.rebuild(); err != nil {
@@ -452,43 +452,43 @@ func (s *Service) Install(source []byte, origin PluginOrigin) (*PluginRecord, er
 		return updated, nil
 	}
 
-	rec := &PluginRecord{
+	record := &PluginRecord{
 		ID: id, DisplayName: manifest.Plugin, Author: manifest.Author,
 		Version: manifest.Version, PluginAPI: manifest.PluginAPI,
 		Description: manifest.Description, License: manifest.License,
 		AllowHosts: manifest.AllowHosts, Unsafe: manifest.Unsafe,
-		ProxySourceKeys: dry.sourceKeys,
-		ModelSpecs:      dry.specs,
-		HealthCooldown:  dry.cooldowns,
-		Schemas:         dry.schemas,
-		Jobs:            dry.jobs,
-		TypeKeys:        typeKeys, Handlers: dry.handlers, Icons: dry.icons, Source: append([]byte(nil), source...),
+		ProxySourceKeys:     dryResult.sourceKeys,
+		ModelSpecifications: dryResult.specifications,
+		HealthCooldown:      dryResult.cooldowns,
+		Schemas:             dryResult.schemas,
+		Jobs:                dryResult.jobs,
+		TypeKeys:            typeKeys, Handlers: dryResult.handlers, Icons: dryResult.icons, Source: append([]byte(nil), source...),
 		Origin:      origin,
 		InstalledAt: now, UpdatedAt: now,
 	}
-	if err := s.repo.Put(id, rec); err != nil {
+	if err := s.store.Put(id, record); err != nil {
 		return nil, err
 	}
 	if err := s.rebuild(); err != nil {
 		return nil, err
 	}
 	s.notify(typeKeys...)
-	return rec, nil
+	return record, nil
 }
 
 // Rollback restores the most recent previous version. The rolled-back-from
 // version is pushed back onto History, so rollback toggles forward again.
 func (s *Service) Rollback(id string) (*PluginRecord, error) {
-	rec, err := s.repo.Get(id)
+	record, err := s.store.Get(id)
 	if err != nil {
 		return nil, err
 	}
-	if len(rec.History) == 0 {
+	if len(record.History) == 0 {
 		return nil, fmt.Errorf("plugin %q has no previous version", id)
 	}
-	prev := rec.History[len(rec.History)-1]
-	rest := rec.History[:len(rec.History)-1]
-	rest = append(rest, PluginVersionSnapshot{Version: rec.Version, Source: rec.Source, TypeKeys: rec.TypeKeys, Handlers: rec.Handlers, Icons: rec.Icons, ModelSpecs: rec.ModelSpecs, HealthCooldown: rec.HealthCooldown, ProxySourceKeys: rec.ProxySourceKeys, Schemas: rec.Schemas, Jobs: rec.Jobs})
+	prev := record.History[len(record.History)-1]
+	rest := record.History[:len(record.History)-1]
+	rest = append(rest, PluginVersionSnapshot{Version: record.Version, Source: record.Source, TypeKeys: record.TypeKeys, Handlers: record.Handlers, Icons: record.Icons, ModelSpecifications: record.ModelSpecifications, HealthCooldown: record.HealthCooldown, ProxySourceKeys: record.ProxySourceKeys, Schemas: record.Schemas, Jobs: record.Jobs})
 	if len(rest) > 10 {
 		rest = rest[len(rest)-10:]
 	}
@@ -498,63 +498,63 @@ func (s *Service) Rollback(id string) (*PluginRecord, error) {
 	}
 	handlers := prev.Handlers
 	icons := prev.Icons
-	specs := prev.ModelSpecs
+	specifications := prev.ModelSpecifications
 	cooldowns := prev.HealthCooldown
 	sourceKeys := prev.ProxySourceKeys
 	schemas := prev.Schemas
 	jobs := prev.Jobs
 	if handlers == nil {
 		var derr error
-		dry, derr := s.dryRun(id, prev.Source, manifest)
+		dryResult, derr := s.dryRun(id, prev.Source, manifest)
 		if derr != nil {
 			return nil, fmt.Errorf("previous version dry-run: %w", derr)
 		}
-		handlers, icons, specs, cooldowns, sourceKeys, schemas, jobs =
-			dry.handlers, dry.icons, dry.specs, dry.cooldowns, dry.sourceKeys, dry.schemas, dry.jobs
+		handlers, icons, specifications, cooldowns, sourceKeys, schemas, jobs =
+			dryResult.handlers, dryResult.icons, dryResult.specifications, dryResult.cooldowns, dryResult.sourceKeys, dryResult.schemas, dryResult.jobs
 	}
-	rec.Version = prev.Version
-	rec.Source = prev.Source
-	rec.TypeKeys = prev.TypeKeys
-	rec.Handlers = handlers
-	rec.Icons = icons
-	rec.ModelSpecs = specs
-	rec.HealthCooldown = cooldowns
-	rec.Schemas = schemas
-	rec.Jobs = jobs
-	rec.DisplayName = manifest.Plugin
-	rec.Author = manifest.Author
-	rec.PluginAPI = manifest.PluginAPI
-	rec.Description = manifest.Description
-	rec.License = manifest.License
-	rec.AllowHosts = manifest.AllowHosts
-	rec.Unsafe = manifest.Unsafe
-	rec.ProxySourceKeys = sourceKeys
-	rec.History = rest
-	rec.UpdatedAt = time.Now()
-	if err := s.repo.Put(id, rec); err != nil {
+	record.Version = prev.Version
+	record.Source = prev.Source
+	record.TypeKeys = prev.TypeKeys
+	record.Handlers = handlers
+	record.Icons = icons
+	record.ModelSpecifications = specifications
+	record.HealthCooldown = cooldowns
+	record.Schemas = schemas
+	record.Jobs = jobs
+	record.DisplayName = manifest.Plugin
+	record.Author = manifest.Author
+	record.PluginAPI = manifest.PluginAPI
+	record.Description = manifest.Description
+	record.License = manifest.License
+	record.AllowHosts = manifest.AllowHosts
+	record.Unsafe = manifest.Unsafe
+	record.ProxySourceKeys = sourceKeys
+	record.History = rest
+	record.UpdatedAt = time.Now()
+	if err := s.store.Put(id, record); err != nil {
 		return nil, err
 	}
 	if err := s.rebuild(); err != nil {
 		return nil, err
 	}
-	s.notify(rec.TypeKeys...)
-	return rec, nil
+	s.notify(record.TypeKeys...)
+	return record, nil
 }
 
 // Delete removes a plugin and its storage entries.
 func (s *Service) Delete(id string) error {
-	rec, err := s.repo.Get(id)
+	record, err := s.store.Get(id)
 	if err != nil {
 		return err
 	}
-	if err := s.repo.Delete(id); err != nil {
+	if err := s.store.Delete(id); err != nil {
 		return err
 	}
 	_ = s.storage.deletePlugin(id)
 	if err := s.rebuild(); err != nil {
 		return err
 	}
-	s.notify(rec.TypeKeys...)
+	s.notify(record.TypeKeys...)
 	return nil
 }
 
@@ -580,14 +580,14 @@ func validateIcon(typeKey, value string) error {
 
 // dryResult is the validated install-time surface of one plugin source.
 type dryResult struct {
-	keys       []string
-	handlers   map[string][]string
-	icons      map[string]string
-	specs      map[string]map[string]models.ModelInfo
-	cooldowns  map[string]int64
-	sourceKeys []string
-	schemas    map[string]map[string][]*models.UINode
-	jobs       map[string]map[string]JobSpec
+	keys           []string
+	handlers       map[string][]string
+	icons          map[string]string
+	specifications map[string]map[string]models.ModelInfo
+	cooldowns      map[string]int64
+	sourceKeys     []string
+	schemas        map[string]map[string][]*models.UINode
+	jobs           map[string]map[string]JobSpec
 }
 
 // schemaKinds are the static UI tables validated at install, never invoked.
@@ -598,14 +598,14 @@ var schemaKinds = []string{"credential_schema", "config_schema", "settings_schem
 // are not invoked.
 func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) (*dryResult, error) {
 	out := &dryResult{
-		handlers:  map[string][]string{},
-		icons:     map[string]string{},
-		specs:     map[string]map[string]models.ModelInfo{},
-		cooldowns: map[string]int64{},
-		schemas:   map[string]map[string][]*models.UINode{},
-		jobs:      map[string]map[string]JobSpec{},
+		handlers:       map[string][]string{},
+		icons:          map[string]string{},
+		specifications: map[string]map[string]models.ModelInfo{},
+		cooldowns:      map[string]int64{},
+		schemas:        map[string]map[string][]*models.UINode{},
+		jobs:           map[string]map[string]JobSpec{},
 	}
-	ctx := &execContext{
+	ctx := &executionContext{
 		pluginID:      pluginID,
 		allowHosts:    manifest.AllowHosts,
 		unsafe:        manifest.Unsafe,
@@ -635,17 +635,17 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) (*d
 		out.sourceKeys = append(out.sourceKeys, k)
 	}
 	sort.Strings(out.sourceKeys)
-	for k, tbl := range ctx.registrations {
+	for k, table := range ctx.registrations {
 		out.keys = append(out.keys, k)
 		var names []string
 		for _, name := range AllHandlerNames() {
-			if v := tbl.RawGetString(name); v != lua.LNil {
+			if v := table.RawGetString(name); v != lua.LNil {
 				names = append(names, name)
 			}
 		}
 		sort.Strings(names)
 		out.handlers[k] = names
-		if v := tbl.RawGetString("icon"); v != lua.LNil {
+		if v := table.RawGetString("icon"); v != lua.LNil {
 			icon, ok := v.(lua.LString)
 			if !ok {
 				return nil, fmt.Errorf("plugin type %q: icon must be a string", k)
@@ -657,18 +657,18 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) (*d
 				out.icons[k] = string(icon)
 			}
 		}
-		if v := tbl.RawGetString("model_specs"); v != lua.LNil {
-			specTbl, ok := v.(*lua.LTable)
+		if v := table.RawGetString("model_specs"); v != lua.LNil {
+			specificationTable, ok := v.(*lua.LTable)
 			if !ok {
 				return nil, fmt.Errorf("plugin type %q: model_specs must be a table", k)
 			}
-			parsed, err := parseModelSpecs(specTbl, k)
+			parsed, err := parseModelSpecifications(specificationTable, k)
 			if err != nil {
 				return nil, err
 			}
-			out.specs[k] = parsed
+			out.specifications[k] = parsed
 		}
-		if v := tbl.RawGetString("healthcheck_cooldown"); v != lua.LNil {
+		if v := table.RawGetString("healthcheck_cooldown"); v != lua.LNil {
 			d, err := parseHealthCooldown(v, k)
 			if err != nil {
 				return nil, err
@@ -676,7 +676,7 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) (*d
 			out.cooldowns[k] = int64(d / time.Second)
 		}
 		for _, kind := range schemaKinds {
-			if v := tbl.RawGetString(kind); v != lua.LNil {
+			if v := table.RawGetString(kind); v != lua.LNil {
 				schemaTbl, ok := v.(*lua.LTable)
 				if !ok {
 					return nil, fmt.Errorf("plugin type %q: %s must be a table", k, kind)
@@ -691,12 +691,12 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) (*d
 				out.schemas[k][kind] = nodes
 			}
 		}
-		if v := tbl.RawGetString("jobs"); v != lua.LNil {
+		if v := table.RawGetString("jobs"); v != lua.LNil {
 			jobsTbl, ok := v.(*lua.LTable)
 			if !ok {
 				return nil, fmt.Errorf("plugin type %q: jobs must be a table", k)
 			}
-			parsed, err := parseJobSpecs(jobsTbl, k)
+			parsed, err := parseJobSpecifications(jobsTbl, k)
 			if err != nil {
 				return nil, err
 			}
@@ -710,12 +710,12 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) (*d
 // HasHandler reports whether a type key declares a handler.
 func (s *Service) HasHandler(typeKey, handler string) bool {
 	s.mu.RLock()
-	rec, ok := s.registry[typeKey]
+	record, ok := s.registry[typeKey]
 	s.mu.RUnlock()
 	if !ok {
 		return false
 	}
-	for _, h := range rec.Handlers[typeKey] {
+	for _, h := range record.Handlers[typeKey] {
 		if h == handler {
 			return true
 		}
@@ -726,12 +726,12 @@ func (s *Service) HasHandler(typeKey, handler string) bool {
 // Icon returns the icon declared by a type key, or empty when none.
 func (s *Service) Icon(typeKey string) string {
 	s.mu.RLock()
-	rec, ok := s.registry[typeKey]
+	record, ok := s.registry[typeKey]
 	s.mu.RUnlock()
 	if !ok {
 		return ""
 	}
-	return rec.Icons[typeKey]
+	return record.Icons[typeKey]
 }
 
 // BuildID derives the composite plugin ID from origin and manifest.
@@ -752,7 +752,7 @@ func BuildID(origin PluginOrigin, manifest *Manifest) (string, error) {
 	if strings.TrimSpace(origin.RepoID) == "" {
 		return "", fmt.Errorf("repo origin requires repo id")
 	}
-	if err := validateRepoID(origin.RepoID); err != nil {
+	if err := validateRepositoryID(origin.RepoID); err != nil {
 		return "", err
 	}
 	base := path.Base(origin.Path)
@@ -770,9 +770,9 @@ func BuildID(origin PluginOrigin, manifest *Manifest) (string, error) {
 	return origin.RepoID + "/" + author + "/" + name, nil
 }
 
-// validateRepoID accepts slash-separated repository IDs such as
+// validateRepositoryID accepts slash-separated repository IDs such as
 // "github/<owner>/<repo>" and rejects traversal and malformed values.
-func validateRepoID(id string) error {
+func validateRepositoryID(id string) error {
 	if strings.Contains(id, "\x00") {
 		return fmt.Errorf("invalid repo id %q", id)
 	}
@@ -787,22 +787,22 @@ func validateRepoID(id string) error {
 	return nil
 }
 
-func sanitizeIDPart(s string) (string, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
+func sanitizeIDPart(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
 		return "", fmt.Errorf("value is empty")
 	}
-	if strings.Contains(s, "/") || strings.Contains(s, "..") || strings.Contains(s, "\x00") {
-		return "", fmt.Errorf("value %q contains a path separator", s)
+	if strings.Contains(value, "/") || strings.Contains(value, "..") || strings.Contains(value, "\x00") {
+		return "", fmt.Errorf("value %q contains a path separator", value)
 	}
 	var b strings.Builder
 	prevDash := false
-	for _, r := range s {
+	for _, character := range value {
 		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
-			b.WriteRune(r)
+		case character >= 'a' && character <= 'z', character >= 'A' && character <= 'Z', character >= '0' && character <= '9', character == '-', character == '_', character == '.':
+			b.WriteRune(character)
 			prevDash = false
-		case r == ' ' || r == '\t':
+		case character == ' ' || character == '\t':
 			if !prevDash {
 				b.WriteRune('-')
 				prevDash = true
@@ -816,18 +816,18 @@ func sanitizeIDPart(s string) (string, error) {
 	}
 	out := strings.Trim(b.String(), "-")
 	if out == "" {
-		return "", fmt.Errorf("value %q has no usable characters", s)
+		return "", fmt.Errorf("value %q has no usable characters", value)
 	}
 	return out, nil
 }
 
-func unionKeys(a, b []string) []string {
+func unionKeys(first, second []string) []string {
 	seen := map[string]bool{}
 	var out []string
-	for _, k := range append(append([]string{}, a...), b...) {
-		if !seen[k] {
-			seen[k] = true
-			out = append(out, k)
+	for _, key := range append(append([]string{}, first...), second...) {
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, key)
 		}
 	}
 	sort.Strings(out)

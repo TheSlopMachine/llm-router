@@ -60,27 +60,27 @@ func main() {
 	ldflags := fmt.Sprintf("-s -w -X main.Version=%s -X main.GitCommit=%s -X main.BuildTime=%s",
 		version, gitCommit, buildTime)
 
-	plats := strings.Fields(platforms)
-	shared.Stepf("Building %d platforms...", len(plats))
+	platformList := strings.Fields(platforms)
+	shared.Stepf("Building %d platforms...", len(platformList))
 
 	var checksums []string
-	for _, plat := range plats {
-		parts := strings.SplitN(plat, "/", 2)
+	for _, platform := range platformList {
+		parts := strings.SplitN(platform, "/", 2)
 		if len(parts) != 2 {
-			shared.Failf("invalid platform %q: must be GOOS/GOARCH", plat)
+			shared.Failf("invalid platform %q: must be GOOS/GOARCH", platform)
 		}
 		goos, goarch := parts[0], parts[1]
-		binName := binary
+		binaryName := binary
 		if goos == "windows" {
-			binName += ".exe"
+			binaryName += ".exe"
 		}
-		outDir := filepath.Join(publishDir, goos+"_"+goarch)
-		if err := os.MkdirAll(outDir, 0755); err != nil {
-			shared.Failf("create %s: %v", outDir, err)
+		outputDirectory := filepath.Join(publishDir, goos+"_"+goarch)
+		if err := os.MkdirAll(outputDirectory, 0755); err != nil {
+			shared.Failf("create %s: %v", outputDirectory, err)
 		}
-		outBin := filepath.Join(outDir, binName)
+		outputBinary := filepath.Join(outputDirectory, binaryName)
 		shared.Stepf("Building %s/%s...", goos, goarch)
-		cmd := exec.Command("go", "build", "-ldflags", ldflags, "-o", outBin, ".")
+		cmd := exec.Command("go", "build", "-ldflags", ldflags, "-o", outputBinary, ".")
 		cmd.Dir = root
 		cmd.Env = shared.EnvWith([]string{"GOOS=" + goos, "GOARCH=" + goarch})
 		cmd.Stdout = os.Stdout
@@ -90,35 +90,35 @@ func main() {
 		}
 
 		zipName := fmt.Sprintf("%s_%s_%s.zip", binary, goos, goarch)
-		zipPath := filepath.Join(outDir, zipName)
-		if err := zipFile(zipPath, outBin); err != nil {
+		zipPath := filepath.Join(outputDirectory, zipName)
+		if err := zipFile(zipPath, outputBinary); err != nil {
 			shared.Failf("zip %s/%s: %v", goos, goarch, err)
 		}
 
-		sum, err := sha256File(zipPath)
+		checksum, err := sha256File(zipPath)
 		if err != nil {
 			shared.Failf("sha256 %s: %v", zipPath, err)
 		}
-		line := fmt.Sprintf("%s  %s_%s/%s", sum, goos, goarch, zipName)
+		line := fmt.Sprintf("%s  %s_%s/%s", checksum, goos, goarch, zipName)
 		checksums = append(checksums, line)
 		shared.OKf("Done: %s/%s", goos, goarch)
 	}
 
 	sort.Strings(checksums)
-	csPath := filepath.Join(publishDir, "checksums.txt")
-	if err := os.WriteFile(csPath, []byte(strings.Join(checksums, "\n")+"\n"), 0644); err != nil {
+	checksumPath := filepath.Join(publishDir, "checksums.txt")
+	if err := os.WriteFile(checksumPath, []byte(strings.Join(checksums, "\n")+"\n"), 0644); err != nil {
 		shared.Failf("write checksums.txt: %v", err)
 	}
 
 	fmt.Printf("\n[OK] Artifacts in  %s/\n", publishDir)
-	fmt.Printf("[OK] Checksums in  %s\n", csPath)
+	fmt.Printf("[OK] Checksums in  %s\n", checksumPath)
 }
 
 // resolveVersion prefers explicit VERSION, then the latest git tag,
 // then dev. Build stays fail-open without git.
 func resolveVersion() string {
-	if v := strings.TrimSpace(os.Getenv("VERSION")); v != "" && v != "dev" {
-		return v
+	if versionValue := strings.TrimSpace(os.Getenv("VERSION")); versionValue != "" && versionValue != "dev" {
+		return versionValue
 	}
 	tag, err := script.Exec(`git describe --tags --abbrev=0 --match "v*"`).String()
 	if err != nil {
@@ -147,46 +147,46 @@ func runViteBuild(root string) error {
 }
 
 func zipFile(dst, src string) error {
-	f, err := os.Create(dst)
+	outputFile, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	w := zip.NewWriter(f)
-	defer w.Close()
+	defer outputFile.Close()
+	zipWriter := zip.NewWriter(outputFile)
+	defer zipWriter.Close()
 
 	info, err := os.Stat(src)
 	if err != nil {
 		return err
 	}
-	hdr, err := zip.FileInfoHeader(info)
+	header, err := zip.FileInfoHeader(info)
 	if err != nil {
 		return err
 	}
-	hdr.Name = filepath.Base(src)
-	hdr.Method = zip.Deflate
-	fw, err := w.CreateHeader(hdr)
+	header.Name = filepath.Base(src)
+	header.Method = zip.Deflate
+	fileWriter, err := zipWriter.CreateHeader(header)
 	if err != nil {
 		return err
 	}
-	r, err := os.Open(src)
+	inputFile, err := os.Open(src)
 	if err != nil {
 		return err
 	}
-	defer r.Close()
-	_, err = io.Copy(fw, r)
+	defer inputFile.Close()
+	_, err = io.Copy(fileWriter, inputFile)
 	return err
 }
 
 func sha256File(path string) (string, error) {
-	f, err := os.Open(path)
+	inputFile, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
+	defer inputFile.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, inputFile); err != nil {
 		return "", err
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }

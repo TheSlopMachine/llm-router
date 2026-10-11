@@ -68,7 +68,7 @@ func TestRandomHexBounds(t *testing.T) {
 }
 
 func TestSandboxHelpersExposedToLua(t *testing.T) {
-	svc, err := New(testutil.SetupTestDB(t), nil)
+	service, err := New(testutil.SetupTestDB(t), nil)
 	if err != nil {
 		t.Fatalf("new: %v", err)
 	}
@@ -85,10 +85,10 @@ llm_router.register("helper-probe", {
   end,
 })
 `
-	if _, err := svc.Install([]byte(source), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(source), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err = svc.Complete(context.Background(), testMeta("helper-probe", nil, "helper-probe/m", nil),
+	_, err = service.Complete(context.Background(), testMetadata("helper-probe", nil, "helper-probe/m", nil),
 		&models.ChatCompletionRequest{Model: "helper-probe/m"})
 	perr, ok := err.(*models.ProviderError)
 	if !ok {

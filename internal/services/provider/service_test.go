@@ -14,8 +14,8 @@ import (
 )
 
 func containsProvider(providers []*models.ProviderInstance, id string) bool {
-	for _, p := range providers {
-		if p.ID == id {
+	for _, provider := range providers {
+		if provider.ID == id {
 			return true
 		}
 	}
@@ -24,44 +24,44 @@ func containsProvider(providers []*models.ProviderInstance, id string) bool {
 
 func TestProviderService_CreateAndGet(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
+	service := provider.NewService(database)
 
-	inst, err := svc.Create(provider.CreateOptions{
+	instance, err := service.Create(provider.CreateOptions{
 		Name: "My LLM", TypeKey: "custom",
 		Config: map[string]any{"base_url": "https://api.example.com/v1/"},
 	})
 	if err != nil {
 		t.Fatalf("create failed: %v", err)
 	}
-	if inst.ID != "custom:my-llm" {
-		t.Fatalf("id: got %q, want %q", inst.ID, "custom:my-llm")
+	if instance.ID != "custom:my-llm" {
+		t.Fatalf("id: got %q, want %q", instance.ID, "custom:my-llm")
 	}
-	if inst.BaseURL() != "https://api.example.com/v1" {
-		t.Fatalf("base_url should be normalized (no trailing slash): got %q", inst.BaseURL())
+	if instance.BaseURL() != "https://api.example.com/v1" {
+		t.Fatalf("base_url should be normalized (no trailing slash): got %q", instance.BaseURL())
 	}
 
-	p, err := svc.Get("custom:my-llm")
+	provider, err := service.Get("custom:my-llm")
 	if err != nil {
 		t.Fatalf("get failed: %v", err)
 	}
-	if p.TypeKey != "custom" {
-		t.Fatalf("type: got %q, want %q", p.TypeKey, "custom")
+	if provider.TypeKey != "custom" {
+		t.Fatalf("type: got %q, want %q", provider.TypeKey, "custom")
 	}
 }
 
 func TestProviderService_CreateLuaType(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
+	service := provider.NewService(database)
 
-	inst, err := svc.Create(provider.CreateOptions{Name: "Zen", TypeKey: "opencode-zen"})
+	instance, err := service.Create(provider.CreateOptions{Name: "Zen", TypeKey: "opencode-zen"})
 	if err != nil {
 		t.Fatalf("create failed: %v", err)
 	}
-	if inst.ID != "opencode-zen" {
-		t.Fatalf("id: got %q, want %q", inst.ID, "opencode-zen")
+	if instance.ID != "opencode-zen" {
+		t.Fatalf("id: got %q, want %q", instance.ID, "opencode-zen")
 	}
 
-	qualified, err := svc.Create(provider.CreateOptions{Name: "Zen EU", TypeKey: "opencode-zen", Qualifier: "eu"})
+	qualified, err := service.Create(provider.CreateOptions{Name: "Zen EU", TypeKey: "opencode-zen", Qualifier: "eu"})
 	if err != nil {
 		t.Fatalf("create qualified failed: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestProviderService_CreateLuaType(t *testing.T) {
 		t.Fatalf("id: got %q", qualified.ID)
 	}
 
-	got, err := svc.GetByTypeAndQualifier("opencode-zen", "eu")
+	got, err := service.GetByTypeAndQualifier("opencode-zen", "eu")
 	if err != nil || got.ID != qualified.ID {
 		t.Fatalf("get by type+qualifier failed: %+v %v", got, err)
 	}
@@ -77,37 +77,37 @@ func TestProviderService_CreateLuaType(t *testing.T) {
 
 func TestProviderService_GetByTypeAndQualifierSlugifies(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
+	service := provider.NewService(database)
 
-	inst, err := svc.Create(provider.CreateOptions{Name: "West", TypeKey: "q-type", Qualifier: "EU West"})
+	instance, err := service.Create(provider.CreateOptions{Name: "West", TypeKey: "q-type", Qualifier: "EU West"})
 	if err != nil {
 		t.Fatalf("create failed: %v", err)
 	}
-	if inst.ID != "q-type:eu-west" {
-		t.Fatalf("id: got %q, want q-type:eu-west", inst.ID)
+	if instance.ID != "q-type:eu-west" {
+		t.Fatalf("id: got %q, want q-type:eu-west", instance.ID)
 	}
 	// The lookup must slugify exactly like uniqueID: the raw qualifier
 	// "EU West" never appears in a stored ID.
-	got, err := svc.GetByTypeAndQualifier("q-type", "EU West")
-	if err != nil || got.ID != inst.ID {
+	got, err := service.GetByTypeAndQualifier("q-type", "EU West")
+	if err != nil || got.ID != instance.ID {
 		t.Fatalf("slugified lookup failed: %+v %v", got, err)
 	}
 }
 
 func TestProviderService_Create_Validation(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
+	service := provider.NewService(database)
 
-	if _, err := svc.Create(provider.CreateOptions{Name: "", TypeKey: "custom"}); err == nil {
+	if _, err := service.Create(provider.CreateOptions{Name: "", TypeKey: "custom"}); err == nil {
 		t.Fatal("expected error for empty name")
 	}
-	if _, err := svc.Create(provider.CreateOptions{Name: "Test"}); err == nil {
+	if _, err := service.Create(provider.CreateOptions{Name: "Test"}); err == nil {
 		t.Fatal("expected error for empty type_key")
 	}
-	if _, err := svc.Create(provider.CreateOptions{Name: "Test", TypeKey: "custom"}); err == nil {
+	if _, err := service.Create(provider.CreateOptions{Name: "Test", TypeKey: "custom"}); err == nil {
 		t.Fatal("expected error for custom without base_url")
 	}
-	if _, err := svc.Create(provider.CreateOptions{
+	if _, err := service.Create(provider.CreateOptions{
 		Name: "Test", TypeKey: "custom", Config: map[string]any{"base_url": "not-a-url"},
 	}); err == nil {
 		t.Fatal("expected error for invalid base_url")
@@ -116,18 +116,18 @@ func TestProviderService_Create_Validation(t *testing.T) {
 
 func TestProviderService_UpdateDelete(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
+	service := provider.NewService(database)
 
-	cp, err := svc.Create(provider.CreateOptions{Name: "My LLM", TypeKey: "custom",
+	createdProvider, err := service.Create(provider.CreateOptions{Name: "My LLM", TypeKey: "custom",
 		Config: map[string]any{"base_url": "https://api.example.com/v1/"}, IconURL: "https://example.com/icon.svg"})
 	if err != nil {
 		t.Fatalf("create failed: %v", err)
 	}
-	if cp.ID != "custom:my-llm" {
-		t.Fatalf("id: got %q, want %q", cp.ID, "custom:my-llm")
+	if createdProvider.ID != "custom:my-llm" {
+		t.Fatalf("id: got %q, want %q", createdProvider.ID, "custom:my-llm")
 	}
 
-	updated, err := svc.Update(cp.ID, provider.UpdateOptions{
+	updated, err := service.Update(createdProvider.ID, provider.UpdateOptions{
 		Name: "My LLM Updated", Config: map[string]any{"base_url": "https://new.example.com/v1"},
 	})
 	if err != nil {
@@ -137,7 +137,7 @@ func TestProviderService_UpdateDelete(t *testing.T) {
 		t.Fatalf("name: got %q", updated.Name)
 	}
 
-	providers, err := svc.List()
+	providers, err := service.List()
 	if err != nil {
 		t.Fatalf("list failed: %v", err)
 	}
@@ -145,57 +145,57 @@ func TestProviderService_UpdateDelete(t *testing.T) {
 		t.Fatal("custom provider missing from list")
 	}
 
-	if err := svc.Delete("custom:my-llm"); err != nil {
+	if err := service.Delete("custom:my-llm"); err != nil {
 		t.Fatalf("delete failed: %v", err)
 	}
-	if _, err := svc.Get("custom:my-llm"); err == nil {
+	if _, err := service.Get("custom:my-llm"); err == nil {
 		t.Fatal("expected deleted provider lookup to fail")
 	}
 }
 
 func TestProviderService_DeleteCascadesCredentials(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
-	svc.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
+	service := provider.NewService(database)
+	service.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
 
-	inst, err := svc.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"})
+	instance, err := service.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"})
 	if err != nil {
 		t.Fatalf("create provider: %v", err)
 	}
-	credSvc := credential.New(database, svc)
-	cred, err := credSvc.Add(credential.AddOptions{
-		ProviderID: inst.ID, Label: "test", Data: map[string]any{"api_key": "key"},
+	credentialService := credential.New(database, service)
+	cred, err := credentialService.Add(credential.AddOptions{
+		ProviderID: instance.ID, Label: "test", Data: map[string]any{"api_key": "key"},
 	})
 	if err != nil {
 		t.Fatalf("add credential: %v", err)
 	}
-	if err := svc.Delete(inst.ID); err != nil {
+	if err := service.Delete(instance.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if _, err := credSvc.Get(cred.ID); err == nil {
+	if _, err := credentialService.Get(cred.ID); err == nil {
 		t.Fatal("credential should be cascaded on provider delete")
 	}
 }
 
 func TestProviderService_EnsureSeeded(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
+	service := provider.NewService(database)
 
-	if err := svc.EnsureSeeded(); err != nil {
+	if err := service.EnsureSeeded(); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	if _, err := svc.Get("virtual"); err != nil {
+	if _, err := service.Get("virtual"); err != nil {
 		t.Fatalf("virtual provider missing after seed: %v", err)
 	}
 	// Idempotent.
-	if err := svc.EnsureSeeded(); err != nil {
+	if err := service.EnsureSeeded(); err != nil {
 		t.Fatalf("second seed: %v", err)
 	}
 }
 
 func TestProviderService_EnsureSeededCopiesPluginIcon(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
+	service := provider.NewService(database)
 
 	luaSvc, err := luaplugin.New(database, nil)
 	if err != nil {
@@ -215,31 +215,31 @@ llm_router.register("seeded-type", {
 	if _, err := luaSvc.Install([]byte(iconSource), luaplugin.PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install plugin: %v", err)
 	}
-	svc.SetLuaService(luaSvc)
+	service.SetLuaService(luaSvc)
 
-	if err := svc.EnsureSeeded(); err != nil {
+	if err := service.EnsureSeeded(); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	inst, err := svc.Get("seeded-type")
+	instance, err := service.Get("seeded-type")
 	if err != nil {
 		t.Fatalf("seeded provider missing: %v", err)
 	}
-	if inst.IconURL != "https://example.com/seeded.svg" {
-		t.Fatalf("seeded icon: got %q", inst.IconURL)
+	if instance.IconURL != "https://example.com/seeded.svg" {
+		t.Fatalf("seeded icon: got %q", instance.IconURL)
 	}
 }
 
 func TestProviderService_SyncDefaultProvidersAfterRuntimeInstall(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
+	service := provider.NewService(database)
 
 	luaSvc, err := luaplugin.New(database, nil)
 	if err != nil {
 		t.Fatalf("lua service: %v", err)
 	}
-	svc.SetLuaService(luaSvc)
+	service.SetLuaService(luaSvc)
 
-	if err := svc.EnsureSeeded(); err != nil {
+	if err := service.EnsureSeeded(); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	const runtimeSource = `--- @plugin Runtime Plugin
@@ -255,24 +255,24 @@ llm_router.register("runtime-type", {
 	if _, err := luaSvc.Install([]byte(runtimeSource), luaplugin.PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install plugin: %v", err)
 	}
-	if err := svc.SyncDefaultProviders(); err != nil {
+	if err := service.SyncDefaultProviders(); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
-	inst, err := svc.Get("runtime-type")
+	instance, err := service.Get("runtime-type")
 	if err != nil {
 		t.Fatalf("default provider missing after runtime install: %v", err)
 	}
-	if inst.Name != "Runtime Plugin" {
-		t.Fatalf("name: got %q, want %q", inst.Name, "Runtime Plugin")
+	if instance.Name != "Runtime Plugin" {
+		t.Fatalf("name: got %q, want %q", instance.Name, "Runtime Plugin")
 	}
-	if !inst.IsUIReadonly {
-		t.Fatalf("seeded singleton must be readonly: %+v", inst)
+	if !instance.IsUIReadonly {
+		t.Fatalf("seeded singleton must be readonly: %+v", instance)
 	}
 }
 
 func TestProviderService_EnsureSeededBackfillsMissingIcon(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
+	service := provider.NewService(database)
 
 	luaSvc, err := luaplugin.New(database, nil)
 	if err != nil {
@@ -292,31 +292,31 @@ llm_router.register("backfill-type", {
 	if _, err := luaSvc.Install([]byte(iconSource), luaplugin.PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install plugin: %v", err)
 	}
-	svc.SetLuaService(luaSvc)
+	service.SetLuaService(luaSvc)
 
 	// Pre-existing rows: one without icon (backfill), one with custom icon (keep).
-	if _, err := svc.Create(provider.CreateOptions{Name: "Bare", TypeKey: "backfill-type"}); err != nil {
+	if _, err := service.Create(provider.CreateOptions{Name: "Bare", TypeKey: "backfill-type"}); err != nil {
 		t.Fatalf("create bare: %v", err)
 	}
-	custom, err := svc.Create(provider.CreateOptions{Name: "Custom", TypeKey: "backfill-type", Qualifier: "q"})
+	custom, err := service.Create(provider.CreateOptions{Name: "Custom", TypeKey: "backfill-type", Qualifier: "q"})
 	if err != nil {
 		t.Fatalf("create custom: %v", err)
 	}
-	if _, err := svc.Update(custom.ID, provider.UpdateOptions{Name: "Custom", IconURL: "https://example.com/mine.svg"}); err != nil {
+	if _, err := service.Update(custom.ID, provider.UpdateOptions{Name: "Custom", IconURL: "https://example.com/mine.svg"}); err != nil {
 		t.Fatalf("set custom icon: %v", err)
 	}
 
-	if err := svc.EnsureSeeded(); err != nil {
+	if err := service.EnsureSeeded(); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	bare, err := svc.Get("backfill-type")
+	bare, err := service.Get("backfill-type")
 	if err != nil {
 		t.Fatalf("bare provider missing: %v", err)
 	}
 	if bare.IconURL != "https://example.com/backfill.svg" {
 		t.Fatalf("backfilled icon: got %q", bare.IconURL)
 	}
-	kept, err := svc.Get(custom.ID)
+	kept, err := service.Get(custom.ID)
 	if err != nil {
 		t.Fatalf("custom provider missing: %v", err)
 	}
@@ -338,28 +338,28 @@ func TestProviderService_LegacyCustomBucketStaysDropped(t *testing.T) {
 		t.Fatalf("seed legacy: %v", err)
 	}
 
-	svc := provider.NewService(database)
-	if err := svc.EnsureSeeded(); err != nil {
+	service := provider.NewService(database)
+	if err := service.EnsureSeeded(); err != nil {
 		t.Fatalf("seed after legacy: %v", err)
 	}
-	if _, err := svc.Get("custom:old-one"); err == nil {
+	if _, err := service.Get("custom:old-one"); err == nil {
 		t.Fatal("legacy custom rows must not resurrect")
 	}
 }
 
 func TestProviderService_CustomSchemas(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
+	service := provider.NewService(database)
 
-	nodes, err := svc.ConfigSchema("custom")
+	nodes, err := service.ConfigSchema("custom")
 	if err != nil || len(nodes) == 0 {
 		t.Fatalf("custom config schema: %+v %v", nodes, err)
 	}
-	nodes, err = svc.CredentialSchema("custom")
+	nodes, err = service.CredentialSchema("custom")
 	if err != nil || len(nodes) == 0 {
 		t.Fatalf("custom credential schema: %+v %v", nodes, err)
 	}
-	nodes, err = svc.CredentialSchema("virtual")
+	nodes, err = service.CredentialSchema("virtual")
 	if err != nil || len(nodes) == 0 {
 		t.Fatalf("virtual credential schema: %+v %v", nodes, err)
 	}
@@ -367,36 +367,36 @@ func TestProviderService_CustomSchemas(t *testing.T) {
 
 func TestProviderService_ManualCreateHasNoUIFlags(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
+	service := provider.NewService(database)
 
-	inst, err := svc.Create(provider.CreateOptions{Name: "Zen", TypeKey: "opencode-zen"})
+	instance, err := service.Create(provider.CreateOptions{Name: "Zen", TypeKey: "opencode-zen"})
 	if err != nil {
 		t.Fatalf("create failed: %v", err)
 	}
-	if inst.IsUIReadonly || inst.IsUIHidden {
-		t.Fatalf("manual row must not carry UI flags: %+v", inst)
+	if instance.IsUIReadonly || instance.IsUIHidden {
+		t.Fatalf("manual row must not carry UI flags: %+v", instance)
 	}
 }
 
 func TestProviderService_EnsureSeededMarksVirtualHiddenReadonly(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
+	service := provider.NewService(database)
 
-	if err := svc.EnsureSeeded(); err != nil {
+	if err := service.EnsureSeeded(); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	vm, err := svc.Get("virtual")
+	virtualModel, err := service.Get("virtual")
 	if err != nil {
 		t.Fatalf("virtual provider missing: %v", err)
 	}
-	if !vm.IsUIReadonly || !vm.IsUIHidden {
-		t.Fatalf("virtual row must be readonly+hidden: %+v", vm)
+	if !virtualModel.IsUIReadonly || !virtualModel.IsUIHidden {
+		t.Fatalf("virtual row must be readonly+hidden: %+v", virtualModel)
 	}
 }
 
 func TestProviderService_EnsureSeededMarksLuaSingletonsReadonly(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
+	service := provider.NewService(database)
 
 	luaSvc, err := luaplugin.New(database, nil)
 	if err != nil {
@@ -415,35 +415,35 @@ llm_router.register("flag-type", {
 	if _, err := luaSvc.Install([]byte(src), luaplugin.PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install plugin: %v", err)
 	}
-	svc.SetLuaService(luaSvc)
+	service.SetLuaService(luaSvc)
 
-	if err := svc.EnsureSeeded(); err != nil {
+	if err := service.EnsureSeeded(); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	inst, err := svc.Get("flag-type")
+	instance, err := service.Get("flag-type")
 	if err != nil {
 		t.Fatalf("seeded provider missing: %v", err)
 	}
-	if !inst.IsUIReadonly {
-		t.Fatalf("seeded singleton must be readonly: %+v", inst)
+	if !instance.IsUIReadonly {
+		t.Fatalf("seeded singleton must be readonly: %+v", instance)
 	}
-	if inst.IsUIHidden {
-		t.Fatalf("seeded singleton must not be hidden: %+v", inst)
+	if instance.IsUIHidden {
+		t.Fatalf("seeded singleton must not be hidden: %+v", instance)
 	}
 }
 
 func TestProviderService_BackfillsSeedFlags(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
+	service := provider.NewService(database)
 
 	// Pre-flag rows: bare singleton ID, virtual row, and a qualifier row.
-	if _, err := svc.Create(provider.CreateOptions{Name: "Bare", TypeKey: "flag-type"}); err != nil {
+	if _, err := service.Create(provider.CreateOptions{Name: "Bare", TypeKey: "flag-type"}); err != nil {
 		t.Fatalf("create bare: %v", err)
 	}
-	if _, err := svc.Create(provider.CreateOptions{Name: "Virtual models", TypeKey: "virtual"}); err != nil {
+	if _, err := service.Create(provider.CreateOptions{Name: "Virtual models", TypeKey: "virtual"}); err != nil {
 		t.Fatalf("create virtual: %v", err)
 	}
-	qualified, err := svc.Create(provider.CreateOptions{Name: "Q", TypeKey: "flag-type", Qualifier: "eu"})
+	qualified, err := service.Create(provider.CreateOptions{Name: "Q", TypeKey: "flag-type", Qualifier: "eu"})
 	if err != nil {
 		t.Fatalf("create qualified: %v", err)
 	}
@@ -465,13 +465,13 @@ llm_router.register("flag-type", {
 	if _, err := luaSvc.Install([]byte(src), luaplugin.PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install plugin: %v", err)
 	}
-	svc.SetLuaService(luaSvc)
+	service.SetLuaService(luaSvc)
 
-	if err := svc.EnsureSeeded(); err != nil {
+	if err := service.EnsureSeeded(); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
-	bare, err := svc.Get("flag-type")
+	bare, err := service.Get("flag-type")
 	if err != nil {
 		t.Fatalf("bare row missing: %v", err)
 	}
@@ -479,32 +479,32 @@ llm_router.register("flag-type", {
 		t.Fatalf("bare singleton must become readonly: %+v", bare)
 	}
 
-	vm, err := svc.Get("virtual")
+	virtualModel, err := service.Get("virtual")
 	if err != nil {
 		t.Fatalf("virtual row missing: %v", err)
 	}
-	if !vm.IsUIReadonly || !vm.IsUIHidden {
-		t.Fatalf("virtual row must become readonly+hidden: %+v", vm)
+	if !virtualModel.IsUIReadonly || !virtualModel.IsUIHidden {
+		t.Fatalf("virtual row must become readonly+hidden: %+v", virtualModel)
 	}
 
-	q, err := svc.Get(qualified.ID)
+	queried, err := service.Get(qualified.ID)
 	if err != nil {
 		t.Fatalf("qualified row missing: %v", err)
 	}
-	if q.IsUIReadonly || q.IsUIHidden {
-		t.Fatalf("qualifier row must stay editable: %+v", q)
+	if queried.IsUIReadonly || queried.IsUIHidden {
+		t.Fatalf("qualifier row must stay editable: %+v", queried)
 	}
 }
 
 func TestProviderService_IsTypeAvailable(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
-	svc.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
+	service := provider.NewService(database)
+	service.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
 
-	if !svc.IsTypeAvailable("mock") {
+	if !service.IsTypeAvailable("mock") {
 		t.Error("Go adapter type must be available")
 	}
-	if svc.IsTypeAvailable("missing-type") {
+	if service.IsTypeAvailable("missing-type") {
 		t.Error("unknown type must be unavailable")
 	}
 
@@ -512,7 +512,7 @@ func TestProviderService_IsTypeAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lua service: %v", err)
 	}
-	svc.SetLuaService(luaSvc)
+	service.SetLuaService(luaSvc)
 	const src = `--- @plugin Availability Plugin
 --- @author tester
 --- @version 1.0.0
@@ -527,41 +527,41 @@ llm_router.register("avail-type", {
 	if err != nil {
 		t.Fatalf("install plugin: %v", err)
 	}
-	if !svc.IsTypeAvailable("avail-type") {
+	if !service.IsTypeAvailable("avail-type") {
 		t.Fatal("installed plugin type must be available")
 	}
 
 	if err := luaSvc.Delete(rec.ID); err != nil {
 		t.Fatalf("delete plugin: %v", err)
 	}
-	if svc.IsTypeAvailable("avail-type") {
+	if service.IsTypeAvailable("avail-type") {
 		t.Error("deleted plugin type must be unavailable")
 	}
 
 	if _, err := luaSvc.Install([]byte(src), luaplugin.PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("reinstall plugin: %v", err)
 	}
-	if !svc.IsTypeAvailable("avail-type") {
+	if !service.IsTypeAvailable("avail-type") {
 		t.Error("reinstalled plugin type must be available again")
 	}
 }
 
 func TestCreateReusesSingletonRow(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	svc := provider.NewService(database)
+	service := provider.NewService(database)
 
-	first, err := svc.Create(provider.CreateOptions{Name: "Groq", TypeKey: "groq"})
+	first, err := service.Create(provider.CreateOptions{Name: "Groq", TypeKey: "groq"})
 	if err != nil {
 		t.Fatalf("first create: %v", err)
 	}
-	second, err := svc.Create(provider.CreateOptions{Name: "Groq Again", TypeKey: "groq"})
+	second, err := service.Create(provider.CreateOptions{Name: "Groq Again", TypeKey: "groq"})
 	if err != nil {
 		t.Fatalf("second create: %v", err)
 	}
 	if second.ID != first.ID {
 		t.Fatalf("expected singleton reuse, got %q then %q", first.ID, second.ID)
 	}
-	qualified, err := svc.Create(provider.CreateOptions{Name: "Groq Work", TypeKey: "groq", Qualifier: "work"})
+	qualified, err := service.Create(provider.CreateOptions{Name: "Groq Work", TypeKey: "groq", Qualifier: "work"})
 	if err != nil {
 		t.Fatalf("qualified create: %v", err)
 	}

@@ -20,13 +20,13 @@ func requireEnum(field, value string, allowed []string) error {
 
 // parseAuthResult discriminates the three auth outcomes by table shape.
 func parseAuthResult(v lua.LValue) (*models.AuthFlowResult, error) {
-	tbl, ok := v.(*lua.LTable)
+	table, ok := v.(*lua.LTable)
 	if !ok {
 		return nil, fmt.Errorf("auth result must be a table")
 	}
-	render := tbl.RawGetString("render")
-	redirect := tbl.RawGetString("redirect_url")
-	creds := tbl.RawGetString("credentials")
+	render := table.RawGetString("render")
+	redirect := table.RawGetString("redirect_url")
+	creds := table.RawGetString("credentials")
 	set := 0
 	out := &models.AuthFlowResult{}
 	if render != lua.LNil {
@@ -75,15 +75,15 @@ var legacyGapSteps = map[string]int{"sm": 2, "md": 4, "lg": 6}
 // parseGapStep normalizes a Lua gap/size value to a Step 0..8.
 // LString accepts the legacy sm|md|lg enum, LNumber accepts an int 0..8.
 func parseGapStep(v lua.LValue) (int, error) {
-	switch t := v.(type) {
+	switch typed := v.(type) {
 	case lua.LString:
-		step, ok := legacyGapSteps[string(t)]
+		step, ok := legacyGapSteps[string(typed)]
 		if !ok {
-			return 0, fmt.Errorf("invalid gap %q: expected sm, md, lg or Step 0..8", string(t))
+			return 0, fmt.Errorf("invalid gap %q: expected sm, md, lg or Step 0..8", string(typed))
 		}
 		return step, nil
 	case lua.LNumber:
-		f := float64(t)
+		f := float64(typed)
 		if math.Trunc(f) != f || f < 0 || f > 8 {
 			return 0, fmt.Errorf("invalid gap %v: expected Step 0..8", f)
 		}
@@ -125,24 +125,24 @@ func validLinkURL(raw string) bool {
 
 // parseUINodes validates a Lua UI tree into []*models.UINode.
 func parseUINodes(v lua.LValue) ([]*models.UINode, error) {
-	tbl, ok := v.(*lua.LTable)
+	table, ok := v.(*lua.LTable)
 	if !ok {
 		return nil, fmt.Errorf("UI tree must be an array table")
 	}
-	return parseUINodeList(tbl, 0)
+	return parseUINodeList(table, 0)
 }
 
-func parseUINodeList(tbl *lua.LTable, depth int) ([]*models.UINode, error) {
+func parseUINodeList(table *lua.LTable, depth int) ([]*models.UINode, error) {
 	if depth > 8 {
 		return nil, fmt.Errorf("UI tree exceeds max nesting depth")
 	}
-	n := tbl.Len()
+	n := table.Len()
 	if n > 200 {
 		return nil, fmt.Errorf("UI tree exceeds max node count")
 	}
 	out := make([]*models.UINode, 0, n)
 	for i := 1; i <= n; i++ {
-		item := tbl.RawGetInt(i)
+		item := table.RawGetInt(i)
 		nodeTbl, ok := item.(*lua.LTable)
 		if !ok {
 			return nil, fmt.Errorf("node %d must be a table", i)
@@ -156,9 +156,9 @@ func parseUINodeList(tbl *lua.LTable, depth int) ([]*models.UINode, error) {
 	return out, nil
 }
 
-func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
+func parseUINode(table *lua.LTable, depth int) (*models.UINode, error) {
 	getStr := func(key string) string {
-		if v, ok := tbl.RawGetString(key).(lua.LString); ok {
+		if v, ok := table.RawGetString(key).(lua.LString); ok {
 			return string(v)
 		}
 		return ""
@@ -179,33 +179,33 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 		Title:       getStr("title"),
 		Subtitle:    getStr("subtitle"),
 	}
-	if v, ok := tbl.RawGetString("columns").(lua.LNumber); ok {
+	if v, ok := table.RawGetString("columns").(lua.LNumber); ok {
 		node.Columns = int(v)
-	} else if v := tbl.RawGetString("columns"); v != lua.LNil {
+	} else if v := table.RawGetString("columns"); v != lua.LNil {
 		return nil, fmt.Errorf("columns must be a number")
 	}
-	if b, ok := tbl.RawGetString("wrap").(lua.LBool); ok {
+	if b, ok := table.RawGetString("wrap").(lua.LBool); ok {
 		node.Wrap = bool(b)
-	} else if v := tbl.RawGetString("wrap"); v != lua.LNil {
+	} else if v := table.RawGetString("wrap"); v != lua.LNil {
 		return nil, fmt.Errorf("wrap must be a boolean")
 	} else if node.Type == "flow" {
 		node.Wrap = true
 	}
-	if b, ok := tbl.RawGetString("grow").(lua.LBool); ok {
+	if b, ok := table.RawGetString("grow").(lua.LBool); ok {
 		node.Grow = bool(b)
-	} else if v := tbl.RawGetString("grow"); v != lua.LNil {
+	} else if v := table.RawGetString("grow"); v != lua.LNil {
 		return nil, fmt.Errorf("grow must be a boolean")
 	} else if node.Type == "spacer" {
 		node.Grow = true
 	}
-	if v := tbl.RawGetString("option_labels"); v != lua.LNil {
-		labelsTbl, ok := v.(*lua.LTable)
+	if v := table.RawGetString("option_labels"); v != lua.LNil {
+		labelsTable, ok := v.(*lua.LTable)
 		if !ok {
 			return nil, fmt.Errorf("option_labels must be a table")
 		}
 		labels := map[string]string{}
 		var labelErr error
-		labelsTbl.ForEach(func(k, val lua.LValue) {
+		labelsTable.ForEach(func(k, val lua.LValue) {
 			if labelErr != nil {
 				return
 			}
@@ -225,35 +225,35 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 	if !uiNodeTypes[node.Type] {
 		return nil, fmt.Errorf("unknown node type %q", node.Type)
 	}
-	if b, ok := tbl.RawGetString("required").(lua.LBool); ok {
+	if b, ok := table.RawGetString("required").(lua.LBool); ok {
 		node.Required = bool(b)
 	}
-	if v := tbl.RawGetString("value"); v != lua.LNil {
+	if v := table.RawGetString("value"); v != lua.LNil {
 		decoded, verr := fromLuaValue(v)
 		if verr != nil {
 			return nil, fmt.Errorf("value: %w", verr)
 		}
 		node.Value = decoded
 	}
-	if v := tbl.RawGetString("options"); v != lua.LNil {
-		optsTbl, ok := v.(*lua.LTable)
+	if v := table.RawGetString("options"); v != lua.LNil {
+		optionsTable, ok := v.(*lua.LTable)
 		if !ok {
 			return nil, fmt.Errorf("options must be an array table")
 		}
-		for i := 1; i <= optsTbl.Len(); i++ {
-			s, ok := optsTbl.RawGetInt(i).(lua.LString)
+		for i := 1; i <= optionsTable.Len(); i++ {
+			s, ok := optionsTable.RawGetInt(i).(lua.LString)
 			if !ok {
 				return nil, fmt.Errorf("option %d must be a string", i)
 			}
 			node.Options = append(node.Options, string(s))
 		}
 	}
-	if v := tbl.RawGetString("content"); v != lua.LNil {
-		contentTbl, ok := v.(*lua.LTable)
+	if v := table.RawGetString("content"); v != lua.LNil {
+		contentTable, ok := v.(*lua.LTable)
 		if !ok {
 			return nil, fmt.Errorf("content must be an array table")
 		}
-		children, err := parseUINodeList(contentTbl, depth+1)
+		children, err := parseUINodeList(contentTable, depth+1)
 		if err != nil {
 			return nil, err
 		}
@@ -316,7 +316,7 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 		if err := requireEnum("flow direction", node.Direction, []string{"horizontal", "vertical"}); err != nil {
 			return nil, err
 		}
-		if v := tbl.RawGetString("gap"); v != lua.LNil {
+		if v := table.RawGetString("gap"); v != lua.LNil {
 			step, err := parseGapStep(v)
 			if err != nil {
 				return nil, fmt.Errorf("invalid flow gap: %w", err)
@@ -344,7 +344,7 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 		if node.Columns < 1 || node.Columns > 6 {
 			return nil, fmt.Errorf("grid columns must be between 1 and 6")
 		}
-		if v := tbl.RawGetString("gap"); v != lua.LNil {
+		if v := table.RawGetString("gap"); v != lua.LNil {
 			step, err := parseGapStep(v)
 			if err != nil {
 				return nil, fmt.Errorf("invalid grid gap: %w", err)
@@ -370,7 +370,7 @@ func parseUINode(tbl *lua.LTable, depth int) (*models.UINode, error) {
 		if len(node.Content) != 0 {
 			return nil, fmt.Errorf("spacer node must not have content")
 		}
-		if v := tbl.RawGetString("size"); v != lua.LNil {
+		if v := table.RawGetString("size"); v != lua.LNil {
 			step, err := parseGapStep(v)
 			if err != nil {
 				return nil, fmt.Errorf("invalid spacer size: %w", err)

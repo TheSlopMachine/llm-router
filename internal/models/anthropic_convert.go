@@ -43,14 +43,14 @@ func AnthropicBlocks(raw json.RawMessage) ([]AnthropicContentBlock, error) {
 		return nil, nil
 	}
 	if strings.HasPrefix(trimmed, "\"") {
-		var s string
-		if err := json.Unmarshal(raw, &s); err != nil {
+		var text string
+		if err := json.Unmarshal(raw, &text); err != nil {
 			return nil, fmt.Errorf("content string: %w", err)
 		}
-		if s == "" {
+		if text == "" {
 			return nil, nil
 		}
-		return []AnthropicContentBlock{{Type: "text", Text: s}}, nil
+		return []AnthropicContentBlock{{Type: "text", Text: text}}, nil
 	}
 	var blocks []AnthropicContentBlock
 	if err := json.Unmarshal(raw, &blocks); err != nil {
@@ -90,12 +90,12 @@ func (r *AnthropicMessageRequest) ToChat() (*ChatCompletionRequest, error) {
 			return nil, fmt.Errorf("system: %w", err)
 		}
 		var texts []string
-		for _, b := range blocks {
-			if b.Type != "text" {
-				return nil, fmt.Errorf("system: unsupported block type %q (text only)", b.Type)
+		for _, block := range blocks {
+			if block.Type != "text" {
+				return nil, fmt.Errorf("system: unsupported block type %q (text only)", block.Type)
 			}
-			if strings.TrimSpace(b.Text) != "" {
-				texts = append(texts, b.Text)
+			if strings.TrimSpace(block.Text) != "" {
+				texts = append(texts, block.Text)
 			}
 		}
 		if len(texts) > 0 {
@@ -149,30 +149,30 @@ func (r *AnthropicMessageRequest) ToChat() (*ChatCompletionRequest, error) {
 			parts = nil
 			texts = nil
 		}
-		for _, b := range blocks {
-			switch b.Type {
+		for _, block := range blocks {
+			switch block.Type {
 			case "text":
-				if strings.TrimSpace(b.Text) != "" {
-					texts = append(texts, b.Text)
+				if strings.TrimSpace(block.Text) != "" {
+					texts = append(texts, block.Text)
 				}
 			case "image":
-				if b.Source == nil {
+				if block.Source == nil {
 					return nil, fmt.Errorf("messages[%d]: image block without source", i)
 				}
 				var url string
-				switch b.Source.Type {
+				switch block.Source.Type {
 				case "base64":
-					if b.Source.MediaType == "" || b.Source.Data == "" {
+					if block.Source.MediaType == "" || block.Source.Data == "" {
 						return nil, fmt.Errorf("messages[%d]: base64 image needs media_type and data", i)
 					}
-					url = "data:" + b.Source.MediaType + ";base64," + b.Source.Data
+					url = "data:" + block.Source.MediaType + ";base64," + block.Source.Data
 				case "url":
-					if b.Source.URL == "" {
+					if block.Source.URL == "" {
 						return nil, fmt.Errorf("messages[%d]: url image needs url", i)
 					}
-					url = b.Source.URL
+					url = block.Source.URL
 				default:
-					return nil, fmt.Errorf("messages[%d]: unsupported image source type %q", i, b.Source.Type)
+					return nil, fmt.Errorf("messages[%d]: unsupported image source type %q", i, block.Source.Type)
 				}
 				if len(texts) > 0 {
 					parts = append(parts, ChatMessageContentPart{Type: "text", Text: strings.Join(texts, "\n")})
@@ -184,17 +184,17 @@ func (r *AnthropicMessageRequest) ToChat() (*ChatCompletionRequest, error) {
 				})
 			case "tool_result":
 				flushUser()
-				content, err := anthropicToolResultText(i, b.Content)
+				content, err := anthropicToolResultText(i, block.Content)
 				if err != nil {
 					return nil, err
 				}
 				out.Messages = append(out.Messages, ChatMessage{
 					Role:       "tool",
-					ToolCallID: b.ToolUseID,
+					ToolCallID: block.ToolUseID,
 					Content:    content,
 				})
 			default:
-				return nil, fmt.Errorf("messages[%d]: unsupported block type %q in user content", i, b.Type)
+				return nil, fmt.Errorf("messages[%d]: unsupported block type %q in user content", i, block.Type)
 			}
 		}
 		flushUser()
@@ -253,34 +253,34 @@ func (r *AnthropicMessageRequest) ToChat() (*ChatCompletionRequest, error) {
 func anthropicAssistantMessage(index int, blocks []AnthropicContentBlock) (ChatMessage, error) {
 	msg := ChatMessage{Role: "assistant"}
 	var texts []string
-	for _, b := range blocks {
-		switch b.Type {
+	for _, block := range blocks {
+		switch block.Type {
 		case "text":
-			if strings.TrimSpace(b.Text) != "" {
-				texts = append(texts, b.Text)
+			if strings.TrimSpace(block.Text) != "" {
+				texts = append(texts, block.Text)
 			}
 		case "thinking", "redacted_thinking":
-			if strings.TrimSpace(b.Thinking) != "" {
+			if strings.TrimSpace(block.Thinking) != "" {
 				if msg.ReasoningContent != "" {
 					msg.ReasoningContent += "\n"
 				}
-				msg.ReasoningContent += b.Thinking
+				msg.ReasoningContent += block.Thinking
 			}
 		case "tool_use":
 			args := "{}"
-			if trimmed := strings.TrimSpace(string(b.Input)); trimmed != "" && trimmed != "null" {
+			if trimmed := strings.TrimSpace(string(block.Input)); trimmed != "" && trimmed != "null" {
 				args = trimmed
 			}
 			msg.ToolCalls = append(msg.ToolCalls, ChatToolCall{
-				ID:   b.ID,
+				ID:   block.ID,
 				Type: "function",
 				Function: ChatToolFunction{
-					Name:      b.Name,
+					Name:      block.Name,
 					Arguments: args,
 				},
 			})
 		default:
-			return msg, fmt.Errorf("messages[%d]: unsupported block type %q in assistant content", index, b.Type)
+			return msg, fmt.Errorf("messages[%d]: unsupported block type %q in assistant content", index, block.Type)
 		}
 	}
 	msg.Content = strings.Join(texts, "\n")
@@ -297,12 +297,12 @@ func anthropicToolResultText(index int, raw json.RawMessage) (string, error) {
 		return "", fmt.Errorf("messages[%d]: tool_result content: %w", index, err)
 	}
 	var texts []string
-	for _, b := range blocks {
-		if b.Type != "text" {
+	for _, block := range blocks {
+		if block.Type != "text" {
 			return "", fmt.Errorf("messages[%d]: tool_result supports text blocks only", index)
 		}
-		if strings.TrimSpace(b.Text) != "" {
-			texts = append(texts, b.Text)
+		if strings.TrimSpace(block.Text) != "" {
+			texts = append(texts, block.Text)
 		}
 	}
 	return strings.Join(texts, "\n"), nil
@@ -342,15 +342,15 @@ func AnthropicMessageFromChat(resp *ChatCompletionResponse, model string) *Anthr
 			"text": msg.Content,
 		})
 	}
-	for _, tc := range msg.ToolCalls {
+	for _, toolCall := range msg.ToolCalls {
 		var input any
-		if err := json.Unmarshal([]byte(tc.Function.Arguments), &input); err != nil || input == nil {
+		if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &input); err != nil || input == nil {
 			input = map[string]any{}
 		}
 		out.Content = append(out.Content, map[string]any{
 			"type":  "tool_use",
-			"id":    tc.ID,
-			"name":  tc.Function.Name,
+			"id":    toolCall.ID,
+			"name":  toolCall.Function.Name,
 			"input": input,
 		})
 	}

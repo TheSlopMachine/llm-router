@@ -28,7 +28,7 @@ func (h *Handler) apiProviderModels(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	views, err := h.modelInfoSvc.MergedView(r.Context(), providerID)
+	views, err := h.modelInfoService.MergedView(r.Context(), providerID)
 	if err != nil {
 		h.jsonErr(w, http.StatusBadGateway, err.Error())
 		return
@@ -77,42 +77,42 @@ func (h *Handler) apiProviderModelSetOverride(w http.ResponseWriter, r *http.Req
 		h.jsonErr(w, http.StatusBadRequest, "model name is required")
 		return
 	}
-	ov := models.ModelOverride{ProviderID: providerID, Name: modelName}
-	if existing, err := h.modelInfoSvc.ListOverrides(providerID); err == nil {
-		for _, e := range existing {
-			if e.Name == modelName {
-				ov = *e
+	override := models.ModelOverride{ProviderID: providerID, Name: modelName}
+	if existing, err := h.modelInfoService.ListOverrides(providerID); err == nil {
+		for _, existingOverride := range existing {
+			if existingOverride.Name == modelName {
+				override = *existingOverride
 				break
 			}
 		}
 	}
 	if body.Disabled != nil {
-		ov.Disabled = *body.Disabled
+		override.Disabled = *body.Disabled
 	}
 	if body.Custom != nil {
-		ov.Custom = *body.Custom
+		override.Custom = *body.Custom
 	}
 	if body.DisplayName != nil {
-		ov.DisplayName = *body.DisplayName
+		override.DisplayName = *body.DisplayName
 	}
 	if body.Capabilities != nil {
-		ov.Capabilities = body.Capabilities
+		override.Capabilities = body.Capabilities
 	}
 	if body.InputModalities != nil {
-		ov.InputModalities = body.InputModalities
+		override.InputModalities = body.InputModalities
 	}
 	if body.OutputModalities != nil {
-		ov.OutputModalities = body.OutputModalities
+		override.OutputModalities = body.OutputModalities
 	}
-	if err := h.modelInfoSvc.SetOverride(ov); err != nil {
+	if err := h.modelInfoService.SetOverride(override); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	// Enable/disable flips reshape managed virtual models.
-	if _, err := h.virtualSvc.SyncProviderModels(r.Context(), providerID); err != nil {
+	if _, err := h.virtualService.SyncProviderModels(r.Context(), providerID); err != nil {
 		h.logger.Warn("managed virtual models sync failed", "provider_id", providerID, "err", err)
 	}
-	h.json(w, http.StatusOK, ov)
+	h.json(w, http.StatusOK, override)
 }
 
 // apiProviderModelDeleteOverride removes the override for one model
@@ -132,11 +132,11 @@ func (h *Handler) apiProviderModelDeleteOverride(w http.ResponseWriter, r *http.
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	if err := h.modelInfoSvc.DeleteOverride(providerID, r.PathValue("model")); err != nil {
+	if err := h.modelInfoService.DeleteOverride(providerID, r.PathValue("model")); err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if _, err := h.virtualSvc.SyncProviderModels(r.Context(), providerID); err != nil {
+	if _, err := h.virtualService.SyncProviderModels(r.Context(), providerID); err != nil {
 		h.logger.Warn("managed virtual models sync failed", "provider_id", providerID, "err", err)
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -163,12 +163,12 @@ func (h *Handler) apiProviderModelsRefresh(w http.ResponseWriter, r *http.Reques
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	if _, err := h.modelInfoSvc.Refresh(r.Context(), providerID); err != nil {
+	if _, err := h.modelInfoService.Refresh(r.Context(), providerID); err != nil {
 		h.logger.Warn("model refresh failed, serving stale list", "provider_id", providerID, "err", err)
-	} else if _, err := h.virtualSvc.SyncProviderModels(r.Context(), providerID); err != nil {
+	} else if _, err := h.virtualService.SyncProviderModels(r.Context(), providerID); err != nil {
 		h.logger.Warn("managed virtual models sync failed", "provider_id", providerID, "err", err)
 	}
-	views, err := h.modelInfoSvc.MergedView(r.Context(), providerID)
+	views, err := h.modelInfoService.MergedView(r.Context(), providerID)
 	if err != nil {
 		h.jsonErr(w, http.StatusBadGateway, err.Error())
 		return
@@ -196,7 +196,7 @@ func (h *Handler) apiProviderVirtualModelsSync(w http.ResponseWriter, r *http.Re
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	groups, err := h.virtualSvc.SyncProviderModels(r.Context(), providerID)
+	groups, err := h.virtualService.SyncProviderModels(r.Context(), providerID)
 	if err != nil {
 		h.logger.Error("managed virtual models sync failed", "provider_id", providerID, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
@@ -226,7 +226,7 @@ func (h *Handler) apiProviderVirtualModels(w http.ResponseWriter, r *http.Reques
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	groups, err := h.virtualSvc.GroupsForProvider(providerID)
+	groups, err := h.virtualService.GroupsForProvider(providerID)
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -261,15 +261,15 @@ func (h *Handler) apiModelCapabilities(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "model_id is required")
 		return
 	}
-	caps, err := h.routerSvc.ProbeCapabilities(r.Context(), models.ModelId(body.ModelID))
+	capabilities, err := h.routerService.ProbeCapabilities(r.Context(), models.ModelId(body.ModelID))
 	if err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if caps == nil {
-		caps = []string{}
+	if capabilities == nil {
+		capabilities = []string{}
 	}
-	h.json(w, http.StatusOK, map[string]any{"capabilities": caps})
+	h.json(w, http.StatusOK, map[string]any{"capabilities": capabilities})
 }
 
 // apiModelTest probes a model through the normal routing path
@@ -298,30 +298,30 @@ func (h *Handler) apiModelTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	modelID := models.ModelId(body.ModelID)
-	var res router.TestResult
+	var result router.TestResult
 	switch body.Endpoint {
 	case "", "chat":
-		res = h.routerSvc.TestModel(r.Context(), modelID)
+		result = h.routerService.TestModel(r.Context(), modelID)
 	case "vision":
-		res = h.routerSvc.TestVision(r.Context(), modelID)
+		result = h.routerService.TestVision(r.Context(), modelID)
 	case "speech":
-		res = h.routerSvc.TestSpeech(r.Context(), modelID)
+		result = h.routerService.TestSpeech(r.Context(), modelID)
 	case "transcription":
-		res = h.routerSvc.TestTranscribe(r.Context(), modelID)
+		result = h.routerService.TestTranscribe(r.Context(), modelID)
 	case "image":
-		res = h.routerSvc.TestImageGeneration(r.Context(), modelID)
+		result = h.routerService.TestImageGeneration(r.Context(), modelID)
 	case "embeddings":
-		res = h.routerSvc.TestEmbeddings(r.Context(), modelID)
+		result = h.routerService.TestEmbeddings(r.Context(), modelID)
 	default:
 		h.jsonErr(w, http.StatusBadRequest, "unknown probe endpoint")
 		return
 	}
-	if !res.OK {
-		args := []any{"model", body.ModelID, "endpoint", body.Endpoint, "err", res.Error}
-		if res.Proxy != "" {
-			args = append(args, "proxy", res.Proxy)
+	if !result.OK {
+		arguments := []any{"model", body.ModelID, "endpoint", body.Endpoint, "err", result.Error}
+		if result.Proxy != "" {
+			arguments = append(arguments, "proxy", result.Proxy)
 		}
-		h.logger.Warn("model probe failed", args...)
+		h.logger.Warn("model probe failed", arguments...)
 	}
-	h.json(w, http.StatusOK, res)
+	h.json(w, http.StatusOK, result)
 }

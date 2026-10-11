@@ -40,11 +40,11 @@ func New[T any](database *db.DB, bucket []byte, name string) *Repository[T] {
 func (r *Repository[T]) Get(id string) (*T, error) {
 	var obj T
 	err := r.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(r.bucket)
-		if b == nil {
+		bucket := tx.Bucket(r.bucket)
+		if bucket == nil {
 			return fmt.Errorf("bucket %q not found (run with current binary to create it)", string(r.bucket))
 		}
-		data := b.Get([]byte(id))
+		data := bucket.Get([]byte(id))
 		if data == nil {
 			return fmt.Errorf("%s %q: %w", r.name, id, apierrors.ErrNotFound)
 		}
@@ -64,15 +64,15 @@ func (r *Repository[T]) Put(id string, obj *T) error {
 		return fmt.Errorf("marshal %s: %w", r.name, err)
 	}
 	return r.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(r.bucket)
-		if b == nil {
+		bucket := tx.Bucket(r.bucket)
+		if bucket == nil {
 			var err error
-			b, err = tx.CreateBucketIfNotExists(r.bucket)
+			bucket, err = tx.CreateBucketIfNotExists(r.bucket)
 			if err != nil {
 				return fmt.Errorf("create bucket %q: %w", string(r.bucket), err)
 			}
 		}
-		return b.Put([]byte(id), enc)
+		return bucket.Put([]byte(id), enc)
 	})
 }
 
@@ -80,13 +80,13 @@ func (r *Repository[T]) Put(id string, obj *T) error {
 func (r *Repository[T]) List() ([]*T, error) {
 	var items []*T
 	err := r.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(r.bucket)
-		if b == nil {
+		bucket := tx.Bucket(r.bucket)
+		if bucket == nil {
 			return nil // bucket not yet created -> empty
 		}
-		return b.ForEach(func(_, v []byte) error {
+		return bucket.ForEach(func(_, value []byte) error {
 			var item T
-			if err := json.Unmarshal(v, &item); err != nil {
+			if err := json.Unmarshal(value, &item); err != nil {
 				return fmt.Errorf("unmarshal %s: %w", r.name, err)
 			}
 			items = append(items, &item)
@@ -100,14 +100,14 @@ func (r *Repository[T]) List() ([]*T, error) {
 // Returns an error if the record does not exist.
 func (r *Repository[T]) Delete(id string) error {
 	return r.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(r.bucket)
-		if b == nil {
+		bucket := tx.Bucket(r.bucket)
+		if bucket == nil {
 			return fmt.Errorf("%s %q: %w", r.name, id, apierrors.ErrNotFound)
 		}
-		if b.Get([]byte(id)) == nil {
+		if bucket.Get([]byte(id)) == nil {
 			return fmt.Errorf("%s %q: %w", r.name, id, apierrors.ErrNotFound)
 		}
-		return b.Delete([]byte(id))
+		return bucket.Delete([]byte(id))
 	})
 }
 
@@ -115,11 +115,11 @@ func (r *Repository[T]) Delete(id string) error {
 // Does not return an error if the record doesn't exist.
 func (r *Repository[T]) DeleteIfExists(id string) error {
 	return r.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(r.bucket)
-		if b == nil {
+		bucket := tx.Bucket(r.bucket)
+		if bucket == nil {
 			return nil
 		}
-		return b.Delete([]byte(id))
+		return bucket.Delete([]byte(id))
 	})
 }
 
@@ -133,13 +133,13 @@ func (r *Repository[T]) DeleteIfExists(id string) error {
 //	    obj.Field = "new value"
 //	    return nil
 //	})
-func (r *Repository[T]) Update(id string, fn func(*T) error) error {
+func (r *Repository[T]) Update(id string, function func(*T) error) error {
 	return r.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(r.bucket)
-		if b == nil {
+		bucket := tx.Bucket(r.bucket)
+		if bucket == nil {
 			return fmt.Errorf("%s %q: %w", r.name, id, apierrors.ErrNotFound)
 		}
-		raw := b.Get([]byte(id))
+		raw := bucket.Get([]byte(id))
 		if raw == nil {
 			return fmt.Errorf("%s %q: %w", r.name, id, apierrors.ErrNotFound)
 		}
@@ -149,7 +149,7 @@ func (r *Repository[T]) Update(id string, fn func(*T) error) error {
 			return fmt.Errorf("unmarshal %s: %w", r.name, err)
 		}
 
-		if err := fn(&obj); err != nil {
+		if err := function(&obj); err != nil {
 			return err
 		}
 
@@ -157,7 +157,7 @@ func (r *Repository[T]) Update(id string, fn func(*T) error) error {
 		if err != nil {
 			return fmt.Errorf("marshal %s: %w", r.name, err)
 		}
-		return b.Put([]byte(id), enc)
+		return bucket.Put([]byte(id), enc)
 	})
 }
 
@@ -171,13 +171,13 @@ func (r *Repository[T]) Update(id string, fn func(*T) error) error {
 func (r *Repository[T]) ListFiltered(predicate func(*T) bool) ([]*T, error) {
 	var items []*T
 	err := r.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(r.bucket)
-		if b == nil {
+		bucket := tx.Bucket(r.bucket)
+		if bucket == nil {
 			return nil
 		}
-		return b.ForEach(func(_, v []byte) error {
+		return bucket.ForEach(func(_, value []byte) error {
 			var item T
-			if err := json.Unmarshal(v, &item); err != nil {
+			if err := json.Unmarshal(value, &item); err != nil {
 				return fmt.Errorf("unmarshal %s: %w", r.name, err)
 			}
 			if predicate(&item) {
@@ -200,13 +200,13 @@ func (r *Repository[T]) ListFiltered(predicate func(*T) bool) ([]*T, error) {
 func (r *Repository[T]) FindFirst(predicate func(*T) bool) (*T, error) {
 	var result *T
 	err := r.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(r.bucket)
-		if b == nil {
+		bucket := tx.Bucket(r.bucket)
+		if bucket == nil {
 			return nil
 		}
-		return b.ForEach(func(_, v []byte) error {
+		return bucket.ForEach(func(_, value []byte) error {
 			var item T
-			if err := json.Unmarshal(v, &item); err != nil {
+			if err := json.Unmarshal(value, &item); err != nil {
 				return fmt.Errorf("unmarshal %s: %w", r.name, err)
 			}
 			if predicate(&item) {
@@ -229,12 +229,12 @@ func (r *Repository[T]) FindFirst(predicate func(*T) bool) (*T, error) {
 func (r *Repository[T]) Exists(id string) (bool, error) {
 	var exists bool
 	err := r.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(r.bucket)
-		if b == nil {
+		bucket := tx.Bucket(r.bucket)
+		if bucket == nil {
 			exists = false
 			return nil
 		}
-		exists = b.Get([]byte(id)) != nil
+		exists = bucket.Get([]byte(id)) != nil
 		return nil
 	})
 	return exists, err
@@ -244,11 +244,11 @@ func (r *Repository[T]) Exists(id string) (bool, error) {
 func (r *Repository[T]) Count() (int, error) {
 	var count int
 	err := r.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(r.bucket)
-		if b == nil {
+		bucket := tx.Bucket(r.bucket)
+		if bucket == nil {
 			return nil
 		}
-		return b.ForEach(func(_, _ []byte) error {
+		return bucket.ForEach(func(_, _ []byte) error {
 			count++
 			return nil
 		})

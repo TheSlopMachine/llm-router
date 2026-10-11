@@ -62,19 +62,19 @@ export function anchorTo(anchor: HTMLElement, options: AnchorOptions): AnchorRec
  * Close-on-outside-click plus reposition-on-scroll/resize.
  * Returns a teardown function; call it from $effect's cleanup.
  */
-export function bindDismiss(params: {
+export function bindDismiss(parameters: {
   isOpen: () => boolean
   contains: (target: Node) => boolean
   onDismiss: () => void
   onReposition: () => void
 }): () => void {
   function handleClick(e: MouseEvent): void {
-    if (!params.isOpen()) return
-    if (params.contains(e.target as Node)) return
-    params.onDismiss()
+    if (!parameters.isOpen()) return
+    if (parameters.contains(e.target as Node)) return
+    parameters.onDismiss()
   }
   function handleReposition(): void {
-    if (params.isOpen()) params.onReposition()
+    if (parameters.isOpen()) parameters.onReposition()
   }
 
   document.addEventListener('click', handleClick)

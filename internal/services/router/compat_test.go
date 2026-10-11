@@ -23,28 +23,28 @@ import (
 func setupCompatRouter(t *testing.T, mock provider.GoAdapter) *Service {
 	t.Helper()
 	database := testutil.SetupTestDB(t)
-	providerSvc := provider.NewService(database)
+	providerService := provider.NewService(database)
 	if mock == nil {
 		mock = testutil.NewMockAdapter("mock")
 	}
-	providerSvc.RegisterGoAdapter(mock)
-	if _, err := providerSvc.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
+	providerService.RegisterGoAdapter(mock)
+	if _, err := providerService.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
 	}
-	credSvc := credential.New(database, providerSvc)
-	if _, err := credSvc.Add(credential.AddOptions{
+	credentialService := credential.New(database, providerService)
+	if _, err := credentialService.Add(credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "test-key"},
 	}); err != nil {
 		t.Fatalf("add credential: %v", err)
 	}
-	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
-	return New(providerSvc, credSvc, modelInfoSvc, videojobs.New(database),
+	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
+	return New(providerService, credentialService, modelInfoService, videojobs.New(database),
 		responses.New(database), batches.New(database), slog.Default())
 }
 
-func responseReq(model, input string) *models.ResponseRequest {
+func responseRequest(model, input string) *models.ResponseRequest {
 	return &models.ResponseRequest{
 		Model: models.ModelId(model),
 		Input: json.RawMessage(`"` + input + `"`),
@@ -52,91 +52,91 @@ func responseReq(model, input string) *models.ResponseRequest {
 }
 
 func TestRouter_CreateGetResponse(t *testing.T) {
-	svc := setupCompatRouter(t, nil)
+	service := setupCompatRouter(t, nil)
 	ctx := context.Background()
-	out, err := svc.CreateResponse(ctx, responseReq("mock/m", "hi"), nil)
+	output, err := service.CreateResponse(ctx, responseRequest("mock/m", "hi"), nil)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if !strings.HasPrefix(out.ID, "resp_") || out.Status != "completed" {
-		t.Fatalf("response: %+v", out)
+	if !strings.HasPrefix(output.ID, "resp_") || output.Status != "completed" {
+		t.Fatalf("response: %+v", output)
 	}
-	if len(out.Output) != 1 || out.Output[0].Text != "mock response" {
-		t.Fatalf("output: %+v", out.Output)
+	if len(output.Output) != 1 || output.Output[0].Text != "mock response" {
+		t.Fatalf("output: %+v", output.Output)
 	}
-	if out.Usage == nil || out.Usage.TotalTokens != 15 {
-		t.Fatalf("usage: %+v", out.Usage)
+	if output.Usage == nil || output.Usage.TotalTokens != 15 {
+		t.Fatalf("usage: %+v", output.Usage)
 	}
-	got, err := svc.GetResponse(ctx, out.ID, nil)
+	got, err := service.GetResponse(ctx, output.ID, nil)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.ID != out.ID {
+	if got.ID != output.ID {
 		t.Fatalf("id: %q", got.ID)
 	}
-	items, err := svc.ListResponseInputItems(ctx, out.ID, nil)
+	items, err := service.ListResponseInputItems(ctx, output.ID, nil)
 	if err != nil || len(items) != 1 {
 		t.Fatalf("input items: %+v %v", items, err)
 	}
-	if _, err := svc.GetResponse(ctx, "resp_missing", nil); apierrors.ToAPIError(err).Status != 404 {
+	if _, err := service.GetResponse(ctx, "resp_missing", nil); apierrors.ToAPIError(err).Status != 404 {
 		t.Fatalf("missing must 404, got %v", err)
 	}
-	if _, err := svc.CancelResponse(ctx, out.ID, nil); err == nil {
+	if _, err := service.CancelResponse(ctx, output.ID, nil); err == nil {
 		t.Fatal("cancel of completed must fail")
 	}
-	compacted, err := svc.CompactResponse(ctx, out.ID, nil)
-	if err != nil || compacted.ID != out.ID {
+	compacted, err := service.CompactResponse(ctx, output.ID, nil)
+	if err != nil || compacted.ID != output.ID {
 		t.Fatalf("compact: %+v %v", compacted, err)
 	}
-	if n := svc.CountResponseInputTokens(responseReq("mock/m", "hi")); n < 1 {
+	if n := service.CountResponseInputTokens(responseRequest("mock/m", "hi")); n < 1 {
 		t.Fatalf("tokens: %d", n)
 	}
 }
 
 func TestRouter_AssistantThreadRun(t *testing.T) {
-	svc := setupCompatRouter(t, nil)
+	service := setupCompatRouter(t, nil)
 	ctx := context.Background()
-	assistant, err := svc.CreateAssistant(ctx, &models.AssistantRequest{Model: "mock/m", Instructions: "be nice"})
+	assistant, err := service.CreateAssistant(ctx, &models.AssistantRequest{Model: "mock/m", Instructions: "be nice"})
 	if err != nil {
 		t.Fatalf("create assistant: %v", err)
 	}
 	if !strings.HasPrefix(assistant.ID, "asst_") {
 		t.Fatalf("assistant: %+v", assistant)
 	}
-	if _, err := svc.CreateAssistant(ctx, &models.AssistantRequest{}); err == nil {
+	if _, err := service.CreateAssistant(ctx, &models.AssistantRequest{}); err == nil {
 		t.Fatal("assistant without model must fail")
 	}
-	thread, err := svc.CreateThread(ctx, nil)
+	thread, err := service.CreateThread(ctx, nil)
 	if err != nil {
 		t.Fatalf("create thread: %v", err)
 	}
-	if _, err := svc.CreateThreadMessage(ctx, thread.ID, &models.ThreadMessageRequest{Role: "user", Content: json.RawMessage(`"hello"`)}); err != nil {
+	if _, err := service.CreateThreadMessage(ctx, thread.ID, &models.ThreadMessageRequest{Role: "user", Content: json.RawMessage(`"hello"`)}); err != nil {
 		t.Fatalf("create message: %v", err)
 	}
-	if _, err := svc.CreateThreadMessage(ctx, thread.ID, &models.ThreadMessageRequest{Role: "system", Content: json.RawMessage(`"x"`)}); err == nil {
+	if _, err := service.CreateThreadMessage(ctx, thread.ID, &models.ThreadMessageRequest{Role: "system", Content: json.RawMessage(`"x"`)}); err == nil {
 		t.Fatal("system role must fail")
 	}
-	run, err := svc.CreateRun(ctx, thread.ID, &models.RunRequest{AssistantID: assistant.ID}, nil)
+	run, err := service.CreateRun(ctx, thread.ID, &models.RunRequest{AssistantID: assistant.ID}, nil)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}
 	if run.Status != "completed" {
 		t.Fatalf("run: %+v", run)
 	}
-	msgs, err := svc.ListThreadMessages(ctx, thread.ID)
-	if err != nil || len(msgs) != 2 {
-		t.Fatalf("messages: %+v %v", msgs, err)
+	messages, err := service.ListThreadMessages(ctx, thread.ID)
+	if err != nil || len(messages) != 2 {
+		t.Fatalf("messages: %+v %v", messages, err)
 	}
-	if _, err := svc.GetThreadMessage(ctx, thread.ID, msgs[0].ID); err != nil {
+	if _, err := service.GetThreadMessage(ctx, thread.ID, messages[0].ID); err != nil {
 		t.Fatalf("get message: %v", err)
 	}
-	if _, err := svc.SubmitToolOutputs(ctx, thread.ID, run.ID, nil, []models.ToolOutput{{ToolCallID: "x", Output: "y"}}); err == nil {
+	if _, err := service.SubmitToolOutputs(ctx, thread.ID, run.ID, nil, []models.ToolOutput{{ToolCallID: "x", Output: "y"}}); err == nil {
 		t.Fatal("submit on completed run must fail")
 	}
-	if _, err := svc.CancelRun(ctx, thread.ID, run.ID, nil); err == nil {
+	if _, err := service.CancelRun(ctx, thread.ID, run.ID, nil); err == nil {
 		t.Fatal("cancel of completed run must fail")
 	}
-	runs, err := svc.ListRuns(ctx, thread.ID)
+	runs, err := service.ListRuns(ctx, thread.ID)
 	if err != nil || len(runs) != 1 {
 		t.Fatalf("runs: %+v %v", runs, err)
 	}
@@ -145,11 +145,11 @@ func TestRouter_AssistantThreadRun(t *testing.T) {
 func TestRouter_RunRequiresAction(t *testing.T) {
 	mock := testutil.NewMockAdapter("mock")
 	calls := 0
-	mock.WithCompleteFunc(func(ctx context.Context, creds []*models.Credential, req *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+	mock.WithCompleteFunc(func(ctx context.Context, creds []*models.Credential, request *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
 		calls++
 		if calls == 1 {
 			return &models.ChatCompletionResponse{
-				ID: "r1", Object: "chat.completion", Model: string(req.Model),
+				ID: "r1", Object: "chat.completion", Model: string(request.Model),
 				Choices: []models.ChatCompletionChoice{{
 					Message: models.ChatMessage{
 						Role: "assistant",
@@ -164,52 +164,52 @@ func TestRouter_RunRequiresAction(t *testing.T) {
 			}, nil
 		}
 		return &models.ChatCompletionResponse{
-			ID: "r2", Object: "chat.completion", Model: string(req.Model),
+			ID: "r2", Object: "chat.completion", Model: string(request.Model),
 			Choices: []models.ChatCompletionChoice{{
 				Message:      models.ChatMessage{Role: "assistant", Content: "sunny"},
 				FinishReason: "stop",
 			}},
 		}, nil
 	})
-	svc := setupCompatRouter(t, mock)
+	service := setupCompatRouter(t, mock)
 	ctx := context.Background()
-	assistant, err := svc.CreateAssistant(ctx, &models.AssistantRequest{Model: "mock/m"})
+	assistant, err := service.CreateAssistant(ctx, &models.AssistantRequest{Model: "mock/m"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	thread, err := svc.CreateThread(ctx, nil)
+	thread, err := service.CreateThread(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateThreadMessage(ctx, thread.ID, &models.ThreadMessageRequest{Role: "user", Content: json.RawMessage(`"weather?"`)}); err != nil {
+	if _, err := service.CreateThreadMessage(ctx, thread.ID, &models.ThreadMessageRequest{Role: "user", Content: json.RawMessage(`"weather?"`)}); err != nil {
 		t.Fatal(err)
 	}
-	run, err := svc.CreateRun(ctx, thread.ID, &models.RunRequest{AssistantID: assistant.ID}, nil)
+	run, err := service.CreateRun(ctx, thread.ID, &models.RunRequest{AssistantID: assistant.ID}, nil)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}
 	if run.Status != "requires_action" || run.RequiredAction == nil {
 		t.Fatalf("run: %+v", run)
 	}
-	done, err := svc.SubmitToolOutputs(ctx, thread.ID, run.ID, nil, []models.ToolOutput{{ToolCallID: "call_1", Output: "sunny"}})
+	done, err := service.SubmitToolOutputs(ctx, thread.ID, run.ID, nil, []models.ToolOutput{{ToolCallID: "call_1", Output: "sunny"}})
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 	if done.Status != "completed" {
 		t.Fatalf("run: %+v", done)
 	}
-	msgs, _ := svc.ListThreadMessages(ctx, thread.ID)
-	if len(msgs) != 2 {
-		t.Fatalf("messages: %+v", msgs)
+	messages, _ := service.ListThreadMessages(ctx, thread.ID)
+	if len(messages) != 2 {
+		t.Fatalf("messages: %+v", messages)
 	}
 	found := false
-	for _, m := range msgs {
+	for _, m := range messages {
 		if m.Role == "assistant" && len(m.Content) > 0 && m.Content[0].Text == "sunny" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("assistant turn missing: %+v", msgs)
+		t.Fatalf("assistant turn missing: %+v", messages)
 	}
 }
 
@@ -218,9 +218,9 @@ type moderateMockAdapter struct {
 	*testutil.MockAdapter
 }
 
-func (m *moderateMockAdapter) Moderate(_ context.Context, _ []*models.Credential, req *models.ModerationRequest, _ map[string]any) (*models.ModerationResponse, error) {
-	results := make([]models.ModerationResult, 0, len(req.Input))
-	for range req.Input {
+func (m *moderateMockAdapter) Moderate(_ context.Context, _ []*models.Credential, request *models.ModerationRequest, _ map[string]any) (*models.ModerationResponse, error) {
+	results := make([]models.ModerationResult, 0, len(request.Input))
+	for range request.Input {
 		results = append(results, models.ModerationResult{
 			Categories:     map[string]bool{"violence": false},
 			CategoryScores: map[string]float64{"violence": 0.01},
@@ -230,85 +230,85 @@ func (m *moderateMockAdapter) Moderate(_ context.Context, _ []*models.Credential
 }
 
 func TestRouter_Moderate(t *testing.T) {
-	svc := setupCompatRouter(t, nil)
-	_, err := svc.Moderate(context.Background(), &models.ModerationRequest{Model: "mock/m", Input: []string{"hi"}}, nil)
+	service := setupCompatRouter(t, nil)
+	_, err := service.Moderate(context.Background(), &models.ModerationRequest{Model: "mock/m", Input: []string{"hi"}}, nil)
 	if !errors.Is(err, apierrors.ErrEndpointNotSupported) {
 		t.Fatalf("plain mock must not serve moderations, got %v", err)
 	}
-	svc2 := setupCompatRouter(t, &moderateMockAdapter{MockAdapter: testutil.NewMockAdapter("mock")})
-	resp, err := svc2.Moderate(context.Background(), &models.ModerationRequest{Model: "mock/m", Input: []string{"a", "b"}}, nil)
+	service2 := setupCompatRouter(t, &moderateMockAdapter{MockAdapter: testutil.NewMockAdapter("mock")})
+	response, err := service2.Moderate(context.Background(), &models.ModerationRequest{Model: "mock/m", Input: []string{"a", "b"}}, nil)
 	if err != nil {
 		t.Fatalf("moderate: %v", err)
 	}
-	if len(resp.Results) != 2 || resp.Results[0].Flagged {
-		t.Fatalf("results: %+v", resp.Results)
+	if len(response.Results) != 2 || response.Results[0].Flagged {
+		t.Fatalf("results: %+v", response.Results)
 	}
 }
 
 func TestRouter_Batch(t *testing.T) {
-	svc := setupCompatRouter(t, nil)
+	service := setupCompatRouter(t, nil)
 	ctx := context.Background()
-	if _, err := svc.CreateBatch(ctx, &models.BatchCreateRequest{}, nil); err == nil {
+	if _, err := service.CreateBatch(ctx, &models.BatchCreateRequest{}, nil); err == nil {
 		t.Fatal("empty batch must fail")
 	}
-	info, err := svc.CreateBatch(ctx, &models.BatchCreateRequest{Requests: []models.BatchEntry{
+	batchInfo, err := service.CreateBatch(ctx, &models.BatchCreateRequest{Requests: []models.BatchEntry{
 		{CustomID: "one", Params: json.RawMessage(`{"model":"mock/m","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`)},
 		{CustomID: "two", Params: json.RawMessage(`{"model":"mock/m","max_tokens":8,"messages":[{"role":"user","content":[]}]}`)},
 	}}, nil)
 	if err != nil {
 		t.Fatalf("create batch: %v", err)
 	}
-	if !strings.HasPrefix(info.ID, "batch_") || info.ProcessingStatus != "ended" {
-		t.Fatalf("batch: %+v", info)
+	if !strings.HasPrefix(batchInfo.ID, "batch_") || batchInfo.ProcessingStatus != "ended" {
+		t.Fatalf("batch: %+v", batchInfo)
 	}
-	if info.RequestCounts.Succeeded != 1 || info.RequestCounts.Errored != 1 {
-		t.Fatalf("counts: %+v", info.RequestCounts)
+	if batchInfo.RequestCounts.Succeeded != 1 || batchInfo.RequestCounts.Errored != 1 {
+		t.Fatalf("counts: %+v", batchInfo.RequestCounts)
 	}
-	got, err := svc.GetBatch(ctx, info.ID, nil)
-	if err != nil || got.ID != info.ID {
+	got, err := service.GetBatch(ctx, batchInfo.ID, nil)
+	if err != nil || got.ID != batchInfo.ID {
 		t.Fatalf("get: %+v %v", got, err)
 	}
-	lines, err := svc.GetBatchResults(ctx, info.ID, nil)
+	lines, err := service.GetBatchResults(ctx, batchInfo.ID, nil)
 	if err != nil || strings.Count(lines, "\n") != 2 {
 		t.Fatalf("results: %q %v", lines, err)
 	}
-	if _, err := svc.CancelBatch(ctx, info.ID, nil); err == nil {
+	if _, err := service.CancelBatch(ctx, batchInfo.ID, nil); err == nil {
 		t.Fatal("cancel of ended batch must fail")
 	}
-	list, err := svc.ListBatches(ctx)
+	list, err := service.ListBatches(ctx)
 	if err != nil || len(list) != 1 {
 		t.Fatalf("list: %+v %v", list, err)
 	}
-	if err := svc.DeleteBatch(ctx, info.ID); err != nil {
+	if err := service.DeleteBatch(ctx, batchInfo.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if _, err := svc.GetBatch(ctx, info.ID, nil); apierrors.ToAPIError(err).Status != 404 {
+	if _, err := service.GetBatch(ctx, batchInfo.ID, nil); apierrors.ToAPIError(err).Status != 404 {
 		t.Fatalf("deleted must 404, got %v", err)
 	}
 }
 
 func TestRouter_Conversations(t *testing.T) {
-	svc := setupCompatRouter(t, nil)
+	service := setupCompatRouter(t, nil)
 	ctx := context.Background()
-	conv, err := svc.CreateConversation(ctx, "", map[string]string{"k": "v"}, nil)
+	conversation, err := service.CreateConversation(ctx, "", map[string]string{"k": "v"}, nil)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if !strings.HasPrefix(conv.ID, "conv_") {
-		t.Fatalf("conv: %+v", conv)
+	if !strings.HasPrefix(conversation.ID, "conv_") {
+		t.Fatalf("conv: %+v", conversation)
 	}
-	items, err := svc.AppendConversationItems(ctx, conv.ID, nil, []models.ResponseInputItem{{Type: "message", Role: "user"}})
+	items, err := service.AppendConversationItems(ctx, conversation.ID, nil, []models.ResponseInputItem{{Type: "message", Role: "user"}})
 	if err != nil || len(items) != 1 {
 		t.Fatalf("append: %+v %v", items, err)
 	}
-	got, err := svc.GetConversation(ctx, conv.ID, nil)
-	if err != nil || got.ID != conv.ID {
+	got, err := service.GetConversation(ctx, conversation.ID, nil)
+	if err != nil || got.ID != conversation.ID {
 		t.Fatalf("get: %+v %v", got, err)
 	}
-	if err := svc.DeleteConversation(ctx, conv.ID); err != nil {
+	if err := service.DeleteConversation(ctx, conversation.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if _, err := svc.GetConversation(ctx, conv.ID, nil); apierrors.ToAPIError(err).Status != 404 {
+	if _, err := service.GetConversation(ctx, conversation.ID, nil); apierrors.ToAPIError(err).Status != 404 {
 		t.Fatalf("deleted must 404, got %v", err)
 	}
 }

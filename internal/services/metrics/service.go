@@ -20,9 +20,9 @@ const (
 
 // Service manages metrics collection, aggregation, and querying.
 type Service struct {
-	db     *db.DB
-	logger *slog.Logger
-	mu     sync.RWMutex
+	database *db.DB
+	logger   *slog.Logger
+	mutex    sync.RWMutex
 
 	// In-memory ring buffer: map[timestamp]*MetricBucket
 	recentBuckets map[time.Time]*MetricBucket
@@ -30,12 +30,12 @@ type Service struct {
 	// Background workers
 	aggregatorTicker *time.Ticker
 	cleanupTicker    *time.Ticker
-	stopCh           chan struct{}
+	stopChannel      chan struct{}
 	stopOnce         sync.Once
-	wg               sync.WaitGroup
+	waitGroup        sync.WaitGroup
 
 	// Non-blocking event channel
-	eventCh chan models.MetricEvent
+	eventChannel chan models.MetricEvent
 }
 
 // MetricBucket represents aggregated metrics for a time window.
@@ -103,34 +103,34 @@ func maxInt64(a, b int64) int64 {
 // New constructs a new metrics Service.
 func New(database *db.DB, logger *slog.Logger) *Service {
 	return &Service{
-		db:            database,
+		database:      database,
 		logger:        logger,
 		recentBuckets: make(map[time.Time]*MetricBucket),
-		eventCh:       make(chan models.MetricEvent, eventBufferSize),
-		stopCh:        make(chan struct{}),
+		eventChannel:  make(chan models.MetricEvent, eventBufferSize),
+		stopChannel:   make(chan struct{}),
 	}
 }
 
 // ensureCleanMetrics wipes legacy buckets if metrics_version is stale.
 func (s *Service) ensureCleanMetrics() error {
-	return s.db.Update(func(tx *bolt.Tx) error {
-		meta := tx.Bucket(db.BucketMeta)
-		if meta == nil {
+	return s.database.Update(func(tx *bolt.Tx) error {
+		metadata := tx.Bucket(db.BucketMeta)
+		if metadata == nil {
 			return nil
 		}
-		if string(meta.Get([]byte("metrics_version"))) == metricsVersion {
+		if string(metadata.Get([]byte("metrics_version"))) == metricsVersion {
 			return nil
 		}
-		b := tx.Bucket(db.BucketMetrics)
-		if b != nil {
-			c := b.Cursor()
-			for k, _ := c.First(); k != nil; k, _ = c.Next() {
-				if err := b.Delete(k); err != nil {
+		bucket := tx.Bucket(db.BucketMetrics)
+		if bucket != nil {
+			cursor := bucket.Cursor()
+			for key, _ := cursor.First(); key != nil; key, _ = cursor.Next() {
+				if err := bucket.Delete(key); err != nil {
 					return err
 				}
 			}
 		}
-		if err := meta.Put([]byte("metrics_version"), []byte(metricsVersion)); err != nil {
+		if err := metadata.Put([]byte("metrics_version"), []byte(metricsVersion)); err != nil {
 			return err
 		}
 		s.logger.Info("metrics wiped for new version", "version", metricsVersion)
@@ -143,7 +143,7 @@ func (s *Service) Start() {
 	if err := s.ensureCleanMetrics(); err != nil {
 		s.logger.Error("metrics version check failed", "err", err)
 	}
-	s.wg.Add(3)
+	s.waitGroup.Add(3)
 	go s.processEvents()
 	go s.startAggregator()
 	go s.startCleanup()
@@ -154,14 +154,14 @@ func (s *Service) Start() {
 // events drain into buckets, and all in-memory buckets flush to storage.
 func (s *Service) Stop() {
 	s.stopOnce.Do(func() {
-		close(s.stopCh)
+		close(s.stopChannel)
 		if s.aggregatorTicker != nil {
 			s.aggregatorTicker.Stop()
 		}
 		if s.cleanupTicker != nil {
 			s.cleanupTicker.Stop()
 		}
-		s.wg.Wait()
+		s.waitGroup.Wait()
 		s.drainEvents()
 		if err := s.flushAll(); err != nil {
 			s.logger.Error("metrics final flush failed", "err", err)
@@ -174,7 +174,7 @@ func (s *Service) Stop() {
 func (s *Service) drainEvents() {
 	for {
 		select {
-		case event := <-s.eventCh:
+		case event := <-s.eventChannel:
 			s.recordEvent(event)
 		default:
 			return
@@ -185,21 +185,21 @@ func (s *Service) drainEvents() {
 // flushAll persists every in-memory bucket without the 1h age cutoff used
 // by periodic aggregation. Buckets leave memory only after a durable write.
 func (s *Service) flushAll() error {
-	s.mu.Lock()
+	s.mutex.Lock()
 	pending := make([]*MetricBucket, 0, len(s.recentBuckets))
 	stamps := make([]time.Time, 0, len(s.recentBuckets))
-	for ts, bucket := range s.recentBuckets {
+	for timestamp, bucket := range s.recentBuckets {
 		pending = append(pending, bucket)
-		stamps = append(stamps, ts)
+		stamps = append(stamps, timestamp)
 	}
-	s.mu.Unlock()
+	s.mutex.Unlock()
 	for i, bucket := range pending {
 		if err := s.persistBucket(bucket, "1m"); err != nil {
 			return err
 		}
-		s.mu.Lock()
+		s.mutex.Lock()
 		delete(s.recentBuckets, stamps[i])
-		s.mu.Unlock()
+		s.mutex.Unlock()
 	}
 	return nil
 }
@@ -207,7 +207,7 @@ func (s *Service) flushAll() error {
 // RecordRequest records a metric event (non-blocking).
 func (s *Service) RecordRequest(event models.MetricEvent) {
 	select {
-	case s.eventCh <- event:
+	case s.eventChannel <- event:
 		// Event queued successfully
 	default:
 		// Buffer full, drop event with warning
@@ -217,12 +217,12 @@ func (s *Service) RecordRequest(event models.MetricEvent) {
 
 // processEvents consumes events from the channel and updates buckets.
 func (s *Service) processEvents() {
-	defer s.wg.Done()
+	defer s.waitGroup.Done()
 	for {
 		select {
-		case event := <-s.eventCh:
+		case event := <-s.eventChannel:
 			s.recordEvent(event)
-		case <-s.stopCh:
+		case <-s.stopChannel:
 			return
 		}
 	}
@@ -233,8 +233,8 @@ func (s *Service) recordEvent(event models.MetricEvent) {
 	// Round timestamp to minute boundary
 	bucketTime := event.Timestamp.Truncate(time.Minute)
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	bucket, exists := s.recentBuckets[bucketTime]
 	if !exists {
@@ -270,86 +270,86 @@ func (s *Service) recordEvent(event models.MetricEvent) {
 
 	// Update provider ID metrics
 	if event.ProviderID != "" {
-		pm := bucket.ByProviderID[event.ProviderID]
-		if pm == nil {
-			pm = &ProviderMetrics{}
-			bucket.ByProviderID[event.ProviderID] = pm
+		providerMetrics := bucket.ByProviderID[event.ProviderID]
+		if providerMetrics == nil {
+			providerMetrics = &ProviderMetrics{}
+			bucket.ByProviderID[event.ProviderID] = providerMetrics
 		}
-		s.updateProviderMetrics(pm, event)
+		s.updateProviderMetrics(providerMetrics, event)
 	}
 
 	// Update provider type metrics
 	if event.ProviderType != "" {
-		pm := bucket.ByProviderType[event.ProviderType]
-		if pm == nil {
-			pm = &ProviderMetrics{}
-			bucket.ByProviderType[event.ProviderType] = pm
+		providerMetrics := bucket.ByProviderType[event.ProviderType]
+		if providerMetrics == nil {
+			providerMetrics = &ProviderMetrics{}
+			bucket.ByProviderType[event.ProviderType] = providerMetrics
 		}
-		s.updateProviderMetrics(pm, event)
+		s.updateProviderMetrics(providerMetrics, event)
 	}
 
 	// Update model metrics
 	if event.Model != "" {
-		mm := bucket.ByModel[string(event.Model)]
-		if mm == nil {
-			mm = &ModelMetrics{}
-			bucket.ByModel[string(event.Model)] = mm
+		modelMetrics := bucket.ByModel[string(event.Model)]
+		if modelMetrics == nil {
+			modelMetrics = &ModelMetrics{}
+			bucket.ByModel[string(event.Model)] = modelMetrics
 		}
-		mm.Requests++
-		mm.TokensInput += event.TokensInput
-		mm.TokensOutput += event.TokensOutput
-		mm.PeakRequests = maxInt64(mm.PeakRequests, mm.Requests)
-		mm.PeakInputTokens = maxInt64(mm.PeakInputTokens, mm.TokensInput)
-		mm.PeakOutputTokens = maxInt64(mm.PeakOutputTokens, mm.TokensOutput)
+		modelMetrics.Requests++
+		modelMetrics.TokensInput += event.TokensInput
+		modelMetrics.TokensOutput += event.TokensOutput
+		modelMetrics.PeakRequests = maxInt64(modelMetrics.PeakRequests, modelMetrics.Requests)
+		modelMetrics.PeakInputTokens = maxInt64(modelMetrics.PeakInputTokens, modelMetrics.TokensInput)
+		modelMetrics.PeakOutputTokens = maxInt64(modelMetrics.PeakOutputTokens, modelMetrics.TokensOutput)
 		if event.ErrorType != "" {
-			mm.Errors++
+			modelMetrics.Errors++
 		}
 	}
 
 	// Update token metrics
 	if event.TokenID != "" {
-		tm := bucket.ByTokenID[event.TokenID]
-		if tm == nil {
-			tm = &TokenMetrics{}
-			bucket.ByTokenID[event.TokenID] = tm
+		tokenMetrics := bucket.ByTokenID[event.TokenID]
+		if tokenMetrics == nil {
+			tokenMetrics = &TokenMetrics{}
+			bucket.ByTokenID[event.TokenID] = tokenMetrics
 		}
-		tm.Requests++
-		tm.TokensInput += event.TokensInput
-		tm.TokensOutput += event.TokensOutput
-		tm.PeakRequests = maxInt64(tm.PeakRequests, tm.Requests)
-		tm.PeakInputTokens = maxInt64(tm.PeakInputTokens, tm.TokensInput)
-		tm.PeakOutputTokens = maxInt64(tm.PeakOutputTokens, tm.TokensOutput)
+		tokenMetrics.Requests++
+		tokenMetrics.TokensInput += event.TokensInput
+		tokenMetrics.TokensOutput += event.TokensOutput
+		tokenMetrics.PeakRequests = maxInt64(tokenMetrics.PeakRequests, tokenMetrics.Requests)
+		tokenMetrics.PeakInputTokens = maxInt64(tokenMetrics.PeakInputTokens, tokenMetrics.TokensInput)
+		tokenMetrics.PeakOutputTokens = maxInt64(tokenMetrics.PeakOutputTokens, tokenMetrics.TokensOutput)
 
 		// Update last used timestamp
 		eventTime := event.Timestamp
-		tm.LastUsed = &eventTime
+		tokenMetrics.LastUsed = &eventTime
 
 		if event.ErrorType != "" {
-			tm.Errors++
+			tokenMetrics.Errors++
 		}
 	}
 }
 
 // updateProviderMetrics updates provider metrics with event data.
-func (s *Service) updateProviderMetrics(pm *ProviderMetrics, event models.MetricEvent) {
-	pm.Requests++
-	pm.TokensInput += event.TokensInput
-	pm.TokensOutput += event.TokensOutput
-	pm.PeakRequests = maxInt64(pm.PeakRequests, pm.Requests)
-	pm.PeakInputTokens = maxInt64(pm.PeakInputTokens, pm.TokensInput)
-	pm.PeakOutputTokens = maxInt64(pm.PeakOutputTokens, pm.TokensOutput)
+func (s *Service) updateProviderMetrics(providerMetrics *ProviderMetrics, event models.MetricEvent) {
+	providerMetrics.Requests++
+	providerMetrics.TokensInput += event.TokensInput
+	providerMetrics.TokensOutput += event.TokensOutput
+	providerMetrics.PeakRequests = maxInt64(providerMetrics.PeakRequests, providerMetrics.Requests)
+	providerMetrics.PeakInputTokens = maxInt64(providerMetrics.PeakInputTokens, providerMetrics.TokensInput)
+	providerMetrics.PeakOutputTokens = maxInt64(providerMetrics.PeakOutputTokens, providerMetrics.TokensOutput)
 	if event.Duration > 0 {
-		pm.DurationSum += event.Duration.Microseconds()
-		pm.DurationCount++
+		providerMetrics.DurationSum += event.Duration.Microseconds()
+		providerMetrics.DurationCount++
 	}
 	if event.ErrorType != "" {
-		pm.Errors++
+		providerMetrics.Errors++
 	}
 }
 
 // startAggregator runs periodic aggregation and persistence.
 func (s *Service) startAggregator() {
-	defer s.wg.Done()
+	defer s.waitGroup.Done()
 	s.aggregatorTicker = time.NewTicker(aggregateInterval)
 	defer s.aggregatorTicker.Stop()
 
@@ -359,7 +359,7 @@ func (s *Service) startAggregator() {
 			if err := s.compressAndPersist(); err != nil {
 				s.logger.Error("aggregation failed", "err", err)
 			}
-		case <-s.stopCh:
+		case <-s.stopChannel:
 			return
 		}
 	}
@@ -367,7 +367,7 @@ func (s *Service) startAggregator() {
 
 // startCleanup runs periodic cleanup of old data.
 func (s *Service) startCleanup() {
-	defer s.wg.Done()
+	defer s.waitGroup.Done()
 	s.cleanupTicker = time.NewTicker(cleanupInterval)
 	defer s.cleanupTicker.Stop()
 
@@ -377,7 +377,7 @@ func (s *Service) startCleanup() {
 			if err := s.cleanup(); err != nil {
 				s.logger.Error("cleanup failed", "err", err)
 			}
-		case <-s.stopCh:
+		case <-s.stopChannel:
 			return
 		}
 	}

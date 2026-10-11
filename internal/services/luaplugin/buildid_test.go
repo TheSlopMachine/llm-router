@@ -5,9 +5,9 @@ import (
 )
 
 func TestInstallRepoOrigin(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	origin := PluginOrigin{RepoID: "github/TheSlopMachine/llm-router-store", Path: "llm-router-plugins/test-plugin.lua"}
-	rec, err := svc.Install([]byte(testPluginSource), origin)
+	rec, err := service.Install([]byte(testPluginSource), origin)
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -18,19 +18,19 @@ func TestInstallRepoOrigin(t *testing.T) {
 	if rec.Origin != origin {
 		t.Fatalf("origin: got %+v, want %+v", rec.Origin, origin)
 	}
-	if _, err := svc.Lookup("test-type"); err != nil {
+	if _, err := service.Lookup("test-type"); err != nil {
 		t.Fatalf("lookup: %v", err)
 	}
 }
 
 func TestInstallRepoOriginKeepsHistory(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	origin := PluginOrigin{RepoID: "github/owner/repo", Path: "llm-router-plugins/test-plugin.lua"}
-	rec, err := svc.Install([]byte(testPluginSource), origin)
+	rec, err := service.Install([]byte(testPluginSource), origin)
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	updated, err := svc.Install([]byte(testPluginSource), origin)
+	updated, err := service.Install([]byte(testPluginSource), origin)
 	if err != nil {
 		t.Fatalf("reinstall: %v", err)
 	}

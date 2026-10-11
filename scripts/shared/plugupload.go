@@ -37,12 +37,12 @@ func DefaultStoreDir() string { return "../../llm-router-store/llm-router-plugin
 func WaitReady(web string) error {
 	deadline := time.Now().Add(120 * time.Second)
 	for {
-		status, raw, err := uploadJSON("GET", web+"/api/llm-router/status", nil)
-		if err == nil && status == 200 {
-			var st struct {
+		statusCode, raw, err := uploadJSON("GET", web+"/api/llm-router/status", nil)
+		if err == nil && statusCode == 200 {
+			var statusBody struct {
 				Bootstrapped bool `json:"bootstrapped"`
 			}
-			if jerr := json.Unmarshal(raw, &st); jerr == nil {
+			if jerr := json.Unmarshal(raw, &statusBody); jerr == nil {
 				return nil
 			}
 		}
@@ -50,7 +50,7 @@ func WaitReady(web string) error {
 			if err != nil {
 				return fmt.Errorf("backend not ready: %w", err)
 			}
-			return fmt.Errorf("backend not ready: status %d", status)
+			return fmt.Errorf("backend not ready: status %d", statusCode)
 		}
 		time.Sleep(2 * time.Second)
 	}
@@ -77,12 +77,12 @@ func ManifestVersion(source []byte) string {
 
 // ListPlugins returns installed plugin records.
 func ListPlugins(web string) ([]PluginRow, error) {
-	status, raw, err := uploadJSON("GET", web+"/api/llm-router/dashboard/plugins", nil)
+	statusCode, raw, err := uploadJSON("GET", web+"/api/llm-router/dashboard/plugins", nil)
 	if err != nil {
 		return nil, fmt.Errorf("list plugins: %w", err)
 	}
 	var rows []PluginRow
-	if err := RequireUploadOK(status, raw, &rows); err != nil {
+	if err := RequireUploadOK(statusCode, raw, &rows); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -104,8 +104,8 @@ func installedCurrentName(rows []PluginRow, name, version string) bool {
 	if name == "" {
 		return false
 	}
-	for _, p := range rows {
-		if len(p.TypeKeys) == 0 && p.DisplayName == name && p.Version == version {
+	for _, plugin := range rows {
+		if len(plugin.TypeKeys) == 0 && plugin.DisplayName == name && plugin.Version == version {
 			return true
 		}
 	}
@@ -116,11 +116,11 @@ func deletePlugin(web, id string) error {
 	// Record IDs contain slashes: encode like the dashboard
 	// frontend does, the API matches single encoded segments.
 	target := web + "/api/llm-router/dashboard/plugins/" + url.PathEscape(id)
-	status, raw, err := uploadJSON("DELETE", target, nil)
+	statusCode, raw, err := uploadJSON("DELETE", target, nil)
 	if err != nil {
 		return fmt.Errorf("delete plugin %s: %w", id, err)
 	}
-	if err := RequireUploadOK(status, raw, nil); err != nil {
+	if err := RequireUploadOK(statusCode, raw, nil); err != nil {
 		return fmt.Errorf("delete plugin %s: %w", id, err)
 	}
 	return nil
@@ -129,46 +129,46 @@ func deletePlugin(web, id string) error {
 // InstallPlugin installs one plugin source, skipping reinstalls when the
 // installed version already matches. Returns true when an install ran.
 func InstallPlugin(web, pluginType string, source []byte) (bool, error) {
-	v := ManifestVersion(source)
+	version := ManifestVersion(source)
 	name := ManifestName(source)
 	rows, err := ListPlugins(web)
 	if err != nil {
 		return false, err
 	}
-	if v != "" {
-		for _, p := range rows {
-			for _, k := range p.TypeKeys {
-				if k == pluginType && p.Version == v {
+	if version != "" {
+		for _, plugin := range rows {
+			for _, key := range plugin.TypeKeys {
+				if key == pluginType && plugin.Version == version {
 					return false, nil
 				}
 			}
 		}
-		if installedCurrentName(rows, name, v) {
+		if installedCurrentName(rows, name, version) {
 			return false, nil
 		}
 	}
-	for _, p := range rows {
+	for _, plugin := range rows {
 		matched := false
-		for _, k := range p.TypeKeys {
-			if k == pluginType {
+		for _, key := range plugin.TypeKeys {
+			if key == pluginType {
 				matched = true
 				break
 			}
 		}
-		if !matched && name != "" && len(p.TypeKeys) == 0 && p.DisplayName == name {
+		if !matched && name != "" && len(plugin.TypeKeys) == 0 && plugin.DisplayName == name {
 			matched = true
 		}
 		if matched {
-			if err := deletePlugin(web, p.ID); err != nil {
+			if err := deletePlugin(web, plugin.ID); err != nil {
 				return false, err
 			}
 		}
 	}
-	status, raw, rerr := uploadRaw("POST", web+"/api/llm-router/dashboard/plugins/install-file", source)
-	if rerr != nil {
-		return false, fmt.Errorf("install plugin: %w", rerr)
+	statusCode, raw, installError := uploadRaw("POST", web+"/api/llm-router/dashboard/plugins/install-file", source)
+	if installError != nil {
+		return false, fmt.Errorf("install plugin: %w", installError)
 	}
-	if err := RequireUploadOK(status, raw, nil); err != nil {
+	if err := RequireUploadOK(statusCode, raw, nil); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -176,61 +176,61 @@ func InstallPlugin(web, pluginType string, source []byte) (bool, error) {
 
 // uploadJSON sends a JSON request and returns status plus body.
 func uploadJSON(method, url string, body any) (int, []byte, error) {
-	var rdr io.Reader
+	var bodyReader io.Reader
 	if body != nil {
-		enc, err := json.Marshal(body)
+		encoded, err := json.Marshal(body)
 		if err != nil {
 			return 0, nil, err
 		}
-		rdr = bytes.NewReader(enc)
+		bodyReader = bytes.NewReader(encoded)
 	}
-	req, err := http.NewRequest(method, url, rdr)
+	request, err := http.NewRequest(method, url, bodyReader)
 	if err != nil {
 		return 0, nil, err
 	}
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := uploadClient.Do(req)
+	response, err := uploadClient.Do(request)
 	if err != nil {
 		return 0, nil, err
 	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	defer response.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
 	if err != nil {
 		return 0, nil, err
 	}
-	return resp.StatusCode, raw, nil
+	return response.StatusCode, raw, nil
 }
 
 // uploadRaw POSTs raw bytes (plugin sources) and returns status plus body.
 func uploadRaw(method, url string, body []byte) (int, []byte, error) {
-	req, err := http.NewRequest(method, url, bytes.NewReader(body))
+	request, err := http.NewRequest(method, url, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, err
 	}
-	req.Header.Set("Content-Type", "application/octet-stream")
-	resp, err := uploadClient.Do(req)
+	request.Header.Set("Content-Type", "application/octet-stream")
+	response, err := uploadClient.Do(request)
 	if err != nil {
 		return 0, nil, err
 	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	defer response.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
 	if err != nil {
 		return 0, nil, err
 	}
-	return resp.StatusCode, raw, nil
+	return response.StatusCode, raw, nil
 }
 
-// RequireUploadOK decodes a 2xx JSON body into out, else returns an error.
-func RequireUploadOK(status int, raw []byte, out any) error {
+// RequireUploadOK decodes a 2xx JSON body into output, else returns an error.
+func RequireUploadOK(status int, raw []byte, output any) error {
 	if status < 200 || status >= 300 {
 		return fmt.Errorf("http %d: %s", status, strings.TrimSpace(string(raw)))
 	}
-	if out == nil {
+	if output == nil {
 		return nil
 	}
-	if err := json.Unmarshal(raw, out); err != nil {
+	if err := json.Unmarshal(raw, output); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil

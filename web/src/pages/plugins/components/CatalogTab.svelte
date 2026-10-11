@@ -43,7 +43,7 @@
   let actionError = $state('')
 
   let showAddRepo = $state(false)
-  let repoUrl = $state('')
+  let repositoryUrl = $state('')
   let adding = $state(false)
 
   let installingPath = $state<string | null>(null)
@@ -168,10 +168,10 @@
     adding = true
     actionError = ''
     try {
-      const repo = await api.repos.addRepo(repoUrl.trim())
+      const addedEntry = await api.repos.addRepo(repositoryUrl.trim())
       showAddRepo = false
-      repoUrl = ''
-      onRepoAdded(repo)
+      repositoryUrl = ''
+      onRepoAdded(addedEntry)
     } catch (e) {
       actionError = getErrorMessage(e)
     } finally {
@@ -235,11 +235,11 @@
       <VStack gap={4}>
         <VStack gap={1}>
           <Text size="sm" weight="medium" tag="label" for="repo-url">{t('plugins.repo.url_label')}</Text>
-          <TextEdit id="repo-url" bind:value={repoUrl} hint="https://github.com/..." />
+          <TextEdit id="repo-url" bind:value={repositoryUrl} hint="https://github.com/..." />
         </VStack>
         <HStack gap={2} justify="end">
           <Button onclick={() => { showAddRepo = false }}>{t('common.actions.cancel')}</Button>
-          <Button style="prominent" onclick={addRepo} disabled={adding || !repoUrl.trim()}>{t('common.actions.add')}</Button>
+          <Button style="prominent" onclick={addRepo} disabled={adding || !repositoryUrl.trim()}>{t('common.actions.add')}</Button>
         </HStack>
       </VStack>
     </SectionCard>

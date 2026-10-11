@@ -37,17 +37,17 @@ type Session struct {
 
 // Service manages admin users and persistent dashboard sessions.
 type Service struct {
-	db          *db.DB
-	providerSvc *provider.Service
-	repo        *repository.Repository[models.AdminUser]
+	database        *db.DB
+	providerService *provider.Service
+	store           *repository.Repository[models.AdminUser]
 }
 
 // New constructs a new admin Service.
-func New(database *db.DB, providerSvc *provider.Service) *Service {
+func New(database *db.DB, providerService *provider.Service) *Service {
 	s := &Service{
-		db:          database,
-		providerSvc: providerSvc,
-		repo:        repository.New[models.AdminUser](database, db.BucketAdmin, "admin"),
+		database:        database,
+		providerService: providerService,
+		store:           repository.New[models.AdminUser](database, db.BucketAdmin, "admin"),
 	}
 	s.CleanupExpiredSessions()
 	return s
@@ -59,13 +59,13 @@ func New(database *db.DB, providerSvc *provider.Service) *Service {
 
 // DB returns the underlying database instance.
 func (s *Service) DB() *db.DB {
-	return s.db
+	return s.database
 }
 
 // Bootstrap creates the initial admin account and marks the DB as bootstrapped.
 // Returns an error if already bootstrapped.
 func (s *Service) Bootstrap(username, password string) error {
-	ok, err := s.db.IsBootstrapped()
+	ok, err := s.database.IsBootstrapped()
 	if err != nil {
 		return err
 	}
@@ -84,16 +84,16 @@ func (s *Service) Bootstrap(username, password string) error {
 		CreatedAt:    util.Now(),
 	}
 
-	if err := s.repo.Put(username, user); err != nil {
+	if err := s.store.Put(username, user); err != nil {
 		return err
 	}
 
-	return s.db.SetBootstrapped()
+	return s.database.SetBootstrapped()
 }
 
 // ChangePassword verifies the current password and updates to a new one.
 func (s *Service) ChangePassword(username, oldPassword, newPassword string) error {
-	user, err := s.repo.Get(username)
+	user, err := s.store.Get(username)
 	if err != nil {
 		return ErrInvalidCredentials
 	}
@@ -105,7 +105,7 @@ func (s *Service) ChangePassword(username, oldPassword, newPassword string) erro
 		return fmt.Errorf("hash password: %w", err)
 	}
 	user.PasswordHash = string(hash)
-	return s.repo.Put(username, user)
+	return s.store.Put(username, user)
 }
 
 // ─────────────────────────────────────────────
@@ -114,7 +114,7 @@ func (s *Service) ChangePassword(username, oldPassword, newPassword string) erro
 
 // Login validates credentials and returns a session token with expiration.
 func (s *Service) Login(username, password string, rememberMe bool) (string, time.Time, error) {
-	user, err := s.repo.Get(username)
+	user, err := s.store.Get(username)
 	if err != nil {
 		return "", time.Time{}, ErrInvalidCredentials
 	}
@@ -134,7 +134,7 @@ func (s *Service) Login(username, password string, rememberMe bool) (string, tim
 	}
 	expiresAt := util.Now().Add(duration)
 
-	sess := &Session{
+	session := &Session{
 		Token:      token,
 		Username:   username,
 		CreatedAt:  util.Now(),
@@ -142,16 +142,16 @@ func (s *Service) Login(username, password string, rememberMe bool) (string, tim
 		RememberMe: rememberMe,
 	}
 
-	if err := s.db.Update(func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists(db.BucketSessions)
+	if err := s.database.Update(func(tx *bolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists(db.BucketSessions)
 		if err != nil {
 			return err
 		}
-		data, err := json.Marshal(sess)
+		data, err := json.Marshal(session)
 		if err != nil {
 			return err
 		}
-		return b.Put([]byte(token), data)
+		return bucket.Put([]byte(token), data)
 	}); err != nil {
 		return "", time.Time{}, err
 	}
@@ -165,12 +165,12 @@ func (s *Service) Logout(token string) {
 }
 
 func (s *Service) deleteSession(token string) {
-	s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketSessions)
-		if b == nil {
+	s.database.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(db.BucketSessions)
+		if bucket == nil {
 			return nil
 		}
-		b.Delete([]byte(token))
+		bucket.Delete([]byte(token))
 		return nil
 	})
 }
@@ -178,50 +178,50 @@ func (s *Service) deleteSession(token string) {
 // ValidateSession returns the username for a valid, non-expired session token.
 // Auto-refreshes the session expiration on each call (sliding window).
 func (s *Service) ValidateSession(token string) (string, bool) {
-	var sess Session
+	var session Session
 
-	if err := s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketSessions)
-		if b == nil {
+	if err := s.database.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(db.BucketSessions)
+		if bucket == nil {
 			return fmt.Errorf("bucket not found")
 		}
-		data := b.Get([]byte(token))
+		data := bucket.Get([]byte(token))
 		if data == nil {
 			return fmt.Errorf("session not found")
 		}
-		return json.Unmarshal(data, &sess)
+		return json.Unmarshal(data, &session)
 	}); err != nil {
 		return "", false
 	}
 
-	if util.Now().After(sess.ExpiresAt) {
+	if util.Now().After(session.ExpiresAt) {
 		s.deleteSession(token)
 		return "", false
 	}
 
 	duration := sessionDurationNormal
-	if sess.RememberMe {
+	if session.RememberMe {
 		duration = sessionDurationRememberMe
 	}
-	sess.ExpiresAt = util.Now().Add(duration)
+	session.ExpiresAt = util.Now().Add(duration)
 
-	s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketSessions)
-		if b == nil {
+	s.database.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(db.BucketSessions)
+		if bucket == nil {
 			return nil
 		}
-		data, _ := json.Marshal(sess)
-		b.Put([]byte(token), data)
+		data, _ := json.Marshal(session)
+		bucket.Put([]byte(token), data)
 		return nil
 	})
 
-	return sess.Username, true
+	return session.Username, true
 }
 
 // CleanupExpiredSessions removes expired sessions from the database.
 func (s *Service) CleanupExpiredSessions() error {
 	threshold := util.Now()
-	return repository.CleanupExpired(s.db, db.BucketSessions, threshold, func(sess *Session) time.Time {
-		return sess.ExpiresAt
+	return repository.CleanupExpired(s.database, db.BucketSessions, threshold, func(session *Session) time.Time {
+		return session.ExpiresAt
 	})
 }

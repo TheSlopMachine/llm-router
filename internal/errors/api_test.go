@@ -27,11 +27,11 @@ func TestToAPIErrorTable(t *testing.T) {
 		{"unknown falls back", errors.New("weird transport failure"), http.StatusBadGateway, "upstream_error"},
 		{"timeout text is not sniffed", errors.New("request timeout exceeded"), http.StatusBadGateway, "upstream_error"},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := ToAPIError(tc.err)
-			if got.Status != tc.status || got.Code != tc.code {
-				t.Errorf("got %+v, want status=%d code=%q", got, tc.status, tc.code)
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := ToAPIError(testCase.err)
+			if got.Status != testCase.status || got.Code != testCase.code {
+				t.Errorf("got %+v, want status=%d code=%q", got, testCase.status, testCase.code)
 			}
 		})
 	}
@@ -49,11 +49,11 @@ func TestToAPIErrorProviderErrors(t *testing.T) {
 		{"default code", &models.ProviderError{StatusCode: 502, Message: "boom"}, 502, "server_error"},
 		{"out of range status", &models.ProviderError{StatusCode: 200, Message: "weird", Code: "server_error"}, 502, "server_error"},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := ToAPIError(tc.err)
-			if got.Status != tc.status || got.Code != tc.code {
-				t.Errorf("got %+v, want status=%d code=%q", got, tc.status, tc.code)
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := ToAPIError(testCase.err)
+			if got.Status != testCase.status || got.Code != testCase.code {
+				t.Errorf("got %+v, want status=%d code=%q", got, testCase.status, testCase.code)
 			}
 		})
 	}

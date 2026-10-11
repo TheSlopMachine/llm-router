@@ -47,28 +47,28 @@ func probeRequest(model models.ModelId) *models.ChatCompletionRequest {
 // (DisabledBy="healthcheck"); unknown and handler failures change nothing.
 // overrideModel is accepted for endpoint compatibility and ignored.
 func (s *Service) TestCredential(ctx context.Context, providerID, credentialID string, overrideModel string) TestResult {
-	resolved, err := provider.Resolve(s.providerSvc, providerID)
+	resolved, err := provider.Resolve(s.providerService, providerID)
 	if err != nil {
 		return TestResult{Error: err.Error(), Code: apierrors.ToAPIError(err).Code}
 	}
-	cred, err := s.credSvc.Get(credentialID)
+	credential, err := s.credentialService.Get(credentialID)
 	if err != nil {
 		return TestResult{Error: "credential not found", Code: "not_found"}
 	}
-	if cred.ProviderID != providerID {
+	if credential.ProviderID != providerID {
 		return TestResult{Error: "credential does not belong to this provider", Code: "invalid_request_error"}
 	}
-	luaSvc := s.providerSvc.LuaService()
-	if luaSvc == nil || !luaSvc.HasHandler(resolved.Instance.TypeKey, string(luaplugin.HandlerCheckHealth)) {
+	luaService := s.providerService.LuaService()
+	if luaService == nil || !luaService.HasHandler(resolved.Instance.TypeKey, string(luaplugin.HandlerCheckHealth)) {
 		return TestResult{Error: "health check not supported for this provider", Code: "unsupported", Summary: "health check not supported"}
 	}
 	start := time.Now()
 	checkCtx, cancel := context.WithTimeout(ctx, healthcheck.CheckTimeout)
 	defer cancel()
-	status, message, herr := luaSvc.CheckHealth(checkCtx, resolved.Instance.TypeKey, cred)
+	status, message, healthError := luaService.CheckHealth(checkCtx, resolved.Instance.TypeKey, credential)
 	latency := time.Since(start).Milliseconds()
-	if herr != nil {
-		return TestResult{Error: herr.Error(), Code: "upstream_error", Summary: "health check failed", Latency: latency}
+	if healthError != nil {
+		return TestResult{Error: healthError.Error(), Code: "upstream_error", Summary: "health check failed", Latency: latency}
 	}
 	switch status {
 	case luaplugin.HealthHealthy:
@@ -83,8 +83,8 @@ func (s *Service) TestCredential(ctx context.Context, providerID, credentialID s
 		if !disableFailedCredentials(resolved) {
 			return TestResult{Error: reason, Code: "unhealthy", Summary: "credential unhealthy", Latency: latency}
 		}
-		if derr := s.credSvc.DisableUnhealthy(credentialID, reason); derr != nil {
-			return TestResult{Error: derr.Error(), Code: "upstream_error", Summary: "disable failed", Latency: latency}
+		if disableError := s.credentialService.DisableUnhealthy(credentialID, reason); disableError != nil {
+			return TestResult{Error: disableError.Error(), Code: "upstream_error", Summary: "disable failed", Latency: latency}
 		}
 		return TestResult{Error: reason, Code: "unhealthy", Summary: "credential unhealthy, disabled", Latency: latency}
 	default:
@@ -100,13 +100,13 @@ func (s *Service) TestCredential(ctx context.Context, providerID, credentialID s
 // testable: the admin override gates routing, not probing.
 func (s *Service) TestModel(ctx context.Context, modelID models.ModelId) TestResult {
 	start := time.Now()
-	resp, proxy, err := s.completeWithProxy(ctx, probeRequest(modelID), nil, true)
+	response, proxy, err := s.completeWithProxy(ctx, probeRequest(modelID), nil, true)
 	if err != nil {
 		return probeResult(start, "", proxy, err)
 	}
 	text := ""
-	if len(resp.Choices) > 0 {
-		text = resp.Choices[0].Message.TextContent()
+	if len(response.Choices) > 0 {
+		text = response.Choices[0].Message.TextContent()
 	}
 	return probeResult(start, text, proxy, nil)
 }
@@ -168,8 +168,8 @@ func probeResult(start time.Time, respText, proxy string, err error) TestResult 
 		res.Error = err.Error()
 		res.Summary = probeSummary(err)
 		res.Code = apierrors.ToAPIError(err).Code
-		var perr *models.ProviderError
-		if errors.As(err, &perr) && isQuotaCode(perr.Code) {
+		var providerError *models.ProviderError
+		if errors.As(err, &providerError) && isQuotaCode(providerError.Code) {
 			res.QuotaExceeded = true
 		}
 		return res
@@ -180,12 +180,12 @@ func probeResult(start time.Time, respText, proxy string, err error) TestResult 
 
 // probeSummary maps a probe error to a short human string for toasts.
 func probeSummary(err error) string {
-	var perr *models.ProviderError
-	if errors.As(err, &perr) {
-		if isQuotaCode(perr.Code) {
+	var providerError *models.ProviderError
+	if errors.As(err, &providerError) {
+		if isQuotaCode(providerError.Code) {
 			return "quota exceeded, temporary"
 		}
-		switch perr.Code {
+		switch providerError.Code {
 		case "authentication_error", apierrors.CodeAuthError:
 			return "authentication failed"
 		case apierrors.CodeInvalidRequest:
@@ -216,8 +216,8 @@ func disableFailedCredentials(resolved *provider.Resolved) bool {
 // TestVision runs a minimal image-input probe, bypassing manual disable.
 func (s *Service) TestVision(ctx context.Context, modelID models.ModelId) TestResult {
 	start := time.Now()
-	req := probeRequest(modelID)
-	req.Messages = []models.ChatMessage{{
+	request := probeRequest(modelID)
+	request.Messages = []models.ChatMessage{{
 		Role:    "user",
 		Content: "What is in this image? Reply with: ok",
 		ContentParts: []models.ChatMessageContentPart{{
@@ -225,30 +225,30 @@ func (s *Service) TestVision(ctx context.Context, modelID models.ModelId) TestRe
 			ImageURL: &models.ChatMessageImageURL{URL: "data:image/png;base64," + probePixelPNG},
 		}},
 	}}
-	resp, proxy, err := s.completeWithProxy(ctx, req, nil, true)
-	if err != nil || len(resp.Choices) == 0 {
+	response, proxy, err := s.completeWithProxy(ctx, request, nil, true)
+	if err != nil || len(response.Choices) == 0 {
 		if err == nil {
 			err = fmt.Errorf("empty response")
 		}
 		return probeResult(start, "", proxy, err)
 	}
-	return probeResult(start, resp.Choices[0].Message.TextContent(), proxy, nil)
+	return probeResult(start, response.Choices[0].Message.TextContent(), proxy, nil)
 }
 
 // TestSpeech runs a minimal speech probe, bypassing manual disable.
 func (s *Service) TestSpeech(ctx context.Context, modelID models.ModelId) TestResult {
 	start := time.Now()
-	resp, proxy, err := s.speechWithProxy(ctx, &models.SpeechRequest{Model: modelID, Input: "test"}, nil, true)
+	response, proxy, err := s.speechWithProxy(ctx, &models.SpeechRequest{Model: modelID, Input: "test"}, nil, true)
 	if err != nil {
 		return probeResult(start, "", proxy, err)
 	}
-	return probeResult(start, fmt.Sprintf("%d bytes of audio", len(resp.Audio)), proxy, nil)
+	return probeResult(start, fmt.Sprintf("%d bytes of audio", len(response.Audio)), proxy, nil)
 }
 
 // TestTranscribe runs a minimal transcription probe, bypassing manual disable.
 func (s *Service) TestTranscribe(ctx context.Context, modelID models.ModelId) TestResult {
 	start := time.Now()
-	resp, proxy, err := s.transcribeWithProxy(ctx, &models.TranscriptionRequest{
+	response, proxy, err := s.transcribeWithProxy(ctx, &models.TranscriptionRequest{
 		Model:       modelID,
 		File:        probeWAV(),
 		FileName:    "probe.wav",
@@ -257,31 +257,31 @@ func (s *Service) TestTranscribe(ctx context.Context, modelID models.ModelId) Te
 	if err != nil {
 		return probeResult(start, "", proxy, err)
 	}
-	return probeResult(start, resp.Text, proxy, nil)
+	return probeResult(start, response.Text, proxy, nil)
 }
 
 // TestImageGeneration runs a minimal image probe, bypassing manual disable.
 func (s *Service) TestImageGeneration(ctx context.Context, modelID models.ModelId) TestResult {
 	start := time.Now()
-	resp, proxy, err := s.generateImageWithProxy(ctx, &models.ImageGenerationRequest{Model: modelID, Prompt: "test", N: 1}, nil, true)
+	response, proxy, err := s.generateImageWithProxy(ctx, &models.ImageGenerationRequest{Model: modelID, Prompt: "test", N: 1}, nil, true)
 	if err != nil {
 		return probeResult(start, "", proxy, err)
 	}
-	return probeResult(start, fmt.Sprintf("%d image(s)", len(resp.Data)), proxy, nil)
+	return probeResult(start, fmt.Sprintf("%d image(s)", len(response.Data)), proxy, nil)
 }
 
 // TestEmbeddings runs a minimal embeddings probe, bypassing manual disable.
 func (s *Service) TestEmbeddings(ctx context.Context, modelID models.ModelId) TestResult {
 	start := time.Now()
-	resp, proxy, err := s.embedWithProxy(ctx, &models.EmbeddingsRequest{Model: modelID, Input: []string{"test"}}, nil, true)
+	response, proxy, err := s.embedWithProxy(ctx, &models.EmbeddingsRequest{Model: modelID, Input: []string{"test"}}, nil, true)
 	if err != nil {
 		return probeResult(start, "", proxy, err)
 	}
 	dims := 0
-	if len(resp.Data) > 0 {
-		dims = len(resp.Data[0].Values)
+	if len(response.Data) > 0 {
+		dims = len(response.Data[0].Values)
 	}
-	return probeResult(start, fmt.Sprintf("%d embedding(s), %d dims", len(resp.Data), dims), proxy, nil)
+	return probeResult(start, fmt.Sprintf("%d embedding(s), %d dims", len(response.Data), dims), proxy, nil)
 }
 
 // ProbeCapabilities detects model features with live probe requests.
@@ -292,7 +292,7 @@ func (s *Service) ProbeCapabilities(ctx context.Context, modelID models.ModelId)
 	if err != nil {
 		return nil, fmt.Errorf("invalid model id: %w", err)
 	}
-	if _, err := provider.Resolve(s.providerSvc, providerID); err != nil {
+	if _, err := provider.Resolve(s.providerService, providerID); err != nil {
 		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
 	}
 
@@ -300,10 +300,10 @@ func (s *Service) ProbeCapabilities(ctx context.Context, modelID models.ModelId)
 
 	// Reasoning models spend tokens on thinking before any tool call or
 	// JSON output; probes need real headroom.
-	toolReq := probeRequest(modelID)
-	toolReq.MaxTokens = 512
-	toolReq.Messages[0].Content = "Call the function report_weather with city=Paris."
-	toolReq.Tools = []models.ChatTool{{
+	toolRequest := probeRequest(modelID)
+	toolRequest.MaxTokens = 512
+	toolRequest.Messages[0].Content = "Call the function report_weather with city=Paris."
+	toolRequest.Tools = []models.ChatTool{{
 		Type: "function",
 		Function: &models.ChatToolFunction{
 			Name:        "report_weather",
@@ -315,16 +315,16 @@ func (s *Service) ProbeCapabilities(ctx context.Context, modelID models.ModelId)
 			},
 		},
 	}}
-	toolReq.ToolChoice = map[string]any{"type": "function", "function": map[string]any{"name": "report_weather"}}
-	if resp, err := s.Complete(ctx, toolReq, nil); err == nil && len(resp.Choices) > 0 && len(resp.Choices[0].Message.ToolCalls) > 0 {
+	toolRequest.ToolChoice = map[string]any{"type": "function", "function": map[string]any{"name": "report_weather"}}
+	if response, err := s.Complete(ctx, toolRequest, nil); err == nil && len(response.Choices) > 0 && len(response.Choices[0].Message.ToolCalls) > 0 {
 		caps = append(caps, "tools")
 	}
 
-	jsonReq := probeRequest(modelID)
-	jsonReq.MaxTokens = 512
-	jsonReq.Messages[0].Content = `Output exactly: {"ok": true}`
-	jsonReq.ResponseFormat = map[string]any{"type": "json_object"}
-	if _, err := s.Complete(ctx, jsonReq, nil); err == nil {
+	jsonRequest := probeRequest(modelID)
+	jsonRequest.MaxTokens = 512
+	jsonRequest.Messages[0].Content = `Output exactly: {"ok": true}`
+	jsonRequest.ResponseFormat = map[string]any{"type": "json_object"}
+	if _, err := s.Complete(ctx, jsonRequest, nil); err == nil {
 		caps = append(caps, "json_mode")
 	}
 

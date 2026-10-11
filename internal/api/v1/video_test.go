@@ -19,8 +19,8 @@ func TestValidateVideoRequest(t *testing.T) {
 		t.Fatalf("image-only request rejected: %v", err)
 	}
 	cases := []struct {
-		name string
-		req  *models.VideoGenerationRequest
+		name    string
+		request *models.VideoGenerationRequest
 	}{
 		{"missing model", &models.VideoGenerationRequest{Prompt: "a cat"}},
 		{"missing prompt", &models.VideoGenerationRequest{Model: "mock/veo"}},
@@ -31,9 +31,9 @@ func TestValidateVideoRequest(t *testing.T) {
 		{"bad reference type", &models.VideoGenerationRequest{Model: "mock/veo", Prompt: "a cat", InputReferences: []models.VideoInputReference{{Type: "file"}}}},
 		{"http callback", &models.VideoGenerationRequest{Model: "mock/veo", Prompt: "a cat", CallbackURL: "http://example.com/hook"}},
 	}
-	for _, tc := range cases {
-		if err := validateVideoRequest(tc.req); err == nil {
-			t.Fatalf("%s: expected rejection", tc.name)
+	for _, testCase := range cases {
+		if err := validateVideoRequest(testCase.request); err == nil {
+			t.Fatalf("%s: expected rejection", testCase.name)
 		}
 	}
 }

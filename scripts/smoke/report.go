@@ -32,23 +32,23 @@ func (r *report) add(provider, model, target, status, reason string, latency tim
 
 func (r *report) print() {
 	current := ""
-	for _, res := range r.results {
-		if res.provider != current {
-			current = res.provider
+	for _, result := range r.results {
+		if result.provider != current {
+			current = result.provider
 			fmt.Printf("== %s\n", current)
 		}
-		line := fmt.Sprintf("  %-18s %-22s %s", res.target, res.model, res.status)
-		if res.reason != "" {
-			line += fmt.Sprintf(" (%s)", res.reason)
+		line := fmt.Sprintf("  %-18s %-22s %s", result.target, result.model, result.status)
+		if result.reason != "" {
+			line += fmt.Sprintf(" (%s)", result.reason)
 		}
-		if res.status == pass {
-			line += fmt.Sprintf(" [%s]", res.latency.Round(time.Millisecond))
+		if result.status == pass {
+			line += fmt.Sprintf(" [%s]", result.latency.Round(time.Millisecond))
 		}
 		fmt.Println(strings.TrimSpace(line))
 	}
 	var passed, failed, skipped int
-	for _, res := range r.results {
-		switch res.status {
+	for _, result := range r.results {
+		switch result.status {
 		case pass:
 			passed++
 		case fail:
@@ -61,8 +61,8 @@ func (r *report) print() {
 }
 
 func (r *report) failed() bool {
-	for _, res := range r.results {
-		if res.status == fail {
+	for _, result := range r.results {
+		if result.status == fail {
 			return true
 		}
 	}

@@ -16,16 +16,16 @@ type pluginSource struct {
 }
 
 // Name identifies the aggregate Lua feed to the library.
-func (p *pluginSource) Name() string { return "lua-feeds" }
+func (source *pluginSource) Name() string { return "lua-feeds" }
 
 // FetchTagged aggregates registered Lua feeds with per-source identity.
-func (p *pluginSource) FetchTagged() []proxypoollib.TaggedURL {
-	s := p.service
-	s.mu.Lock()
-	keys := s.keys
-	fetch := s.fetch
-	ctx := s.rootCtx
-	s.mu.Unlock()
+func (source *pluginSource) FetchTagged() []proxypoollib.TaggedURL {
+	service := source.service
+	service.mu.Lock()
+	keys := service.keys
+	fetch := service.fetch
+	ctx := service.rootCtx
+	service.mu.Unlock()
 	if keys == nil || fetch == nil {
 		return nil
 	}
@@ -40,47 +40,47 @@ func (p *pluginSource) FetchTagged() []proxypoollib.TaggedURL {
 	for _, key := range list {
 		active[key] = struct{}{}
 	}
-	s.sourceMu.Lock()
-	for key := range s.sources {
+	service.sourceMu.Lock()
+	for key := range service.sources {
 		if _, ok := active[key]; !ok {
-			delete(s.sources, key)
+			delete(service.sources, key)
 		}
 	}
-	s.sourceMu.Unlock()
-	var out []proxypoollib.TaggedURL
+	service.sourceMu.Unlock()
+	var output []proxypoollib.TaggedURL
 	for _, key := range list {
-		cands, ferr := fetch(ctx, key)
-		info := SourceInfo{Key: key, Name: sourceDisplayName(key), LastFetchAt: time.Now(), Total: len(cands)}
-		if ferr != nil {
-			info.LastError = ferr.Error()
-			s.recordSource(info)
+		candidates, fetchError := fetch(ctx, key)
+		sourceInfo := SourceInfo{Key: key, Name: sourceDisplayName(key), LastFetchAt: time.Now(), Total: len(candidates)}
+		if fetchError != nil {
+			sourceInfo.LastError = fetchError.Error()
+			service.recordSource(sourceInfo)
 			continue
 		}
-		for _, c := range cands {
-			if u, ok := candidateURL(c); ok {
-				out = append(out, proxypoollib.TaggedURL{URL: u, Source: info.Name, Country: c.Country})
+		for _, candidate := range candidates {
+			if validatedURL, ok := candidateURL(candidate); ok {
+				output = append(output, proxypoollib.TaggedURL{URL: validatedURL, Source: sourceInfo.Name, Country: candidate.Country})
 			} else {
-				info.Unsupported++
+				sourceInfo.Unsupported++
 			}
 		}
-		s.recordSource(info)
+		service.recordSource(sourceInfo)
 	}
-	return out
+	return output
 }
 
 // FetchList preserves the library ProxySource contract for callers that do not
 // use TaggedSource.
-func (p *pluginSource) FetchList() []string {
-	tagged := p.FetchTagged()
-	out := make([]string, 0, len(tagged))
+func (source *pluginSource) FetchList() []string {
+	tagged := source.FetchTagged()
+	output := make([]string, 0, len(tagged))
 	for _, item := range tagged {
-		out = append(out, item.URL)
+		output = append(output, item.URL)
 	}
-	return out
+	return output
 }
 
-func (s *Service) recordSource(info SourceInfo) {
+func (s *Service) recordSource(sourceInfo SourceInfo) {
 	s.sourceMu.Lock()
-	s.sources[info.Key] = info
+	s.sources[sourceInfo.Key] = sourceInfo
 	s.sourceMu.Unlock()
 }

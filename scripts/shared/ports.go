@@ -12,12 +12,12 @@ import (
 // Both 127.0.0.1 and ::1 get probed: an IPv4-only probe reports free while
 // IPv6 loopback stays held.
 func PortStatus(port int) (free bool, holder string) {
-	for _, addr := range []string{"127.0.0.1", "::1"} {
-		ln, err := net.Listen("tcp", net.JoinHostPort(addr, strconv.Itoa(port)))
+	for _, address := range []string{"127.0.0.1", "::1"} {
+		listener, err := net.Listen("tcp", net.JoinHostPort(address, strconv.Itoa(port)))
 		if err != nil {
 			return false, describePortHolder(port)
 		}
-		ln.Close()
+		listener.Close()
 	}
 	return true, ""
 }

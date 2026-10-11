@@ -19,12 +19,12 @@ import (
 // Once written, the stream belongs to that member: failover stops and the
 // member's error ends the stream instead of trying the next member.
 type firstByteGate struct {
-	w       io.Writer
+	writer  io.Writer
 	written bool
 }
 
 func (g *firstByteGate) Write(p []byte) (int, error) {
-	n, err := g.w.Write(p)
+	n, err := g.writer.Write(p)
 	if n > 0 {
 		g.written = true
 	}
@@ -35,45 +35,45 @@ func (g *firstByteGate) Written() bool { return g.written }
 
 // Adapter implements the provider.GoAdapter interface for virtual models.
 type Adapter struct {
-	routerSvc  provider.Completer
-	virtualSvc *virtual.Service
-	logger     *slog.Logger
+	routerService  provider.Completer
+	virtualService *virtual.Service
+	logger         *slog.Logger
 }
 
 // New constructs an Adapter with all dependencies. The router dependency
 // enters as the narrow provider.Completer port, so construction order is
 // explicit and no setter injection is needed.
-func New(completer provider.Completer, virtualSvc *virtual.Service, logger *slog.Logger) *Adapter {
+func New(completer provider.Completer, virtualService *virtual.Service, logger *slog.Logger) *Adapter {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Adapter{routerSvc: completer, virtualSvc: virtualSvc, logger: logger}
+	return &Adapter{routerService: completer, virtualService: virtualService, logger: logger}
 }
 
 // resolve looks up the virtual model targeted by the request model id
 // (virtual/<agent-id>) and returns the agent, the member queue snapshotted
 // for this request, and the request with the instruction prepended as the
 // first user message.
-func (a *Adapter) resolve(req *models.ChatCompletionRequest) (*models.VirtualModel, []models.ModelId, *models.ChatCompletionRequest, error) {
-	_, agentID, err := req.Model.Parse()
+func (a *Adapter) resolve(request *models.ChatCompletionRequest) (*models.VirtualModel, []models.ModelId, *models.ChatCompletionRequest, error) {
+	_, agentID, err := request.Model.Parse()
 	if err != nil {
 		return nil, nil, nil, &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: fmt.Sprintf("invalid model id: %s", err)}
 	}
 	if agentID == "" {
 		return nil, nil, nil, &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: "virtual model id is required"}
 	}
-	virtualSvc := a.virtualSvc
-	if virtualSvc == nil {
+	virtualService := a.virtualService
+	if virtualService == nil {
 		return nil, nil, nil, fmt.Errorf("virtual model service not initialized")
 	}
-	agent, err := virtualSvc.Get(agentID)
+	agent, err := virtualService.Get(agentID)
 	if err != nil {
 		return nil, nil, nil, &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: fmt.Sprintf("virtual model %q not found", agentID)}
 	}
 	if agent.Disabled {
 		return nil, nil, nil, fmt.Errorf("%w: virtual/%s", apierrors.ErrModelDisabled, agentID)
 	}
-	members, err := virtualSvc.LiveMembers(agent)
+	members, err := virtualService.LiveMembers(agent)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("virtual model %q members: %w", agent.Name, err)
 	}
@@ -82,11 +82,11 @@ func (a *Adapter) resolve(req *models.ChatCompletionRequest) (*models.VirtualMod
 			"virtual_model", agent.Name, "managed_by", agent.ManagedBy)
 	}
 
-	modifiedReq := *req
+	modifiedRequest := *request
 	if agent.Instruction != "" {
-		modifiedReq.Messages = append([]models.ChatMessage{{Role: "user", Content: agent.Instruction}}, req.Messages...)
+		modifiedRequest.Messages = append([]models.ChatMessage{{Role: "user", Content: agent.Instruction}}, request.Messages...)
 	}
-	return agent, members, &modifiedReq, nil
+	return agent, members, &modifiedRequest, nil
 }
 
 // ─────────────────────────────────────────────
@@ -103,12 +103,12 @@ func (a *Adapter) ValidateCredentials(data map[string]any) error {
 		return fmt.Errorf("agent_id is required")
 	}
 
-	virtualSvc := a.virtualSvc
-	if virtualSvc == nil {
+	virtualService := a.virtualService
+	if virtualService == nil {
 		return fmt.Errorf("virtual model service not initialized")
 	}
 
-	_, err := virtualSvc.Get(agentID)
+	_, err := virtualService.Get(agentID)
 	if err != nil {
 		return fmt.Errorf("virtual model not found: %w", err)
 	}
@@ -118,16 +118,16 @@ func (a *Adapter) ValidateCredentials(data map[string]any) error {
 
 func (a *Adapter) Complete(
 	ctx context.Context,
-	creds []*models.Credential,
-	req *models.ChatCompletionRequest,
+	credentials []*models.Credential,
+	request *models.ChatCompletionRequest,
 	_ map[string]any,
 ) (*models.ChatCompletionResponse, error) {
-	routerSvc := a.routerSvc
-	if routerSvc == nil {
+	routerService := a.routerService
+	if routerService == nil {
 		return nil, fmt.Errorf("router service not initialized")
 	}
 
-	agent, members, modifiedReq, err := a.resolve(req)
+	agent, members, modifiedRequest, err := a.resolve(request)
 	if err != nil {
 		return nil, err
 	}
@@ -140,12 +140,12 @@ func (a *Adapter) Complete(
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		modelReq := *modifiedReq
-		modelReq.Model = memberID
+		modelRequest := *modifiedRequest
+		modelRequest.Model = memberID
 		logger.Debug("virtual model trying model",
 			"virtual_model", agent.Name,
 			"model", memberID)
-		resp, err := routerSvc.Complete(ctx, &modelReq, nil)
+		resp, err := routerService.Complete(ctx, &modelRequest, nil)
 		if err == nil {
 			logger.Debug("virtual model request succeeded",
 				"virtual_model", agent.Name,
@@ -172,17 +172,17 @@ func (a *Adapter) Complete(
 
 func (a *Adapter) CompleteStream(
 	ctx context.Context,
-	creds []*models.Credential,
-	req *models.ChatCompletionRequest,
-	w io.Writer,
+	credentials []*models.Credential,
+	request *models.ChatCompletionRequest,
+	writer io.Writer,
 	_ map[string]any,
 ) error {
-	routerSvc := a.routerSvc
-	if routerSvc == nil {
+	routerService := a.routerService
+	if routerService == nil {
 		return fmt.Errorf("router service not initialized")
 	}
 
-	agent, members, modifiedReq, err := a.resolve(req)
+	agent, members, modifiedRequest, err := a.resolve(request)
 	if err != nil {
 		return err
 	}
@@ -191,18 +191,18 @@ func (a *Adapter) CompleteStream(
 	// Same fall-through queue as Complete, with one guard: once the first
 	// byte reaches the client the stream belongs to that member and ends
 	// with its error instead of continuing to the next member.
-	gate := &firstByteGate{w: w}
+	gate := &firstByteGate{writer: writer}
 	var lastErr error
 	for i, memberID := range members {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		modelReq := *modifiedReq
-		modelReq.Model = memberID
+		modelRequest := *modifiedRequest
+		modelRequest.Model = memberID
 		logger.Debug("virtual model trying model (stream)",
 			"virtual_model", agent.Name,
 			"model", memberID)
-		if err := routerSvc.CompleteStream(ctx, &modelReq, gate, nil); err == nil {
+		if err := routerService.CompleteStream(ctx, &modelRequest, gate, nil); err == nil {
 			return nil
 		} else {
 			lastErr = err
@@ -235,29 +235,29 @@ func (a *Adapter) CompleteStream(
 func (a *Adapter) SubmitVideo(
 	ctx context.Context,
 	_ []*models.Credential,
-	req *models.VideoGenerationRequest,
+	request *models.VideoGenerationRequest,
 	_ map[string]any,
 ) (*models.VideoGenerationResponse, error) {
-	routerSvc := a.routerSvc
-	if routerSvc == nil {
+	routerService := a.routerService
+	if routerService == nil {
 		return nil, fmt.Errorf("router service not initialized")
 	}
-	_, agentID, err := req.Model.Parse()
+	_, agentID, err := request.Model.Parse()
 	if err != nil || agentID == "" {
 		return nil, &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: "virtual model id is required"}
 	}
-	virtualSvc := a.virtualSvc
-	if virtualSvc == nil {
+	virtualService := a.virtualService
+	if virtualService == nil {
 		return nil, fmt.Errorf("virtual model service not initialized")
 	}
-	agent, err := virtualSvc.Get(agentID)
+	agent, err := virtualService.Get(agentID)
 	if err != nil {
 		return nil, &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: fmt.Sprintf("virtual model %q not found", agentID)}
 	}
 	if agent.Disabled {
 		return nil, fmt.Errorf("%w: virtual/%s", apierrors.ErrModelDisabled, agentID)
 	}
-	members, err := virtualSvc.LiveMembers(agent)
+	members, err := virtualService.LiveMembers(agent)
 	if err != nil {
 		return nil, fmt.Errorf("virtual model %q members: %w", agent.Name, err)
 	}
@@ -267,12 +267,12 @@ func (a *Adapter) SubmitVideo(
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		memberReq := *req
-		memberReq.Model = memberID
+		memberRequest := *request
+		memberRequest.Model = memberID
 		logger.Debug("virtual model trying video model",
 			"virtual_model", agent.Name,
 			"model", memberID)
-		resp, err := routerSvc.SubmitVideo(ctx, &memberReq, nil)
+		resp, err := routerService.SubmitVideo(ctx, &memberRequest, nil)
 		if err == nil {
 			logger.Debug("virtual model video request succeeded",
 				"virtual_model", agent.Name,
@@ -297,33 +297,33 @@ func (a *Adapter) SubmitVideo(
 	return nil, lastErr
 }
 
-func (a *Adapter) NeedsRefresh(cred *models.Credential) bool {
+func (a *Adapter) NeedsRefresh(credential *models.Credential) bool {
 	return false
 }
 
-func (a *Adapter) RefreshCredential(ctx context.Context, cred *models.Credential) (map[string]any, error) {
+func (a *Adapter) RefreshCredential(ctx context.Context, credential *models.Credential) (map[string]any, error) {
 	return nil, provider.ErrNotRefreshable
 }
 
-func (a *Adapter) GetModelInfos(ctx context.Context, cred *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {
-	virtualSvc := a.virtualSvc
-	if virtualSvc == nil {
+func (a *Adapter) GetModelInfos(ctx context.Context, credential *models.Credential, _ map[string]any) ([]models.ModelInfo, error) {
+	virtualService := a.virtualService
+	if virtualService == nil {
 		return nil, fmt.Errorf("virtual model service not initialized")
 	}
 
-	agents, err := virtualSvc.List()
+	agents, err := virtualService.List()
 	if err != nil {
 		return nil, fmt.Errorf("list virtual models: %w", err)
 	}
 
-	infos := make([]models.ModelInfo, len(agents))
+	modelInfos := make([]models.ModelInfo, len(agents))
 	for i, agent := range agents {
-		infos[i] = models.ModelInfo{
+		modelInfos[i] = models.ModelInfo{
 			Name:        agent.ID,
 			DisplayName: agent.Name,
 			Description: agent.Description,
 		}
 	}
 
-	return infos, nil
+	return modelInfos, nil
 }

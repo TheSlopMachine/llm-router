@@ -49,22 +49,22 @@ type DB struct {
 // Open opens (or creates) the bbolt database at the given path and
 // ensures every required bucket is created.
 func Open(path string) (*DB, error) {
-	bdb, err := bolt.Open(path, 0600, nil)
+	boltDatabase, err := bolt.Open(path, 0600, nil)
 	if err != nil {
 		return nil, fmt.Errorf("open bbolt db at %q: %w", path, err)
 	}
 
-	db := &DB{bdb}
-	if err := db.initBuckets(); err != nil {
-		bdb.Close()
+	database := &DB{boltDatabase}
+	if err := database.initBuckets(); err != nil {
+		boltDatabase.Close()
 		return nil, err
 	}
-	return db, nil
+	return database, nil
 }
 
 // initBuckets creates all top-level buckets if they do not yet exist.
-func (db *DB) initBuckets() error {
-	return db.Update(func(tx *bolt.Tx) error {
+func (database *DB) initBuckets() error {
+	return database.Update(func(tx *bolt.Tx) error {
 		buckets := [][]byte{
 			BucketMeta,
 			BucketAdmin,
@@ -121,9 +121,9 @@ func (db *DB) initBuckets() error {
 }
 
 // IsBootstrapped returns true once the admin account has been created.
-func (db *DB) IsBootstrapped() (bool, error) {
+func (database *DB) IsBootstrapped() (bool, error) {
 	var bootstrapped bool
-	err := db.View(func(tx *bolt.Tx) error {
+	err := database.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(BucketMeta)
 		v := b.Get(MetaKeyBootstrapped)
 		bootstrapped = string(v) == string(MetaValueTrue)
@@ -133,8 +133,8 @@ func (db *DB) IsBootstrapped() (bool, error) {
 }
 
 // SetBootstrapped marks the database as fully initialized.
-func (db *DB) SetBootstrapped() error {
-	return db.Update(func(tx *bolt.Tx) error {
+func (database *DB) SetBootstrapped() error {
+	return database.Update(func(tx *bolt.Tx) error {
 		return tx.Bucket(BucketMeta).Put(MetaKeyBootstrapped, MetaValueTrue)
 	})
 }

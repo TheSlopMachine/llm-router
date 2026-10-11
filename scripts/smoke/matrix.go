@@ -15,12 +15,12 @@ type modelView struct {
 	Endpoints []string `json:"endpoints"`
 }
 
-func (m modelView) serves(endpoint string) bool {
-	if len(m.Endpoints) == 0 {
+func (view modelView) serves(endpoint string) bool {
+	if len(view.Endpoints) == 0 {
 		return endpoint == "chat/completions"
 	}
-	for _, e := range m.Endpoints {
-		if e == endpoint {
+	for _, candidate := range view.Endpoints {
+		if candidate == endpoint {
 			return true
 		}
 	}
@@ -60,21 +60,21 @@ func classify(run func() error) (skipReason string, err error) {
 	if err == nil {
 		return "", nil
 	}
-	if werr, ok := err.(*wireError); ok {
-		if werr.status == 402 {
+	if wireFailure, ok := err.(*wireError); ok {
+		if wireFailure.status == 402 {
 			return "payment_required", nil
 		}
-		if werr.code == "rate_limit" {
+		if wireFailure.code == "rate_limit" {
 			if err := run(); err == nil {
 				return "", nil
-			} else if werr, ok := err.(*wireError); ok && werr.code == "rate_limit" {
+			} else if wireFailure, ok := err.(*wireError); ok && wireFailure.code == "rate_limit" {
 				return "rate_limit", nil
 			} else {
 				return "", err
 			}
 		}
-		if skipCodes[werr.code] {
-			return werr.code, nil
+		if skipCodes[wireFailure.code] {
+			return wireFailure.code, nil
 		}
 	}
 	return "", err
@@ -98,44 +98,44 @@ func chatBody(model string, stream bool) map[string]any {
 // from breakage: two consecutive empties fail.
 var errEmpty = fmt.Errorf("empty response")
 
-func emptyErr(err error, out string) error {
+func emptyErr(err error, output string) error {
 	if err != nil {
 		return err
 	}
-	if out == "" {
+	if output == "" {
 		return errEmpty
 	}
 	return nil
 }
 
-func checkCompletions(cfg config, model string) error {
-	status, raw, err := doJSON("POST", cfg.api+"/v1/chat/completions", chatBody(model, false))
+func checkCompletions(testConfiguration configuration, model string) error {
+	statusCode, raw, err := doJSON("POST", testConfiguration.api+"/v1/chat/completions", chatBody(model, false))
 	if err != nil {
 		return err
 	}
-	var out struct {
+	var output struct {
 		Choices []struct {
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := requireOK(status, raw, &out); err != nil {
+	if err := requireOK(statusCode, raw, &output); err != nil {
 		return err
 	}
-	if len(out.Choices) == 0 || out.Choices[0].Message.Content == "" {
+	if len(output.Choices) == 0 || output.Choices[0].Message.Content == "" {
 		return errEmpty
 	}
 	return nil
 }
 
-func checkCompletionsStream(cfg config, model string) error {
-	status, raw, err := doJSON("POST", cfg.api+"/v1/chat/completions", chatBody(model, true))
+func checkCompletionsStream(testConfiguration configuration, model string) error {
+	statusCode, raw, err := doJSON("POST", testConfiguration.api+"/v1/chat/completions", chatBody(model, true))
 	if err != nil {
 		return err
 	}
-	if status < 200 || status >= 300 {
-		return &wireError{status: status, code: wireCode(raw), msg: strings.TrimSpace(string(raw))}
+	if statusCode < 200 || statusCode >= 300 {
+		return &wireError{status: statusCode, code: wireCode(raw), message: strings.TrimSpace(string(raw))}
 	}
 	if !strings.Contains(string(raw), "[DONE]") {
 		return fmt.Errorf("stream without [DONE]")
@@ -143,7 +143,7 @@ func checkCompletionsStream(cfg config, model string) error {
 	return nil
 }
 
-func checkMessagesTools(cfg config, model string) error {
+func checkMessagesTools(testConfiguration configuration, model string) error {
 	body := map[string]any{
 		"model":      model,
 		"max_tokens": 64,
@@ -154,12 +154,12 @@ func checkMessagesTools(cfg config, model string) error {
 		}},
 		"tool_choice": map[string]any{"type": "any"},
 	}
-	status, raw, err := doJSON("POST", cfg.api+"/v1/messages", body)
+	statusCode, raw, err := doJSON("POST", testConfiguration.api+"/v1/messages", body)
 	if err != nil {
 		return err
 	}
-	if status < 200 || status >= 300 {
-		return &wireError{status: status, code: wireCode(raw), msg: strings.TrimSpace(string(raw))}
+	if statusCode < 200 || statusCode >= 300 {
+		return &wireError{status: statusCode, code: wireCode(raw), message: strings.TrimSpace(string(raw))}
 	}
 	if !strings.Contains(string(raw), "tool_use") {
 		return fmt.Errorf("no tool_use block")
@@ -169,53 +169,53 @@ func checkMessagesTools(cfg config, model string) error {
 
 // checkEndpointGate asserts the negative path: a capability the model does
 // not serve must fail closed with endpoint_not_supported, never silently.
-func checkEndpointGate(cfg config, chatModel string) error {
-	status, raw, err := postMultipart(cfg.api+"/v1/audio/transcriptions", chatModel, "smoke.wav", synthWAV(), "json")
+func checkEndpointGate(testConfiguration configuration, chatModel string) error {
+	statusCode, raw, err := postMultipart(testConfiguration.api+"/v1/audio/transcriptions", chatModel, "smoke.wav", synthesizeWAV(), "json")
 	if err != nil {
 		return err
 	}
-	if status < 200 || status >= 300 {
+	if statusCode < 200 || statusCode >= 300 {
 		if code := wireCode(raw); code == "endpoint_not_supported" {
 			return nil
 		}
-		return &wireError{status: status, code: wireCode(raw), msg: strings.TrimSpace(string(raw))}
+		return &wireError{status: statusCode, code: wireCode(raw), message: strings.TrimSpace(string(raw))}
 	}
 	return fmt.Errorf("transcribe on chat-only model must not succeed")
 }
 
-func checkVirtualChat(cfg config, member string) error {
-	vm, err := createVirtual(cfg, member)
+func checkVirtualChat(testConfiguration configuration, member string) error {
+	virtualModel, err := createVirtual(testConfiguration, member)
 	if err != nil {
 		return err
 	}
-	defer deleteVirtual(cfg, vm)
-	return checkCompletions(cfg, "virtual/"+vm)
+	defer deleteVirtual(testConfiguration, virtualModel)
+	return checkCompletions(testConfiguration, "virtual/"+virtualModel)
 }
 
-func createVirtual(cfg config, member string) (string, error) {
-	status, raw, err := doJSON("POST", cfg.web+"/api/llm-router/dashboard/virtual-models", map[string]any{
-		"name":   cfg.vmName,
+func createVirtual(testConfiguration configuration, member string) (string, error) {
+	statusCode, raw, err := doJSON("POST", testConfiguration.web+"/api/llm-router/dashboard/virtual-models", map[string]any{
+		"name":   testConfiguration.virtualModelName,
 		"models": []any{map[string]any{"model_id": member}},
 	})
 	if err != nil {
 		return "", fmt.Errorf("create virtual model: %w", err)
 	}
-	var vm struct {
+	var virtualModel struct {
 		ID string `json:"id"`
 	}
-	if err := requireOK(status, raw, &vm); err != nil {
+	if err := requireOK(statusCode, raw, &virtualModel); err != nil {
 		return "", err
 	}
-	if vm.ID == "" {
+	if virtualModel.ID == "" {
 		return "", fmt.Errorf("create virtual model: empty id")
 	}
-	return vm.ID, nil
+	return virtualModel.ID, nil
 }
 
-func deleteVirtual(cfg config, vmID string) {
-	status, raw, err := doJSON("DELETE", cfg.web+"/api/llm-router/dashboard/virtual-models/"+vmID, nil)
+func deleteVirtual(testConfiguration configuration, virtualModelID string) {
+	statusCode, raw, err := doJSON("DELETE", testConfiguration.web+"/api/llm-router/dashboard/virtual-models/"+virtualModelID, nil)
 	if err == nil {
-		_ = requireOK(status, raw, nil)
+		_ = requireOK(statusCode, raw, nil)
 	}
 }
 
@@ -228,32 +228,32 @@ func deleteVirtual(cfg config, vmID string) {
 // always asks for the same name. Best-effort: a failure here must not stop
 // the run, since the harness's own unique-per-run name still avoids
 // colliding with whatever this sweep could not remove.
-func cleanupStaleVirtualModels(cfg config) {
-	status, raw, err := doJSON("GET", cfg.web+"/api/llm-router/dashboard/virtual-models", nil)
+func cleanupStaleVirtualModels(testConfiguration configuration) {
+	statusCode, raw, err := doJSON("GET", testConfiguration.web+"/api/llm-router/dashboard/virtual-models", nil)
 	if err != nil {
 		return
 	}
-	var vms []struct {
+	var virtualModels []struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	}
-	if requireOK(status, raw, &vms) != nil {
+	if requireOK(statusCode, raw, &virtualModels) != nil {
 		return
 	}
-	for _, vm := range vms {
-		if vm.ID == "" || !strings.HasPrefix(strings.ToLower(vm.Name), "smoke-vm") {
+	for _, virtualModel := range virtualModels {
+		if virtualModel.ID == "" || !strings.HasPrefix(strings.ToLower(virtualModel.Name), "smoke-vm") {
 			continue
 		}
-		deleteVirtual(cfg, vm.ID)
+		deleteVirtual(testConfiguration, virtualModel.ID)
 	}
 }
 
-// contCodes are probe codes that move to the next model instead of
+// continuationCodes are probe codes that move to the next model instead of
 // failing: limits, gone models and malformed-model answers say nothing
 // about the credential or the router. structural_fault is absent on
 // purpose: it fails, broken config must be loud. unsupported (no
 // check_health handler) skips the same way: nothing to verify.
-var contCodes = map[string]bool{
+var continuationCodes = map[string]bool{
 	"quota_exceeded": true, "insufficient_quota": true, "payment_required": true, "rate_limit": true,
 	"model_not_found": true, "not_found": true,
 	"endpoint_not_supported": true, "invalid_request_error": true,
@@ -267,74 +267,74 @@ type probeResult struct {
 	Error string `json:"error"`
 }
 
-func postCredentialTest(cfg config, credID, model string) (probeResult, error) {
-	var res probeResult
-	status, raw, err := doJSON("POST", cfg.web+"/api/llm-router/dashboard/credentials/"+credID+"/test", map[string]any{
+func postCredentialTest(testConfiguration configuration, credentialID, model string) (probeResult, error) {
+	var result probeResult
+	statusCode, raw, err := doJSON("POST", testConfiguration.web+"/api/llm-router/dashboard/credentials/"+credentialID+"/test", map[string]any{
 		"model": model,
 	})
 	if err != nil {
-		return res, err
+		return result, err
 	}
-	if err := requireOK(status, raw, &res); err != nil {
-		return res, err
+	if err := requireOK(statusCode, raw, &result); err != nil {
+		return result, err
 	}
-	return res, nil
+	return result, nil
 }
 
 // checkCredentialTest tries chat-serving models per credential until one
 // passes. First success closes the check; auth-dead ends fail only when
 // nothing else passed, exhausted dimensions skip with reason.
-func checkCredentialTest(cfg config, rep *report, pluginType, providerID string, creds []credCandidate, models []modelView) {
+func checkCredentialTest(testConfiguration configuration, report *report, pluginType, providerID string, credentials []credentialCandidate, models []modelView) {
 	var chat []string
-	for _, m := range models {
-		if !m.Disabled && m.serves("chat/completions") {
-			chat = append(chat, m.Name)
+	for _, view := range models {
+		if !view.Disabled && view.serves("chat/completions") {
+			chat = append(chat, view.Name)
 		}
 	}
 	if len(chat) == 0 {
-		rep.add(pluginType, "-", "credential-test", skip, "no chat model to probe", 0)
+		report.add(pluginType, "-", "credential-test", skip, "no chat model to probe", 0)
 		return
 	}
-	if len(creds) == 0 {
-		rep.add(pluginType, "-", "credential-test", skip, "no credential to probe", 0)
+	if len(credentials) == 0 {
+		report.add(pluginType, "-", "credential-test", skip, "no credential to probe", 0)
 		return
 	}
-	var sawAuth bool
+	var sawAuthentication bool
 	reason := "no models to try"
-	for _, cred := range creds {
+	for _, credential := range credentials {
 		for _, name := range chat {
 			model := providerID + "/" + name
 			start := time.Now()
-			res, err := postCredentialTest(cfg, cred.ID, name)
+			result, err := postCredentialTest(testConfiguration, credential.ID, name)
 			if err != nil {
-				rep.add(pluginType, model, "credential-test", fail, err.Error(), time.Since(start))
+				report.add(pluginType, model, "credential-test", fail, err.Error(), time.Since(start))
 				return
 			}
-			if res.OK {
-				rep.add(pluginType, model, "credential-test", pass, "key "+cred.Label, time.Since(start))
+			if result.OK {
+				report.add(pluginType, model, "credential-test", pass, "key "+credential.Label, time.Since(start))
 				return
 			}
-			if res.Code == "auth_error" {
-				sawAuth = true
-				reason = "auth_error on key " + cred.Label
+			if result.Code == "auth_error" {
+				sawAuthentication = true
+				reason = "auth_error on key " + credential.Label
 				break
 			}
-			if contCodes[res.Code] {
-				reason = res.Code + " on " + model
+			if continuationCodes[result.Code] {
+				reason = result.Code + " on " + model
 				continue
 			}
-			rep.add(pluginType, model, "credential-test", fail, res.Error, time.Since(start))
+			report.add(pluginType, model, "credential-test", fail, result.Error, time.Since(start))
 			return
 		}
 	}
-	if sawAuth {
-		rep.add(pluginType, "-", "credential-test", fail, reason, 0)
+	if sawAuthentication {
+		report.add(pluginType, "-", "credential-test", fail, reason, 0)
 		return
 	}
-	rep.add(pluginType, "-", "credential-test", skip, reason, 0)
+	report.add(pluginType, "-", "credential-test", skip, reason, 0)
 }
 
-func checkMessages(cfg config, model string, stream bool) error {
+func checkMessages(testConfiguration configuration, model string, stream bool) error {
 	// Thinking models starve on tiny budgets ("hi" + 16 tokens yields
 	// empty candidates), so the probe mirrors the completions prompt
 	// and budget instead of asserting less.
@@ -346,12 +346,12 @@ func checkMessages(cfg config, model string, stream bool) error {
 	if stream {
 		body["stream"] = true
 	}
-	status, raw, err := doJSON("POST", cfg.api+"/v1/messages", body)
+	statusCode, raw, err := doJSON("POST", testConfiguration.api+"/v1/messages", body)
 	if err != nil {
 		return err
 	}
-	if status < 200 || status >= 300 {
-		return &wireError{status: status, code: wireCode(raw), msg: strings.TrimSpace(string(raw))}
+	if statusCode < 200 || statusCode >= 300 {
+		return &wireError{status: statusCode, code: wireCode(raw), message: strings.TrimSpace(string(raw))}
 	}
 	text := string(raw)
 	if stream {
@@ -360,76 +360,78 @@ func checkMessages(cfg config, model string, stream bool) error {
 		}
 		return nil
 	}
-	var out struct {
+	var output struct {
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
 	}
-	if err := json.Unmarshal(raw, &out); err != nil {
+	if err := json.Unmarshal(raw, &output); err != nil {
 		return fmt.Errorf("decode messages response: %w", err)
 	}
-	if len(out.Content) == 0 {
+	if len(output.Content) == 0 {
 		return errEmpty
 	}
 	return nil
 }
 
-func checkDashboardChat(cfg config, model string) error {
-	status, raw, err := doJSON("POST", cfg.web+"/api/llm-router/dashboard/chat/completions", chatBody(model, false))
+func checkDashboardChat(testConfiguration configuration, model string) error {
+	statusCode, raw, err := doJSON("POST", testConfiguration.web+"/api/llm-router/dashboard/chat/completions", chatBody(model, false))
 	if err != nil {
 		return err
 	}
-	var out struct {
+	var output struct {
 		Choices []struct {
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := requireOK(status, raw, &out); err != nil {
+	if err := requireOK(statusCode, raw, &output); err != nil {
 		// Dashboard errors carry no wire code: classify via a cheap
 		// completions probe on the same model.
-		if status == 402 {
-			return &wireError{status: status, code: "payment_required"}
+		if statusCode == 402 {
+			return &wireError{status: statusCode, code: "payment_required"}
 		}
-		if probeErr := checkCompletions(cfg, model); probeErr != nil {
+		if probeErr := checkCompletions(testConfiguration, model); probeErr != nil {
 			return probeErr
 		}
 		return err
 	}
-	if len(out.Choices) == 0 {
+	if len(output.Choices) == 0 {
 		return errEmpty
 	}
 	return nil
 }
 
-// synthWAV builds a minimal silent WAV for transcription uploads.
-func synthWAV() []byte {
-	u16 := func(n int) []byte { return []byte{byte(n), byte(n >> 8)} }
-	u32 := func(n int) []byte { return []byte{byte(n), byte(n >> 8), byte(n >> 16), byte(n >> 24)} }
-	out := []byte("RIFF")
-	out = append(out, u32(36)...)
-	out = append(out, []byte("WAVEfmt ")...)
-	out = append(out, u32(16)...)
-	out = append(out, u16(1)...)
-	out = append(out, u16(1)...)
-	out = append(out, u32(8000)...)
-	out = append(out, u32(16000)...)
-	out = append(out, u16(2)...)
-	out = append(out, u16(16)...)
-	out = append(out, []byte("data")...)
-	out = append(out, u32(0)...)
-	return out
+// synthesizeWAV builds a minimal silent WAV for transcription uploads.
+func synthesizeWAV() []byte {
+	encodeUint16 := func(number int) []byte { return []byte{byte(number), byte(number >> 8)} }
+	encodeUint32 := func(number int) []byte {
+		return []byte{byte(number), byte(number >> 8), byte(number >> 16), byte(number >> 24)}
+	}
+	output := []byte("RIFF")
+	output = append(output, encodeUint32(36)...)
+	output = append(output, []byte("WAVEfmt ")...)
+	output = append(output, encodeUint32(16)...)
+	output = append(output, encodeUint16(1)...)
+	output = append(output, encodeUint16(1)...)
+	output = append(output, encodeUint32(8000)...)
+	output = append(output, encodeUint32(16000)...)
+	output = append(output, encodeUint16(2)...)
+	output = append(output, encodeUint16(16)...)
+	output = append(output, []byte("data")...)
+	output = append(output, encodeUint32(0)...)
+	return output
 }
 
-func checkTranscribe(cfg config, model string) error {
-	status, raw, err := postMultipart(cfg.api+"/v1/audio/transcriptions", model, "smoke.wav", synthWAV(), "srt")
+func checkTranscribe(testConfiguration configuration, model string) error {
+	statusCode, raw, err := postMultipart(testConfiguration.api+"/v1/audio/transcriptions", model, "smoke.wav", synthesizeWAV(), "srt")
 	if err != nil {
 		return err
 	}
-	if status < 200 || status >= 300 {
-		return &wireError{status: status, code: wireCode(raw), msg: strings.TrimSpace(string(raw))}
+	if statusCode < 200 || statusCode >= 300 {
+		return &wireError{status: statusCode, code: wireCode(raw), message: strings.TrimSpace(string(raw))}
 	}
 	// srt exercises the segments contract plus server-side rendering.
 	if !strings.Contains(string(raw), "-->") {
@@ -438,15 +440,15 @@ func checkTranscribe(cfg config, model string) error {
 	return nil
 }
 
-func checkSpeech(cfg config, model string) error {
-	status, raw, err := doJSON("POST", cfg.api+"/v1/audio/speech", map[string]any{
+func checkSpeech(testConfiguration configuration, model string) error {
+	statusCode, raw, err := doJSON("POST", testConfiguration.api+"/v1/audio/speech", map[string]any{
 		"model": model, "input": "hi",
 	})
 	if err != nil {
 		return err
 	}
-	if status < 200 || status >= 300 {
-		return &wireError{status: status, code: wireCode(raw), msg: strings.TrimSpace(string(raw))}
+	if statusCode < 200 || statusCode >= 300 {
+		return &wireError{status: statusCode, code: wireCode(raw), message: strings.TrimSpace(string(raw))}
 	}
 	if len(raw) == 0 {
 		return fmt.Errorf("empty audio")
@@ -454,53 +456,53 @@ func checkSpeech(cfg config, model string) error {
 	return nil
 }
 
-func checkImage(cfg config, model string) error {
-	status, raw, err := doJSON("POST", cfg.api+"/v1/images/generations", map[string]any{
+func checkImage(testConfiguration configuration, model string) error {
+	statusCode, raw, err := doJSON("POST", testConfiguration.api+"/v1/images/generations", map[string]any{
 		"model": model, "prompt": "a cat", "n": 1, "response_format": "url",
 	})
 	if err != nil {
 		return err
 	}
-	var out struct {
+	var output struct {
 		Data []struct {
 			URL     string `json:"url"`
 			B64JSON string `json:"b64_json"`
 		} `json:"data"`
 	}
-	if err := requireOK(status, raw, &out); err != nil {
+	if err := requireOK(statusCode, raw, &output); err != nil {
 		return err
 	}
-	if len(out.Data) == 0 {
+	if len(output.Data) == 0 {
 		return fmt.Errorf("empty image data")
 	}
 	// Deterministic providers honor url; the contract allows b64 fallback.
-	if out.Data[0].URL == "" && out.Data[0].B64JSON == "" {
+	if output.Data[0].URL == "" && output.Data[0].B64JSON == "" {
 		return fmt.Errorf("empty image data")
 	}
 	return nil
 }
 
-func checkEmbeddings(cfg config, model string) error {
-	status, raw, err := doJSON("POST", cfg.api+"/v1/embeddings", map[string]any{
+func checkEmbeddings(testConfiguration configuration, model string) error {
+	statusCode, raw, err := doJSON("POST", testConfiguration.api+"/v1/embeddings", map[string]any{
 		"model": model, "input": []string{"hi"}, "encoding_format": "base64",
 	})
 	if err != nil {
 		return err
 	}
-	var out struct {
+	var output struct {
 		Data []struct {
 			Embedding any `json:"embedding"`
 		} `json:"data"`
 	}
-	if err := requireOK(status, raw, &out); err != nil {
+	if err := requireOK(statusCode, raw, &output); err != nil {
 		return err
 	}
-	if len(out.Data) == 0 {
+	if len(output.Data) == 0 {
 		return fmt.Errorf("empty embeddings")
 	}
 	// base64 wire form renders the vector as a string, not an array.
-	s, ok := out.Data[0].Embedding.(string)
-	if !ok || s == "" {
+	encodedEmbedding, ok := output.Data[0].Embedding.(string)
+	if !ok || encodedEmbedding == "" {
 		return fmt.Errorf("base64 embedding must be a non-empty string")
 	}
 	return nil
@@ -509,43 +511,43 @@ func checkEmbeddings(cfg config, model string) error {
 // getBytes fetches a binary asset with its content type. The 32MiB cap
 // covers generated clips; the mock serves bytes.
 func getBytes(url string) (int, string, []byte, error) {
-	resp, err := apiClient.Get(url)
+	response, err := apiClient.Get(url)
 	if err != nil {
 		return 0, "", nil, err
 	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	defer response.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(response.Body, 32<<20))
 	if err != nil {
 		return 0, "", nil, err
 	}
-	return resp.StatusCode, resp.Header.Get("Content-Type"), raw, nil
+	return response.StatusCode, response.Header.Get("Content-Type"), raw, nil
 }
 
 // checkVideo exercises the full video pipeline: submit (202) → poll
 // (completed) → content (mp4 bytes with ftyp magic).
-func checkVideo(cfg config, model string) error {
-	status, raw, err := doJSON("POST", cfg.api+"/v1/videos", map[string]any{
+func checkVideo(testConfiguration configuration, model string) error {
+	statusCode, raw, err := doJSON("POST", testConfiguration.api+"/v1/videos", map[string]any{
 		"model": model, "prompt": "a cat", "duration": 1,
 	})
 	if err != nil {
 		return err
 	}
-	var sub struct {
+	var submission struct {
 		ID         string `json:"id"`
 		PollingURL string `json:"polling_url"`
 		Status     string `json:"status"`
 	}
-	if err := requireOK(status, raw, &sub); err != nil {
+	if err := requireOK(statusCode, raw, &submission); err != nil {
 		return err
 	}
-	if sub.ID == "" || sub.PollingURL == "" {
+	if submission.ID == "" || submission.PollingURL == "" {
 		return fmt.Errorf("video submit without job id")
 	}
-	pollURL := sub.PollingURL
-	if !strings.HasPrefix(pollURL, "http") {
-		pollURL = cfg.api + pollURL
+	pollingURL := submission.PollingURL
+	if !strings.HasPrefix(pollingURL, "http") {
+		pollingURL = testConfiguration.api + pollingURL
 	}
-	status, raw, err = doJSON("GET", pollURL, nil)
+	statusCode, raw, err = doJSON("GET", pollingURL, nil)
 	if err != nil {
 		return err
 	}
@@ -553,21 +555,21 @@ func checkVideo(cfg config, model string) error {
 		ID     string `json:"id"`
 		Status string `json:"status"`
 	}
-	if err := requireOK(status, raw, &job); err != nil {
+	if err := requireOK(statusCode, raw, &job); err != nil {
 		return err
 	}
 	if job.Status != "completed" {
 		return fmt.Errorf("video job status %q, want completed", job.Status)
 	}
-	status, ctype, body, err := getBytes(cfg.api + "/v1/videos/" + sub.ID + "/content?index=0")
+	statusCode, contentType, body, err := getBytes(testConfiguration.api + "/v1/videos/" + submission.ID + "/content?index=0")
 	if err != nil {
 		return err
 	}
-	if status < 200 || status >= 300 {
-		return &wireError{status: status, code: wireCode(body), msg: strings.TrimSpace(string(body))}
+	if statusCode < 200 || statusCode >= 300 {
+		return &wireError{status: statusCode, code: wireCode(body), message: strings.TrimSpace(string(body))}
 	}
-	if !strings.Contains(ctype, "video/") {
-		return fmt.Errorf("video content type %q, want video/*", ctype)
+	if !strings.Contains(contentType, "video/") {
+		return fmt.Errorf("video content type %q, want video/*", contentType)
 	}
 	if len(body) < 8 || string(body[4:8]) != "ftyp" {
 		return fmt.Errorf("video bytes without ftyp magic")
@@ -577,18 +579,18 @@ func checkVideo(cfg config, model string) error {
 
 // checkVideoGate asserts the negative path: submitting video on a
 // chat-only model must fail closed with endpoint_not_supported.
-func checkVideoGate(cfg config, chatModel string) error {
-	status, raw, err := doJSON("POST", cfg.api+"/v1/videos", map[string]any{
+func checkVideoGate(testConfiguration configuration, chatModel string) error {
+	statusCode, raw, err := doJSON("POST", testConfiguration.api+"/v1/videos", map[string]any{
 		"model": chatModel, "prompt": "a cat",
 	})
 	if err != nil {
 		return err
 	}
-	if status < 200 || status >= 300 {
+	if statusCode < 200 || statusCode >= 300 {
 		if code := wireCode(raw); code == "endpoint_not_supported" {
 			return nil
 		}
-		return &wireError{status: status, code: wireCode(raw), msg: strings.TrimSpace(string(raw))}
+		return &wireError{status: statusCode, code: wireCode(raw), message: strings.TrimSpace(string(raw))}
 	}
 	return fmt.Errorf("video submit on chat-only model must not succeed")
 }
@@ -597,33 +599,33 @@ func checkVideoGate(cfg config, chatModel string) error {
 // order until one passes. First success closes the capability; quota and
 // sibling skips move to the next model, real failures stop. Quota on one
 // model never cancels the rest.
-func runMatrix(cfg config, rep *report, pluginType, providerID string, models []modelView) {
+func runMatrix(testConfiguration configuration, report *report, pluginType, providerID string, models []modelView) {
 	byEndpoint := map[string][]string{}
-	for _, m := range models {
-		if m.Disabled {
+	for _, view := range models {
+		if view.Disabled {
 			continue
 		}
-		for _, e := range []string{"chat/completions", "audio/transcriptions", "audio/speech", "images/generations", "embeddings", "videos"} {
-			if m.serves(e) {
-				byEndpoint[e] = append(byEndpoint[e], providerID+"/"+m.Name)
+		for _, endpoint := range []string{"chat/completions", "audio/transcriptions", "audio/speech", "images/generations", "embeddings", "videos"} {
+			if view.serves(endpoint) {
+				byEndpoint[endpoint] = append(byEndpoint[endpoint], providerID+"/"+view.Name)
 			}
 		}
 	}
 	served := map[string]string{}
 	run := func(target, model string, check func() error) string {
 		if model == "" {
-			rep.add(pluginType, "-", target, skip, "no model serves capability", 0)
+			report.add(pluginType, "-", target, skip, "no model serves capability", 0)
 			return ""
 		}
 		start := time.Now()
 		if reason, err := classifyRetryEmpty(check); err != nil {
-			rep.add(pluginType, model, target, fail, err.Error(), time.Since(start))
+			report.add(pluginType, model, target, fail, err.Error(), time.Since(start))
 			return ""
 		} else if reason != "" {
-			rep.add(pluginType, model, target, skip, reason, time.Since(start))
+			report.add(pluginType, model, target, skip, reason, time.Since(start))
 			return ""
 		} else {
-			rep.add(pluginType, model, target, pass, "", time.Since(start))
+			report.add(pluginType, model, target, pass, "", time.Since(start))
 			served[target] = model
 			return model
 		}
@@ -632,25 +634,25 @@ func runMatrix(cfg config, rep *report, pluginType, providerID string, models []
 	// loudly. Skips fall through with the last reason.
 	runFallback := func(target string, candidates []string, check func(string) error) string {
 		if len(candidates) == 0 {
-			rep.add(pluginType, "-", target, skip, "no model serves capability", 0)
+			report.add(pluginType, "-", target, skip, "no model serves capability", 0)
 			return ""
 		}
 		reason := "no models to try"
 		for _, model := range candidates {
 			start := time.Now()
-			if rreason, err := classifyRetryEmpty(func() error { return check(model) }); err != nil {
-				rep.add(pluginType, model, target, fail, err.Error(), time.Since(start))
+			if retryReason, err := classifyRetryEmpty(func() error { return check(model) }); err != nil {
+				report.add(pluginType, model, target, fail, err.Error(), time.Since(start))
 				return ""
-			} else if rreason != "" {
-				reason = rreason
+			} else if retryReason != "" {
+				reason = retryReason
 				continue
 			} else {
-				rep.add(pluginType, model, target, pass, "", time.Since(start))
+				report.add(pluginType, model, target, pass, "", time.Since(start))
 				served[target] = model
 				return model
 			}
 		}
-		rep.add(pluginType, "-", target, skip, reason, 0)
+		report.add(pluginType, "-", target, skip, reason, 0)
 		return ""
 	}
 	// Streams inherit the unary outcome: a stream failing after headers
@@ -661,107 +663,107 @@ func runMatrix(cfg config, rep *report, pluginType, providerID string, models []
 			run(target, model, func() error { return check(model) })
 			return
 		}
-		for _, res := range rep.results {
-			if res.target == base && res.status == skip {
-				rep.add(pluginType, "-", target, skip, "unary skipped: "+res.reason, 0)
+		for _, result := range report.results {
+			if result.target == base && result.status == skip {
+				report.add(pluginType, "-", target, skip, "unary skipped: "+result.reason, 0)
 				return
 			}
 		}
-		if cands := byEndpoint["chat/completions"]; len(cands) > 0 {
-			run(target, cands[0], func() error { return check(cands[0]) })
+		if candidates := byEndpoint["chat/completions"]; len(candidates) > 0 {
+			run(target, candidates[0], func() error { return check(candidates[0]) })
 		}
 	}
 	chat := byEndpoint["chat/completions"]
-	if cfg.targets["completions"] {
-		runFallback("completions", chat, func(m string) error {
-			return checkCompletions(cfg, m)
+	if testConfiguration.targets["completions"] {
+		runFallback("completions", chat, func(modelName string) error {
+			return checkCompletions(testConfiguration, modelName)
 		})
-		streamGated("completions-stream", "completions", func(m string) error {
-			return checkCompletionsStream(cfg, m)
+		streamGated("completions-stream", "completions", func(modelName string) error {
+			return checkCompletionsStream(testConfiguration, modelName)
 		})
-		runFallback("dashboard-chat", chat, func(m string) error {
-			return checkDashboardChat(cfg, m)
+		runFallback("dashboard-chat", chat, func(modelName string) error {
+			return checkDashboardChat(testConfiguration, modelName)
 		})
 	}
-	if cfg.targets["messages"] {
-		runFallback("messages", chat, func(m string) error {
-			return checkMessages(cfg, m, false)
+	if testConfiguration.targets["messages"] {
+		runFallback("messages", chat, func(modelName string) error {
+			return checkMessages(testConfiguration, modelName, false)
 		})
-		streamGated("messages-stream", "messages", func(m string) error {
-			return checkMessages(cfg, m, true)
+		streamGated("messages-stream", "messages", func(modelName string) error {
+			return checkMessages(testConfiguration, modelName, true)
 		})
 		// Tool blocks only where deterministic: the mock tools model
 		// echoes one tool_call per request. Real providers decide
 		// themselves, so no assertion there.
 		if pluginType == "mock" {
 			run("messages-tools", providerID+"/mock-tools", func() error {
-				return checkMessagesTools(cfg, providerID+"/mock-tools")
+				return checkMessagesTools(testConfiguration, providerID+"/mock-tools")
 			})
 		}
 	}
-	if cfg.targets["transcribe"] {
-		runFallback("transcribe", byEndpoint["audio/transcriptions"], func(m string) error {
-			return checkTranscribe(cfg, m)
+	if testConfiguration.targets["transcribe"] {
+		runFallback("transcribe", byEndpoint["audio/transcriptions"], func(modelName string) error {
+			return checkTranscribe(testConfiguration, modelName)
 		})
 	}
-	if cfg.targets["speech"] {
-		runFallback("speech", byEndpoint["audio/speech"], func(m string) error {
-			return checkSpeech(cfg, m)
+	if testConfiguration.targets["speech"] {
+		runFallback("speech", byEndpoint["audio/speech"], func(modelName string) error {
+			return checkSpeech(testConfiguration, modelName)
 		})
 	}
-	if cfg.targets["image"] {
-		runFallback("image", byEndpoint["images/generations"], func(m string) error {
-			return checkImage(cfg, m)
+	if testConfiguration.targets["image"] {
+		runFallback("image", byEndpoint["images/generations"], func(modelName string) error {
+			return checkImage(testConfiguration, modelName)
 		})
 	}
-	if cfg.targets["embeddings"] {
-		runFallback("embeddings", byEndpoint["embeddings"], func(m string) error {
-			return checkEmbeddings(cfg, m)
+	if testConfiguration.targets["embeddings"] {
+		runFallback("embeddings", byEndpoint["embeddings"], func(modelName string) error {
+			return checkEmbeddings(testConfiguration, modelName)
 		})
 	}
-	if cfg.targets["video"] {
-		runFallback("video", byEndpoint["videos"], func(m string) error {
-			return checkVideo(cfg, m)
+	if testConfiguration.targets["video"] {
+		runFallback("video", byEndpoint["videos"], func(modelName string) error {
+			return checkVideo(testConfiguration, modelName)
 		})
 	}
 	// Mock self-check: mock-limited must skip with quota, proving the
 	// harness skip pipeline end to end.
-	if pluginType == "mock" && cfg.targets["completions"] {
+	if pluginType == "mock" && testConfiguration.targets["completions"] {
 		limited := providerID + "/mock-limited"
 		start := time.Now()
-		if reason, err := classify(func() error { return checkCompletions(cfg, limited) }); err != nil {
-			rep.add(pluginType, limited, "skip-path", fail, err.Error(), time.Since(start))
+		if reason, err := classify(func() error { return checkCompletions(testConfiguration, limited) }); err != nil {
+			report.add(pluginType, limited, "skip-path", fail, err.Error(), time.Since(start))
 		} else if reason == "" {
-			rep.add(pluginType, limited, "skip-path", fail, "limited model served", time.Since(start))
+			report.add(pluginType, limited, "skip-path", fail, "limited model served", time.Since(start))
 		} else {
-			rep.add(pluginType, limited, "skip-path", pass, "skip: "+reason, time.Since(start))
+			report.add(pluginType, limited, "skip-path", pass, "skip: "+reason, time.Since(start))
 		}
 	}
 	// Negative path: a capability the model does not serve must fail
 	// closed, never silently. Free: gated before any backend is touched.
 	if len(chat) > 0 {
 		run("endpoint-gate", chat[0], func() error {
-			return checkEndpointGate(cfg, chat[0])
+			return checkEndpointGate(testConfiguration, chat[0])
 		})
 		run("endpoint-gate-video", chat[0], func() error {
-			return checkVideoGate(cfg, chat[0])
+			return checkVideoGate(testConfiguration, chat[0])
 		})
 	}
 	// Virtual fan-out through one ad-hoc virtual model per provider.
-	if len(chat) > 0 && cfg.targets["completions"] {
+	if len(chat) > 0 && testConfiguration.targets["completions"] {
 		run("virtual-chat", chat[0], func() error {
-			return checkVirtualChat(cfg, chat[0])
+			return checkVirtualChat(testConfiguration, chat[0])
 		})
 	}
 }
 
-func listModels(cfg config, providerID string) ([]modelView, error) {
-	status, raw, err := doJSON("GET", cfg.web+"/api/llm-router/dashboard/providers/"+providerID+"/models", nil)
+func listModels(testConfiguration configuration, providerID string) ([]modelView, error) {
+	statusCode, raw, err := doJSON("GET", testConfiguration.web+"/api/llm-router/dashboard/providers/"+providerID+"/models", nil)
 	if err != nil {
 		return nil, fmt.Errorf("list models: %w", err)
 	}
 	var views []modelView
-	if err := requireOK(status, raw, &views); err != nil {
+	if err := requireOK(statusCode, raw, &views); err != nil {
 		return nil, err
 	}
 	return views, nil

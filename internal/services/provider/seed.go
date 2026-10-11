@@ -49,18 +49,18 @@ func (s *Service) EnsureSeeded() error {
 	if err := ensure(TypeVirtual, "Virtual models", TypeVirtual, ""); err != nil {
 		return err
 	}
-	if s.luaSvc == nil {
+	if s.luaService == nil {
 		return nil
 	}
-	records, err := s.luaSvc.List()
+	records, err := s.luaService.List()
 	if err != nil {
 		return err
 	}
 	seen := map[string]string{}
-	for _, rec := range records {
-		for _, key := range rec.TypeKeys {
+	for _, record := range records {
+		for _, key := range record.TypeKeys {
 			if _, ok := seen[key]; !ok {
-				seen[key] = rec.DisplayName
+				seen[key] = record.DisplayName
 			}
 		}
 	}
@@ -71,8 +71,8 @@ func (s *Service) EnsureSeeded() error {
 	sort.Strings(keys)
 	for _, key := range keys {
 		var icon string
-		if s.luaSvc != nil {
-			icon = s.luaSvc.Icon(key)
+		if s.luaService != nil {
+			icon = s.luaService.Icon(key)
 		}
 		existing, err := s.GetByType(key)
 		if err != nil {
@@ -95,9 +95,9 @@ func (s *Service) EnsureSeeded() error {
 			if inst.IconURL != "" {
 				continue
 			}
-			if err := s.providers.Update(inst.ID, func(p *models.ProviderInstance) error {
-				p.IconURL = icon
-				p.UpdatedAt = time.Now()
+			if err := s.providers.Update(inst.ID, func(provider *models.ProviderInstance) error {
+				provider.IconURL = icon
+				provider.UpdatedAt = time.Now()
 				return nil
 			}); err != nil {
 				return err
@@ -124,10 +124,10 @@ func (s *Service) backfillSeedFlags() error {
 		if inst.IsUIReadonly == wantReadonly && inst.IsUIHidden == wantHidden {
 			continue
 		}
-		if err := s.providers.Update(inst.ID, func(p *models.ProviderInstance) error {
-			p.IsUIReadonly = wantReadonly
-			p.IsUIHidden = wantHidden
-			p.UpdatedAt = time.Now()
+		if err := s.providers.Update(inst.ID, func(provider *models.ProviderInstance) error {
+			provider.IsUIReadonly = wantReadonly
+			provider.IsUIHidden = wantHidden
+			provider.UpdatedAt = time.Now()
 			return nil
 		}); err != nil {
 			return err
@@ -143,36 +143,36 @@ func (s *Service) CleanupOrphanedCredentials() (int, error) {
 		return 0, err
 	}
 	known := map[string]bool{}
-	for _, p := range providers {
-		known[p.ID] = true
+	for _, existing := range providers {
+		known[existing.ID] = true
 	}
-	n := 0
-	err = s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketCredentials)
-		if b == nil {
+	count := 0
+	err = s.database.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(db.BucketCredentials)
+		if bucket == nil {
 			return nil
 		}
 		var toDelete [][]byte
-		_ = b.ForEach(func(k, v []byte) error {
-			var c models.Credential
-			if err := json.Unmarshal(v, &c); err != nil {
+		_ = bucket.ForEach(func(key, value []byte) error {
+			var credential models.Credential
+			if err := json.Unmarshal(value, &credential); err != nil {
 				return nil
 			}
-			if pid := strings.TrimSpace(c.ProviderID); pid != "" && !known[pid] {
-				toDelete = append(toDelete, append([]byte(nil), k...))
+			if providerID := strings.TrimSpace(credential.ProviderID); providerID != "" && !known[providerID] {
+				toDelete = append(toDelete, append([]byte(nil), key...))
 			}
 			return nil
 		})
-		for _, k := range toDelete {
-			if err := b.Delete(k); err != nil {
+		for _, key := range toDelete {
+			if err := bucket.Delete(key); err != nil {
 				return err
 			}
-			n = len(toDelete)
+			count = len(toDelete)
 		}
 		return nil
 	})
-	if err == nil && n > 0 && s.logger != nil {
-		s.logger.Info("cleaned orphaned credentials", "count", n)
+	if err == nil && count > 0 && s.logger != nil {
+		s.logger.Info("cleaned orphaned credentials", "count", count)
 	}
-	return n, err
+	return count, err
 }

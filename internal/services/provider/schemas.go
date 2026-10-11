@@ -16,10 +16,10 @@ func (s *Service) IsTypeAvailable(typeKey string) bool {
 	if _, ok := s.GoAdapterFor(typeKey); ok {
 		return true
 	}
-	if s.luaSvc == nil {
+	if s.luaService == nil {
 		return false
 	}
-	_, err := s.luaSvc.Lookup(typeKey)
+	_, err := s.luaService.Lookup(typeKey)
 	return err == nil
 }
 
@@ -28,10 +28,10 @@ func (s *Service) SupportsAuthFlow(typeKey string) bool {
 	if _, ok := s.GoAdapterFor(typeKey); ok {
 		return false
 	}
-	if s.luaSvc == nil {
+	if s.luaService == nil {
 		return false
 	}
-	return s.luaSvc.HasHandler(typeKey, "auth_initiate")
+	return s.luaService.HasHandler(typeKey, "auth_initiate")
 }
 
 // ConfigSchema returns the config UI tree for a type key.
@@ -47,10 +47,10 @@ func (s *Service) ConfigSchema(typeKey string) ([]*models.UINode, error) {
 	if typeKey == TypeVirtual {
 		return nil, nil
 	}
-	if s.luaSvc == nil {
+	if s.luaService == nil {
 		return nil, fmt.Errorf("no plugin service wired")
 	}
-	nodes, err := s.luaSvc.Schema(typeKey, "config_schema")
+	nodes, err := s.luaService.Schema(typeKey, "config_schema")
 	if err != nil {
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
 			return nil, nil
@@ -76,10 +76,10 @@ func (s *Service) CredentialSchema(typeKey string) ([]*models.UINode, error) {
 			{Type: "button", Text: "Save", FormAction: "submit"},
 		}, nil
 	}
-	if s.luaSvc == nil {
+	if s.luaService == nil {
 		return nil, fmt.Errorf("no plugin service wired")
 	}
-	nodes, err := s.luaSvc.Schema(typeKey, "credential_schema")
+	nodes, err := s.luaService.Schema(typeKey, "credential_schema")
 	if err != nil {
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
 			return nil, nil
@@ -95,10 +95,10 @@ func (s *Service) SettingsSchema(typeKey string) ([]*models.UINode, error) {
 	if typeKey == TypeCustom || typeKey == TypeVirtual {
 		return nil, nil
 	}
-	if s.luaSvc == nil {
+	if s.luaService == nil {
 		return nil, fmt.Errorf("no plugin service wired")
 	}
-	nodes, err := s.luaSvc.Schema(typeKey, "settings_schema")
+	nodes, err := s.luaService.Schema(typeKey, "settings_schema")
 	if err != nil {
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
 			return nil, nil
@@ -114,10 +114,10 @@ func (s *Service) ProxySchema(typeKey string) ([]*models.UINode, error) {
 	if typeKey == TypeCustom || typeKey == TypeVirtual {
 		return nil, nil
 	}
-	if s.luaSvc == nil {
+	if s.luaService == nil {
 		return nil, fmt.Errorf("no plugin service wired")
 	}
-	nodes, err := s.luaSvc.Schema(typeKey, "proxy_schema")
+	nodes, err := s.luaService.Schema(typeKey, "proxy_schema")
 	if err != nil {
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
 			return nil, nil
@@ -136,10 +136,10 @@ func (s *Service) CredentialsEnabled(typeKey string) bool {
 	if typeKey == TypeVirtual {
 		return false
 	}
-	if s.luaSvc == nil {
+	if s.luaService == nil {
 		return false
 	}
-	return s.luaSvc.CredentialsEnabled(typeKey)
+	return s.luaService.CredentialsEnabled(typeKey)
 }
 
 // ProxiesEnabled reports whether a type serves proxy settings.
@@ -147,16 +147,16 @@ func (s *Service) ProxiesEnabled(typeKey string) bool {
 	if typeKey == TypeCustom || typeKey == TypeVirtual {
 		return false
 	}
-	if s.luaSvc == nil {
+	if s.luaService == nil {
 		return false
 	}
-	return s.luaSvc.ProxiesEnabled(typeKey)
+	return s.luaService.ProxiesEnabled(typeKey)
 }
 
 // JobSpecs returns the stored job schedules for a type key.
 func (s *Service) JobSpecs(typeKey string) map[string]luaplugin.JobSpec {
-	if s.luaSvc == nil {
+	if s.luaService == nil {
 		return nil
 	}
-	return s.luaSvc.Jobs(typeKey)
+	return s.luaService.Jobs(typeKey)
 }

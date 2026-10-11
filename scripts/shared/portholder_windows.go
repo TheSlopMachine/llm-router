@@ -13,12 +13,12 @@ import (
 // Helper API for a diagnostic-only message. Parse failure yields
 // "unknown process".
 func describePortHolder(port int) string {
-	out, err := exec.Command("netstat", "-ano", "-p", "tcp").Output()
+	output, err := exec.Command("netstat", "-ano", "-p", "tcp").Output()
 	if err != nil {
 		return "unknown process (netstat failed)"
 	}
 	needle := fmt.Sprintf(":%d ", port)
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(string(output), "\n") {
 		if !strings.Contains(line, needle) || !strings.Contains(line, "LISTENING") {
 			continue
 		}

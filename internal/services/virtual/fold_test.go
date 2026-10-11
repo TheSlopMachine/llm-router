@@ -6,22 +6,22 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
-func info(name string, caps, params, in, out []string, ctx, max int64, reasoning *models.ModelReasoning) models.ModelInfo {
+func modelWithCapabilities(name string, capabilities, parameters, inputs, outputs []string, contextLength, maxTokens int64, reasoning *models.ModelReasoning) models.ModelInfo {
 	return models.ModelInfo{
 		Name:                name,
-		Capabilities:        caps,
-		SupportedParameters: params,
-		InputModalities:     in,
-		OutputModalities:    out,
-		ContextWindow:       ctx,
-		MaxTokens:           max,
+		Capabilities:        capabilities,
+		SupportedParameters: parameters,
+		InputModalities:     inputs,
+		OutputModalities:    outputs,
+		ContextWindow:       contextLength,
+		MaxTokens:           maxTokens,
 		Reasoning:           reasoning,
 	}
 }
 
-func hasAll(hay []string, want ...string) bool {
+func hasAll(haystack []string, want ...string) bool {
 	set := map[string]bool{}
-	for _, v := range hay {
+	for _, v := range haystack {
 		set[v] = true
 	}
 	for _, v := range want {
@@ -29,51 +29,51 @@ func hasAll(hay []string, want ...string) bool {
 			return false
 		}
 	}
-	return len(hay) == len(want)
+	return len(haystack) == len(want)
 }
 
 func TestFoldMembers_IntersectionAndMinima(t *testing.T) {
-	r := &models.ModelReasoning{SupportedEfforts: []string{"high", "low"}, DefaultEffort: "low", DefaultEnabled: true}
+	reasoning := &models.ModelReasoning{SupportedEfforts: []string{"high", "low"}, DefaultEffort: "low", DefaultEnabled: true}
 	members := []models.ModelInfo{
-		info("a", []string{"tools", "json_mode", "vision"}, []string{"tools", "temperature"}, []string{"text", "image"}, []string{"text"}, 100000, 8000, r),
-		info("b", []string{"tools", "json_mode"}, []string{"tools"}, []string{"text"}, []string{"text"}, 50000, 16000,
+		modelWithCapabilities("a", []string{"tools", "json_mode", "vision"}, []string{"tools", "temperature"}, []string{"text", "image"}, []string{"text"}, 100000, 8000, reasoning),
+		modelWithCapabilities("b", []string{"tools", "json_mode"}, []string{"tools"}, []string{"text"}, []string{"text"}, 50000, 16000,
 			&models.ModelReasoning{SupportedEfforts: []string{"low", "none"}, DefaultEffort: "low", DefaultEnabled: true}),
 	}
-	agg := FoldMembers(members)
-	if !hasAll(agg.Capabilities, "tools", "json_mode") {
-		t.Fatalf("caps: %v", agg.Capabilities)
+	aggregate := FoldMembers(members)
+	if !hasAll(aggregate.Capabilities, "tools", "json_mode") {
+		t.Fatalf("capabilities: %v", aggregate.Capabilities)
 	}
-	if !hasAll(agg.SupportedParameters, "tools") {
-		t.Fatalf("params: %v", agg.SupportedParameters)
+	if !hasAll(aggregate.SupportedParameters, "tools") {
+		t.Fatalf("parameters: %v", aggregate.SupportedParameters)
 	}
-	if !hasAll(agg.InputModalities, "text") {
-		t.Fatalf("in: %v", agg.InputModalities)
+	if !hasAll(aggregate.InputModalities, "text") {
+		t.Fatalf("input: %v", aggregate.InputModalities)
 	}
-	if !hasAll(agg.OutputModalities, "text") {
-		t.Fatalf("out: %v", agg.OutputModalities)
+	if !hasAll(aggregate.OutputModalities, "text") {
+		t.Fatalf("output: %v", aggregate.OutputModalities)
 	}
-	if agg.ContextLength != 50000 || agg.MaxCompletionTokens != 8000 {
-		t.Fatalf("limits: %d/%d", agg.ContextLength, agg.MaxCompletionTokens)
+	if aggregate.ContextLength != 50000 || aggregate.MaxCompletionTokens != 8000 {
+		t.Fatalf("limits: %d/%d", aggregate.ContextLength, aggregate.MaxCompletionTokens)
 	}
-	if agg.Reasoning == nil || !hasAll(agg.Reasoning.SupportedEfforts, "low") {
-		t.Fatalf("reasoning: %+v", agg.Reasoning)
+	if aggregate.Reasoning == nil || !hasAll(aggregate.Reasoning.SupportedEfforts, "low") {
+		t.Fatalf("reasoning: %+v", aggregate.Reasoning)
 	}
 }
 
 func TestFoldMembers_NoReasoningWhenMemberLacks(t *testing.T) {
-	r := &models.ModelReasoning{SupportedEfforts: []string{"low"}}
+	reasoning := &models.ModelReasoning{SupportedEfforts: []string{"low"}}
 	members := []models.ModelInfo{
-		info("a", nil, nil, []string{"text"}, []string{"text"}, 1000, 100, r),
-		info("b", nil, nil, []string{"text"}, []string{"text"}, 1000, 100, nil),
+		modelWithCapabilities("a", nil, nil, []string{"text"}, []string{"text"}, 1000, 100, reasoning),
+		modelWithCapabilities("b", nil, nil, []string{"text"}, []string{"text"}, 1000, 100, nil),
 	}
-	if agg := FoldMembers(members); agg.Reasoning != nil {
-		t.Fatalf("reasoning must be nil: %+v", agg.Reasoning)
+	if aggregate := FoldMembers(members); aggregate.Reasoning != nil {
+		t.Fatalf("reasoning must be nil: %+v", aggregate.Reasoning)
 	}
 }
 
 func TestFoldMembers_Empty(t *testing.T) {
-	agg := FoldMembers(nil)
-	if len(agg.Capabilities) != 0 || agg.ContextLength != 0 || agg.Reasoning != nil {
-		t.Fatalf("zero metadata expected: %+v", agg)
+	aggregate := FoldMembers(nil)
+	if len(aggregate.Capabilities) != 0 || aggregate.ContextLength != 0 || aggregate.Reasoning != nil {
+		t.Fatalf("zero metadata expected: %+v", aggregate)
 	}
 }

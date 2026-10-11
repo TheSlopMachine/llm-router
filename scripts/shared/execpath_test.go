@@ -22,12 +22,12 @@ func TestSameExecutableLegacy(t *testing.T) {
 }
 
 func TestSameExecutableSeparators(t *testing.T) {
-	a := `C:\Temp\llm-router-dev-backend.exe`
-	b := "C:/Temp/llm-router-dev-backend.exe"
-	if !SameExecutable(a, b) {
-		t.Fatalf("%q matches %q after normalization", a, b)
+	firstPath := `C:\Temp\llm-router-dev-backend.exe`
+	secondPath := "C:/Temp/llm-router-dev-backend.exe"
+	if !SameExecutable(firstPath, secondPath) {
+		t.Fatalf("%q matches %q after normalization", firstPath, secondPath)
 	}
-	if SameExecutable(a, `C:\Temp\other.exe`) {
+	if SameExecutable(firstPath, `C:\Temp\other.exe`) {
 		t.Fatal("different binaries never match")
 	}
 }
@@ -65,36 +65,36 @@ func TestReadPidFileBackwardCompatible(t *testing.T) {
 	if err := os.WriteFile(legacy, []byte("1234\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	p, err := ReadPidFile(legacy)
+	process, err := ReadPidFile(legacy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Backend != 1234 {
-		t.Fatalf("legacy single PID parses as backend, got %+v", p)
+	if process.Backend != 1234 {
+		t.Fatalf("legacy single PID parses as backend, got %+v", process)
 	}
 
 	oldShape := filepath.Join(dir, "old.json")
 	if err := os.WriteFile(oldShape, []byte(`{"backend": 11, "frontend": 22, "vitePort": 8080}`+"\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	p, err = ReadPidFile(oldShape)
+	process, err = ReadPidFile(oldShape)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Backend != 11 || p.Frontend != 22 || p.BackendPath != "" {
-		t.Fatalf("old shape parses with empty paths, got %+v", p)
+	if process.Backend != 11 || process.Frontend != 22 || process.BackendPath != "" {
+		t.Fatalf("old shape parses with empty paths, got %+v", process)
 	}
 
 	newShape := filepath.Join(dir, "new.json")
 	if err := os.WriteFile(newShape, []byte(`{"backend": 11, "frontend": 22, "vitePort": 8080, "backendPath": "C:\\Temp\\b.exe", "frontendPath": "C:\\bun.exe"}`+"\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	p, err = ReadPidFile(newShape)
+	process, err = ReadPidFile(newShape)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.BackendPath == "" || p.FrontendPath == "" {
-		t.Fatalf("new shape keeps recorded paths, got %+v", p)
+	if process.BackendPath == "" || process.FrontendPath == "" {
+		t.Fatalf("new shape keeps recorded paths, got %+v", process)
 	}
 }
 

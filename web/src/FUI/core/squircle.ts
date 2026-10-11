@@ -52,14 +52,14 @@ export function setSquircleExponent(n: number): void {
   superellipseExp = 2 / n
   pathCache.clear()
   invalidateAll()
-  for (const cb of changeListeners) cb()
+  for (const callback of changeListeners) callback()
 }
 
 const changeListeners = new Set<() => void>()
 /** Subscribe to global squircle changes (exponent). Returns an unsubscribe fn. */
-export function onSquircleChange(cb: () => void): () => void {
-  changeListeners.add(cb)
-  return () => changeListeners.delete(cb)
+export function onSquircleChange(callback: () => void): () => void {
+  changeListeners.add(callback)
+  return () => changeListeners.delete(callback)
 }
 
 const CORNER_SAMPLES = 24
@@ -131,10 +131,10 @@ let nativeStyleInjected = false
 function ensureNativeStyle(): void {
   if (nativeStyleInjected || typeof document === 'undefined') return
   nativeStyleInjected = true
-  const el = document.createElement('style')
-  el.setAttribute('data-fui', 'squircle')
-  el.textContent = `[data-fui-squircle]{corner-shape:superellipse(${NATIVE_K})}`
-  document.head.appendChild(el)
+  const styleElement = document.createElement('style')
+  styleElement.setAttribute('data-fui', 'squircle')
+  styleElement.textContent = `[data-fui-squircle]{corner-shape:superellipse(${NATIVE_K})}`
+  document.head.appendChild(styleElement)
 }
 
 const supportsPath = typeof CSS !== 'undefined' && CSS.supports('clip-path', "path('M 0 0 L 1 1 Z')")

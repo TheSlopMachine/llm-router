@@ -39,70 +39,70 @@ type SubsystemStats struct {
 
 // Service provides export, import and truncation operations for router subsystems.
 type Service struct {
-	db           *db.DB
-	providerSvc  *provider.Service
-	credSvc      *credential.Service
-	virtualSvc   *virtual.Service
-	tokenSvc     *token.Service
-	luaSvc       *luaplugin.Service
-	repoSvc      *pluginrepo.Service
-	modelInfoSvc *modelinfo.Service
+	database          *db.DB
+	providerService   *provider.Service
+	credentialService *credential.Service
+	virtualService    *virtual.Service
+	tokenService      *token.Service
+	luaService        *luaplugin.Service
+	repositoryService *pluginrepo.Service
+	modelInfoService  *modelinfo.Service
 }
 
 func New(
 	database *db.DB,
-	providerSvc *provider.Service,
-	credSvc *credential.Service,
-	virtualSvc *virtual.Service,
-	tokenSvc *token.Service,
-	luaSvc *luaplugin.Service,
-	repoSvc *pluginrepo.Service,
-	modelInfoSvc *modelinfo.Service,
+	providerService *provider.Service,
+	credentialService *credential.Service,
+	virtualService *virtual.Service,
+	tokenService *token.Service,
+	luaService *luaplugin.Service,
+	repositoryService *pluginrepo.Service,
+	modelInfoService *modelinfo.Service,
 ) *Service {
 	return &Service{
-		db:           database,
-		providerSvc:  providerSvc,
-		credSvc:      credSvc,
-		virtualSvc:   virtualSvc,
-		tokenSvc:     tokenSvc,
-		luaSvc:       luaSvc,
-		repoSvc:      repoSvc,
-		modelInfoSvc: modelInfoSvc,
+		database:          database,
+		providerService:   providerService,
+		credentialService: credentialService,
+		virtualService:    virtualService,
+		tokenService:      tokenService,
+		luaService:        luaService,
+		repositoryService: repositoryService,
+		modelInfoService:  modelInfoService,
 	}
 }
 
 // Stats returns the record counts for each managed subsystem.
 func (s *Service) Stats() (SubsystemStats, error) {
-	var st SubsystemStats
-	providers, err := s.providerSvc.List()
+	var statistics SubsystemStats
+	providers, err := s.providerService.List()
 	if err == nil {
-		st.Providers = len(providers)
+		statistics.Providers = len(providers)
 	}
-	creds, err := s.credSvc.ListAll()
+	credentials, err := s.credentialService.ListAll()
 	if err == nil {
-		st.Credentials = len(creds)
+		statistics.Credentials = len(credentials)
 	}
-	vms, err := s.virtualSvc.List()
+	virtualModels, err := s.virtualService.List()
 	if err == nil {
-		st.VirtualModels = len(vms)
+		statistics.VirtualModels = len(virtualModels)
 	}
-	tokens, err := s.tokenSvc.List()
+	tokens, err := s.tokenService.List()
 	if err == nil {
-		st.Tokens = len(tokens)
+		statistics.Tokens = len(tokens)
 	}
-	if s.luaSvc != nil {
-		plugins, err := s.luaSvc.List()
+	if s.luaService != nil {
+		plugins, err := s.luaService.List()
 		if err == nil {
-			st.Plugins = len(plugins)
+			statistics.Plugins = len(plugins)
 		}
 	}
-	if s.repoSvc != nil {
-		repos, err := s.repoSvc.List()
+	if s.repositoryService != nil {
+		repositories, err := s.repositoryService.List()
 		if err == nil {
-			st.PluginRepos = len(repos)
+			statistics.PluginRepos = len(repositories)
 		}
 	}
-	return st, nil
+	return statistics, nil
 }
 
 // ─────────────────────────────────────────────
@@ -110,30 +110,30 @@ func (s *Service) Stats() (SubsystemStats, error) {
 // ─────────────────────────────────────────────
 
 func (s *Service) ExportProviders() ([]*ProviderBundle, error) {
-	providers, err := s.providerSvc.List()
+	providers, err := s.providerService.List()
 	if err != nil {
 		return nil, err
 	}
-	creds, err := s.credSvc.ListAll()
+	credentials, err := s.credentialService.ListAll()
 	if err != nil {
 		return nil, err
 	}
-	credsByProvider := map[string][]*models.Credential{}
-	for _, c := range creds {
-		credsByProvider[c.ProviderID] = append(credsByProvider[c.ProviderID], c)
+	credentialsByProvider := map[string][]*models.Credential{}
+	for _, credentialItem := range credentials {
+		credentialsByProvider[credentialItem.ProviderID] = append(credentialsByProvider[credentialItem.ProviderID], credentialItem)
 	}
 
 	bundles := make([]*ProviderBundle, 0, len(providers))
-	for _, p := range providers {
+	for _, providerInstance := range providers {
 		var overrides []*models.ModelOverride
-		if s.modelInfoSvc != nil {
-			if ovs, err := s.modelInfoSvc.ListOverrides(p.ID); err == nil {
-				overrides = ovs
+		if s.modelInfoService != nil {
+			if fetchedOverrides, err := s.modelInfoService.ListOverrides(providerInstance.ID); err == nil {
+				overrides = fetchedOverrides
 			}
 		}
 		bundles = append(bundles, &ProviderBundle{
-			Instance:    p,
-			Credentials: credsByProvider[p.ID],
+			Instance:    providerInstance,
+			Credentials: credentialsByProvider[providerInstance.ID],
 			Overrides:   overrides,
 		})
 	}
@@ -141,21 +141,21 @@ func (s *Service) ExportProviders() ([]*ProviderBundle, error) {
 }
 
 func (s *Service) ImportProviders(bundles []*ProviderBundle) error {
-	for _, b := range bundles {
-		if b == nil || b.Instance == nil {
+	for _, bundle := range bundles {
+		if bundle == nil || bundle.Instance == nil {
 			continue
 		}
-		inst := b.Instance
-		if inst.ID == "" {
+		instance := bundle.Instance
+		if instance.ID == "" {
 			continue
 		}
-		existing, err := s.providerSvc.Get(inst.ID)
+		existing, err := s.providerService.Get(instance.ID)
 		if err == nil && existing != nil {
-			_, _ = s.providerSvc.Update(inst.ID, provider.UpdateOptions{
-				Name:     inst.Name,
-				Config:   inst.Config,
-				IconURL:  inst.IconURL,
-				Disabled: &inst.Disabled,
+			_, _ = s.providerService.Update(instance.ID, provider.UpdateOptions{
+				Name:     instance.Name,
+				Config:   instance.Config,
+				IconURL:  instance.IconURL,
+				Disabled: &instance.Disabled,
 			})
 		} else {
 			// Create regenerates the ID (dedup suffixes on collision), so
@@ -163,36 +163,36 @@ func (s *Service) ImportProviders(bundles []*ProviderBundle) error {
 			// instance, not the bundle's: otherwise they point at an ID
 			// that was never stored. On creation failure keep the bundle
 			// instance so the error surfaces at the credential write.
-			if created, cerr := s.providerSvc.Create(provider.CreateOptions{
-				Name:      inst.Name,
-				TypeKey:   inst.TypeKey,
-				Qualifier: inst.Qualifier,
-				Config:    inst.Config,
-				IconURL:   inst.IconURL,
-			}); cerr == nil && created != nil {
-				inst = created
+			if created, createError := s.providerService.Create(provider.CreateOptions{
+				Name:      instance.Name,
+				TypeKey:   instance.TypeKey,
+				Qualifier: instance.Qualifier,
+				Config:    instance.Config,
+				IconURL:   instance.IconURL,
+			}); createError == nil && created != nil {
+				instance = created
 			}
 		}
-		for _, c := range b.Credentials {
-			if c == nil {
+		for _, credentialItem := range bundle.Credentials {
+			if credentialItem == nil {
 				continue
 			}
-			c.ProviderID = inst.ID
-			if c.ID == "" || s.credSvc.UpdateDetails(c.ID, &c.Label, &c.Disabled, c.Data) != nil {
-				_, _ = s.credSvc.Add(credential.AddOptions{
-					ProviderID: inst.ID,
-					Label:      c.Label,
-					Data:       c.Data,
+			credentialItem.ProviderID = instance.ID
+			if credentialItem.ID == "" || s.credentialService.UpdateDetails(credentialItem.ID, &credentialItem.Label, &credentialItem.Disabled, credentialItem.Data) != nil {
+				_, _ = s.credentialService.Add(credential.AddOptions{
+					ProviderID: instance.ID,
+					Label:      credentialItem.Label,
+					Data:       credentialItem.Data,
 				})
 			}
 		}
-		if s.modelInfoSvc != nil {
-			for _, ov := range b.Overrides {
-				if ov == nil || ov.Name == "" {
+		if s.modelInfoService != nil {
+			for _, override := range bundle.Overrides {
+				if override == nil || override.Name == "" {
 					continue
 				}
-				ov.ProviderID = inst.ID
-				_ = s.modelInfoSvc.SetOverride(*ov)
+				override.ProviderID = instance.ID
+				_ = s.modelInfoService.SetOverride(*override)
 			}
 		}
 	}
@@ -200,64 +200,64 @@ func (s *Service) ImportProviders(bundles []*ProviderBundle) error {
 }
 
 func (s *Service) ExportProvider(id string) (*ProviderBundle, error) {
-	p, err := s.providerSvc.Get(id)
+	providerInstance, err := s.providerService.Get(id)
 	if err != nil {
 		return nil, err
 	}
-	creds, err := s.credSvc.ListByProvider(id)
+	credentials, err := s.credentialService.ListByProvider(id)
 	if err != nil {
-		creds = nil
+		credentials = nil
 	}
 	var overrides []*models.ModelOverride
-	if s.modelInfoSvc != nil {
-		if ovs, err := s.modelInfoSvc.ListOverrides(id); err == nil {
-			overrides = ovs
+	if s.modelInfoService != nil {
+		if fetchedOverrides, err := s.modelInfoService.ListOverrides(id); err == nil {
+			overrides = fetchedOverrides
 		}
 	}
 	return &ProviderBundle{
-		Instance:    p,
-		Credentials: creds,
+		Instance:    providerInstance,
+		Credentials: credentials,
 		Overrides:   overrides,
 	}, nil
 }
 
-func (s *Service) ImportProvider(b *ProviderBundle) error {
-	if b == nil || b.Instance == nil {
+func (s *Service) ImportProvider(bundle *ProviderBundle) error {
+	if bundle == nil || bundle.Instance == nil {
 		return fmt.Errorf("empty provider bundle")
 	}
-	return s.ImportProviders([]*ProviderBundle{b})
+	return s.ImportProviders([]*ProviderBundle{bundle})
 }
 
 func (s *Service) PurgeProvider(id string) error {
-	if _, err := s.providerSvc.Get(id); err != nil {
+	if _, err := s.providerService.Get(id); err != nil {
 		return err
 	}
 	// 1. Delete provider instance and cascade credentials
-	_ = s.providerSvc.Delete(id)
+	_ = s.providerService.Delete(id)
 
 	// 2. Delete model overrides and model infos through the owning
 	// service: override keys are providerID/modelName inside modelinfo,
 	// so listing by provider value removes exactly this provider's rows
 	// without reimplementing the key format here.
-	if s.modelInfoSvc != nil {
-		_ = s.modelInfoSvc.InvalidateProvider(id)
-		if ovs, err := s.modelInfoSvc.ListOverrides(id); err == nil {
-			for _, ov := range ovs {
-				if ov != nil {
-					_ = s.modelInfoSvc.DeleteOverride(id, ov.Name)
+	if s.modelInfoService != nil {
+		_ = s.modelInfoService.InvalidateProvider(id)
+		if fetchedOverrides, err := s.modelInfoService.ListOverrides(id); err == nil {
+			for _, override := range fetchedOverrides {
+				if override != nil {
+					_ = s.modelInfoService.DeleteOverride(id, override.Name)
 				}
 			}
 		}
 	}
 
 	// 3. Delete managed virtual models associated with this provider
-	if s.virtualSvc != nil {
-		if vms, err := s.virtualSvc.List(); err == nil {
-			for _, vm := range vms {
-				if vm.ManagedBy != "" {
-					markerProvider, _, err := virtual.ParseMarker(vm.ManagedBy)
+	if s.virtualService != nil {
+		if virtualModels, err := s.virtualService.List(); err == nil {
+			for _, virtualModel := range virtualModels {
+				if virtualModel.ManagedBy != "" {
+					markerProvider, _, err := virtual.ParseMarker(virtualModel.ManagedBy)
 					if err == nil && markerProvider == id {
-						_ = s.virtualSvc.Delete(vm.ID)
+						_ = s.virtualService.Delete(virtualModel.ID)
 					}
 				}
 			}
@@ -268,12 +268,12 @@ func (s *Service) PurgeProvider(id string) error {
 }
 
 func (s *Service) ClearProviders() error {
-	providers, err := s.providerSvc.List()
+	providers, err := s.providerService.List()
 	if err != nil {
 		return err
 	}
-	for _, p := range providers {
-		_ = s.providerSvc.Delete(p.ID)
+	for _, providerInstance := range providers {
+		_ = s.providerService.Delete(providerInstance.ID)
 	}
 	return nil
 }
@@ -283,33 +283,33 @@ func (s *Service) ClearProviders() error {
 // ─────────────────────────────────────────────
 
 func (s *Service) ExportVirtualModels() ([]*models.VirtualModel, error) {
-	return s.virtualSvc.List()
+	return s.virtualService.List()
 }
 
-func (s *Service) ImportVirtualModels(vms []*models.VirtualModel) error {
-	for _, vm := range vms {
-		if vm == nil || vm.Name == "" {
+func (s *Service) ImportVirtualModels(virtualModels []*models.VirtualModel) error {
+	for _, virtualModel := range virtualModels {
+		if virtualModel == nil || virtualModel.Name == "" {
 			continue
 		}
-		if vm.ID != "" {
-			existing, err := s.virtualSvc.Get(vm.ID)
+		if virtualModel.ID != "" {
+			existing, err := s.virtualService.Get(virtualModel.ID)
 			if err == nil && existing != nil {
-				_ = s.virtualSvc.Update(vm.ID, vm)
+				_ = s.virtualService.Update(virtualModel.ID, virtualModel)
 				continue
 			}
 		}
-		_ = s.virtualSvc.Create(vm)
+		_ = s.virtualService.Create(virtualModel)
 	}
 	return nil
 }
 
 func (s *Service) ClearVirtualModels() error {
-	vms, err := s.virtualSvc.List()
+	virtualModels, err := s.virtualService.List()
 	if err != nil {
 		return err
 	}
-	for _, vm := range vms {
-		_ = s.virtualSvc.Delete(vm.ID)
+	for _, virtualModel := range virtualModels {
+		_ = s.virtualService.Delete(virtualModel.ID)
 	}
 	return nil
 }
@@ -325,14 +325,14 @@ type PluginsExportBundle struct {
 
 func (s *Service) ExportPlugins() (*PluginsExportBundle, error) {
 	var bundle PluginsExportBundle
-	if s.repoSvc != nil {
-		repos, err := s.repoSvc.List()
+	if s.repositoryService != nil {
+		repositories, err := s.repositoryService.List()
 		if err == nil {
-			bundle.Repos = repos
+			bundle.Repos = repositories
 		}
 	}
-	if s.luaSvc != nil {
-		plugins, err := s.luaSvc.List()
+	if s.luaService != nil {
+		plugins, err := s.luaService.List()
 		if err == nil {
 			bundle.Plugins = plugins
 		}
@@ -344,53 +344,53 @@ func (s *Service) ImportPlugins(ctx context.Context, bundle *PluginsExportBundle
 	if bundle == nil {
 		return nil
 	}
-	if s.repoSvc != nil {
-		for _, repo := range bundle.Repos {
-			if repo == nil {
+	if s.repositoryService != nil {
+		for _, repository := range bundle.Repos {
+			if repository == nil {
 				continue
 			}
-			targetURL := repo.IndexURL
+			targetURL := repository.IndexURL
 			if targetURL == "" {
-				targetURL = repo.SourceURL
+				targetURL = repository.SourceURL
 			}
 			if targetURL == "" {
 				continue
 			}
-			_, _ = s.repoSvc.AddRepo(ctx, targetURL)
+			_, _ = s.repositoryService.AddRepo(ctx, targetURL)
 		}
 	}
-	if s.luaSvc != nil {
-		for _, p := range bundle.Plugins {
-			if p == nil || len(p.Source) == 0 {
+	if s.luaService != nil {
+		for _, plugin := range bundle.Plugins {
+			if plugin == nil || len(plugin.Source) == 0 {
 				continue
 			}
-			_, _ = s.luaSvc.Install(p.Source, p.Origin)
+			_, _ = s.luaService.Install(plugin.Source, plugin.Origin)
 		}
 	}
 	return nil
 }
 
 func (s *Service) ClearPlugins() error {
-	if s.luaSvc != nil {
-		plugins, err := s.luaSvc.List()
+	if s.luaService != nil {
+		plugins, err := s.luaService.List()
 		if err == nil {
-			for _, p := range plugins {
-				_ = s.luaSvc.Delete(p.ID)
+			for _, plugin := range plugins {
+				_ = s.luaService.Delete(plugin.ID)
 			}
 		}
 	}
-	if s.repoSvc != nil {
-		repos, err := s.repoSvc.List()
+	if s.repositoryService != nil {
+		repositories, err := s.repositoryService.List()
 		if err == nil {
-			for _, r := range repos {
-				if r.Builtin {
+			for _, repository := range repositories {
+				if repository.Builtin {
 					continue
 				}
-				_ = s.repoSvc.Remove(r.ID)
+				_ = s.repositoryService.Remove(repository.ID)
 			}
 		}
 	}
-	_ = s.db.Update(func(tx *bolt.Tx) error {
+	_ = s.database.Update(func(tx *bolt.Tx) error {
 		_ = tx.DeleteBucket(db.BucketPluginStorage)
 		_, _ = tx.CreateBucketIfNotExists(db.BucketPluginStorage)
 		return nil
@@ -403,32 +403,32 @@ func (s *Service) ClearPlugins() error {
 // ─────────────────────────────────────────────
 
 func (s *Service) ExportTokens() ([]*models.RouterToken, error) {
-	return s.tokenSvc.List()
+	return s.tokenService.List()
 }
 
 func (s *Service) ImportTokens(tokens []*models.RouterToken) error {
-	for _, t := range tokens {
-		if t == nil {
+	for _, tokenRecord := range tokens {
+		if tokenRecord == nil {
 			continue
 		}
-		if t.ID != "" && s.tokenSvc.UpdateRules(t.ID, t.Rules) == nil {
+		if tokenRecord.ID != "" && s.tokenService.UpdateRules(tokenRecord.ID, tokenRecord.Rules) == nil {
 			continue
 		}
-		_, _ = s.tokenSvc.Create(token.CreateOptions{
-			Name:  t.Name,
-			Rules: t.Rules,
+		_, _ = s.tokenService.Create(token.CreateOptions{
+			Name:  tokenRecord.Name,
+			Rules: tokenRecord.Rules,
 		})
 	}
 	return nil
 }
 
 func (s *Service) ClearTokens() error {
-	tokens, err := s.tokenSvc.List()
+	tokens, err := s.tokenService.List()
 	if err != nil {
 		return err
 	}
-	for _, t := range tokens {
-		_ = s.tokenSvc.Delete(t.ID)
+	for _, tokenRecord := range tokens {
+		_ = s.tokenService.Delete(tokenRecord.ID)
 	}
 	return nil
 }

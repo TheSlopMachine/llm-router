@@ -60,9 +60,9 @@
   function position(node?: HTMLElement): void {
     if (!anchor) return
     const rect = anchor.getBoundingClientRect()
-    const el = node || menuElement
-    const width = el ? el.offsetWidth : 0
-    const height = el ? el.offsetHeight : 0
+    const element = node || menuElement
+    const width = element ? element.offsetWidth : 0
+    const height = element ? element.offsetHeight : 0
 
     const vv = typeof window !== 'undefined' ? window.visualViewport : null
     const vvTop = vv ? vv.offsetTop : 0
@@ -136,7 +136,7 @@
     }
   }
 
-  function initLayer(node: HTMLDivElement) {
+  function initializeLayer(node: HTMLDivElement) {
     position(node)
     const ro = new ResizeObserver(() => {
       position(node)
@@ -185,7 +185,7 @@
 {#if open}
   <div
     use:portal
-    use:initLayer
+    use:initializeLayer
     bind:this={menuElement}
     class="floating-view"
     class:floating-sm={width === 'sm'}

@@ -8,37 +8,37 @@ import (
 )
 
 func TestModelOverrides_EnableDisable(t *testing.T) {
-	svc, _, _, _ := setupModelInfoService(t)
+	service, _, _, _ := setupModelInfoService(t)
 
-	if enabled, err := svc.IsModelEnabled("modelinfo-test", "live-model"); err != nil || !enabled {
+	if enabled, err := service.IsModelEnabled("modelinfo-test", "live-model"); err != nil || !enabled {
 		t.Fatal("models are enabled by default")
 	}
-	if err := svc.SetOverride(models.ModelOverride{ProviderID: "modelinfo-test", Name: "live-model", Disabled: true}); err != nil {
+	if err := service.SetOverride(models.ModelOverride{ProviderID: "modelinfo-test", Name: "live-model", Disabled: true}); err != nil {
 		t.Fatalf("set override: %v", err)
 	}
-	if enabled, err := svc.IsModelEnabled("modelinfo-test", "live-model"); err != nil || enabled {
+	if enabled, err := service.IsModelEnabled("modelinfo-test", "live-model"); err != nil || enabled {
 		t.Fatal("override did not disable the model")
 	}
-	if err := svc.DeleteOverride("modelinfo-test", "live-model"); err != nil {
+	if err := service.DeleteOverride("modelinfo-test", "live-model"); err != nil {
 		t.Fatalf("delete override: %v", err)
 	}
-	if enabled, err := svc.IsModelEnabled("modelinfo-test", "live-model"); err != nil || !enabled {
+	if enabled, err := service.IsModelEnabled("modelinfo-test", "live-model"); err != nil || !enabled {
 		t.Fatal("model stays disabled after override removal")
 	}
 }
 
 func TestModelOverrides_MergedView(t *testing.T) {
-	svc, _, _, _ := setupModelInfoService(t)
+	service, _, _, _ := setupModelInfoService(t)
 	ctx := context.Background()
 
-	if err := svc.SetOverride(models.ModelOverride{ProviderID: "modelinfo-test", Name: "live-model", Disabled: true, Capabilities: []string{"tools"}}); err != nil {
+	if err := service.SetOverride(models.ModelOverride{ProviderID: "modelinfo-test", Name: "live-model", Disabled: true, Capabilities: []string{"tools"}}); err != nil {
 		t.Fatalf("disable override: %v", err)
 	}
-	if err := svc.SetOverride(models.ModelOverride{ProviderID: "modelinfo-test", Name: "hand-added", Custom: true, DisplayName: "Hand Added", Capabilities: []string{"vision"}}); err != nil {
+	if err := service.SetOverride(models.ModelOverride{ProviderID: "modelinfo-test", Name: "hand-added", Custom: true, DisplayName: "Hand Added", Capabilities: []string{"vision"}}); err != nil {
 		t.Fatalf("custom override: %v", err)
 	}
 
-	views, err := svc.MergedView(ctx, "modelinfo-test")
+	views, err := service.MergedView(ctx, "modelinfo-test")
 	if err != nil {
 		t.Fatalf("merged view: %v", err)
 	}
@@ -69,11 +69,11 @@ func TestModelOverrides_MergedView(t *testing.T) {
 }
 
 func TestModelOverrides_Validation(t *testing.T) {
-	svc, _, _, _ := setupModelInfoService(t)
-	if err := svc.SetOverride(models.ModelOverride{Name: "x"}); err == nil {
+	service, _, _, _ := setupModelInfoService(t)
+	if err := service.SetOverride(models.ModelOverride{Name: "x"}); err == nil {
 		t.Error("expected error for missing provider id")
 	}
-	if err := svc.SetOverride(models.ModelOverride{ProviderID: "p"}); err == nil {
+	if err := service.SetOverride(models.ModelOverride{ProviderID: "p"}); err == nil {
 		t.Error("expected error for missing model name")
 	}
 }

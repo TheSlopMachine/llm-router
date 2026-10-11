@@ -24,39 +24,39 @@ func New(database *db.DB) *Service {
 
 // Get returns the stored RouterConfiguration.
 func (s *Service) Get() (models.RouterConfiguration, error) {
-	var cfg models.RouterConfiguration
+	var routerConfiguration models.RouterConfiguration
 	err := s.database.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketRouterConfiguration)
-		if b == nil {
+		bucket := tx.Bucket(db.BucketRouterConfiguration)
+		if bucket == nil {
 			return nil
 		}
-		v := b.Get([]byte(instanceKey))
-		if v == nil {
+		value := bucket.Get([]byte(instanceKey))
+		if value == nil {
 			return nil
 		}
-		return json.Unmarshal(v, &cfg)
+		return json.Unmarshal(value, &routerConfiguration)
 	})
 	if err != nil {
 		return models.RouterConfiguration{}, err
 	}
-	return cfg, nil
+	return routerConfiguration, nil
 }
 
 // Put validates and persists RouterConfiguration.
-func (s *Service) Put(cfg models.RouterConfiguration) error {
-	if err := cfg.Validate(); err != nil {
+func (s *Service) Put(routerConfiguration models.RouterConfiguration) error {
+	if err := routerConfiguration.Validate(); err != nil {
 		return err
 	}
-	enc, err := json.Marshal(cfg)
+	encoded, err := json.Marshal(routerConfiguration)
 	if err != nil {
 		return fmt.Errorf("marshal RouterConfiguration: %w", err)
 	}
 	if err := s.database.Update(func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists(db.BucketRouterConfiguration)
+		bucket, err := tx.CreateBucketIfNotExists(db.BucketRouterConfiguration)
 		if err != nil {
 			return err
 		}
-		return b.Put([]byte(instanceKey), enc)
+		return bucket.Put([]byte(instanceKey), encoded)
 	}); err != nil {
 		return err
 	}

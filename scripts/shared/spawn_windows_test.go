@@ -19,23 +19,23 @@ const (
 // without a console spawns a fresh visible window for bun/node, and a
 // hidden window without a new console stops at re-exec shims.
 func TestNewConsoleAttrSurvivesTerminalClose(t *testing.T) {
-	attr := newConsoleAttr()
-	if attr == nil {
+	attributes := newConsoleAttr()
+	if attributes == nil {
 		t.Fatal("newConsoleAttr is nil")
 	}
-	if attr.CreationFlags&syscall.CREATE_NEW_PROCESS_GROUP == 0 {
+	if attributes.CreationFlags&syscall.CREATE_NEW_PROCESS_GROUP == 0 {
 		t.Error("missing CREATE_NEW_PROCESS_GROUP")
 	}
-	if attr.CreationFlags&createNewConsole == 0 {
+	if attributes.CreationFlags&createNewConsole == 0 {
 		t.Error("missing CREATE_NEW_CONSOLE: child shares the terminal console and dies with it")
 	}
-	if !attr.HideWindow {
+	if !attributes.HideWindow {
 		t.Error("missing HideWindow: the fresh console flashes visible")
 	}
-	if attr.CreationFlags&forbiddenDetached != 0 {
+	if attributes.CreationFlags&forbiddenDetached != 0 {
 		t.Error("DETACHED_PROCESS must stay out: detached console apps get a fresh visible console")
 	}
-	if attr.CreationFlags&forbiddenNoWindow != 0 {
+	if attributes.CreationFlags&forbiddenNoWindow != 0 {
 		t.Error("CREATE_NO_WINDOW must stay out: it stops at re-exec shims, grandchildren allocate visible consoles")
 	}
 }

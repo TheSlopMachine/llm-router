@@ -18,9 +18,9 @@ func setupTokenService(t *testing.T) *Service {
 // ─────────────────────────────────────────────
 
 func TestTokenService_Create_GeneratesToken(t *testing.T) {
-	svc := setupTokenService(t)
+	service := setupTokenService(t)
 
-	token, err := svc.Create(CreateOptions{
+	token, err := service.Create(CreateOptions{
 		Name:  "Test Token",
 		Rules: models.TokenRules{AllowAllProviders: true, AllowAllModels: true, AllowAllCredentials: true},
 	})
@@ -44,14 +44,14 @@ func TestTokenService_Create_GeneratesToken(t *testing.T) {
 }
 
 func TestTokenService_Create_WithRules(t *testing.T) {
-	svc := setupTokenService(t)
+	service := setupTokenService(t)
 
 	rules := models.TokenRules{
 		AllowedProviders: []string{"openai", "anthropic"},
 		AllowedModels:    []models.ModelId{"openai/gpt-4", "anthropic/claude-3"},
 	}
 
-	token, err := svc.Create(CreateOptions{
+	token, err := service.Create(CreateOptions{
 		Name:  "Restricted Token",
 		Rules: rules,
 	})
@@ -70,9 +70,9 @@ func TestTokenService_Create_WithRules(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestTokenService_Validate_ValidToken(t *testing.T) {
-	svc := setupTokenService(t)
+	service := setupTokenService(t)
 
-	created, err := svc.Create(CreateOptions{
+	created, err := service.Create(CreateOptions{
 		Name:  "Test Token",
 		Rules: models.TokenRules{AllowAllProviders: true, AllowAllModels: true, AllowAllCredentials: true},
 	})
@@ -81,7 +81,7 @@ func TestTokenService_Validate_ValidToken(t *testing.T) {
 	}
 
 	// Validate using the raw token
-	validated, err := svc.Validate(created.Token)
+	validated, err := service.Validate(created.Token)
 	if err != nil {
 		t.Fatalf("validate failed: %v", err)
 	}
@@ -95,18 +95,18 @@ func TestTokenService_Validate_ValidToken(t *testing.T) {
 }
 
 func TestTokenService_Validate_InvalidToken(t *testing.T) {
-	svc := setupTokenService(t)
+	service := setupTokenService(t)
 
-	_, err := svc.Validate("invalid-token-value")
+	_, err := service.Validate("invalid-token-value")
 	if err == nil {
 		t.Error("expected error for invalid token, got nil")
 	}
 }
 
 func TestTokenService_Validate_EmptyToken(t *testing.T) {
-	svc := setupTokenService(t)
+	service := setupTokenService(t)
 
-	_, err := svc.Validate("")
+	_, err := service.Validate("")
 	if err == nil {
 		t.Error("expected error for empty token, got nil")
 	}
@@ -117,9 +117,9 @@ func TestTokenService_Validate_EmptyToken(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestTokenService_Get_Exists(t *testing.T) {
-	svc := setupTokenService(t)
+	service := setupTokenService(t)
 
-	created, err := svc.Create(CreateOptions{
+	created, err := service.Create(CreateOptions{
 		Name:  "Test Token",
 		Rules: models.TokenRules{AllowAllProviders: true, AllowAllModels: true, AllowAllCredentials: true},
 	})
@@ -127,7 +127,7 @@ func TestTokenService_Get_Exists(t *testing.T) {
 		t.Fatalf("create failed: %v", err)
 	}
 
-	got, err := svc.Get(created.ID)
+	got, err := service.Get(created.ID)
 	if err != nil {
 		t.Fatalf("get failed: %v", err)
 	}
@@ -141,9 +141,9 @@ func TestTokenService_Get_Exists(t *testing.T) {
 }
 
 func TestTokenService_Get_NotFound(t *testing.T) {
-	svc := setupTokenService(t)
+	service := setupTokenService(t)
 
-	_, err := svc.Get("nonexistent")
+	_, err := service.Get("nonexistent")
 	if err == nil {
 		t.Error("expected error for nonexistent token, got nil")
 	}
@@ -154,9 +154,9 @@ func TestTokenService_Get_NotFound(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestTokenService_List_Empty(t *testing.T) {
-	svc := setupTokenService(t)
+	service := setupTokenService(t)
 
-	tokens, err := svc.List()
+	tokens, err := service.List()
 	if err != nil {
 		t.Fatalf("list failed: %v", err)
 	}
@@ -167,11 +167,11 @@ func TestTokenService_List_Empty(t *testing.T) {
 }
 
 func TestTokenService_List_Multiple(t *testing.T) {
-	svc := setupTokenService(t)
+	service := setupTokenService(t)
 
 	// Create multiple tokens
 	for i := 0; i < 3; i++ {
-		_, err := svc.Create(CreateOptions{
+		_, err := service.Create(CreateOptions{
 			Name:  "Token " + string(rune('A'+i)),
 			Rules: models.TokenRules{AllowAllProviders: true, AllowAllModels: true, AllowAllCredentials: true},
 		})
@@ -180,7 +180,7 @@ func TestTokenService_List_Multiple(t *testing.T) {
 		}
 	}
 
-	tokens, err := svc.List()
+	tokens, err := service.List()
 	if err != nil {
 		t.Fatalf("list failed: %v", err)
 	}
@@ -195,9 +195,9 @@ func TestTokenService_List_Multiple(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestTokenService_Delete_Exists(t *testing.T) {
-	svc := setupTokenService(t)
+	service := setupTokenService(t)
 
-	created, err := svc.Create(CreateOptions{
+	created, err := service.Create(CreateOptions{
 		Name:  "Test Token",
 		Rules: models.TokenRules{AllowAllProviders: true, AllowAllModels: true, AllowAllCredentials: true},
 	})
@@ -206,27 +206,27 @@ func TestTokenService_Delete_Exists(t *testing.T) {
 	}
 
 	// Delete the token
-	if err := svc.Delete(created.ID); err != nil {
+	if err := service.Delete(created.ID); err != nil {
 		t.Fatalf("delete failed: %v", err)
 	}
 
 	// Verify it's gone
-	_, err = svc.Get(created.ID)
+	_, err = service.Get(created.ID)
 	if err == nil {
 		t.Error("expected error after delete, got nil")
 	}
 
 	// Verify validation fails
-	_, err = svc.Validate(created.Token)
+	_, err = service.Validate(created.Token)
 	if err == nil {
 		t.Error("expected validation to fail after delete, got nil")
 	}
 }
 
 func TestTokenService_Delete_NotFound(t *testing.T) {
-	svc := setupTokenService(t)
+	service := setupTokenService(t)
 
-	err := svc.Delete("nonexistent")
+	err := service.Delete("nonexistent")
 	if err == nil {
 		t.Error("expected error for deleting nonexistent token, got nil")
 	}
@@ -237,9 +237,9 @@ func TestTokenService_Delete_NotFound(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestTokenService_UpdateRules(t *testing.T) {
-	svc := setupTokenService(t)
+	service := setupTokenService(t)
 
-	created, err := svc.Create(CreateOptions{
+	created, err := service.Create(CreateOptions{
 		Name:  "Test Token",
 		Rules: models.TokenRules{AllowAllProviders: true, AllowAllModels: true, AllowAllCredentials: true},
 	})
@@ -251,12 +251,12 @@ func TestTokenService_UpdateRules(t *testing.T) {
 	newRules := models.TokenRules{
 		AllowedModels: []models.ModelId{"openai/gpt-4"},
 	}
-	if err := svc.UpdateRules(created.ID, newRules); err != nil {
+	if err := service.UpdateRules(created.ID, newRules); err != nil {
 		t.Fatalf("update rules failed: %v", err)
 	}
 
 	// Verify update
-	updated, err := svc.Get(created.ID)
+	updated, err := service.Get(created.ID)
 	if err != nil {
 		t.Fatalf("get failed: %v", err)
 	}
@@ -270,12 +270,12 @@ func TestTokenService_UpdateRules(t *testing.T) {
 }
 
 func TestTokenService_UpdateRules_NotFound(t *testing.T) {
-	svc := setupTokenService(t)
+	service := setupTokenService(t)
 
 	newRules := models.TokenRules{
 		AllowedModels: []models.ModelId{"openai/gpt-4"},
 	}
-	err := svc.UpdateRules("nonexistent", newRules)
+	err := service.UpdateRules("nonexistent", newRules)
 	if err == nil {
 		t.Error("expected error for updating nonexistent token, got nil")
 	}
@@ -287,7 +287,7 @@ func TestTokenService_UpdateRules_NotFound(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestTokenService_TokenRules_PersistRoundtrip(t *testing.T) {
-	svc := setupTokenService(t)
+	service := setupTokenService(t)
 
 	rules := models.TokenRules{
 		AllowAllProviders: true,
@@ -297,7 +297,7 @@ func TestTokenService_TokenRules_PersistRoundtrip(t *testing.T) {
 		},
 	}
 
-	token, err := svc.Create(CreateOptions{
+	token, err := service.Create(CreateOptions{
 		Name:  "Scoped Token",
 		Rules: rules,
 	})
@@ -305,7 +305,7 @@ func TestTokenService_TokenRules_PersistRoundtrip(t *testing.T) {
 		t.Fatalf("create failed: %v", err)
 	}
 
-	got, err := svc.Get(token.ID)
+	got, err := service.Get(token.ID)
 	if err != nil {
 		t.Fatalf("get failed: %v", err)
 	}

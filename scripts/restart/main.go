@@ -16,13 +16,13 @@ import (
 func main() {
 	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
 
-	if p, err := shared.ReadStartParams(pidFile); err == nil {
-		overlay("DEV_DB", p.DevDB, shared.DefaultDevDB())
-		overlay("HOST", p.Host, "localhost")
-		overlay("WEB_PORT", p.WebPort, "38080")
-		overlay("API_PORT", p.APIPort, "38081")
-		overlay("LOG_LEVEL", p.LogLevel, "info")
-		if p.NoAuth && !shared.IsWriteMode("NO_AUTH") {
+	if params, err := shared.ReadStartParams(pidFile); err == nil {
+		overlay("DEV_DB", params.DevDB, shared.DefaultDevDB())
+		overlay("HOST", params.Host, "localhost")
+		overlay("WEB_PORT", params.WebPort, "38080")
+		overlay("API_PORT", params.APIPort, "38081")
+		overlay("LOG_LEVEL", params.LogLevel, "info")
+		if params.NoAuth && !shared.IsWriteMode("NO_AUTH") {
 			_ = os.Setenv("NO_AUTH", "1")
 		}
 	}
@@ -49,9 +49,9 @@ func overlay(key, recorded, builtinDefault string) {
 	}
 }
 
-func run(dir, target string) {
+func run(directory, target string) {
 	cmd := exec.Command("go", "run", "./"+target)
-	cmd.Dir = dir
+	cmd.Dir = directory
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin

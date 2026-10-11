@@ -54,18 +54,18 @@ var blockedCIDRs = []string{
 	"fe80::/10",
 }
 
-var blockedNets []*net.IPNet
+var blockedNetworks []*net.IPNet
 
 func init() {
 	for _, c := range blockedCIDRs {
 		if _, n, err := net.ParseCIDR(c); err == nil {
-			blockedNets = append(blockedNets, n)
+			blockedNetworks = append(blockedNetworks, n)
 		}
 	}
 }
 
 func ipBlocked(ip net.IP) bool {
-	for _, n := range blockedNets {
+	for _, n := range blockedNetworks {
 		if n.Contains(ip) {
 			return true
 		}
@@ -132,7 +132,7 @@ func (g *ssrfGuard) checkURL(raw string) (*url.URL, error) {
 }
 
 // logSinkSafe logs through the exec context when a sink is wired.
-func (ctx *execContext) logSinkSafe(msg string) {
+func (ctx *executionContext) logSinkSafe(msg string) {
 	if ctx != nil && ctx.logSink != nil {
 		ctx.logSink(ctx.pluginID, msg)
 	}
@@ -162,7 +162,7 @@ func (g *ssrfGuard) resolveAndPick(ctx context.Context, hostname string) (net.IP
 
 // pluginHTTPClient is the Go backing of llm_router.http_client.
 type pluginHTTPClient struct {
-	ctx    *execContext
+	ctx    *executionContext
 	guard  *ssrfGuard
 	client *http.Client
 	// timeout bounds one attempt; every key attempt gets a fresh budget.
@@ -174,7 +174,7 @@ type pluginHTTPClient struct {
 	proxyClients map[string]*http.Client
 }
 
-func newPluginHTTPClient(ctx *execContext, timeoutMs int) *pluginHTTPClient {
+func newPluginHTTPClient(ctx *executionContext, timeoutMs int) *pluginHTTPClient {
 	c := &pluginHTTPClient{ctx: ctx, guard: newSSRFGuard(ctx.allowHosts), proxyClients: map[string]*http.Client{}}
 	timeout := time.Duration(timeoutMs) * time.Millisecond
 	c.timeout = timeout
@@ -216,8 +216,8 @@ func newPluginHTTPClient(ctx *execContext, timeoutMs int) *pluginHTTPClient {
 			if err != nil {
 				return nil, err
 			}
-			cfg := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
-			tlsConn := tls.Client(raw, cfg)
+			tlsConfig := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
+			tlsConn := tls.Client(raw, tlsConfig)
 			if err := tlsConn.HandshakeContext(dialCtx); err != nil {
 				raw.Close()
 				return nil, err
@@ -255,8 +255,8 @@ func (c *pluginHTTPClient) proxyClient(proxyURL string) (*http.Client, error) {
 // proxy itself. Structural TLS faults on a proxied leg mark the proxy dead
 // through the router-owned hook; plugins never mark proxies directly.
 // Direct reports whether the attempt went direct (true) or proxied (false).
-func (c *pluginHTTPClient) doSingle(req *http.Request, proxyURL string) (*http.Response, bool, error) {
-	if err := req.Context().Err(); err != nil {
+func (c *pluginHTTPClient) doSingle(request *http.Request, proxyURL string) (*http.Response, bool, error) {
+	if err := request.Context().Err(); err != nil {
 		return nil, proxyURL == "", err
 	}
 	client := c.client
@@ -269,12 +269,12 @@ func (c *pluginHTTPClient) doSingle(req *http.Request, proxyURL string) (*http.R
 		client = pc
 		direct = false
 	}
-	if req.GetBody != nil {
-		if body, gerr := req.GetBody(); gerr == nil {
-			req.Body = body
+	if request.GetBody != nil {
+		if body, gerr := request.GetBody(); gerr == nil {
+			request.Body = body
 		}
 	}
-	resp, derr := client.Do(req)
+	response, derr := client.Do(request)
 	if derr != nil {
 		if !direct {
 			if reason := markDeadReason(derr); reason != "" {
@@ -283,7 +283,7 @@ func (c *pluginHTTPClient) doSingle(req *http.Request, proxyURL string) (*http.R
 		}
 		return nil, direct, derr
 	}
-	return resp, direct, nil
+	return response, direct, nil
 }
 
 func (c *pluginHTTPClient) markDead(proxyURL, reason string) {
@@ -296,44 +296,44 @@ func (c *pluginHTTPClient) markDead(proxyURL, reason string) {
 }
 
 // checkRedirect validates every redirect hop against the plugin allow-list.
-func (c *pluginHTTPClient) checkRedirect(req *http.Request, via []*http.Request) error {
+func (c *pluginHTTPClient) checkRedirect(request *http.Request, via []*http.Request) error {
 	if len(via) >= 10 {
 		return fmt.Errorf("too many redirects")
 	}
-	if _, err := c.guard.checkURL(req.URL.String()); err != nil {
+	if _, err := c.guard.checkURL(request.URL.String()); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (c *pluginHTTPClient) toLua(L *lua.LState) lua.LValue {
-	ud := L.NewUserData()
-	ud.Value = c
-	mt := L.NewTypeMetatable("llm_router_http_client")
-	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(),
+	userData := L.NewUserData()
+	userData.Value = c
+	metatable := L.NewTypeMetatable("llm_router_http_client")
+	L.SetField(metatable, "__index", L.SetFuncs(L.NewTable(),
 		map[string]lua.LGFunction{
 			"request": c.luaRequest,
 			"stream":  c.luaStream,
 		}))
-	L.SetMetatable(ud, mt)
-	return ud
+	L.SetMetatable(userData, metatable)
+	return userData
 }
 
-func clientOf(L *lua.LState) *pluginHTTPClient {
-	ud, ok := L.Get(1).(*lua.LUserData)
+func clientFromStack(L *lua.LState) *pluginHTTPClient {
+	userData, ok := L.Get(1).(*lua.LUserData)
 	if !ok {
 		L.RaiseError("http client method called without client")
 		return nil
 	}
-	c, ok := ud.Value.(*pluginHTTPClient)
-	if !ok || c == nil {
+	client, ok := userData.Value.(*pluginHTTPClient)
+	if !ok || client == nil {
 		L.RaiseError("invalid http client")
 		return nil
 	}
-	return c
+	return client
 }
 
-func goCtxOf(c *pluginHTTPClient) context.Context {
+func clientContext(c *pluginHTTPClient) context.Context {
 	if c.ctx != nil && c.ctx.goCtx != nil {
 		return c.ctx.goCtx
 	}
@@ -350,20 +350,20 @@ func checkCustomHostHeader(L *lua.LState, c *pluginHTTPClient, headers map[strin
 	}
 }
 
-func (c *pluginHTTPClient) buildRequest(L *lua.LState, arg *lua.LTable) (*http.Request, string) {
-	method := strings.ToUpper(strings.TrimSpace(luaTableString(arg, "method", "GET")))
-	rawURL := strings.TrimSpace(luaTableString(arg, "url", ""))
+func (c *pluginHTTPClient) buildRequest(L *lua.LState, arguments *lua.LTable) (*http.Request, string) {
+	method := strings.ToUpper(strings.TrimSpace(luaTableString(arguments, "method", "GET")))
+	rawURL := strings.TrimSpace(luaTableString(arguments, "url", ""))
 	if rawURL == "" {
 		L.RaiseError("request: url is required")
 		return nil, ""
 	}
-	u, err := c.guard.checkURL(rawURL)
+	targetURL, err := c.guard.checkURL(rawURL)
 	if err != nil {
 		L.RaiseError("request blocked: %s", err.Error())
 		return nil, ""
 	}
 	proxyURL := ""
-	if v := arg.RawGetString("proxy_url"); v != lua.LNil {
+	if v := arguments.RawGetString("proxy_url"); v != lua.LNil {
 		s, ok := v.(lua.LString)
 		if !ok || strings.TrimSpace(string(s)) == "" {
 			L.RaiseError("request: proxy_url must be a non-empty string")
@@ -371,11 +371,11 @@ func (c *pluginHTTPClient) buildRequest(L *lua.LState, arg *lua.LTable) (*http.R
 		}
 		proxyURL = strings.TrimSpace(string(s))
 	}
-	headers := luaTableStringMap(arg, "headers")
+	headers := luaTableStringMap(arguments, "headers")
 	checkCustomHostHeader(L, c, headers)
 	var body io.Reader
 	var bodyBytes []byte
-	if v := arg.RawGetString("body"); v != lua.LNil {
+	if v := arguments.RawGetString("body"); v != lua.LNil {
 		if s, ok := v.(lua.LString); ok {
 			bodyBytes = []byte(s)
 			body = bytes.NewReader(bodyBytes)
@@ -384,42 +384,42 @@ func (c *pluginHTTPClient) buildRequest(L *lua.LState, arg *lua.LTable) (*http.R
 			return nil, ""
 		}
 	}
-	req, err := http.NewRequestWithContext(goCtxOf(c), method, u.String(), body)
+	request, err := http.NewRequestWithContext(clientContext(c), method, targetURL.String(), body)
 	if err != nil {
 		L.RaiseError("request: %s", err.Error())
 		return nil, ""
 	}
 	if bodyBytes != nil {
-		req.GetBody = func() (io.ReadCloser, error) {
+		request.GetBody = func() (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader(bodyBytes)), nil
 		}
 	}
 	for k, v := range headers {
 		if strings.EqualFold(k, "host") {
-			req.Host = strings.TrimSpace(v)
+			request.Host = strings.TrimSpace(v)
 			continue
 		}
-		req.Header.Set(k, v)
+		request.Header.Set(k, v)
 	}
-	return req, proxyURL
+	return request, proxyURL
 }
 
-// luaRequest implements client:request({...}) -> (resp, err).
+// luaRequest implements client:request({...}) -> (response, err).
 func (c *pluginHTTPClient) luaRequest(L *lua.LState) int {
-	arg := L.CheckTable(2)
-	req, proxyURL := c.buildRequest(L, arg)
-	if req == nil {
+	arguments := L.CheckTable(2)
+	request, proxyURL := c.buildRequest(L, arguments)
+	if request == nil {
 		return 0
 	}
-	resp, direct, err := c.doSingle(req, proxyURL)
+	response, direct, err := c.doSingle(request, proxyURL)
 	if err != nil {
-		// Contract is (resp, err): nil response first, error table second.
+		// Contract is (response, err): nil response first, error table second.
 		L.Push(lua.LNil)
 		c.pushFault(L, err, direct)
 		return 2
 	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBody))
 	if err != nil {
 		c.markBodyFault(proxyURL, direct, err)
 		L.Push(lua.LNil)
@@ -427,28 +427,28 @@ func (c *pluginHTTPClient) luaRequest(L *lua.LState) int {
 		return 2
 	}
 	out := L.NewTable()
-	out.RawSetString("status", lua.LNumber(resp.StatusCode))
-	hdrs := L.NewTable()
-	for k, vv := range resp.Header {
-		hdrs.RawSetString(strings.ToLower(k), lua.LString(strings.Join(vv, ", ")))
+	out.RawSetString("status", lua.LNumber(response.StatusCode))
+	headers := L.NewTable()
+	for k, vv := range response.Header {
+		headers.RawSetString(strings.ToLower(k), lua.LString(strings.Join(vv, ", ")))
 	}
-	out.RawSetString("headers", hdrs)
+	out.RawSetString("headers", headers)
 	out.RawSetString("body", lua.LString(string(body)))
 	L.Push(out)
 	L.Push(lua.LNil)
 	return 2
 }
 
-// luaStream implements client:stream({...}) -> (resp, err), feeding the
+// luaStream implements client:stream({...}) -> (response, err), feeding the
 // upstream body to on_line (line mode) or on_chunk (raw bytes mode). resp
 // carries {status, headers}; err follows the error contract, or nil.
-// on_response(resp) optionally classifies the head before the body streams:
+// on_response(response) optionally classifies the head before the body streams:
 // its non-nil return aborts with that error table. Without a hook decision
 // a non-2xx surfaces as upstream, never as a silent stream.
 func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
-	arg := L.CheckTable(2)
-	onLine := arg.RawGetString("on_line")
-	onChunk := arg.RawGetString("on_chunk")
+	arguments := L.CheckTable(2)
+	onLine := arguments.RawGetString("on_line")
+	onChunk := arguments.RawGetString("on_chunk")
 	if onLine == lua.LNil && onChunk == lua.LNil {
 		L.RaiseError("stream: on_line or on_chunk callback is required")
 		return 0
@@ -465,26 +465,26 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 			return 0
 		}
 	}
-	onResponse := arg.RawGetString("on_response")
+	onResponse := arguments.RawGetString("on_response")
 	if onResponse != lua.LNil {
 		if _, ok := onResponse.(*lua.LFunction); !ok {
 			L.RaiseError("stream: on_response must be a function")
 			return 0
 		}
 	}
-	req, proxyURL := c.buildRequest(L, arg)
-	if req == nil {
+	request, proxyURL := c.buildRequest(L, arguments)
+	if request == nil {
 		return 0
 	}
-	resp, direct, err := c.doSingle(req, proxyURL)
+	response, direct, err := c.doSingle(request, proxyURL)
 	if err != nil {
 		L.Push(lua.LNil)
 		c.pushFault(L, err, direct)
 		return 2
 	}
-	defer resp.Body.Close()
-	head := responseHead(L, resp)
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+	defer response.Body.Close()
+	head := responseHead(L, response)
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
 		if hookErr := c.runOnResponse(L, onResponse, head); hookErr != nil {
 			L.Push(lua.LNil)
 			L.Push(hookErr)
@@ -493,7 +493,7 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 	} else {
 		// Error responses never stream: buffer the bounded body first so
 		// the hook classifies with full context (status, headers, body).
-		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, streamErrBodyLimit))
+		errBody, _ := io.ReadAll(io.LimitReader(response.Body, streamErrBodyLimit))
 		head.RawSetString("body", lua.LString(string(errBody)))
 		if hookErr := c.runOnResponse(L, onResponse, head); hookErr != nil {
 			L.Push(lua.LNil)
@@ -501,17 +501,17 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 			return 2
 		}
 		L.Push(lua.LNil)
-		pushLuaErr(L, "server_error", fmt.Sprintf("unexpected status %d: %s", resp.StatusCode, string(errBody)))
+		pushLuaError(L, "server_error", fmt.Sprintf("unexpected status %d: %s", response.StatusCode, string(errBody)))
 		return 2
 	}
-	if fn, ok := onChunk.(*lua.LFunction); ok {
-		buf := make([]byte, streamChunkSize)
+	if callback, ok := onChunk.(*lua.LFunction); ok {
+		buffer := make([]byte, streamChunkSize)
 		for {
-			n, err := resp.Body.Read(buf)
+			n, err := response.Body.Read(buffer)
 			if n > 0 {
-				if callErr := protectedCallback(L, fn, lua.LString(string(buf[:n]))); callErr != nil {
+				if callError := protectedCallback(L, callback, lua.LString(string(buffer[:n]))); callError != nil {
 					L.Push(lua.LNil)
-					pushLuaErr(L, "server_error", fmt.Sprintf("on_chunk failed: %s", callErr.Error()))
+					pushLuaError(L, "server_error", fmt.Sprintf("on_chunk failed: %s", callError.Error()))
 					return 2
 				}
 			}
@@ -529,14 +529,14 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 		L.Push(lua.LNil)
 		return 2
 	}
-	fn := onLine.(*lua.LFunction)
-	scanner := bufio.NewScanner(resp.Body)
+	callback := onLine.(*lua.LFunction)
+	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, streamScannerMin), streamScannerMax)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if callErr := protectedCallback(L, fn, lua.LString(line)); callErr != nil {
+		if callError := protectedCallback(L, callback, lua.LString(line)); callError != nil {
 			L.Push(lua.LNil)
-			pushLuaErr(L, "server_error", fmt.Sprintf("on_line failed: %s", callErr.Error()))
+			pushLuaError(L, "server_error", fmt.Sprintf("on_line failed: %s", callError.Error()))
 			return 2
 		}
 	}
@@ -553,14 +553,14 @@ func (c *pluginHTTPClient) luaStream(L *lua.LState) int {
 
 // responseHead renders the response status line as a Lua table for the
 // on_response hook and the stream success value.
-func responseHead(L *lua.LState, resp *http.Response) *lua.LTable {
+func responseHead(L *lua.LState, response *http.Response) *lua.LTable {
 	head := L.NewTable()
-	head.RawSetString("status", lua.LNumber(resp.StatusCode))
-	hdrs := L.NewTable()
-	for k, vv := range resp.Header {
-		hdrs.RawSetString(strings.ToLower(k), lua.LString(strings.Join(vv, ", ")))
+	head.RawSetString("status", lua.LNumber(response.StatusCode))
+	headers := L.NewTable()
+	for k, vv := range response.Header {
+		headers.RawSetString(strings.ToLower(k), lua.LString(strings.Join(vv, ", ")))
 	}
-	head.RawSetString("headers", hdrs)
+	head.RawSetString("headers", headers)
 	return head
 }
 
@@ -571,13 +571,13 @@ func (c *pluginHTTPClient) runOnResponse(L *lua.LState, hook lua.LValue, head *l
 	if hook == lua.LNil {
 		return nil
 	}
-	fn, ok := hook.(*lua.LFunction)
+	callback, ok := hook.(*lua.LFunction)
 	if !ok {
 		L.RaiseError("stream: on_response must be a function")
 		return nil
 	}
 	top := L.GetTop()
-	L.Push(fn)
+	L.Push(callback)
 	L.Push(head)
 	if err := L.PCall(1, 1, nil); err != nil {
 		L.SetTop(top)
@@ -597,19 +597,19 @@ func (c *pluginHTTPClient) runOnResponse(L *lua.LState, hook lua.LValue, head *l
 	return tbl
 }
 
-func protectedCallback(L *lua.LState, fn *lua.LFunction, args ...lua.LValue) error {
+func protectedCallback(L *lua.LState, callback *lua.LFunction, values ...lua.LValue) error {
 	top := L.GetTop()
-	L.Push(fn)
-	for _, a := range args {
+	L.Push(callback)
+	for _, a := range values {
 		L.Push(a)
 	}
-	err := L.PCall(len(args), 0, nil)
+	err := L.PCall(len(values), 0, nil)
 	L.SetTop(top)
 	return err
 }
 
-// pushLuaErr pushes a terminal error table {message=, code=} onto the stack.
-func pushLuaErr(L *lua.LState, code, message string) {
+// pushLuaError pushes a terminal error table {message=, code=} onto the stack.
+func pushLuaError(L *lua.LState, code, message string) {
 	tbl := L.NewTable()
 	tbl.RawSetString("message", lua.LString(message))
 	tbl.RawSetString("code", lua.LString(code))
@@ -627,10 +627,10 @@ func pushLuaErr(L *lua.LState, code, message string) {
 //
 // Cancellation of the caller context is never a transport failure.
 func (c *pluginHTTPClient) pushFault(L *lua.LState, err error, direct bool) {
-	tbl := L.NewTable()
-	tbl.RawSetString("message", lua.LString(err.Error()))
-	tbl.RawSetString("code", lua.LString("server_error"))
-	if isNetworkFailure(err) && goCtxOf(c).Err() == nil {
+	table := L.NewTable()
+	table.RawSetString("message", lua.LString(err.Error()))
+	table.RawSetString("code", lua.LString("server_error"))
+	if isNetworkFailure(err) && clientContext(c).Err() == nil {
 		reason := markDeadReason(err)
 		if reason == "" {
 			reason = bodyReadReason(err)
@@ -639,12 +639,12 @@ func (c *pluginHTTPClient) pushFault(L *lua.LState, err error, direct bool) {
 			reason = "network"
 		}
 		proxyFault := !direct
-		tbl.RawSetString("transport", lua.LTrue)
-		tbl.RawSetString("reason", lua.LString(reason))
-		tbl.RawSetString("proxy_fault", lua.LBool(proxyFault))
-		tbl.RawSetString("retryable", lua.LBool(proxyFault && !c.ctx.streamDelivered()))
+		table.RawSetString("transport", lua.LTrue)
+		table.RawSetString("reason", lua.LString(reason))
+		table.RawSetString("proxy_fault", lua.LBool(proxyFault))
+		table.RawSetString("retryable", lua.LBool(proxyFault && !c.ctx.streamDelivered()))
 	}
-	L.Push(tbl)
+	L.Push(table)
 }
 
 // markBodyFault reports a body-read failure on a proxied leg. The mark only
@@ -730,8 +730,8 @@ func isNetworkFailure(err error) bool {
 		markDeadReason(err) != "" || bodyReadReason(err) != ""
 }
 
-func luaTableString(tbl *lua.LTable, key, def string) string {
-	if v := tbl.RawGetString(key); v != lua.LNil {
+func luaTableString(table *lua.LTable, key, def string) string {
+	if v := table.RawGetString(key); v != lua.LNil {
 		if s, ok := v.(lua.LString); ok {
 			return string(s)
 		}
@@ -739,22 +739,22 @@ func luaTableString(tbl *lua.LTable, key, def string) string {
 	return def
 }
 
-func luaTableStringMap(tbl *lua.LTable, key string) map[string]string {
+func luaTableStringMap(table *lua.LTable, key string) map[string]string {
 	out := map[string]string{}
-	v := tbl.RawGetString(key)
-	hdrs, ok := v.(*lua.LTable)
+	v := table.RawGetString(key)
+	headers, ok := v.(*lua.LTable)
 	if !ok {
 		return out
 	}
 	var keys []string
-	hdrs.ForEach(func(k, _ lua.LValue) {
+	headers.ForEach(func(k, _ lua.LValue) {
 		if ks, ok := k.(lua.LString); ok {
 			keys = append(keys, string(ks))
 		}
 	})
 	sort.Strings(keys)
 	for _, k := range keys {
-		if s, ok := hdrs.RawGetString(k).(lua.LString); ok {
+		if s, ok := headers.RawGetString(k).(lua.LString); ok {
 			out[k] = string(s)
 		}
 	}

@@ -12,14 +12,14 @@ func setupCredentialService(t *testing.T) (*Service, *provider.Service) {
 	t.Helper()
 	database := testutil.SetupTestDB(t)
 
-	providerSvc := provider.NewService(database)
-	providerSvc.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
-	if _, err := providerSvc.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
+	providerService := provider.NewService(database)
+	providerService.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
+	if _, err := providerService.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
 	}
-	credSvc := New(database, providerSvc)
+	credentialService := New(database, providerService)
 
-	return credSvc, providerSvc
+	return credentialService, providerService
 }
 
 // ─────────────────────────────────────────────
@@ -27,9 +27,9 @@ func setupCredentialService(t *testing.T) (*Service, *provider.Service) {
 // ─────────────────────────────────────────────
 
 func TestCredentialService_Add_Valid(t *testing.T) {
-	svc, _ := setupCredentialService(t)
+	service, _ := setupCredentialService(t)
 
-	cred, err := svc.Add(AddOptions{
+	cred, err := service.Add(AddOptions{
 		ProviderID: "mock",
 		Label:      "Test Credential",
 		Data:       map[string]any{"api_key": "test-key"},
@@ -51,9 +51,9 @@ func TestCredentialService_Add_Valid(t *testing.T) {
 }
 
 func TestCredentialService_Add_InvalidData(t *testing.T) {
-	svc, _ := setupCredentialService(t)
+	service, _ := setupCredentialService(t)
 
-	_, err := svc.Add(AddOptions{
+	_, err := service.Add(AddOptions{
 		ProviderID: "mock",
 		Label:      "Invalid",
 		Data:       map[string]any{},
@@ -65,9 +65,9 @@ func TestCredentialService_Add_InvalidData(t *testing.T) {
 }
 
 func TestCredentialService_Add_InvalidProvider(t *testing.T) {
-	svc, _ := setupCredentialService(t)
+	service, _ := setupCredentialService(t)
 
-	_, err := svc.Add(AddOptions{
+	_, err := service.Add(AddOptions{
 		ProviderID: "nonexistent",
 		Label:      "Test",
 		Data:       map[string]any{"api_key": "test"},
@@ -83,20 +83,20 @@ func TestCredentialService_Add_InvalidProvider(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestCredentialService_Next_NeverUsed(t *testing.T) {
-	svc, _ := setupCredentialService(t)
+	service, _ := setupCredentialService(t)
 
-	cred1, _ := svc.Add(AddOptions{
+	cred1, _ := service.Add(AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "key1"},
 	})
-	cred2, _ := svc.Add(AddOptions{
+	cred2, _ := service.Add(AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 2",
 		Data:       map[string]any{"api_key": "key2"},
 	})
 
-	next, err := svc.All("mock")
+	next, err := service.All("mock")
 	if err != nil {
 		t.Fatalf("all failed: %v", err)
 	}
@@ -110,9 +110,9 @@ func TestCredentialService_Next_NeverUsed(t *testing.T) {
 }
 
 func TestCredentialService_ListUsable_EmptyPoolYieldsEmpty(t *testing.T) {
-	svc, _ := setupCredentialService(t)
+	service, _ := setupCredentialService(t)
 
-	got, err := svc.ListUsable("mock")
+	got, err := service.ListUsable("mock")
 	if err != nil {
 		t.Fatalf("empty pool must not error, got %v", err)
 	}
@@ -120,26 +120,26 @@ func TestCredentialService_ListUsable_EmptyPoolYieldsEmpty(t *testing.T) {
 		t.Fatalf("empty pool must yield empty slice, got %v", got)
 	}
 
-	if _, err := svc.All("mock"); err == nil {
+	if _, err := service.All("mock"); err == nil {
 		t.Fatal("All must deny empty pools for the router gate")
 	}
 }
 
 func TestCredentialService_All_ReturnsBoth(t *testing.T) {
-	svc, _ := setupCredentialService(t)
+	service, _ := setupCredentialService(t)
 
-	cred1, _ := svc.Add(AddOptions{
+	cred1, _ := service.Add(AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "key1"},
 	})
-	cred2, _ := svc.Add(AddOptions{
+	cred2, _ := service.Add(AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 2",
 		Data:       map[string]any{"api_key": "key2"},
 	})
 
-	all, err := svc.All("mock")
+	all, err := service.All("mock")
 	if err != nil {
 		t.Fatalf("all failed: %v", err)
 	}
@@ -159,9 +159,9 @@ func TestCredentialService_All_ReturnsBoth(t *testing.T) {
 }
 
 func TestCredentialService_Next_NoCredentials(t *testing.T) {
-	svc, _ := setupCredentialService(t)
+	service, _ := setupCredentialService(t)
 
-	_, err := svc.All("mock")
+	_, err := service.All("mock")
 	if err == nil {
 		t.Error("expected error when no credentials available, got nil")
 	}
@@ -172,21 +172,21 @@ func TestCredentialService_Next_NoCredentials(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestCredentialService_All_ContainsBoth(t *testing.T) {
-	svc, _ := setupCredentialService(t)
+	service, _ := setupCredentialService(t)
 
-	neverUsed, _ := svc.Add(AddOptions{
+	neverUsed, _ := service.Add(AddOptions{
 		ProviderID: "mock",
 		Label:      "Never Used",
 		Data:       map[string]any{"api_key": "key1"},
 	})
 
-	normal, _ := svc.Add(AddOptions{
+	normal, _ := service.Add(AddOptions{
 		ProviderID: "mock",
 		Label:      "Normal",
 		Data:       map[string]any{"api_key": "key2"},
 	})
 
-	all, err := svc.All("mock")
+	all, err := service.All("mock")
 	if err != nil {
 		t.Fatalf("all failed: %v", err)
 	}
@@ -205,23 +205,23 @@ func TestCredentialService_All_ContainsBoth(t *testing.T) {
 }
 
 func TestCredentialService_All_ExcludesExpired(t *testing.T) {
-	svc, _ := setupCredentialService(t)
+	service, _ := setupCredentialService(t)
 
-	_, _ = svc.Add(AddOptions{
+	_, _ = service.Add(AddOptions{
 		ProviderID: "mock",
 		Label:      "Normal",
 		Data:       map[string]any{"api_key": "key1"},
 	})
 
-	expired, _ := svc.Add(AddOptions{
+	expired, _ := service.Add(AddOptions{
 		ProviderID: "mock",
 		Label:      "Expired",
 		Data:       map[string]any{"api_key": "key2"},
 	})
 	past := time.Now().Add(-1 * time.Hour)
-	svc.Update(expired.ID, map[string]any{"api_key": "key2"}, &past)
+	service.Update(expired.ID, map[string]any{"api_key": "key2"}, &past)
 
-	all, err := svc.All("mock")
+	all, err := service.All("mock")
 	if err != nil {
 		t.Fatalf("all failed: %v", err)
 	}
@@ -236,20 +236,20 @@ func TestCredentialService_All_ExcludesExpired(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestCredentialService_Update_PersistsJobRefresh(t *testing.T) {
-	svc, _ := setupCredentialService(t)
+	service, _ := setupCredentialService(t)
 
-	cred, _ := svc.Add(AddOptions{
+	cred, _ := service.Add(AddOptions{
 		ProviderID: "mock",
 		Label:      "Test",
 		Data:       map[string]any{"api_key": "key1"},
 	})
 
 	refreshed := map[string]any{"api_key": "key1", "access_token": "tok"}
-	if err := svc.Update(cred.ID, refreshed, nil); err != nil {
+	if err := service.Update(cred.ID, refreshed, nil); err != nil {
 		t.Fatalf("update failed: %v", err)
 	}
 
-	updated, err := svc.Get(cred.ID)
+	updated, err := service.Get(cred.ID)
 	if err != nil {
 		t.Fatalf("get failed: %v", err)
 	}
@@ -264,19 +264,19 @@ func TestCredentialService_Update_PersistsJobRefresh(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestCredentialService_Delete(t *testing.T) {
-	svc, _ := setupCredentialService(t)
+	service, _ := setupCredentialService(t)
 
-	cred, _ := svc.Add(AddOptions{
+	cred, _ := service.Add(AddOptions{
 		ProviderID: "mock",
 		Label:      "Test",
 		Data:       map[string]any{"api_key": "key1"},
 	})
 
-	if err := svc.Delete(cred.ID); err != nil {
+	if err := service.Delete(cred.ID); err != nil {
 		t.Fatalf("delete failed: %v", err)
 	}
 
-	_, err := svc.Get(cred.ID)
+	_, err := service.Get(cred.ID)
 	if err == nil {
 		t.Error("expected error after delete, got nil")
 	}
@@ -287,9 +287,9 @@ func TestCredentialService_Delete(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestCredentialService_Update(t *testing.T) {
-	svc, _ := setupCredentialService(t)
+	service, _ := setupCredentialService(t)
 
-	cred, _ := svc.Add(AddOptions{
+	cred, _ := service.Add(AddOptions{
 		ProviderID: "mock",
 		Label:      "Test",
 		Data:       map[string]any{"api_key": "old-key"},
@@ -298,11 +298,11 @@ func TestCredentialService_Update(t *testing.T) {
 	newData := map[string]any{"api_key": "new-key"}
 	future := time.Now().Add(1 * time.Hour)
 
-	if err := svc.Update(cred.ID, newData, &future); err != nil {
+	if err := service.Update(cred.ID, newData, &future); err != nil {
 		t.Fatalf("update failed: %v", err)
 	}
 
-	updated, err := svc.Get(cred.ID)
+	updated, err := service.Get(cred.ID)
 	if err != nil {
 		t.Fatalf("get failed: %v", err)
 	}
@@ -320,20 +320,20 @@ func TestCredentialService_Update(t *testing.T) {
 // ─────────────────────────────────────────────
 
 func TestCredentialService_DeleteByProvider(t *testing.T) {
-	svc, _ := setupCredentialService(t)
+	service, _ := setupCredentialService(t)
 
-	svc.Add(AddOptions{
+	service.Add(AddOptions{
 		ProviderID: "mock",
 		Label:      "One",
 		Data:       map[string]any{"api_key": "key1"},
 	})
-	svc.Add(AddOptions{
+	service.Add(AddOptions{
 		ProviderID: "mock",
 		Label:      "Two",
 		Data:       map[string]any{"api_key": "key2"},
 	})
 
-	n, err := svc.DeleteByProvider("mock")
+	n, err := service.DeleteByProvider("mock")
 	if err != nil {
 		t.Fatalf("delete by provider failed: %v", err)
 	}
@@ -341,7 +341,7 @@ func TestCredentialService_DeleteByProvider(t *testing.T) {
 		t.Errorf("removed count: got %d, want 2", n)
 	}
 
-	remaining, err := svc.ListByProvider("mock")
+	remaining, err := service.ListByProvider("mock")
 	if err != nil {
 		t.Fatalf("list failed: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestCredentialService_DeleteByProvider(t *testing.T) {
 		t.Errorf("expected no remaining credentials, got %d", len(remaining))
 	}
 
-	n, err = svc.DeleteByProvider("mock")
+	n, err = service.DeleteByProvider("mock")
 	if err != nil {
 		t.Fatalf("second delete failed: %v", err)
 	}

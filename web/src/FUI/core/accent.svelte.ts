@@ -28,13 +28,13 @@ function readableOn(rgb: [number, number, number]): string {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.5 ? '#2b2d31' : '#ffffff'
 }
 
-export function setAccent(bg: string, opts: AccentOptions = {}): void {
+export function setAccent(bg: string, options: AccentOptions = {}): void {
   if (typeof document === 'undefined') return
   const root = document.documentElement
   const rgb = parseHex(bg)
   root.style.setProperty('--fui-color-accent', bg)
-  root.style.setProperty('--fui-color-accent-hover', opts.hover ?? (rgb ? darken(rgb) : bg))
+  root.style.setProperty('--fui-color-accent-hover', options.hover ?? (rgb ? darken(rgb) : bg))
   root.style.setProperty('--fui-color-accent-soft', rgb ? `rgba(${rgb.join(', ')}, 0.1)` : bg)
-  root.style.setProperty('--fui-color-text-on-button-reverse', opts.text ?? (rgb ? readableOn(rgb) : '#ffffff'))
-  root.toggleAttribute('data-fui-tint-elev', !!opts.tintElev)
+  root.style.setProperty('--fui-color-text-on-button-reverse', options.text ?? (rgb ? readableOn(rgb) : '#ffffff'))
+  root.toggleAttribute('data-fui-tint-elev', !!options.tintElev)
 }

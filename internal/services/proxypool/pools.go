@@ -14,13 +14,13 @@ func (s *Service) ListCustomPools() ([]*models.CustomProxyPool, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*models.CustomProxyPool, 0, len(all))
-	for _, p := range all {
-		if p != nil {
-			out = append(out, p)
+	result := make([]*models.CustomProxyPool, 0, len(all))
+	for _, customPool := range all {
+		if customPool != nil {
+			result = append(result, customPool)
 		}
 	}
-	return out, nil
+	return result, nil
 }
 
 // SaveCustomPool creates or replaces a custom pool. IDs are slugified from
@@ -38,12 +38,12 @@ func (s *Service) SaveCustomPool(pool *models.CustomProxyPool) (*models.CustomPr
 		id = slugify(name)
 	}
 	entries := make([]models.ProxyEntry, 0, len(pool.Entries))
-	for _, e := range pool.Entries {
-		u := strings.TrimSpace(e.URL)
-		if u == "" {
+	for _, entry := range pool.Entries {
+		entryURL := strings.TrimSpace(entry.URL)
+		if entryURL == "" {
 			continue
 		}
-		entries = append(entries, models.ProxyEntry{URL: u, Country: strings.ToUpper(strings.TrimSpace(e.Country))})
+		entries = append(entries, models.ProxyEntry{URL: entryURL, Country: strings.ToUpper(strings.TrimSpace(entry.Country))})
 	}
 	now := time.Now().UTC()
 	saved := &models.CustomProxyPool{ID: id, Name: name, Entries: entries, CreatedAt: pool.CreatedAt, UpdatedAt: now}
@@ -68,33 +68,33 @@ func (s *Service) DeleteCustomPool(id string) error {
 	return s.pools.Delete(id)
 }
 
-func (s *Service) findCustomPool(ref string) (*models.CustomProxyPool, error) {
-	if got, err := s.pools.Get(ref); err == nil && got != nil {
+func (s *Service) findCustomPool(poolReference string) (*models.CustomProxyPool, error) {
+	if got, err := s.pools.Get(poolReference); err == nil && got != nil {
 		return got, nil
 	}
 	all, err := s.pools.List()
 	if err != nil {
 		return nil, err
 	}
-	for _, p := range all {
-		if p != nil && strings.EqualFold(p.Name, ref) {
-			return p, nil
+	for _, customPool := range all {
+		if customPool != nil && strings.EqualFold(customPool.Name, poolReference) {
+			return customPool, nil
 		}
 	}
-	return nil, fmt.Errorf("proxy pool %q not found", ref)
+	return nil, fmt.Errorf("proxy pool %q not found", poolReference)
 }
 
 func slugify(name string) string {
-	var b strings.Builder
+	var builder strings.Builder
 	for _, r := range strings.ToLower(name) {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			b.WriteRune(r)
+			builder.WriteRune(r)
 		case r == ' ' || r == '-' || r == '_':
-			b.WriteRune('-')
+			builder.WriteRune('-')
 		}
 	}
-	slug := strings.Trim(b.String(), "-")
+	slug := strings.Trim(builder.String(), "-")
 	if slug == "" {
 		slug = "pool"
 	}

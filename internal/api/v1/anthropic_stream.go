@@ -22,27 +22,27 @@ type anthropicStreamWriter struct {
 	flusher interface{ Flush() }
 	model   string
 
-	started      bool
-	messageID    string
-	blockType    string // "", "text", "thinking", "tool_use"
-	blockIndex   int    // Anthropic block index of the open block
-	nextBlock    int    // next Anthropic block index to assign
-	toolBlocks   map[int]int
-	openToolIdx  int // OpenAI tool_calls index of the open tool block
-	finishReason string
-	inputTokens  int
-	outputTokens int
+	started       bool
+	messageID     string
+	blockType     string // "", "text", "thinking", "tool_use"
+	blockIndex    int    // Anthropic block index of the open block
+	nextBlock     int    // next Anthropic block index to assign
+	toolBlocks    map[int]int
+	openToolIndex int // OpenAI tool_calls index of the open tool block
+	finishReason  string
+	inputTokens   int
+	outputTokens  int
 
-	buf []byte
+	buffer []byte
 }
 
 func newAnthropicStreamWriter(w io.Writer, flusher interface{ Flush() }, model string) *anthropicStreamWriter {
 	return &anthropicStreamWriter{
-		w:           w,
-		flusher:     flusher,
-		model:       model,
-		toolBlocks:  map[int]int{},
-		openToolIdx: -1,
+		w:             w,
+		flusher:       flusher,
+		model:         model,
+		toolBlocks:    map[int]int{},
+		openToolIndex: -1,
 	}
 }
 
@@ -63,14 +63,14 @@ func (s *anthropicStreamWriter) emit(event string, payload any) error {
 // Write consumes OpenAI SSE bytes. Complete data frames are translated
 // incrementally; a trailing partial frame stays buffered.
 func (s *anthropicStreamWriter) Write(p []byte) (int, error) {
-	s.buf = append(s.buf, p...)
+	s.buffer = append(s.buffer, p...)
 	for {
-		idx := bytes.Index(s.buf, []byte("\n\n"))
-		if idx < 0 {
+		index := bytes.Index(s.buffer, []byte("\n\n"))
+		if index < 0 {
 			break
 		}
-		frame := s.buf[:idx]
-		s.buf = s.buf[idx+2:]
+		frame := s.buffer[:index]
+		s.buffer = s.buffer[index+2:]
 		if err := s.handleFrame(frame); err != nil {
 			return 0, err
 		}
@@ -169,20 +169,20 @@ func (s *anthropicStreamWriter) handleDelta(choice models.StreamChunkChoice) err
 			return err
 		}
 	}
-	for i, tc := range delta.ToolCalls {
-		toolIdx := i
-		if tc.ID != "" {
-			if mapped, ok := s.toolBlocks[toolIdx]; !ok || s.blockType != "tool_use" || s.openToolIdx != toolIdx || s.blockIndex != mapped {
-				if err := s.openBlock("tool_use", toolIdx, tc.ID, tc.Function.Name); err != nil {
+	for i, toolCall := range delta.ToolCalls {
+		toolIndex := i
+		if toolCall.ID != "" {
+			if mapped, ok := s.toolBlocks[toolIndex]; !ok || s.blockType != "tool_use" || s.openToolIndex != toolIndex || s.blockIndex != mapped {
+				if err := s.openBlock("tool_use", toolIndex, toolCall.ID, toolCall.Function.Name); err != nil {
 					return err
 				}
 			}
 		}
-		if tc.Function.Arguments != "" && s.blockType == "tool_use" {
+		if toolCall.Function.Arguments != "" && s.blockType == "tool_use" {
 			if err := s.emit("content_block_delta", map[string]any{
 				"type":  "content_block_delta",
 				"index": s.blockIndex,
-				"delta": map[string]any{"type": "input_json_delta", "partial_json": tc.Function.Arguments},
+				"delta": map[string]any{"type": "input_json_delta", "partial_json": toolCall.Function.Arguments},
 			}); err != nil {
 				return err
 			}
@@ -193,7 +193,7 @@ func (s *anthropicStreamWriter) handleDelta(choice models.StreamChunkChoice) err
 
 // openBlock closes the current block (when the type changes) and opens a new
 // one. A block of the same type stays open for consecutive deltas.
-func (s *anthropicStreamWriter) openBlock(kind string, toolIdx int, toolID, toolName string) error {
+func (s *anthropicStreamWriter) openBlock(kind string, toolIndex int, toolID, toolName string) error {
 	if s.blockType == kind && kind != "tool_use" {
 		return nil
 	}
@@ -215,8 +215,8 @@ func (s *anthropicStreamWriter) openBlock(kind string, toolIdx int, toolID, tool
 		contentBlock = map[string]any{"type": "thinking", "thinking": ""}
 	case "tool_use":
 		contentBlock = map[string]any{"type": "tool_use", "id": toolID, "name": toolName, "input": map[string]any{}}
-		s.toolBlocks[toolIdx] = s.blockIndex
-		s.openToolIdx = toolIdx
+		s.toolBlocks[toolIndex] = s.blockIndex
+		s.openToolIndex = toolIndex
 	default:
 		contentBlock = map[string]any{"type": "text", "text": ""}
 	}

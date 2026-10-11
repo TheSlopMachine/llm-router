@@ -41,34 +41,34 @@ func baseURLFromConfig(config map[string]any) (string, error) {
 
 func (a *Adapter) Complete(
 	ctx context.Context,
-	creds []*models.Credential,
-	req *models.ChatCompletionRequest,
+	credentials []*models.Credential,
+	request *models.ChatCompletionRequest,
 	providerConfig map[string]any,
 ) (*models.ChatCompletionResponse, error) {
-	adapterType, _, modelName, err := req.Model.ParseFull()
+	adapterType, _, modelName, err := request.Model.ParseFull()
 	if err != nil {
 		return nil, fmt.Errorf("invalid model id: %w", err)
 	}
 	if adapterType != provider.TypeCustom {
-		return nil, fmt.Errorf("generic adapter called for non-custom model %q", req.Model)
+		return nil, fmt.Errorf("generic adapter called for non-custom model %q", request.Model)
 	}
 	baseURL, err := baseURLFromConfig(providerConfig)
 	if err != nil {
 		return nil, err
 	}
-	if len(creds) == 0 {
+	if len(credentials) == 0 {
 		return nil, fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
 	var lastErr error
-	for _, cred := range creds {
+	for _, credential := range credentials {
 		var apiKey string
-		if cred != nil {
-			apiKey = cred.DataString("api_key")
+		if credential != nil {
+			apiKey = credential.DataString("api_key")
 		}
-		resp, err := client.ChatCompletion(ctx, apiKey, modelName, req)
+		response, err := client.ChatCompletion(ctx, apiKey, modelName, request)
 		if err == nil {
-			return resp, nil
+			return response, nil
 		}
 		lastErr = err
 	}
@@ -77,33 +77,33 @@ func (a *Adapter) Complete(
 
 func (a *Adapter) CompleteStream(
 	ctx context.Context,
-	creds []*models.Credential,
-	req *models.ChatCompletionRequest,
-	w io.Writer,
+	credentials []*models.Credential,
+	request *models.ChatCompletionRequest,
+	writer io.Writer,
 	providerConfig map[string]any,
 ) error {
-	adapterType, _, modelName, err := req.Model.ParseFull()
+	adapterType, _, modelName, err := request.Model.ParseFull()
 	if err != nil {
 		return fmt.Errorf("invalid model id: %w", err)
 	}
 	if adapterType != provider.TypeCustom {
-		return fmt.Errorf("generic adapter called for non-custom model %q", req.Model)
+		return fmt.Errorf("generic adapter called for non-custom model %q", request.Model)
 	}
 	baseURL, err := baseURLFromConfig(providerConfig)
 	if err != nil {
 		return err
 	}
-	if len(creds) == 0 {
+	if len(credentials) == 0 {
 		return fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
 	var lastErr error
-	for _, cred := range creds {
+	for _, credential := range credentials {
 		var apiKey string
-		if cred != nil {
-			apiKey = cred.DataString("api_key")
+		if credential != nil {
+			apiKey = credential.DataString("api_key")
 		}
-		if err := client.ChatCompletionStream(ctx, apiKey, modelName, req, w); err == nil {
+		if err := client.ChatCompletionStream(ctx, apiKey, modelName, request, writer); err == nil {
 			return nil
 		} else {
 			lastErr = err
@@ -115,15 +115,15 @@ func (a *Adapter) CompleteStream(
 	return lastErr
 }
 
-func (a *Adapter) NeedsRefresh(cred *models.Credential) bool { return false }
+func (a *Adapter) NeedsRefresh(credential *models.Credential) bool { return false }
 
-func (a *Adapter) RefreshCredential(ctx context.Context, cred *models.Credential) (map[string]any, error) {
+func (a *Adapter) RefreshCredential(ctx context.Context, credential *models.Credential) (map[string]any, error) {
 	return nil, provider.ErrNotRefreshable
 }
 
 func (a *Adapter) GetModelInfos(
 	ctx context.Context,
-	cred *models.Credential,
+	credential *models.Credential,
 	providerConfig map[string]any,
 ) ([]models.ModelInfo, error) {
 	baseURL, err := baseURLFromConfig(providerConfig)
@@ -131,8 +131,8 @@ func (a *Adapter) GetModelInfos(
 		return nil, err
 	}
 	apiKey := ""
-	if cred != nil {
-		apiKey = cred.DataString("api_key")
+	if credential != nil {
+		apiKey = credential.DataString("api_key")
 	}
 	client := newClient(baseURL)
 	return client.ListModels(ctx, apiKey)
@@ -141,34 +141,34 @@ func (a *Adapter) GetModelInfos(
 // SubmitVideo routes one video generation submit over the credential pool.
 func (a *Adapter) SubmitVideo(
 	ctx context.Context,
-	creds []*models.Credential,
-	req *models.VideoGenerationRequest,
+	credentials []*models.Credential,
+	request *models.VideoGenerationRequest,
 	providerConfig map[string]any,
 ) (*models.VideoGenerationResponse, error) {
-	adapterType, _, modelName, err := req.Model.ParseFull()
+	adapterType, _, modelName, err := request.Model.ParseFull()
 	if err != nil {
 		return nil, fmt.Errorf("invalid model id: %w", err)
 	}
 	if adapterType != provider.TypeCustom {
-		return nil, fmt.Errorf("generic adapter called for non-custom model %q", req.Model)
+		return nil, fmt.Errorf("generic adapter called for non-custom model %q", request.Model)
 	}
 	baseURL, err := baseURLFromConfig(providerConfig)
 	if err != nil {
 		return nil, err
 	}
-	if len(creds) == 0 {
+	if len(credentials) == 0 {
 		return nil, fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
 	var lastErr error
-	for _, cred := range creds {
+	for _, credential := range credentials {
 		var apiKey string
-		if cred != nil {
-			apiKey = cred.DataString("api_key")
+		if credential != nil {
+			apiKey = credential.DataString("api_key")
 		}
-		resp, err := client.SubmitVideo(ctx, apiKey, modelName, req)
+		response, err := client.SubmitVideo(ctx, apiKey, modelName, request)
 		if err == nil {
-			return resp, nil
+			return response, nil
 		}
 		lastErr = err
 	}
@@ -178,7 +178,7 @@ func (a *Adapter) SubmitVideo(
 // PollVideo routes one video status poll over the credential pool.
 func (a *Adapter) PollVideo(
 	ctx context.Context,
-	creds []*models.Credential,
+	credentials []*models.Credential,
 	model models.ModelId,
 	upstreamJobID string,
 	providerConfig map[string]any,
@@ -194,19 +194,19 @@ func (a *Adapter) PollVideo(
 	if err != nil {
 		return nil, err
 	}
-	if len(creds) == 0 {
+	if len(credentials) == 0 {
 		return nil, fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
 	var lastErr error
-	for _, cred := range creds {
+	for _, credential := range credentials {
 		var apiKey string
-		if cred != nil {
-			apiKey = cred.DataString("api_key")
+		if credential != nil {
+			apiKey = credential.DataString("api_key")
 		}
-		resp, err := client.PollVideo(ctx, apiKey, upstreamJobID)
+		response, err := client.PollVideo(ctx, apiKey, upstreamJobID)
 		if err == nil {
-			return resp, nil
+			return response, nil
 		}
 		lastErr = err
 	}
@@ -216,7 +216,7 @@ func (a *Adapter) PollVideo(
 // VideoContent routes one video asset download over the credential pool.
 func (a *Adapter) VideoContent(
 	ctx context.Context,
-	creds []*models.Credential,
+	credentials []*models.Credential,
 	model models.ModelId,
 	upstreamJobID string,
 	index int,
@@ -233,19 +233,19 @@ func (a *Adapter) VideoContent(
 	if err != nil {
 		return nil, err
 	}
-	if len(creds) == 0 {
+	if len(credentials) == 0 {
 		return nil, fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
 	var lastErr error
-	for _, cred := range creds {
+	for _, credential := range credentials {
 		var apiKey string
-		if cred != nil {
-			apiKey = cred.DataString("api_key")
+		if credential != nil {
+			apiKey = credential.DataString("api_key")
 		}
-		resp, err := client.VideoContent(ctx, apiKey, upstreamJobID, index)
+		response, err := client.VideoContent(ctx, apiKey, upstreamJobID, index)
 		if err == nil {
-			return resp, nil
+			return response, nil
 		}
 		lastErr = err
 	}

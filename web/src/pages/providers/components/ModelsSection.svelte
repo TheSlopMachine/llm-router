@@ -88,8 +88,8 @@
     return filterByFields(list, modelSearch, (m) => [m.name, m.display_name])
   })
 
-  function needsModalityBackfill(res: TestResult, m: ProviderModel): boolean {
-    return res.ok && !hasModalities(m)
+  function needsModalityBackfill(result: TestResult, m: ProviderModel): boolean {
+    return result.ok && !hasModalities(m)
   }
 
   function filterKey(): string {
@@ -105,8 +105,8 @@
     modelFilter = v
     localStorage.setItem(filterKey(), v)
     try {
-      const cfg = await api.config.get()
-      await api.config.update({ ...cfg, models_filter: v })
+      const routerConfig = await api.config.get()
+      await api.config.update({ ...routerConfig, models_filter: v })
     } catch (e) {
       error = getErrorMessage(e)
     }
@@ -218,25 +218,25 @@
     return [...new Set([...(a ?? []), ...b])]
   }
 
-  function probeToast(m: ProviderModel, res: TestResult): void {
-    if (res.ok) {
-      toast.success(`${m.name} works · ${res.latency_ms}ms`)
+  function probeToast(m: ProviderModel, result: TestResult): void {
+    if (result.ok) {
+      toast.success(`${m.name} works · ${result.latency_ms}ms`)
       return
     }
-    toast.error(`${m.name} failed: ${res.summary ? tb(res.summary) : t('credentials.probe_failed')}`)
+    toast.error(`${m.name} failed: ${result.summary ? tb(result.summary) : t('credentials.probe_failed')}`)
   }
 
-  function isFailingModel(res: TestResult): boolean {
-    return res.code === 'model_unavailable' || res.code === 'not_found'
+  function isFailingModel(result: TestResult): boolean {
+    return result.code === 'model_unavailable' || result.code === 'not_found'
   }
 
   async function probeModel(m: ProviderModel): Promise<TestResult> {
     modelTestResults = { ...modelTestResults, [m.name]: 'loading' }
-    let res: TestResult
+    let result: TestResult
     try {
       const endpoint = probeEndpoint(m)
-      res = await api.models.test(`${providerId}/${m.name}`, endpoint)
-      if (needsModalityBackfill(res, m)) {
+      result = await api.models.test(`${providerId}/${m.name}`, endpoint)
+      if (needsModalityBackfill(result, m)) {
         // Store verified modalities on the model record (full id key).
         // Rows with plugin-declared modalities skip this: the probe only
         // proves liveness, and a redundant write would mask model_specs.
@@ -254,19 +254,19 @@
         }
       }
     } catch (e) {
-      res = { ok: false, latency_ms: 0, error: getErrorMessage(e) }
+      result = { ok: false, latency_ms: 0, error: getErrorMessage(e) }
     }
-    modelTestResults = { ...modelTestResults, [m.name]: res }
-    return res
+    modelTestResults = { ...modelTestResults, [m.name]: result }
+    return result
   }
 
   async function testModel(m: ProviderModel): Promise<TestResult> {
-    const res = await probeModel(m)
-    probeToast(m, res)
-    if (!res.ok) {
+    const result = await probeModel(m)
+    probeToast(m, result)
+    if (!result.ok) {
       // Disable only on model failures. Credential, provider, and transport
       // errors never disable a model.
-      if (disableFailedModels && isFailingModel(res)) {
+      if (disableFailedModels && isFailingModel(result)) {
         await api.models.setOverride(providerId, m.name, { disabled: true })
         await reloadModels()
       }
@@ -276,7 +276,7 @@
       delete next[m.name]
       modelTestResults = next
     })
-    return res
+    return result
   }
 
   let testAllCancel = $state(false)
@@ -299,12 +299,12 @@
       for (const m of models) {
         if (testAllCancel) break
         if (m.disabled) continue
-        const res = await probeModel(m)
-        probeToast(m, res)
-        if (!res.ok) {
+        const result = await probeModel(m)
+        probeToast(m, result)
+        if (!result.ok) {
           // Disable only on model failures. Credential, provider, and transport
           // errors never disable a model.
-          if (isFailingModel(res)) failed.push(m)
+          if (isFailingModel(result)) failed.push(m)
         }
       }
       if (!testAllCancel && disableFailedModels) {
@@ -391,11 +391,11 @@
     }
   }
 
-  function testIcon(res: TestResult | 'loading' | undefined, idleTitle: string): { icon: string; title: string } {
-    if (!res) return { icon: 'network_check', title: idleTitle }
-    if (res === 'loading') return { icon: 'progress_activity', title: t('credentials.testing') }
-    if (res.ok) return { icon: 'check_circle', title: `OK · ${res.latency_ms}ms` }
-    return { icon: 'error', title: res.error ?? t('common.state.failed') }
+  function testIcon(result: TestResult | 'loading' | undefined, idleTitle: string): { icon: string; title: string } {
+    if (!result) return { icon: 'network_check', title: idleTitle }
+    if (result === 'loading') return { icon: 'progress_activity', title: t('credentials.testing') }
+    if (result.ok) return { icon: 'check_circle', title: `OK · ${result.latency_ms}ms` }
+    return { icon: 'error', title: result.error ?? t('common.state.failed') }
   }
 
   async function saveAutomation(): Promise<void> {
@@ -609,16 +609,16 @@
 
       <HStack gap={2} wrap align="center">
         {#each KNOWN_CAPABILITIES as cap}
-          {@const meta = CAPABILITY_META[cap]}
+          {@const capability = CAPABILITY_META[cap]}
           <Button
             size="small"
             selected={!!customCaps[cap]}
-            tint={meta?.tint}
-            icon={meta?.icon ? { name: meta.icon } : undefined}
-            title={meta ? t(meta.hint) : cap}
-            ariaLabel={meta ? t(meta.label) : cap}
+            tint={capability?.tint}
+            icon={capability?.icon ? { name: capability.icon } : undefined}
+            title={capability ? t(capability.hint) : cap}
+            ariaLabel={capability ? t(capability.label) : cap}
             onclick={() => { customCaps = { ...customCaps, [cap]: !customCaps[cap] } }}
-          >{meta ? t(meta.label) : cap}</Button>
+          >{capability ? t(capability.label) : cap}</Button>
         {/each}
       </HStack>
     </VStack>

@@ -16,7 +16,7 @@ type testRecord struct {
 	Value  int    `json:"value"`
 }
 
-func setupTestRepo(t *testing.T) *Repository[testRecord] {
+func setupTestStore(t *testing.T) *Repository[testRecord] {
 	t.Helper()
 	db := testutil.SetupTestDB(t)
 
@@ -33,14 +33,14 @@ func setupTestRepo(t *testing.T) *Repository[testRecord] {
 }
 
 func TestRepository_Get_Exists(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
 	record := &testRecord{ID: "test1", Name: "Test Record", Status: "active", Value: 42}
-	if err := repo.Put("test1", record); err != nil {
+	if err := store.Put("test1", record); err != nil {
 		t.Fatalf("put failed: %v", err)
 	}
 
-	got, err := repo.Get("test1")
+	got, err := store.Get("test1")
 	if err != nil {
 		t.Fatalf("get failed: %v", err)
 	}
@@ -57,26 +57,26 @@ func TestRepository_Get_Exists(t *testing.T) {
 }
 
 func TestRepository_Get_NotFound(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
-	_, err := repo.Get("nonexistent")
+	_, err := store.Get("nonexistent")
 	if !errors.Is(err, apierrors.ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
 
 func TestRepository_Get_CorruptJSON(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
-	if err := repo.Put("good", &testRecord{ID: "good"}); err != nil {
+	if err := store.Put("good", &testRecord{ID: "good"}); err != nil {
 		t.Fatalf("put failed: %v", err)
 	}
-	if err := repo.db.Update(func(tx *bolt.Tx) error {
+	if err := store.db.Update(func(tx *bolt.Tx) error {
 		return tx.Bucket([]byte("test")).Put([]byte("bad"), []byte("{invalid"))
 	}); err != nil {
 		t.Fatalf("corrupt seed failed: %v", err)
 	}
-	if _, err := repo.Get("bad"); err == nil {
+	if _, err := store.Get("bad"); err == nil {
 		t.Error("expected error for corrupt record, got nil")
 	} else if errors.Is(err, apierrors.ErrNotFound) {
 		t.Errorf("corrupt record must not map to NotFound: %v", err)
@@ -84,14 +84,14 @@ func TestRepository_Get_CorruptJSON(t *testing.T) {
 }
 
 func TestRepository_Put_New(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
 	record := &testRecord{ID: "new1", Name: "New Record", Status: "pending", Value: 100}
-	if err := repo.Put("new1", record); err != nil {
+	if err := store.Put("new1", record); err != nil {
 		t.Fatalf("put failed: %v", err)
 	}
 
-	got, err := repo.Get("new1")
+	got, err := store.Get("new1")
 	if err != nil {
 		t.Fatalf("get failed: %v", err)
 	}
@@ -102,19 +102,19 @@ func TestRepository_Put_New(t *testing.T) {
 }
 
 func TestRepository_Put_Update(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
 	record := &testRecord{ID: "upd1", Name: "Original", Status: "active", Value: 1}
-	if err := repo.Put("upd1", record); err != nil {
+	if err := store.Put("upd1", record); err != nil {
 		t.Fatalf("initial put failed: %v", err)
 	}
 
 	updated := &testRecord{ID: "upd1", Name: "Updated", Status: "inactive", Value: 2}
-	if err := repo.Put("upd1", updated); err != nil {
+	if err := store.Put("upd1", updated); err != nil {
 		t.Fatalf("update put failed: %v", err)
 	}
 
-	got, err := repo.Get("upd1")
+	got, err := store.Get("upd1")
 	if err != nil {
 		t.Fatalf("get failed: %v", err)
 	}
@@ -128,58 +128,58 @@ func TestRepository_Put_Update(t *testing.T) {
 }
 
 func TestRepository_Delete_Exists(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
 	record := &testRecord{ID: "del1", Name: "To Delete", Status: "active", Value: 1}
-	if err := repo.Put("del1", record); err != nil {
+	if err := store.Put("del1", record); err != nil {
 		t.Fatalf("put failed: %v", err)
 	}
 
-	if err := repo.Delete("del1"); err != nil {
+	if err := store.Delete("del1"); err != nil {
 		t.Fatalf("delete failed: %v", err)
 	}
 
-	_, err := repo.Get("del1")
+	_, err := store.Get("del1")
 	if err == nil {
 		t.Error("expected error after delete, got nil")
 	}
 }
 
 func TestRepository_Delete_NotFound(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
-	err := repo.Delete("nonexistent")
+	err := store.Delete("nonexistent")
 	if !errors.Is(err, apierrors.ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
 
 func TestRepository_DeleteIfExists(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
-	if err := repo.DeleteIfExists("nonexistent"); err != nil {
+	if err := store.DeleteIfExists("nonexistent"); err != nil {
 		t.Errorf("delete if exists should not error on nonexistent: %v", err)
 	}
 
 	record := &testRecord{ID: "del2", Name: "To Delete", Status: "active", Value: 1}
-	if err := repo.Put("del2", record); err != nil {
+	if err := store.Put("del2", record); err != nil {
 		t.Fatalf("put failed: %v", err)
 	}
 
-	if err := repo.DeleteIfExists("del2"); err != nil {
+	if err := store.DeleteIfExists("del2"); err != nil {
 		t.Fatalf("delete if exists failed: %v", err)
 	}
 
-	_, err := repo.Get("del2")
+	_, err := store.Get("del2")
 	if err == nil {
 		t.Error("expected error after delete, got nil")
 	}
 }
 
 func TestRepository_List_Empty(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
-	items, err := repo.List()
+	items, err := store.List()
 	if err != nil {
 		t.Fatalf("list failed: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestRepository_List_Empty(t *testing.T) {
 }
 
 func TestRepository_List_Multiple(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
 	records := []*testRecord{
 		{ID: "r1", Name: "Record 1", Status: "active", Value: 1},
@@ -199,12 +199,12 @@ func TestRepository_List_Multiple(t *testing.T) {
 	}
 
 	for _, r := range records {
-		if err := repo.Put(r.ID, r); err != nil {
+		if err := store.Put(r.ID, r); err != nil {
 			t.Fatalf("put failed: %v", err)
 		}
 	}
 
-	items, err := repo.List()
+	items, err := store.List()
 	if err != nil {
 		t.Fatalf("list failed: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestRepository_List_Multiple(t *testing.T) {
 }
 
 func TestRepository_ListFiltered(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
 	records := []*testRecord{
 		{ID: "r1", Name: "Record 1", Status: "active", Value: 1},
@@ -224,12 +224,12 @@ func TestRepository_ListFiltered(t *testing.T) {
 	}
 
 	for _, r := range records {
-		if err := repo.Put(r.ID, r); err != nil {
+		if err := store.Put(r.ID, r); err != nil {
 			t.Fatalf("put failed: %v", err)
 		}
 	}
 
-	items, err := repo.ListFiltered(func(r *testRecord) bool {
+	items, err := store.ListFiltered(func(r *testRecord) bool {
 		return r.Status == "active"
 	})
 	if err != nil {
@@ -248,7 +248,7 @@ func TestRepository_ListFiltered(t *testing.T) {
 }
 
 func TestRepository_FindFirst_Match(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
 	records := []*testRecord{
 		{ID: "r1", Name: "Record 1", Status: "active", Value: 1},
@@ -257,12 +257,12 @@ func TestRepository_FindFirst_Match(t *testing.T) {
 	}
 
 	for _, r := range records {
-		if err := repo.Put(r.ID, r); err != nil {
+		if err := store.Put(r.ID, r); err != nil {
 			t.Fatalf("put failed: %v", err)
 		}
 	}
 
-	item, err := repo.FindFirst(func(r *testRecord) bool {
+	item, err := store.FindFirst(func(r *testRecord) bool {
 		return r.Name == "Target"
 	})
 	if err != nil {
@@ -278,7 +278,7 @@ func TestRepository_FindFirst_Match(t *testing.T) {
 }
 
 func TestRepository_FindFirst_NoMatch(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
 	records := []*testRecord{
 		{ID: "r1", Name: "Record 1", Status: "active", Value: 1},
@@ -286,12 +286,12 @@ func TestRepository_FindFirst_NoMatch(t *testing.T) {
 	}
 
 	for _, r := range records {
-		if err := repo.Put(r.ID, r); err != nil {
+		if err := store.Put(r.ID, r); err != nil {
 			t.Fatalf("put failed: %v", err)
 		}
 	}
 
-	_, err := repo.FindFirst(func(r *testRecord) bool {
+	_, err := store.FindFirst(func(r *testRecord) bool {
 		return r.Name == "Nonexistent"
 	})
 	if !errors.Is(err, apierrors.ErrNotFound) {
@@ -300,14 +300,14 @@ func TestRepository_FindFirst_NoMatch(t *testing.T) {
 }
 
 func TestRepository_Exists_True(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
 	record := &testRecord{ID: "exists1", Name: "Exists", Status: "active", Value: 1}
-	if err := repo.Put("exists1", record); err != nil {
+	if err := store.Put("exists1", record); err != nil {
 		t.Fatalf("put failed: %v", err)
 	}
 
-	exists, err := repo.Exists("exists1")
+	exists, err := store.Exists("exists1")
 	if err != nil {
 		t.Fatalf("exists failed: %v", err)
 	}
@@ -318,9 +318,9 @@ func TestRepository_Exists_True(t *testing.T) {
 }
 
 func TestRepository_Exists_False(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
-	exists, err := repo.Exists("nonexistent")
+	exists, err := store.Exists("nonexistent")
 	if err != nil {
 		t.Fatalf("exists failed: %v", err)
 	}
@@ -331,9 +331,9 @@ func TestRepository_Exists_False(t *testing.T) {
 }
 
 func TestRepository_Count_Zero(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
-	count, err := repo.Count()
+	count, err := store.Count()
 	if err != nil {
 		t.Fatalf("count failed: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestRepository_Count_Zero(t *testing.T) {
 }
 
 func TestRepository_Count_Multiple(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
 	records := []*testRecord{
 		{ID: "r1", Name: "Record 1", Status: "active", Value: 1},
@@ -353,12 +353,12 @@ func TestRepository_Count_Multiple(t *testing.T) {
 	}
 
 	for _, r := range records {
-		if err := repo.Put(r.ID, r); err != nil {
+		if err := store.Put(r.ID, r); err != nil {
 			t.Fatalf("put failed: %v", err)
 		}
 	}
 
-	count, err := repo.Count()
+	count, err := store.Count()
 	if err != nil {
 		t.Fatalf("count failed: %v", err)
 	}
@@ -369,14 +369,14 @@ func TestRepository_Count_Multiple(t *testing.T) {
 }
 
 func TestRepository_Update_Exists(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
 	record := &testRecord{ID: "upd1", Name: "Original", Status: "active", Value: 10}
-	if err := repo.Put("upd1", record); err != nil {
+	if err := store.Put("upd1", record); err != nil {
 		t.Fatalf("put failed: %v", err)
 	}
 
-	err := repo.Update("upd1", func(r *testRecord) error {
+	err := store.Update("upd1", func(r *testRecord) error {
 		r.Name = "Modified"
 		r.Value = 20
 		return nil
@@ -385,7 +385,7 @@ func TestRepository_Update_Exists(t *testing.T) {
 		t.Fatalf("update failed: %v", err)
 	}
 
-	got, err := repo.Get("upd1")
+	got, err := store.Get("upd1")
 	if err != nil {
 		t.Fatalf("get failed: %v", err)
 	}
@@ -399,9 +399,9 @@ func TestRepository_Update_Exists(t *testing.T) {
 }
 
 func TestRepository_Update_NotFound(t *testing.T) {
-	repo := setupTestRepo(t)
+	store := setupTestStore(t)
 
-	err := repo.Update("nonexistent", func(r *testRecord) error {
+	err := store.Update("nonexistent", func(r *testRecord) error {
 		r.Name = "Modified"
 		return nil
 	})

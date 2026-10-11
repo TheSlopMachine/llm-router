@@ -44,24 +44,24 @@ llm_router.register("stream-type", {
 `
 
 func TestCompleteStream_UsageOnlyChunkAllowed(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(streamPluginSource), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(streamPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	var buf strings.Builder
-	req := &models.ChatCompletionRequest{
+	request := &models.ChatCompletionRequest{
 		Model:    "stream-type/model-a",
 		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
 	}
-	if err := svc.CompleteStream(context.Background(), testMeta("stream-type", nil, req.Model, nil), req, &buf); err != nil {
+	if err := service.CompleteStream(context.Background(), testMetadata("stream-type", nil, request.Model, nil), request, &buf); err != nil {
 		t.Fatalf("complete stream: %v", err)
 	}
-	out := buf.String()
-	if !strings.Contains(out, `"total_tokens":11`) {
-		t.Fatalf("usage-only chunk dropped: %q", out)
+	output := buf.String()
+	if !strings.Contains(output, `"total_tokens":11`) {
+		t.Fatalf("usage-only chunk dropped: %q", output)
 	}
-	if !strings.Contains(out, "data: [DONE]") {
-		t.Fatalf("missing DONE: %q", out)
+	if !strings.Contains(output, "data: [DONE]") {
+		t.Fatalf("missing DONE: %q", output)
 	}
 }
 
@@ -89,16 +89,16 @@ llm_router.register("bad-stream-type", {
 `
 
 func TestCompleteStream_EmptyChunkRejected(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(badStreamPluginSource), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(badStreamPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	var buf strings.Builder
-	req := &models.ChatCompletionRequest{
+	request := &models.ChatCompletionRequest{
 		Model:    "bad-stream-type/model-a",
 		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
 	}
-	err := svc.CompleteStream(context.Background(), testMeta("bad-stream-type", nil, req.Model, nil), req, &buf)
+	err := service.CompleteStream(context.Background(), testMetadata("bad-stream-type", nil, request.Model, nil), request, &buf)
 	if err == nil {
 		t.Fatal("expected error for chunk without choices and usage")
 	}

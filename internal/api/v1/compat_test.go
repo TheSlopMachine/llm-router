@@ -44,16 +44,16 @@ func TestExtractToken(t *testing.T) {
 func TestWriteCompatError_Envelopes(t *testing.T) {
 	h := &Handler{}
 	open := httptest.NewRequest("GET", "/v1/models", nil)
-	rec := httptest.NewRecorder()
-	h.writeCompatError(rec, open, 404, "not_found", "missing", nil)
+	recorder := httptest.NewRecorder()
+	h.writeCompatError(recorder, open, 404, "not_found", "missing", nil)
 	var openBody models.OpenAIError
-	if err := json.Unmarshal(rec.Body.Bytes(), &openBody); err != nil {
+	if err := json.Unmarshal(recorder.Body.Bytes(), &openBody); err != nil {
 		t.Fatalf("openai envelope: %v", err)
 	}
-	anth := httptest.NewRequest("GET", "/v1/models", nil)
-	anth.Header.Set("anthropic-version", "2023-06-01")
-	anthRec := httptest.NewRecorder()
-	h.writeCompatError(anthRec, anth, 404, "not_found", "missing", nil)
+	anthropic := httptest.NewRequest("GET", "/v1/models", nil)
+	anthropic.Header.Set("anthropic-version", "2023-06-01")
+	anthropicRecorder := httptest.NewRecorder()
+	h.writeCompatError(anthropicRecorder, anthropic, 404, "not_found", "missing", nil)
 	var anthBody struct {
 		Type  string `json:"type"`
 		Error struct {
@@ -61,14 +61,14 @@ func TestWriteCompatError_Envelopes(t *testing.T) {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	if err := json.Unmarshal(anthRec.Body.Bytes(), &anthBody); err != nil {
+	if err := json.Unmarshal(anthropicRecorder.Body.Bytes(), &anthBody); err != nil {
 		t.Fatalf("anthropic envelope: %v", err)
 	}
 	if anthBody.Type != "error" || anthBody.Error.Type != "invalid_request_error" || anthBody.Error.Message != "missing" {
 		t.Fatalf("envelope: %+v", anthBody)
 	}
 	rate := httptest.NewRecorder()
-	h.writeCompatError(rate, anth, 502, "rate_limit", "slow", nil)
+	h.writeCompatError(rate, anthropic, 502, "rate_limit", "slow", nil)
 	if rate.Code != 429 {
 		t.Fatalf("rate status: %d", rate.Code)
 	}
@@ -90,12 +90,12 @@ func TestFilterModelsByToken(t *testing.T) {
 }
 
 func TestAnthropicModelList(t *testing.T) {
-	out := anthropicModelList([]models.ModelEntry{{ID: "a/m", Object: "model", Created: 1700000000, Name: "M"}})
-	if len(out.Data) != 1 || out.Data[0].Type != "model" || out.Data[0].CreatedAt == "" {
-		t.Fatalf("list: %+v", out)
+	output := anthropicModelList([]models.ModelEntry{{ID: "a/m", Object: "model", Created: 1700000000, Name: "M"}})
+	if len(output.Data) != 1 || output.Data[0].Type != "model" || output.Data[0].CreatedAt == "" {
+		t.Fatalf("list: %+v", output)
 	}
-	if out.FirstID == nil || *out.FirstID != "a/m" {
-		t.Fatalf("first: %+v", out.FirstID)
+	if output.FirstID == nil || *output.FirstID != "a/m" {
+		t.Fatalf("first: %+v", output.FirstID)
 	}
 	empty := anthropicModelList(nil)
 	if len(empty.Data) != 0 || empty.FirstID != nil {
@@ -105,45 +105,45 @@ func TestAnthropicModelList(t *testing.T) {
 
 func TestCompletionFromOpenAI_Echo(t *testing.T) {
 	echo := true
-	req := &models.CompletionRequest{Prompt: []string{"say "}, Suffix: "hi", Echo: &echo}
-	resp := &models.ChatCompletionResponse{
+	request := &models.CompletionRequest{Prompt: []string{"say "}, Suffix: "hi", Echo: &echo}
+	response := &models.ChatCompletionResponse{
 		ID: "c1", Object: "chat.completion", Created: 1, Model: "mock/m",
 		Choices: []models.ChatCompletionChoice{{Message: models.ChatMessage{Role: "assistant", Content: "yo"}, FinishReason: "stop"}},
 	}
-	out := completionFromOpenAI(resp, req)
-	if out.Object != "text_completion" || len(out.Choices) != 1 {
-		t.Fatalf("response: %+v", out)
+	output := completionFromOpenAI(response, request)
+	if output.Object != "text_completion" || len(output.Choices) != 1 {
+		t.Fatalf("response: %+v", output)
 	}
-	if out.Choices[0].Text != "say hi"+"yo" {
-		t.Fatalf("echo text: %q", out.Choices[0].Text)
+	if output.Choices[0].Text != "say hi"+"yo" {
+		t.Fatalf("echo text: %q", output.Choices[0].Text)
 	}
 }
 
 func TestCompleteFromOpenAI(t *testing.T) {
-	resp := &models.ChatCompletionResponse{
+	response := &models.ChatCompletionResponse{
 		ID: "r1",
 		Choices: []models.ChatCompletionChoice{{
 			Message:      models.ChatMessage{Role: "assistant", Content: "done"},
 			FinishReason: "length",
 		}},
 	}
-	out := completeFromOpenAI(resp, "mock/m")
-	if out.Type != "completion" || out.Completion != "done" || out.StopReason != "max_tokens" {
-		t.Fatalf("completion: %+v", out)
+	output := completeFromOpenAI(response, "mock/m")
+	if output.Type != "completion" || output.Completion != "done" || output.StopReason != "max_tokens" {
+		t.Fatalf("completion: %+v", output)
 	}
 }
 
 func TestCompletionStreamWriter_Translates(t *testing.T) {
-	var sb strings.Builder
-	tw := &completionStreamWriter{w: &sb}
+	var builder strings.Builder
+	translatedWriter := &completionStreamWriter{w: &builder}
 	chunk := `{"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":null}]}`
-	if _, err := tw.Write([]byte("data: " + chunk + "\n\n")); err != nil {
+	if _, err := translatedWriter.Write([]byte("data: " + chunk + "\n\n")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tw.Write([]byte("data: [DONE]\n\n")); err != nil {
+	if _, err := translatedWriter.Write([]byte("data: [DONE]\n\n")); err != nil {
 		t.Fatal(err)
 	}
-	got := sb.String()
+	got := builder.String()
 	if !strings.Contains(got, `"object":"text_completion"`) || !strings.Contains(got, `"text":"hi"`) {
 		t.Fatalf("translated: %q", got)
 	}
@@ -153,25 +153,25 @@ func TestCompletionStreamWriter_Translates(t *testing.T) {
 }
 
 func TestParseImageEditRequest(t *testing.T) {
-	ct, body := imageMultipart(t, map[string]string{"model": "mock/m", "prompt": "edit it", "n": "2"})
-	req := httptest.NewRequest("POST", "/v1/images/edits", body)
-	req.Header.Set("Content-Type", ct)
-	parsed, err := parseImageEditRequest(req, true)
+	contentType, body := imageMultipart(t, map[string]string{"model": "mock/m", "prompt": "edit it", "n": "2"})
+	request := httptest.NewRequest("POST", "/v1/images/edits", body)
+	request.Header.Set("Content-Type", contentType)
+	parsed, err := parseImageEditRequest(request, true)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	if parsed.Model != "mock/m" || parsed.ImageB64 == "" || parsed.N != 2 {
 		t.Fatalf("parsed: %+v", parsed.Model)
 	}
-	ct2, body2 := imageMultipart(t, map[string]string{"model": "mock/m"})
-	noprompt := httptest.NewRequest("POST", "/v1/images/edits", body2)
-	noprompt.Header.Set("Content-Type", ct2)
+	missingPromptContentType, missingPromptBody := imageMultipart(t, map[string]string{"model": "mock/m"})
+	noprompt := httptest.NewRequest("POST", "/v1/images/edits", missingPromptBody)
+	noprompt.Header.Set("Content-Type", missingPromptContentType)
 	if _, err := parseImageEditRequest(noprompt, true); err == nil {
 		t.Fatal("missing prompt must fail for edits")
 	}
-	ct3, body3 := imageMultipart(t, map[string]string{"model": "mock/m"})
-	variation := httptest.NewRequest("POST", "/v1/images/variations", body3)
-	variation.Header.Set("Content-Type", ct3)
+	variationContentType, variationBody := imageMultipart(t, map[string]string{"model": "mock/m"})
+	variation := httptest.NewRequest("POST", "/v1/images/variations", variationBody)
+	variation.Header.Set("Content-Type", variationContentType)
 	vparsed, err := parseImageEditRequest(variation, false)
 	if err != nil {
 		t.Fatalf("variations allow empty prompt: %v", err)
@@ -184,26 +184,26 @@ func TestParseImageEditRequest(t *testing.T) {
 func imageMultipart(t *testing.T, fields map[string]string) (string, *strings.Reader) {
 	t.Helper()
 	boundary := "testboundary"
-	var sb strings.Builder
-	for k, v := range fields {
-		sb.WriteString("--" + boundary + "\r\n")
-		sb.WriteString(`Content-Disposition: form-data; name="` + k + "\"\r\n\r\n")
-		sb.WriteString(v + "\r\n")
+	var builder strings.Builder
+	for key, value := range fields {
+		builder.WriteString("--" + boundary + "\r\n")
+		builder.WriteString(`Content-Disposition: form-data; name="` + key + "\"\r\n\r\n")
+		builder.WriteString(value + "\r\n")
 	}
-	sb.WriteString("--" + boundary + "\r\n")
-	sb.WriteString("Content-Disposition: form-data; name=\"image\"; filename=\"in.png\"\r\n")
-	sb.WriteString("Content-Type: image/png\r\n\r\n")
-	sb.WriteString("FAKEPNG\r\n")
-	sb.WriteString("--" + boundary + "--\r\n")
-	return "multipart/form-data; boundary=" + boundary, strings.NewReader(sb.String())
+	builder.WriteString("--" + boundary + "\r\n")
+	builder.WriteString("Content-Disposition: form-data; name=\"image\"; filename=\"in.png\"\r\n")
+	builder.WriteString("Content-Type: image/png\r\n\r\n")
+	builder.WriteString("FAKEPNG\r\n")
+	builder.WriteString("--" + boundary + "--\r\n")
+	return "multipart/form-data; boundary=" + boundary, strings.NewReader(builder.String())
 }
 
 func TestParseJSONTranscriptionRequest(t *testing.T) {
 	audio := base64.StdEncoding.EncodeToString([]byte("FAKEAUDIO"))
 	body := `{"model":"mock/m","language":"en","input_audio":{"data":"` + audio + `","format":"wav"}}`
-	req := httptest.NewRequest("POST", "/v1/audio/transcriptions", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	parsed, err := parseJSONTranscriptionRequest(req)
+	request := httptest.NewRequest("POST", "/v1/audio/transcriptions", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	parsed, err := parseJSONTranscriptionRequest(request)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}

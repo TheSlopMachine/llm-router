@@ -3,7 +3,7 @@
 // One POST /v1/messages/batches creates a row holding the entries; the
 // router executes entries against the chat pipeline and appends JSONL-ready
 // results. Modeled on the videojobs service: one public method, one
-// db.Update.
+// database.Update.
 package batches
 
 import (
@@ -26,74 +26,74 @@ const (
 
 // Service owns BatchRecord rows in the message_batches bucket.
 type Service struct {
-	repo *repository.Repository[models.BatchRecord]
+	store *repository.Repository[models.BatchRecord]
 }
 
 // New constructs a batches Service. Construction performs no I/O.
 func New(database *db.DB) *Service {
 	return &Service{
-		repo: repository.New[models.BatchRecord](database, db.BucketMessageBatches, "message batch"),
+		store: repository.New[models.BatchRecord](database, db.BucketMessageBatches, "message batch"),
 	}
 }
 
-// Create persists a new batch row: one public method, one db.Update.
-func (s *Service) Create(rec *models.BatchRecord) error {
-	if rec == nil {
+// Create persists a new batch row: one public method, one database.Update.
+func (s *Service) Create(record *models.BatchRecord) error {
+	if record == nil {
 		return errors.New("message batch is required")
 	}
-	if rec.ID == "" {
+	if record.ID == "" {
 		return errors.New("message batch id is required")
 	}
 	now := time.Now()
-	rec.CreatedAt = now
-	rec.UpdatedAt = now
-	return s.repo.Put(rec.ID, rec)
+	record.CreatedAt = now
+	record.UpdatedAt = now
+	return s.store.Put(record.ID, record)
 }
 
 // Get returns the batch by ID.
 func (s *Service) Get(id string) (*models.BatchRecord, error) {
-	rec, err := s.repo.Get(id)
+	record, err := s.store.Get(id)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, apierrors.NewNotFoundError("message batch", id)
 		}
 		return nil, err
 	}
-	return rec, nil
+	return record, nil
 }
 
-// Update rewrites a batch row: one public method, one db.Update.
-func (s *Service) Update(rec *models.BatchRecord) error {
-	if rec == nil || rec.ID == "" {
+// Update rewrites a batch row: one public method, one database.Update.
+func (s *Service) Update(record *models.BatchRecord) error {
+	if record == nil || record.ID == "" {
 		return errors.New("message batch id is required")
 	}
-	return s.repo.Update(rec.ID, func(cur *models.BatchRecord) error {
-		rec.CreatedAt = cur.CreatedAt
-		rec.UpdatedAt = time.Now()
-		*cur = *rec
+	return s.store.Update(record.ID, func(current *models.BatchRecord) error {
+		record.CreatedAt = current.CreatedAt
+		record.UpdatedAt = time.Now()
+		*current = *record
 		return nil
 	})
 }
 
 // Delete removes a batch row. Missing rows are not errors.
 func (s *Service) Delete(id string) error {
-	return s.repo.DeleteIfExists(id)
+	return s.store.DeleteIfExists(id)
 }
 
 // List returns all batches, oldest first (ID tiebreaks clock ties).
 func (s *Service) List() ([]*models.BatchRecord, error) {
-	recs, err := s.repo.List()
+	records, err := s.store.List()
 	if err != nil {
 		return nil, err
 	}
-	if recs == nil {
-		recs = []*models.BatchRecord{}
+	if records == nil {
+		records = []*models.BatchRecord{}
 	}
-	sort.Slice(recs, func(i, j int) bool {
-		if recs[i].CreatedAt.Equal(recs[j].CreatedAt) {
-			return recs[i].ID < recs[j].ID
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].CreatedAt.Equal(records[j].CreatedAt) {
+			return records[i].ID < records[j].ID
 		}
-		return recs[i].CreatedAt.Before(recs[j].CreatedAt)
+		return records[i].CreatedAt.Before(records[j].CreatedAt)
 	})
-	return recs, nil
+	return records, nil
 }

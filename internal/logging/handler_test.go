@@ -9,16 +9,16 @@ import (
 	"time"
 )
 
-func render(t *testing.T, level slog.Level, attrs []slog.Attr, msg string, ts time.Time) string {
+func render(t *testing.T, level slog.Level, attributes []slog.Attr, message string, ts time.Time) string {
 	t.Helper()
-	var buf bytes.Buffer
-	h := NewHandler(&buf, slog.LevelDebug)
-	r := slog.NewRecord(ts, level, msg, 0)
-	r.AddAttrs(attrs...)
+	var buffer bytes.Buffer
+	h := NewHandler(&buffer, slog.LevelDebug)
+	r := slog.NewRecord(ts, level, message, 0)
+	r.AddAttrs(attributes...)
 	if err := h.Handle(context.Background(), r); err != nil {
 		t.Fatalf("Handle: %v", err)
 	}
-	return buf.String()
+	return buffer.String()
 }
 
 func TestFormat(t *testing.T) {
@@ -45,8 +45,8 @@ func TestNoAttrs(t *testing.T) {
 }
 
 func TestWithAndGroup(t *testing.T) {
-	var buf bytes.Buffer
-	h := NewHandler(&buf, slog.LevelDebug)
+	var buffer bytes.Buffer
+	h := NewHandler(&buffer, slog.LevelDebug)
 	h = h.WithAttrs([]slog.Attr{slog.String("model", "m1")}).(*Handler)
 	h2 := h.WithGroup("g")
 	h2 = h2.WithAttrs([]slog.Attr{slog.String("k", "v")}).(slog.Handler)
@@ -54,15 +54,15 @@ func TestWithAndGroup(t *testing.T) {
 	if err := h2.Handle(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
-	got := buf.String()
+	got := buffer.String()
 	if !strings.Contains(got, "[model: m1]") || !strings.Contains(got, "[g.k: v]") {
 		t.Fatalf("unexpected line %q", got)
 	}
 }
 
 func TestEnabled(t *testing.T) {
-	var buf bytes.Buffer
-	h := NewHandler(&buf, slog.LevelInfo)
+	var buffer bytes.Buffer
+	h := NewHandler(&buffer, slog.LevelInfo)
 	if !h.Enabled(context.Background(), slog.LevelInfo) {
 		t.Fatal("info must pass at info level")
 	}

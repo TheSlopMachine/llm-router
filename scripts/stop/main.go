@@ -22,7 +22,7 @@ func main() {
 		return
 	}
 
-	p, err := shared.ReadPidFile(pidFile)
+	process, err := shared.ReadPidFile(pidFile)
 	if err != nil {
 		shared.Failf("parse pidfile %s: %v", pidFile, err)
 	}
@@ -33,13 +33,13 @@ func main() {
 		path string
 	}
 	entries := []entry{
-		{"backend", p.Backend, p.BackendPath},
-		{"frontend", p.Frontend, p.FrontendPath},
+		{"backend", process.Backend, process.BackendPath},
+		{"frontend", process.Frontend, process.FrontendPath},
 	}
 
 	anyAlive := func() bool {
-		for _, e := range entries {
-			if shared.AliveMatches(e.pid, e.path) {
+		for _, candidate := range entries {
+			if shared.AliveMatches(candidate.pid, candidate.path) {
 				return true
 			}
 		}
@@ -64,13 +64,13 @@ func main() {
 
 	// Best-effort graceful signal. Failure falls through to the
 	// wait/force path below.
-	for _, e := range entries {
-		if !shared.AliveMatches(e.pid, e.path) {
+	for _, candidate := range entries {
+		if !shared.AliveMatches(candidate.pid, candidate.path) {
 			continue
 		}
-		fmt.Printf("[>] Stopping %s PID %d...\n", e.name, e.pid)
-		if err := shared.Terminate(e.pid); err != nil {
-			fmt.Printf("[>] Graceful signal to %s PID %d failed: %v\n", e.name, e.pid, err)
+		fmt.Printf("[>] Stopping %s PID %d...\n", candidate.name, candidate.pid)
+		if err := shared.Terminate(candidate.pid); err != nil {
+			fmt.Printf("[>] Graceful signal to %s PID %d failed: %v\n", candidate.name, candidate.pid, err)
 			fmt.Println("[>] Force-kill follows the grace period")
 		}
 	}
@@ -83,8 +83,8 @@ func main() {
 
 	fmt.Println("[>] Still running after grace period, forcing shutdown...")
 	targets := make([]shared.KillTarget, 0, len(entries))
-	for _, e := range entries {
-		targets = append(targets, shared.KillTarget{PID: e.pid, ExpectedPath: e.path})
+	for _, candidate := range entries {
+		targets = append(targets, shared.KillTarget{PID: candidate.pid, ExpectedPath: candidate.path})
 	}
 	if err := shared.ForceKillTargets(pidFile, targets...); err != nil {
 		fmt.Printf("[>] force-kill error: %v\n", err)
@@ -97,9 +97,9 @@ func main() {
 	}
 
 	var survivors []string
-	for _, e := range entries {
-		if shared.AliveMatches(e.pid, e.path) {
-			survivors = append(survivors, fmt.Sprintf("%s PID %d", e.name, e.pid))
+	for _, candidate := range entries {
+		if shared.AliveMatches(candidate.pid, candidate.path) {
+			survivors = append(survivors, fmt.Sprintf("%s PID %d", candidate.name, candidate.pid))
 		}
 	}
 	fmt.Fprintf(os.Stderr, "[FAIL] Still running after forced shutdown: %v (pidfile kept at %s)\n", survivors, pidFile)

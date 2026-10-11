@@ -14,17 +14,17 @@ func (s *Service) compressAndPersist() error {
 	now := time.Now()
 	cutoff := now.Add(-1 * time.Hour)
 
-	s.mu.Lock()
+	s.mutex.Lock()
 	var toCompress []*MetricBucket
 	var toDelete []time.Time
 
-	for ts, bucket := range s.recentBuckets {
-		if ts.Before(cutoff) {
+	for timestamp, bucket := range s.recentBuckets {
+		if timestamp.Before(cutoff) {
 			toCompress = append(toCompress, bucket)
-			toDelete = append(toDelete, ts)
+			toDelete = append(toDelete, timestamp)
 		}
 	}
-	s.mu.Unlock()
+	s.mutex.Unlock()
 
 	if len(toCompress) == 0 {
 		return nil
@@ -40,11 +40,11 @@ func (s *Service) compressAndPersist() error {
 	}
 
 	// Evict from memory only after durable writes.
-	s.mu.Lock()
-	for _, ts := range toDelete {
-		delete(s.recentBuckets, ts)
+	s.mutex.Lock()
+	for _, timestamp := range toDelete {
+		delete(s.recentBuckets, timestamp)
 	}
-	s.mu.Unlock()
+	s.mutex.Unlock()
 
 	s.logger.Debug("compressed and persisted buckets", "count", len(toCompress), "windows", len(grouped))
 	return nil
@@ -89,40 +89,40 @@ func (s *Service) compressBuckets(buckets []*MetricBucket, targetInterval time.D
 		compressed.DurationCount += bucket.DurationCount
 
 		// Aggregate provider ID metrics
-		for id, pm := range bucket.ByProviderID {
+		for id, providerMetrics := range bucket.ByProviderID {
 			if compressed.ByProviderID[id] == nil {
 				compressed.ByProviderID[id] = &ProviderMetrics{}
 			}
-			s.mergeProviderMetrics(compressed.ByProviderID[id], pm)
+			s.mergeProviderMetrics(compressed.ByProviderID[id], providerMetrics)
 		}
 
 		// Aggregate provider type metrics
-		for typ, pm := range bucket.ByProviderType {
-			if compressed.ByProviderType[typ] == nil {
-				compressed.ByProviderType[typ] = &ProviderMetrics{}
+		for providerType, providerMetrics := range bucket.ByProviderType {
+			if compressed.ByProviderType[providerType] == nil {
+				compressed.ByProviderType[providerType] = &ProviderMetrics{}
 			}
-			s.mergeProviderMetrics(compressed.ByProviderType[typ], pm)
+			s.mergeProviderMetrics(compressed.ByProviderType[providerType], providerMetrics)
 		}
 
 		// Aggregate model metrics
-		for model, mm := range bucket.ByModel {
+		for model, modelMetrics := range bucket.ByModel {
 			if compressed.ByModel[model] == nil {
 				compressed.ByModel[model] = &ModelMetrics{}
 			}
-			s.mergeModelMetrics(compressed.ByModel[model], mm)
+			s.mergeModelMetrics(compressed.ByModel[model], modelMetrics)
 		}
 
 		// Aggregate token metrics
-		for tokenID, tm := range bucket.ByTokenID {
+		for tokenID, tokenMetrics := range bucket.ByTokenID {
 			if compressed.ByTokenID[tokenID] == nil {
 				compressed.ByTokenID[tokenID] = &TokenMetrics{}
 			}
-			s.mergeTokenMetrics(compressed.ByTokenID[tokenID], tm)
+			s.mergeTokenMetrics(compressed.ByTokenID[tokenID], tokenMetrics)
 		}
 
 		// Aggregate error types
-		for errType, count := range bucket.ErrorsByType {
-			compressed.ErrorsByType[errType] += count
+		for errorType, count := range bucket.ErrorsByType {
+			compressed.ErrorsByType[errorType] += count
 		}
 	}
 
@@ -130,43 +130,43 @@ func (s *Service) compressBuckets(buckets []*MetricBucket, targetInterval time.D
 }
 
 // mergeProviderMetrics merges source into destination.
-func (s *Service) mergeProviderMetrics(dest, src *ProviderMetrics) {
-	dest.Requests += src.Requests
-	dest.Errors += src.Errors
-	dest.TokensInput += src.TokensInput
-	dest.TokensOutput += src.TokensOutput
-	dest.PeakRequests = maxInt64(dest.PeakRequests, src.PeakRequests)
-	dest.PeakInputTokens = maxInt64(dest.PeakInputTokens, src.PeakInputTokens)
-	dest.PeakOutputTokens = maxInt64(dest.PeakOutputTokens, src.PeakOutputTokens)
-	dest.DurationSum += src.DurationSum
-	dest.DurationCount += src.DurationCount
+func (s *Service) mergeProviderMetrics(destination, source *ProviderMetrics) {
+	destination.Requests += source.Requests
+	destination.Errors += source.Errors
+	destination.TokensInput += source.TokensInput
+	destination.TokensOutput += source.TokensOutput
+	destination.PeakRequests = maxInt64(destination.PeakRequests, source.PeakRequests)
+	destination.PeakInputTokens = maxInt64(destination.PeakInputTokens, source.PeakInputTokens)
+	destination.PeakOutputTokens = maxInt64(destination.PeakOutputTokens, source.PeakOutputTokens)
+	destination.DurationSum += source.DurationSum
+	destination.DurationCount += source.DurationCount
 }
 
 // mergeModelMetrics merges source into destination.
-func (s *Service) mergeModelMetrics(dest, src *ModelMetrics) {
-	dest.Requests += src.Requests
-	dest.Errors += src.Errors
-	dest.TokensInput += src.TokensInput
-	dest.TokensOutput += src.TokensOutput
-	dest.PeakRequests = maxInt64(dest.PeakRequests, src.PeakRequests)
-	dest.PeakInputTokens = maxInt64(dest.PeakInputTokens, src.PeakInputTokens)
-	dest.PeakOutputTokens = maxInt64(dest.PeakOutputTokens, src.PeakOutputTokens)
+func (s *Service) mergeModelMetrics(destination, source *ModelMetrics) {
+	destination.Requests += source.Requests
+	destination.Errors += source.Errors
+	destination.TokensInput += source.TokensInput
+	destination.TokensOutput += source.TokensOutput
+	destination.PeakRequests = maxInt64(destination.PeakRequests, source.PeakRequests)
+	destination.PeakInputTokens = maxInt64(destination.PeakInputTokens, source.PeakInputTokens)
+	destination.PeakOutputTokens = maxInt64(destination.PeakOutputTokens, source.PeakOutputTokens)
 }
 
 // mergeTokenMetrics merges source into destination.
-func (s *Service) mergeTokenMetrics(dest, src *TokenMetrics) {
-	dest.Requests += src.Requests
-	dest.Errors += src.Errors
-	dest.TokensInput += src.TokensInput
-	dest.TokensOutput += src.TokensOutput
-	dest.PeakRequests = maxInt64(dest.PeakRequests, src.PeakRequests)
-	dest.PeakInputTokens = maxInt64(dest.PeakInputTokens, src.PeakInputTokens)
-	dest.PeakOutputTokens = maxInt64(dest.PeakOutputTokens, src.PeakOutputTokens)
+func (s *Service) mergeTokenMetrics(destination, source *TokenMetrics) {
+	destination.Requests += source.Requests
+	destination.Errors += source.Errors
+	destination.TokensInput += source.TokensInput
+	destination.TokensOutput += source.TokensOutput
+	destination.PeakRequests = maxInt64(destination.PeakRequests, source.PeakRequests)
+	destination.PeakInputTokens = maxInt64(destination.PeakInputTokens, source.PeakInputTokens)
+	destination.PeakOutputTokens = maxInt64(destination.PeakOutputTokens, source.PeakOutputTokens)
 
 	// Keep the most recent LastUsed timestamp
-	if src.LastUsed != nil {
-		if dest.LastUsed == nil || src.LastUsed.After(*dest.LastUsed) {
-			dest.LastUsed = src.LastUsed
+	if source.LastUsed != nil {
+		if destination.LastUsed == nil || source.LastUsed.After(*destination.LastUsed) {
+			destination.LastUsed = source.LastUsed
 		}
 	}
 }
@@ -208,23 +208,23 @@ func (s *Service) compressOldBuckets(cutoff time.Time, fromGranularity, toGranul
 func (s *Service) loadBucketsByGranularity(cutoff time.Time, granularity string) ([]*MetricBucket, error) {
 	var buckets []*MetricBucket
 
-	err := s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketMetrics)
-		if b == nil {
+	err := s.database.View(func(tx *bolt.Tx) error {
+		metricsBucket := tx.Bucket(db.BucketMetrics)
+		if metricsBucket == nil {
 			return nil
 		}
 
-		c := b.Cursor()
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			ts, gran, err := parseBucketKey(string(k))
+		cursor := metricsBucket.Cursor()
+		for key, value := cursor.First(); key != nil; key, value = cursor.Next() {
+			timestamp, granularityValue, err := parseBucketKey(string(key))
 			if err != nil {
 				continue
 			}
 
-			if gran == granularity && ts.Before(cutoff) {
+			if granularityValue == granularity && timestamp.Before(cutoff) {
 				var bucket MetricBucket
-				if err := json.Unmarshal(v, &bucket); err != nil {
-					s.logger.Warn("failed to unmarshal bucket", "key", string(k), "err", err)
+				if err := json.Unmarshal(value, &bucket); err != nil {
+					s.logger.Warn("failed to unmarshal bucket", "key", string(key), "err", err)
 					continue
 				}
 				buckets = append(buckets, &bucket)
@@ -238,12 +238,12 @@ func (s *Service) loadBucketsByGranularity(cutoff time.Time, granularity string)
 
 // deleteBucket deletes a bucket by key.
 func (s *Service) deleteBucket(key string) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(db.BucketMetrics)
-		if b == nil {
+	return s.database.Update(func(tx *bolt.Tx) error {
+		metricsBucket := tx.Bucket(db.BucketMetrics)
+		if metricsBucket == nil {
 			return nil
 		}
-		return b.Delete([]byte(key))
+		return metricsBucket.Delete([]byte(key))
 	})
 }
 
@@ -256,25 +256,25 @@ func bucketKey(t time.Time, granularity string) string {
 // parseBucketKey parses a bucket key back into timestamp and granularity.
 func parseBucketKey(key string) (time.Time, string, error) {
 	// Find the last underscore
-	idx := -1
+	index := -1
 	for i := len(key) - 1; i >= 0; i-- {
 		if key[i] == '_' {
-			idx = i
+			index = i
 			break
 		}
 	}
 
-	if idx == -1 {
+	if index == -1 {
 		return time.Time{}, "", fmt.Errorf("invalid bucket key format: %s", key)
 	}
 
-	tsStr := key[:idx]
-	granularity := key[idx+1:]
+	timestampString := key[:index]
+	granularity := key[index+1:]
 
-	ts, err := time.Parse(time.RFC3339, tsStr)
+	timestamp, err := time.Parse(time.RFC3339, timestampString)
 	if err != nil {
 		return time.Time{}, "", fmt.Errorf("parse timestamp: %w", err)
 	}
 
-	return ts, granularity, nil
+	return timestamp, granularity, nil
 }

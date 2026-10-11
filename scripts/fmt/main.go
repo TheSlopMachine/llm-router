@@ -43,11 +43,11 @@ func main() {
 
 	shared.Stepf("Checking gofmt on %d files...", len(files))
 	cmd := exec.Command("gofmt", append([]string{"-l"}, files...)...)
-	out, err := cmd.Output()
+	output, err := cmd.Output()
 	if err != nil {
 		shared.Failf("gofmt -l: %v", err)
 	}
-	listed := strings.TrimSpace(string(out))
+	listed := strings.TrimSpace(string(output))
 	if listed != "" {
 		fmt.Printf("%s\n", listed)
 		shared.Failf("gofmt: %d files need formatting (run `make go-fmt`)", len(strings.Split(listed, "\n")))
@@ -55,7 +55,7 @@ func main() {
 	shared.OKf("gofmt clean")
 }
 
-var skipDirs = map[string]bool{
+var skipDirectories = map[string]bool{
 	".git":         true,
 	".workspace":   true,
 	"node_modules": true,
@@ -70,11 +70,11 @@ func scopeRoots(root string) []string {
 		return []string{root}
 	}
 	roots := make([]string, 0, len(raw))
-	for _, p := range raw {
-		clean := filepath.Clean(strings.ReplaceAll(p, "\\", "/"))
+	for _, path := range raw {
+		clean := filepath.Clean(strings.ReplaceAll(path, "\\", "/"))
 		full := filepath.Join(root, clean)
 		if _, err := os.Stat(full); err != nil {
-			shared.Failf("PATHS entry %q not found under %s", p, root)
+			shared.Failf("PATHS entry %q not found under %s", path, root)
 		}
 		roots = append(roots, full)
 	}
@@ -96,12 +96,12 @@ func goFiles(roots []string) ([]string, error) {
 			}
 			continue
 		}
-		err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 			if err != nil {
 				return nil
 			}
-			if d.IsDir() {
-				if path != root && skipDirs[d.Name()] {
+			if entry.IsDir() {
+				if path != root && skipDirectories[entry.Name()] {
 					return filepath.SkipDir
 				}
 				return nil

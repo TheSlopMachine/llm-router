@@ -41,14 +41,14 @@ llm_router.register("emb-type", {
 `
 
 func TestEmbed_Success(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(embedPluginSource), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(embedPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	if !svc.HasHandler("emb-type", "embed") {
+	if !service.HasHandler("emb-type", "embed") {
 		t.Fatal("embed handler must be registered")
 	}
-	resp, err := svc.Embed(context.Background(), testMeta("emb-type",
+	response, err := service.Embed(context.Background(), testMetadata("emb-type",
 		&models.Credential{ID: "c1"}, "emb-type/gemini-embedding-001", nil),
 		&models.EmbeddingsRequest{
 			Model: "emb-type/gemini-embedding-001",
@@ -57,10 +57,10 @@ func TestEmbed_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("embed: %v", err)
 	}
-	if len(resp.Data) != 2 {
-		t.Fatalf("data len: %d", len(resp.Data))
+	if len(response.Data) != 2 {
+		t.Fatalf("data len: %d", len(response.Data))
 	}
-	for i, e := range resp.Data {
+	for i, e := range response.Data {
 		if e.Index != i {
 			t.Fatalf("index %d: got %d", i, e.Index)
 		}
@@ -68,20 +68,20 @@ func TestEmbed_Success(t *testing.T) {
 			t.Fatalf("values len %d: %v", i, e.Values)
 		}
 	}
-	if resp.Data[1].Values[0] != 0.2 {
-		t.Fatalf("second vector first value: %v", resp.Data[1].Values[0])
+	if response.Data[1].Values[0] != 0.2 {
+		t.Fatalf("second vector first value: %v", response.Data[1].Values[0])
 	}
-	if resp.Usage == nil || resp.Usage.TotalTokens != 2 {
-		t.Fatalf("usage: %+v", resp.Usage)
+	if response.Usage == nil || response.Usage.TotalTokens != 2 {
+		t.Fatalf("usage: %+v", response.Usage)
 	}
 }
 
 func TestEmbed_HandlerNotFound(t *testing.T) {
-	svc := setupService(t)
-	if _, err := svc.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
+	service := setupService(t)
+	if _, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Embed(context.Background(), testMeta("test-type",
+	_, err := service.Embed(context.Background(), testMetadata("test-type",
 		&models.Credential{ID: "c1"}, "test-type/model-a", nil),
 		&models.EmbeddingsRequest{Model: "test-type/model-a", Input: []string{"x"}})
 	if !errors.Is(err, ErrHandlerNotFound) {
@@ -90,15 +90,15 @@ func TestEmbed_HandlerNotFound(t *testing.T) {
 }
 
 func TestEmbed_ContractError(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	src := strings.Replace(embedPluginSource, `local data = {}`,
 		`do return nil, { message = "bad key", code = "authentication_error", status = 401 } end
     local data = {}`, 1)
 	src = strings.Replace(src, "Embed Plugin", "Embed Err", 1)
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Embed(context.Background(), testMeta("emb-type",
+	_, err := service.Embed(context.Background(), testMetadata("emb-type",
 		&models.Credential{ID: "c1"}, "emb-type/m", nil),
 		&models.EmbeddingsRequest{Model: "emb-type/m", Input: []string{"x"}})
 	perr, ok := err.(*models.ProviderError)
@@ -108,14 +108,14 @@ func TestEmbed_ContractError(t *testing.T) {
 }
 
 func TestEmbed_ShortResultIsCrash(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	src := strings.Replace(embedPluginSource, `for i, text in ipairs(request.input) do`,
 		`for i, text in ipairs({request.input[1]}) do`, 1)
 	src = strings.Replace(src, "Embed Plugin", "Embed Short", 1)
-	if _, err := svc.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, err := svc.Embed(context.Background(), testMeta("emb-type",
+	_, err := service.Embed(context.Background(), testMetadata("emb-type",
 		&models.Credential{ID: "c1"}, "emb-type/m", nil),
 		&models.EmbeddingsRequest{Model: "emb-type/m", Input: []string{"a", "b"}})
 	var perr *models.PluginInternalError

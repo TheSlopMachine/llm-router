@@ -6,8 +6,8 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/util"
 )
 
-func buildAutoCredentialLabel(providerID string, data map[string]any) string {
-	name := strings.TrimSpace(providerID)
+func buildAutoCredentialLabel(providerName string, data map[string]any) string {
+	name := strings.TrimSpace(providerName)
 	if name == "" {
 		name = "Provider"
 	}

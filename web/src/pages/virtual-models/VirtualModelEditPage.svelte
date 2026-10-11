@@ -60,12 +60,12 @@
       vm = fetched
       hydrate(fetched)
     } catch (e: unknown) {
-      const msg = getErrorMessage(e)
-      if (isUnauthenticated(e, msg)) {
+      const message = getErrorMessage(e)
+      if (isUnauthenticated(e, message)) {
         window.location.href = '/login'
         return
       }
-      error = msg
+      error = message
     } finally {
       loading = false
     }
@@ -104,12 +104,12 @@
       availableModels = await api.models.available()
       modelsLoadState = availableModels.length === 0 ? 'empty' : 'loaded'
     } catch (e: unknown) {
-      const msg = getErrorMessage(e)
-      if (isUnauthenticated(e, msg)) {
+      const message = getErrorMessage(e)
+      if (isUnauthenticated(e, message)) {
         window.location.href = '/login'
         return
       }
-      formError = msg
+      formError = message
       modelsLoadState = 'error'
       availableModels = []
     }
@@ -131,10 +131,10 @@
       else await api.virtualModels.create(payload)
       backToList()
     } catch (e: unknown) {
-      const msg = getErrorMessage(e)
-      if (msg.includes('modified by another process')) formError = t('virtual.errors.modified_elsewhere')
-      else if (msg.includes('already exists')) formError = t('virtual.errors.duplicate_name')
-      else formError = msg
+      const message = getErrorMessage(e)
+      if (message.includes('modified by another process')) formError = t('virtual.errors.modified_elsewhere')
+      else if (message.includes('already exists')) formError = t('virtual.errors.duplicate_name')
+      else formError = message
       saving = false
     }
   }
@@ -187,24 +187,24 @@
     models = next
   }
 
-  function infoOf(id: string): AvailableModel | undefined {
+  function modelInfoOf(id: string): AvailableModel | undefined {
     return byId.get(id)
   }
 
   // Aggregated preview: capabilities = intersection, limits = minima.
   // Modalities intersect the same way.
   let aggregates = $derived.by(() => {
-    const infos = models.map(infoOf).filter((m): m is AvailableModel => !!m)
-    if (infos.length === 0) return { caps: [] as string[], inMods: [] as string[], outMods: [] as string[], context: 0, output: 0 }
+    const found = models.map(modelInfoOf).filter((m): m is AvailableModel => !!m)
+    if (found.length === 0) return { caps: [] as string[], inMods: [] as string[], outMods: [] as string[], context: 0, output: 0 }
     const count = new Map<string, number>()
-    for (const m of infos) for (const c of m.capabilities ?? []) count.set(c, (count.get(c) ?? 0) + 1)
-    const caps = [...count.entries()].filter(([, n]) => n === infos.length).map(([c]) => c).sort()
+    for (const m of found) for (const c of m.capabilities ?? []) count.set(c, (count.get(c) ?? 0) + 1)
+    const caps = [...count.entries()].filter(([, n]) => n === found.length).map(([c]) => c).sort()
     return {
       caps,
       inMods: intersectMembers(models, (id) => modalityMap[id]?.input),
       outMods: intersectMembers(models, (id) => modalityMap[id]?.output),
-      context: minPositive(infos.map((m) => m.context_window)),
-      output: minPositive(infos.map((m) => m.max_tokens))
+      context: minPositive(found.map((m) => m.context_window)),
+      output: minPositive(found.map((m) => m.max_tokens))
     }
   })
 
@@ -291,18 +291,18 @@
               <div class="model-row-bottom">
                 <HStack gap={2} wrap align="center" class="row-caps">
                   <ModalitiesFlow modalities={{ input: modalityMap[id]?.input, output: modalityMap[id]?.output }} chipsDirection="horizontal" />
-                  {#each infoOf(id)?.capabilities ?? [] as cap}
-                    {@const meta = CAPABILITY_META[cap]}
-                    {#if meta}
-                      <Chip icon={meta.icon} color={meta.color} size="medium" title={t(meta.hint)} />
+                  {#each modelInfoOf(id)?.capabilities ?? [] as cap}
+                    {@const capability = CAPABILITY_META[cap]}
+                    {#if capability}
+                      <Chip icon={capability.icon} color={capability.color} size="medium" title={t(capability.hint)} />
                     {:else}
                       <Chip text={cap} size="medium" title={cap} />
                     {/if}
                   {/each}
                 </HStack>
                 <VStack gap={0} class="row-ctx">
-                  {#if infoOf(id)?.context_window}<Text size="sm" tone="soft">{(infoOf(id)!.context_window! / 1000).toFixed(0)}k ctx</Text>{/if}
-                  {#if infoOf(id)?.max_tokens}<Text size="sm" tone="soft">{(infoOf(id)!.max_tokens! / 1000).toFixed(0)}k out</Text>{/if}
+                  {#if modelInfoOf(id)?.context_window}<Text size="sm" tone="soft">{(modelInfoOf(id)!.context_window! / 1000).toFixed(0)}k ctx</Text>{/if}
+                  {#if modelInfoOf(id)?.max_tokens}<Text size="sm" tone="soft">{(modelInfoOf(id)!.max_tokens! / 1000).toFixed(0)}k out</Text>{/if}
                 </VStack>
               </div>
             </div>
@@ -316,9 +316,9 @@
           <ModalitiesFlow modalities={{ input: aggregates.inMods, output: aggregates.outMods }} chipsDirection="horizontal" />
           {#if aggregates.caps.length > 0}
             {#each aggregates.caps as cap}
-              {@const meta = CAPABILITY_META[cap]}
-              {#if meta}
-                <Chip icon={meta.icon} text={t(meta.label)} size="medium" color={meta.color} title={t(meta.hint)} />
+              {@const capability = CAPABILITY_META[cap]}
+              {#if capability}
+                <Chip icon={capability.icon} text={t(capability.label)} size="medium" color={capability.color} title={t(capability.hint)} />
               {:else}
                 <Chip text={cap} title={cap} />
               {/if}

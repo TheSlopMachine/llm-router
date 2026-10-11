@@ -345,20 +345,20 @@ func TestCredential_ExpiresIn_NoExpiry(t *testing.T) {
 }
 
 func TestParseProxyPoolRef(t *testing.T) {
-	cfg, err := ParseProxyPoolRef(nil)
-	if err != nil || cfg.Pool != "" {
-		t.Fatalf("absent proxy: got %+v %v", cfg, err)
+	poolReference, err := ParseProxyPoolRef(nil)
+	if err != nil || poolReference.Pool != "" {
+		t.Fatalf("absent proxy: got %+v %v", poolReference, err)
 	}
-	cfg, err = ParseProxyPoolRef(map[string]any{"proxy": map[string]any{"pool": "custom-1"}})
-	if err != nil || cfg.Pool != "custom-1" {
-		t.Fatalf("named pool: got %+v %v", cfg, err)
+	poolReference, err = ParseProxyPoolRef(map[string]any{"proxy": map[string]any{"pool": "custom-1"}})
+	if err != nil || poolReference.Pool != "custom-1" {
+		t.Fatalf("named pool: got %+v %v", poolReference, err)
 	}
-	cfg, err = ParseProxyPoolRef(map[string]any{"proxy": map[string]any{}})
-	if err != nil || cfg.Pool != "" {
-		t.Fatalf("empty proxy section: got %+v %v", cfg, err)
+	poolReference, err = ParseProxyPoolRef(map[string]any{"proxy": map[string]any{}})
+	if err != nil || poolReference.Pool != "" {
+		t.Fatalf("empty proxy section: got %+v %v", poolReference, err)
 	}
-	cfg, err = ParseProxyPoolRef(map[string]any{"proxy": map[string]any{"pool": "auto"}})
-	if err != nil || cfg.Pool != DefaultProxyPool {
-		t.Fatalf("auto pool: got %+v %v", cfg, err)
+	poolReference, err = ParseProxyPoolRef(map[string]any{"proxy": map[string]any{"pool": "auto"}})
+	if err != nil || poolReference.Pool != DefaultProxyPool {
+		t.Fatalf("auto pool: got %+v %v", poolReference, err)
 	}
 }

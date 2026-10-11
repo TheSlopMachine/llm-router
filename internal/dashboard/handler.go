@@ -59,34 +59,34 @@ import (
 )
 
 //go:embed build/web
-var spaFS embed.FS
+var embeddedFS embed.FS
 
 const sessionCookie = "llmr_session"
 
 // Handler serves the admin dashboard.
 type Handler struct {
-	adminSvc     *admin.Service
-	providerSvc  *provider.Service
-	credSvc      *credential.Service
-	tokenSvc     *token.Service
-	modelInfoSvc *modelinfo.Service
-	metricsSvc   *metrics.Service
-	virtualSvc   *virtual.Service
-	routerSvc    *router.Service
-	configSvc    *configsvc.Service
-	luaSvc       *luaplugin.Service
-	repoSvc      *pluginrepo.Service
-	proxySvc     *proxypool.Service
-	maintSvc     *maintenance.Service
-	dataSvc      *datamanagement.Service
-	doctorSvc    *doctor.Service
-	logger       *slog.Logger
-	noAuth       bool
+	adminService       *admin.Service
+	providerService    *provider.Service
+	credentialService  *credential.Service
+	tokenService       *token.Service
+	modelInfoService   *modelinfo.Service
+	metricsService     *metrics.Service
+	virtualService     *virtual.Service
+	routerService      *router.Service
+	configService      *configsvc.Service
+	luaService         *luaplugin.Service
+	repositoryService  *pluginrepo.Service
+	proxyService       *proxypool.Service
+	maintenanceService *maintenance.Service
+	dataService        *datamanagement.Service
+	doctorService      *doctor.Service
+	logger             *slog.Logger
+	noAuth             bool
 
 	// devRedirect, when set, is the origin (e.g. "http://localhost:8080")
 	// that browser navigations are 302-redirected to instead of being
 	// served from the embedded build/web. Set via SetDevRedirect. See its
-	// doc comment for why this exists.
+	// documentation comment for why this exists.
 	devRedirect string
 }
 
@@ -106,19 +106,19 @@ func (h *Handler) SetDevRedirect(origin string) {
 	h.devRedirect = strings.TrimSuffix(origin, "/")
 }
 
-func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (bool, error) }) {
-	distSub, _ := fs.Sub(spaFS, "build/web")
+func (h *Handler) Register(mux *http.ServeMux, database interface{ IsBootstrapped() (bool, error) }) {
+	webRoot, _ := fs.Sub(embeddedFS, "build/web")
 
 	// SPA asset files
-	mux.Handle("GET /assets/", http.FileServer(http.FS(distSub)))
-	mux.Handle("GET /icons/", http.FileServer(http.FS(distSub)))
+	mux.Handle("GET /assets/", http.FileServer(http.FS(webRoot)))
+	mux.Handle("GET /icons/", http.FileServer(http.FS(webRoot)))
 
 	// Auth endpoints
 	mux.HandleFunc("POST /api/llm-router/login", h.apiLogin)
 	mux.HandleFunc("POST /api/llm-router/logout", h.apiLogout)
 	mux.HandleFunc("POST /api/llm-router/bootstrap", h.apiBootstrap)
 	mux.HandleFunc("POST /api/llm-router/dashboard/admin/password", h.requireAuth(h.apiAdminChangePassword))
-	mux.HandleFunc("GET /api/llm-router/status", h.apiStatus(db))
+	mux.HandleFunc("GET /api/llm-router/status", h.apiStatus(database))
 
 	// Dashboard APIs
 	mux.HandleFunc("GET /api/llm-router/dashboard/providers", h.requireAuth(h.apiProvidersList))
@@ -230,7 +230,7 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 	mux.HandleFunc("POST /api/llm-router/dashboard/chat/completions", h.requireAuth(h.apiChatCompletions))
 
 	// SPA fallback
-	indexHTML, _ := distSub.Open("index.html")
+	indexHTML, _ := webRoot.Open("index.html")
 	indexBytes, _ := io.ReadAll(indexHTML)
 	indexHTML.Close()
 
@@ -258,7 +258,7 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 			return
 		}
 
-		file, err := distSub.Open(r.URL.Path[1:])
+		file, err := webRoot.Open(r.URL.Path[1:])
 		if err != nil {
 			// File not found - serve index.html for SPA client-side routing
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -267,15 +267,15 @@ func (h *Handler) Register(mux *http.ServeMux, db interface{ IsBootstrapped() (b
 		}
 		defer file.Close()
 
-		stat, err := file.Stat()
-		if err != nil || stat.IsDir() {
+		fileInfo, err := file.Stat()
+		if err != nil || fileInfo.IsDir() {
 			// Error or directory - serve index.html for SPA client-side routing
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Write(indexBytes)
 			return
 		}
 
-		http.ServeContent(w, r, stat.Name(), stat.ModTime(), file.(io.ReadSeeker))
+		http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file.(io.ReadSeeker))
 	})
 }
 
@@ -290,7 +290,7 @@ func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			h.jsonErr(w, http.StatusUnauthorized, "unauthenticated")
 			return
 		}
-		if _, ok := h.adminSvc.ValidateSession(c.Value); !ok {
+		if _, ok := h.adminService.ValidateSession(c.Value); !ok {
 			h.jsonErr(w, http.StatusUnauthorized, "unauthenticated")
 			return
 		}
@@ -307,7 +307,7 @@ func (h *Handler) sessionUser(r *http.Request) string {
 	if err != nil || c.Value == "" {
 		return ""
 	}
-	username, ok := h.adminSvc.ValidateSession(c.Value)
+	username, ok := h.adminService.ValidateSession(c.Value)
 	if !ok {
 		return ""
 	}
@@ -320,6 +320,6 @@ func (h *Handler) json(w http.ResponseWriter, status int, data any) {
 	json.NewEncoder(w).Encode(data)
 }
 
-func (h *Handler) jsonErr(w http.ResponseWriter, status int, msg string) {
-	h.json(w, status, map[string]string{"error": msg})
+func (h *Handler) jsonErr(w http.ResponseWriter, status int, message string) {
+	h.json(w, status, map[string]string{"error": message})
 }

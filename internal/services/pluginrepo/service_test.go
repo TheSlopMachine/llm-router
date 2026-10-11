@@ -13,23 +13,23 @@ func setupService(t *testing.T) *Service {
 }
 
 func builtinID() string {
-	return repoIDForIndex(BuiltinRepos[0].Index)
+	return repositoryIDForIndex(BuiltinRepos[0].Index)
 }
 
 func TestEnsureBuiltinReposSeeds(t *testing.T) {
-	svc := setupService(t)
-	if err := svc.EnsureBuiltinRepos(); err != nil {
+	service := setupService(t)
+	if err := service.EnsureBuiltinRepos(); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	rec, err := svc.Get(builtinID())
+	record, err := service.Get(builtinID())
 	if err != nil {
 		t.Fatalf("get %q: %v", builtinID(), err)
 	}
-	if !rec.Builtin {
+	if !record.Builtin {
 		t.Fatalf("repo %q not marked built-in", builtinID())
 	}
-	if rec.Kind != "index" || rec.IndexURL != BuiltinRepos[0].Index || rec.SourceURL != BuiltinRepos[0].Source {
-		t.Fatalf("record mismatch: %+v", rec)
+	if record.Kind != "index" || record.IndexURL != BuiltinRepos[0].Index || record.SourceURL != BuiltinRepos[0].Source {
+		t.Fatalf("record mismatch: %+v", record)
 	}
 }
 
@@ -44,18 +44,18 @@ func TestBuiltinRepoIDStable(t *testing.T) {
 }
 
 func TestEnsureBuiltinReposIdempotent(t *testing.T) {
-	svc := setupService(t)
-	if err := svc.EnsureBuiltinRepos(); err != nil {
+	service := setupService(t)
+	if err := service.EnsureBuiltinRepos(); err != nil {
 		t.Fatalf("first seed: %v", err)
 	}
-	before, err := svc.List()
+	before, err := service.List()
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if err := svc.EnsureBuiltinRepos(); err != nil {
+	if err := service.EnsureBuiltinRepos(); err != nil {
 		t.Fatalf("second seed: %v", err)
 	}
-	after, err := svc.List()
+	after, err := service.List()
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -65,15 +65,15 @@ func TestEnsureBuiltinReposIdempotent(t *testing.T) {
 }
 
 func TestEnsureBuiltinReposMarksExisting(t *testing.T) {
-	svc := setupService(t)
-	rec := &RepoRecord{ID: builtinID(), Kind: "index", IndexURL: BuiltinRepos[0].Index}
-	if err := svc.repo.Put(rec.ID, rec); err != nil {
+	service := setupService(t)
+	record := &RepoRecord{ID: builtinID(), Kind: "index", IndexURL: BuiltinRepos[0].Index}
+	if err := service.store.Put(record.ID, record); err != nil {
 		t.Fatalf("put: %v", err)
 	}
-	if err := svc.EnsureBuiltinRepos(); err != nil {
+	if err := service.EnsureBuiltinRepos(); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	got, err := svc.Get(builtinID())
+	got, err := service.Get(builtinID())
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -83,49 +83,49 @@ func TestEnsureBuiltinReposMarksExisting(t *testing.T) {
 }
 
 func TestPruneLegacyRepos(t *testing.T) {
-	svc := setupService(t)
+	service := setupService(t)
 	legacy := &RepoRecord{ID: "github/someone/elsewhere", Kind: "github"}
-	if err := svc.repo.Put(legacy.ID, legacy); err != nil {
+	if err := service.store.Put(legacy.ID, legacy); err != nil {
 		t.Fatalf("put: %v", err)
 	}
-	if err := svc.EnsureBuiltinRepos(); err != nil {
+	if err := service.EnsureBuiltinRepos(); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	if err := svc.PruneLegacyRepos(); err != nil {
+	if err := service.PruneLegacyRepos(); err != nil {
 		t.Fatalf("prune: %v", err)
 	}
-	if _, err := svc.Get(legacy.ID); err == nil {
+	if _, err := service.Get(legacy.ID); err == nil {
 		t.Fatalf("legacy repo still present")
 	}
-	if _, err := svc.Get(builtinID()); err != nil {
+	if _, err := service.Get(builtinID()); err != nil {
 		t.Fatalf("builtin repo pruned: %v", err)
 	}
 }
 
 func TestRemoveBuiltinProtected(t *testing.T) {
-	svc := setupService(t)
-	if err := svc.EnsureBuiltinRepos(); err != nil {
+	service := setupService(t)
+	if err := service.EnsureBuiltinRepos(); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	err := svc.Remove(builtinID())
+	err := service.Remove(builtinID())
 	if !errors.Is(err, ErrBuiltinRepoProtected) {
 		t.Fatalf("remove builtin: got %v, want ErrBuiltinRepoProtected", err)
 	}
-	if _, err := svc.Get(builtinID()); err != nil {
+	if _, err := service.Get(builtinID()); err != nil {
 		t.Fatalf("builtin repo deleted: %v", err)
 	}
 }
 
 func TestRemoveRegular(t *testing.T) {
-	svc := setupService(t)
-	rec := &RepoRecord{ID: "index/some-abc123", Kind: "index", IndexURL: "https://example.com/files/index.json"}
-	if err := svc.repo.Put(rec.ID, rec); err != nil {
+	service := setupService(t)
+	record := &RepoRecord{ID: "index/some-abc123", Kind: "index", IndexURL: "https://example.com/files/index.json"}
+	if err := service.store.Put(record.ID, record); err != nil {
 		t.Fatalf("put: %v", err)
 	}
-	if err := svc.Remove(rec.ID); err != nil {
+	if err := service.Remove(record.ID); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
-	if _, err := svc.Get(rec.ID); err == nil {
+	if _, err := service.Get(record.ID); err == nil {
 		t.Fatalf("repo still present after remove")
 	}
 }

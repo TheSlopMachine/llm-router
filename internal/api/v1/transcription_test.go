@@ -23,30 +23,30 @@ func transcriptionFixture() *models.TranscriptionResponse {
 
 func multipartBody(t *testing.T, fields map[string]string, withFile bool) (string, *bytes.Buffer) {
 	t.Helper()
-	var buf bytes.Buffer
-	w := multipart.NewWriter(&buf)
-	for k, v := range fields {
-		if err := w.WriteField(k, v); err != nil {
-			t.Fatalf("write field %s: %v", k, err)
+	var buffer bytes.Buffer
+	writer := multipart.NewWriter(&buffer)
+	for key, value := range fields {
+		if err := writer.WriteField(key, value); err != nil {
+			t.Fatalf("write field %s: %v", key, err)
 		}
 	}
 	if withFile {
-		fw, err := w.CreateFormFile("file", "clip.wav")
+		formWriter, err := writer.CreateFormFile("file", "clip.wav")
 		if err != nil {
 			t.Fatalf("create form file: %v", err)
 		}
-		if _, err := fw.Write([]byte("FAKEAUDIO")); err != nil {
+		if _, err := formWriter.Write([]byte("FAKEAUDIO")); err != nil {
 			t.Fatalf("write file: %v", err)
 		}
 	}
-	if err := w.Close(); err != nil {
+	if err := writer.Close(); err != nil {
 		t.Fatalf("close writer: %v", err)
 	}
-	return w.FormDataContentType(), &buf
+	return writer.FormDataContentType(), &buffer
 }
 
 func TestParseTranscriptionRequest_Success(t *testing.T) {
-	ct, buf := multipartBody(t, map[string]string{
+	contentType, buffer := multipartBody(t, map[string]string{
 		"model":                     "groq/whisper-large-v3",
 		"language":                  "en",
 		"prompt":                    "hello",
@@ -54,10 +54,10 @@ func TestParseTranscriptionRequest_Success(t *testing.T) {
 		"temperature":               "0.2",
 		"timestamp_granularities[]": "segment",
 	}, true)
-	req := httptest.NewRequest("POST", "/v1/audio/transcriptions", buf)
-	req.Header.Set("Content-Type", ct)
+	request := httptest.NewRequest("POST", "/v1/audio/transcriptions", buffer)
+	request.Header.Set("Content-Type", contentType)
 
-	parsed, err := parseTranscriptionRequest(req)
+	parsed, err := parseTranscriptionRequest(request)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -123,37 +123,37 @@ func TestParseTranscriptionRequest_Errors(t *testing.T) {
 			wantErr: `invalid temperature "hot": must be a number`,
 		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			ct, buf := tc.build(t)
-			req := httptest.NewRequest("POST", "/v1/audio/transcriptions", buf)
-			req.Header.Set("Content-Type", ct)
-			_, err := parseTranscriptionRequest(req)
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			contentType, buffer := testCase.build(t)
+			request := httptest.NewRequest("POST", "/v1/audio/transcriptions", buffer)
+			request.Header.Set("Content-Type", contentType)
+			_, err := parseTranscriptionRequest(request)
 			if err == nil {
 				t.Fatal("expected error")
 			}
-			if err.Error() != tc.wantErr {
-				t.Fatalf("error %q must equal %q", err.Error(), tc.wantErr)
+			if err.Error() != testCase.wantErr {
+				t.Fatalf("error %q must equal %q", err.Error(), testCase.wantErr)
 			}
 		})
 	}
 }
 
 func TestParseTranscriptionRequest_RejectsNonMultipart(t *testing.T) {
-	req := httptest.NewRequest("POST", "/v1/audio/transcriptions", strings.NewReader(`{"model":"groq/whisper"}`))
-	req.Header.Set("Content-Type", "application/json")
-	if _, err := parseTranscriptionRequest(req); err == nil {
+	request := httptest.NewRequest("POST", "/v1/audio/transcriptions", strings.NewReader(`{"model":"groq/whisper"}`))
+	request.Header.Set("Content-Type", "application/json")
+	if _, err := parseTranscriptionRequest(request); err == nil {
 		t.Fatal("expected error for non-multipart body")
 	}
 }
 
 func TestTranscriptionResponse_SRTVTT(t *testing.T) {
-	resp := transcriptionFixture()
-	srt := resp.SRT()
+	response := transcriptionFixture()
+	srt := response.SRT()
 	if !strings.Contains(srt, "1\n00:00:00,000 --> 00:00:01,500\nhello world\n") {
 		t.Fatalf("srt: %q", srt)
 	}
-	vtt := resp.VTT()
+	vtt := response.VTT()
 	if !strings.HasPrefix(vtt, "WEBVTT\n\n") || !strings.Contains(vtt, "00:00:00.000 --> 00:00:01.500") {
 		t.Fatalf("vtt: %q", vtt)
 	}

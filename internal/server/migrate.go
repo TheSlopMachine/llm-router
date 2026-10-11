@@ -15,13 +15,13 @@ import (
 func migrateClearCredentialQuota(logger *slog.Logger, database *db.DB) {
 	cleared := 0
 	err := database.Update(func(tx *bolt.Tx) error {
-		bkt := tx.Bucket(db.BucketCredentials)
-		if bkt == nil {
+		bucket := tx.Bucket(db.BucketCredentials)
+		if bucket == nil {
 			return nil
 		}
 		var rewrite []string
 		var payloads [][]byte
-		if err := bkt.ForEach(func(k, v []byte) error {
+		if err := bucket.ForEach(func(k, v []byte) error {
 			var row map[string]any
 			if err := json.Unmarshal(v, &row); err != nil {
 				return nil
@@ -30,18 +30,18 @@ func migrateClearCredentialQuota(logger *slog.Logger, database *db.DB) {
 				return nil
 			}
 			delete(row, "quota_reset_at")
-			enc, err := json.Marshal(row)
+			encoded, err := json.Marshal(row)
 			if err != nil {
 				return nil
 			}
 			rewrite = append(rewrite, string(k))
-			payloads = append(payloads, enc)
+			payloads = append(payloads, encoded)
 			return nil
 		}); err != nil {
 			return err
 		}
 		for i, key := range rewrite {
-			if err := bkt.Put([]byte(key), payloads[i]); err != nil {
+			if err := bucket.Put([]byte(key), payloads[i]); err != nil {
 				return err
 			}
 			cleared++

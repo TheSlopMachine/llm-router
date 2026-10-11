@@ -26,15 +26,15 @@ type Params struct {
 }
 
 // New constructs a v1 Handler.
-func New(p Params) *Handler {
+func New(parameters Params) *Handler {
 	return &Handler{
-		tokens:       p.Tokens,
-		router:       p.RouterSvc,
-		metrics:      p.MetricsSvc,
-		providerSvc:  p.ProviderSvc,
-		modelInfoSvc: p.ModelInfoSvc,
-		virtualSvc:   p.VirtualSvc,
-		logger:       p.Logger,
-		noAuth:       p.NoAuth,
+		tokens:       parameters.Tokens,
+		router:       parameters.RouterSvc,
+		metrics:      parameters.MetricsSvc,
+		providerSvc:  parameters.ProviderSvc,
+		modelInfoSvc: parameters.ModelInfoSvc,
+		virtualSvc:   parameters.VirtualSvc,
+		logger:       parameters.Logger,
+		noAuth:       parameters.NoAuth,
 	}
 }

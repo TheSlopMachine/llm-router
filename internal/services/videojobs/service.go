@@ -19,17 +19,17 @@ import (
 
 // Service owns VideoJob records in the video_jobs bucket.
 type Service struct {
-	repo *repository.Repository[models.VideoJob]
+	store *repository.Repository[models.VideoJob]
 }
 
 // New constructs a videojobs Service. Construction performs no I/O.
 func New(database *db.DB) *Service {
 	return &Service{
-		repo: repository.New[models.VideoJob](database, db.BucketVideoJobs, "video job"),
+		store: repository.New[models.VideoJob](database, db.BucketVideoJobs, "video job"),
 	}
 }
 
-// Create persists a new job row: one public method, one db.Update.
+// Create persists a new job row: one public method, one database.Update.
 func (s *Service) Create(job *models.VideoJob) error {
 	if job == nil {
 		return errors.New("video job is required")
@@ -40,12 +40,12 @@ func (s *Service) Create(job *models.VideoJob) error {
 	now := time.Now()
 	job.CreatedAt = now
 	job.UpdatedAt = now
-	return s.repo.Put(job.ID, job)
+	return s.store.Put(job.ID, job)
 }
 
 // Get returns the job row by router-local ID.
 func (s *Service) Get(id string) (*models.VideoJob, error) {
-	job, err := s.repo.Get(id)
+	job, err := s.store.Get(id)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, apierrors.NewNotFoundError("video job", id)
@@ -55,9 +55,9 @@ func (s *Service) Get(id string) (*models.VideoJob, error) {
 	return job, nil
 }
 
-// SetStatus records a new upstream status: one public method, one db.Update.
+// SetStatus records a new upstream status: one public method, one database.Update.
 func (s *Service) SetStatus(id, status string) error {
-	return s.repo.Update(id, func(job *models.VideoJob) error {
+	return s.store.Update(id, func(job *models.VideoJob) error {
 		job.Status = status
 		job.UpdatedAt = time.Now()
 		return nil

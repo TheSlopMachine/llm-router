@@ -19,28 +19,28 @@ type Proc struct {
 	FrontendPath string `json:"frontendPath,omitempty"`
 }
 
-// RootDir returns the repo root: nearest ancestor of cwd containing go.mod
+// RootDir returns the repository root: nearest ancestor of workdir containing go.mod
 // alongside the internal/ tree. The go.mod check alone is not enough:
-// scripts/ is a separate Go module nested inside the repo.
+// scripts/ is a separate Go module nested inside the repository.
 func RootDir() (string, error) {
-	cwd, err := os.Getwd()
+	workdir, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
-	dir := cwd
+	ancestorDirectory := workdir
 	for range 8 {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			if st, err := os.Stat(filepath.Join(dir, "internal")); err == nil && st.IsDir() {
-				return dir, nil
+		if _, err := os.Stat(filepath.Join(ancestorDirectory, "go.mod")); err == nil {
+			if fileInfo, err := os.Stat(filepath.Join(ancestorDirectory, "internal")); err == nil && fileInfo.IsDir() {
+				return ancestorDirectory, nil
 			}
 		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
+		parent := filepath.Dir(ancestorDirectory)
+		if parent == ancestorDirectory {
 			break
 		}
-		dir = parent
+		ancestorDirectory = parent
 	}
-	return "", fmt.Errorf("repo root not found (no go.mod with internal/ above %s)", cwd)
+	return "", fmt.Errorf("repository root not found (no go.mod with internal/ above %s)", workdir)
 }
 
 // DefaultPidFile is %TEMP%/llm-router-dev.pid (or $TMPDIR equivalent).
@@ -63,8 +63,8 @@ func ParamsFileFor(pidFile string) string {
 }
 
 // WriteStartParams persists the start parameters.
-func WriteStartParams(pidFile string, p StartParams) error {
-	raw, err := json.MarshalIndent(p, "", "  ")
+func WriteStartParams(pidFile string, params StartParams) error {
+	raw, err := json.MarshalIndent(params, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -77,11 +77,11 @@ func ReadStartParams(pidFile string) (*StartParams, error) {
 	if err != nil {
 		return nil, err
 	}
-	var p StartParams
-	if err := json.Unmarshal(raw, &p); err != nil {
+	var params StartParams
+	if err := json.Unmarshal(raw, &params); err != nil {
 		return nil, err
 	}
-	return &p, nil
+	return &params, nil
 }
 
 // DefaultBackendLog and DefaultFrontendLog sit next to the pidfile.
@@ -104,15 +104,15 @@ func ReadPidFile(path string) (*Proc, error) {
 	if err != nil {
 		return nil, err
 	}
-	var p Proc
-	if err := json.Unmarshal(raw, &p); err == nil && (p.Backend > 0 || p.Frontend > 0) {
-		return &p, nil
+	var process Proc
+	if err := json.Unmarshal(raw, &process); err == nil && (process.Backend > 0 || process.Frontend > 0) {
+		return &process, nil
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(string(raw)))
-	if err != nil || n <= 0 {
+	number, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil || number <= 0 {
 		return nil, fmt.Errorf("unrecognized pidfile content in %s", path)
 	}
-	return &Proc{Backend: n}, nil
+	return &Proc{Backend: number}, nil
 }
 
 // Stepf prints a "[>] ..." progress line.

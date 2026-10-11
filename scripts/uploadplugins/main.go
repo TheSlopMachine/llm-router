@@ -24,11 +24,11 @@ func main() {
 		shared.Failf("read store dir %s: %v", store, err)
 	}
 	var names []string
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".lua") {
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".lua") {
 			continue
 		}
-		names = append(names, strings.TrimSuffix(e.Name(), ".lua"))
+		names = append(names, strings.TrimSuffix(entry.Name(), ".lua"))
 	}
 	sort.Strings(names)
 	if len(names) == 0 {
@@ -44,13 +44,13 @@ func main() {
 		if err != nil {
 			shared.Failf("%v", err)
 		}
-		v := shared.ManifestVersion(source)
+		version := shared.ManifestVersion(source)
 		if ran {
 			installed++
-			fmt.Printf("[OK] %s %s installed\n", pluginType, v)
+			fmt.Printf("[OK] %s %s installed\n", pluginType, version)
 		} else {
 			current++
-			fmt.Printf("[>] %s %s already current\n", pluginType, v)
+			fmt.Printf("[>] %s %s already current\n", pluginType, version)
 		}
 	}
 	shared.OKf("upload-plugins: %d installed, %d already current", installed, current)

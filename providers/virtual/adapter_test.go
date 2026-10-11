@@ -24,46 +24,46 @@ type fakeCompleter struct {
 	attempted []string
 }
 
-func (f *fakeCompleter) Complete(_ context.Context, req *models.ChatCompletionRequest, _ *models.RouterToken) (*models.ChatCompletionResponse, error) {
-	f.attempted = append(f.attempted, req.Model.String())
-	if req.Model.String() == f.succeedAt {
+func (f *fakeCompleter) Complete(_ context.Context, request *models.ChatCompletionRequest, _ *models.RouterToken) (*models.ChatCompletionResponse, error) {
+	f.attempted = append(f.attempted, request.Model.String())
+	if request.Model.String() == f.succeedAt {
 		return &models.ChatCompletionResponse{}, nil
 	}
-	return nil, fmt.Errorf("fake failure for %s", req.Model)
+	return nil, fmt.Errorf("fake failure for %s", request.Model)
 }
 
-func (f *fakeCompleter) CompleteStream(_ context.Context, req *models.ChatCompletionRequest, _ io.Writer, _ *models.RouterToken) error {
-	f.attempted = append(f.attempted, req.Model.String())
-	if req.Model.String() == f.succeedAt {
+func (f *fakeCompleter) CompleteStream(_ context.Context, request *models.ChatCompletionRequest, _ io.Writer, _ *models.RouterToken) error {
+	f.attempted = append(f.attempted, request.Model.String())
+	if request.Model.String() == f.succeedAt {
 		return nil
 	}
-	return fmt.Errorf("fake failure for %s", req.Model)
+	return fmt.Errorf("fake failure for %s", request.Model)
 }
 
-func (f *fakeCompleter) SubmitVideo(_ context.Context, req *models.VideoGenerationRequest, _ *models.RouterToken) (*models.VideoGenerationResponse, error) {
-	f.attempted = append(f.attempted, req.Model.String())
-	if req.Model.String() == f.succeedAt {
+func (f *fakeCompleter) SubmitVideo(_ context.Context, request *models.VideoGenerationRequest, _ *models.RouterToken) (*models.VideoGenerationResponse, error) {
+	f.attempted = append(f.attempted, request.Model.String())
+	if request.Model.String() == f.succeedAt {
 		return &models.VideoGenerationResponse{ID: "job-1", PollingURL: "/v1/videos/job-1", Status: models.VideoStatusCompleted}, nil
 	}
-	return nil, fmt.Errorf("fake failure for %s", req.Model)
+	return nil, fmt.Errorf("fake failure for %s", request.Model)
 }
 
 func newVirtualModelStack(t *testing.T) *virtual.Service {
 	t.Helper()
 	database := testutil.SetupTestDB(t)
-	providerSvc := provider.NewService(database)
-	credSvc := credential.New(database, providerSvc)
-	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, time.Hour)
-	virtualSvc := virtual.New(database, providerSvc, modelInfoSvc)
-	if _, err := providerSvc.Create(provider.CreateOptions{Name: "Demo", TypeKey: "demo"}); err != nil {
+	providerService := provider.NewService(database)
+	credentialService := credential.New(database, providerService)
+	modelInfoService := modelinfo.New(database, providerService, credentialService, time.Hour)
+	virtualService := virtual.New(database, providerService, modelInfoService)
+	if _, err := providerService.Create(provider.CreateOptions{Name: "Demo", TypeKey: "demo"}); err != nil {
 		t.Fatalf("seed demo provider: %v", err)
 	}
-	return virtualSvc
+	return virtualService
 }
 
 func TestComplete_FallsThroughInListOrder(t *testing.T) {
-	virtualSvc := newVirtualModelStack(t)
-	vm := &models.VirtualModel{
+	virtualService := newVirtualModelStack(t)
+	virtualModel := &models.VirtualModel{
 		Name: "Fallback",
 		Models: []models.VirtualModelEntry{
 			{ModelID: "demo/model-a"},
@@ -71,14 +71,14 @@ func TestComplete_FallsThroughInListOrder(t *testing.T) {
 			{ModelID: "demo/model-c"},
 		},
 	}
-	if err := virtualSvc.Create(vm); err != nil {
+	if err := virtualService.Create(virtualModel); err != nil {
 		t.Fatalf("create virtual model: %v", err)
 	}
 
 	fake := &fakeCompleter{succeedAt: "demo/model-b"}
-	adapter := New(fake, virtualSvc, nil)
-	req := &models.ChatCompletionRequest{Model: models.ModelId("virtual/" + vm.ID)}
-	if _, err := adapter.Complete(context.Background(), nil, req, nil); err != nil {
+	adapter := New(fake, virtualService, nil)
+	request := &models.ChatCompletionRequest{Model: models.ModelId("virtual/" + virtualModel.ID)}
+	if _, err := adapter.Complete(context.Background(), nil, request, nil); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
 	if len(fake.attempted) != 2 || fake.attempted[0] != "demo/model-a" || fake.attempted[1] != "demo/model-b" {
@@ -89,22 +89,22 @@ func TestComplete_FallsThroughInListOrder(t *testing.T) {
 func TestComplete_TriesEveryMemberInOrder(t *testing.T) {
 	// Every member fails. All members are attempted in list order and the
 	// last error surfaces: nothing is skipped or deprioritized.
-	virtualSvc := newVirtualModelStack(t)
-	vm := &models.VirtualModel{
+	virtualService := newVirtualModelStack(t)
+	virtualModel := &models.VirtualModel{
 		Name: "AllFlagged",
 		Models: []models.VirtualModelEntry{
 			{ModelID: "demo/model-a"},
 			{ModelID: "demo/model-b"},
 		},
 	}
-	if err := virtualSvc.Create(vm); err != nil {
+	if err := virtualService.Create(virtualModel); err != nil {
 		t.Fatalf("create virtual model: %v", err)
 	}
 
 	fake := &fakeCompleter{}
-	adapter := New(fake, virtualSvc, nil)
-	req := &models.ChatCompletionRequest{Model: models.ModelId("virtual/" + vm.ID)}
-	_, err := adapter.Complete(context.Background(), nil, req, nil)
+	adapter := New(fake, virtualService, nil)
+	request := &models.ChatCompletionRequest{Model: models.ModelId("virtual/" + virtualModel.ID)}
+	_, err := adapter.Complete(context.Background(), nil, request, nil)
 	if err == nil {
 		t.Fatal("expected an error: every member fails and none should silently succeed")
 	}
@@ -114,23 +114,23 @@ func TestComplete_TriesEveryMemberInOrder(t *testing.T) {
 }
 
 func TestCompleteStream_FallsThroughInListOrder(t *testing.T) {
-	virtualSvc := newVirtualModelStack(t)
-	vm := &models.VirtualModel{
+	virtualService := newVirtualModelStack(t)
+	virtualModel := &models.VirtualModel{
 		Name: "FallbackStream",
 		Models: []models.VirtualModelEntry{
 			{ModelID: "demo/model-a"},
 			{ModelID: "demo/model-b"},
 		},
 	}
-	if err := virtualSvc.Create(vm); err != nil {
+	if err := virtualService.Create(virtualModel); err != nil {
 		t.Fatalf("create virtual model: %v", err)
 	}
 
 	fake := &fakeCompleter{succeedAt: "demo/model-b"}
-	adapter := New(fake, virtualSvc, nil)
-	req := &models.ChatCompletionRequest{Model: models.ModelId("virtual/" + vm.ID)}
-	var buf bytes.Buffer
-	if err := adapter.CompleteStream(context.Background(), nil, req, &buf, nil); err != nil {
+	adapter := New(fake, virtualService, nil)
+	request := &models.ChatCompletionRequest{Model: models.ModelId("virtual/" + virtualModel.ID)}
+	var buffer bytes.Buffer
+	if err := adapter.CompleteStream(context.Background(), nil, request, &buffer, nil); err != nil {
 		t.Fatalf("complete stream: %v", err)
 	}
 	if len(fake.attempted) != 2 || fake.attempted[0] != "demo/model-a" || fake.attempted[1] != "demo/model-b" {
@@ -140,34 +140,34 @@ func TestCompleteStream_FallsThroughInListOrder(t *testing.T) {
 
 func TestGetModelInfosUsesVirtualModelID(t *testing.T) {
 	database := testutil.SetupTestDB(t)
-	providerSvc := provider.NewService(database)
-	credSvc := credential.New(database, providerSvc)
-	modelInfoSvc := modelinfo.New(database, providerSvc, credSvc, 1*time.Hour)
-	virtualSvc := virtual.New(database, providerSvc, modelInfoSvc)
+	providerService := provider.NewService(database)
+	credentialService := credential.New(database, providerService)
+	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
+	virtualService := virtual.New(database, providerService, modelInfoService)
 
-	if _, err := providerSvc.Create(provider.CreateOptions{Name: "Demo", TypeKey: "demo"}); err != nil {
+	if _, err := providerService.Create(provider.CreateOptions{Name: "Demo", TypeKey: "demo"}); err != nil {
 		t.Fatalf("seed demo provider: %v", err)
 	}
-	vm := &models.VirtualModel{
+	virtualModel := &models.VirtualModel{
 		Name:   "My Helper",
 		Models: []models.VirtualModelEntry{{ModelID: "demo/model-a"}},
 	}
-	if err := virtualSvc.Create(vm); err != nil {
+	if err := virtualService.Create(virtualModel); err != nil {
 		t.Fatalf("create virtual model: %v", err)
 	}
 
-	adapter := New(nil, virtualSvc, nil)
-	infos, err := adapter.GetModelInfos(context.Background(), nil, nil)
+	adapter := New(nil, virtualService, nil)
+	modelInfos, err := adapter.GetModelInfos(context.Background(), nil, nil)
 	if err != nil {
 		t.Fatalf("model infos failed: %v", err)
 	}
-	if len(infos) != 1 {
-		t.Fatalf("infos: got %d, want 1", len(infos))
+	if len(modelInfos) != 1 {
+		t.Fatalf("modelInfos: got %d, want 1", len(modelInfos))
 	}
-	if infos[0].Name != "my-helper" {
-		t.Errorf("info name: got %q, want virtual model ID %q", infos[0].Name, "my-helper")
+	if modelInfos[0].Name != "my-helper" {
+		t.Errorf("info name: got %q, want virtual model ID %q", modelInfos[0].Name, "my-helper")
 	}
-	if infos[0].DisplayName != "My Helper" {
-		t.Errorf("display name: got %q", infos[0].DisplayName)
+	if modelInfos[0].DisplayName != "My Helper" {
+		t.Errorf("display name: got %q", modelInfos[0].DisplayName)
 	}
 }
