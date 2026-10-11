@@ -172,7 +172,7 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 	// skipped, matching prior behavior.
 	var orphanOverrideKeys []string
 	var orphanInfoKeys []string
-	_ = s.database.View(func(tx *bolt.Tx) error {
+	if err := s.database.View(func(tx *bolt.Tx) error {
 		overridesBucket := tx.Bucket(db.BucketModelOverrides)
 		if overridesBucket != nil {
 			_ = overridesBucket.ForEach(func(k, v []byte) error {
@@ -197,7 +197,9 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 			})
 		}
 		return nil
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("scan model overrides and infos: %w", err)
+	}
 
 	if len(orphanOverrideKeys) > 0 {
 		issues = append(issues, Issue{
@@ -273,7 +275,7 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 	// can prove them orphaned, and Fix has no case for the category.
 	var orphanStorageKeys []string
 	var corruptStorageKeys []string
-	_ = s.database.View(func(tx *bolt.Tx) error {
+	if err := s.database.View(func(tx *bolt.Tx) error {
 		storageBucket := tx.Bucket(db.BucketPluginStorage)
 		if storageBucket != nil {
 			_ = storageBucket.ForEach(func(k, v []byte) error {
@@ -289,7 +291,9 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 			})
 		}
 		return nil
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("scan plugin storage: %w", err)
+	}
 
 	if len(orphanStorageKeys) > 0 {
 		issues = append(issues, Issue{
@@ -318,7 +322,7 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 		for _, tokenRecord := range tokens {
 			validTokenIDs[tokenRecord.ID] = true
 		}
-		_ = s.database.View(func(tx *bolt.Tx) error {
+		if err := s.database.View(func(tx *bolt.Tx) error {
 			indexBucket := tx.Bucket(db.BucketTokenIndex)
 			if indexBucket != nil {
 				_ = indexBucket.ForEach(func(k, v []byte) error {
@@ -330,7 +334,9 @@ func (s *Service) Inspect() (*InspectionReport, error) {
 				})
 			}
 			return nil
-		})
+		}); err != nil {
+			return nil, fmt.Errorf("scan token indexes: %w", err)
+		}
 	}
 
 	if len(brokenIndexKeys) > 0 {
@@ -394,7 +400,7 @@ func (s *Service) Fix(categories []IssueCategory) (int, error) {
 			}
 
 		case CategoryOrphanModelOverrides:
-			_ = s.database.Update(func(tx *bolt.Tx) error {
+			if err := s.database.Update(func(tx *bolt.Tx) error {
 				bucket := tx.Bucket(db.BucketModelOverrides)
 				if bucket != nil {
 					for _, key := range issue.Keys {
@@ -404,10 +410,12 @@ func (s *Service) Fix(categories []IssueCategory) (int, error) {
 					}
 				}
 				return nil
-			})
+			}); err != nil {
+				return totalFixed, fmt.Errorf("fix orphan model overrides: %w", err)
+			}
 
 		case CategoryOrphanModelInfos:
-			_ = s.database.Update(func(tx *bolt.Tx) error {
+			if err := s.database.Update(func(tx *bolt.Tx) error {
 				bucket := tx.Bucket(db.BucketModelInfos)
 				if bucket != nil {
 					for _, key := range issue.Keys {
@@ -417,7 +425,9 @@ func (s *Service) Fix(categories []IssueCategory) (int, error) {
 					}
 				}
 				return nil
-			})
+			}); err != nil {
+				return totalFixed, fmt.Errorf("fix orphan model infos: %w", err)
+			}
 
 		case CategoryOrphanVirtualModels:
 			for _, key := range issue.Keys {
@@ -435,7 +445,7 @@ func (s *Service) Fix(categories []IssueCategory) (int, error) {
 			}
 
 		case CategoryOrphanPluginStorage:
-			_ = s.database.Update(func(tx *bolt.Tx) error {
+			if err := s.database.Update(func(tx *bolt.Tx) error {
 				bucket := tx.Bucket(db.BucketPluginStorage)
 				if bucket != nil {
 					for _, key := range issue.Keys {
@@ -445,10 +455,12 @@ func (s *Service) Fix(categories []IssueCategory) (int, error) {
 					}
 				}
 				return nil
-			})
+			}); err != nil {
+				return totalFixed, fmt.Errorf("fix orphan plugin storage: %w", err)
+			}
 
 		case CategoryBrokenTokenIndexes:
-			_ = s.database.Update(func(tx *bolt.Tx) error {
+			if err := s.database.Update(func(tx *bolt.Tx) error {
 				bucket := tx.Bucket(db.BucketTokenIndex)
 				if bucket != nil {
 					for _, key := range issue.Keys {
@@ -458,7 +470,9 @@ func (s *Service) Fix(categories []IssueCategory) (int, error) {
 					}
 				}
 				return nil
-			})
+			}); err != nil {
+				return totalFixed, fmt.Errorf("fix broken token indexes: %w", err)
+			}
 		}
 	}
 

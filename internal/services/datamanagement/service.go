@@ -13,7 +13,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/services/token"
 	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
-	bolt "go.etcd.io/bbolt"
 )
 
 // Aliases for clean API import payloads
@@ -151,12 +150,14 @@ func (s *Service) ImportProviders(bundles []*ProviderBundle) error {
 		}
 		existing, err := s.providerService.Get(instance.ID)
 		if err == nil && existing != nil {
-			_, _ = s.providerService.Update(instance.ID, provider.UpdateOptions{
+			if _, err := s.providerService.Update(instance.ID, provider.UpdateOptions{
 				Name:     instance.Name,
 				Config:   instance.Config,
 				IconURL:  instance.IconURL,
 				Disabled: &instance.Disabled,
-			})
+			}); err != nil {
+				return err
+			}
 		} else {
 			// Create regenerates the ID (dedup suffixes on collision), so
 			// credentials and overrides below must follow the created
@@ -294,7 +295,9 @@ func (s *Service) ImportVirtualModels(virtualModels []*models.VirtualModel) erro
 		if virtualModel.ID != "" {
 			existing, err := s.virtualService.Get(virtualModel.ID)
 			if err == nil && existing != nil {
-				_ = s.virtualService.Update(virtualModel.ID, virtualModel)
+				if err := s.virtualService.Update(virtualModel.ID, virtualModel); err != nil {
+					return err
+				}
 				continue
 			}
 		}
@@ -390,11 +393,9 @@ func (s *Service) ClearPlugins() error {
 			}
 		}
 	}
-	_ = s.database.Update(func(tx *bolt.Tx) error {
-		_ = tx.DeleteBucket(db.BucketPluginStorage)
-		_, _ = tx.CreateBucketIfNotExists(db.BucketPluginStorage)
-		return nil
-	})
+	// Plugin storage rows cascade from the plugin delete in the owning
+	// luaplugin service; this package never touches buckets outside its
+	// own directory.
 	return nil
 }
 
