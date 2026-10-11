@@ -2,6 +2,7 @@ package healthcheck
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -51,21 +52,51 @@ func (f *fakeLua) CheckHealth(ctx context.Context, typeKey string, credential *m
 	return luaplugin.HealthHealthy, "", nil
 }
 
-// fakeCredentials is an in-memory CredentialStore.
+// fakeCredentials is an in-memory CredentialStore with mutex-guarded state:
+// DisableUnhealthy runs on the service background goroutine while test
+// polling closures read the same entries.
 type fakeCredentials struct {
+	mu          sync.Mutex
 	credentials map[string]*models.Credential
 	disabled    map[string]string
 }
 
 func (f *fakeCredentials) Get(_ context.Context, id string) (*models.Credential, error) {
-	return f.credentials[id], nil
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	credential := f.credentials[id]
+	if credential == nil {
+		return nil, nil
+	}
+	snapshot := *credential
+	return &snapshot, nil
 }
 
 func (f *fakeCredentials) DisableUnhealthy(_ context.Context, id, reason string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.disabled[id] = reason
 	f.credentials[id].Disabled = true
 	f.credentials[id].DisabledBy = "healthcheck"
 	return nil
+}
+
+func (f *fakeCredentials) isDisabled(id string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.credentials[id].Disabled
+}
+
+func (f *fakeCredentials) disabledBy(id string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.credentials[id].DisabledBy
+}
+
+func (f *fakeCredentials) disableCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.disabled)
 }
 
 // fakeProviders is an in-memory ProviderConfigs.
@@ -139,8 +170,8 @@ func TestGormSuspectFailed_UnhealthyDisables(t *testing.T) {
 	}
 	service, credentials := healthGormStack(t, lua, "c1")
 	service.SuspectFailed("plug", "t", "c1")
-	waitFor(t, "disable", func() bool { return credentials.credentials["c1"].Disabled })
-	if got := credentials.credentials["c1"].DisabledBy; got != "healthcheck" {
+	waitFor(t, "disable", func() bool { return credentials.isDisabled("c1") })
+	if got := credentials.disabledBy("c1"); got != "healthcheck" {
 		t.Fatalf("disabled_by = %q, want healthcheck", got)
 	}
 	if lua.calls.Load() != 1 {
@@ -175,11 +206,11 @@ func TestGormSuspectFailed_AutomationOffKeeps(t *testing.T) {
 	service.SuspectFailed("plug", "t", "c1")
 	waitFor(t, "check", func() bool { return lua.calls.Load() == 1 })
 	time.Sleep(50 * time.Millisecond)
-	if credentials.credentials["c1"].Disabled {
+	if credentials.isDisabled("c1") {
 		t.Fatal("automation off must keep the credential enabled")
 	}
-	if len(credentials.disabled) != 0 {
-		t.Fatalf("no disable must record, got %v", credentials.disabled)
+	if got := credentials.disableCount(); got != 0 {
+		t.Fatalf("no disable must record, got %d entries", got)
 	}
 	entry, err := service.Get(context.Background(), "c1")
 	if err != nil {
@@ -209,7 +240,7 @@ func TestGormSuspectFailed_HealthyAndUnknownKeep(t *testing.T) {
 		seedHealthParents(t, context.Background(), service, id)
 		service.SuspectFailed("plug", "t", id)
 		waitFor(t, "check", func() bool { return lua.calls.Load() == 1 })
-		if credentials.credentials[id].Disabled {
+		if credentials.isDisabled(id) {
 			t.Fatalf("%s must stay enabled", verdict)
 		}
 	}

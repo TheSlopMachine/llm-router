@@ -18,6 +18,7 @@ Targets:
   publish           Cut and push the next release tag (TYPE or VERSION; CI builds)
   go-vet            Run go vet (PKG scopes packages, default "./...")
   go-test           Run go test (PKG scopes packages, default "./...")
+  go-test-race      Run go test -race (PKG scopes packages, default "./...")
   sql-policy        Enforce typed GORM conditions (no raw SQL outside allowlist)
   go-fmt            Apply gofmt to both Go modules (PATHS scopes files/dirs)
   go-fmt-check      Fail when gofmt would reformat anything (PATHS scopes)
@@ -38,7 +39,7 @@ Variables:
   UPLOAD_STORE_DIR   Store dir for upload-plugins. Default: "../../llm-router-store/llm-router-plugins"
   PLATFORMS          Platforms for build. Default: "windows/amd64 ..."
   TYPE               Release bump for publish: fix|minor|major (or VERSION=X.Y[.Z] to force)
-  PKG                Package scope for go-vet and go-test. Default: "./..."
+  PKG                Package scope for go-vet, go-test and go-test-race. Default: "./..."
   PATHS              Space-separated files/dirs for go-fmt and go-fmt-check. Default: whole tree
   LINES              Initial tail size for log and log-frontend. Default: "100"
   FOLLOW             Force log follow (1) or dump-and-exit (0). Default: follow on TTY only

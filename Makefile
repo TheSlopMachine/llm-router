@@ -28,7 +28,7 @@ BUN_MIN := 1.2
 GO_MIN  := 1.27.1
 BUN     := bun
 
-.PHONY: help check-frontend-deps check-build-deps go-tidy go-fmt go-fmt-check init start stop restart status browser log log-frontend clean build publish go-vet go-test sql-policy check-frontend smoke upload-plugins
+.PHONY: help check-frontend-deps check-build-deps go-tidy go-fmt go-fmt-check init start stop restart status browser log log-frontend clean build publish go-vet go-test go-test-race sql-policy check-frontend smoke upload-plugins
 
 help:
 	@cat scripts/help.txt
@@ -119,6 +119,9 @@ go-vet:
 
 go-test:
 	@cd scripts && GOWORK=off go run ./test
+
+go-test-race:
+	@cd scripts && GOWORK=off go run ./testrace
 
 sql-policy:
 	@cd scripts && GOWORK=off go run ./sqlpolicy
