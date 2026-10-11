@@ -33,7 +33,7 @@ Configuration flows one way: `Makefile` vars → env → scripts. Scripts take n
 
 `make go-test PKG=./internal/services/router/` scopes the run; `make go-vet PKG=./internal/services/router/...` scopes vet; `make go-fmt PATHS="internal/server scripts/smoke"` formats only those trees. Unscoped `go vet` covers the root and `scripts` modules; unscoped `go test` covers the root module. Both skip `.workspace`, `node_modules`, `build`, `.git`.
 
-`*` required (fatal when blank). The rest fall back to dev defaults (`localhost`, `38080`, `38081`, `~/.local/llm-router/...`, temp pidfile).
+`*` required (fatal when blank). The rest fall back to dev defaults (`localhost`, `38080`, `38081`, `~/.local/llm-router/llm-router-dev.sqlite3`, temp pidfile).
 
 ## Dev vs publish
 

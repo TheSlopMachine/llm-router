@@ -31,6 +31,7 @@ internal/services/
   proxypool/             free-pool hosting, Lua feed bridge, SQLite cache, custom pools (built-in auto row seeded), lane scheduler adapter
 internal/httpkit/        shared transport helpers (SSE headers)
 internal/errors/         domain sentinels + ToAPIError + response header allow-list
+internal/db/             SQLite open, DSN, migrations, record shapes, maintenance allowlist
 internal/repository/     typed SQLite operations (generics API)
 internal/dashboard/      admin REST API (providers, tokens, credentials, models, virtual-models, metrics, plugins, repos, config, data export/import/clear, doctor, proxy status/refresh/pools, provider jobs)
 internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/completions, /v1/messages (+count_tokens, +batches, /v1/complete), /v1/models list + retrieve (TokenRules-filtered, Anthropic dual shape), /v1/videos submit + poll + content + models, audio/transcriptions (+JSON variant)/translations/speech, images/generations/edits/variations, embeddings, moderations, responses (+cancel/input_items/compact/input_tokens) + conversations (+items), assistants, threads (+messages/runs/cancel/submit_tool_outputs)
@@ -133,15 +134,24 @@ Keep changes shallow. Touch service internals only when the task requires it.
 
 ## Transactions
 
-One public method = one SQLite transaction when the operation must be
-atomic: `token.Create/Delete/Regenerate` (token + join rows),
-`provider.Delete` (provider row, credentials and model rows cascade from
-foreign keys), metrics bucket persist (base row plus dimension children).
-`repository` returns `ErrNotFound` via `%w`; services map it with
-`errors.Is`, never by string.
+One public method = one SQLite transaction (`Handle.Transaction`) when the
+operation must be atomic: `token.Create/Delete/Regenerate` (token + join
+rows), `provider.Delete` (provider row, credentials and model rows cascade
+from foreign keys), metrics bucket persist (base row plus dimension
+children). Each transaction runs on one pooled connection
+(`MaxOpenConnections=16`, WAL, `_txlock=immediate`); writers serialize on
+the database lock. Each migration runs in one transaction together with its
+`schema_migrations` row. `repository` returns `ErrNotFound` via `%w`;
+services map it with `errors.Is`, never by string.
 
 ## Lifecycle
 
+- `db.OpenSQLite` connects, configures the pool, asserts open state
+  (`AssertOpenState`: WAL, foreign keys, SQLite >=3.35.0) and runs
+  `migrate.Run` (`migrations.Registry`, `schema_migrations` history,
+  forward-only). `server.New` seeds providers (`EnsureSeeded`), builtin
+  repos (`EnsureBuiltinRepos`) and the builtin `auto` pool row; failures
+  stop startup.
 - `metrics.Stop`: workers join, `eventCh` drains, all in-memory buckets
   flush (`flushAll`, no age cutoff). Periodic aggregation persists only
   buckets older than 1h and evicts from memory after durable writes.
@@ -162,7 +172,20 @@ foreign keys), metrics bucket persist (base row plus dimension children).
 SQLite (`internal/db/sqlite.go`, `OpenSQLite`) is the only database. The
 schema (`internal/db/migrations/0001_initial_schema.go`) owns every table;
 `internal/db/record/` pins the row shapes. Reads and writes run through
-`gorm.G` with typed clauses (`scripts/sqlpolicy` enforces the policy).
+`gorm.G` with typed clauses (`scripts/sqlpolicy` enforces the policy);
+`repository.GormRepository` owns the generics API (500-row upsert batches,
+`Clear` is the one `AllowGlobalUpdate` path). DSN pins foreign keys, WAL,
+synchronous NORMAL, busy timeout and immediate lock; `maintenance.go` owns
+the only raw statements (checkpoint, optimize, integrity check, backup).
+Sessions store the token hash as primary key, never plaintext.
+`virtual_models.name_key` carries the UNIQUE duplicate signal.
+`plugin_storage.expires_at` carries the TTL index. Metrics persist one
+`metric_buckets` row plus dimension children (`metric_bucket_providers`,
+`metric_bucket_models`, `metric_bucket_tokens`,
+`metric_bucket_error_types`); provider dimensions carry no duration columns.
+`proxypool.gormCache` buffers states in memory; `Set` stages, `Flush` lands
+500-row upserts inside one transaction per 20000 states, the 3s `flushLoop`
+drives it. Provider `proxy.pool` references `proxy_pools` with RESTRICT.
 Foreign keys carry the cascades the bucket scans used to perform by hand:
 provider deletes cascade credentials, model overrides, model info, managed
 virtual models and virtual members; plugin deletes cascade hosts, versions

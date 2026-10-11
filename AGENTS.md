@@ -251,15 +251,16 @@ If the task needs `browser`, `build`, `publish`, or `clean`: STOP. Ask the human
 - Fail closed. Unknown state denies with a surfaced error, never a default
   success.
 - Transaction boundary belongs to the calling domain method: one public
-  method, one `db.Update`.
+  method, one GORM transaction (`Handle.Transaction`).
 - Fix the contract where data is born. Frontend guards over backend shapes,
   display-side parsing, and anonymous DTOs duplicating models are backend
   bugs postponed (§5.#11).
 - Persisted derived values are frozen. Functions whose outputs live in
   storage never change semantics without a migration; lock them with
   stability tests.
-- Migrate stored shapes explicitly: version the bucket (`proxies_v2`) or
-  declare a named one-shot function (`migrateProxySourceKeys`). Never hide
+- Migrate stored shapes explicitly: add a numbered migration to
+  `migrations.Registry` (versions never reused, forward-only `Up`,
+  history row in `schema_migrations`). Never hide
   backward-compat inside the function needing the new shape.
 - Fix the class, not the instance. Systemic fixes run smaller than
   instance patches.

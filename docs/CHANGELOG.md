@@ -1,5 +1,16 @@
 # Changelog
 
+## Done (2026-10-12, vUnreleased)
+
+- Cut over to SQLite as the only database with no bbolt import: fresh files started empty per D1, old bbolt state stayed untouched beside the new file.
+- Stored dashboard sessions by token hash as primary key; plaintext tokens never landed in storage.
+- Carried deletes through foreign keys: provider deletes cascaded credentials, model overrides, model info, managed virtual models and virtual members; plugin deletes cascaded hosts, versions and storage; metric bucket deletes cascaded dimension children.
+- Blocked pool deletes with providers behind RESTRICT on `provider_instances.proxy_pool_id`.
+- Pinned virtual-model duplicate detection on the UNIQUE `virtual_models.name_key`.
+- Retired five orphan doctor categories to foreign keys; kept duplicate, corrupt, missing-backend, broken-index and integrity checks.
+- Indexed `plugin_storage.expires_at` for TTL expiry scans.
+- Persisted metrics as one `metric_buckets` row plus provider, model, token and error-type dimension children; provider dimensions carried no duration columns.
+
 ## Done (2026-10-06, v0.7.0)
 
 - Bumped `proxypool` to v1.0.6: publish builds now resolve the lane-scheduler API (`PoolStats`, `PoolEvent`, `Reporter`, `TaggedURL`, `FailReason`, `SetLimits`, `Start`/`Stop`) used by the router.
