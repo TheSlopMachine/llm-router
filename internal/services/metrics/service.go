@@ -7,8 +7,11 @@ import (
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/repository"
 	bolt "go.etcd.io/bbolt"
+	"gorm.io/gorm"
 )
 
 const (
@@ -21,8 +24,14 @@ const (
 // Service manages metrics collection, aggregation, and querying.
 type Service struct {
 	database *db.DB
-	logger   *slog.Logger
-	mutex    sync.RWMutex
+	// sqliteDatabase is the base SQLite handle. Only the base handle is
+	// stored, never a chained query. Attach with SetSQLiteDatabase before
+	// Start. Nil means bbolt-only operation.
+	sqliteDatabase *gorm.DB
+	// bucketRepository serves typed base-bucket reads and retention deletes.
+	bucketRepository *repository.GormRepository[record.MetricBucket]
+	logger           *slog.Logger
+	mutex            sync.RWMutex
 
 	// In-memory ring buffer: map[timestamp]*MetricBucket
 	recentBuckets map[time.Time]*MetricBucket
@@ -109,6 +118,19 @@ func New(database *db.DB, logger *slog.Logger) *Service {
 		eventChannel:  make(chan models.MetricEvent, eventBufferSize),
 		stopChannel:   make(chan struct{}),
 	}
+}
+
+// SetSQLiteDatabase attaches the SQLite handle for dual-write operation.
+// Base bucket rows persist to bbolt and SQLite while both are attached;
+// bbolt stays authoritative until the Wave 10 cutover. Call before Start.
+// A nil handle detaches SQLite and restores bbolt-only operation.
+func (s *Service) SetSQLiteDatabase(sqliteDatabase *gorm.DB) {
+	s.sqliteDatabase = sqliteDatabase
+	if sqliteDatabase == nil {
+		s.bucketRepository = nil
+		return
+	}
+	s.bucketRepository = repository.NewGormRepository[record.MetricBucket](sqliteDatabase, "granularity", "timestamp")
 }
 
 // ensureCleanMetrics wipes legacy buckets if metrics_version is stale.

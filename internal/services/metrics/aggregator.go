@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -233,18 +234,37 @@ func (s *Service) loadBucketsByGranularity(cutoff time.Time, granularity string)
 		return nil
 	})
 
-	return buckets, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Both stores hold the requested granularity, so timestamp-keyed merging
+	// is exact here. SQLite wins on collision.
+	sqliteBuckets, err := s.loadBucketsByGranularitySQLite(context.Background(), cutoff, granularity)
+	if err != nil {
+		return nil, err
+	}
+
+	return mergeSQLiteBuckets(buckets, sqliteBuckets), nil
 }
 
 // deleteBucket deletes a bucket by key.
 func (s *Service) deleteBucket(key string) error {
-	return s.database.Update(func(tx *bolt.Tx) error {
+	if err := s.database.Update(func(tx *bolt.Tx) error {
 		metricsBucket := tx.Bucket(db.BucketMetrics)
 		if metricsBucket == nil {
 			return nil
 		}
 		return metricsBucket.Delete([]byte(key))
-	})
+	}); err != nil {
+		return err
+	}
+
+	timestamp, granularity, err := parseBucketKey(key)
+	if err != nil {
+		return err
+	}
+	return s.deleteBucketSQLite(context.Background(), timestamp, granularity)
 }
 
 // bucketKey generates a storage key for a bucket.

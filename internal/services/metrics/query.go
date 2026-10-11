@@ -87,6 +87,9 @@ func (s *Service) QueryTimeSeries(metric string, filters models.MetricsFilters) 
 }
 
 // GetDistinctModels returns a list of unique models from metrics data.
+// Model names live in the model dimension child table, so the SQLite base
+// rows contribute nothing here.
+// TODO(Wave 7/8): union metric_bucket_models once the model dimension lands.
 func (s *Service) GetDistinctModels() ([]string, error) {
 	modelSet := make(map[string]bool)
 

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	"github.com/TheSlopMachine/llm-router/internal/repository"
 )
 
@@ -69,10 +70,13 @@ type indexProvider struct {
 	client *http.Client
 }
 
-// Service owns repository records.
+// Service owns repository records. The bbolt store stays authoritative
+// until Wave 10; the SQLite handle mirrors every write and serves reads
+// when attached through NewWithSQLite.
 type Service struct {
-	store *repository.Repository[RepoRecord]
-	index *indexProvider
+	store  *repository.Repository[RepoRecord]
+	index  *indexProvider
+	sqlite *repository.GormRepository[record.PluginRepository]
 }
 
 // New constructs a pluginrepo Service.
@@ -90,17 +94,12 @@ func (s *Service) referenceOf(record *RepoRecord) RepoRef {
 
 // List returns all added repositories sorted by ID.
 func (s *Service) List() ([]*RepoRecord, error) {
-	items, err := s.store.List()
-	if err != nil {
-		return nil, err
-	}
-	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-	return items, nil
+	return s.listRecords()
 }
 
 // Get returns one repository by ID.
 func (s *Service) Get(id string) (*RepoRecord, error) {
-	return s.store.Get(id)
+	return s.getRecord(id)
 }
 
 // repositoryIDForIndex derives a stable record ID from a resolved index URL.
@@ -175,7 +174,7 @@ func (s *Service) AddRepo(ctx context.Context, rawURL string) (*RepoRecord, erro
 	var lastErr error
 	for _, indexURL := range candidates {
 		id := repositoryIDForIndex(indexURL)
-		if existing, err := s.store.Get(id); err == nil && existing != nil {
+		if existing, err := s.getRecord(id); err == nil && existing != nil {
 			return existing, nil
 		}
 		repositoryIndex, err := s.index.fetchIndex(ctx, indexURL)
@@ -187,7 +186,7 @@ func (s *Service) AddRepo(ctx context.Context, rawURL string) (*RepoRecord, erro
 			ID: id, Kind: "index", IndexURL: indexURL, SourceURL: strings.TrimSpace(rawURL),
 			Title: repositoryIndex.Title, Description: repositoryIndex.Description, AddedAt: time.Now(),
 		}
-		if err := s.store.Put(id, record); err != nil {
+		if err := s.putRecord(record); err != nil {
 			return nil, err
 		}
 		return record, nil
@@ -204,12 +203,12 @@ func (s *Service) AddRepo(ctx context.Context, rawURL string) (*RepoRecord, erro
 func (s *Service) EnsureBuiltinRepos() error {
 	for _, builtin := range BuiltinRepos {
 		id := repositoryIDForIndex(builtin.Index)
-		if existing, err := s.store.Get(id); err == nil && existing != nil {
+		if existing, err := s.getRecord(id); err == nil && existing != nil {
 			if !existing.Builtin || existing.IndexURL != builtin.Index || existing.SourceURL != builtin.Source {
 				existing.Builtin = true
 				existing.IndexURL = builtin.Index
 				existing.SourceURL = builtin.Source
-				if err := s.store.Put(id, existing); err != nil {
+				if err := s.putRecord(existing); err != nil {
 					return err
 				}
 			}
@@ -219,7 +218,7 @@ func (s *Service) EnsureBuiltinRepos() error {
 			ID: id, Kind: "index", IndexURL: builtin.Index, SourceURL: builtin.Source,
 			Builtin: true, AddedAt: time.Now(),
 		}
-		if err := s.store.Put(id, record); err != nil {
+		if err := s.putRecord(record); err != nil {
 			return err
 		}
 	}
@@ -228,6 +227,7 @@ func (s *Service) EnsureBuiltinRepos() error {
 
 // PruneLegacyRepos deletes repository rows from retired schemes. Installed
 // plugins keep working; updates resume after reinstall from the catalog.
+// bbolt only: SQLite deletion belongs to Wave 10.
 func (s *Service) PruneLegacyRepos() error {
 	items, err := s.store.List()
 	if err != nil {
@@ -246,15 +246,15 @@ func (s *Service) PruneLegacyRepos() error {
 
 // Remove deletes a repository record.
 func (s *Service) Remove(id string) error {
-	if existing, err := s.store.Get(id); err == nil && existing != nil && existing.Builtin {
+	if existing, err := s.getRecord(id); err == nil && existing != nil && existing.Builtin {
 		return fmt.Errorf("remove repo %q: %w", id, ErrBuiltinRepoProtected)
 	}
-	return s.store.Delete(id)
+	return s.deleteRecord(id)
 }
 
 // GetIndex fetches the index document with display info and files.
 func (s *Service) GetIndex(ctx context.Context, id string) (IndexDoc, error) {
-	record, err := s.store.Get(id)
+	record, err := s.getRecord(id)
 	if err != nil {
 		return IndexDoc{}, err
 	}
@@ -267,7 +267,7 @@ func (s *Service) GetIndex(ctx context.Context, id string) (IndexDoc, error) {
 
 // ListPluginFiles lists plugin files for one repository.
 func (s *Service) ListPluginFiles(ctx context.Context, id string) ([]RepoFile, error) {
-	record, err := s.store.Get(id)
+	record, err := s.getRecord(id)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +276,7 @@ func (s *Service) ListPluginFiles(ctx context.Context, id string) ([]RepoFile, e
 
 // FetchFile downloads one plugin file.
 func (s *Service) FetchFile(ctx context.Context, id, path string) ([]byte, error) {
-	record, err := s.store.Get(id)
+	record, err := s.getRecord(id)
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +285,7 @@ func (s *Service) FetchFile(ctx context.Context, id, path string) ([]byte, error
 
 // ReadMe returns the repository README when present.
 func (s *Service) ReadMe(ctx context.Context, id string) (string, bool, error) {
-	record, err := s.store.Get(id)
+	record, err := s.getRecord(id)
 	if err != nil {
 		return "", false, err
 	}
@@ -294,7 +294,7 @@ func (s *Service) ReadMe(ctx context.Context, id string) (string, bool, error) {
 
 // License returns the repository license when present.
 func (s *Service) License(ctx context.Context, id string) (string, bool, error) {
-	record, err := s.store.Get(id)
+	record, err := s.getRecord(id)
 	if err != nil {
 		return "", false, err
 	}

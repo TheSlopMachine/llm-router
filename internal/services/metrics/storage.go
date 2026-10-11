@@ -1,11 +1,14 @@
 package metrics
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -15,7 +18,7 @@ func (s *Service) persistBucket(bucket *MetricBucket, granularity string) error 
 		return nil
 	}
 
-	return s.database.Update(func(tx *bolt.Tx) error {
+	if err := s.database.Update(func(tx *bolt.Tx) error {
 		metricsBucket := tx.Bucket(db.BucketMetrics)
 		if metricsBucket == nil {
 			return fmt.Errorf("metrics bucket not found")
@@ -28,11 +31,28 @@ func (s *Service) persistBucket(bucket *MetricBucket, granularity string) error 
 		}
 
 		return metricsBucket.Put([]byte(key), data)
-	})
+	}); err != nil {
+		return err
+	}
+
+	if err := s.persistBucketSQLite(context.Background(), bucket, granularity); err != nil {
+		return fmt.Errorf("persist bucket sqlite: %w", err)
+	}
+	return nil
 }
 
 // loadBucket loads a single bucket from the database.
 func (s *Service) loadBucket(timestamp time.Time, granularity string) (*MetricBucket, error) {
+	if s.bucketRepository != nil {
+		bucket, err := s.loadBucketSQLite(context.Background(), timestamp, granularity)
+		if err == nil {
+			return bucket, nil
+		}
+		if !errors.Is(err, apierrors.ErrNotFound) {
+			return nil, err
+		}
+	}
+
 	var bucket MetricBucket
 
 	err := s.database.View(func(tx *bolt.Tx) error {
@@ -87,7 +107,16 @@ func (s *Service) loadBucketsInRange(start, end time.Time) ([]*MetricBucket, err
 		return nil
 	})
 
-	return buckets, err
+	if err != nil {
+		return nil, err
+	}
+
+	sqliteBuckets, err := s.loadBucketsInRangeSQLite(context.Background(), start, end)
+	if err != nil {
+		return nil, err
+	}
+
+	return mergeSQLiteBuckets(buckets, sqliteBuckets), nil
 }
 
 // deleteBucketsOlderThan deletes all buckets older than the cutoff time.
@@ -120,7 +149,8 @@ func (s *Service) deleteBucketsOlderThan(cutoff time.Time) error {
 	}
 
 	if len(toDelete) == 0 {
-		return nil
+		_, sqliteErr := s.deleteBucketsOlderThanSQLite(context.Background(), cutoff)
+		return sqliteErr
 	}
 
 	// Delete collected keys
@@ -138,14 +168,23 @@ func (s *Service) deleteBucketsOlderThan(cutoff time.Time) error {
 		return nil
 	})
 
-	if err == nil {
-		s.logger.Info("deleted old buckets", "count", len(toDelete))
+	if err != nil {
+		return err
 	}
 
-	return err
+	s.logger.Info("deleted old buckets", "count", len(toDelete))
+
+	if _, sqliteErr := s.deleteBucketsOlderThanSQLite(context.Background(), cutoff); sqliteErr != nil {
+		return sqliteErr
+	}
+
+	return nil
 }
 
 // loadTokenUsageFromDB loads all-time token usage from database.
+// Token breakdowns live in the token dimension child table, so the SQLite
+// base rows contribute nothing here.
+// TODO(Wave 7/8): aggregate metric_bucket_tokens once the token dimension lands.
 func (s *Service) loadTokenUsageFromDB() (map[string]*TokenUsageInfo, error) {
 	usage := make(map[string]*TokenUsageInfo)
 
