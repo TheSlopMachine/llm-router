@@ -158,12 +158,14 @@ func New(database *db.Database) (*Service, error) {
 		logger:   slog.Default(),
 		sources:  map[string]SourceInfo{},
 	}
-	pool := proxypoollib.NewPool()
+	pool, err := proxypoollib.NewPool(cache)
+	if err != nil {
+		return nil, fmt.Errorf("init proxy pool: %w", err)
+	}
 	s.pool = pool
 	s.pool.SetLimits(10, 50, 500)
 	s.reporter = newSlogReporter(s.logger)
 	s.pool.RegisterReporter(s.reporter)
-	s.pool.RegisterCacheSource(cache)
 	s.source = &pluginSource{service: s}
 	s.pool.RegisterProxySource(s.source)
 	return s, nil

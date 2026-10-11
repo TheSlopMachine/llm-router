@@ -3,7 +3,7 @@ module github.com/TheSlopMachine/llm-router
 go 1.27.1
 
 require (
-	github.com/TheSlopMachine/proxypool v1.1.0
+	github.com/TheSlopMachine/proxypool v1.2.0
 	github.com/glebarez/go-sqlite v1.21.2
 	github.com/glebarez/sqlite v1.11.0
 	github.com/spf13/cobra v1.8.0
