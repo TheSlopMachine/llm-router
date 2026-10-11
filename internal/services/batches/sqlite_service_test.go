@@ -48,11 +48,12 @@ func countSQLiteChildren(t *testing.T, service *SQLiteService, id string) (int, 
 
 func TestSQLite_CRUDRoundTrip(t *testing.T) {
 	service := NewSQLiteService(testutil.SetupTestSQLite(t))
+	ctx := context.Background()
 	batch := buildSQLiteBatch("batch_1")
-	if err := service.Create(batch); err != nil {
+	if err := service.Create(ctx, batch); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	got, err := service.Get("batch_1")
+	got, err := service.Get(ctx, "batch_1")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -68,14 +69,15 @@ func TestSQLite_CRUDRoundTrip(t *testing.T) {
 	if len(got.Results) != 1 || string(got.Results[0].Result) != `{"type":"succeeded"}` {
 		t.Fatalf("results: %+v", got.Results)
 	}
-	if _, err := service.Get("missing"); !errors.Is(err, apierrors.ErrNotFound) {
+	if _, err := service.Get(ctx, "missing"); !errors.Is(err, apierrors.ErrNotFound) {
 		t.Fatalf("missing returns %v, want not found", err)
 	}
 }
 
 func TestSQLite_UpdateReplacesChildren(t *testing.T) {
 	service := NewSQLiteService(testutil.SetupTestSQLite(t))
-	if err := service.Create(buildSQLiteBatch("batch_1")); err != nil {
+	ctx := context.Background()
+	if err := service.Create(ctx, buildSQLiteBatch("batch_1")); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	updated := &models.BatchRecord{
@@ -86,10 +88,10 @@ func TestSQLite_UpdateReplacesChildren(t *testing.T) {
 			{CustomID: "only", Params: json.RawMessage(`{"model":"mock/m","max_tokens":3}`)},
 		},
 	}
-	if err := service.Update(updated); err != nil {
+	if err := service.Update(ctx, updated); err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	got, err := service.Get("batch_1")
+	got, err := service.Get(ctx, "batch_1")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -105,26 +107,27 @@ func TestSQLite_UpdateReplacesChildren(t *testing.T) {
 	if got.CreatedAt.IsZero() || got.UpdatedAt.Before(got.CreatedAt) {
 		t.Fatalf("timestamps: created %v updated %v", got.CreatedAt, got.UpdatedAt)
 	}
-	if err := service.Update(&models.BatchRecord{ID: "missing", Status: StatusEnded}); !errors.Is(err, apierrors.ErrNotFound) {
+	if err := service.Update(ctx, &models.BatchRecord{ID: "missing", Status: StatusEnded}); !errors.Is(err, apierrors.ErrNotFound) {
 		t.Fatalf("update missing returns %v, want not found", err)
 	}
 }
 
 func TestSQLite_DeleteCascadesChildren(t *testing.T) {
 	service := NewSQLiteService(testutil.SetupTestSQLite(t))
-	if err := service.Create(buildSQLiteBatch("batch_1")); err != nil {
+	ctx := context.Background()
+	if err := service.Create(ctx, buildSQLiteBatch("batch_1")); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if err := service.Delete("batch_1"); err != nil {
+	if err := service.Delete(ctx, "batch_1"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if _, err := service.Get("batch_1"); !errors.Is(err, apierrors.ErrNotFound) {
+	if _, err := service.Get(ctx, "batch_1"); !errors.Is(err, apierrors.ErrNotFound) {
 		t.Fatalf("get after delete returns %v, want not found", err)
 	}
 	if entries, results := countSQLiteChildren(t, service, "batch_1"); entries != 0 || results != 0 {
 		t.Fatalf("children after delete: %d entries %d results, want 0 0", entries, results)
 	}
-	if err := service.Delete("missing"); err != nil {
+	if err := service.Delete(ctx, "missing"); err != nil {
 		t.Fatalf("delete missing: %v", err)
 	}
 }
@@ -133,7 +136,7 @@ func TestSQLite_ListOldestFirst(t *testing.T) {
 	service := NewSQLiteService(testutil.SetupTestSQLite(t))
 	ctx := context.Background()
 	headers := repository.NewGormRepository[record.MessageBatch](service.database.Handle, "id")
-	if err := service.Create(buildSQLiteBatch("batch_new")); err != nil {
+	if err := service.Create(ctx, buildSQLiteBatch("batch_new")); err != nil {
 		t.Fatalf("create new: %v", err)
 	}
 	stored, err := headers.Get(ctx, clause.Eq{Column: "id", Value: "batch_new"})
@@ -146,7 +149,7 @@ func TestSQLite_ListOldestFirst(t *testing.T) {
 	if err := headers.Upsert(ctx, older); err != nil {
 		t.Fatalf("seed old: %v", err)
 	}
-	list, err := service.List()
+	list, err := service.List(ctx)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -163,16 +166,17 @@ func TestSQLite_ListOldestFirst(t *testing.T) {
 
 func TestSQLite_Validation(t *testing.T) {
 	service := NewSQLiteService(testutil.SetupTestSQLite(t))
-	if err := service.Create(nil); err == nil {
+	ctx := context.Background()
+	if err := service.Create(ctx, nil); err == nil {
 		t.Fatal("nil create must fail")
 	}
-	if err := service.Create(&models.BatchRecord{}); err == nil {
+	if err := service.Create(ctx, &models.BatchRecord{}); err == nil {
 		t.Fatal("empty id create must fail")
 	}
-	if err := service.Update(nil); err == nil {
+	if err := service.Update(ctx, nil); err == nil {
 		t.Fatal("nil update must fail")
 	}
-	if err := service.Update(&models.BatchRecord{}); err == nil {
+	if err := service.Update(ctx, &models.BatchRecord{}); err == nil {
 		t.Fatal("empty id update must fail")
 	}
 }

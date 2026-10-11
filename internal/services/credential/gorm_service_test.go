@@ -21,30 +21,17 @@ import (
 
 func setupGormCredential(t *testing.T) (*GormService, context.Context) {
 	t.Helper()
-	boltDatabase := testutil.SetupTestDB(t)
 	sqliteDatabase := testutil.SetupTestSQLite(t)
+	ctx := context.Background()
 
-	providerService := provider.NewService(boltDatabase)
+	providerService := provider.NewGorm(sqliteDatabase)
 	providerService.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
-	created, err := providerService.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"})
+	created, err := providerService.Create(ctx, provider.CreateOptions{Name: "Mock", TypeKey: "mock"})
 	if err != nil {
 		t.Fatalf("create mock provider: %v", err)
 	}
 	if created.ID != "mock" {
 		t.Fatalf("mock provider identifier: got %q want %q", created.ID, "mock")
-	}
-	now := util.Now()
-	providerRow := record.ProviderInstance{
-		ID:        "mock",
-		Name:      "Mock",
-		TypeKey:   "mock",
-		Settings:  map[string]any{},
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	ctx := context.Background()
-	if err := gorm.G[record.ProviderInstance](sqliteDatabase.Handle, clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, UpdateAll: true}).Create(ctx, &providerRow); err != nil {
-		t.Fatalf("seed sqlite provider: %v", err)
 	}
 	return NewGorm(sqliteDatabase, providerService), ctx
 }

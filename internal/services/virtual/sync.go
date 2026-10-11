@@ -59,12 +59,12 @@ type ProviderVMGroup struct {
 // GroupsForProvider computes endpoint groups from the cached merged view
 // (no upstream fetch) with managed markers resolved. Only non-empty groups
 // are returned; disabled models never become members.
-func (s *Service) GroupsForProvider(providerID string) ([]ProviderVMGroup, error) {
-	views, err := s.modelInfoService.PeekMergedView(providerID)
+func (s *GormService) GroupsForProvider(ctx context.Context, providerID string) ([]ProviderVMGroup, error) {
+	views, err := s.modelInfoService.PeekMergedView(ctx, providerID)
 	if err != nil {
 		return nil, err
 	}
-	managed, err := s.List()
+	managed, err := s.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -116,19 +116,19 @@ func sameMembers(current []models.VirtualModelEntry, desired []models.VirtualMod
 // deleted. Manual edits to name/description/instruction survive: only the
 // member list is rewritten. Per-group failures accumulate into the returned
 // error; completed groups still apply.
-func (s *Service) SyncProviderModels(ctx context.Context, providerID string) ([]ProviderVMGroup, error) {
-	instance, err := s.providerService.Get(providerID)
+func (s *GormService) SyncProviderModels(ctx context.Context, providerID string) ([]ProviderVMGroup, error) {
+	instance, err := s.providerService.Get(ctx, providerID)
 	if err != nil {
 		return nil, err
 	}
-	groups, err := s.GroupsForProvider(providerID)
+	groups, err := s.GroupsForProvider(ctx, providerID)
 	if err != nil {
 		return nil, err
 	}
 	// Orphan index: an unmanaged record squatting an auto-generated name is
 	// adopted instead of colliding with it.
 	orphans := map[string]*models.VirtualModel{}
-	if all, err := s.List(); err == nil {
+	if all, err := s.List(ctx); err == nil {
 		for _, virtualModel := range all {
 			if virtualModel.ManagedBy == "" {
 				orphans[strings.ToLower(virtualModel.Name)] = virtualModel
@@ -159,11 +159,11 @@ func (s *Service) SyncProviderModels(ctx context.Context, providerID string) ([]
 				adopted := *orphan
 				adopted.ManagedBy = marker
 				adopted.Models = toEntries(entries)
-				if err := s.Update(adopted.ID, &adopted); err != nil {
+				if err := s.Update(ctx, adopted.ID, &adopted); err != nil {
 					fail(group.Endpoint, "adopt", err)
 					continue
 				}
-				if fresh, err := s.Get(adopted.ID); err == nil {
+				if fresh, err := s.Get(ctx, adopted.ID); err == nil {
 					group.Virtual = fresh
 				} else {
 					group.Virtual = &adopted
@@ -176,7 +176,7 @@ func (s *Service) SyncProviderModels(ctx context.Context, providerID string) ([]
 				Models:      toEntries(entries),
 				ManagedBy:   marker,
 			}
-			if err := s.Create(virtualModel); err != nil {
+			if err := s.Create(ctx, virtualModel); err != nil {
 				fail(group.Endpoint, "create", err)
 				continue
 			}
@@ -188,17 +188,17 @@ func (s *Service) SyncProviderModels(ctx context.Context, providerID string) ([]
 		}
 		updated := *group.Virtual
 		updated.Models = toEntries(entries)
-		if err := s.Update(updated.ID, &updated); err != nil {
+		if err := s.Update(ctx, updated.ID, &updated); err != nil {
 			fail(group.Endpoint, "update", err)
 			continue
 		}
-		if fresh, err := s.Get(updated.ID); err == nil {
+		if fresh, err := s.Get(ctx, updated.ID); err == nil {
 			group.Virtual = fresh
 		} else {
 			group.Virtual = &updated
 		}
 	}
-	all, err := s.List()
+	all, err := s.List(ctx)
 	if err != nil {
 		return groups, errors.Join(append(syncErrors, err)...)
 	}
@@ -211,7 +211,7 @@ func (s *Service) SyncProviderModels(ctx context.Context, providerID string) ([]
 			continue
 		}
 		if !live[strings.TrimPrefix(virtualModel.ManagedBy, "provider:"+providerID+":")] {
-			if err := s.Delete(virtualModel.ID); err != nil {
+			if err := s.Delete(ctx, virtualModel.ID); err != nil {
 				fail(virtualModel.ID, "delete", err)
 			}
 		}

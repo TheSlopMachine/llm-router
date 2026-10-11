@@ -51,18 +51,19 @@ func (m *videoMockAdapter) VideoContent(ctx context.Context, creds []*models.Cre
 	return &models.VideoContentResponse{Video: []byte{0, 0, 0, 24, 'f', 't', 'y', 'p'}, ContentType: "video/mp4"}, nil
 }
 
-func setupVideoRouter(t *testing.T) (*Service, *credential.Service, *modelinfo.Service, *videoMockAdapter) {
+func setupVideoRouter(t *testing.T) (*Service, *credential.GormService, *modelinfo.GormService, *videoMockAdapter) {
 	t.Helper()
-	database := testutil.SetupTestDB(t)
+	database := testutil.SetupTestSQLite(t)
+	ctx := context.Background()
 
-	providerService := provider.NewService(database)
+	providerService := provider.NewGorm(database)
 	mock := &videoMockAdapter{MockAdapter: testutil.NewMockAdapter("mock")}
 	providerService.RegisterGoAdapter(mock)
-	if _, err := providerService.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
+	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
 	}
-	credentialService := credential.New(database, providerService)
-	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
+	credentialService := credential.NewGorm(database, providerService)
+	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, 1*time.Hour)
 
 	return New(providerService, credentialService, modelInfoService, videojobs.New(database), nil, nil, slog.Default()), credentialService, modelInfoService, mock
 }

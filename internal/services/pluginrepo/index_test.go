@@ -176,7 +176,7 @@ func TestIndexProvider(t *testing.T) {
 func TestGetIndex(t *testing.T) {
 	server := newIndexTestServer()
 	defer server.Close()
-	service := New(testutil.SetupTestDB(t))
+	service := New(testutil.SetupTestSQLite(t))
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -199,7 +199,7 @@ func TestGetIndex(t *testing.T) {
 func TestAddRepoDirectIndex(t *testing.T) {
 	server := newIndexTestServer()
 	defer server.Close()
-	service := New(testutil.SetupTestDB(t))
+	service := New(testutil.SetupTestSQLite(t))
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 

@@ -17,9 +17,8 @@ import (
 
 func setupSQLitePluginService(t *testing.T) (*Service, context.Context) {
 	t.Helper()
-	boltDatabase := testutil.SetupTestDB(t)
 	sqliteDatabase := testutil.SetupTestSQLite(t)
-	service, err := NewWithSQLite(boltDatabase, sqliteDatabase, nil)
+	service, err := New(sqliteDatabase, nil)
 	if err != nil {
 		t.Fatalf("new sqlite service: %v", err)
 	}
@@ -307,7 +306,7 @@ func TestInstallSQLiteManualAndRepositoryOrigins(t *testing.T) {
 	// Repository installs reference an existing repository row so the
 	// foreign key stays valid. Server wiring creates the repository before
 	// installing; tests seed it explicitly.
-	sqliteHandle := service.sqliteDatabase
+	sqliteHandle := service.database
 	repositoryStore := repository.NewGormRepository[record.PluginRepository](sqliteHandle, "id")
 	repositoryRow := record.PluginRepository{
 		ID:          "origin-repository",
@@ -404,7 +403,7 @@ func TestStorageSQLiteTTLExpiryAndValidation(t *testing.T) {
 	past := time.Now().UTC().Add(-time.Hour)
 	expiredRow := record.PluginStorage{PluginID: pluginID, Scope: "scope", Key: "expired", Value: []byte(`"stale"`), ExpiresAt: &past}
 	expiredRows := []record.PluginStorage{expiredRow}
-	if err := repository.NewGormRepository[record.PluginStorage](service.sqliteDatabase, "plugin_id", "scope", "key").Upsert(ctx, expiredRows...); err != nil {
+	if err := repository.NewGormRepository[record.PluginStorage](service.database, "plugin_id", "scope", "key").Upsert(ctx, expiredRows...); err != nil {
 		t.Fatalf("seed expired row: %v", err)
 	}
 	if value, err := service.GetStorageSQLite(ctx, pluginID, "scope", "expired"); err != nil || value != nil {
@@ -463,7 +462,7 @@ func TestStorageSQLitePruneExpiredUsesIndex(t *testing.T) {
 		{PluginID: pluginID, Scope: "scope", Key: "stale-one", Value: []byte(`"old"`), ExpiresAt: &past},
 		{PluginID: pluginID, Scope: "scope", Key: "stale-two", Value: []byte(`"old"`), ExpiresAt: &past},
 	}
-	if err := repository.NewGormRepository[record.PluginStorage](service.sqliteDatabase, "plugin_id", "scope", "key").Upsert(ctx, staleRows...); err != nil {
+	if err := repository.NewGormRepository[record.PluginStorage](service.database, "plugin_id", "scope", "key").Upsert(ctx, staleRows...); err != nil {
 		t.Fatalf("seed stale rows: %v", err)
 	}
 	removed, err := service.PruneExpiredStorageSQLite(ctx)
@@ -482,11 +481,7 @@ func TestStorageSQLitePruneExpiredUsesIndex(t *testing.T) {
 }
 
 func TestSQLiteMethodsFailClosedWithoutHandle(t *testing.T) {
-	boltDatabase := testutil.SetupTestDB(t)
-	service, err := New(boltDatabase, nil)
-	if err != nil {
-		t.Fatalf("new: %v", err)
-	}
+	service := &Service{}
 	ctx := context.Background()
 	if _, err := service.InstallSQLite(ctx, []byte(testPluginSource), PluginOrigin{Manual: true}); err == nil {
 		t.Fatal("install without sqlite must fail")

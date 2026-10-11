@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"net/http"
 	"sort"
 
@@ -36,7 +37,7 @@ type availableModelView struct {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/models/available [get]
 func (h *Handler) apiAvailableModels(w http.ResponseWriter, r *http.Request) {
-	items, err := h.availableModels()
+	items, err := h.availableModels(r.Context())
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -45,8 +46,8 @@ func (h *Handler) apiAvailableModels(w http.ResponseWriter, r *http.Request) {
 	h.json(w, http.StatusOK, items)
 }
 
-func (h *Handler) availableModels() ([]availableModelView, error) {
-	providers, err := h.providerService.List()
+func (h *Handler) availableModels(ctx context.Context) ([]availableModelView, error) {
+	providers, err := h.gormProviderService.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +59,7 @@ func (h *Handler) availableModels() ([]availableModelView, error) {
 		}
 
 		// Cache peek only: browsing the models tab must not ping upstreams.
-		modelInfos, err := h.modelInfoService.PeekMergedView(providerRecord.ID)
+		modelInfos, err := h.gormModelInfoService.PeekMergedView(ctx, providerRecord.ID)
 		if err != nil {
 			continue
 		}

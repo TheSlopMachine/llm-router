@@ -22,7 +22,7 @@ import (
 // @Failure      500  {object}  models.ErrorResponse
 // @Router       /api/llm-router/dashboard/virtual-models [get]
 func (h *Handler) apiVirtualModelsList(w http.ResponseWriter, r *http.Request) {
-	virtualModels, err := h.virtualService.List()
+	virtualModels, err := h.gormVirtualService.List(r.Context())
 	if err != nil {
 		h.logger.Error("failed to list virtual models", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, "failed to list virtual models")
@@ -51,7 +51,7 @@ func (h *Handler) apiVirtualModelsCreate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.virtualService.Create(&virtualModel); err != nil {
+	if err := h.gormVirtualService.Create(r.Context(), &virtualModel); err != nil {
 		h.logger.Error("failed to create virtual model", "error", err)
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -79,7 +79,7 @@ func (h *Handler) apiVirtualModelsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	virtualModel, err := h.virtualService.Get(id)
+	virtualModel, err := h.gormVirtualService.Get(r.Context(), id)
 	if err != nil {
 		h.logger.Error("failed to get virtual model", "id", id, "error", err)
 		h.jsonErr(w, http.StatusNotFound, "virtual model not found")
@@ -141,7 +141,7 @@ func (h *Handler) apiVirtualModelsUpdate(w http.ResponseWriter, r *http.Request)
 
 	// Managed virtual models are system-owned: members refresh from the
 	// provider list, so only the disabled toggle is user-editable.
-	if existing, err := h.virtualService.Get(id); err == nil && existing.ManagedBy != "" {
+	if existing, err := h.gormVirtualService.Get(r.Context(), id); err == nil && existing.ManagedBy != "" {
 		if !managedUpdateIsToggleOnly(existing, &virtualModel) {
 			h.jsonErr(w, http.StatusBadRequest, "managed virtual model is read-only except for the disabled toggle")
 			return
@@ -149,14 +149,14 @@ func (h *Handler) apiVirtualModelsUpdate(w http.ResponseWriter, r *http.Request)
 		virtualModel.ManagedBy = existing.ManagedBy
 	}
 
-	if err := h.virtualService.Update(id, &virtualModel); err != nil {
+	if err := h.gormVirtualService.Update(r.Context(), id, &virtualModel); err != nil {
 		h.logger.Error("failed to update virtual model", "id", id, "error", err)
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	// Fetch updated virtual model
-	updated, err := h.virtualService.Get(id)
+	updated, err := h.gormVirtualService.Get(r.Context(), id)
 	if err != nil {
 		h.logger.Error("failed to get updated virtual model", "id", id, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, "failed to get updated virtual model")
@@ -185,7 +185,7 @@ func (h *Handler) apiVirtualModelsDelete(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.virtualService.Delete(id); err != nil {
+	if err := h.gormVirtualService.Delete(r.Context(), id); err != nil {
 		h.logger.Error("failed to delete virtual model", "id", id, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, "failed to delete virtual model")
 		return

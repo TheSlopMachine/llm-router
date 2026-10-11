@@ -15,7 +15,7 @@ func TestSyncAdoptsOrphanWithAutoName(t *testing.T) {
 		Name:   "Demo Chat",
 		Models: []models.VirtualModelEntry{{ModelID: "demo/chat-a"}},
 	}
-	if err := service.Create(orphan); err != nil {
+	if err := service.Create(ctx, orphan); err != nil {
 		t.Fatalf("seed orphan: %v", err)
 	}
 
@@ -33,7 +33,7 @@ func TestSyncAdoptsOrphanWithAutoName(t *testing.T) {
 	if chat.Virtual.ManagedBy != ProviderMarker("demo", "chat") {
 		t.Fatalf("marker: %q", chat.Virtual.ManagedBy)
 	}
-	if all, _ := service.List(); len(all) != 2 {
+	if all, _ := service.List(ctx); len(all) != 2 {
 		t.Fatalf("expected 2 virtual models (adopted + speech), got %d", len(all))
 	}
 }

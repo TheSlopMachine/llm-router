@@ -27,17 +27,17 @@ func (s *Service) resolveRequest(ctx context.Context, model models.ModelId, toke
 	if err != nil {
 		return ctx, resolution, fmt.Errorf("invalid model id: %w", err)
 	}
-	resolved, err := provider.Resolve(s.providerService, providerID)
+	resolved, err := provider.Resolve(s.providerService, ctx, providerID)
 	if err != nil {
 		return ctx, resolution, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
 	}
 	if resolved.Instance.Disabled {
 		return ctx, resolution, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
 	}
-	if err := s.requireModelEnabled(providerID, modelName, model, allowDisabled); err != nil {
+	if err := s.requireModelEnabled(ctx, providerID, modelName, model, allowDisabled); err != nil {
 		return ctx, resolution, err
 	}
-	if err := s.checkEndpoint(providerID, modelName, endpoint); err != nil {
+	if err := s.checkEndpoint(ctx, providerID, modelName, endpoint); err != nil {
 		return ctx, resolution, err
 	}
 	resolution = resolvedRequest{providerID: providerID, modelName: modelName, resolved: resolved}

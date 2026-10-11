@@ -517,3 +517,27 @@ func TestGormMethodsFailClosedWithoutHandle(t *testing.T) {
 		t.Error("delete without handle must fail")
 	}
 }
+
+func TestGormEnsureSeededCreatesVirtualRow(t *testing.T) {
+	service, _, ctx := setupGormProvider(t)
+	if err := service.EnsureSeeded(ctx); err != nil {
+		t.Fatalf("ensure seeded: %v", err)
+	}
+	row, err := service.Get(ctx, TypeVirtual)
+	if err != nil {
+		t.Fatalf("seeded virtual row must read back: %v", err)
+	}
+	if !row.IsUIReadonly || !row.IsUIHidden {
+		t.Errorf("seeded virtual row must be readonly and hidden: %+v", row)
+	}
+	if err := service.SyncDefaultProviders(ctx); err != nil {
+		t.Fatalf("sync default providers: %v", err)
+	}
+	listed, err := service.List(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Errorf("reseed must stay idempotent, got %d rows", len(listed))
+	}
+}

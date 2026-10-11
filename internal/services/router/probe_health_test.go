@@ -44,25 +44,26 @@ llm_router.register("health-probe-type", {
 
 func setupHealthProbeRouter(t *testing.T) (*Service, string, *models.Credential, *models.Credential, *models.Credential) {
 	t.Helper()
-	database := testutil.SetupTestDB(t)
+	database := testutil.SetupTestSQLite(t)
+	ctx := context.Background()
 
-	providerService := provider.NewService(database)
+	providerService := provider.NewGorm(database)
 	luaService, err := luaplugin.New(database, nil)
 	if err != nil {
 		t.Fatalf("new plugin service: %v", err)
 	}
 	providerService.SetLuaService(luaService)
-	if _, err := luaService.Install([]byte(healthProbePluginSource), luaplugin.PluginOrigin{Manual: true}); err != nil {
+	if _, err := luaService.InstallSQLite(ctx, []byte(healthProbePluginSource), luaplugin.PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install health plugin: %v", err)
 	}
-	instance, err := providerService.Create(provider.CreateOptions{Name: "Health", TypeKey: "health-probe-type"})
+	instance, err := providerService.Create(ctx, provider.CreateOptions{Name: "Health", TypeKey: "health-probe-type"})
 	if err != nil {
 		t.Fatalf("create provider: %v", err)
 	}
-	credentialService := credential.New(database, providerService)
+	credentialService := credential.NewGorm(database, providerService)
 	add := func(label, key string) *models.Credential {
 		t.Helper()
-		credential, err := credentialService.Add(credential.AddOptions{ProviderID: instance.ID, Label: label, Data: map[string]any{"api_key": key}})
+		credential, err := credentialService.Add(ctx, credential.AddOptions{ProviderID: instance.ID, Label: label, Data: map[string]any{"api_key": key}})
 		if err != nil {
 			t.Fatalf("add credential %s: %v", label, err)
 		}
@@ -71,7 +72,7 @@ func setupHealthProbeRouter(t *testing.T) (*Service, string, *models.Credential,
 	live := add("live", "live-key")
 	dead := add("dead", "dead-key")
 	flaky := add("flaky", "flaky-key")
-	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
+	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, 1*time.Hour)
 	routerService := New(providerService, credentialService, modelInfoService, videojobs.New(database), nil, nil, slog.Default())
 	return routerService, instance.ID, live, dead, flaky
 }
@@ -82,7 +83,7 @@ func TestRouterService_TestCredentialHealthy(t *testing.T) {
 	if !result.OK {
 		t.Fatalf("healthy must pass: %+v", result)
 	}
-	got, err := service.credentialService.Get(live.ID)
+	got, err := service.credentialService.Get(context.Background(), live.ID)
 	if err != nil || got.Disabled {
 		t.Fatalf("healthy must stay enabled: %+v %v", got, err)
 	}
@@ -90,7 +91,7 @@ func TestRouterService_TestCredentialHealthy(t *testing.T) {
 
 func TestRouterService_TestCredentialUnhealthyDisables(t *testing.T) {
 	service, providerID, _, dead, _ := setupHealthProbeRouter(t)
-	if _, err := service.providerService.Update(providerID, provider.UpdateOptions{
+	if _, err := service.providerService.Update(context.Background(), providerID, provider.UpdateOptions{
 		Name:   "Health",
 		Config: map[string]any{"disable_failed_credentials": true},
 	}); err != nil {
@@ -100,7 +101,7 @@ func TestRouterService_TestCredentialUnhealthyDisables(t *testing.T) {
 	if result.OK || result.Code != "unhealthy" {
 		t.Fatalf("unhealthy must fail with code: %+v", result)
 	}
-	got, err := service.credentialService.Get(dead.ID)
+	got, err := service.credentialService.Get(context.Background(), dead.ID)
 	if err != nil || !got.Disabled || got.DisabledBy != "healthcheck" {
 		t.Fatalf("unhealthy must disable by healthcheck: %+v %v", got, err)
 	}
@@ -115,7 +116,7 @@ func TestRouterService_TestCredentialUnhealthyKeepsWhenAutomationOff(t *testing.
 	if result.Summary != "credential unhealthy" {
 		t.Fatalf("summary must not claim a disable: %+v", result)
 	}
-	got, err := service.credentialService.Get(dead.ID)
+	got, err := service.credentialService.Get(context.Background(), dead.ID)
 	if err != nil || got.Disabled {
 		t.Fatalf("automation off must keep the credential enabled: %+v %v", got, err)
 	}
@@ -127,7 +128,7 @@ func TestRouterService_TestCredentialUnknownKeeps(t *testing.T) {
 	if result.OK || result.Code != "unknown" {
 		t.Fatalf("unknown must fail without disable: %+v", result)
 	}
-	got, err := service.credentialService.Get(flaky.ID)
+	got, err := service.credentialService.Get(context.Background(), flaky.ID)
 	if err != nil || got.Disabled {
 		t.Fatalf("unknown must stay enabled: %+v %v", got, err)
 	}
@@ -135,7 +136,7 @@ func TestRouterService_TestCredentialUnknownKeeps(t *testing.T) {
 
 func TestRouterService_TestCredentialUnsupported(t *testing.T) {
 	service, _, _, _, _ := setupHealthProbeRouter(t)
-	if _, err := service.providerService.LuaService().Install([]byte(`--- @plugin Plain Plugin
+	if _, err := service.providerService.LuaService().InstallSQLite(context.Background(), []byte(`--- @plugin Plain Plugin
 --- @author tester
 --- @version 1.0.0
 --- @plugin_api 1.0
@@ -149,11 +150,11 @@ llm_router.register("plain-type", {
 })`), luaplugin.PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install plain plugin: %v", err)
 	}
-	instance, err := service.providerService.Create(provider.CreateOptions{Name: "Plain", TypeKey: "plain-type"})
+	instance, err := service.providerService.Create(context.Background(), provider.CreateOptions{Name: "Plain", TypeKey: "plain-type"})
 	if err != nil {
 		t.Fatalf("create plain provider: %v", err)
 	}
-	credential, err := service.credentialService.Add(credential.AddOptions{ProviderID: instance.ID, Label: "p", Data: map[string]any{"api_key": "key-p"}})
+	credential, err := service.credentialService.Add(context.Background(), credential.AddOptions{ProviderID: instance.ID, Label: "p", Data: map[string]any{"api_key": "key-p"}})
 	if err != nil {
 		t.Fatalf("add credential: %v", err)
 	}
@@ -161,7 +162,7 @@ llm_router.register("plain-type", {
 	if result.OK || result.Code != "unsupported" {
 		t.Fatalf("handler-less type must report unsupported: %+v", result)
 	}
-	got, err := service.credentialService.Get(credential.ID)
+	got, err := service.credentialService.Get(context.Background(), credential.ID)
 	if err != nil || got.Disabled {
 		t.Fatalf("unsupported must stay enabled: %+v %v", got, err)
 	}

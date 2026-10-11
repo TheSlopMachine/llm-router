@@ -36,7 +36,7 @@ func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.list: credential store is not wired")
 			return 0
 		}
-		credentials, err := ctx.credentialList(ctx.providerID)
+		credentials, err := ctx.credentialList(ctx.callContext(), ctx.providerID)
 		if err != nil {
 			L.RaiseError("llm_router.credentials.list: %s", err.Error())
 			return 0
@@ -50,7 +50,7 @@ func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 				continue
 			}
 			if ctx.credentialParked != nil {
-				if p, _ := ctx.credentialParked(credential.ID); p != nil {
+				if p, _ := ctx.credentialParked(ctx.callContext(), credential.ID); p != nil {
 					continue
 				}
 			}
@@ -69,7 +69,7 @@ func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.get: credential store is not wired")
 			return 0
 		}
-		credential, err := ctx.credentialGet(id)
+		credential, err := ctx.credentialGet(ctx.callContext(), id)
 		if err != nil || credential == nil || credential.Disabled || !credentialAllowed(ctx, credential.ID) {
 			L.Push(lua.LNil)
 			return 1
@@ -102,7 +102,7 @@ func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.update: data must be a table")
 			return 0
 		}
-		if uerr := ctx.credentialUpdate(id, dataMap); uerr != nil {
+		if uerr := ctx.credentialUpdate(ctx.callContext(), id, dataMap); uerr != nil {
 			L.RaiseError("llm_router.credentials.update: %s", uerr.Error())
 			return 0
 		}
@@ -132,7 +132,7 @@ func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.disable: credential store is not wired")
 			return 0
 		}
-		if uerr := ctx.credentialDisable(id, reason); uerr != nil {
+		if uerr := ctx.credentialDisable(ctx.callContext(), id, reason); uerr != nil {
 			L.RaiseError("llm_router.credentials.disable: %s", uerr.Error())
 			return 0
 		}
@@ -153,7 +153,7 @@ func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.enable: credential store is not wired")
 			return 0
 		}
-		if uerr := ctx.credentialEnable(id); uerr != nil {
+		if uerr := ctx.credentialEnable(ctx.callContext(), id); uerr != nil {
 			L.RaiseError("llm_router.credentials.enable: %s", uerr.Error())
 			return 0
 		}
@@ -184,7 +184,7 @@ func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.park: credential store is not wired")
 			return 0
 		}
-		if uerr := ctx.credentialPark(id, time.Duration(float64(secs))*time.Second, reason); uerr != nil {
+		if uerr := ctx.credentialPark(ctx.callContext(), id, time.Duration(float64(secs))*time.Second, reason); uerr != nil {
 			L.RaiseError("llm_router.credentials.park: %s", uerr.Error())
 			return 0
 		}
@@ -201,7 +201,7 @@ func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.unpark: credential store is not wired")
 			return 0
 		}
-		if uerr := ctx.credentialUnpark(id); uerr != nil {
+		if uerr := ctx.credentialUnpark(ctx.callContext(), id); uerr != nil {
 			L.RaiseError("llm_router.credentials.unpark: %s", uerr.Error())
 			return 0
 		}
@@ -218,7 +218,7 @@ func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.parked: credential store is not wired")
 			return 0
 		}
-		entry, uerr := ctx.credentialParked(id)
+		entry, uerr := ctx.credentialParked(ctx.callContext(), id)
 		if uerr != nil {
 			L.RaiseError("llm_router.credentials.parked: %s", uerr.Error())
 			return 0

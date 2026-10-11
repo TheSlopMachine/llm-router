@@ -15,22 +15,22 @@ import (
 // @Produce      json
 // @Success      200 {object} object{bootstrapped=bool,authenticated=bool,stats=object{providers=int,tokens=int,credentials=int}}
 // @Router       /api/llm-router/status [get]
-func (h *Handler) apiStatus(db interface{ IsBootstrapped() (bool, error) }) http.HandlerFunc {
+func (h *Handler) apiStatus() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		realBootstrapped, _ := db.IsBootstrapped()
+		realBootstrapped, _ := h.gormAdminService.IsBootstrapped(r.Context())
 		bootstrapped := EffectiveBootstrapped(realBootstrapped, h.noAuth)
 		authenticated := h.noAuth
 		if !authenticated {
 			if c, err := r.Cookie(sessionCookie); err == nil {
-				_, authenticated = h.adminService.ValidateSession(c.Value)
+				_, authenticated = h.gormAdminService.ValidateSession(r.Context(), c.Value)
 			}
 		}
 
 		var statistics map[string]int
 		if authenticated {
-			providers, _ := h.providerService.List()
-			tokens, _ := h.tokenService.List()
-			credentials, _ := h.credentialService.ListAll()
+			providers, _ := h.gormProviderService.List(r.Context())
+			tokens, _ := h.gormTokenService.List(r.Context())
+			credentials, _ := h.gormCredentialService.ListAll(r.Context())
 			statistics = map[string]int{
 				"providers":   len(providers),
 				"tokens":      len(tokens),
@@ -67,7 +67,7 @@ func (h *Handler) apiLogin(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	sessionToken, expiresAt, err := h.adminService.Login(body.Username, body.Password, body.RememberMe)
+	sessionToken, expiresAt, err := h.gormAdminService.Login(r.Context(), body.Username, body.Password, body.RememberMe)
 	if err != nil {
 		h.jsonErr(w, http.StatusUnauthorized, "invalid username or password")
 		return
@@ -88,12 +88,11 @@ func (h *Handler) apiLogin(w http.ResponseWriter, r *http.Request) {
 // @Description  Invalidates the current session.
 // @Tags         Auth
 // @Produce      json
-// @Success      200 {object} object{ok=bool}
 // @Security     SessionAuth
 // @Router       /api/llm-router/logout [post]
 func (h *Handler) apiLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
-		h.adminService.Logout(c.Value)
+		h.gormAdminService.Logout(r.Context(), c.Value)
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, MaxAge: -1, Path: "/"})
 	h.json(w, http.StatusOK, map[string]any{"ok": true})
@@ -118,7 +117,7 @@ func (h *Handler) apiBootstrap(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := h.adminService.Bootstrap(body.Username, body.Password); err != nil {
+	if err := h.gormAdminService.Bootstrap(r.Context(), body.Username, body.Password); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -151,7 +150,7 @@ func (h *Handler) apiAdminChangePassword(w http.ResponseWriter, r *http.Request)
 		h.jsonErr(w, http.StatusUnauthorized, "session required")
 		return
 	}
-	if err := h.adminService.ChangePassword(username, body.CurrentPassword, body.NewPassword); err != nil {
+	if err := h.gormAdminService.ChangePassword(r.Context(), username, body.CurrentPassword, body.NewPassword); err != nil {
 		if errors.Is(err, admin.ErrInvalidCredentials) {
 			h.jsonErr(w, http.StatusUnauthorized, "current password is incorrect")
 			return

@@ -18,37 +18,32 @@ import (
 )
 
 // maxPluginHistoryEntries caps rollback history at ten full-source snapshots
-// per plugin, matching the bbolt History discipline.
+// per plugin, matching the previous History discipline.
 const maxPluginHistoryEntries = 10
 
-// NewWithSQLite constructs a Service with the alongside SQLite path attached.
-// The bbolt bucket keeps serving live traffic; the SQLite tables grow
-// alongside it during the migration and take over at cutover. Runtime
-// callbacks stay function values and remain unwired until the server attaches
-// them through the existing setters.
-func NewWithSQLite(database *db.DB, sqliteDatabase *db.Database, logger *slog.Logger) (*Service, error) {
-	service, err := New(database, logger)
-	if err != nil {
+// New constructs a SQLite-backed plugin Service and loads the in-memory
+// registry from the plugin rows. Construction reads storage once so
+// handler lookups never touch the database.
+func New(sqliteDatabase *db.Database, logger *slog.Logger) (*Service, error) {
+	if sqliteDatabase == nil || sqliteDatabase.Handle == nil {
+		return nil, fmt.Errorf("luaplugin sqlite handle is not configured: %w", apierrors.ErrInvalidInput)
+	}
+	service := &Service{
+		database: sqliteDatabase.Handle,
+		logger:   logger,
+		registry: map[string]*PluginRecord{},
+		logs:     map[string][]LogEntry{},
+		crashes:  map[string][]CrashEntry{},
+	}
+	if err := service.rebuild(context.Background()); err != nil {
 		return nil, err
 	}
-	return service.WithSQLite(sqliteDatabase), nil
+	return service, nil
 }
 
-// WithSQLite attaches the alongside SQLite path to a bbolt service and
-// returns the same Service. A nil handle detaches the SQLite path and
-// restores bbolt-only operation.
-func (service *Service) WithSQLite(sqliteDatabase *db.Database) *Service {
-	if sqliteDatabase == nil || sqliteDatabase.Handle == nil {
-		service.sqliteDatabase = nil
-		return service
-	}
-	service.sqliteDatabase = sqliteDatabase.Handle
-	return service
-}
-
-// sqliteWired fails closed when the SQLite path is not attached.
-func (service *Service) sqliteWired() error {
-	if service == nil || service.sqliteDatabase == nil {
+// requireHandle fails closed when the SQLite handle is missing.
+func (service *Service) requireHandle() error {
+	if service == nil || service.database == nil {
 		return fmt.Errorf("luaplugin sqlite handle is not configured: %w", apierrors.ErrInvalidInput)
 	}
 	return nil
@@ -100,11 +95,12 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 		return nil, err
 	}
 	typeKeys := dryOutput.keys
-	if err := service.sqliteWired(); err != nil {
+	if err := service.requireHandle(); err != nil {
 		return nil, err
 	}
 	var installed *PluginRecord
-	if err := service.sqliteDatabase.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	var previousKeys []string
+	if err := service.database.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		if err := checkTypeKeyConflictsInTransaction(ctx, transaction, identifier, typeKeys); err != nil {
 			return err
 		}
@@ -158,6 +154,7 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 			return err
 		}
 		previousSnapshot := snapshotFromRecord(existingRecord)
+		previousKeys = append([]string(nil), existingRecord.TypeKeys...)
 		versionIdentifier, err := util.GenerateID()
 		if err != nil {
 			return fmt.Errorf("generate version identifier: %w", err)
@@ -205,17 +202,21 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 	}); err != nil {
 		return nil, err
 	}
+	if err := service.rebuild(ctx); err != nil {
+		return nil, err
+	}
+	service.notify(unionKeys(previousKeys, installed.TypeKeys)...)
 	return installed, nil
 }
 
 // GetSQLite returns one plugin record with hosts and history assembled from
 // the child tables in one transaction. A miss reports the not-found sentinel.
 func (service *Service) GetSQLite(ctx context.Context, pluginID string) (*PluginRecord, error) {
-	if err := service.sqliteWired(); err != nil {
+	if err := service.requireHandle(); err != nil {
 		return nil, err
 	}
 	var result *PluginRecord
-	if err := service.sqliteDatabase.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	if err := service.database.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		baseRow, err := gorm.G[record.Plugin](transaction, clause.Eq{Column: "id", Value: pluginID}).First(ctx)
 		if err != nil {
 			return db.Translate(err)
@@ -246,11 +247,11 @@ func (service *Service) GetSQLite(ctx context.Context, pluginID string) (*Plugin
 // ListSQLite returns every plugin record ordered by identifier with hosts
 // and history assembled per row in one transaction.
 func (service *Service) ListSQLite(ctx context.Context) ([]*PluginRecord, error) {
-	if err := service.sqliteWired(); err != nil {
+	if err := service.requireHandle(); err != nil {
 		return nil, err
 	}
 	var result []*PluginRecord
-	if err := service.sqliteDatabase.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	if err := service.database.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		pluginRows, err := gorm.G[record.Plugin](transaction, orderPluginsByIdentifier()).Find(ctx)
 		if err != nil {
 			return db.Translate(err)
@@ -289,12 +290,17 @@ func (service *Service) ListSQLite(ctx context.Context) ([]*PluginRecord, error)
 
 // DeleteSQLite removes one plugin row. Allow host, version and storage rows
 // cascade from the base delete. A zero-row delete reports the not-found
-// sentinel through the WithResult tracker.
+// sentinel through the WithResult tracker. The registry rebuilds and
+// notifies the removed type keys.
 func (service *Service) DeleteSQLite(ctx context.Context, pluginID string) error {
-	if err := service.sqliteWired(); err != nil {
+	if err := service.requireHandle(); err != nil {
 		return err
 	}
-	return service.sqliteDatabase.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	existing, err := service.GetSQLite(ctx, pluginID)
+	if err != nil {
+		return err
+	}
+	if err := service.database.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		tracker := gorm.WithResult()
 		affected, err := gorm.G[record.Plugin](transaction, clause.Eq{Column: "id", Value: pluginID}, tracker).Delete(ctx)
 		if err != nil {
@@ -304,7 +310,14 @@ func (service *Service) DeleteSQLite(ctx context.Context, pluginID string) error
 			return fmt.Errorf("plugin %q: %w", pluginID, apierrors.ErrNotFound)
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	if err := service.rebuild(ctx); err != nil {
+		return err
+	}
+	service.notify(existing.TypeKeys...)
+	return nil
 }
 
 // RollbackSQLite restores the most recent previous version. Reads for the
@@ -312,12 +325,12 @@ func (service *Service) DeleteSQLite(ctx context.Context, pluginID string) error
 // transaction holds the read-modify-write for the plugin row, host
 // replacement, version delete and version insert. The rolled-back-from
 // version returns to history so rollback toggles forward again, matching
-// the bbolt discipline.
+// the previous discipline.
 func (service *Service) RollbackSQLite(ctx context.Context, pluginID string) (*PluginRecord, error) {
-	if err := service.sqliteWired(); err != nil {
+	if err := service.requireHandle(); err != nil {
 		return nil, err
 	}
-	pluginRow, err := gorm.G[record.Plugin](service.sqliteDatabase, clause.Eq{Column: "id", Value: pluginID}).First(ctx)
+	pluginRow, err := gorm.G[record.Plugin](service.database, clause.Eq{Column: "id", Value: pluginID}).First(ctx)
 	if err != nil {
 		translated := db.Translate(err)
 		if stdErrors.Is(translated, apierrors.ErrNotFound) {
@@ -325,11 +338,11 @@ func (service *Service) RollbackSQLite(ctx context.Context, pluginID string) (*P
 		}
 		return nil, translated
 	}
-	hostRows, err := gorm.G[record.PluginAllowHost](service.sqliteDatabase, clause.Eq{Column: "plugin_id", Value: pluginID}, orderAllowHostsByHost()).Find(ctx)
+	hostRows, err := gorm.G[record.PluginAllowHost](service.database, clause.Eq{Column: "plugin_id", Value: pluginID}, orderAllowHostsByHost()).Find(ctx)
 	if err != nil {
 		return nil, db.Translate(err)
 	}
-	versionRows, err := gorm.G[record.PluginVersion](service.sqliteDatabase, clause.Eq{Column: "plugin_id", Value: pluginID}, orderVersionsByCreation()).Find(ctx)
+	versionRows, err := gorm.G[record.PluginVersion](service.database, clause.Eq{Column: "plugin_id", Value: pluginID}, orderVersionsByCreation()).Find(ctx)
 	if err != nil {
 		return nil, db.Translate(err)
 	}
@@ -400,7 +413,7 @@ func (service *Service) RollbackSQLite(ctx context.Context, pluginID string) (*P
 		return nil, fmt.Errorf("generate version identifier: %w", err)
 	}
 	rolledRow := versionRowFromSnapshot(pluginID, rolledSnapshot, rolledBackIdentifier, util.Now())
-	if err := service.sqliteDatabase.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	if err := service.database.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		versionRows, err := gorm.G[record.PluginVersion](transaction, clause.Eq{Column: "plugin_id", Value: pluginID}, orderVersionsByCreation()).Find(ctx)
 		if err != nil {
 			return db.Translate(err)
@@ -434,6 +447,10 @@ func (service *Service) RollbackSQLite(ctx context.Context, pluginID string) (*P
 	}); err != nil {
 		return nil, err
 	}
+	if err := service.rebuild(ctx); err != nil {
+		return nil, err
+	}
+	service.notify(rolled.TypeKeys...)
 	return rolled, nil
 }
 

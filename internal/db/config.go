@@ -1,8 +1,7 @@
-// Package db manages the embedded database handles and bucket definitions.
+// Package db manages the embedded database handles.
 //
-// The bbolt handle in db.go serves live traffic. The SQLite handle in this
-// set of files grows alongside it during the GORM migration and takes over
-// at cutover. New code uses the SQLite handle through OpenSQLite.
+// The SQLite handle in this set of files serves all traffic. New code uses
+// the SQLite handle through OpenSQLite.
 package db
 
 import (

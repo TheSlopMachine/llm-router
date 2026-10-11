@@ -14,10 +14,10 @@ import (
 // on invalid patterns (e.g. a mid-pattern {...} wildcard), which would take
 // the whole server down at startup. Every route must register cleanly.
 func TestRegisterBuildsMux(t *testing.T) {
-	database := testutil.SetupTestDB(t)
+	database := testutil.SetupTestSQLite(t)
 	h := &Handler{}
 	mux := http.NewServeMux()
-	h.Register(mux, database)
+	h.Register(mux)
 
 	service, err := proxypool.New(database)
 	if err != nil {
@@ -26,7 +26,7 @@ func TestRegisterBuildsMux(t *testing.T) {
 	h.proxyService = service
 	h.noAuth = true
 	mux = http.NewServeMux()
-	h.Register(mux, database)
+	h.Register(mux)
 	request := httptest.NewRequest(http.MethodPost, "/api/llm-router/dashboard/proxy/recheck-banned", strings.NewReader(`{"reason":"bad_status"}`))
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, request)

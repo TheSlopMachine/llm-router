@@ -31,7 +31,7 @@ type executionContext struct {
 	unsafe     bool
 	logger     *slog.Logger
 	logSink    func(pluginID, msg string)
-	storage    *storageBackend
+	storage    storageBridge
 	timeoutMs  int
 
 	// Request identity: the provider instance and type serving the call
@@ -71,14 +71,14 @@ type executionContext struct {
 	// Credential access: list/get serve every context, update serves jobs.
 	// disable/enable serve every context but require the provider
 	// automation switch (checkAutomation).
-	credentialList    func(providerID string) ([]*models.Credential, error)
-	credentialGet     func(id string) (*models.Credential, error)
-	credentialUpdate  func(id string, data map[string]any) error
-	credentialDisable func(id string, reason string) error
-	credentialEnable  func(id string) error
-	credentialPark    func(id string, ttl time.Duration, reason string) error
-	credentialUnpark  func(id string) error
-	credentialParked  func(id string) (*models.ParkEntry, error)
+	credentialList    func(ctx context.Context, providerID string) ([]*models.Credential, error)
+	credentialGet     func(ctx context.Context, id string) (*models.Credential, error)
+	credentialUpdate  func(ctx context.Context, id string, data map[string]any) error
+	credentialDisable func(ctx context.Context, id string, reason string) error
+	credentialEnable  func(ctx context.Context, id string) error
+	credentialPark    func(ctx context.Context, id string, ttl time.Duration, reason string) error
+	credentialUnpark  func(ctx context.Context, id string) error
+	credentialParked  func(ctx context.Context, id string) (*models.ParkEntry, error)
 	// automationOn reports the provider disable_failed_credentials switch
 	// for shared disable/enable writes; nil reads off.
 	automationOn func(providerID string) bool // capabilities gates the credentials/proxies tables for this type key.
@@ -409,6 +409,16 @@ func installRouterTable(L *lua.LState, ctx *executionContext) {
 	}))
 
 	L.SetGlobal("llm_router", router)
+}
+
+// callContext returns the caller request context for plugin-initiated
+// storage and credential calls, or Background when the call runs detached
+// (dry-run installs, startup jobs without a request).
+func (ctx *executionContext) callContext() context.Context {
+	if ctx == nil || ctx.goCtx == nil {
+		return context.Background()
+	}
+	return ctx.goCtx
 }
 
 // luaErrorString renders a Lua error value for PluginInternalError causes.

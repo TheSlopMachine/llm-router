@@ -1,12 +1,11 @@
 // GORM-backed data management.
 //
-// GormService mirrors Service against context-taking dependencies so
-// export, import, and truncation run unchanged on GORM-backed providers,
-// credentials, virtual models, tokens, plugins, repositories, and model
-// overrides. It owns no tables and issues no storage statements itself:
-// every read and write delegates to the owning service through narrow
-// interfaces, so bundle shapes stay identical to the bbolt path. The bbolt
-// Service stays live until cutover; this type only orchestrates.
+// GormService orchestrates export, import, and truncation against
+// context-taking dependencies: GORM-backed providers, credentials, virtual
+// models, tokens, plugins, repositories, and model overrides. It owns no
+// tables and issues no storage statements itself: every read and write
+// delegates to the owning service through narrow interfaces, so bundle
+// shapes stay stable.
 package datamanagement
 
 import (
@@ -25,6 +24,33 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/token"
 	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
 )
+
+// Aliases for clean API import payloads
+type VirtualModelImport = models.VirtualModel
+type TokenImport = models.RouterToken
+
+// ProviderBundle packages a provider instance with its credentials and model overrides.
+type ProviderBundle struct {
+	Instance    *models.ProviderInstance `json:"instance"`
+	Credentials []*models.Credential     `json:"credentials"`
+	Overrides   []*models.ModelOverride  `json:"overrides,omitempty"`
+}
+
+// SubsystemStats reports record counts for data management UI.
+type SubsystemStats struct {
+	Providers     int `json:"providers"`
+	Credentials   int `json:"credentials"`
+	VirtualModels int `json:"virtual_models"`
+	Plugins       int `json:"plugins"`
+	PluginRepos   int `json:"plugin_repos"`
+	Tokens        int `json:"tokens"`
+}
+
+// PluginsExportBundle packages plugin store repositories with installed plugins.
+type PluginsExportBundle struct {
+	Repos   []*pluginrepo.RepoRecord  `json:"repos"`
+	Plugins []*luaplugin.PluginRecord `json:"plugins"`
+}
 
 // GormProviderBackend is the provider surface the GORM data management path
 // needs: inventory reads plus the create/update/delete writes imports and
@@ -111,7 +137,7 @@ var (
 // GormService orchestrates subsystem export, import, and truncation against
 // GORM-backed dependencies. Construction performs no I/O. Nil plugin,
 // repository, model info, virtual, and token backends disable their
-// subsystems exactly like the bbolt path.
+// subsystems exactly as before.
 type GormService struct {
 	providerSource   GormProviderBackend
 	credentialSource GormCredentialBackend
@@ -145,7 +171,7 @@ func NewGorm(
 }
 
 // Stats returns the record counts for each managed subsystem. A failing
-// subsystem contributes no count, matching the bbolt path: stats stay
+// subsystem contributes no count, matching the previous behavior: stats stay
 // best-effort so one broken subsystem never hides the rest.
 func (s *GormService) Stats(ctx context.Context) (SubsystemStats, error) {
 	var statistics SubsystemStats
@@ -184,7 +210,7 @@ func (s *GormService) Stats(ctx context.Context) (SubsystemStats, error) {
 
 // ExportProviders packages every provider instance with its credentials and
 // model overrides. Override list failures yield no overrides for that
-// provider, matching the bbolt path: overrides stay optional metadata.
+// provider, matching the previous behavior: overrides stay optional metadata.
 func (s *GormService) ExportProviders(ctx context.Context) ([]*ProviderBundle, error) {
 	providers, err := s.providerSource.List(ctx)
 	if err != nil {
@@ -218,7 +244,7 @@ func (s *GormService) ExportProviders(ctx context.Context) ([]*ProviderBundle, e
 // ImportProviders creates or updates every bundled provider, then its
 // credentials and overrides. Update failures return immediately; create
 // failures keep the bundle instance so the error surfaces at the credential
-// write, matching the bbolt remap discipline.
+// write, matching the previous remap discipline.
 func (s *GormService) ImportProviders(ctx context.Context, bundles []*ProviderBundle) error {
 	for _, bundle := range bundles {
 		if bundle == nil || bundle.Instance == nil {
@@ -286,7 +312,7 @@ func (s *GormService) ImportProviders(ctx context.Context, bundles []*ProviderBu
 
 // ExportProvider packages one provider instance with its credentials and
 // overrides. Credential and override list failures yield empty lists,
-// matching the bbolt path.
+// matching the previous behavior.
 func (s *GormService) ExportProvider(ctx context.Context, identifier string) (*ProviderBundle, error) {
 	providerInstance, err := s.providerSource.Get(ctx, identifier)
 	if err != nil {
@@ -321,7 +347,7 @@ func (s *GormService) ImportProvider(ctx context.Context, bundle *ProviderBundle
 // credentials cascade from the provider delete, snapshots and overrides go
 // through the owning model info service, and managed virtual models delete
 // through the virtual service. A missing snapshot is not an error,
-// matching the idempotent bbolt invalidation.
+// matching the idempotent previous invalidation.
 func (s *GormService) PurgeProvider(ctx context.Context, identifier string) error {
 	if _, err := s.providerSource.Get(ctx, identifier); err != nil {
 		return err
@@ -443,7 +469,7 @@ func (s *GormService) ClearVirtualModels(ctx context.Context) error {
 // ─────────────────────────────────────────────
 
 // ExportPlugins packages repository records plus installed plugin records.
-// List failures yield empty halves, matching the bbolt path.
+// List failures yield empty halves, matching the previous behavior.
 func (s *GormService) ExportPlugins(ctx context.Context) (*PluginsExportBundle, error) {
 	var bundle PluginsExportBundle
 	if s.repositorySource != nil {

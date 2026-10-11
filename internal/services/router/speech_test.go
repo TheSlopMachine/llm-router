@@ -46,18 +46,19 @@ func (m *speechMockAdapter) GenerateImage(ctx context.Context, creds []*models.C
 	}, nil
 }
 
-func setupSpeechRouter(t *testing.T) (*Service, *credential.Service, *modelinfo.Service, *speechMockAdapter) {
+func setupSpeechRouter(t *testing.T) (*Service, *credential.GormService, *modelinfo.GormService, *speechMockAdapter) {
 	t.Helper()
-	database := testutil.SetupTestDB(t)
+	database := testutil.SetupTestSQLite(t)
+	ctx := context.Background()
 
-	providerService := provider.NewService(database)
+	providerService := provider.NewGorm(database)
 	mock := &speechMockAdapter{MockAdapter: testutil.NewMockAdapter("mock")}
 	providerService.RegisterGoAdapter(mock)
-	if _, err := providerService.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
+	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
 	}
-	credentialService := credential.New(database, providerService)
-	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
+	credentialService := credential.NewGorm(database, providerService)
+	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, 1*time.Hour)
 
 	return New(providerService, credentialService, modelInfoService, videojobs.New(database), nil, nil, slog.Default()), credentialService, modelInfoService, mock
 }
@@ -233,18 +234,19 @@ func (m *embedMockAdapter) Embed(ctx context.Context, creds []*models.Credential
 	return &models.EmbeddingsResponse{Data: data}, nil
 }
 
-func setupEmbedRouter(t *testing.T) (*Service, *credential.Service, *modelinfo.Service, *embedMockAdapter) {
+func setupEmbedRouter(t *testing.T) (*Service, *credential.GormService, *modelinfo.GormService, *embedMockAdapter) {
 	t.Helper()
-	database := testutil.SetupTestDB(t)
+	database := testutil.SetupTestSQLite(t)
+	ctx := context.Background()
 
-	providerService := provider.NewService(database)
+	providerService := provider.NewGorm(database)
 	mock := &embedMockAdapter{MockAdapter: testutil.NewMockAdapter("mock")}
 	providerService.RegisterGoAdapter(mock)
-	if _, err := providerService.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
+	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
 	}
-	credentialService := credential.New(database, providerService)
-	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
+	credentialService := credential.NewGorm(database, providerService)
+	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, 1*time.Hour)
 
 	return New(providerService, credentialService, modelInfoService, videojobs.New(database), nil, nil, slog.Default()), credentialService, modelInfoService, mock
 }

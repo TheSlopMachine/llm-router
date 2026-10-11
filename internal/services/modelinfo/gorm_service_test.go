@@ -3,6 +3,7 @@ package modelinfo
 import (
 	"context"
 	"testing"
+	"time"
 
 	stdErrors "errors"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 	"github.com/TheSlopMachine/llm-router/internal/util"
 )
@@ -21,8 +24,13 @@ func setupGormModelInfo(t *testing.T) (*GormService, context.Context, *db.Databa
 	t.Helper()
 	database := testutil.SetupTestSQLite(t)
 	ctx := context.Background()
-	seedGormProvider(t, database, ctx, "mock", "Mock")
-	return NewGorm(database), ctx, database
+	providerService := provider.NewGorm(database)
+	providerService.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
+	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
+		t.Fatalf("create mock provider: %v", err)
+	}
+	credentialService := credential.NewGorm(database, providerService)
+	return NewGorm(database, providerService, credentialService, time.Hour), ctx, database
 }
 
 func seedGormProvider(t *testing.T, database *db.Database, ctx context.Context, identifier, name string) {
@@ -476,7 +484,7 @@ func TestGormModelInfoConvertRoundTrip(t *testing.T) {
 }
 
 func TestGormMethodsFailClosedWithoutHandle(t *testing.T) {
-	service := NewGorm(nil)
+	service := NewGorm(nil, nil, nil, time.Hour)
 	ctx := context.Background()
 	if err := service.SetOverride(ctx, models.ModelOverride{ProviderID: "mock", Name: "x"}); err == nil {
 		t.Error("set override without handle must fail")

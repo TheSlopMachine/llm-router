@@ -1,13 +1,38 @@
 package luaplugin
 
 import (
+	"context"
 	"testing"
+	"time"
+
+	"github.com/TheSlopMachine/llm-router/internal/db/record"
+	"github.com/TheSlopMachine/llm-router/internal/repository"
 )
+
+// seedBuildRepository inserts the plugin store row an origin references so
+// the repository foreign key stays valid.
+func seedBuildRepository(t *testing.T, service *Service, repoID string) {
+	t.Helper()
+	repositoryStore := repository.NewGormRepository[record.PluginRepository](service.database, "id")
+	repositoryRow := record.PluginRepository{
+		ID:          repoID,
+		Kind:        "index",
+		IndexURL:    "https://example.com/index.json",
+		SourceURL:   "https://example.com",
+		Title:       "Build",
+		Description: "Build repository",
+		AddedAt:     time.Now().UTC(),
+	}
+	if err := repositoryStore.Upsert(context.Background(), repositoryRow); err != nil {
+		t.Fatalf("seed repository: %v", err)
+	}
+}
 
 func TestInstallRepoOrigin(t *testing.T) {
 	service := setupService(t)
+	seedBuildRepository(t, service, "github/TheSlopMachine/llm-router-store")
 	origin := PluginOrigin{RepoID: "github/TheSlopMachine/llm-router-store", Path: "llm-router-plugins/test-plugin.lua"}
-	rec, err := service.Install([]byte(testPluginSource), origin)
+	rec, err := service.InstallSQLite(context.Background(), []byte(testPluginSource), origin)
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -25,12 +50,13 @@ func TestInstallRepoOrigin(t *testing.T) {
 
 func TestInstallRepoOriginKeepsHistory(t *testing.T) {
 	service := setupService(t)
+	seedBuildRepository(t, service, "github/owner/repo")
 	origin := PluginOrigin{RepoID: "github/owner/repo", Path: "llm-router-plugins/test-plugin.lua"}
-	rec, err := service.Install([]byte(testPluginSource), origin)
+	rec, err := service.InstallSQLite(context.Background(), []byte(testPluginSource), origin)
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	updated, err := service.Install([]byte(testPluginSource), origin)
+	updated, err := service.InstallSQLite(context.Background(), []byte(testPluginSource), origin)
 	if err != nil {
 		t.Fatalf("reinstall: %v", err)
 	}

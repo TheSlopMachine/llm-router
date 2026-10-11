@@ -83,7 +83,7 @@ func (s *lifecycleStore) expired(id string) bool {
 	return time.Now().After(p.Until)
 }
 
-func (s *lifecycleStore) list(providerID string) ([]*models.Credential, error) {
+func (s *lifecycleStore) list(ctx context.Context, providerID string) ([]*models.Credential, error) {
 	var output []*models.Credential
 	for _, c := range s.creds {
 		if c.ProviderID == providerID && !c.Disabled {
@@ -93,7 +93,7 @@ func (s *lifecycleStore) list(providerID string) ([]*models.Credential, error) {
 	return output, nil
 }
 
-func (s *lifecycleStore) park(id string, ttl time.Duration, reason string) error {
+func (s *lifecycleStore) park(ctx context.Context, id string, ttl time.Duration, reason string) error {
 	if _, ok := s.creds[id]; !ok {
 		return errors.New("unknown credential")
 	}
@@ -101,12 +101,12 @@ func (s *lifecycleStore) park(id string, ttl time.Duration, reason string) error
 	return nil
 }
 
-func (s *lifecycleStore) unpark(id string) error {
+func (s *lifecycleStore) unpark(ctx context.Context, id string) error {
 	delete(s.parks, id)
 	return nil
 }
 
-func (s *lifecycleStore) parked(id string) (*models.ParkEntry, error) {
+func (s *lifecycleStore) parked(ctx context.Context, id string) (*models.ParkEntry, error) {
 	if s.expired(id) {
 		delete(s.parks, id)
 		return nil, nil
@@ -114,7 +114,7 @@ func (s *lifecycleStore) parked(id string) (*models.ParkEntry, error) {
 	return s.parks[id], nil
 }
 
-func (s *lifecycleStore) disable(id, reason string) error {
+func (s *lifecycleStore) disable(ctx context.Context, id, reason string) error {
 	c, ok := s.creds[id]
 	if !ok {
 		return errors.New("unknown credential")
@@ -128,7 +128,7 @@ func (s *lifecycleStore) disable(id, reason string) error {
 	return nil
 }
 
-func (s *lifecycleStore) enable(id string) error {
+func (s *lifecycleStore) enable(ctx context.Context, id string) error {
 	c, ok := s.creds[id]
 	if !ok {
 		return errors.New("unknown credential")
@@ -154,15 +154,15 @@ func lifecycleCall(t *testing.T, service *Service, model string) *models.Provide
 
 func TestCredentialsDisableEnableSharedState(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(lifecyclePluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(lifecyclePluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	store := newLifecycleStore()
 	automate := true
 	service.SetCredentialAccess(
 		store.list,
-		func(id string) (*models.Credential, error) { return store.creds[id], nil },
-		func(id string, data map[string]any) error { return nil },
+		func(ctx context.Context, id string) (*models.Credential, error) { return store.creds[id], nil },
+		func(ctx context.Context, id string, data map[string]any) error { return nil },
 	)
 	service.SetCredentialLifecycle(store.disable, store.enable, func(providerID string) bool { return automate })
 
@@ -187,14 +187,14 @@ func TestCredentialsDisableEnableSharedState(t *testing.T) {
 
 func TestCredentialsLifecycleGatedOff(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(lifecyclePluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(lifecyclePluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	store := newLifecycleStore()
 	service.SetCredentialAccess(
 		store.list,
-		func(id string) (*models.Credential, error) { return store.creds[id], nil },
-		func(id string, data map[string]any) error { return nil },
+		func(ctx context.Context, id string) (*models.Credential, error) { return store.creds[id], nil },
+		func(ctx context.Context, id string, data map[string]any) error { return nil },
 	)
 	service.SetCredentialLifecycle(store.disable, store.enable, func(providerID string) bool { return false })
 
@@ -211,14 +211,14 @@ func TestCredentialsLifecycleGatedOff(t *testing.T) {
 
 func TestCredentialsParkRoundTrip(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(lifecyclePluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(lifecyclePluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	store := newLifecycleStore()
 	service.SetCredentialAccess(
 		store.list,
-		func(id string) (*models.Credential, error) { return store.creds[id], nil },
-		func(id string, data map[string]any) error { return nil },
+		func(ctx context.Context, id string) (*models.Credential, error) { return store.creds[id], nil },
+		func(ctx context.Context, id string, data map[string]any) error { return nil },
 	)
 	wireParks(service, store)
 

@@ -65,34 +65,21 @@ const sessionCookie = "llmr_session"
 
 // Handler serves the admin dashboard.
 type Handler struct {
-	adminService       *admin.Service
-	providerService    *provider.Service
-	credentialService  *credential.Service
-	tokenService       *token.Service
-	modelInfoService   *modelinfo.Service
-	metricsService     *metrics.Service
-	virtualService     *virtual.Service
-	routerService      *router.Service
-	configService      *configsvc.Service
-	luaService         *luaplugin.Service
-	repositoryService  *pluginrepo.Service
-	proxyService       *proxypool.Service
-	maintenanceService *maintenance.Service
-	dataService        *datamanagement.Service
-	doctorService      *doctor.Service
-	// gormAdminService through gormVirtualService are the SQLite-backed
-	// counterparts of the bbolt services above, threaded from Params and
-	// validated in New. Handlers keep serving bbolt until the Wave 10
-	// cutover flips them.
 	gormAdminService      *admin.GormService
 	gormProviderService   *provider.GormService
 	gormCredentialService *credential.GormService
 	gormTokenService      *token.GormService
 	gormModelInfoService  *modelinfo.GormService
+	metricsService        *metrics.Service
 	gormVirtualService    *virtual.GormService
-	// dataGormService and doctorGormService are the GORM counterparts of
-	// dataService and doctorService, constructed in New from the GORM set.
-	// Handlers keep serving the bbolt pair until the Wave 10 cutover.
+	routerService         *router.Service
+	configService         *configsvc.Service
+	luaService            *luaplugin.Service
+	repositoryService     *pluginrepo.Service
+	proxyService          *proxypool.Service
+	maintenanceService    *maintenance.GormService
+	// dataGormService and doctorGormService are the GORM data and doctor
+	// services constructed in New from the GORM set.
 	dataGormService   *datamanagement.GormService
 	doctorGormService *doctor.GormService
 	logger            *slog.Logger
@@ -121,7 +108,7 @@ func (h *Handler) SetDevRedirect(origin string) {
 	h.devRedirect = strings.TrimSuffix(origin, "/")
 }
 
-func (h *Handler) Register(mux *http.ServeMux, database interface{ IsBootstrapped() (bool, error) }) {
+func (h *Handler) Register(mux *http.ServeMux) {
 	webRoot, _ := fs.Sub(embeddedFS, "build/web")
 
 	// SPA asset files
@@ -133,7 +120,7 @@ func (h *Handler) Register(mux *http.ServeMux, database interface{ IsBootstrappe
 	mux.HandleFunc("POST /api/llm-router/logout", h.apiLogout)
 	mux.HandleFunc("POST /api/llm-router/bootstrap", h.apiBootstrap)
 	mux.HandleFunc("POST /api/llm-router/dashboard/admin/password", h.requireAuth(h.apiAdminChangePassword))
-	mux.HandleFunc("GET /api/llm-router/status", h.apiStatus(database))
+	mux.HandleFunc("GET /api/llm-router/status", h.apiStatus())
 
 	// Dashboard APIs
 	mux.HandleFunc("GET /api/llm-router/dashboard/providers", h.requireAuth(h.apiProvidersList))
@@ -305,7 +292,7 @@ func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			h.jsonErr(w, http.StatusUnauthorized, "unauthenticated")
 			return
 		}
-		if _, ok := h.adminService.ValidateSession(c.Value); !ok {
+		if _, ok := h.gormAdminService.ValidateSession(r.Context(), c.Value); !ok {
 			h.jsonErr(w, http.StatusUnauthorized, "unauthenticated")
 			return
 		}
@@ -322,7 +309,7 @@ func (h *Handler) sessionUser(r *http.Request) string {
 	if err != nil || c.Value == "" {
 		return ""
 	}
-	username, ok := h.adminService.ValidateSession(c.Value)
+	username, ok := h.gormAdminService.ValidateSession(r.Context(), c.Value)
 	if !ok {
 		return ""
 	}

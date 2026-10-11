@@ -22,26 +22,27 @@ import (
 
 func setupCompatRouter(t *testing.T, mock provider.GoAdapter) *Service {
 	t.Helper()
-	database := testutil.SetupTestDB(t)
-	providerService := provider.NewService(database)
+	database := testutil.SetupTestSQLite(t)
+	ctx := context.Background()
+	providerService := provider.NewGorm(database)
 	if mock == nil {
 		mock = testutil.NewMockAdapter("mock")
 	}
 	providerService.RegisterGoAdapter(mock)
-	if _, err := providerService.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
+	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
 	}
-	credentialService := credential.New(database, providerService)
-	if _, err := credentialService.Add(credential.AddOptions{
+	credentialService := credential.NewGorm(database, providerService)
+	if _, err := credentialService.Add(ctx, credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "test-key"},
 	}); err != nil {
 		t.Fatalf("add credential: %v", err)
 	}
-	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
+	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, 1*time.Hour)
 	return New(providerService, credentialService, modelInfoService, videojobs.New(database),
-		responses.New(database), batches.New(database), slog.Default())
+		responses.NewGormService(database.Handle), batches.NewSQLiteService(database), slog.Default())
 }
 
 func responseRequest(model, input string) *models.ResponseRequest {

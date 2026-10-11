@@ -30,7 +30,7 @@ type credentialView struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
-func (h *Handler) toCredentialView(credential *models.Credential, providerName string) credentialView {
+func (h *Handler) toCredentialView(ctx context.Context, credential *models.Credential, providerName string) credentialView {
 	view := credentialView{
 		ID:             credential.ID,
 		ProviderID:     credential.ProviderID,
@@ -47,7 +47,7 @@ func (h *Handler) toCredentialView(credential *models.Credential, providerName s
 		ExpiresAt:      credential.ExpiresAt,
 		UpdatedAt:      credential.UpdatedAt,
 	}
-	if park, err := h.credentialService.Parked(credential.ID); err == nil && park != nil {
+	if park, err := h.gormCredentialService.Parked(ctx, credential.ID); err == nil && park != nil {
 		view.Parked = true
 		view.ParkedUntil = &park.Until
 		view.ParkReason = park.Reason
@@ -66,19 +66,19 @@ func (h *Handler) toCredentialView(credential *models.Credential, providerName s
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/credentials [get]
 func (h *Handler) apiCredentialsList(w http.ResponseWriter, r *http.Request) {
-	providers, _ := h.providerService.List()
+	providers, _ := h.gormProviderService.List(r.Context())
 	providerMap := make(map[string]string, len(providers))
 	for _, provider := range providers {
 		providerMap[provider.ID] = provider.Name
 	}
-	credentials, err := h.credentialService.ListAll()
+	credentials, err := h.gormCredentialService.ListAll(r.Context())
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	out := make([]credentialView, len(credentials))
 	for i, credential := range credentials {
-		out[i] = h.toCredentialView(credential, providerMap[credential.ProviderID])
+		out[i] = h.toCredentialView(r.Context(), credential, providerMap[credential.ProviderID])
 	}
 	h.json(w, http.StatusOK, out)
 }
@@ -110,7 +110,7 @@ func (h *Handler) apiCredentialsCreate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "provider_id is required")
 		return
 	}
-	provider, ok := h.loadVisibleProvider(body.ProviderID)
+	provider, ok := h.loadVisibleProvider(r.Context(), body.ProviderID)
 	if !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
@@ -119,7 +119,7 @@ func (h *Handler) apiCredentialsCreate(w http.ResponseWriter, r *http.Request) {
 	if label == "" {
 		label = buildAutoCredentialLabel(provider.Name, body.Data)
 	}
-	credential, err := h.credentialService.Add(credential.AddOptions{
+	credential, err := h.gormCredentialService.Add(r.Context(), credential.AddOptions{
 		ProviderID: body.ProviderID,
 		Label:      label,
 		Data:       body.Data,
@@ -128,7 +128,7 @@ func (h *Handler) apiCredentialsCreate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	h.json(w, http.StatusOK, h.toCredentialView(credential, provider.Name))
+	h.json(w, http.StatusOK, h.toCredentialView(r.Context(), credential, provider.Name))
 }
 
 // apiCredentialsUpdate edits label, enable/disable state or data of a credential
@@ -160,11 +160,11 @@ func (h *Handler) apiCredentialsUpdate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "nothing to update")
 		return
 	}
-	if err := h.credentialService.UpdateDetails(id, body.Label, body.Disabled, body.Data); err != nil {
+	if err := h.gormCredentialService.UpdateDetails(r.Context(), id, body.Label, body.Disabled, body.Data); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	credential, err := h.credentialService.Get(id)
+	credential, err := h.gormCredentialService.Get(r.Context(), id)
 	if err != nil {
 		h.jsonErr(w, http.StatusNotFound, "credential not found")
 		return
@@ -173,10 +173,10 @@ func (h *Handler) apiCredentialsUpdate(w http.ResponseWriter, r *http.Request) {
 		h.logger.Info("credential admin state change", "credential_id", id, "disabled", *body.Disabled)
 	}
 	name := ""
-	if provider, err := h.providerService.Get(credential.ProviderID); err == nil {
+	if provider, err := h.gormProviderService.Get(r.Context(), credential.ProviderID); err == nil {
 		name = provider.Name
 	}
-	h.json(w, http.StatusOK, h.toCredentialView(credential, name))
+	h.json(w, http.StatusOK, h.toCredentialView(r.Context(), credential, name))
 }
 
 // apiCredentialsTest verifies a credential through the provider's check_health
@@ -195,7 +195,7 @@ func (h *Handler) apiCredentialsUpdate(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/llm-router/dashboard/credentials/{id}/test [post]
 func (h *Handler) apiCredentialsTest(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	credential, err := h.credentialService.Get(id)
+	credential, err := h.gormCredentialService.Get(r.Context(), id)
 	if err != nil {
 		h.jsonErr(w, http.StatusNotFound, "credential not found")
 		return
@@ -229,7 +229,7 @@ func (h *Handler) apiCredentialsTest(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/credentials/{id} [delete]
 func (h *Handler) apiCredentialsDelete(w http.ResponseWriter, r *http.Request) {
-	if err := h.credentialService.Delete(r.PathValue("id")); err != nil {
+	if err := h.gormCredentialService.Delete(r.Context(), r.PathValue("id")); err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -252,11 +252,11 @@ func (h *Handler) apiCredentialsDelete(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/llm-router/dashboard/credentials/{id}/unpark [post]
 func (h *Handler) apiCredentialsUnpark(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, err := h.credentialService.Get(id); err != nil {
+	if _, err := h.gormCredentialService.Get(r.Context(), id); err != nil {
 		h.jsonErr(w, http.StatusNotFound, "credential not found")
 		return
 	}
-	if err := h.credentialService.Unpark(id); err != nil {
+	if err := h.gormCredentialService.Unpark(r.Context(), id); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -298,7 +298,7 @@ func (h *Handler) apiModels(w http.ResponseWriter, r *http.Request) {
 
 	for _, providerID := range providerIDs {
 		go func(currentProviderID string) {
-			provider, err := h.providerService.Get(currentProviderID)
+			provider, err := h.gormProviderService.Get(ctx, currentProviderID)
 			if err != nil {
 				channel <- result{providerModels: ProviderModels{ProviderID: currentProviderID, Error: "provider not found"}}
 				return
@@ -310,7 +310,7 @@ func (h *Handler) apiModels(w http.ResponseWriter, r *http.Request) {
 				ProviderType: provider.TypeKey,
 			}
 
-			modelInfos, err := h.modelInfoService.GetModelInfos(ctx, currentProviderID)
+			modelInfos, err := h.gormModelInfoService.GetModelInfos(ctx, currentProviderID)
 			if err != nil {
 				h.logger.Warn("dashboard apiModels: model discovery failed", "provider_id", currentProviderID, "err", err)
 				providerModels.Error = err.Error()

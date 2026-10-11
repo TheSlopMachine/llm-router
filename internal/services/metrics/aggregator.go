@@ -2,15 +2,11 @@ package metrics
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
-
-	"github.com/TheSlopMachine/llm-router/internal/db"
-	bolt "go.etcd.io/bbolt"
 )
 
-// compressAndPersist compresses old in-memory buckets and persists them to bbolt.
+// compressAndPersist compresses old in-memory buckets and persists them to SQLite.
 func (s *Service) compressAndPersist() error {
 	now := time.Now()
 	cutoff := now.Add(-1 * time.Hour)
@@ -174,8 +170,8 @@ func (s *Service) mergeTokenMetrics(destination, source *TokenMetrics) {
 
 // compressOldBuckets compresses buckets of one granularity into another.
 func (s *Service) compressOldBuckets(cutoff time.Time, fromGranularity, toGranularity string, targetInterval time.Duration) error {
-	// Load buckets from database
-	buckets, err := s.loadBucketsByGranularity(cutoff, fromGranularity)
+	// Load buckets from SQLite with dimensions so rollups preserve them.
+	buckets, err := s.loadBucketsByGranularitySQLite(context.Background(), cutoff, fromGranularity)
 	if err != nil {
 		return fmt.Errorf("load buckets: %w", err)
 	}
@@ -193,108 +189,13 @@ func (s *Service) compressOldBuckets(cutoff time.Time, fromGranularity, toGranul
 		}
 	}
 
-	// Delete old buckets
+	// Delete old buckets; dimension children cascade from the base deletes.
 	for _, bucket := range buckets {
-		key := bucketKey(bucket.Timestamp, fromGranularity)
-		if err := s.deleteBucket(key); err != nil {
+		if err := s.deleteBucketSQLite(context.Background(), bucket.Timestamp, fromGranularity); err != nil {
 			return fmt.Errorf("delete old bucket: %w", err)
 		}
 	}
 
 	s.logger.Debug("compressed old buckets", "from", fromGranularity, "to", toGranularity, "count", len(buckets))
 	return nil
-}
-
-// loadBucketsByGranularity loads all buckets with a specific granularity older than cutoff.
-func (s *Service) loadBucketsByGranularity(cutoff time.Time, granularity string) ([]*MetricBucket, error) {
-	var buckets []*MetricBucket
-
-	err := s.database.View(func(tx *bolt.Tx) error {
-		metricsBucket := tx.Bucket(db.BucketMetrics)
-		if metricsBucket == nil {
-			return nil
-		}
-
-		cursor := metricsBucket.Cursor()
-		for key, value := cursor.First(); key != nil; key, value = cursor.Next() {
-			timestamp, granularityValue, err := parseBucketKey(string(key))
-			if err != nil {
-				continue
-			}
-
-			if granularityValue == granularity && timestamp.Before(cutoff) {
-				var bucket MetricBucket
-				if err := json.Unmarshal(value, &bucket); err != nil {
-					s.logger.Warn("failed to unmarshal bucket", "key", string(key), "err", err)
-					continue
-				}
-				buckets = append(buckets, &bucket)
-			}
-		}
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	// Both stores hold the requested granularity, so timestamp-keyed merging
-	// is exact here. SQLite wins on collision.
-	sqliteBuckets, err := s.loadBucketsByGranularitySQLite(context.Background(), cutoff, granularity)
-	if err != nil {
-		return nil, err
-	}
-
-	return mergeSQLiteBuckets(buckets, sqliteBuckets), nil
-}
-
-// deleteBucket deletes a bucket by key.
-func (s *Service) deleteBucket(key string) error {
-	if err := s.database.Update(func(tx *bolt.Tx) error {
-		metricsBucket := tx.Bucket(db.BucketMetrics)
-		if metricsBucket == nil {
-			return nil
-		}
-		return metricsBucket.Delete([]byte(key))
-	}); err != nil {
-		return err
-	}
-
-	timestamp, granularity, err := parseBucketKey(key)
-	if err != nil {
-		return err
-	}
-	return s.deleteBucketSQLite(context.Background(), timestamp, granularity)
-}
-
-// bucketKey generates a storage key for a bucket.
-// Format: "2026-05-04T19:00:00_1m"
-func bucketKey(t time.Time, granularity string) string {
-	return t.UTC().Format(time.RFC3339) + "_" + granularity
-}
-
-// parseBucketKey parses a bucket key back into timestamp and granularity.
-func parseBucketKey(key string) (time.Time, string, error) {
-	// Find the last underscore
-	index := -1
-	for i := len(key) - 1; i >= 0; i-- {
-		if key[i] == '_' {
-			index = i
-			break
-		}
-	}
-
-	if index == -1 {
-		return time.Time{}, "", fmt.Errorf("invalid bucket key format: %s", key)
-	}
-
-	timestampString := key[:index]
-	granularity := key[index+1:]
-
-	timestamp, err := time.Parse(time.RFC3339, timestampString)
-	if err != nil {
-		return time.Time{}, "", fmt.Errorf("parse timestamp: %w", err)
-	}
-
-	return timestamp, granularity, nil
 }

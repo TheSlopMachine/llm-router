@@ -48,14 +48,15 @@ func (f *fakeCompleter) SubmitVideo(_ context.Context, request *models.VideoGene
 	return nil, fmt.Errorf("fake failure for %s", request.Model)
 }
 
-func newVirtualModelStack(t *testing.T) *virtual.Service {
+func newVirtualModelStack(t *testing.T) *virtual.GormService {
 	t.Helper()
-	database := testutil.SetupTestDB(t)
-	providerService := provider.NewService(database)
-	credentialService := credential.New(database, providerService)
-	modelInfoService := modelinfo.New(database, providerService, credentialService, time.Hour)
-	virtualService := virtual.New(database, providerService, modelInfoService)
-	if _, err := providerService.Create(provider.CreateOptions{Name: "Demo", TypeKey: "demo"}); err != nil {
+	database := testutil.SetupTestSQLite(t)
+	ctx := context.Background()
+	providerService := provider.NewGorm(database)
+	credentialService := credential.NewGorm(database, providerService)
+	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, time.Hour)
+	virtualService := virtual.NewGorm(database, providerService, modelInfoService)
+	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Demo", TypeKey: "demo"}); err != nil {
 		t.Fatalf("seed demo provider: %v", err)
 	}
 	return virtualService
@@ -71,7 +72,7 @@ func TestComplete_FallsThroughInListOrder(t *testing.T) {
 			{ModelID: "demo/model-c"},
 		},
 	}
-	if err := virtualService.Create(virtualModel); err != nil {
+	if err := virtualService.Create(context.Background(), virtualModel); err != nil {
 		t.Fatalf("create virtual model: %v", err)
 	}
 
@@ -97,7 +98,7 @@ func TestComplete_TriesEveryMemberInOrder(t *testing.T) {
 			{ModelID: "demo/model-b"},
 		},
 	}
-	if err := virtualService.Create(virtualModel); err != nil {
+	if err := virtualService.Create(context.Background(), virtualModel); err != nil {
 		t.Fatalf("create virtual model: %v", err)
 	}
 
@@ -122,7 +123,7 @@ func TestCompleteStream_FallsThroughInListOrder(t *testing.T) {
 			{ModelID: "demo/model-b"},
 		},
 	}
-	if err := virtualService.Create(virtualModel); err != nil {
+	if err := virtualService.Create(context.Background(), virtualModel); err != nil {
 		t.Fatalf("create virtual model: %v", err)
 	}
 
@@ -139,20 +140,21 @@ func TestCompleteStream_FallsThroughInListOrder(t *testing.T) {
 }
 
 func TestGetModelInfosUsesVirtualModelID(t *testing.T) {
-	database := testutil.SetupTestDB(t)
-	providerService := provider.NewService(database)
-	credentialService := credential.New(database, providerService)
-	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
-	virtualService := virtual.New(database, providerService, modelInfoService)
+	database := testutil.SetupTestSQLite(t)
+	ctx := context.Background()
+	providerService := provider.NewGorm(database)
+	credentialService := credential.NewGorm(database, providerService)
+	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, 1*time.Hour)
+	virtualService := virtual.NewGorm(database, providerService, modelInfoService)
 
-	if _, err := providerService.Create(provider.CreateOptions{Name: "Demo", TypeKey: "demo"}); err != nil {
+	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Demo", TypeKey: "demo"}); err != nil {
 		t.Fatalf("seed demo provider: %v", err)
 	}
 	virtualModel := &models.VirtualModel{
 		Name:   "My Helper",
 		Models: []models.VirtualModelEntry{{ModelID: "demo/model-a"}},
 	}
-	if err := virtualService.Create(virtualModel); err != nil {
+	if err := virtualService.Create(ctx, virtualModel); err != nil {
 		t.Fatalf("create virtual model: %v", err)
 	}
 

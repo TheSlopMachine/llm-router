@@ -9,7 +9,7 @@ import (
 )
 
 func TestMarkDead(t *testing.T) {
-	service, err := New(testutil.SetupTestDB(t))
+	service, err := New(testutil.SetupTestSQLite(t))
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestMarkDead(t *testing.T) {
 }
 
 func TestRecheckBannedValidation(t *testing.T) {
-	service, err := New(testutil.SetupTestDB(t))
+	service, err := New(testutil.SetupTestSQLite(t))
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}

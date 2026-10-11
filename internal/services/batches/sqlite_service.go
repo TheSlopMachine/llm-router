@@ -2,8 +2,7 @@
 // message_batches plus ordered child rows in message_batch_entries and
 // message_batch_results. Entry params and result payloads stay verbatim
 // JSON. Every write runs inside one transaction; child rows carry the
-// request order in their position column. The bbolt Service stays until
-// Wave 10 cutover.
+// request order in their position column.
 package batches
 
 import (
@@ -21,6 +20,13 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// Terminal batch states: no further transitions leave them.
+const (
+	StatusInProgress = "in_progress"
+	StatusEnded      = "ended"
+	StatusCanceled   = "canceled"
+)
+
 // SQLiteService owns MessageBatch rows and their ordered children.
 type SQLiteService struct {
 	database *db.Database
@@ -34,7 +40,7 @@ func NewSQLiteService(database *db.Database) *SQLiteService {
 
 // Create persists a new batch: header plus ordered children in one
 // transaction.
-func (s *SQLiteService) Create(batch *models.BatchRecord) error {
+func (s *SQLiteService) Create(ctx context.Context, batch *models.BatchRecord) error {
 	if batch == nil {
 		return errors.New("message batch is required")
 	}
@@ -48,19 +54,18 @@ func (s *SQLiteService) Create(batch *models.BatchRecord) error {
 		headers := repository.NewGormRepository[record.MessageBatch](transaction, "id")
 		entries := repository.NewGormRepository[record.MessageBatchEntry](transaction, "batch_id", "position")
 		results := repository.NewGormRepository[record.MessageBatchResult](transaction, "batch_id", "position")
-		if err := headers.Upsert(context.Background(), toBatchHeader(batch)); err != nil {
+		if err := headers.Upsert(ctx, toBatchHeader(batch)); err != nil {
 			return err
 		}
-		if err := entries.Upsert(context.Background(), toBatchEntries(batch)...); err != nil {
+		if err := entries.Upsert(ctx, toBatchEntries(batch)...); err != nil {
 			return err
 		}
-		return results.Upsert(context.Background(), toBatchResults(batch)...)
+		return results.Upsert(ctx, toBatchResults(batch)...)
 	})
 }
 
 // Get returns the batch by ID with children in position order.
-func (s *SQLiteService) Get(id string) (*models.BatchRecord, error) {
-	ctx := context.Background()
+func (s *SQLiteService) Get(ctx context.Context, id string) (*models.BatchRecord, error) {
 	headers := repository.NewGormRepository[record.MessageBatch](s.database.Handle, "id")
 	entries := repository.NewGormRepository[record.MessageBatchEntry](s.database.Handle, "batch_id", "position")
 	results := repository.NewGormRepository[record.MessageBatchResult](s.database.Handle, "batch_id", "position")
@@ -84,12 +89,11 @@ func (s *SQLiteService) Get(id string) (*models.BatchRecord, error) {
 
 // Update rewrites a batch: header plus replaced children in one
 // transaction. Missing rows return not found.
-func (s *SQLiteService) Update(batch *models.BatchRecord) error {
+func (s *SQLiteService) Update(ctx context.Context, batch *models.BatchRecord) error {
 	if batch == nil || batch.ID == "" {
 		return errors.New("message batch id is required")
 	}
 	return s.database.Handle.Transaction(func(transaction *gorm.DB) error {
-		ctx := context.Background()
 		headers := repository.NewGormRepository[record.MessageBatch](transaction, "id")
 		entries := repository.NewGormRepository[record.MessageBatchEntry](transaction, "batch_id", "position")
 		results := repository.NewGormRepository[record.MessageBatchResult](transaction, "batch_id", "position")
@@ -120,8 +124,7 @@ func (s *SQLiteService) Update(batch *models.BatchRecord) error {
 
 // Delete removes a batch row; the foreign key cascade removes its
 // children. Missing rows are not errors.
-func (s *SQLiteService) Delete(id string) error {
-	ctx := context.Background()
+func (s *SQLiteService) Delete(ctx context.Context, id string) error {
 	return s.database.Handle.Transaction(func(transaction *gorm.DB) error {
 		headers := repository.NewGormRepository[record.MessageBatch](transaction, "id")
 		_, err := headers.Delete(ctx, clause.Eq{Column: "id", Value: id})
@@ -131,8 +134,7 @@ func (s *SQLiteService) Delete(id string) error {
 
 // List returns all batches with children, oldest first (ID tiebreaks
 // clock ties).
-func (s *SQLiteService) List() ([]*models.BatchRecord, error) {
-	ctx := context.Background()
+func (s *SQLiteService) List(ctx context.Context) ([]*models.BatchRecord, error) {
 	headers := repository.NewGormRepository[record.MessageBatch](s.database.Handle, "id")
 	entries := repository.NewGormRepository[record.MessageBatchEntry](s.database.Handle, "batch_id", "position")
 	results := repository.NewGormRepository[record.MessageBatchResult](s.database.Handle, "batch_id", "position")

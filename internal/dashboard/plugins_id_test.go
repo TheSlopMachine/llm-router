@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -27,12 +28,12 @@ llm_router.register("slash-type", {
 // them encoded (as the dashboard frontend does with encodeURIComponent)
 // and the API must resolve them back to the record.
 func TestPluginIDRoutesAcceptEncodedSlashes(t *testing.T) {
-	database := testutil.SetupTestDB(t)
+	database := testutil.SetupTestSQLite(t)
 	luaService, err := luaplugin.New(database, nil)
 	if err != nil {
 		t.Fatalf("lua service: %v", err)
 	}
-	record, err := luaService.Install([]byte(slashIDPluginSource), luaplugin.PluginOrigin{Manual: true})
+	record, err := luaService.InstallSQLite(context.Background(), []byte(slashIDPluginSource), luaplugin.PluginOrigin{Manual: true})
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -41,7 +42,7 @@ func TestPluginIDRoutesAcceptEncodedSlashes(t *testing.T) {
 	}
 	h := &Handler{luaService: luaService, noAuth: true}
 	mux := http.NewServeMux()
-	h.Register(mux, database)
+	h.Register(mux)
 
 	serve := func(method, target string) *httptest.ResponseRecorder {
 		t.Helper()

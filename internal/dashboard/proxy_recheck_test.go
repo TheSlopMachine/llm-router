@@ -14,7 +14,7 @@ import (
 
 func newProxyDashboardHandler(t *testing.T) *Handler {
 	t.Helper()
-	proxyService, err := proxypool.New(testutil.SetupTestDB(t))
+	proxyService, err := proxypool.New(testutil.SetupTestSQLite(t))
 	if err != nil {
 		t.Fatalf("new proxy service: %v", err)
 	}
@@ -64,14 +64,14 @@ func TestProxyRecheckBannedHandler(t *testing.T) {
 }
 
 func TestProxyStatusRouteAndShape(t *testing.T) {
-	database := testutil.SetupTestDB(t)
+	database := testutil.SetupTestSQLite(t)
 	proxyService, err := proxypool.New(database)
 	if err != nil {
 		t.Fatalf("new proxy service: %v", err)
 	}
 	h := &Handler{proxyService: proxyService, noAuth: true}
 	mux := http.NewServeMux()
-	h.Register(mux, database)
+	h.Register(mux)
 
 	request := httptest.NewRequest(http.MethodGet, "/api/llm-router/dashboard/proxy/status", nil)
 	recorder := httptest.NewRecorder()

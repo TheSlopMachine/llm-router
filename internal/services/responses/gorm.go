@@ -14,10 +14,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// GormService owns response records in the response_records table. It
-// mirrors Service: payload and input stay opaque JSON, parent references
-// stay soft, and every method keeps bbolt semantics so cutover swaps the
-// constructor only. The bbolt Service stays until Wave 10.
+// GormService owns response records in the response_records table.
+// Payload and input stay opaque JSON, parent references stay soft.
 type GormService struct {
 	handle *gorm.DB
 	store  *repository.GormRepository[record.ResponseRecord]
@@ -80,7 +78,7 @@ func fromStoredRecord(row record.ResponseRecord) *models.ResponseRecord {
 }
 
 // Create persists a new record: one public method, one transaction.
-// Existing IDs are overwritten, matching the bbolt Put behavior.
+// Existing IDs are overwritten, matching the previous Put behavior.
 func (s *GormService) Create(ctx context.Context, current *models.ResponseRecord) error {
 	if current == nil {
 		return errors.New("compat record is required")

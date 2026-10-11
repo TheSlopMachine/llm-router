@@ -65,7 +65,7 @@ func videoMeta() HandlerMeta {
 
 func TestVideoHandlers_Success(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(videoPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(videoPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	for _, h := range []string{"generate_video", "poll_video", "video_content"} {
@@ -108,7 +108,7 @@ func TestVideoHandlers_Success(t *testing.T) {
 
 func TestVideoHandlers_NotFound(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	handlerMetadata := testMetadata("test-type", &models.Credential{ID: "c1"}, "test-type/model-a", nil)
@@ -127,7 +127,7 @@ func TestVideoHandlers_UnknownStatus(t *testing.T) {
 	service := setupService(t)
 	src := strings.Replace(videoPluginSource, `status = "pending",`, `status = "queued",`, 1)
 	src = strings.Replace(src, "Video Plugin", "Video Bad Status", 1)
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.SubmitVideo(context.Background(), videoMeta(), &models.VideoGenerationRequest{Model: "vid-type/veo"})
@@ -141,7 +141,7 @@ func TestVideoHandlers_BadBase64(t *testing.T) {
 	service := setupService(t)
 	src := strings.Replace(videoPluginSource, `video_b64 = "RkFLRUZUWVA="`, `video_b64 = "!!!not-base64!!!"`, 1)
 	src = strings.Replace(src, "Video Plugin", "Video Bad B64", 1)
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.VideoContent(context.Background(), videoMeta(), "vid-type/veo", "up-123", 0)

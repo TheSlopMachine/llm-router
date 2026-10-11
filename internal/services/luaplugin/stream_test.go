@@ -45,7 +45,7 @@ llm_router.register("stream-type", {
 
 func TestCompleteStream_UsageOnlyChunkAllowed(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(streamPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(streamPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	var buf strings.Builder
@@ -90,7 +90,7 @@ llm_router.register("bad-stream-type", {
 
 func TestCompleteStream_EmptyChunkRejected(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(badStreamPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(badStreamPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	var buf strings.Builder

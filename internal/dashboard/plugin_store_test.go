@@ -1,39 +1,48 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	bolt "go.etcd.io/bbolt"
+	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	"github.com/TheSlopMachine/llm-router/internal/db/record"
+	"github.com/TheSlopMachine/llm-router/internal/repository"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/pluginrepo"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
 
+// seedPluginRepo inserts one plugin_repositories row directly through the
+// typed repository: the dashboard tests fixture repository state without
+// network fetches.
+func seedPluginRepo(t *testing.T, database *db.Database, identifier, kind, indexURL string) {
+	t.Helper()
+	rows := []record.PluginRepository{{
+		ID:       identifier,
+		Kind:     kind,
+		IndexURL: indexURL,
+		AddedAt:  time.Now().UTC(),
+	}}
+	if err := repository.NewGormRepository[record.PluginRepository](database.Handle, "id").Upsert(context.Background(), rows...); err != nil {
+		t.Fatalf("seed repository: %v", err)
+	}
+}
+
 // A repository that fails to list must still report files as an empty
 // array, never null: the frontend reads entry.files.length unconditionally.
 func TestStoreSearchErrorRepoReturnsEmptyFiles(t *testing.T) {
-	database := testutil.SetupTestDB(t)
+	database := testutil.SetupTestSQLite(t)
 	repositoryService := pluginrepo.New(database)
 	luaService, err := luaplugin.New(database, nil)
 	if err != nil {
 		t.Fatalf("lua service: %v", err)
 	}
-	record := pluginrepo.RepoRecord{ID: "index/unreachable", Kind: "index", IndexURL: "http://127.0.0.1:1/index.json"}
-	raw, err := json.Marshal(record)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if err := database.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(db.BucketPluginRepos).Put([]byte(record.ID), raw)
-	}); err != nil {
-		t.Fatalf("put repository: %v", err)
-	}
+	seedPluginRepo(t, database, "index/unreachable", "index", "http://127.0.0.1:1/index.json")
 
 	h := &Handler{repositoryService: repositoryService, luaService: luaService}
 	request := httptest.NewRequest(http.MethodGet, "/api/llm-router/dashboard/plugin-store/search", nil)
@@ -70,24 +79,16 @@ func TestStoreUpdatesExposeNewAllowHosts(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	database := testutil.SetupTestDB(t)
+	database := testutil.SetupTestSQLite(t)
 	repositoryService := pluginrepo.New(database)
 	luaService, err := luaplugin.New(database, nil)
 	if err != nil {
 		t.Fatalf("lua service: %v", err)
 	}
-	record := pluginrepo.RepoRecord{ID: "index/upd", Kind: "index", IndexURL: server.URL + "/files/index.json"}
-	raw, err := json.Marshal(record)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if err := database.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(db.BucketPluginRepos).Put([]byte(record.ID), raw)
-	}); err != nil {
-		t.Fatalf("put repository: %v", err)
-	}
+	seedPluginRepo(t, database, "index/upd", "index", server.URL+"/files/index.json")
+	ctx := context.Background()
 	installed := "--- @plugin Upd\n--- @author tester\n--- @version 1.0.0\n--- @plugin_api 1.0\n--- @allow_host old.example.com\n\nllm_router.register(\"upd-type\", {\n  complete = function() end,\n})\n"
-	if _, err := luaService.Install([]byte(installed), luaplugin.PluginOrigin{RepoID: record.ID, Path: "llm-router-plugins/a.lua"}); err != nil {
+	if _, err := luaService.InstallSQLite(ctx, []byte(installed), luaplugin.PluginOrigin{RepoID: "index/upd", Path: "llm-router-plugins/a.lua"}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 
@@ -137,22 +138,13 @@ func TestStoreSearchReturnsIndexTitle(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	database := testutil.SetupTestDB(t)
+	database := testutil.SetupTestSQLite(t)
 	repositoryService := pluginrepo.New(database)
 	luaService, err := luaplugin.New(database, nil)
 	if err != nil {
 		t.Fatalf("lua service: %v", err)
 	}
-	record := pluginrepo.RepoRecord{ID: "index/titled", Kind: "index", IndexURL: server.URL + "/files/index.json"}
-	raw, err := json.Marshal(record)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if err := database.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(db.BucketPluginRepos).Put([]byte(record.ID), raw)
-	}); err != nil {
-		t.Fatalf("put repository: %v", err)
-	}
+	seedPluginRepo(t, database, "index/titled", "index", server.URL+"/files/index.json")
 
 	h := &Handler{repositoryService: repositoryService, luaService: luaService}
 	request := httptest.NewRequest(http.MethodGet, "/api/llm-router/dashboard/plugin-store/search", nil)

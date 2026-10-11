@@ -14,12 +14,12 @@ import (
 // Params carries every dependency of the v1 Handler in one value,
 // so adding a service touches one struct instead of every call site.
 type Params struct {
-	Tokens       *token.Service
+	Tokens       *token.GormService
 	RouterSvc    *router.Service
 	MetricsSvc   *metrics.Service
-	ProviderSvc  *provider.Service
-	ModelInfoSvc *modelinfo.Service
-	VirtualSvc   *virtual.Service
+	ProviderSvc  *provider.GormService
+	ModelInfoSvc *modelinfo.GormService
+	VirtualSvc   *virtual.GormService
 	Logger       *slog.Logger
 	// NoAuth skips bearer validation: requests route with a nil token.
 	NoAuth bool

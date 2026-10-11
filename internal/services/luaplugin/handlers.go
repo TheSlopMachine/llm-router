@@ -918,12 +918,16 @@ func QualifiedSourceKey(recordID, name string) string {
 }
 
 // ProxySourceKeys lists proxy-list sources registered by installed plugins,
-// one qualified key per (record, declared name), first-seen order.
+// one qualified key per (record, declared name), first-seen order. Reads
+// the in-memory registry: no storage round trip.
 func (s *Service) ProxySourceKeys() ([]string, error) {
-	records, err := s.List()
-	if err != nil {
-		return nil, err
+	s.mu.RLock()
+	records := make([]*PluginRecord, 0, len(s.registry))
+	for _, record := range s.registry {
+		records = append(records, record)
 	}
+	s.mu.RUnlock()
+	sort.Slice(records, func(i, j int) bool { return records[i].ID < records[j].ID })
 	var keys []string
 	seen := map[string]bool{}
 	for _, record := range records {
@@ -942,7 +946,7 @@ func (s *Service) ProxySourceKeys() ([]string, error) {
 // sourceKey is qualified; the owning record is resolved exactly, and the
 // routed call uses the declared name the plugin registered.
 func (s *Service) FetchProxies(goCtx context.Context, sourceKey string) ([]proxypool.Candidate, error) {
-	records, err := s.List()
+	records, err := s.ListSQLite(goCtx)
 	if err != nil {
 		return nil, err
 	}

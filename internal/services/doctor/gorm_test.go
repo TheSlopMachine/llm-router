@@ -62,7 +62,7 @@ func doctorGormStack(t *testing.T) (*GormService, *db.Database, context.Context)
 	service := NewGorm(
 		database,
 		provider.NewGorm(database),
-		virtual.NewGorm(database),
+		virtual.NewGorm(database, nil, nil),
 		token.NewGorm(database),
 		goBackends,
 		pluginBackends,
@@ -143,15 +143,16 @@ func gormCategoryKeys(report *InspectionReport, category IssueCategory) []string
 }
 
 // assertNoOrphanCategories pins the foreign-key guarantee: the GORM
-// report never emits the five retired orphan categories.
+// report never emits the five retired orphan categories. The constants no
+// longer exist, so the assertion runs on the raw category strings.
 func assertNoOrphanCategories(t *testing.T, report *InspectionReport) {
 	t.Helper()
 	for _, category := range []IssueCategory{
-		CategoryOrphanCredentials,
-		CategoryOrphanModelOverrides,
-		CategoryOrphanModelInfos,
-		CategoryOrphanVirtualModels,
-		CategoryOrphanPluginStorage,
+		"orphan_credentials",
+		"orphan_model_overrides",
+		"orphan_model_infos",
+		"orphan_virtual_models",
+		"orphan_plugin_storage",
 	} {
 		if hasGormCategory(report, category) {
 			t.Fatalf("retired category %q must never occur on the GORM path: %+v", category, report.Issues)
@@ -317,7 +318,7 @@ func TestGormInspect_CorruptStorageFlaggedAndSurvivesFix(t *testing.T) {
 // duplicates, and true duplicates cannot land through the service.
 func TestGormInspect_DuplicatesPreventedByUnique(t *testing.T) {
 	service, database, ctx := doctorGormStack(t)
-	virtualService := virtual.NewGorm(database)
+	virtualService := virtual.NewGorm(database, nil, nil)
 	first := &models.VirtualModel{
 		Name:   "Helper One",
 		Models: []models.VirtualModelEntry{{ModelID: "demo/model-a"}},
@@ -400,15 +401,16 @@ func TestGormInspect_ProviderDeleteCascadesWithoutOrphans(t *testing.T) {
 
 // TestGormFix_RetiredCategoriesFixNothing pins Fix behavior for the
 // retired orphan categories: explicit selection fixes zero rows without
-// an error because foreign keys leave nothing behind.
+// an error because foreign keys leave nothing behind. The constants no
+// longer exist, so the selection runs on the raw category strings.
 func TestGormFix_RetiredCategoriesFixNothing(t *testing.T) {
 	service, _, ctx := doctorGormStack(t)
 	fixed, err := service.Fix(ctx, []IssueCategory{
-		CategoryOrphanCredentials,
-		CategoryOrphanModelOverrides,
-		CategoryOrphanModelInfos,
-		CategoryOrphanVirtualModels,
-		CategoryOrphanPluginStorage,
+		"orphan_credentials",
+		"orphan_model_overrides",
+		"orphan_model_infos",
+		"orphan_virtual_models",
+		"orphan_plugin_storage",
 	})
 	if err != nil {
 		t.Fatalf("fix retired categories: %v", err)

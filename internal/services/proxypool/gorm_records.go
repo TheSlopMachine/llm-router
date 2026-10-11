@@ -376,3 +376,10 @@ func cloneMetadata(metadata map[string]string) map[string]string {
 	}
 	return cloned
 }
+
+// cloneState copies a library proxy state so buffered entries never alias
+// caller maps.
+func cloneState(state proxypoollib.ProxyState) proxypoollib.ProxyState {
+	state.Metadata = cloneMetadata(state.Metadata)
+	return state
+}

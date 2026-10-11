@@ -51,7 +51,7 @@ llm_router.register("test-type", {
 
 func setupService(t *testing.T) *Service {
 	t.Helper()
-	service, err := New(testutil.SetupTestDB(t), nil)
+	service, err := New(testutil.SetupTestSQLite(t), nil)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
@@ -84,7 +84,7 @@ llm_router.register("icon-type", {
 
 func TestInstallCapturesIcon(t *testing.T) {
 	service := setupService(t)
-	rec, err := service.Install([]byte(iconPluginSource), PluginOrigin{Manual: true})
+	rec, err := service.InstallSQLite(context.Background(), []byte(iconPluginSource), PluginOrigin{Manual: true})
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestInstallRejectsBadIcon(t *testing.T) {
 	}
 	for name, iconLine := range cases {
 		src := strings.Replace(iconPluginSource, `icon = "https://example.com/icon.svg",`, iconLine+",", 1)
-		if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err == nil {
+		if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err == nil {
 			t.Errorf("%s: expected install error", name)
 		}
 	}
@@ -116,19 +116,19 @@ func TestInstallRejectsBadIcon(t *testing.T) {
 
 func TestRollbackRestoresIcon(t *testing.T) {
 	service := setupService(t)
-	record, err := service.Install([]byte(iconPluginSource), PluginOrigin{Manual: true})
+	record, err := service.InstallSQLite(context.Background(), []byte(iconPluginSource), PluginOrigin{Manual: true})
 	if err != nil {
 		t.Fatalf("install v1: %v", err)
 	}
 	v2 := strings.Replace(iconPluginSource, "@version 1.0.0", "@version 2.0.0", 1)
 	v2 = strings.Replace(v2, `icon = "https://example.com/icon.svg",`, `icon = "https://example.com/icon2.svg",`, 1)
-	if _, err := service.Install([]byte(v2), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(v2), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install v2: %v", err)
 	}
 	if got := service.Icon("icon-type"); got != "https://example.com/icon2.svg" {
 		t.Fatalf("v2 icon: got %q", got)
 	}
-	rolled, err := service.Rollback(record.ID)
+	rolled, err := service.RollbackSQLite(context.Background(), record.ID)
 	if err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestCheckPluginAPI(t *testing.T) {
 
 func TestInstallAndComplete(t *testing.T) {
 	service := setupService(t)
-	rec, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true})
+	rec, err := service.InstallSQLite(context.Background(), []byte(testPluginSource), PluginOrigin{Manual: true})
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -244,7 +244,7 @@ func TestInstallAndComplete(t *testing.T) {
 
 func TestValidateCredentials(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	ok, err := service.ValidateCredentials("test-type", map[string]any{"api_key": "secret"})
@@ -268,7 +268,7 @@ func TestSandboxDeniesUnsafeGlobals(t *testing.T) {
 local x = os.execute("echo hi")
 llm_router.register("bad", { complete = function() end })
 `
-	if _, err := service.Install([]byte(bad), PluginOrigin{Manual: true}); err == nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(bad), PluginOrigin{Manual: true}); err == nil {
 		t.Fatal("expected install failure for os.execute access")
 	} else if !strings.Contains(err.Error(), "non-function") {
 		t.Fatalf("unexpected error: %v", err)
@@ -289,7 +289,7 @@ llm_router.register("err-type", {
   end,
 })
 `
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.Complete(context.Background(), testMetadata("err-type",
@@ -317,7 +317,7 @@ llm_router.register("scope-type", {
   end,
 })
 `
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.Complete(context.Background(), testMetadata("scope-type",
@@ -346,7 +346,7 @@ llm_router.register("hdr-type", {
   end,
 })
 `
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.Complete(context.Background(), testMetadata("hdr-type",
@@ -377,7 +377,7 @@ llm_router.register("badscope-type", {
   end,
 })
 `
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.Complete(context.Background(), testMetadata("badscope-type",
@@ -402,7 +402,7 @@ llm_router.register("pay-type", {
   end,
 })
 `
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.Complete(context.Background(), testMetadata("pay-type",
@@ -431,7 +431,7 @@ llm_router.register("crash-type", {
   end,
 })
 `
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.Complete(context.Background(), testMetadata("crash-type",
@@ -450,18 +450,18 @@ llm_router.register("crash-type", {
 
 func TestRollback(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install v1: %v", err)
 	}
 	v2 := strings.Replace(testPluginSource, "@version 1.0.0", "@version 2.0.0", 1)
-	rec2, err := service.Install([]byte(v2), PluginOrigin{Manual: true})
+	rec2, err := service.InstallSQLite(context.Background(), []byte(v2), PluginOrigin{Manual: true})
 	if err != nil {
 		t.Fatalf("install v2: %v", err)
 	}
 	if rec2.Version != "2.0.0" || len(rec2.History) != 1 {
 		t.Fatalf("unexpected v2 record: %+v", rec2)
 	}
-	rolled, err := service.Rollback(rec2.ID)
+	rolled, err := service.RollbackSQLite(context.Background(), rec2.ID)
 	if err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
@@ -472,7 +472,7 @@ func TestRollback(t *testing.T) {
 
 func TestLookupResolvesInstalled(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	if _, err := service.Lookup("test-type"); err != nil {

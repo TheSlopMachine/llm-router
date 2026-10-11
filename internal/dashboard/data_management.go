@@ -15,7 +15,7 @@ import (
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/data/stats [get]
 func (h *Handler) apiDataStats(w http.ResponseWriter, r *http.Request) {
-	statistics, err := h.dataService.Stats()
+	statistics, err := h.dataGormService.Stats(r.Context())
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -38,13 +38,13 @@ func (h *Handler) apiDataExport(w http.ResponseWriter, r *http.Request) {
 
 	switch subsystem {
 	case "providers":
-		data, err = h.dataService.ExportProviders()
+		data, err = h.dataGormService.ExportProviders(r.Context())
 	case "virtual_models":
-		data, err = h.dataService.ExportVirtualModels()
+		data, err = h.dataGormService.ExportVirtualModels(r.Context())
 	case "plugins":
-		data, err = h.dataService.ExportPlugins()
+		data, err = h.dataGormService.ExportPlugins(r.Context())
 	case "tokens":
-		data, err = h.dataService.ExportTokens()
+		data, err = h.dataGormService.ExportTokens(r.Context())
 	default:
 		h.jsonErr(w, http.StatusBadRequest, "unknown subsystem")
 		return
@@ -78,7 +78,7 @@ func (h *Handler) apiDataImport(w http.ResponseWriter, r *http.Request) {
 			h.jsonErr(w, http.StatusBadRequest, "invalid providers bundle payload")
 			return
 		}
-		if err := h.dataService.ImportProviders(bundles); err != nil {
+		if err := h.dataGormService.ImportProviders(r.Context(), bundles); err != nil {
 			h.jsonErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -93,7 +93,7 @@ func (h *Handler) apiDataImport(w http.ResponseWriter, r *http.Request) {
 			}
 			virtualModels = plain
 		}
-		if err := h.dataService.ImportVirtualModels(virtualModels); err != nil {
+		if err := h.dataGormService.ImportVirtualModels(r.Context(), virtualModels); err != nil {
 			h.jsonErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -103,7 +103,7 @@ func (h *Handler) apiDataImport(w http.ResponseWriter, r *http.Request) {
 			h.jsonErr(w, http.StatusBadRequest, "invalid plugins payload")
 			return
 		}
-		if err := h.dataService.ImportPlugins(r.Context(), &bundle); err != nil {
+		if err := h.dataGormService.ImportPlugins(r.Context(), &bundle); err != nil {
 			h.jsonErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -113,7 +113,7 @@ func (h *Handler) apiDataImport(w http.ResponseWriter, r *http.Request) {
 			h.jsonErr(w, http.StatusBadRequest, "invalid tokens payload")
 			return
 		}
-		if err := h.dataService.ImportTokens(tokens); err != nil {
+		if err := h.dataGormService.ImportTokens(r.Context(), tokens); err != nil {
 			h.jsonErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -140,13 +140,13 @@ func (h *Handler) apiDataClear(w http.ResponseWriter, r *http.Request) {
 
 	switch subsystem {
 	case "providers":
-		err = h.dataService.ClearProviders()
+		err = h.dataGormService.ClearProviders(r.Context())
 	case "virtual_models":
-		err = h.dataService.ClearVirtualModels()
+		err = h.dataGormService.ClearVirtualModels(r.Context())
 	case "plugins":
-		err = h.dataService.ClearPlugins()
+		err = h.dataGormService.ClearPlugins(r.Context())
 	case "tokens":
-		err = h.dataService.ClearTokens()
+		err = h.dataGormService.ClearTokens(r.Context())
 	default:
 		h.jsonErr(w, http.StatusBadRequest, "unknown subsystem")
 		return
@@ -171,7 +171,7 @@ func (h *Handler) apiDataClear(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/llm-router/dashboard/providers/{id}/export [get]
 func (h *Handler) apiProviderExport(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	bundle, err := h.dataService.ExportProvider(id)
+	bundle, err := h.dataGormService.ExportProvider(r.Context(), id)
 	if err != nil {
 		h.jsonErr(w, http.StatusNotFound, err.Error())
 		return
@@ -194,7 +194,7 @@ func (h *Handler) apiProviderImport(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid provider bundle payload")
 		return
 	}
-	if err := h.dataService.ImportProvider(&bundle); err != nil {
+	if err := h.dataGormService.ImportProvider(r.Context(), &bundle); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -212,7 +212,7 @@ func (h *Handler) apiProviderImport(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/llm-router/dashboard/providers/{id}/purge [delete]
 func (h *Handler) apiProviderPurge(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := h.dataService.PurgeProvider(id); err != nil {
+	if err := h.dataGormService.PurgeProvider(r.Context(), id); err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -37,7 +37,7 @@ llm_router.register("health-type", {
 
 func installHealthPlugin(t *testing.T, service *Service) {
 	t.Helper()
-	if _, err := service.Install([]byte(healthPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(healthPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 }
@@ -76,7 +76,7 @@ func TestCheckHealth_InvalidShapeIsInternal(t *testing.T) {
 
 func TestCheckHealth_MissingHandler(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(`--- @plugin Bare Plugin
+	if _, err := service.InstallSQLite(context.Background(), []byte(`--- @plugin Bare Plugin
 --- @author tester
 --- @version 1.0.0
 --- @plugin_api 1.0
@@ -120,7 +120,7 @@ llm_router.register("bad-type", {
   healthcheck_cooldown = ` + v + `,
 })
 `
-		if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err == nil {
+		if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err == nil {
 			t.Fatalf("cooldown %s must reject install", v)
 		}
 	}

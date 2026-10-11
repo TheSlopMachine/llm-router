@@ -17,12 +17,17 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/util"
 )
 
-// GormService manages router tokens on the SQLite handle. The bbolt Service
-// stays live until cutover; this type owns the GORM path with explicit
+// GormService manages router tokens on the SQLite handle with explicit
 // converters between wire types and join rows. Traditional GORM use: none;
 // every statement runs through gorm.G with typed clauses.
 type GormService struct {
 	database *db.Database
+}
+
+// CreateOptions holds the parameters for issuing a new token.
+type CreateOptions struct {
+	Name  string
+	Rules models.TokenRules
 }
 
 // NewGorm constructs a GORM-backed token service on the SQLite handle.

@@ -52,7 +52,7 @@ llm_router.register("tts-type", {
 
 func TestSpeech_Success(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(speechPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(speechPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	if !service.HasHandler("tts-type", "speech") {
@@ -81,7 +81,7 @@ func TestSpeech_Success(t *testing.T) {
 
 func TestSpeech_HandlerNotFound(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.Speech(context.Background(), testMetadata("test-type",
@@ -100,7 +100,7 @@ func TestSpeech_ContractError(t *testing.T) {
     }`,
 		`do return nil, { message = "out of quota", code = "insufficient_quota", status = 429 } end`, 1)
 	src = strings.Replace(src, "Speech Plugin", "Speech Err", 1)
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.Speech(context.Background(), testMetadata("tts-type",
@@ -116,7 +116,7 @@ func TestSpeech_BadBase64(t *testing.T) {
 	service := setupService(t)
 	src := strings.Replace(speechPluginSource, `audio_b64 = "RkFLRU9HRA=="`, `audio_b64 = "!!!not-base64!!!"`, 1)
 	src = strings.Replace(src, "Speech Plugin", "Speech Bad B64", 1)
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.Speech(context.Background(), testMetadata("tts-type",
@@ -132,7 +132,7 @@ func TestSpeech_EmptyAudio(t *testing.T) {
 	service := setupService(t)
 	src := strings.Replace(speechPluginSource, `audio_b64 = "RkFLRU9HRA=="`, `audio_b64 = ""`, 1)
 	src = strings.Replace(src, "Speech Plugin", "Speech Empty", 1)
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.Speech(context.Background(), testMetadata("tts-type",
@@ -146,7 +146,7 @@ func TestSpeech_EmptyAudio(t *testing.T) {
 
 func TestGenerateImage_Success(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(speechPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(speechPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	if !service.HasHandler("tts-type", "generate_image") {
@@ -183,7 +183,7 @@ func TestGenerateImage_Success(t *testing.T) {
 
 func TestGenerateImage_HandlerNotFound(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.GenerateImage(context.Background(), testMetadata("test-type",
@@ -201,7 +201,7 @@ func TestGenerateImage_EmptyData(t *testing.T) {
         { url = "https://example.com/img.png" },
       },`, `data = {},`, 1)
 	src = strings.Replace(src, "Speech Plugin", "Image Empty", 1)
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.GenerateImage(context.Background(), testMetadata("tts-type",

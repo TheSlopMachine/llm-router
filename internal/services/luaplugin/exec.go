@@ -62,7 +62,7 @@ func (s *Service) handlerCallEx(
 		unsafe:               record.Unsafe,
 		logger:               s.logger,
 		logSink:              s.appendLog,
-		storage:              s.storage,
+		storage:              &serviceStorage{service: s, ctx: goCtx},
 		timeoutMs:            configuration.timeoutMs,
 		providerID:           configuration.providerID,
 		typeKey:              typeKey,

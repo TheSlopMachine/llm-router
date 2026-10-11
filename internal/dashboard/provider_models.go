@@ -24,11 +24,11 @@ import (
 // @Router       /api/llm-router/dashboard/providers/{id}/models [get]
 func (h *Handler) apiProviderModels(w http.ResponseWriter, r *http.Request) {
 	providerID := r.PathValue("id")
-	if _, ok := h.loadVisibleProvider(providerID); !ok {
+	if _, ok := h.loadVisibleProvider(r.Context(), providerID); !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	views, err := h.modelInfoService.MergedView(r.Context(), providerID)
+	views, err := h.gormModelInfoService.MergedView(r.Context(), providerID)
 	if err != nil {
 		h.jsonErr(w, http.StatusBadGateway, err.Error())
 		return
@@ -56,7 +56,7 @@ func (h *Handler) apiProviderModels(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/llm-router/dashboard/providers/{id}/models/{model} [put]
 func (h *Handler) apiProviderModelSetOverride(w http.ResponseWriter, r *http.Request) {
 	providerID := r.PathValue("id")
-	if _, ok := h.loadVisibleProvider(providerID); !ok {
+	if _, ok := h.loadVisibleProvider(r.Context(), providerID); !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
@@ -78,7 +78,7 @@ func (h *Handler) apiProviderModelSetOverride(w http.ResponseWriter, r *http.Req
 		return
 	}
 	override := models.ModelOverride{ProviderID: providerID, Name: modelName}
-	if existing, err := h.modelInfoService.ListOverrides(providerID); err == nil {
+	if existing, err := h.gormModelInfoService.ListOverrides(r.Context(), providerID); err == nil {
 		for _, existingOverride := range existing {
 			if existingOverride.Name == modelName {
 				override = *existingOverride
@@ -104,12 +104,12 @@ func (h *Handler) apiProviderModelSetOverride(w http.ResponseWriter, r *http.Req
 	if body.OutputModalities != nil {
 		override.OutputModalities = body.OutputModalities
 	}
-	if err := h.modelInfoService.SetOverride(override); err != nil {
+	if err := h.gormModelInfoService.SetOverride(r.Context(), override); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	// Enable/disable flips reshape managed virtual models.
-	if _, err := h.virtualService.SyncProviderModels(r.Context(), providerID); err != nil {
+	if _, err := h.gormVirtualService.SyncProviderModels(r.Context(), providerID); err != nil {
 		h.logger.Warn("managed virtual models sync failed", "provider_id", providerID, "err", err)
 	}
 	h.json(w, http.StatusOK, override)
@@ -128,15 +128,15 @@ func (h *Handler) apiProviderModelSetOverride(w http.ResponseWriter, r *http.Req
 // @Router       /api/llm-router/dashboard/providers/{id}/models/{model} [delete]
 func (h *Handler) apiProviderModelDeleteOverride(w http.ResponseWriter, r *http.Request) {
 	providerID := r.PathValue("id")
-	if _, ok := h.loadVisibleProvider(providerID); !ok {
+	if _, ok := h.loadVisibleProvider(r.Context(), providerID); !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	if err := h.modelInfoService.DeleteOverride(providerID, r.PathValue("model")); err != nil {
+	if err := h.gormModelInfoService.DeleteOverride(r.Context(), providerID, r.PathValue("model")); err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if _, err := h.virtualService.SyncProviderModels(r.Context(), providerID); err != nil {
+	if _, err := h.gormVirtualService.SyncProviderModels(r.Context(), providerID); err != nil {
 		h.logger.Warn("managed virtual models sync failed", "provider_id", providerID, "err", err)
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -159,16 +159,16 @@ func (h *Handler) apiProviderModelDeleteOverride(w http.ResponseWriter, r *http.
 // @Router       /api/llm-router/dashboard/providers/{id}/models/refresh [post]
 func (h *Handler) apiProviderModelsRefresh(w http.ResponseWriter, r *http.Request) {
 	providerID := r.PathValue("id")
-	if _, ok := h.loadVisibleProvider(providerID); !ok {
+	if _, ok := h.loadVisibleProvider(r.Context(), providerID); !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	if _, err := h.modelInfoService.Refresh(r.Context(), providerID); err != nil {
+	if _, err := h.gormModelInfoService.Refresh(r.Context(), providerID); err != nil {
 		h.logger.Warn("model refresh failed, serving stale list", "provider_id", providerID, "err", err)
-	} else if _, err := h.virtualService.SyncProviderModels(r.Context(), providerID); err != nil {
+	} else if _, err := h.gormVirtualService.SyncProviderModels(r.Context(), providerID); err != nil {
 		h.logger.Warn("managed virtual models sync failed", "provider_id", providerID, "err", err)
 	}
-	views, err := h.modelInfoService.MergedView(r.Context(), providerID)
+	views, err := h.gormModelInfoService.MergedView(r.Context(), providerID)
 	if err != nil {
 		h.jsonErr(w, http.StatusBadGateway, err.Error())
 		return
@@ -192,11 +192,11 @@ func (h *Handler) apiProviderModelsRefresh(w http.ResponseWriter, r *http.Reques
 // @Router       /api/llm-router/dashboard/providers/{id}/virtual-models/sync [post]
 func (h *Handler) apiProviderVirtualModelsSync(w http.ResponseWriter, r *http.Request) {
 	providerID := r.PathValue("id")
-	if _, ok := h.loadVisibleProvider(providerID); !ok {
+	if _, ok := h.loadVisibleProvider(r.Context(), providerID); !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	groups, err := h.virtualService.SyncProviderModels(r.Context(), providerID)
+	groups, err := h.gormVirtualService.SyncProviderModels(r.Context(), providerID)
 	if err != nil {
 		h.logger.Error("managed virtual models sync failed", "provider_id", providerID, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
@@ -222,11 +222,11 @@ func (h *Handler) apiProviderVirtualModelsSync(w http.ResponseWriter, r *http.Re
 // @Router       /api/llm-router/dashboard/providers/{id}/virtual-models [get]
 func (h *Handler) apiProviderVirtualModels(w http.ResponseWriter, r *http.Request) {
 	providerID := r.PathValue("id")
-	if _, ok := h.loadVisibleProvider(providerID); !ok {
+	if _, ok := h.loadVisibleProvider(r.Context(), providerID); !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	groups, err := h.virtualService.GroupsForProvider(providerID)
+	groups, err := h.gormVirtualService.GroupsForProvider(r.Context(), providerID)
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return

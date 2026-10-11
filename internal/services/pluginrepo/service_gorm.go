@@ -2,27 +2,23 @@ package pluginrepo
 
 import (
 	"context"
-	"sort"
+	"fmt"
 
-	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	"github.com/TheSlopMachine/llm-router/internal/repository"
 	"gorm.io/gorm/clause"
 )
 
-// NewWithSQLite constructs a Service that mirrors every repository write to
-// the plugin_repositories table and serves reads from it. bbolt stays
-// populated alongside so the Wave 10 cutover keeps a complete copy.
-func NewWithSQLite(database *db.DB, sqliteDatabase *db.Database) *Service {
-	service := New(database)
-	if sqliteDatabase != nil && sqliteDatabase.Handle != nil {
-		service.sqlite = repository.NewGormRepository[record.PluginRepository](sqliteDatabase.Handle, "id")
+// requireSQLite fails closed when the SQLite handle is missing.
+func (s *Service) requireSQLite() (*repository.GormRepository[record.PluginRepository], error) {
+	if s == nil || s.sqlite == nil {
+		return nil, fmt.Errorf("pluginrepo sqlite handle is not configured")
 	}
-	return service
+	return s.sqlite, nil
 }
 
-// toRepositoryRow converts the bbolt record to the SQLite row. Fields match
-// one to one; the table carries no derived values.
+// toRepositoryRow converts the repository record to the SQLite row. Fields
+// match one to one; the table carries no derived values.
 func toRepositoryRow(value *RepoRecord) record.PluginRepository {
 	return record.PluginRepository{
 		ID:          value.ID,
@@ -36,7 +32,7 @@ func toRepositoryRow(value *RepoRecord) record.PluginRepository {
 	}
 }
 
-// toRepoRecord converts the SQLite row back to the bbolt record shape.
+// toRepoRecord converts the SQLite row back to the repository record shape.
 func toRepoRecord(row record.PluginRepository) *RepoRecord {
 	return &RepoRecord{
 		ID:          row.ID,
@@ -55,31 +51,27 @@ func orderRepositoriesByID() clause.OrderBy {
 	return clause.OrderBy{Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "id"}}}}
 }
 
-// getRecord returns one repository by ID from SQLite when attached,
-// otherwise from bbolt. A miss returns the domain not-found sentinel.
+// getRecord returns one repository by ID. A miss returns the domain
+// not-found sentinel.
 func (s *Service) getRecord(id string) (*RepoRecord, error) {
-	if s.sqlite == nil {
-		return s.store.Get(id)
+	sqlite, err := s.requireSQLite()
+	if err != nil {
+		return nil, err
 	}
-	row, err := s.sqlite.Get(context.Background(), clause.Eq{Column: "id", Value: id})
+	row, err := sqlite.Get(context.Background(), clause.Eq{Column: "id", Value: id})
 	if err != nil {
 		return nil, err
 	}
 	return toRepoRecord(row), nil
 }
 
-// listRecords returns all repositories sorted by ID from SQLite when
-// attached, otherwise from bbolt.
+// listRecords returns all repositories sorted by ID.
 func (s *Service) listRecords() ([]*RepoRecord, error) {
-	if s.sqlite == nil {
-		items, err := s.store.List()
-		if err != nil {
-			return nil, err
-		}
-		sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-		return items, nil
+	sqlite, err := s.requireSQLite()
+	if err != nil {
+		return nil, err
 	}
-	rows, err := s.sqlite.List(context.Background(), orderRepositoriesByID())
+	rows, err := sqlite.List(context.Background(), orderRepositoriesByID())
 	if err != nil {
 		return nil, err
 	}
@@ -90,28 +82,25 @@ func (s *Service) listRecords() ([]*RepoRecord, error) {
 	return items, nil
 }
 
-// putRecord writes one repository to bbolt, then mirrors it to SQLite when
-// attached. bbolt stays first so the authoritative copy never lags the
-// mirror. A mirror failure surfaces, never passes silently.
+// putRecord writes one repository.
 func (s *Service) putRecord(value *RepoRecord) error {
-	if err := s.store.Put(value.ID, value); err != nil {
+	sqlite, err := s.requireSQLite()
+	if err != nil {
 		return err
 	}
-	if s.sqlite == nil {
-		return nil
-	}
-	return s.sqlite.Upsert(context.Background(), toRepositoryRow(value))
+	return sqlite.Upsert(context.Background(), toRepositoryRow(value))
 }
 
-// deleteRecord removes one repository from bbolt, then from SQLite when
-// attached. bbolt gates existence, so a missing ID fails before SQLite runs.
+// deleteRecord removes one repository. A missing ID fails through the
+// not-found sentinel so callers never silently drop nothing.
 func (s *Service) deleteRecord(id string) error {
-	if err := s.store.Delete(id); err != nil {
+	sqlite, err := s.requireSQLite()
+	if err != nil {
 		return err
 	}
-	if s.sqlite == nil {
-		return nil
+	if _, err := s.getRecord(id); err != nil {
+		return err
 	}
-	_, err := s.sqlite.Delete(context.Background(), clause.Eq{Column: "id", Value: id})
+	_, err = sqlite.Delete(context.Background(), clause.Eq{Column: "id", Value: id})
 	return err
 }

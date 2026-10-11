@@ -1,6 +1,7 @@
 package luaplugin
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
@@ -53,7 +54,7 @@ llm_router.register("spec-type", {
   model_specs = 42,
 })
 `
-	if _, err := service.Install([]byte(nonTable), PluginOrigin{Manual: true}); err == nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(nonTable), PluginOrigin{Manual: true}); err == nil {
 		t.Error("non-table specs: expected install error")
 	}
 	cases := map[string]func(string) string{
@@ -68,7 +69,7 @@ llm_router.register("spec-type", {
 		},
 	}
 	for name, mutate := range cases {
-		if _, err := service.Install([]byte(mutate(specificationPluginSource)), PluginOrigin{Manual: true}); err == nil {
+		if _, err := service.InstallSQLite(context.Background(), []byte(mutate(specificationPluginSource)), PluginOrigin{Manual: true}); err == nil {
 			t.Errorf("%s: expected install error", name)
 		}
 	}
@@ -76,7 +77,7 @@ llm_router.register("spec-type", {
 
 func TestGetModelInfosAppliesSpecifications(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(specificationPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(specificationPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	modelInfos, err := service.GetModelInfos(t.Context(), "spec-provider", "spec-type", nil)
@@ -142,20 +143,20 @@ func TestOverlayCoversEverySpecificationField(t *testing.T) {
 
 func TestRollbackRestoresModelSpecifications(t *testing.T) {
 	service := setupService(t)
-	record, err := service.Install([]byte(specificationPluginSource), PluginOrigin{Manual: true})
+	record, err := service.InstallSQLite(context.Background(), []byte(specificationPluginSource), PluginOrigin{Manual: true})
 	if err != nil {
 		t.Fatalf("install v1: %v", err)
 	}
 	v2 := strings.Replace(specificationPluginSource, "@version 1.0.0", "@version 2.0.0", 1)
 	v2 = strings.Replace(v2, "context_window = 200000", "context_window = 300000", 1)
-	if _, err := service.Install([]byte(v2), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(v2), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install v2: %v", err)
 	}
 	modelInfos, err := service.GetModelInfos(t.Context(), "spec-provider", "spec-type", nil)
 	if err != nil || modelInfos[0].ContextWindow != 300000 {
 		t.Fatalf("v2 specs: %+v %v", modelInfos, err)
 	}
-	rolled, err := service.Rollback(record.ID)
+	rolled, err := service.RollbackSQLite(context.Background(), record.ID)
 	if err != nil {
 		t.Fatalf("rollback: %v", err)
 	}

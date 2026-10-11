@@ -42,7 +42,7 @@ llm_router.register("emb-type", {
 
 func TestEmbed_Success(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(embedPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(embedPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	if !service.HasHandler("emb-type", "embed") {
@@ -78,7 +78,7 @@ func TestEmbed_Success(t *testing.T) {
 
 func TestEmbed_HandlerNotFound(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.Embed(context.Background(), testMetadata("test-type",
@@ -95,7 +95,7 @@ func TestEmbed_ContractError(t *testing.T) {
 		`do return nil, { message = "bad key", code = "authentication_error", status = 401 } end
     local data = {}`, 1)
 	src = strings.Replace(src, "Embed Plugin", "Embed Err", 1)
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.Embed(context.Background(), testMetadata("emb-type",
@@ -112,7 +112,7 @@ func TestEmbed_ShortResultIsCrash(t *testing.T) {
 	src := strings.Replace(embedPluginSource, `for i, text in ipairs(request.input) do`,
 		`for i, text in ipairs({request.input[1]}) do`, 1)
 	src = strings.Replace(src, "Embed Plugin", "Embed Short", 1)
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.Embed(context.Background(), testMetadata("emb-type",

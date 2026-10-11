@@ -1,40 +1,40 @@
 package modelinfo
 
 import (
-	"context"
 	"testing"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
 func TestModelOverrides_EnableDisable(t *testing.T) {
-	service, _, _, _ := setupModelInfoService(t)
+	service, ctx, database := setupGormModelInfo(t)
+	seedGormProvider(t, database, ctx, "modelinfo-test", "Test")
 
-	if enabled, err := service.IsModelEnabled("modelinfo-test", "live-model"); err != nil || !enabled {
+	if enabled, err := service.IsModelEnabled(ctx, "modelinfo-test", "live-model"); err != nil || !enabled {
 		t.Fatal("models are enabled by default")
 	}
-	if err := service.SetOverride(models.ModelOverride{ProviderID: "modelinfo-test", Name: "live-model", Disabled: true}); err != nil {
+	if err := service.SetOverride(ctx, models.ModelOverride{ProviderID: "modelinfo-test", Name: "live-model", Disabled: true}); err != nil {
 		t.Fatalf("set override: %v", err)
 	}
-	if enabled, err := service.IsModelEnabled("modelinfo-test", "live-model"); err != nil || enabled {
+	if enabled, err := service.IsModelEnabled(ctx, "modelinfo-test", "live-model"); err != nil || enabled {
 		t.Fatal("override did not disable the model")
 	}
-	if err := service.DeleteOverride("modelinfo-test", "live-model"); err != nil {
+	if err := service.DeleteOverride(ctx, "modelinfo-test", "live-model"); err != nil {
 		t.Fatalf("delete override: %v", err)
 	}
-	if enabled, err := service.IsModelEnabled("modelinfo-test", "live-model"); err != nil || !enabled {
+	if enabled, err := service.IsModelEnabled(ctx, "modelinfo-test", "live-model"); err != nil || !enabled {
 		t.Fatal("model stays disabled after override removal")
 	}
 }
 
 func TestModelOverrides_MergedView(t *testing.T) {
-	service, _, _, _ := setupModelInfoService(t)
-	ctx := context.Background()
+	service, ctx, database := setupGormModelInfo(t)
+	seedGormProvider(t, database, ctx, "modelinfo-test", "Test")
 
-	if err := service.SetOverride(models.ModelOverride{ProviderID: "modelinfo-test", Name: "live-model", Disabled: true, Capabilities: []string{"tools"}}); err != nil {
+	if err := service.SetOverride(ctx, models.ModelOverride{ProviderID: "modelinfo-test", Name: "mock-model", Disabled: true, Capabilities: []string{"tools"}}); err != nil {
 		t.Fatalf("disable override: %v", err)
 	}
-	if err := service.SetOverride(models.ModelOverride{ProviderID: "modelinfo-test", Name: "hand-added", Custom: true, DisplayName: "Hand Added", Capabilities: []string{"vision"}}); err != nil {
+	if err := service.SetOverride(ctx, models.ModelOverride{ProviderID: "modelinfo-test", Name: "hand-added", Custom: true, DisplayName: "Hand Added", Capabilities: []string{"vision"}}); err != nil {
 		t.Fatalf("custom override: %v", err)
 	}
 
@@ -48,7 +48,7 @@ func TestModelOverrides_MergedView(t *testing.T) {
 	var live, custom *ModelView
 	for i := range views {
 		switch views[i].Name {
-		case "live-model":
+		case "mock-model":
 			live = &views[i]
 		case "hand-added":
 			custom = &views[i]
@@ -69,11 +69,11 @@ func TestModelOverrides_MergedView(t *testing.T) {
 }
 
 func TestModelOverrides_Validation(t *testing.T) {
-	service, _, _, _ := setupModelInfoService(t)
-	if err := service.SetOverride(models.ModelOverride{Name: "x"}); err == nil {
+	service, ctx, _ := setupGormModelInfo(t)
+	if err := service.SetOverride(ctx, models.ModelOverride{Name: "x"}); err == nil {
 		t.Error("expected error for missing provider id")
 	}
-	if err := service.SetOverride(models.ModelOverride{ProviderID: "p"}); err == nil {
+	if err := service.SetOverride(ctx, models.ModelOverride{ProviderID: "p"}); err == nil {
 		t.Error("expected error for missing model name")
 	}
 }

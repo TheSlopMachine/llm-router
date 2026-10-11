@@ -1,3 +1,12 @@
+// Package healthcheck owns failure-triggered credential health verification.
+//
+// A failed attempt marks its credential suspect through SuspectFailed. The
+// service runs the type's check_health handler at most once per cooldown
+// window (default 5 minutes, per-type registration override) in a detached
+// goroutine with a bounded timeout, coalescing concurrent suspects into one
+// in-flight check. Only an explicit "unhealthy" verdict disables the
+// credential; "healthy", "unknown" and handler failures only stamp the last
+// check time. Types without a check_health handler never check.
 package healthcheck
 
 import (
@@ -19,10 +28,37 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 )
 
-// GormService mirrors Service on the credential_health table. Dispatch keeps
-// the bbolt semantics (cooldown window, singleflight, automation-gated
-// disable) so cutover swaps the constructor only. The bbolt Service stays
-// until Wave 10.
+// CheckTimeout bounds one detached health-check call.
+const CheckTimeout = 30 * time.Second
+
+// Record is one credential's health-check state, keyed by credential ID.
+type Record struct {
+	CredentialID string    `json:"credential_id"`
+	LastCheckAt  time.Time `json:"last_check_at"`
+	LastStatus   string    `json:"last_status,omitempty"`
+}
+
+// PluginHealth is the luaplugin surface this service needs.
+type PluginHealth interface {
+	HasHandler(typeKey, handler string) bool
+	HealthCooldown(typeKey string) time.Duration
+	CheckHealth(ctx context.Context, typeKey string, credential *models.Credential) (luaplugin.HealthStatus, string, error)
+}
+
+// CredentialStore fetches credentials and disables unhealthy ones.
+type CredentialStore interface {
+	Get(ctx context.Context, id string) (*models.Credential, error)
+	DisableUnhealthy(ctx context.Context, id, reason string) error
+}
+
+// ProviderConfigs reads provider configs for the automation switch. Narrow
+// by design: the service needs one config key, never the provider surface.
+type ProviderConfigs interface {
+	Get(ctx context.Context, id string) (*models.ProviderInstance, error)
+}
+
+// GormService dispatches failure-triggered health checks with
+// per-credential cooldown and singleflight on the credential_health table.
 type GormService struct {
 	database        *db.Database
 	lua             PluginHealth
@@ -67,7 +103,7 @@ func (s *GormService) Get(ctx context.Context, credentialID string) (*Record, er
 
 // Stamp records a health verdict for one credential with the current UTC
 // time: one public method, one transaction. Repeat stamps overwrite,
-// matching the bbolt Put behavior. The credential row must exist; a missing
+// matching the previous Put behavior. The credential row must exist; a missing
 // credential fails through the foreign key as invalid input.
 func (s *GormService) Stamp(ctx context.Context, credentialID, status string) error {
 	if credentialID == "" {
@@ -124,7 +160,7 @@ func (s *GormService) automationOn(credential *models.Credential) bool {
 	if s.providerConfigs == nil || credential == nil || credential.ProviderID == "" {
 		return false
 	}
-	instance, err := s.providerConfigs.Get(credential.ProviderID)
+	instance, err := s.providerConfigs.Get(context.Background(), credential.ProviderID)
 	if err != nil || instance == nil {
 		return false
 	}
@@ -136,7 +172,7 @@ func (s *GormService) automationOn(credential *models.Credential) bool {
 // an explicit unhealthy verdict with the provider automation switch on.
 func (s *GormService) run(typeKey, credentialID string) {
 	defer s.done(credentialID)
-	credential, err := s.credentialStore.Get(credentialID)
+	credential, err := s.credentialStore.Get(context.Background(), credentialID)
 	if err != nil {
 		return
 	}
@@ -172,7 +208,7 @@ func (s *GormService) run(typeKey, credentialID string) {
 		}
 		return
 	}
-	if disableError := s.credentialStore.DisableUnhealthy(credentialID, reason); disableError != nil && s.logger != nil {
+	if disableError := s.credentialStore.DisableUnhealthy(context.Background(), credentialID, reason); disableError != nil && s.logger != nil {
 		s.logger.Warn("healthcheck: disable failed", "credential_id", credentialID, "error", disableError)
 	} else if s.logger != nil {
 		s.logger.Info("healthcheck: disabled unhealthy credential", "credential_id", credentialID, "type", typeKey)

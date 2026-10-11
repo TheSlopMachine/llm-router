@@ -12,7 +12,7 @@ import (
 // a built-in Go adapter or a currently registered Lua plugin type.
 // Rows with unavailable types stay in the database so reinstalling the
 // plugin restores them, but the dashboard hides them.
-func (s *Service) IsTypeAvailable(typeKey string) bool {
+func (s *GormService) IsTypeAvailable(typeKey string) bool {
 	if _, ok := s.GoAdapterFor(typeKey); ok {
 		return true
 	}
@@ -24,7 +24,7 @@ func (s *Service) IsTypeAvailable(typeKey string) bool {
 }
 
 // SupportsAuthFlow reports whether a type offers a multi-step auth wizard.
-func (s *Service) SupportsAuthFlow(typeKey string) bool {
+func (s *GormService) SupportsAuthFlow(typeKey string) bool {
 	if _, ok := s.GoAdapterFor(typeKey); ok {
 		return false
 	}
@@ -37,7 +37,7 @@ func (s *Service) SupportsAuthFlow(typeKey string) bool {
 // ConfigSchema returns the config UI tree for a type key.
 // Go types serve static trees; Lua types delegate to config_schema.
 // ErrHandlerNotFound-equivalent (nil, nil) means "raw JSON fallback".
-func (s *Service) ConfigSchema(typeKey string) ([]*models.UINode, error) {
+func (s *GormService) ConfigSchema(typeKey string) ([]*models.UINode, error) {
 	if typeKey == TypeCustom {
 		return []*models.UINode{
 			{Type: "text", Text: "OpenAI-compatible endpoint details."},
@@ -61,7 +61,7 @@ func (s *Service) ConfigSchema(typeKey string) ([]*models.UINode, error) {
 }
 
 // CredentialSchema returns the credential UI tree for a type key.
-func (s *Service) CredentialSchema(typeKey string) ([]*models.UINode, error) {
+func (s *GormService) CredentialSchema(typeKey string) ([]*models.UINode, error) {
 	if typeKey == TypeCustom {
 		return []*models.UINode{
 			{Type: "text", Text: "Enter the API key for this provider."},
@@ -91,7 +91,7 @@ func (s *Service) CredentialSchema(typeKey string) ([]*models.UINode, error) {
 
 // SettingsSchema returns the plugin settings UI tree for a type key.
 // Nil means the plugin declares no settings section.
-func (s *Service) SettingsSchema(typeKey string) ([]*models.UINode, error) {
+func (s *GormService) SettingsSchema(typeKey string) ([]*models.UINode, error) {
 	if typeKey == TypeCustom || typeKey == TypeVirtual {
 		return nil, nil
 	}
@@ -110,7 +110,7 @@ func (s *Service) SettingsSchema(typeKey string) ([]*models.UINode, error) {
 
 // ProxySchema returns the extra proxy settings UI tree for a type key.
 // Nil means the plugin declares no proxy surface.
-func (s *Service) ProxySchema(typeKey string) ([]*models.UINode, error) {
+func (s *GormService) ProxySchema(typeKey string) ([]*models.UINode, error) {
 	if typeKey == TypeCustom || typeKey == TypeVirtual {
 		return nil, nil
 	}
@@ -129,7 +129,7 @@ func (s *Service) ProxySchema(typeKey string) ([]*models.UINode, error) {
 
 // CredentialsEnabled reports whether a type serves the credential table:
 // a credential_schema table or an auth flow is present.
-func (s *Service) CredentialsEnabled(typeKey string) bool {
+func (s *GormService) CredentialsEnabled(typeKey string) bool {
 	if typeKey == TypeCustom {
 		return true
 	}
@@ -143,7 +143,7 @@ func (s *Service) CredentialsEnabled(typeKey string) bool {
 }
 
 // ProxiesEnabled reports whether a type serves proxy settings.
-func (s *Service) ProxiesEnabled(typeKey string) bool {
+func (s *GormService) ProxiesEnabled(typeKey string) bool {
 	if typeKey == TypeCustom || typeKey == TypeVirtual {
 		return false
 	}
@@ -154,7 +154,7 @@ func (s *Service) ProxiesEnabled(typeKey string) bool {
 }
 
 // JobSpecs returns the stored job schedules for a type key.
-func (s *Service) JobSpecs(typeKey string) map[string]luaplugin.JobSpec {
+func (s *GormService) JobSpecs(typeKey string) map[string]luaplugin.JobSpec {
 	if s.luaService == nil {
 		return nil
 	}

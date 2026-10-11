@@ -68,7 +68,7 @@ func TestRandomHexBounds(t *testing.T) {
 }
 
 func TestSandboxHelpersExposedToLua(t *testing.T) {
-	service, err := New(testutil.SetupTestDB(t), nil)
+	service, err := New(testutil.SetupTestSQLite(t), nil)
 	if err != nil {
 		t.Fatalf("new: %v", err)
 	}
@@ -85,7 +85,7 @@ llm_router.register("helper-probe", {
   end,
 })
 `
-	if _, err := service.Install([]byte(source), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(source), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err = service.Complete(context.Background(), testMetadata("helper-probe", nil, "helper-probe/m", nil),

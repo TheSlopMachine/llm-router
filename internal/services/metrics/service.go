@@ -10,7 +10,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/repository"
-	bolt "go.etcd.io/bbolt"
 	"gorm.io/gorm"
 )
 
@@ -18,15 +17,12 @@ const (
 	eventBufferSize   = 10000
 	aggregateInterval = 1 * time.Minute
 	cleanupInterval   = 1 * time.Hour
-	metricsVersion    = "2"
 )
 
-// Service manages metrics collection, aggregation, and querying.
+// Service manages metrics collection, aggregation, and querying on SQLite.
 type Service struct {
-	database *db.DB
 	// sqliteDatabase is the base SQLite handle. Only the base handle is
-	// stored, never a chained query. Attach with SetSQLiteDatabase before
-	// Start. Nil means bbolt-only operation.
+	// stored, never a chained query.
 	sqliteDatabase *gorm.DB
 	// bucketRepository serves typed base-bucket reads and retention deletes.
 	bucketRepository *repository.GormRepository[record.MetricBucket]
@@ -109,62 +105,23 @@ func maxInt64(a, b int64) int64 {
 	return b
 }
 
-// New constructs a new metrics Service.
-func New(database *db.DB, logger *slog.Logger) *Service {
-	return &Service{
-		database:      database,
+// New constructs a new metrics Service on the SQLite handle.
+func New(sqliteDatabase *db.Database, logger *slog.Logger) *Service {
+	service := &Service{
 		logger:        logger,
 		recentBuckets: make(map[time.Time]*MetricBucket),
 		eventChannel:  make(chan models.MetricEvent, eventBufferSize),
 		stopChannel:   make(chan struct{}),
 	}
-}
-
-// SetSQLiteDatabase attaches the SQLite handle for dual-write operation.
-// Base bucket rows persist to bbolt and SQLite while both are attached;
-// bbolt stays authoritative until the Wave 10 cutover. Call before Start.
-// A nil handle detaches SQLite and restores bbolt-only operation.
-func (s *Service) SetSQLiteDatabase(sqliteDatabase *gorm.DB) {
-	s.sqliteDatabase = sqliteDatabase
-	if sqliteDatabase == nil {
-		s.bucketRepository = nil
-		return
+	if sqliteDatabase != nil && sqliteDatabase.Handle != nil {
+		service.sqliteDatabase = sqliteDatabase.Handle
+		service.bucketRepository = repository.NewGormRepository[record.MetricBucket](sqliteDatabase.Handle, "granularity", "timestamp")
 	}
-	s.bucketRepository = repository.NewGormRepository[record.MetricBucket](sqliteDatabase, "granularity", "timestamp")
-}
-
-// ensureCleanMetrics wipes legacy buckets if metrics_version is stale.
-func (s *Service) ensureCleanMetrics() error {
-	return s.database.Update(func(tx *bolt.Tx) error {
-		metadata := tx.Bucket(db.BucketMeta)
-		if metadata == nil {
-			return nil
-		}
-		if string(metadata.Get([]byte("metrics_version"))) == metricsVersion {
-			return nil
-		}
-		bucket := tx.Bucket(db.BucketMetrics)
-		if bucket != nil {
-			cursor := bucket.Cursor()
-			for key, _ := cursor.First(); key != nil; key, _ = cursor.Next() {
-				if err := bucket.Delete(key); err != nil {
-					return err
-				}
-			}
-		}
-		if err := metadata.Put([]byte("metrics_version"), []byte(metricsVersion)); err != nil {
-			return err
-		}
-		s.logger.Info("metrics wiped for new version", "version", metricsVersion)
-		return nil
-	})
+	return service
 }
 
 // Start begins background workers for metrics processing.
 func (s *Service) Start() {
-	if err := s.ensureCleanMetrics(); err != nil {
-		s.logger.Error("metrics version check failed", "err", err)
-	}
 	s.waitGroup.Add(3)
 	go s.processEvents()
 	go s.startAggregator()

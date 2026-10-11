@@ -16,7 +16,6 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
-	"github.com/TheSlopMachine/llm-router/internal/repository"
 	proxypoollib "github.com/TheSlopMachine/proxypool"
 )
 
@@ -122,12 +121,11 @@ type Status struct {
 // through Query and assign proxy_url per request.
 type Service struct {
 	pool     *proxypoollib.ProxyPool
-	cache    *dbCache
+	cache    *gormCache
 	source   *pluginSource
 	logger   *slog.Logger
 	reporter *slogReporter
-	database *db.DB
-	pools    *repository.Repository[models.CustomProxyPool]
+	database *db.Database
 
 	mu      sync.Mutex
 	rootCtx context.Context
@@ -140,20 +138,28 @@ type Service struct {
 	sources  map[string]SourceInfo
 }
 
-// New constructs the library-backed pool and restores its persistent cache.
-func New(database *db.DB) (*Service, error) {
-	cache, err := newDBCache(database)
+// New constructs the library-backed pool and restores its persistent cache
+// from SQLite. The built-in free-pool row seeds idempotently so provider
+// proxy references to "auto" satisfy the foreign key.
+func New(database *db.Database) (*Service, error) {
+	if database == nil || database.Handle == nil {
+		return nil, fmt.Errorf("proxypool sqlite handle is not configured")
+	}
+	cache, err := newGormCache(context.Background(), database.Handle)
 	if err != nil {
 		return nil, err
+	}
+	if err := EnsureBuiltinFreePool(context.Background(), database); err != nil {
+		return nil, fmt.Errorf("seed built-in free pool: %w", err)
 	}
 	s := &Service{
 		cache:    cache,
 		database: database,
-		pools:    repository.New[models.CustomProxyPool](database, db.BucketCustomPools, "custom proxy pool"),
 		logger:   slog.Default(),
 		sources:  map[string]SourceInfo{},
 	}
-	s.pool = proxypoollib.NewPool()
+	pool := proxypoollib.NewPool()
+	s.pool = pool
 	s.pool.SetLimits(10, 50, 500)
 	s.reporter = newSlogReporter(s.logger)
 	s.pool.RegisterReporter(s.reporter)
@@ -262,7 +268,7 @@ func (s *Service) Query(pool, country string, limit int) ([]models.ProxyView, er
 	if pool == models.DefaultProxyPool {
 		return s.queryAuto(country, limit), nil
 	}
-	return s.queryCustom(pool, country, limit)
+	return s.queryCustom(context.Background(), pool, country, limit)
 }
 
 func (s *Service) queryAuto(country string, limit int) []models.ProxyView {
@@ -280,8 +286,8 @@ func (s *Service) queryAuto(country string, limit int) []models.ProxyView {
 	return output
 }
 
-func (s *Service) queryCustom(pool, country string, limit int) ([]models.ProxyView, error) {
-	custom, err := s.findCustomPool(pool)
+func (s *Service) queryCustom(ctx context.Context, pool, country string, limit int) ([]models.ProxyView, error) {
+	custom, err := s.findCustomPool(ctx, pool)
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +334,7 @@ func (s *Service) Require(ctx context.Context, request models.ProxyRequire) (mod
 		}
 		return models.ProxyRequireResult{Proxies: views, TimedOut: result.TimedOut}, nil
 	default:
-		views, err := s.requireCustom(request)
+		views, err := s.requireCustom(ctx, request)
 		if err != nil {
 			return models.ProxyRequireResult{}, err
 		}
@@ -337,8 +343,8 @@ func (s *Service) Require(ctx context.Context, request models.ProxyRequire) (mod
 }
 
 // requireCustom filters one custom pool by the OR country list and exclusions.
-func (s *Service) requireCustom(request models.ProxyRequire) ([]models.ProxyView, error) {
-	custom, err := s.findCustomPool(request.Pool)
+func (s *Service) requireCustom(ctx context.Context, request models.ProxyRequire) ([]models.ProxyView, error) {
+	custom, err := s.findCustomPool(ctx, request.Pool)
 	if err != nil {
 		return nil, err
 	}

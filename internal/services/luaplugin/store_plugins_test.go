@@ -3,6 +3,7 @@
 package luaplugin
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,7 +29,7 @@ func TestStorePluginsInstall(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read: %v", err)
 			}
-			if _, err := service.Install(source, PluginOrigin{Manual: true}); err != nil {
+			if _, err := service.InstallSQLite(context.Background(), source, PluginOrigin{Manual: true}); err != nil {
 				t.Fatalf("install: %v", err)
 			}
 		})
@@ -43,7 +44,7 @@ func TestStoreGooglePluginHandlers(t *testing.T) {
 		t.Fatalf("plugin store not checked out: %v", err)
 	}
 	service := setupService(t)
-	if _, err := service.Install(source, PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), source, PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	for _, handler := range []string{"complete", "complete_stream", "speech", "generate_image", "embed", "get_model_infos"} {

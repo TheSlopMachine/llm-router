@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
@@ -19,8 +20,8 @@ type Resolved struct {
 func (r *Resolved) IsLua() bool { return r.Plugin != nil }
 
 // Resolve looks up a provider by ID and its backend in one operation.
-func Resolve(service *Service, providerID string) (*Resolved, error) {
-	inst, err := service.Get(providerID)
+func Resolve(service *GormService, ctx context.Context, providerID string) (*Resolved, error) {
+	inst, err := service.Get(ctx, providerID)
 	if err != nil {
 		return nil, fmt.Errorf("provider lookup failed: %w", err)
 	}

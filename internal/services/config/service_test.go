@@ -12,29 +12,7 @@ import (
 
 func setupSQLiteService(t *testing.T) *Service {
 	t.Helper()
-	database := testutil.SetupTestDB(t)
-	sqlite := testutil.SetupTestSQLite(t)
-	return NewWithSQLite(database, sqlite)
-}
-
-func TestConfigBboltGetPutRoundTrip(t *testing.T) {
-	database := testutil.SetupTestDB(t)
-	service := New(database)
-
-	want := models.RouterConfiguration{IsClusterNode: true, DisableTelemetry: true, ModelsFilter: "enabled"}
-	if err := service.Put(want); err != nil {
-		t.Fatalf("bbolt put: %v", err)
-	}
-	got, err := service.Get()
-	if err != nil {
-		t.Fatalf("bbolt get: %v", err)
-	}
-	if got != want {
-		t.Errorf("bbolt round trip holds %+v, want %+v", got, want)
-	}
-	if err := service.Put(models.RouterConfiguration{ModelsFilter: "bogus"}); err == nil {
-		t.Errorf("bbolt put with bogus filter succeeded, want validation error")
-	}
+	return New(testutil.SetupTestSQLite(t))
 }
 
 func TestConfigSettingsMissReturnsZero(t *testing.T) {
@@ -174,8 +152,7 @@ func TestConfigSetBootstrappedPreservesConfiguration(t *testing.T) {
 
 func TestConfigSQLiteMethodsFailClosedWithoutHandle(t *testing.T) {
 	ctx := context.Background()
-	database := testutil.SetupTestDB(t)
-	service := New(database)
+	service := New(nil)
 
 	if _, err := service.GetSettings(ctx); !errors.Is(err, apierrors.ErrInvalidInput) {
 		t.Errorf("get settings without sqlite returns %v, want invalid input", err)

@@ -75,7 +75,7 @@ func (s *Service) submitVideo(
 		return nil, fmt.Errorf("video generation unavailable: job store not wired")
 	}
 	if request.PreviousJobID != "" {
-		prev, err := s.videoJobsService.Get(request.PreviousJobID)
+		prev, err := s.videoJobsService.Get(ctx, request.PreviousJobID)
 		if err != nil {
 			return nil, &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: fmt.Sprintf("unknown previous_job_id %q", request.PreviousJobID)}
 		}
@@ -108,7 +108,7 @@ func (s *Service) submitVideo(
 		return nil, err
 	}
 	response, _, err := s.submitVideoOne(ctx, resolved, credentials, allowed, request)
-	s.dropMissingModel(resolvedRequest.providerID, resolvedRequest.modelName, err)
+	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func (s *Service) submitVideo(
 		UpstreamJobID: response.ID,
 		Status:        response.Status,
 	}
-	if err := s.videoJobsService.Create(job); err != nil {
+	if err := s.videoJobsService.Create(ctx, job); err != nil {
 		return nil, err
 	}
 	output := *response
@@ -159,7 +159,7 @@ func (s *Service) PollVideo(
 	if s.videoJobsService == nil {
 		return nil, fmt.Errorf("video generation unavailable: job store not wired")
 	}
-	job, err := s.videoJobsService.Get(jobID)
+	job, err := s.videoJobsService.Get(ctx, jobID)
 	if err != nil {
 		return nil, err
 	}
@@ -176,12 +176,12 @@ func (s *Service) PollVideo(
 		return nil, err
 	}
 	response, _, err := s.pollVideoOne(ctx, resolved, credentials, allowed, job.BackendModel, job.UpstreamJobID)
-	s.dropMissingModel(resolvedRequest.providerID, resolvedRequest.modelName, err)
+	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
 	if err != nil {
 		return nil, err
 	}
 	if response.Status != job.Status {
-		if statusError := s.videoJobsService.SetStatus(job.ID, response.Status); statusError != nil && s.logger != nil {
+		if statusError := s.videoJobsService.SetStatus(ctx, job.ID, response.Status); statusError != nil && s.logger != nil {
 			s.logger.Warn("router: video job status persist failed", "job_id", job.ID, "error", statusError)
 		}
 	}
@@ -219,7 +219,7 @@ func (s *Service) VideoContent(
 	if s.videoJobsService == nil {
 		return nil, fmt.Errorf("video generation unavailable: job store not wired")
 	}
-	job, err := s.videoJobsService.Get(jobID)
+	job, err := s.videoJobsService.Get(ctx, jobID)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +236,7 @@ func (s *Service) VideoContent(
 		return nil, err
 	}
 	response, _, err := s.videoContentOne(ctx, resolved, credentials, allowed, job.BackendModel, job.UpstreamJobID, index)
-	s.dropMissingModel(resolvedRequest.providerID, resolvedRequest.modelName, err)
+	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
 	if err != nil {
 		return nil, err
 	}

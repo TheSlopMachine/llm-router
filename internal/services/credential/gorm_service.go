@@ -3,6 +3,7 @@ package credential
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	stdErrors "errors"
@@ -18,21 +19,34 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/util"
 )
 
-// GormService manages credentials on the SQLite handle. The bbolt Service
-// stays live until cutover; this type owns the GORM path with explicit
+// GormService manages credentials on the SQLite handle with explicit
 // converters between wire types and credential rows. Traditional GORM use:
 // none; every statement runs through gorm.G with typed clauses.
 type GormService struct {
 	database        *db.Database
-	providerService *provider.Service
+	providerService *provider.GormService
+	logger          *slog.Logger
 }
 
 // NewGorm constructs a GORM-backed credential service on the SQLite handle.
 // providerService serves backend validation through provider.Resolve; it
 // must read non-nil. Construction performs no I/O.
-func NewGorm(database *db.Database, providerService *provider.Service) *GormService {
+func NewGorm(database *db.Database, providerService *provider.GormService) *GormService {
 	return &GormService{database: database, providerService: providerService}
 }
+
+// SetLogger wires structured logging.
+func (s *GormService) SetLogger(l *slog.Logger) { s.logger = l }
+
+// AddOptions holds parameters for adding a new credential to a provider's pool.
+type AddOptions struct {
+	ProviderID string
+	Label      string
+	Data       map[string]any
+}
+
+// maxParkTTL bounds unified cooldown parks to 90 days, matching storage.
+const maxParkTTL = 90 * 24 * time.Hour
 
 // orderCredentialsByIdentifier sorts credential rows by primary key.
 func orderCredentialsByIdentifier() clause.OrderBy {
@@ -48,7 +62,7 @@ func (s *GormService) requireHandle() (*db.Database, error) {
 }
 
 // requireProviderService fails closed when backend validation is unwired.
-func (s *GormService) requireProviderService() (*provider.Service, error) {
+func (s *GormService) requireProviderService() (*provider.GormService, error) {
 	if s == nil || s.providerService == nil {
 		return nil, fmt.Errorf("credential provider service is not configured: %w", apierrors.ErrInvalidInput)
 	}
@@ -59,8 +73,8 @@ func (s *GormService) requireProviderService() (*provider.Service, error) {
 // or the Lua validate_credentials handler for the provider type key. Runs
 // outside transactions: Lua and adapter calls never run on a transaction
 // handle.
-func (s *GormService) validateCredentialData(providerService *provider.Service, providerID string, data map[string]any) error {
-	resolved, err := provider.Resolve(providerService, providerID)
+func (s *GormService) validateCredentialData(ctx context.Context, providerService *provider.GormService, providerID string, data map[string]any) error {
+	resolved, err := provider.Resolve(providerService, ctx, providerID)
 	if err != nil {
 		return err
 	}
@@ -100,7 +114,7 @@ func (s *GormService) Add(ctx context.Context, options AddOptions) (*models.Cred
 	if data == nil {
 		data = map[string]any{}
 	}
-	if err := s.validateCredentialData(providerService, options.ProviderID, data); err != nil {
+	if err := s.validateCredentialData(ctx, providerService, options.ProviderID, data); err != nil {
 		return nil, err
 	}
 	identifier, err := util.GenerateID()
@@ -247,16 +261,18 @@ func (s *GormService) UpdateDetails(ctx context.Context, identifier string, labe
 	if _, err := s.requireHandle(); err != nil {
 		return err
 	}
-	if data != nil {
-		current, err := s.Get(ctx, identifier)
-		if err != nil {
-			return err
+	providerID := ""
+	if current, err := s.Get(ctx, identifier); err == nil && current != nil {
+		providerID = current.ProviderID
+		if data != nil {
+			if err := s.validateCredentialData(ctx, providerService, current.ProviderID, data); err != nil {
+				return err
+			}
 		}
-		if err := s.validateCredentialData(providerService, current.ProviderID, data); err != nil {
-			return err
-		}
+	} else if data != nil {
+		return err
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		row, err := gorm.G[record.Credential](transaction, clause.Eq{Column: "id", Value: identifier}).First(ctx)
 		if err != nil {
 			return db.Translate(err)
@@ -286,7 +302,17 @@ func (s *GormService) UpdateDetails(ctx context.Context, identifier string, labe
 			return db.Translate(err)
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	if disabled != nil && s.logger != nil {
+		if *disabled {
+			s.logger.Info("credential disabled by admin", "credential_id", identifier, "provider_id", providerID)
+		} else {
+			s.logger.Info("credential enabled by admin", "credential_id", identifier, "provider_id", providerID)
+		}
+	}
+	return nil
 }
 
 // DisableUnhealthy disables a credential on an explicit unhealthy
@@ -303,7 +329,8 @@ func (s *GormService) DisableUnhealthy(ctx context.Context, identifier, reason s
 	if _, err := s.requireHandle(); err != nil {
 		return err
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	changed := false
+	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		row, err := gorm.G[record.Credential](transaction, clause.Eq{Column: "id", Value: identifier}).First(ctx)
 		if err != nil {
 			return db.Translate(err)
@@ -321,8 +348,15 @@ func (s *GormService) DisableUnhealthy(ctx context.Context, identifier, reason s
 		if err := gorm.G[record.Credential](transaction, clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, UpdateAll: true}).CreateInBatches(ctx, &rows, 500); err != nil {
 			return db.Translate(err)
 		}
+		changed = true
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	if changed && s.logger != nil {
+		s.logger.Info("credential disabled by healthcheck", "credential_id", identifier, "reason", reason)
+	}
+	return nil
 }
 
 // DisableByPlugin disables a credential on a plugin dead-key verdict.
@@ -339,7 +373,8 @@ func (s *GormService) DisableByPlugin(ctx context.Context, identifier, reason st
 	if _, err := s.requireHandle(); err != nil {
 		return err
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	changed := false
+	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		row, err := gorm.G[record.Credential](transaction, clause.Eq{Column: "id", Value: identifier}).First(ctx)
 		if err != nil {
 			return db.Translate(err)
@@ -357,8 +392,15 @@ func (s *GormService) DisableByPlugin(ctx context.Context, identifier, reason st
 		if err := gorm.G[record.Credential](transaction, clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, UpdateAll: true}).CreateInBatches(ctx, &rows, 500); err != nil {
 			return db.Translate(err)
 		}
+		changed = true
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	if changed && s.logger != nil {
+		s.logger.Info("credential disabled by plugin", "credential_id", identifier, "reason", reason)
+	}
+	return nil
 }
 
 // EnableByPlugin clears a plugin-caused disable when the key proves

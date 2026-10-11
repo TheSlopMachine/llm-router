@@ -19,7 +19,7 @@ import (
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/tokens [get]
 func (h *Handler) apiTokensList(w http.ResponseWriter, r *http.Request) {
-	tokens, err := h.tokenService.List()
+	tokens, err := h.gormTokenService.List(r.Context())
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -48,7 +48,7 @@ func (h *Handler) apiTokensCreate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	tokenRecord, err := h.tokenService.Create(token.CreateOptions{
+	tokenRecord, err := h.gormTokenService.Create(r.Context(), token.CreateOptions{
 		Name:  body.Name,
 		Rules: body.Rules,
 	})
@@ -81,7 +81,7 @@ func (h *Handler) apiTokensUpdate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := h.tokenService.UpdateRules(r.PathValue("id"), body.Rules); err != nil {
+	if err := h.gormTokenService.UpdateRules(r.Context(), r.PathValue("id"), body.Rules); err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -100,7 +100,7 @@ func (h *Handler) apiTokensUpdate(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/tokens/{id}/regenerate [post]
 func (h *Handler) apiTokensRegenerate(w http.ResponseWriter, r *http.Request) {
-	tokenRecord, err := h.tokenService.Regenerate(r.PathValue("id"))
+	tokenRecord, err := h.gormTokenService.Regenerate(r.Context(), r.PathValue("id"))
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -120,7 +120,7 @@ func (h *Handler) apiTokensRegenerate(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/tokens/{id} [delete]
 func (h *Handler) apiTokensDelete(w http.ResponseWriter, r *http.Request) {
-	if err := h.tokenService.Delete(r.PathValue("id")); err != nil {
+	if err := h.gormTokenService.Delete(r.Context(), r.PathValue("id")); err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

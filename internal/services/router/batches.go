@@ -104,7 +104,7 @@ func (s *Service) CreateBatch(
 	now := time.Now()
 	record.Status = batches.StatusEnded
 	record.EndedAt = &now
-	if err := s.batchService.Create(record); err != nil {
+	if err := s.batchService.Create(ctx, record); err != nil {
 		return nil, err
 	}
 	return record.ToBatchInfo("/v1/messages/batches/" + record.ID + "/results"), nil
@@ -112,14 +112,14 @@ func (s *Service) CreateBatch(
 
 // GetBatch returns one stored batch.
 func (s *Service) GetBatch(
-	_ context.Context,
+	ctx context.Context,
 	id string,
 	token *models.RouterToken,
 ) (*models.BatchInfo, error) {
 	if s.batchService == nil {
 		return nil, errors.New("message batch store is not wired")
 	}
-	record, err := s.batchService.Get(id)
+	record, err := s.batchService.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("message batch", id)
@@ -133,11 +133,11 @@ func (s *Service) GetBatch(
 }
 
 // ListBatches returns all stored batches, oldest first.
-func (s *Service) ListBatches(_ context.Context) ([]*models.BatchInfo, error) {
+func (s *Service) ListBatches(ctx context.Context) ([]*models.BatchInfo, error) {
 	if s.batchService == nil {
 		return nil, errors.New("message batch store is not wired")
 	}
-	records, err := s.batchService.List()
+	records, err := s.batchService.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -151,14 +151,14 @@ func (s *Service) ListBatches(_ context.Context) ([]*models.BatchInfo, error) {
 // CancelBatch marks a non-terminal batch canceled. Synchronously executed
 // batches are terminal, so cancel succeeds only on rows still open.
 func (s *Service) CancelBatch(
-	_ context.Context,
+	ctx context.Context,
 	id string,
 	token *models.RouterToken,
 ) (*models.BatchInfo, error) {
 	if s.batchService == nil {
 		return nil, errors.New("message batch store is not wired")
 	}
-	record, err := s.batchService.Get(id)
+	record, err := s.batchService.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("message batch", id)
@@ -174,7 +174,7 @@ func (s *Service) CancelBatch(
 	now := time.Now()
 	record.Status = batches.StatusCanceled
 	record.EndedAt = &now
-	if err := s.batchService.Update(record); err != nil {
+	if err := s.batchService.Update(ctx, record); err != nil {
 		return nil, err
 	}
 	return record.ToBatchInfo("/v1/messages/batches/" + record.ID + "/results"), nil
@@ -182,29 +182,29 @@ func (s *Service) CancelBatch(
 
 // DeleteBatch removes a batch row. Missing rows are not errors only when
 // the row never existed? No: missing rows are 404, matching the catalog.
-func (s *Service) DeleteBatch(_ context.Context, id string) error {
+func (s *Service) DeleteBatch(ctx context.Context, id string) error {
 	if s.batchService == nil {
 		return errors.New("message batch store is not wired")
 	}
-	if _, err := s.batchService.Get(id); err != nil {
+	if _, err := s.batchService.Get(ctx, id); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return compatNotFound("message batch", id)
 		}
 		return err
 	}
-	return s.batchService.Delete(id)
+	return s.batchService.Delete(ctx, id)
 }
 
 // GetBatchResults renders stored results as JSONL.
 func (s *Service) GetBatchResults(
-	_ context.Context,
+	ctx context.Context,
 	id string,
 	token *models.RouterToken,
 ) (string, error) {
 	if s.batchService == nil {
 		return "", errors.New("message batch store is not wired")
 	}
-	record, err := s.batchService.Get(id)
+	record, err := s.batchService.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return "", compatNotFound("message batch", id)

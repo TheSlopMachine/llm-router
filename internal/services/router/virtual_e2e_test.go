@@ -23,21 +23,22 @@ import (
 
 // setupVirtualStack wires a full router where member requests resolve through
 // a mock provider while virtual/* resolves through the real virtual adapter.
-func setupVirtualStack(t *testing.T) (*router.Service, *virtual.Service, *credential.Service) {
+func setupVirtualStack(t *testing.T) (*router.Service, *virtual.GormService, *credential.GormService) {
 	t.Helper()
-	database := testutil.SetupTestDB(t)
+	database := testutil.SetupTestSQLite(t)
+	ctx := context.Background()
 
-	providerService := provider.NewService(database)
+	providerService := provider.NewGorm(database)
 	providerService.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
-	if _, err := providerService.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
+	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
 	}
-	if _, err := providerService.Create(provider.CreateOptions{Name: "Virtual models", TypeKey: provider.TypeVirtual}); err != nil {
+	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Virtual models", TypeKey: provider.TypeVirtual}); err != nil {
 		t.Fatalf("create virtual provider: %v", err)
 	}
 
-	credentialService := credential.New(database, providerService)
-	if _, err := credentialService.Add(credential.AddOptions{
+	credentialService := credential.NewGorm(database, providerService)
+	if _, err := credentialService.Add(ctx, credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "member cred",
 		Data:       map[string]any{"api_key": "test-key"},
@@ -45,8 +46,8 @@ func setupVirtualStack(t *testing.T) (*router.Service, *virtual.Service, *creden
 		t.Fatalf("add member credential: %v", err)
 	}
 
-	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
-	virtualService := virtual.New(database, providerService, modelInfoService)
+	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, 1*time.Hour)
+	virtualService := virtual.NewGorm(database, providerService, modelInfoService)
 	routerService := router.New(providerService, credentialService, modelInfoService, videojobs.New(database), nil, nil, slog.Default())
 
 	virtualAdapter := virtualadapter.New(routerService, virtualService, slog.Default())
@@ -56,7 +57,7 @@ func setupVirtualStack(t *testing.T) (*router.Service, *virtual.Service, *creden
 		Name:   "E2E",
 		Models: []models.VirtualModelEntry{{ModelID: "mock/test-model"}},
 	}
-	if err := virtualService.Create(virtualModel); err != nil {
+	if err := virtualService.Create(ctx, virtualModel); err != nil {
 		t.Fatalf("create virtual model: %v", err)
 	}
 	if virtualModel.ID != "e2e" {
@@ -76,7 +77,7 @@ func virtualRequest(model string) *models.ChatCompletionRequest {
 func TestRouterVirtualResolvesByNameWithoutCredentials(t *testing.T) {
 	routerService, _, credentialService := setupVirtualStack(t)
 
-	rows, err := credentialService.ListByProvider(provider.TypeVirtual)
+	rows, err := credentialService.ListByProvider(context.Background(), provider.TypeVirtual)
 	if err != nil {
 		t.Fatalf("list virtual credentials: %v", err)
 	}
@@ -102,9 +103,10 @@ func TestRouterVirtualStreamWithoutCredentials(t *testing.T) {
 }
 
 func TestRouterVirtualFallsThroughToSecondModel(t *testing.T) {
-	database := testutil.SetupTestDB(t)
+	database := testutil.SetupTestSQLite(t)
+	ctx := context.Background()
 
-	providerService := provider.NewService(database)
+	providerService := provider.NewGorm(database)
 	mock := testutil.NewMockAdapter("mock").WithCompleteFunc(
 		func(ctx context.Context, creds []*models.Credential, request *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
 			if request.Model == "mock/bad-model" {
@@ -119,15 +121,15 @@ func TestRouterVirtualFallsThroughToSecondModel(t *testing.T) {
 			}, nil
 		})
 	providerService.RegisterGoAdapter(mock)
-	if _, err := providerService.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
+	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
 	}
-	if _, err := providerService.Create(provider.CreateOptions{Name: "Virtual models", TypeKey: provider.TypeVirtual}); err != nil {
+	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Virtual models", TypeKey: provider.TypeVirtual}); err != nil {
 		t.Fatalf("create virtual provider: %v", err)
 	}
 
-	credentialService := credential.New(database, providerService)
-	if _, err := credentialService.Add(credential.AddOptions{
+	credentialService := credential.NewGorm(database, providerService)
+	if _, err := credentialService.Add(ctx, credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "member cred",
 		Data:       map[string]any{"api_key": "test-key"},
@@ -135,8 +137,8 @@ func TestRouterVirtualFallsThroughToSecondModel(t *testing.T) {
 		t.Fatalf("add member credential: %v", err)
 	}
 
-	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
-	virtualService := virtual.New(database, providerService, modelInfoService)
+	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, 1*time.Hour)
+	virtualService := virtual.NewGorm(database, providerService, modelInfoService)
 	routerService := router.New(providerService, credentialService, modelInfoService, videojobs.New(database), nil, nil, slog.Default())
 
 	virtualAdapter := virtualadapter.New(routerService, virtualService, slog.Default())
@@ -149,7 +151,7 @@ func TestRouterVirtualFallsThroughToSecondModel(t *testing.T) {
 			{ModelID: "mock/good-model"},
 		},
 	}
-	if err := virtualService.Create(virtualModel); err != nil {
+	if err := virtualService.Create(ctx, virtualModel); err != nil {
 		t.Fatalf("create virtual model: %v", err)
 	}
 
@@ -191,12 +193,12 @@ func TestRouterVirtualUnknownAgentIsInvalidRequest(t *testing.T) {
 func TestRouterVirtualDisabledIsModelDisabled(t *testing.T) {
 	routerService, virtualService, _ := setupVirtualStack(t)
 
-	virtualModel, err := virtualService.Get("e2e")
+	virtualModel, err := virtualService.Get(context.Background(), "e2e")
 	if err != nil {
 		t.Fatalf("get virtual model: %v", err)
 	}
 	virtualModel.Disabled = true
-	if err := virtualService.Update(virtualModel.ID, virtualModel); err != nil {
+	if err := virtualService.Update(context.Background(), virtualModel.ID, virtualModel); err != nil {
 		t.Fatalf("disable virtual model: %v", err)
 	}
 

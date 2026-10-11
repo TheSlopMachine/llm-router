@@ -5,11 +5,20 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/util"
 )
+
+// reservedAgentSlugs collide with dashboard routes.
+var reservedAgentSlugs = map[string]bool{"new": true}
+
+// agentSlug converts a name to a URL-safe slug, or "" when unusable.
+func agentSlug(name string) string {
+	return util.Slugify(name)
+}
 
 // virtualNameKey lowercases a virtual model name for the name_key UNIQUE
 // column. Case-insensitive duplicates collide on this key, matching the
-// bbolt EqualFold scan.
+// previous EqualFold scan.
 func virtualNameKey(name string) string {
 	return strings.ToLower(name)
 }

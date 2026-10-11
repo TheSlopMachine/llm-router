@@ -26,19 +26,19 @@ import (
 
 // Service routes validated API requests to the appropriate provider.
 type Service struct {
-	providerService   *provider.Service
-	credentialService *credential.Service
-	modelInfoService  *modelinfo.Service
+	providerService   *provider.GormService
+	credentialService *credential.GormService
+	modelInfoService  *modelinfo.GormService
 	videoJobsService  *videojobs.Service
-	responseService   *responses.Service
-	batchService      *batches.Service
+	responseService   *responses.GormService
+	batchService      *batches.SQLiteService
 	logger            *slog.Logger
 }
 
 // New constructs a new router Service. videoJobsService may be nil (video
 // submits fail closed). responseService and batchService may be nil
 // (responses/batches fail closed). Production always wires all of them.
-func New(providerService *provider.Service, credentialService *credential.Service, modelInfoService *modelinfo.Service, videoJobsService *videojobs.Service, responseService *responses.Service, batchService *batches.Service, logger *slog.Logger) *Service {
+func New(providerService *provider.GormService, credentialService *credential.GormService, modelInfoService *modelinfo.GormService, videoJobsService *videojobs.Service, responseService *responses.GormService, batchService *batches.SQLiteService, logger *slog.Logger) *Service {
 	return &Service{
 		providerService:   providerService,
 		credentialService: credentialService,
@@ -151,7 +151,7 @@ func (s *Service) gateCredentials(ctx context.Context, resolved *provider.Resolv
 	if resolved.IsLua() && !s.providerService.CredentialsEnabled(instance.TypeKey) {
 		return nil, nil, nil
 	}
-	credentials, err := s.credentialService.All(instance.ID)
+	credentials, err := s.credentialService.All(ctx, instance.ID)
 	if err != nil {
 		s.logger.Debug("router: no available credentials", "provider_id", instance.ID, "reason", "no_available_credentials")
 		return nil, nil, fmt.Errorf("%w for provider %q", apierrors.ErrNoCredential, instance.Name)
@@ -173,8 +173,8 @@ func (s *Service) gateCredentials(ctx context.Context, resolved *provider.Resolv
 // checkEndpoint rejects the request when the cached model card declares an
 // endpoint list excluding the target. Models absent from the cache pass:
 // gating acts on declared data only, never on guesses.
-func (s *Service) checkEndpoint(providerID, modelName, endpoint string) error {
-	for _, info := range s.modelInfoService.PeekModelInfos(providerID) {
+func (s *Service) checkEndpoint(ctx context.Context, providerID, modelName, endpoint string) error {
+	for _, info := range s.modelInfoService.PeekModelInfos(ctx, providerID) {
 		if info.Name != modelName {
 			continue
 		}
@@ -189,11 +189,11 @@ func (s *Service) checkEndpoint(providerID, modelName, endpoint string) error {
 
 // requireModelEnabled enforces the admin model override gate fail-closed:
 // missing overrides allow routing, storage failures deny routing.
-func (s *Service) requireModelEnabled(providerID, modelName string, model models.ModelId, allowDisabled bool) error {
+func (s *Service) requireModelEnabled(ctx context.Context, providerID, modelName string, model models.ModelId, allowDisabled bool) error {
 	if allowDisabled {
 		return nil
 	}
-	enabled, err := s.modelInfoService.IsModelEnabled(providerID, modelName)
+	enabled, err := s.modelInfoService.IsModelEnabled(ctx, providerID, modelName)
 	if err != nil {
 		return err
 	}
@@ -244,7 +244,7 @@ func isCredentialAllowed(allowed []string, id string) bool {
 // dropMissingModel removes the model from the info cache when the backend
 // reports it does not exist upstream. Best-effort: the original error is
 // always returned untouched.
-func (s *Service) dropMissingModel(providerID, modelName string, err error) {
+func (s *Service) dropMissingModel(ctx context.Context, providerID, modelName string, err error) {
 	if err == nil {
 		return
 	}
@@ -252,7 +252,7 @@ func (s *Service) dropMissingModel(providerID, modelName string, err error) {
 	if !errors.As(err, &providerError) || providerError.Code != "not_found" {
 		return
 	}
-	removed, removeError := s.modelInfoService.RemoveModel(providerID, modelName)
+	removed, removeError := s.modelInfoService.RemoveModel(ctx, providerID, modelName)
 	if removeError != nil {
 		s.logger.Warn("router: drop missing model from cache failed",
 			"provider_id", providerID, "model", modelName, "error", removeError)
@@ -311,7 +311,7 @@ func (s *Service) completeWithProxy(
 		return nil, "", err
 	}
 	response, _, err := s.completeOne(ctx, BackendAttempt{Resolved: resolved, Creds: credentials, Allowed: allowed}, request)
-	s.dropMissingModel(resolvedRequest.providerID, resolvedRequest.modelName, err)
+	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
 	return response, "", err
 }
 
@@ -337,7 +337,7 @@ func (s *Service) CompleteStream(
 		return err
 	}
 	_, err = s.completeStreamOne(ctx, BackendAttempt{Resolved: resolved, Creds: credentials, Allowed: allowed}, request, w)
-	s.dropMissingModel(resolvedRequest.providerID, resolvedRequest.modelName, err)
+	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
 	return err
 }
 
@@ -405,7 +405,7 @@ func (s *Service) transcribeWithProxy(
 		return nil, "", err
 	}
 	response, _, err := s.transcribeOne(ctx, resolved, credentials, allowed, request)
-	s.dropMissingModel(resolvedRequest.providerID, resolvedRequest.modelName, err)
+	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
 	return response, "", err
 }
 
@@ -473,7 +473,7 @@ func (s *Service) speechWithProxy(
 		return nil, "", err
 	}
 	response, _, err := s.speechOne(ctx, resolved, credentials, allowed, request)
-	s.dropMissingModel(resolvedRequest.providerID, resolvedRequest.modelName, err)
+	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
 	return response, "", err
 }
 
@@ -541,7 +541,7 @@ func (s *Service) generateImageWithProxy(
 		return nil, "", err
 	}
 	response, _, err := s.generateImageOne(ctx, resolved, credentials, allowed, request)
-	s.dropMissingModel(resolvedRequest.providerID, resolvedRequest.modelName, err)
+	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
 	return response, "", err
 }
 
@@ -609,7 +609,7 @@ func (s *Service) embedWithProxy(
 		return nil, "", err
 	}
 	response, _, err := s.embedOne(ctx, resolved, credentials, allowed, request)
-	s.dropMissingModel(resolvedRequest.providerID, resolvedRequest.modelName, err)
+	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
 	return response, "", err
 }
 
@@ -619,7 +619,7 @@ func (s *Service) GetProviderIDForModel(ctx context.Context, modelID models.Mode
 	if err != nil {
 		return "", err
 	}
-	_, err = s.providerService.Get(providerID)
+	_, err = s.providerService.Get(ctx, providerID)
 	if err != nil {
 		return "", err
 	}

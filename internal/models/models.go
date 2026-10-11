@@ -1431,10 +1431,6 @@ type ProviderInstance struct {
 	UpdatedAt  time.Time  `json:"updated_at"`
 }
 
-// Provider is kept as an alias so existing call sites keep compiling
-// while the field migration (Type -> TypeKey, BaseURL -> Config) proceeds.
-type Provider = ProviderInstance
-
 // BaseURL returns Config["base_url"] for OpenAI-compatible providers.
 func (p *ProviderInstance) BaseURL() string {
 	if p == nil || p.Config == nil {

@@ -9,7 +9,7 @@ import (
 
 func installConfigurationProbe(t *testing.T) *Service {
 	t.Helper()
-	service, err := New(testutil.SetupTestDB(t), nil)
+	service, err := New(testutil.SetupTestSQLite(t), nil)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
@@ -33,7 +33,7 @@ llm_router.register("configprobe", {
   end,
 })
 `
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install configuration probe: %v", err)
 	}
 	return service

@@ -52,7 +52,7 @@ type RepoFile struct {
 	URL  string
 }
 
-// RepoRecord is the stored repository row in BucketPluginRepos.
+// RepoRecord is the stored repository row.
 type RepoRecord struct {
 	ID          string    `json:"id"`
 	Kind        string    `json:"kind"`
@@ -70,26 +70,26 @@ type indexProvider struct {
 	client *http.Client
 }
 
-// Service owns repository records. The bbolt store stays authoritative
-// until Wave 10; the SQLite handle mirrors every write and serves reads
-// when attached through NewWithSQLite.
+// Service owns repository records in the plugin_repositories table.
 type Service struct {
-	store  *repository.Repository[RepoRecord]
 	index  *indexProvider
 	sqlite *repository.GormRepository[record.PluginRepository]
 }
 
-// New constructs a pluginrepo Service.
-func New(database *db.DB) *Service {
+// New constructs a pluginrepo Service on the SQLite handle.
+func New(sqliteDatabase *db.Database) *Service {
 	client := &http.Client{Timeout: 30 * time.Second}
-	return &Service{
-		store: repository.New[RepoRecord](database, db.BucketPluginRepos, "plugin repo"),
+	service := &Service{
 		index: &indexProvider{client: client},
 	}
+	if sqliteDatabase != nil && sqliteDatabase.Handle != nil {
+		service.sqlite = repository.NewGormRepository[record.PluginRepository](sqliteDatabase.Handle, "id")
+	}
+	return service
 }
 
-func (s *Service) referenceOf(record *RepoRecord) RepoRef {
-	return RepoRef{ID: record.ID, IndexURL: record.IndexURL}
+func (s *Service) referenceOf(value *RepoRecord) RepoRef {
+	return RepoRef{ID: value.ID, IndexURL: value.IndexURL}
 }
 
 // List returns all added repositories sorted by ID.
@@ -219,25 +219,6 @@ func (s *Service) EnsureBuiltinRepos() error {
 			Builtin: true, AddedAt: time.Now(),
 		}
 		if err := s.putRecord(record); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// PruneLegacyRepos deletes repository rows from retired schemes. Installed
-// plugins keep working; updates resume after reinstall from the catalog.
-// bbolt only: SQLite deletion belongs to Wave 10.
-func (s *Service) PruneLegacyRepos() error {
-	items, err := s.store.List()
-	if err != nil {
-		return err
-	}
-	for _, record := range items {
-		if record.Kind == "index" {
-			continue
-		}
-		if err := s.store.Delete(record.ID); err != nil {
 			return err
 		}
 	}

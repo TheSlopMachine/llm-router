@@ -280,8 +280,8 @@ func storageValueToBytes(value any) ([]byte, error) {
 }
 
 // storageValueFromBytes decodes one plugin storage value from JSON bytes.
-// Empty payloads read as missing, matching the bbolt envelope behavior for
-// absent rows.
+// Empty payloads read as missing, matching the previous envelope behavior
+// for absent rows.
 func storageValueFromBytes(raw []byte) (any, error) {
 	if len(raw) == 0 {
 		return nil, nil

@@ -13,7 +13,7 @@ import (
 func openSQLiteService(t *testing.T) (*Service, context.Context) {
 	t.Helper()
 	database := testutil.SetupTestSQLite(t)
-	return NewSQLite(database), context.Background()
+	return New(database), context.Background()
 }
 
 func buildJob(id string) *models.VideoJob {
@@ -28,13 +28,13 @@ func buildJob(id string) *models.VideoJob {
 	}
 }
 
-func TestCreateGetSQLiteRoundTrip(t *testing.T) {
+func TestCreateGetRoundTrip(t *testing.T) {
 	service, ctx := openSQLiteService(t)
 	job := buildJob("job-roundtrip")
-	if err := service.CreateSQLite(ctx, job); err != nil {
+	if err := service.Create(ctx, job); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	got, err := service.GetSQLite(ctx, "job-roundtrip")
+	got, err := service.Get(ctx, "job-roundtrip")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -49,27 +49,27 @@ func TestCreateGetSQLiteRoundTrip(t *testing.T) {
 	}
 }
 
-func TestCreateSQLiteValidation(t *testing.T) {
+func TestCreateValidation(t *testing.T) {
 	service, ctx := openSQLiteService(t)
-	if err := service.CreateSQLite(ctx, nil); err == nil {
+	if err := service.Create(ctx, nil); err == nil {
 		t.Errorf("create nil succeeded, want required error")
 	}
-	if err := service.CreateSQLite(ctx, &models.VideoJob{}); err == nil {
+	if err := service.Create(ctx, &models.VideoJob{}); err == nil {
 		t.Errorf("create empty id succeeded, want id required error")
 	}
 }
 
-func TestCreateSQLiteOverwrites(t *testing.T) {
+func TestCreateOverwrites(t *testing.T) {
 	service, ctx := openSQLiteService(t)
-	if err := service.CreateSQLite(ctx, buildJob("job-overwrite")); err != nil {
+	if err := service.Create(ctx, buildJob("job-overwrite")); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	second := buildJob("job-overwrite")
 	second.Status = "processing"
-	if err := service.CreateSQLite(ctx, second); err != nil {
+	if err := service.Create(ctx, second); err != nil {
 		t.Fatalf("recreate: %v", err)
 	}
-	got, err := service.GetSQLite(ctx, "job-overwrite")
+	got, err := service.Get(ctx, "job-overwrite")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -78,23 +78,23 @@ func TestCreateSQLiteOverwrites(t *testing.T) {
 	}
 }
 
-func TestGetSQLiteMissReturnsNotFound(t *testing.T) {
+func TestGetMissReturnsNotFound(t *testing.T) {
 	service, ctx := openSQLiteService(t)
-	_, err := service.GetSQLite(ctx, "job-missing")
+	_, err := service.Get(ctx, "job-missing")
 	if !errors.Is(err, apierrors.ErrNotFound) {
 		t.Errorf("error is %v, want not found sentinel", err)
 	}
 }
 
-func TestSetStatusSQLiteUpdates(t *testing.T) {
+func TestSetStatusUpdates(t *testing.T) {
 	service, ctx := openSQLiteService(t)
-	if err := service.CreateSQLite(ctx, buildJob("job-status")); err != nil {
+	if err := service.Create(ctx, buildJob("job-status")); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if err := service.SetStatusSQLite(ctx, "job-status", "completed"); err != nil {
+	if err := service.SetStatus(ctx, "job-status", "completed"); err != nil {
 		t.Fatalf("set status: %v", err)
 	}
-	got, err := service.GetSQLite(ctx, "job-status")
+	got, err := service.Get(ctx, "job-status")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -103,22 +103,22 @@ func TestSetStatusSQLiteUpdates(t *testing.T) {
 	}
 }
 
-func TestSetStatusSQLiteMissReturnsNotFound(t *testing.T) {
+func TestSetStatusMissReturnsNotFound(t *testing.T) {
 	service, ctx := openSQLiteService(t)
-	err := service.SetStatusSQLite(ctx, "job-missing", "completed")
+	err := service.SetStatus(ctx, "job-missing", "completed")
 	if !errors.Is(err, apierrors.ErrNotFound) {
 		t.Errorf("error is %v, want not found sentinel", err)
 	}
 }
 
-func TestSQLiteProviderIDStaysSoft(t *testing.T) {
+func TestProviderIDStaysSoft(t *testing.T) {
 	service, ctx := openSQLiteService(t)
 	job := buildJob("job-soft-provider")
 	job.ProviderID = "provider-that-does-not-exist"
-	if err := service.CreateSQLite(ctx, job); err != nil {
+	if err := service.Create(ctx, job); err != nil {
 		t.Fatalf("create with unknown provider: %v", err)
 	}
-	got, err := service.GetSQLite(ctx, "job-soft-provider")
+	got, err := service.Get(ctx, "job-soft-provider")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -127,40 +127,16 @@ func TestSQLiteProviderIDStaysSoft(t *testing.T) {
 	}
 }
 
-func TestSQLiteMethodsFailClosedWithoutHandle(t *testing.T) {
-	database := testutil.SetupTestDB(t)
-	service := New(database)
+func TestMethodsFailClosedWithoutHandle(t *testing.T) {
+	service := New(nil)
 	ctx := context.Background()
-	if err := service.CreateSQLite(ctx, buildJob("job-nowhere")); err == nil {
+	if err := service.Create(ctx, buildJob("job-nowhere")); err == nil {
 		t.Errorf("create without sqlite succeeded, want wired error")
 	}
-	if _, err := service.GetSQLite(ctx, "job-nowhere"); err == nil {
+	if _, err := service.Get(ctx, "job-nowhere"); err == nil {
 		t.Errorf("get without sqlite succeeded, want wired error")
 	}
-	if err := service.SetStatusSQLite(ctx, "job-nowhere", "completed"); err == nil {
+	if err := service.SetStatus(ctx, "job-nowhere", "completed"); err == nil {
 		t.Errorf("set status without sqlite succeeded, want wired error")
-	}
-}
-
-func TestWithSQLiteAttachesAlongside(t *testing.T) {
-	database := testutil.SetupTestDB(t)
-	service := New(database)
-	sqliteDatabase := testutil.SetupTestSQLite(t)
-	service.WithSQLite(sqliteDatabase)
-	ctx := context.Background()
-
-	bboltJob := buildJob("job-bbolt-kept")
-	if err := service.Create(bboltJob); err != nil {
-		t.Fatalf("bbolt create: %v", err)
-	}
-	sqliteJob := buildJob("job-sqlite-attached")
-	if err := service.CreateSQLite(ctx, sqliteJob); err != nil {
-		t.Fatalf("sqlite create: %v", err)
-	}
-	if _, err := service.Get("job-bbolt-kept"); err != nil {
-		t.Errorf("bbolt get: %v", err)
-	}
-	if _, err := service.GetSQLite(ctx, "job-sqlite-attached"); err != nil {
-		t.Errorf("sqlite get: %v", err)
 	}
 }

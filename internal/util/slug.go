@@ -22,3 +22,13 @@ func Slugify(name string) string {
 	slug = slugDashRegexp.ReplaceAllString(slug, "-")
 	return slug
 }
+
+// SlugifyOrDefault slugifies a name, returning the fallback when unusable.
+// Providers use it with the "provider" fallback so generated identifiers
+// never read empty.
+func SlugifyOrDefault(name, fallback string) string {
+	if slug := Slugify(name); slug != "" {
+		return slug
+	}
+	return fallback
+}

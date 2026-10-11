@@ -2,6 +2,7 @@ package healthcheck
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,6 +15,83 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
+
+// fakeLua is a scripted PluginHealth: verdict per credential, call counter,
+// optional gate to hold checks open for singleflight assertions.
+type fakeLua struct {
+	handlers       map[string]bool
+	cooldown       time.Duration
+	verdict        map[string]luaplugin.HealthStatus
+	calls          atomic.Int32
+	releaseChannel chan struct{}
+}
+
+func (f *fakeLua) HasHandler(typeKey, handler string) bool {
+	return f.handlers[typeKey+"/"+handler]
+}
+
+func (f *fakeLua) HealthCooldown(typeKey string) time.Duration {
+	if f.cooldown > 0 {
+		return f.cooldown
+	}
+	return luaplugin.DefaultHealthCooldown
+}
+
+func (f *fakeLua) CheckHealth(ctx context.Context, typeKey string, credential *models.Credential) (luaplugin.HealthStatus, string, error) {
+	f.calls.Add(1)
+	if f.releaseChannel != nil {
+		select {
+		case <-f.releaseChannel:
+		case <-ctx.Done():
+		}
+	}
+	if v, ok := f.verdict[credential.ID]; ok {
+		return v, "fake " + string(v), nil
+	}
+	return luaplugin.HealthHealthy, "", nil
+}
+
+// fakeCredentials is an in-memory CredentialStore.
+type fakeCredentials struct {
+	credentials map[string]*models.Credential
+	disabled    map[string]string
+}
+
+func (f *fakeCredentials) Get(_ context.Context, id string) (*models.Credential, error) {
+	return f.credentials[id], nil
+}
+
+func (f *fakeCredentials) DisableUnhealthy(_ context.Context, id, reason string) error {
+	f.disabled[id] = reason
+	f.credentials[id].Disabled = true
+	f.credentials[id].DisabledBy = "healthcheck"
+	return nil
+}
+
+// fakeProviders is an in-memory ProviderConfigs.
+type fakeProviders struct {
+	configs map[string]map[string]any
+}
+
+func (f *fakeProviders) Get(_ context.Context, id string) (*models.ProviderInstance, error) {
+	providerConfig, ok := f.configs[id]
+	if !ok {
+		return nil, stdErrors.New("provider not found")
+	}
+	return &models.ProviderInstance{ID: id, Config: providerConfig}, nil
+}
+
+func waitFor(t *testing.T, what string, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
 
 // seedHealthParents inserts the provider and credential rows the
 // credential_health foreign key requires. Health rows cascade from them.

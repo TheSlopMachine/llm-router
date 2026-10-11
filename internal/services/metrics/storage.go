@@ -2,222 +2,122 @@ package metrics
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
-	bolt "go.etcd.io/bbolt"
 )
 
-// persistBucket saves a bucket to the database.
+// persistBucket saves a bucket with its dimensions to SQLite in one
+// transaction.
 func (s *Service) persistBucket(bucket *MetricBucket, granularity string) error {
 	if bucket == nil {
 		return nil
 	}
-
-	if err := s.database.Update(func(tx *bolt.Tx) error {
-		metricsBucket := tx.Bucket(db.BucketMetrics)
-		if metricsBucket == nil {
-			return fmt.Errorf("metrics bucket not found")
-		}
-
-		key := bucketKey(bucket.Timestamp, granularity)
-		data, err := json.Marshal(bucket)
-		if err != nil {
-			return fmt.Errorf("marshal bucket: %w", err)
-		}
-
-		return metricsBucket.Put([]byte(key), data)
-	}); err != nil {
-		return err
-	}
-
-	if err := s.persistBucketSQLite(context.Background(), bucket, granularity); err != nil {
-		return fmt.Errorf("persist bucket sqlite: %w", err)
-	}
-	return nil
+	return s.persistBucketSQLite(context.Background(), bucket, granularity)
 }
 
-// loadBucket loads a single bucket from the database.
+// loadBucket loads a single bucket with its dimensions from SQLite.
 func (s *Service) loadBucket(timestamp time.Time, granularity string) (*MetricBucket, error) {
-	if s.bucketRepository != nil {
-		bucket, err := s.loadBucketSQLite(context.Background(), timestamp, granularity)
-		if err == nil {
-			return bucket, nil
-		}
-		if !errors.Is(err, apierrors.ErrNotFound) {
-			return nil, err
-		}
+	bucket, err := s.loadBucketSQLite(context.Background(), timestamp, granularity)
+	if err == nil {
+		return bucket, nil
 	}
-
-	var bucket MetricBucket
-
-	err := s.database.View(func(tx *bolt.Tx) error {
-		metricsBucket := tx.Bucket(db.BucketMetrics)
-		if metricsBucket == nil {
-			return fmt.Errorf("metrics bucket not found")
-		}
-
-		key := bucketKey(timestamp, granularity)
-		data := metricsBucket.Get([]byte(key))
-		if data == nil {
-			return fmt.Errorf("bucket not found")
-		}
-
-		return json.Unmarshal(data, &bucket)
-	})
-
-	if err != nil {
+	if !errors.Is(err, apierrors.ErrNotFound) {
 		return nil, err
 	}
-
-	return &bucket, nil
+	return nil, apierrors.NewNotFoundError("metric bucket", timestamp.UTC().Format(time.RFC3339)+"_"+granularity)
 }
 
-// loadBucketsInRange loads all buckets within a time range from the database.
+// loadBucketsInRange loads all buckets within a time range from SQLite with
+// dimensions attached.
 func (s *Service) loadBucketsInRange(start, end time.Time) ([]*MetricBucket, error) {
-	var buckets []*MetricBucket
-
-	err := s.database.View(func(tx *bolt.Tx) error {
-		metricsBucket := tx.Bucket(db.BucketMetrics)
-		if metricsBucket == nil {
-			return nil
-		}
-
-		cursor := metricsBucket.Cursor()
-		for key, value := cursor.First(); key != nil; key, value = cursor.Next() {
-			timestamp, _, err := parseBucketKey(string(key))
-			if err != nil {
-				continue
-			}
-
-			// Check if timestamp is within range
-			if (timestamp.Equal(start) || timestamp.After(start)) && (timestamp.Equal(end) || timestamp.Before(end)) {
-				var bucket MetricBucket
-				if err := json.Unmarshal(value, &bucket); err != nil {
-					s.logger.Warn("failed to unmarshal bucket", "key", string(key), "err", err)
-					continue
-				}
-				buckets = append(buckets, &bucket)
-			}
-		}
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	sqliteBuckets, err := s.loadBucketsInRangeSQLite(context.Background(), start, end)
-	if err != nil {
-		return nil, err
-	}
-
-	return mergeSQLiteBuckets(buckets, sqliteBuckets), nil
+	return s.loadBucketsInRangeSQLite(context.Background(), start, end)
 }
 
-// deleteBucketsOlderThan deletes all buckets older than the cutoff time.
+// deleteBucketsOlderThan deletes all buckets older than the cutoff time
+// from SQLite. Dimension children cascade from the base deletes.
 func (s *Service) deleteBucketsOlderThan(cutoff time.Time) error {
-	var toDelete []string
-
-	// First, collect keys to delete
-	err := s.database.View(func(tx *bolt.Tx) error {
-		metricsBucket := tx.Bucket(db.BucketMetrics)
-		if metricsBucket == nil {
-			return nil
-		}
-
-		cursor := metricsBucket.Cursor()
-		for key, _ := cursor.First(); key != nil; key, _ = cursor.Next() {
-			timestamp, _, err := parseBucketKey(string(key))
-			if err != nil {
-				continue
-			}
-
-			if timestamp.Before(cutoff) {
-				toDelete = append(toDelete, string(key))
-			}
-		}
-		return nil
-	})
-
+	removed, err := s.deleteBucketsOlderThanSQLite(context.Background(), cutoff)
 	if err != nil {
 		return err
 	}
-
-	if len(toDelete) == 0 {
-		_, sqliteErr := s.deleteBucketsOlderThanSQLite(context.Background(), cutoff)
-		return sqliteErr
+	if removed > 0 {
+		s.logger.Info("deleted old buckets", "count", removed)
 	}
-
-	// Delete collected keys
-	err = s.database.Update(func(tx *bolt.Tx) error {
-		metricsBucket := tx.Bucket(db.BucketMetrics)
-		if metricsBucket == nil {
-			return nil
-		}
-
-		for _, key := range toDelete {
-			if err := metricsBucket.Delete([]byte(key)); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	s.logger.Info("deleted old buckets", "count", len(toDelete))
-
-	if _, sqliteErr := s.deleteBucketsOlderThanSQLite(context.Background(), cutoff); sqliteErr != nil {
-		return sqliteErr
-	}
-
 	return nil
 }
 
-// loadTokenUsageFromDB loads all-time token usage from database.
-// Token breakdowns live in the token dimension child table, so the SQLite
-// base rows contribute nothing here.
-// TODO(Wave 7/8): aggregate metric_bucket_tokens once the token dimension lands.
+// loadTokenUsageFromDB aggregates all-time token usage from the SQLite
+// token dimension rows.
 func (s *Service) loadTokenUsageFromDB() (map[string]*TokenUsageInfo, error) {
 	usage := make(map[string]*TokenUsageInfo)
-
-	err := s.database.View(func(tx *bolt.Tx) error {
-		metricsBucket := tx.Bucket(db.BucketMetrics)
-		if metricsBucket == nil {
-			return nil
+	if s.bucketRepository == nil {
+		return usage, nil
+	}
+	rows, err := s.listTokenDimensionRows(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if usage[row.TokenID] == nil {
+			usage[row.TokenID] = &TokenUsageInfo{}
 		}
-
-		cursor := metricsBucket.Cursor()
-		for key, value := cursor.First(); key != nil; key, value = cursor.Next() {
-			var bucket MetricBucket
-			if err := json.Unmarshal(value, &bucket); err != nil {
-				s.logger.Warn("failed to unmarshal bucket", "key", string(key), "err", err)
-				continue
-			}
-
-			for tokenID, tokenMetrics := range bucket.ByTokenID {
-				if usage[tokenID] == nil {
-					usage[tokenID] = &TokenUsageInfo{}
-				}
-				usage[tokenID].Requests += tokenMetrics.Requests
-
-				// Keep most recent LastUsed
-				if tokenMetrics.LastUsed != nil {
-					if usage[tokenID].LastUsed == nil || tokenMetrics.LastUsed.After(*usage[tokenID].LastUsed) {
-						usage[tokenID].LastUsed = tokenMetrics.LastUsed
-					}
-				}
+		usage[row.TokenID].Requests += row.Requests
+		if row.LastUsed != nil {
+			if usage[row.TokenID].LastUsed == nil || row.LastUsed.After(*usage[row.TokenID].LastUsed) {
+				copied := *row.LastUsed
+				usage[row.TokenID].LastUsed = &copied
 			}
 		}
-		return nil
-	})
+	}
+	return usage, nil
+}
 
-	return usage, err
+// listTokenDimensionRows returns every token dimension row for usage
+// aggregation. Callers fold requests and latest use in Go.
+func (s *Service) listTokenDimensionRows(ctx context.Context) ([]record.MetricBucketToken, error) {
+	if s.sqliteDatabase == nil {
+		return nil, nil
+	}
+	rows, err := gorm.G[record.MetricBucketToken](s.sqliteDatabase).Find(ctx)
+	if err != nil {
+		return nil, db.Translate(err)
+	}
+	return rows, nil
+}
+
+// listModelDimensionRows returns every model dimension row for distinct
+// model listing. Callers deduplicate in Go.
+func (s *Service) listModelDimensionRows(ctx context.Context) ([]record.MetricBucketModel, error) {
+	if s.sqliteDatabase == nil {
+		return nil, nil
+	}
+	rows, err := gorm.G[record.MetricBucketModel](s.sqliteDatabase).Find(ctx)
+	if err != nil {
+		return nil, db.Translate(err)
+	}
+	return rows, nil
+}
+
+// loadDistinctModelsFromDB returns every model ID present in the SQLite
+// model dimension rows.
+func (s *Service) loadDistinctModelsFromDB() ([]string, error) {
+	rows, err := s.listModelDimensionRows(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	models := []string{}
+	for _, row := range rows {
+		if !seen[row.ModelID] {
+			seen[row.ModelID] = true
+			models = append(models, row.ModelID)
+		}
+	}
+	return models, nil
 }

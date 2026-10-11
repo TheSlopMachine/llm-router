@@ -17,11 +17,12 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
 
-func setupRouterService(t *testing.T) (*Service, *credential.Service, *modelinfo.Service, *testutil.MockAdapter) {
+func setupRouterService(t *testing.T) (*Service, *credential.GormService, *modelinfo.GormService, *testutil.MockAdapter) {
 	t.Helper()
-	database := testutil.SetupTestDB(t)
+	database := testutil.SetupTestSQLite(t)
+	ctx := context.Background()
 
-	providerService := provider.NewService(database)
+	providerService := provider.NewGorm(database)
 	mock := testutil.NewMockAdapter("mock").WithCompleteFunc(func(ctx context.Context, creds []*models.Credential, request *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
 		return &models.ChatCompletionResponse{
 			ID:      "test-response",
@@ -32,11 +33,11 @@ func setupRouterService(t *testing.T) (*Service, *credential.Service, *modelinfo
 		}, nil
 	})
 	providerService.RegisterGoAdapter(mock)
-	if _, err := providerService.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
+	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
 	}
-	credentialService := credential.New(database, providerService)
-	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
+	credentialService := credential.NewGorm(database, providerService)
+	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, 1*time.Hour)
 
 	routerService := New(providerService, credentialService, modelInfoService, videojobs.New(database), nil, nil, slog.Default())
 
@@ -50,7 +51,7 @@ func setupRouterService(t *testing.T) (*Service, *credential.Service, *modelinfo
 func TestRouterService_Complete_Success(t *testing.T) {
 	service, credentialService, _, _ := setupRouterService(t)
 
-	credentialService.Add(credential.AddOptions{
+	credentialService.Add(context.Background(), credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Test Cred",
 		Data:       map[string]any{"api_key": "test-key"},
@@ -121,12 +122,12 @@ func TestRouterService_Complete_NoCredentials(t *testing.T) {
 func TestRouterService_Complete_PassesFullPoolInSingleCall(t *testing.T) {
 	service, credentialService, _, mock := setupRouterService(t)
 
-	credentialService.Add(credential.AddOptions{
+	credentialService.Add(context.Background(), credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "key1"},
 	})
-	credentialService.Add(credential.AddOptions{
+	credentialService.Add(context.Background(), credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 2",
 		Data:       map[string]any{"api_key": "key2"},
@@ -156,12 +157,12 @@ func TestRouterService_Complete_PassesFullPoolInSingleCall(t *testing.T) {
 func TestRouterService_Complete_BackendErrorSurfacesWithoutRepeat(t *testing.T) {
 	service, credentialService, _, mock := setupRouterService(t)
 
-	credentialService.Add(credential.AddOptions{
+	credentialService.Add(context.Background(), credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "key1"},
 	})
-	credentialService.Add(credential.AddOptions{
+	credentialService.Add(context.Background(), credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 2",
 		Data:       map[string]any{"api_key": "key2"},
@@ -193,7 +194,7 @@ func TestRouterService_Complete_BackendErrorSurfacesWithoutRepeat(t *testing.T) 
 func TestRouterService_TestVision_Success(t *testing.T) {
 	service, credentialService, _, _ := setupRouterService(t)
 
-	credentialService.Add(credential.AddOptions{
+	credentialService.Add(context.Background(), credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "key1"},
@@ -208,12 +209,12 @@ func TestRouterService_TestVision_Success(t *testing.T) {
 func TestRouterService_TestModel_BypassesManualDisable(t *testing.T) {
 	service, credentialService, modelInfoService, _ := setupRouterService(t)
 
-	credentialService.Add(credential.AddOptions{
+	credentialService.Add(context.Background(), credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "key1"},
 	})
-	if err := modelInfoService.SetOverride(models.ModelOverride{
+	if err := modelInfoService.SetOverride(context.Background(), models.ModelOverride{
 		ProviderID: "mock",
 		Name:       "test-model",
 		Disabled:   true,
@@ -238,7 +239,7 @@ func TestRouterService_TestModel_BypassesManualDisable(t *testing.T) {
 func TestRouterService_Complete_AuthErrorSingleAttempt(t *testing.T) {
 	service, credentialService, _, mock := setupRouterService(t)
 
-	credentialService.Add(credential.AddOptions{
+	credentialService.Add(context.Background(), credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "key1"},
@@ -270,7 +271,7 @@ func TestRouterService_Complete_AuthErrorSingleAttempt(t *testing.T) {
 func TestRouterService_TestModel_MarksQuotaExceeded(t *testing.T) {
 	service, credentialService, _, mock := setupRouterService(t)
 
-	credentialService.Add(credential.AddOptions{
+	credentialService.Add(context.Background(), credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "key1"},

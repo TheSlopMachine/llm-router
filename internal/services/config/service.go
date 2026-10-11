@@ -1,19 +1,14 @@
-// Package config manages RouterConfiguration persisted in the RouterConfiguration bucket.
-//
-// The bbolt path serves live traffic. The SQLite path grows alongside it
-// during the GORM migration and takes over at cutover: the single
-// instance_settings row carries the configuration columns plus the
-// bootstrapped flag.
+// Package config manages RouterConfiguration persisted in the
+// instance_settings row: the configuration columns plus the bootstrapped
+// flag.
 package config
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -24,83 +19,27 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/repository"
 )
 
-const instanceKey = "instance"
-
 // instanceRowID pins the single instance_settings row. The table CHECK
 // enforces id = 1; the service never reads or writes another identifier.
 const instanceRowID int64 = 1
 
 // Service manages RouterConfiguration.
 type Service struct {
-	database *db.DB
 	sqlite   *db.Database
 	settings *repository.GormRepository[record.InstanceSetting]
 }
 
-// New constructs a config Service on the bbolt handle. The SQLite path
-// stays disabled until NewWithSQLite supplies the SQLite handle.
-func New(database *db.DB) *Service {
-	return &Service{database: database}
-}
-
-// NewWithSQLite constructs a config Service with both handles. The bbolt
-// path serves live traffic until Wave 10; the SQLite path is additive.
-func NewWithSQLite(database *db.DB, sqlite *db.Database) *Service {
-	service := New(database)
-	if sqlite != nil {
-		service.sqlite = sqlite
+// New constructs a config Service on the SQLite handle.
+func New(sqlite *db.Database) *Service {
+	service := &Service{sqlite: sqlite}
+	if sqlite != nil && sqlite.Handle != nil {
 		service.settings = repository.NewGormRepository[record.InstanceSetting](sqlite.Handle, "id")
 	}
 	return service
 }
 
-// Get returns the stored RouterConfiguration.
-func (s *Service) Get() (models.RouterConfiguration, error) {
-	var routerConfiguration models.RouterConfiguration
-	err := s.database.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(db.BucketRouterConfiguration)
-		if bucket == nil {
-			return nil
-		}
-		value := bucket.Get([]byte(instanceKey))
-		if value == nil {
-			return nil
-		}
-		return json.Unmarshal(value, &routerConfiguration)
-	})
-	if err != nil {
-		return models.RouterConfiguration{}, err
-	}
-	return routerConfiguration, nil
-}
-
-// Put validates and persists RouterConfiguration.
-func (s *Service) Put(routerConfiguration models.RouterConfiguration) error {
-	if err := routerConfiguration.Validate(); err != nil {
-		return err
-	}
-	encoded, err := json.Marshal(routerConfiguration)
-	if err != nil {
-		return fmt.Errorf("marshal RouterConfiguration: %w", err)
-	}
-	if err := s.database.Update(func(tx *bolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists(db.BucketRouterConfiguration)
-		if err != nil {
-			return err
-		}
-		return bucket.Put([]byte(instanceKey), encoded)
-	}); err != nil {
-		return err
-	}
-	return nil
-}
-
-// ─────────────────────────────────────────────
-// SQLite (GORM) path
-// ─────────────────────────────────────────────
-
 // GetSettings returns the stored RouterConfiguration from instance_settings.
-// A missing row returns the zero configuration, matching the bbolt path.
+// A missing row returns the zero configuration, matching the previous behavior.
 func (s *Service) GetSettings(ctx context.Context) (models.RouterConfiguration, error) {
 	settings, err := s.requireSettings()
 	if err != nil {

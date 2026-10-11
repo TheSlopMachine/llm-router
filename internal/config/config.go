@@ -74,16 +74,8 @@ type Config struct {
 	// APIAddr is the address the /v1 OpenAI-compatible API binds to (e.g. "localhost:8081").
 	APIAddr string
 
-	// DBPath is the primary database path. A path ending in .sqlite3
-	// names the SQLite file with the bbolt sibling beside it; any other
-	// path names the bbolt file with the SQLite sibling beside it.
+	// DBPath is the path to the SQLite database file.
 	DBPath string
-
-	// SQLitePath is the path to the SQLite database file backing the GORM
-	// services. Empty derives the sibling of DBPath: a DBPath ending in
-	// .sqlite3 names SQLite directly, any other DBPath keeps naming bbolt
-	// with the .sqlite3 sibling beside it.
-	SQLitePath string
 
 	// LogLevel controls slog verbosity.
 	LogLevel LogLevel

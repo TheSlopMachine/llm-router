@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/TheSlopMachine/llm-router/internal/dashboard"
-	"github.com/TheSlopMachine/llm-router/internal/db"
+	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 )
 
-func bootstrapMiddleware(database *db.DB, noAuth bool) func(http.Handler) http.Handler {
+func bootstrapMiddleware(adminService *admin.GormService, noAuth bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			exempt := r.URL.Path == "/login" ||
@@ -23,7 +23,7 @@ func bootstrapMiddleware(database *db.DB, noAuth bool) func(http.Handler) http.H
 				strings.HasPrefix(r.URL.Path, "/icons/")
 
 			if !exempt {
-				real, err := database.IsBootstrapped()
+				real, err := adminService.IsBootstrapped(r.Context())
 				if err != nil || !dashboard.EffectiveBootstrapped(real, noAuth) {
 					if strings.HasPrefix(r.URL.Path, "/api/") {
 						w.Header().Set("Content-Type", "application/json")

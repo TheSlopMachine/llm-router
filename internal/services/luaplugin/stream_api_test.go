@@ -63,7 +63,7 @@ func streamProxyStub(t *testing.T, status int, body string) string {
 func setupStreamAPIService(t *testing.T, proxyURL string) *Service {
 	t.Helper()
 	service := setupService(t)
-	if _, err := service.Install([]byte(streamAPIPluginTemplate), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(streamAPIPluginTemplate), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	service.SetProxyQuery(func(pool, country string, limit int) ([]models.ProxyView, error) {
@@ -127,7 +127,7 @@ llm_router.register("sdef-type", {
   end,
 })
 `)
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	service.SetProxyQuery(func(pool, country string, limit int) ([]models.ProxyView, error) {

@@ -2,7 +2,6 @@ package maintenance
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -10,9 +9,6 @@ import (
 	"testing"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
-
-	"github.com/TheSlopMachine/llm-router/internal/db"
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
@@ -138,12 +134,11 @@ func (s *stubModelInfo) calledWith() []string {
 	return append([]string(nil), s.calls...)
 }
 
-// gormMaintenanceStack builds a GormService with stub jobs and providers on
-// a fresh bbolt database. The logger stays nil to pin the nil-safe logging.
+// gormMaintenanceStack builds a GormService with stub jobs and providers.
+// The logger stays nil to pin the nil-safe logging.
 func gormMaintenanceStack(t *testing.T, backend *stubJobBackend, providers *stubProviderSource) *GormService {
 	t.Helper()
-	boltDatabase := testutil.SetupTestDB(t)
-	return NewGormService(boltDatabase, backend, providers, nil)
+	return NewGormService(backend, providers, nil)
 }
 
 // waitForGormCondition polls until the condition holds or the test times out.
@@ -157,34 +152,6 @@ func waitForGormCondition(t *testing.T, what string, condition func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s", what)
-}
-
-// seedAuthEntry writes one auth flow row with the given creation time. The
-// cleanup path reads only CreatedAt, so the minimal shape suffices.
-func seedAuthEntry(t *testing.T, boltDatabase *db.DB, key string, createdAt time.Time) {
-	t.Helper()
-	payload, err := json.Marshal(map[string]string{"created_at": createdAt.UTC().Format(time.RFC3339Nano)})
-	if err != nil {
-		t.Fatalf("marshal auth entry: %v", err)
-	}
-	if err := boltDatabase.Update(func(transaction *bolt.Tx) error {
-		return transaction.Bucket(db.BucketAuth).Put([]byte(key), payload)
-	}); err != nil {
-		t.Fatalf("seed auth entry %q: %v", key, err)
-	}
-}
-
-// authEntryPresent reports whether one auth flow row exists.
-func authEntryPresent(t *testing.T, boltDatabase *db.DB, key string) bool {
-	t.Helper()
-	var present bool
-	if err := boltDatabase.View(func(transaction *bolt.Tx) error {
-		present = transaction.Bucket(db.BucketAuth).Get([]byte(key)) != nil
-		return nil
-	}); err != nil {
-		t.Fatalf("read auth entry %q: %v", key, err)
-	}
-	return present
 }
 
 func TestGormRunDueJobsRunsEnabledSkipsDisabled(t *testing.T) {
@@ -242,10 +209,9 @@ func TestGormRunDueJobsStartupSkipsNonStartup(t *testing.T) {
 }
 
 func TestGormRunDueJobsNilDependenciesSkip(t *testing.T) {
-	boltDatabase := testutil.SetupTestDB(t)
 	ctx := context.Background()
-	NewGormService(boltDatabase, nil, &stubProviderSource{}, nil).runDueJobs(ctx, false)
-	NewGormService(boltDatabase, &stubJobBackend{}, nil, nil).runDueJobs(ctx, false)
+	NewGormService(nil, &stubProviderSource{}, nil).runDueJobs(ctx, false)
+	NewGormService(&stubJobBackend{}, nil, nil).runDueJobs(ctx, false)
 }
 
 func TestGormRunDueJobsListErrorStops(t *testing.T) {
@@ -404,38 +370,7 @@ func TestGormSyncProviderModelsNilRefresherSkips(t *testing.T) {
 	service.syncProviderModels(context.Background())
 }
 
-func TestGormCleanupAuthFlowsRemovesExpired(t *testing.T) {
-	boltDatabase := testutil.SetupTestDB(t)
-	backend := &stubJobBackend{}
-	providers := &stubProviderSource{}
-	service := NewGormService(boltDatabase, backend, providers, nil)
-	now := time.Now().UTC()
-	seedAuthEntry(t, boltDatabase, "expired", now.Add(-20*time.Minute))
-	seedAuthEntry(t, boltDatabase, "fresh", now)
-	if err := boltDatabase.Update(func(transaction *bolt.Tx) error {
-		return transaction.Bucket(db.BucketAuth).Put([]byte("malformed"), []byte("not json"))
-	}); err != nil {
-		t.Fatalf("seed malformed entry: %v", err)
-	}
-	service.cleanupAuthFlows()
-	if authEntryPresent(t, boltDatabase, "expired") {
-		t.Fatal("expired auth flow still present, want it removed")
-	}
-	if !authEntryPresent(t, boltDatabase, "fresh") {
-		t.Fatal("fresh auth flow missing, want it kept")
-	}
-	if !authEntryPresent(t, boltDatabase, "malformed") {
-		t.Fatal("malformed auth flow missing, want it skipped, never deleted")
-	}
-}
-
-func TestGormCleanupAuthFlowsNilDatabaseSkips(t *testing.T) {
-	service := NewGormService(nil, &stubJobBackend{}, &stubProviderSource{}, nil)
-	service.cleanupAuthFlows()
-}
-
-func TestGormStartupRefreshRunsStartupJobsAndCleansAuth(t *testing.T) {
-	boltDatabase := testutil.SetupTestDB(t)
+func TestGormStartupRefreshRunsStartupJobs(t *testing.T) {
 	backend := &stubJobBackend{jobs: map[string]map[string]luaplugin.JobSpec{
 		"test-type": {
 			"boot":     {IntervalSeconds: 3600, RunOnStartup: true},
@@ -445,8 +380,7 @@ func TestGormStartupRefreshRunsStartupJobsAndCleansAuth(t *testing.T) {
 	providers := &stubProviderSource{providers: map[string]*models.ProviderInstance{
 		"provider": {ID: "provider", TypeKey: "test-type"},
 	}}
-	service := NewGormService(boltDatabase, backend, providers, nil)
-	seedAuthEntry(t, boltDatabase, "expired", time.Now().UTC().Add(-20*time.Minute))
+	service := NewGormService(backend, providers, nil)
 	service.RunStartupRefresh(context.Background())
 	if got := backend.callCount(); got != 1 {
 		t.Fatalf("startup calls = %d, want only the startup-flagged job", got)
@@ -454,20 +388,16 @@ func TestGormStartupRefreshRunsStartupJobsAndCleansAuth(t *testing.T) {
 	if reasons := backend.reasons(); len(reasons) != 1 || reasons[0] != "startup" {
 		t.Fatalf("reasons = %v, want one startup reason", reasons)
 	}
-	if authEntryPresent(t, boltDatabase, "expired") {
-		t.Fatal("expired auth flow still present after startup refresh, want it removed")
-	}
 }
 
 func TestGormStartTicksJobs(t *testing.T) {
-	boltDatabase := testutil.SetupTestDB(t)
 	backend := &stubJobBackend{jobs: map[string]map[string]luaplugin.JobSpec{
 		"test-type": {"nightly": {}},
 	}}
 	providers := &stubProviderSource{providers: map[string]*models.ProviderInstance{
 		"provider": {ID: "provider", TypeKey: "test-type"},
 	}}
-	service := NewGormService(boltDatabase, backend, providers, nil).WithInterval(5 * time.Millisecond)
+	service := NewGormService(backend, providers, nil).WithInterval(5 * time.Millisecond)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	service.Start(ctx)
@@ -490,8 +420,7 @@ func TestGormAgainstRealProviderGormService(t *testing.T) {
 	backend := &stubJobBackend{jobs: map[string]map[string]luaplugin.JobSpec{
 		"test-type": {"nightly": {}},
 	}}
-	boltDatabase := testutil.SetupTestDB(t)
-	service := NewGormService(boltDatabase, backend, providerService, nil)
+	service := NewGormService(backend, providerService, nil)
 	service.runDueJobs(ctx, false)
 	if got := backend.callCount(); got != 1 {
 		t.Fatalf("job calls = %d, want 1 through the real provider rows", got)

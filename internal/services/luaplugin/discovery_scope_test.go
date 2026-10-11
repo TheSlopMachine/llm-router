@@ -1,6 +1,7 @@
 package luaplugin
 
 import (
+	"context"
 	"testing"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
@@ -35,7 +36,7 @@ llm_router.register("scope-type", {
 
 func TestGetModelInfosScopesCredentialsByProvider(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(scopePluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(scopePluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	rows := map[string][]*models.Credential{
@@ -49,12 +50,12 @@ func TestGetModelInfosScopesCredentialsByProvider(t *testing.T) {
 	}
 	var seenScopes []string
 	service.SetCredentialAccess(
-		func(providerID string) ([]*models.Credential, error) {
+		func(ctx context.Context, providerID string) ([]*models.Credential, error) {
 			seenScopes = append(seenScopes, providerID)
 			return rows[providerID], nil
 		},
-		func(id string) (*models.Credential, error) { return nil, nil },
-		func(id string, data map[string]any) error { return nil },
+		func(ctx context.Context, id string) (*models.Credential, error) { return nil, nil },
+		func(ctx context.Context, id string, data map[string]any) error { return nil },
 	)
 
 	modelInfos, err := service.GetModelInfos(t.Context(), "provider-a", "scope-type", nil)

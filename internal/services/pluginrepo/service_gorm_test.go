@@ -12,7 +12,7 @@ import (
 
 func setupGormService(t *testing.T) *Service {
 	t.Helper()
-	return NewWithSQLite(testutil.SetupTestDB(t), testutil.SetupTestSQLite(t))
+	return New(testutil.SetupTestSQLite(t))
 }
 
 func TestGormEnsureBuiltinReposSeedsAndMirrors(t *testing.T) {
@@ -27,12 +27,12 @@ func TestGormEnsureBuiltinReposSeedsAndMirrors(t *testing.T) {
 	if len(listed) != 1 || listed[0].ID != builtinID() || !listed[0].Builtin {
 		t.Fatalf("list: %+v", listed)
 	}
-	stored, err := service.store.Get(builtinID())
+	stored, err := service.Get(builtinID())
 	if err != nil {
-		t.Fatalf("bbolt mirror missing: %v", err)
+		t.Fatalf("stored row missing: %v", err)
 	}
 	if !stored.Builtin || stored.IndexURL != BuiltinRepos[0].Index {
-		t.Fatalf("bbolt mirror mismatch: %+v", stored)
+		t.Fatalf("stored row mismatch: %+v", stored)
 	}
 }
 
@@ -97,12 +97,12 @@ func TestGormAddRepoDirectIndex(t *testing.T) {
 	if again.ID != stored.ID {
 		t.Fatalf("re-add changed id: %q -> %q", stored.ID, again.ID)
 	}
-	mirror, err := service.store.Get(stored.ID)
+	mirror, err := service.Get(stored.ID)
 	if err != nil {
-		t.Fatalf("bbolt mirror missing: %v", err)
+		t.Fatalf("stored row missing: %v", err)
 	}
 	if mirror.Title != "Test store" {
-		t.Fatalf("bbolt mirror mismatch: %+v", mirror)
+		t.Fatalf("stored row mismatch: %+v", mirror)
 	}
 }
 
@@ -137,9 +137,6 @@ func TestGormRemoveRegular(t *testing.T) {
 	if _, err := service.Get(seed.ID); !errors.Is(err, apierrors.ErrNotFound) {
 		t.Fatalf("get after remove: got %v, want not-found", err)
 	}
-	if _, err := service.store.Get(seed.ID); err == nil {
-		t.Fatalf("bbolt row still present after remove")
-	}
 }
 
 func TestGormRemoveBuiltinProtected(t *testing.T) {
@@ -159,29 +156,5 @@ func TestGormRemoveMissingReportsNotFound(t *testing.T) {
 	service := setupGormService(t)
 	if err := service.Remove("index/missing"); !errors.Is(err, apierrors.ErrNotFound) {
 		t.Fatalf("remove missing: got %v, want not-found", err)
-	}
-}
-
-func TestGormPruneLegacySkipsSQLite(t *testing.T) {
-	service := setupGormService(t)
-	legacy := &RepoRecord{ID: "github/someone/elsewhere", Kind: "github"}
-	if err := service.store.Put(legacy.ID, legacy); err != nil {
-		t.Fatalf("put legacy: %v", err)
-	}
-	if err := service.EnsureBuiltinRepos(); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	if err := service.PruneLegacyRepos(); err != nil {
-		t.Fatalf("prune: %v", err)
-	}
-	if _, err := service.store.Get(legacy.ID); err == nil {
-		t.Fatalf("legacy repository still present in bbolt")
-	}
-	got, err := service.Get(builtinID())
-	if err != nil {
-		t.Fatalf("builtin repository pruned from SQLite: %v", err)
-	}
-	if !got.Builtin {
-		t.Fatalf("builtin flag lost: %+v", got)
 	}
 }

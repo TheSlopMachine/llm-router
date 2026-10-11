@@ -124,8 +124,8 @@ func (h *Handler) apiProxyRecheckBanned(w http.ResponseWriter, r *http.Request) 
 // @Failure      401 {object} models.ErrorResponse
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/proxy-pools [get]
-func (h *Handler) apiProxyPoolsList(w http.ResponseWriter, _ *http.Request) {
-	pools, err := h.proxyService.ListCustomPools()
+func (h *Handler) apiProxyPoolsList(w http.ResponseWriter, r *http.Request) {
+	pools, err := h.proxyService.ListCustomPools(r.Context())
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -154,7 +154,7 @@ func (h *Handler) apiProxyPoolsSave(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	saved, err := h.proxyService.SaveCustomPool(&body)
+	saved, err := h.proxyService.SaveCustomPool(r.Context(), &body)
 	if err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -172,7 +172,7 @@ func (h *Handler) apiProxyPoolsSave(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/proxy-pools/{id} [delete]
 func (h *Handler) apiProxyPoolsDelete(w http.ResponseWriter, r *http.Request) {
-	if err := h.proxyService.DeleteCustomPool(r.PathValue("id")); err != nil {
+	if err := h.proxyService.DeleteCustomPool(r.Context(), r.PathValue("id")); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}

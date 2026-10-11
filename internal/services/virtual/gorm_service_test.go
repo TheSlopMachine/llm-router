@@ -24,7 +24,7 @@ func setupGormVirtual(t *testing.T) (*GormService, *db.Database, context.Context
 	ctx := context.Background()
 	seedGormVirtualProvider(t, ctx, database, "demo", "Demo")
 	seedGormVirtualProvider(t, ctx, database, "other", "Other")
-	return NewGorm(database), database, ctx
+	return NewGorm(database, nil, nil), database, ctx
 }
 
 func seedGormVirtualProvider(t *testing.T, ctx context.Context, database *db.Database, identifier, name string) {
@@ -424,7 +424,7 @@ func TestGormConverterFailures(t *testing.T) {
 }
 
 func TestGormMethodsFailClosedWithoutHandle(t *testing.T) {
-	service := NewGorm(nil)
+	service := NewGorm(nil, nil, nil)
 	ctx := context.Background()
 	if err := service.Create(ctx, gormVirtualModel("Name", "demo/model-a")); err == nil {
 		t.Error("create without handle must fail")

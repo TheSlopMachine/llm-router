@@ -36,14 +36,14 @@ func (g *firstByteGate) Written() bool { return g.written }
 // Adapter implements the provider.GoAdapter interface for virtual models.
 type Adapter struct {
 	routerService  provider.Completer
-	virtualService *virtual.Service
+	virtualService *virtual.GormService
 	logger         *slog.Logger
 }
 
 // New constructs an Adapter with all dependencies. The router dependency
 // enters as the narrow provider.Completer port, so construction order is
 // explicit and no setter injection is needed.
-func New(completer provider.Completer, virtualService *virtual.Service, logger *slog.Logger) *Adapter {
+func New(completer provider.Completer, virtualService *virtual.GormService, logger *slog.Logger) *Adapter {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -54,7 +54,7 @@ func New(completer provider.Completer, virtualService *virtual.Service, logger *
 // (virtual/<agent-id>) and returns the agent, the member queue snapshotted
 // for this request, and the request with the instruction prepended as the
 // first user message.
-func (a *Adapter) resolve(request *models.ChatCompletionRequest) (*models.VirtualModel, []models.ModelId, *models.ChatCompletionRequest, error) {
+func (a *Adapter) resolve(ctx context.Context, request *models.ChatCompletionRequest) (*models.VirtualModel, []models.ModelId, *models.ChatCompletionRequest, error) {
 	_, agentID, err := request.Model.Parse()
 	if err != nil {
 		return nil, nil, nil, &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: fmt.Sprintf("invalid model id: %s", err)}
@@ -66,14 +66,14 @@ func (a *Adapter) resolve(request *models.ChatCompletionRequest) (*models.Virtua
 	if virtualService == nil {
 		return nil, nil, nil, fmt.Errorf("virtual model service not initialized")
 	}
-	agent, err := virtualService.Get(agentID)
+	agent, err := virtualService.Get(ctx, agentID)
 	if err != nil {
 		return nil, nil, nil, &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: fmt.Sprintf("virtual model %q not found", agentID)}
 	}
 	if agent.Disabled {
 		return nil, nil, nil, fmt.Errorf("%w: virtual/%s", apierrors.ErrModelDisabled, agentID)
 	}
-	members, err := virtualService.LiveMembers(agent)
+	members, err := virtualService.LiveMembers(ctx, agent)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("virtual model %q members: %w", agent.Name, err)
 	}
@@ -108,7 +108,7 @@ func (a *Adapter) ValidateCredentials(data map[string]any) error {
 		return fmt.Errorf("virtual model service not initialized")
 	}
 
-	_, err := virtualService.Get(agentID)
+	_, err := virtualService.Get(context.Background(), agentID)
 	if err != nil {
 		return fmt.Errorf("virtual model not found: %w", err)
 	}
@@ -127,7 +127,7 @@ func (a *Adapter) Complete(
 		return nil, fmt.Errorf("router service not initialized")
 	}
 
-	agent, members, modifiedRequest, err := a.resolve(request)
+	agent, members, modifiedRequest, err := a.resolve(ctx, request)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +182,7 @@ func (a *Adapter) CompleteStream(
 		return fmt.Errorf("router service not initialized")
 	}
 
-	agent, members, modifiedRequest, err := a.resolve(request)
+	agent, members, modifiedRequest, err := a.resolve(ctx, request)
 	if err != nil {
 		return err
 	}
@@ -250,14 +250,14 @@ func (a *Adapter) SubmitVideo(
 	if virtualService == nil {
 		return nil, fmt.Errorf("virtual model service not initialized")
 	}
-	agent, err := virtualService.Get(agentID)
+	agent, err := virtualService.Get(ctx, agentID)
 	if err != nil {
 		return nil, &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: fmt.Sprintf("virtual model %q not found", agentID)}
 	}
 	if agent.Disabled {
 		return nil, fmt.Errorf("%w: virtual/%s", apierrors.ErrModelDisabled, agentID)
 	}
-	members, err := virtualService.LiveMembers(agent)
+	members, err := virtualService.LiveMembers(ctx, agent)
 	if err != nil {
 		return nil, fmt.Errorf("virtual model %q members: %w", agent.Name, err)
 	}
@@ -311,7 +311,7 @@ func (a *Adapter) GetModelInfos(ctx context.Context, credential *models.Credenti
 		return nil, fmt.Errorf("virtual model service not initialized")
 	}
 
-	agents, err := virtualService.List()
+	agents, err := virtualService.List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list virtual models: %w", err)
 	}

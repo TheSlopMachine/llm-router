@@ -90,10 +90,10 @@ Open every session by identifying the platform and shell. Never assume them.
 
 ## 2. Project
 
-`llm-router` — single-binary OpenAI-compatible LLM routing gateway. Go backend + embedded Svelte SPA + embedded bbolt DB.
+`llm-router` — single-binary OpenAI-compatible LLM routing gateway. Go backend + embedded Svelte SPA + embedded SQLite DB.
 
 - Routes `ModelId = provider/model` (e.g. `opencode-zen/gpt-5`, `virtual/my-model`) → backend; plugins select credentials under the token allow-list gate.
-- Provider backends are single-file Lua plugins (installed store records in `BucketPlugins`, sourced from plugin store repositories). Built-in Go backends exist only for `custom` (OpenAI-compatible passthrough) and `virtual` (virtual models).
+- Provider backends are single-file Lua plugins (installed store records in the `plugins` table, sourced from plugin store repositories). Built-in Go backends exist only for `custom` (OpenAI-compatible passthrough) and `virtual` (virtual models).
 
 ## 3. Structure
 
@@ -119,10 +119,10 @@ internal/services/
   config/                instance-wide router configuration
   datamanagement/        subsystem export/import/clear + provider export/import/purge
   doctor/                database inspection and repair
-  proxypool/             free-pool hosting, Lua feed bridge, bbolt cache, custom pools, lane scheduler adapter
+  proxypool/             free-pool hosting, Lua feed bridge, SQLite cache, custom pools, lane scheduler adapter
 internal/httpkit/        shared transport helpers (SSE headers)
 internal/errors/         domain sentinels + ToAPIError
-internal/repository/     bbolt buckets
+internal/repository/     typed SQLite operations
 internal/dashboard/      admin REST API
 internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/models, /v1/messages
 internal/models/         shared wire types
@@ -199,7 +199,7 @@ If the task needs `browser`, `build`, `publish`, or `clean`: STOP. Ask the human
 | # | Prohibition | Detail |
 |---|---|---|
 | 1 | Kill processes | No `kill`, `pkill`, `taskkill`, `Stop-Process`. Use `make stop` / `make restart` so pidfiles stay consistent. `make restart` / `make smoke` stop live dev processes first: warn before running them when the user may have work in flight. |
-| 2 | Delete database files | Never remove `~/.local/llm-router/llm-router-dev.db` (or the Windows equivalent). If it is corrupt, ask the human to delete it. |
+| 2 | Delete database files | Never remove `~/.local/llm-router/llm-router-dev.sqlite3` (or the Windows equivalent). If it is corrupt, ask the human to delete it. |
 | 3 | Run destructive git commands | No `git push`, `git reset`, `git checkout -f`, `git clean`, force-push, amend. Commit only if explicitly instructed, for that exact commit only. |
 | 4 | Litter the project | No `*.log`, `*.pid`, `*.tmp`, binaries, scratch files, notes inside the project tree. Use `/tmp` or an external scratch dir. Delete temporary verification files when done. |
 | 5 | Avoid the Makefile | No raw command substitutes for an allowed target (§4.2). No manual invocation of a banned target's underlying steps (§4.3). |

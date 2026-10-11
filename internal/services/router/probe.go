@@ -47,11 +47,11 @@ func probeRequest(model models.ModelId) *models.ChatCompletionRequest {
 // (DisabledBy="healthcheck"); unknown and handler failures change nothing.
 // overrideModel is accepted for endpoint compatibility and ignored.
 func (s *Service) TestCredential(ctx context.Context, providerID, credentialID string, overrideModel string) TestResult {
-	resolved, err := provider.Resolve(s.providerService, providerID)
+	resolved, err := provider.Resolve(s.providerService, ctx, providerID)
 	if err != nil {
 		return TestResult{Error: err.Error(), Code: apierrors.ToAPIError(err).Code}
 	}
-	credential, err := s.credentialService.Get(credentialID)
+	credential, err := s.credentialService.Get(ctx, credentialID)
 	if err != nil {
 		return TestResult{Error: "credential not found", Code: "not_found"}
 	}
@@ -83,7 +83,7 @@ func (s *Service) TestCredential(ctx context.Context, providerID, credentialID s
 		if !disableFailedCredentials(resolved) {
 			return TestResult{Error: reason, Code: "unhealthy", Summary: "credential unhealthy", Latency: latency}
 		}
-		if disableError := s.credentialService.DisableUnhealthy(credentialID, reason); disableError != nil {
+		if disableError := s.credentialService.DisableUnhealthy(ctx, credentialID, reason); disableError != nil {
 			return TestResult{Error: disableError.Error(), Code: "upstream_error", Summary: "disable failed", Latency: latency}
 		}
 		return TestResult{Error: reason, Code: "unhealthy", Summary: "credential unhealthy, disabled", Latency: latency}
@@ -292,7 +292,7 @@ func (s *Service) ProbeCapabilities(ctx context.Context, modelID models.ModelId)
 	if err != nil {
 		return nil, fmt.Errorf("invalid model id: %w", err)
 	}
-	if _, err := provider.Resolve(s.providerService, providerID); err != nil {
+	if _, err := provider.Resolve(s.providerService, ctx, providerID); err != nil {
 		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
 	}
 

@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -35,14 +36,14 @@ func (h *Handler) authInitiate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider, ok := h.loadVisibleProvider(body.ProviderID)
+	provider, ok := h.loadVisibleProvider(r.Context(), body.ProviderID)
 	if !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
 
 	// Go backends never offer stepped flows; fall back without touching Lua.
-	if _, ok := h.providerService.GoAdapterFor(provider.TypeKey); ok {
+	if _, ok := h.gormProviderService.GoAdapterFor(provider.TypeKey); ok {
 		h.jsonErr(w, http.StatusConflict, "provider does not support stepped auth flows")
 		return
 	}
@@ -63,7 +64,7 @@ func (h *Handler) authInitiate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.renderAuthResult(w, result, body.ProviderID, flowID)
+	h.renderAuthResult(w, r.Context(), result, body.ProviderID, flowID)
 }
 
 // authStep submits one wizard step and returns the next state.
@@ -95,13 +96,13 @@ func (h *Handler) authStep(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider, ok := h.loadVisibleProvider(body.ProviderID)
+	provider, ok := h.loadVisibleProvider(r.Context(), body.ProviderID)
 	if !ok {
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
 
-	if _, ok := h.providerService.GoAdapterFor(provider.TypeKey); ok {
+	if _, ok := h.gormProviderService.GoAdapterFor(provider.TypeKey); ok {
 		h.jsonErr(w, http.StatusConflict, "provider does not support stepped auth flows")
 		return
 	}
@@ -116,10 +117,10 @@ func (h *Handler) authStep(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.renderAuthResult(w, result, body.ProviderID, body.FlowID)
+	h.renderAuthResult(w, r.Context(), result, body.ProviderID, body.FlowID)
 }
 
-func (h *Handler) renderAuthResult(w http.ResponseWriter, result *models.AuthFlowResult, providerID, flowID string) {
+func (h *Handler) renderAuthResult(w http.ResponseWriter, ctx context.Context, result *models.AuthFlowResult, providerID, flowID string) {
 	if result == nil {
 		h.jsonErr(w, http.StatusInternalServerError, "empty auth result")
 		return
@@ -140,7 +141,7 @@ func (h *Handler) renderAuthResult(w http.ResponseWriter, result *models.AuthFlo
 			"provider_id":  providerID,
 		})
 	case result.Credentials != nil:
-		credential, err := h.credentialService.Add(credential.AddOptions{
+		credential, err := h.gormCredentialService.Add(ctx, credential.AddOptions{
 			ProviderID: providerID,
 			Label:      buildAutoCredentialLabel(providerID, result.Credentials),
 			Data:       result.Credentials,

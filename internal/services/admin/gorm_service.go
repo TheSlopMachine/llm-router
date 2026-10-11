@@ -23,8 +23,7 @@ import (
 const instanceRowID int64 = 1
 
 // GormService manages admin users and dashboard sessions on the SQLite
-// handle. The bbolt Service stays live until cutover; this type owns the
-// GORM path with explicit converters between wire types and rows. Session
+// handle with explicit converters between wire types and rows. Session
 // tokens persist as SHA-256 hashes only; the plaintext token returns once
 // at login and never lands in storage. Traditional GORM use: none; every
 // statement runs through gorm.G with typed clauses.
@@ -81,6 +80,26 @@ func (s *GormService) Bootstrap(ctx context.Context, username, password string) 
 		settings.UpdatedAt = util.Now()
 		return upsertInstanceSettings(ctx, transaction, settings)
 	})
+}
+
+// IsBootstrapped returns true once the admin account has been created.
+// A missing settings row reads as not bootstrapped.
+func (s *GormService) IsBootstrapped(ctx context.Context) (bool, error) {
+	if _, err := s.requireHandle(); err != nil {
+		return false, err
+	}
+	var bootstrapped bool
+	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		settings, err := loadInstanceSettings(ctx, transaction)
+		if err != nil {
+			return err
+		}
+		bootstrapped = settings.Bootstrapped
+		return nil
+	}); err != nil {
+		return false, err
+	}
+	return bootstrapped, nil
 }
 
 // ChangePassword verifies the current password and stores the new hash. A
@@ -158,7 +177,7 @@ func (s *GormService) Login(ctx context.Context, username, password string, reme
 }
 
 // Logout invalidates a session token. Missing tokens are not errors,
-// matching the bbolt path.
+// matching the previous behavior.
 func (s *GormService) Logout(ctx context.Context, token string) {
 	if _, err := s.requireHandle(); err != nil {
 		return
@@ -173,7 +192,7 @@ func (s *GormService) Logout(ctx context.Context, token string) {
 // ValidateSession returns the username for a valid, non-expired session
 // token. The expiration refreshes on each call (sliding window). Expired
 // sessions delete in the same transaction. Unknown or expired tokens deny
-// with false, never an error, matching the bbolt path.
+// with false, never an error, matching the previous behavior.
 func (s *GormService) ValidateSession(ctx context.Context, token string) (string, bool) {
 	if _, err := s.requireHandle(); err != nil {
 		return "", false

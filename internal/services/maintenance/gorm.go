@@ -1,11 +1,9 @@
 // GORM-backed maintenance scheduling.
 //
-// GormService mirrors Service against context-taking dependencies so the
-// scheduler runs unchanged on GORM-backed providers and plugins. It owns no
-// tables: jobs stay in-memory (the lastRun/running maps; no record type and
-// no new table per the wave scope) and auth cleanup stays on the bbolt
-// handle until Wave 10 removes BucketAuth with auth.go. The bbolt Service
-// stays live until cutover; this type only schedules.
+// GormService runs background jobs for provider plugins against
+// context-taking dependencies. It owns no tables: jobs stay in-memory (the
+// lastRun/running maps). Auth flow state has no table: expiry is enforced
+// by the dashboard readers, and no cleanup pass exists.
 package maintenance
 
 import (
@@ -16,27 +14,36 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
-	"github.com/TheSlopMachine/llm-router/internal/repository"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
+	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 )
 
-// PluginJobs is the luaplugin surface the GORM maintenance path needs: job
-// schedules plus one job execution. The luaplugin Service satisfies it on
-// both the bbolt and SQLite paths; the registry and RunJob signatures are
-// storage-agnostic, so no luaplugin statement runs here.
+const defaultCheckInterval = 60 * time.Second
+
+// maxJobWorkers bounds concurrent job runs: jobs are independent per
+// provider, but an unbounded fan-out would storm one upstream when many
+// schedules align.
+const maxJobWorkers = 4
+
+// modelInfoRefresher is the slice of modelinfo the maintenance loop needs.
+type modelInfoRefresher interface {
+	MergedView(ctx context.Context, providerID string) ([]modelinfo.ModelView, error)
+}
+
+// PluginJobs is the luaplugin surface the maintenance path needs: job
+// schedules plus one job execution. The luaplugin Service satisfies it; the
+// registry and RunJob signatures are storage-agnostic, so no luaplugin
+// statement runs here.
 type PluginJobs interface {
 	Jobs(typeKey string) map[string]luaplugin.JobSpec
 	RunJob(ctx context.Context, typeKey, jobName, reason, providerID string, providerConfig map[string]any) error
 }
 
-// ProviderInventory is the provider surface the GORM maintenance path
-// needs: one row for manual triggers plus the full list for ticks.
-// Signatures match the provider GORM service. The bbolt provider Service
-// differs (context-free Get/List) and stays on the bbolt maintenance path
-// until Wave 10.
+// ProviderInventory is the provider surface the maintenance path needs:
+// one row for manual triggers plus the full list for ticks. Signatures
+// match the provider GORM service.
 type ProviderInventory interface {
 	Get(ctx context.Context, identifier string) (*models.ProviderInstance, error)
 	List(ctx context.Context) ([]*models.ProviderInstance, error)
@@ -51,12 +58,9 @@ var (
 )
 
 // GormService runs background jobs for provider plugins against
-// GORM-compatible dependencies. Scheduling semantics match Service
-// exactly: bounded workers, overlap skips, startup bypass, auto-sync gate.
+// GORM-compatible dependencies. Scheduling semantics: bounded workers,
+// overlap skips, startup bypass, auto-sync gate.
 type GormService struct {
-	// boltDatabase serves auth cleanup only until Wave 10 removes
-	// BucketAuth. Jobs and providers never touch it.
-	boltDatabase   *db.DB
 	jobBackend     PluginJobs
 	providerSource ProviderInventory
 	interval       time.Duration
@@ -73,9 +77,8 @@ type GormService struct {
 // default check interval. Construction performs no I/O. SetModelInfoService
 // wires model metadata refresh for providers with
 // config.models_auto_sync enabled.
-func NewGormService(boltDatabase *db.DB, jobBackend PluginJobs, providerSource ProviderInventory, logger *slog.Logger) *GormService {
+func NewGormService(jobBackend PluginJobs, providerSource ProviderInventory, logger *slog.Logger) *GormService {
 	return &GormService{
-		boltDatabase:   boltDatabase,
 		jobBackend:     jobBackend,
 		providerSource: providerSource,
 		interval:       defaultCheckInterval,
@@ -97,12 +100,11 @@ func (s *GormService) WithInterval(duration time.Duration) *GormService {
 	return s
 }
 
-// RunStartupRefresh runs startup jobs and cleans expired auth flows
-// synchronously. It never fails startup: every outcome logs inside the
-// pass, and cancellation only stops launching new workers.
+// RunStartupRefresh runs startup jobs synchronously. It never fails
+// startup: every outcome logs inside the pass, and cancellation only stops
+// launching new workers.
 func (s *GormService) RunStartupRefresh(ctx context.Context) {
 	s.runStartupJobs(ctx)
-	s.cleanupAuthFlows()
 }
 
 // Start launches the maintenance loop in a background goroutine.
@@ -119,7 +121,6 @@ func (s *GormService) Start(ctx context.Context) {
 				return
 			case <-ticker.C:
 				s.runCycle(ctx)
-				s.cleanupAuthFlows()
 			}
 		}
 	}()
@@ -300,26 +301,6 @@ func (s *GormService) syncProviderModels(ctx context.Context) {
 		if _, err := s.modelInfoRefresher.MergedView(ctx, providerInstance.ID); err != nil {
 			s.logWarn("maintenance: model auto-sync failed", "provider_id", providerInstance.ID, "err", err)
 		}
-	}
-}
-
-// cleanupAuthFlows removes auth flow entries older than 10 minutes from the
-// bbolt bucket. Auth state has no GORM table; Wave 10 removes BucketAuth
-// with auth.go. A missing bbolt handle skips the pass.
-func (s *GormService) cleanupAuthFlows() {
-	if s.boltDatabase == nil {
-		return
-	}
-	threshold := time.Now().UTC().Add(-10 * time.Minute)
-
-	type authEntry struct {
-		CreatedAt time.Time `json:"created_at"`
-	}
-
-	if err := repository.CleanupExpired(s.boltDatabase, db.BucketAuth, threshold, func(e *authEntry) time.Time {
-		return e.CreatedAt
-	}); err != nil {
-		s.logError("maintenance: cleanup auth flows failed", "err", err)
 	}
 }
 

@@ -12,23 +12,24 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
 
-func newSyncTestStack(t *testing.T) (*Service, *modelinfo.Service) {
+func newSyncTestStack(t *testing.T) (*GormService, *modelinfo.GormService) {
 	t.Helper()
-	database := testutil.SetupTestDB(t)
-	providerService := provider.NewService(database)
+	database := testutil.SetupTestSQLite(t)
+	ctx := context.Background()
+	providerService := provider.NewGorm(database)
 	providerService.RegisterGoAdapter(testutil.NewMockAdapter("demo").WithModelInfos([]models.ModelInfo{
 		{Name: "chat-a", Endpoints: []string{models.EndpointChatCompletions}},
 		{Name: "voice-a", Endpoints: []string{models.EndpointAudioSpeech}},
 	}))
-	if _, err := providerService.Create(provider.CreateOptions{Name: "Demo", TypeKey: "demo"}); err != nil {
+	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Demo", TypeKey: "demo"}); err != nil {
 		t.Fatalf("seed demo provider: %v", err)
 	}
-	credentialService := credential.New(database, providerService)
-	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
+	credentialService := credential.NewGorm(database, providerService)
+	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, 1*time.Hour)
 	if _, err := modelInfoService.GetModelInfos(context.Background(), "demo"); err != nil {
 		t.Fatalf("warm model cache: %v", err)
 	}
-	return New(database, providerService, modelInfoService), modelInfoService
+	return NewGorm(database, providerService, modelInfoService), modelInfoService
 }
 
 func groupByEndpoint(groups []ProviderVMGroup) map[string]ProviderVMGroup {
@@ -74,7 +75,7 @@ func TestSyncProviderModelsCreatesOnePerEndpoint(t *testing.T) {
 	if groupByEndpoint(again)["chat"].Virtual.ID != chat.Virtual.ID {
 		t.Fatal("resync must not recreate")
 	}
-	if all, _ := service.List(); len(all) != 2 {
+	if all, _ := service.List(ctx); len(all) != 2 {
 		t.Fatalf("expected 2 managed virtual models, got %d", len(all))
 	}
 }
@@ -86,7 +87,7 @@ func TestSyncProviderModelsDropsEmptiedGroup(t *testing.T) {
 	if _, err := service.SyncProviderModels(ctx, "demo"); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
-	if err := modelInfoService.SetOverride(models.ModelOverride{
+	if err := modelInfoService.SetOverride(ctx, models.ModelOverride{
 		ProviderID: "demo",
 		Name:       "voice-a",
 		Disabled:   true,
@@ -100,7 +101,7 @@ func TestSyncProviderModelsDropsEmptiedGroup(t *testing.T) {
 	if _, ok := groupByEndpoint(groups)["speech"]; ok {
 		t.Fatal("emptied group must vanish")
 	}
-	if all, _ := service.List(); len(all) != 1 {
+	if all, _ := service.List(ctx); len(all) != 1 {
 		t.Fatalf("managed virtual model of emptied group must be deleted, got %d", len(all))
 	}
 }

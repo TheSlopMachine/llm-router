@@ -1,50 +1,46 @@
 package provider
 
 import (
-	"encoding/json"
-	"fmt"
+	"context"
 	"sort"
 	"strings"
-	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	"github.com/TheSlopMachine/llm-router/internal/models"
-	bolt "go.etcd.io/bbolt"
+	"github.com/TheSlopMachine/llm-router/internal/util"
 )
 
 // EnsureSeeded creates the virtual-models row and one provider row per
 // enabled Lua plugin type key when none exists yet, keeping fresh installs
 // routable without manual provider setup. Missing icons on existing rows
 // are backfilled from the plugin; user-set icons are never overwritten.
-// Seeded rows are marked UI-readonly (set automatically by the core, never
-// from Lua or the dashboard); the virtual-models row is additionally UI-hidden.
-func (s *Service) EnsureSeeded() error {
-	now := time.Now()
-	ensure := func(id, name, typeKey, icon string) error {
-		if _, err := s.providers.Get(id); err == nil {
+// Seeded rows are marked UI-readonly; the virtual-models row is
+// additionally UI-hidden.
+func (s *GormService) EnsureSeeded(ctx context.Context) error {
+	ensure := func(identifier, name, typeKey, icon string) error {
+		if _, err := s.Get(ctx, identifier); err == nil {
 			return nil
 		}
-		hidden := typeKey == TypeVirtual
-		inst := &models.ProviderInstance{
-			ID: id, Name: name, TypeKey: typeKey,
-			Config: map[string]any{}, IconURL: icon,
-			IsUIReadonly: true, IsUIHidden: hidden,
-			CreatedAt: now, UpdatedAt: now,
+		now := util.Now()
+		candidate := &models.ProviderInstance{
+			ID:           identifier,
+			Name:         name,
+			TypeKey:      typeKey,
+			Config:       map[string]any{},
+			IconURL:      icon,
+			IsUIReadonly: true,
+			IsUIHidden:   typeKey == TypeVirtual,
+			CreatedAt:    now,
+			UpdatedAt:    now,
 		}
-		if err := s.providers.Put(id, inst); err != nil {
+		if err := s.createSeedRow(ctx, candidate); err != nil {
 			return err
 		}
-		s.notifyChanged(id)
+		s.notifyChanged(identifier)
 		return nil
-	}
-	// The legacy "agents" singleton row is dead weight; virtual models live
-	// under the "virtual" row now.
-	if err := s.providers.DeleteIfExists("agents"); err != nil {
-		return fmt.Errorf("drop legacy agents provider row: %w", err)
-	}
-	// Backfill flags on rows that match the seed pattern (pre-flag installs).
-	if err := s.backfillSeedFlags(); err != nil {
-		return err
 	}
 	if err := ensure(TypeVirtual, "Virtual models", TypeVirtual, ""); err != nil {
 		return err
@@ -52,7 +48,7 @@ func (s *Service) EnsureSeeded() error {
 	if s.luaService == nil {
 		return nil
 	}
-	records, err := s.luaService.List()
+	records, err := s.luaService.ListSQLite(ctx)
 	if err != nil {
 		return err
 	}
@@ -74,7 +70,7 @@ func (s *Service) EnsureSeeded() error {
 		if s.luaService != nil {
 			icon = s.luaService.Icon(key)
 		}
-		existing, err := s.GetByType(key)
+		existing, err := s.GetByType(ctx, key)
 		if err != nil {
 			return err
 		}
@@ -95,11 +91,7 @@ func (s *Service) EnsureSeeded() error {
 			if inst.IconURL != "" {
 				continue
 			}
-			if err := s.providers.Update(inst.ID, func(provider *models.ProviderInstance) error {
-				provider.IconURL = icon
-				provider.UpdatedAt = time.Now()
-				return nil
-			}); err != nil {
+			if _, err := s.Update(ctx, inst.ID, UpdateOptions{Name: inst.Name, Config: inst.Config, IconURL: icon}); err != nil {
 				return err
 			}
 		}
@@ -107,72 +99,21 @@ func (s *Service) EnsureSeeded() error {
 	return nil
 }
 
-// backfillSeedFlags marks pre-flag rows matching the seed pattern as
-// UI-readonly (the bare `agents` row additionally UI-hidden). Rows with
-// qualifiers stay editable: only the singleton slot is core-managed.
-func (s *Service) backfillSeedFlags() error {
-	rows, err := s.providers.List()
-	if err != nil {
+// SyncDefaultProviders seeds the built-in provider rows. Runtime plugin
+// changes call it so newly installed types gain their default rows.
+func (s *GormService) SyncDefaultProviders(ctx context.Context) error {
+	return s.EnsureSeeded(ctx)
+}
+
+// createSeedRow inserts a seed row with its UI flags verbatim. The public
+// Create path cannot serve seeds: it never stamps the core-managed flags.
+func (s *GormService) createSeedRow(ctx context.Context, instance *models.ProviderInstance) error {
+	if _, err := s.requireHandle(); err != nil {
 		return err
 	}
-	for _, inst := range rows {
-		wantReadonly := inst.ID == inst.TypeKey && inst.TypeKey != TypeCustom
-		wantHidden := inst.TypeKey == TypeVirtual && inst.ID == TypeVirtual
-		if !wantReadonly && !wantHidden {
-			continue
-		}
-		if inst.IsUIReadonly == wantReadonly && inst.IsUIHidden == wantHidden {
-			continue
-		}
-		if err := s.providers.Update(inst.ID, func(provider *models.ProviderInstance) error {
-			provider.IsUIReadonly = wantReadonly
-			provider.IsUIHidden = wantHidden
-			provider.UpdatedAt = time.Now()
-			return nil
-		}); err != nil {
-			return err
-		}
+	row := providerRecordFromModel(instance)
+	if err := gorm.G[record.ProviderInstance](s.database.Handle).Create(ctx, &row); err != nil {
+		return db.Translate(err)
 	}
 	return nil
-}
-
-// CleanupOrphanedCredentials deletes credentials whose provider no longer exists.
-func (s *Service) CleanupOrphanedCredentials() (int, error) {
-	providers, err := s.providers.List()
-	if err != nil {
-		return 0, err
-	}
-	known := map[string]bool{}
-	for _, existing := range providers {
-		known[existing.ID] = true
-	}
-	count := 0
-	err = s.database.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(db.BucketCredentials)
-		if bucket == nil {
-			return nil
-		}
-		var toDelete [][]byte
-		_ = bucket.ForEach(func(key, value []byte) error {
-			var credential models.Credential
-			if err := json.Unmarshal(value, &credential); err != nil {
-				return nil
-			}
-			if providerID := strings.TrimSpace(credential.ProviderID); providerID != "" && !known[providerID] {
-				toDelete = append(toDelete, append([]byte(nil), key...))
-			}
-			return nil
-		})
-		for _, key := range toDelete {
-			if err := bucket.Delete(key); err != nil {
-				return err
-			}
-			count = len(toDelete)
-		}
-		return nil
-	})
-	if err == nil && count > 0 && s.logger != nil {
-		s.logger.Info("cleaned orphaned credentials", "count", count)
-	}
-	return count, err
 }

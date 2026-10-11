@@ -1,14 +1,11 @@
 package metrics
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
 
-	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
-	bolt "go.etcd.io/bbolt"
 )
 
 // QueryOverview returns aggregated metrics for the specified filters.
@@ -86,10 +83,8 @@ func (s *Service) QueryTimeSeries(metric string, filters models.MetricsFilters) 
 	return points, nil
 }
 
-// GetDistinctModels returns a list of unique models from metrics data.
-// Model names live in the model dimension child table, so the SQLite base
-// rows contribute nothing here.
-// TODO(Wave 7/8): union metric_bucket_models once the model dimension lands.
+// GetDistinctModels returns a list of unique models from metrics data:
+// in-memory buckets plus the SQLite model dimension rows.
 func (s *Service) GetDistinctModels() ([]string, error) {
 	modelSet := make(map[string]bool)
 
@@ -102,30 +97,13 @@ func (s *Service) GetDistinctModels() ([]string, error) {
 	}
 	s.mutex.RUnlock()
 
-	// Check database for historical models
-	err := s.database.View(func(tx *bolt.Tx) error {
-		metricsBucket := tx.Bucket(db.BucketMetrics)
-		if metricsBucket == nil {
-			return nil
-		}
-
-		cursor := metricsBucket.Cursor()
-		for key, value := cursor.First(); key != nil; key, value = cursor.Next() {
-			var bucket MetricBucket
-			if err := json.Unmarshal(value, &bucket); err != nil {
-				s.logger.Warn("failed to unmarshal bucket", "key", string(key), "err", err)
-				continue
-			}
-
-			for model := range bucket.ByModel {
-				modelSet[model] = true
-			}
-		}
-		return nil
-	})
-
+	// Check SQLite for historical models
+	stored, err := s.loadDistinctModelsFromDB()
 	if err != nil {
 		return nil, err
+	}
+	for _, model := range stored {
+		modelSet[model] = true
 	}
 
 	// Convert to slice

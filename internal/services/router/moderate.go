@@ -78,6 +78,6 @@ func (s *Service) moderateWithProxy(
 		return nil, "", err
 	}
 	response, _, err := s.moderateOne(ctx, resolved, credentials, allowed, request)
-	s.dropMissingModel(resolvedRequest.providerID, resolvedRequest.modelName, err)
+	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
 	return response, "", err
 }

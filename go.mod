@@ -8,7 +8,6 @@ require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/spf13/cobra v1.8.0
 	github.com/yuin/gopher-lua v1.1.2
-	go.etcd.io/bbolt v1.3.9
 	golang.org/x/crypto v0.57.0
 	gorm.io/gorm v1.31.2
 	modernc.org/sqlite v1.23.1

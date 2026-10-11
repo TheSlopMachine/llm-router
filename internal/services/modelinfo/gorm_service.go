@@ -3,6 +3,8 @@ package modelinfo
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"sync"
 	"time"
 
 	stdErrors "errors"
@@ -14,22 +16,34 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 )
 
 // GormService manages model overrides and the per-provider model metadata
-// cache on the SQLite handle. The bbolt Service stays live until cutover;
-// this type owns the GORM path with explicit converters between wire types
-// and override plus snapshot rows. The cache TTL stays out: this layer
-// persists the stamped header verbatim and never expires reads. Traditional
-// GORM use: none; every statement runs through gorm.G with typed clauses.
+// cache on the SQLite handle with explicit converters between wire types
+// and override plus snapshot rows. The discovery layer (memory cache,
+// upstream fetch, merged views) rides the same handle: persistence stamps
+// the header verbatim and never expires reads. Traditional GORM use: none;
+// every statement runs through gorm.G with typed clauses.
 type GormService struct {
-	database *db.Database
+	database          *db.Database
+	providerService   *provider.GormService
+	credentialService *credential.GormService
+	cacheTTL          time.Duration
+	logger            *slog.Logger
+
+	mu       sync.RWMutex
+	cache    map[string]cacheEntry
+	inflight map[string]*inflightCall
 }
 
 // NewGorm constructs a GORM-backed model info service on the SQLite handle.
 // Construction performs no I/O.
-func NewGorm(database *db.Database) *GormService {
-	return &GormService{database: database}
+func NewGorm(database *db.Database, providerService *provider.GormService, credentialService *credential.GormService, cacheTTL time.Duration) *GormService {
+	service := &GormService{database: database}
+	service.wireDiscovery(providerService, credentialService, cacheTTL)
+	return service
 }
 
 // orderOverridesByModelName sorts override rows by model name.
@@ -371,8 +385,8 @@ func (s *GormService) DeleteSnapshot(ctx context.Context, providerID string) err
 
 // RemoveModel drops one model from the cached list of one provider.
 // Capability, modality, and endpoint rows cascade from the model delete. A
-// missing provider or model is a no-op reporting false, matching the bbolt
-// path.
+// missing provider or model is a no-op reporting false. The memory entry
+// filters in step so peeks observe the removal without a refetch.
 func (s *GormService) RemoveModel(ctx context.Context, providerID, modelName string) (bool, error) {
 	if _, err := s.requireHandle(); err != nil {
 		return false, err
@@ -388,6 +402,20 @@ func (s *GormService) RemoveModel(ctx context.Context, providerID, modelName str
 		return nil
 	}); err != nil {
 		return false, err
+	}
+	if removed {
+		s.mu.Lock()
+		if entry, ok := s.cache[providerID]; ok {
+			kept := make([]models.ModelInfo, 0, len(entry.models))
+			for _, model := range entry.models {
+				if model.Name != modelName {
+					kept = append(kept, model)
+				}
+			}
+			entry.models = kept
+			s.cache[providerID] = entry
+		}
+		s.mu.Unlock()
 	}
 	return removed, nil
 }

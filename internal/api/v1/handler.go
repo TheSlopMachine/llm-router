@@ -33,12 +33,12 @@ import (
 
 // Handler holds the dependencies for the v1 API.
 type Handler struct {
-	tokens       *token.Service
+	tokens       *token.GormService
 	router       *router.Service
 	metrics      *metrics.Service
-	providerSvc  *provider.Service
-	modelInfoSvc *modelinfo.Service
-	virtualSvc   *virtual.Service
+	providerSvc  *provider.GormService
+	modelInfoSvc *modelinfo.GormService
+	virtualSvc   *virtual.GormService
 	logger       *slog.Logger
 	noAuth       bool
 }
@@ -741,7 +741,7 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, token *mode
 	// Global listing like dashboard Available Models, not per-token.
 	// Never hide a provider on discovery error — log and optionally emit synthetic entry.
 	if h.providerSvc != nil && h.modelInfoSvc != nil {
-		if providers, err := h.providerSvc.List(); err == nil {
+		if providers, err := h.providerSvc.List(r.Context()); err == nil {
 			for _, providerInstance := range providers {
 				if providerInstance.TypeKey == provider.TypeVirtual || providerInstance.Disabled {
 					continue
@@ -782,7 +782,7 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, token *mode
 		}
 	}
 	if h.virtualSvc != nil {
-		if agents, err := h.virtualSvc.List(); err == nil {
+		if agents, err := h.virtualSvc.List(r.Context()); err == nil {
 			// Virtual metadata is folded serve-time from the member views
 			// above: unknown members are skipped, a virtual model with no
 			// available members stays hidden. Pure in-memory work, fanned out.
@@ -949,7 +949,7 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, token *m
 	var virtualAgent *models.VirtualModel
 	var virtualMetadata virtual.Metadata
 	if providerID == provider.TypeVirtual && h.virtualSvc != nil {
-		if agent, err := h.virtualSvc.Get(modelName); err == nil && !agent.Disabled {
+		if agent, err := h.virtualSvc.Get(r.Context(), modelName); err == nil && !agent.Disabled {
 			// Members resolve cache-only: a single lookup must never ping
 			// upstreams. Unknown members are skipped; no available members
 			// means the virtual model does not exist for this endpoint.
@@ -966,7 +966,7 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, token *m
 				}
 				var members []modelinfo.ModelView
 				for memberProviderID, memberNames := range need {
-					memberViews, viewError := h.modelInfoSvc.PeekMergedView(memberProviderID)
+					memberViews, viewError := h.modelInfoSvc.PeekMergedView(r.Context(), memberProviderID)
 					if viewError != nil {
 						h.logger.Warn("v1 retrieveModel: provider view unavailable, skipping members",
 							"virtual_id", agent.ID, "provider_id", memberProviderID)
@@ -1005,7 +1005,7 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, token *m
 			}
 		}
 	} else if h.providerSvc != nil && h.modelInfoSvc != nil {
-		if provider, err := h.providerSvc.Get(providerID); err == nil {
+		if provider, err := h.providerSvc.Get(r.Context(), providerID); err == nil {
 			ownedBy = provider.TypeKey
 			created = provider.CreatedAt.Unix()
 			if views, err := h.modelInfoSvc.MergedView(r.Context(), providerID); err == nil {
@@ -1145,7 +1145,7 @@ func (h *Handler) auth(next authenticatedHandler, allowAnonymous bool) http.Hand
 			return
 		}
 
-		token, err := h.tokens.Validate(raw)
+		token, err := h.tokens.Validate(r.Context(), raw)
 		if err != nil {
 			if errors.Is(err, apierrors.ErrUnauthorized) {
 				h.writeError(w, http.StatusUnauthorized, "invalid_request_error", "Incorrect API key provided. You can find your API key at https://platform.openai.com/account/api-keys.", nil)

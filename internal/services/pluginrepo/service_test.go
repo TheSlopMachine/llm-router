@@ -9,7 +9,7 @@ import (
 
 func setupService(t *testing.T) *Service {
 	t.Helper()
-	return New(testutil.SetupTestDB(t))
+	return New(testutil.SetupTestSQLite(t))
 }
 
 func builtinID() string {
@@ -67,7 +67,7 @@ func TestEnsureBuiltinReposIdempotent(t *testing.T) {
 func TestEnsureBuiltinReposMarksExisting(t *testing.T) {
 	service := setupService(t)
 	record := &RepoRecord{ID: builtinID(), Kind: "index", IndexURL: BuiltinRepos[0].Index}
-	if err := service.store.Put(record.ID, record); err != nil {
+	if err := service.putRecord(record); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 	if err := service.EnsureBuiltinRepos(); err != nil {
@@ -79,26 +79,6 @@ func TestEnsureBuiltinReposMarksExisting(t *testing.T) {
 	}
 	if !got.Builtin || got.SourceURL != BuiltinRepos[0].Source {
 		t.Fatalf("existing repo not adopted: %+v", got)
-	}
-}
-
-func TestPruneLegacyRepos(t *testing.T) {
-	service := setupService(t)
-	legacy := &RepoRecord{ID: "github/someone/elsewhere", Kind: "github"}
-	if err := service.store.Put(legacy.ID, legacy); err != nil {
-		t.Fatalf("put: %v", err)
-	}
-	if err := service.EnsureBuiltinRepos(); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	if err := service.PruneLegacyRepos(); err != nil {
-		t.Fatalf("prune: %v", err)
-	}
-	if _, err := service.Get(legacy.ID); err == nil {
-		t.Fatalf("legacy repo still present")
-	}
-	if _, err := service.Get(builtinID()); err != nil {
-		t.Fatalf("builtin repo pruned: %v", err)
 	}
 }
 
@@ -119,7 +99,7 @@ func TestRemoveBuiltinProtected(t *testing.T) {
 func TestRemoveRegular(t *testing.T) {
 	service := setupService(t)
 	record := &RepoRecord{ID: "index/some-abc123", Kind: "index", IndexURL: "https://example.com/files/index.json"}
-	if err := service.store.Put(record.ID, record); err != nil {
+	if err := service.putRecord(record); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 	if err := service.Remove(record.ID); err != nil {

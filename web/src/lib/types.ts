@@ -458,16 +458,11 @@ export interface SubsystemStats {
 }
 
 export type DoctorCategory =
-  | 'orphan_credentials'
-  | 'orphan_model_overrides'
-  | 'orphan_model_infos'
-  | 'orphan_geo_bans'
-  | 'orphan_virtual_models'
   | 'duplicate_virtual_models'
-  | 'orphan_plugin_storage'
   | 'corrupt_plugin_storage'
   | 'missing_provider_backend'
   | 'broken_token_indexes'
+  | 'integrity_check'
 
 export interface DoctorIssue {
   category: DoctorCategory

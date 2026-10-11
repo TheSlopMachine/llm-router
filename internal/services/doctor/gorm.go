@@ -1,14 +1,13 @@
 // GORM-backed database inspection and repair.
 //
-// GormService mirrors Service on the SQLite handle. The bbolt Service stays
-// live until cutover; this type owns the GORM path. Reads run through the
+// GormService inspects the SQLite handle. Reads run through the
 // narrow inventory interfaces below so repairs stay inside the owning
 // services: virtual duplicates delete through GormVirtualInventory,
 // missing backends disable through GormProviderInventory, dangling token
-// models rewrite through GormTokenInventory. No bbolt bucket is touched
-// here, and no direct write runs outside those interfaces.
+// models rewrite through GormTokenInventory. No direct write runs outside
+// those interfaces.
 //
-// Foreign keys prevent five bbolt orphan categories, so the GORM report
+// Foreign keys prevent five legacy orphan categories, so the GORM report
 // never emits them: credentials, model overrides, model snapshots, managed
 // virtual models, and plugin storage rows all cascade from their provider
 // or plugin parents (record/providers.go, record/catalog.go,
@@ -40,6 +39,31 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
 )
 
+// IssueCategory names one doctor inspection category.
+type IssueCategory string
+
+const (
+	CategoryDuplicateVirtualModels IssueCategory = "duplicate_virtual_models"
+	CategoryCorruptPluginStorage   IssueCategory = "corrupt_plugin_storage"
+	CategoryMissingProviderBackend IssueCategory = "missing_provider_backend"
+	CategoryBrokenTokenIndexes     IssueCategory = "broken_token_indexes"
+)
+
+// Issue is one inspection finding with the affected keys.
+type Issue struct {
+	Category    IssueCategory `json:"category"`
+	Title       string        `json:"title"`
+	Description string        `json:"description"`
+	Count       int           `json:"count"`
+	Keys        []string      `json:"keys,omitempty"`
+}
+
+// InspectionReport is the full inspection result.
+type InspectionReport struct {
+	Issues      []Issue `json:"issues"`
+	TotalIssues int     `json:"total_issues"`
+}
+
 // CategoryIntegrityCheck reports a failed SQLite integrity check. The
 // failure is data, so Inspect surfaces it as an issue instead of an
 // error; repair stays manual.
@@ -70,7 +94,7 @@ type GormTokenInventory interface {
 }
 
 // GoBackendChecker reports built-in Go backends. Satisfied by
-// provider.Service, which owns the adapter registry on both paths.
+// provider.GormService, which owns the adapter registry.
 type GoBackendChecker interface {
 	GoAdapterFor(typeKey string) (provider.GoAdapter, bool)
 }
@@ -87,7 +111,7 @@ var (
 	_ GormProviderInventory = (*provider.GormService)(nil)
 	_ GormVirtualInventory  = (*virtual.GormService)(nil)
 	_ GormTokenInventory    = (*token.GormService)(nil)
-	_ GoBackendChecker      = (*provider.Service)(nil)
+	_ GoBackendChecker      = (*provider.GormService)(nil)
 	_ PluginBackendChecker  = (*luaplugin.Service)(nil)
 )
 
@@ -134,8 +158,7 @@ func orderPluginStorageByKeys() clause.OrderBy {
 	}}
 }
 
-// joinStorageKey renders a storage row key in the bbolt NUL-joined
-// display form.
+// joinStorageKey renders a storage row key in the NUL-joined display form.
 func joinStorageKey(pluginID, scope, key string) string {
 	return pluginID + "\x00" + scope + "\x00" + key
 }
@@ -193,7 +216,7 @@ func (s *GormService) Inspect(ctx context.Context) (*InspectionReport, error) {
 
 	var issues []Issue
 
-	// Providers without backend mirror the bbolt check: disabled
+	// Providers without backend mirror the previous check: disabled
 	// providers skip, Go adapters satisfy first, then the plugin
 	// registry. A nil checker skips its leg.
 	var missingBackendKeys []string
@@ -447,12 +470,9 @@ func (s *GormService) Fix(ctx context.Context, categories []IssueCategory) (int,
 				}
 			}
 
-		case CategoryCorruptPluginStorage, CategoryIntegrityCheck,
-			CategoryOrphanCredentials, CategoryOrphanModelOverrides,
-			CategoryOrphanModelInfos, CategoryOrphanVirtualModels,
-			CategoryOrphanPluginStorage:
-			// Inspect-only (corrupt storage, integrity) or retired on
-			// this path (foreign keys prevent every orphan): no repair.
+		case CategoryCorruptPluginStorage, CategoryIntegrityCheck:
+			// Inspect-only: corrupt storage values have no writer-side
+			// repair and integrity failures stay manual.
 		}
 	}
 

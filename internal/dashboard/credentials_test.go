@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,17 +13,18 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
 
-func newUnparkHandler(t *testing.T) (*Handler, *credential.Service, string) {
+func newUnparkHandler(t *testing.T) (*Handler, *credential.GormService, string) {
 	t.Helper()
-	database := testutil.SetupTestDB(t)
-	providerService := provider.NewService(database)
+	ctx := context.Background()
+	database := testutil.SetupTestSQLite(t)
+	providerService := provider.NewGorm(database)
 	providerService.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
-	instance, err := providerService.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"})
+	instance, err := providerService.Create(ctx, provider.CreateOptions{Name: "Mock", TypeKey: "mock"})
 	if err != nil {
 		t.Fatalf("create provider: %v", err)
 	}
-	credentialService := credential.New(database, providerService)
-	credentialRecord, err := credentialService.Add(credential.AddOptions{
+	credentialService := credential.NewGorm(database, providerService)
+	credentialRecord, err := credentialService.Add(ctx, credential.AddOptions{
 		ProviderID: instance.ID,
 		Label:      "k",
 		Data:       map[string]any{"api_key": "01234567890123456789"},
@@ -30,7 +32,7 @@ func newUnparkHandler(t *testing.T) (*Handler, *credential.Service, string) {
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	return &Handler{providerService: providerService, credentialService: credentialService}, credentialService, credentialRecord.ID
+	return &Handler{gormProviderService: providerService, gormCredentialService: credentialService}, credentialService, credentialRecord.ID
 }
 
 func decodeOK(t *testing.T, recorder *httptest.ResponseRecorder) map[string]any {
@@ -45,7 +47,7 @@ func decodeOK(t *testing.T, recorder *httptest.ResponseRecorder) map[string]any 
 func TestCredentialsUnparkRoundTrip(t *testing.T) {
 	h, credentialService, id := newUnparkHandler(t)
 
-	if err := credentialService.Park(id, time.Hour, "quota"); err != nil {
+	if err := credentialService.Park(context.Background(), id, time.Hour, "quota"); err != nil {
 		t.Fatalf("park: %v", err)
 	}
 

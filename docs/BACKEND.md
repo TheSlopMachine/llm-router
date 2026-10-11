@@ -1,7 +1,7 @@
 # Backend Architecture
 
 Single-binary OpenAI-compatible routing gateway: Go backend, embedded Svelte
-SPA, embedded bbolt DB. `docs/PLUGIN-API.md` is the binding plugin contract;
+SPA, embedded SQLite DB. `docs/PLUGIN-API.md` is the binding plugin contract;
 this file maps the Go core.
 
 ## System map
@@ -20,18 +20,18 @@ internal/services/
   luaplugin/             Lua execution core: manifest, sandbox, HTTP+SSRF, storage+TTL, credentials/proxies tables, jobs
   pluginrepo/            plugin store: single-URL index repos (repo URL or direct index.json, files resolved against the index directory); code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
   modelinfo/             model metadata cache (1h TTL)
-  metrics/               1m buckets, 90d retention
-  maintenance/           plugin job scheduler, model sync, auth cleanup
+  metrics/               1m buckets with dimension children, 90d retention
+  maintenance/           plugin job scheduler, model sync
   videojobs/             router-side video job rows (local id → upstream job)
   healthcheck/           failure-triggered credential verification (check_health, cooldown, singleflight, disable on unhealthy only with automation on)
   admin/                 admin password change
   config/                instance-wide router configuration
   datamanagement/        subsystem export/import/clear + provider export/import/purge
   doctor/                database inspection and repair
-  proxypool/             free-pool hosting, Lua feed bridge, bbolt cache, custom pools, lane scheduler adapter
+  proxypool/             free-pool hosting, Lua feed bridge, SQLite cache, custom pools (built-in auto row seeded), lane scheduler adapter
 internal/httpkit/        shared transport helpers (SSE headers)
 internal/errors/         domain sentinels + ToAPIError + response header allow-list
-internal/repository/     bbolt buckets
+internal/repository/     typed SQLite operations (generics API)
 internal/dashboard/      admin REST API (providers, tokens, credentials, models, virtual-models, metrics, plugins, repos, config, data export/import/clear, doctor, proxy status/refresh/pools, provider jobs)
 internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/completions, /v1/messages (+count_tokens, +batches, /v1/complete), /v1/models list + retrieve (TokenRules-filtered, Anthropic dual shape), /v1/videos submit + poll + content + models, audio/transcriptions (+JSON variant)/translations/speech, images/generations/edits/variations, embeddings, moderations, responses (+cancel/input_items/compact/input_tokens) + conversations (+items), assistants, threads (+messages/runs/cancel/submit_tool_outputs)
 internal/models/         shared wire types
@@ -133,10 +133,12 @@ Keep changes shallow. Touch service internals only when the task requires it.
 
 ## Transactions
 
-One public method = one `db.Update` when the operation must be atomic:
-`token.Create/Delete/Regenerate` (token + index), `provider.Delete`
-(provider + credentials), metrics batch persist. `repository` returns
-`ErrNotFound` via `%w`; services map it with `errors.Is`, never by string.
+One public method = one SQLite transaction when the operation must be
+atomic: `token.Create/Delete/Regenerate` (token + join rows),
+`provider.Delete` (provider row, credentials and model rows cascade from
+foreign keys), metrics bucket persist (base row plus dimension children).
+`repository` returns `ErrNotFound` via `%w`; services map it with
+`errors.Is`, never by string.
 
 ## Lifecycle
 
@@ -144,9 +146,9 @@ One public method = one `db.Update` when the operation must be atomic:
   flush (`flushAll`, no age cutoff). Periodic aggregation persists only
   buckets older than 1h and evicts from memory after durable writes.
 - `maintenance.Start(ctx)`: one goroutine, one 60s tick, independent work
-  (due plugin jobs with overlap-skip and 4-worker bound, model sync, auth
-  cleanup). `RunStartupRefresh` runs `run_on_startup` jobs before listen
-  under a 30s gate plus auth cleanup; failures log, never fail startup.
+  (due plugin jobs with overlap-skip and 4-worker bound, model sync).
+  `RunStartupRefresh` runs `run_on_startup` jobs before listen under a 30s
+  gate; failures log, never fail startup.
 - `proxypool.Service.Start(ctx)`: starts the proxypool library scheduler and
   independent 3s cache-flush loop. Library-owned lanes, foreground/background
   hysteresis, adaptive concurrency, suspect handling and network breaker drive
@@ -155,21 +157,16 @@ One public method = one `db.Update` when the operation must be atomic:
 - `proxypool.New` loads the persisted library cache and surfaces read errors
   during server construction.
 
-## Buckets
+## Storage
 
-`internal/db` owns bucket names and creation. `initBuckets` drops legacy
-`agents`, `exhausted`, `geo_bans`, `providers`, `custom_providers`,
-`model_info`, `proxies`, `proxies_v2`, `active_regions`,
-`proxy_source_meta` and `proxy_limits` on every open: pre-0.7.0 rows never
-resurrect and no migration shims remain (`migrateClearCredentialQuota`
-stays for ancient credential rows).
-
-Live buckets (`internal/db/db.go`): `meta`, `admin`, `tokens`,
-`token_index`, `provider_instances`, `credentials`, `plugins`,
-`plugin_repos`, `plugin_storage`, `auth`, `sessions`, `metrics`,
-`virtual_models`, `router_configuration`, `model_overrides`, `model_infos`,
-`proxy_cache_v1`, `custom_pools`, `video_jobs`, `responses`,
-`message_batches`, `credential_health`, `credential_parks`.
+SQLite (`internal/db/sqlite.go`, `OpenSQLite`) is the only database. The
+schema (`internal/db/migrations/0001_initial_schema.go`) owns every table;
+`internal/db/record/` pins the row shapes. Reads and writes run through
+`gorm.G` with typed clauses (`scripts/sqlpolicy` enforces the policy).
+Foreign keys carry the cascades the bucket scans used to perform by hand:
+provider deletes cascade credentials, model overrides, model info, managed
+virtual models and virtual members; plugin deletes cascade hosts, versions
+and storage; metric bucket deletes cascade dimension children.
 
 ## Smoke harness
 

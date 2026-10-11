@@ -1,10 +1,15 @@
 package luaplugin
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
 
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
@@ -13,25 +18,25 @@ import (
 // carry the parser diagnostics and the source length, never bare "nil".
 func TestHandlerCall_CorruptSourceReportsParserError(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	records, err := service.List()
+	records, err := service.ListSQLite(context.Background())
 	if err != nil || len(records) == 0 {
 		t.Fatalf("list: %v", records)
 	}
-	record := records[0]
+	pluginRecord := records[0]
 	broken := "--- @plugin Broken\nlocal x = {{{ unterminated"
-	record.Source = []byte(broken)
-	if err := service.store.Put(record.ID, record); err != nil {
+	callCtx := t.Context()
+	if _, err := gorm.G[record.Plugin](service.database, clause.Eq{Column: "id", Value: pluginRecord.ID}).Update(callCtx, "source", []byte(broken)); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.rebuild(); err != nil {
+	if err := service.rebuild(callCtx); err != nil {
 		t.Fatal(err)
 	}
 
 	cred := &models.Credential{ID: "c1", Data: map[string]any{}}
-	_, callError := service.Complete(t.Context(), testMetadata(record.TypeKeys[0], cred, "test/broken-model", nil), &models.ChatCompletionRequest{
+	_, callError := service.Complete(t.Context(), testMetadata(pluginRecord.TypeKeys[0], cred, "test/broken-model", nil), &models.ChatCompletionRequest{
 		Model:    "test/broken-model",
 		Messages: []models.ChatMessage{{Role: "user", Content: "hi"}},
 	})
@@ -48,7 +53,7 @@ func TestHandlerCall_CorruptSourceReportsParserError(t *testing.T) {
 	if !strings.Contains(msg, fmt.Sprintf("source %d bytes", len(broken))) {
 		t.Fatalf("load failure must report source length: %q", msg)
 	}
-	crashes := service.Crashes(record.ID)
+	crashes := service.Crashes(pluginRecord.ID)
 	if len(crashes) == 0 {
 		t.Fatal("load failure must be recorded as a crash")
 	}

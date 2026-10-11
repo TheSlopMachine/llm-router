@@ -3,7 +3,9 @@ package provider
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
+	"sync"
 
 	stdErrors "errors"
 
@@ -14,22 +16,76 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/util"
 )
 
-// GormService manages provider instances on the SQLite handle. The bbolt
-// Service stays live until cutover; this type owns the GORM path with
-// explicit converters between the wire configuration map and the
-// provider_instances columns plus settings. Traditional GORM use: none;
+// GormService manages provider instances on the SQLite handle. It owns the
+// provider registry: built-in Go adapters, the Lua plugin service for
+// plugin-backed types, and the change callback. Traditional GORM use: none;
 // every statement runs through gorm.G with typed clauses.
 type GormService struct {
-	database *db.Database
+	database   *db.Database
+	luaService *luaplugin.Service
+
+	mutex      sync.RWMutex
+	goAdapters map[string]GoAdapter
+
+	onChanged func(providerID string)
+	logger    *slog.Logger
 }
 
 // NewGorm constructs a GORM-backed provider service on the SQLite handle.
 // Construction performs no I/O.
 func NewGorm(database *db.Database) *GormService {
-	return &GormService{database: database}
+	return &GormService{
+		database:   database,
+		goAdapters: map[string]GoAdapter{},
+	}
+}
+
+// SetLogger wires structured logging for CRUD.
+func (s *GormService) SetLogger(l *slog.Logger) { s.logger = l }
+
+// SetLuaService wires the Lua plugin service for plugin-backed types.
+func (s *GormService) SetLuaService(service *luaplugin.Service) { s.luaService = service }
+
+// LuaService returns the wired Lua plugin service, if any.
+func (s *GormService) LuaService() *luaplugin.Service { return s.luaService }
+
+// SetOnChanged registers a callback fired after provider create/update/delete.
+func (s *GormService) SetOnChanged(function func(providerID string)) { s.onChanged = function }
+
+func (s *GormService) notifyChanged(providerID string) {
+	if s.onChanged != nil {
+		s.onChanged(providerID)
+	}
+}
+
+// CreateOptions holds parameters for creating a provider instance.
+type CreateOptions struct {
+	Name      string
+	TypeKey   string
+	Qualifier string
+	Config    map[string]any
+	IconURL   string
+}
+
+// UpdateOptions holds mutable provider fields.
+type UpdateOptions struct {
+	Name     string
+	Config   map[string]any
+	IconURL  string
+	Disabled *bool
+}
+
+// configBaseURL reads the raw base_url from a provider config map.
+func configBaseURL(config map[string]any) string {
+	if config == nil {
+		return ""
+	}
+	value, _ := config["base_url"].(string)
+	return value
 }
 
 // orderProvidersByIdentifier sorts provider rows by primary key.
@@ -46,7 +102,7 @@ func (s *GormService) requireHandle() (*db.Database, error) {
 }
 
 // Create persists a new provider instance with a generated unique
-// identifier. Validation mirrors the bbolt path: name and type key are
+// identifier. Validation mirrors the previous path: name and type key are
 // required, the type key carries no slash or colon, custom rows normalize
 // base_url. Singleton plugin types reuse the existing bare row instead of
 // creating a duplicate. One transaction holds the reuse check, the
@@ -115,6 +171,10 @@ func (s *GormService) Create(ctx context.Context, options CreateOptions) (*model
 	}); err != nil {
 		return nil, err
 	}
+	if s.logger != nil {
+		s.logger.Info("provider created", "provider_id", result.ID, "type", typeKey)
+	}
+	s.notifyChanged(result.ID)
 	return result, nil
 }
 
@@ -175,7 +235,7 @@ func (s *GormService) GetByType(ctx context.Context, typeKey string) ([]*models.
 func (s *GormService) GetByTypeAndQualifier(ctx context.Context, typeKey, qualifier string) (*models.ProviderInstance, error) {
 	identifier := typeKey
 	if qualifier != "" {
-		identifier = typeKey + ":" + slugify(qualifier)
+		identifier = typeKey + ":" + util.SlugifyOrDefault(qualifier, "provider")
 	}
 	return s.Get(ctx, identifier)
 }
@@ -244,6 +304,10 @@ func (s *GormService) Update(ctx context.Context, identifier string, options Upd
 	}); err != nil {
 		return nil, err
 	}
+	if s.logger != nil {
+		s.logger.Info("provider updated", "provider_id", trimmed, "type", result.TypeKey, "disabled", result.Disabled, "disabled_by", result.DisabledBy)
+	}
+	s.notifyChanged(trimmed)
 	return result, nil
 }
 
@@ -261,7 +325,7 @@ func (s *GormService) SystemDisable(ctx context.Context, identifier, reason stri
 		return err
 	}
 	trimmed := strings.TrimSpace(identifier)
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		row, err := gorm.G[record.ProviderInstance](transaction, clause.Eq{Column: "id", Value: trimmed}).First(ctx)
 		if err != nil {
 			return db.Translate(err)
@@ -280,7 +344,14 @@ func (s *GormService) SystemDisable(ctx context.Context, identifier, reason stri
 			return db.Translate(err)
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	if s.logger != nil {
+		s.logger.Info("provider disabled by system", "provider_id", trimmed, "reason", reason)
+	}
+	s.notifyChanged(trimmed)
+	return nil
 }
 
 // Delete removes a provider in one delete. Credential, model override,
@@ -292,7 +363,7 @@ func (s *GormService) Delete(ctx context.Context, identifier string) error {
 		return err
 	}
 	trimmed := strings.TrimSpace(identifier)
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		tracker := gorm.WithResult()
 		affected, err := gorm.G[record.ProviderInstance](transaction, clause.Eq{Column: "id", Value: trimmed}, tracker).Delete(ctx)
 		if err != nil {
@@ -302,20 +373,27 @@ func (s *GormService) Delete(ctx context.Context, identifier string) error {
 			return fmt.Errorf("provider %q: %w", trimmed, apierrors.ErrNotFound)
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	if s.logger != nil {
+		s.logger.Info("provider deleted", "provider_id", trimmed)
+	}
+	s.notifyChanged(trimmed)
+	return nil
 }
 
 // uniqueProviderIDInTransaction generates the next free provider identifier
-// on the transaction handle. The scheme mirrors the bbolt uniqueID: the
+// on the transaction handle. The scheme mirrors the previous uniqueID: the
 // qualifier slug when present, the custom name slug for custom rows, else
 // the bare type key, with a numeric suffix on collision.
 func uniqueProviderIDInTransaction(ctx context.Context, transaction *gorm.DB, typeKey, qualifier, name string) (string, error) {
 	var base string
 	switch {
 	case qualifier != "":
-		base = typeKey + ":" + slugify(qualifier)
+		base = typeKey + ":" + util.SlugifyOrDefault(qualifier, "provider")
 	case typeKey == TypeCustom:
-		base = "custom:" + slugify(name)
+		base = "custom:" + util.SlugifyOrDefault(name, "provider")
 	default:
 		base = typeKey
 	}

@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,19 +15,21 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
+	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
 
-func newProvidersUIHandler(t *testing.T) (*Handler, *provider.Service, *db.DB) {
+func newProvidersUIHandler(t *testing.T) (*Handler, *provider.GormService, *db.Database) {
 	t.Helper()
-	database := testutil.SetupTestDB(t)
-	providerService := provider.NewService(database)
-	return &Handler{providerService: providerService}, providerService, database
+	database := testutil.SetupTestSQLite(t)
+	providerService := provider.NewGorm(database)
+	return &Handler{gormProviderService: providerService}, providerService, database
 }
 
-func seedUIRows(t *testing.T, providerService *provider.Service, database *db.DB) *luaplugin.Service {
+func seedUIRows(t *testing.T, providerService *provider.GormService, database *db.Database) *luaplugin.Service {
 	t.Helper()
+	ctx := context.Background()
 	luaService, err := luaplugin.New(database, nil)
 	if err != nil {
 		t.Fatalf("lua service: %v", err)
@@ -41,11 +44,11 @@ llm_router.register("zen", {
   complete = function() end,
 })
 `
-	if _, err := luaService.Install([]byte(source), luaplugin.PluginOrigin{Manual: true}); err != nil {
+	if _, err := luaService.InstallSQLite(ctx, []byte(source), luaplugin.PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install plugin: %v", err)
 	}
 	providerService.SetLuaService(luaService)
-	if err := providerService.EnsureSeeded(); err != nil {
+	if err := providerService.EnsureSeeded(ctx); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	return luaService
@@ -86,6 +89,7 @@ func TestProvidersListExcludesHidden(t *testing.T) {
 func TestProvidersListHidesUnavailableBackend(t *testing.T) {
 	h, providerService, database := newProvidersUIHandler(t)
 	luaService := seedUIRows(t, providerService, database)
+	ctx := context.Background()
 
 	listIDs := func() []string {
 		request := httptest.NewRequest(http.MethodGet, "/api/llm-router/dashboard/providers", nil)
@@ -103,7 +107,7 @@ func TestProvidersListHidesUnavailableBackend(t *testing.T) {
 	}
 
 	pluginID := ""
-	records, err := luaService.List()
+	records, err := luaService.ListSQLite(ctx)
 	if err != nil {
 		t.Fatalf("list plugins: %v", err)
 	}
@@ -129,10 +133,10 @@ func TestProvidersListHidesUnavailableBackend(t *testing.T) {
 		t.Fatalf("zen must be listed while plugin installed: %v", before)
 	}
 
-	if err := luaService.Delete(pluginID); err != nil {
+	if err := luaService.DeleteSQLite(ctx, pluginID); err != nil {
 		t.Fatalf("delete plugin: %v", err)
 	}
-	if _, err := providerService.Get("zen"); err != nil {
+	if _, err := providerService.Get(ctx, "zen"); err != nil {
 		t.Fatalf("orphaned provider row must survive plugin delete: %v", err)
 	}
 	for _, id := range listIDs() {
@@ -159,7 +163,7 @@ llm_router.register("zen", {
   complete = function() end,
 })
 `
-	if _, err := luaService.Install([]byte(source), luaplugin.PluginOrigin{Manual: true}); err != nil {
+	if _, err := luaService.InstallSQLite(ctx, []byte(source), luaplugin.PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("reinstall plugin: %v", err)
 	}
 	restored := false
@@ -176,6 +180,12 @@ llm_router.register("zen", {
 func TestProvidersUpdateReadonlyRemovalPersists(t *testing.T) {
 	h, providerService, database := newProvidersUIHandler(t)
 	seedUIRows(t, providerService, database)
+	ctx := context.Background()
+	// Proxy pool references need the seeded free-pool row; server wiring
+	// seeds it through the proxypool service, tests seed it explicitly.
+	if err := proxypool.EnsureBuiltinFreePool(ctx, database); err != nil {
+		t.Fatalf("seed free pool: %v", err)
+	}
 
 	put := func(body string) int {
 		request := httptest.NewRequest(http.MethodPut, "/api/llm-router/dashboard/providers/zen", strings.NewReader(body))
@@ -186,7 +196,7 @@ func TestProvidersUpdateReadonlyRemovalPersists(t *testing.T) {
 	}
 	configOf := func() map[string]any {
 		t.Helper()
-		instance, err := providerService.Get("zen")
+		instance, err := providerService.Get(ctx, "zen")
 		if err != nil {
 			t.Fatalf("get zen: %v", err)
 		}
@@ -253,6 +263,7 @@ func TestProvidersUpdateGuards(t *testing.T) {
 func TestProvidersDeleteGuards(t *testing.T) {
 	h, providerService, database := newProvidersUIHandler(t)
 	seedUIRows(t, providerService, database)
+	ctx := context.Background()
 
 	call := func(id string) int {
 		request := httptest.NewRequest(http.MethodDelete, "/api/llm-router/dashboard/providers/"+id, nil)
@@ -268,10 +279,10 @@ func TestProvidersDeleteGuards(t *testing.T) {
 	if code := call("virtual"); code != http.StatusNotFound {
 		t.Errorf("hidden delete: got %d, want 404", code)
 	}
-	if _, err := providerService.Get("zen"); err != nil {
+	if _, err := providerService.Get(ctx, "zen"); err != nil {
 		t.Errorf("readonly row must survive blocked delete: %v", err)
 	}
-	if _, err := providerService.Get("virtual"); err != nil {
+	if _, err := providerService.Get(ctx, "virtual"); err != nil {
 		t.Errorf("hidden row must survive blocked delete: %v", err)
 	}
 }
@@ -314,30 +325,31 @@ func TestProvidersCreateAllowsOnlyCustom(t *testing.T) {
 func TestAvailableModelsIncludesVirtualWithoutCredentials(t *testing.T) {
 	h, providerService, database := newProvidersUIHandler(t)
 	seedUIRows(t, providerService, database)
+	ctx := context.Background()
 	providerService.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
-	if _, err := providerService.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
+	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
 	}
 
-	credentialService := credential.New(database, providerService)
-	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
-	virtualService := virtual.New(database, providerService, modelInfoService)
-	h.credentialService = credentialService
-	h.modelInfoService = modelInfoService
-	h.virtualService = virtualService
+	credentialService := credential.NewGorm(database, providerService)
+	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, 1*time.Hour)
+	virtualService := virtual.NewGorm(database, providerService, modelInfoService)
+	h.gormCredentialService = credentialService
+	h.gormModelInfoService = modelInfoService
+	h.gormVirtualService = virtualService
 
 	virtualModel := &models.VirtualModel{
 		Name:   "Helper",
 		Models: []models.VirtualModelEntry{{ModelID: "mock/test-model"}},
 	}
-	if err := virtualService.Create(virtualModel); err != nil {
+	if err := virtualService.Create(ctx, virtualModel); err != nil {
 		t.Fatalf("create virtual model: %v", err)
 	}
 	if virtualModel.ID != "helper" {
 		t.Fatalf("virtual model id: got %q, want %q", virtualModel.ID, "helper")
 	}
 
-	rows, err := credentialService.ListByProvider(provider.TypeVirtual)
+	rows, err := credentialService.ListByProvider(ctx, provider.TypeVirtual)
 	if err != nil {
 		t.Fatalf("list virtual credentials: %v", err)
 	}
@@ -345,7 +357,7 @@ func TestAvailableModelsIncludesVirtualWithoutCredentials(t *testing.T) {
 		t.Fatalf("expected zero virtual credentials, got %d", len(rows))
 	}
 
-	items, err := h.availableModels()
+	items, err := h.availableModels(ctx)
 	if err != nil {
 		t.Fatalf("available models failed: %v", err)
 	}
@@ -367,8 +379,9 @@ func postAuthInitiate(t *testing.T, h *Handler, providerID string) *httptest.Res
 
 func TestAuthInitiateGoBackendFallsBack409(t *testing.T) {
 	h, providerService, _ := newProvidersUIHandler(t)
+	ctx := context.Background()
 	providerService.RegisterGoAdapter(testutil.NewMockAdapter("custom"))
-	instance, err := providerService.Create(provider.CreateOptions{Name: "OmniRoute", TypeKey: "custom",
+	instance, err := providerService.Create(ctx, provider.CreateOptions{Name: "OmniRoute", TypeKey: "custom",
 		Config: map[string]any{"base_url": "https://example.com/v1"}})
 	if err != nil {
 		t.Fatalf("create custom provider: %v", err)
@@ -386,8 +399,9 @@ func TestAuthInitiateGoBackendFallsBack409(t *testing.T) {
 func TestAuthInitiateLuaWithoutHandlerFallsBack409(t *testing.T) {
 	h, providerService, database := newProvidersUIHandler(t)
 	h.luaService = seedUIRows(t, providerService, database)
+	ctx := context.Background()
 
-	providers, err := providerService.List()
+	providers, err := providerService.List(ctx)
 	if err != nil {
 		t.Fatalf("list providers: %v", err)
 	}
@@ -420,6 +434,7 @@ func TestProvidersListHidesOrphanedPluginRows(t *testing.T) {
 	h, providerService, database := newProvidersUIHandler(t)
 	luaService := seedUIRows(t, providerService, database)
 	h.luaService = luaService
+	ctx := context.Background()
 
 	list := func() int {
 		request := httptest.NewRequest(http.MethodGet, "/api/llm-router/dashboard/providers", nil)
@@ -434,11 +449,11 @@ func TestProvidersListHidesOrphanedPluginRows(t *testing.T) {
 	if got := list(); got != 1 {
 		t.Fatalf("installed plugin: expected 1 visible provider, got %d", got)
 	}
-	plugins, err := luaService.List()
+	plugins, err := luaService.ListSQLite(ctx)
 	if err != nil || len(plugins) != 1 {
 		t.Fatalf("list plugins: %v", err)
 	}
-	if err := luaService.Delete(plugins[0].ID); err != nil {
+	if err := luaService.DeleteSQLite(ctx, plugins[0].ID); err != nil {
 		t.Fatalf("delete plugin: %v", err)
 	}
 	if got := list(); got != 0 {

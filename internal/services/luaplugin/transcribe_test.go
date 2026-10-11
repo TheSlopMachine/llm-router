@@ -48,7 +48,7 @@ llm_router.register("stt-type", {
 
 func TestTranscribe_Success(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(transcribePluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(transcribePluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	if !service.HasHandler("stt-type", "transcribe") {
@@ -81,7 +81,7 @@ func TestTranscribe_Success(t *testing.T) {
 
 func TestTranscribe_HandlerNotFound(t *testing.T) {
 	service := setupService(t)
-	if _, err := service.Install([]byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.Transcribe(context.Background(), testMetadata("test-type",
@@ -98,7 +98,7 @@ func TestTranscribe_ContractError(t *testing.T) {
 		`do return nil, { message = "slow down", code = "rate_limit", status = 429 } end
     local echoed = request.file`, 1)
 	src = strings.Replace(src, "Transcribe Plugin", "Transcribe Err", 1)
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.Transcribe(context.Background(), testMetadata("stt-type",
@@ -138,7 +138,7 @@ llm_router.register("mp-type", {
   end,
 })
 `
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	response, err := service.Transcribe(context.Background(), testMetadata("mp-type",
@@ -192,7 +192,7 @@ llm_router.register("mpbad-type", {
   end,
 })
 `
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.Transcribe(context.Background(), testMetadata("mpbad-type",

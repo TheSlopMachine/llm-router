@@ -35,25 +35,26 @@ func (m *transcribeMockAdapter) Transcribe(ctx context.Context, creds []*models.
 	return &models.TranscriptionResponse{Text: "transcribed"}, nil
 }
 
-func setupTranscribeRouter(t *testing.T) (*Service, *credential.Service, *modelinfo.Service, *transcribeMockAdapter) {
+func setupTranscribeRouter(t *testing.T) (*Service, *credential.GormService, *modelinfo.GormService, *transcribeMockAdapter) {
 	t.Helper()
-	database := testutil.SetupTestDB(t)
+	database := testutil.SetupTestSQLite(t)
+	ctx := context.Background()
 
-	providerService := provider.NewService(database)
+	providerService := provider.NewGorm(database)
 	mock := &transcribeMockAdapter{MockAdapter: testutil.NewMockAdapter("mock")}
 	providerService.RegisterGoAdapter(mock)
-	if _, err := providerService.Create(provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
+	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
 	}
-	credentialService := credential.New(database, providerService)
-	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
+	credentialService := credential.NewGorm(database, providerService)
+	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, 1*time.Hour)
 
 	return New(providerService, credentialService, modelInfoService, videojobs.New(database), nil, nil, slog.Default()), credentialService, modelInfoService, mock
 }
 
-func addTranscribeCred(t *testing.T, credentialService *credential.Service, label string) {
+func addTranscribeCred(t *testing.T, credentialService *credential.GormService, label string) {
 	t.Helper()
-	if _, err := credentialService.Add(credential.AddOptions{
+	if _, err := credentialService.Add(context.Background(), credential.AddOptions{
 		ProviderID: "mock",
 		Label:      label,
 		Data:       map[string]any{"api_key": "test-key"},

@@ -119,7 +119,7 @@ func (s *Service) CreateResponse(
 		return nil, invalidRequest("input is required: provide a string or input items")
 	}
 	if request.PreviousResponseID != "" {
-		if _, err := s.responseService.Get(request.PreviousResponseID, models.ResponseRecordResponse); err != nil {
+		if _, err := s.responseService.Get(ctx, request.PreviousResponseID, models.ResponseRecordResponse); err != nil {
 			if errors.Is(err, apierrors.ErrNotFound) {
 				return nil, compatNotFound("response", request.PreviousResponseID)
 			}
@@ -132,7 +132,7 @@ func (s *Service) CreateResponse(
 	}
 	output := responseFromChat(models.NewResponseID(), request, response)
 	if request.Store == nil || *request.Store {
-		if err := s.responseService.Create(&models.ResponseRecord{
+		if err := s.responseService.Create(ctx, &models.ResponseRecord{
 			ID:      output.ID,
 			Kind:    models.ResponseRecordResponse,
 			Model:   request.Model,
@@ -157,7 +157,7 @@ func (s *Service) GetResponse(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	record, err := s.responseService.Get(id, models.ResponseRecordResponse)
+	record, err := s.responseService.Get(ctx, id, models.ResponseRecordResponse)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("response", id)
@@ -178,14 +178,14 @@ func (s *Service) GetResponse(
 // executed responses are terminal, so cancel succeeds only on rows still
 // open (e.g. requires_action runs surfaced as responses).
 func (s *Service) CancelResponse(
-	_ context.Context,
+	ctx context.Context,
 	id string,
 	token *models.RouterToken,
 ) (*models.ResponseObject, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	record, err := s.responseService.Get(id, models.ResponseRecordResponse)
+	record, err := s.responseService.Get(ctx, id, models.ResponseRecordResponse)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("response", id)
@@ -205,7 +205,7 @@ func (s *Service) CancelResponse(
 	output.Status = "canceled"
 	record.Status = "canceled"
 	record.Payload = mustPayload(&output)
-	if err := s.responseService.Update(record); err != nil {
+	if err := s.responseService.Update(ctx, record); err != nil {
 		return nil, err
 	}
 	return &output, nil
@@ -214,14 +214,14 @@ func (s *Service) CancelResponse(
 // ListResponseInputItems returns the stored input of a response as items: a
 // stored string becomes one message item, stored items return as-is.
 func (s *Service) ListResponseInputItems(
-	_ context.Context,
+	ctx context.Context,
 	id string,
 	token *models.RouterToken,
 ) ([]models.ResponseInputItem, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	record, err := s.responseService.Get(id, models.ResponseRecordResponse)
+	record, err := s.responseService.Get(ctx, id, models.ResponseRecordResponse)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("response", id)
@@ -276,7 +276,7 @@ func (s *Service) CountResponseInputTokens(request *models.ResponseRequest) int 
 // CreateConversation persists a conversation container. Model is optional:
 // containers carry no model until items referencing one arrive.
 func (s *Service) CreateConversation(
-	_ context.Context,
+	ctx context.Context,
 	model models.ModelId,
 	metadata map[string]string,
 	items []models.ResponseInputItem,
@@ -293,7 +293,7 @@ func (s *Service) CreateConversation(
 	if items == nil {
 		items = []models.ResponseInputItem{}
 	}
-	if err := s.responseService.Create(&models.ResponseRecord{
+	if err := s.responseService.Create(ctx, &models.ResponseRecord{
 		ID:      output.ID,
 		Kind:    models.ResponseRecordConversation,
 		Model:   model,
@@ -308,14 +308,14 @@ func (s *Service) CreateConversation(
 
 // GetConversation returns one stored conversation.
 func (s *Service) GetConversation(
-	_ context.Context,
+	ctx context.Context,
 	id string,
 	token *models.RouterToken,
 ) (*models.ConversationObject, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	record, err := s.responseService.Get(id, models.ResponseRecordConversation)
+	record, err := s.responseService.Get(ctx, id, models.ResponseRecordConversation)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("conversation", id)
@@ -334,29 +334,29 @@ func (s *Service) GetConversation(
 
 // DeleteConversation removes a conversation container. Items stored as
 // responses with the conversation id stay addressable by response id.
-func (s *Service) DeleteConversation(_ context.Context, id string) error {
+func (s *Service) DeleteConversation(ctx context.Context, id string) error {
 	if err := s.mustResponseStore(); err != nil {
 		return err
 	}
-	if _, err := s.responseService.Get(id, models.ResponseRecordConversation); err != nil {
+	if _, err := s.responseService.Get(ctx, id, models.ResponseRecordConversation); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return compatNotFound("conversation", id)
 		}
 		return err
 	}
-	return s.responseService.Delete(id)
+	return s.responseService.Delete(ctx, id)
 }
 
 // ListConversationItems returns the items appended to a conversation.
 func (s *Service) ListConversationItems(
-	_ context.Context,
+	ctx context.Context,
 	id string,
 	token *models.RouterToken,
 ) ([]models.ResponseInputItem, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	record, err := s.responseService.Get(id, models.ResponseRecordConversation)
+	record, err := s.responseService.Get(ctx, id, models.ResponseRecordConversation)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("conversation", id)
@@ -371,7 +371,7 @@ func (s *Service) ListConversationItems(
 
 // AppendConversationItems appends items to a conversation.
 func (s *Service) AppendConversationItems(
-	_ context.Context,
+	ctx context.Context,
 	id string,
 	token *models.RouterToken,
 	items []models.ResponseInputItem,
@@ -379,7 +379,7 @@ func (s *Service) AppendConversationItems(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	record, err := s.responseService.Get(id, models.ResponseRecordConversation)
+	record, err := s.responseService.Get(ctx, id, models.ResponseRecordConversation)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("conversation", id)
@@ -392,7 +392,7 @@ func (s *Service) AppendConversationItems(
 	current := responseInputItems(record.Input)
 	current = append(current, items...)
 	record.Input = mustPayload(current)
-	if err := s.responseService.Update(record); err != nil {
+	if err := s.responseService.Update(ctx, record); err != nil {
 		return nil, err
 	}
 	return current, nil
@@ -405,7 +405,7 @@ func (s *Service) AppendConversationItems(
 // CreateAssistant persists an assistant preset. Model is required: presets
 // execute runs through the chat pipeline.
 func (s *Service) CreateAssistant(
-	_ context.Context,
+	ctx context.Context,
 	request *models.AssistantRequest,
 ) (*models.Assistant, error) {
 	if err := s.mustResponseStore(); err != nil {
@@ -429,7 +429,7 @@ func (s *Service) CreateAssistant(
 		ResponseFormat: request.ResponseFormat,
 		Metadata:       request.Metadata,
 	}
-	if err := s.responseService.Create(&models.ResponseRecord{
+	if err := s.responseService.Create(ctx, &models.ResponseRecord{
 		ID:      output.ID,
 		Kind:    models.ResponseRecordAssistant,
 		Model:   request.Model,
@@ -443,14 +443,14 @@ func (s *Service) CreateAssistant(
 
 // GetAssistant returns one stored assistant.
 func (s *Service) GetAssistant(
-	_ context.Context,
+	ctx context.Context,
 	id string,
 	token *models.RouterToken,
 ) (*models.Assistant, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	record, err := s.responseService.Get(id, models.ResponseRecordAssistant)
+	record, err := s.responseService.Get(ctx, id, models.ResponseRecordAssistant)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("assistant", id)
@@ -470,7 +470,7 @@ func (s *Service) GetAssistant(
 // UpdateAssistant patches name, description, instructions, tools,
 // response_format and metadata. Model changes re-parse the id.
 func (s *Service) UpdateAssistant(
-	_ context.Context,
+	ctx context.Context,
 	id string,
 	token *models.RouterToken,
 	request *models.AssistantRequest,
@@ -478,7 +478,7 @@ func (s *Service) UpdateAssistant(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	record, err := s.responseService.Get(id, models.ResponseRecordAssistant)
+	record, err := s.responseService.Get(ctx, id, models.ResponseRecordAssistant)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("assistant", id)
@@ -518,7 +518,7 @@ func (s *Service) UpdateAssistant(
 		output.Metadata = request.Metadata
 	}
 	record.Payload = mustPayload(&output)
-	if err := s.responseService.Update(record); err != nil {
+	if err := s.responseService.Update(ctx, record); err != nil {
 		return nil, err
 	}
 	return &output, nil
@@ -526,25 +526,25 @@ func (s *Service) UpdateAssistant(
 
 // DeleteAssistant removes an assistant preset. Runs referencing it stay
 // addressable by run id.
-func (s *Service) DeleteAssistant(_ context.Context, id string) error {
+func (s *Service) DeleteAssistant(ctx context.Context, id string) error {
 	if err := s.mustResponseStore(); err != nil {
 		return err
 	}
-	if _, err := s.responseService.Get(id, models.ResponseRecordAssistant); err != nil {
+	if _, err := s.responseService.Get(ctx, id, models.ResponseRecordAssistant); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return compatNotFound("assistant", id)
 		}
 		return err
 	}
-	return s.responseService.Delete(id)
+	return s.responseService.Delete(ctx, id)
 }
 
 // ListAssistants returns all stored assistants, oldest first.
-func (s *Service) ListAssistants(_ context.Context) ([]*models.Assistant, error) {
+func (s *Service) ListAssistants(ctx context.Context) ([]*models.Assistant, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	records, err := s.responseService.List([]models.ResponseRecordKind{models.ResponseRecordAssistant}, "")
+	records, err := s.responseService.List(ctx, []models.ResponseRecordKind{models.ResponseRecordAssistant}, "")
 	if err != nil {
 		return nil, err
 	}
@@ -565,7 +565,7 @@ func (s *Service) ListAssistants(_ context.Context) ([]*models.Assistant, error)
 
 // CreateThread persists a thread handle.
 func (s *Service) CreateThread(
-	_ context.Context,
+	ctx context.Context,
 	metadata map[string]string,
 ) (*models.Thread, error) {
 	if err := s.mustResponseStore(); err != nil {
@@ -577,7 +577,7 @@ func (s *Service) CreateThread(
 		CreatedAt: time.Now().Unix(),
 		Metadata:  metadata,
 	}
-	if err := s.responseService.Create(&models.ResponseRecord{
+	if err := s.responseService.Create(ctx, &models.ResponseRecord{
 		ID:      output.ID,
 		Kind:    models.ResponseRecordThread,
 		Status:  "active",
@@ -590,14 +590,14 @@ func (s *Service) CreateThread(
 
 // GetThread returns one stored thread.
 func (s *Service) GetThread(
-	_ context.Context,
+	ctx context.Context,
 	id string,
 	token *models.RouterToken,
 ) (*models.Thread, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	record, err := s.responseService.Get(id, models.ResponseRecordThread)
+	record, err := s.responseService.Get(ctx, id, models.ResponseRecordThread)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("thread", id)
@@ -616,14 +616,14 @@ func (s *Service) GetThread(
 
 // UpdateThread patches thread metadata.
 func (s *Service) UpdateThread(
-	_ context.Context,
+	ctx context.Context,
 	id string,
 	metadata map[string]string,
 ) (*models.Thread, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	record, err := s.responseService.Get(id, models.ResponseRecordThread)
+	record, err := s.responseService.Get(ctx, id, models.ResponseRecordThread)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("thread", id)
@@ -638,7 +638,7 @@ func (s *Service) UpdateThread(
 		output.Metadata = metadata
 	}
 	record.Payload = mustPayload(&output)
-	if err := s.responseService.Update(record); err != nil {
+	if err := s.responseService.Update(ctx, record); err != nil {
 		return nil, err
 	}
 	return &output, nil
@@ -646,29 +646,29 @@ func (s *Service) UpdateThread(
 
 // DeleteThread removes a thread handle. Messages and runs referencing it
 // stay addressable by id.
-func (s *Service) DeleteThread(_ context.Context, id string) error {
+func (s *Service) DeleteThread(ctx context.Context, id string) error {
 	if err := s.mustResponseStore(); err != nil {
 		return err
 	}
-	if _, err := s.responseService.Get(id, models.ResponseRecordThread); err != nil {
+	if _, err := s.responseService.Get(ctx, id, models.ResponseRecordThread); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return compatNotFound("thread", id)
 		}
 		return err
 	}
-	return s.responseService.Delete(id)
+	return s.responseService.Delete(ctx, id)
 }
 
 // CreateThreadMessage appends a user or assistant message to a thread.
 func (s *Service) CreateThreadMessage(
-	_ context.Context,
+	ctx context.Context,
 	threadID string,
 	request *models.ThreadMessageRequest,
 ) (*models.ThreadMessage, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	if _, err := s.responseService.Get(threadID, models.ResponseRecordThread); err != nil {
+	if _, err := s.responseService.Get(ctx, threadID, models.ResponseRecordThread); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("thread", threadID)
 		}
@@ -692,7 +692,7 @@ func (s *Service) CreateThreadMessage(
 	for _, text := range texts {
 		output.Content = append(output.Content, models.ThreadContent{Type: "text", Text: text})
 	}
-	if err := s.responseService.Create(&models.ResponseRecord{
+	if err := s.responseService.Create(ctx, &models.ResponseRecord{
 		ID:       output.ID,
 		Kind:     models.ResponseRecordThreadMessage,
 		Status:   "completed",
@@ -706,13 +706,13 @@ func (s *Service) CreateThreadMessage(
 
 // GetThreadMessage returns one thread message, asserting thread membership.
 func (s *Service) GetThreadMessage(
-	_ context.Context,
+	ctx context.Context,
 	threadID, messageID string,
 ) (*models.ThreadMessage, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	record, err := s.responseService.Get(messageID, models.ResponseRecordThreadMessage)
+	record, err := s.responseService.Get(ctx, messageID, models.ResponseRecordThreadMessage)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("message", messageID)
@@ -731,19 +731,19 @@ func (s *Service) GetThreadMessage(
 
 // ListThreadMessages returns all messages of a thread, oldest first.
 func (s *Service) ListThreadMessages(
-	_ context.Context,
+	ctx context.Context,
 	threadID string,
 ) ([]*models.ThreadMessage, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	if _, err := s.responseService.Get(threadID, models.ResponseRecordThread); err != nil {
+	if _, err := s.responseService.Get(ctx, threadID, models.ResponseRecordThread); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("thread", threadID)
 		}
 		return nil, err
 	}
-	records, err := s.responseService.List([]models.ResponseRecordKind{models.ResponseRecordThreadMessage}, threadID)
+	records, err := s.responseService.List(ctx, []models.ResponseRecordKind{models.ResponseRecordThreadMessage}, threadID)
 	if err != nil {
 		return nil, err
 	}
@@ -832,7 +832,7 @@ func (s *Service) CreateRun(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	if _, err := s.responseService.Get(threadID, models.ResponseRecordThread); err != nil {
+	if _, err := s.responseService.Get(ctx, threadID, models.ResponseRecordThread); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("thread", threadID)
 		}
@@ -841,7 +841,7 @@ func (s *Service) CreateRun(
 	if request.AssistantID == "" {
 		return nil, invalidRequest("assistant_id is required")
 	}
-	assistantRecord, err := s.responseService.Get(request.AssistantID, models.ResponseRecordAssistant)
+	assistantRecord, err := s.responseService.Get(ctx, request.AssistantID, models.ResponseRecordAssistant)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("assistant", request.AssistantID)
@@ -910,7 +910,7 @@ func (s *Service) CreateRun(
 	response, err := s.complete(ctx, chatRequest, token, false)
 	if err != nil {
 		run.Status = "failed"
-		if createError := s.responseService.Create(&models.ResponseRecord{
+		if createError := s.responseService.Create(ctx, &models.ResponseRecord{
 			ID:       run.ID,
 			Kind:     models.ResponseRecordRun,
 			Model:    model,
@@ -937,7 +937,7 @@ func (s *Service) CreateRun(
 		turns := append(append([]models.ChatMessage{}, chatRequest.Messages...), pending...)
 		record.Input = mustPayload(turns)
 	}
-	if err := s.responseService.Create(record); err != nil {
+	if err := s.responseService.Create(ctx, record); err != nil {
 		return nil, err
 	}
 	if !waiting && len(response.Choices) > 0 && response.Choices[0].Message.Content != "" {
@@ -951,14 +951,14 @@ func (s *Service) CreateRun(
 
 // GetRun returns one run, asserting thread membership.
 func (s *Service) GetRun(
-	_ context.Context,
+	ctx context.Context,
 	threadID, runID string,
 	token *models.RouterToken,
 ) (*models.Run, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	record, err := s.responseService.Get(runID, models.ResponseRecordRun)
+	record, err := s.responseService.Get(ctx, runID, models.ResponseRecordRun)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("run", runID)
@@ -980,19 +980,19 @@ func (s *Service) GetRun(
 
 // ListRuns returns all runs of a thread, oldest first.
 func (s *Service) ListRuns(
-	_ context.Context,
+	ctx context.Context,
 	threadID string,
 ) ([]*models.Run, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	if _, err := s.responseService.Get(threadID, models.ResponseRecordThread); err != nil {
+	if _, err := s.responseService.Get(ctx, threadID, models.ResponseRecordThread); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("thread", threadID)
 		}
 		return nil, err
 	}
-	records, err := s.responseService.List([]models.ResponseRecordKind{models.ResponseRecordRun}, threadID)
+	records, err := s.responseService.List(ctx, []models.ResponseRecordKind{models.ResponseRecordRun}, threadID)
 	if err != nil {
 		return nil, err
 	}
@@ -1009,14 +1009,14 @@ func (s *Service) ListRuns(
 
 // CancelRun marks a non-terminal run canceled.
 func (s *Service) CancelRun(
-	_ context.Context,
+	ctx context.Context,
 	threadID, runID string,
 	token *models.RouterToken,
 ) (*models.Run, error) {
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	record, err := s.responseService.Get(runID, models.ResponseRecordRun)
+	record, err := s.responseService.Get(ctx, runID, models.ResponseRecordRun)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("run", runID)
@@ -1041,7 +1041,7 @@ func (s *Service) CancelRun(
 	output.RequiredAction = nil
 	record.Status = "canceled"
 	record.Payload = mustPayload(&output)
-	if err := s.responseService.Update(record); err != nil {
+	if err := s.responseService.Update(ctx, record); err != nil {
 		return nil, err
 	}
 	return &output, nil
@@ -1059,7 +1059,7 @@ func (s *Service) SubmitToolOutputs(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	record, err := s.responseService.Get(runID, models.ResponseRecordRun)
+	record, err := s.responseService.Get(ctx, runID, models.ResponseRecordRun)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
 			return nil, compatNotFound("run", runID)
@@ -1115,7 +1115,7 @@ func (s *Service) SubmitToolOutputs(
 	} else {
 		record.Input = mustPayload(turns)
 	}
-	if err := s.responseService.Update(record); err != nil {
+	if err := s.responseService.Update(ctx, record); err != nil {
 		return nil, err
 	}
 	if !waiting && len(response.Choices) > 0 && response.Choices[0].Message.Content != "" {

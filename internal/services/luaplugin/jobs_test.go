@@ -6,10 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TheSlopMachine/llm-router/internal/db"
+	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	"github.com/TheSlopMachine/llm-router/internal/models"
-	"github.com/TheSlopMachine/llm-router/internal/testutil"
-	bolt "go.etcd.io/bbolt"
+	"github.com/TheSlopMachine/llm-router/internal/repository"
 )
 
 const jobsPluginSource = `--- @plugin Jobs Plugin
@@ -39,7 +38,7 @@ llm_router.register("jobs-type", {
 
 func installJobsPlugin(t *testing.T, service *Service) {
 	t.Helper()
-	if _, err := service.Install([]byte(jobsPluginSource), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(jobsPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 }
@@ -87,7 +86,7 @@ llm_router.register("jobs-bad", {
   jobs = { ` + jobsBody + ` },
 })
 `
-		if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err == nil {
+		if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err == nil {
 			t.Errorf("%s: expected install error", name)
 		}
 	}
@@ -140,16 +139,16 @@ llm_router.register("jobs-writer", {
   },
 })
 `
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	updated := map[string]map[string]any{}
 	service.SetCredentialAccess(
-		func(providerID string) ([]*models.Credential, error) {
+		func(ctx context.Context, providerID string) ([]*models.Credential, error) {
 			return []*models.Credential{{ID: "c1", ProviderID: "p1", Data: map[string]any{"refresh_token": "r"}}, {ID: "c2", ProviderID: "p1", Disabled: true}}, nil
 		},
-		func(id string) (*models.Credential, error) { return nil, nil },
-		func(id string, data map[string]any) error { updated[id] = data; return nil },
+		func(ctx context.Context, id string) (*models.Credential, error) { return nil, nil },
+		func(ctx context.Context, id string, data map[string]any) error { updated[id] = data; return nil },
 	)
 	if err := service.RunJob(context.Background(), "jobs-writer", "refresh", "tick", "p1", nil); err != nil {
 		t.Fatalf("run: %v", err)
@@ -164,13 +163,13 @@ func TestCredentialsTableGating(t *testing.T) {
 	installJobsPlugin(t, service)
 	// Request context: update must fail, list/get serve.
 	service.SetCredentialAccess(
-		func(providerID string) ([]*models.Credential, error) {
+		func(ctx context.Context, providerID string) ([]*models.Credential, error) {
 			return []*models.Credential{{ID: "c1", Data: map[string]any{"api_key": "k"}}}, nil
 		},
-		func(id string) (*models.Credential, error) {
+		func(ctx context.Context, id string) (*models.Credential, error) {
 			return &models.Credential{ID: id, Data: map[string]any{}}, nil
 		},
-		func(id string, data map[string]any) error { return nil },
+		func(ctx context.Context, id string, data map[string]any) error { return nil },
 	)
 	src := `--- @plugin Gate Probe
 --- @author tester
@@ -189,7 +188,7 @@ llm_router.register("gate-type", {
   },
 })
 `
-	if _, err := service.Install([]byte(src), PluginOrigin{Manual: true}); err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	_, err := service.Complete(context.Background(), testMetadata("gate-type", nil, "gate-type/m", nil),
@@ -201,40 +200,37 @@ llm_router.register("gate-type", {
 }
 
 func TestStorageTTLExpiry(t *testing.T) {
-	database := testutil.SetupTestDB(t)
-	be := newStorageBackend(database)
-	if err := be.set("p1", "s", "k", "v", 0); err != nil {
+	service := setupService(t)
+	ctx := context.Background()
+	// Storage rows hang off the plugin row; seed the bare minimum so the
+	// foreign key stays valid.
+	now := time.Now().UTC()
+	pluginRow := record.Plugin{ID: "p1", Source: []byte("--"), InstalledAt: now, UpdatedAt: now}
+	if err := repository.NewGormRepository[record.Plugin](service.database, "id").Upsert(ctx, pluginRow); err != nil {
+		t.Fatalf("seed plugin: %v", err)
+	}
+	if err := service.SetStorageSQLite(ctx, "p1", "s", "k", "v", 0); err != nil {
 		t.Fatalf("set: %v", err)
 	}
-	if got, err := be.get("p1", "s", "k"); err != nil || got != "v" {
+	if got, err := service.GetStorageSQLite(ctx, "p1", "s", "k"); err != nil || got != "v" {
 		t.Fatalf("get: %v %v", got, err)
 	}
-	if err := be.set("p1", "s", "exp", "v", time.Second); err != nil {
+	if err := service.SetStorageSQLite(ctx, "p1", "s", "exp", "v", time.Second); err != nil {
 		t.Fatalf("set ttl: %v", err)
 	}
-	if got, err := be.get("p1", "s", "exp"); err != nil || got != "v" {
+	if got, err := service.GetStorageSQLite(ctx, "p1", "s", "exp"); err != nil || got != "v" {
 		t.Fatalf("unexpired ttl row must read: %v %v", got, err)
 	}
-	if err := be.set("p1", "s", "neg", "v", -time.Second); err == nil {
+	if err := service.SetStorageSQLite(ctx, "p1", "s", "neg", "v", -time.Second); err == nil {
 		t.Fatal("negative ttl must fail")
 	}
-	// A raw expired envelope reads as missing and deletes the row.
-	expired := `{"value":"stale","expires_at":"2000-01-01T00:00:00Z"}`
-	if err := database.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(db.BucketPluginStorage).Put([]byte(storageKey("p1", "s", "gone")), []byte(expired))
-	}); err != nil {
+	// An expired row reads as missing and deletes the row.
+	past := time.Now().Add(-time.Hour).UTC()
+	expiredRow := record.PluginStorage{PluginID: "p1", Scope: "s", Key: "gone", Value: []byte(`"stale"`), ExpiresAt: &past}
+	if err := repository.NewGormRepository[record.PluginStorage](service.database, "plugin_id", "scope", "key").Upsert(ctx, expiredRow); err != nil {
 		t.Fatalf("seed expired: %v", err)
 	}
-	if got, err := be.get("p1", "s", "gone"); err != nil || got != nil {
+	if got, err := service.GetStorageSQLite(ctx, "p1", "s", "gone"); err != nil || got != nil {
 		t.Fatalf("expired row must read missing: %v %v", got, err)
-	}
-	// Bare legacy rows (no envelope) keep serving without expiry.
-	if err := database.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(db.BucketPluginStorage).Put([]byte(storageKey("p1", "s", "bare")), []byte(`"legacy"`))
-	}); err != nil {
-		t.Fatalf("seed bare: %v", err)
-	}
-	if got, err := be.get("p1", "s", "bare"); err != nil || got != "legacy" {
-		t.Fatalf("bare row must serve: %v %v", got, err)
 	}
 }

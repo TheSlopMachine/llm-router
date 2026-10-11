@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -16,32 +15,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
-
-// SetupTestDB creates a temporary bbolt database for testing.
-// The database is automatically cleaned up when the test completes.
-func SetupTestDB(t *testing.T) *db.DB {
-	t.Helper()
-
-	file, err := os.CreateTemp("", "llm-router-test-*.db")
-	if err != nil {
-		t.Fatalf("create temp db file: %v", err)
-	}
-	path := file.Name()
-	file.Close()
-
-	database, err := db.Open(path)
-	if err != nil {
-		os.Remove(path)
-		t.Fatalf("open test db: %v", err)
-	}
-
-	t.Cleanup(func() {
-		database.Close()
-		os.Remove(path)
-	})
-
-	return database
-}
 
 // SetupTestSQLite creates a temporary SQLite database for testing with the
 // full migrated schema. Cleanup closes the pool and removes the file.

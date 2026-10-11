@@ -1,40 +1,22 @@
-// Package modelinfo manages model metadata caching.
-//
-// This service provides a caching layer between the dashboard UI and provider backends,
-// reducing API calls and improving performance.
 package modelinfo
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/TheSlopMachine/llm-router/internal/db"
+	stdErrors "errors"
+
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
-	"github.com/TheSlopMachine/llm-router/internal/repository"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 	"github.com/TheSlopMachine/llm-router/internal/util"
 )
 
-// Service manages model metadata caching
-type Service struct {
-	providerService   *provider.Service
-	credentialService *credential.Service
-	cacheTTL          time.Duration
-	logger            *slog.Logger
-	overrides         *repository.Repository[models.ModelOverride]
-	records           *repository.Repository[modelInfoRecord]
-
-	mu       sync.RWMutex
-	cache    map[string]cacheEntry
-	inflight map[string]*inflightCall
-}
-
+// cacheEntry is one in-memory model list with its fetch times.
 type cacheEntry struct {
 	models    []models.ModelInfo
 	cachedAt  time.Time
@@ -48,57 +30,54 @@ type inflightCall struct {
 	err       error
 }
 
-// modelInfoRecord is the persisted form of a cache entry: the model cache
-// lives in bbolt and survives restarts.
-type modelInfoRecord struct {
-	Models   []models.ModelInfo `json:"models"`
-	CachedAt time.Time          `json:"cached_at"`
+// ModelView is a model merged with its admin override state.
+type ModelView struct {
+	models.ModelInfo
+	Disabled bool `json:"disabled"`
+	Custom   bool `json:"custom"`
 }
 
-// New creates a ModelInfo service
-func New(database *db.DB, providerService *provider.Service, credentialService *credential.Service, cacheTTL time.Duration) *Service {
+// wireDiscovery attaches the discovery dependencies of the GORM service:
+// the provider registry for backend resolution, the credential pool for
+// Go discovery fetches, and the memory cache TTL. Called once from
+// NewGorm; construction performs no I/O.
+func (s *GormService) wireDiscovery(providerService *provider.GormService, credentialService *credential.GormService, cacheTTL time.Duration) {
 	if cacheTTL == 0 {
 		cacheTTL = 1 * time.Hour
 	}
-
-	return &Service{
-		providerService:   providerService,
-		credentialService: credentialService,
-		cacheTTL:          cacheTTL,
-		overrides:         repository.New[models.ModelOverride](database, db.BucketModelOverrides, "model_override"),
-		records:           repository.New[modelInfoRecord](database, db.BucketModelInfos, "model_info_record"),
-		cache:             make(map[string]cacheEntry),
-		inflight:          make(map[string]*inflightCall),
-	}
+	s.providerService = providerService
+	s.credentialService = credentialService
+	s.cacheTTL = cacheTTL
+	s.cache = make(map[string]cacheEntry)
+	s.inflight = make(map[string]*inflightCall)
 }
 
 // SetLogger wires structured logging (called once from server.New).
-func (s *Service) SetLogger(l *slog.Logger) { s.logger = l }
+func (s *GormService) SetLogger(l *slog.Logger) { s.logger = l }
 
 // PeekModelInfos returns the cached model list without triggering an upstream
 // fetch; stale entries count, and a memory miss hydrates from the persisted
-// record. A true miss returns nil — callers that merely display a count must
-// not ping the provider (auto-sync is opt-in via config.models_auto_sync;
-// everything else syncs on explicit user action or the startup warm).
-func (s *Service) PeekModelInfos(providerID string) []models.ModelInfo {
+// snapshot. A true miss returns nil — callers that merely display a count must
+// not ping the provider.
+func (s *GormService) PeekModelInfos(ctx context.Context, providerID string) []models.ModelInfo {
 	s.mu.RLock()
 	entry, ok := s.cache[providerID]
 	s.mu.RUnlock()
 	if ok {
 		return stripModalityCapabilities(entry.models)
 	}
-	record, err := s.records.Get(providerID)
-	if err != nil || record == nil {
+	modelList, cachedAt, err := s.GetSnapshot(ctx, providerID)
+	if err != nil {
 		return nil
 	}
 	s.mu.Lock()
 	s.cache[providerID] = cacheEntry{
-		models:    record.Models,
-		cachedAt:  record.CachedAt,
-		expiresAt: record.CachedAt.Add(s.cacheTTL),
+		models:    modelList,
+		cachedAt:  cachedAt,
+		expiresAt: cachedAt.Add(s.cacheTTL),
 	}
 	s.mu.Unlock()
-	return stripModalityCapabilities(record.Models)
+	return stripModalityCapabilities(modelList)
 }
 
 // modalityCapabilities are capability chips duplicated by the modalities column.
@@ -129,8 +108,8 @@ func stripModalityCapabilities(modelList []models.ModelInfo) []models.ModelInfo 
 // WarmMissing creates model caches for providers that have none. Runs in the
 // background at startup; refresh afterwards stays opt-in (models_auto_sync)
 // or manual.
-func (s *Service) WarmMissing(ctx context.Context) {
-	providers, err := s.providerService.List()
+func (s *GormService) WarmMissing(ctx context.Context) {
+	providers, err := s.providerService.List(ctx)
 	if err != nil {
 		if s.logger != nil {
 			s.logger.Warn("model cache warm: list providers failed", "err", err)
@@ -144,7 +123,7 @@ func (s *Service) WarmMissing(ctx context.Context) {
 		if provider.Disabled {
 			continue
 		}
-		if len(s.PeekModelInfos(provider.ID)) > 0 {
+		if len(s.PeekModelInfos(ctx, provider.ID)) > 0 {
 			continue
 		}
 		if _, err := s.GetModelInfos(ctx, provider.ID); err != nil && s.logger != nil {
@@ -153,8 +132,8 @@ func (s *Service) WarmMissing(ctx context.Context) {
 	}
 }
 
-// GetModelInfos retrieves all model metadata for a provider
-func (s *Service) GetModelInfos(ctx context.Context, providerID string) ([]models.ModelInfo, error) {
+// GetModelInfos retrieves all model metadata for a provider.
+func (s *GormService) GetModelInfos(ctx context.Context, providerID string) ([]models.ModelInfo, error) {
 	s.mu.RLock()
 	if entry, exists := s.cache[providerID]; exists && util.Now().Before(entry.expiresAt) {
 		s.mu.RUnlock()
@@ -193,8 +172,8 @@ func (s *Service) GetModelInfos(ctx context.Context, providerID string) ([]model
 	return modelInfos, err
 }
 
-// GetModelInfo retrieves metadata for a specific model
-func (s *Service) GetModelInfo(ctx context.Context, modelID models.ModelId) (*models.ModelInfo, error) {
+// GetModelInfo retrieves metadata for a specific model.
+func (s *GormService) GetModelInfo(ctx context.Context, modelID models.ModelId) (*models.ModelInfo, error) {
 	providerID, modelName, err := modelID.Parse()
 	if err != nil {
 		return nil, err
@@ -214,8 +193,8 @@ func (s *Service) GetModelInfo(ctx context.Context, modelID models.ModelId) (*mo
 	return nil, fmt.Errorf("model %q not found for provider %s", modelName, providerID)
 }
 
-// GetModels retrieves just the model names for a provider
-func (s *Service) GetModels(ctx context.Context, providerID string) ([]string, error) {
+// GetModels retrieves just the model names for a provider.
+func (s *GormService) GetModels(ctx context.Context, providerID string) ([]string, error) {
 	modelInfos, err := s.GetModelInfos(ctx, providerID)
 	if err != nil {
 		return nil, err
@@ -229,8 +208,8 @@ func (s *Service) GetModels(ctx context.Context, providerID string) ([]string, e
 }
 
 // fetchAndCache fetches model metadata from the provider backend and caches it.
-func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]models.ModelInfo, error) {
-	resolved, err := provider.Resolve(s.providerService, providerID)
+func (s *GormService) fetchAndCache(ctx context.Context, providerID string) ([]models.ModelInfo, error) {
+	resolved, err := provider.Resolve(s.providerService, ctx, providerID)
 	if err != nil {
 		if s.logger != nil {
 			s.logger.Warn("model discovery: provider lookup failed", "provider_id", providerID, "err", err)
@@ -240,7 +219,7 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 	instance := resolved.Instance
 	config := instance.Config
 
-	credentials, err := s.credentialService.ListByProvider(providerID)
+	credentials, err := s.credentialService.ListByProvider(ctx, providerID)
 	if err != nil {
 		if s.logger != nil {
 			s.logger.Warn("model discovery: list credentials failed", "provider_id", providerID, "err", err)
@@ -261,7 +240,7 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 		if s.logger != nil {
 			s.logger.Debug("model discovery succeeded", "provider_id", providerID, "models", len(modelInfos))
 		}
-		return s.store(providerID, modelInfos), nil
+		return s.store(ctx, providerID, modelInfos), nil
 	}
 	var modelInfos []models.ModelInfo
 	var lastErr error
@@ -271,14 +250,14 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 	}
 
 	// Credential-free fetch first for backends that do not need credentials
-	// for discovery, such as the built-in agents provider or keyless plugins.
+	// for discovery, such as keyless plugins.
 	if len(credentials) == 0 {
 		modelInfos, lastErr = fetch(nil)
 		if lastErr == nil {
 			if s.logger != nil {
 				s.logger.Debug("model discovery succeeded (no credential)", "provider_id", providerID, "models", len(modelInfos))
 			}
-			return s.store(providerID, modelInfos), nil
+			return s.store(ctx, providerID, modelInfos), nil
 		}
 		if s.logger != nil {
 			s.logger.Warn("model discovery failed", "provider_id", providerID, "qualifier", instance.Qualifier, "err", lastErr, "attempts", 1)
@@ -292,7 +271,7 @@ func (s *Service) fetchAndCache(ctx context.Context, providerID string) ([]model
 			if s.logger != nil {
 				s.logger.Debug("model discovery succeeded", "provider_id", providerID, "credential_id", credential.ID, "models", len(modelInfos))
 			}
-			return s.store(providerID, modelInfos), nil
+			return s.store(ctx, providerID, modelInfos), nil
 		}
 	}
 
@@ -320,24 +299,17 @@ func safeGetModelInfos(
 // Refresh forces an upstream fetch and stores it. The previous cache is
 // kept when the fetch fails: until a new list arrives the old one counts
 // as current.
-func (s *Service) Refresh(ctx context.Context, providerID string) ([]models.ModelInfo, error) {
+func (s *GormService) Refresh(ctx context.Context, providerID string) ([]models.ModelInfo, error) {
 	return s.fetchAndCache(ctx, providerID)
 }
 
 // mergeRetained refreshes known models from the fresh fetch and appends
-// names the fetch introduces. Records are keyed by full model id
-// (provider + name): the same name on another provider is a separate
-// record verified separately. Known models take the fresh row: corrected
-// plugin metadata (modalities, endpoints, capabilities) must reach the
-// cache; admin intent lives in the overrides bucket, never in cached rows.
-// Names the fresh fetch omits are retained: eviction of models the upstream
-// drops is request-driven, not fetch-driven (the router removes a model via
-// RemoveModel when the backend reports ErrorTypeNotFound, so transiently
-// omitted names survive one flap while confirmed removals disappear on next
-// use). Manual and custom models live in the overrides bucket and never
-// pass through here.
-func (s *Service) mergeRetained(providerID string, fresh []models.ModelInfo) []models.ModelInfo {
-	existing := s.PeekModelInfos(providerID)
+// names the fetch introduces. Names the fresh fetch omits are retained:
+// eviction of models the upstream drops is request-driven, not
+// fetch-driven. Manual and custom models live in the overrides table and
+// never pass through here.
+func (s *GormService) mergeRetained(ctx context.Context, providerID string, fresh []models.ModelInfo) []models.ModelInfo {
+	existing := s.PeekModelInfos(ctx, providerID)
 	if len(existing) == 0 {
 		return fresh
 	}
@@ -364,123 +336,15 @@ func (s *Service) mergeRetained(providerID string, fresh []models.ModelInfo) []m
 	return merged
 }
 
-// RemoveModel drops one model from the cached list after the upstream
-// reports it does not exist. A missing provider record is a no-op.
-// Reports whether anything was removed.
-func (s *Service) RemoveModel(providerID, name string) (bool, error) {
-	record, err := s.records.Get(providerID)
-	if err != nil || record == nil {
-		return false, nil
-	}
-	kept := make([]models.ModelInfo, 0, len(record.Models))
-	removed := false
-	for _, model := range record.Models {
-		if model.Name == name {
-			removed = true
-			continue
-		}
-		kept = append(kept, model)
-	}
-	if !removed {
-		return false, nil
-	}
-	s.mu.Lock()
-	if e, ok := s.cache[providerID]; ok {
-		e.models = append([]models.ModelInfo(nil), kept...)
-		s.cache[providerID] = e
-	}
-	s.mu.Unlock()
-	if err := s.records.Put(providerID, &modelInfoRecord{Models: kept, CachedAt: record.CachedAt}); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-// InvalidateProvider clears cache for a specific provider
-func (s *Service) InvalidateProvider(providerID string) error {
-	s.mu.Lock()
-	delete(s.cache, providerID)
-	s.mu.Unlock()
-	return s.records.DeleteIfExists(providerID)
-}
-
-// InvalidateAll clears entire cache
-func (s *Service) InvalidateAll() error {
-	s.mu.Lock()
-	s.cache = make(map[string]cacheEntry)
-	s.mu.Unlock()
-	providers, err := s.providerService.List()
-	if err != nil {
-		return err
-	}
-	for _, provider := range providers {
-		_ = s.records.DeleteIfExists(provider.ID)
-	}
-	return nil
-}
-
-// ─────────────────────────────────────────────
-// Model overrides: enable/disable, custom models, display metadata
-// ─────────────────────────────────────────────
-
-func overrideKey(providerID, modelName string) string {
-	return providerID + "/" + modelName
-}
-
-// ModelView is a model merged with its admin override state.
-type ModelView struct {
-	models.ModelInfo
-	Disabled bool `json:"disabled"`
-	Custom   bool `json:"custom"`
-}
-
-// SetOverride creates or replaces the override for one model.
-func (s *Service) SetOverride(override models.ModelOverride) error {
-	if override.ProviderID == "" || override.Name == "" {
-		return fmt.Errorf("override requires provider id and model name")
-	}
-	return s.overrides.Put(overrideKey(override.ProviderID, override.Name), &override)
-}
-
-// DeleteOverride removes the override for one model. For custom models this
-// removes the model itself.
-func (s *Service) DeleteOverride(providerID, modelName string) error {
-	return s.overrides.Delete(overrideKey(providerID, modelName))
-}
-
-// ListOverrides returns all overrides of a provider.
-func (s *Service) ListOverrides(providerID string) ([]*models.ModelOverride, error) {
-	return s.overrides.ListFiltered(func(override *models.ModelOverride) bool {
-		return override.ProviderID == providerID
-	})
-}
-
-// IsModelEnabled reports whether a model may be routed. Models are enabled
-// unless an override disables them. Missing overrides allow routing;
-// storage failures deny routing.
-func (s *Service) IsModelEnabled(providerID, modelName string) (bool, error) {
-	override, err := s.overrides.Get(overrideKey(providerID, modelName))
-	if err != nil {
-		if errors.Is(err, apierrors.ErrNotFound) {
-			return true, nil
-		}
-		return false, err
-	}
-	if override == nil {
-		return true, nil
-	}
-	return !override.Disabled, nil
-}
-
 // MergedView merges the cached upstream model list with admin overrides:
 // disabled models are flagged, custom models appended, display metadata applied.
 // Fetches from the upstream on a cache miss — explicit refresh paths only.
-func (s *Service) MergedView(ctx context.Context, providerID string) ([]ModelView, error) {
+func (s *GormService) MergedView(ctx context.Context, providerID string) ([]ModelView, error) {
 	modelList, err := s.GetModelInfos(ctx, providerID)
 	if err != nil {
 		return nil, err
 	}
-	overrides, err := s.ListOverrides(providerID)
+	overrides, err := s.ListOverrides(ctx, providerID)
 	if err != nil {
 		return nil, err
 	}
@@ -490,12 +354,12 @@ func (s *Service) MergedView(ctx context.Context, providerID string) ([]ModelVie
 // PeekMergedView is MergedView over the cache (stale entries count) with no
 // upstream fetch. Browsing paths use it: upstream sync is opt-in
 // (models_auto_sync) or an explicit user action.
-func (s *Service) PeekMergedView(providerID string) ([]ModelView, error) {
-	overrides, err := s.ListOverrides(providerID)
+func (s *GormService) PeekMergedView(ctx context.Context, providerID string) ([]ModelView, error) {
+	overrides, err := s.ListOverrides(ctx, providerID)
 	if err != nil {
 		return nil, err
 	}
-	return mergeModelViews(s.PeekModelInfos(providerID), overrides), nil
+	return mergeModelViews(s.PeekModelInfos(ctx, providerID), overrides), nil
 }
 
 func mergeModelViews(modelList []models.ModelInfo, overrides []*models.ModelOverride) []ModelView {
@@ -544,8 +408,8 @@ func mergeModelViews(modelList []models.ModelInfo, overrides []*models.ModelOver
 	return views
 }
 
-func (s *Service) store(providerID string, fresh []models.ModelInfo) []models.ModelInfo {
-	modelInfos := stripModalityCapabilities(s.mergeRetained(providerID, fresh))
+func (s *GormService) store(ctx context.Context, providerID string, fresh []models.ModelInfo) []models.ModelInfo {
+	modelInfos := stripModalityCapabilities(s.mergeRetained(ctx, providerID, fresh))
 	for i := range modelInfos {
 		modelInfos[i].DeriveCapabilities()
 	}
@@ -560,9 +424,41 @@ func (s *Service) store(providerID string, fresh []models.ModelInfo) []models.Mo
 	s.cache[providerID] = entry
 	s.mu.Unlock()
 
-	if err := s.records.Put(providerID, &modelInfoRecord{Models: modelInfos, CachedAt: now}); err != nil && s.logger != nil {
+	if err := s.PutSnapshot(ctx, providerID, modelInfos, now); err != nil && s.logger != nil {
 		s.logger.Warn("model cache persist failed", "provider_id", providerID, "err", err)
 	}
 
 	return modelInfos
+}
+
+// InvalidateProvider clears the memory cache and the persisted snapshot of
+// one provider. A missing snapshot succeeds: invalidation is idempotent.
+func (s *GormService) InvalidateProvider(ctx context.Context, providerID string) error {
+	s.mu.Lock()
+	delete(s.cache, providerID)
+	s.mu.Unlock()
+	if err := s.DeleteSnapshot(ctx, providerID); err != nil {
+		if stdErrors.Is(err, apierrors.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+// InvalidateAll clears the memory cache and every persisted snapshot.
+func (s *GormService) InvalidateAll(ctx context.Context) error {
+	s.mu.Lock()
+	s.cache = make(map[string]cacheEntry)
+	s.mu.Unlock()
+	providers, err := s.providerService.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, provider := range providers {
+		if err := s.InvalidateProvider(ctx, provider.ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }

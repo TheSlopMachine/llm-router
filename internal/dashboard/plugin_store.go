@@ -219,7 +219,7 @@ func (h *Handler) describeFiles(r *http.Request, repoID string, files []pluginre
 			view.AllowHosts = append([]string{}, manifest.AllowHosts...)
 			view.Unsafe = manifest.Unsafe
 			if id, err := luaplugin.BuildID(luaplugin.PluginOrigin{RepoID: repoID, Path: file.Path}, manifest); err == nil {
-				if existing, err := h.luaService.Get(id); err == nil && existing != nil {
+				if existing, err := h.luaService.GetSQLite(r.Context(), id); err == nil && existing != nil {
 					view.Installed = true
 					view.InstalledVersion = existing.Version
 					if comparison, comparisonError := luaplugin.CompareVersions(manifest.Version, existing.Version); comparisonError == nil && comparison > 0 {
@@ -268,7 +268,7 @@ func (h *Handler) apiPluginsInstallFromRepo(w http.ResponseWriter, r *http.Reque
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	record, err := h.luaService.Install(source, luaplugin.PluginOrigin{RepoID: body.RepoID, Path: body.Path})
+	record, err := h.luaService.InstallSQLite(r.Context(), source, luaplugin.PluginOrigin{RepoID: body.RepoID, Path: body.Path})
 	if err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -286,7 +286,7 @@ func (h *Handler) apiPluginsInstallFromRepo(w http.ResponseWriter, r *http.Reque
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugin-store/updates [get]
 func (h *Handler) apiStoreUpdates(w http.ResponseWriter, r *http.Request) {
-	installed, err := h.luaService.List()
+	installed, err := h.luaService.ListSQLite(r.Context())
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return

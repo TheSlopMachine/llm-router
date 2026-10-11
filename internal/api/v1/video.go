@@ -178,7 +178,7 @@ func (h *Handler) listVideoModels(w http.ResponseWriter, r *http.Request, token 
 	byFullID := map[string]modelinfo.ModelView{}
 	var entries []models.VideoModel
 	if h.providerSvc != nil && h.modelInfoSvc != nil {
-		if providers, err := h.providerSvc.List(); err == nil {
+		if providers, err := h.providerSvc.List(r.Context()); err == nil {
 			for _, providerInstance := range providers {
 				if providerInstance.TypeKey == provider.TypeVirtual || providerInstance.Disabled {
 					continue
@@ -207,7 +207,7 @@ func (h *Handler) listVideoModels(w http.ResponseWriter, r *http.Request, token 
 		}
 	}
 	if h.virtualSvc != nil {
-		if agents, err := h.virtualSvc.List(); err == nil {
+		if agents, err := h.virtualSvc.List(r.Context()); err == nil {
 			var mutex sync.Mutex
 			var resolved []*models.VirtualModel
 			var waitGroup sync.WaitGroup

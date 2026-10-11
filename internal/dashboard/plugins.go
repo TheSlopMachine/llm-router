@@ -51,7 +51,7 @@ func toPluginView(record *luaplugin.PluginRecord) pluginView {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugins [get]
 func (h *Handler) apiPluginsList(w http.ResponseWriter, r *http.Request) {
-	records, err := h.luaService.List()
+	records, err := h.luaService.ListSQLite(r.Context())
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -76,7 +76,7 @@ func (h *Handler) apiPluginsList(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugins/{id} [get]
 func (h *Handler) apiPluginsGet(w http.ResponseWriter, r *http.Request) {
-	record, err := h.luaService.Get(r.PathValue("id"))
+	record, err := h.luaService.GetSQLite(r.Context(), r.PathValue("id"))
 	if err != nil {
 		h.jsonErr(w, http.StatusNotFound, "plugin not found")
 		return
@@ -103,7 +103,7 @@ func (h *Handler) apiPluginsInstallFile(w http.ResponseWriter, r *http.Request) 
 		h.jsonErr(w, http.StatusBadRequest, "read plugin source: "+err.Error())
 		return
 	}
-	record, err := h.luaService.Install(source, luaplugin.PluginOrigin{Manual: true})
+	record, err := h.luaService.InstallSQLite(r.Context(), source, luaplugin.PluginOrigin{Manual: true})
 	if err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -123,7 +123,7 @@ func (h *Handler) apiPluginsInstallFile(w http.ResponseWriter, r *http.Request) 
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugins/{id} [delete]
 func (h *Handler) apiPluginsDelete(w http.ResponseWriter, r *http.Request) {
-	if err := h.luaService.Delete(r.PathValue("id")); err != nil {
+	if err := h.luaService.DeleteSQLite(r.Context(), r.PathValue("id")); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -142,7 +142,7 @@ func (h *Handler) apiPluginsDelete(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugins/{id}/rollback [post]
 func (h *Handler) apiPluginsRollback(w http.ResponseWriter, r *http.Request) {
-	record, err := h.luaService.Rollback(r.PathValue("id"))
+	record, err := h.luaService.RollbackSQLite(r.Context(), r.PathValue("id"))
 	if err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
