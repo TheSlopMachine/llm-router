@@ -919,14 +919,14 @@ func QualifiedSourceKey(recordID, name string) string {
 
 // ProxySourceKeys lists proxy-list sources registered by installed plugins,
 // one qualified key per (record, declared name), first-seen order. Reads
-// the in-memory registry: no storage round trip.
+// storage: source-only plugins carry no type key, so the type-keyed
+// in-memory registry never holds them and a registry read would report no
+// sources after every startup.
 func (s *Service) ProxySourceKeys() ([]string, error) {
-	s.mu.RLock()
-	records := make([]*PluginRecord, 0, len(s.registry))
-	for _, record := range s.registry {
-		records = append(records, record)
+	records, err := s.ListSQLite(context.Background())
+	if err != nil {
+		return nil, err
 	}
-	s.mu.RUnlock()
 	sort.Slice(records, func(i, j int) bool { return records[i].ID < records[j].ID })
 	var keys []string
 	seen := map[string]bool{}

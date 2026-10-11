@@ -128,6 +128,56 @@ func TestInstallSQLiteRoundTripPreservesDeclarations(t *testing.T) {
 	}
 }
 
+const sourceOnlyPluginSource = `--- @plugin Source Only
+--- @author tester
+--- @version 1.0.0
+--- @plugin_api 1.0
+--- @allow_host example.com
+
+llm_router.register_proxy_source("feed-solo", {
+  fetch_proxies = function()
+    return {}
+  end,
+})
+`
+
+// TestProxySourceKeysIncludesSourceOnlyPlugins proves proxy sources
+// survive startup: source-only plugins carry no type key, so the
+// type-keyed in-memory registry never holds them. Keys must come from
+// storage, both on the installing service and on a fresh service rebuilt
+// from the rows (the startup path).
+func TestProxySourceKeysIncludesSourceOnlyPlugins(t *testing.T) {
+	database := testutil.SetupTestSQLite(t)
+	service, err := New(database, nil)
+	if err != nil {
+		t.Fatalf("new sqlite service: %v", err)
+	}
+	ctx := context.Background()
+	installed, err := service.InstallSQLite(ctx, []byte(sourceOnlyPluginSource), PluginOrigin{Manual: true})
+	if err != nil {
+		t.Fatalf("install source-only plugin: %v", err)
+	}
+	want := []string{QualifiedSourceKey(installed.ID, "feed-solo")}
+	keys, err := service.ProxySourceKeys()
+	if err != nil {
+		t.Fatalf("proxy source keys: %v", err)
+	}
+	if len(keys) != 1 || keys[0] != want[0] {
+		t.Fatalf("proxy source keys: got %v, want %v", keys, want)
+	}
+	rebooted, err := New(database, nil)
+	if err != nil {
+		t.Fatalf("rebuilt sqlite service: %v", err)
+	}
+	keys, err = rebooted.ProxySourceKeys()
+	if err != nil {
+		t.Fatalf("rebuilt proxy source keys: %v", err)
+	}
+	if len(keys) != 1 || keys[0] != want[0] {
+		t.Fatalf("rebuilt proxy source keys: got %v, want %v", keys, want)
+	}
+}
+
 func TestInstallSQLiteUpdatePushesHistory(t *testing.T) {
 	service, ctx := setupSQLitePluginService(t)
 	installed, err := service.InstallSQLite(ctx, []byte(testPluginSource), PluginOrigin{Manual: true})
