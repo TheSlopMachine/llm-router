@@ -105,3 +105,53 @@ func TestSyncProviderModelsDropsEmptiedGroup(t *testing.T) {
 		t.Fatalf("managed virtual model of emptied group must be deleted, got %d", len(all))
 	}
 }
+
+func TestSyncProviderModelsDisabledDeletesManaged(t *testing.T) {
+	database := testutil.SetupTestSQLite(t)
+	ctx := context.Background()
+	providerService := provider.NewGorm(database)
+	providerService.RegisterGoAdapter(testutil.NewMockAdapter("demo").WithModelInfos([]models.ModelInfo{
+		{Name: "chat-a", Endpoints: []string{models.EndpointChatCompletions}},
+	}))
+	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Demo", TypeKey: "demo"}); err != nil {
+		t.Fatalf("seed demo provider: %v", err)
+	}
+	credentialService := credential.NewGorm(database, providerService)
+	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, 1*time.Hour)
+	if _, err := modelInfoService.GetModelInfos(ctx, "demo"); err != nil {
+		t.Fatalf("warm model cache: %v", err)
+	}
+	service := NewGorm(database, providerService, modelInfoService)
+
+	if _, err := service.SyncProviderModels(ctx, "demo"); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	if all, _ := service.List(ctx); len(all) != 1 {
+		t.Fatalf("expected 1 managed virtual model, got %d", len(all))
+	}
+	disabled := true
+	if _, err := providerService.Update(ctx, "demo", provider.UpdateOptions{Name: "Demo", Disabled: &disabled}); err != nil {
+		t.Fatalf("disable provider: %v", err)
+	}
+	groups, err := service.SyncProviderModels(ctx, "demo")
+	if err != nil {
+		t.Fatalf("resync: %v", err)
+	}
+	if len(groups) != 0 {
+		t.Fatalf("disabled provider must hold no groups, got %+v", groups)
+	}
+	if all, _ := service.List(ctx); len(all) != 0 {
+		t.Fatalf("managed virtual models of a disabled provider must delete, got %d", len(all))
+	}
+	// Re-enabling recreates them from the cache.
+	enabled := false
+	if _, err := providerService.Update(ctx, "demo", provider.UpdateOptions{Name: "Demo", Disabled: &enabled}); err != nil {
+		t.Fatalf("enable provider: %v", err)
+	}
+	if _, err := service.SyncProviderModels(ctx, "demo"); err != nil {
+		t.Fatalf("re-enable sync: %v", err)
+	}
+	if all, _ := service.List(ctx); len(all) != 1 {
+		t.Fatalf("re-enable must recreate managed virtual models, got %d", len(all))
+	}
+}

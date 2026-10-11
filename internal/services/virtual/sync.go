@@ -113,17 +113,23 @@ func sameMembers(current []models.VirtualModelEntry, desired []models.VirtualMod
 // SyncProviderModels creates/updates/deletes managed virtual models so each
 // non-empty endpoint group has exactly one. Members are enabled models
 // serving the endpoint, in cache order. Managed VMs whose group emptied are
-// deleted. Manual edits to name/description/instruction survive: only the
-// member list is rewritten. Per-group failures accumulate into the returned
-// error; completed groups still apply.
+// deleted. Disabled providers hold no groups: their managed rows delete so
+// a disabled provider never leaves routable-looking virtual models behind;
+// re-enabling recreates them from the cache. Manual edits to
+// name/description/instruction survive: only the member list is rewritten.
+// Per-group failures accumulate into the returned error; completed groups
+// still apply.
 func (s *GormService) SyncProviderModels(ctx context.Context, providerID string) ([]ProviderVMGroup, error) {
 	instance, err := s.providerService.Get(ctx, providerID)
 	if err != nil {
 		return nil, err
 	}
-	groups, err := s.GroupsForProvider(ctx, providerID)
-	if err != nil {
-		return nil, err
+	var groups []ProviderVMGroup
+	if !instance.Disabled {
+		groups, err = s.GroupsForProvider(ctx, providerID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	// Orphan index: an unmanaged record squatting an auto-generated name is
 	// adopted instead of colliding with it.

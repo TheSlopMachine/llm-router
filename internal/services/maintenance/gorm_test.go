@@ -14,6 +14,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
+	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
 
@@ -129,6 +130,30 @@ func (s *stubModelInfo) MergedView(_ context.Context, providerID string) ([]mode
 }
 
 func (s *stubModelInfo) calledWith() []string {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return append([]string(nil), s.calls...)
+}
+
+// stubVirtualSyncer records SyncProviderModels calls per provider. No
+// virtual source is involved.
+type stubVirtualSyncer struct {
+	mutex    sync.Mutex
+	calls    []string
+	runError error
+}
+
+func (s *stubVirtualSyncer) SyncProviderModels(_ context.Context, providerID string) ([]virtual.ProviderVMGroup, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.calls = append(s.calls, providerID)
+	if s.runError != nil {
+		return nil, s.runError
+	}
+	return nil, nil
+}
+
+func (s *stubVirtualSyncer) calledWith() []string {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	return append([]string(nil), s.calls...)
@@ -368,6 +393,55 @@ func TestGormSyncProviderModelsNilRefresherSkips(t *testing.T) {
 	}}
 	service := gormMaintenanceStack(t, backend, providers)
 	service.syncProviderModels(context.Background())
+}
+
+func TestGormSyncProviderModelsSyncsVirtualsAfterWarm(t *testing.T) {
+	backend := &stubJobBackend{}
+	providers := &stubProviderSource{providers: map[string]*models.ProviderInstance{
+		"auto":   {ID: "auto", TypeKey: "test-type", Config: map[string]any{"models_auto_sync": true}},
+		"manual": {ID: "manual", TypeKey: "test-type"},
+	}}
+	refresher := &stubModelInfo{views: map[string][]modelinfo.ModelView{}}
+	syncer := &stubVirtualSyncer{}
+	service := gormMaintenanceStack(t, backend, providers)
+	service.SetModelInfoService(refresher)
+	service.SetVirtualSyncer(syncer)
+	service.syncProviderModels(context.Background())
+	if synced := syncer.calledWith(); len(synced) != 1 || synced[0] != "auto" {
+		t.Fatalf("virtual syncs = %v, want only the warmed opted-in provider", synced)
+	}
+}
+
+func TestGormSyncProviderModelsWarmFailureSkipsVirtuals(t *testing.T) {
+	backend := &stubJobBackend{}
+	providers := &stubProviderSource{providers: map[string]*models.ProviderInstance{
+		"auto": {ID: "auto", TypeKey: "test-type", Config: map[string]any{"models_auto_sync": true}},
+	}}
+	refresher := &stubModelInfo{runError: errors.New("upstream failed")}
+	syncer := &stubVirtualSyncer{}
+	service := gormMaintenanceStack(t, backend, providers)
+	service.SetModelInfoService(refresher)
+	service.SetVirtualSyncer(syncer)
+	service.syncProviderModels(context.Background())
+	if synced := syncer.calledWith(); len(synced) != 0 {
+		t.Fatalf("virtual syncs = %v, want none after a failed warm", synced)
+	}
+}
+
+func TestGormSyncProviderModelsVirtualFailureStaysSilent(t *testing.T) {
+	backend := &stubJobBackend{}
+	providers := &stubProviderSource{providers: map[string]*models.ProviderInstance{
+		"auto": {ID: "auto", TypeKey: "test-type", Config: map[string]any{"models_auto_sync": true}},
+	}}
+	refresher := &stubModelInfo{views: map[string][]modelinfo.ModelView{}}
+	syncer := &stubVirtualSyncer{runError: errors.New("sync failed")}
+	service := gormMaintenanceStack(t, backend, providers)
+	service.SetModelInfoService(refresher)
+	service.SetVirtualSyncer(syncer)
+	service.syncProviderModels(context.Background())
+	if synced := syncer.calledWith(); len(synced) != 1 {
+		t.Fatalf("virtual syncs = %v, want one attempted sync", synced)
+	}
 }
 
 func TestGormStartupRefreshRunsStartupJobs(t *testing.T) {

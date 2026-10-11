@@ -62,6 +62,7 @@ func buildWiredParams(test *testing.T) Params {
 	routerService := router.New(providerService, credentialService, modelInfoService, videoJobsService, responses.NewGormService(sqliteDatabase.Handle), batches.NewSQLiteService(sqliteDatabase), logger)
 	maintenanceService := maintenance.NewGormService(luaService, providerService, logger)
 	maintenanceService.SetModelInfoService(modelInfoService)
+	maintenanceService.SetVirtualSyncer(virtualService)
 	metricsService := metrics.New(sqliteDatabase, logger)
 
 	return Params{

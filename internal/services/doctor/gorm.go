@@ -216,12 +216,29 @@ func (s *GormService) Inspect(ctx context.Context) (*InspectionReport, error) {
 
 	var issues []Issue
 
-	// Providers without backend mirror the previous check: disabled
-	// providers skip, Go adapters satisfy first, then the plugin
-	// registry. A nil checker skips its leg.
+	// Providers without backend mirror the previous check: Go adapters
+	// satisfy first, then the plugin registry. A nil checker skips its
+	// leg. Disabled providers skip unless they still hold managed virtual
+	// rows: a disable without cleanup keeps listing routable-looking
+	// models, so the issue stays until the rows are gone.
 	var missingBackendKeys []string
+	virtualList, err := s.virtualModels.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list virtual models: %w", err)
+	}
+	managedByProvider := map[string]bool{}
+	for _, virtualModel := range virtualList {
+		if virtualModel == nil {
+			continue
+		}
+		markerProvider, _, markerError := virtual.ParseMarker(virtualModel.ManagedBy)
+		if markerError != nil {
+			continue
+		}
+		managedByProvider[markerProvider] = true
+	}
 	for _, providerInstance := range providerList {
-		if providerInstance == nil || providerInstance.Disabled {
+		if providerInstance == nil {
 			continue
 		}
 		if s.goBackends != nil {
@@ -233,6 +250,9 @@ func (s *GormService) Inspect(ctx context.Context) (*InspectionReport, error) {
 			continue
 		}
 		if _, err := s.pluginBackends.Lookup(providerInstance.TypeKey); err == nil {
+			continue
+		}
+		if providerInstance.Disabled && !managedByProvider[providerInstance.ID] {
 			continue
 		}
 		missingBackendKeys = append(missingBackendKeys, providerInstance.ID)
@@ -250,11 +270,7 @@ func (s *GormService) Inspect(ctx context.Context) (*InspectionReport, error) {
 
 	// Duplicate virtual models group by lowercased name. The name_key
 	// UNIQUE index rejects these on write, so this stays empty unless
-	// rows land outside the service.
-	virtualList, err := s.virtualModels.List(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list virtual models: %w", err)
-	}
+	// rows land outside the service. The list above feeds both scans.
 	nameCounts := map[string]int{}
 	nameToIdentifiers := map[string][]string{}
 	for _, virtualModel := range virtualList {
@@ -400,6 +416,24 @@ func (s *GormService) Fix(ctx context.Context, categories []IssueCategory) (int,
 				}
 				if err := s.providers.SystemDisable(ctx, key, "doctor: no installed plugin or built-in backend for type "+instance.TypeKey); err == nil {
 					totalFixed++
+					// A disabled provider holds no managed virtual models:
+					// drop its rows so they stop listing and routing.
+					virtualList, err := s.virtualModels.List(ctx)
+					if err != nil {
+						continue
+					}
+					for _, virtualModel := range virtualList {
+						if virtualModel == nil {
+							continue
+						}
+						markerProvider, _, markerError := virtual.ParseMarker(virtualModel.ManagedBy)
+						if markerError != nil || markerProvider != key {
+							continue
+						}
+						if err := s.virtualModels.Delete(ctx, virtualModel.ID); err == nil {
+							totalFixed++
+						}
+					}
 				}
 			}
 

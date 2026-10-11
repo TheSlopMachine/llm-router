@@ -221,6 +221,56 @@ func TestGormInspect_MissingBackendFlaggedAndDisabled(t *testing.T) {
 	}
 }
 
+func TestGormFix_MissingBackendDropsManagedVirtuals(t *testing.T) {
+	service, database, ctx := doctorGormStack(t)
+	providerService := provider.NewGorm(database)
+	ghost, err := providerService.Create(ctx, provider.CreateOptions{Name: "Ghost", TypeKey: "ghost-type"})
+	if err != nil {
+		t.Fatalf("create ghost provider: %v", err)
+	}
+	now := util.Now()
+	managedProvider := ghost.ID
+	slug := "chat"
+	virtualRows := []record.VirtualModel{{
+		ID: "ghost-chat", Name: "Ghost Chat", NameKey: "ghost chat",
+		Description: "managed", Instruction: "",
+		ManagedProviderID: &managedProvider, ManagedEndpointSlug: &slug,
+		CreatedAt: now, UpdatedAt: now,
+	}}
+	if err := gorm.G[record.VirtualModel](database.Handle, clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, UpdateAll: true}).CreateInBatches(ctx, &virtualRows, 500); err != nil {
+		t.Fatalf("seed managed virtual: %v", err)
+	}
+	memberRows := []record.VirtualModelMember{{
+		VirtualModelID: "ghost-chat", Position: 0, ProviderID: ghost.ID, ModelName: "ghost-model",
+	}}
+	if err := gorm.G[record.VirtualModelMember](database.Handle, clause.OnConflict{
+		Columns: []clause.Column{{Name: "virtual_model_id"}, {Name: "position"}}, UpdateAll: true,
+	}).CreateInBatches(ctx, &memberRows, 500); err != nil {
+		t.Fatalf("seed virtual member: %v", err)
+	}
+	fixed, err := service.Fix(ctx, []IssueCategory{CategoryMissingProviderBackend})
+	if err != nil {
+		t.Fatalf("fix: %v", err)
+	}
+	if fixed != 2 {
+		t.Fatalf("fixed %d, want 1 disable plus 1 virtual delete", fixed)
+	}
+	virtualCount, err := gorm.G[record.VirtualModel](database.Handle).Count(ctx, "*")
+	if err != nil {
+		t.Fatalf("count virtual models: %v", err)
+	}
+	if virtualCount != 0 {
+		t.Fatalf("managed virtuals of disabled provider must delete, holds %d rows", virtualCount)
+	}
+	memberCount, err := gorm.G[record.VirtualModelMember](database.Handle).Count(ctx, "*")
+	if err != nil {
+		t.Fatalf("count virtual members: %v", err)
+	}
+	if memberCount != 0 {
+		t.Fatalf("members of deleted virtuals must cascade, holds %d rows", memberCount)
+	}
+}
+
 func TestGormInspect_MissingBackendSkipsDisabled(t *testing.T) {
 	service, database, ctx := doctorGormStack(t)
 	providerService := provider.NewGorm(database)
@@ -237,6 +287,52 @@ func TestGormInspect_MissingBackendSkipsDisabled(t *testing.T) {
 	}
 	if hasGormCategory(report, CategoryMissingProviderBackend) {
 		t.Fatalf("disabled provider without backend must pass: %+v", report.Issues)
+	}
+}
+
+func TestGormInspect_DisabledBackendlessWithManagedVirtualsFlagged(t *testing.T) {
+	service, database, ctx := doctorGormStack(t)
+	providerService := provider.NewGorm(database)
+	parked, err := providerService.Create(ctx, provider.CreateOptions{Name: "Parked", TypeKey: "parked-type"})
+	if err != nil {
+		t.Fatalf("create parked provider: %v", err)
+	}
+	if err := providerService.SystemDisable(ctx, parked.ID, "test"); err != nil {
+		t.Fatalf("disable parked: %v", err)
+	}
+	now := util.Now()
+	managedProvider := parked.ID
+	slug := "chat"
+	virtualRows := []record.VirtualModel{{
+		ID: "parked-chat", Name: "Parked Chat", NameKey: "parked chat",
+		Description: "managed", Instruction: "",
+		ManagedProviderID: &managedProvider, ManagedEndpointSlug: &slug,
+		CreatedAt: now, UpdatedAt: now,
+	}}
+	if err := gorm.G[record.VirtualModel](database.Handle, clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, UpdateAll: true}).CreateInBatches(ctx, &virtualRows, 500); err != nil {
+		t.Fatalf("seed managed virtual: %v", err)
+	}
+	report, err := service.Inspect(ctx)
+	if err != nil {
+		t.Fatalf("inspect: %v", err)
+	}
+	keys := gormCategoryKeys(report, CategoryMissingProviderBackend)
+	if len(keys) != 1 || keys[0] != parked.ID {
+		t.Fatalf("missing-backend keys = %v, want [%q] while managed rows dangle", keys, parked.ID)
+	}
+	fixed, err := service.Fix(ctx, []IssueCategory{CategoryMissingProviderBackend})
+	if err != nil {
+		t.Fatalf("fix: %v", err)
+	}
+	if fixed != 2 {
+		t.Fatalf("fixed %d, want 1 disable plus 1 virtual delete", fixed)
+	}
+	virtualCount, err := gorm.G[record.VirtualModel](database.Handle).Count(ctx, "*")
+	if err != nil {
+		t.Fatalf("count virtual models: %v", err)
+	}
+	if virtualCount != 0 {
+		t.Fatalf("managed virtuals of disabled provider must delete, holds %d rows", virtualCount)
 	}
 }
 

@@ -275,6 +275,11 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.Disabled != nil {
 			h.logger.Info("provider admin state change", "provider_id", id, "disabled", *body.Disabled)
+			// Disables drop the provider's managed virtual models; enables
+			// rebuild them from the cache.
+			if _, err := h.gormVirtualService.SyncProviderModels(r.Context(), id); err != nil {
+				h.logger.Warn("managed virtual models sync failed", "provider_id", id, "err", err)
+			}
 		}
 		h.json(w, http.StatusOK, toProviderView(instance, h.gormProviderService))
 		return
@@ -308,6 +313,11 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Disabled != nil {
 		h.logger.Info("provider admin state change", "provider_id", id, "disabled", *body.Disabled)
+		// Disables drop the provider's managed virtual models; enables
+		// rebuild them from the cache.
+		if _, err := h.gormVirtualService.SyncProviderModels(r.Context(), id); err != nil {
+			h.logger.Warn("managed virtual models sync failed", "provider_id", id, "err", err)
+		}
 	}
 
 	h.json(w, http.StatusOK, toProviderView(instance, h.gormProviderService))

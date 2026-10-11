@@ -142,6 +142,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 
 	maintenanceService := maintenance.NewGormService(luaService, providerService, logger)
 	maintenanceService.SetModelInfoService(modelInfoService)
+	maintenanceService.SetVirtualSyncer(virtualService)
 	metricsService := metrics.New(sqliteDatabase, logger)
 	metricsService.Start()
 

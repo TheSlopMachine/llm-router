@@ -36,6 +36,11 @@ func (h *Handler) apiProviderModels(w http.ResponseWriter, r *http.Request) {
 	if views == nil {
 		views = []modelinfo.ModelView{}
 	}
+	// Viewing warms the cache on a miss; rebuild managed virtual models
+	// from the warmed list so they never linger missing until a toggle.
+	if _, err := h.gormVirtualService.SyncProviderModels(r.Context(), providerID); err != nil {
+		h.logger.Warn("managed virtual models sync failed", "provider_id", providerID, "err", err)
+	}
 	h.json(w, http.StatusOK, views)
 }
 

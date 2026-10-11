@@ -18,6 +18,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
+	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
 )
 
 const defaultCheckInterval = 60 * time.Second
@@ -49,12 +50,20 @@ type ProviderInventory interface {
 	List(ctx context.Context) ([]*models.ProviderInstance, error)
 }
 
+// VirtualSyncer rebuilds managed virtual models from the warmed model
+// cache after an automatic sync. The virtual GORM service satisfies it;
+// sync failures log and continue like every other maintenance outcome.
+type VirtualSyncer interface {
+	SyncProviderModels(ctx context.Context, providerID string) ([]virtual.ProviderVMGroup, error)
+}
+
 // Compile-time proof that the GORM-backed provider service and the
 // luaplugin service plug into the narrow maintenance interfaces without
 // involving their package internals.
 var (
 	_ PluginJobs        = (*luaplugin.Service)(nil)
 	_ ProviderInventory = (*provider.GormService)(nil)
+	_ VirtualSyncer     = (*virtual.GormService)(nil)
 )
 
 // GormService runs background jobs for provider plugins against
@@ -67,6 +76,8 @@ type GormService struct {
 	logger         *slog.Logger
 
 	modelInfoRefresher modelInfoRefresher
+
+	virtualSyncer VirtualSyncer
 
 	mutex   sync.Mutex
 	lastRun map[string]time.Time
@@ -92,6 +103,12 @@ func NewGormService(jobBackend PluginJobs, providerSource ProviderInventory, log
 // config.models_auto_sync enabled.
 func (s *GormService) SetModelInfoService(refresher modelInfoRefresher) {
 	s.modelInfoRefresher = refresher
+}
+
+// SetVirtualSyncer wires managed virtual model rebuilds after a successful
+// automatic model sync. A nil syncer skips the rebuild.
+func (s *GormService) SetVirtualSyncer(syncer VirtualSyncer) {
+	s.virtualSyncer = syncer
 }
 
 // WithInterval overrides the check interval (useful for testing).
@@ -300,6 +317,14 @@ func (s *GormService) syncProviderModels(ctx context.Context) {
 		}
 		if _, err := s.modelInfoRefresher.MergedView(ctx, providerInstance.ID); err != nil {
 			s.logWarn("maintenance: model auto-sync failed", "provider_id", providerInstance.ID, "err", err)
+			continue
+		}
+		// The cache is warm now; rebuild managed virtual models from it so
+		// they never linger missing until a dashboard toggle.
+		if s.virtualSyncer != nil {
+			if _, err := s.virtualSyncer.SyncProviderModels(ctx, providerInstance.ID); err != nil {
+				s.logWarn("maintenance: virtual models sync failed", "provider_id", providerInstance.ID, "err", err)
+			}
 		}
 	}
 }
