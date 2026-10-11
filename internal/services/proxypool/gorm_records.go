@@ -7,11 +7,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/repository"
 	proxypoollib "github.com/TheSlopMachine/proxypool"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Write-path batch bounds. Wave 7 owns Flush and Clear; these constants pin
@@ -28,26 +30,28 @@ const (
 // persists the staged sets, remember surfaces persistence failures through
 // takeError.
 type gormCache struct {
-	mu      sync.RWMutex
-	states  *repository.GormRepository[record.ProxyState]
-	items   map[string]proxypoollib.ProxyState
-	dirty   map[string]struct{}
-	deleted map[string]struct{}
-	err     error
+	mu       sync.RWMutex
+	database *gorm.DB
+	states   *repository.GormRepository[record.ProxyState]
+	items    map[string]proxypoollib.ProxyState
+	dirty    map[string]struct{}
+	deleted  map[string]struct{}
+	err      error
 }
 
 // gormCache implements proxypoollib.CacheSource.
 var _ proxypoollib.CacheSource = (*gormCache)(nil)
 
 // newGormCache loads every persisted proxy state into memory. Writes stay
-// buffered until Wave 7 implements Flush.
+// buffered until Flush persists them.
 func newGormCache(ctx context.Context, database *gorm.DB) (*gormCache, error) {
 	states := repository.NewGormRepository[record.ProxyState](database, "url")
 	loaded := &gormCache{
-		states:  states,
-		items:   map[string]proxypoollib.ProxyState{},
-		dirty:   map[string]struct{}{},
-		deleted: map[string]struct{}{},
+		database: database,
+		states:   states,
+		items:    map[string]proxypoollib.ProxyState{},
+		dirty:    map[string]struct{}{},
+		deleted:  map[string]struct{}{},
 	}
 	rows, err := states.List(ctx)
 	if err != nil {
@@ -90,12 +94,89 @@ func (c *gormCache) Set(state proxypoollib.ProxyState) {
 	c.mu.Unlock()
 }
 
-// Flush persists every buffered write. Stubbed: Wave 7 owns the batching.
+// Flush persists every buffered write in chunked transactions. States set
+// concurrently with a flush re-dirty their keys and land on the next call.
+// Dirty states upsert in 500-row batches inside one transaction per 20000
+// states; deleted URLs remove through IN clauses in 500s. The staged sets
+// drain before the write and restore on failure, so a failed batch keeps
+// its staged sets for the next call. Persistence failures surface through
+// remember and the returned error.
 func (c *gormCache) Flush() error {
-	// TODO(Wave 7): upsert dirty states in 500-row batches inside
-	// 20000-state transactions and remove deleted URLs with IN clauses in
-	// 500s. Draining dirty/deleted stays with the write so a failed batch
-	// keeps its staged sets.
+	c.mu.Lock()
+	if len(c.dirty) == 0 && len(c.deleted) == 0 {
+		c.mu.Unlock()
+		return nil
+	}
+	pending := make([]proxypoollib.ProxyState, 0, len(c.dirty))
+	for url := range c.dirty {
+		state, ok := c.items[url]
+		if !ok {
+			continue
+		}
+		pending = append(pending, cloneState(state))
+	}
+	deletions := make([]string, 0, len(c.deleted))
+	for url := range c.deleted {
+		deletions = append(deletions, url)
+	}
+	c.dirty = map[string]struct{}{}
+	c.deleted = map[string]struct{}{}
+	c.mu.Unlock()
+
+	ctx := context.Background()
+	for start := 0; start < len(pending); start += gormStateFlushTransactionSize {
+		end := start + gormStateFlushTransactionSize
+		if end > len(pending) {
+			end = len(pending)
+		}
+		records := make([]record.ProxyState, 0, end-start)
+		for _, state := range pending[start:end] {
+			if state.URL == "" {
+				continue
+			}
+			records = append(records, proxyStateToRecord(state))
+		}
+		if len(records) == 0 {
+			continue
+		}
+		if err := c.database.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+			if err := gorm.G[record.ProxyState](transaction, clause.OnConflict{
+				Columns:   []clause.Column{{Name: "url"}},
+				UpdateAll: true,
+			}).CreateInBatches(ctx, &records, gormStateUpsertBatchSize); err != nil {
+				return db.Translate(err)
+			}
+			return nil
+		}); err != nil {
+			c.restage(pending, deletions)
+			c.remember(err)
+			return err
+		}
+	}
+	for start := 0; start < len(deletions); start += gormStateDeleteBatchSize {
+		end := start + gormStateDeleteBatchSize
+		if end > len(deletions) {
+			end = len(deletions)
+		}
+		values := make([]any, 0, end-start)
+		for _, url := range deletions[start:end] {
+			values = append(values, url)
+		}
+		if len(values) == 0 {
+			continue
+		}
+		if err := c.database.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+			if _, err := gorm.G[record.ProxyState](transaction,
+				clause.IN{Column: clause.Column{Name: "url"}, Values: values}).Delete(ctx); err != nil {
+				return db.Translate(err)
+			}
+			return nil
+		}); err != nil {
+			c.restage(pending, deletions)
+			c.remember(err)
+			return err
+		}
+	}
 	return nil
 }
 
@@ -125,15 +206,50 @@ func (c *gormCache) All() []proxypoollib.ProxyState {
 	return states
 }
 
-// Clear drops the in-memory set and its staged writes.
+// Clear drops the persisted states through GormRepository.Clear, the one
+// path allowed global deletes under AllowGlobalUpdate, then drops the
+// in-memory set and its staged writes. A persistence failure surfaces
+// through remember and keeps the in-memory set.
 func (c *gormCache) Clear() {
-	// TODO(Wave 7): delete persisted states through GormRepository.Clear,
-	// the one path allowed global deletes under AllowGlobalUpdate.
+	if err := c.states.Clear(context.Background()); err != nil {
+		c.remember(err)
+		return
+	}
 	c.mu.Lock()
 	c.items = map[string]proxypoollib.ProxyState{}
 	c.dirty = map[string]struct{}{}
 	c.deleted = map[string]struct{}{}
 	c.mu.Unlock()
+}
+
+// restage returns snapshot sets to the staged maps after a failed write.
+// Entries set concurrently with the flush stay staged: merging keeps every
+// key. Items already hold the latest values, so only the flags restore.
+func (c *gormCache) restage(pending []proxypoollib.ProxyState, deletions []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.dirty == nil {
+		c.dirty = map[string]struct{}{}
+	}
+	for _, state := range pending {
+		if state.URL == "" {
+			continue
+		}
+		if _, ok := c.items[state.URL]; ok {
+			c.dirty[state.URL] = struct{}{}
+		}
+	}
+	if c.deleted == nil {
+		c.deleted = map[string]struct{}{}
+	}
+	for _, url := range deletions {
+		if url == "" {
+			continue
+		}
+		if _, ok := c.items[url]; !ok {
+			c.deleted[url] = struct{}{}
+		}
+	}
 }
 
 func (c *gormCache) remember(err error) {
