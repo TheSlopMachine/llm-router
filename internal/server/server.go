@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/adapters/generic"
@@ -39,6 +41,8 @@ import (
 type Server struct {
 	applicationConfig  *config.Config
 	database           *db.DB
+	sqliteDatabase     *db.Database
+	sqlitePath         string
 	logger             *slog.Logger
 	dashboardServer    *http.Server
 	apiServer          *http.Server
@@ -47,11 +51,32 @@ type Server struct {
 	proxyService       *proxypool.Service
 }
 
+// resolveDatabasePaths splits the configured database path into the bbolt
+// file and the SQLite file. An explicit SQLite override wins outright. A
+// database path ending in .sqlite3 names SQLite directly with the legacy
+// bbolt sibling beside it, so the DEV_DB switch preserves existing dev
+// state; any other path keeps naming bbolt with the SQLite sibling beside
+// it. Both files stay open until the Wave 10 cutover retires bbolt.
+func resolveDatabasePaths(databasePath, sqlitePath string) (boltPath, resolvedSQLitePath string) {
+	if trimmed := strings.TrimSpace(sqlitePath); trimmed != "" {
+		return databasePath, trimmed
+	}
+	if strings.HasSuffix(databasePath, db.SQLiteFileSuffix) {
+		return strings.TrimSuffix(databasePath, db.SQLiteFileSuffix) + ".db", databasePath
+	}
+	return databasePath, strings.TrimSuffix(databasePath, filepath.Ext(databasePath)) + db.SQLiteFileSuffix
+}
+
 // New builds the full Server from config.
 func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error) {
-	database, err := db.Open(applicationConfig.DBPath)
+	boltPath, sqlitePath := resolveDatabasePaths(applicationConfig.DBPath, applicationConfig.SQLitePath)
+	database, err := db.Open(boltPath)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
+	}
+	sqliteDatabase, err := db.OpenSQLite(context.Background(), sqlitePath)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite database: %w", err)
 	}
 
 	dashboardAddr := applicationConfig.DashboardAddr
@@ -63,7 +88,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		return nil, fmt.Errorf("api listen address is required")
 	}
 
-	luaService, err := luaplugin.New(database, logger)
+	luaService, err := luaplugin.NewWithSQLite(database, sqliteDatabase, logger)
 	if err != nil {
 		return nil, fmt.Errorf("init plugin service: %w", err)
 	}
@@ -84,8 +109,8 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 	credentialService.SetLogger(logger)
 	modelInfoService := modelinfo.New(database, providerService, credentialService, 1*time.Hour)
 	virtualService := virtual.New(database, providerService, modelInfoService)
-	configService := configservice.New(database)
-	repositoryService := pluginrepo.New(database)
+	configService := configservice.NewWithSQLite(database, sqliteDatabase)
+	repositoryService := pluginrepo.NewWithSQLite(database, sqliteDatabase)
 	if err := repositoryService.PruneLegacyRepos(); err != nil {
 		return nil, fmt.Errorf("prune legacy plugin repos: %w", err)
 	}
@@ -93,6 +118,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		return nil, fmt.Errorf("seed built-in plugin repos: %w", err)
 	}
 	videoJobsService := videojobs.New(database)
+	videoJobsService.WithSQLite(sqliteDatabase)
 
 	// Proxy subsystem first: the plugin runtime and dashboard both read
 	// from it. Provider request routing never consults it: plugins query
@@ -137,10 +163,25 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 	maintenanceService := maintenance.New(luaService, providerService, database, logger)
 	maintenanceService.SetModelInfoService(modelInfoService)
 	metricsService := metrics.New(database, logger)
+	// Attach SQLite before Start: base bucket rows dual-write to bbolt and
+	// SQLite while both handles are attached; bbolt stays authoritative.
+	metricsService.SetSQLiteDatabase(sqliteDatabase.Handle)
 	metricsService.Start()
 
 	modelInfoService.SetLogger(logger)
 	virtualService.SetLogger(logger)
+
+	// GORM counterparts of the live bbolt services. Dashboard validates
+	// and stores them for the Wave 10 cutover; request paths keep serving
+	// bbolt until then. Credential validation resolves backends through
+	// the live provider service; doctor keeps the bbolt provider registry
+	// for Go backends and the plugin runtime for plugin backends.
+	providerGormService := provider.NewGorm(sqliteDatabase)
+	credentialGormService := credential.NewGorm(sqliteDatabase, providerService)
+	tokenGormService := token.NewGorm(sqliteDatabase)
+	adminGormService := admin.NewGorm(sqliteDatabase)
+	modelInfoGormService := modelinfo.NewGorm(sqliteDatabase)
+	virtualGormService := virtual.NewGorm(sqliteDatabase)
 
 	// Model caches persist in bbolt; warm the missing ones in the background
 	// so first clicks never wait on upstream discovery.
@@ -164,8 +205,12 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		TokenSvc: tokenService, ModelInfoSvc: modelInfoService, MetricsSvc: metricsService,
 		VirtualSvc: virtualService, RouterSvc: routerService, ConfigSvc: configService,
 		LuaSvc: luaService, RepoSvc: repositoryService, ProxySvc: proxyService, MaintSvc: maintenanceService,
-		Logger: logger,
-		NoAuth: applicationConfig.NoAuth,
+		Logger:           logger,
+		NoAuth:           applicationConfig.NoAuth,
+		SQLiteDatabase:   sqliteDatabase,
+		GormAdminService: adminGormService, GormProviderService: providerGormService,
+		GormCredentialService: credentialGormService, GormTokenService: tokenGormService,
+		GormModelInfoService: modelInfoGormService, GormVirtualService: virtualGormService,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard handler: %w", err)
@@ -198,6 +243,8 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 	return &Server{
 		applicationConfig:  applicationConfig,
 		database:           database,
+		sqliteDatabase:     sqliteDatabase,
+		sqlitePath:         sqlitePath,
 		logger:             logger,
 		dashboardServer:    dashboardServer,
 		apiServer:          apiServer,
@@ -221,7 +268,7 @@ func (s *Server) Run(ctx context.Context) error {
 	cancel()
 	s.proxyService.Start(ctx)
 	s.maintenanceService.Start(ctx)
-	s.logger.Info("llm-router started", "dashboard", s.applicationConfig.DashboardAddr, "api", s.applicationConfig.APIAddr, "db", s.applicationConfig.DBPath)
+	s.logger.Info("llm-router started", "dashboard", s.applicationConfig.DashboardAddr, "api", s.applicationConfig.APIAddr, "db", s.applicationConfig.DBPath, "sqlite", s.sqlitePath)
 
 	errorChannel := make(chan error, 2)
 	go func() {
@@ -250,7 +297,12 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
-// Close releases the database handle. Call after Run returns.
+// Close releases both database handles. SQLite checkpoints its
+// write-ahead log on close. Call after Run returns.
 func (s *Server) Close() error {
-	return s.database.Close()
+	if err := s.database.Close(); err != nil {
+		_ = s.sqliteDatabase.Close()
+		return err
+	}
+	return s.sqliteDatabase.Close()
 }

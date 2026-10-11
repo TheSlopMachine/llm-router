@@ -80,8 +80,23 @@ type Handler struct {
 	maintenanceService *maintenance.Service
 	dataService        *datamanagement.Service
 	doctorService      *doctor.Service
-	logger             *slog.Logger
-	noAuth             bool
+	// gormAdminService through gormVirtualService are the SQLite-backed
+	// counterparts of the bbolt services above, threaded from Params and
+	// validated in New. Handlers keep serving bbolt until the Wave 10
+	// cutover flips them.
+	gormAdminService      *admin.GormService
+	gormProviderService   *provider.GormService
+	gormCredentialService *credential.GormService
+	gormTokenService      *token.GormService
+	gormModelInfoService  *modelinfo.GormService
+	gormVirtualService    *virtual.GormService
+	// dataGormService and doctorGormService are the GORM counterparts of
+	// dataService and doctorService, constructed in New from the GORM set.
+	// Handlers keep serving the bbolt pair until the Wave 10 cutover.
+	dataGormService   *datamanagement.GormService
+	doctorGormService *doctor.GormService
+	logger            *slog.Logger
+	noAuth            bool
 
 	// devRedirect, when set, is the origin (e.g. "http://localhost:8080")
 	// that browser navigations are 302-redirected to instead of being

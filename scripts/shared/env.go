@@ -48,12 +48,12 @@ func NormalizeLogLevel(value string) string {
 	}
 }
 
-// DefaultDevDB returns ~/.local/llm-router/llm-router-dev.db (or OS equivalent).
+// DefaultDevDB returns ~/.local/llm-router/llm-router-dev.sqlite3 (or OS equivalent).
 func DefaultDevDB() string {
 	if dir, err := HomeLocal(); err == nil {
-		return filepath.Join(dir, "llm-router-dev.db")
+		return filepath.Join(dir, "llm-router-dev.sqlite3")
 	}
-	return "~/.local/llm-router/llm-router-dev.db"
+	return "~/.local/llm-router/llm-router-dev.sqlite3"
 }
 
 // EnvWithoutGowork returns the current environment with any GOWORK= entry

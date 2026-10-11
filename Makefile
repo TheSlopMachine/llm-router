@@ -18,9 +18,9 @@ PKG       ?= ./...
 export HOST WEB_PORT API_PORT URL VERSION PLATFORMS LOG_LEVEL NO_AUTH PKG
 
 ifeq ($(OS),Windows_NT)
-  DEV_DB  ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.db
+  DEV_DB  ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.sqlite3
 else
-  DEV_DB  ?= $(HOME)/.local/llm-router/llm-router-dev.db
+  DEV_DB  ?= $(HOME)/.local/llm-router/llm-router-dev.sqlite3
 endif
 export DEV_DB
 

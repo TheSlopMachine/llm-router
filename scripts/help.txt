@@ -31,7 +31,7 @@ Variables:
   API_PORT           API port. Default: "38081"
   URL                Dashboard URL for browser. Default: "http://$(HOST):$(WEB_PORT)"
   LOG_LEVEL          Server log level. Default: "info"
-  DEV_DB             Path to dev database. Default: "~/.local/llm-router/llm-router-dev.db"
+  DEV_DB             Path to dev database. Default: "~/.local/llm-router/llm-router-dev.sqlite3"
   NO_AUTH            Disable all authorization (dev and AI debugging only). Default: "0"
   SMOKE_PLUGINS      Comma plugin types for smoke (or "all"). Default: "mock"
   SMOKE_TARGETS      Comma targets for smoke. Default: "completions,messages"

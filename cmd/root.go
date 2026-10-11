@@ -22,6 +22,7 @@ var (
 	webPort            config.Port = 8080
 	apiPort            config.Port = 8081
 	databasePath       string
+	sqlitePath         string
 	noAuth             bool
 	logLevel           config.LogLevel = config.LogLevelInfo
 	devUIRedirect      string
@@ -63,6 +64,7 @@ func init() {
 	rootCmd.Flags().Var(&webPort, "web", "port for dashboard UI")
 	rootCmd.Flags().Var(&apiPort, "api", "port for /v1 OpenAI-compatible API")
 	rootCmd.Flags().StringVar(&databasePath, "db", "llm-router.db", "path to the database file")
+	rootCmd.Flags().StringVar(&sqlitePath, "sqlite-db", "", "path to the SQLite database file (defaults to the --db sibling)")
 	rootCmd.Flags().BoolVar(&noAuth, "no-auth", false, "disable all authorization (dev and AI debugging only)")
 	rootCmd.Flags().Var(&logLevel, "log-level", "log level: debug, info, warn, error")
 	rootCmd.Flags().BoolVarP(&versionFlag, "version", "v", false, "print version information and exit")
@@ -91,6 +93,7 @@ func run(cmd *cobra.Command, arguments []string) error {
 		DashboardAddr: net.JoinHostPort(host, webPort.String()),
 		APIAddr:       net.JoinHostPort(host, apiPort.String()),
 		DBPath:        databasePath,
+		SQLitePath:    strings.TrimSpace(sqlitePath),
 		LogLevel:      logLevel,
 		NoAuth:        noAuth,
 		DevUIRedirect: strings.TrimSpace(devUIRedirect),
