@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -188,12 +189,17 @@ func TestGormService_ValidateSession_SlidingWindow(t *testing.T) {
 		t.Fatalf("login failed: %v", err)
 	}
 
+	// Move the expiration near so validation refreshes it. Fresh sessions
+	// hold nearly the full duration and validate read-only.
+	near := util.Now().Add(time.Hour)
+	if _, err := gorm.G[record.Session](database.Handle, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}).Update(ctx, "expires_at", near); err != nil {
+		t.Fatalf("move expiration near failed: %v", err)
+	}
+
 	before, err := gorm.G[record.Session](database.Handle, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}).First(ctx)
 	if err != nil {
 		t.Fatalf("get session failed: %v", err)
 	}
-
-	time.Sleep(100 * time.Millisecond)
 
 	username, valid := service.ValidateSession(ctx, token)
 	if !valid {
@@ -209,6 +215,37 @@ func TestGormService_ValidateSession_SlidingWindow(t *testing.T) {
 	}
 	if !after.ExpiresAt.After(before.ExpiresAt) {
 		t.Error("validate should extend the session expiration")
+	}
+}
+
+func TestGormService_ValidateSession_Concurrent(t *testing.T) {
+	service, _, ctx := setupGormAdminService(t)
+
+	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+	token, _, err := service.Login(ctx, "operator", "password123", false)
+	if err != nil {
+		t.Fatalf("login failed: %v", err)
+	}
+
+	const callers = 16
+	var group sync.WaitGroup
+	rejected := make(chan string, callers)
+	for i := 0; i < callers; i++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			username, valid := service.ValidateSession(ctx, token)
+			if !valid || username != "operator" {
+				rejected <- username
+			}
+		}()
+	}
+	group.Wait()
+	close(rejected)
+	for username := range rejected {
+		t.Errorf("concurrent validate rejected session, username %q", username)
 	}
 }
 

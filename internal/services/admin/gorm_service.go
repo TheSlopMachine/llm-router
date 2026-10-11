@@ -190,42 +190,39 @@ func (s *GormService) Logout(ctx context.Context, token string) {
 }
 
 // ValidateSession returns the username for a valid, non-expired session
-// token. The expiration refreshes on each call (sliding window). Expired
-// sessions delete in the same transaction. Unknown or expired tokens deny
-// with false, never an error, matching the previous behavior.
+// token. The common path is read-only: the expiration refreshes only when
+// less than half the session duration remains, so parallel dashboard calls
+// never contend on one row. A failed refresh never invalidates a verified
+// session. Expired sessions delete best-effort. Unknown or expired tokens
+// deny with false, never an error, matching the previous behavior.
 func (s *GormService) ValidateSession(ctx context.Context, token string) (string, bool) {
 	if _, err := s.requireHandle(); err != nil {
 		return "", false
 	}
 	tokenHash := util.HashSecret(token)
-	var username string
-	var valid bool
-	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
-		session, err := gorm.G[record.Session](transaction, clause.Eq{Column: "token_hash", Value: tokenHash}).First(ctx)
-		if err != nil {
-			return db.Translate(err)
-		}
-		if util.Now().After(session.ExpiresAt) {
-			if _, err := gorm.G[record.Session](transaction, clause.Eq{Column: "token_hash", Value: tokenHash}).Delete(ctx); err != nil {
-				return db.Translate(err)
-			}
-			return nil
-		}
-		duration := sessionDurationNormal
-		if session.RememberMe {
-			duration = sessionDurationRememberMe
-		}
-		tracker := gorm.WithResult()
-		if _, err := gorm.G[record.Session](transaction, clause.Eq{Column: "token_hash", Value: tokenHash}, tracker).Update(ctx, "expires_at", util.Now().Add(duration)); err != nil {
-			return db.Translate(err)
-		}
-		username = session.Username
-		valid = true
-		return nil
-	}); err != nil {
+	session, err := gorm.G[record.Session](s.database.Handle, clause.Eq{Column: "token_hash", Value: tokenHash}).First(ctx)
+	if err != nil {
 		return "", false
 	}
-	return username, valid
+	now := util.Now()
+	if now.After(session.ExpiresAt) {
+		_ = s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+			_, err := gorm.G[record.Session](transaction, clause.Eq{Column: "token_hash", Value: tokenHash}).Delete(ctx)
+			return db.Translate(err)
+		})
+		return "", false
+	}
+	duration := sessionDurationNormal
+	if session.RememberMe {
+		duration = sessionDurationRememberMe
+	}
+	if now.Add(duration / 2).After(session.ExpiresAt) {
+		_ = s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+			_, err := gorm.G[record.Session](transaction, clause.Eq{Column: "token_hash", Value: tokenHash}).Update(ctx, "expires_at", now.Add(duration))
+			return db.Translate(err)
+		})
+	}
+	return session.Username, true
 }
 
 // CleanupExpiredSessions removes sessions expired before now through the
