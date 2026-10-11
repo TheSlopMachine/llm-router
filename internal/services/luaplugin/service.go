@@ -14,6 +14,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/repository"
 	lua "github.com/yuin/gopher-lua"
+	"gorm.io/gorm"
 )
 
 // maxPluginSource caps a single plugin file at 1 MiB.
@@ -102,6 +103,12 @@ type Service struct {
 	store    *repository.Repository[PluginRecord]
 	storage  *storageBackend
 	logger   *slog.Logger
+
+	// sqliteDatabase is the base SQLite handle for the alongside GORM path.
+	// Only the base handle is stored, never a chained query. Nil means
+	// bbolt-only operation. The bbolt bucket keeps serving live traffic
+	// until Wave 10 cutover.
+	sqliteDatabase *gorm.DB
 
 	mu       sync.RWMutex
 	registry map[string]*PluginRecord
