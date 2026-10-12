@@ -11,6 +11,30 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
+// requireOpenAIPathID reads one path parameter for OpenAI-envelope compat
+// handlers. It mirrors requirePathID but renders through writeError, keeping
+// the OpenAI shape even when anthropic-version is set.
+func (h *Handler) requireOpenAIPathID(w http.ResponseWriter, r *http.Request, name, label string) (string, bool) {
+	id := strings.TrimSpace(r.PathValue(name))
+	if id == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", label+" id is required", nil)
+		return "", false
+	}
+	return id, true
+}
+
+// requireOpenAIPathPair reads two path parameters with the legacy combined
+// empty message, preserving the current dual-check output.
+func (h *Handler) requireOpenAIPathPair(w http.ResponseWriter, r *http.Request, firstName, secondName, combinedMessage string) (string, string, bool) {
+	first := strings.TrimSpace(r.PathValue(firstName))
+	second := strings.TrimSpace(r.PathValue(secondName))
+	if first == "" || second == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", combinedMessage, nil)
+		return "", "", false
+	}
+	return first, second, true
+}
+
 // ─────────────────────────────────────────────
 // Assistants (POST|GET /v1/assistants family)
 // ─────────────────────────────────────────────
@@ -86,9 +110,8 @@ func (h *Handler) listAssistants(w http.ResponseWriter, r *http.Request, token *
 // @Router       /v1/assistants/{assistant_id} [get]
 // @Security     BearerAuth
 func (h *Handler) getAssistant(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("assistant_id"))
-	if id == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "assistant id is required", nil)
+	id, ok := h.requireOpenAIPathID(w, r, "assistant_id", "assistant")
+	if !ok {
 		return
 	}
 	output, err := h.router.GetAssistant(r.Context(), id, token)
@@ -113,9 +136,8 @@ func (h *Handler) getAssistant(w http.ResponseWriter, r *http.Request, token *mo
 // @Router       /v1/assistants/{assistant_id} [post]
 // @Security     BearerAuth
 func (h *Handler) updateAssistant(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("assistant_id"))
-	if id == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "assistant id is required", nil)
+	id, ok := h.requireOpenAIPathID(w, r, "assistant_id", "assistant")
+	if !ok {
 		return
 	}
 	var request models.AssistantRequest
@@ -150,9 +172,8 @@ func (h *Handler) updateAssistant(w http.ResponseWriter, r *http.Request, token 
 // @Router       /v1/assistants/{assistant_id} [delete]
 // @Security     BearerAuth
 func (h *Handler) deleteAssistant(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("assistant_id"))
-	if id == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "assistant id is required", nil)
+	id, ok := h.requireOpenAIPathID(w, r, "assistant_id", "assistant")
+	if !ok {
 		return
 	}
 	_ = token
@@ -208,9 +229,8 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request, token *mo
 // @Router       /v1/threads/{thread_id} [get]
 // @Security     BearerAuth
 func (h *Handler) getThread(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("thread_id"))
-	if id == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread id is required", nil)
+	id, ok := h.requireOpenAIPathID(w, r, "thread_id", "thread")
+	if !ok {
 		return
 	}
 	output, err := h.router.GetThread(r.Context(), id, token)
@@ -235,9 +255,8 @@ func (h *Handler) getThread(w http.ResponseWriter, r *http.Request, token *model
 // @Router       /v1/threads/{thread_id} [post]
 // @Security     BearerAuth
 func (h *Handler) updateThread(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("thread_id"))
-	if id == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread id is required", nil)
+	id, ok := h.requireOpenAIPathID(w, r, "thread_id", "thread")
+	if !ok {
 		return
 	}
 	var body struct {
@@ -270,9 +289,8 @@ func (h *Handler) updateThread(w http.ResponseWriter, r *http.Request, token *mo
 // @Router       /v1/threads/{thread_id} [delete]
 // @Security     BearerAuth
 func (h *Handler) deleteThread(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("thread_id"))
-	if id == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread id is required", nil)
+	id, ok := h.requireOpenAIPathID(w, r, "thread_id", "thread")
+	if !ok {
 		return
 	}
 	_ = token
@@ -299,9 +317,8 @@ func (h *Handler) deleteThread(w http.ResponseWriter, r *http.Request, token *mo
 // @Router       /v1/threads/{thread_id}/messages [post]
 // @Security     BearerAuth
 func (h *Handler) createThreadMessage(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("thread_id"))
-	if id == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread id is required", nil)
+	id, ok := h.requireOpenAIPathID(w, r, "thread_id", "thread")
+	if !ok {
 		return
 	}
 	var request models.ThreadMessageRequest
@@ -331,9 +348,8 @@ func (h *Handler) createThreadMessage(w http.ResponseWriter, r *http.Request, to
 // @Router       /v1/threads/{thread_id}/messages [get]
 // @Security     BearerAuth
 func (h *Handler) listThreadMessages(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("thread_id"))
-	if id == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread id is required", nil)
+	id, ok := h.requireOpenAIPathID(w, r, "thread_id", "thread")
+	if !ok {
 		return
 	}
 	_ = token
@@ -359,10 +375,8 @@ func (h *Handler) listThreadMessages(w http.ResponseWriter, r *http.Request, tok
 // @Router       /v1/threads/{thread_id}/messages/{message_id} [get]
 // @Security     BearerAuth
 func (h *Handler) getThreadMessage(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	threadID := strings.TrimSpace(r.PathValue("thread_id"))
-	messageID := strings.TrimSpace(r.PathValue("message_id"))
-	if threadID == "" || messageID == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread and message ids are required", nil)
+	threadID, messageID, ok := h.requireOpenAIPathPair(w, r, "thread_id", "message_id", "thread and message ids are required")
+	if !ok {
 		return
 	}
 	_ = token
@@ -401,9 +415,8 @@ func (h *Handler) getThreadMessage(w http.ResponseWriter, r *http.Request, token
 // @Security     BearerAuth
 func (h *Handler) createRun(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	start := time.Now()
-	threadID := strings.TrimSpace(r.PathValue("thread_id"))
-	if threadID == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread id is required", nil)
+	threadID, ok := h.requireOpenAIPathID(w, r, "thread_id", "thread")
+	if !ok {
 		return
 	}
 	var request models.RunRequest
@@ -473,9 +486,8 @@ func (h *Handler) streamRun(w http.ResponseWriter, run *models.Run) {
 // @Router       /v1/threads/{thread_id}/runs [get]
 // @Security     BearerAuth
 func (h *Handler) listRuns(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	threadID := strings.TrimSpace(r.PathValue("thread_id"))
-	if threadID == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread id is required", nil)
+	threadID, ok := h.requireOpenAIPathID(w, r, "thread_id", "thread")
+	if !ok {
 		return
 	}
 	_ = token
@@ -501,10 +513,8 @@ func (h *Handler) listRuns(w http.ResponseWriter, r *http.Request, token *models
 // @Router       /v1/threads/{thread_id}/runs/{run_id} [get]
 // @Security     BearerAuth
 func (h *Handler) getRun(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	threadID := strings.TrimSpace(r.PathValue("thread_id"))
-	runID := strings.TrimSpace(r.PathValue("run_id"))
-	if threadID == "" || runID == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread and run ids are required", nil)
+	threadID, runID, ok := h.requireOpenAIPathPair(w, r, "thread_id", "run_id", "thread and run ids are required")
+	if !ok {
 		return
 	}
 	output, err := h.router.GetRun(r.Context(), threadID, runID, token)
@@ -530,10 +540,8 @@ func (h *Handler) getRun(w http.ResponseWriter, r *http.Request, token *models.R
 // @Router       /v1/threads/{thread_id}/runs/{run_id}/cancel [post]
 // @Security     BearerAuth
 func (h *Handler) cancelRun(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	threadID := strings.TrimSpace(r.PathValue("thread_id"))
-	runID := strings.TrimSpace(r.PathValue("run_id"))
-	if threadID == "" || runID == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread and run ids are required", nil)
+	threadID, runID, ok := h.requireOpenAIPathPair(w, r, "thread_id", "run_id", "thread and run ids are required")
+	if !ok {
 		return
 	}
 	output, err := h.router.CancelRun(r.Context(), threadID, runID, token)
@@ -562,10 +570,8 @@ func (h *Handler) cancelRun(w http.ResponseWriter, r *http.Request, token *model
 // @Router       /v1/threads/{thread_id}/runs/{run_id}/submit_tool_outputs [post]
 // @Security     BearerAuth
 func (h *Handler) submitRunToolOutputs(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	threadID := strings.TrimSpace(r.PathValue("thread_id"))
-	runID := strings.TrimSpace(r.PathValue("run_id"))
-	if threadID == "" || runID == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "thread and run ids are required", nil)
+	threadID, runID, ok := h.requireOpenAIPathPair(w, r, "thread_id", "run_id", "thread and run ids are required")
+	if !ok {
 		return
 	}
 	var body struct {

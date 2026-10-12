@@ -16,6 +16,9 @@ type modelView struct {
 }
 
 func (view modelView) serves(endpoint string) bool {
+	// Mirrors models.ModelInfo.SupportsEndpoint: empty means
+	// chat/completions only. The scripts module has no dependency on the
+	// main module, so the literal stays instead of importing models.
 	if len(view.Endpoints) == 0 {
 		return endpoint == "chat/completions"
 	}
@@ -612,27 +615,10 @@ func runMatrix(testConfiguration configuration, report *report, pluginType, prov
 		}
 	}
 	served := map[string]string{}
-	run := func(target, model string, check func() error) string {
-		if model == "" {
-			report.add(pluginType, "-", target, skip, "no model serves capability", 0)
-			return ""
-		}
-		start := time.Now()
-		if reason, err := classifyRetryEmpty(check); err != nil {
-			report.add(pluginType, model, target, fail, err.Error(), time.Since(start))
-			return ""
-		} else if reason != "" {
-			report.add(pluginType, model, target, skip, reason, time.Since(start))
-			return ""
-		} else {
-			report.add(pluginType, model, target, pass, "", time.Since(start))
-			served[target] = model
-			return model
-		}
-	}
-	// runFallback tries every serving model until one passes or fails
-	// loudly. Skips fall through with the last reason.
-	runFallback := func(target string, candidates []string, check func(string) error) string {
+	// runCandidates tries every serving model until one passes or fails
+	// loudly. Skips fall through with the last reason. Single place owning
+	// classifyRetryEmpty and report.add.
+	runCandidates := func(target string, candidates []string, check func(string) error) string {
 		if len(candidates) == 0 {
 			report.add(pluginType, "-", target, skip, "no model serves capability", 0)
 			return ""
@@ -640,17 +626,18 @@ func runMatrix(testConfiguration configuration, report *report, pluginType, prov
 		reason := "no models to try"
 		for _, model := range candidates {
 			start := time.Now()
-			if retryReason, err := classifyRetryEmpty(func() error { return check(model) }); err != nil {
+			skipReason, err := classifyRetryEmpty(func() error { return check(model) })
+			if err != nil {
 				report.add(pluginType, model, target, fail, err.Error(), time.Since(start))
 				return ""
-			} else if retryReason != "" {
-				reason = retryReason
-				continue
-			} else {
-				report.add(pluginType, model, target, pass, "", time.Since(start))
-				served[target] = model
-				return model
 			}
+			if skipReason != "" {
+				reason = skipReason
+				continue
+			}
+			report.add(pluginType, model, target, pass, "", time.Since(start))
+			served[target] = model
+			return model
 		}
 		report.add(pluginType, "-", target, skip, reason, 0)
 		return ""
@@ -658,71 +645,69 @@ func runMatrix(testConfiguration configuration, report *report, pluginType, prov
 	// Streams inherit the unary outcome: a stream failing after headers
 	// yields 200 plus a truncated body with no classifiable error, so a
 	// skipped unary means the stream would hit the same wall.
-	streamGated := func(target, base string, check func(string) error) {
+	runStream := func(target, base string, check func(string) error) {
 		if model, ok := served[base]; ok {
-			run(target, model, func() error { return check(model) })
+			runCandidates(target, []string{model}, check)
 			return
 		}
-		for _, result := range report.results {
-			if result.target == base && result.status == skip {
-				report.add(pluginType, "-", target, skip, "unary skipped: "+result.reason, 0)
-				return
-			}
+		if reason, ok := report.skipReason(base); ok {
+			report.add(pluginType, "-", target, skip, "unary skipped: "+reason, 0)
+			return
 		}
 		if candidates := byEndpoint["chat/completions"]; len(candidates) > 0 {
-			run(target, candidates[0], func() error { return check(candidates[0]) })
+			runCandidates(target, candidates[:1], check)
 		}
 	}
 	chat := byEndpoint["chat/completions"]
 	if testConfiguration.targets["completions"] {
-		runFallback("completions", chat, func(modelName string) error {
+		runCandidates("completions", chat, func(modelName string) error {
 			return checkCompletions(testConfiguration, modelName)
 		})
-		streamGated("completions-stream", "completions", func(modelName string) error {
+		runStream("completions-stream", "completions", func(modelName string) error {
 			return checkCompletionsStream(testConfiguration, modelName)
 		})
-		runFallback("dashboard-chat", chat, func(modelName string) error {
+		runCandidates("dashboard-chat", chat, func(modelName string) error {
 			return checkDashboardChat(testConfiguration, modelName)
 		})
 	}
 	if testConfiguration.targets["messages"] {
-		runFallback("messages", chat, func(modelName string) error {
+		runCandidates("messages", chat, func(modelName string) error {
 			return checkMessages(testConfiguration, modelName, false)
 		})
-		streamGated("messages-stream", "messages", func(modelName string) error {
+		runStream("messages-stream", "messages", func(modelName string) error {
 			return checkMessages(testConfiguration, modelName, true)
 		})
 		// Tool blocks only where deterministic: the mock tools model
 		// echoes one tool_call per request. Real providers decide
 		// themselves, so no assertion there.
 		if pluginType == "mock" {
-			run("messages-tools", providerID+"/mock-tools", func() error {
-				return checkMessagesTools(testConfiguration, providerID+"/mock-tools")
+			runCandidates("messages-tools", []string{providerID + "/mock-tools"}, func(modelName string) error {
+				return checkMessagesTools(testConfiguration, modelName)
 			})
 		}
 	}
 	if testConfiguration.targets["transcribe"] {
-		runFallback("transcribe", byEndpoint["audio/transcriptions"], func(modelName string) error {
+		runCandidates("transcribe", byEndpoint["audio/transcriptions"], func(modelName string) error {
 			return checkTranscribe(testConfiguration, modelName)
 		})
 	}
 	if testConfiguration.targets["speech"] {
-		runFallback("speech", byEndpoint["audio/speech"], func(modelName string) error {
+		runCandidates("speech", byEndpoint["audio/speech"], func(modelName string) error {
 			return checkSpeech(testConfiguration, modelName)
 		})
 	}
 	if testConfiguration.targets["image"] {
-		runFallback("image", byEndpoint["images/generations"], func(modelName string) error {
+		runCandidates("image", byEndpoint["images/generations"], func(modelName string) error {
 			return checkImage(testConfiguration, modelName)
 		})
 	}
 	if testConfiguration.targets["embeddings"] {
-		runFallback("embeddings", byEndpoint["embeddings"], func(modelName string) error {
+		runCandidates("embeddings", byEndpoint["embeddings"], func(modelName string) error {
 			return checkEmbeddings(testConfiguration, modelName)
 		})
 	}
 	if testConfiguration.targets["video"] {
-		runFallback("video", byEndpoint["videos"], func(modelName string) error {
+		runCandidates("video", byEndpoint["videos"], func(modelName string) error {
 			return checkVideo(testConfiguration, modelName)
 		})
 	}
@@ -742,17 +727,17 @@ func runMatrix(testConfiguration configuration, report *report, pluginType, prov
 	// Negative path: a capability the model does not serve must fail
 	// closed, never silently. Free: gated before any backend is touched.
 	if len(chat) > 0 {
-		run("endpoint-gate", chat[0], func() error {
-			return checkEndpointGate(testConfiguration, chat[0])
+		runCandidates("endpoint-gate", chat[:1], func(modelName string) error {
+			return checkEndpointGate(testConfiguration, modelName)
 		})
-		run("endpoint-gate-video", chat[0], func() error {
-			return checkVideoGate(testConfiguration, chat[0])
+		runCandidates("endpoint-gate-video", chat[:1], func(modelName string) error {
+			return checkVideoGate(testConfiguration, modelName)
 		})
 	}
 	// Virtual fan-out through one ad-hoc virtual model per provider.
 	if len(chat) > 0 && testConfiguration.targets["completions"] {
-		run("virtual-chat", chat[0], func() error {
-			return checkVirtualChat(testConfiguration, chat[0])
+		runCandidates("virtual-chat", chat[:1], func(modelName string) error {
+			return checkVirtualChat(testConfiguration, modelName)
 		})
 	}
 }

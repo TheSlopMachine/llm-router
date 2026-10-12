@@ -39,6 +39,32 @@ func baseURLFromConfig(config map[string]any) (string, error) {
 	return models.NormalizeBaseURL(raw)
 }
 
+// withCredentialFailover tries attempt once per credential and returns the
+// first success. The last error wins when every attempt fails. An empty pool
+// fails closed with "no credentials available".
+func withCredentialFailover[Response any](
+	credentials []*models.Credential,
+	attempt func(apiKey string) (Response, error),
+) (Response, error) {
+	var empty Response
+	var lastErr error
+	for _, credential := range credentials {
+		var apiKey string
+		if credential != nil {
+			apiKey = credential.DataString("api_key")
+		}
+		response, err := attempt(apiKey)
+		if err == nil {
+			return response, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no credentials available")
+	}
+	return empty, lastErr
+}
+
 func (a *Adapter) Complete(
 	ctx context.Context,
 	credentials []*models.Credential,
@@ -60,19 +86,9 @@ func (a *Adapter) Complete(
 		return nil, fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
-	var lastErr error
-	for _, credential := range credentials {
-		var apiKey string
-		if credential != nil {
-			apiKey = credential.DataString("api_key")
-		}
-		response, err := client.ChatCompletion(ctx, apiKey, modelName, request)
-		if err == nil {
-			return response, nil
-		}
-		lastErr = err
-	}
-	return nil, lastErr
+	return withCredentialFailover(credentials, func(apiKey string) (*models.ChatCompletionResponse, error) {
+		return client.ChatCompletion(ctx, apiKey, modelName, request)
+	})
 }
 
 func (a *Adapter) CompleteStream(
@@ -97,22 +113,10 @@ func (a *Adapter) CompleteStream(
 		return fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
-	var lastErr error
-	for _, credential := range credentials {
-		var apiKey string
-		if credential != nil {
-			apiKey = credential.DataString("api_key")
-		}
-		if err := client.ChatCompletionStream(ctx, apiKey, modelName, request, writer); err == nil {
-			return nil
-		} else {
-			lastErr = err
-		}
-	}
-	if lastErr == nil {
-		lastErr = fmt.Errorf("no credentials available")
-	}
-	return lastErr
+	_, err = withCredentialFailover(credentials, func(apiKey string) (struct{}, error) {
+		return struct{}{}, client.ChatCompletionStream(ctx, apiKey, modelName, request, writer)
+	})
+	return err
 }
 
 func (a *Adapter) NeedsRefresh(credential *models.Credential) bool { return false }
@@ -160,19 +164,9 @@ func (a *Adapter) SubmitVideo(
 		return nil, fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
-	var lastErr error
-	for _, credential := range credentials {
-		var apiKey string
-		if credential != nil {
-			apiKey = credential.DataString("api_key")
-		}
-		response, err := client.SubmitVideo(ctx, apiKey, modelName, request)
-		if err == nil {
-			return response, nil
-		}
-		lastErr = err
-	}
-	return nil, lastErr
+	return withCredentialFailover(credentials, func(apiKey string) (*models.VideoGenerationResponse, error) {
+		return client.SubmitVideo(ctx, apiKey, modelName, request)
+	})
 }
 
 // PollVideo routes one video status poll over the credential pool.
@@ -198,19 +192,9 @@ func (a *Adapter) PollVideo(
 		return nil, fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
-	var lastErr error
-	for _, credential := range credentials {
-		var apiKey string
-		if credential != nil {
-			apiKey = credential.DataString("api_key")
-		}
-		response, err := client.PollVideo(ctx, apiKey, upstreamJobID)
-		if err == nil {
-			return response, nil
-		}
-		lastErr = err
-	}
-	return nil, lastErr
+	return withCredentialFailover(credentials, func(apiKey string) (*models.VideoGenerationResponse, error) {
+		return client.PollVideo(ctx, apiKey, upstreamJobID)
+	})
 }
 
 // VideoContent routes one video asset download over the credential pool.
@@ -237,19 +221,9 @@ func (a *Adapter) VideoContent(
 		return nil, fmt.Errorf("no credentials available")
 	}
 	client := newClient(baseURL)
-	var lastErr error
-	for _, credential := range credentials {
-		var apiKey string
-		if credential != nil {
-			apiKey = credential.DataString("api_key")
-		}
-		response, err := client.VideoContent(ctx, apiKey, upstreamJobID, index)
-		if err == nil {
-			return response, nil
-		}
-		lastErr = err
-	}
-	return nil, lastErr
+	return withCredentialFailover(credentials, func(apiKey string) (*models.VideoContentResponse, error) {
+		return client.VideoContent(ctx, apiKey, upstreamJobID, index)
+	})
 }
 
 // classifyHTTPError maps upstream status codes to terminal OpenAI-shaped

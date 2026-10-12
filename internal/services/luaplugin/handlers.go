@@ -233,14 +233,23 @@ func marshalLuaChunk(chunk models.StreamChunk) ([]byte, error) {
 	return raw, err
 }
 
+// baseRequestTable builds the shared model/model_name preamble: model keeps
+// the full ModelId, model_name is the bare model without the provider
+// prefix, for upstream payloads. requestTable stays separate: it converts
+// via goToLuaJSON plus stream=nil/cache_key.
+func baseRequestTable(L *lua.LState, model models.ModelId) *lua.LTable {
+	table := L.NewTable()
+	table.RawSetString("model", lua.LString(model.String()))
+	table.RawSetString("model_name", lua.LString(model.Name()))
+	return table
+}
+
 // transcriptionRequestTable builds the transcribe request table. The audio
 // bytes pass as a raw Lua string — a JSON round trip would base64 them.
 // needs_segments tells the plugin to fetch segment timestamps (the router
 // renders srt/vtt from segments).
 func transcriptionRequestTable(L *lua.LState, request *models.TranscriptionRequest) *lua.LTable {
-	table := L.NewTable()
-	table.RawSetString("model", lua.LString(request.Model.String()))
-	table.RawSetString("model_name", lua.LString(request.Model.Name()))
+	table := baseRequestTable(L, request.Model)
 	table.RawSetString("file", lua.LString(string(request.File)))
 	table.RawSetString("file_name", lua.LString(request.FileName))
 	table.RawSetString("content_type", lua.LString(request.ContentType))
@@ -294,9 +303,7 @@ func (s *Service) TranscribeRouted(
 
 // speechRequestTable builds the speech request table.
 func speechRequestTable(L *lua.LState, request *models.SpeechRequest) *lua.LTable {
-	table := L.NewTable()
-	table.RawSetString("model", lua.LString(request.Model.String()))
-	table.RawSetString("model_name", lua.LString(request.Model.Name()))
+	table := baseRequestTable(L, request.Model)
 	table.RawSetString("input", lua.LString(request.Input))
 	if request.Voice != "" {
 		table.RawSetString("voice", lua.LString(request.Voice))
@@ -355,9 +362,7 @@ func (s *Service) SpeechRouted(
 
 // imageRequestTable builds the generate_image request table.
 func imageRequestTable(L *lua.LState, request *models.ImageGenerationRequest) *lua.LTable {
-	table := L.NewTable()
-	table.RawSetString("model", lua.LString(request.Model.String()))
-	table.RawSetString("model_name", lua.LString(request.Model.Name()))
+	table := baseRequestTable(L, request.Model)
 	table.RawSetString("prompt", lua.LString(request.Prompt))
 	if request.N > 0 {
 		table.RawSetString("n", lua.LNumber(request.N))
@@ -418,9 +423,7 @@ func (s *Service) GenerateImageRouted(
 
 // embeddingsRequestTable builds the embed request table.
 func embeddingsRequestTable(L *lua.LState, request *models.EmbeddingsRequest) *lua.LTable {
-	table := L.NewTable()
-	table.RawSetString("model", lua.LString(request.Model.String()))
-	table.RawSetString("model_name", lua.LString(request.Model.Name()))
+	table := baseRequestTable(L, request.Model)
 	input := L.NewTable()
 	for _, s := range request.Input {
 		input.Append(lua.LString(s))
@@ -517,9 +520,7 @@ func (s *Service) ModerateRouted(
 
 // moderateRequestTable builds the moderate request table.
 func moderateRequestTable(L *lua.LState, request *models.ModerationRequest) *lua.LTable {
-	table := L.NewTable()
-	table.RawSetString("model", lua.LString(request.Model.String()))
-	table.RawSetString("model_name", lua.LString(request.Model.Name()))
+	table := baseRequestTable(L, request.Model)
 	input := L.NewTable()
 	for _, s := range request.Input {
 		input.Append(lua.LString(s))
@@ -532,9 +533,7 @@ func moderateRequestTable(L *lua.LState, request *models.ModerationRequest) *lua
 // enter only when set; callback_url travels for storage only and upstreams
 // must ignore unknown properties the same way they ignore model_name.
 func videoSubmitTable(L *lua.LState, request *models.VideoGenerationRequest) *lua.LTable {
-	table := L.NewTable()
-	table.RawSetString("model", lua.LString(request.Model.String()))
-	table.RawSetString("model_name", lua.LString(request.Model.Name()))
+	table := baseRequestTable(L, request.Model)
 	if request.Prompt != "" {
 		table.RawSetString("prompt", lua.LString(request.Prompt))
 	}
@@ -655,9 +654,7 @@ func (s *Service) SubmitVideoRouted(
 // videoJobTable builds the poll_video / video_content request table: the
 // upstream job ID plus the model pair for payload building.
 func videoJobTable(L *lua.LState, model models.ModelId, upstreamJobID string, index int, withIndex bool) *lua.LTable {
-	table := L.NewTable()
-	table.RawSetString("model", lua.LString(model.String()))
-	table.RawSetString("model_name", lua.LString(model.Name()))
+	table := baseRequestTable(L, model)
 	table.RawSetString("job_id", lua.LString(upstreamJobID))
 	if withIndex {
 		table.RawSetString("index", lua.LNumber(index))

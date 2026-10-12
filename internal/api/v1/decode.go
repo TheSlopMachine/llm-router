@@ -3,7 +3,6 @@ package v1
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 )
 
@@ -32,12 +31,10 @@ func isBodyTooLarge(err error) bool {
 	return errors.Is(err, errBodyTooLarge)
 }
 
-// writeDecodeError maps body decode failures: oversized bodies are 413,
-// everything else keeps the existing 400 shape.
+// writeDecodeError maps body decode failures in the OpenAI envelope.
+// OpenAI-only callers have no negotiated shape, so delegate to the
+// negotiated variant with a headerless request: empty headers force the
+// OpenAI branch, keeping status codes and envelope identical.
 func (h *Handler) writeDecodeError(w http.ResponseWriter, err error) {
-	if errors.Is(err, errBodyTooLarge) {
-		h.writeError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", "request body too large", nil)
-		return
-	}
-	h.writeError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("malformed request body: %s", err), nil)
+	h.writeCompatDecodeError(w, &http.Request{}, err)
 }

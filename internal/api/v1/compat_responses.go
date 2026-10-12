@@ -124,9 +124,8 @@ func (h *Handler) streamResponseObject(w http.ResponseWriter, r *http.Request, r
 // @Router       /v1/responses/{response_id} [get]
 // @Security     BearerAuth
 func (h *Handler) getResponse(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("response_id"))
-	if id == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "response id is required", nil)
+	id, ok := h.requireOpenAIPathID(w, r, "response_id", "response")
+	if !ok {
 		return
 	}
 	response, err := h.router.GetResponse(r.Context(), id, token)
@@ -152,9 +151,8 @@ func (h *Handler) getResponse(w http.ResponseWriter, r *http.Request, token *mod
 // @Router       /v1/responses/{response_id}/cancel [post]
 // @Security     BearerAuth
 func (h *Handler) cancelResponse(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("response_id"))
-	if id == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "response id is required", nil)
+	id, ok := h.requireOpenAIPathID(w, r, "response_id", "response")
+	if !ok {
 		return
 	}
 	response, err := h.router.CancelResponse(r.Context(), id, token)
@@ -178,9 +176,8 @@ func (h *Handler) cancelResponse(w http.ResponseWriter, r *http.Request, token *
 // @Router       /v1/responses/{response_id}/input_items [get]
 // @Security     BearerAuth
 func (h *Handler) listResponseInputItems(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("response_id"))
-	if id == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "response id is required", nil)
+	id, ok := h.requireOpenAIPathID(w, r, "response_id", "response")
+	if !ok {
 		return
 	}
 	items, err := h.router.ListResponseInputItems(r.Context(), id, token)
@@ -306,9 +303,8 @@ func (h *Handler) createConversation(w http.ResponseWriter, r *http.Request, tok
 // @Router       /v1/conversations/{conversation_id} [get]
 // @Security     BearerAuth
 func (h *Handler) getConversation(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("conversation_id"))
-	if id == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "conversation id is required", nil)
+	id, ok := h.requireOpenAIPathID(w, r, "conversation_id", "conversation")
+	if !ok {
 		return
 	}
 	conversation, err := h.router.GetConversation(r.Context(), id, token)
@@ -333,9 +329,8 @@ func (h *Handler) getConversation(w http.ResponseWriter, r *http.Request, token 
 // @Router       /v1/conversations/{conversation_id} [delete]
 // @Security     BearerAuth
 func (h *Handler) deleteConversation(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("conversation_id"))
-	if id == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "conversation id is required", nil)
+	id, ok := h.requireOpenAIPathID(w, r, "conversation_id", "conversation")
+	if !ok {
 		return
 	}
 	if err := h.router.DeleteConversation(r.Context(), id); err != nil {
@@ -358,9 +353,8 @@ func (h *Handler) deleteConversation(w http.ResponseWriter, r *http.Request, tok
 // @Router       /v1/conversations/{conversation_id}/items [get]
 // @Security     BearerAuth
 func (h *Handler) listConversationItems(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("conversation_id"))
-	if id == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "conversation id is required", nil)
+	id, ok := h.requireOpenAIPathID(w, r, "conversation_id", "conversation")
+	if !ok {
 		return
 	}
 	items, err := h.router.ListConversationItems(r.Context(), id, token)
@@ -385,9 +379,8 @@ func (h *Handler) listConversationItems(w http.ResponseWriter, r *http.Request, 
 // @Router       /v1/conversations/{conversation_id}/items [post]
 // @Security     BearerAuth
 func (h *Handler) createConversationItems(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
-	id := strings.TrimSpace(r.PathValue("conversation_id"))
-	if id == "" {
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "conversation id is required", nil)
+	id, ok := h.requireOpenAIPathID(w, r, "conversation_id", "conversation")
+	if !ok {
 		return
 	}
 	var body struct {

@@ -30,6 +30,17 @@ func (r *report) add(provider, model, target, status, reason string, latency tim
 	r.results = append(r.results, result{provider, model, target, status, reason, latency})
 }
 
+// skipReason reports the first skip reason recorded for target. Streams
+// inherit the unary outcome, so a skipped unary gates its stream.
+func (r *report) skipReason(target string) (string, bool) {
+	for _, item := range r.results {
+		if item.target == target && item.status == skip {
+			return item.reason, true
+		}
+	}
+	return "", false
+}
+
 func (r *report) print() {
 	current := ""
 	for _, result := range r.results {

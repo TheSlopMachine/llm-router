@@ -3,13 +3,11 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
-	"time"
 
 	"github.com/TheSlopMachine/llm-router/scripts/shared"
 )
@@ -82,27 +80,10 @@ func credentialsEnabled(testConfiguration configuration, providerID string) (boo
 }
 
 // waitReady polls status until the backend listens or the deadline passes.
-// Restart returns before the backend accepts connections.
+// Restart returns before the backend accepts connections. Delegates to
+// shared.WaitReady; behavior is identical.
 func waitReady(testConfiguration configuration) error {
-	deadline := time.Now().Add(120 * time.Second)
-	for {
-		statusCode, raw, err := doJSON("GET", testConfiguration.web+"/api/llm-router/status", nil)
-		if err == nil {
-			var bootstrapStatus struct {
-				Bootstrapped bool `json:"bootstrapped"`
-			}
-			if jerr := json.Unmarshal(raw, &bootstrapStatus); jerr == nil && statusCode == 200 {
-				return nil
-			}
-		}
-		if time.Now().After(deadline) {
-			if err != nil {
-				return fmt.Errorf("backend not ready: %w", err)
-			}
-			return fmt.Errorf("backend not ready: status %d", statusCode)
-		}
-		time.Sleep(2 * time.Second)
-	}
+	return shared.WaitReady(testConfiguration.web)
 }
 
 func ensureBootstrapped(testConfiguration configuration) error {
