@@ -24,10 +24,10 @@ type PluginRow struct {
 	TypeKeys    []string `json:"type_keys"`
 }
 
-// WebBaseURL builds http://HOST:port from the Makefile-exported HOST and
-// port env (PORT default 38080).
-func WebBaseURL(portEnv, defPort string) string {
-	return fmt.Sprintf("http://%s:%s", Getenv("HOST", "localhost"), Getenv(portEnv, defPort))
+// AdminBaseURL builds the admin listener URL. The admin listener binds
+// loopback regardless of HOST, so this never uses HOST.
+func AdminBaseURL() string {
+	return fmt.Sprintf("http://127.0.0.1:%s", Getenv("ADMIN_PORT", DevAdminPort))
 }
 
 // DefaultStoreDir is the sibling plugin store checkout layout.

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/TheSlopMachine/llm-router/internal/requestsource"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
@@ -40,13 +41,14 @@ func TestPluginIDRoutesAcceptEncodedSlashes(t *testing.T) {
 	if !strings.Contains(record.ID, "/") {
 		t.Fatalf("fixture must produce a slash ID, got %q", record.ID)
 	}
-	h := &Handler{luaService: luaService, noAuth: true}
+	h := &Handler{luaService: luaService}
 	mux := http.NewServeMux()
 	h.Register(mux)
 
 	serve := func(method, target string) *httptest.ResponseRecorder {
 		t.Helper()
 		request := httptest.NewRequest(method, target, nil)
+		request = request.WithContext(requestsource.ContextWithSource(request.Context(), requestsource.RequestSourcePrivate))
 		recorder := httptest.NewRecorder()
 		mux.ServeHTTP(recorder, request)
 		return recorder

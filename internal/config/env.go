@@ -23,11 +23,15 @@ const (
 	DefaultDotenvPath   = ".env"
 )
 
+// AdminHost pins the admin listener to loopback regardless of HOST.
+// The loopback bind is the only protection on an authentication-free
+// listener, so it is hardcoded, never configured.
+const AdminHost = "127.0.0.1"
+
 // Sentinel errors for environment loading. Match with errors.Is.
 var (
 	ErrInvalidPort       = errors.New("invalid port")
 	ErrInvalidLogLevel   = errors.New("invalid log level")
-	ErrInvalidNoAuth     = errors.New("invalid NO_AUTH value")
 	ErrConfigFileExists  = errors.New("configuration file exists")
 	ErrMissingTargetPath = errors.New("configuration target path is required")
 )
@@ -54,15 +58,16 @@ func Load() (*Config, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid PORT: %w", err)
 	}
-	// WEB_PORT and API_PORT are legacy names from the split-listener era.
-	// They are ignored: the single listener reads PORT only.
+	// WEB_PORT, API_PORT and NO_AUTH are legacy names. They are ignored:
+	// the single listener reads PORT only, and the admin listener reads
+	// ADMIN_PORT only.
 	logLevel, err := parseLogLevelValue(environmentOrDefault("LOG_LEVEL", DefaultLogLevel))
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid LOG_LEVEL: %w", err)
 	}
-	noAuth, err := parseNoAuthValue(strings.TrimSpace(os.Getenv("NO_AUTH")))
+	adminAddr, err := parseAdminAddr(port)
 	if err != nil {
-		return nil, "", fmt.Errorf("invalid NO_AUTH: %w", err)
+		return nil, "", err
 	}
 
 	host := environmentOrDefault("HOST", DefaultHost)
@@ -77,10 +82,10 @@ func Load() (*Config, string, error) {
 
 	configuration := &Config{
 		Addr:          net.JoinHostPort(host, port.String()),
+		AdminAddr:     adminAddr,
 		DBPath:        databasePath,
 		CachePath:     cachePath,
 		LogLevel:      logLevel,
-		NoAuth:        noAuth,
 		DevUIRedirect: strings.TrimSpace(os.Getenv("DEV_UI_REDIRECT")),
 	}
 	if err := configuration.Validate(); err != nil {
@@ -94,10 +99,10 @@ func DefaultTemplate() string {
 	return `# llm-router configuration file
 HOST=localhost
 PORT=8080
+ADMIN_PORT=
 DB_PATH=llm-router.sqlite3
 CACHE_PATH=llm-router.cache.sqlite3
 LOG_LEVEL=info
-NO_AUTH=0
 `
 }
 
@@ -161,16 +166,20 @@ func parseLogLevelValue(raw string) (LogLevel, error) {
 	return level, nil
 }
 
-// parseNoAuthValue parses NO_AUTH: truthy 1/true/yes/on, falsy blank,
-// 0/false/no/off. Unknown values fail closed.
-func parseNoAuthValue(raw string) (bool, error) {
-	normalized := strings.ToLower(strings.TrimSpace(raw))
-	switch normalized {
-	case "", "0", "false", "no", "off":
-		return false, nil
-	case "1", "true", "yes", "on":
-		return true, nil
-	default:
-		return false, fmt.Errorf("%q: %w", raw, ErrInvalidNoAuth)
+// parseAdminAddr resolves the admin listener address from ADMIN_PORT.
+// Empty disables the listener. A set port binds AdminHost (loopback),
+// never HOST, and must differ from the public port.
+func parseAdminAddr(publicPort Port) (string, error) {
+	raw := strings.TrimSpace(os.Getenv("ADMIN_PORT"))
+	if raw == "" {
+		return "", nil
 	}
+	adminPort, err := parsePortValue(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid ADMIN_PORT: %w", err)
+	}
+	if adminPort == publicPort {
+		return "", fmt.Errorf("ADMIN_PORT must differ from PORT (both %s)", adminPort.String())
+	}
+	return net.JoinHostPort(AdminHost, adminPort.String()), nil
 }

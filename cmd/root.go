@@ -94,10 +94,6 @@ func run(command *cobra.Command, arguments []string) error {
 	// Logger
 	logger := slog.New(logging.NewHandler(os.Stderr, applicationConfig.LogLevel.SlogLevel()))
 
-	if applicationConfig.NoAuth {
-		logger.Warn("authorization disabled (NO_AUTH=1): dev and AI debugging only")
-	}
-
 	// Build server
 	applicationServer, err := server.New(applicationConfig, logger)
 	if err != nil {

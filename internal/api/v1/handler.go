@@ -23,6 +23,7 @@ import (
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/httpkit"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/requestsource"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
@@ -40,7 +41,6 @@ type Handler struct {
 	modelInfoSvc *modelinfo.GormService
 	virtualSvc   *virtual.GormService
 	logger       *slog.Logger
-	noAuth       bool
 }
 
 // Register mounts all /v1 routes onto mux. Every route requires a valid
@@ -1089,11 +1089,12 @@ type authenticatedHandler func(w http.ResponseWriter, r *http.Request, token *mo
 
 // auth extracts and validates the router token. Authorization: Bearer
 // llmr_* and the x-api-key: llmr_* alias (Anthropic SDK style) both work on
-// every /v1 route. allowAnonymous stays for the NoAuth-adjacent probes only;
-// production routes pass false.
+// every /v1 route. Requests from the admin listener skip validation and
+// route with a nil token. allowAnonymous stays for the whitelisted probes
+// only; production routes pass false.
 func (h *Handler) auth(next authenticatedHandler, allowAnonymous bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if h.noAuth {
+		if requestsource.SourceFromContext(r.Context()) == requestsource.RequestSourcePrivate {
 			next(w, r, nil)
 			return
 		}

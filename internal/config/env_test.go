@@ -13,7 +13,7 @@ import (
 // (not blanked) so dotenv loading fills them as in production.
 func clearProcessEnvironment(environment *testing.T) {
 	environment.Helper()
-	for _, name := range []string{"HOST", "PORT", "DB_PATH", "DEV_DB", "CACHE_PATH", "DEV_CACHE", "LOG_LEVEL", "NO_AUTH", "DEV_UI_REDIRECT"} {
+	for _, name := range []string{"HOST", "PORT", "ADMIN_PORT", "DB_PATH", "DEV_DB", "CACHE_PATH", "DEV_CACHE", "LOG_LEVEL", "NO_AUTH", "DEV_UI_REDIRECT"} {
 		value, present := os.LookupEnv(name)
 		if !present {
 			continue
@@ -59,8 +59,8 @@ func TestLoadDefaults(t *testing.T) {
 	if configuration.LogLevel != LogLevelInfo {
 		t.Errorf("log level = %q, want info", configuration.LogLevel)
 	}
-	if configuration.NoAuth {
-		t.Error("no-auth = true, want false")
+	if configuration.AdminAddr != "" {
+		t.Errorf("admin addr = %q, want empty (disabled by default)", configuration.AdminAddr)
 	}
 }
 
@@ -100,21 +100,61 @@ func TestLoadRejectsInvalidLogLevel(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsInvalidNoAuth(t *testing.T) {
+func TestLoadIgnoresLegacyNoAuth(t *testing.T) {
 	clearProcessEnvironment(t)
 	isolateDotenv(t)
 	t.Setenv("NO_AUTH", "sometimes")
 
-	if _, _, err := Load(); !errors.Is(err, ErrInvalidNoAuth) {
-		t.Fatalf("error = %v, want ErrInvalidNoAuth", err)
+	// NO_AUTH is legacy: any value is ignored, never an error.
+	if _, _, err := Load(); err != nil {
+		t.Fatalf("Load: %v, want ignored legacy NO_AUTH", err)
 	}
 }
 
-func TestLoadAcceptsWarningAliasAndTruthyNoAuth(t *testing.T) {
+func TestAdminAddrBindsLoopbackRegardlessOfHost(t *testing.T) {
+	clearProcessEnvironment(t)
+	isolateDotenv(t)
+	t.Setenv("HOST", "0.0.0.0")
+	t.Setenv("PORT", "8080")
+	t.Setenv("ADMIN_PORT", "38082")
+
+	configuration, _, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if configuration.Addr != "0.0.0.0:8080" {
+		t.Errorf("addr = %q, want 0.0.0.0:8080", configuration.Addr)
+	}
+	if configuration.AdminAddr != "127.0.0.1:38082" {
+		t.Errorf("admin addr = %q, want 127.0.0.1:38082", configuration.AdminAddr)
+	}
+}
+
+func TestLoadRejectsAdminPortEqualToPort(t *testing.T) {
+	clearProcessEnvironment(t)
+	isolateDotenv(t)
+	t.Setenv("PORT", "38082")
+	t.Setenv("ADMIN_PORT", "38082")
+
+	if _, _, err := Load(); err == nil {
+		t.Fatal("Load succeeded with ADMIN_PORT == PORT, want error")
+	}
+}
+
+func TestLoadRejectsInvalidAdminPort(t *testing.T) {
+	clearProcessEnvironment(t)
+	isolateDotenv(t)
+	t.Setenv("ADMIN_PORT", "99999")
+
+	if _, _, err := Load(); !errors.Is(err, ErrInvalidPort) {
+		t.Fatalf("error = %v, want ErrInvalidPort", err)
+	}
+}
+
+func TestLoadAcceptsWarningAlias(t *testing.T) {
 	clearProcessEnvironment(t)
 	isolateDotenv(t)
 	t.Setenv("LOG_LEVEL", "warning")
-	t.Setenv("NO_AUTH", "yes")
 
 	configuration, _, err := Load()
 	if err != nil {
@@ -122,9 +162,6 @@ func TestLoadAcceptsWarningAliasAndTruthyNoAuth(t *testing.T) {
 	}
 	if configuration.LogLevel != LogLevelWarn {
 		t.Errorf("log level = %q, want warn", configuration.LogLevel)
-	}
-	if !configuration.NoAuth {
-		t.Error("no-auth = false, want true")
 	}
 }
 
@@ -258,10 +295,13 @@ func TestWriteDefaultFileCreatesTemplate(t *testing.T) {
 	if string(raw) != DefaultTemplate() {
 		t.Fatalf("template mismatch:\n%s", string(raw))
 	}
-	for _, key := range []string{"HOST=", "PORT=", "DB_PATH=", "CACHE_PATH=", "LOG_LEVEL=", "NO_AUTH="} {
+	for _, key := range []string{"HOST=", "PORT=", "ADMIN_PORT=", "DB_PATH=", "CACHE_PATH=", "LOG_LEVEL="} {
 		if !strings.Contains(string(raw), key) {
 			t.Errorf("template misses %q", key)
 		}
+	}
+	if strings.Contains(string(raw), "NO_AUTH=") {
+		t.Error("template contains NO_AUTH, want it removed")
 	}
 	// DEV_UI_REDIRECT stays dev-only process state set by `make start`;
 	// the prod template never generates it.

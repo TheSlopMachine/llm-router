@@ -41,6 +41,7 @@ import (
 	"strings"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/requestsource"
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
@@ -83,7 +84,6 @@ type Handler struct {
 	dataGormService   *datamanagement.GormService
 	doctorGormService *doctor.GormService
 	logger            *slog.Logger
-	noAuth            bool
 
 	// devRedirect, when set, is the origin (e.g. "http://localhost:8080")
 	// that browser navigations are 302-redirected to instead of being
@@ -110,20 +110,31 @@ func (h *Handler) SetDevRedirect(origin string) {
 
 // IsAPIPath reports whether path targets a JSON API subtree (/api or /v1,
 // bare or nested). API paths never redirect and never serve SPA HTML.
-// server.buildRootMux routes them before the SPA fallback; the fallback
+// The shared mux routes them before the SPA fallback; the fallback
 // rechecks here as a second boundary.
 func IsAPIPath(path string) bool {
 	return path == "/api" || strings.HasPrefix(path, "/api/") ||
 		path == "/v1" || strings.HasPrefix(path, "/v1/")
 }
 
+// WriteUnknownEndpoint answers JSON 404 for unknown API paths, never
+// dashboard HTML. Single definition shared by the SPA fallback and the
+// admin listener catch-all.
+func WriteUnknownEndpoint(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusNotFound)
+	_ = json.NewEncoder(w).Encode(models.ErrorResponse{Error: "unknown endpoint"})
+}
+
+// Register mounts every dashboard route: JSON API plus SPA.
 func (h *Handler) Register(mux *http.ServeMux) {
-	webRoot, _ := fs.Sub(embeddedFS, "build/web")
+	h.RegisterAPI(mux)
+	h.RegisterSPA(mux)
+}
 
-	// SPA asset files
-	mux.Handle("GET /assets/", http.FileServer(http.FS(webRoot)))
-	mux.Handle("GET /icons/", http.FileServer(http.FS(webRoot)))
-
+// RegisterAPI mounts the JSON API routes (/api...). No SPA fallback:
+// the admin listener serves API only and adds its own JSON catch-all.
+func (h *Handler) RegisterAPI(mux *http.ServeMux) {
 	// Auth endpoints
 	mux.HandleFunc("POST /api/llm-router/login", h.apiLogin)
 	mux.HandleFunc("POST /api/llm-router/logout", h.apiLogout)
@@ -239,6 +250,15 @@ func (h *Handler) Register(mux *http.ServeMux) {
 
 	// Chat proxy (dashboard session -> router, no token required)
 	mux.HandleFunc("POST /api/llm-router/dashboard/chat/completions", h.requireAuth(h.apiChatCompletions))
+}
+
+// RegisterSPA mounts asset files plus the SPA fallback.
+func (h *Handler) RegisterSPA(mux *http.ServeMux) {
+	webRoot, _ := fs.Sub(embeddedFS, "build/web")
+
+	// SPA asset files
+	mux.Handle("GET /assets/", http.FileServer(http.FS(webRoot)))
+	mux.Handle("GET /icons/", http.FileServer(http.FS(webRoot)))
 
 	// SPA fallback
 	indexHTML, _ := webRoot.Open("index.html")
@@ -251,9 +271,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 		// /v1 is guarded here too so a mis-dispatched API path still
 		// returns JSON, never dashboard HTML.
 		if IsAPIPath(r.URL.Path) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			_ = json.NewEncoder(w).Encode(models.ErrorResponse{Error: "unknown endpoint"})
+			WriteUnknownEndpoint(w, r)
 			return
 		}
 		if h.devRedirect != "" {
@@ -294,7 +312,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 
 func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if h.noAuth {
+		// The admin listener answers without authentication; the source
+		// in the request context decides, never construction flags.
+		if requestsource.SourceFromContext(r.Context()) == requestsource.RequestSourcePrivate {
 			next(w, r)
 			return
 		}
@@ -313,7 +333,7 @@ func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 
 // sessionUser resolves the authenticated username from the session cookie.
 func (h *Handler) sessionUser(r *http.Request) string {
-	if h.noAuth {
+	if requestsource.SourceFromContext(r.Context()) == requestsource.RequestSourcePrivate {
 		return "admin"
 	}
 	c, err := r.Cookie(sessionCookie)

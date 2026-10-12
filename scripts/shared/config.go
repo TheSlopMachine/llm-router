@@ -51,15 +51,20 @@ func DefaultPidFile() string { return filepath.Join(os.TempDir(), "llm-router-de
 // redirect-only SPA there. Release builds use PORT for everything.
 const DevBackendPort = "38081"
 
+// DevAdminPort is the fixed dev admin listener: same JSON API without
+// authentication, loopback only. Enabled by default under `make` via
+// ADMIN_PORT; empty ADMIN_PORT disables it.
+const DevAdminPort = "38082"
+
 // StartParamsFile lives next to the pidfile and records the parameters of the
 // last start, so restart relaunches with the same configuration.
 type StartParams struct {
-	DevDB    string `json:"dev_db"`
-	DevCache string `json:"dev_cache"`
-	NoAuth   bool   `json:"no_auth"`
-	Host     string `json:"host"`
-	Port     string `json:"port"`
-	LogLevel string `json:"log_level"`
+	DevDB     string `json:"dev_db"`
+	DevCache  string `json:"dev_cache"`
+	Host      string `json:"host"`
+	Port      string `json:"port"`
+	AdminPort string `json:"admin_port"`
+	LogLevel  string `json:"log_level"`
 }
 
 // ParamsFileFor returns the params file path next to the given pidfile.

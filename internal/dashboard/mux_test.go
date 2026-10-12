@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/TheSlopMachine/llm-router/internal/requestsource"
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
@@ -24,10 +25,10 @@ func TestRegisterBuildsMux(t *testing.T) {
 		t.Fatalf("new proxy service: %v", err)
 	}
 	h.proxyService = service
-	h.noAuth = true
 	mux = http.NewServeMux()
 	h.Register(mux)
 	request := httptest.NewRequest(http.MethodPost, "/api/llm-router/dashboard/proxy/recheck-banned", strings.NewReader(`{"reason":"bad_status"}`))
+	request = request.WithContext(requestsource.ContextWithSource(request.Context(), requestsource.RequestSourcePrivate))
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusAccepted {

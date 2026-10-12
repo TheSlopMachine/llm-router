@@ -16,15 +16,15 @@ PLATFORMS ?= windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux
 
 HOST      ?= localhost
 PORT      ?= 38080
+ADMIN_PORT ?= 38082
 URL       ?= http://$(HOST):$(PORT)
 LOG_LEVEL ?= info
-NO_AUTH   ?= 0
 DB_PATH   ?= llm-router.sqlite3
 CACHE_PATH ?= llm-router.cache.sqlite3
 DEV_UI_REDIRECT ?=
 ENV_FILE  ?= .env
 PKG       ?= ./...
-export HOST PORT URL VERSION PLATFORMS LOG_LEVEL NO_AUTH DB_PATH CACHE_PATH DEV_UI_REDIRECT ENV_FILE PKG
+export HOST PORT ADMIN_PORT URL VERSION PLATFORMS LOG_LEVEL DB_PATH CACHE_PATH DEV_UI_REDIRECT ENV_FILE PKG
 
 ifeq ($(OS),Windows_NT)
   DEV_DB  ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.sqlite3
@@ -89,14 +89,13 @@ stop:
 restart:
 	@cd scripts && GOWORK=off go run ./restart
 
-# Smoke harness: restarts the dev stack with authorization off, then drives
-# the request paths (provisioning accounts from SMOKE_* env automatically).
-smoke: NO_AUTH = 1
+# Smoke harness: restarts the dev stack, then drives the request paths
+# against the admin listener (provisioning accounts from SMOKE_* env automatically).
 smoke: restart
 	@cd scripts && GOWORK=off go run ./smoke
 
 # Upload every .lua plugin in the store dir to the running dev stack via
-# install-file (version matches skip). Expects NO_AUTH=1 like smoke.
+# install-file (version matches skip). Targets the admin listener like smoke.
 upload-plugins:
 	@cd scripts && GOWORK=off go run ./uploadplugins
 

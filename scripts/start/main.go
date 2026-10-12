@@ -28,7 +28,7 @@ func main() {
 	if cachePath == "" {
 		cachePath = shared.Getenv("CACHE_PATH", shared.DefaultDevCache())
 	}
-	noAuth := shared.IsWriteMode("NO_AUTH")
+	adminPort := shared.Getenv("ADMIN_PORT", shared.DevAdminPort)
 	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
 
 	root, err := shared.RootDir()
@@ -52,7 +52,14 @@ func main() {
 	if port == shared.DevBackendPort {
 		shared.Failf("PORT %s collides with the fixed dev backend port %s", port, shared.DevBackendPort)
 	}
-	for _, portNumber := range []int{mustAtoi(port), mustAtoi(shared.DevBackendPort)} {
+	ports := []int{mustAtoi(port), mustAtoi(shared.DevBackendPort)}
+	if adminPort != "" {
+		if adminPort == port || adminPort == shared.DevBackendPort {
+			shared.Failf("ADMIN_PORT %s collides with the dev ports", adminPort)
+		}
+		ports = append(ports, mustAtoi(adminPort))
+	}
+	for _, portNumber := range ports {
 		if free, holder := shared.PortStatus(portNumber); !free {
 			shared.Failf("port %d already in use by %s", portNumber, holder)
 		}
@@ -92,11 +99,11 @@ func main() {
 	backendEnvironment := []string{
 		"HOST=" + host,
 		"PORT=" + shared.DevBackendPort,
+		"ADMIN_PORT=" + adminPort,
 		"DB_PATH=" + databasePath,
 		"CACHE_PATH=" + cachePath,
 		"LOG_LEVEL=" + logLevel,
 		"DEV_UI_REDIRECT=" + fmt.Sprintf("http://%s:%s", host, port),
-		"NO_AUTH=" + map[bool]string{true: "1", false: "0"}[noAuth],
 	}
 	backendPID, err := shared.SpawnDetachedEnv(root, backendLog, backendEnvironment, binPath)
 	if err != nil {
@@ -148,8 +155,8 @@ func main() {
 
 	// Record the launch parameters: restart relaunches with the same config.
 	if err := shared.WriteStartParams(pidFile, shared.StartParams{
-		DevDB: databasePath, DevCache: cachePath, NoAuth: noAuth, Host: host,
-		Port: port, LogLevel: logLevel,
+		DevDB: databasePath, DevCache: cachePath, Host: host,
+		Port: port, AdminPort: adminPort, LogLevel: logLevel,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] write params file: %v\n", err)
 	}
@@ -161,8 +168,8 @@ func main() {
 	fmt.Printf("[OK] Started backend PID %d, frontend PID %d\n", backendPID, frontendPID)
 	fmt.Printf("Dashboard (dev): http://%s:%s\n", host, port)
 	fmt.Printf("API: http://%s:%s/v1 (backend direct: http://%s:%s/v1)\n", host, port, host, shared.DevBackendPort)
-	if noAuth {
-		fmt.Printf("Auth: disabled (NO_AUTH=1)\n")
+	if adminPort != "" {
+		fmt.Printf("Admin (loopback, no auth): http://127.0.0.1:%s\n", adminPort)
 	}
 	fmt.Printf("Backend log: %s\n", backendLog)
 	fmt.Printf("Frontend log: %s\n", frontendLog)

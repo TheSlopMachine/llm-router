@@ -10,11 +10,10 @@ import (
 )
 
 // Uploads every .lua plugin in the store dir to the running dev stack via
-// install-file. Version matches skip without reinstalling. Expects a running
-// stack with authorization off (make start NO_AUTH=1); with auth on,
-// install-file requires a logged-in session and fails loudly.
+// install-file. Version matches skip without reinstalling. Targets the
+// admin listener (no login needed).
 func main() {
-	web := shared.WebBaseURL("PORT", "38080")
+	web := shared.AdminBaseURL()
 	store := shared.Getenv("UPLOAD_STORE_DIR", shared.DefaultStoreDir())
 	if err := shared.WaitReady(web); err != nil {
 		shared.Failf("%v", err)

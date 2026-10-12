@@ -8,7 +8,7 @@ this file maps the Go core.
 
 ```
 cmd/root.go              CLI entrypoint (environment + .env file; --version and --generate-config only)
-internal/server/         HTTP server: single listener (HOST, PORT); /v1 + /api answer JSON, /* serves the dashboard (see router.go)
+internal/server/         HTTP server: public listener (HOST, PORT) + optional loopback admin listener (127.0.0.1, ADMIN_PORT, API only, no auth); route tables in httpapi, source in requestsource
 internal/services/
   token/                 router-token issue/validate
   router/                ModelId → backend, token allow-list gate, single pass, no repeats
@@ -30,6 +30,8 @@ internal/services/
   doctor/                database inspection and repair
   proxypool/             free-pool hosting, Lua feed bridge, SQLite cache, custom pools (built-in auto row seeded), lane scheduler adapter
 internal/httpkit/        shared transport helpers (SSE headers)
+internal/requestsource/  RequestSource in request context (public vs private listener)
+internal/httpapi/        shared route tables + public/private mux builders
 internal/errors/         domain sentinels + ToAPIError + response header allow-list
 internal/db/             SQLite open (database + cache files), DSN, migrations, record shapes, maintenance allowlist
 internal/repository/     typed SQLite operations (generics API)
@@ -220,7 +222,7 @@ and durable storage; metric bucket deletes cascade dimension children.
 ## Smoke harness
 
 `scripts/smoke/` drives the request paths black-box against a dev stack
-(`make smoke` restarts with `NO_AUTH=1` first): status → bootstrap →
+(`make smoke` restarts first, then drives the admin listener): status → bootstrap →
 plugin install → provider + dev-database credentials → model matrix
 (one model per capability, first success closes it, plus fallback and
 negative `endpoint_not_supported` paths) → mock `mock-limited` skip-path

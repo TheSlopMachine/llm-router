@@ -39,8 +39,6 @@ type Params struct {
 	ProxySvc     *proxypool.Service
 	MaintSvc     *maintenance.GormService
 	Logger       *slog.Logger
-	// NoAuth skips session checks: dashboard APIs serve without login.
-	NoAuth bool
 	// SQLiteDatabase is the SQLite handle pair backing the GORM services.
 	// Required: construction fails when it is missing so integrator
 	// miswiring surfaces at startup, never as a nil dereference later.
@@ -48,11 +46,11 @@ type Params struct {
 }
 
 // EffectiveBootstrapped is the bootstrap state the SPA acts on: the real
-// database state, or true under NoAuth where no account is required.
+// database state, or true on the admin listener where no account exists.
 // Single source of truth for the middleware and the status endpoint so
 // the gate and the reported state can never diverge.
-func EffectiveBootstrapped(bootstrapped, noAuth bool) bool {
-	return bootstrapped || noAuth
+func EffectiveBootstrapped(bootstrapped, unrestricted bool) bool {
+	return bootstrapped || unrestricted
 }
 
 // New constructs a dashboard Handler.
@@ -112,6 +110,5 @@ func New(parameters Params) (*Handler, error) {
 		dataGormService:       dataGormService,
 		doctorGormService:     doctorGormService,
 		logger:                parameters.Logger,
-		noAuth:                parameters.NoAuth,
 	}, nil
 }

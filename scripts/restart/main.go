@@ -23,10 +23,8 @@ func main() {
 		overlay("CACHE_PATH", params.DevCache, "")
 		overlay("HOST", params.Host, "localhost")
 		overlay("PORT", params.Port, "38080")
+		overlay("ADMIN_PORT", params.AdminPort, shared.DevAdminPort)
 		overlay("LOG_LEVEL", params.LogLevel, "info")
-		if params.NoAuth && !shared.IsWriteMode("NO_AUTH") {
-			_ = os.Setenv("NO_AUTH", "1")
-		}
 	}
 
 	root, err := shared.RootDir()

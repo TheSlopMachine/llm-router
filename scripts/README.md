@@ -13,7 +13,7 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 | Script | Env | Called by |
 |--------|-----|-----------|
 | `init` | `HOST`, `PORT`, `NO_SKIP` | `make init`; `make start` / `make build` (via dep) |
-| `start` | `HOST`, `PORT`, `LOG_LEVEL` (default `info`), `NO_AUTH` (default `0`), `DB_PATH` (fallback `DEV_DB`, then default dev path), `CACHE_PATH` (fallback `DEV_CACHE`, then default dev cache path), `DEV_UI_REDIRECT`, `ENV_FILE`, `PID_FILE` | `make start` / `make restart` |
+| `start` | `HOST`, `PORT`, `ADMIN_PORT` (default `38082`, empty disables), `LOG_LEVEL` (default `info`), `DB_PATH` (fallback `DEV_DB`, then default dev path), `CACHE_PATH` (fallback `DEV_CACHE`, then default dev cache path), `DEV_UI_REDIRECT`, `ENV_FILE`, `PID_FILE` | `make start` / `make restart` |
 | `stop` | `PID_FILE` | `make stop` / `make restart` / `make clean` |
 | `restart` | same as `start` | `make restart` / `make smoke` (before the harness) |
 | `status` | `PID_FILE` | `make status` |
@@ -23,8 +23,8 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 | `build` | `VERSION` (default: latest git tag, else `dev`), `PLATFORMS`* | `make build` |
 | `publish` | `TYPE=fix\|minor\|major` xor `VERSION=X.Y[.Z]`, `NOTES` (optional tag annotation) | `make publish` (clean tree, HEAD synced to origin/main; CI builds on tag push) |
 | `help` | static text (`help.txt`), no code | `make help` |
-| `smoke` | `SMOKE_PLUGINS` (default `mock`), `SMOKE_TARGETS` (default `completions,messages`), `SMOKE_STORE_DIR`, `SMOKE_CLEANUP` (default `1`) | `make smoke` (restarts with `NO_AUTH=1` first) |
-| `uploadplugins` | `UPLOAD_STORE_DIR` (default `../../llm-router-store/llm-router-plugins`) | `make upload-plugins` (running stack with `NO_AUTH=1`, no restart) |
+| `smoke` | `SMOKE_PLUGINS` (default `mock`), `SMOKE_TARGETS` (default `completions,messages`), `SMOKE_STORE_DIR`, `SMOKE_CLEANUP` (default `1`) | `make smoke` (restarts first, drives the admin listener) |
+| `uploadplugins` | `UPLOAD_STORE_DIR` (default `../../llm-router-store/llm-router-plugins`) | `make upload-plugins` (running stack, targets the admin listener, no restart) |
 | _(env)_ | `NO_SKIP` (`1`/`true`/`yes`/`on` disables caches) | `make init NO_SKIP=1` or `NO_SKIP=1 make init` |
 | `vet` / `test` / `testrace` / `fcheck` | `PKG` (default `./...`; `scripts/`-relative patterns run inside the scripts module) / `PKG` (default `./...`) / `PKG` (default `./...`) / — | `make go-vet` / `make go-test` / `make go-test-race` / `make check-frontend` |
 | `sqlpolicy` | — | `make sql-policy` |
@@ -38,13 +38,13 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 ## Dev vs publish
 
 - **Init** (`make init`): `bun install`, `swag` (`web/openapi.yaml` from `internal/**/*.go`), `generate:api-types` (`web/src/lib/generated/api-types.ts`), dev embed stub (`internal/dashboard/build/web/index.html`, created only when missing). Safe to re-run and safe for agents.
-- **Dev** (`make start` → `init`, then `start`): refuses to run if the pidfile shows a still-alive backend/frontend (run `make stop` first); a stale pidfile pointing at dead processes clears automatically. Then spawns the backend + `bun run dev` detached with JSON pidfile `{backend,frontend,vitePort}`. Vite serves user `PORT` (dashboard SPA); the backend listens on fixed `:38081` with `DEV_UI_REDIRECT=http://HOST:PORT`, so any navigation hitting the backend directly redirects to vite instead of serving the placeholder stub. Vite proxies `/api` and `/v1` → backend `:38081`. Legacy `WEB_PORT`/`API_PORT` are ignored.
+- **Dev** (`make start` → `init`, then `start`): refuses to run if the pidfile shows a still-alive backend/frontend (run `make stop` first); a stale pidfile pointing at dead processes clears automatically. Then spawns the backend + `bun run dev` detached with JSON pidfile `{backend,frontend,vitePort}`. Vite serves user `PORT` (dashboard SPA, proxied to the public backend `:38081`); the backend also serves the admin listener on `127.0.0.1:ADMIN_PORT` (default `38082`, same JSON API without authentication, no dashboard) with `DEV_UI_REDIRECT=http://HOST:PORT`, so any navigation hitting the backend directly redirects to vite instead of serving the placeholder stub. Vite proxies `/api` and `/v1` → public backend `:38081`. Legacy `WEB_PORT`/`API_PORT`/`NO_AUTH` are ignored.
 - **Build** (`make build` → `init`, then `build`): `vite build` into `internal/dashboard/build/web`, then multi-platform `go build` embeds it (without `DEV_UI_REDIRECT`, so the redirect never fires), zips with `archive/zip`, hashes with `crypto/sha256`. `VERSION` prefers env, then the latest git tag, then `dev`; missing git degrades to `dev`/`unknown` commit with a warning, never a failure.
 - **Publish** (`make publish` → `publish`, no build): verifies a clean tree with `HEAD == origin/main`, bumps the latest tag (`fix`: `Z+1`; `minor`: `Y+1`, short `vX.Y`; `major`: `X+1`, short `vX.0`) or takes forced `VERSION`, then creates and pushes the annotated tag. CI builds the release on tag push. Tags are the source of truth; without git or tags the command fails.
 
 ## Smoke (`make smoke`)
 
-Restarts the dev stack with `NO_AUTH=1`, waits for readiness, then drives the request paths black-box: status → bootstrap → plugin install → provider + dev-database credentials → model matrix (one model per capability, first success closes it) → cleanup of created credentials. Missing credentials skip keyed plugins, never fail them; credential-less provider types run the matrix without accounts. Quota, payment, rate and missing-model outcomes skip with reason; anything else fails. Exit 0 means clean (skips allowed).
+Restarts the dev stack, waits for readiness, then drives the request paths black-box against the admin listener: status → bootstrap → plugin install → provider + dev-database credentials → model matrix (one model per capability, first success closes it) → cleanup of created credentials. Missing credentials skip keyed plugins, never fail them; credential-less provider types run the matrix without accounts. Quota, payment, rate and missing-model outcomes skip with reason; anything else fails. Exit 0 means clean (skips allowed).
 
 ## Caching (`NO_SKIP`)
 

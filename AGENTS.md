@@ -99,7 +99,7 @@ Open every session by identifying the platform and shell. Never assume them.
 
 ```
 cmd/root.go              CLI entrypoint (environment + .env; --version/--generate-config only)
-internal/server/         HTTP server: single listener (dashboard SPA + /v1 + /api on PORT)
+internal/server/         HTTP server: public listener (dashboard SPA + /v1 + /api on PORT) + optional loopback admin listener (API only, no auth, on 127.0.0.1:ADMIN_PORT)
 internal/services/
   token/                 router-token issue/validate
   router/                ModelId → backend, token allow-list gate, single pass, no repeats
@@ -121,6 +121,8 @@ internal/services/
   doctor/                database inspection and repair
   proxypool/             free-pool hosting, Lua feed bridge, SQLite cache, custom pools, lane scheduler adapter
 internal/httpkit/        shared transport helpers (SSE headers)
+internal/requestsource/  RequestSource in request context (public vs private listener)
+internal/httpapi/        shared route tables + public/private mux builders
 internal/errors/         domain sentinels + ToAPIError
 internal/repository/     typed SQLite operations
 internal/dashboard/      admin REST API
@@ -154,11 +156,11 @@ Keep changes shallow. Do not touch service internals unless the task requires it
 | `make init` | agent | Project init/re-init: bun install, openapi.yaml, api-types, embed stub; skips fresh outputs unless `NO_SKIP=1` |
 | `make log` | agent | Tail backend log (`LINES=...` sizes tail, default `100`; `FOLLOW=...` overrides TTY auto-follow) |
 | `make log-frontend` | agent | Tail frontend log (same `LINES`/`FOLLOW` contract as `make log`) |
-| `make start` | agent | Start dev backend + frontend (vite); `NO_AUTH=1` disables all authorization |
+| `make start` | agent | Start dev backend + frontend (vite); admin listener on 127.0.0.1:ADMIN_PORT answers without auth |
 | `make stop` | agent | Stop dev processes |
 | `make restart` | agent | Stop + start, keeping last start params |
-| `make smoke` | agent | Restart with `NO_AUTH=1`, then run the smoke harness (`SMOKE_PLUGINS=...`, `SMOKE_TARGETS=...`) |
-| `make upload-plugins` | agent | Upload every store `.lua` plugin to the running stack (`UPLOAD_STORE_DIR=...`, needs `NO_AUTH=1`, no restart) |
+| `make smoke` | agent | Restart, then run the smoke harness against the admin listener (`SMOKE_PLUGINS=...`, `SMOKE_TARGETS=...`) |
+| `make upload-plugins` | agent | Upload every store `.lua` plugin via the admin listener (`UPLOAD_STORE_DIR=...`, no restart) |
 | `make status` | agent | Show dev server status |
 | `make help` | agent | Print targets and variables |
 | `make go-tidy` | agent | Tidy both Go modules |
@@ -204,7 +206,7 @@ If the task needs `browser`, `build`, `publish`, or `clean`: STOP. Ask the human
 | 3 | Run destructive git commands | No `git push`, `git reset`, `git checkout -f`, `git clean`, force-push, amend. Commit only if explicitly instructed, for that exact commit only. |
 | 4 | Litter the project | No `*.log`, `*.pid`, `*.tmp`, binaries, scratch files, notes inside the project tree. Use `/tmp` or an external scratch dir. Delete temporary verification files when done. |
 | 5 | Avoid the Makefile | No raw command substitutes for an allowed target (§4.2). No manual invocation of a banned target's underlying steps (§4.3). |
-| 6 | Build or launch the app outside make targets | `browser`, `publish`, `clean` are human-only. Debug live with `make start NO_AUTH=1` / `make restart` / `make stop` / `make status` — ask the human for anything else. See §4.3, §10. |
+| 6 | Build or launch the app outside make targets | `browser`, `publish`, `clean` are human-only. Debug live with `make start` / `make restart` / `make stop` / `make status` — ask the human for anything else. See §4.3, §10. |
 | 7 | Redirect output to nul or /dev/null | Breaks on Windows and hides diagnostics on every OS. |
 | 8 | Truncate diagnostics output with tail/head | Diagnostics matter and truncating wastes time. NEVER truncate them. |
 | 9 | Fall back silently | NEVER swallow a failure and continue on a fallback path. Surface every failure as an error — return it to the caller, log it, or both — or route it to an explicit, named on-fail branch. Never fall through unannounced. |
@@ -331,7 +333,7 @@ UI text uses categorized robotic keys. English text is the default output. A key
 
 ## 11. Runtime, API Testing, Smoke
 
-Debug live with `make start NO_AUTH=1` (authorization fully off: no bearer keys, no login), `make log` / `make log-frontend` for output, `make status` for state, `make stop` when done. Fresh DBs still open the bootstrap page once (account creation stays); `status.authenticated` reads true under no-auth. NEVER enable no-auth outside local dev.
+Debug live with `make start` (public listener needs login; the admin listener on `127.0.0.1:ADMIN_PORT` answers `/api` and `/v1` without auth or bootstrapping and serves no dashboard), `make log` / `make log-frontend` for output, `make status` for state, `make stop` when done. Fresh DBs still open the bootstrap page once on public (account creation stays); admin `status` reads bootstrapped and authenticated without an account. NEVER enable the admin listener outside local dev (empty `ADMIN_PORT` disables it).
 
 To get runtime facts from a human-run instance instead:
 
@@ -339,7 +341,7 @@ To get runtime facts from a human-run instance instead:
 2. Ask human to run `make start` / `make restart` / `make init` and report back.
 3. Interpret: dev dashboard = `http://HOST:PORT` (vite, proxying `/api/*` and `/v1/*` → backend `HOST:38081`, dev-internal fixed); release = `:PORT` (embedded SPA + both APIs on one listener). Pidfile is JSON `{backend,frontend,vitePort}` at `%TEMP%/llm-router-dev.pid`.
 
-Under `NO_AUTH=1` every call below needs no headers. With auth on, add `-H "Authorization: Bearer <token>"` to `/v1` and use a logged-in session (cookie) for `/api/llm-router/*`; `401` without them is expected, not a bug.
+Under the admin listener every call below needs no headers. With auth on (public), add `-H "Authorization: Bearer <token>"` to `/v1` and use a logged-in session (cookie) for `/api/llm-router/*`; `401` without them is expected, not a bug.
 
 `/v1` (OpenAI-compatible, same `:PORT` as the dashboard):
 - `POST /v1/chat/completions` `{"model":"<provider>/<model>","messages":[{"role":"user","content":"hi"}]}` — core routing; add `"stream":true` for SSE
@@ -358,7 +360,7 @@ Dashboard `/api/llm-router/*` (same `:PORT`, JSON `{"error":...}` on failure):
 
 Runtime diagnostics: `make log LINES=...` (backend), `make log-frontend` (vite), `make status` (PIDs/ports), metrics overview/timeseries endpoints for usage.
 
-Smoke harness (`scripts/smoke/`, `make smoke` restarts with `NO_AUTH=1` first):
+Smoke harness (`scripts/smoke/`, `make smoke` restarts first, then drives the admin listener):
 - Default scope is the mock provider only; real plugins opt in via `SMOKE_PLUGINS=...`, heavy endpoints via `SMOKE_TARGETS=...`.
 - Accounts come from the dev database, never from env. Missing credentials skip the plugin, never fail it.
 - Matrix iterates models per capability until first success; `quota`/`payment`/`rate`/`not_found`/`invalid_request` move on, `auth` fails, exhaustion without success skips with reason.

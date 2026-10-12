@@ -21,8 +21,6 @@ type Params struct {
 	ModelInfoSvc *modelinfo.GormService
 	VirtualSvc   *virtual.GormService
 	Logger       *slog.Logger
-	// NoAuth skips bearer validation: requests route with a nil token.
-	NoAuth bool
 }
 
 // New constructs a v1 Handler.
@@ -35,6 +33,5 @@ func New(parameters Params) *Handler {
 		modelInfoSvc: parameters.ModelInfoSvc,
 		virtualSvc:   parameters.VirtualSvc,
 		logger:       parameters.Logger,
-		noAuth:       parameters.NoAuth,
 	}
 }

@@ -7,12 +7,20 @@ import (
 	"strings"
 
 	"github.com/TheSlopMachine/llm-router/internal/dashboard"
+	"github.com/TheSlopMachine/llm-router/internal/requestsource"
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 )
 
-func bootstrapMiddleware(adminService *admin.GormService, noAuth bool) func(http.Handler) http.Handler {
+func bootstrapMiddleware(adminService *admin.GormService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// The admin listener answers without bootstrapping; the
+			// source in the request context decides, never a flag.
+			private := requestsource.SourceFromContext(r.Context()) == requestsource.RequestSourcePrivate
+			if private {
+				next.ServeHTTP(w, r)
+				return
+			}
 			exempt := r.URL.Path == "/login" ||
 				r.URL.Path == "/bootstrap" ||
 				r.URL.Path == "/api/llm-router/login" ||
@@ -24,7 +32,7 @@ func bootstrapMiddleware(adminService *admin.GormService, noAuth bool) func(http
 
 			if !exempt {
 				real, err := adminService.IsBootstrapped(r.Context())
-				if err != nil || !dashboard.EffectiveBootstrapped(real, noAuth) {
+				if err != nil || !dashboard.EffectiveBootstrapped(real, private) {
 					// API prefixes answer JSON, never redirect: a client
 					// asking for JSON must not receive dashboard HTML.
 					if dashboard.IsAPIPath(r.URL.Path) {

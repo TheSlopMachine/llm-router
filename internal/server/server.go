@@ -1,6 +1,8 @@
-// Package server wires all services together and starts the HTTP server.
-// Dashboard SPA, dashboard JSON API (/api) and /v1 API share one listener;
-// routing splits by path prefix (see buildRootMux).
+// Package server wires all services together and starts the HTTP servers.
+// The public listener serves dashboard SPA, dashboard JSON API (/api) and
+// /v1 API with bootstrapping and authentication enforced. The optional
+// admin listener serves the same JSON API without either and binds
+// loopback only. Route tables live in httpapi and mount on both.
 package server
 
 import (
@@ -15,7 +17,9 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/config"
 	"github.com/TheSlopMachine/llm-router/internal/dashboard"
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	"github.com/TheSlopMachine/llm-router/internal/httpapi"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/requestsource"
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	"github.com/TheSlopMachine/llm-router/internal/services/batches"
 	configservice "github.com/TheSlopMachine/llm-router/internal/services/config"
@@ -36,13 +40,16 @@ import (
 	virtualadapter "github.com/TheSlopMachine/llm-router/providers/virtual"
 )
 
-// Server is the fully-wired llm-router application with one listener.
+// Server is the fully-wired llm-router application: one public listener
+// plus an optional loopback-only admin listener answering the same JSON
+// API without authentication.
 type Server struct {
 	applicationConfig  *config.Config
 	sqliteDatabase     *db.Database
 	sqlitePath         string
 	logger             *slog.Logger
 	httpServer         *http.Server
+	adminServer        *http.Server
 	maintenanceService *maintenance.GormService
 	metricsService     *metrics.Service
 	proxyService       *proxypool.Service
@@ -155,13 +162,6 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 
 	startupCleanup(logger, credentialService, providerService)
 
-	if applicationConfig.NoAuth {
-		bootstrapped, err := adminService.IsBootstrapped(context.Background())
-		if err != nil || !bootstrapped {
-			logger.Warn("no-auth mode with no admin account: dropping NO_AUTH later will require bootstrap")
-		}
-	}
-
 	wireInvalidation(logger, providerService, modelInfoService, luaService)
 
 	dashboardHandler, err := dashboard.New(dashboard.Params{
@@ -170,7 +170,6 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		VirtualSvc: virtualService, RouterSvc: routerService, ConfigSvc: configService,
 		LuaSvc: luaService, RepoSvc: repositoryService, ProxySvc: proxyService, MaintSvc: maintenanceService,
 		Logger:         logger,
-		NoAuth:         applicationConfig.NoAuth,
 		SQLiteDatabase: sqliteDatabase,
 	})
 	if err != nil {
@@ -183,15 +182,26 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 	apiV1 := v1.New(v1.Params{
 		Tokens: tokenService, RouterSvc: routerService, MetricsSvc: metricsService,
 		ProviderSvc: providerService, ModelInfoSvc: modelInfoService,
-		VirtualSvc: virtualService, Logger: logger, NoAuth: applicationConfig.NoAuth,
+		VirtualSvc: virtualService, Logger: logger,
 	})
 
-	rootMux := buildRootMux(apiV1, dashboardHandler)
-	handler := bootstrapMiddleware(adminService, applicationConfig.NoAuth)(requestLogger(logger, rootMux))
+	// Both listeners mount the same route tables; the source in the
+	// request context selects authenticated vs bypass behavior.
+	publicHandler := requestsource.Middleware(requestsource.RequestSourcePublic)(
+		bootstrapMiddleware(adminService)(requestLogger(logger, httpapi.BuildPublicMux(apiV1, dashboardHandler))))
+	privateHandler := requestsource.Middleware(requestsource.RequestSourcePrivate)(
+		bootstrapMiddleware(adminService)(requestLogger(logger, httpapi.BuildPrivateMux(apiV1, dashboardHandler))))
 
 	httpServer := &http.Server{
 		Addr:    listenAddr,
-		Handler: handler,
+		Handler: publicHandler,
+	}
+	var adminServer *http.Server
+	if applicationConfig.AdminAddr != "" {
+		adminServer = &http.Server{
+			Addr:    applicationConfig.AdminAddr,
+			Handler: privateHandler,
+		}
 	}
 
 	return &Server{
@@ -200,6 +210,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		sqlitePath:         sqlitePath,
 		logger:             logger,
 		httpServer:         httpServer,
+		adminServer:        adminServer,
 		maintenanceService: maintenanceService,
 		metricsService:     metricsService,
 		proxyService:       proxyService,
@@ -229,7 +240,7 @@ func (s *Server) runShutdownHooks() {
 	}
 }
 
-// Run starts the maintenance loop and blocks on the HTTP server.
+// Run starts the maintenance loop and blocks on the HTTP servers.
 func (s *Server) Run(ctx context.Context) error {
 	// Run startup plugin jobs before serving traffic so a restarted
 	// router refreshes-around stale state while the ticker runs.
@@ -244,26 +255,44 @@ func (s *Server) Run(ctx context.Context) error {
 	cancel()
 	s.proxyService.Start(ctx)
 	s.maintenanceService.Start(ctx)
-	s.logger.Info("llm-router started", "addr", s.applicationConfig.Addr, "db", s.sqlitePath, "cache", s.applicationConfig.CachePath)
+	startFields := []any{"addr", s.applicationConfig.Addr, "db", s.sqlitePath, "cache", s.applicationConfig.CachePath}
+	if s.applicationConfig.AdminAddr != "" {
+		s.logger.Warn("admin listener enabled without authentication (loopback only)", "addr", s.applicationConfig.AdminAddr)
+		startFields = append(startFields, "admin", s.applicationConfig.AdminAddr)
+	}
+	s.logger.Info("llm-router started", startFields...)
 
-	errorChannel := make(chan error, 1)
-	go func() {
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errorChannel <- fmt.Errorf("http server: %w", err)
+	errorChannel := make(chan error, 2)
+	serve := func(server *http.Server, name string) {
+		if server == nil {
+			return
 		}
-	}()
+		go func() {
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				errorChannel <- fmt.Errorf("%s server: %w", name, err)
+			}
+		}()
+	}
+	serve(s.httpServer, "http")
+	serve(s.adminServer, "admin")
 
+	shutdown := func() {
+		_ = s.httpServer.Shutdown(context.Background())
+		if s.adminServer != nil {
+			_ = s.adminServer.Shutdown(context.Background())
+		}
+	}
 	select {
 	case <-ctx.Done():
 		s.logger.Info("shutting down gracefully...")
 		s.runShutdownHooks()
 		s.metricsService.Stop()
-		_ = s.httpServer.Shutdown(context.Background())
+		shutdown()
 		return nil
 	case err := <-errorChannel:
 		s.runShutdownHooks()
 		s.metricsService.Stop()
-		_ = s.httpServer.Shutdown(context.Background())
+		shutdown()
 		return fmt.Errorf("http server: %w", err)
 	}
 }

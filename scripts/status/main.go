@@ -52,6 +52,7 @@ func main() {
 	}
 	reportPort("frontend port", process.VitePort)
 	reportPort("backend port", mustAtoiSoft(shared.DevBackendPort))
+	reportPort("admin port (loopback)", mustAtoiSoft(shared.Getenv("ADMIN_PORT", shared.DevAdminPort)))
 
 	fmt.Printf("Backend log: %s\n", shared.DefaultBackendLog())
 	fmt.Printf("Frontend log: %s\n", shared.DefaultFrontendLog())

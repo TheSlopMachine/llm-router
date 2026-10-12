@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/requestsource"
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
@@ -18,7 +19,7 @@ func newProxyDashboardHandler(t *testing.T) *Handler {
 	if err != nil {
 		t.Fatalf("new proxy service: %v", err)
 	}
-	return &Handler{proxyService: proxyService, noAuth: true}
+	return &Handler{proxyService: proxyService}
 }
 
 func TestProxyRecheckBannedHandler(t *testing.T) {
@@ -69,11 +70,12 @@ func TestProxyStatusRouteAndShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new proxy service: %v", err)
 	}
-	h := &Handler{proxyService: proxyService, noAuth: true}
+	h := &Handler{proxyService: proxyService}
 	mux := http.NewServeMux()
 	h.Register(mux)
 
 	request := httptest.NewRequest(http.MethodGet, "/api/llm-router/dashboard/proxy/status", nil)
+	request = request.WithContext(requestsource.ContextWithSource(request.Context(), requestsource.RequestSourcePrivate))
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
@@ -90,6 +92,7 @@ func TestProxyStatusRouteAndShape(t *testing.T) {
 	}
 
 	request = httptest.NewRequest(http.MethodPost, "/api/llm-router/dashboard/proxy/recheck-banned", bytes.NewBufferString(`{}`))
+	request = request.WithContext(requestsource.ContextWithSource(request.Context(), requestsource.RequestSourcePrivate))
 	recorder = httptest.NewRecorder()
 	mux.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusAccepted {

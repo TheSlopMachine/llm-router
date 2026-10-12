@@ -86,12 +86,10 @@ type Config struct {
 	// LogLevel controls slog verbosity.
 	LogLevel LogLevel
 
-	// NoAuth disables all authorization: /v1 requests validate without
-	// bearer tokens, dashboard APIs skip session checks, and status
-	// reports authenticated. Bootstrap state stays real: a fresh DB
-	// still opens the account-creation page. Dev and AI debugging only —
-	// never enable on shared or public instances.
-	NoAuth bool
+	// AdminAddr is the address of the optional admin listener (always
+	// loopback, e.g. "127.0.0.1:38082"). It serves the same JSON API
+	// without authentication or bootstrapping. Empty disables it.
+	AdminAddr string
 
 	// DevUIRedirect, when non-empty, is the origin (e.g. "http://localhost:8080")
 	// that the dashboard 302-redirects browser navigations to instead of

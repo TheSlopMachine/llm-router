@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/TheSlopMachine/llm-router/internal/requestsource"
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 )
 
@@ -17,9 +18,12 @@ import (
 // @Router       /api/llm-router/status [get]
 func (h *Handler) apiStatus() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// The admin listener reports bootstrapped and authenticated without
+		// an account or a session; the source decides, never a flag.
+		private := requestsource.SourceFromContext(r.Context()) == requestsource.RequestSourcePrivate
 		realBootstrapped, _ := h.gormAdminService.IsBootstrapped(r.Context())
-		bootstrapped := EffectiveBootstrapped(realBootstrapped, h.noAuth)
-		authenticated := h.noAuth
+		bootstrapped := EffectiveBootstrapped(realBootstrapped, private)
+		authenticated := private
 		if !authenticated {
 			if c, err := r.Cookie(sessionCookie); err == nil {
 				_, authenticated = h.gormAdminService.ValidateSession(r.Context(), c.Value)
