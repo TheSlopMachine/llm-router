@@ -31,7 +31,7 @@ llm_router.register("probe", {
 	if _, err := service.InstallSQLite(context.Background(), []byte(src), PluginOrigin{Manual: true}); err != nil {
 		return nil, err
 	}
-	return service.Schema("probe", "credential_schema")
+	return service.Schema("probe", "credential_schema", "en")
 }
 
 func TestUINodeNewKindsValid(t *testing.T) {

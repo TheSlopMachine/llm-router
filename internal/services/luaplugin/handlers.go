@@ -828,7 +828,8 @@ func (s *Service) GetModelInfos(
 // Schema serves static UI tables from the stored record: credential_schema,
 // config_schema, settings_schema or proxy_schema. Missing tables report
 // ErrHandlerNotFound so callers hide the surface instead of rendering it.
-func (s *Service) Schema(typeKey, kind string) ([]*models.UINode, error) {
+// Stored widget keys resolve through the type locales for locale.
+func (s *Service) Schema(typeKey, kind, locale string) ([]*models.UINode, error) {
 	switch kind {
 	case "credential_schema", "config_schema", "settings_schema", "proxy_schema":
 	default:
@@ -842,12 +843,13 @@ func (s *Service) Schema(typeKey, kind string) ([]*models.UINode, error) {
 	if !ok {
 		return nil, &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: kind}
 	}
-	return nodes, nil
+	return ResolveUINodes(nodes, record.Locales[typeKey], locale), nil
 }
 
 // AuthInitiate calls auth_initiate. Missing handler reports ErrHandlerNotFound
-// so the dashboard uses the single-step credential_schema form.
-func (s *Service) AuthInitiate(goCtx context.Context, typeKey, flowID string, providerConfig map[string]any) (*models.AuthFlowResult, error) {
+// so the dashboard uses the single-step credential_schema form. Render trees
+// resolve through the type locales for locale.
+func (s *Service) AuthInitiate(goCtx context.Context, typeKey, flowID string, providerConfig map[string]any, locale string) (*models.AuthFlowResult, error) {
 	record, err := s.Lookup(typeKey)
 	if err != nil {
 		return nil, err
@@ -870,11 +872,15 @@ func (s *Service) AuthInitiate(goCtx context.Context, typeKey, flowID string, pr
 	if !found {
 		return nil, &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: "auth_initiate"}
 	}
+	if result != nil && len(result.Render) > 0 {
+		result.Render = ResolveUINodes(result.Render, record.Locales[typeKey], locale)
+	}
 	return result, nil
 }
 
-// AuthStep calls auth_step with {action, values}.
-func (s *Service) AuthStep(goCtx context.Context, typeKey, flowID, action string, values map[string]any, providerConfig map[string]any) (*models.AuthFlowResult, error) {
+// AuthStep calls auth_step with {action, values}. Render trees resolve
+// through the type locales for locale.
+func (s *Service) AuthStep(goCtx context.Context, typeKey, flowID, action string, values map[string]any, providerConfig map[string]any, locale string) (*models.AuthFlowResult, error) {
 	record, err := s.Lookup(typeKey)
 	if err != nil {
 		return nil, err
@@ -903,6 +909,9 @@ func (s *Service) AuthStep(goCtx context.Context, typeKey, flowID, action string
 	}
 	if !found {
 		return nil, &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: "auth_step"}
+	}
+	if result != nil && len(result.Render) > 0 {
+		result.Render = ResolveUINodes(result.Render, record.Locales[typeKey], locale)
 	}
 	return result, nil
 }

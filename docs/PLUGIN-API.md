@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Plugin API: **1.2** (`luaplugin.PluginAPIVersion`). A plugin declares the
+Plugin API: **1.3** (`luaplugin.PluginAPIVersion`). A plugin declares the
 `@plugin_api` contract it speaks; the router label (`main.RouterVersion`,
 stamped from the release tag) carries no compatibility meaning. Install
 compares majors only: plugin major above the served one fails with `too_new`,
@@ -44,6 +44,7 @@ spelling. Anything else fails install.
 | 1.0 | Plugin API split: `@plugin_api x.y` replaces `@router_version`. Install gates on the major only (`too_new` / `too_old` / `no_api_version`); minor is informational. All store plugins reissued under `1.0`. Router identity moves to the release tag (`main.RouterVersion`), short `X.Y` when the fix is 0. |
 | 1.1 | Optional `headers` string table on the error contract, rendered through a strict allow-list (`Retry-After` today) on unary `/v1` errors in both envelopes; streams and dashboard excluded. |
 | 1.2 | Optional `initialize` / `deinitialize` lifecycle slots: one-time `ctx`-table hooks with `ctx.reason` (`install` / `update` / `startup` and `delete` / `update` / `shutdown` / `disable`); detached concurrent fan-out, 30s bound, failures log. |
+| 1.3 | Optional per-type `locales` table (`en`/`ru`): widget keys in schema and auth trees resolve per dashboard locale with English fallback. |
 
 ## Responsibility split
 
@@ -92,8 +93,12 @@ llm_router.register(type_key, {
   initialize = function(ctx) ... end,    -- optional one-time setup, ctx.reason selects install/update/startup
   deinitialize = function(ctx) ... end,  -- optional one-time teardown, ctx.reason selects delete/update/shutdown/disable
   transcribe = function(ctx, request) ... end,
+  locales = {
+    ["en"] = { ["misc.api_key"] = "API Key" },
+    ["ru"] = { ["misc.api_key"] = "API-ключ" },
+  },
   credential_schema = {
-    { type = "secret", name = "api_key", label = "API Key" },
+    { type = "secret", name = "api_key", label = "misc.api_key" },
   },
   proxy_schema = {},  -- present (even empty) enables the proxy tab
   jobs = {
@@ -139,6 +144,16 @@ llm_router.register_proxy_source(name, {
 - An optional `healthcheck_cooldown` number sets the per-type credential
   health-check cooldown in whole seconds (60..86400, default 300).
   Mistyped and out-of-range values fail install.
+- An optional `locales` table localizes widget strings: `locales[locale][key]`
+  holds the text for one widget key. Locale codes are `en` and `ru` only;
+  entry keys are 1..128 chars, values 1..1000 chars, max 1000 entries per
+  locale. Widget fields (`text`, `label`, `placeholder`, `title`,
+  `subtitle`, `option_labels` values, including nested `content`) match by
+  exact string: a match serves the requested locale, a miss falls back to
+  the `en` entry, a final miss serves the stored text. Stored text stays the
+  fallback, so plugins without `locales` serve English unchanged. Auth render
+  trees resolve the same way. Dashboard schema endpoints accept `?locale=`
+  with `Accept-Language` fallback.
 - One bare source name may be claimed by several plugins; the runtime
   qualifies each as `<recordID>/<name>`.
 

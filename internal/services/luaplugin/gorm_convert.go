@@ -11,9 +11,9 @@ import (
 
 // pluginDeclarationsFromRecord builds the plugin-owned JSON declarations from
 // the wire record. Type keys, handlers, icons, model specifications, health
-// cooldowns, proxy source keys, schemas and jobs stay JSON because the shape
-// is plugin-owned. Allow hosts, history, source, origin and timestamps live
-// in columns or child tables, never in declarations.
+// cooldowns, proxy source keys, schemas, locales and jobs stay JSON because
+// the shape is plugin-owned. Allow hosts, history, source, origin and
+// timestamps live in columns or child tables, never in declarations.
 func pluginDeclarationsFromRecord(pluginRecord *PluginRecord) map[string]any {
 	declarations := map[string]any{}
 	if pluginRecord == nil {
@@ -26,6 +26,7 @@ func pluginDeclarationsFromRecord(pluginRecord *PluginRecord) map[string]any {
 	declarations["health_cooldown"] = pluginRecord.HealthCooldown
 	declarations["proxy_source_keys"] = copyStringSlice(pluginRecord.ProxySourceKeys)
 	declarations["schemas"] = pluginRecord.Schemas
+	declarations["locales"] = pluginRecord.Locales
 	declarations["jobs"] = pluginRecord.Jobs
 	return declarations
 }
@@ -114,6 +115,9 @@ func pluginRecordFromRows(pluginRow record.Plugin, hostRows []record.PluginAllow
 	if err := decodeDeclarationsField(declarations, "schemas", &pluginRecord.Schemas); err != nil {
 		return nil, fmt.Errorf("decode schemas: %w", err)
 	}
+	if err := decodeDeclarationsField(declarations, "locales", &pluginRecord.Locales); err != nil {
+		return nil, fmt.Errorf("decode locales: %w", err)
+	}
 	if err := decodeDeclarationsField(declarations, "jobs", &pluginRecord.Jobs); err != nil {
 		return nil, fmt.Errorf("decode jobs: %w", err)
 	}
@@ -148,6 +152,7 @@ func versionDeclarationsFromSnapshot(snapshot PluginVersionSnapshot) map[string]
 		"health_cooldown":   snapshot.HealthCooldown,
 		"proxy_source_keys": copyStringSlice(snapshot.ProxySourceKeys),
 		"schemas":           snapshot.Schemas,
+		"locales":           snapshot.Locales,
 		"jobs":              snapshot.Jobs,
 	}
 }
@@ -196,6 +201,9 @@ func snapshotFromVersionRow(versionRow record.PluginVersion) (PluginVersionSnaps
 	if err := decodeDeclarationsField(declarations, "schemas", &snapshot.Schemas); err != nil {
 		return PluginVersionSnapshot{}, fmt.Errorf("decode version schemas: %w", err)
 	}
+	if err := decodeDeclarationsField(declarations, "locales", &snapshot.Locales); err != nil {
+		return PluginVersionSnapshot{}, fmt.Errorf("decode version locales: %w", err)
+	}
 	if err := decodeDeclarationsField(declarations, "jobs", &snapshot.Jobs); err != nil {
 		return PluginVersionSnapshot{}, fmt.Errorf("decode version jobs: %w", err)
 	}
@@ -215,6 +223,7 @@ func snapshotFromRecord(pluginRecord *PluginRecord) PluginVersionSnapshot {
 		HealthCooldown:      pluginRecord.HealthCooldown,
 		ProxySourceKeys:     append([]string(nil), pluginRecord.ProxySourceKeys...),
 		Schemas:             pluginRecord.Schemas,
+		Locales:             pluginRecord.Locales,
 		Jobs:                pluginRecord.Jobs,
 	}
 }

@@ -37,7 +37,7 @@ func (s *GormService) SupportsAuthFlow(typeKey string) bool {
 // ConfigSchema returns the config UI tree for a type key.
 // Go types serve static trees; Lua types delegate to config_schema.
 // ErrHandlerNotFound-equivalent (nil, nil) means "raw JSON fallback".
-func (s *GormService) ConfigSchema(typeKey string) ([]*models.UINode, error) {
+func (s *GormService) ConfigSchema(typeKey, locale string) ([]*models.UINode, error) {
 	if typeKey == TypeCustom {
 		return []*models.UINode{
 			{Type: "text", Text: "OpenAI-compatible endpoint details."},
@@ -50,7 +50,7 @@ func (s *GormService) ConfigSchema(typeKey string) ([]*models.UINode, error) {
 	if s.luaService == nil {
 		return nil, fmt.Errorf("no plugin service wired")
 	}
-	nodes, err := s.luaService.Schema(typeKey, "config_schema")
+	nodes, err := s.luaService.Schema(typeKey, "config_schema", locale)
 	if err != nil {
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
 			return nil, nil
@@ -61,7 +61,7 @@ func (s *GormService) ConfigSchema(typeKey string) ([]*models.UINode, error) {
 }
 
 // CredentialSchema returns the credential UI tree for a type key.
-func (s *GormService) CredentialSchema(typeKey string) ([]*models.UINode, error) {
+func (s *GormService) CredentialSchema(typeKey, locale string) ([]*models.UINode, error) {
 	if typeKey == TypeCustom {
 		return []*models.UINode{
 			{Type: "text", Text: "Enter the API key for this provider."},
@@ -79,7 +79,7 @@ func (s *GormService) CredentialSchema(typeKey string) ([]*models.UINode, error)
 	if s.luaService == nil {
 		return nil, fmt.Errorf("no plugin service wired")
 	}
-	nodes, err := s.luaService.Schema(typeKey, "credential_schema")
+	nodes, err := s.luaService.Schema(typeKey, "credential_schema", locale)
 	if err != nil {
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
 			return nil, nil
@@ -91,14 +91,14 @@ func (s *GormService) CredentialSchema(typeKey string) ([]*models.UINode, error)
 
 // SettingsSchema returns the plugin settings UI tree for a type key.
 // Nil means the plugin declares no settings section.
-func (s *GormService) SettingsSchema(typeKey string) ([]*models.UINode, error) {
+func (s *GormService) SettingsSchema(typeKey, locale string) ([]*models.UINode, error) {
 	if typeKey == TypeCustom || typeKey == TypeVirtual {
 		return nil, nil
 	}
 	if s.luaService == nil {
 		return nil, fmt.Errorf("no plugin service wired")
 	}
-	nodes, err := s.luaService.Schema(typeKey, "settings_schema")
+	nodes, err := s.luaService.Schema(typeKey, "settings_schema", locale)
 	if err != nil {
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
 			return nil, nil
@@ -110,14 +110,14 @@ func (s *GormService) SettingsSchema(typeKey string) ([]*models.UINode, error) {
 
 // ProxySchema returns the extra proxy settings UI tree for a type key.
 // Nil means the plugin declares no proxy surface.
-func (s *GormService) ProxySchema(typeKey string) ([]*models.UINode, error) {
+func (s *GormService) ProxySchema(typeKey, locale string) ([]*models.UINode, error) {
 	if typeKey == TypeCustom || typeKey == TypeVirtual {
 		return nil, nil
 	}
 	if s.luaService == nil {
 		return nil, fmt.Errorf("no plugin service wired")
 	}
-	nodes, err := s.luaService.Schema(typeKey, "proxy_schema")
+	nodes, err := s.luaService.Schema(typeKey, "proxy_schema", locale)
 	if err != nil {
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
 			return nil, nil

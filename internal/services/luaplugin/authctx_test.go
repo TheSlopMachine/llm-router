@@ -44,7 +44,7 @@ func TestAuthCtxCarriesProviderConfig(t *testing.T) {
 	ctx := context.Background()
 	providerConfig := map[string]any{"base_url": "https://example.com/v1"}
 
-	response, err := service.AuthInitiate(ctx, "configprobe", "flow1", providerConfig)
+	response, err := service.AuthInitiate(ctx, "configprobe", "flow1", providerConfig, "en")
 	if err != nil {
 		t.Fatalf("auth initiate: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestAuthCtxCarriesProviderConfig(t *testing.T) {
 		t.Errorf("initiate config wrong: %+v", response.Credentials)
 	}
 
-	response, err = service.AuthStep(ctx, "configprobe", "flow1", "next", map[string]any{}, providerConfig)
+	response, err = service.AuthStep(ctx, "configprobe", "flow1", "next", map[string]any{}, providerConfig, "en")
 	if err != nil {
 		t.Fatalf("auth step: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestAuthCtxNilConfig(t *testing.T) {
 	service := installConfigurationProbe(t)
 	ctx := context.Background()
 
-	response, err := service.AuthInitiate(ctx, "configprobe", "flow1", nil)
+	response, err := service.AuthInitiate(ctx, "configprobe", "flow1", nil, "en")
 	if err != nil {
 		t.Fatalf("auth initiate: %v", err)
 	}

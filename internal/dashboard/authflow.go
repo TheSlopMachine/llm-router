@@ -30,6 +30,7 @@ import (
 func (h *Handler) authInitiate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ProviderID string `json:"provider_id"`
+		Locale     string `json:"locale"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
@@ -54,7 +55,8 @@ func (h *Handler) authInitiate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.luaService.AuthInitiate(r.Context(), provider.TypeKey, flowID, provider.Config)
+	locale := luaplugin.NegotiateLocale(firstNonEmpty(r.URL.Query().Get("locale"), body.Locale), r.Header.Get("Accept-Language"))
+	result, err := h.luaService.AuthInitiate(r.Context(), provider.TypeKey, flowID, provider.Config, locale)
 	if err != nil {
 		if isAuthFallback(err) {
 			h.jsonErr(w, http.StatusConflict, "provider does not support stepped auth flows")
@@ -86,6 +88,7 @@ func (h *Handler) authStep(w http.ResponseWriter, r *http.Request) {
 		FlowID     string         `json:"flow_id"`
 		Action     string         `json:"action"`
 		Values     map[string]any `json:"values"`
+		Locale     string         `json:"locale"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
@@ -107,7 +110,8 @@ func (h *Handler) authStep(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.luaService.AuthStep(r.Context(), provider.TypeKey, body.FlowID, body.Action, body.Values, provider.Config)
+	locale := luaplugin.NegotiateLocale(firstNonEmpty(r.URL.Query().Get("locale"), body.Locale), r.Header.Get("Accept-Language"))
+	result, err := h.luaService.AuthStep(r.Context(), provider.TypeKey, body.FlowID, body.Action, body.Values, provider.Config, locale)
 	if err != nil {
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
 			h.jsonErr(w, http.StatusBadRequest, "auth flow step is not supported by this provider")
@@ -165,4 +169,14 @@ func isAuthFallback(err error) bool {
 		return false
 	}
 	return errors.Is(err, luaplugin.ErrHandlerNotFound)
+}
+
+// firstNonEmpty returns the first non-empty value.
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

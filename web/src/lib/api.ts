@@ -1,7 +1,13 @@
 import { apiCall as _apiCall } from './api-client'
+import { locale } from './i18n/index'
 import type { Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, ProxySchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate, ProviderModel, ProviderVMGroup, TestResult, Proxy, ProxyStatus, ProxySourceInfo, ProxyPool, SubsystemStats, DoctorReport, DoctorCategory, ProviderBundle } from './types'
 
 const apiCall = _apiCall
+
+function withLocale(path: string): string {
+  const separator = path.includes('?') ? '&' : '?'
+  return `${path}${separator}locale=${encodeURIComponent(locale())}`
+}
 
 function toProvider(raw: Record<string, unknown>): Provider {
   const r = raw as Record<string, unknown>
@@ -115,16 +121,16 @@ export const api = {
     },
 
     configSchema: (id: string): Promise<SchemaResponse> =>
-      fetch(`/api/llm-router/dashboard/providers/${encodeURIComponent(id)}/config-schema`).then(assertOk),
+      fetch(withLocale(`/api/llm-router/dashboard/providers/${encodeURIComponent(id)}/config-schema`)).then(assertOk),
 
     credentialSchema: (id: string): Promise<SchemaResponse> =>
-      fetch(`/api/llm-router/dashboard/providers/${encodeURIComponent(id)}/credential-schema`).then(assertOk),
+      fetch(withLocale(`/api/llm-router/dashboard/providers/${encodeURIComponent(id)}/credential-schema`)).then(assertOk),
 
     settingsSchema: (id: string): Promise<SchemaResponse> =>
-      fetch(`/api/llm-router/dashboard/providers/${encodeURIComponent(id)}/settings-schema`).then(assertOk),
+      fetch(withLocale(`/api/llm-router/dashboard/providers/${encodeURIComponent(id)}/settings-schema`)).then(assertOk),
 
     proxySchema: (id: string): Promise<ProxySchemaResponse> =>
-      fetch(`/api/llm-router/dashboard/providers/${encodeURIComponent(id)}/proxy-schema`).then(assertOk),
+      fetch(withLocale(`/api/llm-router/dashboard/providers/${encodeURIComponent(id)}/proxy-schema`)).then(assertOk),
 
     runJob: (id: string, job: string): Promise<{ ok: boolean }> =>
       postJson(`/api/llm-router/dashboard/providers/${encodeURIComponent(id)}/jobs/${encodeURIComponent(job)}`, {}),
@@ -133,10 +139,10 @@ export const api = {
   // Auth wizards (lua UI-tree)
   auth: {
     initiate: (provider_id: string): Promise<AuthStepResponse> =>
-      postJson('/api/llm-router/dashboard/auth/initiate', { provider_id }),
+      postJson(withLocale('/api/llm-router/dashboard/auth/initiate'), { provider_id, locale: locale() }),
 
     step: (payload: { provider_id: string; flow_id: string; action: string; values: Record<string, unknown> }): Promise<AuthStepResponse> =>
-      postJson('/api/llm-router/dashboard/auth/step', payload),
+      postJson(withLocale('/api/llm-router/dashboard/auth/step'), { ...payload, locale: locale() }),
   },
 
   // Installed plugins

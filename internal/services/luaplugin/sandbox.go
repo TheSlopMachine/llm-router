@@ -267,6 +267,12 @@ func installRouterTable(L *lua.LState, ctx *executionContext) {
 				}
 			}
 		}
+		if v := handlers.RawGetString("locales"); v != lua.LNil {
+			if _, ok := v.(*lua.LTable); !ok {
+				L.RaiseError("llm_router.register: locales must be a table")
+				return 0
+			}
+		}
 		if v := handlers.RawGetString("jobs"); v != lua.LNil {
 			jobsTbl, ok := v.(*lua.LTable)
 			if !ok {

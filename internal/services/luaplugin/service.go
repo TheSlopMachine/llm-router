@@ -43,6 +43,7 @@ type PluginVersionSnapshot struct {
 	HealthCooldown      map[string]int64                       `json:"health_cooldown,omitempty"`
 	ProxySourceKeys     []string                               `json:"proxy_source_keys,omitempty"`
 	Schemas             map[string]map[string][]*models.UINode `json:"schemas,omitempty"`
+	Locales             map[string]PluginLocales               `json:"locales,omitempty"`
 	Jobs                map[string]map[string]JobSpec          `json:"jobs,omitempty"`
 }
 
@@ -69,6 +70,9 @@ type PluginRecord struct {
 	// config_schema, settings_schema, proxy_schema. A missing table means
 	// the surface stays hidden.
 	Schemas map[string]map[string][]*models.UINode `json:"schemas,omitempty"`
+	// Locales holds per-type widget translations: locale code -> widget
+	// key -> localized text. Absent means widgets serve stored text.
+	Locales map[string]PluginLocales `json:"locales,omitempty"`
 	// Jobs holds per-type colocated job schedules. Function bodies live in
 	// plugin source and load fresh on every run.
 	Jobs        map[string]map[string]JobSpec `json:"jobs,omitempty"`
@@ -382,6 +386,7 @@ type dryResult struct {
 	cooldowns      map[string]int64
 	sourceKeys     []string
 	schemas        map[string]map[string][]*models.UINode
+	locales        map[string]PluginLocales
 	jobs           map[string]map[string]JobSpec
 }
 
@@ -398,6 +403,7 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) (*d
 		specifications: map[string]map[string]models.ModelInfo{},
 		cooldowns:      map[string]int64{},
 		schemas:        map[string]map[string][]*models.UINode{},
+		locales:        map[string]PluginLocales{},
 		jobs:           map[string]map[string]JobSpec{},
 	}
 	ctx := &executionContext{
@@ -484,6 +490,15 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) (*d
 					out.schemas[k] = map[string][]*models.UINode{}
 				}
 				out.schemas[k][kind] = nodes
+			}
+		}
+		if v := table.RawGetString("locales"); v != lua.LNil {
+			parsed, err := ParseLocales(v, k)
+			if err != nil {
+				return nil, err
+			}
+			if parsed != nil {
+				out.locales[k] = parsed
 			}
 		}
 		if v := table.RawGetString("jobs"); v != lua.LNil {

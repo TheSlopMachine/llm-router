@@ -125,6 +125,7 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 				ModelSpecifications: dryOutput.specifications,
 				HealthCooldown:      dryOutput.cooldowns,
 				Schemas:             dryOutput.schemas,
+				Locales:             dryOutput.locales,
 				Jobs:                dryOutput.jobs,
 				TypeKeys:            append([]string(nil), typeKeys...),
 				Handlers:            dryOutput.handlers,
@@ -186,6 +187,7 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 			ModelSpecifications: dryOutput.specifications,
 			HealthCooldown:      dryOutput.cooldowns,
 			Schemas:             dryOutput.schemas,
+			Locales:             dryOutput.locales,
 			Jobs:                dryOutput.jobs,
 			TypeKeys:            append([]string(nil), typeKeys...),
 			Handlers:            dryOutput.handlers,
@@ -376,6 +378,7 @@ func (service *Service) RollbackSQLite(ctx context.Context, pluginID string) (*P
 	cooldowns := previousSnapshot.HealthCooldown
 	sourceKeys := previousSnapshot.ProxySourceKeys
 	schemas := previousSnapshot.Schemas
+	locales := previousSnapshot.Locales
 	jobs := previousSnapshot.Jobs
 	if handlers == nil {
 		dryOutput, dryErr := service.dryRun(pluginID, previousSnapshot.Source, manifest)
@@ -388,6 +391,7 @@ func (service *Service) RollbackSQLite(ctx context.Context, pluginID string) (*P
 		cooldowns = dryOutput.cooldowns
 		sourceKeys = dryOutput.sourceKeys
 		schemas = dryOutput.schemas
+		locales = dryOutput.locales
 		jobs = dryOutput.jobs
 	}
 	rolledSnapshot := snapshotFromRecord(currentRecord)
@@ -409,6 +413,7 @@ func (service *Service) RollbackSQLite(ctx context.Context, pluginID string) (*P
 		ModelSpecifications: specifications,
 		HealthCooldown:      cooldowns,
 		Schemas:             schemas,
+		Locales:             locales,
 		Jobs:                jobs,
 		TypeKeys:            append([]string(nil), previousSnapshot.TypeKeys...),
 		Handlers:            handlers,

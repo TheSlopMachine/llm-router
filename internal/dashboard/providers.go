@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 )
 
@@ -360,6 +361,12 @@ func (h *Handler) apiProvidersDelete(w http.ResponseWriter, r *http.Request) {
 	h.json(w, http.StatusOK, map[string]string{"message": "provider deleted"})
 }
 
+// requestLocale selects the widget locale for schema requests: the explicit
+// locale query value wins, the Accept-Language first tag serves as fallback.
+func requestLocale(r *http.Request) string {
+	return luaplugin.NegotiateLocale(r.URL.Query().Get("locale"), r.Header.Get("Accept-Language"))
+}
+
 // apiProviderConfigSchema returns the config UI tree for a provider.
 // A null body means the dashboard falls back to raw JSON input.
 // @Summary      Get provider config schema
@@ -378,7 +385,7 @@ func (h *Handler) apiProviderConfigSchema(w http.ResponseWriter, r *http.Request
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	nodes, err := h.gormProviderService.ConfigSchema(provider.TypeKey)
+	nodes, err := h.gormProviderService.ConfigSchema(provider.TypeKey, requestLocale(r))
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -407,7 +414,7 @@ func (h *Handler) apiProviderCredentialSchema(w http.ResponseWriter, r *http.Req
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	nodes, err := h.gormProviderService.CredentialSchema(provider.TypeKey)
+	nodes, err := h.gormProviderService.CredentialSchema(provider.TypeKey, requestLocale(r))
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -429,7 +436,7 @@ func (h *Handler) apiProviderSettingsSchema(w http.ResponseWriter, r *http.Reque
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	nodes, err := h.gormProviderService.SettingsSchema(provider.TypeKey)
+	nodes, err := h.gormProviderService.SettingsSchema(provider.TypeKey, requestLocale(r))
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -449,7 +456,7 @@ func (h *Handler) apiProviderProxySchema(w http.ResponseWriter, r *http.Request)
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	nodes, err := h.gormProviderService.ProxySchema(provider.TypeKey)
+	nodes, err := h.gormProviderService.ProxySchema(provider.TypeKey, requestLocale(r))
 	if err != nil {
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
