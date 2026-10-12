@@ -34,13 +34,12 @@ func (AdminUser) TableName() string {
 }
 
 // Session is one dashboard session. The token hash is the primary key so the
-// plaintext token never lands in storage.
+// plaintext token never lands in storage. Username is a soft reference to
+// the admin account: sessions live in the cache file, which cannot enforce
+// foreign keys into the durable database file.
 type Session struct {
-	TokenHash string `gorm:"primaryKey"`
-	// The belongsTo marker is required: Username exists on both tables, and
-	// without it GORM guesses HasOne and drops the foreign key.
+	TokenHash  string    `gorm:"primaryKey"`
 	Username   string    `gorm:"not null;index"`
-	AdminUser  AdminUser `gorm:"foreignKey:Username;references:Username;belongsTo;constraint:OnDelete:CASCADE"`
 	CreatedAt  time.Time `gorm:"not null"`
 	ExpiresAt  time.Time `gorm:"not null;index"`
 	RememberMe bool      `gorm:"not null"`

@@ -1,22 +1,25 @@
 // GORM-backed database inspection and repair.
 //
-// GormService inspects the SQLite handle. Reads run through the
+// GormService inspects both SQLite files. Reads run through the
 // narrow inventory interfaces below so repairs stay inside the owning
 // services: virtual duplicates delete through GormVirtualInventory,
 // missing backends disable through GormProviderInventory, dangling token
 // models rewrite through GormTokenInventory. No direct write runs outside
 // those interfaces.
 //
-// Foreign keys prevent five legacy orphan categories, so the GORM report
-// never emits them: credentials, model overrides, model snapshots, managed
-// virtual models, and plugin storage rows all cascade from their provider
-// or plugin parents (record/providers.go, record/catalog.go,
-// record/virtual.go, record/plugins.go). The surviving checks are the
+// Foreign keys plus explicit service cleanup prevent the legacy orphan
+// categories, so the GORM report never emits them: credentials, model
+// overrides, managed virtual models, and durable plugin storage rows
+// cascade from their provider or plugin parents (record/providers.go,
+// record/catalog.go, record/virtual.go, record/plugins.go), while cached
+// snapshots, parks, health verdicts, and TTL storage rows clear explicitly
+// through their owning service deletes. The surviving checks are the
 // duplicate scan (name_key UNIQUE), the corrupt-value scan (no writer
-// builds unparseable values), the missing-backend lookup (plugin and Go
-// registries, no foreign key), the token soft-reference scan
-// (token_allowed_models carries no foreign key by design), and the SQLite
-// integrity check through the maintenance.go allowlist.
+// builds unparseable values, scanned in both files), the missing-backend
+// lookup (plugin and Go registries, no foreign key), the token
+// soft-reference scan (token_allowed_models carries no foreign key by
+// design), and the SQLite integrity check on both files through the
+// maintenance.go allowlist.
 package doctor
 
 import (
@@ -116,8 +119,8 @@ var (
 )
 
 // GormService inspects SQLite state through the inventory interfaces
-// plus direct reads of the plugin_storage table (luaplugin exposes no
-// storage list) and the allowlisted integrity check.
+// plus direct reads of the plugin_storage tables in both files (luaplugin
+// exposes no storage list) and the allowlisted integrity check.
 type GormService struct {
 	sqlite         *db.Database
 	providers      GormProviderInventory
@@ -180,7 +183,7 @@ func splitTokenModelKey(raw string) (tokenID, modelID string, ok bool) {
 
 // requireInventories fails closed when mandatory dependencies are missing.
 func (s *GormService) requireInventories() error {
-	if s == nil || s.sqlite == nil || s.sqlite.Handle == nil {
+	if s == nil || s.sqlite == nil || s.sqlite.Handle == nil || s.sqlite.Cache == nil {
 		return fmt.Errorf("doctor sqlite handle is not configured: %w", apierrors.ErrInvalidInput)
 	}
 	if s.providers == nil {
@@ -301,20 +304,28 @@ func (s *GormService) Inspect(ctx context.Context) (*InspectionReport, error) {
 	// Corrupt plugin storage flags values no writer builds: the GORM
 	// writer always stores JSON, so unmarshal failures prove manual or
 	// foreign writes. Empty values read as missing per the storage
-	// reader contract and stay unflagged. Inspect-only, never
+	// reader contract and stay unflagged. Both files scan: durable rows
+	// live in the database, TTL rows in the cache. Inspect-only, never
 	// auto-cleaned.
-	storageRows, err := gorm.G[record.PluginStorage](s.sqlite.Handle, orderPluginStorageByKeys()).Find(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list plugin storage: %w", db.Translate(err))
-	}
-	var corruptStorageKeys []string
-	for _, row := range storageRows {
-		if len(row.Value) == 0 {
-			continue
+	corruptStorageKeys := []string{}
+	corruptSeen := map[string]bool{}
+	for _, handle := range []*gorm.DB{s.sqlite.Handle, s.sqlite.Cache} {
+		storageRows, err := gorm.G[record.PluginStorage](handle, orderPluginStorageByKeys()).Find(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list plugin storage: %w", db.Translate(err))
 		}
-		var probe any
-		if err := json.Unmarshal(row.Value, &probe); err != nil {
-			corruptStorageKeys = append(corruptStorageKeys, joinStorageKey(row.PluginID, row.Scope, row.Key))
+		for _, row := range storageRows {
+			if len(row.Value) == 0 {
+				continue
+			}
+			var probe any
+			if err := json.Unmarshal(row.Value, &probe); err != nil {
+				key := joinStorageKey(row.PluginID, row.Scope, row.Key)
+				if !corruptSeen[key] {
+					corruptSeen[key] = true
+					corruptStorageKeys = append(corruptStorageKeys, key)
+				}
+			}
 		}
 	}
 	if len(corruptStorageKeys) > 0 {
@@ -359,16 +370,25 @@ func (s *GormService) Inspect(ctx context.Context) (*InspectionReport, error) {
 		})
 	}
 
-	// Integrity check runs through the allowlisted PRAGMA. A failure
-	// is data, so it lands as an issue instead of an error.
-	if err := db.CheckIntegrity(ctx, s.sqlite.Handle); err != nil {
-		issues = append(issues, Issue{
-			Category:    CategoryIntegrityCheck,
-			Title:       "Database Integrity Check Failed",
-			Description: fmt.Sprintf("SQLite integrity check failed: %v. Manual database review required, never auto-cleaned.", err),
-			Count:       1,
-			Keys:        []string{"integrity_check"},
-		})
+	// Integrity checks run through the allowlisted PRAGMA on both files. A
+	// failure is data, so it lands as an issue instead of an error.
+	for _, target := range []struct {
+		name   string
+		key    string
+		handle *gorm.DB
+	}{
+		{"database", "integrity_check", s.sqlite.Handle},
+		{"cache", "integrity_check_cache", s.sqlite.Cache},
+	} {
+		if err := db.CheckIntegrity(ctx, target.handle); err != nil {
+			issues = append(issues, Issue{
+				Category:    CategoryIntegrityCheck,
+				Title:       "Database Integrity Check Failed",
+				Description: fmt.Sprintf("SQLite %s integrity check failed: %v. Manual database review required, never auto-cleaned.", target.name, err),
+				Count:       1,
+				Keys:        []string{target.key},
+			})
+		}
 	}
 
 	total := 0

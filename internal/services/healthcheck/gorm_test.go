@@ -338,11 +338,21 @@ func TestGormStamp_Overwrites(t *testing.T) {
 	}
 }
 
-func TestGormStamp_MissingCredentialFails(t *testing.T) {
+func TestGormStamp_MissingCredentialPersists(t *testing.T) {
 	lua := &fakeLua{handlers: map[string]bool{}, cooldown: time.Minute}
 	service, _ := healthGormStack(t, lua, "c1")
-	if err := service.Stamp(context.Background(), "c-missing", string(luaplugin.HealthHealthy)); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
-		t.Fatalf("error is %v, want invalid input sentinel", err)
+	// Health rows reference credentials softly across files: a stamp for a
+	// missing credential persists instead of failing, and readers skip
+	// verdicts without a credential row.
+	if err := service.Stamp(context.Background(), "c-missing", string(luaplugin.HealthHealthy)); err != nil {
+		t.Fatalf("stamp missing credential: %v, want success with soft reference", err)
+	}
+	got, err := service.Get(context.Background(), "c-missing")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.LastStatus != string(luaplugin.HealthHealthy) {
+		t.Fatalf("status = %q, want healthy", got.LastStatus)
 	}
 	if err := service.Stamp(context.Background(), "", string(luaplugin.HealthHealthy)); err == nil {
 		t.Fatal("empty credential id succeeded, want id required error")

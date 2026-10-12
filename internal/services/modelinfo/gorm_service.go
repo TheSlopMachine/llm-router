@@ -21,9 +21,11 @@ import (
 )
 
 // GormService manages model overrides and the per-provider model metadata
-// cache on the SQLite handle with explicit converters between wire types
-// and override plus snapshot rows. The discovery layer (memory cache,
-// upstream fetch, merged views) rides the same handle: persistence stamps
+// cache with explicit converters between wire types and override plus
+// snapshot rows. Overrides live in the durable database; snapshots and
+// cached model rows live in the cache file and reference providers softly.
+// The discovery layer (memory cache,
+// upstream fetch, merged views) rides the same handles: persistence stamps
 // the header verbatim and never expires reads. Traditional GORM use: none;
 // every statement runs through gorm.G with typed clauses.
 type GormService struct {
@@ -71,9 +73,9 @@ func orderEndpoints() clause.OrderBy {
 	return clause.OrderBy{Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "endpoint"}}}}
 }
 
-// requireHandle fails closed when the SQLite handle is missing.
+// requireHandle fails closed when either SQLite handle is missing.
 func (s *GormService) requireHandle() (*db.Database, error) {
-	if s == nil || s.database == nil || s.database.Handle == nil {
+	if s == nil || s.database == nil || s.database.Handle == nil || s.database.Cache == nil {
 		return nil, fmt.Errorf("model info sqlite handle is not configured: %w", apierrors.ErrInvalidInput)
 	}
 	return s.database, nil
@@ -233,9 +235,10 @@ func (s *GormService) IsModelEnabled(ctx context.Context, providerID, modelName 
 // upserts on the provider key; model rows replace wholesale so dropped
 // models disappear, and capability, modality, and endpoint children follow
 // their model rows. One transaction holds the header upsert, the model
-// delete, and every insert on the transaction handle only. The provider row
-// must exist: a dangling provider fails through the foreign key as invalid
-// input.
+// delete, and every insert on the cache handle only. Snapshots reference
+// the provider row softly across files: a dangling provider persists
+// instead of failing, and provider deletion clears its snapshots
+// explicitly.
 func (s *GormService) PutSnapshot(ctx context.Context, providerID string, modelList []models.ModelInfo, cachedAt time.Time) error {
 	if providerID == "" {
 		return fmt.Errorf("snapshot requires provider id: %w", apierrors.ErrInvalidInput)
@@ -258,7 +261,7 @@ func (s *GormService) PutSnapshot(ctx context.Context, providerID string, modelL
 		modalityRows = append(modalityRows, modalities...)
 		endpointRows = append(endpointRows, endpoints...)
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	return s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		headers := []record.ModelInfoSnapshot{header}
 		if err := gorm.G[record.ModelInfoSnapshot](transaction, clause.OnConflict{Columns: []clause.Column{{Name: "provider_id"}}, UpdateAll: true}).CreateInBatches(ctx, &headers, 500); err != nil {
 			return db.Translate(err)
@@ -300,7 +303,7 @@ func (s *GormService) GetSnapshot(ctx context.Context, providerID string) ([]mod
 	}
 	var modelList []models.ModelInfo
 	var cachedAt time.Time
-	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	if err := s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		header, err := gorm.G[record.ModelInfoSnapshot](transaction, clause.Eq{Column: "provider_id", Value: providerID}).First(ctx)
 		if err != nil {
 			translated := db.Translate(err)
@@ -370,7 +373,7 @@ func (s *GormService) DeleteSnapshot(ctx context.Context, providerID string) err
 	if _, err := s.requireHandle(); err != nil {
 		return err
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	return s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		tracker := gorm.WithResult()
 		affected, err := gorm.G[record.ModelInfoSnapshot](transaction, clause.Eq{Column: "provider_id", Value: providerID}, tracker).Delete(ctx)
 		if err != nil {
@@ -392,7 +395,7 @@ func (s *GormService) RemoveModel(ctx context.Context, providerID, modelName str
 		return false, err
 	}
 	var removed bool
-	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	if err := s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		tracker := gorm.WithResult()
 		affected, err := gorm.G[record.ModelInfo](transaction, clause.Eq{Column: "provider_id", Value: providerID}, clause.Eq{Column: "model_name", Value: modelName}, tracker).Delete(ctx)
 		if err != nil {

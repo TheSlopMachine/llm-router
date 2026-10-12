@@ -12,7 +12,7 @@ import (
 
 func setupGormService(t *testing.T) (*GormService, context.Context) {
 	t.Helper()
-	return NewGormService(testutil.SetupTestSQLite(t).Handle), context.Background()
+	return NewGormService(testutil.SetupTestSQLite(t).Cache), context.Background()
 }
 
 func TestGormResponsesCRUD(t *testing.T) {

@@ -23,7 +23,9 @@ import (
 const instanceRowID int64 = 1
 
 // GormService manages admin users and dashboard sessions on the SQLite
-// handle with explicit converters between wire types and rows. Session
+// handles with explicit converters between wire types and rows. Accounts and
+// instance settings live in the durable database; sessions live in the cache
+// file and reference accounts softly. Session
 // tokens persist as SHA-256 hashes only; the plaintext token returns once
 // at login and never lands in storage. Traditional GORM use: none; every
 // statement runs through gorm.G with typed clauses.
@@ -37,9 +39,9 @@ func NewGorm(database *db.Database) *GormService {
 	return &GormService{database: database}
 }
 
-// requireHandle fails closed when the SQLite handle is missing.
+// requireHandle fails closed when either SQLite handle is missing.
 func (s *GormService) requireHandle() (*db.Database, error) {
-	if s == nil || s.database == nil || s.database.Handle == nil {
+	if s == nil || s.database == nil || s.database.Handle == nil || s.database.Cache == nil {
 		return nil, fmt.Errorf("admin sqlite handle is not configured: %w", apierrors.ErrInvalidInput)
 	}
 	return s.database, nil
@@ -161,7 +163,7 @@ func (s *GormService) Login(ctx context.Context, username, password string, reme
 	now := util.Now()
 	expiresAt := now.Add(duration)
 	session := sessionRecordFromLogin(username, util.HashSecret(token), now, expiresAt, rememberMe)
-	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	if err := s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		if err := gorm.G[record.Session](transaction).Create(ctx, &session); err != nil {
 			translated := db.Translate(err)
 			if stdErrors.Is(translated, apierrors.ErrInvalidInput) {
@@ -183,7 +185,7 @@ func (s *GormService) Logout(ctx context.Context, token string) {
 		return
 	}
 	database := s.database
-	_ = database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	_ = database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		_, err := gorm.G[record.Session](transaction, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}).Delete(ctx)
 		return db.Translate(err)
 	})
@@ -200,13 +202,13 @@ func (s *GormService) ValidateSession(ctx context.Context, token string) (string
 		return "", false
 	}
 	tokenHash := util.HashSecret(token)
-	session, err := gorm.G[record.Session](s.database.Handle, clause.Eq{Column: "token_hash", Value: tokenHash}).First(ctx)
+	session, err := gorm.G[record.Session](s.database.Cache, clause.Eq{Column: "token_hash", Value: tokenHash}).First(ctx)
 	if err != nil {
 		return "", false
 	}
 	now := util.Now()
 	if now.After(session.ExpiresAt) {
-		_ = s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		_ = s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 			_, err := gorm.G[record.Session](transaction, clause.Eq{Column: "token_hash", Value: tokenHash}).Delete(ctx)
 			return db.Translate(err)
 		})
@@ -217,7 +219,7 @@ func (s *GormService) ValidateSession(ctx context.Context, token string) (string
 		duration = sessionDurationRememberMe
 	}
 	if now.Add(duration / 2).After(session.ExpiresAt) {
-		_ = s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		_ = s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 			_, err := gorm.G[record.Session](transaction, clause.Eq{Column: "token_hash", Value: tokenHash}).Update(ctx, "expires_at", now.Add(duration))
 			return db.Translate(err)
 		})
@@ -226,12 +228,12 @@ func (s *GormService) ValidateSession(ctx context.Context, token string) (string
 }
 
 // CleanupExpiredSessions removes sessions expired before now through the
-// expires_at index. Valid sessions survive.
+// expires_at index on the cache handle. Valid sessions survive.
 func (s *GormService) CleanupExpiredSessions(ctx context.Context) error {
 	if _, err := s.requireHandle(); err != nil {
 		return err
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	return s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		_, err := gorm.G[record.Session](transaction, clause.Lt{Column: "expires_at", Value: util.Now()}).Delete(ctx)
 		return db.Translate(err)
 	})

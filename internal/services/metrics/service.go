@@ -19,9 +19,10 @@ const (
 	cleanupInterval   = 1 * time.Hour
 )
 
-// Service manages metrics collection, aggregation, and querying on SQLite.
+// Service manages metrics collection, aggregation, and querying on the
+// cache SQLite handle.
 type Service struct {
-	// sqliteDatabase is the base SQLite handle. Only the base handle is
+	// sqliteDatabase is the cache SQLite handle. Only the base handle is
 	// stored, never a chained query.
 	sqliteDatabase *gorm.DB
 	// bucketRepository serves typed base-bucket reads and retention deletes.
@@ -105,7 +106,7 @@ func maxInt64(a, b int64) int64 {
 	return b
 }
 
-// New constructs a new metrics Service on the SQLite handle.
+// New constructs a new metrics Service on the cache SQLite handle.
 func New(sqliteDatabase *db.Database, logger *slog.Logger) *Service {
 	service := &Service{
 		logger:        logger,
@@ -113,9 +114,9 @@ func New(sqliteDatabase *db.Database, logger *slog.Logger) *Service {
 		eventChannel:  make(chan models.MetricEvent, eventBufferSize),
 		stopChannel:   make(chan struct{}),
 	}
-	if sqliteDatabase != nil && sqliteDatabase.Handle != nil {
-		service.sqliteDatabase = sqliteDatabase.Handle
-		service.bucketRepository = repository.NewGormRepository[record.MetricBucket](sqliteDatabase.Handle, "granularity", "timestamp")
+	if sqliteDatabase != nil && sqliteDatabase.Cache != nil {
+		service.sqliteDatabase = sqliteDatabase.Cache
+		service.bucketRepository = repository.NewGormRepository[record.MetricBucket](sqliteDatabase.Cache, "granularity", "timestamp")
 	}
 	return service
 }

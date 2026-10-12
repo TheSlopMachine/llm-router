@@ -14,15 +14,15 @@ import (
 
 func openRepository(t *testing.T) *repository.GormRepository[record.ProxyState] {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "repository.sqlite3")
-	database, err := db.OpenSQLite(context.Background(), path)
+	directory := t.TempDir()
+	database, err := db.OpenSQLite(context.Background(), filepath.Join(directory, "repository.sqlite3"), filepath.Join(directory, "repository.cache.sqlite3"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	t.Cleanup(func() {
 		database.Close()
 	})
-	return repository.NewGormRepository[record.ProxyState](database.Handle, "url")
+	return repository.NewGormRepository[record.ProxyState](database.Cache, "url")
 }
 
 func buildState(url string) record.ProxyState {

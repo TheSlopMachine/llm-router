@@ -13,7 +13,7 @@ import (
 // (not blanked) so dotenv loading fills them as in production.
 func clearProcessEnvironment(environment *testing.T) {
 	environment.Helper()
-	for _, name := range []string{"HOST", "WEB_PORT", "API_PORT", "DB_PATH", "DEV_DB", "LOG_LEVEL", "NO_AUTH", "DEV_UI_REDIRECT"} {
+	for _, name := range []string{"HOST", "WEB_PORT", "API_PORT", "DB_PATH", "DEV_DB", "CACHE_PATH", "DEV_CACHE", "LOG_LEVEL", "NO_AUTH", "DEV_UI_REDIRECT"} {
 		value, present := os.LookupEnv(name)
 		if !present {
 			continue
@@ -55,6 +55,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if configuration.DBPath != DefaultDatabasePath {
 		t.Errorf("database = %q, want %q", configuration.DBPath, DefaultDatabasePath)
+	}
+	if configuration.CachePath != DefaultCachePath {
+		t.Errorf("cache = %q, want %q", configuration.CachePath, DefaultCachePath)
 	}
 	if configuration.LogLevel != LogLevelInfo {
 		t.Errorf("log level = %q, want info", configuration.LogLevel)
@@ -152,6 +155,35 @@ func TestLoadFallsBackToDevDatabase(t *testing.T) {
 	}
 }
 
+func TestLoadPrefersCachePathOverDevCache(t *testing.T) {
+	clearProcessEnvironment(t)
+	isolateDotenv(t)
+	t.Setenv("CACHE_PATH", "primary.cache.sqlite3")
+	t.Setenv("DEV_CACHE", "fallback.cache.sqlite3")
+
+	configuration, _, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if configuration.CachePath != "primary.cache.sqlite3" {
+		t.Errorf("cache = %q, want primary.cache.sqlite3", configuration.CachePath)
+	}
+}
+
+func TestLoadFallsBackToDevCache(t *testing.T) {
+	clearProcessEnvironment(t)
+	isolateDotenv(t)
+	t.Setenv("DEV_CACHE", "fallback.cache.sqlite3")
+
+	configuration, _, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if configuration.CachePath != "fallback.cache.sqlite3" {
+		t.Errorf("cache = %q, want fallback.cache.sqlite3", configuration.CachePath)
+	}
+}
+
 func TestLoadReadsDotenvFile(t *testing.T) {
 	clearProcessEnvironment(t)
 	directory := t.TempDir()
@@ -224,7 +256,7 @@ func TestWriteDefaultFileCreatesTemplate(t *testing.T) {
 	if string(raw) != DefaultTemplate() {
 		t.Fatalf("template mismatch:\n%s", string(raw))
 	}
-	for _, key := range []string{"HOST=", "WEB_PORT=", "API_PORT=", "DB_PATH=", "LOG_LEVEL=", "NO_AUTH="} {
+	for _, key := range []string{"HOST=", "WEB_PORT=", "API_PORT=", "DB_PATH=", "CACHE_PATH=", "LOG_LEVEL=", "NO_AUTH="} {
 		if !strings.Contains(string(raw), key) {
 			t.Errorf("template misses %q", key)
 		}

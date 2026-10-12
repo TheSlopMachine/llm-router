@@ -226,9 +226,9 @@ func slugify(name string) string {
 	return slug
 }
 
-// requireHandle fails closed when the SQLite handle is missing.
+// requireHandle fails closed when either SQLite handle is missing.
 func (s *Service) requireHandle() (*db.Database, error) {
-	if s == nil || s.database == nil || s.database.Handle == nil {
+	if s == nil || s.database == nil || s.database.Handle == nil || s.database.Cache == nil {
 		return nil, fmt.Errorf("proxypool sqlite handle is not configured: %w", apierrors.ErrInvalidInput)
 	}
 	return s.database, nil

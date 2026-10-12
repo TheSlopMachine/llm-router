@@ -33,12 +33,12 @@ func buildSQLiteBatch(id string) *models.BatchRecord {
 func countSQLiteChildren(t *testing.T, service *SQLiteService, id string) (int, int) {
 	t.Helper()
 	ctx := context.Background()
-	entries := repository.NewGormRepository[record.MessageBatchEntry](service.database.Handle, "batch_id", "position")
+	entries := repository.NewGormRepository[record.MessageBatchEntry](service.database.Cache, "batch_id", "position")
 	entryRows, err := entries.List(ctx, clause.Eq{Column: "batch_id", Value: id})
 	if err != nil {
 		t.Fatalf("list entries: %v", err)
 	}
-	results := repository.NewGormRepository[record.MessageBatchResult](service.database.Handle, "batch_id", "position")
+	results := repository.NewGormRepository[record.MessageBatchResult](service.database.Cache, "batch_id", "position")
 	resultRows, err := results.List(ctx, clause.Eq{Column: "batch_id", Value: id})
 	if err != nil {
 		t.Fatalf("list results: %v", err)
@@ -135,7 +135,7 @@ func TestSQLite_DeleteCascadesChildren(t *testing.T) {
 func TestSQLite_ListOldestFirst(t *testing.T) {
 	service := NewSQLiteService(testutil.SetupTestSQLite(t))
 	ctx := context.Background()
-	headers := repository.NewGormRepository[record.MessageBatch](service.database.Handle, "id")
+	headers := repository.NewGormRepository[record.MessageBatch](service.database.Cache, "id")
 	if err := service.Create(ctx, buildSQLiteBatch("batch_new")); err != nil {
 		t.Fatalf("create new: %v", err)
 	}

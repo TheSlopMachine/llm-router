@@ -6,30 +6,34 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	"github.com/TheSlopMachine/llm-router/internal/db/record"
+	"gorm.io/gorm"
 )
 
-func openTemp(t *testing.T) (*db.Database, string) {
+func openTemp(t *testing.T) (*db.Database, string, string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "foundation.sqlite3")
-	database, err := db.OpenSQLite(context.Background(), path)
+	directory := t.TempDir()
+	path := filepath.Join(directory, "foundation.sqlite3")
+	cachePath := filepath.Join(directory, "foundation.cache.sqlite3")
+	database, err := db.OpenSQLite(context.Background(), path, cachePath)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	t.Cleanup(func() {
 		database.Close()
 	})
-	return database, path
+	return database, path, cachePath
 }
 
 func TestOpenCreatesSchema(t *testing.T) {
-	database, _ := openTemp(t)
-	tables := []string{
+	database, _, _ := openTemp(t)
+	primaryTables := []string{
 		"schema_migrations",
 		"instance_settings",
 		"admin_users",
-		"sessions",
 		"router_tokens",
 		"token_allowed_providers",
 		"token_allowed_models",
@@ -39,24 +43,38 @@ func TestOpenCreatesSchema(t *testing.T) {
 		"proxy_pools",
 		"provider_instances",
 		"credentials",
-		"credential_parks",
-		"credential_health",
 		"model_overrides",
 		"model_override_capabilities",
 		"model_override_modalities",
+		"virtual_models",
+		"virtual_model_members",
+		"proxy_pool_entries",
+		"plugin_repositories",
+		"plugins",
+		"plugin_allow_hosts",
+		"plugin_versions",
+		"plugin_storage",
+	}
+	primaryMigrator := database.Handle.Migrator()
+	for _, table := range primaryTables {
+		if !primaryMigrator.HasTable(table) {
+			t.Errorf("primary missing table %s", table)
+		}
+	}
+	if len(primaryTables) != 23 {
+		t.Errorf("primary schema holds %d tables, want 23", len(primaryTables))
+	}
+	cacheTables := []string{
+		"schema_migrations",
+		"sessions",
+		"credential_parks",
+		"credential_health",
 		"model_info_snapshots",
 		"model_infos",
 		"model_info_capabilities",
 		"model_info_modalities",
 		"model_info_endpoints",
-		"virtual_models",
-		"virtual_model_members",
-		"proxy_pool_entries",
 		"proxy_states",
-		"plugin_repositories",
-		"plugins",
-		"plugin_allow_hosts",
-		"plugin_versions",
 		"plugin_storage",
 		"video_jobs",
 		"response_records",
@@ -69,20 +87,20 @@ func TestOpenCreatesSchema(t *testing.T) {
 		"metric_bucket_tokens",
 		"metric_bucket_error_types",
 	}
-	migrator := database.Handle.Migrator()
-	for _, table := range tables {
-		if !migrator.HasTable(table) {
-			t.Errorf("missing table %s", table)
+	cacheMigrator := database.Cache.Migrator()
+	for _, table := range cacheTables {
+		if !cacheMigrator.HasTable(table) {
+			t.Errorf("cache missing table %s", table)
 		}
 	}
-	if len(tables) != 42 {
-		t.Errorf("schema holds %d tables, want 42", len(tables))
+	if len(cacheTables) != 21 {
+		t.Errorf("cache schema holds %d tables, want 21", len(cacheTables))
 	}
 }
 
 func TestReopenIsNoOp(t *testing.T) {
-	_, path := openTemp(t)
-	second, err := db.OpenSQLite(context.Background(), path)
+	_, path, cachePath := openTemp(t)
+	second, err := db.OpenSQLite(context.Background(), path, cachePath)
 	if err != nil {
 		t.Fatalf("reopen sqlite: %v", err)
 	}
@@ -99,13 +117,15 @@ func TestDSNCarriesPragmas(t *testing.T) {
 }
 
 func TestMaintenanceRoundTrip(t *testing.T) {
-	database, _ := openTemp(t)
+	database, _, _ := openTemp(t)
 	ctx := context.Background()
-	if err := db.Maintenance(ctx, database.Handle); err != nil {
-		t.Fatalf("maintenance: %v", err)
-	}
-	if err := db.CheckIntegrity(ctx, database.Handle); err != nil {
-		t.Fatalf("integrity: %v", err)
+	for _, handle := range []*gorm.DB{database.Handle, database.Cache} {
+		if err := db.Maintenance(ctx, handle); err != nil {
+			t.Fatalf("maintenance: %v", err)
+		}
+		if err := db.CheckIntegrity(ctx, handle); err != nil {
+			t.Fatalf("integrity: %v", err)
+		}
 	}
 	backup := filepath.Join(t.TempDir(), "backup.sqlite3")
 	if err := db.BackupTo(ctx, database.Handle, backup); err != nil {
@@ -117,5 +137,44 @@ func TestMaintenanceRoundTrip(t *testing.T) {
 	}
 	if info.Size() == 0 {
 		t.Errorf("backup is empty")
+	}
+}
+
+func TestCacheDeleteRecovers(t *testing.T) {
+	ctx := context.Background()
+	directory := t.TempDir()
+	path := filepath.Join(directory, "recovery.sqlite3")
+	cachePath := filepath.Join(directory, "recovery.cache.sqlite3")
+	first, err := db.OpenSQLite(ctx, path, cachePath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	now := time.Now().UTC()
+	session := record.Session{TokenHash: "doomed", Username: "operator", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
+	if err := gorm.G[record.Session](first.Cache).Create(ctx, &session); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("close sqlite: %v", err)
+	}
+	if err := os.Remove(cachePath); err != nil {
+		t.Fatalf("delete cache: %v", err)
+	}
+	second, err := db.OpenSQLite(ctx, path, cachePath)
+	if err != nil {
+		t.Fatalf("reopen sqlite: %v", err)
+	}
+	t.Cleanup(func() {
+		second.Close()
+	})
+	if !second.Cache.Migrator().HasTable("sessions") {
+		t.Errorf("recreated cache misses sessions")
+	}
+	if !second.Handle.Migrator().HasTable("provider_instances") {
+		t.Errorf("primary misses provider_instances after cache delete")
+	}
+	fresh := record.Session{TokenHash: "fresh", Username: "operator", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
+	if err := gorm.G[record.Session](second.Cache).Create(ctx, &fresh); err != nil {
+		t.Fatalf("write session after cache delete: %v", err)
 	}
 }

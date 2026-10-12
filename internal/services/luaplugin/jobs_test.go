@@ -227,7 +227,7 @@ func TestStorageTTLExpiry(t *testing.T) {
 	// An expired row reads as missing and deletes the row.
 	past := time.Now().Add(-time.Hour).UTC()
 	expiredRow := record.PluginStorage{PluginID: "p1", Scope: "s", Key: "gone", Value: []byte(`"stale"`), ExpiresAt: &past}
-	if err := repository.NewGormRepository[record.PluginStorage](service.database, "plugin_id", "scope", "key").Upsert(ctx, expiredRow); err != nil {
+	if err := repository.NewGormRepository[record.PluginStorage](service.cache, "plugin_id", "scope", "key").Upsert(ctx, expiredRow); err != nil {
 		t.Fatalf("seed expired: %v", err)
 	}
 	if got, err := service.GetStorageSQLite(ctx, "p1", "s", "gone"); err != nil || got != nil {

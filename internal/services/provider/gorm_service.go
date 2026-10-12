@@ -105,9 +105,9 @@ func orderProvidersByIdentifier() clause.OrderBy {
 	return clause.OrderBy{Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "id"}}}}
 }
 
-// requireHandle fails closed when the SQLite handle is missing.
+// requireHandle fails closed when either SQLite handle is missing.
 func (s *GormService) requireHandle() (*db.Database, error) {
-	if s == nil || s.database == nil || s.database.Handle == nil {
+	if s == nil || s.database == nil || s.database.Handle == nil || s.database.Cache == nil {
 		return nil, fmt.Errorf("provider sqlite handle is not configured: %w", apierrors.ErrInvalidInput)
 	}
 	return s.database, nil
@@ -377,16 +377,26 @@ func (s *GormService) SystemDisable(ctx context.Context, identifier, reason stri
 }
 
 // Delete removes a provider in one delete. Credential, model override,
-// model info, managed virtual model, and virtual member rows cascade from
-// the foreign keys; no credential scan runs. A zero-row delete reports the
-// not-found sentinel through the WithResult tracker.
+// managed virtual model, and virtual member rows cascade from the foreign
+// keys; cached park, health, and model info rows reference the provider
+// softly across files and clear explicitly after the durable delete
+// succeeds. A zero-row delete reports the not-found sentinel through the
+// WithResult tracker.
 func (s *GormService) Delete(ctx context.Context, identifier string) error {
 	if _, err := s.requireHandle(); err != nil {
 		return err
 	}
 	trimmed := strings.TrimSpace(identifier)
 	var deletedSnapshot *models.ProviderInstance
+	var credentialIDs []string
 	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		rows, err := gorm.G[record.Credential](transaction, clause.Eq{Column: "provider_id", Value: trimmed}).Find(ctx)
+		if err != nil {
+			return db.Translate(err)
+		}
+		for _, row := range rows {
+			credentialIDs = append(credentialIDs, row.ID)
+		}
 		row, err := gorm.G[record.ProviderInstance](transaction, clause.Eq{Column: "id", Value: trimmed}).First(ctx)
 		if err != nil {
 			return db.Translate(err)
@@ -406,6 +416,7 @@ func (s *GormService) Delete(ctx context.Context, identifier string) error {
 	}); err != nil {
 		return err
 	}
+	s.clearProviderCache(ctx, trimmed, credentialIDs)
 	if s.logger != nil {
 		s.logger.Info("provider deleted", "provider_id", trimmed)
 	}
@@ -414,6 +425,42 @@ func (s *GormService) Delete(ctx context.Context, identifier string) error {
 		s.notifyProviderDisabled(deletedSnapshot)
 	}
 	return nil
+}
+
+// clearProviderCache removes cached park, health, and model info rows of a
+// deleted provider. The durable delete already succeeded, so failures log
+// and continue: orphaned cache rows never match a provider lookup and the
+// next delete or prune pass converges them.
+func (s *GormService) clearProviderCache(ctx context.Context, providerID string, credentialIDs []string) {
+	if len(credentialIDs) > 0 {
+		values := make([]any, 0, len(credentialIDs))
+		for _, identifier := range credentialIDs {
+			values = append(values, identifier)
+		}
+		condition := clause.IN{Column: "credential_id", Values: values}
+		if _, err := gorm.G[record.CredentialPark](s.database.Cache, condition).Delete(ctx); err != nil && s.logger != nil {
+			s.logger.Warn("provider cache park cleanup failed", "provider_id", providerID, "err", err)
+		}
+		if _, err := gorm.G[record.CredentialHealth](s.database.Cache, condition).Delete(ctx); err != nil && s.logger != nil {
+			s.logger.Warn("provider cache health cleanup failed", "provider_id", providerID, "err", err)
+		}
+	}
+	provider := clause.Eq{Column: "provider_id", Value: providerID}
+	if _, err := gorm.G[record.ModelInfoCapability](s.database.Cache, provider).Delete(ctx); err != nil && s.logger != nil {
+		s.logger.Warn("provider cache model capability cleanup failed", "provider_id", providerID, "err", err)
+	}
+	if _, err := gorm.G[record.ModelInfoModality](s.database.Cache, provider).Delete(ctx); err != nil && s.logger != nil {
+		s.logger.Warn("provider cache model modality cleanup failed", "provider_id", providerID, "err", err)
+	}
+	if _, err := gorm.G[record.ModelInfoEndpoint](s.database.Cache, provider).Delete(ctx); err != nil && s.logger != nil {
+		s.logger.Warn("provider cache model endpoint cleanup failed", "provider_id", providerID, "err", err)
+	}
+	if _, err := gorm.G[record.ModelInfo](s.database.Cache, provider).Delete(ctx); err != nil && s.logger != nil {
+		s.logger.Warn("provider cache model cleanup failed", "provider_id", providerID, "err", err)
+	}
+	if _, err := gorm.G[record.ModelInfoSnapshot](s.database.Cache, provider).Delete(ctx); err != nil && s.logger != nil {
+		s.logger.Warn("provider cache model snapshot cleanup failed", "provider_id", providerID, "err", err)
+	}
 }
 
 // uniqueProviderIDInTransaction generates the next free provider identifier

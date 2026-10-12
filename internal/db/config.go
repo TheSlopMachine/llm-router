@@ -1,7 +1,8 @@
 // Package db manages the embedded database handles.
 //
-// The SQLite handle in this set of files serves all traffic. New code uses
-// the SQLite handle through OpenSQLite.
+// The primary handle plus the cache handle in sqlite.go serve all traffic.
+// New code uses the pair through OpenSQLite: durable configuration on the
+// primary handle, rebuildable state on the cache handle.
 package db
 
 import (

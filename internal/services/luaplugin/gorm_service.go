@@ -25,11 +25,12 @@ const maxPluginHistoryEntries = 10
 // registry from the plugin rows. Construction reads storage once so
 // handler lookups never touch the database.
 func New(sqliteDatabase *db.Database, logger *slog.Logger) (*Service, error) {
-	if sqliteDatabase == nil || sqliteDatabase.Handle == nil {
+	if sqliteDatabase == nil || sqliteDatabase.Handle == nil || sqliteDatabase.Cache == nil {
 		return nil, fmt.Errorf("luaplugin sqlite handle is not configured: %w", apierrors.ErrInvalidInput)
 	}
 	service := &Service{
 		database: sqliteDatabase.Handle,
+		cache:    sqliteDatabase.Cache,
 		logger:   logger,
 		registry: map[string]*PluginRecord{},
 		logs:     map[string][]LogEntry{},
@@ -41,9 +42,9 @@ func New(sqliteDatabase *db.Database, logger *slog.Logger) (*Service, error) {
 	return service, nil
 }
 
-// requireHandle fails closed when the SQLite handle is missing.
+// requireHandle fails closed when either SQLite handle is missing.
 func (service *Service) requireHandle() error {
-	if service == nil || service.database == nil {
+	if service == nil || service.database == nil || service.cache == nil {
 		return fmt.Errorf("luaplugin sqlite handle is not configured: %w", apierrors.ErrInvalidInput)
 	}
 	return nil
@@ -298,10 +299,12 @@ func (service *Service) ListSQLite(ctx context.Context) ([]*PluginRecord, error)
 	return result, nil
 }
 
-// DeleteSQLite removes one plugin row. Allow host, version and storage rows
-// cascade from the base delete. A zero-row delete reports the not-found
-// sentinel through the WithResult tracker. The registry rebuilds and
-// notifies the removed type keys.
+// DeleteSQLite removes one plugin row. Allow host, version and durable
+// storage rows cascade from the base delete; TTL storage rows reference the
+// plugin softly from the cache file and clear explicitly after the durable
+// delete succeeds. A zero-row delete reports the not-found sentinel through
+// the WithResult tracker. The registry rebuilds and notifies the removed
+// type keys.
 func (service *Service) DeleteSQLite(ctx context.Context, pluginID string) error {
 	if err := service.requireHandle(); err != nil {
 		return err
@@ -325,6 +328,9 @@ func (service *Service) DeleteSQLite(ctx context.Context, pluginID string) error
 		return nil
 	}); err != nil {
 		return err
+	}
+	if _, err := gorm.G[record.PluginStorage](service.cache, clause.Eq{Column: "plugin_id", Value: pluginID}).Delete(ctx); err != nil && service.logger != nil {
+		service.logger.Warn("plugin cache storage cleanup failed", "plugin_id", pluginID, "err", err)
 	}
 	if err := service.rebuild(ctx); err != nil {
 		return err

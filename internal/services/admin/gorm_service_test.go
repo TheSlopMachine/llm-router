@@ -101,7 +101,7 @@ func TestGormService_Login_StoresHashOnly(t *testing.T) {
 		t.Fatalf("login failed: %v", err)
 	}
 
-	rows, err := gorm.G[record.Session](database.Handle).Find(ctx)
+	rows, err := gorm.G[record.Session](database.Cache).Find(ctx)
 	if err != nil {
 		t.Fatalf("list sessions failed: %v", err)
 	}
@@ -192,11 +192,11 @@ func TestGormService_ValidateSession_SlidingWindow(t *testing.T) {
 	// Move the expiration near so validation refreshes it. Fresh sessions
 	// hold nearly the full duration and validate read-only.
 	near := util.Now().Add(time.Hour)
-	if _, err := gorm.G[record.Session](database.Handle, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}).Update(ctx, "expires_at", near); err != nil {
+	if _, err := gorm.G[record.Session](database.Cache, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}).Update(ctx, "expires_at", near); err != nil {
 		t.Fatalf("move expiration near failed: %v", err)
 	}
 
-	before, err := gorm.G[record.Session](database.Handle, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}).First(ctx)
+	before, err := gorm.G[record.Session](database.Cache, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}).First(ctx)
 	if err != nil {
 		t.Fatalf("get session failed: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestGormService_ValidateSession_SlidingWindow(t *testing.T) {
 		t.Errorf("username: got %q, want %q", username, "operator")
 	}
 
-	after, err := gorm.G[record.Session](database.Handle, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}).First(ctx)
+	after, err := gorm.G[record.Session](database.Cache, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}).First(ctx)
 	if err != nil {
 		t.Fatalf("get refreshed session failed: %v", err)
 	}
@@ -262,14 +262,14 @@ func TestGormService_ValidateSession_ExpiredDeletesRow(t *testing.T) {
 
 	past := util.Now().Add(-time.Hour)
 	tracker := gorm.WithResult()
-	if _, err := gorm.G[record.Session](database.Handle, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}, tracker).Update(ctx, "expires_at", past); err != nil {
+	if _, err := gorm.G[record.Session](database.Cache, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}, tracker).Update(ctx, "expires_at", past); err != nil {
 		t.Fatalf("expire session failed: %v", err)
 	}
 
 	if _, valid := service.ValidateSession(ctx, token); valid {
 		t.Fatal("expired session should not be valid")
 	}
-	count, err := gorm.G[record.Session](database.Handle, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}).Count(ctx, "*")
+	count, err := gorm.G[record.Session](database.Cache, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}).Count(ctx, "*")
 	if err != nil {
 		t.Fatalf("count sessions failed: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestGormService_CleanupExpiredSessions(t *testing.T) {
 		t.Fatalf("login failed: %v", err)
 	}
 	past := util.Now().Add(-time.Hour)
-	if _, err := gorm.G[record.Session](database.Handle, clause.Eq{Column: "token_hash", Value: util.HashSecret(expired)}).Update(ctx, "expires_at", past); err != nil {
+	if _, err := gorm.G[record.Session](database.Cache, clause.Eq{Column: "token_hash", Value: util.HashSecret(expired)}).Update(ctx, "expires_at", past); err != nil {
 		t.Fatalf("expire session failed: %v", err)
 	}
 
@@ -324,7 +324,7 @@ func TestGormService_CleanupExpiredSessions(t *testing.T) {
 	if _, valid := service.ValidateSession(ctx, kept); !valid {
 		t.Error("valid session should survive cleanup")
 	}
-	count, err := gorm.G[record.Session](database.Handle, clause.Eq{Column: "token_hash", Value: util.HashSecret(expired)}).Count(ctx, "*")
+	count, err := gorm.G[record.Session](database.Cache, clause.Eq{Column: "token_hash", Value: util.HashSecret(expired)}).Count(ctx, "*")
 	if err != nil {
 		t.Fatalf("count sessions failed: %v", err)
 	}

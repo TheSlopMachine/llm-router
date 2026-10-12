@@ -27,6 +27,10 @@ func main() {
 	if databasePath == "" {
 		databasePath = shared.Getenv("DB_PATH", shared.DefaultDevDB())
 	}
+	cachePath := shared.Getenv("DEV_CACHE", "")
+	if cachePath == "" {
+		cachePath = shared.Getenv("CACHE_PATH", shared.DefaultDevCache())
+	}
 	noAuth := shared.IsWriteMode("NO_AUTH")
 	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
 
@@ -55,7 +59,7 @@ func main() {
 	}
 
 	// Ensure parent dirs for db and pidfile.
-	for _, path := range []string{databasePath, pidFile, shared.DefaultBackendLog(), shared.DefaultFrontendLog()} {
+	for _, path := range []string{databasePath, cachePath, pidFile, shared.DefaultBackendLog(), shared.DefaultFrontendLog()} {
 		parent := filepath.Dir(path)
 		if parent != "." && parent != "" {
 			if err := os.MkdirAll(parent, 0755); err != nil {
@@ -90,6 +94,7 @@ func main() {
 		"WEB_PORT=" + devBackendWebPort,
 		"API_PORT=" + apiPort,
 		"DB_PATH=" + databasePath,
+		"CACHE_PATH=" + cachePath,
 		"LOG_LEVEL=" + logLevel,
 		"DEV_UI_REDIRECT=" + fmt.Sprintf("http://%s:%s", host, webPort),
 		"NO_AUTH=" + map[bool]string{true: "1", false: "0"}[noAuth],
@@ -144,7 +149,7 @@ func main() {
 
 	// Record the launch parameters: restart relaunches with the same config.
 	if err := shared.WriteStartParams(pidFile, shared.StartParams{
-		DevDB: databasePath, NoAuth: noAuth, Host: host,
+		DevDB: databasePath, DevCache: cachePath, NoAuth: noAuth, Host: host,
 		WebPort: webPort, APIPort: apiPort, LogLevel: logLevel,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] write params file: %v\n", err)

@@ -106,7 +106,10 @@ type Service struct {
 	// database is the base SQLite handle. Only the base handle is stored,
 	// never a chained query.
 	database *gorm.DB
-	logger   *slog.Logger
+	// cache is the cache SQLite handle. TTL plugin storage rows live here;
+	// durable rows stay on the base handle.
+	cache  *gorm.DB
+	logger *slog.Logger
 
 	mu       sync.RWMutex
 	registry map[string]*PluginRecord

@@ -115,7 +115,7 @@ func TestCustomPoolRecordsRoundTrip(t *testing.T) {
 func TestGormCacheBuffersInMemory(t *testing.T) {
 	ctx := context.Background()
 	database := testutil.SetupTestSQLite(t)
-	loaded, err := newGormCache(ctx, database.Handle)
+	loaded, err := newGormCache(ctx, database.Cache)
 	if err != nil {
 		t.Fatalf("new cache: %v", err)
 	}
@@ -154,11 +154,11 @@ func TestGormCacheLoadsPersistedStates(t *testing.T) {
 	database := testutil.SetupTestSQLite(t)
 	now := time.Now().UTC().Truncate(time.Second)
 	persisted := proxyStateToRecord(buildLibraryState(now))
-	states := repository.NewGormRepository[record.ProxyState](database.Handle, "url")
+	states := repository.NewGormRepository[record.ProxyState](database.Cache, "url")
 	if err := states.Upsert(ctx, persisted); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
-	loaded, err := newGormCache(ctx, database.Handle)
+	loaded, err := newGormCache(ctx, database.Cache)
 	if err != nil {
 		t.Fatalf("new cache: %v", err)
 	}

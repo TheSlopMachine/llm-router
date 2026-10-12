@@ -50,6 +50,7 @@ func DefaultPidFile() string { return filepath.Join(os.TempDir(), "llm-router-de
 // last start, so restart relaunches with the same configuration.
 type StartParams struct {
 	DevDB    string `json:"dev_db"`
+	DevCache string `json:"dev_cache"`
 	NoAuth   bool   `json:"no_auth"`
 	Host     string `json:"host"`
 	WebPort  string `json:"web_port"`

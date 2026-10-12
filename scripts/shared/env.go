@@ -56,6 +56,14 @@ func DefaultDevDB() string {
 	return "~/.local/llm-router/llm-router-dev.sqlite3"
 }
 
+// DefaultDevCache returns ~/.local/llm-router/llm-router-dev.cache.sqlite3 (or OS equivalent).
+func DefaultDevCache() string {
+	if dir, err := HomeLocal(); err == nil {
+		return filepath.Join(dir, "llm-router-dev.cache.sqlite3")
+	}
+	return "~/.local/llm-router/llm-router-dev.cache.sqlite3"
+}
+
 // EnvWithoutGowork returns the current environment with any GOWORK= entry
 // removed. Project-root `go` commands (go work sync, go run, go vet/test/build)
 // must not inherit GOWORK=off which is used only to run the scripts module itself.

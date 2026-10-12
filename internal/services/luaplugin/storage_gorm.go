@@ -145,11 +145,14 @@ func newStorageTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 	return table
 }
 
-// SetStorageSQLite persists one plugin storage entry on the SQLite path in
-// one transaction. The composite primary key replaces the NUL-separated
-// bucket string; the value column holds JSON bytes and the indexed expiry
-// column carries the TTL deadline. Validation mirrors the previous backend
-// so plugin-visible shapes stay identical.
+// SetStorageSQLite persists one plugin storage entry in one transaction.
+// Entries with a TTL live in the cache file; durable entries live in the
+// durable database. The write targets the routed handle first, then removes
+// the same key from the other handle, so an interrupted write leaves a
+// duplicate instead of a loss. The composite primary key replaces the
+// NUL-separated bucket string; the value column holds JSON bytes and the
+// indexed expiry column carries the TTL deadline. Validation mirrors the
+// previous backend so plugin-visible shapes stay identical.
 func (service *Service) SetStorageSQLite(ctx context.Context, pluginID string, scope string, key string, value any, timeToLive time.Duration) error {
 	if err := requireStorageKey(scope, key); err != nil {
 		return err
@@ -179,19 +182,30 @@ func (service *Service) SetStorageSQLite(ctx context.Context, pluginID string, s
 		Value:     encoded,
 		ExpiresAt: expiresAt,
 	}
-	return service.database.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	target, other := service.database, service.cache
+	if timeToLive > 0 {
+		target, other = other, target
+	}
+	if err := target.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		rows := []record.PluginStorage{storageRow}
 		if err := gorm.G[record.PluginStorage](transaction, clause.OnConflict{Columns: []clause.Column{{Name: "plugin_id"}, {Name: "scope"}, {Name: "key"}}, UpdateAll: true}).CreateInBatches(ctx, &rows, 500); err != nil {
 			return db.Translate(err)
 		}
 		return nil
+	}); err != nil {
+		return err
+	}
+	return other.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		_, err := gorm.G[record.PluginStorage](transaction, clause.Eq{Column: "plugin_id", Value: pluginID}, clause.Eq{Column: "scope", Value: scope}, clause.Eq{Column: "key", Value: key}).Delete(ctx)
+		return db.Translate(err)
 	})
 }
 
-// GetStorageSQLite returns one plugin storage entry on the SQLite path in
-// one transaction. Expired rows read as missing and are removed in the same
-// transaction, matching the previous envelope behavior. A miss returns nil
-// without an error.
+// GetStorageSQLite returns one plugin storage entry in one transaction per
+// handle. The durable database answers first; the cache answers second with
+// the expiry check. Expired rows read as missing and are removed in the
+// same transaction, matching the previous envelope behavior. A miss returns
+// nil without an error.
 func (service *Service) GetStorageSQLite(ctx context.Context, pluginID string, scope string, key string) (any, error) {
 	if err := requireStorageKey(scope, key); err != nil {
 		return nil, err
@@ -199,9 +213,15 @@ func (service *Service) GetStorageSQLite(ctx context.Context, pluginID string, s
 	if err := service.requireHandle(); err != nil {
 		return nil, err
 	}
+	conditions := []clause.Expression{clause.Eq{Column: "plugin_id", Value: pluginID}, clause.Eq{Column: "scope", Value: scope}, clause.Eq{Column: "key", Value: key}}
+	if row, err := gorm.G[record.PluginStorage](service.database, conditions...).First(ctx); err == nil {
+		return storageValueFromBytes(row.Value)
+	} else if translated := db.Translate(err); !stdErrors.Is(translated, apierrors.ErrNotFound) {
+		return nil, translated
+	}
 	var result any
-	if err := service.database.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
-		storageRow, err := gorm.G[record.PluginStorage](transaction, clause.Eq{Column: "plugin_id", Value: pluginID}, clause.Eq{Column: "scope", Value: scope}, clause.Eq{Column: "key", Value: key}).First(ctx)
+	if err := service.cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		storageRow, err := gorm.G[record.PluginStorage](transaction, conditions...).First(ctx)
 		if err != nil {
 			translated := db.Translate(err)
 			if stdErrors.Is(translated, apierrors.ErrNotFound) {
@@ -211,7 +231,7 @@ func (service *Service) GetStorageSQLite(ctx context.Context, pluginID string, s
 			return translated
 		}
 		if storageRow.ExpiresAt != nil && !util.Now().Before(*storageRow.ExpiresAt) {
-			if _, err := gorm.G[record.PluginStorage](transaction, clause.Eq{Column: "plugin_id", Value: pluginID}, clause.Eq{Column: "scope", Value: scope}, clause.Eq{Column: "key", Value: key}).Delete(ctx); err != nil {
+			if _, err := gorm.G[record.PluginStorage](transaction, conditions...).Delete(ctx); err != nil {
 				return db.Translate(err)
 			}
 			result = nil
@@ -229,8 +249,9 @@ func (service *Service) GetStorageSQLite(ctx context.Context, pluginID string, s
 	return result, nil
 }
 
-// DeleteStorageSQLite removes one plugin storage entry on the SQLite path
-// in one transaction. A miss is not an error, matching the previous delete.
+// DeleteStorageSQLite removes one plugin storage entry from both handles in
+// one transaction each. A miss is not an error, matching the previous
+// delete.
 func (service *Service) DeleteStorageSQLite(ctx context.Context, pluginID string, scope string, key string) error {
 	if err := requireStorageKey(scope, key); err != nil {
 		return err
@@ -238,35 +259,46 @@ func (service *Service) DeleteStorageSQLite(ctx context.Context, pluginID string
 	if err := service.requireHandle(); err != nil {
 		return err
 	}
-	return service.database.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
-		_, err := gorm.G[record.PluginStorage](transaction, clause.Eq{Column: "plugin_id", Value: pluginID}, clause.Eq{Column: "scope", Value: scope}, clause.Eq{Column: "key", Value: key}).Delete(ctx)
-		return db.Translate(err)
-	})
+	for _, handle := range []*gorm.DB{service.database, service.cache} {
+		if err := handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+			_, err := gorm.G[record.PluginStorage](transaction, clause.Eq{Column: "plugin_id", Value: pluginID}, clause.Eq{Column: "scope", Value: scope}, clause.Eq{Column: "key", Value: key}).Delete(ctx)
+			return db.Translate(err)
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-// DeletePluginStorageSQLite removes every storage entry for one plugin on
-// the SQLite path in one transaction. Plugin deletes cascade from the base
-// row; this helper serves explicit storage resets.
+// DeletePluginStorageSQLite removes every storage entry for one plugin from
+// both handles in one transaction each. Durable deletes cascade from the
+// base row; this helper serves explicit storage resets plus the cache
+// slice, which references the plugin softly.
 func (service *Service) DeletePluginStorageSQLite(ctx context.Context, pluginID string) error {
 	if err := service.requireHandle(); err != nil {
 		return err
 	}
-	return service.database.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
-		_, err := gorm.G[record.PluginStorage](transaction, clause.Eq{Column: "plugin_id", Value: pluginID}).Delete(ctx)
-		return db.Translate(err)
-	})
+	for _, handle := range []*gorm.DB{service.database, service.cache} {
+		if err := handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+			_, err := gorm.G[record.PluginStorage](transaction, clause.Eq{Column: "plugin_id", Value: pluginID}).Delete(ctx)
+			return db.Translate(err)
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-// PruneExpiredStorageSQLite removes every expired storage entry on the
-// SQLite path in one transaction and returns the removed count. The indexed
-// expiry column drives the condition; null expiries never match the
-// less-than comparison and stay.
+// PruneExpiredStorageSQLite removes every expired storage entry from the
+// cache handle in one transaction and returns the removed count. The
+// indexed expiry column drives the condition; null expiries live in the
+// durable database and never match.
 func (service *Service) PruneExpiredStorageSQLite(ctx context.Context) (int64, error) {
 	if err := service.requireHandle(); err != nil {
 		return 0, err
 	}
 	var removed int64
-	if err := service.database.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	if err := service.cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		tracker := gorm.WithResult()
 		affected, err := gorm.G[record.PluginStorage](transaction, clause.Lt{Column: "expires_at", Value: util.Now()}, tracker).Delete(ctx)
 		if err != nil {

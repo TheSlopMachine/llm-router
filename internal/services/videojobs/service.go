@@ -28,15 +28,15 @@ type Service struct {
 	sqlStore *repository.GormRepository[record.VideoJob]
 }
 
-// New constructs a videojobs Service on the SQLite handle.
+// New constructs a videojobs Service on the cache SQLite handle.
 // Construction performs no I/O.
 func New(sqliteDatabase *db.Database) *Service {
-	if sqliteDatabase == nil || sqliteDatabase.Handle == nil {
+	if sqliteDatabase == nil || sqliteDatabase.Cache == nil {
 		return &Service{}
 	}
 	return &Service{
-		sqlite:   sqliteDatabase.Handle,
-		sqlStore: repository.NewGormRepository[record.VideoJob](sqliteDatabase.Handle, "id"),
+		sqlite:   sqliteDatabase.Cache,
+		sqlStore: repository.NewGormRepository[record.VideoJob](sqliteDatabase.Cache, "id"),
 	}
 }
 

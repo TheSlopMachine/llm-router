@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	stdErrors "errors"
 
@@ -384,14 +385,25 @@ func TestGormInspect_CorruptStorageFlaggedAndSurvivesFix(t *testing.T) {
 	seedGormDoctorPlugin(t, ctx, database, "doc-plugin")
 	seedGormDoctorStorage(t, ctx, database, "doc-plugin", "flow", "device", []byte(`{"healthy":true}`))
 	seedGormDoctorStorage(t, ctx, database, "doc-plugin", "broken", "row", []byte(`{invalid-json`))
+	expiry := util.Now().Add(time.Hour)
+	cacheRows := []record.PluginStorage{{
+		PluginID: "doc-plugin", Scope: "cache", Key: "row",
+		Value: []byte(`{invalid-json`), ExpiresAt: &expiry,
+	}}
+	if err := gorm.G[record.PluginStorage](database.Cache, clause.OnConflict{
+		Columns:   []clause.Column{{Name: "plugin_id"}, {Name: "scope"}, {Name: "key"}},
+		UpdateAll: true,
+	}).CreateInBatches(ctx, &cacheRows, 500); err != nil {
+		t.Fatalf("seed cache storage: %v", err)
+	}
 
 	report, err := service.Inspect(ctx)
 	if err != nil {
 		t.Fatalf("inspect: %v", err)
 	}
 	keys := gormCategoryKeys(report, CategoryCorruptPluginStorage)
-	if len(keys) != 1 {
-		t.Fatalf("corrupt storage keys = %v, want exactly the broken row", keys)
+	if len(keys) != 2 {
+		t.Fatalf("corrupt storage keys = %v, want the broken row in both files", keys)
 	}
 	fixed, err := service.Fix(ctx, nil)
 	if err != nil {
@@ -475,7 +487,7 @@ func TestGormInspect_ProviderDeleteCascadesWithoutOrphans(t *testing.T) {
 		ProviderID: "doomed",
 		CachedAt:   now,
 	}}
-	if err := gorm.G[record.ModelInfoSnapshot](database.Handle).CreateInBatches(ctx, &snapshots, 500); err != nil {
+	if err := gorm.G[record.ModelInfoSnapshot](database.Cache).CreateInBatches(ctx, &snapshots, 500); err != nil {
 		t.Fatalf("seed snapshot: %v", err)
 	}
 	providerService := provider.NewGorm(database)

@@ -412,9 +412,12 @@ dashboard toggle and switch-gated probe always win over plugin writes.
 
 ### `storage.set(scope, key, value, {ttl?})` / `get` / `delete`
 
-Persistent per-plugin KV. `ttl` seconds bounds entry lifetime (max 90
+Per-plugin KV. `ttl` seconds bounds entry lifetime (max 90
 days); expired rows read as missing and delete on read. Pre-0.7.0 bare
-rows serve without expiry.
+rows serve without expiry. Entries with a TTL live in the disposable cache
+file: deleting it while the router is stopped drops them. Durable entries
+stay in the database file. Changing the TTL on a `set` migrates the row
+between the two files; reads check the database first.
 
 ```lua
 llm_router.storage.set("cooldown", cred_id, { until = os.time() + wait }, { ttl = wait })

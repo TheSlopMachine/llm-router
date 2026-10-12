@@ -200,7 +200,7 @@ If the task needs `browser`, `build`, `publish`, or `clean`: STOP. Ask the human
 | # | Prohibition | Detail |
 |---|---|---|
 | 1 | Kill processes | No `kill`, `pkill`, `taskkill`, `Stop-Process`. Use `make stop` / `make restart` so pidfiles stay consistent. `make restart` / `make smoke` stop live dev processes first: warn before running them when the user may have work in flight. |
-| 2 | Delete database files | Never remove `~/.local/llm-router/llm-router-dev.sqlite3` (or the Windows equivalent). If it is corrupt, ask the human to delete it. |
+| 2 | Delete database files | Never remove `~/.local/llm-router/llm-router-dev.sqlite3` or `~/.local/llm-router/llm-router-dev.cache.sqlite3` (or the Windows equivalents). If either is corrupt, ask the human to delete it. |
 | 3 | Run destructive git commands | No `git push`, `git reset`, `git checkout -f`, `git clean`, force-push, amend. Commit only if explicitly instructed, for that exact commit only. |
 | 4 | Litter the project | No `*.log`, `*.pid`, `*.tmp`, binaries, scratch files, notes inside the project tree. Use `/tmp` or an external scratch dir. Delete temporary verification files when done. |
 | 5 | Avoid the Makefile | No raw command substitutes for an allowed target (§4.2). No manual invocation of a banned target's underlying steps (§4.3). |

@@ -139,13 +139,14 @@ type Service struct {
 }
 
 // New constructs the library-backed pool and restores its persistent cache
-// from SQLite. The built-in free-pool row seeds idempotently so provider
-// proxy references to "auto" satisfy the foreign key.
+// from SQLite. The built-in free-pool row seeds idempotently into the
+// durable database so provider proxy references to "auto" satisfy the
+// foreign key; proxy states load from the cache file.
 func New(database *db.Database) (*Service, error) {
-	if database == nil || database.Handle == nil {
+	if database == nil || database.Handle == nil || database.Cache == nil {
 		return nil, fmt.Errorf("proxypool sqlite handle is not configured")
 	}
-	cache, err := newGormCache(context.Background(), database.Handle)
+	cache, err := newGormCache(context.Background(), database.Cache)
 	if err != nil {
 		return nil, err
 	}

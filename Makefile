@@ -21,17 +21,20 @@ URL       ?= http://$(HOST):$(WEB_PORT)
 LOG_LEVEL ?= info
 NO_AUTH   ?= 0
 DB_PATH   ?= llm-router.sqlite3
+CACHE_PATH ?= llm-router.cache.sqlite3
 DEV_UI_REDIRECT ?=
 ENV_FILE  ?= .env
 PKG       ?= ./...
-export HOST WEB_PORT API_PORT URL VERSION PLATFORMS LOG_LEVEL NO_AUTH DB_PATH DEV_UI_REDIRECT ENV_FILE PKG
+export HOST WEB_PORT API_PORT URL VERSION PLATFORMS LOG_LEVEL NO_AUTH DB_PATH CACHE_PATH DEV_UI_REDIRECT ENV_FILE PKG
 
 ifeq ($(OS),Windows_NT)
   DEV_DB  ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.sqlite3
+  DEV_CACHE ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.cache.sqlite3
 else
   DEV_DB  ?= $(HOME)/.local/llm-router/llm-router-dev.sqlite3
+  DEV_CACHE ?= $(HOME)/.local/llm-router/llm-router-dev.cache.sqlite3
 endif
-export DEV_DB
+export DEV_DB DEV_CACHE
 
 BUN_MIN := 1.2
 GO_MIN  := 1.27.1

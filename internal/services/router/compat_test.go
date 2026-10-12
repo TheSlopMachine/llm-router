@@ -42,7 +42,7 @@ func setupCompatRouter(t *testing.T, mock provider.GoAdapter) *Service {
 	}
 	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, 1*time.Hour)
 	return New(providerService, credentialService, modelInfoService, videojobs.New(database),
-		responses.NewGormService(database.Handle), batches.NewSQLiteService(database), slog.Default())
+		responses.NewGormService(database.Cache), batches.NewSQLiteService(database), slog.Default())
 }
 
 func responseRequest(model, input string) *models.ResponseRequest {

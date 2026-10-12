@@ -50,7 +50,7 @@ func (s *SQLiteService) Create(ctx context.Context, batch *models.BatchRecord) e
 	now := time.Now()
 	batch.CreatedAt = now
 	batch.UpdatedAt = now
-	return s.database.Handle.Transaction(func(transaction *gorm.DB) error {
+	return s.database.Cache.Transaction(func(transaction *gorm.DB) error {
 		headers := repository.NewGormRepository[record.MessageBatch](transaction, "id")
 		entries := repository.NewGormRepository[record.MessageBatchEntry](transaction, "batch_id", "position")
 		results := repository.NewGormRepository[record.MessageBatchResult](transaction, "batch_id", "position")
@@ -66,9 +66,9 @@ func (s *SQLiteService) Create(ctx context.Context, batch *models.BatchRecord) e
 
 // Get returns the batch by ID with children in position order.
 func (s *SQLiteService) Get(ctx context.Context, id string) (*models.BatchRecord, error) {
-	headers := repository.NewGormRepository[record.MessageBatch](s.database.Handle, "id")
-	entries := repository.NewGormRepository[record.MessageBatchEntry](s.database.Handle, "batch_id", "position")
-	results := repository.NewGormRepository[record.MessageBatchResult](s.database.Handle, "batch_id", "position")
+	headers := repository.NewGormRepository[record.MessageBatch](s.database.Cache, "id")
+	entries := repository.NewGormRepository[record.MessageBatchEntry](s.database.Cache, "batch_id", "position")
+	results := repository.NewGormRepository[record.MessageBatchResult](s.database.Cache, "batch_id", "position")
 	header, err := headers.Get(ctx, clause.Eq{Column: "id", Value: id})
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
@@ -93,7 +93,7 @@ func (s *SQLiteService) Update(ctx context.Context, batch *models.BatchRecord) e
 	if batch == nil || batch.ID == "" {
 		return errors.New("message batch id is required")
 	}
-	return s.database.Handle.Transaction(func(transaction *gorm.DB) error {
+	return s.database.Cache.Transaction(func(transaction *gorm.DB) error {
 		headers := repository.NewGormRepository[record.MessageBatch](transaction, "id")
 		entries := repository.NewGormRepository[record.MessageBatchEntry](transaction, "batch_id", "position")
 		results := repository.NewGormRepository[record.MessageBatchResult](transaction, "batch_id", "position")
@@ -125,7 +125,7 @@ func (s *SQLiteService) Update(ctx context.Context, batch *models.BatchRecord) e
 // Delete removes a batch row; the foreign key cascade removes its
 // children. Missing rows are not errors.
 func (s *SQLiteService) Delete(ctx context.Context, id string) error {
-	return s.database.Handle.Transaction(func(transaction *gorm.DB) error {
+	return s.database.Cache.Transaction(func(transaction *gorm.DB) error {
 		headers := repository.NewGormRepository[record.MessageBatch](transaction, "id")
 		_, err := headers.Delete(ctx, clause.Eq{Column: "id", Value: id})
 		return err
@@ -135,9 +135,9 @@ func (s *SQLiteService) Delete(ctx context.Context, id string) error {
 // List returns all batches with children, oldest first (ID tiebreaks
 // clock ties).
 func (s *SQLiteService) List(ctx context.Context) ([]*models.BatchRecord, error) {
-	headers := repository.NewGormRepository[record.MessageBatch](s.database.Handle, "id")
-	entries := repository.NewGormRepository[record.MessageBatchEntry](s.database.Handle, "batch_id", "position")
-	results := repository.NewGormRepository[record.MessageBatchResult](s.database.Handle, "batch_id", "position")
+	headers := repository.NewGormRepository[record.MessageBatch](s.database.Cache, "id")
+	entries := repository.NewGormRepository[record.MessageBatchEntry](s.database.Cache, "batch_id", "position")
+	results := repository.NewGormRepository[record.MessageBatchResult](s.database.Cache, "batch_id", "position")
 	headerRows, err := headers.List(ctx)
 	if err != nil {
 		return nil, err

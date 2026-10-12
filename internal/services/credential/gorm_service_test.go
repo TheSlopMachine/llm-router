@@ -337,13 +337,13 @@ func TestGormParkedExpiryDeletesOnRead(t *testing.T) {
 	credential := addGormKey(t, service, ctx, "candidate")
 	past := util.Now().Add(-time.Minute)
 	stale := record.CredentialPark{CredentialID: credential.ID, Reason: "stale", Until: past, ParkedAt: past}
-	if err := gorm.G[record.CredentialPark](service.database.Handle, clause.OnConflict{Columns: []clause.Column{{Name: "credential_id"}}, UpdateAll: true}).Create(ctx, &stale); err != nil {
+	if err := gorm.G[record.CredentialPark](service.database.Cache, clause.OnConflict{Columns: []clause.Column{{Name: "credential_id"}}, UpdateAll: true}).Create(ctx, &stale); err != nil {
 		t.Fatalf("seed expired park: %v", err)
 	}
 	if got, err := service.Parked(ctx, credential.ID); err != nil || got != nil {
 		t.Fatalf("lapsed park must read nil: %+v %v", got, err)
 	}
-	if _, err := gorm.G[record.CredentialPark](service.database.Handle, clause.Eq{Column: "credential_id", Value: credential.ID}).First(ctx); !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
+	if _, err := gorm.G[record.CredentialPark](service.database.Cache, clause.Eq{Column: "credential_id", Value: credential.ID}).First(ctx); !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
 		t.Fatalf("lapsed park must delete on read, got %v", err)
 	}
 }
@@ -357,7 +357,7 @@ func TestGormPurgeExpiredParks(t *testing.T) {
 	}
 	past := util.Now().Add(-time.Minute)
 	expired := record.CredentialPark{CredentialID: stale.ID, Reason: "stale", Until: past, ParkedAt: past}
-	if err := gorm.G[record.CredentialPark](service.database.Handle, clause.OnConflict{Columns: []clause.Column{{Name: "credential_id"}}, UpdateAll: true}).Create(ctx, &expired); err != nil {
+	if err := gorm.G[record.CredentialPark](service.database.Cache, clause.OnConflict{Columns: []clause.Column{{Name: "credential_id"}}, UpdateAll: true}).Create(ctx, &expired); err != nil {
 		t.Fatalf("seed expired park: %v", err)
 	}
 	removed, err := service.PurgeExpiredParks(ctx)
@@ -394,8 +394,8 @@ func TestGormDelete(t *testing.T) {
 	if _, err := service.Get(ctx, credential.ID); !stdErrors.Is(err, apierrors.ErrNotFound) {
 		t.Fatalf("get after delete: got %v want not found", err)
 	}
-	if _, err := gorm.G[record.CredentialPark](service.database.Handle, clause.Eq{Column: "credential_id", Value: credential.ID}).First(ctx); !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
-		t.Fatalf("park must cascade on credential delete, got %v", err)
+	if _, err := gorm.G[record.CredentialPark](service.database.Cache, clause.Eq{Column: "credential_id", Value: credential.ID}).First(ctx); !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
+		t.Fatalf("park must clear on credential delete, got %v", err)
 	}
 	if err := service.Delete(ctx, credential.ID); !stdErrors.Is(err, apierrors.ErrNotFound) {
 		t.Fatalf("second delete: got %v want not found", err)

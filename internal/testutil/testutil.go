@@ -16,13 +16,16 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
-// SetupTestSQLite creates a temporary SQLite database for testing with the
-// full migrated schema. Cleanup closes the pool and removes the file.
+// SetupTestSQLite creates temporary SQLite database and cache files for
+// testing with the full migrated schema. Cleanup closes the pools and
+// removes the files.
 func SetupTestSQLite(t *testing.T) *db.Database {
 	t.Helper()
 
-	path := filepath.Join(t.TempDir(), "llm-router-test.sqlite3")
-	database, err := db.OpenSQLite(context.Background(), path)
+	directory := t.TempDir()
+	path := filepath.Join(directory, "llm-router-test.sqlite3")
+	cachePath := filepath.Join(directory, "llm-router-test.cache.sqlite3")
+	database, err := db.OpenSQLite(context.Background(), path, cachePath)
 	if err != nil {
 		t.Fatalf("open test sqlite: %v", err)
 	}

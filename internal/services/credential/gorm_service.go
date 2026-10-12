@@ -19,9 +19,11 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/util"
 )
 
-// GormService manages credentials on the SQLite handle with explicit
-// converters between wire types and credential rows. Traditional GORM use:
-// none; every statement runs through gorm.G with typed clauses.
+// GormService manages credentials on the SQLite handles with explicit
+// converters between wire types and credential rows. Credential rows live in
+// the durable database; cooldown parks and health verdicts live in the cache
+// file and reference credentials softly. Traditional GORM use: none; every
+// statement runs through gorm.G with typed clauses.
 type GormService struct {
 	database        *db.Database
 	providerService *provider.GormService
@@ -53,9 +55,9 @@ func orderCredentialsByIdentifier() clause.OrderBy {
 	return clause.OrderBy{Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "id"}}}}
 }
 
-// requireHandle fails closed when the SQLite handle is missing.
+// requireHandle fails closed when either SQLite handle is missing.
 func (s *GormService) requireHandle() (*db.Database, error) {
-	if s == nil || s.database == nil || s.database.Handle == nil {
+	if s == nil || s.database == nil || s.database.Handle == nil || s.database.Cache == nil {
 		return nil, fmt.Errorf("credential sqlite handle is not configured: %w", apierrors.ErrInvalidInput)
 	}
 	return s.database, nil
@@ -434,8 +436,9 @@ func (s *GormService) EnableByPlugin(ctx context.Context, identifier string) err
 
 // Park benches a credential in the shared cooldown store until the ttl
 // lapses. Unknown identifiers fail loudly; ttl must read positive and
-// bounded. One transaction holds the existence check and the park upsert on
-// the transaction handle only.
+// bounded. The existence check reads the durable database; the park upsert
+// runs in one transaction on the cache handle. The two files share no
+// transaction, so the upsert targets the cache handle only.
 func (s *GormService) Park(ctx context.Context, identifier string, ttl time.Duration, reason string) error {
 	if ttl <= 0 {
 		return fmt.Errorf("park ttl must be positive")
@@ -446,6 +449,9 @@ func (s *GormService) Park(ctx context.Context, identifier string, ttl time.Dura
 	if _, err := s.requireHandle(); err != nil {
 		return err
 	}
+	if _, err := s.Get(ctx, identifier); err != nil {
+		return err
+	}
 	now := util.Now()
 	entry := &models.ParkEntry{
 		CredentialID: identifier,
@@ -454,10 +460,7 @@ func (s *GormService) Park(ctx context.Context, identifier string, ttl time.Dura
 		ParkedAt:     now,
 	}
 	row := parkRecordFromModel(entry)
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
-		if _, err := gorm.G[record.Credential](transaction, clause.Eq{Column: "id", Value: identifier}).First(ctx); err != nil {
-			return db.Translate(err)
-		}
+	return s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		if err := gorm.G[record.CredentialPark](transaction, clause.OnConflict{Columns: []clause.Column{{Name: "credential_id"}}, UpdateAll: true}).Create(ctx, &row); err != nil {
 			return db.Translate(err)
 		}
@@ -467,12 +470,12 @@ func (s *GormService) Park(ctx context.Context, identifier string, ttl time.Dura
 
 // Unpark clears a cooldown park so the credential serves immediately.
 // Missing parks succeed: unparking is idempotent. One transaction holds the
-// conditioned delete on the transaction handle only.
+// conditioned delete on the cache handle only.
 func (s *GormService) Unpark(ctx context.Context, identifier string) error {
 	if _, err := s.requireHandle(); err != nil {
 		return err
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	return s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		if _, err := gorm.G[record.CredentialPark](transaction, clause.Eq{Column: "credential_id", Value: identifier}).Delete(ctx); err != nil {
 			return db.Translate(err)
 		}
@@ -482,14 +485,14 @@ func (s *GormService) Unpark(ctx context.Context, identifier string) error {
 
 // Parked returns the live park entry for a credential, or nil when absent
 // or lapsed. Lapsed rows delete on read through the credential_id key. One
-// transaction holds the read and the conditional delete on the transaction
-// handle only.
+// transaction holds the read and the conditional delete on the cache handle
+// only.
 func (s *GormService) Parked(ctx context.Context, identifier string) (*models.ParkEntry, error) {
 	if _, err := s.requireHandle(); err != nil {
 		return nil, err
 	}
 	var result *models.ParkEntry
-	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	if err := s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		row, err := gorm.G[record.CredentialPark](transaction, clause.Eq{Column: "credential_id", Value: identifier}).First(ctx)
 		if err != nil {
 			if stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
@@ -513,13 +516,14 @@ func (s *GormService) Parked(ctx context.Context, identifier string) (*models.Pa
 }
 
 // PurgeExpiredParks removes every lapsed cooldown park through the Until
-// index in one conditioned delete. Returns the removed count.
+// index in one conditioned delete on the cache handle. Returns the removed
+// count.
 func (s *GormService) PurgeExpiredParks(ctx context.Context) (int64, error) {
 	if _, err := s.requireHandle(); err != nil {
 		return 0, err
 	}
 	var removed int64
-	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	if err := s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		affected, err := gorm.G[record.CredentialPark](transaction, clause.Lte{Column: "until", Value: util.Now()}).Delete(ctx)
 		if err != nil {
 			return db.Translate(err)
@@ -532,15 +536,16 @@ func (s *GormService) PurgeExpiredParks(ctx context.Context) (int64, error) {
 	return removed, nil
 }
 
-// Delete removes a credential by identifier in one conditioned delete. Park
-// rows cascade from the credential foreign key; no park scan runs. A
+// Delete removes a credential by identifier in one conditioned delete.
+// Cached park and health rows reference the credential softly across files,
+// so the delete clears them explicitly after the durable delete succeeds. A
 // zero-row delete reports the not-found sentinel through the WithResult
 // tracker.
 func (s *GormService) Delete(ctx context.Context, identifier string) error {
 	if _, err := s.requireHandle(); err != nil {
 		return err
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		tracker := gorm.WithResult()
 		affected, err := gorm.G[record.Credential](transaction, clause.Eq{Column: "id", Value: identifier}, tracker).Delete(ctx)
 		if err != nil {
@@ -550,18 +555,30 @@ func (s *GormService) Delete(ctx context.Context, identifier string) error {
 			return fmt.Errorf("credential %q: %w", identifier, apierrors.ErrNotFound)
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	s.clearCachedCredentialRows(ctx, []string{identifier})
+	return nil
 }
 
 // DeleteByProvider removes every credential of one provider in one
-// conditioned delete. Park rows cascade from the credential foreign keys.
-// Returns the removed count.
+// conditioned delete. Cached park and health rows clear explicitly after the
+// durable delete succeeds. Returns the removed count.
 func (s *GormService) DeleteByProvider(ctx context.Context, providerID string) (int, error) {
 	if _, err := s.requireHandle(); err != nil {
 		return 0, err
 	}
 	var removed int64
+	var credentialIDs []string
 	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		rows, err := gorm.G[record.Credential](transaction, clause.Eq{Column: "provider_id", Value: providerID}).Find(ctx)
+		if err != nil {
+			return db.Translate(err)
+		}
+		for _, row := range rows {
+			credentialIDs = append(credentialIDs, row.ID)
+		}
 		tracker := gorm.WithResult()
 		affected, err := gorm.G[record.Credential](transaction, clause.Eq{Column: "provider_id", Value: providerID}, tracker).Delete(ctx)
 		if err != nil {
@@ -573,5 +590,27 @@ func (s *GormService) DeleteByProvider(ctx context.Context, providerID string) (
 	}); err != nil {
 		return 0, err
 	}
+	s.clearCachedCredentialRows(ctx, credentialIDs)
 	return int(removed), nil
+}
+
+// clearCachedCredentialRows removes cached park and health rows for the
+// given credentials. The durable delete already succeeded, so failures log
+// and continue: orphaned cache rows never match a credential lookup and the
+// next delete or prune pass converges them.
+func (s *GormService) clearCachedCredentialRows(ctx context.Context, credentialIDs []string) {
+	if len(credentialIDs) == 0 {
+		return
+	}
+	values := make([]any, 0, len(credentialIDs))
+	for _, identifier := range credentialIDs {
+		values = append(values, identifier)
+	}
+	condition := clause.IN{Column: "credential_id", Values: values}
+	if _, err := gorm.G[record.CredentialPark](s.database.Cache, condition).Delete(ctx); err != nil && s.logger != nil {
+		s.logger.Warn("credential cache park cleanup failed", "err", err)
+	}
+	if _, err := gorm.G[record.CredentialHealth](s.database.Cache, condition).Delete(ctx); err != nil && s.logger != nil {
+		s.logger.Warn("credential cache health cleanup failed", "err", err)
+	}
 }

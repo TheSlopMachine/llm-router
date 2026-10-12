@@ -13,7 +13,7 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 | Script | Env | Called by |
 |--------|-----|-----------|
 | `init` | `HOST`, `WEB_PORT`, `NO_SKIP` | `make init`; `make start` / `make build` (via dep) |
-| `start` | `HOST`, `WEB_PORT`, `API_PORT`, `LOG_LEVEL` (default `info`), `NO_AUTH` (default `0`), `DB_PATH` (fallback `DEV_DB`, then default dev path), `DEV_UI_REDIRECT`, `ENV_FILE`, `PID_FILE` | `make start` / `make restart` |
+| `start` | `HOST`, `WEB_PORT`, `API_PORT`, `LOG_LEVEL` (default `info`), `NO_AUTH` (default `0`), `DB_PATH` (fallback `DEV_DB`, then default dev path), `CACHE_PATH` (fallback `DEV_CACHE`, then default dev cache path), `DEV_UI_REDIRECT`, `ENV_FILE`, `PID_FILE` | `make start` / `make restart` |
 | `stop` | `PID_FILE` | `make stop` / `make restart` / `make clean` |
 | `restart` | same as `start` | `make restart` / `make smoke` (before the harness) |
 | `status` | `PID_FILE` | `make status` |

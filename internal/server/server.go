@@ -49,11 +49,14 @@ type Server struct {
 	luaService         *luaplugin.Service
 }
 
-// New builds the full Server from config. The SQLite file at DBPath is the
-// only database; it starts empty on first run and seeds built-in rows.
+// New builds the full Server from config. The SQLite file at DBPath owns
+// durable configuration; the file at CachePath owns rebuildable cache
+// state. Both start empty on first run; built-in rows seed into the
+// database file.
 func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error) {
 	sqlitePath := applicationConfig.DBPath
-	sqliteDatabase, err := db.OpenSQLite(context.Background(), sqlitePath)
+	cachePath := applicationConfig.CachePath
+	sqliteDatabase, err := db.OpenSQLite(context.Background(), sqlitePath, cachePath)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite database: %w", err)
 	}
@@ -105,7 +108,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 	proxyService.SetLogger(logger)
 	proxyService.SetSourceHandlers(luaService.ProxySourceKeys, luaService.FetchProxies)
 
-	routerService := router.New(providerService, credentialService, modelInfoService, videoJobsService, responses.NewGormService(sqliteDatabase.Handle), batches.NewSQLiteService(sqliteDatabase), logger)
+	routerService := router.New(providerService, credentialService, modelInfoService, videoJobsService, responses.NewGormService(sqliteDatabase.Cache), batches.NewSQLiteService(sqliteDatabase), logger)
 	virtualAdapter := virtualadapter.New(routerService, virtualService, logger)
 	providerService.RegisterGoAdapter(virtualAdapter)
 	healthService := healthcheck.NewGormService(sqliteDatabase, luaService, credentialService, providerService)
@@ -254,7 +257,7 @@ func (s *Server) Run(ctx context.Context) error {
 	cancel()
 	s.proxyService.Start(ctx)
 	s.maintenanceService.Start(ctx)
-	s.logger.Info("llm-router started", "dashboard", s.applicationConfig.DashboardAddr, "api", s.applicationConfig.APIAddr, "db", s.sqlitePath)
+	s.logger.Info("llm-router started", "dashboard", s.applicationConfig.DashboardAddr, "api", s.applicationConfig.APIAddr, "db", s.sqlitePath, "cache", s.applicationConfig.CachePath)
 
 	errorChannel := make(chan error, 2)
 	go func() {

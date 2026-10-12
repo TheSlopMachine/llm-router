@@ -11,9 +11,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// Registry lists every migration in order. Version numbers are never reused.
-var Registry = []migrate.Migration{
+// RegistryDatabase lists every migration for the durable database file in
+// order. Version numbers are never reused.
+var RegistryDatabase = []migrate.Migration{
 	{Version: 1, Name: "initial_schema", Up: upInitialSchema},
+	{Version: 2, Name: "split_storage", Up: upSplitStorage},
 }
 
 type instanceSettingSnapshot struct {

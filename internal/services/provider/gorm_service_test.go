@@ -360,11 +360,11 @@ func TestGormDeleteCascadesCredentials(t *testing.T) {
 		t.Fatalf("seed credential: %v", err)
 	}
 	parkRow := record.CredentialPark{CredentialID: "credential-one", Reason: "rate", Until: now.Add(time.Hour), ParkedAt: now}
-	if err := gorm.G[record.CredentialPark](database.Handle, clause.OnConflict{Columns: []clause.Column{{Name: "credential_id"}}, UpdateAll: true}).Create(ctx, &parkRow); err != nil {
+	if err := gorm.G[record.CredentialPark](database.Cache, clause.OnConflict{Columns: []clause.Column{{Name: "credential_id"}}, UpdateAll: true}).Create(ctx, &parkRow); err != nil {
 		t.Fatalf("seed park: %v", err)
 	}
 	healthRow := record.CredentialHealth{CredentialID: "credential-one", LastCheckAt: now, LastStatus: "healthy"}
-	if err := gorm.G[record.CredentialHealth](database.Handle, clause.OnConflict{Columns: []clause.Column{{Name: "credential_id"}}, UpdateAll: true}).Create(ctx, &healthRow); err != nil {
+	if err := gorm.G[record.CredentialHealth](database.Cache, clause.OnConflict{Columns: []clause.Column{{Name: "credential_id"}}, UpdateAll: true}).Create(ctx, &healthRow); err != nil {
 		t.Fatalf("seed health: %v", err)
 	}
 	if err := service.Delete(ctx, created.ID); err != nil {
@@ -373,8 +373,11 @@ func TestGormDeleteCascadesCredentials(t *testing.T) {
 	if _, err := gorm.G[record.Credential](database.Handle, clause.Eq{Column: "id", Value: "credential-one"}).First(ctx); !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
 		t.Fatalf("credential must cascade, got %v", err)
 	}
-	if _, err := gorm.G[record.CredentialPark](database.Handle, clause.Eq{Column: "credential_id", Value: "credential-one"}).First(ctx); !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
-		t.Fatalf("park must cascade, got %v", err)
+	if _, err := gorm.G[record.CredentialPark](database.Cache, clause.Eq{Column: "credential_id", Value: "credential-one"}).First(ctx); !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
+		t.Fatalf("park must clear on provider delete, got %v", err)
+	}
+	if _, err := gorm.G[record.CredentialHealth](database.Cache, clause.Eq{Column: "credential_id", Value: "credential-one"}).First(ctx); !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
+		t.Fatalf("health must clear on provider delete, got %v", err)
 	}
 	if _, err := service.Get(ctx, created.ID); !stdErrors.Is(err, apierrors.ErrNotFound) {
 		t.Fatalf("provider get after delete: got %v", err)

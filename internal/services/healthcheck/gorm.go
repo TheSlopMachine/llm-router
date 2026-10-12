@@ -90,7 +90,7 @@ func (s *GormService) SetLogger(l *slog.Logger) { s.logger = l }
 // Get returns one credential's health state. A miss returns the not-found
 // sentinel.
 func (s *GormService) Get(ctx context.Context, credentialID string) (*Record, error) {
-	store := repository.NewGormRepository[record.CredentialHealth](s.database.Handle, "credential_id")
+	store := repository.NewGormRepository[record.CredentialHealth](s.database.Cache, "credential_id")
 	row, err := store.Get(ctx, clause.Eq{Column: clause.Column{Name: "credential_id"}, Value: credentialID})
 	if err != nil {
 		if stdErrors.Is(err, apierrors.ErrNotFound) {
@@ -102,9 +102,10 @@ func (s *GormService) Get(ctx context.Context, credentialID string) (*Record, er
 }
 
 // Stamp records a health verdict for one credential with the current UTC
-// time: one public method, one transaction. Repeat stamps overwrite,
-// matching the previous Put behavior. The credential row must exist; a missing
-// credential fails through the foreign key as invalid input.
+// time: one public method, one transaction on the cache handle. Repeat
+// stamps overwrite, matching the previous Put behavior. Health rows
+// reference credentials softly: a missing credential persists instead of
+// failing, and readers skip verdicts without a credential row.
 func (s *GormService) Stamp(ctx context.Context, credentialID, status string) error {
 	if credentialID == "" {
 		return stdErrors.New("credential health id is required")
@@ -114,7 +115,7 @@ func (s *GormService) Stamp(ctx context.Context, credentialID, status string) er
 		LastCheckAt:  time.Now().UTC(),
 		LastStatus:   status,
 	})
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	return s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		store := repository.NewGormRepository[record.CredentialHealth](transaction, "credential_id")
 		return store.Upsert(ctx, row)
 	})

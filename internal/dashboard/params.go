@@ -41,7 +41,7 @@ type Params struct {
 	Logger       *slog.Logger
 	// NoAuth skips session checks: dashboard APIs serve without login.
 	NoAuth bool
-	// SQLiteDatabase is the SQLite handle backing the GORM services.
+	// SQLiteDatabase is the SQLite handle pair backing the GORM services.
 	// Required: construction fails when it is missing so integrator
 	// miswiring surfaces at startup, never as a nil dereference later.
 	SQLiteDatabase *db.Database
@@ -57,7 +57,7 @@ func EffectiveBootstrapped(bootstrapped, noAuth bool) bool {
 
 // New constructs a dashboard Handler.
 func New(parameters Params) (*Handler, error) {
-	if parameters.SQLiteDatabase == nil || parameters.SQLiteDatabase.Handle == nil {
+	if parameters.SQLiteDatabase == nil || parameters.SQLiteDatabase.Handle == nil || parameters.SQLiteDatabase.Cache == nil {
 		return nil, fmt.Errorf("dashboard sqlite database is not configured")
 	}
 	if parameters.AdminSvc == nil {

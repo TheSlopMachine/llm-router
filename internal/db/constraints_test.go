@@ -16,8 +16,8 @@ import (
 
 func openConstraintDatabase(t *testing.T) *db.Database {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "constraints.sqlite3")
-	database, err := db.OpenSQLite(context.Background(), path)
+	directory := t.TempDir()
+	database, err := db.OpenSQLite(context.Background(), filepath.Join(directory, "constraints.sqlite3"), filepath.Join(directory, "constraints.cache.sqlite3"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -30,7 +30,7 @@ func openConstraintDatabase(t *testing.T) *db.Database {
 func TestMissMapsToNotFound(t *testing.T) {
 	ctx := context.Background()
 	database := openConstraintDatabase(t)
-	states := repository.NewGormRepository[record.ProxyState](database.Handle, "url")
+	states := repository.NewGormRepository[record.ProxyState](database.Cache, "url")
 	_, err := states.Get(ctx, clause.Eq{Column: "url", Value: "http://missing:8080"})
 	if !errors.Is(err, apierrors.ErrNotFound) {
 		t.Errorf("miss returns %v, want not found", err)
@@ -98,8 +98,8 @@ func TestInstanceSettingsIDCheck(t *testing.T) {
 func TestMetricDimensionCheck(t *testing.T) {
 	ctx := context.Background()
 	database := openConstraintDatabase(t)
-	buckets := repository.NewGormRepository[record.MetricBucket](database.Handle, "granularity", "timestamp")
-	providers := repository.NewGormRepository[record.MetricBucketProvider](database.Handle, "granularity", "timestamp", "dimension", "key")
+	buckets := repository.NewGormRepository[record.MetricBucket](database.Cache, "granularity", "timestamp")
+	providers := repository.NewGormRepository[record.MetricBucketProvider](database.Cache, "granularity", "timestamp", "dimension", "key")
 	now := time.Now().UTC().Truncate(time.Second)
 	if err := buckets.Upsert(ctx, record.MetricBucket{Granularity: "1m", Timestamp: now}); err != nil {
 		t.Fatalf("upsert bucket: %v", err)

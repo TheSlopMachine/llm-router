@@ -79,6 +79,11 @@ type Config struct {
 	// DBPath is the path to the SQLite database file.
 	DBPath string
 
+	// CachePath is the path to the SQLite cache file. The cache holds
+	// rebuildable state only: deleting it while stopped never loses
+	// configuration, and startup recreates it empty.
+	CachePath string
+
 	// LogLevel controls slog verbosity.
 	LogLevel LogLevel
 
@@ -106,6 +111,9 @@ func (configuration *Config) Validate() error {
 	}
 	if configuration.DBPath == "" {
 		return fmt.Errorf("database path is required")
+	}
+	if configuration.CachePath == "" {
+		return fmt.Errorf("cache path is required")
 	}
 	switch configuration.LogLevel {
 	case "", LogLevelDebug, LogLevelInfo, LogLevelWarn, LogLevelError:

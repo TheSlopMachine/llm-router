@@ -303,10 +303,22 @@ func TestGormPutGetSnapshotRoundTrip(t *testing.T) {
 	}
 }
 
-func TestGormSnapshotForeignKey(t *testing.T) {
-	service, ctx, _ := setupGormModelInfo(t)
-	if err := service.PutSnapshot(ctx, "missing-provider", []models.ModelInfo{{Name: "x"}}, util.Now()); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
-		t.Fatalf("dangling provider put: got %v want invalid input", err)
+func TestGormSnapshotSoftReference(t *testing.T) {
+	service, ctx, database := setupGormModelInfo(t)
+	// Snapshots reference providers softly across files: a put for a missing
+	// provider persists instead of failing, and provider deletion clears its
+	// snapshots explicitly.
+	if err := service.PutSnapshot(ctx, "missing-provider", []models.ModelInfo{{Name: "x"}}, util.Now()); err != nil {
+		t.Fatalf("dangling provider put: got %v want success with soft reference", err)
+	}
+	if _, _, err := service.GetSnapshot(ctx, "missing-provider"); err != nil {
+		t.Fatalf("get dangling snapshot: %v", err)
+	}
+	if err := service.DeleteSnapshot(ctx, "missing-provider"); err != nil {
+		t.Fatalf("delete dangling snapshot: %v", err)
+	}
+	if _, err := gorm.G[record.ModelInfoSnapshot](database.Cache, clause.Eq{Column: "provider_id", Value: "missing-provider"}).First(ctx); !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
+		t.Fatalf("snapshot must delete, got %v", err)
 	}
 }
 
@@ -397,13 +409,13 @@ func TestGormRemoveModel(t *testing.T) {
 	if err != nil || len(fetched) != 1 || fetched[0].Name != "stays-model" {
 		t.Fatalf("store after remove: %+v err=%v", fetched, err)
 	}
-	if _, err := gorm.G[record.ModelInfoCapability](database.Handle, clause.Eq{Column: "provider_id", Value: "mock"}, clause.Eq{Column: "model_name", Value: "gone-model"}).First(ctx); !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
+	if _, err := gorm.G[record.ModelInfoCapability](database.Cache, clause.Eq{Column: "provider_id", Value: "mock"}, clause.Eq{Column: "model_name", Value: "gone-model"}).First(ctx); !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
 		t.Fatalf("capabilities must cascade on model remove, got %v", err)
 	}
-	if _, err := gorm.G[record.ModelInfoModality](database.Handle, clause.Eq{Column: "provider_id", Value: "mock"}, clause.Eq{Column: "model_name", Value: "gone-model"}).First(ctx); !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
+	if _, err := gorm.G[record.ModelInfoModality](database.Cache, clause.Eq{Column: "provider_id", Value: "mock"}, clause.Eq{Column: "model_name", Value: "gone-model"}).First(ctx); !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
 		t.Fatalf("modalities must cascade on model remove, got %v", err)
 	}
-	if _, err := gorm.G[record.ModelInfoEndpoint](database.Handle, clause.Eq{Column: "provider_id", Value: "mock"}, clause.Eq{Column: "model_name", Value: "gone-model"}).First(ctx); !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
+	if _, err := gorm.G[record.ModelInfoEndpoint](database.Cache, clause.Eq{Column: "provider_id", Value: "mock"}, clause.Eq{Column: "model_name", Value: "gone-model"}).First(ctx); !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
 		t.Fatalf("endpoints must cascade on model remove, got %v", err)
 	}
 	removed, err = service.RemoveModel(ctx, "mock", "gone-model")
@@ -427,7 +439,7 @@ func TestGormDeleteSnapshot(t *testing.T) {
 	if _, _, err := service.GetSnapshot(ctx, "mock"); !stdErrors.Is(err, apierrors.ErrNotFound) {
 		t.Fatalf("get after delete: got %v want not found", err)
 	}
-	if _, err := gorm.G[record.ModelInfo](database.Handle, clause.Eq{Column: "provider_id", Value: "mock"}).First(ctx); !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
+	if _, err := gorm.G[record.ModelInfo](database.Cache, clause.Eq{Column: "provider_id", Value: "mock"}).First(ctx); !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
 		t.Fatalf("models must cascade on snapshot delete, got %v", err)
 	}
 	if err := service.DeleteSnapshot(ctx, "mock"); !stdErrors.Is(err, apierrors.ErrNotFound) {

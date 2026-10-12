@@ -33,7 +33,9 @@ Variables:
   URL                Dashboard URL for browser. Default: "http://$(HOST):$(WEB_PORT)"
   LOG_LEVEL          Server log level. Default: "info"
   DEV_DB             Path to dev database. Default: "~/.local/llm-router/llm-router-dev.sqlite3"
+  DEV_CACHE          Path to dev cache database. Default: "~/.local/llm-router/llm-router-dev.cache.sqlite3"
   DB_PATH            Database file for the server. Default: "llm-router.sqlite3" (dev start prefers DEV_DB)
+  CACHE_PATH         Cache database file for the server. Default: "llm-router.cache.sqlite3" (dev start prefers DEV_CACHE)
   DEV_UI_REDIRECT    Dashboard redirect origin for dev. Default: empty
   ENV_FILE           Dotenv path for the server. Default: ".env"
   NO_AUTH            Disable all authorization (dev and AI debugging only). Default: "0"

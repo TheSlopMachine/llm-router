@@ -13,6 +13,7 @@ import (
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/repository"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
+	"gorm.io/gorm/clause"
 )
 
 func setupSQLitePluginService(t *testing.T) (*Service, context.Context) {
@@ -453,7 +454,7 @@ func TestStorageSQLiteTTLExpiryAndValidation(t *testing.T) {
 	past := time.Now().UTC().Add(-time.Hour)
 	expiredRow := record.PluginStorage{PluginID: pluginID, Scope: "scope", Key: "expired", Value: []byte(`"stale"`), ExpiresAt: &past}
 	expiredRows := []record.PluginStorage{expiredRow}
-	if err := repository.NewGormRepository[record.PluginStorage](service.database, "plugin_id", "scope", "key").Upsert(ctx, expiredRows...); err != nil {
+	if err := repository.NewGormRepository[record.PluginStorage](service.cache, "plugin_id", "scope", "key").Upsert(ctx, expiredRows...); err != nil {
 		t.Fatalf("seed expired row: %v", err)
 	}
 	if value, err := service.GetStorageSQLite(ctx, pluginID, "scope", "expired"); err != nil || value != nil {
@@ -512,7 +513,7 @@ func TestStorageSQLitePruneExpiredUsesIndex(t *testing.T) {
 		{PluginID: pluginID, Scope: "scope", Key: "stale-one", Value: []byte(`"old"`), ExpiresAt: &past},
 		{PluginID: pluginID, Scope: "scope", Key: "stale-two", Value: []byte(`"old"`), ExpiresAt: &past},
 	}
-	if err := repository.NewGormRepository[record.PluginStorage](service.database, "plugin_id", "scope", "key").Upsert(ctx, staleRows...); err != nil {
+	if err := repository.NewGormRepository[record.PluginStorage](service.cache, "plugin_id", "scope", "key").Upsert(ctx, staleRows...); err != nil {
 		t.Fatalf("seed stale rows: %v", err)
 	}
 	removed, err := service.PruneExpiredStorageSQLite(ctx)
@@ -527,6 +528,52 @@ func TestStorageSQLitePruneExpiredUsesIndex(t *testing.T) {
 	}
 	if value, err := service.GetStorageSQLite(ctx, pluginID, "scope", "temporary"); err != nil || value != "keep" {
 		t.Fatalf("unexpired must survive prune: %v %v", value, err)
+	}
+}
+
+func TestStorageSQLiteRoutesByTTL(t *testing.T) {
+	service, ctx := setupSQLitePluginService(t)
+	installed, err := service.InstallSQLite(ctx, []byte(testPluginSource), PluginOrigin{Manual: true})
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	pluginID := installed.ID
+	durableStore := repository.NewGormRepository[record.PluginStorage](service.database, "plugin_id", "scope", "key")
+	cacheStore := repository.NewGormRepository[record.PluginStorage](service.cache, "plugin_id", "scope", "key")
+	conditions := []clause.Expression{
+		clause.Eq{Column: "plugin_id", Value: pluginID},
+		clause.Eq{Column: "scope", Value: "route"},
+		clause.Eq{Column: "key", Value: "entry"},
+	}
+	if err := service.SetStorageSQLite(ctx, pluginID, "route", "entry", "durable", 0); err != nil {
+		t.Fatalf("set durable: %v", err)
+	}
+	if _, err := durableStore.Get(ctx, conditions...); err != nil {
+		t.Fatalf("durable row must land in the database: %v", err)
+	}
+	if _, err := cacheStore.Get(ctx, conditions...); err == nil {
+		t.Fatal("durable row must not land in the cache")
+	}
+	if err := service.SetStorageSQLite(ctx, pluginID, "route", "entry", "ephemeral", time.Hour); err != nil {
+		t.Fatalf("set ttl: %v", err)
+	}
+	if _, err := cacheStore.Get(ctx, conditions...); err != nil {
+		t.Fatalf("ttl row must land in the cache: %v", err)
+	}
+	if _, err := durableStore.Get(ctx, conditions...); err == nil {
+		t.Fatal("ttl row must leave the database")
+	}
+	if value, err := service.GetStorageSQLite(ctx, pluginID, "route", "entry"); err != nil || value != "ephemeral" {
+		t.Fatalf("migrated read: %v %v", value, err)
+	}
+	if err := service.SetStorageSQLite(ctx, pluginID, "route", "entry", "durable", 0); err != nil {
+		t.Fatalf("set durable again: %v", err)
+	}
+	if _, err := durableStore.Get(ctx, conditions...); err != nil {
+		t.Fatalf("row must migrate back to the database: %v", err)
+	}
+	if _, err := cacheStore.Get(ctx, conditions...); err == nil {
+		t.Fatal("row must leave the cache")
 	}
 }
 

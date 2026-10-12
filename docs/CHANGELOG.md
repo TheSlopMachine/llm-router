@@ -1,5 +1,10 @@
 # Changelog
 
+## Done (2026-10-13, vUnreleased)
+
+- Split SQLite storage into durable database plus disposable cache: `DB_PATH` kept configuration, `CACHE_PATH` (fallback `DEV_CACHE`, default `llm-router.cache.sqlite3`) held rebuildable state. Sessions, proxy states, model info rows, credential parks plus health, metric buckets, video jobs, response records and message batches moved to the cache file; plugin storage routed by TTL (TTL rows in cache, durable rows in database). Cache rows referenced durable parents softly with explicit cleanup on delete; deleting the cache file while stopped only logged operators out and refilled in the background.
+- Migrated single-file databases forward-only (version 2 `split_storage`): the startup copied legacy cache tables into the cache file, then dropped them from the primary file; each file owned its own `schema_migrations` history and version 1 stayed untouched.
+
 ## Done (2026-10-12, vUnreleased)
 
 - Added optional plugin lifecycle hooks `initialize` / `deinitialize` (contract 1.2): one-time `ctx`-table slots with `ctx.reason` (`install`/`update`/`startup`, `delete`/`update`/`shutdown`/`disable`), concurrent fan-out with a 30s bound, failures logged without blocking. Install/update/delete/rollback dispatched detached after commit, startup ran in the server gate, shutdown ran before metrics stop, and provider disable transitions dispatched from the provider service (`Update`/`SystemDisable`/`Delete` only). Lifecycle sandboxes carried storage, HTTP and proxy tables with read-only credential access on the disable path.

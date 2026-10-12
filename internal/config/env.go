@@ -19,6 +19,7 @@ const (
 	DefaultWebPort      = "8080"
 	DefaultAPIPort      = "8081"
 	DefaultDatabasePath = "llm-router.sqlite3"
+	DefaultCachePath    = "llm-router.cache.sqlite3"
 	DefaultLogLevel     = "info"
 	DefaultDotenvPath   = ".env"
 )
@@ -76,11 +77,16 @@ func Load() (*Config, string, error) {
 	if databasePath == "" {
 		databasePath = environmentOrDefault("DEV_DB", DefaultDatabasePath)
 	}
+	cachePath := environmentOrDefault("CACHE_PATH", "")
+	if cachePath == "" {
+		cachePath = environmentOrDefault("DEV_CACHE", DefaultCachePath)
+	}
 
 	configuration := &Config{
 		DashboardAddr: net.JoinHostPort(host, webPort.String()),
 		APIAddr:       net.JoinHostPort(host, apiPort.String()),
 		DBPath:        databasePath,
+		CachePath:     cachePath,
 		LogLevel:      logLevel,
 		NoAuth:        noAuth,
 		DevUIRedirect: strings.TrimSpace(os.Getenv("DEV_UI_REDIRECT")),
@@ -98,6 +104,7 @@ HOST=localhost
 WEB_PORT=8080
 API_PORT=8081
 DB_PATH=llm-router.sqlite3
+CACHE_PATH=llm-router.cache.sqlite3
 LOG_LEVEL=info
 NO_AUTH=0
 `
