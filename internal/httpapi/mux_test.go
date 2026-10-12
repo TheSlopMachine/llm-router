@@ -129,3 +129,22 @@ func withSource(method, path string, source requestsource.RequestSource) *http.R
 	request := httptest.NewRequest(method, path, nil)
 	return request.WithContext(requestsource.ContextWithSource(request.Context(), source))
 }
+
+// TestShutdownRouteLivesOnPrivateOnly verifies the shutdown route is
+// mounted on the private mux (200, nil-safe without a signal func) and
+// hidden on the public mux (404) through the real muxes.
+func TestShutdownRouteLivesOnPrivateOnly(t *testing.T) {
+	privateMux := BuildPrivateMux(&v1.Handler{}, &dashboard.Handler{})
+	recorder := httptest.NewRecorder()
+	privateMux.ServeHTTP(recorder, withSource(http.MethodPost, "/api/llm-router/shutdown", requestsource.RequestSourcePrivate))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("private shutdown: got %d (%s), want 200", recorder.Code, recorder.Body.String())
+	}
+
+	publicMux := BuildPublicMux(&v1.Handler{}, &dashboard.Handler{})
+	recorder = httptest.NewRecorder()
+	publicMux.ServeHTTP(recorder, withSource(http.MethodPost, "/api/llm-router/shutdown", requestsource.RequestSourcePublic))
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("public shutdown: got %d (%s), want 404", recorder.Code, recorder.Body.String())
+	}
+}

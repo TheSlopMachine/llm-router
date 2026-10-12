@@ -175,6 +175,12 @@ together with its `schema_migrations` row. `repository` returns
   `RunStartupRefresh`; shutdown runs before metrics stop; provider disable
   transitions dispatch from the provider service only
   (`Update`/`SystemDisable`/`Delete` are the trigger sites).
+- Shutdown enters one path (SIGINT/SIGTERM, listener error, or
+  `POST /api/llm-router/shutdown` on the admin listener): hooks, metrics
+  flush, then both listeners `Shutdown` (in-flight requests complete, so
+  the shutdown response is always delivered). `make stop` uses the admin
+  endpoint first with a 15s wait and kills past it; the frontend is
+  always killed.
 - `proxypool.Service.Start(ctx)`: starts the proxypool library scheduler and
   independent 3s cache-flush loop. Library-owned lanes, foreground/background
   hysteresis, adaptive concurrency, suspect handling and network breaker drive

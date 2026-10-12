@@ -14,7 +14,7 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 |--------|-----|-----------|
 | `init` | `HOST`, `PORT`, `NO_SKIP` | `make init`; `make start` / `make build` (via dep) |
 | `start` | `HOST`, `PORT`, `ADMIN_PORT` (default `38082`, empty disables), `LOG_LEVEL` (default `info`), `DB_PATH` (fallback `DEV_DB`, then default dev path), `CACHE_PATH` (fallback `DEV_CACHE`, then default dev cache path), `DEV_UI_REDIRECT`, `ENV_FILE`, `PID_FILE` | `make start` / `make restart` |
-| `stop` | `PID_FILE` | `make stop` / `make restart` / `make clean` |
+| `stop` | `PID_FILE` | `make stop` / `make restart` / `make clean` (backend: graceful shutdown via admin API first, kill fallback; frontend: always killed) |
 | `restart` | same as `start` | `make restart` / `make smoke` (before the harness) |
 | `status` | `PID_FILE` | `make status` |
 | `log` | `LINES` (default `100`), `FOLLOW` | `make log` |
@@ -57,4 +57,4 @@ Restarts the dev stack, waits for readiness, then drives the request paths black
 
 ## Strictness
 
-No fallbacks. Missing required env, any `git` / `swag` / `api-types` / `vite build` failure is fatal. `stop` uses one graceful `SIGTERM` on unix, direct force-kill on Windows (`TerminateJobObject`, fallback `TerminateProcess`); survivors keep the pidfile and exit 1.
+No fallbacks. Missing required env, any `git` / `swag` / `api-types` / `vite build` failure is fatal. `stop` asks the backend for graceful shutdown through the admin API first (15s wait, recorded `ADMIN_PORT` else env, skipped when disabled), then follows the kill path: one graceful `SIGTERM` on unix, direct force-kill on Windows (`TerminateJobObject`, fallback `TerminateProcess`); the frontend is always killed, never asked; survivors keep the pidfile and exit 1.

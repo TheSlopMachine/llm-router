@@ -5,7 +5,7 @@ Targets:
   help              Print targets and variables
   init              Initialize project (bun install, openapi.yaml, api-types, embed stub)
   start             Init, then start backend (go run) + frontend (vite) in dev mode
-  stop              Stop dev processes
+  stop              Stop dev processes (backend shuts down gracefully via admin API, frontend is killed)
   restart           Stop + start
   smoke             Restart, then run the smoke harness against the admin listener
   upload-plugins    Upload every store .lua plugin via the admin listener (no restart)

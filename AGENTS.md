@@ -157,7 +157,7 @@ Keep changes shallow. Do not touch service internals unless the task requires it
 | `make log` | agent | Tail backend log (`LINES=...` sizes tail, default `100`; `FOLLOW=...` overrides TTY auto-follow) |
 | `make log-frontend` | agent | Tail frontend log (same `LINES`/`FOLLOW` contract as `make log`) |
 | `make start` | agent | Start dev backend + frontend (vite); admin listener on 127.0.0.1:ADMIN_PORT answers without auth |
-| `make stop` | agent | Stop dev processes |
+| `make stop` | agent | Stop dev processes (backend graceful via admin API with kill fallback; frontend killed) |
 | `make restart` | agent | Stop + start, keeping last start params |
 | `make smoke` | agent | Restart, then run the smoke harness against the admin listener (`SMOKE_PLUGINS=...`, `SMOKE_TARGETS=...`) |
 | `make upload-plugins` | agent | Upload every store `.lua` plugin via the admin listener (`UPLOAD_STORE_DIR=...`, no restart) |
@@ -201,7 +201,7 @@ If the task needs `browser`, `build`, `publish`, or `clean`: STOP. Ask the human
 
 | # | Prohibition | Detail |
 |---|---|---|
-| 1 | Kill processes | No `kill`, `pkill`, `taskkill`, `Stop-Process`. Use `make stop` / `make restart` so pidfiles stay consistent. `make restart` / `make smoke` stop live dev processes first: warn before running them when the user may have work in flight. |
+| 1 | Kill processes | No `kill`, `pkill`, `taskkill`, `Stop-Process`. Use `make stop` / `make restart` so pidfiles stay consistent (`stop` shuts the backend down gracefully via the admin API first and kills only the frontend outright or as fallback). `make restart` / `make smoke` stop live dev processes first: warn before running them when the user may have work in flight. |
 | 2 | Delete database files | Never remove `~/.local/llm-router/llm-router-dev.sqlite3` or `~/.local/llm-router/llm-router-dev.cache.sqlite3` (or the Windows equivalents). If either is corrupt, ask the human to delete it. |
 | 3 | Run destructive git commands | No `git push`, `git reset`, `git checkout -f`, `git clean`, force-push, amend. Commit only if explicitly instructed, for that exact commit only. |
 | 4 | Litter the project | No `*.log`, `*.pid`, `*.tmp`, binaries, scratch files, notes inside the project tree. Use `/tmp` or an external scratch dir. Delete temporary verification files when done. |

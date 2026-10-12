@@ -39,6 +39,10 @@ type Params struct {
 	ProxySvc     *proxypool.Service
 	MaintSvc     *maintenance.GormService
 	Logger       *slog.Logger
+	// RequestShutdown signals graceful shutdown when the admin shutdown
+	// endpoint fires. Required: construction fails when it is missing so
+	// integrator miswiring surfaces at startup, never as a silent no-op.
+	RequestShutdown func()
 	// SQLiteDatabase is the SQLite handle pair backing the GORM services.
 	// Required: construction fails when it is missing so integrator
 	// miswiring surfaces at startup, never as a nil dereference later.
@@ -63,6 +67,9 @@ func New(parameters Params) (*Handler, error) {
 	}
 	if parameters.ProviderSvc == nil {
 		return nil, fmt.Errorf("dashboard provider service is not configured")
+	}
+	if parameters.RequestShutdown == nil {
+		return nil, fmt.Errorf("dashboard shutdown signal is not configured")
 	}
 	if parameters.CredSvc == nil {
 		return nil, fmt.Errorf("dashboard credential service is not configured")
@@ -110,5 +117,6 @@ func New(parameters Params) (*Handler, error) {
 		dataGormService:       dataGormService,
 		doctorGormService:     doctorGormService,
 		logger:                parameters.Logger,
+		requestShutdown:       parameters.RequestShutdown,
 	}, nil
 }

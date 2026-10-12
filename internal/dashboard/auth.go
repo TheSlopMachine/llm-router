@@ -50,6 +50,31 @@ func (h *Handler) apiStatus() http.HandlerFunc {
 	}
 }
 
+// apiShutdown initiates graceful shutdown. Admin listener only: public
+// requests answer 404 as if the route did not exist. The loopback bind
+// is the only protection, so this never requires authentication or
+// bootstrapping. The signal is non-blocking; the server answers 200
+// first and shuts down after the response is delivered.
+// @Summary      Request server shutdown
+// @Description  Signals graceful shutdown. Admin listener only; public requests 404.
+// @Tags         System
+// @Produce      json
+// @Success      200 {object} object{ok=bool}
+// @Router       /api/llm-router/shutdown [post]
+func (h *Handler) apiShutdown(w http.ResponseWriter, r *http.Request) {
+	if requestsource.SourceFromContext(r.Context()) != requestsource.RequestSourcePrivate {
+		WriteUnknownEndpoint(w, r)
+		return
+	}
+	if h.logger != nil {
+		h.logger.Info("shutdown requested via admin listener")
+	}
+	if h.requestShutdown != nil {
+		h.requestShutdown()
+	}
+	h.json(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 // apiLogin authenticates admin user
 // @Summary      Admin login
 // @Description  Authenticates admin user and returns session cookie.

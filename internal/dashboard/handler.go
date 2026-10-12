@@ -84,6 +84,9 @@ type Handler struct {
 	dataGormService   *datamanagement.GormService
 	doctorGormService *doctor.GormService
 	logger            *slog.Logger
+	// requestShutdown signals graceful shutdown when the admin
+	// shutdown endpoint fires. Never called on public requests.
+	requestShutdown func()
 
 	// devRedirect, when set, is the origin (e.g. "http://localhost:8080")
 	// that browser navigations are 302-redirected to instead of being
@@ -139,6 +142,7 @@ func (h *Handler) RegisterAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/llm-router/login", h.apiLogin)
 	mux.HandleFunc("POST /api/llm-router/logout", h.apiLogout)
 	mux.HandleFunc("POST /api/llm-router/bootstrap", h.apiBootstrap)
+	mux.HandleFunc("POST /api/llm-router/shutdown", h.apiShutdown)
 	mux.HandleFunc("POST /api/llm-router/dashboard/admin/password", h.requireAuth(h.apiAdminChangePassword))
 	mux.HandleFunc("GET /api/llm-router/status", h.apiStatus())
 

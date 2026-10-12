@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/scripts/shared"
@@ -13,6 +15,11 @@ const (
 	gracePeriod        = 3 * time.Second
 	forceConfirmPeriod = 2 * time.Second
 	pollInterval       = 200 * time.Millisecond
+	// shutdownRequestTimeout bounds one admin shutdown POST.
+	shutdownRequestTimeout = 5 * time.Second
+	// gracefulWait bounds the backend graceful exit before the kill
+	// path applies.
+	gracefulWait = 15 * time.Second
 )
 
 func main() {
@@ -61,6 +68,24 @@ func main() {
 		_ = os.Remove(pidFile)
 		fmt.Println("[OK] Stopped")
 		return
+	}
+
+	// Graceful backend shutdown via the admin listener comes first on
+	// every OS; the kill paths below stay as the bounded fallback. The
+	// frontend is always killed, never asked.
+	if shared.AliveMatches(process.Backend, process.BackendPath) {
+		if adminPort := adminPortForStop(pidFile); adminPort != "" {
+			adminURL := "http://127.0.0.1:" + adminPort
+			fmt.Printf("[>] Requesting backend shutdown via %s...\n", adminURL)
+			if err := postShutdown(adminURL); err != nil {
+				fmt.Printf("[>] Shutdown request failed: %v\n", err)
+				fmt.Println("[>] Kill path follows")
+			} else if waitBackendDead(process.Backend, process.BackendPath, time.Now().Add(gracefulWait)) {
+				fmt.Println("[>] Backend shut down gracefully")
+			} else {
+				fmt.Println("[>] Backend still running after graceful wait, killing...")
+			}
+		}
 	}
 
 	if runtime.GOOS != "windows" {
@@ -115,4 +140,44 @@ func main() {
 	}
 	fmt.Fprintf(os.Stderr, "[FAIL] Still running after forced shutdown: %v (pidfile kept at %s)\n", survivors, pidFile)
 	os.Exit(1)
+}
+
+// adminPortForStop resolves the admin listener port from the recorded
+// start params, else ADMIN_PORT env. Empty means disabled or unknown:
+// the kill path applies without a graceful attempt.
+func adminPortForStop(pidFile string) string {
+	if params, err := shared.ReadStartParams(pidFile); err == nil {
+		return strings.TrimSpace(params.AdminPort)
+	}
+	return strings.TrimSpace(shared.Getenv("ADMIN_PORT", ""))
+}
+
+// postShutdown asks the admin listener for graceful shutdown, expecting
+// a 2xx answer.
+func postShutdown(adminURL string) error {
+	client := &http.Client{Timeout: shutdownRequestTimeout}
+	request, err := http.NewRequest(http.MethodPost, adminURL+"/api/llm-router/shutdown", nil)
+	if err != nil {
+		return err
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return fmt.Errorf("http %d", response.StatusCode)
+	}
+	return nil
+}
+
+// waitBackendDead polls the backend PID until deadline.
+func waitBackendDead(backendPID int, backendPath string, deadline time.Time) bool {
+	for time.Now().Before(deadline) {
+		if !shared.AliveMatches(backendPID, backendPath) {
+			return true
+		}
+		time.Sleep(pollInterval)
+	}
+	return !shared.AliveMatches(backendPID, backendPath)
 }

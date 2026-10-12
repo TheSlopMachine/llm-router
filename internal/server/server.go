@@ -50,6 +50,7 @@ type Server struct {
 	logger             *slog.Logger
 	httpServer         *http.Server
 	adminServer        *http.Server
+	shutdownRequested  chan struct{}
 	maintenanceService *maintenance.GormService
 	metricsService     *metrics.Service
 	proxyService       *proxypool.Service
@@ -164,13 +165,25 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 
 	wireInvalidation(logger, providerService, modelInfoService, luaService)
 
+	// shutdownRequested fires when the admin shutdown endpoint runs. The
+	// buffered non-blocking send lets the endpoint answer 200 before the
+	// Run loop reacts.
+	shutdownRequested := make(chan struct{}, 1)
+	requestShutdown := func() {
+		select {
+		case shutdownRequested <- struct{}{}:
+		default:
+		}
+	}
+
 	dashboardHandler, err := dashboard.New(dashboard.Params{
 		AdminSvc: adminService, ProviderSvc: providerService, CredSvc: credentialService,
 		TokenSvc: tokenService, ModelInfoSvc: modelInfoService, MetricsSvc: metricsService,
 		VirtualSvc: virtualService, RouterSvc: routerService, ConfigSvc: configService,
 		LuaSvc: luaService, RepoSvc: repositoryService, ProxySvc: proxyService, MaintSvc: maintenanceService,
-		Logger:         logger,
-		SQLiteDatabase: sqliteDatabase,
+		Logger:          logger,
+		RequestShutdown: requestShutdown,
+		SQLiteDatabase:  sqliteDatabase,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard handler: %w", err)
@@ -211,6 +224,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		logger:             logger,
 		httpServer:         httpServer,
 		adminServer:        adminServer,
+		shutdownRequested:  shutdownRequested,
 		maintenanceService: maintenanceService,
 		metricsService:     metricsService,
 		proxyService:       proxyService,
@@ -282,17 +296,25 @@ func (s *Server) Run(ctx context.Context) error {
 			_ = s.adminServer.Shutdown(context.Background())
 		}
 	}
+	// graceful runs the single shutdown path: plugin hooks, metrics
+	// flush, then both listeners. Shutdown waits for in-flight requests,
+	// so the admin shutdown response is always delivered first.
+	graceful := func() {
+		s.runShutdownHooks()
+		s.metricsService.Stop()
+		shutdown()
+	}
 	select {
 	case <-ctx.Done():
 		s.logger.Info("shutting down gracefully...")
-		s.runShutdownHooks()
-		s.metricsService.Stop()
-		shutdown()
+		graceful()
+		return nil
+	case <-s.shutdownRequested:
+		s.logger.Info("shutdown requested via admin listener...")
+		graceful()
 		return nil
 	case err := <-errorChannel:
-		s.runShutdownHooks()
-		s.metricsService.Stop()
-		shutdown()
+		graceful()
 		return fmt.Errorf("http server: %w", err)
 	}
 }

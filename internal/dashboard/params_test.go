@@ -70,8 +70,9 @@ func buildWiredParams(test *testing.T) Params {
 		TokenSvc: tokenService, ModelInfoSvc: modelInfoService, MetricsSvc: metricsService,
 		VirtualSvc: virtualService, RouterSvc: routerService, ConfigSvc: configService,
 		LuaSvc: luaService, RepoSvc: repositoryService, ProxySvc: proxyService, MaintSvc: maintenanceService,
-		Logger:         logger,
-		SQLiteDatabase: sqliteDatabase,
+		Logger:          logger,
+		RequestShutdown: func() {},
+		SQLiteDatabase:  sqliteDatabase,
 	}
 }
 
@@ -103,6 +104,7 @@ func TestNewRejectsMissingWiring(test *testing.T) {
 		"nil token":      func(parameters *Params) { parameters.TokenSvc = nil },
 		"nil model info": func(parameters *Params) { parameters.ModelInfoSvc = nil },
 		"nil virtual":    func(parameters *Params) { parameters.VirtualSvc = nil },
+		"nil shutdown":   func(parameters *Params) { parameters.RequestShutdown = nil },
 	}
 	for name, mutate := range cases {
 		test.Run(name, func(test *testing.T) {
