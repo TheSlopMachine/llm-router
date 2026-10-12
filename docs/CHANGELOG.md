@@ -2,6 +2,10 @@
 
 ## Done (2026-10-12, vUnreleased)
 
+- Replaced CLI flags with environment variables (`HOST`, `WEB_PORT`, `API_PORT`, `DB_PATH`, `LOG_LEVEL`, `NO_AUTH`, `DEV_UI_REDIRECT`) plus `.env` file support through `ENV_FILE`; process environment won over the file and a missing file no longer failed startup.
+- Added `--generate-config` to write the default `.env` template; the command failed when the target file existed.
+- Made the `Makefile` inherit `.env` from the project root; `make VAR=value` overrode the file.
+
 - Cut over to SQLite as the only database with no bbolt import: fresh files started empty per D1, old bbolt state stayed untouched beside the new file.
 - Stored dashboard sessions by token hash as primary key; plaintext tokens never landed in storage.
 - Carried deletes through foreign keys: provider deletes cascaded credentials, model overrides, model info, managed virtual models and virtual members; plugin deletes cascaded hosts, versions and storage; metric bucket deletes cascaded dimension children.

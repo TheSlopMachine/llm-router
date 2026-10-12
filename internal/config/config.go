@@ -1,4 +1,5 @@
-// Package config holds the runtime configuration populated from CLI flags.
+// Package config holds the runtime configuration populated from environment
+// variables with optional .env file support.
 package config
 
 import (
@@ -8,7 +9,7 @@ import (
 	"strings"
 )
 
-// Port is a TCP port number (1-65535). Implements pflag.Value.
+// Port is a TCP port number (1-65535) parsed from environment text.
 type Port uint16
 
 func (p *Port) String() string { return strconv.Itoa(int(*p)) }
@@ -25,7 +26,7 @@ func (p *Port) Set(value string) error {
 	return nil
 }
 
-// LogLevel controls slog verbosity. Implements pflag.Value.
+// LogLevel controls slog verbosity. Parsed from environment text.
 type LogLevel string
 
 const (
@@ -66,7 +67,8 @@ func (l LogLevel) SlogLevel() slog.Level {
 }
 
 // Config is the central runtime configuration for llm-router.
-// All values originate from CLI flags — there is no config file.
+// All values originate from environment variables with optional .env file
+// support (see Load).
 type Config struct {
 	// DashboardAddr is the address the dashboard HTTP server binds to (e.g. "localhost:8080").
 	DashboardAddr string
@@ -89,8 +91,8 @@ type Config struct {
 
 	// DevUIRedirect, when non-empty, is the origin (e.g. "http://localhost:8080")
 	// that the dashboard 302-redirects browser navigations to instead of
-	// serving its own embedded SPA. Set only by `make start` (via
-	// --dev-ui-redirect) in dev; empty disables the redirect — the normal/production behavior.
+	// serving its own embedded SPA. Set through DEV_UI_REDIRECT by `make start`
+	// in dev; empty disables the redirect — the normal/production behavior.
 	DevUIRedirect string
 }
 
@@ -111,7 +113,7 @@ func (configuration *Config) Validate() error {
 		if string(configuration.LogLevel) == "warning" {
 			break
 		}
-		return fmt.Errorf("log-level must be one of debug, info, warn, error")
+		return fmt.Errorf("LOG_LEVEL must be one of debug, info, warn, error")
 	}
 	return nil
 }

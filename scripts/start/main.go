@@ -12,7 +12,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/scripts/shared"
 )
 
-const devBackendWebPort = "38473" // dev-only internal backend --web; never user-facing
+const devBackendWebPort = "38473" // dev-only internal backend WEB_PORT; never user-facing
 
 var exeSuffix = map[bool]string{true: ".exe", false: ""}[runtime.GOOS == "windows"]
 
@@ -23,7 +23,10 @@ func main() {
 	webPort := shared.Getenv("WEB_PORT", "38080")
 	apiPort := shared.Getenv("API_PORT", "38081")
 	logLevel := shared.NormalizeLogLevel(shared.Getenv("LOG_LEVEL", "info"))
-	dbPath := shared.RequireEnv("DEV_DB")
+	databasePath := shared.Getenv("DEV_DB", "")
+	if databasePath == "" {
+		databasePath = shared.Getenv("DB_PATH", shared.DefaultDevDB())
+	}
 	noAuth := shared.IsWriteMode("NO_AUTH")
 	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
 
@@ -52,7 +55,7 @@ func main() {
 	}
 
 	// Ensure parent dirs for db and pidfile.
-	for _, path := range []string{dbPath, pidFile, shared.DefaultBackendLog(), shared.DefaultFrontendLog()} {
+	for _, path := range []string{databasePath, pidFile, shared.DefaultBackendLog(), shared.DefaultFrontendLog()} {
 		parent := filepath.Dir(path)
 		if parent != "." && parent != "" {
 			if err := os.MkdirAll(parent, 0755); err != nil {
@@ -82,14 +85,16 @@ func main() {
 
 	shared.Stepf("Starting backend and frontend (vite)...")
 
-	backendArgs := []string{binPath, host,
-		"--web", devBackendWebPort, "--api", apiPort, "--db", dbPath,
-		"--log-level", logLevel,
-		"--dev-ui-redirect", fmt.Sprintf("http://%s:%s", host, webPort)}
-	if noAuth {
-		backendArgs = append(backendArgs, "--no-auth")
+	backendEnvironment := []string{
+		"HOST=" + host,
+		"WEB_PORT=" + devBackendWebPort,
+		"API_PORT=" + apiPort,
+		"DB_PATH=" + databasePath,
+		"LOG_LEVEL=" + logLevel,
+		"DEV_UI_REDIRECT=" + fmt.Sprintf("http://%s:%s", host, webPort),
+		"NO_AUTH=" + map[bool]string{true: "1", false: "0"}[noAuth],
 	}
-	backendPID, err := shared.SpawnDetached(root, backendLog, backendArgs[0], backendArgs[1:]...)
+	backendPID, err := shared.SpawnDetachedEnv(root, backendLog, backendEnvironment, binPath)
 	if err != nil {
 		shared.Failf("spawn backend: %v", err)
 	}
@@ -135,7 +140,7 @@ func main() {
 
 	// Record the launch parameters: restart relaunches with the same config.
 	if err := shared.WriteStartParams(pidFile, shared.StartParams{
-		DevDB: dbPath, NoAuth: noAuth, Host: host,
+		DevDB: databasePath, NoAuth: noAuth, Host: host,
 		WebPort: webPort, APIPort: apiPort, LogLevel: logLevel,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] write params file: %v\n", err)
@@ -149,7 +154,7 @@ func main() {
 	fmt.Printf("Dashboard (dev): http://%s:%s\n", host, webPort)
 	fmt.Printf("API: http://%s:%s/v1\n", host, apiPort)
 	if noAuth {
-		fmt.Printf("Auth: disabled (--no-auth)\n")
+		fmt.Printf("Auth: disabled (NO_AUTH=1)\n")
 	}
 	fmt.Printf("Backend log: %s\n", backendLog)
 	fmt.Printf("Frontend log: %s\n", frontendLog)

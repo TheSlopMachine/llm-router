@@ -172,7 +172,7 @@ func EnsureEmbedStub(root, host, vitePort string) error {
 	}
 	Stepf("Creating embed stub %s...", indexPath)
 	devURL := fmt.Sprintf("http://%s:%s", host, vitePort)
-	html := fmt.Sprintf(`<!doctype html><html><head><meta charset="utf-8"><title>llm-router dev</title></head><body style="font-family:system-ui;padding:40px"><h1>llm-router dev placeholder</h1><p>This file only exists to satisfy the //go:embed directive in internal/dashboard/handler.go during dev builds — it is not the real UI.</p><p>You're seeing it because the backend was started without <code>--dev-ui-redirect</code>. Via <code>make start</code> it redirects here automatically to <a href="%s">%s</a> instead.</p></body></html>`, devURL, devURL)
+	html := fmt.Sprintf(`<!doctype html><html><head><meta charset="utf-8"><title>llm-router dev</title></head><body style="font-family:system-ui;padding:40px"><h1>llm-router dev placeholder</h1><p>This file only exists to satisfy the //go:embed directive in internal/dashboard/handler.go during dev builds — it is not the real UI.</p><p>You're seeing it because the backend was started without <code>DEV_UI_REDIRECT</code>. Via <code>make start</code> it redirects here automatically to <a href="%s">%s</a> instead.</p></body></html>`, devURL, devURL)
 	if _, err := WriteIfChanged(indexPath, []byte(html), 0644); err != nil {
 		return err
 	}

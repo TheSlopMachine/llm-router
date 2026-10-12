@@ -3,9 +3,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -18,15 +18,13 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/server"
 )
 
+// generateConfigurationBare marks a bare --generate-config flag (no path).
+const generateConfigurationBare = "true"
+
 var (
-	webPort            config.Port = 8080
-	apiPort            config.Port = 8081
-	databasePath       string
-	noAuth             bool
-	logLevel           config.LogLevel = config.LogLevelInfo
-	devUIRedirect      string
-	versionFlag        bool
-	versionInformation struct {
+	versionFlag               bool
+	generateConfigurationPath string
+	versionInformation        struct {
 		Version   string
 		GitCommit string
 		BuildTime string
@@ -42,13 +40,13 @@ func SetVersionInfo(version, commit, buildTime string) {
 
 // rootCmd is the single CLI command — no sub-commands by design.
 var rootCmd = &cobra.Command{
-	Use:   "llm-router [host]",
+	Use:   "llm-router",
 	Short: "llm-router — minimalist LLM routing gateway",
-	Long:  "llm-router — minimalist LLM routing gateway",
+	Long:  "llm-router — minimalist LLM routing gateway (configuration from environment variables with optional .env file)",
 	Example: `  llm-router
-  llm-router localhost --web 8080 --api 8081 --db ./llm-router.sqlite3`,
+  llm-router --generate-config`,
 
-	Args: cobra.MaximumNArgs(1),
+	Args: cobra.NoArgs,
 	RunE: run,
 }
 
@@ -60,17 +58,12 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.Flags().Var(&webPort, "web", "port for dashboard UI")
-	rootCmd.Flags().Var(&apiPort, "api", "port for /v1 OpenAI-compatible API")
-	rootCmd.Flags().StringVar(&databasePath, "db", "llm-router.sqlite3", "path to the SQLite database file")
-	rootCmd.Flags().BoolVar(&noAuth, "no-auth", false, "disable all authorization (dev and AI debugging only)")
-	rootCmd.Flags().Var(&logLevel, "log-level", "log level: debug, info, warn, error")
 	rootCmd.Flags().BoolVarP(&versionFlag, "version", "v", false, "print version information and exit")
-	rootCmd.Flags().StringVar(&devUIRedirect, "dev-ui-redirect", "", "internal: redirect dashboard navigations to this origin instead of serving the embedded SPA (used by `make start`)")
-	_ = rootCmd.Flags().MarkHidden("dev-ui-redirect")
+	rootCmd.Flags().StringVar(&generateConfigurationPath, "generate-config", "", "write default .env template to file and exit (bare flag uses ENV_FILE or .env)")
+	rootCmd.Flags().Lookup("generate-config").NoOptDefVal = generateConfigurationBare
 }
 
-func run(cmd *cobra.Command, arguments []string) error {
+func run(command *cobra.Command, arguments []string) error {
 	if versionFlag {
 		fmt.Printf("llm-router version %s\n", versionInformation.Version)
 		fmt.Printf("  commit: %s\n", versionInformation.GitCommit)
@@ -78,29 +71,31 @@ func run(cmd *cobra.Command, arguments []string) error {
 		return nil
 	}
 
-	host := "localhost"
-	if len(arguments) == 1 {
-		host = arguments[0]
+	if command.Flags().Changed("generate-config") {
+		target := strings.TrimSpace(generateConfigurationPath)
+		if target == "" || target == generateConfigurationBare || target == "1" {
+			target = config.ResolveDotenvPath()
+		}
+		if err := config.WriteDefaultFile(target); err != nil {
+			if errors.Is(err, config.ErrConfigFileExists) {
+				return err
+			}
+			return fmt.Errorf("write default configuration: %w", err)
+		}
+		fmt.Printf("wrote default configuration to %s\n", target)
+		return nil
 	}
 
-	if webPort == apiPort {
-		return fmt.Errorf("dashboard and api ports must differ (both %s)", webPort.String())
-	}
-
-	applicationConfig := &config.Config{
-		DashboardAddr: net.JoinHostPort(host, webPort.String()),
-		APIAddr:       net.JoinHostPort(host, apiPort.String()),
-		DBPath:        databasePath,
-		LogLevel:      logLevel,
-		NoAuth:        noAuth,
-		DevUIRedirect: strings.TrimSpace(devUIRedirect),
+	applicationConfig, _, err := config.Load()
+	if err != nil {
+		return err
 	}
 
 	// Logger
-	logger := slog.New(logging.NewHandler(os.Stderr, logLevel.SlogLevel()))
+	logger := slog.New(logging.NewHandler(os.Stderr, applicationConfig.LogLevel.SlogLevel()))
 
 	if applicationConfig.NoAuth {
-		logger.Warn("authorization disabled (--no-auth): dev and AI debugging only")
+		logger.Warn("authorization disabled (NO_AUTH=1): dev and AI debugging only")
 	}
 
 	// Build server

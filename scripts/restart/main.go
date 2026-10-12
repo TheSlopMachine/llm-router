@@ -18,6 +18,7 @@ func main() {
 
 	if params, err := shared.ReadStartParams(pidFile); err == nil {
 		overlay("DEV_DB", params.DevDB, shared.DefaultDevDB())
+		overlay("DB_PATH", params.DevDB, "")
 		overlay("HOST", params.Host, "localhost")
 		overlay("WEB_PORT", params.WebPort, "38080")
 		overlay("API_PORT", params.APIPort, "38081")

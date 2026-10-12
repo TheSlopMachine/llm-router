@@ -98,7 +98,7 @@ Open every session by identifying the platform and shell. Never assume them.
 ## 3. Structure
 
 ```
-cmd/root.go              CLI entrypoint (--web/--api/--db)
+cmd/root.go              CLI entrypoint (environment + .env; --version/--generate-config only)
 internal/server/         HTTP server: dashboard (38080), /v1 API (38081)
 internal/services/
   token/                 router-token issue/validate

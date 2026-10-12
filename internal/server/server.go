@@ -158,7 +158,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 	if applicationConfig.NoAuth {
 		bootstrapped, err := adminService.IsBootstrapped(context.Background())
 		if err != nil || !bootstrapped {
-			logger.Warn("no-auth mode with no admin account: dropping --no-auth later will require bootstrap")
+			logger.Warn("no-auth mode with no admin account: dropping NO_AUTH later will require bootstrap")
 		}
 	}
 

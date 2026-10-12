@@ -1,0 +1,232 @@
+package config
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// clearProcessEnvironment removes every variable Load reads so ambient values
+// and repository files cannot leak into hermetic cases. Variables are unset
+// (not blanked) so dotenv loading fills them as in production.
+func clearProcessEnvironment(environment *testing.T) {
+	environment.Helper()
+	for _, name := range []string{"HOST", "WEB_PORT", "API_PORT", "DB_PATH", "DEV_DB", "LOG_LEVEL", "NO_AUTH", "DEV_UI_REDIRECT"} {
+		value, present := os.LookupEnv(name)
+		if !present {
+			continue
+		}
+		if err := os.Unsetenv(name); err != nil {
+			environment.Fatalf("unset %s: %v", name, err)
+		}
+		restoreValue, restorePresent := value, present
+		environment.Cleanup(func() {
+			if restorePresent {
+				_ = os.Setenv(name, restoreValue)
+			}
+		})
+	}
+}
+
+// isolateDotenv points ENV_FILE at a missing path under temp.
+func isolateDotenv(environment *testing.T) {
+	environment.Helper()
+	environment.Setenv("ENV_FILE", filepath.Join(environment.TempDir(), "missing.env"))
+}
+
+func TestLoadDefaults(t *testing.T) {
+	clearProcessEnvironment(t)
+	isolateDotenv(t)
+
+	configuration, loadedPath, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loadedPath != "" {
+		t.Fatalf("loaded path = %q, want empty", loadedPath)
+	}
+	if configuration.DashboardAddr != "localhost:8080" {
+		t.Errorf("dashboard = %q, want localhost:8080", configuration.DashboardAddr)
+	}
+	if configuration.APIAddr != "localhost:8081" {
+		t.Errorf("api = %q, want localhost:8081", configuration.APIAddr)
+	}
+	if configuration.DBPath != DefaultDatabasePath {
+		t.Errorf("database = %q, want %q", configuration.DBPath, DefaultDatabasePath)
+	}
+	if configuration.LogLevel != LogLevelInfo {
+		t.Errorf("log level = %q, want info", configuration.LogLevel)
+	}
+	if configuration.NoAuth {
+		t.Error("no-auth = true, want false")
+	}
+}
+
+func TestLoadRejectsEqualPorts(t *testing.T) {
+	clearProcessEnvironment(t)
+	isolateDotenv(t)
+	t.Setenv("WEB_PORT", "38080")
+	t.Setenv("API_PORT", "38080")
+
+	if _, _, err := Load(); !errors.Is(err, ErrEqualPorts) {
+		t.Fatalf("error = %v, want ErrEqualPorts", err)
+	}
+}
+
+func TestLoadRejectsInvalidPort(t *testing.T) {
+	clearProcessEnvironment(t)
+	isolateDotenv(t)
+	t.Setenv("WEB_PORT", "99999")
+
+	if _, _, err := Load(); !errors.Is(err, ErrInvalidPort) {
+		t.Fatalf("error = %v, want ErrInvalidPort", err)
+	}
+}
+
+func TestLoadRejectsInvalidLogLevel(t *testing.T) {
+	clearProcessEnvironment(t)
+	isolateDotenv(t)
+	t.Setenv("LOG_LEVEL", "verbose")
+
+	if _, _, err := Load(); !errors.Is(err, ErrInvalidLogLevel) {
+		t.Fatalf("error = %v, want ErrInvalidLogLevel", err)
+	}
+}
+
+func TestLoadRejectsInvalidNoAuth(t *testing.T) {
+	clearProcessEnvironment(t)
+	isolateDotenv(t)
+	t.Setenv("NO_AUTH", "sometimes")
+
+	if _, _, err := Load(); !errors.Is(err, ErrInvalidNoAuth) {
+		t.Fatalf("error = %v, want ErrInvalidNoAuth", err)
+	}
+}
+
+func TestLoadAcceptsWarningAliasAndTruthyNoAuth(t *testing.T) {
+	clearProcessEnvironment(t)
+	isolateDotenv(t)
+	t.Setenv("LOG_LEVEL", "warning")
+	t.Setenv("NO_AUTH", "yes")
+
+	configuration, _, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if configuration.LogLevel != LogLevelWarn {
+		t.Errorf("log level = %q, want warn", configuration.LogLevel)
+	}
+	if !configuration.NoAuth {
+		t.Error("no-auth = false, want true")
+	}
+}
+
+func TestLoadPrefersDatabasePathOverDevDatabase(t *testing.T) {
+	clearProcessEnvironment(t)
+	isolateDotenv(t)
+	t.Setenv("DB_PATH", "primary.sqlite3")
+	t.Setenv("DEV_DB", "fallback.sqlite3")
+
+	configuration, _, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if configuration.DBPath != "primary.sqlite3" {
+		t.Errorf("database = %q, want primary.sqlite3", configuration.DBPath)
+	}
+}
+
+func TestLoadFallsBackToDevDatabase(t *testing.T) {
+	clearProcessEnvironment(t)
+	isolateDotenv(t)
+	t.Setenv("DEV_DB", "fallback.sqlite3")
+
+	configuration, _, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if configuration.DBPath != "fallback.sqlite3" {
+		t.Errorf("database = %q, want fallback.sqlite3", configuration.DBPath)
+	}
+}
+
+func TestLoadReadsDotenvFile(t *testing.T) {
+	clearProcessEnvironment(t)
+	directory := t.TempDir()
+	dotenvPath := filepath.Join(directory, ".env")
+	if err := os.WriteFile(dotenvPath, []byte("WEB_PORT=38080\nAPI_PORT=38081\n"), 0644); err != nil {
+		t.Fatalf("write dotenv: %v", err)
+	}
+	t.Setenv("ENV_FILE", dotenvPath)
+
+	configuration, loadedPath, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loadedPath != dotenvPath {
+		t.Errorf("loaded path = %q, want %q", loadedPath, dotenvPath)
+	}
+	if configuration.DashboardAddr != "localhost:38080" {
+		t.Errorf("dashboard = %q, want localhost:38080", configuration.DashboardAddr)
+	}
+}
+
+func TestLoadProcessEnvironmentWinsOverDotenvFile(t *testing.T) {
+	clearProcessEnvironment(t)
+	directory := t.TempDir()
+	dotenvPath := filepath.Join(directory, ".env")
+	if err := os.WriteFile(dotenvPath, []byte("WEB_PORT=39080\nAPI_PORT=38081\n"), 0644); err != nil {
+		t.Fatalf("write dotenv: %v", err)
+	}
+	t.Setenv("ENV_FILE", dotenvPath)
+	t.Setenv("WEB_PORT", "38080")
+
+	configuration, _, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if configuration.DashboardAddr != "localhost:38080" {
+		t.Errorf("dashboard = %q, want localhost:38080", configuration.DashboardAddr)
+	}
+}
+
+func TestWriteDefaultFileRefusesExistingFile(t *testing.T) {
+	directory := t.TempDir()
+	target := filepath.Join(directory, ".env")
+	if err := os.WriteFile(target, []byte("HOST=example\n"), 0644); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+
+	if err := WriteDefaultFile(target); !errors.Is(err, ErrConfigFileExists) {
+		t.Fatalf("error = %v, want ErrConfigFileExists", err)
+	}
+	raw, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read target: %v", err)
+	}
+	if string(raw) != "HOST=example\n" {
+		t.Fatalf("target content = %q, want untouched", string(raw))
+	}
+}
+
+func TestWriteDefaultFileCreatesTemplate(t *testing.T) {
+	target := filepath.Join(t.TempDir(), ".env")
+
+	if err := WriteDefaultFile(target); err != nil {
+		t.Fatalf("WriteDefaultFile: %v", err)
+	}
+	raw, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read target: %v", err)
+	}
+	if string(raw) != DefaultTemplate() {
+		t.Fatalf("template mismatch:\n%s", string(raw))
+	}
+	for _, key := range []string{"HOST=", "WEB_PORT=", "API_PORT=", "DB_PATH=", "LOG_LEVEL=", "NO_AUTH=", "DEV_UI_REDIRECT="} {
+		if !strings.Contains(string(raw), key) {
+			t.Errorf("template misses %q", key)
+		}
+	}
+}

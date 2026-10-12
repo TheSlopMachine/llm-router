@@ -6,14 +6,14 @@ Separate Go module for build/dev helpers. Never imported by the parent module, n
 module github.com/TheSlopMachine/llm-router/scripts
 ```
 
-Configuration flows one way: `Makefile` vars → env → scripts. Scripts take no CLI flags.
+Configuration flows one way: `.env` file, then `Makefile` vars → env → scripts. `make VAR=value` wins over the file. Scripts take no CLI flags.
 
 ## Scripts
 
 | Script | Env | Called by |
 |--------|-----|-----------|
 | `init` | `HOST`, `WEB_PORT`, `NO_SKIP` | `make init`; `make start` / `make build` (via dep) |
-| `start` | `HOST`, `WEB_PORT`, `API_PORT`, `LOG_LEVEL` (default `info`), `NO_AUTH` (default `0`), `DEV_DB`*, `PID_FILE` | `make start` / `make restart` |
+| `start` | `HOST`, `WEB_PORT`, `API_PORT`, `LOG_LEVEL` (default `info`), `NO_AUTH` (default `0`), `DB_PATH` (fallback `DEV_DB`, then default dev path), `DEV_UI_REDIRECT`, `ENV_FILE`, `PID_FILE` | `make start` / `make restart` |
 | `stop` | `PID_FILE` | `make stop` / `make restart` / `make clean` |
 | `restart` | same as `start` | `make restart` / `make smoke` (before the harness) |
 | `status` | `PID_FILE` | `make status` |
@@ -38,8 +38,8 @@ Configuration flows one way: `Makefile` vars → env → scripts. Scripts take n
 ## Dev vs publish
 
 - **Init** (`make init`): `bun install`, `swag` (`web/openapi.yaml` from `internal/**/*.go`), `generate:api-types` (`web/src/lib/generated/api-types.ts`), dev embed stub (`internal/dashboard/build/web/index.html`, created only when missing). Safe to re-run and safe for agents.
-- **Dev** (`make start` → `init`, then `start`): refuses to run if the pidfile shows a still-alive backend/frontend (run `make stop` first); a stale pidfile pointing at dead processes clears automatically. Then spawns `go run .` + `bun run dev` detached with JSON pidfile `{backend,frontend,vitePort}`. The backend starts with `--web 38473` (dev-internal, hardcoded) + `--dev-ui-redirect http://HOST:WEB_PORT`, so any navigation not proxied to `WEB_PORT` redirects there instead of serving the placeholder stub. `WEB_PORT` proxies `/api/llm-router/*` → backend `:38473`.
-- **Build** (`make build` → `init`, then `build`): `vite build` into `internal/dashboard/build/web`, then multi-platform `go build` embeds it (without `--dev-ui-redirect`, so the redirect never fires), zips with `archive/zip`, hashes with `crypto/sha256`. `VERSION` prefers env, then the latest git tag, then `dev`; missing git degrades to `dev`/`unknown` commit with a warning, never a failure.
+- **Dev** (`make start` → `init`, then `start`): refuses to run if the pidfile shows a still-alive backend/frontend (run `make stop` first); a stale pidfile pointing at dead processes clears automatically. Then spawns `go run .` + `bun run dev` detached with JSON pidfile `{backend,frontend,vitePort}`. The backend starts with `WEB_PORT=38473` (dev-internal, hardcoded) + `DEV_UI_REDIRECT=http://HOST:WEB_PORT`, so any navigation not proxied to `WEB_PORT` redirects there instead of serving the placeholder stub. `WEB_PORT` proxies `/api/llm-router/*` → backend `:38473`.
+- **Build** (`make build` → `init`, then `build`): `vite build` into `internal/dashboard/build/web`, then multi-platform `go build` embeds it (without `DEV_UI_REDIRECT`, so the redirect never fires), zips with `archive/zip`, hashes with `crypto/sha256`. `VERSION` prefers env, then the latest git tag, then `dev`; missing git degrades to `dev`/`unknown` commit with a warning, never a failure.
 - **Publish** (`make publish` → `publish`, no build): verifies a clean tree with `HEAD == origin/main`, bumps the latest tag (`fix`: `Z+1`; `minor`: `Y+1`, short `vX.Y`; `major`: `X+1`, short `vX.0`) or takes forced `VERSION`, then creates and pushes the annotated tag. CI builds the release on tag push. Tags are the source of truth; without git or tags the command fails.
 
 ## Smoke (`make smoke`)

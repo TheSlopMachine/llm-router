@@ -36,7 +36,7 @@ func RequireEnv(name string) string {
 }
 
 // NormalizeLogLevel lowercases and trims a log level, failing on values
-// outside debug/info/warn/warning/error — the set cmd/root.go accepts.
+// outside debug/info/warn/warning/error — the set internal/config accepts.
 func NormalizeLogLevel(value string) string {
 	normalized := strings.ToLower(strings.TrimSpace(value))
 	switch normalized {
@@ -71,12 +71,26 @@ func EnvWithoutGowork() []string {
 	return output
 }
 
-// EnvWith returns EnvWithoutGowork plus extra entries.
+// EnvWith returns EnvWithoutGowork plus extra entries. Extra entries win
+// over inherited ones with the same key.
 func EnvWith(extra []string) []string {
 	if len(extra) == 0 {
 		return EnvWithoutGowork()
 	}
-	output := EnvWithoutGowork()
-	output = append(output, extra...)
+	combined := append(EnvWithoutGowork(), extra...)
+	positionByKey := make(map[string]int, len(combined))
+	output := make([]string, 0, len(combined))
+	for _, entry := range combined {
+		key := entry
+		if keyPart, _, found := strings.Cut(entry, "="); found {
+			key = keyPart
+		}
+		if position, exists := positionByKey[key]; exists {
+			output[position] = entry
+			continue
+		}
+		positionByKey[key] = len(output)
+		output = append(output, entry)
+	}
 	return output
 }

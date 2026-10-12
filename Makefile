@@ -2,6 +2,12 @@
 # Makefile - llm-router dev tasks  (launcher for scripts/)
 # =============================================================================
 
+# Project .env supplies defaults when present.
+# Command-line VAR=value wins over the file.
+ifneq (,$(wildcard .env))
+include .env
+endif
+
 VERSION    ?= dev
 NO_SKIP    ?= 0
 export NO_SKIP
@@ -14,8 +20,11 @@ API_PORT  ?= 38081
 URL       ?= http://$(HOST):$(WEB_PORT)
 LOG_LEVEL ?= info
 NO_AUTH   ?= 0
+DB_PATH   ?= llm-router.sqlite3
+DEV_UI_REDIRECT ?=
+ENV_FILE  ?= .env
 PKG       ?= ./...
-export HOST WEB_PORT API_PORT URL VERSION PLATFORMS LOG_LEVEL NO_AUTH PKG
+export HOST WEB_PORT API_PORT URL VERSION PLATFORMS LOG_LEVEL NO_AUTH DB_PATH DEV_UI_REDIRECT ENV_FILE PKG
 
 ifeq ($(OS),Windows_NT)
   DEV_DB  ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.sqlite3

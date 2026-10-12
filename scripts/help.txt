@@ -33,6 +33,9 @@ Variables:
   URL                Dashboard URL for browser. Default: "http://$(HOST):$(WEB_PORT)"
   LOG_LEVEL          Server log level. Default: "info"
   DEV_DB             Path to dev database. Default: "~/.local/llm-router/llm-router-dev.sqlite3"
+  DB_PATH            Database file for the server. Default: "llm-router.sqlite3" (dev start prefers DEV_DB)
+  DEV_UI_REDIRECT    Dashboard redirect origin for dev. Default: empty
+  ENV_FILE           Dotenv path for the server. Default: ".env"
   NO_AUTH            Disable all authorization (dev and AI debugging only). Default: "0"
   SMOKE_PLUGINS      Comma plugin types for smoke (or "all"). Default: "mock"
   SMOKE_TARGETS      Comma targets for smoke. Default: "completions,messages"

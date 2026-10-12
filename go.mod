@@ -6,6 +6,7 @@ require (
 	github.com/TheSlopMachine/proxypool v1.2.0
 	github.com/glebarez/go-sqlite v1.21.2
 	github.com/glebarez/sqlite v1.11.0
+	github.com/joho/godotenv v1.5.1
 	github.com/spf13/cobra v1.8.0
 	github.com/yuin/gopher-lua v1.1.2
 	golang.org/x/crypto v0.57.0
