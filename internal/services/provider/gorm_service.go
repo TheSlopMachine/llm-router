@@ -62,6 +62,18 @@ func (s *GormService) notifyChanged(providerID string) {
 	}
 }
 
+// notifyProviderDisabled fires the plugin deinitialize hook for a provider
+// that left the enabled state. It is a no-op without a wired Lua service.
+// Update, SystemDisable and Delete are the only callers: every disable
+// transition funnels through one of them, so the hook fires exactly once
+// per transition and never from a second source.
+func (s *GormService) notifyProviderDisabled(snapshot *models.ProviderInstance) {
+	if s.luaService == nil {
+		return
+	}
+	s.luaService.NotifyProviderDisabled(snapshot)
+}
+
 // CreateOptions holds parameters for creating a provider instance.
 type CreateOptions struct {
 	Name      string
@@ -257,11 +269,13 @@ func (s *GormService) Update(ctx context.Context, identifier string, options Upd
 	}
 	trimmed := strings.TrimSpace(identifier)
 	var result *models.ProviderInstance
+	wasEnabled := false
 	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		row, err := gorm.G[record.ProviderInstance](transaction, clause.Eq{Column: "id", Value: trimmed}).First(ctx)
 		if err != nil {
 			return db.Translate(err)
 		}
+		wasEnabled = !row.Disabled
 		configuration := options.Config
 		if row.TypeKey == TypeCustom && configuration != nil {
 			normalized, err := models.NormalizeBaseURL(configBaseURL(configuration))
@@ -308,6 +322,9 @@ func (s *GormService) Update(ctx context.Context, identifier string, options Upd
 		s.logger.Info("provider updated", "provider_id", trimmed, "type", result.TypeKey, "disabled", result.Disabled, "disabled_by", result.DisabledBy)
 	}
 	s.notifyChanged(trimmed)
+	if options.Disabled != nil && *options.Disabled && wasEnabled {
+		s.notifyProviderDisabled(result)
+	}
 	return result, nil
 }
 
@@ -325,6 +342,7 @@ func (s *GormService) SystemDisable(ctx context.Context, identifier, reason stri
 		return err
 	}
 	trimmed := strings.TrimSpace(identifier)
+	var disabledSnapshot *models.ProviderInstance
 	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		row, err := gorm.G[record.ProviderInstance](transaction, clause.Eq{Column: "id", Value: trimmed}).First(ctx)
 		if err != nil {
@@ -343,6 +361,7 @@ func (s *GormService) SystemDisable(ctx context.Context, identifier, reason stri
 		if err := gorm.G[record.ProviderInstance](transaction, clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, UpdateAll: true}).CreateInBatches(ctx, &rows, 500); err != nil {
 			return db.Translate(err)
 		}
+		disabledSnapshot = providerModelFromRecord(row)
 		return nil
 	}); err != nil {
 		return err
@@ -351,6 +370,9 @@ func (s *GormService) SystemDisable(ctx context.Context, identifier, reason stri
 		s.logger.Info("provider disabled by system", "provider_id", trimmed, "reason", reason)
 	}
 	s.notifyChanged(trimmed)
+	if disabledSnapshot != nil {
+		s.notifyProviderDisabled(disabledSnapshot)
+	}
 	return nil
 }
 
@@ -363,7 +385,15 @@ func (s *GormService) Delete(ctx context.Context, identifier string) error {
 		return err
 	}
 	trimmed := strings.TrimSpace(identifier)
+	var deletedSnapshot *models.ProviderInstance
 	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		row, err := gorm.G[record.ProviderInstance](transaction, clause.Eq{Column: "id", Value: trimmed}).First(ctx)
+		if err != nil {
+			return db.Translate(err)
+		}
+		if !row.Disabled {
+			deletedSnapshot = providerModelFromRecord(row)
+		}
 		tracker := gorm.WithResult()
 		affected, err := gorm.G[record.ProviderInstance](transaction, clause.Eq{Column: "id", Value: trimmed}, tracker).Delete(ctx)
 		if err != nil {
@@ -380,6 +410,9 @@ func (s *GormService) Delete(ctx context.Context, identifier string) error {
 		s.logger.Info("provider deleted", "provider_id", trimmed)
 	}
 	s.notifyChanged(trimmed)
+	if deletedSnapshot != nil {
+		s.notifyProviderDisabled(deletedSnapshot)
+	}
 	return nil
 }
 

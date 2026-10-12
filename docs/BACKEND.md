@@ -159,6 +159,13 @@ services map it with `errors.Is`, never by string.
   (due plugin jobs with overlap-skip and 4-worker bound, model sync).
   `RunStartupRefresh` runs `run_on_startup` jobs before listen under a 30s
   gate; failures log, never fail startup.
+- `luaplugin` lifecycle hooks (`lifecycle.go`): optional `initialize` /
+  `deinitialize` slots fan out concurrently (4 workers, 30s per call,
+  failures log, never block). Install/update/delete/rollback dispatch
+  detached after commit; startup runs in the server gate next to
+  `RunStartupRefresh`; shutdown runs before metrics stop; provider disable
+  transitions dispatch from the provider service only
+  (`Update`/`SystemDisable`/`Delete` are the trigger sites).
 - `proxypool.Service.Start(ctx)`: starts the proxypool library scheduler and
   independent 3s cache-flush loop. Library-owned lanes, foreground/background
   hysteresis, adaptive concurrency, suspect handling and network breaker drive

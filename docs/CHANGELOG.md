@@ -2,6 +2,7 @@
 
 ## Done (2026-10-12, vUnreleased)
 
+- Added optional plugin lifecycle hooks `initialize` / `deinitialize` (contract 1.2): one-time `ctx`-table slots with `ctx.reason` (`install`/`update`/`startup`, `delete`/`update`/`shutdown`/`disable`), concurrent fan-out with a 30s bound, failures logged without blocking. Install/update/delete/rollback dispatched detached after commit, startup ran in the server gate, shutdown ran before metrics stop, and provider disable transitions dispatched from the provider service (`Update`/`SystemDisable`/`Delete` only). Lifecycle sandboxes carried storage, HTTP and proxy tables with read-only credential access on the disable path.
 - Replaced CLI flags with environment variables (`HOST`, `WEB_PORT`, `API_PORT`, `DB_PATH`, `LOG_LEVEL`, `NO_AUTH`, `DEV_UI_REDIRECT`) plus `.env` file support through `ENV_FILE`; process environment won over the file and a missing file no longer failed startup.
 - Added `--generate-config` to write the default `.env` template; the command failed when the target file existed.
 - Made the `Makefile` inherit `.env` from the project root; `make VAR=value` overrode the file.

@@ -253,14 +253,13 @@ func (s *Service) Lookup(typeKey string) (*PluginRecord, error) {
 	return nil, fmt.Errorf("no plugin registered for type key %q", typeKey)
 }
 
-// capabilitiesFor resolves sandbox table gating for one type key from the
-// stored record.
-func (s *Service) capabilitiesFor(typeKey string) capabilities {
+// capabilitiesForRecord resolves sandbox table gating for one type key from
+// a stored record snapshot. The lifecycle hooks execute snapshots (the
+// registry may already serve a newer source), so they pass the record they
+// run instead of reading the registry.
+func capabilitiesForRecord(record *PluginRecord, typeKey string) capabilities {
 	caps := capabilities{}
-	s.mu.RLock()
-	record, ok := s.registry[typeKey]
-	s.mu.RUnlock()
-	if !ok {
+	if record == nil {
 		return caps
 	}
 	if nodes, ok := record.Schemas[typeKey]["credential_schema"]; ok && nodes != nil {
@@ -275,6 +274,18 @@ func (s *Service) capabilitiesFor(typeKey string) capabilities {
 	}
 	_, caps.proxies = record.Schemas[typeKey]["proxy_schema"]
 	return caps
+}
+
+// capabilitiesFor resolves sandbox table gating for one type key from the
+// stored record.
+func (s *Service) capabilitiesFor(typeKey string) capabilities {
+	s.mu.RLock()
+	record, ok := s.registry[typeKey]
+	s.mu.RUnlock()
+	if !ok {
+		return capabilities{}
+	}
+	return capabilitiesForRecord(record, typeKey)
 }
 
 // CredentialsEnabled reports whether a type key serves credentials:

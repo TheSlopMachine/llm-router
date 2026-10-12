@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Plugin API: **1.1** (`luaplugin.PluginAPIVersion`). A plugin declares the
+Plugin API: **1.2** (`luaplugin.PluginAPIVersion`). A plugin declares the
 `@plugin_api` contract it speaks; the router label (`main.RouterVersion`,
 stamped from the release tag) carries no compatibility meaning. Install
 compares majors only: plugin major above the served one fails with `too_new`,
@@ -43,6 +43,7 @@ spelling. Anything else fails install.
 | 0.8.0 | `proxies.require({pool?, countries?, exclude?, limit?, want?, timeout_ms?, fallback?})`: demand-driven proxy acquisition. The free pool waits for a live proxy in the requested countries instead of returning an empty list; the plugin chooses `fallback` `direct` or `fail` explicitly. `proxies.query` is unchanged. Transport error tables from `http_client` gain `transport`, `reason`, `proxy_fault`, `retryable`; body-read failures on proxied legs suspect the proxy. |
 | 1.0 | Plugin API split: `@plugin_api x.y` replaces `@router_version`. Install gates on the major only (`too_new` / `too_old` / `no_api_version`); minor is informational. All store plugins reissued under `1.0`. Router identity moves to the release tag (`main.RouterVersion`), short `X.Y` when the fix is 0. |
 | 1.1 | Optional `headers` string table on the error contract, rendered through a strict allow-list (`Retry-After` today) on unary `/v1` errors in both envelopes; streams and dashboard excluded. |
+| 1.2 | Optional `initialize` / `deinitialize` lifecycle slots: one-time `ctx`-table hooks with `ctx.reason` (`install` / `update` / `startup` and `delete` / `update` / `shutdown` / `disable`); detached concurrent fan-out, 30s bound, failures log. |
 
 ## Responsibility split
 
@@ -88,6 +89,8 @@ any other field is examined. Unknown `@tags` fail install.
 llm_router.register(type_key, {
   complete = function(ctx, request) ... end,  -- required
   complete_stream = function(ctx, request, emit) ... end,
+  initialize = function(ctx) ... end,    -- optional one-time setup, ctx.reason selects install/update/startup
+  deinitialize = function(ctx) ... end,  -- optional one-time teardown, ctx.reason selects delete/update/shutdown/disable
   transcribe = function(ctx, request) ... end,
   credential_schema = {
     { type = "secret", name = "api_key", label = "API Key" },
@@ -159,6 +162,8 @@ llm_router.register_proxy_source(name, {
 | `auth_initiate` | no | `(ctx)` | `auth result` |
 | `auth_step` | no | `(ctx, {action, values})` | `auth result` |
 | `fetch_proxies` | no | `()` | `array?` |
+| `initialize` | no | `(ctx)` | `nil`/`true`, or terminal error table |
+| `deinitialize` | no | `(ctx)` | `nil`/`true`, or terminal error table |
 
 ### Common arguments
 
@@ -177,6 +182,47 @@ llm_router.register_proxy_source(name, {
 - Request handlers return `(result, nil)` or `(nil, err)`; `nil` result is
   always a schema violation. Streams must not fail over after the first
   `emit` call: the stream belongs to that attempt.
+
+### Lifecycle hooks
+
+`initialize` and `deinitialize` are optional one-time slots. Declare them
+only when the plugin needs setup or teardown; most plugins omit both.
+
+- `initialize(ctx)` runs once per event with
+  `ctx.reason = "install"` (first install), `"update"` (reinstall or
+  rollback) or `"startup"` (router boot with the plugin installed).
+- `deinitialize(ctx)` runs once per event with `ctx.reason = "delete"`
+  (plugin removal), `"update"` (source replacement, old source runs),
+  `"shutdown"` (router exit) or `"disable"` (a provider instance using the
+  type left the enabled state). The `disable` ctx additionally carries
+  `provider_id` and `provider_config`; every other lifecycle ctx carries
+  `reason` only.
+- Each call runs in a fresh state with a 30s bound. Calls fan out
+  concurrently across types; failures log and never block install, delete,
+  disable, startup or shutdown.
+- The sandbox holds `storage`, `http_client`, `proxies` (when the type
+  declares `proxy_schema`), `print`, `json`, `uuid_v5`, `random_hex`,
+  `multipart` and `base64_*`. Credential tables stay out of plugin-scoped
+  hooks; the `disable` hook reads `credentials.list`/`get`/`parked` for its
+  provider only. No lifecycle hook writes credentials.
+- States stay per call: top-level file code reruns on every request, so it
+  must stay side-effect free. One-time state persists through
+  `llm_router.storage`; hooks seed it, request handlers read it.
+- Hooks return `nil`/`true` or a terminal error table. Any other value is
+  a plugin crash.
+
+```lua
+initialize = function(ctx)
+  if ctx.reason == "install" then
+    llm_router.storage.set("flags", "seeded", { version = 1 }, { ttl = 7776000 })
+  end
+end,
+deinitialize = function(ctx)
+  if ctx.reason == "disable" then
+    llm_router.storage.delete("flags", "seeded")
+  end
+end,
+```
 
 ### Error contract
 

@@ -100,6 +100,7 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 	}
 	var installed *PluginRecord
 	var previousKeys []string
+	var previousRecord *PluginRecord
 	if err := service.database.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		if err := checkTypeKeyConflictsInTransaction(ctx, transaction, identifier, typeKeys); err != nil {
 			return err
@@ -155,6 +156,7 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 		}
 		previousSnapshot := snapshotFromRecord(existingRecord)
 		previousKeys = append([]string(nil), existingRecord.TypeKeys...)
+		previousRecord = existingRecord
 		versionIdentifier, err := util.GenerateID()
 		if err != nil {
 			return fmt.Errorf("generate version identifier: %w", err)
@@ -206,6 +208,12 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 		return nil, err
 	}
 	service.notify(unionKeys(previousKeys, installed.TypeKeys)...)
+	if previousRecord != nil {
+		service.launchLifecycleHook(previousRecord, string(HandlerDeinitialize), DeinitializeReasonUpdate)
+		service.launchLifecycleHook(installed, string(HandlerInitialize), InitializeReasonUpdate)
+	} else {
+		service.launchLifecycleHook(installed, string(HandlerInitialize), InitializeReasonInstall)
+	}
 	return installed, nil
 }
 
@@ -300,6 +308,9 @@ func (service *Service) DeleteSQLite(ctx context.Context, pluginID string) error
 	if err != nil {
 		return err
 	}
+	// The hook invocation precedes the delete; execution overlaps it
+	// detached and the delete proceeds regardless of the outcome.
+	service.launchLifecycleHook(existing, string(HandlerDeinitialize), DeinitializeReasonDelete)
 	if err := service.database.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		tracker := gorm.WithResult()
 		affected, err := gorm.G[record.Plugin](transaction, clause.Eq{Column: "id", Value: pluginID}, tracker).Delete(ctx)
@@ -451,6 +462,8 @@ func (service *Service) RollbackSQLite(ctx context.Context, pluginID string) (*P
 		return nil, err
 	}
 	service.notify(rolled.TypeKeys...)
+	service.launchLifecycleHook(currentRecord, string(HandlerDeinitialize), DeinitializeReasonUpdate)
+	service.launchLifecycleHook(rolled, string(HandlerInitialize), InitializeReasonUpdate)
 	return rolled, nil
 }
 

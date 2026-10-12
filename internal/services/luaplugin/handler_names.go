@@ -9,6 +9,15 @@ type Handler string
 // Required handler: every registered type serves it.
 const HandlerComplete Handler = "complete"
 
+// Lifecycle hooks: optional one-time handlers. initialize runs once per
+// plugin event (install, update, router startup); deinitialize runs before
+// plugin removal, replacement, provider disable and router shutdown. Both
+// are optional and run only when the plugin declares them.
+const (
+	HandlerInitialize   Handler = "initialize"
+	HandlerDeinitialize Handler = "deinitialize"
+)
+
 // Optional handlers: declared per type, validated as functions when present.
 const (
 	HandlerCompleteStream      Handler = "complete_stream"
@@ -44,6 +53,8 @@ func OptionalHandlerNames() []string {
 		string(HandlerCheckHealth),
 		string(HandlerAuthInitiate),
 		string(HandlerAuthStep),
+		string(HandlerInitialize),
+		string(HandlerDeinitialize),
 	}
 }
 

@@ -23,6 +23,15 @@ type callConfiguration struct {
 	allowCredentialWrite bool
 	timeoutMs            int
 	jobName              string
+	// capabilitiesOverride replaces the registry-derived sandbox tables
+	// for lifecycle hooks executed from a stored record snapshot (the
+	// registry may already serve a newer source). Nil keeps the registry.
+	capabilitiesOverride *capabilities
+	// lifecycleReadOnly strips credential write access (update, disable,
+	// enable, park, unpark) from the sandbox. List, get and parked stay
+	// available. Lifecycle hooks observe and persist through storage;
+	// they never mutate shared credential state.
+	lifecycleReadOnly bool
 }
 
 // handlerCall loads plugin source in a fresh state and invokes one handler.
@@ -89,6 +98,17 @@ func (s *Service) handlerCallEx(
 		goCtx:                goCtx,
 		registrations:        map[string]*lua.LTable{},
 		proxySources:         map[string]*lua.LTable{},
+	}
+	if configuration.capabilitiesOverride != nil {
+		ctx.capabilities = *configuration.capabilitiesOverride
+	}
+	if configuration.lifecycleReadOnly {
+		ctx.credentialUpdate = nil
+		ctx.credentialDisable = nil
+		ctx.credentialEnable = nil
+		ctx.credentialPark = nil
+		ctx.credentialUnpark = nil
+		ctx.automationOn = nil
 	}
 	// Failure-triggered health verification runs detached: attempts that
 	// carry a credential identity mark it suspect, the healthcheck service

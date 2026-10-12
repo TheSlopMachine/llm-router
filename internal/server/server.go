@@ -46,6 +46,7 @@ type Server struct {
 	maintenanceService *maintenance.GormService
 	metricsService     *metrics.Service
 	proxyService       *proxypool.Service
+	luaService         *luaplugin.Service
 }
 
 // New builds the full Server from config. The SQLite file at DBPath is the
@@ -212,6 +213,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		maintenanceService: maintenanceService,
 		metricsService:     metricsService,
 		proxyService:       proxyService,
+		luaService:         luaService,
 	}, nil
 }
 
@@ -220,12 +222,35 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 // block it. The ticker retries whatever was skipped.
 const startupRefreshTimeout = 30 * time.Second
 
+// shutdownLifecycleTimeout bounds plugin deinitialize hooks on exit:
+// shutdown proceeds when the gate expires, regardless of hook outcomes.
+const shutdownLifecycleTimeout = 30 * time.Second
+
+// runShutdownHooks runs deinitialize with reason shutdown for every plugin
+// type that declares it. Failures log; shutdown always proceeds.
+func (s *Server) runShutdownHooks() {
+	if s.luaService == nil {
+		return
+	}
+	gate, cancel := context.WithTimeout(context.Background(), shutdownLifecycleTimeout)
+	defer cancel()
+	if err := s.luaService.RunShutdownDeinitializers(gate); err != nil && s.logger != nil {
+		s.logger.Warn("plugin shutdown hooks failed", "err", err)
+	}
+}
+
 // Run starts the maintenance loop and blocks on both HTTP servers.
 func (s *Server) Run(ctx context.Context) error {
 	// Run startup plugin jobs before serving traffic so a restarted
 	// router refreshes-around stale state while the ticker runs.
 	rgate, cancel := context.WithTimeout(ctx, startupRefreshTimeout)
 	s.maintenanceService.RunStartupRefresh(rgate)
+	// Run plugin initializers in the same gate: a restarted router
+	// one-time-seeds shared state while the ticker runs. Slow hooks cancel
+	// with the gate; startup never blocks on them.
+	if err := s.luaService.RunStartupInitializers(rgate); err != nil && s.logger != nil {
+		s.logger.Warn("plugin startup initializers failed", "err", err)
+	}
 	cancel()
 	s.proxyService.Start(ctx)
 	s.maintenanceService.Start(ctx)
@@ -246,11 +271,13 @@ func (s *Server) Run(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		s.logger.Info("shutting down gracefully...")
+		s.runShutdownHooks()
 		s.metricsService.Stop()
 		_ = s.dashboardServer.Shutdown(context.Background())
 		_ = s.apiServer.Shutdown(context.Background())
 		return nil
 	case err := <-errorChannel:
+		s.runShutdownHooks()
 		s.metricsService.Stop()
 		_ = s.dashboardServer.Shutdown(context.Background())
 		_ = s.apiServer.Shutdown(context.Background())
