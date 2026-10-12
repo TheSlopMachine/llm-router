@@ -21,6 +21,28 @@ export function t(key: TranslationKey): string {
   return dict[key] ?? key
 }
 
+/** Interpolated text. Replaces every `{token}` with the matching param. Unknown tokens stay verbatim. */
+export function tx(key: TranslationKey, params: Record<string, string | number>): string {
+  const template = t(key)
+  let out = ''
+  let cursor = 0
+  for (;;) {
+    const open = template.indexOf('{', cursor)
+    if (open < 0) break
+    const close = template.indexOf('}', open + 1)
+    if (close < 0) break
+    const token = template.slice(open + 1, close)
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(token) && token in params) {
+      out += template.slice(cursor, open) + String(params[token])
+      cursor = close + 1
+    } else {
+      out += template.slice(cursor, close + 1)
+      cursor = close + 1
+    }
+  }
+  return out + template.slice(cursor)
+}
+
 const backendSummaryMap: Record<string, TranslationKey> = {
   'probe failed': 'credentials.probe_failed',
   'authentication failed': 'credentials.auth_failed',

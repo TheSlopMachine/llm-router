@@ -7,15 +7,18 @@ The dashboard uses categorized robotic keys for all UI text. The default UI show
 - `types.ts` - `TranslationKey` union. Add every new key here.
 - `en.ts` - English source text. Add English text here.
 - `ru.ts` - Russian translation. Add Russian text here.
-- `index.ts` - Public API. Exports `t`, `n`, `tb`.
+- `index.ts` - Public API. Exports `t`, `tx`, `n`, `tb`.
 
 ## API
 
 ```typescript
-import { t, n, tb } from '$lib/i18n.svelte'
+import { t, tx, n, tb } from '$lib/i18n.svelte'
 
 // Static text.
 t('common.actions.save')
+
+// Interpolated text. Every `{token}` takes a param; unknown tokens stay verbatim.
+tx('credentials.add_title', { name: provider.name })
 
 // Count plus noun. Russian forms resolve automatically.
 n(count, 'time.units.minute.one', 'time.units.minute.many')
@@ -66,6 +69,7 @@ Depth is 2 to 4 levels. Example: `tokens.permissions.allow_all_models`.
 - Use `-` not em dash or en dash.
 - Keep sentences short. Use simple structure.
 - Title case for titles and buttons. Sentence case for descriptions.
+- Interpolation tokens use `{full_word}` and resolve through `tx`.
 
 Suffix conventions:
 

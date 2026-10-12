@@ -111,6 +111,7 @@ export const ru: TranslationRecord = {
   'credentials.empty_for_provider': 'Нет учётных данных для этого провайдера',
   'credentials.empty': 'Учётных данных пока нет. Добавьте данные, чтобы направлять трафик.',
   'credentials.add': 'Добавить учётные данные',
+  'credentials.add_title': 'Добавить учётные данные · {name}',
   'credentials.edit': 'Изменить учётные данные',
   'credentials.enable': 'Включить учётные данные',
   'credentials.delete': 'Удалить учётные данные',

@@ -109,6 +109,7 @@ export type TranslationKey =
   | 'credentials.empty_for_provider'
   | 'credentials.empty'
   | 'credentials.add'
+  | 'credentials.add_title'
   | 'credentials.edit'
   | 'credentials.enable'
   | 'credentials.delete'

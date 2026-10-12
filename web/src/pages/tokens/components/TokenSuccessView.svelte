@@ -1,6 +1,6 @@
 <script lang="ts">
   import { CodeBlock, Grid, VStack, Text, Banner, Box } from '$ui'
-  import { t } from '$lib/i18n.svelte'
+  import { t, tx } from '$lib/i18n.svelte'
 
   let {
     token,
@@ -17,7 +17,7 @@
 
 <VStack gap={4}>
   <VStack gap={1} align="center">
-    <Text variant="section-title" align="center">{t('tokens.success.created_named').replace('{name}', tokenName)}</Text>
+    <Text variant="section-title" align="center">{tx('tokens.success.created_named', { name: tokenName })}</Text>
     <Text tag="h3" size="sm" tone="soft" align="center">{t('tokens.success.copy_now')}</Text>
   </VStack>
 

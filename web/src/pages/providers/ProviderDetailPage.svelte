@@ -13,7 +13,7 @@
   import { Button, Chip, FloatingView, HStack, Image, Select, Spacer, Switch, Table, Text, VStack, Banner, ConfirmAction, Header, ToolbarItem } from '$ui'
   import type { TableColumn } from '$ui'
   import { squircle } from '../../FUI/core/squircle'
-  import { t } from '$lib/i18n.svelte'
+  import { t, tx } from '$lib/i18n.svelte'
   import { isAutoDisabled, isPluginDisabled } from '$lib/credential-state'
   import { formatDisableReason } from '$lib/format'
   import { hasUiNodes } from '../../FUI/core/ui-guards'
@@ -168,7 +168,7 @@
   function openAddCredential(): void {
     if (!provider) return
     modal.open({
-      title: `Add Credential · ${provider.name}`,
+      title: tx('credentials.add_title', { name: provider.name }),
       content: ProviderCredentialWizard,
       severity: 'medium',
       size: 'medium',

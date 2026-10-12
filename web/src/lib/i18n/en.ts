@@ -111,6 +111,7 @@ export const en: TranslationRecord = {
   'credentials.empty_for_provider': 'No credentials for this provider',
   'credentials.empty': 'No credentials yet. Add one to route traffic to this provider.',
   'credentials.add': 'Add credential',
+  'credentials.add_title': 'Add credential · {name}',
   'credentials.edit': 'Edit credential',
   'credentials.enable': 'Enable credential',
   'credentials.delete': 'Delete credential',
