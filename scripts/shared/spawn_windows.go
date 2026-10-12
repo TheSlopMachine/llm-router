@@ -24,8 +24,7 @@ const createNewConsole = 0x00000010
 // inherit invisibility through any number of shim layers, terminal close
 // signals a console the daemons don't belong to, and nothing flashes
 // because the console is born hidden, not shown-then-hidden.
-// Stdout/stderr already go to log files. Graceful stop via console events
-// stays best-effort (see terminate); force-kill uses job objects, which
+// Stdout/stderr already go to log files. Stop uses job objects, which
 // are console-independent.
 func newConsoleAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{

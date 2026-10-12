@@ -1,23 +1,28 @@
 package shared
 
-// Terminate sends one graceful stop signal to pid's process group. Unix:
-// SIGTERM to -pid. Windows: CTRL_BREAK_EVENT to the process group. Delivery
-// can fail before reaching the target (see terminate in signal_windows.go
-// and signal_unix.go), so callers proceed to the force path on failure.
+import "errors"
+
+// ErrGracefulUnsupported reports a graceful stop request on a platform
+// without a graceful path. Windows stops force-kill directly.
+var ErrGracefulUnsupported = errors.New("graceful stop unsupported on windows")
+
+// Terminate sends one graceful stop signal to pid's process group (Unix:
+// SIGTERM to -pid). Windows always returns ErrGracefulUnsupported;
+// callers stop through the force path directly.
 func Terminate(pid int) error { return terminate(pid) }
 
 // RegisterSession groups the processes spawned for pidFile so a later,
 // unrelated ForceKillAll call reaches all of them, including descendants
 // on Windows. Call once from start, right after spawning. Safe to skip:
-// Terminate/ForceKillAll per-PID paths still work without it, minus the
+// ForceKillAll per-PID paths still work without it, minus the
 // descendant guarantee on Windows.
 func RegisterSession(pidFile string, pids ...int) error {
 	return registerSession(pidFile, pids)
 }
 
 // ForceKillAll terminates pids and, where RegisterSession succeeded, their
-// descendants. Call only after Terminate's grace period expires. Treat
-// failure here as fatal.
+// descendants. Unix callers wait for the Terminate grace period first;
+// Windows callers invoke directly. Treat failure here as fatal.
 func ForceKillAll(pidFile string, pids ...int) error {
 	return forceKillAll(pidFile, pids)
 }

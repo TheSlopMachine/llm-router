@@ -14,7 +14,6 @@ var (
 	kernel32                       = syscall.NewLazyDLL("kernel32.dll")
 	procOpenProcess                = kernel32.NewProc("OpenProcess")
 	procCloseHandle                = kernel32.NewProc("CloseHandle")
-	procGenerateConsoleCtrlEvent   = kernel32.NewProc("GenerateConsoleCtrlEvent")
 	procTerminateProcess           = kernel32.NewProc("TerminateProcess")
 	procCreateJobObjectW           = kernel32.NewProc("CreateJobObjectW")
 	procOpenJobObjectW             = kernel32.NewProc("OpenJobObjectW")
@@ -35,7 +34,6 @@ const (
 	processSetQuota                = 0x0100 // required to AssignProcessToJobObject
 	processTerminateRight          = 0x0001 // required to AssignProcessToJobObject / TerminateProcess
 	processDupHandle               = 0x0040 // required to DuplicateHandle a job handle into another process
-	ctrlBreakEvent                 = 1      // CTRL_BREAK_EVENT
 	jobObjectTerminateRight        = 0x0008 // JOB_OBJECT_TERMINATE
 	duplicateSameAccess            = 0x0002 // DUPLICATE_SAME_ACCESS
 )
@@ -60,19 +58,10 @@ func Alive(pid int) bool {
 	return code == stillActive
 }
 
-// terminate asks pid to shut down gracefully via CTRL_BREAK_EVENT to its
-// process group (see spawn_windows.go: CREATE_NEW_PROCESS_GROUP makes the
-// child's PID double as its group ID). This fails with
-// ERROR_INVALID_PARAMETER whenever the caller shares no console session
-// with the target group - e.g. `stop` running in a different terminal tab
-// than the `start` that spawned it - independent of whether the target
-// handles the signal. Callers fall through to the force path on failure.
-func terminate(pid int) error {
-	ok, _, err := procGenerateConsoleCtrlEvent.Call(uintptr(ctrlBreakEvent), uintptr(pid))
-	if ok == 0 {
-		return fmt.Errorf("GenerateConsoleCtrlEvent PID %d: %w", pid, err)
-	}
-	return nil
+// terminate always returns ErrGracefulUnsupported. Windows stops through
+// the job-object force path, which has no console-sharing requirement.
+func terminate(int) error {
+	return ErrGracefulUnsupported
 }
 
 // jobObjectName derives a stable Windows kernel-object name from pidFile,

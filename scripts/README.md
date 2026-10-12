@@ -57,4 +57,4 @@ Restarts the dev stack with `NO_AUTH=1`, waits for readiness, then drives the re
 
 ## Strictness
 
-No fallbacks. Missing required env, any `git` / `swag` / `api-types` / `vite build` failure is fatal. `stop` uses one graceful signal only (`SIGTERM` on unix, `CTRL_BREAK_EVENT` to the process group on Windows — not a `TerminateProcess` force-kill); survivors keep the pidfile and exit 1.
+No fallbacks. Missing required env, any `git` / `swag` / `api-types` / `vite build` failure is fatal. `stop` uses one graceful `SIGTERM` on unix, direct force-kill on Windows (`TerminateJobObject`, fallback `TerminateProcess`); survivors keep the pidfile and exit 1.

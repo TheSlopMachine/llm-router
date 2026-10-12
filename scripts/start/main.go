@@ -115,7 +115,11 @@ func main() {
 	frontendPID, err := shared.SpawnDetachedEnv(webDir, frontendLog, env, "bun", "run", "dev", "--", "--host", viteHost, "--port", webPort)
 	if err != nil {
 		// Attempt to stop the backend we just started.
-		_ = shared.Terminate(backendPID)
+		if runtime.GOOS == "windows" {
+			_ = shared.ForceKillTargets(pidFile, shared.KillTarget{PID: backendPID, ExpectedPath: binPath})
+		} else {
+			_ = shared.Terminate(backendPID)
+		}
 		shared.Failf("spawn frontend: %v", err)
 	}
 

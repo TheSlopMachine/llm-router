@@ -29,10 +29,9 @@ func Alive(pid int) bool {
 // `start`'s port check never catches it -- keeps running invisibly. Repeated
 // restart cycles accumulate one such orphan each time, which is exactly the
 // slow, restart-driven memory growth this was causing: killing the group
-// here, matching forceKillAll below and the Windows terminate (which is
-// group-aware via CREATE_NEW_PROCESS_GROUP), reaches descendants on the
-// graceful path too, so they no longer depend on the force-kill fallback
-// ever triggering.
+// here, matching forceKillAll below and the Windows job-object force path,
+// reaches descendants on the graceful path too, so they no longer depend
+// on the force-kill fallback ever triggering.
 func terminate(pid int) error {
 	err := syscall.Kill(-pid, syscall.SIGTERM)
 	if err != nil && err == syscall.ESRCH {

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/scripts/shared"
@@ -62,26 +63,36 @@ func main() {
 		return
 	}
 
-	// Best-effort graceful signal. Failure falls through to the
-	// wait/force path below.
-	for _, candidate := range entries {
-		if !shared.AliveMatches(candidate.pid, candidate.path) {
-			continue
+	if runtime.GOOS != "windows" {
+		// Best-effort graceful signal. Failure falls through to the
+		// wait/force path below.
+		for _, candidate := range entries {
+			if !shared.AliveMatches(candidate.pid, candidate.path) {
+				continue
+			}
+			fmt.Printf("[>] Stopping %s PID %d...\n", candidate.name, candidate.pid)
+			if err := shared.Terminate(candidate.pid); err != nil {
+				fmt.Printf("[>] Graceful signal to %s PID %d failed: %v\n", candidate.name, candidate.pid, err)
+				fmt.Println("[>] Force-kill follows the grace period")
+			}
 		}
-		fmt.Printf("[>] Stopping %s PID %d...\n", candidate.name, candidate.pid)
-		if err := shared.Terminate(candidate.pid); err != nil {
-			fmt.Printf("[>] Graceful signal to %s PID %d failed: %v\n", candidate.name, candidate.pid, err)
-			fmt.Println("[>] Force-kill follows the grace period")
+
+		if waitUntilDead(time.Now().Add(gracePeriod)) {
+			_ = os.Remove(pidFile)
+			fmt.Println("[OK] Stopped")
+			return
 		}
-	}
 
-	if waitUntilDead(time.Now().Add(gracePeriod)) {
-		_ = os.Remove(pidFile)
-		fmt.Println("[OK] Stopped")
-		return
+		fmt.Println("[>] Still running after grace period, forcing shutdown...")
+	} else {
+		for _, candidate := range entries {
+			if !shared.AliveMatches(candidate.pid, candidate.path) {
+				continue
+			}
+			fmt.Printf("[>] Stopping %s PID %d...\n", candidate.name, candidate.pid)
+		}
+		fmt.Println("[>] Forcing shutdown...")
 	}
-
-	fmt.Println("[>] Still running after grace period, forcing shutdown...")
 	targets := make([]shared.KillTarget, 0, len(entries))
 	for _, candidate := range entries {
 		targets = append(targets, shared.KillTarget{PID: candidate.pid, ExpectedPath: candidate.path})
