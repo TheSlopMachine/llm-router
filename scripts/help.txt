@@ -28,9 +28,8 @@ Targets:
 Variables:
   VERSION            Release version for build. Default: latest git tag, else "dev"
   HOST               Bind host. Default: "localhost"
-  WEB_PORT           Dashboard port. Default: "38080"
-  API_PORT           API port. Default: "38081"
-  URL                Dashboard URL for browser. Default: "http://$(HOST):$(WEB_PORT)"
+  PORT               Single listener port (dashboard + /v1 + /api). Default: "38080"
+  URL                Dashboard URL for browser. Default: "http://$(HOST):$(PORT)"
   LOG_LEVEL          Server log level. Default: "info"
   DEV_DB             Path to dev database. Default: "~/.local/llm-router/llm-router-dev.sqlite3"
   DEV_CACHE          Path to dev cache database. Default: "~/.local/llm-router/llm-router-dev.cache.sqlite3"
@@ -56,7 +55,7 @@ Examples:
   make go-vet PKG=./internal/services/router/...
   make go-fmt-check PATHS="internal/server scripts/smoke"
   make start
-  make start HOST=0.0.0.0 WEB_PORT=3000 API_PORT=3001
+  make start HOST=0.0.0.0 PORT=3000
   make restart
   make build
   make build PLATFORMS="linux/amd64 darwin/arm64"

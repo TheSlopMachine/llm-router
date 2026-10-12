@@ -1,5 +1,6 @@
-// Package server wires all services together and starts the HTTP servers.
-// Dashboard and /v1 API run on separate ports with independent muxes.
+// Package server wires all services together and starts the HTTP server.
+// Dashboard SPA, dashboard JSON API (/api) and /v1 API share one listener;
+// routing splits by path prefix (see buildRootMux).
 package server
 
 import (
@@ -35,14 +36,13 @@ import (
 	virtualadapter "github.com/TheSlopMachine/llm-router/providers/virtual"
 )
 
-// Server is the fully-wired llm-router application with two listeners.
+// Server is the fully-wired llm-router application with one listener.
 type Server struct {
 	applicationConfig  *config.Config
 	sqliteDatabase     *db.Database
 	sqlitePath         string
 	logger             *slog.Logger
-	dashboardServer    *http.Server
-	apiServer          *http.Server
+	httpServer         *http.Server
 	maintenanceService *maintenance.GormService
 	metricsService     *metrics.Service
 	proxyService       *proxypool.Service
@@ -61,13 +61,9 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		return nil, fmt.Errorf("open sqlite database: %w", err)
 	}
 
-	dashboardAddr := applicationConfig.DashboardAddr
-	if dashboardAddr == "" {
-		return nil, fmt.Errorf("dashboard listen address is required")
-	}
-	apiAddr := applicationConfig.APIAddr
-	if apiAddr == "" {
-		return nil, fmt.Errorf("api listen address is required")
+	listenAddr := applicationConfig.Addr
+	if listenAddr == "" {
+		return nil, fmt.Errorf("listen address is required")
 	}
 
 	luaService, err := luaplugin.New(sqliteDatabase, logger)
@@ -168,7 +164,6 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 
 	wireInvalidation(logger, providerService, modelInfoService, luaService)
 
-	dashboardMux := http.NewServeMux()
 	dashboardHandler, err := dashboard.New(dashboard.Params{
 		AdminSvc: adminService, ProviderSvc: providerService, CredSvc: credentialService,
 		TokenSvc: tokenService, ModelInfoSvc: modelInfoService, MetricsSvc: metricsService,
@@ -184,26 +179,19 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 	if applicationConfig.DevUIRedirect != "" {
 		dashboardHandler.SetDevRedirect(applicationConfig.DevUIRedirect)
 	}
-	dashboardHandler.Register(dashboardMux)
-	dashHandler := bootstrapMiddleware(adminService, applicationConfig.NoAuth)(requestLogger(logger, dashboardMux))
 
-	apiMux := http.NewServeMux()
 	apiV1 := v1.New(v1.Params{
 		Tokens: tokenService, RouterSvc: routerService, MetricsSvc: metricsService,
 		ProviderSvc: providerService, ModelInfoSvc: modelInfoService,
 		VirtualSvc: virtualService, Logger: logger, NoAuth: applicationConfig.NoAuth,
 	})
-	apiV1.Register(apiMux)
 
-	apiHandler := requestLogger(logger, apiMux)
+	rootMux := buildRootMux(apiV1, dashboardHandler)
+	handler := bootstrapMiddleware(adminService, applicationConfig.NoAuth)(requestLogger(logger, rootMux))
 
-	dashboardServer := &http.Server{
-		Addr:    dashboardAddr,
-		Handler: dashHandler,
-	}
-	apiServer := &http.Server{
-		Addr:    apiAddr,
-		Handler: apiHandler,
+	httpServer := &http.Server{
+		Addr:    listenAddr,
+		Handler: handler,
 	}
 
 	return &Server{
@@ -211,8 +199,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		sqliteDatabase:     sqliteDatabase,
 		sqlitePath:         sqlitePath,
 		logger:             logger,
-		dashboardServer:    dashboardServer,
-		apiServer:          apiServer,
+		httpServer:         httpServer,
 		maintenanceService: maintenanceService,
 		metricsService:     metricsService,
 		proxyService:       proxyService,
@@ -242,7 +229,7 @@ func (s *Server) runShutdownHooks() {
 	}
 }
 
-// Run starts the maintenance loop and blocks on both HTTP servers.
+// Run starts the maintenance loop and blocks on the HTTP server.
 func (s *Server) Run(ctx context.Context) error {
 	// Run startup plugin jobs before serving traffic so a restarted
 	// router refreshes-around stale state while the ticker runs.
@@ -257,17 +244,12 @@ func (s *Server) Run(ctx context.Context) error {
 	cancel()
 	s.proxyService.Start(ctx)
 	s.maintenanceService.Start(ctx)
-	s.logger.Info("llm-router started", "dashboard", s.applicationConfig.DashboardAddr, "api", s.applicationConfig.APIAddr, "db", s.sqlitePath, "cache", s.applicationConfig.CachePath)
+	s.logger.Info("llm-router started", "addr", s.applicationConfig.Addr, "db", s.sqlitePath, "cache", s.applicationConfig.CachePath)
 
-	errorChannel := make(chan error, 2)
+	errorChannel := make(chan error, 1)
 	go func() {
-		if err := s.dashboardServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errorChannel <- fmt.Errorf("dashboard server: %w", err)
-		}
-	}()
-	go func() {
-		if err := s.apiServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errorChannel <- fmt.Errorf("api server: %w", err)
+		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errorChannel <- fmt.Errorf("http server: %w", err)
 		}
 	}()
 
@@ -276,14 +258,12 @@ func (s *Server) Run(ctx context.Context) error {
 		s.logger.Info("shutting down gracefully...")
 		s.runShutdownHooks()
 		s.metricsService.Stop()
-		_ = s.dashboardServer.Shutdown(context.Background())
-		_ = s.apiServer.Shutdown(context.Background())
+		_ = s.httpServer.Shutdown(context.Background())
 		return nil
 	case err := <-errorChannel:
 		s.runShutdownHooks()
 		s.metricsService.Stop()
-		_ = s.dashboardServer.Shutdown(context.Background())
-		_ = s.apiServer.Shutdown(context.Background())
+		_ = s.httpServer.Shutdown(context.Background())
 		return fmt.Errorf("http server: %w", err)
 	}
 }

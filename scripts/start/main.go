@@ -12,16 +12,13 @@ import (
 	"github.com/TheSlopMachine/llm-router/scripts/shared"
 )
 
-const devBackendWebPort = "38473" // dev-only internal backend WEB_PORT; never user-facing
-
 var exeSuffix = map[bool]string{true: ".exe", false: ""}[runtime.GOOS == "windows"]
 
 // start launches the dev backend (built binary) and frontend (vite).
 // Project initialization lives in `make init`; configuration comes from env only.
 func main() {
 	host := shared.Getenv("HOST", "localhost")
-	webPort := shared.Getenv("WEB_PORT", "38080")
-	apiPort := shared.Getenv("API_PORT", "38081")
+	port := shared.Getenv("PORT", "38080")
 	logLevel := shared.NormalizeLogLevel(shared.Getenv("LOG_LEVEL", "info"))
 	databasePath := shared.Getenv("DEV_DB", "")
 	if databasePath == "" {
@@ -52,9 +49,12 @@ func main() {
 
 	// Fail fast when a port is held by a process outside this pidfile.
 	// The actual bind at startup stays the source of truth.
-	for _, port := range []int{mustAtoi(webPort), mustAtoi(apiPort), mustAtoi(devBackendWebPort)} {
-		if free, holder := shared.PortStatus(port); !free {
-			shared.Failf("port %d already in use by %s", port, holder)
+	if port == shared.DevBackendPort {
+		shared.Failf("PORT %s collides with the fixed dev backend port %s", port, shared.DevBackendPort)
+	}
+	for _, portNumber := range []int{mustAtoi(port), mustAtoi(shared.DevBackendPort)} {
+		if free, holder := shared.PortStatus(portNumber); !free {
+			shared.Failf("port %d already in use by %s", portNumber, holder)
 		}
 	}
 
@@ -91,12 +91,11 @@ func main() {
 
 	backendEnvironment := []string{
 		"HOST=" + host,
-		"WEB_PORT=" + devBackendWebPort,
-		"API_PORT=" + apiPort,
+		"PORT=" + shared.DevBackendPort,
 		"DB_PATH=" + databasePath,
 		"CACHE_PATH=" + cachePath,
 		"LOG_LEVEL=" + logLevel,
-		"DEV_UI_REDIRECT=" + fmt.Sprintf("http://%s:%s", host, webPort),
+		"DEV_UI_REDIRECT=" + fmt.Sprintf("http://%s:%s", host, port),
 		"NO_AUTH=" + map[bool]string{true: "1", false: "0"}[noAuth],
 	}
 	backendPID, err := shared.SpawnDetachedEnv(root, backendLog, backendEnvironment, binPath)
@@ -115,9 +114,9 @@ func main() {
 	}
 	env := []string{
 		"VITE_BACKEND_HOST=" + backendHost,
-		"VITE_BACKEND_PORT=" + devBackendWebPort,
+		"VITE_BACKEND_PORT=" + shared.DevBackendPort,
 	}
-	frontendPID, err := shared.SpawnDetachedEnv(webDir, frontendLog, env, "bun", "run", "dev", "--", "--host", viteHost, "--port", webPort)
+	frontendPID, err := shared.SpawnDetachedEnv(webDir, frontendLog, env, "bun", "run", "dev", "--", "--host", viteHost, "--port", port)
 	if err != nil {
 		// Attempt to stop the backend we just started.
 		if runtime.GOOS == "windows" {
@@ -138,7 +137,7 @@ func main() {
 	process := shared.Proc{
 		Backend:      backendPID,
 		Frontend:     frontendPID,
-		VitePort:     mustAtoi(webPort),
+		VitePort:     mustAtoi(port),
 		BackendPath:  snapshotPath(backendPID, binPath),
 		FrontendPath: snapshotPath(frontendPID, resolveBun()),
 	}
@@ -150,7 +149,7 @@ func main() {
 	// Record the launch parameters: restart relaunches with the same config.
 	if err := shared.WriteStartParams(pidFile, shared.StartParams{
 		DevDB: databasePath, DevCache: cachePath, NoAuth: noAuth, Host: host,
-		WebPort: webPort, APIPort: apiPort, LogLevel: logLevel,
+		Port: port, LogLevel: logLevel,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] write params file: %v\n", err)
 	}
@@ -160,8 +159,8 @@ func main() {
 	time.Sleep(200 * time.Millisecond)
 
 	fmt.Printf("[OK] Started backend PID %d, frontend PID %d\n", backendPID, frontendPID)
-	fmt.Printf("Dashboard (dev): http://%s:%s\n", host, webPort)
-	fmt.Printf("API: http://%s:%s/v1\n", host, apiPort)
+	fmt.Printf("Dashboard (dev): http://%s:%s\n", host, port)
+	fmt.Printf("API: http://%s:%s/v1 (backend direct: http://%s:%s/v1)\n", host, port, host, shared.DevBackendPort)
 	if noAuth {
 		fmt.Printf("Auth: disabled (NO_AUTH=1)\n")
 	}

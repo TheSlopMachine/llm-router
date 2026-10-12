@@ -7,8 +7,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/scripts/shared"
 )
 
-const devBackendWebPort = "38473"
-
 func main() {
 	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
 
@@ -53,8 +51,7 @@ func main() {
 		}
 	}
 	reportPort("frontend port", process.VitePort)
-	reportPort("backend api port", mustAtoiSoft(shared.Getenv("API_PORT", "38081")))
-	reportPort("backend internal port", mustAtoiSoft(devBackendWebPort))
+	reportPort("backend port", mustAtoiSoft(shared.DevBackendPort))
 
 	fmt.Printf("Backend log: %s\n", shared.DefaultBackendLog())
 	fmt.Printf("Frontend log: %s\n", shared.DefaultFrontendLog())

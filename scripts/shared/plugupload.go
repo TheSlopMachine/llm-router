@@ -25,7 +25,7 @@ type PluginRow struct {
 }
 
 // WebBaseURL builds http://HOST:port from the Makefile-exported HOST and
-// port env (WEB_PORT default 38080).
+// port env (PORT default 38080).
 func WebBaseURL(portEnv, defPort string) string {
 	return fmt.Sprintf("http://%s:%s", Getenv("HOST", "localhost"), Getenv(portEnv, defPort))
 }

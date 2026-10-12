@@ -99,7 +99,7 @@ Open every session by identifying the platform and shell. Never assume them.
 
 ```
 cmd/root.go              CLI entrypoint (environment + .env; --version/--generate-config only)
-internal/server/         HTTP server: dashboard (38080), /v1 API (38081)
+internal/server/         HTTP server: single listener (dashboard SPA + /v1 + /api on PORT)
 internal/services/
   token/                 router-token issue/validate
   router/                ModelId → backend, token allow-list gate, single pass, no repeats
@@ -337,18 +337,18 @@ To get runtime facts from a human-run instance instead:
 
 1. State exactly what's needed: endpoint, log line, or behavior.
 2. Ask human to run `make start` / `make restart` / `make init` and report back.
-3. Interpret: dev dashboard = `http://HOST:WEB_PORT` proxying `/api/llm-router/*` → backend `HOST:38473` (dev-internal, hardcoded); release dashboard = `:8080` (embedded). API = `:8081/v1` (dev values come from `WEB_PORT`/`API_PORT`, defaults `38080`/`38081`). Pidfile is JSON `{backend,frontend,vitePort}` at `%TEMP%/llm-router-dev.pid`.
+3. Interpret: dev dashboard = `http://HOST:PORT` (vite, proxying `/api/*` and `/v1/*` → backend `HOST:38081`, dev-internal fixed); release = `:PORT` (embedded SPA + both APIs on one listener). Pidfile is JSON `{backend,frontend,vitePort}` at `%TEMP%/llm-router-dev.pid`.
 
 Under `NO_AUTH=1` every call below needs no headers. With auth on, add `-H "Authorization: Bearer <token>"` to `/v1` and use a logged-in session (cookie) for `/api/llm-router/*`; `401` without them is expected, not a bug.
 
-`/v1` (OpenAI-compatible, `:$API_PORT/v1`):
+`/v1` (OpenAI-compatible, same `:PORT` as the dashboard):
 - `POST /v1/chat/completions` `{"model":"<provider>/<model>","messages":[{"role":"user","content":"hi"}]}` — core routing; add `"stream":true` for SSE
 - `GET /v1/models` — routable model list, no token rules applied
 - `POST /v1/messages` — Anthropic-compatible messages (translated to chat underneath)
 - `POST /v1/audio/transcriptions` (multipart `file`+`model`), `/v1/audio/speech`, `/v1/images/generations`, `/v1/embeddings` — per-endpoint backends
 - Diagnose: wrong `provider/` → `provider_not_found`; disabled model → `model_not_found`; no usable key → `no_credential`/`credential_not_allowed`; upstream failure → `upstream_error`/`timeout`/`rate_limit`/`payment_required` (see `errors.ToAPIError`)
 
-Dashboard `/api/llm-router/*` (`:$WEB_PORT`, JSON `{"error":...}` on failure):
+Dashboard `/api/llm-router/*` (same `:PORT`, JSON `{"error":...}` on failure):
 - `GET /api/llm-router/status` — `{bootstrapped, authenticated}`; boot gate for everything else
 - `GET /dashboard/providers`, `/dashboard/tokens`, `/dashboard/credentials` — inventory
 - `POST /dashboard/chat/completions` — same router through a session, `TokenID: "dashboard"` in metrics

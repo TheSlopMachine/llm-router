@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/TheSlopMachine/llm-router/scripts/shared"
 )
 
 // Valid SMOKE_TARGETS tokens: text-only by default, heavy on request.
@@ -74,8 +76,10 @@ func loadConfig() (configuration, error) {
 		plugins = append(plugins, plugin)
 	}
 	return configuration{
-		web:              baseURL("SMOKE_WEB", getenv("WEB_PORT", "38080")),
-		api:              baseURL("SMOKE_API", getenv("API_PORT", "38081")),
+		// Dashboard paths run through vite (proxied to the backend);
+		// /v1 runs against the dev backend directly.
+		web:              baseURL("SMOKE_WEB", getenv("PORT", "38080")),
+		api:              baseURL("SMOKE_API", shared.DevBackendPort),
 		plugins:          plugins,
 		targets:          targets,
 		store:            getenv("SMOKE_STORE_DIR", "../../llm-router-store/llm-router-plugins"),

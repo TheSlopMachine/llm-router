@@ -22,8 +22,7 @@ func main() {
 		overlay("DB_PATH", params.DevDB, "")
 		overlay("CACHE_PATH", params.DevCache, "")
 		overlay("HOST", params.Host, "localhost")
-		overlay("WEB_PORT", params.WebPort, "38080")
-		overlay("API_PORT", params.APIPort, "38081")
+		overlay("PORT", params.Port, "38080")
 		overlay("LOG_LEVEL", params.LogLevel, "info")
 		if params.NoAuth && !shared.IsWriteMode("NO_AUTH") {
 			_ = os.Setenv("NO_AUTH", "1")

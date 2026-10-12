@@ -15,9 +15,8 @@ export NO_SKIP
 PLATFORMS ?= windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64
 
 HOST      ?= localhost
-WEB_PORT  ?= 38080
-API_PORT  ?= 38081
-URL       ?= http://$(HOST):$(WEB_PORT)
+PORT      ?= 38080
+URL       ?= http://$(HOST):$(PORT)
 LOG_LEVEL ?= info
 NO_AUTH   ?= 0
 DB_PATH   ?= llm-router.sqlite3
@@ -25,7 +24,7 @@ CACHE_PATH ?= llm-router.cache.sqlite3
 DEV_UI_REDIRECT ?=
 ENV_FILE  ?= .env
 PKG       ?= ./...
-export HOST WEB_PORT API_PORT URL VERSION PLATFORMS LOG_LEVEL NO_AUTH DB_PATH CACHE_PATH DEV_UI_REDIRECT ENV_FILE PKG
+export HOST PORT URL VERSION PLATFORMS LOG_LEVEL NO_AUTH DB_PATH CACHE_PATH DEV_UI_REDIRECT ENV_FILE PKG
 
 ifeq ($(OS),Windows_NT)
   DEV_DB  ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.sqlite3

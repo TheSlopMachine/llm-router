@@ -15,7 +15,7 @@ func main() {
 	}
 
 	host := shared.Getenv("HOST", "localhost")
-	webPort := shared.Getenv("WEB_PORT", "38080")
+	port := shared.Getenv("PORT", "38080")
 	noSkip := shared.IsNoSkip()
 
 	if err := shared.EnsureBunInstall(root, noSkip); err != nil {
@@ -32,7 +32,7 @@ func main() {
 		shared.Failf("%v", err)
 	}
 
-	if err := shared.EnsureEmbedStub(root, host, webPort); err != nil {
+	if err := shared.EnsureEmbedStub(root, host, port); err != nil {
 		shared.Failf("%v", err)
 	}
 

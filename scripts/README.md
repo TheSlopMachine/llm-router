@@ -12,14 +12,14 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 
 | Script | Env | Called by |
 |--------|-----|-----------|
-| `init` | `HOST`, `WEB_PORT`, `NO_SKIP` | `make init`; `make start` / `make build` (via dep) |
-| `start` | `HOST`, `WEB_PORT`, `API_PORT`, `LOG_LEVEL` (default `info`), `NO_AUTH` (default `0`), `DB_PATH` (fallback `DEV_DB`, then default dev path), `CACHE_PATH` (fallback `DEV_CACHE`, then default dev cache path), `DEV_UI_REDIRECT`, `ENV_FILE`, `PID_FILE` | `make start` / `make restart` |
+| `init` | `HOST`, `PORT`, `NO_SKIP` | `make init`; `make start` / `make build` (via dep) |
+| `start` | `HOST`, `PORT`, `LOG_LEVEL` (default `info`), `NO_AUTH` (default `0`), `DB_PATH` (fallback `DEV_DB`, then default dev path), `CACHE_PATH` (fallback `DEV_CACHE`, then default dev cache path), `DEV_UI_REDIRECT`, `ENV_FILE`, `PID_FILE` | `make start` / `make restart` |
 | `stop` | `PID_FILE` | `make stop` / `make restart` / `make clean` |
 | `restart` | same as `start` | `make restart` / `make smoke` (before the harness) |
 | `status` | `PID_FILE` | `make status` |
 | `log` | `LINES` (default `100`), `FOLLOW` | `make log` |
 | `logfrontend` | `LINES` (default `100`), `FOLLOW` | `make log-frontend` |
-| `browser` | `URL` (default `http://HOST:WEB_PORT`) | `make browser` |
+| `browser` | `URL` (default `http://HOST:PORT`) | `make browser` |
 | `build` | `VERSION` (default: latest git tag, else `dev`), `PLATFORMS`* | `make build` |
 | `publish` | `TYPE=fix\|minor\|major` xor `VERSION=X.Y[.Z]`, `NOTES` (optional tag annotation) | `make publish` (clean tree, HEAD synced to origin/main; CI builds on tag push) |
 | `help` | static text (`help.txt`), no code | `make help` |
@@ -33,12 +33,12 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 
 `make go-test PKG=./internal/services/router/` scopes the run; `make go-vet PKG=./internal/services/router/...` scopes vet; `make go-fmt PATHS="internal/server scripts/smoke"` formats only those trees. Unscoped `go vet` covers the root and `scripts` modules; unscoped `go test` covers the root module. Both skip `.workspace`, `node_modules`, `build`, `.git`.
 
-`*` required (fatal when blank). The rest fall back to dev defaults (`localhost`, `38080`, `38081`, `~/.local/llm-router/llm-router-dev.sqlite3`, temp pidfile).
+`*` required (fatal when blank). The rest fall back to dev defaults (`localhost`, `38080`, `~/.local/llm-router/llm-router-dev.sqlite3`, temp pidfile). The dev backend listens on fixed `38081` (`shared.DevBackendPort`).
 
 ## Dev vs publish
 
 - **Init** (`make init`): `bun install`, `swag` (`web/openapi.yaml` from `internal/**/*.go`), `generate:api-types` (`web/src/lib/generated/api-types.ts`), dev embed stub (`internal/dashboard/build/web/index.html`, created only when missing). Safe to re-run and safe for agents.
-- **Dev** (`make start` → `init`, then `start`): refuses to run if the pidfile shows a still-alive backend/frontend (run `make stop` first); a stale pidfile pointing at dead processes clears automatically. Then spawns `go run .` + `bun run dev` detached with JSON pidfile `{backend,frontend,vitePort}`. The backend starts with `WEB_PORT=38473` (dev-internal, hardcoded) + `DEV_UI_REDIRECT=http://HOST:WEB_PORT`, so any navigation not proxied to `WEB_PORT` redirects there instead of serving the placeholder stub. `WEB_PORT` proxies `/api/llm-router/*` → backend `:38473`.
+- **Dev** (`make start` → `init`, then `start`): refuses to run if the pidfile shows a still-alive backend/frontend (run `make stop` first); a stale pidfile pointing at dead processes clears automatically. Then spawns the backend + `bun run dev` detached with JSON pidfile `{backend,frontend,vitePort}`. Vite serves user `PORT` (dashboard SPA); the backend listens on fixed `:38081` with `DEV_UI_REDIRECT=http://HOST:PORT`, so any navigation hitting the backend directly redirects to vite instead of serving the placeholder stub. Vite proxies `/api` and `/v1` → backend `:38081`. Legacy `WEB_PORT`/`API_PORT` are ignored.
 - **Build** (`make build` → `init`, then `build`): `vite build` into `internal/dashboard/build/web`, then multi-platform `go build` embeds it (without `DEV_UI_REDIRECT`, so the redirect never fires), zips with `archive/zip`, hashes with `crypto/sha256`. `VERSION` prefers env, then the latest git tag, then `dev`; missing git degrades to `dev`/`unknown` commit with a warning, never a failure.
 - **Publish** (`make publish` → `publish`, no build): verifies a clean tree with `HEAD == origin/main`, bumps the latest tag (`fix`: `Z+1`; `minor`: `Y+1`, short `vX.Y`; `major`: `X+1`, short `vX.0`) or takes forced `VERSION`, then creates and pushes the annotated tag. CI builds the release on tag push. Tags are the source of truth; without git or tags the command fails.
 

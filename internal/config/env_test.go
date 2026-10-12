@@ -13,7 +13,7 @@ import (
 // (not blanked) so dotenv loading fills them as in production.
 func clearProcessEnvironment(environment *testing.T) {
 	environment.Helper()
-	for _, name := range []string{"HOST", "WEB_PORT", "API_PORT", "DB_PATH", "DEV_DB", "CACHE_PATH", "DEV_CACHE", "LOG_LEVEL", "NO_AUTH", "DEV_UI_REDIRECT"} {
+	for _, name := range []string{"HOST", "PORT", "DB_PATH", "DEV_DB", "CACHE_PATH", "DEV_CACHE", "LOG_LEVEL", "NO_AUTH", "DEV_UI_REDIRECT"} {
 		value, present := os.LookupEnv(name)
 		if !present {
 			continue
@@ -47,11 +47,8 @@ func TestLoadDefaults(t *testing.T) {
 	if loadedPath != "" {
 		t.Fatalf("loaded path = %q, want empty", loadedPath)
 	}
-	if configuration.DashboardAddr != "localhost:8080" {
-		t.Errorf("dashboard = %q, want localhost:8080", configuration.DashboardAddr)
-	}
-	if configuration.APIAddr != "localhost:8081" {
-		t.Errorf("api = %q, want localhost:8081", configuration.APIAddr)
+	if configuration.Addr != "localhost:8080" {
+		t.Errorf("addr = %q, want localhost:8080", configuration.Addr)
 	}
 	if configuration.DBPath != DefaultDatabasePath {
 		t.Errorf("database = %q, want %q", configuration.DBPath, DefaultDatabasePath)
@@ -67,21 +64,26 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsEqualPorts(t *testing.T) {
+func TestLoadIgnoresLegacySplitPorts(t *testing.T) {
 	clearProcessEnvironment(t)
 	isolateDotenv(t)
-	t.Setenv("WEB_PORT", "38080")
-	t.Setenv("API_PORT", "38080")
+	t.Setenv("WEB_PORT", "39080")
+	t.Setenv("API_PORT", "39081")
+	t.Setenv("PORT", "38080")
 
-	if _, _, err := Load(); !errors.Is(err, ErrEqualPorts) {
-		t.Fatalf("error = %v, want ErrEqualPorts", err)
+	configuration, _, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if configuration.Addr != "localhost:38080" {
+		t.Errorf("addr = %q, want localhost:38080", configuration.Addr)
 	}
 }
 
 func TestLoadRejectsInvalidPort(t *testing.T) {
 	clearProcessEnvironment(t)
 	isolateDotenv(t)
-	t.Setenv("WEB_PORT", "99999")
+	t.Setenv("PORT", "99999")
 
 	if _, _, err := Load(); !errors.Is(err, ErrInvalidPort) {
 		t.Fatalf("error = %v, want ErrInvalidPort", err)
@@ -188,7 +190,7 @@ func TestLoadReadsDotenvFile(t *testing.T) {
 	clearProcessEnvironment(t)
 	directory := t.TempDir()
 	dotenvPath := filepath.Join(directory, ".env")
-	if err := os.WriteFile(dotenvPath, []byte("WEB_PORT=38080\nAPI_PORT=38081\n"), 0644); err != nil {
+	if err := os.WriteFile(dotenvPath, []byte("PORT=38080\n"), 0644); err != nil {
 		t.Fatalf("write dotenv: %v", err)
 	}
 	t.Setenv("ENV_FILE", dotenvPath)
@@ -200,8 +202,8 @@ func TestLoadReadsDotenvFile(t *testing.T) {
 	if loadedPath != dotenvPath {
 		t.Errorf("loaded path = %q, want %q", loadedPath, dotenvPath)
 	}
-	if configuration.DashboardAddr != "localhost:38080" {
-		t.Errorf("dashboard = %q, want localhost:38080", configuration.DashboardAddr)
+	if configuration.Addr != "localhost:38080" {
+		t.Errorf("addr = %q, want localhost:38080", configuration.Addr)
 	}
 }
 
@@ -209,18 +211,18 @@ func TestLoadProcessEnvironmentWinsOverDotenvFile(t *testing.T) {
 	clearProcessEnvironment(t)
 	directory := t.TempDir()
 	dotenvPath := filepath.Join(directory, ".env")
-	if err := os.WriteFile(dotenvPath, []byte("WEB_PORT=39080\nAPI_PORT=38081\n"), 0644); err != nil {
+	if err := os.WriteFile(dotenvPath, []byte("PORT=39080\n"), 0644); err != nil {
 		t.Fatalf("write dotenv: %v", err)
 	}
 	t.Setenv("ENV_FILE", dotenvPath)
-	t.Setenv("WEB_PORT", "38080")
+	t.Setenv("PORT", "38080")
 
 	configuration, _, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if configuration.DashboardAddr != "localhost:38080" {
-		t.Errorf("dashboard = %q, want localhost:38080", configuration.DashboardAddr)
+	if configuration.Addr != "localhost:38080" {
+		t.Errorf("addr = %q, want localhost:38080", configuration.Addr)
 	}
 }
 
@@ -256,7 +258,7 @@ func TestWriteDefaultFileCreatesTemplate(t *testing.T) {
 	if string(raw) != DefaultTemplate() {
 		t.Fatalf("template mismatch:\n%s", string(raw))
 	}
-	for _, key := range []string{"HOST=", "WEB_PORT=", "API_PORT=", "DB_PATH=", "CACHE_PATH=", "LOG_LEVEL=", "NO_AUTH="} {
+	for _, key := range []string{"HOST=", "PORT=", "DB_PATH=", "CACHE_PATH=", "LOG_LEVEL=", "NO_AUTH="} {
 		if !strings.Contains(string(raw), key) {
 			t.Errorf("template misses %q", key)
 		}

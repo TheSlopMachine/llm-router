@@ -100,12 +100,21 @@ type Handler struct {
 // This exists because `make start` never runs a real `vite build` — the
 // embedded build/web directory is just a placeholder stub so the
 // //go:embed directive has something to embed. Without this, hitting the
-// dashboard port directly in dev (or any /login, /bootstrap navigation
+// backend port directly in dev (or any /login, /bootstrap navigation
 // not proxied to the dev server) serves that meaningless placeholder
-// instead of the actual UI, which is only running on WEB_PORT in dev.
+// instead of the actual UI, which is only running on PORT in dev.
 // Production builds never call this, so it has no effect there.
 func (h *Handler) SetDevRedirect(origin string) {
 	h.devRedirect = strings.TrimSuffix(origin, "/")
+}
+
+// IsAPIPath reports whether path targets a JSON API subtree (/api or /v1,
+// bare or nested). API paths never redirect and never serve SPA HTML.
+// server.buildRootMux routes them before the SPA fallback; the fallback
+// rechecks here as a second boundary.
+func IsAPIPath(path string) bool {
+	return path == "/api" || strings.HasPrefix(path, "/api/") ||
+		path == "/v1" || strings.HasPrefix(path, "/v1/")
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
@@ -239,7 +248,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Unknown API paths are a JSON 404, never an SPA redirect: in dev the
 		// Vite proxy would otherwise follow the redirect back into itself.
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		// /v1 is guarded here too so a mis-dispatched API path still
+		// returns JSON, never dashboard HTML.
+		if IsAPIPath(r.URL.Path) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
 			_ = json.NewEncoder(w).Encode(models.ErrorResponse{Error: "unknown endpoint"})

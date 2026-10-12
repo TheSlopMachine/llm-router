@@ -46,6 +46,11 @@ func RootDir() (string, error) {
 // DefaultPidFile is %TEMP%/llm-router-dev.pid (or $TMPDIR equivalent).
 func DefaultPidFile() string { return filepath.Join(os.TempDir(), "llm-router-dev.pid") }
 
+// DevBackendPort is the fixed dev backend listener. Vite serves the user
+// PORT (dashboard SPA); the backend serves both JSON APIs plus
+// redirect-only SPA there. Release builds use PORT for everything.
+const DevBackendPort = "38081"
+
 // StartParamsFile lives next to the pidfile and records the parameters of the
 // last start, so restart relaunches with the same configuration.
 type StartParams struct {
@@ -53,8 +58,7 @@ type StartParams struct {
 	DevCache string `json:"dev_cache"`
 	NoAuth   bool   `json:"no_auth"`
 	Host     string `json:"host"`
-	WebPort  string `json:"web_port"`
-	APIPort  string `json:"api_port"`
+	Port     string `json:"port"`
 	LogLevel string `json:"log_level"`
 }
 

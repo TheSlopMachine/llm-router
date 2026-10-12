@@ -25,7 +25,9 @@ func bootstrapMiddleware(adminService *admin.GormService, noAuth bool) func(http
 			if !exempt {
 				real, err := adminService.IsBootstrapped(r.Context())
 				if err != nil || !dashboard.EffectiveBootstrapped(real, noAuth) {
-					if strings.HasPrefix(r.URL.Path, "/api/") {
+					// API prefixes answer JSON, never redirect: a client
+					// asking for JSON must not receive dashboard HTML.
+					if dashboard.IsAPIPath(r.URL.Path) {
 						w.Header().Set("Content-Type", "application/json")
 						w.WriteHeader(http.StatusServiceUnavailable)
 						json.NewEncoder(w).Encode(map[string]string{

@@ -8,7 +8,7 @@ this file maps the Go core.
 
 ```
 cmd/root.go              CLI entrypoint (environment + .env file; --version and --generate-config only)
-internal/server/         HTTP server: dashboard + /v1 API (ports from HOST, WEB_PORT, API_PORT)
+internal/server/         HTTP server: single listener (HOST, PORT); /v1 + /api answer JSON, /* serves the dashboard (see router.go)
 internal/services/
   token/                 router-token issue/validate
   router/                ModelId → backend, token allow-list gate, single pass, no repeats

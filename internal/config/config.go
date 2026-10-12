@@ -70,11 +70,10 @@ func (l LogLevel) SlogLevel() slog.Level {
 // All values originate from environment variables with optional .env file
 // support (see Load).
 type Config struct {
-	// DashboardAddr is the address the dashboard HTTP server binds to (e.g. "localhost:8080").
-	DashboardAddr string
-
-	// APIAddr is the address the /v1 OpenAI-compatible API binds to (e.g. "localhost:8081").
-	APIAddr string
+	// Addr is the address the single HTTP server binds to (e.g. "localhost:8080").
+	// Dashboard SPA, dashboard JSON API (/api) and OpenAI-compatible API
+	// (/v1) share this listener; routing splits by path prefix.
+	Addr string
 
 	// DBPath is the path to the SQLite database file.
 	DBPath string
@@ -103,11 +102,8 @@ type Config struct {
 
 // Validate checks that all required configuration fields are set.
 func (configuration *Config) Validate() error {
-	if configuration.DashboardAddr == "" {
-		return fmt.Errorf("dashboard listen address is required")
-	}
-	if configuration.APIAddr == "" {
-		return fmt.Errorf("api listen address is required")
+	if configuration.Addr == "" {
+		return fmt.Errorf("listen address is required")
 	}
 	if configuration.DBPath == "" {
 		return fmt.Errorf("database path is required")

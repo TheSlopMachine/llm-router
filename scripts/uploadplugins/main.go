@@ -14,7 +14,7 @@ import (
 // stack with authorization off (make start NO_AUTH=1); with auth on,
 // install-file requires a logged-in session and fails loudly.
 func main() {
-	web := shared.WebBaseURL("WEB_PORT", "38080")
+	web := shared.WebBaseURL("PORT", "38080")
 	store := shared.Getenv("UPLOAD_STORE_DIR", shared.DefaultStoreDir())
 	if err := shared.WaitReady(web); err != nil {
 		shared.Failf("%v", err)

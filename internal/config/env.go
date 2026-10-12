@@ -16,8 +16,7 @@ import (
 // Configuration defaults for environment loading.
 const (
 	DefaultHost         = "localhost"
-	DefaultWebPort      = "8080"
-	DefaultAPIPort      = "8081"
+	DefaultPort         = "8080"
 	DefaultDatabasePath = "llm-router.sqlite3"
 	DefaultCachePath    = "llm-router.cache.sqlite3"
 	DefaultLogLevel     = "info"
@@ -29,7 +28,6 @@ var (
 	ErrInvalidPort       = errors.New("invalid port")
 	ErrInvalidLogLevel   = errors.New("invalid log level")
 	ErrInvalidNoAuth     = errors.New("invalid NO_AUTH value")
-	ErrEqualPorts        = errors.New("dashboard and api ports must differ")
 	ErrConfigFileExists  = errors.New("configuration file exists")
 	ErrMissingTargetPath = errors.New("configuration target path is required")
 )
@@ -52,17 +50,12 @@ func Load() (*Config, string, error) {
 		return nil, "", err
 	}
 
-	webPort, err := parsePortValue(environmentOrDefault("WEB_PORT", DefaultWebPort))
+	port, err := parsePortValue(environmentOrDefault("PORT", DefaultPort))
 	if err != nil {
-		return nil, "", fmt.Errorf("invalid WEB_PORT: %w", err)
+		return nil, "", fmt.Errorf("invalid PORT: %w", err)
 	}
-	apiPort, err := parsePortValue(environmentOrDefault("API_PORT", DefaultAPIPort))
-	if err != nil {
-		return nil, "", fmt.Errorf("invalid API_PORT: %w", err)
-	}
-	if webPort == apiPort {
-		return nil, "", fmt.Errorf("dashboard and api ports must differ (both %s): %w", webPort.String(), ErrEqualPorts)
-	}
+	// WEB_PORT and API_PORT are legacy names from the split-listener era.
+	// They are ignored: the single listener reads PORT only.
 	logLevel, err := parseLogLevelValue(environmentOrDefault("LOG_LEVEL", DefaultLogLevel))
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid LOG_LEVEL: %w", err)
@@ -83,8 +76,7 @@ func Load() (*Config, string, error) {
 	}
 
 	configuration := &Config{
-		DashboardAddr: net.JoinHostPort(host, webPort.String()),
-		APIAddr:       net.JoinHostPort(host, apiPort.String()),
+		Addr:          net.JoinHostPort(host, port.String()),
 		DBPath:        databasePath,
 		CachePath:     cachePath,
 		LogLevel:      logLevel,
@@ -101,8 +93,7 @@ func Load() (*Config, string, error) {
 func DefaultTemplate() string {
 	return `# llm-router configuration file
 HOST=localhost
-WEB_PORT=8080
-API_PORT=8081
+PORT=8080
 DB_PATH=llm-router.sqlite3
 CACHE_PATH=llm-router.cache.sqlite3
 LOG_LEVEL=info

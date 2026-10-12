@@ -2,6 +2,7 @@
 
 ## Done (2026-10-13, vUnreleased)
 
+- Merged the dashboard and `/v1` listeners onto one port: `PORT` (default `8080`) replaced `WEB_PORT`/`API_PORT` in `Config`, `.env` template and `.env.example`; legacy names are ignored. One `http.Server` dispatches `/v1` to the token-authed API, `/api` to the session-authed dashboard API and `/*` to the SPA. API prefixes (bare names included) answer JSON only and never redirect or serve HTML; the boot gate returns JSON `503` on API paths and redirects SPA paths only. Dev runs vite on `PORT` (default `38080`, proxies `/api` + `/v1`) with the backend on fixed `38081`.
 - Split SQLite storage into durable database plus disposable cache: `DB_PATH` kept configuration, `CACHE_PATH` (fallback `DEV_CACHE`, default `llm-router.cache.sqlite3`) held rebuildable state. Sessions, proxy states, model info rows, credential parks plus health, metric buckets, video jobs, response records and message batches moved to the cache file; plugin storage routed by TTL (TTL rows in cache, durable rows in database). Cache rows referenced durable parents softly with explicit cleanup on delete; deleting the cache file while stopped only logged operators out and refilled in the background.
 - Migrated single-file databases forward-only (version 2 `split_storage`): the startup copied legacy cache tables into the cache file, then dropped them from the primary file; each file owned its own `schema_migrations` history and version 1 stayed untouched.
 
