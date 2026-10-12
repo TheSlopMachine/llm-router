@@ -96,12 +96,9 @@ func (s *Service) submitVideo(
 		return response, err
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
-	if resolved.IsLua() {
-		if !s.providerService.LuaService().HasHandler(resolved.Instance.TypeKey, "generate_video") {
-			return nil, fmt.Errorf("%w: provider %q has no generate_video handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
-		}
-	} else if _, ok := resolved.Go.(provider.VideoGenerator); !ok {
-		return nil, fmt.Errorf("%w: provider %q does not support video generation", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+	_, goSupported := resolved.Go.(provider.VideoGenerator)
+	if err := s.requireCapability(resolved, "generate_video", goSupported, fmt.Sprintf("provider %q does not support video generation", resolved.Instance.Name)); err != nil {
+		return nil, err
 	}
 	allowed, credentials, err := s.gateCredentials(ctx, resolved, request.Model, token)
 	if err != nil {

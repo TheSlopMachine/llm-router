@@ -80,6 +80,55 @@ func TestSyncProviderModelsCreatesOnePerEndpoint(t *testing.T) {
 	}
 }
 
+func TestSyncProviderModelsCreatesVideosGroup(t *testing.T) {
+	database := testutil.SetupTestSQLite(t)
+	ctx := context.Background()
+	providerService := provider.NewGorm(database)
+	providerService.RegisterGoAdapter(testutil.NewMockAdapter("demo").WithModelInfos([]models.ModelInfo{
+		{Name: "vid-a", Endpoints: []string{models.EndpointVideos}},
+	}))
+	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Demo", TypeKey: "demo"}); err != nil {
+		t.Fatalf("seed demo provider: %v", err)
+	}
+	credentialService := credential.NewGorm(database, providerService)
+	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, 1*time.Hour)
+	if _, err := modelInfoService.GetModelInfos(ctx, "demo"); err != nil {
+		t.Fatalf("warm model cache: %v", err)
+	}
+	service := NewGorm(database, providerService, modelInfoService)
+
+	groups, err := service.SyncProviderModels(ctx, "demo")
+	if err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	bySlug := groupByEndpoint(groups)
+	if len(bySlug) != 1 {
+		t.Fatalf("groups: got %+v", groups)
+	}
+	videos := bySlug["videos"]
+	if len(videos.Models) != 1 || videos.Models[0] != "vid-a" {
+		t.Fatalf("videos members: %+v", videos.Models)
+	}
+	if videos.Virtual == nil || videos.Virtual.ManagedBy != ProviderMarker("demo", "videos") {
+		t.Fatalf("videos virtual missing marker: %+v", videos.Virtual)
+	}
+	if len(videos.Virtual.Models) != 1 || string(videos.Virtual.Models[0].ModelID) != "demo/vid-a" {
+		t.Fatalf("videos virtual members: %+v", videos.Virtual.Models)
+	}
+
+	// Idempotent: resync changes nothing.
+	again, err := service.SyncProviderModels(ctx, "demo")
+	if err != nil {
+		t.Fatalf("resync: %v", err)
+	}
+	if groupByEndpoint(again)["videos"].Virtual.ID != videos.Virtual.ID {
+		t.Fatal("resync must not recreate")
+	}
+	if all, _ := service.List(ctx); len(all) != 1 {
+		t.Fatalf("expected 1 managed virtual model, got %d", len(all))
+	}
+}
+
 func TestSyncProviderModelsDropsEmptiedGroup(t *testing.T) {
 	service, modelInfoService := newSyncTestStack(t)
 	ctx := context.Background()

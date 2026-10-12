@@ -198,38 +198,16 @@ func (h *Handler) handleCompletionStreamWithMetrics(w http.ResponseWriter, r *ht
 	err := h.router.CompleteStream(r.Context(), chatRequest, translatedWriter, token)
 	duration := time.Since(start)
 
-	providerType, _, _ := request.Model.Parse()
 	providerID, _ := h.router.GetProviderIDForModel(r.Context(), request.Model)
 	tokenID := ""
 	if token != nil {
 		tokenID = token.ID
 	}
-	event := models.MetricEvent{
-		Timestamp:    start,
-		ProviderID:   providerID,
-		ProviderType: providerType,
-		Model:        request.Model,
-		TokenID:      tokenID,
-		Duration:     duration,
-		StatusCode:   http.StatusOK,
-	}
 	if err != nil {
-		event.StatusCode = http.StatusInternalServerError
-		routerError := h.classifyError(err)
-		event.ErrorType = routerError.code
 		h.logger.Error("completion stream error", "err", err)
-		errorObj := models.OpenAIError{
-			Error: models.OpenAIErrorBody{
-				Message: err.Error(),
-				Type:    errorTypeForCode(routerError.code),
-				Code:    routerError.code,
-			},
-		}
-		errorJSON, _ := json.Marshal(errorObj)
-		fmt.Fprintf(w, "data: %s\n\n", errorJSON)
-		flusher.Flush()
+		WriteOpenAIStreamError(w, flusher, err)
 	}
-	h.metrics.RecordRequest(event)
+	h.metrics.RecordRequest(BuildStreamMetricEvent(start, request.Model, providerID, tokenID, duration, err))
 }
 
 // ─────────────────────────────────────────────

@@ -22,6 +22,7 @@ var syncEndpoints = []syncEndpoint{
 	{"speech", "TTS", models.EndpointAudioSpeech},
 	{"images", "Images", models.EndpointImagesGenerations},
 	{"embeddings", "Embeddings", models.EndpointEmbeddings},
+	{"videos", "Videos", models.EndpointVideos},
 }
 
 // ProviderMarker builds the ManagedBy marker for a provider endpoint group.

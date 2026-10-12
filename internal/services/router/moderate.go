@@ -66,12 +66,9 @@ func (s *Service) moderateWithProxy(
 		return nil, "", fmt.Errorf("%w: virtual models do not serve moderations", apierrors.ErrEndpointNotSupported)
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
-	if resolved.IsLua() {
-		if !s.providerService.LuaService().HasHandler(resolved.Instance.TypeKey, "moderate") {
-			return nil, "", fmt.Errorf("%w: provider %q has no moderate handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
-		}
-	} else if _, ok := resolved.Go.(provider.Moderator); !ok {
-		return nil, "", fmt.Errorf("%w: provider %q does not support moderations", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+	_, goSupported := resolved.Go.(provider.Moderator)
+	if err := s.requireCapability(resolved, "moderate", goSupported, fmt.Sprintf("provider %q does not support moderations", resolved.Instance.Name)); err != nil {
+		return nil, "", err
 	}
 	allowed, credentials, err := s.gateCredentials(ctx, resolved, request.Model, token)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	v1 "github.com/TheSlopMachine/llm-router/internal/api/v1"
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/httpkit"
 	"github.com/TheSlopMachine/llm-router/internal/models"
@@ -98,36 +99,16 @@ func (h *Handler) handleChatStream(w http.ResponseWriter, r *http.Request, reque
 
 	err := h.routerService.CompleteStream(r.Context(), request, w, nil)
 	duration := time.Since(start)
-	providerType, _, _ := request.Model.Parse()
 	providerID, _ := h.routerService.GetProviderIDForModel(r.Context(), request.Model)
-	event := models.MetricEvent{
-		Timestamp:    start,
-		ProviderID:   providerID,
-		ProviderType: providerType,
-		Model:        request.Model,
-		TokenID:      "dashboard",
-		Duration:     duration,
-		StatusCode:   http.StatusOK,
-	}
 	if err != nil {
-		event.StatusCode = http.StatusInternalServerError
-		routerError := classifyChatError(err)
-		event.ErrorType = routerError.code
 		h.logger.Error("chat stream error", "err", err)
 		// Send error as SSE event for frontend
-		errorResponse := models.OpenAIError{
-			Error: models.OpenAIErrorBody{
-				Message: err.Error(),
-				Type:    apierrors.ErrorTypeForCode(routerError.code),
-				Code:    routerError.code,
-			},
-		}
-		if errorBytes, e := json.Marshal(errorResponse); e == nil {
+		if errorBytes, marshalErr := v1.MarshalOpenAIStreamError(err); marshalErr == nil {
 			fmt.Fprintf(w, "data: %s\n\n", errorBytes)
 			flusher.Flush()
 		}
 	}
-	h.metricsService.RecordRequest(event)
+	h.metricsService.RecordRequest(v1.BuildStreamMetricEvent(start, request.Model, providerID, "dashboard", duration, err))
 }
 
 func handleChatRouterError(w http.ResponseWriter, err error, h *Handler) {

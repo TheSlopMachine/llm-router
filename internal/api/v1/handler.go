@@ -607,33 +607,20 @@ func (h *Handler) anthropicStream(w http.ResponseWriter, r *http.Request, chatRe
 	err := h.router.CompleteStream(r.Context(), chatRequest, translatedWriter, token)
 	duration := time.Since(start)
 
-	providerType, _, _ := chatRequest.Model.Parse()
 	providerID, _ := h.router.GetProviderIDForModel(r.Context(), chatRequest.Model)
 	tokenID := ""
 	if token != nil {
 		tokenID = token.ID
 	}
-	event := models.MetricEvent{
-		Timestamp:    start,
-		ProviderID:   providerID,
-		ProviderType: providerType,
-		Model:        chatRequest.Model,
-		TokenID:      tokenID,
-		Duration:     duration,
-		StatusCode:   http.StatusOK,
-	}
 
 	if err != nil {
-		event.StatusCode = http.StatusInternalServerError
-		routerError := h.classifyError(err)
-		event.ErrorType = routerError.code
 		h.logger.Error("anthropic stream error", "err", err)
 		_ = translatedWriter.emit("error", map[string]any{
 			"type":  "error",
 			"error": map[string]any{"type": "api_error", "message": err.Error()},
 		})
 	}
-	h.metrics.RecordRequest(event)
+	h.metrics.RecordRequest(BuildStreamMetricEvent(start, chatRequest.Model, providerID, tokenID, duration, err))
 }
 
 // handleStreamWithMetrics wraps streaming with metrics collection.
@@ -652,7 +639,6 @@ func (h *Handler) handleStreamWithMetrics(w http.ResponseWriter, r *http.Request
 	duration := time.Since(start)
 
 	// Extract provider info
-	providerType, _, _ := request.Model.Parse()
 	providerID, _ := h.router.GetProviderIDForModel(r.Context(), request.Model)
 
 	// Build metric event
@@ -660,37 +646,16 @@ func (h *Handler) handleStreamWithMetrics(w http.ResponseWriter, r *http.Request
 	if token != nil {
 		tokenID = token.ID
 	}
-	event := models.MetricEvent{
-		Timestamp:    start,
-		ProviderID:   providerID,
-		ProviderType: providerType,
-		Model:        request.Model,
-		TokenID:      tokenID,
-		Duration:     duration,
-		StatusCode:   http.StatusOK,
-	}
 
 	if err != nil {
-		event.StatusCode = http.StatusInternalServerError
-		routerError := h.classifyError(err)
-		event.ErrorType = routerError.code
 		h.logger.Error("stream error", "err", err)
 
 		// Send error in OpenAI-compatible format as SSE event
-		errorObj := models.OpenAIError{
-			Error: models.OpenAIErrorBody{
-				Message: err.Error(),
-				Type:    errorTypeForCode(routerError.code),
-				Code:    routerError.code,
-			},
-		}
-		errorJSON, _ := json.Marshal(errorObj)
-		fmt.Fprintf(w, "data: %s\n\n", errorJSON)
-		flusher.Flush()
+		WriteOpenAIStreamError(w, flusher, err)
 	}
 
 	// Record metrics
-	h.metrics.RecordRequest(event)
+	h.metrics.RecordRequest(BuildStreamMetricEvent(start, request.Model, providerID, tokenID, duration, err))
 }
 
 // listModels handles GET /v1/models - token-filtered discovery listing.
