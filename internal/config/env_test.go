@@ -224,9 +224,24 @@ func TestWriteDefaultFileCreatesTemplate(t *testing.T) {
 	if string(raw) != DefaultTemplate() {
 		t.Fatalf("template mismatch:\n%s", string(raw))
 	}
-	for _, key := range []string{"HOST=", "WEB_PORT=", "API_PORT=", "DB_PATH=", "LOG_LEVEL=", "NO_AUTH=", "DEV_UI_REDIRECT="} {
+	for _, key := range []string{"HOST=", "WEB_PORT=", "API_PORT=", "DB_PATH=", "LOG_LEVEL=", "NO_AUTH="} {
 		if !strings.Contains(string(raw), key) {
 			t.Errorf("template misses %q", key)
 		}
+	}
+	// DEV_UI_REDIRECT stays dev-only process state set by `make start`;
+	// the prod template never generates it.
+	if strings.Contains(string(raw), "DEV_UI_REDIRECT") {
+		t.Error("template contains DEV_UI_REDIRECT, want dev-only process state excluded")
+	}
+}
+
+func TestDotenvExampleMirrorsTemplate(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".env.example"))
+	if err != nil {
+		t.Fatalf("read .env.example: %v", err)
+	}
+	if string(raw) != DefaultTemplate() {
+		t.Fatalf(".env.example drifts from DefaultTemplate:\n%s", string(raw))
 	}
 }
