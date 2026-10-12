@@ -165,7 +165,7 @@ Keep changes shallow. Do not touch service internals unless the task requires it
 | `make browser` | human | Open dashboard in browser |
 | `make build` | human | Build frontend + release binaries (`PLATFORMS=...`, `VERSION=...`) |
 | `make publish` | human | Cut and push the next release tag (`TYPE=fix|minor|major` or `VERSION=X.Y[.Z]`); CI builds |
-| `make clean` | human | Stop processes + clean ignored files |
+| `make clean` | human | Stop processes + clean ignored files except `.env` and SQLite databases |
 
 `check-frontend-deps` and `check-build-deps` are prerequisites, not direct targets. Never run them standalone.
 

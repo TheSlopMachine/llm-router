@@ -112,7 +112,7 @@ browser:
 
 clean:
 	@cd scripts && GOWORK=off go run ./stop
-	@git clean -fdX
+	@git clean -fdX -e .env -e .env.local -e '*.sqlite*'
 
 build: check-build-deps init
 	@cd scripts && GOWORK=off go run ./build

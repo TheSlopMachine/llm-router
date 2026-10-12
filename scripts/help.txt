@@ -13,7 +13,7 @@ Targets:
   log               Tail backend log (follows on TTY, dumps and exits otherwise)
   log-frontend      Tail frontend log (follows on TTY, dumps and exits otherwise)
   browser           Open dashboard in browser (http://localhost:38080)
-  clean             Stop + git clean -fdX (preserves untracked source)
+  clean             Stop + clean ignored files (keeps .env and SQLite databases)
   build             Init, then build frontend + all PLATFORMS binaries
   publish           Cut and push the next release tag (TYPE or VERSION; CI builds)
   go-vet            Run go vet (PKG scopes packages, default "./...")

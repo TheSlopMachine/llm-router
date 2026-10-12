@@ -1,5 +1,6 @@
 # Database files
 *.db
+*.sqlite*
 
 # Build artifacts
 node_modules/
