@@ -4,10 +4,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"time"
 
 	"github.com/TheSlopMachine/llm-router/scripts/shared"
 )
@@ -80,10 +82,30 @@ func credentialsEnabled(testConfiguration configuration, providerID string) (boo
 }
 
 // waitReady polls status until the backend listens or the deadline passes.
-// Restart returns before the backend accepts connections. Delegates to
-// shared.WaitReady; behavior is identical.
+// The backend may still run startup jobs when smoke starts right after
+// it; behavior matches the former restart-first flow.
 func waitReady(testConfiguration configuration) error {
 	return shared.WaitReady(testConfiguration.web)
+}
+
+// requireRunningStack fails fast when no dev stack answers. Without the
+// restart the harness exercises the running build, so a dead stack is a
+// usage error, never a two-minute poll. A live backend PID means startup
+// is still in flight; otherwise one quick probe decides.
+func requireRunningStack(testConfiguration configuration) {
+	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
+	if process, err := shared.ReadPidFile(pidFile); err == nil {
+		if shared.AliveMatches(process.Backend, process.BackendPath) {
+			return
+		}
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	response, err := client.Get(testConfiguration.web + "/api/llm-router/status")
+	if err == nil {
+		response.Body.Close()
+		return
+	}
+	shared.Failf("dev stack not answering at %s; run `make start` first", testConfiguration.web)
 }
 
 func ensureBootstrapped(testConfiguration configuration) error {

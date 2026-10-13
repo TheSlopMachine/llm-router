@@ -23,7 +23,7 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 | `build` | `VERSION` (default: latest git tag, else `dev`), `PLATFORMS`* | `make build` |
 | `publish` | `TYPE=fix\|minor\|major` xor `VERSION=X.Y[.Z]`, `NOTES` (optional tag annotation) | `make publish` (clean tree, HEAD synced to origin/main; CI builds on tag push) |
 | `help` | static text (`help.txt`), no code | `make help` |
-| `smoke` | `SMOKE_PLUGINS` (default `mock`), `SMOKE_TARGETS` (default `completions,messages`), `SMOKE_STORE_DIR`, `SMOKE_CLEANUP` (default `1`) | `make smoke` (restarts first, drives the admin listener) |
+| `smoke` | `SMOKE_PLUGINS` (default `mock`), `SMOKE_TARGETS` (default `completions,messages`), `SMOKE_STORE_DIR`, `SMOKE_CLEANUP` (default `1`) | `make smoke` (running stack, no restart; fails fast when nothing answers) |
 | `uploadplugins` | `UPLOAD_STORE_DIR` (default `../../llm-router-store/llm-router-plugins`) | `make upload-plugins` (running stack, targets the admin listener, no restart) |
 | _(env)_ | `NO_SKIP` (`1`/`true`/`yes`/`on` disables caches) | `make init NO_SKIP=1` or `NO_SKIP=1 make init` |
 | `vet` / `test` / `testrace` / `fcheck` | `PKG` (default `./...`; `scripts/`-relative patterns run inside the scripts module) / `PKG` (default `./...`) / `PKG` (default `./...`) / — | `make go-vet` / `make go-test` / `make go-test-race` / `make check-frontend` |
@@ -44,7 +44,7 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 
 ## Smoke (`make smoke`)
 
-Restarts the dev stack, waits for readiness, then drives the request paths black-box against the admin listener: status → bootstrap → plugin install → provider + dev-database credentials → model matrix (one model per capability, first success closes it) → cleanup of created credentials. Missing credentials skip keyed plugins, never fail them; credential-less provider types run the matrix without accounts. Quota, payment, rate and missing-model outcomes skip with reason; anything else fails. Exit 0 means clean (skips allowed).
+Drives the request paths black-box against the running dev stack through the admin listener, with no restart: fails fast when nothing answers (`make start` first, `make restart` after code changes). status → bootstrap → plugin install → provider + dev-database credentials → model matrix (one model per capability, first success closes it) → cleanup of created credentials. Missing credentials skip keyed plugins, never fail them; credential-less provider types run the matrix without accounts. Quota, payment, rate and missing-model outcomes skip with reason; anything else fails. Exit 0 means clean (skips allowed).
 
 ## Caching (`NO_SKIP`)
 

@@ -89,9 +89,9 @@ stop:
 restart:
 	@cd scripts && GOWORK=off go run ./restart
 
-# Smoke harness: restarts the dev stack, then drives the request paths
-# against the admin listener (provisioning accounts from SMOKE_* env automatically).
-smoke: restart
+# Smoke harness: run the request paths against the running dev stack
+# (no restart; run `make start` first, `make restart` after code changes).
+smoke:
 	@cd scripts && GOWORK=off go run ./smoke
 
 # Upload every .lua plugin in the store dir to the running dev stack via

@@ -14,6 +14,7 @@ func main() {
 	if err != nil {
 		shared.Failf("%v", err)
 	}
+	requireRunningStack(testConfiguration)
 	if err := waitReady(testConfiguration); err != nil {
 		shared.Failf("%v", err)
 	}

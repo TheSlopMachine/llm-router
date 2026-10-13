@@ -159,7 +159,7 @@ Keep changes shallow. Do not touch service internals unless the task requires it
 | `make start` | agent | Start dev backend + frontend (vite); admin listener on 127.0.0.1:ADMIN_PORT answers without auth |
 | `make stop` | agent | Stop dev processes (backend graceful via admin API with kill fallback; frontend killed) |
 | `make restart` | agent | Stop + start, keeping last start params |
-| `make smoke` | agent | Restart, then run the smoke harness against the admin listener (`SMOKE_PLUGINS=...`, `SMOKE_TARGETS=...`) |
+| `make smoke` | agent | Run the smoke harness against the running dev stack, never restarting it (`SMOKE_PLUGINS=...`, `SMOKE_TARGETS=...`) |
 | `make upload-plugins` | agent | Upload every store `.lua` plugin via the admin listener (`UPLOAD_STORE_DIR=...`, no restart) |
 | `make status` | agent | Show dev server status |
 | `make help` | agent | Print targets and variables |
@@ -201,7 +201,7 @@ If the task needs `browser`, `build`, `publish`, or `clean`: STOP. Ask the human
 
 | # | Prohibition | Detail |
 |---|---|---|
-| 1 | Kill processes | No `kill`, `pkill`, `taskkill`, `Stop-Process`. Use `make stop` / `make restart` so pidfiles stay consistent (`stop` shuts the backend down gracefully via the admin API first and kills only the frontend outright or as fallback). `make restart` / `make smoke` stop live dev processes first: warn before running them when the user may have work in flight. |
+| 1 | Kill processes | No `kill`, `pkill`, `taskkill`, `Stop-Process`. Use `make stop` / `make restart` so pidfiles stay consistent (`stop` shuts the backend down gracefully via the admin API first and kills only the frontend outright or as fallback). `make restart` stops live dev processes first: warn before running it when the user may have work in flight. |
 | 2 | Delete database files | Never remove `~/.local/llm-router/llm-router-dev.sqlite3` or `~/.local/llm-router/llm-router-dev.cache.sqlite3` (or the Windows equivalents). If either is corrupt, ask the human to delete it. |
 | 3 | Run destructive git commands | No `git push`, `git reset`, `git checkout -f`, `git clean`, force-push, amend. Commit only if explicitly instructed, for that exact commit only. |
 | 4 | Litter the project | No `*.log`, `*.pid`, `*.tmp`, binaries, scratch files, notes inside the project tree. Use `/tmp` or an external scratch dir. Delete temporary verification files when done. |
@@ -360,11 +360,12 @@ Dashboard `/api/llm-router/*` (same `:PORT`, JSON `{"error":...}` on failure):
 
 Runtime diagnostics: `make log LINES=...` (backend), `make log-frontend` (vite), `make status` (PIDs/ports), metrics overview/timeseries endpoints for usage.
 
-Smoke harness (`scripts/smoke/`, `make smoke` restarts first, then drives the admin listener):
+Smoke harness (`scripts/smoke/`, `make smoke` drives the running stack through the admin listener without restarting it):
 - Default scope is the mock provider only; real plugins opt in via `SMOKE_PLUGINS=...`, heavy endpoints via `SMOKE_TARGETS=...`.
 - Accounts come from the dev database, never from env. Missing credentials skip the plugin, never fail it.
 - Matrix iterates models per capability until first success; `quota`/`payment`/`rate`/`not_found`/`invalid_request` move on, `auth` fails, exhaustion without success skips with reason.
 - Mock provider ships in `testdata/mock.lua`; bump its `@version` on every edit (the harness skips reinstall on version match).
+ - Exercises the running build without restarting it; `make restart` first after changing code, `make start` first when nothing answers (it fails fast).
 - Check semantics differ per target: streams assert delivery (`[DONE]`/`message_stop`), dashboard-chat asserts non-empty `choices`, unary asserts content. A unary-only failure with passing streams means empty upstream text, not transport.
 - Diagnose from the log first: failing calls' full upstream bodies are already in the debug log (`make smoke SMOKE_PLUGINS=... LOG_LEVEL=debug`, then grep `HTTP_RESPONSE`/`COMPLETE`). Reproduce single-model failures with direct `/v1` calls before running the matrix.
 

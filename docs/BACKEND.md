@@ -228,7 +228,7 @@ and durable storage; metric bucket deletes cascade dimension children.
 ## Smoke harness
 
 `scripts/smoke/` drives the request paths black-box against a dev stack
-(`make smoke` restarts first, then drives the admin listener): status → bootstrap →
+(`make smoke` runs it against the running stack with no restart, then drives the admin listener): status → bootstrap →
 plugin install → provider + dev-database credentials → model matrix
 (one model per capability, first success closes it, plus fallback and
 negative `endpoint_not_supported` paths) → mock `mock-limited` skip-path
