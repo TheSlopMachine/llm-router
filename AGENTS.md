@@ -231,6 +231,11 @@ Tail backend log (`LINES=...` overrides the `EVENTS_LIMIT=50` default tail; `FOL
 - BAD: `type "$env:TEMP\llm-router-backend.log"`, `Get-Content` on log paths, `Get-ChildItem` temp-dir log hunting.
 - GOOD: `make log`, `make log LINES=200`, `make log FOLLOW=1`
 
+Query persisted events with native filters (`EVENT_FILTERS="k=v bare-key"`, `EVENTS_SEVERITY=0-4`, `EVENTS_LIMIT=...`, `EVENTS_START=`/`EVENTS_END=` RFC3339, `EVENTS_ID=...`). The server clamps `limit` to 500; page with time windows instead of larger limits. Filter keys are event metadata (`code`, `cred_id`, `model`, `type`, `reason`); message text is not filterable. Full key inventory: `docs/EVENT-KEYS.md`.
+
+- BAD: piping `make log` into `Select-String`/`grep`, `Get-Content` on log paths.
+- GOOD: `make log EVENT_FILTERS="code=rate_limit" EVENTS_LIMIT=500`, `make log EVENT_FILTERS="type=google" EVENTS_START="2026-10-13T17:38:00Z" EVENTS_END="2026-10-13T17:43:00Z"`, `make log EVENTS_SEVERITY=2`
+
 Tail frontend log (same `LINES`/`FOLLOW` contract). Exclusive frontend-log access:
 
 - BAD: `type` on vite logs, reading pid-dir `*.log` files directly.
@@ -639,6 +644,11 @@ Live-debug through make targets plus direct endpoint calls via the admin listene
 - BAD: `type` on log files, `Get-Content` on pidfiles, `Get-Process`, `netstat`, `Get-ChildItem` log hunting.
 - GOOD: `make status` for state, `make log` for backend, `make log-frontend` for frontend, `make smoke` and direct admin-listener calls for request paths.
 
+Troubleshoot in a closed loop: state, filtered events, direct reproduction, fix, re-verify, smoke.
+
+- BAD: editing from an unfiltered tail, re-running the full matrix to confirm a single-path fix.
+- GOOD: `make status`, native-filtered `make log` around the incident window, one direct `/v1` call per affected path against 127.0.0.1:ADMIN_PORT, the fix, the same direct calls, `make smoke SMOKE_PLUGINS=<name>`.
+
 Order: state first, then logs, then lifecycle.
 
 - BAD: `make log` before knowing whether anything runs.
@@ -669,7 +679,7 @@ Auth: under admin listener no headers needed. With auth on (public), `/v1` needs
 - `POST /v1/chat/completions` `{"model":"<provider>/<model>","messages":[{"role":"user","content":"hi"}]}` — core routing; `"stream":true` for SSE.
 - `GET /v1/models` — routable model list, no token rules applied.
 - `POST /v1/messages` — Anthropic-compatible messages (translated to chat underneath).
-- `POST /v1/audio/transcriptions` (multipart `file`+`model`), `/v1/audio/speech`, `/v1/images/generations`, `/v1/embeddings` — per-endpoint backends.
+- `POST /v1/audio/transcriptions` (multipart `file`+`model`), `POST /v1/audio/speech` `{"model":"<provider>/<tts-model>","input":"...","voice":"Kore"}`, `POST /v1/images/generations` `{"model":"<provider>/<image-model>","prompt":"..."}`, `POST /v1/embeddings` `{"model":"<provider>/<embedding-model>","input":"..."}` — per-endpoint backends.
 - Diagnose: wrong `provider/` → `provider_not_found`; disabled model → `model_not_found`; no usable key → `no_credential`/`credential_not_allowed`; upstream failure → `upstream_error`/`timeout`/`rate_limit`/`payment_required` (codes in `internal/errors/`; see `errors.ToAPIError`).
 
 Dashboard `/api/llm-router/*` (same `:PORT`, JSON `{"error":...}` on failure):
@@ -680,6 +690,8 @@ Dashboard `/api/llm-router/*` (same `:PORT`, JSON `{"error":...}` on failure):
 - `POST /dashboard/credentials/{id}/test {"model":...}` — pinned single-credential probe (bare model name; endpoint prepends provider).
 - `GET /dashboard/providers/{id}/models` — richest capability source (`endpoints` included).
 - `GET /dashboard/proxy-sources`, `/dashboard/virtual-models` — pool and fan-out state.
+
+`GET /api/events` (same `:PORT`; backs `make log`): `severity` (0-4 minimum), `id`, `start`/`end` (RFC3339), `limit` (server clamps to 500), plus `filter.<key>[=<value>]` predicates over event metadata (`code`, `cred_id`, `model`, `type`, `reason`, ...). Bare `filter.<key>` matches presence; message text is not filterable. Full key inventory: `docs/EVENT-KEYS.md`.
 
 Runtime diagnostics come ONLY from make targets plus metrics endpoints:
 
@@ -706,6 +718,9 @@ Smoke harness (`scripts/smoke/`, `make smoke` drives the running stack through t
 - Diagnose from the log first: failing calls' full upstream bodies are already in the debug log.
 - BAD: re-running the matrix blindly on failure.
 - GOOD: `make smoke SMOKE_PLUGINS=... LOG_LEVEL=debug`, debug-log inspection, reproducing single-model failures with direct `/v1` calls first.
+- Entries below the configured `LOG_LEVEL` never persist, so missing `debug` plugin lines (`trying credential`, cooldown skips) on an `info` stack are not evidence the path never ran.
+- BAD: reading absent `debug` lines as proof a code path never ran.
+- GOOD: reproducing with direct `/v1` calls, or restarting with `LOG_LEVEL=debug` when flow tracing is required.
 
 ## 12. Plugin Store Repo (sibling checkout)
 
@@ -724,6 +739,11 @@ Verify reissues without live keys: install dry-run plus classify extensions agai
 - BAD: shipping a reissue on synthetic checks alone when it touches streams.
 - GOOD: synthetic checks plus `make start` live verification for stream paths.
 
+Store reissue loop after every edit: `luac -p` when available, `@version` bump, `make upload-plugins` (expect `installed`, never `already current`), direct `/v1` reproduction of the fixed path, `make smoke SMOKE_PLUGINS=<name>`.
+
+- BAD: uploading without a version bump and reading `already current` as deployed.
+- GOOD: version bump plus `installed` plus direct-call verification plus scoped smoke.
+
 ## 13. Documentation
 
 Edit docs in one change with the code, never deferred. Short formulations: present simple for system state, past simple for history.
@@ -735,6 +755,11 @@ Edit docs in one change with the code, never deferred. Short formulations: prese
 
 - BAD: contract change with prose-only doc edit.
 - GOOD: traced claim, runnable verbatim example, history row.
+
+`docs/EVENT-KEYS.md` is the single source of truth for event keys: a change that adds, renames, or removes an event key adds a table row here in one change.
+
+- BAD: new log key without a table row.
+- GOOD: key plus meaning plus runnable example filter in one change.
 
 `docs/BACKEND.md` maps the current core only: a new service, bucket, or pipeline step adds a map line (plus mini-section when needed). Never history here.
 
