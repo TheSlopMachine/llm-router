@@ -2,6 +2,7 @@ package luaplugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path"
@@ -248,6 +249,17 @@ func (s *Service) rebuild(ctx context.Context) error {
 	}
 	reg := map[string]*PluginRecord{}
 	for _, record := range records {
+		if err := CheckPluginAPI(&Manifest{PluginAPI: record.PluginAPI}); err != nil {
+			if s.logger != nil {
+				reason := "invalid"
+				var compatError *APICompatError
+				if errors.As(err, &compatError) {
+					reason = compatError.Reason
+				}
+				s.logger.Warn("Plugin API incompatible, skipping plugin", "plugin_id", record.ID, "reason", reason, "error", err.Error())
+			}
+			continue
+		}
 		for _, key := range record.TypeKeys {
 			if prev, exists := reg[key]; exists {
 				return fmt.Errorf("duplicate type key %q across plugins %q and %q: resolve by uninstalling one", key, prev.ID, record.ID)

@@ -1,5 +1,9 @@
 # Changelog
 
+## Done (2026-10-13, vUnreleased)
+
+- Closed plugin API enforcement gaps beyond install: rollback rejected a previous version with a mismatched `@plugin_api` major (`too_new`/`too_old`) without writing, and the startup registry skipped incompatible rows with a warning while keeping them inventoried, so newer-major plugins never activated under an older router.
+
 ## Done (2026-10-13, v0.3.10)
 
 - Moved model health checks into plugin responsibility with a new `check_model` handler (contract 1.5): plugins received `(ctx, model_ref)` with full model, bare name and open endpoint and returned `{status, message?, response?}` (`healthy`/`quota_exceeded`/`unhealthy`/`unknown`); the router resolved, timed, measured latency and mapped verdicts only, and reported `unsupported` for missing handlers and Go backends with no live request.

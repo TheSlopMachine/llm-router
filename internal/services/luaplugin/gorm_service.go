@@ -390,6 +390,10 @@ func (service *Service) RollbackSQLite(ctx context.Context, pluginID string) (*P
 	if err != nil {
 		return nil, fmt.Errorf("previous version manifest: %w", err)
 	}
+	if err := CheckPluginAPI(manifest); err != nil {
+		service.logAPIIncompatible(manifest, currentRecord.Origin, err)
+		return nil, err
+	}
 	handlers := previousSnapshot.Handlers
 	icons := previousSnapshot.Icons
 	specifications := previousSnapshot.ModelSpecifications

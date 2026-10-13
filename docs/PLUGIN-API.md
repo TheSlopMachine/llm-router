@@ -7,9 +7,12 @@ as plugin crashes.
 
 Plugin API: **1.5** (`luaplugin.PluginAPIVersion`). A plugin declares the
 `@plugin_api` contract it speaks; the router label (`main.RouterVersion`,
-stamped from the release tag) carries no compatibility meaning. Install
-compares majors only: plugin major above the served one fails with `too_new`,
-below fails with `too_old`, a missing tag fails with `no_api_version`. Minor
+stamped from the release tag) carries no compatibility meaning. Install,
+rollback, and the startup registry compare majors only: plugin major above
+the served one fails with `too_new`, below fails with `too_old`, a missing
+tag fails with `no_api_version`. A rejected install or rollback writes
+nothing; startup skips incompatible rows with a warning while keeping them
+inventoried. Minor
 is informational for plugin maintainers.
 
 `@version` accepts `MAJOR.MINOR[.PATCH]` (missing patch means `.0`, one

@@ -13,6 +13,7 @@ import (
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/repository"
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
+	"github.com/TheSlopMachine/llm-router/internal/version"
 	"gorm.io/gorm/clause"
 )
 
@@ -277,6 +278,91 @@ func TestRollbackSQLiteWithoutHistoryFails(t *testing.T) {
 	}
 	if _, err := service.RollbackSQLite(ctx, "missing-plugin"); !stdErrors.Is(err, apierrors.ErrNotFound) {
 		t.Fatalf("rollback missing must report not found, got %v", err)
+	}
+}
+
+func TestRollbackSQLiteRejectsIncompatiblePrevious(t *testing.T) {
+	originalAPI := PluginAPIVersion
+	defer func() { PluginAPIVersion = originalAPI }()
+	PluginAPIVersion = version.Version{Major: 2}
+	sqliteDatabase := testutil.SetupTestSQLite(t)
+	service, err := New(sqliteDatabase, nil)
+	if err != nil {
+		t.Fatalf("new sqlite service: %v", err)
+	}
+	ctx := context.Background()
+	firstSource := strings.Replace(testPluginSource, "@plugin_api 1.0", "@plugin_api 2.0", 1)
+	installed, err := service.InstallSQLite(ctx, []byte(firstSource), PluginOrigin{Manual: true})
+	if err != nil {
+		t.Fatalf("install v1: %v", err)
+	}
+	secondSource := strings.Replace(firstSource, "@version 1.0.0", "@version 2.0.0", 1)
+	second, err := service.InstallSQLite(ctx, []byte(secondSource), PluginOrigin{Manual: true})
+	if err != nil {
+		t.Fatalf("install v2: %v", err)
+	}
+	PluginAPIVersion = originalAPI
+	if _, err := service.RollbackSQLite(ctx, installed.ID); err == nil {
+		t.Fatal("rollback to a newer-major previous version must fail")
+	} else {
+		var compat *APICompatError
+		if !stdErrors.As(err, &compat) || compat.Reason != "too_new" {
+			t.Fatalf("expected too_new, got: %v", err)
+		}
+	}
+	fetched, err := service.GetSQLite(ctx, installed.ID)
+	if err != nil {
+		t.Fatalf("get after rejected rollback: %v", err)
+	}
+	if fetched.Version != second.Version {
+		t.Fatalf("rejected rollback must not mutate: version %q", fetched.Version)
+	}
+	if len(fetched.History) != 1 {
+		t.Fatalf("rejected rollback must not mutate history: got %d entries", len(fetched.History))
+	}
+}
+
+func TestRebuildSkipsIncompatiblePlugin(t *testing.T) {
+	originalAPI := PluginAPIVersion
+	defer func() { PluginAPIVersion = originalAPI }()
+	sqliteDatabase := testutil.SetupTestSQLite(t)
+	service, err := New(sqliteDatabase, nil)
+	if err != nil {
+		t.Fatalf("new sqlite service: %v", err)
+	}
+	ctx := context.Background()
+	compatibleSource := strings.Replace(testPluginSource, `"test-type"`, `"keep-type"`, 1)
+	if _, err := service.InstallSQLite(ctx, []byte(compatibleSource), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install compatible: %v", err)
+	}
+	PluginAPIVersion = version.Version{Major: 2}
+	futureSource := strings.Replace(testPluginSource, "@plugin_api 1.0", "@plugin_api 2.0", 1)
+	futureSource = strings.Replace(futureSource, "Test Plugin", "Future Plugin", 1)
+	futureSource = strings.Replace(futureSource, `"test-type"`, `"future-type"`, 1)
+	future, err := service.InstallSQLite(ctx, []byte(futureSource), PluginOrigin{Manual: true})
+	if err != nil {
+		t.Fatalf("install future: %v", err)
+	}
+	PluginAPIVersion = originalAPI
+	restarted, err := New(sqliteDatabase, nil)
+	if err != nil {
+		t.Fatalf("restart with an incompatible row must succeed: %v", err)
+	}
+	if _, err := restarted.Lookup("keep-type"); err != nil {
+		t.Fatalf("compatible plugin must stay registered: %v", err)
+	}
+	if _, err := restarted.Lookup("future-type"); err == nil {
+		t.Fatal("incompatible plugin must stay out of the registry")
+	}
+	if restarted.HasHandler("future-type", "complete") {
+		t.Fatal("incompatible plugin must serve no handlers")
+	}
+	stored, err := restarted.GetSQLite(ctx, future.ID)
+	if err != nil {
+		t.Fatalf("incompatible plugin must stay inventoried: %v", err)
+	}
+	if stored.PluginAPI != "2.0" {
+		t.Fatalf("inventoried plugin API: got %q", stored.PluginAPI)
 	}
 }
 
