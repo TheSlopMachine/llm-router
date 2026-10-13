@@ -1,0 +1,46 @@
+name: validate
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Initialize project
+        run: make init
+
+      - name: Run go vet
+        run: make go-vet
+
+      - name: Check formatting
+        run: make go-fmt-check
+
+      - name: Enforce SQL policy
+        run: make sql-policy
+
+      - name: Run go test
+        run: make go-test
+
+      - name: Run go test with race detector
+        run: make go-test-race
+
+      - name: Check frontend
+        run: make check-frontend

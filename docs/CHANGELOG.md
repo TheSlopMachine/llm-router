@@ -2,6 +2,10 @@
 
 ## Done (2026-10-13, vUnreleased)
 
+- Added push validation workflow (`.github/workflows/validate.yml`): every push ran `make init`, `make go-vet`, `make go-fmt-check`, `make sql-policy`, `make go-test`, `make go-test-race` and `make check-frontend` in order in one sequential job on `ubuntu-latest` with Go `1.27.1` and Bun latest.
+
+## Done (2026-10-13, vUnreleased)
+
 - Added operator-owned plugin disable state: the `plugins` table gained a persisted `disabled` flag (migration 3 `plugin_disabled`), reinstalls and rollbacks preserved it, and the type registry served enabled types only. Disabled types failed `Lookup` with `ErrPluginDisabled`, the router denied them with `provider_disabled`, proxy feeds and startup/shutdown hooks skipped them, and doctor stopped reporting them as missing backends. `PUT /dashboard/plugins/{id}` flipped the flag with `deinitialize` reason `disable` and `initialize` reason `enable`; the dashboard toggle called it and survived reloads.
 
 ## Done (2026-10-13, vUnreleased)
