@@ -98,7 +98,8 @@ Open every session by identifying the platform and shell. Never assume them.
 ## 3. Structure
 
 ```
-cmd/root.go              CLI entrypoint (environment + .env; --version/--generate-config only)
+cmd/root.go              CLI entrypoint (environment + .env; --version, --generate-config, interactive --bootstrap/--list-login/--remove-login/--reset-login/--create-login)
+cmd/login.go             interactive admin login management (terminal gate, prompts, per-flag runners)
 internal/server/         HTTP server: public listener (dashboard SPA + /v1 + /api on PORT) + optional loopback admin listener (API only, no auth, on 127.0.0.1:ADMIN_PORT)
 internal/services/
   token/                 router-token issue/validate

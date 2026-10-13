@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	stdErrors "errors"
@@ -131,6 +132,145 @@ func (s *GormService) ChangePassword(ctx context.Context, username, oldPassword,
 		}
 		if affected == 0 || tracker.RowsAffected == 0 {
 			return ErrInvalidCredentials
+		}
+		return nil
+	})
+}
+
+// ListLogins returns every dashboard operator account ordered by
+// username. Password hashes never leave storage: the returned models
+// carry usernames and creation times only.
+func (s *GormService) ListLogins(ctx context.Context) ([]*models.AdminUser, error) {
+	if _, err := s.requireHandle(); err != nil {
+		return nil, err
+	}
+	rows, err := gorm.G[record.AdminUser](s.database.Handle,
+		clause.OrderBy{Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "username"}}}}).Find(ctx)
+	if err != nil {
+		return nil, db.Translate(err)
+	}
+	users := make([]*models.AdminUser, 0, len(rows))
+	for _, row := range rows {
+		user := adminUserModelFromRecord(row)
+		user.PasswordHash = ""
+		users = append(users, user)
+	}
+	return users, nil
+}
+
+// CreateLogin adds an operator account without touching the bootstrapped
+// flag. The instance must already be bootstrapped; first-run setup owns
+// Bootstrap instead. A duplicate name denies with an already-exists error.
+// Hashing runs outside the transaction; one transaction holds the flag
+// check and the insert on the transaction handle only.
+func (s *GormService) CreateLogin(ctx context.Context, username, password string) error {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return apierrors.NewValidationError("username", "must not be empty")
+	}
+	if password == "" {
+		return apierrors.NewValidationError("password", "must not be empty")
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+	if _, err := s.requireHandle(); err != nil {
+		return err
+	}
+	user := &models.AdminUser{
+		Username:     username,
+		PasswordHash: string(hash),
+		CreatedAt:    util.Now(),
+	}
+	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		settings, err := loadInstanceSettings(ctx, transaction)
+		if err != nil {
+			return err
+		}
+		if !settings.Bootstrapped {
+			return fmt.Errorf("system not bootstrapped: %w", apierrors.ErrInvalidInput)
+		}
+		row := adminUserRecordFromModel(user)
+		if err := gorm.G[record.AdminUser](transaction).Create(ctx, &row); err != nil {
+			translated := db.Translate(err)
+			if stdErrors.Is(translated, apierrors.ErrAlreadyExists) {
+				return fmt.Errorf("admin account %q already exists: %w", username, apierrors.ErrAlreadyExists)
+			}
+			return translated
+		}
+		return nil
+	})
+}
+
+// DeleteUser removes an operator account and its sessions. Sessions live
+// in the cache file under a soft username reference, so they delete
+// explicitly: orphaned rows would otherwise stay valid. Removing the last
+// remaining account denies; a bootstrapped instance with no logins locks
+// every operator out. The sessions delete runs before the user delete so
+// a failed user delete never orphans valid sessions.
+func (s *GormService) DeleteUser(ctx context.Context, username string) error {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return apierrors.NewValidationError("username", "must not be empty")
+	}
+	if _, err := s.requireHandle(); err != nil {
+		return err
+	}
+	if _, err := gorm.G[record.AdminUser](s.database.Handle, clause.Eq{Column: "username", Value: username}).First(ctx); err != nil {
+		return apierrors.NewNotFoundError("admin account", username)
+	}
+	count, err := gorm.G[record.AdminUser](s.database.Handle).Count(ctx, "*")
+	if err != nil {
+		return db.Translate(err)
+	}
+	if count <= 1 {
+		return fmt.Errorf("cannot remove the last admin account: %w", apierrors.ErrInvalidInput)
+	}
+	if err := s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		_, err := gorm.G[record.Session](transaction, clause.Eq{Column: "username", Value: username}).Delete(ctx)
+		return db.Translate(err)
+	}); err != nil {
+		return err
+	}
+	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		_, err := gorm.G[record.AdminUser](transaction, clause.Eq{Column: "username", Value: username}).Delete(ctx)
+		return db.Translate(err)
+	})
+}
+
+// ResetPassword stores a new hash for the named account without asking
+// for the current password. Local database access is root-equivalent:
+// this path serves CLI operators, never the dashboard. A missing account
+// denies with a not-found error. Hashing runs outside the transaction;
+// one transaction holds the single-column update on the transaction
+// handle only. Existing sessions survive, matching ChangePassword.
+func (s *GormService) ResetPassword(ctx context.Context, username, newPassword string) error {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return apierrors.NewValidationError("username", "must not be empty")
+	}
+	if newPassword == "" {
+		return apierrors.NewValidationError("password", "must not be empty")
+	}
+	if _, err := s.requireHandle(); err != nil {
+		return err
+	}
+	if _, err := gorm.G[record.AdminUser](s.database.Handle, clause.Eq{Column: "username", Value: username}).First(ctx); err != nil {
+		return apierrors.NewNotFoundError("admin account", username)
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcryptCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		tracker := gorm.WithResult()
+		affected, err := gorm.G[record.AdminUser](transaction, clause.Eq{Column: "username", Value: username}, tracker).Update(ctx, "password_hash", string(hash))
+		if err != nil {
+			return db.Translate(err)
+		}
+		if affected == 0 || tracker.RowsAffected == 0 {
+			return apierrors.NewNotFoundError("admin account", username)
 		}
 		return nil
 	})

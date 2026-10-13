@@ -24,6 +24,11 @@ const generateConfigurationBare = "true"
 var (
 	versionFlag               bool
 	generateConfigurationPath string
+	bootstrapFlag             bool
+	listLoginFlag             bool
+	removeLoginFlag           bool
+	resetLoginFlag            bool
+	createLoginFlag           bool
 	versionInformation        struct {
 		Version   string
 		GitCommit string
@@ -44,7 +49,8 @@ var rootCmd = &cobra.Command{
 	Short: "llm-router — minimalist LLM routing gateway",
 	Long:  "llm-router — minimalist LLM routing gateway (configuration from environment variables with optional .env file)",
 	Example: `  llm-router
-  llm-router --generate-config`,
+  llm-router --generate-config
+  llm-router --bootstrap`,
 
 	Args: cobra.NoArgs,
 	RunE: run,
@@ -61,6 +67,11 @@ func init() {
 	rootCmd.Flags().BoolVarP(&versionFlag, "version", "v", false, "print version information and exit")
 	rootCmd.Flags().StringVar(&generateConfigurationPath, "generate-config", "", "write default .env template to file and exit (bare flag uses ENV_FILE or .env)")
 	rootCmd.Flags().Lookup("generate-config").NoOptDefVal = generateConfigurationBare
+	rootCmd.Flags().BoolVar(&bootstrapFlag, "bootstrap", false, "create the initial admin login interactively and exit")
+	rootCmd.Flags().BoolVar(&listLoginFlag, "list-login", false, "list admin logins and exit")
+	rootCmd.Flags().BoolVar(&removeLoginFlag, "remove-login", false, "remove an admin login interactively and exit")
+	rootCmd.Flags().BoolVar(&resetLoginFlag, "reset-login", false, "reset an admin login password interactively and exit")
+	rootCmd.Flags().BoolVar(&createLoginFlag, "create-login", false, "create an admin login interactively and exit")
 }
 
 func run(command *cobra.Command, arguments []string) error {
@@ -84,6 +95,23 @@ func run(command *cobra.Command, arguments []string) error {
 		}
 		fmt.Printf("wrote default configuration to %s\n", target)
 		return nil
+	}
+
+	selectedLoginCommand, err := selectLoginCommand(bootstrapFlag, listLoginFlag, removeLoginFlag, resetLoginFlag, createLoginFlag)
+	if err != nil {
+		return err
+	}
+	switch selectedLoginCommand {
+	case loginCommandBootstrap:
+		return runBootstrap()
+	case loginCommandList:
+		return runListLogins()
+	case loginCommandRemove:
+		return runRemoveLogin()
+	case loginCommandReset:
+		return runResetLogin()
+	case loginCommandCreate:
+		return runCreateLogin()
 	}
 
 	applicationConfig, _, err := config.Load()

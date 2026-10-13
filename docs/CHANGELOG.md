@@ -2,6 +2,11 @@
 
 ## Done (2026-10-13, vUnreleased)
 
+- Added interactive admin login flags: `--bootstrap` created the initial login and marked the instance bootstrapped (refused when already bootstrapped), `--create-login` added accounts to a bootstrapped instance, `--list-login` printed one username per line, `--remove-login` deleted an account after `[y/N]` confirmation (refused the last account, cleared its sessions), and `--reset-login` stored a new password without asking the current one. All five required a terminal, opened SQLite without serving traffic, re-prompted on validation failures, and exited after acting; only one login flag applied per invocation.
+- Extended the admin service with `ListLogins` (usernames ordered, hashes never exposed), `CreateLogin` (bootstrapped instances only, duplicates denied), `DeleteUser` (last-account refusal, sessions deleted before the user row) and `ResetPassword` (unknown accounts denied with not-found, sessions survived).
+
+## Done (2026-10-13, vUnreleased)
+
 - Documented the plugin logging convention: one stable human sentence per site with facts in `snake_case` keys from a standard vocabulary, severity tiers for flow, failover and terminal failures, and a fixed `event` category set.
 
 ## Done (2026-10-13, vUnreleased)

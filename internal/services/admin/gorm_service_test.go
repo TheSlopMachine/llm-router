@@ -364,6 +364,194 @@ func TestGormService_ChangePassword_InvalidCredentials(t *testing.T) {
 	}
 }
 
+func TestGormService_CreateLogin_AddsAccount(t *testing.T) {
+	service, _, ctx := setupGormAdminService(t)
+
+	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+	if err := service.CreateLogin(ctx, "analyst", "password456"); err != nil {
+		t.Fatalf("create login failed: %v", err)
+	}
+	if _, _, err := service.Login(ctx, "analyst", "password456", false); err != nil {
+		t.Errorf("new account login failed: %v", err)
+	}
+	bootstrapped, err := service.IsBootstrapped(ctx)
+	if err != nil {
+		t.Fatalf("is bootstrapped: %v", err)
+	}
+	if !bootstrapped {
+		t.Error("create login must preserve the bootstrapped flag")
+	}
+}
+
+func TestGormService_CreateLogin_RequiresBootstrap(t *testing.T) {
+	service, _, ctx := setupGormAdminService(t)
+
+	if err := service.CreateLogin(ctx, "operator", "password123"); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
+		t.Errorf("create before bootstrap: want invalid-input, got %v", err)
+	}
+}
+
+func TestGormService_CreateLogin_Duplicate(t *testing.T) {
+	service, _, ctx := setupGormAdminService(t)
+
+	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+	if err := service.CreateLogin(ctx, "operator", "password456"); !stdErrors.Is(err, apierrors.ErrAlreadyExists) {
+		t.Errorf("duplicate login: want already-exists, got %v", err)
+	}
+}
+
+func TestGormService_CreateLogin_Validation(t *testing.T) {
+	service, _, ctx := setupGormAdminService(t)
+
+	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+	if err := service.CreateLogin(ctx, "   ", "password456"); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
+		t.Errorf("blank username: want invalid-input, got %v", err)
+	}
+	if err := service.CreateLogin(ctx, "analyst", ""); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
+		t.Errorf("empty password: want invalid-input, got %v", err)
+	}
+}
+
+func TestGormService_ListLogins(t *testing.T) {
+	service, _, ctx := setupGormAdminService(t)
+
+	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+	if err := service.CreateLogin(ctx, "analyst", "password456"); err != nil {
+		t.Fatalf("create login failed: %v", err)
+	}
+	users, err := service.ListLogins(ctx)
+	if err != nil {
+		t.Fatalf("list logins failed: %v", err)
+	}
+	if len(users) != 2 {
+		t.Fatalf("logins length: got %d, want 2", len(users))
+	}
+	if users[0].Username != "analyst" || users[1].Username != "operator" {
+		t.Errorf("logins order: got %q, %q, want analyst, operator", users[0].Username, users[1].Username)
+	}
+	for _, user := range users {
+		if user.PasswordHash != "" {
+			t.Errorf("login %q must not expose a password hash", user.Username)
+		}
+	}
+}
+
+func TestGormService_DeleteUser_RemovesAccountAndSessions(t *testing.T) {
+	service, database, ctx := setupGormAdminService(t)
+
+	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+	if err := service.CreateLogin(ctx, "analyst", "password456"); err != nil {
+		t.Fatalf("create login failed: %v", err)
+	}
+	token, _, err := service.Login(ctx, "analyst", "password456", false)
+	if err != nil {
+		t.Fatalf("login failed: %v", err)
+	}
+	if err := service.DeleteUser(ctx, "analyst"); err != nil {
+		t.Fatalf("delete user failed: %v", err)
+	}
+	if _, _, err := service.Login(ctx, "analyst", "password456", false); err != ErrInvalidCredentials {
+		t.Errorf("removed account login: want ErrInvalidCredentials, got %v", err)
+	}
+	if _, valid := service.ValidateSession(ctx, token); valid {
+		t.Error("removed account sessions must invalidate")
+	}
+	count, err := gorm.G[record.Session](database.Cache, clause.Eq{Column: "username", Value: "analyst"}).Count(ctx, "*")
+	if err != nil {
+		t.Fatalf("count sessions failed: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("removed account sessions: holds %d rows, want 0", count)
+	}
+	if _, _, err := service.Login(ctx, "operator", "password123", false); err != nil {
+		t.Errorf("surviving account login failed: %v", err)
+	}
+}
+
+func TestGormService_DeleteUser_RefusesLast(t *testing.T) {
+	service, _, ctx := setupGormAdminService(t)
+
+	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+	if err := service.DeleteUser(ctx, "operator"); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
+		t.Errorf("last account delete: want invalid-input, got %v", err)
+	}
+	if _, _, err := service.Login(ctx, "operator", "password123", false); err != nil {
+		t.Errorf("refused delete must preserve the account: %v", err)
+	}
+}
+
+func TestGormService_DeleteUser_Unknown(t *testing.T) {
+	service, _, ctx := setupGormAdminService(t)
+
+	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+	if err := service.DeleteUser(ctx, "missing"); !stdErrors.Is(err, apierrors.ErrNotFound) {
+		t.Errorf("unknown account delete: want not-found, got %v", err)
+	}
+}
+
+func TestGormService_ResetPassword(t *testing.T) {
+	service, _, ctx := setupGormAdminService(t)
+
+	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+	token, _, err := service.Login(ctx, "operator", "password123", false)
+	if err != nil {
+		t.Fatalf("login failed: %v", err)
+	}
+	if err := service.ResetPassword(ctx, "operator", "password456"); err != nil {
+		t.Fatalf("reset password failed: %v", err)
+	}
+	if _, _, err := service.Login(ctx, "operator", "password123", false); err != ErrInvalidCredentials {
+		t.Errorf("old password: want ErrInvalidCredentials, got %v", err)
+	}
+	if _, _, err := service.Login(ctx, "operator", "password456", false); err != nil {
+		t.Errorf("new password login failed: %v", err)
+	}
+	if _, valid := service.ValidateSession(ctx, token); !valid {
+		t.Error("existing sessions must survive a password reset")
+	}
+}
+
+func TestGormService_ResetPassword_Unknown(t *testing.T) {
+	service, _, ctx := setupGormAdminService(t)
+
+	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+	if err := service.ResetPassword(ctx, "missing", "password456"); !stdErrors.Is(err, apierrors.ErrNotFound) {
+		t.Errorf("unknown account reset: want not-found, got %v", err)
+	}
+}
+
+func TestGormService_ResetPassword_Validation(t *testing.T) {
+	service, _, ctx := setupGormAdminService(t)
+
+	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+	if err := service.ResetPassword(ctx, "   ", "password456"); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
+		t.Errorf("blank username: want invalid-input, got %v", err)
+	}
+	if err := service.ResetPassword(ctx, "operator", ""); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
+		t.Errorf("empty password: want invalid-input, got %v", err)
+	}
+}
+
 func TestAdminUserConvert_RoundTrip(t *testing.T) {
 	now := util.Now()
 	user := adminUserModelFromRecord(adminUserRecordFromModel(adminUserModelFromRecord(record.AdminUser{Username: "operator", PasswordHash: "hash", CreatedAt: now})))

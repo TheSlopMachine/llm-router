@@ -7,7 +7,8 @@ this file maps the Go core.
 ## System map
 
 ```
-cmd/root.go              CLI entrypoint (environment + .env file; --version and --generate-config only)
+cmd/root.go              CLI entrypoint (environment + .env file; --version, --generate-config, interactive --bootstrap/--list-login/--remove-login/--reset-login/--create-login)
+cmd/login.go             interactive admin login management (terminal gate, prompts, per-flag runners)
 internal/server/         HTTP server: public listener (HOST, PORT) + optional loopback admin listener (127.0.0.1, ADMIN_PORT, API only, no auth); route tables in httpapi, source in requestsource
 internal/services/
   token/                 router-token issue/validate
@@ -25,7 +26,7 @@ internal/services/
   events/                operator telemetry: append-only records with metadata keys, retention prune, filtered queries
   videojobs/             router-side video job rows (local id → upstream job)
   healthcheck/           failure-triggered credential verification (check_health, cooldown, singleflight, disable on unhealthy only with automation on)
-  admin/                 admin password change
+  admin/                 admin users (bootstrap, logins list/create/delete, password change/reset) + sessions
   config/                instance-wide router configuration
   datamanagement/        subsystem export/import/clear + provider export/import/purge
   doctor/                database inspection and repair
