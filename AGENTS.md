@@ -168,7 +168,7 @@ Keep changes shallow. Do not touch service internals unless the task requires it
 | `make browser` | human | Open dashboard in browser |
 | `make build` | human | Build frontend + release binaries (`PLATFORMS=...`, `VERSION=...`) |
 | `make publish` | human | Cut and push the next release tag (`TYPE=fix|minor|major` or `VERSION=X.Y[.Z]`); CI builds |
-| `make clean` | human | Stop processes + clean ignored files except `.env` and SQLite databases |
+| `make clean` | human | Stop processes + clean ignored files except `.env` files and SQLite databases |
 
 `check-frontend-deps` and `check-build-deps` are prerequisites, not direct targets. Never run them standalone.
 
@@ -203,7 +203,7 @@ If the task needs `browser`, `build`, `publish`, or `clean`: STOP. Ask the human
 | # | Prohibition | Detail |
 |---|---|---|
 | 1 | Kill processes | No `kill`, `pkill`, `taskkill`, `Stop-Process`. Use `make stop` / `make restart` so pidfiles stay consistent (`stop` shuts the backend down gracefully via the admin API first and kills only the frontend outright or as fallback). `make restart` stops live dev processes first: warn before running it when the user may have work in flight. |
-| 2 | Delete database files | Never remove `~/.local/llm-router/llm-router-dev.sqlite3` or `~/.local/llm-router/llm-router-dev.cache.sqlite3` (or the Windows equivalents). If either is corrupt, ask the human to delete it. |
+| 2 | Delete database files | Never remove `~/.local/share/llm-router/llm-router.dev.sqlite3` or `~/.cache/llm-router/llm-router.cache.dev.sqlite3`. If either is corrupt, ask the human to delete it. |
 | 3 | Run destructive git commands | No `git push`, `git reset`, `git checkout -f`, `git clean`, force-push, amend. Commit only if explicitly instructed, for that exact commit only. |
 | 4 | Litter the project | No `*.log`, `*.pid`, `*.tmp`, binaries, scratch files, notes inside the project tree. Use `/tmp` or an external scratch dir. Delete temporary verification files when done. |
 | 5 | Avoid the Makefile | No raw command substitutes for an allowed target (§4.2). No manual invocation of a banned target's underlying steps (§4.3). |
@@ -341,7 +341,7 @@ To get runtime facts from a human-run instance instead:
 
 1. State exactly what's needed: endpoint, log line, or behavior.
 2. Ask human to run `make start` / `make restart` / `make init` and report back.
-3. Interpret: dev dashboard = `http://HOST:PORT` (vite, proxying `/api/*` and `/v1/*` → backend `HOST:38081`, dev-internal fixed); release = `:PORT` (embedded SPA + both APIs on one listener). Pidfile is JSON `{backend,frontend,vitePort}` at `%TEMP%/llm-router-dev.pid`.
+3. Interpret: dev dashboard = `http://HOST:PORT` (vite, proxying `/api/*` and `/v1/*` → backend `HOST:38081`, dev-internal fixed); release = `:PORT` (embedded SPA + both APIs on one listener). Pidfile is JSON `{backend,frontend,vitePort}` at `~/.local/state/llm-router/llm-router.dev.pid`.
 
 Under the admin listener every call below needs no headers. With auth on (public), add `-H "Authorization: Bearer <token>"` to `/v1` and use a logged-in session (cookie) for `/api/llm-router/*`; `401` without them is expected, not a bug.
 

@@ -13,7 +13,7 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 | Script | Env | Called by |
 |--------|-----|-----------|
 | `init` | `HOST`, `PORT`, `NO_SKIP` | `make init`; `make start` / `make build` (via dep) |
-| `start` | `HOST`, `PORT`, `ADMIN_PORT` (default `38082`, empty disables), `SCOPE` (`all`/`backend`, default `all`), `LOG_LEVEL` (default `info`), `DB_PATH` (fallback `DEV_DB`, then default dev path), `CACHE_PATH` (fallback `DEV_CACHE`, then default dev cache path), `EVENTS_PATH` (fallback `DEV_EVENTS`, then default dev events path), `EVENTS_RETENTION_DAYS` (default `3`), `DEV_UI_REDIRECT`, `ENV_FILE`, `PID_FILE` | `make start` / `make restart` |
+| `start` | `HOST`, `PORT`, `ADMIN_PORT` (default `38082`, empty disables), `SCOPE` (`all`/`backend`, default `all`), `LOG_LEVEL` (default `info`), `DB_PATH` (default dev XDG `~/.local/share/llm-router/llm-router.dev.sqlite3`), `CACHE_PATH` (default dev XDG `~/.cache/llm-router/llm-router.cache.dev.sqlite3`), `EVENTS_PATH` (default dev XDG `~/.local/state/llm-router/llm-router.events.dev.sqlite3`), `EVENTS_RETENTION_DAYS` (default `3`), `DEV_UI_REDIRECT`, `ENV_FILE` (default dev XDG `~/.config/llm-router/.env.dev`), `PID_FILE` (default dev XDG `~/.local/state/llm-router/llm-router.dev.pid`) | `make start` / `make restart` |
 | `stop` | `PID_FILE`, `SCOPE` (`all`/`backend`, default `all`) | `make stop` / `make restart` / `make clean` (backend: graceful shutdown via admin API first, kill fallback; frontend: always killed) |
 | `restart` | same as `start` | `make restart` (backend-only when the frontend lives, else full start) |
 | `status` | `PID_FILE` | `make status` |
@@ -33,7 +33,7 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 
 `make go-test PKG=./internal/services/router/` scopes the run; `make go-vet PKG=./internal/services/router/...` scopes vet; `make go-fmt PATHS="internal/server scripts/smoke"` formats only those trees. Unscoped `go vet` covers the root and `scripts` modules; unscoped `go test` covers the root module. Both skip `.workspace`, `node_modules`, `build`, `.git`.
 
-`*` required (fatal when blank). The rest fall back to dev defaults (`localhost`, `38080`, `~/.local/llm-router/llm-router-dev.sqlite3`, temp pidfile). The dev backend listens on fixed `38081` (`shared.DevBackendPort`).
+`*` required (fatal when blank). The rest fall back to dev XDG defaults (`localhost`, `38080`, `~/.local/share/llm-router/llm-router.dev.sqlite3`, `~/.local/state/llm-router/llm-router.dev.pid`). The dev backend listens on fixed `38081` (`shared.DevBackendPort`).
 
 ## Dev vs publish
 

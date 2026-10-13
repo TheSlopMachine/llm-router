@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,11 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db/migrations"
 	"gorm.io/gorm"
 )
+
+// ErrParentMissing reports a missing parent directory for a SQLite file.
+// Managed XDG parents are created by the configuration layer before open;
+// custom parents must exist. Match with errors.Is.
+var ErrParentMissing = errors.New("parent directory missing")
 
 // MaxOpenConnections caps each SQLite connection pool.
 // SQLite serializes writers on the database lock; the pool raises read
@@ -161,10 +167,11 @@ func closeHandle(handle *gorm.DB) error {
 	return vacuumErr
 }
 
-// prepareFile ensures the parent directory exists and removes orphaned
+// prepareFile requires the parent directory and removes orphaned
 // write-ahead sidecars when the main file is missing. A cache file deleted
 // while stopped otherwise leaves its -wal/-shm behind, and the fresh file
-// must never inherit them.
+// must never inherit them. Directory creation lives in the configuration
+// layer for managed XDG paths only; this helper never creates directories.
 func prepareFile(path string) error {
 	if _, err := os.Stat(path); err == nil {
 		return nil
@@ -176,13 +183,19 @@ func prepareFile(path string) error {
 			return fmt.Errorf("remove orphaned sqlite sidecar %s: %w", path+suffix, err)
 		}
 	}
-	parent := filepath.Dir(path)
-	if parent != "." && parent != "" {
-		if err := os.MkdirAll(parent, 0755); err != nil {
-			return fmt.Errorf("create sqlite parent dir %s: %w", parent, err)
-		}
+	parent := filepath.Dir(filepath.Clean(path))
+	if parent == "." || parent == "" {
+		return nil
 	}
-	return nil
+	if info, err := os.Stat(parent); err == nil {
+		if info.IsDir() {
+			return nil
+		}
+		return fmt.Errorf("parent path %s is not a directory: %w", parent, ErrParentMissing)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect sqlite parent dir %s: %w", parent, err)
+	}
+	return fmt.Errorf("parent directory %s does not exist: %w", parent, ErrParentMissing)
 }
 
 // sameFile reports whether both paths address the same file.

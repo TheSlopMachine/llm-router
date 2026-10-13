@@ -20,25 +20,15 @@ ADMIN_PORT ?= 38082
 SCOPE     ?= all
 URL       ?= http://$(HOST):$(PORT)
 LOG_LEVEL ?= info
-DB_PATH   ?= llm-router.sqlite3
-CACHE_PATH ?= llm-router.cache.sqlite3
-EVENTS_PATH ?= llm-router.events.sqlite3
+DB_PATH   ?= ~/.local/share/llm-router/llm-router.dev.sqlite3
+CACHE_PATH ?= ~/.cache/llm-router/llm-router.cache.dev.sqlite3
+EVENTS_PATH ?= ~/.local/state/llm-router/llm-router.events.dev.sqlite3
 EVENTS_RETENTION_DAYS ?= 3
 DEV_UI_REDIRECT ?=
-ENV_FILE  ?= .env
+ENV_FILE  ?= ~/.config/llm-router/.env.dev
+PID_FILE  ?= ~/.local/state/llm-router/llm-router.dev.pid
 PKG       ?= ./...
-export HOST PORT ADMIN_PORT SCOPE URL VERSION PLATFORMS LOG_LEVEL DB_PATH CACHE_PATH EVENTS_PATH EVENTS_RETENTION_DAYS DEV_UI_REDIRECT ENV_FILE PKG
-
-ifeq ($(OS),Windows_NT)
-  DEV_DB  ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.sqlite3
-  DEV_CACHE ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.cache.sqlite3
-  DEV_EVENTS ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.events.sqlite3
-else
-  DEV_DB  ?= $(HOME)/.local/llm-router/llm-router-dev.sqlite3
-  DEV_CACHE ?= $(HOME)/.local/llm-router/llm-router-dev.cache.sqlite3
-  DEV_EVENTS ?= $(HOME)/.local/llm-router/llm-router-dev.events.sqlite3
-endif
-export DEV_DB DEV_CACHE DEV_EVENTS
+export HOST PORT ADMIN_PORT SCOPE URL VERSION PLATFORMS LOG_LEVEL DB_PATH CACHE_PATH EVENTS_PATH EVENTS_RETENTION_DAYS DEV_UI_REDIRECT ENV_FILE PID_FILE PKG
 
 BUN_MIN := 1.2
 GO_MIN  := 1.27.1
@@ -118,7 +108,7 @@ browser:
 
 clean:
 	@cd scripts && GOWORK=off go run ./stop
-	@git clean -fdX -e .env -e .env.local -e '*.sqlite*'
+	@git clean -fdX -e .env -e .env.dev -e .env.local -e '*.sqlite*'
 
 build: check-build-deps init
 	@cd scripts && GOWORK=off go run ./build

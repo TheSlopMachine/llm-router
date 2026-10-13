@@ -21,18 +21,10 @@ func main() {
 	host := shared.Getenv("HOST", "localhost")
 	port := shared.Getenv("PORT", "38080")
 	logLevel := shared.NormalizeLogLevel(shared.Getenv("LOG_LEVEL", "info"))
-	databasePath := shared.GetenvPath("DEV_DB", "")
-	if databasePath == "" {
-		databasePath = shared.GetenvPath("DB_PATH", shared.DefaultDevDB())
-	}
-	cachePath := shared.GetenvPath("DEV_CACHE", "")
-	if cachePath == "" {
-		cachePath = shared.GetenvPath("CACHE_PATH", shared.DefaultDevCache())
-	}
-	eventsPath := shared.GetenvPath("DEV_EVENTS", "")
-	if eventsPath == "" {
-		eventsPath = shared.GetenvPath("EVENTS_PATH", shared.DefaultDevEvents())
-	}
+	databasePath := shared.GetenvPath("DB_PATH", shared.DefaultDevDatabase())
+	cachePath := shared.GetenvPath("CACHE_PATH", shared.DefaultDevCache())
+	eventsPath := shared.GetenvPath("EVENTS_PATH", shared.DefaultDevEvents())
+	envFile := shared.GetenvPath("ENV_FILE", shared.DefaultDevDotenv())
 	retentionDays := shared.Getenv("EVENTS_RETENTION_DAYS", "3")
 	adminPort := shared.Getenv("ADMIN_PORT", shared.DevAdminPort)
 	pidFile := shared.GetenvPath("PID_FILE", shared.DefaultPidFile())
@@ -107,17 +99,17 @@ func main() {
 		}
 	}
 
-	// Ensure parent dirs for db and pidfile.
-	for _, path := range []string{databasePath, cachePath, eventsPath, pidFile, shared.DefaultFrontendLog()} {
-		parent := filepath.Dir(path)
-		if parent != "." && parent != "" {
-			if err := os.MkdirAll(parent, 0755); err != nil {
-				shared.Failf("create dir %s: %v", parent, err)
-			}
+	// Ensure parent dirs for managed XDG paths only. Custom parents must
+	// exist; missing custom parents fail instead of creating directories.
+	frontendLog, err := shared.ExpandPath(shared.DefaultFrontendLog())
+	if err != nil {
+		shared.Failf("invalid frontend log: %v", err)
+	}
+	for _, path := range []string{databasePath, cachePath, eventsPath, pidFile, frontendLog} {
+		if err := shared.EnsureParentDirectory(path); err != nil {
+			shared.Failf("%v", err)
 		}
 	}
-
-	frontendLog := shared.DefaultFrontendLog()
 
 	shared.Stepf("Building backend...")
 
@@ -149,6 +141,7 @@ func main() {
 		"DB_PATH=" + databasePath,
 		"CACHE_PATH=" + cachePath,
 		"EVENTS_PATH=" + eventsPath,
+		"ENV_FILE=" + envFile,
 		"EVENTS_RETENTION_DAYS=" + retentionDays,
 		"LOG_LEVEL=" + logLevel,
 		"DEV_UI_REDIRECT=" + fmt.Sprintf("http://%s:%s", host, vitePort),
@@ -211,8 +204,8 @@ func main() {
 
 	// Record the launch parameters: restart relaunches with the same config.
 	if err := shared.WriteStartParams(pidFile, shared.StartParams{
-		DevDB: databasePath, DevCache: cachePath, DevEvents: eventsPath, Host: host,
-		Port: vitePort, AdminPort: adminPort, LogLevel: logLevel,
+		DatabasePath: databasePath, CachePath: cachePath, EventsPath: eventsPath, EnvFile: envFile,
+		Host: host, Port: vitePort, AdminPort: adminPort, LogLevel: logLevel,
 		EventsRetentionDays: retentionDays,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] write params file: %v\n", err)

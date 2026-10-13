@@ -13,7 +13,7 @@ Targets:
   log               Query persisted events (follows on TTY, dumps and exits otherwise)
   log-frontend      Tail frontend log (follows on TTY, dumps and exits otherwise)
   browser           Open dashboard in browser (http://localhost:38080)
-  clean             Stop + clean ignored files (keeps .env and SQLite databases)
+  clean             Stop + clean ignored files (keeps .env files and SQLite databases)
   build             Init, then build frontend + all PLATFORMS binaries
   publish           Cut and push the next release tag (TYPE or VERSION; CI builds)
   go-vet            Run go vet (PKG scopes packages, default "./...")
@@ -33,15 +33,13 @@ Variables:
   SCOPE              Start/stop set: "all" or "backend" (frontend kept, hot reload applies it). Default: "all"
   URL                Dashboard URL for browser. Default: "http://$(HOST):$(PORT)"
   LOG_LEVEL          Server log level. Default: "info"
-  DEV_DB             Path to dev database. Default: "~/.local/llm-router/llm-router-dev.sqlite3"
-  DEV_CACHE          Path to dev cache database. Default: "~/.local/llm-router/llm-router-dev.cache.sqlite3"
-  DEV_EVENTS         Path to dev events database. Default: "~/.local/llm-router/llm-router-dev.events.sqlite3"
-  DB_PATH            Database file for the server. Default: "llm-router.sqlite3" (dev start prefers DEV_DB)
-  CACHE_PATH         Cache database file for the server. Default: "llm-router.cache.sqlite3" (dev start prefers DEV_CACHE)
-  EVENTS_PATH        Events database file for the server. Default: "llm-router.events.sqlite3" (dev start prefers DEV_EVENTS)
+  DB_PATH            Database file for the server. Default: "~/.local/share/llm-router/llm-router.dev.sqlite3"
+  CACHE_PATH         Cache database file for the server. Default: "~/.cache/llm-router/llm-router.cache.dev.sqlite3"
+  EVENTS_PATH        Events database file for the server. Default: "~/.local/state/llm-router/llm-router.events.dev.sqlite3"
   EVENTS_RETENTION_DAYS  Event retention in days. Default: "3"
   DEV_UI_REDIRECT    Dashboard redirect origin for dev. Default: empty
-  ENV_FILE           Dotenv path for the server. Default: ".env"
+  ENV_FILE           Dotenv path for the server. Default: "~/.config/llm-router/.env.dev"
+  PID_FILE           Pidfile for dev processes. Default: "~/.local/state/llm-router/llm-router.dev.pid"
   SMOKE_PLUGINS      Comma plugin names for smoke (or "all"). Default: "all" (every store plugin)
   SMOKE_TARGETS      Comma targets for smoke. Default: "completions,messages"
   UPLOAD_STORE_DIR   Store dir for upload-plugins. Default: "../../llm-router-store/llm-router-plugins"

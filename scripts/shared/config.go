@@ -43,8 +43,14 @@ func RootDir() (string, error) {
 	return "", fmt.Errorf("repository root not found (no go.mod with internal/ above %s)", workdir)
 }
 
-// DefaultPidFile is %TEMP%/llm-router-dev.pid (or $TMPDIR equivalent).
-func DefaultPidFile() string { return filepath.Join(os.TempDir(), "llm-router-dev.pid") }
+// DefaultPidFile is the dev pidfile under XDG state
+// (~/.local/state/llm-router/llm-router.dev.pid).
+func DefaultPidFile() string {
+	if directory, err := StateApplicationDirectory(); err == nil {
+		return filepath.Join(directory, DefaultDevPidFileName)
+	}
+	return "~/.local/state/llm-router/llm-router.dev.pid"
+}
 
 // DevBackendPort is the fixed dev backend listener. Vite serves the user
 // PORT (dashboard SPA); the backend serves both JSON APIs plus
@@ -59,9 +65,10 @@ const DevAdminPort = "38082"
 // StartParamsFile lives next to the pidfile and records the parameters of the
 // last start, so restart relaunches with the same configuration.
 type StartParams struct {
-	DevDB               string `json:"dev_db"`
-	DevCache            string `json:"dev_cache"`
-	DevEvents           string `json:"dev_events"`
+	DatabasePath        string `json:"database_path"`
+	CachePath           string `json:"cache_path"`
+	EventsPath          string `json:"events_path"`
+	EnvFile             string `json:"env_file"`
 	Host                string `json:"host"`
 	Port                string `json:"port"`
 	AdminPort           string `json:"admin_port"`
@@ -71,12 +78,12 @@ type StartParams struct {
 
 // ParamsFileFor returns the params file path next to the given pidfile.
 func ParamsFileFor(pidFile string) string {
-	return filepath.Join(filepath.Dir(pidFile), "llm-router-dev.params.json")
+	return filepath.Join(filepath.Dir(pidFile), "llm-router.dev.params.json")
 }
 
 // WriteStartParams persists the start parameters.
-func WriteStartParams(pidFile string, params StartParams) error {
-	raw, err := json.MarshalIndent(params, "", "  ")
+func WriteStartParams(pidFile string, parameters StartParams) error {
+	raw, err := json.MarshalIndent(parameters, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -89,23 +96,20 @@ func ReadStartParams(pidFile string) (*StartParams, error) {
 	if err != nil {
 		return nil, err
 	}
-	var params StartParams
-	if err := json.Unmarshal(raw, &params); err != nil {
+	var parameters StartParams
+	if err := json.Unmarshal(raw, &parameters); err != nil {
 		return nil, err
 	}
-	return &params, nil
+	return &parameters, nil
 }
 
-// DefaultFrontendLog sits next to the pidfile.
-func DefaultFrontendLog() string { return filepath.Join(os.TempDir(), "llm-router-frontend.log") }
-
-// HomeLocal returns ~/.local/llm-router (or OS equivalent).
-func HomeLocal() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return "", fmt.Errorf("cannot resolve home directory")
+// DefaultFrontendLog is the dev frontend log under XDG state
+// (~/.local/state/llm-router/llm-router-frontend.dev.log).
+func DefaultFrontendLog() string {
+	if directory, err := StateApplicationDirectory(); err == nil {
+		return filepath.Join(directory, DefaultDevFrontendLogName)
 	}
-	return filepath.Join(home, ".local", "llm-router"), nil
+	return "~/.local/state/llm-router/llm-router-frontend.dev.log"
 }
 
 // ReadPidFile parses path as JSON Proc. A legacy single-PID file is

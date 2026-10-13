@@ -201,14 +201,21 @@ together with its `schema_migrations` row. `repository` returns
 ## Storage
 
 SQLite (`internal/db/sqlite.go`, `OpenSQLite`) owns three files:
-`DB_PATH` holds durable configuration, `CACHE_PATH` (fallback `DEV_CACHE`,
-default `llm-router.cache.sqlite3`) holds rebuildable state, `EVENTS_PATH`
-(fallback `DEV_EVENTS`, default `llm-router.events.sqlite3`) holds operator
+`DB_PATH` (prod default `~/.local/share/llm-router/llm-router.sqlite3`)
+holds durable configuration, `CACHE_PATH` (prod default
+`~/.cache/llm-router/llm-router.cache.sqlite3`) holds rebuildable state,
+`EVENTS_PATH` (prod default
+`~/.local/state/llm-router/llm-router.events.sqlite3`) holds operator
 telemetry with `EVENTS_RETENTION_DAYS` (default 3, minimum 1) pruning on
-startup and hourly plus `auto_vacuum=INCREMENTAL` reclamation. All three
+startup and hourly plus `auto_vacuum=INCREMENTAL` reclamation. Dev runs use
+`.dev` suffixed files under the same XDG directories
+(`llm-router.dev.sqlite3`, `llm-router.cache.dev.sqlite3`,
+`llm-router.events.dev.sqlite3`, `.env.dev`); `make start` injects them
+through `DB_PATH`/`CACHE_PATH`/`EVENTS_PATH`/`ENV_FILE` when unset. All
 paths plus `ENV_FILE` expand a leading `~` (home directory, every OS),
 `%NAME%` and `$VAR`/`${VAR}` references, then clean; a tilde elsewhere
-stays literal. `GET
+stays literal. Managed XDG parents create on startup; custom parents must
+exist (`ErrParentMissing`). `GET
 /api/events` queries the events file by `severity` (>=), `id`, `start`/`end`
 (RFC3339) and `filter.<key>` existence or `filter.<key>=<value>` match
 (limit default 50, max 500). The schema

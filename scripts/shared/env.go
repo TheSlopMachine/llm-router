@@ -2,7 +2,6 @@ package shared
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -46,30 +45,6 @@ func NormalizeLogLevel(value string) string {
 		Failf("invalid LOG_LEVEL %q: must be one of debug, info, warn, error", value)
 		return ""
 	}
-}
-
-// DefaultDevDB returns ~/.local/llm-router/llm-router-dev.sqlite3 (or OS equivalent).
-func DefaultDevDB() string {
-	if dir, err := HomeLocal(); err == nil {
-		return filepath.Join(dir, "llm-router-dev.sqlite3")
-	}
-	return "~/.local/llm-router/llm-router-dev.sqlite3"
-}
-
-// DefaultDevCache returns ~/.local/llm-router/llm-router-dev.cache.sqlite3 (or OS equivalent).
-func DefaultDevCache() string {
-	if dir, err := HomeLocal(); err == nil {
-		return filepath.Join(dir, "llm-router-dev.cache.sqlite3")
-	}
-	return "~/.local/llm-router/llm-router-dev.cache.sqlite3"
-}
-
-// DefaultDevEvents returns ~/.local/llm-router/llm-router-dev.events.sqlite3 (or OS equivalent).
-func DefaultDevEvents() string {
-	if dir, err := HomeLocal(); err == nil {
-		return filepath.Join(dir, "llm-router-dev.events.sqlite3")
-	}
-	return "~/.local/llm-router/llm-router-dev.events.sqlite3"
 }
 
 // EnvWithoutGowork returns the current environment with any GOWORK= entry

@@ -8,21 +8,19 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
 )
 
-// Configuration defaults for environment loading.
+// Configuration defaults for environment loading. Storage and dotenv
+// defaults live in xdg.go (portable XDG forms).
 const (
 	DefaultHost                = "localhost"
 	DefaultPort                = "8080"
-	DefaultDatabasePath        = "llm-router.sqlite3"
-	DefaultCachePath           = "llm-router.cache.sqlite3"
-	DefaultEventsPath          = "llm-router.events.sqlite3"
 	DefaultLogLevel            = "info"
-	DefaultDotenvPath          = ".env"
 	DefaultEventsRetentionDays = 3
 )
 
@@ -40,10 +38,46 @@ var (
 	ErrMissingTargetPath      = errors.New("configuration target path is required")
 )
 
-// ResolveDotenvPath returns the dotenv path: ENV_FILE or .env.
+// ResolveDotenvPath returns the dotenv path: ENV_FILE or the prod XDG default.
 func ResolveDotenvPath() string {
 	if value := strings.TrimSpace(os.Getenv("ENV_FILE")); value != "" {
 		return value
+	}
+	return defaultDotenvPath()
+}
+
+// defaultDatabasePath returns the prod database default, honoring
+// XDG_DATA_HOME with a portable home-relative fallback.
+func defaultDatabasePath() string {
+	if directory, err := DataApplicationDirectory(); err == nil {
+		return filepath.Join(directory, "llm-router.sqlite3")
+	}
+	return DefaultDatabasePath
+}
+
+// defaultCachePath returns the prod cache default, honoring XDG_CACHE_HOME
+// with a portable home-relative fallback.
+func defaultCachePath() string {
+	if directory, err := CacheApplicationDirectory(); err == nil {
+		return filepath.Join(directory, "llm-router.cache.sqlite3")
+	}
+	return DefaultCachePath
+}
+
+// defaultEventsPath returns the prod events default, honoring
+// XDG_STATE_HOME with a portable home-relative fallback.
+func defaultEventsPath() string {
+	if directory, err := StateApplicationDirectory(); err == nil {
+		return filepath.Join(directory, "llm-router.events.sqlite3")
+	}
+	return DefaultEventsPath
+}
+
+// defaultDotenvPath returns the prod dotenv default, honoring
+// XDG_CONFIG_HOME with a portable home-relative fallback.
+func defaultDotenvPath() string {
+	if directory, err := ConfigurationApplicationDirectory(); err == nil {
+		return filepath.Join(directory, ".env")
 	}
 	return DefaultDotenvPath
 }
@@ -78,28 +112,28 @@ func Load() (*Config, string, error) {
 	}
 
 	host := environmentOrDefault("HOST", DefaultHost)
-	databasePath := environmentOrDefault("DB_PATH", "")
-	if databasePath == "" {
-		databasePath = environmentOrDefault("DEV_DB", DefaultDatabasePath)
-	}
+	databasePath := environmentOrDefault("DB_PATH", defaultDatabasePath())
 	databasePath, err = ExpandPath(databasePath)
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid DB_PATH: %w", err)
 	}
-	cachePath := environmentOrDefault("CACHE_PATH", "")
-	if cachePath == "" {
-		cachePath = environmentOrDefault("DEV_CACHE", DefaultCachePath)
+	if err := EnsureParentDirectory(databasePath); err != nil {
+		return nil, "", fmt.Errorf("invalid DB_PATH: %w", err)
 	}
+	cachePath := environmentOrDefault("CACHE_PATH", defaultCachePath())
 	cachePath, err = ExpandPath(cachePath)
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid CACHE_PATH: %w", err)
 	}
-	eventsPath := environmentOrDefault("EVENTS_PATH", "")
-	if eventsPath == "" {
-		eventsPath = environmentOrDefault("DEV_EVENTS", DefaultEventsPath)
+	if err := EnsureParentDirectory(cachePath); err != nil {
+		return nil, "", fmt.Errorf("invalid CACHE_PATH: %w", err)
 	}
+	eventsPath := environmentOrDefault("EVENTS_PATH", defaultEventsPath())
 	eventsPath, err = ExpandPath(eventsPath)
 	if err != nil {
+		return nil, "", fmt.Errorf("invalid EVENTS_PATH: %w", err)
+	}
+	if err := EnsureParentDirectory(eventsPath); err != nil {
 		return nil, "", fmt.Errorf("invalid EVENTS_PATH: %w", err)
 	}
 	retentionDays, err := parseEventsRetentionValue(environmentOrDefault("EVENTS_RETENTION_DAYS", ""))
@@ -129,16 +163,17 @@ func DefaultTemplate() string {
 HOST=localhost
 PORT=8080
 ADMIN_PORT=
-DB_PATH=llm-router.sqlite3
-CACHE_PATH=llm-router.cache.sqlite3
-EVENTS_PATH=llm-router.events.sqlite3
+DB_PATH=` + DefaultDatabasePath + `
+CACHE_PATH=` + DefaultCachePath + `
+EVENTS_PATH=` + DefaultEventsPath + `
 EVENTS_RETENTION_DAYS=3
 LOG_LEVEL=info
 `
 }
 
 // WriteDefaultFile writes DefaultTemplate to target. It fails when the
-// target exists or the path is blank.
+// target exists or the path is blank. Managed configuration parents are
+// created; custom parents must exist.
 func WriteDefaultFile(target string) error {
 	cleaned := strings.TrimSpace(target)
 	if cleaned == "" {
@@ -146,6 +181,9 @@ func WriteDefaultFile(target string) error {
 	}
 	expandedTarget, err := ExpandPath(cleaned)
 	if err != nil {
+		return fmt.Errorf("invalid configuration target %s: %w", cleaned, err)
+	}
+	if err := EnsureParentDirectory(expandedTarget); err != nil {
 		return fmt.Errorf("invalid configuration target %s: %w", cleaned, err)
 	}
 	if _, err := os.Stat(expandedTarget); err == nil {

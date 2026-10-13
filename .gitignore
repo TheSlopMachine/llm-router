@@ -27,6 +27,7 @@ coverage.html
 
 # Environment sensitive files
 .env
+.env.dev
 .env.local
 
 # IDE and System files

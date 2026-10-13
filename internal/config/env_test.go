@@ -10,10 +10,12 @@ import (
 
 // clearProcessEnvironment removes every variable Load reads so ambient values
 // and repository files cannot leak into hermetic cases. Variables are unset
-// (not blanked) so dotenv loading fills them as in production.
+// (not blanked) so dotenv loading fills them as in production. HOME points
+// at a temp directory so managed XDG parents create under temp, never the
+// real home.
 func clearProcessEnvironment(environment *testing.T) {
 	environment.Helper()
-	for _, name := range []string{"HOST", "PORT", "ADMIN_PORT", "DB_PATH", "DEV_DB", "CACHE_PATH", "DEV_CACHE", "EVENTS_PATH", "DEV_EVENTS", "EVENTS_RETENTION_DAYS", "LOG_LEVEL", "NO_AUTH", "DEV_UI_REDIRECT"} {
+	for _, name := range []string{"HOST", "PORT", "ADMIN_PORT", "DB_PATH", "CACHE_PATH", "EVENTS_PATH", "EVENTS_RETENTION_DAYS", "LOG_LEVEL", "NO_AUTH", "DEV_UI_REDIRECT", "ENV_FILE", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
 		value, present := os.LookupEnv(name)
 		if !present {
 			continue
@@ -28,6 +30,9 @@ func clearProcessEnvironment(environment *testing.T) {
 			}
 		})
 	}
+	home := environment.TempDir()
+	environment.Setenv("HOME", home)
+	environment.Setenv("USERPROFILE", home)
 }
 
 // isolateDotenv points ENV_FILE at a missing path under temp.
@@ -39,6 +44,8 @@ func isolateDotenv(environment *testing.T) {
 func TestLoadDefaults(t *testing.T) {
 	clearProcessEnvironment(t)
 	isolateDotenv(t)
+	home := t.TempDir()
+	setHomeDirectory(t, home)
 
 	configuration, loadedPath, err := Load()
 	if err != nil {
@@ -50,14 +57,17 @@ func TestLoadDefaults(t *testing.T) {
 	if configuration.Addr != "localhost:8080" {
 		t.Errorf("addr = %q, want localhost:8080", configuration.Addr)
 	}
-	if configuration.DBPath != DefaultDatabasePath {
-		t.Errorf("database = %q, want %q", configuration.DBPath, DefaultDatabasePath)
+	wantDatabase := filepath.Join(home, ".local", "share", "llm-router", "llm-router.sqlite3")
+	if configuration.DBPath != wantDatabase {
+		t.Errorf("database = %q, want %q", configuration.DBPath, wantDatabase)
 	}
-	if configuration.CachePath != DefaultCachePath {
-		t.Errorf("cache = %q, want %q", configuration.CachePath, DefaultCachePath)
+	wantCache := filepath.Join(home, ".cache", "llm-router", "llm-router.cache.sqlite3")
+	if configuration.CachePath != wantCache {
+		t.Errorf("cache = %q, want %q", configuration.CachePath, wantCache)
 	}
-	if configuration.EventsPath != DefaultEventsPath {
-		t.Errorf("events = %q, want %q", configuration.EventsPath, DefaultEventsPath)
+	wantEvents := filepath.Join(home, ".local", "state", "llm-router", "llm-router.events.sqlite3")
+	if configuration.EventsPath != wantEvents {
+		t.Errorf("events = %q, want %q", configuration.EventsPath, wantEvents)
 	}
 	if configuration.EventsRetentionDays != DefaultEventsRetentionDays {
 		t.Errorf("retention = %d, want %d", configuration.EventsRetentionDays, DefaultEventsRetentionDays)
@@ -171,90 +181,56 @@ func TestLoadAcceptsWarningAlias(t *testing.T) {
 	}
 }
 
-func TestLoadPrefersDatabasePathOverDevDatabase(t *testing.T) {
+func TestLoadUsesCustomPaths(t *testing.T) {
 	clearProcessEnvironment(t)
 	isolateDotenv(t)
-	t.Setenv("DB_PATH", "primary.sqlite3")
-	t.Setenv("DEV_DB", "fallback.sqlite3")
+	setHomeDirectory(t, t.TempDir())
+	directory := t.TempDir()
+	t.Setenv("DB_PATH", filepath.Join(directory, "primary.sqlite3"))
+	t.Setenv("CACHE_PATH", filepath.Join(directory, "primary.cache.sqlite3"))
+	t.Setenv("EVENTS_PATH", filepath.Join(directory, "primary.events.sqlite3"))
 
 	configuration, _, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if configuration.DBPath != "primary.sqlite3" {
-		t.Errorf("database = %q, want primary.sqlite3", configuration.DBPath)
+	if configuration.DBPath != filepath.Join(directory, "primary.sqlite3") {
+		t.Errorf("database = %q, want custom", configuration.DBPath)
+	}
+	if configuration.CachePath != filepath.Join(directory, "primary.cache.sqlite3") {
+		t.Errorf("cache = %q, want custom", configuration.CachePath)
+	}
+	if configuration.EventsPath != filepath.Join(directory, "primary.events.sqlite3") {
+		t.Errorf("events = %q, want custom", configuration.EventsPath)
 	}
 }
 
-func TestLoadFallsBackToDevDatabase(t *testing.T) {
+func TestLoadRejectsMissingCustomParent(t *testing.T) {
 	clearProcessEnvironment(t)
 	isolateDotenv(t)
-	t.Setenv("DEV_DB", "fallback.sqlite3")
+	setHomeDirectory(t, t.TempDir())
+	missing := filepath.Join(t.TempDir(), "absent-parent", "primary.sqlite3")
+	t.Setenv("DB_PATH", missing)
 
-	configuration, _, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if configuration.DBPath != "fallback.sqlite3" {
-		t.Errorf("database = %q, want fallback.sqlite3", configuration.DBPath)
+	if _, _, err := Load(); !errors.Is(err, ErrParentMissing) {
+		t.Fatalf("error = %v, want ErrParentMissing", err)
 	}
 }
 
-func TestLoadPrefersCachePathOverDevCache(t *testing.T) {
+func TestLoadHonorsDataHomeOverride(t *testing.T) {
 	clearProcessEnvironment(t)
 	isolateDotenv(t)
-	t.Setenv("CACHE_PATH", "primary.cache.sqlite3")
-	t.Setenv("DEV_CACHE", "fallback.cache.sqlite3")
+	setHomeDirectory(t, t.TempDir())
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
 
 	configuration, _, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if configuration.CachePath != "primary.cache.sqlite3" {
-		t.Errorf("cache = %q, want primary.cache.sqlite3", configuration.CachePath)
-	}
-}
-
-func TestLoadFallsBackToDevCache(t *testing.T) {
-	clearProcessEnvironment(t)
-	isolateDotenv(t)
-	t.Setenv("DEV_CACHE", "fallback.cache.sqlite3")
-
-	configuration, _, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if configuration.CachePath != "fallback.cache.sqlite3" {
-		t.Errorf("cache = %q, want fallback.cache.sqlite3", configuration.CachePath)
-	}
-}
-
-func TestLoadPrefersEventsPathOverDevEvents(t *testing.T) {
-	clearProcessEnvironment(t)
-	isolateDotenv(t)
-	t.Setenv("EVENTS_PATH", "primary.events.sqlite3")
-	t.Setenv("DEV_EVENTS", "fallback.events.sqlite3")
-
-	configuration, _, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if configuration.EventsPath != "primary.events.sqlite3" {
-		t.Errorf("events = %q, want primary.events.sqlite3", configuration.EventsPath)
-	}
-}
-
-func TestLoadFallsBackToDevEvents(t *testing.T) {
-	clearProcessEnvironment(t)
-	isolateDotenv(t)
-	t.Setenv("DEV_EVENTS", "fallback.events.sqlite3")
-
-	configuration, _, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if configuration.EventsPath != "fallback.events.sqlite3" {
-		t.Errorf("events = %q, want fallback.events.sqlite3", configuration.EventsPath)
+	want := filepath.Join(dataHome, "llm-router", "llm-router.sqlite3")
+	if configuration.DBPath != want {
+		t.Errorf("database = %q, want %q", configuration.DBPath, want)
 	}
 }
 
