@@ -21,9 +21,6 @@ func main() {
 	cleanupStaleVirtualModels(testConfiguration)
 	report := &report{}
 	for _, pluginType := range testConfiguration.plugins {
-		if !knownTypes[pluginType] {
-			shared.Failf("unknown plugin type %q", pluginType)
-		}
 		runPlugin(testConfiguration, report, pluginType)
 	}
 	report.print()
@@ -38,6 +35,10 @@ func runPlugin(testConfiguration configuration, report *report, pluginType strin
 	if err != nil {
 		if errors.Is(err, errNoCredential) {
 			report.add(pluginType, "-", "-", skip, "no credential in db", 0)
+			return
+		}
+		if errors.Is(err, errNoProvider) {
+			report.add(pluginType, "-", "-", skip, "no provider instance after install", 0)
 			return
 		}
 		report.add(pluginType, "-", "-", fail, fmt.Sprintf("provision: %v", err), 0)

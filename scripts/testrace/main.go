@@ -14,9 +14,20 @@ func main() {
 	}
 	packagePattern := shared.Getenv("PKG", "./...")
 	shared.Stepf("Running go test -race (PKG=%s)...", packagePattern)
-	cmd := exec.Command("go", "test", "-race", packagePattern)
-	cmd.Dir = root
-	cmd.Env = shared.EnvWithoutGowork()
+	directory, pattern, scoped := shared.ResolveScope(root, packagePattern)
+	commandDir := root
+	arguments := []string{"test", "-race", packagePattern}
+	environment := shared.EnvWithoutGowork()
+	if scoped {
+		commandDir = directory
+		arguments = []string{"test", "-race", pattern}
+		if commandDir != root {
+			environment = shared.EnvWith([]string{"GOWORK=off"})
+		}
+	}
+	cmd := exec.Command("go", arguments...)
+	cmd.Dir = commandDir
+	cmd.Env = environment
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

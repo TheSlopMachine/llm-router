@@ -361,7 +361,7 @@ Dashboard `/api/llm-router/*` (same `:PORT`, JSON `{"error":...}` on failure):
 Runtime diagnostics: `make log LINES=...` (backend), `make log-frontend` (vite), `make status` (PIDs/ports), metrics overview/timeseries endpoints for usage.
 
 Smoke harness (`scripts/smoke/`, `make smoke` drives the running stack through the admin listener without restarting it):
-- Default scope is every known plugin type; opt in with `SMOKE_PLUGINS=...`, heavy endpoints via `SMOKE_TARGETS=...`. Deterministic capability coverage lives in Go tests (`internal/testutil/mockplugin` fixtures); smoke verifies live upstreams only.
+- Plugin types discover from `SMOKE_STORE_DIR` (`llm_router.register` keys, filename fallback); default scope is all discovered, opt in with `SMOKE_PLUGINS=...`, heavy endpoints via `SMOKE_TARGETS=...`. Unknown names fail listing available. Deterministic capability coverage lives in Go tests (`internal/testutil/mockplugin` fixtures); smoke verifies live upstreams only.
 - Accounts come from the dev database, never from env. Missing credentials skip the plugin, never fail it.
 - Matrix iterates models per capability until first success; `quota`/`payment`/`rate`/`not_found`/`invalid_request` move on, `auth` fails, exhaustion without success skips with reason.
  - Exercises the running build without restarting it; `make restart` first after changing code, `make start` first when nothing answers (it fails fast).

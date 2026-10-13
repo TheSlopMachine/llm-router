@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"time"
 
@@ -121,9 +122,17 @@ func ensureBootstrapped(testConfiguration configuration) error {
 	return requireOK(statusCode, raw, nil)
 }
 
-// pluginSource reads the storeDir/<type>.lua source.
+// pluginSource reads the discovered source file for a type key.
 func pluginSource(testConfiguration configuration, pluginType string) ([]byte, error) {
-	return shared.PluginSource(testConfiguration.store, pluginType)
+	path, ok := testConfiguration.sources[pluginType]
+	if !ok {
+		return nil, fmt.Errorf("unknown plugin type %q", pluginType)
+	}
+	source, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("plugin source %q: %w", path, err)
+	}
+	return source, nil
 }
 
 type providerRow struct {
@@ -146,12 +155,17 @@ func findProvider(testConfiguration configuration, pluginType string) (string, e
 			return provider.ID, nil
 		}
 	}
-	return "", fmt.Errorf("no provider instance for type %q after install", pluginType)
+	return "", fmt.Errorf("%w for type %q", errNoProvider, pluginType)
 }
 
 // errNoCredential reports no usable credential in the dev database: skip the
 // plugin, never fail.
 var errNoCredential = fmt.Errorf("no credential in db")
+
+// errNoProvider reports an install yielding no provider instance: proxy
+// sources and other non-backend plugins have no models to matrix, so the
+// plugin skips with reason instead of failing the run.
+var errNoProvider = fmt.Errorf("no provider instance after install")
 
 type credentialRow struct {
 	ID         string `json:"id"`

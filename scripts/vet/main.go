@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/TheSlopMachine/llm-router/scripts/shared"
 )
@@ -19,7 +18,7 @@ func main() {
 	// the requested tree.
 	directories := []string{root, filepath.Join(root, "scripts")}
 	patterns := []string{"./...", "./..."}
-	if directory, pattern, scoped := resolveScope(root, packagePattern); scoped {
+	if directory, pattern, scoped := shared.ResolveScope(root, packagePattern); scoped {
 		directories = []string{directory}
 		patterns = []string{pattern}
 	}
@@ -41,25 +40,4 @@ func main() {
 		}
 	}
 	shared.OKf("go vet passed")
-}
-
-// resolveScope maps a root-relative PKG pattern to the owning module:
-// patterns under scripts/ run inside the scripts module with the path
-// rebased, everything else runs in the root module. Empty and ./...
-// patterns are unscoped (both modules). A pattern matching nothing fails
-// loudly in go vet itself (typo protection).
-func resolveScope(root, packagePattern string) (directory, pattern string, scoped bool) {
-	clean := strings.TrimSpace(strings.ReplaceAll(packagePattern, "\\", "/"))
-	clean = strings.TrimPrefix(clean, "./")
-	if clean == "" || clean == "..." {
-		return "", "", false
-	}
-	if clean == "scripts" || strings.HasPrefix(clean, "scripts/") {
-		remainder := strings.TrimPrefix(strings.TrimPrefix(clean, "scripts"), "/")
-		if remainder == "" {
-			remainder = "..."
-		}
-		return filepath.Join(root, "scripts"), "./" + remainder, true
-	}
-	return root, "./" + clean, true
 }
