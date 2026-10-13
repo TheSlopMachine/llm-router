@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/db/record"
@@ -19,6 +20,7 @@ import (
 type GormService struct {
 	handle *gorm.DB
 	store  *repository.GormRepository[record.ResponseRecord]
+	logger *slog.Logger
 }
 
 // NewGormService constructs a GormService on the base handle. Construction
@@ -29,6 +31,16 @@ func NewGormService(handle *gorm.DB) *GormService {
 		handle: handle,
 		store:  repository.NewGormRepository[record.ResponseRecord](handle, "id"),
 	}
+}
+
+// SetLogger wires structured logging (called once from server.New).
+func (s *GormService) SetLogger(l *slog.Logger) { s.logger = l }
+
+func (s *GormService) log() *slog.Logger {
+	if s == nil || s.logger == nil {
+		return slog.Default()
+	}
+	return s.logger
 }
 
 // toStoredRecord maps the wire record onto the persistence row. An empty
@@ -81,18 +93,35 @@ func fromStoredRecord(row record.ResponseRecord) *models.ResponseRecord {
 // Existing IDs are overwritten, matching the previous Put behavior.
 func (s *GormService) Create(ctx context.Context, current *models.ResponseRecord) error {
 	if current == nil {
+		s.log().Debug("Compat record create validation failed", "reason", "record required")
 		return errors.New("compat record is required")
 	}
 	if current.ID == "" {
+		s.log().Debug("Compat record create validation failed", "reason", "record id required")
 		return errors.New("compat record id is required")
 	}
 	now := time.Now().UTC()
 	current.CreatedAt = now
 	current.UpdatedAt = now
 	row := toStoredRecord(current)
-	return s.handle.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return repository.NewGormRepository[record.ResponseRecord](tx, "id").Upsert(ctx, row)
+	replaced := false
+	err := s.handle.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		store := repository.NewGormRepository[record.ResponseRecord](tx, "id")
+		if _, getErr := store.Get(ctx, clause.Eq{Column: clause.Column{Name: "id"}, Value: current.ID}); getErr == nil {
+			replaced = true
+		}
+		return store.Upsert(ctx, row)
 	})
+	if err != nil {
+		s.log().Error("Compat record create failed", "record_id", current.ID, "error", err)
+		return err
+	}
+	if replaced {
+		s.log().Info("Compat record replaced", "record_id", current.ID, "kind", string(current.Kind), "model", string(current.Model))
+	} else {
+		s.log().Info("Compat record created", "record_id", current.ID, "kind", string(current.Kind), "model", string(current.Model))
+	}
+	return nil
 }
 
 // Get returns the record by ID, optionally asserting its kind.
@@ -100,19 +129,24 @@ func (s *GormService) Get(ctx context.Context, id string, kinds ...models.Respon
 	row, err := s.store.Get(ctx, clause.Eq{Column: clause.Column{Name: "id"}, Value: id})
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.log().Debug("Compat record not found", "record_id", id)
 			return nil, apierrors.NewNotFoundError("compat record", id)
 		}
+		s.log().Error("Compat record fetch failed", "record_id", id, "error", err)
 		return nil, err
 	}
 	current := fromStoredRecord(row)
 	for _, kind := range kinds {
 		if current.Kind == kind {
+			s.log().Debug("Compat record fetched", "record_id", id, "kind", string(current.Kind), "model", string(current.Model))
 			return current, nil
 		}
 	}
 	if len(kinds) > 0 {
+		s.log().Debug("Compat record kind mismatch", "record_id", id, "kind", string(current.Kind))
 		return nil, apierrors.NewNotFoundError("compat record", id)
 	}
+	s.log().Debug("Compat record fetched", "record_id", id, "kind", string(current.Kind), "model", string(current.Model))
 	return current, nil
 }
 
@@ -120,12 +154,18 @@ func (s *GormService) Get(ctx context.Context, id string, kinds ...models.Respon
 // Missing rows return the not-found sentinel.
 func (s *GormService) Update(ctx context.Context, current *models.ResponseRecord) error {
 	if current == nil || current.ID == "" {
+		s.log().Debug("Compat record update validation failed", "reason", "record id required")
 		return errors.New("compat record id is required")
 	}
-	return s.handle.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := s.handle.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		store := repository.NewGormRepository[record.ResponseRecord](tx, "id")
 		existing, err := store.Get(ctx, clause.Eq{Column: clause.Column{Name: "id"}, Value: current.ID})
 		if err != nil {
+			if errors.Is(err, apierrors.ErrNotFound) {
+				s.log().Debug("Compat record not found", "record_id", current.ID)
+			} else {
+				s.log().Error("Compat record update failed", "record_id", current.ID, "error", err)
+			}
 			return err
 		}
 		row := toStoredRecord(current)
@@ -133,17 +173,34 @@ func (s *GormService) Update(ctx context.Context, current *models.ResponseRecord
 		row.UpdatedAt = time.Now().UTC()
 		current.CreatedAt = existing.CreatedAt
 		current.UpdatedAt = row.UpdatedAt
-		return store.Upsert(ctx, row)
+		if err := store.Upsert(ctx, row); err != nil {
+			s.log().Error("Compat record update failed", "record_id", current.ID, "error", err)
+			return err
+		}
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	s.log().Info("Compat record updated", "record_id", current.ID, "kind", string(current.Kind), "model", string(current.Model))
+	return nil
 }
 
 // Delete removes a record. Missing rows are not errors.
 func (s *GormService) Delete(ctx context.Context, id string) error {
-	return s.handle.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := s.handle.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		store := repository.NewGormRepository[record.ResponseRecord](tx, "id")
-		_, err := store.Delete(ctx, clause.Eq{Column: clause.Column{Name: "id"}, Value: id})
-		return err
+		if _, err := store.Delete(ctx, clause.Eq{Column: clause.Column{Name: "id"}, Value: id}); err != nil {
+			s.log().Error("Compat record delete failed", "record_id", id, "error", err)
+			return err
+		}
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	s.log().Info("Compat record deleted", "record_id", id)
+	return nil
 }
 
 // List returns records of the given kinds (empty kinds = all), oldest first.
@@ -166,11 +223,21 @@ func (s *GormService) List(ctx context.Context, kinds []models.ResponseRecordKin
 	}})
 	rows, err := s.store.List(ctx, conditions...)
 	if err != nil {
+		if parentID != "" {
+			s.log().Error("Compat records list failed", "parent_id", parentID, "error", err)
+		} else {
+			s.log().Error("Compat records list failed", "error", err)
+		}
 		return nil, err
 	}
 	records := make([]*models.ResponseRecord, 0, len(rows))
 	for _, row := range rows {
 		records = append(records, fromStoredRecord(row))
+	}
+	if parentID != "" {
+		s.log().Debug("Compat records listed", "count", len(records), "parent_id", parentID)
+	} else {
+		s.log().Debug("Compat records listed", "count", len(records))
 	}
 	return records, nil
 }

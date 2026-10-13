@@ -15,6 +15,7 @@ func (s *Service) QueryOverview(filters models.MetricsFilters) (*models.MetricsO
 	// Fetch buckets from memory and database
 	buckets, err := s.fetchBuckets(start, end)
 	if err != nil {
+		s.logger.Error("Metrics query failed", "operation", "overview", "provider_id", filters.ProviderID, "model", string(filters.Model), "error", err)
 		return nil, fmt.Errorf("fetch buckets: %w", err)
 	}
 
@@ -40,6 +41,7 @@ func (s *Service) QueryTimeSeries(metric string, filters models.MetricsFilters) 
 	// Fetch buckets
 	buckets, err := s.fetchBuckets(start, end)
 	if err != nil {
+		s.logger.Error("Metrics query failed", "operation", "timeseries", "provider_id", filters.ProviderID, "model", string(filters.Model), "error", err)
 		return nil, fmt.Errorf("fetch buckets: %w", err)
 	}
 
@@ -71,7 +73,9 @@ func (s *Service) QueryTimeSeries(metric string, filters models.MetricsFilters) 
 		case "tokens_output":
 			value = bucket.TokensOutput
 		default:
-			return nil, fmt.Errorf("unknown metric: %s", metric)
+			metricErr := fmt.Errorf("unknown metric: %s", metric)
+			s.logger.Error("Metrics query failed", "operation", "timeseries", "provider_id", filters.ProviderID, "model", string(filters.Model), "error", metricErr)
+			return nil, metricErr
 		}
 
 		points = append(points, models.TimeSeriesPoint{
@@ -100,6 +104,7 @@ func (s *Service) GetDistinctModels() ([]string, error) {
 	// Check SQLite for historical models
 	stored, err := s.loadDistinctModelsFromDB()
 	if err != nil {
+		s.logger.Error("Metrics query failed", "operation", "distinct models", "error", err)
 		return nil, err
 	}
 	for _, model := range stored {
@@ -296,6 +301,7 @@ func (s *Service) GetTokenUsage() (map[string]*TokenUsageInfo, error) {
 	// Aggregate from database (all historical data)
 	databaseUsage, err := s.loadTokenUsageFromDB()
 	if err != nil {
+		s.logger.Error("Metrics query failed", "operation", "token usage", "error", err)
 		return nil, err
 	}
 

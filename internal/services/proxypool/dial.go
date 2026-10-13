@@ -1,6 +1,7 @@
 package proxypool
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -12,5 +13,10 @@ import (
 // lives in the proxypool library; this wrapper keeps the router-internal
 // call boundary stable.
 func TransportFor(proxyURL string, timeout time.Duration) (*http.Transport, error) {
-	return proxypoollib.TransportFor(proxyURL, timeout)
+	transport, err := proxypoollib.TransportFor(proxyURL, timeout)
+	if err != nil {
+		slog.Default().Error("Building proxy transport failed", "proxy_url", redactProxyURL(proxyURL), "error", err)
+		return nil, err
+	}
+	return transport, nil
 }

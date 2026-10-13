@@ -27,6 +27,7 @@ func (source *pluginSource) FetchTagged() []proxypoollib.TaggedURL {
 	ctx := service.rootCtx
 	service.mu.Unlock()
 	if keys == nil || fetch == nil {
+		service.currentLogger().Debug("Skipping proxy feed fetch", "reason", "no source handlers")
 		return nil
 	}
 	if ctx == nil {
@@ -34,6 +35,7 @@ func (source *pluginSource) FetchTagged() []proxypoollib.TaggedURL {
 	}
 	list, err := keys()
 	if err != nil {
+		service.currentLogger().Error("Fetching proxy source keys failed", "error", err)
 		return nil
 	}
 	active := make(map[string]struct{}, len(list))
@@ -54,6 +56,7 @@ func (source *pluginSource) FetchTagged() []proxypoollib.TaggedURL {
 		if fetchError != nil {
 			sourceInfo.LastError = fetchError.Error()
 			service.recordSource(sourceInfo)
+			service.currentLogger().Warn("Fetching proxy feed failed", "source", sourceInfo.Name, "error", fetchError)
 			continue
 		}
 		for _, candidate := range candidates {
@@ -64,7 +67,9 @@ func (source *pluginSource) FetchTagged() []proxypoollib.TaggedURL {
 			}
 		}
 		service.recordSource(sourceInfo)
+		service.currentLogger().Debug("Fetching proxy feed", "source", sourceInfo.Name, "count", len(candidates))
 	}
+	service.currentLogger().Debug("Fetching proxy feeds", "count", len(output))
 	return output
 }
 
@@ -76,6 +81,7 @@ func (source *pluginSource) FetchList() []string {
 	for _, item := range tagged {
 		output = append(output, item.URL)
 	}
+	source.service.currentLogger().Debug("Fetching proxy list", "count", len(output))
 	return output
 }
 

@@ -127,14 +127,14 @@ func (s *GormService) RunStartupRefresh(ctx context.Context) {
 // Start launches the maintenance loop in a background goroutine.
 // It stops when ctx is cancelled.
 func (s *GormService) Start(ctx context.Context) {
-	s.logInfo("maintenance gorm service started", "interval", s.interval)
+	s.logInfo("Maintenance service started", "interval", s.interval)
 	go func() {
 		ticker := time.NewTicker(s.interval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
-				s.logInfo("maintenance gorm service stopped")
+				s.logInfo("Maintenance service stopped")
 				return
 			case <-ticker.C:
 				s.runCycle(ctx)
@@ -177,11 +177,12 @@ func (s *GormService) runStartupJobs(ctx context.Context) {
 // completion so no job is abandoned mid-write.
 func (s *GormService) runDueJobs(ctx context.Context, startup bool) {
 	if s.providerSource == nil || s.jobBackend == nil {
+		s.logDebug("Maintenance dependencies missing, skipping run")
 		return
 	}
 	providers, err := s.providerSource.List(ctx)
 	if err != nil {
-		s.logError("maintenance: list providers failed", "err", err)
+		s.logError("Maintenance list providers failed", "error", err)
 		return
 	}
 	type work struct {
@@ -190,7 +191,12 @@ func (s *GormService) runDueJobs(ctx context.Context, startup bool) {
 	}
 	var queue []work
 	for _, providerInstance := range providers {
-		if providerInstance == nil || providerInstance.Disabled {
+		if providerInstance == nil {
+			s.logDebug("Maintenance provider missing, skipping jobs")
+			continue
+		}
+		if providerInstance.Disabled {
+			s.logDebug("Maintenance provider disabled, skipping jobs", "provider_id", providerInstance.ID, "type", providerInstance.TypeKey)
 			continue
 		}
 		jobs := s.jobBackend.Jobs(providerInstance.TypeKey)
@@ -203,16 +209,23 @@ func (s *GormService) runDueJobs(ctx context.Context, startup bool) {
 			jobSpecification := jobs[name]
 			if startup {
 				if !jobSpecification.RunOnStartup {
+					s.logDebug("Maintenance job not flagged for startup, skipping", "provider_id", providerInstance.ID, "type", providerInstance.TypeKey, "job", name)
 					continue
 				}
 			} else if !s.due(providerInstance.ID, name, jobSpecification.IntervalSeconds) {
+				s.logDebug("Maintenance job not due, skipping", "provider_id", providerInstance.ID, "type", providerInstance.TypeKey, "job", name)
 				continue
 			}
 			if !s.claim(providerInstance.ID, name) {
+				s.logDebug("Maintenance job already running, skipping", "provider_id", providerInstance.ID, "type", providerInstance.TypeKey, "job", name)
 				continue
 			}
 			queue = append(queue, work{instance: providerInstance, jobName: name})
 		}
+	}
+	if len(queue) == 0 {
+		s.logDebug("Maintenance tick completed without work", "startup", startup)
+		return
 	}
 	var waitGroup sync.WaitGroup
 	semaphore := make(chan struct{}, maxJobWorkers)
@@ -220,6 +233,7 @@ loop:
 	for _, task := range queue {
 		select {
 		case <-ctx.Done():
+			s.logDebug("Maintenance context cancelled, stopping launch", "provider_id", task.instance.ID, "type", task.instance.TypeKey, "job", task.jobName, "error", ctx.Err())
 			s.release(task.instance.ID, task.jobName)
 			break loop
 		case semaphore <- struct{}{}:
@@ -274,6 +288,7 @@ func (s *GormService) release(providerID, jobName string) {
 // trigger). Overlap refuses with a busy error instead of queueing.
 func (s *GormService) launch(ctx context.Context, instance *models.ProviderInstance, jobName, reason string) error {
 	if !s.claim(instance.ID, jobName) {
+		s.logDebug("Maintenance job busy, refusing trigger", "provider_id", instance.ID, "type", instance.TypeKey, "job", jobName, "reason", reason)
 		return &jobBusyError{providerID: instance.ID, job: jobName}
 	}
 	defer s.release(instance.ID, jobName)
@@ -283,12 +298,12 @@ func (s *GormService) launch(ctx context.Context, instance *models.ProviderInsta
 
 func (s *GormService) runOne(ctx context.Context, instance *models.ProviderInstance, jobName, reason string) {
 	if err := s.jobBackend.RunJob(ctx, instance.TypeKey, jobName, reason, instance.ID, instance.Config); err != nil {
-		s.logError("maintenance: job failed",
-			"provider_id", instance.ID, "type", instance.TypeKey, "job", jobName, "err", err)
+		s.logError("Maintenance job failed",
+			"provider_id", instance.ID, "type", instance.TypeKey, "job", jobName, "reason", reason, "error", err)
 		return
 	}
-	s.logDebug("maintenance: job completed",
-		"provider_id", instance.ID, "type", instance.TypeKey, "job", jobName)
+	s.logDebug("Maintenance job completed",
+		"provider_id", instance.ID, "type", instance.TypeKey, "job", jobName, "reason", reason)
 }
 
 // syncProviderModels warms the model metadata cache for providers that opted
@@ -297,34 +312,51 @@ func (s *GormService) runOne(ctx context.Context, instance *models.ProviderInsta
 // missing refresher disables the pass; fetch failures log and continue.
 func (s *GormService) syncProviderModels(ctx context.Context) {
 	if s.modelInfoRefresher == nil || s.providerSource == nil {
+		s.logDebug("Maintenance sync dependencies missing, skipping sync")
 		return
 	}
 	providers, err := s.providerSource.List(ctx)
 	if err != nil {
-		s.logWarn("maintenance: list providers for model sync failed", "err", err)
+		s.logWarn("Maintenance list providers for model sync failed", "error", err)
+		return
+	}
+	if len(providers) == 0 {
+		s.logDebug("Maintenance model sync completed without work")
 		return
 	}
 	for _, providerInstance := range providers {
 		if ctx.Err() != nil {
+			s.logDebug("Maintenance model sync cancelled, stopping", "error", ctx.Err())
 			return
 		}
+		if providerInstance == nil {
+			s.logDebug("Maintenance provider missing, skipping sync")
+			continue
+		}
 		if providerInstance.Disabled {
+			s.logDebug("Maintenance provider disabled, skipping sync", "provider_id", providerInstance.ID)
 			continue
 		}
 		enabled, _ := providerInstance.Config["models_auto_sync"].(bool)
 		if !enabled {
+			s.logDebug("Maintenance automatic sync disabled, skipping", "provider_id", providerInstance.ID)
 			continue
 		}
 		if _, err := s.modelInfoRefresher.MergedView(ctx, providerInstance.ID); err != nil {
-			s.logWarn("maintenance: model auto-sync failed", "provider_id", providerInstance.ID, "err", err)
+			s.logWarn("Maintenance model auto-sync failed", "provider_id", providerInstance.ID, "error", err)
 			continue
 		}
+		s.logDebug("Maintenance model auto-sync completed", "provider_id", providerInstance.ID)
 		// The cache is warm now; rebuild managed virtual models from it so
 		// they never linger missing until a dashboard toggle.
-		if s.virtualSyncer != nil {
-			if _, err := s.virtualSyncer.SyncProviderModels(ctx, providerInstance.ID); err != nil {
-				s.logWarn("maintenance: virtual models sync failed", "provider_id", providerInstance.ID, "err", err)
-			}
+		if s.virtualSyncer == nil {
+			s.logDebug("Maintenance virtual syncer missing, skipping rebuild", "provider_id", providerInstance.ID)
+			continue
+		}
+		if _, err := s.virtualSyncer.SyncProviderModels(ctx, providerInstance.ID); err != nil {
+			s.logWarn("Maintenance virtual models sync failed", "provider_id", providerInstance.ID, "error", err)
+		} else {
+			s.logDebug("Maintenance virtual models sync completed", "provider_id", providerInstance.ID)
 		}
 	}
 }

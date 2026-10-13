@@ -4,6 +4,7 @@ package token
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	stdErrors "errors"
 
@@ -22,6 +23,7 @@ import (
 // every statement runs through gorm.G with typed clauses.
 type GormService struct {
 	database *db.Database
+	logger   *slog.Logger
 }
 
 // CreateOptions holds the parameters for issuing a new token.
@@ -35,15 +37,24 @@ func NewGorm(database *db.Database) *GormService {
 	return &GormService{database: database}
 }
 
+// SetLogger wires structured logging.
+func (s *GormService) SetLogger(l *slog.Logger) { s.logger = l }
+
 // Create mints a token and persists its base row plus join rows in one
 // transaction. The raw secret returns once and never persists.
 func (s *GormService) Create(ctx context.Context, options CreateOptions) (*models.RouterToken, error) {
 	raw, err := util.GenerateToken()
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Create token failed", "name", options.Name, "error", err)
+		}
 		return nil, fmt.Errorf("generate token secret: %w", err)
 	}
 	identifier, err := util.GenerateID()
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Create token failed", "name", options.Name, "error", err)
+		}
 		return nil, fmt.Errorf("generate token identifier: %w", err)
 	}
 	token := &models.RouterToken{
@@ -57,6 +68,9 @@ func (s *GormService) Create(ctx context.Context, options CreateOptions) (*model
 	base := tokenRecordFromModel(token)
 	providers, modelRows, credentials, scopes, scopeCredentials, err := tokenRulesToJoinRows(token.ID, token.Rules)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Create token validation failed", "name", options.Name, "error", err)
+		}
 		return nil, err
 	}
 	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
@@ -65,7 +79,13 @@ func (s *GormService) Create(ctx context.Context, options CreateOptions) (*model
 		}
 		return writeTokenJoinRows(ctx, transaction, providers, modelRows, credentials, scopes, scopeCredentials)
 	}); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Create token failed", "name", options.Name, "error", err)
+		}
 		return nil, err
+	}
+	if s.logger != nil {
+		s.logger.Info("Token created", "token_id", token.ID, "name", token.Name, "providers", len(providers), "models", len(modelRows), "credentials", len(credentials), "scopes", len(scopes))
 	}
 	return token, nil
 }
@@ -92,7 +112,19 @@ func (s *GormService) Validate(ctx context.Context, raw string) (*models.RouterT
 		result = tokenModelFromRecord(base, rules)
 		return nil
 	}); err != nil {
+		if stdErrors.Is(err, apierrors.ErrUnauthorized) {
+			if s.logger != nil {
+				s.logger.Warn("Token validation failed", "error", err)
+			}
+			return nil, err
+		}
+		if s.logger != nil {
+			s.logger.Error("Validate token failed", "error", err)
+		}
 		return nil, err
+	}
+	if s.logger != nil {
+		s.logger.Debug("Token validated", "token_id", result.ID, "name", result.Name)
 	}
 	return result, nil
 }
@@ -112,7 +144,19 @@ func (s *GormService) Get(ctx context.Context, identifier string) (*models.Route
 		result = tokenModelFromRecord(base, rules)
 		return nil
 	}); err != nil {
+		if stdErrors.Is(err, apierrors.ErrNotFound) {
+			if s.logger != nil {
+				s.logger.Warn("Token not found", "token_id", identifier, "error", err)
+			}
+			return nil, err
+		}
+		if s.logger != nil {
+			s.logger.Error("Get token failed", "token_id", identifier, "error", err)
+		}
 		return nil, err
+	}
+	if s.logger != nil {
+		s.logger.Debug("Token retrieved", "token_id", result.ID, "name", result.Name)
 	}
 	return result, nil
 }
@@ -136,7 +180,13 @@ func (s *GormService) List(ctx context.Context) ([]*models.RouterToken, error) {
 		result = tokens
 		return nil
 	}); err != nil {
+		if s.logger != nil {
+			s.logger.Error("List tokens failed", "error", err)
+		}
 		return nil, err
+	}
+	if s.logger != nil {
+		s.logger.Debug("Tokens listed", "count", len(result))
 	}
 	return result, nil
 }
@@ -144,7 +194,7 @@ func (s *GormService) List(ctx context.Context) ([]*models.RouterToken, error) {
 // Delete removes one token. Join rows cascade from the base delete. A zero
 // row delete reports not-found through the WithResult tracker.
 func (s *GormService) Delete(ctx context.Context, identifier string) error {
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		tracker := gorm.WithResult()
 		affected, err := gorm.G[record.RouterToken](transaction, clause.Eq{Column: "id", Value: identifier}, tracker).Delete(ctx)
 		if err != nil {
@@ -155,15 +205,34 @@ func (s *GormService) Delete(ctx context.Context, identifier string) error {
 		}
 		return nil
 	})
+	if err != nil {
+		if stdErrors.Is(err, apierrors.ErrNotFound) {
+			if s.logger != nil {
+				s.logger.Warn("Token not found", "token_id", identifier, "error", err)
+			}
+			return err
+		}
+		if s.logger != nil {
+			s.logger.Error("Delete token failed", "token_id", identifier, "error", err)
+		}
+		return err
+	}
+	if s.logger != nil {
+		s.logger.Info("Token deleted", "token_id", identifier)
+	}
+	return nil
 }
 
 // UpdateRules replaces allow flags and every join row in one transaction.
 func (s *GormService) UpdateRules(ctx context.Context, identifier string, rules models.TokenRules) error {
 	providers, modelRows, credentials, scopes, scopeCredentials, err := tokenRulesToJoinRows(identifier, rules)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Update token rules validation failed", "token_id", identifier, "error", err)
+		}
 		return err
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	err = s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		base, err := gorm.G[record.RouterToken](transaction, clause.Eq{Column: "id", Value: identifier}).First(ctx)
 		if err != nil {
 			return db.Translate(err)
@@ -180,6 +249,22 @@ func (s *GormService) UpdateRules(ctx context.Context, identifier string, rules 
 		}
 		return writeTokenJoinRows(ctx, transaction, providers, modelRows, credentials, scopes, scopeCredentials)
 	})
+	if err != nil {
+		if stdErrors.Is(err, apierrors.ErrNotFound) {
+			if s.logger != nil {
+				s.logger.Warn("Token not found", "token_id", identifier, "error", err)
+			}
+			return err
+		}
+		if s.logger != nil {
+			s.logger.Error("Update token rules failed", "token_id", identifier, "error", err)
+		}
+		return err
+	}
+	if s.logger != nil {
+		s.logger.Info("Token rules updated", "token_id", identifier, "providers", len(providers), "models", len(modelRows), "credentials", len(credentials), "scopes", len(scopes))
+	}
+	return nil
 }
 
 // Regenerate replaces the secret while keeping identifier, name, and rules.
@@ -187,6 +272,9 @@ func (s *GormService) UpdateRules(ctx context.Context, identifier string, rules 
 func (s *GormService) Regenerate(ctx context.Context, identifier string) (*models.RouterToken, error) {
 	raw, err := util.GenerateToken()
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Regenerate token failed", "token_id", identifier, "error", err)
+		}
 		return nil, fmt.Errorf("generate token secret: %w", err)
 	}
 	freshHash := util.HashSecret(raw)
@@ -213,7 +301,19 @@ func (s *GormService) Regenerate(ctx context.Context, identifier string) (*model
 		result.Token = raw
 		return nil
 	}); err != nil {
+		if stdErrors.Is(err, apierrors.ErrNotFound) {
+			if s.logger != nil {
+				s.logger.Warn("Token not found", "token_id", identifier, "error", err)
+			}
+			return nil, err
+		}
+		if s.logger != nil {
+			s.logger.Error("Regenerate token failed", "token_id", identifier, "error", err)
+		}
 		return nil, err
+	}
+	if s.logger != nil {
+		s.logger.Info("Token regenerated", "token_id", result.ID, "name", result.Name)
 	}
 	return result, nil
 }

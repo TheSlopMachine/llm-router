@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
+	logger     *slog.Logger
 }
 
 func newClient(baseURL string) *Client {
@@ -25,7 +27,30 @@ func newClient(baseURL string) *Client {
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
+		logger: slog.Default(),
 	}
+}
+
+// SetLogger installs structured client logging.
+func (c *Client) SetLogger(logger *slog.Logger) {
+	if logger == nil {
+		return
+	}
+	c.logger = logger
+}
+
+func (c *Client) currentLogger() *slog.Logger {
+	if c == nil || c.logger == nil {
+		return slog.Default()
+	}
+	return c.logger
+}
+
+func truncateBody(body string) string {
+	if len(body) > 1000 {
+		return body[:1000] + "...[truncated]"
+	}
+	return body
 }
 
 // ChatCompletion sends a non-streaming chat completion request.
@@ -54,20 +79,25 @@ func (c *Client) ChatCompletion(
 
 	response, err := c.httpClient.Do(httpRequest)
 	if err != nil {
+		c.currentLogger().Warn("Upstream request failed", "endpoint", "/chat/completions", "model", modelName, "error", err)
 		return nil, fmt.Errorf("http request: %w", err)
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
-		return nil, classifyHTTPError(response.StatusCode, string(bodyBytes))
+		classified := classifyHTTPError(response.StatusCode, string(bodyBytes))
+		c.currentLogger().Warn("Upstream returned error", "endpoint", "/chat/completions", "model", modelName, "status", response.StatusCode, "body", truncateBody(string(bodyBytes)))
+		return nil, classified
 	}
 
 	var result models.ChatCompletionResponse
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		c.currentLogger().Warn("Decoding upstream response failed", "endpoint", "/chat/completions", "model", modelName, "error", err)
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
+	c.currentLogger().Debug("Upstream request succeeded", "endpoint", "/chat/completions", "model", modelName)
 	return &result, nil
 }
 
@@ -101,16 +131,22 @@ func (c *Client) ChatCompletionStream(
 
 	response, err := c.httpClient.Do(httpRequest)
 	if err != nil {
+		c.currentLogger().Warn("Upstream request failed", "endpoint", "/chat/completions", "model", modelName, "error", err)
 		return fmt.Errorf("http request: %w", err)
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
-		return classifyHTTPError(response.StatusCode, string(bodyBytes))
+		classified := classifyHTTPError(response.StatusCode, string(bodyBytes))
+		c.currentLogger().Warn("Upstream returned error", "endpoint", "/chat/completions", "model", modelName, "status", response.StatusCode, "body", truncateBody(string(bodyBytes)))
+		return classified
 	}
 
 	_, err = io.Copy(writer, response.Body)
+	if err != nil {
+		c.currentLogger().Warn("Reading upstream stream failed", "endpoint", "/chat/completions", "model", modelName, "error", err)
+	}
 	return err
 }
 
@@ -127,17 +163,21 @@ func (c *Client) ListModels(ctx context.Context, apiKey string) ([]models.ModelI
 
 	response, err := c.httpClient.Do(httpRequest)
 	if err != nil {
+		c.currentLogger().Warn("Upstream request failed", "endpoint", "/models", "error", err)
 		return nil, fmt.Errorf("http request: %w", err)
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode == http.StatusNotFound {
+		c.currentLogger().Debug("Upstream model catalog missing", "endpoint", "/models")
 		return nil, nil
 	}
 
 	if response.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
-		return nil, classifyHTTPError(response.StatusCode, string(bodyBytes))
+		classified := classifyHTTPError(response.StatusCode, string(bodyBytes))
+		c.currentLogger().Warn("Upstream returned error", "endpoint", "/models", "status", response.StatusCode, "body", truncateBody(string(bodyBytes)))
+		return nil, classified
 	}
 
 	var result struct {
@@ -150,6 +190,7 @@ func (c *Client) ListModels(ctx context.Context, apiKey string) ([]models.ModelI
 	}
 
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		c.currentLogger().Warn("Decoding upstream response failed", "endpoint", "/models", "error", err)
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
@@ -212,14 +253,18 @@ func (c *Client) postVideoJSON(ctx context.Context, apiKey, path string, payload
 	httpRequest.Header.Set("Authorization", "Bearer "+apiKey)
 	response, err := c.httpClient.Do(httpRequest)
 	if err != nil {
+		c.currentLogger().Warn("Upstream request failed", "endpoint", path, "error", err)
 		return fmt.Errorf("http request: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusAccepted {
 		bodyBytes, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
-		return classifyHTTPError(response.StatusCode, string(bodyBytes))
+		classified := classifyHTTPError(response.StatusCode, string(bodyBytes))
+		c.currentLogger().Warn("Upstream returned error", "endpoint", path, "status", response.StatusCode, "body", truncateBody(string(bodyBytes)))
+		return classified
 	}
 	if err := json.NewDecoder(response.Body).Decode(output); err != nil {
+		c.currentLogger().Warn("Decoding upstream response failed", "endpoint", path, "error", err)
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil
@@ -236,9 +281,11 @@ func (c *Client) SubmitVideo(ctx context.Context, apiKey, modelName string, requ
 		return nil, err
 	}
 	if output.ID == "" {
+		c.currentLogger().Warn("Decoding upstream response failed", "endpoint", "/videos", "model", modelName, "reason", "empty job id")
 		return nil, fmt.Errorf("decode response: empty job id")
 	}
 	if !models.ValidVideoStatus(output.Status) {
+		c.currentLogger().Warn("Decoding upstream response failed", "endpoint", "/videos", "model", modelName, "reason", "unknown job status")
 		return nil, fmt.Errorf("decode response: unknown job status %q", output.Status)
 	}
 	return &output, nil
@@ -253,18 +300,23 @@ func (c *Client) PollVideo(ctx context.Context, apiKey, upstreamJobID string) (*
 	httpRequest.Header.Set("Authorization", "Bearer "+apiKey)
 	response, err := c.httpClient.Do(httpRequest)
 	if err != nil {
+		c.currentLogger().Warn("Upstream request failed", "endpoint", "/videos", "error", err)
 		return nil, fmt.Errorf("http request: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
-		return nil, classifyHTTPError(response.StatusCode, string(bodyBytes))
+		classified := classifyHTTPError(response.StatusCode, string(bodyBytes))
+		c.currentLogger().Warn("Upstream returned error", "endpoint", "/videos", "status", response.StatusCode, "body", truncateBody(string(bodyBytes)))
+		return nil, classified
 	}
 	var output models.VideoGenerationResponse
 	if err := json.NewDecoder(response.Body).Decode(&output); err != nil {
+		c.currentLogger().Warn("Decoding upstream response failed", "endpoint", "/videos", "error", err)
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	if !models.ValidVideoStatus(output.Status) {
+		c.currentLogger().Warn("Decoding upstream response failed", "endpoint", "/videos", "reason", "unknown job status")
 		return nil, fmt.Errorf("decode response: unknown job status %q", output.Status)
 	}
 	return &output, nil
@@ -279,18 +331,23 @@ func (c *Client) VideoContent(ctx context.Context, apiKey, upstreamJobID string,
 	httpRequest.Header.Set("Authorization", "Bearer "+apiKey)
 	response, err := c.httpClient.Do(httpRequest)
 	if err != nil {
+		c.currentLogger().Warn("Upstream request failed", "endpoint", "/videos/content", "error", err)
 		return nil, fmt.Errorf("http request: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
-		return nil, classifyHTTPError(response.StatusCode, string(bodyBytes))
+		classified := classifyHTTPError(response.StatusCode, string(bodyBytes))
+		c.currentLogger().Warn("Upstream returned error", "endpoint", "/videos/content", "status", response.StatusCode, "body", truncateBody(string(bodyBytes)))
+		return nil, classified
 	}
 	video, err := io.ReadAll(io.LimitReader(response.Body, 512<<20))
 	if err != nil {
+		c.currentLogger().Warn("Reading upstream video failed", "endpoint", "/videos/content", "error", err)
 		return nil, fmt.Errorf("read video: %w", err)
 	}
 	if len(video) == 0 {
+		c.currentLogger().Warn("Decoding upstream response failed", "endpoint", "/videos/content", "reason", "empty video")
 		return nil, fmt.Errorf("decode response: empty video")
 	}
 	return &models.VideoContentResponse{Video: video, ContentType: response.Header.Get("Content-Type")}, nil
@@ -306,18 +363,23 @@ func (c *Client) ListVideoModels(ctx context.Context, apiKey string) ([]models.V
 	httpRequest.Header.Set("Authorization", "Bearer "+apiKey)
 	response, err := c.httpClient.Do(httpRequest)
 	if err != nil {
+		c.currentLogger().Warn("Upstream request failed", "endpoint", "/videos/models", "error", err)
 		return nil, fmt.Errorf("http request: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusNotFound {
+		c.currentLogger().Debug("Upstream video catalog missing", "endpoint", "/videos/models")
 		return nil, nil
 	}
 	if response.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
-		return nil, classifyHTTPError(response.StatusCode, string(bodyBytes))
+		classified := classifyHTTPError(response.StatusCode, string(bodyBytes))
+		c.currentLogger().Warn("Upstream returned error", "endpoint", "/videos/models", "status", response.StatusCode, "body", truncateBody(string(bodyBytes)))
+		return nil, classified
 	}
 	var result models.VideoModelsListResponse
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		c.currentLogger().Warn("Decoding upstream response failed", "endpoint", "/videos/models", "error", err)
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	if result.Data == nil {

@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TheSlopMachine/llm-router/internal/services/events"
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -130,13 +129,6 @@ func (g *ssrfGuard) checkURL(raw string) (*url.URL, error) {
 		return nil, err
 	}
 	return u, nil
-}
-
-// logSinkSafe logs through the exec context when a sink is wired.
-func (ctx *executionContext) logSinkSafe(msg string) {
-	if ctx != nil && ctx.logSink != nil {
-		ctx.logSink(ctx.pluginID, ctx.typeKey, events.SeverityWarn, msg, nil)
-	}
 }
 
 // resolveAndPick resolves hostname and returns the first non-blocked IP.
@@ -258,32 +250,38 @@ func (c *pluginHTTPClient) proxyClient(proxyURL string) (*http.Client, error) {
 // Direct reports whether the attempt went direct (true) or proxied (false).
 func (c *pluginHTTPClient) doSingle(request *http.Request, proxyURL string) (*http.Response, bool, error) {
 	if err := request.Context().Err(); err != nil {
+		c.logRequestCanceled(request, proxyURL, err)
 		return nil, proxyURL == "", err
 	}
 	client := c.client
 	direct := true
 	if proxyURL != "" {
-		pc, berr := c.proxyClient(proxyURL)
-		if berr != nil {
-			return nil, false, berr
+		proxyClient, proxyError := c.proxyClient(proxyURL)
+		if proxyError != nil {
+			c.logRequestFailed(request, proxyURL, false, proxyError, 0)
+			return nil, false, proxyError
 		}
-		client = pc
+		client = proxyClient
 		direct = false
 	}
 	if request.GetBody != nil {
-		if body, gerr := request.GetBody(); gerr == nil {
+		if body, bodyError := request.GetBody(); bodyError == nil {
 			request.Body = body
 		}
 	}
-	response, derr := client.Do(request)
-	if derr != nil {
+	start := time.Now()
+	response, requestError := client.Do(request)
+	latency := time.Since(start).Milliseconds()
+	if requestError != nil {
 		if !direct {
-			if reason := markDeadReason(derr); reason != "" {
+			if reason := markDeadReason(requestError); reason != "" {
 				c.markDead(proxyURL, reason)
 			}
 		}
-		return nil, direct, derr
+		c.logRequestFailed(request, proxyURL, direct, requestError, latency)
+		return nil, direct, requestError
 	}
+	c.logRequestCompleted(request, proxyURL, response.StatusCode, latency)
 	return response, direct, nil
 }
 
@@ -292,8 +290,75 @@ func (c *pluginHTTPClient) markDead(proxyURL, reason string) {
 		return
 	}
 	if c.ctx.markDead(proxyURL, reason) && c.ctx.logger != nil {
-		c.ctx.logger.Debug("proxy marked dead", "reason", reason)
+		c.ctx.logger.Debug("Proxy marked dead",
+			"plugin_id", c.ctx.pluginID, "type", c.ctx.typeKey,
+			"proxy_url", proxyURL, "reason", reason)
 	}
+}
+
+// requestEndpoint renders the request target without query or fragment so
+// logs never carry secrets.
+func requestEndpoint(request *http.Request) string {
+	if request == nil || request.URL == nil {
+		return ""
+	}
+	return request.URL.Host + request.URL.Path
+}
+
+func (c *pluginHTTPClient) logRequestCompleted(request *http.Request, proxyURL string, status int, latency int64) {
+	if c.ctx == nil || c.ctx.logger == nil {
+		return
+	}
+	arguments := []any{
+		"plugin_id", c.ctx.pluginID, "type", c.ctx.typeKey,
+		"operation", request.Method, "endpoint", requestEndpoint(request),
+		"status", status, "latency_ms", latency,
+		"timeout_ms", c.timeout.Milliseconds(),
+	}
+	if proxyURL != "" {
+		arguments = append(arguments, "proxy_url", proxyURL)
+	}
+	c.ctx.logger.Debug("Plugin HTTP request completed", arguments...)
+}
+
+func (c *pluginHTTPClient) logRequestFailed(request *http.Request, proxyURL string, direct bool, requestError error, latency int64) {
+	if c.ctx == nil || c.ctx.logger == nil || requestError == nil {
+		return
+	}
+	reason := markDeadReason(requestError)
+	if reason == "" {
+		reason = bodyReadReason(requestError)
+	}
+	if reason == "" {
+		reason = "network"
+	}
+	retryable := !direct && !c.ctx.streamDelivered() && clientContext(c).Err() == nil
+	arguments := []any{
+		"plugin_id", c.ctx.pluginID, "type", c.ctx.typeKey,
+		"operation", request.Method, "endpoint", requestEndpoint(request),
+		"reason", reason, "error", requestError.Error(),
+		"latency_ms", latency, "timeout_ms", c.timeout.Milliseconds(),
+		"retryable", retryable,
+	}
+	if proxyURL != "" {
+		arguments = append(arguments, "proxy_url", proxyURL)
+	}
+	c.ctx.logger.Debug("Plugin HTTP request failed", arguments...)
+}
+
+func (c *pluginHTTPClient) logRequestCanceled(request *http.Request, proxyURL string, requestError error) {
+	if c.ctx == nil || c.ctx.logger == nil || requestError == nil {
+		return
+	}
+	arguments := []any{
+		"plugin_id", c.ctx.pluginID, "type", c.ctx.typeKey,
+		"operation", request.Method, "endpoint", requestEndpoint(request),
+		"reason", "canceled", "error", requestError.Error(),
+	}
+	if proxyURL != "" {
+		arguments = append(arguments, "proxy_url", proxyURL)
+	}
+	c.ctx.logger.Debug("Plugin HTTP request canceled", arguments...)
 }
 
 // checkRedirect validates every redirect hop against the plugin allow-list.

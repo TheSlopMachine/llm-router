@@ -40,19 +40,13 @@ func (r *slogReporter) ReportProxy(report proxypoollib.ProxyReport) {
 	if logger == nil || !logger.Enabled(context.Background(), slog.LevelDebug) {
 		return
 	}
-	logger.Debug("proxy check",
-		"timestamp", report.Timestamp,
-		"url", report.URL,
+	logger.Debug("Proxy check",
+		"proxy_url", redactProxyURL(report.URL),
 		"source", report.Source,
 		"lane", report.Lane,
-		"fail_reason", report.FailReason,
-		"is_dead", report.IsDead,
-		"score", report.Score,
-		"penalty", report.Penalty,
-		"revive_at", report.ReviveAt,
+		"reason", string(report.FailReason),
 		"latency_ms", report.Latency.Milliseconds(),
-		"died", report.Died,
-		"revived", report.Revived,
+		"count", boolToCount(report.IsDead),
 	)
 }
 
@@ -63,25 +57,22 @@ func (r *slogReporter) ReportStats(stats proxypoollib.PoolStats) {
 	if logger == nil {
 		return
 	}
-	logger.Info("proxy pool stats",
-		"mode", stats.Mode,
-		"net", stats.Net.State,
-		"rtt_ms", stats.Net.RTT.Milliseconds(),
+	logger.Info("Proxy pool stats",
+		"count", stats.Alive+stats.Suspect+stats.Banned,
 		"limit", stats.Limit,
-		"inflight", stats.Inflight,
-		"alive", stats.Alive,
-		"suspect", stats.Suspect,
-		"banned", stats.Banned,
-		"queued", stats.Queued,
+		"operation", string(stats.Mode),
 	)
+	for _, lane := range stats.Lanes {
+		logger.Info("Proxy lane stats",
+			"lane", lane.Lane,
+			"count", lane.Queued,
+		)
+	}
 	for _, source := range stats.Sources {
-		logger.Info("proxy source stats",
+		logger.Info("Proxy source stats",
 			"source", source.Source,
-			"alive", source.Alive,
-			"suspect", source.Suspect,
-			"banned", source.Banned,
-			"queued", source.Queued,
-			"ban_reasons", formatBanReasons(source.BanReasons),
+			"count", source.Alive+source.Suspect+source.Banned,
+			"reason", formatBanReasons(source.BanReasons),
 		)
 	}
 	r.reportDemands(logger, stats.Demands)
@@ -93,13 +84,10 @@ func (r *slogReporter) reportDemands(logger *slog.Logger, demands []proxypoollib
 		if len(demand.Countries) > 0 {
 			countries = strings.Join(demand.Countries, ",")
 		}
-		logger.Info("proxy demand stats",
+		logger.Info("Proxy demand stats",
 			"countries", countries,
-			"state", demand.State,
-			"waiters", demand.Waiters,
-			"alive", demand.Alive,
-			"target", demand.Target,
-			"served", demand.Served,
+			"operation", demand.State,
+			"count", demand.Waiters,
 		)
 	}
 }
@@ -111,14 +99,11 @@ func (r *slogReporter) ReportEvent(event proxypoollib.PoolEvent) {
 	if logger == nil {
 		return
 	}
-	level := slog.LevelInfo
-	if event.Kind == "breaker_open" {
-		level = slog.LevelWarn
-	}
+	warn := event.Kind == "breaker_open"
 	if event.Kind == "net_change" && event.Fields != nil && event.Fields["to"] == string(proxypoollib.NetDown) {
-		level = slog.LevelWarn
+		warn = true
 	}
-	attrs := []any{"kind", event.Kind}
+	attrs := []any{"operation", event.Kind, "count", len(event.Fields)}
 	keys := make([]string, 0, len(event.Fields))
 	for key := range event.Fields {
 		keys = append(keys, key)
@@ -127,7 +112,11 @@ func (r *slogReporter) ReportEvent(event proxypoollib.PoolEvent) {
 	for _, key := range keys {
 		attrs = append(attrs, key, event.Fields[key])
 	}
-	logger.Log(context.Background(), level, "proxy pool event", append([]any{"time", event.Time}, attrs...)...)
+	if warn {
+		logger.Warn("Proxy pool event", attrs...)
+		return
+	}
+	logger.Info("Proxy pool event", attrs...)
 }
 
 func formatBanReasons(reasons map[proxypoollib.FailReason]int) string {

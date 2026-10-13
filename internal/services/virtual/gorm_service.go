@@ -57,6 +57,7 @@ func (s *GormService) log() *slog.Logger {
 // list without an error.
 func (s *GormService) LiveMembers(ctx context.Context, agent *models.VirtualModel) ([]models.ModelId, error) {
 	if agent == nil {
+		s.log().Warn("Virtual model member lookup rejects invalid input", "reason", "nil_virtual_model")
 		return nil, fmt.Errorf("nil virtual model")
 	}
 	if !strings.HasPrefix(agent.ManagedBy, "provider:") {
@@ -64,14 +65,17 @@ func (s *GormService) LiveMembers(ctx context.Context, agent *models.VirtualMode
 		for _, e := range agent.Models {
 			memberIDs = append(memberIDs, e.ModelID)
 		}
+		s.log().Debug("Virtual model member lookup succeeds", "model", agent.ID, "count", len(memberIDs))
 		return memberIDs, nil
 	}
 	providerID, slug, err := ParseMarker(agent.ManagedBy)
 	if err != nil {
+		s.log().Error("Virtual model member lookup fails", "model", agent.ID, "operation", "parse_marker", "error", err)
 		return nil, err
 	}
 	groups, err := s.GroupsForProvider(ctx, providerID)
 	if err != nil {
+		s.log().Error("Virtual model member lookup fails", "model", agent.ID, "provider_id", providerID, "endpoint", slug, "operation", "groups", "error", err)
 		return nil, err
 	}
 	for _, group := range groups {
@@ -82,8 +86,10 @@ func (s *GormService) LiveMembers(ctx context.Context, agent *models.VirtualMode
 		for _, name := range group.Models {
 			memberIDs = append(memberIDs, models.ModelId(providerID+"/"+name))
 		}
+		s.log().Debug("Virtual model member lookup succeeds", "model", agent.ID, "provider_id", providerID, "endpoint", slug, "count", len(memberIDs))
 		return memberIDs, nil
 	}
+	s.log().Debug("Virtual model member lookup misses", "model", agent.ID, "provider_id", providerID, "endpoint", slug)
 	return nil, nil
 }
 
@@ -203,28 +209,37 @@ func uniqueVirtualSlugInTransaction(ctx context.Context, transaction *gorm.DB, n
 // only.
 func (s *GormService) Create(ctx context.Context, virtualModel *models.VirtualModel) error {
 	if virtualModel == nil {
+		s.log().Warn("Virtual model validation rejects invalid input", "reason", "nil_virtual_model")
 		return fmt.Errorf("virtual model is required: %w", apierrors.ErrInvalidInput)
 	}
 	if err := validateVirtualModel(virtualModel); err != nil {
+		s.log().Warn("Virtual model validation rejects invalid input", "error", err)
 		return err
 	}
 	if _, err := s.requireHandle(); err != nil {
 		return err
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
-		identifier, err := uniqueVirtualSlugInTransaction(ctx, transaction, virtualModel.Name)
+	name := virtualModel.Name
+	base := agentSlug(name)
+	identifier := ""
+	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		derived, err := uniqueVirtualSlugInTransaction(ctx, transaction, virtualModel.Name)
 		if err != nil {
 			return err
+		}
+		identifier = derived
+		if derived != base {
+			s.log().Debug("Virtual model slug collides", "model", derived, "detail", base)
 		}
 		if err := checkVirtualMemberProviders(ctx, transaction, virtualModel.Models); err != nil {
 			return err
 		}
 		now := util.Now()
-		virtualModel.ID = identifier
+		virtualModel.ID = derived
 		virtualModel.Version = 1
 		virtualModel.CreatedAt = now
 		virtualModel.UpdatedAt = now
-		row, members, err := virtualRecordFromModel(virtualModel, identifier)
+		row, members, err := virtualRecordFromModel(virtualModel, derived)
 		if err != nil {
 			return err
 		}
@@ -241,7 +256,16 @@ func (s *GormService) Create(ctx context.Context, virtualModel *models.VirtualMo
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		if stdErrors.Is(err, apierrors.ErrAlreadyExists) {
+			s.log().Warn("Virtual model creation rejects duplicate name", "model", name, "error", err)
+		} else {
+			s.log().Error("Virtual model creation fails", "model", name, "operation", "create", "error", err)
+		}
+		return err
+	}
+	s.log().Debug("Virtual model creation succeeds", "model", identifier)
+	return nil
 }
 
 // Get returns a virtual model by ID with members in fall-through order. A
@@ -270,8 +294,14 @@ func (s *GormService) Get(ctx context.Context, identifier string) (*models.Virtu
 		result = virtualModelFromRecords(row, members)
 		return nil
 	}); err != nil {
+		if stdErrors.Is(err, apierrors.ErrNotFound) {
+			s.log().Debug("Virtual model lookup misses", "model", trimmed)
+		} else {
+			s.log().Error("Virtual model lookup fails", "model", trimmed, "operation", "get", "error", err)
+		}
 		return nil, err
 	}
+	s.log().Debug("Virtual model lookup succeeds", "model", trimmed)
 	return result, nil
 }
 
@@ -304,8 +334,10 @@ func (s *GormService) List(ctx context.Context) ([]*models.VirtualModel, error) 
 		result = items
 		return nil
 	}); err != nil {
+		s.log().Error("Virtual model listing fails", "operation", "list", "error", err)
 		return nil, err
 	}
+	s.log().Debug("Virtual model listing succeeds", "count", len(result))
 	return result, nil
 }
 
@@ -318,17 +350,20 @@ func (s *GormService) List(ctx context.Context) ([]*models.VirtualModel, error) 
 // on the transaction handle only.
 func (s *GormService) Update(ctx context.Context, identifier string, virtualModel *models.VirtualModel) error {
 	if virtualModel == nil {
+		s.log().Warn("Virtual model validation rejects invalid input", "model", identifier, "reason", "nil_virtual_model")
 		return fmt.Errorf("virtual model is required: %w", apierrors.ErrInvalidInput)
 	}
 	virtualModel.ID = identifier
 	if err := validateVirtualModel(virtualModel); err != nil {
+		s.log().Warn("Virtual model validation rejects invalid input", "model", identifier, "error", err)
 		return err
 	}
 	if _, err := s.requireHandle(); err != nil {
 		return err
 	}
 	trimmed := strings.TrimSpace(identifier)
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	conflict := false
+	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		existing, err := gorm.G[record.VirtualModel](transaction, clause.Eq{Column: "id", Value: trimmed}).First(ctx)
 		if err != nil {
 			translated := db.Translate(err)
@@ -338,6 +373,7 @@ func (s *GormService) Update(ctx context.Context, identifier string, virtualMode
 			return translated
 		}
 		if virtualModel.Version != 0 && virtualModel.Version != existing.Version {
+			conflict = true
 			return fmt.Errorf("virtual model was modified by another process, please refresh and try again")
 		}
 		if err := checkVirtualMemberProviders(ctx, transaction, virtualModel.Models); err != nil {
@@ -370,7 +406,21 @@ func (s *GormService) Update(ctx context.Context, identifier string, virtualMode
 		}
 		*virtualModel = updated
 		return nil
-	})
+	}); err != nil {
+		switch {
+		case conflict:
+			s.log().Debug("Virtual model update conflicts", "model", trimmed, "operation", "update")
+		case stdErrors.Is(err, apierrors.ErrNotFound):
+			s.log().Debug("Virtual model update misses", "model", trimmed)
+		case stdErrors.Is(err, apierrors.ErrAlreadyExists):
+			s.log().Warn("Virtual model update rejects duplicate name", "model", trimmed, "error", err)
+		default:
+			s.log().Error("Virtual model update fails", "model", trimmed, "operation", "update", "error", err)
+		}
+		return err
+	}
+	s.log().Debug("Virtual model update succeeds", "model", trimmed)
+	return nil
 }
 
 // Delete removes a virtual model by ID in one conditioned delete. Member
@@ -382,7 +432,7 @@ func (s *GormService) Delete(ctx context.Context, identifier string) error {
 		return err
 	}
 	trimmed := strings.TrimSpace(identifier)
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		tracker := gorm.WithResult()
 		affected, err := gorm.G[record.VirtualModel](transaction, clause.Eq{Column: "id", Value: trimmed}, tracker).Delete(ctx)
 		if err != nil {
@@ -392,5 +442,14 @@ func (s *GormService) Delete(ctx context.Context, identifier string) error {
 			return fmt.Errorf("virtual model %q: %w", trimmed, apierrors.ErrNotFound)
 		}
 		return nil
-	})
+	}); err != nil {
+		if stdErrors.Is(err, apierrors.ErrNotFound) {
+			s.log().Debug("Virtual model deletion misses", "model", trimmed)
+		} else {
+			s.log().Error("Virtual model deletion fails", "model", trimmed, "operation", "delete", "error", err)
+		}
+		return err
+	}
+	s.log().Debug("Virtual model deletion succeeds", "model", trimmed)
+	return nil
 }

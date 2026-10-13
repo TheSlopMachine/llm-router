@@ -34,6 +34,7 @@ func toRepositoryView(record *pluginrepo.RepoRecord) repositoryView {
 func (h *Handler) apiReposList(w http.ResponseWriter, r *http.Request) {
 	records, err := h.repositoryService.List()
 	if err != nil {
+		h.logError("Failed to list repositories", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -70,6 +71,7 @@ func (h *Handler) apiReposAdd(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	h.logInfo("Repository added", "repository_id", record.ID)
 	h.json(w, http.StatusOK, toRepositoryView(record))
 }
 
@@ -86,7 +88,8 @@ func (h *Handler) apiReposAdd(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugin-repos/{id} [delete]
 func (h *Handler) apiReposDelete(w http.ResponseWriter, r *http.Request) {
-	if err := h.repositoryService.Remove(r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	if err := h.repositoryService.Remove(id); err != nil {
 		if errors.Is(err, pluginrepo.ErrBuiltinRepoProtected) {
 			h.jsonErr(w, http.StatusForbidden, err.Error())
 			return
@@ -94,6 +97,7 @@ func (h *Handler) apiReposDelete(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	h.logInfo("Repository removed", "repository_id", id)
 	h.json(w, http.StatusOK, map[string]string{"message": "repository removed"})
 }
 
@@ -130,6 +134,7 @@ func (h *Handler) apiReposFiles(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) apiStoreSearch(w http.ResponseWriter, r *http.Request) {
 	repositories, err := h.repositoryService.List()
 	if err != nil {
+		h.logError("Failed to search plugin store", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -273,6 +278,7 @@ func (h *Handler) apiPluginsInstallFromRepo(w http.ResponseWriter, r *http.Reque
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	h.logInfo("Plugin installed from repository", "plugin_id", record.ID, "repository_id", body.RepoID)
 	h.json(w, http.StatusOK, toPluginView(record))
 }
 
@@ -288,6 +294,7 @@ func (h *Handler) apiPluginsInstallFromRepo(w http.ResponseWriter, r *http.Reque
 func (h *Handler) apiStoreUpdates(w http.ResponseWriter, r *http.Request) {
 	installed, err := h.luaService.ListSQLite(r.Context())
 	if err != nil {
+		h.logError("Failed to check plugin updates", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

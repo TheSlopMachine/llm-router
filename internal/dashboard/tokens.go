@@ -21,6 +21,7 @@ import (
 func (h *Handler) apiTokensList(w http.ResponseWriter, r *http.Request) {
 	tokens, err := h.gormTokenService.List(r.Context())
 	if err != nil {
+		h.logError("Failed to list tokens", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -53,9 +54,11 @@ func (h *Handler) apiTokensCreate(w http.ResponseWriter, r *http.Request) {
 		Rules: body.Rules,
 	})
 	if err != nil {
+		h.logError("Failed to create token", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	h.logInfo("Token created", "token_id", tokenRecord.ID)
 	h.json(w, http.StatusCreated, tokenRecord)
 }
 
@@ -82,9 +85,11 @@ func (h *Handler) apiTokensUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.gormTokenService.UpdateRules(r.Context(), r.PathValue("id"), body.Rules); err != nil {
+		h.logError("Failed to update token", "token_id", r.PathValue("id"), "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	h.logInfo("Token updated", "token_id", r.PathValue("id"))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -100,11 +105,14 @@ func (h *Handler) apiTokensUpdate(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/tokens/{id}/regenerate [post]
 func (h *Handler) apiTokensRegenerate(w http.ResponseWriter, r *http.Request) {
-	tokenRecord, err := h.gormTokenService.Regenerate(r.Context(), r.PathValue("id"))
+	id := r.PathValue("id")
+	tokenRecord, err := h.gormTokenService.Regenerate(r.Context(), id)
 	if err != nil {
+		h.logError("Failed to regenerate token", "token_id", id, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	h.logInfo("Token secret regenerated", "token_id", id)
 	h.json(w, http.StatusOK, tokenRecord)
 }
 
@@ -120,9 +128,12 @@ func (h *Handler) apiTokensRegenerate(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/tokens/{id} [delete]
 func (h *Handler) apiTokensDelete(w http.ResponseWriter, r *http.Request) {
-	if err := h.gormTokenService.Delete(r.Context(), r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	if err := h.gormTokenService.Delete(r.Context(), id); err != nil {
+		h.logError("Failed to delete token", "token_id", id, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	h.logInfo("Token deleted", "token_id", id)
 	w.WriteHeader(http.StatusNoContent)
 }

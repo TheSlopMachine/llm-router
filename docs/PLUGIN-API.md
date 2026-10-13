@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Plugin API: **1.3** (`luaplugin.PluginAPIVersion`). A plugin declares the
+Plugin API: **1.4** (`luaplugin.PluginAPIVersion`). A plugin declares the
 `@plugin_api` contract it speaks; the router label (`main.RouterVersion`,
 stamped from the release tag) carries no compatibility meaning. Install
 compares majors only: plugin major above the served one fails with `too_new`,
@@ -427,8 +427,8 @@ llm_router.storage.set("cooldown", cred_id, { until = os.time() + wait }, { ttl 
 ### `llm_router.log(severity, message, keys?)`
 
 Structured plugin logging into the router events database. `severity` is
-`debug`, `info`, `warn` or `error` (`fatal` exists for unrecoverable
-states). `message` is a string. `keys` is an optional string-to-scalar
+`debug`, `info`, `warn`, `error` or `fatal` (`critical` aliases
+`fatal`). `message` is a string. `keys` is an optional string-to-scalar
 table (at most 32 entries, values truncate at 2048 chars); every key
 lands in the event record and queries as `filter.<key>` on
 `GET /api/events`. Entries below the configured `LOG_LEVEL` never
@@ -448,27 +448,41 @@ always emits identical text, so lines group. Sentence case, present
 tense, no trailing period, no embedded values, no provider or plugin
 name (the `type` key and the display line already identify the source).
 
-Severity tiers: `debug` for flow and troubleshooting (attempts,
-payloads, dumps, completions); `warn` for handled failures with
-failover (bench, park, next credential or exit); `error` for terminal
-failures (the request fails).
+Severity tiers: `debug` for verbose flow and troubleshooting (attempts,
+payloads, dumps, completions); `info` for concise lifecycle progress
+(selection results, completions, background runs); `warn` for handled
+failures with failover (bench, park, next credential or exit); `error`
+for terminal failures (the request fails); `fatal` for unrecoverable
+states (the plugin cannot continue). `critical` aliases `fatal`.
+`info` marks expected progress, `debug` marks diagnostic detail;
+`error` marks a failed request, `fatal` marks a dead plugin.
 
 Keys use `snake_case` with full words. Standard vocabulary, required
-whenever the data exists:
+whenever the data exists. Use `cred_id` (never `credential_id`),
+`error` (never `err`), `provider_id` (never `provider`), `endpoint`
+(never `method` or `path`):
 
 | Key | Meaning |
 |---|---|
 | `status` | upstream HTTP status (number) |
 | `code` | wire error code |
 | `cred_id` | credential attempting the call |
+| `provider_id` | provider instance serving the call |
+| `token_id` | router token authorizing the call |
+| `plugin_id` | plugin record emitting the line |
 | `model` | router model id |
 | `endpoint` | request path |
 | `event` | category for high-volume debug sites (see below) |
 | `count` | result cardinality |
+| `job` | background job name |
+| `operation` | handler or lifecycle slot name |
+| `attempt` | attempt number within the retry loop |
 | `reason` | variable failure text that cannot stabilize into a message |
 | `detail` | variable upstream-supplied detail |
 | `wait` | park or backoff seconds (number) |
+| `latency_ms` | upstream round-trip time (number) |
 | `exit` | proxy exit key |
+| `proxy_url` | proxy endpoint assigned to the attempt |
 | `body` | capped upstream text (1000 chars) |
 | `line` | full SSE line |
 | `body_len`, `input_tokens`, `cached_tokens`, `tools`, `messages` | numeric payload facts |

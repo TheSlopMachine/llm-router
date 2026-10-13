@@ -9,11 +9,19 @@
 package httpapi
 
 import (
+	"log/slog"
 	"net/http"
 
 	v1 "github.com/TheSlopMachine/llm-router/internal/api/v1"
 	"github.com/TheSlopMachine/llm-router/internal/dashboard"
 )
+
+// logUnknownEndpoint records unknown API routes before answering JSON
+// 404. The hot path stays silent; only misses log.
+func logUnknownEndpoint(w http.ResponseWriter, r *http.Request) {
+	slog.Default().Debug("Request hits unknown endpoint", "method", r.Method, "endpoint", r.URL.Path)
+	dashboard.WriteUnknownEndpoint(w, r)
+}
 
 // BuildPublicMux mounts the full surface: /v1 and /api answer JSON,
 // everything else serves the dashboard SPA (redirects allowed).
@@ -46,7 +54,7 @@ func BuildPrivateMux(apiHandler *v1.Handler, dashboardHandler *dashboard.Handler
 	rootMux.Handle("/v1/", apiMux)
 	rootMux.Handle("/api", dashboardAPIMux)
 	rootMux.Handle("/api/", dashboardAPIMux)
-	rootMux.HandleFunc("/", dashboard.WriteUnknownEndpoint)
+	rootMux.HandleFunc("/", logUnknownEndpoint)
 	return rootMux
 }
 
@@ -59,6 +67,6 @@ func sharedAPIMuxes(apiHandler *v1.Handler, dashboardHandler *dashboard.Handler)
 	apiHandler.Register(apiMux)
 	dashboardAPIMux = http.NewServeMux()
 	dashboardHandler.RegisterAPI(dashboardAPIMux)
-	dashboardAPIMux.HandleFunc("/", dashboard.WriteUnknownEndpoint)
+	dashboardAPIMux.HandleFunc("/", logUnknownEndpoint)
 	return apiMux, dashboardAPIMux
 }

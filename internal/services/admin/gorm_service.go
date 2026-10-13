@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -32,6 +33,7 @@ const instanceRowID int64 = 1
 // statement runs through gorm.G with typed clauses.
 type GormService struct {
 	database *db.Database
+	logger   *slog.Logger
 }
 
 // NewGorm constructs a GORM-backed admin service on the SQLite handle.
@@ -39,6 +41,9 @@ type GormService struct {
 func NewGorm(database *db.Database) *GormService {
 	return &GormService{database: database}
 }
+
+// SetLogger wires structured logging.
+func (s *GormService) SetLogger(l *slog.Logger) { s.logger = l }
 
 // requireHandle fails closed when either SQLite handle is missing.
 func (s *GormService) requireHandle() (*db.Database, error) {
@@ -56,9 +61,15 @@ func (s *GormService) requireHandle() (*db.Database, error) {
 func (s *GormService) Bootstrap(ctx context.Context, username, password string) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Bootstrap failed", "username", username, "error", err)
+		}
 		return fmt.Errorf("hash password: %w", err)
 	}
 	if _, err := s.requireHandle(); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Bootstrap failed", "username", username, "error", err)
+		}
 		return err
 	}
 	user := &models.AdminUser{
@@ -66,7 +77,7 @@ func (s *GormService) Bootstrap(ctx context.Context, username, password string) 
 		PasswordHash: string(hash),
 		CreatedAt:    util.Now(),
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	err = s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		settings, err := loadInstanceSettings(ctx, transaction)
 		if err != nil {
 			return err
@@ -83,12 +94,22 @@ func (s *GormService) Bootstrap(ctx context.Context, username, password string) 
 		settings.UpdatedAt = util.Now()
 		return upsertInstanceSettings(ctx, transaction, settings)
 	})
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Bootstrap failed", "username", username, "error", err)
+		}
+		return err
+	}
+	return nil
 }
 
 // IsBootstrapped returns true once the admin account has been created.
 // A missing settings row reads as not bootstrapped.
 func (s *GormService) IsBootstrapped(ctx context.Context) (bool, error) {
 	if _, err := s.requireHandle(); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Check bootstrapped failed", "error", err)
+		}
 		return false, err
 	}
 	var bootstrapped bool
@@ -100,6 +121,9 @@ func (s *GormService) IsBootstrapped(ctx context.Context) (bool, error) {
 		bootstrapped = settings.Bootstrapped
 		return nil
 	}); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Check bootstrapped failed", "error", err)
+		}
 		return false, err
 	}
 	return bootstrapped, nil
@@ -111,20 +135,32 @@ func (s *GormService) IsBootstrapped(ctx context.Context) (bool, error) {
 // holds the single-column update on the transaction handle only.
 func (s *GormService) ChangePassword(ctx context.Context, username, oldPassword, newPassword string) error {
 	if _, err := s.requireHandle(); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Change password failed", "username", username, "error", err)
+		}
 		return err
 	}
 	row, err := gorm.G[record.AdminUser](s.database.Handle, clause.Eq{Column: "username", Value: username}).First(ctx)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Invalid credentials", "username", username)
+		}
 		return ErrInvalidCredentials
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(row.PasswordHash), []byte(oldPassword)); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Invalid credentials", "username", username)
+		}
 		return ErrInvalidCredentials
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcryptCost)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Change password failed", "username", username, "error", err)
+		}
 		return fmt.Errorf("hash password: %w", err)
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	err = s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		tracker := gorm.WithResult()
 		affected, err := gorm.G[record.AdminUser](transaction, clause.Eq{Column: "username", Value: username}, tracker).Update(ctx, "password_hash", string(hash))
 		if err != nil {
@@ -135,6 +171,22 @@ func (s *GormService) ChangePassword(ctx context.Context, username, oldPassword,
 		}
 		return nil
 	})
+	if err != nil {
+		if stdErrors.Is(err, ErrInvalidCredentials) {
+			if s.logger != nil {
+				s.logger.Warn("Invalid credentials", "username", username)
+			}
+			return err
+		}
+		if s.logger != nil {
+			s.logger.Error("Change password failed", "username", username, "error", err)
+		}
+		return err
+	}
+	if s.logger != nil {
+		s.logger.Info("Admin password changed", "username", username)
+	}
+	return nil
 }
 
 // ListLogins returns every dashboard operator account ordered by
@@ -142,12 +194,19 @@ func (s *GormService) ChangePassword(ctx context.Context, username, oldPassword,
 // carry usernames and creation times only.
 func (s *GormService) ListLogins(ctx context.Context) ([]*models.AdminUser, error) {
 	if _, err := s.requireHandle(); err != nil {
+		if s.logger != nil {
+			s.logger.Error("List logins failed", "error", err)
+		}
 		return nil, err
 	}
 	rows, err := gorm.G[record.AdminUser](s.database.Handle,
 		clause.OrderBy{Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "username"}}}}).Find(ctx)
 	if err != nil {
-		return nil, db.Translate(err)
+		translated := db.Translate(err)
+		if s.logger != nil {
+			s.logger.Error("List logins failed", "error", translated)
+		}
+		return nil, translated
 	}
 	users := make([]*models.AdminUser, 0, len(rows))
 	for _, row := range rows {
@@ -166,16 +225,28 @@ func (s *GormService) ListLogins(ctx context.Context) ([]*models.AdminUser, erro
 func (s *GormService) CreateLogin(ctx context.Context, username, password string) error {
 	username = strings.TrimSpace(username)
 	if username == "" {
+		if s.logger != nil {
+			s.logger.Warn("Create login validation failed", "username", username, "error", apierrors.NewValidationError("username", "must not be empty"))
+		}
 		return apierrors.NewValidationError("username", "must not be empty")
 	}
 	if password == "" {
+		if s.logger != nil {
+			s.logger.Warn("Create login validation failed", "username", username, "error", apierrors.NewValidationError("password", "must not be empty"))
+		}
 		return apierrors.NewValidationError("password", "must not be empty")
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Create login failed", "username", username, "error", err)
+		}
 		return fmt.Errorf("hash password: %w", err)
 	}
 	if _, err := s.requireHandle(); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Create login failed", "username", username, "error", err)
+		}
 		return err
 	}
 	user := &models.AdminUser{
@@ -183,7 +254,7 @@ func (s *GormService) CreateLogin(ctx context.Context, username, password string
 		PasswordHash: string(hash),
 		CreatedAt:    util.Now(),
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	err = s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		settings, err := loadInstanceSettings(ctx, transaction)
 		if err != nil {
 			return err
@@ -201,6 +272,16 @@ func (s *GormService) CreateLogin(ctx context.Context, username, password string
 		}
 		return nil
 	})
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Create login failed", "username", username, "error", err)
+		}
+		return err
+	}
+	if s.logger != nil {
+		s.logger.Info("Admin login created", "username", username)
+	}
+	return nil
 }
 
 // DeleteUser removes an operator account and its sessions. Sessions live
@@ -212,31 +293,61 @@ func (s *GormService) CreateLogin(ctx context.Context, username, password string
 func (s *GormService) DeleteUser(ctx context.Context, username string) error {
 	username = strings.TrimSpace(username)
 	if username == "" {
+		if s.logger != nil {
+			s.logger.Warn("Delete login validation failed", "username", username, "error", apierrors.NewValidationError("username", "must not be empty"))
+		}
 		return apierrors.NewValidationError("username", "must not be empty")
 	}
 	if _, err := s.requireHandle(); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Delete login failed", "username", username, "error", err)
+		}
 		return err
 	}
 	if _, err := gorm.G[record.AdminUser](s.database.Handle, clause.Eq{Column: "username", Value: username}).First(ctx); err != nil {
-		return apierrors.NewNotFoundError("admin account", username)
+		notFound := apierrors.NewNotFoundError("admin account", username)
+		if s.logger != nil {
+			s.logger.Warn("Admin account not found", "username", username, "error", notFound)
+		}
+		return notFound
 	}
 	count, err := gorm.G[record.AdminUser](s.database.Handle).Count(ctx, "*")
 	if err != nil {
-		return db.Translate(err)
+		translated := db.Translate(err)
+		if s.logger != nil {
+			s.logger.Error("Delete login failed", "username", username, "error", translated)
+		}
+		return translated
 	}
 	if count <= 1 {
-		return fmt.Errorf("cannot remove the last admin account: %w", apierrors.ErrInvalidInput)
+		err := fmt.Errorf("cannot remove the last admin account: %w", apierrors.ErrInvalidInput)
+		if s.logger != nil {
+			s.logger.Warn("Delete login denied", "username", username, "error", err)
+		}
+		return err
 	}
 	if err := s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		_, err := gorm.G[record.Session](transaction, clause.Eq{Column: "username", Value: username}).Delete(ctx)
 		return db.Translate(err)
 	}); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Delete login failed", "username", username, "error", err)
+		}
 		return err
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		_, err := gorm.G[record.AdminUser](transaction, clause.Eq{Column: "username", Value: username}).Delete(ctx)
 		return db.Translate(err)
-	})
+	}); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Delete login failed", "username", username, "error", err)
+		}
+		return err
+	}
+	if s.logger != nil {
+		s.logger.Info("Admin login deleted", "username", username)
+	}
+	return nil
 }
 
 // ResetPassword stores a new hash for the named account without asking
@@ -248,22 +359,38 @@ func (s *GormService) DeleteUser(ctx context.Context, username string) error {
 func (s *GormService) ResetPassword(ctx context.Context, username, newPassword string) error {
 	username = strings.TrimSpace(username)
 	if username == "" {
+		if s.logger != nil {
+			s.logger.Warn("Reset password validation failed", "username", username, "error", apierrors.NewValidationError("username", "must not be empty"))
+		}
 		return apierrors.NewValidationError("username", "must not be empty")
 	}
 	if newPassword == "" {
+		if s.logger != nil {
+			s.logger.Warn("Reset password validation failed", "username", username, "error", apierrors.NewValidationError("password", "must not be empty"))
+		}
 		return apierrors.NewValidationError("password", "must not be empty")
 	}
 	if _, err := s.requireHandle(); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Reset password failed", "username", username, "error", err)
+		}
 		return err
 	}
 	if _, err := gorm.G[record.AdminUser](s.database.Handle, clause.Eq{Column: "username", Value: username}).First(ctx); err != nil {
-		return apierrors.NewNotFoundError("admin account", username)
+		notFound := apierrors.NewNotFoundError("admin account", username)
+		if s.logger != nil {
+			s.logger.Warn("Admin account not found", "username", username, "error", notFound)
+		}
+		return notFound
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcryptCost)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Reset password failed", "username", username, "error", err)
+		}
 		return fmt.Errorf("hash password: %w", err)
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	err = s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		tracker := gorm.WithResult()
 		affected, err := gorm.G[record.AdminUser](transaction, clause.Eq{Column: "username", Value: username}, tracker).Update(ctx, "password_hash", string(hash))
 		if err != nil {
@@ -274,6 +401,16 @@ func (s *GormService) ResetPassword(ctx context.Context, username, newPassword s
 		}
 		return nil
 	})
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Reset password failed", "username", username, "error", err)
+		}
+		return err
+	}
+	if s.logger != nil {
+		s.logger.Info("Admin password reset", "username", username, "source", "cli")
+	}
+	return nil
 }
 
 // Login validates credentials and persists a hashed session with
@@ -283,17 +420,29 @@ func (s *GormService) ResetPassword(ctx context.Context, username, newPassword s
 // session insert on the transaction handle only.
 func (s *GormService) Login(ctx context.Context, username, password string, rememberMe bool) (string, time.Time, error) {
 	if _, err := s.requireHandle(); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Login failed", "username", username, "error", err)
+		}
 		return "", time.Time{}, err
 	}
 	row, err := gorm.G[record.AdminUser](s.database.Handle, clause.Eq{Column: "username", Value: username}).First(ctx)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Invalid credentials", "username", username)
+		}
 		return "", time.Time{}, ErrInvalidCredentials
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(row.PasswordHash), []byte(password)); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Invalid credentials", "username", username)
+		}
 		return "", time.Time{}, ErrInvalidCredentials
 	}
 	token, err := util.GenerateToken()
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Login failed", "username", username, "error", err)
+		}
 		return "", time.Time{}, err
 	}
 	duration := sessionDurationNormal
@@ -313,7 +462,19 @@ func (s *GormService) Login(ctx context.Context, username, password string, reme
 		}
 		return nil
 	}); err != nil {
+		if stdErrors.Is(err, ErrInvalidCredentials) {
+			if s.logger != nil {
+				s.logger.Warn("Invalid credentials", "username", username)
+			}
+			return "", time.Time{}, err
+		}
+		if s.logger != nil {
+			s.logger.Error("Login failed", "username", username, "error", err)
+		}
 		return "", time.Time{}, err
+	}
+	if s.logger != nil {
+		s.logger.Debug("Admin login succeeded", "username", username)
 	}
 	return token, expiresAt, nil
 }
@@ -329,6 +490,9 @@ func (s *GormService) Logout(ctx context.Context, token string) {
 		_, err := gorm.G[record.Session](transaction, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}).Delete(ctx)
 		return db.Translate(err)
 	})
+	if s.logger != nil {
+		s.logger.Debug("Session logout completed")
+	}
 }
 
 // ValidateSession returns the username for a valid, non-expired session
@@ -352,6 +516,9 @@ func (s *GormService) ValidateSession(ctx context.Context, token string) (string
 			_, err := gorm.G[record.Session](transaction, clause.Eq{Column: "token_hash", Value: tokenHash}).Delete(ctx)
 			return db.Translate(err)
 		})
+		if s.logger != nil {
+			s.logger.Debug("Session expired", "username", session.Username)
+		}
 		return "", false
 	}
 	duration := sessionDurationNormal
@@ -363,6 +530,9 @@ func (s *GormService) ValidateSession(ctx context.Context, token string) (string
 			_, err := gorm.G[record.Session](transaction, clause.Eq{Column: "token_hash", Value: tokenHash}).Update(ctx, "expires_at", now.Add(duration))
 			return db.Translate(err)
 		})
+		if s.logger != nil {
+			s.logger.Debug("Session refreshed", "username", session.Username)
+		}
 	}
 	return session.Username, true
 }
@@ -371,12 +541,32 @@ func (s *GormService) ValidateSession(ctx context.Context, token string) (string
 // expires_at index on the cache handle. Valid sessions survive.
 func (s *GormService) CleanupExpiredSessions(ctx context.Context) error {
 	if _, err := s.requireHandle(); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Cleanup expired sessions failed", "error", err)
+		}
 		return err
 	}
-	return s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
-		_, err := gorm.G[record.Session](transaction, clause.Lt{Column: "expires_at", Value: util.Now()}).Delete(ctx)
-		return db.Translate(err)
+	var removed int64
+	err := s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		tracker := gorm.WithResult()
+		affected, err := gorm.G[record.Session](transaction, clause.Lt{Column: "expires_at", Value: util.Now()}, tracker).Delete(ctx)
+		if err != nil {
+			return db.Translate(err)
+		}
+		_ = affected
+		removed = tracker.RowsAffected
+		return nil
 	})
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Cleanup expired sessions failed", "error", err)
+		}
+		return err
+	}
+	if s.logger != nil {
+		s.logger.Info("Expired sessions removed", "count", removed)
+	}
+	return nil
 }
 
 // loadInstanceSettings reads row 1 through the transaction handle. A miss

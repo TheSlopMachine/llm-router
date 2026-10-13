@@ -24,7 +24,10 @@ func compatNotFound(resource, id string) error {
 
 func (s *Service) mustResponseStore() error {
 	if s.responseService == nil {
-		return errors.New("responses store is not wired")
+		err := errors.New("responses store is not wired")
+		s.logError("Rejecting request without response store",
+			"operation", "compat_record", "reason", "store_not_wired", "error", err)
+		return err
 	}
 	return nil
 }
@@ -121,8 +124,14 @@ func (s *Service) CreateResponse(
 	if request.PreviousResponseID != "" {
 		if _, err := s.responseService.Get(ctx, request.PreviousResponseID, models.ResponseRecordResponse); err != nil {
 			if errors.Is(err, apierrors.ErrNotFound) {
+				s.debug("Loading stored response misses",
+					"operation", "create_response", "detail", request.PreviousResponseID,
+					"model", request.Model.String(), "token_id", tokenIdentifier(token), "error", err)
 				return nil, compatNotFound("response", request.PreviousResponseID)
 			}
+			s.logError("Loading stored response fails",
+				"operation", "create_response", "detail", request.PreviousResponseID,
+				"model", request.Model.String(), "token_id", tokenIdentifier(token), "error", err)
 			return nil, err
 		}
 	}
@@ -141,6 +150,9 @@ func (s *Service) CreateResponse(
 			Input:   request.Input,
 			Payload: mustPayload(output),
 		}); err != nil {
+			s.logError("Persisting response fails",
+				"operation", "create_response", "detail", output.ID,
+				"model", request.Model.String(), "token_id", tokenIdentifier(token), "error", err)
 			return nil, err
 		}
 	}
@@ -160,15 +172,24 @@ func (s *Service) GetResponse(
 	record, err := s.responseService.Get(ctx, id, models.ResponseRecordResponse)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored response misses",
+				"operation", "get_response", "detail", id,
+				"token_id", tokenIdentifier(token), "error", err)
 			return nil, compatNotFound("response", id)
 		}
+		s.logError("Loading stored response fails",
+			"operation", "get_response", "detail", id,
+			"token_id", tokenIdentifier(token), "error", err)
 		return nil, err
 	}
-	if deny := tokenDenies(token, record.Model); deny != nil {
+	if deny := s.tokenDenies(token, record.Model, ""); deny != nil {
 		return nil, deny
 	}
 	var output models.ResponseObject
 	if err := decodePayload(record, &output); err != nil {
+		s.logError("Decoding stored response fails",
+			"operation", "get_response", "detail", id,
+			"model", record.Model.String(), "error", err)
 		return nil, err
 	}
 	return &output, nil
@@ -188,11 +209,17 @@ func (s *Service) CancelResponse(
 	record, err := s.responseService.Get(ctx, id, models.ResponseRecordResponse)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored response misses",
+				"operation", "cancel_response", "detail", id,
+				"token_id", tokenIdentifier(token), "error", err)
 			return nil, compatNotFound("response", id)
 		}
+		s.logError("Loading stored response fails",
+			"operation", "cancel_response", "detail", id,
+			"token_id", tokenIdentifier(token), "error", err)
 		return nil, err
 	}
-	if deny := tokenDenies(token, record.Model); deny != nil {
+	if deny := s.tokenDenies(token, record.Model, ""); deny != nil {
 		return nil, deny
 	}
 	if record.Status == "completed" || record.Status == "failed" || record.Status == "canceled" {
@@ -200,12 +227,18 @@ func (s *Service) CancelResponse(
 	}
 	var output models.ResponseObject
 	if err := decodePayload(record, &output); err != nil {
+		s.logError("Decoding stored response fails",
+			"operation", "cancel_response", "detail", id,
+			"model", record.Model.String(), "error", err)
 		return nil, err
 	}
 	output.Status = "canceled"
 	record.Status = "canceled"
 	record.Payload = mustPayload(&output)
 	if err := s.responseService.Update(ctx, record); err != nil {
+		s.logError("Updating stored response fails",
+			"operation", "cancel_response", "detail", id,
+			"model", record.Model.String(), "error", err)
 		return nil, err
 	}
 	return &output, nil
@@ -224,11 +257,17 @@ func (s *Service) ListResponseInputItems(
 	record, err := s.responseService.Get(ctx, id, models.ResponseRecordResponse)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored response misses",
+				"operation", "list_response_input_items", "detail", id,
+				"token_id", tokenIdentifier(token), "error", err)
 			return nil, compatNotFound("response", id)
 		}
+		s.logError("Loading stored response fails",
+			"operation", "list_response_input_items", "detail", id,
+			"token_id", tokenIdentifier(token), "error", err)
 		return nil, err
 	}
-	if deny := tokenDenies(token, record.Model); deny != nil {
+	if deny := s.tokenDenies(token, record.Model, ""); deny != nil {
 		return nil, deny
 	}
 	return responseInputItems(record.Input), nil
@@ -301,6 +340,9 @@ func (s *Service) CreateConversation(
 		Input:   mustPayload(items),
 		Payload: mustPayload(output),
 	}); err != nil {
+		s.logError("Persisting conversation fails",
+			"operation", "create_conversation", "detail", output.ID,
+			"model", model.String(), "error", err)
 		return nil, err
 	}
 	return output, nil
@@ -318,15 +360,24 @@ func (s *Service) GetConversation(
 	record, err := s.responseService.Get(ctx, id, models.ResponseRecordConversation)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored conversation misses",
+				"operation", "get_conversation", "detail", id,
+				"token_id", tokenIdentifier(token), "error", err)
 			return nil, compatNotFound("conversation", id)
 		}
+		s.logError("Loading stored conversation fails",
+			"operation", "get_conversation", "detail", id,
+			"token_id", tokenIdentifier(token), "error", err)
 		return nil, err
 	}
-	if deny := tokenDenies(token, record.Model); deny != nil {
+	if deny := s.tokenDenies(token, record.Model, ""); deny != nil {
 		return nil, deny
 	}
 	var output models.ConversationObject
 	if err := decodePayload(record, &output); err != nil {
+		s.logError("Decoding stored conversation fails",
+			"operation", "get_conversation", "detail", id,
+			"model", record.Model.String(), "error", err)
 		return nil, err
 	}
 	return &output, nil
@@ -340,11 +391,20 @@ func (s *Service) DeleteConversation(ctx context.Context, id string) error {
 	}
 	if _, err := s.responseService.Get(ctx, id, models.ResponseRecordConversation); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored conversation misses",
+				"operation", "delete_conversation", "detail", id, "error", err)
 			return compatNotFound("conversation", id)
 		}
+		s.logError("Loading stored conversation fails",
+			"operation", "delete_conversation", "detail", id, "error", err)
 		return err
 	}
-	return s.responseService.Delete(ctx, id)
+	if err := s.responseService.Delete(ctx, id); err != nil {
+		s.logError("Deleting stored conversation fails",
+			"operation", "delete_conversation", "detail", id, "error", err)
+		return err
+	}
+	return nil
 }
 
 // ListConversationItems returns the items appended to a conversation.
@@ -359,11 +419,17 @@ func (s *Service) ListConversationItems(
 	record, err := s.responseService.Get(ctx, id, models.ResponseRecordConversation)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored conversation misses",
+				"operation", "list_conversation_items", "detail", id,
+				"token_id", tokenIdentifier(token), "error", err)
 			return nil, compatNotFound("conversation", id)
 		}
+		s.logError("Loading stored conversation fails",
+			"operation", "list_conversation_items", "detail", id,
+			"token_id", tokenIdentifier(token), "error", err)
 		return nil, err
 	}
-	if deny := tokenDenies(token, record.Model); deny != nil {
+	if deny := s.tokenDenies(token, record.Model, ""); deny != nil {
 		return nil, deny
 	}
 	return responseInputItems(record.Input), nil
@@ -382,17 +448,26 @@ func (s *Service) AppendConversationItems(
 	record, err := s.responseService.Get(ctx, id, models.ResponseRecordConversation)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored conversation misses",
+				"operation", "append_conversation_items", "detail", id,
+				"token_id", tokenIdentifier(token), "error", err)
 			return nil, compatNotFound("conversation", id)
 		}
+		s.logError("Loading stored conversation fails",
+			"operation", "append_conversation_items", "detail", id,
+			"token_id", tokenIdentifier(token), "error", err)
 		return nil, err
 	}
-	if deny := tokenDenies(token, record.Model); deny != nil {
+	if deny := s.tokenDenies(token, record.Model, ""); deny != nil {
 		return nil, deny
 	}
 	current := responseInputItems(record.Input)
 	current = append(current, items...)
 	record.Input = mustPayload(current)
 	if err := s.responseService.Update(ctx, record); err != nil {
+		s.logError("Updating stored conversation fails",
+			"operation", "append_conversation_items", "detail", id,
+			"model", record.Model.String(), "error", err)
 		return nil, err
 	}
 	return current, nil
@@ -436,6 +511,9 @@ func (s *Service) CreateAssistant(
 		Status:  "active",
 		Payload: mustPayload(output),
 	}); err != nil {
+		s.logError("Persisting assistant fails",
+			"operation", "create_assistant", "detail", output.ID,
+			"model", request.Model.String(), "error", err)
 		return nil, err
 	}
 	return output, nil
@@ -453,15 +531,24 @@ func (s *Service) GetAssistant(
 	record, err := s.responseService.Get(ctx, id, models.ResponseRecordAssistant)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored assistant misses",
+				"operation", "get_assistant", "detail", id,
+				"token_id", tokenIdentifier(token), "error", err)
 			return nil, compatNotFound("assistant", id)
 		}
+		s.logError("Loading stored assistant fails",
+			"operation", "get_assistant", "detail", id,
+			"token_id", tokenIdentifier(token), "error", err)
 		return nil, err
 	}
-	if deny := tokenDenies(token, record.Model); deny != nil {
+	if deny := s.tokenDenies(token, record.Model, ""); deny != nil {
 		return nil, deny
 	}
 	var output models.Assistant
 	if err := decodePayload(record, &output); err != nil {
+		s.logError("Decoding stored assistant fails",
+			"operation", "get_assistant", "detail", id,
+			"model", record.Model.String(), "error", err)
 		return nil, err
 	}
 	return &output, nil
@@ -481,15 +568,24 @@ func (s *Service) UpdateAssistant(
 	record, err := s.responseService.Get(ctx, id, models.ResponseRecordAssistant)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored assistant misses",
+				"operation", "update_assistant", "detail", id,
+				"token_id", tokenIdentifier(token), "error", err)
 			return nil, compatNotFound("assistant", id)
 		}
+		s.logError("Loading stored assistant fails",
+			"operation", "update_assistant", "detail", id,
+			"token_id", tokenIdentifier(token), "error", err)
 		return nil, err
 	}
-	if deny := tokenDenies(token, record.Model); deny != nil {
+	if deny := s.tokenDenies(token, record.Model, ""); deny != nil {
 		return nil, deny
 	}
 	var output models.Assistant
 	if err := decodePayload(record, &output); err != nil {
+		s.logError("Decoding stored assistant fails",
+			"operation", "update_assistant", "detail", id,
+			"model", record.Model.String(), "error", err)
 		return nil, err
 	}
 	if request.Model != "" {
@@ -519,6 +615,9 @@ func (s *Service) UpdateAssistant(
 	}
 	record.Payload = mustPayload(&output)
 	if err := s.responseService.Update(ctx, record); err != nil {
+		s.logError("Updating stored assistant fails",
+			"operation", "update_assistant", "detail", id,
+			"model", record.Model.String(), "error", err)
 		return nil, err
 	}
 	return &output, nil
@@ -532,11 +631,20 @@ func (s *Service) DeleteAssistant(ctx context.Context, id string) error {
 	}
 	if _, err := s.responseService.Get(ctx, id, models.ResponseRecordAssistant); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored assistant misses",
+				"operation", "delete_assistant", "detail", id, "error", err)
 			return compatNotFound("assistant", id)
 		}
+		s.logError("Loading stored assistant fails",
+			"operation", "delete_assistant", "detail", id, "error", err)
 		return err
 	}
-	return s.responseService.Delete(ctx, id)
+	if err := s.responseService.Delete(ctx, id); err != nil {
+		s.logError("Deleting stored assistant fails",
+			"operation", "delete_assistant", "detail", id, "error", err)
+		return err
+	}
+	return nil
 }
 
 // ListAssistants returns all stored assistants, oldest first.
@@ -546,12 +654,17 @@ func (s *Service) ListAssistants(ctx context.Context) ([]*models.Assistant, erro
 	}
 	records, err := s.responseService.List(ctx, []models.ResponseRecordKind{models.ResponseRecordAssistant}, "")
 	if err != nil {
+		s.logError("Listing stored assistants fails",
+			"operation", "list_assistants", "error", err)
 		return nil, err
 	}
 	output := make([]*models.Assistant, 0, len(records))
 	for _, record := range records {
 		var assistant models.Assistant
 		if err := decodePayload(record, &assistant); err != nil {
+			s.logError("Decoding stored assistant fails",
+				"operation", "list_assistants", "detail", record.ID,
+				"model", record.Model.String(), "error", err)
 			return nil, err
 		}
 		output = append(output, &assistant)
@@ -583,6 +696,8 @@ func (s *Service) CreateThread(
 		Status:  "active",
 		Payload: mustPayload(output),
 	}); err != nil {
+		s.logError("Persisting thread fails",
+			"operation", "create_thread", "detail", output.ID, "error", err)
 		return nil, err
 	}
 	return output, nil
@@ -600,15 +715,23 @@ func (s *Service) GetThread(
 	record, err := s.responseService.Get(ctx, id, models.ResponseRecordThread)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored thread misses",
+				"operation", "get_thread", "detail", id,
+				"token_id", tokenIdentifier(token), "error", err)
 			return nil, compatNotFound("thread", id)
 		}
+		s.logError("Loading stored thread fails",
+			"operation", "get_thread", "detail", id,
+			"token_id", tokenIdentifier(token), "error", err)
 		return nil, err
 	}
-	if deny := tokenDenies(token, record.Model); deny != nil {
+	if deny := s.tokenDenies(token, record.Model, ""); deny != nil {
 		return nil, deny
 	}
 	var output models.Thread
 	if err := decodePayload(record, &output); err != nil {
+		s.logError("Decoding stored thread fails",
+			"operation", "get_thread", "detail", id, "error", err)
 		return nil, err
 	}
 	return &output, nil
@@ -626,12 +749,18 @@ func (s *Service) UpdateThread(
 	record, err := s.responseService.Get(ctx, id, models.ResponseRecordThread)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored thread misses",
+				"operation", "update_thread", "detail", id, "error", err)
 			return nil, compatNotFound("thread", id)
 		}
+		s.logError("Loading stored thread fails",
+			"operation", "update_thread", "detail", id, "error", err)
 		return nil, err
 	}
 	var output models.Thread
 	if err := decodePayload(record, &output); err != nil {
+		s.logError("Decoding stored thread fails",
+			"operation", "update_thread", "detail", id, "error", err)
 		return nil, err
 	}
 	if metadata != nil {
@@ -639,6 +768,8 @@ func (s *Service) UpdateThread(
 	}
 	record.Payload = mustPayload(&output)
 	if err := s.responseService.Update(ctx, record); err != nil {
+		s.logError("Updating stored thread fails",
+			"operation", "update_thread", "detail", id, "error", err)
 		return nil, err
 	}
 	return &output, nil
@@ -652,11 +783,20 @@ func (s *Service) DeleteThread(ctx context.Context, id string) error {
 	}
 	if _, err := s.responseService.Get(ctx, id, models.ResponseRecordThread); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored thread misses",
+				"operation", "delete_thread", "detail", id, "error", err)
 			return compatNotFound("thread", id)
 		}
+		s.logError("Loading stored thread fails",
+			"operation", "delete_thread", "detail", id, "error", err)
 		return err
 	}
-	return s.responseService.Delete(ctx, id)
+	if err := s.responseService.Delete(ctx, id); err != nil {
+		s.logError("Deleting stored thread fails",
+			"operation", "delete_thread", "detail", id, "error", err)
+		return err
+	}
+	return nil
 }
 
 // CreateThreadMessage appends a user or assistant message to a thread.
@@ -670,8 +810,12 @@ func (s *Service) CreateThreadMessage(
 	}
 	if _, err := s.responseService.Get(ctx, threadID, models.ResponseRecordThread); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored thread misses",
+				"operation", "create_thread_message", "detail", threadID, "error", err)
 			return nil, compatNotFound("thread", threadID)
 		}
+		s.logError("Loading stored thread fails",
+			"operation", "create_thread_message", "detail", threadID, "error", err)
 		return nil, err
 	}
 	if request.Role != "user" && request.Role != "assistant" {
@@ -699,6 +843,8 @@ func (s *Service) CreateThreadMessage(
 		ParentID: threadID,
 		Payload:  mustPayload(output),
 	}); err != nil {
+		s.logError("Persisting thread message fails",
+			"operation", "create_thread_message", "detail", output.ID, "error", err)
 		return nil, err
 	}
 	return output, nil
@@ -715,15 +861,24 @@ func (s *Service) GetThreadMessage(
 	record, err := s.responseService.Get(ctx, messageID, models.ResponseRecordThreadMessage)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored thread message misses",
+				"operation", "get_thread_message", "detail", messageID, "error", err)
 			return nil, compatNotFound("message", messageID)
 		}
+		s.logError("Loading stored thread message fails",
+			"operation", "get_thread_message", "detail", messageID, "error", err)
 		return nil, err
 	}
 	if record.ParentID != threadID {
+		s.debug("Loading stored thread message misses",
+			"operation", "get_thread_message", "detail", messageID,
+			"reason", "thread_mismatch")
 		return nil, compatNotFound("message", messageID)
 	}
 	var output models.ThreadMessage
 	if err := decodePayload(record, &output); err != nil {
+		s.logError("Decoding stored thread message fails",
+			"operation", "get_thread_message", "detail", messageID, "error", err)
 		return nil, err
 	}
 	return &output, nil
@@ -739,18 +894,26 @@ func (s *Service) ListThreadMessages(
 	}
 	if _, err := s.responseService.Get(ctx, threadID, models.ResponseRecordThread); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored thread misses",
+				"operation", "list_thread_messages", "detail", threadID, "error", err)
 			return nil, compatNotFound("thread", threadID)
 		}
+		s.logError("Loading stored thread fails",
+			"operation", "list_thread_messages", "detail", threadID, "error", err)
 		return nil, err
 	}
 	records, err := s.responseService.List(ctx, []models.ResponseRecordKind{models.ResponseRecordThreadMessage}, threadID)
 	if err != nil {
+		s.logError("Listing stored thread messages fails",
+			"operation", "list_thread_messages", "detail", threadID, "error", err)
 		return nil, err
 	}
 	output := make([]*models.ThreadMessage, 0, len(records))
 	for _, record := range records {
 		var message models.ThreadMessage
 		if err := decodePayload(record, &message); err != nil {
+			s.logError("Decoding stored thread message fails",
+				"operation", "list_thread_messages", "detail", record.ID, "error", err)
 			return nil, err
 		}
 		output = append(output, &message)
@@ -834,8 +997,14 @@ func (s *Service) CreateRun(
 	}
 	if _, err := s.responseService.Get(ctx, threadID, models.ResponseRecordThread); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored thread misses",
+				"operation", "create_run", "detail", threadID,
+				"token_id", tokenIdentifier(token), "error", err)
 			return nil, compatNotFound("thread", threadID)
 		}
+		s.logError("Loading stored thread fails",
+			"operation", "create_run", "detail", threadID,
+			"token_id", tokenIdentifier(token), "error", err)
 		return nil, err
 	}
 	if request.AssistantID == "" {
@@ -844,12 +1013,21 @@ func (s *Service) CreateRun(
 	assistantRecord, err := s.responseService.Get(ctx, request.AssistantID, models.ResponseRecordAssistant)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored assistant misses",
+				"operation", "create_run", "detail", request.AssistantID,
+				"token_id", tokenIdentifier(token), "error", err)
 			return nil, compatNotFound("assistant", request.AssistantID)
 		}
+		s.logError("Loading stored assistant fails",
+			"operation", "create_run", "detail", request.AssistantID,
+			"token_id", tokenIdentifier(token), "error", err)
 		return nil, err
 	}
 	var assistant models.Assistant
 	if err := decodePayload(assistantRecord, &assistant); err != nil {
+		s.logError("Decoding stored assistant fails",
+			"operation", "create_run", "detail", request.AssistantID,
+			"token_id", tokenIdentifier(token), "error", err)
 		return nil, err
 	}
 	model := request.Model
@@ -919,6 +1097,10 @@ func (s *Service) CreateRun(
 			RefID:    request.AssistantID,
 			Payload:  mustPayload(run),
 		}); createError != nil {
+			s.logError("Persisting failed run fails",
+				"operation", "create_run", "detail", run.ID,
+				"model", model.String(), "token_id", tokenIdentifier(token),
+				"reason", err.Error(), "error", createError)
 			return nil, createError
 		}
 		return nil, err
@@ -938,6 +1120,9 @@ func (s *Service) CreateRun(
 		record.Input = mustPayload(turns)
 	}
 	if err := s.responseService.Create(ctx, record); err != nil {
+		s.logError("Persisting run fails",
+			"operation", "create_run", "detail", run.ID,
+			"model", model.String(), "token_id", tokenIdentifier(token), "error", err)
 		return nil, err
 	}
 	if !waiting && len(response.Choices) > 0 && response.Choices[0].Message.Content != "" {
@@ -961,18 +1146,29 @@ func (s *Service) GetRun(
 	record, err := s.responseService.Get(ctx, runID, models.ResponseRecordRun)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored run misses",
+				"operation", "get_run", "detail", runID,
+				"token_id", tokenIdentifier(token), "error", err)
 			return nil, compatNotFound("run", runID)
 		}
+		s.logError("Loading stored run fails",
+			"operation", "get_run", "detail", runID,
+			"token_id", tokenIdentifier(token), "error", err)
 		return nil, err
 	}
 	if record.ParentID != threadID {
+		s.debug("Loading stored run misses",
+			"operation", "get_run", "detail", runID, "reason", "thread_mismatch")
 		return nil, compatNotFound("run", runID)
 	}
-	if deny := tokenDenies(token, record.Model); deny != nil {
+	if deny := s.tokenDenies(token, record.Model, ""); deny != nil {
 		return nil, deny
 	}
 	var output models.Run
 	if err := decodePayload(record, &output); err != nil {
+		s.logError("Decoding stored run fails",
+			"operation", "get_run", "detail", runID,
+			"model", record.Model.String(), "error", err)
 		return nil, err
 	}
 	return &output, nil
@@ -988,18 +1184,27 @@ func (s *Service) ListRuns(
 	}
 	if _, err := s.responseService.Get(ctx, threadID, models.ResponseRecordThread); err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored thread misses",
+				"operation", "list_runs", "detail", threadID, "error", err)
 			return nil, compatNotFound("thread", threadID)
 		}
+		s.logError("Loading stored thread fails",
+			"operation", "list_runs", "detail", threadID, "error", err)
 		return nil, err
 	}
 	records, err := s.responseService.List(ctx, []models.ResponseRecordKind{models.ResponseRecordRun}, threadID)
 	if err != nil {
+		s.logError("Listing stored runs fails",
+			"operation", "list_runs", "detail", threadID, "error", err)
 		return nil, err
 	}
 	output := make([]*models.Run, 0, len(records))
 	for _, record := range records {
 		var run models.Run
 		if err := decodePayload(record, &run); err != nil {
+			s.logError("Decoding stored run fails",
+				"operation", "list_runs", "detail", record.ID,
+				"model", record.Model.String(), "error", err)
 			return nil, err
 		}
 		output = append(output, &run)
@@ -1019,18 +1224,29 @@ func (s *Service) CancelRun(
 	record, err := s.responseService.Get(ctx, runID, models.ResponseRecordRun)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored run misses",
+				"operation", "cancel_run", "detail", runID,
+				"token_id", tokenIdentifier(token), "error", err)
 			return nil, compatNotFound("run", runID)
 		}
+		s.logError("Loading stored run fails",
+			"operation", "cancel_run", "detail", runID,
+			"token_id", tokenIdentifier(token), "error", err)
 		return nil, err
 	}
 	if record.ParentID != threadID {
+		s.debug("Loading stored run misses",
+			"operation", "cancel_run", "detail", runID, "reason", "thread_mismatch")
 		return nil, compatNotFound("run", runID)
 	}
-	if deny := tokenDenies(token, record.Model); deny != nil {
+	if deny := s.tokenDenies(token, record.Model, ""); deny != nil {
 		return nil, deny
 	}
 	var output models.Run
 	if err := decodePayload(record, &output); err != nil {
+		s.logError("Decoding stored run fails",
+			"operation", "cancel_run", "detail", runID,
+			"model", record.Model.String(), "error", err)
 		return nil, err
 	}
 	switch output.Status {
@@ -1042,6 +1258,9 @@ func (s *Service) CancelRun(
 	record.Status = "canceled"
 	record.Payload = mustPayload(&output)
 	if err := s.responseService.Update(ctx, record); err != nil {
+		s.logError("Updating stored run fails",
+			"operation", "cancel_run", "detail", runID,
+			"model", record.Model.String(), "error", err)
 		return nil, err
 	}
 	return &output, nil
@@ -1062,18 +1281,29 @@ func (s *Service) SubmitToolOutputs(
 	record, err := s.responseService.Get(ctx, runID, models.ResponseRecordRun)
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.debug("Loading stored run misses",
+				"operation", "submit_tool_outputs", "detail", runID,
+				"token_id", tokenIdentifier(token), "error", err)
 			return nil, compatNotFound("run", runID)
 		}
+		s.logError("Loading stored run fails",
+			"operation", "submit_tool_outputs", "detail", runID,
+			"token_id", tokenIdentifier(token), "error", err)
 		return nil, err
 	}
 	if record.ParentID != threadID {
+		s.debug("Loading stored run misses",
+			"operation", "submit_tool_outputs", "detail", runID, "reason", "thread_mismatch")
 		return nil, compatNotFound("run", runID)
 	}
-	if deny := tokenDenies(token, record.Model); deny != nil {
+	if deny := s.tokenDenies(token, record.Model, ""); deny != nil {
 		return nil, deny
 	}
 	var output models.Run
 	if err := decodePayload(record, &output); err != nil {
+		s.logError("Decoding stored run fails",
+			"operation", "submit_tool_outputs", "detail", runID,
+			"model", record.Model.String(), "error", err)
 		return nil, err
 	}
 	if output.Status != "requires_action" {
@@ -1116,6 +1346,9 @@ func (s *Service) SubmitToolOutputs(
 		record.Input = mustPayload(turns)
 	}
 	if err := s.responseService.Update(ctx, record); err != nil {
+		s.logError("Updating stored run fails",
+			"operation", "submit_tool_outputs", "detail", runID,
+			"model", record.Model.String(), "token_id", tokenIdentifier(token), "error", err)
 		return nil, err
 	}
 	if !waiting && len(response.Choices) > 0 && response.Choices[0].Message.Content != "" {

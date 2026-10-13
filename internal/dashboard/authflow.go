@@ -51,6 +51,7 @@ func (h *Handler) authInitiate(w http.ResponseWriter, r *http.Request) {
 
 	flowID, err := util.GenerateID()
 	if err != nil {
+		h.logError("Failed to generate flow identifier", "provider_id", body.ProviderID, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, "failed to generate flow id")
 		return
 	}
@@ -62,6 +63,7 @@ func (h *Handler) authInitiate(w http.ResponseWriter, r *http.Request) {
 			h.jsonErr(w, http.StatusConflict, "provider does not support stepped auth flows")
 			return
 		}
+		h.logError("Failed to initiate authentication", "provider_id", body.ProviderID, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -117,6 +119,7 @@ func (h *Handler) authStep(w http.ResponseWriter, r *http.Request) {
 			h.jsonErr(w, http.StatusBadRequest, "auth flow step is not supported by this provider")
 			return
 		}
+		h.logError("Failed to advance authentication", "provider_id", body.ProviderID, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -126,6 +129,7 @@ func (h *Handler) authStep(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) renderAuthResult(w http.ResponseWriter, ctx context.Context, result *models.AuthFlowResult, providerID, flowID string) {
 	if result == nil {
+		h.logError("Empty authentication result", "provider_id", providerID)
 		h.jsonErr(w, http.StatusInternalServerError, "empty auth result")
 		return
 	}
@@ -151,15 +155,18 @@ func (h *Handler) renderAuthResult(w http.ResponseWriter, ctx context.Context, r
 			Data:       result.Credentials,
 		})
 		if err != nil {
+			h.logError("Failed to save credentials", "provider_id", providerID, "error", err)
 			h.jsonErr(w, http.StatusInternalServerError, "save credentials: "+err.Error())
 			return
 		}
+		h.logInfo("Authentication completed", "provider_id", providerID, "credential_id", credential.ID)
 		h.json(w, http.StatusOK, map[string]any{
 			"status":        "complete",
 			"message":       "Credentials saved successfully",
 			"credential_id": credential.ID,
 		})
 	default:
+		h.logError("Invalid authentication state", "provider_id", providerID)
 		h.jsonErr(w, http.StatusInternalServerError, "invalid auth flow state")
 	}
 }

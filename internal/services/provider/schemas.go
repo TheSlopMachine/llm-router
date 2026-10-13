@@ -53,6 +53,9 @@ func (s *GormService) ConfigSchema(typeKey, locale string) ([]*models.UINode, er
 	nodes, err := s.luaService.Schema(typeKey, "config_schema", locale)
 	if err != nil {
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
+			if s.logger != nil {
+				s.logger.Warn("Provider schema fallback", "type", typeKey, "reason", "config_schema")
+			}
 			return nil, nil
 		}
 		return nil, err
@@ -82,6 +85,9 @@ func (s *GormService) CredentialSchema(typeKey, locale string) ([]*models.UINode
 	nodes, err := s.luaService.Schema(typeKey, "credential_schema", locale)
 	if err != nil {
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
+			if s.logger != nil {
+				s.logger.Warn("Provider schema fallback", "type", typeKey, "reason", "credential_schema")
+			}
 			return nil, nil
 		}
 		return nil, err
@@ -101,6 +107,9 @@ func (s *GormService) SettingsSchema(typeKey, locale string) ([]*models.UINode, 
 	nodes, err := s.luaService.Schema(typeKey, "settings_schema", locale)
 	if err != nil {
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
+			if s.logger != nil {
+				s.logger.Warn("Provider schema fallback", "type", typeKey, "reason", "settings_schema")
+			}
 			return nil, nil
 		}
 		return nil, err
@@ -120,6 +129,9 @@ func (s *GormService) ProxySchema(typeKey, locale string) ([]*models.UINode, err
 	nodes, err := s.luaService.Schema(typeKey, "proxy_schema", locale)
 	if err != nil {
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
+			if s.logger != nil {
+				s.logger.Warn("Provider schema fallback", "type", typeKey, "reason", "proxy_schema")
+			}
 			return nil, nil
 		}
 		return nil, err

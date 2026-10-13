@@ -8,6 +8,7 @@ package batches
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sort"
 	"time"
 
@@ -30,6 +31,7 @@ const (
 // SQLiteService owns MessageBatch rows and their ordered children.
 type SQLiteService struct {
 	database *db.Database
+	logger   *slog.Logger
 }
 
 // NewSQLiteService constructs a batches SQLiteService. Construction
@@ -38,30 +40,58 @@ func NewSQLiteService(database *db.Database) *SQLiteService {
 	return &SQLiteService{database: database}
 }
 
+// SetLogger wires structured logging (called once from server.New).
+func (s *SQLiteService) SetLogger(l *slog.Logger) { s.logger = l }
+
+func (s *SQLiteService) log() *slog.Logger {
+	if s == nil || s.logger == nil {
+		return slog.Default()
+	}
+	return s.logger
+}
+
+// isTerminalBatchStatus reports whether a batch status closes the batch.
+func isTerminalBatchStatus(status string) bool {
+	return status == StatusEnded || status == StatusCanceled
+}
+
 // Create persists a new batch: header plus ordered children in one
 // transaction.
 func (s *SQLiteService) Create(ctx context.Context, batch *models.BatchRecord) error {
 	if batch == nil {
+		s.log().Debug("Message batch create validation failed", "reason", "batch required")
 		return errors.New("message batch is required")
 	}
 	if batch.ID == "" {
+		s.log().Debug("Message batch create validation failed", "reason", "batch id required")
 		return errors.New("message batch id is required")
 	}
 	now := time.Now()
 	batch.CreatedAt = now
 	batch.UpdatedAt = now
-	return s.database.Cache.Transaction(func(transaction *gorm.DB) error {
+	err := s.database.Cache.Transaction(func(transaction *gorm.DB) error {
 		headers := repository.NewGormRepository[record.MessageBatch](transaction, "id")
 		entries := repository.NewGormRepository[record.MessageBatchEntry](transaction, "batch_id", "position")
 		results := repository.NewGormRepository[record.MessageBatchResult](transaction, "batch_id", "position")
 		if err := headers.Upsert(ctx, toBatchHeader(batch)); err != nil {
+			s.log().Error("Message batch create failed", "batch_id", batch.ID, "event", "header", "error", err)
 			return err
 		}
 		if err := entries.Upsert(ctx, toBatchEntries(batch)...); err != nil {
+			s.log().Error("Message batch create failed", "batch_id", batch.ID, "event", "entries", "error", err)
 			return err
 		}
-		return results.Upsert(ctx, toBatchResults(batch)...)
+		if err := results.Upsert(ctx, toBatchResults(batch)...); err != nil {
+			s.log().Error("Message batch create failed", "batch_id", batch.ID, "event", "results", "error", err)
+			return err
+		}
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	s.log().Info("Message batch created", "batch_id", batch.ID, "status", batch.Status, "count", len(batch.Entries), "model", string(batch.Model))
+	return nil
 }
 
 // Get returns the batch by ID with children in position order.
@@ -72,64 +102,99 @@ func (s *SQLiteService) Get(ctx context.Context, id string) (*models.BatchRecord
 	header, err := headers.Get(ctx, clause.Eq{Column: "id", Value: id})
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.log().Debug("Message batch not found", "batch_id", id)
 			return nil, apierrors.NewNotFoundError("message batch", id)
 		}
+		s.log().Error("Message batch fetch failed", "batch_id", id, "event", "header", "error", err)
 		return nil, err
 	}
 	entryRows, err := entries.List(ctx, clause.Eq{Column: "batch_id", Value: id})
 	if err != nil {
+		s.log().Error("Message batch fetch failed", "batch_id", id, "event", "entries", "error", err)
 		return nil, err
 	}
 	resultRows, err := results.List(ctx, clause.Eq{Column: "batch_id", Value: id})
 	if err != nil {
+		s.log().Error("Message batch fetch failed", "batch_id", id, "event", "results", "error", err)
 		return nil, err
 	}
-	return assembleBatchRecord(header, entryRows, resultRows), nil
+	assembled := assembleBatchRecord(header, entryRows, resultRows)
+	s.log().Debug("Message batch fetched", "batch_id", id, "status", assembled.Status, "count", len(assembled.Entries))
+	return assembled, nil
 }
 
 // Update rewrites a batch: header plus replaced children in one
 // transaction. Missing rows return not found.
 func (s *SQLiteService) Update(ctx context.Context, batch *models.BatchRecord) error {
 	if batch == nil || batch.ID == "" {
+		s.log().Debug("Message batch update validation failed", "reason", "batch id required")
 		return errors.New("message batch id is required")
 	}
-	return s.database.Cache.Transaction(func(transaction *gorm.DB) error {
+	var previousStatus string
+	err := s.database.Cache.Transaction(func(transaction *gorm.DB) error {
 		headers := repository.NewGormRepository[record.MessageBatch](transaction, "id")
 		entries := repository.NewGormRepository[record.MessageBatchEntry](transaction, "batch_id", "position")
 		results := repository.NewGormRepository[record.MessageBatchResult](transaction, "batch_id", "position")
 		existing, err := headers.Get(ctx, clause.Eq{Column: "id", Value: batch.ID})
 		if err != nil {
 			if errors.Is(err, apierrors.ErrNotFound) {
+				s.log().Debug("Message batch not found", "batch_id", batch.ID)
 				return apierrors.NewNotFoundError("message batch", batch.ID)
 			}
+			s.log().Error("Message batch update failed", "batch_id", batch.ID, "event", "header_fetch", "error", err)
 			return err
 		}
+		previousStatus = existing.Status
 		batch.CreatedAt = existing.CreatedAt
 		batch.UpdatedAt = time.Now()
 		if _, err := entries.Delete(ctx, clause.Eq{Column: "batch_id", Value: batch.ID}); err != nil {
+			s.log().Error("Message batch update failed", "batch_id", batch.ID, "event", "entries_delete", "error", err)
 			return err
 		}
 		if _, err := results.Delete(ctx, clause.Eq{Column: "batch_id", Value: batch.ID}); err != nil {
+			s.log().Error("Message batch update failed", "batch_id", batch.ID, "event", "results_delete", "error", err)
 			return err
 		}
 		if err := headers.Upsert(ctx, toBatchHeader(batch)); err != nil {
+			s.log().Error("Message batch update failed", "batch_id", batch.ID, "event", "header", "error", err)
 			return err
 		}
 		if err := entries.Upsert(ctx, toBatchEntries(batch)...); err != nil {
+			s.log().Error("Message batch update failed", "batch_id", batch.ID, "event", "entries", "error", err)
 			return err
 		}
-		return results.Upsert(ctx, toBatchResults(batch)...)
+		if err := results.Upsert(ctx, toBatchResults(batch)...); err != nil {
+			s.log().Error("Message batch update failed", "batch_id", batch.ID, "event", "results", "error", err)
+			return err
+		}
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if isTerminalBatchStatus(previousStatus) && !isTerminalBatchStatus(batch.Status) {
+		s.log().Warn("Message batch reopened", "batch_id", batch.ID, "status", batch.Status)
+	}
+	s.log().Info("Message batch updated", "batch_id", batch.ID, "status", batch.Status, "count", len(batch.Entries))
+	return nil
 }
 
 // Delete removes a batch row; the foreign key cascade removes its
 // children. Missing rows are not errors.
 func (s *SQLiteService) Delete(ctx context.Context, id string) error {
-	return s.database.Cache.Transaction(func(transaction *gorm.DB) error {
+	err := s.database.Cache.Transaction(func(transaction *gorm.DB) error {
 		headers := repository.NewGormRepository[record.MessageBatch](transaction, "id")
-		_, err := headers.Delete(ctx, clause.Eq{Column: "id", Value: id})
-		return err
+		if _, err := headers.Delete(ctx, clause.Eq{Column: "id", Value: id}); err != nil {
+			s.log().Error("Message batch delete failed", "batch_id", id, "error", err)
+			return err
+		}
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	s.log().Info("Message batch deleted", "batch_id", id)
+	return nil
 }
 
 // List returns all batches with children, oldest first (ID tiebreaks
@@ -140,14 +205,17 @@ func (s *SQLiteService) List(ctx context.Context) ([]*models.BatchRecord, error)
 	results := repository.NewGormRepository[record.MessageBatchResult](s.database.Cache, "batch_id", "position")
 	headerRows, err := headers.List(ctx)
 	if err != nil {
+		s.log().Error("Message batches list failed", "event", "header", "error", err)
 		return nil, err
 	}
 	entryRows, err := entries.List(ctx)
 	if err != nil {
+		s.log().Error("Message batches list failed", "event", "entries", "error", err)
 		return nil, err
 	}
 	resultRows, err := results.List(ctx)
 	if err != nil {
+		s.log().Error("Message batches list failed", "event", "results", "error", err)
 		return nil, err
 	}
 	entriesByBatch := groupBatchEntries(entryRows)
@@ -162,6 +230,7 @@ func (s *SQLiteService) List(ctx context.Context) ([]*models.BatchRecord, error)
 		}
 		return batches[i].CreatedAt.Before(batches[j].CreatedAt)
 	})
+	s.log().Debug("Message batches listed", "count", len(batches))
 	return batches, nil
 }
 

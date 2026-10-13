@@ -138,6 +138,30 @@ type Service struct {
 	sources  map[string]SourceInfo
 }
 
+func (s *Service) currentLogger() *slog.Logger {
+	if s == nil {
+		return slog.Default()
+	}
+	s.mu.Lock()
+	logger := s.logger
+	s.mu.Unlock()
+	if logger == nil {
+		return slog.Default()
+	}
+	return logger
+}
+
+func redactProxyURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return "invalid"
+	}
+	return parsed.Redacted()
+}
+
 // New constructs the library-backed pool and restores its persistent cache
 // from SQLite. The built-in free-pool row seeds idempotently into the
 // durable database so provider proxy references to "auto" satisfy the
@@ -215,18 +239,21 @@ func (s *Service) Start(ctx context.Context) {
 	s.mu.Lock()
 	if s.running {
 		s.mu.Unlock()
+		s.currentLogger().Debug("Proxy pool already running")
 		return
 	}
 	s.rootCtx = ctx
 	s.running = true
 	s.mu.Unlock()
 
+	s.currentLogger().Debug("Starting proxy pool")
 	s.pool.Start(ctx)
 	go s.flushLoop(ctx)
 }
 
 // flushLoop persists buffered cache changes and stops the library pool on shutdown.
 func (s *Service) flushLoop(ctx context.Context) {
+	s.currentLogger().Debug("Started proxy cache flush loop")
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -240,6 +267,7 @@ func (s *Service) flushLoop(ctx context.Context) {
 			s.running = false
 			s.rootCtx = nil
 			s.mu.Unlock()
+			s.currentLogger().Debug("Stopped proxy cache flush loop")
 			return
 		}
 	}
@@ -249,11 +277,9 @@ func (s *Service) flushCache() {
 	if err := s.cache.Flush(); err != nil {
 		s.cache.remember(err)
 	}
-	s.mu.Lock()
-	logger := s.logger
-	s.mu.Unlock()
+	logger := s.currentLogger()
 	if err := s.cache.takeError(); err != nil && logger != nil {
-		logger.Error("proxy cache persistence failed", "error", err)
+		logger.Error("Proxy cache persistence failed", "error", err)
 	}
 }
 
@@ -263,9 +289,11 @@ func (s *Service) flushCache() {
 // filters case-insensitively; limit caps the result (<=0 means all).
 func (s *Service) Query(pool, country string, limit int) ([]models.ProxyView, error) {
 	if err := s.cache.peekError(); err != nil {
+		s.currentLogger().Error("Querying proxies failed", "pool", pool, "country", country, "limit", limit, "error", err)
 		return nil, err
 	}
 	if pool == "" {
+		s.currentLogger().Debug("Querying proxies", "pool", pool, "country", country, "limit", limit, "count", 0)
 		return []models.ProxyView{}, nil
 	}
 	if pool == models.DefaultProxyPool {
@@ -277,21 +305,25 @@ func (s *Service) Query(pool, country string, limit int) ([]models.ProxyView, er
 func (s *Service) queryAuto(country string, limit int) []models.ProxyView {
 	infos := s.healthyProxies()
 	output := make([]models.ProxyView, 0, len(infos))
-	for _, proxyInfo := range infos {
+	matchedRank := -1
+	for rank, proxyInfo := range infos {
 		if country != "" && !strings.EqualFold(proxyInfo.Location, country) {
 			continue
 		}
 		output = append(output, models.ProxyView{ID: proxyID(proxyInfo.URL), URL: proxyInfo.URL, Country: proxyInfo.Location, Pool: models.DefaultProxyPool})
+		matchedRank = rank
 		if limit > 0 && len(output) >= limit {
 			break
 		}
 	}
+	s.currentLogger().Debug("Querying proxies", "pool", models.DefaultProxyPool, "country", country, "limit", limit, "count", len(output), "rank", matchedRank)
 	return output
 }
 
 func (s *Service) queryCustom(ctx context.Context, pool, country string, limit int) ([]models.ProxyView, error) {
 	custom, err := s.findCustomPool(ctx, pool)
 	if err != nil {
+		s.currentLogger().Error("Querying proxies failed", "pool", pool, "country", country, "limit", limit, "error", err)
 		return nil, err
 	}
 	output := make([]models.ProxyView, 0, len(custom.Entries))
@@ -307,6 +339,7 @@ func (s *Service) queryCustom(ctx context.Context, pool, country string, limit i
 			break
 		}
 	}
+	s.currentLogger().Debug("Querying proxies", "pool", pool, "country", country, "limit", limit, "count", len(output))
 	return output, nil
 }
 
@@ -315,12 +348,15 @@ func (s *Service) queryCustom(ctx context.Context, pool, country string, limit i
 // from its own entries without waiting.
 func (s *Service) Require(ctx context.Context, request models.ProxyRequire) (models.ProxyRequireResult, error) {
 	if err := s.cache.peekError(); err != nil {
+		s.currentLogger().Error("Requiring proxies failed", "pool", request.Pool, "limit", request.Limit, "error", err)
 		return models.ProxyRequireResult{}, err
 	}
 	switch request.Pool {
 	case "":
+		s.currentLogger().Debug("Requiring proxies", "pool", request.Pool, "limit", request.Limit, "count", 0)
 		return models.ProxyRequireResult{Direct: true}, nil
 	case models.DefaultProxyPool:
+		s.currentLogger().Debug("Requiring proxies", "pool", request.Pool, "limit", request.Limit, "count", len(request.Countries))
 		result, err := s.pool.Require(ctx, proxypoollib.RequireOptions{
 			Countries: request.Countries,
 			Exclude:   request.Exclude,
@@ -329,11 +365,17 @@ func (s *Service) Require(ctx context.Context, request models.ProxyRequire) (mod
 			Timeout:   request.Timeout,
 		})
 		if err != nil {
+			s.currentLogger().Error("Requiring proxies failed", "pool", request.Pool, "limit", request.Limit, "error", err)
 			return models.ProxyRequireResult{}, err
 		}
 		views := make([]models.ProxyView, 0, len(result.Proxies))
 		for _, proxyInfo := range result.Proxies {
 			views = append(views, models.ProxyView{ID: proxyID(proxyInfo.URL), URL: proxyInfo.URL, Country: proxyInfo.Location, Pool: models.DefaultProxyPool})
+		}
+		if result.TimedOut {
+			s.currentLogger().Warn("Requiring proxies timed out", "pool", request.Pool, "limit", request.Limit, "count", len(views))
+		} else {
+			s.currentLogger().Debug("Requiring proxies", "pool", request.Pool, "limit", request.Limit, "count", len(views))
 		}
 		return models.ProxyRequireResult{Proxies: views, TimedOut: result.TimedOut}, nil
 	default:
@@ -349,6 +391,7 @@ func (s *Service) Require(ctx context.Context, request models.ProxyRequire) (mod
 func (s *Service) requireCustom(ctx context.Context, request models.ProxyRequire) ([]models.ProxyView, error) {
 	custom, err := s.findCustomPool(ctx, request.Pool)
 	if err != nil {
+		s.currentLogger().Error("Requiring custom proxies failed", "pool", request.Pool, "limit", request.Limit, "error", err)
 		return nil, err
 	}
 	excluded := make(map[string]struct{}, len(request.Exclude))
@@ -372,6 +415,7 @@ func (s *Service) requireCustom(ctx context.Context, request models.ProxyRequire
 			break
 		}
 	}
+	s.currentLogger().Debug("Requiring custom proxies", "pool", request.Pool, "limit", limit, "count", len(output))
 	return output, nil
 }
 
@@ -387,6 +431,7 @@ func countryInList(list []string, country string) bool {
 // List returns verified live proxies in library rank order.
 func (s *Service) List() ([]*Proxy, error) {
 	if err := s.cache.peekError(); err != nil {
+		s.currentLogger().Error("Listing proxies failed", "error", err)
 		return nil, err
 	}
 	infos := s.healthyProxies()
@@ -394,6 +439,7 @@ func (s *Service) List() ([]*Proxy, error) {
 	for _, proxyInfo := range infos {
 		output = append(output, &Proxy{ID: proxyID(proxyInfo.URL), URL: proxyInfo.URL, Location: proxyInfo.Location, Latency: proxyInfo.Latency, Score: proxyInfo.Score, LastChecked: proxyInfo.LastChecked})
 	}
+	s.currentLogger().Debug("Listing proxies", "count", len(output))
 	return output, nil
 }
 
@@ -404,6 +450,7 @@ func (s *Service) healthyProxies() []proxypoollib.ProxyInfo {
 // Get returns a cached proxy by its stable router ID, including dead entries.
 func (s *Service) Get(id string) (*Proxy, error) {
 	if err := s.cache.peekError(); err != nil {
+		s.currentLogger().Error("Reading proxy failed", "error", err)
 		return nil, err
 	}
 	for _, state := range s.cache.All() {
@@ -411,12 +458,15 @@ func (s *Service) Get(id string) (*Proxy, error) {
 			return stateView(state), nil
 		}
 	}
-	return nil, fmt.Errorf("proxy %q not found", id)
+	err := fmt.Errorf("proxy %q not found", id)
+	s.currentLogger().Debug("Reading proxy failed", "reason", err.Error())
+	return nil, err
 }
 
 // KnownIDs returns IDs for all cached proxies, including dead entries.
 func (s *Service) KnownIDs() ([]string, error) {
 	if err := s.cache.peekError(); err != nil {
+		s.currentLogger().Error("Listing proxy identifiers failed", "error", err)
 		return nil, err
 	}
 	states := s.cache.All()
@@ -425,30 +475,48 @@ func (s *Service) KnownIDs() ([]string, error) {
 		ids = append(ids, proxyID(state.URL))
 	}
 	sort.Strings(ids)
+	s.currentLogger().Debug("Listing proxy identifiers", "count", len(ids))
 	return ids, nil
 }
 
 // MarkDead applies the router failure mapping before updating proxy health.
-func (s *Service) MarkDead(url, reason string) bool {
-	if s == nil || s.pool == nil || url == "" {
+func (s *Service) MarkDead(proxyURL, reason string) bool {
+	if s == nil || s.pool == nil || proxyURL == "" {
 		return false
 	}
+	display := redactProxyURL(proxyURL)
+	var outcome string
+	var marked bool
 	switch reason {
 	case markDeadEarlyEOFReason:
-		return s.pool.Suspect(url, proxypoollib.FailEOF)
+		outcome = "suspect"
+		marked = s.pool.Suspect(proxyURL, proxypoollib.FailEOF)
 	case markDeadConnectionResetReason, markDeadUnexpectedEOFReason, markDeadBrokenPipeReason:
-		return s.pool.Suspect(url, proxypoollib.FailEOF)
+		outcome = "suspect"
+		marked = s.pool.Suspect(proxyURL, proxypoollib.FailEOF)
 	case markDeadConnectionRefusedReason:
-		return s.pool.Suspect(url, proxypoollib.FailRefused)
+		outcome = "suspect"
+		marked = s.pool.Suspect(proxyURL, proxypoollib.FailRefused)
 	case markDeadDNSResolutionReason, markDeadAddressParseReason, markDeadTLSCertificateReason, markDeadTLSHandshakeReason:
-		return s.markDeadPersist(url, reason)
+		outcome = "dead"
+		marked = s.markDeadPersist(proxyURL, reason)
 	default:
-		return s.markDeadPersist(url, reason)
+		outcome = "dead"
+		marked = s.markDeadPersist(proxyURL, reason)
 	}
+	s.currentLogger().Debug("Marking proxy", "proxy_url", display, "reason", reason, "operation", outcome, "count", boolToCount(marked))
+	return marked
 }
 
-func (s *Service) markDeadPersist(url, reason string) bool {
-	return s.pool.MarkDead(url, reason)
+func boolToCount(marked bool) int {
+	if marked {
+		return 1
+	}
+	return 0
+}
+
+func (s *Service) markDeadPersist(proxyURL, reason string) bool {
+	return s.pool.MarkDead(proxyURL, reason)
 }
 
 // RecheckBanned queues manual rechecks for banned proxies matching the filters.
@@ -456,11 +524,16 @@ func (s *Service) RecheckBanned(reason, source string) (int, error) {
 	if reason != "" {
 		failReason := proxypoollib.FailReason(reason)
 		if !failReason.Valid() {
+			s.currentLogger().Error("Rechecking banned proxies failed", "reason", reason, "error", ErrInvalidBanReason)
 			return 0, ErrInvalidBanReason
 		}
-		return s.pool.RecheckBanned(proxypoollib.BanFilter{Reason: failReason, Source: source}), nil
+		checked := s.pool.RecheckBanned(proxypoollib.BanFilter{Reason: failReason, Source: source})
+		s.currentLogger().Debug("Rechecking banned proxies", "reason", reason, "count", checked)
+		return checked, nil
 	}
-	return s.pool.RecheckBanned(proxypoollib.BanFilter{Source: source}), nil
+	checked := s.pool.RecheckBanned(proxypoollib.BanFilter{Source: source})
+	s.currentLogger().Debug("Rechecking banned proxies", "count", checked)
+	return checked, nil
 }
 
 // Status returns the structured dashboard snapshot from the library pool.
@@ -486,6 +559,7 @@ func (s *Service) Status() (Status, error) {
 	}
 	if err := s.cache.peekError(); err != nil {
 		status.LastError = err.Error()
+		s.currentLogger().Error("Reading proxy status failed", "count", status.Total, "error", err)
 		return status, err
 	}
 	for _, lane := range snapshot.Lanes {
@@ -511,6 +585,7 @@ func (s *Service) Status() (Status, error) {
 			CreatedAt: demand.CreatedAt, ExpiresAt: demand.ExpiresAt, ReplenishUntil: demand.ReplenishUntil, LastSatisfiedAt: demand.LastSatisfiedAt,
 		})
 	}
+	s.currentLogger().Debug("Reading proxy status", "count", status.Total, "limit", status.Limit)
 	return status, nil
 }
 

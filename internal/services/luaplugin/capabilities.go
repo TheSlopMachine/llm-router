@@ -36,26 +36,33 @@ func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.list: credential store is not wired")
 			return 0
 		}
-		credentials, err := ctx.credentialList(ctx.callContext(), ctx.providerID)
-		if err != nil {
-			L.RaiseError("llm_router.credentials.list: %s", err.Error())
+		credentials, listError := ctx.credentialList(ctx.callContext(), ctx.providerID)
+		if listError != nil {
+			L.RaiseError("llm_router.credentials.list: %s", listError.Error())
 			return 0
 		}
 		out := L.NewTable()
+		disabledCount := 0
+		deniedCount := 0
+		parkedCount := 0
 		for _, credential := range credentials {
 			if credential == nil || credential.Disabled {
+				disabledCount++
 				continue
 			}
 			if !credentialAllowed(ctx, credential.ID) {
+				deniedCount++
 				continue
 			}
 			if ctx.credentialParked != nil {
-				if p, _ := ctx.credentialParked(ctx.callContext(), credential.ID); p != nil {
+				if parked, _ := ctx.credentialParked(ctx.callContext(), credential.ID); parked != nil {
+					parkedCount++
 					continue
 				}
 			}
 			out.Append(credentialTable(L, credential))
 		}
+		ctx.logCredentialsListed(len(credentials), disabledCount, deniedCount, parkedCount, out.Len())
 		L.Push(out)
 		return 1
 	}))
@@ -69,8 +76,24 @@ func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.get: credential store is not wired")
 			return 0
 		}
-		credential, err := ctx.credentialGet(ctx.callContext(), id)
-		if err != nil || credential == nil || credential.Disabled || !credentialAllowed(ctx, credential.ID) {
+		credential, getError := ctx.credentialGet(ctx.callContext(), id)
+		if getError != nil {
+			ctx.logCredentialMissed(id, "error")
+			L.Push(lua.LNil)
+			return 1
+		}
+		if credential == nil {
+			ctx.logCredentialMissed(id, "missing")
+			L.Push(lua.LNil)
+			return 1
+		}
+		if credential.Disabled {
+			ctx.logCredentialMissed(id, "disabled")
+			L.Push(lua.LNil)
+			return 1
+		}
+		if !credentialAllowed(ctx, credential.ID) {
+			ctx.logCredentialMissed(id, "denied")
 			L.Push(lua.LNil)
 			return 1
 		}
@@ -106,6 +129,7 @@ func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.update: %s", uerr.Error())
 			return 0
 		}
+		ctx.logCredentialUpdated(id)
 		L.Push(lua.LTrue)
 		return 1
 	}))
@@ -136,6 +160,7 @@ func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.disable: %s", uerr.Error())
 			return 0
 		}
+		ctx.logCredentialDisabled(id, reason)
 		L.Push(lua.LTrue)
 		return 1
 	}))
@@ -157,6 +182,7 @@ func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.enable: %s", uerr.Error())
 			return 0
 		}
+		ctx.logCredentialEnabled(id)
 		L.Push(lua.LTrue)
 		return 1
 	}))
@@ -188,6 +214,7 @@ func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.park: %s", uerr.Error())
 			return 0
 		}
+		ctx.logCredentialParked(id, reason, time.Duration(float64(secs))*time.Second)
 		L.Push(lua.LTrue)
 		return 1
 	}))
@@ -205,6 +232,7 @@ func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 			L.RaiseError("llm_router.credentials.unpark: %s", uerr.Error())
 			return 0
 		}
+		ctx.logCredentialUnparked(id)
 		L.Push(lua.LTrue)
 		return 1
 	}))
@@ -345,6 +373,7 @@ func requireProxies(L *lua.LState, ctx *executionContext) int {
 	res, err := ctx.proxyRequire(goCtx, request)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			ctx.logProxyRequireCanceled(request, err)
 			L.Push(lua.LNil)
 			L.Push(lua.LString("canceled"))
 			return 2
@@ -357,10 +386,12 @@ func requireProxies(L *lua.LState, ctx *executionContext) int {
 		if res.TimedOut {
 			code = "timeout"
 		}
+		ctx.logProxyRequireEmpty(request, code, res.TimedOut)
 		L.Push(lua.LNil)
 		L.Push(lua.LString(code))
 		return 2
 	}
+	ctx.logProxyRequireSucceeded(request, len(res.Proxies), res.TimedOut, res.Direct)
 	proxies := L.NewTable()
 	for _, v := range res.Proxies {
 		row := L.NewTable()
@@ -434,6 +465,7 @@ func newProxiesTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 			L.RaiseError("llm_router.proxies.query: %s", err.Error())
 			return 0
 		}
+		ctx.logProxyQueried(pool, country, limit, len(views))
 		out := L.NewTable()
 		for _, v := range views {
 			row := L.NewTable()
@@ -463,4 +495,140 @@ func credentialAllowed(ctx *executionContext, id string) bool {
 		}
 	}
 	return false
+}
+
+func (ctx *executionContext) credentialLogBase() []any {
+	if ctx == nil {
+		return nil
+	}
+	return []any{"plugin_id", ctx.pluginID, "type", ctx.typeKey}
+}
+
+func (ctx *executionContext) logCredentialsListed(total, disabled, denied, parked, returned int) {
+	if ctx == nil || ctx.logger == nil {
+		return
+	}
+	arguments := append(ctx.credentialLogBase(),
+		"count", returned,
+		"disabled", disabled,
+		"denied", denied,
+		"parked", parked,
+		"total", total,
+	)
+	ctx.logger.Debug("Credentials listed", arguments...)
+}
+
+func (ctx *executionContext) logCredentialMissed(credentialID, reason string) {
+	if ctx == nil || ctx.logger == nil {
+		return
+	}
+	arguments := append(ctx.credentialLogBase(), "cred_id", credentialID, "reason", reason)
+	ctx.logger.Debug("Credential lookup missed", arguments...)
+}
+
+func (ctx *executionContext) logCredentialUpdated(credentialID string) {
+	if ctx == nil || ctx.logger == nil {
+		return
+	}
+	arguments := append(ctx.credentialLogBase(), "cred_id", credentialID)
+	ctx.logger.Info("Credential updated", arguments...)
+}
+
+func (ctx *executionContext) logCredentialDisabled(credentialID, reason string) {
+	if ctx == nil || ctx.logger == nil {
+		return
+	}
+	arguments := append(ctx.credentialLogBase(), "cred_id", credentialID)
+	if reason != "" {
+		arguments = append(arguments, "reason", reason)
+	}
+	ctx.logger.Info("Credential disabled", arguments...)
+}
+
+func (ctx *executionContext) logCredentialEnabled(credentialID string) {
+	if ctx == nil || ctx.logger == nil {
+		return
+	}
+	arguments := append(ctx.credentialLogBase(), "cred_id", credentialID)
+	ctx.logger.Info("Credential enabled", arguments...)
+}
+
+func (ctx *executionContext) logCredentialParked(credentialID, reason string, ttl time.Duration) {
+	if ctx == nil || ctx.logger == nil {
+		return
+	}
+	arguments := append(ctx.credentialLogBase(), "cred_id", credentialID, "wait", int64(ttl/time.Second))
+	if reason != "" {
+		arguments = append(arguments, "reason", reason)
+	}
+	ctx.logger.Debug("Credential parked", arguments...)
+}
+
+func (ctx *executionContext) logCredentialUnparked(credentialID string) {
+	if ctx == nil || ctx.logger == nil {
+		return
+	}
+	arguments := append(ctx.credentialLogBase(), "cred_id", credentialID)
+	ctx.logger.Debug("Credential unparked", arguments...)
+}
+
+func (ctx *executionContext) logProxyRequireCanceled(request models.ProxyRequire, requireError error) {
+	if ctx == nil || ctx.logger == nil {
+		return
+	}
+	arguments := append(ctx.credentialLogBase(),
+		"operation", "require",
+		"reason", "canceled",
+		"error", requireError.Error(),
+		"count", request.Limit,
+	)
+	ctx.logger.Warn("Proxy request canceled", arguments...)
+}
+
+func (ctx *executionContext) logProxyRequireEmpty(request models.ProxyRequire, code string, timedOut bool) {
+	if ctx == nil || ctx.logger == nil {
+		return
+	}
+	arguments := append(ctx.credentialLogBase(),
+		"operation", "require",
+		"code", code,
+		"count", 0,
+	)
+	if timedOut {
+		ctx.logger.Warn("Proxy request timed out", arguments...)
+		return
+	}
+	ctx.logger.Debug("Proxy request found no match", arguments...)
+}
+
+func (ctx *executionContext) logProxyRequireSucceeded(request models.ProxyRequire, count int, timedOut, direct bool) {
+	if ctx == nil || ctx.logger == nil {
+		return
+	}
+	arguments := append(ctx.credentialLogBase(),
+		"operation", "require",
+		"count", count,
+		"direct", direct,
+		"timed_out", timedOut,
+	)
+	_ = request
+	ctx.logger.Debug("Proxies required", arguments...)
+}
+
+func (ctx *executionContext) logProxyQueried(pool, country string, limit, count int) {
+	if ctx == nil || ctx.logger == nil {
+		return
+	}
+	arguments := append(ctx.credentialLogBase(),
+		"operation", "query",
+		"count", count,
+		"limit", limit,
+	)
+	if pool != "" {
+		arguments = append(arguments, "pool", pool)
+	}
+	if country != "" {
+		arguments = append(arguments, "country", country)
+	}
+	ctx.logger.Debug("Proxies queried", arguments...)
 }

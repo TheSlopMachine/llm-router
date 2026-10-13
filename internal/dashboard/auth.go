@@ -66,9 +66,7 @@ func (h *Handler) apiShutdown(w http.ResponseWriter, r *http.Request) {
 		WriteUnknownEndpoint(w, r)
 		return
 	}
-	if h.logger != nil {
-		h.logger.Info("shutdown requested via admin listener")
-	}
+	h.logInfo("Shutdown requested via admin listener")
 	if h.requestShutdown != nil {
 		h.requestShutdown()
 	}
@@ -187,6 +185,6 @@ func (h *Handler) apiAdminChangePassword(w http.ResponseWriter, r *http.Request)
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	h.logger.Info("admin password changed", "username", username)
+	h.logInfo("Admin password changed")
 	h.json(w, http.StatusOK, map[string]any{"ok": true})
 }

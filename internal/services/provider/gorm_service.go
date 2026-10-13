@@ -152,6 +152,9 @@ func (s *GormService) Create(ctx context.Context, options CreateOptions) (*model
 		if typeKey != TypeCustom && qualifier == "" {
 			existing, err := gorm.G[record.ProviderInstance](transaction, clause.Eq{Column: "id", Value: typeKey}).First(ctx)
 			if err == nil {
+				if s.logger != nil {
+					s.logger.Debug("Provider singleton reused", "provider_id", existing.ID, "type", typeKey)
+				}
 				result = providerModelFromRecord(existing)
 				return nil
 			}
@@ -159,7 +162,7 @@ func (s *GormService) Create(ctx context.Context, options CreateOptions) (*model
 				return db.Translate(err)
 			}
 		}
-		identifier, err := uniqueProviderIDInTransaction(ctx, transaction, typeKey, qualifier, name)
+		identifier, err := s.uniqueProviderIDInTransaction(ctx, transaction, typeKey, qualifier, name)
 		if err != nil {
 			return err
 		}
@@ -181,6 +184,9 @@ func (s *GormService) Create(ctx context.Context, options CreateOptions) (*model
 		result = providerModelFromRecord(row)
 		return nil
 	}); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Provider create failed", "type", typeKey, "error", err)
+		}
 		return nil, err
 	}
 	if s.logger != nil {
@@ -201,9 +207,18 @@ func (s *GormService) Get(ctx context.Context, identifier string) (*models.Provi
 	if err != nil {
 		translated := db.Translate(err)
 		if stdErrors.Is(translated, apierrors.ErrNotFound) {
+			if s.logger != nil {
+				s.logger.Debug("Provider lookup missed", "provider_id", trimmed)
+			}
 			return nil, apierrors.NewNotFoundError("provider", identifier)
 		}
+		if s.logger != nil {
+			s.logger.Error("Provider lookup failed", "provider_id", trimmed, "error", err)
+		}
 		return nil, translated
+	}
+	if s.logger != nil {
+		s.logger.Debug("Provider fetched", "provider_id", row.ID, "type", row.TypeKey)
 	}
 	return providerModelFromRecord(row), nil
 }
@@ -215,11 +230,17 @@ func (s *GormService) List(ctx context.Context) ([]*models.ProviderInstance, err
 	}
 	rows, err := gorm.G[record.ProviderInstance](s.database.Handle, orderProvidersByIdentifier()).Find(ctx)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Provider list failed", "error", err)
+		}
 		return nil, db.Translate(err)
 	}
 	items := make([]*models.ProviderInstance, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, providerModelFromRecord(row))
+	}
+	if s.logger != nil {
+		s.logger.Debug("Providers listed", "count", len(items))
 	}
 	return items, nil
 }
@@ -231,11 +252,17 @@ func (s *GormService) GetByType(ctx context.Context, typeKey string) ([]*models.
 	}
 	rows, err := gorm.G[record.ProviderInstance](s.database.Handle, clause.Eq{Column: "type_key", Value: typeKey}, orderProvidersByIdentifier()).Find(ctx)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Provider list by type failed", "type", typeKey, "error", err)
+		}
 		return nil, db.Translate(err)
 	}
 	items := make([]*models.ProviderInstance, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, providerModelFromRecord(row))
+	}
+	if s.logger != nil {
+		s.logger.Debug("Providers listed by type", "type", typeKey, "count", len(items))
 	}
 	return items, nil
 }
@@ -316,6 +343,9 @@ func (s *GormService) Update(ctx context.Context, identifier string, options Upd
 		result = providerModelFromRecord(row)
 		return nil
 	}); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Provider update failed", "provider_id", trimmed, "error", err)
+		}
 		return nil, err
 	}
 	if s.logger != nil {
@@ -336,6 +366,9 @@ func (s *GormService) SystemDisable(ctx context.Context, identifier, reason stri
 		reason = "disabled by system"
 	}
 	if len(reason) > 1024 {
+		if s.logger != nil {
+			s.logger.Warn("Provider disable reason truncated", "provider_id", strings.TrimSpace(identifier), "count", len(reason))
+		}
 		reason = reason[:1024] + "…[truncated]"
 	}
 	if _, err := s.requireHandle(); err != nil {
@@ -349,6 +382,9 @@ func (s *GormService) SystemDisable(ctx context.Context, identifier, reason stri
 			return db.Translate(err)
 		}
 		if row.Disabled {
+			if s.logger != nil {
+				s.logger.Debug("Provider system disable skipped", "provider_id", trimmed, "reason", reason)
+			}
 			return nil
 		}
 		now := util.Now()
@@ -364,9 +400,16 @@ func (s *GormService) SystemDisable(ctx context.Context, identifier, reason stri
 		disabledSnapshot = providerModelFromRecord(row)
 		return nil
 	}); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Provider system disable failed", "provider_id", trimmed, "error", err)
+		}
 		return err
 	}
-	if s.logger != nil {
+	if disabledSnapshot == nil {
+		if s.logger != nil {
+			s.logger.Info("Provider already disabled", "provider_id", trimmed)
+		}
+	} else if s.logger != nil {
 		s.logger.Info("provider disabled by system", "provider_id", trimmed, "reason", reason)
 	}
 	s.notifyChanged(trimmed)
@@ -414,9 +457,15 @@ func (s *GormService) Delete(ctx context.Context, identifier string) error {
 		}
 		return nil
 	}); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Provider delete failed", "provider_id", trimmed, "error", err)
+		}
 		return err
 	}
 	s.clearProviderCache(ctx, trimmed, credentialIDs)
+	if s.logger != nil {
+		s.logger.Info("Provider cache cleanup succeeded", "provider_id", trimmed, "count", len(credentialIDs))
+	}
 	if s.logger != nil {
 		s.logger.Info("provider deleted", "provider_id", trimmed)
 	}
@@ -461,13 +510,16 @@ func (s *GormService) clearProviderCache(ctx context.Context, providerID string,
 	if _, err := gorm.G[record.ModelInfoSnapshot](s.database.Cache, provider).Delete(ctx); err != nil && s.logger != nil {
 		s.logger.Warn("provider cache model snapshot cleanup failed", "provider_id", providerID, "err", err)
 	}
+	if s.logger != nil {
+		s.logger.Debug("Provider cache cleared", "provider_id", providerID, "count", len(credentialIDs))
+	}
 }
 
 // uniqueProviderIDInTransaction generates the next free provider identifier
 // on the transaction handle. The scheme mirrors the previous uniqueID: the
 // qualifier slug when present, the custom name slug for custom rows, else
 // the bare type key, with a numeric suffix on collision.
-func uniqueProviderIDInTransaction(ctx context.Context, transaction *gorm.DB, typeKey, qualifier, name string) (string, error) {
+func (s *GormService) uniqueProviderIDInTransaction(ctx context.Context, transaction *gorm.DB, typeKey, qualifier, name string) (string, error) {
 	var base string
 	switch {
 	case qualifier != "":
@@ -487,6 +539,9 @@ func uniqueProviderIDInTransaction(ctx context.Context, transaction *gorm.DB, ty
 			return "", db.Translate(err)
 		}
 		identifier = fmt.Sprintf("%s-%d", base, counter)
+		if s != nil && s.logger != nil {
+			s.logger.Debug("Provider identifier deduped", "provider_id", identifier, "type", typeKey, "count", counter)
+		}
 	}
 }
 

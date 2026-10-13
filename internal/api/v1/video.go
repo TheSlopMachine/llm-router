@@ -37,14 +37,16 @@ func (h *Handler) submitVideo(w http.ResponseWriter, r *http.Request, token *mod
 	start := time.Now()
 	var request models.VideoGenerationRequest
 	if err := decodeJSONBody(w, r, &request); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	if err := validateVideoRequest(&request); err != nil {
+		h.logValidationFailure(r, request.Model, "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
 		return
 	}
 	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.logDenyFailure(r, request.Model, deny)
 		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
@@ -52,6 +54,7 @@ func (h *Handler) submitVideo(w http.ResponseWriter, r *http.Request, token *mod
 	duration := time.Since(start)
 	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, nil)
 	if err != nil {
+		h.logRouterFailure(r, request.Model, err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -109,11 +112,13 @@ func (h *Handler) pollVideo(w http.ResponseWriter, r *http.Request, token *model
 	start := time.Now()
 	jobID := r.PathValue("jobId")
 	if jobID == "" {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "job id is required", nil)
 		return
 	}
 	response, err := h.router.PollVideo(r.Context(), jobID, token)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -138,6 +143,7 @@ func (h *Handler) videoContent(w http.ResponseWriter, r *http.Request, token *mo
 	start := time.Now()
 	jobID := r.PathValue("jobId")
 	if jobID == "" {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "job id is required", nil)
 		return
 	}
@@ -145,6 +151,7 @@ func (h *Handler) videoContent(w http.ResponseWriter, r *http.Request, token *mo
 	if raw := strings.TrimSpace(r.URL.Query().Get("index")); raw != "" {
 		parsedIndex, err := strconv.Atoi(raw)
 		if err != nil || parsedIndex < 0 || parsedIndex > maxVideoContentIndex {
+			h.logValidationFailure(r, "", "invalid_request_error")
 			h.writeError(w, http.StatusBadRequest, "invalid_request_error",
 				fmt.Sprintf("invalid index %q: expected 0..%d", raw, maxVideoContentIndex), nil)
 			return
@@ -153,6 +160,7 @@ func (h *Handler) videoContent(w http.ResponseWriter, r *http.Request, token *mo
 	}
 	response, err := h.router.VideoContent(r.Context(), jobID, index, token)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}

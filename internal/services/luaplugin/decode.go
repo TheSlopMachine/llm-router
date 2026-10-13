@@ -69,11 +69,15 @@ func decodeHandlerResult[T any](
 		return nil, cerr
 	}
 	if result == lua.LNil {
-		return nil, &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: handler + " returned nil result"}
+		cause := handler + " returned nil result"
+		s.recordCrash(record.ID, typeKey, cause)
+		return nil, &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: cause}
 	}
 	raw, merr := marshalLua(result)
 	if merr != nil {
-		return nil, &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "encode response: " + merr.Error()}
+		cause := "encode response: " + merr.Error()
+		s.recordCrash(record.ID, typeKey, cause)
+		return nil, &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: cause}
 	}
 	out := new(T)
 	if uerr := unmarshalTo(normalizeEmptyObjects(raw, emptyKeys...), out); uerr != nil {
@@ -109,6 +113,7 @@ func callAndDecode[T any](
 	typeKey := handlerMetadata.TypeKey
 	record, err := s.Lookup(typeKey)
 	if err != nil {
+		s.logLookupFailed(typeKey, handler, err)
 		return nil, "", err
 	}
 	var out *T

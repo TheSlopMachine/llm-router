@@ -69,6 +69,9 @@ func (h *EventsHandler) Drain(timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for len(h.queue) > 0 {
 		if time.Now().After(deadline) {
+			observed := slog.NewRecord(time.Now(), slog.LevelWarn, "Event drain times out", 0)
+			observed.Add(slog.Int("count", len(h.queue)))
+			_ = h.render(observed, time.Now())
 			return false
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -136,9 +139,16 @@ func (h *EventsHandler) Handle(_ context.Context, record slog.Record) error {
 			keys[attribute.Key] = attribute.Value.String()
 		}
 	}
-	h.render(record, timestamp)
+	if err := h.render(record, timestamp); err != nil {
+		return err
+	}
 	if h.service == nil || h.queue == nil {
 		return nil
+	}
+	if cap(h.queue) > 0 && len(h.queue) >= cap(h.queue) {
+		observed := slog.NewRecord(time.Now(), slog.LevelWarn, "Event queue is full", 0)
+		observed.Add(slog.Int("count", len(h.queue)))
+		_ = h.render(observed, time.Now())
 	}
 	h.queue <- pendingEvent{timestamp: timestamp, severity: severity, message: record.Message, keys: keys}
 	return nil
@@ -160,7 +170,7 @@ func (h *EventsHandler) Fatal(message string, attributes ...any) {
 			keys[attribute.Key] = attribute.Value.String()
 		}
 	}
-	h.render(record, timestamp)
+	_ = h.render(record, timestamp)
 	if h.service != nil {
 		_ = h.service.Append(context.Background(), timestamp, events.SeverityFatal, message, keys)
 	}
@@ -176,7 +186,7 @@ func (h *EventsHandler) run() {
 	}
 }
 
-func (h *EventsHandler) render(record slog.Record, timestamp time.Time) {
+func (h *EventsHandler) render(record slog.Record, timestamp time.Time) error {
 	level := strings.ToUpper(record.Level.String())
 	var builder strings.Builder
 	builder.WriteString("[")
@@ -197,7 +207,8 @@ func (h *EventsHandler) render(record slog.Record, timestamp time.Time) {
 	builder.WriteString("\n")
 	h.writerMu.Lock()
 	defer h.writerMu.Unlock()
-	_, _ = io.WriteString(h.writer, builder.String())
+	_, err := io.WriteString(h.writer, builder.String())
+	return err
 }
 
 func severityForLevel(level slog.Level) int {

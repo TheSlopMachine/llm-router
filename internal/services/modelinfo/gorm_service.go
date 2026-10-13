@@ -89,15 +89,21 @@ func (s *GormService) requireHandle() (*db.Database, error) {
 // foreign key as invalid input.
 func (s *GormService) SetOverride(ctx context.Context, override models.ModelOverride) error {
 	if override.ProviderID == "" || override.Name == "" {
+		if s.logger != nil {
+			s.logger.Warn("Model override rejected", "operation", "set override", "error", "missing provider id or model name")
+		}
 		return fmt.Errorf("override requires provider id and model name: %w", apierrors.ErrInvalidInput)
 	}
 	if _, err := s.requireHandle(); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Model override rejected", "provider_id", override.ProviderID, "model", override.Name, "operation", "set override", "error", err)
+		}
 		return err
 	}
 	base := modelOverrideRecordFromModel(override)
 	capabilities := modelOverrideCapabilityRowsFromModel(override)
 	modalities := modelOverrideModalityRowsFromModel(override)
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		bases := []record.ModelOverride{base}
 		if err := gorm.G[record.ModelOverride](transaction, clause.OnConflict{Columns: []clause.Column{{Name: "provider_id"}, {Name: "model_name"}}, UpdateAll: true}).CreateInBatches(ctx, &bases, 500); err != nil {
 			return db.Translate(err)
@@ -117,12 +123,25 @@ func (s *GormService) SetOverride(ctx context.Context, override models.ModelOver
 		}
 		return nil
 	})
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Model override store failed", "provider_id", override.ProviderID, "model", override.Name, "operation", "set override", "error", err)
+		}
+		return err
+	}
+	if s.logger != nil {
+		s.logger.Debug("Model override stored", "provider_id", override.ProviderID, "model", override.Name, "operation", "set override")
+	}
+	return nil
 }
 
 // GetOverride returns the override for one model with its child lists. A
 // miss reports the not-found sentinel with override context.
 func (s *GormService) GetOverride(ctx context.Context, providerID, modelName string) (*models.ModelOverride, error) {
 	if _, err := s.requireHandle(); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Model override load failed", "provider_id", providerID, "model", modelName, "operation", "get override", "error", err)
+		}
 		return nil, err
 	}
 	var result *models.ModelOverride
@@ -142,7 +161,17 @@ func (s *GormService) GetOverride(ctx context.Context, providerID, modelName str
 		result = modelOverrideFromRecords(base, capabilities, inputModalities, outputModalities)
 		return nil
 	}); err != nil {
+		if s.logger != nil {
+			if stdErrors.Is(err, apierrors.ErrNotFound) {
+				s.logger.Debug("Model override miss", "provider_id", providerID, "model", modelName, "operation", "get override")
+			} else {
+				s.logger.Warn("Model override load failed", "provider_id", providerID, "model", modelName, "operation", "get override", "error", err)
+			}
+		}
 		return nil, err
+	}
+	if s.logger != nil {
+		s.logger.Debug("Model override loaded", "provider_id", providerID, "model", modelName, "operation", "get override")
 	}
 	return result, nil
 }
@@ -153,9 +182,12 @@ func (s *GormService) GetOverride(ctx context.Context, providerID, modelName str
 // tracker.
 func (s *GormService) DeleteOverride(ctx context.Context, providerID, modelName string) error {
 	if _, err := s.requireHandle(); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Model override delete failed", "provider_id", providerID, "model", modelName, "operation", "delete override", "error", err)
+		}
 		return err
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		tracker := gorm.WithResult()
 		affected, err := gorm.G[record.ModelOverride](transaction, clause.Eq{Column: "provider_id", Value: providerID}, clause.Eq{Column: "model_name", Value: modelName}, tracker).Delete(ctx)
 		if err != nil {
@@ -166,6 +198,20 @@ func (s *GormService) DeleteOverride(ctx context.Context, providerID, modelName 
 		}
 		return nil
 	})
+	if err != nil {
+		if s.logger != nil {
+			if stdErrors.Is(err, apierrors.ErrNotFound) {
+				s.logger.Debug("Model override delete miss", "provider_id", providerID, "model", modelName, "operation", "delete override")
+			} else {
+				s.logger.Warn("Model override delete failed", "provider_id", providerID, "model", modelName, "operation", "delete override", "error", err)
+			}
+		}
+		return err
+	}
+	if s.logger != nil {
+		s.logger.Debug("Model override deleted", "provider_id", providerID, "model", modelName, "operation", "delete override")
+	}
+	return nil
 }
 
 // ListOverrides returns all overrides of a provider ordered by model name
@@ -173,6 +219,9 @@ func (s *GormService) DeleteOverride(ctx context.Context, providerID, modelName 
 // never an error.
 func (s *GormService) ListOverrides(ctx context.Context, providerID string) ([]*models.ModelOverride, error) {
 	if _, err := s.requireHandle(); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Model override list failed", "provider_id", providerID, "operation", "list overrides", "error", err)
+		}
 		return nil, err
 	}
 	var result []*models.ModelOverride
@@ -212,7 +261,13 @@ func (s *GormService) ListOverrides(ctx context.Context, providerID string) ([]*
 		result = overrides
 		return nil
 	}); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Model override list failed", "provider_id", providerID, "operation", "list overrides", "error", err)
+		}
 		return nil, err
+	}
+	if s.logger != nil {
+		s.logger.Debug("Model override list loaded", "provider_id", providerID, "operation", "list overrides", "count", len(result))
 	}
 	return result, nil
 }
@@ -241,9 +296,15 @@ func (s *GormService) IsModelEnabled(ctx context.Context, providerID, modelName 
 // explicitly.
 func (s *GormService) PutSnapshot(ctx context.Context, providerID string, modelList []models.ModelInfo, cachedAt time.Time) error {
 	if providerID == "" {
+		if s.logger != nil {
+			s.logger.Warn("Model snapshot rejected", "operation", "put snapshot", "error", "missing provider id")
+		}
 		return fmt.Errorf("snapshot requires provider id: %w", apierrors.ErrInvalidInput)
 	}
 	if _, err := s.requireHandle(); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Model snapshot store failed", "provider_id", providerID, "operation", "put snapshot", "error", err)
+		}
 		return err
 	}
 	header := record.ModelInfoSnapshot{ProviderID: providerID, CachedAt: cachedAt.UTC()}
@@ -254,6 +315,9 @@ func (s *GormService) PutSnapshot(ctx context.Context, providerID string, modelL
 	for _, model := range modelList {
 		row, capabilities, modalities, endpoints, err := modelInfoRecordFromModel(providerID, model)
 		if err != nil {
+			if s.logger != nil {
+				s.logger.Warn("Model snapshot store failed", "provider_id", providerID, "model", model.Name, "operation", "put snapshot", "error", err)
+			}
 			return err
 		}
 		modelRows = append(modelRows, row)
@@ -261,7 +325,7 @@ func (s *GormService) PutSnapshot(ctx context.Context, providerID string, modelL
 		modalityRows = append(modalityRows, modalities...)
 		endpointRows = append(endpointRows, endpoints...)
 	}
-	return s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	err := s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		headers := []record.ModelInfoSnapshot{header}
 		if err := gorm.G[record.ModelInfoSnapshot](transaction, clause.OnConflict{Columns: []clause.Column{{Name: "provider_id"}}, UpdateAll: true}).CreateInBatches(ctx, &headers, 500); err != nil {
 			return db.Translate(err)
@@ -291,6 +355,16 @@ func (s *GormService) PutSnapshot(ctx context.Context, providerID string, modelL
 		}
 		return nil
 	})
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Model snapshot store failed", "provider_id", providerID, "operation", "put snapshot", "count", len(modelList), "error", err)
+		}
+		return err
+	}
+	if s.logger != nil {
+		s.logger.Debug("Model snapshot stored", "provider_id", providerID, "operation", "put snapshot", "count", len(modelList))
+	}
+	return nil
 }
 
 // GetSnapshot returns the cached model list of one provider ordered by
@@ -299,6 +373,9 @@ func (s *GormService) PutSnapshot(ctx context.Context, providerID string, modelL
 // stays with the caller. Corrupt reasoning payloads surface an error.
 func (s *GormService) GetSnapshot(ctx context.Context, providerID string) ([]models.ModelInfo, time.Time, error) {
 	if _, err := s.requireHandle(); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Model snapshot load failed", "provider_id", providerID, "operation", "get snapshot", "error", err)
+		}
 		return nil, time.Time{}, err
 	}
 	var modelList []models.ModelInfo
@@ -360,7 +437,17 @@ func (s *GormService) GetSnapshot(ctx context.Context, providerID string) ([]mod
 		cachedAt = header.CachedAt.UTC()
 		return nil
 	}); err != nil {
+		if s.logger != nil {
+			if stdErrors.Is(err, apierrors.ErrNotFound) {
+				s.logger.Debug("Model snapshot miss", "provider_id", providerID, "operation", "get snapshot")
+			} else {
+				s.logger.Warn("Model snapshot load failed", "provider_id", providerID, "operation", "get snapshot", "error", err)
+			}
+		}
 		return nil, time.Time{}, err
+	}
+	if s.logger != nil {
+		s.logger.Debug("Model snapshot loaded", "provider_id", providerID, "operation", "get snapshot", "count", len(modelList))
 	}
 	return modelList, cachedAt, nil
 }
@@ -371,9 +458,12 @@ func (s *GormService) GetSnapshot(ctx context.Context, providerID string) ([]mod
 // reports the not-found sentinel through the WithResult tracker.
 func (s *GormService) DeleteSnapshot(ctx context.Context, providerID string) error {
 	if _, err := s.requireHandle(); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Model snapshot delete failed", "provider_id", providerID, "operation", "delete snapshot", "error", err)
+		}
 		return err
 	}
-	return s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	err := s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		tracker := gorm.WithResult()
 		affected, err := gorm.G[record.ModelInfoSnapshot](transaction, clause.Eq{Column: "provider_id", Value: providerID}, tracker).Delete(ctx)
 		if err != nil {
@@ -384,6 +474,20 @@ func (s *GormService) DeleteSnapshot(ctx context.Context, providerID string) err
 		}
 		return nil
 	})
+	if err != nil {
+		if s.logger != nil {
+			if stdErrors.Is(err, apierrors.ErrNotFound) {
+				s.logger.Debug("Model snapshot delete miss", "provider_id", providerID, "operation", "delete snapshot")
+			} else {
+				s.logger.Warn("Model snapshot delete failed", "provider_id", providerID, "operation", "delete snapshot", "error", err)
+			}
+		}
+		return err
+	}
+	if s.logger != nil {
+		s.logger.Debug("Model snapshot deleted", "provider_id", providerID, "operation", "delete snapshot")
+	}
+	return nil
 }
 
 // RemoveModel drops one model from the cached list of one provider.
@@ -392,6 +496,9 @@ func (s *GormService) DeleteSnapshot(ctx context.Context, providerID string) err
 // filters in step so peeks observe the removal without a refetch.
 func (s *GormService) RemoveModel(ctx context.Context, providerID, modelName string) (bool, error) {
 	if _, err := s.requireHandle(); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Model remove failed", "provider_id", providerID, "model", modelName, "operation", "remove model", "error", err)
+		}
 		return false, err
 	}
 	var removed bool
@@ -404,6 +511,9 @@ func (s *GormService) RemoveModel(ctx context.Context, providerID, modelName str
 		removed = affected > 0 && tracker.RowsAffected > 0
 		return nil
 	}); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Model remove failed", "provider_id", providerID, "model", modelName, "operation", "remove model", "error", err)
+		}
 		return false, err
 	}
 	if removed {
@@ -419,6 +529,11 @@ func (s *GormService) RemoveModel(ctx context.Context, providerID, modelName str
 			s.cache[providerID] = entry
 		}
 		s.mu.Unlock()
+		if s.logger != nil {
+			s.logger.Debug("Model removed", "provider_id", providerID, "model", modelName, "operation", "remove model")
+		}
+	} else if s.logger != nil {
+		s.logger.Debug("Model remove miss", "provider_id", providerID, "model", modelName, "operation", "remove model")
 	}
 	return removed, nil
 }

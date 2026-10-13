@@ -105,6 +105,8 @@ func New(parameters Params) (*Handler, error) {
 		parameters.ProviderSvc,
 		parameters.LuaSvc,
 	)
+	dataGormService.SetLogger(parameters.Logger)
+	doctorGormService.SetLogger(parameters.Logger)
 	return &Handler{
 		gormAdminService:      parameters.AdminSvc,
 		gormProviderService:   parameters.ProviderSvc,

@@ -17,6 +17,9 @@ type authorizationDeny struct {
 
 // authorizeModel enforces token rules for one request model. Empty models
 // and nil tokens skip checks; everything else maps to provider/model denies.
+// Wire only: callers record "Request denied by token rules" via
+// logDenyFailure with endpoint, code, model and provider_id before writing
+// the deny, keeping the 403 envelope unchanged.
 func authorizeModel(token *models.RouterToken, model models.ModelId) *authorizationDeny {
 	if token == nil || model == "" {
 		return nil

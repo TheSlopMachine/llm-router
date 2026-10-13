@@ -95,17 +95,22 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 	}
 
 	adminService := admin.NewGorm(sqliteDatabase)
+	adminService.SetLogger(logger)
 	tokenService := token.NewGorm(sqliteDatabase)
+	tokenService.SetLogger(logger)
 	credentialService := credential.NewGorm(sqliteDatabase, providerService)
 	credentialService.SetLogger(logger)
 	modelInfoService := modelinfo.NewGorm(sqliteDatabase, providerService, credentialService, 1*time.Hour)
 	virtualService := virtual.NewGorm(sqliteDatabase, providerService, modelInfoService)
 	configService := configservice.New(sqliteDatabase)
+	configService.SetLogger(logger)
 	repositoryService := pluginrepo.New(sqliteDatabase)
+	repositoryService.SetLogger(logger)
 	if err := repositoryService.EnsureBuiltinRepos(); err != nil {
 		return nil, fmt.Errorf("seed built-in plugin repos: %w", err)
 	}
 	videoJobsService := videojobs.New(sqliteDatabase)
+	videoJobsService.SetLogger(logger)
 
 	// Proxy subsystem first: the plugin runtime and dashboard both read
 	// from it. Provider request routing never consults it: plugins query
@@ -117,7 +122,11 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 	proxyService.SetLogger(logger)
 	proxyService.SetSourceHandlers(luaService.ProxySourceKeys, luaService.FetchProxies)
 
-	routerService := router.New(providerService, credentialService, modelInfoService, videoJobsService, responses.NewGormService(sqliteDatabase.Cache), batches.NewSQLiteService(sqliteDatabase), logger)
+	responsesService := responses.NewGormService(sqliteDatabase.Cache)
+	responsesService.SetLogger(logger)
+	batchesService := batches.NewSQLiteService(sqliteDatabase)
+	batchesService.SetLogger(logger)
+	routerService := router.New(providerService, credentialService, modelInfoService, videoJobsService, responsesService, batchesService, logger)
 	virtualAdapter := virtualadapter.New(routerService, virtualService, logger)
 	providerService.RegisterGoAdapter(virtualAdapter)
 	healthService := healthcheck.NewGormService(sqliteDatabase, luaService, credentialService, providerService)
@@ -164,11 +173,14 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		_ = sqliteDatabase.Close()
 		return nil, fmt.Errorf("init events service: %w", err)
 	}
+	eventsService.SetLogger(logger)
 	if handler, ok := logger.Handler().(*logging.EventsHandler); ok {
 		handler.SetService(eventsService)
 	}
 	if err := eventsService.Prune(context.Background()); err != nil && logger != nil {
-		logger.Warn("events prune failed", "err", err)
+		logger.Warn("Events prune fails", "error", err)
+	} else if logger != nil {
+		logger.Debug("Events prune completes")
 	}
 
 	modelInfoService.SetLogger(logger)
@@ -176,6 +188,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 
 	// Model caches persist in SQLite; warm the missing ones in the background
 	// so first clicks never wait on upstream discovery.
+	logger.Debug("Model cache warmup starts")
 	go modelInfoService.WarmMissing(context.Background())
 
 	startupCleanup(logger, credentialService, providerService)
@@ -218,10 +231,16 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 
 	// Both listeners mount the same route tables; the source in the
 	// request context selects authenticated vs bypass behavior.
+	publicMux := httpapi.BuildPublicMux(apiV1, dashboardHandler)
+	if err := verifySPAMux(publicMux, applicationConfig.DevUIRedirect); err != nil {
+		_ = sqliteDatabase.Close()
+		return nil, err
+	}
+	privateMux := httpapi.BuildPrivateMux(apiV1, dashboardHandler)
 	publicHandler := requestsource.Middleware(requestsource.RequestSourcePublic)(
-		bootstrapMiddleware(adminService)(requestLogger(logger, httpapi.BuildPublicMux(apiV1, dashboardHandler))))
+		bootstrapMiddleware(adminService, logger)(requestLogger(logger, publicMux)))
 	privateHandler := requestsource.Middleware(requestsource.RequestSourcePrivate)(
-		bootstrapMiddleware(adminService)(requestLogger(logger, httpapi.BuildPrivateMux(apiV1, dashboardHandler))))
+		bootstrapMiddleware(adminService, logger)(requestLogger(logger, privateMux)))
 
 	httpServer := &http.Server{
 		Addr:    listenAddr,
@@ -251,6 +270,50 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 	}, nil
 }
 
+// spaProbeRecorder captures one synthetic SPA response without the
+// httptest dependency.
+type spaProbeRecorder struct {
+	header http.Header
+	body   []byte
+	status int
+}
+
+func (r *spaProbeRecorder) Header() http.Header { return r.header }
+
+func (r *spaProbeRecorder) Write(body []byte) (int, error) {
+	r.body = append(r.body, body...)
+	return len(body), nil
+}
+
+func (r *spaProbeRecorder) WriteHeader(status int) { r.status = status }
+
+// verifySPAMux fails startup when the embedded SPA serves an empty page.
+// RegisterSPA discards embed-FS errors internally; probing "/" turns a
+// silent empty page into a loud startup error. Dev redirect mode skips
+// the check: Vite serves the SPA there.
+func verifySPAMux(mux *http.ServeMux, devRedirect string) error {
+	if devRedirect != "" {
+		return nil
+	}
+	request, err := http.NewRequest(http.MethodGet, "/", nil)
+	if err != nil {
+		return fmt.Errorf("build SPA probe request: %w", err)
+	}
+	recorder := &spaProbeRecorder{header: make(http.Header), status: http.StatusOK}
+	mux.ServeHTTP(recorder, request)
+	status := recorder.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("serve embedded SPA: unexpected status %d", status)
+	}
+	if len(recorder.body) == 0 {
+		return fmt.Errorf("serve embedded SPA: empty body")
+	}
+	return nil
+}
+
 // startupRefreshTimeout bounds the synchronous startup jobs before the
 // server listens: a pathological slow upstream must delay startup, never
 // block it. The ticker retries whatever was skipped.
@@ -273,7 +336,7 @@ func (s *Server) runShutdownHooks() {
 	gate, cancel := context.WithTimeout(context.Background(), shutdownLifecycleTimeout)
 	defer cancel()
 	if err := s.luaService.RunShutdownDeinitializers(gate); err != nil && s.logger != nil {
-		s.logger.Warn("plugin shutdown hooks failed", "err", err)
+		s.logger.Warn("Plugin shutdown hooks fail", "error", err)
 	}
 }
 
@@ -287,7 +350,9 @@ func (s *Server) Run(ctx context.Context) error {
 	// one-time-seeds shared state while the ticker runs. Slow hooks cancel
 	// with the gate; startup never blocks on them.
 	if err := s.luaService.RunStartupInitializers(rgate); err != nil && s.logger != nil {
-		s.logger.Warn("plugin startup initializers failed", "err", err)
+		s.logger.Warn("Plugin startup initializers fail", "error", err)
+	} else if s.logger != nil {
+		s.logger.Debug("Plugin startup initializers complete")
 	}
 	cancel()
 	// servicesCtx bounds every background writer: maintenance jobs, proxy
@@ -297,16 +362,18 @@ func (s *Server) Run(ctx context.Context) error {
 	servicesCtx, cancelServices := context.WithCancel(ctx)
 	defer cancelServices()
 	s.proxyService.Start(servicesCtx)
+	s.logger.Debug("Proxy service starts")
 	s.maintenanceService.Start(servicesCtx)
 	if s.eventsService != nil {
 		s.eventsService.Start(servicesCtx)
+		s.logger.Debug("Events service starts")
 	}
-	startFields := []any{"addr", s.applicationConfig.Addr, "db", s.sqlitePath, "cache", s.applicationConfig.CachePath, "events", s.applicationConfig.EventsPath}
+	startFields := []any{"endpoint", s.applicationConfig.Addr, "database", s.sqlitePath, "cache", s.applicationConfig.CachePath, "events", s.applicationConfig.EventsPath}
 	if s.applicationConfig.AdminAddr != "" {
-		s.logger.Warn("admin listener enabled without authentication (loopback only)", "addr", s.applicationConfig.AdminAddr)
-		startFields = append(startFields, "admin", s.applicationConfig.AdminAddr)
+		s.logger.Warn("Admin listener runs without authentication", "endpoint", s.applicationConfig.AdminAddr, "detail", "loopback only")
+		startFields = append(startFields, "admin_endpoint", s.applicationConfig.AdminAddr)
 	}
-	s.logger.Info("llm-router started", startFields...)
+	s.logger.Info("Server starts", startFields...)
 
 	errorChannel := make(chan error, 2)
 	serve := func(server *http.Server, name string) {
@@ -323,9 +390,13 @@ func (s *Server) Run(ctx context.Context) error {
 	serve(s.adminServer, "admin")
 
 	shutdown := func() {
-		_ = s.httpServer.Shutdown(context.Background())
+		if err := s.httpServer.Shutdown(context.Background()); err != nil && s.logger != nil {
+			s.logger.Warn("Public server shutdown fails", "source", "public", "error", err)
+		}
 		if s.adminServer != nil {
-			_ = s.adminServer.Shutdown(context.Background())
+			if err := s.adminServer.Shutdown(context.Background()); err != nil && s.logger != nil {
+				s.logger.Warn("Admin server shutdown fails", "source", "admin", "error", err)
+			}
 		}
 	}
 	// graceful runs the single shutdown path: background writers stop,
@@ -339,19 +410,22 @@ func (s *Server) Run(ctx context.Context) error {
 		s.metricsService.Stop()
 		shutdown()
 		if handler, ok := s.logger.Handler().(*logging.EventsHandler); ok {
-			handler.Drain(eventsDrainTimeout)
+			if !handler.Drain(eventsDrainTimeout) && s.logger != nil {
+				s.logger.Warn("Events drain times out", "wait", eventsDrainTimeout)
+			}
 		}
 	}
 	select {
 	case <-ctx.Done():
-		s.logger.Info("shutting down gracefully...")
+		s.logger.Info("Server shuts down gracefully", "source", "signal")
 		graceful()
 		return nil
 	case <-s.shutdownRequested:
-		s.logger.Info("shutdown requested via admin listener...")
+		s.logger.Info("Server shuts down gracefully", "source", "admin")
 		graceful()
 		return nil
 	case err := <-errorChannel:
+		s.logger.Error("HTTP server fails", "error", err)
 		graceful()
 		return fmt.Errorf("http server: %w", err)
 	}

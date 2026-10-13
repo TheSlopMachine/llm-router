@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	stdErrors "errors"
+
 	"github.com/TheSlopMachine/llm-router/internal/db/record"
+	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/repository"
 	"gorm.io/gorm/clause"
 )
@@ -12,7 +15,11 @@ import (
 // requireSQLite fails closed when the SQLite handle is missing.
 func (s *Service) requireSQLite() (*repository.GormRepository[record.PluginRepository], error) {
 	if s == nil || s.sqlite == nil {
-		return nil, fmt.Errorf("pluginrepo sqlite handle is not configured")
+		configureErr := fmt.Errorf("pluginrepo sqlite handle is not configured")
+		if s != nil && s.logger != nil {
+			s.logger.Error("Repository storage not configured", "reason", "missing_sqlite_handle", "error", configureErr)
+		}
+		return nil, configureErr
 	}
 	return s.sqlite, nil
 }
@@ -60,6 +67,13 @@ func (s *Service) getRecord(id string) (*RepoRecord, error) {
 	}
 	row, err := sqlite.Get(context.Background(), clause.Eq{Column: "id", Value: id})
 	if err != nil {
+		if stdErrors.Is(err, apierrors.ErrNotFound) {
+			if s != nil && s.logger != nil {
+				s.logger.Debug("Repository fetch missed", "repo_id", id)
+			}
+		} else if s != nil && s.logger != nil {
+			s.logger.Error("Repository load failed", "repo_id", id, "error", err)
+		}
 		return nil, err
 	}
 	return toRepoRecord(row), nil
@@ -73,6 +87,9 @@ func (s *Service) listRecords() ([]*RepoRecord, error) {
 	}
 	rows, err := sqlite.List(context.Background(), orderRepositoriesByID())
 	if err != nil {
+		if s != nil && s.logger != nil {
+			s.logger.Error("Repository list failed", "error", err)
+		}
 		return nil, err
 	}
 	items := make([]*RepoRecord, 0, len(rows))
@@ -88,7 +105,13 @@ func (s *Service) putRecord(value *RepoRecord) error {
 	if err != nil {
 		return err
 	}
-	return sqlite.Upsert(context.Background(), toRepositoryRow(value))
+	if err := sqlite.Upsert(context.Background(), toRepositoryRow(value)); err != nil {
+		if s != nil && s.logger != nil {
+			s.logger.Error("Repository persist failed", "repo_id", value.ID, "index_url", value.IndexURL, "error", err)
+		}
+		return err
+	}
+	return nil
 }
 
 // deleteRecord removes one repository. A missing ID fails through the
@@ -101,6 +124,11 @@ func (s *Service) deleteRecord(id string) error {
 	if _, err := s.getRecord(id); err != nil {
 		return err
 	}
-	_, err = sqlite.Delete(context.Background(), clause.Eq{Column: "id", Value: id})
-	return err
+	if _, err := sqlite.Delete(context.Background(), clause.Eq{Column: "id", Value: id}); err != nil {
+		if s != nil && s.logger != nil {
+			s.logger.Error("Repository delete failed", "repo_id", id, "error", err)
+		}
+		return err
+	}
+	return nil
 }

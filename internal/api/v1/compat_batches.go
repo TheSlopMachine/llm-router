@@ -75,16 +75,19 @@ func (h *Handler) createBatch(w http.ResponseWriter, r *http.Request, token *mod
 		return
 	}
 	if len(request.Requests) == 0 {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'requests'", stringPointer("requests"))
 		return
 	}
 	for _, entry := range request.Requests {
 		var message models.AnthropicMessageRequest
 		if err := decodeBatchParams(entry.Params, &message); err != nil {
+			h.logValidationFailure(r, "", "invalid_request_error")
 			h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
 			return
 		}
 		if deny := authorizeModel(token, models.ModelId(message.Model)); deny != nil {
+			h.logDenyFailure(r, models.ModelId(message.Model), deny)
 			h.writeCompatError(w, r, deny.status, deny.code, deny.message, deny.parameter)
 			return
 		}
@@ -93,6 +96,7 @@ func (h *Handler) createBatch(w http.ResponseWriter, r *http.Request, token *mod
 	duration := time.Since(start)
 	h.recordRouteMetric(r.Context(), start, batchModel(&request), token, duration, err, nil)
 	if err != nil {
+		h.logRouterFailure(r, batchModel(&request), err)
 		h.handleCompatRouterError(w, r, err)
 		return
 	}
@@ -115,6 +119,7 @@ func (h *Handler) listBatches(w http.ResponseWriter, r *http.Request, token *mod
 	_ = token
 	items, err := h.router.ListBatches(r.Context())
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleCompatRouterError(w, r, err)
 		return
 	}
@@ -145,6 +150,7 @@ func (h *Handler) getBatch(w http.ResponseWriter, r *http.Request, token *models
 	}
 	batch, err := h.router.GetBatch(r.Context(), id, token)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleCompatRouterError(w, r, err)
 		return
 	}
@@ -172,6 +178,7 @@ func (h *Handler) getBatchResults(w http.ResponseWriter, r *http.Request, token 
 	}
 	lines, err := h.router.GetBatchResults(r.Context(), id, token)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleCompatRouterError(w, r, err)
 		return
 	}
@@ -203,6 +210,7 @@ func (h *Handler) cancelBatch(w http.ResponseWriter, r *http.Request, token *mod
 	}
 	batch, err := h.router.CancelBatch(r.Context(), id, token)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleCompatRouterError(w, r, err)
 		return
 	}
@@ -230,6 +238,7 @@ func (h *Handler) deleteBatch(w http.ResponseWriter, r *http.Request, token *mod
 	}
 	_ = token
 	if err := h.router.DeleteBatch(r.Context(), id); err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleCompatRouterError(w, r, err)
 		return
 	}

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sort"
@@ -68,12 +69,14 @@ type RepoRecord struct {
 // names. File URLs resolve against the index directory.
 type indexProvider struct {
 	client *http.Client
+	logger *slog.Logger
 }
 
 // Service owns repository records in the plugin_repositories table.
 type Service struct {
 	index  *indexProvider
 	sqlite *repository.GormRepository[record.PluginRepository]
+	logger *slog.Logger
 }
 
 // New constructs a pluginrepo Service on the SQLite handle.
@@ -86,6 +89,17 @@ func New(sqliteDatabase *db.Database) *Service {
 		service.sqlite = repository.NewGormRepository[record.PluginRepository](sqliteDatabase.Handle, "id")
 	}
 	return service
+}
+
+// SetLogger wires structured logging.
+func (s *Service) SetLogger(logger *slog.Logger) {
+	if s == nil {
+		return
+	}
+	s.logger = logger
+	if s.index != nil {
+		s.index.logger = logger
+	}
 }
 
 func (s *Service) referenceOf(value *RepoRecord) RepoRef {
@@ -172,24 +186,36 @@ func (s *Service) AddRepo(ctx context.Context, rawURL string) (*RepoRecord, erro
 		return nil, err
 	}
 	var lastErr error
-	for _, indexURL := range candidates {
+	for position, indexURL := range candidates {
 		id := repositoryIDForIndex(indexURL)
 		if existing, err := s.getRecord(id); err == nil && existing != nil {
+			if s != nil && s.logger != nil {
+				s.logger.Debug("Repository already stored", "repo_id", id, "index_url", indexURL)
+			}
 			return existing, nil
 		}
 		repositoryIndex, err := s.index.fetchIndex(ctx, indexURL)
 		if err != nil {
 			lastErr = err
+			if s != nil && s.logger != nil {
+				s.logger.Debug("Index candidate fetch failed", "index_url", indexURL, "source_url", strings.TrimSpace(rawURL), "error", err)
+				if position+1 < len(candidates) {
+					s.logger.Debug("Falling back to alternate branch index", "index_url", indexURL, "source_url", strings.TrimSpace(rawURL), "reason", "alternate_branch")
+				}
+			}
 			continue
 		}
-		record := &RepoRecord{
+		stored := &RepoRecord{
 			ID: id, Kind: "index", IndexURL: indexURL, SourceURL: strings.TrimSpace(rawURL),
 			Title: repositoryIndex.Title, Description: repositoryIndex.Description, AddedAt: time.Now(),
 		}
-		if err := s.putRecord(record); err != nil {
+		if err := s.putRecord(stored); err != nil {
 			return nil, err
 		}
-		return record, nil
+		if s != nil && s.logger != nil {
+			s.logger.Info("Repository stored", "repo_id", id, "index_url", indexURL, "source_url", strings.TrimSpace(rawURL))
+		}
+		return stored, nil
 	}
 	if lastErr != nil {
 		return nil, fmt.Errorf("no usable index: %w", lastErr)
@@ -211,15 +237,23 @@ func (s *Service) EnsureBuiltinRepos() error {
 				if err := s.putRecord(existing); err != nil {
 					return err
 				}
+				if s != nil && s.logger != nil {
+					s.logger.Info("Builtin repository marked built-in", "repo_id", id, "index_url", builtin.Index, "source_url", builtin.Source)
+				}
+			} else if s != nil && s.logger != nil {
+				s.logger.Debug("Builtin repository already present", "repo_id", id, "index_url", builtin.Index)
 			}
 			continue
 		}
-		record := &RepoRecord{
+		seeded := &RepoRecord{
 			ID: id, Kind: "index", IndexURL: builtin.Index, SourceURL: builtin.Source,
 			Builtin: true, AddedAt: time.Now(),
 		}
-		if err := s.putRecord(record); err != nil {
+		if err := s.putRecord(seeded); err != nil {
 			return err
+		}
+		if s != nil && s.logger != nil {
+			s.logger.Info("Builtin repository seeded", "repo_id", id, "index_url", builtin.Index, "source_url", builtin.Source)
 		}
 	}
 	return nil
@@ -228,9 +262,18 @@ func (s *Service) EnsureBuiltinRepos() error {
 // Remove deletes a repository record.
 func (s *Service) Remove(id string) error {
 	if existing, err := s.getRecord(id); err == nil && existing != nil && existing.Builtin {
+		if s != nil && s.logger != nil {
+			s.logger.Warn("Builtin repository removal blocked", "repo_id", id, "reason", "builtin_protected")
+		}
 		return fmt.Errorf("remove repo %q: %w", id, ErrBuiltinRepoProtected)
 	}
-	return s.deleteRecord(id)
+	if err := s.deleteRecord(id); err != nil {
+		return err
+	}
+	if s != nil && s.logger != nil {
+		s.logger.Info("Repository deleted", "repo_id", id)
+	}
+	return nil
 }
 
 // GetIndex fetches the index document with display info and files.
@@ -330,10 +373,17 @@ func (p *indexProvider) download(ctx context.Context, url string, limit int64) (
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusNotFound {
+		if p != nil && p.logger != nil {
+			p.logger.Debug("Download returned not found", "index_url", url, "reason", "not_found")
+		}
 		return nil, errRawNotFound
 	}
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download %q: status %d", url, response.StatusCode)
+		downloadErr := fmt.Errorf("download %q: status %d", url, response.StatusCode)
+		if p != nil && p.logger != nil {
+			p.logger.Warn("Download returned unexpected status", "index_url", url, "reason", "unexpected_status", "error", downloadErr)
+		}
+		return nil, downloadErr
 	}
 	return io.ReadAll(io.LimitReader(response.Body, limit))
 }
@@ -381,15 +431,24 @@ func (p *indexProvider) listWithIndex(ctx context.Context, repositoryRef RepoRef
 	for _, name := range index.Plugins {
 		name = strings.TrimSpace(name)
 		if name == "" || !strings.HasSuffix(name, ".lua") || strings.Contains(name, "/") {
+			if p != nil && p.logger != nil {
+				p.logger.Debug("Plugin entry skipped", "repo_id", repositoryRef.ID, "index_url", repositoryRef.IndexURL, "reason", name)
+			}
 			continue
 		}
 		if seen[name] {
+			if p != nil && p.logger != nil {
+				p.logger.Debug("Duplicate plugin entry skipped", "repo_id", repositoryRef.ID, "index_url", repositoryRef.IndexURL, "reason", name)
+			}
 			continue
 		}
 		seen[name] = true
 		output = append(output, RepoFile{Path: "llm-router-plugins/" + name, URL: directory + "/" + name})
 	}
 	sort.Slice(output, func(i, j int) bool { return output[i].Path < output[j].Path })
+	if p != nil && p.logger != nil {
+		p.logger.Debug("Plugin list built", "repo_id", repositoryRef.ID, "index_url", repositoryRef.IndexURL, "count", len(output))
+	}
 	return output, index, nil
 }
 
@@ -406,12 +465,18 @@ func (p *indexProvider) FetchFile(ctx context.Context, repositoryRef RepoRef, pa
 			body, err := p.download(ctx, file.URL, 1<<20)
 			if err != nil {
 				if errors.Is(err, errRawNotFound) {
+					if p != nil && p.logger != nil {
+						p.logger.Debug("Plugin file probe missed", "repo_id", repositoryRef.ID, "index_url", repositoryRef.IndexURL, "reason", path)
+					}
 					return nil, fmt.Errorf("plugin %q not found", path)
 				}
 				return nil, err
 			}
 			return body, nil
 		}
+	}
+	if p != nil && p.logger != nil {
+		p.logger.Debug("Plugin file probe missed", "repo_id", repositoryRef.ID, "index_url", repositoryRef.IndexURL, "reason", path)
 	}
 	return nil, fmt.Errorf("plugin %q not in index", path)
 }
@@ -442,6 +507,9 @@ func (p *indexProvider) documentCandidates(ctx context.Context, repositoryRef Re
 				return content, true
 			}
 		}
+	}
+	if p != nil && p.logger != nil {
+		p.logger.Debug("Document probe missed", "repo_id", repositoryRef.ID, "index_url", repositoryRef.IndexURL, "count", len(directories)*len(names))
 	}
 	return "", false
 }

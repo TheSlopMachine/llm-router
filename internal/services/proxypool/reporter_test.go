@@ -35,7 +35,7 @@ func TestSlogReporterLevels(t *testing.T) {
 		Mode: proxypoollib.ModeBackground,
 		Net:  proxypoollib.NetSnapshot{State: proxypoollib.NetDegraded},
 	})
-	if !strings.Contains(buffer.String(), "proxy pool stats") {
+	if !strings.Contains(buffer.String(), "Proxy pool stats") {
 		t.Fatal("ReportStats must emit info")
 	}
 

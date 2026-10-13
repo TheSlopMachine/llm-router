@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/httpkit"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
@@ -42,18 +43,21 @@ func (h *Handler) legacyCompletions(w http.ResponseWriter, r *http.Request, toke
 	start := time.Now()
 	var request models.CompletionRequest
 	if err := decodeJSONBody(w, r, &request); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	if request.Model == "" {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", stringPointer("model"))
 		return
 	}
 	if len(request.Prompt) == 0 {
+		h.logValidationFailure(r, request.Model, "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'prompt'", stringPointer("prompt"))
 		return
 	}
 	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.logDenyFailure(r, request.Model, deny)
 		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
@@ -70,6 +74,7 @@ func (h *Handler) legacyCompletions(w http.ResponseWriter, r *http.Request, toke
 	}
 	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, usage)
 	if err != nil {
+		h.logRouterFailure(r, request.Model, err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -187,6 +192,12 @@ func (writer *completionStreamWriter) emitFrame(frame string) {
 func (h *Handler) handleCompletionStreamWithMetrics(w http.ResponseWriter, r *http.Request, chatRequest *models.ChatCompletionRequest, request *models.CompletionRequest, token *models.RouterToken, start time.Time) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		if h.logger != nil {
+			h.logger.Error("Streaming not supported",
+				"endpoint", endpointFromRequest(r),
+				"code", apierrors.CodeServerError,
+				"model", string(request.Model))
+		}
 		h.writeError(w, http.StatusInternalServerError, "server_error", "streaming is not supported by this server", nil)
 		return
 	}
@@ -204,7 +215,14 @@ func (h *Handler) handleCompletionStreamWithMetrics(w http.ResponseWriter, r *ht
 		tokenID = token.ID
 	}
 	if err != nil {
-		h.logger.Error("completion stream error", "err", err)
+		if h.logger != nil {
+			h.logger.Error("Completion stream error",
+				"endpoint", endpointFromRequest(r),
+				"code", apierrors.ToAPIError(err).Code,
+				"model", string(request.Model),
+				"provider_id", providerID,
+				"error", err)
+		}
 		WriteOpenAIStreamError(w, flusher, err)
 	}
 	h.metrics.RecordRequest(BuildStreamMetricEvent(start, request.Model, providerID, tokenID, duration, err))
@@ -232,10 +250,12 @@ func (h *Handler) audioTranslations(w http.ResponseWriter, r *http.Request, toke
 	start := time.Now()
 	request, err := parseTranscriptionRequest(r)
 	if err != nil {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
 		return
 	}
 	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.logDenyFailure(r, request.Model, deny)
 		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
@@ -243,6 +263,7 @@ func (h *Handler) audioTranslations(w http.ResponseWriter, r *http.Request, toke
 	duration := time.Since(start)
 	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, nil)
 	if err != nil {
+		h.logRouterFailure(r, request.Model, err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -278,18 +299,21 @@ func (h *Handler) moderations(w http.ResponseWriter, r *http.Request, token *mod
 	start := time.Now()
 	var request models.ModerationRequest
 	if err := decodeJSONBody(w, r, &request); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	if request.Model == "" {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", stringPointer("model"))
 		return
 	}
 	if len(request.Input) == 0 {
+		h.logValidationFailure(r, request.Model, "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'input'", stringPointer("input"))
 		return
 	}
 	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.logDenyFailure(r, request.Model, deny)
 		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
@@ -297,6 +321,7 @@ func (h *Handler) moderations(w http.ResponseWriter, r *http.Request, token *mod
 	duration := time.Since(start)
 	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, nil)
 	if err != nil {
+		h.logRouterFailure(r, request.Model, err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -508,10 +533,12 @@ func (h *Handler) imageEdits(w http.ResponseWriter, r *http.Request, token *mode
 	start := time.Now()
 	request, err := parseImageEditRequest(r, true)
 	if err != nil {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
 		return
 	}
 	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.logDenyFailure(r, request.Model, deny)
 		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
@@ -519,6 +546,7 @@ func (h *Handler) imageEdits(w http.ResponseWriter, r *http.Request, token *mode
 	duration := time.Since(start)
 	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, nil)
 	if err != nil {
+		h.logRouterFailure(r, request.Model, err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -549,6 +577,7 @@ func (h *Handler) imageVariations(w http.ResponseWriter, r *http.Request, token 
 	start := time.Now()
 	request, err := parseImageEditRequest(r, false)
 	if err != nil {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
 		return
 	}
@@ -556,6 +585,7 @@ func (h *Handler) imageVariations(w http.ResponseWriter, r *http.Request, token 
 		request.Prompt = "Generate a variation of the input image."
 	}
 	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.logDenyFailure(r, request.Model, deny)
 		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
@@ -563,6 +593,7 @@ func (h *Handler) imageVariations(w http.ResponseWriter, r *http.Request, token 
 	duration := time.Since(start)
 	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, nil)
 	if err != nil {
+		h.logRouterFailure(r, request.Model, err)
 		h.handleRouterError(w, err)
 		return
 	}

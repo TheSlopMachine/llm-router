@@ -88,6 +88,9 @@ var ErrNotRefreshable = errors.New("credential type does not support refresh")
 func (s *GormService) RegisterGoAdapter(adapter GoAdapter) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+	if _, exists := s.goAdapters[adapter.TypeKey()]; exists && s.logger != nil {
+		s.logger.Warn("Provider adapter overwritten", "type", adapter.TypeKey())
+	}
 	s.goAdapters[adapter.TypeKey()] = adapter
 }
 

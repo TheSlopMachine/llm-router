@@ -692,8 +692,17 @@ func (s *Service) recordCrash(pluginID, typeKey, cause string) {
 	}
 	s.crashes[pluginID] = entries
 	if s.logger != nil {
-		s.logger.Debug("plugin crash recorded", "plugin_id", pluginID, "type", typeKey, "cause", cause)
+		s.logger.Debug("Plugin crash recorded", "plugin_id", pluginID, "type", typeKey, "error", cause)
 	}
+}
+
+// logLookupFailed records a registry miss at debug level with handler
+// context. Misses are expected for optional handlers and uninstalled types.
+func (s *Service) logLookupFailed(typeKey, handler string, lookupError error) {
+	if s.logger == nil || lookupError == nil {
+		return
+	}
+	s.logger.Debug("Plugin lookup failed", "type", typeKey, "endpoint", handler, "error", lookupError.Error())
 }
 
 // Logs returns recent plugin log lines from the events database, newest

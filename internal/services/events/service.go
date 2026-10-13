@@ -7,6 +7,7 @@ package events
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"time"
 
@@ -70,6 +71,7 @@ type Entry struct {
 type Service struct {
 	database      *db.Database
 	retentionDays int
+	logger        *slog.Logger
 }
 
 // New builds a Service on the events handle. RetentionDays must be at
@@ -84,12 +86,19 @@ func New(database *db.Database, retentionDays int) (*Service, error) {
 	return &Service{database: database, retentionDays: retentionDays}, nil
 }
 
+// SetLogger wires structured logging.
+func (s *Service) SetLogger(l *slog.Logger) { s.logger = l }
+
 // Append persists one event with its metadata keys in one transaction.
 func (s *Service) Append(ctx context.Context, timestamp time.Time, severity int, message string, keys map[string]string) error {
 	if severity < SeverityDebug || severity > SeverityFatal {
-		return fmt.Errorf("invalid event severity %d", severity)
+		err := fmt.Errorf("invalid event severity %d", severity)
+		if s.logger != nil {
+			s.logger.Error("Event append failed", "error", err, "severity", severity)
+		}
+		return err
 	}
-	return s.database.Events.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	err := s.database.Events.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		row := record.EventRecord{Timestamp: timestamp.UTC(), Severity: severity, Message: message}
 		if err := transaction.Create(&row).Error; err != nil {
 			return fmt.Errorf("create event record: %w", err)
@@ -111,6 +120,10 @@ func (s *Service) Append(ctx context.Context, timestamp time.Time, severity int,
 		}
 		return nil
 	})
+	if err != nil && s.logger != nil {
+		s.logger.Error("Event append failed", "error", err)
+	}
+	return err
 }
 
 // Prune deletes rows older than the retention window and reclaims pages.

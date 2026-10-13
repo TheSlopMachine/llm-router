@@ -34,7 +34,9 @@ func isBodyTooLarge(err error) bool {
 // writeDecodeError maps body decode failures in the OpenAI envelope.
 // OpenAI-only callers have no negotiated shape, so delegate to the
 // negotiated variant with a headerless request: empty headers force the
-// OpenAI branch, keeping status codes and envelope identical.
-func (h *Handler) writeDecodeError(w http.ResponseWriter, err error) {
-	h.writeCompatDecodeError(w, &http.Request{}, err)
+// OpenAI branch, keeping status codes and envelope identical. The real
+// request still drives the log keys.
+func (h *Handler) writeDecodeError(w http.ResponseWriter, r *http.Request, err error) {
+	h.logDecodeFailure(r, err)
+	h.writeCompatDecodeErrorWithoutLog(w, &http.Request{}, err)
 }

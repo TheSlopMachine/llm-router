@@ -29,6 +29,7 @@ import (
 // @Router       /api/events [get]
 func (h *Handler) apiEvents(w http.ResponseWriter, r *http.Request) {
 	if h.eventsService == nil {
+		h.logError("Events unavailable")
 		h.jsonErr(w, http.StatusServiceUnavailable, "events unavailable")
 		return
 	}
@@ -39,6 +40,7 @@ func (h *Handler) apiEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	entries, err := h.eventsService.Query(r.Context(), query)
 	if err != nil {
+		h.logError("Failed to query events", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, "query events failed")
 		return
 	}

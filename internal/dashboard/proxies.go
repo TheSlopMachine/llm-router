@@ -22,6 +22,7 @@ import (
 func (h *Handler) apiProxiesList(w http.ResponseWriter, _ *http.Request) {
 	all, err := h.proxyService.List()
 	if err != nil {
+		h.logError("Failed to list proxies", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -46,6 +47,7 @@ func (h *Handler) apiProxyRefresh(w http.ResponseWriter, _ *http.Request) {
 	if !started {
 		response["reason"] = "proxy pool is not running"
 	}
+	h.logInfo("Proxy refresh requested")
 	h.json(w, http.StatusAccepted, response)
 }
 
@@ -79,6 +81,7 @@ func (h *Handler) apiProxySources(w http.ResponseWriter, _ *http.Request) {
 func (h *Handler) apiProxyStatus(w http.ResponseWriter, _ *http.Request) {
 	status, err := h.proxyService.Status()
 	if err != nil {
+		h.logError("Failed to read proxy status", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -109,9 +112,11 @@ func (h *Handler) apiProxyRecheckBanned(w http.ResponseWriter, r *http.Request) 
 			h.jsonErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		h.logError("Failed to recheck banned proxies", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	h.logInfo("Proxy recheck queued", "count", queued)
 	h.json(w, http.StatusAccepted, models.RecheckBannedResponse{Queued: queued})
 }
 
@@ -127,6 +132,7 @@ func (h *Handler) apiProxyRecheckBanned(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) apiProxyPoolsList(w http.ResponseWriter, r *http.Request) {
 	pools, err := h.proxyService.ListCustomPools(r.Context())
 	if err != nil {
+		h.logError("Failed to list proxy pools", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -159,6 +165,7 @@ func (h *Handler) apiProxyPoolsSave(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	h.logInfo("Proxy pool saved", "pool_id", saved.ID)
 	h.json(w, http.StatusOK, saved)
 }
 
@@ -172,9 +179,11 @@ func (h *Handler) apiProxyPoolsSave(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/proxy-pools/{id} [delete]
 func (h *Handler) apiProxyPoolsDelete(w http.ResponseWriter, r *http.Request) {
-	if err := h.proxyService.DeleteCustomPool(r.Context(), r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	if err := h.proxyService.DeleteCustomPool(r.Context(), id); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	h.logInfo("Proxy pool deleted", "pool_id", id)
 	w.WriteHeader(http.StatusNoContent)
 }

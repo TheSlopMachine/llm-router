@@ -25,6 +25,7 @@ func (s *Service) moderateOne(ctx context.Context, resolved *provider.Resolved, 
 	if !ok {
 		return nil, "", fmt.Errorf("%w: provider %q does not support moderations", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
+	s.logBuiltInBackend(resolved, request.Model, len(credentials), allowed == nil)
 	response, err := moderator.Moderate(ctx, credentials, request, resolved.Instance.Config)
 	return response, "", err
 }
@@ -63,11 +64,20 @@ func (s *Service) moderateWithProxy(
 	}
 	resolved := resolvedRequest.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		return nil, "", fmt.Errorf("%w: virtual models do not serve moderations", apierrors.ErrEndpointNotSupported)
+		err := fmt.Errorf("%w: virtual models do not serve moderations", apierrors.ErrEndpointNotSupported)
+		s.debug("Denying request without backend capability",
+			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+			"model", request.Model.String(), "endpoint", models.EndpointModerations,
+			"reason", "virtual_unsupported", "token_id", tokenIdentifier(token), "error", err)
+		return nil, "", err
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
 	_, goSupported := resolved.Go.(provider.Moderator)
 	if err := s.requireCapability(resolved, "moderate", goSupported, fmt.Sprintf("provider %q does not support moderations", resolved.Instance.Name)); err != nil {
+		s.debug("Denying request without backend capability",
+			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+			"model", request.Model.String(), "endpoint", models.EndpointModerations,
+			"reason", "missing_handler", "token_id", tokenIdentifier(token), "error", err)
 		return nil, "", err
 	}
 	allowed, credentials, err := s.gateCredentials(ctx, resolved, request.Model, token)
@@ -75,6 +85,12 @@ func (s *Service) moderateWithProxy(
 		return nil, "", err
 	}
 	response, _, err := s.moderateOne(ctx, resolved, credentials, allowed, request)
+	if err != nil {
+		s.logError("Moderation request fails",
+			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+			"model", request.Model.String(), "endpoint", models.EndpointModerations,
+			"token_id", tokenIdentifier(token), "error", err)
+	}
 	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
 	return response, "", err
 }

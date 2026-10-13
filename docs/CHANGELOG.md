@@ -2,6 +2,12 @@
 
 ## Done (2026-10-13, vUnreleased)
 
+- Standardized backend logging across all services: severity tiers covered debug, info, warn, error and fatal with critical aliasing fatal, messages used one stable Sentence-case sentence per site with facts in snake_case keys, and the vocabulary extended to provider_id, token_id, plugin_id, job, operation, attempt, latency_ms and proxy_url.
+- Covered previously silent systems including router decisions and credential gates, upstream HTTP requests, token and admin mutations, compat stores, plugin repository, data management, doctor, proxy selection and dashboard plus v1 handlers; wired missing service loggers in the server and dashboard params.
+- Updated the plugin logging contract to 1.4 with the extended tiers and vocabulary, accepted critical in llm_router.log, and fixed stale version references.
+
+## Done (2026-10-13, vUnreleased)
+
 - Added `make install` (human-only): built the host release binary through the same frontend and version pipeline as `make build` via shared release helpers, placed `llm-router` into `~/.local/bin` replacing any previous install, and refused when the installed app was running. Unix installs warned with shell setup steps when the directory missed `PATH` without editing shell files; Windows registered the per-user `PATH` once when missing.
 
 ## Done (2026-10-13, vUnreleased)

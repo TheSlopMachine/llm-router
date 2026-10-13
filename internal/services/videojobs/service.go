@@ -10,6 +10,7 @@ package videojobs
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
@@ -26,6 +27,7 @@ import (
 type Service struct {
 	sqlite   *gorm.DB
 	sqlStore *repository.GormRepository[record.VideoJob]
+	logger   *slog.Logger
 }
 
 // New constructs a videojobs Service on the cache SQLite handle.
@@ -38,6 +40,16 @@ func New(sqliteDatabase *db.Database) *Service {
 		sqlite:   sqliteDatabase.Cache,
 		sqlStore: repository.NewGormRepository[record.VideoJob](sqliteDatabase.Cache, "id"),
 	}
+}
+
+// SetLogger wires structured logging (called once from server.New).
+func (s *Service) SetLogger(l *slog.Logger) { s.logger = l }
+
+func (s *Service) log() *slog.Logger {
+	if s == nil || s.logger == nil {
+		return slog.Default()
+	}
+	return s.logger
 }
 
 // toRecord maps the wire job to the storage row. Model IDs travel as
@@ -74,7 +86,9 @@ func fromRecord(row record.VideoJob) *models.VideoJob {
 // requireStore fails closed when the SQLite path is not attached.
 func (s *Service) requireStore() error {
 	if s == nil || s.sqlStore == nil || s.sqlite == nil {
-		return errors.New("videojobs: sqlite store not wired")
+		err := errors.New("videojobs: sqlite store not wired")
+		s.log().Error("Video job store not wired", "error", err)
+		return err
 	}
 	return nil
 }
@@ -85,19 +99,35 @@ func (s *Service) Create(ctx context.Context, job *models.VideoJob) error {
 		return err
 	}
 	if job == nil {
+		s.log().Debug("Video job create validation failed", "reason", "job required")
 		return errors.New("video job is required")
 	}
 	if job.ID == "" {
+		s.log().Debug("Video job create validation failed", "reason", "job id required")
 		return errors.New("video job id is required")
 	}
 	now := time.Now().UTC()
 	job.CreatedAt = now
 	job.UpdatedAt = now
 	row := toRecord(job)
-	return s.sqlite.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	replaced := false
+	err := s.sqlite.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		txStore := repository.NewGormRepository[record.VideoJob](tx, "id")
+		if _, getErr := txStore.Get(ctx, clause.Eq{Column: "id", Value: job.ID}); getErr == nil {
+			replaced = true
+		}
 		return txStore.Upsert(ctx, row)
 	})
+	if err != nil {
+		s.log().Error("Video job create failed", "job_id", job.ID, "error", err)
+		return err
+	}
+	if replaced {
+		s.log().Info("Video job replaced", "job_id", job.ID, "status", job.Status, "model", string(job.Model))
+	} else {
+		s.log().Info("Video job created", "job_id", job.ID, "status", job.Status, "model", string(job.Model))
+	}
+	return nil
 }
 
 // Get returns the job row by router-local ID.
@@ -108,11 +138,15 @@ func (s *Service) Get(ctx context.Context, id string) (*models.VideoJob, error) 
 	row, err := s.sqlStore.Get(ctx, clause.Eq{Column: "id", Value: id})
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			s.log().Debug("Video job not found", "job_id", id)
 			return nil, apierrors.NewNotFoundError("video job", id)
 		}
+		s.log().Error("Video job fetch failed", "job_id", id, "error", err)
 		return nil, err
 	}
-	return fromRecord(row), nil
+	job := fromRecord(row)
+	s.log().Debug("Video job fetched", "job_id", id, "status", job.Status)
+	return job, nil
 }
 
 // SetStatus records a new upstream status: one public method, one
@@ -121,17 +155,31 @@ func (s *Service) SetStatus(ctx context.Context, id, status string) error {
 	if err := s.requireStore(); err != nil {
 		return err
 	}
-	return s.sqlite.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := s.sqlite.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		txStore := repository.NewGormRepository[record.VideoJob](tx, "id")
 		row, err := txStore.Get(ctx, clause.Eq{Column: "id", Value: id})
 		if err != nil {
 			if errors.Is(err, apierrors.ErrNotFound) {
+				s.log().Debug("Video job not found", "job_id", id)
 				return apierrors.NewNotFoundError("video job", id)
 			}
+			s.log().Error("Video job status update failed", "job_id", id, "status", status, "error", err)
 			return err
 		}
 		row.Status = status
 		row.UpdatedAt = time.Now().UTC()
-		return txStore.Upsert(ctx, row)
+		if err := txStore.Upsert(ctx, row); err != nil {
+			s.log().Error("Video job status update failed", "job_id", id, "status", status, "error", err)
+			return err
+		}
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if !models.ValidVideoStatus(status) {
+		s.log().Warn("Video job status unknown", "job_id", id, "status", status)
+	}
+	s.log().Info("Video job status updated", "job_id", id, "status", status)
+	return nil
 }

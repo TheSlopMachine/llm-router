@@ -28,8 +28,10 @@ func (s *Service) loadBucket(timestamp time.Time, granularity string) (*MetricBu
 		return bucket, nil
 	}
 	if !errors.Is(err, apierrors.ErrNotFound) {
+		s.logger.Warn("Metrics load failed", "operation", "load", "granularity", granularity, "timestamp", timestamp, "error", err)
 		return nil, err
 	}
+	s.logger.Debug("Metrics load miss", "operation", "load", "granularity", granularity, "timestamp", timestamp)
 	return nil, apierrors.NewNotFoundError("metric bucket", timestamp.UTC().Format(time.RFC3339)+"_"+granularity)
 }
 
@@ -44,10 +46,13 @@ func (s *Service) loadBucketsInRange(start, end time.Time) ([]*MetricBucket, err
 func (s *Service) deleteBucketsOlderThan(cutoff time.Time) error {
 	removed, err := s.deleteBucketsOlderThanSQLite(context.Background(), cutoff)
 	if err != nil {
+		s.logger.Error("Metrics retention failed", "operation", "retention", "cutoff", cutoff, "error", err)
 		return err
 	}
 	if removed > 0 {
-		s.logger.Info("deleted old buckets", "count", removed)
+		s.logger.Info("Metrics retention completed", "operation", "retention", "count", removed, "cutoff", cutoff)
+	} else {
+		s.logger.Debug("Metrics retention completed", "operation", "retention", "count", removed, "cutoff", cutoff)
 	}
 	return nil
 }
@@ -57,6 +62,7 @@ func (s *Service) deleteBucketsOlderThan(cutoff time.Time) error {
 func (s *Service) loadTokenUsageFromDB() (map[string]*TokenUsageInfo, error) {
 	usage := make(map[string]*TokenUsageInfo)
 	if s.bucketRepository == nil {
+		s.logger.Debug("Metrics token usage skipped", "operation", "token usage")
 		return usage, nil
 	}
 	rows, err := s.listTokenDimensionRows(context.Background())
@@ -82,6 +88,7 @@ func (s *Service) loadTokenUsageFromDB() (map[string]*TokenUsageInfo, error) {
 // aggregation. Callers fold requests and latest use in Go.
 func (s *Service) listTokenDimensionRows(ctx context.Context) ([]record.MetricBucketToken, error) {
 	if s.sqliteDatabase == nil {
+		s.logger.Debug("Metrics token rows skipped", "operation", "list tokens")
 		return nil, nil
 	}
 	rows, err := gorm.G[record.MetricBucketToken](s.sqliteDatabase).Find(ctx)
@@ -95,6 +102,7 @@ func (s *Service) listTokenDimensionRows(ctx context.Context) ([]record.MetricBu
 // model listing. Callers deduplicate in Go.
 func (s *Service) listModelDimensionRows(ctx context.Context) ([]record.MetricBucketModel, error) {
 	if s.sqliteDatabase == nil {
+		s.logger.Debug("Metrics model rows skipped", "operation", "list models")
 		return nil, nil
 	}
 	rows, err := gorm.G[record.MetricBucketModel](s.sqliteDatabase).Find(ctx)

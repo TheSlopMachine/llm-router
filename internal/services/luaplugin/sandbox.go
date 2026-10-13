@@ -218,6 +218,7 @@ func slogLevelForSeverity(severity int) slog.Level {
 }
 
 // parseLogSeverity maps a plugin severity string to an event severity.
+// critical aliases fatal.
 func parseLogSeverity(caller string, L *lua.LState, value lua.LValue) int {
 	name, ok := value.(lua.LString)
 	if !ok {
@@ -233,10 +234,10 @@ func parseLogSeverity(caller string, L *lua.LState, value lua.LValue) int {
 		return events.SeverityWarn
 	case "error":
 		return events.SeverityError
-	case "fatal":
+	case "fatal", "critical":
 		return events.SeverityFatal
 	default:
-		L.RaiseError("%s: unknown severity %q: want debug, info, warn, error or fatal", caller, string(name))
+		L.RaiseError("%s: unknown severity %q: want debug, info, warn, error, fatal or critical", caller, string(name))
 		return events.SeverityInfo
 	}
 }

@@ -17,6 +17,7 @@ import (
 func (h *Handler) apiDataStats(w http.ResponseWriter, r *http.Request) {
 	statistics, err := h.dataGormService.Stats(r.Context())
 	if err != nil {
+		h.logError("Failed to read subsystem statistics", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -51,6 +52,7 @@ func (h *Handler) apiDataExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
+		h.logError("Failed to export subsystem data", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -122,7 +124,7 @@ func (h *Handler) apiDataImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.logger.Info("subsystem data imported", "subsystem", subsystem)
+	h.logInfo("Subsystem data imported", "subsystem", subsystem)
 	h.json(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -153,11 +155,12 @@ func (h *Handler) apiDataClear(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
+		h.logError("Failed to clear subsystem data", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	h.logger.Info("subsystem data cleared", "subsystem", subsystem)
+	h.logInfo("Subsystem data cleared", "subsystem", subsystem)
 	h.json(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -198,7 +201,7 @@ func (h *Handler) apiProviderImport(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	h.logger.Info("provider data imported", "provider_id", bundle.Instance.ID)
+	h.logInfo("Provider data imported", "provider_id", bundle.Instance.ID)
 	h.json(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -213,9 +216,10 @@ func (h *Handler) apiProviderImport(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) apiProviderPurge(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := h.dataGormService.PurgeProvider(r.Context(), id); err != nil {
+		h.logError("Failed to purge provider", "provider_id", id, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	h.logger.Info("provider completely purged", "provider_id", id)
+	h.logInfo("Provider purged", "provider_id", id)
 	h.json(w, http.StatusOK, map[string]any{"ok": true})
 }

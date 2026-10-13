@@ -137,20 +137,23 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request, token 
 	start := time.Now()
 	var request models.ChatCompletionRequest
 	if err := decodeJSONBody(w, r, &request); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	request.NormalizeAliases()
 	if request.Model == "" {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", stringPointer("model"))
 		return
 	}
 	if len(request.Messages) == 0 {
+		h.logValidationFailure(r, request.Model, "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'messages'", stringPointer("messages"))
 		return
 	}
 
 	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.logDenyFailure(r, request.Model, deny)
 		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
@@ -170,6 +173,7 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request, token 
 	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, usage)
 
 	if err != nil {
+		h.logRouterFailure(r, request.Model, err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -200,11 +204,13 @@ func (h *Handler) audioTranscriptions(w http.ResponseWriter, r *http.Request, to
 	start := time.Now()
 	request, err := parseTranscriptionRequest(r)
 	if err != nil {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
 		return
 	}
 
 	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.logDenyFailure(r, request.Model, deny)
 		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
@@ -215,6 +221,7 @@ func (h *Handler) audioTranscriptions(w http.ResponseWriter, r *http.Request, to
 	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, nil)
 
 	if err != nil {
+		h.logRouterFailure(r, request.Model, err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -339,30 +346,35 @@ func (h *Handler) audioSpeech(w http.ResponseWriter, r *http.Request, token *mod
 	start := time.Now()
 	var request models.SpeechRequest
 	if err := decodeJSONBody(w, r, &request); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	if request.Model == "" {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", stringPointer("model"))
 		return
 	}
 	if strings.TrimSpace(request.Input) == "" {
+		h.logValidationFailure(r, request.Model, "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'input'", stringPointer("input"))
 		return
 	}
 	switch request.ResponseFormat {
 	case "", "mp3", "opus", "aac", "flac", "wav", "pcm":
 	default:
+		h.logValidationFailure(r, request.Model, "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error",
 			fmt.Sprintf("invalid response_format %q: expected mp3, opus, aac, flac, wav or pcm", request.ResponseFormat), stringPointer("response_format"))
 		return
 	}
 	if request.Speed != nil && (*request.Speed < 0.25 || *request.Speed > 4.0) {
+		h.logValidationFailure(r, request.Model, "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "speed must be between 0.25 and 4.0", stringPointer("speed"))
 		return
 	}
 
 	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.logDenyFailure(r, request.Model, deny)
 		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
@@ -373,6 +385,7 @@ func (h *Handler) audioSpeech(w http.ResponseWriter, r *http.Request, token *mod
 	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, nil)
 
 	if err != nil {
+		h.logRouterFailure(r, request.Model, err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -402,26 +415,30 @@ func (h *Handler) imageGenerations(w http.ResponseWriter, r *http.Request, token
 	start := time.Now()
 	var request models.ImageGenerationRequest
 	if err := decodeJSONBody(w, r, &request); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	if strings.TrimSpace(request.Prompt) == "" {
+		h.logValidationFailure(r, request.Model, "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'prompt'", stringPointer("prompt"))
 		return
 	}
 	if request.N < 0 || request.N > 10 {
+		h.logValidationFailure(r, request.Model, "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "n must be between 1 and 10", stringPointer("n"))
 		return
 	}
 	switch request.ResponseFormat {
 	case "", "url", "b64_json":
 	default:
+		h.logValidationFailure(r, request.Model, "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error",
 			fmt.Sprintf("invalid response_format %q: expected url or b64_json", request.ResponseFormat), stringPointer("response_format"))
 		return
 	}
 
 	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.logDenyFailure(r, request.Model, deny)
 		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
@@ -432,6 +449,7 @@ func (h *Handler) imageGenerations(w http.ResponseWriter, r *http.Request, token
 	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, nil)
 
 	if err != nil {
+		h.logRouterFailure(r, request.Model, err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -459,19 +477,22 @@ func (h *Handler) embeddings(w http.ResponseWriter, r *http.Request, token *mode
 	start := time.Now()
 	var request models.EmbeddingsRequest
 	if err := decodeJSONBody(w, r, &request); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	if request.Model == "" {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", stringPointer("model"))
 		return
 	}
 	if len(request.Input) == 0 {
+		h.logValidationFailure(r, request.Model, "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'input'", stringPointer("input"))
 		return
 	}
 	for _, text := range request.Input {
 		if strings.TrimSpace(text) == "" {
+			h.logValidationFailure(r, request.Model, "invalid_request_error")
 			h.writeError(w, http.StatusBadRequest, "invalid_request_error", "input must not contain empty strings", stringPointer("input"))
 			return
 		}
@@ -479,12 +500,14 @@ func (h *Handler) embeddings(w http.ResponseWriter, r *http.Request, token *mode
 	switch request.EncodingFormat {
 	case "", "float", "base64":
 	default:
+		h.logValidationFailure(r, request.Model, "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error",
 			fmt.Sprintf("invalid encoding_format %q: expected float or base64", request.EncodingFormat), stringPointer("encoding_format"))
 		return
 	}
 
 	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.logDenyFailure(r, request.Model, deny)
 		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
@@ -495,6 +518,7 @@ func (h *Handler) embeddings(w http.ResponseWriter, r *http.Request, token *mode
 	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, nil)
 
 	if err != nil {
+		h.logRouterFailure(r, request.Model, err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -545,25 +569,30 @@ func (h *Handler) anthropicMessages(w http.ResponseWriter, r *http.Request, toke
 		return
 	}
 	if request.Model == "" {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", stringPointer("model"))
 		return
 	}
 	if request.MaxTokens <= 0 {
+		h.logValidationFailure(r, models.ModelId(request.Model), "invalid_request_error")
 		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'max_tokens'", stringPointer("max_tokens"))
 		return
 	}
 	if len(request.Messages) == 0 {
+		h.logValidationFailure(r, models.ModelId(request.Model), "invalid_request_error")
 		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'messages'", stringPointer("messages"))
 		return
 	}
 
 	chatRequest, err := anthropicToOpenAI(&request)
 	if err != nil {
+		h.logValidationFailure(r, models.ModelId(request.Model), "invalid_request_error")
 		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
 		return
 	}
 
 	if deny := authorizeModel(token, chatRequest.Model); deny != nil {
+		h.logDenyFailure(r, chatRequest.Model, deny)
 		h.writeCompatError(w, r, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
@@ -583,6 +612,7 @@ func (h *Handler) anthropicMessages(w http.ResponseWriter, r *http.Request, toke
 	h.recordRouteMetric(r.Context(), start, chatRequest.Model, token, duration, err, usage)
 
 	if err != nil {
+		h.logRouterFailure(r, chatRequest.Model, err)
 		h.handleCompatRouterError(w, r, err)
 		return
 	}
@@ -595,6 +625,12 @@ func (h *Handler) anthropicMessages(w http.ResponseWriter, r *http.Request, toke
 func (h *Handler) anthropicStream(w http.ResponseWriter, r *http.Request, chatRequest *models.ChatCompletionRequest, token *models.RouterToken, start time.Time) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		if h.logger != nil {
+			h.logger.Error("Streaming not supported",
+				"endpoint", endpointFromRequest(r),
+				"code", apierrors.CodeServerError,
+				"model", string(chatRequest.Model))
+		}
 		h.writeError(w, http.StatusInternalServerError, "server_error", "streaming is not supported by this server", nil)
 		return
 	}
@@ -614,7 +650,14 @@ func (h *Handler) anthropicStream(w http.ResponseWriter, r *http.Request, chatRe
 	}
 
 	if err != nil {
-		h.logger.Error("anthropic stream error", "err", err)
+		if h.logger != nil {
+			h.logger.Error("Anthropic stream error",
+				"endpoint", endpointFromRequest(r),
+				"code", apierrors.ToAPIError(err).Code,
+				"model", string(chatRequest.Model),
+				"provider_id", providerID,
+				"error", err)
+		}
 		_ = translatedWriter.emit("error", map[string]any{
 			"type":  "error",
 			"error": map[string]any{"type": "api_error", "message": err.Error()},
@@ -627,6 +670,12 @@ func (h *Handler) anthropicStream(w http.ResponseWriter, r *http.Request, chatRe
 func (h *Handler) handleStreamWithMetrics(w http.ResponseWriter, r *http.Request, request *models.ChatCompletionRequest, token *models.RouterToken, start time.Time) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		if h.logger != nil {
+			h.logger.Error("Streaming not supported",
+				"endpoint", endpointFromRequest(r),
+				"code", apierrors.CodeServerError,
+				"model", string(request.Model))
+		}
 		h.writeError(w, http.StatusInternalServerError, "server_error", "streaming is not supported by this server", nil)
 		return
 	}
@@ -648,7 +697,14 @@ func (h *Handler) handleStreamWithMetrics(w http.ResponseWriter, r *http.Request
 	}
 
 	if err != nil {
-		h.logger.Error("stream error", "err", err)
+		if h.logger != nil {
+			h.logger.Error("Stream error",
+				"endpoint", endpointFromRequest(r),
+				"code", apierrors.ToAPIError(err).Code,
+				"model", string(request.Model),
+				"provider_id", providerID,
+				"error", err)
+		}
 
 		// Send error in OpenAI-compatible format as SSE event
 		WriteOpenAIStreamError(w, flusher, err)
@@ -713,7 +769,12 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, token *mode
 				}
 				modelViews, err := h.modelInfoSvc.MergedView(r.Context(), providerInstance.ID)
 				if err != nil {
-					h.logger.Warn("v1 listModels: model discovery failed", "provider_id", providerInstance.ID, "err", err)
+					if h.logger != nil {
+						h.logger.Warn("List models discovery failed",
+							"endpoint", endpointFromRequest(r),
+							"provider_id", providerInstance.ID,
+							"error", err)
+					}
 					if providerInstance.TypeKey == "custom" {
 						// Compat servers may not implement GET /models — still advertise provider as routable.
 						entries = append(entries, models.ModelEntry{
@@ -769,15 +830,30 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, token *mode
 					for _, entry := range agent.Models {
 						memberView, ok := byFullID[string(entry.ModelID)]
 						if !ok {
-							h.logger.Warn("v1 listModels: virtual member not found, skipping",
-								"virtual_id", agent.ID, "member", string(entry.ModelID))
+							if h.logger != nil {
+								memberProviderID, _, _ := entry.ModelID.Parse()
+								fields := []any{
+									"endpoint", endpointFromRequest(r),
+									"code", "model_not_found",
+									"model", string(entry.ModelID),
+								}
+								if memberProviderID != "" {
+									fields = append(fields, "provider_id", memberProviderID)
+								}
+								h.logger.Warn("List models virtual member skipped", fields...)
+							}
 							continue
 						}
 						members = append(members, memberView)
 					}
 					if len(members) == 0 {
-						h.logger.Warn("v1 listModels: virtual model has no available members, hiding",
-							"virtual_id", agent.ID)
+						if h.logger != nil {
+							h.logger.Warn("List models virtual model hidden",
+								"endpoint", endpointFromRequest(r),
+								"code", "model_not_found",
+								"model", provider.TypeVirtual+"/"+agent.ID,
+								"provider_id", provider.TypeVirtual)
+						}
 						return
 					}
 					mutex.Lock()
@@ -821,7 +897,21 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request, token *mode
 		entries = []models.ModelEntry{}
 	}
 	if token != nil {
+		beforeFilter := len(entries)
 		entries = filterModelsByToken(token, entries)
+		if h.logger != nil {
+			if omitted := beforeFilter - len(entries); omitted > 0 {
+				h.logger.Debug("List models token filtered",
+					"endpoint", endpointFromRequest(r),
+					"code", "model_not_allowed",
+					"count", omitted)
+			}
+		}
+	}
+	if h.logger != nil {
+		h.logger.Debug("List models succeeded",
+			"endpoint", endpointFromRequest(r),
+			"count", len(entries))
 	}
 
 	if isAnthropicStyle(r) {
@@ -893,16 +983,25 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, token *m
 	}
 	modelPath = strings.TrimSuffix(modelPath, "/")
 	if modelPath == "" {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "model id is required", stringPointer("model"))
 		return
 	}
 	modelID := models.ModelId(modelPath)
 	providerID, modelName, err := modelID.Parse()
 	if err != nil || providerID == "" || modelName == "" {
+		h.logValidationFailure(r, modelID, "not_found")
 		h.writeCompatError(w, r, http.StatusNotFound, "not_found", fmt.Sprintf("The model '%s' does not exist", modelPath), nil)
 		return
 	}
 	if token != nil && !token.Rules.Allows(modelID) {
+		if h.logger != nil {
+			h.logger.Debug("Retrieve model hidden by token rules",
+				"endpoint", endpointFromRequest(r),
+				"code", "not_found",
+				"model", string(modelID),
+				"provider_id", providerID)
+		}
 		h.writeCompatError(w, r, http.StatusNotFound, "not_found", fmt.Sprintf("The model '%s' does not exist", modelPath), nil)
 		return
 	}
@@ -923,8 +1022,12 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, token *m
 				for _, entry := range agent.Models {
 					memberProviderID, memberName, parseError := entry.ModelID.Parse()
 					if parseError != nil {
-						h.logger.Warn("v1 retrieveModel: virtual member id invalid, skipping",
-							"virtual_id", agent.ID, "member", string(entry.ModelID))
+						if h.logger != nil {
+							h.logger.Warn("Retrieve model virtual member skipped",
+								"endpoint", endpointFromRequest(r),
+								"code", "not_found",
+								"model", string(entry.ModelID))
+						}
 						continue
 					}
 					need[memberProviderID] = append(need[memberProviderID], memberName)
@@ -933,8 +1036,14 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, token *m
 				for memberProviderID, memberNames := range need {
 					memberViews, viewError := h.modelInfoSvc.PeekMergedView(r.Context(), memberProviderID)
 					if viewError != nil {
-						h.logger.Warn("v1 retrieveModel: provider view unavailable, skipping members",
-							"virtual_id", agent.ID, "provider_id", memberProviderID)
+						if h.logger != nil {
+							h.logger.Warn("Retrieve model provider view unavailable",
+								"endpoint", endpointFromRequest(r),
+								"code", "model_not_found",
+								"model", provider.TypeVirtual+"/"+agent.ID,
+								"provider_id", memberProviderID,
+								"error", viewError)
+						}
 						continue
 					}
 					byName := make(map[string]modelinfo.ModelView, len(memberViews))
@@ -946,8 +1055,13 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, token *m
 					for _, memberName := range memberNames {
 						memberView, ok := byName[memberName]
 						if !ok {
-							h.logger.Warn("v1 retrieveModel: virtual member not found, skipping",
-								"virtual_id", agent.ID, "member", memberProviderID+"/"+memberName)
+							if h.logger != nil {
+								h.logger.Warn("Retrieve model virtual member skipped",
+									"endpoint", endpointFromRequest(r),
+									"code", "not_found",
+									"model", memberProviderID+"/"+memberName,
+									"provider_id", memberProviderID)
+							}
 							continue
 						}
 						members = append(members, memberView)
@@ -964,8 +1078,13 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, token *m
 					}
 					virtualMetadata = virtual.FoldMembers(memberInfos)
 				} else {
-					h.logger.Warn("v1 retrieveModel: virtual model has no available members, hiding",
-						"virtual_id", agent.ID)
+					if h.logger != nil {
+						h.logger.Warn("Retrieve model virtual model hidden",
+							"endpoint", endpointFromRequest(r),
+							"code", "model_not_found",
+							"model", provider.TypeVirtual+"/"+agent.ID,
+							"provider_id", provider.TypeVirtual)
+					}
 				}
 			}
 		}
@@ -985,8 +1104,15 @@ func (h *Handler) retrieveModel(w http.ResponseWriter, r *http.Request, token *m
 		}
 	}
 	if !exists {
+		h.logValidationFailure(r, modelID, "not_found")
 		h.writeCompatError(w, r, http.StatusNotFound, "not_found", fmt.Sprintf("The model '%s' does not exist", modelPath), nil)
 		return
+	}
+	if h.logger != nil {
+		h.logger.Debug("Retrieve model succeeded",
+			"endpoint", endpointFromRequest(r),
+			"model", string(modelID),
+			"provider_id", providerID)
 	}
 	if isAnthropicStyle(r) {
 		echoAnthropicVersion(w, r)
@@ -1107,6 +1233,7 @@ func (h *Handler) auth(next authenticatedHandler, allowAnonymous bool) http.Hand
 				next(w, r, nil)
 				return
 			}
+			h.logAuthenticationFailure(r, "invalid_request_error")
 			h.writeError(w, http.StatusUnauthorized, "invalid_request_error", "You didn't provide an API key. Provide it in an Authorization: Bearer header or an x-api-key header.", stringPointer("Authorization"))
 			return
 		}
@@ -1114,9 +1241,11 @@ func (h *Handler) auth(next authenticatedHandler, allowAnonymous bool) http.Hand
 		token, err := h.tokens.Validate(r.Context(), raw)
 		if err != nil {
 			if errors.Is(err, apierrors.ErrUnauthorized) {
+				h.logAuthenticationFailure(r, "invalid_request_error")
 				h.writeError(w, http.StatusUnauthorized, "invalid_request_error", "Incorrect API key provided. You can find your API key at https://platform.openai.com/account/api-keys.", nil)
 				return
 			}
+			h.logTokenValidationFailure(r, err)
 			h.writeError(w, http.StatusInternalServerError, "server_error", "token validation failed", nil)
 			return
 		}
@@ -1157,6 +1286,9 @@ func isAnthropicStyle(r *http.Request) bool {
 }
 
 func (h *Handler) handleRouterError(w http.ResponseWriter, err error) {
+	// Wire only: callers record "Request failed" via logRouterFailure with
+	// model context before calling. Shapes stay OpenAI; see compatErrors
+	// for the Anthropic translation.
 	routerError := h.classifyError(err)
 	apierrors.WriteResponseHeaders(w, pluginResponseHeaders(err))
 	h.writeError(w, routerError.status, routerError.code, wireMessage(err), nil)
@@ -1216,6 +1348,8 @@ func (h *Handler) writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(value); err != nil {
-		h.logger.Error("json encode error", "err", err)
+		if h != nil && h.logger != nil {
+			h.logger.Error("JSON encode error", "error", err)
+		}
 	}
 }

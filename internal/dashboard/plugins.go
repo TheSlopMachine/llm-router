@@ -53,6 +53,7 @@ func toPluginView(record *luaplugin.PluginRecord) pluginView {
 func (h *Handler) apiPluginsList(w http.ResponseWriter, r *http.Request) {
 	records, err := h.luaService.ListSQLite(r.Context())
 	if err != nil {
+		h.logError("Failed to list plugins", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -108,6 +109,7 @@ func (h *Handler) apiPluginsInstallFile(w http.ResponseWriter, r *http.Request) 
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	h.logInfo("Plugin installed", "plugin_id", record.ID)
 	h.json(w, http.StatusOK, toPluginView(record))
 }
 
@@ -123,10 +125,12 @@ func (h *Handler) apiPluginsInstallFile(w http.ResponseWriter, r *http.Request) 
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugins/{id} [delete]
 func (h *Handler) apiPluginsDelete(w http.ResponseWriter, r *http.Request) {
-	if err := h.luaService.DeleteSQLite(r.Context(), r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	if err := h.luaService.DeleteSQLite(r.Context(), id); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	h.logInfo("Plugin deleted", "plugin_id", id)
 	h.json(w, http.StatusOK, map[string]string{"message": "plugin deleted"})
 }
 
@@ -142,11 +146,13 @@ func (h *Handler) apiPluginsDelete(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugins/{id}/rollback [post]
 func (h *Handler) apiPluginsRollback(w http.ResponseWriter, r *http.Request) {
-	record, err := h.luaService.RollbackSQLite(r.Context(), r.PathValue("id"))
+	id := r.PathValue("id")
+	record, err := h.luaService.RollbackSQLite(r.Context(), id)
 	if err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	h.logInfo("Plugin rolled back", "plugin_id", id)
 	h.json(w, http.StatusOK, toPluginView(record))
 }
 
@@ -161,8 +167,10 @@ func (h *Handler) apiPluginsRollback(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugins/{id}/logs [get]
 func (h *Handler) apiPluginsLogs(w http.ResponseWriter, r *http.Request) {
-	entries, err := h.luaService.Logs(r.Context(), r.PathValue("id"))
+	id := r.PathValue("id")
+	entries, err := h.luaService.Logs(r.Context(), id)
 	if err != nil {
+		h.logError("Failed to read plugin logs", "plugin_id", id, "error", err)
 		h.jsonErr(w, http.StatusServiceUnavailable, "plugin logs unavailable")
 		return
 	}

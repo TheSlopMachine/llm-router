@@ -32,6 +32,7 @@ func (h *Handler) apiMetricsOverview(w http.ResponseWriter, r *http.Request) {
 
 	overview, err := h.metricsService.QueryOverview(filters)
 	if err != nil {
+		h.logError("Failed to query metrics overview", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -73,6 +74,7 @@ func (h *Handler) apiMetricsTimeSeries(w http.ResponseWriter, r *http.Request) {
 
 	points, err := h.metricsService.QueryTimeSeries(metric, filters)
 	if err != nil {
+		h.logError("Failed to query metrics time series", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -93,6 +95,7 @@ func (h *Handler) apiMetricsTimeSeries(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) apiMetricsModels(w http.ResponseWriter, r *http.Request) {
 	distinctModels, err := h.metricsService.GetDistinctModels()
 	if err != nil {
+		h.logError("Failed to list metric models", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -113,6 +116,7 @@ func (h *Handler) apiMetricsModels(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) apiTokenUsage(w http.ResponseWriter, r *http.Request) {
 	usage, err := h.metricsService.GetTokenUsage()
 	if err != nil {
+		h.logError("Failed to query token usage", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

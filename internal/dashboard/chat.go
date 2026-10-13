@@ -80,6 +80,7 @@ func (h *Handler) apiChatCompletions(w http.ResponseWriter, r *http.Request) {
 	h.metricsService.RecordRequest(event)
 
 	if err != nil {
+		h.logError("Chat completion failed", "model", string(request.Model), "provider_id", providerID, "error", err)
 		handleChatRouterError(w, err, h)
 		return
 	}
@@ -90,6 +91,7 @@ func (h *Handler) apiChatCompletions(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleChatStream(w http.ResponseWriter, r *http.Request, request *models.ChatCompletionRequest, start time.Time) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		h.logError("Streaming not supported", "model", string(request.Model))
 		h.jsonErr(w, http.StatusInternalServerError, "streaming not supported")
 		return
 	}
@@ -101,7 +103,7 @@ func (h *Handler) handleChatStream(w http.ResponseWriter, r *http.Request, reque
 	duration := time.Since(start)
 	providerID, _ := h.routerService.GetProviderIDForModel(r.Context(), request.Model)
 	if err != nil {
-		h.logger.Error("chat stream error", "err", err)
+		h.logError("Chat stream failed", "model", string(request.Model), "provider_id", providerID, "error", err)
 		// Send error as SSE event for frontend
 		if errorBytes, marshalErr := v1.MarshalOpenAIStreamError(err); marshalErr == nil {
 			fmt.Fprintf(w, "data: %s\n\n", errorBytes)

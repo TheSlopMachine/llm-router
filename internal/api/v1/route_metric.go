@@ -14,6 +14,8 @@ import (
 
 // recordRouteMetric builds and records the shared MetricEvent for one routed
 // non-streaming request. Chat usage attaches only when provided.
+// Metrics only: no logs emit here; callers log validation, deny and router
+// outcomes at the edge with endpoint, code, model, provider_id and error.
 func (h *Handler) recordRouteMetric(ctx context.Context, start time.Time, model models.ModelId, token *models.RouterToken, duration time.Duration, err error, usage *models.ChatCompletionUsage) {
 	providerType, _, _ := model.Parse()
 	providerID, _ := h.router.GetProviderIDForModel(ctx, model)

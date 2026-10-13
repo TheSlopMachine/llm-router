@@ -183,8 +183,8 @@ func (s *Service) launchLifecycleHook(record *PluginRecord, handler, reason stri
 			err = s.RunDeinitialize(hookCtx, record, reason, "", nil)
 		}
 		if err != nil && s.logger != nil {
-			s.logger.Warn("plugin lifecycle hook failed",
-				"plugin_id", record.ID, "handler", handler, "reason", reason, "err", err)
+			s.logger.Warn("Plugin lifecycle hook failed",
+				"plugin_id", record.ID, "endpoint", handler, "reason", reason, "error", err.Error())
 		}
 	}()
 }
@@ -202,6 +202,7 @@ func (s *Service) NotifyProviderDisabled(instance *models.ProviderInstance) {
 	}
 	record, err := s.Lookup(instance.TypeKey)
 	if err != nil {
+		s.logLookupFailed(instance.TypeKey, string(HandlerDeinitialize), err)
 		return
 	}
 	providerID := instance.ID
@@ -210,8 +211,8 @@ func (s *Service) NotifyProviderDisabled(instance *models.ProviderInstance) {
 		hookCtx, cancel := context.WithTimeout(context.Background(), lifecycleHookTimeout)
 		defer cancel()
 		if hookErr := s.RunDeinitialize(hookCtx, record, DeinitializeReasonDisable, providerID, providerConfig); hookErr != nil && s.logger != nil {
-			s.logger.Warn("plugin deinitialize on provider disable failed",
-				"plugin_id", record.ID, "provider_id", providerID, "err", hookErr)
+			s.logger.Warn("Plugin deinitialize on provider disable failed",
+				"plugin_id", record.ID, "provider_id", providerID, "error", hookErr.Error())
 		}
 	}()
 }

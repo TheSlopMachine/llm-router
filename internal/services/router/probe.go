@@ -49,17 +49,29 @@ func probeRequest(model models.ModelId) *models.ChatCompletionRequest {
 func (s *Service) TestCredential(ctx context.Context, providerID, credentialID string, overrideModel string) TestResult {
 	resolved, err := provider.Resolve(s.providerService, ctx, providerID)
 	if err != nil {
+		s.debug("Probing credential fails for unknown provider",
+			"provider_id", providerID, "cred_id", credentialID,
+			"reason", "provider_not_found", "error", err)
 		return TestResult{Error: err.Error(), Code: apierrors.ToAPIError(err).Code}
 	}
 	credential, err := s.credentialService.Get(ctx, credentialID)
 	if err != nil {
+		s.debug("Probing credential fails for missing credential",
+			"provider_id", providerID, "cred_id", credentialID,
+			"reason", "credential_not_found", "error", err)
 		return TestResult{Error: "credential not found", Code: "not_found"}
 	}
 	if credential.ProviderID != providerID {
+		s.debug("Probing credential fails for mismatched provider",
+			"provider_id", providerID, "cred_id", credentialID,
+			"reason", "credential_provider_mismatch", "detail", credential.ProviderID)
 		return TestResult{Error: "credential does not belong to this provider", Code: "invalid_request_error"}
 	}
 	luaService := s.providerService.LuaService()
 	if luaService == nil || !luaService.HasHandler(resolved.Instance.TypeKey, string(luaplugin.HandlerCheckHealth)) {
+		s.debug("Probing credential skips unsupported health check",
+			"provider_id", providerID, "type", resolved.Instance.TypeKey, "cred_id", credentialID,
+			"reason", "healthcheck_unsupported")
 		return TestResult{Error: "health check not supported for this provider", Code: "unsupported", Summary: "health check not supported"}
 	}
 	start := time.Now()
@@ -68,10 +80,16 @@ func (s *Service) TestCredential(ctx context.Context, providerID, credentialID s
 	status, message, healthError := luaService.CheckHealth(checkCtx, resolved.Instance.TypeKey, credential)
 	latency := time.Since(start).Milliseconds()
 	if healthError != nil {
+		s.debug("Probing credential health check fails",
+			"provider_id", providerID, "type", resolved.Instance.TypeKey, "cred_id", credentialID,
+			"latency_ms", latency, "error", healthError)
 		return TestResult{Error: healthError.Error(), Code: "upstream_error", Summary: "health check failed", Latency: latency}
 	}
 	switch status {
 	case luaplugin.HealthHealthy:
+		s.info("Probing credential reports healthy",
+			"provider_id", providerID, "type", resolved.Instance.TypeKey, "cred_id", credentialID,
+			"latency_ms", latency)
 		return TestResult{OK: true, Latency: latency, Response: "healthy"}
 	case luaplugin.HealthUnhealthy:
 		reason := message
@@ -81,17 +99,48 @@ func (s *Service) TestCredential(ctx context.Context, providerID, credentialID s
 		// The provider automation switch masters every non-manual disable:
 		// off reports the verdict without touching the credential.
 		if !disableFailedCredentials(resolved) {
+			s.warn("Probing credential reports unhealthy",
+				"provider_id", providerID, "type", resolved.Instance.TypeKey, "cred_id", credentialID,
+				"reason", reason, "latency_ms", latency)
 			return TestResult{Error: reason, Code: "unhealthy", Summary: "credential unhealthy", Latency: latency}
 		}
 		if disableError := s.credentialService.DisableUnhealthy(ctx, credentialID, reason); disableError != nil {
+			s.logError("Disabling unhealthy credential fails",
+				"provider_id", providerID, "type", resolved.Instance.TypeKey, "cred_id", credentialID,
+				"operation", "test_credential", "reason", reason, "error", disableError)
 			return TestResult{Error: disableError.Error(), Code: "upstream_error", Summary: "disable failed", Latency: latency}
 		}
+		s.warn("Disabling unhealthy credential after probe",
+			"provider_id", providerID, "type", resolved.Instance.TypeKey, "cred_id", credentialID,
+			"reason", reason, "latency_ms", latency)
 		return TestResult{Error: reason, Code: "unhealthy", Summary: "credential unhealthy, disabled", Latency: latency}
 	default:
 		if message == "" {
 			message = "health check inconclusive"
 		}
+		s.debug("Probing credential reports inconclusive result",
+			"provider_id", providerID, "type", resolved.Instance.TypeKey, "cred_id", credentialID,
+			"reason", message, "latency_ms", latency)
 		return TestResult{Error: message, Code: "unknown", Summary: "health check inconclusive", Latency: latency}
+	}
+}
+
+// logProbeResult records the probe mapping outcome. Quota exhaustion stays
+// visible at info so callers never mistake a live model for a dead one.
+func (s *Service) logProbeResult(model models.ModelId, result TestResult) {
+	arguments := []any{"model", model.String(), "latency_ms", result.Latency}
+	if result.Proxy != "" {
+		arguments = append(arguments, "proxy_url", result.Proxy)
+	}
+	switch {
+	case result.OK:
+		s.info("Probing model succeeds", arguments...)
+	case result.QuotaExceeded:
+		s.info("Probing model reports quota exhaustion",
+			append(arguments, "code", result.Code, "reason", "quota_exhausted", "error", result.Error)...)
+	default:
+		s.debug("Probing model fails",
+			append(arguments, "code", result.Code, "reason", result.Summary, "error", result.Error)...)
 	}
 }
 
@@ -102,13 +151,17 @@ func (s *Service) TestModel(ctx context.Context, modelID models.ModelId) TestRes
 	start := time.Now()
 	response, proxy, err := s.completeWithProxy(ctx, probeRequest(modelID), nil, true)
 	if err != nil {
-		return probeResult(start, "", proxy, err)
+		result := probeResult(start, "", proxy, err)
+		s.logProbeResult(modelID, result)
+		return result
 	}
 	text := ""
 	if len(response.Choices) > 0 {
 		text = response.Choices[0].Message.TextContent()
 	}
-	return probeResult(start, text, proxy, nil)
+	result := probeResult(start, text, proxy, nil)
+	s.logProbeResult(modelID, result)
+	return result
 }
 
 // probePixelPNG is a 1x1 PNG for vision probes: no network needed to build
@@ -230,9 +283,13 @@ func (s *Service) TestVision(ctx context.Context, modelID models.ModelId) TestRe
 		if err == nil {
 			err = fmt.Errorf("empty response")
 		}
-		return probeResult(start, "", proxy, err)
+		result := probeResult(start, "", proxy, err)
+		s.logProbeResult(modelID, result)
+		return result
 	}
-	return probeResult(start, response.Choices[0].Message.TextContent(), proxy, nil)
+	result := probeResult(start, response.Choices[0].Message.TextContent(), proxy, nil)
+	s.logProbeResult(modelID, result)
+	return result
 }
 
 // TestSpeech runs a minimal speech probe, bypassing manual disable.
@@ -240,9 +297,13 @@ func (s *Service) TestSpeech(ctx context.Context, modelID models.ModelId) TestRe
 	start := time.Now()
 	response, proxy, err := s.speechWithProxy(ctx, &models.SpeechRequest{Model: modelID, Input: "test"}, nil, true)
 	if err != nil {
-		return probeResult(start, "", proxy, err)
+		result := probeResult(start, "", proxy, err)
+		s.logProbeResult(modelID, result)
+		return result
 	}
-	return probeResult(start, fmt.Sprintf("%d bytes of audio", len(response.Audio)), proxy, nil)
+	result := probeResult(start, fmt.Sprintf("%d bytes of audio", len(response.Audio)), proxy, nil)
+	s.logProbeResult(modelID, result)
+	return result
 }
 
 // TestTranscribe runs a minimal transcription probe, bypassing manual disable.
@@ -255,9 +316,13 @@ func (s *Service) TestTranscribe(ctx context.Context, modelID models.ModelId) Te
 		ContentType: "audio/wav",
 	}, nil, true)
 	if err != nil {
-		return probeResult(start, "", proxy, err)
+		result := probeResult(start, "", proxy, err)
+		s.logProbeResult(modelID, result)
+		return result
 	}
-	return probeResult(start, response.Text, proxy, nil)
+	result := probeResult(start, response.Text, proxy, nil)
+	s.logProbeResult(modelID, result)
+	return result
 }
 
 // TestImageGeneration runs a minimal image probe, bypassing manual disable.
@@ -265,9 +330,13 @@ func (s *Service) TestImageGeneration(ctx context.Context, modelID models.ModelI
 	start := time.Now()
 	response, proxy, err := s.generateImageWithProxy(ctx, &models.ImageGenerationRequest{Model: modelID, Prompt: "test", N: 1}, nil, true)
 	if err != nil {
-		return probeResult(start, "", proxy, err)
+		result := probeResult(start, "", proxy, err)
+		s.logProbeResult(modelID, result)
+		return result
 	}
-	return probeResult(start, fmt.Sprintf("%d image(s)", len(response.Data)), proxy, nil)
+	result := probeResult(start, fmt.Sprintf("%d image(s)", len(response.Data)), proxy, nil)
+	s.logProbeResult(modelID, result)
+	return result
 }
 
 // TestEmbeddings runs a minimal embeddings probe, bypassing manual disable.
@@ -275,13 +344,17 @@ func (s *Service) TestEmbeddings(ctx context.Context, modelID models.ModelId) Te
 	start := time.Now()
 	response, proxy, err := s.embedWithProxy(ctx, &models.EmbeddingsRequest{Model: modelID, Input: []string{"test"}}, nil, true)
 	if err != nil {
-		return probeResult(start, "", proxy, err)
+		result := probeResult(start, "", proxy, err)
+		s.logProbeResult(modelID, result)
+		return result
 	}
 	dims := 0
 	if len(response.Data) > 0 {
 		dims = len(response.Data[0].Values)
 	}
-	return probeResult(start, fmt.Sprintf("%d embedding(s), %d dims", len(response.Data), dims), proxy, nil)
+	result := probeResult(start, fmt.Sprintf("%d embedding(s), %d dims", len(response.Data), dims), proxy, nil)
+	s.logProbeResult(modelID, result)
+	return result
 }
 
 // ProbeCapabilities detects model features with live probe requests.
@@ -290,9 +363,14 @@ func (s *Service) TestEmbeddings(ctx context.Context, modelID models.ModelId) Te
 func (s *Service) ProbeCapabilities(ctx context.Context, modelID models.ModelId) ([]string, error) {
 	providerID, _, err := modelID.Parse()
 	if err != nil {
+		s.debug("Denying capability probe with invalid model identifier",
+			"model", modelID.String(), "reason", "invalid_model_id", "error", err)
 		return nil, fmt.Errorf("invalid model id: %w", err)
 	}
 	if _, err := provider.Resolve(s.providerService, ctx, providerID); err != nil {
+		s.debug("Denying capability probe for unknown provider",
+			"provider_id", providerID, "model", modelID.String(),
+			"reason", "provider_not_found", "error", err)
 		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
 	}
 

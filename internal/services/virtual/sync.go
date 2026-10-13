@@ -63,10 +63,12 @@ type ProviderVMGroup struct {
 func (s *GormService) GroupsForProvider(ctx context.Context, providerID string) ([]ProviderVMGroup, error) {
 	views, err := s.modelInfoService.PeekMergedView(ctx, providerID)
 	if err != nil {
+		s.log().Error("Virtual model group listing fails", "provider_id", providerID, "operation", "peek_view", "error", err)
 		return nil, err
 	}
 	managed, err := s.List(ctx)
 	if err != nil {
+		s.log().Error("Virtual model group listing fails", "provider_id", providerID, "operation", "list", "error", err)
 		return nil, err
 	}
 	byMarker := map[string]*models.VirtualModel{}
@@ -74,6 +76,15 @@ func (s *GormService) GroupsForProvider(ctx context.Context, providerID string) 
 		if virtualModel.ManagedBy != "" {
 			byMarker[virtualModel.ManagedBy] = virtualModel
 		}
+	}
+	disabled := 0
+	for _, view := range views {
+		if view.Disabled {
+			disabled++
+		}
+	}
+	if disabled > 0 {
+		s.log().Debug("Virtual model group listing filters disabled models", "provider_id", providerID, "count", disabled, "total", len(views))
 	}
 	groups := []ProviderVMGroup{}
 	for _, endpoint := range syncEndpoints {
@@ -96,6 +107,7 @@ func (s *GormService) GroupsForProvider(ctx context.Context, providerID string) 
 		}
 		groups = append(groups, group)
 	}
+	s.log().Debug("Virtual model group listing succeeds", "provider_id", providerID, "count", len(groups))
 	return groups, nil
 }
 
@@ -123,14 +135,18 @@ func sameMembers(current []models.VirtualModelEntry, desired []models.VirtualMod
 func (s *GormService) SyncProviderModels(ctx context.Context, providerID string) ([]ProviderVMGroup, error) {
 	instance, err := s.providerService.Get(ctx, providerID)
 	if err != nil {
+		s.log().Error("Managed virtual model sync fails", "provider_id", providerID, "operation", "load_provider", "error", err)
 		return nil, err
 	}
 	var groups []ProviderVMGroup
 	if !instance.Disabled {
 		groups, err = s.GroupsForProvider(ctx, providerID)
 		if err != nil {
+			s.log().Error("Managed virtual model sync fails", "provider_id", providerID, "operation", "groups", "error", err)
 			return nil, err
 		}
+	} else {
+		s.log().Debug("Managed virtual model sync purges disabled provider", "provider_id", providerID)
 	}
 	// Orphan index: an unmanaged record squatting an auto-generated name is
 	// adopted instead of colliding with it.
@@ -141,16 +157,19 @@ func (s *GormService) SyncProviderModels(ctx context.Context, providerID string)
 				orphans[strings.ToLower(virtualModel.Name)] = virtualModel
 			}
 		}
+	} else {
+		s.log().Debug("Managed virtual model sync misses orphan index", "provider_id", providerID, "operation", "list_orphans", "error", err)
 	}
 	live := map[string]bool{}
 	var syncErrors []error
-	fail := func(endpoint, operation string, err error) {
+	fail := func(endpoint, operation string, err error, attrs ...any) {
 		syncErrors = append(syncErrors, fmt.Errorf("endpoint %s %s: %w", endpoint, operation, err))
-		s.log().Warn("managed virtual model "+operation+" failed",
-			"provider_id", providerID, "endpoint", endpoint, "error", err)
+		args := append([]any{"provider_id", providerID, "endpoint", endpoint, "operation", operation, "error", err}, attrs...)
+		s.log().Warn("Managed virtual model sync fails", args...)
 	}
 	for i := range groups {
 		if err := ctx.Err(); err != nil {
+			s.log().Debug("Managed virtual model sync cancels", "provider_id", providerID, "operation", "sync_groups", "error", err)
 			return groups, errors.Join(append(syncErrors, fmt.Errorf("sync canceled: %w", err))...)
 		}
 		group := &groups[i]
@@ -167,12 +186,13 @@ func (s *GormService) SyncProviderModels(ctx context.Context, providerID string)
 				adopted.ManagedBy = marker
 				adopted.Models = toEntries(entries)
 				if err := s.Update(ctx, adopted.ID, &adopted); err != nil {
-					fail(group.Endpoint, "adopt", err)
+					fail(group.Endpoint, "adopt", err, "model", adopted.ID)
 					continue
 				}
 				if fresh, err := s.Get(ctx, adopted.ID); err == nil {
 					group.Virtual = fresh
 				} else {
+					s.log().Debug("Managed virtual model sync misses refreshed model", "provider_id", providerID, "endpoint", group.Endpoint, "model", adopted.ID, "error", err)
 					group.Virtual = &adopted
 				}
 				continue
@@ -191,38 +211,49 @@ func (s *GormService) SyncProviderModels(ctx context.Context, providerID string)
 			continue
 		}
 		if sameMembers(group.Virtual.Models, toEntries(entries)) {
+			s.log().Debug("Managed virtual model sync skips unchanged members", "provider_id", providerID, "endpoint", group.Endpoint, "model", group.Virtual.ID)
 			continue
 		}
 		updated := *group.Virtual
 		updated.Models = toEntries(entries)
 		if err := s.Update(ctx, updated.ID, &updated); err != nil {
-			fail(group.Endpoint, "update", err)
+			fail(group.Endpoint, "update", err, "model", updated.ID)
 			continue
 		}
 		if fresh, err := s.Get(ctx, updated.ID); err == nil {
 			group.Virtual = fresh
 		} else {
+			s.log().Debug("Managed virtual model sync misses refreshed model", "provider_id", providerID, "endpoint", group.Endpoint, "model", updated.ID, "error", err)
 			group.Virtual = &updated
 		}
 	}
 	all, err := s.List(ctx)
 	if err != nil {
+		s.log().Error("Managed virtual model sync fails", "provider_id", providerID, "operation", "list", "error", err)
 		return groups, errors.Join(append(syncErrors, err)...)
 	}
+	purged := 0
 	for _, virtualModel := range all {
 		if err := ctx.Err(); err != nil {
+			s.log().Debug("Managed virtual model sync cancels", "provider_id", providerID, "operation", "purge_stale", "error", err)
 			return groups, errors.Join(append(syncErrors, fmt.Errorf("sync canceled: %w", err))...)
 		}
-		markerProvider, _, markerError := ParseMarker(virtualModel.ManagedBy)
+		markerProvider, slug, markerError := ParseMarker(virtualModel.ManagedBy)
 		if markerError != nil || markerProvider != providerID {
 			continue
 		}
-		if !live[strings.TrimPrefix(virtualModel.ManagedBy, "provider:"+providerID+":")] {
+		if !live[slug] {
 			if err := s.Delete(ctx, virtualModel.ID); err != nil {
-				fail(virtualModel.ID, "delete", err)
+				fail(slug, "delete", err, "model", virtualModel.ID)
+			} else {
+				purged++
 			}
 		}
 	}
+	if purged > 0 {
+		s.log().Debug("Managed virtual model sync purges stale models", "provider_id", providerID, "count", purged)
+	}
+	s.log().Debug("Managed virtual model sync succeeds", "provider_id", providerID, "count", len(groups))
 	return groups, errors.Join(syncErrors...)
 }
 

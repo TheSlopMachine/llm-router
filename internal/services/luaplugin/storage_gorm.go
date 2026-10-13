@@ -155,19 +155,26 @@ func newStorageTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 // previous backend so plugin-visible shapes stay identical.
 func (service *Service) SetStorageSQLite(ctx context.Context, pluginID string, scope string, key string, value any, timeToLive time.Duration) error {
 	if err := requireStorageKey(scope, key); err != nil {
+		service.logStorageStoreFailed(pluginID, scope, key, err)
 		return err
 	}
 	if timeToLive < 0 {
-		return fmt.Errorf("storage ttl must not be negative")
+		storeError := fmt.Errorf("storage ttl must not be negative")
+		service.logStorageStoreFailed(pluginID, scope, key, storeError)
+		return storeError
 	}
 	if timeToLive > maxStorageTTL {
-		return fmt.Errorf("storage ttl exceeds 90 days")
+		storeError := fmt.Errorf("storage ttl exceeds 90 days")
+		service.logStorageStoreFailed(pluginID, scope, key, storeError)
+		return storeError
 	}
 	if err := service.requireHandle(); err != nil {
+		service.logStorageStoreFailed(pluginID, scope, key, err)
 		return err
 	}
 	encoded, err := storageValueToBytes(value)
 	if err != nil {
+		service.logStorageStoreFailed(pluginID, scope, key, err)
 		return err
 	}
 	var expiresAt *time.Time
@@ -193,12 +200,18 @@ func (service *Service) SetStorageSQLite(ctx context.Context, pluginID string, s
 		}
 		return nil
 	}); err != nil {
+		service.logStorageStoreFailed(pluginID, scope, key, err)
 		return err
 	}
-	return other.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	if err := other.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		_, err := gorm.G[record.PluginStorage](transaction, clause.Eq{Column: "plugin_id", Value: pluginID}, clause.Eq{Column: "scope", Value: scope}, clause.Eq{Column: "key", Value: key}).Delete(ctx)
 		return db.Translate(err)
-	})
+	}); err != nil {
+		service.logStorageStoreFailed(pluginID, scope, key, err)
+		return err
+	}
+	service.logStorageStored(pluginID, scope, key, timeToLive)
+	return nil
 }
 
 // GetStorageSQLite returns one plugin storage entry in one transaction per
@@ -208,15 +221,24 @@ func (service *Service) SetStorageSQLite(ctx context.Context, pluginID string, s
 // nil without an error.
 func (service *Service) GetStorageSQLite(ctx context.Context, pluginID string, scope string, key string) (any, error) {
 	if err := requireStorageKey(scope, key); err != nil {
+		service.logStorageLoadFailed(pluginID, scope, key, err)
 		return nil, err
 	}
 	if err := service.requireHandle(); err != nil {
+		service.logStorageLoadFailed(pluginID, scope, key, err)
 		return nil, err
 	}
 	conditions := []clause.Expression{clause.Eq{Column: "plugin_id", Value: pluginID}, clause.Eq{Column: "scope", Value: scope}, clause.Eq{Column: "key", Value: key}}
 	if row, err := gorm.G[record.PluginStorage](service.database, conditions...).First(ctx); err == nil {
-		return storageValueFromBytes(row.Value)
+		value, decodeError := storageValueFromBytes(row.Value)
+		if decodeError != nil {
+			service.logStorageLoadFailed(pluginID, scope, key, decodeError)
+			return nil, decodeError
+		}
+		service.logStorageLoaded(pluginID, scope, key)
+		return value, nil
 	} else if translated := db.Translate(err); !stdErrors.Is(translated, apierrors.ErrNotFound) {
+		service.logStorageLoadFailed(pluginID, scope, key, translated)
 		return nil, translated
 	}
 	var result any
@@ -244,8 +266,14 @@ func (service *Service) GetStorageSQLite(ctx context.Context, pluginID string, s
 		result = value
 		return nil
 	}); err != nil {
+		service.logStorageLoadFailed(pluginID, scope, key, err)
 		return nil, err
 	}
+	if result == nil {
+		service.logStorageMissing(pluginID, scope, key)
+		return nil, nil
+	}
+	service.logStorageLoaded(pluginID, scope, key)
 	return result, nil
 }
 
@@ -254,9 +282,11 @@ func (service *Service) GetStorageSQLite(ctx context.Context, pluginID string, s
 // delete.
 func (service *Service) DeleteStorageSQLite(ctx context.Context, pluginID string, scope string, key string) error {
 	if err := requireStorageKey(scope, key); err != nil {
+		service.logStorageRemoveFailed(pluginID, scope, key, err)
 		return err
 	}
 	if err := service.requireHandle(); err != nil {
+		service.logStorageRemoveFailed(pluginID, scope, key, err)
 		return err
 	}
 	for _, handle := range []*gorm.DB{service.database, service.cache} {
@@ -264,9 +294,11 @@ func (service *Service) DeleteStorageSQLite(ctx context.Context, pluginID string
 			_, err := gorm.G[record.PluginStorage](transaction, clause.Eq{Column: "plugin_id", Value: pluginID}, clause.Eq{Column: "scope", Value: scope}, clause.Eq{Column: "key", Value: key}).Delete(ctx)
 			return db.Translate(err)
 		}); err != nil {
+			service.logStorageRemoveFailed(pluginID, scope, key, err)
 			return err
 		}
 	}
+	service.logStorageRemoved(pluginID, scope, key)
 	return nil
 }
 
@@ -313,4 +345,61 @@ func (service *Service) PruneExpiredStorageSQLite(ctx context.Context) (int64, e
 		return 0, err
 	}
 	return removed, nil
+}
+
+func storageLogKeys(pluginID, scope, key, operation string) []any {
+	return []any{"plugin_id", pluginID, "operation", operation, "scope", scope, "key", key}
+}
+
+func (service *Service) logStorageStored(pluginID, scope, key string, timeToLive time.Duration) {
+	if service.logger == nil {
+		return
+	}
+	arguments := append(storageLogKeys(pluginID, scope, key, "set"), "wait", int64(timeToLive/time.Second))
+	service.logger.Debug("Plugin storage entry stored", arguments...)
+}
+
+func (service *Service) logStorageStoreFailed(pluginID, scope, key string, storeError error) {
+	if service.logger == nil || storeError == nil {
+		return
+	}
+	arguments := append(storageLogKeys(pluginID, scope, key, "set"), "error", storeError.Error())
+	service.logger.Error("Plugin storage entry store failed", arguments...)
+}
+
+func (service *Service) logStorageLoaded(pluginID, scope, key string) {
+	if service.logger == nil {
+		return
+	}
+	service.logger.Debug("Plugin storage entry loaded", storageLogKeys(pluginID, scope, key, "get")...)
+}
+
+func (service *Service) logStorageMissing(pluginID, scope, key string) {
+	if service.logger == nil {
+		return
+	}
+	service.logger.Debug("Plugin storage entry missing", storageLogKeys(pluginID, scope, key, "get")...)
+}
+
+func (service *Service) logStorageLoadFailed(pluginID, scope, key string, loadError error) {
+	if service.logger == nil || loadError == nil {
+		return
+	}
+	arguments := append(storageLogKeys(pluginID, scope, key, "get"), "error", loadError.Error())
+	service.logger.Error("Plugin storage entry load failed", arguments...)
+}
+
+func (service *Service) logStorageRemoved(pluginID, scope, key string) {
+	if service.logger == nil {
+		return
+	}
+	service.logger.Debug("Plugin storage entry removed", storageLogKeys(pluginID, scope, key, "delete")...)
+}
+
+func (service *Service) logStorageRemoveFailed(pluginID, scope, key string, removeError error) {
+	if service.logger == nil || removeError == nil {
+		return
+	}
+	arguments := append(storageLogKeys(pluginID, scope, key, "delete"), "error", removeError.Error())
+	service.logger.Error("Plugin storage entry remove failed", arguments...)
 }

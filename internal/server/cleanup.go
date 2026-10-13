@@ -19,9 +19,11 @@ func startupCleanup(logger *slog.Logger, credentialService *credential.GormServi
 	// rows left over from the credential-bound era are dead weight.
 	for _, key := range []string{"agents", provider.TypeVirtual} {
 		if count, err := credentialService.DeleteByProvider(ctx, key); err != nil {
-			logger.Warn("virtual credential cleanup failed", "provider", key, "err", err)
+			logger.Warn("Virtual credential cleanup fails", "provider_id", key, "error", err)
 		} else if count > 0 {
-			logger.Info("virtual credential cleanup completed", "provider", key, "count", count)
+			logger.Info("Virtual credential cleanup completes", "provider_id", key, "count", count)
+		} else {
+			logger.Debug("Virtual credential cleanup finds no rows", "provider_id", key)
 		}
 	}
 }
@@ -39,10 +41,13 @@ func wireInvalidation(logger *slog.Logger, providerService *provider.GormService
 		// Runtime plugin changes (install/update/rollback/enable) must
 		// create default provider rows, previously seeded at startup.
 		if err := providerService.SyncDefaultProviders(ctx); err != nil {
-			logger.Warn("sync default providers failed", "err", err)
+			logger.Warn("Default provider sync fails", "plugin_id", typeKey, "error", err)
+		} else {
+			logger.Debug("Default provider sync completes", "plugin_id", typeKey)
 		}
 		providers, err := providerService.GetByType(ctx, typeKey)
 		if err != nil {
+			logger.Warn("Provider lookup fails", "plugin_id", typeKey, "error", err)
 			return
 		}
 		for _, provider := range providers {

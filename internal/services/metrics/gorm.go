@@ -76,7 +76,11 @@ func toMetricBucket(row record.MetricBucket) *MetricBucket {
 // persistBucketSQLite writes one base bucket row plus its dimension
 // children in one transaction on the transaction handle only.
 func (s *Service) persistBucketSQLite(ctx context.Context, bucket *MetricBucket, granularity string) error {
-	if s.sqliteDatabase == nil || bucket == nil {
+	if bucket == nil {
+		return nil
+	}
+	if s.sqliteDatabase == nil {
+		s.logger.Warn("Metrics persist skipped", "operation", "persist", "granularity", granularity, "timestamp", bucket.Timestamp)
 		return nil
 	}
 	return s.sqliteDatabase.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
@@ -115,6 +119,7 @@ func (s *Service) loadBucketSQLite(ctx context.Context, timestamp time.Time, gra
 // interval, across all granularities, with dimension children attached.
 func (s *Service) loadBucketsInRangeSQLite(ctx context.Context, start, end time.Time) ([]*MetricBucket, error) {
 	if s.bucketRepository == nil {
+		s.logger.Debug("Metrics load skipped", "operation", "load range")
 		return nil, nil
 	}
 	rows, err := s.bucketRepository.List(ctx,
@@ -139,6 +144,7 @@ func (s *Service) loadBucketsInRangeSQLite(ctx context.Context, start, end time.
 // so rollups preserve the breakdowns.
 func (s *Service) loadBucketsByGranularitySQLite(ctx context.Context, cutoff time.Time, granularity string) ([]*MetricBucket, error) {
 	if s.bucketRepository == nil {
+		s.logger.Debug("Metrics load skipped", "operation", "load granularity", "granularity", granularity, "cutoff", cutoff)
 		return nil, nil
 	}
 	rows, err := s.bucketRepository.List(ctx,
@@ -280,14 +286,12 @@ func dimensionBucketKey(granularity string, timestamp time.Time) string {
 // cutoff. The foreign key cascade removes the dimension children.
 func (s *Service) deleteBucketsOlderThanSQLite(ctx context.Context, cutoff time.Time) (int64, error) {
 	if s.bucketRepository == nil {
+		s.logger.Warn("Metrics retention skipped", "operation", "retention", "cutoff", cutoff)
 		return 0, nil
 	}
 	removed, err := s.bucketRepository.Delete(ctx, clause.Lt{Column: "timestamp", Value: cutoff.UTC()})
 	if err != nil {
 		return 0, err
-	}
-	if removed > 0 {
-		s.logger.Info("deleted old metric buckets from sqlite", "count", removed)
 	}
 	return removed, nil
 }
@@ -296,6 +300,7 @@ func (s *Service) deleteBucketsOlderThanSQLite(ctx context.Context, cutoff time.
 // key cascade removes its dimension children.
 func (s *Service) deleteBucketSQLite(ctx context.Context, timestamp time.Time, granularity string) error {
 	if s.bucketRepository == nil {
+		s.logger.Warn("Metrics delete skipped", "operation", "delete", "granularity", granularity, "timestamp", timestamp)
 		return nil
 	}
 	_, err := s.bucketRepository.Delete(ctx,

@@ -77,6 +77,7 @@ func (s *Service) HealthCooldown(typeKey string) time.Duration {
 func (s *Service) CheckHealth(goCtx context.Context, typeKey string, credential *models.Credential) (HealthStatus, string, error) {
 	record, err := s.Lookup(typeKey)
 	if err != nil {
+		s.logLookupFailed(typeKey, string(HandlerCheckHealth), err)
 		return "", "", err
 	}
 	var status HealthStatus
@@ -118,5 +119,23 @@ func (s *Service) CheckHealth(goCtx context.Context, typeKey string, credential 
 	if !found {
 		return "", "", &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: string(HandlerCheckHealth)}
 	}
+	s.logHealthVerdict(record.ID, typeKey, credential, status, message)
 	return status, message, nil
+}
+
+// logHealthVerdict records a valid health verdict at debug level with
+// credential context. Variable detail travels in reason, never in text.
+func (s *Service) logHealthVerdict(pluginID, typeKey string, credential *models.Credential, status HealthStatus, message string) {
+	if s.logger == nil {
+		return
+	}
+	credentialID := ""
+	if credential != nil {
+		credentialID = credential.ID
+	}
+	arguments := []any{"plugin_id", pluginID, "type", typeKey, "cred_id", credentialID, "status", string(status)}
+	if message != "" {
+		arguments = append(arguments, "reason", message)
+	}
+	s.logger.Debug("Credential health verdict", arguments...)
 }

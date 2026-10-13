@@ -30,6 +30,7 @@ func (h *Handler) apiProviderModels(w http.ResponseWriter, r *http.Request) {
 	}
 	views, err := h.gormModelInfoService.MergedView(r.Context(), providerID)
 	if err != nil {
+		h.logError("Failed to read provider models", "provider_id", providerID, "error", err)
 		h.jsonErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
@@ -39,7 +40,7 @@ func (h *Handler) apiProviderModels(w http.ResponseWriter, r *http.Request) {
 	// Viewing warms the cache on a miss; rebuild managed virtual models
 	// from the warmed list so they never linger missing until a toggle.
 	if _, err := h.gormVirtualService.SyncProviderModels(r.Context(), providerID); err != nil {
-		h.logger.Warn("managed virtual models sync failed", "provider_id", providerID, "err", err)
+		h.logWarn("Managed virtual models sync failed", "provider_id", providerID, "error", err)
 	}
 	h.json(w, http.StatusOK, views)
 }
@@ -115,8 +116,9 @@ func (h *Handler) apiProviderModelSetOverride(w http.ResponseWriter, r *http.Req
 	}
 	// Enable/disable flips reshape managed virtual models.
 	if _, err := h.gormVirtualService.SyncProviderModels(r.Context(), providerID); err != nil {
-		h.logger.Warn("managed virtual models sync failed", "provider_id", providerID, "err", err)
+		h.logWarn("Managed virtual models sync failed", "provider_id", providerID, "error", err)
 	}
+	h.logInfo("Model override saved", "provider_id", providerID, "model", modelName)
 	h.json(w, http.StatusOK, override)
 }
 
@@ -137,13 +139,16 @@ func (h *Handler) apiProviderModelDeleteOverride(w http.ResponseWriter, r *http.
 		h.jsonErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	if err := h.gormModelInfoService.DeleteOverride(r.Context(), providerID, r.PathValue("model")); err != nil {
+	modelName := r.PathValue("model")
+	if err := h.gormModelInfoService.DeleteOverride(r.Context(), providerID, modelName); err != nil {
+		h.logError("Failed to remove model override", "provider_id", providerID, "model", modelName, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if _, err := h.gormVirtualService.SyncProviderModels(r.Context(), providerID); err != nil {
-		h.logger.Warn("managed virtual models sync failed", "provider_id", providerID, "err", err)
+		h.logWarn("Managed virtual models sync failed", "provider_id", providerID, "error", err)
 	}
+	h.logInfo("Model override removed", "provider_id", providerID, "model", modelName)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -169,15 +174,17 @@ func (h *Handler) apiProviderModelsRefresh(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if _, err := h.gormModelInfoService.Refresh(r.Context(), providerID); err != nil {
-		h.logger.Warn("model refresh failed, serving stale list", "provider_id", providerID, "err", err)
+		h.logWarn("Model refresh failed, serving stale list", "provider_id", providerID, "error", err)
 	} else if _, err := h.gormVirtualService.SyncProviderModels(r.Context(), providerID); err != nil {
-		h.logger.Warn("managed virtual models sync failed", "provider_id", providerID, "err", err)
+		h.logWarn("Managed virtual models sync failed", "provider_id", providerID, "error", err)
 	}
 	views, err := h.gormModelInfoService.MergedView(r.Context(), providerID)
 	if err != nil {
+		h.logError("Failed to read provider models", "provider_id", providerID, "error", err)
 		h.jsonErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	h.logInfo("Provider models refreshed", "provider_id", providerID, "count", len(views))
 	h.json(w, http.StatusOK, views)
 }
 
@@ -203,7 +210,7 @@ func (h *Handler) apiProviderVirtualModelsSync(w http.ResponseWriter, r *http.Re
 	}
 	groups, err := h.gormVirtualService.SyncProviderModels(r.Context(), providerID)
 	if err != nil {
-		h.logger.Error("managed virtual models sync failed", "provider_id", providerID, "error", err)
+		h.logError("Managed virtual models sync failed", "provider_id", providerID, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -233,6 +240,7 @@ func (h *Handler) apiProviderVirtualModels(w http.ResponseWriter, r *http.Reques
 	}
 	groups, err := h.gormVirtualService.GroupsForProvider(r.Context(), providerID)
 	if err != nil {
+		h.logError("Failed to list provider virtual models", "provider_id", providerID, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -268,6 +276,7 @@ func (h *Handler) apiModelCapabilities(w http.ResponseWriter, r *http.Request) {
 	}
 	capabilities, err := h.routerService.ProbeCapabilities(r.Context(), models.ModelId(body.ModelID))
 	if err != nil {
+		h.logWarn("Model capabilities probe failed", "model", body.ModelID, "error", err)
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -322,11 +331,11 @@ func (h *Handler) apiModelTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !result.OK {
-		arguments := []any{"model", body.ModelID, "endpoint", body.Endpoint, "err", result.Error}
+		arguments := []any{"model", body.ModelID, "endpoint", body.Endpoint, "error", result.Error}
 		if result.Proxy != "" {
-			arguments = append(arguments, "proxy", result.Proxy)
+			arguments = append(arguments, "proxy_url", result.Proxy)
 		}
-		h.logger.Warn("model probe failed", arguments...)
+		h.logWarn("Model probe failed", arguments...)
 	}
 	h.json(w, http.StatusOK, result)
 }

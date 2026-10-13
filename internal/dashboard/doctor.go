@@ -17,6 +17,7 @@ import (
 func (h *Handler) apiDoctorInspect(w http.ResponseWriter, r *http.Request) {
 	report, err := h.doctorGormService.Inspect(r.Context())
 	if err != nil {
+		h.logError("Failed to inspect database", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -42,10 +43,11 @@ func (h *Handler) apiDoctorFix(w http.ResponseWriter, r *http.Request) {
 
 	fixed, err := h.doctorGormService.Fix(r.Context(), body.Categories)
 	if err != nil {
+		h.logError("Failed to repair database", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	h.logger.Info("database doctor fix executed", "fixed_count", fixed)
+	h.logInfo("Database repair completed", "count", fixed)
 	h.json(w, http.StatusOK, map[string]any{"fixed": fixed})
 }

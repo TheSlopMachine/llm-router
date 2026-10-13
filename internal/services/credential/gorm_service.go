@@ -40,6 +40,13 @@ func NewGorm(database *db.Database, providerService *provider.GormService) *Gorm
 // SetLogger wires structured logging.
 func (s *GormService) SetLogger(l *slog.Logger) { s.logger = l }
 
+func (s *GormService) log() *slog.Logger {
+	if s == nil || s.logger == nil {
+		return slog.Default()
+	}
+	return s.logger
+}
+
 // AddOptions holds parameters for adding a new credential to a provider's pool.
 type AddOptions struct {
 	ProviderID string
@@ -117,10 +124,12 @@ func (s *GormService) Add(ctx context.Context, options AddOptions) (*models.Cred
 		data = map[string]any{}
 	}
 	if err := s.validateCredentialData(ctx, providerService, options.ProviderID, data); err != nil {
+		s.log().Warn("Credential validation rejects input", "provider_id", options.ProviderID, "error", err)
 		return nil, err
 	}
 	identifier, err := util.GenerateID()
 	if err != nil {
+		s.log().Error("Credential creation fails", "provider_id", options.ProviderID, "operation", "generate_id", "error", err)
 		return nil, err
 	}
 	now := util.Now()
@@ -139,8 +148,10 @@ func (s *GormService) Add(ctx context.Context, options AddOptions) (*models.Cred
 		}
 		return nil
 	}); err != nil {
+		s.log().Error("Credential creation fails", "provider_id", options.ProviderID, "operation", "create", "error", err)
 		return nil, err
 	}
+	s.log().Info("Credential creation succeeds", "cred_id", identifier, "provider_id", options.ProviderID)
 	return credentialModelFromRecord(row), nil
 }
 
@@ -154,11 +165,15 @@ func (s *GormService) Get(ctx context.Context, identifier string) (*models.Crede
 	if err != nil {
 		translated := db.Translate(err)
 		if stdErrors.Is(translated, apierrors.ErrNotFound) {
+			s.log().Debug("Credential lookup misses", "cred_id", identifier)
 			return nil, apierrors.NewNotFoundError("credential", identifier)
 		}
+		s.log().Error("Credential lookup fails", "cred_id", identifier, "operation", "get", "error", translated)
 		return nil, translated
 	}
-	return credentialModelFromRecord(row), nil
+	credential := credentialModelFromRecord(row)
+	s.log().Debug("Credential lookup succeeds", "cred_id", identifier, "provider_id", credential.ProviderID)
+	return credential, nil
 }
 
 // ListUsable returns routable credentials for a provider: non-expired and
@@ -170,15 +185,26 @@ func (s *GormService) ListUsable(ctx context.Context, providerID string) ([]*mod
 	}
 	rows, err := gorm.G[record.Credential](s.database.Handle, clause.Eq{Column: "provider_id", Value: providerID}, orderCredentialsByIdentifier()).Find(ctx)
 	if err != nil {
-		return nil, db.Translate(err)
+		translated := db.Translate(err)
+		s.log().Error("Credential listing fails", "provider_id", providerID, "operation", "list_usable", "error", translated)
+		return nil, translated
 	}
 	available := make([]*models.Credential, 0, len(rows))
+	expired := 0
+	disabled := 0
 	for _, row := range rows {
 		credential := credentialModelFromRecord(row)
-		if !credential.IsExpired() && !credential.Disabled {
-			available = append(available, credential)
+		if credential.IsExpired() {
+			expired++
+			continue
 		}
+		if credential.Disabled {
+			disabled++
+			continue
+		}
+		available = append(available, credential)
 	}
+	s.log().Debug("Credential listing succeeds", "provider_id", providerID, "count", len(available), "total", len(rows), "expired", expired, "disabled", disabled)
 	return available, nil
 }
 
@@ -190,6 +216,7 @@ func (s *GormService) All(ctx context.Context, providerID string) ([]*models.Cre
 		return nil, err
 	}
 	if len(available) == 0 {
+		s.log().Debug("Credential pool empties", "provider_id", providerID)
 		return nil, fmt.Errorf("no available credentials for provider %s: %w", providerID, apierrors.ErrNoCredential)
 	}
 	return available, nil
@@ -203,12 +230,15 @@ func (s *GormService) ListByProvider(ctx context.Context, providerID string) ([]
 	}
 	rows, err := gorm.G[record.Credential](s.database.Handle, clause.Eq{Column: "provider_id", Value: providerID}, orderCredentialsByIdentifier()).Find(ctx)
 	if err != nil {
-		return nil, db.Translate(err)
+		translated := db.Translate(err)
+		s.log().Error("Credential listing fails", "provider_id", providerID, "operation", "list_by_provider", "error", translated)
+		return nil, translated
 	}
 	items := make([]*models.Credential, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, credentialModelFromRecord(row))
 	}
+	s.log().Debug("Credential listing succeeds", "provider_id", providerID, "count", len(items))
 	return items, nil
 }
 
@@ -220,12 +250,15 @@ func (s *GormService) ListAll(ctx context.Context) ([]*models.Credential, error)
 	}
 	rows, err := gorm.G[record.Credential](s.database.Handle, orderCredentialsByIdentifier()).Find(ctx)
 	if err != nil {
-		return nil, db.Translate(err)
+		translated := db.Translate(err)
+		s.log().Error("Credential listing fails", "operation", "list_all", "error", translated)
+		return nil, translated
 	}
 	items := make([]*models.Credential, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, credentialModelFromRecord(row))
 	}
+	s.log().Debug("Credential listing succeeds", "count", len(items))
 	return items, nil
 }
 
@@ -235,11 +268,13 @@ func (s *GormService) Update(ctx context.Context, identifier string, data map[st
 	if _, err := s.requireHandle(); err != nil {
 		return err
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	providerID := ""
+	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		row, err := gorm.G[record.Credential](transaction, clause.Eq{Column: "id", Value: identifier}).First(ctx)
 		if err != nil {
 			return db.Translate(err)
 		}
+		providerID = row.ProviderID
 		row.Data = data
 		row.ExpiresAt = normalizeCredentialTime(expiresAt)
 		row.UpdatedAt = util.Now()
@@ -248,7 +283,16 @@ func (s *GormService) Update(ctx context.Context, identifier string, data map[st
 			return db.Translate(err)
 		}
 		return nil
-	})
+	}); err != nil {
+		if stdErrors.Is(err, apierrors.ErrNotFound) {
+			s.log().Debug("Credential update misses", "cred_id", identifier)
+		} else {
+			s.log().Error("Credential update fails", "cred_id", identifier, "operation", "update", "error", err)
+		}
+		return err
+	}
+	s.log().Info("Credential update succeeds", "cred_id", identifier, "provider_id", providerID)
+	return nil
 }
 
 // UpdateDetails edits the admin-facing fields: label, enable/disable, and
@@ -263,22 +307,23 @@ func (s *GormService) UpdateDetails(ctx context.Context, identifier string, labe
 	if _, err := s.requireHandle(); err != nil {
 		return err
 	}
-	providerID := ""
-	if current, err := s.Get(ctx, identifier); err == nil && current != nil {
-		providerID = current.ProviderID
-		if data != nil {
-			if err := s.validateCredentialData(ctx, providerService, current.ProviderID, data); err != nil {
-				return err
-			}
+	if data != nil {
+		current, err := s.Get(ctx, identifier)
+		if err != nil {
+			return err
 		}
-	} else if data != nil {
-		return err
+		if err := s.validateCredentialData(ctx, providerService, current.ProviderID, data); err != nil {
+			s.log().Warn("Credential validation rejects input", "cred_id", identifier, "provider_id", current.ProviderID, "error", err)
+			return err
+		}
 	}
+	txnProviderID := ""
 	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		row, err := gorm.G[record.Credential](transaction, clause.Eq{Column: "id", Value: identifier}).First(ctx)
 		if err != nil {
 			return db.Translate(err)
 		}
+		txnProviderID = row.ProviderID
 		if label != nil {
 			row.Label = *label
 		}
@@ -305,14 +350,21 @@ func (s *GormService) UpdateDetails(ctx context.Context, identifier string, labe
 		}
 		return nil
 	}); err != nil {
+		if stdErrors.Is(err, apierrors.ErrNotFound) {
+			s.log().Debug("Credential update misses", "cred_id", identifier)
+		} else {
+			s.log().Error("Credential update fails", "cred_id", identifier, "operation", "update_details", "error", err)
+		}
 		return err
 	}
-	if disabled != nil && s.logger != nil {
+	if disabled != nil {
 		if *disabled {
-			s.logger.Info("credential disabled by admin", "credential_id", identifier, "provider_id", providerID)
+			s.log().Info("Credential disables by admin", "cred_id", identifier, "provider_id", txnProviderID)
 		} else {
-			s.logger.Info("credential enabled by admin", "credential_id", identifier, "provider_id", providerID)
+			s.log().Info("Credential enables by admin", "cred_id", identifier, "provider_id", txnProviderID)
 		}
+	} else {
+		s.log().Info("Credential update succeeds", "cred_id", identifier, "provider_id", txnProviderID)
 	}
 	return nil
 }
@@ -332,12 +384,14 @@ func (s *GormService) DisableUnhealthy(ctx context.Context, identifier, reason s
 		return err
 	}
 	changed := false
+	noop := false
 	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		row, err := gorm.G[record.Credential](transaction, clause.Eq{Column: "id", Value: identifier}).First(ctx)
 		if err != nil {
 			return db.Translate(err)
 		}
 		if row.Disabled {
+			noop = true
 			return nil
 		}
 		now := util.Now()
@@ -353,10 +407,17 @@ func (s *GormService) DisableUnhealthy(ctx context.Context, identifier, reason s
 		changed = true
 		return nil
 	}); err != nil {
+		if stdErrors.Is(err, apierrors.ErrNotFound) {
+			s.log().Debug("Credential disable misses", "cred_id", identifier, "operation", "disable_unhealthy")
+		} else {
+			s.log().Error("Credential disable fails", "cred_id", identifier, "operation", "disable_unhealthy", "error", err)
+		}
 		return err
 	}
-	if changed && s.logger != nil {
-		s.logger.Info("credential disabled by healthcheck", "credential_id", identifier, "reason", reason)
+	if changed {
+		s.log().Info("Credential disables by healthcheck", "cred_id", identifier, "reason", reason)
+	} else if noop {
+		s.log().Debug("Credential disable skips disabled credential", "cred_id", identifier, "operation", "disable_unhealthy")
 	}
 	return nil
 }
@@ -376,12 +437,14 @@ func (s *GormService) DisableByPlugin(ctx context.Context, identifier, reason st
 		return err
 	}
 	changed := false
+	noop := false
 	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		row, err := gorm.G[record.Credential](transaction, clause.Eq{Column: "id", Value: identifier}).First(ctx)
 		if err != nil {
 			return db.Translate(err)
 		}
 		if row.Disabled {
+			noop = true
 			return nil
 		}
 		now := util.Now()
@@ -397,10 +460,17 @@ func (s *GormService) DisableByPlugin(ctx context.Context, identifier, reason st
 		changed = true
 		return nil
 	}); err != nil {
+		if stdErrors.Is(err, apierrors.ErrNotFound) {
+			s.log().Debug("Credential disable misses", "cred_id", identifier, "operation", "disable_by_plugin")
+		} else {
+			s.log().Error("Credential disable fails", "cred_id", identifier, "operation", "disable_by_plugin", "error", err)
+		}
 		return err
 	}
-	if changed && s.logger != nil {
-		s.logger.Info("credential disabled by plugin", "credential_id", identifier, "reason", reason)
+	if changed {
+		s.log().Info("Credential disables by plugin", "cred_id", identifier, "reason", reason)
+	} else if noop {
+		s.log().Debug("Credential disable skips disabled credential", "cred_id", identifier, "operation", "disable_by_plugin")
 	}
 	return nil
 }
@@ -413,12 +483,19 @@ func (s *GormService) EnableByPlugin(ctx context.Context, identifier string) err
 	if _, err := s.requireHandle(); err != nil {
 		return err
 	}
-	return s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	cleared := false
+	noopReason := ""
+	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		row, err := gorm.G[record.Credential](transaction, clause.Eq{Column: "id", Value: identifier}).First(ctx)
 		if err != nil {
 			return db.Translate(err)
 		}
-		if !row.Disabled || row.DisabledBy != models.DisabledByPlugin {
+		if !row.Disabled {
+			noopReason = "already_enabled"
+			return nil
+		}
+		if row.DisabledBy != models.DisabledByPlugin {
+			noopReason = "foreign_disable"
 			return nil
 		}
 		row.Disabled = false
@@ -430,8 +507,22 @@ func (s *GormService) EnableByPlugin(ctx context.Context, identifier string) err
 		if err := gorm.G[record.Credential](transaction, clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, UpdateAll: true}).CreateInBatches(ctx, &rows, 500); err != nil {
 			return db.Translate(err)
 		}
+		cleared = true
 		return nil
-	})
+	}); err != nil {
+		if stdErrors.Is(err, apierrors.ErrNotFound) {
+			s.log().Debug("Credential enable misses", "cred_id", identifier, "operation", "enable_by_plugin")
+		} else {
+			s.log().Error("Credential enable fails", "cred_id", identifier, "operation", "enable_by_plugin", "error", err)
+		}
+		return err
+	}
+	if cleared {
+		s.log().Info("Credential enables by plugin", "cred_id", identifier)
+	} else {
+		s.log().Debug("Credential enable skips clearing", "cred_id", identifier, "reason", noopReason)
+	}
+	return nil
 }
 
 // Park benches a credential in the shared cooldown store until the ttl
@@ -441,9 +532,11 @@ func (s *GormService) EnableByPlugin(ctx context.Context, identifier string) err
 // transaction, so the upsert targets the cache handle only.
 func (s *GormService) Park(ctx context.Context, identifier string, ttl time.Duration, reason string) error {
 	if ttl <= 0 {
+		s.log().Warn("Credential park rejects invalid TTL", "cred_id", identifier, "wait", ttl, "reason", "non_positive_ttl")
 		return fmt.Errorf("park ttl must be positive")
 	}
 	if ttl > maxParkTTL {
+		s.log().Warn("Credential park rejects invalid TTL", "cred_id", identifier, "wait", ttl, "reason", "ttl_exceeds_limit")
 		return fmt.Errorf("park ttl exceeds 90 days")
 	}
 	if _, err := s.requireHandle(); err != nil {
@@ -460,12 +553,17 @@ func (s *GormService) Park(ctx context.Context, identifier string, ttl time.Dura
 		ParkedAt:     now,
 	}
 	row := parkRecordFromModel(entry)
-	return s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	if err := s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		if err := gorm.G[record.CredentialPark](transaction, clause.OnConflict{Columns: []clause.Column{{Name: "credential_id"}}, UpdateAll: true}).Create(ctx, &row); err != nil {
 			return db.Translate(err)
 		}
 		return nil
-	})
+	}); err != nil {
+		s.log().Error("Credential park fails", "cred_id", identifier, "operation", "park", "error", err)
+		return err
+	}
+	s.log().Info("Credential park succeeds", "cred_id", identifier, "reason", reason, "until", entry.Until.UTC().Format(time.RFC3339))
+	return nil
 }
 
 // Unpark clears a cooldown park so the credential serves immediately.
@@ -475,12 +573,27 @@ func (s *GormService) Unpark(ctx context.Context, identifier string) error {
 	if _, err := s.requireHandle(); err != nil {
 		return err
 	}
-	return s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
-		if _, err := gorm.G[record.CredentialPark](transaction, clause.Eq{Column: "credential_id", Value: identifier}).Delete(ctx); err != nil {
+	var removed int64
+	if err := s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		tracker := gorm.WithResult()
+		affected, err := gorm.G[record.CredentialPark](transaction, clause.Eq{Column: "credential_id", Value: identifier}, tracker).Delete(ctx)
+		if err != nil {
 			return db.Translate(err)
 		}
+		removed = int64(affected)
+		if tracker.RowsAffected > removed {
+			removed = tracker.RowsAffected
+		}
 		return nil
-	})
+	}); err != nil {
+		s.log().Error("Credential unpark fails", "cred_id", identifier, "operation", "unpark", "error", err)
+		return err
+	}
+	if removed == 0 {
+		s.log().Debug("Credential unpark misses", "cred_id", identifier)
+	}
+	s.log().Info("Credential unpark succeeds", "cred_id", identifier, "count", removed)
+	return nil
 }
 
 // Parked returns the live park entry for a credential, or nil when absent
@@ -492,6 +605,7 @@ func (s *GormService) Parked(ctx context.Context, identifier string) (*models.Pa
 		return nil, err
 	}
 	var result *models.ParkEntry
+	expired := false
 	if err := s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		row, err := gorm.G[record.CredentialPark](transaction, clause.Eq{Column: "credential_id", Value: identifier}).First(ctx)
 		if err != nil {
@@ -505,13 +619,24 @@ func (s *GormService) Parked(ctx context.Context, identifier string) (*models.Pa
 			if _, err := gorm.G[record.CredentialPark](transaction, clause.Eq{Column: "credential_id", Value: identifier}).Delete(ctx); err != nil {
 				return db.Translate(err)
 			}
+			expired = true
 			return nil
 		}
 		result = entry
 		return nil
 	}); err != nil {
+		s.log().Error("Credential park lookup fails", "cred_id", identifier, "operation", "parked", "error", err)
 		return nil, err
 	}
+	if expired {
+		s.log().Debug("Credential park expires", "cred_id", identifier)
+		return nil, nil
+	}
+	if result == nil {
+		s.log().Debug("Credential park lookup misses", "cred_id", identifier)
+		return nil, nil
+	}
+	s.log().Debug("Credential park lookup succeeds", "cred_id", identifier, "reason", result.Reason)
 	return result, nil
 }
 
@@ -531,8 +656,10 @@ func (s *GormService) PurgeExpiredParks(ctx context.Context) (int64, error) {
 		removed = int64(affected)
 		return nil
 	}); err != nil {
+		s.log().Error("Credential park purge fails", "operation", "purge_expired_parks", "error", err)
 		return 0, err
 	}
+	s.log().Debug("Credential park purge succeeds", "count", removed)
 	return removed, nil
 }
 
@@ -556,9 +683,15 @@ func (s *GormService) Delete(ctx context.Context, identifier string) error {
 		}
 		return nil
 	}); err != nil {
+		if stdErrors.Is(err, apierrors.ErrNotFound) {
+			s.log().Debug("Credential deletion misses", "cred_id", identifier)
+		} else {
+			s.log().Error("Credential deletion fails", "cred_id", identifier, "operation", "delete", "error", err)
+		}
 		return err
 	}
 	s.clearCachedCredentialRows(ctx, []string{identifier})
+	s.log().Info("Credential deletion succeeds", "cred_id", identifier, "count", 1)
 	return nil
 }
 
@@ -588,9 +721,11 @@ func (s *GormService) DeleteByProvider(ctx context.Context, providerID string) (
 		removed = tracker.RowsAffected
 		return nil
 	}); err != nil {
+		s.log().Error("Credential provider deletion fails", "provider_id", providerID, "operation", "delete_by_provider", "error", err)
 		return 0, err
 	}
 	s.clearCachedCredentialRows(ctx, credentialIDs)
+	s.log().Info("Credential provider deletion succeeds", "provider_id", providerID, "count", removed)
 	return int(removed), nil
 }
 
@@ -607,10 +742,10 @@ func (s *GormService) clearCachedCredentialRows(ctx context.Context, credentialI
 		values = append(values, identifier)
 	}
 	condition := clause.IN{Column: "credential_id", Values: values}
-	if _, err := gorm.G[record.CredentialPark](s.database.Cache, condition).Delete(ctx); err != nil && s.logger != nil {
-		s.logger.Warn("credential cache park cleanup failed", "err", err)
+	if _, err := gorm.G[record.CredentialPark](s.database.Cache, condition).Delete(ctx); err != nil {
+		s.log().Warn("Credential cache park cleanup fails", "count", len(credentialIDs), "error", err)
 	}
-	if _, err := gorm.G[record.CredentialHealth](s.database.Cache, condition).Delete(ctx); err != nil && s.logger != nil {
-		s.logger.Warn("credential cache health cleanup failed", "err", err)
+	if _, err := gorm.G[record.CredentialHealth](s.database.Cache, condition).Delete(ctx); err != nil {
+		s.log().Warn("Credential cache health cleanup fails", "count", len(credentialIDs), "error", err)
 	}
 }

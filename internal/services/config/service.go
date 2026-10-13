@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"gorm.io/gorm"
@@ -27,6 +28,7 @@ const instanceRowID int64 = 1
 type Service struct {
 	sqlite   *db.Database
 	settings *repository.GormRepository[record.InstanceSetting]
+	logger   *slog.Logger
 }
 
 // New constructs a config Service on the SQLite handle.
@@ -38,21 +40,37 @@ func New(sqlite *db.Database) *Service {
 	return service
 }
 
+// SetLogger wires structured logging.
+func (s *Service) SetLogger(l *slog.Logger) { s.logger = l }
+
 // GetSettings returns the stored RouterConfiguration from instance_settings.
 // A missing row returns the zero configuration, matching the previous behavior.
 func (s *Service) GetSettings(ctx context.Context) (models.RouterConfiguration, error) {
 	settings, err := s.requireSettings()
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Get settings failed", "error", err)
+		}
 		return models.RouterConfiguration{}, err
 	}
 	row, err := settings.Get(ctx, clause.Eq{Column: "id", Value: instanceRowID})
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			if s.logger != nil {
+				s.logger.Debug("Settings not found, using defaults")
+			}
 			return models.RouterConfiguration{}, nil
+		}
+		if s.logger != nil {
+			s.logger.Error("Get settings failed", "error", err)
 		}
 		return models.RouterConfiguration{}, fmt.Errorf("get instance settings: %w", err)
 	}
-	return toRouterConfiguration(row), nil
+	configuration := toRouterConfiguration(row)
+	if s.logger != nil {
+		s.logger.Debug("Settings retrieved", "models_filter", configuration.ModelsFilter, "is_cluster_node", configuration.IsClusterNode, "disable_telemetry", configuration.DisableTelemetry)
+	}
+	return configuration, nil
 }
 
 // PutSettings validates and persists RouterConfiguration to
@@ -61,20 +79,35 @@ func (s *Service) GetSettings(ctx context.Context) (models.RouterConfiguration, 
 // transaction handle only.
 func (s *Service) PutSettings(ctx context.Context, configuration models.RouterConfiguration) error {
 	if err := configuration.Validate(); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Validate router configuration failed", "error", err)
+		}
 		return fmt.Errorf("validate router configuration: %w", err)
 	}
 	sqlite, err := s.requireDatabase()
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Put settings failed", "error", err)
+		}
 		return err
 	}
+	var preserved bool
 	if err := sqlite.Handle.Transaction(func(transaction *gorm.DB) error {
 		bootstrapped, err := loadBootstrapped(ctx, transaction)
 		if err != nil {
 			return err
 		}
+		preserved = bootstrapped
 		return upsertInstanceRow(ctx, transaction, toInstanceRecord(configuration, bootstrapped, time.Now().UTC()))
 	}); err != nil {
-		return db.Translate(err)
+		translated := db.Translate(err)
+		if s.logger != nil {
+			s.logger.Error("Put settings failed", "models_filter", configuration.ModelsFilter, "error", translated)
+		}
+		return translated
+	}
+	if s.logger != nil {
+		s.logger.Info("Settings updated", "models_filter", configuration.ModelsFilter, "is_cluster_node", configuration.IsClusterNode, "disable_telemetry", configuration.DisableTelemetry, "bootstrapped", preserved)
 	}
 	return nil
 }
@@ -84,14 +117,26 @@ func (s *Service) PutSettings(ctx context.Context, configuration models.RouterCo
 func (s *Service) IsBootstrapped(ctx context.Context) (bool, error) {
 	settings, err := s.requireSettings()
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Check bootstrapped failed", "error", err)
+		}
 		return false, err
 	}
 	row, err := settings.Get(ctx, clause.Eq{Column: "id", Value: instanceRowID})
 	if err != nil {
 		if errors.Is(err, apierrors.ErrNotFound) {
+			if s.logger != nil {
+				s.logger.Debug("Bootstrapped flag not found, using default")
+			}
 			return false, nil
 		}
+		if s.logger != nil {
+			s.logger.Error("Check bootstrapped failed", "error", err)
+		}
 		return false, fmt.Errorf("get bootstrapped flag: %w", err)
+	}
+	if s.logger != nil {
+		s.logger.Debug("Bootstrapped flag checked", "bootstrapped", row.Bootstrapped)
 	}
 	return row.Bootstrapped, nil
 }
@@ -101,18 +146,34 @@ func (s *Service) IsBootstrapped(ctx context.Context) (bool, error) {
 func (s *Service) SetBootstrapped(ctx context.Context) error {
 	sqlite, err := s.requireDatabase()
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Set bootstrapped failed", "error", err)
+		}
 		return err
 	}
+	firstTransition := false
 	if err := sqlite.Handle.Transaction(func(transaction *gorm.DB) error {
 		row, err := loadInstanceRow(ctx, transaction)
 		if err != nil {
 			return err
 		}
+		firstTransition = !row.Bootstrapped
 		row.Bootstrapped = true
 		row.UpdatedAt = time.Now().UTC()
 		return upsertInstanceRow(ctx, transaction, row)
 	}); err != nil {
-		return db.Translate(err)
+		translated := db.Translate(err)
+		if s.logger != nil {
+			s.logger.Error("Set bootstrapped failed", "error", translated)
+		}
+		return translated
+	}
+	if s.logger != nil {
+		if firstTransition {
+			s.logger.Info("Instance bootstrapped")
+		} else {
+			s.logger.Debug("Instance already bootstrapped")
+		}
 	}
 	return nil
 }

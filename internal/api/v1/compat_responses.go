@@ -48,14 +48,16 @@ func (h *Handler) createResponse(w http.ResponseWriter, r *http.Request, token *
 	start := time.Now()
 	var request models.ResponseRequest
 	if err := decodeJSONBody(w, r, &request); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	if request.Model == "" {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", stringPointer("model"))
 		return
 	}
 	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.logDenyFailure(r, request.Model, deny)
 		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
@@ -71,6 +73,7 @@ func (h *Handler) createResponse(w http.ResponseWriter, r *http.Request, token *
 	}
 	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, usage)
 	if err != nil {
+		h.logRouterFailure(r, request.Model, err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -85,6 +88,11 @@ func (h *Handler) createResponse(w http.ResponseWriter, r *http.Request, token *
 func (h *Handler) streamResponseObject(w http.ResponseWriter, r *http.Request, response *models.ResponseObject) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		if h.logger != nil {
+			h.logger.Error("Streaming not supported",
+				"endpoint", endpointFromRequest(r),
+				"code", "server_error")
+		}
 		h.writeError(w, http.StatusInternalServerError, "server_error", "streaming is not supported by this server", nil)
 		return
 	}
@@ -130,6 +138,7 @@ func (h *Handler) getResponse(w http.ResponseWriter, r *http.Request, token *mod
 	}
 	response, err := h.router.GetResponse(r.Context(), id, token)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -157,6 +166,7 @@ func (h *Handler) cancelResponse(w http.ResponseWriter, r *http.Request, token *
 	}
 	response, err := h.router.CancelResponse(r.Context(), id, token)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -182,6 +192,7 @@ func (h *Handler) listResponseInputItems(w http.ResponseWriter, r *http.Request,
 	}
 	items, err := h.router.ListResponseInputItems(r.Context(), id, token)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -206,15 +217,17 @@ func (h *Handler) compactResponse(w http.ResponseWriter, r *http.Request, token 
 		ResponseID string `json:"response_id"`
 	}
 	if err := decodeJSONBody(w, r, &body); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	if strings.TrimSpace(body.ResponseID) == "" {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'response_id'", stringPointer("response_id"))
 		return
 	}
 	response, err := h.router.CompactResponse(r.Context(), strings.TrimSpace(body.ResponseID), token)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -237,11 +250,12 @@ func (h *Handler) compactResponse(w http.ResponseWriter, r *http.Request, token 
 func (h *Handler) countResponseInputTokens(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	var request models.ResponseRequest
 	if err := decodeJSONBody(w, r, &request); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	if request.Model != "" {
 		if deny := authorizeModel(token, request.Model); deny != nil {
+			h.logDenyFailure(r, request.Model, deny)
 			h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 			return
 		}
@@ -279,11 +293,12 @@ func (h *Handler) createConversation(w http.ResponseWriter, r *http.Request, tok
 		Items    []models.ResponseInputItem `json:"items"`
 	}
 	if err := decodeJSONBody(w, r, &body); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	conversation, err := h.router.CreateConversation(r.Context(), "", body.Metadata, body.Items)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -309,6 +324,7 @@ func (h *Handler) getConversation(w http.ResponseWriter, r *http.Request, token 
 	}
 	conversation, err := h.router.GetConversation(r.Context(), id, token)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -334,6 +350,7 @@ func (h *Handler) deleteConversation(w http.ResponseWriter, r *http.Request, tok
 		return
 	}
 	if err := h.router.DeleteConversation(r.Context(), id); err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -359,6 +376,7 @@ func (h *Handler) listConversationItems(w http.ResponseWriter, r *http.Request, 
 	}
 	items, err := h.router.ListConversationItems(r.Context(), id, token)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -387,11 +405,12 @@ func (h *Handler) createConversationItems(w http.ResponseWriter, r *http.Request
 		Items []models.ResponseInputItem `json:"items"`
 	}
 	if err := decodeJSONBody(w, r, &body); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	items, err := h.router.AppendConversationItems(r.Context(), id, token, body.Items)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}

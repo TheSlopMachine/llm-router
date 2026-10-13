@@ -138,6 +138,7 @@ func (s *Service) handlerCallEx(
 		}
 		cause = fmt.Sprintf("%s (source %d bytes)", cause, len(record.Source))
 		s.recordCrash(record.ID, typeKey, s.crashPrefix(ctx)+"load: "+cause)
+		s.logHandlerLoadFailed(record.ID, typeKey, handler, ctx.jobName, ctx.model.String(), s.crashPrefix(ctx)+"load: "+cause)
 		return true, "", &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "load: " + cause}
 	}
 	handlers, ok := ctx.registrations[typeKey]
@@ -145,6 +146,7 @@ func (s *Service) handlerCallEx(
 		if srcHandlers, isSource := ctx.proxySources[typeKey]; isSource {
 			handlers = srcHandlers
 		} else {
+			s.logHandlerMissing(record.ID, typeKey, handler, ctx.jobName, ctx.model.String())
 			return false, "", &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: handler}
 		}
 	}
@@ -154,6 +156,7 @@ func (s *Service) handlerCallEx(
 		if jobFunction := lookupJobRun(handlers, handler); jobFunction != nil {
 			handlerFunction = jobFunction
 		} else {
+			s.logHandlerMissing(record.ID, typeKey, handler, ctx.jobName, ctx.model.String())
 			return false, "", &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: handler}
 		}
 	}
@@ -166,12 +169,14 @@ func (s *Service) handlerCallEx(
 	argumentCount := L.GetTop() - top - 1
 	if callError := L.PCall(argumentCount, returnCount, nil); callError != nil {
 		err := s.luaCallError(record, typeKey, L, callError, s.crashPrefix(ctx))
+		s.logHandlerCallFailed(record.ID, typeKey, handler, ctx.jobName, ctx.model.String(), err)
 		L.SetTop(top)
 		return true, "", err
 	}
 	defer L.SetTop(top)
 	if applyRet != nil {
 		if err := applyRet(L); err != nil {
+			s.logHandlerCallFailed(record.ID, typeKey, handler, ctx.jobName, ctx.model.String(), err)
 			return true, "", err
 		}
 	}
@@ -352,4 +357,68 @@ func (s *Service) contractErrOrInternal(record *PluginRecord, typeKey string, re
 	cause := "handler returned invalid error value: " + luaErrorString(returnError)
 	s.recordCrash(record.ID, typeKey, cause)
 	return &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: cause}
+}
+
+// logHandlerLoadFailed records a source load failure as a warning with
+// handler context.
+func (s *Service) logHandlerLoadFailed(pluginID, typeKey, handler, jobName, model, cause string) {
+	if s.logger == nil {
+		return
+	}
+	arguments := []any{"plugin_id", pluginID, "type", typeKey, "endpoint", handler, "error", cause}
+	if jobName != "" {
+		arguments = append(arguments, "job", jobName)
+	}
+	if model != "" {
+		arguments = append(arguments, "model", model)
+	}
+	s.logger.Warn("Plugin source load failed", arguments...)
+}
+
+// logHandlerMissing records a missing handler registration at debug level:
+// optional handlers miss as part of normal fallback.
+func (s *Service) logHandlerMissing(pluginID, typeKey, handler, jobName, model string) {
+	if s.logger == nil {
+		return
+	}
+	arguments := []any{"plugin_id", pluginID, "type", typeKey, "endpoint", handler}
+	if jobName != "" {
+		arguments = append(arguments, "job", jobName)
+	}
+	if model != "" {
+		arguments = append(arguments, "model", model)
+	}
+	s.logger.Debug("Plugin handler missing", arguments...)
+}
+
+// logHandlerCallFailed records a handler invocation outcome with context.
+// Terminal provider errors are expected request failures at debug level;
+// internal errors are plugin crashes at warning level.
+func (s *Service) logHandlerCallFailed(pluginID, typeKey, handler, jobName, model string, callError error) {
+	if s.logger == nil || callError == nil {
+		return
+	}
+	var providerError *models.ProviderError
+	if isTerminalProviderError(callError, &providerError) {
+		arguments := []any{
+			"plugin_id", pluginID, "type", typeKey, "endpoint", handler,
+			"code", providerError.Code, "status", providerError.StatusCode, "error", providerError.Message,
+		}
+		if jobName != "" {
+			arguments = append(arguments, "job", jobName)
+		}
+		if model != "" {
+			arguments = append(arguments, "model", model)
+		}
+		s.logger.Debug("Plugin handler failed", arguments...)
+		return
+	}
+	arguments := []any{"plugin_id", pluginID, "type", typeKey, "endpoint", handler, "error", callError.Error()}
+	if jobName != "" {
+		arguments = append(arguments, "job", jobName)
+	}
+	if model != "" {
+		arguments = append(arguments, "model", model)
+	}
+	s.logger.Warn("Plugin handler crashed", arguments...)
 }

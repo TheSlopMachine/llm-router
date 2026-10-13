@@ -2,6 +2,7 @@ package luaplugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -100,10 +101,12 @@ func parseJobSpecifications(table *lua.LTable, typeKey string) (map[string]JobSp
 func (s *Service) RunJob(goCtx context.Context, typeKey, name, reason, providerID string, providerConfig map[string]any) error {
 	record, err := s.Lookup(typeKey)
 	if err != nil {
+		s.logLookupFailed(typeKey, "job:"+name, err)
 		return err
 	}
 	jobSpecification, ok := record.Jobs[typeKey][name]
 	if !ok {
+		s.logJobMissing(record.ID, typeKey, name, reason)
 		return &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: "job:" + name}
 	}
 	timeoutMs := jobSpecification.TimeoutMs
@@ -133,14 +136,81 @@ func (s *Service) RunJob(goCtx context.Context, typeKey, name, reason, providerI
 			applyError = perr
 			return nil
 		}
-		applyError = &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "job " + name + " must return true or an error table"}
+		cause := "job " + name + " must return true or an error table"
+		s.recordCrash(record.ID, typeKey, cause)
+		s.logJobInvalidReturn(record.ID, typeKey, name, reason)
+		applyError = &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: cause}
 		return applyError
 	}, &callConfiguration{providerID: providerID, providerConfig: providerConfig, allowCredentialWrite: true, timeoutMs: timeoutMs, jobName: name})
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			s.logJobTimedOut(record.ID, typeKey, name, reason, timeoutMs, err)
+		} else {
+			s.logJobFailed(record.ID, typeKey, name, reason, timeoutMs, err)
+		}
 		return err
 	}
 	if !found {
+		s.logJobMissing(record.ID, typeKey, name, reason)
 		return &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: "job:" + name}
 	}
-	return applyError
+	if applyError != nil {
+		s.logJobFailed(record.ID, typeKey, name, reason, timeoutMs, applyError)
+		return applyError
+	}
+	s.logJobCompleted(record.ID, typeKey, name, reason)
+	return nil
+}
+
+func (s *Service) logJobMissing(pluginID, typeKey, name, reason string) {
+	if s.logger == nil {
+		return
+	}
+	s.logger.Warn("Plugin job missing",
+		"plugin_id", pluginID, "type", typeKey, "job", name, "reason", reason)
+}
+
+func (s *Service) logJobInvalidReturn(pluginID, typeKey, name, reason string) {
+	if s.logger == nil {
+		return
+	}
+	s.logger.Warn("Plugin job returned invalid value",
+		"plugin_id", pluginID, "type", typeKey, "job", name, "reason", reason)
+}
+
+func (s *Service) logJobFailed(pluginID, typeKey, name, reason string, timeoutMs int, jobError error) {
+	if s.logger == nil || jobError == nil {
+		return
+	}
+	var providerError *models.ProviderError
+	if isTerminalProviderError(jobError, &providerError) {
+		s.logger.Debug("Plugin job failed",
+			"plugin_id", pluginID, "type", typeKey, "job", name, "reason", reason,
+			"code", providerError.Code, "status", providerError.StatusCode, "error", providerError.Message)
+		return
+	}
+	s.logger.Warn("Plugin job failed",
+		"plugin_id", pluginID, "type", typeKey, "job", name, "reason", reason, "error", jobError.Error())
+}
+
+func (s *Service) logJobTimedOut(pluginID, typeKey, name, reason string, timeoutMs int, jobError error) {
+	if s.logger == nil {
+		return
+	}
+	arguments := []any{
+		"plugin_id", pluginID, "type", typeKey, "job", name, "reason", reason,
+		"timeout_ms", timeoutMs,
+	}
+	if jobError != nil {
+		arguments = append(arguments, "error", jobError.Error())
+	}
+	s.logger.Warn("Plugin job timed out", arguments...)
+}
+
+func (s *Service) logJobCompleted(pluginID, typeKey, name, reason string) {
+	if s.logger == nil {
+		return
+	}
+	s.logger.Debug("Plugin job completed",
+		"plugin_id", pluginID, "type", typeKey, "job", name, "reason", reason)
 }

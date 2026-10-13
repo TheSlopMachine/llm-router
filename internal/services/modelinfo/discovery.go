@@ -64,10 +64,20 @@ func (s *GormService) PeekModelInfos(ctx context.Context, providerID string) []m
 	entry, ok := s.cache[providerID]
 	s.mu.RUnlock()
 	if ok {
+		if s.logger != nil {
+			s.logger.Debug("Model cache peek hit", "provider_id", providerID, "count", len(entry.models))
+		}
 		return stripModalityCapabilities(entry.models)
 	}
 	modelList, cachedAt, err := s.GetSnapshot(ctx, providerID)
 	if err != nil {
+		if s.logger != nil {
+			if stdErrors.Is(err, apierrors.ErrNotFound) {
+				s.logger.Debug("Model cache peek miss", "provider_id", providerID, "operation", "snapshot")
+			} else {
+				s.logger.Warn("Model cache peek failed", "provider_id", providerID, "operation", "snapshot", "error", err)
+			}
+		}
 		return nil
 	}
 	s.mu.Lock()
@@ -77,6 +87,9 @@ func (s *GormService) PeekModelInfos(ctx context.Context, providerID string) []m
 		expiresAt: cachedAt.Add(s.cacheTTL),
 	}
 	s.mu.Unlock()
+	if s.logger != nil {
+		s.logger.Debug("Model cache peek hydrated", "provider_id", providerID, "count", len(modelList))
+	}
 	return stripModalityCapabilities(modelList)
 }
 
@@ -112,22 +125,32 @@ func (s *GormService) WarmMissing(ctx context.Context) {
 	providers, err := s.providerService.List(ctx)
 	if err != nil {
 		if s.logger != nil {
-			s.logger.Warn("model cache warm: list providers failed", "err", err)
+			s.logger.Warn("Model cache warm list failed", "operation", "list providers", "error", err)
 		}
 		return
 	}
 	for _, provider := range providers {
 		if ctx.Err() != nil {
+			if s.logger != nil {
+				s.logger.Debug("Model cache warm canceled", "operation", "warm", "error", ctx.Err())
+			}
 			return
 		}
 		if provider.Disabled {
+			if s.logger != nil {
+				s.logger.Debug("Model cache warm skipped disabled provider", "provider_id", provider.ID, "operation", "warm")
+			}
 			continue
 		}
-		if len(s.PeekModelInfos(ctx, provider.ID)) > 0 {
+		cached := s.PeekModelInfos(ctx, provider.ID)
+		if len(cached) > 0 {
+			if s.logger != nil {
+				s.logger.Debug("Model cache warm skipped cached provider", "provider_id", provider.ID, "operation", "warm", "count", len(cached))
+			}
 			continue
 		}
 		if _, err := s.GetModelInfos(ctx, provider.ID); err != nil && s.logger != nil {
-			s.logger.Warn("model cache warm failed", "provider_id", provider.ID, "err", err)
+			s.logger.Warn("Model cache warm failed", "provider_id", provider.ID, "operation", "warm", "error", err)
 		}
 	}
 }
@@ -135,25 +158,48 @@ func (s *GormService) WarmMissing(ctx context.Context) {
 // GetModelInfos retrieves all model metadata for a provider.
 func (s *GormService) GetModelInfos(ctx context.Context, providerID string) ([]models.ModelInfo, error) {
 	s.mu.RLock()
-	if entry, exists := s.cache[providerID]; exists && util.Now().Before(entry.expiresAt) {
-		s.mu.RUnlock()
+	entry, exists := s.cache[providerID]
+	hit := exists && util.Now().Before(entry.expiresAt)
+	s.mu.RUnlock()
+	if hit {
+		if s.logger != nil {
+			s.logger.Debug("Model cache hit", "provider_id", providerID, "count", len(entry.models))
+		}
 		return stripModalityCapabilities(entry.models), nil
 	}
-	s.mu.RUnlock()
+	if s.logger != nil {
+		if exists {
+			s.logger.Debug("Model cache expired", "provider_id", providerID, "count", len(entry.models))
+		} else {
+			s.logger.Debug("Model cache miss", "provider_id", providerID, "operation", "fetch")
+		}
+	}
 
 	s.mu.Lock()
 	call, exists := s.inflight[providerID]
 	if exists {
 		s.mu.Unlock()
+		if s.logger != nil {
+			s.logger.Debug("Model discovery coalesced", "provider_id", providerID, "operation", "wait")
+		}
 		call.waitGroup.Wait()
 
 		s.mu.RLock()
 		defer s.mu.RUnlock()
 		if entry, exists := s.cache[providerID]; exists {
+			if s.logger != nil {
+				s.logger.Debug("Model discovery waiter hit", "provider_id", providerID, "count", len(entry.models))
+			}
 			return stripModalityCapabilities(entry.models), nil
 		}
 		if call.err != nil {
+			if s.logger != nil {
+				s.logger.Debug("Model discovery waiter failed", "provider_id", providerID, "operation", "wait", "error", call.err)
+			}
 			return nil, call.err
+		}
+		if s.logger != nil {
+			s.logger.Warn("Model discovery waiter failed", "provider_id", providerID, "operation", "wait", "error", "missing cache entry")
 		}
 		return nil, fmt.Errorf("fetch failed for provider %s", providerID)
 	}
@@ -162,6 +208,9 @@ func (s *GormService) GetModelInfos(ctx context.Context, providerID string) ([]m
 	call.waitGroup.Add(1)
 	s.inflight[providerID] = call
 	s.mu.Unlock()
+	if s.logger != nil {
+		s.logger.Debug("Model discovery started", "provider_id", providerID, "operation", "fetch")
+	}
 
 	modelInfos, err := s.fetchAndCache(ctx, providerID)
 	call.err = err
@@ -212,7 +261,7 @@ func (s *GormService) fetchAndCache(ctx context.Context, providerID string) ([]m
 	resolved, err := provider.Resolve(s.providerService, ctx, providerID)
 	if err != nil {
 		if s.logger != nil {
-			s.logger.Warn("model discovery: provider lookup failed", "provider_id", providerID, "err", err)
+			s.logger.Warn("Model discovery provider lookup failed", "provider_id", providerID, "operation", "resolve", "error", err)
 		}
 		return nil, fmt.Errorf("provider lookup failed: %w", err)
 	}
@@ -222,7 +271,7 @@ func (s *GormService) fetchAndCache(ctx context.Context, providerID string) ([]m
 	credentials, err := s.credentialService.ListByProvider(ctx, providerID)
 	if err != nil {
 		if s.logger != nil {
-			s.logger.Warn("model discovery: list credentials failed", "provider_id", providerID, "err", err)
+			s.logger.Warn("Model discovery credential list failed", "provider_id", providerID, "operation", "list credentials", "error", err)
 		}
 		return nil, fmt.Errorf("list credentials for provider %s: %w", instance.Name, err)
 	}
@@ -233,12 +282,12 @@ func (s *GormService) fetchAndCache(ctx context.Context, providerID string) ([]m
 		modelInfos, err := s.providerService.LuaService().GetModelInfos(ctx, providerID, instance.TypeKey, config)
 		if err != nil {
 			if s.logger != nil {
-				s.logger.Warn("model discovery failed", "provider_id", providerID, "qualifier", instance.Qualifier, "err", err)
+				s.logger.Warn("Model discovery failed", "provider_id", providerID, "operation", "lua", "error", err)
 			}
 			return nil, fmt.Errorf("provider %q discovery: %w", providerID, err)
 		}
 		if s.logger != nil {
-			s.logger.Debug("model discovery succeeded", "provider_id", providerID, "models", len(modelInfos))
+			s.logger.Debug("Model discovery succeeded", "provider_id", providerID, "operation", "lua", "count", len(modelInfos))
 		}
 		return s.store(ctx, providerID, modelInfos), nil
 	}
@@ -255,28 +304,31 @@ func (s *GormService) fetchAndCache(ctx context.Context, providerID string) ([]m
 		modelInfos, lastErr = fetch(nil)
 		if lastErr == nil {
 			if s.logger != nil {
-				s.logger.Debug("model discovery succeeded (no credential)", "provider_id", providerID, "models", len(modelInfos))
+				s.logger.Debug("Model discovery succeeded", "provider_id", providerID, "operation", "no credential", "count", len(modelInfos))
 			}
 			return s.store(ctx, providerID, modelInfos), nil
 		}
 		if s.logger != nil {
-			s.logger.Warn("model discovery failed", "provider_id", providerID, "qualifier", instance.Qualifier, "err", lastErr, "attempts", 1)
+			s.logger.Warn("Model discovery failed", "provider_id", providerID, "operation", "no credential", "count", 1, "error", lastErr)
 		}
 		return nil, fmt.Errorf("no credentials available for provider %s: %w", instance.Name, lastErr)
 	}
 
-	for _, credential := range credentials {
+	for index, credential := range credentials {
 		modelInfos, lastErr = fetch(credential)
 		if lastErr == nil {
 			if s.logger != nil {
-				s.logger.Debug("model discovery succeeded", "provider_id", providerID, "credential_id", credential.ID, "models", len(modelInfos))
+				s.logger.Debug("Model discovery succeeded", "provider_id", providerID, "operation", "fetch", "count", len(modelInfos))
 			}
 			return s.store(ctx, providerID, modelInfos), nil
+		}
+		if s.logger != nil {
+			s.logger.Debug("Model discovery attempt failed", "provider_id", providerID, "operation", "fetch", "count", index+1, "error", lastErr)
 		}
 	}
 
 	if s.logger != nil {
-		s.logger.Warn("model discovery failed", "provider_id", providerID, "qualifier", instance.Qualifier, "err", lastErr, "attempts", len(credentials))
+		s.logger.Warn("Model discovery failed", "provider_id", providerID, "operation", "fetch", "count", len(credentials), "error", lastErr)
 	}
 	return nil, fmt.Errorf("provider %q discovery: %w", providerID, lastErr)
 }
@@ -300,7 +352,20 @@ func safeGetModelInfos(
 // kept when the fetch fails: until a new list arrives the old one counts
 // as current.
 func (s *GormService) Refresh(ctx context.Context, providerID string) ([]models.ModelInfo, error) {
-	return s.fetchAndCache(ctx, providerID)
+	if s.logger != nil {
+		s.logger.Debug("Model refresh started", "provider_id", providerID, "operation", "refresh")
+	}
+	modelInfos, err := s.fetchAndCache(ctx, providerID)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Model refresh failed", "provider_id", providerID, "operation", "refresh", "error", err)
+		}
+		return nil, err
+	}
+	if s.logger != nil {
+		s.logger.Debug("Model refresh succeeded", "provider_id", providerID, "operation", "refresh", "count", len(modelInfos))
+	}
+	return modelInfos, nil
 }
 
 // mergeRetained refreshes known models from the fresh fetch and appends
@@ -311,6 +376,9 @@ func (s *GormService) Refresh(ctx context.Context, providerID string) ([]models.
 func (s *GormService) mergeRetained(ctx context.Context, providerID string, fresh []models.ModelInfo) []models.ModelInfo {
 	existing := s.PeekModelInfos(ctx, providerID)
 	if len(existing) == 0 {
+		if s.logger != nil {
+			s.logger.Debug("Model merge skipped", "provider_id", providerID, "operation", "merge", "count", len(fresh))
+		}
 		return fresh
 	}
 	byName := make(map[string]models.ModelInfo, len(fresh))
@@ -332,6 +400,9 @@ func (s *GormService) mergeRetained(ctx context.Context, providerID string, fres
 			merged = append(merged, model)
 			seen[model.Name] = true
 		}
+	}
+	if s.logger != nil {
+		s.logger.Debug("Model merge completed", "provider_id", providerID, "operation", "merge", "count", len(merged))
 	}
 	return merged
 }
@@ -424,8 +495,12 @@ func (s *GormService) store(ctx context.Context, providerID string, fresh []mode
 	s.cache[providerID] = entry
 	s.mu.Unlock()
 
-	if err := s.PutSnapshot(ctx, providerID, modelInfos, now); err != nil && s.logger != nil {
-		s.logger.Warn("model cache persist failed", "provider_id", providerID, "err", err)
+	if err := s.PutSnapshot(ctx, providerID, modelInfos, now); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Model cache persist failed", "provider_id", providerID, "operation", "snapshot", "error", err)
+		}
+	} else if s.logger != nil {
+		s.logger.Debug("Model cache stored", "provider_id", providerID, "operation", "snapshot", "count", len(modelInfos))
 	}
 
 	return modelInfos
@@ -439,9 +514,18 @@ func (s *GormService) InvalidateProvider(ctx context.Context, providerID string)
 	s.mu.Unlock()
 	if err := s.DeleteSnapshot(ctx, providerID); err != nil {
 		if stdErrors.Is(err, apierrors.ErrNotFound) {
+			if s.logger != nil {
+				s.logger.Debug("Model cache invalidated", "provider_id", providerID, "operation", "invalidate")
+			}
 			return nil
 		}
+		if s.logger != nil {
+			s.logger.Warn("Model cache invalidate failed", "provider_id", providerID, "operation", "invalidate", "error", err)
+		}
 		return err
+	}
+	if s.logger != nil {
+		s.logger.Debug("Model cache invalidated", "provider_id", providerID, "operation", "invalidate")
 	}
 	return nil
 }
@@ -451,14 +535,26 @@ func (s *GormService) InvalidateAll(ctx context.Context) error {
 	s.mu.Lock()
 	s.cache = make(map[string]cacheEntry)
 	s.mu.Unlock()
+	if s.logger != nil {
+		s.logger.Debug("Model cache invalidate started", "operation", "invalidate all")
+	}
 	providers, err := s.providerService.List(ctx)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Model cache invalidate failed", "operation", "list providers", "error", err)
+		}
 		return err
 	}
 	for _, provider := range providers {
 		if err := s.InvalidateProvider(ctx, provider.ID); err != nil {
+			if s.logger != nil {
+				s.logger.Warn("Model cache invalidate failed", "provider_id", provider.ID, "operation", "invalidate", "error", err)
+			}
 			return err
 		}
+	}
+	if s.logger != nil {
+		s.logger.Debug("Model cache invalidate succeeded", "operation", "invalidate all", "count", len(providers))
 	}
 	return nil
 }

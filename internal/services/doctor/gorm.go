@@ -26,6 +26,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
@@ -128,6 +129,7 @@ type GormService struct {
 	tokens         GormTokenInventory
 	goBackends     GoBackendChecker
 	pluginBackends PluginBackendChecker
+	logger         *slog.Logger
 }
 
 // NewGorm constructs a GORM-backed doctor service. providers,
@@ -150,6 +152,14 @@ func NewGorm(
 		goBackends:     goBackends,
 		pluginBackends: pluginBackends,
 	}
+}
+
+// SetLogger wires structured logging.
+func (s *GormService) SetLogger(logger *slog.Logger) {
+	if s == nil {
+		return
+	}
+	s.logger = logger
 }
 
 // orderPluginStorageByKeys sorts storage rows by composite key.
@@ -203,11 +213,17 @@ func (s *GormService) requireInventories() error {
 // failure returns an error; unknown state never reads clean.
 func (s *GormService) Inspect(ctx context.Context) (*InspectionReport, error) {
 	if err := s.requireInventories(); err != nil {
+		if s != nil && s.logger != nil {
+			s.logger.Error("Inspection aborted", "subsystem", "doctor", "reason", "missing_inventory", "error", err)
+		}
 		return nil, err
 	}
 
 	providerList, err := s.providers.List(ctx)
 	if err != nil {
+		if s != nil && s.logger != nil {
+			s.logger.Error("Inspection aborted", "subsystem", "providers", "reason", "list_failed", "error", err)
+		}
 		return nil, fmt.Errorf("list providers: %w", err)
 	}
 	validProviders := make(map[string]bool, len(providerList))
@@ -227,8 +243,12 @@ func (s *GormService) Inspect(ctx context.Context) (*InspectionReport, error) {
 	var missingBackendKeys []string
 	virtualList, err := s.virtualModels.List(ctx)
 	if err != nil {
+		if s != nil && s.logger != nil {
+			s.logger.Error("Inspection aborted", "subsystem", "virtual_models", "reason", "list_failed", "error", err)
+		}
 		return nil, fmt.Errorf("list virtual models: %w", err)
 	}
+	skippedCount := 0
 	managedByProvider := map[string]bool{}
 	for _, virtualModel := range virtualList {
 		if virtualModel == nil {
@@ -236,9 +256,19 @@ func (s *GormService) Inspect(ctx context.Context) (*InspectionReport, error) {
 		}
 		markerProvider, _, markerError := virtual.ParseMarker(virtualModel.ManagedBy)
 		if markerError != nil {
+			skippedCount++
+			if s != nil && s.logger != nil {
+				s.logger.Warn("Virtual model marker parse failed, skipping entry", "subsystem", "virtual_models", "reason", "corrupt_marker", "error", markerError)
+			}
 			continue
 		}
 		managedByProvider[markerProvider] = true
+	}
+	if s != nil && s.goBackends == nil && s.logger != nil {
+		s.logger.Warn("Backend checker skipped", "subsystem", "providers", "reason", "nil_go_checker")
+	}
+	if s != nil && s.pluginBackends == nil && s.logger != nil {
+		s.logger.Warn("Backend checker skipped", "subsystem", "providers", "reason", "nil_plugin_checker")
 	}
 	for _, providerInstance := range providerList {
 		if providerInstance == nil {
@@ -250,6 +280,7 @@ func (s *GormService) Inspect(ctx context.Context) (*InspectionReport, error) {
 			}
 		}
 		if s.pluginBackends == nil {
+			skippedCount++
 			continue
 		}
 		if _, err := s.pluginBackends.Lookup(providerInstance.TypeKey); err == nil {
@@ -312,6 +343,9 @@ func (s *GormService) Inspect(ctx context.Context) (*InspectionReport, error) {
 	for _, handle := range []*gorm.DB{s.sqlite.Handle, s.sqlite.Cache} {
 		storageRows, err := gorm.G[record.PluginStorage](handle, orderPluginStorageByKeys()).Find(ctx)
 		if err != nil {
+			if s != nil && s.logger != nil {
+				s.logger.Error("Inspection aborted", "subsystem", "plugin_storage", "reason", "list_failed", "error", err)
+			}
 			return nil, fmt.Errorf("list plugin storage: %w", db.Translate(err))
 		}
 		for _, row := range storageRows {
@@ -345,6 +379,9 @@ func (s *GormService) Inspect(ctx context.Context) (*InspectionReport, error) {
 	// behind while every other allow-list row cascades.
 	tokenList, err := s.tokens.List(ctx)
 	if err != nil {
+		if s != nil && s.logger != nil {
+			s.logger.Error("Inspection aborted", "subsystem", "tokens", "reason", "list_failed", "error", err)
+		}
 		return nil, fmt.Errorf("list tokens: %w", err)
 	}
 	var danglingModelKeys []string
@@ -396,6 +433,13 @@ func (s *GormService) Inspect(ctx context.Context) (*InspectionReport, error) {
 		total += issue.Count
 	}
 
+	if s != nil && s.logger != nil {
+		s.logger.Info("Inspection completed", "subsystem", "doctor", "count", total, "examined", len(providerList)+len(virtualList)+len(tokenList), "skipped", skippedCount, "failed", 0)
+		for _, issue := range issues {
+			s.logger.Info("Inspection category completed", "subsystem", string(issue.Category), "count", issue.Count)
+		}
+	}
+
 	return &InspectionReport{
 		Issues:      issues,
 		TotalIssues: total,
@@ -421,6 +465,9 @@ func (s *GormService) Fix(ctx context.Context, categories []IssueCategory) (int,
 	allCategories := len(categories) == 0
 
 	totalFixed := 0
+	failedCount := 0
+	skippedCount := 0
+	fixedByCategory := map[IssueCategory]int{}
 
 	for _, issue := range report.Issues {
 		if !allCategories && !categoryMap[issue.Category] {
@@ -432,27 +479,54 @@ func (s *GormService) Fix(ctx context.Context, categories []IssueCategory) (int,
 			for _, key := range issue.Keys {
 				instance, err := s.providers.Get(ctx, key)
 				if err != nil || instance == nil {
+					skippedCount++
+					if s != nil && s.logger != nil {
+						s.logger.Warn("Fix skipped missing provider", "subsystem", string(issue.Category), "provider_id", key, "reason", "not_found")
+					}
 					continue
 				}
-				if err := s.providers.SystemDisable(ctx, key, "doctor: no installed plugin or built-in backend for type "+instance.TypeKey); err == nil {
-					totalFixed++
-					// A disabled provider holds no managed virtual models:
-					// drop its rows so they stop listing and routing.
-					virtualList, err := s.virtualModels.List(ctx)
-					if err != nil {
+				if err := s.providers.SystemDisable(ctx, key, "doctor: no installed plugin or built-in backend for type "+instance.TypeKey); err != nil {
+					failedCount++
+					if s != nil && s.logger != nil {
+						s.logger.Error("Fix disable failed", "subsystem", string(issue.Category), "provider_id", key, "completed_so_far", totalFixed, "error", err)
+					}
+					continue
+				}
+				totalFixed++
+				fixedByCategory[issue.Category]++
+				// A disabled provider holds no managed virtual models:
+				// drop its rows so they stop listing and routing.
+				virtualList, err := s.virtualModels.List(ctx)
+				if err != nil {
+					skippedCount++
+					if s != nil && s.logger != nil {
+						s.logger.Warn("Fix skipped virtual cleanup", "subsystem", string(issue.Category), "provider_id", key, "reason", "list_failed")
+					}
+					continue
+				}
+				for _, virtualModel := range virtualList {
+					if virtualModel == nil {
 						continue
 					}
-					for _, virtualModel := range virtualList {
-						if virtualModel == nil {
-							continue
+					markerProvider, _, markerError := virtual.ParseMarker(virtualModel.ManagedBy)
+					if markerError != nil {
+						skippedCount++
+						if s != nil && s.logger != nil {
+							s.logger.Warn("Virtual model marker parse failed, skipping entry", "subsystem", string(issue.Category), "reason", "corrupt_marker", "error", markerError)
 						}
-						markerProvider, _, markerError := virtual.ParseMarker(virtualModel.ManagedBy)
-						if markerError != nil || markerProvider != key {
-							continue
+						continue
+					}
+					if markerProvider != key {
+						continue
+					}
+					if err := s.virtualModels.Delete(ctx, virtualModel.ID); err != nil {
+						failedCount++
+						if s != nil && s.logger != nil {
+							s.logger.Error("Fix delete failed", "subsystem", string(issue.Category), "provider_id", key, "completed_so_far", totalFixed, "error", err)
 						}
-						if err := s.virtualModels.Delete(ctx, virtualModel.ID); err == nil {
-							totalFixed++
-						}
+					} else {
+						totalFixed++
+						fixedByCategory[issue.Category]++
 					}
 				}
 			}
@@ -460,6 +534,9 @@ func (s *GormService) Fix(ctx context.Context, categories []IssueCategory) (int,
 		case CategoryDuplicateVirtualModels:
 			virtualList, err := s.virtualModels.List(ctx)
 			if err != nil {
+				if s != nil && s.logger != nil {
+					s.logger.Error("Fix aborted", "subsystem", string(issue.Category), "completed_so_far", totalFixed, "error", err)
+				}
 				return totalFixed, fmt.Errorf("list virtual models for fix: %w", err)
 			}
 			identifiersByName := map[string][]string{}
@@ -476,8 +553,14 @@ func (s *GormService) Fix(ctx context.Context, categories []IssueCategory) (int,
 				}
 				sort.Strings(identifiers)
 				for _, identifier := range identifiers[1:] {
-					if err := s.virtualModels.Delete(ctx, identifier); err == nil {
+					if err := s.virtualModels.Delete(ctx, identifier); err != nil {
+						failedCount++
+						if s != nil && s.logger != nil {
+							s.logger.Error("Fix delete failed", "subsystem", string(issue.Category), "completed_so_far", totalFixed, "error", err)
+						}
+					} else {
 						totalFixed++
+						fixedByCategory[issue.Category]++
 					}
 				}
 			}
@@ -487,6 +570,10 @@ func (s *GormService) Fix(ctx context.Context, categories []IssueCategory) (int,
 			for _, key := range issue.Keys {
 				tokenID, modelID, ok := splitTokenModelKey(key)
 				if !ok {
+					skippedCount++
+					if s != nil && s.logger != nil {
+						s.logger.Warn("Token model key parse failed, skipping entry", "subsystem", string(issue.Category), "reason", "split_failed")
+					}
 					continue
 				}
 				if danglingByToken[tokenID] == nil {
@@ -503,6 +590,10 @@ func (s *GormService) Fix(ctx context.Context, categories []IssueCategory) (int,
 				dangling := danglingByToken[tokenID]
 				stored, err := s.tokens.Get(ctx, tokenID)
 				if err != nil || stored == nil {
+					skippedCount++
+					if s != nil && s.logger != nil {
+						s.logger.Warn("Fix skipped missing token", "subsystem", string(issue.Category), "reason", "not_found")
+					}
 					continue
 				}
 				kept := make([]models.ModelId, 0, len(stored.Rules.AllowedModels))
@@ -519,14 +610,28 @@ func (s *GormService) Fix(ctx context.Context, categories []IssueCategory) (int,
 				}
 				rules := stored.Rules
 				rules.AllowedModels = kept
-				if err := s.tokens.UpdateRules(ctx, tokenID, rules); err == nil {
+				if err := s.tokens.UpdateRules(ctx, tokenID, rules); err != nil {
+					failedCount++
+					if s != nil && s.logger != nil {
+						s.logger.Error("Fix update rules failed", "subsystem", string(issue.Category), "completed_so_far", totalFixed, "error", err)
+					}
+				} else {
 					totalFixed += removed
+					fixedByCategory[issue.Category] += removed
 				}
 			}
 
 		case CategoryCorruptPluginStorage, CategoryIntegrityCheck:
 			// Inspect-only: corrupt storage values have no writer-side
 			// repair and integrity failures stay manual.
+			skippedCount += len(issue.Keys)
+		}
+	}
+
+	if s != nil && s.logger != nil {
+		s.logger.Info("Fix completed", "subsystem", "doctor", "fixed", totalFixed, "examined", len(report.Issues), "skipped", skippedCount, "failed", failedCount)
+		for category, fixed := range fixedByCategory {
+			s.logger.Info("Fix category completed", "subsystem", string(category), "fixed", fixed)
 		}
 	}
 

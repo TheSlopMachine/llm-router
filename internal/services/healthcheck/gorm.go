@@ -127,20 +127,36 @@ func (s *GormService) Stamp(ctx context.Context, credentialID, status string) er
 // never fails the caller.
 func (s *GormService) SuspectFailed(pluginID, typeKey, credentialID string) {
 	if s.lua == nil || s.credentialStore == nil || credentialID == "" {
+		if s.logger != nil {
+			s.logger.Debug("Healthcheck dependencies missing, skipping check",
+				"credential_id", credentialID, "type", typeKey)
+		}
 		return
 	}
 	if !s.lua.HasHandler(typeKey, string(luaplugin.HandlerCheckHealth)) {
+		if s.logger != nil {
+			s.logger.Debug("Healthcheck handler missing, skipping check",
+				"credential_id", credentialID, "type", typeKey)
+		}
 		return
 	}
 	cooldown := s.lua.HealthCooldown(typeKey)
 	if entry, err := s.Get(context.Background(), credentialID); err == nil && entry != nil {
 		if time.Now().Before(entry.LastCheckAt.Add(cooldown)) {
+			if s.logger != nil {
+				s.logger.Debug("Healthcheck cooldown active, skipping check",
+					"credential_id", credentialID, "type", typeKey)
+			}
 			return
 		}
 	}
 	s.mu.Lock()
 	if s.inflight[credentialID] {
 		s.mu.Unlock()
+		if s.logger != nil {
+			s.logger.Debug("Healthcheck already in flight, skipping check",
+				"credential_id", credentialID, "type", typeKey)
+		}
 		return
 	}
 	s.inflight[credentialID] = true
@@ -162,7 +178,18 @@ func (s *GormService) automationOn(credential *models.Credential) bool {
 		return false
 	}
 	instance, err := s.providerConfigs.Get(context.Background(), credential.ProviderID)
-	if err != nil || instance == nil {
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Healthcheck automation lookup failed, keeping credential",
+				"credential_id", credential.ID, "provider_id", credential.ProviderID, "error", err)
+		}
+		return false
+	}
+	if instance == nil {
+		if s.logger != nil {
+			s.logger.Warn("Healthcheck automation lookup failed, keeping credential",
+				"credential_id", credential.ID, "provider_id", credential.ProviderID, "reason", "missing_provider")
+		}
 		return false
 	}
 	return models.CredentialAutomationOn(instance.Config)
@@ -175,6 +202,17 @@ func (s *GormService) run(typeKey, credentialID string) {
 	defer s.done(credentialID)
 	credential, err := s.credentialStore.Get(context.Background(), credentialID)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Debug("Healthcheck credential lookup failed, skipping check",
+				"credential_id", credentialID, "type", typeKey, "error", err)
+		}
+		return
+	}
+	if credential == nil {
+		if s.logger != nil {
+			s.logger.Debug("Healthcheck credential missing, skipping check",
+				"credential_id", credentialID, "type", typeKey)
+		}
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), CheckTimeout)
@@ -183,17 +221,21 @@ func (s *GormService) run(typeKey, credentialID string) {
 	if checkError != nil {
 		s.stamp(credentialID, string(luaplugin.HealthUnknown))
 		if s.logger != nil {
-			s.logger.Warn("healthcheck: handler failed, keeping credential",
+			s.logger.Warn("Healthcheck handler failed, keeping credential",
 				"credential_id", credentialID, "type", typeKey, "error", checkError)
 		}
 		return
 	}
 	s.stamp(credentialID, string(status))
 	if s.logger != nil {
-		s.logger.Debug("healthcheck: verdict recorded",
+		s.logger.Debug("Healthcheck verdict recorded",
 			"credential_id", credentialID, "type", typeKey, "status", string(status))
 	}
 	if status != luaplugin.HealthUnhealthy {
+		if s.logger != nil {
+			s.logger.Debug("Healthcheck credential healthy, keeping credential",
+				"credential_id", credentialID, "type", typeKey, "status", string(status))
+		}
 		return
 	}
 	reason := message
@@ -204,20 +246,27 @@ func (s *GormService) run(typeKey, credentialID string) {
 	// off (or unreadable) stamps the verdict without touching the credential.
 	if !s.automationOn(credential) {
 		if s.logger != nil {
-			s.logger.Debug("healthcheck: automation off, keeping credential",
+			s.logger.Debug("Healthcheck automation off, keeping credential",
 				"credential_id", credentialID, "type", typeKey)
 		}
 		return
 	}
-	if disableError := s.credentialStore.DisableUnhealthy(context.Background(), credentialID, reason); disableError != nil && s.logger != nil {
-		s.logger.Warn("healthcheck: disable failed", "credential_id", credentialID, "error", disableError)
+	if disableError := s.credentialStore.DisableUnhealthy(context.Background(), credentialID, reason); disableError != nil {
+		if s.logger != nil {
+			s.logger.Error("Healthcheck disable failed", "credential_id", credentialID, "type", typeKey, "reason", reason, "error", disableError)
+		}
 	} else if s.logger != nil {
-		s.logger.Info("healthcheck: disabled unhealthy credential", "credential_id", credentialID, "type", typeKey)
+		s.logger.Info("Healthcheck disabled unhealthy credential", "credential_id", credentialID, "type", typeKey)
 	}
 }
 
 func (s *GormService) stamp(credentialID, status string) {
-	_ = s.Stamp(context.Background(), credentialID, status)
+	if err := s.Stamp(context.Background(), credentialID, status); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Healthcheck stamp failed",
+				"credential_id", credentialID, "status", status, "error", err)
+		}
+	}
 }
 
 // toHealthRow maps the service record onto the persistence row. Fields pass

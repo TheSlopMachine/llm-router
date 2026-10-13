@@ -64,19 +64,23 @@ func (h *Handler) anthropicCountTokens(w http.ResponseWriter, r *http.Request, t
 		return
 	}
 	if request.Model == "" {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", stringPointer("model"))
 		return
 	}
 	if len(request.Messages) == 0 {
+		h.logValidationFailure(r, models.ModelId(request.Model), "invalid_request_error")
 		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'messages'", stringPointer("messages"))
 		return
 	}
 	chatRequest, err := anthropicToOpenAI(&request)
 	if err != nil {
+		h.logValidationFailure(r, models.ModelId(request.Model), "invalid_request_error")
 		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
 		return
 	}
 	if deny := authorizeModel(token, chatRequest.Model); deny != nil {
+		h.logDenyFailure(r, chatRequest.Model, deny)
 		h.writeCompatError(w, r, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
@@ -117,24 +121,29 @@ func (h *Handler) anthropicComplete(w http.ResponseWriter, r *http.Request, toke
 		return
 	}
 	if request.Model == "" {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", stringPointer("model"))
 		return
 	}
 	if request.Prompt == "" {
+		h.logValidationFailure(r, models.ModelId(request.Model), "invalid_request_error")
 		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'prompt'", stringPointer("prompt"))
 		return
 	}
 	if request.MaxTokensToSample <= 0 {
+		h.logValidationFailure(r, models.ModelId(request.Model), "invalid_request_error")
 		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", "missing required field 'max_tokens_to_sample'", stringPointer("max_tokens_to_sample"))
 		return
 	}
 	messageRequest := request.ToMessageRequest()
 	chatRequest, err := anthropicToOpenAI(messageRequest)
 	if err != nil {
+		h.logValidationFailure(r, models.ModelId(request.Model), "invalid_request_error")
 		h.writeCompatError(w, r, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
 		return
 	}
 	if deny := authorizeModel(token, chatRequest.Model); deny != nil {
+		h.logDenyFailure(r, chatRequest.Model, deny)
 		h.writeCompatError(w, r, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
@@ -150,6 +159,7 @@ func (h *Handler) anthropicComplete(w http.ResponseWriter, r *http.Request, toke
 	}
 	h.recordRouteMetric(r.Context(), start, chatRequest.Model, token, duration, err, usage)
 	if err != nil {
+		h.logRouterFailure(r, chatRequest.Model, err)
 		h.handleCompatRouterError(w, r, err)
 		return
 	}

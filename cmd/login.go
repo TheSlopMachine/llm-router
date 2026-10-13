@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -50,8 +51,10 @@ func selectLoginCommand(bootstrap, listLogins, removeLogin, resetLogin, createLo
 		selected = candidate.command
 	}
 	if count > 1 {
+		slog.Default().Warn("Multiple login operations deny selection", "operation", "select_login_command", "count", count)
 		return loginCommandNone, fmt.Errorf("only one of --bootstrap, --list-login, --remove-login, --reset-login, --create-login may be set")
 	}
+	slog.Default().Debug("Login command selection completes", "operation", "select_login_command", "count", count)
 	return selected, nil
 }
 
@@ -60,8 +63,10 @@ func selectLoginCommand(bootstrap, listLogins, removeLogin, resetLogin, createLo
 // passwords or confirmations.
 func requireInteractiveTerminal() error {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		slog.Default().Warn("Interactive terminal check denies operation", "operation", "require_terminal")
 		return fmt.Errorf("login management is interactive only: stdin is not a terminal")
 	}
+	slog.Default().Debug("Interactive terminal check completes", "operation", "require_terminal")
 	return nil
 }
 
@@ -71,12 +76,16 @@ func requireInteractiveTerminal() error {
 func openAdminService() (*admin.GormService, *db.Database, error) {
 	applicationConfig, _, err := config.Load()
 	if err != nil {
+		slog.Default().Error("Admin configuration fails to load", "operation", "open_admin_service", "error", err)
 		return nil, nil, err
 	}
+	slog.Default().Debug("Admin configuration loads", "database", applicationConfig.DBPath, "cache", applicationConfig.CachePath, "events", applicationConfig.EventsPath)
 	sqliteDatabase, err := db.OpenSQLite(context.Background(), applicationConfig.DBPath, applicationConfig.CachePath, applicationConfig.EventsPath)
 	if err != nil {
+		slog.Default().Error("Admin database fails to open", "operation", "open_admin_service", "error", err)
 		return nil, nil, fmt.Errorf("open sqlite database: %w", err)
 	}
+	slog.Default().Debug("Admin database opens", "operation", "open_admin_service")
 	return admin.NewGorm(sqliteDatabase), sqliteDatabase, nil
 }
 
@@ -190,19 +199,25 @@ func runBootstrap() error {
 	ctx := context.Background()
 	bootstrapped, err := service.IsBootstrapped(ctx)
 	if err != nil {
+		slog.Default().Error("Bootstrap check fails", "operation", "bootstrap", "error", err)
 		return err
 	}
+	slog.Default().Debug("Bootstrap check completes", "operation", "bootstrap", "status", bootstrapped)
 	if bootstrapped {
+		slog.Default().Warn("Bootstrap denies already bootstrapped instance", "operation", "bootstrap")
 		return fmt.Errorf("already bootstrapped")
 	}
 	reader := bufio.NewReader(os.Stdin)
 	username, password, err := promptLoginCredentials(reader)
 	if err != nil {
+		slog.Default().Error("Bootstrap prompt fails", "operation", "bootstrap", "error", err)
 		return err
 	}
 	if err := service.Bootstrap(ctx, username, password); err != nil {
+		slog.Default().Error("Bootstrap fails", "operation", "bootstrap", "error", err)
 		return err
 	}
+	slog.Default().Info("Bootstrap creates login", "operation", "bootstrap")
 	fmt.Printf("created login %q\n", username)
 	return nil
 }
@@ -222,19 +237,25 @@ func runCreateLogin() error {
 	ctx := context.Background()
 	bootstrapped, err := service.IsBootstrapped(ctx)
 	if err != nil {
+		slog.Default().Error("Bootstrap check fails", "operation", "create_login", "error", err)
 		return err
 	}
+	slog.Default().Debug("Bootstrap check completes", "operation", "create_login", "status", bootstrapped)
 	if !bootstrapped {
+		slog.Default().Warn("Create login denies unbootstrapped instance", "operation", "create_login")
 		return fmt.Errorf("system not bootstrapped: run --bootstrap first")
 	}
 	reader := bufio.NewReader(os.Stdin)
 	username, password, err := promptLoginCredentials(reader)
 	if err != nil {
+		slog.Default().Error("Create login prompt fails", "operation", "create_login", "error", err)
 		return err
 	}
 	if err := service.CreateLogin(ctx, username, password); err != nil {
+		slog.Default().Error("Create login fails", "operation", "create_login", "error", err)
 		return err
 	}
+	slog.Default().Info("Login creation completes", "operation", "create_login")
 	fmt.Printf("created login %q\n", username)
 	return nil
 }
@@ -252,8 +273,10 @@ func runListLogins() error {
 	defer sqliteDatabase.Close()
 	users, err := service.ListLogins(context.Background())
 	if err != nil {
+		slog.Default().Error("Login listing fails", "operation", "list_logins", "error", err)
 		return err
 	}
+	slog.Default().Debug("Login listing completes", "operation", "list_logins", "count", len(users))
 	if len(users) == 0 {
 		fmt.Println("no admin accounts")
 		return nil
@@ -279,19 +302,24 @@ func runRemoveLogin() error {
 	reader := bufio.NewReader(os.Stdin)
 	username, err := promptUsername(reader)
 	if err != nil {
+		slog.Default().Error("Remove login prompt fails", "operation", "remove_login", "error", err)
 		return err
 	}
 	confirmed, err := confirmRemoval(reader, username)
 	if err != nil {
+		slog.Default().Error("Remove login confirmation fails", "operation", "remove_login", "error", err)
 		return err
 	}
 	if !confirmed {
+		slog.Default().Warn("Login removal cancels on declined confirmation", "operation", "remove_login")
 		fmt.Println("removal cancelled")
 		return nil
 	}
 	if err := service.DeleteUser(ctx, username); err != nil {
+		slog.Default().Error("Login removal fails", "operation", "remove_login", "error", err)
 		return err
 	}
+	slog.Default().Info("Login removal completes", "operation", "remove_login")
 	fmt.Printf("removed login %q\n", username)
 	return nil
 }
@@ -312,15 +340,19 @@ func runResetLogin() error {
 	reader := bufio.NewReader(os.Stdin)
 	username, err := promptUsername(reader)
 	if err != nil {
+		slog.Default().Error("Reset login prompt fails", "operation", "reset_login", "error", err)
 		return err
 	}
 	password, err := promptPasswordPair("New password: ", "Confirm new password: ")
 	if err != nil {
+		slog.Default().Error("Reset login prompt fails", "operation", "reset_login", "error", err)
 		return err
 	}
 	if err := service.ResetPassword(ctx, username, password); err != nil {
+		slog.Default().Error("Password reset fails", "operation", "reset_login", "error", err)
 		return err
 	}
+	slog.Default().Info("Password reset completes", "operation", "reset_login")
 	fmt.Printf("reset password for login %q\n", username)
 	return nil
 }

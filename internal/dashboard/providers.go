@@ -80,9 +80,11 @@ func (h *Handler) visibleProviders(all []*models.ProviderInstance) []*models.Pro
 func (h *Handler) loadVisibleProvider(ctx context.Context, id string) (*models.ProviderInstance, bool) {
 	provider, err := h.gormProviderService.Get(ctx, id)
 	if err != nil || provider.IsUIHidden || !h.providerTypeKnown(provider.TypeKey) {
+		h.logDebug("Provider not visible", "provider_id", id)
 		return nil, false
 	}
 	if !h.gormProviderService.IsTypeAvailable(provider.TypeKey) {
+		h.logDebug("Provider not visible", "provider_id", id)
 		return nil, false
 	}
 	return provider, true
@@ -101,6 +103,7 @@ func (h *Handler) loadVisibleProvider(ctx context.Context, id string) (*models.P
 func (h *Handler) apiProvidersList(w http.ResponseWriter, r *http.Request) {
 	providers, err := h.gormProviderService.List(r.Context())
 	if err != nil {
+		h.logError("Failed to list providers", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -125,6 +128,7 @@ func (h *Handler) apiProvidersList(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) apiProvidersStats(w http.ResponseWriter, r *http.Request) {
 	providers, err := h.gormProviderService.List(r.Context())
 	if err != nil {
+		h.logError("Failed to read provider statistics", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -203,6 +207,7 @@ func (h *Handler) apiProvidersCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logInfo("Provider created", "provider_id", instance.ID)
 	h.json(w, http.StatusOK, toProviderView(instance, h.gormProviderService))
 }
 
@@ -275,12 +280,14 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if body.Disabled != nil {
-			h.logger.Info("provider admin state change", "provider_id", id, "disabled", *body.Disabled)
+			h.logInfo("Provider admin state changed", "provider_id", id, "disabled", *body.Disabled)
 			// Disables drop the provider's managed virtual models; enables
 			// rebuild them from the cache.
 			if _, err := h.gormVirtualService.SyncProviderModels(r.Context(), id); err != nil {
-				h.logger.Warn("managed virtual models sync failed", "provider_id", id, "err", err)
+				h.logWarn("Managed virtual models sync failed", "provider_id", id, "error", err)
 			}
+		} else {
+			h.logInfo("Provider updated", "provider_id", id)
 		}
 		h.json(w, http.StatusOK, toProviderView(instance, h.gormProviderService))
 		return
@@ -313,12 +320,14 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Disabled != nil {
-		h.logger.Info("provider admin state change", "provider_id", id, "disabled", *body.Disabled)
+		h.logInfo("Provider admin state changed", "provider_id", id, "disabled", *body.Disabled)
 		// Disables drop the provider's managed virtual models; enables
 		// rebuild them from the cache.
 		if _, err := h.gormVirtualService.SyncProviderModels(r.Context(), id); err != nil {
-			h.logger.Warn("managed virtual models sync failed", "provider_id", id, "err", err)
+			h.logWarn("Managed virtual models sync failed", "provider_id", id, "error", err)
 		}
+	} else {
+		h.logInfo("Provider updated", "provider_id", id)
 	}
 
 	h.json(w, http.StatusOK, toProviderView(instance, h.gormProviderService))
@@ -358,6 +367,7 @@ func (h *Handler) apiProvidersDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logInfo("Provider deleted", "provider_id", id)
 	h.json(w, http.StatusOK, map[string]string{"message": "provider deleted"})
 }
 
@@ -387,6 +397,7 @@ func (h *Handler) apiProviderConfigSchema(w http.ResponseWriter, r *http.Request
 	}
 	nodes, err := h.gormProviderService.ConfigSchema(provider.TypeKey, requestLocale(r))
 	if err != nil {
+		h.logError("Failed to read provider configuration schema", "provider_id", provider.ID, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -416,6 +427,7 @@ func (h *Handler) apiProviderCredentialSchema(w http.ResponseWriter, r *http.Req
 	}
 	nodes, err := h.gormProviderService.CredentialSchema(provider.TypeKey, requestLocale(r))
 	if err != nil {
+		h.logError("Failed to read provider credential schema", "provider_id", provider.ID, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -438,6 +450,7 @@ func (h *Handler) apiProviderSettingsSchema(w http.ResponseWriter, r *http.Reque
 	}
 	nodes, err := h.gormProviderService.SettingsSchema(provider.TypeKey, requestLocale(r))
 	if err != nil {
+		h.logError("Failed to read provider settings schema", "provider_id", provider.ID, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -458,6 +471,7 @@ func (h *Handler) apiProviderProxySchema(w http.ResponseWriter, r *http.Request)
 	}
 	nodes, err := h.gormProviderService.ProxySchema(provider.TypeKey, requestLocale(r))
 	if err != nil {
+		h.logError("Failed to read provider proxy schema", "provider_id", provider.ID, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -486,6 +500,7 @@ func (h *Handler) apiProviderJobRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.maintenanceService == nil {
+		h.logError("Job scheduler unavailable", "provider_id", provider.ID)
 		h.jsonErr(w, http.StatusInternalServerError, "job scheduler not wired")
 		return
 	}
@@ -493,5 +508,6 @@ func (h *Handler) apiProviderJobRun(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	h.logInfo("Provider job completed", "provider_id", provider.ID)
 	h.json(w, http.StatusOK, map[string]any{"ok": true})
 }

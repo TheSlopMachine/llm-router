@@ -87,16 +87,20 @@ func run(command *cobra.Command, arguments []string) error {
 		if target == "" || target == generateConfigurationBare || target == "1" {
 			target = config.ResolveDotenvPath()
 		}
+		slog.Default().Debug("Configuration template target resolves", "detail", target)
 		target, err := config.ExpandPath(target)
 		if err != nil {
+			slog.Default().Error("Configuration template target fails to expand", "operation", "generate_config", "error", err)
 			return fmt.Errorf("invalid generate-config target: %w", err)
 		}
 		if err := config.WriteDefaultFile(target); err != nil {
+			slog.Default().Error("Configuration template fails to write", "operation", "generate_config", "detail", target, "error", err)
 			if errors.Is(err, config.ErrConfigFileExists) {
 				return err
 			}
 			return fmt.Errorf("write default configuration: %w", err)
 		}
+		slog.Default().Debug("Configuration template writes", "operation", "generate_config", "detail", target)
 		fmt.Printf("wrote default configuration to %s\n", target)
 		return nil
 	}
@@ -120,6 +124,7 @@ func run(command *cobra.Command, arguments []string) error {
 
 	applicationConfig, _, err := config.Load()
 	if err != nil {
+		slog.Default().Error("Configuration fails to load", "operation", "run_server", "error", err)
 		return err
 	}
 
@@ -127,10 +132,12 @@ func run(command *cobra.Command, arguments []string) error {
 	// before that it renders stderr only.
 	eventsHandler := logging.NewEventsHandler(os.Stderr, applicationConfig.LogLevel.SlogLevel(), nil)
 	logger := slog.New(eventsHandler)
+	logger.Debug("Configuration loads", "database", applicationConfig.DBPath, "cache", applicationConfig.CachePath, "events", applicationConfig.EventsPath)
 
 	// Build server
 	applicationServer, err := server.New(applicationConfig, logger)
 	if err != nil {
+		logger.Error("Server initialization fails", "operation", "run_server", "error", err)
 		return fmt.Errorf("init server: %w", err)
 	}
 	eventsHandler.SetService(applicationServer.EventsService())
@@ -140,5 +147,9 @@ func run(command *cobra.Command, arguments []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	return applicationServer.Run(ctx)
+	if err := applicationServer.Run(ctx); err != nil {
+		logger.Error("Server run fails", "operation", "run_server", "error", err)
+		return err
+	}
+	return nil
 }

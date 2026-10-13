@@ -149,6 +149,7 @@ func (s *Service) CompleteStreamRouted(
 ) (string, error) {
 	record, err := s.Lookup(handlerMetadata.TypeKey)
 	if err != nil {
+		s.logLookupFailed(handlerMetadata.TypeKey, "complete_stream", err)
 		return "", err
 	}
 	// Tracks whether any stream output reached the client: before the first
@@ -735,6 +736,7 @@ func (s *Service) VideoContentRouted(
 func (s *Service) ValidateCredentials(typeKey string, data map[string]any) (bool, error) {
 	record, err := s.Lookup(typeKey)
 	if err != nil {
+		s.logLookupFailed(typeKey, "validate_credentials", err)
 		return false, err
 	}
 	if data == nil {
@@ -785,6 +787,7 @@ func (s *Service) GetModelInfos(
 ) ([]models.ModelInfo, error) {
 	record, err := s.Lookup(typeKey)
 	if err != nil {
+		s.logLookupFailed(typeKey, "get_model_infos", err)
 		return nil, err
 	}
 	var modelInfos []models.ModelInfo
@@ -802,6 +805,7 @@ func (s *Service) GetModelInfos(
 		}
 		raw, merr := marshalLua(result)
 		if merr != nil {
+			s.recordCrash(record.ID, typeKey, "get_model_infos encode failure: "+merr.Error())
 			return &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "encode model infos: " + merr.Error()}
 		}
 		var out []models.ModelInfo
@@ -837,6 +841,7 @@ func (s *Service) Schema(typeKey, kind, locale string) ([]*models.UINode, error)
 	}
 	record, err := s.Lookup(typeKey)
 	if err != nil {
+		s.logLookupFailed(typeKey, kind, err)
 		return nil, err
 	}
 	nodes, ok := record.Schemas[typeKey][kind]
@@ -852,6 +857,7 @@ func (s *Service) Schema(typeKey, kind, locale string) ([]*models.UINode, error)
 func (s *Service) AuthInitiate(goCtx context.Context, typeKey, flowID string, providerConfig map[string]any, locale string) (*models.AuthFlowResult, error) {
 	record, err := s.Lookup(typeKey)
 	if err != nil {
+		s.logLookupFailed(typeKey, "auth_initiate", err)
 		return nil, err
 	}
 	var result *models.AuthFlowResult
@@ -883,6 +889,7 @@ func (s *Service) AuthInitiate(goCtx context.Context, typeKey, flowID string, pr
 func (s *Service) AuthStep(goCtx context.Context, typeKey, flowID, action string, values map[string]any, providerConfig map[string]any, locale string) (*models.AuthFlowResult, error) {
 	record, err := s.Lookup(typeKey)
 	if err != nil {
+		s.logLookupFailed(typeKey, "auth_step", err)
 		return nil, err
 	}
 	if values == nil {
@@ -968,7 +975,9 @@ func (s *Service) FetchProxies(goCtx context.Context, sourceKey string) ([]proxy
 		}
 	}
 	if record == nil {
-		return nil, fmt.Errorf("proxy source %q not found", sourceKey)
+		missing := fmt.Errorf("proxy source %q not found", sourceKey)
+		s.logLookupFailed(sourceKey, "fetch_proxies", missing)
+		return nil, missing
 	}
 	var candidates []proxypool.Candidate
 	found, err := s.handlerCall(goCtx, record, declared, "fetch_proxies", nil, 1, func(L *lua.LState) error {
@@ -979,6 +988,7 @@ func (s *Service) FetchProxies(goCtx context.Context, sourceKey string) ([]proxy
 		}
 		raw, merr := marshalLua(result)
 		if merr != nil {
+			s.recordCrash(record.ID, declared, "fetch_proxies encode failure: "+merr.Error())
 			return &models.PluginInternalError{PluginID: record.ID, Cause: "encode proxies: " + merr.Error()}
 		}
 		// Feeds emit [{url=, country=}] or [{protocol=, host=, port=,

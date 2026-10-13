@@ -96,6 +96,7 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 		return nil, fmt.Errorf("manifest: %w", err)
 	}
 	if err := CheckPluginAPI(manifest); err != nil {
+		service.logAPIIncompatible(manifest, origin, err)
 		return nil, err
 	}
 	identifier, err := BuildID(origin, manifest)
@@ -341,7 +342,7 @@ func (service *Service) DeleteSQLite(ctx context.Context, pluginID string) error
 		return err
 	}
 	if _, err := gorm.G[record.PluginStorage](service.cache, clause.Eq{Column: "plugin_id", Value: pluginID}).Delete(ctx); err != nil && service.logger != nil {
-		service.logger.Warn("plugin cache storage cleanup failed", "plugin_id", pluginID, "err", err)
+		service.logger.Warn("Plugin cache storage cleanup failed", "plugin_id", pluginID, "error", err.Error())
 	}
 	if err := service.rebuild(ctx); err != nil {
 		return err
@@ -583,4 +584,20 @@ func pruneVersionHistoryInTransaction(ctx context.Context, transaction *gorm.DB,
 		}
 	}
 	return nil
+}
+
+// logAPIIncompatible records a plugin API version mismatch at warning level
+// with machine-readable reason for dashboard diagnosis.
+func (service *Service) logAPIIncompatible(manifest *Manifest, origin PluginOrigin, compatError error) {
+	if service.logger == nil || compatError == nil {
+		return
+	}
+	compat, ok := compatError.(*APICompatError)
+	if !ok {
+		service.logger.Warn("Plugin API check failed", "error", compatError.Error())
+		return
+	}
+	_ = manifest
+	_ = origin
+	service.logger.Warn("Plugin API incompatible", "reason", compat.Reason, "error", compat.Error())
 }

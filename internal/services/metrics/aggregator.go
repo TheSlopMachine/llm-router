@@ -24,14 +24,16 @@ func (s *Service) compressAndPersist() error {
 	s.mutex.Unlock()
 
 	if len(toCompress) == 0 {
+		s.logger.Debug("Metrics compress skipped", "operation", "compress", "granularity", "30m", "cutoff", cutoff)
 		return nil
 	}
 
 	// Group into 30-minute windows and compress
 	grouped := s.groupBuckets(toCompress, 30*time.Minute)
-	for _, buckets := range grouped {
+	for windowStart, buckets := range grouped {
 		compressed := s.compressBuckets(buckets, 30*time.Minute)
 		if err := s.persistBucket(compressed, "30m"); err != nil {
+			s.logger.Error("Metrics bucket persist failed", "operation", "compress", "granularity", "30m", "timestamp", windowStart, "count", len(buckets), "error", err)
 			return fmt.Errorf("persist 30m bucket: %w", err)
 		}
 	}
@@ -43,7 +45,7 @@ func (s *Service) compressAndPersist() error {
 	}
 	s.mutex.Unlock()
 
-	s.logger.Debug("compressed and persisted buckets", "count", len(toCompress), "windows", len(grouped))
+	s.logger.Debug("Metrics buckets compressed", "operation", "compress", "granularity", "30m", "count", len(toCompress), "cutoff", cutoff)
 	return nil
 }
 
@@ -173,18 +175,21 @@ func (s *Service) compressOldBuckets(cutoff time.Time, fromGranularity, toGranul
 	// Load buckets from SQLite with dimensions so rollups preserve them.
 	buckets, err := s.loadBucketsByGranularitySQLite(context.Background(), cutoff, fromGranularity)
 	if err != nil {
+		s.logger.Error("Metrics bucket load failed", "operation", "compress", "granularity", fromGranularity, "cutoff", cutoff, "error", err)
 		return fmt.Errorf("load buckets: %w", err)
 	}
 
 	if len(buckets) == 0 {
+		s.logger.Debug("Metrics compress skipped", "operation", "compress", "granularity", toGranularity, "cutoff", cutoff)
 		return nil
 	}
 
 	// Group and compress
 	grouped := s.groupBuckets(buckets, targetInterval)
-	for _, group := range grouped {
+	for windowStart, group := range grouped {
 		compressed := s.compressBuckets(group, targetInterval)
 		if err := s.persistBucket(compressed, toGranularity); err != nil {
+			s.logger.Error("Metrics bucket persist failed", "operation", "compress", "granularity", toGranularity, "timestamp", windowStart, "count", len(group), "error", err)
 			return fmt.Errorf("persist %s bucket: %w", toGranularity, err)
 		}
 	}
@@ -192,10 +197,11 @@ func (s *Service) compressOldBuckets(cutoff time.Time, fromGranularity, toGranul
 	// Delete old buckets; dimension children cascade from the base deletes.
 	for _, bucket := range buckets {
 		if err := s.deleteBucketSQLite(context.Background(), bucket.Timestamp, fromGranularity); err != nil {
+			s.logger.Error("Metrics bucket delete failed", "operation", "compress", "granularity", fromGranularity, "timestamp", bucket.Timestamp, "error", err)
 			return fmt.Errorf("delete old bucket: %w", err)
 		}
 	}
 
-	s.logger.Debug("compressed old buckets", "from", fromGranularity, "to", toGranularity, "count", len(buckets))
+	s.logger.Debug("Metrics old buckets compressed", "operation", "compress", "granularity", toGranularity, "count", len(buckets), "cutoff", cutoff)
 	return nil
 }

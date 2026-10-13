@@ -53,13 +53,16 @@ func EnsureBuiltinFreePool(ctx context.Context, database *db.Database) error {
 func (s *Service) ListCustomPools(ctx context.Context) ([]*models.CustomProxyPool, error) {
 	database, err := s.requireHandle()
 	if err != nil {
+		s.currentLogger().Error("Listing custom proxy pools failed", "error", err)
 		return nil, err
 	}
 	rows, err := gorm.G[record.ProxyPool](database.Handle,
 		clause.Eq{Column: "builtin", Value: false},
 		orderProxyPoolsByName()).Find(ctx)
 	if err != nil {
-		return nil, db.Translate(err)
+		translated := db.Translate(err)
+		s.currentLogger().Error("Listing custom proxy pools failed", "error", translated)
+		return nil, translated
 	}
 	result := make([]*models.CustomProxyPool, 0, len(rows))
 	for _, row := range rows {
@@ -67,11 +70,14 @@ func (s *Service) ListCustomPools(ctx context.Context) ([]*models.CustomProxyPoo
 			clause.Eq{Column: "pool_id", Value: row.ID},
 			clause.OrderBy{Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "position"}}}}).Find(ctx)
 		if err != nil {
-			return nil, db.Translate(err)
+			translated := db.Translate(err)
+			s.currentLogger().Error("Listing custom proxy pools failed", "error", translated)
+			return nil, translated
 		}
 		restored := recordsToCustomPool(row, entries)
 		result = append(result, &restored)
 	}
+	s.currentLogger().Debug("Listing custom proxy pools", "count", len(result))
 	return result, nil
 }
 
@@ -81,11 +87,15 @@ func (s *Service) ListCustomPools(ctx context.Context) ([]*models.CustomProxyPoo
 // transaction handle only.
 func (s *Service) SaveCustomPool(ctx context.Context, pool *models.CustomProxyPool) (*models.CustomProxyPool, error) {
 	if pool == nil {
-		return nil, fmt.Errorf("custom proxy pool is required")
+		err := fmt.Errorf("custom proxy pool is required")
+		s.currentLogger().Error("Saving custom proxy pool failed", "error", err)
+		return nil, err
 	}
 	name := strings.TrimSpace(pool.Name)
 	if name == "" {
-		return nil, fmt.Errorf("custom proxy pool name is required")
+		err := fmt.Errorf("custom proxy pool name is required")
+		s.currentLogger().Error("Saving custom proxy pool failed", "error", err)
+		return nil, err
 	}
 	identifier := strings.TrimSpace(pool.ID)
 	if identifier == "" {
@@ -101,6 +111,7 @@ func (s *Service) SaveCustomPool(ctx context.Context, pool *models.CustomProxyPo
 	}
 	database, err := s.requireHandle()
 	if err != nil {
+		s.currentLogger().Error("Saving custom proxy pool failed", "pool", identifier, "error", err)
 		return nil, err
 	}
 	now := util.Now().UTC()
@@ -109,7 +120,9 @@ func (s *Service) SaveCustomPool(ctx context.Context, pool *models.CustomProxyPo
 		if previous, err := gorm.G[record.ProxyPool](database.Handle, clause.Eq{Column: "id", Value: identifier}).First(ctx); err == nil {
 			saved.CreatedAt = previous.CreatedAt
 		} else if !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
-			return nil, db.Translate(err)
+			translated := db.Translate(err)
+			s.currentLogger().Error("Saving custom proxy pool failed", "pool", identifier, "error", translated)
+			return nil, translated
 		} else {
 			saved.CreatedAt = now
 		}
@@ -121,7 +134,9 @@ func (s *Service) SaveCustomPool(ctx context.Context, pool *models.CustomProxyPo
 		stored.Builtin = previous.Builtin
 		stored.CreatedAt = previous.CreatedAt
 	} else if !stdErrors.Is(db.Translate(err), apierrors.ErrNotFound) {
-		return nil, db.Translate(err)
+		translated := db.Translate(err)
+		s.currentLogger().Error("Saving custom proxy pool failed", "pool", identifier, "error", translated)
+		return nil, translated
 	}
 	if err := database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		rows := []record.ProxyPool{stored}
@@ -139,8 +154,10 @@ func (s *Service) SaveCustomPool(ctx context.Context, pool *models.CustomProxyPo
 		}
 		return nil
 	}); err != nil {
+		s.currentLogger().Error("Saving custom proxy pool failed", "pool", identifier, "error", err)
 		return nil, err
 	}
+	s.currentLogger().Info("Saving custom proxy pool", "pool", identifier, "count", len(entries))
 	return saved, nil
 }
 
@@ -149,14 +166,17 @@ func (s *Service) SaveCustomPool(ctx context.Context, pool *models.CustomProxyPo
 // zero-row delete reports the not-found sentinel.
 func (s *Service) DeleteCustomPool(ctx context.Context, identifier string) error {
 	if strings.TrimSpace(identifier) == "" {
-		return fmt.Errorf("custom proxy pool id is required")
+		err := fmt.Errorf("custom proxy pool id is required")
+		s.currentLogger().Error("Deleting custom proxy pool failed", "error", err)
+		return err
 	}
 	database, err := s.requireHandle()
 	if err != nil {
+		s.currentLogger().Error("Deleting custom proxy pool failed", "pool", strings.TrimSpace(identifier), "error", err)
 		return err
 	}
 	trimmed := strings.TrimSpace(identifier)
-	return database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+	err = database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		existing, err := gorm.G[record.ProxyPool](transaction, clause.Eq{Column: "id", Value: trimmed}).First(ctx)
 		if err != nil {
 			translated := db.Translate(err)
@@ -178,6 +198,12 @@ func (s *Service) DeleteCustomPool(ctx context.Context, identifier string) error
 		}
 		return nil
 	})
+	if err != nil {
+		s.currentLogger().Error("Deleting custom proxy pool failed", "pool", trimmed, "error", err)
+		return err
+	}
+	s.currentLogger().Info("Deleting custom proxy pool", "pool", trimmed)
+	return nil
 }
 
 func (s *Service) findCustomPool(ctx context.Context, poolReference string) (*models.CustomProxyPool, error) {

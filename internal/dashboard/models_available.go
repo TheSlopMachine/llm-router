@@ -39,6 +39,7 @@ type availableModelView struct {
 func (h *Handler) apiAvailableModels(w http.ResponseWriter, r *http.Request) {
 	items, err := h.availableModels(r.Context())
 	if err != nil {
+		h.logError("Failed to list available models", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

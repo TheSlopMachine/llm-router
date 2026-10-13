@@ -11,6 +11,7 @@ package datamanagement
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	stdErrors "errors"
 
@@ -146,6 +147,7 @@ type GormService struct {
 	pluginSource     GormPluginBackend
 	repositorySource GormRepositoryBackend
 	modelInfoSource  GormModelInfoBackend
+	logger           *slog.Logger
 }
 
 // NewGorm constructs a GORM-backed data management service. Construction
@@ -170,6 +172,14 @@ func NewGorm(
 	}
 }
 
+// SetLogger wires structured logging.
+func (s *GormService) SetLogger(logger *slog.Logger) {
+	if s == nil {
+		return
+	}
+	s.logger = logger
+}
+
 // Stats returns the record counts for each managed subsystem. A failing
 // subsystem contributes no count, matching the previous behavior: stats stay
 // best-effort so one broken subsystem never hides the rest.
@@ -177,28 +187,40 @@ func (s *GormService) Stats(ctx context.Context) (SubsystemStats, error) {
 	var statistics SubsystemStats
 	if providers, err := s.providerSource.List(ctx); err == nil {
 		statistics.Providers = len(providers)
+	} else if s != nil && s.logger != nil {
+		s.logger.Warn("Stats providers leg failed", "subsystem", "providers", "error", err)
 	}
 	if credentials, err := s.credentialSource.ListAll(ctx); err == nil {
 		statistics.Credentials = len(credentials)
+	} else if s != nil && s.logger != nil {
+		s.logger.Warn("Stats credentials leg failed", "subsystem", "credentials", "error", err)
 	}
 	if s.virtualSource != nil {
 		if virtualModels, err := s.virtualSource.List(ctx); err == nil {
 			statistics.VirtualModels = len(virtualModels)
+		} else if s != nil && s.logger != nil {
+			s.logger.Warn("Stats virtual models leg failed", "subsystem", "virtual_models", "error", err)
 		}
 	}
 	if s.tokenSource != nil {
 		if tokens, err := s.tokenSource.List(ctx); err == nil {
 			statistics.Tokens = len(tokens)
+		} else if s != nil && s.logger != nil {
+			s.logger.Warn("Stats tokens leg failed", "subsystem", "tokens", "error", err)
 		}
 	}
 	if s.pluginSource != nil {
 		if plugins, err := s.pluginSource.ListSQLite(ctx); err == nil {
 			statistics.Plugins = len(plugins)
+		} else if s != nil && s.logger != nil {
+			s.logger.Warn("Stats plugins leg failed", "subsystem", "plugins", "error", err)
 		}
 	}
 	if s.repositorySource != nil {
 		if repositories, err := s.repositorySource.List(); err == nil {
 			statistics.PluginRepos = len(repositories)
+		} else if s != nil && s.logger != nil {
+			s.logger.Warn("Stats plugin repositories leg failed", "subsystem", "plugin_repos", "error", err)
 		}
 	}
 	return statistics, nil
@@ -230,6 +252,8 @@ func (s *GormService) ExportProviders(ctx context.Context) ([]*ProviderBundle, e
 		if s.modelInfoSource != nil {
 			if fetchedOverrides, err := s.modelInfoSource.ListOverrides(ctx, providerInstance.ID); err == nil {
 				overrides = fetchedOverrides
+			} else if s != nil && s.logger != nil {
+				s.logger.Warn("Export providers override fallback", "subsystem", "providers", "provider_id", providerInstance.ID, "error", err)
 			}
 		}
 		bundles = append(bundles, &ProviderBundle{
@@ -238,22 +262,44 @@ func (s *GormService) ExportProviders(ctx context.Context) ([]*ProviderBundle, e
 			Overrides:   overrides,
 		})
 	}
+	if s != nil && s.logger != nil {
+		s.logger.Info("Export providers completed", "subsystem", "providers", "count", len(bundles))
+	}
 	return bundles, nil
 }
 
 // ImportProviders creates or updates every bundled provider, then its
 // credentials and overrides. Update failures return immediately; create
-// failures keep the bundle instance so the error surfaces at the credential
-// write, matching the previous remap discipline.
+// failures return immediately instead of surfacing later at the credential
+// write.
 func (s *GormService) ImportProviders(ctx context.Context, bundles []*ProviderBundle) error {
+	createdCount := 0
+	updatedCount := 0
+	skippedCount := 0
 	for _, bundle := range bundles {
-		if bundle == nil || bundle.Instance == nil {
+		if bundle == nil {
+			skippedCount++
+			if s != nil && s.logger != nil {
+				s.logger.Warn("Import providers skipped bundle", "subsystem", "providers", "skipped_count", skippedCount, "reason", "nil_bundle")
+			}
+			continue
+		}
+		if bundle.Instance == nil {
+			skippedCount++
+			if s != nil && s.logger != nil {
+				s.logger.Warn("Import providers skipped bundle", "subsystem", "providers", "skipped_count", skippedCount, "reason", "nil_instance")
+			}
 			continue
 		}
 		instance := bundle.Instance
 		if instance.ID == "" {
+			skippedCount++
+			if s != nil && s.logger != nil {
+				s.logger.Warn("Import providers skipped bundle", "subsystem", "providers", "skipped_count", skippedCount, "reason", "empty_id")
+			}
 			continue
 		}
+		completedSoFar := createdCount + updatedCount
 		existing, err := s.providerSource.Get(ctx, instance.ID)
 		if err == nil && existing != nil {
 			if _, err := s.providerSource.Update(ctx, instance.ID, provider.UpdateOptions{
@@ -262,26 +308,41 @@ func (s *GormService) ImportProviders(ctx context.Context, bundles []*ProviderBu
 				IconURL:  instance.IconURL,
 				Disabled: &instance.Disabled,
 			}); err != nil {
+				if s != nil && s.logger != nil {
+					s.logger.Error("Import providers aborted", "subsystem", "providers", "provider_id", instance.ID, "completed_so_far", completedSoFar, "error", err)
+				}
 				return err
 			}
+			updatedCount++
 		} else {
 			// Create regenerates the ID (dedup suffixes on collision), so
 			// credentials and overrides below must follow the created
 			// instance, not the bundle's: otherwise they point at an ID
-			// that was never stored. On creation failure keep the bundle
-			// instance so the error surfaces at the credential write.
-			if created, createError := s.providerSource.Create(ctx, provider.CreateOptions{
+			// that was never stored.
+			created, createError := s.providerSource.Create(ctx, provider.CreateOptions{
 				Name:      instance.Name,
 				TypeKey:   instance.TypeKey,
 				Qualifier: instance.Qualifier,
 				Config:    instance.Config,
 				IconURL:   instance.IconURL,
-			}); createError == nil && created != nil {
+			})
+			if createError != nil {
+				if s != nil && s.logger != nil {
+					s.logger.Error("Import providers aborted", "subsystem", "providers", "provider_id", instance.ID, "completed_so_far", completedSoFar, "error", createError)
+				}
+				return createError
+			}
+			if created != nil {
 				instance = created
 			}
+			createdCount++
 		}
 		for _, credentialItem := range bundle.Credentials {
 			if credentialItem == nil {
+				skippedCount++
+				if s != nil && s.logger != nil {
+					s.logger.Warn("Import providers skipped credential", "subsystem", "providers", "provider_id", instance.ID, "skipped_count", skippedCount, "reason", "nil_credential")
+				}
 				continue
 			}
 			credentialItem.ProviderID = instance.ID
@@ -291,6 +352,9 @@ func (s *GormService) ImportProviders(ctx context.Context, bundles []*ProviderBu
 					Label:      credentialItem.Label,
 					Data:       credentialItem.Data,
 				}); err != nil {
+					if s != nil && s.logger != nil {
+						s.logger.Error("Import providers aborted", "subsystem", "providers", "provider_id", instance.ID, "completed_so_far", createdCount+updatedCount, "error", err)
+					}
 					return err
 				}
 			}
@@ -298,14 +362,24 @@ func (s *GormService) ImportProviders(ctx context.Context, bundles []*ProviderBu
 		if s.modelInfoSource != nil {
 			for _, override := range bundle.Overrides {
 				if override == nil || override.Name == "" {
+					skippedCount++
+					if s != nil && s.logger != nil {
+						s.logger.Warn("Import providers skipped override", "subsystem", "providers", "provider_id", instance.ID, "skipped_count", skippedCount, "reason", "nil_override")
+					}
 					continue
 				}
 				override.ProviderID = instance.ID
 				if err := s.modelInfoSource.SetOverride(ctx, *override); err != nil {
+					if s != nil && s.logger != nil {
+						s.logger.Error("Import providers aborted", "subsystem", "providers", "provider_id", instance.ID, "completed_so_far", createdCount+updatedCount, "error", err)
+					}
 					return err
 				}
 			}
 		}
+	}
+	if s != nil && s.logger != nil {
+		s.logger.Info("Import providers completed", "subsystem", "providers", "created", createdCount, "updated", updatedCount, "skipped", skippedCount)
 	}
 	return nil
 }
@@ -321,11 +395,15 @@ func (s *GormService) ExportProvider(ctx context.Context, identifier string) (*P
 	var credentials []*models.Credential
 	if fetchedCredentials, err := s.credentialSource.ListByProvider(ctx, identifier); err == nil {
 		credentials = fetchedCredentials
+	} else if s != nil && s.logger != nil {
+		s.logger.Warn("Export provider credential fallback", "subsystem", "providers", "provider_id", identifier, "error", err)
 	}
 	var overrides []*models.ModelOverride
 	if s.modelInfoSource != nil {
 		if fetchedOverrides, err := s.modelInfoSource.ListOverrides(ctx, identifier); err == nil {
 			overrides = fetchedOverrides
+		} else if s != nil && s.logger != nil {
+			s.logger.Warn("Export provider override fallback", "subsystem", "providers", "provider_id", identifier, "error", err)
 		}
 	}
 	return &ProviderBundle{
@@ -354,17 +432,27 @@ func (s *GormService) PurgeProvider(ctx context.Context, identifier string) erro
 	}
 	// 1. Delete provider instance and cascade credentials.
 	if err := s.providerSource.Delete(ctx, identifier); err != nil {
+		if s != nil && s.logger != nil {
+			s.logger.Error("Purge provider aborted", "subsystem", "providers", "provider_id", identifier, "completed_so_far", 0, "error", err)
+		}
 		return err
 	}
+	removedCount := 0
 	// 2. Delete model snapshots and overrides through the owning service.
 	if s.modelInfoSource != nil {
 		if err := s.modelInfoSource.DeleteSnapshot(ctx, identifier); err != nil {
 			if !stdErrors.Is(err, apierrors.ErrNotFound) {
+				if s != nil && s.logger != nil {
+					s.logger.Error("Purge provider aborted", "subsystem", "providers", "provider_id", identifier, "completed_so_far", 1, "error", err)
+				}
 				return err
 			}
 		}
 		fetchedOverrides, err := s.modelInfoSource.ListOverrides(ctx, identifier)
 		if err != nil {
+			if s != nil && s.logger != nil {
+				s.logger.Error("Purge provider aborted", "subsystem", "providers", "provider_id", identifier, "completed_so_far", 1, "error", err)
+			}
 			return err
 		}
 		for _, override := range fetchedOverrides {
@@ -372,30 +460,50 @@ func (s *GormService) PurgeProvider(ctx context.Context, identifier string) erro
 				continue
 			}
 			if err := s.modelInfoSource.DeleteOverride(ctx, identifier, override.Name); err != nil {
+				if s != nil && s.logger != nil {
+					s.logger.Error("Purge provider aborted", "subsystem", "providers", "provider_id", identifier, "completed_so_far", 1+removedCount, "error", err)
+				}
 				return err
 			}
+			removedCount++
 		}
 	}
 	// 3. Delete managed virtual models associated with this provider.
 	if s.virtualSource != nil {
 		virtualModels, err := s.virtualSource.List(ctx)
 		if err != nil {
+			if s != nil && s.logger != nil {
+				s.logger.Error("Purge provider aborted", "subsystem", "providers", "provider_id", identifier, "completed_so_far", 1+removedCount, "error", err)
+			}
 			return err
 		}
 		for _, virtualModel := range virtualModels {
+			if virtualModel == nil {
+				continue
+			}
 			if virtualModel.ManagedBy == "" {
 				continue
 			}
 			markerProvider, _, err := virtual.ParseMarker(virtualModel.ManagedBy)
 			if err != nil {
+				if s != nil && s.logger != nil {
+					s.logger.Error("Purge provider aborted", "subsystem", "providers", "provider_id", identifier, "completed_so_far", 1+removedCount, "error", err)
+				}
 				return err
 			}
 			if markerProvider == identifier {
 				if err := s.virtualSource.Delete(ctx, virtualModel.ID); err != nil {
+					if s != nil && s.logger != nil {
+						s.logger.Error("Purge provider aborted", "subsystem", "providers", "provider_id", identifier, "completed_so_far", 1+removedCount, "error", err)
+					}
 					return err
 				}
+				removedCount++
 			}
 		}
+	}
+	if s != nil && s.logger != nil {
+		s.logger.Info("Purge provider completed", "subsystem", "providers", "provider_id", identifier, "deleted", 1+removedCount)
 	}
 	return nil
 }
@@ -408,10 +516,18 @@ func (s *GormService) ClearProviders(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	deletedCount := 0
 	for _, providerInstance := range providers {
 		if err := s.providerSource.Delete(ctx, providerInstance.ID); err != nil {
+			if s != nil && s.logger != nil {
+				s.logger.Error("Clear providers aborted", "subsystem", "providers", "provider_id", providerInstance.ID, "completed_so_far", deletedCount, "error", err)
+			}
 			return err
 		}
+		deletedCount++
+	}
+	if s != nil && s.logger != nil {
+		s.logger.Info("Clear providers completed", "subsystem", "providers", "deleted", deletedCount)
 	}
 	return nil
 }
@@ -422,29 +538,54 @@ func (s *GormService) ClearProviders(ctx context.Context) error {
 
 // ExportVirtualModels returns every virtual model.
 func (s *GormService) ExportVirtualModels(ctx context.Context) ([]*models.VirtualModel, error) {
-	return s.virtualSource.List(ctx)
+	virtualModels, err := s.virtualSource.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s != nil && s.logger != nil {
+		s.logger.Info("Export virtual models completed", "subsystem", "virtual_models", "count", len(virtualModels))
+	}
+	return virtualModels, nil
 }
 
 // ImportVirtualModels creates or updates every virtual model. Update
 // failures return immediately instead of falling through to a duplicate
 // create.
 func (s *GormService) ImportVirtualModels(ctx context.Context, virtualModels []*models.VirtualModel) error {
+	createdCount := 0
+	updatedCount := 0
+	skippedCount := 0
 	for _, virtualModel := range virtualModels {
 		if virtualModel == nil || virtualModel.Name == "" {
+			skippedCount++
+			if s != nil && s.logger != nil {
+				s.logger.Warn("Import virtual models skipped entry", "subsystem", "virtual_models", "skipped_count", skippedCount, "reason", "nil_entry")
+			}
 			continue
 		}
 		if virtualModel.ID != "" {
 			existing, err := s.virtualSource.Get(ctx, virtualModel.ID)
 			if err == nil && existing != nil {
 				if err := s.virtualSource.Update(ctx, virtualModel.ID, virtualModel); err != nil {
+					if s != nil && s.logger != nil {
+						s.logger.Error("Import virtual models aborted", "subsystem", "virtual_models", "completed_so_far", createdCount+updatedCount, "error", err)
+					}
 					return err
 				}
+				updatedCount++
 				continue
 			}
 		}
 		if err := s.virtualSource.Create(ctx, virtualModel); err != nil {
+			if s != nil && s.logger != nil {
+				s.logger.Error("Import virtual models aborted", "subsystem", "virtual_models", "completed_so_far", createdCount+updatedCount, "error", err)
+			}
 			return err
 		}
+		createdCount++
+	}
+	if s != nil && s.logger != nil {
+		s.logger.Info("Import virtual models completed", "subsystem", "virtual_models", "created", createdCount, "updated", updatedCount, "skipped", skippedCount)
 	}
 	return nil
 }
@@ -456,10 +597,18 @@ func (s *GormService) ClearVirtualModels(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	deletedCount := 0
 	for _, virtualModel := range virtualModels {
 		if err := s.virtualSource.Delete(ctx, virtualModel.ID); err != nil {
+			if s != nil && s.logger != nil {
+				s.logger.Error("Clear virtual models aborted", "subsystem", "virtual_models", "completed_so_far", deletedCount, "error", err)
+			}
 			return err
 		}
+		deletedCount++
+	}
+	if s != nil && s.logger != nil {
+		s.logger.Info("Clear virtual models completed", "subsystem", "virtual_models", "deleted", deletedCount)
 	}
 	return nil
 }
@@ -475,12 +624,19 @@ func (s *GormService) ExportPlugins(ctx context.Context) (*PluginsExportBundle, 
 	if s.repositorySource != nil {
 		if repositories, err := s.repositorySource.List(); err == nil {
 			bundle.Repos = repositories
+		} else if s != nil && s.logger != nil {
+			s.logger.Warn("Export plugins repository fallback", "subsystem", "plugin_repos", "error", err)
 		}
 	}
 	if s.pluginSource != nil {
 		if plugins, err := s.pluginSource.ListSQLite(ctx); err == nil {
 			bundle.Plugins = plugins
+		} else if s != nil && s.logger != nil {
+			s.logger.Warn("Export plugins fallback", "subsystem", "plugins", "error", err)
 		}
+	}
+	if s != nil && s.logger != nil {
+		s.logger.Info("Export plugins completed", "subsystem", "plugins", "count", len(bundle.Plugins)+len(bundle.Repos))
 	}
 	return &bundle, nil
 }
@@ -491,9 +647,15 @@ func (s *GormService) ImportPlugins(ctx context.Context, bundle *PluginsExportBu
 	if bundle == nil {
 		return nil
 	}
+	createdCount := 0
+	skippedCount := 0
 	if s.repositorySource != nil {
 		for _, repository := range bundle.Repos {
 			if repository == nil {
+				skippedCount++
+				if s != nil && s.logger != nil {
+					s.logger.Warn("Import plugins skipped repository", "subsystem", "plugin_repos", "skipped_count", skippedCount, "reason", "nil_repository")
+				}
 				continue
 			}
 			targetURL := repository.IndexURL
@@ -501,22 +663,41 @@ func (s *GormService) ImportPlugins(ctx context.Context, bundle *PluginsExportBu
 				targetURL = repository.SourceURL
 			}
 			if targetURL == "" {
+				skippedCount++
+				if s != nil && s.logger != nil {
+					s.logger.Warn("Import plugins skipped repository", "subsystem", "plugin_repos", "skipped_count", skippedCount, "reason", "empty_url")
+				}
 				continue
 			}
 			if _, err := s.repositorySource.AddRepo(ctx, targetURL); err != nil {
+				if s != nil && s.logger != nil {
+					s.logger.Error("Import plugins aborted", "subsystem", "plugin_repos", "completed_so_far", createdCount, "error", err)
+				}
 				return err
 			}
+			createdCount++
 		}
 	}
 	if s.pluginSource != nil {
 		for _, plugin := range bundle.Plugins {
 			if plugin == nil || len(plugin.Source) == 0 {
+				skippedCount++
+				if s != nil && s.logger != nil {
+					s.logger.Warn("Import plugins skipped plugin", "subsystem", "plugins", "skipped_count", skippedCount, "reason", "empty_source")
+				}
 				continue
 			}
 			if _, err := s.pluginSource.InstallSQLite(ctx, plugin.Source, plugin.Origin); err != nil {
+				if s != nil && s.logger != nil {
+					s.logger.Error("Import plugins aborted", "subsystem", "plugins", "completed_so_far", createdCount, "error", err)
+				}
 				return err
 			}
+			createdCount++
 		}
+	}
+	if s != nil && s.logger != nil {
+		s.logger.Info("Import plugins completed", "subsystem", "plugins", "created", createdCount, "skipped", skippedCount)
 	}
 	return nil
 }
@@ -526,6 +707,8 @@ func (s *GormService) ImportPlugins(ctx context.Context, bundle *PluginsExportBu
 // delete in the owning luaplugin service; this package never touches tables
 // outside its own directory.
 func (s *GormService) ClearPlugins(ctx context.Context) error {
+	deletedCount := 0
+	skippedCount := 0
 	if s.pluginSource != nil {
 		plugins, err := s.pluginSource.ListSQLite(ctx)
 		if err != nil {
@@ -533,8 +716,12 @@ func (s *GormService) ClearPlugins(ctx context.Context) error {
 		}
 		for _, plugin := range plugins {
 			if err := s.pluginSource.DeleteSQLite(ctx, plugin.ID); err != nil {
+				if s != nil && s.logger != nil {
+					s.logger.Error("Clear plugins aborted", "subsystem", "plugins", "completed_so_far", deletedCount, "error", err)
+				}
 				return err
 			}
+			deletedCount++
 		}
 	}
 	if s.repositorySource != nil {
@@ -544,12 +731,23 @@ func (s *GormService) ClearPlugins(ctx context.Context) error {
 		}
 		for _, repository := range repositories {
 			if repository.Builtin {
+				skippedCount++
+				if s != nil && s.logger != nil {
+					s.logger.Debug("Clear plugins skipped builtin repository", "subsystem", "plugin_repos", "repo_id", repository.ID)
+				}
 				continue
 			}
 			if err := s.repositorySource.Remove(repository.ID); err != nil {
+				if s != nil && s.logger != nil {
+					s.logger.Error("Clear plugins aborted", "subsystem", "plugin_repos", "repo_id", repository.ID, "completed_so_far", deletedCount, "error", err)
+				}
 				return err
 			}
+			deletedCount++
 		}
+	}
+	if s != nil && s.logger != nil {
+		s.logger.Info("Clear plugins completed", "subsystem", "plugins", "deleted", deletedCount, "skipped", skippedCount)
 	}
 	return nil
 }
@@ -560,25 +758,47 @@ func (s *GormService) ClearPlugins(ctx context.Context) error {
 
 // ExportTokens returns every router token.
 func (s *GormService) ExportTokens(ctx context.Context) ([]*models.RouterToken, error) {
-	return s.tokenSource.List(ctx)
+	tokens, err := s.tokenSource.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s != nil && s.logger != nil {
+		s.logger.Info("Export tokens completed", "subsystem", "tokens", "count", len(tokens))
+	}
+	return tokens, nil
 }
 
 // ImportTokens updates rules for known token IDs, otherwise mints fresh
 // tokens. Mint failures return immediately.
 func (s *GormService) ImportTokens(ctx context.Context, tokens []*models.RouterToken) error {
+	createdCount := 0
+	updatedCount := 0
+	skippedCount := 0
 	for _, tokenRecord := range tokens {
 		if tokenRecord == nil {
+			skippedCount++
+			if s != nil && s.logger != nil {
+				s.logger.Warn("Import tokens skipped entry", "subsystem", "tokens", "skipped_count", skippedCount, "reason", "nil_token")
+			}
 			continue
 		}
 		if tokenRecord.ID != "" && s.tokenSource.UpdateRules(ctx, tokenRecord.ID, tokenRecord.Rules) == nil {
+			updatedCount++
 			continue
 		}
 		if _, err := s.tokenSource.Create(ctx, token.CreateOptions{
 			Name:  tokenRecord.Name,
 			Rules: tokenRecord.Rules,
 		}); err != nil {
+			if s != nil && s.logger != nil {
+				s.logger.Error("Import tokens aborted", "subsystem", "tokens", "completed_so_far", createdCount+updatedCount, "error", err)
+			}
 			return err
 		}
+		createdCount++
+	}
+	if s != nil && s.logger != nil {
+		s.logger.Info("Import tokens completed", "subsystem", "tokens", "created", createdCount, "updated", updatedCount, "skipped", skippedCount)
 	}
 	return nil
 }
@@ -589,10 +809,18 @@ func (s *GormService) ClearTokens(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	deletedCount := 0
 	for _, tokenRecord := range tokens {
 		if err := s.tokenSource.Delete(ctx, tokenRecord.ID); err != nil {
+			if s != nil && s.logger != nil {
+				s.logger.Error("Clear tokens aborted", "subsystem", "tokens", "completed_so_far", deletedCount, "error", err)
+			}
 			return err
 		}
+		deletedCount++
+	}
+	if s != nil && s.logger != nil {
+		s.logger.Info("Clear tokens completed", "subsystem", "tokens", "deleted", deletedCount)
 	}
 	return nil
 }

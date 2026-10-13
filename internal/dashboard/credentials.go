@@ -73,6 +73,7 @@ func (h *Handler) apiCredentialsList(w http.ResponseWriter, r *http.Request) {
 	}
 	credentials, err := h.gormCredentialService.ListAll(r.Context())
 	if err != nil {
+		h.logError("Failed to list credentials", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -128,6 +129,7 @@ func (h *Handler) apiCredentialsCreate(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	h.logInfo("Credential created", "credential_id", credential.ID, "provider_id", body.ProviderID)
 	h.json(w, http.StatusOK, h.toCredentialView(r.Context(), credential, provider.Name))
 }
 
@@ -170,7 +172,9 @@ func (h *Handler) apiCredentialsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Disabled != nil {
-		h.logger.Info("credential admin state change", "credential_id", id, "disabled", *body.Disabled)
+		h.logInfo("Credential admin state changed", "credential_id", id, "disabled", *body.Disabled)
+	} else {
+		h.logInfo("Credential updated", "credential_id", id)
 	}
 	name := ""
 	if provider, err := h.gormProviderService.Get(r.Context(), credential.ProviderID); err == nil {
@@ -208,11 +212,11 @@ func (h *Handler) apiCredentialsTest(w http.ResponseWriter, r *http.Request) {
 	}
 	result := h.routerService.TestCredential(r.Context(), credential.ProviderID, id, body.Model)
 	if !result.OK {
-		arguments := []any{"credential", id, "provider", credential.ProviderID, "err", result.Error}
+		arguments := []any{"credential_id", id, "provider_id", credential.ProviderID, "error", result.Error}
 		if result.Proxy != "" {
-			arguments = append(arguments, "proxy", result.Proxy)
+			arguments = append(arguments, "proxy_url", result.Proxy)
 		}
-		h.logger.Warn("credential probe failed", arguments...)
+		h.logWarn("Credential probe failed", arguments...)
 	}
 	h.json(w, http.StatusOK, result)
 }
@@ -229,10 +233,13 @@ func (h *Handler) apiCredentialsTest(w http.ResponseWriter, r *http.Request) {
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/credentials/{id} [delete]
 func (h *Handler) apiCredentialsDelete(w http.ResponseWriter, r *http.Request) {
-	if err := h.gormCredentialService.Delete(r.Context(), r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	if err := h.gormCredentialService.Delete(r.Context(), id); err != nil {
+		h.logError("Failed to delete credential", "credential_id", id, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	h.logInfo("Credential deleted", "credential_id", id)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -260,6 +267,7 @@ func (h *Handler) apiCredentialsUnpark(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	h.logInfo("Credential unparked", "credential_id", id)
 	h.json(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -312,7 +320,7 @@ func (h *Handler) apiModels(w http.ResponseWriter, r *http.Request) {
 
 			modelInfos, err := h.gormModelInfoService.GetModelInfos(ctx, currentProviderID)
 			if err != nil {
-				h.logger.Warn("dashboard apiModels: model discovery failed", "provider_id", currentProviderID, "err", err)
+				h.logWarn("Model discovery failed", "provider_id", currentProviderID, "error", err)
 				providerModels.Error = err.Error()
 			} else {
 				providerModels.ModelInfo = modelInfos

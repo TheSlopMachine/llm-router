@@ -22,7 +22,13 @@ import (
 func (s *GormService) EnsureSeeded(ctx context.Context) error {
 	ensure := func(identifier, name, typeKey, icon string) error {
 		if _, err := s.Get(ctx, identifier); err == nil {
+			if s.logger != nil {
+				s.logger.Debug("Provider seed skipped", "provider_id", identifier, "type", typeKey)
+			}
 			return nil
+		}
+		if s.logger != nil {
+			s.logger.Debug("Provider seed creation started", "provider_id", identifier, "type", typeKey)
 		}
 		now := util.Now()
 		candidate := &models.ProviderInstance{
@@ -39,6 +45,9 @@ func (s *GormService) EnsureSeeded(ctx context.Context) error {
 		if err := s.createSeedRow(ctx, candidate); err != nil {
 			return err
 		}
+		if s.logger != nil {
+			s.logger.Info("Provider seed created", "provider_id", identifier, "type", typeKey)
+		}
 		s.notifyChanged(identifier)
 		return nil
 	}
@@ -50,6 +59,9 @@ func (s *GormService) EnsureSeeded(ctx context.Context) error {
 	}
 	records, err := s.luaService.ListSQLite(ctx)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("Provider seed list failed", "error", err)
+		}
 		return err
 	}
 	seen := map[string]string{}
@@ -85,6 +97,9 @@ func (s *GormService) EnsureSeeded(ctx context.Context) error {
 			continue
 		}
 		if icon == "" {
+			if s.logger != nil {
+				s.logger.Debug("Provider icon backfill skipped", "type", key, "reason", "missing icon")
+			}
 			continue
 		}
 		for _, inst := range existing {
@@ -93,6 +108,9 @@ func (s *GormService) EnsureSeeded(ctx context.Context) error {
 			}
 			if _, err := s.Update(ctx, inst.ID, UpdateOptions{Name: inst.Name, Config: inst.Config, IconURL: icon}); err != nil {
 				return err
+			}
+			if s.logger != nil {
+				s.logger.Info("Provider icon backfilled", "provider_id", inst.ID, "type", key)
 			}
 		}
 	}
@@ -113,6 +131,9 @@ func (s *GormService) createSeedRow(ctx context.Context, instance *models.Provid
 	}
 	row := providerRecordFromModel(instance)
 	if err := gorm.G[record.ProviderInstance](s.database.Handle).Create(ctx, &row); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Provider seed create failed", "provider_id", instance.ID, "type", instance.TypeKey, "error", err)
+		}
 		return db.Translate(err)
 	}
 	return nil

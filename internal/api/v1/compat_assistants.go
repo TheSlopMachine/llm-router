@@ -17,6 +17,7 @@ import (
 func (h *Handler) requireOpenAIPathID(w http.ResponseWriter, r *http.Request, name, label string) (string, bool) {
 	id := strings.TrimSpace(r.PathValue(name))
 	if id == "" {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", label+" id is required", nil)
 		return "", false
 	}
@@ -29,6 +30,7 @@ func (h *Handler) requireOpenAIPathPair(w http.ResponseWriter, r *http.Request, 
 	first := strings.TrimSpace(r.PathValue(firstName))
 	second := strings.TrimSpace(r.PathValue(secondName))
 	if first == "" || second == "" {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", combinedMessage, nil)
 		return "", "", false
 	}
@@ -58,19 +60,22 @@ func (h *Handler) requireOpenAIPathPair(w http.ResponseWriter, r *http.Request, 
 func (h *Handler) createAssistant(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	var request models.AssistantRequest
 	if err := decodeJSONBody(w, r, &request); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	if request.Model == "" {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'model'", stringPointer("model"))
 		return
 	}
 	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.logDenyFailure(r, request.Model, deny)
 		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
 	output, err := h.router.CreateAssistant(r.Context(), &request)
 	if err != nil {
+		h.logRouterFailure(r, request.Model, err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -91,6 +96,7 @@ func (h *Handler) listAssistants(w http.ResponseWriter, r *http.Request, token *
 	_ = token
 	items, err := h.router.ListAssistants(r.Context())
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -116,6 +122,7 @@ func (h *Handler) getAssistant(w http.ResponseWriter, r *http.Request, token *mo
 	}
 	output, err := h.router.GetAssistant(r.Context(), id, token)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -142,17 +149,19 @@ func (h *Handler) updateAssistant(w http.ResponseWriter, r *http.Request, token 
 	}
 	var request models.AssistantRequest
 	if err := decodeJSONBody(w, r, &request); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	if request.Model != "" {
 		if deny := authorizeModel(token, request.Model); deny != nil {
+			h.logDenyFailure(r, request.Model, deny)
 			h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 			return
 		}
 	}
 	output, err := h.router.UpdateAssistant(r.Context(), id, token, &request)
 	if err != nil {
+		h.logRouterFailure(r, request.Model, err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -178,6 +187,7 @@ func (h *Handler) deleteAssistant(w http.ResponseWriter, r *http.Request, token 
 	}
 	_ = token
 	if err := h.router.DeleteAssistant(r.Context(), id); err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -204,12 +214,13 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request, token *mo
 		Metadata map[string]string `json:"metadata"`
 	}
 	if err := decodeJSONBody(w, r, &body); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	_ = token
 	output, err := h.router.CreateThread(r.Context(), body.Metadata)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -235,6 +246,7 @@ func (h *Handler) getThread(w http.ResponseWriter, r *http.Request, token *model
 	}
 	output, err := h.router.GetThread(r.Context(), id, token)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -263,12 +275,13 @@ func (h *Handler) updateThread(w http.ResponseWriter, r *http.Request, token *mo
 		Metadata map[string]string `json:"metadata"`
 	}
 	if err := decodeJSONBody(w, r, &body); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	_ = token
 	output, err := h.router.UpdateThread(r.Context(), id, body.Metadata)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -295,6 +308,7 @@ func (h *Handler) deleteThread(w http.ResponseWriter, r *http.Request, token *mo
 	}
 	_ = token
 	if err := h.router.DeleteThread(r.Context(), id); err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -323,12 +337,13 @@ func (h *Handler) createThreadMessage(w http.ResponseWriter, r *http.Request, to
 	}
 	var request models.ThreadMessageRequest
 	if err := decodeJSONBody(w, r, &request); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	_ = token
 	output, err := h.router.CreateThreadMessage(r.Context(), id, &request)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -355,6 +370,7 @@ func (h *Handler) listThreadMessages(w http.ResponseWriter, r *http.Request, tok
 	_ = token
 	items, err := h.router.ListThreadMessages(r.Context(), id)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -382,6 +398,7 @@ func (h *Handler) getThreadMessage(w http.ResponseWriter, r *http.Request, token
 	_ = token
 	output, err := h.router.GetThreadMessage(r.Context(), threadID, messageID)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -421,15 +438,17 @@ func (h *Handler) createRun(w http.ResponseWriter, r *http.Request, token *model
 	}
 	var request models.RunRequest
 	if err := decodeJSONBody(w, r, &request); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	if request.AssistantID == "" {
+		h.logValidationFailure(r, request.Model, "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'assistant_id'", stringPointer("assistant_id"))
 		return
 	}
 	if request.Model != "" {
 		if deny := authorizeModel(token, request.Model); deny != nil {
+			h.logDenyFailure(r, request.Model, deny)
 			h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 			return
 		}
@@ -438,20 +457,26 @@ func (h *Handler) createRun(w http.ResponseWriter, r *http.Request, token *model
 	duration := time.Since(start)
 	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, nil)
 	if err != nil {
+		h.logRouterFailure(r, request.Model, err)
 		h.handleRouterError(w, err)
 		return
 	}
 	if request.Stream {
-		h.streamRun(w, run)
+		h.streamRun(w, r, run)
 		return
 	}
 	h.writeJSON(w, http.StatusOK, run)
 }
 
 // streamRun emits a completed run as thread.run.* SSE events.
-func (h *Handler) streamRun(w http.ResponseWriter, run *models.Run) {
+func (h *Handler) streamRun(w http.ResponseWriter, r *http.Request, run *models.Run) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		if h.logger != nil {
+			h.logger.Error("Streaming not supported",
+				"endpoint", endpointFromRequest(r),
+				"code", "server_error")
+		}
 		h.writeError(w, http.StatusInternalServerError, "server_error", "streaming is not supported by this server", nil)
 		return
 	}
@@ -493,6 +518,7 @@ func (h *Handler) listRuns(w http.ResponseWriter, r *http.Request, token *models
 	_ = token
 	items, err := h.router.ListRuns(r.Context(), threadID)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -519,6 +545,7 @@ func (h *Handler) getRun(w http.ResponseWriter, r *http.Request, token *models.R
 	}
 	output, err := h.router.GetRun(r.Context(), threadID, runID, token)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -546,6 +573,7 @@ func (h *Handler) cancelRun(w http.ResponseWriter, r *http.Request, token *model
 	}
 	output, err := h.router.CancelRun(r.Context(), threadID, runID, token)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}
@@ -578,15 +606,17 @@ func (h *Handler) submitRunToolOutputs(w http.ResponseWriter, r *http.Request, t
 		ToolOutputs []models.ToolOutput `json:"tool_outputs"`
 	}
 	if err := decodeJSONBody(w, r, &body); err != nil {
-		h.writeDecodeError(w, err)
+		h.writeDecodeError(w, r, err)
 		return
 	}
 	if len(body.ToolOutputs) == 0 {
+		h.logValidationFailure(r, "", "invalid_request_error")
 		h.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing required field 'tool_outputs'", stringPointer("tool_outputs"))
 		return
 	}
 	output, err := h.router.SubmitToolOutputs(r.Context(), threadID, runID, token, body.ToolOutputs)
 	if err != nil {
+		h.logRouterFailure(r, "", err)
 		h.handleRouterError(w, err)
 		return
 	}

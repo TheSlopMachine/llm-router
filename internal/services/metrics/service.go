@@ -127,7 +127,7 @@ func (s *Service) Start() {
 	go s.processEvents()
 	go s.startAggregator()
 	go s.startCleanup()
-	s.logger.Info("metrics service started")
+	s.logger.Info("Metrics service started")
 }
 
 // Stop gracefully shuts down the metrics service: workers finish, queued
@@ -144,19 +144,24 @@ func (s *Service) Stop() {
 		s.waitGroup.Wait()
 		s.drainEvents()
 		if err := s.flushAll(); err != nil {
-			s.logger.Error("metrics final flush failed", "err", err)
+			s.logger.Error("Metrics final flush failed", "operation", "flush", "error", err)
 		}
-		s.logger.Info("metrics service stopped")
+		s.logger.Info("Metrics service stopped")
 	})
 }
 
 // drainEvents folds every queued event into its bucket after workers exit.
 func (s *Service) drainEvents() {
+	drained := 0
 	for {
 		select {
 		case event := <-s.eventChannel:
 			s.recordEvent(event)
+			drained++
 		default:
+			if drained > 0 {
+				s.logger.Debug("Metrics events drained", "operation", "drain", "count", drained)
+			}
 			return
 		}
 	}
@@ -172,15 +177,18 @@ func (s *Service) flushAll() error {
 		pending = append(pending, bucket)
 		stamps = append(stamps, timestamp)
 	}
+	total := len(pending)
 	s.mutex.Unlock()
-	for i, bucket := range pending {
+	for index, bucket := range pending {
 		if err := s.persistBucket(bucket, "1m"); err != nil {
+			s.logger.Error("Metrics flush failed", "operation", "flush", "granularity", "1m", "timestamp", stamps[index], "count", total, "error", err)
 			return err
 		}
 		s.mutex.Lock()
-		delete(s.recentBuckets, stamps[i])
+		delete(s.recentBuckets, stamps[index])
 		s.mutex.Unlock()
 	}
+	s.logger.Debug("Metrics flush succeeded", "operation", "flush", "granularity", "1m", "count", total)
 	return nil
 }
 
@@ -191,7 +199,7 @@ func (s *Service) RecordRequest(event models.MetricEvent) {
 		// Event queued successfully
 	default:
 		// Buffer full, drop event with warning
-		s.logger.Warn("metrics event buffer full, dropping event")
+		s.logger.Warn("Metrics event buffer full", "operation", "record", "count", eventBufferSize)
 	}
 }
 
@@ -337,7 +345,7 @@ func (s *Service) startAggregator() {
 		select {
 		case <-s.aggregatorTicker.C:
 			if err := s.compressAndPersist(); err != nil {
-				s.logger.Error("aggregation failed", "err", err)
+				s.logger.Error("Metrics aggregation failed", "operation", "aggregate", "error", err)
 			}
 		case <-s.stopChannel:
 			return
@@ -355,7 +363,7 @@ func (s *Service) startCleanup() {
 		select {
 		case <-s.cleanupTicker.C:
 			if err := s.cleanup(); err != nil {
-				s.logger.Error("cleanup failed", "err", err)
+				s.logger.Error("Metrics cleanup failed", "operation", "cleanup", "error", err)
 			}
 		case <-s.stopChannel:
 			return

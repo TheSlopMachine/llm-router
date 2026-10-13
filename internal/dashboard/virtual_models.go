@@ -24,7 +24,7 @@ import (
 func (h *Handler) apiVirtualModelsList(w http.ResponseWriter, r *http.Request) {
 	virtualModels, err := h.gormVirtualService.List(r.Context())
 	if err != nil {
-		h.logger.Error("failed to list virtual models", "error", err)
+		h.logError("Failed to list virtual models", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, "failed to list virtual models")
 		return
 	}
@@ -52,11 +52,12 @@ func (h *Handler) apiVirtualModelsCreate(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := h.gormVirtualService.Create(r.Context(), &virtualModel); err != nil {
-		h.logger.Error("failed to create virtual model", "error", err)
+		h.logError("Failed to create virtual model", "error", err)
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
+	h.logInfo("Virtual model created", "model", virtualModel.ID)
 	h.json(w, http.StatusCreated, virtualModel)
 }
 
@@ -81,7 +82,7 @@ func (h *Handler) apiVirtualModelsGet(w http.ResponseWriter, r *http.Request) {
 
 	virtualModel, err := h.gormVirtualService.Get(r.Context(), id)
 	if err != nil {
-		h.logger.Error("failed to get virtual model", "id", id, "error", err)
+		h.logError("Failed to read virtual model", "model", id, "error", err)
 		h.jsonErr(w, http.StatusNotFound, "virtual model not found")
 		return
 	}
@@ -150,7 +151,7 @@ func (h *Handler) apiVirtualModelsUpdate(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := h.gormVirtualService.Update(r.Context(), id, &virtualModel); err != nil {
-		h.logger.Error("failed to update virtual model", "id", id, "error", err)
+		h.logError("Failed to update virtual model", "model", id, "error", err)
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -158,11 +159,12 @@ func (h *Handler) apiVirtualModelsUpdate(w http.ResponseWriter, r *http.Request)
 	// Fetch updated virtual model
 	updated, err := h.gormVirtualService.Get(r.Context(), id)
 	if err != nil {
-		h.logger.Error("failed to get updated virtual model", "id", id, "error", err)
+		h.logError("Failed to read updated virtual model", "model", id, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, "failed to get updated virtual model")
 		return
 	}
 
+	h.logInfo("Virtual model updated", "model", id)
 	h.json(w, http.StatusOK, updated)
 }
 
@@ -186,10 +188,11 @@ func (h *Handler) apiVirtualModelsDelete(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := h.gormVirtualService.Delete(r.Context(), id); err != nil {
-		h.logger.Error("failed to delete virtual model", "id", id, "error", err)
+		h.logError("Failed to delete virtual model", "model", id, "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, "failed to delete virtual model")
 		return
 	}
 
+	h.logInfo("Virtual model deleted", "model", id)
 	w.WriteHeader(http.StatusNoContent)
 }

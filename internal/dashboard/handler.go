@@ -329,10 +329,12 @@ func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 		c, err := r.Cookie(sessionCookie)
 		if err != nil || c.Value == "" {
+			h.logDebug("Authentication required", "endpoint", r.URL.Path)
 			h.jsonErr(w, http.StatusUnauthorized, "unauthenticated")
 			return
 		}
 		if _, ok := h.gormAdminService.ValidateSession(r.Context(), c.Value); !ok {
+			h.logDebug("Authentication required", "endpoint", r.URL.Path)
 			h.jsonErr(w, http.StatusUnauthorized, "unauthenticated")
 			return
 		}
@@ -364,4 +366,37 @@ func (h *Handler) json(w http.ResponseWriter, status int, data any) {
 
 func (h *Handler) jsonErr(w http.ResponseWriter, status int, message string) {
 	h.json(w, status, map[string]string{"error": message})
+}
+
+// logDebug records flow and troubleshooting events. Nil-safe: handlers run
+// without a configured logger in tests.
+func (h *Handler) logDebug(message string, keysAndValues ...any) {
+	if h == nil || h.logger == nil {
+		return
+	}
+	h.logger.Debug(message, keysAndValues...)
+}
+
+// logInfo records successful mutations. Nil-safe.
+func (h *Handler) logInfo(message string, keysAndValues ...any) {
+	if h == nil || h.logger == nil {
+		return
+	}
+	h.logger.Info(message, keysAndValues...)
+}
+
+// logWarn records handled failover. Nil-safe.
+func (h *Handler) logWarn(message string, keysAndValues ...any) {
+	if h == nil || h.logger == nil {
+		return
+	}
+	h.logger.Warn(message, keysAndValues...)
+}
+
+// logError records terminal failures. Nil-safe.
+func (h *Handler) logError(message string, keysAndValues ...any) {
+	if h == nil || h.logger == nil {
+		return
+	}
+	h.logger.Error(message, keysAndValues...)
 }

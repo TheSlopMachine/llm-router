@@ -20,17 +20,29 @@ type Adapter struct {
 // SetLogger wires the logger for backend lines.
 func (a *Adapter) SetLogger(l *slog.Logger) { a.logger = l }
 
+func (a *Adapter) currentLogger() *slog.Logger {
+	if a == nil || a.logger == nil {
+		return slog.Default()
+	}
+	return a.logger
+}
+
 func (a *Adapter) TypeKey() string { return provider.TypeCustom }
 
 func (a *Adapter) ValidateCredentials(data map[string]any) error {
 	apiKey, _ := data["api_key"].(string)
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
-		return fmt.Errorf("custom provider: api_key is required")
+		err := fmt.Errorf("custom provider: api_key is required")
+		a.currentLogger().Error("Validating credentials failed", "endpoint", "/models", "error", err)
+		return err
 	}
 	if len(apiKey) < 8 {
-		return fmt.Errorf("custom provider: api_key appears invalid (too short)")
+		err := fmt.Errorf("custom provider: api_key appears invalid (too short)")
+		a.currentLogger().Error("Validating credentials failed", "endpoint", "/models", "error", err)
+		return err
 	}
+	a.currentLogger().Debug("Validating credentials", "endpoint", "/models")
 	return nil
 }
 
@@ -65,6 +77,46 @@ func withCredentialFailover[Response any](
 	return empty, lastErr
 }
 
+func withCredentialFailoverLogged[Response any](
+	logger *slog.Logger,
+	model string,
+	endpoint string,
+	credentials []*models.Credential,
+	attempt func(apiKey string) (Response, error),
+) (Response, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	var empty Response
+	var lastErr error
+	for attemptIndex, credential := range credentials {
+		var apiKey string
+		if credential != nil {
+			apiKey = credential.DataString("api_key")
+		}
+		logger.Debug("Trying credential", "model", model, "endpoint", endpoint, "attempt", attemptIndex, "count", len(credentials))
+		response, err := attempt(apiKey)
+		if err == nil {
+			return response, nil
+		}
+		lastErr = err
+		if attemptIndex < len(credentials)-1 {
+			logger.Warn("Credential attempt failed, trying next", "model", model, "endpoint", endpoint, "attempt", attemptIndex, "error", err)
+		}
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no credentials available")
+	}
+	logger.Error("All credentials failed", "model", model, "endpoint", endpoint, "count", len(credentials), "error", lastErr)
+	return empty, lastErr
+}
+
+func (a *Adapter) clientFor(baseURL string) *Client {
+	client := newClient(baseURL)
+	client.SetLogger(a.currentLogger())
+	return client
+}
+
 func (a *Adapter) Complete(
 	ctx context.Context,
 	credentials []*models.Credential,
@@ -73,20 +125,26 @@ func (a *Adapter) Complete(
 ) (*models.ChatCompletionResponse, error) {
 	adapterType, _, modelName, err := request.Model.ParseFull()
 	if err != nil {
+		a.currentLogger().Error("Validating model failed", "endpoint", "/chat/completions", "error", err)
 		return nil, fmt.Errorf("invalid model id: %w", err)
 	}
 	if adapterType != provider.TypeCustom {
-		return nil, fmt.Errorf("generic adapter called for non-custom model %q", request.Model)
+		err := fmt.Errorf("generic adapter called for non-custom model %q", request.Model)
+		a.currentLogger().Error("Validating model failed", "endpoint", "/chat/completions", "model", request.Model.String(), "error", err)
+		return nil, err
 	}
 	baseURL, err := baseURLFromConfig(providerConfig)
 	if err != nil {
+		a.currentLogger().Error("Reading provider configuration failed", "endpoint", "/chat/completions", "model", request.Model.String(), "error", err)
 		return nil, err
 	}
 	if len(credentials) == 0 {
-		return nil, fmt.Errorf("no credentials available")
+		err := fmt.Errorf("no credentials available")
+		a.currentLogger().Error("All credentials failed", "endpoint", "/chat/completions", "model", request.Model.String(), "count", 0, "error", err)
+		return nil, err
 	}
-	client := newClient(baseURL)
-	return withCredentialFailover(credentials, func(apiKey string) (*models.ChatCompletionResponse, error) {
+	client := a.clientFor(baseURL)
+	return withCredentialFailoverLogged(a.currentLogger(), request.Model.String(), "/chat/completions", credentials, func(apiKey string) (*models.ChatCompletionResponse, error) {
 		return client.ChatCompletion(ctx, apiKey, modelName, request)
 	})
 }
@@ -100,20 +158,26 @@ func (a *Adapter) CompleteStream(
 ) error {
 	adapterType, _, modelName, err := request.Model.ParseFull()
 	if err != nil {
+		a.currentLogger().Error("Validating model failed", "endpoint", "/chat/completions", "error", err)
 		return fmt.Errorf("invalid model id: %w", err)
 	}
 	if adapterType != provider.TypeCustom {
-		return fmt.Errorf("generic adapter called for non-custom model %q", request.Model)
+		fault := fmt.Errorf("generic adapter called for non-custom model %q", request.Model)
+		a.currentLogger().Error("Validating model failed", "endpoint", "/chat/completions", "model", request.Model.String(), "error", fault)
+		return fault
 	}
 	baseURL, err := baseURLFromConfig(providerConfig)
 	if err != nil {
+		a.currentLogger().Error("Reading provider configuration failed", "endpoint", "/chat/completions", "model", request.Model.String(), "error", err)
 		return err
 	}
 	if len(credentials) == 0 {
-		return fmt.Errorf("no credentials available")
+		fault := fmt.Errorf("no credentials available")
+		a.currentLogger().Error("All credentials failed", "endpoint", "/chat/completions", "model", request.Model.String(), "count", 0, "error", fault)
+		return fault
 	}
-	client := newClient(baseURL)
-	_, err = withCredentialFailover(credentials, func(apiKey string) (struct{}, error) {
+	client := a.clientFor(baseURL)
+	_, err = withCredentialFailoverLogged(a.currentLogger(), request.Model.String(), "/chat/completions", credentials, func(apiKey string) (struct{}, error) {
 		return struct{}{}, client.ChatCompletionStream(ctx, apiKey, modelName, request, writer)
 	})
 	return err
@@ -132,14 +196,21 @@ func (a *Adapter) GetModelInfos(
 ) ([]models.ModelInfo, error) {
 	baseURL, err := baseURLFromConfig(providerConfig)
 	if err != nil {
+		a.currentLogger().Error("Reading provider configuration failed", "endpoint", "/models", "error", err)
 		return nil, err
 	}
 	apiKey := ""
 	if credential != nil {
 		apiKey = credential.DataString("api_key")
 	}
-	client := newClient(baseURL)
-	return client.ListModels(ctx, apiKey)
+	client := a.clientFor(baseURL)
+	infos, err := client.ListModels(ctx, apiKey)
+	if err != nil {
+		a.currentLogger().Error("Listing models failed", "endpoint", "/models", "error", err)
+		return nil, err
+	}
+	a.currentLogger().Debug("Listing models", "endpoint", "/models", "count", len(infos))
+	return infos, nil
 }
 
 // SubmitVideo routes one video generation submit over the credential pool.
@@ -151,20 +222,26 @@ func (a *Adapter) SubmitVideo(
 ) (*models.VideoGenerationResponse, error) {
 	adapterType, _, modelName, err := request.Model.ParseFull()
 	if err != nil {
+		a.currentLogger().Error("Validating model failed", "endpoint", "/videos", "error", err)
 		return nil, fmt.Errorf("invalid model id: %w", err)
 	}
 	if adapterType != provider.TypeCustom {
-		return nil, fmt.Errorf("generic adapter called for non-custom model %q", request.Model)
+		fault := fmt.Errorf("generic adapter called for non-custom model %q", request.Model)
+		a.currentLogger().Error("Validating model failed", "endpoint", "/videos", "model", request.Model.String(), "error", fault)
+		return nil, fault
 	}
 	baseURL, err := baseURLFromConfig(providerConfig)
 	if err != nil {
+		a.currentLogger().Error("Reading provider configuration failed", "endpoint", "/videos", "model", request.Model.String(), "error", err)
 		return nil, err
 	}
 	if len(credentials) == 0 {
-		return nil, fmt.Errorf("no credentials available")
+		fault := fmt.Errorf("no credentials available")
+		a.currentLogger().Error("All credentials failed", "endpoint", "/videos", "model", request.Model.String(), "count", 0, "error", fault)
+		return nil, fault
 	}
-	client := newClient(baseURL)
-	return withCredentialFailover(credentials, func(apiKey string) (*models.VideoGenerationResponse, error) {
+	client := a.clientFor(baseURL)
+	return withCredentialFailoverLogged(a.currentLogger(), request.Model.String(), "/videos", credentials, func(apiKey string) (*models.VideoGenerationResponse, error) {
 		return client.SubmitVideo(ctx, apiKey, modelName, request)
 	})
 }
@@ -179,20 +256,26 @@ func (a *Adapter) PollVideo(
 ) (*models.VideoGenerationResponse, error) {
 	adapterType, _, _, err := model.ParseFull()
 	if err != nil {
+		a.currentLogger().Error("Validating model failed", "endpoint", "/videos", "error", err)
 		return nil, fmt.Errorf("invalid model id: %w", err)
 	}
 	if adapterType != provider.TypeCustom {
-		return nil, fmt.Errorf("generic adapter called for non-custom model %q", model)
+		fault := fmt.Errorf("generic adapter called for non-custom model %q", model)
+		a.currentLogger().Error("Validating model failed", "endpoint", "/videos", "model", model.String(), "error", fault)
+		return nil, fault
 	}
 	baseURL, err := baseURLFromConfig(providerConfig)
 	if err != nil {
+		a.currentLogger().Error("Reading provider configuration failed", "endpoint", "/videos", "model", model.String(), "error", err)
 		return nil, err
 	}
 	if len(credentials) == 0 {
-		return nil, fmt.Errorf("no credentials available")
+		fault := fmt.Errorf("no credentials available")
+		a.currentLogger().Error("All credentials failed", "endpoint", "/videos", "model", model.String(), "count", 0, "error", fault)
+		return nil, fault
 	}
-	client := newClient(baseURL)
-	return withCredentialFailover(credentials, func(apiKey string) (*models.VideoGenerationResponse, error) {
+	client := a.clientFor(baseURL)
+	return withCredentialFailoverLogged(a.currentLogger(), model.String(), "/videos", credentials, func(apiKey string) (*models.VideoGenerationResponse, error) {
 		return client.PollVideo(ctx, apiKey, upstreamJobID)
 	})
 }
@@ -208,20 +291,26 @@ func (a *Adapter) VideoContent(
 ) (*models.VideoContentResponse, error) {
 	adapterType, _, _, err := model.ParseFull()
 	if err != nil {
+		a.currentLogger().Error("Validating model failed", "endpoint", "/videos/content", "error", err)
 		return nil, fmt.Errorf("invalid model id: %w", err)
 	}
 	if adapterType != provider.TypeCustom {
-		return nil, fmt.Errorf("generic adapter called for non-custom model %q", model)
+		fault := fmt.Errorf("generic adapter called for non-custom model %q", model)
+		a.currentLogger().Error("Validating model failed", "endpoint", "/videos/content", "model", model.String(), "error", fault)
+		return nil, fault
 	}
 	baseURL, err := baseURLFromConfig(providerConfig)
 	if err != nil {
+		a.currentLogger().Error("Reading provider configuration failed", "endpoint", "/videos/content", "model", model.String(), "error", err)
 		return nil, err
 	}
 	if len(credentials) == 0 {
-		return nil, fmt.Errorf("no credentials available")
+		fault := fmt.Errorf("no credentials available")
+		a.currentLogger().Error("All credentials failed", "endpoint", "/videos/content", "model", model.String(), "count", 0, "error", fault)
+		return nil, fault
 	}
-	client := newClient(baseURL)
-	return withCredentialFailover(credentials, func(apiKey string) (*models.VideoContentResponse, error) {
+	client := a.clientFor(baseURL)
+	return withCredentialFailoverLogged(a.currentLogger(), model.String(), "/videos/content", credentials, func(apiKey string) (*models.VideoContentResponse, error) {
 		return client.VideoContent(ctx, apiKey, upstreamJobID, index)
 	})
 }

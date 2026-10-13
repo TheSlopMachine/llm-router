@@ -20,6 +20,7 @@ import (
 func (h *Handler) apiConfigGet(w http.ResponseWriter, r *http.Request) {
 	routerConfig, err := h.configService.GetSettings(r.Context())
 	if err != nil {
+		h.logError("Failed to read router configuration", "error", err)
 		h.jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -53,5 +54,6 @@ func (h *Handler) apiConfigPut(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	h.logInfo("Router configuration updated")
 	h.json(w, http.StatusOK, body)
 }

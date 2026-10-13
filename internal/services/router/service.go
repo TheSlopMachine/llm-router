@@ -50,6 +50,49 @@ func New(providerService *provider.GormService, credentialService *credential.Go
 	}
 }
 
+// debug logs a flow event. A nil logger stays silent: services without one
+// skip diagnostics instead of failing.
+func (s *Service) debug(message string, arguments ...any) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	s.logger.Debug(message, arguments...)
+}
+
+// info logs routing progress. A nil logger stays silent.
+func (s *Service) info(message string, arguments ...any) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	s.logger.Info(message, arguments...)
+}
+
+// warn logs a handled failure. A nil logger stays silent.
+func (s *Service) warn(message string, arguments ...any) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	s.logger.Warn(message, arguments...)
+}
+
+// logError logs a terminal or persistence failure. A nil logger stays
+// silent. The name avoids the error keyword while the key stays error.
+func (s *Service) logError(message string, arguments ...any) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	s.logger.Error(message, arguments...)
+}
+
+// tokenIdentifier reports the token id for log keys. Empty means
+// unrestricted or unknown: callers always emit the key with this value.
+func tokenIdentifier(token *models.RouterToken) string {
+	if token == nil {
+		return ""
+	}
+	return token.ID
+}
+
 // tokenRulesCtxKey carries the outer request's credential rules across
 // re-entrant router calls (virtual-model fan-out). The virtual adapter
 // forwards ctx untouched, so inner member calls inherit the same rules
@@ -93,6 +136,10 @@ func (s *Service) filterCredentials(providerID string, credentials []*models.Cre
 			output = append(output, credential)
 		}
 	}
+	if len(output) > 0 && len(output) < len(credentials) {
+		s.debug("Filtering credentials trims pool",
+			"provider_id", providerID, "count", len(output), "total", len(credentials))
+	}
 	return output
 }
 
@@ -113,6 +160,7 @@ func (s *Service) completeOne(ctx context.Context, attempt BackendAttempt, reque
 		response, err := s.providerService.LuaService().Complete(ctx, s.handlerMetadata(resolved, request.Model, allowed), request)
 		return response, "", err
 	}
+	s.logBuiltInBackend(resolved, request.Model, len(credentials), allowed == nil)
 	response, err := resolved.Go.Complete(ctx, credentials, request, resolved.Instance.Config)
 	return response, "", err
 }
@@ -122,6 +170,7 @@ func (s *Service) completeStreamOne(ctx context.Context, attempt BackendAttempt,
 	if resolved.IsLua() {
 		return "", s.providerService.LuaService().CompleteStream(ctx, s.handlerMetadata(resolved, request.Model, attempt.Allowed), request, w)
 	}
+	s.logBuiltInBackend(resolved, request.Model, len(attempt.Creds), attempt.Allowed == nil)
 	return "", resolved.Go.CompleteStream(ctx, attempt.Creds, request, w, resolved.Instance.Config)
 }
 
@@ -130,13 +179,45 @@ func (s *Service) completeStreamOne(ctx context.Context, attempt BackendAttempt,
 // and the token allow-list of credential IDs the plugin may use.
 // A nil allow-list means unrestricted (admin probes).
 func (s *Service) handlerMetadata(resolved *provider.Resolved, model models.ModelId, allowed []string) luaplugin.HandlerMeta {
-	return luaplugin.HandlerMeta{
+	if resolved == nil || resolved.Instance == nil {
+		return luaplugin.HandlerMeta{Model: model, AllowedCredentials: allowed}
+	}
+	metadata := luaplugin.HandlerMeta{
 		ProviderID:         resolved.Instance.ID,
 		TypeKey:            resolved.Instance.TypeKey,
 		Model:              model,
 		ProviderConfig:     resolved.Instance.Config,
 		AllowedCredentials: allowed,
 	}
+	arguments := []any{
+		"provider_id", resolved.Instance.ID,
+		"type", resolved.Instance.TypeKey,
+		"model", model.String(),
+		"count", len(allowed),
+	}
+	if allowed == nil {
+		arguments = append(arguments, "reason", "unrestricted")
+	}
+	s.info("Routing request to plugin backend", arguments...)
+	return metadata
+}
+
+// logBuiltInBackend records the backend choice for Go adapters, mirroring
+// the plugin-backend info logged by handlerMetadata.
+func (s *Service) logBuiltInBackend(resolved *provider.Resolved, model models.ModelId, count int, unrestricted bool) {
+	if resolved == nil || resolved.Instance == nil {
+		return
+	}
+	arguments := []any{
+		"provider_id", resolved.Instance.ID,
+		"type", resolved.Instance.TypeKey,
+		"model", model.String(),
+		"count", count,
+	}
+	if unrestricted {
+		arguments = append(arguments, "reason", "unrestricted")
+	}
+	s.info("Routing request to built-in backend", arguments...)
 }
 
 // gateCredentials resolves the token allow-list of credential IDs for one
@@ -153,16 +234,23 @@ func (s *Service) gateCredentials(ctx context.Context, resolved *provider.Resolv
 	}
 	credentials, err := s.credentialService.All(ctx, instance.ID)
 	if err != nil {
-		s.logger.Debug("router: no available credentials", "provider_id", instance.ID, "reason", "no_available_credentials")
+		s.debug("Denying request with no available credentials",
+			"provider_id", instance.ID, "model", model.String(),
+			"reason", "no_available_credentials", "error", err,
+			"token_id", tokenIdentifier(token))
 		return nil, nil, fmt.Errorf("%w for provider %q", apierrors.ErrNoCredential, instance.Name)
 	}
 	filtered := s.filterCredentials(instance.ID, credentials, effectiveToken(ctx, token))
 	if len(filtered) == 0 {
-		s.logger.Debug("router: credential pool empty after filtering",
-			"provider_id", instance.ID, "model", model.String(), "reason", "empty_after_filter",
-			"total", len(credentials))
+		s.debug("Denying request with no allowed credentials",
+			"provider_id", instance.ID, "model", model.String(),
+			"reason", "empty_after_filter", "count", 0, "total", len(credentials),
+			"token_id", tokenIdentifier(token))
 		return nil, nil, fmt.Errorf("%w for provider %q", apierrors.ErrCredentialNotAllowed, instance.Name)
 	}
+	s.debug("Allowing request with gated credentials",
+		"provider_id", instance.ID, "model", model.String(),
+		"count", len(filtered), "token_id", tokenIdentifier(token))
 	allowed := make([]string, 0, len(filtered))
 	for _, credential := range filtered {
 		allowed = append(allowed, credential.ID)
@@ -248,18 +336,28 @@ func (s *Service) dropMissingModel(ctx context.Context, providerID, modelName st
 	if err == nil {
 		return
 	}
+	modelID := providerID + "/" + modelName
 	var providerError *models.ProviderError
-	if !errors.As(err, &providerError) || providerError.Code != "not_found" {
+	if !errors.As(err, &providerError) {
+		s.debug("Retaining cached model after backend error",
+			"provider_id", providerID, "model", modelID,
+			"reason", "non_provider_error", "error", err)
+		return
+	}
+	if providerError.Code != "not_found" {
+		s.debug("Retaining cached model after backend error",
+			"provider_id", providerID, "model", modelID,
+			"reason", "error_is_not_missing", "code", providerError.Code, "error", err)
 		return
 	}
 	removed, removeError := s.modelInfoService.RemoveModel(ctx, providerID, modelName)
 	if removeError != nil {
-		s.logger.Warn("router: drop missing model from cache failed",
+		s.warn("Removing missing model from cache fails",
 			"provider_id", providerID, "model", modelName, "error", removeError)
 		return
 	}
 	if removed {
-		s.logger.Warn("router: upstream reports model does not exist, dropped from cache",
+		s.warn("Dropping missing model from cache",
 			"provider_id", providerID, "model", modelName)
 	}
 }
@@ -304,13 +402,26 @@ func (s *Service) completeWithProxy(
 	// credentials of their own; the outer token snapshot in ctx still
 	// restricts the credentials of the member models tried inside.
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		return s.completeOne(ctx, BackendAttempt{Resolved: resolved}, request)
+		response, _, err := s.completeOne(ctx, BackendAttempt{Resolved: resolved}, request)
+		if err != nil {
+			s.logError("Chat completion request fails",
+				"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+				"model", request.Model.String(), "endpoint", models.EndpointChatCompletions,
+				"token_id", tokenIdentifier(token), "error", err)
+		}
+		return response, "", err
 	}
 	allowed, credentials, err := s.gateCredentials(ctx, resolved, request.Model, token)
 	if err != nil {
 		return nil, "", err
 	}
 	response, _, err := s.completeOne(ctx, BackendAttempt{Resolved: resolved, Creds: credentials, Allowed: allowed}, request)
+	if err != nil {
+		s.logError("Chat completion request fails",
+			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+			"model", request.Model.String(), "endpoint", models.EndpointChatCompletions,
+			"token_id", tokenIdentifier(token), "error", err)
+	}
 	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
 	return response, "", err
 }
@@ -330,6 +441,12 @@ func (s *Service) CompleteStream(
 	resolved := resolvedRequest.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
 		_, err := s.completeStreamOne(ctx, BackendAttempt{Resolved: resolved}, request, w)
+		if err != nil {
+			s.logError("Chat stream request fails",
+				"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+				"model", request.Model.String(), "endpoint", models.EndpointChatCompletions,
+				"token_id", tokenIdentifier(token), "error", err)
+		}
 		return err
 	}
 	allowed, credentials, err := s.gateCredentials(ctx, resolved, request.Model, token)
@@ -337,6 +454,12 @@ func (s *Service) CompleteStream(
 		return err
 	}
 	_, err = s.completeStreamOne(ctx, BackendAttempt{Resolved: resolved, Creds: credentials, Allowed: allowed}, request, w)
+	if err != nil {
+		s.logError("Chat stream request fails",
+			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+			"model", request.Model.String(), "endpoint", models.EndpointChatCompletions,
+			"token_id", tokenIdentifier(token), "error", err)
+	}
 	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
 	return err
 }
@@ -355,6 +478,7 @@ func (s *Service) transcribeOne(ctx context.Context, resolved *provider.Resolved
 	if !ok {
 		return nil, "", fmt.Errorf("%w: provider %q does not support audio transcription", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
+	s.logBuiltInBackend(resolved, request.Model, len(credentials), allowed == nil)
 	response, err := transcriber.Transcribe(ctx, credentials, request, resolved.Instance.Config)
 	return response, "", err
 }
@@ -393,11 +517,20 @@ func (s *Service) transcribeWithProxy(
 	}
 	resolved := resolvedRequest.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		return nil, "", fmt.Errorf("%w: virtual models do not serve audio transcription", apierrors.ErrEndpointNotSupported)
+		err := fmt.Errorf("%w: virtual models do not serve audio transcription", apierrors.ErrEndpointNotSupported)
+		s.debug("Denying request without backend capability",
+			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+			"model", request.Model.String(), "endpoint", models.EndpointAudioTranscription,
+			"reason", "virtual_unsupported", "token_id", tokenIdentifier(token), "error", err)
+		return nil, "", err
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
 	_, goSupported := resolved.Go.(provider.Transcriber)
 	if err := s.requireCapability(resolved, "transcribe", goSupported, fmt.Sprintf("provider %q does not support audio transcription", resolved.Instance.Name)); err != nil {
+		s.debug("Denying request without backend capability",
+			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+			"model", request.Model.String(), "endpoint", models.EndpointAudioTranscription,
+			"reason", "missing_handler", "token_id", tokenIdentifier(token), "error", err)
 		return nil, "", err
 	}
 	allowed, credentials, err := s.gateCredentials(ctx, resolved, request.Model, token)
@@ -405,6 +538,12 @@ func (s *Service) transcribeWithProxy(
 		return nil, "", err
 	}
 	response, _, err := s.transcribeOne(ctx, resolved, credentials, allowed, request)
+	if err != nil {
+		s.logError("Audio transcription request fails",
+			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+			"model", request.Model.String(), "endpoint", models.EndpointAudioTranscription,
+			"token_id", tokenIdentifier(token), "error", err)
+	}
 	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
 	return response, "", err
 }
@@ -423,6 +562,7 @@ func (s *Service) speechOne(ctx context.Context, resolved *provider.Resolved, cr
 	if !ok {
 		return nil, "", fmt.Errorf("%w: provider %q does not support text-to-speech", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
+	s.logBuiltInBackend(resolved, request.Model, len(credentials), allowed == nil)
 	response, err := speaker.Speech(ctx, credentials, request, resolved.Instance.Config)
 	return response, "", err
 }
@@ -461,11 +601,20 @@ func (s *Service) speechWithProxy(
 	}
 	resolved := resolvedRequest.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		return nil, "", fmt.Errorf("%w: virtual models do not serve text-to-speech", apierrors.ErrEndpointNotSupported)
+		err := fmt.Errorf("%w: virtual models do not serve text-to-speech", apierrors.ErrEndpointNotSupported)
+		s.debug("Denying request without backend capability",
+			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+			"model", request.Model.String(), "endpoint", models.EndpointAudioSpeech,
+			"reason", "virtual_unsupported", "token_id", tokenIdentifier(token), "error", err)
+		return nil, "", err
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
 	_, goSupported := resolved.Go.(provider.Speaker)
 	if err := s.requireCapability(resolved, "speech", goSupported, fmt.Sprintf("provider %q does not support text-to-speech", resolved.Instance.Name)); err != nil {
+		s.debug("Denying request without backend capability",
+			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+			"model", request.Model.String(), "endpoint", models.EndpointAudioSpeech,
+			"reason", "missing_handler", "token_id", tokenIdentifier(token), "error", err)
 		return nil, "", err
 	}
 	allowed, credentials, err := s.gateCredentials(ctx, resolved, request.Model, token)
@@ -473,6 +622,12 @@ func (s *Service) speechWithProxy(
 		return nil, "", err
 	}
 	response, _, err := s.speechOne(ctx, resolved, credentials, allowed, request)
+	if err != nil {
+		s.logError("Audio speech request fails",
+			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+			"model", request.Model.String(), "endpoint", models.EndpointAudioSpeech,
+			"token_id", tokenIdentifier(token), "error", err)
+	}
 	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
 	return response, "", err
 }
@@ -491,6 +646,7 @@ func (s *Service) generateImageOne(ctx context.Context, resolved *provider.Resol
 	if !ok {
 		return nil, "", fmt.Errorf("%w: provider %q does not support image generation", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
+	s.logBuiltInBackend(resolved, request.Model, len(credentials), allowed == nil)
 	response, err := imageGenerator.GenerateImage(ctx, credentials, request, resolved.Instance.Config)
 	return response, "", err
 }
@@ -529,11 +685,20 @@ func (s *Service) generateImageWithProxy(
 	}
 	resolved := resolvedRequest.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		return nil, "", fmt.Errorf("%w: virtual models do not serve image generation", apierrors.ErrEndpointNotSupported)
+		err := fmt.Errorf("%w: virtual models do not serve image generation", apierrors.ErrEndpointNotSupported)
+		s.debug("Denying request without backend capability",
+			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+			"model", request.Model.String(), "endpoint", models.EndpointImagesGenerations,
+			"reason", "virtual_unsupported", "token_id", tokenIdentifier(token), "error", err)
+		return nil, "", err
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
 	_, goSupported := resolved.Go.(provider.ImageGenerator)
 	if err := s.requireCapability(resolved, "generate_image", goSupported, fmt.Sprintf("provider %q does not support image generation", resolved.Instance.Name)); err != nil {
+		s.debug("Denying request without backend capability",
+			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+			"model", request.Model.String(), "endpoint", models.EndpointImagesGenerations,
+			"reason", "missing_handler", "token_id", tokenIdentifier(token), "error", err)
 		return nil, "", err
 	}
 	allowed, credentials, err := s.gateCredentials(ctx, resolved, request.Model, token)
@@ -541,6 +706,12 @@ func (s *Service) generateImageWithProxy(
 		return nil, "", err
 	}
 	response, _, err := s.generateImageOne(ctx, resolved, credentials, allowed, request)
+	if err != nil {
+		s.logError("Image generation request fails",
+			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+			"model", request.Model.String(), "endpoint", models.EndpointImagesGenerations,
+			"token_id", tokenIdentifier(token), "error", err)
+	}
 	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
 	return response, "", err
 }
@@ -559,6 +730,7 @@ func (s *Service) embedOne(ctx context.Context, resolved *provider.Resolved, cre
 	if !ok {
 		return nil, "", fmt.Errorf("%w: provider %q does not support embeddings", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
+	s.logBuiltInBackend(resolved, request.Model, len(credentials), allowed == nil)
 	response, err := embedder.Embed(ctx, credentials, request, resolved.Instance.Config)
 	return response, "", err
 }
@@ -597,11 +769,20 @@ func (s *Service) embedWithProxy(
 	}
 	resolved := resolvedRequest.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		return nil, "", fmt.Errorf("%w: virtual models do not serve embeddings", apierrors.ErrEndpointNotSupported)
+		err := fmt.Errorf("%w: virtual models do not serve embeddings", apierrors.ErrEndpointNotSupported)
+		s.debug("Denying request without backend capability",
+			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+			"model", request.Model.String(), "endpoint", models.EndpointEmbeddings,
+			"reason", "virtual_unsupported", "token_id", tokenIdentifier(token), "error", err)
+		return nil, "", err
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
 	_, goSupported := resolved.Go.(provider.Embedder)
 	if err := s.requireCapability(resolved, "embed", goSupported, fmt.Sprintf("provider %q does not support embeddings", resolved.Instance.Name)); err != nil {
+		s.debug("Denying request without backend capability",
+			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+			"model", request.Model.String(), "endpoint", models.EndpointEmbeddings,
+			"reason", "missing_handler", "token_id", tokenIdentifier(token), "error", err)
 		return nil, "", err
 	}
 	allowed, credentials, err := s.gateCredentials(ctx, resolved, request.Model, token)
@@ -609,6 +790,12 @@ func (s *Service) embedWithProxy(
 		return nil, "", err
 	}
 	response, _, err := s.embedOne(ctx, resolved, credentials, allowed, request)
+	if err != nil {
+		s.logError("Embeddings request fails",
+			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+			"model", request.Model.String(), "endpoint", models.EndpointEmbeddings,
+			"token_id", tokenIdentifier(token), "error", err)
+	}
 	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
 	return response, "", err
 }
