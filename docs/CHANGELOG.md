@@ -2,6 +2,10 @@
 
 ## Done (2026-10-13, vUnreleased)
 
+- Documented the plugin logging convention: one stable human sentence per site with facts in `snake_case` keys from a standard vocabulary, severity tiers for flow, failover and terminal failures, and a fixed `event` category set.
+
+## Done (2026-10-13, vUnreleased)
+
 - Added `llm_router.log` (contract 1.4): structured plugin logging with string severity and arbitrary keys into the events database under router-owned `plugin`/`type` keys, `print` shims info severity, and per-plugin log reads serve from events with severity and keys.
 - Vacuumed all three database files on shutdown: `Close` checkpoints, vacuums and optimizes each file with per-file errors never skipping remaining closes, background writers stop first through one service context, and the events queue drains after the listeners stop.
 - Replaced file logging with the events database: `EVENTS_PATH` (fallback `DEV_EVENTS`, default `llm-router.events.sqlite3`) owned `event_records` plus `event_keys` with severity 0-4, `EVENTS_RETENTION_DAYS` (default 3, minimum 1) pruned on startup and hourly with incremental vacuum, and every record persisted regardless of `LOG_LEVEL` while stderr kept the bracket format filtered by level.

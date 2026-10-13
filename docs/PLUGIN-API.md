@@ -427,16 +427,65 @@ llm_router.storage.set("cooldown", cred_id, { until = os.time() + wait }, { ttl 
 ### `llm_router.log(severity, message, keys?)`
 
 Structured plugin logging into the router events database. `severity` is
-`debug`, `info`, `warn`, `error` or `fatal`. `message` is a string.
-`keys` is an optional string-to-scalar table (at most 32 entries, values
-truncate at 2048 chars); every key lands in the event record and queries
-as `filter.<key>` on `GET /api/events`. The router attaches `plugin`
-(record id) and `type` (type key) itself: both names are reserved and
-rejected in `keys`. Global `print(...)` stays as a shim for
-`log("info", ...)` with tab-joined arguments.
+`debug`, `info`, `warn` or `error` (`fatal` exists for unrecoverable
+states). `message` is a string. `keys` is an optional string-to-scalar
+table (at most 32 entries, values truncate at 2048 chars); every key
+lands in the event record and queries as `filter.<key>` on
+`GET /api/events`. The router attaches `plugin` (record id) and `type`
+(type key) itself: both names are reserved and rejected in `keys`.
+Global `print(...)` stays as a shim for `log("info", ...)` with
+tab-joined arguments.
 
 ```lua
-llm_router.log("warn", "rate limited, backing off", { provider = "openai", wait = 30 })
+llm_router.log("warn", "rate limited", { code = "rate_limit", status = 429, wait = 30 })
+```
+
+#### Logging convention
+
+Messages carry one stable human sentence per code site: the same site
+always emits identical text, so lines group. Sentence case, present
+tense, no trailing period, no embedded values, no provider or plugin
+name (the `type` key and the display line already identify the source).
+
+Severity tiers: `debug` for flow and troubleshooting (attempts,
+payloads, dumps, completions); `warn` for handled failures with
+failover (bench, park, next credential or exit); `error` for terminal
+failures (the request fails).
+
+Keys use `snake_case` with full words. Standard vocabulary, required
+whenever the data exists:
+
+| Key | Meaning |
+|---|---|
+| `status` | upstream HTTP status (number) |
+| `code` | wire error code |
+| `cred_id` | credential attempting the call |
+| `model` | router model id |
+| `endpoint` | request path |
+| `event` | category for high-volume debug sites (see below) |
+| `count` | result cardinality |
+| `reason` | variable failure text that cannot stabilize into a message |
+| `detail` | variable upstream-supplied detail |
+| `wait` | park or backoff seconds (number) |
+| `exit` | proxy exit key |
+| `body` | capped upstream text (1000 chars) |
+| `line` | full SSE line |
+| `body_len`, `input_tokens`, `cached_tokens`, `tools`, `messages` | numeric payload facts |
+
+Arbitrary extra keys stay allowed; machine data never lives in message
+text. The `event` values are fixed per family: `exits`,
+`rate_limit`, `forbidden`, `request_dump`, `response_dump`,
+`reasoning_replay`, `payload`, `cache`, `request_start`, `http`,
+`http_error`, `stream`, `stream_response`, `stream_error`,
+`stream_done`, `sse`.
+
+Example and anti-example:
+
+```lua
+-- DO: stable message, facts in keys
+llm_router.log("debug", "selecting exits", { usable = 3, skipped = 1, event = "exits" })
+-- DON'T: values in text
+llm_router.log("debug", "usable=3 skipped_rate_limited=1", { tag = "EXITS" })
 ```
 
 ### `multipart`, `base64_*`, `uuid_v5`, `random_hex`, `json`
