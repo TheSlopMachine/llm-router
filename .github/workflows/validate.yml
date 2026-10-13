@@ -2,13 +2,20 @@ name: validate
 
 on:
   push:
+  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  validate:
+  setup:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,8 +31,49 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            web/node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('web/bun.lock', 'web/package.json') }}
+
       - name: Initialize project
         run: make init
+
+      - name: Upload generated files
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-files
+          retention-days: 7
+          path: |
+            web/openapi.yaml
+            web/src/lib/generated/api-types.ts
+            internal/dashboard/build/web/index.html
+
+      - name: Report milestone
+        run: 'echo "setup: make init passed" >> "$GITHUB_STEP_SUMMARY"'
+
+  static:
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: true
+
+      - name: Download generated files
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-files
+          path: .
 
       - name: Run go vet
         run: make go-vet
@@ -36,11 +84,99 @@ jobs:
       - name: Enforce SQL policy
         run: make sql-policy
 
+      - name: Report milestone
+        run: 'echo "static: make go-vet, make go-fmt-check and make sql-policy passed" >> "$GITHUB_STEP_SUMMARY"'
+
+  test:
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: true
+
+      - name: Download generated files
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-files
+          path: .
+
       - name: Run go test
         run: make go-test
+
+      - name: Report milestone
+        run: 'echo "test: make go-test passed" >> "$GITHUB_STEP_SUMMARY"'
+
+  race:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: true
+
+      - name: Download generated files
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-files
+          path: .
 
       - name: Run go test with race detector
         run: make go-test-race
 
+      - name: Report milestone
+        run: 'echo "race: make go-test-race passed" >> "$GITHUB_STEP_SUMMARY"'
+
+  frontend:
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            web/node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('web/bun.lock', 'web/package.json') }}
+
+      - name: Download generated files
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-files
+          path: .
+
+      - name: Initialize project
+        run: make init
+
       - name: Check frontend
         run: make check-frontend
+
+      - name: Report milestone
+        run: 'echo "frontend: make check-frontend passed" >> "$GITHUB_STEP_SUMMARY"'

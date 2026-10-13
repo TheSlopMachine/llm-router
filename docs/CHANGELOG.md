@@ -2,6 +2,10 @@
 
 ## Done (2026-10-13, vUnreleased)
 
+- Split the push validation workflow into milestone jobs (`setup`, `static`, `test`, `race`, `frontend`) with parallel fan-out after `setup` (`race` still waits for `test`): `setup` ran `make init` once and shared the generated files as an artifact, every job carried a timeout with a step-summary milestone line, rapid pushes cancelled superseded runs, and triggers covered pushes, pull requests and manual runs. Bun dependencies cached on `web/bun.lock` plus `web/package.json`.
+
+## Done (2026-10-13, vUnreleased)
+
 - Fixed `~`-backslash expansion on non-Windows systems: `expandTildePath` normalized `\` to `/` in the remainder before joining, so `~\data\db.sqlite3` resolved identically on every OS. Applied the fix in both mirrors (`internal/config/expand.go`, `scripts/shared/expand.go`); the Linux-only `TestExpandPath/tildeBackslash` CI failure passed.
 
 ## Done (2026-10-13, vUnreleased)
