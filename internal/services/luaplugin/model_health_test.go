@@ -102,3 +102,63 @@ llm_router.register("bare-model-type", {
 		t.Fatalf("missing handler must report not found, got %T (%v)", err, err)
 	}
 }
+
+// Model checks must scope credentials.list() to the requesting provider:
+// the metadata ProviderID threads into the sandbox, otherwise every keyed
+// probe sees an empty pool. Locks the regression where handlerCall dropped
+// the provider identity.
+func TestCheckModelScopesCredentialsByProvider(t *testing.T) {
+	service := setupService(t)
+	if _, err := service.InstallSQLite(context.Background(), []byte(`--- @plugin Scope Model Plugin
+--- @author tester
+--- @version 1.0.0
+--- @plugin_api 1.0
+--- @allow_host example.com
+
+llm_router.register("scope-model-type", {
+  complete = function(ctx, request) return nil, { message = "no", code = "server_error" } end,
+  credential_schema = {
+    { type = "secret", name = "api_key", label = "API Key" },
+  },
+  check_model = function(ctx, model_ref)
+    local ids = {}
+    for _, c in ipairs(llm_router.credentials.list()) do
+      table.insert(ids, c.id)
+    end
+    table.sort(ids)
+    return { status = "healthy", response = table.concat(ids, ",") }
+  end,
+})`), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	rows := map[string][]*models.Credential{
+		"provider-a": {
+			{ID: "a1", ProviderID: "provider-a", Data: map[string]any{"api_key": "k1"}},
+		},
+		"provider-b": {
+			{ID: "b1", ProviderID: "provider-b", Data: map[string]any{"api_key": "k3"}},
+		},
+	}
+	service.SetCredentialAccess(
+		func(ctx context.Context, providerID string) ([]*models.Credential, error) {
+			return rows[providerID], nil
+		},
+		func(ctx context.Context, id string) (*models.Credential, error) { return nil, nil },
+		func(ctx context.Context, id string, data map[string]any) error { return nil },
+	)
+
+	health, err := service.CheckModel(context.Background(), HandlerMeta{ProviderID: "provider-a", TypeKey: "scope-model-type", Model: "provider-a/chat"}, "chat")
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if health.Response != "a1" {
+		t.Fatalf("provider-a sees: %q, want %q", health.Response, "a1")
+	}
+	health, err = service.CheckModel(context.Background(), HandlerMeta{ProviderID: "provider-b", TypeKey: "scope-model-type", Model: "provider-b/chat"}, "chat")
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if health.Response != "b1" {
+		t.Fatalf("provider-b sees: %q, want %q", health.Response, "b1")
+	}
+}

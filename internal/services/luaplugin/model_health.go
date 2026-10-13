@@ -48,7 +48,7 @@ func (s *Service) CheckModel(goCtx context.Context, metadata HandlerMeta, endpoi
 		return ModelHealth{}, err
 	}
 	var health ModelHealth
-	found, err := s.handlerCall(goCtx, record, metadata.TypeKey, string(HandlerCheckModel), func(L *lua.LState) {
+	found, _, err := s.handlerCallEx(goCtx, record, metadata, string(HandlerCheckModel), func(L *lua.LState) {
 		L.Push(ctxTable(L, "", metadata.ProviderConfig))
 		L.Push(modelRefTable(L, metadata.Model, endpoint))
 	}, 1, func(L *lua.LState) error {
@@ -86,7 +86,7 @@ func (s *Service) CheckModel(goCtx context.Context, metadata HandlerMeta, endpoi
 			health.Response = string(text)
 		}
 		return nil
-	}, metadata.ProviderConfig)
+	}, nil)
 	if err != nil {
 		return ModelHealth{}, err
 	}
