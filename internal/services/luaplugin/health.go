@@ -126,7 +126,8 @@ func (s *Service) CheckHealth(goCtx context.Context, typeKey string, credential 
 // logHealthVerdict records a valid health verdict at debug level with
 // credential context. Variable detail travels in reason, never in text.
 func (s *Service) logHealthVerdict(pluginID, typeKey string, credential *models.Credential, status HealthStatus, message string) {
-	if s.logger == nil {
+	logger := s.getLogger()
+	if logger == nil {
 		return
 	}
 	credentialID := ""
@@ -137,5 +138,5 @@ func (s *Service) logHealthVerdict(pluginID, typeKey string, credential *models.
 	if message != "" {
 		arguments = append(arguments, "reason", message)
 	}
-	s.logger.Debug("Credential health verdict", arguments...)
+	logger.Debug("Credential health verdict", arguments...)
 }

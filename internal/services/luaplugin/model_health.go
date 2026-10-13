@@ -100,12 +100,13 @@ func (s *Service) CheckModel(goCtx context.Context, metadata HandlerMeta, endpoi
 // logModelVerdict records a valid model verdict at debug level with model
 // context. Variable detail travels in reason, never in text.
 func (s *Service) logModelVerdict(pluginID string, metadata HandlerMeta, endpoint string, health ModelHealth) {
-	if s.logger == nil {
+	logger := s.getLogger()
+	if logger == nil {
 		return
 	}
 	arguments := []any{"plugin_id", pluginID, "type", metadata.TypeKey, "model", metadata.Model.String(), "endpoint", endpoint, "status", string(health.Status)}
 	if health.Message != "" {
 		arguments = append(arguments, "reason", health.Message)
 	}
-	s.logger.Debug("Model health verdict", arguments...)
+	logger.Debug("Model health verdict", arguments...)
 }

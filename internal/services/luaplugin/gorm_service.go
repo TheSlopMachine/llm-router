@@ -343,8 +343,10 @@ func (service *Service) DeleteSQLite(ctx context.Context, pluginID string) error
 	}); err != nil {
 		return err
 	}
-	if _, err := gorm.G[record.PluginStorage](service.cache, clause.Eq{Column: "plugin_id", Value: pluginID}).Delete(ctx); err != nil && service.logger != nil {
-		service.logger.Warn("Plugin cache storage cleanup failed", "plugin_id", pluginID, "error", err.Error())
+	if _, err := gorm.G[record.PluginStorage](service.cache, clause.Eq{Column: "plugin_id", Value: pluginID}).Delete(ctx); err != nil {
+		if logger := service.getLogger(); logger != nil {
+			logger.Warn("Plugin cache storage cleanup failed", "plugin_id", pluginID, "error", err.Error())
+		}
 	}
 	if err := service.rebuild(ctx); err != nil {
 		return err
@@ -389,8 +391,8 @@ func (service *Service) SetDisabled(ctx context.Context, pluginID string, disabl
 	} else {
 		service.launchLifecycleHook(&updated, string(HandlerInitialize), InitializeReasonEnable)
 	}
-	if service.logger != nil {
-		service.logger.Info("Plugin admin state changed", "plugin_id", pluginID, "disabled", disabled)
+	if logger := service.getLogger(); logger != nil {
+		logger.Info("Plugin admin state changed", "plugin_id", pluginID, "disabled", disabled)
 	}
 	return &updated, nil
 }
@@ -638,15 +640,19 @@ func pruneVersionHistoryInTransaction(ctx context.Context, transaction *gorm.DB,
 // logAPIIncompatible records a plugin API version mismatch at warning level
 // with machine-readable reason for dashboard diagnosis.
 func (service *Service) logAPIIncompatible(manifest *Manifest, origin PluginOrigin, compatError error) {
-	if service.logger == nil || compatError == nil {
+	if compatError == nil {
+		return
+	}
+	logger := service.getLogger()
+	if logger == nil {
 		return
 	}
 	compat, ok := compatError.(*APICompatError)
 	if !ok {
-		service.logger.Warn("Plugin API check failed", "error", compatError.Error())
+		logger.Warn("Plugin API check failed", "error", compatError.Error())
 		return
 	}
 	_ = manifest
 	_ = origin
-	service.logger.Warn("Plugin API incompatible", "reason", compat.Reason, "error", compat.Error())
+	logger.Warn("Plugin API incompatible", "reason", compat.Reason, "error", compat.Error())
 }

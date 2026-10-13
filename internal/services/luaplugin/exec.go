@@ -65,11 +65,27 @@ func (s *Service) handlerCallEx(
 	if configuration == nil {
 		configuration = &callConfiguration{providerID: handlerMetadata.ProviderID, providerConfig: handlerMetadata.ProviderConfig, credentialID: handlerMetadata.credentialID(), model: handlerMetadata.Model, allowedCredentials: handlerMetadata.AllowedCredentials}
 	}
+	s.wiringMu.RLock()
+	logger := s.logger
+	markDead := s.markDead
+	healthTrigger := s.healthTrigger
+	proxyQuery := s.proxyQuery
+	proxyRequire := s.proxyRequire
+	credentialList := s.credentialList
+	credentialGet := s.credentialGet
+	credentialUpdate := s.credentialUpdate
+	credentialDisable := s.credentialDisable
+	credentialEnable := s.credentialEnable
+	credentialPark := s.credentialPark
+	credentialUnpark := s.credentialUnpark
+	credentialParked := s.credentialParked
+	automationOn := s.automationOn
+	s.wiringMu.RUnlock()
 	ctx := &executionContext{
 		pluginID:             record.ID,
 		allowHosts:           record.AllowHosts,
 		unsafe:               record.Unsafe,
-		logger:               s.logger,
+		logger:               logger,
 		logSink:              s.appendLog,
 		storage:              &serviceStorage{service: s, ctx: goCtx},
 		timeoutMs:            configuration.timeoutMs,
@@ -80,20 +96,20 @@ func (s *Service) handlerCallEx(
 		allowedCredentials:   configuration.allowedCredentials,
 		allowCredentialWrite: configuration.allowCredentialWrite,
 		jobName:              configuration.jobName,
-		markDead:             s.markDead,
-		healthTrigger:        s.healthTrigger,
-		proxyQuery:           s.proxyQuery,
-		proxyRequire:         s.proxyRequire,
+		markDead:             markDead,
+		healthTrigger:        healthTrigger,
+		proxyQuery:           proxyQuery,
+		proxyRequire:         proxyRequire,
 		delivered:            handlerMetadata.delivered,
-		credentialList:       s.credentialList,
-		credentialGet:        s.credentialGet,
-		credentialUpdate:     s.credentialUpdate,
-		credentialDisable:    s.credentialDisable,
-		credentialEnable:     s.credentialEnable,
-		credentialPark:       s.credentialPark,
-		credentialUnpark:     s.credentialUnpark,
-		credentialParked:     s.credentialParked,
-		automationOn:         s.automationOn,
+		credentialList:       credentialList,
+		credentialGet:        credentialGet,
+		credentialUpdate:     credentialUpdate,
+		credentialDisable:    credentialDisable,
+		credentialEnable:     credentialEnable,
+		credentialPark:       credentialPark,
+		credentialUnpark:     credentialUnpark,
+		credentialParked:     credentialParked,
+		automationOn:         automationOn,
 		capabilities:         s.capabilitiesFor(typeKey),
 		goCtx:                goCtx,
 		registrations:        map[string]*lua.LTable{},
@@ -362,7 +378,8 @@ func (s *Service) contractErrOrInternal(record *PluginRecord, typeKey string, re
 // logHandlerLoadFailed records a source load failure as a warning with
 // handler context.
 func (s *Service) logHandlerLoadFailed(pluginID, typeKey, handler, jobName, model, cause string) {
-	if s.logger == nil {
+	logger := s.getLogger()
+	if logger == nil {
 		return
 	}
 	arguments := []any{"plugin_id", pluginID, "type", typeKey, "endpoint", handler, "error", cause}
@@ -372,13 +389,14 @@ func (s *Service) logHandlerLoadFailed(pluginID, typeKey, handler, jobName, mode
 	if model != "" {
 		arguments = append(arguments, "model", model)
 	}
-	s.logger.Warn("Plugin source load failed", arguments...)
+	logger.Warn("Plugin source load failed", arguments...)
 }
 
 // logHandlerMissing records a missing handler registration at debug level:
 // optional handlers miss as part of normal fallback.
 func (s *Service) logHandlerMissing(pluginID, typeKey, handler, jobName, model string) {
-	if s.logger == nil {
+	logger := s.getLogger()
+	if logger == nil {
 		return
 	}
 	arguments := []any{"plugin_id", pluginID, "type", typeKey, "endpoint", handler}
@@ -388,14 +406,18 @@ func (s *Service) logHandlerMissing(pluginID, typeKey, handler, jobName, model s
 	if model != "" {
 		arguments = append(arguments, "model", model)
 	}
-	s.logger.Debug("Plugin handler missing", arguments...)
+	logger.Debug("Plugin handler missing", arguments...)
 }
 
 // logHandlerCallFailed records a handler invocation outcome with context.
 // Terminal provider errors are expected request failures at debug level;
 // internal errors are plugin crashes at warning level.
 func (s *Service) logHandlerCallFailed(pluginID, typeKey, handler, jobName, model string, callError error) {
-	if s.logger == nil || callError == nil {
+	if callError == nil {
+		return
+	}
+	logger := s.getLogger()
+	if logger == nil {
 		return
 	}
 	var providerError *models.ProviderError
@@ -410,7 +432,7 @@ func (s *Service) logHandlerCallFailed(pluginID, typeKey, handler, jobName, mode
 		if model != "" {
 			arguments = append(arguments, "model", model)
 		}
-		s.logger.Debug("Plugin handler failed", arguments...)
+		logger.Debug("Plugin handler failed", arguments...)
 		return
 	}
 	arguments := []any{"plugin_id", pluginID, "type", typeKey, "endpoint", handler, "error", callError.Error()}
@@ -420,5 +442,5 @@ func (s *Service) logHandlerCallFailed(pluginID, typeKey, handler, jobName, mode
 	if model != "" {
 		arguments = append(arguments, "model", model)
 	}
-	s.logger.Warn("Plugin handler crashed", arguments...)
+	logger.Warn("Plugin handler crashed", arguments...)
 }

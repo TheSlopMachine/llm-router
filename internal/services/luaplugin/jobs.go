@@ -163,38 +163,45 @@ func (s *Service) RunJob(goCtx context.Context, typeKey, name, reason, providerI
 }
 
 func (s *Service) logJobMissing(pluginID, typeKey, name, reason string) {
-	if s.logger == nil {
+	logger := s.getLogger()
+	if logger == nil {
 		return
 	}
-	s.logger.Warn("Plugin job missing",
+	logger.Warn("Plugin job missing",
 		"plugin_id", pluginID, "type", typeKey, "job", name, "reason", reason)
 }
 
 func (s *Service) logJobInvalidReturn(pluginID, typeKey, name, reason string) {
-	if s.logger == nil {
+	logger := s.getLogger()
+	if logger == nil {
 		return
 	}
-	s.logger.Warn("Plugin job returned invalid value",
+	logger.Warn("Plugin job returned invalid value",
 		"plugin_id", pluginID, "type", typeKey, "job", name, "reason", reason)
 }
 
 func (s *Service) logJobFailed(pluginID, typeKey, name, reason string, timeoutMs int, jobError error) {
-	if s.logger == nil || jobError == nil {
+	if jobError == nil {
+		return
+	}
+	logger := s.getLogger()
+	if logger == nil {
 		return
 	}
 	var providerError *models.ProviderError
 	if isTerminalProviderError(jobError, &providerError) {
-		s.logger.Debug("Plugin job failed",
+		logger.Debug("Plugin job failed",
 			"plugin_id", pluginID, "type", typeKey, "job", name, "reason", reason,
 			"code", providerError.Code, "status", providerError.StatusCode, "error", providerError.Message)
 		return
 	}
-	s.logger.Warn("Plugin job failed",
+	logger.Warn("Plugin job failed",
 		"plugin_id", pluginID, "type", typeKey, "job", name, "reason", reason, "error", jobError.Error())
 }
 
 func (s *Service) logJobTimedOut(pluginID, typeKey, name, reason string, timeoutMs int, jobError error) {
-	if s.logger == nil {
+	logger := s.getLogger()
+	if logger == nil {
 		return
 	}
 	arguments := []any{
@@ -204,13 +211,14 @@ func (s *Service) logJobTimedOut(pluginID, typeKey, name, reason string, timeout
 	if jobError != nil {
 		arguments = append(arguments, "error", jobError.Error())
 	}
-	s.logger.Warn("Plugin job timed out", arguments...)
+	logger.Warn("Plugin job timed out", arguments...)
 }
 
 func (s *Service) logJobCompleted(pluginID, typeKey, name, reason string) {
-	if s.logger == nil {
+	logger := s.getLogger()
+	if logger == nil {
 		return
 	}
-	s.logger.Debug("Plugin job completed",
+	logger.Debug("Plugin job completed",
 		"plugin_id", pluginID, "type", typeKey, "job", name, "reason", reason)
 }

@@ -113,13 +113,7 @@ type Service struct {
 	database *gorm.DB
 	// cache is the cache SQLite handle. TTL plugin storage rows live here;
 	// durable rows stay on the base handle.
-	cache  *gorm.DB
-	logger *slog.Logger
-
-	// minimumLevel bounds plugin log persistence: appendLog drops
-	// severities mapping below it. The server sets it from LOG_LEVEL;
-	// New defaults it to debug, persisting everything.
-	minimumLevel slog.Level
+	cache *gorm.DB
 
 	mu       sync.RWMutex
 	registry map[string]*PluginRecord
@@ -133,7 +127,15 @@ type Service struct {
 	logMu   sync.Mutex
 	crashes map[string][]CrashEntry
 
-	onChanged func(typeKey string)
+	// wiringMu guards every mutable wiring field below: logger,
+	// minimumLevel, onChanged and all credential, proxy and health
+	// callbacks. Handler paths snapshot them under RLock; Set methods
+	// replace them under Lock so detached lifecycle hooks never race
+	// with late wiring.
+	wiringMu     sync.RWMutex
+	onChanged    func(typeKey string)
+	logger       *slog.Logger
+	minimumLevel slog.Level
 
 	// healthTrigger receives failed attempt identities for detached
 	// health-check dispatch (nil = disabled).
@@ -169,24 +171,32 @@ type Service struct {
 
 // SetHealthTrigger wires detached health-check dispatch for failed
 // attempts that carry a credential identity.
-func (s *Service) SetHealthTrigger(t HealthTrigger) {
-	s.healthTrigger = t
+func (s *Service) SetHealthTrigger(trigger HealthTrigger) {
+	s.wiringMu.Lock()
+	defer s.wiringMu.Unlock()
+	s.healthTrigger = trigger
 }
 
 // SetMarkDead wires proxy exclusion for structural TLS faults observed by
 // the plugin HTTP client.
-func (s *Service) SetMarkDead(f func(url, reason string) bool) {
-	s.markDead = f
+func (s *Service) SetMarkDead(mark func(url, reason string) bool) {
+	s.wiringMu.Lock()
+	defer s.wiringMu.Unlock()
+	s.markDead = mark
 }
 
 // SetProxyQuery wires the read-only proxy pool query for plugins.
-func (s *Service) SetProxyQuery(f func(pool, country string, limit int) ([]models.ProxyView, error)) {
-	s.proxyQuery = f
+func (s *Service) SetProxyQuery(query func(pool, country string, limit int) ([]models.ProxyView, error)) {
+	s.wiringMu.Lock()
+	defer s.wiringMu.Unlock()
+	s.proxyQuery = query
 }
 
 // SetProxyRequire wires the demand-driven proxy acquisition for plugins.
-func (s *Service) SetProxyRequire(f func(ctx context.Context, request models.ProxyRequire) (models.ProxyRequireResult, error)) {
-	s.proxyRequire = f
+func (s *Service) SetProxyRequire(require func(ctx context.Context, request models.ProxyRequire) (models.ProxyRequireResult, error)) {
+	s.wiringMu.Lock()
+	defer s.wiringMu.Unlock()
+	s.proxyRequire = require
 }
 
 // SetCredentialAccess wires credential list/get (request and job contexts)
@@ -196,6 +206,8 @@ func (s *Service) SetCredentialAccess(
 	get func(ctx context.Context, id string) (*models.Credential, error),
 	update func(ctx context.Context, id string, data map[string]any) error,
 ) {
+	s.wiringMu.Lock()
+	defer s.wiringMu.Unlock()
 	s.credentialList = list
 	s.credentialGet = get
 	s.credentialUpdate = update
@@ -208,6 +220,8 @@ func (s *Service) SetCredentialLifecycle(
 	enable func(ctx context.Context, id string) error,
 	automationOn func(providerID string) bool,
 ) {
+	s.wiringMu.Lock()
+	defer s.wiringMu.Unlock()
 	s.credentialDisable = disable
 	s.credentialEnable = enable
 	s.automationOn = automationOn
@@ -219,28 +233,59 @@ func (s *Service) SetCredentialParks(
 	unpark func(ctx context.Context, id string) error,
 	parked func(ctx context.Context, id string) (*models.ParkEntry, error),
 ) {
+	s.wiringMu.Lock()
+	defer s.wiringMu.Unlock()
 	s.credentialPark = park
 	s.credentialUnpark = unpark
 	s.credentialParked = parked
 }
 
 // SetLogger wires structured logging.
-func (s *Service) SetLogger(l *slog.Logger) { s.logger = l }
+func (s *Service) SetLogger(logger *slog.Logger) {
+	s.wiringMu.Lock()
+	defer s.wiringMu.Unlock()
+	s.logger = logger
+}
 
 // SetMinimumLevel bounds plugin log persistence: severities mapping
 // below the level never reach the events database.
-func (s *Service) SetMinimumLevel(level slog.Level) { s.minimumLevel = level }
+func (s *Service) SetMinimumLevel(level slog.Level) {
+	s.wiringMu.Lock()
+	defer s.wiringMu.Unlock()
+	s.minimumLevel = level
+}
 
 // SetOnChanged registers a callback fired with every affected type key
 // after install/update/rollback/delete/enable/disable.
-func (s *Service) SetOnChanged(fn func(typeKey string)) { s.onChanged = fn }
+func (s *Service) SetOnChanged(callback func(typeKey string)) {
+	s.wiringMu.Lock()
+	defer s.wiringMu.Unlock()
+	s.onChanged = callback
+}
+
+// getLogger returns the configured logger under the wiring lock.
+func (s *Service) getLogger() *slog.Logger {
+	s.wiringMu.RLock()
+	defer s.wiringMu.RUnlock()
+	return s.logger
+}
+
+// getMinimumLevel returns the log persistence floor under the wiring lock.
+func (s *Service) getMinimumLevel() slog.Level {
+	s.wiringMu.RLock()
+	defer s.wiringMu.RUnlock()
+	return s.minimumLevel
+}
 
 func (s *Service) notify(keys ...string) {
-	if s.onChanged == nil {
+	s.wiringMu.RLock()
+	callback := s.onChanged
+	s.wiringMu.RUnlock()
+	if callback == nil {
 		return
 	}
 	for _, k := range keys {
-		s.onChanged(k)
+		callback(k)
 	}
 }
 
@@ -264,13 +309,13 @@ func (s *Service) rebuild(ctx context.Context) error {
 			continue
 		}
 		if err := CheckPluginAPI(&Manifest{PluginAPI: record.PluginAPI}); err != nil {
-			if s.logger != nil {
+			if logger := s.getLogger(); logger != nil {
 				reason := "invalid"
 				var compatError *APICompatError
 				if errors.As(err, &compatError) {
 					reason = compatError.Reason
 				}
-				s.logger.Warn("Plugin API incompatible, skipping plugin", "plugin_id", record.ID, "reason", reason, "error", err.Error())
+				logger.Warn("Plugin API incompatible, skipping plugin", "plugin_id", record.ID, "reason", reason, "error", err.Error())
 			}
 			continue
 		}
@@ -467,7 +512,7 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) (*d
 		pluginID:      pluginID,
 		allowHosts:    manifest.AllowHosts,
 		unsafe:        manifest.Unsafe,
-		logger:        s.logger,
+		logger:        s.getLogger(),
 		logSink:       s.appendLog,
 		storage:       &serviceStorage{service: s, ctx: context.Background()},
 		registrations: map[string]*lua.LTable{},
@@ -706,7 +751,7 @@ func unionKeys(first, second []string) []string {
 // otherwise and land in event_keys. Severities below the minimum level
 // are dropped before persistence.
 func (s *Service) appendLog(pluginID, typeKey string, severity int, msg string, keys map[string]string) {
-	if slogLevelForSeverity(severity) < s.minimumLevel {
+	if slogLevelForSeverity(severity) < s.getMinimumLevel() {
 		return
 	}
 	merged := make(map[string]string, len(keys)+2)
@@ -726,24 +771,26 @@ func (s *Service) appendLog(pluginID, typeKey string, severity int, msg string, 
 // recordCrash records a PluginInternalError in the bounded per-plugin buffer.
 func (s *Service) recordCrash(pluginID, typeKey, cause string) {
 	s.logMu.Lock()
-	defer s.logMu.Unlock()
 	entries := append(s.crashes[pluginID], CrashEntry{At: time.Now(), TypeKey: typeKey, Cause: cause})
 	if len(entries) > 50 {
 		entries = entries[len(entries)-50:]
 	}
 	s.crashes[pluginID] = entries
-	if s.logger != nil {
-		s.logger.Debug("Plugin crash recorded", "plugin_id", pluginID, "type", typeKey, "error", cause)
+	s.logMu.Unlock()
+	if logger := s.getLogger(); logger != nil {
+		logger.Debug("Plugin crash recorded", "plugin_id", pluginID, "type", typeKey, "error", cause)
 	}
 }
 
 // logLookupFailed records a registry miss at debug level with handler
 // context. Misses are expected for optional handlers and uninstalled types.
 func (s *Service) logLookupFailed(typeKey, handler string, lookupError error) {
-	if s.logger == nil || lookupError == nil {
+	if lookupError == nil {
 		return
 	}
-	s.logger.Debug("Plugin lookup failed", "type", typeKey, "endpoint", handler, "error", lookupError.Error())
+	if logger := s.getLogger(); logger != nil {
+		logger.Debug("Plugin lookup failed", "type", typeKey, "endpoint", handler, "error", lookupError.Error())
+	}
 }
 
 // Logs returns recent plugin log lines from the events database, newest

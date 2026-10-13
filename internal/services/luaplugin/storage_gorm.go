@@ -352,54 +352,70 @@ func storageLogKeys(pluginID, scope, key, operation string) []any {
 }
 
 func (service *Service) logStorageStored(pluginID, scope, key string, timeToLive time.Duration) {
-	if service.logger == nil {
+	logger := service.getLogger()
+	if logger == nil {
 		return
 	}
 	arguments := append(storageLogKeys(pluginID, scope, key, "set"), "wait", int64(timeToLive/time.Second))
-	service.logger.Debug("Plugin storage entry stored", arguments...)
+	logger.Debug("Plugin storage entry stored", arguments...)
 }
 
 func (service *Service) logStorageStoreFailed(pluginID, scope, key string, storeError error) {
-	if service.logger == nil || storeError == nil {
+	if storeError == nil {
+		return
+	}
+	logger := service.getLogger()
+	if logger == nil {
 		return
 	}
 	arguments := append(storageLogKeys(pluginID, scope, key, "set"), "error", storeError.Error())
-	service.logger.Error("Plugin storage entry store failed", arguments...)
+	logger.Error("Plugin storage entry store failed", arguments...)
 }
 
 func (service *Service) logStorageLoaded(pluginID, scope, key string) {
-	if service.logger == nil {
+	logger := service.getLogger()
+	if logger == nil {
 		return
 	}
-	service.logger.Debug("Plugin storage entry loaded", storageLogKeys(pluginID, scope, key, "get")...)
+	logger.Debug("Plugin storage entry loaded", storageLogKeys(pluginID, scope, key, "get")...)
 }
 
 func (service *Service) logStorageMissing(pluginID, scope, key string) {
-	if service.logger == nil {
+	logger := service.getLogger()
+	if logger == nil {
 		return
 	}
-	service.logger.Debug("Plugin storage entry missing", storageLogKeys(pluginID, scope, key, "get")...)
+	logger.Debug("Plugin storage entry missing", storageLogKeys(pluginID, scope, key, "get")...)
 }
 
 func (service *Service) logStorageLoadFailed(pluginID, scope, key string, loadError error) {
-	if service.logger == nil || loadError == nil {
+	if loadError == nil {
+		return
+	}
+	logger := service.getLogger()
+	if logger == nil {
 		return
 	}
 	arguments := append(storageLogKeys(pluginID, scope, key, "get"), "error", loadError.Error())
-	service.logger.Error("Plugin storage entry load failed", arguments...)
+	logger.Error("Plugin storage entry load failed", arguments...)
 }
 
 func (service *Service) logStorageRemoved(pluginID, scope, key string) {
-	if service.logger == nil {
+	logger := service.getLogger()
+	if logger == nil {
 		return
 	}
-	service.logger.Debug("Plugin storage entry removed", storageLogKeys(pluginID, scope, key, "delete")...)
+	logger.Debug("Plugin storage entry removed", storageLogKeys(pluginID, scope, key, "delete")...)
 }
 
 func (service *Service) logStorageRemoveFailed(pluginID, scope, key string, removeError error) {
-	if service.logger == nil || removeError == nil {
+	if removeError == nil {
+		return
+	}
+	logger := service.getLogger()
+	if logger == nil {
 		return
 	}
 	arguments := append(storageLogKeys(pluginID, scope, key, "delete"), "error", removeError.Error())
-	service.logger.Error("Plugin storage entry remove failed", arguments...)
+	logger.Error("Plugin storage entry remove failed", arguments...)
 }
