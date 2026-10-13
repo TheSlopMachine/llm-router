@@ -2,6 +2,7 @@
 
 ## Done (2026-10-13, vUnreleased)
 
+- Kept the frontend across `make restart`: only the backend is rebuilt and respawned while a live frontend keeps serving (vite hot-reloads the SPA); `SCOPE=backend` scopes `make stop`/`make start` the same way, and restart falls back to a full start when the frontend is down.
 - Stopped restarting on `make smoke`: the harness exercises the running dev stack through the admin listener and fails fast with `make start` guidance when nothing answers (`make restart` first after code changes).
 - Added graceful backend shutdown via `POST /api/llm-router/shutdown` (admin listener only, public 404s): the endpoint signals the `Run` loop, which runs the single shutdown path (hooks, metrics flush, both listeners) after answering `200 {"ok":true}`. `make stop` asks first with a 15s wait and kills past it; the frontend is always killed. `make restart` inherits the flow.
 - Added the loopback-only admin listener and removed `NO_AUTH`: `ADMIN_PORT` (empty disables; dev default `38082`) serves the same `/v1` + `/api` routes without authentication or bootstrapping and no dashboard, bound to `127.0.0.1` regardless of `HOST`. Route tables live once in `internal/httpapi` and mount on both listeners; the `requestsource` in the request context selects authenticated vs bypass behavior at the auth gates, bootstrap gate and status endpoint. Smoke and plugin upload drive the admin listener.

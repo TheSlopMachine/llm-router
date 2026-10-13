@@ -17,6 +17,7 @@ PLATFORMS ?= windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux
 HOST      ?= localhost
 PORT      ?= 38080
 ADMIN_PORT ?= 38082
+SCOPE     ?= all
 URL       ?= http://$(HOST):$(PORT)
 LOG_LEVEL ?= info
 DB_PATH   ?= llm-router.sqlite3
@@ -24,7 +25,7 @@ CACHE_PATH ?= llm-router.cache.sqlite3
 DEV_UI_REDIRECT ?=
 ENV_FILE  ?= .env
 PKG       ?= ./...
-export HOST PORT ADMIN_PORT URL VERSION PLATFORMS LOG_LEVEL DB_PATH CACHE_PATH DEV_UI_REDIRECT ENV_FILE PKG
+export HOST PORT ADMIN_PORT SCOPE URL VERSION PLATFORMS LOG_LEVEL DB_PATH CACHE_PATH DEV_UI_REDIRECT ENV_FILE PKG
 
 ifeq ($(OS),Windows_NT)
   DEV_DB  ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.sqlite3

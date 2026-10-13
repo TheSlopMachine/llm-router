@@ -6,7 +6,7 @@ Targets:
   init              Initialize project (bun install, openapi.yaml, api-types, embed stub)
   start             Init, then start backend (go run) + frontend (vite) in dev mode
   stop              Stop dev processes (backend shuts down gracefully via admin API, frontend is killed)
-  restart           Stop + start
+  restart           Rebuild and restart the backend only (live frontend is kept; full start when frontend is down)
   smoke             Run the smoke harness against the running dev stack (no restart; `make start` first)
   upload-plugins    Upload every store .lua plugin via the admin listener (no restart)
   status            Show dev server status
@@ -30,6 +30,7 @@ Variables:
   HOST               Bind host. Default: "localhost"
   PORT               Single listener port (dashboard + /v1 + /api). Default: "38080"
   ADMIN_PORT         Admin listener port (loopback-only, no auth; empty disables). Default: "38082"
+  SCOPE              Start/stop set: "all" or "backend" (frontend kept, hot reload applies it). Default: "all"
   URL                Dashboard URL for browser. Default: "http://$(HOST):$(PORT)"
   LOG_LEVEL          Server log level. Default: "info"
   DEV_DB             Path to dev database. Default: "~/.local/llm-router/llm-router-dev.sqlite3"

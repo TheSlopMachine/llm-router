@@ -158,7 +158,7 @@ Keep changes shallow. Do not touch service internals unless the task requires it
 | `make log-frontend` | agent | Tail frontend log (same `LINES`/`FOLLOW` contract as `make log`) |
 | `make start` | agent | Start dev backend + frontend (vite); admin listener on 127.0.0.1:ADMIN_PORT answers without auth |
 | `make stop` | agent | Stop dev processes (backend graceful via admin API with kill fallback; frontend killed) |
-| `make restart` | agent | Stop + start, keeping last start params |
+| `make restart` | agent | Rebuild and restart the backend only, keeping a live frontend and last start params (full start when frontend is down) |
 | `make smoke` | agent | Run the smoke harness against the running dev stack, never restarting it (`SMOKE_PLUGINS=...`, `SMOKE_TARGETS=...`) |
 | `make upload-plugins` | agent | Upload every store `.lua` plugin via the admin listener (`UPLOAD_STORE_DIR=...`, no restart) |
 | `make status` | agent | Show dev server status |

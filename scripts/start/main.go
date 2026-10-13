@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/scripts/shared"
@@ -31,28 +32,64 @@ func main() {
 	adminPort := shared.Getenv("ADMIN_PORT", shared.DevAdminPort)
 	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
 
+	// SCOPE selects the start set: all (default) or backend only. The
+	// backend-only path rebuilds and respawns the backend while a live
+	// frontend keeps serving (vite hot-reloads the SPA itself).
+	backendOnly := false
+	switch scope := strings.TrimSpace(shared.Getenv("SCOPE", "all")); scope {
+	case "", "all":
+	case "backend":
+		backendOnly = true
+	default:
+		shared.Failf("invalid SCOPE %q: want all or backend", scope)
+	}
+
 	root, err := shared.RootDir()
 	if err != nil {
 		shared.Failf("%v", err)
 	}
 
+	// keptFrontend carries the live frontend across a backend-only start.
+	kept := shared.Proc{}
 	// Refuse to clobber an already-running dev server. Spawning a second
 	// backend/frontend pair here would silently overwrite the pidfile,
 	// orphaning the first pair — no `make stop` could ever reach them again.
 	if recorded, err := shared.ReadPidFile(pidFile); err == nil {
-		if shared.AliveMatches(recorded.Backend, recorded.BackendPath) || shared.AliveMatches(recorded.Frontend, recorded.FrontendPath) {
+		if shared.AliveMatches(recorded.Backend, recorded.BackendPath) {
 			shared.Failf("already running (see `make status`); run `make stop` or `make restart` first")
 		}
-		// Stale pidfile pointing at dead processes: safe to remove and continue.
-		_ = os.Remove(pidFile)
+		if backendOnly {
+			if shared.AliveMatches(recorded.Frontend, recorded.FrontendPath) {
+				kept.Frontend = recorded.Frontend
+				kept.FrontendPath = recorded.FrontendPath
+				kept.VitePort = recorded.VitePort
+			}
+		} else {
+			if shared.AliveMatches(recorded.Frontend, recorded.FrontendPath) {
+				shared.Failf("already running (see `make status`); run `make stop` or `make restart` first")
+			}
+			// Stale pidfile pointing at dead processes: safe to remove and continue.
+			_ = os.Remove(pidFile)
+		}
 	}
 
 	// Fail fast when a port is held by a process outside this pidfile.
-	// The actual bind at startup stays the source of truth.
+	// The actual bind at startup stays the source of truth. The vite
+	// port stays out of the backend-only check: the kept frontend
+	// legitimately holds it.
 	if port == shared.DevBackendPort {
 		shared.Failf("PORT %s collides with the fixed dev backend port %s", port, shared.DevBackendPort)
 	}
-	ports := []int{mustAtoi(port), mustAtoi(shared.DevBackendPort)}
+	// The new backend redirects to the running vite instance when one is
+	// kept, not to a possibly different PORT value.
+	vitePort := port
+	if kept.Frontend > 0 && kept.VitePort > 0 {
+		vitePort = fmt.Sprintf("%d", kept.VitePort)
+	}
+	ports := []int{mustAtoi(shared.DevBackendPort)}
+	if !backendOnly {
+		ports = append(ports, mustAtoi(port))
+	}
 	if adminPort != "" {
 		if adminPort == port || adminPort == shared.DevBackendPort {
 			shared.Failf("ADMIN_PORT %s collides with the dev ports", adminPort)
@@ -94,7 +131,12 @@ func main() {
 		shared.Failf("backend build: %v\n%s", err, output)
 	}
 
-	shared.Stepf("Starting backend and frontend (vite)...")
+	frontendPID, frontendPath := 0, ""
+	if backendOnly && kept.Frontend > 0 {
+		shared.Stepf("Starting backend (frontend kept)...")
+	} else {
+		shared.Stepf("Starting backend and frontend (vite)...")
+	}
 
 	backendEnvironment := []string{
 		"HOST=" + host,
@@ -103,40 +145,48 @@ func main() {
 		"DB_PATH=" + databasePath,
 		"CACHE_PATH=" + cachePath,
 		"LOG_LEVEL=" + logLevel,
-		"DEV_UI_REDIRECT=" + fmt.Sprintf("http://%s:%s", host, port),
+		"DEV_UI_REDIRECT=" + fmt.Sprintf("http://%s:%s", host, vitePort),
 	}
 	backendPID, err := shared.SpawnDetachedEnv(root, backendLog, backendEnvironment, binPath)
 	if err != nil {
 		shared.Failf("spawn backend: %v", err)
 	}
 
-	webDir := filepath.Join(root, "web")
-	// A broken ::1 stack binds an unreachable socket when given
-	// "localhost" (Node resolves it to ::1 first). Pin IPv4 loopback for
-	// the default host only; explicit HOST values pass through untouched.
-	// Covers both the listen socket and the vite → backend proxy target.
-	viteHost, backendHost := host, host
-	if host == "localhost" {
-		viteHost, backendHost = "127.0.0.1", "127.0.0.1"
-	}
-	env := []string{
-		"VITE_BACKEND_HOST=" + backendHost,
-		"VITE_BACKEND_PORT=" + shared.DevBackendPort,
-	}
-	frontendPID, err := shared.SpawnDetachedEnv(webDir, frontendLog, env, "bun", "run", "dev", "--", "--host", viteHost, "--port", port)
-	if err != nil {
-		// Attempt to stop the backend we just started.
-		if runtime.GOOS == "windows" {
-			_ = shared.ForceKillTargets(pidFile, shared.KillTarget{PID: backendPID, ExpectedPath: binPath})
-		} else {
-			_ = shared.Terminate(backendPID)
+	frontendPID, frontendPath = kept.Frontend, kept.FrontendPath
+	if !backendOnly {
+		webDir := filepath.Join(root, "web")
+		// A broken ::1 stack binds an unreachable socket when given
+		// "localhost" (Node resolves it to ::1 first). Pin IPv4 loopback for
+		// the default host only; explicit HOST values pass through untouched.
+		// Covers both the listen socket and the vite → backend proxy target.
+		viteHost, backendHost := host, host
+		if host == "localhost" {
+			viteHost, backendHost = "127.0.0.1", "127.0.0.1"
 		}
-		shared.Failf("spawn frontend: %v", err)
+		env := []string{
+			"VITE_BACKEND_HOST=" + backendHost,
+			"VITE_BACKEND_PORT=" + shared.DevBackendPort,
+		}
+		frontendPID, err = shared.SpawnDetachedEnv(webDir, frontendLog, env, "bun", "run", "dev", "--", "--host", viteHost, "--port", port)
+		if err != nil {
+			// Attempt to stop the backend we just started.
+			if runtime.GOOS == "windows" {
+				_ = shared.ForceKillTargets(pidFile, shared.KillTarget{PID: backendPID, ExpectedPath: binPath})
+			} else {
+				_ = shared.Terminate(backendPID)
+			}
+			shared.Failf("spawn frontend: %v", err)
+		}
+		frontendPath = snapshotPath(frontendPID, resolveBun())
 	}
 
 	// Group both processes so a later stop reaches descendants too.
 	// Registration failure only loses the descendant guarantee.
-	if err := shared.RegisterSession(pidFile, backendPID, frontendPID); err != nil {
+	sessionPIDs := []int{backendPID}
+	if frontendPID > 0 {
+		sessionPIDs = append(sessionPIDs, frontendPID)
+	}
+	if err := shared.RegisterSession(pidFile, sessionPIDs...); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] process group registration failed: %v\n", err)
 		fmt.Fprintln(os.Stderr, "[WARN] stop falls back to best-effort termination")
 	}
@@ -144,9 +194,9 @@ func main() {
 	process := shared.Proc{
 		Backend:      backendPID,
 		Frontend:     frontendPID,
-		VitePort:     mustAtoi(port),
+		VitePort:     mustAtoi(vitePort),
 		BackendPath:  snapshotPath(backendPID, binPath),
-		FrontendPath: snapshotPath(frontendPID, resolveBun()),
+		FrontendPath: frontendPath,
 	}
 	raw, _ := json.MarshalIndent(process, "", "  ")
 	if err := os.WriteFile(pidFile, append(raw, '\n'), 0644); err != nil {
@@ -156,7 +206,7 @@ func main() {
 	// Record the launch parameters: restart relaunches with the same config.
 	if err := shared.WriteStartParams(pidFile, shared.StartParams{
 		DevDB: databasePath, DevCache: cachePath, Host: host,
-		Port: port, AdminPort: adminPort, LogLevel: logLevel,
+		Port: vitePort, AdminPort: adminPort, LogLevel: logLevel,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] write params file: %v\n", err)
 	}
@@ -165,9 +215,13 @@ func main() {
 	// without doing a health poll. This is not a readiness check.
 	time.Sleep(200 * time.Millisecond)
 
-	fmt.Printf("[OK] Started backend PID %d, frontend PID %d\n", backendPID, frontendPID)
-	fmt.Printf("Dashboard (dev): http://%s:%s\n", host, port)
-	fmt.Printf("API: http://%s:%s/v1 (backend direct: http://%s:%s/v1)\n", host, port, host, shared.DevBackendPort)
+	if backendOnly && frontendPID > 0 {
+		fmt.Printf("[OK] Restarted backend PID %d, frontend kept as PID %d\n", backendPID, frontendPID)
+	} else {
+		fmt.Printf("[OK] Started backend PID %d, frontend PID %d\n", backendPID, frontendPID)
+	}
+	fmt.Printf("Dashboard (dev): http://%s:%s\n", host, vitePort)
+	fmt.Printf("API: http://%s:%s/v1 (backend direct: http://%s:%s/v1)\n", host, vitePort, host, shared.DevBackendPort)
 	if adminPort != "" {
 		fmt.Printf("Admin (loopback, no auth): http://127.0.0.1:%s\n", adminPort)
 	}

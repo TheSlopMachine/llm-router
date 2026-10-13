@@ -13,9 +13,9 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 | Script | Env | Called by |
 |--------|-----|-----------|
 | `init` | `HOST`, `PORT`, `NO_SKIP` | `make init`; `make start` / `make build` (via dep) |
-| `start` | `HOST`, `PORT`, `ADMIN_PORT` (default `38082`, empty disables), `LOG_LEVEL` (default `info`), `DB_PATH` (fallback `DEV_DB`, then default dev path), `CACHE_PATH` (fallback `DEV_CACHE`, then default dev cache path), `DEV_UI_REDIRECT`, `ENV_FILE`, `PID_FILE` | `make start` / `make restart` |
-| `stop` | `PID_FILE` | `make stop` / `make restart` / `make clean` (backend: graceful shutdown via admin API first, kill fallback; frontend: always killed) |
-| `restart` | same as `start` | `make restart` / `make smoke` (before the harness) |
+| `start` | `HOST`, `PORT`, `ADMIN_PORT` (default `38082`, empty disables), `SCOPE` (`all`/`backend`, default `all`), `LOG_LEVEL` (default `info`), `DB_PATH` (fallback `DEV_DB`, then default dev path), `CACHE_PATH` (fallback `DEV_CACHE`, then default dev cache path), `DEV_UI_REDIRECT`, `ENV_FILE`, `PID_FILE` | `make start` / `make restart` |
+| `stop` | `PID_FILE`, `SCOPE` (`all`/`backend`, default `all`) | `make stop` / `make restart` / `make clean` (backend: graceful shutdown via admin API first, kill fallback; frontend: always killed) |
+| `restart` | same as `start` | `make restart` (backend-only when the frontend lives, else full start) |
 | `status` | `PID_FILE` | `make status` |
 | `log` | `LINES` (default `100`), `FOLLOW` | `make log` |
 | `logfrontend` | `LINES` (default `100`), `FOLLOW` | `make log-frontend` |

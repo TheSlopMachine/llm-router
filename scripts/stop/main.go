@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -40,9 +41,21 @@ func main() {
 		pid  int
 		path string
 	}
+	// SCOPE selects the stop set: all (default) or backend only. The
+	// frontend is never asked, only killed.
+	backendOnly := false
+	switch scope := strings.TrimSpace(shared.Getenv("SCOPE", "all")); scope {
+	case "", "all":
+	case "backend":
+		backendOnly = true
+	default:
+		shared.Failf("invalid SCOPE %q: want all or backend", scope)
+	}
 	entries := []entry{
 		{"backend", process.Backend, process.BackendPath},
-		{"frontend", process.Frontend, process.FrontendPath},
+	}
+	if !backendOnly {
+		entries = append(entries, entry{"frontend", process.Frontend, process.FrontendPath})
 	}
 
 	anyAlive := func() bool {
@@ -64,9 +77,12 @@ func main() {
 	}
 
 	if !anyAlive() {
-		fmt.Println("[>] Not running (pids not alive)")
-		_ = os.Remove(pidFile)
-		fmt.Println("[OK] Stopped")
+		if backendOnly {
+			fmt.Println("[>] Backend not running")
+		} else {
+			fmt.Println("[>] Not running (pids not alive)")
+		}
+		finishStop(pidFile, process, backendOnly)
 		return
 	}
 
@@ -103,8 +119,7 @@ func main() {
 		}
 
 		if waitUntilDead(time.Now().Add(gracePeriod)) {
-			_ = os.Remove(pidFile)
-			fmt.Println("[OK] Stopped")
+			finishStop(pidFile, process, backendOnly)
 			return
 		}
 
@@ -127,8 +142,7 @@ func main() {
 	}
 
 	if waitUntilDead(time.Now().Add(forceConfirmPeriod)) {
-		_ = os.Remove(pidFile)
-		fmt.Println("[OK] Stopped")
+		finishStop(pidFile, process, backendOnly)
 		return
 	}
 
@@ -180,4 +194,27 @@ func waitBackendDead(backendPID int, backendPath string, deadline time.Time) boo
 		time.Sleep(pollInterval)
 	}
 	return !shared.AliveMatches(backendPID, backendPath)
+}
+
+// finishStop closes a successful stop: the pidfile goes away when
+// nothing tracked is alive. In backend-only scope with a live frontend
+// the pidfile is rewritten with backend fields zeroed instead, so the
+// frontend stays manageable.
+func finishStop(pidFile string, process *shared.Proc, backendOnly bool) {
+	if backendOnly && process.Frontend > 0 && shared.AliveMatches(process.Frontend, process.FrontendPath) {
+		updated := *process
+		updated.Backend = 0
+		updated.BackendPath = ""
+		raw, err := json.MarshalIndent(updated, "", "  ")
+		if err == nil {
+			err = os.WriteFile(pidFile, append(raw, '\n'), 0644)
+		}
+		if err != nil {
+			shared.Failf("write pidfile %s: %v", pidFile, err)
+		}
+		fmt.Println("[OK] Stopped (backend only, frontend kept)")
+		return
+	}
+	_ = os.Remove(pidFile)
+	fmt.Println("[OK] Stopped")
 }
