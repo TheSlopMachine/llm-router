@@ -179,9 +179,13 @@ together with its `schema_migrations` row. `repository` returns
   transitions dispatch from the provider service only
   (`Update`/`SystemDisable`/`Delete` are the trigger sites).
 - Shutdown enters one path (SIGINT/SIGTERM, listener error, or
-  `POST /api/llm-router/shutdown` on the admin listener): hooks, metrics
+  `POST /api/llm-router/shutdown` on the admin listener): background
+  writers stop (maintenance, proxy flush, events prune), hooks, metrics
   flush, then both listeners `Shutdown` (in-flight requests complete, so
-  the shutdown response is always delivered). `make stop` waits up to 30s
+  the shutdown response is always delivered), then the events queue drains.
+  `Close` vacuums all three files after checkpointing each write-ahead
+  log; vacuum failures never skip the remaining closes. `make stop` waits
+  up to 30s
   for the admin listener first (binds after the startup gate), uses the
   endpoint with a 15s wait and kills past it; the frontend is
   always killed.
@@ -219,7 +223,8 @@ background. Reads and writes run through `gorm.G` with typed clauses (`scripts/s
 `repository.GormRepository` owns the generics API (500-row upsert batches,
 `Clear` is the one `AllowGlobalUpdate` path). DSN pins foreign keys, WAL,
 synchronous NORMAL, busy timeout and immediate lock; `maintenance.go` owns
-the only raw statements (checkpoint, optimize, integrity check, backup).
+the only raw statements (checkpoint, vacuum, freelist count, optimize,
+integrity check, backup, events prune).
 Sessions store the token hash as primary key, never plaintext.
 `virtual_models.name_key` carries the UNIQUE duplicate signal.
 `plugin_storage.expires_at` carries the TTL index and routes the row: TTL

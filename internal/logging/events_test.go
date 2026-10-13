@@ -78,3 +78,30 @@ func TestEventsHandlerKeepsBracketFormat(t *testing.T) {
 		t.Fatalf("unexpected line %q", buffer.String())
 	}
 }
+
+func TestEventsHandlerDrainEmptiesQueue(t *testing.T) {
+	service := openEventsService(t)
+	var buffer bytes.Buffer
+	handler := NewEventsHandler(&buffer, slog.LevelError, service)
+	logger := slog.New(handler)
+	for i := 0; i < 5; i++ {
+		logger.Error("drain line")
+	}
+	if !handler.Drain(5 * time.Second) {
+		t.Fatal("queue did not drain within 5s")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		entries, err := service.Query(context.Background(), events.Query{Limit: 10})
+		if err != nil {
+			t.Fatalf("query: %v", err)
+		}
+		if len(entries) == 5 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("entries hold %d rows, want 5 after drain", len(entries))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

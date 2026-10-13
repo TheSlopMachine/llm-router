@@ -91,8 +91,9 @@ func OpenSQLite(ctx context.Context, path, cachePath, eventsPath string) (*Datab
 	return &Database{Handle: primary, Cache: cache, Events: events}, nil
 }
 
-// Close checkpoints all write-ahead logs, optimizes all files, and closes
-// all pools. All handles close even when the first reports an error.
+// Close checkpoints all write-ahead logs, vacuums all files, optimizes
+// them, and closes all pools. All handles close even when the first
+// reports an error.
 func (database *Database) Close() error {
 	if database == nil {
 		return nil
@@ -133,20 +134,31 @@ func openOne(ctx context.Context, path, dsn string) (*gorm.DB, error) {
 	return handle, nil
 }
 
-// closeHandle checkpoints the write-ahead log, optimizes the file, and
-// closes the pool. A nil handle is not an error.
+// closeHandle checkpoints the write-ahead log, vacuums the file, optimizes
+// it, and closes the pool. Vacuum runs last among writers: Close is
+// deferred after Run returns, when tickers, flush loops and request
+// handlers have all stopped. A vacuum failure never skips the remaining
+// steps. A nil handle is not an error.
 func closeHandle(handle *gorm.DB) error {
 	if handle == nil {
 		return nil
 	}
-	if err := Maintenance(context.Background(), handle); err != nil {
+	ctx := context.Background()
+	if err := checkpoint(ctx, handle); err != nil {
+		return err
+	}
+	vacuumErr := Vacuum(ctx, handle)
+	if err := optimize(ctx, handle); err != nil {
 		return err
 	}
 	sqlDatabase, err := handle.DB()
 	if err != nil {
 		return fmt.Errorf("resolve sql handle: %w", err)
 	}
-	return sqlDatabase.Close()
+	if err := sqlDatabase.Close(); err != nil {
+		return err
+	}
+	return vacuumErr
 }
 
 // prepareFile ensures the parent directory exists and removes orphaned

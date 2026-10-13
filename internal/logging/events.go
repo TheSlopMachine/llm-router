@@ -61,6 +61,21 @@ func (h *EventsHandler) SetService(service *events.Service) {
 	h.service = service
 }
 
+// Drain waits until the pending queue empties or timeout elapses,
+// reporting whether the queue drained. Shutdown calls it after the
+// listeners stop so the final lines persist before the events file
+// vacuums. The writer keeps running; Drain only observes.
+func (h *EventsHandler) Drain(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for len(h.queue) > 0 {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return true
+}
+
 // Enabled always reports true: persistence ignores the display threshold.
 // slog filters before Handle, so gating here would drop records before
 // they persist. Display filtering happens inside Handle.

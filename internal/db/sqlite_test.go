@@ -11,6 +11,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func openTemp(t *testing.T) (*db.Database, string, string, string) {
@@ -184,5 +185,47 @@ func TestCacheDeleteRecovers(t *testing.T) {
 	fresh := record.Session{TokenHash: "fresh", Username: "operator", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
 	if err := gorm.G[record.Session](second.Cache).Create(ctx, &fresh); err != nil {
 		t.Fatalf("write session after cache delete: %v", err)
+	}
+}
+
+func TestCloseVacuumsAllFiles(t *testing.T) {
+	ctx := context.Background()
+	directory := t.TempDir()
+	path := filepath.Join(directory, "vacuum.sqlite3")
+	cachePath := filepath.Join(directory, "vacuum.cache.sqlite3")
+	eventsPath := filepath.Join(directory, "vacuum.events.sqlite3")
+	first, err := db.OpenSQLite(ctx, path, cachePath, eventsPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	now := time.Now().UTC()
+	rows := make([]record.EventRecord, 0, 2000)
+	for i := 0; i < 2000; i++ {
+		rows = append(rows, record.EventRecord{Timestamp: now, Severity: 1, Message: "filler row for vacuum with payload padding to span pages"})
+	}
+	if err := gorm.G[record.EventRecord](first.Events).CreateInBatches(ctx, &rows, 500); err != nil {
+		t.Fatalf("seed events: %v", err)
+	}
+	if _, err := gorm.G[record.EventRecord](first.Events, clause.Gte{Column: "id", Value: 0}).Delete(ctx); err != nil {
+		t.Fatalf("delete events: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("close sqlite: %v", err)
+	}
+	second, err := db.OpenSQLite(ctx, path, cachePath, eventsPath)
+	if err != nil {
+		t.Fatalf("reopen sqlite: %v", err)
+	}
+	t.Cleanup(func() {
+		second.Close()
+	})
+	for name, handle := range map[string]*gorm.DB{"primary": second.Handle, "cache": second.Cache, "events": second.Events} {
+		count, err := db.FreelistCount(ctx, handle)
+		if err != nil {
+			t.Fatalf("freelist %s: %v", name, err)
+		}
+		if count != 0 {
+			t.Errorf("%s freelist holds %d pages after close, want 0 vacuumed", name, count)
+		}
 	}
 }

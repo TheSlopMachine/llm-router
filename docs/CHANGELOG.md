@@ -2,6 +2,7 @@
 
 ## Done (2026-10-13, vUnreleased)
 
+- Vacuumed all three database files on shutdown: `Close` checkpoints, vacuums and optimizes each file with per-file errors never skipping remaining closes, background writers stop first through one service context, and the events queue drains after the listeners stop.
 - Replaced file logging with the events database: `EVENTS_PATH` (fallback `DEV_EVENTS`, default `llm-router.events.sqlite3`) owned `event_records` plus `event_keys` with severity 0-4, `EVENTS_RETENTION_DAYS` (default 3, minimum 1) pruned on startup and hourly with incremental vacuum, and every record persisted regardless of `LOG_LEVEL` while stderr kept the bracket format filtered by level.
 - Added `GET /api/events` with `severity` (>=), `id`, `start`/`end` and `filter.<key>` existence or value match (limit default 50, max 500), served on both listeners with session auth on public and bypass on admin.
 - Reworked `make log` into an events query client (`EVENTS_SEVERITY`, `EVENTS_ID`, `EVENTS_START`, `EVENTS_END`, `EVENTS_LIMIT`, `EVENT_FILTERS`, polling follow) and removed the backend log file.

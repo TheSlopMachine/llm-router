@@ -12,9 +12,42 @@ import (
 // Raw, Exec, or string conditions. Statements use literals, never
 // interpolation. The backup destination travels as a bound parameter.
 func Maintenance(ctx context.Context, database *gorm.DB) error {
+	if err := checkpoint(ctx, database); err != nil {
+		return err
+	}
+	if err := optimize(ctx, database); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Vacuum rewrites the database file to reclaim free pages. It runs on
+// shutdown after all writers stop; the caller still closes the handle
+// when vacuum fails.
+func Vacuum(ctx context.Context, database *gorm.DB) error {
+	if err := database.WithContext(ctx).Exec("VACUUM").Error; err != nil {
+		return fmt.Errorf("vacuum database: %w", err)
+	}
+	return nil
+}
+
+// FreelistCount reports the number of free pages awaiting reclamation.
+func FreelistCount(ctx context.Context, database *gorm.DB) (int64, error) {
+	var count int64
+	if err := database.WithContext(ctx).Raw("PRAGMA freelist_count").Scan(&count).Error; err != nil {
+		return 0, fmt.Errorf("read freelist_count: %w", err)
+	}
+	return count, nil
+}
+
+func checkpoint(ctx context.Context, database *gorm.DB) error {
 	if err := database.WithContext(ctx).Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error; err != nil {
 		return fmt.Errorf("checkpoint wal: %w", err)
 	}
+	return nil
+}
+
+func optimize(ctx context.Context, database *gorm.DB) error {
 	if err := database.WithContext(ctx).Exec("PRAGMA optimize").Error; err != nil {
 		return fmt.Errorf("optimize database: %w", err)
 	}

@@ -259,6 +259,10 @@ const startupRefreshTimeout = 30 * time.Second
 // shutdown proceeds when the gate expires, regardless of hook outcomes.
 const shutdownLifecycleTimeout = 30 * time.Second
 
+// eventsDrainTimeout bounds the events queue drain on exit: shutdown
+// proceeds when the gate expires, regardless of remaining queue depth.
+const eventsDrainTimeout = 5 * time.Second
+
 // runShutdownHooks runs deinitialize with reason shutdown for every plugin
 // type that declares it. Failures log; shutdown always proceeds.
 func (s *Server) runShutdownHooks() {
@@ -285,10 +289,16 @@ func (s *Server) Run(ctx context.Context) error {
 		s.logger.Warn("plugin startup initializers failed", "err", err)
 	}
 	cancel()
-	s.proxyService.Start(ctx)
-	s.maintenanceService.Start(ctx)
+	// servicesCtx bounds every background writer: maintenance jobs, proxy
+	// flush loop and events pruning. Cancelling it first in graceful
+	// stops all writers before the databases vacuum in Close, including
+	// on the admin-shutdown path where the caller's ctx is not done.
+	servicesCtx, cancelServices := context.WithCancel(ctx)
+	defer cancelServices()
+	s.proxyService.Start(servicesCtx)
+	s.maintenanceService.Start(servicesCtx)
 	if s.eventsService != nil {
-		s.eventsService.Start(ctx)
+		s.eventsService.Start(servicesCtx)
 	}
 	startFields := []any{"addr", s.applicationConfig.Addr, "db", s.sqlitePath, "cache", s.applicationConfig.CachePath, "events", s.applicationConfig.EventsPath}
 	if s.applicationConfig.AdminAddr != "" {
@@ -317,13 +327,19 @@ func (s *Server) Run(ctx context.Context) error {
 			_ = s.adminServer.Shutdown(context.Background())
 		}
 	}
-	// graceful runs the single shutdown path: plugin hooks, metrics
-	// flush, then both listeners. Shutdown waits for in-flight requests,
-	// so the admin shutdown response is always delivered first.
+	// graceful runs the single shutdown path: background writers stop,
+	// plugin hooks, metrics flush, then both listeners. Shutdown waits for
+	// in-flight requests, so the admin shutdown response is always
+	// delivered first. The events queue drains after the listeners stop so
+	// the final lines persist before Close vacuums.
 	graceful := func() {
+		cancelServices()
 		s.runShutdownHooks()
 		s.metricsService.Stop()
 		shutdown()
+		if handler, ok := s.logger.Handler().(*logging.EventsHandler); ok {
+			handler.Drain(eventsDrainTimeout)
+		}
 	}
 	select {
 	case <-ctx.Done():
@@ -340,8 +356,8 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
-// Close releases the SQLite handles, checkpointing write-ahead logs.
-// Call after Run returns.
+// Close releases the SQLite handles, vacuuming each file after
+// checkpointing its write-ahead log. Call after Run returns.
 func (s *Server) Close() error {
 	return s.sqliteDatabase.Close()
 }
