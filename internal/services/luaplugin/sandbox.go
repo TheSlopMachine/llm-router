@@ -6,15 +6,24 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/events"
 	lua "github.com/yuin/gopher-lua"
 )
 
 var typeKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
+
+// maxLogValueLength caps single plugin log values; maxLogKeys caps the
+// keys table per call.
+const (
+	maxLogValueLength = 2048
+	maxLogKeys        = 32
+)
 
 // capabilities gates sandbox tables per type key. Credentials resolve from
 // the stored record (credential_schema or auth_initiate present); proxies
@@ -30,7 +39,7 @@ type executionContext struct {
 	allowHosts []string
 	unsafe     bool
 	logger     *slog.Logger
-	logSink    func(pluginID, msg string)
+	logSink    func(pluginID, typeKey string, severity int, msg string, keys map[string]string)
 	storage    storageBridge
 	timeoutMs  int
 
@@ -160,39 +169,154 @@ func installPrint(L *lua.LState, ctx *executionContext) {
 		top := L.GetTop()
 		parts := make([]string, 0, top)
 		for i := 1; i <= top; i++ {
-			value := L.Get(i)
-			var text string
-			switch typed := value.(type) {
-			case lua.LString:
-				text = string(typed)
-			case lua.LNumber, lua.LBool:
-				text = typed.String()
-			case *lua.LTable:
-				raw, err := marshalLua(typed)
-				if err != nil {
-					text = "<table>"
-				} else {
-					text = string(raw)
-				}
-			default:
-				text = value.String()
-			}
-			if len(text) > 2048 {
-				text = text[:2048] + "…[truncated]"
-			}
-			parts = append(parts, text)
+			parts = append(parts, luaValueText(L.Get(i), L))
 		}
-		msg := strings.Join(parts, "\t")
-		if ctx != nil {
-			if ctx.logSink != nil {
-				ctx.logSink(ctx.pluginID, msg)
-			}
-			if ctx.logger != nil {
-				ctx.logger.Debug("plugin log", "plugin_id", ctx.pluginID, "msg", msg)
-			}
-		}
+		emitPluginLog(L, ctx, "print", events.SeverityInfo, strings.Join(parts, "\t"), nil)
 		return 0
 	}))
+}
+
+// emitPluginLog routes one plugin log line to the sink and the display
+// logger. The sink persists; the display logs at the matching level so
+// LOG_LEVEL filtering applies per severity.
+func emitPluginLog(L *lua.LState, ctx *executionContext, caller string, severity int, msg string, keys map[string]string) {
+	if len(msg) > maxLogValueLength {
+		msg = msg[:maxLogValueLength] + "…[truncated]"
+	}
+	if ctx == nil {
+		return
+	}
+	if ctx.logSink != nil {
+		ctx.logSink(ctx.pluginID, ctx.typeKey, severity, msg, keys)
+	}
+	if ctx.logger == nil {
+		return
+	}
+	arguments := []any{"plugin_id", ctx.pluginID, "type", ctx.typeKey, "msg", msg}
+	names := make([]string, 0, len(keys))
+	for name := range keys {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		arguments = append(arguments, name, keys[name])
+	}
+	ctx.logger.Log(context.Background(), slogLevelForSeverity(severity), "plugin log", arguments...)
+}
+
+func slogLevelForSeverity(severity int) slog.Level {
+	switch severity {
+	case events.SeverityDebug:
+		return slog.LevelDebug
+	case events.SeverityWarn:
+		return slog.LevelWarn
+	case events.SeverityError, events.SeverityFatal:
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+// parseLogSeverity maps a plugin severity string to an event severity.
+func parseLogSeverity(caller string, L *lua.LState, value lua.LValue) int {
+	name, ok := value.(lua.LString)
+	if !ok {
+		L.RaiseError("%s: severity must be a string", caller)
+		return events.SeverityInfo
+	}
+	switch strings.ToLower(strings.TrimSpace(string(name))) {
+	case "debug":
+		return events.SeverityDebug
+	case "info":
+		return events.SeverityInfo
+	case "warn", "warning":
+		return events.SeverityWarn
+	case "error":
+		return events.SeverityError
+	case "fatal":
+		return events.SeverityFatal
+	default:
+		L.RaiseError("%s: unknown severity %q: want debug, info, warn, error or fatal", caller, string(name))
+		return events.SeverityInfo
+	}
+}
+
+// parseLogKeys converts the optional keys table to string pairs. Reserved
+// names plugin and type are rejected: the router owns that prefix.
+func parseLogKeys(caller string, L *lua.LState, value lua.LValue) map[string]string {
+	if value == lua.LNil {
+		return nil
+	}
+	table, ok := value.(*lua.LTable)
+	if !ok {
+		L.RaiseError("%s: keys must be a table", caller)
+		return nil
+	}
+	keys := map[string]string{}
+	table.ForEach(func(k, v lua.LValue) {
+		name, ok := k.(lua.LString)
+		if !ok {
+			L.RaiseError("%s: keys must have string keys", caller)
+			return
+		}
+		key := string(name)
+		if key == "plugin" || key == "type" {
+			L.RaiseError("%s: key %q is reserved", caller, key)
+			return
+		}
+		var text string
+		switch typed := v.(type) {
+		case lua.LString:
+			text = string(typed)
+		case lua.LNumber, lua.LBool:
+			text = typed.String()
+		case *lua.LTable:
+			raw, err := marshalLua(typed)
+			if err != nil {
+				text = "<table>"
+			} else {
+				text = string(raw)
+			}
+		case *lua.LNilType:
+			return
+		default:
+			text = v.String()
+		}
+		if len(text) > maxLogValueLength {
+			text = text[:maxLogValueLength] + "…[truncated]"
+		}
+		keys[key] = text
+	})
+	if len(keys) > maxLogKeys {
+		L.RaiseError("%s: at most %d keys", caller, maxLogKeys)
+		return nil
+	}
+	return keys
+}
+
+// luaValueText renders one Lua value for log messages. Tables encode as
+// JSON; every value truncates at maxLogValueLength.
+func luaValueText(value lua.LValue, L *lua.LState) string {
+	var text string
+	switch typed := value.(type) {
+	case lua.LString:
+		text = string(typed)
+	case lua.LNumber, lua.LBool:
+		text = typed.String()
+	case *lua.LTable:
+		raw, err := marshalLua(typed)
+		if err != nil {
+			text = "<table>"
+		} else {
+			text = string(raw)
+		}
+	default:
+		text = value.String()
+	}
+	if len(text) > maxLogValueLength {
+		text = text[:maxLogValueLength] + "…[truncated]"
+	}
+	return text
 }
 
 func installJSON(L *lua.LState) {
@@ -353,6 +477,25 @@ func installRouterTable(L *lua.LState, ctx *executionContext) {
 	}))
 
 	router.RawSetString("storage", newStorageTable(L, ctx))
+
+	router.RawSetString("log", L.NewFunction(func(L *lua.LState) int {
+		if ctx == nil {
+			L.RaiseError("llm_router.log: no execution context")
+			return 0
+		}
+		severity := parseLogSeverity("llm_router.log", L, L.Get(1))
+		if L.GetTop() < 2 || L.Get(2) == lua.LNil {
+			L.RaiseError("llm_router.log: message is required")
+			return 0
+		}
+		message := luaValueText(L.Get(2), L)
+		var keys map[string]string
+		if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
+			keys = parseLogKeys("llm_router.log", L, L.Get(3))
+		}
+		emitPluginLog(L, ctx, "llm_router.log", severity, message, keys)
+		return 0
+	}))
 
 	if ctx != nil && ctx.capabilities.credentials {
 		router.RawSetString("credentials", newCredentialsTable(L, ctx))

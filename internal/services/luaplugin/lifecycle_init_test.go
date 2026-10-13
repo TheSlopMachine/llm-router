@@ -10,6 +10,16 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
 
+// pluginLogs reads plugin log lines, failing the test on query errors.
+func pluginLogs(t *testing.T, service *Service, pluginID string) []LogEntry {
+	t.Helper()
+	entries, err := service.Logs(context.Background(), pluginID)
+	if err != nil {
+		t.Fatalf("logs: %v", err)
+	}
+	return entries
+}
+
 const hooksPluginSource = `--- @plugin Hooks Plugin
 --- @author tester
 --- @version 1.0.0
@@ -156,13 +166,13 @@ func TestLifecycleRunInitializeStartup(t *testing.T) {
 		t.Fatalf("init reason: %+v", mapped)
 	}
 	found := false
-	for _, entry := range service.Logs(record.ID) {
+	for _, entry := range pluginLogs(t, service, record.ID) {
 		if strings.Contains(entry.Message, "init:startup") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("logs miss init:startup: %+v", service.Logs(record.ID))
+		t.Fatalf("logs miss init:startup: %+v", pluginLogs(t, service, record.ID))
 	}
 }
 
@@ -258,7 +268,7 @@ func TestLifecycleDeleteStillDeletesOnHookFailure(t *testing.T) {
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		ran := false
-		for _, entry := range service.Logs(record.ID) {
+		for _, entry := range pluginLogs(t, service, record.ID) {
 			if strings.Contains(entry.Message, "deinit-delete-ran") {
 				ran = true
 			}
@@ -267,7 +277,7 @@ func TestLifecycleDeleteStillDeletesOnHookFailure(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("deinitialize never ran: %+v", service.Logs(record.ID))
+			t.Fatalf("deinitialize never ran: %+v", pluginLogs(t, service, record.ID))
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

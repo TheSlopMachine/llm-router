@@ -45,6 +45,7 @@ spelling. Anything else fails install.
 | 1.1 | Optional `headers` string table on the error contract, rendered through a strict allow-list (`Retry-After` today) on unary `/v1` errors in both envelopes; streams and dashboard excluded. |
 | 1.2 | Optional `initialize` / `deinitialize` lifecycle slots: one-time `ctx`-table hooks with `ctx.reason` (`install` / `update` / `startup` and `delete` / `update` / `shutdown` / `disable`); detached concurrent fan-out, 30s bound, failures log. |
 | 1.3 | Optional per-type `locales` table (`en`/`ru`): widget keys in schema and auth trees resolve per dashboard locale with English fallback. |
+| 1.4 | `llm_router.log(severity, message, keys?)`: structured plugin logging into the events database (`debug`/`info`/`warn`/`error`/`fatal`, router-owned `plugin`/`type` keys, `print` shims info severity); per-plugin log reads serve from events with severity and keys. |
 
 ## Responsibility split
 
@@ -216,7 +217,7 @@ only when the plugin needs setup or teardown; most plugins omit both.
   concurrently across types; failures log and never block install, delete,
   disable, startup or shutdown.
 - The sandbox holds `storage`, `http_client`, `proxies` (when the type
-  declares `proxy_schema`), `print`, `json`, `uuid_v5`, `random_hex`,
+  declares `proxy_schema`), `print`, `llm_router.log`, `json`, `uuid_v5`, `random_hex`,
   `multipart` and `base64_*`. Credential tables stay out of plugin-scoped
   hooks; the `disable` hook reads `credentials.list`/`get`/`parked` for its
   provider only. No lifecycle hook writes credentials.
@@ -423,6 +424,21 @@ between the two files; reads check the database first.
 llm_router.storage.set("cooldown", cred_id, { until = os.time() + wait }, { ttl = wait })
 ```
 
+### `llm_router.log(severity, message, keys?)`
+
+Structured plugin logging into the router events database. `severity` is
+`debug`, `info`, `warn`, `error` or `fatal`. `message` is a string.
+`keys` is an optional string-to-scalar table (at most 32 entries, values
+truncate at 2048 chars); every key lands in the event record and queries
+as `filter.<key>` on `GET /api/events`. The router attaches `plugin`
+(record id) and `type` (type key) itself: both names are reserved and
+rejected in `keys`. Global `print(...)` stays as a shim for
+`log("info", ...)` with tab-joined arguments.
+
+```lua
+llm_router.log("warn", "rate limited, backing off", { provider = "openai", wait = 30 })
+```
+
 ### `multipart`, `base64_*`, `uuid_v5`, `random_hex`, `json`
 
 Unchanged: `multipart(parts)→(body, ctype)` (1..64 parts),
@@ -433,7 +449,7 @@ Unchanged: `multipart(parts)→(body, ctype)` (1..64 parts),
 
 Fresh `LState` per call; `Base/Table/String/Math/Os(time/clock/date)`
 only. No `io/debug/package/coroutine/require/load/dofile/print`
-(`print` routes to the plugin log). Response bodies cap at 16 MiB;
+(`print` shims `llm_router.log` at info severity). Response bodies cap at 16 MiB;
 stream error bodies at 64 KiB; redirects cap at 10 hops validated against
 `@allow_host`; private/link-local dial targets are blocked even under
 wildcard hosts.

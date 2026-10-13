@@ -12,6 +12,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
+	"github.com/TheSlopMachine/llm-router/internal/services/events"
 	"github.com/TheSlopMachine/llm-router/internal/util"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -21,20 +22,29 @@ import (
 // per plugin, matching the previous History discipline.
 const maxPluginHistoryEntries = 10
 
+// eventsRetentionDays carries the events service retention for plugin log
+// persistence. The plugin service never prunes; the server-owned service
+// owns the hourly prune with the configured retention.
+const eventsRetentionDays = 3
+
 // New constructs a SQLite-backed plugin Service and loads the in-memory
 // registry from the plugin rows. Construction reads storage once so
 // handler lookups never touch the database.
 func New(sqliteDatabase *db.Database, logger *slog.Logger) (*Service, error) {
-	if sqliteDatabase == nil || sqliteDatabase.Handle == nil || sqliteDatabase.Cache == nil {
+	if sqliteDatabase == nil || sqliteDatabase.Handle == nil || sqliteDatabase.Cache == nil || sqliteDatabase.Events == nil {
 		return nil, fmt.Errorf("luaplugin sqlite handle is not configured: %w", apierrors.ErrInvalidInput)
 	}
+	eventsService, err := events.New(sqliteDatabase, eventsRetentionDays)
+	if err != nil {
+		return nil, err
+	}
 	service := &Service{
-		database: sqliteDatabase.Handle,
-		cache:    sqliteDatabase.Cache,
-		logger:   logger,
-		registry: map[string]*PluginRecord{},
-		logs:     map[string][]LogEntry{},
-		crashes:  map[string][]CrashEntry{},
+		database:      sqliteDatabase.Handle,
+		cache:         sqliteDatabase.Cache,
+		logger:        logger,
+		eventsService: eventsService,
+		registry:      map[string]*PluginRecord{},
+		crashes:       map[string][]CrashEntry{},
 	}
 	if err := service.rebuild(context.Background()); err != nil {
 		return nil, err

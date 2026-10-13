@@ -150,18 +150,23 @@ func (h *Handler) apiPluginsRollback(w http.ResponseWriter, r *http.Request) {
 	h.json(w, http.StatusOK, toPluginView(record))
 }
 
-// apiPluginsLogs returns recent print() output for a plugin.
+// apiPluginsLogs returns recent plugin log lines from the events database.
 // @Summary      Get plugin logs
-// @Description  Returns recent print() output for a plugin.
+// @Description  Returns recent plugin log lines with severity and keys.
 // @Tags         Plugins
 // @Produce      json
 // @Param        id path string true "Plugin ID"
-// @Success      200 {array} object{at=string,message=string}
+// @Success      200 {array} luaplugin.LogEntry
 // @Failure      401 {object} models.ErrorResponse
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugins/{id}/logs [get]
 func (h *Handler) apiPluginsLogs(w http.ResponseWriter, r *http.Request) {
-	h.json(w, http.StatusOK, h.luaService.Logs(r.PathValue("id")))
+	entries, err := h.luaService.Logs(r.Context(), r.PathValue("id"))
+	if err != nil {
+		h.jsonErr(w, http.StatusServiceUnavailable, "plugin logs unavailable")
+		return
+	}
+	h.json(w, http.StatusOK, entries)
 }
 
 // apiPluginsCrashes returns recent recorded crashes for a plugin.

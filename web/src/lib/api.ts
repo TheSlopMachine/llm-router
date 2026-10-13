@@ -169,7 +169,7 @@ export const api = {
     rollback: (id: string): Promise<Plugin> =>
       postJson(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}/rollback`, {}),
 
-    logs: (id: string): Promise<Array<{ at: string; message: string }>> =>
+    logs: (id: string): Promise<Array<{ at: string; severity: number; message: string; keys: Record<string, string> }>> =>
       fetch(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}/logs`).then(assertOk),
 
     crashes: (id: string): Promise<Array<{ at: string; type_key: string; cause: string }>> =>

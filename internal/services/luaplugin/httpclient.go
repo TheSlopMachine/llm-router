@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TheSlopMachine/llm-router/internal/services/events"
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -134,7 +135,7 @@ func (g *ssrfGuard) checkURL(raw string) (*url.URL, error) {
 // logSinkSafe logs through the exec context when a sink is wired.
 func (ctx *executionContext) logSinkSafe(msg string) {
 	if ctx != nil && ctx.logSink != nil {
-		ctx.logSink(ctx.pluginID, msg)
+		ctx.logSink(ctx.pluginID, ctx.typeKey, events.SeverityWarn, msg, nil)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/events"
 	lua "github.com/yuin/gopher-lua"
 	"gorm.io/gorm"
 )
@@ -86,10 +87,12 @@ type PluginRecord struct {
 	UpdatedAt   time.Time                     `json:"updated_at"`
 }
 
-// LogEntry is one print() line captured from a plugin.
+// LogEntry is one plugin log line read back from the events database.
 type LogEntry struct {
-	At      time.Time `json:"at"`
-	Message string    `json:"message"`
+	At       time.Time         `json:"at"`
+	Severity int               `json:"severity"`
+	Message  string            `json:"message"`
+	Keys     map[string]string `json:"keys"`
 }
 
 // CrashEntry is one recorded PluginInternalError.
@@ -114,8 +117,9 @@ type Service struct {
 	mu       sync.RWMutex
 	registry map[string]*PluginRecord
 
+	eventsService *events.Service
+
 	logMu   sync.Mutex
-	logs    map[string][]LogEntry
 	crashes map[string][]CrashEntry
 
 	onChanged func(typeKey string)
@@ -647,15 +651,22 @@ func unionKeys(first, second []string) []string {
 	return out
 }
 
-// appendLog records a print() line in the bounded per-plugin buffer.
-func (s *Service) appendLog(pluginID, msg string) {
-	s.logMu.Lock()
-	defer s.logMu.Unlock()
-	entries := append(s.logs[pluginID], LogEntry{At: time.Now(), Message: msg})
-	if len(entries) > 100 {
-		entries = entries[len(entries)-100:]
+// appendLog persists one plugin log line to the events database with the
+// router-owned plugin and type keys attached. All keys are arbitrary
+// otherwise and land in event_keys.
+func (s *Service) appendLog(pluginID, typeKey string, severity int, msg string, keys map[string]string) {
+	merged := make(map[string]string, len(keys)+2)
+	for name, value := range keys {
+		merged[name] = value
 	}
-	s.logs[pluginID] = entries
+	merged["plugin"] = pluginID
+	if typeKey != "" {
+		merged["type"] = typeKey
+	}
+	if s.eventsService == nil {
+		return
+	}
+	_ = s.eventsService.Append(context.Background(), time.Now().UTC(), severity, msg, merged)
 }
 
 // recordCrash records a PluginInternalError in the bounded per-plugin buffer.
@@ -672,11 +683,30 @@ func (s *Service) recordCrash(pluginID, typeKey, cause string) {
 	}
 }
 
-// Logs returns recent print() lines for a plugin, never nil.
-func (s *Service) Logs(pluginID string) []LogEntry {
-	s.logMu.Lock()
-	defer s.logMu.Unlock()
-	return append([]LogEntry{}, s.logs[pluginID]...)
+// Logs returns recent plugin log lines from the events database, newest
+// first, capped at 100 rows. It fails when persistence is not wired.
+func (s *Service) Logs(ctx context.Context, pluginID string) ([]LogEntry, error) {
+	if s.eventsService == nil {
+		return nil, fmt.Errorf("plugin log persistence is not configured")
+	}
+	entries, err := s.eventsService.Query(ctx, events.Query{
+		Filters: []events.KeyFilter{{Key: "plugin", Value: &pluginID}},
+		Limit:   100,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]LogEntry, 0, len(entries))
+	for _, entry := range entries {
+		keys := make(map[string]string, len(entry.Keys))
+		for _, key := range entry.Keys {
+			if key.Value != nil {
+				keys[key.Key] = *key.Value
+			}
+		}
+		out = append(out, LogEntry{At: entry.Timestamp, Severity: entry.Severity, Message: entry.Message, Keys: keys})
+	}
+	return out, nil
 }
 
 // Crashes returns recent recorded crashes for a plugin, never nil.

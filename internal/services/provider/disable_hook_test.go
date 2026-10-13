@@ -69,14 +69,26 @@ func TestDisableTransitionFiresDeinitializeOnce(t *testing.T) {
 	}
 	hookDeinitEntry(t, luaService, record.ID, created.ID)
 
-	before := len(luaService.Logs(record.ID))
+	beforeEntries, err := luaService.Logs(ctx, record.ID)
+	if err != nil {
+		t.Fatalf("logs: %v", err)
+	}
+	before := len(beforeEntries)
 	if _, err := service.Update(ctx, created.ID, UpdateOptions{Name: "Hooked", Disabled: &disabled}); err != nil {
 		t.Fatalf("repeat disable: %v", err)
 	}
 	time.Sleep(300 * time.Millisecond)
-	for _, entry := range luaService.Logs(record.ID)[before:] {
+	afterEntries, err := luaService.Logs(ctx, record.ID)
+	if err != nil {
+		t.Fatalf("logs: %v", err)
+	}
+	for _, entry := range afterEntries[before:] {
 		if strings.Contains(entry.Message, "deinit:disable") {
-			t.Fatalf("repeat disable must not refire the hook: %+v", luaService.Logs(record.ID))
+			afterReread, err := luaService.Logs(ctx, record.ID)
+			if err != nil {
+				t.Fatalf("logs: %v", err)
+			}
+			t.Fatalf("repeat disable must not refire the hook: %+v", afterReread)
 		}
 	}
 }
