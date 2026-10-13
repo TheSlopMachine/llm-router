@@ -205,7 +205,10 @@ SQLite (`internal/db/sqlite.go`, `OpenSQLite`) owns three files:
 default `llm-router.cache.sqlite3`) holds rebuildable state, `EVENTS_PATH`
 (fallback `DEV_EVENTS`, default `llm-router.events.sqlite3`) holds operator
 telemetry with `EVENTS_RETENTION_DAYS` (default 3, minimum 1) pruning on
-startup and hourly plus `auto_vacuum=INCREMENTAL` reclamation. `GET
+startup and hourly plus `auto_vacuum=INCREMENTAL` reclamation. All three
+paths plus `ENV_FILE` expand a leading `~` (home directory, every OS),
+`%NAME%` and `$VAR`/`${VAR}` references, then clean; a tilde elsewhere
+stays literal. `GET
 /api/events` queries the events file by `severity` (>=), `id`, `start`/`end`
 (RFC3339) and `filter.<key>` existence or `filter.<key>=<value>` match
 (limit default 50, max 500). The schema

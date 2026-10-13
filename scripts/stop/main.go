@@ -28,7 +28,7 @@ const (
 )
 
 func main() {
-	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
+	pidFile := shared.GetenvPath("PID_FILE", shared.DefaultPidFile())
 
 	if _, err := os.Stat(pidFile); os.IsNotExist(err) {
 		fmt.Printf("[>] Not running (no pid file %s)\n", pidFile)

@@ -21,21 +21,21 @@ func main() {
 	host := shared.Getenv("HOST", "localhost")
 	port := shared.Getenv("PORT", "38080")
 	logLevel := shared.NormalizeLogLevel(shared.Getenv("LOG_LEVEL", "info"))
-	databasePath := shared.Getenv("DEV_DB", "")
+	databasePath := shared.GetenvPath("DEV_DB", "")
 	if databasePath == "" {
-		databasePath = shared.Getenv("DB_PATH", shared.DefaultDevDB())
+		databasePath = shared.GetenvPath("DB_PATH", shared.DefaultDevDB())
 	}
-	cachePath := shared.Getenv("DEV_CACHE", "")
+	cachePath := shared.GetenvPath("DEV_CACHE", "")
 	if cachePath == "" {
-		cachePath = shared.Getenv("CACHE_PATH", shared.DefaultDevCache())
+		cachePath = shared.GetenvPath("CACHE_PATH", shared.DefaultDevCache())
 	}
-	eventsPath := shared.Getenv("DEV_EVENTS", "")
+	eventsPath := shared.GetenvPath("DEV_EVENTS", "")
 	if eventsPath == "" {
-		eventsPath = shared.Getenv("EVENTS_PATH", shared.DefaultDevEvents())
+		eventsPath = shared.GetenvPath("EVENTS_PATH", shared.DefaultDevEvents())
 	}
 	retentionDays := shared.Getenv("EVENTS_RETENTION_DAYS", "3")
 	adminPort := shared.Getenv("ADMIN_PORT", shared.DevAdminPort)
-	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
+	pidFile := shared.GetenvPath("PID_FILE", shared.DefaultPidFile())
 
 	// SCOPE selects the start set: all (default) or backend only. The
 	// backend-only path rebuilds and respawns the backend while a live

@@ -52,7 +52,10 @@ func ResolveDotenvPath() string {
 // resulting process environment. It returns the loaded file path or empty
 // when no file was present.
 func Load() (*Config, string, error) {
-	dotenvPath := ResolveDotenvPath()
+	dotenvPath, err := ExpandPath(ResolveDotenvPath())
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid ENV_FILE: %w", err)
+	}
 	loadedPath, err := loadDotenvFile(dotenvPath)
 	if err != nil {
 		return nil, "", err
@@ -79,13 +82,25 @@ func Load() (*Config, string, error) {
 	if databasePath == "" {
 		databasePath = environmentOrDefault("DEV_DB", DefaultDatabasePath)
 	}
+	databasePath, err = ExpandPath(databasePath)
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid DB_PATH: %w", err)
+	}
 	cachePath := environmentOrDefault("CACHE_PATH", "")
 	if cachePath == "" {
 		cachePath = environmentOrDefault("DEV_CACHE", DefaultCachePath)
 	}
+	cachePath, err = ExpandPath(cachePath)
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid CACHE_PATH: %w", err)
+	}
 	eventsPath := environmentOrDefault("EVENTS_PATH", "")
 	if eventsPath == "" {
 		eventsPath = environmentOrDefault("DEV_EVENTS", DefaultEventsPath)
+	}
+	eventsPath, err = ExpandPath(eventsPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid EVENTS_PATH: %w", err)
 	}
 	retentionDays, err := parseEventsRetentionValue(environmentOrDefault("EVENTS_RETENTION_DAYS", ""))
 	if err != nil {
@@ -129,13 +144,17 @@ func WriteDefaultFile(target string) error {
 	if cleaned == "" {
 		return fmt.Errorf("configuration target path is required: %w", ErrMissingTargetPath)
 	}
-	if _, err := os.Stat(cleaned); err == nil {
-		return fmt.Errorf("configuration file exists: %s: %w", cleaned, ErrConfigFileExists)
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("inspect configuration target %s: %w", cleaned, err)
+	expandedTarget, err := ExpandPath(cleaned)
+	if err != nil {
+		return fmt.Errorf("invalid configuration target %s: %w", cleaned, err)
 	}
-	if err := os.WriteFile(cleaned, []byte(DefaultTemplate()), 0644); err != nil {
-		return fmt.Errorf("write configuration file %s: %w", cleaned, err)
+	if _, err := os.Stat(expandedTarget); err == nil {
+		return fmt.Errorf("configuration file exists: %s: %w", expandedTarget, ErrConfigFileExists)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect configuration target %s: %w", expandedTarget, err)
+	}
+	if err := os.WriteFile(expandedTarget, []byte(DefaultTemplate()), 0644); err != nil {
+		return fmt.Errorf("write configuration file %s: %w", expandedTarget, err)
 	}
 	return nil
 }

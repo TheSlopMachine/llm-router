@@ -61,7 +61,7 @@ func adminBase() string {
 	if port := strings.TrimSpace(os.Getenv("ADMIN_PORT")); port != "" {
 		return "http://127.0.0.1:" + port
 	}
-	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
+	pidFile := shared.GetenvPath("PID_FILE", shared.DefaultPidFile())
 	if params, err := shared.ReadStartParams(pidFile); err == nil && strings.TrimSpace(params.AdminPort) != "" {
 		return "http://127.0.0.1:" + strings.TrimSpace(params.AdminPort)
 	}

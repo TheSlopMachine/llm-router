@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
+	pidFile := shared.GetenvPath("PID_FILE", shared.DefaultPidFile())
 
 	if params, err := shared.ReadStartParams(pidFile); err == nil {
 		overlay("DEV_DB", params.DevDB, shared.DefaultDevDB())

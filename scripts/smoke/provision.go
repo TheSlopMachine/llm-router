@@ -79,7 +79,7 @@ func waitReady(testConfiguration configuration) error {
 // usage error, never a two-minute poll. A live backend PID means startup
 // is still in flight; otherwise one quick probe decides.
 func requireRunningStack(testConfiguration configuration) {
-	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
+	pidFile := shared.GetenvPath("PID_FILE", shared.DefaultPidFile())
 	if process, err := shared.ReadPidFile(pidFile); err == nil {
 		if shared.AliveMatches(process.Backend, process.BackendPath) {
 			return

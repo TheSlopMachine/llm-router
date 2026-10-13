@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
+	pidFile := shared.GetenvPath("PID_FILE", shared.DefaultPidFile())
 
 	if _, err := os.Stat(pidFile); os.IsNotExist(err) {
 		fmt.Println("llm-router dev server is not running")

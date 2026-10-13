@@ -87,6 +87,10 @@ func run(command *cobra.Command, arguments []string) error {
 		if target == "" || target == generateConfigurationBare || target == "1" {
 			target = config.ResolveDotenvPath()
 		}
+		target, err := config.ExpandPath(target)
+		if err != nil {
+			return fmt.Errorf("invalid generate-config target: %w", err)
+		}
 		if err := config.WriteDefaultFile(target); err != nil {
 			if errors.Is(err, config.ErrConfigFileExists) {
 				return err
