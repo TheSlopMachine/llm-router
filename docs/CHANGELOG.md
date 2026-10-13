@@ -2,6 +2,10 @@
 
 ## Done (2026-10-13, vUnreleased)
 
+- Fixed `~`-backslash expansion on non-Windows systems: `expandTildePath` normalized `\` to `/` in the remainder before joining, so `~\data\db.sqlite3` resolved identically on every OS. Applied the fix in both mirrors (`internal/config/expand.go`, `scripts/shared/expand.go`); the Linux-only `TestExpandPath/tildeBackslash` CI failure passed.
+
+## Done (2026-10-13, vUnreleased)
+
 - Added push validation workflow (`.github/workflows/validate.yml`): every push ran `make init`, `make go-vet`, `make go-fmt-check`, `make sql-policy`, `make go-test`, `make go-test-race` and `make check-frontend` in order in one sequential job on `ubuntu-latest` with Go `1.27.1` and Bun latest.
 
 ## Done (2026-10-13, vUnreleased)

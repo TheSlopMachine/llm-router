@@ -74,7 +74,10 @@ func expandTildePath(trimmedPath string) (string, error) {
 	if strings.TrimSpace(expandedRemainder) == "" {
 		return filepath.Clean(homeDirectory), nil
 	}
-	return filepath.Join(homeDirectory, expandedRemainder), nil
+	// Backslash splits the remainder on every OS: "\" is a separator in
+	// the "~\" form even where the OS treats it as a literal character.
+	normalizedRemainder := strings.ReplaceAll(expandedRemainder, `\`, "/")
+	return filepath.Join(homeDirectory, normalizedRemainder), nil
 }
 
 // expandVariables resolves %NAME% references first, then $VAR/${VAR}.
