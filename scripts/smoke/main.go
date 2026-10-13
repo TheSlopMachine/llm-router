@@ -34,7 +34,7 @@ func main() {
 }
 
 func runPlugin(testConfiguration configuration, report *report, pluginType string) {
-	providerID, credentials, cleanup, err := provision(testConfiguration, pluginType)
+	providerID, credentials, err := provision(testConfiguration, pluginType)
 	if err != nil {
 		if errors.Is(err, errNoCredential) {
 			report.add(pluginType, "-", "-", skip, "no credential in db", 0)
@@ -42,9 +42,6 @@ func runPlugin(testConfiguration configuration, report *report, pluginType strin
 		}
 		report.add(pluginType, "-", "-", fail, fmt.Sprintf("provision: %v", err), 0)
 		return
-	}
-	if cleanup != nil {
-		defer cleanup()
 	}
 	models, err := listModels(testConfiguration, providerID)
 	if err != nil {

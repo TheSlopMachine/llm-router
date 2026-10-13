@@ -26,7 +26,6 @@ type configuration struct {
 	plugins []string
 	targets map[string]bool
 	store   string
-	cleanup bool
 	// virtualModelName is this run's ad-hoc virtual model name: unique per run so a
 	// leftover row from an earlier, interrupted run can never collide with
 	// it. Keeps the "smoke-vm" prefix so cleanupStaleVirtualModels can find
@@ -64,13 +63,13 @@ func loadConfig() (configuration, error) {
 		targets[target] = true
 	}
 	plugins := []string{}
-	for _, plugin := range strings.Split(getenv("SMOKE_PLUGINS", "mock"), ",") {
+	for _, plugin := range strings.Split(getenv("SMOKE_PLUGINS", "all"), ",") {
 		plugin = strings.ToLower(strings.TrimSpace(plugin))
 		if plugin == "" {
 			continue
 		}
 		if plugin == "all" {
-			plugins = []string{"mock", "groq", "google", "kiro", "opencode-zen", "opencode-free"}
+			plugins = []string{"groq", "google", "kiro", "opencode-zen", "opencode-free"}
 			break
 		}
 		plugins = append(plugins, plugin)
@@ -83,7 +82,6 @@ func loadConfig() (configuration, error) {
 		plugins:          plugins,
 		targets:          targets,
 		store:            getenv("SMOKE_STORE_DIR", "../../llm-router-store/llm-router-plugins"),
-		cleanup:          getenv("SMOKE_CLEANUP", "1") == "1",
 		virtualModelName: fmt.Sprintf("smoke-vm-%d", time.Now().UnixNano()),
 	}, nil
 }
@@ -91,6 +89,6 @@ func loadConfig() (configuration, error) {
 // knownTypes lists runnable provider types. Unknown types fail fast: a
 // typo in SMOKE_PLUGINS must be loud, never a silent skip.
 var knownTypes = map[string]bool{
-	"mock": true, "groq": true, "google": true,
+	"groq": true, "google": true,
 	"kiro": true, "opencode-zen": true, "opencode-free": true,
 }

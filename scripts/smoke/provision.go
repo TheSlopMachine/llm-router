@@ -5,9 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
-	"runtime"
 	"sort"
 	"time"
 
@@ -18,49 +15,37 @@ import (
 // source and resolves usable credentials from the dev database. The pool
 // fails over across keys inside every request, so the matrix needs no
 // per-credential loop; the credential-test below iterates them instead.
-// Cleanup is non-nil only for the ephemeral mock credential. No usable
-// credential is errNoCredential.
-func provision(testConfiguration configuration, pluginType string) (providerID string, credentials []credentialCandidate, cleanup func(), err error) {
+// No usable credential is errNoCredential.
+func provision(testConfiguration configuration, pluginType string) (providerID string, credentials []credentialCandidate, err error) {
 	if err := ensureBootstrapped(testConfiguration); err != nil {
-		return "", nil, nil, err
+		return "", nil, err
 	}
 	source, err := pluginSource(testConfiguration, pluginType)
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, err
 	}
 	if _, err := shared.InstallPlugin(testConfiguration.web, pluginType, source); err != nil {
-		return "", nil, nil, err
+		return "", nil, err
 	}
 	providerID, err = findProvider(testConfiguration, pluginType)
 	if err != nil {
-		return "", nil, nil, err
-	}
-	if pluginType == "mock" {
-		credentialID, err := addCredential(testConfiguration, providerID, map[string]any{})
-		if err != nil {
-			return "", nil, nil, err
-		}
-		mockCredentials := []credentialCandidate{{ID: credentialID, Label: "smoke", ProviderID: providerID}}
-		if !testConfiguration.cleanup {
-			return providerID, mockCredentials, nil, nil
-		}
-		return providerID, mockCredentials, func() { deleteCredential(testConfiguration, credentialID) }, nil
+		return "", nil, err
 	}
 	if enabled, err := credentialsEnabled(testConfiguration, providerID); err != nil {
-		return "", nil, nil, err
+		return "", nil, err
 	} else if !enabled {
 		// Credential-less provider types (anonymous tiers) run the
 		// matrix without accounts; keyed types still skip below.
-		return providerID, nil, nil, nil
+		return providerID, nil, nil
 	}
 	credentials, err = listUsableCredentials(testConfiguration, providerID)
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, err
 	}
 	if len(credentials) == 0 {
-		return "", nil, nil, errNoCredential
+		return "", nil, errNoCredential
 	}
-	return providerID, credentials, nil, nil
+	return providerID, credentials, nil
 }
 
 // credentialsEnabled reports the provider's credential-schema capability
@@ -136,12 +121,8 @@ func ensureBootstrapped(testConfiguration configuration) error {
 	return requireOK(statusCode, raw, nil)
 }
 
-// pluginSource reads the .lua source: the bundled mock or storeDir/<type>.lua.
+// pluginSource reads the storeDir/<type>.lua source.
 func pluginSource(testConfiguration configuration, pluginType string) ([]byte, error) {
-	if pluginType == "mock" {
-		_, thisFile, _, _ := runtime.Caller(0)
-		return os.ReadFile(filepath.Join(filepath.Dir(thisFile), "testdata", "mock.lua"))
-	}
 	return shared.PluginSource(testConfiguration.store, pluginType)
 }
 
@@ -215,32 +196,4 @@ func listUsableCredentials(testConfiguration configuration, providerID string) (
 		return output[i].ID < output[j].ID
 	})
 	return output, nil
-}
-
-func addCredential(testConfiguration configuration, providerID string, data map[string]any) (string, error) {
-	statusCode, raw, err := doJSON("POST", testConfiguration.web+"/api/llm-router/dashboard/credentials", map[string]any{
-		"provider_id": providerID,
-		"label":       "smoke",
-		"data":        data,
-	})
-	if err != nil {
-		return "", fmt.Errorf("add credential: %w", err)
-	}
-	var credential struct {
-		ID string `json:"id"`
-	}
-	if err := requireOK(statusCode, raw, &credential); err != nil {
-		return "", err
-	}
-	if credential.ID == "" {
-		return "", fmt.Errorf("add credential: empty id")
-	}
-	return credential.ID, nil
-}
-
-func deleteCredential(testConfiguration configuration, credentialID string) {
-	statusCode, raw, err := doJSON("DELETE", testConfiguration.web+"/api/llm-router/dashboard/credentials/"+credentialID, nil)
-	if err == nil {
-		_ = requireOK(statusCode, raw, nil)
-	}
 }

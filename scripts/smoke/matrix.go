@@ -146,30 +146,6 @@ func checkCompletionsStream(testConfiguration configuration, model string) error
 	return nil
 }
 
-func checkMessagesTools(testConfiguration configuration, model string) error {
-	body := map[string]any{
-		"model":      model,
-		"max_tokens": 64,
-		"messages":   []any{map[string]any{"role": "user", "content": "hi"}},
-		"tools": []any{map[string]any{
-			"name": "get_weather", "description": "Get weather",
-			"input_schema": map[string]any{"type": "object"},
-		}},
-		"tool_choice": map[string]any{"type": "any"},
-	}
-	statusCode, raw, err := doJSON("POST", testConfiguration.api+"/v1/messages", body)
-	if err != nil {
-		return err
-	}
-	if statusCode < 200 || statusCode >= 300 {
-		return &wireError{status: statusCode, code: wireCode(raw), message: strings.TrimSpace(string(raw))}
-	}
-	if !strings.Contains(string(raw), "tool_use") {
-		return fmt.Errorf("no tool_use block")
-	}
-	return nil
-}
-
 // checkEndpointGate asserts the negative path: a capability the model does
 // not serve must fail closed with endpoint_not_supported, never silently.
 func checkEndpointGate(testConfiguration configuration, chatModel string) error {
@@ -512,7 +488,7 @@ func checkEmbeddings(testConfiguration configuration, model string) error {
 }
 
 // getBytes fetches a binary asset with its content type. The 32MiB cap
-// covers generated clips; the mock serves bytes.
+// covers generated clips; upstream serves bytes.
 func getBytes(url string) (int, string, []byte, error) {
 	response, err := apiClient.Get(url)
 	if err != nil {
@@ -677,14 +653,6 @@ func runMatrix(testConfiguration configuration, report *report, pluginType, prov
 		runStream("messages-stream", "messages", func(modelName string) error {
 			return checkMessages(testConfiguration, modelName, true)
 		})
-		// Tool blocks only where deterministic: the mock tools model
-		// echoes one tool_call per request. Real providers decide
-		// themselves, so no assertion there.
-		if pluginType == "mock" {
-			runCandidates("messages-tools", []string{providerID + "/mock-tools"}, func(modelName string) error {
-				return checkMessagesTools(testConfiguration, modelName)
-			})
-		}
 	}
 	if testConfiguration.targets["transcribe"] {
 		runCandidates("transcribe", byEndpoint["audio/transcriptions"], func(modelName string) error {
@@ -710,19 +678,6 @@ func runMatrix(testConfiguration configuration, report *report, pluginType, prov
 		runCandidates("video", byEndpoint["videos"], func(modelName string) error {
 			return checkVideo(testConfiguration, modelName)
 		})
-	}
-	// Mock self-check: mock-limited must skip with quota, proving the
-	// harness skip pipeline end to end.
-	if pluginType == "mock" && testConfiguration.targets["completions"] {
-		limited := providerID + "/mock-limited"
-		start := time.Now()
-		if reason, err := classify(func() error { return checkCompletions(testConfiguration, limited) }); err != nil {
-			report.add(pluginType, limited, "skip-path", fail, err.Error(), time.Since(start))
-		} else if reason == "" {
-			report.add(pluginType, limited, "skip-path", fail, "limited model served", time.Since(start))
-		} else {
-			report.add(pluginType, limited, "skip-path", pass, "skip: "+reason, time.Since(start))
-		}
 	}
 	// Negative path: a capability the model does not serve must fail
 	// closed, never silently. Free: gated before any backend is touched.

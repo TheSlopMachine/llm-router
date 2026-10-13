@@ -133,7 +133,7 @@ internal/adapters/generic/ built-in custom backend (Go)
 providers/virtual/       built-in virtual-models backend (Go)
 web/                     Svelte SPA (web/openapi.yaml + src/lib/generated/ auto-generated — do not hand-edit)
 scripts/                 separate Go module — build/dev helpers (never imported by main module)
-scripts/smoke/           black-box smoke harness + mock provider (testdata/mock.lua)
+scripts/smoke/           black-box smoke harness (live upstreams only)
 docs/                    PLUGIN-API.md (binding plugin contract), BACKEND.md (core map), CHANGELOG.md
 Makefile                 thin launcher for scripts/ — see §4
 ```
@@ -235,7 +235,7 @@ If the task needs `browser`, `build`, `publish`, or `clean`: STOP. Ask the human
   (route patterns validate only at startup — hence `mux_test.go`).
 - Verify through execution whenever reasonable: run checks, tests, or smoke
   after implementing, fixing, or refactoring. `make go-vet`, `make go-test`,
-  `make go-fmt-check` gate every Go change; `make smoke SMOKE_PLUGINS=mock`
+  `make go-fmt-check` gate every Go change; `make smoke`
    gates request-path changes (Request flow in `docs/BACKEND.md`: `router`,
    `proxypool`, `virtual`, `luaplugin`/`PLUGIN-API`, `api/v1`, `errors`). Scope to a real plugin only
    to debug that plugin.
@@ -361,10 +361,9 @@ Dashboard `/api/llm-router/*` (same `:PORT`, JSON `{"error":...}` on failure):
 Runtime diagnostics: `make log LINES=...` (backend), `make log-frontend` (vite), `make status` (PIDs/ports), metrics overview/timeseries endpoints for usage.
 
 Smoke harness (`scripts/smoke/`, `make smoke` drives the running stack through the admin listener without restarting it):
-- Default scope is the mock provider only; real plugins opt in via `SMOKE_PLUGINS=...`, heavy endpoints via `SMOKE_TARGETS=...`.
+- Default scope is every known plugin type; opt in with `SMOKE_PLUGINS=...`, heavy endpoints via `SMOKE_TARGETS=...`. Deterministic capability coverage lives in Go tests (`internal/testutil/mockplugin` fixtures); smoke verifies live upstreams only.
 - Accounts come from the dev database, never from env. Missing credentials skip the plugin, never fail it.
 - Matrix iterates models per capability until first success; `quota`/`payment`/`rate`/`not_found`/`invalid_request` move on, `auth` fails, exhaustion without success skips with reason.
-- Mock provider ships in `testdata/mock.lua`; bump its `@version` on every edit (the harness skips reinstall on version match).
  - Exercises the running build without restarting it; `make restart` first after changing code, `make start` first when nothing answers (it fails fast).
 - Check semantics differ per target: streams assert delivery (`[DONE]`/`message_stop`), dashboard-chat asserts non-empty `choices`, unary asserts content. A unary-only failure with passing streams means empty upstream text, not transport.
 - Diagnose from the log first: failing calls' full upstream bodies are already in the debug log (`make smoke SMOKE_PLUGINS=... LOG_LEVEL=debug`, then grep `HTTP_RESPONSE`/`COMPLETE`). Reproduce single-model failures with direct `/v1` calls before running the matrix.

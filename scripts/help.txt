@@ -39,7 +39,7 @@ Variables:
   CACHE_PATH         Cache database file for the server. Default: "llm-router.cache.sqlite3" (dev start prefers DEV_CACHE)
   DEV_UI_REDIRECT    Dashboard redirect origin for dev. Default: empty
   ENV_FILE           Dotenv path for the server. Default: ".env"
-  SMOKE_PLUGINS      Comma plugin types for smoke (or "all"). Default: "mock"
+  SMOKE_PLUGINS      Comma plugin types for smoke (or "all"). Default: "all"
   SMOKE_TARGETS      Comma targets for smoke. Default: "completions,messages"
   UPLOAD_STORE_DIR   Store dir for upload-plugins. Default: "../../llm-router-store/llm-router-plugins"
   PLATFORMS          Platforms for build. Default: "windows/amd64 ..."

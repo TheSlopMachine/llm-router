@@ -38,13 +38,14 @@ internal/repository/     typed SQLite operations (generics API)
 internal/dashboard/      admin REST API (providers, tokens, credentials, models, virtual-models, metrics, plugins, repos, config, data export/import/clear, doctor, proxy status/refresh/pools, provider jobs)
 internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/completions, /v1/messages (+count_tokens, +batches, /v1/complete), /v1/models list + retrieve (TokenRules-filtered, Anthropic dual shape), /v1/videos submit + poll + content + models, audio/transcriptions (+JSON variant)/translations/speech, images/generations/edits/variations, embeddings, moderations, responses (+cancel/input_items/compact/input_tokens) + conversations (+items), assistants, threads (+messages/runs/cancel/submit_tool_outputs)
 internal/models/         shared wire types
+internal/testutil/mockplugin/ deterministic Lua fixtures for Go tests (one source per capability)
 internal/version/        Version struct (Parse/String, short X.Y when fix is 0); router label in main, plugin API contract in luaplugin
 internal/config/         environment + .env loading and Config struct
 internal/adapters/generic/ built-in custom backend (Go, single pass over gated pool)
 providers/virtual/       built-in virtual-models backend (Go, list-order fall-through + first-byte gate)
 web/                     Svelte SPA (web/openapi.yaml + src/lib/generated/ auto-generated — do not hand-edit)
 scripts/                 separate Go module — build/dev helpers (never imported by main module)
-scripts/smoke/           black-box smoke harness + mock provider (testdata/mock.lua)
+scripts/smoke/           black-box smoke harness (live upstreams only)
 docs/                    PLUGIN-API.md (binding plugin contract), BACKEND.md (core map), CHANGELOG.md
 Makefile                 thin launcher for scripts/ — see AGENTS.md §3
 ```

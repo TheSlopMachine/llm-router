@@ -2,6 +2,9 @@
 
 ## Done (2026-10-13, vUnreleased)
 
+- Moved deterministic provider coverage from the smoke harness into Go tests: new `internal/testutil/mockplugin` owns twelve small Lua fixtures (chat, tools, quota, auth error, stream, transcribe, speech, image, embeddings, completed and pending video, chat-only), consumed by install checks, sixteen router tests (routing, terminal errors, endpoint gates, virtual fan-out, probe), one handler tool-calls test, and seventeen `/v1` HTTP tests (unary, streams, tools, `srt`, image and embeddings variants, video pipeline, gates, listings).
+- Removed the smoke `mock` provider (`scripts/smoke/testdata/mock.lua`, mock branches in `matrix.go`/`provision.go`/`config.go`, `SMOKE_CLEANUP` plumbing): `SMOKE_PLUGINS` defaults to `all` known live types, missing credentials skip as before.
+
 - Made `make stop` outwait backend startup: it polls the admin listener up to 30s before asking for graceful shutdown, so an immediate stop after start shuts down gracefully instead of dropping to the kill path.
 - Kept the frontend across `make restart`: only the backend is rebuilt and respawned while a live frontend keeps serving (vite hot-reloads the SPA); `SCOPE=backend` scopes `make stop`/`make start` the same way, and restart falls back to a full start when the frontend is down.
 - Stopped restarting on `make smoke`: the harness exercises the running dev stack through the admin listener and fails fast with `make start` guidance when nothing answers (`make restart` first after code changes).
