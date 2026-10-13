@@ -2,6 +2,7 @@
 
 ## Done (2026-10-13, vUnreleased)
 
+- Made `make stop` outwait backend startup: it polls the admin listener up to 30s before asking for graceful shutdown, so an immediate stop after start shuts down gracefully instead of dropping to the kill path.
 - Kept the frontend across `make restart`: only the backend is rebuilt and respawned while a live frontend keeps serving (vite hot-reloads the SPA); `SCOPE=backend` scopes `make stop`/`make start` the same way, and restart falls back to a full start when the frontend is down.
 - Stopped restarting on `make smoke`: the harness exercises the running dev stack through the admin listener and fails fast with `make start` guidance when nothing answers (`make restart` first after code changes).
 - Added graceful backend shutdown via `POST /api/llm-router/shutdown` (admin listener only, public 404s): the endpoint signals the `Run` loop, which runs the single shutdown path (hooks, metrics flush, both listeners) after answering `200 {"ok":true}`. `make stop` asks first with a 15s wait and kills past it; the frontend is always killed. `make restart` inherits the flow.

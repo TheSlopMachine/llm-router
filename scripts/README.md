@@ -57,4 +57,4 @@ Drives the request paths black-box against the running dev stack through the adm
 
 ## Strictness
 
-No fallbacks. Missing required env, any `git` / `swag` / `api-types` / `vite build` failure is fatal. `stop` asks the backend for graceful shutdown through the admin API first (15s wait, recorded `ADMIN_PORT` else env, skipped when disabled), then follows the kill path: one graceful `SIGTERM` on unix, direct force-kill on Windows (`TerminateJobObject`, fallback `TerminateProcess`); the frontend is always killed, never asked; survivors keep the pidfile and exit 1.
+No fallbacks. Missing required env, any `git` / `swag` / `api-types` / `vite build` failure is fatal. `stop` waits up to 30s for the admin listener first (the backend binds only after its startup gate), then asks for graceful shutdown with a 15s wait, recorded `ADMIN_PORT` else env, skipped when disabled; then follows the kill path: one graceful `SIGTERM` on unix, direct force-kill on Windows (`TerminateJobObject`, fallback `TerminateProcess`); the frontend is always killed, never asked; survivors keep the pidfile and exit 1.

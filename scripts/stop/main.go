@@ -21,6 +21,10 @@ const (
 	// gracefulWait bounds the backend graceful exit before the kill
 	// path applies.
 	gracefulWait = 15 * time.Second
+	// readyWait bounds the admin listener wait: the backend binds only
+	// after its 30s startup gate, so an immediate stop outwaits it
+	// instead of dropping to the kill path.
+	readyWait = 30 * time.Second
 )
 
 func main() {
@@ -92,15 +96,22 @@ func main() {
 	if shared.AliveMatches(process.Backend, process.BackendPath) {
 		if adminPort := adminPortForStop(pidFile); adminPort != "" {
 			adminURL := "http://127.0.0.1:" + adminPort
-			fmt.Printf("[>] Requesting backend shutdown via %s...\n", adminURL)
-			if err := postShutdown(adminURL); err != nil {
-				fmt.Printf("[>] Shutdown request failed: %v\n", err)
-				fmt.Println("[>] Kill path follows")
-			} else if waitBackendDead(process.Backend, process.BackendPath, time.Now().Add(gracefulWait)) {
-				fmt.Println("[>] Backend shut down gracefully")
-			} else {
-				fmt.Println("[>] Backend still running after graceful wait, killing...")
+			fmt.Println("[>] Waiting for backend to accept connections...")
+			if waitAdminReady(adminURL, process.Backend, process.BackendPath, time.Now().Add(readyWait)) {
+				fmt.Printf("[>] Requesting backend shutdown via %s...\n", adminURL)
+				if err := postShutdown(adminURL); err != nil {
+					fmt.Printf("[>] Shutdown request failed: %v\n", err)
+					fmt.Println("[>] Kill path follows")
+				} else if waitBackendDead(process.Backend, process.BackendPath, time.Now().Add(gracefulWait)) {
+					fmt.Println("[>] Backend shut down gracefully")
+				} else {
+					fmt.Println("[>] Backend still running after graceful wait, killing...")
+				}
+			} else if shared.AliveMatches(process.Backend, process.BackendPath) {
+				fmt.Println("[>] Backend not accepting connections, kill path follows")
 			}
+			// Backend died mid-wait: fall through to the kill-phase
+			// check below, which finds nothing and finishes.
 		}
 	}
 
@@ -164,6 +175,31 @@ func adminPortForStop(pidFile string) string {
 		return strings.TrimSpace(params.AdminPort)
 	}
 	return strings.TrimSpace(shared.Getenv("ADMIN_PORT", ""))
+}
+
+// waitAdminReady polls the admin status until it answers 200 or the
+// deadline passes. Returns false early when the backend PID dies, so a
+// crash mid-startup skips to the kill-phase check without burning the
+// wait.
+func waitAdminReady(adminURL string, backendPID int, backendPath string, deadline time.Time) bool {
+	client := &http.Client{Timeout: shutdownRequestTimeout}
+	for time.Now().Before(deadline) {
+		if !shared.AliveMatches(backendPID, backendPath) {
+			return false
+		}
+		request, err := http.NewRequest(http.MethodGet, adminURL+"/api/llm-router/status", nil)
+		if err == nil {
+			response, err := client.Do(request)
+			if err == nil {
+				response.Body.Close()
+				if response.StatusCode == http.StatusOK {
+					return true
+				}
+			}
+		}
+		time.Sleep(pollInterval)
+	}
+	return false
 }
 
 // postShutdown asks the admin listener for graceful shutdown, expecting

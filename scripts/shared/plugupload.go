@@ -33,9 +33,15 @@ func AdminBaseURL() string {
 // DefaultStoreDir is the sibling plugin store checkout layout.
 func DefaultStoreDir() string { return "../../llm-router-store/llm-router-plugins" }
 
-// WaitReady polls status until the backend listens or the deadline passes.
+// WaitReady polls status until the backend listens or 120 seconds pass.
 func WaitReady(web string) error {
-	deadline := time.Now().Add(120 * time.Second)
+	return WaitReadyTimeout(web, 120*time.Second)
+}
+
+// WaitReadyTimeout polls status until the backend listens or timeout
+// passes.
+func WaitReadyTimeout(web string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
 	for {
 		statusCode, raw, err := uploadJSON("GET", web+"/api/llm-router/status", nil)
 		if err == nil && statusCode == 200 {
