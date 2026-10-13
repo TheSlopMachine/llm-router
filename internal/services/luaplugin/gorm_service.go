@@ -45,6 +45,7 @@ func New(sqliteDatabase *db.Database, logger *slog.Logger) (*Service, error) {
 		minimumLevel:  slog.LevelDebug,
 		eventsService: eventsService,
 		registry:      map[string]*PluginRecord{},
+		disabledTypes: map[string]bool{},
 		crashes:       map[string][]CrashEntry{},
 	}
 	if err := service.rebuild(context.Background()); err != nil {
@@ -196,6 +197,7 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 			License:             manifest.License,
 			AllowHosts:          append([]string(nil), manifest.AllowHosts...),
 			Unsafe:              manifest.Unsafe,
+			Disabled:            existingRecord.Disabled,
 			ProxySourceKeys:     append([]string(nil), dryOutput.sourceKeys...),
 			ModelSpecifications: dryOutput.specifications,
 			HealthCooldown:      dryOutput.cooldowns,
@@ -351,6 +353,48 @@ func (service *Service) DeleteSQLite(ctx context.Context, pluginID string) error
 	return nil
 }
 
+// SetDisabled flips the operator-owned disabled flag for one plugin row.
+// The flag persists across restarts, reinstalls, and rollbacks; history
+// never versions it. Enabling re-enters the type registry, disabling leaves
+// it. A no-op returns the stored record without lifecycle hooks. Disable
+// fires deinitialize with reason disable; enable fires initialize with
+// reason enable. Both run detached and never block the caller. One
+// transaction holds the read-modify-write on the transaction handle only.
+func (service *Service) SetDisabled(ctx context.Context, pluginID string, disabled bool) (*PluginRecord, error) {
+	if err := service.requireHandle(); err != nil {
+		return nil, err
+	}
+	existing, err := service.GetSQLite(ctx, pluginID)
+	if err != nil {
+		return nil, err
+	}
+	if existing.Disabled == disabled {
+		return existing, nil
+	}
+	now := util.Now()
+	updated := *existing
+	updated.Disabled = disabled
+	updated.UpdatedAt = now
+	if err := service.database.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		return writePluginRecordInTransaction(ctx, transaction, &updated, existing.InstalledAt, now)
+	}); err != nil {
+		return nil, err
+	}
+	if err := service.rebuild(ctx); err != nil {
+		return nil, err
+	}
+	service.notify(updated.TypeKeys...)
+	if disabled {
+		service.launchLifecycleHook(&updated, string(HandlerDeinitialize), DeinitializeReasonDisable)
+	} else {
+		service.launchLifecycleHook(&updated, string(HandlerInitialize), InitializeReasonEnable)
+	}
+	if service.logger != nil {
+		service.logger.Info("Plugin admin state changed", "plugin_id", pluginID, "disabled", disabled)
+	}
+	return &updated, nil
+}
+
 // RollbackSQLite restores the most recent previous version. Reads for the
 // Lua fallback happen outside the transaction on the base handle; the single
 // transaction holds the read-modify-write for the plugin row, host
@@ -431,6 +475,7 @@ func (service *Service) RollbackSQLite(ctx context.Context, pluginID string) (*P
 		License:             manifest.License,
 		AllowHosts:          append([]string(nil), manifest.AllowHosts...),
 		Unsafe:              manifest.Unsafe,
+		Disabled:            currentRecord.Disabled,
 		ProxySourceKeys:     append([]string(nil), sourceKeys...),
 		ModelSpecifications: specifications,
 		HealthCooldown:      cooldowns,

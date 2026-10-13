@@ -7,6 +7,7 @@ import (
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 )
 
@@ -33,6 +34,12 @@ func (s *Service) resolveRequest(ctx context.Context, model models.ModelId, toke
 	}
 	resolved, err := provider.Resolve(s.providerService, ctx, providerID)
 	if err != nil {
+		if errors.Is(err, luaplugin.ErrPluginDisabled) {
+			s.warn("Denying request for disabled plugin",
+				"provider_id", providerID, "model", model.String(), "endpoint", endpoint,
+				"reason", "provider_disabled", "token_id", tokenIdentifier(token), "error", err)
+			return ctx, resolution, fmt.Errorf("%w: %s", apierrors.ErrProviderDisabled, providerID)
+		}
 		s.debug("Denying request for unknown provider",
 			"provider_id", providerID, "model", model.String(), "endpoint", endpoint,
 			"reason", "provider_not_found", "token_id", tokenIdentifier(token), "error", err)

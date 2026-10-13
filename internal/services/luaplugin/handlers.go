@@ -930,11 +930,11 @@ func QualifiedSourceKey(recordID, name string) string {
 	return recordID + "/" + name
 }
 
-// ProxySourceKeys lists proxy-list sources registered by installed plugins,
+// ProxySourceKeys lists proxy-list sources registered by enabled plugins,
 // one qualified key per (record, declared name), first-seen order. Reads
 // storage: source-only plugins carry no type key, so the type-keyed
 // in-memory registry never holds them and a registry read would report no
-// sources after every startup.
+// sources after every startup. Disabled plugins stay skipped.
 func (s *Service) ProxySourceKeys() ([]string, error) {
 	records, err := s.ListSQLite(context.Background())
 	if err != nil {
@@ -943,7 +943,7 @@ func (s *Service) ProxySourceKeys() ([]string, error) {
 	sort.Slice(records, func(i, j int) bool { return records[i].ID < records[j].ID })
 	var keys []string
 	seen := map[string]bool{}
-	for _, record := range records {
+	for _, record := range enabledRecords(records) {
 		for _, k := range record.ProxySourceKeys {
 			q := QualifiedSourceKey(record.ID, k)
 			if !seen[q] {
@@ -955,9 +955,10 @@ func (s *Service) ProxySourceKeys() ([]string, error) {
 	return keys, nil
 }
 
-// FetchProxies invokes the fetch_proxies handler of a proxy source plugin.
-// sourceKey is qualified; the owning record is resolved exactly, and the
-// routed call uses the declared name the plugin registered.
+// FetchProxies invokes the fetch_proxies handler of an enabled proxy source
+// plugin. sourceKey is qualified; the owning record is resolved exactly, and
+// the routed call uses the declared name the plugin registered. Disabled
+// sources behave as missing.
 func (s *Service) FetchProxies(goCtx context.Context, sourceKey string) ([]proxypool.Candidate, error) {
 	records, err := s.ListSQLite(goCtx)
 	if err != nil {
@@ -965,7 +966,7 @@ func (s *Service) FetchProxies(goCtx context.Context, sourceKey string) ([]proxy
 	}
 	var record *PluginRecord
 	declared := ""
-	for _, pluginRecord := range records {
+	for _, pluginRecord := range enabledRecords(records) {
 		for _, k := range pluginRecord.ProxySourceKeys {
 			if QualifiedSourceKey(pluginRecord.ID, k) == sourceKey {
 				record = pluginRecord

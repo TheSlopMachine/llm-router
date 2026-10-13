@@ -153,6 +153,8 @@
           description={plugin.description}
           mode="installed"
           unsafe={plugin.unsafe}
+          disabled={plugin.disabled ?? false}
+          toggling={pluginState.isToggling(plugin.id)}
           isManual={plugin.origin?.manual ?? false}
           hasUpdate={!!update}
           allowHosts={plugin.allow_hosts ?? []}
@@ -162,6 +164,7 @@
           escalatesToUnsafe={diff.escalatesToUnsafe}
           latestVersion={update?.latest ?? file?.version ?? ''}
           onUpdate={() => void pluginState.updatePlugin(plugin)}
+          onToggle={(enabled) => void pluginState.togglePlugin(plugin, enabled)}
           onaction={(id, anchor) => pluginState.handleAction(plugin, id, anchor)}
         />
       {/each}

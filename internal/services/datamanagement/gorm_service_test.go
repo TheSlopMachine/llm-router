@@ -397,6 +397,17 @@ func (s *stubPluginBackend) DeleteSQLite(_ context.Context, pluginID string) err
 	return nil
 }
 
+func (s *stubPluginBackend) SetDisabled(_ context.Context, pluginID string, disabled bool) (*luaplugin.PluginRecord, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	plugin, ok := s.plugins[pluginID]
+	if !ok {
+		return nil, fmt.Errorf("plugin %q: %w", pluginID, apierrors.ErrNotFound)
+	}
+	plugin.Disabled = disabled
+	return plugin, nil
+}
+
 // stubRepositoryBackend is an in-memory GormRepositoryBackend with the
 // builtin protection of the real service.
 type stubRepositoryBackend struct {

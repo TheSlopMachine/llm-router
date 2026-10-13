@@ -60,6 +60,7 @@ type PluginRecord struct {
 	License     string   `json:"license"`
 	AllowHosts  []string `json:"allow_hosts"`
 	Unsafe      bool     `json:"unsafe"`
+	Disabled    bool     `json:"disabled"`
 	// ProxySourceKeys lists registered proxy-list feeds in this plugin.
 	ProxySourceKeys []string `json:"proxy_source_keys,omitempty"`
 	// ModelSpecifications holds per-type pinned model rows from the registration
@@ -122,6 +123,10 @@ type Service struct {
 
 	mu       sync.RWMutex
 	registry map[string]*PluginRecord
+	// disabledTypes tracks type keys owned by installed but disabled
+	// plugins. Lookup maps them to ErrPluginDisabled; the registry
+	// serves enabled types only.
+	disabledTypes map[string]bool
 
 	eventsService *events.Service
 
@@ -240,7 +245,9 @@ func (s *Service) notify(keys ...string) {
 }
 
 // rebuild reloads the in-memory type key registry from the SQLite plugin
-// rows. Conflicting type keys across plugins fail loudly: resolve by
+// rows. Disabled plugins stay inventoried but leave the registry; their
+// type keys land in disabledTypes so Lookup maps them to ErrPluginDisabled.
+// Conflicting type keys across enabled plugins fail loudly: resolve by
 // uninstalling one.
 func (s *Service) rebuild(ctx context.Context) error {
 	records, err := s.ListSQLite(ctx)
@@ -248,7 +255,14 @@ func (s *Service) rebuild(ctx context.Context) error {
 		return err
 	}
 	reg := map[string]*PluginRecord{}
+	disabled := map[string]bool{}
 	for _, record := range records {
+		if record.Disabled {
+			for _, key := range record.TypeKeys {
+				disabled[key] = true
+			}
+			continue
+		}
 		if err := CheckPluginAPI(&Manifest{PluginAPI: record.PluginAPI}); err != nil {
 			if s.logger != nil {
 				reason := "invalid"
@@ -270,19 +284,34 @@ func (s *Service) rebuild(ctx context.Context) error {
 	}
 	s.mu.Lock()
 	s.registry = reg
+	s.disabledTypes = disabled
 	s.mu.Unlock()
 	return nil
 }
 
-// Lookup returns the plugin record serving typeKey.
+// Lookup returns the plugin record serving typeKey. Types owned by a
+// disabled plugin fail with ErrPluginDisabled; unknown types fail without
+// the sentinel so callers keep the missing-backend path.
 func (s *Service) Lookup(typeKey string) (*PluginRecord, error) {
 	s.mu.RLock()
 	record, ok := s.registry[typeKey]
+	disabled := s.disabledTypes[typeKey]
 	s.mu.RUnlock()
 	if ok {
 		return record, nil
 	}
+	if disabled {
+		return nil, fmt.Errorf("plugin for type key %q is disabled: %w", typeKey, ErrPluginDisabled)
+	}
 	return nil, fmt.Errorf("no plugin registered for type key %q", typeKey)
+}
+
+// TypeDisabled reports whether typeKey belongs to an installed but disabled
+// plugin. Enabled and unknown types report false.
+func (s *Service) TypeDisabled(typeKey string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.disabledTypes[typeKey]
 }
 
 // capabilitiesForRecord resolves sandbox table gating for one type key from

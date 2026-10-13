@@ -14,6 +14,12 @@ var ErrHandlerNotFound = errors.New("luaplugin: handler not declared")
 // truth: one type key maps to exactly one plugin.
 var ErrTypeKeyConflict = errors.New("luaplugin: type key already registered by another plugin")
 
+// ErrPluginDisabled is returned when a type key belongs to an installed but
+// disabled plugin. Disabled plugins stay inventoried; the registry serves
+// enabled types only. Callers map it to provider_disabled, never to a
+// missing-backend outcome.
+var ErrPluginDisabled = errors.New("luaplugin: plugin is disabled")
+
 // notFoundError wraps ErrHandlerNotFound with plugin context.
 type notFoundError struct {
 	PluginID string

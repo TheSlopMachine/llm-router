@@ -35,6 +35,7 @@ type Plugin struct {
 	Description        string            `gorm:"not null"`
 	License            string            `gorm:"not null"`
 	Unsafe             bool              `gorm:"not null"`
+	Disabled           bool              `gorm:"not null"`
 	OriginRepositoryID *string           `gorm:""`
 	OriginRepository   *PluginRepository `gorm:"foreignKey:OriginRepositoryID;references:ID;belongsTo;constraint:OnDelete:SET NULL"`
 	OriginPath         string            `gorm:"not null"`

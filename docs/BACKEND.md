@@ -184,7 +184,10 @@ together with its `schema_migrations` row. `repository` returns
   detached after commit; startup runs in the server gate next to
   `RunStartupRefresh`; shutdown runs before metrics stop; provider disable
   transitions dispatch from the provider service only
-  (`Update`/`SystemDisable`/`Delete` are the trigger sites).
+  (`Update`/`SystemDisable`/`Delete` are the trigger sites); plugin
+  enable/disable toggles dispatch from `SetDisabled` (`enable`/`disable`
+  reasons). The plugin registry serves enabled types only; disabled rows
+  stay inventoried and fail with `provider_disabled`.
 - Shutdown enters one path (SIGINT/SIGTERM, listener error, or
   `POST /api/llm-router/shutdown` on the admin listener): background
   writers stop (maintenance, proxy flush, events prune), hooks, metrics

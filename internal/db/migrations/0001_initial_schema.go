@@ -16,6 +16,7 @@ import (
 var RegistryDatabase = []migrate.Migration{
 	{Version: 1, Name: "initial_schema", Up: upInitialSchema},
 	{Version: 2, Name: "split_storage", Up: upSplitStorage},
+	{Version: 3, Name: "plugin_disabled", Up: upPluginDisabled},
 }
 
 type instanceSettingSnapshot struct {

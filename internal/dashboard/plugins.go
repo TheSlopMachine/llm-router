@@ -1,11 +1,15 @@
 package dashboard
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"sort"
 	"time"
 
+	stdErrors "errors"
+
+	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 )
 
@@ -19,6 +23,7 @@ type pluginView struct {
 	License      string                 `json:"license"`
 	AllowHosts   []string               `json:"allow_hosts"`
 	Unsafe       bool                   `json:"unsafe"`
+	Disabled     bool                   `json:"disabled"`
 	TypeKeys     []string               `json:"type_keys"`
 	Origin       luaplugin.PluginOrigin `json:"origin"`
 	InstalledAt  time.Time              `json:"installed_at"`
@@ -34,7 +39,7 @@ func toPluginView(record *luaplugin.PluginRecord) pluginView {
 		ID: record.ID, DisplayName: record.DisplayName, Author: record.Author,
 		Version: record.Version, PluginAPI: record.PluginAPI,
 		Description: record.Description, License: record.License,
-		AllowHosts: allowHosts, Unsafe: record.Unsafe,
+		AllowHosts: allowHosts, Unsafe: record.Unsafe, Disabled: record.Disabled,
 		TypeKeys: typeKeys, Origin: record.Origin,
 		InstalledAt: record.InstalledAt, UpdatedAt: record.UpdatedAt,
 		HistoryCount: len(record.History),
@@ -46,7 +51,7 @@ func toPluginView(record *luaplugin.PluginRecord) pluginView {
 // @Description  Returns all installed Lua plugins.
 // @Tags         Plugins
 // @Produce      json
-// @Success      200 {array} object{id=string,display_name=string,author=string,version=string,allow_hosts=[]string,unsafe=bool,type_keys=[]string,enabled=bool}
+// @Success      200 {array} object{id=string,display_name=string,author=string,version=string,allow_hosts=[]string,unsafe=bool,disabled=bool,type_keys=[]string}
 // @Failure      401 {object} models.ErrorResponse
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugins [get]
@@ -71,7 +76,7 @@ func (h *Handler) apiPluginsList(w http.ResponseWriter, r *http.Request) {
 // @Tags         Plugins
 // @Produce      json
 // @Param        id path string true "Plugin ID"
-// @Success      200 {object} object{id=string,display_name=string,version=string}
+// @Success      200 {object} object{id=string,display_name=string,version=string,disabled=bool}
 // @Failure      401 {object} models.ErrorResponse
 // @Failure      404 {object} models.ErrorResponse
 // @Security     SessionAuth
@@ -82,6 +87,53 @@ func (h *Handler) apiPluginsGet(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusNotFound, "plugin not found")
 		return
 	}
+	h.json(w, http.StatusOK, toPluginView(record))
+}
+
+// apiPluginsUpdate flips the operator-owned disabled flag of one plugin.
+// Disabled plugins stay inventoried but leave the type registry; requests
+// for their types fail with provider_disabled. Disable fires deinitialize
+// with reason disable; enable fires initialize with reason enable.
+// @Summary      Update plugin
+// @Description  Enables or disables one installed Lua plugin.
+// @Tags         Plugins
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Plugin ID"
+// @Param        body body object{disabled=bool} true "Disabled state"
+// @Success      200 {object} object{id=string,display_name=string,version=string,disabled=bool}
+// @Failure      400 {object} models.ErrorResponse
+// @Failure      401 {object} models.ErrorResponse
+// @Failure      404 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/plugins/{id} [put]
+func (h *Handler) apiPluginsUpdate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		h.jsonErr(w, http.StatusBadRequest, "id is required")
+		return
+	}
+	var body struct {
+		Disabled *bool `json:"disabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.Disabled == nil {
+		h.jsonErr(w, http.StatusBadRequest, "nothing to update")
+		return
+	}
+	record, err := h.luaService.SetDisabled(r.Context(), id, *body.Disabled)
+	if err != nil {
+		if stdErrors.Is(err, apierrors.ErrNotFound) {
+			h.jsonErr(w, http.StatusNotFound, "plugin not found")
+			return
+		}
+		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h.logInfo("Plugin admin state changed", "plugin_id", id, "disabled", *body.Disabled)
 	h.json(w, http.StatusOK, toPluginView(record))
 }
 

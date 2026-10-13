@@ -12,13 +12,15 @@ import (
 )
 
 // Lifecycle hook reasons. initialize runs once per plugin event; ctx carries
-// reason only. deinitialize with reason "disable" additionally carries the
-// disabled provider identity (provider_id plus provider_config); every other
-// deinitialize reason carries reason only.
+// reason only. deinitialize with reason "disable" for a provider transition
+// additionally carries the disabled provider identity (provider_id plus
+// provider_config); the plugin-disable path reuses "disable" with reason
+// only and no provider identity.
 const (
 	InitializeReasonInstall = "install"
 	InitializeReasonUpdate  = "update"
 	InitializeReasonStartup = "startup"
+	InitializeReasonEnable  = "enable"
 )
 
 const (
@@ -43,7 +45,7 @@ func validLifecycleReason(handler, reason string) bool {
 	switch handler {
 	case string(HandlerInitialize):
 		switch reason {
-		case InitializeReasonInstall, InitializeReasonUpdate, InitializeReasonStartup:
+		case InitializeReasonInstall, InitializeReasonUpdate, InitializeReasonStartup, InitializeReasonEnable:
 			return true
 		}
 	case string(HandlerDeinitialize):
@@ -144,25 +146,41 @@ func (s *Service) RunDeinitialize(goCtx context.Context, record *PluginRecord, r
 }
 
 // RunStartupInitializers runs initialize with reason startup for every
-// installed plugin type that declares it. The caller bounds the whole sweep
-// with its gate context (the server startup gate); slow hooks cancel with it.
+// enabled plugin type that declares it. Disabled plugins stay skipped: they
+// left the registry on disable and re-enter on enable. The caller bounds the
+// whole sweep with its gate context (the server startup gate); slow hooks
+// cancel with it.
 func (s *Service) RunStartupInitializers(goCtx context.Context) error {
 	records, err := s.ListSQLite(goCtx)
 	if err != nil {
 		return err
 	}
-	return s.runRecordHooks(goCtx, records, string(HandlerInitialize), InitializeReasonStartup, "", nil)
+	return s.runRecordHooks(goCtx, enabledRecords(records), string(HandlerInitialize), InitializeReasonStartup, "", nil)
 }
 
 // RunShutdownDeinitializers runs deinitialize with reason shutdown for every
-// installed plugin type that declares it. The caller bounds the whole sweep
+// enabled plugin type that declares it. Disabled plugins stay skipped: they
+// already ran deinitialize on disable. The caller bounds the whole sweep
 // with its gate context; shutdown proceeds when the gate expires.
 func (s *Service) RunShutdownDeinitializers(goCtx context.Context) error {
 	records, err := s.ListSQLite(goCtx)
 	if err != nil {
 		return err
 	}
-	return s.runRecordHooks(goCtx, records, string(HandlerDeinitialize), DeinitializeReasonShutdown, "", nil)
+	return s.runRecordHooks(goCtx, enabledRecords(records), string(HandlerDeinitialize), DeinitializeReasonShutdown, "", nil)
+}
+
+// enabledRecords filters installed plugin records to enabled rows only.
+// Disabled rows stay inventoried but never run hooks, jobs, or handlers.
+func enabledRecords(records []*PluginRecord) []*PluginRecord {
+	filtered := make([]*PluginRecord, 0, len(records))
+	for _, record := range records {
+		if record == nil || record.Disabled {
+			continue
+		}
+		filtered = append(filtered, record)
+	}
+	return filtered
 }
 
 // launchLifecycleHook runs one record sweep detached. Lua execution stays

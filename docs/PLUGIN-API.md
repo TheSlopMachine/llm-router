@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Plugin API: **1.5** (`luaplugin.PluginAPIVersion`). A plugin declares the
+Plugin API: **1.6** (`luaplugin.PluginAPIVersion`). A plugin declares the
 `@plugin_api` contract it speaks; the router label (`main.RouterVersion`,
 stamped from the release tag) carries no compatibility meaning. Install,
 rollback, and the startup registry compare majors only: plugin major above
@@ -50,6 +50,7 @@ spelling. Anything else fails install.
 | 1.3 | Optional per-type `locales` table (`en`/`ru`): widget keys in schema and auth trees resolve per dashboard locale with English fallback. |
 | 1.4 | `llm_router.log(severity, message, keys?)`: structured plugin logging into the events database (`debug`/`info`/`warn`/`error`/`fatal`, router-owned `plugin`/`type` keys, `print` shims info severity); per-plugin log reads serve from events with severity and keys. |
 | 1.5 | `check_model` handler: plugin-owned model liveness for every endpoint (`ctx`, `model_ref` with `model`/`model_name`/`endpoint`); returns `{status, message?, response?}` with `healthy`/`quota_exceeded`/`unhealthy`/`unknown`. Dashboard model test delegates; types without the handler report `unsupported`. |
+| 1.6 | Plugin disable state: operator-owned `disabled` flag on the stored plugin row (`PUT /dashboard/plugins/{id}`); disabled types leave the registry and fail with `provider_disabled`. `initialize` gains `ctx.reason = "enable"`, `deinitialize` reason `"disable"` also covers the plugin toggle (reason only, no provider identity). |
 
 ## Responsibility split
 
@@ -224,16 +225,18 @@ only when the plugin needs setup or teardown; most plugins omit both.
 
 - `initialize(ctx)` runs once per event with
   `ctx.reason = "install"` (first install), `"update"` (reinstall or
-  rollback) or `"startup"` (router boot with the plugin installed).
+  rollback), `"startup"` (router boot with the plugin enabled) or `"enable"`
+  (operator re-enabled the plugin through the dashboard).
 - `deinitialize(ctx)` runs once per event with `ctx.reason = "delete"`
   (plugin removal), `"update"` (source replacement, old source runs),
   `"shutdown"` (router exit) or `"disable"` (a provider instance using the
-  type left the enabled state). The `disable` ctx additionally carries
-  `provider_id` and `provider_config`; every other lifecycle ctx carries
-  `reason` only.
+  type left the enabled state, or the operator disabled the plugin through
+  the dashboard). The provider `disable` ctx additionally carries
+  `provider_id` and `provider_config`; the plugin-toggle `disable` ctx and
+  every other lifecycle ctx carry `reason` only.
 - Each call runs in a fresh state with a 30s bound. Calls fan out
   concurrently across types; failures log and never block install, delete,
-  disable, startup or shutdown.
+  disable, enable, startup or shutdown.
 - The sandbox holds `storage`, `http_client`, `proxies` (when the type
   declares `proxy_schema`), `print`, `llm_router.log`, `json`, `uuid_v5`, `random_hex`,
   `multipart` and `base64_*`. Credential tables stay out of plugin-scoped

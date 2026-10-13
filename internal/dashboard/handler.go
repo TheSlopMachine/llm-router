@@ -226,6 +226,7 @@ func (h *Handler) RegisterAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/llm-router/dashboard/plugins/install-file", h.requireAuth(h.apiPluginsInstallFile))
 	mux.HandleFunc("POST /api/llm-router/dashboard/plugins/install-from-repo", h.requireAuth(h.apiPluginsInstallFromRepo))
 	mux.HandleFunc("GET /api/llm-router/dashboard/plugins/{id}", h.requireAuth(h.apiPluginsGet))
+	mux.HandleFunc("PUT /api/llm-router/dashboard/plugins/{id}", h.requireAuth(h.apiPluginsUpdate))
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/plugins/{id}", h.requireAuth(h.apiPluginsDelete))
 	mux.HandleFunc("POST /api/llm-router/dashboard/plugins/{id}/rollback", h.requireAuth(h.apiPluginsRollback))
 	mux.HandleFunc("GET /api/llm-router/dashboard/plugins/{id}/logs", h.requireAuth(h.apiPluginsLogs))

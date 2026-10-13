@@ -104,12 +104,13 @@ type GormModelInfoBackend interface {
 }
 
 // GormPluginBackend is the plugin surface the GORM data management path
-// needs: SQLite list/install/delete. Signatures match the luaplugin SQLite
-// methods; storage rows cascade from the plugin delete, so no storage
-// statement runs here.
+// needs: SQLite list/install/delete plus the disabled toggle. Signatures
+// match the luaplugin SQLite methods; storage rows cascade from the plugin
+// delete, so no storage statement runs here.
 type GormPluginBackend interface {
 	ListSQLite(ctx context.Context) ([]*luaplugin.PluginRecord, error)
 	InstallSQLite(ctx context.Context, source []byte, origin luaplugin.PluginOrigin) (*luaplugin.PluginRecord, error)
+	SetDisabled(ctx context.Context, pluginID string, disabled bool) (*luaplugin.PluginRecord, error)
 	DeleteSQLite(ctx context.Context, pluginID string) error
 }
 
@@ -687,11 +688,20 @@ func (s *GormService) ImportPlugins(ctx context.Context, bundle *PluginsExportBu
 				}
 				continue
 			}
-			if _, err := s.pluginSource.InstallSQLite(ctx, plugin.Source, plugin.Origin); err != nil {
+			installed, err := s.pluginSource.InstallSQLite(ctx, plugin.Source, plugin.Origin)
+			if err != nil {
 				if s != nil && s.logger != nil {
 					s.logger.Error("Import plugins aborted", "subsystem", "plugins", "completed_so_far", createdCount, "error", err)
 				}
 				return err
+			}
+			if plugin.Disabled && !installed.Disabled {
+				if _, err := s.pluginSource.SetDisabled(ctx, installed.ID, true); err != nil {
+					if s != nil && s.logger != nil {
+						s.logger.Error("Import plugins aborted", "subsystem", "plugins", "completed_so_far", createdCount, "error", err)
+					}
+					return err
+				}
 			}
 			createdCount++
 		}

@@ -323,6 +323,8 @@
                   description={f.description}
                   mode="installed"
                   unsafe={plugin.unsafe}
+                  disabled={plugin.disabled ?? false}
+                  toggling={pluginState.isToggling(plugin.id)}
                   hasUpdate={!!update}
                   allowHosts={plugin.allow_hosts ?? []}
                   newHosts={newHosts}
@@ -331,6 +333,7 @@
                   escalatesToUnsafe={diff.escalatesToUnsafe}
                   latestVersion={update?.latest ?? f.version}
                   onUpdate={() => void installEntry(f.repo_id, f.path)}
+                  onToggle={(enabled) => void pluginState.togglePlugin(plugin, enabled)}
                   onaction={(id, anchor) => handleCatalogAction(plugin, f, id, anchor)}
                 />
               {:else}

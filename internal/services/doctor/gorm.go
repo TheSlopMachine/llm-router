@@ -30,6 +30,8 @@ import (
 	"sort"
 	"strings"
 
+	stdErrors "errors"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -284,6 +286,8 @@ func (s *GormService) Inspect(ctx context.Context) (*InspectionReport, error) {
 			continue
 		}
 		if _, err := s.pluginBackends.Lookup(providerInstance.TypeKey); err == nil {
+			continue
+		} else if stdErrors.Is(err, luaplugin.ErrPluginDisabled) {
 			continue
 		}
 		if providerInstance.Disabled && !managedByProvider[providerInstance.ID] {

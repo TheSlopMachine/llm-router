@@ -9,6 +9,8 @@
     description = '',
     mode,
     unsafe = false,
+    disabled = false,
+    toggling = false,
     isManual = false,
     hasUpdate = false,
     installing = false,
@@ -21,6 +23,7 @@
     latestVersion = '',
     onInstall,
     onUpdate,
+    onToggle,
     onaction
   } = $props<{
     title: string
@@ -28,6 +31,8 @@
     description?: string
     mode: 'installed' | 'uninstalled'
     unsafe?: boolean
+    disabled?: boolean
+    toggling?: boolean
     isManual?: boolean
     hasUpdate?: boolean
     installing?: boolean
@@ -40,10 +45,10 @@
     latestVersion?: string
     onInstall?: () => void
     onUpdate?: () => void
+    onToggle?: (enabled: boolean) => void
     onaction?: (id: string, anchor?: HTMLElement) => void
   }>()
 
-  let enabled = $state(true)
   let confirmAnchor = $state<HTMLElement>()
   let confirmOpen = $state(false)
 
@@ -106,8 +111,10 @@
           onclick={(e) => onaction?.('delete', e.currentTarget as HTMLElement)}
         />
         <Switch
-          bind:checked={enabled}
+          checked={!disabled}
+          disabled={toggling}
           ariaLabel={t('plugins.toggle_active')}
+          onchange={(next) => onToggle?.(next)}
         />
       {:else}
         <Button

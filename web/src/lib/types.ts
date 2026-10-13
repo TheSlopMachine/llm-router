@@ -402,6 +402,7 @@ export interface Plugin {
   license: string
   allow_hosts: string[]
   unsafe: boolean
+  disabled: boolean
   type_keys: string[]
   origin: { repo_id: string; path: string; manual: boolean }
   installed_at: string

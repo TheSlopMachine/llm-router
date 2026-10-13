@@ -2,9 +2,13 @@
 
 ## Done (2026-10-13, vUnreleased)
 
+- Added operator-owned plugin disable state: the `plugins` table gained a persisted `disabled` flag (migration 3 `plugin_disabled`), reinstalls and rollbacks preserved it, and the type registry served enabled types only. Disabled types failed `Lookup` with `ErrPluginDisabled`, the router denied them with `provider_disabled`, proxy feeds and startup/shutdown hooks skipped them, and doctor stopped reporting them as missing backends. `PUT /dashboard/plugins/{id}` flipped the flag with `deinitialize` reason `disable` and `initialize` reason `enable`; the dashboard toggle called it and survived reloads.
+
+## Done (2026-10-13, vUnreleased)
+
 - Closed plugin API enforcement gaps beyond install: rollback rejected a previous version with a mismatched `@plugin_api` major (`too_new`/`too_old`) without writing, and the startup registry skipped incompatible rows with a warning while keeping them inventoried, so newer-major plugins never activated under an older router.
 
-## Done (2026-10-13, v0.3.10)
+## Done (2026-10-13, vUnreleased)
 
 - Moved model health checks into plugin responsibility with a new `check_model` handler (contract 1.5): plugins received `(ctx, model_ref)` with full model, bare name and open endpoint and returned `{status, message?, response?}` (`healthy`/`quota_exceeded`/`unhealthy`/`unknown`); the router resolved, timed, measured latency and mapped verdicts only, and reported `unsupported` for missing handlers and Go backends with no live request.
 - Deleted hardcoded router probes (`TestVision`, `TestSpeech`, `TestTranscribe`, `TestImageGeneration`, `TestEmbeddings`, `ProbeCapabilities`, WAV/PNG builders, quota/summary mappers) and the `POST /dashboard/models/capabilities` endpoint; the dashboard model test passed the endpoint through verbatim and the model list stayed the single capability source.

@@ -681,10 +681,92 @@ func TestSQLiteMethodsFailClosedWithoutHandle(t *testing.T) {
 	if _, err := service.RollbackSQLite(ctx, "missing"); err == nil {
 		t.Fatal("rollback without sqlite must fail")
 	}
+	if _, err := service.SetDisabled(ctx, "missing", true); err == nil {
+		t.Fatal("set disabled without sqlite must fail")
+	}
 	if err := service.SetStorageSQLite(ctx, "plugin", "scope", "key", "value", 0); err == nil {
 		t.Fatal("storage set without sqlite must fail")
 	}
 	if _, err := service.GetStorageSQLite(ctx, "plugin", "scope", "key"); err == nil {
 		t.Fatal("storage get without sqlite must fail")
+	}
+}
+
+func TestSetDisabledPersistsAndGatesRegistry(t *testing.T) {
+	service, ctx := setupSQLitePluginService(t)
+	installed, err := service.InstallSQLite(ctx, []byte(testPluginSource), PluginOrigin{Manual: true})
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if installed.Disabled {
+		t.Fatal("fresh install must stay enabled")
+	}
+	if _, err := service.Lookup("test-type"); err != nil {
+		t.Fatalf("lookup before disable: %v", err)
+	}
+	if service.TypeDisabled("test-type") {
+		t.Fatal("enabled type must not report disabled")
+	}
+	disabled, err := service.SetDisabled(ctx, installed.ID, true)
+	if err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	if !disabled.Disabled {
+		t.Fatal("disabled flag must persist on the returned record")
+	}
+	fetched, err := service.GetSQLite(ctx, installed.ID)
+	if err != nil {
+		t.Fatalf("get after disable: %v", err)
+	}
+	if !fetched.Disabled {
+		t.Fatal("disabled flag must persist in storage")
+	}
+	listed, err := service.ListSQLite(ctx)
+	if err != nil {
+		t.Fatalf("list after disable: %v", err)
+	}
+	if len(listed) != 1 || !listed[0].Disabled {
+		t.Fatalf("disabled plugin must stay inventoried: %+v", listed)
+	}
+	if _, err := service.Lookup("test-type"); !stdErrors.Is(err, ErrPluginDisabled) {
+		t.Fatalf("lookup of a disabled type must report ErrPluginDisabled, got %v", err)
+	}
+	if !service.TypeDisabled("test-type") {
+		t.Fatal("disabled type must report TypeDisabled")
+	}
+	for _, key := range service.Registered() {
+		if key == "test-type" {
+			t.Fatal("disabled type must leave the registry")
+		}
+	}
+	if service.HasHandler("test-type", "complete") {
+		t.Fatal("disabled type must serve no handlers")
+	}
+	updatedSource := strings.Replace(testPluginSource, "@version 1.0.0", "@version 1.0.1", 1)
+	reinstalled, err := service.InstallSQLite(ctx, []byte(updatedSource), PluginOrigin{Manual: true})
+	if err != nil {
+		t.Fatalf("reinstall: %v", err)
+	}
+	if !reinstalled.Disabled {
+		t.Fatal("reinstall must preserve the disabled flag")
+	}
+	if _, err := service.Lookup("test-type"); !stdErrors.Is(err, ErrPluginDisabled) {
+		t.Fatalf("disabled type must stay gated after reinstall, got %v", err)
+	}
+	enabled, err := service.SetDisabled(ctx, installed.ID, false)
+	if err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	if enabled.Disabled {
+		t.Fatal("enable must clear the disabled flag")
+	}
+	if _, err := service.Lookup("test-type"); err != nil {
+		t.Fatalf("lookup after enable: %v", err)
+	}
+	if service.TypeDisabled("test-type") {
+		t.Fatal("enabled type must not report disabled after re-enable")
+	}
+	if _, err := service.SetDisabled(ctx, "missing-plugin", true); !stdErrors.Is(err, apierrors.ErrNotFound) {
+		t.Fatalf("disable of a missing plugin must report not found, got %v", err)
 	}
 }

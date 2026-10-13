@@ -29,6 +29,25 @@ export function createPluginState(options: {
   let deleting = $state(false)
   let pendingRollback = $state<{ plugin: Plugin; anchor?: HTMLElement } | null>(null)
   let rollingBack = $state(false)
+  let togglingIds = $state<string[]>([])
+
+  function isToggling(id: string): boolean {
+    return togglingIds.includes(id)
+  }
+
+  async function togglePlugin(plugin: Plugin, enabled: boolean): Promise<void> {
+    if (togglingIds.includes(plugin.id)) return
+    togglingIds = [...togglingIds, plugin.id]
+    try {
+      const rec = await api.plugins.update(plugin.id, { disabled: !enabled })
+      toast.success(enabled ? `${rec.display_name} enabled` : `${rec.display_name} disabled`)
+      options.onPluginSaved(rec)
+    } catch (e) {
+      options.onError(getErrorMessage(e))
+    } finally {
+      togglingIds = togglingIds.filter((id) => id !== plugin.id)
+    }
+  }
 
   function openDelete(plugin: Plugin, anchor?: HTMLElement): void {
     if (pendingDelete?.plugin.id === plugin.id) {
@@ -196,6 +215,8 @@ export function createPluginState(options: {
     doRollback,
     updatePlugin,
     updateAll,
+    togglePlugin,
+    isToggling,
     buildActions,
     handleAction,
     get updatingAll(): boolean {
