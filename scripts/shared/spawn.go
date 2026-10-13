@@ -37,15 +37,16 @@ func SpawnDetachedEnv(workdir, logPath string, extraEnv []string, name string, a
 	return pid, nil
 }
 
-// SpawnDetachedEnvNoLog starts name(arguments...) in workdir with stdout
-// and stderr inherited, detached so it survives the parent exiting. The
-// backend uses this: display lines go to the inherited stderr and every
-// record persists to the events database.
+// SpawnDetachedEnvNoLog starts name(arguments...) in workdir detached so
+// it survives the parent exiting. Stdout and stderr stay null: wiring
+// them to the parent pipe would hold it open and the parent would never
+// exit. Backend output persists to the events database and reads back
+// through make log.
 func SpawnDetachedEnvNoLog(workdir string, extraEnv []string, name string, arguments ...string) (int, error) {
 	cmd := exec.Command(name, arguments...)
 	cmd.Dir = workdir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = nil
+	cmd.Stderr = nil
 	cmd.Stdin = nil
 	cmd.Env = EnvWith(extraEnv)
 	cmd.SysProcAttr = newConsoleAttr()
