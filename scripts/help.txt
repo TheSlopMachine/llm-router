@@ -15,6 +15,7 @@ Targets:
   browser           Open dashboard in browser (http://localhost:38080)
   clean             Stop + clean ignored files (keeps .env files and SQLite databases)
   build             Init, then build frontend + all PLATFORMS binaries
+  install           Init, then build host release binary into ~/.local/bin (refuses when running)
   publish           Cut and push the next release tag (TYPE or VERSION; CI builds)
   go-vet            Run go vet (PKG scopes packages, default "./...")
   go-test           Run go test (PKG scopes packages, default "./...")

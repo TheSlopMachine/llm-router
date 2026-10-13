@@ -167,6 +167,7 @@ Keep changes shallow. Do not touch service internals unless the task requires it
 | `make go-tidy` | agent | Tidy both Go modules |
 | `make browser` | human | Open dashboard in browser |
 | `make build` | human | Build frontend + release binaries (`PLATFORMS=...`, `VERSION=...`) |
+| `make install` | human | Install host release binary into `~/.local/bin` (`VERSION=...`; refuses when running) |
 | `make publish` | human | Cut and push the next release tag (`TYPE=fix|minor|major` or `VERSION=X.Y[.Z]`); CI builds |
 | `make clean` | human | Stop processes + clean ignored files except `.env` files and SQLite databases |
 
@@ -192,7 +193,7 @@ When no target covers an operation, add one (`Makefile` + `scripts/help.txt` + `
 
 ### 4.3 Human-only handoff
 
-If the task needs `browser`, `build`, `publish`, or `clean`: STOP. Ask the human to run it and report back (terminal output, logs, curl/browser result).
+If the task needs `browser`, `build`, `install`, `publish`, or `clean`: STOP. Ask the human to run it and report back (terminal output, logs, curl/browser result).
 
 | DO | DON'T |
 |---|---|

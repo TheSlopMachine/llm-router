@@ -2,6 +2,10 @@
 
 ## Done (2026-10-13, vUnreleased)
 
+- Added `make install` (human-only): built the host release binary through the same frontend and version pipeline as `make build` via shared release helpers, placed `llm-router` into `~/.local/bin` replacing any previous install, and refused when the installed app was running. Unix installs warned with shell setup steps when the directory missed `PATH` without editing shell files; Windows registered the per-user `PATH` once when missing.
+
+## Done (2026-10-13, vUnreleased)
+
 - Moved default paths to XDG directories with dev/prod separation: configuration (`.env` prod, `.env.dev` dev) lived under `XDG_CONFIG_HOME/llm-router`, the database (`llm-router.sqlite3` prod, `llm-router.dev.sqlite3` dev) under `XDG_DATA_HOME/llm-router`, the cache (`llm-router.cache.sqlite3` prod, `llm-router.cache.dev.sqlite3` dev) under `XDG_CACHE_HOME/llm-router`, and events plus pidfile plus frontend log under `XDG_STATE_HOME/llm-router`. Bases fell back to `~/.config`, `~/.local/share`, `~/.cache`, `~/.local/state` on every OS. Removed `DEV_DB`/`DEV_CACHE`/`DEV_EVENTS`; `make start` injected the dev files through `DB_PATH`/`CACHE_PATH`/`EVENTS_PATH`/`ENV_FILE`/`PID_FILE`.
 - Made directory creation managed-only: missing managed XDG parents were created, missing custom parents failed startup with `ErrParentMissing` instead of creating stray trees. The storage layer stopped creating directories and required parents.
 

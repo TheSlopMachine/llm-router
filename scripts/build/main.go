@@ -7,21 +7,15 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/TheSlopMachine/llm-router/scripts/shared"
-
-	"github.com/bitfield/script"
 )
 
-const binary = "llm-router"
-
 func main() {
-	version := resolveVersion()
+	version := shared.ResolveVersion()
 	platforms := shared.RequireEnv("PLATFORMS")
 
 	root, err := shared.RootDir()
@@ -31,21 +25,12 @@ func main() {
 
 	// Strict: frontend build must succeed.
 	shared.Stepf("Building frontend (vite build)...")
-	if err := runViteBuild(root); err != nil {
+	if err := shared.RunViteBuild(root); err != nil {
 		shared.Failf("%v", err)
 	}
 
-	gitCommit, err := script.Exec("git rev-parse --short HEAD").String()
-	if err != nil {
-		fmt.Printf("[WARN] git rev-parse --short HEAD failed, using unknown commit: %v\n", err)
-		gitCommit = "unknown"
-	}
-	gitCommit = strings.TrimSpace(gitCommit)
-	if gitCommit == "" {
-		fmt.Printf("[WARN] git rev-parse returned empty commit, using unknown\n")
-		gitCommit = "unknown"
-	}
-	buildTime := time.Now().UTC().Format(time.RFC3339)
+	gitCommit := shared.GitCommit()
+	buildTime := shared.BuildTime()
 
 	fmt.Printf("\n== Build - %s ==\n", version)
 	fmt.Printf("  Commit:     %s\n", gitCommit)
@@ -57,8 +42,7 @@ func main() {
 		shared.Failf("create %s: %v", publishDir, err)
 	}
 
-	ldflags := fmt.Sprintf("-s -w -X main.Version=%s -X main.GitCommit=%s -X main.BuildTime=%s",
-		version, gitCommit, buildTime)
+	ldflags := shared.ReleaseLdflags(version, gitCommit, buildTime)
 
 	platformList := strings.Fields(platforms)
 	shared.Stepf("Building %d platforms...", len(platformList))
@@ -70,26 +54,18 @@ func main() {
 			shared.Failf("invalid platform %q: must be GOOS/GOARCH", platform)
 		}
 		goos, goarch := parts[0], parts[1]
-		binaryName := binary
-		if goos == "windows" {
-			binaryName += ".exe"
-		}
+		binaryName := shared.BinaryName(goos)
 		outputDirectory := filepath.Join(publishDir, goos+"_"+goarch)
 		if err := os.MkdirAll(outputDirectory, 0755); err != nil {
 			shared.Failf("create %s: %v", outputDirectory, err)
 		}
 		outputBinary := filepath.Join(outputDirectory, binaryName)
 		shared.Stepf("Building %s/%s...", goos, goarch)
-		cmd := exec.Command("go", "build", "-ldflags", ldflags, "-o", outputBinary, ".")
-		cmd.Dir = root
-		cmd.Env = shared.EnvWith([]string{"GOOS=" + goos, "GOARCH=" + goarch})
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			shared.Failf("go build %s/%s: %v", goos, goarch, err)
+		if err := shared.BuildBinary(root, goos, goarch, outputBinary, ldflags); err != nil {
+			shared.Failf("%v", err)
 		}
 
-		zipName := fmt.Sprintf("%s_%s_%s.zip", binary, goos, goarch)
+		zipName := fmt.Sprintf("%s_%s_%s.zip", shared.BinaryFileName, goos, goarch)
 		zipPath := filepath.Join(outputDirectory, zipName)
 		if err := zipFile(zipPath, outputBinary); err != nil {
 			shared.Failf("zip %s/%s: %v", goos, goarch, err)
@@ -112,38 +88,6 @@ func main() {
 
 	fmt.Printf("\n[OK] Artifacts in  %s/\n", publishDir)
 	fmt.Printf("[OK] Checksums in  %s\n", checksumPath)
-}
-
-// resolveVersion prefers explicit VERSION, then the latest git tag,
-// then dev. Build stays fail-open without git.
-func resolveVersion() string {
-	if versionValue := strings.TrimSpace(os.Getenv("VERSION")); versionValue != "" && versionValue != "dev" {
-		return versionValue
-	}
-	tag, err := script.Exec(`git describe --tags --abbrev=0 --match "v*"`).String()
-	if err != nil {
-		fmt.Printf("[WARN] no git tag found, using dev version\n")
-		return "dev"
-	}
-	tag = strings.TrimSpace(tag)
-	if tag == "" {
-		fmt.Printf("[WARN] empty git tag, using dev version\n")
-		return "dev"
-	}
-	return tag
-}
-
-func runViteBuild(root string) error {
-	shared.Stepf("Running vite build...")
-	webDir := filepath.Join(root, "web")
-	cmd := exec.Command("bun", "run", "build")
-	cmd.Dir = webDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("vite build: %w", err)
-	}
-	return nil
 }
 
 func zipFile(dst, src string) error {

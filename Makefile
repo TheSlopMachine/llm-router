@@ -34,7 +34,7 @@ BUN_MIN := 1.2
 GO_MIN  := 1.27.1
 BUN     := bun
 
-.PHONY: help check-frontend-deps check-build-deps go-tidy go-fmt go-fmt-check init start stop restart status browser log log-frontend clean build publish go-vet go-test go-test-race sql-policy check-frontend smoke upload-plugins
+.PHONY: help check-frontend-deps check-build-deps go-tidy go-fmt go-fmt-check init start stop restart status browser log log-frontend clean build install publish go-vet go-test go-test-race sql-policy check-frontend smoke upload-plugins
 
 help:
 	@cat scripts/help.txt
@@ -112,6 +112,9 @@ clean:
 
 build: check-build-deps init
 	@cd scripts && GOWORK=off go run ./build
+
+install: check-build-deps init
+	@cd scripts && GOWORK=off go run ./install
 
 # Publish cuts and pushes the next release tag (TYPE=fix|minor|major or
 # VERSION=X.Y[.Z]). Tags are the source of truth. CI builds on tag push.
