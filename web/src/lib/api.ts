@@ -296,11 +296,6 @@ export const api = {
     test: (modelId: string, endpoint?: string): Promise<TestResult> =>
       postJson('/api/llm-router/dashboard/models/test', { model_id: modelId, endpoint }),
 
-    probeCapabilities: async (modelId: string): Promise<string[]> => {
-      const raw = await postJson('/api/llm-router/dashboard/models/capabilities', { model_id: modelId })
-      return Array.isArray(raw?.capabilities) ? raw.capabilities : []
-    },
-
     available: async (): Promise<AvailableModel[]> => {
       const raw = (await apiCall('get', '/api/llm-router/dashboard/models/available')) as unknown
       const records = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []

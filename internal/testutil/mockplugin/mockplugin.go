@@ -36,6 +36,10 @@ const commonChecks = `
   check_health = function(ctx, credential)
     return { status = "healthy" }
   end,
+
+  check_model = function(ctx, model_ref)
+    return { status = "healthy", response = "mockplugin ok" }
+  end,
 `
 
 const chatCompletion = `
@@ -74,7 +78,7 @@ func assemble(pluginName, typeKey string, models, handlers []string, modelEntrie
 // Chat serves one chat model with a fixed completion.
 func Chat() Fixture {
 	return assemble("MockPlugin Chat", "mockplugin-chat",
-		[]string{"chat"}, []string{"complete"},
+		[]string{"chat"}, []string{"complete", "check_model"},
 		`{ name = "chat", display_name = "MockPlugin Chat", endpoints = { "chat/completions" } }`,
 		chatCompletion)
 }
@@ -82,7 +86,7 @@ func Chat() Fixture {
 // Tools serves one chat model echoing the first requested tool call.
 func Tools() Fixture {
 	return assemble("MockPlugin Tools", "mockplugin-tools",
-		[]string{"tools"}, []string{"complete"},
+		[]string{"tools"}, []string{"complete", "check_model"},
 		`{ name = "tools", display_name = "MockPlugin Tools", endpoints = { "chat/completions" } }`,
 		`
   complete = function(ctx, request)
@@ -114,7 +118,7 @@ func Tools() Fixture {
 // Limited serves one chat model reporting quota exhaustion on every call.
 func Limited() Fixture {
 	return assemble("MockPlugin Limited", "mockplugin-limited",
-		[]string{"limited"}, []string{"complete"},
+		[]string{"limited"}, []string{"complete", "check_model"},
 		`{ name = "limited", display_name = "MockPlugin Limited", endpoints = { "chat/completions" } }`,
 		`
   complete = function(ctx, request)
@@ -126,7 +130,7 @@ func Limited() Fixture {
 // Denied serves one chat model reporting an authentication failure.
 func Denied() Fixture {
 	return assemble("MockPlugin Denied", "mockplugin-denied",
-		[]string{"denied"}, []string{"complete"},
+		[]string{"denied"}, []string{"complete", "check_model"},
 		`{ name = "denied", display_name = "MockPlugin Denied", endpoints = { "chat/completions" } }`,
 		`
   complete = function(ctx, request)
@@ -138,7 +142,7 @@ func Denied() Fixture {
 // Stream serves one chat model emitting two chunks per stream.
 func Stream() Fixture {
 	return assemble("MockPlugin Stream", "mockplugin-stream",
-		[]string{"stream"}, []string{"complete", "complete_stream"},
+		[]string{"stream"}, []string{"complete", "complete_stream", "check_model"},
 		`{ name = "stream", display_name = "MockPlugin Stream", endpoints = { "chat/completions" } }`,
 		chatCompletion+`
   complete_stream = function(ctx, request, emit)
@@ -153,7 +157,7 @@ func Stream() Fixture {
 // Transcribe serves one transcription model with text plus segments.
 func Transcribe() Fixture {
 	return assemble("MockPlugin Transcribe", "mockplugin-transcribe",
-		[]string{"transcribe"}, []string{"complete", "transcribe"},
+		[]string{"transcribe"}, []string{"complete", "transcribe", "check_model"},
 		`{ name = "transcribe", display_name = "MockPlugin Transcribe", endpoints = { "audio/transcriptions" } }`,
 		chatCompletion+`
   transcribe = function(ctx, request)
@@ -166,7 +170,7 @@ func Transcribe() Fixture {
 // Speech serves one speech model returning fixed WAV bytes.
 func Speech() Fixture {
 	return assemble("MockPlugin Speech", "mockplugin-speech",
-		[]string{"speech"}, []string{"complete", "speech"},
+		[]string{"speech"}, []string{"complete", "speech", "check_model"},
 		`{ name = "speech", display_name = "MockPlugin Speech", endpoints = { "audio/speech" } }`,
 		chatCompletion+`
   speech = function(ctx, request)
@@ -178,7 +182,7 @@ func Speech() Fixture {
 // Image serves one image model honoring url and b64_json formats.
 func Image() Fixture {
 	return assemble("MockPlugin Image", "mockplugin-image",
-		[]string{"image"}, []string{"complete", "generate_image"},
+		[]string{"image"}, []string{"complete", "generate_image", "check_model"},
 		`{ name = "image", display_name = "MockPlugin Image", endpoints = { "images/generations" } }`,
 		chatCompletion+`
   generate_image = function(ctx, request)
@@ -193,7 +197,7 @@ func Image() Fixture {
 // Embeddings serves one embeddings model returning one vector per input.
 func Embeddings() Fixture {
 	return assemble("MockPlugin Embeddings", "mockplugin-embeddings",
-		[]string{"embeddings"}, []string{"complete", "embed"},
+		[]string{"embeddings"}, []string{"complete", "embed", "check_model"},
 		`{ name = "embeddings", display_name = "MockPlugin Embeddings", endpoints = { "embeddings" } }`,
 		chatCompletion+`
   embed = function(ctx, request)
@@ -234,7 +238,7 @@ const videoBodies = `
 // Video serves one video model completing the job at submit time.
 func Video() Fixture {
 	return assemble("MockPlugin Video", "mockplugin-video",
-		[]string{"video"}, []string{"complete", "generate_video", "poll_video", "video_content"},
+		[]string{"video"}, []string{"complete", "generate_video", "poll_video", "video_content", "check_model"},
 		`{ name = "video", display_name = "MockPlugin Video", endpoints = { "videos" } }`,
 		chatCompletion+`
   generate_video = function(ctx, request)
@@ -253,7 +257,7 @@ func Video() Fixture {
 // VideoPending serves one video model pending at submit, completed on poll.
 func VideoPending() Fixture {
 	return assemble("MockPlugin Video Pending", "mockplugin-video-pending",
-		[]string{"video"}, []string{"complete", "generate_video", "poll_video", "video_content"},
+		[]string{"video"}, []string{"complete", "generate_video", "poll_video", "video_content", "check_model"},
 		`{ name = "video", display_name = "MockPlugin Video Pending", endpoints = { "videos" } }`,
 		chatCompletion+`
   generate_video = function(ctx, request)
@@ -271,7 +275,7 @@ func VideoPending() Fixture {
 // ChatOnly serves one chat-only model with no other handlers.
 func ChatOnly() Fixture {
 	return assemble("MockPlugin Chat Only", "mockplugin-chat-only",
-		[]string{"chat"}, []string{"complete"},
+		[]string{"chat"}, []string{"complete", "check_model"},
 		`{ name = "chat", display_name = "MockPlugin Chat Only", endpoints = { "chat/completions" } }`,
 		chatCompletion)
 }

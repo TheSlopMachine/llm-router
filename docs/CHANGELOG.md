@@ -1,5 +1,10 @@
 # Changelog
 
+## Done (2026-10-13, v0.3.10)
+
+- Moved model health checks into plugin responsibility with a new `check_model` handler (contract 1.5): plugins received `(ctx, model_ref)` with full model, bare name and open endpoint and returned `{status, message?, response?}` (`healthy`/`quota_exceeded`/`unhealthy`/`unknown`); the router resolved, timed, measured latency and mapped verdicts only, and reported `unsupported` for missing handlers and Go backends with no live request.
+- Deleted hardcoded router probes (`TestVision`, `TestSpeech`, `TestTranscribe`, `TestImageGeneration`, `TestEmbeddings`, `ProbeCapabilities`, WAV/PNG builders, quota/summary mappers) and the `POST /dashboard/models/capabilities` endpoint; the dashboard model test passed the endpoint through verbatim and the model list stayed the single capability source.
+
 ## Done (2026-10-13, vUnreleased)
 
 - Standardized backend logging across all services: severity tiers covered debug, info, warn, error and fatal with critical aliasing fatal, messages used one stable Sentence-case sentence per site with facts in snake_case keys, and the vocabulary extended to provider_id, token_id, plugin_id, job, operation, attempt, latency_ms and proxy_url.

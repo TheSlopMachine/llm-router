@@ -330,7 +330,7 @@ func TestMockPluginEndpointGate_VideoOnChat(t *testing.T) {
 func TestMockPluginProbe_TestModel(t *testing.T) {
 	service, _, _, providerID := setupLuaRouter(t, mockplugin.Chat())
 
-	result := service.TestModel(context.Background(), models.ModelId(providerID+"/chat"))
+	result := service.TestModel(context.Background(), models.ModelId(providerID+"/chat"), "chat")
 	if !result.OK {
 		t.Fatalf("probe failed: %v", result.Error)
 	}

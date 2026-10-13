@@ -6,7 +6,6 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
-	"github.com/TheSlopMachine/llm-router/internal/services/router"
 	"github.com/TheSlopMachine/llm-router/internal/services/virtual"
 )
 
@@ -250,45 +249,9 @@ func (h *Handler) apiProviderVirtualModels(w http.ResponseWriter, r *http.Reques
 	h.json(w, http.StatusOK, groups)
 }
 
-// apiModelCapabilities probes a model for supported features
-// @Summary      Probe model capabilities
-// @Description  Runs live probe requests to detect tool calling and JSON mode support.
-// @Tags         Models
-// @Accept       json
-// @Produce      json
-// @Param        body body object{model_id=string} true "Full model id (provider/model)"
-// @Success      200 {object} object{capabilities=[]string}
-// @Failure      400 {object} models.ErrorResponse
-// @Failure      401 {object} models.ErrorResponse
-// @Security     SessionAuth
-// @Router       /api/llm-router/dashboard/models/capabilities [post]
-func (h *Handler) apiModelCapabilities(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		ModelID string `json:"model_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if body.ModelID == "" {
-		h.jsonErr(w, http.StatusBadRequest, "model_id is required")
-		return
-	}
-	capabilities, err := h.routerService.ProbeCapabilities(r.Context(), models.ModelId(body.ModelID))
-	if err != nil {
-		h.logWarn("Model capabilities probe failed", "model", body.ModelID, "error", err)
-		h.jsonErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if capabilities == nil {
-		capabilities = []string{}
-	}
-	h.json(w, http.StatusOK, map[string]any{"capabilities": capabilities})
-}
-
-// apiModelTest probes a model through the normal routing path
+// apiModelTest verifies one model through the type's check_model handler.
 // @Summary      Test model
-// @Description  Runs a minimal probe for a full ModelId and reports success and latency. Endpoint selects the probe: chat (default), vision, speech, transcription, image, embeddings.
+// @Description  Delegates liveness to the plugin check_model handler and reports success and latency. Endpoint passes through verbatim (chat default); the plugin reports unsupported endpoints.
 // @Tags         Models
 // @Accept       json
 // @Produce      json
@@ -312,24 +275,7 @@ func (h *Handler) apiModelTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	modelID := models.ModelId(body.ModelID)
-	var result router.TestResult
-	switch body.Endpoint {
-	case "", "chat":
-		result = h.routerService.TestModel(r.Context(), modelID)
-	case "vision":
-		result = h.routerService.TestVision(r.Context(), modelID)
-	case "speech":
-		result = h.routerService.TestSpeech(r.Context(), modelID)
-	case "transcription":
-		result = h.routerService.TestTranscribe(r.Context(), modelID)
-	case "image":
-		result = h.routerService.TestImageGeneration(r.Context(), modelID)
-	case "embeddings":
-		result = h.routerService.TestEmbeddings(r.Context(), modelID)
-	default:
-		h.jsonErr(w, http.StatusBadRequest, "unknown probe endpoint")
-		return
-	}
+	result := h.routerService.TestModel(r.Context(), modelID, body.Endpoint)
 	if !result.OK {
 		arguments := []any{"model", body.ModelID, "endpoint", body.Endpoint, "error", result.Error}
 		if result.Proxy != "" {

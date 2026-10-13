@@ -191,7 +191,7 @@ func TestRouterService_Complete_BackendErrorSurfacesWithoutRepeat(t *testing.T) 
 	}
 }
 
-func TestRouterService_TestVision_Success(t *testing.T) {
+func TestRouterService_TestModel_UnsupportedOnGoBackend(t *testing.T) {
 	service, credentialService, _, _ := setupRouterService(t)
 
 	credentialService.Add(context.Background(), credential.AddOptions{
@@ -200,9 +200,9 @@ func TestRouterService_TestVision_Success(t *testing.T) {
 		Data:       map[string]any{"api_key": "key1"},
 	})
 
-	result := service.TestVision(context.Background(), "mock/test-model")
-	if !result.OK {
-		t.Fatalf("vision probe failed: %v", result.Error)
+	result := service.TestModel(context.Background(), "mock/test-model", "chat")
+	if result.OK || result.Code != "unsupported" {
+		t.Fatalf("Go backends must report unsupported: %+v", result)
 	}
 }
 
@@ -230,9 +230,12 @@ func TestRouterService_TestModel_BypassesManualDisable(t *testing.T) {
 		t.Fatalf("expected ErrModelDisabled from routing, got %v", err)
 	}
 
-	result := service.TestModel(context.Background(), "mock/test-model")
-	if !result.OK {
-		t.Fatalf("probe of disabled model must go through, got %v", result.Error)
+	result := service.TestModel(context.Background(), "mock/test-model", "chat")
+	if result.Code == "model_disabled" {
+		t.Fatalf("probe must bypass the manual disable gate, got %+v", result)
+	}
+	if result.Code != "unsupported" {
+		t.Fatalf("Go backends must report unsupported: %+v", result)
 	}
 }
 
@@ -268,30 +271,20 @@ func TestRouterService_Complete_AuthErrorSingleAttempt(t *testing.T) {
 	}
 }
 
-func TestRouterService_TestModel_MarksQuotaExceeded(t *testing.T) {
-	service, credentialService, _, mock := setupRouterService(t)
+func TestRouterService_TestModel_UnsupportedKeepsQuotaClear(t *testing.T) {
+	service, credentialService, _, _ := setupRouterService(t)
 
 	credentialService.Add(context.Background(), credential.AddOptions{
 		ProviderID: "mock",
 		Label:      "Cred 1",
 		Data:       map[string]any{"api_key": "key1"},
 	})
-	mock.WithCompleteFunc(func(ctx context.Context, creds []*models.Credential, request *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
-		return nil, &models.ProviderError{
-			StatusCode: 429,
-			Message:    "quota exhausted",
-			Code:       "quota_exceeded",
-		}
-	})
 
-	result := service.TestModel(context.Background(), "mock/test-model")
-	if result.OK {
-		t.Fatal("expected failed probe, got ok")
+	result := service.TestModel(context.Background(), "mock/test-model", "chat")
+	if result.OK || result.Code != "unsupported" {
+		t.Fatalf("Go backends must report unsupported: %+v", result)
 	}
-	if !result.QuotaExceeded {
-		t.Error("quota failure must set quota_exceeded so callers never disable over it")
-	}
-	if result.Code != "quota_exceeded" {
-		t.Errorf("probe must carry machine-readable code, got %q", result.Code)
+	if result.QuotaExceeded {
+		t.Error("unsupported must not set quota_exceeded")
 	}
 }

@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Plugin API: **1.4** (`luaplugin.PluginAPIVersion`). A plugin declares the
+Plugin API: **1.5** (`luaplugin.PluginAPIVersion`). A plugin declares the
 `@plugin_api` contract it speaks; the router label (`main.RouterVersion`,
 stamped from the release tag) carries no compatibility meaning. Install
 compares majors only: plugin major above the served one fails with `too_new`,
@@ -46,6 +46,7 @@ spelling. Anything else fails install.
 | 1.2 | Optional `initialize` / `deinitialize` lifecycle slots: one-time `ctx`-table hooks with `ctx.reason` (`install` / `update` / `startup` and `delete` / `update` / `shutdown` / `disable`); detached concurrent fan-out, 30s bound, failures log. |
 | 1.3 | Optional per-type `locales` table (`en`/`ru`): widget keys in schema and auth trees resolve per dashboard locale with English fallback. |
 | 1.4 | `llm_router.log(severity, message, keys?)`: structured plugin logging into the events database (`debug`/`info`/`warn`/`error`/`fatal`, router-owned `plugin`/`type` keys, `print` shims info severity); per-plugin log reads serve from events with severity and keys. |
+| 1.5 | `check_model` handler: plugin-owned model liveness for every endpoint (`ctx`, `model_ref` with `model`/`model_name`/`endpoint`); returns `{status, message?, response?}` with `healthy`/`quota_exceeded`/`unhealthy`/`unknown`. Dashboard model test delegates; types without the handler report `unsupported`. |
 
 ## Responsibility split
 
@@ -59,7 +60,8 @@ authorization, hosting and rendering.
   (trigger + bounds, never policy), OpenAI/Anthropic envelope rendering.
 - Plugin: credential selection/rotation/parking, proxy selection and
   per-request assignment, backoff/retry loops, rate-limit interpretation,
-  request payload building, response normalization, background refresh jobs.
+  request payload building, response normalization, background refresh jobs,
+  model liveness probing (`check_model` for every endpoint).
   Limit state lives in `llm_router.storage` with TTL; the router holds no
   quota tables.
 
@@ -175,6 +177,7 @@ llm_router.register_proxy_source(name, {
 | `validate_credentials` | no | `(data)` | `(boolean, err?)` |
 | `get_model_infos` | no | `(ctx)` | `(array, err)` |
 | `check_health` | no | `(ctx, credential)` | `health table` |
+| `check_model` | no | `(ctx, model_ref)` | `model health table` |
 | `auth_initiate` | no | `(ctx)` | `auth result` |
 | `auth_step` | no | `(ctx, {action, values})` | `auth result` |
 | `fetch_proxies` | no | `()` | `array?` |
@@ -188,6 +191,18 @@ llm_router.register_proxy_source(name, {
   `{ job_name, run_reason = "tick"|"startup"|"manual", provider_config? }`.
 - `credential` — `{ id = "...", data = {...} }`; `data` holds the fields
   saved through `credential_schema`. Only `check_health` receives one.
+- `model_ref` — `{ model = "provider/model", model_name = "bare", endpoint = "chat" }`;
+  only `check_model` receives one. `model` keeps the full id, `model_name` is
+  the bare upstream name, `endpoint` is the open dashboard-selected endpoint
+  (`chat`, `vision`, `speech`, `transcription`, `image`, `embeddings`, `video`,
+  `moderate`, future values). Empty normalizes to `chat` in the router.
+  Unknown endpoints return `{ status = "unknown", message = "endpoint not supported ..." }`.
+  `check_model` returns `{ status, message?, response? }` with `status` one of
+  `healthy` (serves; `response` is a short success excerpt), `quota_exceeded`
+  (alive but exhausted; dashboard never disables), `unhealthy` (dead model;
+  dashboard maps to `model_unavailable`), `unknown` (inconclusive). Missing or
+  mistyped fields are plugin crashes. Types without the handler report
+  `unsupported` with no live request.
 - Every `request` table carries `model` (full `provider/model` id),
   `model_name` (bare name for upstream payloads) and `cache_key` (opaque
   cross-turn prefix-cache partition: model, first message and sorted tool

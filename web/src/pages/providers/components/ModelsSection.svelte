@@ -77,10 +77,6 @@
 
   let addingCustom = $state(false)
 
-  let probingCustom = $state(false)
-
-  let customProbeNote = $state('')
-
   let filteredModels = $derived.by(() => {
     let list = models
     if (modelFilter === 'enabled') list = list.filter((m) => !m.disabled)
@@ -322,24 +318,6 @@
     }
   }
 
-  async function probeCustomCapabilities(): Promise<void> {
-    const id = customId.trim()
-    if (!id) return
-    probingCustom = true
-    customProbeNote = ''
-    try {
-      const caps = await api.models.probeCapabilities(`${providerId}/${id}`)
-      const next: Record<string, boolean> = {}
-      for (const c of caps) next[c] = true
-      customCaps = next
-      if (caps.length === 0) customProbeNote = 'No new capabilities detected'
-    } catch (e) {
-      customProbeNote = getErrorMessage(e)
-    } finally {
-      probingCustom = false
-    }
-  }
-
   async function addCustomModel(): Promise<void> {
     const id = customId.trim()
     if (!id) return
@@ -354,7 +332,6 @@
       customId = ''
       customName = ''
       customCaps = {}
-      customProbeNote = ''
       await reloadModels()
     } catch (e) {
       modelsError = getErrorMessage(e)
@@ -587,13 +564,6 @@
         />
         <Spacer/>
         <Button
-          icon={{ name: probingCustom ? 'progress_activity' : 'fact_check' }}
-          disabled={!customId.trim() || probingCustom}
-          onclick={probeCustomCapabilities}
-        >
-          {t('common.actions.check')}
-        </Button>
-        <Button
           style="prominent"
           icon={{ name: 'add' }}
           disabled={!customId.trim() || addingCustom}
@@ -602,10 +572,6 @@
           {t('models.actions.add')}
         </Button>
       </HStack>
-
-      {#if customProbeNote}
-        <Text tone="soft" size="sm">{customProbeNote}</Text>
-      {/if}
 
       <HStack gap={2} wrap align="center">
         {#each KNOWN_CAPABILITIES as cap}

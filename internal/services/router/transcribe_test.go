@@ -160,12 +160,12 @@ func TestRouterService_Transcribe_PassesPoolToBackend(t *testing.T) {
 	}
 }
 
-func TestRouterService_TestTranscribe_Probe(t *testing.T) {
+func TestRouterService_TestTranscribe_ProbeUnsupportedOnGoBackend(t *testing.T) {
 	service, credentialService, _, _ := setupTranscribeRouter(t)
 	addTranscribeCred(t, credentialService, "Cred 1")
 
-	result := service.TestTranscribe(context.Background(), "mock/whisper-large-v3")
-	if !result.OK {
-		t.Fatalf("transcribe probe failed: %v", result.Error)
+	result := service.TestModel(context.Background(), "mock/whisper-large-v3", "transcription")
+	if result.OK || result.Code != "unsupported" {
+		t.Fatalf("Go backends must report unsupported: %+v", result)
 	}
 }

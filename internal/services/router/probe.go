@@ -2,9 +2,6 @@ package router
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"math"
 	"time"
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
@@ -15,7 +12,7 @@ import (
 )
 
 // TestResult reports the outcome of a credential or model probe.
-// QuotaExceeded marks temporary rate-limit failures: the model is alive,
+// QuotaExceeded marks temporary exhaustion: the model is alive,
 // the quota is not. Callers must not disable models over it.
 // Code is the machine-readable wire code for the failure (empty on
 // success); Summary is a short human string for toasts, the full error
@@ -29,15 +26,6 @@ type TestResult struct {
 	Code          string `json:"code,omitempty"`
 	Summary       string `json:"summary,omitempty"`
 	Proxy         string `json:"proxy,omitempty"`
-}
-
-// probeRequest builds a minimal completion request for connectivity tests.
-func probeRequest(model models.ModelId) *models.ChatCompletionRequest {
-	return &models.ChatCompletionRequest{
-		Model:     model,
-		MaxTokens: 16,
-		Messages:  []models.ChatMessage{{Role: "user", Content: "Reply with: ok"}},
-	}
 }
 
 // TestCredential verifies one credential through the type's check_health
@@ -144,116 +132,100 @@ func (s *Service) logProbeResult(model models.ModelId, result TestResult) {
 	}
 }
 
-// TestModel runs a probe through the normal routing path (credential pool
-// included), as an internal unrestricted call. Manually disabled models stay
-// testable: the admin override gates routing, not probing.
-func (s *Service) TestModel(ctx context.Context, modelID models.ModelId) TestResult {
+// TestModel verifies one model through the type's check_model handler.
+// The plugin owns liveness payloads for every endpoint; the router owns
+// resolution, timeout, latency and verdict mapping only. Types without the
+// handler and built-in Go backends report unsupported with no live request.
+// Manually disabled models stay testable. Probes never mutate state and
+// never disable models; the dashboard disables explicitly on
+// model_unavailable verdicts.
+func (s *Service) TestModel(ctx context.Context, modelID models.ModelId, endpoint string) TestResult {
+	if endpoint == "" {
+		endpoint = "chat"
+	}
 	start := time.Now()
-	response, proxy, err := s.completeWithProxy(ctx, probeRequest(modelID), nil, true)
+	providerID, _, err := modelID.Parse()
 	if err != nil {
-		result := probeResult(start, "", proxy, err)
+		s.debug("Probing model fails for invalid model identifier",
+			"model", modelID.String(), "endpoint", endpoint,
+			"reason", "invalid_model_id", "error", err)
+		result := TestResult{Error: err.Error(), Code: apierrors.ToAPIError(err).Code, Latency: time.Since(start).Milliseconds(), Summary: "probe failed"}
 		s.logProbeResult(modelID, result)
 		return result
 	}
-	text := ""
-	if len(response.Choices) > 0 {
-		text = response.Choices[0].Message.TextContent()
+	resolved, err := provider.Resolve(s.providerService, ctx, providerID)
+	if err != nil {
+		s.debug("Probing model fails for unknown provider",
+			"provider_id", providerID, "model", modelID.String(), "endpoint", endpoint,
+			"reason", "provider_not_found", "error", err)
+		result := TestResult{Error: err.Error(), Code: apierrors.ToAPIError(err).Code, Latency: time.Since(start).Milliseconds(), Summary: "probe failed"}
+		s.logProbeResult(modelID, result)
+		return result
 	}
-	result := probeResult(start, text, proxy, nil)
+	if !resolved.IsLua() {
+		s.debug("Probing model skips unsupported model check",
+			"provider_id", providerID, "type", resolved.Instance.TypeKey, "model", modelID.String(), "endpoint", endpoint,
+			"reason", "modelcheck_unsupported")
+		result := TestResult{Error: "health check not supported for this provider", Code: "unsupported", Summary: "health check not supported", Latency: time.Since(start).Milliseconds()}
+		s.logProbeResult(modelID, result)
+		return result
+	}
+	luaService := s.providerService.LuaService()
+	if luaService == nil || !luaService.HasHandler(resolved.Instance.TypeKey, string(luaplugin.HandlerCheckModel)) {
+		s.debug("Probing model skips unsupported model check",
+			"provider_id", providerID, "type", resolved.Instance.TypeKey, "model", modelID.String(), "endpoint", endpoint,
+			"reason", "modelcheck_unsupported")
+		result := TestResult{Error: "health check not supported for this provider", Code: "unsupported", Summary: "health check not supported", Latency: time.Since(start).Milliseconds()}
+		s.logProbeResult(modelID, result)
+		return result
+	}
+	metadata := luaplugin.HandlerMeta{
+		ProviderID:     resolved.Instance.ID,
+		TypeKey:        resolved.Instance.TypeKey,
+		Model:          modelID,
+		ProviderConfig: resolved.Instance.Config,
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, healthcheck.CheckTimeout)
+	defer cancel()
+	health, checkError := luaService.CheckModel(checkCtx, metadata, endpoint)
+	latency := time.Since(start).Milliseconds()
+	if checkError != nil {
+		s.debug("Probing model health check fails",
+			"provider_id", providerID, "type", resolved.Instance.TypeKey, "model", modelID.String(), "endpoint", endpoint,
+			"latency_ms", latency, "error", checkError)
+		result := TestResult{Error: checkError.Error(), Code: "upstream_error", Summary: "health check failed", Latency: latency}
+		s.logProbeResult(modelID, result)
+		return result
+	}
+	var result TestResult
+	switch health.Status {
+	case luaplugin.ModelHealthy:
+		response := health.Response
+		if response == "" {
+			response = "healthy"
+		}
+		result = TestResult{OK: true, Latency: latency, Response: response}
+	case luaplugin.ModelQuotaExceeded:
+		reason := health.Message
+		if reason == "" {
+			reason = "quota exceeded, temporary"
+		}
+		result = TestResult{Error: reason, Code: "quota_exceeded", Summary: "quota exceeded, temporary", Latency: latency, QuotaExceeded: true}
+	case luaplugin.ModelUnhealthy:
+		reason := health.Message
+		if reason == "" {
+			reason = "health check reported unhealthy"
+		}
+		result = TestResult{Error: reason, Code: "model_unavailable", Summary: "model unavailable", Latency: latency}
+	default:
+		reason := health.Message
+		if reason == "" {
+			reason = "health check inconclusive"
+		}
+		result = TestResult{Error: reason, Code: "unknown", Summary: "health check inconclusive", Latency: latency}
+	}
 	s.logProbeResult(modelID, result)
 	return result
-}
-
-// probePixelPNG is a 1x1 PNG for vision probes: no network needed to build
-// the request.
-const probePixelPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
-
-// probeWAV synthesizes a short mono beep for transcription probes.
-func probeWAV() []byte {
-	const sampleRate = 8000
-	const samples = sampleRate / 2
-	buf := make([]byte, 44+samples*2)
-	copy(buf[0:], "RIFF")
-	put32(buf[4:], uint32(36+samples*2))
-	copy(buf[8:], "WAVEfmt ")
-	put32(buf[16:], 16)
-	put16(buf[20:], 1)
-	put16(buf[22:], 1)
-	put32(buf[24:], sampleRate)
-	put32(buf[28:], sampleRate*2)
-	put16(buf[32:], 2)
-	put16(buf[34:], 16)
-	copy(buf[36:], "data")
-	put32(buf[40:], uint32(samples*2))
-	for i := range samples {
-		v := int16(10000 * math.Sin(2*math.Pi*440*float64(i)/sampleRate))
-		put16(buf[44+i*2:], uint16(v))
-	}
-	return buf
-}
-
-func put16(b []byte, v uint16) {
-	b[0] = byte(v)
-	b[1] = byte(v >> 8)
-}
-
-func put32(b []byte, v uint32) {
-	b[0] = byte(v)
-	b[1] = byte(v >> 8)
-	b[2] = byte(v >> 16)
-	b[3] = byte(v >> 24)
-}
-
-// isQuotaCode reports temporary quota exhaustion: the model is alive,
-// the quota is not. Callers must not disable models over it.
-func isQuotaCode(code string) bool {
-	switch code {
-	case apierrors.CodeRateLimit, apierrors.CodeQuotaExceeded, "insufficient_quota":
-		return true
-	}
-	return false
-}
-
-// probeResult builds a TestResult from a probe outcome.
-func probeResult(start time.Time, respText, proxy string, err error) TestResult {
-	res := TestResult{OK: err == nil, Latency: time.Since(start).Milliseconds(), Proxy: proxy}
-	if err != nil {
-		res.Error = err.Error()
-		res.Summary = probeSummary(err)
-		res.Code = apierrors.ToAPIError(err).Code
-		var providerError *models.ProviderError
-		if errors.As(err, &providerError) && isQuotaCode(providerError.Code) {
-			res.QuotaExceeded = true
-		}
-		return res
-	}
-	res.Response = respText
-	return res
-}
-
-// probeSummary maps a probe error to a short human string for toasts.
-func probeSummary(err error) string {
-	var providerError *models.ProviderError
-	if errors.As(err, &providerError) {
-		if isQuotaCode(providerError.Code) {
-			return "quota exceeded, temporary"
-		}
-		switch providerError.Code {
-		case "authentication_error", apierrors.CodeAuthError:
-			return "authentication failed"
-		case apierrors.CodeInvalidRequest:
-			return "invalid request"
-		case apierrors.CodeServerError, apierrors.CodeUpstreamError:
-			return "upstream error"
-		case apierrors.CodeTransportError:
-			return "connection failed"
-		case apierrors.CodePaymentRequired:
-			return "payment required"
-		case apierrors.CodeOverloaded:
-			return "backend overloaded"
-		}
-	}
-	return "probe failed"
 }
 
 // disableFailedCredentials reports whether a provider opts into automatic
@@ -264,147 +236,4 @@ func disableFailedCredentials(resolved *provider.Resolved) bool {
 		return false
 	}
 	return models.CredentialAutomationOn(resolved.Instance.Config)
-}
-
-// TestVision runs a minimal image-input probe, bypassing manual disable.
-func (s *Service) TestVision(ctx context.Context, modelID models.ModelId) TestResult {
-	start := time.Now()
-	request := probeRequest(modelID)
-	request.Messages = []models.ChatMessage{{
-		Role:    "user",
-		Content: "What is in this image? Reply with: ok",
-		ContentParts: []models.ChatMessageContentPart{{
-			Type:     "image_url",
-			ImageURL: &models.ChatMessageImageURL{URL: "data:image/png;base64," + probePixelPNG},
-		}},
-	}}
-	response, proxy, err := s.completeWithProxy(ctx, request, nil, true)
-	if err != nil || len(response.Choices) == 0 {
-		if err == nil {
-			err = fmt.Errorf("empty response")
-		}
-		result := probeResult(start, "", proxy, err)
-		s.logProbeResult(modelID, result)
-		return result
-	}
-	result := probeResult(start, response.Choices[0].Message.TextContent(), proxy, nil)
-	s.logProbeResult(modelID, result)
-	return result
-}
-
-// TestSpeech runs a minimal speech probe, bypassing manual disable.
-func (s *Service) TestSpeech(ctx context.Context, modelID models.ModelId) TestResult {
-	start := time.Now()
-	response, proxy, err := s.speechWithProxy(ctx, &models.SpeechRequest{Model: modelID, Input: "test"}, nil, true)
-	if err != nil {
-		result := probeResult(start, "", proxy, err)
-		s.logProbeResult(modelID, result)
-		return result
-	}
-	result := probeResult(start, fmt.Sprintf("%d bytes of audio", len(response.Audio)), proxy, nil)
-	s.logProbeResult(modelID, result)
-	return result
-}
-
-// TestTranscribe runs a minimal transcription probe, bypassing manual disable.
-func (s *Service) TestTranscribe(ctx context.Context, modelID models.ModelId) TestResult {
-	start := time.Now()
-	response, proxy, err := s.transcribeWithProxy(ctx, &models.TranscriptionRequest{
-		Model:       modelID,
-		File:        probeWAV(),
-		FileName:    "probe.wav",
-		ContentType: "audio/wav",
-	}, nil, true)
-	if err != nil {
-		result := probeResult(start, "", proxy, err)
-		s.logProbeResult(modelID, result)
-		return result
-	}
-	result := probeResult(start, response.Text, proxy, nil)
-	s.logProbeResult(modelID, result)
-	return result
-}
-
-// TestImageGeneration runs a minimal image probe, bypassing manual disable.
-func (s *Service) TestImageGeneration(ctx context.Context, modelID models.ModelId) TestResult {
-	start := time.Now()
-	response, proxy, err := s.generateImageWithProxy(ctx, &models.ImageGenerationRequest{Model: modelID, Prompt: "test", N: 1}, nil, true)
-	if err != nil {
-		result := probeResult(start, "", proxy, err)
-		s.logProbeResult(modelID, result)
-		return result
-	}
-	result := probeResult(start, fmt.Sprintf("%d image(s)", len(response.Data)), proxy, nil)
-	s.logProbeResult(modelID, result)
-	return result
-}
-
-// TestEmbeddings runs a minimal embeddings probe, bypassing manual disable.
-func (s *Service) TestEmbeddings(ctx context.Context, modelID models.ModelId) TestResult {
-	start := time.Now()
-	response, proxy, err := s.embedWithProxy(ctx, &models.EmbeddingsRequest{Model: modelID, Input: []string{"test"}}, nil, true)
-	if err != nil {
-		result := probeResult(start, "", proxy, err)
-		s.logProbeResult(modelID, result)
-		return result
-	}
-	dims := 0
-	if len(response.Data) > 0 {
-		dims = len(response.Data[0].Values)
-	}
-	result := probeResult(start, fmt.Sprintf("%d embedding(s), %d dims", len(response.Data), dims), proxy, nil)
-	s.logProbeResult(modelID, result)
-	return result
-}
-
-// ProbeCapabilities detects model features with live probe requests.
-// Each probe consumes a small amount of quota. Unprobed capabilities are
-// simply absent from the result.
-func (s *Service) ProbeCapabilities(ctx context.Context, modelID models.ModelId) ([]string, error) {
-	providerID, _, err := modelID.Parse()
-	if err != nil {
-		s.debug("Denying capability probe with invalid model identifier",
-			"model", modelID.String(), "reason", "invalid_model_id", "error", err)
-		return nil, fmt.Errorf("invalid model id: %w", err)
-	}
-	if _, err := provider.Resolve(s.providerService, ctx, providerID); err != nil {
-		s.debug("Denying capability probe for unknown provider",
-			"provider_id", providerID, "model", modelID.String(),
-			"reason", "provider_not_found", "error", err)
-		return nil, fmt.Errorf("%w: %s", apierrors.ErrProviderNotFound, providerID)
-	}
-
-	caps := []string{}
-
-	// Reasoning models spend tokens on thinking before any tool call or
-	// JSON output; probes need real headroom.
-	toolRequest := probeRequest(modelID)
-	toolRequest.MaxTokens = 512
-	toolRequest.Messages[0].Content = "Call the function report_weather with city=Paris."
-	toolRequest.Tools = []models.ChatTool{{
-		Type: "function",
-		Function: &models.ChatToolFunction{
-			Name:        "report_weather",
-			Description: "Report weather for a city",
-			Parameters: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{"city": map[string]any{"type": "string"}},
-				"required":   []string{"city"},
-			},
-		},
-	}}
-	toolRequest.ToolChoice = map[string]any{"type": "function", "function": map[string]any{"name": "report_weather"}}
-	if response, err := s.Complete(ctx, toolRequest, nil); err == nil && len(response.Choices) > 0 && len(response.Choices[0].Message.ToolCalls) > 0 {
-		caps = append(caps, "tools")
-	}
-
-	jsonRequest := probeRequest(modelID)
-	jsonRequest.MaxTokens = 512
-	jsonRequest.Messages[0].Content = `Output exactly: {"ok": true}`
-	jsonRequest.ResponseFormat = map[string]any{"type": "json_object"}
-	if _, err := s.Complete(ctx, jsonRequest, nil); err == nil {
-		caps = append(caps, "json_mode")
-	}
-
-	return caps, nil
 }

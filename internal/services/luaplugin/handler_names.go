@@ -32,6 +32,7 @@ const (
 	HandlerValidateCredentials Handler = "validate_credentials"
 	HandlerGetModelInfos       Handler = "get_model_infos"
 	HandlerCheckHealth         Handler = "check_health"
+	HandlerCheckModel          Handler = "check_model"
 	HandlerAuthInitiate        Handler = "auth_initiate"
 	HandlerAuthStep            Handler = "auth_step"
 )
@@ -51,6 +52,7 @@ func OptionalHandlerNames() []string {
 		string(HandlerValidateCredentials),
 		string(HandlerGetModelInfos),
 		string(HandlerCheckHealth),
+		string(HandlerCheckModel),
 		string(HandlerAuthInitiate),
 		string(HandlerAuthStep),
 		string(HandlerInitialize),

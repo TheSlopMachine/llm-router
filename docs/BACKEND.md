@@ -96,8 +96,14 @@ Keep changes shallow. Touch service internals only when the task requires it.
   verdict without touching the credential. Traffic paths carry no credential
   identity and never trigger.
 - Request handlers run `(ctx, request)` (`complete_stream` adds `emit`).
-  `check_health` keeps `(ctx, credential)`; `validate_credentials` keeps
-  `(data)`; `get_model_infos` takes `(ctx)` with `provider_config` inside.
+  `check_health` keeps `(ctx, credential)`; `check_model` takes
+  `(ctx, model_ref)` with `provider_config` inside; `validate_credentials`
+  keeps `(data)`; `get_model_infos` takes `(ctx)` with `provider_config` inside.
+- Dashboard model test (`POST /dashboard/models/test`) delegates to
+  `check_model`: resolve, `HasHandler` gate (`unsupported` with no live
+  request, including Go backends), bounded invoke, verdict mapping
+  (`healthy`/`quota_exceeded`/`unhealthy`/`unknown`; `unhealthy` surfaces as
+  `model_unavailable` for explicit dashboard disables). Probes never mutate.
 - Static schema tables (`credential_schema`, `config_schema`,
   `settings_schema`, `proxy_schema`) validate at install via `parseUINodes`
   and persist in the record; `Service.Schema` serves them without invoking

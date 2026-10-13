@@ -340,32 +340,30 @@ func TestRouterService_Embed_PassesPoolToBackend(t *testing.T) {
 	}
 }
 
-func TestRouterService_TestSpeech_Probe(t *testing.T) {
+func TestRouterService_TestModel_ProbeUnsupportedOnGoBackend(t *testing.T) {
 	service, credentialService, _, _ := setupSpeechRouter(t)
 	addTranscribeCred(t, credentialService, "Cred 1")
 
-	result := service.TestSpeech(context.Background(), "mock/gemini-tts")
-	if !result.OK {
-		t.Fatalf("speech probe failed: %v", result.Error)
+	for _, probe := range []struct {
+		model    string
+		endpoint string
+	}{
+		{"mock/gemini-tts", "speech"},
+		{"mock/imagen-3", "image"},
+	} {
+		result := service.TestModel(context.Background(), models.ModelId(probe.model), probe.endpoint)
+		if result.OK || result.Code != "unsupported" {
+			t.Fatalf("Go backends must report unsupported: %+v", result)
+		}
 	}
 }
 
-func TestRouterService_TestImageGeneration_Probe(t *testing.T) {
-	service, credentialService, _, _ := setupSpeechRouter(t)
-	addTranscribeCred(t, credentialService, "Cred 1")
-
-	result := service.TestImageGeneration(context.Background(), "mock/imagen-3")
-	if !result.OK {
-		t.Fatalf("image probe failed: %v", result.Error)
-	}
-}
-
-func TestRouterService_TestEmbeddings_Probe(t *testing.T) {
+func TestRouterService_TestEmbeddings_ProbeUnsupportedOnGoBackend(t *testing.T) {
 	service, credentialService, _, _ := setupEmbedRouter(t)
 	addTranscribeCred(t, credentialService, "Cred 1")
 
-	result := service.TestEmbeddings(context.Background(), "mock/gemini-embedding-001")
-	if !result.OK {
-		t.Fatalf("embeddings probe failed: %v", result.Error)
+	result := service.TestModel(context.Background(), "mock/gemini-embedding-001", "embeddings")
+	if result.OK || result.Code != "unsupported" {
+		t.Fatalf("Go backends must report unsupported: %+v", result)
 	}
 }
