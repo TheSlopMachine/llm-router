@@ -15,6 +15,7 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 | `init` | `HOST`, `PORT`, `NO_SKIP` | `make init`; `make start` / `make build` (via dep) |
 | `start` | `HOST`, `PORT`, `ADMIN_PORT` (default `38082`, empty disables), `SCOPE` (`all`/`backend`, default `all`), `LOG_LEVEL` (default `info`), `DB_PATH` (default dev XDG `~/.local/share/llm-router/llm-router.dev.sqlite3`), `CACHE_PATH` (default dev XDG `~/.cache/llm-router/llm-router.cache.dev.sqlite3`), `EVENTS_PATH` (default dev XDG `~/.local/state/llm-router/llm-router.events.dev.sqlite3`), `EVENTS_RETENTION_DAYS` (default `3`), `DEV_UI_REDIRECT`, `ENV_FILE` (default dev XDG `~/.config/llm-router/.env.dev`), `PID_FILE` (default dev XDG `~/.local/state/llm-router/llm-router.dev.pid`) | `make start` / `make restart` |
 | `stop` | `PID_FILE`, `SCOPE` (`all`/`backend`, default `all`) | `make stop` / `make restart` / `make clean` (backend: graceful shutdown via admin API first, kill fallback; frontend: always killed) |
+| `clean` | — | `make clean` (human-only: stop processes + clean ignored files except `.env` files and SQLite databases) |
 | `restart` | same as `start` | `make restart` (backend-only when the frontend lives, else full start) |
 | `status` | `PID_FILE` | `make status` |
 | `log` | `EVENTS_SEVERITY`, `EVENTS_ID`, `EVENTS_START`, `EVENTS_END`, `EVENTS_LIMIT` (`LINES` fallback, default `50`), `EVENT_FILTERS` (`"k=v bare-key"`), `FOLLOW` | `make log` |

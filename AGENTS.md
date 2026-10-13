@@ -4,19 +4,21 @@ Guidelines for AI agents in `llm-router/`. Read before any change. Treat every r
 
 ## 0. Wording
 
-Apply this section to all agent output: commit messages, PR descriptions, code comments, log strings, UI copy, CLI help/output, error messages, and doc edits.
+Applies to all agent output: commit messages, PR descriptions, code comments, log strings, UI copy, CLI help/output, error messages, doc edits.
 
 ### 0.1 No filler phrases
 
 Never pad a sentence without adding information.
 
 DON'T:
+
 - "In order to fix this issue, we need to update the router."
 - "It's worth noting that the credential pool is LRU-based."
 - "Please note that this change also updates the router."
 - "As you can see, the test now passes."
 
 DO:
+
 - "Fix the issue by updating the router."
 - "The credential pool is LRU-based."
 - "Also update the router."
@@ -24,69 +26,94 @@ DO:
 
 ### 0.2 Over-explaining in UI is forbidden
 
-Do not explain what happened internally. Instead, surface the intent only:
+Do not explain internals. Surface intent only:
+
 - BAD: `"Retrying... (3 seconds passed already)"`
 - GOOD: `"Retrying..."`
 
-Do not over-explain the functionality.
+Do not over-explain functionality:
+
 - BAD: `"Access the dedicated plugin management interface to review, inspect, configure, and otherwise manage plugins that have already been installed and are currently available within your environment."`
 - GOOD: `"Manage plugins and install more plugins."`
 
 Do not guide the UX with text:
+
 - BAD: `"Press 'Done' to close."`
 - GOOD: UI that guides visually, without text.
 
 ### 0.3 No redundant wording
 
-Do not repeat the same idea using synonyms or unnecessary modifiers. Every word must contribute distinct information.
+Do not repeat one idea with synonyms or modifiers. Every word contributes distinct information.
 
 DON'T:
+
 - "View, browse, and explore available plugins."
 - "Completely remove all existing entries."
 - "Create a new plugin to add an additional capability."
 
 DO:
+
 - "Browse available plugins."
 - "Remove all entries."
 - "Create a plugin to add a capability."
 
 ### 0.4 No casual or vague wording
 
-Use precise technical terms in code, comments, commits, logs, and docs. Banned examples: "blow up", "wire", "sweep", "spin up", "juice", "nuke", "hack", "magic".
+Use precise technical terms in code, comments, commits, logs, docs. Banned: "blow up", "wire", "sweep", "spin up", "juice", "nuke", "hack", "magic".
 
 DON'T:
+
 - "This blows up if the token is empty."
 - "Wire the new adapter into the router."
 - "Sweep stale credentials on startup."
 - "Spin up a goroutine to poll the queue."
 
 DO:
+
 - "This panics if the token is empty."
 - "Register the new adapter with the router."
 - "Remove stale credentials on startup."
 - "Start a goroutine to poll the queue."
 
-### 0.5. Naming Policy: No Arbitrary Abbreviations
+### 0.5 Naming policy: no arbitrary abbreviations
 
-Prefer complete, descriptive names. The less conventional or recognizable an abbreviation is, the more severe the violation. Single-letter names can be critical violations.
+Prefer complete, descriptive names. Less conventional abbreviations are more severe violations. Single-letter names can be critical violations.
 
-- **Level 0 — Accept:** `id`, `url`, `http`, `json`, `uuid`, `min`, `max`, `avg`, `i`/`j` in short loops, `x`/`y` in mathematical contexts, `stdin`/`stdout`/`stderr`, `ctx` where conventional.
-- **Level 1 — Fix:** `repo` → `repository`, `args` → `arguments`, `params` → `parameters`, `opts` → `options`, `deps` → `dependencies`, `impl` → `implementation`, `auth` → `authentication`/`authorization`.
-- **Level 2 — Serious:** `hndl` → `handler`, `prc` → `process`, `mthd` → `method`, `vl` → `value`, `itm` → `item`, `cnfg` → `configuration`, `rqst` → `request`, `rsps` → `response`.
-- **Level 3 — Critical:** Stacked truncations (`hndlReq` → `handleRequest`), arbitrary single-letter names (`r` → `request`), or compound identifiers with multiple abbreviations (`getUsrCfg` → `getUserConfiguration`).
+- BAD: `repo`, `args`, `params`, `opts`, `deps`, `impl`, `auth`, `hndl`, `prc`, `mthd`, `vl`, `itm`, `cnfg`, `rqst`, `rsps`, `hndlReq`, `getUsrCfg`
+- GOOD: `repository`, `arguments`, `parameters`, `options`, `dependencies`, `implementation`, `authentication`/`authorization`, `handler`, `process`, `method`, `value`, `item`, `configuration`, `request`, `response`, `handleRequest`, `getUserConfiguration`
 
-Apply the rule to every component of compound identifiers and all project-authored code, tests, scripts, configuration, documentation, comments, logs, and error messages.
+Accept without change:
+
+- GOOD: `id`, `url`, `http`, `json`, `uuid`, `min`, `max`, `avg`, `i`/`j` in short loops, `x`/`y` in mathematical contexts, `stdin`/`stdout`/`stderr`, conventional `ctx`.
+
+Applies to every component of compound identifiers and all project-authored code, tests, scripts, configuration, documentation, comments, logs, error messages.
+
+- BAD: abbreviated components inside compound names (`getUsrCfg`, `hndlReq`).
+- GOOD: full words in every component (`getUserConfiguration`, `handleRequest`).
 
 Established technical terms, conventional notation, language-mandated names, and compatibility-sensitive external interfaces are exempt where necessary.
 
-All new and modified code must comply.
+- BAD: renaming a wire-compatible external field to satisfy this policy.
+- GOOD: keeping the external name, using full words in new project-owned names.
+
+All new and modified code MUST comply.
+
+- BAD: new code introduces `cnfg`, `rqst`, `rsps`.
+- GOOD: new code uses `configuration`, `request`, `response`.
 
 ## 1. Session start
 
-Open every session by identifying the platform and shell. Never assume them.
+Open every session by identifying platform and shell. Never assume them.
 
-- Query the runtime environment first (OS, shell, working directory); training defaults do not apply.
-- On win32 the `bash` tool runs PowerShell: chain commands with `;`, quote paths with `"..."`, never use Unix-isms (`head`, `cat`, `VAR=x cmd`).
+Query runtime environment first (OS, shell, working directory); training defaults do not apply.
+
+- BAD: assuming Unix shell, running `head`, `cat`, `VAR=x cmd`.
+- GOOD: query OS/shell/workdir first, then use shell-correct syntax.
+
+On win32 the `bash` tool runs PowerShell: chain with `;`, quote paths with `"..."`, never use Unix-isms.
+
+- BAD: `head file`, `cat file`, `VAR=x make go-test`.
+- GOOD: `make go-test PKG=./internal/...` with `;`-chained PowerShell.
 
 ## 2. Project
 
@@ -121,6 +148,7 @@ internal/services/
   datamanagement/        subsystem export/import/clear + provider export/import/purge
   doctor/                database inspection and repair
   proxypool/             free-pool hosting, Lua feed bridge, SQLite cache, custom pools, lane scheduler adapter
+  events/                event log storage (events SQLite store)
 internal/httpkit/        shared transport helpers (SSE headers)
 internal/requestsource/  RequestSource in request context (public vs private listener)
 internal/httpapi/        shared route tables + public/private mux builders
@@ -141,155 +169,347 @@ Makefile                 thin launcher for scripts/ — see §4
 
 Keep changes shallow. Do not touch service internals unless the task requires it.
 
+- BAD: refactoring a service interior for a caller-side fix.
+- GOOD: changing the shallowest layer that owns the behavior.
+
 ## 4. Commands
 
-### 4.1 Targets — agent runs the `agent` ones directly
+`Makefile` is the entry point for covered operations. NEVER substitute a raw command where a `make` target covers the operation, even when the outcome matches.
 
-| Command | Access | Purpose |
-|---|---|---|
-| `make check-frontend` | agent | Frontend compile/type-check |
-| `make go-vet` | agent | Go static check (`PKG=...` scopes packages, default `./...`) |
-| `make go-test` | agent | Go tests (`PKG=...` scopes packages, default `./...`) |
-| `make go-test-race` | agent | Go tests with race detector (`PKG=...` scopes packages, default `./...`) |
-| `make sql-policy` | agent | Enforce typed GORM conditions (no raw SQL outside `internal/db/maintenance.go`) |
-| `make go-fmt` | agent | Apply `gofmt` to both Go modules (`PATHS=...` scopes files/dirs, default whole tree) |
-| `make go-fmt-check` | agent | Fail when `gofmt` would reformat anything (`PATHS=...` scopes files/dirs) |
-| `make init` | agent | Project init/re-init: bun install, openapi.yaml, api-types, embed stub; skips fresh outputs unless `NO_SKIP=1` |
-| `make log` | agent | Tail backend log (`LINES=...` sizes tail, default `100`; `FOLLOW=...` overrides TTY auto-follow) |
-| `make log-frontend` | agent | Tail frontend log (same `LINES`/`FOLLOW` contract as `make log`) |
-| `make start` | agent | Start dev backend + frontend (vite); admin listener on 127.0.0.1:ADMIN_PORT answers without auth |
-| `make stop` | agent | Stop dev processes (backend graceful via admin API with kill fallback; frontend killed) |
-| `make restart` | agent | Rebuild and restart the backend only, keeping a live frontend and last start params (full start when frontend is down) |
-| `make smoke` | agent | Run the smoke harness against the running dev stack, never restarting it (`SMOKE_PLUGINS=...`, `SMOKE_TARGETS=...`) |
-| `make upload-plugins` | agent | Upload every store `.lua` plugin via the admin listener (`UPLOAD_STORE_DIR=...`, no restart) |
-| `make status` | agent | Show dev server status |
-| `make help` | agent | Print targets and variables |
-| `make go-tidy` | agent | Tidy both Go modules |
-| `make browser` | human | Open dashboard in browser |
-| `make build` | human | Build frontend + release binaries (`PLATFORMS=...`, `VERSION=...`) |
-| `make install` | human | Install host release binary into `~/.local/bin` (`VERSION=...`; refuses when running) |
-| `make publish` | human | Cut and push the next release tag (`TYPE=fix|minor|major` or `VERSION=X.Y[.Z]`); CI builds |
-| `make clean` | human | Stop processes + clean ignored files except `.env` files and SQLite databases |
+- BAD: `go vet ./...`, `go test ./...`, `gofmt -l .`, `bunx svelte-check`.
+- GOOD: `make go-vet`, `make go-test`, `make go-fmt-check`, `make check-frontend`.
 
-`check-frontend-deps` and `check-build-deps` are prerequisites, not direct targets. Never run them standalone.
+Operations with no covering target may use direct commands.
 
-`make go-test` runs the full suite by default. Scope with `make go-test PKG=...` only to iterate on one failing package. Never chain scoped runs to cover the tree; run one global pass instead.
+- BAD: hand-rolling frontend checks when `make check-frontend` covers them.
+- GOOD: direct commands only where no target covers the operation.
 
-### 4.2 Banned — raw equivalents of the above
+### 4.1 Agent targets — agent runs these directly
 
-| DO | DON'T |
-|---|---|
-| `make check-frontend` | `bunx svelte-check`, `bun run check`, `tsc --noEmit`, `eslint .` |
-| `make go-vet` | `go vet ./...` |
-| `make go-vet PKG=...` | `go vet ./internal/...` (scoped raw vet) |
-| `make go-test` | `go test ./...` |
-| `make go-test PKG=...` | `go test ./internal/...` (scoped raw test) |
-| `make go-fmt` / `make go-fmt-check` | `gofmt -w .`, `gofmt -l .` |
-| `make go-fmt-check PATHS=...` | `gofmt -l <paths>` (scoped raw gofmt) |
+Frontend compile/type-check:
 
-NEVER substitute a raw command for an allowed `make` target, even when the outcome matches.
+- BAD: `bunx svelte-check`, `bun run check`, `tsc --noEmit`, `eslint .`
+- GOOD: `make check-frontend`
 
-When no target covers an operation, add one (`Makefile` + `scripts/help.txt` + `scripts/README.md` + this table) instead of running raw commands. A missing target is a gap to fix, never permission to bypass.
+Go static check (`PKG=...` scopes packages, default `./...`):
 
-### 4.3 Human-only handoff
+- BAD: `go vet ./...`, `go vet ./internal/...`
+- GOOD: `make go-vet`, `make go-vet PKG=./internal/...`
 
-If the task needs `browser`, `build`, `install`, `publish`, or `clean`: STOP. Ask the human to run it and report back (terminal output, logs, curl/browser result).
+Go tests (`PKG=...` scopes packages, default `./...`):
 
-| DO | DON'T |
-|---|---|
-| "Please run `make publish` and paste the output." | `go run .`, `go build -o ./llm-router.exe`, `bun run dev`, `Start-Process ...`, any script/wrapper invoking these |
+- BAD: `go test ./...`, `go test ./internal/...`
+- GOOD: `make go-test`, `make go-test PKG=./internal/...`
+
+Go tests with race detector (`PKG=...` scopes packages, default `./...`):
+
+- BAD: `go test -race ./...`
+- GOOD: `make go-test-race`
+
+Typed GORM conditions (no raw SQL outside `internal/db/maintenance.go`):
+
+- BAD: manual `grep` for SQL strings as policy.
+- GOOD: `make sql-policy`
+
+Apply `gofmt` to both Go modules (`PATHS=...` scopes files/dirs, default whole tree):
+
+- BAD: `gofmt -w .`
+- GOOD: `make go-fmt`, `make go-fmt PATHS=./internal/...`
+
+Fail when `gofmt` would reformat anything (`PATHS=...` scopes files/dirs):
+
+- BAD: `gofmt -l .`, `gofmt -l <paths>`
+- GOOD: `make go-fmt-check`, `make go-fmt-check PATHS=./internal/...`
+
+Project init/re-init (`NO_SKIP=1` forces fresh outputs):
+
+- BAD: running `bun install` plus codegen steps by hand.
+- GOOD: `make init`, `make init NO_SKIP=1`
+
+Tail backend log (`LINES=...` overrides the `EVENTS_LIMIT=50` default tail; `FOLLOW=...` overrides TTY auto-follow). Exclusive backend-log access:
+
+- BAD: `type "$env:TEMP\llm-router-backend.log"`, `Get-Content` on log paths, `Get-ChildItem` temp-dir log hunting.
+- GOOD: `make log`, `make log LINES=200`, `make log FOLLOW=1`
+
+Tail frontend log (same `LINES`/`FOLLOW` contract). Exclusive frontend-log access:
+
+- BAD: `type` on vite logs, reading pid-dir `*.log` files directly.
+- GOOD: `make log-frontend`, `make log-frontend LINES=200`
+
+Start dev backend + frontend (vite); admin listener on 127.0.0.1:ADMIN_PORT answers without auth:
+
+- BAD: `go run .`, `bun run dev`, `Start-Process ...`.
+- GOOD: `make start`
+
+Stop dev processes (backend graceful via admin API with kill fallback; frontend killed):
+
+- BAD: `kill`, `pkill`, `taskkill`, `Stop-Process`.
+- GOOD: `make stop`
+
+Rebuild and restart backend only, keeping live frontend and last start params (full start when frontend is down):
+
+- BAD: killing the backend process, restarting the binary by hand.
+- GOOD: `make restart`
+
+Run smoke harness against the running dev stack, never restarting it (`SMOKE_PLUGINS=...`, `SMOKE_TARGETS=...`):
+
+- BAD: restarting the stack for smoke, running `scripts/smoke` directly.
+- GOOD: `make smoke`, `make smoke SMOKE_PLUGINS=google SMOKE_TARGETS=stream`
+
+Upload every store `.lua` plugin via admin listener (`UPLOAD_STORE_DIR=...`, no restart):
+
+- BAD: copying `.lua` files into the project, calling install scripts directly.
+- GOOD: `make upload-plugins`, `make upload-plugins UPLOAD_STORE_DIR=C:\devel\llm-router-store\llm-router-plugins`
+
+Show dev server status. Exclusive process-state access:
+
+- BAD: `Get-Process llm-router-dev-backend`, `netstat -ano`, reading `*.pid` files with `type`/`Get-Content`.
+- GOOD: `make status`
+
+Print targets and variables:
+
+- BAD: reading `Makefile` to guess targets.
+- GOOD: `make help`
+
+Tidy both Go modules:
+
+- BAD: `go mod tidy` in each module by hand.
+- GOOD: `make go-tidy`
+
+`check-frontend-deps` and `check-build-deps` are prerequisites, not direct targets.
+
+- BAD: running `make check-frontend-deps` standalone.
+- GOOD: letting `make init`/`make start`/`make build` invoke them.
+
+`make go-test` runs the full suite by default. Scope with `PKG=...` only to iterate on one failing package. Never chain scoped runs to cover the tree.
+
+- BAD: `make go-test PKG=A` then `make go-test PKG=B` as full coverage.
+- GOOD: one global `make go-test` pass after scoped iteration.
+
+### 4.2 Human-only targets — agent MUST NOT run these
+
+`browser`, `build`, `install`, `publish`, `clean` are human-only. Task needing one: STOP. Ask the human to run it and report back (terminal output, logs, curl/browser result).
+
+Open dashboard in browser:
+
+- BAD: agent runs `make browser`.
+- GOOD: "Please run `make browser` and paste the result."
+
+Build frontend + release binaries (`PLATFORMS=...`, `VERSION=...`):
+
+- BAD: agent runs `make build`, `go build -o ./llm-router.exe`.
+- GOOD: "Please run `make build` and paste the output."
+
+Install host release binary into `~/.local/bin` (`VERSION=...`; refuses when running):
+
+- BAD: agent runs `make install`.
+- GOOD: "Please run `make install VERSION=...` and paste the output."
+
+Cut and push next release tag (`TYPE=fix|minor|major` or `VERSION=X.Y[.Z]`); CI builds:
+
+- BAD: agent runs `make publish`.
+- GOOD: "Please run `make publish` and paste the output."
+
+Stop processes + clean ignored files except `.env` files and SQLite databases:
+
+- BAD: agent runs `make clean`, `git clean -fdX`.
+- GOOD: "Please run `make clean` and paste the output."
+
+Never launch the app outside make targets:
+
+- BAD: `go run .`, `go build -o ./llm-router.exe`, `bun run dev`, `Start-Process ...`, any script/wrapper invoking these.
+- GOOD: `make start` / `make restart` / `make stop` for live debug; human-run request otherwise.
+
+### 4.3 Git commands
+
+Read-only git is allowed; destructive git is banned (see §5.3).
+
+- BAD: `git push`, `git reset`, `git checkout -f`, `git clean`, force-push, amend; stashing without a clean-status check and immediate pop.
+- GOOD: `git status`, `git diff`, `git log`; `git stash` only with clean status first and immediate pop after the baseline run.
 
 ## 5. Prohibitions
 
-| # | Prohibition | Detail |
-|---|---|---|
-| 1 | Kill processes | No `kill`, `pkill`, `taskkill`, `Stop-Process`. Use `make stop` / `make restart` so pidfiles stay consistent (`stop` shuts the backend down gracefully via the admin API first and kills only the frontend outright or as fallback). `make restart` stops live dev processes first: warn before running it when the user may have work in flight. |
-| 2 | Delete database files | Never remove `~/.local/share/llm-router/llm-router.dev.sqlite3` or `~/.cache/llm-router/llm-router.cache.dev.sqlite3`. If either is corrupt, ask the human to delete it. |
-| 3 | Run destructive git commands | No `git push`, `git reset`, `git checkout -f`, `git clean`, force-push, amend. Commit only if explicitly instructed, for that exact commit only. |
-| 4 | Litter the project | No `*.log`, `*.pid`, `*.tmp`, binaries, scratch files, notes inside the project tree. Use `/tmp` or an external scratch dir. Delete temporary verification files when done. |
-| 5 | Avoid the Makefile | No raw command substitutes for an allowed target (§4.2). No manual invocation of a banned target's underlying steps (§4.3). |
-| 6 | Build or launch the app outside make targets | `browser`, `publish`, `clean` are human-only. Debug live with `make start` / `make restart` / `make stop` / `make status` — ask the human for anything else. See §4.3, §10. |
-| 7 | Redirect output to nul or /dev/null | Breaks on Windows and hides diagnostics on every OS. |
-| 8 | Truncate diagnostics output with tail/head | Diagnostics matter and truncating wastes time. NEVER truncate them. |
-| 9 | Fall back silently | NEVER swallow a failure and continue on a fallback path. Surface every failure as an error — return it to the caller, log it, or both — or route it to an explicit, named on-fail branch. Never fall through unannounced. |
-| 10 | Match errors by string | NEVER match error codes or kinds with `strings.Contains(err.Error(), ...)` or message substrings. Define sentinel errors and match with `errors.Is` / `errors.As`. |
-| 11 | Patch a weak API contract in the frontend | Repetitive `??` / `?.` over backend data shapes means the contract is wrong. Fix the backend to return consistent shapes (arrays never null, objects never null when the schema promises them). Frontend guards stay only for genuinely optional local state. |
-| 12 | Create stray files from the shell | NEVER let a shell command create a file: no `>` / `>>` / `Out-File` redirection, no heredocs, no `2>/dev/null`, no unquoted fragments that resolve to filenames (`nul`, `null`, command text as filename). Read command output from the tool result, never from disk. |
-| 13 | Pass env vars with shell syntax | NEVER `VAR=value make <target>` (Unix-only) and NEVER `$env:VAR="value"; make <target>` (PowerShell-only, leaks state into the session). Use `make <target> VAR=value`: make syntax, works in every shell, scoped to one invocation. |
-| 14 | Act on questions | Answer questions with words. A question never authorizes edits, runs, installs, or any other side effect — not even an obvious follow-up. |
-| 15 | Write files through executed scripts | Never create or patch files via throwaway scripts (`python -c` writers, heredoc generators, `sed` equivalents). Use the dedicated file tools so every change stays reviewable. |
+1. Kill processes. `make stop` / `make restart` keep pidfiles consistent.
+
+- BAD: `kill`, `pkill`, `taskkill`, `Stop-Process`.
+- GOOD: `make stop`, `make restart` (warn before `make restart` when work is in flight).
+
+2. Delete database files.
+
+- BAD: removing `~/.local/share/llm-router/llm-router.dev.sqlite3`, `~/.cache/llm-router/llm-router.cache.dev.sqlite3`.
+- GOOD: asking the human to delete a corrupt database file.
+
+3. Run destructive git commands (see §4.3).
+
+- BAD: `git push`, `git reset`, `git checkout -f`, `git clean`, force-push, amend.
+- GOOD: committing only when explicitly instructed, for that exact commit only.
+
+4. Litter the project.
+
+- BAD: `*.log`, `*.pid`, `*.tmp`, binaries, scratch files, notes inside the project tree.
+- GOOD: `/tmp` or external scratch dir; delete temporary verification files when done.
+
+5. Avoid the Makefile.
+
+- BAD: raw substitutes for allowed targets; manual invocation of banned target internals.
+- GOOD: `make <target>` where a target covers the operation; direct commands otherwise.
+
+6. Build or launch the app outside make targets.
+
+- BAD: human-only or raw launch commands from §4.2.
+- GOOD: `make start` / `make restart` / `make stop` / `make status`; human handoff for the rest.
+
+7. Redirect output to nul or /dev/null.
+
+- BAD: `2>/dev/null`, `> nul`, `Out-File` discards.
+- GOOD: returning full command output in the tool result.
+
+8. Fall back silently.
+
+- BAD: swallowing a failure, continuing on a fallback path unannounced.
+- GOOD: surfacing every failure (return, log, or both) or routing to an explicit named on-fail branch.
+
+9. Match errors by string.
+
+- BAD: `strings.Contains(err.Error(), ...)`, message-substring checks.
+- GOOD: sentinel errors matched with `errors.Is` / `errors.As`.
+
+10. Patch a weak API contract in the frontend.
+
+- BAD: repetitive `??` / `?.` over backend data shapes.
+- GOOD: fixing the backend to return consistent shapes (arrays never null, objects never null when the schema promises them); frontend guards only for genuinely optional local state.
+
+11. Create stray files from the shell.
+
+- BAD: `>` / `>>` / `Out-File` redirection, heredocs, `2>/dev/null`, unquoted fragments resolving to filenames (`nul`, `null`, command text).
+- GOOD: reading command output from the tool result, never from disk.
+
+12. Pass env vars with shell syntax.
+
+- BAD: `VAR=value make <target>` (Unix-only), `$env:VAR="value"; make <target>` (PowerShell-only, leaks session state).
+- GOOD: `make <target> VAR=value` (make syntax, every shell, one invocation).
+
+13. Act on questions.
+
+- BAD: treating a question as authorization for edits, runs, installs.
+- GOOD: answering with words; zero side effects.
+
+14. Write files through executed scripts.
+
+- BAD: `python -c` writers, heredoc generators, `sed` equivalents, throwaway file-patching scripts.
+- GOOD: dedicated file tools so every change stays reviewable.
 
 ## 6. Edit discipline
 
-- Grasp the concept before the code. On ambiguity, ask instead of inferring from code literally.
-- Re-read the region before every `edit` to the same file. Stale `oldString`
-  either no-matches or deletes neighboring code.
-- Batch edits to one file only from a fresh read of every region; verify
-  each result before the next batch.
-- After deleting a function, grep the file's imports immediately (`net/url`,
-  `regexp`, `errors`, `strings`, `slog` orphans are guaranteed); `go vet`
-  catches them a cycle later.
-- Diff every edited file before moving on.
-- Leave no scaffolding: delete draft notes, TODO-placeholders and reasoning asides left over from the edit itself.
-- One simple shell command per call: no heredocs, no `VAR=x cmd`, no bare
-  `echo`, no `2>/dev/null` (§5.#12, §5.#13).
-- A predicted runtime-only risk ships with its test in the same change
-  (route patterns validate only at startup — hence `mux_test.go`).
-- Verify through execution whenever reasonable: run checks, tests, or smoke
-  after implementing, fixing, or refactoring. `make go-vet`, `make go-test`,
-  `make go-fmt-check` gate every Go change; `make smoke`
-   gates request-path changes (Request flow in `docs/BACKEND.md`: `router`,
-   `proxypool`, `virtual`, `luaplugin`/`PLUGIN-API`, `api/v1`, `errors`). Scope to a real plugin only
-   to debug that plugin.
-- Attribute failures before fixing: when smoke fails after the change,
-  reproduce on the clean tree first with a scoped run. `git stash` is
-  permitted for baselines but dangerous: confirm clean `git status` before
-  stashing, pop immediately after the baseline run, and prefer a separate
-  worktree when unrelated work is in flight. A forgotten stash loses work
-  silently.
+Grasp the concept before the code. On ambiguity, ask instead of inferring literally.
+
+- BAD: editing from a literal code guess while the concept is unclear.
+- GOOD: asking for clarification, then editing.
+
+Re-read the region before every `edit` to one file. Stale `oldString` either no-matches or deletes neighbors.
+
+- BAD: reusing an earlier read across multiple edit batches.
+- GOOD: fresh read of every region before each batch; verify each result before the next batch.
+
+Batch edits to one file only from fresh reads; verify each result before the next batch.
+
+- BAD: batching edits across files from stale reads.
+- GOOD: one file per batch, verified before continuing.
+
+After deleting a function, grep the file imports immediately (`net/url`, `regexp`, `errors`, `strings`, `slog` orphans are guaranteed).
+
+- BAD: leaving orphan imports for `go vet` to catch a cycle later.
+- GOOD: immediate import grep plus cleanup in one change.
+
+Diff every edited file before moving on.
+
+- BAD: moving to the next file with an unverified diff.
+- GOOD: reviewing the diff of the edited file first.
+
+Leave no scaffolding: delete draft notes, TODO-placeholders, reasoning asides from the edit itself.
+
+- BAD: committed `TODO` placeholders describing the edit process.
+- GOOD: clean tree containing only the intended change.
+
+A predicted runtime-only risk ships with its test in one change.
+
+- BAD: route-pattern change without startup validation coverage.
+- GOOD: route change plus `mux_test.go` in one change.
+
+Verify through execution whenever reasonable: `make go-vet`, `make go-test`, `make go-fmt-check` gate every Go change; `make smoke` gates request-path changes (`router`, `proxypool`, `virtual`, `luaplugin`/`PLUGIN-API`, `api/v1`, `errors` per `docs/BACKEND.md`).
+
+- BAD: shipping a request-path change on static checks alone.
+- GOOD: `make go-vet` + `make go-test` + `make go-fmt-check`, plus `make smoke` for request paths; scoped plugin runs only to debug that plugin.
+
+Attribute failures before fixing: reproduce on the clean tree first with a scoped run when smoke fails after the change. `git stash` is permitted for baselines but dangerous.
+
+- BAD: fixing forward without a clean-tree baseline.
+- GOOD: confirming clean `git status`, stashing, baseline run, immediate pop; preferring a separate worktree when unrelated work is in flight.
 
 ## 7. Design defaults
 
-- One knowledge, one owner. Duplicated logic drifts toward bugs; unify
-  instead of patching instances.
-- Fail closed. Unknown state denies with a surfaced error, never a default
-  success.
-- Transaction boundary belongs to the calling domain method: one public
-  method, one GORM transaction (`Handle.Transaction`).
-- Fix the contract where data is born. Frontend guards over backend shapes,
-  display-side parsing, and anonymous DTOs duplicating models are backend
-  bugs postponed (§5.#11).
-- Persisted derived values are frozen. Functions whose outputs live in
-  storage never change semantics without a migration; lock them with
-  stability tests.
-- Migrate stored shapes explicitly: add a numbered migration to
-  `migrations.Registry` (versions never reused, forward-only `Up`,
-  history row in `schema_migrations`). Never hide
-  backward-compat inside the function needing the new shape.
-- Fix the class, not the instance. Systemic fixes run smaller than
-  instance patches.
-- Names must not lie. Rename when semantics change; a lying name is worse
-  than none.
+One knowledge, one owner. Duplicated logic drifts toward bugs.
+
+- BAD: patching each duplicate instance.
+- GOOD: unifying the logic in one owner.
+
+Fail closed. Unknown state denies with a surfaced error, never default success.
+
+- BAD: defaulting unknown state to success.
+- GOOD: denying unknown state with a surfaced error.
+
+Transaction boundary belongs to the calling domain method: one public method, one GORM transaction (`Handle.Transaction`).
+
+- BAD: nesting transactions across callee layers.
+- GOOD: one public domain method owning one transaction.
+
+Fix the contract where data is born (§5.10).
+
+- BAD: frontend guards over backend shapes, display-side parsing, anonymous DTOs duplicating models.
+- GOOD: backend returning consistent shapes at creation.
+
+Persisted derived values are frozen. Functions whose outputs live in storage never change semantics without a migration; lock them with stability tests.
+
+- BAD: changing a stored-output function silently.
+- GOOD: migration plus stability test in one change.
+
+Migrate stored shapes explicitly: numbered migration in the owning store registry (`RegistryDatabase`/`RegistryCache`/`RegistryEvents`) (versions never reused, forward-only `Up`, history row in `schema_migrations`).
+
+- BAD: hiding backward-compat inside the function needing the new shape.
+- GOOD: explicit numbered migration with history row.
+
+Fix the class, not the instance.
+
+- BAD: instance patch for a systemic defect.
+- GOOD: smaller systemic fix covering the class.
+
+Names MUST NOT lie. Rename when semantics change; a lying name is worse than none.
+
+- BAD: keeping an old name after a semantic change.
+- GOOD: renaming with the semantic change.
 
 ## 8. Svelte 5 Reactivity
 
-NEVER write to a `$state` variable from an `$effect` that reads it — directly, or via a function it calls. Guard flags and `untrack()` do not fix this — they hide it.
+NEVER write to a `$state` variable from an `$effect` that reads it — directly, or via a function it calls. Guard flags and `untrack()` do not fix this.
 
 DON'T:
+
 ```svelte
 $effect(() => {
   if (types.length && !typeKey) {
-    untrack(() => { typeKey = types[0] })  // writes typeKey; effect exists because typeKey is read elsewhere → oscillation risk
+    untrack(() => { typeKey = types[0] })
   }
 })
 ```
 
 DO — computed value → `$derived`:
+
 ```svelte
 let typeKey = $derived(types[0] ?? '')
 ```
 
 DO — one-time default on data arrival → imperative, not reactive:
+
 ```svelte
 onMount(async () => {
   types = await fetchTypes()
@@ -297,7 +517,8 @@ onMount(async () => {
 })
 ```
 
-DO — parent-notification effect (the only legitimate write-out pattern): list every dependency explicitly, `untrack()` only the outgoing call, never the effect's own state:
+DO — parent-notification effect (only legitimate write-out pattern): list every dependency explicitly, `untrack()` only the outgoing call, never the effect's own state:
+
 ```svelte
 $effect(() => {
   void a; void b; void c
@@ -305,89 +526,252 @@ $effect(() => {
 })
 ```
 
-Never stack a 2nd/3rd `$effect` with its own guard flag to patch the 1st. That means the 1st effect is wrong. Replace it, don't add to it.
+Never stack a 2nd/3rd `$effect` with guard flags to patch the 1st. A patched 1st effect is a wrong 1st effect.
 
-Before finishing any `.svelte` change, re-check every `$effect` touched against this section.
+- BAD: adding another guarded `$effect` to stabilize the first.
+- GOOD: replacing the first effect with `$derived` or imperative setup.
+
+Before finishing any `.svelte` change, re-check every touched `$effect` against this section.
+
+- BAD: submitting a `.svelte` change without effect review.
+- GOOD: explicit re-check of every touched `$effect`.
 
 ## 9. i18n Robotic Keys
 
 UI text uses categorized robotic keys. English text is the default output. A key shows only when a translation is missing.
 
-- Location: `web/src/lib/i18n/` with `types.ts` (`TranslationKey` union), `en.ts` (source), `ru.ts` (translation), `index.ts` (`t`, `n`, `tb`).
-- API: `t('common.actions.save')` for static text; `n(count, 'time.units.minute.one', 'time.units.minute.many')` for counts with automatic Russian forms; `tb(summary)` for backend probe summaries.
-- Key format: `<domain>.<subdomain>.<entity>.<suffix>`, 2 to 4 levels, `snake_case`, full words, no abbreviations.
-- Domains: `common`, `auth`, `nav`, `providers`, `credentials`, `models`, `tokens`, `virtual`, `plugins`, `proxy`, `settings`, `data`, `metrics`, `upload`, `misc`, `time`, `units`.
-- Suffixes: `.title`, `.label`, `.placeholder`, `.hint`, `.action`, `.status`, `.error`, `.empty`, `.desc`, `.one`/`.many` (English plurals), `.one`/`.few`/`.many` (Russian plurals).
-- Text rules: ASCII only (`...` not Unicode ellipsis, `-` not em dash), short sentences, title case for titles and buttons, sentence case for descriptions.
-- Add a key: extend the `TranslationKey` union, add English text to `en.ts`, add Russian text to `ru.ts`, use `t('domain.entity.suffix')`, run `make check-frontend`.
-- Never pass English strings to `t`. Never pass dynamic strings to `t`; use `tb` for backend summaries.
-- Full guide with examples: `web/src/lib/i18n/README.md`.
+Key location: `web/src/lib/i18n/` with `types.ts` (`TranslationKey` union), `en.ts` (source), `ru.ts` (translation), `index.ts` (`t`, `n`, `tb`).
+
+- BAD: adding UI text outside `web/src/lib/i18n/`.
+- GOOD: adding the key in `types.ts`, `en.ts`, `ru.ts`, then using it.
+
+API: `t('common.actions.save')` for static text; `n(count, ...)` for counts with automatic Russian forms; `tb(summary)` for backend probe summaries.
+
+- BAD: `t('Save')`, `t(dynamicString)`.
+- GOOD: `t('common.actions.save')`, `tb(backendSummary)`.
+
+Key format: `<domain>.<subdomain>.<entity>.<suffix>`, 2-4 levels, `snake_case`, full words, no abbreviations.
+
+- BAD: `t('cmn.sv')`.
+- GOOD: `t('common.actions.save')`.
+
+Domains: `common`, `auth`, `nav`, `providers`, `credentials`, `models`, `tokens`, `virtual`, `plugins`, `proxy`, `settings`, `data`, `metrics`, `upload`, `misc`, `time`, `units`.
+
+- BAD: inventing a top-level domain per screen.
+- GOOD: reusing the listed domains.
+
+Suffixes: `.title`, `.label`, `.placeholder`, `.hint`, `.action`, `.status`, `.error`, `.empty`, `.desc`, `.one`/`.many` (English), `.one`/`.few`/`.many` (Russian).
+
+- BAD: `.text`, `.msg`, `.string` suffixes.
+- GOOD: listed suffixes only.
+
+Text rules: ASCII only (`...` not Unicode ellipsis, `-` not em dash), short sentences, title case for titles/buttons, sentence case for descriptions.
+
+- BAD: `"Manage plugins…"` with Unicode ellipsis.
+- GOOD: `"Manage Plugins..."` with ASCII.
+
+Add a key: extend `TranslationKey`, add English to `en.ts`, add Russian to `ru.ts`, use `t('domain.entity.suffix')`, run `make check-frontend`.
+
+- BAD: adding `en.ts` text without `ru.ts` plus type-check.
+- GOOD: union + `en.ts` + `ru.ts` + `t(...)` + `make check-frontend`.
+
+Never pass English strings to `t`. Never pass dynamic strings to `t`; use `tb` for backend summaries.
+
+- BAD: `t('Save changes')`, `t(statusMessage)`.
+- GOOD: `t('common.actions.save')`, `tb(statusMessage)`.
+
+Full guide: `web/src/lib/i18n/README.md`.
+
+- BAD: inventing i18n rules from component code.
+- GOOD: following `web/src/lib/i18n/README.md`.
 
 ## 10. Lua Plugins
 
-- New provider backends are single-file Lua plugins: one `.lua` file with a `--- @` manifest header. Install via dashboard Plugins → Catalog tab or `POST /api/llm-router/dashboard/plugins/install-file`.
-- Manifest: required tags `@plugin`, `@author`, `@version`, `@plugin_api`, one or more `@allow_host` (`*` marks the plugin unsafe). Plugin API format `x.y`: `x` breaks, `y` extends. Install compares majors only: newer reports `too_new`, older reports `too_old`, missing reports `no_api_version`. `internal/services/luaplugin/manifest.go` validates; `luaplugin.PluginAPIVersion` (`1.4`) owns the served contract.
-- API: `llm_router.register(type_key, {complete, ...})`, `llm_router.http_client({timeout_ms?})` with per-request `proxy_url` (router owns TLS-fault `MarkDead`, plugins never mark proxies), `llm_router.proxies.query`, `llm_router.credentials` (`list`/`get` plus job-only `update`, switch-gated `disable`/`enable`, ungated `park`/`unpark`/`parked`), `llm_router.storage` with TTL, colocated `jobs`, `llm_router.multipart`, `llm_router.uuid_v5(namespace, name)` (RFC 4122), `llm_router.random_hex(nbytes)`, `json.encode/decode`. Terminal errors are OpenAI-shaped `{message, code?, param?, status?}` and render verbatim; no `type`/`scope`/`retry_after` fields exist. **docs/PLUGIN-API.md is the binding contract for plugin authors — keep it in sync with every handler/API change.**
-- Park (transient, TTL, self-healing, invisible; `list()` auto-excludes parked) vs disable (dead, sticky, dashboard-visible): rate limits and quota windows park, rejected keys disable under the provider `disable_failed_credentials` switch. The manual dashboard toggle and switch-gated probe win over plugin writes.
-- UI trees for `config_schema`/`credential_schema`/`auth_initiate`/`auth_step` render through `DynamicForm.svelte`. Node kinds: leafs `text`, `input`, `select`, `checkbox`, `button`, `link`, `banner`, `secret`, `code`; containers `group`, `flow`, `grid`, `section`, `spacer`, `divider`. No raw HTML from plugins, ever — new widgets ship as first-class node kinds, not markup.
-- Built-in Go backends exist only for `custom` (`internal/adapters/generic/`) and `virtual` (`providers/virtual/`), both implementing `provider.GoAdapter`.
-- Logging convention (`llm_router.log`, contract 1.4): one stable human sentence per site (sentence case, no embedded values, no provider name — `type` identifies the source); `debug` for flow, `info` for progress, `warn` for handled failover, `error` for terminal, `fatal` for unrecoverable (`critical` aliases `fatal`); `snake_case` keys from the standard vocabulary (`status`, `code`, `cred_id`, `provider_id`, `token_id`, `plugin_id`, `model`, `endpoint`, `event`, `count`, `job`, `operation`, `attempt`, `reason`, `detail`, `wait`, `latency_ms`, `exit`, `proxy_url`, `body`, `line`, payload facts), `plugin`/`type` reserved. Full rules plus example/anti-example live in `docs/PLUGIN-API.md`.
-- Verification: `make go-vet` for static checks, `make smoke` for black-box checks against live upstreams.
+New provider backends are single-file Lua plugins: one `.lua` file with a `--- @` manifest header.
+
+- BAD: multi-file backend, Go backend for a new provider.
+- GOOD: one `.lua` file installed via Plugins → Catalog or `POST /api/llm-router/dashboard/plugins/install-file`.
+
+Manifest: required `@plugin`, `@author`, `@version`, `@plugin_api`, one or more `@allow_host` (`*` marks unsafe). API format `x.y`: `x` breaks, `y` extends. Install compares majors: newer reports `too_new`, older reports `too_old`, missing reports `no_api_version`. `internal/services/luaplugin/manifest.go` validates; `luaplugin.PluginAPIVersion` (`1.4`) owns the served contract.
+
+- BAD: missing `@allow_host`, undeclared API major.
+- GOOD: complete manifest with matching `@plugin_api` major.
+
+API surface: `llm_router.register(type_key, {complete, ...})`, `llm_router.http_client({timeout_ms?})` with per-request `proxy_url` (router owns TLS-fault `MarkDead`, plugins never mark proxies), `llm_router.proxies.query`/`require`, `llm_router.credentials` (`list`/`get` plus job-only `update`, switch-gated `disable`/`enable`, ungated `park`/`unpark`/`parked`), `llm_router.storage` with TTL, colocated `jobs`, `llm_router.multipart`, `llm_router.uuid_v5(namespace, name)` (RFC 4122), `llm_router.random_hex(nbytes)`, `json.encode/decode`. Terminal errors are OpenAI-shaped `{message, code?, param?, status?, headers?}` and render verbatim; `type`/`scope`/`retry_after` fields are not honored (extras are ignored).
+
+- BAD: plugin marking proxies dead, returning `type`/`scope`/`retry_after` error fields.
+- GOOD: per-request `proxy_url` only, OpenAI-shaped errors only.
+
+**docs/PLUGIN-API.md is the binding contract — keep it in sync with every handler/API change.**
+
+- BAD: handler change without `docs/PLUGIN-API.md` update.
+- GOOD: handler plus contract doc plus history row in one change.
+
+Park (transient, TTL, self-healing, invisible; `list()` auto-excludes parked) vs disable (dead, sticky, dashboard-visible): rate limits and quota windows park, rejected keys disable under `disable_failed_credentials`. Manual dashboard toggle and switch-gated probe win over plugin writes.
+
+- BAD: disabling a credential for a rate limit; parking a rejected key.
+- GOOD: parking rate limits/quota windows, disabling rejected keys under the switch.
+
+UI trees for `config_schema`/`credential_schema`/`auth_initiate`/`auth_step` render through `DynamicForm.svelte`. Node kinds: leafs `text`, `input`, `select`, `checkbox`, `button`, `link`, `banner`, `secret`, `code`; containers `group`, `flow`, `grid`, `section`, `spacer`, `divider`. No raw HTML from plugins, ever.
+
+- BAD: plugin returning HTML markup for a new widget.
+- GOOD: new widgets as first-class node kinds.
+
+Built-in Go backends exist only for `custom` (`internal/adapters/generic/`) and `virtual` (`providers/virtual/`), both implementing `provider.GoAdapter`.
+
+- BAD: adding a third Go backend for a new provider.
+- GOOD: Lua plugin for new providers; Go only for `custom`/`virtual`.
+
+Logging convention (`llm_router.log`, contract 1.4): one stable human sentence per site (sentence case, no embedded values, no provider name — `type` identifies source); `debug` for flow, `info` for progress, `warn` for handled failover, `error` for terminal, `fatal` for unrecoverable (`critical` aliases `fatal`); `snake_case` keys from standard vocabulary (`status`, `code`, `cred_id`, `provider_id`, `token_id`, `plugin_id`, `model`, `endpoint`, `event`, `count`, `job`, `operation`, `attempt`, `reason`, `detail`, `wait`, `latency_ms`, `exit`, `proxy_url`, `body`, `line`, payload facts), `plugin`/`type` reserved.
+
+- BAD: `llm_router.log("warn", "google rate limited key XYZ", { CredID = id })`.
+- GOOD: `llm_router.log("warn", "rate limited", { code = "rate_limit", cred_id = id })`.
+
+Verification: static checks plus live black-box checks.
+
+- BAD: `go vet ./...` plus manual curl as plugin verification.
+- GOOD: `make go-vet` plus `make smoke`.
 
 ## 11. Runtime, API Testing, Smoke
 
-Debug live with `make start` (public listener needs login; the admin listener on `127.0.0.1:ADMIN_PORT` answers `/api` and `/v1` without auth or bootstrapping and serves no dashboard), `make log` / `make log-frontend` for output, `make status` for state, `make stop` when done. Fresh DBs still open the bootstrap page once on public (account creation stays); admin `status` reads bootstrapped and authenticated without an account. NEVER enable the admin listener outside local dev (empty `ADMIN_PORT` disables it).
+Live-debug through make targets plus direct endpoint calls via the admin listener: `make status`, `make log`, `make log-frontend`, `make start`, `make restart`, `make stop`, `make smoke`, direct `/v1` and `/api` calls against 127.0.0.1:ADMIN_PORT.
 
-To get runtime facts from a human-run instance instead:
+- BAD: `type` on log files, `Get-Content` on pidfiles, `Get-Process`, `netstat`, `Get-ChildItem` log hunting.
+- GOOD: `make status` for state, `make log` for backend, `make log-frontend` for frontend, `make smoke` and direct admin-listener calls for request paths.
 
-1. State exactly what's needed: endpoint, log line, or behavior.
-2. Ask human to run `make start` / `make restart` / `make init` and report back.
-3. Interpret: dev dashboard = `http://HOST:PORT` (vite, proxying `/api/*` and `/v1/*` → backend `HOST:38081`, dev-internal fixed); release = `:PORT` (embedded SPA + both APIs on one listener). Pidfile is JSON `{backend,frontend,vitePort}` at `~/.local/state/llm-router/llm-router.dev.pid`.
+Order: state first, then logs, then lifecycle.
 
-Under the admin listener every call below needs no headers. With auth on (public), add `-H "Authorization: Bearer <token>"` to `/v1` and use a logged-in session (cookie) for `/api/llm-router/*`; `401` without them is expected, not a bug.
+- BAD: `make log` before knowing whether anything runs.
+- GOOD: `make status`, then `make log LINES=200`, then `make log-frontend LINES=200`.
 
-`/v1` (OpenAI-compatible, same `:PORT` as the dashboard):
-- `POST /v1/chat/completions` `{"model":"<provider>/<model>","messages":[{"role":"user","content":"hi"}]}` — core routing; add `"stream":true` for SSE
-- `GET /v1/models` — routable model list, no token rules applied
-- `POST /v1/messages` — Anthropic-compatible messages (translated to chat underneath)
-- `POST /v1/audio/transcriptions` (multipart `file`+`model`), `/v1/audio/speech`, `/v1/images/generations`, `/v1/embeddings` — per-endpoint backends
-- Diagnose: wrong `provider/` → `provider_not_found`; disabled model → `model_not_found`; no usable key → `no_credential`/`credential_not_allowed`; upstream failure → `upstream_error`/`timeout`/`rate_limit`/`payment_required` (see `errors.ToAPIError`)
+`make start` runs public listener (needs login) plus loopback admin listener (API only, no auth, no dashboard) on 127.0.0.1:ADMIN_PORT. Fresh DBs still open bootstrap once on public; admin `status` reads bootstrapped and authenticated without an account. NEVER enable admin listener outside local dev (empty `ADMIN_PORT` disables it).
+
+- BAD: enabling `ADMIN_PORT` outside local dev.
+- GOOD: empty `ADMIN_PORT` outside local dev.
+
+Human-run instance facts: state exactly what is needed (endpoint, log line, behavior), ask human to run `make start` / `make restart` / `make init`, interpret the report.
+
+- BAD: "Check whether the server works."
+- GOOD: "Please run `make status` and `make log LINES=200`, paste both outputs."
+
+Dev dashboard = `http://HOST:PORT` (vite proxies `/api/*` and `/v1/*` → backend `HOST:38081`, dev-internal fixed); release = `:PORT` (embedded SPA + both APIs on one listener). Pidfile is JSON `{backend,frontend,vitePort}` at `~/.local/state/llm-router/llm-router.dev.pid`.
+
+- BAD: reading the pidfile directly for state.
+- GOOD: `make status`; pidfile path is documentation only.
+
+Auth: under admin listener no headers needed. With auth on (public), `/v1` needs `-H "Authorization: Bearer <token>"`, `/api/llm-router/*` needs logged-in session cookie; `401` without them is expected, not a bug.
+
+- BAD: reporting `401` without credentials as a backend defect.
+- GOOD: attaching the token/session first, expecting `401` without them.
+
+`/v1` (OpenAI-compatible, same `:PORT` as dashboard):
+
+- `POST /v1/chat/completions` `{"model":"<provider>/<model>","messages":[{"role":"user","content":"hi"}]}` — core routing; `"stream":true` for SSE.
+- `GET /v1/models` — routable model list, no token rules applied.
+- `POST /v1/messages` — Anthropic-compatible messages (translated to chat underneath).
+- `POST /v1/audio/transcriptions` (multipart `file`+`model`), `/v1/audio/speech`, `/v1/images/generations`, `/v1/embeddings` — per-endpoint backends.
+- Diagnose: wrong `provider/` → `provider_not_found`; disabled model → `model_not_found`; no usable key → `no_credential`/`credential_not_allowed`; upstream failure → `upstream_error`/`timeout`/`rate_limit`/`payment_required` (codes in `internal/errors/`; see `errors.ToAPIError`).
 
 Dashboard `/api/llm-router/*` (same `:PORT`, JSON `{"error":...}` on failure):
-- `GET /api/llm-router/status` — `{bootstrapped, authenticated}`; boot gate for everything else
-- `GET /dashboard/providers`, `/dashboard/tokens`, `/dashboard/credentials` — inventory
-- `POST /dashboard/chat/completions` — same router through a session, `TokenID: "dashboard"` in metrics
-- `POST /dashboard/credentials/{id}/test {"model":...}` — pinned single-credential probe (bare model name; the endpoint prepends the provider)
-- `GET /dashboard/providers/{id}/models` — richest capability source (`endpoints` included)
-- `GET /dashboard/proxy-sources`, `/dashboard/virtual-models` — pool and fan-out state
 
-Runtime diagnostics: `make log LINES=...` (backend), `make log-frontend` (vite), `make status` (PIDs/ports), metrics overview/timeseries endpoints for usage.
+- `GET /api/llm-router/status` — `{bootstrapped, authenticated}`; boot gate for everything else.
+- `GET /dashboard/providers`, `/dashboard/tokens`, `/dashboard/credentials` — inventory.
+- `POST /dashboard/chat/completions` — same router through a session, `TokenID: "dashboard"` in metrics.
+- `POST /dashboard/credentials/{id}/test {"model":...}` — pinned single-credential probe (bare model name; endpoint prepends provider).
+- `GET /dashboard/providers/{id}/models` — richest capability source (`endpoints` included).
+- `GET /dashboard/proxy-sources`, `/dashboard/virtual-models` — pool and fan-out state.
+
+Runtime diagnostics come ONLY from make targets plus metrics endpoints:
+
+- BAD: ad-hoc process/log-file inspection for usage.
+- GOOD: `make log LINES=...`, `make log-frontend`, `make status`, metrics overview/timeseries endpoints.
 
 Smoke harness (`scripts/smoke/`, `make smoke` drives the running stack through the admin listener without restarting it):
-- Plugin types discover from `SMOKE_STORE_DIR` (`llm_router.register` keys, filename fallback); default scope is all discovered, opt in with `SMOKE_PLUGINS=...`, heavy endpoints via `SMOKE_TARGETS=...`. Unknown names fail listing available. Deterministic capability coverage lives in Go tests (`internal/testutil/mockplugin` fixtures); smoke verifies live upstreams only.
+
+- Plugin types discover from `SMOKE_STORE_DIR` (`llm_router.register` keys, filename fallback); default scope is all discovered, opt in with `SMOKE_PLUGINS=...`, heavy endpoints via `SMOKE_TARGETS=...`.
+- BAD: `make smoke SMOKE_PLUGINS=typo-name` then debugging the typo as a failure.
+- GOOD: unknown names fail listing available; correct `SMOKE_PLUGINS` to a listed name.
 - Accounts come from the dev database, never from env. Missing credentials skip the plugin, never fail it.
+- BAD: exporting live keys via env for smoke.
+- GOOD: relying on dev-database accounts; accepting skips for missing credentials.
 - Matrix iterates models per capability until first success; `quota`/`payment`/`rate`/`not_found`/`invalid_request` move on, `auth` fails, exhaustion without success skips with reason.
- - Exercises the running build without restarting it; `make restart` first after changing code, `make start` first when nothing answers (it fails fast).
-- Check semantics differ per target: streams assert delivery (`[DONE]`/`message_stop`), dashboard-chat asserts non-empty `choices`, unary asserts content. A unary-only failure with passing streams means empty upstream text, not transport.
-- Diagnose from the log first: failing calls' full upstream bodies are already in the debug log (`make smoke SMOKE_PLUGINS=... LOG_LEVEL=debug`, then grep `HTTP_RESPONSE`/`COMPLETE`). Reproduce single-model failures with direct `/v1` calls before running the matrix.
+- BAD: treating `quota`/`rate`/`not_found` as hard failures.
+- GOOD: moving on per matrix policy; failing only on `auth`.
+- Exercises the running build without restarting it.
+- BAD: restarting inside the smoke flow.
+- GOOD: `make restart` after code changes first, `make start` when nothing answers first (it fails fast).
+- Check semantics differ per target: streams assert delivery (`[DONE]`/`message_stop`), dashboard-chat asserts non-empty `choices`, unary asserts content.
+- BAD: treating unary-only empty text as transport failure when streams pass.
+- GOOD: reading unary-only failure with passing streams as empty upstream text.
+- Diagnose from the log first: failing calls' full upstream bodies are already in the debug log.
+- BAD: re-running the matrix blindly on failure.
+- GOOD: `make smoke SMOKE_PLUGINS=... LOG_LEVEL=debug`, debug-log inspection, reproducing single-model failures with direct `/v1` calls first.
 
 ## 12. Plugin Store Repo (sibling checkout)
 
-Provider plugins ship from plugin store repositories, not from the binary. Built-in repos live in `pluginrepo.BuiltinRepos` and seed on startup via `EnsureBuiltinRepos`; they cannot be removed (`ErrBuiltinRepoProtected`). To ship a plugin upgrade, bump `@version` in the store repository.
+Provider plugins ship from plugin store repositories, not from the binary. Built-in repos live in `pluginrepo.BuiltinRepos`, seeded on startup via `EnsureBuiltinRepos`; they cannot be removed (`ErrBuiltinRepoProtected`).
 
-- Reissue checklist per plugin: `@version` bump on every content edit (major on contract breaks) — version-match reinstall skips same-version sources, so rewritten content under a fixed version never deploys; `@plugin_api` major must equal the served contract, classify through the helper, `(resp, err)` stream idiom with `on_response`, `scope` on rate/quota, `request.model_name` (never forward request tables verbatim upstream).
-- Verify reissues without live keys: install dry-run plus classify extensions against synthetic `{status, headers, body}` inputs. Live streams and impersonation paths verify on `make start` with real accounts only.
+- BAD: editing a shipped plugin inside the binary repo.
+- GOOD: bumping `@version` in the store repository.
+
+Reissue checklist per plugin: `@version` bump on every content edit (major on contract breaks) — version-match reinstall skips same-version sources, so rewritten content under a fixed version never deploys; `@plugin_api` major MUST equal the served contract; classify through the helper; `(resp, err)` stream idiom with `on_response`; `scope` on rate/quota; `request.model_name` (never forward request tables verbatim upstream).
+
+- BAD: rewriting plugin content without a `@version` bump.
+- GOOD: every content edit bumps `@version` (major on contract breaks).
+
+Verify reissues without live keys: install dry-run plus classify extensions against synthetic `{status, headers, body}` inputs. Live streams and impersonation paths verify on `make start` with real accounts only.
+
+- BAD: shipping a reissue on synthetic checks alone when it touches streams.
+- GOOD: synthetic checks plus `make start` live verification for stream paths.
 
 ## 13. Documentation
 
-Edit docs in the same change as the code, never deferred. Short formulations: present simple for system state, past simple for history.
+Edit docs in one change with the code, never deferred. Short formulations: present simple for system state, past simple for history.
 
-- `docs/PLUGIN-API.md` is the binding contract: every handler, API, or contract change updates it in the same change. Trace every claim to code; keep examples runnable with verbatim shapes; add a history row per contract feature.
-- `docs/BACKEND.md` maps the current core only: a new service, bucket, or pipeline step adds a map line (plus a mini-section when needed). Never history here.
-- `docs/CHANGELOG.md` is append-only: new entry `## Done (YYYY-MM-DD, vX.Y.Z)` with past-simple bullets, no numbering. Never rewrite old entries. Resolve the header version from git, never guess.
-- `scripts/README.md`: a new script or env variable adds a table row with semantics.
-- `scripts/help.txt`: a new target or variable adds a line; verify with a live `make help`.
-- Root `README.md` is human-owned: never edit it.
-- Plugin store reissues bump `@version` (major on contract breaks) and declare the served `@plugin_api` major.
-- Move together: `luaplugin.PluginAPIVersion`, history rows. New make targets already ride the §4.2 rule.
-- Verify doc edits by re-reading the whole file plus grepping stale markers (old API names, removed buckets or fields).
+- BAD: code change now, doc update later.
+- GOOD: code plus docs in one change.
+
+`docs/PLUGIN-API.md` is the binding contract: every handler, API, or contract change updates it in one change. Trace every claim to code; keep examples runnable with verbatim shapes; add a history row per contract feature.
+
+- BAD: contract change with prose-only doc edit.
+- GOOD: traced claim, runnable verbatim example, history row.
+
+`docs/BACKEND.md` maps the current core only: a new service, bucket, or pipeline step adds a map line (plus mini-section when needed). Never history here.
+
+- BAD: appending changelog-style history to `docs/BACKEND.md`.
+- GOOD: current-core map line only.
+
+`docs/CHANGELOG.md` is append-only: new entry `## Done (YYYY-MM-DD, vX.Y.Z)` with past-simple bullets, no numbering. Never rewrite old entries. Resolve header version from git, never guess.
+
+- BAD: editing old changelog entries, inventing the header version.
+- GOOD: appending one dated entry with git-resolved version.
+
+`scripts/README.md`: a new script or env variable adds a table row with semantics.
+
+- BAD: adding a script variable without a `scripts/README.md` row.
+- GOOD: variable plus row in one change.
+
+`scripts/help.txt`: a new target or variable adds a line; verify with live `make help`.
+
+- BAD: adding a target without a help line.
+- GOOD: target plus help line, verified by `make help`.
+
+Root `README.md` is human-owned: never edit it.
+
+- BAD: agent edits to root `README.md`.
+- GOOD: leaving root `README.md` to the human.
+
+Plugin store reissues bump `@version` (major on contract breaks) and declare the served `@plugin_api` major.
+
+- BAD: reissue without version/API bump.
+- GOOD: version bump plus matching `@plugin_api` major.
+
+Move together: `luaplugin.PluginAPIVersion`, history rows. Document new make targets in §4.
+
+- BAD: bumping `luaplugin.PluginAPIVersion` without history rows.
+- GOOD: version bump plus history rows plus §4 entry.
+
+Verify doc edits by re-reading the whole file plus grepping stale markers (old API names, removed buckets or fields).
+
+- BAD: submitting doc edits without re-read plus stale-marker grep.
+- GOOD: full re-read plus stale-marker grep before finishing.
