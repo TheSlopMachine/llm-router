@@ -42,6 +42,7 @@ func New(sqliteDatabase *db.Database, logger *slog.Logger) (*Service, error) {
 		database:      sqliteDatabase.Handle,
 		cache:         sqliteDatabase.Cache,
 		logger:        logger,
+		minimumLevel:  slog.LevelDebug,
 		eventsService: eventsService,
 		registry:      map[string]*PluginRecord{},
 		crashes:       map[string][]CrashEntry{},

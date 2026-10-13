@@ -27,7 +27,8 @@ func (p *Port) Set(value string) error {
 	return nil
 }
 
-// LogLevel controls stderr display verbosity. Parsed from environment text.
+// LogLevel bounds log verbosity for stderr display and events
+// persistence. Parsed from environment text.
 type LogLevel string
 
 const (
@@ -93,8 +94,8 @@ type Config struct {
 	// than this many days on startup and hourly.
 	EventsRetentionDays int
 
-	// LogLevel controls stderr display verbosity. All events persist
-	// regardless of this value.
+	// LogLevel bounds operator telemetry: events below this severity are
+	// neither rendered nor persisted.
 	LogLevel LogLevel
 
 	// AdminAddr is the address of the optional admin listener (always

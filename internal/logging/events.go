@@ -1,6 +1,6 @@
 // Package logging provides the bracket log handler for llm-router plus the
-// events handler that persists every record to the events database while
-// rendering level-filtered lines to stderr.
+// events handler that persists records at or above the configured level
+// to the events database while rendering them to stderr.
 package logging
 
 import (
@@ -26,9 +26,9 @@ type pendingEvent struct {
 	keys      map[string]string
 }
 
-// EventsHandler persists every record to the events database and renders
-// level-filtered lines to stderr in bracket format. Persistence ignores
-// the level; display honors it.
+// EventsHandler persists records at or above the level to the events
+// database and renders them to stderr in bracket format. Records below
+// the level are dropped: never persisted, never rendered.
 type EventsHandler struct {
 	level      slog.Level
 	writer     io.Writer
@@ -76,11 +76,10 @@ func (h *EventsHandler) Drain(timeout time.Duration) bool {
 	return true
 }
 
-// Enabled always reports true: persistence ignores the display threshold.
-// slog filters before Handle, so gating here would drop records before
-// they persist. Display filtering happens inside Handle.
-func (h *EventsHandler) Enabled(_ context.Context, _ slog.Level) bool {
-	return true
+// Enabled reports whether the record meets the persistence threshold.
+// slog filters before Handle, so records below the level never reach it.
+func (h *EventsHandler) Enabled(_ context.Context, level slog.Level) bool {
+	return level >= h.level
 }
 
 // WithAttrs returns a Handler with attributes appended, qualified by groups.
@@ -114,9 +113,13 @@ func (h *EventsHandler) WithGroup(name string) slog.Handler {
 	return cloned
 }
 
-// Handle renders the display line when enabled and enqueues the record
-// for persistence. The send blocks when the queue is full.
+// Handle drops records below the level, then renders the display line
+// and enqueues the record for persistence. The send blocks when the
+// queue is full.
 func (h *EventsHandler) Handle(_ context.Context, record slog.Record) error {
+	if record.Level < h.level {
+		return nil
+	}
 	timestamp := record.Time
 	if timestamp.IsZero() {
 		timestamp = time.Now()
@@ -133,9 +136,7 @@ func (h *EventsHandler) Handle(_ context.Context, record slog.Record) error {
 			keys[attribute.Key] = attribute.Value.String()
 		}
 	}
-	if record.Level >= h.level {
-		h.render(record, timestamp)
-	}
+	h.render(record, timestamp)
 	if h.service == nil || h.queue == nil {
 		return nil
 	}

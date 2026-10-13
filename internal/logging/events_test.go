@@ -35,13 +35,20 @@ func openEventsService(t *testing.T) *events.Service {
 	return service
 }
 
-func TestEventsHandlerPersistsAllLevels(t *testing.T) {
+func TestEventsHandlerHonorsLevel(t *testing.T) {
 	service := openEventsService(t)
 	var buffer bytes.Buffer
-	handler := NewEventsHandler(&buffer, slog.LevelError, service)
+	handler := NewEventsHandler(&buffer, slog.LevelWarn, service)
+	if handler.Enabled(context.Background(), slog.LevelInfo) {
+		t.Fatal("Enabled reports true below the level")
+	}
+	if !handler.Enabled(context.Background(), slog.LevelWarn) {
+		t.Fatal("Enabled reports false at the level")
+	}
 	logger := slog.New(handler)
 	logger.Debug("debug line", "key", "debug-value")
 	logger.Info("info line")
+	logger.Warn("warn line")
 	logger.Error("error line")
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -49,11 +56,11 @@ func TestEventsHandlerPersistsAllLevels(t *testing.T) {
 		if err != nil {
 			t.Fatalf("query: %v", err)
 		}
-		if len(entries) == 3 {
+		if len(entries) == 2 {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("entries hold %d rows, want 3", len(entries))
+			t.Fatalf("entries hold %d rows, want 2", len(entries))
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -61,8 +68,31 @@ func TestEventsHandlerPersistsAllLevels(t *testing.T) {
 	if strings.Contains(display, "debug line") || strings.Contains(display, "info line") {
 		t.Fatalf("display shows filtered lines: %q", display)
 	}
-	if !strings.Contains(display, "error line") {
-		t.Fatalf("display misses error line: %q", display)
+	if !strings.Contains(display, "warn line") || !strings.Contains(display, "error line") {
+		t.Fatalf("display misses kept lines: %q", display)
+	}
+}
+
+func TestEventsHandlerDropsDirectHandleBelowLevel(t *testing.T) {
+	service := openEventsService(t)
+	var buffer bytes.Buffer
+	handler := NewEventsHandler(&buffer, slog.LevelWarn, service)
+	record := slog.NewRecord(time.Now(), slog.LevelInfo, "quiet line", 0)
+	if err := handler.Handle(context.Background(), record); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if !handler.Drain(5 * time.Second) {
+		t.Fatal("queue did not drain within 5s")
+	}
+	entries, err := service.Query(context.Background(), events.Query{Limit: 10})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("entries hold %d rows, want 0", len(entries))
+	}
+	if buffer.Len() != 0 {
+		t.Fatalf("display shows filtered line: %q", buffer.String())
 	}
 }
 

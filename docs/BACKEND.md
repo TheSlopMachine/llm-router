@@ -32,7 +32,7 @@ internal/services/
   doctor/                database inspection and repair
   proxypool/             free-pool hosting, Lua feed bridge, SQLite cache, custom pools (built-in auto row seeded), lane scheduler adapter
 internal/httpkit/        shared transport helpers (SSE headers)
-internal/logging/        bracket stderr renderer plus events handler (persist all, display by LOG_LEVEL)
+internal/logging/        bracket stderr renderer plus events handler (persist and display by LOG_LEVEL)
 internal/requestsource/  RequestSource in request context (public vs private listener)
 internal/httpapi/        shared route tables + public/private mux builders
 internal/errors/         domain sentinels + ToAPIError + response header allow-list

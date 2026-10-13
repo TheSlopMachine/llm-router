@@ -431,7 +431,8 @@ Structured plugin logging into the router events database. `severity` is
 states). `message` is a string. `keys` is an optional string-to-scalar
 table (at most 32 entries, values truncate at 2048 chars); every key
 lands in the event record and queries as `filter.<key>` on
-`GET /api/events`. The router attaches `plugin` (record id) and `type`
+`GET /api/events`. Entries below the configured `LOG_LEVEL` never
+persist. The router attaches `plugin` (record id) and `type`
 (type key) itself: both names are reserved and rejected in `keys`.
 Global `print(...)` stays as a shim for `log("info", ...)` with
 tab-joined arguments.

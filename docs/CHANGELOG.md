@@ -2,6 +2,10 @@
 
 ## Done (2026-10-13, vUnreleased)
 
+- Made the event system honor `LOG_LEVEL`: the logging handler dropped records below the configured level before persistence and display, and plugin `appendLog` dropped severities below the server-wired minimum, so debug events no longer landed in the events database at higher levels.
+
+## Done (2026-10-13, vUnreleased)
+
 - Expanded file paths from the environment (`DB_PATH`/`DEV_DB`, `CACHE_PATH`/`DEV_CACHE`, `EVENTS_PATH`/`DEV_EVENTS`, `ENV_FILE`, `--generate-config` target, dev `PID_FILE`): a leading `~`, `~/` and `~\` resolved to the home directory on every OS, `%NAME%` and `$VAR`/`${VAR}` resolved on every OS, then the result cleaned. A tilde elsewhere stayed literal and `~other/...` failed startup instead of creating a literal `~` directory.
 
 ## Done (2026-10-13, vUnreleased)

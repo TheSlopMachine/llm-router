@@ -114,6 +114,11 @@ type Service struct {
 	cache  *gorm.DB
 	logger *slog.Logger
 
+	// minimumLevel bounds plugin log persistence: appendLog drops
+	// severities mapping below it. The server sets it from LOG_LEVEL;
+	// New defaults it to debug, persisting everything.
+	minimumLevel slog.Level
+
 	mu       sync.RWMutex
 	registry map[string]*PluginRecord
 
@@ -215,6 +220,10 @@ func (s *Service) SetCredentialParks(
 
 // SetLogger wires structured logging.
 func (s *Service) SetLogger(l *slog.Logger) { s.logger = l }
+
+// SetMinimumLevel bounds plugin log persistence: severities mapping
+// below the level never reach the events database.
+func (s *Service) SetMinimumLevel(level slog.Level) { s.minimumLevel = level }
 
 // SetOnChanged registers a callback fired with every affected type key
 // after install/update/rollback/delete/enable/disable.
@@ -653,8 +662,12 @@ func unionKeys(first, second []string) []string {
 
 // appendLog persists one plugin log line to the events database with the
 // router-owned plugin and type keys attached. All keys are arbitrary
-// otherwise and land in event_keys.
+// otherwise and land in event_keys. Severities below the minimum level
+// are dropped before persistence.
 func (s *Service) appendLog(pluginID, typeKey string, severity int, msg string, keys map[string]string) {
+	if slogLevelForSeverity(severity) < s.minimumLevel {
+		return
+	}
 	merged := make(map[string]string, len(keys)+2)
 	for name, value := range keys {
 		merged[name] = value

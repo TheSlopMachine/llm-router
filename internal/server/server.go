@@ -82,6 +82,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 	if err != nil {
 		return nil, fmt.Errorf("init plugin service: %w", err)
 	}
+	luaService.SetMinimumLevel(applicationConfig.LogLevel.SlogLevel())
 
 	providerService := provider.NewGorm(sqliteDatabase)
 	providerService.SetLogger(logger)

@@ -2,6 +2,7 @@ package luaplugin
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -58,6 +59,24 @@ func TestPrintShimsInfoSeverity(t *testing.T) {
 	}
 	if entries[0].Keys["type"] != "print-type" {
 		t.Errorf("unexpected keys %+v", entries[0].Keys)
+	}
+}
+
+func TestAppendLogHonorsMinimumLevel(t *testing.T) {
+	service := setupService(t)
+	service.SetMinimumLevel(slog.LevelWarn)
+	service.appendLog("plugin-four", "log-type", events.SeverityDebug, "quiet debug", nil)
+	service.appendLog("plugin-four", "log-type", events.SeverityInfo, "quiet info", nil)
+	service.appendLog("plugin-four", "log-type", events.SeverityWarn, "kept warn", nil)
+	service.appendLog("plugin-four", "log-type", events.SeverityError, "kept error", nil)
+	entries := pluginLogEntries(t, service, "plugin-four")
+	if len(entries) != 2 {
+		t.Fatalf("entries hold %d rows, want 2", len(entries))
+	}
+	for _, entry := range entries {
+		if entry.Message != "kept warn" && entry.Message != "kept error" {
+			t.Errorf("unexpected entry %+v", entry)
+		}
 	}
 }
 
