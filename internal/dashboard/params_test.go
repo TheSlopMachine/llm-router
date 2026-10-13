@@ -10,6 +10,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/batches"
 	configservice "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/events"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/maintenance"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
@@ -64,12 +65,17 @@ func buildWiredParams(test *testing.T) Params {
 	maintenanceService.SetModelInfoService(modelInfoService)
 	maintenanceService.SetVirtualSyncer(virtualService)
 	metricsService := metrics.New(sqliteDatabase, logger)
+	eventsService, err := events.New(sqliteDatabase, 3)
+	if err != nil {
+		test.Fatalf("init events service: %v", err)
+	}
 
 	return Params{
 		AdminSvc: adminService, ProviderSvc: providerService, CredSvc: credentialService,
 		TokenSvc: tokenService, ModelInfoSvc: modelInfoService, MetricsSvc: metricsService,
 		VirtualSvc: virtualService, RouterSvc: routerService, ConfigSvc: configService,
 		LuaSvc: luaService, RepoSvc: repositoryService, ProxySvc: proxyService, MaintSvc: maintenanceService,
+		EventsSvc:       eventsService,
 		Logger:          logger,
 		RequestShutdown: func() {},
 		SQLiteDatabase:  sqliteDatabase,
@@ -104,6 +110,7 @@ func TestNewRejectsMissingWiring(test *testing.T) {
 		"nil token":      func(parameters *Params) { parameters.TokenSvc = nil },
 		"nil model info": func(parameters *Params) { parameters.ModelInfoSvc = nil },
 		"nil virtual":    func(parameters *Params) { parameters.VirtualSvc = nil },
+		"nil events":     func(parameters *Params) { parameters.EventsSvc = nil },
 		"nil shutdown":   func(parameters *Params) { parameters.RequestShutdown = nil },
 	}
 	for name, mutate := range cases {

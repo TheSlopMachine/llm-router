@@ -18,7 +18,7 @@ import (
 func openCascadeDatabase(t *testing.T) *db.Database {
 	t.Helper()
 	directory := t.TempDir()
-	database, err := db.OpenSQLite(context.Background(), filepath.Join(directory, "cascades.sqlite3"), filepath.Join(directory, "cascades.cache.sqlite3"))
+	database, err := db.OpenSQLite(context.Background(), filepath.Join(directory, "cascades.sqlite3"), filepath.Join(directory, "cascades.cache.sqlite3"), filepath.Join(directory, "cascades.events.sqlite3"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

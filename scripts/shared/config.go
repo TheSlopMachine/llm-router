@@ -59,12 +59,14 @@ const DevAdminPort = "38082"
 // StartParamsFile lives next to the pidfile and records the parameters of the
 // last start, so restart relaunches with the same configuration.
 type StartParams struct {
-	DevDB     string `json:"dev_db"`
-	DevCache  string `json:"dev_cache"`
-	Host      string `json:"host"`
-	Port      string `json:"port"`
-	AdminPort string `json:"admin_port"`
-	LogLevel  string `json:"log_level"`
+	DevDB               string `json:"dev_db"`
+	DevCache            string `json:"dev_cache"`
+	DevEvents           string `json:"dev_events"`
+	Host                string `json:"host"`
+	Port                string `json:"port"`
+	AdminPort           string `json:"admin_port"`
+	LogLevel            string `json:"log_level"`
+	EventsRetentionDays string `json:"events_retention_days"`
 }
 
 // ParamsFileFor returns the params file path next to the given pidfile.
@@ -94,8 +96,7 @@ func ReadStartParams(pidFile string) (*StartParams, error) {
 	return &params, nil
 }
 
-// DefaultBackendLog and DefaultFrontendLog sit next to the pidfile.
-func DefaultBackendLog() string  { return filepath.Join(os.TempDir(), "llm-router-backend.log") }
+// DefaultFrontendLog sits next to the pidfile.
 func DefaultFrontendLog() string { return filepath.Join(os.TempDir(), "llm-router-frontend.log") }
 
 // HomeLocal returns ~/.local/llm-router (or OS equivalent).

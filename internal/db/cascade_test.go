@@ -15,7 +15,7 @@ import (
 func TestSessionSurvivesAdminUserDelete(t *testing.T) {
 	ctx := context.Background()
 	directory := t.TempDir()
-	database, err := db.OpenSQLite(ctx, filepath.Join(directory, "cascade.sqlite3"), filepath.Join(directory, "cascade.cache.sqlite3"))
+	database, err := db.OpenSQLite(ctx, filepath.Join(directory, "cascade.sqlite3"), filepath.Join(directory, "cascade.cache.sqlite3"), filepath.Join(directory, "cascade.events.sqlite3"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestSessionSurvivesAdminUserDelete(t *testing.T) {
 func TestSessionAcceptsMissingAdminUser(t *testing.T) {
 	ctx := context.Background()
 	directory := t.TempDir()
-	database, err := db.OpenSQLite(ctx, filepath.Join(directory, "foreign.sqlite3"), filepath.Join(directory, "foreign.cache.sqlite3"))
+	database, err := db.OpenSQLite(ctx, filepath.Join(directory, "foreign.sqlite3"), filepath.Join(directory, "foreign.cache.sqlite3"), filepath.Join(directory, "foreign.events.sqlite3"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

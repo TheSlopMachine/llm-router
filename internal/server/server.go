@@ -18,12 +18,14 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/dashboard"
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/httpapi"
+	"github.com/TheSlopMachine/llm-router/internal/logging"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/requestsource"
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 	"github.com/TheSlopMachine/llm-router/internal/services/batches"
 	configservice "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/events"
 	"github.com/TheSlopMachine/llm-router/internal/services/healthcheck"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/maintenance"
@@ -55,16 +57,18 @@ type Server struct {
 	metricsService     *metrics.Service
 	proxyService       *proxypool.Service
 	luaService         *luaplugin.Service
+	eventsService      *events.Service
 }
 
 // New builds the full Server from config. The SQLite file at DBPath owns
 // durable configuration; the file at CachePath owns rebuildable cache
-// state. Both start empty on first run; built-in rows seed into the
-// database file.
+// state; the file at EventsPath owns operator telemetry. All start empty
+// on first run; built-in rows seed into the database file.
 func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error) {
 	sqlitePath := applicationConfig.DBPath
 	cachePath := applicationConfig.CachePath
-	sqliteDatabase, err := db.OpenSQLite(context.Background(), sqlitePath, cachePath)
+	eventsPath := applicationConfig.EventsPath
+	sqliteDatabase, err := db.OpenSQLite(context.Background(), sqlitePath, cachePath, eventsPath)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite database: %w", err)
 	}
@@ -154,6 +158,18 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 	metricsService := metrics.New(sqliteDatabase, logger)
 	metricsService.Start()
 
+	eventsService, err := events.New(sqliteDatabase, applicationConfig.EventsRetentionDays)
+	if err != nil {
+		_ = sqliteDatabase.Close()
+		return nil, fmt.Errorf("init events service: %w", err)
+	}
+	if handler, ok := logger.Handler().(*logging.EventsHandler); ok {
+		handler.SetService(eventsService)
+	}
+	if err := eventsService.Prune(context.Background()); err != nil && logger != nil {
+		logger.Warn("events prune failed", "err", err)
+	}
+
 	modelInfoService.SetLogger(logger)
 	virtualService.SetLogger(logger)
 
@@ -181,6 +197,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		TokenSvc: tokenService, ModelInfoSvc: modelInfoService, MetricsSvc: metricsService,
 		VirtualSvc: virtualService, RouterSvc: routerService, ConfigSvc: configService,
 		LuaSvc: luaService, RepoSvc: repositoryService, ProxySvc: proxyService, MaintSvc: maintenanceService,
+		EventsSvc:       eventsService,
 		Logger:          logger,
 		RequestShutdown: requestShutdown,
 		SQLiteDatabase:  sqliteDatabase,
@@ -229,6 +246,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		metricsService:     metricsService,
 		proxyService:       proxyService,
 		luaService:         luaService,
+		eventsService:      eventsService,
 	}, nil
 }
 
@@ -269,7 +287,10 @@ func (s *Server) Run(ctx context.Context) error {
 	cancel()
 	s.proxyService.Start(ctx)
 	s.maintenanceService.Start(ctx)
-	startFields := []any{"addr", s.applicationConfig.Addr, "db", s.sqlitePath, "cache", s.applicationConfig.CachePath}
+	if s.eventsService != nil {
+		s.eventsService.Start(ctx)
+	}
+	startFields := []any{"addr", s.applicationConfig.Addr, "db", s.sqlitePath, "cache", s.applicationConfig.CachePath, "events", s.applicationConfig.EventsPath}
 	if s.applicationConfig.AdminAddr != "" {
 		s.logger.Warn("admin listener enabled without authentication (loopback only)", "addr", s.applicationConfig.AdminAddr)
 		startFields = append(startFields, "admin", s.applicationConfig.AdminAddr)
@@ -319,8 +340,16 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
-// Close releases the SQLite handle, checkpointing its write-ahead log.
+// Close releases the SQLite handles, checkpointing write-ahead logs.
 // Call after Run returns.
 func (s *Server) Close() error {
 	return s.sqliteDatabase.Close()
+}
+
+// EventsService exposes the events service for logger wiring.
+func (s *Server) EventsService() *events.Service {
+	if s == nil {
+		return nil
+	}
+	return s.eventsService
 }

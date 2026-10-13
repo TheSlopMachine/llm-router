@@ -64,6 +64,24 @@ func CheckIntegrity(ctx context.Context, database *gorm.DB) error {
 	return nil
 }
 
+// PruneEvents deletes event rows older than retentionDays and reclaims
+// freed pages. RetentionDays must be at least 1; callers validate before
+// calling. The cutoff travels as a validated integer literal: SQLite date
+// modifiers cannot bind as parameters.
+func PruneEvents(ctx context.Context, eventsDatabase *gorm.DB, retentionDays int) error {
+	if retentionDays < 1 {
+		return fmt.Errorf("events retention must be at least 1 day, got %d", retentionDays)
+	}
+	cutoff := fmt.Sprintf("datetime('now', '-%d days')", retentionDays)
+	if err := eventsDatabase.WithContext(ctx).Exec("DELETE FROM event_records WHERE timestamp < " + cutoff).Error; err != nil {
+		return fmt.Errorf("prune events: %w", err)
+	}
+	if err := eventsDatabase.WithContext(ctx).Exec("PRAGMA incremental_vacuum").Error; err != nil {
+		return fmt.Errorf("vacuum events: %w", err)
+	}
+	return nil
+}
+
 // BackupTo writes a backup copy to the given destination path.
 // The destination travels as a bound parameter.
 func BackupTo(ctx context.Context, database *gorm.DB, destination string) error {

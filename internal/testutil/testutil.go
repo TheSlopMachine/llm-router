@@ -25,7 +25,8 @@ func SetupTestSQLite(t *testing.T) *db.Database {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "llm-router-test.sqlite3")
 	cachePath := filepath.Join(directory, "llm-router-test.cache.sqlite3")
-	database, err := db.OpenSQLite(context.Background(), path, cachePath)
+	eventsPath := filepath.Join(directory, "llm-router-test.events.sqlite3")
+	database, err := db.OpenSQLite(context.Background(), path, cachePath, eventsPath)
 	if err != nil {
 		t.Fatalf("open test sqlite: %v", err)
 	}

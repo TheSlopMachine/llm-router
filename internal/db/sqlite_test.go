@@ -13,23 +13,24 @@ import (
 	"gorm.io/gorm"
 )
 
-func openTemp(t *testing.T) (*db.Database, string, string) {
+func openTemp(t *testing.T) (*db.Database, string, string, string) {
 	t.Helper()
 	directory := t.TempDir()
 	path := filepath.Join(directory, "foundation.sqlite3")
 	cachePath := filepath.Join(directory, "foundation.cache.sqlite3")
-	database, err := db.OpenSQLite(context.Background(), path, cachePath)
+	eventsPath := filepath.Join(directory, "foundation.events.sqlite3")
+	database, err := db.OpenSQLite(context.Background(), path, cachePath, eventsPath)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	t.Cleanup(func() {
 		database.Close()
 	})
-	return database, path, cachePath
+	return database, path, cachePath, eventsPath
 }
 
 func TestOpenCreatesSchema(t *testing.T) {
-	database, _, _ := openTemp(t)
+	database, _, _, _ := openTemp(t)
 	primaryTables := []string{
 		"schema_migrations",
 		"instance_settings",
@@ -96,11 +97,17 @@ func TestOpenCreatesSchema(t *testing.T) {
 	if len(cacheTables) != 21 {
 		t.Errorf("cache schema holds %d tables, want 21", len(cacheTables))
 	}
+	eventsMigrator := database.Events.Migrator()
+	for _, table := range []string{"schema_migrations", "event_records", "event_keys"} {
+		if !eventsMigrator.HasTable(table) {
+			t.Errorf("events missing table %s", table)
+		}
+	}
 }
 
 func TestReopenIsNoOp(t *testing.T) {
-	_, path, cachePath := openTemp(t)
-	second, err := db.OpenSQLite(context.Background(), path, cachePath)
+	_, path, cachePath, eventsPath := openTemp(t)
+	second, err := db.OpenSQLite(context.Background(), path, cachePath, eventsPath)
 	if err != nil {
 		t.Fatalf("reopen sqlite: %v", err)
 	}
@@ -117,9 +124,9 @@ func TestDSNCarriesPragmas(t *testing.T) {
 }
 
 func TestMaintenanceRoundTrip(t *testing.T) {
-	database, _, _ := openTemp(t)
+	database, _, _, _ := openTemp(t)
 	ctx := context.Background()
-	for _, handle := range []*gorm.DB{database.Handle, database.Cache} {
+	for _, handle := range []*gorm.DB{database.Handle, database.Cache, database.Events} {
 		if err := db.Maintenance(ctx, handle); err != nil {
 			t.Fatalf("maintenance: %v", err)
 		}
@@ -145,7 +152,8 @@ func TestCacheDeleteRecovers(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "recovery.sqlite3")
 	cachePath := filepath.Join(directory, "recovery.cache.sqlite3")
-	first, err := db.OpenSQLite(ctx, path, cachePath)
+	eventsPath := filepath.Join(directory, "recovery.events.sqlite3")
+	first, err := db.OpenSQLite(ctx, path, cachePath, eventsPath)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -160,7 +168,7 @@ func TestCacheDeleteRecovers(t *testing.T) {
 	if err := os.Remove(cachePath); err != nil {
 		t.Fatalf("delete cache: %v", err)
 	}
-	second, err := db.OpenSQLite(ctx, path, cachePath)
+	second, err := db.OpenSQLite(ctx, path, cachePath, eventsPath)
 	if err != nil {
 		t.Fatalf("reopen sqlite: %v", err)
 	}

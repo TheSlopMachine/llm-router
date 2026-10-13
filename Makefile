@@ -22,19 +22,23 @@ URL       ?= http://$(HOST):$(PORT)
 LOG_LEVEL ?= info
 DB_PATH   ?= llm-router.sqlite3
 CACHE_PATH ?= llm-router.cache.sqlite3
+EVENTS_PATH ?= llm-router.events.sqlite3
+EVENTS_RETENTION_DAYS ?= 3
 DEV_UI_REDIRECT ?=
 ENV_FILE  ?= .env
 PKG       ?= ./...
-export HOST PORT ADMIN_PORT SCOPE URL VERSION PLATFORMS LOG_LEVEL DB_PATH CACHE_PATH DEV_UI_REDIRECT ENV_FILE PKG
+export HOST PORT ADMIN_PORT SCOPE URL VERSION PLATFORMS LOG_LEVEL DB_PATH CACHE_PATH EVENTS_PATH EVENTS_RETENTION_DAYS DEV_UI_REDIRECT ENV_FILE PKG
 
 ifeq ($(OS),Windows_NT)
   DEV_DB  ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.sqlite3
   DEV_CACHE ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.cache.sqlite3
+  DEV_EVENTS ?= $(subst \,/,$(USERPROFILE))/.local/llm-router/llm-router-dev.events.sqlite3
 else
   DEV_DB  ?= $(HOME)/.local/llm-router/llm-router-dev.sqlite3
   DEV_CACHE ?= $(HOME)/.local/llm-router/llm-router-dev.cache.sqlite3
+  DEV_EVENTS ?= $(HOME)/.local/llm-router/llm-router-dev.events.sqlite3
 endif
-export DEV_DB DEV_CACHE
+export DEV_DB DEV_CACHE DEV_EVENTS
 
 BUN_MIN := 1.2
 GO_MIN  := 1.27.1

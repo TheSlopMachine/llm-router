@@ -10,6 +10,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/datamanagement"
 	"github.com/TheSlopMachine/llm-router/internal/services/doctor"
+	"github.com/TheSlopMachine/llm-router/internal/services/events"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/maintenance"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
@@ -38,6 +39,7 @@ type Params struct {
 	RepoSvc      *pluginrepo.Service
 	ProxySvc     *proxypool.Service
 	MaintSvc     *maintenance.GormService
+	EventsSvc    *events.Service
 	Logger       *slog.Logger
 	// RequestShutdown signals graceful shutdown when the admin shutdown
 	// endpoint fires. Required: construction fails when it is missing so
@@ -59,7 +61,7 @@ func EffectiveBootstrapped(bootstrapped, unrestricted bool) bool {
 
 // New constructs a dashboard Handler.
 func New(parameters Params) (*Handler, error) {
-	if parameters.SQLiteDatabase == nil || parameters.SQLiteDatabase.Handle == nil || parameters.SQLiteDatabase.Cache == nil {
+	if parameters.SQLiteDatabase == nil || parameters.SQLiteDatabase.Handle == nil || parameters.SQLiteDatabase.Cache == nil || parameters.SQLiteDatabase.Events == nil {
 		return nil, fmt.Errorf("dashboard sqlite database is not configured")
 	}
 	if parameters.AdminSvc == nil {
@@ -82,6 +84,9 @@ func New(parameters Params) (*Handler, error) {
 	}
 	if parameters.VirtualSvc == nil {
 		return nil, fmt.Errorf("dashboard virtual model service is not configured")
+	}
+	if parameters.EventsSvc == nil {
+		return nil, fmt.Errorf("dashboard events service is not configured")
 	}
 	dataGormService := datamanagement.NewGorm(
 		parameters.ProviderSvc,
@@ -114,6 +119,7 @@ func New(parameters Params) (*Handler, error) {
 		repositoryService:     parameters.RepoSvc,
 		proxyService:          parameters.ProxySvc,
 		maintenanceService:    parameters.MaintSvc,
+		eventsService:         parameters.EventsSvc,
 		dataGormService:       dataGormService,
 		doctorGormService:     doctorGormService,
 		logger:                parameters.Logger,

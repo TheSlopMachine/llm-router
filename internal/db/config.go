@@ -28,6 +28,16 @@ func BuildSQLiteDSN(path string) string {
 	)
 }
 
+// BuildEventsDSN composes the SQLite DSN for the events file. It carries
+// the base pragmas plus incremental auto-vacuum so retention pruning
+// reclaims disk pages without a full vacuum rewrite.
+func BuildEventsDSN(path string) string {
+	return fmt.Sprintf(
+		"file:%s?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)&_pragma=auto_vacuum(INCREMENTAL)&_txlock=immediate&_time_format=sqlite",
+		path,
+	)
+}
+
 // NewGormConfiguration builds the shared GORM configuration.
 // Timestamps use UTC. Bound values stay out of logs.
 func NewGormConfiguration() *gorm.Config {

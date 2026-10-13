@@ -10,7 +10,7 @@ Targets:
   smoke             Run the smoke harness against the running dev stack (no restart; `make start` first)
   upload-plugins    Upload every store .lua plugin via the admin listener (no restart)
   status            Show dev server status
-  log               Tail backend log (follows on TTY, dumps and exits otherwise)
+  log               Query persisted events (follows on TTY, dumps and exits otherwise)
   log-frontend      Tail frontend log (follows on TTY, dumps and exits otherwise)
   browser           Open dashboard in browser (http://localhost:38080)
   clean             Stop + clean ignored files (keeps .env and SQLite databases)
@@ -35,8 +35,11 @@ Variables:
   LOG_LEVEL          Server log level. Default: "info"
   DEV_DB             Path to dev database. Default: "~/.local/llm-router/llm-router-dev.sqlite3"
   DEV_CACHE          Path to dev cache database. Default: "~/.local/llm-router/llm-router-dev.cache.sqlite3"
+  DEV_EVENTS         Path to dev events database. Default: "~/.local/llm-router/llm-router-dev.events.sqlite3"
   DB_PATH            Database file for the server. Default: "llm-router.sqlite3" (dev start prefers DEV_DB)
   CACHE_PATH         Cache database file for the server. Default: "llm-router.cache.sqlite3" (dev start prefers DEV_CACHE)
+  EVENTS_PATH        Events database file for the server. Default: "llm-router.events.sqlite3" (dev start prefers DEV_EVENTS)
+  EVENTS_RETENTION_DAYS  Event retention in days. Default: "3"
   DEV_UI_REDIRECT    Dashboard redirect origin for dev. Default: empty
   ENV_FILE           Dotenv path for the server. Default: ".env"
   SMOKE_PLUGINS      Comma plugin names for smoke (or "all"). Default: "all" (every store plugin)
@@ -46,8 +49,14 @@ Variables:
   TYPE               Release bump for publish: fix|minor|major (or VERSION=X.Y[.Z] to force)
   PKG                Package scope for go-vet, go-test and go-test-race. Default: "./..."
   PATHS              Space-separated files/dirs for go-fmt and go-fmt-check. Default: whole tree
-  LINES              Initial tail size for log and log-frontend. Default: "100"
+  LINES              Initial tail size for log-frontend. Default: "100"
   FOLLOW             Force log follow (1) or dump-and-exit (0). Default: follow on TTY only
+  EVENTS_SEVERITY    Minimum event severity for log (0-4). Default: empty (all)
+  EVENTS_ID          Single event id for log. Default: empty
+  EVENTS_START       RFC3339 start for log. Default: empty
+  EVENTS_END         RFC3339 end for log. Default: empty
+  EVENTS_LIMIT       Max events for log. Default: "50" (LINES fallback)
+  EVENT_FILTERS      Space-separated event filters for log ("k=v bare-key"). Default: empty
   NO_SKIP            Disable skipping of bun install + OpenAPI generation. Default: "0" (truthy: 1/true/yes/on)
 
 Examples:

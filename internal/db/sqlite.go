@@ -17,80 +17,104 @@ import (
 // concurrency, not write concurrency. Decision D4 sets 16.
 const MaxOpenConnections = 16
 
-// Database wraps the primary GORM SQLite handle plus the cache handle.
-// Handle owns durable configuration: providers, credentials, tokens, and
-// installed plugins. Cache owns rebuildable state: sessions, upstream model
-// lists, cooldown parks, telemetry, and async compat rows. The cache file
-// may be deleted while stopped without losing configuration; startup
-// recreates it empty and background passes refill it.
+// Database wraps the primary GORM SQLite handle plus the cache and events
+// handles. Handle owns durable configuration: providers, credentials,
+// tokens, and installed plugins. Cache owns rebuildable state: sessions,
+// upstream model lists, cooldown parks, telemetry, and async compat rows.
+// Events owns operator telemetry only: deleting it while stopped loses log
+// history and nothing else. The cache and events files may be deleted while
+// stopped; startup recreates them empty.
 type Database struct {
 	Handle *gorm.DB
 	Cache  *gorm.DB
+	Events *gorm.DB
 }
 
-// OpenSQLite connects to both SQLite files, configures the pools, asserts
-// the open state, migrates the cache schema, copies legacy cache tables out
-// of a single-file database once, and migrates the primary schema. Any
+// OpenSQLite connects to all three SQLite files, configures the pools,
+// asserts the open state, migrates each schema, copies legacy cache tables
+// out of a single-file database once, and migrates the primary schema. Any
 // failure stops startup.
-func OpenSQLite(ctx context.Context, path, cachePath string) (*Database, error) {
+func OpenSQLite(ctx context.Context, path, cachePath, eventsPath string) (*Database, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("database path is required")
 	}
 	if strings.TrimSpace(cachePath) == "" {
 		return nil, fmt.Errorf("cache path is required")
 	}
-	if sameFile(path, cachePath) {
-		return nil, fmt.Errorf("database and cache paths must differ")
+	if strings.TrimSpace(eventsPath) == "" {
+		return nil, fmt.Errorf("events path is required")
 	}
-	primary, err := openOne(ctx, path)
+	if sameFile(path, cachePath) || sameFile(path, eventsPath) || sameFile(cachePath, eventsPath) {
+		return nil, fmt.Errorf("database, cache and events paths must differ")
+	}
+	primary, err := openOne(ctx, path, BuildSQLiteDSN(path))
 	if err != nil {
 		return nil, fmt.Errorf("open primary sqlite at %q: %w", path, err)
 	}
-	cache, err := openOne(ctx, cachePath)
+	cache, err := openOne(ctx, cachePath, BuildSQLiteDSN(cachePath))
 	if err != nil {
 		_ = closeHandle(primary)
 		return nil, fmt.Errorf("open cache sqlite at %q: %w", cachePath, err)
 	}
+	events, err := openOne(ctx, eventsPath, BuildEventsDSN(eventsPath))
+	if err != nil {
+		_ = closeHandle(primary)
+		_ = closeHandle(cache)
+		return nil, fmt.Errorf("open events sqlite at %q: %w", eventsPath, err)
+	}
 	if err := migrate.Run(ctx, cache, migrations.RegistryCache); err != nil {
 		_ = closeHandle(primary)
 		_ = closeHandle(cache)
+		_ = closeHandle(events)
 		return nil, fmt.Errorf("migrate cache sqlite: %w", err)
+	}
+	if err := migrate.Run(ctx, events, migrations.RegistryEvents); err != nil {
+		_ = closeHandle(primary)
+		_ = closeHandle(cache)
+		_ = closeHandle(events)
+		return nil, fmt.Errorf("migrate events sqlite: %w", err)
 	}
 	if migrations.LegacySingleFile(primary) {
 		if err := migrations.CopyLegacyCacheTables(ctx, primary, cache); err != nil {
 			_ = closeHandle(primary)
 			_ = closeHandle(cache)
+			_ = closeHandle(events)
 			return nil, fmt.Errorf("split legacy cache tables: %w", err)
 		}
 	}
 	if err := migrate.Run(ctx, primary, migrations.RegistryDatabase); err != nil {
 		_ = closeHandle(primary)
 		_ = closeHandle(cache)
+		_ = closeHandle(events)
 		return nil, fmt.Errorf("migrate primary sqlite: %w", err)
 	}
-	return &Database{Handle: primary, Cache: cache}, nil
+	return &Database{Handle: primary, Cache: cache, Events: events}, nil
 }
 
-// Close checkpoints both write-ahead logs, optimizes both files, and closes
-// both pools. Both handles close even when the first reports an error.
+// Close checkpoints all write-ahead logs, optimizes all files, and closes
+// all pools. All handles close even when the first reports an error.
 func (database *Database) Close() error {
 	if database == nil {
 		return nil
 	}
+	eventsErr := closeHandle(database.Events)
 	primaryErr := closeHandle(database.Handle)
-	if err := closeHandle(database.Cache); err != nil && primaryErr == nil {
+	if err := closeHandle(database.Cache); err != nil && primaryErr == nil && eventsErr == nil {
 		primaryErr = err
+	}
+	if eventsErr != nil {
+		return eventsErr
 	}
 	return primaryErr
 }
 
 // openOne prepares the file, connects the GORM SQLite handle, configures
 // the pool, and asserts the open state.
-func openOne(ctx context.Context, path string) (*gorm.DB, error) {
+func openOne(ctx context.Context, path, dsn string) (*gorm.DB, error) {
 	if err := prepareFile(path); err != nil {
 		return nil, err
 	}
-	handle, err := gorm.Open(openSQLiteDialector(BuildSQLiteDSN(path)), NewGormConfiguration())
+	handle, err := gorm.Open(openSQLiteDialector(dsn), NewGormConfiguration())
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite at %q: %w", path, err)
 	}

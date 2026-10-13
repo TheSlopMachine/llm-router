@@ -16,7 +16,8 @@ func openHandle(t *testing.T) *gorm.DB {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "migrate.sqlite3")
 	cachePath := filepath.Join(directory, "migrate.cache.sqlite3")
-	database, err := db.OpenSQLite(context.Background(), path, cachePath)
+	eventsPath := filepath.Join(directory, "migrate.events.sqlite3")
+	database, err := db.OpenSQLite(context.Background(), path, cachePath, eventsPath)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

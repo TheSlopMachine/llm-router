@@ -15,7 +15,7 @@ import (
 func openRepository(t *testing.T) *repository.GormRepository[record.ProxyState] {
 	t.Helper()
 	directory := t.TempDir()
-	database, err := db.OpenSQLite(context.Background(), filepath.Join(directory, "repository.sqlite3"), filepath.Join(directory, "repository.cache.sqlite3"))
+	database, err := db.OpenSQLite(context.Background(), filepath.Join(directory, "repository.sqlite3"), filepath.Join(directory, "repository.cache.sqlite3"), filepath.Join(directory, "repository.events.sqlite3"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

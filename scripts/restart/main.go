@@ -19,12 +19,15 @@ func main() {
 	if params, err := shared.ReadStartParams(pidFile); err == nil {
 		overlay("DEV_DB", params.DevDB, shared.DefaultDevDB())
 		overlay("DEV_CACHE", params.DevCache, shared.DefaultDevCache())
+		overlay("DEV_EVENTS", params.DevEvents, shared.DefaultDevEvents())
 		overlay("DB_PATH", params.DevDB, "")
 		overlay("CACHE_PATH", params.DevCache, "")
+		overlay("EVENTS_PATH", params.DevEvents, "")
 		overlay("HOST", params.Host, "localhost")
 		overlay("PORT", params.Port, "38080")
 		overlay("ADMIN_PORT", params.AdminPort, shared.DevAdminPort)
 		overlay("LOG_LEVEL", params.LogLevel, "info")
+		overlay("EVENTS_RETENTION_DAYS", params.EventsRetentionDays, "3")
 	}
 
 	// Backend-only restart keeps a live frontend (vite hot-reloads the

@@ -36,3 +36,24 @@ func SpawnDetachedEnv(workdir, logPath string, extraEnv []string, name string, a
 	_ = cmd.Process.Release()
 	return pid, nil
 }
+
+// SpawnDetachedEnvNoLog starts name(arguments...) in workdir with stdout
+// and stderr inherited, detached so it survives the parent exiting. The
+// backend uses this: display lines go to the inherited stderr and every
+// record persists to the events database.
+func SpawnDetachedEnvNoLog(workdir string, extraEnv []string, name string, arguments ...string) (int, error) {
+	cmd := exec.Command(name, arguments...)
+	cmd.Dir = workdir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = nil
+	cmd.Env = EnvWith(extraEnv)
+	cmd.SysProcAttr = newConsoleAttr()
+
+	if err := cmd.Start(); err != nil {
+		return 0, err
+	}
+	pid := cmd.Process.Pid
+	_ = cmd.Process.Release()
+	return pid, nil
+}

@@ -91,14 +91,17 @@ func run(command *cobra.Command, arguments []string) error {
 		return err
 	}
 
-	// Logger
-	logger := slog.New(logging.NewHandler(os.Stderr, applicationConfig.LogLevel.SlogLevel()))
+	// Logger persists to the events database once the server wires it;
+	// before that it renders stderr only.
+	eventsHandler := logging.NewEventsHandler(os.Stderr, applicationConfig.LogLevel.SlogLevel(), nil)
+	logger := slog.New(eventsHandler)
 
 	// Build server
 	applicationServer, err := server.New(applicationConfig, logger)
 	if err != nil {
 		return fmt.Errorf("init server: %w", err)
 	}
+	eventsHandler.SetService(applicationServer.EventsService())
 	defer applicationServer.Close()
 
 	// Graceful shutdown on SIGINT / SIGTERM

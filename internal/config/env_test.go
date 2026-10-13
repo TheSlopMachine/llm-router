@@ -13,7 +13,7 @@ import (
 // (not blanked) so dotenv loading fills them as in production.
 func clearProcessEnvironment(environment *testing.T) {
 	environment.Helper()
-	for _, name := range []string{"HOST", "PORT", "ADMIN_PORT", "DB_PATH", "DEV_DB", "CACHE_PATH", "DEV_CACHE", "LOG_LEVEL", "NO_AUTH", "DEV_UI_REDIRECT"} {
+	for _, name := range []string{"HOST", "PORT", "ADMIN_PORT", "DB_PATH", "DEV_DB", "CACHE_PATH", "DEV_CACHE", "EVENTS_PATH", "DEV_EVENTS", "EVENTS_RETENTION_DAYS", "LOG_LEVEL", "NO_AUTH", "DEV_UI_REDIRECT"} {
 		value, present := os.LookupEnv(name)
 		if !present {
 			continue
@@ -55,6 +55,12 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if configuration.CachePath != DefaultCachePath {
 		t.Errorf("cache = %q, want %q", configuration.CachePath, DefaultCachePath)
+	}
+	if configuration.EventsPath != DefaultEventsPath {
+		t.Errorf("events = %q, want %q", configuration.EventsPath, DefaultEventsPath)
+	}
+	if configuration.EventsRetentionDays != DefaultEventsRetentionDays {
+		t.Errorf("retention = %d, want %d", configuration.EventsRetentionDays, DefaultEventsRetentionDays)
 	}
 	if configuration.LogLevel != LogLevelInfo {
 		t.Errorf("log level = %q, want info", configuration.LogLevel)
@@ -223,6 +229,47 @@ func TestLoadFallsBackToDevCache(t *testing.T) {
 	}
 }
 
+func TestLoadPrefersEventsPathOverDevEvents(t *testing.T) {
+	clearProcessEnvironment(t)
+	isolateDotenv(t)
+	t.Setenv("EVENTS_PATH", "primary.events.sqlite3")
+	t.Setenv("DEV_EVENTS", "fallback.events.sqlite3")
+
+	configuration, _, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if configuration.EventsPath != "primary.events.sqlite3" {
+		t.Errorf("events = %q, want primary.events.sqlite3", configuration.EventsPath)
+	}
+}
+
+func TestLoadFallsBackToDevEvents(t *testing.T) {
+	clearProcessEnvironment(t)
+	isolateDotenv(t)
+	t.Setenv("DEV_EVENTS", "fallback.events.sqlite3")
+
+	configuration, _, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if configuration.EventsPath != "fallback.events.sqlite3" {
+		t.Errorf("events = %q, want fallback.events.sqlite3", configuration.EventsPath)
+	}
+}
+
+func TestLoadRejectsInvalidEventsRetention(t *testing.T) {
+	for _, raw := range []string{"0", "-1", "bogus"} {
+		clearProcessEnvironment(t)
+		isolateDotenv(t)
+		t.Setenv("EVENTS_RETENTION_DAYS", raw)
+
+		if _, _, err := Load(); err == nil {
+			t.Fatalf("Load with EVENTS_RETENTION_DAYS=%q succeeded, want error", raw)
+		}
+	}
+}
+
 func TestLoadReadsDotenvFile(t *testing.T) {
 	clearProcessEnvironment(t)
 	directory := t.TempDir()
@@ -295,7 +342,7 @@ func TestWriteDefaultFileCreatesTemplate(t *testing.T) {
 	if string(raw) != DefaultTemplate() {
 		t.Fatalf("template mismatch:\n%s", string(raw))
 	}
-	for _, key := range []string{"HOST=", "PORT=", "ADMIN_PORT=", "DB_PATH=", "CACHE_PATH=", "LOG_LEVEL="} {
+	for _, key := range []string{"HOST=", "PORT=", "ADMIN_PORT=", "DB_PATH=", "CACHE_PATH=", "EVENTS_PATH=", "EVENTS_RETENTION_DAYS=", "LOG_LEVEL="} {
 		if !strings.Contains(string(raw), key) {
 			t.Errorf("template misses %q", key)
 		}

@@ -29,6 +29,11 @@ func main() {
 	if cachePath == "" {
 		cachePath = shared.Getenv("CACHE_PATH", shared.DefaultDevCache())
 	}
+	eventsPath := shared.Getenv("DEV_EVENTS", "")
+	if eventsPath == "" {
+		eventsPath = shared.Getenv("EVENTS_PATH", shared.DefaultDevEvents())
+	}
+	retentionDays := shared.Getenv("EVENTS_RETENTION_DAYS", "3")
 	adminPort := shared.Getenv("ADMIN_PORT", shared.DevAdminPort)
 	pidFile := shared.Getenv("PID_FILE", shared.DefaultPidFile())
 
@@ -103,7 +108,7 @@ func main() {
 	}
 
 	// Ensure parent dirs for db and pidfile.
-	for _, path := range []string{databasePath, cachePath, pidFile, shared.DefaultBackendLog(), shared.DefaultFrontendLog()} {
+	for _, path := range []string{databasePath, cachePath, eventsPath, pidFile, shared.DefaultFrontendLog()} {
 		parent := filepath.Dir(path)
 		if parent != "." && parent != "" {
 			if err := os.MkdirAll(parent, 0755); err != nil {
@@ -112,7 +117,6 @@ func main() {
 		}
 	}
 
-	backendLog := shared.DefaultBackendLog()
 	frontendLog := shared.DefaultFrontendLog()
 
 	shared.Stepf("Building backend...")
@@ -144,10 +148,12 @@ func main() {
 		"ADMIN_PORT=" + adminPort,
 		"DB_PATH=" + databasePath,
 		"CACHE_PATH=" + cachePath,
+		"EVENTS_PATH=" + eventsPath,
+		"EVENTS_RETENTION_DAYS=" + retentionDays,
 		"LOG_LEVEL=" + logLevel,
 		"DEV_UI_REDIRECT=" + fmt.Sprintf("http://%s:%s", host, vitePort),
 	}
-	backendPID, err := shared.SpawnDetachedEnv(root, backendLog, backendEnvironment, binPath)
+	backendPID, err := shared.SpawnDetachedEnvNoLog(root, backendEnvironment, binPath)
 	if err != nil {
 		shared.Failf("spawn backend: %v", err)
 	}
@@ -205,8 +211,9 @@ func main() {
 
 	// Record the launch parameters: restart relaunches with the same config.
 	if err := shared.WriteStartParams(pidFile, shared.StartParams{
-		DevDB: databasePath, DevCache: cachePath, Host: host,
+		DevDB: databasePath, DevCache: cachePath, DevEvents: eventsPath, Host: host,
 		Port: vitePort, AdminPort: adminPort, LogLevel: logLevel,
+		EventsRetentionDays: retentionDays,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] write params file: %v\n", err)
 	}
@@ -225,7 +232,7 @@ func main() {
 	if adminPort != "" {
 		fmt.Printf("Admin (loopback, no auth): http://127.0.0.1:%s\n", adminPort)
 	}
-	fmt.Printf("Backend log: %s\n", backendLog)
+	fmt.Printf("Events: %s (query: make log)\n", eventsPath)
 	fmt.Printf("Frontend log: %s\n", frontendLog)
 	fmt.Printf("Pidfile: %s\n", pidFile)
 }

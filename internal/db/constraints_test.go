@@ -17,7 +17,7 @@ import (
 func openConstraintDatabase(t *testing.T) *db.Database {
 	t.Helper()
 	directory := t.TempDir()
-	database, err := db.OpenSQLite(context.Background(), filepath.Join(directory, "constraints.sqlite3"), filepath.Join(directory, "constraints.cache.sqlite3"))
+	database, err := db.OpenSQLite(context.Background(), filepath.Join(directory, "constraints.sqlite3"), filepath.Join(directory, "constraints.cache.sqlite3"), filepath.Join(directory, "constraints.events.sqlite3"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

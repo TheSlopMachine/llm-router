@@ -2,6 +2,12 @@
 
 ## Done (2026-10-13, vUnreleased)
 
+- Replaced file logging with the events database: `EVENTS_PATH` (fallback `DEV_EVENTS`, default `llm-router.events.sqlite3`) owned `event_records` plus `event_keys` with severity 0-4, `EVENTS_RETENTION_DAYS` (default 3, minimum 1) pruned on startup and hourly with incremental vacuum, and every record persisted regardless of `LOG_LEVEL` while stderr kept the bracket format filtered by level.
+- Added `GET /api/events` with `severity` (>=), `id`, `start`/`end` and `filter.<key>` existence or value match (limit default 50, max 500), served on both listeners with session auth on public and bypass on admin.
+- Reworked `make log` into an events query client (`EVENTS_SEVERITY`, `EVENTS_ID`, `EVENTS_START`, `EVENTS_END`, `EVENTS_LIMIT`, `EVENT_FILTERS`, polling follow) and removed the backend log file.
+
+## Done (2026-10-13, vUnreleased)
+
 - Moved deterministic provider coverage from the smoke harness into Go tests: new `internal/testutil/mockplugin` owns twelve small Lua fixtures (chat, tools, quota, auth error, stream, transcribe, speech, image, embeddings, completed and pending video, chat-only), consumed by install checks, sixteen router tests (routing, terminal errors, endpoint gates, virtual fan-out, probe), one handler tool-calls test, and seventeen `/v1` HTTP tests (unary, streams, tools, `srt`, image and embeddings variants, video pipeline, gates, listings).
 - Removed the smoke `mock` provider (`scripts/smoke/testdata/mock.lua`, mock branches in `matrix.go`/`provision.go`/`config.go`, `SMOKE_CLEANUP` plumbing): `SMOKE_PLUGINS` defaults to `all` known live types, missing credentials skip as before.
 - Untangled the smoke harness from plugin names: types discover from `SMOKE_STORE_DIR` register keys with sorted `all` expansion, unknown names fail listing available; installs yielding no provider instance (proxy sources) skip with reason; fixed `make go-test`/`go-test-race` scoping so `scripts/`-relative `PKG` patterns run inside the scripts module like `go-vet`.

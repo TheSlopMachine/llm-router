@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -26,7 +27,7 @@ func (p *Port) Set(value string) error {
 	return nil
 }
 
-// LogLevel controls slog verbosity. Parsed from environment text.
+// LogLevel controls stderr display verbosity. Parsed from environment text.
 type LogLevel string
 
 const (
@@ -83,7 +84,17 @@ type Config struct {
 	// configuration, and startup recreates it empty.
 	CachePath string
 
-	// LogLevel controls slog verbosity.
+	// EventsPath is the path to the SQLite events file. The events file
+	// holds operator telemetry only: deleting it while stopped loses log
+	// history and nothing else.
+	EventsPath string
+
+	// EventsRetentionDays bounds event history. Pruning deletes rows older
+	// than this many days on startup and hourly.
+	EventsRetentionDays int
+
+	// LogLevel controls stderr display verbosity. All events persist
+	// regardless of this value.
 	LogLevel LogLevel
 
 	// AdminAddr is the address of the optional admin listener (always
@@ -109,6 +120,17 @@ func (configuration *Config) Validate() error {
 	if configuration.CachePath == "" {
 		return fmt.Errorf("cache path is required")
 	}
+	if configuration.EventsPath == "" {
+		return fmt.Errorf("events path is required")
+	}
+	if configuration.EventsRetentionDays < 1 {
+		return fmt.Errorf("EVENTS_RETENTION_DAYS must be at least 1")
+	}
+	if samePath(configuration.DBPath, configuration.CachePath) ||
+		samePath(configuration.DBPath, configuration.EventsPath) ||
+		samePath(configuration.CachePath, configuration.EventsPath) {
+		return fmt.Errorf("database, cache and events paths must differ")
+	}
 	switch configuration.LogLevel {
 	case "", LogLevelDebug, LogLevelInfo, LogLevelWarn, LogLevelError:
 	default:
@@ -118,4 +140,8 @@ func (configuration *Config) Validate() error {
 		return fmt.Errorf("LOG_LEVEL must be one of debug, info, warn, error")
 	}
 	return nil
+}
+
+func samePath(first, second string) bool {
+	return strings.EqualFold(filepath.Clean(first), filepath.Clean(second))
 }

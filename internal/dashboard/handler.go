@@ -47,6 +47,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/datamanagement"
 	"github.com/TheSlopMachine/llm-router/internal/services/doctor"
+	"github.com/TheSlopMachine/llm-router/internal/services/events"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/maintenance"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
@@ -79,6 +80,7 @@ type Handler struct {
 	repositoryService     *pluginrepo.Service
 	proxyService          *proxypool.Service
 	maintenanceService    *maintenance.GormService
+	eventsService         *events.Service
 	// dataGormService and doctorGormService are the GORM data and doctor
 	// services constructed in New from the GORM set.
 	dataGormService   *datamanagement.GormService
@@ -145,6 +147,9 @@ func (h *Handler) RegisterAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/llm-router/shutdown", h.apiShutdown)
 	mux.HandleFunc("POST /api/llm-router/dashboard/admin/password", h.requireAuth(h.apiAdminChangePassword))
 	mux.HandleFunc("GET /api/llm-router/status", h.apiStatus())
+
+	// Events API (top-level, collision-free filter namespace)
+	mux.HandleFunc("GET /api/events", h.requireAuth(h.apiEvents))
 
 	// Dashboard APIs
 	mux.HandleFunc("GET /api/llm-router/dashboard/providers", h.requireAuth(h.apiProvidersList))

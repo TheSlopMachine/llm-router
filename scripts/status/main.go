@@ -12,7 +12,6 @@ func main() {
 
 	if _, err := os.Stat(pidFile); os.IsNotExist(err) {
 		fmt.Println("llm-router dev server is not running")
-		fmt.Printf("Backend log: %s\n", shared.DefaultBackendLog())
 		fmt.Printf("Frontend log: %s\n", shared.DefaultFrontendLog())
 		return
 	}
@@ -54,7 +53,7 @@ func main() {
 	reportPort("backend port", mustAtoiSoft(shared.DevBackendPort))
 	reportPort("admin port (loopback)", mustAtoiSoft(shared.Getenv("ADMIN_PORT", shared.DevAdminPort)))
 
-	fmt.Printf("Backend log: %s\n", shared.DefaultBackendLog())
+	fmt.Printf("Events: query with make log\n")
 	fmt.Printf("Frontend log: %s\n", shared.DefaultFrontendLog())
 }
 

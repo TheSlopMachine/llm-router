@@ -22,6 +22,7 @@ internal/services/
   modelinfo/             model metadata cache (1h TTL)
   metrics/               1m buckets with dimension children, 90d retention
   maintenance/           plugin job scheduler, model sync
+  events/                operator telemetry: append-only records with metadata keys, retention prune, filtered queries
   videojobs/             router-side video job rows (local id → upstream job)
   healthcheck/           failure-triggered credential verification (check_health, cooldown, singleflight, disable on unhealthy only with automation on)
   admin/                 admin password change
@@ -30,12 +31,13 @@ internal/services/
   doctor/                database inspection and repair
   proxypool/             free-pool hosting, Lua feed bridge, SQLite cache, custom pools (built-in auto row seeded), lane scheduler adapter
 internal/httpkit/        shared transport helpers (SSE headers)
+internal/logging/        bracket stderr renderer plus events handler (persist all, display by LOG_LEVEL)
 internal/requestsource/  RequestSource in request context (public vs private listener)
 internal/httpapi/        shared route tables + public/private mux builders
 internal/errors/         domain sentinels + ToAPIError + response header allow-list
-internal/db/             SQLite open (database + cache files), DSN, migrations, record shapes, maintenance allowlist
+internal/db/             SQLite open (database + cache + events files), DSN, migrations, record shapes, maintenance allowlist
 internal/repository/     typed SQLite operations (generics API)
-internal/dashboard/      admin REST API (providers, tokens, credentials, models, virtual-models, metrics, plugins, repos, config, data export/import/clear, doctor, proxy status/refresh/pools, provider jobs)
+internal/dashboard/      admin REST API (providers, tokens, credentials, models, virtual-models, metrics, plugins, repos, config, data export/import/clear, doctor, proxy status/refresh/pools, provider jobs, events)
 internal/api/v1/         OpenAI-compatible /v1/chat/completions, /v1/completions, /v1/messages (+count_tokens, +batches, /v1/complete), /v1/models list + retrieve (TokenRules-filtered, Anthropic dual shape), /v1/videos submit + poll + content + models, audio/transcriptions (+JSON variant)/translations/speech, images/generations/edits/variations, embeddings, moderations, responses (+cancel/input_items/compact/input_tokens) + conversations (+items), assistants, threads (+messages/runs/cancel/submit_tool_outputs)
 internal/models/         shared wire types
 internal/testutil/mockplugin/ deterministic Lua fixtures for Go tests (one source per capability)
@@ -193,9 +195,15 @@ together with its `schema_migrations` row. `repository` returns
 
 ## Storage
 
-SQLite (`internal/db/sqlite.go`, `OpenSQLite`) owns two files:
+SQLite (`internal/db/sqlite.go`, `OpenSQLite`) owns three files:
 `DB_PATH` holds durable configuration, `CACHE_PATH` (fallback `DEV_CACHE`,
-default `llm-router.cache.sqlite3`) holds rebuildable state. The schema
+default `llm-router.cache.sqlite3`) holds rebuildable state, `EVENTS_PATH`
+(fallback `DEV_EVENTS`, default `llm-router.events.sqlite3`) holds operator
+telemetry with `EVENTS_RETENTION_DAYS` (default 3, minimum 1) pruning on
+startup and hourly plus `auto_vacuum=INCREMENTAL` reclamation. `GET
+/api/events` queries the events file by `severity` (>=), `id`, `start`/`end`
+(RFC3339) and `filter.<key>` existence or `filter.<key>=<value>` match
+(limit default 50, max 500). The schema
 (`internal/db/migrations/0001_initial_schema.go` untouched history plus
 `0002_split_storage.go`) owns every table; `internal/db/record/` pins the
 row shapes. The database file keeps instance settings, admin users, proxy
