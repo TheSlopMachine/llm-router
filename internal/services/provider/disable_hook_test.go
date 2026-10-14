@@ -29,6 +29,29 @@ llm_router.register("disable-hooks-type", {
 })
 `
 
+// hookDeinitLogLength waits for the disable hook's log line, then returns the
+// log length. The hook writes storage before its print line lands, so
+// snapshotting right after the storage poll races a late first line and
+// misreads it as a refire on the repeat disable below.
+func hookDeinitLogLength(t *testing.T, luaService *luaplugin.Service, pluginID string) int {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		entries, err := luaService.Logs(context.Background(), pluginID)
+		if err != nil {
+			t.Fatalf("logs: %v", err)
+		}
+		for _, entry := range entries {
+			if strings.Contains(entry.Message, "deinit:disable") {
+				return len(entries)
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("disable hook log line never landed")
+	return 0
+}
+
 // hookDeinitEntry polls plugin storage for the disable hook outcome.
 func hookDeinitEntry(t *testing.T, luaService *luaplugin.Service, pluginID, providerID string) {
 	t.Helper()
@@ -68,12 +91,7 @@ func TestDisableTransitionFiresDeinitializeOnce(t *testing.T) {
 		t.Fatalf("disable: %v", err)
 	}
 	hookDeinitEntry(t, luaService, record.ID, created.ID)
-
-	beforeEntries, err := luaService.Logs(ctx, record.ID)
-	if err != nil {
-		t.Fatalf("logs: %v", err)
-	}
-	before := len(beforeEntries)
+	before := hookDeinitLogLength(t, luaService, record.ID)
 	if _, err := service.Update(ctx, created.ID, UpdateOptions{Name: "Hooked", Disabled: &disabled}); err != nil {
 		t.Fatalf("repeat disable: %v", err)
 	}
