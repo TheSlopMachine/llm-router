@@ -786,11 +786,6 @@ Edit docs in one change with the code, never deferred. Short formulations: prese
 - BAD: adding a target without a help line.
 - GOOD: target plus help line, verified by `make help`.
 
-Root `README.md` is human-owned: never edit it.
-
-- BAD: agent edits to root `README.md`.
-- GOOD: leaving root `README.md` to the human.
-
 Plugin store reissues bump `@version` (major on contract breaks) and declare the served `@plugin_api` major.
 
 - BAD: reissue without version/API bump.
