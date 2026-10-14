@@ -21,7 +21,11 @@ spelling. Anything else fails install.
 
 ## Version history
 
-| Router | Adds |
+Contract `0.x` rows predate the Plugin API split; `@plugin_api 1.x` rows
+follow it. Router identity ships via the release tag
+(`main.RouterVersion`), never via these numbers.
+
+| Contract | Adds |
 |---|---|
 | 0.0.4 | complete, complete_stream, validate_credentials, get_model_infos, needs_refresh, refresh_credential, config_schema, credential_schema, auth_initiate, auth_step; proxy sources; storage; uuid_v5; random_hex |
 | 0.0.5 | `transcribe` handler, `llm_router.multipart`, `ModelInfo.endpoints` |
@@ -435,8 +439,8 @@ dashboard toggle and switch-gated probe always win over plugin writes.
 ### `storage.set(scope, key, value, {ttl?})` / `get` / `delete`
 
 Per-plugin KV. `ttl` seconds bounds entry lifetime (max 90
-days); expired rows read as missing and delete on read. Pre-0.7.0 bare
-rows serve without expiry. Entries with a TTL live in the disposable cache
+days); expired rows read as missing and delete on read. Bare rows written
+before contract 0.7.0 serve without expiry. Entries with a TTL live in the disposable cache
 file: deleting it while the router is stopped drops them. Durable entries
 stay in the database file. Changing the TTL on a `set` migrates the row
 between the two files; reads check the database first.

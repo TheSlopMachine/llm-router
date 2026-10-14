@@ -602,7 +602,7 @@ New provider backends are single-file Lua plugins: one `.lua` file with a `--- @
 - BAD: multi-file backend, Go backend for a new provider.
 - GOOD: one `.lua` file installed via Plugins → Catalog or `POST /api/llm-router/dashboard/plugins/install-file`.
 
-Manifest: required `@plugin`, `@author`, `@version`, `@plugin_api`, one or more `@allow_host` (`*` marks unsafe). API format `x.y`: `x` breaks, `y` extends. Install compares majors: newer reports `too_new`, older reports `too_old`, missing reports `no_api_version`. `internal/services/luaplugin/manifest.go` validates; `luaplugin.PluginAPIVersion` (`1.4`) owns the served contract.
+Manifest: required `@plugin`, `@author`, `@version`, `@plugin_api`, one or more `@allow_host` (`*` marks unsafe). API format `x.y`: `x` breaks, `y` extends. Install compares majors: newer reports `too_new`, older reports `too_old`, missing reports `no_api_version`. `internal/services/luaplugin/manifest.go` validates; `luaplugin.PluginAPIVersion` (`1.6`) owns the served contract.
 
 - BAD: missing `@allow_host`, undeclared API major.
 - GOOD: complete manifest with matching `@plugin_api` major.

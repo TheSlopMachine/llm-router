@@ -1,76 +1,46 @@
 # Changelog
 
-## Done (2026-10-14, vUnreleased)
+## Done (2026-10-14, v0.4)
 
 - Fixed the Responses path so multi-turn tool use survives: `ToChat` now converts function call and function call output items into assistant tool calls and tool turns, keeps assistant text as `assistant` (it was relabeled `user`), and maps `developer` turns to `system`. Chat-to-response output now carries `call_id` and `arguments` on function calls and `content` output_text parts on messages, and the streamed `/v1/responses` events follow the Responses schema (typed payloads, output item open/delta/done for messages and function calls, `response.completed`). Previously the stream sent only text deltas without a `type` field, so function calls never reached a streaming client. The converter lives in `internal/models/responses_convert.go`; `previous_response_id` history is still not loaded.
 - Added the three-harness validation: `make harness HARNESS=claude|codex|opencode` drives Claude Code, Codex CLI and OpenCode through three resumed phases against the router, with the deterministic `harness-mock` plugin (`test/harness/plugins/harness-mock.lua`) answering each phase, then checks the marker files and the plugin's phase events. The workflow `.github/workflows/harness.yml` runs one matrix job per harness plus driver and plugin tests.
 
-## Done (2026-10-13, vUnreleased)
-
 - Split the push validation workflow into milestone jobs (`setup`, `static`, `test`, `race`, `frontend`) with parallel fan-out after `setup` (`race` still waits for `test`): `setup` ran `make init` once and shared the generated files as an artifact, every job carried a timeout with a step-summary milestone line, rapid pushes cancelled superseded runs, and triggers covered pushes, pull requests and manual runs. Bun dependencies cached on `web/bun.lock` plus `web/package.json`.
-
-## Done (2026-10-13, vUnreleased)
 
 - Fixed `~`-backslash expansion on non-Windows systems: `expandTildePath` normalized `\` to `/` in the remainder before joining, so `~\data\db.sqlite3` resolved identically on every OS. Applied the fix in both mirrors (`internal/config/expand.go`, `scripts/shared/expand.go`); the Linux-only `TestExpandPath/tildeBackslash` CI failure passed.
 
-## Done (2026-10-13, vUnreleased)
-
 - Added push validation workflow (`.github/workflows/validate.yml`): every push ran `make init`, `make go-vet`, `make go-fmt-check`, `make sql-policy`, `make go-test`, `make go-test-race` and `make check-frontend` in order in one sequential job on `ubuntu-latest` with Go `1.27.1` and Bun latest.
-
-## Done (2026-10-13, vUnreleased)
 
 - Added operator-owned plugin disable state: the `plugins` table gained a persisted `disabled` flag (migration 3 `plugin_disabled`), reinstalls and rollbacks preserved it, and the type registry served enabled types only. Disabled types failed `Lookup` with `ErrPluginDisabled`, the router denied them with `provider_disabled`, proxy feeds and startup/shutdown hooks skipped them, and doctor stopped reporting them as missing backends. `PUT /dashboard/plugins/{id}` flipped the flag with `deinitialize` reason `disable` and `initialize` reason `enable`; the dashboard toggle called it and survived reloads.
 
-## Done (2026-10-13, vUnreleased)
-
 - Closed plugin API enforcement gaps beyond install: rollback rejected a previous version with a mismatched `@plugin_api` major (`too_new`/`too_old`) without writing, and the startup registry skipped incompatible rows with a warning while keeping them inventoried, so newer-major plugins never activated under an older router.
-
-## Done (2026-10-13, vUnreleased)
 
 - Moved model health checks into plugin responsibility with a new `check_model` handler (contract 1.5): plugins received `(ctx, model_ref)` with full model, bare name and open endpoint and returned `{status, message?, response?}` (`healthy`/`quota_exceeded`/`unhealthy`/`unknown`); the router resolved, timed, measured latency and mapped verdicts only, and reported `unsupported` for missing handlers and Go backends with no live request.
 - Deleted hardcoded router probes (`TestVision`, `TestSpeech`, `TestTranscribe`, `TestImageGeneration`, `TestEmbeddings`, `ProbeCapabilities`, WAV/PNG builders, quota/summary mappers) and the `POST /dashboard/models/capabilities` endpoint; the dashboard model test passed the endpoint through verbatim and the model list stayed the single capability source.
-
-## Done (2026-10-13, vUnreleased)
 
 - Standardized backend logging across all services: severity tiers covered debug, info, warn, error and fatal with critical aliasing fatal, messages used one stable Sentence-case sentence per site with facts in snake_case keys, and the vocabulary extended to provider_id, token_id, plugin_id, job, operation, attempt, latency_ms and proxy_url.
 - Covered previously silent systems including router decisions and credential gates, upstream HTTP requests, token and admin mutations, compat stores, plugin repository, data management, doctor, proxy selection and dashboard plus v1 handlers; wired missing service loggers in the server and dashboard params.
 - Updated the plugin logging contract to 1.4 with the extended tiers and vocabulary, accepted critical in llm_router.log, and fixed stale version references.
 
-## Done (2026-10-13, vUnreleased)
-
 - Added `make install` (human-only): built the host release binary through the same frontend and version pipeline as `make build` via shared release helpers, placed `llm-router` into `~/.local/bin` replacing any previous install, and refused when the installed app was running. Unix installs warned with shell setup steps when the directory missed `PATH` without editing shell files; Windows registered the per-user `PATH` once when missing.
-
-## Done (2026-10-13, vUnreleased)
 
 - Moved default paths to XDG directories with dev/prod separation: configuration (`.env` prod, `.env.dev` dev) lived under `XDG_CONFIG_HOME/llm-router`, the database (`llm-router.sqlite3` prod, `llm-router.dev.sqlite3` dev) under `XDG_DATA_HOME/llm-router`, the cache (`llm-router.cache.sqlite3` prod, `llm-router.cache.dev.sqlite3` dev) under `XDG_CACHE_HOME/llm-router`, and events plus pidfile plus frontend log under `XDG_STATE_HOME/llm-router`. Bases fell back to `~/.config`, `~/.local/share`, `~/.cache`, `~/.local/state` on every OS. Removed `DEV_DB`/`DEV_CACHE`/`DEV_EVENTS`; `make start` injected the dev files through `DB_PATH`/`CACHE_PATH`/`EVENTS_PATH`/`ENV_FILE`/`PID_FILE`.
 - Made directory creation managed-only: missing managed XDG parents were created, missing custom parents failed startup with `ErrParentMissing` instead of creating stray trees. The storage layer stopped creating directories and required parents.
 
-## Done (2026-10-13, vUnreleased)
-
 - Made the event system honor `LOG_LEVEL`: the logging handler dropped records below the configured level before persistence and display, and plugin `appendLog` dropped severities below the server-wired minimum, so debug events no longer landed in the events database at higher levels.
 
-## Done (2026-10-13, vUnreleased)
-
 - Expanded file paths from the environment (`DB_PATH`/`DEV_DB`, `CACHE_PATH`/`DEV_CACHE`, `EVENTS_PATH`/`DEV_EVENTS`, `ENV_FILE`, `--generate-config` target, dev `PID_FILE`): a leading `~`, `~/` and `~\` resolved to the home directory on every OS, `%NAME%` and `$VAR`/`${VAR}` resolved on every OS, then the result cleaned. A tilde elsewhere stayed literal and `~other/...` failed startup instead of creating a literal `~` directory.
-
-## Done (2026-10-13, vUnreleased)
 
 - Added interactive admin login flags: `--bootstrap` created the initial login and marked the instance bootstrapped (refused when already bootstrapped), `--create-login` added accounts to a bootstrapped instance, `--list-login` printed one username per line, `--remove-login` deleted an account after `[y/N]` confirmation (refused the last account, cleared its sessions), and `--reset-login` stored a new password without asking the current one. All five required a terminal, opened SQLite without serving traffic, re-prompted on validation failures, and exited after acting; only one login flag applied per invocation.
 - Extended the admin service with `ListLogins` (usernames ordered, hashes never exposed), `CreateLogin` (bootstrapped instances only, duplicates denied), `DeleteUser` (last-account refusal, sessions deleted before the user row) and `ResetPassword` (unknown accounts denied with not-found, sessions survived).
 
-## Done (2026-10-13, vUnreleased)
-
 - Documented the plugin logging convention: one stable human sentence per site with facts in `snake_case` keys from a standard vocabulary, severity tiers for flow, failover and terminal failures, and a fixed `event` category set.
-
-## Done (2026-10-13, vUnreleased)
 
 - Added `llm_router.log` (contract 1.4): structured plugin logging with string severity and arbitrary keys into the events database under router-owned `plugin`/`type` keys, `print` shims info severity, and per-plugin log reads serve from events with severity and keys.
 - Vacuumed all three database files on shutdown: `Close` checkpoints, vacuums and optimizes each file with per-file errors never skipping remaining closes, background writers stop first through one service context, and the events queue drains after the listeners stop.
 - Replaced file logging with the events database: `EVENTS_PATH` (fallback `DEV_EVENTS`, default `llm-router.events.sqlite3`) owned `event_records` plus `event_keys` with severity 0-4, `EVENTS_RETENTION_DAYS` (default 3, minimum 1) pruned on startup and hourly with incremental vacuum, and every record persisted regardless of `LOG_LEVEL` while stderr kept the bracket format filtered by level.
 - Added `GET /api/events` with `severity` (>=), `id`, `start`/`end` and `filter.<key>` existence or value match (limit default 50, max 500), served on both listeners with session auth on public and bypass on admin.
 - Reworked `make log` into an events query client (`EVENTS_SEVERITY`, `EVENTS_ID`, `EVENTS_START`, `EVENTS_END`, `EVENTS_LIMIT`, `EVENT_FILTERS`, polling follow) and removed the backend log file.
-
-## Done (2026-10-13, vUnreleased)
 
 - Moved deterministic provider coverage from the smoke harness into Go tests: new `internal/testutil/mockplugin` owns twelve small Lua fixtures (chat, tools, quota, auth error, stream, transcribe, speech, image, embeddings, completed and pending video, chat-only), consumed by install checks, sixteen router tests (routing, terminal errors, endpoint gates, virtual fan-out, probe), one handler tool-calls test, and seventeen `/v1` HTTP tests (unary, streams, tools, `srt`, image and embeddings variants, video pipeline, gates, listings).
 - Removed the smoke `mock` provider (`scripts/smoke/testdata/mock.lua`, mock branches in `matrix.go`/`provision.go`/`config.go`, `SMOKE_CLEANUP` plumbing): `SMOKE_PLUGINS` defaults to `all` known live types, missing credentials skip as before.
@@ -84,8 +54,6 @@
 - Merged the dashboard and `/v1` listeners onto one port: `PORT` (default `8080`) replaced `WEB_PORT`/`API_PORT` in `Config`, `.env` template and `.env.example`; legacy names are ignored. One `http.Server` dispatches `/v1` to the token-authed API, `/api` to the session-authed dashboard API and `/*` to the SPA. API prefixes (bare names included) answer JSON only and never redirect or serve HTML; the boot gate returns JSON `503` on API paths and redirects SPA paths only. Dev runs vite on `PORT` (default `38080`, proxies `/api` + `/v1`) with the backend on fixed `38081`.
 - Split SQLite storage into durable database plus disposable cache: `DB_PATH` kept configuration, `CACHE_PATH` (fallback `DEV_CACHE`, default `llm-router.cache.sqlite3`) held rebuildable state. Sessions, proxy states, model info rows, credential parks plus health, metric buckets, video jobs, response records and message batches moved to the cache file; plugin storage routed by TTL (TTL rows in cache, durable rows in database). Cache rows referenced durable parents softly with explicit cleanup on delete; deleting the cache file while stopped only logged operators out and refilled in the background.
 - Migrated single-file databases forward-only (version 2 `split_storage`): the startup copied legacy cache tables into the cache file, then dropped them from the primary file; each file owned its own `schema_migrations` history and version 1 stayed untouched.
-
-## Done (2026-10-12, vUnreleased)
 
 - Added optional plugin lifecycle hooks `initialize` / `deinitialize` (contract 1.2): one-time `ctx`-table slots with `ctx.reason` (`install`/`update`/`startup`, `delete`/`update`/`shutdown`/`disable`), concurrent fan-out with a 30s bound, failures logged without blocking. Install/update/delete/rollback dispatched detached after commit, startup ran in the server gate, shutdown ran before metrics stop, and provider disable transitions dispatched from the provider service (`Update`/`SystemDisable`/`Delete` only). Lifecycle sandboxes carried storage, HTTP and proxy tables with read-only credential access on the disable path.
 - Replaced CLI flags with environment variables (`HOST`, `WEB_PORT`, `API_PORT`, `DB_PATH`, `LOG_LEVEL`, `NO_AUTH`, `DEV_UI_REDIRECT`) plus `.env` file support through `ENV_FILE`; process environment won over the file and a missing file no longer failed startup.
@@ -101,11 +69,11 @@
 - Indexed `plugin_storage.expires_at` for TTL expiry scans.
 - Persisted metrics as one `metric_buckets` row plus provider, model, token and error-type dimension children; provider dimensions carried no duration columns.
 
-## Done (2026-10-06, v0.7.0)
+## Done (2026-10-06, contract 0.7.0)
 
 - Bumped `proxypool` to v1.0.6: publish builds now resolve the lane-scheduler API (`PoolStats`, `PoolEvent`, `Reporter`, `TaggedURL`, `FailReason`, `SetLimits`, `Start`/`Stop`) used by the router.
 
-## Done (2026-10-07, v0.8.0)
+## Done (2026-10-07, contract 0.8.0)
 
 - Classified body-read failures on proxied legs (connection reset, broken pipe, truncated body) alongside the existing first-byte faults: the proxy is marked suspect and re-verified by the pool instead of banned. Added `EPIPE` plus Windows Winsock equivalents for reset, refused and broken pipe through platform-specific helpers.
 - Added `transport`, `reason`, `proxy_fault` and `retryable` to transport error tables. `retryable` turns false once stream output reached the client, so plugins retry on another proxy only before the first delivered byte.
@@ -120,21 +88,21 @@
 - Added `POST /api/llm-router/dashboard/proxy/recheck-banned` with optional reason/source filters and a queued-count response; proxy cache persistence now records only validated entries.
 
 
-## Done (2026-10-04, v0.7.0)
+## Done (2026-10-04, contract 0.7.0)
 
 - Bumped `proxypool` to v1.0.5: unified timeout configuration (separate handshake and probe phases), deadline-bounded SOCKS4/5 implementation, progress reporting every 5000 completions, removed `golang.org/x/net` dependency.
 
-## Done (2026-10-04, v0.7.0)
+## Done (2026-10-04, contract 0.7.0)
 
 - Accepted https, socks4 and socks5 proxy candidates (plus the socks4a alias and `user[:pass]@` credentials) in feed validation and per-request transport; bumped `proxypool` to v1.0.4 and delegated `TransportFor` to the library instead of the HTTP-only dialer.
 - Documented the `fetch_proxies` row shapes and accepted protocol set in `PLUGIN-API.md`.
 - Batched proxy cache persistence behind a write-behind flush: `Set` now buffers in memory and `Flush` lands each refresh cycle in 20K-entry transactions instead of one fsync'd write per proxy; manual marks flush synchronously.
 
-## Done (2026-10-04, v0.7.0)
+## Done (2026-10-04, contract 0.7.0)
 
 - Bumped the frontend toolchain to latest: Vite 8.3.2, vite-plugin-svelte 7.3.1, Svelte 5.57.1, TypeScript 6.0.3. Pinned openapi-typescript at 5.4.2 (last line reading the Swagger 2.0 spec) and skipped TypeScript 7 (its main export is version-only, which broke codegen). Migrated tsconfig paths to `./`-relative form after dropping the deprecated `baseUrl`. The `failed to load config from vite.config.ts` svelte-check warning disappeared under Vite 8.
 
-## Done (2026-10-03, v0.7.0)
+## Done (2026-10-03, contract 0.7.0)
 
 - Decentralized request orchestration to Lua plugins: credential selection, proxy selection, retry loops and rate-limit handling moved out of the core router into plugin code. Removed the credential failover pool, the stream first-byte gate package, router credential ordering and usage accounting, the exhausted joint-key store, geo bans, proxy rank/metadata/source policy, provider proxy mode/retry config and the `classify_error` slot plus helper.
 - Shipped the 0.7.0 plugin runtime: explicit per-request `proxy_url` on the HTTP client with router-owned TLS-fault `MarkDead`, read-only `proxies.query` over the free pool and custom pools, `credentials.list/get` plus job-only `credentials.update`, KV `storage.set` with TTL, static schema tables (`credential_schema`, `config_schema`, `settings_schema`, `proxy_schema`) with presence-driven dashboard surfaces, and colocated `jobs` with interval/startup/timeout schedules. Terminal errors are OpenAI-shaped (`message`, `code`, `param`, `status`) and render verbatim.
@@ -144,18 +112,18 @@
 - Made the provider `disable_failed_credentials` switch master every non-manual credential disable: single probes and detached health checks report `unhealthy` without disabling while off, and disable as before while on. Threaded the provider ID into discovery so `credentials.list()` sees the provider's rows; empty pools yield empty lists via `ListUsable` instead of errors.
 - Unified the credential-disabled state across dashboard and plugins: `credentials.disable/enable` set the shared flag (`DisabledBy="plugin"`, first-wins, plugin restore clears only plugin causes), gated on the automation switch; KV parking stays for transient cooldowns while dead keys disable visibly.
 
-## Done (2026-10-03, v0.5.3)
+## Done (2026-10-03, contract 0.5.3)
 
 - Unified same-credential proxy retries under one provider `proxy_retry` policy (`fail_fast`/`next_proxy`, `max_attempts` 1..10, default 3): geo blocks, proxy-scoped rate/quota limits, transport failures and overloads now share a single attempt budget instead of the detached geo count plus the hardcoded route budget of three. Legacy `geo` sections migrated to `proxy_retry` at startup. Credential failover and stream first-byte rules stayed unchanged.
 - Made fresh model discovery refresh known rows (modalities, endpoints, capabilities) instead of freezing the first-seen record; transiently omitted names are still retained until the backend reports them missing. The dashboard Test probe no longer writes modality overrides for rows that already report modalities, so plugin `model_specs` stopped being masked by stale probe data.
 
-## Done (2026-10-03, v0.5.0)
+## Done (2026-10-03, contract 0.5.0)
 
 - Made the gateway a drop-in superset for OpenAI-family and Anthropic clients. Added `POST /v1/completions` (prompt+suffix mapped onto the chat pipeline, Ollama/Mistral aliases translated), `POST /v1/images/edits` and `POST /v1/images/variations` (multipart, same images response, `image_b64`/`mask_b64` passed to the `generate_image` handler), `POST /v1/audio/translations` (transcription pipeline with `task: translate`), `POST /v1/moderations` (new optional `moderate` plugin handler plus `Moderator` Go capability), `POST /v1/messages/count_tokens` (documented 4-chars-per-token heuristic), `POST /v1/complete` (legacy Anthropic completions over the messages pipeline), the `POST /v1/responses` family (create/retrieve/cancel/input_items/compact/input_tokens plus `POST /v1/conversations` with items), prior-generation assistants/threads/messages/runs shims with `requires_action` tool continuations, and the six Anthropic `POST|GET /v1/messages/batches` operations with JSONL results. Responses-family state persists in the new `responses` and `message_batches` buckets.
 - Hardened the shared surface: `GET /v1/models` and `GET /v1/models/{model}` require tokens, filter by TokenRules (denied ids 404 like missing ones), and dual-serialize the Anthropic models shape when `anthropic-version` is present; all `/v1` routes accept `x-api-key` as a Bearer alias; Anthropic-style requests get the `{type:error,error:{type,message}}` envelope (429/529 for rate/congestion) and echoed version header; Mistral `random_seed`/`output_dimension`, Ollama `options`/`format`, and OpenRouter `reasoning` envelopes translate at the edge; JSON STT (`input_audio` base64 or URL download) parses on transcriptions. No endpoint carries `deprecated:true`.
 - Bumped the plugin contract to 0.5.0 (`moderate` slot, `image_b64`/`image_name`/`mask_b64` image fields); older plugins install unchanged.
 
-## Done (2026-10-02, v0.4.0)
+## Done (2026-10-02, contract 0.4.0)
 
 - Added the OpenRouter-compatible video generation endpoint: `POST /v1/videos` returns 202 with a router-local job id and polling URL, `GET /v1/videos/{jobId}` polls upstream status, `GET /v1/videos/{jobId}/content` streams the video bytes, and `GET /v1/videos/models` lists video-capable models. Job rows persist in the new `video_jobs` bucket (local id maps to the upstream job; polls re-enter the credential pool with fresh credentials). Lua plugins serve `generate_video`/`poll_video`/`video_content`, `custom` providers proxy the same paths upstream, and virtual models fan submits out over members. The mock provider serves a deterministic completed job with synthesized ftyp/mdat bytes, and the smoke harness covers submit, poll, content and the chat-only negative path under `SMOKE_TARGETS=video`.
 
@@ -175,22 +143,22 @@
 
 - Added the `overloaded` error type for congested backends (exact `service_overloaded` code, wire `overloaded`, 503). Overloads retry the same credential on another proxy within the route budget with no marks or cooldown. Unary JSON errors now carry `Retry-After` when the router knows a wait time, and the contract documents the client backoff rules per wire code.
 
-## Done (2026-09-30, v0.3.6)
+## Done (2026-09-30, contract 0.3.6)
 
 - Added the plugin `model_specs` registration table: pinned per-model rows merged over discovered catalog rows in `GetModelInfos`. Specs win per field except the id, unknown ids are ignored, and unknown fields or mistyped values reject the plugin at install. Old routers ignore the unknown field.
 
-## Done (2026-09-30, v0.3.5)
+## Done (2026-09-30, contract 0.3.5)
 
 - Added the `transport` error type for connectivity failures (EOF, reset, broken tunnel, timeouts) with wire code `transport_error`. Transport failures carry no marks or disables and retry the same credential on another proxy within the three-attempt route budget. The HTTP client reports transport failures with the new type; plugins forward `req_err` tables as-is to preserve it.
 
-## Done (2026-09-30, v0.3.4)
+## Done (2026-09-30, contract 0.3.4)
 
 - Allowed `proxy` scope for `quota_exceeded` and retried proxy-scoped limits with the same credential on alternate routes, up to three attempts. Streaming retries stop after the first byte reaches the client, and requests return the original limit error when no alternate route is available.
 - Reclassified OpenCode Free 429 responses as proxy-scoped rate limits or quotas instead of geo blocks. Classified the OpenCode-only 401 response as `upstream` so it does not geoban a proxy or disable a credential.
 - Prevented proxy routing from falling through to direct when every ranked candidate was filtered. Updated the plugin contract and OpenCode Free plugin version.
 - Fixed pool skip returning a silent empty success when every credential carried a live limit mark. An all-skipped pool now attempts in order as a last resort, matching the router drop-exhausted fallback.
 
-## Done (2026-09-30, v0.3.3)
+## Done (2026-09-30, contract 0.3.3)
 
 - **Library-backed proxy pool.** Added the external `proxypool` dependency, a Lua source adapter, and a bbolt `CacheSource`. Migrated supported HTTP proxies, selected provider IDs, proxy-scoped limits, and geo-ban references. Removed old pool settings from `router_configuration`, deleted the router-owned probe, health, ranking, rotation, CRUD, and per-source refresh code, and dropped the obsolete `proxies` bucket.
 - **Adaptive refresh.** Started a refresh at startup. Refreshed every minute during proxy use, then backed off to five, ten, and fifteen minutes after eight idle minutes. Moved proxy-scoped limits to library metadata.
@@ -199,7 +167,7 @@
 
 Tests: `make go-test`, `make go-vet`, and `make go-fmt-check` passed. `make check-frontend` completed with two existing accessibility warnings.
 
-## Done (2026-09-28, v0.3.2)
+## Done (2026-09-28, contract 0.3.2)
 
 - **Limit keys scoped to provider instance** — exhausted rate/quota/model marks and all read paths (credential filter, pool skip, proxy pick filter, virtual fan-out pre-checks) keyed by configured provider instance ID instead of the shared adapter type key; two instances of one type no longer shared account-less marks. Geo bans stayed keyed by adapter type (shared upstream region policy). Fixed the pool skip resolving the plugin namespace via lookup, the data-management purge clearing geobans under the resolved plugin ID, and the doctor flagging every geo ban as orphan.
 - **Maintenance startup refresh** — server refreshed stale credentials synchronously before listening (30s cap, serves anyway on expiry) instead of racing the first tick behind the slow proxy rotation; refreshes ran through a bounded pool (4 workers) so many stale keys no longer serialize. Added regression tests for the gate, worker overlap, and the worker cap.
@@ -209,7 +177,7 @@ Tests: `make go-test`, `make go-vet`, and `make go-fmt-check` passed. `make chec
 
 Tests: `internal/services/maintenance/refresh_test.go`, `internal/services/luaplugin/exhausted_test.go`, `internal/services/router/exhausted_test.go`, `internal/services/doctor/service_test.go`, `internal/services/datamanagement/service_test.go`, `internal/services/luaplugin/storage_test.go`. `make go-test` green.
 
-## Done (2026-09-27, v0.3.1)
+## Done (2026-09-27, contract 0.3.1)
 
 - **Credential pool pre-skip** — pools skipped credentials with a live exhausted key before the attempt (unary and stream) and virtual fan-out applied the same filter to member calls.
 - **Manual credential refresh** — added `POST /dashboard/credentials/{id}/refresh` with a dashboard button on the provider detail page.
@@ -221,7 +189,7 @@ Tests: `internal/services/maintenance/refresh_test.go`, `internal/services/luapl
 
 Tests: `internal/pool/pool_test.go`, `internal/services/router/exhausted_test.go`, `providers/virtual/adapter_test.go`. `make go-test` green.
 
-## Done (2026-09-27, v0.3.0)
+## Done (2026-09-27, contract 0.3.0)
 
 - **Error contract rework** — removed `ErrorTypeTimeout` (merged into `upstream`); added `content_policy` (wire `400`), `model_unavailable` (wire `503`, fixed 2-minute model cooldown), `structural_fault` (wire `502`, stops the pool and disables the provider). Fixed `MapUpstream` order so code fallbacks run before the bare 400 default. Contract tables validated strictly at the boundary: unknown types, missing/past `retry_after` on rate/quota, and `scope`/`retry_after` where forbidden became `PluginInternalError`. Added `upstream_status`/`upstream_body` passthrough with 4KiB snippet cap and debug spill files in `upstream_dumps/`.
 - **Geo bans** — added `geoban.Service` (bucket `geo_bans`): indefinite `(plugin, provider, proxy)` flags cleared on proxy delete or explicit admin clear. Proxy picks filter bans after ranking with other-region preference. Provider `config.geo` (`fail_fast` default, `retry_same_key` with `max_proxies` 1..10) drove same-key retries for unary pools; streams kept pool failover only.
@@ -245,7 +213,7 @@ Tests: `internal/services/luaplugin/{authctx_test,uinodes_test}.go`, `internal/s
 
 Tests: `internal/errors/api_test.go`, `internal/services/luaplugin/service_test.go`, `internal/services/luaplugin/classify_test.go`. `make go-test` green.
 
-## Done (2026-09-25, v0.1.1)
+## Done (2026-09-25, contract 0.1.1)
 
 - **Unified exhausted store** — added `internal/services/exhausted` (bucket `exhausted`): joint limit keys over plugin, provider type, account, model, proxy. Stored keys filtered candidates by subset match; expired entries deleted on read. Credential pools dropped matching combinations (full pool kept as last resort); proxy picks filtered after ranking.
 - **Error `scope`** — added `ProviderError.Scope` (`account`/`model`/`proxy`, parsed from the contract table, unknown words failed closed). Empty scope on rate/quota marked the full combination. Marking happened once, in the exec defer, for rate/quota outcomes only.

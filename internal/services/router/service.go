@@ -386,7 +386,7 @@ func (s *Service) complete(
 }
 
 // completeWithProxy is complete plus a proxy placeholder kept for caller
-// compatibility. Plugins own proxy selection in 0.7.0: it always returns "".
+// compatibility. Plugins own proxy selection since contract 0.7.0: it always returns "".
 func (s *Service) completeWithProxy(
 	ctx context.Context,
 	request *models.ChatCompletionRequest,

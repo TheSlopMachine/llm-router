@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// Plugin API history lives with luaplugin.PluginAPIVersion (1.4).
+// Plugin API history lives with luaplugin.PluginAPIVersion (1.6).
 // Past router contract notes:
 //
 // 0.0.5 adds the transcribe handler and llm_router.multipart.
@@ -1241,7 +1241,7 @@ type ModelOverride struct {
 }
 
 // ─────────────────────────────────────────────
-// Provider errors (0.7.0)
+// Provider errors (contract 0.7.0)
 // ─────────────────────────────────────────────
 
 // ProviderError is the terminal error a plugin returns when its own
@@ -1736,7 +1736,7 @@ type TimeSeriesPoint struct {
 }
 
 // ─────────────────────────────────────────────
-// Proxies (0.7.0)
+// Proxies (contract 0.7.0)
 // ─────────────────────────────────────────────
 
 // ProxyPoolRef is the provider-level proxy selection stored in
