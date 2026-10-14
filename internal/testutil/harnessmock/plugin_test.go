@@ -532,23 +532,19 @@ func TestStreamEmitsToolCallChunksInOrder(t *testing.T) {
 	runtime := newPluginRuntime(t)
 	chunks := runtime.stream(t, chatRequest("codex-harness", []string{"exec_command"},
 		[]any{userTurn("PHASE 1 run=ci-1: start")}))
-	if len(chunks) != 3 {
+	if len(chunks) != 2 {
 		t.Fatalf("chunk count: %d", len(chunks))
 	}
 	opening := chunks[0]["choices"].([]any)[0].(map[string]any)["delta"].(map[string]any)["tool_calls"].([]any)[0].(map[string]any)
 	if opening["id"] != "harness_p1_m1" || opening["function"].(map[string]any)["name"] != "exec_command" {
 		t.Fatalf("opening chunk: %+v", opening)
 	}
-	arguments := chunks[1]["choices"].([]any)[0].(map[string]any)["delta"].(map[string]any)["tool_calls"].([]any)[0].(map[string]any)
-	if arguments["id"] != "harness_p1_m1" || arguments["function"].(map[string]any)["name"] != "exec_command" {
-		t.Fatalf("continuation chunk id/name: %+v", arguments)
+	if _, ok := argumentsOf(t, opening["function"].(map[string]any)["arguments"].(string))["cmd"].(string); !ok {
+		t.Fatalf("argument chunk: %s", opening["function"])
 	}
-	if _, ok := argumentsOf(t, arguments["function"].(map[string]any)["arguments"].(string))["cmd"].(string); !ok {
-		t.Fatalf("argument chunk: %s", arguments["function"])
-	}
-	finish := chunks[2]["choices"].([]any)[0].(map[string]any)
-	if finish["finish_reason"] != "tool_calls" || chunks[2]["usage"] == nil {
-		t.Fatalf("finish chunk: %+v", chunks[2])
+	finish := chunks[1]["choices"].([]any)[0].(map[string]any)
+	if finish["finish_reason"] != "tool_calls" || chunks[1]["usage"] == nil {
+		t.Fatalf("finish chunk: %+v", chunks[1])
 	}
 }
 

@@ -45,6 +45,10 @@ type turnRequest struct {
 	prompt      string
 	sessionID   string
 	routerModel string
+	// workdir is the run work directory the harness must operate in.
+	// Drivers pass it through (opencode --dir) instead of relying on the
+	// child process working directory, which nested servers may not honor.
+	workdir string
 }
 
 // turnOutcome is what one invocation reports back.

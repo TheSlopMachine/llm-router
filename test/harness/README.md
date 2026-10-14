@@ -55,7 +55,9 @@ That is what proves the session history carried across the resumes.
   approval policy go in config, since `exec resume` does not accept `-s`. The sandbox is
   `danger-full-access`: the `workspace-write` bubblewrap sandbox cannot set up loopback
   in CI containers, so every tool call fails before the command runs.
-- **OpenCode** runs `opencode run --format json` with `-s <session>` on later phases. The
+- **OpenCode** runs `opencode run --format json` with `--dir <workdir>` and `-s <session>`
+  on later phases. `--dir` pins the project to the run workdir: the nested server
+  otherwise inherits the driver directory and resolves the marker files there. The
   provider is inline config (`OPENCODE_CONFIG_CONTENT`) under `provider.<id>.options.baseURL`.
 
 Every harness gets its own run directory under `HARNESS_RUN_ROOT`. Its home, XDG and

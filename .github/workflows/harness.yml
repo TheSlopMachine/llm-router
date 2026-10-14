@@ -111,11 +111,13 @@ jobs:
         with:
           name: harness-${{ matrix.harness }}
           # Run root minus the heavy non-diagnostic trees: the Codex sandbox
-          # stages ~1GB of helper binaries under codex-home/tmp, and CLI
+          # stages ~1GB of helper binaries under codex-home/tmp, OpenCode
+          # installs provider packages under xdg/config node_modules, and CLI
           # caches under xdg/cache carry no failure signal.
           path: |
             ${{ env.HARNESS_RUN_ROOT }}
             !${{ env.HARNESS_RUN_ROOT }}/**/codex-home/tmp/**
+            !${{ env.HARNESS_RUN_ROOT }}/**/node_modules/**
             !${{ env.HARNESS_RUN_ROOT }}/**/xdg/cache/**
           if-no-files-found: ignore
           retention-days: 7

@@ -11,7 +11,9 @@ import (
 // opencodeDriver runs `opencode run`. The provider sits under
 // provider.<id>.options.baseURL with the openai-compatible SDK, which posts to
 // the router's /v1/chat/completions. Inline configuration keeps the run free of
-// any config file outside the run directory.
+// any config file outside the run directory. --dir pins the project to the run
+// workdir: the nested server otherwise inherits the driver directory, so tool
+// calls resolve relative paths (and the marker files) in the wrong place.
 type opencodeDriver struct{}
 
 func (opencodeDriver) name() string         { return "opencode" }
@@ -45,11 +47,11 @@ func (opencodeDriver) prepare(layout runLayout, target routerTarget) ([]string, 
 }
 
 func (opencodeDriver) initialArguments(turn turnRequest) []string {
-	return []string{"run", "--format", "json", "-m", "llm-router/" + turn.routerModel, turn.prompt}
+	return []string{"run", "--format", "json", "--dir", turn.workdir, "-m", "llm-router/" + turn.routerModel, turn.prompt}
 }
 
 func (opencodeDriver) resumeArguments(turn turnRequest) []string {
-	return []string{"run", "--format", "json", "-m", "llm-router/" + turn.routerModel, "-s", turn.sessionID, turn.prompt}
+	return []string{"run", "--format", "json", "--dir", turn.workdir, "-m", "llm-router/" + turn.routerModel, "-s", turn.sessionID, turn.prompt}
 }
 
 // opencodeEvent is one JSONL line of `opencode run --format json`.

@@ -96,7 +96,7 @@ func runHarness(driver harnessDriver) error {
 	sessionID := driver.newSessionID()
 	shared.Stepf("%s: model %s, run %s, artifacts %s", driver.name(), target.routerModel, nonce, layout.root)
 	for phase := 1; phase <= phaseCount; phase++ {
-		turn := turnRequest{prompt: phasePrompt(phase, nonce), sessionID: sessionID, routerModel: target.routerModel}
+		turn := turnRequest{prompt: phasePrompt(phase, nonce), sessionID: sessionID, routerModel: target.routerModel, workdir: layout.workdir}
 		arguments := driver.resumeArguments(turn)
 		if phase == 1 {
 			arguments = driver.initialArguments(turn)

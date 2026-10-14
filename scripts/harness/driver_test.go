@@ -334,10 +334,17 @@ func TestClaudeArgumentsPinTheSessionAndAllowTheTools(t *testing.T) {
 }
 
 func TestOpenCodeArgumentsContinueTheSession(t *testing.T) {
-	turn := turnRequest{prompt: "PHASE 2 run=abc123: go", sessionID: "ses_1", routerModel: "prov-mock/opencode-harness"}
+	turn := turnRequest{prompt: "PHASE 2 run=abc123: go", sessionID: "ses_1", routerModel: "prov-mock/opencode-harness", workdir: "/tmp/run-opencode-abc/workdir"}
 	resume := strings.Join(opencodeDriver{}.resumeArguments(turn), " ")
 	if !strings.Contains(resume, "-s ses_1") || !strings.Contains(resume, "-m llm-router/prov-mock/opencode-harness") {
 		t.Fatalf("resume arguments: %s", resume)
+	}
+	if !strings.Contains(resume, "--dir /tmp/run-opencode-abc/workdir") {
+		t.Fatalf("resume arguments pin no workdir: %s", resume)
+	}
+	initial := strings.Join(opencodeDriver{}.initialArguments(turn), " ")
+	if !strings.Contains(initial, "--dir /tmp/run-opencode-abc/workdir") {
+		t.Fatalf("initial arguments pin no workdir: %s", initial)
 	}
 }
 
