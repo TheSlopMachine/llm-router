@@ -325,6 +325,11 @@ const startupRefreshTimeout = 30 * time.Second
 // shutdown proceeds when the gate expires, regardless of hook outcomes.
 const shutdownLifecycleTimeout = 30 * time.Second
 
+// shutdownListenerTimeout bounds both listener shutdowns on exit: open
+// streams must delay shutdown, never block it. In-flight requests keep
+// their connections until the process exits.
+const shutdownListenerTimeout = 10 * time.Second
+
 // eventsDrainTimeout bounds the events queue drain on exit: shutdown
 // proceeds when the gate expires, regardless of remaining queue depth.
 const eventsDrainTimeout = 5 * time.Second
@@ -339,6 +344,21 @@ func (s *Server) runShutdownHooks() {
 	defer cancel()
 	if err := s.luaService.RunShutdownDeinitializers(gate); err != nil && s.logger != nil {
 		s.logger.Warn("Plugin shutdown hooks fail", "error", err)
+	}
+}
+
+// shutdownListeners stops both listeners, waiting for in-flight requests
+// only until the timeout expires. A nil admin server stops nothing.
+func shutdownListeners(publicServer *http.Server, adminServer *http.Server, logger *slog.Logger, timeout time.Duration) {
+	gate, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if err := publicServer.Shutdown(gate); err != nil && logger != nil {
+		logger.Warn("Public server shutdown fails", "source", "public", "error", err)
+	}
+	if adminServer != nil {
+		if err := adminServer.Shutdown(gate); err != nil && logger != nil {
+			logger.Warn("Admin server shutdown fails", "source", "admin", "error", err)
+		}
 	}
 }
 
@@ -392,20 +412,14 @@ func (s *Server) Run(ctx context.Context) error {
 	serve(s.adminServer, "admin")
 
 	shutdown := func() {
-		if err := s.httpServer.Shutdown(context.Background()); err != nil && s.logger != nil {
-			s.logger.Warn("Public server shutdown fails", "source", "public", "error", err)
-		}
-		if s.adminServer != nil {
-			if err := s.adminServer.Shutdown(context.Background()); err != nil && s.logger != nil {
-				s.logger.Warn("Admin server shutdown fails", "source", "admin", "error", err)
-			}
-		}
+		shutdownListeners(s.httpServer, s.adminServer, s.logger, shutdownListenerTimeout)
 	}
 	// graceful runs the single shutdown path: background writers stop,
-	// plugin hooks, metrics flush, then both listeners. Shutdown waits for
-	// in-flight requests, so the admin shutdown response is always
-	// delivered first. The events queue drains after the listeners stop so
-	// the final lines persist before Close vacuums.
+	// plugin hooks, metrics flush, then both listeners. Listener shutdown
+	// waits for in-flight requests only until its timeout expires, so the
+	// admin shutdown response is always delivered first. The events queue
+	// drains after the listeners stop so the final lines persist before
+	// Close vacuums.
 	graceful := func() {
 		cancelServices()
 		s.runShutdownHooks()

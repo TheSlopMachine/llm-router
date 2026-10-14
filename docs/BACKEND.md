@@ -194,13 +194,14 @@ together with its `schema_migrations` row. `repository` returns
 - Shutdown enters one path (SIGINT/SIGTERM, listener error, or
   `POST /api/llm-router/shutdown` on the admin listener): background
   writers stop (maintenance, proxy flush, events prune), hooks, metrics
-  flush, then both listeners `Shutdown` (in-flight requests complete, so
-  the shutdown response is always delivered), then the events queue drains.
+  flush, then both listeners `Shutdown` (in-flight requests wait only
+  until the 10s timeout expires, so the shutdown response is always
+  delivered), then the events queue drains.
   `Close` vacuums all three files after checkpointing each write-ahead
   log; vacuum failures never skip the remaining closes. `make stop` waits
   up to 30s
   for the admin listener first (binds after the startup gate), uses the
-  endpoint with a 15s wait and kills past it; the frontend is
+  endpoint with a 45s wait and kills past it; the frontend is
   always killed.
 - `proxypool.Service.Start(ctx)`: starts the proxypool library scheduler and
   independent 3s cache-flush loop. Library-owned lanes, foreground/background

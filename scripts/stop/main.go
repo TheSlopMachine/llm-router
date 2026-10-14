@@ -19,8 +19,9 @@ const (
 	// shutdownRequestTimeout bounds one admin shutdown POST.
 	shutdownRequestTimeout = 5 * time.Second
 	// gracefulWait bounds the backend graceful exit before the kill
-	// path applies.
-	gracefulWait = 15 * time.Second
+	// path applies. It covers the plugin hook gate plus listener, drain
+	// and vacuum tails; the wait ends early when the PID dies.
+	gracefulWait = 45 * time.Second
 	// readyWait bounds the admin listener wait: the backend binds only
 	// after its 30s startup gate, so an immediate stop outwaits it
 	// instead of dropping to the kill path.
