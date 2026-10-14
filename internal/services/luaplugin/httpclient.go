@@ -27,8 +27,9 @@ const (
 	minHTTPTimeoutMs     = 1000
 	maxHTTPTimeoutMs     = 300000
 
-	// maxResponseBody caps buffered upstream bodies.
-	maxResponseBody = 16 << 20
+	// maxResponseBody caps buffered upstream bodies. Sized for the
+	// largest feed body (proxifly list, ~18MB JSON).
+	maxResponseBody = 32 << 20
 
 	// streamErrBodyLimit caps the upstream body embedded in non-2xx stream
 	// error messages.
