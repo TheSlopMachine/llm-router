@@ -25,12 +25,16 @@ so filtering always targets keys, never substrings.
 - `filter.<key>[=<value>]` predicates match metadata exactly; a bare
   `filter.<key>` matches presence only
   (`internal/services/events/service.go:38-43`,
-  `internal/dashboard/events.go:97-111`). There is no substring or pattern
+  `internal/dashboard/events.go:97-130`). There is no substring or pattern
   match: `filter.code=rate_limit` works, `filter.reason=quota` never matches
   `quota_exhausted`, and `filter.msg=` needs the full exact message.
+- `exclude.<key>[=<value>]` predicates drop matching rows; a bare
+  `exclude.<key>` drops presence only. Multiple exclusions unite: one match
+  drops the row. Exclusions apply after inclusions.
 - `EVENT_FILTERS` splits on whitespace, so values with spaces cannot pass
   through `make log`: query `/api/events` directly with URL-encoded values
-  instead (`/api/events?filter.msg=rate%20limited&limit=50`).
+  instead (`/api/events?filter.msg=rate%20limited&limit=50`). A leading `!`
+  marks exclusion (`!event`, `!event=stream`).
 - Entries below the configured `LOG_LEVEL` never persist
   (`internal/services/luaplugin/service.go:667-669`). Missing `debug` lines
   on an `info` stack are not evidence the path never ran.
@@ -161,6 +165,7 @@ credential park or only cool down:
 make log EVENT_FILTERS="code=rate_limit" EVENTS_LIMIT=50
 make log EVENT_FILTERS="type=google" EVENTS_START="<window-start>" EVENTS_END="<window-end>"
 make log EVENT_FILTERS="cred_id=<id>" EVENTS_LIMIT=20
+make log EVENT_FILTERS="type=google !event=stream" EVENTS_LIMIT=50
 ```
 
 Park rows (`Credential park succeeds` with `until`) mean every model on the

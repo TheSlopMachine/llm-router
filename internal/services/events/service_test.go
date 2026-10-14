@@ -102,6 +102,121 @@ func TestQueryKeyFilters(t *testing.T) {
 	}
 }
 
+func TestQueryKeyExcludes(t *testing.T) {
+	service := openEvents(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	if err := service.Append(ctx, now, SeverityInfo, "first", map[string]string{"plugin": "x", "provider": "openai"}); err != nil {
+		t.Fatalf("append first: %v", err)
+	}
+	if err := service.Append(ctx, now, SeverityInfo, "second", map[string]string{"provider": "other"}); err != nil {
+		t.Fatalf("append second: %v", err)
+	}
+	if err := service.Append(ctx, now, SeverityInfo, "third", nil); err != nil {
+		t.Fatalf("append third: %v", err)
+	}
+	excluded, err := service.Query(ctx, Query{Excludes: []KeyFilter{{Key: "plugin"}}})
+	if err != nil {
+		t.Fatalf("exclusion query: %v", err)
+	}
+	if len(excluded) != 2 {
+		t.Fatalf("unexpected exclusion entries %+v", excluded)
+	}
+	for _, entry := range excluded {
+		if entry.Message == "first" {
+			t.Fatalf("excluded entry still present %+v", excluded)
+		}
+	}
+	value := "other"
+	valued, err := service.Query(ctx, Query{Excludes: []KeyFilter{{Key: "provider", Value: &value}}})
+	if err != nil {
+		t.Fatalf("valued exclusion query: %v", err)
+	}
+	if len(valued) != 2 {
+		t.Fatalf("unexpected valued exclusion entries %+v", valued)
+	}
+	for _, entry := range valued {
+		if entry.Message == "second" {
+			t.Fatalf("valued excluded entry still present %+v", valued)
+		}
+	}
+	combined, err := service.Query(ctx, Query{Filters: []KeyFilter{{Key: "provider"}}, Excludes: []KeyFilter{{Key: "plugin"}}})
+	if err != nil {
+		t.Fatalf("combined query: %v", err)
+	}
+	if len(combined) != 1 || combined[0].Message != "second" {
+		t.Fatalf("unexpected combined entries %+v", combined)
+	}
+	union, err := service.Query(ctx, Query{Excludes: []KeyFilter{{Key: "plugin"}, {Key: "provider", Value: &value}}})
+	if err != nil {
+		t.Fatalf("union query: %v", err)
+	}
+	if len(union) != 1 || union[0].Message != "third" {
+		t.Fatalf("unexpected union entries %+v", union)
+	}
+	limited, err := service.Query(ctx, Query{Excludes: []KeyFilter{{Key: "plugin"}}, Limit: 1})
+	if err != nil {
+		t.Fatalf("limited query: %v", err)
+	}
+	if len(limited) != 1 || limited[0].Message != "third" {
+		t.Fatalf("unexpected limited entries %+v", limited)
+	}
+}
+
+func TestQueryExcludesPaginate(t *testing.T) {
+	service := openEvents(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	for _, message := range []string{"plain-1", "plain-2", "plain-3"} {
+		if err := service.Append(ctx, now, SeverityInfo, message, nil); err != nil {
+			t.Fatalf("append %s: %v", message, err)
+		}
+	}
+	for i := 0; i < excludePageSize+20; i++ {
+		if err := service.Append(ctx, now, SeverityInfo, "noise", map[string]string{"noise": "yes"}); err != nil {
+			t.Fatalf("append noise %d: %v", i, err)
+		}
+	}
+	entries, err := service.Query(ctx, Query{Excludes: []KeyFilter{{Key: "noise"}}, Limit: 10})
+	if err != nil {
+		t.Fatalf("paginated query: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("unexpected paginated entries %+v", entries)
+	}
+	for i, message := range []string{"plain-3", "plain-2", "plain-1"} {
+		if entries[i].Message != message {
+			t.Fatalf("entry %d holds %q, want %q", i, entries[i].Message, message)
+		}
+	}
+}
+
+func TestQueryIncludesChunked(t *testing.T) {
+	service := openEvents(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	for i := 0; i < idChunkSize+2; i++ {
+		keys := map[string]string{"bulk": "yes"}
+		if i > 0 {
+			keys["drop"] = "yes"
+		}
+		if err := service.Append(ctx, now, SeverityInfo, "bulk", keys); err != nil {
+			t.Fatalf("append bulk %d: %v", i, err)
+		}
+	}
+	value := "yes"
+	entries, err := service.Query(ctx, Query{Filters: []KeyFilter{{Key: "bulk", Value: &value}}, Excludes: []KeyFilter{{Key: "drop"}}, Limit: 10})
+	if err != nil {
+		t.Fatalf("chunked query: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("unexpected chunked entries %+v", entries)
+	}
+	if len(entries[0].Keys) != 1 || entries[0].Keys[0].Key != "bulk" {
+		t.Fatalf("unexpected chunked keys %+v", entries[0].Keys)
+	}
+}
+
 func TestQueryByID(t *testing.T) {
 	service := openEvents(t)
 	ctx := context.Background()

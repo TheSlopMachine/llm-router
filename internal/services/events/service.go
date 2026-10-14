@@ -32,11 +32,18 @@ const (
 	MaxLimit     = 500
 )
 
+// idChunkSize bounds IN lists so statements stay under variable limits.
+// excludePageSize bounds exclusion scan batches.
+const (
+	idChunkSize     = 400
+	excludePageSize = 500
+)
+
 // pruneInterval paces periodic retention pruning.
 const pruneInterval = time.Hour
 
-// KeyFilter is one filter.<key>[=<value>] predicate. A nil Value checks
-// key existence only.
+// KeyFilter is one filter.<key>[=<value>] or exclude.<key>[=<value>]
+// predicate. A nil Value checks key existence only.
 type KeyFilter struct {
 	Key   string
 	Value *string
@@ -49,6 +56,7 @@ type Query struct {
 	Start    *time.Time
 	End      *time.Time
 	Filters  []KeyFilter
+	Excludes []KeyFilter
 	Limit    int
 }
 
@@ -152,9 +160,10 @@ func orderByIDDesc() clause.OrderBy {
 }
 
 // Query runs a filtered event query. ID mode returns at most one entry.
-// Otherwise severity/start/end narrow the record scan, key filters
-// intersect in Go (two phases, no subselects), and keys assemble per
-// record. Limit defaults to DefaultLimit and clamps to MaxLimit.
+// Otherwise severity/start/end narrow the record scan, inclusions resolve
+// to record IDs in bounded chunks, exclusions drop rows in Go, and keys
+// assemble per record. Limit defaults to DefaultLimit and clamps to
+// MaxLimit.
 func (s *Service) Query(ctx context.Context, query Query) ([]Entry, error) {
 	limit := query.Limit
 	if limit <= 0 {
@@ -173,37 +182,146 @@ func (s *Service) Query(ctx context.Context, query Query) ([]Entry, error) {
 		}
 		return s.assemble(ctx, []record.EventRecord{row})
 	}
-	conditions := []clause.Expression{}
+	base := []clause.Expression{}
 	if query.Severity != nil {
-		conditions = append(conditions, clause.Gte{Column: "severity", Value: *query.Severity})
+		base = append(base, clause.Gte{Column: "severity", Value: *query.Severity})
 	}
 	if query.Start != nil {
-		conditions = append(conditions, clause.Gte{Column: "timestamp", Value: query.Start.UTC()})
+		base = append(base, clause.Gte{Column: "timestamp", Value: query.Start.UTC()})
 	}
 	if query.End != nil {
-		conditions = append(conditions, clause.Lte{Column: "timestamp", Value: query.End.UTC()})
+		base = append(base, clause.Lte{Column: "timestamp", Value: query.End.UTC()})
 	}
 	if len(query.Filters) > 0 {
-		matched, err := s.matchingIDs(ctx, query.Filters)
+		return s.queryWithIncludes(ctx, base, query.Filters, query.Excludes, limit)
+	}
+	if len(query.Excludes) == 0 {
+		conditions := make([]clause.Expression, 0, len(base)+2)
+		conditions = append(conditions, base...)
+		conditions = append(conditions, orderByIDDesc(), clause.Limit{Limit: &limit})
+		rows, err := gorm.G[record.EventRecord](s.database.Events, conditions...).Find(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list events: %w", err)
+		}
+		return s.assemble(ctx, rows)
+	}
+	return s.queryWithExcludes(ctx, base, query.Excludes, limit)
+}
+
+// queryWithIncludes serves inclusion queries newest-first, resolving matched
+// IDs in bounded chunks and stopping once limit survivors accumulate.
+func (s *Service) queryWithIncludes(ctx context.Context, base []clause.Expression, filters []KeyFilter, excludes []KeyFilter, limit int) ([]Entry, error) {
+	matched, err := s.matchingIDs(ctx, filters)
+	if err != nil {
+		return nil, err
+	}
+	if len(matched) == 0 {
+		return nil, nil
+	}
+	sort.Slice(matched, func(a, b int) bool { return matched[a] > matched[b] })
+	survivors := []Entry(nil)
+	for start := 0; start < len(matched); start += idChunkSize {
+		end := start + idChunkSize
+		if end > len(matched) {
+			end = len(matched)
+		}
+		values := make([]any, 0, end-start)
+		for _, id := range matched[start:end] {
+			values = append(values, id)
+		}
+		conditions := make([]clause.Expression, 0, len(base)+2)
+		conditions = append(conditions, base...)
+		conditions = append(conditions, clause.IN{Column: "id", Values: values}, orderByIDDesc())
+		rows, err := gorm.G[record.EventRecord](s.database.Events, conditions...).Find(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list events: %w", err)
+		}
+		entries, err := s.assemble(ctx, rows)
 		if err != nil {
 			return nil, err
 		}
-		if len(matched) == 0 {
-			return nil, nil
+		for _, entry := range entries {
+			if excludedByKeys(entry.Keys, excludes) {
+				continue
+			}
+			survivors = append(survivors, entry)
+			if len(survivors) >= limit {
+				return survivors[:limit], nil
+			}
 		}
-		conditions = append(conditions, clause.IN{Column: "id", Values: matched})
 	}
-	conditions = append(conditions, orderByIDDesc())
-	conditions = append(conditions, clause.Limit{Limit: &limit})
-	rows, err := gorm.G[record.EventRecord](s.database.Events, conditions...).Find(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list events: %w", err)
+	if len(survivors) == 0 {
+		return nil, nil
 	}
-	return s.assemble(ctx, rows)
+	return survivors, nil
+}
+
+// queryWithExcludes scans records newest-first in bounded batches, dropping
+// excluded rows in Go until limit survivors accumulate.
+func (s *Service) queryWithExcludes(ctx context.Context, base []clause.Expression, excludes []KeyFilter, limit int) ([]Entry, error) {
+	survivors := []Entry(nil)
+	var cursor *int64
+	for {
+		batch := excludePageSize
+		conditions := make([]clause.Expression, 0, len(base)+3)
+		conditions = append(conditions, base...)
+		if cursor != nil {
+			conditions = append(conditions, clause.Lt{Column: "id", Value: *cursor})
+		}
+		conditions = append(conditions, orderByIDDesc(), clause.Limit{Limit: &batch})
+		rows, err := gorm.G[record.EventRecord](s.database.Events, conditions...).Find(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list events: %w", err)
+		}
+		if len(rows) == 0 {
+			break
+		}
+		entries, err := s.assemble(ctx, rows)
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			if excludedByKeys(entry.Keys, excludes) {
+				continue
+			}
+			survivors = append(survivors, entry)
+			if len(survivors) >= limit {
+				return survivors[:limit], nil
+			}
+		}
+		if len(rows) < batch {
+			break
+		}
+		cursorValue := rows[len(rows)-1].ID
+		cursor = &cursorValue
+	}
+	if len(survivors) == 0 {
+		return nil, nil
+	}
+	return survivors, nil
+}
+
+// excludedByKeys reports whether keys match any exclusion: presence for a
+// nil value, exact value otherwise. One match drops the row.
+func excludedByKeys(keys []KeyValue, excludes []KeyFilter) bool {
+	for _, exclusion := range excludes {
+		for _, key := range keys {
+			if key.Key != exclusion.Key {
+				continue
+			}
+			if exclusion.Value == nil {
+				return true
+			}
+			if key.Value != nil && *key.Value == *exclusion.Value {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // matchingIDs intersects record IDs across all key filters in Go.
-func (s *Service) matchingIDs(ctx context.Context, filters []KeyFilter) ([]any, error) {
+func (s *Service) matchingIDs(ctx context.Context, filters []KeyFilter) ([]int64, error) {
 	var intersect map[int64]bool
 	for _, filter := range filters {
 		conditions := []clause.Expression{clause.Eq{Column: "key", Value: filter.Key}}
@@ -231,7 +349,7 @@ func (s *Service) matchingIDs(ctx context.Context, filters []KeyFilter) ([]any, 
 			return nil, nil
 		}
 	}
-	matched := make([]any, 0, len(intersect))
+	matched := make([]int64, 0, len(intersect))
 	for id := range intersect {
 		matched = append(matched, id)
 	}

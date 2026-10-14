@@ -18,7 +18,7 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 | `clean` | — | `make clean` (human-only: stop processes + clean ignored files except `.env` files and SQLite databases) |
 | `restart` | same as `start` | `make restart` (backend-only when the frontend lives, else full start) |
 | `status` | `PID_FILE` | `make status` |
-| `log` | `EVENTS_SEVERITY`, `EVENTS_ID`, `EVENTS_START`, `EVENTS_END`, `EVENTS_LIMIT` (`LINES` fallback, default `50`), `EVENT_FILTERS` (`"k=v bare-key"`), `FOLLOW` | `make log` |
+| `log` | `EVENTS_SEVERITY`, `EVENTS_ID`, `EVENTS_START`, `EVENTS_END`, `EVENTS_LIMIT` (`LINES` fallback, default `50`), `EVENT_FILTERS` (`"k=v bare-key !k !k=v"`), `FOLLOW` | `make log` |
 | `logfrontend` | `LINES` (default `100`), `FOLLOW` | `make log-frontend` |
 | `browser` | `URL` (default `http://HOST:PORT`) | `make browser` |
 | `build` | `VERSION` (default: latest git tag, else `dev`), `PLATFORMS`* | `make build` |

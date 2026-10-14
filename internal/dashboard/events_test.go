@@ -67,6 +67,12 @@ func TestEventsEndpointServesFiltersOnPrivate(t *testing.T) {
 	if entries := serve("/api/events?filter.plugin&filter.provider=openai"); len(entries) != 1 || entries[0].Message != "first" {
 		t.Fatalf("key filters hold %+v, want first only", entries)
 	}
+	if entries := serve("/api/events?exclude.plugin"); len(entries) != 1 || entries[0].Message != "second" {
+		t.Fatalf("key exclusions hold %+v, want second only", entries)
+	}
+	if entries := serve("/api/events?filter.provider&exclude.provider=openai"); len(entries) != 1 || entries[0].Message != "second" {
+		t.Fatalf("combined filters hold %+v, want second only", entries)
+	}
 }
 
 func TestEventsEndpointRejectsInvalidParams(t *testing.T) {
@@ -83,6 +89,8 @@ func TestEventsEndpointRejectsInvalidParams(t *testing.T) {
 		"/api/events?start=bogus",
 		"/api/events?end=bogus",
 		"/api/events?limit=bogus",
+		"/api/events?filter.",
+		"/api/events?exclude.",
 	} {
 		request := httptest.NewRequest(http.MethodGet, target, nil)
 		request = request.WithContext(requestsource.ContextWithSource(request.Context(), requestsource.RequestSourcePrivate))

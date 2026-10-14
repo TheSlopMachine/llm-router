@@ -10,10 +10,10 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/events"
 )
 
-// apiEvents answers GET /api/events with severity, id, time-range and
-// filter.<key> predicates. Built-in parameters live at root level;
-// arbitrary metadata keys carry the filter. prefix so collisions are
-// impossible.
+// apiEvents answers GET /api/events with severity, id, time-range,
+// filter.<key> predicates and exclude.<key> predicates. Built-in parameters
+// live at root level; arbitrary metadata keys carry the filter. or exclude.
+// prefix so collisions are impossible.
 //
 // @Summary      List events
 // @Description  Query persisted log events by severity, time range and metadata keys.
@@ -95,19 +95,37 @@ func parseEventsQuery(r *http.Request) (events.Query, error) {
 		query.Limit = number
 	}
 	for key, list := range values {
-		if !strings.HasPrefix(key, "filter.") {
+		exclusion := false
+		name := ""
+		switch {
+		case strings.HasPrefix(key, "filter."):
+			name = strings.TrimSpace(strings.TrimPrefix(key, "filter."))
+			if name == "" {
+				return events.Query{}, fmt.Errorf("invalid filter key")
+			}
+		case strings.HasPrefix(key, "exclude."):
+			exclusion = true
+			name = strings.TrimSpace(strings.TrimPrefix(key, "exclude."))
+			if name == "" {
+				return events.Query{}, fmt.Errorf("invalid exclude key")
+			}
+		default:
 			continue
 		}
-		name := strings.TrimSpace(strings.TrimPrefix(key, "filter."))
-		if name == "" {
-			return events.Query{}, fmt.Errorf("invalid filter key")
-		}
 		if len(list) == 0 || strings.TrimSpace(list[0]) == "" {
-			query.Filters = append(query.Filters, events.KeyFilter{Key: name})
+			if exclusion {
+				query.Excludes = append(query.Excludes, events.KeyFilter{Key: name})
+			} else {
+				query.Filters = append(query.Filters, events.KeyFilter{Key: name})
+			}
 			continue
 		}
 		value := list[0]
-		query.Filters = append(query.Filters, events.KeyFilter{Key: name, Value: &value})
+		if exclusion {
+			query.Excludes = append(query.Excludes, events.KeyFilter{Key: name, Value: &value})
+		} else {
+			query.Filters = append(query.Filters, events.KeyFilter{Key: name, Value: &value})
+		}
 	}
 	return query, nil
 }

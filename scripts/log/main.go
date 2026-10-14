@@ -16,7 +16,7 @@ import (
 
 // log queries the running dev stack for persisted events and prints them.
 // Query parameters come from env: EVENTS_SEVERITY, EVENTS_ID, EVENTS_START,
-// EVENTS_END, EVENTS_LIMIT (LINES fallback), EVENT_FILTERS="k=v bare-key".
+// EVENTS_END, EVENTS_LIMIT (LINES fallback), EVENT_FILTERS="k=v bare-key !k !k=v".
 // FOLLOW=1 polls for new rows; FOLLOW=0 dumps once.
 func main() {
 	base := adminBase()
@@ -95,14 +95,22 @@ func buildQuery() url.Values {
 		if token == "" {
 			continue
 		}
+		prefix := "filter."
+		if strings.HasPrefix(token, "!") {
+			prefix = "exclude."
+			token = strings.TrimSpace(strings.TrimPrefix(token, "!"))
+			if token == "" {
+				continue
+			}
+		}
 		if key, value, found := strings.Cut(token, "="); found {
 			key = strings.TrimSpace(key)
 			if key == "" {
 				continue
 			}
-			query.Set("filter."+key, strings.TrimSpace(value))
+			query.Set(prefix+key, strings.TrimSpace(value))
 		} else {
-			query.Set("filter."+strings.TrimSpace(token), "")
+			query.Set(prefix+strings.TrimSpace(token), "")
 		}
 	}
 	return query

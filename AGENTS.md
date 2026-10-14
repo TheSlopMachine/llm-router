@@ -231,7 +231,7 @@ Tail backend log (`LINES=...` overrides the `EVENTS_LIMIT=50` default tail; `FOL
 - BAD: `type "$env:TEMP\llm-router-backend.log"`, `Get-Content` on log paths, `Get-ChildItem` temp-dir log hunting.
 - GOOD: `make log`, `make log LINES=200`, `make log FOLLOW=1`
 
-Query persisted events with native filters (`EVENT_FILTERS="k=v bare-key"`, `EVENTS_SEVERITY=0-4`, `EVENTS_LIMIT=...`, `EVENTS_START=`/`EVENTS_END=` RFC3339, `EVENTS_ID=...`). The server clamps `limit` to 500; page with time windows instead of larger limits. Filter keys are event metadata (`code`, `cred_id`, `model`, `type`, `reason`); message text is not filterable. Full key inventory: `docs/EVENT-KEYS.md`.
+Query persisted events with native filters (`EVENT_FILTERS="k=v bare-key !k !k=v"`, `EVENTS_SEVERITY=0-4`, `EVENTS_LIMIT=...`, `EVENTS_START=`/`EVENTS_END=` RFC3339, `EVENTS_ID=...`). The server clamps `limit` to 500; page with time windows instead of larger limits. Filter keys are event metadata (`code`, `cred_id`, `model`, `type`, `reason`); message text is not filterable. Full key inventory: `docs/EVENT-KEYS.md`.
 
 - BAD: piping `make log` into `Select-String`/`grep`, `Get-Content` on log paths.
 - GOOD: `make log EVENT_FILTERS="code=rate_limit" EVENTS_LIMIT=500`, `make log EVENT_FILTERS="type=google" EVENTS_START="2026-10-13T17:38:00Z" EVENTS_END="2026-10-13T17:43:00Z"`, `make log EVENTS_SEVERITY=2`
@@ -696,7 +696,7 @@ Dashboard `/api/llm-router/*` (same `:PORT`, JSON `{"error":...}` on failure):
 - `GET /dashboard/providers/{id}/models` — richest capability source (`endpoints` included).
 - `GET /dashboard/proxy-sources`, `/dashboard/virtual-models` — pool and fan-out state.
 
-`GET /api/events` (same `:PORT`; backs `make log`): `severity` (0-4 minimum), `id`, `start`/`end` (RFC3339), `limit` (server clamps to 500), plus `filter.<key>[=<value>]` predicates over event metadata (`code`, `cred_id`, `model`, `type`, `reason`, ...). Bare `filter.<key>` matches presence; message text is not filterable. Full key inventory: `docs/EVENT-KEYS.md`.
+`GET /api/events` (same `:PORT`; backs `make log`): `severity` (0-4 minimum), `id`, `start`/`end` (RFC3339), `limit` (server clamps to 500), plus `filter.<key>[=<value>]` predicates and `exclude.<key>[=<value>]` predicates over event metadata (`code`, `cred_id`, `model`, `type`, `reason`, ...). Bare `filter.<key>` matches presence; bare `exclude.<key>` drops presence; message text is not filterable. Full key inventory: `docs/EVENT-KEYS.md`.
 
 Runtime diagnostics come ONLY from make targets plus metrics endpoints:
 
