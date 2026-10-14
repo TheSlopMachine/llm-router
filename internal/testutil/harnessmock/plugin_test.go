@@ -400,6 +400,40 @@ func TestMissingExpectedOutputFails(t *testing.T) {
 	}
 }
 
+func TestTrailingUserTextAfterValidResultCompletes(t *testing.T) {
+	runtime := newPluginRuntime(t)
+	history := []any{
+		userTurn("PHASE 3 run=ci-9: start"),
+		assistantCall("harness_p3_m1", "Bash", `{"command":"true"}`),
+		toolTurn("harness_p3_m1", "phase-1 ok\nphase-2 ok\n"),
+		userTurn("reminder: answer with the phase token"),
+	}
+	completion, failure := runtime.complete(t, chatRequest("claude-sonnet-4-5", []string{"Bash"}, history))
+	if failure != nil {
+		t.Fatalf("idempotent completion failed: %+v", failure)
+	}
+	if got := replyTextOf(t, completion); got != "HARNESS-MOCK-OK" {
+		t.Fatalf("reply: %q", got)
+	}
+}
+
+func TestTrailingUserTextWithoutValidResultIssuesCall(t *testing.T) {
+	runtime := newPluginRuntime(t)
+	history := []any{
+		userTurn("PHASE 3 run=ci-9: start"),
+		assistantCall("harness_p3_m1", "Bash", `{"command":"true"}`),
+		toolTurn("harness_p3_m1", "nothing useful"),
+		userTurn("reminder: answer with the phase token"),
+	}
+	completion, failure := runtime.complete(t, chatRequest("claude-sonnet-4-5", []string{"Bash"}, history))
+	if failure != nil {
+		t.Fatalf("call after invalid result failed: %+v", failure)
+	}
+	if _, name, _ := toolCallOf(t, completion); name != "Bash" {
+		t.Fatalf("expected a new Bash call, got tool %s", name)
+	}
+}
+
 func TestRepeatedCallsTripLoopGuard(t *testing.T) {
 	runtime := newPluginRuntime(t)
 	history := []any{userTurn("PHASE 1 run=ci-1: start")}
@@ -505,9 +539,12 @@ func TestStreamEmitsToolCallChunksInOrder(t *testing.T) {
 	if opening["id"] != "harness_p1_m1" || opening["function"].(map[string]any)["name"] != "exec_command" {
 		t.Fatalf("opening chunk: %+v", opening)
 	}
-	arguments := chunks[1]["choices"].([]any)[0].(map[string]any)["delta"].(map[string]any)["tool_calls"].([]any)[0].(map[string]any)["function"].(map[string]any)["arguments"].(string)
-	if _, ok := argumentsOf(t, arguments)["cmd"].(string); !ok {
-		t.Fatalf("argument chunk: %s", arguments)
+	arguments := chunks[1]["choices"].([]any)[0].(map[string]any)["delta"].(map[string]any)["tool_calls"].([]any)[0].(map[string]any)
+	if arguments["id"] != "harness_p1_m1" {
+		t.Fatalf("continuation chunk id: %+v", arguments)
+	}
+	if _, ok := argumentsOf(t, arguments["function"].(map[string]any)["arguments"].(string))["cmd"].(string); !ok {
+		t.Fatalf("argument chunk: %s", arguments["function"])
 	}
 	finish := chunks[2]["choices"].([]any)[0].(map[string]any)
 	if finish["finish_reason"] != "tool_calls" || chunks[2]["usage"] == nil {

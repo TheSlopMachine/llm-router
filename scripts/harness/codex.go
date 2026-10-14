@@ -12,7 +12,10 @@ import (
 
 // codexDriver runs `codex exec`. Codex 0.162 accepts only the Responses wire
 // API, so the provider points at the router's /v1/responses. Sandbox and
-// approval policy live in config because `exec resume` rejects -s.
+// approval policy live in config because `exec resume` rejects -s. The
+// sandbox is danger-full-access: the workspace-write bubblewrap sandbox
+// cannot set up loopback in CI containers, so every tool call fails before
+// the command runs. The run workdir is already an isolated temp directory.
 type codexDriver struct{}
 
 func (codexDriver) name() string         { return "codex" }
@@ -23,7 +26,7 @@ func (codexDriver) newSessionID() string { return "" }
 func (codexDriver) prepare(layout runLayout, target routerTarget) ([]string, error) {
 	configuration := fmt.Sprintf(`model = %q
 model_provider = "llm-router"
-sandbox_mode = "workspace-write"
+sandbox_mode = "danger-full-access"
 approval_policy = "never"
 
 [model_providers.llm-router]

@@ -260,7 +260,7 @@ func TestCodexPrepareWritesResponsesProviderConfig(t *testing.T) {
 		`model = "prov-mock/codex-harness"`,
 		`wire_api = "responses"`,
 		`base_url = "http://127.0.0.1:38082/v1"`,
-		`sandbox_mode = "workspace-write"`,
+		`sandbox_mode = "danger-full-access"`,
 		`approval_policy = "never"`,
 	} {
 		if !strings.Contains(string(raw), fragment) {

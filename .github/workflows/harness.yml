@@ -110,7 +110,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: harness-${{ matrix.harness }}
-          path: ${{ env.HARNESS_RUN_ROOT }}
+          # Run root minus the heavy non-diagnostic trees: the Codex sandbox
+          # stages ~1GB of helper binaries under codex-home/tmp, and CLI
+          # caches under xdg/cache carry no failure signal.
+          path: |
+            ${{ env.HARNESS_RUN_ROOT }}
+            !${{ env.HARNESS_RUN_ROOT }}/**/codex-home/tmp/**
+            !${{ env.HARNESS_RUN_ROOT }}/**/xdg/cache/**
           if-no-files-found: ignore
           retention-days: 7
 

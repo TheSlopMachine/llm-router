@@ -36,6 +36,8 @@ The plugin decides each turn from the message history alone. It keeps no state o
   `expected_output_missing`.
 - A third call for the same conversation and phase fails `tool_call_repeated`. A healthy
   phase makes one call, so a repeat means the router withheld the tool result from history.
+  Completion is idempotent: a user turn that follows an already valid tool result for the
+  phase returns the reply instead of issuing another call.
 
 Each phase logs two events, `Harness phase issues tool call` and `Harness phase completes`,
 with the phase, step and history size. The driver reads them back through
@@ -50,7 +52,9 @@ That is what proves the session history carried across the resumes.
   serves `/v1/messages`.
 - **Codex CLI** runs `codex exec` with `--json` and `exec resume <thread>`. Its config sets
   `wire_api = "responses"`, because Codex 0.162 rejects the chat wire API. Sandbox and
-  approval policy go in config, since `exec resume` does not accept `-s`.
+  approval policy go in config, since `exec resume` does not accept `-s`. The sandbox is
+  `danger-full-access`: the `workspace-write` bubblewrap sandbox cannot set up loopback
+  in CI containers, so every tool call fails before the command runs.
 - **OpenCode** runs `opencode run --format json` with `-s <session>` on later phases. The
   provider is inline config (`OPENCODE_CONFIG_CONTENT`) under `provider.<id>.options.baseURL`.
 

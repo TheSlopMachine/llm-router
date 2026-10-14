@@ -1,6 +1,6 @@
 --- @plugin Harness Mock
 --- @author llm-router
---- @version 1.0.0
+--- @version 1.0.1
 --- @plugin_api 1.6
 --- @allow_host example.com
 --- @description Deterministic three-phase shell scenario for CI harness validation. No network use.
@@ -151,6 +151,34 @@ local function register_call(request, phase_number)
   return count
 end
 
+-- phase_output_valid checks the tool output against the phase expectations.
+local function phase_output_valid(output, phase)
+  for _, expected in ipairs(phase.expected) do
+    if string.find(output, expected, 1, true) == nil then
+      return false
+    end
+  end
+  return true
+end
+
+-- completed_reply returns the phase reply when history already holds a valid
+-- tool result for this phase. Harnesses may follow the result with trailing
+-- user text (reminders, retries); re-issuing the call then only trips the
+-- loop guard, so completion is idempotent. A withheld result still issues a
+-- new call through the guard below.
+local function completed_reply(messages, phase_number, phase)
+  local prefix = PROTOCOL_PREFIX .. tostring(phase_number) .. "_"
+  for _, message in ipairs(messages) do
+    if message.role == "tool" then
+      local call_id = message.tool_call_id or ""
+      if string.sub(call_id, 1, #prefix) == prefix and phase_output_valid(text_of(message), phase) then
+        return phase.reply
+      end
+    end
+  end
+  return nil
+end
+
 -- decide returns the turn for one chat request, either a tool call or a text reply.
 -- Requests without tools or without a phase marker are auxiliary (title generation,
 -- summaries) and get a plain text reply. A failed check returns nil and a terminal
@@ -182,6 +210,18 @@ local function decide(request)
   end
 
   if last.role == "user" then
+    local reply = completed_reply(messages, phase_number, phase)
+    if reply ~= nil then
+      llm_router.log("info", "Harness phase completes", {
+        run = run,
+        phase = tostring(phase_number),
+        step = "complete",
+        messages = tostring(#messages),
+        tools = tostring(#request.tools),
+        model = request.model,
+      })
+      return { kind = "text", text = reply }
+    end
     local count = register_call(request, phase_number)
     if count > MAX_CALLS_PER_PHASE then
       return failure(run, phase_number, "tool_call_repeated", request)
@@ -209,10 +249,8 @@ local function decide(request)
       return failure(run, phase_number, "tool_result_phase_mismatch", request)
     end
     local output = text_of(last)
-    for _, expected in ipairs(phase.expected) do
-      if string.find(output, expected, 1, true) == nil then
-        return failure(run, phase_number, "expected_output_missing", request)
-      end
+    if not phase_output_valid(output, phase) then
+      return failure(run, phase_number, "expected_output_missing", request)
     end
     llm_router.log("info", "Harness phase completes", {
       run = run,
@@ -285,6 +323,7 @@ llm_router.register("harness-mock", {
 
   -- Streams the same turn as complete: the tool call opens with its name and ID, its
   -- arguments follow in one chunk, and the finish chunk carries the usage.
+  -- Every tool chunk carries the call ID: strict clients reject ID-less deltas.
   complete_stream = function(ctx, request, emit)
     local turn, terminal = decide(request)
     if terminal ~= nil then
@@ -296,7 +335,7 @@ llm_router.register("harness-mock", {
         tool_calls = { { id = turn.id, type = "function", ["function"] = { name = turn.name, arguments = "" } } },
       }, nil))
       emit(chunk_of(request, {
-        tool_calls = { { ["function"] = { arguments = turn.arguments } } },
+        tool_calls = { { id = turn.id, type = "function", ["function"] = { arguments = turn.arguments } } },
       }, nil))
       emit(chunk_of(request, {}, "tool_calls"))
       return
