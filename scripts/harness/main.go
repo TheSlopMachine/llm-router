@@ -1,7 +1,8 @@
 // Command harness validates the router against one CLI harness: three resumed
 // phases through the router, answered by the harness-mock plugin, then checks of
-// the marker files and of the plugin's phase events. Run it with make harness
-// HARNESS=claude|codex|opencode against a running stack with the plugin uploaded.
+// the marker files and of the plugin's phase events. CI runs it with
+// make harness-test HARNESS=claude|codex|opencode against a running stack with
+// the plugin uploaded; agents never run it directly.
 package main
 
 import (

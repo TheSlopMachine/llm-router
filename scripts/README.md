@@ -25,12 +25,12 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 | `install` | `VERSION` (default: latest git tag, else `dev`) | `make install` (human-only: host release binary into `~/.local/bin`, refuses when running) |
 | `publish` | `TYPE=fix\|minor\|major` xor `VERSION=X.Y[.Z]`, `NOTES` (optional tag annotation) | `make publish` (clean tree, HEAD synced to origin/main; CI builds on tag push) |
 | `help` | static text (`help.txt`), no code | `make help` |
-| `smoke` | `SMOKE_PLUGINS` (store plugin names, default `all`), `SMOKE_TARGETS` (default `completions,messages`), `SMOKE_STORE_DIR` | `make smoke` (running stack, no restart; fails fast when nothing answers) |
+| `smoke` | `SMOKE_PLUGINS` (store plugin names, default `all`), `SMOKE_TARGETS` (default `completions,messages`), `SMOKE_STORE_DIR` | `make smoke-test` (running stack, no restart; fails fast when nothing answers) |
 | `uploadplugins` | `UPLOAD_STORE_DIR` (default `../../llm-router-store/llm-router-plugins`) | `make upload-plugins` (running stack, targets the admin listener, no restart) |
-| `harness` | `HARNESS` (required: `claude`, `codex` or `opencode`), `ADMIN_PORT` (default `38082`), `HARNESS_RUN_ROOT` (default `~/.cache/llm-router/harness`), `HARNESS_PHASE_TIMEOUT` (default `5m`) | `make harness` (running stack with the `harness-mock` plugin uploaded, no restart; three resumed phases, then marker-file and event checks) |
+| `harness` | `HARNESS` (required: `claude`, `codex` or `opencode`), `ADMIN_PORT` (default `38082`), `HARNESS_RUN_ROOT` (default `~/.cache/llm-router/harness`), `HARNESS_PHASE_TIMEOUT` (default `5m`) | `make harness-test` (CI only, agents never run it: running stack with the `harness-mock` plugin uploaded, no restart; three resumed phases, then marker-file and event checks) |
 | _(env)_ | `NO_SKIP` (`1`/`true`/`yes`/`on` disables caches) | `make init NO_SKIP=1` or `NO_SKIP=1 make init` |
 | `vet` / `test` / `testrace` / `fcheck` | `PKG` (default `./...`; `scripts/`-relative patterns run inside the scripts module) / `PKG` (default `./...`) / `PKG` (default `./...`) / — | `make go-vet` / `make go-test` / `make go-test-race` / `make check-frontend` |
-| `sqlpolicy` | — | `make sql-policy` |
+| `sqlpolicy` | — | `make sql-policy-test` |
 | `fmt` | `FMT_WRITE=1` writes, otherwise checks; `PATHS` narrows to space-separated root-relative files/dirs (default: whole tree) | `make go-fmt` / `make go-fmt-check` |
 | `go-tidy` | — | `make go-tidy` |
 
@@ -46,7 +46,7 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 - **Install** (`make install` → `init`, then `install`, human-only): same frontend and version pipeline as `build` through shared release helpers, but compiles the host platform only and places `llm-router` (`llm-router.exe` on Windows) into `~/.local/bin`, replacing any previous install. Refuses when the installed app is running. Unix installs warn with shell setup steps when the directory misses `PATH` and never edit shell files; Windows registers the per-user `PATH` once when missing.
 - **Publish** (`make publish` → `publish`, no build): verifies a clean tree with `HEAD == origin/main`, bumps the latest tag (`fix`: `Z+1`; `minor`: `Y+1`, short `vX.Y`; `major`: `X+1`, short `vX.0`) or takes forced `VERSION`, then creates and pushes the annotated tag. CI builds the release on tag push. Tags are the source of truth; without git or tags the command fails.
 
-## Smoke (`make smoke`)
+## Smoke (`make smoke-test`)
 
 Drives the request paths black-box against the running dev stack through the admin listener, with no restart: fails fast when nothing answers (`make start` first, `make restart` after code changes). Plugin names discover from `SMOKE_STORE_DIR` (`llm_router.register` keys; unknown names fail listing available). status → bootstrap → plugin install → provider + dev-database credentials → model matrix (one model per capability, first success closes it). Missing credentials skip keyed plugins, never fail them; installs yielding no provider instance (proxy sources and other non-backend plugins) skip the same way; credential-less provider types run the matrix without accounts. Quota, payment, rate and missing-model outcomes skip with reason; anything else fails. Exit 0 means clean (skips allowed).
 

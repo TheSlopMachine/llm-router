@@ -209,7 +209,7 @@ Go tests with race detector (`PKG=...` scopes packages, default `./...`):
 Typed GORM conditions (no raw SQL outside `internal/db/maintenance.go`):
 
 - BAD: manual `grep` for SQL strings as policy.
-- GOOD: `make sql-policy`
+- GOOD: `make sql-policy-test`
 
 Apply `gofmt` to both Go modules (`PATHS=...` scopes files/dirs, default whole tree):
 
@@ -259,7 +259,12 @@ Rebuild and restart backend only, keeping live frontend and last start params (f
 Run smoke harness against the running dev stack, never restarting it (`SMOKE_PLUGINS=...`, `SMOKE_TARGETS=...`):
 
 - BAD: restarting the stack for smoke, running `scripts/smoke` directly.
-- GOOD: `make smoke`, `make smoke SMOKE_PLUGINS=google SMOKE_TARGETS=stream`
+- GOOD: `make smoke-test`, `make smoke-test SMOKE_PLUGINS=google SMOKE_TARGETS=stream`
+
+CI harness validation (`HARNESS=...` selects the CLI; CI matrix only, agents never run it):
+
+- BAD: agent runs `make harness-test` (live CLIs, admin listener, long runtime).
+- GOOD: reading the `harness-<name>` run artifacts from CI logs.
 
 Upload every store `.lua` plugin via admin listener (`UPLOAD_STORE_DIR=...`, no restart):
 
@@ -441,10 +446,10 @@ A predicted runtime-only risk ships with its test in one change.
 - BAD: route-pattern change without startup validation coverage.
 - GOOD: route change plus `mux_test.go` in one change.
 
-Verify through execution whenever reasonable: `make go-vet`, `make go-test`, `make go-fmt-check` gate every Go change; `make smoke` gates request-path changes (`router`, `proxypool`, `virtual`, `luaplugin`/`PLUGIN-API`, `api/v1`, `errors` per `docs/BACKEND.md`).
+Verify through execution whenever reasonable: `make go-vet`, `make go-test`, `make go-fmt-check` gate every Go change; `make smoke-test` gates request-path changes (`router`, `proxypool`, `virtual`, `luaplugin`/`PLUGIN-API`, `api/v1`, `errors` per `docs/BACKEND.md`).
 
 - BAD: shipping a request-path change on static checks alone.
-- GOOD: `make go-vet` + `make go-test` + `make go-fmt-check`, plus `make smoke` for request paths; scoped plugin runs only to debug that plugin.
+- GOOD: `make go-vet` + `make go-test` + `make go-fmt-check`, plus `make smoke-test` for request paths; scoped plugin runs only to debug that plugin.
 
 Attribute failures before fixing: reproduce on the clean tree first with a scoped run when smoke fails after the change. `git stash` is permitted for baselines but dangerous.
 
@@ -635,19 +640,19 @@ Logging convention (`llm_router.log`, contract 1.4): one stable human sentence p
 Verification: static checks plus live black-box checks.
 
 - BAD: `go vet ./...` plus manual curl as plugin verification.
-- GOOD: `make go-vet` plus `make smoke`.
+- GOOD: `make go-vet` plus `make smoke-test`.
 
 ## 11. Runtime, API Testing, Smoke
 
-Live-debug through make targets plus direct endpoint calls via the admin listener: `make status`, `make log`, `make log-frontend`, `make start`, `make restart`, `make stop`, `make smoke`, direct `/v1` and `/api` calls against 127.0.0.1:ADMIN_PORT.
+Live-debug through make targets plus direct endpoint calls via the admin listener: `make status`, `make log`, `make log-frontend`, `make start`, `make restart`, `make stop`, `make smoke-test`, direct `/v1` and `/api` calls against 127.0.0.1:ADMIN_PORT.
 
 - BAD: `type` on log files, `Get-Content` on pidfiles, `Get-Process`, `netstat`, `Get-ChildItem` log hunting.
-- GOOD: `make status` for state, `make log` for backend, `make log-frontend` for frontend, `make smoke` and direct admin-listener calls for request paths.
+- GOOD: `make status` for state, `make log` for backend, `make log-frontend` for frontend, `make smoke-test` and direct admin-listener calls for request paths.
 
 Troubleshoot in a closed loop: state, filtered events, direct reproduction, fix, re-verify, smoke.
 
 - BAD: editing from an unfiltered tail, re-running the full matrix to confirm a single-path fix.
-- GOOD: `make status`, native-filtered `make log` around the incident window, one direct `/v1` call per affected path against 127.0.0.1:ADMIN_PORT, the fix, the same direct calls, `make smoke SMOKE_PLUGINS=<name>`.
+- GOOD: `make status`, native-filtered `make log` around the incident window, one direct `/v1` call per affected path against 127.0.0.1:ADMIN_PORT, the fix, the same direct calls, `make smoke-test SMOKE_PLUGINS=<name>`.
 
 Order: state first, then logs, then lifecycle.
 
@@ -698,10 +703,10 @@ Runtime diagnostics come ONLY from make targets plus metrics endpoints:
 - BAD: ad-hoc process/log-file inspection for usage.
 - GOOD: `make log LINES=...`, `make log-frontend`, `make status`, metrics overview/timeseries endpoints.
 
-Smoke harness (`scripts/smoke/`, `make smoke` drives the running stack through the admin listener without restarting it):
+Smoke harness (`scripts/smoke/`, `make smoke-test` drives the running stack through the admin listener without restarting it):
 
 - Plugin types discover from `SMOKE_STORE_DIR` (`llm_router.register` keys, filename fallback); default scope is all discovered, opt in with `SMOKE_PLUGINS=...`, heavy endpoints via `SMOKE_TARGETS=...`.
-- BAD: `make smoke SMOKE_PLUGINS=typo-name` then debugging the typo as a failure.
+- BAD: `make smoke-test SMOKE_PLUGINS=typo-name` then debugging the typo as a failure.
 - GOOD: unknown names fail listing available; correct `SMOKE_PLUGINS` to a listed name.
 - Accounts come from the dev database, never from env. Missing credentials skip the plugin, never fail it.
 - BAD: exporting live keys via env for smoke.
@@ -717,7 +722,7 @@ Smoke harness (`scripts/smoke/`, `make smoke` drives the running stack through t
 - GOOD: reading unary-only failure with passing streams as empty upstream text.
 - Diagnose from the log first: failing calls' full upstream bodies are already in the debug log.
 - BAD: re-running the matrix blindly on failure.
-- GOOD: `make smoke SMOKE_PLUGINS=... LOG_LEVEL=debug`, debug-log inspection, reproducing single-model failures with direct `/v1` calls first.
+- GOOD: `make smoke-test SMOKE_PLUGINS=... LOG_LEVEL=debug`, debug-log inspection, reproducing single-model failures with direct `/v1` calls first.
 - Entries below the configured `LOG_LEVEL` never persist, so missing `debug` plugin lines (`trying credential`, cooldown skips) on an `info` stack are not evidence the path never ran.
 - BAD: reading absent `debug` lines as proof a code path never ran.
 - GOOD: reproducing with direct `/v1` calls, or restarting with `LOG_LEVEL=debug` when flow tracing is required.
@@ -739,7 +744,7 @@ Verify reissues without live keys: install dry-run plus classify extensions agai
 - BAD: shipping a reissue on synthetic checks alone when it touches streams.
 - GOOD: synthetic checks plus `make start` live verification for stream paths.
 
-Store reissue loop after every edit: `luac -p` when available, `@version` bump, `make upload-plugins` (expect `installed`, never `already current`), direct `/v1` reproduction of the fixed path, `make smoke SMOKE_PLUGINS=<name>`.
+Store reissue loop after every edit: `luac -p` when available, `@version` bump, `make upload-plugins` (expect `installed`, never `already current`), direct `/v1` reproduction of the fixed path, `make smoke-test SMOKE_PLUGINS=<name>`.
 
 - BAD: uploading without a version bump and reading `already current` as deployed.
 - GOOD: version bump plus `installed` plus direct-call verification plus scoped smoke.

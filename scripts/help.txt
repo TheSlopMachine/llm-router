@@ -7,9 +7,8 @@ Targets:
   start             Init, then start backend (go run) + frontend (vite) in dev mode
   stop              Stop dev processes (backend shuts down gracefully via admin API, frontend is killed)
   restart           Rebuild and restart the backend only (live frontend is kept; full start when frontend is down)
-  smoke             Run the smoke harness against the running dev stack (no restart; `make start` first)
+  smoke-test        Run the smoke harness against the running dev stack (no restart; `make start` first)
   upload-plugins    Upload every store .lua plugin via the admin listener (no restart)
-  harness           Validate one CLI harness through the router (HARNESS=claude|codex|opencode; no restart)
   status            Show dev server status
   log               Query persisted events (follows on TTY, dumps and exits otherwise)
   log-frontend      Tail frontend log (follows on TTY, dumps and exits otherwise)
@@ -21,7 +20,7 @@ Targets:
   go-vet            Run go vet (PKG scopes packages, default "./...")
   go-test           Run go test (PKG scopes packages, default "./...")
   go-test-race      Run go test -race (PKG scopes packages, default "./...")
-  sql-policy        Enforce typed GORM conditions (no raw SQL outside allowlist)
+  sql-policy-test   Enforce typed GORM conditions (no raw SQL outside allowlist)
   go-fmt            Apply gofmt to both Go modules (PATHS scopes files/dirs)
   go-fmt-check      Fail when gofmt would reformat anything (PATHS scopes)
   go-tidy           Tidy both Go modules
@@ -42,12 +41,12 @@ Variables:
   DEV_UI_REDIRECT    Dashboard redirect origin for dev. Default: empty
   ENV_FILE           Dotenv path for the server. Default: "~/.config/llm-router/.env.dev"
   PID_FILE           Pidfile for dev processes. Default: "~/.local/state/llm-router/llm-router.dev.pid"
-  SMOKE_PLUGINS      Comma plugin names for smoke (or "all"). Default: "all" (every store plugin)
-  SMOKE_TARGETS      Comma targets for smoke. Default: "completions,messages"
+  SMOKE_PLUGINS      Comma plugin names for smoke-test (or "all"). Default: "all" (every store plugin)
+  SMOKE_TARGETS      Comma targets for smoke-test. Default: "completions,messages"
   UPLOAD_STORE_DIR   Store dir for upload-plugins. Default: "../../llm-router-store/llm-router-plugins"
-  HARNESS            Harness to validate for harness: claude, codex or opencode (required)
-  HARNESS_RUN_ROOT   Run directory root for harness artifacts. Default: "~/.cache/llm-router/harness"
-  HARNESS_PHASE_TIMEOUT  Timeout per harness invocation for harness. Default: "5m"
+  HARNESS            Harness to validate (CI only): claude, codex or opencode (required)
+  HARNESS_RUN_ROOT   Run directory root for harness-test artifacts. Default: "~/.cache/llm-router/harness"
+  HARNESS_PHASE_TIMEOUT  Timeout per harness-test invocation. Default: "5m"
   PLATFORMS          Platforms for build. Default: "windows/amd64 ..."
   TYPE               Release bump for publish: fix|minor|major (or VERSION=X.Y[.Z] to force)
   PKG                Package scope for go-vet, go-test and go-test-race. Default: "./..."
@@ -69,7 +68,6 @@ Examples:
   make go-fmt-check PATHS="internal/server scripts/smoke"
   make start
   make start HOST=0.0.0.0 PORT=3000
-  make harness HARNESS=codex
   make restart
   make build
   make build PLATFORMS="linux/amd64 darwin/arm64"

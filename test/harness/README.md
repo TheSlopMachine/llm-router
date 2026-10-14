@@ -1,8 +1,8 @@
 # Harness validation
 
-`make harness HARNESS=claude|codex|opencode` drives one real CLI harness through the
+`make harness-test HARNESS=claude|codex|opencode` drives one real CLI harness through the
 router, three resumed phases in one session, and checks the outcome. A matrix job per
-harness runs it in CI (`.github/workflows/harness.yml`).
+harness runs it in CI (`.github/workflows/harness.yml`); agents never run it directly.
 
 ## What runs where
 
@@ -71,7 +71,7 @@ Start the stack and upload the plugin, then run one harness:
 ```
 make start SCOPE=backend
 make upload-plugins UPLOAD_STORE_DIR=/absolute/path/to/a/dir/holding/harness-mock.lua
-make harness HARNESS=codex
+make harness-test HARNESS=codex
 make stop
 ```
 

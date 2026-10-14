@@ -82,10 +82,10 @@ jobs:
         run: make go-fmt-check
 
       - name: Enforce SQL policy
-        run: make sql-policy
+        run: make sql-policy-test
 
       - name: Report milestone
-        run: 'echo "static: make go-vet, make go-fmt-check and make sql-policy passed" >> "$GITHUB_STEP_SUMMARY"'
+        run: 'echo "static: make go-vet, make go-fmt-check and make sql-policy-test passed" >> "$GITHUB_STEP_SUMMARY"'
 
   test:
     needs: setup

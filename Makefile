@@ -38,7 +38,7 @@ BUN_MIN := 1.2
 GO_MIN  := 1.27.1
 BUN     := bun
 
-.PHONY: help check-frontend-deps check-build-deps go-tidy go-fmt go-fmt-check init start stop restart status browser log log-frontend clean build install publish go-vet go-test go-test-race sql-policy check-frontend smoke upload-plugins harness
+.PHONY: help check-frontend-deps check-build-deps go-tidy go-fmt go-fmt-check init start stop restart status browser log log-frontend clean build install publish go-vet go-test go-test-race sql-policy-test check-frontend smoke-test upload-plugins harness-test
 
 help:
 	@cat scripts/help.txt
@@ -90,7 +90,7 @@ restart:
 
 # Smoke harness: run the request paths against the running dev stack
 # (no restart; run `make start` first, `make restart` after code changes).
-smoke:
+smoke-test:
 	@cd scripts && GOWORK=off go run ./smoke
 
 # Upload every .lua plugin in the store dir to the running dev stack via
@@ -100,7 +100,8 @@ upload-plugins:
 
 # Validate one CLI harness through the router against the running stack. HARNESS
 # selects claude, codex or opencode. The harness-mock plugin must be uploaded first.
-harness:
+# CI-only: agents never run this (live CLIs, admin listener, long runtime).
+harness-test:
 	@cd scripts && GOWORK=off go run ./harness
 
 status:
@@ -140,7 +141,7 @@ go-test:
 go-test-race:
 	@cd scripts && GOWORK=off go run ./testrace
 
-sql-policy:
+sql-policy-test:
 	@cd scripts && GOWORK=off go run ./sqlpolicy
 
 check-frontend: check-frontend-deps

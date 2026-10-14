@@ -99,7 +99,7 @@ jobs:
           make upload-plugins UPLOAD_STORE_DIR="$PLUGIN_STORE"
 
       - name: Run harness
-        run: make harness HARNESS=${{ matrix.harness }}
+        run: make harness-test HARNESS=${{ matrix.harness }}
 
       - name: Router events on failure
         if: failure()
