@@ -605,7 +605,6 @@
     {#if m.custom}
       <Button
         size="small"
-        tint="var(--fui-color-danger)"
         icon={{ name: 'delete' }}
         title={t('models.actions.delete_custom')}
         ariaLabel={t('models.actions.delete_custom')}
