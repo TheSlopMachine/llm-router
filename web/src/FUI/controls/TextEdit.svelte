@@ -26,6 +26,8 @@
     disabled = false,
     required = false,
     id,
+    name,
+    autocomplete,
     ariaLabel,
     onchange,
     onvalid,
@@ -40,12 +42,15 @@
     leadingIcon?: string
     /** caller icon-only buttons; slide in on focus, sit left of system buttons */
     trailing?: TrailingAction[]
-    type?: 'text' | 'secret'
+    /** text is plain, password is a real credential, secret is a token masked with CSS */
+    type?: 'text' | 'password' | 'secret'
     /** RegExp source for marking (never blocking); empty is always valid */
     regex?: string
     disabled?: boolean
     required?: boolean
     id?: string
+    name?: string
+    autocomplete?: string
     ariaLabel?: string
     onchange?: (value: string) => void
     onvalid?: (valid: boolean) => void
@@ -56,8 +61,11 @@
 
   let focused = $state(false)
   let revealed = $state(false)
+  const isPassword = $derived(type === 'password')
   const isSecret = $derived(type === 'secret')
-  const effectiveType = $derived(resolveInputType(isSecret, revealed, type))
+  const isConcealed = $derived(isPassword || isSecret)
+  const effectiveType = $derived(resolveInputType(isPassword, revealed, type))
+  const resolvedAutocomplete = $derived(autocomplete ?? (isSecret ? 'off' : undefined))
 
   // Marking only: invalid shows once the field loses focus, never while typing.
   const valid = $derived.by(() => {
@@ -77,8 +85,8 @@
 
   // Forced chrome: secret lock leads unless the caller passes its own icon
   // (caller icons keep the focus-collapse animation, the lock does not).
-  const resolvedLeading = $derived(leadingIcon ?? (isSecret ? 'lock' : undefined))
-  const leadingStatic = $derived(isSecret && leadingIcon == null)
+  const resolvedLeading = $derived(leadingIcon ?? (isConcealed ? 'lock' : undefined))
+  const leadingStatic = $derived(isConcealed && leadingIcon == null)
 
   // System trailing pins the right edge, ignores focus. Order: eye, then
   // clear last. Clear shows for non-empty enabled fields only.
@@ -104,7 +112,16 @@
   {/if}
   <input
     {id}
+    {name}
     type={effectiveType}
+    autocomplete={resolvedAutocomplete}
+    autocapitalize={isSecret ? 'off' : undefined}
+    autocorrect={isSecret ? 'off' : undefined}
+    spellcheck={isSecret ? false : undefined}
+    data-1p-ignore={isSecret ? '' : undefined}
+    data-lpignore={isSecret ? 'true' : undefined}
+    data-bwignore={isSecret ? '' : undefined}
+    class:masked={isSecret && !revealed}
     {disabled}
     {required}
     placeholder={hint}
@@ -123,6 +140,7 @@
           <Button
             size="small"
             embedded
+            tabindex={-1}
             icon={{ name: action.icon }}
             title={action.label}
             ariaLabel={action.label}
@@ -134,13 +152,14 @@
       {/each}
     </div>
   {/if}
-  {#if isSecret || showClear}
+  {#if isConcealed || showClear}
     <div class="actions">
-      {#if isSecret}
+      {#if isConcealed}
         <span class="slot">
           <Button
             size="small"
             embedded
+            tabindex={-1}
             icon={{ name: revealed ? 'visibility_off' : 'visibility' }}
             title={revealed ? 'Hide secret' : 'Show secret'}
             ariaLabel={revealed ? 'Hide secret' : 'Show secret'}
@@ -154,6 +173,7 @@
         <Button
           size="small"
           embedded
+          tabindex={-1}
           icon={{ name: 'close' }}
           title="Clear"
           ariaLabel="Clear"
@@ -234,6 +254,12 @@
     font-size: var(--fui-text-base);
     line-height: var(--fui-select-line);
     color: var(--fui-color-text);
+  }
+
+  /* Token masking without native password semantics: browsers and managers
+     ignore this field, the eye button toggles the class. */
+  input.masked {
+    -webkit-text-security: disc;
   }
 
   /* Leading glyph: uniform padding on all four sides. Caller icons collapse

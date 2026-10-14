@@ -314,6 +314,7 @@
   <div class="row">
     <Picker bind:value={teType} ariaLabel="Type" options={[
       { value: 'text', label: 'text' },
+      { value: 'password', label: 'password' },
       { value: 'secret', label: 'secret' },
     ]} />
     <TextEdit bind:value={teHint} hint="Placeholder" />
@@ -326,7 +327,7 @@
   </div>
   <TextEdit
     bind:value={teValue}
-    type={teType as 'text' | 'secret'}
+    type={teType as 'text' | 'password' | 'secret'}
     hint={teHint}
     leadingIcon={teLeading.trim() || undefined}
     trailing={teExtraTrailing ? [{ icon: 'star', label: 'Extra', onclick: () => { lastAction = 'extra' } }] : []}

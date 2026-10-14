@@ -334,17 +334,17 @@
 
     <VStack gap={1}>
       <Text tag="label" size="sm" weight="medium" for="current-password">{t('settings.password.current')}</Text>
-      <TextEdit id="current-password" bind:value={currentPassword} type="secret" />
+      <TextEdit id="current-password" name="current-password" bind:value={currentPassword} type="password" autocomplete="current-password" />
     </VStack>
 
     <VStack gap={1}>
       <Text tag="label" size="sm" weight="medium" for="new-password">{t('settings.password.new')}</Text>
-      <TextEdit id="new-password" bind:value={newPassword} type="secret" />
+      <TextEdit id="new-password" name="new-password" bind:value={newPassword} type="password" autocomplete="new-password" />
     </VStack>
 
     <VStack gap={1}>
       <Text tag="label" size="sm" weight="medium" for="confirm-password">{t('settings.password.confirm')}</Text>
-      <TextEdit id="confirm-password" bind:value={confirmPassword} type="secret" />
+      <TextEdit id="confirm-password" name="new-password-confirm" bind:value={confirmPassword} type="password" autocomplete="new-password" />
     </VStack>
 
     <HStack justify="end">

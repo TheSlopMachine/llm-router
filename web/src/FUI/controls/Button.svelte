@@ -41,6 +41,7 @@
     collapse = true,
     embedded = false,
     disabled = false,
+    tabindex,
     ariaLabel,
     onclick,
     onmousedown,
@@ -64,6 +65,7 @@
     /** compact 22px tile for use inside another control (TextEdit trailing actions) */
     embedded?: boolean
     disabled?: boolean
+    tabindex?: number
     ariaLabel?: string
     onclick?: (e: MouseEvent) => void
     onmousedown?: (e: MouseEvent) => void
@@ -131,6 +133,7 @@
   style={tintVars ?? ''}
   type="button"
   {disabled}
+  tabindex={tabindex}
   aria-label={ariaLabel ?? (textHidden ? text : undefined)}
   aria-expanded={ariaExpanded ?? (active ? true : undefined)}
   title={title || (textHidden ? text : '')}

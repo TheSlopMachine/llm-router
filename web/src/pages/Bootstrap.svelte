@@ -37,18 +37,18 @@
 
     <VStack gap={1}>
       <label for="u">Username</label>
-      <TextEdit id="u" bind:value={username} autocomplete="username" />
+      <TextEdit id="u" name="username" bind:value={username} autocomplete="username" />
     </VStack>
     <VStack gap={1}>
       <label for="p">Password</label>
-      <TextEdit id="p" type="secret" bind:value={password} autocomplete="new-password" />
+      <TextEdit id="p" type="password" name="new-password" bind:value={password} autocomplete="new-password" />
       {#if showLengthHint}
         <Text size="sm" tone="warning">Recommendation: use at least 8 characters for a stronger password.</Text>
       {/if}
     </VStack>
     <VStack gap={1}>
       <label for="p2">Confirm password</label>
-      <TextEdit id="p2" type="secret" bind:value={password2} autocomplete="new-password" onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && submit()} />
+      <TextEdit id="p2" type="password" name="new-password-confirm" bind:value={password2} autocomplete="new-password" onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && submit()} />
     </VStack>
     <Button style="prominent" block onclick={submit} disabled={loading}>{loading ? 'Creating…' : 'Create account'}</Button>
   </VStack>

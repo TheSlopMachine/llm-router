@@ -36,11 +36,11 @@
 
     <VStack gap={1}>
       <label for="u">{t('auth.username.label')}</label>
-      <TextEdit id="u" bind:value={username} autocomplete="username" onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && submit()} />
+      <TextEdit id="u" name="username" bind:value={username} autocomplete="username" onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && submit()} />
     </VStack>
     <VStack gap={1}>
       <label for="p">{t('auth.password.label')}</label>
-      <TextEdit id="p" type="secret" bind:value={password} autocomplete="current-password" onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && submit()} />
+      <TextEdit id="p" type="password" name="current-password" bind:value={password} autocomplete="current-password" onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && submit()} />
     </VStack>
     <Checkbox bind:checked={rememberMe} label={t('auth.remember_me.label')} />
     <Button style="prominent" block onclick={submit} disabled={!isLoginReady}>{loading ? t('auth.sign_in.signing_in') : t('auth.sign_in.title')}</Button>

@@ -21,11 +21,12 @@ export function resolveButtonVariant(effStyle: ButtonEffStyle, iconMode: boolean
 }
 
 export function resolveInputType(
-  isSecret: boolean,
+  isPassword: boolean,
   revealed: boolean,
   type: string
 ): string {
-  if (isSecret) return revealed ? 'text' : 'password'
+  if (isPassword) return revealed ? 'text' : 'password'
+  if (type === 'secret') return 'text'
   return type
 }
 

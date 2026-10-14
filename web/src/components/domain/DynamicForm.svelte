@@ -103,7 +103,9 @@
         {/if}
         <TextEdit
           id="dyn-{node.name}"
+          name="dyn-{node.name}"
           type={isSecretInput(node.input_type) ? 'secret' : 'text'}
+          autocomplete={isSecretInput(node.input_type) ? 'off' : undefined}
           value={fieldValue(node)}
           hint={node.placeholder ?? ''}
           required={node.required ?? false}
@@ -139,7 +141,9 @@
         {/if}
         <TextEdit
           id="dyn-{node.name}"
+          name="dyn-{node.name}"
           type="secret"
+          autocomplete="off"
           value={fieldValue(node)}
           hint={node.placeholder ?? ''}
           required={node.required ?? false}
