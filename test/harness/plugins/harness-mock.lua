@@ -323,7 +323,8 @@ llm_router.register("harness-mock", {
 
   -- Streams the same turn as complete: the tool call opens with its name and ID, its
   -- arguments follow in one chunk, and the finish chunk carries the usage.
-  -- Every tool chunk carries the call ID: strict clients reject ID-less deltas.
+  -- Every tool chunk carries the call ID and name: strict clients validate
+  -- each delta independently and reject ID-less or nameless deltas.
   complete_stream = function(ctx, request, emit)
     local turn, terminal = decide(request)
     if terminal ~= nil then
@@ -335,7 +336,7 @@ llm_router.register("harness-mock", {
         tool_calls = { { id = turn.id, type = "function", ["function"] = { name = turn.name, arguments = "" } } },
       }, nil))
       emit(chunk_of(request, {
-        tool_calls = { { id = turn.id, type = "function", ["function"] = { arguments = turn.arguments } } },
+        tool_calls = { { id = turn.id, type = "function", ["function"] = { name = turn.name, arguments = turn.arguments } } },
       }, nil))
       emit(chunk_of(request, {}, "tool_calls"))
       return

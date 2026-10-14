@@ -540,8 +540,8 @@ func TestStreamEmitsToolCallChunksInOrder(t *testing.T) {
 		t.Fatalf("opening chunk: %+v", opening)
 	}
 	arguments := chunks[1]["choices"].([]any)[0].(map[string]any)["delta"].(map[string]any)["tool_calls"].([]any)[0].(map[string]any)
-	if arguments["id"] != "harness_p1_m1" {
-		t.Fatalf("continuation chunk id: %+v", arguments)
+	if arguments["id"] != "harness_p1_m1" || arguments["function"].(map[string]any)["name"] != "exec_command" {
+		t.Fatalf("continuation chunk id/name: %+v", arguments)
 	}
 	if _, ok := argumentsOf(t, arguments["function"].(map[string]any)["arguments"].(string))["cmd"].(string); !ok {
 		t.Fatalf("argument chunk: %s", arguments["function"])
