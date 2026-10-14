@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"01a137b2-2380-7273-a8ef-26fcf9195fd3"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Codex is ignoring 2 unrecognized configuration settings. Check for typos or deprecated settings.\n  user (/tmp/probe/run-codex-flow/home/config.toml): `model_providers.llm-router.approval_policy` is ignored.\n  user (/tmp/probe/run-codex-flow/home/config.toml): `model_providers.llm-router.sandbox_mode` is ignored."}}
+{"type":"item.completed","item":{"id":"item_1","type":"error","message":"Codex is ignoring 2 unrecognized configuration settings. Check for typos or deprecated settings.\n  user (/tmp/probe/run-codex-flow/home/config.toml): `model_providers.llm-router.approval_policy` is ignored.\n  user (/tmp/probe/run-codex-flow/home/config.toml): `model_providers.llm-router.sandbox_mode` is ignored."}}
+{"type":"item.completed","item":{"id":"item_2","type":"error","message":"Model metadata for `harness-mock/codex` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"PROBE COMPLETE"}}
+{"type":"turn.completed","usage":{"input_tokens":2,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":2,"reasoning_output_tokens":0}}

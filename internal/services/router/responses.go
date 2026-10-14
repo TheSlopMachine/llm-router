@@ -52,45 +52,7 @@ func decodePayload(record *models.ResponseRecord, output any) error {
 
 // responseFromChat maps one chat completion onto a ResponseObject.
 func responseFromChat(id string, request *models.ResponseRequest, response *models.ChatCompletionResponse) *models.ResponseObject {
-	output := &models.ResponseObject{
-		ID:                 id,
-		Object:             "response",
-		CreatedAt:          time.Now().Unix(),
-		Model:              request.Model.String(),
-		Status:             "completed",
-		Output:             []models.ResponseOutputItem{},
-		Instructions:       request.Instructions,
-		PreviousResponseID: request.PreviousResponseID,
-		ConversationID:     request.ConversationID,
-		Metadata:           request.Metadata,
-	}
-	if len(response.Choices) == 0 {
-		return output
-	}
-	choice := response.Choices[0]
-	message := choice.Message
-	if message.Content != "" {
-		output.Output = append(output.Output, models.ResponseOutputItem{
-			Type:   "message",
-			Text:   message.Content,
-			Status: "completed",
-		})
-	}
-	for _, toolCall := range message.ToolCalls {
-		output.Output = append(output.Output, models.ResponseOutputItem{
-			Type:   "function_call",
-			ID:     toolCall.ID,
-			Name:   toolCall.Function.Name,
-			Status: "completed",
-			Extra:  json.RawMessage(`{"arguments":` + quoteJSONString(toolCall.Function.Arguments) + `}`),
-		})
-	}
-	output.Usage = &models.ResponseUsage{
-		InputTokens:  response.Usage.PromptTokens,
-		OutputTokens: response.Usage.CompletionTokens,
-		TotalTokens:  response.Usage.TotalTokens,
-	}
-	return output
+	return models.ResponseObjectFromChat(id, request, response)
 }
 
 func quoteJSONString(value string) string {

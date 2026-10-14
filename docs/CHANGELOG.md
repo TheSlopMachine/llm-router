@@ -1,5 +1,10 @@
 # Changelog
 
+## Done (2026-10-14, vUnreleased)
+
+- Fixed the Responses path so multi-turn tool use survives: `ToChat` now converts function call and function call output items into assistant tool calls and tool turns, keeps assistant text as `assistant` (it was relabeled `user`), and maps `developer` turns to `system`. Chat-to-response output now carries `call_id` and `arguments` on function calls and `content` output_text parts on messages, and the streamed `/v1/responses` events follow the Responses schema (typed payloads, output item open/delta/done for messages and function calls, `response.completed`). Previously the stream sent only text deltas without a `type` field, so function calls never reached a streaming client. The converter lives in `internal/models/responses_convert.go`; `previous_response_id` history is still not loaded.
+- Added the three-harness validation: `make harness HARNESS=claude|codex|opencode` drives Claude Code, Codex CLI and OpenCode through three resumed phases against the router, with the deterministic `harness-mock` plugin (`test/harness/plugins/harness-mock.lua`) answering each phase, then checks the marker files and the plugin's phase events. The workflow `.github/workflows/harness.yml` runs one matrix job per harness plus driver and plugin tests.
+
 ## Done (2026-10-13, vUnreleased)
 
 - Split the push validation workflow into milestone jobs (`setup`, `static`, `test`, `race`, `frontend`) with parallel fan-out after `setup` (`race` still waits for `test`): `setup` ran `make init` once and shared the generated files as an artifact, every job carried a timeout with a step-summary milestone line, rapid pushes cancelled superseded runs, and triggers covered pushes, pull requests and manual runs. Bun dependencies cached on `web/bun.lock` plus `web/package.json`.

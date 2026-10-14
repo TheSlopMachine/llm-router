@@ -313,25 +313,40 @@ func NewModerationID() string { return mintCompatID("modr_", 24) }
 // Responses + conversations (POST /v1/responses, /v1/conversations)
 // ─────────────────────────────────────────────
 
-// ResponseInputItem is one free-form input item (message, function output,
-// file reference). Content stays opaque JSON: the router stores it and
-// renders message texts into the chat turn.
+// ResponseInputItem is one input item: message, function call, function call
+// output or reasoning. Content and Output stay opaque JSON until
+// ResponseRequest.ToChat decodes them per item type.
 type ResponseInputItem struct {
-	Type    string          `json:"type,omitempty"`
-	Role    string          `json:"role,omitempty"`
-	Content json.RawMessage `json:"content,omitempty"`
-	Name    string          `json:"name,omitempty"`
-	CallID  string          `json:"call_id,omitempty"`
+	Type      string          `json:"type,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Role      string          `json:"role,omitempty"`
+	Content   json.RawMessage `json:"content,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	CallID    string          `json:"call_id,omitempty"`
+	Arguments string          `json:"arguments,omitempty"`
+	Output    json.RawMessage `json:"output,omitempty"`
 }
 
-// ResponseOutputItem is one produced output block.
+// ResponseContentPart is one typed block of a message item.
+type ResponseContentPart struct {
+	Type        string `json:"type"`
+	Text        string `json:"text"`
+	Annotations []any  `json:"annotations"`
+}
+
+// ResponseOutputItem is one produced output block. Messages carry Content
+// (output_text parts) and Text for clients that read the flat form. Function
+// calls carry CallID and Arguments; function_call_output items echo CallID back.
 type ResponseOutputItem struct {
-	Type   string          `json:"type"`
-	Text   string          `json:"text,omitempty"`
-	Name   string          `json:"name,omitempty"`
-	ID     string          `json:"id,omitempty"`
-	Status string          `json:"status,omitempty"`
-	Extra  json.RawMessage `json:"extra,omitempty"`
+	Type      string                `json:"type"`
+	ID        string                `json:"id,omitempty"`
+	Status    string                `json:"status,omitempty"`
+	Role      string                `json:"role,omitempty"`
+	Text      string                `json:"text,omitempty"`
+	Content   []ResponseContentPart `json:"content,omitempty"`
+	Name      string                `json:"name,omitempty"`
+	CallID    string                `json:"call_id,omitempty"`
+	Arguments string                `json:"arguments,omitempty"`
 }
 
 // ResponseUsage mirrors chat usage for response objects.
@@ -410,7 +425,7 @@ func (r *ResponseRequest) InputTexts() []string {
 }
 
 // ToChat maps the response request onto the chat pipeline: instructions
-// become the system turn, input texts become the user turn, function tools
+// become the system turn, input items become chat turns, function tools
 // become chat tools.
 func (r *ResponseRequest) ToChat() *ChatCompletionRequest {
 	out := &ChatCompletionRequest{
@@ -430,9 +445,7 @@ func (r *ResponseRequest) ToChat() *ChatCompletionRequest {
 	if strings.TrimSpace(r.Instructions) != "" {
 		out.Messages = append(out.Messages, ChatMessage{Role: "system", Content: r.Instructions})
 	}
-	for _, t := range r.InputTexts() {
-		out.Messages = append(out.Messages, ChatMessage{Role: "user", Content: t})
-	}
+	out.Messages = append(out.Messages, responseInputMessages(r.Input)...)
 	for _, raw := range r.Tools {
 		var tool struct {
 			Type        string         `json:"type"`

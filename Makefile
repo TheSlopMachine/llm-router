@@ -28,13 +28,17 @@ DEV_UI_REDIRECT ?=
 ENV_FILE  ?= ~/.config/llm-router/.env.dev
 PID_FILE  ?= ~/.local/state/llm-router/llm-router.dev.pid
 PKG       ?= ./...
+HARNESS   ?=
+HARNESS_RUN_ROOT ?= ~/.cache/llm-router/harness
+HARNESS_PHASE_TIMEOUT ?= 5m
 export HOST PORT ADMIN_PORT SCOPE URL VERSION PLATFORMS LOG_LEVEL DB_PATH CACHE_PATH EVENTS_PATH EVENTS_RETENTION_DAYS DEV_UI_REDIRECT ENV_FILE PID_FILE PKG
+export HARNESS HARNESS_RUN_ROOT HARNESS_PHASE_TIMEOUT
 
 BUN_MIN := 1.2
 GO_MIN  := 1.27.1
 BUN     := bun
 
-.PHONY: help check-frontend-deps check-build-deps go-tidy go-fmt go-fmt-check init start stop restart status browser log log-frontend clean build install publish go-vet go-test go-test-race sql-policy check-frontend smoke upload-plugins
+.PHONY: help check-frontend-deps check-build-deps go-tidy go-fmt go-fmt-check init start stop restart status browser log log-frontend clean build install publish go-vet go-test go-test-race sql-policy check-frontend smoke upload-plugins harness
 
 help:
 	@cat scripts/help.txt
@@ -93,6 +97,11 @@ smoke:
 # install-file (version matches skip). Targets the admin listener like smoke.
 upload-plugins:
 	@cd scripts && GOWORK=off go run ./uploadplugins
+
+# Validate one CLI harness through the router against the running stack. HARNESS
+# selects claude, codex or opencode. The harness-mock plugin must be uploaded first.
+harness:
+	@cd scripts && GOWORK=off go run ./harness
 
 status:
 	@cd scripts && GOWORK=off go run ./status

@@ -1,0 +1,121 @@
+name: harness
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  driver-tests:
+    name: driver and plugin tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: true
+
+      - name: Vet harness driver
+        run: make go-vet PKG=scripts/harness/...
+
+      - name: Test harness driver
+        run: make go-test PKG=scripts/harness/...
+
+      - name: Test harness mock plugin under gopher-lua
+        run: make go-test PKG=./internal/testutil/harnessmock/...
+
+      - name: Check formatting of harness and Responses code
+        run: make go-fmt-check PATHS="scripts/harness internal/testutil/harnessmock internal/models internal/services/router/responses.go internal/api/v1/compat_responses.go"
+
+      - name: Report milestone
+        run: 'echo "driver-tests: passed" >> "$GITHUB_STEP_SUMMARY"'
+
+  harness:
+    name: harness (${{ matrix.harness }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - harness: claude
+            package: '@anthropic-ai/claude-code@2.1.296'
+          - harness: codex
+            package: '@openai/codex@0.162.1'
+          - harness: opencode
+            package: 'opencode-ai@1.19.0'
+    env:
+      HARNESS_RUN_ROOT: ${{ runner.temp }}/harness
+      PLUGIN_STORE: ${{ runner.temp }}/plugin-store
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install harness CLI
+        run: npm install --global "${{ matrix.package }}"
+
+      - name: Record harness version
+        run: ${{ matrix.harness }} --version
+
+      # make start runs make init first. SCOPE=backend skips the Vite dev
+      # server, which the harness never reaches; the admin listener serves the API.
+      - name: Start router (backend only)
+        run: make start SCOPE=backend
+
+      - name: Upload harness-mock plugin
+        run: |
+          mkdir -p "$PLUGIN_STORE"
+          cp test/harness/plugins/harness-mock.lua "$PLUGIN_STORE/"
+          make upload-plugins UPLOAD_STORE_DIR="$PLUGIN_STORE"
+
+      - name: Run harness
+        run: make harness HARNESS=${{ matrix.harness }}
+
+      - name: Router events on failure
+        if: failure()
+        run: make log EVENT_FILTERS="type=harness-mock" EVENTS_LIMIT=300
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-${{ matrix.harness }}
+          path: ${{ runner.temp }}/harness
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Stop router
+        if: always()
+        run: make stop
+
+      - name: Report milestone
+        if: always()
+        run: 'echo "harness (${{ matrix.harness }}): ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"'

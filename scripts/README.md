@@ -27,6 +27,7 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 | `help` | static text (`help.txt`), no code | `make help` |
 | `smoke` | `SMOKE_PLUGINS` (store plugin names, default `all`), `SMOKE_TARGETS` (default `completions,messages`), `SMOKE_STORE_DIR` | `make smoke` (running stack, no restart; fails fast when nothing answers) |
 | `uploadplugins` | `UPLOAD_STORE_DIR` (default `../../llm-router-store/llm-router-plugins`) | `make upload-plugins` (running stack, targets the admin listener, no restart) |
+| `harness` | `HARNESS` (required: `claude`, `codex` or `opencode`), `ADMIN_PORT` (default `38082`), `HARNESS_RUN_ROOT` (default `~/.cache/llm-router/harness`), `HARNESS_PHASE_TIMEOUT` (default `5m`) | `make harness` (running stack with the `harness-mock` plugin uploaded, no restart; three resumed phases, then marker-file and event checks) |
 | _(env)_ | `NO_SKIP` (`1`/`true`/`yes`/`on` disables caches) | `make init NO_SKIP=1` or `NO_SKIP=1 make init` |
 | `vet` / `test` / `testrace` / `fcheck` | `PKG` (default `./...`; `scripts/`-relative patterns run inside the scripts module) / `PKG` (default `./...`) / `PKG` (default `./...`) / — | `make go-vet` / `make go-test` / `make go-test-race` / `make check-frontend` |
 | `sqlpolicy` | — | `make sql-policy` |

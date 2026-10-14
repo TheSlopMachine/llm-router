@@ -99,23 +99,14 @@ func (h *Handler) streamResponseObject(w http.ResponseWriter, r *http.Request, r
 	httpkit.WriteSSEHeaders(w)
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
-	emit := func(event string, value any) {
-		raw, err := json.Marshal(value)
+	for _, event := range models.ResponseStreamEvents(response) {
+		raw, err := json.Marshal(event.Data)
 		if err != nil {
-			return
+			continue
 		}
-		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, string(raw))
+		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Name, string(raw))
 		flusher.Flush()
 	}
-	creating := *response
-	creating.Status = "in_progress"
-	emit("response.created", creating)
-	for i, item := range response.Output {
-		if item.Type == "message" && item.Text != "" {
-			emit("response.output_text.delta", map[string]any{"output_index": i, "delta": item.Text})
-		}
-	}
-	emit("response.completed", response)
 }
 
 // getResponse handles GET /v1/responses/{response_id}
