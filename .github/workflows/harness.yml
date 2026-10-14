@@ -56,12 +56,14 @@ jobs:
             package: '@openai/codex@0.162.1'
           - harness: opencode
             package: 'opencode-ai@1.19.0'
-    env:
-      HARNESS_RUN_ROOT: ${{ runner.temp }}/harness
-      PLUGIN_STORE: ${{ runner.temp }}/plugin-store
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set harness paths
+        run: |
+          echo "HARNESS_RUN_ROOT=$RUNNER_TEMP/harness" >> "$GITHUB_ENV"
+          echo "PLUGIN_STORE=$RUNNER_TEMP/plugin-store" >> "$GITHUB_ENV"
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -108,7 +110,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: harness-${{ matrix.harness }}
-          path: ${{ runner.temp }}/harness
+          path: ${{ env.HARNESS_RUN_ROOT }}
           if-no-files-found: ignore
           retention-days: 7
 
