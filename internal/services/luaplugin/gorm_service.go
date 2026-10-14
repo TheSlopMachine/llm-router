@@ -13,6 +13,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/services/events"
+	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin/statepool"
 	"github.com/TheSlopMachine/llm-router/internal/util"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -224,6 +225,11 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 	if err := service.rebuild(ctx); err != nil {
 		return nil, err
 	}
+	previousSources := []string{}
+	if previousRecord != nil {
+		previousSources = previousRecord.ProxySourceKeys
+	}
+	service.invalidatePoolBuckets(installed.ID, unionKeys(previousKeys, installed.TypeKeys), unionKeys(previousSources, installed.ProxySourceKeys))
 	service.notify(unionKeys(previousKeys, installed.TypeKeys)...)
 	if previousRecord != nil {
 		service.launchLifecycleHook(previousRecord, string(HandlerDeinitialize), DeinitializeReasonUpdate)
@@ -351,6 +357,7 @@ func (service *Service) DeleteSQLite(ctx context.Context, pluginID string) error
 	if err := service.rebuild(ctx); err != nil {
 		return err
 	}
+	service.invalidatePoolBuckets(existing.ID, existing.TypeKeys, existing.ProxySourceKeys)
 	service.notify(existing.TypeKeys...)
 	return nil
 }
@@ -385,6 +392,7 @@ func (service *Service) SetDisabled(ctx context.Context, pluginID string, disabl
 	if err := service.rebuild(ctx); err != nil {
 		return nil, err
 	}
+	service.invalidatePoolBuckets(updated.ID, unionKeys(existing.TypeKeys, updated.TypeKeys), unionKeys(existing.ProxySourceKeys, updated.ProxySourceKeys))
 	service.notify(updated.TypeKeys...)
 	if disabled {
 		service.launchLifecycleHook(&updated, string(HandlerDeinitialize), DeinitializeReasonDisable)
@@ -535,6 +543,7 @@ func (service *Service) RollbackSQLite(ctx context.Context, pluginID string) (*P
 	if err := service.rebuild(ctx); err != nil {
 		return nil, err
 	}
+	service.invalidatePoolBuckets(rolled.ID, unionKeys(currentRecord.TypeKeys, rolled.TypeKeys), unionKeys(currentRecord.ProxySourceKeys, rolled.ProxySourceKeys))
 	service.notify(rolled.TypeKeys...)
 	service.launchLifecycleHook(currentRecord, string(HandlerDeinitialize), DeinitializeReasonUpdate)
 	service.launchLifecycleHook(rolled, string(HandlerInitialize), InitializeReasonUpdate)
@@ -635,6 +644,27 @@ func pruneVersionHistoryInTransaction(ctx context.Context, transaction *gorm.DB,
 		}
 	}
 	return nil
+}
+
+// invalidatePoolBuckets drops idle pooled states for one plugin. Type keys
+// and proxy source names share the plugin identifier prefix, so callers
+// pass both lists and the helper qualifies each entry.
+func (service *Service) invalidatePoolBuckets(pluginID string, typeKeys []string, sourceKeys []string) {
+	if pluginID == "" {
+		return
+	}
+	for _, typeKey := range typeKeys {
+		if typeKey == "" {
+			continue
+		}
+		statepool.Invalidate(pluginID + "\x00" + typeKey)
+	}
+	for _, sourceKey := range sourceKeys {
+		if sourceKey == "" {
+			continue
+		}
+		statepool.Invalidate(pluginID + "\x00" + sourceKey)
+	}
 }
 
 // logAPIIncompatible records a plugin API version mismatch at warning level

@@ -38,6 +38,7 @@ Variables:
   CACHE_PATH         Cache database file for the server. Default: "~/.cache/llm-router/llm-router.cache.dev.sqlite3"
   EVENTS_PATH        Events database file for the server. Default: "~/.local/state/llm-router/llm-router.events.dev.sqlite3"
   EVENTS_RETENTION_DAYS  Event retention in days. Default: "3"
+  LUA_POOL_BUCKET_SIZE  Idle Lua states stored per plugin bucket. Default: "16"
   DEV_UI_REDIRECT    Dashboard redirect origin for dev. Default: empty
   ENV_FILE           Dotenv path for the server. Default: "~/.config/llm-router/.env.dev"
   PID_FILE           Pidfile for dev processes. Default: "~/.local/state/llm-router/llm-router.dev.pid"

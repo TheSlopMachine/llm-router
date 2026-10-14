@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin/statepool"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -34,7 +35,7 @@ type callConfiguration struct {
 	lifecycleReadOnly bool
 }
 
-// handlerCall loads plugin source in a fresh state and invokes one handler.
+// handlerCall loads plugin source in a pooled state and invokes one handler.
 // Lua error tables matching the terminal (message, code?, param?, status?)
 // shape become ProviderError; everything else becomes PluginInternalError.
 func (s *Service) handlerCall(
@@ -143,9 +144,28 @@ func (s *Service) handlerCallEx(
 			ctx.healthTrigger.SuspectFailed(ctx.pluginID, ctx.typeKey, ctx.credentialID)
 		}
 	}()
-	L := newSandboxState(ctx)
-	defer L.Close()
-	L.SetContext(goCtx)
+	// Pooled states may carry globals from a prior call. Rebinding clears
+	// the stack and installs the current per-call globals; source loads
+	// again below on every call. The state returns exactly once through
+	// the deferred call; nothing touches it afterwards.
+	bucketKey := poolBucketKey(record, typeKey)
+	pooled := statepool.Acquire(bucketKey, func() *lua.LState {
+		return newSandboxState(nil)
+	})
+	if pooled == nil {
+		return true, "", &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "load: lua state pool exhausted"}
+	}
+	rebindPooledState(pooled, ctx)
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			if !pooled.IsClosed() {
+				pooled.Close()
+			}
+			panic(recovered)
+		}
+		statepool.Return(bucketKey, pooled)
+	}()
+	L := pooled
 
 	if err := L.DoString(string(record.Source)); err != nil {
 		cause := luaErrorString(L.Get(-1))
@@ -197,6 +217,29 @@ func (s *Service) handlerCallEx(
 		}
 	}
 	return true, "", nil
+}
+
+// poolBucketKey qualifies a lookup key with the owning plugin identifier so
+// unrelated plugins sharing a declared name never share pooled states.
+func poolBucketKey(record *PluginRecord, lookupKey string) string {
+	if record == nil || lookupKey == "" {
+		return ""
+	}
+	return record.ID + "\x00" + lookupKey
+}
+
+// rebindPooledState prepares a pooled state for one call: the stack clears,
+// per-call globals reinstall with the current context, and cancellation
+// follows the caller context.
+func rebindPooledState(state *lua.LState, ctx *executionContext) {
+	state.SetTop(0)
+	installPrint(state, ctx)
+	installRouterTable(state, ctx)
+	if ctx != nil && ctx.goCtx != nil {
+		state.SetContext(ctx.goCtx)
+	} else {
+		state.SetContext(context.Background())
+	}
 }
 
 // handlerCallRouted is handlerCallEx plus a route placeholder kept for

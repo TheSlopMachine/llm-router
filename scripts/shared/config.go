@@ -74,6 +74,7 @@ type StartParams struct {
 	AdminPort           string `json:"admin_port"`
 	LogLevel            string `json:"log_level"`
 	EventsRetentionDays string `json:"events_retention_days"`
+	LuaPoolBucketSize   string `json:"lua_pool_bucket_size"`
 }
 
 // ParamsFileFor returns the params file path next to the given pidfile.

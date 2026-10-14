@@ -22,6 +22,9 @@ const (
 	DefaultPort                = "8080"
 	DefaultLogLevel            = "info"
 	DefaultEventsRetentionDays = 3
+	// DefaultLuaPoolBucketSize caps idle Lua states stored per plugin
+	// bucket when LUA_POOL_BUCKET_SIZE is blank.
+	DefaultLuaPoolBucketSize = 16
 )
 
 // AdminHost pins the admin listener to loopback regardless of HOST.
@@ -31,11 +34,12 @@ const AdminHost = "127.0.0.1"
 
 // Sentinel errors for environment loading. Match with errors.Is.
 var (
-	ErrInvalidPort            = errors.New("invalid port")
-	ErrInvalidLogLevel        = errors.New("invalid log level")
-	ErrInvalidEventsRetention = errors.New("invalid events retention")
-	ErrConfigFileExists       = errors.New("configuration file exists")
-	ErrMissingTargetPath      = errors.New("configuration target path is required")
+	ErrInvalidPort              = errors.New("invalid port")
+	ErrInvalidLogLevel          = errors.New("invalid log level")
+	ErrInvalidEventsRetention   = errors.New("invalid events retention")
+	ErrInvalidLuaPoolBucketSize = errors.New("invalid lua pool bucket size")
+	ErrConfigFileExists         = errors.New("configuration file exists")
+	ErrMissingTargetPath        = errors.New("configuration target path is required")
 )
 
 // ResolveDotenvPath returns the dotenv path: ENV_FILE or the prod XDG default.
@@ -140,6 +144,10 @@ func Load() (*Config, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid EVENTS_RETENTION_DAYS: %w", err)
 	}
+	poolBucketSize, err := parseLuaPoolBucketSizeValue(environmentOrDefault("LUA_POOL_BUCKET_SIZE", ""))
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid LUA_POOL_BUCKET_SIZE: %w", err)
+	}
 
 	configuration := &Config{
 		Addr:                net.JoinHostPort(host, port.String()),
@@ -150,6 +158,7 @@ func Load() (*Config, string, error) {
 		EventsRetentionDays: retentionDays,
 		LogLevel:            logLevel,
 		DevUIRedirect:       strings.TrimSpace(os.Getenv("DEV_UI_REDIRECT")),
+		LuaPoolBucketSize:   poolBucketSize,
 	}
 	if err := configuration.Validate(); err != nil {
 		return nil, "", err
@@ -168,6 +177,7 @@ CACHE_PATH=` + DefaultCachePath + `
 EVENTS_PATH=` + DefaultEventsPath + `
 EVENTS_RETENTION_DAYS=3
 LOG_LEVEL=info
+LUA_POOL_BUCKET_SIZE=16
 `
 }
 
@@ -251,6 +261,20 @@ func parseEventsRetentionValue(raw string) (int, error) {
 		return 0, fmt.Errorf("%q: %w", raw, ErrInvalidEventsRetention)
 	}
 	return days, nil
+}
+
+// parseLuaPoolBucketSizeValue parses the per-bucket idle Lua state limit.
+// Blank returns the default. Zero disables pooling. Negative values fail.
+func parseLuaPoolBucketSizeValue(raw string) (int, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return DefaultLuaPoolBucketSize, nil
+	}
+	size, err := strconv.Atoi(trimmed)
+	if err != nil || size < 0 {
+		return 0, fmt.Errorf("%q: %w", raw, ErrInvalidLuaPoolBucketSize)
+	}
+	return size, nil
 }
 
 // parseAdminAddr resolves the admin listener address from ADMIN_PORT.

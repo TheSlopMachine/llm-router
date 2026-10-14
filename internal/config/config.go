@@ -108,6 +108,10 @@ type Config struct {
 	// serving its own embedded SPA. Set through DEV_UI_REDIRECT by `make start`
 	// in dev; empty disables the redirect — the normal/production behavior.
 	DevUIRedirect string
+
+	// LuaPoolBucketSize caps idle Lua states stored per plugin bucket.
+	// Zero disables pooling; every call builds a fresh state.
+	LuaPoolBucketSize int
 }
 
 // Validate checks that all required configuration fields are set.
@@ -126,6 +130,9 @@ func (configuration *Config) Validate() error {
 	}
 	if configuration.EventsRetentionDays < 1 {
 		return fmt.Errorf("EVENTS_RETENTION_DAYS must be at least 1")
+	}
+	if configuration.LuaPoolBucketSize < 0 {
+		return fmt.Errorf("LUA_POOL_BUCKET_SIZE must be at least 0")
 	}
 	if samePath(configuration.DBPath, configuration.CachePath) ||
 		samePath(configuration.DBPath, configuration.EventsPath) ||

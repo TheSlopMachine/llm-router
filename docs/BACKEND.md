@@ -18,7 +18,7 @@ internal/services/
   virtual/               virtual models (fall-through lists + instruction)
   responses/             router-side compat records (responses, conversations, assistants, threads, messages, runs)
   batches/               router-side Anthropic message batches (entries + JSONL-ready results)
-  luaplugin/             Lua execution core: manifest, sandbox, HTTP+SSRF, storage+TTL, credentials/proxies tables, jobs
+  luaplugin/             Lua execution core: manifest, sandbox, pooled states per plugin bucket, HTTP+SSRF, storage+TTL, credentials/proxies tables, jobs
   pluginrepo/            plugin store: single-URL index repos (repo URL or direct index.json, files resolved against the index directory); code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
   modelinfo/             model metadata cache (1h TTL)
   metrics/               1m buckets with dimension children, 90d retention
@@ -83,12 +83,15 @@ Keep changes shallow. Touch service internals only when the task requires it.
 
 ## Plugin execution
 
-- `luaplugin/exec.go:handlerCallEx` is the single call site: fresh `LState`
-  per call, source load, handler lookup (including `jobs.<name>.run` for
-  `job:<name>` invocations), `PCall`, terminal-error decode. Lua error
-  tables matching `{message, code?, param?, status?}` become
-  `ProviderError`; everything else becomes `PluginInternalError` with crash
-  accounting.
+- `luaplugin/exec.go:handlerCallEx` is the single call site: pooled `LState`
+  per call (`luaplugin/statepool`: per-plugin buckets keyed by
+  `<pluginID>/<typeKey>`, `LUA_POOL_BUCKET_SIZE` idle states per bucket,
+  default 16, excess closes on return, update/rollback/disable/delete
+  invalidates), rebind of per-call globals, source load, handler lookup
+  (including `jobs.<name>.run` for `job:<name>` invocations), `PCall`,
+  terminal-error decode. Lua error tables matching
+  `{message, code?, param?, status?}` become `ProviderError`; everything
+  else becomes `PluginInternalError` with crash accounting.
 - Failure-triggered health verification runs detached: attempts carrying a
   credential identity mark it suspect, the healthcheck service bounds check
   frequency by cooldown and disables only on an explicit unhealthy verdict

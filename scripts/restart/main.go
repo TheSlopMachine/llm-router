@@ -26,6 +26,7 @@ func main() {
 		overlay("ADMIN_PORT", parameters.AdminPort, shared.DevAdminPort)
 		overlay("LOG_LEVEL", parameters.LogLevel, "info")
 		overlay("EVENTS_RETENTION_DAYS", parameters.EventsRetentionDays, "3")
+		overlay("LUA_POOL_BUCKET_SIZE", parameters.LuaPoolBucketSize, "16")
 	}
 
 	// Backend-only restart keeps a live frontend (vite hot-reloads the

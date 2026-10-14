@@ -26,6 +26,7 @@ func main() {
 	eventsPath := shared.GetenvPath("EVENTS_PATH", shared.DefaultDevEvents())
 	envFile := shared.GetenvPath("ENV_FILE", shared.DefaultDevDotenv())
 	retentionDays := shared.Getenv("EVENTS_RETENTION_DAYS", "3")
+	poolBucketSize := shared.Getenv("LUA_POOL_BUCKET_SIZE", "16")
 	adminPort := shared.Getenv("ADMIN_PORT", shared.DevAdminPort)
 	pidFile := shared.GetenvPath("PID_FILE", shared.DefaultPidFile())
 
@@ -143,6 +144,7 @@ func main() {
 		"EVENTS_PATH=" + eventsPath,
 		"ENV_FILE=" + envFile,
 		"EVENTS_RETENTION_DAYS=" + retentionDays,
+		"LUA_POOL_BUCKET_SIZE=" + poolBucketSize,
 		"LOG_LEVEL=" + logLevel,
 		"DEV_UI_REDIRECT=" + fmt.Sprintf("http://%s:%s", host, vitePort),
 	}
@@ -206,7 +208,7 @@ func main() {
 	if err := shared.WriteStartParams(pidFile, shared.StartParams{
 		DatabasePath: databasePath, CachePath: cachePath, EventsPath: eventsPath, EnvFile: envFile,
 		Host: host, Port: vitePort, AdminPort: adminPort, LogLevel: logLevel,
-		EventsRetentionDays: retentionDays,
+		EventsRetentionDays: retentionDays, LuaPoolBucketSize: poolBucketSize,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] write params file: %v\n", err)
 	}

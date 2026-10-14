@@ -28,6 +28,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/events"
 	"github.com/TheSlopMachine/llm-router/internal/services/healthcheck"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
+	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin/statepool"
 	"github.com/TheSlopMachine/llm-router/internal/services/maintenance"
 	"github.com/TheSlopMachine/llm-router/internal/services/metrics"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
@@ -83,6 +84,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		return nil, fmt.Errorf("init plugin service: %w", err)
 	}
 	luaService.SetMinimumLevel(applicationConfig.LogLevel.SlogLevel())
+	statepool.SetBucketSize(applicationConfig.LuaPoolBucketSize)
 
 	providerService := provider.NewGorm(sqliteDatabase)
 	providerService.SetLogger(logger)

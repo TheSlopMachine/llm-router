@@ -24,6 +24,7 @@ DB_PATH   ?= ~/.local/share/llm-router/llm-router.dev.sqlite3
 CACHE_PATH ?= ~/.cache/llm-router/llm-router.cache.dev.sqlite3
 EVENTS_PATH ?= ~/.local/state/llm-router/llm-router.events.dev.sqlite3
 EVENTS_RETENTION_DAYS ?= 3
+LUA_POOL_BUCKET_SIZE ?= 16
 DEV_UI_REDIRECT ?=
 ENV_FILE  ?= ~/.config/llm-router/.env.dev
 PID_FILE  ?= ~/.local/state/llm-router/llm-router.dev.pid
@@ -31,7 +32,7 @@ PKG       ?= ./...
 HARNESS   ?=
 HARNESS_RUN_ROOT ?= ~/.cache/llm-router/harness
 HARNESS_PHASE_TIMEOUT ?= 5m
-export HOST PORT ADMIN_PORT SCOPE URL VERSION PLATFORMS LOG_LEVEL DB_PATH CACHE_PATH EVENTS_PATH EVENTS_RETENTION_DAYS DEV_UI_REDIRECT ENV_FILE PID_FILE PKG
+export HOST PORT ADMIN_PORT SCOPE URL VERSION PLATFORMS LOG_LEVEL DB_PATH CACHE_PATH EVENTS_PATH EVENTS_RETENTION_DAYS LUA_POOL_BUCKET_SIZE DEV_UI_REDIRECT ENV_FILE PID_FILE PKG
 export HARNESS HARNESS_RUN_ROOT HARNESS_PHASE_TIMEOUT
 
 BUN_MIN := 1.2
