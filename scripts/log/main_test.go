@@ -29,3 +29,27 @@ func TestBuildQueryExcludes(t *testing.T) {
 		t.Fatalf("filter.debug present, query = %v", query)
 	}
 }
+
+func TestOrderEntriesAscending(t *testing.T) {
+	entries := []entry{{ID: 3}, {ID: 2}, {ID: 1}}
+	ordered := orderEntriesAscending(entries)
+	for position, identifier := range []int64{1, 2, 3} {
+		if ordered[position].ID != identifier {
+			t.Fatalf("position %d holds ID %d, want %d", position, ordered[position].ID, identifier)
+		}
+	}
+	if entries[0].ID != 3 {
+		t.Fatalf("input mutated, first ID = %d, want 3", entries[0].ID)
+	}
+}
+
+func TestSelectNewEntriesKeepsBurstInOrder(t *testing.T) {
+	entries := []entry{{ID: 5}, {ID: 4}, {ID: 3}}
+	selected := selectNewEntries(entries, 3)
+	if len(selected) != 2 || selected[0].ID != 4 || selected[1].ID != 5 {
+		t.Fatalf("selected holds %+v, want IDs 4 then 5", selected)
+	}
+	if len(selectNewEntries(entries, 5)) != 0 {
+		t.Fatalf("expected no rows newer than 5")
+	}
+}

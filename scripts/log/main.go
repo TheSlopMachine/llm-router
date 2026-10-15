@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -35,11 +36,9 @@ func main() {
 		if err != nil {
 			continue
 		}
-		for _, entry := range entries {
-			if entry.ID > lastMax {
-				fmt.Println(formatEntry(entry))
-				lastMax = entry.ID
-			}
+		for _, displayed := range selectNewEntries(entries, lastMax) {
+			fmt.Println(formatEntry(displayed))
+			lastMax = displayed.ID
 		}
 	}
 }
@@ -139,13 +138,35 @@ func fetch(base string, query url.Values) ([]entry, error) {
 
 func printEntries(entries []entry) int64 {
 	var lastMax int64
-	for _, entry := range entries {
-		fmt.Println(formatEntry(entry))
-		if entry.ID > lastMax {
-			lastMax = entry.ID
+	for _, displayed := range orderEntriesAscending(entries) {
+		fmt.Println(formatEntry(displayed))
+		if displayed.ID > lastMax {
+			lastMax = displayed.ID
 		}
 	}
 	return lastMax
+}
+
+// orderEntriesAscending returns entries oldest-first by ID. The server
+// returns newest-first; display reverses that order while keeping the newest
+// limit selection.
+func orderEntriesAscending(entries []entry) []entry {
+	ordered := make([]entry, len(entries))
+	copy(ordered, entries)
+	sort.Slice(ordered, func(first, second int) bool { return ordered[first].ID < ordered[second].ID })
+	return ordered
+}
+
+// selectNewEntries returns rows newer than lastMax, oldest-first.
+func selectNewEntries(entries []entry, lastMax int64) []entry {
+	var selected []entry
+	for _, candidate := range entries {
+		if candidate.ID > lastMax {
+			selected = append(selected, candidate)
+		}
+	}
+	sort.Slice(selected, func(first, second int) bool { return selected[first].ID < selected[second].ID })
+	return selected
 }
 
 func formatEntry(entry entry) string {
