@@ -109,7 +109,7 @@ status:
 	@cd scripts && GOWORK=off go run ./status
 
 log:
-	@cd scripts && GOWORK=off go run ./log
+	@cd scripts && MSYS_NO_PATHCONV=1 GOWORK=off go run ./log
 
 log-frontend:
 	@cd scripts && GOWORK=off go run ./logfrontend
