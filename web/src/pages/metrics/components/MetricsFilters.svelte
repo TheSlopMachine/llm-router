@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Select, HStack, VStack, Text } from '$ui'
+  import { Select, HStack, VStack, Text } from '@fuckyouryan/fui'
   import type { MetricsFilters, Provider } from '$lib/types'
   import { t } from '$lib/i18n.svelte'
 

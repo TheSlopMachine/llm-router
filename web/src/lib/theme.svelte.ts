@@ -1,4 +1,4 @@
-import { setTheme } from '../FUI/core/theme.svelte'
+import { setTheme } from '@fuckyouryan/fui'
 export type Theme = 'auto' | 'light' | 'dark'
 
 const STORAGE_KEY = 'theme'

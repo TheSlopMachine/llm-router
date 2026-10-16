@@ -1,5 +1,5 @@
 import { api } from '$lib/api'
-import { toast } from '../../../FUI/core/toast.svelte'
+import { toast } from '@fuckyouryan/fui'
 import { getErrorMessage } from '$lib/errors'
 import { t } from '$lib/i18n.svelte'
 import type { Plugin, PluginUpdate, StoreFile } from '$lib/types'

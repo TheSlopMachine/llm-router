@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { SectionCard, HStack, VStack, Text, Spacer, Icon } from '$ui'
+  import { SectionCard, HStack, VStack, Text, Spacer, Icon } from '@fuckyouryan/fui'
   import { t } from '$lib/i18n.svelte'
 
   let { title, value, loading = false, icon = 'show_chart' } = $props<{

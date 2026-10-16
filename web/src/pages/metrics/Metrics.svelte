@@ -4,7 +4,7 @@
   import { getErrorMessage } from '$lib/errors'
   import type { MetricsFilters, MetricsOverview, TimeSeriesPoint, Provider } from '$lib/types'
   import { t } from '$lib/i18n.svelte'
-  import { VStack, HStack, Text, Grid, Spacer, Button, Banner, Header, EmptyState } from '$ui'
+  import { VStack, HStack, Text, Grid, Spacer, Button, Banner, Header, EmptyState } from '@fuckyouryan/fui'
   import MetricsFiltersCmp from './components/MetricsFilters.svelte'
   import MetricsOverviewCard from './components/MetricsOverviewCard.svelte'
   import PeakUsageChart from './components/PeakUsageChart.svelte'

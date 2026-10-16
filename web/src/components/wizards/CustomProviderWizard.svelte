@@ -4,10 +4,7 @@
   import { getErrorMessage } from '../../lib/errors'
   import { t } from '../../lib/i18n.svelte'
   import type { ModalButton, Provider } from '../../lib/types'
-  import TextEdit from '../../FUI/controls/TextEdit.svelte'
-  import Text from '../../FUI/controls/Text.svelte'
-  import VStack from '../../FUI/layout/VStack.svelte'
-  import Banner from '../../FUI/composite/Banner.svelte'
+  import { TextEdit, Text, VStack, Banner } from '@fuckyouryan/fui'
 
   let {
     editingProvider = null,

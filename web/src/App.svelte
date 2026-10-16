@@ -5,10 +5,7 @@
   import Login from './pages/Login.svelte'
   import Bootstrap from './pages/Bootstrap.svelte'
   import Dashboard from './pages/Dashboard.svelte'
-  import Modal from './FUI/composite/Modal.svelte'
-  import Toasts from './FUI/composite/Toasts.svelte'
-  import Banner from './FUI/composite/Banner.svelte'
-  import { startSecureHardening } from './lib/secure'
+  import { Modal, Toasts, Banner } from '@fuckyouryan/fui'
 
   type AppState = 'loading' | 'bootstrap' | 'login' | 'dashboard'
 
@@ -16,7 +13,6 @@
   let error: string | null = $state(null)
 
   onMount(async (): Promise<void> => {
-    startSecureHardening()
     const path = window.location.pathname
 
     try {

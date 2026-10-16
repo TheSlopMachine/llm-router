@@ -1,22 +1,7 @@
 <script lang="ts">
-  import Link from '../../FUI/controls/Link.svelte'
+  import { Link, Banner, CodeBlock, SectionCard, Grid, Box, TextEdit, Select, Switch, Text, VStack, HStack, Spacer, Divider, type Align, type Justify, type Step } from '@fuckyouryan/fui'
+  import { isStepValue, isBannerVariant, isSecretInput } from '$lib/ui-helpers'
   import type { UINode } from '../../lib/types'
-  import Banner from '../../FUI/composite/Banner.svelte'
-  import CodeBlock from '../../FUI/composite/CodeBlock.svelte'
-  import SectionCard from '../../FUI/composite/SectionCard.svelte'
-  import Grid from '../../FUI/layout/Grid.svelte'
-  import Box from '../../FUI/layout/Box.svelte'
-  import TextEdit from '../../FUI/controls/TextEdit.svelte'
-  import Select from '../../FUI/controls/Select.svelte'
-  import Switch from '../../FUI/controls/Switch.svelte'
-  import Text from '../../FUI/controls/Text.svelte'
-  import VStack from '../../FUI/layout/VStack.svelte'
-  import HStack from '../../FUI/layout/HStack.svelte'
-  import Spacer from '../../FUI/layout/Spacer.svelte'
-  import Divider from '../../FUI/controls/Divider.svelte'
-  import type { Align, Justify, Step } from '../../FUI/tokens'
-  import { isStepValue, isBannerVariant } from '../../FUI/core/ui-guards'
-  import { isSecretInput } from '../../FUI/core/button-state'
 
   let {
     nodes,
@@ -65,7 +50,7 @@
 
 <script lang="ts" module>
   import type { UINode as UINodeType } from '../../lib/types'
-  import { isButtonVariant } from '../../FUI/core/ui-guards'
+  import { isButtonVariant } from '$lib/ui-helpers'
 
   // Collects button nodes in tree order for footer rendering.
   // DynamicForm itself never renders buttons; hosts own the footer.

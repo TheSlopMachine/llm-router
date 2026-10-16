@@ -1,8 +1,5 @@
 <script lang="ts">
-  import Chip from '../../FUI/controls/Chip.svelte'
-  import Icon from '../../FUI/controls/Icon.svelte'
-  import HStack from '../../FUI/layout/HStack.svelte'
-  import VStack from '../../FUI/layout/VStack.svelte'
+  import { Chip, Icon, HStack, VStack } from '@fuckyouryan/fui'
   import { modalityColor, modalityIcon } from '../../lib/modalities'
 
   // In → out modality flow. The root always runs left to right;

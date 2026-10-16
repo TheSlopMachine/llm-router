@@ -6,7 +6,7 @@
   import { getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
   import type { ModalButton, ProxyPool } from '$lib/types'
-  import { Text, TextArea, TextEdit, VStack, Banner } from '$ui'
+  import { Text, TextArea, TextEdit, VStack, Banner } from '@fuckyouryan/fui'
 
   let {
     editingPool = null,

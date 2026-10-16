@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api } from '../lib/api'
   import { t } from '../lib/i18n.svelte'
-  import { Button, TextEdit, Banner, VStack, Checkbox } from '$ui'
+  import { Button, TextEdit, Banner, VStack, Checkbox } from '@fuckyouryan/fui'
   import AuthCard from '../components/AuthCard.svelte'
 
   let { ondone } = $props<{ ondone: () => void }>()
@@ -40,7 +40,7 @@
     </VStack>
     <VStack gap={1}>
       <label for="p">{t('auth.password.label')}</label>
-      <TextEdit id="p" type="password" name="current-password" bind:value={password} autocomplete="current-password" onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && submit()} />
+      <TextEdit id="p" type="secret" name="current-password" bind:value={password} autocomplete="current-password" onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && submit()} />
     </VStack>
     <Checkbox bind:checked={rememberMe} label={t('auth.remember_me.label')} />
     <Button style="prominent" block onclick={submit} disabled={!isLoginReady}>{loading ? t('auth.sign_in.signing_in') : t('auth.sign_in.title')}</Button>

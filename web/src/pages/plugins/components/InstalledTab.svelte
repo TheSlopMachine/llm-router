@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { SearchField, Toolbar, ToolbarItem, Button, FloatingView, List, VStack, HStack, Text, Banner, ConfirmAction, FilePicker } from '$ui'
-  import EmptyState from '../../../FUI/composite/EmptyState.svelte'
+  import { SearchField, Toolbar, ToolbarItem, Button, FloatingView, List, VStack, HStack, Text, Banner, ConfirmAction, FilePicker, EmptyState } from '@fuckyouryan/fui'
   import PluginCard from './PluginCard.svelte'
   import { createPluginState } from './plugin-state.svelte'
   import { diffAllowHosts } from './plugin-permission-diff'

@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { TimeSeriesPoint } from '$lib/types'
   import { t } from '$lib/i18n.svelte'
-  import { SectionCard, VStack, HStack, Text } from '$ui'
+  import { SectionCard, VStack, HStack, Text } from '@fuckyouryan/fui'
 
   let { title, data = [], loading = false } = $props<{
     title: string

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, FloatingView, HStack, VStack, Text, Chip, Spacer, Switch } from '$ui'
+  import { Button, FloatingView, HStack, VStack, Text, Chip, Spacer, Switch } from '@fuckyouryan/fui'
   import InstallConfirm from './InstallConfirm.svelte'
   import { t } from '$lib/i18n.svelte'
 

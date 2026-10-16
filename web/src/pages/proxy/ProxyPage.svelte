@@ -1,7 +1,5 @@
 <script lang="ts">
-  import { VStack, HStack, Text, Button, Table, SectionCard, Chip, FloatingView, Banner, ConfirmAction, Select, Header, Stat, Grid, Picker, Spacer, ToolbarItem, Accordion, StackedBar, Progress, RelativeTime, Field } from '$ui'
-  import type { TableColumn } from '$ui'
-  import EmptyState from '../../FUI/composite/EmptyState.svelte'
+  import { VStack, HStack, Text, Button, Table, SectionCard, Chip, FloatingView, Banner, ConfirmAction, Select, Header, Stat, Grid, Picker, Spacer, ToolbarItem, Accordion, StackedBar, Progress, RelativeTime, Field, type TableColumn, EmptyState } from '@fuckyouryan/fui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { openFormModal } from '$lib/modal-helpers'

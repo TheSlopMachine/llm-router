@@ -7,7 +7,7 @@
   import { getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
   import type { Credential, ModalButton } from '$lib/types'
-  import { Text, TextEdit, VStack, Banner } from '$ui'
+  import { Text, TextEdit, VStack, Banner } from '@fuckyouryan/fui'
 
   let {
     cred,

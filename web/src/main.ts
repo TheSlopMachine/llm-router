@@ -1,5 +1,5 @@
-import './FUI/styles/tokens.css'
-import './FUI/styles/base.css'
+import '@fuckyouryan/fui/styles/tokens.css'
+import '@fuckyouryan/fui/styles/base.css'
 import './styles/reset.css'
 import './app.css'
 import './lib/accent.svelte'

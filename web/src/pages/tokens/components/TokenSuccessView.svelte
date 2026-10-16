@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CodeBlock, Grid, VStack, Text, Banner, Box } from '$ui'
+  import { CodeBlock, Grid, VStack, Text, Banner, Box } from '@fuckyouryan/fui'
   import { t, tx } from '$lib/i18n.svelte'
 
   let {

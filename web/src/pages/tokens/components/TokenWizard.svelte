@@ -8,12 +8,11 @@
   import { toggleSet } from '$lib/token-helpers'
   import { t, n } from '$lib/i18n.svelte'
   import type { Token, Provider, VirtualModel, AvailableModel, ProviderModel } from '$lib/types'
-  import type { ModalButton, StepperConfig } from '../../../FUI/core/modal.svelte'
+  import { type ModalButton, type StepperConfig, Switch, Checkbox, SearchField, Text, TextEdit, Spacer, VStack, HStack, List, Banner } from '@fuckyouryan/fui'
   import { buildBackendTokenRules } from '$lib/token-rules'
   import { hasFullAccess, resolveWizardSubtitle, resolveStepValidity, resolveModelId } from '$lib/token-scope'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
   import { filterByFields } from '$lib/filter'
-  import { Switch, Checkbox, SearchField, Text, TextEdit, Spacer, VStack, HStack, List, Banner } from '$ui'
     import TokenSuccessView from './TokenSuccessView.svelte'
 
   let {

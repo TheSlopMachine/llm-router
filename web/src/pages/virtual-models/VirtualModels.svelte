@@ -6,8 +6,7 @@
   import type { VirtualModel, AvailableModel } from '$lib/types'
   import { setPendingClone } from '$lib/virtual-clone'
   import { t } from '$lib/i18n.svelte'
-  import EmptyState from '../../FUI/composite/EmptyState.svelte'
-  import { Button, FloatingView, HStack, Switch, Text, VStack, Banner, ConfirmAction, Header, ToolbarItem } from '$ui'
+  import { EmptyState, Button, FloatingView, HStack, Switch, Text, VStack, Banner, ConfirmAction, Header, ToolbarItem } from '@fuckyouryan/fui'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
   import { isUnauthenticated } from '$lib/credential-state'
 

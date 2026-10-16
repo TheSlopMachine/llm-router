@@ -34,10 +34,14 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      $ui: '/src/FUI/index.ts',
       $lib: '/src/lib',
     },
+    // One Svelte instance for the app and the FUI package.
+    dedupe: ['svelte'],
   },
+  // FUI ships Svelte/TypeScript sources: compile them as app code,
+  // never pre-bundle them as a plain JS dependency.
+  optimizeDeps: { exclude: ['@fuckyouryan/fui'] },
   build: {
     outDir: '../internal/dashboard/build/web',
     emptyOutDir: true,

@@ -23,20 +23,12 @@
 </script>
 
 <script lang="ts">
-  import Table from '../../FUI/composite/Table.svelte'
-  import type { TableColumn, TableSortDir } from '../../FUI/composite/Table.svelte'
-  import Chip from '../../FUI/controls/Chip.svelte'
-  import Icon from '../../FUI/controls/Icon.svelte'
-  import VStack from '../../FUI/layout/VStack.svelte'
-  import HStack from '../../FUI/layout/HStack.svelte'
-  import Text from '../../FUI/controls/Text.svelte'
+  import { Table, type TableColumn, type TableSortDir, Chip, Icon, VStack, HStack, Text, CopyButton, squircle } from '@fuckyouryan/fui'
+  import { isSortActive } from '$lib/ui-helpers'
   import { CAPABILITY_META, hasModalities, hasCapabilities } from '../../lib/capabilities'
   import { resolveModelId } from '../../lib/token-scope'
-  import { isSortActive } from '../../FUI/core/table-layout'
   import ModalitiesFlow from './ModalitiesFlow.svelte'
-  import CopyButton from '../../FUI/composite/CopyButton.svelte'
   import { t } from '../../lib/i18n.svelte'
-  import { squircle } from '../../FUI/core/squircle'
 
   let {
     models,

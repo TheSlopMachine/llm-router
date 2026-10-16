@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api } from '../lib/api'
   import { getErrorMessage } from '../lib/errors'
-  import { Button, TextEdit, Banner, VStack, Text } from '$ui'
+  import { Button, TextEdit, Banner, VStack, Text } from '@fuckyouryan/fui'
   import AuthCard from '../components/AuthCard.svelte'
 
   let { ondone } = $props<{ ondone: () => void }>()
@@ -41,14 +41,14 @@
     </VStack>
     <VStack gap={1}>
       <label for="p">Password</label>
-      <TextEdit id="p" type="password" name="new-password" bind:value={password} autocomplete="new-password" />
+      <TextEdit id="p" type="secret" name="new-password" bind:value={password} autocomplete="new-password" />
       {#if showLengthHint}
         <Text size="sm" tone="warning">Recommendation: use at least 8 characters for a stronger password.</Text>
       {/if}
     </VStack>
     <VStack gap={1}>
       <label for="p2">Confirm password</label>
-      <TextEdit id="p2" type="password" name="new-password-confirm" bind:value={password2} autocomplete="new-password" onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && submit()} />
+      <TextEdit id="p2" type="secret" name="new-password-confirm" bind:value={password2} autocomplete="new-password" onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && submit()} />
     </VStack>
     <Button style="prominent" block onclick={submit} disabled={loading}>{loading ? 'Creating…' : 'Create account'}</Button>
   </VStack>

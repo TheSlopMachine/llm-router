@@ -1,4 +1,4 @@
-import { setAccent } from '../FUI/core/accent.svelte'
+import { setAccent } from '@fuckyouryan/fui'
 // Accent color: user-picked in Settings, persisted per browser, applied to
 // both themes. Widgets read --color-accent (+hover/soft) and
 // --color-text-on-button-reverse; inline properties beat theme rules, so one

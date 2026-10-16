@@ -1,5 +1,5 @@
 // Site-side wiring for the texts the widget library must not own.
-import { setFuiTexts } from '../FUI/core/texts'
+import { setFuiTexts } from '@fuckyouryan/fui'
 import { t } from './i18n.svelte'
 
 setFuiTexts(() => ({

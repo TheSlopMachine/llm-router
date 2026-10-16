@@ -8,12 +8,9 @@
   import { t, n } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { accent, accents } from '$lib/accent.svelte'
-  import { Button, HStack, SectionCard, Select, Spacer, Switch, Text, VStack, TextEdit, Banner, Icon, Chip, Header, EmptyState } from '$ui'
-  import { squircle } from '../../FUI/core/squircle'
+  import { Button, HStack, SectionCard, Select, Spacer, Switch, Text, VStack, TextEdit, Banner, Icon, Chip, Header, EmptyState, squircle, toast, modal } from '@fuckyouryan/fui'
   import type { Provider, SubsystemStats, DoctorReport } from '$lib/types'
-  import { toast } from '../../FUI/core/toast.svelte'
   import { downloadJson, readJsonFile } from '$lib/download'
-  import { modal } from '../../FUI/core/modal.svelte'
 
   let languageOptions = $derived([
     { value: 'auto', label: t('common.auto') },
@@ -334,17 +331,17 @@
 
     <VStack gap={1}>
       <Text tag="label" size="sm" weight="medium" for="current-password">{t('settings.password.current')}</Text>
-      <TextEdit id="current-password" name="current-password" bind:value={currentPassword} type="password" autocomplete="current-password" />
+      <TextEdit id="current-password" name="current-password" bind:value={currentPassword} type="secret" autocomplete="current-password" />
     </VStack>
 
     <VStack gap={1}>
       <Text tag="label" size="sm" weight="medium" for="new-password">{t('settings.password.new')}</Text>
-      <TextEdit id="new-password" name="new-password" bind:value={newPassword} type="password" autocomplete="new-password" />
+      <TextEdit id="new-password" name="new-password" bind:value={newPassword} type="secret" autocomplete="new-password" />
     </VStack>
 
     <VStack gap={1}>
       <Text tag="label" size="sm" weight="medium" for="confirm-password">{t('settings.password.confirm')}</Text>
-      <TextEdit id="confirm-password" name="new-password-confirm" bind:value={confirmPassword} type="password" autocomplete="new-password" />
+      <TextEdit id="confirm-password" name="new-password-confirm" bind:value={confirmPassword} type="secret" autocomplete="new-password" />
     </VStack>
 
     <HStack justify="end">

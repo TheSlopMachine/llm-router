@@ -1,15 +1,12 @@
 <script lang="ts">
   import ModelsTable from '../../../components/domain/ModelsTable.svelte'
-  import { squircle } from '../../../FUI/core/squircle'
+  import { squircle, toast, FloatingView, Table, CopyButton, Button, Spacer, HStack, VStack, Text, Switch, Select, Picker, SearchField, Toolbar, ToolbarItem, TextEdit, Banner, ConfirmAction, EmptyState } from '@fuckyouryan/fui'
   import { t, tb } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
-  import { toast } from '../../../FUI/core/toast.svelte'
   import { CAPABILITY_META, hasModalities } from '$lib/capabilities'
   import { filterByFields } from '$lib/filter'
   import type { Provider, ProviderModel, ProviderVMGroup, TestResult, VirtualModel } from '$lib/types'
   import { api } from '$lib/api'
-  import { FloatingView, Table, CopyButton, Button, Spacer, HStack, VStack, Text, Switch, Select, Picker, SearchField, Toolbar, ToolbarItem, TextEdit, Banner, ConfirmAction } from '$ui'
-  import EmptyState from '../../../FUI/composite/EmptyState.svelte'
   import type { ModelsTableModel } from '../../../components/domain/ModelsTable.svelte'
 
   let { provider = $bindable(), onrefresh, credRevision = 0 } = $props<{

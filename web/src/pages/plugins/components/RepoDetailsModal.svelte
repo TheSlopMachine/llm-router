@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { VStack, HStack, Text, Chip } from '$ui'
+  import { VStack, HStack, Text, Chip } from '@fuckyouryan/fui'
   import { t, n } from '$lib/i18n.svelte'
 
   let {

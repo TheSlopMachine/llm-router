@@ -1,22 +1,17 @@
 <script lang="ts">
   import { api } from '../../lib/api'
-  import { modal } from '../../FUI/core/modal.svelte'
+  import { modal, toast, EmptyState, Button, Chip, FloatingView, HStack, Image, Select, Spacer, Switch, Table, Text, VStack, Banner, ConfirmAction, Header, ToolbarItem, type TableColumn, squircle } from '@fuckyouryan/fui'
+  import { hasUiNodes } from '$lib/ui-helpers'
   import { getErrorMessage } from '../../lib/errors'
-  import { toast } from '../../FUI/core/toast.svelte'
   import type { Credential, Provider, ProxyPool, TestResult, UINode } from '../../lib/types'
   import EditCredentialLabel from './components/EditCredentialLabel.svelte'
   import CustomProviderWizard from '../../components/wizards/CustomProviderWizard.svelte'
   import ProviderCredentialWizard from './components/ProviderCredentialWizard.svelte'
   import ModelsSection from './components/ModelsSection.svelte'
   import DynamicForm from '../../components/domain/DynamicForm.svelte'
-  import EmptyState from '../../FUI/composite/EmptyState.svelte'
-  import { Button, Chip, FloatingView, HStack, Image, Select, Spacer, Switch, Table, Text, VStack, Banner, ConfirmAction, Header, ToolbarItem } from '$ui'
-  import type { TableColumn } from '$ui'
-  import { squircle } from '../../FUI/core/squircle'
   import { t, tx } from '$lib/i18n.svelte'
   import { isAutoDisabled, isPluginDisabled } from '$lib/credential-state'
   import { formatDisableReason } from '$lib/format'
-  import { hasUiNodes } from '../../FUI/core/ui-guards'
 
   let { providerId } = $props<{ providerId: string }>()
 

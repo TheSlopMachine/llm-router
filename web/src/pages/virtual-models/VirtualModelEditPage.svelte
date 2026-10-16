@@ -1,6 +1,6 @@
 <script lang="ts">
   import ModalitiesFlow from '../../components/domain/ModalitiesFlow.svelte'
-  import Icon from '../../FUI/controls/Icon.svelte'
+  import { Icon, Button, Chip, HStack, SectionCard, Select, Text, TextArea, TextEdit, VStack, Banner, Header, EmptyState } from '@fuckyouryan/fui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -10,7 +10,6 @@
   import { takePendingClone } from '$lib/virtual-clone'
   import { isUnauthenticated } from '$lib/credential-state'
   import { intersectMembers, minPositive } from '$lib/model-aggregates'
-  import { Button, Chip, HStack, SectionCard, Select, Text, TextArea, TextEdit, VStack, Banner, Header, EmptyState } from '$ui'
 
   let { vmId = null } = $props<{ vmId: string | null }>()
 

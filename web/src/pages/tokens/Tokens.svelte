@@ -1,9 +1,6 @@
 <script lang="ts">
-  import { Button, CodeBlock, FloatingView, HStack, Table, Text, TextEdit, VStack, Banner, ConfirmAction, Header, Spacer, ToolbarItem, RelativeTime } from '$ui'
-  import type { TableColumn } from '$ui'
-  import EmptyState from '../../FUI/composite/EmptyState.svelte'
+  import { Button, CodeBlock, FloatingView, HStack, Table, Text, TextEdit, VStack, Banner, ConfirmAction, Header, Spacer, ToolbarItem, RelativeTime, type TableColumn, EmptyState, modal } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
-  import { modal } from '../../FUI/core/modal.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { formatRelativeTime } from '$lib/time'
   import { createListResource } from '$lib/list-resource.svelte'

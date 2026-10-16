@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
-  import VStack from '../FUI/layout/VStack.svelte'
-  import Text from '../FUI/controls/Text.svelte'
+  import { VStack, Text } from '@fuckyouryan/fui'
 
   // Shared auth shell for Bootstrap + Login. Owns the page wrap, card box,
   // brand mark, title and subtitle so the two pages share one stylesheet.

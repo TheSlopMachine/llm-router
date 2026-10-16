@@ -1,8 +1,7 @@
 <script lang="ts">
   import { api } from '$lib/api'
   import { createListResource } from '$lib/list-resource.svelte'
-  import { Picker, Text, VStack, HStack, Header, Banner } from '$ui'
-  import EmptyState from '../../FUI/composite/EmptyState.svelte'
+  import { Picker, Text, VStack, HStack, Header, Banner, EmptyState } from '@fuckyouryan/fui'
   import InstalledTab from './components/InstalledTab.svelte'
   import CatalogTab from './components/CatalogTab.svelte'
   import type { Plugin, PluginRepo, PluginUpdate, StoreFile } from '$lib/types'

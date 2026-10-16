@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { Button, TextArea, Picker, Banner } from '$ui'
-  import EmptyState from '../../../FUI/composite/EmptyState.svelte'
+  import { Button, TextArea, Picker, Banner, EmptyState } from '@fuckyouryan/fui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
