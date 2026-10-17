@@ -1,17 +1,26 @@
-import { BP_MOBILE } from './breakpoints'
+import { BP_MOBILE, BP_NARROW } from './breakpoints'
 
 let mobile = $state(typeof window !== 'undefined' ? window.matchMedia(`(max-width: ${BP_MOBILE}px)`).matches : false)
+let narrow = $state(typeof window !== 'undefined' ? window.matchMedia(`(max-width: ${BP_NARROW}px)`).matches : false)
 
 if (typeof window !== 'undefined') {
-  const mql = window.matchMedia(`(max-width: ${BP_MOBILE}px)`)
-  const onChange = (e: MediaQueryListEvent): void => {
+  const mobileMql = window.matchMedia(`(max-width: ${BP_MOBILE}px)`)
+  const narrowMql = window.matchMedia(`(max-width: ${BP_NARROW}px)`)
+  const onMobileChange = (e: MediaQueryListEvent): void => {
     mobile = e.matches
   }
-  mql.addEventListener('change', onChange)
+  const onNarrowChange = (e: MediaQueryListEvent): void => {
+    narrow = e.matches
+  }
+  mobileMql.addEventListener('change', onMobileChange)
+  narrowMql.addEventListener('change', onNarrowChange)
 }
 
 export const viewport = {
   get mobile(): boolean {
     return mobile
+  },
+  get narrow(): boolean {
+    return narrow
   }
 }

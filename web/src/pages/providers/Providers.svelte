@@ -9,6 +9,7 @@
   import { isSystemDisabled } from '$lib/credential-state'
   import { formatDisableReason } from '$lib/format'
   import { t, n } from '$lib/i18n.svelte'
+  import { viewport } from '$lib/viewport.svelte'
 
   const resource = createListResource<{ providers: Provider[]; providerStats: Record<string, ProviderStats> }>(
     async () => {
@@ -55,7 +56,13 @@
 <VStack gap={6}>
   <Header title={t('providers.list.title')} info={t('providers.list.subtitle')}>
     {#snippet actions()}
-      <ToolbarItem primary><Button style="prominent" onclick={openCreate} icon={{ name: 'add' }}>{t('providers.actions.new')}</Button></ToolbarItem>
+      <ToolbarItem primary>
+        {#if viewport.narrow}
+          <Button style="prominent" onclick={openCreate} icon={{ name: 'add' }} title={t('providers.actions.new')} ariaLabel={t('providers.actions.new')} />
+        {:else}
+          <Button style="prominent" onclick={openCreate} icon={{ name: 'add' }}>{t('providers.actions.new')}</Button>
+        {/if}
+      </ToolbarItem>
     {/snippet}
   </Header>
 

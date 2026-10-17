@@ -2,6 +2,7 @@
   import { Button, FloatingView, HStack, VStack, Text, Chip, Spacer, Switch } from '@fuckyouryan/fui'
   import InstallConfirm from './InstallConfirm.svelte'
   import { t } from '$lib/i18n.svelte'
+  import { viewport } from '$lib/viewport.svelte'
 
   let {
     title,
@@ -66,18 +67,13 @@
 
 <div class="plugin-card-row">
   <HStack align="center" gap={4} wrap>
-    <div class="plugin-title">
-      <HStack align="center" gap={2} wrap>
-        <span class="plugin-name"><Text variant="value">{title}</Text></span>
-        <Chip text={version} color="chip-accent" size="small" />
-        {#if unsafe}
-          <Chip text={t('plugins.network.unrestricted')} color="chip-red" size="small" />
-        {/if}
-      </HStack>
-      {#if description}
-        <Text variant="subtitle">{description}</Text>
+    <HStack align="center" gap={2} wrap class="plugin-title">
+      <span class="plugin-name"><Text variant="value">{title}</Text></span>
+      <Chip text={version} color="chip-accent" size="small" />
+      {#if unsafe}
+        <Chip text={t('plugins.network.unrestricted')} color="chip-red" size="small" />
       {/if}
-    </div>
+    </HStack>
 
     <HStack align="center" gap={2}>
       {#if mode === 'installed'}
@@ -120,13 +116,17 @@
         <Button
           style="none"
           icon={{ name: 'download' }}
-          text={installing ? t('plugins.installing') : installLabel}
+          text={viewport.narrow ? '' : (installing ? t('plugins.installing') : installLabel)}
           disabled={installing}
           onclick={(e) => openConfirm(e.currentTarget as HTMLElement)}
         />
       {/if}
     </HStack>
   </HStack>
+
+  {#if description}
+    <Text variant="subtitle">{description}</Text>
+  {/if}
 
   <FloatingView
     open={confirmOpen}
@@ -155,13 +155,13 @@
   .plugin-card-row {
     padding: var(--fui-space-4);
     min-width: 0;
-  }
-  .plugin-title {
-    flex: 1 1 var(--fui-grid-min-lg);
-    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: var(--fui-space-1);
+  }
+  .plugin-card-row :global(.plugin-title) {
+    flex: 1 1 var(--fui-grid-min-lg);
+    min-width: 0;
   }
   .plugin-name {
     min-width: 0;
