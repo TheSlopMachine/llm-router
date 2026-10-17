@@ -341,6 +341,8 @@ export const api = {
     },
     recheckBanned: (payload: { reason?: string; source?: string }): Promise<{ queued: number }> =>
       postJson('/api/llm-router/dashboard/proxy/recheck-banned', payload),
+    forceForeground: (): Promise<{ started: boolean; queued: number }> =>
+      postJson('/api/llm-router/dashboard/proxy/force-foreground', {}),
     pools: {
       list: async (): Promise<ProxyPool[]> => {
         const response = await fetch('/api/llm-router/dashboard/proxy-pools')
@@ -400,15 +402,18 @@ export const api = {
 
   // Router configuration (instance-wide, RouterConfiguration bucket)
   config: {
-    get: async (): Promise<{ is_cluster_node: boolean; disable_telemetry: boolean; models_filter?: string }> => {
+    get: async (): Promise<{ is_cluster_node: boolean; disable_telemetry: boolean; models_filter?: string; proxy_max_checks?: number; proxy_enabled?: boolean; proxy_pool_enabled?: boolean }> => {
       const raw = (await apiCall('get', '/api/llm-router/dashboard/config' as never)) as unknown as Record<string, unknown>
       return {
         is_cluster_node: (raw?.is_cluster_node as boolean) ?? false,
         disable_telemetry: (raw?.disable_telemetry as boolean) ?? false,
         models_filter: raw?.models_filter as string | undefined,
+        proxy_max_checks: raw?.proxy_max_checks as number | undefined,
+        proxy_enabled: raw?.proxy_enabled as boolean | undefined,
+        proxy_pool_enabled: raw?.proxy_pool_enabled as boolean | undefined,
       }
     },
-    update: (payload: { is_cluster_node: boolean; disable_telemetry: boolean; models_filter?: string }) =>
+    update: (payload: { is_cluster_node: boolean; disable_telemetry: boolean; models_filter?: string; proxy_max_checks?: number; proxy_enabled?: boolean; proxy_pool_enabled?: boolean }) =>
       apiCall('put', '/api/llm-router/dashboard/config' as never, { body: payload as unknown as never } as never),
   },
 

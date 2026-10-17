@@ -120,6 +120,21 @@ func (h *Handler) apiProxyRecheckBanned(w http.ResponseWriter, r *http.Request) 
 	h.json(w, http.StatusAccepted, models.RecheckBannedResponse{Queued: queued})
 }
 
+// apiProxyForceForeground speeds up checks of queued candidates.
+// @Summary      Force candidate checks
+// @Description  Runs candidate checks at foreground speed until the candidate queue is drained.
+// @Tags         Proxies
+// @Produce      json
+// @Success      202 {object} object{started=bool,queued=int}
+// @Failure      401 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/proxy/force-foreground [post]
+func (h *Handler) apiProxyForceForeground(w http.ResponseWriter, _ *http.Request) {
+	queued := h.proxyService.ForceForeground()
+	h.logInfo("Proxy candidate checks forced", "queued", queued)
+	h.json(w, http.StatusAccepted, map[string]any{"started": queued > 0, "queued": queued})
+}
+
 // apiProxyPoolsList returns every manually managed proxy pool.
 // @Summary      List custom proxy pools
 // @Description  Returns manually created proxy pools with their entries.

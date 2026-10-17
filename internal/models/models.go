@@ -1859,6 +1859,32 @@ type VirtualModel struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// ProxyDataVersion is the format version of ProxyDataBundle.
+const ProxyDataVersion = 1
+
+// ProxyDataBundle packages the proxy subsystem for export and import:
+// switches and cap, manually managed pools and the currently healthy
+// discovered proxies. Banned and unchecked proxies are volatile and stay out.
+type ProxyDataBundle struct {
+	Version  int               `json:"version"`
+	Settings *ProxyDataSetting `json:"settings,omitempty"`
+	Pools    []CustomProxyPool `json:"pools"`
+	Proxies  []ProxyDataEntry  `json:"proxies"`
+}
+
+// ProxyDataSetting carries the proxy switches and the check cap.
+type ProxyDataSetting struct {
+	Enabled     bool `json:"enabled"`
+	PoolEnabled bool `json:"pool_enabled"`
+	MaxChecks   int  `json:"max_checks"`
+}
+
+// ProxyDataEntry is one discovered proxy. Import queues it for a fresh check.
+type ProxyDataEntry struct {
+	URL     string `json:"url"`
+	Country string `json:"country,omitempty"`
+}
+
 // VirtualModelEntry is one fall-through step. List order is the priority.
 type VirtualModelEntry struct {
 	ModelID ModelId `json:"model_id"`
@@ -1884,10 +1910,27 @@ type RouterConfiguration struct {
 	// ModelsFilter remembers the dashboard model visibility filter
 	// ("all", "enabled", "disabled"). Empty means "all".
 	ModelsFilter string `json:"models_filter,omitempty"`
+	// ProxyMaxChecks caps parallel proxy checks. Zero keeps the adaptive
+	// default. A nil value on write keeps the stored setting.
+	ProxyMaxChecks *int `json:"proxy_max_checks,omitempty"`
+	// ProxyEnabled switches the whole proxy subsystem. Off keeps all data but
+	// stops discovery and sends every provider request direct. A nil value on
+	// write keeps the stored setting; the default is on.
+	ProxyEnabled *bool `json:"proxy_enabled,omitempty"`
+	// ProxyPoolEnabled switches the automatic free pool alone. Off keeps only
+	// the manually managed pools. A nil value on write keeps the stored
+	// setting; the default is on.
+	ProxyPoolEnabled *bool `json:"proxy_pool_enabled,omitempty"`
 }
+
+// MaxProxyChecks is the highest accepted RouterConfiguration.ProxyMaxChecks.
+const MaxProxyChecks = 2000
 
 // Validate checks the configuration ranges.
 func (c RouterConfiguration) Validate() error {
+	if c.ProxyMaxChecks != nil && (*c.ProxyMaxChecks < 0 || *c.ProxyMaxChecks > MaxProxyChecks) {
+		return fmt.Errorf("proxy_max_checks must be between 0 and %d", MaxProxyChecks)
+	}
 	switch c.ModelsFilter {
 	case "", "all", "enabled", "disabled":
 	default:

@@ -711,3 +711,97 @@ func TestGormBackendsSatisfyInterfaces(t *testing.T) {
 	var _ GormPluginBackend = (*luaplugin.Service)(nil)
 	var _ GormRepositoryBackend = (*pluginrepo.Service)(nil)
 }
+
+func TestGormExportVirtualModelsSkipsManaged(t *testing.T) {
+	service, _, _, virtualModels, _, _, _, _ := gormDataStack()
+	ctx := context.Background()
+	virtualModels.models["managed"] = &models.VirtualModel{
+		ID: "managed", Name: "Managed", ManagedBy: virtual.ProviderMarker("provider", "chat"),
+	}
+	virtualModels.models["manual"] = &models.VirtualModel{ID: "manual", Name: "Manual"}
+
+	exported, err := service.ExportVirtualModels(ctx)
+	if err != nil {
+		t.Fatalf("export virtual models: %v", err)
+	}
+	if len(exported) != 1 || exported[0].ID != "manual" {
+		t.Fatalf("exported = %+v, want only the manual virtual model", exported)
+	}
+}
+
+func TestGormImportVirtualModelsSkipsManaged(t *testing.T) {
+	service, _, _, virtualModels, _, _, _, _ := gormDataStack()
+	ctx := context.Background()
+
+	err := service.ImportVirtualModels(ctx, []*models.VirtualModel{
+		{ID: "managed", Name: "Managed", ManagedBy: virtual.ProviderMarker("missing", "chat")},
+		{ID: "manual", Name: "Manual"},
+	})
+	if err != nil {
+		t.Fatalf("import virtual models: %v", err)
+	}
+	if _, err := virtualModels.Get(ctx, "managed"); err == nil {
+		t.Fatal("managed virtual model was imported, want it skipped")
+	}
+	if _, err := virtualModels.Get(ctx, "manual"); err != nil {
+		t.Fatalf("manual virtual model missing after import: %v", err)
+	}
+}
+
+type fakeProxyBackend struct {
+	bundle  *models.ProxyDataBundle
+	cleared bool
+}
+
+func (f *fakeProxyBackend) DataCounts(context.Context) (int, int, error) {
+	return len(f.bundle.Pools), len(f.bundle.Proxies), nil
+}
+
+func (f *fakeProxyBackend) ExportData(context.Context) (*models.ProxyDataBundle, error) {
+	return f.bundle, nil
+}
+
+func (f *fakeProxyBackend) ImportData(_ context.Context, bundle *models.ProxyDataBundle) error {
+	f.bundle = bundle
+	return nil
+}
+
+func (f *fakeProxyBackend) ClearData(context.Context) error {
+	f.cleared = true
+	return nil
+}
+
+func TestGormProxyDataRoundTripThroughBackend(t *testing.T) {
+	service, _, _, _, _, _, _, _ := gormDataStack()
+	ctx := context.Background()
+
+	if _, err := service.ExportProxy(ctx); err == nil {
+		t.Fatal("export without a proxy backend succeeded, want an error")
+	}
+
+	backend := &fakeProxyBackend{bundle: &models.ProxyDataBundle{
+		Version: models.ProxyDataVersion,
+		Pools:   []models.CustomProxyPool{{ID: "mine", Name: "Mine"}},
+		Proxies: []models.ProxyDataEntry{{URL: "http://203.0.113.1:8080"}, {URL: "http://203.0.113.2:8080"}},
+	}}
+	service.SetProxyBackend(backend)
+
+	stats, err := service.Stats(ctx)
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	if stats.ProxyPools != 1 || stats.Proxies != 2 {
+		t.Fatalf("proxy stats = %d pools, %d proxies; want 1 and 2", stats.ProxyPools, stats.Proxies)
+	}
+	exported, err := service.ExportProxy(ctx)
+	if err != nil || exported != backend.bundle {
+		t.Fatalf("export = %v, %v; want the backend bundle", exported, err)
+	}
+	incoming := &models.ProxyDataBundle{Version: models.ProxyDataVersion}
+	if err := service.ImportProxy(ctx, incoming); err != nil || backend.bundle != incoming {
+		t.Fatalf("import stored %v, err %v; want the incoming bundle", backend.bundle, err)
+	}
+	if err := service.ClearProxy(ctx); err != nil || !backend.cleared {
+		t.Fatalf("clear = %v, cleared %v; want success", err, backend.cleared)
+	}
+}

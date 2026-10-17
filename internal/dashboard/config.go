@@ -54,6 +54,11 @@ func (h *Handler) apiConfigPut(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if h.proxyService != nil {
+		if err := h.proxyService.ApplyConfiguration(body); err != nil {
+			h.logError("Failed to apply proxy settings", "error", err)
+		}
+	}
 	h.logInfo("Router configuration updated")
 	h.json(w, http.StatusOK, body)
 }

@@ -192,6 +192,9 @@ export interface ProxyStatus {
   ban_reasons: Record<string, number>
   last_ingest_at?: string
   last_error?: string
+  forced_foreground: boolean
+  enabled: boolean
+  pool_enabled: boolean
 }
 
 export interface ProxyPool {
@@ -299,6 +302,9 @@ export interface RouterConfiguration {
   is_cluster_node: boolean
   disable_telemetry: boolean
   models_filter?: string
+  proxy_max_checks?: number
+  proxy_enabled?: boolean
+  proxy_pool_enabled?: boolean
 }
 
 export interface UINode {
@@ -456,6 +462,8 @@ export interface SubsystemStats {
   plugins: number
   plugin_repos: number
   tokens: number
+  proxy_pools: number
+  proxies: number
 }
 
 export type DoctorCategory =

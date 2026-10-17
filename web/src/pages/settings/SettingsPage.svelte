@@ -393,7 +393,8 @@
           { key: 'providers', label: t('data.providers_credentials'), count: subsystemStatistics.providers },
           { key: 'virtual_models', label: t('data.virtual_models'), count: subsystemStatistics.virtual_models },
           { key: 'plugins', label: t('data.plugins_repos'), count: subsystemStatistics.plugins },
-          { key: 'tokens', label: t('data.access_tokens'), count: subsystemStatistics.tokens }
+          { key: 'tokens', label: t('data.access_tokens'), count: subsystemStatistics.tokens },
+          { key: 'proxy', label: t('data.proxy'), count: subsystemStatistics.proxy_pools + subsystemStatistics.proxies }
         ] as sub}
           <VStack gap={2} class="subsystem-box">
             <HStack align="center" gap={3}>

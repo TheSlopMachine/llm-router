@@ -93,12 +93,23 @@ func (s *Service) PutSettings(ctx context.Context, configuration models.RouterCo
 	}
 	var preserved bool
 	if err := sqlite.Handle.Transaction(func(transaction *gorm.DB) error {
-		bootstrapped, err := loadBootstrapped(ctx, transaction)
+		existing, err := loadInstanceRow(ctx, transaction)
 		if err != nil {
 			return err
 		}
-		preserved = bootstrapped
-		return upsertInstanceRow(ctx, transaction, toInstanceRecord(configuration, bootstrapped, time.Now().UTC()))
+		preserved = existing.Bootstrapped
+		row := toInstanceRecord(configuration, existing.Bootstrapped, time.Now().UTC())
+		// Clients that do not know a proxy field must not reset it.
+		if configuration.ProxyMaxChecks == nil {
+			row.ProxyMaxChecks = existing.ProxyMaxChecks
+		}
+		if configuration.ProxyEnabled == nil {
+			row.ProxyDisabled = existing.ProxyDisabled
+		}
+		if configuration.ProxyPoolEnabled == nil {
+			row.ProxyPoolDisabled = existing.ProxyPoolDisabled
+		}
+		return upsertInstanceRow(ctx, transaction, row)
 	}); err != nil {
 		translated := db.Translate(err)
 		if s.logger != nil {
@@ -236,7 +247,7 @@ func toInstanceRecord(configuration models.RouterConfiguration, bootstrapped boo
 	if filter == "" {
 		filter = "all"
 	}
-	return record.InstanceSetting{
+	row := record.InstanceSetting{
 		ID:               instanceRowID,
 		Bootstrapped:     bootstrapped,
 		IsClusterNode:    configuration.IsClusterNode,
@@ -244,13 +255,29 @@ func toInstanceRecord(configuration models.RouterConfiguration, bootstrapped boo
 		ModelsFilter:     filter,
 		UpdatedAt:        updatedAt,
 	}
+	if configuration.ProxyMaxChecks != nil {
+		row.ProxyMaxChecks = *configuration.ProxyMaxChecks
+	}
+	if configuration.ProxyEnabled != nil {
+		row.ProxyDisabled = !*configuration.ProxyEnabled
+	}
+	if configuration.ProxyPoolEnabled != nil {
+		row.ProxyPoolDisabled = !*configuration.ProxyPoolEnabled
+	}
+	return row
 }
 
 // toRouterConfiguration converts the persistence row to the wire type.
 func toRouterConfiguration(row record.InstanceSetting) models.RouterConfiguration {
+	maxChecks := row.ProxyMaxChecks
+	proxyEnabled := !row.ProxyDisabled
+	poolEnabled := !row.ProxyPoolDisabled
 	return models.RouterConfiguration{
 		IsClusterNode:    row.IsClusterNode,
 		DisableTelemetry: row.DisableTelemetry,
 		ModelsFilter:     row.ModelsFilter,
+		ProxyMaxChecks:   &maxChecks,
+		ProxyEnabled:     &proxyEnabled,
+		ProxyPoolEnabled: &poolEnabled,
 	}
 }

@@ -105,6 +105,9 @@ func New(parameters Params) (*Handler, error) {
 		parameters.ProviderSvc,
 		parameters.LuaSvc,
 	)
+	if parameters.ProxySvc != nil {
+		dataGormService.SetProxyBackend(parameters.ProxySvc)
+	}
 	dataGormService.SetLogger(parameters.Logger)
 	doctorGormService.SetLogger(parameters.Logger)
 	return &Handler{

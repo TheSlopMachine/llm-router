@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/datamanagement"
 )
 
@@ -28,7 +29,7 @@ func (h *Handler) apiDataStats(w http.ResponseWriter, r *http.Request) {
 // @Summary      Export subsystem data
 // @Tags         Data
 // @Produce      json
-// @Param        subsystem path string true "Subsystem name (providers, virtual_models, plugins, tokens)"
+// @Param        subsystem path string true "Subsystem name (providers, virtual_models, plugins, tokens, proxy)"
 // @Success      200 {object} object
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/data/{subsystem}/export [get]
@@ -46,6 +47,8 @@ func (h *Handler) apiDataExport(w http.ResponseWriter, r *http.Request) {
 		data, err = h.dataGormService.ExportPlugins(r.Context())
 	case "tokens":
 		data, err = h.dataGormService.ExportTokens(r.Context())
+	case "proxy":
+		data, err = h.dataGormService.ExportProxy(r.Context())
 	default:
 		h.jsonErr(w, http.StatusBadRequest, "unknown subsystem")
 		return
@@ -109,6 +112,16 @@ func (h *Handler) apiDataImport(w http.ResponseWriter, r *http.Request) {
 			h.jsonErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
+	case "proxy":
+		var bundle models.ProxyDataBundle
+		if err := decoder.Decode(&bundle); err != nil {
+			h.jsonErr(w, http.StatusBadRequest, "invalid proxy data payload")
+			return
+		}
+		if err := h.dataGormService.ImportProxy(r.Context(), &bundle); err != nil {
+			h.jsonErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	case "tokens":
 		var tokens []*datamanagement.TokenImport
 		if err := decoder.Decode(&tokens); err != nil {
@@ -149,6 +162,8 @@ func (h *Handler) apiDataClear(w http.ResponseWriter, r *http.Request) {
 		err = h.dataGormService.ClearPlugins(r.Context())
 	case "tokens":
 		err = h.dataGormService.ClearTokens(r.Context())
+	case "proxy":
+		err = h.dataGormService.ClearProxy(r.Context())
 	default:
 		h.jsonErr(w, http.StatusBadRequest, "unknown subsystem")
 		return

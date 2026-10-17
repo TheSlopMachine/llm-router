@@ -1,5 +1,9 @@
 # Changelog
 
+## Done (2026-10-17, v0.4)
+
+- Reworked the dashboard proxy page and its controls. A new `proxy_max_checks` router setting (migration 4, `0`-`2000`, `0` keeps the adaptive AIMD range) caps parallel proxy checks: a positive value becomes the upper bound of the adaptive range, applied at startup and on `PUT /dashboard/config`; a write that omits the field keeps the stored value. Added `POST /api/llm-router/dashboard/proxy/force-foreground` and `forced_foreground` in the proxy status: it runs candidate checks at foreground speed until the candidate queue is drained (needs `proxypool` `ForceForeground`). The page header carries refresh, speed-up and recheck-banned actions that fold into icons and then into the menu as the width shrinks; the recheck section, the mode block and the per-source reason line and key are gone, and ban reasons use localized names.
+
 ## Done (2026-10-14, v0.4)
 
 - Fixed the Responses path so multi-turn tool use survives: `ToChat` now converts function call and function call output items into assistant tool calls and tool turns, keeps assistant text as `assistant` (it was relabeled `user`), and maps `developer` turns to `system`. Chat-to-response output now carries `call_id` and `arguments` on function calls and `content` output_text parts on messages, and the streamed `/v1/responses` events follow the Responses schema (typed payloads, output item open/delta/done for messages and function calls, `response.completed`). Previously the stream sent only text deltas without a `type` field, so function calls never reached a streaming client. The converter lives in `internal/models/responses_convert.go`; `previous_response_id` history is still not loaded.

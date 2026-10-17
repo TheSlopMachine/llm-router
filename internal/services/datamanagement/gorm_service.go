@@ -45,6 +45,8 @@ type SubsystemStats struct {
 	Plugins       int `json:"plugins"`
 	PluginRepos   int `json:"plugin_repos"`
 	Tokens        int `json:"tokens"`
+	ProxyPools    int `json:"proxy_pools"`
+	Proxies       int `json:"proxies"`
 }
 
 // PluginsExportBundle packages plugin store repositories with installed plugins.
@@ -91,6 +93,14 @@ type GormTokenBackend interface {
 	UpdateRules(ctx context.Context, identifier string, rules models.TokenRules) error
 	Create(ctx context.Context, options token.CreateOptions) (*models.RouterToken, error)
 	Delete(ctx context.Context, identifier string) error
+}
+
+// GormProxyBackend is the proxy subsystem persistence the data service needs.
+type GormProxyBackend interface {
+	DataCounts(ctx context.Context) (pools, proxies int, err error)
+	ExportData(ctx context.Context) (*models.ProxyDataBundle, error)
+	ImportData(ctx context.Context, bundle *models.ProxyDataBundle) error
+	ClearData(ctx context.Context) error
 }
 
 // GormModelInfoBackend is the model metadata surface the GORM data
@@ -148,7 +158,14 @@ type GormService struct {
 	pluginSource     GormPluginBackend
 	repositorySource GormRepositoryBackend
 	modelInfoSource  GormModelInfoBackend
+	proxySource      GormProxyBackend
 	logger           *slog.Logger
+}
+
+// SetProxyBackend wires the proxy subsystem. Without it the proxy data
+// operations report an error.
+func (s *GormService) SetProxyBackend(backend GormProxyBackend) {
+	s.proxySource = backend
 }
 
 // NewGorm constructs a GORM-backed data management service. Construction
@@ -215,6 +232,14 @@ func (s *GormService) Stats(ctx context.Context) (SubsystemStats, error) {
 			statistics.Plugins = len(plugins)
 		} else if s != nil && s.logger != nil {
 			s.logger.Warn("Stats plugins leg failed", "subsystem", "plugins", "error", err)
+		}
+	}
+	if s.proxySource != nil {
+		if pools, proxies, err := s.proxySource.DataCounts(ctx); err == nil {
+			statistics.ProxyPools = pools
+			statistics.Proxies = proxies
+		} else if s != nil && s.logger != nil {
+			s.logger.Warn("Stats proxy leg failed", "subsystem", "proxy", "error", err)
 		}
 	}
 	if s.repositorySource != nil {
@@ -539,12 +564,20 @@ func (s *GormService) ClearProviders(ctx context.Context) error {
 
 // ExportVirtualModels returns every virtual model.
 func (s *GormService) ExportVirtualModels(ctx context.Context) ([]*models.VirtualModel, error) {
-	virtualModels, err := s.virtualSource.List(ctx)
+	all, err := s.virtualSource.List(ctx)
 	if err != nil {
 		return nil, err
 	}
+	// Provider-managed models are computed from the provider list and come
+	// back on their own; only manually maintained ones are data.
+	virtualModels := make([]*models.VirtualModel, 0, len(all))
+	for _, virtualModel := range all {
+		if virtualModel != nil && virtualModel.ManagedBy == "" {
+			virtualModels = append(virtualModels, virtualModel)
+		}
+	}
 	if s != nil && s.logger != nil {
-		s.logger.Info("Export virtual models completed", "subsystem", "virtual_models", "count", len(virtualModels))
+		s.logger.Info("Export virtual models completed", "subsystem", "virtual_models", "count", len(virtualModels), "managed_skipped", len(all)-len(virtualModels))
 	}
 	return virtualModels, nil
 }
@@ -557,6 +590,12 @@ func (s *GormService) ImportVirtualModels(ctx context.Context, virtualModels []*
 	updatedCount := 0
 	skippedCount := 0
 	for _, virtualModel := range virtualModels {
+		if virtualModel != nil && virtualModel.ManagedBy != "" {
+			// Older exports carry provider-managed models. They are rebuilt
+			// from the provider list and may reference missing providers.
+			skippedCount++
+			continue
+		}
 		if virtualModel == nil || virtualModel.Name == "" {
 			skippedCount++
 			if s != nil && s.logger != nil {
@@ -833,4 +872,35 @@ func (s *GormService) ClearTokens(ctx context.Context) error {
 		s.logger.Info("Clear tokens completed", "subsystem", "tokens", "deleted", deletedCount)
 	}
 	return nil
+}
+
+// ─────────────────────────────────────────────
+// Proxy subsystem
+// ─────────────────────────────────────────────
+
+var errProxyBackendMissing = stdErrors.New("proxy subsystem is not configured")
+
+// ExportProxy packages the proxy switches, manual pools and healthy
+// discovered proxies.
+func (s *GormService) ExportProxy(ctx context.Context) (*models.ProxyDataBundle, error) {
+	if s.proxySource == nil {
+		return nil, errProxyBackendMissing
+	}
+	return s.proxySource.ExportData(ctx)
+}
+
+// ImportProxy restores a proxy data bundle.
+func (s *GormService) ImportProxy(ctx context.Context, bundle *models.ProxyDataBundle) error {
+	if s.proxySource == nil {
+		return errProxyBackendMissing
+	}
+	return s.proxySource.ImportData(ctx, bundle)
+}
+
+// ClearProxy removes manual pools and every discovered proxy.
+func (s *GormService) ClearProxy(ctx context.Context) error {
+	if s.proxySource == nil {
+		return errProxyBackendMissing
+	}
+	return s.proxySource.ClearData(ctx)
 }

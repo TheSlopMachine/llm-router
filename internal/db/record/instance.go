@@ -8,12 +8,17 @@ import (
 
 // InstanceSetting is the single instance row. The identifier is always 1.
 type InstanceSetting struct {
-	ID               int64     `gorm:"primaryKey;check:id = 1"`
-	Bootstrapped     bool      `gorm:"not null"`
-	IsClusterNode    bool      `gorm:"not null"`
-	DisableTelemetry bool      `gorm:"not null"`
-	ModelsFilter     string    `gorm:"not null;check:models_filter IN ('all','enabled','disabled')"`
-	UpdatedAt        time.Time `gorm:"not null"`
+	ID               int64  `gorm:"primaryKey;check:id = 1"`
+	Bootstrapped     bool   `gorm:"not null"`
+	IsClusterNode    bool   `gorm:"not null"`
+	DisableTelemetry bool   `gorm:"not null"`
+	ModelsFilter     string `gorm:"not null;check:models_filter IN ('all','enabled','disabled')"`
+	ProxyMaxChecks   int    `gorm:"not null;default:0"`
+	// ProxyDisabled and ProxyPoolDisabled store the proxy switches inverted so
+	// that a zero row (fresh install, bootstrap) keeps the proxy subsystem on.
+	ProxyDisabled     bool      `gorm:"not null;default:false"`
+	ProxyPoolDisabled bool      `gorm:"not null;default:false"`
+	UpdatedAt         time.Time `gorm:"not null"`
 }
 
 // TableName pins the instance settings table name.

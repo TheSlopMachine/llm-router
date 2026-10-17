@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	proxypoollib "github.com/TheSlopMachine/proxypool"
 )
@@ -113,6 +114,12 @@ type Status struct {
 	Demands      []DemandStat   `json:"demands"`
 	LastIngestAt time.Time      `json:"last_ingest_at,omitempty"`
 	LastError    string         `json:"last_error,omitempty"`
+	// ForcedForeground is true while a manual force speeds up candidate checks.
+	ForcedForeground bool `json:"forced_foreground"`
+	// Enabled is the proxy subsystem switch; PoolEnabled is the free pool
+	// switch. Discovery runs only while both are on.
+	Enabled     bool `json:"enabled"`
+	PoolEnabled bool `json:"pool_enabled"`
 }
 
 // Service owns the adapter boundary, persistence and pool lifecycle.
@@ -136,6 +143,16 @@ type Service struct {
 
 	sourceMu sync.Mutex
 	sources  map[string]SourceInfo
+
+	// activityMu serializes starting and stopping the library scheduler.
+	activityMu sync.Mutex
+
+	// settingsMu guards the operator switches and the pending import queue.
+	settingsMu   sync.RWMutex
+	disabled     bool // whole proxy subsystem switched off
+	poolDisabled bool // free pool switched off
+	maxChecks    int
+	imported     []proxypoollib.TaggedURL // imported proxies awaiting the next ingest
 }
 
 func (s *Service) currentLogger() *slog.Logger {
@@ -188,7 +205,17 @@ func New(database *db.Database) (*Service, error) {
 		return nil, fmt.Errorf("init proxy pool: %w", err)
 	}
 	s.pool = pool
-	s.pool.SetLimits(10, 50, 500)
+	s.pool.SetLimits(limitsForMaxChecks(0))
+	if stored, err := loadStoredSettings(context.Background(), database); err != nil {
+		s.logger.Warn("Reading proxy settings failed, using defaults", "error", err)
+	} else {
+		s.disabled = stored.disabled
+		s.poolDisabled = stored.poolDisabled
+		s.maxChecks = stored.maxChecks
+		if stored.maxChecks > 0 {
+			s.pool.SetLimits(limitsForMaxChecks(stored.maxChecks))
+		}
+	}
 	s.reporter = newSlogReporter(s.logger)
 	s.pool.RegisterReporter(s.reporter)
 	s.source = &pluginSource{service: s}
@@ -223,11 +250,149 @@ func (s *Service) RequestIngest() bool {
 	s.mu.Lock()
 	running := s.running
 	s.mu.Unlock()
-	if !running {
+	if !running || !s.discoveryEnabled() {
 		return false
 	}
 	s.pool.RequestIngest()
 	return true
+}
+
+// limitsForMaxChecks maps the operator cap to library limits. Zero keeps the
+// adaptive defaults. A positive cap becomes the upper bound of the adaptive
+// range; the lower bound and the starting point never exceed it.
+func limitsForMaxChecks(maxChecks int) (lowest, initial, highest int) {
+	if maxChecks <= 0 {
+		return 10, 50, 500
+	}
+	return min(10, maxChecks), min(50, maxChecks), maxChecks
+}
+
+// storedSettings are the persisted proxy operator settings.
+type storedSettings struct {
+	maxChecks    int
+	disabled     bool
+	poolDisabled bool
+}
+
+// loadStoredSettings reads the persisted proxy settings. A missing settings
+// row means defaults: no cap, everything on.
+func loadStoredSettings(ctx context.Context, database *db.Database) (storedSettings, error) {
+	var row record.InstanceSetting
+	result := database.Handle.WithContext(ctx).
+		Select("proxy_max_checks", "proxy_disabled", "proxy_pool_disabled").
+		Where("id = ?", 1).Limit(1).Find(&row)
+	if result.Error != nil {
+		return storedSettings{}, fmt.Errorf("read instance settings: %w", db.Translate(result.Error))
+	}
+	return storedSettings{maxChecks: row.ProxyMaxChecks, disabled: row.ProxyDisabled, poolDisabled: row.ProxyPoolDisabled}, nil
+}
+
+// SetMaxChecks applies the operator cap on parallel proxy checks. Zero
+// restores the adaptive default range. It does not persist the value.
+func (s *Service) SetMaxChecks(maxChecks int) error {
+	if maxChecks < 0 || maxChecks > models.MaxProxyChecks {
+		return fmt.Errorf("proxy max checks must be between 0 and %d", models.MaxProxyChecks)
+	}
+	s.settingsMu.Lock()
+	s.maxChecks = maxChecks
+	s.settingsMu.Unlock()
+	s.pool.SetLimits(limitsForMaxChecks(maxChecks))
+	s.currentLogger().Info("Proxy max checks applied", "max_checks", maxChecks)
+	return nil
+}
+
+// ApplyConfiguration applies the proxy fields of a saved router configuration.
+// Nil fields keep the current value. Switching discovery on or off happens in
+// the background so the caller never waits for in-flight checks to finish.
+func (s *Service) ApplyConfiguration(configuration models.RouterConfiguration) error {
+	if configuration.ProxyMaxChecks != nil {
+		if err := s.SetMaxChecks(*configuration.ProxyMaxChecks); err != nil {
+			return err
+		}
+	}
+	changed := false
+	s.settingsMu.Lock()
+	if configuration.ProxyEnabled != nil && s.disabled == *configuration.ProxyEnabled {
+		s.disabled = !*configuration.ProxyEnabled
+		changed = true
+	}
+	if configuration.ProxyPoolEnabled != nil && s.poolDisabled == *configuration.ProxyPoolEnabled {
+		s.poolDisabled = !*configuration.ProxyPoolEnabled
+		changed = true
+	}
+	subsystemOn := !s.disabled
+	poolOn := !s.poolDisabled
+	s.settingsMu.Unlock()
+	if changed {
+		s.currentLogger().Info("Proxy switches applied", "enabled", subsystemOn, "pool_enabled", poolOn)
+		go s.syncScheduler()
+	}
+	return nil
+}
+
+// poolEnabledFlag reports the free pool switch on its own.
+func (s *Service) poolEnabledFlag() bool {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return !s.poolDisabled
+}
+
+// subsystemEnabled reports the whole-subsystem switch.
+func (s *Service) subsystemEnabled() bool {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return !s.disabled
+}
+
+// discoveryEnabled reports whether the free pool searches and checks proxies.
+func (s *Service) discoveryEnabled() bool {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return !s.disabled && !s.poolDisabled
+}
+
+// poolAvailable reports whether requests for the named pool may receive
+// proxies. A disabled subsystem or free pool sends the caller direct.
+func (s *Service) poolAvailable(pool string) bool {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	if s.disabled {
+		return false
+	}
+	return pool != models.DefaultProxyPool || !s.poolDisabled
+}
+
+// syncScheduler starts or stops the library scheduler to match the switches.
+// It is a no-op before Start. Stopping keeps every stored proxy.
+func (s *Service) syncScheduler() {
+	s.activityMu.Lock()
+	defer s.activityMu.Unlock()
+	s.mu.Lock()
+	running := s.running
+	ctx := s.rootCtx
+	s.mu.Unlock()
+	if !running || ctx == nil {
+		return
+	}
+	if s.discoveryEnabled() {
+		s.pool.Start(ctx)
+		return
+	}
+	s.pool.Stop()
+	s.flushCache()
+}
+
+// ForceForeground makes candidate checks run at foreground speed until the
+// candidate queue is drained. It returns the number of queued candidates;
+// zero means nothing was started (empty queue or pool not running).
+func (s *Service) ForceForeground() int {
+	s.mu.Lock()
+	running := s.running
+	s.mu.Unlock()
+	if !running || !s.discoveryEnabled() {
+		return 0
+	}
+	return s.pool.ForceForeground()
 }
 
 // Start begins the pool scheduler and the persistence flush loop.
@@ -247,7 +412,13 @@ func (s *Service) Start(ctx context.Context) {
 	s.mu.Unlock()
 
 	s.currentLogger().Debug("Starting proxy pool")
-	s.pool.Start(ctx)
+	s.activityMu.Lock()
+	if s.discoveryEnabled() {
+		s.pool.Start(ctx)
+	} else {
+		s.currentLogger().Info("Proxy discovery is switched off, pool stays idle")
+	}
+	s.activityMu.Unlock()
 	go s.flushLoop(ctx)
 }
 
@@ -288,6 +459,10 @@ func (s *Service) flushCache() {
 // no endpoints; any other name reads a custom pool by ID or name. Country
 // filters case-insensitively; limit caps the result (<=0 means all).
 func (s *Service) Query(pool, country string, limit int) ([]models.ProxyView, error) {
+	if !s.poolAvailable(pool) {
+		s.currentLogger().Debug("Querying proxies", "pool", pool, "reason", "switched off", "count", 0)
+		return []models.ProxyView{}, nil
+	}
 	if err := s.cache.peekError(); err != nil {
 		s.currentLogger().Error("Querying proxies failed", "pool", pool, "country", country, "limit", limit, "error", err)
 		return nil, err
@@ -347,6 +522,10 @@ func (s *Service) queryCustom(ctx context.Context, pool, country string, limit i
 // proxy up to request.Timeout; an empty pool means direct; a custom pool answers
 // from its own entries without waiting.
 func (s *Service) Require(ctx context.Context, request models.ProxyRequire) (models.ProxyRequireResult, error) {
+	if !s.poolAvailable(request.Pool) {
+		s.currentLogger().Debug("Requiring proxies", "pool", request.Pool, "reason", "switched off", "count", 0)
+		return models.ProxyRequireResult{Direct: true}, nil
+	}
 	if err := s.cache.peekError(); err != nil {
 		s.currentLogger().Error("Requiring proxies failed", "pool", request.Pool, "limit", request.Limit, "error", err)
 		return models.ProxyRequireResult{}, err
@@ -521,6 +700,9 @@ func (s *Service) markDeadPersist(proxyURL, reason string) bool {
 
 // RecheckBanned queues manual rechecks for banned proxies matching the filters.
 func (s *Service) RecheckBanned(reason, source string) (int, error) {
+	if !s.discoveryEnabled() {
+		return 0, nil
+	}
 	if reason != "" {
 		failReason := proxypoollib.FailReason(reason)
 		if !failReason.Valid() {
@@ -556,6 +738,10 @@ func (s *Service) Status() (Status, error) {
 		BanReasons:   make(map[string]int, len(snapshot.BanReasons)),
 		Demands:      make([]DemandStat, 0, len(snapshot.Demands)),
 		LastIngestAt: snapshot.LastIngestAt,
+
+		ForcedForeground: snapshot.ForcedForeground,
+		Enabled:          s.subsystemEnabled(),
+		PoolEnabled:      s.poolEnabledFlag(),
 	}
 	if err := s.cache.peekError(); err != nil {
 		status.LastError = err.Error()

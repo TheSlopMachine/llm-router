@@ -191,6 +191,7 @@ func (h *Handler) RegisterAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/llm-router/dashboard/proxy-sources", h.requireAuth(h.apiProxySources))
 	mux.HandleFunc("GET /api/llm-router/dashboard/proxy/status", h.requireAuth(h.apiProxyStatus))
 	mux.HandleFunc("POST /api/llm-router/dashboard/proxy/recheck-banned", h.requireAuth(h.apiProxyRecheckBanned))
+	mux.HandleFunc("POST /api/llm-router/dashboard/proxy/force-foreground", h.requireAuth(h.apiProxyForceForeground))
 	mux.HandleFunc("GET /api/llm-router/dashboard/proxy-pools", h.requireAuth(h.apiProxyPoolsList))
 	mux.HandleFunc("POST /api/llm-router/dashboard/proxy-pools", h.requireAuth(h.apiProxyPoolsSave))
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/proxy-pools/{id}", h.requireAuth(h.apiProxyPoolsDelete))

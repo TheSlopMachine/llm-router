@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { VStack, HStack, Text, Button, Table, SectionCard, Chip, FloatingView, Banner, ConfirmAction, Select, Header, Stat, Grid, Picker, Spacer, ToolbarItem, Accordion, StackedBar, Progress, RelativeTime, Field, type TableColumn, EmptyState } from '@fuckyouryan/fui'
+  import { VStack, HStack, Text, Button, Switch, Table, SectionCard, Chip, FloatingView, Banner, ConfirmAction, Header, Stat, Grid, Picker, Spacer, ToolbarItem, Accordion, StackedBar, Progress, RelativeTime, Field, TextEdit, toast, type TableColumn, EmptyState } from '@fuckyouryan/fui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { openFormModal } from '$lib/modal-helpers'
   import { getErrorMessage } from '$lib/errors'
   import { formatNanoLatency as formatLatency } from '$lib/format'
-  import type { Proxy, ProxyStatus, ProxySourceInfo, ProxyPool } from '$lib/types'
-  import { t, locale } from '$lib/i18n.svelte'
+  import type { Proxy, ProxyStatus, ProxySourceInfo, ProxyPool, RouterConfiguration } from '$lib/types'
+  import { t, tx, locale, type TranslationKey } from '$lib/i18n.svelte'
   import CustomPoolModal from './components/CustomPoolModal.svelte'
 
   export type ProxyTab = 'status' | 'sources' | 'pools'
@@ -23,9 +23,16 @@
   let loading = $state(true)
   let requestingRefresh = $state(false)
   let recheckingBanned = $state(false)
-  let recheckReason = $state('')
-  let recheckSource = $state('')
-  let recheckQueued = $state<number | null>(null)
+  let forcing = $state(false)
+  let routerConfig = $state<RouterConfiguration | null>(null)
+  let maxChecksInput = $state('0')
+  let maxChecksError = $state('')
+  let savingMaxChecks = $state(false)
+  let savingSwitch = $state(false)
+  const proxyEnabled = $derived(routerConfig?.proxy_enabled ?? true)
+  const poolEnabled = $derived(routerConfig?.proxy_pool_enabled ?? true)
+  const discoveryOn = $derived(proxyEnabled && poolEnabled)
+  const MAX_CHECKS_LIMIT = 2000
   let error = $state('')
   let deletePoolTarget = $state<ProxyPool | null>(null)
   let deletePoolAnchor = $state<HTMLElement>()
@@ -69,6 +76,8 @@
 
   let openSections = $state<string[]>([])
   const loadLabel = $derived(status ? `${status.inflight} / ${status.limit}` : '')
+  // Exactly one candidate lane works at a time: foreground, or background unless a force is active.
+  const idleLane = $derived(status ? (status.mode === 'background' && !status.forced_foreground ? 'foreground' : 'background') : '')
 
   const laneColumns: TableColumn[] = [
     { key: 'lane', title: t('common.labels.name'), width: '1fr', priority: 1 },
@@ -76,30 +85,68 @@
     { key: 'queued', title: t('proxy.pool.queued'), width: 'var(--fui-table-col-md)', align: 'right', priority: 1 },
   ]
 
-  const recheckReasonOptions = [
-    { value: '', label: t('proxy.recheck_banned.any_reason') },
-    { value: 'timeout', label: 'timeout' },
-    { value: 'refused', label: 'refused' },
-    { value: 'rejected', label: 'rejected' },
-    { value: 'eof_reset', label: 'eof_reset' },
-    { value: 'dns', label: 'dns' },
-    { value: 'tls', label: 'tls' },
-    { value: 'bad_status', label: 'bad_status' },
-    { value: 'local_net', label: 'local_net' },
-    { value: 'other', label: 'other' },
-  ]
-
-  const recheckSourceOptions = $derived(
-    status
-      ? [{ value: '', label: t('proxy.recheck_banned.any_source') }, ...status.sources.map((source) => ({ value: source.source, label: source.source }))]
-      : [{ value: '', label: t('proxy.recheck_banned.any_source') }]
-  )
-
   onMount(() => {
     void loadAll()
+    void loadConfig()
     const poll = setInterval(() => void loadStatus(), 2000)
     return () => clearInterval(poll)
   })
+
+  async function loadConfig(): Promise<void> {
+    try {
+      const config = await api.config.get()
+      routerConfig = config
+      maxChecksInput = String(config.proxy_max_checks ?? 0)
+    } catch (e) {
+      error = getErrorMessage(e)
+    }
+  }
+
+  async function setSwitch(patch: { proxy_enabled?: boolean; proxy_pool_enabled?: boolean }): Promise<void> {
+    if (!routerConfig || savingSwitch) return
+    savingSwitch = true
+    error = ''
+    try {
+      const payload = { ...routerConfig, ...patch }
+      await api.config.update(payload)
+      routerConfig = payload
+      toast.success(t('settings.saved'))
+      await loadStatus()
+    } catch (e) {
+      error = getErrorMessage(e)
+    } finally {
+      savingSwitch = false
+    }
+  }
+
+  async function saveMaxChecks(raw: string): Promise<void> {
+    const value = raw.trim()
+    maxChecksInput = value
+    if (!/^\d+$/.test(value)) {
+      maxChecksError = tx('proxy.pool.max_checks_invalid', { max: MAX_CHECKS_LIMIT })
+      return
+    }
+    const next = Number(value)
+    if (next > MAX_CHECKS_LIMIT) {
+      maxChecksError = tx('proxy.pool.max_checks_too_high', { max: MAX_CHECKS_LIMIT })
+      return
+    }
+    maxChecksError = ''
+    if (!routerConfig || next === (routerConfig.proxy_max_checks ?? 0) || savingMaxChecks) return
+    savingMaxChecks = true
+    try {
+      const payload = { ...routerConfig, proxy_max_checks: next }
+      await api.config.update(payload)
+      routerConfig = payload
+      maxChecksInput = String(next)
+      toast.success(t('proxy.pool.max_checks_saved'))
+      await loadStatus()
+    } catch (e) {
+      maxChecksError = getErrorMessage(e)
+    } finally {
+      savingMaxChecks = false
+    }
+  }
 
   async function loadStatus(): Promise<void> {
     try {
@@ -145,14 +192,10 @@
 
   async function recheckBanned(): Promise<void> {
     recheckingBanned = true
-    recheckQueued = null
     error = ''
     try {
-      const result = await api.proxies.recheckBanned({
-        reason: recheckReason,
-        source: recheckSource,
-      })
-      recheckQueued = result.queued
+      const result = await api.proxies.recheckBanned({})
+      toast.success(`${t('proxy.recheck_banned.queued')}: ${result.queued}. ${t('proxy.recheck_banned.success')}`)
       await loadStatus()
     } catch (e) {
       error = getErrorMessage(e)
@@ -161,13 +204,32 @@
     }
   }
 
-  function formatBanReasons(reasons: Record<string, number>): string {
-    return Object.entries(reasons)
+  async function forceChecks(): Promise<void> {
+    forcing = true
+    error = ''
+    try {
+      const result = await api.proxies.forceForeground()
+      if (result.started) toast.success(tx('proxy.force.started', { count: result.queued }))
+      else toast.error(t('proxy.force.none'))
+      await loadStatus()
+    } catch (e) {
+      error = getErrorMessage(e)
+    } finally {
+      forcing = false
+    }
+  }
+
+  function banReasonLabel(reason: string): string {
+    const key = `proxy.ban_reason.${reason}` as TranslationKey
+    const label = t(key)
+    return label === key ? reason : label
+  }
+
+  const banReasonList = $derived(
+    Object.entries(status?.ban_reasons ?? {})
       .filter(([, count]) => count > 0)
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(([reason, count]) => `${reason}=${count}`)
-      .join(' ') || '-'
-  }
+  )
 
   function formatTime(value?: string): string {
     if (!value || value.startsWith('0001-')) return '—'
@@ -208,7 +270,6 @@
     }
   }
 
-  const hasBanReasons = $derived(status && Object.keys(status.ban_reasons ?? {}).some((k) => (status?.ban_reasons[k] ?? 0) > 0))
 </script>
 
 {#snippet healthyBody()}
@@ -240,43 +301,63 @@
   </Table>
 {/snippet}
 
-{#snippet recheckBody()}
-  <VStack gap={4}>
-    <Text variant="subtitle" text={t('proxy.recheck_banned.desc')} />
-    <Grid min="md" gap={4}>
-      <Field label={t('proxy.recheck_banned.reason')}>
-        <Select value={recheckReason} options={recheckReasonOptions} onchange={(value) => { recheckReason = value }} />
-      </Field>
-      <Field label={t('proxy.recheck_banned.source')}>
-        <Select value={recheckSource} options={recheckSourceOptions} onchange={(value) => { recheckSource = value }} searchable={true} />
-      </Field>
-    </Grid>
-    <HStack gap={3} align="center" wrap>
-      <Button style="prominent" disabled={recheckingBanned} onclick={recheckBanned}>
-        {recheckingBanned ? t('proxy.pool.refreshing') : t('proxy.recheck_banned.action')}
-      </Button>
-      {#if recheckQueued !== null}
-        <Text variant="caption">{t('proxy.recheck_banned.queued')}: {recheckQueued}. {t('proxy.recheck_banned.success')}</Text>
-      {/if}
-    </HStack>
-  </VStack>
-{/snippet}
-
 <VStack gap={6}>
   <Header title={t('proxy.title')} info={t('proxy.pool.auto_refresh')}>
     {#snippet actions()}
       {#if tab !== 'pools'}
         <ToolbarItem primary>
-                  <Button
+          <Button
             style="prominent"
             icon={{ name: 'refresh' }}
-            disabled={requestingRefresh}
+            text={requestingRefresh ? t('proxy.pool.refreshing') : t('proxy.pool.refresh')}
+            title={t('proxy.pool.refresh')}
+            collapse={false}
+            disabled={requestingRefresh || !discoveryOn}
             onclick={refreshPool}
-          >{requestingRefresh ? t('proxy.pool.refreshing') : t('proxy.pool.refresh')}</Button>
+          />
+        </ToolbarItem>
+        <ToolbarItem priority={1}>
+          <Button
+            icon={{ name: 'bolt' }}
+            text={t('proxy.force.action')}
+            title={t('proxy.force.hint')}
+            loading={forcing || !!status?.forced_foreground}
+            disabled={!discoveryOn || !status || (status.queued === 0 && !status.forced_foreground)}
+            onclick={forceChecks}
+          />
+        </ToolbarItem>
+        <ToolbarItem priority={2}>
+          <Button
+            icon={{ name: 'lock_reset' }}
+            text={t('proxy.recheck_banned.action')}
+            title={t('proxy.recheck_banned.desc')}
+            loading={recheckingBanned}
+            disabled={!discoveryOn}
+            onclick={recheckBanned}
+          />
         </ToolbarItem>
       {/if}
     {/snippet}
   </Header>
+
+  <SectionCard>
+    <Grid min="md" gap={4}>
+      <VStack gap={1}>
+        <Switch label={t('proxy.switch.enabled')} ariaLabel={t('proxy.switch.enabled')} checked={proxyEnabled} disabled={!routerConfig || savingSwitch} onchange={(value: boolean) => void setSwitch({ proxy_enabled: value })} />
+        <Text variant="caption">{t('proxy.switch.enabled_hint')}</Text>
+      </VStack>
+      <VStack gap={1}>
+        <Switch label={t('proxy.switch.pool')} ariaLabel={t('proxy.switch.pool')} checked={poolEnabled} disabled={!routerConfig || savingSwitch || !proxyEnabled} onchange={(value: boolean) => void setSwitch({ proxy_pool_enabled: value })} />
+        <Text variant="caption">{t('proxy.switch.pool_hint')}</Text>
+      </VStack>
+    </Grid>
+  </SectionCard>
+
+  {#if !proxyEnabled}
+    <Banner variant="warning" text={t('proxy.switch.off_banner')} />
+  {:else if !poolEnabled}
+    <Banner variant="info" text={t('proxy.switch.pool_off_banner')} />
+  {/if}
 
   {#if error}
     <Banner variant="error" text={error} />
@@ -303,16 +384,15 @@
     {#if status}
       <SectionCard>
         <Grid min="xs" gap={4}>
-          <Stat label={t('proxy.pool.mode')}>
-            <Chip text={status.mode} color="chip-accent" size="small" />
-          </Stat>
           <Stat label={t('proxy.pool.net')} value={status.net.rtt_ms > 0 ? `${status.net.state} ${status.net.rtt_ms} ms` : status.net.state} />
           <Stat label={`${t('proxy.pool.inflight')} / ${t('proxy.pool.limit')}`}>
-            <Progress value={status.limit > 0 ? status.inflight / status.limit : 0} tone={status.limit > 0 && status.inflight >= status.limit ? 'warning' : 'accent'}>
-              {#snippet label()}<Text size="sm" text={loadLabel} />{/snippet}
-            </Progress>
+            <Text variant="value" text={loadLabel} />
+            <Progress value={status.limit > 0 ? status.inflight / status.limit : 0} tone={status.limit > 0 && status.inflight >= status.limit ? 'warning' : 'accent'} />
           </Stat>
           <Stat label={t('proxy.pool.total')} value={status.total} />
+          <Field label={t('proxy.pool.max_checks')} hint={t('proxy.pool.max_checks_hint')} error={maxChecksError}>
+            <TextEdit value={maxChecksInput} ariaLabel={t('proxy.pool.max_checks')} disabled={savingMaxChecks} onchange={(value) => void saveMaxChecks(value)} />
+          </Field>
         </Grid>
         <StackedBar
           items={[
@@ -321,11 +401,15 @@
             { label: `${t('proxy.pool.banned')} · ${status.banned}`, value: status.banned, tone: 'danger' },
           ]}
         />
-        {#if hasBanReasons}
-          <HStack gap={3} wrap>
+        {#if banReasonList.length > 0}
+          <VStack gap={2}>
             <Text variant="label">{t('proxy.pool.ban_reasons')}</Text>
-            <Text size="sm" mono>{formatBanReasons(status.ban_reasons)}</Text>
-          </HStack>
+            <HStack gap={2} wrap>
+              {#each banReasonList as [reason, count] (reason)}
+                <Chip text={`${banReasonLabel(reason)} · ${count}`} size="small" />
+              {/each}
+            </HStack>
+          </VStack>
         {/if}
       </SectionCard>
 
@@ -335,17 +419,23 @@
           {#snippet cell({ column, row })}
             {@const lane = row as ProxyStatus['lanes'][number]}
             {#if column.key === 'lane'}
-              <Text variant="value">{lane.lane}</Text>
+              <HStack gap={2} align="center">
+                <Text variant="value">{lane.lane}</Text>
+                {#if lane.lane === idleLane}<Text variant="caption">{t('proxy.pool.lane_idle')}</Text>{/if}
+              </HStack>
             {:else if column.key === 'inflight'}
               <Text size="sm">{lane.inflight}</Text>
             {:else if column.key === 'queued'}
-              <Text size="sm">{lane.queued}</Text>
+              <Text size="sm">{lane.lane === idleLane ? '—' : lane.queued}</Text>
             {/if}
           {/snippet}
           {#snippet card({ row })}
             {@const lane = row as ProxyStatus['lanes'][number]}
-            <Text variant="value">{lane.lane}</Text>
-            <Text variant="caption">{t('proxy.pool.inflight')}: {lane.inflight} · {t('proxy.pool.queued')}: {lane.queued}</Text>
+            <HStack gap={2} align="center">
+              <Text variant="value">{lane.lane}</Text>
+              {#if lane.lane === idleLane}<Text variant="caption">{t('proxy.pool.lane_idle')}</Text>{/if}
+            </HStack>
+            <Text variant="caption">{t('proxy.pool.inflight')}: {lane.inflight} · {t('proxy.pool.queued')}: {lane.lane === idleLane ? '—' : lane.queued}</Text>
           {/snippet}
           {#snippet empty()}
             <EmptyState title={t('proxy.pool.empty')} />
@@ -356,7 +446,6 @@
       <!-- rarely needed: folded away so the overview stays short -->
       <Accordion multiple bind:value={openSections} items={[
         { id: 'proxies', title: `${t('proxy.pool.healthy')} (${proxies.length})`, body: healthyBody },
-        { id: 'recheck', title: t('proxy.recheck_banned.title'), body: recheckBody },
       ]} />
     {:else}
       <EmptyState title={t('common.state.loading')} />
@@ -374,7 +463,6 @@
           {@const src = row as MergedSource}
           {#if column.key === 'name'}
             <Text variant="value">{src.name}</Text>
-            {#if src.configuration}<Text variant="caption" class="src-key">{src.configuration.key}</Text>{/if}
             {#if src.configuration?.last_error}<Text tone="danger" variant="caption">{src.configuration.last_error}</Text>{/if}
           {:else if column.key === 'fetched'}
             {@const lf = src.configuration?.last_fetch_at}{#if lf && !lf.startsWith('0001-')}<RelativeTime date={lf} locale={locale()} />{:else}<Text size="sm">—</Text>{/if}
@@ -386,20 +474,18 @@
           {:else if column.key === 'suspect'}
             <Text size="sm" tone="warning">{src.live?.suspect ?? '—'}</Text>
           {:else if column.key === 'banned'}
-            <span title={src.live ? formatBanReasons(src.live.ban_reasons) : ''}><Text size="sm" tone="danger">{src.live?.banned ?? '—'}</Text></span>
+            <Text size="sm" tone="danger">{src.live?.banned ?? '—'}</Text>
           {/if}
         {/snippet}
         {#snippet card({ row })}
           {@const src = row as MergedSource}
           <Text variant="value">{src.name}</Text>
-          {#if src.configuration}<Text variant="caption" class="src-key">{src.configuration.key}</Text>{/if}
           {#if src.live}
             <Text variant="caption">{t('proxy.pool.alive')}: {src.live.alive} · {t('proxy.pool.suspect')}: {src.live.suspect} · {t('proxy.pool.banned')}: {src.live.banned}</Text>
           {/if}
           {#if src.configuration}
             <Text variant="caption">{t('proxy.sources.last_fetched')}: {formatTime(src.configuration.last_fetch_at)} · {t('proxy.sources.candidates')}: {src.configuration.total} · {t('proxy.sources.unsupported')}: {src.configuration.unsupported}</Text>
           {/if}
-          {#if src.live && formatBanReasons(src.live.ban_reasons)}<Text size="sm" mono>{formatBanReasons(src.live.ban_reasons)}</Text>{/if}
           {#if src.configuration?.last_error}<Text tone="danger" variant="caption">{src.configuration.last_error}</Text>{/if}
         {/snippet}
         {#snippet empty()}
@@ -501,9 +587,3 @@
     {/snippet}
   </FloatingView>
 </VStack>
-
-<style>
-  :global(.src-key) {
-    overflow-wrap: anywhere;
-  }
-</style>

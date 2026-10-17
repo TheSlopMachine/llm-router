@@ -21,6 +21,7 @@ func (source *pluginSource) Name() string { return "lua-feeds" }
 // FetchTagged aggregates registered Lua feeds with per-source identity.
 func (source *pluginSource) FetchTagged() []proxypoollib.TaggedURL {
 	service := source.service
+	output := service.takeImported()
 	service.mu.Lock()
 	keys := service.keys
 	fetch := service.fetch
@@ -28,7 +29,7 @@ func (source *pluginSource) FetchTagged() []proxypoollib.TaggedURL {
 	service.mu.Unlock()
 	if keys == nil || fetch == nil {
 		service.currentLogger().Debug("Skipping proxy feed fetch", "reason", "no source handlers")
-		return nil
+		return output
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -36,7 +37,7 @@ func (source *pluginSource) FetchTagged() []proxypoollib.TaggedURL {
 	list, err := keys()
 	if err != nil {
 		service.currentLogger().Error("Fetching proxy source keys failed", "error", err)
-		return nil
+		return output
 	}
 	active := make(map[string]struct{}, len(list))
 	for _, key := range list {
@@ -49,7 +50,6 @@ func (source *pluginSource) FetchTagged() []proxypoollib.TaggedURL {
 		}
 	}
 	service.sourceMu.Unlock()
-	var output []proxypoollib.TaggedURL
 	for _, key := range list {
 		candidates, fetchError := fetch(ctx, key)
 		sourceInfo := SourceInfo{Key: key, Name: sourceDisplayName(key), LastFetchAt: time.Now(), Total: len(candidates)}
