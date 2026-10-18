@@ -26,11 +26,8 @@ const (
 	SeverityFatal = 4
 )
 
-// DefaultLimit bounds parameterless queries. MaxLimit caps clients.
-const (
-	DefaultLimit = 50
-	MaxLimit     = 500
-)
+// DefaultLimit bounds parameterless queries.
+const DefaultLimit = 50
 
 // idChunkSize bounds IN lists so statements stay under variable limits.
 // excludePageSize bounds exclusion scan batches.
@@ -162,15 +159,11 @@ func orderByIDDesc() clause.OrderBy {
 // Query runs a filtered event query. ID mode returns at most one entry.
 // Otherwise severity/start/end narrow the record scan, inclusions resolve
 // to record IDs in bounded chunks, exclusions drop rows in Go, and keys
-// assemble per record. Limit defaults to DefaultLimit and clamps to
-// MaxLimit.
+// assemble per record. Limit defaults to DefaultLimit.
 func (s *Service) Query(ctx context.Context, query Query) ([]Entry, error) {
 	limit := query.Limit
 	if limit <= 0 {
 		limit = DefaultLimit
-	}
-	if limit > MaxLimit {
-		limit = MaxLimit
 	}
 	if query.ID != nil {
 		row, err := gorm.G[record.EventRecord](s.database.Events, clause.Eq{Column: "id", Value: *query.ID}).First(ctx)

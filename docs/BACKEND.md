@@ -232,7 +232,7 @@ exist (`ErrParentMissing`). `GET
 /api/events` queries the events file by `severity` (>=), `id`, `start`/`end`
 (RFC3339), `filter.<key>` existence or `filter.<key>=<value>` match plus
 `exclude.<key>` existence or `exclude.<key>=<value>` drop
-(limit default 50, max 500). The schema
+(limit default 50). The schema
 (`internal/db/migrations/0001_initial_schema.go` untouched history plus
 `0002_split_storage.go`) owns every table; `internal/db/record/` pins the
 row shapes. The database file keeps instance settings, admin users, proxy
