@@ -381,6 +381,17 @@ func requireProxies(L *lua.LState, ctx *executionContext) int {
 		L.RaiseError("llm_router.proxies.require: %s", err.Error())
 		return 0
 	}
+	if res.Disabled {
+		if fallback == proxyFallbackFail {
+			ctx.logProxyRequireEmpty(request, "disabled", false)
+			L.Push(lua.LNil)
+			L.Push(lua.LString("disabled"))
+			return 2
+		}
+		// fallback="direct": the plugin asked to go direct when no proxy is
+		// available, which is the case while the router switches are off.
+		res.Direct = true
+	}
 	if len(res.Proxies) == 0 && !res.Direct && fallback == proxyFallbackFail {
 		code := "no_match"
 		if res.TimedOut {

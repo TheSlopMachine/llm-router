@@ -1814,12 +1814,16 @@ type ProxyRequire struct {
 }
 
 // ProxyRequireResult is the outcome of proxies.require. Proxies is empty for
-// a direct pool, a timeout, or a custom pool without a matching entry.
+// a direct pool, a disabled pool, a timeout, or a custom pool without a
+// matching entry.
 type ProxyRequireResult struct {
 	Proxies  []ProxyView
 	TimedOut bool
 	// Direct reports that the provider is configured without a proxy pool.
 	Direct bool
+	// Disabled reports that a pool was requested but the router-wide proxy
+	// switches are off. The plugin fallback decides: fail, or go direct.
+	Disabled bool
 }
 
 // RecheckBannedRequest selects banned proxies for manual rechecking.

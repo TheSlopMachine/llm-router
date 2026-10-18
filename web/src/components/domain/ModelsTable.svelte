@@ -197,7 +197,7 @@
   {/if}
 {/snippet}
 
-{#snippet capsBlock({ model }: { model: ModelsTableModel }, size: 'small' | 'large' = 'large')}
+{#snippet capsBlock({ model }: { model: ModelsTableModel }, size: 'small' | 'large' = 'small')}
   <div class="cap-grid">
     {#each model.capabilities ?? [] as cap}
       {@const capability = CAPABILITY_META[cap]}

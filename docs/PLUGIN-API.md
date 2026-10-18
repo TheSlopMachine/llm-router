@@ -20,7 +20,6 @@ spelling. Anything else fails install.
 
 ## Table of Contents
 
-- [Version history](#version-history)
 - [Responsibility split](#responsibility-split)
 - [Manifest reference](#manifest-reference)
 - [Registration](#registration)
@@ -33,6 +32,7 @@ spelling. Anything else fails install.
 - [Error contract](#error-contract)
 - [llm_router APIs](#llm_router-apis)
 - [proxies.query and proxies.require](#proxiesquery-and-proxiesrequire)
+- [Provider proxy configuration](#provider-proxy-configuration)
 - [fetch_proxies](#fetch_proxies)
 - [credentials](#credentials)
 - [storage](#storage)
@@ -43,43 +43,6 @@ spelling. Anything else fails install.
 - [Sandbox limits](#sandbox-limits)
 - [Worked example](#worked-example)
 
-## Version history
-
-Contract `0.x` rows predate the Plugin API split; `@plugin_api 1.x` rows
-follow it. Router identity ships via the release tag
-(`main.RouterVersion`), never via these numbers.
-
-| Contract | Adds |
-|---|---|
-| 0.0.4 | complete, complete_stream, validate_credentials, get_model_infos, needs_refresh, refresh_credential, config_schema, credential_schema, auth_initiate, auth_step; proxy sources; storage; uuid_v5; random_hex |
-| 0.0.5 | `transcribe` handler, `llm_router.multipart`, `ModelInfo.endpoints` |
-| 0.0.6 | `speech` handler, `generate_image` handler, `embed` handler, `llm_router.base64_encode/decode` |
-| 0.0.7 | proxy pool rework: repeatable `@proxy_location` whitelist, `@proxy_default_option`, per-pair rate limits and blocks |
-| 0.1.1 | unified exhausted store (`scope` on the error contract); `classify_error` handler slot + `llm_router.classify_error` helper; `request.model_name`; `embed.encoding_format`; `client:stream` returns `(resp, err)` with `on_response` hook; `llm_router.http_client` (renamed); `invalid_request` stops pool failover; manifest floor 0.1.1 |
-| 0.1.2 | `payment_required` error type for upstream paywalls (status 402) |
-| 0.2.0 | DynamicForm Step gaps (`flow`/`grid` `gap` and `spacer` `size` accept int Step `0..8` alongside legacy `sm\|md\|lg`), `input_type=secret`, `flow.justify` gains `around`/`evenly`, strict `link.url` schemes, `provider_config` in authentication `ctx` |
-| 0.3.0 | error contract rework: `timeout` merged into `upstream`; new types `content_policy` / `model_unavailable` / `structural_fault`; `rate_limit` and `quota_exceeded` require plugin-supplied future `retry_after`; `scope` strictly validated per type; `upstream_status` / `upstream_body` passthrough; geo becomes an indefinite per-provider proxy ban with same-key retry on another region (`config.geo`); `auth` / `payment_required` disable the credential, `structural_fault` disables the provider (`disabled_by/reason/at`); transport DNS/TLS/refused failures surface as `structural_fault`; manifest floor 0.3.0 |
-| 0.3.1 | Proxy sources accept unauthenticated HTTP candidates only; the proxypool library owns health checks, scoring, cache lifecycle and revival |
-| 0.3.4 | `quota_exceeded` accepts `proxy` scope; proxy-scoped rate/quota outcomes retry the same credential on another proxy, up to three total attempts and only before stream output reaches the client |
-| 0.3.5 | `transport` error type for connectivity failures (transport `transport_error`, 502); transport failures retry the same credential on another proxy within the three-attempt route budget, carry no marks or disables, and forbid `scope`/`retry_after` |
-| 0.3.6 | `model_specs` registration table: pinned per-model rows merged over `get_model_infos` rows, every field except the id; unknown ids ignored, unknown fields and mistyped values fail install |
-| 0.3.7 | `overloaded` error type for congested backends (protocol `overloaded`, 503); same-credential proxy retry within the route budget, no marks or cooldown; unary JSON errors carry `Retry-After` when the router knows a wait time |
-| 0.3.9 | request tables carry `cache_key`: stable cross-turn prefix-cache partition (model, first message, sorted tool names); `"prefix-boot"` for empty histories; old routers omit it |
-| 0.4.0 | `generate_video` / `poll_video` / `video_content` handlers serving `POST /v1/videos`, `GET /v1/videos/{jobId}`, `GET /v1/videos/{jobId}/content`; `videos` endpoint in `ModelInfo.endpoints`; router-side job rows map local IDs to upstream jobs |
-| 0.5.0 | `moderate` handler serving `POST /v1/moderations`; `image_b64` / `image_name` / `mask_b64` `generate_image` request fields serving `POST /v1/images/edits` and `POST /v1/images/variations` (old plugins ignore the extra fields) |
-| 0.5.1 | traffic-driven disables removed: `auth` / `payment_required` fail over without disabling the credential, `structural_fault` stops the pool without disabling the provider; disables come only from admin actions and doctor fix for backend-less types (old plugins unchanged) |
-| 0.5.2 | `check_health` handler plus per-type `healthcheck_cooldown` registration value (whole seconds, 60..86400, default 300): failure-triggered detached credential verification, at most once per window; only an explicit `unhealthy` verdict disables (`disabled_by=healthcheck`) |
-| 0.5.3 | unified `proxy_retry` provider policy (`mode` `fail_fast`/`next_proxy`, `max_attempts` 1..10, default 3) for every retryable proxy failure; legacy `geo` sections migrate at startup; fresh discovery refreshes known model rows |
-| 0.7.0 | decentralized orchestration: plugins select credentials (`credentials.list/get`) and proxies (`proxies.query` + per-request `proxy_url`), retry internally, and return OpenAI-shaped terminal errors only when exhausted. Static schema tables (`credential_schema`, `config_schema`, `settings_schema`, `proxy_schema`); presence drives dashboard surfaces, no `_enabled` flags. Colocated `jobs` with per-job `run` (`interval_seconds` 60..86400, `run_on_startup`, `timeout_ms`); `credentials.update` exists in job contexts only. `storage.set` gains `{ttl}` seconds. `credentials.park/unpark/parked` shelve credentials transiently (`list()` skips parked rows); `credentials.disable/enable` set the shared flag under the provider `disable_failed_credentials` switch. Removed: `classify_error` slot + helper, `needs_refresh` / `refresh_credential`, error `type`/`scope`/`retry_after`/`upstream_*` contract, `@proxy_location` / `@proxy_default_option` / `@proxy_source` tags, router credential ordering, exhausted store, geo bans. Manifest floor 0.7.0. |
-| 0.8.0 | `proxies.require({pool?, countries?, exclude?, limit?, want?, timeout_ms?, fallback?})`: demand-driven proxy acquisition. The free pool waits for a live proxy in the requested countries instead of returning an empty list; the plugin chooses `fallback` `direct` or `fail` explicitly. `proxies.query` is unchanged. Transport error tables from `http_client` gain `transport`, `reason`, `proxy_fault`, `retryable`; body-read failures on proxied legs suspect the proxy. |
-| 1.0 | Plugin API split: `@plugin_api x.y` replaces `@router_version`. Install gates on the major only (`too_new` / `too_old` / `no_api_version`); minor is informational. All store plugins reissued under `1.0`. Router identity moves to the release tag (`main.RouterVersion`), short `X.Y` when the fix is 0. |
-| 1.1 | Optional `headers` string table on the error contract, rendered through a strict allow-list (`Retry-After` today) on unary `/v1` errors in both envelopes; streams and dashboard excluded. |
-| 1.2 | Optional `initialize` / `deinitialize` lifecycle slots: one-time `ctx`-table hooks with `ctx.reason` (`install` / `update` / `startup` and `delete` / `update` / `shutdown` / `disable`); detached concurrent fan-out, 30s bound, failures log. |
-| 1.3 | Optional per-type `locales` table (`en`/`ru`): widget keys in schema and authentication trees resolve per dashboard locale with English fallback. |
-| 1.4 | `llm_router.log(severity, message, keys?)`: structured plugin logging into the events database (`debug`/`info`/`warn`/`error`/`fatal`, router-owned `plugin`/`type` keys, `print` shims info severity); per-plugin log reads serve from events with severity and keys. |
-| 1.5 | `check_model` handler: plugin-owned model liveness for every endpoint (`ctx`, `model_ref` with `model`/`model_name`/`endpoint`); returns `{status, message?, response?}` with `healthy`/`quota_exceeded`/`unhealthy`/`unknown`. Dashboard model test delegates; types without the handler report `unsupported`. |
-| 1.6 | Plugin disable state: operator-owned `disabled` flag on the stored plugin row (`PUT /dashboard/plugins/{id}`); disabled types leave the registry and fail with `provider_disabled`. `initialize` gains `ctx.reason = "enable"`, `deinitialize` reason `"disable"` also covers the plugin toggle (reason only, no provider identity). |
-
 ## Responsibility split
 
 The plugin owns protocol translation and orchestration; the router owns routing,
@@ -87,7 +50,7 @@ authorization, hosting and rendering.
 
 - Router: `ModelId` parse/resolve/disabled/model-override/endpoint gates,
   token allow-list gate over credential identifiers, proxy-pool hosting (free pool,
-  custom pools, adaptive refresh, TLS-fault `MarkDead`), model cache,
+  custom pools, adaptive refresh, `MarkDead` from transport faults), model cache,
   metrics, sandboxing, version gating, crash accounting, job scheduling
   (trigger plus bounds, never policy), OpenAI/Anthropic envelope rendering.
 - Plugin: credential selection/rotation/parking, proxy selection and
@@ -254,10 +217,10 @@ Parameters:
 |---|---|
 | `provider_config` | Table with provider configuration. Present when configured. |
 | `flow_id` | String. Present for authentication flows only. |
-| `reason` | String. Present for jobs and lifecycle hooks. Job values: `tick`, `startup`, `manual`. Lifecycle values: `install`, `update`, `startup`, `enable`, `delete`, `shutdown`, `disable`. |
+| `reason` | String. Present in lifecycle hooks only: `install`, `update`, `startup`, `enable` (initialize) and `delete`, `update`, `shutdown`, `disable` (deinitialize). Absent in jobs and request handlers. |
 | `provider_id` | String. Present on provider disable deinitialization only. |
 | `job_name` | String. Present in job execution. |
-| `run_reason` | String. Alias for job reason. |
+| `run_reason` | String. Present in job execution only: `tick`, `startup`, `manual`. Jobs carry no `reason` field. |
 
 ### `credential`
 
@@ -712,8 +675,11 @@ end
 
 ### `check_health`
 
-High-level description: checks one credential. Only `unhealthy` disables the
-credential, and only when provider automation is on. Cooldown comes from
+High-level description: checks one credential. The router calls it from
+explicit credential probes (dashboard credential test, probe endpoints). Failed
+traffic requests do not trigger it: request paths carry no credential identity.
+Only `unhealthy` disables the credential, and only when provider automation is
+on. Cooldown comes from
 `healthcheck_cooldown`.
 
 API signature:
@@ -970,8 +936,13 @@ return nil, { message = "upstream rejected request", code = "invalid_request_err
 ### `http_client({timeout_ms?})`
 
 High-level description: creates an HTTP client bound to `@allow_host` plus
-server-side request forgery guard. The router tracks TLS faults on the
-assigned leg and marks the proxy dead internally; plugins never mark proxies.
+server-side request forgery guard. The router classifies network faults on the
+proxied leg and reports them to the proxy pool internally; plugins never mark
+proxies. Reasons `dns_resolution`, `address_parse`, `tls_certificate_verification`
+and `tls_handshake` mark the proxy dead (persisted ban). Reasons
+`connection_refused`, `connection_reset`, `broken_pipe`, `early_eof` and
+`unexpected_eof` only mark it suspect: the pool re-verifies it before any ban.
+Direct requests never report.
 
 API signature:
 
@@ -1016,9 +987,15 @@ Parameters:
 
 Return values: success returns `(response, nil)` where `response` holds
 `status` number, `headers` table with lowercased keys, `body` string capped at
-16 MiB. Failure returns `(nil, fault)` where `fault` follows the error
+32 MiB. Failure returns `(nil, fault)` where `fault` follows the error
 contract plus transport fields below. Redirects recheck allow-list, maximum 10
-hops. Private and link-local dials are blocked even under `*`.
+hops. Private and link-local dials are blocked even under `*`: direct requests
+resolve the host and dial the validated IP; requests with `proxy_url` check the
+hostname and IP literals only, because the proxy resolves the target.
+
+`timeout_ms` bounds the whole exchange, including the response body: a stream
+running longer than `timeout_ms` ends with a transport fault. Streaming
+handlers pass a large value (up to 300000).
 
 Transport fault fields:
 
@@ -1115,11 +1092,14 @@ Parameters:
 
 | Parameter | Description |
 |---|---|
-| `pool` | Pool selector. Empty or absent means direct. `"auto"` means free pool. Otherwise a custom pool identifier or name. |
-| `country` | Singular country filter string. |
-| `limit` | Maximum rows. Number. |
+| `pool` | Pool selector. Empty or absent means direct: the call returns an empty array, so a loop over the result never runs. Use `proxies.require` to tell direct from an empty pool. `"auto"` means free pool. Otherwise a custom pool identifier or name. |
+| `country` | Singular country filter string, case-insensitive. |
+| `limit` | Maximum rows. Number. Zero or negative means all rows. |
 
-Return values: array of `{id, url, country, pool}`.
+Return values: array of `{id, url, country, pool}`, free pool in rank order. The
+array is empty, never an error, when the pool selector is empty or when the
+router proxy switches are off (see `Provider proxy configuration`). An unknown
+custom pool raises an error. `query` never waits.
 
 Example:
 
@@ -1146,28 +1126,43 @@ Parameters:
 | Option | Meaning |
 |---|---|
 | `pool` | `""`/absent: direct. `"auto"`: free pool. Otherwise a custom pool identifier or name. |
-| `countries` | Array of two-letter ISO codes, OR semantics. Empty or absent accepts any country. Invalid codes raise an error. Plural form, unlike `query`. |
+| `countries` | Array of two-letter ISO codes, OR semantics. Empty or absent accepts any country. Plural form, unlike `query`. The free pool upper-cases, deduplicates and validates codes: an invalid code raises an error. A custom pool compares case-insensitively and does not validate. |
 | `exclude` | Array of proxy URLs that must not be returned. |
 | `limit` | Maximum number of distinct proxies returned, 1 to 50, default 1. Whole numbers only. |
-| `want` | Free pool only: alive proxies the pool keeps in stock for these countries, 1 to 200. Default is the pool default. |
+| `want` | Free pool only: alive proxies the pool keeps in stock for these countries, 1 to 200. Default is the pool default. Has no effect without `countries`. |
 | `timeout_ms` | Free pool only: wait deadline, default 60000, at most 300000. |
 | `fallback` | `"fail"` (default) or `"direct"`: behavior when no proxy is available. |
 
 Return values: table `{proxies={{id,url,country,pool},...}, timed_out,
-direct}`. `direct` is true when `pool` is empty; `proxies` is then empty.
-`timed_out` is true when the free pool had no match before the deadline and
-`fallback` is `"direct"`; `proxies` is empty and the plugin goes direct. With
-`fallback="fail"` an unavailable proxy returns `nil, code` instead:
-`"timeout"` (free pool deadline passed), `"no_match"` (custom pool has no
-matching entry) or `"canceled"` (request cancelled). The same `"canceled"`
-return applies with `fallback="direct"`. Malformed options raise an error. The
-free pool returns matching live proxies immediately. Without a match it
-registers a demand, prioritizes finding the requested country, and waits until
-a match is alive or the deadline passes. The wait deadline is shared by every
-`require` call of one request: the first call fixes it. Cancelling the client
-request stops only the wait; the pool keeps working on the demand so the next
-request finds a proxy. A custom pool answers from its own entries and never
-waits. The router never falls back to a direct connection on its own.
+direct}`.
+
+| Outcome | Result |
+|---|---|
+| Proxies found | `proxies` non-empty, `timed_out=false`, `direct=false`. |
+| `pool` empty | `proxies` empty, `direct=true`. |
+| Non-empty `pool` while the router proxy switches are off (see `Provider proxy configuration`), `fallback="direct"` | `proxies` empty, `timed_out=false`, `direct=true`. The plugin goes direct. |
+| Non-empty `pool` while the router proxy switches are off, `fallback="fail"` | `nil, "disabled"`. |
+| Free pool deadline passed, `fallback="direct"` | `proxies` empty, `timed_out=true`, `direct=false`. The plugin goes direct. |
+| Custom pool without a matching entry, `fallback="direct"` | `proxies` empty, `timed_out=false`, `direct=false`. The plugin goes direct. |
+| Free pool deadline passed, `fallback="fail"` | `nil, "timeout"`. |
+| Custom pool without a matching entry, `fallback="fail"` | `nil, "no_match"`. |
+| Request cancelled | `nil, "canceled"`, with either `fallback`. |
+
+`direct=true` is the only signal that the plugin may connect without a proxy.
+A plugin that must never connect directly passes `fallback="fail"` and never
+receives it for a non-empty `pool`. The router makes no direct connection
+itself; the plugin connects directly by omitting `proxy_url`.
+
+Malformed options raise an error. So does an exhausted demand registry
+(`too many active proxy demands`, free pool only) and an unknown custom pool;
+the error counts as a plugin crash. The free pool returns matching live proxies
+immediately. Without a match it registers a demand, prioritizes finding the
+requested country, and waits until a match is alive or the deadline passes. The
+wait deadline is shared by every `require` call of one request: the first call
+fixes it. Cancelling the client request stops only the wait; the pool keeps
+working on the demand so the next request finds a proxy. Returned free-pool
+proxies come from the lowest-latency window of matches in random order. A
+custom pool answers from its own entries in stored order and never waits.
 
 Example:
 
@@ -1180,6 +1175,49 @@ if result == nil then
 end
 local proxy_url = result.proxies[1].url
 ```
+
+## Provider proxy configuration
+
+High-level description: how the dashboard proxy switch reaches a plugin. The
+router never routes provider traffic through a proxy by itself. It stores the
+operator choice in the provider config, passes the config to every handler as
+`ctx.provider_config`, and hosts the pool; the plugin reads the choice and
+assigns `proxy_url` per request.
+
+Provider config keys:
+
+| Key | Description |
+|---|---|
+| `proxy.pool` | Operator pool selection. Absent key or empty string means direct. `"auto"` selects the free pool, any other value a custom pool by identifier or name. The provider page switch "Route through a proxy pool" writes `{pool = "auto"}`; the pool selector replaces the value; switching off deletes the `proxy` key. |
+| `disable_failed_credentials` | Boolean, default off. Master switch for `credentials.disable` / `credentials.enable` (see `credentials`). |
+
+The provider page shows the switch when the type declares `proxy_schema`, even
+an empty one. Nodes of a non-empty `proxy_schema` render below the switch and
+save with the plugin settings under `config.settings`.
+
+Router-wide switches, set in the router configuration (`proxy_enabled`,
+`proxy_pool_enabled`) and independent of provider config:
+
+| Switch | Effect on plugin calls |
+|---|---|
+| `proxy_enabled` off | Every `proxies.query` returns an empty array. `proxies.require` with a non-empty `pool` returns `nil, "disabled"` under `fallback="fail"` and `direct=true` under `fallback="direct"`. Discovery stops; stored proxies stay. |
+| `proxy_pool_enabled` off | Same for pool `"auto"` only. Custom pools keep serving. |
+
+Plugin flow:
+
+1. Read `ctx.provider_config.proxy.pool`; treat absent or empty as direct.
+2. Call `proxies.require` with `pool`, `countries` and `fallback`; handle
+   `direct=true`, empty `proxies` and the `nil, code` results.
+3. Pass `proxy_url` to `client:request` / `client:stream`; the router executes
+   the request through that proxy and reports proxied-leg faults to the pool.
+4. On a fault table with `retryable=true`, retry the same credential on the next
+   proxy, passing used URLs in `exclude`. Keep per-exit cooldowns in
+   `llm_router.storage` with a time to live; the router keeps no per-plugin
+   exit state.
+
+A plugin that must not connect directly (for example a region-locked upstream)
+passes `fallback="fail"`: with the router-wide switches off it gets
+`nil, "disabled"` and returns its own terminal error.
 
 ## `fetch_proxies`
 
@@ -1238,7 +1276,10 @@ Parameters: none.
 
 Return values: array `[{id, data}]` filtered by the router-token allow-list;
 parked rows are skipped automatically, disabled and denied rows are skipped.
-Empty allow-list means unrestricted for admin probes.
+An absent allow-list (admin probes, jobs, lifecycle hooks) means unrestricted.
+The router rejects a request before the plugin runs when the token rules
+leave no credential (`credential_not_allowed`), so a plugin never sees an
+empty allow-list on a request path.
 
 Example:
 
@@ -1835,7 +1876,7 @@ Parameters: none.
 
 Limits: no `io`, `debug`, `package`, `coroutine`, `require`, `load`,
 `dofile`, `print` (shims `llm_router.log` at info severity). Response bodies
-cap at 16 MiB; stream error bodies at 64 KiB; redirects cap at 10 hops
+cap at 32 MiB; stream error bodies at 64 KiB; redirects cap at 10 hops
 validated against `@allow_host`; private and link-local dial targets are
 blocked even under wildcard hosts. `on_chunk` buffer 32 KiB. `on_line`
 scanner 64 KiB to 1 MiB. `multipart` 1 to 64 parts. `random_hex` 1 to 1024
@@ -1858,7 +1899,15 @@ complete = function(ctx, request)
   local last_error = nil
   for _, credential_entry in ipairs(llm_router.credentials.list()) do
     local key = (credential_entry.data or {}).api_key or ""
-    for _, proxy_entry in ipairs(llm_router.proxies.query({ pool = pool, limit = 3 })) do
+    local acquired, code = llm_router.proxies.require({ pool = pool, limit = 3, fallback = "direct" })
+    if acquired == nil then
+      return nil, { message = "proxy acquisition failed: " .. tostring(code), code = "server_error" }
+    end
+    -- Direct (empty pool, or router proxy switches off) and an expired wait
+    -- all yield an empty list: one attempt without proxy_url.
+    local exits = acquired.proxies
+    if #exits == 0 then exits = { {} } end
+    for _, proxy_entry in ipairs(exits) do
       local response, call_error = client:request({
         method = "POST", url = "https://api.example.com/v1/chat/completions",
         headers = { ["content-type"] = "application/json" },

@@ -524,7 +524,10 @@ func (s *Service) queryCustom(ctx context.Context, pool, country string, limit i
 func (s *Service) Require(ctx context.Context, request models.ProxyRequire) (models.ProxyRequireResult, error) {
 	if !s.poolAvailable(request.Pool) {
 		s.currentLogger().Debug("Requiring proxies", "pool", request.Pool, "reason", "switched off", "count", 0)
-		return models.ProxyRequireResult{Direct: true}, nil
+		if request.Pool == "" {
+			return models.ProxyRequireResult{Direct: true}, nil
+		}
+		return models.ProxyRequireResult{Disabled: true}, nil
 	}
 	if err := s.cache.peekError(); err != nil {
 		s.currentLogger().Error("Requiring proxies failed", "pool", request.Pool, "limit", request.Limit, "error", err)

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -195,16 +196,18 @@ func (s *Service) CompleteStreamRouted(
 		_, returnError := splitReturn(L)
 		return s.contractErrOrInternal(record, handlerMetadata.TypeKey, returnError)
 	})
-	if callError != nil {
+	missingHandler := errors.Is(callError, ErrHandlerNotFound)
+	if callError != nil && !missingHandler {
 		return proxy, callError
 	}
-	if found {
+	if found && !missingHandler {
 		if _, werr := io.WriteString(w, "data: [DONE]\n\n"); werr != nil {
 			return proxy, werr
 		}
 		return proxy, nil
 	}
-	// Fallback: emulate streaming over complete().
+	// Fallback: the plugin declares no complete_stream, so emulate streaming
+	// over complete().
 	response, fallbackProxy, cerr := s.CompleteRouted(goCtx, handlerMetadata, request)
 	if cerr != nil {
 		return fallbackProxy, cerr

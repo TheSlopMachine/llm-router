@@ -615,7 +615,7 @@ API surface: `llm_router.register(type_key, {complete, ...})`, `llm_router.http_
 **docs/PLUGIN-API.md is the binding contract — keep it in sync with every handler/API change.**
 
 - BAD: handler change without `docs/PLUGIN-API.md` update.
-- GOOD: handler plus contract doc plus history row in one change.
+- GOOD: handler plus contract doc in one change.
 
 Park (transient, TTL, self-healing, invisible; `list()` auto-excludes parked) vs disable (dead, sticky, dashboard-visible): rate limits and quota windows park, rejected keys disable under `disable_failed_credentials`. Manual dashboard toggle and switch-gated probe win over plugin writes.
 
@@ -756,10 +756,10 @@ Edit docs in one change with the code, never deferred. Short formulations: prese
 - BAD: code change now, doc update later.
 - GOOD: code plus docs in one change.
 
-`docs/PLUGIN-API.md` is the binding contract: every handler, API, or contract change updates it in one change. Trace every claim to code; keep examples runnable with verbatim shapes; add a history row per contract feature.
+`docs/PLUGIN-API.md` is the binding contract: every handler, API, or contract change updates it in one change. Trace every claim to code; keep examples runnable with verbatim shapes. The doc describes the current contract only: no version history, no removed features (the changelog records change).
 
 - BAD: contract change with prose-only doc edit.
-- GOOD: traced claim, runnable verbatim example, history row.
+- GOOD: traced claim, runnable verbatim example.
 
 `docs/EVENT-KEYS.md` is the single source of truth for event keys: a change that adds, renames, or removes an event key adds a table row here in one change.
 
@@ -791,10 +791,10 @@ Plugin store reissues bump `@version` (major on contract breaks) and declare the
 - BAD: reissue without version/API bump.
 - GOOD: version bump plus matching `@plugin_api` major.
 
-Move together: `luaplugin.PluginAPIVersion`, history rows. Document new make targets in §4.
+Move together: `luaplugin.PluginAPIVersion` and the contract doc header. Document new make targets in §4.
 
-- BAD: bumping `luaplugin.PluginAPIVersion` without history rows.
-- GOOD: version bump plus history rows plus §4 entry.
+- BAD: bumping `luaplugin.PluginAPIVersion` without updating the contract doc header.
+- GOOD: version bump plus doc header plus §4 entry.
 
 Verify doc edits by re-reading the whole file plus grepping stale markers (old API names, removed buckets or fields).
 

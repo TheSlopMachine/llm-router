@@ -1,5 +1,15 @@
 # Changelog
 
+## Done (2026-10-18, v0.4.3)
+
+- Corrected `docs/PLUGIN-API.md` against the code: response body cap is 32 MiB; job `ctx` carries `run_reason` and no `reason`; `check_health` runs from explicit probes only; `MarkDead` reason mapping (dead versus suspect); `http_client` timeout covers the response body; proxied requests check hostnames only.
+- Documented `proxies.query` returning an empty array for direct, the full `proxies.require` result table including `direct=true` when the router proxy switches are off, `ErrDemandLimit` and custom-pool country handling.
+- Added the `Provider proxy configuration` section (`proxy.pool`, `disable_failed_credentials`, `proxy_enabled`, `proxy_pool_enabled`, plugin flow) and fixed the worked example to acquire proxies through `proxies.require`.
+- Removed the version history table from `docs/PLUGIN-API.md` and the history-row rules from `AGENTS.md`: the contract doc describes the current contract only.
+- Fixed `complete_stream` emulation: a plugin without the handler now streams through `complete` as one chunk plus `[DONE]` instead of failing with handler-not-found.
+- Fixed `proxies.require` with the router proxy switches off: a non-empty pool returns `nil, "disabled"` under `fallback="fail"` (was `direct=true`) and `direct=true` under `fallback="direct"`.
+- Manifest parsing now rejects an empty `@plugin` or `@author` value.
+
 ## Done (2026-10-17, v0.4)
 
 - Reworked the dashboard proxy page and its controls. A new `proxy_max_checks` router setting (migration 4, `0`-`2000`, `0` keeps the adaptive AIMD range) caps parallel proxy checks: a positive value becomes the upper bound of the adaptive range, applied at startup and on `PUT /dashboard/config`; a write that omits the field keeps the stored value. Added `POST /api/llm-router/dashboard/proxy/force-foreground` and `forced_foreground` in the proxy status: it runs candidate checks at foreground speed until the candidate queue is drained (needs `proxypool` `ForceForeground`). The page header carries refresh, speed-up and recheck-banned actions that fold into icons and then into the menu as the width shrinks; the recheck section, the mode block and the per-source reason line and key are gone, and ban reasons use localized names.
