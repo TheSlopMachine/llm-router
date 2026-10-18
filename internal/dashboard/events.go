@@ -23,7 +23,7 @@ import (
 // @Param        id query int false "single event id"
 // @Param        start query string false "RFC3339 start (inclusive)"
 // @Param        end query string false "RFC3339 end (inclusive)"
-// @Param        limit query int false "max rows (default 50, max 500)"
+// @Param        limit query int false "max rows (default 50)"
 // @Success      200 {array} events.Entry
 // @Failure      400 {object} map[string]string
 // @Router       /api/events [get]
@@ -88,9 +88,6 @@ func parseEventsQuery(r *http.Request) (events.Query, error) {
 		number, err := strconv.Atoi(raw)
 		if err != nil || number < 1 {
 			return events.Query{}, fmt.Errorf("invalid limit %q", raw)
-		}
-		if number > events.MaxLimit {
-			number = events.MaxLimit
 		}
 		query.Limit = number
 	}

@@ -19,9 +19,7 @@ so filtering always targets keys, never substrings.
 ## Query mechanics
 
 - `severity` is a minimum: `0` debug, `1` info, `2` warn, `3` error, `4` fatal.
-- `limit` defaults to 50 and the server clamps it to 500
-  (`internal/services/events/service.go:29-33`). Page with `start`/`end`
-  (RFC3339) instead of larger limits.
+- `limit` defaults to 50 (`internal/services/events/service.go:29-30`).
 - `filter.<key>[=<value>]` predicates match metadata exactly; a bare
   `filter.<key>` matches presence only
   (`internal/services/events/service.go:38-43`,
