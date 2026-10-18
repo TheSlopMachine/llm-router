@@ -25,7 +25,7 @@ import (
 const (
 	defaultHTTPTimeoutMs = 60000
 	minHTTPTimeoutMs     = 1000
-	maxHTTPTimeoutMs     = 300000
+	maxHTTPTimeoutMs     = 900000
 
 	// maxResponseBody caps buffered upstream bodies. Sized for the
 	// largest feed body (proxifly list, ~18MB JSON).
