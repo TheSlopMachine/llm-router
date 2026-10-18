@@ -632,12 +632,12 @@
     flex-shrink: 0;
   }
   .legend-success {
-    background: var(--fui-color-success);
+    background: springgreen;
   }
   .legend-warning {
-    background: var(--fui-color-warning);
+    background: yellow;
   }
   .legend-danger {
-    background: var(--fui-color-danger);
+    background: red;
   }
 </style>

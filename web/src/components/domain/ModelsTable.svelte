@@ -186,7 +186,7 @@
   </VStack>
 {/snippet}
 
-{#snippet modsBlock({ model }: { model: ModelsTableModel }, size: 'small' | 'large' = 'large', direction: 'vertical' | 'horizontal' = 'vertical')}
+{#snippet modsBlock({ model }: { model: ModelsTableModel }, size: 'small' | 'large' = 'small', direction: 'vertical' | 'horizontal' = 'vertical')}
   <ModalitiesFlow
     modalities={{ input: model.inputModalities, output: model.outputModalities }}
     chipsDirection={direction}
