@@ -866,7 +866,7 @@ Parameters:
 | Name | Pattern `^[a-z0-9_]{1,32}$`. Maximum 8 jobs per type. |
 | `interval_seconds` | Interval in seconds. Range 60 to 86400. |
 | `run_on_startup` | Boolean. Runs once at startup when true. Defaults to false. |
-| `timeout_ms` | Timeout in milliseconds. Defaults to 60000. Bounds 1000 to 300000. Values outside bounds clamp to bounds. |
+| `timeout_ms` | Timeout in milliseconds. Defaults to 60000. Bounds 1000 to 900000. Values outside bounds clamp to bounds. |
 | `run` | Function `function(ctx)` where `ctx` carries `job_name`, `run_reason` (`tick`, `startup`, `manual`), and optional `provider_config`. Returns `true`, `nil`, or terminal error table. |
 
 Return values: `true` or `nil` marks success. Terminal error table marks
@@ -957,7 +957,7 @@ Parameters:
 
 | Parameter | Description |
 |---|---|
-| `timeout_ms` | Timeout in milliseconds. Default 60000. Range 1000 to 300000. Values outside range clamp to range. |
+| `timeout_ms` | Timeout in milliseconds. Default 60000. Range 1000 to 900000. Values outside range clamp to range. |
 
 Return values: client userdata with `request` and `stream` methods.
 
@@ -995,7 +995,7 @@ hostname and IP literals only, because the proxy resolves the target.
 
 `timeout_ms` bounds the whole exchange, including the response body: a stream
 running longer than `timeout_ms` ends with a transport fault. Streaming
-handlers pass a large value (up to 300000).
+handlers pass a large value (up to 900000).
 
 Transport fault fields:
 
@@ -1130,7 +1130,7 @@ Parameters:
 | `exclude` | Array of proxy URLs that must not be returned. |
 | `limit` | Maximum number of distinct proxies returned, 1 to 50, default 1. Whole numbers only. |
 | `want` | Free pool only: alive proxies the pool keeps in stock for these countries, 1 to 200. Default is the pool default. Has no effect without `countries`. |
-| `timeout_ms` | Free pool only: wait deadline, default 60000, at most 300000. |
+| `timeout_ms` | Free pool only: wait deadline, default 60000, at most 900000. |
 | `fallback` | `"fail"` (default) or `"direct"`: behavior when no proxy is available. |
 
 Return values: table `{proxies={{id,url,country,pool},...}, timed_out,

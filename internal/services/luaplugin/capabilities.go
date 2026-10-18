@@ -266,7 +266,7 @@ func newCredentialsTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 
 const (
 	defaultProxyRequireTimeout = 60 * time.Second
-	maxProxyRequireTimeout     = 5 * time.Minute
+	maxProxyRequireTimeout     = 15 * time.Minute
 	maxProxyRequireLimit       = 50
 	maxProxyRequireWant        = 200
 	proxyFallbackDirect        = "direct"
