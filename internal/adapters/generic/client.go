@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -21,11 +22,28 @@ type Client struct {
 	logger     *slog.Logger
 }
 
+func newIPv4Transport() *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Force HTTPS through DialContext as well; an inherited custom TLS
+	// dialer could otherwise bypass the IPv4-only connection path.
+	transport.DialTLS = nil
+	transport.DialTLSContext = nil
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	transport.DialContext = func(ctx context.Context, _ string, address string) (net.Conn, error) {
+		return dialer.DialContext(ctx, "tcp4", address)
+	}
+	return transport
+}
+
 func newClient(baseURL string) *Client {
 	return &Client{
 		baseURL: strings.TrimSuffix(baseURL, "/"),
 		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout:   60 * time.Second,
+			Transport: newIPv4Transport(),
 		},
 		logger: slog.Default(),
 	}

@@ -47,6 +47,7 @@ type executionContext struct {
 	// and the requested model. Credential selection belongs to the
 	// plugin; the traffic path carries no credential identity.
 	providerID   string
+	providerType bool
 	typeKey      string
 	credentialID string
 	model        models.ModelId

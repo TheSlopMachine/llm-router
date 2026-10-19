@@ -77,10 +77,15 @@ func ipBlocked(ip net.IP) bool {
 // ssrfGuard validates every hop against the plugin allow-list and the
 // hard private-range blocklist. The private-range check applies even
 // when the plugin holds a wildcard allow_host.
+type ipResolver interface {
+	LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error)
+	LookupIP(ctx context.Context, network, host string) ([]net.IP, error)
+}
+
 type ssrfGuard struct {
 	allowHosts map[string]bool
 	wildcard   bool
-	resolver   *net.Resolver
+	resolver   ipResolver
 }
 
 func newSSRFGuard(allowHosts []string) *ssrfGuard {
@@ -135,12 +140,31 @@ func (g *ssrfGuard) checkURL(raw string) (*url.URL, error) {
 // resolveAndPick resolves hostname and returns the first non-blocked IP.
 // Every resolved IP in a blocked range is rejected, closing DNS rebinding
 // between check and dial: dial targets the validated IP directly.
-func (g *ssrfGuard) resolveAndPick(ctx context.Context, hostname string) (net.IP, error) {
+func (g *ssrfGuard) resolveAndPick(ctx context.Context, hostname string, ipv4Only bool) (net.IP, error) {
 	if ip := net.ParseIP(hostname); ip != nil {
+		if ipv4Only {
+			ip = ip.To4()
+			if ip == nil {
+				return nil, fmt.Errorf("IPv6 address %q is not allowed for provider requests", hostname)
+			}
+		}
 		if ipBlocked(ip) {
 			return nil, fmt.Errorf("dial to %q blocked: private/link-local address", hostname)
 		}
 		return ip, nil
+	}
+	if ipv4Only {
+		ips, err := g.resolver.LookupIP(ctx, "ip4", hostname)
+		if err != nil {
+			return nil, fmt.Errorf("resolve %q: %w", hostname, err)
+		}
+		for _, candidate := range ips {
+			ip := candidate.To4()
+			if ip != nil && !ipBlocked(ip) {
+				return ip, nil
+			}
+		}
+		return nil, fmt.Errorf("dial to %q blocked: no allowed IPv4 address", hostname)
 	}
 	addrs, err := g.resolver.LookupIPAddr(ctx, hostname)
 	if err != nil {
@@ -156,9 +180,10 @@ func (g *ssrfGuard) resolveAndPick(ctx context.Context, hostname string) (net.IP
 
 // pluginHTTPClient is the Go backing of llm_router.http_client.
 type pluginHTTPClient struct {
-	ctx    *executionContext
-	guard  *ssrfGuard
-	client *http.Client
+	ctx      *executionContext
+	guard    *ssrfGuard
+	client   *http.Client
+	ipv4Only bool
 	// timeout bounds one attempt; every key attempt gets a fresh budget.
 	timeout time.Duration
 	// proxyClients caches one transport per resolved proxy URL: handlers
@@ -169,7 +194,15 @@ type pluginHTTPClient struct {
 }
 
 func newPluginHTTPClient(ctx *executionContext, timeoutMs int) *pluginHTTPClient {
-	c := &pluginHTTPClient{ctx: ctx, guard: newSSRFGuard(ctx.allowHosts), proxyClients: map[string]*http.Client{}}
+	var allowHosts []string
+	ipv4Only := ctx != nil && ctx.providerType
+	if ctx != nil {
+		allowHosts = ctx.allowHosts
+	}
+	c := &pluginHTTPClient{
+		ctx: ctx, guard: newSSRFGuard(allowHosts), ipv4Only: ipv4Only,
+		proxyClients: map[string]*http.Client{},
+	}
 	timeout := time.Duration(timeoutMs) * time.Millisecond
 	c.timeout = timeout
 
@@ -188,9 +221,12 @@ func newPluginHTTPClient(ctx *executionContext, timeoutMs int) *pluginHTTPClient
 			if err := c.guard.checkHost(host); err != nil {
 				return nil, err
 			}
-			ip, err := c.guard.resolveAndPick(dialCtx, host)
+			ip, err := c.guard.resolveAndPick(dialCtx, host, c.ipv4Only)
 			if err != nil {
 				return nil, err
+			}
+			if c.ipv4Only {
+				network = "tcp4"
 			}
 			return dialer.DialContext(dialCtx, network, net.JoinHostPort(ip.String(), port))
 		},
@@ -202,9 +238,12 @@ func newPluginHTTPClient(ctx *executionContext, timeoutMs int) *pluginHTTPClient
 			if err := c.guard.checkHost(host); err != nil {
 				return nil, err
 			}
-			ip, err := c.guard.resolveAndPick(dialCtx, host)
+			ip, err := c.guard.resolveAndPick(dialCtx, host, c.ipv4Only)
 			if err != nil {
 				return nil, err
+			}
+			if c.ipv4Only {
+				network = "tcp4"
 			}
 			raw, err := dialer.DialContext(dialCtx, network, net.JoinHostPort(ip.String(), port))
 			if err != nil {

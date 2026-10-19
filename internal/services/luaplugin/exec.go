@@ -35,6 +35,21 @@ type callConfiguration struct {
 	lifecycleReadOnly bool
 }
 
+// isProviderType distinguishes registered provider types from proxy sources.
+// Provider types are required to expose the complete handler; proxy sources
+// are registered separately and do not have that handler.
+func isProviderType(record *PluginRecord, typeKey string) bool {
+	if record == nil {
+		return false
+	}
+	for _, handlerName := range record.Handlers[typeKey] {
+		if handlerName == string(HandlerComplete) {
+			return true
+		}
+	}
+	return false
+}
+
 // handlerCall loads plugin source in a pooled state and invokes one handler.
 // Lua error tables matching the terminal (message, code?, param?, status?)
 // shape become ProviderError; everything else becomes PluginInternalError.
@@ -91,6 +106,7 @@ func (s *Service) handlerCallEx(
 		storage:              &serviceStorage{service: s, ctx: goCtx},
 		timeoutMs:            configuration.timeoutMs,
 		providerID:           configuration.providerID,
+		providerType:         isProviderType(record, typeKey),
 		typeKey:              typeKey,
 		credentialID:         configuration.credentialID,
 		model:                configuration.model,
