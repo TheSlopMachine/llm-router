@@ -20,8 +20,8 @@
     <VStack gap={4}>
       <VStack gap={1}>
         <Text size="sm" weight="bold" class="brand">llm-router</Text>
-        <Text tag="h1" size="xl" weight="medium">{title}</Text>
-        {#if subtitle}<Text size="base" tone="soft">{subtitle}</Text>{/if}
+        <Text tag="h1" size={32} weight="medium">{title}</Text>
+        {#if subtitle}<Text size="md" foregroundStyle="secondary">{subtitle}</Text>{/if}
       </VStack>
       {@render children?.()}
     </VStack>

@@ -8,7 +8,7 @@
 
 body {
   font-family: var(--fui-font-normal);
-  font-size: var(--fui-text-base);
+  font-size: var(--fui-text-md);
   font-weight: 400;
   line-height: var(--fui-leading-base);
   background: var(--fui-color-background);
@@ -26,7 +26,7 @@ a {
 a:hover { text-decoration: underline; }
 
 /* Neutralise browser chrome on native controls, nothing more. The look of a
-   button / field belongs to Button / TextEdit / TextArea / Select. */
+   button / field belongs to Button / TextField / TextEditor / Select. */
 :where(button) {
   font: inherit;
   color: inherit;

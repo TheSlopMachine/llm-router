@@ -4,7 +4,7 @@
   import { getErrorMessage } from '$lib/errors'
   import type { MetricsFilters, MetricsOverview, TimeSeriesPoint, Provider } from '$lib/types'
   import { t } from '$lib/i18n.svelte'
-  import { VStack, HStack, Text, Grid, Spacer, Button, Banner, Header, EmptyState } from '@fuckyouryan/fui'
+  import { VStack, HStack, Text, Grid, Spacer, Button, Banner, Header, ContentUnavailable } from '@fuckyouryan/fui'
   import MetricsFiltersCmp from './components/MetricsFilters.svelte'
   import MetricsOverviewCard from './components/MetricsOverviewCard.svelte'
   import PeakUsageChart from './components/PeakUsageChart.svelte'
@@ -25,6 +25,7 @@
   let errors = $state<string[]>([])
 
   let refreshInterval: number | undefined
+  let latestMetricsRequest = 0
 
   onMount(() => {
     void (async () => {
@@ -33,7 +34,9 @@
       await loadMetrics()
     })()
 
-    refreshInterval = window.setInterval(loadMetrics, 30000)
+    refreshInterval = window.setInterval(() => {
+      if (!document.hidden) void loadMetrics()
+    }, 30000)
 
     return () => {
       if (refreshInterval !== undefined) clearInterval(refreshInterval)
@@ -69,8 +72,10 @@
   }
 
   async function loadMetrics() {
+    const request = ++latestMetricsRequest
     try {
-      loading = true
+      // Only the first load shows the loading state; refreshes replace data in place.
+      if (overview === null) loading = true
 
       const [overviewData, reqSeries, inSeries, outSeries] = await Promise.all([
         api.metrics.overview(filters),
@@ -78,6 +83,7 @@
         api.metrics.timeSeries('peak_input_tokens', filters),
         api.metrics.timeSeries('peak_output_tokens', filters)
       ])
+      if (request !== latestMetricsRequest) return
 
       overview = overviewData
       requestsData = reqSeries || []
@@ -85,6 +91,7 @@
       outputTokensData = outSeries || []
       errors = errors.filter((e) => !e.includes('metrics'))
     } catch (err) {
+      if (request !== latestMetricsRequest) return
       const message = `Failed to load metrics: ${getErrorMessage(err)}`
       if (!errors.includes(message)) {
         errors = [...errors, message]
@@ -93,12 +100,13 @@
       inputTokensData = []
       outputTokensData = []
     } finally {
-      loading = false
+      if (request === latestMetricsRequest) loading = false
     }
   }
 
   function handleFilterChange(f: any) {
     filters = f
+    overview = null
     void loadMetrics()
   }
 </script>
@@ -111,15 +119,15 @@
   {#if errors.length > 0}
     <VStack gap={2}>
       {#each errors as error}
-        <Banner variant="error" text={error} />
+        <Banner tint="danger" text={error} />
       {/each}
     </VStack>
   {/if}
 
   <VStack gap={4}>
-    <HStack align="center" gap={2}>
+    <HStack valign="center" gap={2}>
       <Text variant="section-title">{t('metrics.overview')}</Text>
-      <Button style="text" size="small" icon={{ name: 'info' }} title={t('metrics.overview_info')} />
+      <Button buttonStyle="text" size="sm" icon={{ name: 'info' }} title={t('metrics.overview_info')} />
     </HStack>
 
     <Grid min="md" gap={5}>

@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { api } from '../../lib/api'
-  import { modal, toast, EmptyState, Button, Chip, FloatingView, HStack, Image, Select, Spacer, Switch, Table, Text, VStack, Banner, ConfirmAction, Header, ToolbarItem, type TableColumn, squircle } from '@fuckyouryan/fui'
+  import { modal, toast, ContentUnavailable, Button, Chip, FloatingView, HStack, Image, Spacer, Toggle, Table, Text, VStack, Banner, ConfirmAction, Header, ToolbarItem, type TableColumn, squircle, Picker } from '@fuckyouryan/fui'
   import { hasUiNodes } from '$lib/ui-helpers'
   import { getErrorMessage } from '../../lib/errors'
   import type { Credential, Provider, ProxyPool, TestResult, UINode } from '../../lib/types'
@@ -55,13 +56,17 @@
     void loadPage()
   })
 
+  // Runs when the provider identity changes, not when the provider object is replaced:
+  // a refetch after a toggle would otherwise reload everything and reset unsaved form edits.
   $effect(() => {
-    if (!provider) return
-    void loadCapabilities()
-    void reloadCredentials()
-    initializeProxyConfig()
-    void loadPools()
-    disableFailedCredentials = provider.config?.disable_failed_credentials === true
+    if (!providerIdValue) return
+    untrack(() => {
+      void loadCapabilities()
+      void reloadCredentials()
+      initializeProxyConfig()
+      void loadPools()
+      disableFailedCredentials = provider?.config?.disable_failed_credentials === true
+    })
   })
 
   async function loadPage(): Promise<void> {
@@ -100,7 +105,7 @@
       title: t('providers.detail.edit'),
       content: CustomProviderWizard,
       severity: 'medium',
-      size: 'medium',
+      size: 'md',
       props: {
         editingProvider: provider,
         onComplete: async () => {
@@ -166,7 +171,7 @@
       title: tx('credentials.add_title', { name: provider.name }),
       content: ProviderCredentialWizard,
       severity: 'medium',
-      size: 'medium',
+      size: 'md',
       props: {
         provider,
         onComplete: async () => {
@@ -183,7 +188,7 @@
       title: t('credentials.edit'),
       content: EditCredentialLabel,
       severity: 'medium',
-      size: 'small',
+      size: 'sm',
       props: {
         cred,
         onComplete: async () => {
@@ -414,11 +419,11 @@
 </script>
 
 {#if loading}
-  <EmptyState title={t('common.state.loading')} />
+  <ContentUnavailable title={t('common.state.loading')} />
 {:else if !provider}
-  <VStack align="center" gap={4} class="provider-state">
-    <EmptyState title={t('providers.detail.not_found')} />
-    <Button style="text" onclick={back}>{t('providers.detail.back_to_providers')}</Button>
+  <VStack halign="center" gap={4} class="provider-state">
+    <ContentUnavailable title={t('providers.detail.not_found')} />
+    <Button buttonStyle="text" onclick={back}>{t('providers.detail.back_to_providers')}</Button>
   </VStack>
 {:else}
   {@const p = provider}
@@ -426,11 +431,11 @@
     <Header title={p.name} subtitle={p.type_key}>
       {#snippet actions()}
         {#if !p.is_ui_readonly}
-          <ToolbarItem priority={2}><Button style="text" onclick={openEditProvider} icon={{ name: 'edit' }}>{t('common.actions.edit')}</Button></ToolbarItem>
-          <ToolbarItem priority={3}><Button style="text" tint="var(--fui-color-danger)" onclick={(e) => openDeleteProvider(e.currentTarget as HTMLElement)} icon={{ name: 'delete' }}>{t('common.actions.delete')}</Button></ToolbarItem>
+          <ToolbarItem priority={2}><Button buttonStyle="text" onclick={openEditProvider} icon={{ name: 'edit' }}>{t('common.actions.edit')}</Button></ToolbarItem>
+          <ToolbarItem priority={3}><Button buttonStyle="text" tint="var(--fui-color-danger)" onclick={(e) => openDeleteProvider(e.currentTarget as HTMLElement)} icon={{ name: 'delete' }}>{t('common.actions.delete')}</Button></ToolbarItem>
         {/if}
         <ToolbarItem primary label={t('providers.detail.enable')}>
-          <Switch
+          <Toggle
             size="xl"
             checked={!p.disabled}
             ariaLabel={t('providers.detail.enable')}
@@ -441,18 +446,18 @@
     </Header>
 
     {#if error}
-      <Banner variant="error" text={error} />
+      <Banner tint="danger" text={error} />
     {/if}
 
     {#if credentialsEnabled}
       <VStack tag="section" gap={4} class="provider-section">
         <Header level="section" title={t('credentials.title_plural')} subtitle={String(credentials.length)}>
           {#snippet actions()}
-            <Button style="prominent" onclick={openAddCredential} icon={{ name: 'add' }}>{t('credentials.add')}</Button>
+            <Button buttonStyle="prominent" onclick={openAddCredential} icon={{ name: 'add' }}>{t('credentials.add')}</Button>
           {/snippet}
         </Header>
-      <HStack align="center" gap={4} wrap>
-        <Switch
+      <HStack valign="center" gap={4} wrap>
+        <Toggle
           checked={disableFailedCredentials}
           label={t('credentials.disable_failing')}
           onchange={(v) => { disableFailedCredentials = v; void saveCredAutomation() }}
@@ -470,28 +475,28 @@
       >
         {#snippet card({ row })}
           {@const cred = row as Credential}
-          <HStack gap={3} align="center">
+          <HStack gap={3} valign="center">
             <VStack gap={1} grow>
               <Text variant="value">{cred.label || t('common.labels.unnamed')}</Text>
               {#if isAutoDisabled(cred)}
-                <Text variant="caption" tone="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(cred.disabled_reason)}</Text>
+                <Text variant="caption" tint="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(cred.disabled_reason)}</Text>
               {:else if isPluginDisabled(cred)}
-                <Text variant="caption" tone="danger">{t('providers.detail.disabled_by_plugin')}{formatDisableReason(cred.disabled_reason)}</Text>
+                <Text variant="caption" tint="danger">{t('providers.detail.disabled_by_plugin')}{formatDisableReason(cred.disabled_reason)}</Text>
               {/if}
               {#if cred.is_expired}
-                <Text variant="caption" tone="danger">{t('tokens.status.expired')}</Text>
+                <Text variant="caption" tint="danger">{t('tokens.status.expired')}</Text>
               {/if}
             </VStack>
             <HStack gap={2}>
-              <Button size="small" style="text" icon={{ name: 'edit' }} ariaLabel={t('credentials.edit')} title={t('credentials.edit')} onclick={() => openEditCredential(cred)} />
-              <Button size="small" tint="var(--fui-color-danger)" style="text" icon={{ name: 'delete' }} ariaLabel={t('credentials.delete')} title={t('credentials.delete')} onclick={(e) => openDeleteCredential(cred, e.currentTarget as HTMLElement)} />
+              <Button size="sm" buttonStyle="text" icon={{ name: 'edit' }} ariaLabel={t('credentials.edit')} title={t('credentials.edit')} onclick={() => openEditCredential(cred)} />
+              <Button size="sm" tint="var(--fui-color-danger)" buttonStyle="text" icon={{ name: 'delete' }} ariaLabel={t('credentials.delete')} title={t('credentials.delete')} onclick={(e) => openDeleteCredential(cred, e.currentTarget as HTMLElement)} />
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <span
                 role="presentation"
                 onclick={(e) => e.stopPropagation()}
                 onkeydown={(e) => e.stopPropagation()}
               >
-                <Switch
+                <Toggle
                   checked={!cred.disabled}
                   ariaLabel={t('credentials.enable')}
                   onchange={(v) => toggleCredential(cred, v)}
@@ -503,24 +508,24 @@
         {#snippet cell({ column, row })}
           {@const cred = row as Credential}
           {#if column.key === 'name'}
-            <HStack gap={2} align="center" wrap>
+            <HStack gap={2} valign="center" wrap>
               <Text variant="value">{cred.label || t('common.labels.unnamed')}</Text>
               {#if cred.is_expired}
-                <Chip text={t('tokens.status.expired')} color="chip-red" />
+                <Chip text={t('tokens.status.expired')} tint="danger" />
               {/if}
             </HStack>
             {#if isAutoDisabled(cred)}
-              <Text variant="caption" tone="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(cred.disabled_reason)}</Text>
+              <Text variant="caption" tint="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(cred.disabled_reason)}</Text>
             {:else if isPluginDisabled(cred)}
-              <Text variant="caption" tone="danger">{t('providers.detail.disabled_by_plugin')}{formatDisableReason(cred.disabled_reason)}</Text>
+              <Text variant="caption" tint="danger">{t('providers.detail.disabled_by_plugin')}{formatDisableReason(cred.disabled_reason)}</Text>
             {/if}
           {:else}
             {@const ti = testIcon(credentialTestResults[cred.id], t('credentials.test'))}
-            <HStack gap={3} justify="end">
+            <HStack gap={3} halign="end">
               {#if cred.parked}
                 <Button
-                  size="small"
-                  style="text"
+                  size="sm"
+                  buttonStyle="text"
                   icon={{ name: 'ac_unit' }}
                   ariaLabel={t('credentials.unpark_action')}
                   title={`${t('credentials.unpark_action')}${cred.park_reason ? `: ${cred.park_reason}` : ''}`}
@@ -528,17 +533,17 @@
                 />
               {/if}
               <Button
-                size="small"
+                size="sm"
                 icon={{ name: ti.icon }}
-                style="text"
+                buttonStyle="text"
                 disabled={credentialTestResults[cred.id] === 'loading'}
                 ariaLabel={ti.title}
                 title={ti.title}
                 onclick={() => testCredential(cred)}
               />
-              <Button size="small" style="text" icon={{ name: 'edit' }} ariaLabel={t('credentials.edit')} title={t('credentials.edit')} onclick={() => openEditCredential(cred)} />
-              <Button size="small" tint="var(--fui-color-danger)" style="text" icon={{ name: 'delete' }} ariaLabel={t('credentials.delete')} title={t('credentials.delete')} onclick={(e) => openDeleteCredential(cred, e.currentTarget as HTMLElement)} />
-              <Switch
+              <Button size="sm" buttonStyle="text" icon={{ name: 'edit' }} ariaLabel={t('credentials.edit')} title={t('credentials.edit')} onclick={() => openEditCredential(cred)} />
+              <Button size="sm" tint="var(--fui-color-danger)" buttonStyle="text" icon={{ name: 'delete' }} ariaLabel={t('credentials.delete')} title={t('credentials.delete')} onclick={(e) => openDeleteCredential(cred, e.currentTarget as HTMLElement)} />
+              <Toggle
                 checked={!cred.disabled}
                 ariaLabel={t('credentials.enable')}
                 onchange={(v) => toggleCredential(cred, v)}
@@ -547,26 +552,26 @@
           {/if}
         {/snippet}
         {#snippet empty()}
-          <EmptyState title={t('credentials.empty')} />
+          <ContentUnavailable title={t('credentials.empty')} />
         {/snippet}
       </Table>
       </VStack>
     {/if}
 
     {#if proxiesEnabled}
-      <VStack tag="section" gap={4} align="start" class="provider-section">
+      <VStack tag="section" gap={4} halign="start" class="provider-section">
         <Text variant="section-title">{t('proxy.title_singular')}</Text>
-        <HStack align="center" justify="between" gap={3}>
+        <HStack valign="center" halign="between" gap={3}>
           <Text grow>{t('providers.detail.route_pool')}</Text>
-          <Switch
+          <Toggle
             checked={proxyEnabled}
             ariaLabel={t('providers.detail.route_pool')}
             onchange={(v) => { proxyEnabled = v; void saveProxyConfig() }}
           />
         </HStack>
         {#if proxyEnabled}
-          <HStack align="center" gap={3} wrap>
-            <Select
+          <HStack valign="center" gap={3} wrap>
+            <Picker
               bind:value={proxyPool}
               options={[
                 { value: 'auto', label: t('providers.detail.auto_pool') },
@@ -577,7 +582,7 @@
               onchange={() => void saveProxyConfig()}
             />
             {#if savingProxy}
-              <Text size="xs" tone="soft">{t('common.actions.saving')}</Text>
+              <Text size="xs" foregroundStyle="secondary">{t('common.actions.saving')}</Text>
             {/if}
           </HStack>
         {/if}
@@ -588,10 +593,10 @@
     {/if}
 
     {#if settingsNodes.length > 0}
-      <VStack tag="section" gap={4} align="start" class="provider-section">
+      <VStack tag="section" gap={4} halign="start" class="provider-section">
         <Header level="section" title={t('providers.detail.plugin_settings')}>
           {#snippet actions()}
-            <Button style="prominent" onclick={() => void saveSettings()} disabled={savingSettings}>
+            <Button buttonStyle="prominent" onclick={() => void saveSettings()} disabled={savingSettings}>
               {savingSettings ? t('common.actions.saving') : t('providers.detail.save_settings')}
             </Button>
           {/snippet}

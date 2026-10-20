@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Select, HStack, VStack, Text } from '@fuckyouryan/fui'
+  import { HStack, VStack, Text, Picker } from '@fuckyouryan/fui'
   import type { MetricsFilters, Provider } from '$lib/types'
   import { t } from '$lib/i18n.svelte'
 
@@ -41,10 +41,10 @@
   ])
 </script>
 
-<HStack gap={3} align="end" wrap>
+<HStack gap={3} valign="end" wrap>
   <VStack gap={1} fill="sm">
-    <Text size="sm" weight="medium" tone="soft" tag="label">{t('providers.detail.title')}</Text>
-    <Select
+    <Text size="sm" weight="medium" foregroundStyle="secondary" tag="label">{t('providers.detail.title')}</Text>
+    <Picker
       bind:value={filters.provider_id}
       options={providerOptions}
       onchange={handleChange}
@@ -52,8 +52,8 @@
   </VStack>
 
   <VStack gap={1} fill="sm">
-    <Text size="sm" weight="medium" tone="soft" tag="label">{t('metrics.time_range')}</Text>
-    <Select
+    <Text size="sm" weight="medium" foregroundStyle="secondary" tag="label">{t('metrics.time_range')}</Text>
+    <Picker
       bind:value={filters.time_range}
       options={timeRangeOptions}
       onchange={handleChange}
@@ -61,8 +61,8 @@
   </VStack>
 
   <VStack gap={1} fill="sm">
-    <Text size="sm" weight="medium" tone="soft" tag="label">{t('models.list.title')}</Text>
-    <Select
+    <Text size="sm" weight="medium" foregroundStyle="secondary" tag="label">{t('models.list.title')}</Text>
+    <Picker
       bind:value={filters.model}
       options={modelOptions}
       onchange={handleChange}

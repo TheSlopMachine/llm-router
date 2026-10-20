@@ -7,7 +7,7 @@
   import { getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
   import type { Credential, ModalButton } from '$lib/types'
-  import { Text, TextEdit, VStack, Banner } from '@fuckyouryan/fui'
+  import { Text, TextField, VStack, Banner } from '@fuckyouryan/fui'
 
   let {
     cred,
@@ -44,8 +44,8 @@
     void saving
     untrack(() => {
       updateButtons([
-        { label: t('common.actions.cancel'), variant: 'secondary', onClick: closeModal, disabled: saving },
-        { label: saving ? t('common.actions.saving') : t('common.actions.save'), variant: 'primary', onClick: () => void save(), disabled: saving },
+        { label: t('common.actions.cancel'), buttonStyle: 'neutral', onClick: closeModal, disabled: saving },
+        { label: saving ? t('common.actions.saving') : t('common.actions.save'), buttonStyle: 'prominent', onClick: () => void save(), disabled: saving },
       ])
     })
   })
@@ -53,11 +53,11 @@
 
 <VStack gap={4}>
   {#if error}
-    <Banner variant="error" text={error} />
+    <Banner tint="danger" text={error} />
   {/if}
   <VStack gap={1}>
     <Text size="sm" weight="medium">{t('common.labels.name')}</Text>
-    <TextEdit
+    <TextField
       id="cred-edit-label"
       bind:value={label}
       hint={t('credentials.label_example')}

@@ -8,7 +8,7 @@
   import { t, n } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { accent, accents } from '$lib/accent.svelte'
-  import { Button, HStack, SectionCard, Select, Spacer, Switch, Text, VStack, TextEdit, Banner, Icon, Chip, Header, EmptyState, squircle, toast, modal } from '@fuckyouryan/fui'
+  import { Button, HStack, GroupBox, Spacer, Toggle, Text, VStack, TextField, Banner, Icon, Chip, Header, ContentUnavailable, squircle, toast, modal, Picker } from '@fuckyouryan/fui'
   import type { Provider, SubsystemStats, DoctorReport } from '$lib/types'
   import { downloadJson, readJsonFile } from '$lib/download'
 
@@ -270,18 +270,18 @@
   <Header title={t('settings.title')} info={t('settings.subtitle')} />
 
   {#if error}
-    <Banner variant="error" text={error} />
+    <Banner tint="danger" text={error} />
   {/if}
 
-  <SectionCard title={t('settings.preferences')} description={t('settings.preferences.desc')}>
+  <GroupBox title={t('settings.preferences')} description={t('settings.preferences.desc')}>
     <VStack gap={1}>
       <Text tag="label" size="sm" weight="medium" for="settings-language">{t('settings.language.label')}</Text>
-      <Select value={lang} options={languageOptions} onchange={(v) => (lang = v as Language)} />
+      <Picker value={lang} options={languageOptions} onchange={(v) => (lang = v as Language)} />
     </VStack>
 
     <VStack gap={1}>
       <Text tag="label" size="sm" weight="medium" for="settings-theme">{t('settings.theme.label')}</Text>
-      <Select value={th} options={themeOptions} onchange={(v) => (th = v as Theme)} />
+      <Picker value={th} options={themeOptions} onchange={(v) => (th = v as Theme)} />
     </VStack>
 
     <VStack gap={1}>
@@ -301,92 +301,92 @@
         {/each}
       </div>
     </VStack>
-  </SectionCard>
+  </GroupBox>
 
-  <SectionCard title={t('settings.instance.title')} description={t('settings.instance.desc')}>
-    <HStack align="center" gap={4}>
+  <GroupBox title={t('settings.instance.title')} description={t('settings.instance.desc')}>
+    <HStack valign="center" gap={4}>
       <Text>{t('settings.cluster_node')}</Text>
       <Spacer />
-      <Switch bind:checked={isClusterNode} />
+      <Toggle bind:checked={isClusterNode} />
     </HStack>
 
-    <HStack align="center" gap={4}>
+    <HStack valign="center" gap={4}>
       <Text>{t('settings.disable_telemetry')}</Text>
       <Spacer />
-      <Switch bind:checked={disableTelemetry} />
+      <Toggle bind:checked={disableTelemetry} />
     </HStack>
 
-    <HStack justify="end">
-      <Button style="prominent" onclick={save} disabled={saving}>
+    <HStack halign="end">
+      <Button buttonStyle="prominent" onclick={save} disabled={saving}>
         {saving ? t('common.actions.saving') : t('common.actions.save_changes')}
       </Button>
     </HStack>
-  </SectionCard>
+  </GroupBox>
 
   <!-- Security section -->
-  <SectionCard title={t('settings.security')} description={t('settings.password.title')}>
+  <GroupBox title={t('settings.security')} description={t('settings.password.title')}>
     {#if passwordError}
-      <Banner variant="error" text={passwordError} />
+      <Banner tint="danger" text={passwordError} />
     {/if}
 
     <VStack gap={1}>
       <Text tag="label" size="sm" weight="medium" for="current-password">{t('settings.password.current')}</Text>
-      <TextEdit id="current-password" name="current-password" bind:value={currentPassword} type="secret" autocomplete="current-password" />
+      <TextField id="current-password" name="current-password" bind:value={currentPassword} secure autocomplete="current-password" />
     </VStack>
 
     <VStack gap={1}>
       <Text tag="label" size="sm" weight="medium" for="new-password">{t('settings.password.new')}</Text>
-      <TextEdit id="new-password" name="new-password" bind:value={newPassword} type="secret" autocomplete="new-password" />
+      <TextField id="new-password" name="new-password" bind:value={newPassword} secure autocomplete="new-password" />
     </VStack>
 
     <VStack gap={1}>
       <Text tag="label" size="sm" weight="medium" for="confirm-password">{t('settings.password.confirm')}</Text>
-      <TextEdit id="confirm-password" name="new-password-confirm" bind:value={confirmPassword} type="secret" autocomplete="new-password" />
+      <TextField id="confirm-password" name="new-password-confirm" bind:value={confirmPassword} secure autocomplete="new-password" />
     </VStack>
 
-    <HStack justify="end">
-      <Button style="prominent" onclick={updatePassword} disabled={!isPasswordFormValid}>
+    <HStack halign="end">
+      <Button buttonStyle="prominent" onclick={updatePassword} disabled={!isPasswordFormValid}>
         {passwordSaving ? t('common.actions.saving') : t('settings.password.change')}
       </Button>
     </HStack>
-  </SectionCard>
+  </GroupBox>
 
   <!-- Database Doctor Section -->
-  <SectionCard title={t('data.doctor.title')} description={t('data.doctor.desc')}>
+  <GroupBox title={t('data.doctor.title')} description={t('data.doctor.desc')}>
     {#if doctorLoading}
-      <EmptyState title={t('common.state.loading')} />
+      <ContentUnavailable title={t('common.state.loading')} />
     {:else if doctorReport}
       {#if doctorReport.total_issues === 0}
-        <Banner variant="success" text={t('data.doctor.no_issues')} />
+        <Banner tint="success" text={t('data.doctor.no_issues')} />
       {:else}
         <VStack gap={3}>
-          <Banner variant="warning" text={`${t('data.doctor.found')}: ${doctorReport.total_issues}`} />
+          <Banner tint="warning" text={`${t('data.doctor.found')}: ${doctorReport.total_issues}`} />
           <VStack gap={2} class="issues-container">
             {#each doctorReport.issues as issue}
-              <HStack align="center" gap={3} class="issue-row">
-                <Icon name="error" tone="danger" />
+              <HStack valign="center" gap={3} class="issue-row">
+                <Icon name="error" tint="danger" />
                 <VStack gap={0} grow>
                   <Text weight="medium" size="sm">{issue.title}</Text>
-                  <Text size="xs" tone="soft">{issue.description}</Text>
+                  <Text size="xs" foregroundStyle="secondary">{issue.description}</Text>
                 </VStack>
-                <Chip text={String(issue.count)} color="chip-red" />
+                <Chip text={String(issue.count)} tint="danger" />
               </HStack>
             {/each}
           </VStack>
-          <HStack justify="end">
-            <Button style="prominent" tint="var(--fui-color-danger)" onclick={fixIssues} disabled={doctorFixing}>
+          <HStack halign="end">
+            <Button buttonStyle="prominent" tint="var(--fui-color-danger)" onclick={fixIssues} disabled={doctorFixing}>
               {doctorFixing ? t('data.doctor.resolving') : t('data.doctor.clean')}
             </Button>
           </HStack>
         </VStack>
       {/if}
     {/if}
-  </SectionCard>
+  </GroupBox>
 
   <!-- Data Management section -->
-  <SectionCard title={t('data.title')} description={t('data.subtitle')}>
+  <GroupBox title={t('data.title')} description={t('data.subtitle')}>
     {#if subsystemStatisticsLoading}
-      <EmptyState title={t('common.state.loading')} />
+      <ContentUnavailable title={t('common.state.loading')} />
     {:else if subsystemStatistics}
       <VStack gap={4} class="data-container">
         {#each [
@@ -397,77 +397,77 @@
           { key: 'proxy', label: t('data.proxy'), count: subsystemStatistics.proxy_pools + subsystemStatistics.proxies }
         ] as sub}
           <VStack gap={2} class="subsystem-box">
-            <HStack align="center" gap={3}>
+            <HStack valign="center" gap={3}>
               <VStack gap={0} grow>
-                <Text weight="medium" size="base">{sub.label}</Text>
-                <Text size="xs" tone="soft">{n(sub.count, 'units.item.one', 'units.item.many')}</Text>
+                <Text weight="medium" size="md">{sub.label}</Text>
+                <Text size="xs" foregroundStyle="secondary">{n(sub.count, 'units.item.one', 'units.item.many')}</Text>
               </VStack>
               <HStack gap={2} wrap>
-                <Button size="small" icon={{ name: 'download' }} onclick={() => exportSubsystem(sub.key)}>{t('data.export')}</Button>
-                <Button size="small" style="text" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} onclick={() => clearSubsystem(sub.key)}>{t('data.clear')}</Button>
+                <Button size="sm" icon={{ name: 'download' }} onclick={() => exportSubsystem(sub.key)}>{t('data.export')}</Button>
+                <Button size="sm" buttonStyle="text" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} onclick={() => clearSubsystem(sub.key)}>{t('data.clear')}</Button>
               </HStack>
             </HStack>
-            <HStack gap={3} align="center" wrap class="file-action-row">
+            <HStack gap={3} valign="center" wrap class="file-action-row">
               <input type="file" accept=".json" onchange={(e) => handleFileChange(sub.key, e)} class="file-input" id="file-{sub.key}" />
               <label for="file-{sub.key}" class="file-label">
                 <Icon name="attach_file" />
                 <span>{importFileMap[sub.key] ? importFileMap[sub.key]?.name : t('data.select_json')}</span>
               </label>
               {#if importFileMap[sub.key]}
-                <Button size="small" style="prominent" onclick={() => importSubsystem(sub.key)}>{t('data.import')}</Button>
+                <Button size="sm" buttonStyle="prominent" onclick={() => importSubsystem(sub.key)}>{t('data.import')}</Button>
               {/if}
             </HStack>
           </VStack>
         {/each}
       </VStack>
     {/if}
-  </SectionCard>
+  </GroupBox>
 
   <!-- Individual Provider Management section -->
-  <SectionCard title={t('data.provider.title')} description={t('data.provider.desc')}>
+  <GroupBox title={t('data.provider.title')} description={t('data.provider.desc')}>
     {#if providersLoading}
-      <EmptyState title={t('common.state.loading')} />
+      <ContentUnavailable title={t('common.state.loading')} />
     {:else if allProviders.length === 0}
-      <EmptyState title={t('providers.manage.none_available')} />
+      <ContentUnavailable title={t('providers.manage.none_available')} />
     {:else}
       <VStack gap={3}>
         <VStack gap={1}>
           <Text size="sm" weight="medium">{t('data.provider.select')}</Text>
-          <Select ariaLabel={t('data.provider.select')} bind:value={selectedProviderId} options={providerOptions} />
+          <Picker ariaLabel={t('data.provider.select')} bind:value={selectedProviderId} options={providerOptions} />
         </VStack>
 
-        <HStack gap={2} align="center" wrap>
-          <Button size="small" icon={{ name: 'download' }} onclick={() => exportIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.export')}</Button>
-          <Button size="small" style="text" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} onclick={() => purgeIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.purge_provider')}</Button>
+        <HStack gap={2} valign="center" wrap>
+          <Button size="sm" icon={{ name: 'download' }} onclick={() => exportIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.export')}</Button>
+          <Button size="sm" buttonStyle="text" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} onclick={() => purgeIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.purge_provider')}</Button>
         </HStack>
 
-        <HStack gap={3} align="center" wrap class="file-action-row">
+        <HStack gap={3} valign="center" wrap class="file-action-row">
           <input type="file" accept=".json" onchange={handleIndividualProviderFileChange} class="file-input" id="file-individual-provider" />
           <label for="file-individual-provider" class="file-label">
             <Icon name="attach_file" />
             <span>{providerImportFile ? providerImportFile?.name : t('data.select_json')}</span>
           </label>
           {#if providerImportFile}
-            <Button size="small" style="prominent" onclick={() => importIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.import')}</Button>
+            <Button size="sm" buttonStyle="prominent" onclick={() => importIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.import')}</Button>
           {/if}
         </HStack>
       </VStack>
     {/if}
-  </SectionCard>
+  </GroupBox>
 </VStack>
 
 <style>
   .accent-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(var(--fui-ctl-large), 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(var(--fui-ctl-lg), 1fr));
     gap: var(--fui-space-3);
   }
   .accent-swatch {
     width: 100%;
-    height: var(--fui-ctl-large);
+    height: var(--fui-ctl-lg);
     border-radius: var(--fui-ctl-radius);
     border: none;
-    font-size: var(--fui-text-base);
+    font-size: var(--fui-text-md);
     font-weight: 700;
     cursor: pointer;
     padding: 0;

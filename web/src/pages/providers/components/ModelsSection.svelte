@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import ModelsTable from '../../../components/domain/ModelsTable.svelte'
-  import { squircle, toast, FloatingView, Table, CopyButton, Button, Spacer, HStack, VStack, Text, Switch, Select, Picker, SearchField, Toolbar, ToolbarItem, TextEdit, Banner, ConfirmAction, EmptyState } from '@fuckyouryan/fui'
+  import { squircle, toast, FloatingView, Table, CopyButton, Button, Spacer, HStack, VStack, Text, Toggle, Picker, SearchField, Toolbar, ToolbarItem, TextField, Banner, ConfirmAction, ContentUnavailable } from '@fuckyouryan/fui'
   import { t, tb } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { CAPABILITY_META, hasModalities } from '$lib/capabilities'
@@ -26,14 +27,14 @@
   })
 
   $effect(() => {
-    // Parent-notification effect: every dependency listed explicitly.
-    // credRevision bumps only on credential add, so a key added to a
-    // credential-less provider retries discovery without clicks.
+    // Dependencies: provider identity and credRevision only. credRevision bumps on
+    // credential add, so a key added to a credential-less provider retries discovery.
+    // Replacing the provider object (config toggles) must not reload the model list.
     void credRevision
-    if (provider) {
+    if (!providerId) return
+    untrack(() => {
       void reloadModels()
-      void loadVmGroups()
-    }
+    })
   })
 
   let models = $state<ProviderModel[]>([])
@@ -396,7 +397,7 @@
 </script>
 
   {#if discoveryFailed && !modelsLoading}
-    <Banner variant="error" text={modelsError} />
+    <Banner tint="danger" text={modelsError} />
   {:else}
   <VStack tag="section" gap={4} class="provider-section">
     <Text variant="section-title">{t('models.list.available')}</Text>
@@ -405,7 +406,7 @@
       <ToolbarItem pinned fill="md">
         <SearchField bind:value={modelSearch} placeholder={t('models.filter.placeholder')} />
       </ToolbarItem>
-      <Picker
+      <Picker pickerStyle="segmented"
         bind:value={modelFilter}
         options={[
           { value: 'all', label: t('common.actions.all') },
@@ -434,13 +435,13 @@
 
     <div class="setting-grid">
       <Text>{t('providers.detail.disable_failing')}</Text>
-      <Switch
+      <Toggle
         checked={disableFailedModels}
         ariaLabel={t('providers.detail.disable_failing')}
         onchange={(v) => { disableFailedModels = v; saveAutomation() }}
       />
       <Text>{t('providers.detail.auto_sync')}</Text>
-      <Switch
+      <Toggle
         checked={autoSyncModels}
         ariaLabel={t('providers.detail.auto_sync')}
         onchange={(v) => { autoSyncModels = v; saveAutomation() }}
@@ -448,7 +449,7 @@
     </div>
 
     {#if modelsError}
-      <Banner variant="error" text={modelsError} />
+      <Banner tint="danger" text={modelsError} />
     {:else}
       {@render modelsTable()}
     {/if}
@@ -457,11 +458,11 @@
   <VStack tag="section" gap={4} class="provider-section">
     <VStack gap={1}>
       <Text variant="section-title">{t('virtual.models_plural')}</Text>
-      <Text tone="soft" size="sm">{t('providers.models.fallthrough_description')}</Text>
+      <Text foregroundStyle="secondary" size="sm">{t('providers.models.fallthrough_description')}</Text>
     </VStack>
 
     {#if vmGroups.length === 0}
-      <EmptyState title={t('providers.models.no_endpoint_groups')} />
+      <ContentUnavailable title={t('providers.models.no_endpoint_groups')} />
     {:else}
       <Table
         columns={[
@@ -478,25 +479,25 @@
           {#if column.key === 'vm'}
             {#if g.virtual}
               {@const v = g.virtual}
-              <VStack gap={1} align="start">
-                <Text size="base" weight="medium">{v.name}</Text>
-                <HStack gap={2} align="center">
+              <VStack gap={1} halign="start">
+                <Text size="md" weight="medium">{v.name}</Text>
+                <HStack gap={2} valign="center">
                   <Text mono size="sm" class="id-text">virtual/{v.id}</Text>
-                  <CopyButton size="small" text={`virtual/${v.id}`} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
+                  <CopyButton size="sm" text={`virtual/${v.id}`} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
                 </HStack>
               </VStack>
             {:else}
-              <Text tone="disabled">—</Text>
+              <Text foregroundStyle="tertiary">—</Text>
             {/if}
           {:else if column.key === 'endpoint'}
             {@const ep = VM_ENDPOINTS[g.endpoint] ?? { path: g.endpoint, hint: g.label }}
-            <Text size="sm" tone="soft" title={t(ep.hint)}>{ep.path}</Text>
+            <Text size="sm" foregroundStyle="secondary" title={t(ep.hint)}>{ep.path}</Text>
           {:else if column.key === 'count'}
-            <Text size="sm" tone="soft">{g.models.length}</Text>
+            <Text size="sm" foregroundStyle="secondary">{g.models.length}</Text>
           {:else}
             {#if g.virtual}
               {@const v = g.virtual}
-              <Switch
+              <Toggle
                 checked={!v.disabled}
                 ariaLabel={t('virtual.enable')}
                 onchange={(en) => toggleVirtualModel(v, en)}
@@ -506,14 +507,14 @@
         {/snippet}
         {#snippet card({ row })}
           {@const g = row as ProviderVMGroup}
-          <HStack gap={3} align="center">
+          <HStack gap={3} valign="center">
             <VStack gap={1} grow>
               {#if g.virtual}
                 {@const v = g.virtual}
                 <Text variant="value">{v.name}</Text>
                 <Text variant="caption" mono>virtual/{v.id}</Text>
               {:else}
-                <Text tone="disabled">—</Text>
+                <Text foregroundStyle="tertiary">—</Text>
               {/if}
             </VStack>
             {#if g.virtual}
@@ -523,7 +524,7 @@
                 onclick={(e) => e.stopPropagation()}
                 onkeydown={(e) => e.stopPropagation()}
               >
-                <Switch
+                <Toggle
                   checked={!v.disabled}
                   ariaLabel={t('virtual.enable')}
                   onchange={(en) => toggleVirtualModel(v, en)}
@@ -535,7 +536,7 @@
           <Text variant="caption">{ep.path} · {g.models.length} {t('models.list.title')}</Text>
         {/snippet}
         {#snippet empty()}
-          <EmptyState title={t('providers.models.no_endpoint_groups')} />
+          <ContentUnavailable title={t('providers.models.no_endpoint_groups')} />
         {/snippet}
       </Table>
     {/if}
@@ -544,24 +545,24 @@
   <VStack tag="section" gap={4} class="provider-section">
     <VStack gap={1}>
       <Text variant="section-title">{t('models.actions.add_custom')}</Text>
-      <Text tone="soft" size="sm">{t('models.custom.not_listed')}</Text>
+      <Text foregroundStyle="secondary" size="sm">{t('models.custom.not_listed')}</Text>
     </VStack>
 
     <VStack gap={3}>
-      <HStack gap={2} align="center" wrap>
-        <TextEdit
+      <HStack gap={2} valign="center" wrap>
+        <TextField
           bind:value={customId}
           hint={t('models.custom.id_hint')}
           class="custom-model-input"
         />
-        <TextEdit
+        <TextField
           bind:value={customName}
           hint={t('models.custom.display_name')}
           class="custom-model-input"
         />
         <Spacer/>
         <Button
-          style="prominent"
+          buttonStyle="prominent"
           icon={{ name: 'add' }}
           disabled={!customId.trim() || addingCustom}
           onclick={addCustomModel}
@@ -570,11 +571,11 @@
         </Button>
       </HStack>
 
-      <HStack gap={2} wrap align="center">
+      <HStack gap={2} wrap valign="center">
         {#each KNOWN_CAPABILITIES as cap}
           {@const capability = CAPABILITY_META[cap]}
           <Button
-            size="small"
+            size="sm"
             selected={!!customCaps[cap]}
             tint={capability?.tint}
             icon={capability?.icon ? { name: capability.icon } : undefined}
@@ -592,7 +593,7 @@
   {@const ti = testIcon(modelTestResults[m.name], t('models.actions.test'))}
   <HStack gap={2} class="model-actions">
     <Button
-      size="small"
+      size="sm"
       icon={{ name: ti.icon }}
       title={ti.title}
       ariaLabel={ti.title}
@@ -601,14 +602,14 @@
     />
     {#if m.custom}
       <Button
-        size="small"
+        size="sm"
         icon={{ name: 'delete' }}
         title={t('models.actions.delete_custom')}
         ariaLabel={t('models.actions.delete_custom')}
         onclick={(e) => openDeleteCustomModel(m, e.currentTarget as HTMLElement)}
       />
     {/if}
-    <Switch
+    <Toggle
       checked={!m.disabled}
       ariaLabel={t('models.actions.enable')}
       onchange={(v) => toggleModel(m, v)}
@@ -653,7 +654,7 @@
       {@render modelActions(m)}
     {/snippet}
     {#snippet empty()}
-      <EmptyState title={models.length === 0 ? t('providers.models.empty') : t('providers.models.no_filter_match')} icon="search" />
+      <ContentUnavailable title={models.length === 0 ? t('providers.models.empty') : t('providers.models.no_filter_match')} icon="search" />
     {/snippet}
   </ModelsTable>
 {/snippet}

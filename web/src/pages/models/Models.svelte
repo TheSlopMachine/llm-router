@@ -6,7 +6,7 @@
   import { getErrorMessage } from '$lib/errors'
   import type { AvailableModel, VirtualModel } from '$lib/types'
   import { t, n } from '$lib/i18n.svelte'
-  import { HStack, SearchField, Text, VStack, Banner, Header, EmptyState } from '@fuckyouryan/fui'
+  import { HStack, SearchField, Text, VStack, Banner, Header, ContentUnavailable } from '@fuckyouryan/fui'
   import { rankModels, normalize } from '$lib/model-search'
   import type { Ranked } from '$lib/model-search'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
@@ -108,7 +108,7 @@
   <Header title={t('models.list.title')} subtitle={hasModels ? n(allModels.length + virtualModels.length, 'units.model.one', 'units.model.many') : undefined} />
 
   {#if error}
-    <Banner variant="error" text={error} />
+    <Banner tint="danger" text={error} />
   {/if}
 
   <SearchField bind:value={query} placeholder={t('models.search.placeholder')} />
@@ -116,9 +116,9 @@
   <ModelsTable models={tableModels} readonly sortable showProviderLink loading={loading}>
     {#snippet empty()}
       {#if isEmptyCatalog}
-        <EmptyState title={t('models.list.empty_configure_first')} icon="cloud" />
+        <ContentUnavailable title={t('models.list.empty_configure_first')} icon="cloud" />
       {:else}
-        <EmptyState title={t('models.list.no_match')} icon="search" />
+        <ContentUnavailable title={t('models.list.no_match')} icon="search" />
       {/if}
     {/snippet}
   </ModelsTable>

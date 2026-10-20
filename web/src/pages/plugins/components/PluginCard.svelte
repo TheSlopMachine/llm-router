@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, FloatingView, HStack, VStack, Text, Chip, Spacer, Switch } from '@fuckyouryan/fui'
+  import { Button, FloatingView, HStack, VStack, Text, Chip, Spacer, Toggle } from '@fuckyouryan/fui'
   import InstallConfirm from './InstallConfirm.svelte'
   import { t } from '$lib/i18n.svelte'
   import { viewport } from '$lib/viewport.svelte'
@@ -66,21 +66,21 @@
 </script>
 
 <div class="plugin-card-row">
-  <HStack align="center" gap={4} wrap>
-    <HStack align="center" gap={2} wrap class="plugin-title">
+  <HStack valign="center" gap={4} wrap>
+    <HStack valign="center" gap={2} wrap class="plugin-title">
       <span class="plugin-name"><Text variant="value">{title}</Text></span>
-      <Chip text={version} color="chip-accent" size="small" />
+      <Chip text={version} tint="accent" size="sm" />
       {#if unsafe}
-        <Chip text={t('plugins.network.unrestricted')} color="chip-red" size="small" />
+        <Chip text={t('plugins.network.unrestricted')} tint="danger" size="sm" />
       {/if}
     </HStack>
 
-    <HStack align="center" gap={2}>
+    <HStack valign="center" gap={2}>
       {#if mode === 'installed'}
         {#if isManual}
           <Button
-            style="none"
-            size="medium"
+            buttonStyle="neutral"
+            size="md"
             icon={{ name: 'upload_file' }}
             title={t('plugins.update_from_file')}
             ariaLabel={t('plugins.update_from_file')}
@@ -89,8 +89,8 @@
         {/if}
         {#if hasUpdate}
           <Button
-            style="none"
-            size="medium"
+            buttonStyle="neutral"
+            size="md"
             icon={{ name: 'upgrade' }}
             title={t('common.actions.update')}
             ariaLabel={t('common.actions.update')}
@@ -98,15 +98,15 @@
           />
         {/if}
         <Button
-          style="text"
-          size="medium"
+          buttonStyle="text"
+          size="md"
           tint="var(--fui-color-danger)"
           icon={{ name: 'delete' }}
           title={t('common.actions.delete')}
           ariaLabel={t('common.actions.delete')}
           onclick={(e) => onaction?.('delete', e.currentTarget as HTMLElement)}
         />
-        <Switch
+        <Toggle
           checked={!disabled}
           disabled={toggling}
           ariaLabel={t('plugins.toggle_active')}
@@ -114,7 +114,7 @@
         />
       {:else}
         <Button
-          style="none"
+          buttonStyle="neutral"
           icon={{ name: 'download' }}
           text={viewport.narrow ? '' : (installing ? t('plugins.installing') : installLabel)}
           disabled={installing}

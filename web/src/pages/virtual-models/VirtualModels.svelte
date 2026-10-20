@@ -6,7 +6,7 @@
   import type { VirtualModel, AvailableModel } from '$lib/types'
   import { setPendingClone } from '$lib/virtual-clone'
   import { t } from '$lib/i18n.svelte'
-  import { EmptyState, Button, FloatingView, HStack, Switch, Text, VStack, Banner, ConfirmAction, Header, ToolbarItem } from '@fuckyouryan/fui'
+  import { ContentUnavailable, Button, FloatingView, HStack, Toggle, Text, VStack, Banner, ConfirmAction, Header, ToolbarItem } from '@fuckyouryan/fui'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
   import { isUnauthenticated } from '$lib/credential-state'
 
@@ -121,16 +121,16 @@
     info={t('virtual.models_desc')}
   >
     {#snippet actions()}
-      <ToolbarItem primary><Button text={t('virtual.actions.new_model')} style="prominent" icon={{ name: 'add' }} onclick={openNew} /></ToolbarItem>
+      <ToolbarItem primary><Button text={t('virtual.actions.new_model')} buttonStyle="prominent" icon={{ name: 'add' }} onclick={openNew} /></ToolbarItem>
     {/snippet}
   </Header>
 
   {#if resource.error}
-    <Banner variant="error" text={resource.error} />
+    <Banner tint="danger" text={resource.error} />
   {/if}
 
   {#if resource.loading}
-    <EmptyState title={t('common.state.loading')} />
+    <ContentUnavailable title={t('common.state.loading')} />
   {:else}
     <ModelsTable
       models={(resource.data ?? []).filter((a) => a).map((vm) => ({
@@ -149,13 +149,13 @@
     >
       {#snippet actions({ model })}
         {@const vm = model.source as VirtualModel}
-         <HStack gap={2} class="vm-actions" align="center" justify="end">
-           <Button style="text" icon={{ name: 'content_copy' }} ariaLabel={t('tokens.actions.clone')} title={t('tokens.actions.clone')} size="small" onclick={() => clone(vm)} />
+         <HStack gap={2} class="vm-actions" valign="center" halign="end">
+           <Button buttonStyle="text" icon={{ name: 'content_copy' }} ariaLabel={t('tokens.actions.clone')} title={t('tokens.actions.clone')} size="sm" onclick={() => clone(vm)} />
            {#if isEditableVm(vm)}
-             <Button style="text" icon={{ name: 'edit' }} ariaLabel={t('common.actions.edit')} title={t('common.actions.edit')} size="small" onclick={() => openEdit(vm)} />
-             <Button style="text" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} ariaLabel={t('common.actions.delete')} title={t('common.actions.delete')} size="small" onclick={(e) => openDelete(vm, e.currentTarget as HTMLElement)} />
+             <Button buttonStyle="text" icon={{ name: 'edit' }} ariaLabel={t('common.actions.edit')} title={t('common.actions.edit')} size="sm" onclick={() => openEdit(vm)} />
+             <Button buttonStyle="text" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} ariaLabel={t('common.actions.delete')} title={t('common.actions.delete')} size="sm" onclick={(e) => openDelete(vm, e.currentTarget as HTMLElement)} />
            {/if}
-           <Switch
+           <Toggle
              checked={!vm.disabled}
              ariaLabel={vm.disabled ? t('virtual.enable') : t('virtual.disable')}
              onchange={(en) => toggle(vm, en)}
@@ -164,9 +164,9 @@
       {/snippet}
       {#snippet empty()}
        {#snippet createVmAction()}
-           <Button style="prominent" icon={{ name: 'add' }} onclick={openNew}>{t('virtual.create.first')}</Button>
+           <Button buttonStyle="prominent" icon={{ name: 'add' }} onclick={openNew}>{t('virtual.create.first')}</Button>
          {/snippet}
-         <EmptyState
+         <ContentUnavailable
            icon="robot"
            title={t('virtual.list.empty')}
            action={createVmAction}

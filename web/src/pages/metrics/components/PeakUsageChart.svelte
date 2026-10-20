@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { TimeSeriesPoint } from '$lib/types'
   import { t } from '$lib/i18n.svelte'
-  import { SectionCard, VStack, HStack, Text } from '@fuckyouryan/fui'
+  import { GroupBox, VStack, HStack, Text } from '@fuckyouryan/fui'
 
   let { title, data = [], loading = false } = $props<{
     title: string
@@ -41,16 +41,16 @@
   }
 </script>
 
-<SectionCard {title}>
+<GroupBox {title}>
   <div class="chart-container">
     {#if loading}
-      <Text tone="soft" size="sm">{t('common.state.loading')}</Text>
+      <Text foregroundStyle="secondary" size="sm">{t('common.state.loading')}</Text>
     {:else}
       <HStack gap={3} fill>
         <div class="y-axis-labels">
-          <Text size="xs" tone="soft">{formatYLabel(yAxisMax)}</Text>
-          <Text size="xs" tone="soft">{formatYLabel(yAxisMid)}</Text>
-          <Text size="xs" tone="soft">0</Text>
+          <Text size="xs" foregroundStyle="secondary">{formatYLabel(yAxisMax)}</Text>
+          <Text size="xs" foregroundStyle="secondary">{formatYLabel(yAxisMid)}</Text>
+          <Text size="xs" foregroundStyle="secondary">0</Text>
         </div>
         <div class="chart-area">
           {#if !hasData}
@@ -92,7 +92,7 @@
       </HStack>
     {/if}
   </div>
-</SectionCard>
+</GroupBox>
 
 <style>
   .chart-container {

@@ -1,18 +1,20 @@
-// Modality presentation: icon + chip color per modality name. Shared by
+import type { Tint } from '@fuckyouryan/fui'
+
+// Modality presentation: icon + chip tint per modality name. Shared by
 // ModelsTable and every custom view rendering modality chips.
 
-export function modalityColor(mod: string): string {
+export function modalityTint(mod: string): Tint {
   switch (mod) {
-    case 'text': return 'chip-green'
-    case 'image': return 'chip-purple'
+    case 'text': return 'success'
+    case 'image': return 'purple'
     case 'audio':
     case 'speech':
-    case 'transcription': return 'chip-teal'
-    case 'video': return 'chip-orange'
-    case 'file': return 'chip-yellow'
-    case 'pdf': return 'chip-red'
-    case 'embedding': return 'chip-neutral'
-    default: return 'chip-neutral'
+    case 'transcription': return 'teal'
+    case 'video': return 'orange'
+    case 'file': return 'warning'
+    case 'pdf': return 'danger'
+    case 'embedding': return 'neutral'
+    default: return 'neutral'
   }
 }
 

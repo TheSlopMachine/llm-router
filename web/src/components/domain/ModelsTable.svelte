@@ -169,51 +169,51 @@
 </script>
 
 {#snippet ctxBlock({ model }: { model: ModelsTableModel })}
-  <VStack gap={1} align="start" class="ctx-text">
+  <VStack gap={1} halign="start" class="ctx-text">
     {#if model.contextWindow}
-      <Text size="sm" tone="soft" title={t('models.context.window_up_to') + ` ${model.contextWindow.toLocaleString()} ` + t('models.context.input_tokens')}>
+      <Text size="sm" foregroundStyle="secondary" title={t('models.context.window_up_to') + ` ${model.contextWindow.toLocaleString()} ` + t('models.context.input_tokens')}>
         {(model.contextWindow / 1000).toFixed(0)}k {t('models.context.lowercase')}
       </Text>
     {/if}
     {#if model.maxTokens}
-      <Text size="sm" tone="soft" title={t('models.output.max_up_to') + ` ${model.maxTokens.toLocaleString()} ` + t('models.output.tokens_per_response')}>
+      <Text size="sm" foregroundStyle="secondary" title={t('models.output.max_up_to') + ` ${model.maxTokens.toLocaleString()} ` + t('models.output.tokens_per_response')}>
         {(model.maxTokens / 1000).toFixed(0)}k {t('models.output.lowercase')}
       </Text>
     {/if}
     {#if !model.contextWindow && !model.maxTokens}
-      <Text size="sm" tone="disabled">—</Text>
+      <Text size="sm" foregroundStyle="tertiary">—</Text>
     {/if}
   </VStack>
 {/snippet}
 
-{#snippet modsBlock({ model }: { model: ModelsTableModel }, size: 'small' | 'large' = 'small', direction: 'vertical' | 'horizontal' = 'vertical')}
+{#snippet modsBlock({ model }: { model: ModelsTableModel }, size: 'sm' | 'lg' = 'sm', direction: 'vertical' | 'horizontal' = 'vertical')}
   <ModalitiesFlow
     modalities={{ input: model.inputModalities, output: model.outputModalities }}
     chipsDirection={direction}
     size={size}
   />
   {#if !hasModalities(model)}
-    <Text size="sm" tone="disabled">—</Text>
+    <Text size="sm" foregroundStyle="tertiary">—</Text>
   {/if}
 {/snippet}
 
-{#snippet capsBlock({ model }: { model: ModelsTableModel }, size: 'small' | 'large' = 'small')}
+{#snippet capsBlock({ model }: { model: ModelsTableModel }, size: 'sm' | 'lg' = 'sm')}
   <div class="cap-grid">
     {#each model.capabilities ?? [] as cap}
       {@const capability = CAPABILITY_META[cap]}
       <Chip
         icon={capability?.icon ?? 'help_outline'}
         text=""
-        color={capability?.color ?? 'chip-neutral'}
+        tint={capability?.chipTint ?? 'neutral'}
         title={capability ? t(capability.hint) : cap}
         size={size}
       />
     {/each}
     {#if model.custom}
-      <Chip icon="tune" text="" color="chip-teal" title={t('models.custom.lowercase')} size={size} />
+      <Chip icon="tune" text="" tint="teal" title={t('models.custom.lowercase')} size={size} />
     {/if}
     {#if !hasCapabilities(model)}
-      <Text size="sm" tone="disabled">—</Text>
+      <Text size="sm" foregroundStyle="tertiary">—</Text>
     {/if}
   </div>
 {/snippet}
@@ -236,22 +236,22 @@
     {#snippet cell({ column, row })}
       {@const model = row as ModelsTableModel}
       {#if column.key === 'model'}
-        <VStack gap={1} align="start" class="model-identity">
+        <VStack gap={1} halign="start" class="model-identity">
           {#if model.kind === 'virtual'}
-            <HStack gap={2} align="center" class="identity-line">
+            <HStack gap={2} valign="center" class="identity-line">
               <Text mono size="sm" class="id-text">
                 virtual/{model.id}
               </Text>
-              <CopyButton size="small" text={fullId(model)} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
+              <CopyButton size="sm" text={fullId(model)} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
             </HStack>
-            <Text size="sm" tone="soft" class="secondary-text">{model.description || '—'}</Text>
+            <Text size="sm" foregroundStyle="secondary" class="secondary-text">{model.description || '—'}</Text>
           {:else}
             <HStack gap={2} class="identity-line">
-              <Text size="base" weight="medium" class="primary-text">{model.name || model.id}</Text>
+              <Text size="md" weight="medium" class="primary-text">{model.name || model.id}</Text>
             </HStack>
-            <HStack gap={2} align="center" class="identity-line">
+            <HStack gap={2} valign="center" class="identity-line">
               <Text mono size="sm" class="id-text">{fullId(model)}</Text>
-              <CopyButton size="small" text={fullId(model)} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
+              <CopyButton size="sm" text={fullId(model)} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
             </HStack>
           {/if}
           {#if showProviderNameLink(model)}
@@ -273,25 +273,25 @@
       {:else if column.key === 'capabilities'}
         {@render capsBlock({ model })}
       {:else if column.key === 'ctxmods'}
-        <VStack gap={2} align="start">
+        <VStack gap={2} halign="start">
           {@render ctxBlock({ model })}
           {@render modsBlock({ model }, 'large', 'horizontal')}
         </VStack>
       {:else if column.key === 'all'}
-        <VStack gap={4} align="start">
+        <VStack gap={4} halign="start">
           {@render ctxBlock({ model })}
           {@render modsBlock({ model }, 'large', 'horizontal')}
           {@render capsBlock({ model }, 'small')}
         </VStack>
       {:else if column.key === 'actions'}
-        <HStack justify="end" gap={2} class="actions-cell">
+        <HStack halign="end" gap={2} class="actions-cell">
           {#if actions}{@render actions({ model })}{/if}
         </HStack>
       {/if}
     {/snippet}
     {#snippet card({ row })}
       {@const model = row as ModelsTableModel}
-      <HStack gap={3} align="center">
+      <HStack gap={3} valign="center">
         <VStack gap={1} grow>
           <Text variant="value">{model.kind === 'virtual' ? `virtual/${model.id}` : model.name || model.id}</Text>
           {#if model.kind === 'virtual'}

@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { Button, TextArea, Picker, Banner, EmptyState } from '@fuckyouryan/fui'
+  import { Button, TextEditor, Picker, Banner, ContentUnavailable } from '@fuckyouryan/fui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import type { Provider, UINode, ModalButton } from '$lib/types'
-  import DynamicForm, { collectButtons, buttonVariant } from '../../../components/domain/DynamicForm.svelte'
+  import DynamicForm, { collectButtons, buttonAppearance } from '../../../components/domain/DynamicForm.svelte'
   import { t } from '$lib/i18n.svelte'
 
   let {
@@ -140,22 +140,22 @@
     const buttons: ModalButton[] = tree.map((n) => {
       const action = n.form_action || 'submit'
       if (action === 'cancel') {
-        return { label: n.text || 'Cancel', variant: buttonVariant(n), onClick: closeModal, disabled: loading }
+        return { label: n.text || 'Cancel', ...buttonAppearance(n), onClick: closeModal, disabled: loading }
       }
       return {
         label: n.text || defaultSubmitLabel(),
-        variant: buttonVariant(n),
+        ...buttonAppearance(n),
         onClick: () => submitFor(action),
         disabled: loading,
       }
     })
     if (!tree.some((n) => (n.form_action || 'submit') === 'cancel')) {
-      buttons.push({ label: 'Cancel', variant: 'secondary', onClick: closeModal, disabled: loading })
+      buttons.push({ label: 'Cancel', buttonStyle: 'neutral', onClick: closeModal, disabled: loading })
     }
     if (tree.length === 0 && nodes.length > 0) {
       buttons.push({
         label: defaultSubmitLabel(),
-        variant: 'primary',
+        buttonStyle: 'prominent',
         onClick: () => submitFor('submit'),
         disabled: loading,
       })
@@ -227,12 +227,12 @@
 </script>
 
 {#if error}
-  <Banner variant="error" text={error} />
+  <Banner tint="danger" text={error} />
 {/if}
 
 {#if manualAvailable}
   <div class="entry-switch">
-    <Picker
+    <Picker pickerStyle="segmented"
       value={entryTab}
       options={[
         { value: 'flow', label: t('credentials.device_login') },
@@ -245,10 +245,10 @@
 {/if}
 
 {#if mode === 'loading'}
-  <EmptyState title={t('common.state.loading')} />
+  <ContentUnavailable title={t('common.state.loading')} />
 {:else if mode === 'wizard'}
   {#if redirectMessage}
-    <Banner variant="info" text={redirectMessage} />
+    <Banner tint="info" text={redirectMessage} />
   {/if}
   {#if nodes.length > 0}
     <DynamicForm {nodes} bind:values={formValues} busy={loading} />
@@ -259,10 +259,10 @@
   <p class="form-text">{t('credentials.no_form_hint')}</p>
   <div class="form-group">
     <label for="cred-raw">{t('credentials.json_label')}</label>
-    <TextArea id="cred-raw" minRows={6} bind:value={rawJson} />
+    <TextEditor id="cred-raw" minRows={6} bind:value={rawJson} />
   </div>
   <div class="form-actions">
-    <Button style="prominent" onclick={submitRaw} disabled={loading}>{t('common.actions.save')}</Button>
+    <Button buttonStyle="prominent" onclick={submitRaw} disabled={loading}>{t('common.actions.save')}</Button>
   </div>
 {/if}
 
@@ -274,7 +274,7 @@
   }
 
   .form-text {
-    font-size: var(--fui-text-base);
+    font-size: var(--fui-text-md);
     color: var(--fui-color-text-soft);
   }
 

@@ -16,16 +16,16 @@
     "@tsconfig/svelte": "^5.0.8",
     "@types/dompurify": "^3.2.0",
     "openapi-typescript": "^5.4.2",
-    "svelte": "^5.57.1",
-    "svelte-check": "^4.7.6",
+    "svelte": "^5.57.2",
+    "svelte-check": "^4.7.7",
     "typescript": "^6.0.3",
-    "vite": "^8.3.2"
+    "vite": "^8.3.4"
   },
   "dependencies": {
-    "@fuckyouryan/fui": "git+https://gitlab.com/fuckyouryan/fui.git",
-    "dompurify": "^3.4.16",
+    "@fuckyouryan/fui": "git+https://gitlab.com/fuckyouryan/fui.git#bbaebfe",
+    "dompurify": "^3.4.17",
     "highlight.js": "^11.12.0",
-    "marked": "^18.0.14",
+    "marked": "^18.1.1",
     "marked-highlight": "^2.2.4"
   }
 }

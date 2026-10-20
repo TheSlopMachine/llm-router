@@ -191,18 +191,18 @@
           onclick={() => navigateTo(item.id)}
           title={collapsed ? t(item.label) : undefined}
         >
-          <Icon name={item.icon} size="lg" />
+          <Icon name={item.icon} size="xl" />
           <span class="label">{t(item.label)}</span>
         </button>
       {/each}
     </nav>
     <div class="sidebar-footer">
        <button class="logout-btn" class:active={panel === 'settings'} onclick={openSettings} aria-label={t('nav.settings.open')} title={collapsed ? t('settings.title') : undefined}>
-         <Icon name="settings" size="lg" />
+         <Icon name="settings" size="xl" />
          <span class="label">{t('settings.title')}</span>
        </button>
        <button class="logout-btn" onclick={logout} title={collapsed ? t('auth.sign_out.action') : undefined}>
-         <Icon name="logout" size="lg" />
+         <Icon name="logout" size="xl" />
          <span class="label">{t('auth.sign_out.action')}</span>
        </button>
     </div>
@@ -366,7 +366,7 @@
     text-align: left;
     padding: var(--fui-space-3) var(--fui-space-4);
     border-radius: var(--fui-dashboard-nav-radius);
-    font-size: var(--fui-text-base);
+    font-size: var(--fui-text-md);
     color: var(--fui-color-text-soft);
     background: none;
     border: none;

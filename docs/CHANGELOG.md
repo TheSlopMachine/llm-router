@@ -1,5 +1,12 @@
 # Changelog
 
+## Done (2026-10-20, v0.4.3)
+
+- Fixed the dashboard metrics page flashing every 30 seconds: a background refresh set `loading` and replaced every card and chart with the loading text. Only the first load and a filter change show the loading state now. Responses to superseded requests are dropped, and a hidden tab no longer polls.
+- Fixed provider page reloads on unrelated changes: the provider detail effect and the models section effect tracked the provider object, so every config toggle reloaded capabilities, credentials, proxy pools and the model list, and reset unsaved settings and proxy form edits. Both effects depend on the provider id only.
+- Fixed out-of-order proxy status responses overwriting newer ones; the proxy page no longer polls in a hidden tab.
+- Migrated the dashboard to FUI 0.3.0: one size scale (`xs` to `2xl`), `tint` and `foregroundStyle` instead of `tone`, `buttonStyle` and `role` on buttons, `Picker` replacing `Select`, renamed widgets (`Toggle`, `TextField`, `TextEditor`, `ContentUnavailable`, `LabeledContent`, `DisclosureGroup`, `GroupBox`), `halign` and `valign` on stacks. Plugin UI schema values (`error`, `primary`, `secondary`, `danger`) are unchanged and mapped in `DynamicForm`.
+
 ## Done (2026-10-18, v0.4.3)
 
 - Corrected `docs/PLUGIN-API.md` against the code: response body cap is 32 MiB; job `ctx` carries `run_reason` and no `reason`; `check_health` runs from explicit probes only; `MarkDead` reason mapping (dead versus suspect); `http_client` timeout covers the response body; proxied requests check hostnames only.

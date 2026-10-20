@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, CodeBlock, FloatingView, HStack, Table, Text, TextEdit, VStack, Banner, ConfirmAction, Header, Spacer, ToolbarItem, RelativeTime, type TableColumn, EmptyState, modal } from '@fuckyouryan/fui'
+  import { Button, CodeBlock, FloatingView, HStack, Table, Text, TextField, VStack, Banner, ConfirmAction, Header, Spacer, ToolbarItem, RelativeTime, type TableColumn, ContentUnavailable, modal } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import { formatRelativeTime } from '$lib/time'
@@ -31,7 +31,7 @@
       title,
       content: TokenWizard,
       severity: 'medium',
-      size: 'large',
+      size: 'lg',
       props: {
         providers: resource.data.providers,
         editingToken: mode === 'edit' ? (token ?? null) : null,
@@ -140,17 +140,17 @@
       {t('tokens.list.router_for')} <code>/v1</code> {t('tokens.list.subtitle')}
     {/snippet}
     {#snippet actions()}
-      <ToolbarItem primary><Button style="prominent" onclick={openCreate} icon={{ name: 'add' }}>{t('tokens.actions.new')}</Button></ToolbarItem>
+      <ToolbarItem primary><Button buttonStyle="prominent" onclick={openCreate} icon={{ name: 'add' }}>{t('tokens.actions.new')}</Button></ToolbarItem>
     {/snippet}
   </Header>
 
   {#if resource.error}
-    <Banner variant="error" text={resource.error} />
+    <Banner tint="danger" text={resource.error} />
   {/if}
 
   {#if newTokenSecret}
     <VStack gap={2}>
-      <Text tone="success" size="sm">{t('tokens.success.copy_warning')}</Text>
+      <Text tint="success" size="sm">{t('tokens.success.copy_warning')}</Text>
       <CodeBlock text={newTokenSecret} />
     </VStack>
   {/if}
@@ -163,38 +163,38 @@
   >
     {#snippet card({ row })}
       {@const tok = row as Token}
-      <HStack gap={3} align="center">
+      <HStack gap={3} valign="center">
         <Text variant="value">{tok.name}</Text>
         <Spacer />
-        <HStack justify="end" gap={2}>
+        <HStack halign="end" gap={2}>
           <Button
-            style="text"
+            buttonStyle="text"
             icon={{ name: 'refresh' }}
             title={t('tokens.actions.regenerate')}
-            size="small"
+            size="sm"
             ariaLabel={t('tokens.actions.regenerate')}
             onclick={(e) => openRegenerate(tok, e.currentTarget as HTMLElement)}
           />
           <Button
-            style="text"
+            buttonStyle="text"
             icon={{ name: 'content_copy' }}
             title={t('tokens.actions.clone')}
-            size="small"
+            size="sm"
             ariaLabel={t('tokens.actions.clone')}
             onclick={(e) => openClone(tok, e.currentTarget as HTMLElement)}
           />
           <Button
-            style="text"
+            buttonStyle="text"
             icon={{ name: 'edit' }}
             title={t('common.actions.edit')}
-            size="small"
+            size="sm"
             ariaLabel={t('common.actions.edit')}
             onclick={() => openEdit(tok)}
           />
           <Button
-            style="text"
+            buttonStyle="text"
             tint="var(--fui-color-danger)"
-            size="small"
+            size="sm"
             icon={{ name: 'delete' }}
             title={t('tokens.actions.revoke')}
             ariaLabel={t('tokens.actions.revoke')}
@@ -207,42 +207,42 @@
     {#snippet cell({ column, row })}
       {@const tok = row as Token}
       {#if column.key === 'name'}
-        <Text size="base" weight="medium">{tok.name}</Text>
+        <Text size="md" weight="medium">{tok.name}</Text>
       {:else if column.key === 'created'}
-        <Text size="sm" tone="soft">{fmt(tok.created_at)}</Text>
+        <Text size="sm" foregroundStyle="secondary">{fmt(tok.created_at)}</Text>
       {:else if column.key === 'used'}
         {@const lu = resource.data.tokenUsage[tok.id]?.last_used}{#if lu}<RelativeTime date={lu} locale={locale()} />{:else}<Text size="sm">—</Text>{/if}
-        <Text size="sm" tone="soft">{n(getUsage(tok.id), 'units.api_call.one', 'units.api_call.many')}</Text>
+        <Text size="sm" foregroundStyle="secondary">{n(getUsage(tok.id), 'units.api_call.one', 'units.api_call.many')}</Text>
       {:else if column.key === 'actions'}
-        <HStack justify="end" gap={2}>
+        <HStack halign="end" gap={2}>
           <Button
-            style="text"
+            buttonStyle="text"
             icon={{ name: 'refresh' }}
             title={t('tokens.actions.regenerate')}
-            size="small"
+            size="sm"
             ariaLabel={t('tokens.actions.regenerate')}
             onclick={(e) => openRegenerate(tok, e.currentTarget as HTMLElement)}
           />
           <Button
-            style="text"
+            buttonStyle="text"
             icon={{ name: 'content_copy' }}
             title={t('tokens.actions.clone')}
-            size="small"
+            size="sm"
             ariaLabel={t('tokens.actions.clone')}
             onclick={(e) => openClone(tok, e.currentTarget as HTMLElement)}
           />
           <Button
-            style="text"
+            buttonStyle="text"
             icon={{ name: 'edit' }}
             title={t('common.actions.edit')}
-            size="small"
+            size="sm"
             ariaLabel={t('common.actions.edit')}
             onclick={() => openEdit(tok)}
           />
           <Button
-            style="text"
+            buttonStyle="text"
             tint="var(--fui-color-danger)"
-            size="small"
+            size="sm"
             icon={{ name: 'delete' }}
             title={t('tokens.actions.revoke')}
             ariaLabel={t('tokens.actions.revoke')}
@@ -252,7 +252,7 @@
       {/if}
     {/snippet}
     {#snippet empty()}
-      <EmptyState title={t('tokens.list.empty')} caption={t('tokens.create.api_desc')} />
+      <ContentUnavailable title={t('tokens.list.empty')} caption={t('tokens.create.api_desc')} />
     {/snippet}
   </Table>
 
@@ -266,13 +266,13 @@
     {#snippet children({ close })}
       <VStack gap={3}>
         <Text variant="value">{t('tokens.actions.clone_title')}</Text>
-        {#if cloneError}<Banner variant="error" text={cloneError} />{/if}
-        <TextEdit bind:value={cloneName} hint={t('tokens.create.name_placeholder')} />
-        <HStack justify="end" gap={2}>
-          <Button size="small" style="text" onclick={close} disabled={cloneSaving}>{t('common.actions.cancel')}</Button>
+        {#if cloneError}<Banner tint="danger" text={cloneError} />{/if}
+        <TextField bind:value={cloneName} hint={t('tokens.create.name_placeholder')} />
+        <HStack halign="end" gap={2}>
+          <Button size="sm" buttonStyle="text" onclick={close} disabled={cloneSaving}>{t('common.actions.cancel')}</Button>
           <Button
-            size="small"
-            style="prominent"
+            size="sm"
+            buttonStyle="prominent"
             disabled={!isCloneReady}
             onclick={async () => {
               if (!isCloneReady || !cloneSource) return

@@ -8,7 +8,7 @@
   import { toggleSet } from '$lib/token-helpers'
   import { t, n } from '$lib/i18n.svelte'
   import type { Token, Provider, VirtualModel, AvailableModel, ProviderModel } from '$lib/types'
-  import { type ModalButton, type StepperConfig, Switch, Checkbox, SearchField, Text, TextEdit, Spacer, VStack, HStack, List, Banner } from '@fuckyouryan/fui'
+  import { type ModalButton, type StepperConfig, Toggle, Checkbox, SearchField, Text, TextField, Spacer, VStack, HStack, List, Banner } from '@fuckyouryan/fui'
   import { buildBackendTokenRules } from '$lib/token-rules'
   import { hasFullAccess, resolveWizardSubtitle, resolveStepValidity, resolveModelId } from '$lib/token-scope'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
@@ -277,25 +277,25 @@
       updateStepper(stepperConfig)
       if (wizardStep === 4) {
         updateButtons([
-          { label: t('tokens.create_another'), variant: 'secondary', onClick: resetWizard },
-          { label: t('common.actions.done'), variant: 'primary', onClick: handleDone }
+          { label: t('tokens.create_another'), buttonStyle: 'neutral', onClick: resetWizard },
+          { label: t('common.actions.done'), buttonStyle: 'prominent', onClick: handleDone }
         ])
         return
       }
       if (wizardStep === 1) {
         updateButtons([
-          { label: t('common.actions.cancel'), variant: 'secondary', onClick: closeModal },
-          { label: t('common.actions.next'), variant: 'primary', onClick: nextFromStep1, disabled: !currentValid, loading: wizardLoading }
+          { label: t('common.actions.cancel'), buttonStyle: 'neutral', onClick: closeModal },
+          { label: t('common.actions.next'), buttonStyle: 'prominent', onClick: nextFromStep1, disabled: !currentValid, loading: wizardLoading }
         ])
       } else if (wizardStep === 2) {
         updateButtons([
-          { label: t('common.actions.back'), variant: 'secondary', onClick: goBackToStep1 },
-          { label: t('common.actions.next'), variant: 'primary', onClick: goToStep3, disabled: !currentValid, loading: wizardLoading }
+          { label: t('common.actions.back'), buttonStyle: 'neutral', onClick: goBackToStep1 },
+          { label: t('common.actions.next'), buttonStyle: 'prominent', onClick: goToStep3, disabled: !currentValid, loading: wizardLoading }
         ])
       } else {
         updateButtons([
-          { label: t('common.actions.back'), variant: 'secondary', onClick: goBackToStep2 },
-          { label: isEditMode ? t('tokens.edit.update') : t('tokens.create.create'), variant: 'primary', onClick: submit, disabled: !currentValid, loading: wizardLoading }
+          { label: t('common.actions.back'), buttonStyle: 'neutral', onClick: goBackToStep2 },
+          { label: isEditMode ? t('tokens.edit.update') : t('tokens.create.create'), buttonStyle: 'prominent', onClick: submit, disabled: !currentValid, loading: wizardLoading }
         ])
       }
     })
@@ -407,27 +407,27 @@
     {error}
   />
 {:else if isNameStep}
-  {#if error}<Banner variant="error" text={error} />{/if}
+  {#if error}<Banner tint="danger" text={error} />{/if}
   <VStack gap={4}>
-    <TextEdit id="token-name" bind:value={tokenName} hint={`${t('tokens.create.name_label')} (${t('common.labels.required')})`} />
-    <Switch bind:checked={fullAccess} label={t('tokens.permissions.full_access')} id="full-access" />
+    <TextField id="token-name" bind:value={tokenName} hint={`${t('tokens.create.name_label')} (${t('common.labels.required')})`} />
+    <Toggle bind:checked={fullAccess} label={t('tokens.permissions.full_access')} id="full-access" />
   </VStack>
 {:else if isProvidersStep}
-  {#if error}<Banner variant="error" text={error} />{/if}
+  {#if error}<Banner tint="danger" text={error} />{/if}
   <VStack gap={6}>
-    <Switch bind:checked={allowAllProvidersCredentials} label={t('tokens.permissions.all_providers_creds')} id="allow-all-providers-credentials" />
+    <Toggle bind:checked={allowAllProvidersCredentials} label={t('tokens.permissions.all_providers_creds')} id="allow-all-providers-credentials" />
     {#each displayProviders as p (p.id)}
       {@const creds = p.type === 'virtual' ? [] : credsOf(p.id)}
       <div class={isProviderScopeLocked ? 'is-disabled' : ''}>
         <VStack gap={2}>
-          <HStack align="center" gap={3}>
+          <HStack valign="center" gap={3}>
             <VStack gap={1}>
               <Text variant="section-title">{p.name}</Text>
-              <Text size="xs" tone="soft" mono>{p.id}</Text>
+              <Text size="xs" foregroundStyle="secondary" mono>{p.id}</Text>
             </VStack>
             <Spacer />
             {#if p.type !== 'virtual'}
-              <Switch
+              <Toggle
                 checked={providerUseAll.has(p.id)}
                 onchange={(v) => toggleProviderUseAll(p.id, v)}
                 label={t('tokens.permissions.allow_all')}
@@ -447,13 +447,13 @@
           </HStack>
           {#if p.type !== 'virtual'}
             {#if creds.length === 0}
-              <Text size="sm" tone="soft">{t('credentials.empty_for_provider')}</Text>
+              <Text size="sm" foregroundStyle="secondary">{t('credentials.empty_for_provider')}</Text>
             {:else}
               <List>
                 {#each creds as c (c.id)}
                   <label class="provider-row">
-                    <HStack gap={3} align="center">
-                      <Text size="base">{c.label || t('credentials.title')}</Text>
+                    <HStack gap={3} valign="center">
+                      <Text size="md">{c.label || t('credentials.title')}</Text>
                       <Spacer />
                       <Checkbox
                         checked={providerCreds.has(c.id)}
@@ -472,10 +472,10 @@
     {/each}
   </VStack>
 {:else if isModelsStep}
-  {#if error}<Banner variant="error" text={error} />{/if}
+  {#if error}<Banner tint="danger" text={error} />{/if}
   <VStack gap={4}>
-    <Switch bind:checked={allowAllModels} label={t('tokens.permissions.allow_all_models')} id="allow-all-models" />
-    <HStack align="center" gap={3}>
+    <Toggle bind:checked={allowAllModels} label={t('tokens.permissions.allow_all_models')} id="allow-all-models" />
+    <HStack valign="center" gap={3}>
       <Text variant="section-title">{t('models.list.title')}</Text>
       <div class="models-search">
         <SearchField bind:value={searchModels} placeholder={t('models.search.placeholder')} disabled={allowAllModels} />
@@ -501,8 +501,8 @@
           />
         {/snippet}
         {#snippet empty()}
-          <VStack align="center" gap={2}>
-            <Text size="sm" tone="soft">{t('tokens.permissions.no_models_available')}</Text>
+          <VStack halign="center" gap={2}>
+            <Text size="sm" foregroundStyle="secondary">{t('tokens.permissions.no_models_available')}</Text>
           </VStack>
         {/snippet}
       </ModelsTable>

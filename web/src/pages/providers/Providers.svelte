@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Text, Switch, Banner, Icon, Table, Header, HStack, VStack, ToolbarItem, type TableColumn, EmptyState, squircle } from '@fuckyouryan/fui'
+  import { Button, Text, Toggle, Banner, Icon, Table, Header, HStack, VStack, ToolbarItem, type TableColumn, ContentUnavailable, squircle } from '@fuckyouryan/fui'
   import { openFormModal } from '$lib/modal-helpers'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -46,7 +46,7 @@
     resource.error = ''
     openFormModal(CustomProviderWizard, {
       title: t('providers.actions.new'),
-      size: 'medium',
+      size: 'md',
       props: { editingProvider: null },
       onReload: () => void resource.reload()
     })
@@ -58,22 +58,22 @@
     {#snippet actions()}
       <ToolbarItem primary>
         {#if viewport.narrow}
-          <Button style="prominent" onclick={openCreate} icon={{ name: 'add' }} title={t('providers.actions.new')} ariaLabel={t('providers.actions.new')} />
+          <Button buttonStyle="prominent" onclick={openCreate} icon={{ name: 'add' }} title={t('providers.actions.new')} ariaLabel={t('providers.actions.new')} />
         {:else}
-          <Button style="prominent" onclick={openCreate} icon={{ name: 'add' }}>{t('providers.actions.new')}</Button>
+          <Button buttonStyle="prominent" onclick={openCreate} icon={{ name: 'add' }}>{t('providers.actions.new')}</Button>
         {/if}
       </ToolbarItem>
     {/snippet}
   </Header>
 
   {#if resource.error}
-    <Banner variant="error" text={resource.error} />
+    <Banner tint="danger" text={resource.error} />
   {/if}
 
   {#if resource.loading}
-    <EmptyState title={t('common.state.loading')} />
+    <ContentUnavailable title={t('common.state.loading')} />
   {:else if visibleProviders.length === 0}
-    <EmptyState title={t('providers.list.empty')} icon="cloud" />
+    <ContentUnavailable title={t('providers.list.empty')} icon="cloud" />
   {:else}
     <Table
       columns={providerColumns}
@@ -85,17 +85,17 @@
         {@const provider = row as Provider}
         {@const stats = resource.data.providerStats[provider.id] || null}
         {#if column.key === 'name'}
-          <HStack gap={3} align="center">
+          <HStack gap={3} valign="center">
             {#if provider.icon_url}
               <img src={provider.icon_url} alt="" class="provider-icon" use:squircle />
             {:else}
-              <span class="provider-icon-fallback"><Icon name="cloud" size="lg" /></span>
+              <span class="provider-icon-fallback"><Icon name="cloud" size="xl" /></span>
             {/if}
             <VStack gap={1}>
               <Text variant="value">{provider.name}</Text>
               <Text variant="caption">{provider.type}{provider.qualifier ? ':' + provider.qualifier : ''}</Text>
               {#if isSystemDisabled(provider)}
-                <Text variant="caption" tone="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(provider.disabled_reason)}</Text>
+                <Text variant="caption" tint="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(provider.disabled_reason)}</Text>
               {/if}
             </VStack>
           </HStack>
@@ -110,7 +110,7 @@
             onclick={(e) => e.stopPropagation()}
             onkeydown={(e) => e.stopPropagation()}
           >
-            <Switch
+            <Toggle
               checked={!provider.disabled}
               ariaLabel={t('providers.detail.enable')}
               onchange={(v) => toggleProvider(provider, v)}
@@ -121,11 +121,11 @@
       {#snippet card({ row })}
         {@const provider = row as Provider}
         {@const stats = resource.data.providerStats[provider.id] || null}
-        <HStack gap={3} align="center">
+        <HStack gap={3} valign="center">
           {#if provider.icon_url}
             <img src={provider.icon_url} alt="" class="provider-icon" use:squircle />
           {:else}
-            <span class="provider-icon-fallback"><Icon name="cloud" size="lg" /></span>
+            <span class="provider-icon-fallback"><Icon name="cloud" size="xl" /></span>
           {/if}
           <VStack gap={1} grow>
             <Text variant="value">{provider.name}</Text>
@@ -136,7 +136,7 @@
             onclick={(e) => e.stopPropagation()}
             onkeydown={(e) => e.stopPropagation()}
           >
-            <Switch
+            <Toggle
               checked={!provider.disabled}
               ariaLabel={t('providers.detail.enable')}
               onchange={(v) => toggleProvider(provider, v)}
@@ -145,11 +145,11 @@
         </HStack>
         <Text size="sm">{n(stats?.credential_count ?? 0, 'credentials.status.active.one', 'credentials.status.active.many')} · {stats?.model_count ?? 0} {t('models.list.title')}</Text>
         {#if isSystemDisabled(provider)}
-          <Text variant="caption" tone="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(provider.disabled_reason)}</Text>
+          <Text variant="caption" tint="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(provider.disabled_reason)}</Text>
         {/if}
       {/snippet}
       {#snippet empty()}
-        <EmptyState title={t('providers.list.empty')} icon="cloud" />
+        <ContentUnavailable title={t('providers.list.empty')} icon="cloud" />
       {/snippet}
     </Table>
   {/if}

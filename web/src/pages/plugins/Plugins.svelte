@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api } from '$lib/api'
   import { createListResource } from '$lib/list-resource.svelte'
-  import { Picker, Text, VStack, HStack, Header, Banner, EmptyState } from '@fuckyouryan/fui'
+  import { Picker, Text, VStack, HStack, Header, Banner, ContentUnavailable } from '@fuckyouryan/fui'
   import InstalledTab from './components/InstalledTab.svelte'
   import CatalogTab from './components/CatalogTab.svelte'
   import type { Plugin, PluginRepo, PluginUpdate, StoreFile } from '$lib/types'
@@ -84,7 +84,7 @@
   <VStack gap={6}>
   <Header title={t('plugins.title')} info={t('plugins.manage_desc')} />
 
-  <Picker
+  <Picker pickerStyle="segmented"
     value={tab}
     onchange={(next) => ontabchange(next as PluginsTab)}
     options={[
@@ -95,9 +95,9 @@
   />
 
   {#if resource.loading && resource.data.plugins.length === 0 && resource.data.repos.length === 0}
-    <EmptyState title={t('common.state.loading')} />
+    <ContentUnavailable title={t('common.state.loading')} />
   {:else if resource.error && resource.data.plugins.length === 0 && resource.data.repos.length === 0}
-    <Banner variant="error" text={resource.error} />
+    <Banner tint="danger" text={resource.error} />
   {:else if tab === 'installed'}
     <InstalledTab
       plugins={resource.data.plugins}

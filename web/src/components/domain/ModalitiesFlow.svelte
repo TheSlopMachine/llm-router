@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Chip, Icon, HStack, VStack } from '@fuckyouryan/fui'
-  import { modalityColor, modalityIcon } from '../../lib/modalities'
+  import { modalityTint, modalityIcon } from '../../lib/modalities'
 
   // In → out modality flow. The root always runs left to right;
   // chipsDirection only switches the chip groups between columns
@@ -29,26 +29,26 @@
 </script>
 
 {#if input.length > 0 || output.length > 0}
-  <HStack gap={2} align="center">
+  <HStack gap={2} valign="center">
     {#if chipsDirection === 'vertical'}
       <div class="mods">
         {#each input as mod}
-          <Chip icon={modalityIcon(mod)} text="" color={modalityColor(mod)} title={mod} {size} />
+          <Chip icon={modalityIcon(mod)} text="" tint={modalityTint(mod)} title={mod} {size} />
         {/each}
       </div>
-      <span class="arrow"><Icon name="arrow_forward" size="base" tone="disabled" /></span>
+      <span class="arrow"><Icon name="arrow_forward" size="md" foregroundStyle="tertiary" /></span>
       <div class="mods">
         {#each output as mod}
-          <Chip icon={modalityIcon(mod)} text="" color={modalityColor(mod)} title={mod} {size} />
+          <Chip icon={modalityIcon(mod)} text="" tint={modalityTint(mod)} title={mod} {size} />
         {/each}
       </div>
     {:else}
       {#each input as mod}
-        <Chip icon={modalityIcon(mod)} text="" color={modalityColor(mod)} title={mod} {size} />
+        <Chip icon={modalityIcon(mod)} text="" tint={modalityTint(mod)} title={mod} {size} />
       {/each}
-      <span class="arrow"><Icon name="arrow_forward" size="base" tone="disabled" /></span>
+      <span class="arrow"><Icon name="arrow_forward" size="md" foregroundStyle="tertiary" /></span>
       {#each output as mod}
-        <Chip icon={modalityIcon(mod)} text="" color={modalityColor(mod)} title={mod} {size} />
+        <Chip icon={modalityIcon(mod)} text="" tint={modalityTint(mod)} title={mod} {size} />
       {/each}
     {/if}
   </HStack>

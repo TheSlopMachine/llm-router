@@ -1,6 +1,6 @@
 <script lang="ts">
   import ModalitiesFlow from '../../components/domain/ModalitiesFlow.svelte'
-  import { Icon, Button, Chip, HStack, SectionCard, Select, Text, TextArea, TextEdit, VStack, Banner, Header, EmptyState } from '@fuckyouryan/fui'
+  import { Icon, Button, Chip, HStack, GroupBox, Text, TextEditor, TextField, VStack, Banner, Header, ContentUnavailable, Picker } from '@fuckyouryan/fui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -218,48 +218,48 @@
   <Header title={vmId ? t('virtual.edit.title') : t('virtual.create.title')} info={vmId ? t('virtual.update_desc') : t('virtual.create_desc')} />
 
   {#if error}
-    <Banner variant="error" text={error} />
+    <Banner tint="danger" text={error} />
   {:else if loading}
-    <EmptyState title={t('common.state.loading')} />
+    <ContentUnavailable title={t('common.state.loading')} />
   {:else}
     {#if formError}
-      <Banner variant="error" text={formError} />
+      <Banner tint="danger" text={formError} />
     {/if}
 
     {#if isManaged}
-      <Text tone="soft" size="sm">{t('virtual.managed_by_provider')}</Text>
+      <Text foregroundStyle="secondary" size="sm">{t('virtual.managed_by_provider')}</Text>
     {/if}
 
     {#if modelsLoadState === 'empty'}
-      <Banner variant="warning" text={t('virtual.configure_first')} />
+      <Banner tint="warning" text={t('virtual.configure_first')} />
     {/if}
 
-    <SectionCard title={t('virtual.basic_info')}>
+    <GroupBox title={t('virtual.basic_info')}>
       <VStack gap={1}>
         <Text tag="label" size="sm" weight="medium" for="vm-name">ID *</Text>
-        <TextEdit id="vm-name" bind:value={name} hint={t('virtual.model')} disabled={isManaged} />
+        <TextField id="vm-name" bind:value={name} hint={t('virtual.model')} disabled={isManaged} />
       </VStack>
       <VStack gap={1}>
         <Text tag="label" size="sm" weight="medium" for="vm-description">{t('virtual.description_for_decision')}</Text>
-        <TextArea id="vm-description" bind:value={description} hint={t('virtual.description_example')} minRows={2} disabled={isManaged} />
+        <TextEditor id="vm-description" bind:value={description} hint={t('virtual.description_example')} minRows={2} disabled={isManaged} />
       </VStack>
       <VStack gap={1}>
         <Text tag="label" size="sm" weight="medium" for="vm-instruction">{t('virtual.instruction_label')}</Text>
-        <TextArea id="vm-instruction" bind:value={instruction} hint={t('virtual.general_instructions')} minRows={4} disabled={isManaged} />
+        <TextEditor id="vm-instruction" bind:value={instruction} hint={t('virtual.general_instructions')} minRows={4} disabled={isManaged} />
       </VStack>
-    </SectionCard>
+    </GroupBox>
 
-    <SectionCard title={t('models.list.title')}>
+    <GroupBox title={t('models.list.title')}>
       {#if modelsLoadState === 'loading'}
-        <EmptyState title={t('common.state.loading')} />
+        <ContentUnavailable title={t('common.state.loading')} />
       {:else if modelsLoadState === 'error'}
-        <VStack gap={2} align="center">
-          <Banner variant="error" text={t('models.list.failed_load')} />
+        <VStack gap={2} halign="center">
+          <Banner tint="danger" text={t('models.list.failed_load')} />
           <Button text={t('common.actions.reload')} onclick={loadAvailableModels} />
         </VStack>
       {:else if models.length === 0}
         {#if modelsLoadState === 'empty'}
-          <EmptyState title={t('virtual.no_models_configure')} />
+          <ContentUnavailable title={t('virtual.no_models_configure')} />
         {:else if isEditable}
           <Button text={t('models.actions.add')} icon={{ name: 'add' }} onclick={addModel} />
         {/if}
@@ -278,30 +278,30 @@
               role="listitem"
             >
               <div class="model-row-top">
-                <HStack gap={0} align="center" class="col-priority">
+                <HStack gap={0} valign="center" class="col-priority">
                   <span class="drag-handle" title={t('models.drag_reorder')}><Icon name="drag_indicator" /></span>
-                  <Text size="sm" tone="soft" align="center" class="row-num">{i + 1}</Text>
+                  <Text size="sm" foregroundStyle="secondary" align="center" class="row-num">{i + 1}</Text>
                 </HStack>
                 <div class="model-row-select">
-                  <Select value={id} options={modelOptions} searchable={true} placeholder={t('models.select.placeholder')} onchange={(v) => setModel(i, v)} disabled={isManaged} />
+                  <Picker value={id} options={modelOptions} searchable={true} placeholder={t('models.select.placeholder')} onchange={(v) => setModel(i, v)} disabled={isManaged} />
                 </div>
-                <Button tint="var(--fui-color-danger)" style="text" icon={{ name: 'delete' }} ariaLabel={t('virtual.remove_model')} onclick={() => removeModel(i)} disabled={isManaged} />
+                <Button tint="var(--fui-color-danger)" buttonStyle="text" icon={{ name: 'delete' }} ariaLabel={t('virtual.remove_model')} onclick={() => removeModel(i)} disabled={isManaged} />
               </div>
               <div class="model-row-bottom">
-                <HStack gap={2} wrap align="center" class="row-caps">
+                <HStack gap={2} wrap valign="center" class="row-caps">
                   <ModalitiesFlow modalities={{ input: modalityMap[id]?.input, output: modalityMap[id]?.output }} chipsDirection="horizontal" />
                   {#each modelInfoOf(id)?.capabilities ?? [] as cap}
                     {@const capability = CAPABILITY_META[cap]}
                     {#if capability}
-                      <Chip icon={capability.icon} color={capability.color} size="medium" title={t(capability.hint)} />
+                      <Chip icon={capability.icon} tint={capability.chipTint} size="md" title={t(capability.hint)} />
                     {:else}
-                      <Chip text={cap} size="medium" title={cap} />
+                      <Chip text={cap} size="md" title={cap} />
                     {/if}
                   {/each}
                 </HStack>
                 <VStack gap={0} class="row-ctx">
-                  {#if modelInfoOf(id)?.context_window}<Text size="sm" tone="soft">{(modelInfoOf(id)!.context_window! / 1000).toFixed(0)}k ctx</Text>{/if}
-                  {#if modelInfoOf(id)?.max_tokens}<Text size="sm" tone="soft">{(modelInfoOf(id)!.max_tokens! / 1000).toFixed(0)}k out</Text>{/if}
+                  {#if modelInfoOf(id)?.context_window}<Text size="sm" foregroundStyle="secondary">{(modelInfoOf(id)!.context_window! / 1000).toFixed(0)}k ctx</Text>{/if}
+                  {#if modelInfoOf(id)?.max_tokens}<Text size="sm" foregroundStyle="secondary">{(modelInfoOf(id)!.max_tokens! / 1000).toFixed(0)}k out</Text>{/if}
                 </VStack>
               </div>
             </div>
@@ -310,37 +310,37 @@
         {#if isEditable}
           <Button text={t('models.actions.add')} icon={{ name: 'add' }} onclick={addModel} />
         {/if}
-        <HStack gap={3} wrap align="center">
-          <Text size="sm" weight="medium" tone="soft">{t('virtual.capabilities')}</Text>
+        <HStack gap={3} wrap valign="center">
+          <Text size="sm" weight="medium" foregroundStyle="secondary">{t('virtual.capabilities')}</Text>
           <ModalitiesFlow modalities={{ input: aggregates.inMods, output: aggregates.outMods }} chipsDirection="horizontal" />
           {#if aggregates.caps.length > 0}
             {#each aggregates.caps as cap}
               {@const capability = CAPABILITY_META[cap]}
               {#if capability}
-                <Chip icon={capability.icon} text={t(capability.label)} size="medium" color={capability.color} title={t(capability.hint)} />
+                <Chip icon={capability.icon} text={t(capability.label)} size="md" tint={capability.chipTint} title={t(capability.hint)} />
               {:else}
                 <Chip text={cap} title={cap} />
               {/if}
             {/each}
           {:else}
-            <Text tone="disabled" size="sm">—</Text>
+            <Text foregroundStyle="tertiary" size="sm">—</Text>
           {/if}
           {#if aggregates.context > 0}
-            <Text size="sm" tone="soft" title={t('virtual.smallest_context')}>{(aggregates.context / 1000).toFixed(0)}k ctx</Text>
+            <Text size="sm" foregroundStyle="secondary" title={t('virtual.smallest_context')}>{(aggregates.context / 1000).toFixed(0)}k ctx</Text>
           {/if}
           {#if aggregates.output > 0}
-            <Text size="sm" tone="soft" title={t('virtual.smallest_output')}>{(aggregates.output / 1000).toFixed(0)}k out</Text>
+            <Text size="sm" foregroundStyle="secondary" title={t('virtual.smallest_output')}>{(aggregates.output / 1000).toFixed(0)}k out</Text>
           {/if}
         </HStack>
       {/if}
-    </SectionCard>
+    </GroupBox>
 
     {#if isEditable}
-    <HStack justify="end" gap={2}>
-      <Button text={t('common.actions.cancel')} style="text" onclick={backToList} disabled={saving} />
+    <HStack halign="end" gap={2}>
+      <Button text={t('common.actions.cancel')} buttonStyle="text" onclick={backToList} disabled={saving} />
       <Button
         text={saveLabel}
-        style="prominent"
+        buttonStyle="prominent"
         disabled={!canSave || saving}
         onclick={save}
       />

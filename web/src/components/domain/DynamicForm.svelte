@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Link, Banner, CodeBlock, SectionCard, Grid, Box, TextEdit, Select, Switch, Text, VStack, HStack, Spacer, Divider, type Align, type Justify, type Step } from '@fuckyouryan/fui'
+  import { Link, Banner, CodeBlock, GroupBox, Grid, TextField, Toggle, Text, VStack, HStack, Spacer, Divider, type HAlign, type VAlign, type Step, Picker } from '@fuckyouryan/fui'
   import { isStepValue, isBannerVariant, isSecretInput } from '$lib/ui-helpers'
   import type { UINode } from '../../lib/types'
 
@@ -43,8 +43,10 @@
     return fallback
   }
 
-  function bannerVariant(node: UINode): 'info' | 'warning' | 'error' | 'success' {
-    return node.variant && isBannerVariant(node.variant) ? node.variant : 'info'
+  // The plugin contract names the failure style `error`; the widget tint is `danger`.
+  function bannerTint(node: UINode): 'info' | 'warning' | 'danger' | 'success' {
+    if (node.variant && isBannerVariant(node.variant)) return node.variant === 'error' ? 'danger' : node.variant
+    return 'info'
   }
 </script>
 
@@ -66,27 +68,29 @@
     return out
   }
 
-  export function buttonVariant(node: UINodeType): 'primary' | 'secondary' | 'danger' {
+  // Plugin variants (primary, secondary, danger) map to a button style and an optional role.
+  export function buttonAppearance(node: UINodeType): { buttonStyle: 'prominent' | 'neutral'; role?: 'destructive' } {
     if (node.variant && isButtonVariant(node.variant)) {
-      return node.variant
+      if (node.variant === 'danger') return { buttonStyle: 'prominent', role: 'destructive' }
+      return { buttonStyle: node.variant === 'primary' ? 'prominent' : 'neutral' }
     }
     const action = node.form_action || 'submit'
-    return action === 'cancel' || action === 'restart' ? 'secondary' : 'primary'
+    return { buttonStyle: action === 'cancel' || action === 'restart' ? 'neutral' : 'prominent' }
   }
 </script>
 
 {#snippet nodeList(list: UINode[])}
   {#each list as node}
     {#if node.type === 'text'}
-      <Text tone="soft">{node.text}</Text>
+      <Text foregroundStyle="secondary">{node.text}</Text>
     {:else if node.type === 'banner'}
-      <Banner variant={bannerVariant(node)} text={node.text ?? ''} />
+      <Banner tint={bannerTint(node)} text={node.text ?? ''} />
     {:else if node.type === 'input'}
       <VStack gap={1}>
         {#if node.label}
           <Text size="sm" weight="medium">{node.label}{#if node.required} *{/if}</Text>
         {/if}
-        <TextEdit
+        <TextField
           id="dyn-{node.name}"
           name="dyn-{node.name}"
           type={isSecretInput(node.input_type) ? 'secret' : 'text'}
@@ -103,7 +107,7 @@
         {#if node.label}
           <Text size="sm" weight="medium">{node.label}{#if node.required} *{/if}</Text>
         {/if}
-        <Select
+        <Picker
           value={selectValue(node)}
           options={(node.options ?? []).map((opt) => ({ value: opt, label: optionLabel(node, opt) }))}
           disabled={busy}
@@ -111,23 +115,23 @@
         />
       </VStack>
     {:else if node.type === 'checkbox'}
-      <Switch
+      <Toggle
         checked={values[node.name ?? ''] === true}
         disabled={busy}
         label={node.label}
         onchange={(v) => setValue(node.name ?? '', v)}
       />
     {:else if node.type === 'link'}
-      <Text size="base"><Link href={node.url ?? ''} external text={node.text || node.url} /></Text>
+      <Text size="md"><Link href={node.url ?? ''} external text={node.text || node.url} /></Text>
     {:else if node.type === 'secret'}
       <VStack gap={1}>
         {#if node.label}
           <Text size="sm" weight="medium">{node.label}{#if node.required} *{/if}</Text>
         {/if}
-        <TextEdit
+        <TextField
           id="dyn-{node.name}"
           name="dyn-{node.name}"
-          type="secret"
+          secure
           autocomplete="off"
           value={fieldValue(node)}
           hint={node.placeholder ?? ''}
@@ -142,8 +146,8 @@
       {#if (node.direction ?? 'vertical') === 'horizontal'}
         <HStack
           gap={toStep(node.gap, 4)}
-          align={(node.align ?? 'stretch') as Align}
-          justify={(node.justify ?? 'start') as Justify}
+          valign={(node.align ?? 'stretch') as VAlign}
+          halign={(node.justify ?? 'start') as HAlign}
           wrap={node.wrap ?? true}
         >
           {@render nodeList(node.content ?? [])}
@@ -151,8 +155,8 @@
       {:else}
         <VStack
           gap={toStep(node.gap, 4)}
-          align={(node.align ?? 'stretch') as Align}
-          justify={(node.justify ?? 'start') as Justify}
+          halign={(node.align ?? 'stretch') as HAlign}
+          valign={(node.justify ?? 'start') as VAlign}
           wrap={node.wrap ?? true}
         >
           {@render nodeList(node.content ?? [])}
@@ -163,9 +167,9 @@
         {@render nodeList(node.content ?? [])}
       </Grid>
     {:else if node.type === 'section'}
-      <SectionCard title={node.title ?? ''} description={node.subtitle}>
+      <GroupBox title={node.title ?? ''} description={node.subtitle}>
         {@render nodeList(node.content ?? [])}
-      </SectionCard>
+      </GroupBox>
     {:else if node.type === 'spacer'}
       {#if node.grow ?? true}
         <Spacer />
@@ -175,9 +179,9 @@
     {:else if node.type === 'divider'}
       <Divider />
     {:else if node.type === 'group'}
-      <Box elev pad={3} radius="md">
+      <VStack elev pad={3} radius="md">
         {@render nodeList(node.content ?? [])}
-      </Box>
+      </VStack>
     {/if}
   {/each}
 {/snippet}

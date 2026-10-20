@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { SearchField, Toolbar, ToolbarItem, Button, FloatingView, List, VStack, HStack, Text, Banner, ConfirmAction, FilePicker, EmptyState } from '@fuckyouryan/fui'
+  import { SearchField, Toolbar, ToolbarItem, Button, FloatingView, List, VStack, HStack, Text, Banner, ConfirmAction, FilePicker, ContentUnavailable } from '@fuckyouryan/fui'
   import PluginCard from './PluginCard.svelte'
   import { createPluginState } from './plugin-state.svelte'
   import { diffAllowHosts } from './plugin-permission-diff'
@@ -99,7 +99,7 @@
 
 <VStack gap={4}>
   {#if actionError}
-    <Banner variant="error" text={actionError} />
+    <Banner tint="danger" text={actionError} />
   {/if}
 
   <Toolbar overflow="wrap" gap={3}>
@@ -116,7 +116,7 @@
     {#if updateCount > 0}
       <ToolbarItem priority={1}>
         <Button
-          style="prominent"
+          buttonStyle="prominent"
           icon={{ name: 'upgrade' }}
           text={pluginState.updatingAll ? t('plugins.updating') : `${t('plugins.update_all')} (${updateCount})`}
           disabled={pluginState.updatingAll}
@@ -128,16 +128,16 @@
 
   {#if plugins.length === 0}
     {#snippet browseCatalogAction()}
-      <Button style="prominent" icon={{ name: 'download' }} onclick={() => onBrowseCatalog?.()}>{t('plugins.installed.browse_catalog')}</Button>
+      <Button buttonStyle="prominent" icon={{ name: 'download' }} onclick={() => onBrowseCatalog?.()}>{t('plugins.installed.browse_catalog')}</Button>
     {/snippet}
-    <EmptyState
+    <ContentUnavailable
       icon="extension"
       title={t('plugins.installed.empty')}
       caption={t('plugins.installed.browse')}
       action={browseCatalogAction}
     />
   {:else if filtered.length === 0}
-    <EmptyState title={t('plugins.catalog.no_match')} icon="search" />
+    <ContentUnavailable title={t('plugins.catalog.no_match')} icon="search" />
   {:else}
     <List>
       {#each filtered as plugin (plugin.id)}
@@ -198,16 +198,16 @@
     {#snippet children({ close })}
       <VStack gap={3}>
         <VStack gap={1}>
-          <Text weight="medium" size="base">{t('plugins.rollback_title')}</Text>
-          <Text size="sm" tone="soft">
+          <Text weight="medium" size="md">{t('plugins.rollback_title')}</Text>
+          <Text size="sm" foregroundStyle="secondary">
             {t('plugins.rollback')} "{pluginState.pendingRollback?.plugin.display_name}" {t('plugins.rollback_confirm')}
           </Text>
         </VStack>
-        <HStack justify="end" gap={2}>
-          <Button size="small" style="text" onclick={close} disabled={pluginState.rollingBack}>{t('common.actions.cancel')}</Button>
+        <HStack halign="end" gap={2}>
+          <Button size="sm" buttonStyle="text" onclick={close} disabled={pluginState.rollingBack}>{t('common.actions.cancel')}</Button>
           <Button
-            size="small"
-            style="prominent"
+            size="sm"
+            buttonStyle="prominent"
             disabled={pluginState.rollingBack}
             onclick={() => void pluginState.doRollback()}
           >

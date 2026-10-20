@@ -19,16 +19,16 @@
 
 <VStack gap={4}>
   {#if description}
-    <Text size="base">{description}</Text>
+    <Text size="md">{description}</Text>
   {/if}
 
   <VStack gap={1}>
-    <Text size="xs" weight="medium" tone="soft">{t('plugins.repo.url')}</Text>
-    <Text size="xs" tone="soft" mono break>{url}</Text>
+    <Text size="xs" weight="medium" foregroundStyle="secondary">{t('plugins.repo.url')}</Text>
+    <Text size="xs" foregroundStyle="secondary" mono break>{url}</Text>
   </VStack>
 
-  <HStack align="center" gap={3}>
-    {#if builtin}<Chip text={t('plugins.repo.builtin')} color="chip-neutral" size="small" />{/if}
-    <Text size="sm" tone="soft">{n(fileCount, 'units.plugin.one', 'units.plugin.many')}</Text>
+  <HStack valign="center" gap={3}>
+    {#if builtin}<Chip text={t('plugins.repo.builtin')} tint="neutral" size="sm" />{/if}
+    <Text size="sm" foregroundStyle="secondary">{n(fileCount, 'units.plugin.one', 'units.plugin.many')}</Text>
   </HStack>
 </VStack>

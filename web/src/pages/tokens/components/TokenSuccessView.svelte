@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CodeBlock, Grid, VStack, Text, Banner, Box } from '@fuckyouryan/fui'
+  import { CodeBlock, Grid, VStack, Text, Banner } from '@fuckyouryan/fui'
   import { t, tx } from '$lib/i18n.svelte'
 
   let {
@@ -16,36 +16,36 @@
 </script>
 
 <VStack gap={4}>
-  <VStack gap={1} align="center">
+  <VStack gap={1} halign="center">
     <Text variant="section-title" align="center">{tx('tokens.success.created_named', { name: tokenName })}</Text>
-    <Text tag="h3" size="sm" tone="soft" align="center">{t('tokens.success.copy_now')}</Text>
+    <Text tag="h3" size="sm" foregroundStyle="secondary" align="center">{t('tokens.success.copy_now')}</Text>
   </VStack>
 
   {#if error}
-    <Banner variant="error" text={error} />
+    <Banner tint="danger" text={error} />
   {/if}
 
   <CodeBlock text={token ?? ''} />
 
   <Grid min="sm" gap={4} class="scope-summary">
-    <Box elev radius="md" pad={4}>
-      <VStack align="center" gap={2}>
-        <Text size="xs" weight="medium" tone="soft" class="scope-label">{t('providers.list.title')}</Text>
+    <VStack elev radius="md" pad={4}>
+      <VStack halign="center" gap={2}>
+        <Text size="xs" weight="medium" foregroundStyle="secondary" class="scope-label">{t('providers.list.title')}</Text>
         <Text size="sm" weight="medium">{scopeLabel.providers}</Text>
       </VStack>
-    </Box>
-    <Box elev radius="md" pad={4}>
-      <VStack align="center" gap={2}>
-        <Text size="xs" weight="medium" tone="soft" class="scope-label">{t('models.list.title')}</Text>
+    </VStack>
+    <VStack elev radius="md" pad={4}>
+      <VStack halign="center" gap={2}>
+        <Text size="xs" weight="medium" foregroundStyle="secondary" class="scope-label">{t('models.list.title')}</Text>
         <Text size="sm" weight="medium">{scopeLabel.models}</Text>
       </VStack>
-    </Box>
-    <Box elev radius="md" pad={4}>
-      <VStack align="center" gap={2}>
-        <Text size="xs" weight="medium" tone="soft" class="scope-label">{t('credentials.title_plural')}</Text>
+    </VStack>
+    <VStack elev radius="md" pad={4}>
+      <VStack halign="center" gap={2}>
+        <Text size="xs" weight="medium" foregroundStyle="secondary" class="scope-label">{t('credentials.title_plural')}</Text>
         <Text size="sm" weight="medium">{scopeLabel.credentials}</Text>
       </VStack>
-    </Box>
+    </VStack>
   </Grid>
 </VStack>
 

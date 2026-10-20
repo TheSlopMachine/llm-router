@@ -67,8 +67,8 @@
   <div class="splash">
     {#if error}
       <div style="max-width: var(--fui-splash-max-w); text-align: center;">
-        <div style="font-size: var(--fui-text-lg); font-weight: 600; margin-bottom: var(--fui-splash-gap);">llm-router</div>
-        <Banner variant="error" text={error} />
+        <div style="font-size: var(--fui-text-xl); font-weight: 600; margin-bottom: var(--fui-splash-gap);">llm-router</div>
+        <Banner tint="danger" text={error} />
       </div>
     {:else}
       llm-router
@@ -92,7 +92,7 @@
     justify-content: center;
     height: 100vh;
     height: 100dvh;
-    font-size: var(--fui-text-lg);
+    font-size: var(--fui-text-xl);
     font-weight: 600;
     color: var(--fui-color-text-soft);
     letter-spacing: var(--fui-tracking-wide);

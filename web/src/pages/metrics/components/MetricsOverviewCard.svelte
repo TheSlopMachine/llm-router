@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { SectionCard, HStack, VStack, Text, Spacer, Icon } from '@fuckyouryan/fui'
+  import { GroupBox, HStack, VStack, Text, Spacer, Icon } from '@fuckyouryan/fui'
   import { t } from '$lib/i18n.svelte'
 
   let { title, value, loading = false, icon = 'show_chart' } = $props<{
@@ -10,17 +10,17 @@
   }>()
 </script>
 
-<SectionCard {title}>
+<GroupBox {title}>
   {#snippet badge()}
     <Icon name={icon} />
   {/snippet}
-  <VStack align="center" justify="center" style="min-height: var(--fui-metrics-card-min-h);">
+  <VStack halign="center" valign="center" style="min-height: var(--fui-metrics-card-min-h);">
     {#if loading}
-      <Text tone="soft" size="sm">{t('common.state.loading')}</Text>
+      <Text foregroundStyle="secondary" size="sm">{t('common.state.loading')}</Text>
     {:else if value === null || value === 0}
-      <Text tone="soft" size="sm">{t('common.empty.no_data')}</Text>
+      <Text foregroundStyle="secondary" size="sm">{t('common.empty.no_data')}</Text>
     {:else}
-      <Text size="2xl" weight="bold">{value.toLocaleString()}</Text>
+      <Text size={32} weight="bold">{value.toLocaleString()}</Text>
     {/if}
   </VStack>
-</SectionCard>
+</GroupBox>
