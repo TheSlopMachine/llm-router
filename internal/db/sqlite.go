@@ -115,6 +115,54 @@ func (database *Database) Close() error {
 	return primaryErr
 }
 
+// Release closes all pools without checkpoint, vacuum or optimize. Short
+// commands use it while a running server owns the files: maintenance
+// belongs to the owner, and a vacuum here would stall its writers.
+func (database *Database) Release() error {
+	if database == nil {
+		return nil
+	}
+	var first error
+	for _, handle := range []*gorm.DB{database.Events, database.Handle, database.Cache} {
+		if handle == nil {
+			continue
+		}
+		sqlDatabase, err := handle.DB()
+		if err != nil {
+			if first == nil {
+				first = fmt.Errorf("resolve sql handle: %w", err)
+			}
+			continue
+		}
+		if err := sqlDatabase.Close(); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
+// OpenEventsReadOnly opens only the events file in read-only mode. It
+// never creates, migrates or vacuums, so it is safe next to a running
+// server. The returned Database carries the Events handle only.
+func OpenEventsReadOnly(path string) (*Database, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, fmt.Errorf("events path is required")
+	}
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("events database %s: %w", path, err)
+	}
+	handle, err := gorm.Open(openSQLiteDialector(BuildEventsReadOnlyDSN(path)), NewGormConfiguration())
+	if err != nil {
+		return nil, fmt.Errorf("open events sqlite at %q: %w", path, err)
+	}
+	sqlDatabase, err := handle.DB()
+	if err != nil {
+		return nil, fmt.Errorf("resolve sql handle: %w", err)
+	}
+	sqlDatabase.SetMaxOpenConns(2)
+	return &Database{Events: handle}, nil
+}
+
 // openOne prepares the file, connects the GORM SQLite handle, configures
 // the pool, and asserts the open state.
 func openOne(ctx context.Context, path, dsn string) (*gorm.DB, error) {

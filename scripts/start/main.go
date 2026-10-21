@@ -148,7 +148,7 @@ func main() {
 		"LOG_LEVEL=" + logLevel,
 		"DEV_UI_REDIRECT=" + fmt.Sprintf("http://%s:%s", host, vitePort),
 	}
-	backendPID, err := shared.SpawnDetachedEnvNoLog(root, backendEnvironment, binPath)
+	backendPID, err := shared.SpawnDetachedEnvNoLog(root, backendEnvironment, binPath, "serve")
 	if err != nil {
 		shared.Failf("spawn backend: %v", err)
 	}

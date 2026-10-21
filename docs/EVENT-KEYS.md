@@ -1,7 +1,7 @@
 # Event Keys
 
 Single source of truth for the metadata keys on persisted log events
-(`GET /api/events`, `make log`). `make`-syntax examples run verbatim;
+(`GET /api/events`, `make log`, `llm-router logs`). `make`-syntax examples run verbatim;
 angle brackets hold a real id taken from a prior query. The `msg` example
 needs direct `/api/events` access (see below). The plugin-side
 vocabulary in `docs/PLUGIN-API.md` (logging convention) owns Lua key naming;
@@ -39,6 +39,10 @@ so filtering always targets keys, never substrings.
 - Retention is `EVENTS_RETENTION_DAYS` (default 3); older rows are pruned and
   cannot be queried back.
 
+`llm-router logs` reads the events database directly and needs no running
+server: `--severity`, `--subsystem`, `--filter key[=value]`, `--exclude
+key[=value]`, `--from`, `--to`, `--limit`, `-f` map onto the mechanics above.
+
 ## Prefer stable keys
 
 `code`, `model`, `type`, `provider_id`, `endpoint`, `operation`, `event`,
@@ -56,6 +60,7 @@ rules`, `Request decode failed`, `Authentication failed`).
 
 | Key | Meaning | Example filter |
 |---|---|---|
+| `subsystem` | Part of the server that logged the event (`providers`, `virtual_models`, `plugins`, `plugin_repos`, `plugin_storage`, `tokens`, `credentials`, `proxy`, `doctor`) | `EVENT_FILTERS="subsystem=providers"` |
 | `provider_id` | Provider instance serving the call | `EVENT_FILTERS="provider_id=google"` |
 | `type` | Plugin type key (`google`, `groq`, ...) | `EVENT_FILTERS="type=google"` |
 | `model` | Full router model id (`provider/model`) | `EVENT_FILTERS="model=google/gemini-2.5-flash"` |

@@ -38,6 +38,15 @@ func BuildEventsDSN(path string) string {
 	)
 }
 
+// BuildEventsReadOnlyDSN composes the DSN for read-only access to the
+// events file: no journal mode change, no schema work.
+func BuildEventsReadOnlyDSN(path string) string {
+	return fmt.Sprintf(
+		"file:%s?mode=ro&_pragma=busy_timeout(5000)&_time_format=sqlite",
+		path,
+	)
+}
+
 // NewGormConfiguration builds the shared GORM configuration.
 // Timestamps use UTC. Bound values stay out of logs.
 func NewGormConfiguration() *gorm.Config {

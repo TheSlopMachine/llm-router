@@ -1,5 +1,14 @@
 # Changelog
 
+## Done (2026-10-21, v0.4.3)
+
+- Replaced the flag-only CLI with commands: `serve`, `daemon start|stop|restart|status`, `logs`, `config` (menu, `init`, `get`, `set`, `unset`, `list`), `set-dashboard-password`, `status`, `doctor`, `update`, `version`, `help`. Running the binary without a command prints the help; systemd units and containers run `llm-router serve`.
+- Removed `--generate-config`, `--bootstrap`, `--create-login`, `--list-login`, `--remove-login`, `--reset-login` and `-v`. The dashboard has one user, `admin`; `set-dashboard-password` creates it on first use and changes its password without a restart. `--password-stdin`, `--generate` and `--if-absent` cover scripts and entrypoints.
+- Added a per-database instance lock (`<DB_PATH>.lock`): a second `serve`, `daemon start`, `doctor` or `update` on the same database fails with the holder's pid. `daemon stop` and `status` find any instance through the lock, including one started with `serve`.
+- `logs` reads the events database read-only, so it works without a running server and from any terminal.
+- `update` installs the latest GitHub release after a checksum check, keeps the old binary as `llm-router.prev`, copies the database to `<database>.pre-update.bak` and restarts a background server.
+- The release template and `config` no longer include `ADMIN_PORT`; the loopback admin listener stays a dev-only setting of `make start`.
+
 ## Done (2026-10-20, v0.4.3)
 
 - Fixed the dashboard metrics page flashing every 30 seconds: a background refresh set `loading` and replaced every card and chart with the loading text. Only the first load and a filter change show the loading state now. Responses to superseded requests are dropped, and a hidden tab no longer polls.

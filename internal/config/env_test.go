@@ -318,13 +318,18 @@ func TestWriteDefaultFileCreatesTemplate(t *testing.T) {
 	if string(raw) != DefaultTemplate() {
 		t.Fatalf("template mismatch:\n%s", string(raw))
 	}
-	for _, key := range []string{"HOST=", "PORT=", "ADMIN_PORT=", "DB_PATH=", "CACHE_PATH=", "EVENTS_PATH=", "EVENTS_RETENTION_DAYS=", "LOG_LEVEL="} {
+	for _, key := range []string{"HOST=", "PORT=", "DB_PATH=", "CACHE_PATH=", "EVENTS_PATH=", "EVENTS_RETENTION_DAYS=", "LOG_LEVEL="} {
 		if !strings.Contains(string(raw), key) {
 			t.Errorf("template misses %q", key)
 		}
 	}
 	if strings.Contains(string(raw), "NO_AUTH=") {
 		t.Error("template contains NO_AUTH, want it removed")
+	}
+	// ADMIN_PORT stays dev-only process state set by `make start`; the
+	// release template never generates it.
+	if strings.Contains(string(raw), "ADMIN_PORT") {
+		t.Error("template contains ADMIN_PORT, want dev-only process state excluded")
 	}
 	// DEV_UI_REDIRECT stays dev-only process state set by `make start`;
 	// the prod template never generates it.

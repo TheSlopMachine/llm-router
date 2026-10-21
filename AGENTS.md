@@ -125,8 +125,16 @@ On win32 the `bash` tool runs PowerShell: chain with `;`, quote paths with `"...
 ## 3. Structure
 
 ```
-cmd/root.go              CLI entrypoint (environment + .env; --version, --generate-config, interactive --bootstrap/--list-login/--remove-login/--reset-login/--create-login)
-cmd/login.go             interactive admin login management (terminal gate, prompts, per-flag runners)
+cmd/root.go              CLI root: command groups, exit codes, version
+cmd/serve.go             foreground server (takes the instance lock)
+cmd/daemon.go            daemon start/stop/restart/status (daemon_unix.go, daemon_windows.go)
+cmd/config.go            config menu, init, get, set, unset, list over the .env file
+cmd/password.go          set-dashboard-password (single user admin)
+cmd/logs.go              logs: reads the events database read-only
+cmd/status.go, doctor.go, update.go   status, database doctor, self-update
+internal/instance/       one process per database: file lock + holder record next to DB_PATH
+internal/updater/        GitHub release lookup, checksum check, binary swap
+internal/cli/            pure CLI helpers (argument parsing, formatting)
 internal/server/         HTTP server: public listener (dashboard SPA + /v1 + /api on PORT) + optional loopback admin listener (API only, no auth, on 127.0.0.1:ADMIN_PORT)
 internal/services/
   token/                 router-token issue/validate

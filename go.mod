@@ -10,6 +10,7 @@ require (
 	github.com/spf13/cobra v1.8.0
 	github.com/yuin/gopher-lua v1.1.2
 	golang.org/x/crypto v0.57.0
+	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.46.0
 	gorm.io/gorm v1.31.2
 	modernc.org/sqlite v1.55.0
@@ -25,7 +26,6 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	modernc.org/libc v1.74.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect

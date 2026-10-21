@@ -29,12 +29,36 @@ make install
 Configure via .env file or environment variables.
 
 ```bash
-llm-router --generate-config
-llm-router --bootstrap
-llm-router
+llm-router config init
+llm-router set-dashboard-password
+llm-router daemon start
 ```
 
-This starts one public listener on `PORT` (default `8080`) for the dashboard and `/v1`.
+This starts one public listener on `PORT` (default `8080`) for the dashboard and `/v1`. The dashboard login is `admin`.
+
+`llm-router help` lists every command. The main ones:
+
+| Command | Purpose |
+|---|---|
+| `serve` | Run in the foreground (systemd, Docker). |
+| `daemon start\|stop\|restart\|status` | Run in the background (Linux, macOS, FreeBSD). |
+| `config` | Interactive settings menu; `config get\|set\|unset\|list\|init` for scripts. |
+| `set-dashboard-password` | Set the `admin` password. |
+| `logs` | Print server events (`-f`, `--subsystem`, `--severity`, ...). |
+| `status`, `doctor` | Inspect the running server, check the database. |
+| `update` | Install the latest release. |
+
+Only one instance runs per database.
+
+### systemd and Docker
+
+Run `llm-router serve` in the foreground; the supervisor restarts it. Create the first password before the server starts. `--if-absent` keeps a password changed in the dashboard across restarts:
+
+```bash
+llm-router config init
+llm-router set-dashboard-password --password-stdin --if-absent < /run/secrets/admin_password
+exec llm-router serve
+```
 
 ## Usage
 

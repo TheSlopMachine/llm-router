@@ -166,21 +166,6 @@ func Load() (*Config, string, error) {
 	return configuration, loadedPath, nil
 }
 
-// DefaultTemplate renders the default .env content. .env.example mirrors it.
-func DefaultTemplate() string {
-	return `# llm-router configuration file
-HOST=localhost
-PORT=8080
-ADMIN_PORT=
-DB_PATH=` + DefaultDatabasePath + `
-CACHE_PATH=` + DefaultCachePath + `
-EVENTS_PATH=` + DefaultEventsPath + `
-EVENTS_RETENTION_DAYS=3
-LOG_LEVEL=info
-LUA_POOL_BUCKET_SIZE=16
-`
-}
-
 // WriteDefaultFile writes DefaultTemplate to target. It fails when the
 // target exists or the path is blank. Managed configuration parents are
 // created; custom parents must exist.
