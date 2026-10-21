@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Icon, Button, AppBar, AppBarState, setAppBarState } from '@fuckyouryan/fui'
+  import { Icon, Button, AppBar, AppBarState, setAppBarState, type IconName } from '@fuckyouryan/fui'
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
   import Metrics from './metrics/Metrics.svelte'
@@ -17,7 +17,7 @@
   import { t } from '../lib/i18n.svelte'
   import { BP_NARROW, BP_MOBILE } from '../lib/breakpoints'
 
-  let { onlogout } = $props<{ onlogout: () => void }>()
+  let { onlogout }: { onlogout: () => void } = $props()
 
   // One source of truth: the tuple drives both the type and the runtime
   // validation below. Previously the same nine ids were written twice and
@@ -28,7 +28,7 @@
   interface NavItem {
     id: PanelId
     label: import('../lib/i18n.svelte').TranslationKey
-    icon: string
+    icon: IconName
   }
 
   let panel = $state<PanelId>('metrics')
@@ -93,7 +93,7 @@
     { id: 'proxy',        label: 'proxy.title',      icon: 'vpn_lock' },
   ]
 
-  // Pages write <Header> as before; it hands title/subtitle/actions to this bar.
+  // Pages write <Header>; it hands title, subtitle, actions and primary to this bar.
   const bar = new AppBarState()
   setAppBarState(bar)
 
@@ -220,6 +220,7 @@
         subtitle={bar.content?.subtitle}
         info={bar.content?.info}
         actions={bar.content?.actions}
+        primary={bar.content?.primary}
         infoLabel={bar.content?.title}
         leading={mobile ? burger : undefined}
       />

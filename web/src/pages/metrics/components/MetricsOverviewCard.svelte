@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { GroupBox, HStack, VStack, Text, Spacer, Icon } from '@fuckyouryan/fui'
+  import { GroupBox, HStack, VStack, Text, Spacer, Icon, type IconName } from '@fuckyouryan/fui'
   import { t } from '$lib/i18n.svelte'
 
-  let { title, value, loading = false, icon = 'show_chart' } = $props<{
+  let { title, value, loading = false, icon = 'show_chart' }: {
     title: string
     value: number | null
     loading?: boolean
-    icon?: string
-  }>()
+    icon?: IconName
+  } = $props()
 </script>
 
 <GroupBox {title}>

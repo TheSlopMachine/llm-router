@@ -26,7 +26,7 @@
     onUpdate,
     onToggle,
     onaction
-  } = $props<{
+  }: {
     title: string
     version: string
     description?: string
@@ -48,7 +48,7 @@
     onUpdate?: () => void
     onToggle?: (enabled: boolean) => void
     onaction?: (id: string, anchor?: HTMLElement) => void
-  }>()
+  } = $props()
 
   let confirmAnchor = $state<HTMLElement>()
   let confirmOpen = $state(false)

@@ -7,12 +7,12 @@
     tokenName,
     scopeLabel,
     error = ''
-  } = $props<{
+  }: {
     token: string | null
     tokenName: string
     scopeLabel: { providers: string; models: string; credentials: string }
     error?: string
-  }>()
+  } = $props()
 </script>
 
 <VStack gap={4}>

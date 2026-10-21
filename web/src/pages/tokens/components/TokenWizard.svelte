@@ -24,7 +24,7 @@
     updateSubtitle,
     updateStepper,
     closeModal
-  } = $props<{
+  }: {
     providers: Provider[]
     editingToken?: Token | null
     onComplete: (result: { token?: string }) => void
@@ -33,7 +33,7 @@
     updateSubtitle: (subtitle: string) => void
     updateStepper: (stepper: StepperConfig | null) => void
     closeModal: () => void
-  }>()
+  } = $props()
 
   let wizardStep: number = $state(1)
   let wizardLoading: boolean = $state(false)

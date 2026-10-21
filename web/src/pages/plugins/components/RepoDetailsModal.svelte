@@ -8,13 +8,13 @@
     url,
     builtin,
     fileCount
-  } = $props<{
+  }: {
     title: string
     description?: string
     url: string
     builtin: boolean
     fileCount: number
-  }>()
+  } = $props()
 </script>
 
 <VStack gap={4}>

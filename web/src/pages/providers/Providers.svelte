@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Text, Toggle, Banner, Icon, Table, Header, HStack, VStack, ToolbarItem, type TableColumn, ContentUnavailable, squircle } from '@fuckyouryan/fui'
+  import { Button, Text, Toggle, Banner, Icon, Table, Header, HStack, VStack, type TableColumn, ContentUnavailable, squircle } from '@fuckyouryan/fui'
   import { openFormModal } from '$lib/modal-helpers'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -54,17 +54,7 @@
 </script>
 
 <VStack gap={6}>
-  <Header title={t('providers.list.title')} info={t('providers.list.subtitle')}>
-    {#snippet actions()}
-      <ToolbarItem primary>
-        {#if viewport.narrow}
-          <Button buttonStyle="prominent" onclick={openCreate} icon={{ name: 'add' }} title={t('providers.actions.new')} ariaLabel={t('providers.actions.new')} />
-        {:else}
-          <Button buttonStyle="prominent" onclick={openCreate} icon={{ name: 'add' }}>{t('providers.actions.new')}</Button>
-        {/if}
-      </ToolbarItem>
-    {/snippet}
-  </Header>
+  <Header title={t('providers.list.title')} info={t('providers.list.subtitle')} primary={{ id: 'new', text: t('providers.actions.new'), icon: 'add', onclick: openCreate }} />
 
   {#if resource.error}
     <Banner tint="danger" text={resource.error} />

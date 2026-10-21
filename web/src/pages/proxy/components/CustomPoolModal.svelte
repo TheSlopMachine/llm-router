@@ -13,12 +13,12 @@
     onComplete,
     closeModal,
     updateButtons,
-  } = $props<{
+  }: {
     editingPool?: ProxyPool | null
     onComplete: () => void | Promise<void>
     closeModal: () => void
     updateButtons: (buttons: ModalButton[]) => void
-  }>()
+  } = $props()
 
   const isEditMode = $derived(editingPool !== null)
 

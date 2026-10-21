@@ -17,7 +17,7 @@
     onPluginSaved,
     onPluginRemoved,
     onBrowseCatalog
-  } = $props<{
+  }: {
     plugins: Plugin[]
     updates: PluginUpdate[]
     repos: Array<{ repo: PluginRepo; files: StoreFile[]; error: string }>
@@ -25,7 +25,7 @@
     onPluginSaved: (plugin: Plugin) => void
     onPluginRemoved: (id: string) => void
     onBrowseCatalog?: () => void
-  }>()
+  } = $props()
 
   let query = $state('')
   let actionError = $state('')

@@ -25,7 +25,7 @@
     onUpdatesRefresh,
     onRepoAdded,
     onRepoRemoved
-  } = $props<{
+  }: {
     repos: RepoEntry[]
     plugins: Plugin[]
     updates: PluginUpdate[]
@@ -34,7 +34,7 @@
     onUpdatesRefresh: () => Promise<void>
     onRepoAdded: (repo: PluginRepo) => void
     onRepoRemoved: (id: string) => void
-  }>()
+  } = $props()
 
   let query = $state('')
   let showUpdatesOnly = $state(false)

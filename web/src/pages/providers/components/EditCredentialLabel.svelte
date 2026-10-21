@@ -14,12 +14,12 @@
     onComplete,
     closeModal,
     updateButtons,
-  } = $props<{
+  }: {
     cred: Credential
     onComplete: () => void | Promise<void>
     closeModal: () => void
     updateButtons: (buttons: ModalButton[]) => void
-  }>()
+  } = $props()
 
   // initial value only: the modal owns this component's lifetime
   // svelte-ignore state_referenced_locally

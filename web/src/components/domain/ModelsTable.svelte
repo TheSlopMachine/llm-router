@@ -41,7 +41,7 @@
     onReorder,
     actions,
     empty,
-  } = $props<{
+  }: {
     models: ModelsTableModel[]
     readonly?: boolean
     sortable?: boolean
@@ -52,7 +52,7 @@
     onReorder?: (from: number, to: number) => void
     actions?: ModelsTableActions
     empty?: Snippet<[]>
-  }>()
+  } = $props()
 
   let sortKey = $state<string | null>(null)
   let sortDir = $state<TableSortDir | null>(null)
@@ -275,13 +275,13 @@
       {:else if column.key === 'ctxmods'}
         <VStack gap={2} halign="start">
           {@render ctxBlock({ model })}
-          {@render modsBlock({ model }, 'large', 'horizontal')}
+          {@render modsBlock({ model }, 'lg', 'horizontal')}
         </VStack>
       {:else if column.key === 'all'}
         <VStack gap={4} halign="start">
           {@render ctxBlock({ model })}
-          {@render modsBlock({ model }, 'large', 'horizontal')}
-          {@render capsBlock({ model }, 'small')}
+          {@render modsBlock({ model }, 'lg', 'horizontal')}
+          {@render capsBlock({ model }, 'sm')}
         </VStack>
       {:else if column.key === 'actions'}
         <HStack halign="end" gap={2} class="actions-cell">

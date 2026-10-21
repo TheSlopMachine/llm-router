@@ -8,13 +8,13 @@
   // lists carry at least one entry, or neither does.
   let {
     modalities,
-    size = 'medium',
+    size = 'md',
     chipsDirection = 'vertical'
-  } = $props<{
+  }: {
     modalities: { input?: string[]; output?: string[] }
-    size?: 'small' | 'medium' | 'large'
+    size?: 'sm' | 'md' | 'lg'
     chipsDirection?: 'horizontal' | 'vertical'
-  }>()
+  } = $props()
 
   const input = $derived(modalities.input ?? [])
   const output = $derived(modalities.output ?? [])

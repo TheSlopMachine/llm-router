@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { VStack, HStack, Text, Button, Toggle, Table, GroupBox, Chip, FloatingView, FloatingList, Banner, ConfirmAction, Header, Stat, Grid, Picker, Spacer, ToolbarItem, DisclosureGroup, RelativeTime, Field, TextField, toast, type TableColumn, ContentUnavailable } from '@fuckyouryan/fui'
+  import { VStack, HStack, Text, Button, Toggle, Table, GroupBox, Chip, FloatingView, Banner, ConfirmAction, Header, Stat, Grid, Picker, Spacer, DisclosureGroup, RelativeTime, Field, TextField, toast, type TableColumn, ContentUnavailable, type AppBarAction } from '@fuckyouryan/fui'
   import { viewport } from '$lib/viewport.svelte'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
@@ -12,10 +12,10 @@
 
   export type ProxyTab = 'status' | 'sources' | 'pools'
 
-  let { tab = 'status', ontabchange } = $props<{
+  let { tab = 'status', ontabchange }: {
     tab?: ProxyTab
     ontabchange?: (next: ProxyTab) => void
-  }>()
+  } = $props()
 
   let proxies = $state<Proxy[]>([])
   let sources = $state<ProxySourceInfo[]>([])
@@ -38,8 +38,6 @@
   let deletePoolTarget = $state<ProxyPool | null>(null)
   let deletePoolAnchor = $state<HTMLElement>()
   let deletingPool = $state(false)
-  let actionsMenuOpen = $state(false)
-  let actionsMenuAnchor = $state<HTMLElement>()
 
   const proxyColumns: TableColumn[] = [
     { key: 'url', title: t('proxy.url'), width: '1fr', priority: 1 },
@@ -280,6 +278,33 @@
     }
   }
 
+
+  const headerPrimary = $derived<AppBarAction | undefined>(
+    tab === 'pools'
+      ? undefined
+      : {
+          id: 'refresh',
+          text: requestingRefresh ? t('proxy.pool.refreshing') : t('proxy.pool.refresh'),
+          icon: 'refresh',
+          disabled: requestingRefresh || !discoveryOn,
+          onclick: () => void refreshPool(),
+        },
+  )
+  const headerActions = $derived<AppBarAction[]>(
+    tab === 'pools'
+      ? []
+      : [
+          {
+            id: 'force',
+            text: t('proxy.force.action'),
+            icon: 'bolt',
+            loading: forcing || !!status?.forced_foreground,
+            disabled: !discoveryOn || !status || (status.queued === 0 && !status.forced_foreground),
+            onclick: () => void forceChecks(),
+          },
+          { id: 'recheck', text: t('proxy.recheck_banned.action'), icon: 'lock_reset', loading: recheckingBanned, disabled: !discoveryOn, onclick: () => void recheckBanned() },
+        ],
+  )
 </script>
 
 {#snippet healthyBody()}
@@ -312,70 +337,7 @@
 {/snippet}
 
 <VStack gap={6}>
-  <Header title={t('proxy.title')} info={t('proxy.pool.auto_refresh')}>
-    {#snippet actions()}
-      {#if tab !== 'pools'}
-        {#if viewport.narrow}
-          <ToolbarItem primary>
-            <Button
-              buttonStyle="prominent"
-              icon={{ name: 'more_vert' }}
-              title={t('providers.detail.more_actions')}
-              ariaLabel={t('providers.detail.more_actions')}
-              onclick={(e) => { actionsMenuAnchor = e.currentTarget as HTMLElement; actionsMenuOpen = true }}
-            />
-          </ToolbarItem>
-          <FloatingList
-            bind:open={actionsMenuOpen}
-            anchor={actionsMenuAnchor}
-            label={t('providers.detail.more_actions')}
-            actions={[
-              { id: 'refresh', label: t('proxy.pool.refresh'), icon: 'refresh', disabled: requestingRefresh || !discoveryOn },
-              { id: 'force', label: t('proxy.force.action'), icon: 'bolt', disabled: !discoveryOn || !status || (status.queued === 0 && !status.forced_foreground) },
-              { id: 'recheck', label: t('proxy.recheck_banned.action'), icon: 'lock_reset', disabled: !discoveryOn },
-            ]}
-            onaction={(id) => {
-              if (id === 'refresh') void refreshPool()
-              else if (id === 'force') void forceChecks()
-              else if (id === 'recheck') void recheckBanned()
-            }}
-          />
-        {:else}
-          <ToolbarItem primary>
-            <Button
-              buttonStyle="prominent"
-              icon={{ name: 'refresh' }}
-              text={requestingRefresh ? t('proxy.pool.refreshing') : t('proxy.pool.refresh')}
-              title={t('proxy.pool.refresh')}
-              collapse={false}
-              disabled={requestingRefresh || !discoveryOn}
-              onclick={refreshPool}
-            />
-          </ToolbarItem>
-          <ToolbarItem priority={1}>
-            <Button
-              icon={{ name: 'bolt' }}
-              text={t('proxy.force.action')}
-              title={t('proxy.force.hint')}
-              loading={forcing || !!status?.forced_foreground}
-              disabled={!discoveryOn || !status || (status.queued === 0 && !status.forced_foreground)}
-              onclick={forceChecks}
-            />
-          </ToolbarItem>
-          <ToolbarItem priority={2}>
-            <Button
-              icon={{ name: 'lock_reset' }}
-              text={t('proxy.recheck_banned.action')}
-              title={t('proxy.recheck_banned.desc')}
-              loading={recheckingBanned}
-              disabled={!discoveryOn}
-              onclick={recheckBanned}
-            />
-          </ToolbarItem>
-        {/if}
-      {/if}
-    {/snippet}
-  </Header>
+  <Header title={t('proxy.title')} info={t('proxy.pool.auto_refresh')} primary={headerPrimary} actions={headerActions} />
 
   <GroupBox>
     <Grid min="md" gap={4}>

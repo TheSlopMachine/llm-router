@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import ModelsTable from '../../../components/domain/ModelsTable.svelte'
-  import { squircle, toast, FloatingView, Table, CopyButton, Button, Spacer, HStack, VStack, Text, Toggle, Picker, SearchField, Toolbar, ToolbarItem, TextField, Banner, ConfirmAction, ContentUnavailable } from '@fuckyouryan/fui'
+  import { squircle, toast, FloatingView, Table, CopyButton, Button, Spacer, HStack, VStack, Text, Toggle, Picker, SearchField, Toolbar, ToolbarItem, TextField, Banner, ConfirmAction, ContentUnavailable, type IconName } from '@fuckyouryan/fui'
   import { t, tb } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { CAPABILITY_META, hasModalities } from '$lib/capabilities'
@@ -10,11 +10,11 @@
   import { api } from '$lib/api'
   import type { ModelsTableModel } from '../../../components/domain/ModelsTable.svelte'
 
-  let { provider = $bindable(), onrefresh, credRevision = 0 } = $props<{
+  let { provider = $bindable(), onrefresh, credRevision = 0 }: {
     provider: Provider | null
     onrefresh?: () => void
     credRevision?: number
-  }>()
+  } = $props()
   const providerId = $derived(provider?.id ?? '')
 
   let error = $state('')
@@ -366,7 +366,7 @@
     }
   }
 
-  function testIcon(result: TestResult | 'loading' | undefined, idleTitle: string): { icon: string; title: string } {
+  function testIcon(result: TestResult | 'loading' | undefined, idleTitle: string): { icon: IconName; title: string } {
     if (!result) return { icon: 'network_check', title: idleTitle }
     if (result === 'loading') return { icon: 'progress_activity', title: t('credentials.testing') }
     if (result.ok) return { icon: 'check_circle', title: `OK · ${result.latency_ms}ms` }

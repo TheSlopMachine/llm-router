@@ -10,12 +10,12 @@
     providers = [],
     models = [],
     onchange
-  } = $props<{
+  }: {
     filters: Filters
     providers: Provider[]
     models: string[]
     onchange?: (f: Filters) => void
-  }>()
+  } = $props()
 
   function handleChange() {
     onchange?.(filters)

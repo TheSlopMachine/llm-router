@@ -3,11 +3,11 @@
   import { t } from '$lib/i18n.svelte'
   import { GroupBox, VStack, HStack, Text } from '@fuckyouryan/fui'
 
-  let { title, data = [], loading = false } = $props<{
+  let { title, data = [], loading = false }: {
     title: string
     data: TimeSeriesPoint[]
     loading?: boolean
-  }>()
+  } = $props()
 
   let maxValue = $derived(data.length > 0 ? Math.max(...data.map((d: TimeSeriesPoint) => d.value)) : 0)
   let hasData = $derived(data.length > 0 && maxValue > 0)

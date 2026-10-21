@@ -11,7 +11,7 @@
   import { isUnauthenticated } from '$lib/credential-state'
   import { intersectMembers, minPositive } from '$lib/model-aggregates'
 
-  let { vmId = null } = $props<{ vmId: string | null }>()
+  let { vmId = null }: { vmId: string | null } = $props()
 
   let vm = $state<VirtualModel | undefined>(undefined)
   let loading = $state(false)

@@ -11,12 +11,12 @@
     onComplete,
     updateButtons,
     closeModal
-  } = $props<{
+  }: {
     editingProvider?: Provider | null
     onComplete: () => void
     updateButtons: (buttons: ModalButton[]) => void
     closeModal: () => void
-  }>()
+  } = $props()
 
   let name = $state('')
   let baseURL = $state('')

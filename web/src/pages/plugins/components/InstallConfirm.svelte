@@ -12,7 +12,7 @@
     busy = false,
     onCancel,
     onConfirm
-  } = $props<{
+  }: {
     allowHosts: string[]
     unsafe: boolean
     added?: string[]
@@ -22,7 +22,7 @@
     busy?: boolean
     onCancel: () => void
     onConfirm: () => void
-  }>()
+  } = $props()
 
   let hasChanges = $derived(added.length > 0 || removed.length > 0 || escalatesToUnsafe)
 </script>

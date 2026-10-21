@@ -1,7 +1,7 @@
-import type { Tint } from '@fuckyouryan/fui'
+import type { IconName, Tint } from '@fuckyouryan/fui'
 import type { TranslationKey } from './i18n/types'
 
-export const CAPABILITY_META: Record<string, { label: TranslationKey; chipTint: Tint; tint: string; icon: string; hint: TranslationKey }> = {
+export const CAPABILITY_META: Record<string, { label: TranslationKey; chipTint: Tint; tint: string; icon: IconName; hint: TranslationKey }> = {
   tools: { label: 'models.capabilities.tools', chipTint: 'info', tint: '#3b82f6', icon: 'build', hint: 'models.capabilities.tools_desc' },
   vision: { label: 'models.capabilities.vision', chipTint: 'purple', tint: '#8b5cf6', icon: 'image', hint: 'models.capabilities.vision_desc' },
   audio: { label: 'models.capabilities.audio', chipTint: 'teal', tint: '#14b8b8', icon: 'graphic_eq', hint: 'models.capabilities.audio_desc' },

@@ -26,7 +26,7 @@
   "packages": {
     "@fastify/busboy": ["@fastify/busboy@2.1.1", "", {}, "sha512-vBZP4NlzfOlerQTnba4aqZoMhE/a9HY7HRqoOPaETQcSQuWEIyZMHGfVu6w9wGtGK5fED5qRs2DteVCjOH60sA=="],
 
-    "@fuckyouryan/fui": ["@theslopmachine/fui@git+https://gitlab.com/fuckyouryan/fui.git#92babefed1fe2cef0955d08267263615c7323572", { "peerDependencies": { "svelte": "^5.0.0" } }, "92babefed1fe2cef0955d08267263615c7323572"],
+    "@fuckyouryan/fui": ["@fuckyouryan/fui@git+https://gitlab.com/fuckyouryan/fui.git#3b98adc685dc9cffccbe447c317256815ec1b1da", { "peerDependencies": { "svelte": "^5.0.0" } }, "3b98adc685dc9cffccbe447c317256815ec1b1da"],
 
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 

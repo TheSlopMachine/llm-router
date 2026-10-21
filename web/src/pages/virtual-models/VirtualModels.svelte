@@ -6,7 +6,7 @@
   import type { VirtualModel, AvailableModel } from '$lib/types'
   import { setPendingClone } from '$lib/virtual-clone'
   import { t } from '$lib/i18n.svelte'
-  import { ContentUnavailable, Button, FloatingView, HStack, Toggle, Text, VStack, Banner, ConfirmAction, Header, ToolbarItem } from '@fuckyouryan/fui'
+  import { ContentUnavailable, Button, FloatingView, HStack, Toggle, Text, VStack, Banner, ConfirmAction, Header } from '@fuckyouryan/fui'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
   import { isUnauthenticated } from '$lib/credential-state'
 
@@ -119,11 +119,8 @@
   <Header
     title={t('virtual.models_plural')}
     info={t('virtual.models_desc')}
-  >
-    {#snippet actions()}
-      <ToolbarItem primary><Button text={t('virtual.actions.new_model')} buttonStyle="prominent" icon={{ name: 'add' }} onclick={openNew} /></ToolbarItem>
-    {/snippet}
-  </Header>
+    primary={{ id: 'new', text: t('virtual.actions.new_model'), icon: 'add', onclick: openNew }}
+  />
 
   {#if resource.error}
     <Banner tint="danger" text={resource.error} />

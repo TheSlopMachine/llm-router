@@ -4,7 +4,7 @@
   import { Button, TextField, Banner, VStack, Text } from '@fuckyouryan/fui'
   import AuthCard from '../components/AuthCard.svelte'
 
-  let { ondone } = $props<{ ondone: () => void }>()
+  let { ondone }: { ondone: () => void } = $props()
 
   let username = $state('')
   let password = $state('')

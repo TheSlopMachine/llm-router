@@ -7,11 +7,11 @@
     nodes,
     values = $bindable({}),
     busy = false,
-  } = $props<{
+  }: {
     nodes: UINode[]
     values?: Record<string, unknown>
     busy?: boolean
-  }>()
+  } = $props()
 
   function setValue(name: string, value: unknown): void {
     values = { ...values, [name]: value }

@@ -12,10 +12,10 @@
   let {
     tab,
     ontabchange
-  } = $props<{
+  }: {
     tab: PluginsTab
     ontabchange: (next: PluginsTab) => void
-  }>()
+  } = $props()
 
   interface PluginsData {
     plugins: Plugin[]

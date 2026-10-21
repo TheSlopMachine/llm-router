@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, CodeBlock, FloatingView, HStack, Table, Text, TextField, VStack, Banner, ConfirmAction, Header, Spacer, ToolbarItem, RelativeTime, type TableColumn, ContentUnavailable, modal } from '@fuckyouryan/fui'
+  import { Button, CodeBlock, FloatingView, HStack, Table, Text, TextField, VStack, Banner, ConfirmAction, Header, Spacer, RelativeTime, type TableColumn, ContentUnavailable, modal } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import { formatRelativeTime } from '$lib/time'
@@ -135,12 +135,9 @@
 </script>
 
 <VStack gap={6}>
-  <Header title={t('tokens.list.title')}>
+  <Header title={t('tokens.list.title')} primary={{ id: 'new', text: t('tokens.actions.new'), icon: 'add', onclick: openCreate }}>
     {#snippet info()}
       {t('tokens.list.router_for')} <code>/v1</code> {t('tokens.list.subtitle')}
-    {/snippet}
-    {#snippet actions()}
-      <ToolbarItem primary><Button buttonStyle="prominent" onclick={openCreate} icon={{ name: 'add' }}>{t('tokens.actions.new')}</Button></ToolbarItem>
     {/snippet}
   </Header>
 

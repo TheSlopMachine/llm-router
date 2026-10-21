@@ -12,12 +12,12 @@
     onComplete,
     closeModal,
     updateButtons,
-  } = $props<{
+  }: {
     provider: Provider
     onComplete: () => void
     closeModal: () => void
     updateButtons: (buttons: ModalButton[]) => void
-  }>()
+  } = $props()
 
   type Mode = 'loading' | 'wizard' | 'single' | 'raw'
   let mode: Mode = $state('loading')

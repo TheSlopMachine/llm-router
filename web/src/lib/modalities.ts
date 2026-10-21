@@ -1,4 +1,4 @@
-import type { Tint } from '@fuckyouryan/fui'
+import type { IconName, Tint } from '@fuckyouryan/fui'
 
 // Modality presentation: icon + chip tint per modality name. Shared by
 // ModelsTable and every custom view rendering modality chips.
@@ -18,7 +18,7 @@ export function modalityTint(mod: string): Tint {
   }
 }
 
-export function modalityIcon(mod: string): string {
+export function modalityIcon(mod: string): IconName {
   switch (mod) {
     case 'text': return 'title'
     case 'image': return 'image'

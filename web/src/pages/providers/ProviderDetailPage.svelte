@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import { api } from '../../lib/api'
-  import { modal, toast, ContentUnavailable, Button, Chip, FloatingView, HStack, Image, Spacer, Toggle, Table, Text, VStack, Banner, ConfirmAction, Header, ToolbarItem, type TableColumn, squircle, Picker } from '@fuckyouryan/fui'
+  import { modal, toast, ContentUnavailable, Button, Chip, FloatingView, HStack, Image, Spacer, Toggle, Table, Text, VStack, Banner, ConfirmAction, Header, type TableColumn, squircle, Picker, type AppBarAction, type IconName } from '@fuckyouryan/fui'
   import { hasUiNodes } from '$lib/ui-helpers'
   import { getErrorMessage } from '../../lib/errors'
   import type { Credential, Provider, ProxyPool, TestResult, UINode } from '../../lib/types'
@@ -14,7 +14,7 @@
   import { isAutoDisabled, isPluginDisabled } from '$lib/credential-state'
   import { formatDisableReason } from '$lib/format'
 
-  let { providerId } = $props<{ providerId: string }>()
+  let { providerId }: { providerId: string } = $props()
 
   let provider = $state<Provider | null>(null)
   let loading = $state(true)
@@ -116,27 +116,35 @@
     })
   }
 
-  let deleteProviderAnchor = $state<HTMLElement>()
-  let deletingProvider = $state(false)
-
-  function openDeleteProvider(anchorEl?: HTMLElement): void {
-    if (deleteProviderAnchor) {
-      deleteProviderAnchor = undefined
-    } else {
-      deleteProviderAnchor = anchorEl
-    }
+  function detailActions(p: Provider): AppBarAction[] {
+    if (p.is_ui_readonly) return []
+    return [
+      { id: 'edit', text: t('common.actions.edit'), icon: 'edit', onclick: openEditProvider },
+      { id: 'delete', text: t('common.actions.delete'), icon: 'delete', onclick: () => void confirmDeleteProvider() },
+    ]
   }
+
+  function detailEnable(p: Provider): AppBarAction {
+    return { id: 'enable', text: t('providers.detail.enable'), icon: 'power_settings_new', selected: !p.disabled, onclick: () => void toggleProviderEnabled(Boolean(p.disabled)) }
+  }
+
+  let deletingProvider = $state(false)
 
   async function confirmDeleteProvider(): Promise<void> {
     if (!provider || deletingProvider) return
+    const confirmed = await modal.confirm({
+      title: t('providers.detail.delete'),
+      message: `${t('misc.delete_confirm')} "${provider.name}"? ${t('providers.detail.credentials_removed')}`,
+      confirmText: t('common.actions.delete'),
+      confirmRole: 'destructive',
+    })
+    if (!confirmed) return
     deletingProvider = true
     try {
       await api.providers.delete(provider.id)
-      deleteProviderAnchor = undefined
       back()
     } catch (e) {
       error = getErrorMessage(e)
-      deleteProviderAnchor = undefined
     } finally {
       deletingProvider = false
     }
@@ -355,7 +363,7 @@
     }
   }
 
-  function testIcon(result: TestResult | 'loading' | undefined, idleTitle: string): { icon: string; title: string } {
+  function testIcon(result: TestResult | 'loading' | undefined, idleTitle: string): { icon: IconName; title: string } {
     if (!result) return { icon: 'network_check', title: idleTitle }
     if (result === 'loading') return { icon: 'progress_activity', title: t('credentials.testing') }
     if (result.ok) return { icon: 'check_circle', title: `OK · ${result.latency_ms}ms` }
@@ -428,22 +436,7 @@
 {:else}
   {@const p = provider}
   <VStack gap={6} class="provider-detail">
-    <Header title={p.name} subtitle={p.type_key}>
-      {#snippet actions()}
-        {#if !p.is_ui_readonly}
-          <ToolbarItem priority={2}><Button buttonStyle="text" onclick={openEditProvider} icon={{ name: 'edit' }}>{t('common.actions.edit')}</Button></ToolbarItem>
-          <ToolbarItem priority={3}><Button buttonStyle="text" tint="var(--fui-color-danger)" onclick={(e) => openDeleteProvider(e.currentTarget as HTMLElement)} icon={{ name: 'delete' }}>{t('common.actions.delete')}</Button></ToolbarItem>
-        {/if}
-        <ToolbarItem primary label={t('providers.detail.enable')}>
-          <Toggle
-            size="xl"
-            checked={!p.disabled}
-            ariaLabel={t('providers.detail.enable')}
-            onchange={(v) => toggleProviderEnabled(v)}
-          />
-        </ToolbarItem>
-      {/snippet}
-    </Header>
+    <Header title={p.name} subtitle={p.type_key} actions={detailActions(p)} primary={detailEnable(p)} />
 
     {#if error}
       <Banner tint="danger" text={error} />
@@ -561,8 +554,9 @@
     {#if proxiesEnabled}
       <VStack tag="section" gap={4} halign="start" class="provider-section">
         <Text variant="section-title">{t('proxy.title_singular')}</Text>
-        <HStack valign="center" halign="between" gap={3}>
-          <Text grow>{t('providers.detail.route_pool')}</Text>
+        <HStack valign="center" gap={3}>
+          <Text>{t('providers.detail.route_pool')}</Text>
+          <Spacer />
           <Toggle
             checked={proxyEnabled}
             ariaLabel={t('providers.detail.route_pool')}
@@ -624,24 +618,6 @@
       busyLabel={t('common.actions.deleting')}
       onCancel={close}
       onConfirm={confirmDeleteCredential} />
-  {/snippet}
-</FloatingView>
-
-<FloatingView
-  open={Boolean(deleteProviderAnchor)}
-  anchor={deleteProviderAnchor}
-  width="sm"
-  onclose={() => { deleteProviderAnchor = undefined }}
-  label={t('providers.detail.delete')}
->
-  {#snippet children({ close })}
-    <ConfirmAction
-      title={t('providers.detail.delete')}
-      body={`${t('misc.delete_confirm')} "${provider?.name}"? ${t('providers.detail.credentials_removed')}`}
-      busy={deletingProvider}
-      busyLabel={t('common.actions.deleting')}
-      onCancel={close}
-      onConfirm={confirmDeleteProvider} />
   {/snippet}
 </FloatingView>
 

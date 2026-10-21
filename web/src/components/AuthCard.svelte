@@ -8,11 +8,11 @@
     title,
     subtitle,
     children,
-  } = $props<{
+  }: {
     title: string
     subtitle?: string
     children?: Snippet
-  }>()
+  } = $props()
 </script>
 
 <div class="auth-page">
