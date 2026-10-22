@@ -259,6 +259,7 @@ func (h *Handler) audioTranslations(w http.ResponseWriter, r *http.Request, toke
 		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
 		return
 	}
+	request.Task = "translate"
 	response, err := h.router.Transcribe(r.Context(), request, token)
 	duration := time.Since(start)
 	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, nil)

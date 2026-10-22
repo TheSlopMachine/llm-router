@@ -42,6 +42,15 @@ func TestRequestTables_CarryModelAndModelName(t *testing.T) {
 	if got := luaTestTableString(t, stt, "model_name"); got != "whisper-large-v3" {
 		t.Fatalf("transcribe model_name: %q", got)
 	}
+	if got := luaTestTableString(t, stt, "task"); got != "transcribe" {
+		t.Fatalf("default transcription task: %q", got)
+	}
+	translation := transcriptionRequestTable(L, &models.TranscriptionRequest{
+		Model: "groq/whisper-large-v3", Task: "translate",
+	})
+	if got := luaTestTableString(t, translation, "task"); got != "translate" {
+		t.Fatalf("translation task: %q", got)
+	}
 
 	sp := speechRequestTable(L, &models.SpeechRequest{Model: "google/gemini-tts", Input: "hi"})
 	if got := luaTestTableString(t, sp, "model_name"); got != "gemini-tts" {

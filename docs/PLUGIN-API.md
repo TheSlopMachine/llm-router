@@ -386,17 +386,19 @@ API signature:
 ```lua
 --- Transcribe audio.
 -- @param ctx table: execution context.
--- @param request table: model, model_name, file raw string, file_name, content_type, language, prompt, response_format, temperature, timestamp_granularities array, needs_segments boolean.
+-- @param request table: model, model_name, task (transcribe|translate), file raw string, file_name, content_type, language, prompt, response_format, temperature, timestamp_granularities array, needs_segments boolean.
 -- @return table: TranscriptionResponse.
 transcribe = function(ctx, request) return result, nil end
 ```
 
-Parameters: `model` full identifier, `model_name` bare name, `file` raw
-bytes string, `file_name` string, `content_type` string, `language` optional
-string, `prompt` optional string, `response_format` optional string,
-`temperature` optional number, `timestamp_granularities` optional string
-array, `needs_segments` boolean (true when `response_format` is `srt` or
-`vtt`).
+Parameters: `model` full identifier, `model_name` bare name, `task` (`transcribe`
+or `translate`; defaults to `transcribe` for older callers), `file` raw bytes
+string, `file_name` string, `content_type` string, `language` optional string,
+`prompt` optional string, `response_format` optional string, `temperature`
+optional number, `timestamp_granularities` optional string array,
+`needs_segments` boolean (true when `response_format` is `srt` or `vtt`).
+The router validates `audio/transcriptions` and `audio/translations` separately
+against each model's declared `endpoints` before calling this handler.
 
 Return values: transcription response table.
 

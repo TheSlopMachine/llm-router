@@ -511,25 +511,35 @@ func (s *Service) transcribeWithProxy(
 	token *models.RouterToken,
 	allowDisabled bool,
 ) (*models.TranscriptionResponse, string, error) {
-	ctx, resolvedRequest, err := s.resolveRequest(ctx, request.Model, token, allowDisabled, models.EndpointAudioTranscription)
+	task := request.Task
+	if task == "" {
+		task = "transcribe"
+	}
+	endpoint := models.EndpointAudioTranscription
+	if task == "translate" {
+		endpoint = models.EndpointAudioTranslation
+	} else if task != "transcribe" {
+		return nil, "", fmt.Errorf("%w: unsupported audio task %q", apierrors.ErrEndpointNotSupported, task)
+	}
+	ctx, resolvedRequest, err := s.resolveRequest(ctx, request.Model, token, allowDisabled, endpoint)
 	if err != nil {
 		return nil, "", err
 	}
 	resolved := resolvedRequest.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		err := fmt.Errorf("%w: virtual models do not serve audio transcription", apierrors.ErrEndpointNotSupported)
+		err := fmt.Errorf("%w: virtual models do not serve audio task %q", apierrors.ErrEndpointNotSupported, task)
 		s.debug("Denying request without backend capability",
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
-			"model", request.Model.String(), "endpoint", models.EndpointAudioTranscription,
+			"model", request.Model.String(), "endpoint", endpoint,
 			"reason", "virtual_unsupported", "token_id", tokenIdentifier(token), "error", err)
 		return nil, "", err
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
 	_, goSupported := resolved.Go.(provider.Transcriber)
-	if err := s.requireCapability(resolved, "transcribe", goSupported, fmt.Sprintf("provider %q does not support audio transcription", resolved.Instance.Name)); err != nil {
+	if err := s.requireCapability(resolved, "transcribe", goSupported, fmt.Sprintf("provider %q does not support audio task %q", resolved.Instance.Name, task)); err != nil {
 		s.debug("Denying request without backend capability",
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
-			"model", request.Model.String(), "endpoint", models.EndpointAudioTranscription,
+			"model", request.Model.String(), "endpoint", endpoint,
 			"reason", "missing_handler", "token_id", tokenIdentifier(token), "error", err)
 		return nil, "", err
 	}
@@ -539,9 +549,9 @@ func (s *Service) transcribeWithProxy(
 	}
 	response, _, err := s.transcribeOne(ctx, resolved, credentials, allowed, request)
 	if err != nil {
-		s.logError("Audio transcription request fails",
+		s.logError("Audio request fails",
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
-			"model", request.Model.String(), "endpoint", models.EndpointAudioTranscription,
+			"model", request.Model.String(), "endpoint", endpoint,
 			"token_id", tokenIdentifier(token), "error", err)
 	}
 	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)

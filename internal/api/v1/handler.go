@@ -215,6 +215,7 @@ func (h *Handler) audioTranscriptions(w http.ResponseWriter, r *http.Request, to
 		return
 	}
 
+	request.Task = "transcribe"
 	response, err := h.router.Transcribe(r.Context(), request, token)
 	duration := time.Since(start)
 

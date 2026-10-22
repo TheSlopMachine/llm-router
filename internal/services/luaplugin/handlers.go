@@ -254,6 +254,11 @@ func baseRequestTable(L *lua.LState, model models.ModelId) *lua.LTable {
 // renders srt/vtt from segments).
 func transcriptionRequestTable(L *lua.LState, request *models.TranscriptionRequest) *lua.LTable {
 	table := baseRequestTable(L, request.Model)
+	task := request.Task
+	if task == "" {
+		task = "transcribe"
+	}
+	table.RawSetString("task", lua.LString(task))
 	table.RawSetString("file", lua.LString(string(request.File)))
 	table.RawSetString("file_name", lua.LString(request.FileName))
 	table.RawSetString("content_type", lua.LString(request.ContentType))

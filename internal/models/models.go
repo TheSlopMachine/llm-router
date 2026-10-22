@@ -695,6 +695,7 @@ func JoinModalities(mods []string) string {
 const (
 	EndpointChatCompletions    = "chat/completions"
 	EndpointAudioTranscription = "audio/transcriptions"
+	EndpointAudioTranslation   = "audio/translations"
 	EndpointAudioSpeech        = "audio/speech"
 	EndpointImagesGenerations  = "images/generations"
 	EndpointEmbeddings         = "embeddings"
@@ -726,12 +727,13 @@ func (m *ModelInfo) SupportsEndpoint(endpoint string) bool {
 }
 
 // ─────────────────────────────────────────────
-// Audio transcription wire types (POST /v1/audio/transcriptions)
+// Audio transcription/translation wire types
 // ─────────────────────────────────────────────
 
-// TranscriptionRequest is the parsed multipart body of
-// POST /v1/audio/transcriptions. File holds the raw audio bytes.
+// TranscriptionRequest is the parsed multipart body of the transcription or
+// translation endpoint. File holds the raw audio bytes.
 type TranscriptionRequest struct {
+	Task                   string // transcribe or translate
 	Model                  ModelId
 	File                   []byte
 	FileName               string

@@ -169,3 +169,47 @@ func TestRouterService_TestTranscribe_ProbeUnsupportedOnGoBackend(t *testing.T) 
 		t.Fatalf("Go backends must report unsupported: %+v", result)
 	}
 }
+
+func TestRouterService_Translate_UsesTranslationEndpointGate(t *testing.T) {
+	service, credentialService, modelInfoService, mock := setupTranscribeRouter(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
+	mock.infos = []models.ModelInfo{
+		{Name: "translation-model", DisplayName: "Translation", Endpoints: []string{models.EndpointAudioTranslation}},
+	}
+	if _, err := modelInfoService.GetModelInfos(context.Background(), "mock"); err != nil {
+		t.Fatalf("warm model cache: %v", err)
+	}
+
+	mock.transcribeFunc = func(ctx context.Context, creds []*models.Credential, request *models.TranscriptionRequest) (*models.TranscriptionResponse, error) {
+		if request.Task != "translate" {
+			return nil, fmt.Errorf("expected task translate, got %q", request.Task)
+		}
+		return &models.TranscriptionResponse{Text: "translated"}, nil
+	}
+	request := transcribeRequest("mock/translation-model")
+	request.Task = "translate"
+	response, err := service.Transcribe(context.Background(), request, nil)
+	if err != nil {
+		t.Fatalf("translate failed: %v", err)
+	}
+	if response.Text != "translated" {
+		t.Fatalf("text: got %q", response.Text)
+	}
+
+	// A translation-only model must not be accepted for transcription.
+	_, err = service.Transcribe(context.Background(), transcribeRequest("mock/translation-model"), nil)
+	if !errors.Is(err, apierrors.ErrEndpointNotSupported) {
+		t.Fatalf("expected ErrEndpointNotSupported for transcription on translation-only model, got %v", err)
+	}
+}
+
+func TestRouterService_Transcribe_RejectsUnknownTask(t *testing.T) {
+	service, credentialService, _, _ := setupTranscribeRouter(t)
+	addTranscribeCred(t, credentialService, "Cred 1")
+	request := transcribeRequest("mock/whisper-large-v3")
+	request.Task = "summarize"
+	_, err := service.Transcribe(context.Background(), request, nil)
+	if !errors.Is(err, apierrors.ErrEndpointNotSupported) {
+		t.Fatalf("expected ErrEndpointNotSupported for unknown task, got %v", err)
+	}
+}
