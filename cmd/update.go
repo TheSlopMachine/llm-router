@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/TheSlopMachine/llm-router/internal/config"
+	"github.com/TheSlopMachine/llm-router/internal/i18n"
 	"github.com/TheSlopMachine/llm-router/internal/instance"
 	"github.com/TheSlopMachine/llm-router/internal/updater"
 	"github.com/TheSlopMachine/llm-router/internal/version"
@@ -33,50 +34,41 @@ var updateOptions struct {
 func newUpdateCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "update",
-		Short: "Update to the latest GitHub release",
-		Long: `Update the binary to the latest release of ` + updater.Repository + `.
-
-The archive is checked against the release checksums and the new binary
-must report the release version before it replaces the old one. The old
-binary stays next to it as llm-router.prev, and the database is copied to
-<database>` + backupSuffix + ` (migrations do not roll back).
-
-A server running in the background is stopped and started again on the new
-binary. A server running in the foreground blocks the update: stop it
-first. Containers are not updated in place: pull a new image.`,
+		Short: i18n.T("update.short"),
+		Long:  i18n.T("update.long", updater.Repository, backupSuffix),
 		Example: `  llm-router update --check
   llm-router update`,
 		GroupID: groupMaintain,
 		Args:    cobra.NoArgs,
 		RunE:    runUpdate,
 	}
-	command.Flags().BoolVar(&updateOptions.check, "check", false, "only report whether an update exists")
-	command.Flags().BoolVar(&updateOptions.force, "force", false, "allow a downgrade, a reinstall or an update of a dev build")
+	command.Flags().BoolVar(&updateOptions.check, "check", false, i18n.T("update.flag.check"))
+	command.Flags().BoolVar(&updateOptions.force, "force", false, i18n.T("update.flag.force"))
 	return command
 }
 
 func runUpdate(command *cobra.Command, _ []string) error {
 	ctx := command.Context()
 	if inContainer() {
-		return errors.New("update is disabled in containers: pull a new image instead")
+		return errors.New(i18n.T("update.container"))
 	}
 	current := versionInformation.Version
 	currentVersion, currentErr := version.Parse(current)
 	if currentErr != nil && !updateOptions.force && !updateOptions.check {
-		return fmt.Errorf("build %q has no release version: use --force to install the latest release", current)
+		return errors.New(i18n.T("update.devBuild", current))
 	}
 
 	client := updater.Client{}
 	release, err := client.Latest(ctx)
 	if errors.Is(err, updater.ErrNoRelease) {
-		return errors.New("no release is published yet")
+		return errors.New(i18n.T("update.noRelease"))
 	}
 	if err != nil {
 		return err
 	}
 	latestVersion, err := version.Parse(release.Tag)
 	if err != nil {
-		return fmt.Errorf("release tag %q is not a version: %w", release.Tag, err)
+		return i18n.Wrap(err, "update.badTag", release.Tag)
 	}
 
 	order := -1
@@ -86,21 +78,21 @@ func runUpdate(command *cobra.Command, _ []string) error {
 	if updateOptions.check {
 		switch {
 		case currentErr != nil:
-			fmt.Printf("latest release: %s (build %q has no release version)\n", latestVersion, current)
+			fmt.Println(i18n.T("update.latestDev", latestVersion, current))
 		case order < 0:
-			fmt.Printf("update available: %s -> %s\n", current, latestVersion)
+			fmt.Println(i18n.T("update.available", current, latestVersion))
 		case order == 0:
-			fmt.Printf("up to date (%s)\n", current)
+			fmt.Println(i18n.T("update.upToDate", current))
 		default:
-			fmt.Printf("%s is newer than the latest release %s\n", current, latestVersion)
+			fmt.Println(i18n.T("update.newer", current, latestVersion))
 		}
 		return nil
 	}
 	if order >= 0 && !updateOptions.force {
 		if order == 0 {
-			fmt.Printf("up to date (%s)\n", current)
+			fmt.Println(i18n.T("update.upToDate", current))
 		} else {
-			fmt.Printf("%s is newer than the latest release %s: use --force to downgrade\n", current, latestVersion)
+			fmt.Println(i18n.T("update.newerForce", current, latestVersion))
 		}
 		return nil
 	}
@@ -108,15 +100,15 @@ func runUpdate(command *cobra.Command, _ []string) error {
 	assetName := updater.AssetName(runtime.GOOS, runtime.GOARCH)
 	assetURL, found := release.Assets[assetName]
 	if !found {
-		return fmt.Errorf("release %s has no %s", release.Tag, assetName)
+		return errors.New(i18n.T("update.noAsset", release.Tag, assetName))
 	}
 	checksumsURL, found := release.Assets[updater.ChecksumsAssetName]
 	if !found {
-		return fmt.Errorf("release %s has no %s: refusing to install an unverified binary", release.Tag, updater.ChecksumsAssetName)
+		return errors.New(i18n.T("update.noChecksums", release.Tag, updater.ChecksumsAssetName))
 	}
 	executable, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("resolve executable: %w", err)
+		return i18n.Wrap(err, "daemon.resolve")
 	}
 	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
 		executable = resolved
@@ -131,11 +123,11 @@ func runUpdate(command *cobra.Command, _ []string) error {
 		return err
 	}
 	if held && holder.Mode != instance.ModeDaemon {
-		return fmt.Errorf("a %s instance (pid %d) runs: stop it before updating", holder.Mode, holder.PID)
+		return errors.New(i18n.T("update.running", holder.Mode, holder.PID))
 	}
 	restartDaemon := held
 
-	fmt.Printf("downloading %s\n", release.Tag)
+	fmt.Println(i18n.T("update.downloading", release.Tag))
 	archive, err := client.Download(ctx, assetURL, updater.MaxArchiveBytes)
 	if err != nil {
 		return err
@@ -183,17 +175,17 @@ func runUpdate(command *cobra.Command, _ []string) error {
 		return err
 	}
 
-	fmt.Printf("updated %s -> %s\n", current, latestVersion)
-	fmt.Printf("previous binary: %s\n", previous)
+	fmt.Println(i18n.T("update.done", current, latestVersion))
+	fmt.Println(i18n.T("update.previous", previous))
 	if backupPath != "" {
-		fmt.Printf("database copy:   %s\n", backupPath)
+		fmt.Println(i18n.T("update.copy", backupPath))
 	}
 	if restartDaemon {
 		info, err := startDaemon(applicationConfig, executable)
 		if err != nil {
-			return fmt.Errorf("the binary is updated, the server does not start: %w", err)
+			return i18n.Wrap(err, "update.restartFailed")
 		}
-		fmt.Printf("server restarted (pid %d)\n", info.PID)
+		fmt.Println(i18n.T("update.restarted", info.PID))
 	}
 	return nil
 }
@@ -221,10 +213,10 @@ func verifyStagedBinary(ctx context.Context, staging, expectedVersion string) er
 	defer cancel()
 	output, err := exec.CommandContext(ctx, staging, "version").Output()
 	if err != nil {
-		return fmt.Errorf("the downloaded binary does not run: %w", err)
+		return i18n.Wrap(err, "update.binaryNoRun")
 	}
 	if !strings.Contains(string(output), expectedVersion) {
-		return fmt.Errorf("the downloaded binary reports %q, want version %s", strings.TrimSpace(string(output)), expectedVersion)
+		return errors.New(i18n.T("update.binaryVersion", strings.TrimSpace(string(output)), expectedVersion))
 	}
 	return nil
 }
@@ -245,7 +237,7 @@ func backupDatabase(databasePath string) (string, error) {
 				_ = os.Remove(target)
 				continue
 			}
-			return "", fmt.Errorf("back up %s: %w", source, err)
+			return "", i18n.Wrap(err, "update.backup", source)
 		}
 	}
 	return backupPath, nil

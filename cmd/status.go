@@ -12,17 +12,15 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/cli"
 	"github.com/TheSlopMachine/llm-router/internal/config"
+	"github.com/TheSlopMachine/llm-router/internal/i18n"
 	"github.com/TheSlopMachine/llm-router/internal/instance"
 )
 
 func newStatusCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "status",
-		Short: "Show the state of the running server",
-		Long: `Show the state of the running server: process, uptime, address, version
-and whether the dashboard answers and has a password.
-
-Exit code 3 means the server is not running.`,
+		Use:     "status",
+		Short:   i18n.T("status.short"),
+		Long:    i18n.T("status.long"),
 		GroupID: groupMaintain,
 		Args:    cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
@@ -45,34 +43,34 @@ func runStatus(full bool) error {
 	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	defer writer.Flush()
 	if !held {
-		fmt.Fprintln(writer, "status\tstopped")
+		fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.status"), i18n.T("status.value.stopped"))
 		return &exitError{code: notRunningExitCode}
 	}
-	fmt.Fprintln(writer, "status\trunning")
-	fmt.Fprintf(writer, "mode\t%s\n", info.Mode)
-	fmt.Fprintf(writer, "pid\t%d\n", info.PID)
+	fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.status"), i18n.T("status.value.running"))
+	fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.mode"), info.Mode)
+	fmt.Fprintf(writer, "%s\t%d\n", i18n.T("status.label.pid"), info.PID)
 	if !info.Started.IsZero() {
-		fmt.Fprintf(writer, "uptime\t%s\n", cli.FormatDuration(time.Since(info.Started)))
+		fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.uptime"), cli.FormatDuration(time.Since(info.Started)))
 	}
 	if info.Address != "" {
-		fmt.Fprintf(writer, "listen\t%s\n", info.Address)
+		fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.listen"), info.Address)
 	}
 	if info.Version != "" {
-		fmt.Fprintf(writer, "version\t%s\n", info.Version)
+		fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.version"), info.Version)
 	}
 	if !full || info.Address == "" {
 		return nil
 	}
 	bootstrapped, reachable := queryBootstrapped(cli.DialAddress(info.Address))
 	if !reachable {
-		fmt.Fprintln(writer, "dashboard\tnot answering")
+		fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.dashboard"), i18n.T("status.value.silent"))
 		return nil
 	}
-	fmt.Fprintln(writer, "dashboard\tanswering")
+	fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.dashboard"), i18n.T("status.value.answering"))
 	if bootstrapped {
-		fmt.Fprintln(writer, "password\tset")
+		fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.password"), i18n.T("status.value.set"))
 	} else {
-		fmt.Fprintln(writer, "password\tnot set (run: llm-router set-dashboard-password)")
+		fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.password"), i18n.T("status.value.notSet"))
 	}
 	return nil
 }

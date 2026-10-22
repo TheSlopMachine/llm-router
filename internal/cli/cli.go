@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/TheSlopMachine/llm-router/internal/i18n"
 )
 
 // ParseSeverity accepts a level name (debug, info, warn, error, fatal) or
@@ -30,7 +32,7 @@ func ParseSeverity(raw string) (int, error) {
 	case "fatal", "4":
 		return 4, nil
 	}
-	return 0, fmt.Errorf("invalid severity %q: want debug, info, warn, error or fatal", raw)
+	return 0, errors.New(i18n.T("cli.severity", raw))
 }
 
 // ParseTimeBound accepts an RFC 3339 timestamp or an age such as 30m, 6h
@@ -43,7 +45,7 @@ func ParseTimeBound(raw string, now time.Time) (time.Time, error) {
 	if age, err := parseAge(trimmed); err == nil {
 		return now.Add(-age), nil
 	}
-	return time.Time{}, fmt.Errorf("invalid time %q: want RFC 3339 (2026-10-21T09:00:00Z) or an age like 30m, 6h, 2d", raw)
+	return time.Time{}, errors.New(i18n.T("cli.time", raw))
 }
 
 func parseAge(raw string) (time.Duration, error) {
@@ -67,7 +69,7 @@ func ParseKeyFilter(raw string) (string, *string, error) {
 	key, value, found := strings.Cut(raw, "=")
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return "", nil, fmt.Errorf("invalid filter %q: want key or key=value", raw)
+		return "", nil, errors.New(i18n.T("cli.filter", raw))
 	}
 	if !found {
 		return key, nil, nil
@@ -82,14 +84,14 @@ func ReadPassword(reader io.Reader) (string, error) {
 	const limit = 4096
 	data, err := io.ReadAll(io.LimitReader(reader, limit+1))
 	if err != nil {
-		return "", fmt.Errorf("read password: %w", err)
+		return "", i18n.Wrap(err, "prompt.readPassword")
 	}
 	if len(data) > limit {
-		return "", fmt.Errorf("password is longer than %d bytes", limit)
+		return "", errors.New(i18n.T("password.tooLong", limit))
 	}
 	password := strings.TrimRight(string(data), "\r\n")
 	if password == "" {
-		return "", errors.New("password must not be empty")
+		return "", errors.New(i18n.T("password.mustNotBeEmpty"))
 	}
 	return password, nil
 }
@@ -98,7 +100,7 @@ func ReadPassword(reader io.Reader) (string, error) {
 func GeneratePassword() (string, error) {
 	raw := make([]byte, 18)
 	if _, err := rand.Read(raw); err != nil {
-		return "", fmt.Errorf("generate password: %w", err)
+		return "", i18n.Wrap(err, "cli.generatePassword")
 	}
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }

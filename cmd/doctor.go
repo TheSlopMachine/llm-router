@@ -10,6 +10,7 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/config"
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	"github.com/TheSlopMachine/llm-router/internal/i18n"
 	"github.com/TheSlopMachine/llm-router/internal/instance"
 	"github.com/TheSlopMachine/llm-router/internal/logging"
 	"github.com/TheSlopMachine/llm-router/internal/server"
@@ -21,19 +22,15 @@ var doctorFix bool
 func newDoctorCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "doctor",
-		Short: "Check the database and fix what can be fixed",
-		Long: `Check the database for broken references and inconsistent records, the
-same checks as the dashboard doctor.
-
-The command needs the server stopped: it takes the database lock for the
-whole run. Exit code 1 means issues remain.`,
+		Short: i18n.T("doctor.short"),
+		Long:  i18n.T("doctor.long"),
 		Example: `  llm-router doctor
   llm-router doctor --fix`,
 		GroupID: groupMaintain,
 		Args:    cobra.NoArgs,
 		RunE:    runDoctor,
 	}
-	command.Flags().BoolVar(&doctorFix, "fix", false, "apply every available fix")
+	command.Flags().BoolVar(&doctorFix, "fix", false, i18n.T("doctor.flag.fix"))
 	return command
 }
 
@@ -44,28 +41,28 @@ func runDoctor(command *cobra.Command, _ []string) error {
 	}
 	lock, err := acquireInstance(applicationConfig, instance.ModeMaintenance)
 	if err != nil {
-		return fmt.Errorf("%w; stop it first: llm-router daemon stop", err)
+		return fmt.Errorf("%w; %s", err, i18n.T("doctor.stopFirst"))
 	}
 	defer lock.Release()
 
 	ctx := command.Context()
 	database, err := db.OpenSQLite(ctx, applicationConfig.DBPath, applicationConfig.CachePath, applicationConfig.EventsPath)
 	if err != nil {
-		return fmt.Errorf("open sqlite database: %w", err)
+		return i18n.Wrap(err, "doctor.openDatabase")
 	}
 	defer database.Close()
 
 	logger := slog.New(logging.NewHandler(os.Stderr, slog.LevelWarn))
 	doctorService, err := server.NewDoctor(database, logger)
 	if err != nil {
-		return fmt.Errorf("build doctor: %w", err)
+		return i18n.Wrap(err, "doctor.build")
 	}
 	report, err := doctorService.Inspect(ctx)
 	if err != nil {
-		return fmt.Errorf("inspect: %w", err)
+		return i18n.Wrap(err, "doctor.inspect")
 	}
 	if report.TotalIssues == 0 {
-		fmt.Println("no issues found")
+		fmt.Println(i18n.T("doctor.none"))
 		return nil
 	}
 	printDoctorReport(report.Issues)
@@ -74,15 +71,15 @@ func runDoctor(command *cobra.Command, _ []string) error {
 	}
 	fixed, err := doctorService.Fix(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("fix: %w", err)
+		return i18n.Wrap(err, "doctor.fix")
 	}
-	fmt.Printf("fixed %d\n", fixed)
+	fmt.Println(i18n.T("doctor.fixed", fixed))
 	report, err = doctorService.Inspect(ctx)
 	if err != nil {
-		return fmt.Errorf("inspect after fix: %w", err)
+		return i18n.Wrap(err, "doctor.inspectAfter")
 	}
 	if report.TotalIssues > 0 {
-		fmt.Printf("%d issues remain:\n", report.TotalIssues)
+		fmt.Println(i18n.T("doctor.remain", report.TotalIssues))
 		printDoctorReport(report.Issues)
 		return &exitError{code: 1}
 	}

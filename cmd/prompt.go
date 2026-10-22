@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"golang.org/x/term"
+
+	"github.com/TheSlopMachine/llm-router/internal/i18n"
 )
 
 func isTerminal() bool {
@@ -19,7 +21,7 @@ func promptLine(reader *bufio.Reader, prompt string) (string, error) {
 	fmt.Print(prompt)
 	line, err := reader.ReadString('\n')
 	if err != nil {
-		return "", fmt.Errorf("read input: %w", err)
+		return "", i18n.Wrap(err, "prompt.readInput")
 	}
 	return strings.TrimRight(line, "\r\n"), nil
 }
@@ -31,7 +33,7 @@ func promptPasswordOnce(prompt string) (string, error) {
 	input, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Println()
 	if err != nil {
-		return "", fmt.Errorf("read password: %w", err)
+		return "", i18n.Wrap(err, "prompt.readPassword")
 	}
 	return string(input), nil
 }
@@ -45,7 +47,7 @@ func promptPasswordPair(firstPrompt, confirmPrompt string) (string, error) {
 			return "", err
 		}
 		if password == "" {
-			fmt.Println("password must not be empty")
+			fmt.Println(i18n.T("password.mustNotBeEmpty"))
 			continue
 		}
 		confirm, err := promptPasswordOnce(confirmPrompt)
@@ -53,7 +55,7 @@ func promptPasswordPair(firstPrompt, confirmPrompt string) (string, error) {
 			return "", err
 		}
 		if password != confirm {
-			fmt.Println("passwords do not match")
+			fmt.Println(i18n.T("password.mismatch"))
 			continue
 		}
 		return password, nil

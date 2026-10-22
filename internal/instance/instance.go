@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/TheSlopMachine/llm-router/internal/i18n"
 )
 
 // Mode names how the lock holder was started.
@@ -49,9 +51,9 @@ type HeldError struct {
 
 func (err *HeldError) Error() string {
 	if err.Info.PID == 0 {
-		return ErrHeld.Error()
+		return i18n.T("instance.heldUnknown")
 	}
-	return fmt.Sprintf("%s (pid %d, %s)", ErrHeld.Error(), err.Info.PID, err.Info.Mode)
+	return i18n.T("instance.held", err.Info.PID, err.Info.Mode)
 }
 
 func (err *HeldError) Unwrap() error { return ErrHeld }

@@ -17,6 +17,7 @@ cmd/status.go, doctor.go, update.go   status, database doctor, self-update
 internal/instance/       one process per database: file lock + holder record next to DB_PATH
 internal/updater/        GitHub release lookup, checksum check, binary swap
 internal/cli/            pure CLI helpers (argument parsing, formatting)
+internal/i18n/           ru/en catalogs of CLI text (messages_en.go, messages_ru.go); add a key to both
 internal/server/         HTTP server: public listener (HOST, PORT) + optional loopback admin listener (127.0.0.1, ADMIN_PORT, API only, no auth); route tables in httpapi, source in requestsource
 internal/services/
   token/                 router-token issue/validate

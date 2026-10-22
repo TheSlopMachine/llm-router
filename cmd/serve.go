@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -11,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/TheSlopMachine/llm-router/internal/config"
+	"github.com/TheSlopMachine/llm-router/internal/i18n"
 	"github.com/TheSlopMachine/llm-router/internal/instance"
 	"github.com/TheSlopMachine/llm-router/internal/logging"
 	"github.com/TheSlopMachine/llm-router/internal/server"
@@ -20,12 +20,9 @@ var serveLaunchedBy string
 
 func newServeCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:   "serve",
-		Short: "Run the server in the foreground",
-		Long: `Run the server in the foreground until SIGINT or SIGTERM.
-
-Use this command in systemd units and containers. Configuration comes from
-the environment and the .env file (see "llm-router config").`,
+		Use:     "serve",
+		Short:   i18n.T("serve.short"),
+		Long:    i18n.T("serve.long"),
 		Example: "  llm-router serve",
 		GroupID: groupRun,
 		Args:    cobra.NoArgs,
@@ -62,7 +59,7 @@ func runServe(command *cobra.Command, _ []string) error {
 	applicationServer, err := server.New(applicationConfig, logger)
 	if err != nil {
 		logger.Error("Server initialization fails", "operation", "run_server", "error", err)
-		return fmt.Errorf("init server: %w", err)
+		return i18n.Wrap(err, "serve.initFailed")
 	}
 	eventsHandler.SetService(applicationServer.EventsService())
 	defer applicationServer.Close()

@@ -7,6 +7,7 @@
 - Added a per-database instance lock (`<DB_PATH>.lock`): a second `serve`, `daemon start`, `doctor` or `update` on the same database fails with the holder's pid. `daemon stop` and `status` find any instance through the lock, including one started with `serve`.
 - `logs` reads the events database read-only, so it works without a running server and from any terminal.
 - `update` installs the latest GitHub release after a checksum check, keeps the old binary as `llm-router.prev`, copies the database to `<database>.pre-update.bak` and restarts a background server.
+- Command line output is localized in Russian and English (`internal/i18n`): help, errors, prompts and status labels. The language comes from `LLM_ROUTER_LANG`, `LC_ALL`, `LC_MESSAGES`, `LANG` or the Windows user locale, and falls back to English. Event messages, `--json`, config values, command and flag names stay English.
 - The release template and `config` no longer include `ADMIN_PORT`; the loopback admin listener stays a dev-only setting of `make start`.
 
 ## Done (2026-10-20, v0.4.3)

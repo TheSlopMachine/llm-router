@@ -16,6 +16,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/cli"
 	"github.com/TheSlopMachine/llm-router/internal/config"
 	"github.com/TheSlopMachine/llm-router/internal/db"
+	"github.com/TheSlopMachine/llm-router/internal/i18n"
 	"github.com/TheSlopMachine/llm-router/internal/services/events"
 )
 
@@ -43,22 +44,8 @@ var logsOptions struct {
 func newLogsCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "logs",
-		Short: "Print server events",
-		Long: `Print the events the server persisted. The command reads the events
-database directly, so the server does not need to run, and it works from any
-terminal.
-
---severity is a minimum: debug, info, warn, error or fatal. The server
-persists only events at or above its LOG_LEVEL, so "--severity debug" shows
-nothing below that level.
-
---subsystem narrows to one part of the server, for example providers,
-virtual_models, plugins, plugin_repos, plugin_storage, tokens, credentials,
-proxy or doctor. --filter and --exclude match any other event key exactly:
-"--filter code=rate_limit" matches the value, "--filter token_id" matches
-events that carry the key. Both repeat. Keys are listed in docs/EVENT-KEYS.md.
-
---from and --to take an RFC 3339 timestamp or an age: 30m, 6h, 2d.`,
+		Short: i18n.T("logs.short"),
+		Long:  i18n.T("logs.long"),
 		Example: `  llm-router logs
   llm-router logs -f --subsystem providers --severity warn
   llm-router logs --from 2h --filter code=rate_limit --limit 200
@@ -68,16 +55,16 @@ events that carry the key. Both repeat. Keys are listed in docs/EVENT-KEYS.md.
 		RunE:    runLogs,
 	}
 	flags := command.Flags()
-	flags.StringVar(&logsOptions.subsystem, "subsystem", "", "only events of this subsystem")
-	flags.StringVar(&logsOptions.severity, "severity", "", "minimum severity: debug, info, warn, error, fatal")
-	flags.StringArrayVar(&logsOptions.filters, "filter", nil, "only events with key[=value]; repeatable")
-	flags.StringArrayVar(&logsOptions.excludes, "exclude", nil, "skip events with key[=value]; repeatable")
-	flags.Int64Var(&logsOptions.id, "id", 0, "print one event by id")
-	flags.StringVar(&logsOptions.from, "from", "", "only events since RFC 3339 time or age (30m, 6h, 2d)")
-	flags.StringVar(&logsOptions.to, "to", "", "only events until RFC 3339 time or age")
-	flags.IntVar(&logsOptions.limit, "limit", logsDefaultLimit, "newest events to print")
-	flags.BoolVarP(&logsOptions.follow, "follow", "f", false, "keep waiting for new events")
-	flags.BoolVar(&logsOptions.asJSON, "json", false, "print one JSON object per line")
+	flags.StringVar(&logsOptions.subsystem, "subsystem", "", i18n.T("logs.flag.subsystem"))
+	flags.StringVar(&logsOptions.severity, "severity", "", i18n.T("logs.flag.severity"))
+	flags.StringArrayVar(&logsOptions.filters, "filter", nil, i18n.T("logs.flag.filter"))
+	flags.StringArrayVar(&logsOptions.excludes, "exclude", nil, i18n.T("logs.flag.exclude"))
+	flags.Int64Var(&logsOptions.id, "id", 0, i18n.T("logs.flag.id"))
+	flags.StringVar(&logsOptions.from, "from", "", i18n.T("logs.flag.from"))
+	flags.StringVar(&logsOptions.to, "to", "", i18n.T("logs.flag.to"))
+	flags.IntVar(&logsOptions.limit, "limit", logsDefaultLimit, i18n.T("logs.flag.limit"))
+	flags.BoolVarP(&logsOptions.follow, "follow", "f", false, i18n.T("logs.flag.follow"))
+	flags.BoolVar(&logsOptions.asJSON, "json", false, i18n.T("logs.flag.json"))
 	return command
 }
 
@@ -87,7 +74,7 @@ func runLogs(command *cobra.Command, _ []string) error {
 		return err
 	}
 	if logsOptions.follow && command.Flags().Changed("id") {
-		return errors.New("--follow and --id cannot be combined")
+		return errors.New(i18n.T("logs.followID"))
 	}
 	applicationConfig, _, err := config.Load()
 	if err != nil {
@@ -96,22 +83,22 @@ func runLogs(command *cobra.Command, _ []string) error {
 	database, err := db.OpenEventsReadOnly(applicationConfig.EventsPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("no events database at %s: the server has not run yet", applicationConfig.EventsPath)
+			return errors.New(i18n.T("logs.noDatabase", applicationConfig.EventsPath))
 		}
 		return err
 	}
 	defer database.Release()
 	service, err := events.New(database, applicationConfig.EventsRetentionDays)
 	if err != nil {
-		return fmt.Errorf("open events: %w", err)
+		return i18n.Wrap(err, "logs.openEvents")
 	}
-	fmt.Fprintf(os.Stderr, "reading %s\n", applicationConfig.EventsPath)
+	fmt.Fprintln(os.Stderr, i18n.T("logs.reading", applicationConfig.EventsPath))
 
 	ctx, stop := signal.NotifyContext(command.Context(), os.Interrupt)
 	defer stop()
 	entries, err := service.Query(ctx, query)
 	if err != nil {
-		return fmt.Errorf("query events: %w", err)
+		return i18n.Wrap(err, "logs.queryEvents")
 	}
 	lastID := printEntries(sortedAscending(entries))
 	if !logsOptions.follow {
@@ -132,7 +119,7 @@ func runLogs(command *cobra.Command, _ []string) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			return fmt.Errorf("query events: %w", err)
+			return i18n.Wrap(err, "logs.queryEvents")
 		}
 		if newest := printEntries(newerThan(entries, lastID)); newest > lastID {
 			lastID = newest
@@ -143,7 +130,7 @@ func runLogs(command *cobra.Command, _ []string) error {
 func buildEventsQuery(command *cobra.Command) (events.Query, error) {
 	query := events.Query{Limit: logsOptions.limit}
 	if logsOptions.limit < 1 {
-		return query, errors.New("--limit must be at least 1")
+		return query, errors.New(i18n.T("logs.limit"))
 	}
 	flags := command.Flags()
 	if flags.Changed("severity") {

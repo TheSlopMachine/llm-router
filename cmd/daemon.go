@@ -15,6 +15,7 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/cli"
 	"github.com/TheSlopMachine/llm-router/internal/config"
+	"github.com/TheSlopMachine/llm-router/internal/i18n"
 	"github.com/TheSlopMachine/llm-router/internal/instance"
 )
 
@@ -29,14 +30,9 @@ const (
 
 func newDaemonCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:   "daemon",
-		Short: "Run the server in the background (Linux, macOS, FreeBSD)",
-		Long: `Run the server in the background.
-
-A lock file next to the database records the running process, so the
-commands also find a server started with "llm-router serve". For systemd
-and containers use "llm-router serve" instead: a supervisor wants the
-process in the foreground.`,
+		Use:     "daemon",
+		Short:   i18n.T("daemon.short"),
+		Long:    i18n.T("daemon.long"),
 		GroupID: groupRun,
 		Args:    cobra.NoArgs,
 		PersistentPreRunE: func(*cobra.Command, []string) error {
@@ -52,25 +48,25 @@ process in the foreground.`,
 	command.AddCommand(
 		&cobra.Command{
 			Use:   "start",
-			Short: "Start the server in the background",
+			Short: i18n.T("daemon.start.short"),
 			Args:  cobra.NoArgs,
 			RunE:  runDaemonStart,
 		},
 		&cobra.Command{
 			Use:   "stop",
-			Short: "Stop the running server and wait for a clean exit",
+			Short: i18n.T("daemon.stop.short"),
 			Args:  cobra.NoArgs,
 			RunE:  runDaemonStop,
 		},
 		&cobra.Command{
 			Use:   "restart",
-			Short: "Stop the server if it runs, then start it",
+			Short: i18n.T("daemon.restart.short"),
 			Args:  cobra.NoArgs,
 			RunE:  runDaemonRestart,
 		},
 		&cobra.Command{
 			Use:   "status",
-			Short: "Show whether the server runs",
+			Short: i18n.T("daemon.status.short"),
 			Args:  cobra.NoArgs,
 			RunE: func(*cobra.Command, []string) error {
 				return runStatus(false)
@@ -82,7 +78,7 @@ process in the foreground.`,
 
 func requireDaemonSupport() error {
 	if !daemonSupported {
-		return fmt.Errorf("daemon is not supported on %s", runtime.GOOS)
+		return errors.New(i18n.T("daemon.unsupported", runtime.GOOS))
 	}
 	return nil
 }
@@ -94,13 +90,13 @@ func runDaemonStart(*cobra.Command, []string) error {
 	}
 	executable, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("resolve executable: %w", err)
+		return i18n.Wrap(err, "daemon.resolve")
 	}
 	info, err := startDaemon(applicationConfig, executable)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("started (pid %d), listening on %s\n", info.PID, applicationConfig.Addr)
+	fmt.Println(i18n.T("daemon.started", info.PID, applicationConfig.Addr))
 	return nil
 }
 
@@ -114,10 +110,10 @@ func runDaemonStop(*cobra.Command, []string) error {
 		return err
 	}
 	if !stopped {
-		fmt.Println("not running")
+		fmt.Println(i18n.T("daemon.notRunning"))
 		return nil
 	}
-	fmt.Printf("stopped (pid %d)\n", info.PID)
+	fmt.Println(i18n.T("daemon.stopped", info.PID))
 	return nil
 }
 
@@ -128,18 +124,18 @@ func runDaemonRestart(*cobra.Command, []string) error {
 	}
 	executable, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("resolve executable: %w", err)
+		return i18n.Wrap(err, "daemon.resolve")
 	}
 	if stopped, info, err := stopInstance(lockPathFor(applicationConfig), daemonStopTimeout); err != nil {
 		return err
 	} else if stopped {
-		fmt.Printf("stopped (pid %d)\n", info.PID)
+		fmt.Println(i18n.T("daemon.stopped", info.PID))
 	}
 	info, err := startDaemon(applicationConfig, executable)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("started (pid %d), listening on %s\n", info.PID, applicationConfig.Addr)
+	fmt.Println(i18n.T("daemon.started", info.PID, applicationConfig.Addr))
 	return nil
 }
 
@@ -169,7 +165,7 @@ func startDaemon(applicationConfig *config.Config, executable string) (instance.
 	child.Stderr = logFile
 	child.SysProcAttr = detachedAttributes()
 	if err := child.Start(); err != nil {
-		return instance.Info{}, fmt.Errorf("start %s: %w", executable, err)
+		return instance.Info{}, i18n.Wrap(err, "daemon.start", executable)
 	}
 	exited := make(chan error, 1)
 	go func() { exited <- child.Wait() }()
@@ -187,20 +183,20 @@ func startDaemon(applicationConfig *config.Config, executable string) (instance.
 			return info, nil
 		}
 	}
-	return instance.Info{}, fmt.Errorf("daemon (pid %d) did not answer on %s within %s; see %s",
-		child.Process.Pid, applicationConfig.Addr, daemonStartTimeout, logPath)
+	return instance.Info{}, errors.New(i18n.T("daemon.startTimeout",
+		child.Process.Pid, applicationConfig.Addr, daemonStartTimeout, logPath))
 }
 
 func startFailure(logPath string, waitError error) error {
-	reason := "exited"
+	reason := i18n.T("daemon.exited")
 	if waitError != nil {
 		reason = waitError.Error()
 	}
 	tail, err := cli.TailLines(logPath, daemonLogTailLines)
 	if err != nil || strings.TrimSpace(tail) == "" {
-		return fmt.Errorf("daemon %s during start; see %s", reason, logPath)
+		return errors.New(i18n.T("daemon.startFailedLog", reason, logPath))
 	}
-	return fmt.Errorf("daemon %s during start:\n%s", reason, tail)
+	return errors.New(i18n.T("daemon.startFailed", reason, tail))
 }
 
 // stopInstance sends SIGTERM to the lock holder and waits for the lock to
@@ -215,13 +211,13 @@ func stopInstance(lockPath string, timeout time.Duration) (bool, instance.Info, 
 		return false, info, nil
 	}
 	if info.Mode == instance.ModeMaintenance {
-		return false, info, fmt.Errorf("a maintenance command (pid %d) holds the database; wait for it to finish", info.PID)
+		return false, info, errors.New(i18n.T("daemon.maintenance", info.PID))
 	}
 	if info.PID == 0 {
-		return false, info, errors.New("the lock holder recorded no pid; try again")
+		return false, info, errors.New(i18n.T("daemon.noPID"))
 	}
 	if err := terminateProcess(info.PID); err != nil {
-		return false, info, fmt.Errorf("stop pid %d: %w", info.PID, err)
+		return false, info, i18n.Wrap(err, "daemon.stopPID", info.PID)
 	}
 	deadline := time.Now().Add(timeout)
 	for {
@@ -231,7 +227,7 @@ func stopInstance(lockPath string, timeout time.Duration) (bool, instance.Info, 
 			return true, info, nil
 		}
 		if time.Now().After(deadline) {
-			return false, info, fmt.Errorf("pid %d did not exit within %s", info.PID, timeout)
+			return false, info, errors.New(i18n.T("daemon.didNotExit", info.PID, timeout))
 		}
 		time.Sleep(2 * daemonPollInterval)
 	}

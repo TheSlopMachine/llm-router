@@ -50,6 +50,8 @@ This starts one public listener on `PORT` (default `8080`) for the dashboard and
 
 Only one instance runs per database.
 
+Output is Russian or English: `LLM_ROUTER_LANG` (`ru` or `en`), else `LC_ALL`, `LC_MESSAGES`, `LANG` or the Windows user locale; anything but Russian gives English. Event messages, `--json`, config values and command names stay English.
+
 ### systemd and Docker
 
 Run `llm-router serve` in the foreground; the supervisor restarts it. Create the first password before the server starts. `--if-absent` keeps a password changed in the dashboard across restarts:

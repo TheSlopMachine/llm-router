@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/TheSlopMachine/llm-router/internal/config"
+	"github.com/TheSlopMachine/llm-router/internal/i18n"
 	"github.com/TheSlopMachine/llm-router/internal/instance"
 )
 
@@ -20,51 +21,46 @@ var configInitForce bool
 
 func newConfigCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:   "config",
-		Short: "Show and change the configuration",
-		Long: `Show and change the deployment settings stored in the .env file.
-
-Without a subcommand it opens an interactive menu. The file is ENV_FILE or
-the default under the XDG config directory. Environment variables win over
-the file; "config list" shows where each value comes from. Changes apply
-after a restart of the server.`,
+		Use:     "config",
+		Short:   i18n.T("config.short"),
+		Long:    i18n.T("config.long"),
 		GroupID: groupConfigure,
 		Args:    cobra.NoArgs,
 		RunE:    runConfigMenu,
 	}
 	initCommand := &cobra.Command{
 		Use:   "init",
-		Short: "Write a .env file with the default values",
+		Short: i18n.T("config.init.short"),
 		Args:  cobra.NoArgs,
 		RunE:  runConfigInit,
 	}
-	initCommand.Flags().BoolVar(&configInitForce, "force", false, "overwrite an existing file")
+	initCommand.Flags().BoolVar(&configInitForce, "force", false, i18n.T("config.init.force"))
 	command.AddCommand(
 		initCommand,
 		&cobra.Command{
 			Use:               "get KEY",
-			Short:             "Print the effective value of a key",
+			Short:             i18n.T("config.get.short"),
 			Args:              cobra.ExactArgs(1),
 			ValidArgsFunction: completeConfigKeys,
 			RunE:              runConfigGet,
 		},
 		&cobra.Command{
 			Use:               "set KEY VALUE",
-			Short:             "Write a value to the .env file",
+			Short:             i18n.T("config.set.short"),
 			Args:              cobra.ExactArgs(2),
 			ValidArgsFunction: completeConfigKeys,
 			RunE:              runConfigSet,
 		},
 		&cobra.Command{
 			Use:               "unset KEY",
-			Short:             "Remove a key from the .env file and restore its default",
+			Short:             i18n.T("config.unset.short"),
 			Args:              cobra.ExactArgs(1),
 			ValidArgsFunction: completeConfigKeys,
 			RunE:              runConfigUnset,
 		},
 		&cobra.Command{
 			Use:   "list",
-			Short: "List all keys with value, source and meaning",
+			Short: i18n.T("config.list.short"),
 			Args:  cobra.NoArgs,
 			RunE:  runConfigList,
 		},
@@ -86,7 +82,7 @@ func completeConfigKeys(_ *cobra.Command, arguments []string, _ string) ([]strin
 func dotenvPath() (string, error) {
 	path, err := config.ExpandPath(config.ResolveDotenvPath())
 	if err != nil {
-		return "", fmt.Errorf("invalid ENV_FILE: %w", err)
+		return "", i18n.Wrap(err, "config.invalidEnvFile")
 	}
 	return path, nil
 }
@@ -94,7 +90,7 @@ func dotenvPath() (string, error) {
 func lookupConfigKey(name string) (config.Key, error) {
 	key, found := config.LookupKey(name)
 	if !found {
-		return config.Key{}, fmt.Errorf("unknown key %q: see llm-router config list", name)
+		return config.Key{}, errors.New(i18n.T("config.unknownKey", name))
 	}
 	return key, nil
 }
@@ -110,12 +106,12 @@ func runConfigInit(*cobra.Command, []string) error {
 		err = config.WriteDefaultFile(path)
 	}
 	if errors.Is(err, config.ErrConfigFileExists) {
-		return fmt.Errorf("%s exists: use --force to overwrite it", path)
+		return errors.New(i18n.T("config.exists", path))
 	}
 	if err != nil {
-		return fmt.Errorf("write default configuration: %w", err)
+		return i18n.Wrap(err, "config.writeDefault")
 	}
-	fmt.Printf("wrote %s\n", path)
+	fmt.Println(i18n.T("config.wrote", path))
 	return nil
 }
 
@@ -149,10 +145,10 @@ func runConfigList(*cobra.Command, []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "file %s\n", path)
+	fmt.Fprintln(os.Stderr, i18n.T("config.file", path))
 	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	for _, setting := range settings {
-		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\n", setting.Key.Name, setting.Value, setting.Source, setting.Key.Description)
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\n", setting.Key.Name, setting.Value, setting.Source, keyDescription(setting.Key))
 	}
 	return writer.Flush()
 }
@@ -213,10 +209,10 @@ func resetSetting(path string, key config.Key) error {
 		return err
 	}
 	if !removed {
-		fmt.Printf("%s is not set in %s\n", key.Name, path)
+		fmt.Println(i18n.T("config.notSet", key.Name, path))
 		return nil
 	}
-	fmt.Printf("%s reset to default (%s)\n", key.Name, key.Default)
+	fmt.Println(i18n.T("config.reset", key.Name, key.Default))
 	return reportEffects(path, key)
 }
 
@@ -230,7 +226,7 @@ func reportEffects(path string, key config.Key) error {
 	var databasePath string
 	for _, setting := range settings {
 		if setting.Key.Name == key.Name && setting.Source == config.SourceEnvironment {
-			fmt.Fprintf(os.Stderr, "%s is also set in the environment and wins over the file\n", key.Name)
+			fmt.Fprintln(os.Stderr, i18n.T("config.envWins", key.Name))
 		}
 		if setting.Key.Name == "DB_PATH" {
 			databasePath = setting.Value
@@ -241,7 +237,7 @@ func reportEffects(path string, key config.Key) error {
 		return nil
 	}
 	if _, held, err := instance.Probe(instance.LockPath(expanded)); err == nil && held {
-		fmt.Fprintln(os.Stderr, "the server is running: restart it to apply the change")
+		fmt.Fprintln(os.Stderr, i18n.T("config.restart"))
 	}
 	return nil
 }
@@ -250,7 +246,7 @@ func reportEffects(path string, key config.Key) error {
 // type a value. An empty line leaves the menu.
 func runConfigMenu(*cobra.Command, []string) error {
 	if !isTerminal() {
-		return errors.New("the menu needs a terminal: use config get, set, unset or list")
+		return errors.New(i18n.T("config.needTerminal"))
 	}
 	path, err := dotenvPath()
 	if err != nil {
@@ -270,7 +266,7 @@ func runConfigMenu(*cobra.Command, []string) error {
 		_ = writer.Flush()
 		fmt.Println()
 
-		choice, err := promptLine(reader, "Number (empty to exit): ")
+		choice, err := promptLine(reader, i18n.T("config.prompt.number"))
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil
@@ -283,11 +279,11 @@ func runConfigMenu(*cobra.Command, []string) error {
 		}
 		number, err := strconv.Atoi(choice)
 		if err != nil || number < 1 || number > len(settings) {
-			fmt.Println("no such item")
+			fmt.Println(i18n.T("config.noItem"))
 			continue
 		}
 		setting := settings[number-1]
-		value, err := promptLine(reader, fmt.Sprintf("%s [%s] (empty keeps, - resets): ", setting.Key.Name, setting.Value))
+		value, err := promptLine(reader, i18n.T("config.prompt.value", setting.Key.Name, setting.Value))
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil
@@ -304,7 +300,16 @@ func runConfigMenu(*cobra.Command, []string) error {
 			err = assignSetting(path, setting.Key, value)
 		}
 		if err != nil {
-			fmt.Printf("error: %v\n", err)
+			fmt.Println(i18n.T("config.error", err))
 		}
 	}
+}
+
+// keyDescription returns the translated meaning of a key, falling back to
+// the English text the key carries.
+func keyDescription(key config.Key) string {
+	if text, found := i18n.Lookup("key." + key.Name); found {
+		return text
+	}
+	return key.Description
 }

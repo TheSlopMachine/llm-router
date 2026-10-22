@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/TheSlopMachine/llm-router/internal/i18n"
 )
 
 const (
@@ -37,18 +40,22 @@ type exitError struct {
 
 func (err *exitError) Error() string { return err.message }
 
-var rootCommand = &cobra.Command{
-	Use:           "llm-router",
-	Short:         "llm-router — minimalist LLM routing gateway",
-	SilenceUsage:  true,
-	SilenceErrors: true,
-}
+var rootCommand *cobra.Command
 
+// init builds the command tree after the output language is known: every
+// help text is translated when the command is created.
 func init() {
+	i18n.Init()
+	rootCommand = &cobra.Command{
+		Use:           "llm-router",
+		Short:         i18n.T("root.short"),
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
 	rootCommand.AddGroup(
-		&cobra.Group{ID: groupRun, Title: "Run:"},
-		&cobra.Group{ID: groupConfigure, Title: "Configure:"},
-		&cobra.Group{ID: groupMaintain, Title: "Maintain:"},
+		&cobra.Group{ID: groupRun, Title: i18n.T("group.run")},
+		&cobra.Group{ID: groupConfigure, Title: i18n.T("group.configure")},
+		&cobra.Group{ID: groupMaintain, Title: i18n.T("group.maintain")},
 	)
 	rootCommand.SetHelpCommandGroupID(groupMaintain)
 	rootCommand.SetCompletionCommandGroupID(groupMaintain)
@@ -63,6 +70,50 @@ func init() {
 		newUpdateCommand(),
 		newVersionCommand(),
 	)
+	localizeBuiltIns()
+}
+
+// localizeBuiltIns translates what cobra creates itself: the help and
+// completion commands, the -h flag of every command and the usage headers.
+// Cobra's own error messages stay English.
+func localizeBuiltIns() {
+	rootCommand.InitDefaultHelpCmd()
+	rootCommand.InitDefaultCompletionCmd()
+	for _, command := range rootCommand.Commands() {
+		switch command.Name() {
+		case "help":
+			command.Short = i18n.T("help.short")
+		case "completion":
+			command.Short = i18n.T("completion.short")
+		}
+	}
+	var visit func(command *cobra.Command)
+	visit = func(command *cobra.Command) {
+		command.InitDefaultHelpFlag()
+		if flag := command.Flags().Lookup("help"); flag != nil {
+			flag.Usage = i18n.T("flag.help", command.Name())
+		}
+		for _, child := range command.Commands() {
+			visit(child)
+		}
+	}
+	visit(rootCommand)
+	rootCommand.SetUsageTemplate(localizedUsageTemplate(rootCommand.UsageTemplate()))
+}
+
+func localizedUsageTemplate(template string) string {
+	return strings.NewReplacer(
+		`Use "{{.CommandPath}} [command] --help" for more information about a command.`, i18n.T("usage.more"),
+		"Usage:", i18n.T("usage.usage"),
+		"Aliases:", i18n.T("usage.aliases"),
+		"Examples:", i18n.T("usage.examples"),
+		"Available Commands:", i18n.T("usage.commands"),
+		"Additional Commands:", i18n.T("usage.additional"),
+		"Global Flags:", i18n.T("usage.globalFlags"),
+		"Flags:", i18n.T("usage.flags"),
+		"Additional help topics:", i18n.T("usage.topics"),
+		"[command]", i18n.T("usage.subcommand"),
+	).Replace(template)
 }
 
 // Execute is the entrypoint called from main.
@@ -85,7 +136,7 @@ func Execute() {
 func newVersionCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:     "version",
-		Short:   "Print version, commit and build time",
+		Short:   i18n.T("version.short"),
 		GroupID: groupMaintain,
 		Args:    cobra.NoArgs,
 		Run: func(command *cobra.Command, _ []string) {
