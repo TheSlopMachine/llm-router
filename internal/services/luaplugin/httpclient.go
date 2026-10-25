@@ -332,8 +332,19 @@ func (c *pluginHTTPClient) markDead(proxyURL, reason string) {
 	if c.ctx.markDead(proxyURL, reason) && c.ctx.logger != nil {
 		c.ctx.logger.Debug("Proxy marked dead",
 			"plugin_id", c.ctx.pluginID, "type", c.ctx.typeKey,
-			"proxy_url", proxyURL, "reason", reason)
+			"proxy_url", redactProxyURL(proxyURL), "reason", reason)
 	}
+}
+
+func redactProxyURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return "invalid"
+	}
+	return parsed.Redacted()
 }
 
 // requestEndpoint renders the request target without query or fragment so
@@ -356,7 +367,7 @@ func (c *pluginHTTPClient) logRequestCompleted(request *http.Request, proxyURL s
 		"timeout_ms", c.timeout.Milliseconds(),
 	}
 	if proxyURL != "" {
-		arguments = append(arguments, "proxy_url", proxyURL)
+		arguments = append(arguments, "proxy_url", redactProxyURL(proxyURL))
 	}
 	c.ctx.logger.Debug("Plugin HTTP request completed", arguments...)
 }
@@ -381,7 +392,7 @@ func (c *pluginHTTPClient) logRequestFailed(request *http.Request, proxyURL stri
 		"retryable", retryable,
 	}
 	if proxyURL != "" {
-		arguments = append(arguments, "proxy_url", proxyURL)
+		arguments = append(arguments, "proxy_url", redactProxyURL(proxyURL))
 	}
 	c.ctx.logger.Debug("Plugin HTTP request failed", arguments...)
 }
@@ -396,7 +407,7 @@ func (c *pluginHTTPClient) logRequestCanceled(request *http.Request, proxyURL st
 		"reason", "canceled", "error", requestError.Error(),
 	}
 	if proxyURL != "" {
-		arguments = append(arguments, "proxy_url", proxyURL)
+		arguments = append(arguments, "proxy_url", redactProxyURL(proxyURL))
 	}
 	c.ctx.logger.Debug("Plugin HTTP request canceled", arguments...)
 }

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -41,6 +42,33 @@ func TestMarkDeadReason(t *testing.T) {
 	}
 	if isStructuralTransport(errors.New("boom")) {
 		t.Fatal("generic error must not be structural")
+	}
+}
+
+func TestRedactProxyURL(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "password",
+			input: "https://proxy-user:proxy-password@proxy.example.org:443",
+			want:  "https://proxy-user:xxxxx@proxy.example.org:443",
+		},
+		{name: "empty", input: "", want: ""},
+		{name: "invalid", input: "://invalid", want: "invalid"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := redactProxyURL(test.input)
+			if got != test.want {
+				t.Fatalf("redactProxyURL() = %q, want %q", got, test.want)
+			}
+			if test.name == "password" && strings.Contains(got, "proxy-password") {
+				t.Fatal("redacted proxy URL contains the password")
+			}
+		})
 	}
 }
 
