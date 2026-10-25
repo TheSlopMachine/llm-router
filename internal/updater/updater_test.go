@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -178,8 +179,15 @@ func TestStageAndSwapKeepOnePrevious(t *testing.T) {
 		t.Errorf("current = %q, previous = %q, want v3 and v2", current, previous)
 	}
 	info, err := os.Stat(executable)
-	if err != nil || info.Mode().Perm() != 0o755 {
-		t.Errorf("mode = %v, %v, want 0755", info.Mode().Perm(), err)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	expectedMode := os.FileMode(0o755)
+	if runtime.GOOS == "windows" {
+		expectedMode = 0o666
+	}
+	if info.Mode().Perm() != expectedMode {
+		t.Errorf("mode = %v, want %v", info.Mode().Perm(), expectedMode)
 	}
 	if _, err := os.Stat(filepath.Join(directory, "llm-router.update")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("staging file left behind: %v", err)

@@ -57,7 +57,11 @@ func TestProbe(t *testing.T) {
 
 func TestProbeDoesNotBlockAcquire(t *testing.T) {
 	path := LockPath(filepath.Join(t.TempDir(), "router.sqlite3"))
-	if _, err := os.Create(path); err != nil {
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if _, held, err := Probe(path); err != nil || held {

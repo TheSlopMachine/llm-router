@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -35,8 +36,15 @@ func TestDotenvSetKeepsCommentsAndOrder(t *testing.T) {
 		t.Errorf("content = %q, want %q", got, want)
 	}
 	info, err := os.Stat(file.Path)
-	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Errorf("mode = %v, %v, want 0600 preserved", info.Mode().Perm(), err)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	expectedMode := os.FileMode(0o600)
+	if runtime.GOOS == "windows" {
+		expectedMode = 0o666
+	}
+	if info.Mode().Perm() != expectedMode {
+		t.Errorf("mode = %v, want %v", info.Mode().Perm(), expectedMode)
 	}
 }
 
