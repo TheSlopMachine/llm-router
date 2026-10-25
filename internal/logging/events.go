@@ -150,7 +150,7 @@ func (h *EventsHandler) Handle(_ context.Context, record slog.Record) error {
 		observed.Add(slog.Int("count", len(h.queue)))
 		_ = h.render(observed, time.Now())
 	}
-	h.queue <- pendingEvent{timestamp: timestamp, severity: severity, message: record.Message, keys: keys}
+	h.queue <- pendingEvent{timestamp: timestamp, severity: severity, message: redactLogText(record.Message), keys: keys}
 	return nil
 }
 
@@ -172,7 +172,7 @@ func (h *EventsHandler) Fatal(message string, attributes ...any) {
 	}
 	_ = h.render(record, timestamp)
 	if h.service != nil {
-		_ = h.service.Append(context.Background(), timestamp, events.SeverityFatal, message, keys)
+		_ = h.service.Append(context.Background(), timestamp, events.SeverityFatal, redactLogText(message), keys)
 	}
 	os.Exit(1)
 }
@@ -202,7 +202,7 @@ func (h *EventsHandler) render(record slog.Record, timestamp time.Time) error {
 	}
 	if record.Message != "" {
 		builder.WriteString(" ")
-		builder.WriteString(record.Message)
+		builder.WriteString(redactLogText(record.Message))
 	}
 	builder.WriteString("\n")
 	h.writerMu.Lock()

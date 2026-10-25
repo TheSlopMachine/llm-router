@@ -75,7 +75,7 @@ func (h *Handler) Handle(_ context.Context, record slog.Record) error {
 	}
 	if record.Message != "" {
 		builder.WriteString(" ")
-		builder.WriteString(record.Message)
+		builder.WriteString(redactLogText(record.Message))
 	}
 	builder.WriteString("\n")
 	h.mu.Lock()
@@ -127,7 +127,7 @@ func flatten(prefix string, attribute slog.Attr) []slog.Attr {
 	} else if prefix != "" {
 		key = prefix + "." + key
 	}
-	return []slog.Attr{slog.String(key, formatValue(attribute.Value))}
+	return []slog.Attr{slog.String(key, redactLogValue(key, formatValue(attribute.Value)))}
 }
 
 func writeFlat(builder *strings.Builder, attribute slog.Attr) {
