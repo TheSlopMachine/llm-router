@@ -213,6 +213,7 @@ export type TranslationKey =
   | 'models.endpoints.text_to_speech'
   | 'models.endpoints.image_gen'
   | 'models.endpoints.text_embeddings'
+  | 'models.summary.unavailable'
   | 'tokens.list.title'
   | 'tokens.list.subtitle'
   | 'tokens.list.router_for'

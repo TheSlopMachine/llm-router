@@ -590,6 +590,7 @@ export const ru: TranslationRecord = {
   'credentials.summary.unhealthy_disabled': 'Учётные данные неработоспособны, отключены',
   'credentials.summary.inconclusive': 'Проверка состояния без результата',
   'credentials.summary.disable_failed': 'Отключение не удалось',
+  'models.summary.unavailable': 'Модель недоступна',
   'tokens.success.created_done': 'Токен успешно создан',
   'plugins.update.review_hosts': 'Проверьте изменения хостов перед обновлением.',
   'plugins.update.requests_unrestricted': 'Запрашивает неограниченный доступ к сети.',

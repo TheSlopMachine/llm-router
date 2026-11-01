@@ -196,6 +196,7 @@
     if (eps.includes('embeddings')) return 'embeddings'
     if (eps.includes('images/generations')) return 'image'
     if (eps.includes('audio/transcriptions')) return 'transcription'
+    if (eps.includes('videos')) return 'video'
     return 'chat'
   }
 
@@ -206,6 +207,7 @@
     transcription: { in: ['audio'], out: ['text'] },
     image: { in: ['text'], out: ['image'] },
     embeddings: { in: ['text'], out: ['embedding'] },
+    video: { in: ['text'], out: ['video'] },
   }
 
   function union(a: string[] | undefined, b: string[]): string[] {
@@ -293,6 +295,10 @@
       for (const m of models) {
         if (testAllCancel) break
         if (m.disabled) continue
+        // Test all skips priced media generations: each video job bills on
+        // render, each image bills per image. Single model tests probe them.
+        const endpoint = probeEndpoint(m)
+        if (endpoint === 'video' || endpoint === 'image') continue
         const result = await probeModel(m)
         probeToast(m, result)
         if (!result.ok) {

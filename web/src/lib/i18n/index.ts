@@ -59,6 +59,7 @@ const backendSummaryMap: Record<string, TranslationKey> = {
   'credential unhealthy': 'credentials.summary.unhealthy',
   'credential unhealthy, disabled': 'credentials.summary.unhealthy_disabled',
   'health check inconclusive': 'credentials.summary.inconclusive',
+  'model unavailable': 'models.summary.unavailable',
   'disable failed': 'credentials.summary.disable_failed',
   'is healthy': 'credentials.status.healthy',
   'failed': 'credentials.status.failed',

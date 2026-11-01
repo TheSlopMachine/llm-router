@@ -590,6 +590,7 @@ export const en: TranslationRecord = {
   'credentials.summary.unhealthy_disabled': 'credential unhealthy, disabled',
   'credentials.summary.inconclusive': 'health check inconclusive',
   'credentials.summary.disable_failed': 'disable failed',
+  'models.summary.unavailable': 'model unavailable',
   'tokens.success.created_done': 'Token created successfully',
   'plugins.update.review_hosts': 'Review host changes before updating.',
   'plugins.update.requests_unrestricted': 'Requests unrestricted network access.',

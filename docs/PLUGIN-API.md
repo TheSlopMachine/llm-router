@@ -729,11 +729,26 @@ check_model = function(ctx, model_ref) return result end
 Parameters: `ctx` execution context, `model_ref` with `model`, `model_name`,
 `endpoint`.
 
-Return values: `healthy` keeps routing, `quota_exceeded` skips without
-disable, `unhealthy` marks dead model, `unknown` leaves state unchanged.
-`response` holds a short success excerpt. Unknown endpoints return
-`{status="unknown", message="endpoint not supported ..."}`. Types without the
-handler report `unsupported` with no live request.
+Semantics: real availability, judged by actual generation. The endpoints
+listing first rules the model out cheaply (missing model upstream, or the
+architecture output modalities exclude the endpoint), then a minimal probe
+generation runs on every available credential and the first success wins:
+`chat`/`vision` send a one-word prompt with `max_tokens=8`, `embeddings` one
+short string, `speech` one word, `transcription` one second of silence, `image`
+a one-word prompt, `video` a one-word job submission (no polling). Probes never
+park, bench, or disable; a rejecting key only skips its credential.
+
+Return values: `healthy` keeps routing (some credential served a real
+generation), `quota_exceeded` skips without disable (any 429, or every
+credential answered 402 without an affordable `max_tokens`), `unhealthy` fails
+the model (every listing said missing upstream, any probe generation 404, or
+all generations hit provider-side failures such as wrapped
+"Provider returned error" raws and 5xx), `unknown` leaves state unchanged for
+indeterminate probe conditions (capability mismatch through
+`response="endpoint not supported ..."`, transport failure, unparsable listing,
+no usable credential). `response` holds a short success excerpt. Unknown
+endpoints return `{status="unknown", message="endpoint not supported ..."}`.
+Types without the handler report `unsupported` with no live request.
 
 Example:
 

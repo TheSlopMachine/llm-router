@@ -1,5 +1,22 @@
 # Changelog
 
+## Done (2026-11-01, v0.6.4)
+
+- Fixed remaining OpenRouter probe inconclusive cases: alias model names (`~anthropic/claude-haiku-latest`) now validate with `~` in `safe_model_name`; speech probes resolve a real supported voice from `supported_voices` in the speech-filtered model list and walk `response_format` options (omit, `mp3`, `pcm`) because providers differ (HeyGen pcm-only, MiniMax mp3-only, ElevenLabs voice-required). Video models now probe as `video` endpoint instead of falling through to `chat`. Bumped the plugin to `@version 1.1.0`.
+- Dashboard "Test all models" skips video and image endpoints to avoid priced media generations during bulk checks; single-model tests still probe them.
+
+## Done (2026-10-31, v0.6.3)
+
+- Reworked OpenRouter `check_model` into a real availability probe: after the cheap endpoints listing rules out a missing model or an endpoint modality mismatch, a minimal generation runs on every available credential until one succeeds (`chat` and `vision` one-word prompts, one embedding string, one speech word, one second of silence for transcription, one image prompt, one video job submission). Verdicts: a real generation makes the model `healthy`; any 429 or every credential answering 402 makes it `quota_exceeded`; provider-side failures (wrapped "Provider returned error" raws, generation 404, 5xx) make it `unhealthy`; probes never park, bench, or disable, and a rejected key only skips its credential. Bumped the plugin to `@version 1.0.3`.
+- OpenRouter account-affordability 402s ("requires more credits, or fewer max_tokens") no longer park the credential: the attempt skips to the next key, and unary and streaming chat retry once with `max_tokens` clamped to the affordable token count when the caller sent none. Plain balance shortfalls keep parking.
+- OpenRouter provider-wrapped failures ("Provider returned error") now surface the provider's own error text from `error.metadata.raw` instead of the opaque wrapper, never bench or park the key on the wrapped status, and log the provider name as `detail`.
+- Documented the current `check_model` generation-probe semantics in `docs/PLUGIN-API.md`.
+
+## Done (2026-10-31, v0.6.3)
+
+- OpenRouter model probes now report a model with no operational provider endpoint as unavailable (`unhealthy`) instead of inconclusive. The dashboard toast shows "model unavailable", the failure carries the `model_unavailable` code, and the disable-failed-models toggle applies. Probe-infrastructure failures (transport error, unparsable listing, no usable credential) and capability mismatches stay inconclusive. Bumped the plugin to `@version 1.0.2`.
+- Localized the "model unavailable" probe summary (`models.summary.unavailable`).
+
 ## Done (2026-10-21, v0.4.3)
 
 - Replaced the flag-only CLI with commands: `serve`, `daemon start|stop|restart|status`, `logs`, `config` (menu, `init`, `get`, `set`, `unset`, `list`), `set-dashboard-password`, `status`, `doctor`, `update`, `version`, `help`. Running the binary without a command prints the help; systemd units and containers run `llm-router serve`.
