@@ -140,16 +140,6 @@ func (s *GormService) SuspectFailed(pluginID, typeKey, credentialID string) {
 		}
 		return
 	}
-	cooldown := s.lua.HealthCooldown(typeKey)
-	if entry, err := s.Get(context.Background(), credentialID); err == nil && entry != nil {
-		if time.Now().Before(entry.LastCheckAt.Add(cooldown)) {
-			if s.logger != nil {
-				s.logger.Debug("Healthcheck cooldown active, skipping check",
-					"credential_id", credentialID, "type", typeKey)
-			}
-			return
-		}
-	}
 	s.mu.Lock()
 	if s.inflight[credentialID] {
 		s.mu.Unlock()
@@ -161,6 +151,19 @@ func (s *GormService) SuspectFailed(pluginID, typeKey, credentialID string) {
 	}
 	s.inflight[credentialID] = true
 	s.mu.Unlock()
+	cooldown := s.lua.HealthCooldown(typeKey)
+	if entry, err := s.Get(context.Background(), credentialID); err == nil && entry != nil {
+		if time.Now().Before(entry.LastCheckAt.Add(cooldown)) {
+			s.mu.Lock()
+			delete(s.inflight, credentialID)
+			s.mu.Unlock()
+			if s.logger != nil {
+				s.logger.Debug("Healthcheck cooldown active, skipping check",
+					"credential_id", credentialID, "type", typeKey)
+			}
+			return
+		}
+	}
 	go s.run(typeKey, credentialID)
 }
 
