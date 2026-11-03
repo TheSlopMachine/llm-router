@@ -421,6 +421,7 @@ export const ru: TranslationRecord = {
   'proxy.sources.last_fetched': 'Последняя загрузка',
   'proxy.sources.unsupported': 'Не поддерживаются',
   'proxy.pool.healthy': 'Рабочие прокси',
+  'proxy.pool.showing': 'Показано {shown} из {total}',
   'proxy.pool.empty': 'В пуле нет рабочих прокси.',
   'proxy.pool.none_available': 'Нет доступных рабочих прокси. Обновите пул на странице прокси.',
   'proxy.pool.unhealthy_skipped': 'Выбранные прокси, которые сейчас не работают, использоваться не будут.',

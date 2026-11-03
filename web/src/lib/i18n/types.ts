@@ -420,6 +420,7 @@ export type TranslationKey =
   | 'proxy.sources.last_fetched'
   | 'proxy.sources.unsupported'
   | 'proxy.pool.healthy'
+  | 'proxy.pool.showing'
   | 'proxy.pool.empty'
   | 'proxy.pool.none_available'
   | 'proxy.pool.unhealthy_skipped'

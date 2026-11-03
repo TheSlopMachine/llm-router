@@ -5,10 +5,10 @@
   import { api } from '$lib/api'
   import { openFormModal } from '$lib/modal-helpers'
   import { getErrorMessage } from '$lib/errors'
-  import { formatNanoLatency as formatLatency } from '$lib/format'
-  import type { Proxy, ProxyStatus, ProxySourceInfo, ProxyPool, RouterConfiguration } from '$lib/types'
+    import type { ProxyStatus, ProxySourceInfo, ProxyPool, RouterConfiguration } from '$lib/types'
   import { t, tx, locale, type TranslationKey } from '$lib/i18n.svelte'
   import CustomPoolModal from './components/CustomPoolModal.svelte'
+  import HealthyProxies from './components/HealthyProxies.svelte'
 
   export type ProxyTab = 'status' | 'sources' | 'pools'
 
@@ -17,9 +17,9 @@
     ontabchange?: (next: ProxyTab) => void
   } = $props()
 
-  let proxies = $state<Proxy[]>([])
   let sources = $state<ProxySourceInfo[]>([])
-  let status = $state<ProxyStatus | null>(null)
+  let status = $state.raw<ProxyStatus | null>(null)
+  let lastStatusJson = ''
   let pools = $state<ProxyPool[]>([])
   let loading = $state(true)
   let requestingRefresh = $state(false)
@@ -38,12 +38,6 @@
   let deletePoolTarget = $state<ProxyPool | null>(null)
   let deletePoolAnchor = $state<HTMLElement>()
   let deletingPool = $state(false)
-
-  const proxyColumns: TableColumn[] = [
-    { key: 'url', title: t('proxy.url'), width: '1fr', priority: 1 },
-    { key: 'latency', title: t('proxy.latency'), width: 'var(--fui-table-col-sm)', align: 'right', priority: 2 },
-    { key: 'score', title: t('proxy.score'), width: 'var(--fui-table-col-xs)', align: 'right', priority: 2 },
-  ]
 
   const poolColumns: TableColumn[] = [
     { key: 'name', title: t('common.labels.name'), width: '1fr', priority: 1 },
@@ -158,7 +152,11 @@
     try {
       const nextStatus = await api.proxies.status()
       if (request !== latestStatusRequest) return
-      status = nextStatus
+      const json = JSON.stringify(nextStatus)
+      if (json !== lastStatusJson) {
+        lastStatusJson = json
+        status = nextStatus
+      }
       error = ''
     } catch (e) {
       if (request === latestStatusRequest) error = getErrorMessage(e)
@@ -167,14 +165,13 @@
 
   async function loadAll(): Promise<void> {
     try {
-      const [nextProxies, nextSources, nextStatus, nextPools] = await Promise.all([
-        api.proxies.list(),
+      const [nextSources, nextStatus, nextPools] = await Promise.all([
         api.proxies.sources(),
         api.proxies.status(),
         api.proxies.pools.list(),
       ])
-      proxies = nextProxies
       sources = nextSources
+      lastStatusJson = JSON.stringify(nextStatus)
       status = nextStatus
       pools = nextPools
       error = ''
@@ -279,6 +276,12 @@
   }
 
 
+  // Primitives dedupe: the header objects are rebuilt only when one of these really changes,
+  // not on every 2s status poll.
+  const statusLoaded = $derived(status !== null)
+  const queuedCount = $derived(status?.queued ?? 0)
+  const forcedForeground = $derived(!!status?.forced_foreground)
+
   const headerPrimary = $derived<AppBarAction | undefined>(
     tab === 'pools'
       ? undefined
@@ -298,8 +301,8 @@
             id: 'force',
             text: t('proxy.force.action'),
             icon: 'bolt',
-            loading: forcing || !!status?.forced_foreground,
-            disabled: !discoveryOn || !status || (status.queued === 0 && !status.forced_foreground),
+            loading: forcing || forcedForeground,
+            disabled: !discoveryOn || !statusLoaded || (queuedCount === 0 && !forcedForeground),
             onclick: () => void forceChecks(),
           },
           { id: 'recheck', text: t('proxy.recheck_banned.action'), icon: 'lock_reset', loading: recheckingBanned, disabled: !discoveryOn, onclick: () => void recheckBanned() },
@@ -308,32 +311,9 @@
 </script>
 
 {#snippet healthyBody()}
-  <Table columns={proxyColumns} rows={proxies} rowKey={(proxy) => (proxy as Proxy).id} loading={loading}>
-    {#snippet cell({ column, row })}
-      {@const proxy = row as Proxy}
-      {#if column.key === 'url'}
-        <HStack gap={2} valign="center">
-          {#if proxy.location}<Chip text={proxy.location} size="sm" />{/if}
-          <Text variant="value" mono truncate>{proxy.url}</Text>
-        </HStack>
-      {:else if column.key === 'latency'}
-        <Text size="sm">{formatLatency(proxy.latency)}</Text>
-      {:else if column.key === 'score'}
-        <Text size="sm">{proxy.score.toFixed(2)}</Text>
-      {/if}
-    {/snippet}
-    {#snippet card({ row })}
-      {@const proxy = row as Proxy}
-      <HStack gap={2} valign="center">
-        {#if proxy.location}<Chip text={proxy.location} size="sm" />{/if}
-        <Text variant="value" mono truncate>{proxy.url}</Text>
-      </HStack>
-      <Text variant="caption">{t('proxy.latency')}: {formatLatency(proxy.latency)} · {t('proxy.score')}: {proxy.score.toFixed(2)}</Text>
-    {/snippet}
-    {#snippet empty()}
-      <ContentUnavailable title={t('proxy.pool.empty')} />
-    {/snippet}
-  </Table>
+  {#if openSections.includes('proxies')}
+    <HealthyProxies />
+  {/if}
 {/snippet}
 
 <VStack gap={6}>
@@ -450,7 +430,7 @@
 
       <!-- rarely needed: folded away so the overview stays short -->
       <DisclosureGroup multiple bind:value={openSections} items={[
-        { id: 'proxies', title: `${t('proxy.pool.healthy')} (${proxies.length})`, body: healthyBody },
+        { id: 'proxies', title: `${t('proxy.pool.healthy')} (${status.alive})`, body: healthyBody },
       ]} />
     {:else}
       <ContentUnavailable title={t('common.state.loading')} />

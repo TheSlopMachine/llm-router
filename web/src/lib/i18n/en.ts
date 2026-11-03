@@ -421,6 +421,7 @@ export const en: TranslationRecord = {
   'proxy.sources.last_fetched': 'Last fetched',
   'proxy.sources.unsupported': 'Unsupported',
   'proxy.pool.healthy': 'Healthy proxies',
+  'proxy.pool.showing': 'Showing {shown} of {total}',
   'proxy.pool.empty': 'No healthy proxies in the pool.',
   'proxy.pool.none_available': 'No healthy proxies are available. Refresh the pool from the Proxies page.',
   'proxy.pool.unhealthy_skipped': 'Selected proxies that are not currently healthy will not be used.',
