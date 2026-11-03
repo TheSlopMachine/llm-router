@@ -218,6 +218,7 @@
         title={bar.content?.title ?? ''}
         {crumbs}
         subtitle={bar.content?.subtitle}
+        subtitlePlacement="below"
         info={bar.content?.info}
         actions={bar.content?.actions}
         primary={bar.content?.primary}
