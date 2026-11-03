@@ -80,7 +80,7 @@ func TestInstallSQLiteRoundTripPreservesDeclarations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install sqlite: %v", err)
 	}
-	if installed.ID != "manual/tester/Comprehensive-Plugin" {
+	if installed.ID != "tester/Comprehensive-Plugin" {
 		t.Fatalf("identifier: got %q", installed.ID)
 	}
 	fetched, err := service.GetSQLite(ctx, installed.ID)

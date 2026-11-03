@@ -221,7 +221,7 @@ func TestInstallAndComplete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	if rec.ID != "manual/tester/Test-Plugin" {
+	if rec.ID != "tester/Test-Plugin" {
 		t.Fatalf("id: %q", rec.ID)
 	}
 	if len(rec.TypeKeys) != 1 || rec.TypeKeys[0] != "test-type" {
@@ -443,7 +443,7 @@ llm_router.register("crash-type", {
 	if perr.Cause == "" {
 		t.Fatal("plugin crash must carry a cause")
 	}
-	if len(service.Crashes("manual/a/P")) == 0 {
+	if len(service.Crashes("a/P")) == 0 {
 		t.Fatal("crash must be recorded")
 	}
 }

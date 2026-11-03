@@ -147,8 +147,8 @@ instead (`internal/services/luaplugin/service.go:663-683`). `plugin` and
 
 | Key | Meaning | Example filter |
 |---|---|---|
-| `plugin` | Plugin record id on router-side lines | `EVENT_FILTERS="plugin=manual/TheSlopMachine/Google-AI-Studio"` |
-| `plugin_id` | Same record id on Lua bridge lines | `EVENT_FILTERS="plugin_id=manual/TheSlopMachine/Google-AI-Studio"` |
+| `plugin` | Plugin record id on router-side lines | `EVENT_FILTERS="plugin=TheSlopMachine/Google-AI-Studio"` |
+| `plugin_id` | Same record id on Lua bridge lines | `EVENT_FILTERS="plugin_id=TheSlopMachine/Google-AI-Studio"` |
 | `type` | Plugin type key | `EVENT_FILTERS="type=google"` |
 | `msg` | Exact Lua log message on bridge lines; exact match only, URL-encoded through `/api/events` | `/api/events?filter.msg=rate%20limited&limit=50` |
 | `event` | High-volume debug category (`exits`, `rate_limit`, `forbidden`, `request_dump`, `response_dump`, `reasoning_replay`, `payload`, `cache`, `request_start`, `http`, `http_error`, `stream`, `stream_response`, `stream_error`, `stream_done`, `sse`) | `EVENT_FILTERS="event=stream_error"` |

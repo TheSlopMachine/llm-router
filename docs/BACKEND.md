@@ -27,7 +27,7 @@ internal/services/
   virtual/               virtual models (fall-through lists + instruction)
   responses/             router-side compat records (responses, conversations, assistants, threads, messages, runs)
   batches/               router-side Anthropic message batches (entries + JSONL-ready results)
-  luaplugin/             Lua execution core: manifest, sandbox, pooled states per plugin bucket, HTTP+SSRF, storage+TTL, credentials/proxies tables, jobs
+  luaplugin/             Lua execution core: manifest, author/plugin-name plugin identity, sandbox, pooled states per plugin bucket, HTTP+SSRF, storage+TTL, credentials/proxies tables, jobs
   pluginrepo/            plugin store: single-URL index repos (repo URL or direct index.json, files resolved against the index directory); code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
   modelinfo/             model metadata cache (1h TTL)
   metrics/               1m buckets with dimension children, 90d retention

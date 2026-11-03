@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -646,57 +645,18 @@ func (s *Service) Icon(typeKey string) string {
 	return record.Icons[typeKey]
 }
 
-// BuildID derives the composite plugin ID from origin and manifest.
-// Repo installs use the file basename: <repo>/<author>/<basename>.
-// Manual uploads use: manual/<author>/<slug-of-plugin-name>.
+// BuildID derives the composite plugin ID from manifest author and plugin name.
+// The format is <author>/<plugin-name>, enabling source interchangeability.
 func BuildID(origin PluginOrigin, manifest *Manifest) (string, error) {
 	author, err := sanitizeIDPart(manifest.Author)
 	if err != nil {
 		return "", fmt.Errorf("author: %w", err)
 	}
-	if origin.Manual {
-		name, err := sanitizeIDPart(manifest.Plugin)
-		if err != nil {
-			return "", fmt.Errorf("plugin name: %w", err)
-		}
-		return "manual/" + author + "/" + name, nil
+	name, err := sanitizeIDPart(manifest.Plugin)
+	if err != nil {
+		return "", fmt.Errorf("plugin name: %w", err)
 	}
-	if strings.TrimSpace(origin.RepoID) == "" {
-		return "", fmt.Errorf("repo origin requires repo id")
-	}
-	if err := validateRepositoryID(origin.RepoID); err != nil {
-		return "", err
-	}
-	base := path.Base(origin.Path)
-	if !strings.HasSuffix(base, ".lua") {
-		return "", fmt.Errorf("plugin path %q must end with .lua", origin.Path)
-	}
-	name := strings.TrimSuffix(base, ".lua")
-	if name == "" || strings.Contains(name, "/") || name == "." || name == ".." {
-		return "", fmt.Errorf("invalid plugin path %q", origin.Path)
-	}
-	dir := path.Dir(origin.Path)
-	if dir != "llm-router-plugins" {
-		return "", fmt.Errorf("plugin path %q must live directly in llm-router-plugins/", origin.Path)
-	}
-	return origin.RepoID + "/" + author + "/" + name, nil
-}
-
-// validateRepositoryID accepts slash-separated repository IDs such as
-// "github/<owner>/<repo>" and rejects traversal and malformed values.
-func validateRepositoryID(id string) error {
-	if strings.Contains(id, "\x00") {
-		return fmt.Errorf("invalid repo id %q", id)
-	}
-	if strings.HasPrefix(id, "/") || strings.HasSuffix(id, "/") {
-		return fmt.Errorf("invalid repo id %q", id)
-	}
-	for _, segment := range strings.Split(id, "/") {
-		if segment == "" || segment == "." || segment == ".." {
-			return fmt.Errorf("invalid repo id %q", id)
-		}
-	}
-	return nil
+	return author + "/" + name, nil
 }
 
 func sanitizeIDPart(value string) (string, error) {

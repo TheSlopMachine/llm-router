@@ -1,5 +1,11 @@
 # Changelog
 
+## Done (2026-11-03, v0.6.6)
+
+- **Plugin sources are interchangeable** — plugin identity no longer embeds the installation source. The record id is now `Author Name/Plugin Name` sanitized from the `@plugin` and `@author` manifest tags (`luaplugin.BuildID`), replacing the previous store-qualified (`<repo>/<author>/<basename>`) and manual (`manual/<author>/<slug>`) ids: installing the same plugin from store A, store B, or a file upload id-overrides the previous installation and pushes it to rollback history. `@plugin` and `@author` now reject `/` so the identity string stays unambiguous.
+- **Migration 6 `plugin_identity`** rebuilds existing plugin ids to the author/plugin form, moving `plugin_allow_hosts`, `plugin_versions` and `plugin_storage` rows along; collisions keep the most recently updated row. The `plugin_identity_migration` table maps old to new ids.
+- Origin columns stay as provenance records only (`Origin.Manual`, `Origin.RepoID`, `Origin.Path`): they no longer contribute to identity.
+
 ## Done (2026-11-01, v0.6.4)
 
 - Fixed remaining OpenRouter probe inconclusive cases: alias model names (`~anthropic/claude-haiku-latest`) now validate with `~` in `safe_model_name`; speech probes resolve a real supported voice from `supported_voices` in the speech-filtered model list and walk `response_format` options (omit, `mp3`, `pcm`) because providers differ (HeyGen pcm-only, MiniMax mp3-only, ElevenLabs voice-required). Video models now probe as `video` endpoint instead of falling through to `chat`. Bumped the plugin to `@version 1.1.0`.

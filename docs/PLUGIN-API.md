@@ -16,7 +16,13 @@ inventoried. Minor is informational for plugin maintainers.
 
 `@version` accepts `MAJOR.MINOR[.PATCH]` (missing patch means `.0`, one
 leading `v` allowed); `@plugin_api` accepts `MAJOR.MINOR[.PATCH]` in the same
-spelling. Anything else fails install.
+spelling. Anything else fails install. Neither `@plugin` nor `@author` may
+contain a `/` character: the pair forms the plugin identity, spelled
+`Author Name/Plugin Name`, and installation is interchangeable across
+sources. Installs from any store or a file upload with the same
+`@author`/`@plugin` pair override the previous installation and append it to
+the rollback history; version-match reinstall from the same source skips
+deployment.
 
 ## Table of Contents
 
@@ -90,8 +96,8 @@ Parameters:
 
 | Tag | Cardinality | Description |
 |---|---|---|
-| `@plugin` | required, once | Display name. Non-empty string. |
-| `@author` | required, once | Author name. Non-empty string. |
+| `@plugin` | required, once | Display name. Non-empty string. Must not contain `/`. Forms the plugin identity with `@author`. |
+| `@author` | required, once | Author name. Non-empty string. Must not contain `/`. Forms the plugin identity with `@plugin`. |
 | `@version` | required, once | Plugin version. Format `MAJOR.MINOR[.PATCH]`, leading `v` allowed, missing patch means `.0`. Every content edit bumps this value. Version-match reinstall skips deployment. |
 | `@plugin_api` | required, once | Contract declaration. Format `x.y[.z]`. Major must equal served major `1`. |
 | `@allow_host` | required, repeatable, minimum one | Bare hostname without `/`, space, or `:`. Value `*` marks the plugin unsafe and must stand alone. |

@@ -27,9 +27,9 @@ llm_router.register("slash-type", {
 `
 
 // TestPluginIDRoutesAcceptEncodedSlashes locks the ID contract: record IDs
-// always contain slashes (manual/a/b, index/.../...), so clients must send
-// them encoded (as the dashboard frontend does with encodeURIComponent)
-// and the API must resolve them back to the record.
+// always contain one slash (author/plugin), so clients must send them
+// encoded (as the dashboard frontend does with encodeURIComponent) and the
+// API must resolve them back to the record.
 func TestPluginIDRoutesAcceptEncodedSlashes(t *testing.T) {
 	database := testutil.SetupTestSQLite(t)
 	luaService, err := luaplugin.New(database, nil)

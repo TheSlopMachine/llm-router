@@ -121,8 +121,14 @@ func ParseManifest(source []byte) (*Manifest, error) {
 	if manifest.Plugin == "" {
 		return nil, fmt.Errorf("manifest tag %q must not be empty", "@plugin")
 	}
+	if strings.Contains(manifest.Plugin, "/") {
+		return nil, fmt.Errorf("manifest tag %q must not contain '/'", "@plugin")
+	}
 	if manifest.Author == "" {
 		return nil, fmt.Errorf("manifest tag %q must not be empty", "@author")
+	}
+	if strings.Contains(manifest.Author, "/") {
+		return nil, fmt.Errorf("manifest tag %q must not contain '/'", "@author")
 	}
 	if seen["@description"] > 1 || seen["@license"] > 1 {
 		return nil, fmt.Errorf("duplicate single-value manifest tag")
