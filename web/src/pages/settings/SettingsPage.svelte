@@ -8,7 +8,7 @@
   import { t, n } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { accent, accents } from '$lib/accent.svelte'
-  import { Button, HStack, GroupBox, Spacer, Toggle, Text, VStack, TextField, Banner, Icon, Chip, Header, ContentUnavailable, squircle, toast, modal, Picker } from '@fuckyouryan/fui'
+  import { Button, HStack, GroupBox, Spacer, Toggle, Text, VStack, TextField, Banner, Icon, Chip, Header, ContentUnavailable, squircle, toast, modal, Picker, type AppBarAction } from '@fuckyouryan/fui'
   import type { Provider, SubsystemStats, DoctorReport } from '$lib/types'
   import { downloadJson, readJsonFile } from '$lib/download'
 
@@ -58,6 +58,14 @@
   // General state
   let saving = $state(false)
   let error = $state('')
+
+  const headerPrimary = $derived<AppBarAction>({
+    id: 'save',
+    text: saving ? t('common.actions.saving') : t('common.actions.save_changes'),
+    icon: 'save',
+    disabled: saving,
+    onclick: () => void save(),
+  })
 
   onMount(async () => {
     await Promise.all([loadConfig(), loadDataStats(), runDoctorInspect(), loadProviders()])
@@ -267,7 +275,7 @@
 </script>
 
 <VStack gap={6}>
-  <Header title={t('settings.title')} info={t('settings.subtitle')} />
+  <Header title={t('settings.title')} info={t('settings.subtitle')} primary={headerPrimary} />
 
   {#if error}
     <Banner tint="danger" text={error} />
@@ -314,12 +322,6 @@
       <Text>{t('settings.disable_telemetry')}</Text>
       <Spacer />
       <Toggle bind:checked={disableTelemetry} />
-    </HStack>
-
-    <HStack halign="end">
-      <Button buttonStyle="prominent" onclick={save} disabled={saving}>
-        {saving ? t('common.actions.saving') : t('common.actions.save_changes')}
-      </Button>
     </HStack>
   </GroupBox>
 
