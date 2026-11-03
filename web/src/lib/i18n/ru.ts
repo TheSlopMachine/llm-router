@@ -248,6 +248,7 @@ export const ru: TranslationRecord = {
   'tokens.list.empty': 'Токенов пока нет',
   'tokens.list.loading': 'Загрузка токенов...',
   'tokens.create_another': 'Создать ещё',
+  'tokens.permissions.allow': 'Разрешить',
   'tokens.permissions.allow_all': 'Разрешить все',
   'tokens.permissions.allow_all_models': 'Разрешить все модели',
   'tokens.permissions.allow_all_providers': 'Разрешить всех провайдеров',

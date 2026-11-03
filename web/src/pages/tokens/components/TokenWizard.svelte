@@ -48,6 +48,7 @@
   let providerUseAll: Set<string> = $state(new Set())
   let providerCreds: Set<string> = $state(new Set())
   let virtualEnabled: boolean = $state(false)
+  let virtualModelCount: number | null = $state(null)
   let allCredentials: Array<{ id: string; provider_id: string; provider_name: string; label: string; is_expired: boolean; updated_at?: string }> = $state([])
 
   // Step 3: models.
@@ -107,6 +108,12 @@
       if (!Array.isArray(allCredentials)) allCredentials = []
     } catch (_) {
       allCredentials = []
+    }
+    try {
+      const vms: any = await api.virtualModels.list()
+      virtualModelCount = Array.isArray(vms) ? vms.filter((vm: VirtualModel) => !vm.disabled).length : 0
+    } catch (_) {
+      virtualModelCount = null
     }
     syncChrome()
   })
@@ -409,7 +416,7 @@
 {:else if isNameStep}
   {#if error}<Banner tint="danger" text={error} />{/if}
   <VStack gap={4}>
-    <TextField id="token-name" bind:value={tokenName} hint={`${t('tokens.create.name_label')} (${t('common.labels.required')})`} />
+    <TextField id="token-name" autocomplete="off" bind:value={tokenName} hint={`${t('tokens.create.name_label')} (${t('common.labels.required')})`} />
     <Toggle bind:checked={fullAccess} label={t('tokens.permissions.full_access')} id="full-access" />
   </VStack>
 {:else if isProvidersStep}
@@ -421,12 +428,32 @@
       <div class={isProviderScopeLocked ? 'is-disabled' : ''}>
         <VStack gap={2}>
           <HStack valign="center" gap={3}>
-            <VStack gap={1}>
+            <HStack valign="baseline" gap={3}>
               <Text variant="section-title">{p.name}</Text>
               <Text size="xs" foregroundStyle="secondary" mono>{p.id}</Text>
-            </VStack>
+            </HStack>
             <Spacer />
-            {#if p.type !== 'virtual'}
+            {#if p.type === 'virtual'}
+              <div class="head-toggle">
+                <Toggle
+                  checked={virtualEnabled}
+                  onchange={(v) => { virtualEnabled = v }}
+                  label={t('tokens.permissions.allow')}
+                  id={`use-${p.id}`}
+                  disabled={allowAllProvidersCredentials}
+                />
+              </div>
+            {:else if creds.length === 0}
+              <div class="head-toggle">
+                <Toggle
+                  checked={providerUseAll.has(p.id)}
+                  onchange={(v) => toggleProviderUseAll(p.id, v)}
+                  label={t('tokens.permissions.allow')}
+                  id={`use-${p.id}`}
+                  disabled={allowAllProvidersCredentials}
+                />
+              </div>
+            {:else}
               <Toggle
                 checked={providerUseAll.has(p.id)}
                 onchange={(v) => toggleProviderUseAll(p.id, v)}
@@ -434,17 +461,21 @@
                 id={`use-all-${p.id}`}
                 disabled={allowAllProvidersCredentials}
               />
+              <div class="head-check">
+                <Checkbox
+                  checked={providerAllChecked(p.id)}
+                  onchange={() => toggleProviderAll(p.id)}
+                  disabled={allowAllProvidersCredentials}
+                  ariaLabel={p.name}
+                />
+              </div>
             {/if}
-            <div class="switch-check-gap" aria-hidden="true"></div>
-            <div class="head-check">
-              <Checkbox
-                checked={providerAllChecked(p.id)}
-                onchange={() => toggleProviderAll(p.id)}
-                disabled={allowAllProvidersCredentials}
-                ariaLabel={p.name}
-              />
-            </div>
           </HStack>
+          {#if p.type === 'virtual' && virtualModelCount !== null}
+            <Text size="sm" foregroundStyle="secondary">
+              {virtualModelCount > 0 ? n(virtualModelCount, 'units.model.one', 'units.model.many') : t('tokens.permissions.no_models_available')}
+            </Text>
+          {/if}
           {#if p.type !== 'virtual'}
             {#if creds.length === 0}
               <Text size="sm" foregroundStyle="secondary">{t('credentials.empty_for_provider')}</Text>
@@ -518,6 +549,6 @@
   .provider-row { display: block; padding: var(--fui-space-4) var(--fui-space-5); cursor: pointer; }
   .head-check { margin-right: var(--fui-space-5); display: grid; place-content: center; }
   .head-check-even { margin: 0 var(--fui-space-5); display: grid; place-content: center; }
-  .switch-check-gap { flex: 0 0 30%; }
+  .head-toggle { margin-right: var(--fui-space-5); display: grid; place-content: center; }
   .models-search { flex: 1 1 var(--fui-token-search-min); min-width: 0; }
 </style>

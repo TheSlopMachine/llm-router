@@ -247,6 +247,7 @@ export type TranslationKey =
   | 'tokens.list.empty'
   | 'tokens.list.loading'
   | 'tokens.create_another'
+  | 'tokens.permissions.allow'
   | 'tokens.permissions.allow_all'
   | 'tokens.permissions.allow_all_models'
   | 'tokens.permissions.allow_all_providers'

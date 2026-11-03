@@ -275,12 +275,12 @@
       {:else if column.key === 'ctxmods'}
         <VStack gap={2} halign="start">
           {@render ctxBlock({ model })}
-          {@render modsBlock({ model }, 'lg', 'horizontal')}
+          {@render modsBlock({ model }, 'sm', 'horizontal')}
         </VStack>
       {:else if column.key === 'all'}
         <VStack gap={4} halign="start">
           {@render ctxBlock({ model })}
-          {@render modsBlock({ model }, 'lg', 'horizontal')}
+          {@render modsBlock({ model }, 'sm', 'horizontal')}
           {@render capsBlock({ model }, 'sm')}
         </VStack>
       {:else if column.key === 'actions'}

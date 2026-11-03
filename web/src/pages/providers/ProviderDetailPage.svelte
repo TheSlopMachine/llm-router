@@ -125,7 +125,7 @@
   }
 
   function detailEnable(p: Provider): AppBarAction {
-    return { id: 'enable', text: t('providers.detail.enable'), icon: 'power_settings_new', selected: !p.disabled, onclick: () => void toggleProviderEnabled(Boolean(p.disabled)) }
+    return { id: 'enable', text: t('providers.detail.enable'), icon: 'power_settings_new', iconOnly: true, selected: !p.disabled, onclick: () => void toggleProviderEnabled(Boolean(p.disabled)) }
   }
 
   let deletingProvider = $state(false)
@@ -453,7 +453,7 @@
         <Toggle
           checked={disableFailedCredentials}
           label={t('credentials.disable_failing')}
-          onchange={(v) => { disableFailedCredentials = v; void saveCredAutomation() }}
+          onchange={(v) => { disableFailedCredentials = v; void saveCredAutomation().then(() => { if (v && !testingAllCreds) void testAllCredentials() }) }}
         />
         <Button icon={{ name: testingAllCreds ? 'stop' : 'network_check' }} onclick={testAllCredentials}>
           {testingAllCreds ? t('credentials.testing_click_cancel') : t('credentials.test_all')}

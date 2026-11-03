@@ -248,6 +248,7 @@ export const en: TranslationRecord = {
   'tokens.list.empty': 'No tokens yet',
   'tokens.list.loading': 'Loading tokens...',
   'tokens.create_another': 'Create another',
+  'tokens.permissions.allow': 'Allow',
   'tokens.permissions.allow_all': 'Allow all',
   'tokens.permissions.allow_all_models': 'Allow all models',
   'tokens.permissions.allow_all_providers': 'Allow all providers',
