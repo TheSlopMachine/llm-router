@@ -9,6 +9,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db/migrate"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func openIdentityHandle(t *testing.T, path string) *gorm.DB {
@@ -25,6 +26,20 @@ func openIdentityHandle(t *testing.T, path string) *gorm.DB {
 		sqlDatabase.Close()
 	})
 	return handle
+}
+
+// loadPluginsOrderedById loads every plugin row ordered by identifier.
+func loadPluginsOrderedById(handle *gorm.DB) ([]pluginIdentitySnapshot, error) {
+	return gorm.G[pluginIdentitySnapshot](handle, clause.OrderBy{
+		Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "id"}}},
+	}).Find(context.Background())
+}
+
+// loadAllowHostsOrderedByHost loads every allow-host row ordered by host.
+func loadAllowHostsOrderedByHost(handle *gorm.DB) ([]pluginAllowHostIdentitySnapshot, error) {
+	return gorm.G[pluginAllowHostIdentitySnapshot](handle, clause.OrderBy{
+		Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "host"}}},
+	}).Find(context.Background())
 }
 
 // seedIdentityRows applies every earlier durable migration and seeds two
@@ -107,7 +122,8 @@ func TestPluginIdentityMigration(t *testing.T) {
 	}
 
 	var migratedPlugins []pluginIdentitySnapshot
-	if err := primary.WithContext(ctx).Order("id").Find(&migratedPlugins).Error; err != nil {
+	migratedPlugins, err := loadPluginsOrderedById(primary.WithContext(ctx))
+	if err != nil {
 		t.Fatalf("load migrated plugins: %v", err)
 	}
 	if len(migratedPlugins) != 2 {
@@ -126,8 +142,8 @@ func TestPluginIdentityMigration(t *testing.T) {
 		t.Errorf("author: got %q, want %q", got, want)
 	}
 
-	var migratedHosts []pluginAllowHostIdentitySnapshot
-	if err := primary.WithContext(ctx).Order("host").Find(&migratedHosts).Error; err != nil {
+	migratedHosts, err := loadAllowHostsOrderedByHost(primary.WithContext(ctx))
+	if err != nil {
 		t.Fatalf("load migrated allow hosts: %v", err)
 	}
 	if len(migratedHosts) != 2 {
@@ -239,7 +255,8 @@ func TestPluginIdentityMigrationRollbackRestoresSourceIDs(t *testing.T) {
 		t.Fatalf("apply plugin identity migration: %v", err)
 	}
 	var upPlugins []pluginIdentitySnapshot
-	if err := primary.WithContext(ctx).Order("id").Find(&upPlugins).Error; err != nil {
+	upPlugins, err := loadPluginsOrderedById(primary.WithContext(ctx))
+	if err != nil {
 		t.Fatalf("load migrated plugins: %v", err)
 	}
 	if len(upPlugins) != 2 {
@@ -255,8 +272,8 @@ func TestPluginIdentityMigrationRollbackRestoresSourceIDs(t *testing.T) {
 		t.Fatalf("revert plugin identity migration: %v", err)
 	}
 
-	var downPlugins []pluginIdentitySnapshot
-	if err := primary.WithContext(ctx).Order("id").Find(&downPlugins).Error; err != nil {
+	downPlugins, err := loadPluginsOrderedById(primary.WithContext(ctx))
+	if err != nil {
 		t.Fatalf("load restored plugins: %v", err)
 	}
 	if len(downPlugins) != 2 {

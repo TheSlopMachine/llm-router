@@ -8,33 +8,43 @@
 // the previous installation. The identity of each row comes from author
 // and display name; a collision keeps the most recently updated row and
 // deletes the losers with their child rows.
+//
+// Identifier moves replay rows instead of updating identifiers in place.
+// The schema has no ON UPDATE CASCADE, so an in-place parent identifier
+// update and a child identifier update each violate the immediate
+// foreign-key checks under any ordering. A child row reinsertion after
+// the parent copy always references an existing parent, so no deferred
+// foreign keys are needed.
 package migrations
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type pluginIdentitySnapshot struct {
-	ID               string         `gorm:"primaryKey"`
-	DisplayName      string         `gorm:"not null"`
-	Author           string         `gorm:"not null"`
-	Version          string         `gorm:"not null"`
-	PluginAPIVersion string         `gorm:"not null"`
-	Description      string         `gorm:"not null"`
-	License          string         `gorm:"not null"`
-	Unsafe           bool           `gorm:"not null"`
-	Disabled         bool           `gorm:"not null"`
-	OriginPath       string         `gorm:"not null"`
-	OriginManual     bool           `gorm:"not null"`
-	Declarations     map[string]any `gorm:"serializer:json"`
-	Source           []byte         `gorm:"not null"`
-	InstalledAt      time.Time      `gorm:"not null"`
-	UpdatedAt        time.Time      `gorm:"not null"`
+	ID                 string         `gorm:"primaryKey"`
+	DisplayName        string         `gorm:"not null"`
+	Author             string         `gorm:"not null"`
+	Version            string         `gorm:"not null"`
+	PluginAPIVersion   string         `gorm:"not null"`
+	Description        string         `gorm:"not null"`
+	License            string         `gorm:"not null"`
+	Unsafe             bool           `gorm:"not null"`
+	Disabled           bool           `gorm:"not null"`
+	OriginRepositoryID *string        `gorm:""`
+	OriginPath         string         `gorm:"not null"`
+	OriginManual       bool           `gorm:"not null"`
+	Declarations       map[string]any `gorm:"serializer:json"`
+	Source             []byte         `gorm:"not null"`
+	InstalledAt        time.Time      `gorm:"not null"`
+	UpdatedAt          time.Time      `gorm:"not null"`
 }
 
 // TableName pins the plugins table name.
@@ -77,6 +87,30 @@ type pluginStorageIdentitySnapshot struct {
 // TableName pins the plugin storage table name.
 func (pluginStorageIdentitySnapshot) TableName() string {
 	return "plugin_storage"
+}
+
+// movePluginChildRows replays one child table from an old plugin
+// identifier onto the new one: loaded rows delete first, rewrite their
+// plugin identifier, and reinsert under the new identifier. The parent
+// copy with the new identifier already exists when this runs, so every
+// intermediate state passes the immediate foreign-key checks.
+func movePluginChildRows[Row any](ctx context.Context, transaction *gorm.DB, oldID, newID string, table string, setPluginID func(row *Row)) error {
+	rows, err := gorm.G[Row](transaction, clause.Eq{Column: "plugin_id", Value: oldID}).Find(ctx)
+	if err != nil {
+		return fmt.Errorf("load %s rows for %q: %w", table, oldID, err)
+	}
+	if _, err := gorm.G[Row](transaction, clause.Eq{Column: "plugin_id", Value: oldID}).Delete(ctx); err != nil {
+		return fmt.Errorf("delete %s rows for %q: %w", table, oldID, err)
+	}
+	for index := range rows {
+		setPluginID(&rows[index])
+	}
+	if len(rows) > 0 {
+		if err := gorm.G[Row](transaction, clause.OnConflict{UpdateAll: true}).CreateInBatches(ctx, &rows, 500); err != nil {
+			return fmt.Errorf("reinsert %s rows under %q: %w", table, newID, err)
+		}
+	}
+	return nil
 }
 
 // pluginIdentityMigrationRecord maps one old plugin identifier onto its
@@ -127,17 +161,13 @@ func buildNewPluginID(author, displayName string) string {
 }
 
 func upPluginIdentity(transaction *gorm.DB) error {
-	// Foreign keys in the schema have no ON UPDATE action, so parent
-	// identifier updates defer until commit while child rows move.
-	if err := transaction.Exec("PRAGMA defer_foreign_keys = ON").Error; err != nil {
-		return fmt.Errorf("defer foreign keys: %w", err)
-	}
+	ctx := context.Background()
 	if err := transaction.Migrator().CreateTable(&pluginIdentityMigrationRecord{}); err != nil {
 		return fmt.Errorf("create plugin identity migration table: %w", err)
 	}
 
-	var plugins []pluginIdentitySnapshot
-	if err := transaction.Find(&plugins).Error; err != nil {
+	plugins, err := gorm.G[pluginIdentitySnapshot](transaction).Find(ctx)
+	if err != nil {
 		return fmt.Errorf("load plugins: %w", err)
 	}
 
@@ -166,52 +196,60 @@ func upPluginIdentity(transaction *gorm.DB) error {
 		})
 		survivors = append(survivors, group[0])
 		for _, loser := range group[1:] {
-			if err := transaction.Where("id = ?", loser.ID).Delete(&pluginIdentitySnapshot{}).Error; err != nil {
+			if _, err := gorm.G[pluginIdentitySnapshot](transaction, clause.Eq{Column: "id", Value: loser.ID}).Delete(ctx); err != nil {
 				return fmt.Errorf("delete colliding plugin %q: %w", loser.ID, err)
 			}
 		}
 	}
 
-	// Record identifier mappings and rebuild every child first.
+	// Record identifier mappings. A surviving row keeps its identifier
+	// when author and display name already spell it.
 	for _, survivor := range survivors {
 		newID := buildNewPluginID(survivor.Author, survivor.DisplayName)
 		record := pluginIdentityMigrationRecord{OldID: survivor.ID, NewID: newID}
 		if err := transaction.Create(&record).Error; err != nil {
 			return fmt.Errorf("record migration mapping for %q: %w", survivor.ID, err)
 		}
-		if survivor.ID == newID {
-			continue
-		}
-		if err := transaction.Model(&pluginStorageIdentitySnapshot{}).Where("plugin_id = ?", survivor.ID).Update("plugin_id", newID).Error; err != nil {
-			return fmt.Errorf("rebuild plugin storage identifier for %q: %w", survivor.ID, err)
-		}
-		if err := transaction.Model(&pluginAllowHostIdentitySnapshot{}).Where("plugin_id = ?", survivor.ID).Update("plugin_id", newID).Error; err != nil {
-			return fmt.Errorf("rebuild plugin allow host identifier for %q: %w", survivor.ID, err)
-		}
-		if err := transaction.Model(&pluginVersionIdentitySnapshot{}).Where("plugin_id = ?", survivor.ID).Update("plugin_id", newID).Error; err != nil {
-			return fmt.Errorf("rebuild plugin version identifier for %q: %w", survivor.ID, err)
-		}
 	}
 
-	// Rebuild the parent row identifiers last.
+	return rebuildPluginIDs(ctx, transaction, survivors)
+}
+
+// rebuildPluginIDs replays every surviving plugin row and its children
+// onto the rebuilt identifier. For each row the parent copy under the
+// new identifier inserts first, then the child rows replay, then the
+// old parent row deletes.
+func rebuildPluginIDs(ctx context.Context, transaction *gorm.DB, survivors []pluginIdentitySnapshot) error {
 	for _, survivor := range survivors {
 		newID := buildNewPluginID(survivor.Author, survivor.DisplayName)
 		if survivor.ID == newID {
 			continue
 		}
-		if err := transaction.Model(&pluginIdentitySnapshot{}).Where("id = ?", survivor.ID).Update("id", newID).Error; err != nil {
-			return fmt.Errorf("rebuild plugin identifier for %q: %w", survivor.ID, err)
+		parent := survivor
+		parent.ID = newID
+		if err := gorm.G[pluginIdentitySnapshot](transaction).Create(ctx, &parent); err != nil {
+			return fmt.Errorf("insert plugin copy for %q: %w", survivor.ID, err)
+		}
+		if err := movePluginChildRows(ctx, transaction, survivor.ID, newID, "plugin storage", func(row *pluginStorageIdentitySnapshot) { row.PluginID = newID }); err != nil {
+			return err
+		}
+		if err := movePluginChildRows(ctx, transaction, survivor.ID, newID, "plugin allow host", func(row *pluginAllowHostIdentitySnapshot) { row.PluginID = newID }); err != nil {
+			return err
+		}
+		if err := movePluginChildRows(ctx, transaction, survivor.ID, newID, "plugin version", func(row *pluginVersionIdentitySnapshot) { row.PluginID = newID }); err != nil {
+			return err
+		}
+		if _, err := gorm.G[pluginIdentitySnapshot](transaction, clause.Eq{Column: "id", Value: survivor.ID}).Delete(ctx); err != nil {
+			return fmt.Errorf("delete old plugin row for %q: %w", survivor.ID, err)
 		}
 	}
 	return nil
 }
 
 func downPluginIdentity(transaction *gorm.DB) error {
-	if err := transaction.Exec("PRAGMA defer_foreign_keys = ON").Error; err != nil {
-		return fmt.Errorf("defer foreign keys: %w", err)
-	}
-	var records []pluginIdentityMigrationRecord
-	if err := transaction.Find(&records).Error; err != nil {
+	ctx := context.Background()
+	records, err := gorm.G[pluginIdentityMigrationRecord](transaction).Find(ctx)
+	if err != nil {
 		return fmt.Errorf("load plugin identity migration records: %w", err)
 	}
 
@@ -219,19 +257,32 @@ func downPluginIdentity(transaction *gorm.DB) error {
 		if record.OldID == record.NewID {
 			continue
 		}
-		if err := transaction.Model(&pluginStorageIdentitySnapshot{}).Where("plugin_id = ?", record.NewID).Update("plugin_id", record.OldID).Error; err != nil {
-			return fmt.Errorf("restore plugin storage identifier for %q: %w", record.NewID, err)
+		rows, err := gorm.G[pluginIdentitySnapshot](transaction, clause.Eq{Column: "id", Value: record.NewID}).Find(ctx)
+		if err != nil {
+			return fmt.Errorf("load plugin row for %q: %w", record.NewID, err)
 		}
-		if err := transaction.Model(&pluginAllowHostIdentitySnapshot{}).Where("plugin_id = ?", record.NewID).Update("plugin_id", record.OldID).Error; err != nil {
-			return fmt.Errorf("restore plugin allow host identifier for %q: %w", record.NewID, err)
+		if len(rows) == 0 {
+			return fmt.Errorf("plugin row for %q: not found", record.NewID)
 		}
-		if err := transaction.Model(&pluginVersionIdentitySnapshot{}).Where("plugin_id = ?", record.NewID).Update("plugin_id", record.OldID).Error; err != nil {
-			return fmt.Errorf("restore plugin version identifier for %q: %w", record.NewID, err)
+		parent := rows[0]
+		parent.ID = record.OldID
+		if err := gorm.G[pluginIdentitySnapshot](transaction).Create(ctx, &parent); err != nil {
+			return fmt.Errorf("restore plugin row for %q: %w", record.OldID, err)
 		}
-		if err := transaction.Model(&pluginIdentitySnapshot{}).Where("id = ?", record.NewID).Update("id", record.OldID).Error; err != nil {
-			return fmt.Errorf("restore plugin identifier for %q: %w", record.NewID, err)
+		if err := movePluginChildRows(ctx, transaction, record.NewID, record.OldID, "plugin storage", func(row *pluginStorageIdentitySnapshot) { row.PluginID = record.OldID }); err != nil {
+			return err
+		}
+		if err := movePluginChildRows(ctx, transaction, record.NewID, record.OldID, "plugin allow host", func(row *pluginAllowHostIdentitySnapshot) { row.PluginID = record.OldID }); err != nil {
+			return err
+		}
+		if err := movePluginChildRows(ctx, transaction, record.NewID, record.OldID, "plugin version", func(row *pluginVersionIdentitySnapshot) { row.PluginID = record.OldID }); err != nil {
+			return err
+		}
+		if _, err := gorm.G[pluginIdentitySnapshot](transaction, clause.Eq{Column: "id", Value: record.NewID}).Delete(ctx); err != nil {
+			return fmt.Errorf("delete rebuilt plugin row for %q: %w", record.NewID, err)
 		}
 	}
+
 	if err := transaction.Migrator().DropTable(&pluginIdentityMigrationRecord{}); err != nil {
 		return fmt.Errorf("drop plugin identity migration table: %w", err)
 	}
