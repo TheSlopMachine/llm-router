@@ -348,6 +348,8 @@ export const en: TranslationRecord = {
   'plugins.repo.details': 'Repository details',
   'plugins.repo.url': 'Repository URL',
   'plugins.repo.remove': 'Remove repository',
+  'plugins.repo.refresh': 'Refresh repositories',
+  'plugins.repo.refreshing': 'Refreshing...',
   'plugins.repo.remove_confirm': 'Remove this repository from the store? Installed plugins stay installed.',
   'plugins.repo.no_plugins': 'No plugins in this repository.',
   'plugins.install': 'Install',

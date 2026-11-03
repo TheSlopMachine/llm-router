@@ -71,9 +71,23 @@
     }
   }
 
+  async function refreshRepos(): Promise<void> {
+    const [search, updateList] = await Promise.all([
+      api.store.search(),
+      api.store.updates().catch(() => ({ updates: [] as PluginUpdate[] }))
+    ])
+    resource.data = {
+      ...resource.data,
+      repos: search.repos ?? [],
+      updates: updateList.updates ?? []
+    }
+  }
+
   function applyRepoAdded(repo: PluginRepo): void {
     if (resource.data.repos.some((e) => e.repo.id === repo.id)) return
     resource.data = { ...resource.data, repos: [...resource.data.repos, { repo, files: [], error: '' }] }
+    // Load the new repository's index immediately; per-repo errors surface in entries.
+    refreshRepos().catch(() => {})
   }
 
   function applyRepoRemoved(id: string): void {
@@ -118,6 +132,7 @@
       onUpdatesRefresh={refreshUpdates}
       onRepoAdded={applyRepoAdded}
       onRepoRemoved={applyRepoRemoved}
+      onRefreshRepos={refreshRepos}
     />
   {/if}
 </VStack>

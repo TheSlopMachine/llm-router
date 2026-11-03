@@ -348,6 +348,8 @@ export const ru: TranslationRecord = {
   'plugins.repo.details': 'Детали репозитория',
   'plugins.repo.url': 'URL репозитория',
   'plugins.repo.remove': 'Убрать репозиторий',
+  'plugins.repo.refresh': 'Обновить репозитории',
+  'plugins.repo.refreshing': 'Обновление...',
   'plugins.repo.remove_confirm': 'Убрать этот репозиторий из каталога? Установленные плагины останутся.',
   'plugins.repo.no_plugins': 'В репозитории нет плагинов.',
   'plugins.install': 'Установить',

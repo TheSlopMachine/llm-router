@@ -347,6 +347,8 @@ export type TranslationKey =
   | 'plugins.repo.details'
   | 'plugins.repo.url'
   | 'plugins.repo.remove'
+  | 'plugins.repo.refresh'
+  | 'plugins.repo.refreshing'
   | 'plugins.repo.remove_confirm'
   | 'plugins.repo.no_plugins'
   | 'plugins.install'

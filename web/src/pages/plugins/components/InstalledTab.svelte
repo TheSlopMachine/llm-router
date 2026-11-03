@@ -102,29 +102,33 @@
     <Banner tint="danger" text={actionError} />
   {/if}
 
-  <Toolbar overflow="wrap" gap={3}>
-    <ToolbarItem pinned fill="md">
-      <SearchField bind:value={query} placeholder={t('plugins.search.installed')} />
-    </ToolbarItem>
-    <FilePicker
-      accept=".lua"
-      label={t('plugins.upload_file')}
-      buttonText={uploadLabel}
-      icon="upload_file"
-      disabled={uploading}
-      onPick={(file) => void uploadPickedFile(file)} />
-    {#if updateCount > 0}
-      <ToolbarItem priority={1}>
-        <Button
-          buttonStyle="prominent"
-          icon={{ name: 'upgrade' }}
-          text={pluginState.updatingAll ? t('plugins.updating') : `${t('plugins.update_all')} (${updateCount})`}
-          disabled={pluginState.updatingAll}
-          onclick={() => void pluginState.updateAll(plugins)}
-        />
+  <div class="installed-toolbar">
+    <Toolbar overflow="wrap" gap={3}>
+      <ToolbarItem pinned fill="md">
+        <SearchField bind:value={query} placeholder={t('plugins.search.installed')} />
       </ToolbarItem>
-    {/if}
-  </Toolbar>
+      <div class="toolbar-spacer" aria-hidden="true"></div>
+      <FilePicker
+        accept=".lua"
+        label={t('plugins.upload_file')}
+        buttonText={uploadLabel}
+        icon="upload_file"
+        disabled={uploading}
+        onPick={(file) => void uploadPickedFile(file)}
+      />
+      {#if updateCount > 0}
+        <ToolbarItem priority={1}>
+          <Button
+            buttonStyle="prominent"
+            icon={{ name: 'upgrade' }}
+            text={pluginState.updatingAll ? t('plugins.updating') : `${t('plugins.update_all')} (${updateCount})`}
+            disabled={pluginState.updatingAll}
+            onclick={() => void pluginState.updateAll(plugins)}
+          />
+        </ToolbarItem>
+      {/if}
+    </Toolbar>
+  </div>
 
   {#if plugins.length === 0}
     {#snippet browseCatalogAction()}
@@ -219,4 +223,17 @@
   </FloatingView>
 </VStack>
 
+<style>
+  /* FUI's toolbar row is content-sized; stretch it so toolbar-spacer can
+     grow and push the right-docked Upload file and Update all buttons to
+     the far edge. */
+  .installed-toolbar :global(.tbar-row) {
+    flex: 1 1 auto;
+  }
+  .toolbar-spacer {
+    flex: 1 1 auto;
+    margin-inline-start: auto;
+    min-width: 0;
+  }
+</style>
 

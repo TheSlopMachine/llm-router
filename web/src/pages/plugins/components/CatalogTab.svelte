@@ -24,7 +24,8 @@
     onPluginRemoved,
     onUpdatesRefresh,
     onRepoAdded,
-    onRepoRemoved
+    onRepoRemoved,
+    onRefreshRepos
   }: {
     repos: RepoEntry[]
     plugins: Plugin[]
@@ -34,6 +35,7 @@
     onUpdatesRefresh: () => Promise<void>
     onRepoAdded: (repo: PluginRepo) => void
     onRepoRemoved: (id: string) => void
+    onRefreshRepos: () => Promise<void>
   } = $props()
 
   let query = $state('')
@@ -177,6 +179,21 @@
     }
   }
 
+  let refreshing = $state(false)
+
+  async function refreshRepos(): Promise<void> {
+    if (refreshing) return
+    refreshing = true
+    actionError = ''
+    try {
+      await onRefreshRepos()
+    } catch (e) {
+      actionError = getErrorMessage(e)
+    } finally {
+      refreshing = false
+    }
+  }
+
   let removeRepoTarget = $state<{ id: string; title: string } | null>(null)
   let removeRepoAnchor = $state<HTMLElement>()
   let removingRepo = $state(false)
@@ -211,22 +228,35 @@
     <Banner tint="danger" text={actionError} />
   {/if}
 
-  <Toolbar overflow="menu" gap={3} moreLabel={t('providers.detail.more_actions')}>
-    <ToolbarItem pinned fill="md">
-      <SearchField bind:value={query} placeholder={t('plugins.search.catalog')} />
-    </ToolbarItem>
-    <ToolbarItem priority={2} active={showUpdatesOnly}>
-      <Toggle bind:checked={showUpdatesOnly} label={t('plugins.updates_only')} ariaLabel={t('plugins.updates_only')} />
-    </ToolbarItem>
-    <ToolbarItem priority={1}>
-      <Button
-        buttonStyle="prominent"
-        icon={{ name: 'add' }}
-        text={t('plugins.repo.add')}
-        onclick={() => { showAddRepo = !showAddRepo }}
-      />
-    </ToolbarItem>
-  </Toolbar>
+  <div class="catalog-toolbar">
+    <Toolbar overflow="menu" gap={3} moreLabel={t('providers.detail.more_actions')}>
+      <ToolbarItem pinned fill="md">
+        <SearchField bind:value={query} placeholder={t('plugins.search.catalog')} />
+      </ToolbarItem>
+      <ToolbarItem priority={3} active={showUpdatesOnly}>
+        <Toggle bind:checked={showUpdatesOnly} label={t('plugins.updates_only')} ariaLabel={t('plugins.updates_only')} />
+      </ToolbarItem>
+      <div class="toolbar-spacer" aria-hidden="true"></div>
+      <ToolbarItem priority={1}>
+        <Button
+          buttonStyle="prominent"
+          icon={{ name: 'add' }}
+          text={t('plugins.repo.add')}
+          onclick={() => { showAddRepo = !showAddRepo }}
+        />
+      </ToolbarItem>
+      <ToolbarItem priority={2}>
+        <Button
+          buttonStyle="neutral"
+          icon={{ name: 'sync' }}
+          text={refreshing ? t('plugins.repo.refreshing') : t('plugins.repo.refresh')}
+          disabled={refreshing}
+          onclick={() => void refreshRepos()}
+          ariaLabel={t('plugins.repo.refresh')}
+        />
+      </ToolbarItem>
+    </Toolbar>
+  </div>
 
   {#if showAddRepo}
     <GroupBox title={t('plugins.repo.add')} description={t('plugins.repo.url_hint')}>
@@ -422,4 +452,16 @@
   </FloatingView>
 </VStack>
 
+<style>
+  /* FUI's toolbar row is content-sized; stretch it so toolbar-spacer can
+     grow and push the right-docked action buttons to the far edge. */
+  .catalog-toolbar :global(.tbar-row) {
+    flex: 1 1 auto;
+  }
+  .toolbar-spacer {
+    flex: 1 1 auto;
+    margin-inline-start: auto;
+    min-width: 0;
+  }
+</style>
 
