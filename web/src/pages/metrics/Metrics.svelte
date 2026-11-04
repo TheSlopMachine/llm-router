@@ -1,157 +1,36 @@
+<script lang="ts" module>
+  export type MetricsTab = 'overview' | 'logs'
+</script>
+
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import { api } from '$lib/api'
-  import { getErrorMessage } from '$lib/errors'
-  import type { MetricsFilters, MetricsOverview, TimeSeriesPoint, Provider } from '$lib/types'
+  import { Header, Picker, VStack } from '@fuckyouryan/fui'
   import { t } from '$lib/i18n.svelte'
-  import { VStack, HStack, Text, Grid, Spacer, Button, Banner, Header, ContentUnavailable } from '@fuckyouryan/fui'
-  import MetricsFiltersCmp from './components/MetricsFilters.svelte'
-  import MetricsOverviewCard from './components/MetricsOverviewCard.svelte'
-  import PeakUsageChart from './components/PeakUsageChart.svelte'
+  import LogsTab from './components/LogsTab.svelte'
+  import OverviewTab from './components/OverviewTab.svelte'
 
-  let filters = $state<MetricsFilters & { provider_id: string; model: string; time_range: string }>({
-    provider_id: '',
-    model: '',
-    time_range: 'hour'
-  } as unknown as MetricsFilters & { provider_id: string; model: string; time_range: string })
-
-  let overview = $state<MetricsOverview | null>(null)
-  let requestsData = $state<TimeSeriesPoint[]>([])
-  let inputTokensData = $state<TimeSeriesPoint[]>([])
-  let outputTokensData = $state<TimeSeriesPoint[]>([])
-  let loading = $state(true)
-  let providers = $state<Provider[]>([])
-  let models = $state<string[]>([])
-  let errors = $state<string[]>([])
-
-  let refreshInterval: number | undefined
-  let latestMetricsRequest = 0
-
-  onMount(() => {
-    void (async () => {
-      await loadProviders()
-      await loadModels()
-      await loadMetrics()
-    })()
-
-    refreshInterval = window.setInterval(() => {
-      if (!document.hidden) void loadMetrics()
-    }, 30000)
-
-    return () => {
-      if (refreshInterval !== undefined) clearInterval(refreshInterval)
-    }
-  })
-
-  async function loadProviders() {
-    try {
-      const result = await api.providers.list()
-      providers = result || []
-      errors = errors.filter((e) => !e.includes('providers'))
-    } catch (err) {
-      const message = `Failed to load providers: ${getErrorMessage(err)}`
-      if (!errors.includes(message)) {
-        errors = [...errors, message]
-      }
-      providers = []
-    }
-  }
-
-  async function loadModels() {
-    try {
-      const result = await api.metrics.models()
-      models = result || []
-      errors = errors.filter((e) => !e.includes('models'))
-    } catch (err) {
-      const message = `Failed to load models: ${getErrorMessage(err)}`
-      if (!errors.includes(message)) {
-        errors = [...errors, message]
-      }
-      models = []
-    }
-  }
-
-  async function loadMetrics() {
-    const request = ++latestMetricsRequest
-    try {
-      // Only the first load shows the loading state; refreshes replace data in place.
-      if (overview === null) loading = true
-
-      const [overviewData, reqSeries, inSeries, outSeries] = await Promise.all([
-        api.metrics.overview(filters),
-        api.metrics.timeSeries('peak_requests', filters),
-        api.metrics.timeSeries('peak_input_tokens', filters),
-        api.metrics.timeSeries('peak_output_tokens', filters)
-      ])
-      if (request !== latestMetricsRequest) return
-
-      overview = overviewData
-      requestsData = reqSeries || []
-      inputTokensData = inSeries || []
-      outputTokensData = outSeries || []
-      errors = errors.filter((e) => !e.includes('metrics'))
-    } catch (err) {
-      if (request !== latestMetricsRequest) return
-      const message = `Failed to load metrics: ${getErrorMessage(err)}`
-      if (!errors.includes(message)) {
-        errors = [...errors, message]
-      }
-      requestsData = []
-      inputTokensData = []
-      outputTokensData = []
-    } finally {
-      if (request === latestMetricsRequest) loading = false
-    }
-  }
-
-  function handleFilterChange(f: any) {
-    filters = f
-    overview = null
-    void loadMetrics()
-  }
+  let { tab = 'overview', ontabchange }: {
+    tab?: MetricsTab
+    ontabchange?: (next: MetricsTab) => void
+  } = $props()
 </script>
 
 <VStack gap={6}>
   <Header title={t('metrics.title')} info={t('metrics.subtitle')} />
 
-  <MetricsFiltersCmp bind:filters {providers} {models} onchange={handleFilterChange} />
+  <Picker
+    pickerStyle="segmented"
+    value={tab}
+    onchange={(next) => ontabchange?.(next as MetricsTab)}
+    options={[
+      { value: 'overview', label: t('metrics.tab_overview.label') },
+      { value: 'logs', label: t('metrics.tab_logs.label') },
+    ]}
+    ariaLabel={t('metrics.title')}
+  />
 
-  {#if errors.length > 0}
-    <VStack gap={2}>
-      {#each errors as error}
-        <Banner tint="danger" text={error} />
-      {/each}
-    </VStack>
+  {#if tab === 'logs'}
+    <LogsTab />
+  {:else}
+    <OverviewTab />
   {/if}
-
-  <VStack gap={4}>
-    <HStack valign="center" gap={2}>
-      <Text variant="section-title">{t('metrics.overview')}</Text>
-      <Button buttonStyle="text" size="sm" icon={{ name: 'info' }} title={t('metrics.overview_info')} />
-    </HStack>
-
-    <Grid min="md" gap={5}>
-      <MetricsOverviewCard
-        title={t('metrics.total_requests')}
-        value={overview?.total_requests ?? null}
-        {loading}
-        icon="show_chart"
-      />
-      <MetricsOverviewCard
-        title={t('metrics.total_errors')}
-        value={overview?.total_errors ?? null}
-        {loading}
-        icon="show_chart"
-      />
-    </Grid>
-  </VStack>
-
-  <VStack gap={4}>
-    <Text variant="section-title">{t('metrics.peak_trends')}</Text>
-    <Grid min="md" gap={5}>
-      <PeakUsageChart title={t('metrics.peak_requests')} data={requestsData} {loading} />
-      <PeakUsageChart title={t('metrics.peak_input')} data={inputTokensData} {loading} />
-      <PeakUsageChart title={t('metrics.peak_output')} data={outputTokensData} {loading} />
-    </Grid>
-  </VStack>
 </VStack>

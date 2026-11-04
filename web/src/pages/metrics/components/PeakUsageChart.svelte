@@ -1,121 +1,49 @@
 <script lang="ts">
+  import { GroupBox, Histogram, Text } from '@fuckyouryan/fui'
+  import { locale, t } from '$lib/i18n.svelte'
   import type { TimeSeriesPoint } from '$lib/types'
-  import { t } from '$lib/i18n.svelte'
-  import { GroupBox, VStack, HStack, Text } from '@fuckyouryan/fui'
 
-  let { title, data = [], loading = false }: {
+  // The time axis is a fixed row of bars: a quiet stretch is an empty bar, not a wider one.
+  const BAR_COUNT = 60
+  const DAY = 86_400_000
+
+  let { title, data = [], from, to, loading = false }: {
     title: string
     data: TimeSeriesPoint[]
+    /** ms, start and end of the charted range */
+    from: number
+    to: number
     loading?: boolean
   } = $props()
 
-  let maxValue = $derived(data.length > 0 ? Math.max(...data.map((d: TimeSeriesPoint) => d.value)) : 0)
-  let hasData = $derived(data.length > 0 && maxValue > 0)
-  let yAxisMax = $derived(hasData ? maxValue : 20)
-  let yAxisMid = $derived(Math.floor(yAxisMax / 2))
+  const formatter = $derived(
+    new Intl.DateTimeFormat(locale(), {
+      ...(to - from >= DAY ? { month: 'short', day: 'numeric' } : {}),
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }),
+  )
 
-  let startMs = $derived.by(() => {
-    if (data.length === 0) return 0
-    return Math.min(...data.map((d: TimeSeriesPoint) => new Date(d.timestamp).getTime()))
-  })
-  let endMs = $derived.by(() => {
-    if (data.length === 0) return 1
-    return Math.max(...data.map((d: TimeSeriesPoint) => new Date(d.timestamp).getTime()))
-  })
-  let rangeMs = $derived(Math.max(endMs - startMs, 1))
-
-  function formatYLabel(value: number): string {
-    if (value >= 1000) {
-      return (value / 1000).toFixed(0) + 'K'
+  // A bar shows the peak among the points that fall into its slice of the range.
+  const bins = $derived.by(() => {
+    const width = Math.max(1, (to - from) / BAR_COUNT)
+    const peaks = Array.from({ length: BAR_COUNT }, () => 0)
+    for (const point of data) {
+      const index = Math.min(BAR_COUNT - 1, Math.max(0, Math.floor((Date.parse(point.timestamp) - from) / width)))
+      peaks[index] = Math.max(peaks[index], point.value)
     }
-    return value.toString()
-  }
-
-  function xFor(ts: string): number {
-    return ((new Date(ts).getTime() - startMs) / rangeMs) * 300
-  }
-
-  function yFor(value: number): number {
-    if (yAxisMax === 0) return 120
-    return 120 - (value / yAxisMax) * 120
-  }
+    return peaks.map((peak, index) => ({ label: formatter.format(new Date(from + index * width)), values: [peak] }))
+  })
+  const hasData = $derived(bins.some((bin) => bin.values[0] > 0))
 </script>
 
 <GroupBox {title}>
-  <div class="chart-container">
-    {#if loading}
-      <Text foregroundStyle="secondary" size="sm">{t('common.state.loading')}</Text>
-    {:else}
-      <HStack gap={3} fill>
-        <div class="y-axis-labels">
-          <Text size="xs" foregroundStyle="secondary">{formatYLabel(yAxisMax)}</Text>
-          <Text size="xs" foregroundStyle="secondary">{formatYLabel(yAxisMid)}</Text>
-          <Text size="xs" foregroundStyle="secondary">0</Text>
-        </div>
-        <div class="chart-area">
-          {#if !hasData}
-            <svg width="100%" height="120" viewBox="0 0 300 120" preserveAspectRatio="none">
-              <line x1="0" y1="119" x2="300" y2="119" style="stroke: var(--fui-color-outline-light)" stroke-width="1" />
-              <line x1="0" y1="115" x2="0" y2="123" style="stroke: var(--fui-color-outline-light)" stroke-width="1" />
-              <line x1="300" y1="115" x2="300" y2="123" style="stroke: var(--fui-color-outline-light)" stroke-width="1" />
-            </svg>
-          {:else}
-            <svg width="100%" height="120" viewBox="0 0 300 120" preserveAspectRatio="none">
-              <!-- Grid lines -->
-              <line x1="0" y1="0" x2="300" y2="0" style="stroke: var(--fui-color-surface-container-highest)" stroke-width="1" />
-              <line x1="0" y1="60" x2="300" y2="60" style="stroke: var(--fui-color-surface-container-highest)" stroke-width="1" />
-              <line x1="0" y1="119" x2="300" y2="119" style="stroke: var(--fui-color-outline-light)" stroke-width="1" />
-
-              {#if data.length === 1}
-                {@const cx = xFor(data[0].timestamp)}
-                {@const cy = yFor(data[0].value)}
-                <circle cx={cx} cy={cy} r="3" style="fill: var(--fui-color-accent)" vector-effect="non-scaling-stroke" />
-              {:else}
-                {@const points = data
-                  .map((d: TimeSeriesPoint) => `${xFor(d.timestamp)},${yFor(d.value)}`)
-                  .join(' ')}
-                <polyline
-                  points={points}
-                  fill="none"
-                  style="stroke: var(--fui-color-accent)"
-                  stroke-width="2"
-                  vector-effect="non-scaling-stroke"
-                />
-              {/if}
-
-              <!-- Axis ticks -->
-              <line x1="0" y1="115" x2="0" y2="123" style="stroke: var(--fui-color-outline-light)" stroke-width="1" />
-              <line x1="300" y1="115" x2="300" y2="123" style="stroke: var(--fui-color-outline-light)" stroke-width="1" />
-            </svg>
-          {/if}
-        </div>
-      </HStack>
-    {/if}
-  </div>
+  {#if loading}
+    <Text foregroundStyle="secondary" size="sm">{t('common.state.loading')}</Text>
+  {:else if !hasData}
+    <Text foregroundStyle="secondary" size="sm">{t('common.empty.no_data')}</Text>
+  {:else}
+    <Histogram {bins} series={[{ name: title, tint: 'accent' }]} height={120} locale={locale()} label={title} />
+  {/if}
 </GroupBox>
-
-<style>
-  .chart-container {
-    min-height: var(--fui-chart-min-h);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-  }
-
-  .y-axis-labels {
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    padding: var(--fui-space-1) 0;
-    min-width: var(--fui-chart-axis-min);
-    text-align: right;
-    height: var(--fui-chart-h);
-  }
-
-  .chart-area {
-    flex: 1;
-    position: relative;
-    height: var(--fui-chart-h);
-  }
-</style>

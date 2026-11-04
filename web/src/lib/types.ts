@@ -219,6 +219,34 @@ export interface ModelInfo {
   max_tokens?: number
 }
 
+export interface EventKeyValue {
+  key: string
+  value: string | null
+}
+
+export interface EventEntry {
+  id: number
+  timestamp: string
+  severity: number
+  message: string
+  keys: EventKeyValue[]
+}
+
+// An empty value matches the key's presence only (a bare `filter.<key>` on the wire).
+export interface EventKeyFilter {
+  key: string
+  value: string
+  exclude: boolean
+}
+
+export interface EventsQuery {
+  severity?: number
+  start?: string
+  end?: string
+  limit?: number
+  filters: EventKeyFilter[]
+}
+
 export interface MetricsOverview {
   total_requests: number
   total_errors: number

@@ -14,6 +14,7 @@
   import SettingsPage from './settings/SettingsPage.svelte'
   import type { PluginsTab } from './plugins/Plugins.svelte'
   import type { ProxyTab } from './proxy/ProxyPage.svelte'
+  import type { MetricsTab } from './metrics/Metrics.svelte'
   import { t } from '../lib/i18n.svelte'
   import { BP_NARROW, BP_MOBILE } from '../lib/breakpoints'
 
@@ -113,6 +114,12 @@
   let proxyTab = $derived<ProxyTab>(
     routeSegments[0] === 'sources' ? 'sources' : routeSegments[0] === 'pools' ? 'pools' : 'status'
   )
+
+  let metricsTab = $derived<MetricsTab>(routeSegments[0] === 'logs' ? 'logs' : 'overview')
+
+  function selectMetricsTab(next: MetricsTab): void {
+    window.location.hash = next === 'overview' ? '#/metrics' : '#/metrics/' + next
+  }
 
   function selectProxyTab(next: ProxyTab): void {
     window.location.hash = '#/proxy/' + next
@@ -229,7 +236,7 @@
     <div class="main-scroll">
     <div class="main-content">
       {#if panel === 'metrics'}
-        <Metrics />
+        <Metrics tab={metricsTab} ontabchange={selectMetricsTab} />
       {:else if panel === 'providers'}
         {#if routeSegments[0]}
           <ProviderDetailPage providerId={routeSegments[0]} />

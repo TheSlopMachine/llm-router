@@ -1,6 +1,7 @@
 import { apiCall as _apiCall } from './api-client'
 import { locale } from './i18n/index'
-import type { Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, ProxySchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate, ProviderModel, ProviderVMGroup, TestResult, Proxy, ProxyStatus, ProxySourceInfo, ProxyPool, SubsystemStats, DoctorReport, DoctorCategory, ProviderBundle } from './types'
+import { eventsQueryParams } from './events'
+import type { EventEntry, EventsQuery, Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, ProxySchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate, ProviderModel, ProviderVMGroup, TestResult, Proxy, ProxyStatus, ProxySourceInfo, ProxyPool, SubsystemStats, DoctorReport, DoctorCategory, ProviderBundle } from './types'
 
 const apiCall = _apiCall
 
@@ -34,6 +35,20 @@ function toProviderStats(raw: Record<string, unknown>): ProviderStats {
   return {
     model_count: (r.model_count as number) ?? 0,
     credential_count: (r.credential_count as number) ?? 0,
+  }
+}
+
+function toEventEntry(raw: Record<string, unknown>): EventEntry {
+  const keys = (raw.keys as Array<Record<string, unknown>> | null | undefined) ?? []
+  return {
+    id: (raw.id as number) ?? 0,
+    timestamp: (raw.timestamp as string) ?? '',
+    severity: (raw.severity as number) ?? 0,
+    message: (raw.message as string) ?? '',
+    keys: keys.map((entry) => ({
+      key: (entry.key as string) ?? '',
+      value: (entry.value as string | null | undefined) ?? null,
+    })),
   }
 }
 
@@ -372,6 +387,15 @@ export const api = {
 
     delete: (id: string) =>
       apiCall('delete', `/api/llm-router/dashboard/virtual-models/${id}` as '/api/llm-router/dashboard/virtual-models/{id}'),
+  },
+
+  // Events (log records), newest first. The key predicates travel as filter.<key> and
+  // exclude.<key>, which the generated query type cannot express.
+  events: {
+    list: async (query: EventsQuery): Promise<EventEntry[]> => {
+      const raw = (await apiCall('get', '/api/events', { query: eventsQueryParams(query) as unknown as never })) as unknown as Array<Record<string, unknown>> | null
+      return (raw ?? []).map(toEventEntry)
+    },
   },
 
   // Metrics
