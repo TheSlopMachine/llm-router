@@ -38,7 +38,7 @@
     showProviderLink = false,
     loading = false,
     skeletonRows = 5,
-    onReorder,
+    onreorder,
     actions,
     empty,
   }: {
@@ -49,7 +49,7 @@
     showProviderLink?: boolean
     loading?: boolean
     skeletonRows?: number
-    onReorder?: (from: number, to: number) => void
+    onreorder?: (from: number, to: number) => void
     actions?: ModelsTableActions
     empty?: Snippet<[]>
   } = $props()
@@ -226,7 +226,7 @@
     {loading}
     {skeletonRows}
     {draggable}
-    onReorder={onReorder}
+    onreorder={onreorder}
     {sortKey}
     {sortDir}
     onsort={handleSort}

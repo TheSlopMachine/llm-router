@@ -136,7 +136,7 @@
 
 <VStack gap={6}>
   <Header title={t('tokens.list.title')} primary={{ id: 'new', text: t('tokens.actions.new'), icon: 'add', onclick: openCreate }}>
-    {#snippet info()}
+    {#snippet subtitle()}
       {t('tokens.list.router_for')} <code>/v1</code> {t('tokens.list.subtitle')}
     {/snippet}
   </Header>
@@ -264,7 +264,7 @@
       <VStack gap={3}>
         <Text variant="value">{t('tokens.actions.clone_title')}</Text>
         {#if cloneError}<Banner tint="danger" text={cloneError} />{/if}
-        <TextField bind:value={cloneName} hint={t('tokens.create.name_placeholder')} />
+        <TextField bind:value={cloneName} placeholder={t('tokens.create.name_placeholder')} />
         <HStack halign="end" gap={2}>
           <Button size="sm" buttonStyle="text" onclick={close} disabled={cloneSaving}>{t('common.actions.cancel')}</Button>
           <Button
@@ -309,8 +309,8 @@
         confirmLabel={t('tokens.actions.revoke')}
         busy={revoking}
         busyLabel={t('tokens.actions.revoking')}
-        onCancel={close}
-        onConfirm={() => void confirmRevoke(close)} />
+        oncancel={close}
+        onconfirm={() => void confirmRevoke(close)} />
     {/snippet}
   </FloatingView>
 
@@ -328,8 +328,8 @@
         confirmLabel={t('tokens.actions.regenerate')}
         busy={regenerating}
         busyLabel={t('tokens.actions.regenerating')}
-        onCancel={close}
-        onConfirm={() => void confirmRegenerate(close)} />
+        oncancel={close}
+        onconfirm={() => void confirmRegenerate(close)} />
     {/snippet}
   </FloatingView>
 </VStack>

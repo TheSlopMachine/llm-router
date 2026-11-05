@@ -43,6 +43,6 @@
       <TextField id="p" secure name="current-password" bind:value={password} autocomplete="current-password" onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && submit()} />
     </VStack>
     <Checkbox bind:checked={rememberMe} label={t('auth.remember_me.label')} />
-    <Button buttonStyle="prominent" block onclick={submit} disabled={!isLoginReady}>{loading ? t('auth.sign_in.signing_in') : t('auth.sign_in.title')}</Button>
+    <Button buttonStyle="prominent" width="full" onclick={submit} disabled={!isLoginReady}>{loading ? t('auth.sign_in.signing_in') : t('auth.sign_in.title')}</Button>
   </VStack>
 </AuthCard>

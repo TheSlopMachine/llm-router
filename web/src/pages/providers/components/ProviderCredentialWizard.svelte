@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, TextEditor, Picker, Banner, ContentUnavailable } from '@fuckyouryan/fui'
+  import { Button, Picker, Banner, ContentUnavailable, TextField, Field } from '@fuckyouryan/fui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -140,23 +140,23 @@
     const buttons: ModalButton[] = tree.map((n) => {
       const action = n.form_action || 'submit'
       if (action === 'cancel') {
-        return { label: n.text || 'Cancel', ...buttonAppearance(n), onClick: closeModal, disabled: loading }
+        return { label: n.text || 'Cancel', ...buttonAppearance(n), onclick: closeModal, disabled: loading }
       }
       return {
         label: n.text || defaultSubmitLabel(),
         ...buttonAppearance(n),
-        onClick: () => submitFor(action),
+        onclick: () => submitFor(action),
         disabled: loading,
       }
     })
     if (!tree.some((n) => (n.form_action || 'submit') === 'cancel')) {
-      buttons.push({ label: 'Cancel', buttonStyle: 'neutral', onClick: closeModal, disabled: loading })
+      buttons.push({ label: 'Cancel', buttonStyle: 'neutral', onclick: closeModal, disabled: loading })
     }
     if (tree.length === 0 && nodes.length > 0) {
       buttons.push({
         label: defaultSubmitLabel(),
         buttonStyle: 'prominent',
-        onClick: () => submitFor('submit'),
+        onclick: () => submitFor('submit'),
         disabled: loading,
       })
     }
@@ -257,10 +257,9 @@
   <DynamicForm {nodes} bind:values={formValues} busy={loading} />
 {:else}
   <p class="form-text">{t('credentials.no_form_hint')}</p>
-  <div class="form-group">
-    <label for="cred-raw">{t('credentials.json_label')}</label>
-    <TextEditor id="cred-raw" minRows={6} bind:value={rawJson} />
-  </div>
+  <Field label={t('credentials.json_label')}>
+    <TextField maxRows={10} id="cred-raw" minRows={6} bind:value={rawJson} />
+  </Field>
   <div class="form-actions">
     <Button buttonStyle="prominent" onclick={submitRaw} disabled={loading}>{t('common.actions.save')}</Button>
   </div>
@@ -278,10 +277,6 @@
     color: var(--fui-color-text-soft);
   }
 
-  .form-group label {
-    font-size: var(--fui-text-sm);
-    font-weight: 500;
-  }
   .form-actions {
     display: flex;
     gap: var(--fui-space-3);

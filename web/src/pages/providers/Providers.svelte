@@ -54,7 +54,7 @@
 </script>
 
 <VStack gap={6}>
-  <Header title={t('providers.list.title')} info={t('providers.list.subtitle')} primary={{ id: 'new', text: t('providers.actions.new'), icon: 'add', onclick: openCreate }} />
+  <Header title={t('providers.list.title')} subtitle={t('providers.list.subtitle')} primary={{ id: 'new', text: t('providers.actions.new'), icon: 'add', onclick: openCreate }} />
 
   {#if resource.error}
     <Banner tint="danger" text={resource.error} />

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FilterChip, HStack, Text, VStack } from '@fuckyouryan/fui'
+  import { Chip, HStack, Text, VStack } from '@fuckyouryan/fui'
   import { keyLabel } from '$lib/event-labels'
   import { locale } from '$lib/i18n.svelte'
   import type { FacetGroup } from '$lib/events'
@@ -20,7 +20,7 @@
       </HStack>
       <HStack grow gap={2} wrap>
         {#each group.values as facet (facet.value)}
-          <FilterChip
+          <Chip
             size="sm"
             tint="neutral"
             text={`${facet.value} · ${counter.format(facet.count)}`}

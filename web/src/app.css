@@ -2,22 +2,16 @@
    only page-level layout helpers used by pages/ (never by components/ui).
    Rule of thumb: if a rule needs a widget's internals, it does not belong here. */
 
-/* ── Shell metrics (Dashboard + Settings accent grid) ── */
+/* ── Shell metrics ── */
 :root {
-  --fui-sidebar-w-rail: 68px;
-  --fui-sidebar-w-drawer: 270px;
-  --fui-appbar-h: 52px;
   --fui-content-max-w: 1200px;
-  --fui-dashboard-brand-h: 24px;
-  --fui-dashboard-brand-max: 200px;
-  --fui-dashboard-label-max: 160px;
-  --fui-dashboard-shift: 10px;
-  --fui-dashboard-nav-radius: 8px;
-  --fui-dashboard-collapse-radius: 6px;
-  --fui-dashboard-pad-y: 20px;
-  --fui-dashboard-pad-x: 20px;
-  --fui-settings-accent-outline: 2px;
-  --fui-settings-accent-offset: 2px;
+  /* site-owned sizes that used to live in FUI */
+  --app-auth-max-w: 400px;
+  --app-splash-max-w: 400px;
+  --app-splash-gap: 16px;
+  --app-provider-state-min-h: 240px;
+  --app-token-search-min: 220px;
+  --app-vmedit-name-min: 220px;
 }
 
 /* ── Status blocks ─────────────────────────────────────────────────────── */
@@ -29,23 +23,6 @@
   gap: var(--fui-space-4);
   padding: var(--fui-space-8) var(--fui-space-6);
   text-align: center;
-  color: var(--fui-color-text-soft);
-}
-
-/* ── Form layout (labels over native-looking fields built from ui/) ───── */
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--fui-space-2);
-}
-.form-group label {
-  font-size: var(--fui-text-sm);
-  font-weight: 500;
-  color: var(--fui-color-text-soft);
-}
-.hint {
-  margin-top: var(--fui-space-2);
-  font-size: var(--fui-text-sm);
   color: var(--fui-color-text-soft);
 }
 

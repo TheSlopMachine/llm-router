@@ -26,7 +26,7 @@ a {
 a:hover { text-decoration: underline; }
 
 /* Neutralise browser chrome on native controls, nothing more. The look of a
-   button / field belongs to Button / TextField / TextEditor / Select. */
+   button / field belongs to Button / TextField / Picker. */
 :where(button) {
   font: inherit;
   color: inherit;

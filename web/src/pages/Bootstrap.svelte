@@ -50,6 +50,6 @@
       <label for="p2">Confirm password</label>
       <TextField id="p2" secure name="new-password-confirm" bind:value={password2} autocomplete="new-password" onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && submit()} />
     </VStack>
-    <Button buttonStyle="prominent" block onclick={submit} disabled={loading}>{loading ? 'Creating…' : 'Create account'}</Button>
+    <Button buttonStyle="prominent" width="full" onclick={submit} disabled={loading}>{loading ? 'Creating…' : 'Create account'}</Button>
   </VStack>
 </AuthCard>

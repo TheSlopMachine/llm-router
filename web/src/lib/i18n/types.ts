@@ -1,5 +1,12 @@
 export type TranslationKey =
   | 'common.actions.all'
+  | 'fui.irreversible'
+  | 'fui.clear'
+  | 'fui.show_secret'
+  | 'fui.hide_secret'
+  | 'fui.select'
+  | 'fui.more'
+  | 'fui.choose_file'
   | 'common.actions.add'
   | 'common.actions.back'
   | 'common.actions.cancel'

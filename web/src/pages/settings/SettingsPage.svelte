@@ -8,7 +8,7 @@
   import { t, n } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { accent, accents } from '$lib/accent.svelte'
-  import { Button, HStack, GroupBox, Spacer, Toggle, Text, VStack, TextField, Banner, Icon, Chip, Header, ContentUnavailable, squircle, toast, modal, Picker, type AppBarAction } from '@fuckyouryan/fui'
+  import { Button, HStack, GroupBox, Spacer, Toggle, Text, VStack, TextField, Banner, Icon, Chip, Header, ContentUnavailable, ColorPicker, Field, FilePicker, toast, modal, Picker, type HeaderAction } from '@fuckyouryan/fui'
   import type { Provider, SubsystemStats, DoctorReport } from '$lib/types'
   import { downloadJson, readJsonFile } from '$lib/download'
 
@@ -59,7 +59,7 @@
   let saving = $state(false)
   let error = $state('')
 
-  const headerPrimary = $derived<AppBarAction>({
+  const headerPrimary = $derived<HeaderAction>({
     id: 'save',
     text: saving ? t('common.actions.saving') : t('common.actions.save_changes'),
     icon: 'save',
@@ -168,11 +168,6 @@
     }
   }
 
-  async function handleFileChange(sub: string, event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement
-    const file = input.files?.[0] ?? null
-    importFileMap = { ...importFileMap, [sub]: file }
-  }
 
   async function importSubsystem(sub: string): Promise<void> {
     const file = importFileMap[sub]
@@ -234,10 +229,6 @@
     }
   }
 
-  async function handleIndividualProviderFileChange(event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement
-    providerImportFile = input.files?.[0] ?? null
-  }
 
   async function importIndividualProvider(providerId: string): Promise<void> {
     if (!providerImportFile) {
@@ -275,40 +266,30 @@
 </script>
 
 <VStack gap={6}>
-  <Header title={t('settings.title')} info={t('settings.subtitle')} primary={headerPrimary} />
+  <Header title={t('settings.title')} subtitle={t('settings.subtitle')} primary={headerPrimary} />
 
   {#if error}
     <Banner tint="danger" text={error} />
   {/if}
 
   <GroupBox title={t('settings.preferences')} description={t('settings.preferences.desc')}>
-    <VStack gap={1}>
-      <Text tag="label" size="sm" weight="medium" for="settings-language">{t('settings.language.label')}</Text>
+    <Field label={t('settings.language.label')}>
       <Picker value={lang} options={languageOptions} onchange={(v) => (lang = v as Language)} />
-    </VStack>
+    </Field>
 
-    <VStack gap={1}>
-      <Text tag="label" size="sm" weight="medium" for="settings-theme">{t('settings.theme.label')}</Text>
+    <Field label={t('settings.theme.label')}>
       <Picker value={th} options={themeOptions} onchange={(v) => (th = v as Theme)} />
-    </VStack>
+    </Field>
 
-    <VStack gap={1}>
-      <Text size="sm" weight="medium">{t('settings.accent')}</Text>
-      <div class="accent-grid">
-        {#each accents as a}
-          <button
-            type="button"
-            class="accent-swatch"
-            class:selected={accent.value.name === a.name}
-            style="background: {a.bg}; color: {a.text}"
-            onclick={() => { accent.value = a }}
-            title="{a.name} ({a.bg})"
-            aria-label={a.name}
-            use:squircle
-          >Aa</button>
-        {/each}
-      </div>
-    </VStack>
+    <Field label={t('settings.accent')}>
+      <ColorPicker
+        label={t('settings.accent')}
+        colors={accents.map((a) => a.bg)}
+        custom={false}
+        value={accent.value.bg}
+        onchange={(bg) => { accent.value = accents.find((a) => a.bg === bg) ?? accent.value }}
+      />
+    </Field>
   </GroupBox>
 
   <GroupBox title={t('settings.instance.title')} description={t('settings.instance.desc')}>
@@ -331,20 +312,17 @@
       <Banner tint="danger" text={passwordError} />
     {/if}
 
-    <VStack gap={1}>
-      <Text tag="label" size="sm" weight="medium" for="current-password">{t('settings.password.current')}</Text>
+    <Field label={t('settings.password.current')}>
       <TextField id="current-password" name="current-password" bind:value={currentPassword} secure autocomplete="current-password" />
-    </VStack>
+    </Field>
 
-    <VStack gap={1}>
-      <Text tag="label" size="sm" weight="medium" for="new-password">{t('settings.password.new')}</Text>
+    <Field label={t('settings.password.new')}>
       <TextField id="new-password" name="new-password" bind:value={newPassword} secure autocomplete="new-password" />
-    </VStack>
+    </Field>
 
-    <VStack gap={1}>
-      <Text tag="label" size="sm" weight="medium" for="confirm-password">{t('settings.password.confirm')}</Text>
+    <Field label={t('settings.password.confirm')}>
       <TextField id="confirm-password" name="new-password-confirm" bind:value={confirmPassword} secure autocomplete="new-password" />
-    </VStack>
+    </Field>
 
     <HStack halign="end">
       <Button buttonStyle="prominent" onclick={updatePassword} disabled={!isPasswordFormValid}>
@@ -410,11 +388,10 @@
               </HStack>
             </HStack>
             <HStack gap={3} valign="center" wrap class="file-action-row">
-              <input type="file" accept=".json" onchange={(e) => handleFileChange(sub.key, e)} class="file-input" id="file-{sub.key}" />
-              <label for="file-{sub.key}" class="file-label">
-                <Icon name="attach_file" />
-                <span>{importFileMap[sub.key] ? importFileMap[sub.key]?.name : t('data.select_json')}</span>
-              </label>
+              <!-- remount on change: the button shows the site's chosen file and resets after import -->
+              {#key importFileMap[sub.key]}
+                <FilePicker size="sm" accept=".json" icon="attach_file" label={t('data.select_json')} buttonText={importFileMap[sub.key]?.name ?? t('data.select_json')} onpick={(files) => { importFileMap = { ...importFileMap, [sub.key]: files[0] } }} />
+              {/key}
               {#if importFileMap[sub.key]}
                 <Button size="sm" buttonStyle="prominent" onclick={() => importSubsystem(sub.key)}>{t('data.import')}</Button>
               {/if}
@@ -444,11 +421,9 @@
         </HStack>
 
         <HStack gap={3} valign="center" wrap class="file-action-row">
-          <input type="file" accept=".json" onchange={handleIndividualProviderFileChange} class="file-input" id="file-individual-provider" />
-          <label for="file-individual-provider" class="file-label">
-            <Icon name="attach_file" />
-            <span>{providerImportFile ? providerImportFile?.name : t('data.select_json')}</span>
-          </label>
+          {#key providerImportFile}
+            <FilePicker size="sm" accept=".json" icon="attach_file" label={t('data.select_json')} buttonText={providerImportFile?.name ?? t('data.select_json')} onpick={(files) => { providerImportFile = files[0] }} />
+          {/key}
           {#if providerImportFile}
             <Button size="sm" buttonStyle="prominent" onclick={() => importIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.import')}</Button>
           {/if}
@@ -459,25 +434,6 @@
 </VStack>
 
 <style>
-  .accent-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(var(--fui-ctl-lg), 1fr));
-    gap: var(--fui-space-3);
-  }
-  .accent-swatch {
-    width: 100%;
-    height: var(--fui-ctl-lg);
-    border-radius: var(--fui-ctl-radius);
-    border: none;
-    font-size: var(--fui-text-md);
-    font-weight: 700;
-    cursor: pointer;
-    padding: 0;
-  }
-  .accent-swatch.selected {
-    outline: var(--fui-settings-accent-outline) solid var(--fui-color-text);
-    outline-offset: var(--fui-settings-accent-offset);
-  }
   :global(.issues-container), :global(.data-container) {
     width: 100%;
   }
@@ -496,23 +452,5 @@
     margin-top: var(--fui-space-2);
     padding-top: var(--fui-space-2);
     border-top: var(--fui-border-w) dashed var(--fui-color-outline-soft);
-  }
-  .file-input {
-    display: none;
-  }
-  .file-label {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--fui-space-2);
-    cursor: pointer;
-    background: var(--fui-color-button-container);
-    padding: var(--fui-space-2) var(--fui-space-3);
-    border-radius: var(--fui-ctl-radius);
-    font-size: var(--fui-text-sm);
-    font-weight: 500;
-    border: var(--fui-border-w) solid var(--fui-color-outline-soft);
-  }
-  .file-label:hover {
-    background: var(--fui-color-button-container-high);
   }
 </style>

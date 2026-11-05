@@ -190,8 +190,8 @@
          body={`${t('misc.delete_confirm')} "${deleteTarget?.name}"? ${t('common.undo.cannot_undo')}`}
          busy={deleting}
          busyLabel={t('common.actions.deleting')}
-         onCancel={close}
-         onConfirm={confirmDelete} />
+         oncancel={close}
+         onconfirm={confirmDelete} />
      {/snippet}
    </FloatingView>
 </VStack>

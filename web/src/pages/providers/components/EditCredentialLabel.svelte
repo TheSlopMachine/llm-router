@@ -44,8 +44,8 @@
     void saving
     untrack(() => {
       updateButtons([
-        { label: t('common.actions.cancel'), buttonStyle: 'neutral', onClick: closeModal, disabled: saving },
-        { label: saving ? t('common.actions.saving') : t('common.actions.save'), buttonStyle: 'prominent', onClick: () => void save(), disabled: saving },
+        { label: t('common.actions.cancel'), buttonStyle: 'neutral', onclick: closeModal, disabled: saving },
+        { label: saving ? t('common.actions.saving') : t('common.actions.save'), buttonStyle: 'prominent', onclick: () => void save(), disabled: saving },
       ])
     })
   })
@@ -60,7 +60,7 @@
     <TextField
       id="cred-edit-label"
       bind:value={label}
-      hint={t('credentials.label_example')}
+      placeholder={t('credentials.label_example')}
       onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') void save() }}
     />
   </VStack>

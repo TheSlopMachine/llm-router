@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import {
-    Banner, Button, ContentUnavailable, DisclosureGroup, GroupBox, HStack, Spacer, VStack, VirtualList, modal,
+    Banner, Button, ContentUnavailable, DisclosureGroup, GroupBox, HStack, List, Spacer, VStack, modal,
   } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -40,8 +40,8 @@
   let olderAvailable = $state(false)
   let error = $state('')
   let clock = $state(Date.now())
-  let facetsOpen = $state<string[]>([])
-  let list: ReturnType<typeof VirtualList<EventEntry>> | undefined = $state()
+  let facetsOpen = $state(false)
+  let list: ReturnType<typeof List<EventEntry>> | undefined = $state()
 
   let latestRequest = 0
   let polling = false
@@ -242,10 +242,9 @@
   {/if}
 
   {#if facets.length > 0}
-    <DisclosureGroup
-      bind:value={facetsOpen}
-      items={[{ id: 'facets', title: t('metrics.logs.facets.title'), body: facetsBody }]}
-    />
+    <DisclosureGroup title={t('metrics.logs.facets.title')} bind:open={facetsOpen}>
+      <LogFacets groups={facets} onfilter={(key, value) => addFilter(key, value, false)} />
+    </DisclosureGroup>
   {/if}
 
   <GroupBox>
@@ -274,12 +273,14 @@
           {/if}
         </HStack>
       {/if}
-      <VirtualList
+      <List
         bind:this={list}
+        lazy
         bind:follow
+        elev={false}
         items={visible}
         rowHeight={ROW_HEIGHT}
-        itemKey={(entry) => entry.id}
+        itemKey={(entry) => String(entry.id)}
         onselect={openDetail}
         height="72dvh"
         minHeight={360}
@@ -290,11 +291,8 @@
         {#snippet empty()}
           <ContentUnavailable title={loading ? t('common.state.loading') : t('metrics.logs.empty.title')} />
         {/snippet}
-      </VirtualList>
+      </List>
     </VStack>
   </GroupBox>
 </VStack>
 
-{#snippet facetsBody()}
-  <LogFacets groups={facets} onfilter={(key, value) => addFilter(key, value, false)} />
-{/snippet}

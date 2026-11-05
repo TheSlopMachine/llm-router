@@ -15,7 +15,7 @@
 </script>
 
 <VStack gap={6}>
-  <Header title={t('metrics.title')} info={t('metrics.subtitle')} />
+  <Header title={t('metrics.title')} subtitle={t('metrics.subtitle')} />
 
   <Picker
     pickerStyle="segmented"

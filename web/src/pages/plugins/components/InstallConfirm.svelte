@@ -10,8 +10,8 @@
     escalatesToUnsafe = false,
     confirmLabel,
     busy = false,
-    onCancel,
-    onConfirm
+    oncancel,
+    onconfirm
   }: {
     allowHosts: string[]
     unsafe: boolean
@@ -20,8 +20,8 @@
     escalatesToUnsafe?: boolean
     confirmLabel: string
     busy?: boolean
-    onCancel: () => void
-    onConfirm: () => void
+    oncancel: () => void
+    onconfirm: () => void
   } = $props()
 
   let hasChanges = $derived(added.length > 0 || removed.length > 0 || escalatesToUnsafe)
@@ -69,8 +69,8 @@
   </VStack>
 
   <HStack halign="end" gap={3}>
-    <Button size="sm" buttonStyle="text" onclick={onCancel} disabled={busy}>{t('common.actions.cancel')}</Button>
-    <Button size="sm" buttonStyle="prominent" onclick={onConfirm} disabled={busy}>
+    <Button size="sm" buttonStyle="text" onclick={oncancel} disabled={busy}>{t('common.actions.cancel')}</Button>
+    <Button size="sm" buttonStyle="prominent" onclick={onconfirm} disabled={busy}>
       {confirmLabel}
     </Button>
   </HStack>

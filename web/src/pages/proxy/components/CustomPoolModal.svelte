@@ -6,7 +6,7 @@
   import { getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
   import type { ModalButton, ProxyPool } from '$lib/types'
-  import { Text, TextEditor, TextField, VStack, Banner } from '@fuckyouryan/fui'
+  import { Text, TextField, VStack, Banner } from '@fuckyouryan/fui'
 
   let {
     editingPool = null,
@@ -71,11 +71,11 @@
     void name
     untrack(() => {
       updateButtons([
-        { label: t('common.actions.cancel'), buttonStyle: 'neutral', onClick: closeModal, disabled: saving },
+        { label: t('common.actions.cancel'), buttonStyle: 'neutral', onclick: closeModal, disabled: saving },
         {
           label: saving ? t('common.actions.saving') : t('common.actions.save'),
           buttonStyle: 'prominent',
-          onClick: () => void save(),
+          onclick: () => void save(),
           disabled: saving || !name.trim(),
         },
       ])
@@ -91,15 +91,15 @@
     <Text size="sm" weight="medium">{t('common.labels.name')}</Text>
     <TextField
       bind:value={name}
-      hint={t('proxy.custom_pools.name')}
+      placeholder={t('proxy.custom_pools.name')}
       onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') void save() }}
     />
   </VStack>
   <VStack gap={1}>
     <Text size="sm" weight="medium">{t('proxy.title')}</Text>
-    <TextEditor
+    <TextField maxRows={10} minRows={4}
       bind:value={entriesText}
-      hint={t('proxy.custom_pools.hint')}
+      placeholder={t('proxy.custom_pools.hint')}
     />
   </VStack>
 </VStack>

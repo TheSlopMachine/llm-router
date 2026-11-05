@@ -555,12 +555,12 @@
       <HStack gap={2} valign="center" wrap>
         <TextField
           bind:value={customId}
-          hint={t('models.custom.id_hint')}
+          placeholder={t('models.custom.id_hint')}
           class="custom-model-input"
         />
         <TextField
           bind:value={customName}
-          hint={t('models.custom.display_name')}
+          placeholder={t('models.custom.display_name')}
           class="custom-model-input"
         />
         <Spacer/>
@@ -638,7 +638,7 @@
     }))}
     draggable
     loading={modelsLoading && models.length === 0}
-    onReorder={(from, to) => {
+    onreorder={(from, to) => {
       const visible = filteredModels
       const moved = visible[from]
       const target = visible[to]
@@ -675,8 +675,8 @@
       body={`${t('common.actions.remove')} "${deleteCustomTarget?.name}" ${t('providers.models.delete_from')}`}
       busy={deletingCustom}
       busyLabel={t('common.actions.deleting')}
-      onCancel={close}
-      onConfirm={confirmDeleteCustomModel} />
+      oncancel={close}
+      onconfirm={confirmDeleteCustomModel} />
   {/snippet}
 </FloatingView>
 

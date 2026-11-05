@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Link, Banner, CodeBlock, GroupBox, Grid, TextField, Toggle, Text, VStack, HStack, Spacer, Divider, type HAlign, type VAlign, type Step, Picker } from '@fuckyouryan/fui'
+  import { Button, Banner, CodeBlock, GroupBox, Grid, TextField, Toggle, Text, VStack, HStack, Spacer, Divider, type HAlign, type VAlign, type Step, Picker } from '@fuckyouryan/fui'
   import { isStepValue, isBannerVariant, isSecretInput } from '$lib/ui-helpers'
   import type { UINode } from '../../lib/types'
 
@@ -96,7 +96,7 @@
           type={isSecretInput(node.input_type) ? 'secret' : 'text'}
           autocomplete={isSecretInput(node.input_type) ? 'off' : undefined}
           value={fieldValue(node)}
-          hint={node.placeholder ?? ''}
+          placeholder={node.placeholder ?? ''}
           required={node.required ?? false}
           disabled={busy}
           onchange={(v) => setValue(node.name ?? '', v)}
@@ -122,7 +122,7 @@
         onchange={(v) => setValue(node.name ?? '', v)}
       />
     {:else if node.type === 'link'}
-      <Text size="md"><Link href={node.url ?? ''} external text={node.text || node.url} /></Text>
+      <Button href={node.url ?? ''} external buttonStyle="text" text={node.text || node.url} />
     {:else if node.type === 'secret'}
       <VStack gap={1}>
         {#if node.label}
@@ -134,7 +134,7 @@
           secure
           autocomplete="off"
           value={fieldValue(node)}
-          hint={node.placeholder ?? ''}
+          placeholder={node.placeholder ?? ''}
           required={node.required ?? false}
           disabled={busy}
           onchange={(v) => setValue(node.name ?? '', v)}

@@ -144,8 +144,8 @@
         escalatesToUnsafe={escalatesToUnsafe}
         confirmLabel={mode === 'installed' ? t('common.actions.update') : installLabel}
         busy={installing}
-        onCancel={close}
-        onConfirm={handleConfirm}
+        oncancel={close}
+        onconfirm={handleConfirm}
       />
     {/snippet}
   </FloatingView>

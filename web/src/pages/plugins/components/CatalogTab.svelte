@@ -263,7 +263,7 @@
       <VStack gap={4}>
         <VStack gap={1}>
           <Text size="sm" weight="medium" tag="label" for="repo-url">{t('plugins.repo.url_label')}</Text>
-          <TextField id="repo-url" bind:value={repositoryUrl} hint="https://github.com/..." />
+          <TextField id="repo-url" bind:value={repositoryUrl} placeholder="https://github.com/..." />
         </VStack>
         <HStack gap={2} halign="end">
           <Button onclick={() => { showAddRepo = false }}>{t('common.actions.cancel')}</Button>
@@ -398,8 +398,8 @@
         confirmLabel={t('common.actions.remove')}
         busy={removingRepo}
         busyLabel={t('common.actions.removing')}
-        onCancel={close}
-        onConfirm={confirmRemoveRepo} />
+        oncancel={close}
+        onconfirm={confirmRemoveRepo} />
     {/snippet}
   </FloatingView>
 
@@ -416,8 +416,8 @@
         body={`${t('common.actions.delete')} "${pluginState.pendingDelete?.plugin.display_name}"? ${t('plugins.delete_warning')}`}
         busy={pluginState.deleting}
         busyLabel={t('common.actions.deleting')}
-        onCancel={close}
-        onConfirm={() => void pluginState.doDelete()} />
+        oncancel={close}
+        onconfirm={() => void pluginState.doDelete()} />
     {/snippet}
   </FloatingView>
 

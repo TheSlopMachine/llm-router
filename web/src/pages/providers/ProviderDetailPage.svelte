@@ -1,7 +1,8 @@
 <script lang="ts">
+  import SectionHeading from '../../components/SectionHeading.svelte'
   import { untrack } from 'svelte'
   import { api } from '../../lib/api'
-  import { modal, toast, ContentUnavailable, Button, Chip, FloatingView, HStack, Image, Spacer, Toggle, Table, Text, VStack, Banner, ConfirmAction, Header, type TableColumn, squircle, Picker, type AppBarAction, type IconName } from '@fuckyouryan/fui'
+  import { modal, toast, ContentUnavailable, Button, Chip, FloatingView, HStack, Image, Spacer, Toggle, Table, Text, VStack, Banner, ConfirmAction, Header, type TableColumn, squircle, Picker, type HeaderAction, type IconName } from '@fuckyouryan/fui'
   import { hasUiNodes } from '$lib/ui-helpers'
   import { getErrorMessage } from '../../lib/errors'
   import type { Credential, Provider, ProxyPool, TestResult, UINode } from '../../lib/types'
@@ -116,7 +117,7 @@
     })
   }
 
-  function detailActions(p: Provider): AppBarAction[] {
+  function detailActions(p: Provider): HeaderAction[] {
     if (p.is_ui_readonly) return []
     return [
       { id: 'edit', text: t('common.actions.edit'), icon: 'edit', onclick: openEditProvider },
@@ -124,7 +125,7 @@
     ]
   }
 
-  function detailEnable(p: Provider): AppBarAction {
+  function detailEnable(p: Provider): HeaderAction {
     return { id: 'enable', text: t('providers.detail.enable'), icon: 'power_settings_new', iconOnly: true, selected: !p.disabled, onclick: () => void toggleProviderEnabled(Boolean(p.disabled)) }
   }
 
@@ -436,7 +437,7 @@
 {:else}
   {@const p = provider}
   <VStack gap={6} class="provider-detail">
-    <Header title={p.name} subtitle={p.type_key} actions={detailActions(p)} primary={detailEnable(p)} />
+    <Header title={p.name} subtitle={p.type_key} back={{ label: t('providers.list.title'), href: '#/providers' }} actions={detailActions(p)} primary={detailEnable(p)} />
 
     {#if error}
       <Banner tint="danger" text={error} />
@@ -444,11 +445,11 @@
 
     {#if credentialsEnabled}
       <VStack tag="section" gap={4} class="provider-section">
-        <Header level="section" title={t('credentials.title_plural')} subtitle={String(credentials.length)}>
+        <SectionHeading title={t('credentials.title_plural')} subtitle={String(credentials.length)}>
           {#snippet actions()}
             <Button buttonStyle="prominent" onclick={openAddCredential} icon={{ name: 'add' }}>{t('credentials.add')}</Button>
           {/snippet}
-        </Header>
+        </SectionHeading>
       <HStack valign="center" gap={4} wrap>
         <Toggle
           checked={disableFailedCredentials}
@@ -588,13 +589,13 @@
 
     {#if settingsNodes.length > 0}
       <VStack tag="section" gap={4} halign="start" class="provider-section">
-        <Header level="section" title={t('providers.detail.plugin_settings')}>
+        <SectionHeading title={t('providers.detail.plugin_settings')}>
           {#snippet actions()}
             <Button buttonStyle="prominent" onclick={() => void saveSettings()} disabled={savingSettings}>
               {savingSettings ? t('common.actions.saving') : t('providers.detail.save_settings')}
             </Button>
           {/snippet}
-        </Header>
+        </SectionHeading>
         <DynamicForm nodes={settingsNodes} bind:values={settingsValues} busy={savingSettings} />
       </VStack>
     {/if}
@@ -616,8 +617,8 @@
       body={`${t('misc.delete_confirm')} "${deleteCredTarget?.label || t('common.labels.unnamed')}"? ${t('common.undo.cannot_undo')}`}
       busy={deletingCred}
       busyLabel={t('common.actions.deleting')}
-      onCancel={close}
-      onConfirm={confirmDeleteCredential} />
+      oncancel={close}
+      onconfirm={confirmDeleteCredential} />
   {/snippet}
 </FloatingView>
 
@@ -628,7 +629,7 @@
   }
 
   :global(.provider-state) {
-    min-height: var(--fui-provider-state-min-h);
+    min-height: var(--app-provider-state-min-h);
     justify-content: center;
   }
 

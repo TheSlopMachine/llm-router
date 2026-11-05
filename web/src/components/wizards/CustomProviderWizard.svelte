@@ -42,11 +42,11 @@
       {
         label: isEdit ? t('common.actions.save') : t('common.actions.add'),
         buttonStyle: 'prominent',
-        onClick: save,
+        onclick: save,
         disabled: !name.trim() || !baseURL.trim() || creating,
         loading: creating,
       },
-      { label: t('common.actions.cancel'), buttonStyle: 'neutral', onClick: closeModal },
+      { label: t('common.actions.cancel'), buttonStyle: 'neutral', onclick: closeModal },
     ])
   }
 
@@ -91,7 +91,7 @@
     <TextField
       id="provider-name"
       bind:value={name}
-      hint={t('providers.fields.my_provider')}
+      placeholder={t('providers.fields.my_provider')}
       onchange={syncButtons}
     />
   </VStack>
@@ -101,7 +101,7 @@
     <TextField
       id="provider-base-url"
       bind:value={baseURL}
-      hint="https://api.example.com/v1"
+      placeholder="https://api.example.com/v1"
       onchange={syncButtons}
     />
     <Text size="sm" foregroundStyle="secondary">{t('providers.fields.endpoint_details')}</Text>
@@ -112,7 +112,7 @@
     <TextField
       id="icon-url"
       bind:value={iconURL}
-      hint="https://example.com/icon.svg"
+      placeholder="https://example.com/icon.svg"
     />
   </VStack>
 </VStack>

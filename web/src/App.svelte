@@ -66,8 +66,8 @@
 {#if appState === 'loading'}
   <div class="splash">
     {#if error}
-      <div style="max-width: var(--fui-splash-max-w); text-align: center;">
-        <div style="font-size: var(--fui-text-xl); font-weight: 600; margin-bottom: var(--fui-splash-gap);">llm-router</div>
+      <div style="max-width: var(--app-splash-max-w); text-align: center;">
+        <div style="font-size: var(--fui-text-xl); font-weight: 600; margin-bottom: var(--app-splash-gap);">llm-router</div>
         <Banner tint="danger" text={error} />
       </div>
     {:else}

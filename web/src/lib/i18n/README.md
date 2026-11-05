@@ -76,7 +76,7 @@ Suffix conventions:
 - `.title` - Page or modal title.
 - `.label` - Form label.
 - `.placeholder` - Input placeholder.
-- `.hint` - Helper text under an input.
+
 - `.action` - Button or link text under `common.actions` or `auth`.
 - `.status` - Status indicator.
 - `.error` - Error message.

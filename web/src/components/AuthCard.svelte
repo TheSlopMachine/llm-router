@@ -43,7 +43,7 @@
     border-radius: var(--fui-radius-lg);
     padding: var(--fui-space-6);
     width: 100%;
-    max-width: var(--fui-auth-max-w);
+    max-width: var(--app-auth-max-w);
   }
   :global(.brand) {
     letter-spacing: var(--fui-tracking-caps);

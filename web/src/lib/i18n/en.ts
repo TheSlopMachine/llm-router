@@ -2,6 +2,13 @@ import type { TranslationRecord } from './types'
 
 export const en: TranslationRecord = {
   'common.actions.all': 'All',
+  'fui.irreversible': 'This action cannot be undone.',
+  'fui.clear': 'Clear',
+  'fui.show_secret': 'Show secret',
+  'fui.hide_secret': 'Hide secret',
+  'fui.select': 'Select…',
+  'fui.more': 'More',
+  'fui.choose_file': 'Choose file',
   'common.actions.add': 'Add',
   'common.actions.back': 'Back',
   'common.actions.cancel': 'Cancel',

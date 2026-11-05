@@ -289,25 +289,25 @@
       updateStepper(stepperConfig)
       if (wizardStep === 4) {
         updateButtons([
-          { label: t('tokens.create_another'), buttonStyle: 'neutral', onClick: resetWizard },
-          { label: t('common.actions.done'), buttonStyle: 'prominent', onClick: handleDone }
+          { label: t('tokens.create_another'), buttonStyle: 'neutral', onclick: resetWizard },
+          { label: t('common.actions.done'), buttonStyle: 'prominent', onclick: handleDone }
         ])
         return
       }
       if (wizardStep === 1) {
         updateButtons([
-          { label: t('common.actions.cancel'), buttonStyle: 'neutral', onClick: closeModal },
-          { label: t('common.actions.next'), buttonStyle: 'prominent', onClick: nextFromStep1, disabled: !currentValid, loading: wizardLoading }
+          { label: t('common.actions.cancel'), buttonStyle: 'neutral', onclick: closeModal },
+          { label: t('common.actions.next'), buttonStyle: 'prominent', onclick: nextFromStep1, disabled: !currentValid, loading: wizardLoading }
         ])
       } else if (wizardStep === 2) {
         updateButtons([
-          { label: t('common.actions.back'), buttonStyle: 'neutral', onClick: goBackToStep1 },
-          { label: t('common.actions.next'), buttonStyle: 'prominent', onClick: goToStep3, disabled: !currentValid, loading: wizardLoading }
+          { label: t('common.actions.back'), buttonStyle: 'neutral', onclick: goBackToStep1 },
+          { label: t('common.actions.next'), buttonStyle: 'prominent', onclick: goToStep3, disabled: !currentValid, loading: wizardLoading }
         ])
       } else {
         updateButtons([
-          { label: t('common.actions.back'), buttonStyle: 'neutral', onClick: goBackToStep2 },
-          { label: isEditMode ? t('tokens.edit.update') : t('tokens.create.create'), buttonStyle: 'prominent', onClick: submit, disabled: !currentValid, loading: wizardLoading }
+          { label: t('common.actions.back'), buttonStyle: 'neutral', onclick: goBackToStep2 },
+          { label: isEditMode ? t('tokens.edit.update') : t('tokens.create.create'), buttonStyle: 'prominent', onclick: submit, disabled: !currentValid, loading: wizardLoading }
         ])
       }
     })
@@ -421,7 +421,7 @@
 {:else if isNameStep}
   {#if error}<Banner tint="danger" text={error} />{/if}
   <VStack gap={4}>
-    <TextField id="token-name" autocomplete="off" bind:value={tokenName} hint={`${t('tokens.create.name_label')} (${t('common.labels.required')})`} />
+    <TextField id="token-name" autocomplete="off" bind:value={tokenName} placeholder={`${t('tokens.create.name_label')} (${t('common.labels.required')})`} />
     <Toggle bind:checked={fullAccess} label={t('tokens.permissions.full_access')} id="full-access" />
   </VStack>
 {:else if isProvidersStep}
@@ -555,5 +555,5 @@
   .head-check { margin-right: var(--fui-space-5); display: grid; place-content: center; }
   .head-check-even { margin: 0 var(--fui-space-5); display: grid; place-content: center; }
   .head-toggle { margin-right: var(--fui-space-5); display: grid; place-content: center; }
-  .models-search { flex: 1 1 var(--fui-token-search-min); min-width: 0; }
+  .models-search { flex: 1 1 var(--app-token-search-min); min-width: 0; }
 </style>

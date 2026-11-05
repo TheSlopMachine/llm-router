@@ -2,6 +2,13 @@ import type { TranslationRecord } from './types'
 
 export const ru: TranslationRecord = {
   'common.actions.all': 'Все',
+  'fui.irreversible': 'Это действие нельзя отменить.',
+  'fui.clear': 'Очистить',
+  'fui.show_secret': 'Показать секрет',
+  'fui.hide_secret': 'Скрыть секрет',
+  'fui.select': 'Выберите…',
+  'fui.more': 'Ещё',
+  'fui.choose_file': 'Выбрать файл',
   'common.actions.add': 'Добавить',
   'common.actions.back': 'Назад',
   'common.actions.cancel': 'Отмена',

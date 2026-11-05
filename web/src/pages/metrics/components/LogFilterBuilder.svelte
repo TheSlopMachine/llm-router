@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, FilterChip, HStack, Picker, TextField, VStack } from '@fuckyouryan/fui'
+  import { Button, Chip, HStack, Picker, TextField, VStack } from '@fuckyouryan/fui'
   import { keyLabel } from '$lib/event-labels'
   import { withFilter, withoutFilter } from '$lib/events'
   import { t } from '$lib/i18n.svelte'
@@ -74,7 +74,7 @@
     {:else}
       <TextField
         bind:value
-        hint={t('metrics.logs.filter_value.placeholder')}
+        placeholder={t('metrics.logs.filter_value.placeholder')}
         ariaLabel={t('metrics.logs.filter_value.placeholder')}
         fill="md"
       />
@@ -100,7 +100,7 @@
   {#if filters.length > 0}
     <HStack gap={2} valign="center" wrap>
       {#each filters as filter (`${filter.exclude ? '!' : ''}${filter.key}`)}
-        <FilterChip
+        <Chip
           text={describe(filter)}
           icon={filter.exclude ? 'block' : 'filter_list'}
           tint={filter.exclude ? 'danger' : 'accent'}

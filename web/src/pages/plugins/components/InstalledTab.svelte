@@ -114,7 +114,7 @@
         buttonText={uploadLabel}
         icon="upload_file"
         disabled={uploading}
-        onPick={(file) => void uploadPickedFile(file)}
+        onpick={(files) => void uploadPickedFile(files[0])}
       />
       {#if updateCount > 0}
         <ToolbarItem priority={1}>
@@ -187,8 +187,8 @@
         body={`${t('common.actions.delete')} "${pluginState.pendingDelete?.plugin.display_name}"? ${t('plugins.delete_warning')}`}
         busy={pluginState.deleting}
         busyLabel={t('common.actions.deleting')}
-        onCancel={close}
-        onConfirm={() => void pluginState.doDelete()} />
+        oncancel={close}
+        onconfirm={() => void pluginState.doDelete()} />
     {/snippet}
   </FloatingView>
 

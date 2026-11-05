@@ -1,6 +1,6 @@
 <script lang="ts">
   import ModalitiesFlow from '../../components/domain/ModalitiesFlow.svelte'
-  import { Icon, Button, Chip, HStack, GroupBox, Text, TextEditor, TextField, VStack, Banner, Header, ContentUnavailable, Picker } from '@fuckyouryan/fui'
+  import { Icon, Button, Chip, HStack, GroupBox, Text, TextField, VStack, Banner, Header, ContentUnavailable, Picker, Field } from '@fuckyouryan/fui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -215,7 +215,7 @@
 </script>
 
   <VStack gap={6}>
-  <Header title={vmId ? t('virtual.edit.title') : t('virtual.create.title')} info={vmId ? t('virtual.update_desc') : t('virtual.create_desc')} />
+  <Header title={vmId ? t('virtual.edit.title') : t('virtual.create.title')} back={{ label: t('virtual.models_plural'), href: '#/virtual' }} subtitle={vmId ? t('virtual.update_desc') : t('virtual.create_desc')} />
 
   {#if error}
     <Banner tint="danger" text={error} />
@@ -235,18 +235,15 @@
     {/if}
 
     <GroupBox title={t('virtual.basic_info')}>
-      <VStack gap={1}>
-        <Text tag="label" size="sm" weight="medium" for="vm-name">ID *</Text>
-        <TextField id="vm-name" bind:value={name} hint={t('virtual.model')} disabled={isManaged} />
-      </VStack>
-      <VStack gap={1}>
-        <Text tag="label" size="sm" weight="medium" for="vm-description">{t('virtual.description_for_decision')}</Text>
-        <TextEditor id="vm-description" bind:value={description} hint={t('virtual.description_example')} minRows={2} disabled={isManaged} />
-      </VStack>
-      <VStack gap={1}>
-        <Text tag="label" size="sm" weight="medium" for="vm-instruction">{t('virtual.instruction_label')}</Text>
-        <TextEditor id="vm-instruction" bind:value={instruction} hint={t('virtual.general_instructions')} minRows={4} disabled={isManaged} />
-      </VStack>
+      <Field label="ID" required>
+        <TextField id="vm-name" bind:value={name} placeholder={t('virtual.model')} disabled={isManaged} />
+      </Field>
+      <Field label={t('virtual.description_for_decision')}>
+        <TextField maxRows={10} id="vm-description" bind:value={description} placeholder={t('virtual.description_example')} minRows={2} disabled={isManaged} />
+      </Field>
+      <Field label={t('virtual.instruction_label')}>
+        <TextField maxRows={10} id="vm-instruction" bind:value={instruction} placeholder={t('virtual.general_instructions')} minRows={4} disabled={isManaged} />
+      </Field>
     </GroupBox>
 
     <GroupBox title={t('models.list.title')}>
@@ -363,7 +360,7 @@
     min-width: 0;
   }
   .model-row-select {
-    flex: 1 1 var(--fui-vmedit-name-min);
+    flex: 1 1 var(--app-vmedit-name-min);
     min-width: 0;
   }
   .model-row-bottom {

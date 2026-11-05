@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { VStack, HStack, Text, Button, Toggle, Table, GroupBox, Chip, FloatingView, Banner, ConfirmAction, Header, Stat, Grid, Picker, Spacer, DisclosureGroup, RelativeTime, Field, TextField, toast, type TableColumn, ContentUnavailable, type AppBarAction } from '@fuckyouryan/fui'
+  import SectionHeading from '../../components/SectionHeading.svelte'
+  import { VStack, HStack, Text, Button, Toggle, Table, GroupBox, Chip, FloatingView, Banner, ConfirmAction, Header, Stat, Grid, Picker, Spacer, DisclosureGroup, RelativeTime, Field, TextField, toast, type TableColumn, ContentUnavailable, type HeaderAction } from '@fuckyouryan/fui'
   import { viewport } from '$lib/viewport.svelte'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
@@ -69,7 +70,7 @@
     return rows
   })
 
-  let openSections = $state<string[]>([])
+  let proxiesOpen = $state(false)
   const loadLabel = $derived(status ? `${status.inflight} / ${status.limit}` : '')
   // Exactly one candidate lane works at a time: foreground, or background unless a force is active.
   const idleLane = $derived(status ? (status.mode === 'background' && !status.forced_foreground ? 'foreground' : 'background') : '')
@@ -282,7 +283,7 @@
   const queuedCount = $derived(status?.queued ?? 0)
   const forcedForeground = $derived(!!status?.forced_foreground)
 
-  const headerPrimary = $derived<AppBarAction | undefined>(
+  const headerPrimary = $derived<HeaderAction | undefined>(
     tab === 'pools'
       ? undefined
       : {
@@ -293,7 +294,7 @@
           onclick: () => void refreshPool(),
         },
   )
-  const headerActions = $derived<AppBarAction[]>(
+  const headerActions = $derived<HeaderAction[]>(
     tab === 'pools'
       ? []
       : [
@@ -310,14 +311,9 @@
   )
 </script>
 
-{#snippet healthyBody()}
-  {#if openSections.includes('proxies')}
-    <HealthyProxies />
-  {/if}
-{/snippet}
 
 <VStack gap={6}>
-  <Header title={t('proxy.title')} info={t('proxy.pool.auto_refresh')} primary={headerPrimary} actions={headerActions} />
+  <Header title={t('proxy.title')} subtitle={t('proxy.pool.auto_refresh')} primary={headerPrimary} actions={headerActions} />
 
   <GroupBox>
     <Grid min="md" gap={4}>
@@ -399,7 +395,7 @@
       </GroupBox>
 
       <VStack gap={4}>
-        <Header level="section" title={t('proxy.pool.lanes')} />
+        <SectionHeading title={t('proxy.pool.lanes')} />
         <Table columns={laneColumns} rows={status.lanes} rowKey={(lane) => lane.lane}>
           {#snippet cell({ column, row })}
             {@const lane = row as ProxyStatus['lanes'][number]}
@@ -429,15 +425,16 @@
       </VStack>
 
       <!-- rarely needed: folded away so the overview stays short -->
-      <DisclosureGroup multiple bind:value={openSections} items={[
-        { id: 'proxies', title: `${t('proxy.pool.healthy')} (${status.alive})`, body: healthyBody },
-      ]} />
+      <DisclosureGroup title={`${t('proxy.pool.healthy')} (${status.alive})`} bind:open={proxiesOpen}>
+        <!-- mounted only while open: it polls -->
+        {#if proxiesOpen}<HealthyProxies />{/if}
+      </DisclosureGroup>
     {:else}
       <ContentUnavailable title={t('common.state.loading')} />
     {/if}
   {:else if tab === 'sources'}
     <VStack gap={4}>
-      <Header level="section" title={t('proxy.sources.title')} subtitle={t('proxy.sources.desc')} />
+      <SectionHeading title={t('proxy.sources.title')} subtitle={t('proxy.sources.desc')} />
       <Table
         columns={sourceColumns}
         rows={mergedSources}
@@ -480,11 +477,11 @@
     </VStack>
   {:else}
     <VStack gap={4}>
-      <Header level="section" title={t('proxy.custom_pools.title')} subtitle={t('proxy.custom_pools.desc')}>
+      <SectionHeading title={t('proxy.custom_pools.title')} subtitle={t('proxy.custom_pools.desc')}>
         {#snippet actions()}
           <Button buttonStyle="prominent" onclick={() => openPoolModal('create')} icon={{ name: 'add' }}>{t('proxy.custom_pools.new')}</Button>
         {/snippet}
-      </Header>
+      </SectionHeading>
       <Table
         columns={poolColumns}
         rows={pools}
@@ -567,8 +564,8 @@
         body={`${t('misc.delete_confirm')} "${deletePoolTarget?.name}"? ${t('common.undo.cannot_undo')}`}
         busy={deletingPool}
         busyLabel={t('common.actions.deleting')}
-        onCancel={close}
-        onConfirm={confirmDeletePool} />
+        oncancel={close}
+        onconfirm={confirmDeletePool} />
     {/snippet}
   </FloatingView>
 </VStack>
