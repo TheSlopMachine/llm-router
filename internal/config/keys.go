@@ -35,6 +35,7 @@ var keys = []Key{
 	{Name: "EVENTS_RETENTION_DAYS", Default: strconv.Itoa(DefaultEventsRetentionDays), Description: "days to keep events", normalize: normalizeRetention},
 	{Name: "LOG_LEVEL", Default: DefaultLogLevel, Description: "debug, info, warn or error", normalize: normalizeLogLevel},
 	{Name: "LUA_POOL_BUCKET_SIZE", Default: strconv.Itoa(DefaultLuaPoolBucketSize), Description: "idle Lua states kept per plugin, 0 disables the pool", normalize: normalizePoolSize},
+	{Name: "CREDENTIALS_KEY_FILE", Default: DefaultCredentialsKeyPath, Description: "credential encryption key file, created on first start (CREDENTIALS_KEY overrides it)", normalize: normalizePath},
 }
 
 // pathKeyNames lists the keys that address database files. They must

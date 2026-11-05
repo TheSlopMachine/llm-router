@@ -1,5 +1,6 @@
 <script lang="ts">
   import ModelsTable from '../../components/domain/ModelsTable.svelte'
+  import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import { createListResource } from '$lib/list-resource.svelte'
@@ -27,20 +28,21 @@
   )
 
   // Candidate metadata comes from one dashboard call: union per virtual
-  // model over its member ids.
+  // model over its member ids. Loaded once on mount: the list does not
+  // depend on the virtual models, so no effect re-triggers it.
   let candidates: AvailableModel[] = $state([])
+  let candidatesError = $state('')
 
-  $effect(() => {
-    if ((resource.data ?? []).length > 0 && candidates.length === 0) {
-      void loadCandidates()
-    }
+  onMount(() => {
+    void loadCandidates()
   })
 
   async function loadCandidates(): Promise<void> {
     try {
       candidates = await api.models.available()
-    } catch {
-      candidates = []
+      candidatesError = ''
+    } catch (e: unknown) {
+      candidatesError = getErrorMessage(e)
     }
   }
 
@@ -122,6 +124,9 @@
     primary={{ id: 'new', text: t('virtual.actions.new_model'), icon: 'add', onclick: openNew }}
   />
 
+  {#if candidatesError}
+    <Banner tint="warning" text={candidatesError} />
+  {/if}
   {#if resource.error}
     <Banner tint="danger" text={resource.error} />
   {/if}

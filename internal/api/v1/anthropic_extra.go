@@ -157,14 +157,14 @@ func (h *Handler) anthropicComplete(w http.ResponseWriter, r *http.Request, toke
 	if err == nil && response != nil {
 		usage = &response.Usage
 	}
-	h.recordRouteMetric(r.Context(), start, chatRequest.Model, token, duration, err, usage)
+	h.recordRouteMetric(r.Context(), start, answeredModel(chatRequest.Model, response), token, duration, err, usage)
 	if err != nil {
 		h.logRouterFailure(r, chatRequest.Model, err)
 		h.handleCompatRouterError(w, r, err)
 		return
 	}
 	echoAnthropicVersion(w, r)
-	h.writeJSON(w, http.StatusOK, completeFromOpenAI(response, request.Model))
+	h.writeJSON(w, http.StatusOK, completeFromOpenAI(response, response.Model))
 }
 
 // completeFromOpenAI renders a chat completion as a legacy completion:

@@ -129,5 +129,6 @@ func New(parameters Params) (*Handler, error) {
 		doctorGormService:     doctorGormService,
 		logger:                parameters.Logger,
 		requestShutdown:       parameters.RequestShutdown,
+		loginLimiter:          newLoginLimiter(),
 	}, nil
 }

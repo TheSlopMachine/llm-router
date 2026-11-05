@@ -3,6 +3,8 @@ package v1
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -203,17 +205,66 @@ func TestParseJSONTranscriptionRequest(t *testing.T) {
 	body := `{"model":"mock/m","language":"en","input_audio":{"data":"` + audio + `","format":"wav"}}`
 	request := httptest.NewRequest("POST", "/v1/audio/transcriptions", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
-	parsed, err := parseJSONTranscriptionRequest(request)
+	parsed, loader, err := parseJSONTranscriptionRequest(request)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
+	}
+	if loader != nil {
+		t.Fatal("inline audio must not defer a download")
 	}
 	if string(parsed.File) != "FAKEAUDIO" || parsed.FileName != "clip.wav" {
 		t.Fatalf("file: %+v", parsed)
 	}
 	bad := httptest.NewRequest("POST", "/v1/audio/transcriptions", strings.NewReader(`{"model":"mock/m"}`))
 	bad.Header.Set("Content-Type", "application/json")
-	if _, err := parseJSONTranscriptionRequest(bad); err == nil {
+	if _, _, err := parseJSONTranscriptionRequest(bad); err == nil {
 		t.Fatal("missing input_audio must fail")
+	}
+}
+
+func TestJSONTranscriptionURLDefersAndBlocksPrivateTargets(t *testing.T) {
+	fetched := false
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fetched = true
+		_, _ = w.Write([]byte("AUDIO"))
+	}))
+	defer upstream.Close()
+	body := `{"model":"mock/m","input_audio":{"data":"` + upstream.URL + `/clip.wav","format":"wav"}}`
+	request := httptest.NewRequest("POST", "/v1/audio/transcriptions", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	parsed, loader, err := parseJSONTranscriptionRequest(request)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if loader == nil || fetched || parsed.File != nil {
+		t.Fatal("URL audio must stay unfetched until the loader runs")
+	}
+	err = loader(request)
+	if !errors.Is(err, errAudioDownload) {
+		t.Fatalf("loopback URL must fail with the generic download error, got %v", err)
+	}
+	if fetched {
+		t.Fatal("loopback URL must never be fetched")
+	}
+}
+
+func TestTranscriptionDeniedModelNeverDownloads(t *testing.T) {
+	fetched := false
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fetched = true
+	}))
+	defer upstream.Close()
+	body := `{"model":"other/m","input_audio":{"data":"` + upstream.URL + `/clip.wav"}}`
+	request := httptest.NewRequest("POST", "/v1/audio/transcriptions", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	token := &models.RouterToken{Rules: models.TokenRules{AllowedProviders: []string{"mock"}, AllowAllModels: true}}
+	handler := &Handler{}
+	if _, ok := handler.readTranscriptionRequest(recorder, request, token); ok {
+		t.Fatal("denied model must stop the request")
+	}
+	if recorder.Code != http.StatusForbidden || fetched {
+		t.Fatalf("want 403 without download, got %d fetched=%v", recorder.Code, fetched)
 	}
 }
 

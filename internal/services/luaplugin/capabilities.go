@@ -3,6 +3,7 @@ package luaplugin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
@@ -405,6 +406,7 @@ func requireProxies(L *lua.LState, ctx *executionContext) int {
 	ctx.logProxyRequireSucceeded(request, len(res.Proxies), res.TimedOut, res.Direct)
 	proxies := L.NewTable()
 	for _, v := range res.Proxies {
+		ctx.recordServedProxy(v.URL)
 		row := L.NewTable()
 		row.RawSetString("id", lua.LString(v.ID))
 		row.RawSetString("url", lua.LString(v.URL))
@@ -420,6 +422,45 @@ func requireProxies(L *lua.LState, ctx *executionContext) int {
 	out.RawSetString("direct", lua.LBool(res.Direct))
 	L.Push(out)
 	return 1
+}
+
+// recordServedProxy remembers a proxy URL handed to the plugin in this
+// execution, so a later request through it is admitted without a lookup.
+func (ctx *executionContext) recordServedProxy(proxyURL string) {
+	if proxyURL == "" {
+		return
+	}
+	ctx.servedProxiesMu.Lock()
+	defer ctx.servedProxiesMu.Unlock()
+	if ctx.servedProxies == nil {
+		ctx.servedProxies = map[string]struct{}{}
+	}
+	ctx.servedProxies[proxyURL] = struct{}{}
+}
+
+// errProxyNotAdmitted rejects a proxy_url the router never issued. Plugins
+// may only route through proxies served by proxies.query/require or held in
+// the router pools: an arbitrary proxy_url would let a plugin reach any host
+// (loopback admin listener, LAN, cloud metadata) around allow_host.
+var errProxyNotAdmitted = errors.New("proxy_url is not served by the router proxy pools")
+
+// admitProxy reports whether proxyURL may carry this execution's request.
+// Unknown state denies: without the admission hook only URLs served in this
+// execution pass.
+func (ctx *executionContext) admitProxy(goCtx context.Context, proxyURL string) error {
+	ctx.servedProxiesMu.Lock()
+	_, served := ctx.servedProxies[proxyURL]
+	ctx.servedProxiesMu.Unlock()
+	if served {
+		return nil
+	}
+	if ctx.proxyAdmission == nil {
+		return errProxyNotAdmitted
+	}
+	if err := ctx.proxyAdmission(goCtx, proxyURL); err != nil {
+		return fmt.Errorf("%w: %v", errProxyNotAdmitted, err)
+	}
+	return nil
 }
 
 // newProxiesTable builds the read-only llm_router.proxies query interface.
@@ -479,6 +520,7 @@ func newProxiesTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 		ctx.logProxyQueried(pool, country, limit, len(views))
 		out := L.NewTable()
 		for _, v := range views {
+			ctx.recordServedProxy(v.URL)
 			row := L.NewTable()
 			row.RawSetString("id", lua.LString(v.ID))
 			row.RawSetString("url", lua.LString(v.URL))

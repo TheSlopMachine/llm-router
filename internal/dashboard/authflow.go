@@ -159,7 +159,7 @@ func (h *Handler) renderAuthResult(w http.ResponseWriter, ctx context.Context, r
 			h.jsonErr(w, http.StatusInternalServerError, "save credentials: "+err.Error())
 			return
 		}
-		h.logInfo("Authentication completed", "provider_id", providerID, "credential_id", credential.ID)
+		h.logInfo("Authentication completed", "provider_id", providerID, "cred_id", credential.ID)
 		h.json(w, http.StatusOK, map[string]any{
 			"status":        "complete",
 			"message":       "Credentials saved successfully",

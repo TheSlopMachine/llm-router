@@ -22,11 +22,6 @@
     const KNOWN_CAPABILITIES = ['tools', 'vision', 'audio', 'json_mode', 'structured_outputs', 'reasoning']
 
   $effect(() => {
-    disableFailedModels = provider?.config?.disable_failed_models === true
-    autoSyncModels = provider?.config?.models_auto_sync === true
-  })
-
-  $effect(() => {
     // Dependencies: provider identity and credRevision only. credRevision bumps on
     // credential add, so a key added to a credential-less provider retries discovery.
     // Replacing the provider object (config toggles) must not reload the model list.
@@ -56,9 +51,11 @@
 
   let testingAll = $state(false)
 
-  let disableFailedModels = $state(false)
+  // Writable deriveds: the toggle writes override locally until the provider
+  // prop changes, then the saved config wins again.
+  let disableFailedModels = $derived(provider?.config?.disable_failed_models === true)
 
-  let autoSyncModels = $state(false)
+  let autoSyncModels = $derived(provider?.config?.models_auto_sync === true)
 
   const resultTimers = new Map<string, ReturnType<typeof setTimeout>>()
 

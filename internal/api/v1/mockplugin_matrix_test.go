@@ -125,6 +125,41 @@ func TestMockPluginV1Chat_QuotaError(t *testing.T) {
 	}
 }
 
+// A stream failing before its first byte must answer with the real status
+// and JSON envelope, never a 200 carrying an SSE error frame: clients retry
+// on 429/503 only when they see them.
+func TestMockPluginV1Chat_StreamErrorBeforeFirstByteKeepsStatus(t *testing.T) {
+	handler, providerID, _ := setupLuaHandler(t, mockplugin.Limited())
+
+	recorder := serveJSON(t, func(w *httptest.ResponseRecorder, r *http.Request) {
+		handler.chatCompletions(w, r, nil)
+	}, "/v1/chat/completions", `{"model":"`+providerID+`/limited","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+	if recorder.Code != 429 {
+		t.Fatalf("status: got %d, body %q", recorder.Code, recorder.Body.String())
+	}
+	if contentType := recorder.Header().Get("Content-Type"); contentType != "application/json" {
+		t.Fatalf("content type: %q", contentType)
+	}
+	var response models.OpenAIError
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode: %v (body %q)", err, recorder.Body.String())
+	}
+	if response.Error.Code != "insufficient_quota" || response.Error.Message != "mockplugin quota" {
+		t.Fatalf("error: %+v", response.Error)
+	}
+}
+
+func TestMockPluginV1Messages_StreamErrorBeforeFirstByteKeepsStatus(t *testing.T) {
+	handler, providerID, _ := setupLuaHandler(t, mockplugin.Limited())
+
+	recorder := serveJSON(t, func(w *httptest.ResponseRecorder, r *http.Request) {
+		handler.anthropicMessages(w, r, nil)
+	}, "/v1/messages", `{"model":"`+providerID+`/limited","max_tokens":64,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	if recorder.Code == 200 || strings.Contains(recorder.Body.String(), "event: error") {
+		t.Fatalf("pre-stream failure must not commit a stream: %d %q", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestMockPluginV1Messages_Unary(t *testing.T) {
 	handler, providerID, _ := setupLuaHandler(t, mockplugin.Chat())
 

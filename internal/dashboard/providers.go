@@ -174,25 +174,6 @@ func (h *Handler) apiProvidersCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Backward-compatible custom shape: {name, base_url, icon_url}.
-	if body.TypeKey == "" {
-		var legacy struct {
-			Name    string `json:"name"`
-			BaseURL string `json:"base_url"`
-			IconURL string `json:"icon_url"`
-		}
-		raw, _ := json.Marshal(body)
-		if err := json.Unmarshal(raw, &legacy); err == nil && legacy.BaseURL != "" {
-			body.TypeKey = provider.TypeCustom
-			body.Config = map[string]any{"base_url": legacy.BaseURL}
-			if body.Name == "" {
-				body.Name = legacy.Name
-			}
-			if body.IconURL == "" {
-				body.IconURL = legacy.IconURL
-			}
-		}
-	}
 	if body.TypeKey != provider.TypeCustom {
 		h.jsonErr(w, http.StatusBadRequest, "only custom providers can be created")
 		return
@@ -291,25 +272,6 @@ func (h *Handler) apiProvidersUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		h.json(w, http.StatusOK, toProviderView(instance, h.gormProviderService))
 		return
-	}
-
-	// Backward-compatible custom shape.
-	if body.Config == nil {
-		var legacy struct {
-			Name    string `json:"name"`
-			BaseURL string `json:"base_url"`
-			IconURL string `json:"icon_url"`
-		}
-		raw, _ := json.Marshal(body)
-		if err := json.Unmarshal(raw, &legacy); err == nil && legacy.BaseURL != "" {
-			body.Config = map[string]any{"base_url": legacy.BaseURL}
-			if body.Name == "" {
-				body.Name = legacy.Name
-			}
-			if body.IconURL == "" {
-				body.IconURL = legacy.IconURL
-			}
-		}
 	}
 
 	instance, err := h.gormProviderService.Update(r.Context(), id, provider.UpdateOptions{

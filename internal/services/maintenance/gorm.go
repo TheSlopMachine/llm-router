@@ -3,7 +3,8 @@
 // GormService runs background jobs for provider plugins against
 // context-taking dependencies. It owns no tables: jobs stay in-memory (the
 // lastRun/running maps). Auth flow state has no table: expiry is enforced
-// by the dashboard readers, and no cleanup pass exists.
+// by the dashboard readers. Expired dashboard sessions are removed hourly
+// through the wired session cleanup.
 package maintenance
 
 import (
@@ -79,9 +80,23 @@ type GormService struct {
 
 	virtualSyncer VirtualSyncer
 
+	// sessionCleanup removes expired dashboard sessions; it runs at most
+	// once per sessionCleanupInterval (nil = disabled).
+	sessionCleanup     func(ctx context.Context) error
+	lastSessionCleanup time.Time
+
 	mutex   sync.Mutex
 	lastRun map[string]time.Time
 	running map[string]bool
+}
+
+// sessionCleanupInterval spaces expired-session removal: sessions expire in
+// hours, so an hourly pass keeps the table bounded without per-tick writes.
+const sessionCleanupInterval = time.Hour
+
+// SetSessionCleanup wires expired-session removal into the tick.
+func (s *GormService) SetSessionCleanup(cleanup func(ctx context.Context) error) {
+	s.sessionCleanup = cleanup
 }
 
 // NewGormService constructs a GORM-backed maintenance service with the
@@ -157,12 +172,27 @@ func (s *GormService) RunJob(ctx context.Context, providerID, jobName string) er
 	return s.launch(ctx, instance, jobName, "manual")
 }
 
-// runCycle runs due jobs, then syncs opted-in model lists. A provider-list
-// failure never skips the model sync: the jobs are independent and share
-// only the tick.
+// runCycle runs due jobs, syncs opted-in model lists, then removes expired
+// sessions when due. A provider-list failure never skips the other steps:
+// they are independent and share only the tick.
 func (s *GormService) runCycle(ctx context.Context) {
 	s.runDueJobs(ctx, false)
 	s.syncProviderModels(ctx)
+	s.cleanupSessions(ctx, time.Now())
+}
+
+// cleanupSessions runs the session cleanup once per interval. The loop
+// goroutine is its only caller, so lastSessionCleanup needs no lock.
+func (s *GormService) cleanupSessions(ctx context.Context, now time.Time) {
+	if s.sessionCleanup == nil || now.Sub(s.lastSessionCleanup) < sessionCleanupInterval {
+		return
+	}
+	s.lastSessionCleanup = now
+	if err := s.sessionCleanup(ctx); err != nil {
+		s.logError("Expired session cleanup failed", "operation", "session_cleanup", "error", err)
+		return
+	}
+	s.logDebug("Expired session cleanup completes", "operation", "session_cleanup")
 }
 
 // runStartupJobs runs every job flagged run_on_startup once.

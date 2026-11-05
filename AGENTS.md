@@ -149,16 +149,18 @@ internal/services/
   pluginrepo/            plugin store: single-URL index repos (repo URL or direct index.json, files resolved against the index directory); code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
   modelinfo/             model metadata cache (1h TTL)
   metrics/               1m buckets, 90d retention
-  maintenance/           plugin job scheduler, model sync, auth cleanup
+  maintenance/           plugin job scheduler, model sync, expired-session cleanup
   videojobs/             router-side video job rows (local id → upstream job)
   healthcheck/           failure-triggered credential verification (check_health, cooldown, disable on unhealthy only with automation on)
-  admin/                 admin password change
+  admin/                 admin accounts, password change/reset, sessions
   config/                instance-wide router configuration
   datamanagement/        subsystem export/import/clear + provider export/import/purge
   doctor/                database inspection and repair
   proxypool/             free-pool hosting, Lua feed bridge, SQLite cache, custom pools, lane scheduler adapter
   events/                event log storage (events SQLite store)
-internal/httpkit/        shared transport helpers (SSE headers)
+internal/httpkit/        shared transport helpers (SSE headers, first-byte StreamWriter)
+internal/netguard/       outbound-address policy (public-only dial) for every caller-chosen destination
+internal/credentialcipher/ credentials.data encryption at rest (CREDENTIALS_KEY / CREDENTIALS_KEY_FILE)
 internal/requestsource/  RequestSource in request context (public vs private listener)
 internal/httpapi/        shared route tables + public/private mux builders
 internal/errors/         domain sentinels + ToAPIError
@@ -696,7 +698,7 @@ Auth: under admin listener no headers needed. With auth on (public), `/v1` needs
 `/v1` (OpenAI-compatible, same `:PORT` as dashboard):
 
 - `POST /v1/chat/completions` `{"model":"<provider>/<model>","messages":[{"role":"user","content":"hi"}]}` — core routing; `"stream":true` for SSE.
-- `GET /v1/models` — routable model list, no token rules applied.
+- `GET /v1/models` — routable model list filtered by the token rules.
 - `POST /v1/messages` — Anthropic-compatible messages (translated to chat underneath).
 - `POST /v1/audio/transcriptions` (multipart `file`+`model`), `POST /v1/audio/speech` `{"model":"<provider>/<tts-model>","input":"...","voice":"Kore"}`, `POST /v1/images/generations` `{"model":"<provider>/<image-model>","prompt":"..."}`, `POST /v1/embeddings` `{"model":"<provider>/<embedding-model>","input":"..."}` — per-endpoint backends.
 - Diagnose: wrong `provider/` → `provider_not_found`; disabled model → `model_not_found`; no usable key → `no_credential`/`credential_not_allowed`; upstream failure → `upstream_error`/`timeout`/`rate_limit`/`payment_required` (codes in `internal/errors/`; see `errors.ToAPIError`).
@@ -748,7 +750,7 @@ Provider plugins ship from plugin store repositories, not from the binary. Built
 - BAD: editing a shipped plugin inside the binary repo.
 - GOOD: bumping `@version` in the store repository.
 
-Reissue checklist per plugin: `@version` bump on every content edit (major on contract breaks) — version-match reinstall skips same-version sources, so rewritten content under a fixed version never deploys; `@plugin_api` major MUST equal the served contract; classify through the helper; `(resp, err)` stream idiom with `on_response`; `scope` on rate/quota; `request.model_name` (never forward request tables verbatim upstream).
+Reissue checklist per plugin: `@version` bump on every content edit (major on contract breaks) — version-match reinstall skips same-version sources, so rewritten content under a fixed version never deploys; `@plugin_api` major MUST equal the served contract; classify through the helper; `(resp, err)` stream idiom with `on_response`; park on rate/quota (terminal errors carry no `scope`); `request.model_name` (never forward request tables verbatim upstream).
 
 - BAD: rewriting plugin content without a `@version` bump.
 - GOOD: every content edit bumps `@version` (major on contract breaks).

@@ -24,7 +24,8 @@
   let credentialsLoading = $state(false)
   let credentialTestResults = $state<Record<string, TestResult | 'loading'>>({})
   const resultTimers = new Map<string, ReturnType<typeof setTimeout>>()
-  let disableFailedCredentials = $state(false)
+  // Writable derived: a toggle write overrides until the provider changes.
+  let disableFailedCredentials = $derived(provider?.config?.disable_failed_credentials === true)
   let testingAllCreds = $state(false)
   let testAllCredsCancel = $state(false)
   let credentialsEnabled = $state(true)
@@ -65,7 +66,6 @@
       void reloadCredentials()
       initializeProxyConfig()
       void loadPools()
-      disableFailedCredentials = provider?.config?.disable_failed_credentials === true
     })
   })
 

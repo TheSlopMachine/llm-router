@@ -148,6 +148,7 @@ proxy или doctor. --filter и --exclude точно сравнивают лю�
 	"key.EVENTS_RETENTION_DAYS": "сколько дней хранить события",
 	"key.LOG_LEVEL":             "debug, info, warn или error",
 	"key.LUA_POOL_BUCKET_SIZE":  "свободных Lua-состояний на плагин, 0 отключает пул",
+	"key.CREDENTIALS_KEY_FILE":  "файл ключа шифрования ключей провайдеров, создаётся при первом запуске (CREDENTIALS_KEY его заменяет)",
 
 	"password.short": "Задать пароль пользователя дашборда admin",
 	"password.long": `Задаёт пароль пользователя дашборда "admin". При первом вызове

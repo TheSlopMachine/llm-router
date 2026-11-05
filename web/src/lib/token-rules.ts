@@ -1,9 +1,10 @@
-// Token rule builders: wizard UI state in, rule payloads out.
+// Token rule builder: wizard UI state in, backend TokenRules payload out.
 //
-// Two targets: buildBackendTokenRules adapts the wizard to the CURRENT
-// backend (flat TokenRules, per-provider "use all" snapshotted to explicit
-// id lists); buildDesiredTokenRules produces the structure the backend
-// should accept natively (see docs/BACKEND-CHANGES.md, token rules section).
+// Per-provider credential grants travel as credential_scopes: "use all"
+// becomes {provider_id, all: true}, which also covers keys added later;
+// explicit picks become {provider_id, all: false, credential_ids}.
+
+import type { CredentialScope } from './types'
 
 export interface WizardProviderState {
   id: string
@@ -31,6 +32,7 @@ export interface BackendTokenRules {
   allow_all_models: boolean
   allowed_credentials: string[] | null
   allow_all_credentials: boolean
+  credential_scopes: CredentialScope[]
 }
 
 export function buildBackendTokenRules(s: WizardTokenState): BackendTokenRules {
@@ -41,18 +43,19 @@ export function buildBackendTokenRules(s: WizardTokenState): BackendTokenRules {
       allowed_models: null,
       allow_all_models: true,
       allowed_credentials: null,
-      allow_all_credentials: true
+      allow_all_credentials: true,
+      credential_scopes: []
     }
   }
   const active = s.allowAllProvidersCredentials
     ? s.providers
     : s.providers.filter((p) => p.useAll || p.selected.length > 0)
-  const creds = new Set<string>()
+  const scopes: CredentialScope[] = []
   if (!s.allowAllProvidersCredentials) {
     for (const p of active) {
+      // Virtual carries no credentials: members gate on their own providers.
       if (p.id === 'virtual') continue
-      const ids = p.useAll ? p.known : p.selected
-      for (const id of ids) creds.add(id)
+      scopes.push(p.useAll ? { provider_id: p.id, all: true } : { provider_id: p.id, all: false, credential_ids: [...p.selected] })
     }
   }
   return {
@@ -60,35 +63,8 @@ export function buildBackendTokenRules(s: WizardTokenState): BackendTokenRules {
     allow_all_providers: s.allowAllProvidersCredentials,
     allowed_models: s.allowAllModels ? null : [...s.models],
     allow_all_models: s.allowAllModels,
-    allowed_credentials: s.allowAllProvidersCredentials ? null : [...creds],
-    allow_all_credentials: s.allowAllProvidersCredentials
-  }
-}
-
-export interface DesiredProviderPolicy {
-  provider_id: string
-  /** 'all' covers existing and future credentials; virtual carries [] */
-  credentials: 'all' | string[]
-}
-
-export interface DesiredTokenRules {
-  full_access: boolean
-  providers: DesiredProviderPolicy[]
-  models: 'all' | string[]
-}
-
-export function buildDesiredTokenRules(s: WizardTokenState): DesiredTokenRules {
-  if (s.fullAccess) return { full_access: true, providers: [], models: 'all' }
-  const active = s.allowAllProvidersCredentials
-    ? s.providers
-    : s.providers.filter((p) => p.useAll || p.selected.length > 0)
-  return {
-    full_access: false,
-    providers: active.map((p) => ({
-      provider_id: p.id,
-      credentials:
-        p.id === 'virtual' ? [] : s.allowAllProvidersCredentials || p.useAll ? 'all' : [...p.selected]
-    })),
-    models: s.allowAllModels ? 'all' : [...s.models]
+    allowed_credentials: s.allowAllProvidersCredentials ? null : [],
+    allow_all_credentials: s.allowAllProvidersCredentials,
+    credential_scopes: scopes
   }
 }

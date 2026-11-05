@@ -4,16 +4,17 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
-	"github.com/TheSlopMachine/llm-router/internal/httpkit"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/netguard"
 )
 
 // ─────────────────────────────────────────────
@@ -72,7 +73,7 @@ func (h *Handler) legacyCompletions(w http.ResponseWriter, r *http.Request, toke
 	if err == nil && response != nil {
 		usage = &response.Usage
 	}
-	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, usage)
+	h.recordRouteMetric(r.Context(), start, answeredModel(request.Model, response), token, duration, err, usage)
 	if err != nil {
 		h.logRouterFailure(r, request.Model, err)
 		h.handleRouterError(w, err)
@@ -190,42 +191,24 @@ func (writer *completionStreamWriter) emitFrame(frame string) {
 // handleCompletionStreamWithMetrics wraps completion streaming with metrics
 // collection, translating chat chunks into text_completion frames.
 func (h *Handler) handleCompletionStreamWithMetrics(w http.ResponseWriter, r *http.Request, chatRequest *models.ChatCompletionRequest, request *models.CompletionRequest, token *models.RouterToken, start time.Time) {
-	flusher, ok := w.(http.Flusher)
+	stream, ok := h.openStream(w, r, request.Model)
 	if !ok {
-		if h.logger != nil {
-			h.logger.Error("Streaming not supported",
-				"endpoint", endpointFromRequest(r),
-				"code", apierrors.CodeServerError,
-				"model", string(request.Model))
-		}
-		h.writeError(w, http.StatusInternalServerError, "server_error", "streaming is not supported by this server", nil)
 		return
 	}
-	httpkit.WriteSSEHeaders(w)
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
-
-	translatedWriter := &completionStreamWriter{w: w}
-	err := h.router.CompleteStream(r.Context(), chatRequest, translatedWriter, token)
-	duration := time.Since(start)
-
-	providerID, _ := h.router.GetProviderIDForModel(r.Context(), request.Model)
-	tokenID := ""
-	if token != nil {
-		tokenID = token.ID
+	translatedWriter := &completionStreamWriter{w: stream}
+	tap := NewStreamMetricsTap(translatedWriter, stream)
+	err := h.router.CompleteStream(r.Context(), chatRequest, tap, token)
+	if err != nil && !stream.Started() {
+		h.recordRouteMetric(r.Context(), start, request.Model, token, time.Since(start), err, nil)
+		h.logRouterFailure(r, request.Model, err)
+		h.handleRouterError(w, err)
+		return
 	}
 	if err != nil {
-		if h.logger != nil {
-			h.logger.Error("Completion stream error",
-				"endpoint", endpointFromRequest(r),
-				"code", apierrors.ToAPIError(err).Code,
-				"model", string(request.Model),
-				"provider_id", providerID,
-				"error", err)
-		}
-		WriteOpenAIStreamError(w, flusher, err)
+		h.logStreamFailure(r, request.Model, err)
+		WriteOpenAIStreamError(stream, stream, err)
 	}
-	h.metrics.RecordRequest(BuildStreamMetricEvent(start, request.Model, providerID, tokenID, duration, err))
+	h.recordStreamMetric(r, start, tap.Model(request.Model), token, err, tap.Usage())
 }
 
 // ─────────────────────────────────────────────
@@ -248,15 +231,8 @@ func (h *Handler) handleCompletionStreamWithMetrics(w http.ResponseWriter, r *ht
 // @Security     BearerAuth
 func (h *Handler) audioTranslations(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	start := time.Now()
-	request, err := parseTranscriptionRequest(r)
-	if err != nil {
-		h.logValidationFailure(r, "", "invalid_request_error")
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
-		return
-	}
-	if deny := authorizeModel(token, request.Model); deny != nil {
-		h.logDenyFailure(r, request.Model, deny)
-		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
+	request, ok := h.readTranscriptionRequest(w, r, token)
+	if !ok {
 		return
 	}
 	request.Task = "translate"
@@ -337,8 +313,9 @@ func (h *Handler) moderations(w http.ResponseWriter, r *http.Request, token *mod
 
 // parseJSONTranscriptionRequest reads the OpenRouter JSON STT variant:
 // model plus input_audio{data,format} where data is base64 audio or an
-// http(s) URL downloaded under the audio size cap.
-func parseJSONTranscriptionRequest(r *http.Request) (*models.TranscriptionRequest, error) {
+// http(s) URL. URL audio is not fetched here: the returned loader downloads
+// it, and callers run the loader only after the token rules allow the model.
+func parseJSONTranscriptionRequest(r *http.Request) (*models.TranscriptionRequest, audioLoader, error) {
 	r.Body = http.MaxBytesReader(nil, r.Body, maxAudioUploadBytes)
 	var body struct {
 		Model          string   `json:"model"`
@@ -352,70 +329,105 @@ func parseJSONTranscriptionRequest(r *http.Request) (*models.TranscriptionReques
 		} `json:"input_audio"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		return nil, fmt.Errorf("malformed request body: %s", err)
+		return nil, nil, fmt.Errorf("malformed request body: %s", err)
 	}
 	if strings.TrimSpace(body.Model) == "" {
-		return nil, fmt.Errorf("missing required field 'model'")
+		return nil, nil, fmt.Errorf("missing required field 'model'")
 	}
 	if body.InputAudio == nil || strings.TrimSpace(body.InputAudio.Data) == "" {
-		return nil, fmt.Errorf("missing required field 'input_audio.data'")
-	}
-	format := strings.ToLower(strings.TrimSpace(body.InputAudio.Format))
-	audio, fileName, contentType, err := fetchSTTAudio(strings.TrimSpace(body.InputAudio.Data), format)
-	if err != nil {
-		return nil, err
+		return nil, nil, fmt.Errorf("missing required field 'input_audio.data'")
 	}
 	switch strings.TrimSpace(body.ResponseFormat) {
 	case "", "json", "text", "srt", "verbose_json", "vtt":
 	default:
-		return nil, fmt.Errorf("invalid response_format %q: expected json, text, srt, verbose_json or vtt", body.ResponseFormat)
+		return nil, nil, fmt.Errorf("invalid response_format %q: expected json, text, srt, verbose_json or vtt", body.ResponseFormat)
 	}
-	return &models.TranscriptionRequest{
+	fileName, contentType := sttFileShape(strings.ToLower(strings.TrimSpace(body.InputAudio.Format)))
+	request := &models.TranscriptionRequest{
 		Model:          models.ModelId(strings.TrimSpace(body.Model)),
-		File:           audio,
 		FileName:       fileName,
 		ContentType:    contentType,
 		Language:       strings.TrimSpace(body.Language),
 		Prompt:         body.Prompt,
 		ResponseFormat: strings.TrimSpace(body.ResponseFormat),
 		Temperature:    body.Temperature,
-	}, nil
+	}
+	data := strings.TrimSpace(body.InputAudio.Data)
+	if strings.HasPrefix(data, "http://") || strings.HasPrefix(data, "https://") {
+		return request, func(r *http.Request) error {
+			audio, err := downloadSTTAudio(r, data)
+			if err != nil {
+				return err
+			}
+			request.File = audio
+			return nil
+		}, nil
+	}
+	audio, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return nil, nil, fmt.Errorf("input_audio.data is not base64 audio or an http(s) URL")
+	}
+	if len(audio) == 0 {
+		return nil, nil, fmt.Errorf("input_audio.data is empty")
+	}
+	request.File = audio
+	return request, nil, nil
 }
 
-// fetchSTTAudio resolves JSON-variant audio: base64 bytes inline, or an
-// http(s) URL downloaded with a 60s timeout under the audio size cap.
-func fetchSTTAudio(data, format string) (audio []byte, fileName, contentType string, err error) {
-	fileName, contentType = sttFileShape(format)
-	if strings.HasPrefix(data, "http://") || strings.HasPrefix(data, "https://") {
-		client := &http.Client{Timeout: 60 * time.Second}
-		fetchResponse, downloadError := client.Get(data)
-		if downloadError != nil {
-			return nil, "", "", fmt.Errorf("download input_audio: %s", downloadError)
-		}
-		defer fetchResponse.Body.Close()
-		if fetchResponse.StatusCode != http.StatusOK {
-			return nil, "", "", fmt.Errorf("download input_audio: unexpected status %s", fetchResponse.Status)
-		}
-		raw, downloadError := io.ReadAll(io.LimitReader(fetchResponse.Body, maxAudioUploadBytes+1))
-		if downloadError != nil {
-			return nil, "", "", fmt.Errorf("download input_audio: %s", downloadError)
-		}
-		if len(raw) == 0 {
-			return nil, "", "", fmt.Errorf("downloaded audio is empty")
-		}
-		if len(raw) > maxAudioUploadBytes {
-			return nil, "", "", fmt.Errorf("downloaded audio exceeds the size limit")
-		}
-		return raw, fileName, contentType, nil
+// audioLoader fills deferred request audio. Callers run it after the token
+// gate; a nil loader means the audio is already present.
+type audioLoader func(r *http.Request) error
+
+// sttDownloadTimeout bounds one input_audio URL download.
+const sttDownloadTimeout = 60 * time.Second
+
+// sttDownloadClient fetches client-supplied audio URLs. The netguard client
+// dials public addresses only and re-checks every redirect hop, so a
+// client-chosen URL never reaches loopback, private ranges or cloud metadata.
+var sttDownloadClient = netguard.NewHTTPClient(sttDownloadTimeout)
+
+// errAudioDownload is the only failure text clients see for URL audio:
+// upstream status, connection errors and blocked destinations stay in the
+// log, so the endpoint never works as a network probe.
+var errAudioDownload = errors.New("input_audio URL could not be downloaded")
+
+// downloadSTTAudio fetches one input_audio URL under the audio size cap.
+func downloadSTTAudio(r *http.Request, target string) ([]byte, error) {
+	request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, target, nil)
+	if err != nil {
+		return nil, fmt.Errorf("input_audio.data is not a valid URL")
 	}
-	raw, downloadError := base64.StdEncoding.DecodeString(data)
-	if downloadError != nil {
-		return nil, "", "", fmt.Errorf("input_audio.data is not base64 audio or an http(s) URL")
+	if err := netguard.CheckURL(request.URL); err != nil {
+		logAudioDownloadFailure(r, err)
+		return nil, errAudioDownload
+	}
+	response, err := sttDownloadClient.Do(request)
+	if err != nil {
+		logAudioDownloadFailure(r, err)
+		return nil, errAudioDownload
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		logAudioDownloadFailure(r, fmt.Errorf("unexpected status %d", response.StatusCode))
+		return nil, errAudioDownload
+	}
+	raw, err := io.ReadAll(io.LimitReader(response.Body, maxAudioUploadBytes+1))
+	if err != nil {
+		logAudioDownloadFailure(r, err)
+		return nil, errAudioDownload
 	}
 	if len(raw) == 0 {
-		return nil, "", "", fmt.Errorf("input_audio.data is empty")
+		return nil, fmt.Errorf("downloaded audio is empty")
 	}
-	return raw, fileName, contentType, nil
+	if len(raw) > maxAudioUploadBytes {
+		return nil, fmt.Errorf("downloaded audio exceeds the size limit")
+	}
+	return raw, nil
+}
+
+// logAudioDownloadFailure records the real download failure server-side.
+func logAudioDownloadFailure(r *http.Request, err error) {
+	slog.Default().Warn("Downloading input audio fails", "endpoint", endpointFromRequest(r), "reason", "input_audio_download", "error", err)
 }
 
 // sttFileShape maps an audio format hint to file name and content type.

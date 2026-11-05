@@ -3,7 +3,9 @@ package dashboard
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
+	"strconv"
 
 	"github.com/TheSlopMachine/llm-router/internal/requestsource"
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
@@ -94,16 +96,31 @@ func (h *Handler) apiLogin(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	limiterKey := loginLimiterKey(r, body.Username)
+	if wait := h.loginLimiter.retryAfter(limiterKey); wait > 0 {
+		h.logWarn("Login throttled", "reason", "login_throttled", "wait", wait.String())
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
+		h.jsonErr(w, http.StatusTooManyRequests, "too many failed logins")
+		return
+	}
 	sessionToken, expiresAt, err := h.gormAdminService.Login(r.Context(), body.Username, body.Password, body.RememberMe)
 	if err != nil {
+		if !errors.Is(err, admin.ErrInvalidCredentials) {
+			h.logError("Login failed", "error", err)
+			h.jsonErr(w, http.StatusInternalServerError, "login failed")
+			return
+		}
+		h.loginLimiter.recordFailure(limiterKey)
 		h.jsonErr(w, http.StatusUnauthorized, "invalid username or password")
 		return
 	}
+	h.loginLimiter.recordSuccess(limiterKey)
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
 		Value:    sessionToken,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   requestIsSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		Expires:  expiresAt,
 	})
@@ -121,7 +138,7 @@ func (h *Handler) apiLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
 		h.gormAdminService.Logout(r.Context(), c.Value)
 	}
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, MaxAge: -1, Path: "/"})
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, MaxAge: -1, Path: "/", HttpOnly: true, Secure: requestIsSecure(r), SameSite: http.SameSiteLaxMode})
 	h.json(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -145,7 +162,12 @@ func (h *Handler) apiBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.gormAdminService.Bootstrap(r.Context(), body.Username, body.Password); err != nil {
-		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		if errors.Is(err, admin.ErrAlreadyBootstrapped) {
+			h.jsonErr(w, http.StatusConflict, err.Error())
+			return
+		}
+		h.logError("Bootstrap failed", "error", err)
+		h.jsonErr(w, http.StatusBadRequest, "bootstrap failed")
 		return
 	}
 	h.json(w, http.StatusOK, map[string]any{"ok": true})

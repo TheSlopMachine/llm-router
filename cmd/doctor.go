@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/TheSlopMachine/llm-router/internal/config"
+	"github.com/TheSlopMachine/llm-router/internal/credentialcipher"
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/i18n"
 	"github.com/TheSlopMachine/llm-router/internal/instance"
@@ -46,6 +47,9 @@ func runDoctor(command *cobra.Command, _ []string) error {
 	defer lock.Release()
 
 	ctx := command.Context()
+	if _, err := credentialcipher.InstallConfigured(applicationConfig.CredentialsKey, applicationConfig.CredentialsKeyFile); err != nil {
+		return fmt.Errorf("install credential encryption key: %w", err)
+	}
 	database, err := db.OpenSQLite(ctx, applicationConfig.DBPath, applicationConfig.CachePath, applicationConfig.EventsPath)
 	if err != nil {
 		return i18n.Wrap(err, "doctor.openDatabase")

@@ -23,6 +23,10 @@ const (
 	DefaultCachePath    = "~/.cache/llm-router/llm-router.cache.sqlite3"
 	DefaultEventsPath   = "~/.local/state/llm-router/llm-router.events.sqlite3"
 	DefaultDotenvPath   = "~/.config/llm-router/.env"
+	// DefaultCredentialsKeyPath holds the credential encryption key. It sits
+	// in the configuration directory, apart from the data directory, so a
+	// copied database file alone never carries its key.
+	DefaultCredentialsKeyPath = "~/.config/llm-router/credentials.key"
 
 	DefaultDevDatabasePath = "~/.local/share/llm-router/llm-router.dev.sqlite3"
 	DefaultDevCachePath    = "~/.cache/llm-router/llm-router.cache.dev.sqlite3"

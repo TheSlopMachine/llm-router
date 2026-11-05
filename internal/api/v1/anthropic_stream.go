@@ -104,6 +104,11 @@ func (s *anthropicStreamWriter) handleChunk(chunk *models.StreamChunk) error {
 		if s.messageID == "" {
 			s.messageID = "msg_router"
 		}
+		// The router stamps every chunk with the answering model; a virtual
+		// request therefore reports its member, not the virtual name.
+		if chunk.Model != "" {
+			s.model = chunk.Model
+		}
 		if chunk.Usage != nil {
 			s.inputTokens = chunk.Usage.PromptTokens
 		}

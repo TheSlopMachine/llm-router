@@ -3,9 +3,11 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/TheSlopMachine/llm-router/internal/config"
+	"github.com/TheSlopMachine/llm-router/internal/credentialcipher"
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/instance"
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
@@ -41,6 +43,12 @@ func openAdminService(ctx context.Context, applicationConfig *config.Config) (*a
 		serverRunning = true
 	default:
 		return nil, nil, err
+	}
+	if _, err := credentialcipher.InstallConfigured(applicationConfig.CredentialsKey, applicationConfig.CredentialsKeyFile); err != nil {
+		if lock != nil {
+			_ = lock.Release()
+		}
+		return nil, nil, fmt.Errorf("install credential encryption key: %w", err)
 	}
 	database, err := db.OpenSQLite(ctx, applicationConfig.DBPath, applicationConfig.CachePath, applicationConfig.EventsPath)
 	if err != nil {

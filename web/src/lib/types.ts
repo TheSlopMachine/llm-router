@@ -1,4 +1,11 @@
 // Manual frontend types (fallback when generated is empty, keep compatible with backend)
+/** Per-provider credential grant: all = every current and future key. */
+export interface CredentialScope {
+  provider_id: string
+  all: boolean
+  credential_ids?: string[]
+}
+
 export interface TokenRules {
   allowed_providers?: string[] | null
   allow_all_providers?: boolean
@@ -6,6 +13,7 @@ export interface TokenRules {
   allow_all_models?: boolean
   allowed_credentials?: string[] | null
   allow_all_credentials?: boolean
+  credential_scopes?: CredentialScope[]
 }
 
 export interface Token {

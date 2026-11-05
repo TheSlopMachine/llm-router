@@ -15,6 +15,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/adapters/generic"
 	v1 "github.com/TheSlopMachine/llm-router/internal/api/v1"
 	"github.com/TheSlopMachine/llm-router/internal/config"
+	"github.com/TheSlopMachine/llm-router/internal/credentialcipher"
 	"github.com/TheSlopMachine/llm-router/internal/dashboard"
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/httpapi"
@@ -69,6 +70,15 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 	sqlitePath := applicationConfig.DBPath
 	cachePath := applicationConfig.CachePath
 	eventsPath := applicationConfig.EventsPath
+	// The credential key installs before the databases open: migration 7
+	// and every credential read need it.
+	created, err := credentialcipher.InstallConfigured(applicationConfig.CredentialsKey, applicationConfig.CredentialsKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("install credential encryption key: %w", err)
+	}
+	if created && logger != nil {
+		logger.Warn("Credential encryption key created", "detail", applicationConfig.CredentialsKeyFile, "reason", "back up this file: credentials cannot be decrypted without it")
+	}
 	sqliteDatabase, err := db.OpenSQLite(context.Background(), sqlitePath, cachePath, eventsPath)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite database: %w", err)
@@ -137,6 +147,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 	luaService.SetMarkDead(proxyService.MarkDead)
 	luaService.SetProxyQuery(proxyService.Query)
 	luaService.SetProxyRequire(proxyService.Require)
+	luaService.SetProxyAdmission(proxyService.AdmitProxyURL)
 	luaService.SetCredentialAccess(
 		func(ctx context.Context, providerID string) ([]*models.Credential, error) {
 			return credentialService.ListUsable(ctx, providerID)
@@ -167,6 +178,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 	maintenanceService := maintenance.NewGormService(luaService, providerService, logger)
 	maintenanceService.SetModelInfoService(modelInfoService)
 	maintenanceService.SetVirtualSyncer(virtualService)
+	maintenanceService.SetSessionCleanup(adminService.CleanupExpiredSessions)
 	metricsService := metrics.New(sqliteDatabase, logger)
 	metricsService.Start()
 
@@ -239,20 +251,27 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		return nil, err
 	}
 	privateMux := httpapi.BuildPrivateMux(apiV1, dashboardHandler)
-	publicHandler := requestsource.Middleware(requestsource.RequestSourcePublic)(
-		bootstrapMiddleware(adminService, logger)(requestLogger(logger, publicMux)))
-	privateHandler := requestsource.Middleware(requestsource.RequestSourcePrivate)(
-		bootstrapMiddleware(adminService, logger)(requestLogger(logger, privateMux)))
+	publicHandler := securityHeadersMiddleware(requestsource.Middleware(requestsource.RequestSourcePublic)(
+		bootstrapMiddleware(adminService, logger)(requestLogger(logger, publicMux))))
+	privateHandler := loopbackHostMiddleware(applicationConfig.AdminAddr, logger)(
+		requestsource.Middleware(requestsource.RequestSourcePrivate)(
+			bootstrapMiddleware(adminService, logger)(requestLogger(logger, privateMux))))
 
+	// No WriteTimeout: streams legitimately run for minutes. The header and
+	// idle bounds stop slow-header and idle-connection exhaustion.
 	httpServer := &http.Server{
-		Addr:    listenAddr,
-		Handler: publicHandler,
+		Addr:              listenAddr,
+		Handler:           publicHandler,
+		ReadHeaderTimeout: serverReadHeaderTimeout,
+		IdleTimeout:       serverIdleTimeout,
 	}
 	var adminServer *http.Server
 	if applicationConfig.AdminAddr != "" {
 		adminServer = &http.Server{
-			Addr:    applicationConfig.AdminAddr,
-			Handler: privateHandler,
+			Addr:              applicationConfig.AdminAddr,
+			Handler:           privateHandler,
+			ReadHeaderTimeout: serverReadHeaderTimeout,
+			IdleTimeout:       serverIdleTimeout,
 		}
 	}
 
@@ -315,6 +334,12 @@ func verifySPAMux(mux *http.ServeMux, devRedirect string) error {
 	}
 	return nil
 }
+
+// serverReadHeaderTimeout bounds reading request headers on both listeners.
+const serverReadHeaderTimeout = 10 * time.Second
+
+// serverIdleTimeout closes keep-alive connections idle this long.
+const serverIdleTimeout = 2 * time.Minute
 
 // startupRefreshTimeout bounds the synchronous startup jobs before the
 // server listens: a pathological slow upstream must delay startup, never

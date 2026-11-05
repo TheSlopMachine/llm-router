@@ -152,6 +152,10 @@ type Service struct {
 	// within the request context (nil = disabled).
 	proxyRequire func(ctx context.Context, request models.ProxyRequire) (models.ProxyRequireResult, error)
 
+	// proxyAdmission approves proxy_url values not served in the current
+	// execution (nil = served URLs only).
+	proxyAdmission func(ctx context.Context, proxyURL string) error
+
 	// credential access for plugins. list/get serve request and job
 	// contexts; update serves job contexts only; disable/enable serve
 	// every context but require the automation switch (see automationOn).
@@ -196,6 +200,14 @@ func (s *Service) SetProxyRequire(require func(ctx context.Context, request mode
 	s.wiringMu.Lock()
 	defer s.wiringMu.Unlock()
 	s.proxyRequire = require
+}
+
+// SetProxyAdmission wires the check for proxy_url values a plugin kept from
+// an earlier execution: only URLs the router pools hold pass.
+func (s *Service) SetProxyAdmission(admit func(ctx context.Context, proxyURL string) error) {
+	s.wiringMu.Lock()
+	defer s.wiringMu.Unlock()
+	s.proxyAdmission = admit
 }
 
 // SetCredentialAccess wires credential list/get (request and job contexts)

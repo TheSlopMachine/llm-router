@@ -25,6 +25,13 @@ type resolvedRequest struct {
 func (s *Service) resolveRequest(ctx context.Context, model models.ModelId, token *models.RouterToken, allowDisabled bool, endpoint string) (context.Context, resolvedRequest, error) {
 	var resolution resolvedRequest
 	ctx = withTokenRules(ctx, token)
+	// The edge already checked the outer model; this also covers every
+	// virtual-model member, which re-enters with a nil token and inherits the
+	// outer rules from ctx. A denied member fails like an unavailable one, so
+	// the virtual fall-through moves to the next member.
+	if err := s.tokenDenies(effectiveToken(ctx, token), model, ""); err != nil {
+		return ctx, resolution, err
+	}
 	providerID, modelName, err := model.Parse()
 	if err != nil {
 		s.debug("Denying request with invalid model identifier",

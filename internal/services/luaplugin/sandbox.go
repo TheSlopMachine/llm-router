@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -72,6 +73,13 @@ type executionContext struct {
 	proxyQuery func(pool, country string, limit int) ([]models.ProxyView, error)
 	// proxyRequire serves proxies.require (nil = disabled).
 	proxyRequire func(ctx context.Context, request models.ProxyRequire) (models.ProxyRequireResult, error)
+	// proxyAdmission approves a proxy_url not served in this execution (a
+	// URL the plugin kept in storage). nil admits served URLs only.
+	proxyAdmission func(ctx context.Context, proxyURL string) error
+	// servedProxies holds proxy URLs handed out by proxies.query/require in
+	// this execution; admitProxy accepts them without a lookup.
+	servedProxiesMu sync.Mutex
+	servedProxies   map[string]struct{}
 	// delivered is set once stream output has reached the client; after that
 	// a transport failure is no longer retryable (nil outside streaming).
 	delivered *atomic.Bool

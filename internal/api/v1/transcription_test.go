@@ -57,7 +57,7 @@ func TestParseTranscriptionRequest_Success(t *testing.T) {
 	request := httptest.NewRequest("POST", "/v1/audio/transcriptions", buffer)
 	request.Header.Set("Content-Type", contentType)
 
-	parsed, err := parseTranscriptionRequest(request)
+	parsed, _, err := parseTranscriptionRequest(request)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestParseTranscriptionRequest_Errors(t *testing.T) {
 			contentType, buffer := testCase.build(t)
 			request := httptest.NewRequest("POST", "/v1/audio/transcriptions", buffer)
 			request.Header.Set("Content-Type", contentType)
-			_, err := parseTranscriptionRequest(request)
+			_, _, err := parseTranscriptionRequest(request)
 			if err == nil {
 				t.Fatal("expected error")
 			}
@@ -142,7 +142,7 @@ func TestParseTranscriptionRequest_Errors(t *testing.T) {
 func TestParseTranscriptionRequest_RejectsNonMultipart(t *testing.T) {
 	request := httptest.NewRequest("POST", "/v1/audio/transcriptions", strings.NewReader(`{"model":"groq/whisper"}`))
 	request.Header.Set("Content-Type", "application/json")
-	if _, err := parseTranscriptionRequest(request); err == nil {
+	if _, _, err := parseTranscriptionRequest(request); err == nil {
 		t.Fatal("expected error for non-multipart body")
 	}
 }

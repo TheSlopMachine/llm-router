@@ -147,6 +147,7 @@ after a restart of the server.`,
 	"key.EVENTS_RETENTION_DAYS": "days to keep events",
 	"key.LOG_LEVEL":             "debug, info, warn or error",
 	"key.LUA_POOL_BUCKET_SIZE":  "idle Lua states kept per plugin, 0 disables the pool",
+	"key.CREDENTIALS_KEY_FILE":  "credential encryption key file, created on first start (CREDENTIALS_KEY overrides it)",
 
 	"password.short": "Set the password of the dashboard user admin",
 	"password.long": `Set the password of the dashboard user "admin". The user is created on

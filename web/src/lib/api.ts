@@ -1,6 +1,8 @@
 import { apiCall as _apiCall } from './api-client'
 import { locale } from './i18n/index'
 import { eventsQueryParams } from './events'
+import type { BackendTokenRules } from './token-rules'
+import type { CredentialScope } from './types'
 import type { EventEntry, EventsQuery, Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, ProxySchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate, ProviderModel, ProviderVMGroup, TestResult, Proxy, ProxyStatus, ProxySourceInfo, ProxyPool, SubsystemStats, DoctorReport, DoctorCategory, ProviderBundle } from './types'
 
 const apiCall = _apiCall
@@ -67,6 +69,7 @@ function toToken(raw: Record<string, unknown>): Token {
       allow_all_models: (rules.allow_all_models as boolean) ?? false,
       allowed_credentials: (rules.allowed_credentials as string[] | null) ?? null,
       allow_all_credentials: (rules.allow_all_credentials as boolean) ?? false,
+      credential_scopes: (rules.credential_scopes as CredentialScope[] | undefined) ?? [],
     },
     created_at: (r.created_at as string) ?? '',
   }
@@ -100,14 +103,8 @@ export const api = {
       return records.map(toProvider)
     },
 
-    create: (payload: { name: string; base_url: string; icon_url?: string }) =>
-      apiCall('post', '/api/llm-router/dashboard/providers', { body: payload as unknown as never }),
-
     createInstance: (payload: { name: string; type_key: string; config?: Record<string, unknown>; icon_url?: string }) =>
       apiCall('post', '/api/llm-router/dashboard/providers', { body: payload as unknown as never }),
-
-    update: (id: string, payload: { name: string; base_url: string; icon_url?: string }) =>
-      apiCall('put', `/api/llm-router/dashboard/providers/${id}` as '/api/llm-router/dashboard/providers/{id}', { body: payload as unknown as never } as never),
 
     updateInstance: (id: string, payload: { name: string; config?: Record<string, unknown>; icon_url?: string; disabled?: boolean }) =>
       apiCall('put', `/api/llm-router/dashboard/providers/${id}` as '/api/llm-router/dashboard/providers/{id}', { body: payload as unknown as never } as never),
@@ -225,10 +222,10 @@ export const api = {
       return records.map(toToken)
     },
 
-    create: (payload: { name: string; rules: { allowed_providers: string[] | null; allow_all_providers: boolean; allowed_models: string[] | null; allow_all_models: boolean; allowed_credentials: string[] | null; allow_all_credentials: boolean } }) =>
+    create: (payload: { name: string; rules: BackendTokenRules }) =>
       apiCall('post', '/api/llm-router/dashboard/tokens', { body: payload as unknown as never }),
 
-    update: (id: string, payload: { name: string; rules: { allowed_providers: string[] | null; allow_all_providers: boolean; allowed_models: string[] | null; allow_all_models: boolean; allowed_credentials: string[] | null; allow_all_credentials: boolean } }) =>
+    update: (id: string, payload: { name: string; rules: BackendTokenRules }) =>
       apiCall('put', `/api/llm-router/dashboard/tokens/${id}` as '/api/llm-router/dashboard/tokens/{id}', { body: payload as unknown as never } as never),
 
     delete: (id: string) =>

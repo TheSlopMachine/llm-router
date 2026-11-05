@@ -7,7 +7,7 @@
   import { getErrorMessage } from '$lib/errors'
   import { toggleSet } from '$lib/token-helpers'
   import { t, n } from '$lib/i18n.svelte'
-  import type { Token, Provider, VirtualModel, AvailableModel, ProviderModel } from '$lib/types'
+  import type { Token, Provider, VirtualModel, AvailableModel, ProviderModel, CredentialScope } from '$lib/types'
   import { type ModalButton, type StepperConfig, Toggle, Checkbox, SearchField, Text, TextField, Spacer, VStack, HStack, List, Banner } from '@fuckyouryan/fui'
   import { buildBackendTokenRules } from '$lib/token-rules'
   import { hasFullAccess, resolveWizardSubtitle, resolveStepValidity, resolveModelId } from '$lib/token-scope'
@@ -100,7 +100,12 @@
       virtualEnabled = !!r.allow_all_providers || (r.allowed_providers || []).includes('virtual')
       allowAllModels = !!r.allow_all_models
       selectedModels = new Set(r.allowed_models || [])
-      providerCreds = new Set(r.allowed_credentials || [])
+      const scopes: CredentialScope[] = r.credential_scopes || []
+      providerUseAll = new Set(scopes.filter((scope) => scope.all).map((scope) => scope.provider_id))
+      providerCreds = new Set([
+        ...(r.allowed_credentials || []),
+        ...scopes.flatMap((scope) => scope.credential_ids || []),
+      ])
     }
     try {
       const creds: any = await api.credentials.list()

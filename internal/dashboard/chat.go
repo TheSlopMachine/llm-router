@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -56,14 +55,19 @@ func (h *Handler) apiChatCompletions(w http.ResponseWriter, r *http.Request) {
 	response, err := h.routerService.Complete(r.Context(), &request, nil)
 	duration := time.Since(start)
 
-	// Metrics — use dashboard as token id
-	providerType, _, _ := request.Model.Parse()
-	providerID, _ := h.routerService.GetProviderIDForModel(r.Context(), request.Model)
+	// Metrics use "dashboard" as token id and the answering model: a
+	// virtual request counts against the member that answered.
+	answered := request.Model
+	if err == nil && response != nil && response.Model != "" {
+		answered = models.ModelId(response.Model)
+	}
+	providerType, _, _ := answered.Parse()
+	providerID, _ := h.routerService.GetProviderIDForModel(r.Context(), answered)
 	event := models.MetricEvent{
 		Timestamp:    start,
 		ProviderID:   providerID,
 		ProviderType: providerType,
-		Model:        request.Model,
+		Model:        answered,
 		TokenID:      "dashboard",
 		Duration:     duration,
 		StatusCode:   http.StatusOK,
@@ -89,49 +93,42 @@ func (h *Handler) apiChatCompletions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleChatStream(w http.ResponseWriter, r *http.Request, request *models.ChatCompletionRequest, start time.Time) {
-	flusher, ok := w.(http.Flusher)
+	stream, ok := httpkit.NewStreamWriter(w)
 	if !ok {
 		h.logError("Streaming not supported", "model", string(request.Model))
 		h.jsonErr(w, http.StatusInternalServerError, "streaming not supported")
 		return
 	}
-	httpkit.WriteSSEHeaders(w)
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
-
-	err := h.routerService.CompleteStream(r.Context(), request, w, nil)
+	tap := v1.NewStreamMetricsTap(stream, stream)
+	err := h.routerService.CompleteStream(r.Context(), request, tap, nil)
 	duration := time.Since(start)
 	providerID, _ := h.routerService.GetProviderIDForModel(r.Context(), request.Model)
 	if err != nil {
 		h.logError("Chat stream failed", "model", string(request.Model), "provider_id", providerID, "error", err)
-		// Send error as SSE event for frontend
-		if errorBytes, marshalErr := v1.MarshalOpenAIStreamError(err); marshalErr == nil {
-			fmt.Fprintf(w, "data: %s\n\n", errorBytes)
-			flusher.Flush()
-		}
 	}
-	h.metricsService.RecordRequest(v1.BuildStreamMetricEvent(start, request.Model, providerID, "dashboard", duration, err))
+	if err != nil && !stream.Started() {
+		event := v1.BuildStreamMetricEvent(start, request.Model, providerID, "dashboard", duration, err, nil)
+		h.metricsService.RecordRequest(event)
+		handleChatRouterError(w, err, h)
+		return
+	}
+	if err != nil {
+		v1.WriteOpenAIStreamError(stream, stream, err)
+	}
+	answered := tap.Model(request.Model)
+	answeredProviderID, _ := h.routerService.GetProviderIDForModel(r.Context(), answered)
+	h.metricsService.RecordRequest(v1.BuildStreamMetricEvent(start, answered, answeredProviderID, "dashboard", duration, err, tap.Usage()))
 }
 
 func handleChatRouterError(w http.ResponseWriter, err error, h *Handler) {
 	routerError := classifyChatError(err)
 	h.json(w, routerError.status, models.OpenAIError{
 		Error: models.OpenAIErrorBody{
-			Message: chatWireMessage(err),
+			Message: v1.WireMessage(err),
 			Type:    apierrors.ErrorTypeForCode(routerError.code),
 			Code:    routerError.code,
 		},
 	})
-}
-
-// chatWireMessage renders the raw plugin message for terminal provider
-// errors, the Go error otherwise.
-func chatWireMessage(err error) string {
-	var providerError *models.ProviderError
-	if errors.As(err, &providerError) && providerError.Message != "" {
-		return providerError.Message
-	}
-	return err.Error()
 }
 
 type chatRouterError struct {

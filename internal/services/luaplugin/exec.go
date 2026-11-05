@@ -62,8 +62,7 @@ func (s *Service) handlerCall(
 	applyRet func(L *lua.LState) error,
 	providerConfig map[string]any,
 ) (bool, error) {
-	found, _, err := s.handlerCallEx(goCtx, record, HandlerMeta{TypeKey: typeKey, ProviderConfig: providerConfig}, handler, pushArgs, returnCount, applyRet, nil)
-	return found, err
+	return s.handlerCallEx(goCtx, record, HandlerMeta{TypeKey: typeKey, ProviderConfig: providerConfig}, handler, pushArgs, returnCount, applyRet, nil)
 }
 
 // handlerCallEx is handlerCall with an explicit call configuration.
@@ -76,7 +75,7 @@ func (s *Service) handlerCallEx(
 	returnCount int,
 	applyRet func(L *lua.LState) error,
 	configuration *callConfiguration,
-) (found bool, route string, err error) {
+) (found bool, err error) {
 	typeKey := handlerMetadata.TypeKey
 	if configuration == nil {
 		configuration = &callConfiguration{providerID: handlerMetadata.ProviderID, providerConfig: handlerMetadata.ProviderConfig, credentialID: handlerMetadata.credentialID(), model: handlerMetadata.Model, allowedCredentials: handlerMetadata.AllowedCredentials}
@@ -87,6 +86,7 @@ func (s *Service) handlerCallEx(
 	healthTrigger := s.healthTrigger
 	proxyQuery := s.proxyQuery
 	proxyRequire := s.proxyRequire
+	proxyAdmission := s.proxyAdmission
 	credentialList := s.credentialList
 	credentialGet := s.credentialGet
 	credentialUpdate := s.credentialUpdate
@@ -117,6 +117,7 @@ func (s *Service) handlerCallEx(
 		healthTrigger:        healthTrigger,
 		proxyQuery:           proxyQuery,
 		proxyRequire:         proxyRequire,
+		proxyAdmission:       proxyAdmission,
 		delivered:            handlerMetadata.delivered,
 		credentialList:       credentialList,
 		credentialGet:        credentialGet,
@@ -169,7 +170,7 @@ func (s *Service) handlerCallEx(
 		return newSandboxState(nil)
 	})
 	if pooled == nil {
-		return true, "", &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "load: lua state pool exhausted"}
+		return true, &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "load: lua state pool exhausted"}
 	}
 	rebindPooledState(pooled, ctx)
 	defer func() {
@@ -191,7 +192,7 @@ func (s *Service) handlerCallEx(
 		cause = fmt.Sprintf("%s (source %d bytes)", cause, len(record.Source))
 		s.recordCrash(record.ID, typeKey, s.crashPrefix(ctx)+"load: "+cause)
 		s.logHandlerLoadFailed(record.ID, typeKey, handler, ctx.jobName, ctx.model.String(), s.crashPrefix(ctx)+"load: "+cause)
-		return true, "", &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "load: " + cause}
+		return true, &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "load: " + cause}
 	}
 	handlers, ok := ctx.registrations[typeKey]
 	if !ok {
@@ -199,7 +200,7 @@ func (s *Service) handlerCallEx(
 			handlers = srcHandlers
 		} else {
 			s.logHandlerMissing(record.ID, typeKey, handler, ctx.jobName, ctx.model.String())
-			return false, "", &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: handler}
+			return false, &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: handler}
 		}
 	}
 	handlerFunction := lookupCallable(handlers, handler)
@@ -209,7 +210,7 @@ func (s *Service) handlerCallEx(
 			handlerFunction = jobFunction
 		} else {
 			s.logHandlerMissing(record.ID, typeKey, handler, ctx.jobName, ctx.model.String())
-			return false, "", &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: handler}
+			return false, &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: handler}
 		}
 	}
 
@@ -223,16 +224,16 @@ func (s *Service) handlerCallEx(
 		err := s.luaCallError(record, typeKey, L, callError, s.crashPrefix(ctx))
 		s.logHandlerCallFailed(record.ID, typeKey, handler, ctx.jobName, ctx.model.String(), err)
 		L.SetTop(top)
-		return true, "", err
+		return true, err
 	}
 	defer L.SetTop(top)
 	if applyRet != nil {
 		if err := applyRet(L); err != nil {
 			s.logHandlerCallFailed(record.ID, typeKey, handler, ctx.jobName, ctx.model.String(), err)
-			return true, "", err
+			return true, err
 		}
 	}
-	return true, "", nil
+	return true, nil
 }
 
 // poolBucketKey qualifies a lookup key with the owning plugin identifier so
@@ -256,20 +257,6 @@ func rebindPooledState(state *lua.LState, ctx *executionContext) {
 	} else {
 		state.SetContext(context.Background())
 	}
-}
-
-// handlerCallRouted is handlerCallEx plus a route placeholder kept for
-// caller compatibility. Proxy routes no longer exist: it always returns "".
-func (s *Service) handlerCallRouted(
-	goCtx context.Context,
-	record *PluginRecord,
-	handlerMetadata HandlerMeta,
-	handler string,
-	pushArgs func(L *lua.LState),
-	returnCount int,
-	applyRet func(L *lua.LState) error,
-) (found bool, route string, err error) {
-	return s.handlerCallEx(goCtx, record, handlerMetadata, handler, pushArgs, returnCount, applyRet, nil)
 }
 
 func (s *Service) crashPrefix(ctx *executionContext) string {

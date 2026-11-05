@@ -12,9 +12,11 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
 )
 
-// tokenDenies enforces token rules for a stored record model. Nil tokens
-// skip checks; denials map to the shared provider/model sentinels. An empty
-// jobID omits the job key: only video polls carry a job.
+// tokenDenies enforces token provider/model rules for one model: routed
+// requests (including virtual-model members, through the ctx snapshot) and
+// stored records. Nil tokens skip checks; denials map to the shared
+// provider/model sentinels. An empty jobID omits the job key: only video
+// polls carry a job.
 func (s *Service) tokenDenies(token *models.RouterToken, model models.ModelId, jobID string) error {
 	if token == nil || model == "" {
 		return nil
@@ -31,7 +33,7 @@ func (s *Service) tokenDenies(token *models.RouterToken, model models.ModelId, j
 		if jobID != "" {
 			arguments = append(arguments, "job", jobID)
 		}
-		s.warn("Denying stored record access by token rules", arguments...)
+		s.warn("Denying request by token rules", arguments...)
 		return deny
 	}
 	if !token.Rules.Allows(model) {
@@ -45,7 +47,7 @@ func (s *Service) tokenDenies(token *models.RouterToken, model models.ModelId, j
 		if jobID != "" {
 			arguments = append(arguments, "job", jobID)
 		}
-		s.warn("Denying stored record access by token rules", arguments...)
+		s.warn("Denying request by token rules", arguments...)
 		return deny
 	}
 	return nil

@@ -135,7 +135,7 @@ func validateVirtualModel(virtualModel *models.VirtualModel) error {
 		if err != nil {
 			return fmt.Errorf("model %d: invalid model ID: %w", index, err)
 		}
-		if providerID == provider.TypeVirtual || providerID == "agents" {
+		if providerID == provider.TypeVirtual {
 			return fmt.Errorf("model %d: virtual models cannot reference other virtual models (circular dependency)", index)
 		}
 		if seen[string(entry.ModelID)] {

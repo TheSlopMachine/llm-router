@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TheSlopMachine/llm-router/internal/netguard"
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -41,51 +42,13 @@ const (
 	streamScannerMax = 1 << 20
 )
 
-var blockedCIDRs = []string{
-	"10.0.0.0/8",
-	"172.16.0.0/12",
-	"192.168.0.0/16",
-	"127.0.0.0/8",
-	"169.254.0.0/16",
-	"100.64.0.0/10",
-	"0.0.0.0/8",
-	"::1/128",
-	"::/128",
-	"fc00::/7",
-	"fe80::/10",
-}
-
-var blockedNetworks []*net.IPNet
-
-func init() {
-	for _, c := range blockedCIDRs {
-		if _, n, err := net.ParseCIDR(c); err == nil {
-			blockedNetworks = append(blockedNetworks, n)
-		}
-	}
-}
-
-func ipBlocked(ip net.IP) bool {
-	for _, n := range blockedNetworks {
-		if n.Contains(ip) {
-			return true
-		}
-	}
-	return false
-}
-
 // ssrfGuard validates every hop against the plugin allow-list and the
-// hard private-range blocklist. The private-range check applies even
-// when the plugin holds a wildcard allow_host.
-type ipResolver interface {
-	LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error)
-	LookupIP(ctx context.Context, network, host string) ([]net.IP, error)
-}
-
+// netguard public-address policy. The address policy applies even when the
+// plugin holds a wildcard allow_host.
 type ssrfGuard struct {
 	allowHosts map[string]bool
 	wildcard   bool
-	resolver   ipResolver
+	resolver   netguard.Resolver
 }
 
 func newSSRFGuard(allowHosts []string) *ssrfGuard {
@@ -109,8 +72,8 @@ func (g *ssrfGuard) checkHost(host string) error {
 		host = h
 	}
 	if ip := net.ParseIP(host); ip != nil {
-		if ipBlocked(ip) {
-			return fmt.Errorf("dial to %q blocked: private/link-local address", host)
+		if !netguard.IsPublicIP(ip) {
+			return fmt.Errorf("dial to %q blocked: %w", host, netguard.ErrBlockedAddress)
 		}
 		if !g.wildcard {
 			return fmt.Errorf("host %q is not in plugin allow-list", host)
@@ -137,45 +100,11 @@ func (g *ssrfGuard) checkURL(raw string) (*url.URL, error) {
 	return u, nil
 }
 
-// resolveAndPick resolves hostname and returns the first non-blocked IP.
-// Every resolved IP in a blocked range is rejected, closing DNS rebinding
-// between check and dial: dial targets the validated IP directly.
+// resolveAndPick resolves hostname and returns the first public IP through
+// netguard. Dial targets the validated IP directly, closing DNS rebinding
+// between check and dial.
 func (g *ssrfGuard) resolveAndPick(ctx context.Context, hostname string, ipv4Only bool) (net.IP, error) {
-	if ip := net.ParseIP(hostname); ip != nil {
-		if ipv4Only {
-			ip = ip.To4()
-			if ip == nil {
-				return nil, fmt.Errorf("IPv6 address %q is not allowed for provider requests", hostname)
-			}
-		}
-		if ipBlocked(ip) {
-			return nil, fmt.Errorf("dial to %q blocked: private/link-local address", hostname)
-		}
-		return ip, nil
-	}
-	if ipv4Only {
-		ips, err := g.resolver.LookupIP(ctx, "ip4", hostname)
-		if err != nil {
-			return nil, fmt.Errorf("resolve %q: %w", hostname, err)
-		}
-		for _, candidate := range ips {
-			ip := candidate.To4()
-			if ip != nil && !ipBlocked(ip) {
-				return ip, nil
-			}
-		}
-		return nil, fmt.Errorf("dial to %q blocked: no allowed IPv4 address", hostname)
-	}
-	addrs, err := g.resolver.LookupIPAddr(ctx, hostname)
-	if err != nil {
-		return nil, fmt.Errorf("resolve %q: %w", hostname, err)
-	}
-	for _, a := range addrs {
-		if !ipBlocked(a.IP) {
-			return a.IP, nil
-		}
-	}
-	return nil, fmt.Errorf("dial to %q blocked: all resolved addresses are private/link-local", hostname)
+	return netguard.ResolvePublic(ctx, g.resolver, hostname, ipv4Only)
 }
 
 // pluginHTTPClient is the Go backing of llm_router.http_client.
@@ -487,6 +416,14 @@ func (c *pluginHTTPClient) buildRequest(L *lua.LState, arguments *lua.LTable) (*
 			return nil, ""
 		}
 		proxyURL = strings.TrimSpace(string(s))
+		if c.ctx == nil {
+			L.RaiseError("request blocked: %s", errProxyNotAdmitted.Error())
+			return nil, ""
+		}
+		if err := c.ctx.admitProxy(clientContext(c), proxyURL); err != nil {
+			L.RaiseError("request blocked: %s", err.Error())
+			return nil, ""
+		}
 	}
 	headers := luaTableStringMap(arguments, "headers")
 	checkCustomHostHeader(L, c, headers)

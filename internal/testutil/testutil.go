@@ -2,6 +2,7 @@
 package testutil
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,15 +13,30 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TheSlopMachine/llm-router/internal/credentialcipher"
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
+
+// testCredentialKey is the fixed credential encryption key for tests.
+var testCredentialKey = bytes.Repeat([]byte{0x5a}, credentialcipher.KeySize)
+
+// InstallTestCredentialKey installs the fixed test key for credential data
+// encryption. SetupTestSQLite calls it; tests opening databases another way
+// call it directly.
+func InstallTestCredentialKey(t testing.TB) {
+	t.Helper()
+	if err := credentialcipher.Install(testCredentialKey); err != nil {
+		t.Fatalf("install test credential key: %v", err)
+	}
+}
 
 // SetupTestSQLite creates temporary SQLite database and cache files for
 // testing with the full migrated schema. Cleanup closes the pools and
 // removes the files.
 func SetupTestSQLite(t *testing.T) *db.Database {
 	t.Helper()
+	InstallTestCredentialKey(t)
 
 	directory := t.TempDir()
 	path := filepath.Join(directory, "llm-router-test.sqlite3")

@@ -94,6 +94,16 @@ func contentText(raw json.RawMessage) string {
 	return strings.Join(parts, "\n")
 }
 
+// answeringModel names the model that produced response: the router stamps
+// it (a virtual request carries its member). The requested model fills in
+// only when the response carries none.
+func answeringModel(requested ModelId, response *ChatCompletionResponse) string {
+	if response != nil && response.Model != "" {
+		return response.Model
+	}
+	return requested.String()
+}
+
 // ResponseObjectFromChat maps one chat completion onto a completed response
 // object. Assistant text becomes a message item. Each tool call becomes a
 // function_call item whose call_id is the identifier the client echoes back in
@@ -103,7 +113,7 @@ func ResponseObjectFromChat(id string, request *ResponseRequest, response *ChatC
 		ID:                 id,
 		Object:             "response",
 		CreatedAt:          time.Now().Unix(),
-		Model:              request.Model.String(),
+		Model:              answeringModel(request.Model, response),
 		Status:             "completed",
 		Output:             []ResponseOutputItem{},
 		Instructions:       request.Instructions,

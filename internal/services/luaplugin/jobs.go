@@ -116,7 +116,7 @@ func (s *Service) RunJob(goCtx context.Context, typeKey, name, reason, providerI
 	ctx, cancel := context.WithTimeout(goCtx, time.Duration(timeoutMs)*time.Millisecond)
 	defer cancel()
 	applyError := error(nil)
-	found, _, err := s.handlerCallEx(ctx, record, HandlerMeta{TypeKey: typeKey, ProviderID: providerID, ProviderConfig: providerConfig}, "job:"+name, func(L *lua.LState) {
+	found, err := s.handlerCallEx(ctx, record, HandlerMeta{TypeKey: typeKey, ProviderID: providerID, ProviderConfig: providerConfig}, "job:"+name, func(L *lua.LState) {
 		table := L.NewTable()
 		table.RawSetString("job_name", lua.LString(name))
 		table.RawSetString("run_reason", lua.LString(reason))

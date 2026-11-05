@@ -143,7 +143,6 @@ func TestGormCreateValidation(t *testing.T) {
 		{"no models", &models.VirtualModel{Name: "Empty"}, "at least one model"},
 		{"invalid model id", gormVirtualModel("Bad", "no-slash"), "invalid model ID"},
 		{"virtual reference", gormVirtualModel("Loopy", "virtual/other"), "cannot reference other virtual models"},
-		{"agents reference", gormVirtualModel("Loopy", "agents/other"), "cannot reference other virtual models"},
 		{"duplicate member", gormVirtualModel("Dup", "demo/model-a", "demo/model-a"), "duplicate model ID"},
 		{"missing provider", gormVirtualModel("Ghost", "ghost/model-a"), `provider "ghost" not found`},
 	}

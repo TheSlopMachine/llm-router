@@ -4,6 +4,8 @@ import (
 	"errors"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 )
@@ -16,6 +18,15 @@ const (
 
 // ErrInvalidCredentials is returned when a login attempt fails.
 var ErrInvalidCredentials = errors.New("invalid username or password")
+
+// ErrAlreadyBootstrapped is returned when bootstrap runs on an instance that
+// already has its first admin account.
+var ErrAlreadyBootstrapped = errors.New("already bootstrapped")
+
+// timingEqualizerHash is a bcrypt hash compared against when the username
+// does not exist, so a missing account costs the same time as a wrong
+// password and login latency never reveals which accounts exist.
+var timingEqualizerHash, _ = bcrypt.GenerateFromPassword([]byte("llm-router timing equalizer"), bcryptCost)
 
 // adminUserRecordFromModel maps the wire account onto the admin_users row.
 // The username is the primary key; timestamps normalize to UTC.

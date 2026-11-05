@@ -2,6 +2,9 @@ package record
 
 import (
 	"time"
+
+	// Registers the credential_cipher serializer used by Credential.Data.
+	_ "github.com/TheSlopMachine/llm-router/internal/credentialcipher"
 )
 
 // ProviderInstance is the single persisted provider row for every type:
@@ -31,26 +34,29 @@ func (ProviderInstance) TableName() string {
 	return "provider_instances"
 }
 
-// Credential holds one provider authentication row. Data stays JSON because
-// the shape is plugin-owned through the credential schema.
+// Credential holds one provider authentication row. Data is a JSON object
+// (the shape is plugin-owned through the credential schema), encrypted at
+// rest.
 type Credential struct {
-	ID             string           `gorm:"primaryKey"`
-	ProviderID     string           `gorm:"not null;index"`
-	Provider       ProviderInstance `gorm:"foreignKey:ProviderID;references:ID;belongsTo;constraint:OnDelete:CASCADE"`
-	Label          string           `gorm:"not null"`
-	Data           map[string]any   `gorm:"serializer:json"`
-	ExpiresAt      *time.Time       `gorm:"index"`
-	LastUsedAt     *time.Time       `gorm:""`
-	RequestCount   int64            `gorm:"not null"`
-	SuccessCount   int64            `gorm:"not null"`
-	FailureCount   int64            `gorm:"not null"`
-	Disabled       bool             `gorm:"not null"`
-	DisabledBy     string           `gorm:"not null"`
-	DisabledReason string           `gorm:"not null"`
-	DisabledAt     *time.Time       `gorm:""`
-	SortOrder      int              `gorm:"not null"`
-	CreatedAt      time.Time        `gorm:"not null"`
-	UpdatedAt      time.Time        `gorm:"not null"`
+	ID         string           `gorm:"primaryKey"`
+	ProviderID string           `gorm:"not null;index"`
+	Provider   ProviderInstance `gorm:"foreignKey:ProviderID;references:ID;belongsTo;constraint:OnDelete:CASCADE"`
+	Label      string           `gorm:"not null"`
+	// Data is sealed at rest by the credentialcipher serializer
+	// (AES-256-GCM); the column holds "llmr-enc:v1:<base64>" text.
+	Data           map[string]any `gorm:"serializer:credential_cipher"`
+	ExpiresAt      *time.Time     `gorm:"index"`
+	LastUsedAt     *time.Time     `gorm:""`
+	RequestCount   int64          `gorm:"not null"`
+	SuccessCount   int64          `gorm:"not null"`
+	FailureCount   int64          `gorm:"not null"`
+	Disabled       bool           `gorm:"not null"`
+	DisabledBy     string         `gorm:"not null"`
+	DisabledReason string         `gorm:"not null"`
+	DisabledAt     *time.Time     `gorm:""`
+	SortOrder      int            `gorm:"not null"`
+	CreatedAt      time.Time      `gorm:"not null"`
+	UpdatedAt      time.Time      `gorm:"not null"`
 }
 
 // TableName pins the credentials table name.

@@ -98,9 +98,8 @@ func (s *Service) schemaViolation(record *PluginRecord, typeKey, handler, cause 
 	return &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: msg}
 }
 
-// callAndDecode runs one request handler (Lookup, routed call, decode) and
-// maps a missing handler to ErrHandlerNotFound via notFoundError. It also
-// returns the redacted proxy host:port of the call ("" = direct).
+// callAndDecode runs one request handler (Lookup, call, decode) and maps a
+// missing handler to ErrHandlerNotFound via notFoundError.
 func callAndDecode[T any](
 	s *Service,
 	goCtx context.Context,
@@ -109,15 +108,15 @@ func callAndDecode[T any](
 	pushArgs func(*lua.LState),
 	emptyKeys []string,
 	validate func(*T) error,
-) (*T, string, error) {
+) (*T, error) {
 	typeKey := handlerMetadata.TypeKey
 	record, err := s.Lookup(typeKey)
 	if err != nil {
 		s.logLookupFailed(typeKey, handler, err)
-		return nil, "", err
+		return nil, err
 	}
 	var out *T
-	found, proxy, callError := s.handlerCallRouted(goCtx, record, handlerMetadata, handler, pushArgs, 2, func(L *lua.LState) error {
+	found, callError := s.handlerCallEx(goCtx, record, handlerMetadata, handler, pushArgs, 2, func(L *lua.LState) error {
 		result, returnError := splitReturn(L)
 		decoded, derr := decodeHandlerResult(s, record, typeKey, handler, result, returnError, emptyKeys, validate)
 		if derr != nil {
@@ -125,12 +124,12 @@ func callAndDecode[T any](
 		}
 		out = decoded
 		return nil
-	})
+	}, nil)
 	if callError != nil {
-		return nil, proxy, callError
+		return nil, callError
 	}
 	if !found {
-		return nil, proxy, &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: handler}
+		return nil, &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: handler}
 	}
-	return out, proxy, nil
+	return out, nil
 }

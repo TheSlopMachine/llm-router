@@ -112,6 +112,15 @@ type Config struct {
 	// LuaPoolBucketSize caps idle Lua states stored per plugin bucket.
 	// Zero disables pooling; every call builds a fresh state.
 	LuaPoolBucketSize int
+
+	// CredentialsKey is the base64 AES-256 key encrypting stored credential
+	// data (CREDENTIALS_KEY). Empty falls back to CredentialsKeyFile.
+	CredentialsKey string
+
+	// CredentialsKeyFile holds the key when CredentialsKey is empty
+	// (CREDENTIALS_KEY_FILE). A missing file is created with a fresh random
+	// key and mode 0600 on first start.
+	CredentialsKeyFile string
 }
 
 // Validate checks that all required configuration fields are set.

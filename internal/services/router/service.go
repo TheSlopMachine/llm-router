@@ -152,26 +152,24 @@ type BackendAttempt struct {
 	Allowed  []string
 }
 
-func (s *Service) completeOne(ctx context.Context, attempt BackendAttempt, request *models.ChatCompletionRequest) (*models.ChatCompletionResponse, string, error) {
+func (s *Service) completeOne(ctx context.Context, attempt BackendAttempt, request *models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
 	resolved := attempt.Resolved
 	allowed := attempt.Allowed
 	credentials := attempt.Creds
 	if resolved.IsLua() {
-		response, err := s.providerService.LuaService().Complete(ctx, s.handlerMetadata(resolved, request.Model, allowed), request)
-		return response, "", err
+		return s.providerService.LuaService().Complete(ctx, s.handlerMetadata(resolved, request.Model, allowed), request)
 	}
 	s.logBuiltInBackend(resolved, request.Model, len(credentials), allowed == nil)
-	response, err := resolved.Go.Complete(ctx, credentials, request, resolved.Instance.Config)
-	return response, "", err
+	return resolved.Go.Complete(ctx, credentials, request, resolved.Instance.Config)
 }
 
-func (s *Service) completeStreamOne(ctx context.Context, attempt BackendAttempt, request *models.ChatCompletionRequest, w io.Writer) (string, error) {
+func (s *Service) completeStreamOne(ctx context.Context, attempt BackendAttempt, request *models.ChatCompletionRequest, w io.Writer) error {
 	resolved := attempt.Resolved
 	if resolved.IsLua() {
-		return "", s.providerService.LuaService().CompleteStream(ctx, s.handlerMetadata(resolved, request.Model, attempt.Allowed), request, w)
+		return s.providerService.LuaService().CompleteStream(ctx, s.handlerMetadata(resolved, request.Model, attempt.Allowed), request, w)
 	}
 	s.logBuiltInBackend(resolved, request.Model, len(attempt.Creds), attempt.Allowed == nil)
-	return "", resolved.Go.CompleteStream(ctx, attempt.Creds, request, w, resolved.Instance.Config)
+	return resolved.Go.CompleteStream(ctx, attempt.Creds, request, w, resolved.Instance.Config)
 }
 
 // handlerMetadata builds the handler identity for one routed request: the provider
@@ -198,7 +196,7 @@ func (s *Service) handlerMetadata(resolved *provider.Resolved, model models.Mode
 	if allowed == nil {
 		arguments = append(arguments, "reason", "unrestricted")
 	}
-	s.info("Routing request to plugin backend", arguments...)
+	s.debug("Routing request to plugin backend", arguments...)
 	return metadata
 }
 
@@ -217,7 +215,7 @@ func (s *Service) logBuiltInBackend(resolved *provider.Resolved, model models.Mo
 	if unrestricted {
 		arguments = append(arguments, "reason", "unrestricted")
 	}
-	s.info("Routing request to built-in backend", arguments...)
+	s.debug("Routing request to built-in backend", arguments...)
 }
 
 // gateCredentials resolves the token allow-list of credential IDs for one
@@ -233,6 +231,15 @@ func (s *Service) gateCredentials(ctx context.Context, resolved *provider.Resolv
 		return nil, nil, nil
 	}
 	credentials, err := s.credentialService.All(ctx, instance.ID)
+	if err != nil && !errors.Is(err, apierrors.ErrNoCredential) {
+		// A storage failure is not an empty pool: surface it instead of
+		// telling the client the provider has no keys.
+		s.logError("Loading credentials failed",
+			"provider_id", instance.ID, "model", model.String(),
+			"reason", "credential_load_failed", "error", err,
+			"token_id", tokenIdentifier(token))
+		return nil, nil, fmt.Errorf("load credentials for provider %q: %w", instance.Name, err)
+	}
 	if err != nil {
 		s.debug("Denying request with no available credentials",
 			"provider_id", instance.ID, "model", model.String(),
@@ -381,41 +388,30 @@ func (s *Service) complete(
 	token *models.RouterToken,
 	allowDisabled bool,
 ) (*models.ChatCompletionResponse, error) {
-	response, _, err := s.completeWithProxy(ctx, request, token, allowDisabled)
-	return response, err
-}
-
-// completeWithProxy is complete plus a proxy placeholder kept for caller
-// compatibility. Plugins own proxy selection since contract 0.7.0: it always returns "".
-func (s *Service) completeWithProxy(
-	ctx context.Context,
-	request *models.ChatCompletionRequest,
-	token *models.RouterToken,
-	allowDisabled bool,
-) (*models.ChatCompletionResponse, string, error) {
 	ctx, resolvedRequest, err := s.resolveRequest(ctx, request.Model, token, allowDisabled, models.EndpointChatCompletions)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	resolved := resolvedRequest.resolved
 	// Virtual agents resolve from the model name suffix and need no
 	// credentials of their own; the outer token snapshot in ctx still
-	// restricts the credentials of the member models tried inside.
+	// restricts the credentials of the member models tried inside. The
+	// member response arrives already stamped with the member id.
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		response, _, err := s.completeOne(ctx, BackendAttempt{Resolved: resolved}, request)
+		response, err := s.completeOne(ctx, BackendAttempt{Resolved: resolved}, request)
 		if err != nil {
 			s.logError("Chat completion request fails",
 				"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
 				"model", request.Model.String(), "endpoint", models.EndpointChatCompletions,
 				"token_id", tokenIdentifier(token), "error", err)
 		}
-		return response, "", err
+		return response, err
 	}
 	allowed, credentials, err := s.gateCredentials(ctx, resolved, request.Model, token)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	response, _, err := s.completeOne(ctx, BackendAttempt{Resolved: resolved, Creds: credentials, Allowed: allowed}, request)
+	response, err := s.completeOne(ctx, BackendAttempt{Resolved: resolved, Creds: credentials, Allowed: allowed}, request)
 	if err != nil {
 		s.logError("Chat completion request fails",
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
@@ -423,7 +419,10 @@ func (s *Service) completeWithProxy(
 			"token_id", tokenIdentifier(token), "error", err)
 	}
 	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
-	return response, "", err
+	if response != nil {
+		response.Model = request.Model.String()
+	}
+	return response, err
 }
 
 // CompleteStream routes a streaming chat completion request.
@@ -440,7 +439,7 @@ func (s *Service) CompleteStream(
 	}
 	resolved := resolvedRequest.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		_, err := s.completeStreamOne(ctx, BackendAttempt{Resolved: resolved}, request, w)
+		err := s.completeStreamOne(ctx, BackendAttempt{Resolved: resolved}, request, w)
 		if err != nil {
 			s.logError("Chat stream request fails",
 				"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
@@ -453,7 +452,9 @@ func (s *Service) CompleteStream(
 	if err != nil {
 		return err
 	}
-	_, err = s.completeStreamOne(ctx, BackendAttempt{Resolved: resolved, Creds: credentials, Allowed: allowed}, request, w)
+	stamped := newModelStampWriter(w, request.Model.String())
+	err = s.completeStreamOne(ctx, BackendAttempt{Resolved: resolved, Creds: credentials, Allowed: allowed}, request, stamped)
+	stamped.Flush()
 	if err != nil {
 		s.logError("Chat stream request fails",
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
@@ -466,21 +467,21 @@ func (s *Service) CompleteStream(
 
 // transcribeOne runs a single transcription pass. Lua plugins iterate
 // credentials and proxies internally; Go adapters receive the gated pool.
-func (s *Service) transcribeOne(ctx context.Context, resolved *provider.Resolved, credentials []*models.Credential, allowed []string, request *models.TranscriptionRequest) (*models.TranscriptionResponse, string, error) {
+func (s *Service) transcribeOne(ctx context.Context, resolved *provider.Resolved, credentials []*models.Credential, allowed []string, request *models.TranscriptionRequest) (*models.TranscriptionResponse, error) {
 	if resolved.IsLua() {
 		response, err := s.providerService.LuaService().Transcribe(ctx, s.handlerMetadata(resolved, request.Model, allowed), request)
 		if err = mapHandlerNotFound(resolved, "transcribe", err); err != nil {
-			return nil, "", err
+			return nil, err
 		}
-		return response, "", nil
+		return response, nil
 	}
 	transcriber, ok := resolved.Go.(provider.Transcriber)
 	if !ok {
-		return nil, "", fmt.Errorf("%w: provider %q does not support audio transcription", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+		return nil, fmt.Errorf("%w: provider %q does not support audio transcription", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
 	s.logBuiltInBackend(resolved, request.Model, len(credentials), allowed == nil)
 	response, err := transcriber.Transcribe(ctx, credentials, request, resolved.Instance.Config)
-	return response, "", err
+	return response, err
 }
 
 // Transcribe routes a POST /v1/audio/transcriptions request in a single
@@ -499,18 +500,6 @@ func (s *Service) transcribe(
 	token *models.RouterToken,
 	allowDisabled bool,
 ) (*models.TranscriptionResponse, error) {
-	response, _, err := s.transcribeWithProxy(ctx, request, token, allowDisabled)
-	return response, err
-}
-
-// transcribeWithProxy is transcribe plus a proxy placeholder kept for
-// caller compatibility. Plugins own proxy selection: it always returns "".
-func (s *Service) transcribeWithProxy(
-	ctx context.Context,
-	request *models.TranscriptionRequest,
-	token *models.RouterToken,
-	allowDisabled bool,
-) (*models.TranscriptionResponse, string, error) {
 	task := request.Task
 	if task == "" {
 		task = "transcribe"
@@ -519,11 +508,11 @@ func (s *Service) transcribeWithProxy(
 	if task == "translate" {
 		endpoint = models.EndpointAudioTranslation
 	} else if task != "transcribe" {
-		return nil, "", fmt.Errorf("%w: unsupported audio task %q", apierrors.ErrEndpointNotSupported, task)
+		return nil, fmt.Errorf("%w: unsupported audio task %q", apierrors.ErrEndpointNotSupported, task)
 	}
 	ctx, resolvedRequest, err := s.resolveRequest(ctx, request.Model, token, allowDisabled, endpoint)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	resolved := resolvedRequest.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
@@ -532,7 +521,7 @@ func (s *Service) transcribeWithProxy(
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
 			"model", request.Model.String(), "endpoint", endpoint,
 			"reason", "virtual_unsupported", "token_id", tokenIdentifier(token), "error", err)
-		return nil, "", err
+		return nil, err
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
 	_, goSupported := resolved.Go.(provider.Transcriber)
@@ -541,13 +530,13 @@ func (s *Service) transcribeWithProxy(
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
 			"model", request.Model.String(), "endpoint", endpoint,
 			"reason", "missing_handler", "token_id", tokenIdentifier(token), "error", err)
-		return nil, "", err
+		return nil, err
 	}
 	allowed, credentials, err := s.gateCredentials(ctx, resolved, request.Model, token)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	response, _, err := s.transcribeOne(ctx, resolved, credentials, allowed, request)
+	response, err := s.transcribeOne(ctx, resolved, credentials, allowed, request)
 	if err != nil {
 		s.logError("Audio request fails",
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
@@ -555,26 +544,26 @@ func (s *Service) transcribeWithProxy(
 			"token_id", tokenIdentifier(token), "error", err)
 	}
 	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
-	return response, "", err
+	return response, err
 }
 
 // speechOne runs a single speech pass. Lua plugins iterate internally;
 // Go adapters receive the gated pool.
-func (s *Service) speechOne(ctx context.Context, resolved *provider.Resolved, credentials []*models.Credential, allowed []string, request *models.SpeechRequest) (*models.SpeechResponse, string, error) {
+func (s *Service) speechOne(ctx context.Context, resolved *provider.Resolved, credentials []*models.Credential, allowed []string, request *models.SpeechRequest) (*models.SpeechResponse, error) {
 	if resolved.IsLua() {
 		response, err := s.providerService.LuaService().Speech(ctx, s.handlerMetadata(resolved, request.Model, allowed), request)
 		if err = mapHandlerNotFound(resolved, "speech", err); err != nil {
-			return nil, "", err
+			return nil, err
 		}
-		return response, "", nil
+		return response, nil
 	}
 	speaker, ok := resolved.Go.(provider.Speaker)
 	if !ok {
-		return nil, "", fmt.Errorf("%w: provider %q does not support text-to-speech", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+		return nil, fmt.Errorf("%w: provider %q does not support text-to-speech", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
 	s.logBuiltInBackend(resolved, request.Model, len(credentials), allowed == nil)
 	response, err := speaker.Speech(ctx, credentials, request, resolved.Instance.Config)
-	return response, "", err
+	return response, err
 }
 
 // Speech routes a POST /v1/audio/speech request in a single backend pass
@@ -593,21 +582,9 @@ func (s *Service) speech(
 	token *models.RouterToken,
 	allowDisabled bool,
 ) (*models.SpeechResponse, error) {
-	response, _, err := s.speechWithProxy(ctx, request, token, allowDisabled)
-	return response, err
-}
-
-// speechWithProxy is speech plus a proxy placeholder kept for caller
-// compatibility. Plugins own proxy selection: it always returns "".
-func (s *Service) speechWithProxy(
-	ctx context.Context,
-	request *models.SpeechRequest,
-	token *models.RouterToken,
-	allowDisabled bool,
-) (*models.SpeechResponse, string, error) {
 	ctx, resolvedRequest, err := s.resolveRequest(ctx, request.Model, token, allowDisabled, models.EndpointAudioSpeech)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	resolved := resolvedRequest.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
@@ -616,7 +593,7 @@ func (s *Service) speechWithProxy(
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
 			"model", request.Model.String(), "endpoint", models.EndpointAudioSpeech,
 			"reason", "virtual_unsupported", "token_id", tokenIdentifier(token), "error", err)
-		return nil, "", err
+		return nil, err
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
 	_, goSupported := resolved.Go.(provider.Speaker)
@@ -625,13 +602,13 @@ func (s *Service) speechWithProxy(
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
 			"model", request.Model.String(), "endpoint", models.EndpointAudioSpeech,
 			"reason", "missing_handler", "token_id", tokenIdentifier(token), "error", err)
-		return nil, "", err
+		return nil, err
 	}
 	allowed, credentials, err := s.gateCredentials(ctx, resolved, request.Model, token)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	response, _, err := s.speechOne(ctx, resolved, credentials, allowed, request)
+	response, err := s.speechOne(ctx, resolved, credentials, allowed, request)
 	if err != nil {
 		s.logError("Audio speech request fails",
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
@@ -639,26 +616,26 @@ func (s *Service) speechWithProxy(
 			"token_id", tokenIdentifier(token), "error", err)
 	}
 	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
-	return response, "", err
+	return response, err
 }
 
 // generateImageOne runs a single image generation pass. Lua plugins iterate
 // internally; Go adapters receive the gated pool.
-func (s *Service) generateImageOne(ctx context.Context, resolved *provider.Resolved, credentials []*models.Credential, allowed []string, request *models.ImageGenerationRequest) (*models.ImageGenerationResponse, string, error) {
+func (s *Service) generateImageOne(ctx context.Context, resolved *provider.Resolved, credentials []*models.Credential, allowed []string, request *models.ImageGenerationRequest) (*models.ImageGenerationResponse, error) {
 	if resolved.IsLua() {
 		response, err := s.providerService.LuaService().GenerateImage(ctx, s.handlerMetadata(resolved, request.Model, allowed), request)
 		if err = mapHandlerNotFound(resolved, "generate_image", err); err != nil {
-			return nil, "", err
+			return nil, err
 		}
-		return response, "", nil
+		return response, nil
 	}
 	imageGenerator, ok := resolved.Go.(provider.ImageGenerator)
 	if !ok {
-		return nil, "", fmt.Errorf("%w: provider %q does not support image generation", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+		return nil, fmt.Errorf("%w: provider %q does not support image generation", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
 	s.logBuiltInBackend(resolved, request.Model, len(credentials), allowed == nil)
 	response, err := imageGenerator.GenerateImage(ctx, credentials, request, resolved.Instance.Config)
-	return response, "", err
+	return response, err
 }
 
 // GenerateImage routes a POST /v1/images/generations request in a single
@@ -677,21 +654,9 @@ func (s *Service) generateImage(
 	token *models.RouterToken,
 	allowDisabled bool,
 ) (*models.ImageGenerationResponse, error) {
-	response, _, err := s.generateImageWithProxy(ctx, request, token, allowDisabled)
-	return response, err
-}
-
-// generateImageWithProxy is generateImage plus a proxy placeholder kept
-// for caller compatibility. Plugins own proxy selection: always "".
-func (s *Service) generateImageWithProxy(
-	ctx context.Context,
-	request *models.ImageGenerationRequest,
-	token *models.RouterToken,
-	allowDisabled bool,
-) (*models.ImageGenerationResponse, string, error) {
 	ctx, resolvedRequest, err := s.resolveRequest(ctx, request.Model, token, allowDisabled, models.EndpointImagesGenerations)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	resolved := resolvedRequest.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
@@ -700,7 +665,7 @@ func (s *Service) generateImageWithProxy(
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
 			"model", request.Model.String(), "endpoint", models.EndpointImagesGenerations,
 			"reason", "virtual_unsupported", "token_id", tokenIdentifier(token), "error", err)
-		return nil, "", err
+		return nil, err
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
 	_, goSupported := resolved.Go.(provider.ImageGenerator)
@@ -709,13 +674,13 @@ func (s *Service) generateImageWithProxy(
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
 			"model", request.Model.String(), "endpoint", models.EndpointImagesGenerations,
 			"reason", "missing_handler", "token_id", tokenIdentifier(token), "error", err)
-		return nil, "", err
+		return nil, err
 	}
 	allowed, credentials, err := s.gateCredentials(ctx, resolved, request.Model, token)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	response, _, err := s.generateImageOne(ctx, resolved, credentials, allowed, request)
+	response, err := s.generateImageOne(ctx, resolved, credentials, allowed, request)
 	if err != nil {
 		s.logError("Image generation request fails",
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
@@ -723,26 +688,26 @@ func (s *Service) generateImageWithProxy(
 			"token_id", tokenIdentifier(token), "error", err)
 	}
 	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
-	return response, "", err
+	return response, err
 }
 
 // embedOne runs a single embeddings pass. Lua plugins iterate internally;
 // Go adapters receive the gated pool.
-func (s *Service) embedOne(ctx context.Context, resolved *provider.Resolved, credentials []*models.Credential, allowed []string, request *models.EmbeddingsRequest) (*models.EmbeddingsResponse, string, error) {
+func (s *Service) embedOne(ctx context.Context, resolved *provider.Resolved, credentials []*models.Credential, allowed []string, request *models.EmbeddingsRequest) (*models.EmbeddingsResponse, error) {
 	if resolved.IsLua() {
 		response, err := s.providerService.LuaService().Embed(ctx, s.handlerMetadata(resolved, request.Model, allowed), request)
 		if err = mapHandlerNotFound(resolved, "embed", err); err != nil {
-			return nil, "", err
+			return nil, err
 		}
-		return response, "", nil
+		return response, nil
 	}
 	embedder, ok := resolved.Go.(provider.Embedder)
 	if !ok {
-		return nil, "", fmt.Errorf("%w: provider %q does not support embeddings", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+		return nil, fmt.Errorf("%w: provider %q does not support embeddings", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
 	s.logBuiltInBackend(resolved, request.Model, len(credentials), allowed == nil)
 	response, err := embedder.Embed(ctx, credentials, request, resolved.Instance.Config)
-	return response, "", err
+	return response, err
 }
 
 // Embed routes a POST /v1/embeddings request in a single backend pass over
@@ -761,21 +726,9 @@ func (s *Service) embed(
 	token *models.RouterToken,
 	allowDisabled bool,
 ) (*models.EmbeddingsResponse, error) {
-	response, _, err := s.embedWithProxy(ctx, request, token, allowDisabled)
-	return response, err
-}
-
-// embedWithProxy is embed plus a proxy placeholder kept for caller
-// compatibility. Plugins own proxy selection: it always returns "".
-func (s *Service) embedWithProxy(
-	ctx context.Context,
-	request *models.EmbeddingsRequest,
-	token *models.RouterToken,
-	allowDisabled bool,
-) (*models.EmbeddingsResponse, string, error) {
 	ctx, resolvedRequest, err := s.resolveRequest(ctx, request.Model, token, allowDisabled, models.EndpointEmbeddings)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	resolved := resolvedRequest.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
@@ -784,7 +737,7 @@ func (s *Service) embedWithProxy(
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
 			"model", request.Model.String(), "endpoint", models.EndpointEmbeddings,
 			"reason", "virtual_unsupported", "token_id", tokenIdentifier(token), "error", err)
-		return nil, "", err
+		return nil, err
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
 	_, goSupported := resolved.Go.(provider.Embedder)
@@ -793,13 +746,13 @@ func (s *Service) embedWithProxy(
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
 			"model", request.Model.String(), "endpoint", models.EndpointEmbeddings,
 			"reason", "missing_handler", "token_id", tokenIdentifier(token), "error", err)
-		return nil, "", err
+		return nil, err
 	}
 	allowed, credentials, err := s.gateCredentials(ctx, resolved, request.Model, token)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	response, _, err := s.embedOne(ctx, resolved, credentials, allowed, request)
+	response, err := s.embedOne(ctx, resolved, credentials, allowed, request)
 	if err != nil {
 		s.logError("Embeddings request fails",
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
@@ -807,7 +760,10 @@ func (s *Service) embedWithProxy(
 			"token_id", tokenIdentifier(token), "error", err)
 	}
 	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
-	return response, "", err
+	if response != nil {
+		response.Model = request.Model.String()
+	}
+	return response, err
 }
 
 // GetProviderIDForModel returns the composite provider ID for a given model.

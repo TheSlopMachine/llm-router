@@ -13,21 +13,21 @@ import (
 
 // moderateOne runs a single moderation pass. Lua plugins iterate
 // internally; Go adapters receive the gated pool.
-func (s *Service) moderateOne(ctx context.Context, resolved *provider.Resolved, credentials []*models.Credential, allowed []string, request *models.ModerationRequest) (*models.ModerationResponse, string, error) {
+func (s *Service) moderateOne(ctx context.Context, resolved *provider.Resolved, credentials []*models.Credential, allowed []string, request *models.ModerationRequest) (*models.ModerationResponse, error) {
 	if resolved.IsLua() {
 		response, err := s.providerService.LuaService().Moderate(ctx, s.handlerMetadata(resolved, request.Model, allowed), request)
 		if errors.Is(err, luaplugin.ErrHandlerNotFound) {
-			return nil, "", fmt.Errorf("%w: provider %q has no moderate handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+			return nil, fmt.Errorf("%w: provider %q has no moderate handler", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 		}
-		return response, "", err
+		return response, err
 	}
 	moderator, ok := resolved.Go.(provider.Moderator)
 	if !ok {
-		return nil, "", fmt.Errorf("%w: provider %q does not support moderations", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
+		return nil, fmt.Errorf("%w: provider %q does not support moderations", apierrors.ErrEndpointNotSupported, resolved.Instance.Name)
 	}
 	s.logBuiltInBackend(resolved, request.Model, len(credentials), allowed == nil)
 	response, err := moderator.Moderate(ctx, credentials, request, resolved.Instance.Config)
-	return response, "", err
+	return response, err
 }
 
 // Moderate routes a POST /v1/moderations request in a single backend pass
@@ -46,21 +46,9 @@ func (s *Service) moderate(
 	token *models.RouterToken,
 	allowDisabled bool,
 ) (*models.ModerationResponse, error) {
-	response, _, err := s.moderateWithProxy(ctx, request, token, allowDisabled)
-	return response, err
-}
-
-// moderateWithProxy is moderate plus the redacted proxy host:port of the
-// last attempt ("" = direct).
-func (s *Service) moderateWithProxy(
-	ctx context.Context,
-	request *models.ModerationRequest,
-	token *models.RouterToken,
-	allowDisabled bool,
-) (*models.ModerationResponse, string, error) {
 	ctx, resolvedRequest, err := s.resolveRequest(ctx, request.Model, token, allowDisabled, models.EndpointChatCompletions)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	resolved := resolvedRequest.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
@@ -69,7 +57,7 @@ func (s *Service) moderateWithProxy(
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
 			"model", request.Model.String(), "endpoint", models.EndpointModerations,
 			"reason", "virtual_unsupported", "token_id", tokenIdentifier(token), "error", err)
-		return nil, "", err
+		return nil, err
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
 	_, goSupported := resolved.Go.(provider.Moderator)
@@ -78,13 +66,13 @@ func (s *Service) moderateWithProxy(
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
 			"model", request.Model.String(), "endpoint", models.EndpointModerations,
 			"reason", "missing_handler", "token_id", tokenIdentifier(token), "error", err)
-		return nil, "", err
+		return nil, err
 	}
 	allowed, credentials, err := s.gateCredentials(ctx, resolved, request.Model, token)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	response, _, err := s.moderateOne(ctx, resolved, credentials, allowed, request)
+	response, err := s.moderateOne(ctx, resolved, credentials, allowed, request)
 	if err != nil {
 		s.logError("Moderation request fails",
 			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
@@ -92,5 +80,5 @@ func (s *Service) moderateWithProxy(
 			"token_id", tokenIdentifier(token), "error", err)
 	}
 	s.dropMissingModel(ctx, resolvedRequest.providerID, resolvedRequest.modelName, err)
-	return response, "", err
+	return response, err
 }

@@ -8,7 +8,7 @@ One central endpoint for every model. Seamlessly route through multiple provider
 
 ## What makes it different
 
-Go plus Svelte, low memory footprint. Self-contained. No JavaScript, no dependencies, quick installation.
+Go plus Svelte, low memory footprint. One self-contained binary: no runtime, no external services, quick installation.
 
 Free providers via Lua plugins. Install them from the catalog and use immediately.
 
@@ -49,6 +49,8 @@ This starts one public listener on `PORT` (default `8080`) for the dashboard and
 | `update` | Install the latest release. |
 
 Only one instance runs per database.
+
+Provider keys are encrypted in the database. The first start creates the key file `~/.config/llm-router/credentials.key`; back it up together with the database, because credentials cannot be decrypted without it. `CREDENTIALS_KEY` (base64, 32 bytes) or `CREDENTIALS_KEY_FILE` replace it, for example with a container secret.
 
 Output is Russian or English: `LLM_ROUTER_LANG` (`ru` or `en`), else `LC_ALL`, `LC_MESSAGES`, `LANG` or the Windows user locale; anything but Russian gives English. Event messages, `--json`, config values and command names stay English.
 

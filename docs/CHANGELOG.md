@@ -1,5 +1,21 @@
 # Changelog
 
+## Done (2026-11-05, v0.6.9)
+
+- **Outbound address policy** — the new `internal/netguard` package owned the public-address rule (loopback, private, link-local, CGNAT, multicast, reserved, NAT64, 6to4 and local hostnames blocked). The plugin HTTP client, the JSON `input_audio` URL download and the proxy feed bridge used it.
+- **Transcription URL audio** — `/v1/audio/transcriptions` and `/v1/audio/translations` downloaded `input_audio.data` URLs only after the token rules allowed the model, through the netguard client, and answered one generic download error instead of upstream status or connection details.
+- **Plugin `proxy_url` admission** — `client:request` / `client:stream` accepted only proxy URLs served by `proxies.query` / `proxies.require` in the same execution or held by a router pool (free pool cache, custom pool entry); any other value raised `request blocked`.
+- **Proxy feed candidates** — candidates on non-public hosts were rejected at the feed bridge and import.
+- **Streams commit on the first byte** — `httpkit.StreamWriter` sent status 200 and SSE headers with the first byte and flushed every write. Failures before any output answered with their real status, JSON envelope and `Retry-After`; mid-stream errors rendered `WireMessage` only. Streamed requests recorded token usage from the last `usage` frame.
+- **Responses name the answering model** — chat (unary and stream), legacy completions, Anthropic messages and complete, Responses objects and embeddings carried the routed `<provider>/<model>` of the model that answered, overwriting whatever the backend reported. A virtual request reported the member that answered, and metrics counted it against that member.
+- Removed the `*WithProxy` router variants and their always-empty proxy value.
+- **Token rules for virtual members** — every virtual-model member checked the outer token's provider and model rules; a denied member failed over like an unavailable one.
+- **Credentials encrypted at rest** — `credentials.data` was sealed with AES-256-GCM (`internal/credentialcipher`, serializer `credential_cipher`). The key came from `CREDENTIALS_KEY` (base64, 32 bytes) or `CREDENTIALS_KEY_FILE` (default `~/.config/llm-router/credentials.key`, created with mode 0600 on first start). Migration 7 `encrypt_credentials` sealed existing rows; a missing key failed startup.
+- **Listener hardening** — both listeners set `ReadHeaderTimeout` and `IdleTimeout`; the admin listener answered 421 to any `Host` other than its loopback address; public responses carried `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` and a framing CSP.
+- **Login hardening** — failed logins locked out per client address and username after five failures (doubling up to 15 minutes, `429` with `Retry-After`); a missing account cost the same bcrypt time as a wrong password; session cookies set `Secure` behind TLS; bootstrap on a bootstrapped instance answered `409`.
+- The bootstrap flag was cached once true; maintenance removed expired sessions hourly; a credential storage failure no longer read as `no_credential`; per-request routing logs moved to `debug`.
+- Removed dead code: `/dashboard/agents*` aliases, the legacy `{name, base_url}` provider bodies, the `*Routed` plugin call variants and their always-empty route value, the `allowAnonymous` auth parameter, `admin.DeleteUser`, the `agents/` virtual guard and the `i18n/*.orig` files. Healthcheck and dashboard logs used `cred_id` instead of `credential_id`.
+
 ## Done (2026-11-03, v0.6.6)
 
 - **Plugin sources are interchangeable** — plugin identity no longer embeds the installation source. The record id is now `Author Name/Plugin Name` sanitized from the `@plugin` and `@author` manifest tags (`luaplugin.BuildID`), replacing the previous store-qualified (`<repo>/<author>/<basename>`) and manual (`manual/<author>/<slug>`) ids: installing the same plugin from store A, store B, or a file upload id-overrides the previous installation and pushes it to rollback history. `@plugin` and `@author` now reject `/` so the identity string stays unambiguous.

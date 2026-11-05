@@ -71,7 +71,11 @@ func (h *Handler) createResponse(w http.ResponseWriter, r *http.Request, token *
 			TotalTokens:      response.Usage.TotalTokens,
 		}
 	}
-	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, usage)
+	metricModel := request.Model
+	if err == nil && response != nil && response.Model != "" {
+		metricModel = models.ModelId(response.Model)
+	}
+	h.recordRouteMetric(r.Context(), start, metricModel, token, duration, err, usage)
 	if err != nil {
 		h.logRouterFailure(r, request.Model, err)
 		h.handleRouterError(w, err)

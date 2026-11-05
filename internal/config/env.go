@@ -77,6 +77,15 @@ func defaultEventsPath() string {
 	return DefaultEventsPath
 }
 
+// defaultCredentialsKeyPath returns the credential key default, honoring
+// XDG_CONFIG_HOME with a portable home-relative fallback.
+func defaultCredentialsKeyPath() string {
+	if directory, err := ConfigurationApplicationDirectory(); err == nil {
+		return filepath.Join(directory, "credentials.key")
+	}
+	return DefaultCredentialsKeyPath
+}
+
 // defaultDotenvPath returns the prod dotenv default, honoring
 // XDG_CONFIG_HOME with a portable home-relative fallback.
 func defaultDotenvPath() string {
@@ -148,6 +157,11 @@ func Load() (*Config, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid LUA_POOL_BUCKET_SIZE: %w", err)
 	}
+	credentialsKeyFile := environmentOrDefault("CREDENTIALS_KEY_FILE", defaultCredentialsKeyPath())
+	credentialsKeyFile, err = ExpandPath(credentialsKeyFile)
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid CREDENTIALS_KEY_FILE: %w", err)
+	}
 
 	configuration := &Config{
 		Addr:                net.JoinHostPort(host, port.String()),
@@ -159,6 +173,8 @@ func Load() (*Config, string, error) {
 		LogLevel:            logLevel,
 		DevUIRedirect:       strings.TrimSpace(os.Getenv("DEV_UI_REDIRECT")),
 		LuaPoolBucketSize:   poolBucketSize,
+		CredentialsKey:      strings.TrimSpace(os.Getenv("CREDENTIALS_KEY")),
+		CredentialsKeyFile:  credentialsKeyFile,
 	}
 	if err := configuration.Validate(); err != nil {
 		return nil, "", err

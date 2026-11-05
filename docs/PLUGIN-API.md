@@ -287,6 +287,10 @@ not fail over after the first `emit` call: the stream belongs to that attempt.
 ### `complete`
 
 High-level description: serves unary chat completions. Required handler.
+The router overwrites the response `model` (and the `model` of every
+`complete_stream` chunk, and of `embed` responses) with the routed id
+`<provider>/<model>`: clients always see the model that answered in router
+form, so plugins may return the bare upstream name or leave it empty.
 
 API signature:
 
@@ -1004,7 +1008,7 @@ Parameters:
 |---|---|
 | `method` | HTTP method string. Default `GET`. |
 | `url` | Required `http` or `https` string. Must match allow-list. |
-| `proxy_url` | Optional non-empty string. Empty or absent means direct connection. |
+| `proxy_url` | Optional non-empty string. Empty or absent means direct connection. Must be a URL served by `proxies.query` / `proxies.require` in the same execution, or one a router pool still holds (free pool cache or a custom pool entry); any other value raises `request blocked: proxy_url is not served by the router proxy pools`. |
 | `headers` | Table string to string. Custom `Host` header is revalidated against allow-list. |
 | `body` | String payload. |
 
@@ -1012,9 +1016,11 @@ Return values: success returns `(response, nil)` where `response` holds
 `status` number, `headers` table with lowercased keys, `body` string capped at
 32 MiB. Failure returns `(nil, fault)` where `fault` follows the error
 contract plus transport fields below. Redirects recheck allow-list, maximum 10
-hops. Private and link-local dials are blocked even under `*`: direct requests
-resolve the host and dial the validated IP; requests with `proxy_url` check the
-hostname and IP literals only, because the proxy resolves the target.
+hops. Non-public destinations (loopback, private, link-local, CGNAT,
+multicast, reserved, NAT64, 6to4, local hostnames such as `localhost` and
+`*.local`) are blocked even under `*`: direct requests resolve the host and
+dial the validated IP; requests with `proxy_url` check the hostname and IP
+literals only, because the proxy resolves the target.
 
 `timeout_ms` bounds the whole exchange, including the response body: a stream
 running longer than `timeout_ms` ends with a transport fault. Streaming
@@ -1886,7 +1892,9 @@ Return behavior: mistyped and out-of-range values fail install. Absent means
 
 ## Sandbox limits
 
-High-level description: fresh Lua state per call, pooled and rebound.
+High-level description: one Lua state per call, taken from a per-plugin pool
+and rebound. Module-level globals a plugin creates survive into later calls
+of the same plugin; per-call state belongs in locals or `storage`.
 
 API surface:
 

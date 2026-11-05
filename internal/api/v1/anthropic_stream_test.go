@@ -96,3 +96,18 @@ func TestAnthropicStreamWriter_FragmentedFrames(t *testing.T) {
 		}
 	}
 }
+
+// A virtual request streams member chunks stamped with the member id: the
+// Anthropic message_start must name that member, not the requested virtual.
+func TestAnthropicStreamWriter_MessageStartNamesAnsweringModel(t *testing.T) {
+	var builder strings.Builder
+	translatedWriter := newAnthropicStreamWriter(&builder, nil, "virtual/group")
+	chunk := `{"id":"c1","object":"chat.completion.chunk","created":1,"model":"google/gemini-2.5-flash","choices":[{"index":0,"delta":{"content":"hi"}}]}`
+	if _, err := translatedWriter.Write([]byte("data: " + chunk + "\n\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	transcript := builder.String()
+	if !strings.Contains(transcript, `"model":"google/gemini-2.5-flash"`) || strings.Contains(transcript, "virtual/group") {
+		t.Fatalf("message_start must name the answering model: %q", transcript)
+	}
+}

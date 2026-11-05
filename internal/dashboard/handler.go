@@ -89,6 +89,8 @@ type Handler struct {
 	// requestShutdown signals graceful shutdown when the admin
 	// shutdown endpoint fires. Never called on public requests.
 	requestShutdown func()
+	// loginLimiter throttles repeated failed logins (built in New).
+	loginLimiter *loginLimiter
 
 	// devRedirect, when set, is the origin (e.g. "http://localhost:8080")
 	// that browser navigations are 302-redirected to instead of being
@@ -205,12 +207,6 @@ func (h *Handler) RegisterAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/llm-router/dashboard/virtual-models/{id}", h.requireAuth(h.apiVirtualModelsGet))
 	mux.HandleFunc("PUT /api/llm-router/dashboard/virtual-models/{id}", h.requireAuth(h.apiVirtualModelsUpdate))
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/virtual-models/{id}", h.requireAuth(h.apiVirtualModelsDelete))
-	// Deprecated agents aliases: same handlers, removed once the frontend migrates.
-	mux.HandleFunc("GET /api/llm-router/dashboard/agents", h.requireAuth(h.apiVirtualModelsList))
-	mux.HandleFunc("POST /api/llm-router/dashboard/agents", h.requireAuth(h.apiVirtualModelsCreate))
-	mux.HandleFunc("GET /api/llm-router/dashboard/agents/{id}", h.requireAuth(h.apiVirtualModelsGet))
-	mux.HandleFunc("PUT /api/llm-router/dashboard/agents/{id}", h.requireAuth(h.apiVirtualModelsUpdate))
-	mux.HandleFunc("DELETE /api/llm-router/dashboard/agents/{id}", h.requireAuth(h.apiVirtualModelsDelete))
 
 	// Metrics APIs
 	mux.HandleFunc("GET /api/llm-router/dashboard/metrics/overview", h.requireAuth(h.apiMetricsOverview))

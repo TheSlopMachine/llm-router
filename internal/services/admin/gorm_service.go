@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	stdErrors "errors"
@@ -34,6 +35,10 @@ const instanceRowID int64 = 1
 type GormService struct {
 	database *db.Database
 	logger   *slog.Logger
+	// bootstrapped caches a true flag: the instance never returns to the
+	// unbootstrapped state, so once observed every later check (one per
+	// public request) skips the database.
+	bootstrapped atomic.Bool
 }
 
 // NewGorm constructs a GORM-backed admin service on the SQLite handle.
@@ -83,7 +88,7 @@ func (s *GormService) Bootstrap(ctx context.Context, username, password string) 
 			return err
 		}
 		if settings.Bootstrapped {
-			return fmt.Errorf("already bootstrapped")
+			return ErrAlreadyBootstrapped
 		}
 		row := adminUserRecordFromModel(user)
 		rows := []record.AdminUser{row}
@@ -100,12 +105,17 @@ func (s *GormService) Bootstrap(ctx context.Context, username, password string) 
 		}
 		return err
 	}
+	s.bootstrapped.Store(true)
 	return nil
 }
 
 // IsBootstrapped returns true once the admin account has been created.
-// A missing settings row reads as not bootstrapped.
+// A missing settings row reads as not bootstrapped. A true answer is
+// cached: the flag never clears.
 func (s *GormService) IsBootstrapped(ctx context.Context) (bool, error) {
+	if s != nil && s.bootstrapped.Load() {
+		return true, nil
+	}
 	if _, err := s.requireHandle(); err != nil {
 		if s.logger != nil {
 			s.logger.Error("Check bootstrapped failed", "error", err)
@@ -125,6 +135,9 @@ func (s *GormService) IsBootstrapped(ctx context.Context) (bool, error) {
 			s.logger.Error("Check bootstrapped failed", "error", err)
 		}
 		return false, err
+	}
+	if bootstrapped {
+		s.bootstrapped.Store(true)
 	}
 	return bootstrapped, nil
 }
@@ -284,72 +297,6 @@ func (s *GormService) CreateLogin(ctx context.Context, username, password string
 	return nil
 }
 
-// DeleteUser removes an operator account and its sessions. Sessions live
-// in the cache file under a soft username reference, so they delete
-// explicitly: orphaned rows would otherwise stay valid. Removing the last
-// remaining account denies; a bootstrapped instance with no logins locks
-// every operator out. The sessions delete runs before the user delete so
-// a failed user delete never orphans valid sessions.
-func (s *GormService) DeleteUser(ctx context.Context, username string) error {
-	username = strings.TrimSpace(username)
-	if username == "" {
-		if s.logger != nil {
-			s.logger.Warn("Delete login validation failed", "username", username, "error", apierrors.NewValidationError("username", "must not be empty"))
-		}
-		return apierrors.NewValidationError("username", "must not be empty")
-	}
-	if _, err := s.requireHandle(); err != nil {
-		if s.logger != nil {
-			s.logger.Error("Delete login failed", "username", username, "error", err)
-		}
-		return err
-	}
-	if _, err := gorm.G[record.AdminUser](s.database.Handle, clause.Eq{Column: "username", Value: username}).First(ctx); err != nil {
-		notFound := apierrors.NewNotFoundError("admin account", username)
-		if s.logger != nil {
-			s.logger.Warn("Admin account not found", "username", username, "error", notFound)
-		}
-		return notFound
-	}
-	count, err := gorm.G[record.AdminUser](s.database.Handle).Count(ctx, "*")
-	if err != nil {
-		translated := db.Translate(err)
-		if s.logger != nil {
-			s.logger.Error("Delete login failed", "username", username, "error", translated)
-		}
-		return translated
-	}
-	if count <= 1 {
-		err := fmt.Errorf("cannot remove the last admin account: %w", apierrors.ErrInvalidInput)
-		if s.logger != nil {
-			s.logger.Warn("Delete login denied", "username", username, "error", err)
-		}
-		return err
-	}
-	if err := s.database.Cache.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
-		_, err := gorm.G[record.Session](transaction, clause.Eq{Column: "username", Value: username}).Delete(ctx)
-		return db.Translate(err)
-	}); err != nil {
-		if s.logger != nil {
-			s.logger.Error("Delete login failed", "username", username, "error", err)
-		}
-		return err
-	}
-	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
-		_, err := gorm.G[record.AdminUser](transaction, clause.Eq{Column: "username", Value: username}).Delete(ctx)
-		return db.Translate(err)
-	}); err != nil {
-		if s.logger != nil {
-			s.logger.Error("Delete login failed", "username", username, "error", err)
-		}
-		return err
-	}
-	if s.logger != nil {
-		s.logger.Info("Admin login deleted", "username", username)
-	}
-	return nil
-}
-
 // ResetPassword stores a new hash for the named account without asking
 // for the current password. Local database access is root-equivalent:
 // this path serves CLI operators, never the dashboard. A missing account
@@ -427,6 +374,13 @@ func (s *GormService) Login(ctx context.Context, username, password string, reme
 	}
 	row, err := gorm.G[record.AdminUser](s.database.Handle, clause.Eq{Column: "username", Value: username}).First(ctx)
 	if err != nil {
+		_ = bcrypt.CompareHashAndPassword(timingEqualizerHash, []byte(password))
+		if translated := db.Translate(err); !stdErrors.Is(translated, apierrors.ErrNotFound) {
+			if s.logger != nil {
+				s.logger.Error("Login failed", "username", username, "error", translated)
+			}
+			return "", time.Time{}, translated
+		}
 		if s.logger != nil {
 			s.logger.Warn("Invalid credentials", "username", username)
 		}

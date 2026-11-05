@@ -47,63 +47,63 @@ type Handler struct {
 // router token: discovery endpoints included, so anonymous listing can no
 // longer leak provider inventory.
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /v1/chat/completions", h.auth(h.chatCompletions, false))
-	mux.HandleFunc("POST /v1/completions", h.auth(h.legacyCompletions, false))
-	mux.HandleFunc("POST /v1/audio/transcriptions", h.auth(h.audioTranscriptions, false))
-	mux.HandleFunc("POST /v1/audio/translations", h.auth(h.audioTranslations, false))
-	mux.HandleFunc("POST /v1/audio/speech", h.auth(h.audioSpeech, false))
-	mux.HandleFunc("POST /v1/images/generations", h.auth(h.imageGenerations, false))
-	mux.HandleFunc("POST /v1/images/edits", h.auth(h.imageEdits, false))
-	mux.HandleFunc("POST /v1/images/variations", h.auth(h.imageVariations, false))
-	mux.HandleFunc("POST /v1/embeddings", h.auth(h.embeddings, false))
-	mux.HandleFunc("POST /v1/moderations", h.auth(h.moderations, false))
-	mux.HandleFunc("POST /v1/videos", h.auth(h.submitVideo, false))
-	mux.HandleFunc("GET /v1/videos/models", h.auth(h.listVideoModels, false))
-	mux.HandleFunc("GET /v1/videos/{jobId}", h.auth(h.pollVideo, false))
-	mux.HandleFunc("GET /v1/videos/{jobId}/content", h.auth(h.videoContent, false))
-	mux.HandleFunc("POST /v1/messages", h.auth(h.anthropicMessages, false))
-	mux.HandleFunc("POST /v1/messages/count_tokens", h.auth(h.anthropicCountTokens, false))
-	mux.HandleFunc("POST /v1/complete", h.auth(h.anthropicComplete, false))
-	mux.HandleFunc("POST /v1/messages/batches", h.auth(h.createBatch, false))
-	mux.HandleFunc("GET /v1/messages/batches", h.auth(h.listBatches, false))
-	mux.HandleFunc("GET /v1/messages/batches/{batch_id}", h.auth(h.getBatch, false))
-	mux.HandleFunc("GET /v1/messages/batches/{batch_id}/results", h.auth(h.getBatchResults, false))
-	mux.HandleFunc("POST /v1/messages/batches/{batch_id}/cancel", h.auth(h.cancelBatch, false))
-	mux.HandleFunc("DELETE /v1/messages/batches/{batch_id}", h.auth(h.deleteBatch, false))
-	mux.HandleFunc("POST /v1/responses", h.auth(h.createResponse, false))
-	mux.HandleFunc("GET /v1/responses/{response_id}", h.auth(h.getResponse, false))
-	mux.HandleFunc("POST /v1/responses/{response_id}/cancel", h.auth(h.cancelResponse, false))
-	mux.HandleFunc("GET /v1/responses/{response_id}/input_items", h.auth(h.listResponseInputItems, false))
-	mux.HandleFunc("POST /v1/responses/compact", h.auth(h.compactResponse, false))
-	mux.HandleFunc("POST /v1/responses/input_tokens", h.auth(h.countResponseInputTokens, false))
-	mux.HandleFunc("POST /v1/conversations", h.auth(h.createConversation, false))
-	mux.HandleFunc("GET /v1/conversations/{conversation_id}", h.auth(h.getConversation, false))
-	mux.HandleFunc("DELETE /v1/conversations/{conversation_id}", h.auth(h.deleteConversation, false))
-	mux.HandleFunc("GET /v1/conversations/{conversation_id}/items", h.auth(h.listConversationItems, false))
-	mux.HandleFunc("POST /v1/conversations/{conversation_id}/items", h.auth(h.createConversationItems, false))
-	mux.HandleFunc("POST /v1/assistants", h.auth(h.createAssistant, false))
-	mux.HandleFunc("GET /v1/assistants", h.auth(h.listAssistants, false))
-	mux.HandleFunc("GET /v1/assistants/{assistant_id}", h.auth(h.getAssistant, false))
-	mux.HandleFunc("POST /v1/assistants/{assistant_id}", h.auth(h.updateAssistant, false))
-	mux.HandleFunc("DELETE /v1/assistants/{assistant_id}", h.auth(h.deleteAssistant, false))
-	mux.HandleFunc("POST /v1/threads", h.auth(h.createThread, false))
-	mux.HandleFunc("GET /v1/threads/{thread_id}", h.auth(h.getThread, false))
-	mux.HandleFunc("POST /v1/threads/{thread_id}", h.auth(h.updateThread, false))
-	mux.HandleFunc("DELETE /v1/threads/{thread_id}", h.auth(h.deleteThread, false))
-	mux.HandleFunc("POST /v1/threads/{thread_id}/messages", h.auth(h.createThreadMessage, false))
-	mux.HandleFunc("GET /v1/threads/{thread_id}/messages", h.auth(h.listThreadMessages, false))
-	mux.HandleFunc("GET /v1/threads/{thread_id}/messages/{message_id}", h.auth(h.getThreadMessage, false))
-	mux.HandleFunc("POST /v1/threads/{thread_id}/runs", h.auth(h.createRun, false))
-	mux.HandleFunc("GET /v1/threads/{thread_id}/runs", h.auth(h.listRuns, false))
-	mux.HandleFunc("GET /v1/threads/{thread_id}/runs/{run_id}", h.auth(h.getRun, false))
-	mux.HandleFunc("POST /v1/threads/{thread_id}/runs/{run_id}/cancel", h.auth(h.cancelRun, false))
-	mux.HandleFunc("POST /v1/threads/{thread_id}/runs/{run_id}/submit_tool_outputs", h.auth(h.submitRunToolOutputs, false))
-	mux.HandleFunc("GET /v1/models", h.auth(h.listModels, false))
-	mux.HandleFunc("HEAD /v1/models", h.auth(h.listModels, false))
-	mux.HandleFunc("OPTIONS /v1/models", h.auth(h.listModels, false))
-	mux.HandleFunc("GET /v1/models/{model}", h.auth(h.retrieveModel, false))
-	mux.HandleFunc("HEAD /v1/models/{model}", h.auth(h.retrieveModel, false))
-	mux.HandleFunc("OPTIONS /v1/models/{model}", h.auth(h.retrieveModel, false))
+	mux.HandleFunc("POST /v1/chat/completions", h.auth(h.chatCompletions))
+	mux.HandleFunc("POST /v1/completions", h.auth(h.legacyCompletions))
+	mux.HandleFunc("POST /v1/audio/transcriptions", h.auth(h.audioTranscriptions))
+	mux.HandleFunc("POST /v1/audio/translations", h.auth(h.audioTranslations))
+	mux.HandleFunc("POST /v1/audio/speech", h.auth(h.audioSpeech))
+	mux.HandleFunc("POST /v1/images/generations", h.auth(h.imageGenerations))
+	mux.HandleFunc("POST /v1/images/edits", h.auth(h.imageEdits))
+	mux.HandleFunc("POST /v1/images/variations", h.auth(h.imageVariations))
+	mux.HandleFunc("POST /v1/embeddings", h.auth(h.embeddings))
+	mux.HandleFunc("POST /v1/moderations", h.auth(h.moderations))
+	mux.HandleFunc("POST /v1/videos", h.auth(h.submitVideo))
+	mux.HandleFunc("GET /v1/videos/models", h.auth(h.listVideoModels))
+	mux.HandleFunc("GET /v1/videos/{jobId}", h.auth(h.pollVideo))
+	mux.HandleFunc("GET /v1/videos/{jobId}/content", h.auth(h.videoContent))
+	mux.HandleFunc("POST /v1/messages", h.auth(h.anthropicMessages))
+	mux.HandleFunc("POST /v1/messages/count_tokens", h.auth(h.anthropicCountTokens))
+	mux.HandleFunc("POST /v1/complete", h.auth(h.anthropicComplete))
+	mux.HandleFunc("POST /v1/messages/batches", h.auth(h.createBatch))
+	mux.HandleFunc("GET /v1/messages/batches", h.auth(h.listBatches))
+	mux.HandleFunc("GET /v1/messages/batches/{batch_id}", h.auth(h.getBatch))
+	mux.HandleFunc("GET /v1/messages/batches/{batch_id}/results", h.auth(h.getBatchResults))
+	mux.HandleFunc("POST /v1/messages/batches/{batch_id}/cancel", h.auth(h.cancelBatch))
+	mux.HandleFunc("DELETE /v1/messages/batches/{batch_id}", h.auth(h.deleteBatch))
+	mux.HandleFunc("POST /v1/responses", h.auth(h.createResponse))
+	mux.HandleFunc("GET /v1/responses/{response_id}", h.auth(h.getResponse))
+	mux.HandleFunc("POST /v1/responses/{response_id}/cancel", h.auth(h.cancelResponse))
+	mux.HandleFunc("GET /v1/responses/{response_id}/input_items", h.auth(h.listResponseInputItems))
+	mux.HandleFunc("POST /v1/responses/compact", h.auth(h.compactResponse))
+	mux.HandleFunc("POST /v1/responses/input_tokens", h.auth(h.countResponseInputTokens))
+	mux.HandleFunc("POST /v1/conversations", h.auth(h.createConversation))
+	mux.HandleFunc("GET /v1/conversations/{conversation_id}", h.auth(h.getConversation))
+	mux.HandleFunc("DELETE /v1/conversations/{conversation_id}", h.auth(h.deleteConversation))
+	mux.HandleFunc("GET /v1/conversations/{conversation_id}/items", h.auth(h.listConversationItems))
+	mux.HandleFunc("POST /v1/conversations/{conversation_id}/items", h.auth(h.createConversationItems))
+	mux.HandleFunc("POST /v1/assistants", h.auth(h.createAssistant))
+	mux.HandleFunc("GET /v1/assistants", h.auth(h.listAssistants))
+	mux.HandleFunc("GET /v1/assistants/{assistant_id}", h.auth(h.getAssistant))
+	mux.HandleFunc("POST /v1/assistants/{assistant_id}", h.auth(h.updateAssistant))
+	mux.HandleFunc("DELETE /v1/assistants/{assistant_id}", h.auth(h.deleteAssistant))
+	mux.HandleFunc("POST /v1/threads", h.auth(h.createThread))
+	mux.HandleFunc("GET /v1/threads/{thread_id}", h.auth(h.getThread))
+	mux.HandleFunc("POST /v1/threads/{thread_id}", h.auth(h.updateThread))
+	mux.HandleFunc("DELETE /v1/threads/{thread_id}", h.auth(h.deleteThread))
+	mux.HandleFunc("POST /v1/threads/{thread_id}/messages", h.auth(h.createThreadMessage))
+	mux.HandleFunc("GET /v1/threads/{thread_id}/messages", h.auth(h.listThreadMessages))
+	mux.HandleFunc("GET /v1/threads/{thread_id}/messages/{message_id}", h.auth(h.getThreadMessage))
+	mux.HandleFunc("POST /v1/threads/{thread_id}/runs", h.auth(h.createRun))
+	mux.HandleFunc("GET /v1/threads/{thread_id}/runs", h.auth(h.listRuns))
+	mux.HandleFunc("GET /v1/threads/{thread_id}/runs/{run_id}", h.auth(h.getRun))
+	mux.HandleFunc("POST /v1/threads/{thread_id}/runs/{run_id}/cancel", h.auth(h.cancelRun))
+	mux.HandleFunc("POST /v1/threads/{thread_id}/runs/{run_id}/submit_tool_outputs", h.auth(h.submitRunToolOutputs))
+	mux.HandleFunc("GET /v1/models", h.auth(h.listModels))
+	mux.HandleFunc("HEAD /v1/models", h.auth(h.listModels))
+	mux.HandleFunc("OPTIONS /v1/models", h.auth(h.listModels))
+	mux.HandleFunc("GET /v1/models/{model}", h.auth(h.retrieveModel))
+	mux.HandleFunc("HEAD /v1/models/{model}", h.auth(h.retrieveModel))
+	mux.HandleFunc("OPTIONS /v1/models/{model}", h.auth(h.retrieveModel))
 	// Fallback for unknown paths - always JSON, never SPA/redirect
 	// Also handles slashed ModelIds like kiro/claude-haiku-4.5 via notFound delegation
 	mux.HandleFunc("/", h.notFoundWithModelFallback)
@@ -170,7 +170,7 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request, token 
 	if err == nil && response != nil {
 		usage = &response.Usage
 	}
-	h.recordRouteMetric(r.Context(), start, request.Model, token, duration, err, usage)
+	h.recordRouteMetric(r.Context(), start, answeredModel(request.Model, response), token, duration, err, usage)
 
 	if err != nil {
 		h.logRouterFailure(r, request.Model, err)
@@ -202,16 +202,8 @@ const maxAudioUploadBytes = 32 << 20
 // @Security     BearerAuth
 func (h *Handler) audioTranscriptions(w http.ResponseWriter, r *http.Request, token *models.RouterToken) {
 	start := time.Now()
-	request, err := parseTranscriptionRequest(r)
-	if err != nil {
-		h.logValidationFailure(r, "", "invalid_request_error")
-		h.writeError(w, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
-		return
-	}
-
-	if deny := authorizeModel(token, request.Model); deny != nil {
-		h.logDenyFailure(r, request.Model, deny)
-		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
+	request, ok := h.readTranscriptionRequest(w, r, token)
+	if !ok {
 		return
 	}
 
@@ -229,17 +221,48 @@ func (h *Handler) audioTranscriptions(w http.ResponseWriter, r *http.Request, to
 	h.writeTranscriptionResponse(w, request.ResponseFormat, response)
 }
 
+// readTranscriptionRequest parses an STT body, applies the token rules and
+// only then loads deferred URL audio. It writes the error response itself;
+// ok=false means the handler stops.
+func (h *Handler) readTranscriptionRequest(w http.ResponseWriter, r *http.Request, token *models.RouterToken) (*models.TranscriptionRequest, bool) {
+	request, loadAudio, err := parseTranscriptionRequest(r)
+	if err != nil {
+		h.logValidationFailure(r, "", "invalid_request_error")
+		h.writeError(w, http.StatusBadRequest, "invalid_request_error", err.Error(), nil)
+		return nil, false
+	}
+	if deny := authorizeModel(token, request.Model); deny != nil {
+		h.logDenyFailure(r, request.Model, deny)
+		h.writeError(w, deny.status, deny.code, deny.message, deny.parameter)
+		return nil, false
+	}
+	if loadAudio != nil {
+		if err := loadAudio(r); err != nil {
+			h.logValidationFailure(r, request.Model, "invalid_request_error")
+			h.writeError(w, http.StatusBadRequest, "invalid_request_error", err.Error(), stringPointer("input_audio.data"))
+			return nil, false
+		}
+	}
+	return request, true
+}
+
 // parseTranscriptionRequest reads the multipart body of
 // POST /v1/audio/transcriptions into a TranscriptionRequest. The OpenRouter
 // JSON variant (model plus input_audio{data,format}, data base64 or URL) is
 // accepted by translation: URLs download under the same size cap.
-func parseTranscriptionRequest(r *http.Request) (*models.TranscriptionRequest, error) {
+func parseTranscriptionRequest(r *http.Request) (*models.TranscriptionRequest, audioLoader, error) {
 	if contentType := r.Header.Get("Content-Type"); !strings.HasPrefix(contentType, "multipart/form-data") {
 		if strings.HasPrefix(contentType, "application/json") {
 			return parseJSONTranscriptionRequest(r)
 		}
-		return nil, fmt.Errorf("Content-Type must be multipart/form-data")
+		return nil, nil, fmt.Errorf("Content-Type must be multipart/form-data")
 	}
+	request, err := parseMultipartTranscriptionRequest(r)
+	return request, nil, err
+}
+
+// parseMultipartTranscriptionRequest reads the multipart upload variant.
+func parseMultipartTranscriptionRequest(r *http.Request) (*models.TranscriptionRequest, error) {
 	r.Body = http.MaxBytesReader(nil, r.Body, maxAudioUploadBytes)
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
 		return nil, fmt.Errorf("malformed multipart body: %s", err)
@@ -610,7 +633,7 @@ func (h *Handler) anthropicMessages(w http.ResponseWriter, r *http.Request, toke
 	if err == nil && response != nil {
 		usage = &response.Usage
 	}
-	h.recordRouteMetric(r.Context(), start, chatRequest.Model, token, duration, err, usage)
+	h.recordRouteMetric(r.Context(), start, answeredModel(chatRequest.Model, response), token, duration, err, usage)
 
 	if err != nil {
 		h.logRouterFailure(r, chatRequest.Model, err)
@@ -618,101 +641,100 @@ func (h *Handler) anthropicMessages(w http.ResponseWriter, r *http.Request, toke
 		return
 	}
 	echoAnthropicVersion(w, r)
-	h.writeJSON(w, http.StatusOK, anthropicFromOpenAI(response, request.Model))
+	// The router stamps the answering model (a virtual request reports its
+	// member), so the Anthropic envelope names it too.
+	h.writeJSON(w, http.StatusOK, anthropicFromOpenAI(response, response.Model))
 }
 
 // anthropicStream serves POST /v1/messages with stream=true: the OpenAI
 // chunk stream is translated into Anthropic events.
 func (h *Handler) anthropicStream(w http.ResponseWriter, r *http.Request, chatRequest *models.ChatCompletionRequest, token *models.RouterToken, start time.Time) {
-	flusher, ok := w.(http.Flusher)
+	stream, ok := h.openStream(w, r, chatRequest.Model)
 	if !ok {
-		if h.logger != nil {
-			h.logger.Error("Streaming not supported",
-				"endpoint", endpointFromRequest(r),
-				"code", apierrors.CodeServerError,
-				"model", string(chatRequest.Model))
-		}
-		h.writeError(w, http.StatusInternalServerError, "server_error", "streaming is not supported by this server", nil)
 		return
 	}
-
-	httpkit.WriteSSEHeaders(w)
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
-
-	translatedWriter := newAnthropicStreamWriter(w, flusher, chatRequest.Model.String())
-	err := h.router.CompleteStream(r.Context(), chatRequest, translatedWriter, token)
-	duration := time.Since(start)
-
-	providerID, _ := h.router.GetProviderIDForModel(r.Context(), chatRequest.Model)
-	tokenID := ""
-	if token != nil {
-		tokenID = token.ID
+	// Order: router -> usage tap (OpenAI frames) -> Anthropic translator -> stream.
+	translatedWriter := newAnthropicStreamWriter(stream, stream, chatRequest.Model.String())
+	tap := NewStreamMetricsTap(translatedWriter, stream)
+	err := h.router.CompleteStream(r.Context(), chatRequest, tap, token)
+	if err != nil && !stream.Started() {
+		h.recordRouteMetric(r.Context(), start, chatRequest.Model, token, time.Since(start), err, nil)
+		h.logRouterFailure(r, chatRequest.Model, err)
+		h.handleCompatRouterError(w, r, err)
+		return
 	}
-
 	if err != nil {
-		if h.logger != nil {
-			h.logger.Error("Anthropic stream error",
-				"endpoint", endpointFromRequest(r),
-				"code", apierrors.ToAPIError(err).Code,
-				"model", string(chatRequest.Model),
-				"provider_id", providerID,
-				"error", err)
-		}
+		h.logStreamFailure(r, chatRequest.Model, err)
 		_ = translatedWriter.emit("error", map[string]any{
 			"type":  "error",
-			"error": map[string]any{"type": "api_error", "message": err.Error()},
+			"error": map[string]any{"type": "api_error", "message": WireMessage(err)},
 		})
 	}
-	h.metrics.RecordRequest(BuildStreamMetricEvent(start, chatRequest.Model, providerID, tokenID, duration, err))
+	h.recordStreamMetric(r, start, tap.Model(chatRequest.Model), token, err, tap.Usage())
 }
 
-// handleStreamWithMetrics wraps streaming with metrics collection.
+// handleStreamWithMetrics serves POST /v1/chat/completions with stream=true.
+// A failure before the first byte answers with its real status and JSON
+// envelope; after that it arrives as an SSE error frame.
 func (h *Handler) handleStreamWithMetrics(w http.ResponseWriter, r *http.Request, request *models.ChatCompletionRequest, token *models.RouterToken, start time.Time) {
-	flusher, ok := w.(http.Flusher)
+	stream, ok := h.openStream(w, r, request.Model)
 	if !ok {
-		if h.logger != nil {
-			h.logger.Error("Streaming not supported",
-				"endpoint", endpointFromRequest(r),
-				"code", apierrors.CodeServerError,
-				"model", string(request.Model))
-		}
-		h.writeError(w, http.StatusInternalServerError, "server_error", "streaming is not supported by this server", nil)
 		return
 	}
+	tap := NewStreamMetricsTap(stream, stream)
+	err := h.router.CompleteStream(r.Context(), request, tap, token)
+	if err != nil && !stream.Started() {
+		h.recordRouteMetric(r.Context(), start, request.Model, token, time.Since(start), err, nil)
+		h.logRouterFailure(r, request.Model, err)
+		h.handleRouterError(w, err)
+		return
+	}
+	if err != nil {
+		h.logStreamFailure(r, request.Model, err)
+		WriteOpenAIStreamError(stream, stream, err)
+	}
+	h.recordStreamMetric(r, start, tap.Model(request.Model), token, err, tap.Usage())
+}
 
-	httpkit.WriteSSEHeaders(w)
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
+// openStream wraps w in the deferred-commit stream writer. A writer that
+// cannot flush answers 500 and reports ok=false.
+func (h *Handler) openStream(w http.ResponseWriter, r *http.Request, model models.ModelId) (*httpkit.StreamWriter, bool) {
+	stream, ok := httpkit.NewStreamWriter(w)
+	if ok {
+		return stream, true
+	}
+	if h.logger != nil {
+		h.logger.Error("Streaming not supported",
+			"endpoint", endpointFromRequest(r),
+			"code", apierrors.CodeServerError,
+			"model", string(model))
+	}
+	h.writeError(w, http.StatusInternalServerError, "server_error", "streaming is not supported by this server", nil)
+	return nil, false
+}
 
-	err := h.router.CompleteStream(r.Context(), request, w, token)
-	duration := time.Since(start)
+// logStreamFailure records a failure after the stream committed.
+func (h *Handler) logStreamFailure(r *http.Request, model models.ModelId, err error) {
+	if h.logger == nil {
+		return
+	}
+	providerID, _ := h.router.GetProviderIDForModel(r.Context(), model)
+	h.logger.Error("Stream error",
+		"endpoint", endpointFromRequest(r),
+		"code", apierrors.ToAPIError(err).Code,
+		"model", string(model),
+		"provider_id", providerID,
+		"error", err)
+}
 
-	// Extract provider info
-	providerID, _ := h.router.GetProviderIDForModel(r.Context(), request.Model)
-
-	// Build metric event
+// recordStreamMetric records one committed stream with the usage it carried.
+func (h *Handler) recordStreamMetric(r *http.Request, start time.Time, model models.ModelId, token *models.RouterToken, err error, usage *models.ChatCompletionUsage) {
+	providerID, _ := h.router.GetProviderIDForModel(r.Context(), model)
 	tokenID := ""
 	if token != nil {
 		tokenID = token.ID
 	}
-
-	if err != nil {
-		if h.logger != nil {
-			h.logger.Error("Stream error",
-				"endpoint", endpointFromRequest(r),
-				"code", apierrors.ToAPIError(err).Code,
-				"model", string(request.Model),
-				"provider_id", providerID,
-				"error", err)
-		}
-
-		// Send error in OpenAI-compatible format as SSE event
-		WriteOpenAIStreamError(w, flusher, err)
-	}
-
-	// Record metrics
-	h.metrics.RecordRequest(BuildStreamMetricEvent(start, request.Model, providerID, tokenID, duration, err))
+	h.metrics.RecordRequest(BuildStreamMetricEvent(start, model, providerID, tokenID, time.Since(start), err, usage))
 }
 
 // listModels handles GET /v1/models - token-filtered discovery listing.
@@ -1202,7 +1224,7 @@ func (h *Handler) notFound(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) notFoundWithModelFallback(w http.ResponseWriter, r *http.Request) {
 	// Handle slashed ModelIds like kiro/claude-haiku-4.5 which don't match {model} pattern
 	if strings.HasPrefix(r.URL.Path, "/v1/models/") && r.URL.Path != "/v1/models/" {
-		h.auth(h.retrieveModel, false)(w, r)
+		h.auth(h.retrieveModel)(w, r)
 		return
 	}
 	h.notFound(w, r)
@@ -1217,23 +1239,15 @@ type authenticatedHandler func(w http.ResponseWriter, r *http.Request, token *mo
 // auth extracts and validates the router token. Authorization: Bearer
 // llmr_* and the x-api-key: llmr_* alias (Anthropic SDK style) both work on
 // every /v1 route. Requests from the admin listener skip validation and
-// route with a nil token. allowAnonymous stays for the whitelisted probes
-// only; production routes pass false.
-func (h *Handler) auth(next authenticatedHandler, allowAnonymous bool) http.HandlerFunc {
+// route with a nil token; every public request needs a valid token.
+func (h *Handler) auth(next authenticatedHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if requestsource.SourceFromContext(r.Context()) == requestsource.RequestSourcePrivate {
 			next(w, r, nil)
 			return
 		}
 		raw := extractToken(r)
-
-		// Whitelisted safe paths allow missing token
 		if raw == "" {
-			if allowAnonymous {
-				// Anonymous access - pass nil token (handlers must handle nil)
-				next(w, r, nil)
-				return
-			}
 			h.logAuthenticationFailure(r, "invalid_request_error")
 			h.writeError(w, http.StatusUnauthorized, "invalid_request_error", "You didn't provide an API key. Provide it in an Authorization: Bearer header or an x-api-key header.", stringPointer("Authorization"))
 			return
@@ -1243,7 +1257,7 @@ func (h *Handler) auth(next authenticatedHandler, allowAnonymous bool) http.Hand
 		if err != nil {
 			if errors.Is(err, apierrors.ErrUnauthorized) {
 				h.logAuthenticationFailure(r, "invalid_request_error")
-				h.writeError(w, http.StatusUnauthorized, "invalid_request_error", "Incorrect API key provided. You can find your API key at https://platform.openai.com/account/api-keys.", nil)
+				h.writeError(w, http.StatusUnauthorized, "invalid_request_error", "Incorrect API key provided. Use a router token created in the llm-router dashboard.", nil)
 				return
 			}
 			h.logTokenValidationFailure(r, err)
@@ -1292,7 +1306,7 @@ func (h *Handler) handleRouterError(w http.ResponseWriter, err error) {
 	// for the Anthropic translation.
 	routerError := h.classifyError(err)
 	apierrors.WriteResponseHeaders(w, pluginResponseHeaders(err))
-	h.writeError(w, routerError.status, routerError.code, wireMessage(err), nil)
+	h.writeError(w, routerError.status, routerError.code, WireMessage(err), nil)
 }
 
 // pluginResponseHeaders returns the sanitized response headers a plugin
@@ -1306,9 +1320,10 @@ func pluginResponseHeaders(err error) map[string]string {
 	return nil
 }
 
-// wireMessage renders the client-facing message: the raw plugin message
-// for terminal provider errors, the Go error otherwise.
-func wireMessage(err error) string {
+// WireMessage renders the client-facing message: the raw plugin message
+// for terminal provider errors, the router-authored sentinel text otherwise.
+// Every edge (v1 unary, v1 streams, dashboard chat) renders through it.
+func WireMessage(err error) string {
 	var providerError *models.ProviderError
 	if errors.As(err, &providerError) && providerError.Message != "" {
 		return providerError.Message

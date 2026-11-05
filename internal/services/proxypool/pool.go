@@ -17,6 +17,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/db"
 	"github.com/TheSlopMachine/llm-router/internal/db/record"
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/netguard"
 	proxypoollib "github.com/TheSlopMachine/proxypool"
 )
 
@@ -806,12 +807,17 @@ func sourceDisplayName(key string) string {
 	return key
 }
 
-// candidateURL validates one Lua feed candidate: http/https/socks4/socks5
-// endpoints with optional userinfo credentials. Anything else counts as
-// unsupported.
+// candidateURL validates one feed or import candidate: http/https/socks4/
+// socks5 endpoints with optional userinfo credentials on a public host.
+// Feeds are third-party data: a candidate inside the host network would turn
+// health checks into an internal port scan and hand plugins a route around
+// allow_host. Anything else counts as unsupported.
 func candidateURL(candidate Candidate) (string, bool) {
 	parsedURL, err := url.Parse(candidate.URL)
 	if err != nil || parsedURL.Hostname() == "" {
+		return "", false
+	}
+	if _, public := netguard.PublicHostLiteral(parsedURL.Hostname()); !public {
 		return "", false
 	}
 	switch strings.ToLower(parsedURL.Scheme) {
@@ -820,4 +826,34 @@ func candidateURL(candidate Candidate) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// ErrProxyNotAdmitted reports a proxy URL that no router pool holds.
+var ErrProxyNotAdmitted = errors.New("proxy URL is not held by any router pool")
+
+// AdmitProxyURL accepts a plugin proxy_url only when a router pool holds it:
+// the free pool cache (public candidates only) or a custom pool entry
+// (operator-configured, so private addresses there stay valid).
+func (s *Service) AdmitProxyURL(ctx context.Context, proxyURL string) error {
+	if s == nil {
+		return ErrProxyNotAdmitted
+	}
+	if s.cache != nil {
+		if _, ok := s.cache.Get(proxyURL); ok {
+			return nil
+		}
+	}
+	pools, err := s.ListCustomPools(ctx)
+	if err != nil {
+		return fmt.Errorf("list custom proxy pools: %w", err)
+	}
+	for _, customPool := range pools {
+		for _, entry := range customPool.Entries {
+			if entry.URL == proxyURL {
+				return nil
+			}
+		}
+	}
+	s.currentLogger().Warn("Denying unknown plugin proxy", "proxy_url", redactProxyURL(proxyURL), "reason", "proxy_not_admitted")
+	return ErrProxyNotAdmitted
 }

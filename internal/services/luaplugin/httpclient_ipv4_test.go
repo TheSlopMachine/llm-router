@@ -7,15 +7,11 @@ import (
 )
 
 type stubIPResolver struct {
-	ipNetwork         string
-	ipHost            string
-	ips               []net.IP
-	ipErr             error
-	addrHost          string
-	addrs             []net.IPAddr
-	addrErr           error
-	lookupIPCalls     int
-	lookupIPAddrCalls int
+	ipNetwork     string
+	ipHost        string
+	ips           []net.IP
+	ipErr         error
+	lookupIPCalls int
 }
 
 func (r *stubIPResolver) LookupIP(_ context.Context, network, host string) ([]net.IP, error) {
@@ -23,12 +19,6 @@ func (r *stubIPResolver) LookupIP(_ context.Context, network, host string) ([]ne
 	r.ipNetwork = network
 	r.ipHost = host
 	return r.ips, r.ipErr
-}
-
-func (r *stubIPResolver) LookupIPAddr(_ context.Context, host string) ([]net.IPAddr, error) {
-	r.lookupIPAddrCalls++
-	r.addrHost = host
-	return r.addrs, r.addrErr
 }
 
 func TestResolveAndPickIPv4OnlyUsesIPv4Lookup(t *testing.T) {
@@ -50,8 +40,8 @@ func TestResolveAndPickIPv4OnlyUsesIPv4Lookup(t *testing.T) {
 	if resolver.ipNetwork != "ip4" || resolver.ipHost != "provider.example" {
 		t.Fatalf("LookupIP called with network=%q host=%q", resolver.ipNetwork, resolver.ipHost)
 	}
-	if resolver.lookupIPCalls != 1 || resolver.lookupIPAddrCalls != 0 {
-		t.Fatalf("unexpected resolver calls: LookupIP=%d LookupIPAddr=%d", resolver.lookupIPCalls, resolver.lookupIPAddrCalls)
+	if resolver.lookupIPCalls != 1 {
+		t.Fatalf("unexpected resolver calls: LookupIP=%d", resolver.lookupIPCalls)
 	}
 	if ip.To4() == nil || !ip.Equal(net.ParseIP("203.0.113.10")) {
 		t.Fatalf("resolved IP = %v, want IPv4 203.0.113.10", ip)
@@ -66,8 +56,8 @@ func TestResolveAndPickIPv4OnlyRejectsIPv6Literal(t *testing.T) {
 	if _, err := guard.resolveAndPick(context.Background(), "2001:db8::5", true); err == nil {
 		t.Fatal("expected IPv6 literal to be rejected")
 	}
-	if resolver.lookupIPCalls != 0 || resolver.lookupIPAddrCalls != 0 {
-		t.Fatalf("literal IP should not trigger DNS lookups: LookupIP=%d LookupIPAddr=%d", resolver.lookupIPCalls, resolver.lookupIPAddrCalls)
+	if resolver.lookupIPCalls != 0 {
+		t.Fatalf("literal IP should not trigger DNS lookups: LookupIP=%d", resolver.lookupIPCalls)
 	}
 }
 
@@ -82,7 +72,7 @@ func TestResolveAndPickIPv4OnlyFailsWithoutAllowedIPv4(t *testing.T) {
 }
 
 func TestResolveAndPickWithoutIPv4PolicyPreservesDualStack(t *testing.T) {
-	resolver := &stubIPResolver{addrs: []net.IPAddr{{IP: net.ParseIP("2001:db8::5")}}}
+	resolver := &stubIPResolver{ips: []net.IP{net.ParseIP("2001:db8::5")}}
 	guard := newSSRFGuard([]string{"*"})
 	guard.resolver = resolver
 
@@ -93,8 +83,8 @@ func TestResolveAndPickWithoutIPv4PolicyPreservesDualStack(t *testing.T) {
 	if ip.To4() != nil {
 		t.Fatalf("resolved IP = %v, want IPv6 address", ip)
 	}
-	if resolver.lookupIPAddrCalls != 1 || resolver.lookupIPCalls != 0 {
-		t.Fatalf("unexpected resolver calls: LookupIP=%d LookupIPAddr=%d", resolver.lookupIPCalls, resolver.lookupIPAddrCalls)
+	if resolver.lookupIPCalls != 1 || resolver.ipNetwork != "ip" {
+		t.Fatalf("unexpected resolver calls: LookupIP=%d network=%q", resolver.lookupIPCalls, resolver.ipNetwork)
 	}
 }
 

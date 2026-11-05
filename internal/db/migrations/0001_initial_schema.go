@@ -20,6 +20,7 @@ var RegistryDatabase = []migrate.Migration{
 	{Version: 4, Name: "proxy_max_checks", Up: upProxyMaxChecks},
 	{Version: 5, Name: "proxy_switches", Up: upProxySwitches},
 	{Version: 6, Name: "plugin_identity", Up: upPluginIdentity},
+	{Version: 7, Name: "encrypt_credentials", Up: upEncryptCredentials},
 }
 
 type instanceSettingSnapshot struct {

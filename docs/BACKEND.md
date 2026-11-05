@@ -31,16 +31,18 @@ internal/services/
   pluginrepo/            plugin store: single-URL index repos (repo URL or direct index.json, files resolved against the index directory); code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
   modelinfo/             model metadata cache (1h TTL)
   metrics/               1m buckets with dimension children, 90d retention
-  maintenance/           plugin job scheduler, model sync
+  maintenance/           plugin job scheduler, model sync, hourly expired-session cleanup
   events/                operator telemetry: append-only records with metadata keys, retention prune, filtered queries
   videojobs/             router-side video job rows (local id → upstream job)
   healthcheck/           failure-triggered credential verification (check_health, cooldown, singleflight, disable on unhealthy only with automation on)
-  admin/                 admin users (bootstrap, logins list/create/delete, password change/reset) + sessions
+  admin/                 admin users (bootstrap, logins list/create, password change/reset) + sessions; bootstrap flag cached once true
   config/                instance-wide router configuration
   datamanagement/        subsystem export/import/clear + provider export/import/purge
   doctor/                database inspection and repair
   proxypool/             free-pool hosting, Lua feed bridge, SQLite cache, custom pools (built-in auto row seeded), lane scheduler adapter
-internal/httpkit/        shared transport helpers (SSE headers)
+internal/httpkit/        shared transport helpers (SSE headers, StreamWriter: 200 + headers on the first byte, flush per write)
+internal/netguard/       outbound-address policy: public-only destinations, pinned-IP dial, guarded HTTP client
+internal/credentialcipher/ AES-256-GCM sealing of credentials.data (credential_cipher GORM serializer, key from CREDENTIALS_KEY or CREDENTIALS_KEY_FILE)
 internal/logging/        bracket stderr renderer plus events handler (persist and display by LOG_LEVEL)
 internal/requestsource/  RequestSource in request context (public vs private listener)
 internal/httpapi/        shared route tables + public/private mux builders
@@ -66,11 +68,12 @@ Keep changes shallow. Touch service internals only when the task requires it.
 
 ## Request flow
 
-`Parse → Resolve → Disabled → requireModelEnabled → checkEndpoint → capability
+`tokenDenies → Parse → Resolve → Disabled → requireModelEnabled → checkEndpoint → capability
 → gateCredentials (token allow-list) → invoke → dropMissingModel(not_found) → metrics.`
 
-- `router/route.go:resolveRequest` owns the shared prefix (parse, resolve,
-  disabled gate, model-override gate, endpoint gate). Endpoint code in
+- `router/route.go:resolveRequest` owns the shared prefix (token
+  provider/model rules, parse, resolve, disabled gate, model-override gate,
+  endpoint gate). Endpoint code in
   `router/service.go` adds virtual short-circuit, capability pre-check
   (`HasHandler` / `Transcriber` / `Speaker` / `ImageGenerator` / `Embedder` /
   `VideoGenerator` / `VideoSubmitter`), the credential gate and one backend
@@ -81,8 +84,21 @@ Keep changes shallow. Touch service internals only when the task requires it.
   runs before the credential gate.
 - Virtual models fan out through the router re-entrantly in list order. The
   outer token rules travel in ctx (`router/service.go:withTokenRules`); inner
-  member calls inherit them and recompute the gate per member. `nil` token
-  with no snapshot stays unrestricted (admin probes only).
+  member calls inherit them, re-check provider/model rules (`tokenDenies`)
+  and recompute the credential gate per member. A denied member fails over
+  like an unavailable one, so a token needs every member it may reach.
+  `nil` token with no snapshot stays unrestricted (admin probes only).
+- Response model identity: non-virtual chat and embeddings responses carry
+  the routed id (`router/service.go` for unary, `router/model_stamp.go`
+  rewriting every SSE data frame for streams). Virtual requests pass the
+  member's stamped value through, so clients and metrics see the member
+  that answered; the Anthropic and Responses envelopes take the model from
+  the response, and stored records keep the requested model for token
+  checks.
+- Streams commit on the first byte (`httpkit.StreamWriter`): a failure
+  before any output answers with its real status and JSON envelope; after
+  it, an SSE error frame. `api/v1.StreamMetricsTap` reads the last `usage`
+  frame and the answering model for metrics.
 - The gate resolves to credential ID allow-lists carried in
   `luaplugin.HandlerMeta.AllowedCredentials` and enforced inside
   `credentials.list/get` (nil = unrestricted). Go adapters (`custom`,
@@ -94,7 +110,7 @@ Keep changes shallow. Touch service internals only when the task requires it.
 
 - `luaplugin/exec.go:handlerCallEx` is the single call site: pooled `LState`
   per call (`luaplugin/statepool`: per-plugin buckets keyed by
-  `<pluginID>/<typeKey>`, `LUA_POOL_BUCKET_SIZE` idle states per bucket,
+  `<pluginID>\x00<typeKey>`, `LUA_POOL_BUCKET_SIZE` idle states per bucket,
   default 16, excess closes on return, update/rollback/disable/delete
   invalidates), rebind of per-call globals, source load, handler lookup
   (including `jobs.<name>.run` for `job:<name>` invocations), `PCall`,
@@ -152,9 +168,13 @@ Keep changes shallow. Touch service internals only when the task requires it.
 - Terminal tables validate strictly at the Go/Lua boundary: missing or
   empty `message`, out-of-range `status`, empty `code` and non-string
   `param` reject the table as `PluginInternalError`.
-- Edge layers render `perr.Message` verbatim (`handleRouterError`,
-  `handleCompatRouterError`, dashboard chat): the Go `Error()` prefix never
-  reaches clients.
+- Edge layers render through `v1.WireMessage` (`handleRouterError`,
+  `handleCompatRouterError`, SSE error frames, dashboard chat): plugin
+  messages verbatim, the Go `Error()` prefix never reaches clients.
+- Plugin `proxy_url` values pass `executionContext.admitProxy`: served in
+  this execution by `proxies.query`/`require`, or held by a router pool
+  (`proxypool.Service.AdmitProxyURL`). Feed and import candidates on
+  non-public hosts never enter the free pool (`candidateURL`).
 
 ## Transactions
 
@@ -260,6 +280,12 @@ synchronous NORMAL, busy timeout and immediate lock; `maintenance.go` owns
 the only raw statements (checkpoint, vacuum, freelist count, optimize,
 integrity check, backup, events prune).
 Sessions store the token hash as primary key, never plaintext.
+`credentials.data` stores `llmr-enc:v1:<base64>` (AES-256-GCM through the
+`credential_cipher` serializer); the key installs before `OpenSQLite` from
+`CREDENTIALS_KEY` or `CREDENTIALS_KEY_FILE` (created with mode 0600 when
+missing), migration 7 sealed older plaintext rows, and a missing key fails
+both writes and reads. Back up the key file with the database: without it
+credentials cannot be decrypted.
 `virtual_models.name_key` carries the UNIQUE duplicate signal.
 `plugin_storage.expires_at` carries the TTL index and routes the row: TTL
 rows live in cache, durable rows in the database. Metrics persist one

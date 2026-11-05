@@ -105,17 +105,6 @@ func (s *Service) Complete(
 	handlerMetadata HandlerMeta,
 	request *models.ChatCompletionRequest,
 ) (*models.ChatCompletionResponse, error) {
-	response, _, err := s.CompleteRouted(goCtx, handlerMetadata, request)
-	return response, err
-}
-
-// CompleteRouted is Complete plus the redacted proxy host:port of the call
-// ("" = direct).
-func (s *Service) CompleteRouted(
-	goCtx context.Context,
-	handlerMetadata HandlerMeta,
-	request *models.ChatCompletionRequest,
-) (*models.ChatCompletionResponse, string, error) {
 	return callAndDecode(s, goCtx, handlerMetadata, "complete", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", handlerMetadata.ProviderConfig))
 		L.Push(requestTable(L, request))
@@ -136,22 +125,10 @@ func (s *Service) CompleteStream(
 	request *models.ChatCompletionRequest,
 	w io.Writer,
 ) error {
-	_, err := s.CompleteStreamRouted(goCtx, handlerMetadata, request, w)
-	return err
-}
-
-// CompleteStreamRouted is CompleteStream plus the redacted proxy host:port
-// of the call ("" = direct).
-func (s *Service) CompleteStreamRouted(
-	goCtx context.Context,
-	handlerMetadata HandlerMeta,
-	request *models.ChatCompletionRequest,
-	w io.Writer,
-) (string, error) {
 	record, err := s.Lookup(handlerMetadata.TypeKey)
 	if err != nil {
 		s.logLookupFailed(handlerMetadata.TypeKey, "complete_stream", err)
-		return "", err
+		return err
 	}
 	// Tracks whether any stream output reached the client: before the first
 	// write a transport failure may still be retried on another proxy.
@@ -188,29 +165,27 @@ func (s *Service) CompleteStreamRouted(
 		delivered.Store(true)
 		return 0
 	}
-	found, proxy, callError := s.handlerCallRouted(goCtx, record, handlerMetadata, "complete_stream", func(L *lua.LState) {
+	found, callError := s.handlerCallEx(goCtx, record, handlerMetadata, "complete_stream", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", handlerMetadata.ProviderConfig))
 		L.Push(requestTable(L, request))
 		L.Push(L.NewFunction(emitFunction))
 	}, 2, func(L *lua.LState) error {
 		_, returnError := splitReturn(L)
 		return s.contractErrOrInternal(record, handlerMetadata.TypeKey, returnError)
-	})
+	}, nil)
 	missingHandler := errors.Is(callError, ErrHandlerNotFound)
 	if callError != nil && !missingHandler {
-		return proxy, callError
+		return callError
 	}
 	if found && !missingHandler {
-		if _, werr := io.WriteString(w, "data: [DONE]\n\n"); werr != nil {
-			return proxy, werr
-		}
-		return proxy, nil
+		_, werr := io.WriteString(w, "data: [DONE]\n\n")
+		return werr
 	}
 	// Fallback: the plugin declares no complete_stream, so emulate streaming
 	// over complete().
-	response, fallbackProxy, cerr := s.CompleteRouted(goCtx, handlerMetadata, request)
+	response, cerr := s.Complete(goCtx, handlerMetadata, request)
 	if cerr != nil {
-		return fallbackProxy, cerr
+		return cerr
 	}
 	chunk := models.StreamChunk{
 		ID: response.ID, Object: "chat.completion.chunk",
@@ -226,10 +201,10 @@ func (s *Service) CompleteStreamRouted(
 	}
 	raw, _ := marshalLuaChunk(chunk)
 	if _, werr := fmt.Fprintf(w, "data: %s\n\n", string(raw)); werr != nil {
-		return fallbackProxy, werr
+		return werr
 	}
 	_, werr := io.WriteString(w, "data: [DONE]\n\n")
-	return fallbackProxy, werr
+	return werr
 }
 
 func marshalLuaChunk(chunk models.StreamChunk) ([]byte, error) {
@@ -293,17 +268,6 @@ func (s *Service) Transcribe(
 	handlerMetadata HandlerMeta,
 	request *models.TranscriptionRequest,
 ) (*models.TranscriptionResponse, error) {
-	response, _, err := s.TranscribeRouted(goCtx, handlerMetadata, request)
-	return response, err
-}
-
-// TranscribeRouted is Transcribe plus the redacted proxy host:port of the
-// call ("" = direct).
-func (s *Service) TranscribeRouted(
-	goCtx context.Context,
-	handlerMetadata HandlerMeta,
-	request *models.TranscriptionRequest,
-) (*models.TranscriptionResponse, string, error) {
 	return callAndDecode[models.TranscriptionResponse](s, goCtx, handlerMetadata, "transcribe", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", handlerMetadata.ProviderConfig))
 		L.Push(transcriptionRequestTable(L, request))
@@ -338,18 +302,7 @@ func (s *Service) Speech(
 	handlerMetadata HandlerMeta,
 	request *models.SpeechRequest,
 ) (*models.SpeechResponse, error) {
-	response, _, err := s.SpeechRouted(goCtx, handlerMetadata, request)
-	return response, err
-}
-
-// SpeechRouted is Speech plus the redacted proxy host:port of the call
-// ("" = direct).
-func (s *Service) SpeechRouted(
-	goCtx context.Context,
-	handlerMetadata HandlerMeta,
-	request *models.SpeechRequest,
-) (*models.SpeechResponse, string, error) {
-	out, proxy, err := callAndDecode(s, goCtx, handlerMetadata, "speech", func(L *lua.LState) {
+	out, err := callAndDecode(s, goCtx, handlerMetadata, "speech", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", handlerMetadata.ProviderConfig))
 		L.Push(speechRequestTable(L, request))
 	}, nil, func(payload *speechPayload) error {
@@ -363,10 +316,10 @@ func (s *Service) SpeechRouted(
 		return nil
 	})
 	if err != nil {
-		return nil, proxy, err
+		return nil, err
 	}
 	audio, _ := base64.StdEncoding.DecodeString(out.AudioB64)
-	return &models.SpeechResponse{Audio: audio, Format: out.Format}, proxy, nil
+	return &models.SpeechResponse{Audio: audio, Format: out.Format}, nil
 }
 
 // imageRequestTable builds the generate_image request table.
@@ -408,17 +361,6 @@ func (s *Service) GenerateImage(
 	handlerMetadata HandlerMeta,
 	request *models.ImageGenerationRequest,
 ) (*models.ImageGenerationResponse, error) {
-	response, _, err := s.GenerateImageRouted(goCtx, handlerMetadata, request)
-	return response, err
-}
-
-// GenerateImageRouted is GenerateImage plus the redacted proxy host:port of
-// the call ("" = direct).
-func (s *Service) GenerateImageRouted(
-	goCtx context.Context,
-	handlerMetadata HandlerMeta,
-	request *models.ImageGenerationRequest,
-) (*models.ImageGenerationResponse, string, error) {
 	return callAndDecode(s, goCtx, handlerMetadata, "generate_image", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", handlerMetadata.ProviderConfig))
 		L.Push(imageRequestTable(L, request))
@@ -455,17 +397,6 @@ func (s *Service) Embed(
 	handlerMetadata HandlerMeta,
 	request *models.EmbeddingsRequest,
 ) (*models.EmbeddingsResponse, error) {
-	response, _, err := s.EmbedRouted(goCtx, handlerMetadata, request)
-	return response, err
-}
-
-// EmbedRouted is Embed plus the redacted proxy host:port of the call
-// ("" = direct).
-func (s *Service) EmbedRouted(
-	goCtx context.Context,
-	handlerMetadata HandlerMeta,
-	request *models.EmbeddingsRequest,
-) (*models.EmbeddingsResponse, string, error) {
 	return callAndDecode(s, goCtx, handlerMetadata, "embed", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", handlerMetadata.ProviderConfig))
 		L.Push(embeddingsRequestTable(L, request))
@@ -491,17 +422,6 @@ func (s *Service) Moderate(
 	handlerMetadata HandlerMeta,
 	request *models.ModerationRequest,
 ) (*models.ModerationResponse, error) {
-	response, _, err := s.ModerateRouted(goCtx, handlerMetadata, request)
-	return response, err
-}
-
-// ModerateRouted is Moderate plus the redacted proxy host:port of the call
-// ("" = direct).
-func (s *Service) ModerateRouted(
-	goCtx context.Context,
-	handlerMetadata HandlerMeta,
-	request *models.ModerationRequest,
-) (*models.ModerationResponse, string, error) {
 	return callAndDecode(s, goCtx, handlerMetadata, "moderate", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", handlerMetadata.ProviderConfig))
 		L.Push(moderateRequestTable(L, request))
@@ -643,17 +563,6 @@ func (s *Service) SubmitVideo(
 	handlerMetadata HandlerMeta,
 	request *models.VideoGenerationRequest,
 ) (*models.VideoGenerationResponse, error) {
-	response, _, err := s.SubmitVideoRouted(goCtx, handlerMetadata, request)
-	return response, err
-}
-
-// SubmitVideoRouted is SubmitVideo plus the redacted proxy host:port of the
-// call ("" = direct).
-func (s *Service) SubmitVideoRouted(
-	goCtx context.Context,
-	handlerMetadata HandlerMeta,
-	request *models.VideoGenerationRequest,
-) (*models.VideoGenerationResponse, string, error) {
 	return callAndDecode(s, goCtx, handlerMetadata, "generate_video", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", handlerMetadata.ProviderConfig))
 		L.Push(videoSubmitTable(L, request))
@@ -678,18 +587,6 @@ func (s *Service) PollVideo(
 	model models.ModelId,
 	upstreamJobID string,
 ) (*models.VideoGenerationResponse, error) {
-	response, _, err := s.PollVideoRouted(goCtx, handlerMetadata, model, upstreamJobID)
-	return response, err
-}
-
-// PollVideoRouted is PollVideo plus the redacted proxy host:port of the
-// call ("" = direct).
-func (s *Service) PollVideoRouted(
-	goCtx context.Context,
-	handlerMetadata HandlerMeta,
-	model models.ModelId,
-	upstreamJobID string,
-) (*models.VideoGenerationResponse, string, error) {
 	return callAndDecode(s, goCtx, handlerMetadata, "poll_video", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", handlerMetadata.ProviderConfig))
 		L.Push(videoJobTable(L, model, upstreamJobID, 0, false))
@@ -706,20 +603,7 @@ func (s *Service) VideoContent(
 	upstreamJobID string,
 	index int,
 ) (*models.VideoContentResponse, error) {
-	response, _, err := s.VideoContentRouted(goCtx, handlerMetadata, model, upstreamJobID, index)
-	return response, err
-}
-
-// VideoContentRouted is VideoContent plus the redacted proxy host:port of
-// the call ("" = direct).
-func (s *Service) VideoContentRouted(
-	goCtx context.Context,
-	handlerMetadata HandlerMeta,
-	model models.ModelId,
-	upstreamJobID string,
-	index int,
-) (*models.VideoContentResponse, string, error) {
-	out, proxy, err := callAndDecode(s, goCtx, handlerMetadata, "video_content", func(L *lua.LState) {
+	out, err := callAndDecode(s, goCtx, handlerMetadata, "video_content", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", handlerMetadata.ProviderConfig))
 		L.Push(videoJobTable(L, model, upstreamJobID, index, true))
 	}, nil, func(payload *videoContentPayload) error {
@@ -733,10 +617,10 @@ func (s *Service) VideoContentRouted(
 		return nil
 	})
 	if err != nil {
-		return nil, proxy, err
+		return nil, err
 	}
 	video, _ := base64.StdEncoding.DecodeString(out.VideoB64)
-	return &models.VideoContentResponse{Video: video, ContentType: out.ContentType}, proxy, nil
+	return &models.VideoContentResponse{Video: video, ContentType: out.ContentType}, nil
 }
 
 // ValidateCredentials calls validate_credentials. Missing handler accepts
@@ -800,7 +684,7 @@ func (s *Service) GetModelInfos(
 	}
 	var modelInfos []models.ModelInfo
 	handlerMetadata := HandlerMeta{ProviderID: providerID, TypeKey: typeKey, ProviderConfig: providerConfig}
-	found, _, callError := s.handlerCallRouted(goCtx, record, handlerMetadata, "get_model_infos", func(L *lua.LState) {
+	found, callError := s.handlerCallEx(goCtx, record, handlerMetadata, "get_model_infos", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", providerConfig))
 	}, 2, func(L *lua.LState) error {
 		result, returnError := splitReturn(L)
@@ -823,7 +707,7 @@ func (s *Service) GetModelInfos(
 		}
 		modelInfos = out
 		return nil
-	})
+	}, nil)
 	if callError != nil {
 		return nil, callError
 	}

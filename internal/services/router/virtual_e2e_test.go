@@ -25,11 +25,18 @@ import (
 // a mock provider while virtual/* resolves through the real virtual adapter.
 func setupVirtualStack(t *testing.T) (*router.Service, *virtual.GormService, *credential.GormService) {
 	t.Helper()
+	return setupVirtualStackWithAdapter(t, testutil.NewMockAdapter("mock"))
+}
+
+// setupVirtualStackWithAdapter is setupVirtualStack with a caller-built
+// member adapter (type key "mock").
+func setupVirtualStackWithAdapter(t *testing.T, adapter *testutil.MockAdapter) (*router.Service, *virtual.GormService, *credential.GormService) {
+	t.Helper()
 	database := testutil.SetupTestSQLite(t)
 	ctx := context.Background()
 
 	providerService := provider.NewGorm(database)
-	providerService.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
+	providerService.RegisterGoAdapter(adapter)
 	if _, err := providerService.Create(ctx, provider.CreateOptions{Name: "Mock", TypeKey: "mock"}); err != nil {
 		t.Fatalf("create mock provider: %v", err)
 	}

@@ -52,7 +52,7 @@ func (h *Handler) writeCompatError(w http.ResponseWriter, r *http.Request, statu
 func (h *Handler) handleCompatRouterError(w http.ResponseWriter, r *http.Request, err error) {
 	routerError := h.classifyError(err)
 	apierrors.WriteResponseHeaders(w, pluginResponseHeaders(err))
-	h.writeCompatError(w, r, routerError.status, routerError.code, wireMessage(err), nil)
+	h.writeCompatError(w, r, routerError.status, routerError.code, WireMessage(err), nil)
 }
 
 // writeCompatDecodeError maps body decode failures in the negotiated
