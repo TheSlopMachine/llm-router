@@ -1,6 +1,6 @@
 # Changelog
 
-## Done (2026-11-06, v0.7.0)
+## Done (2026-11-06, v0.7)
 
 - **Daemon stop waits for exit** — `daemon stop`, `daemon restart` and `update` waited up to 5 minutes for the instance lock to drop instead of 30 seconds, printed a waiting line after 2 seconds, then sent SIGKILL and waited 10 more seconds. A graceful shutdown runs plugin hooks, listener and events drains and a vacuum, which outlasted the old bound.
 - **Update keeps the daemon** — `update` replaced the binary only after the daemon exited. A daemon that did not stop left the old binary in place with `the binary is not replaced`; before, the staged binary was dropped after SIGTERM and the daemon was not started again. A failed backup or swap started the old binary again and reported a failed restart.
