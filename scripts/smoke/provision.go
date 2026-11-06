@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
@@ -12,15 +10,12 @@ import (
 	"github.com/TheSlopMachine/llm-router/scripts/shared"
 )
 
-// provision ensures the instance is bootstrapped, installs the plugin
-// source and resolves usable credentials from the dev database. The pool
+// provision installs the plugin source and resolves usable credentials
+// from the dev database. The pool
 // fails over across keys inside every request, so the matrix needs no
 // per-credential loop; the credential-test below iterates them instead.
 // No usable credential is errNoCredential.
 func provision(testConfiguration configuration, pluginType string) (providerID string, credentials []credentialCandidate, err error) {
-	if err := ensureBootstrapped(testConfiguration); err != nil {
-		return "", nil, err
-	}
 	source, err := pluginSource(testConfiguration, pluginType)
 	if err != nil {
 		return "", nil, err
@@ -92,34 +87,6 @@ func requireRunningStack(testConfiguration configuration) {
 		return
 	}
 	shared.Failf("dev stack not answering at %s; run `make start` first", testConfiguration.web)
-}
-
-func ensureBootstrapped(testConfiguration configuration) error {
-	statusCode, raw, err := doJSON("GET", testConfiguration.web+"/api/llm-router/status", nil)
-	if err != nil {
-		return fmt.Errorf("status: %w", err)
-	}
-	var bootstrapStatus struct {
-		Bootstrapped bool `json:"bootstrapped"`
-	}
-	if err := requireOK(statusCode, raw, &bootstrapStatus); err != nil {
-		return err
-	}
-	if bootstrapStatus.Bootstrapped {
-		return nil
-	}
-	var random [16]byte
-	if _, err := rand.Read(random[:]); err != nil {
-		return err
-	}
-	statusCode, raw, err = doJSON("POST", testConfiguration.web+"/api/llm-router/bootstrap", map[string]any{
-		"username": "smoke",
-		"password": hex.EncodeToString(random[:]),
-	})
-	if err != nil {
-		return fmt.Errorf("bootstrap: %w", err)
-	}
-	return requireOK(statusCode, raw, nil)
 }
 
 // pluginSource reads the discovered source file for a type key.

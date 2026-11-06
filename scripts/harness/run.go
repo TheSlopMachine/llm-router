@@ -68,9 +68,6 @@ func runHarness(driver harnessDriver) error {
 	if err := shared.WaitReady(base); err != nil {
 		return err
 	}
-	if err := ensureBootstrapped(base); err != nil {
-		return err
-	}
 	target, err := discoverTarget(base, driver.bareModel())
 	if err != nil {
 		return err

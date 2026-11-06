@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -61,32 +60,21 @@ func runStatus(full bool) error {
 	if !full || info.Address == "" {
 		return nil
 	}
-	bootstrapped, reachable := queryBootstrapped(cli.DialAddress(info.Address))
-	if !reachable {
-		fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.dashboard"), i18n.T("status.value.silent"))
-		return nil
-	}
-	fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.dashboard"), i18n.T("status.value.answering"))
-	if bootstrapped {
-		fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.password"), i18n.T("status.value.set"))
+	if dashboardAnswers(cli.DialAddress(info.Address)) {
+		fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.dashboard"), i18n.T("status.value.answering"))
 	} else {
-		fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.password"), i18n.T("status.value.notSet"))
+		fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.dashboard"), i18n.T("status.value.silent"))
 	}
 	return nil
 }
 
-func queryBootstrapped(address string) (bool, bool) {
+// dashboardAnswers reports whether the status endpoint answers 200.
+func dashboardAnswers(address string) bool {
 	client := &http.Client{Timeout: 2 * time.Second}
 	response, err := client.Get("http://" + address + "/api/llm-router/status")
 	if err != nil {
-		return false, false
+		return false
 	}
 	defer response.Body.Close()
-	var payload struct {
-		Bootstrapped bool `json:"bootstrapped"`
-	}
-	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&payload) != nil {
-		return false, true
-	}
-	return payload.Bootstrapped, true
+	return response.StatusCode == http.StatusOK
 }

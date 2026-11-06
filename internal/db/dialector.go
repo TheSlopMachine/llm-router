@@ -19,6 +19,26 @@ type sqliteDialector struct {
 	gorm.Dialector
 }
 
+// SavePoint forwards to the wrapped dialector. The embedded interface hides
+// it, and nested transactions need it: the SQLite migrator rebuilds a table
+// inside one when it drops a column.
+func (dial sqliteDialector) SavePoint(tx *gorm.DB, name string) error {
+	savePointer, ok := dial.Dialector.(gorm.SavePointerDialectorInterface)
+	if !ok {
+		return gorm.ErrUnsupportedDriver
+	}
+	return savePointer.SavePoint(tx, name)
+}
+
+// RollbackTo forwards to the wrapped dialector, see SavePoint.
+func (dial sqliteDialector) RollbackTo(tx *gorm.DB, name string) error {
+	savePointer, ok := dial.Dialector.(gorm.SavePointerDialectorInterface)
+	if !ok {
+		return gorm.ErrUnsupportedDriver
+	}
+	return savePointer.RollbackTo(tx, name)
+}
+
 // openSQLiteDialector builds the translating dialector for the given DSN.
 func openSQLiteDialector(dsn string) gorm.Dialector {
 	return sqliteDialector{Dialector: sqlite.Open(dsn)}

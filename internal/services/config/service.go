@@ -1,6 +1,5 @@
 // Package config manages RouterConfiguration persisted in the
-// instance_settings row: the configuration columns plus the bootstrapped
-// flag.
+// instance_settings row.
 package config
 
 import (
@@ -74,9 +73,8 @@ func (s *Service) GetSettings(ctx context.Context) (models.RouterConfiguration, 
 }
 
 // PutSettings validates and persists RouterConfiguration to
-// instance_settings. The bootstrapped flag survives the write: one
-// transaction reads the row and upserts the merged record through the
-// transaction handle only.
+// instance_settings. One transaction reads the row and upserts the merged
+// record through the transaction handle only.
 func (s *Service) PutSettings(ctx context.Context, configuration models.RouterConfiguration) error {
 	if err := configuration.Validate(); err != nil {
 		if s.logger != nil {
@@ -91,14 +89,12 @@ func (s *Service) PutSettings(ctx context.Context, configuration models.RouterCo
 		}
 		return err
 	}
-	var preserved bool
 	if err := sqlite.Handle.Transaction(func(transaction *gorm.DB) error {
 		existing, err := loadInstanceRow(ctx, transaction)
 		if err != nil {
 			return err
 		}
-		preserved = existing.Bootstrapped
-		row := toInstanceRecord(configuration, existing.Bootstrapped, time.Now().UTC())
+		row := toInstanceRecord(configuration, time.Now().UTC())
 		// Clients that do not know a proxy field must not reset it.
 		if configuration.ProxyMaxChecks == nil {
 			row.ProxyMaxChecks = existing.ProxyMaxChecks
@@ -118,73 +114,7 @@ func (s *Service) PutSettings(ctx context.Context, configuration models.RouterCo
 		return translated
 	}
 	if s.logger != nil {
-		s.logger.Info("Settings updated", "models_filter", configuration.ModelsFilter, "is_cluster_node", configuration.IsClusterNode, "disable_telemetry", configuration.DisableTelemetry, "bootstrapped", preserved)
-	}
-	return nil
-}
-
-// IsBootstrapped reports the instance_settings bootstrapped flag. A missing
-// row reads false: unknown state never reports bootstrapped.
-func (s *Service) IsBootstrapped(ctx context.Context) (bool, error) {
-	settings, err := s.requireSettings()
-	if err != nil {
-		if s.logger != nil {
-			s.logger.Error("Check bootstrapped failed", "error", err)
-		}
-		return false, err
-	}
-	row, err := settings.Get(ctx, clause.Eq{Column: "id", Value: instanceRowID})
-	if err != nil {
-		if errors.Is(err, apierrors.ErrNotFound) {
-			if s.logger != nil {
-				s.logger.Debug("Bootstrapped flag not found, using default")
-			}
-			return false, nil
-		}
-		if s.logger != nil {
-			s.logger.Error("Check bootstrapped failed", "error", err)
-		}
-		return false, fmt.Errorf("get bootstrapped flag: %w", err)
-	}
-	if s.logger != nil {
-		s.logger.Debug("Bootstrapped flag checked", "bootstrapped", row.Bootstrapped)
-	}
-	return row.Bootstrapped, nil
-}
-
-// SetBootstrapped marks the instance bootstrapped and preserves the stored
-// configuration columns. One transaction, transaction handle only.
-func (s *Service) SetBootstrapped(ctx context.Context) error {
-	sqlite, err := s.requireDatabase()
-	if err != nil {
-		if s.logger != nil {
-			s.logger.Error("Set bootstrapped failed", "error", err)
-		}
-		return err
-	}
-	firstTransition := false
-	if err := sqlite.Handle.Transaction(func(transaction *gorm.DB) error {
-		row, err := loadInstanceRow(ctx, transaction)
-		if err != nil {
-			return err
-		}
-		firstTransition = !row.Bootstrapped
-		row.Bootstrapped = true
-		row.UpdatedAt = time.Now().UTC()
-		return upsertInstanceRow(ctx, transaction, row)
-	}); err != nil {
-		translated := db.Translate(err)
-		if s.logger != nil {
-			s.logger.Error("Set bootstrapped failed", "error", translated)
-		}
-		return translated
-	}
-	if s.logger != nil {
-		if firstTransition {
-			s.logger.Info("Instance bootstrapped")
-		} else {
-			s.logger.Debug("Instance already bootstrapped")
-		}
+		s.logger.Info("Settings updated", "models_filter", configuration.ModelsFilter, "is_cluster_node", configuration.IsClusterNode, "disable_telemetry", configuration.DisableTelemetry)
 	}
 	return nil
 }
@@ -220,15 +150,6 @@ func loadInstanceRow(ctx context.Context, transaction *gorm.DB) (record.Instance
 	return row, nil
 }
 
-// loadBootstrapped reads the bootstrapped flag through the transaction handle.
-func loadBootstrapped(ctx context.Context, transaction *gorm.DB) (bool, error) {
-	row, err := loadInstanceRow(ctx, transaction)
-	if err != nil {
-		return false, err
-	}
-	return row.Bootstrapped, nil
-}
-
 // upsertInstanceRow writes one row through the transaction handle. The
 // conflict target is the primary key column only, so constraint violations
 // surface as translated errors instead of overwrites.
@@ -242,14 +163,13 @@ func upsertInstanceRow(ctx context.Context, transaction *gorm.DB, row record.Ins
 // toInstanceRecord converts the wire type to the persistence row. An empty
 // models filter stores as "all": the column is not null and the CHECK
 // accepts all, enabled, disabled only.
-func toInstanceRecord(configuration models.RouterConfiguration, bootstrapped bool, updatedAt time.Time) record.InstanceSetting {
+func toInstanceRecord(configuration models.RouterConfiguration, updatedAt time.Time) record.InstanceSetting {
 	filter := configuration.ModelsFilter
 	if filter == "" {
 		filter = "all"
 	}
 	row := record.InstanceSetting{
 		ID:               instanceRowID,
-		Bootstrapped:     bootstrapped,
 		IsClusterNode:    configuration.IsClusterNode,
 		DisableTelemetry: configuration.DisableTelemetry,
 		ModelsFilter:     filter,

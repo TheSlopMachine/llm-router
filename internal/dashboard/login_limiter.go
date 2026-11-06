@@ -8,7 +8,7 @@ import (
 )
 
 // Login throttling: after loginFreeFailures consecutive failures for one
-// client address and username, further attempts lock out for a window that
+// client address, further attempts lock out for a window that
 // doubles per extra failure up to loginMaxLockout. A success clears the
 // entry. The key uses the socket peer address, never X-Forwarded-For: a
 // forwarded header is client-controlled and would make the limiter optional.
@@ -40,12 +40,12 @@ func newLoginLimiter() *loginLimiter {
 	return &loginLimiter{entries: map[string]*loginAttempts{}, now: time.Now}
 }
 
-func loginLimiterKey(r *http.Request, username string) string {
+func loginLimiterKey(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr
 	}
-	return host + "\x00" + username
+	return host
 }
 
 // retryAfter reports how long the key stays locked (0 = allowed).

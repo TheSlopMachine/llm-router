@@ -129,10 +129,10 @@ cmd/root.go              CLI root: command groups, exit codes, version
 cmd/serve.go             foreground server (takes the instance lock)
 cmd/daemon.go            daemon start/stop/restart/status (daemon_unix.go, daemon_windows.go)
 cmd/config.go            config menu, init, get, set, unset, list over the .env file
-cmd/password.go          set-dashboard-password (single user admin)
+cmd/password.go          set-dashboard-password (the only way to set the first password; serve refuses to start without one)
 cmd/logs.go              logs: reads the events database read-only
 cmd/status.go, doctor.go, update.go   status, database doctor, self-update
-internal/instance/       one process per database: file lock + holder record next to DB_PATH
+internal/instance/       one process per database: file lock + holder record next to DB_PATH; serve marks the record ready once listeners are bound, daemon start waits for it
 internal/updater/        GitHub release lookup, checksum check, binary swap
 internal/cli/            pure CLI helpers (argument parsing, formatting)
 internal/i18n/           ru/en catalogs of CLI text (messages_en.go, messages_ru.go); add a key to both
@@ -152,7 +152,7 @@ internal/services/
   maintenance/           plugin job scheduler, model sync, expired-session cleanup
   videojobs/             router-side video job rows (local id → upstream job)
   healthcheck/           failure-triggered credential verification (check_health, cooldown, disable on unhealthy only with automation on)
-  admin/                 admin accounts, password change/reset, sessions
+  admin/                 dashboard password (one hash, no accounts) + sessions
   config/                instance-wide router configuration
   datamanagement/        subsystem export/import/clear + provider export/import/purge
   doctor/                database inspection and repair
@@ -347,6 +347,11 @@ Read-only git is allowed; destructive git is banned (see §5.3).
 
 - BAD: `git push`, `git reset`, `git checkout -f`, `git clean`, force-push, amend; stashing without a clean-status check and immediate pop.
 - GOOD: `git status`, `git diff`, `git log`; `git stash` only with clean status first and immediate pop after the baseline run.
+
+Commits carry no AI attribution.
+
+- BAD: `Co-Authored-By: Claude ...`, `Generated with ...` lines in commit messages or PR descriptions.
+- GOOD: the commit message alone.
 
 ## 5. Prohibitions
 
@@ -675,7 +680,7 @@ Order: state first, then logs, then lifecycle.
 - BAD: `make log` before knowing whether anything runs.
 - GOOD: `make status`, then `make log LINES=200`, then `make log-frontend LINES=200`.
 
-`make start` runs public listener (needs login) plus loopback admin listener (API only, no auth, no dashboard) on 127.0.0.1:ADMIN_PORT. Fresh DBs still open bootstrap once on public; admin `status` reads bootstrapped and authenticated without an account. NEVER enable admin listener outside local dev (empty `ADMIN_PORT` disables it).
+`make start` runs public listener (needs the dashboard password) plus loopback admin listener (API only, no auth, no dashboard) on 127.0.0.1:ADMIN_PORT. On a fresh dev database `make start` generates the password and prints it once (`Dashboard password: ...`); later starts keep it. Admin `status` reads authenticated without a session. NEVER enable admin listener outside local dev (empty `ADMIN_PORT` disables it).
 
 - BAD: enabling `ADMIN_PORT` outside local dev.
 - GOOD: empty `ADMIN_PORT` outside local dev.
@@ -705,7 +710,7 @@ Auth: under admin listener no headers needed. With auth on (public), `/v1` needs
 
 Dashboard `/api/llm-router/*` (same `:PORT`, JSON `{"error":...}` on failure):
 
-- `GET /api/llm-router/status` — `{bootstrapped, authenticated}`; boot gate for everything else.
+- `GET /api/llm-router/status` — `{authenticated, stats}`; boot gate for everything else.
 - `GET /dashboard/providers`, `/dashboard/tokens`, `/dashboard/credentials` — inventory.
 - `POST /dashboard/chat/completions` — same router through a session, `TokenID: "dashboard"` in metrics.
 - `POST /dashboard/credentials/{id}/test {"model":...}` — pinned single-credential probe (bare model name; endpoint prepends provider).

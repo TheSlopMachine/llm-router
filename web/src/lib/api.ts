@@ -80,20 +80,16 @@ export const api = {
   status: async () => {
     const raw = (await apiCall('get', '/api/llm-router/status')) as unknown as Record<string, unknown>
     return {
-      bootstrapped: (raw?.bootstrapped as boolean) ?? false,
       authenticated: (raw?.authenticated as boolean) ?? false,
       stats: raw?.stats as { providers?: number; tokens?: number; credentials?: number } | undefined,
     }
   },
 
-  login: (username: string, password: string) =>
-    apiCall('post', '/api/llm-router/login', { body: { username, password } as unknown as never }),
+  login: (password: string, rememberMe: boolean) =>
+    apiCall('post', '/api/llm-router/login', { body: { password, remember_me: rememberMe } }),
 
   logout: () =>
     apiCall('post', '/api/llm-router/logout'),
-
-  bootstrap: (username: string, password: string) =>
-    apiCall('post', '/api/llm-router/bootstrap', { body: { username, password } as unknown as never }),
 
   // Providers
   providers: {

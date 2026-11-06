@@ -24,66 +24,98 @@ func setupGormAdminService(t *testing.T) (*GormService, *db.Database, context.Co
 	return NewGorm(database), database, context.Background()
 }
 
-func TestGormService_Bootstrap_SetsFlagAndUser(t *testing.T) {
+// setupWithPassword returns a service whose password is "password123".
+func setupWithPassword(t *testing.T) (*GormService, *db.Database, context.Context) {
+	t.Helper()
 	service, database, ctx := setupGormAdminService(t)
-
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
+	if err := service.SetPassword(ctx, "password123"); err != nil {
+		t.Fatalf("set password failed: %v", err)
 	}
-
-	user, err := gorm.G[record.AdminUser](database.Handle, clause.Eq{Column: "username", Value: "operator"}).First(ctx)
-	if err != nil {
-		t.Fatalf("get admin user failed: %v", err)
-	}
-	if user.PasswordHash == "" {
-		t.Error("password hash should not be empty")
-	}
-	if user.PasswordHash == "password123" {
-		t.Error("password must persist hashed, never plaintext")
-	}
-
-	settings, err := gorm.G[record.InstanceSetting](database.Handle, clause.Eq{Column: "id", Value: instanceRowID}).First(ctx)
-	if err != nil {
-		t.Fatalf("get instance settings failed: %v", err)
-	}
-	if !settings.Bootstrapped {
-		t.Error("bootstrap should set the instance bootstrapped flag")
-	}
+	return service, database, ctx
 }
 
-func TestGormService_Bootstrap_AlreadyBootstrapped(t *testing.T) {
+func TestGormService_HasPassword(t *testing.T) {
 	service, _, ctx := setupGormAdminService(t)
 
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("first bootstrap failed: %v", err)
+	set, err := service.HasPassword(ctx)
+	if err != nil {
+		t.Fatalf("has password: %v", err)
 	}
-	if err := service.Bootstrap(ctx, "operator2", "password456"); err == nil {
-		t.Error("expected error for second bootstrap, got nil")
+	if set {
+		t.Fatal("fresh database must report no password")
+	}
+	if err := service.SetPassword(ctx, "password123"); err != nil {
+		t.Fatalf("set password failed: %v", err)
+	}
+	set, err = service.HasPassword(ctx)
+	if err != nil {
+		t.Fatalf("has password: %v", err)
+	}
+	if !set {
+		t.Fatal("password must report set after SetPassword")
 	}
 }
 
-func TestGormService_Bootstrap_MissingHandleFailsClosed(t *testing.T) {
+func TestGormService_SetPassword_StoresHashOnly(t *testing.T) {
+	_, database, ctx := setupWithPassword(t)
+
+	row, err := gorm.G[record.DashboardPassword](database.Handle, clause.Eq{Column: "id", Value: passwordRowID}).First(ctx)
+	if err != nil {
+		t.Fatalf("get password row failed: %v", err)
+	}
+	if row.PasswordHash == "" || row.PasswordHash == "password123" {
+		t.Errorf("password must persist hashed, got %q", row.PasswordHash)
+	}
+}
+
+func TestGormService_SetPassword_ReplacesAndKeepsSessions(t *testing.T) {
+	service, _, ctx := setupWithPassword(t)
+
+	token, _, err := service.Login(ctx, "password123", false)
+	if err != nil {
+		t.Fatalf("login failed: %v", err)
+	}
+	if err := service.SetPassword(ctx, "password456"); err != nil {
+		t.Fatalf("replace password failed: %v", err)
+	}
+	if _, _, err := service.Login(ctx, "password123", false); err != ErrInvalidCredentials {
+		t.Errorf("old password: want ErrInvalidCredentials, got %v", err)
+	}
+	if _, _, err := service.Login(ctx, "password456", false); err != nil {
+		t.Errorf("new password login failed: %v", err)
+	}
+	if _, valid := service.ValidateSession(ctx, token); !valid {
+		t.Error("existing sessions must survive a password reset")
+	}
+}
+
+func TestGormService_SetPassword_Validation(t *testing.T) {
+	service, _, ctx := setupGormAdminService(t)
+	if err := service.SetPassword(ctx, ""); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
+		t.Errorf("empty password: want invalid-input, got %v", err)
+	}
+}
+
+func TestGormService_MissingHandleFailsClosed(t *testing.T) {
 	service := NewGorm(nil)
-	if err := service.Bootstrap(context.Background(), "operator", "password123"); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
-		t.Errorf("bootstrap without handle: want invalid-input, got %v", err)
+	ctx := context.Background()
+	if _, err := service.HasPassword(ctx); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
+		t.Errorf("has password without handle: want invalid-input, got %v", err)
+	}
+	if err := service.SetPassword(ctx, "password123"); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
+		t.Errorf("set password without handle: want invalid-input, got %v", err)
 	}
 }
 
-func TestGormService_Login_ValidCredentials(t *testing.T) {
-	service, _, ctx := setupGormAdminService(t)
+func TestGormService_Login_ValidPassword(t *testing.T) {
+	service, _, ctx := setupWithPassword(t)
 
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	token, expiresAt, err := service.Login(ctx, "operator", "password123", false)
+	token, expiresAt, err := service.Login(ctx, "password123", false)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
 	if token == "" {
 		t.Error("token should not be empty")
-	}
-	if expiresAt.IsZero() {
-		t.Error("expires at should not be zero")
 	}
 	if time.Until(expiresAt) <= 0 {
 		t.Error("expires at should be in the future")
@@ -91,16 +123,12 @@ func TestGormService_Login_ValidCredentials(t *testing.T) {
 }
 
 func TestGormService_Login_StoresHashOnly(t *testing.T) {
-	service, database, ctx := setupGormAdminService(t)
+	service, database, ctx := setupWithPassword(t)
 
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	token, _, err := service.Login(ctx, "operator", "password123", false)
+	token, _, err := service.Login(ctx, "password123", true)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
-
 	rows, err := gorm.G[record.Session](database.Cache).Find(ctx)
 	if err != nil {
 		t.Fatalf("list sessions failed: %v", err)
@@ -111,84 +139,77 @@ func TestGormService_Login_StoresHashOnly(t *testing.T) {
 	if rows[0].TokenHash != util.HashSecret(token) {
 		t.Error("session must persist under the SHA-256 token hash")
 	}
-	if rows[0].TokenHash == token {
-		t.Error("plaintext token must never land in storage")
-	}
-	if rows[0].Username != "operator" {
-		t.Errorf("username: got %q, want %q", rows[0].Username, "operator")
+	if !rows[0].RememberMe {
+		t.Error("remember me must persist on the session")
 	}
 }
 
-func TestGormService_Login_InvalidCredentials(t *testing.T) {
-	service, _, ctx := setupGormAdminService(t)
-
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	if _, _, err := service.Login(ctx, "operator", "wrongpassword", false); err != ErrInvalidCredentials {
+func TestGormService_Login_InvalidPassword(t *testing.T) {
+	service, _, ctx := setupWithPassword(t)
+	if _, _, err := service.Login(ctx, "wrongpassword", false); err != ErrInvalidCredentials {
 		t.Errorf("wrong password: want ErrInvalidCredentials, got %v", err)
 	}
-	if _, _, err := service.Login(ctx, "missing", "password123", false); err != ErrInvalidCredentials {
-		t.Errorf("missing user: want ErrInvalidCredentials, got %v", err)
+}
+
+func TestGormService_Login_NoPasswordDenies(t *testing.T) {
+	service, _, ctx := setupGormAdminService(t)
+	if _, _, err := service.Login(ctx, "", false); err != ErrInvalidCredentials {
+		t.Errorf("unset password: want ErrInvalidCredentials, got %v", err)
 	}
 }
 
-func TestGormService_Login_RememberMe(t *testing.T) {
-	service, _, ctx := setupGormAdminService(t)
+func TestGormService_Login_RememberMeDuration(t *testing.T) {
+	service, _, ctx := setupWithPassword(t)
 
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	token, expiresAt, err := service.Login(ctx, "operator", "password123", true)
+	_, normal, err := service.Login(ctx, "password123", false)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
-	if token == "" {
-		t.Error("token should not be empty")
+	_, remembered, err := service.Login(ctx, "password123", true)
+	if err != nil {
+		t.Fatalf("login failed: %v", err)
 	}
-	if duration := time.Until(expiresAt); duration < 24*time.Hour {
+	if duration := time.Until(normal); duration > sessionDurationNormal {
+		t.Errorf("normal session duration too long: %v", duration)
+	}
+	if duration := time.Until(remembered); duration < 24*time.Hour {
 		t.Errorf("remember me duration too short: %v", duration)
 	}
 }
 
 func TestGormService_ValidateSession_Valid(t *testing.T) {
-	service, _, ctx := setupGormAdminService(t)
+	service, _, ctx := setupWithPassword(t)
 
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	token, _, err := service.Login(ctx, "operator", "password123", false)
+	token, expiresAt, err := service.Login(ctx, "password123", true)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
-	username, valid := service.ValidateSession(ctx, token)
+	session, valid := service.ValidateSession(ctx, token)
 	if !valid {
-		t.Error("session should be valid")
+		t.Fatal("session should be valid")
 	}
-	if username != "operator" {
-		t.Errorf("username: got %q, want %q", username, "operator")
+	if !session.RememberMe || session.Refreshed {
+		t.Errorf("fresh remembered session: got %+v", session)
+	}
+	if !session.ExpiresAt.Equal(expiresAt.UTC()) {
+		t.Errorf("expires at: got %v, want %v", session.ExpiresAt, expiresAt.UTC())
 	}
 }
 
 func TestGormService_ValidateSession_Invalid(t *testing.T) {
 	service, _, ctx := setupGormAdminService(t)
-
 	if _, valid := service.ValidateSession(ctx, "invalid-token"); valid {
 		t.Error("session should not be valid")
 	}
 }
 
 func TestGormService_ValidateSession_SlidingWindow(t *testing.T) {
-	service, database, ctx := setupGormAdminService(t)
+	service, database, ctx := setupWithPassword(t)
 
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	token, _, err := service.Login(ctx, "operator", "password123", false)
+	token, _, err := service.Login(ctx, "password123", false)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
-
 	// Move the expiration near so validation refreshes it. Fresh sessions
 	// hold nearly the full duration and validate read-only.
 	near := util.Now().Add(time.Hour)
@@ -196,76 +217,59 @@ func TestGormService_ValidateSession_SlidingWindow(t *testing.T) {
 		t.Fatalf("move expiration near failed: %v", err)
 	}
 
-	before, err := gorm.G[record.Session](database.Cache, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}).First(ctx)
-	if err != nil {
-		t.Fatalf("get session failed: %v", err)
-	}
-
-	username, valid := service.ValidateSession(ctx, token)
+	session, valid := service.ValidateSession(ctx, token)
 	if !valid {
 		t.Fatal("session should be valid")
 	}
-	if username != "operator" {
-		t.Errorf("username: got %q, want %q", username, "operator")
+	if !session.Refreshed || !session.ExpiresAt.After(near) {
+		t.Errorf("validate should extend the session: got %+v", session)
 	}
-
 	after, err := gorm.G[record.Session](database.Cache, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}).First(ctx)
 	if err != nil {
 		t.Fatalf("get refreshed session failed: %v", err)
 	}
-	if !after.ExpiresAt.After(before.ExpiresAt) {
-		t.Error("validate should extend the session expiration")
+	if !after.ExpiresAt.After(near) {
+		t.Error("validate should persist the extended expiration")
 	}
 }
 
 func TestGormService_ValidateSession_Concurrent(t *testing.T) {
-	service, _, ctx := setupGormAdminService(t)
+	service, _, ctx := setupWithPassword(t)
 
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	token, _, err := service.Login(ctx, "operator", "password123", false)
+	token, _, err := service.Login(ctx, "password123", false)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
-
 	const callers = 16
 	var group sync.WaitGroup
-	rejected := make(chan string, callers)
+	rejected := make(chan struct{}, callers)
 	for i := 0; i < callers; i++ {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			username, valid := service.ValidateSession(ctx, token)
-			if !valid || username != "operator" {
-				rejected <- username
+			if _, valid := service.ValidateSession(ctx, token); !valid {
+				rejected <- struct{}{}
 			}
 		}()
 	}
 	group.Wait()
 	close(rejected)
-	for username := range rejected {
-		t.Errorf("concurrent validate rejected session, username %q", username)
+	if count := len(rejected); count > 0 {
+		t.Errorf("concurrent validate rejected the session %d times", count)
 	}
 }
 
 func TestGormService_ValidateSession_ExpiredDeletesRow(t *testing.T) {
-	service, database, ctx := setupGormAdminService(t)
+	service, database, ctx := setupWithPassword(t)
 
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	token, _, err := service.Login(ctx, "operator", "password123", false)
+	token, _, err := service.Login(ctx, "password123", false)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
-
 	past := util.Now().Add(-time.Hour)
-	tracker := gorm.WithResult()
-	if _, err := gorm.G[record.Session](database.Cache, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}, tracker).Update(ctx, "expires_at", past); err != nil {
+	if _, err := gorm.G[record.Session](database.Cache, clause.Eq{Column: "token_hash", Value: util.HashSecret(token)}).Update(ctx, "expires_at", past); err != nil {
 		t.Fatalf("expire session failed: %v", err)
 	}
-
 	if _, valid := service.ValidateSession(ctx, token); valid {
 		t.Fatal("expired session should not be valid")
 	}
@@ -279,12 +283,9 @@ func TestGormService_ValidateSession_ExpiredDeletesRow(t *testing.T) {
 }
 
 func TestGormService_Logout(t *testing.T) {
-	service, _, ctx := setupGormAdminService(t)
+	service, _, ctx := setupWithPassword(t)
 
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	token, _, err := service.Login(ctx, "operator", "password123", false)
+	token, _, err := service.Login(ctx, "password123", false)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
@@ -299,16 +300,13 @@ func TestGormService_Logout(t *testing.T) {
 }
 
 func TestGormService_CleanupExpiredSessions(t *testing.T) {
-	service, database, ctx := setupGormAdminService(t)
+	service, database, ctx := setupWithPassword(t)
 
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	kept, _, err := service.Login(ctx, "operator", "password123", false)
+	kept, _, err := service.Login(ctx, "password123", false)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
-	expired, _, err := service.Login(ctx, "operator", "password123", false)
+	expired, _, err := service.Login(ctx, "password123", false)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
@@ -316,11 +314,9 @@ func TestGormService_CleanupExpiredSessions(t *testing.T) {
 	if _, err := gorm.G[record.Session](database.Cache, clause.Eq{Column: "token_hash", Value: util.HashSecret(expired)}).Update(ctx, "expires_at", past); err != nil {
 		t.Fatalf("expire session failed: %v", err)
 	}
-
 	if err := service.CleanupExpiredSessions(ctx); err != nil {
 		t.Fatalf("cleanup failed: %v", err)
 	}
-
 	if _, valid := service.ValidateSession(ctx, kept); !valid {
 		t.Error("valid session should survive cleanup")
 	}
@@ -334,172 +330,26 @@ func TestGormService_CleanupExpiredSessions(t *testing.T) {
 }
 
 func TestGormService_ChangePassword(t *testing.T) {
-	service, _, ctx := setupGormAdminService(t)
+	service, _, ctx := setupWithPassword(t)
 
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	if err := service.ChangePassword(ctx, "operator", "password123", "password456"); err != nil {
+	if err := service.ChangePassword(ctx, "password123", "password456"); err != nil {
 		t.Fatalf("change password failed: %v", err)
 	}
-	if _, _, err := service.Login(ctx, "operator", "password123", false); err != ErrInvalidCredentials {
+	if _, _, err := service.Login(ctx, "password123", false); err != ErrInvalidCredentials {
 		t.Errorf("old password: want ErrInvalidCredentials, got %v", err)
 	}
-	if _, _, err := service.Login(ctx, "operator", "password456", false); err != nil {
+	if _, _, err := service.Login(ctx, "password456", false); err != nil {
 		t.Errorf("new password login failed: %v", err)
 	}
 }
 
-func TestGormService_ChangePassword_InvalidCredentials(t *testing.T) {
-	service, _, ctx := setupGormAdminService(t)
+func TestGormService_ChangePassword_InvalidCurrent(t *testing.T) {
+	service, _, ctx := setupWithPassword(t)
 
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
+	if err := service.ChangePassword(ctx, "wrongpassword", "password456"); err != ErrInvalidCredentials {
+		t.Errorf("wrong current password: want ErrInvalidCredentials, got %v", err)
 	}
-	if err := service.ChangePassword(ctx, "operator", "wrongpassword", "password456"); err != ErrInvalidCredentials {
-		t.Errorf("wrong old password: want ErrInvalidCredentials, got %v", err)
-	}
-	if err := service.ChangePassword(ctx, "missing", "password123", "password456"); err != ErrInvalidCredentials {
-		t.Errorf("missing user: want ErrInvalidCredentials, got %v", err)
-	}
-}
-
-func TestGormService_CreateLogin_AddsAccount(t *testing.T) {
-	service, _, ctx := setupGormAdminService(t)
-
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	if err := service.CreateLogin(ctx, "analyst", "password456"); err != nil {
-		t.Fatalf("create login failed: %v", err)
-	}
-	if _, _, err := service.Login(ctx, "analyst", "password456", false); err != nil {
-		t.Errorf("new account login failed: %v", err)
-	}
-	bootstrapped, err := service.IsBootstrapped(ctx)
-	if err != nil {
-		t.Fatalf("is bootstrapped: %v", err)
-	}
-	if !bootstrapped {
-		t.Error("create login must preserve the bootstrapped flag")
-	}
-}
-
-func TestGormService_CreateLogin_RequiresBootstrap(t *testing.T) {
-	service, _, ctx := setupGormAdminService(t)
-
-	if err := service.CreateLogin(ctx, "operator", "password123"); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
-		t.Errorf("create before bootstrap: want invalid-input, got %v", err)
-	}
-}
-
-func TestGormService_CreateLogin_Duplicate(t *testing.T) {
-	service, _, ctx := setupGormAdminService(t)
-
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	if err := service.CreateLogin(ctx, "operator", "password456"); !stdErrors.Is(err, apierrors.ErrAlreadyExists) {
-		t.Errorf("duplicate login: want already-exists, got %v", err)
-	}
-}
-
-func TestGormService_CreateLogin_Validation(t *testing.T) {
-	service, _, ctx := setupGormAdminService(t)
-
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	if err := service.CreateLogin(ctx, "   ", "password456"); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
-		t.Errorf("blank username: want invalid-input, got %v", err)
-	}
-	if err := service.CreateLogin(ctx, "analyst", ""); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
-		t.Errorf("empty password: want invalid-input, got %v", err)
-	}
-}
-
-func TestGormService_ListLogins(t *testing.T) {
-	service, _, ctx := setupGormAdminService(t)
-
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	if err := service.CreateLogin(ctx, "analyst", "password456"); err != nil {
-		t.Fatalf("create login failed: %v", err)
-	}
-	users, err := service.ListLogins(ctx)
-	if err != nil {
-		t.Fatalf("list logins failed: %v", err)
-	}
-	if len(users) != 2 {
-		t.Fatalf("logins length: got %d, want 2", len(users))
-	}
-	if users[0].Username != "analyst" || users[1].Username != "operator" {
-		t.Errorf("logins order: got %q, %q, want analyst, operator", users[0].Username, users[1].Username)
-	}
-	for _, user := range users {
-		if user.PasswordHash != "" {
-			t.Errorf("login %q must not expose a password hash", user.Username)
-		}
-	}
-}
-
-func TestGormService_ResetPassword(t *testing.T) {
-	service, _, ctx := setupGormAdminService(t)
-
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	token, _, err := service.Login(ctx, "operator", "password123", false)
-	if err != nil {
-		t.Fatalf("login failed: %v", err)
-	}
-	if err := service.ResetPassword(ctx, "operator", "password456"); err != nil {
-		t.Fatalf("reset password failed: %v", err)
-	}
-	if _, _, err := service.Login(ctx, "operator", "password123", false); err != ErrInvalidCredentials {
-		t.Errorf("old password: want ErrInvalidCredentials, got %v", err)
-	}
-	if _, _, err := service.Login(ctx, "operator", "password456", false); err != nil {
-		t.Errorf("new password login failed: %v", err)
-	}
-	if _, valid := service.ValidateSession(ctx, token); !valid {
-		t.Error("existing sessions must survive a password reset")
-	}
-}
-
-func TestGormService_ResetPassword_Unknown(t *testing.T) {
-	service, _, ctx := setupGormAdminService(t)
-
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	if err := service.ResetPassword(ctx, "missing", "password456"); !stdErrors.Is(err, apierrors.ErrNotFound) {
-		t.Errorf("unknown account reset: want not-found, got %v", err)
-	}
-}
-
-func TestGormService_ResetPassword_Validation(t *testing.T) {
-	service, _, ctx := setupGormAdminService(t)
-
-	if err := service.Bootstrap(ctx, "operator", "password123"); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
-	}
-	if err := service.ResetPassword(ctx, "   ", "password456"); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
-		t.Errorf("blank username: want invalid-input, got %v", err)
-	}
-	if err := service.ResetPassword(ctx, "operator", ""); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
-		t.Errorf("empty password: want invalid-input, got %v", err)
-	}
-}
-
-func TestAdminUserConvert_RoundTrip(t *testing.T) {
-	now := util.Now()
-	user := adminUserModelFromRecord(adminUserRecordFromModel(adminUserModelFromRecord(record.AdminUser{Username: "operator", PasswordHash: "hash", CreatedAt: now})))
-	if user.Username != "operator" || user.PasswordHash != "hash" {
-		t.Errorf("converter roundtrip lost fields: %+v", user)
-	}
-	if !user.CreatedAt.Equal(now.UTC()) {
-		t.Errorf("converter roundtrip time: got %v, want %v", user.CreatedAt, now.UTC())
+	if err := service.ChangePassword(ctx, "password123", ""); !stdErrors.Is(err, apierrors.ErrInvalidInput) {
+		t.Errorf("empty new password: want invalid-input, got %v", err)
 	}
 }

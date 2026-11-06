@@ -35,7 +35,7 @@ func TestOpenCreatesSchema(t *testing.T) {
 	primaryTables := []string{
 		"schema_migrations",
 		"instance_settings",
-		"admin_users",
+		"dashboard_password",
 		"router_tokens",
 		"token_allowed_providers",
 		"token_allowed_models",
@@ -159,7 +159,7 @@ func TestCacheDeleteRecovers(t *testing.T) {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	now := time.Now().UTC()
-	session := record.Session{TokenHash: "doomed", Username: "operator", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
+	session := record.Session{TokenHash: "doomed", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
 	if err := gorm.G[record.Session](first.Cache).Create(ctx, &session); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestCacheDeleteRecovers(t *testing.T) {
 	if !second.Handle.Migrator().HasTable("provider_instances") {
 		t.Errorf("primary misses provider_instances after cache delete")
 	}
-	fresh := record.Session{TokenHash: "fresh", Username: "operator", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
+	fresh := record.Session{TokenHash: "fresh", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
 	if err := gorm.G[record.Session](second.Cache).Create(ctx, &fresh); err != nil {
 		t.Fatalf("write session after cache delete: %v", err)
 	}

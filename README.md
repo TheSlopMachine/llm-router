@@ -34,7 +34,7 @@ llm-router set-dashboard-password
 llm-router daemon start
 ```
 
-This starts one public listener on `PORT` (default `8080`) for the dashboard and `/v1`. The dashboard login is `admin`.
+This starts one public listener on `PORT` (default `8080`) for the dashboard and `/v1`. The dashboard asks for the password only: it has one operator and no accounts. The server does not start until the password is set.
 
 `llm-router help` lists every command. The main ones:
 
@@ -43,7 +43,7 @@ This starts one public listener on `PORT` (default `8080`) for the dashboard and
 | `serve` | Run in the foreground (systemd, Docker). |
 | `daemon start\|stop\|restart\|status` | Run in the background (Linux, macOS, FreeBSD). |
 | `config` | Interactive settings menu; `config get\|set\|unset\|list\|init` for scripts. |
-| `set-dashboard-password` | Set the `admin` password. |
+| `set-dashboard-password` | Set the dashboard password. |
 | `logs` | Print server events (`-f`, `--subsystem`, `--severity`, ...). |
 | `status`, `doctor` | Inspect the running server, check the database. |
 | `update` | Install the latest release. |
@@ -56,11 +56,11 @@ Output is Russian or English: `LLM_ROUTER_LANG` (`ru` or `en`), else `LC_ALL`, `
 
 ### systemd and Docker
 
-Run `llm-router serve` in the foreground; the supervisor restarts it. Create the first password before the server starts. `--if-absent` keeps a password changed in the dashboard across restarts:
+Run `llm-router serve` in the foreground; the supervisor restarts it. Set the password before `serve`, for example in the container entrypoint. `--if-absent` keeps a password changed in the dashboard across restarts:
 
 ```bash
 llm-router config init
-llm-router set-dashboard-password --password-stdin --if-absent < /run/secrets/admin_password
+llm-router set-dashboard-password --password-stdin --if-absent < /run/secrets/dashboard_password
 exec llm-router serve
 ```
 

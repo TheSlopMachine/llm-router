@@ -48,7 +48,7 @@ Configuration flows one way: `.env` file, then `Makefile` vars → env → scrip
 
 ## Smoke (`make smoke-test`)
 
-Drives the request paths black-box against the running dev stack through the admin listener, with no restart: fails fast when nothing answers (`make start` first, `make restart` after code changes). Plugin names discover from `SMOKE_STORE_DIR` (`llm_router.register` keys; unknown names fail listing available). status → bootstrap → plugin install → provider + dev-database credentials → model matrix (one model per capability, first success closes it). Missing credentials skip keyed plugins, never fail them; installs yielding no provider instance (proxy sources and other non-backend plugins) skip the same way; credential-less provider types run the matrix without accounts. Quota, payment, rate and missing-model outcomes skip with reason; anything else fails. Exit 0 means clean (skips allowed).
+Drives the request paths black-box against the running dev stack through the admin listener, with no restart: fails fast when nothing answers (`make start` first, `make restart` after code changes). Plugin names discover from `SMOKE_STORE_DIR` (`llm_router.register` keys; unknown names fail listing available). status → plugin install → provider + dev-database credentials → model matrix (one model per capability, first success closes it). Missing credentials skip keyed plugins, never fail them; installs yielding no provider instance (proxy sources and other non-backend plugins) skip the same way; credential-less provider types run the matrix without accounts. Quota, payment, rate and missing-model outcomes skip with reason; anything else fails. Exit 0 means clean (skips allowed).
 
 ## Caching (`NO_SKIP`)
 

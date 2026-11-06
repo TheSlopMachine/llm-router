@@ -148,6 +148,20 @@ func main() {
 		"LOG_LEVEL=" + logLevel,
 		"DEV_UI_REDIRECT=" + fmt.Sprintf("http://%s:%s", host, vitePort),
 	}
+	// The server refuses to start without a dashboard password. A fresh dev
+	// database gets a generated one, printed once; later starts keep it.
+	setPassword := exec.Command(binPath, "set-dashboard-password", "--generate", "--if-absent")
+	setPassword.Dir = root
+	setPassword.Env = shared.EnvWith(backendEnvironment)
+	setPassword.Stderr = os.Stderr
+	generated, err := setPassword.Output()
+	if err != nil {
+		shared.Failf("set dashboard password: %v", err)
+	}
+	if password := strings.TrimSpace(string(generated)); password != "" {
+		shared.Stepf("Dashboard password: %s", password)
+	}
+
 	backendPID, err := shared.SpawnDetachedEnvNoLog(root, backendEnvironment, binPath, "serve")
 	if err != nil {
 		shared.Failf("spawn backend: %v", err)

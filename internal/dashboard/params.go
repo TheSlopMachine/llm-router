@@ -51,14 +51,6 @@ type Params struct {
 	SQLiteDatabase *db.Database
 }
 
-// EffectiveBootstrapped is the bootstrap state the SPA acts on: the real
-// database state, or true on the admin listener where no account exists.
-// Single source of truth for the middleware and the status endpoint so
-// the gate and the reported state can never diverge.
-func EffectiveBootstrapped(bootstrapped, unrestricted bool) bool {
-	return bootstrapped || unrestricted
-}
-
 // New constructs a dashboard Handler.
 func New(parameters Params) (*Handler, error) {
 	if parameters.SQLiteDatabase == nil || parameters.SQLiteDatabase.Handle == nil || parameters.SQLiteDatabase.Cache == nil || parameters.SQLiteDatabase.Events == nil {

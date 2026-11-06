@@ -107,7 +107,7 @@ type Handler struct {
 // This exists because `make start` never runs a real `vite build` — the
 // embedded build/web directory is just a placeholder stub so the
 // //go:embed directive has something to embed. Without this, hitting the
-// backend port directly in dev (or any /login, /bootstrap navigation
+// backend port directly in dev (or any /login navigation
 // not proxied to the dev server) serves that meaningless placeholder
 // instead of the actual UI, which is only running on PORT in dev.
 // Production builds never call this, so it has no effect there.
@@ -145,7 +145,6 @@ func (h *Handler) RegisterAPI(mux *http.ServeMux) {
 	// Auth endpoints
 	mux.HandleFunc("POST /api/llm-router/login", h.apiLogin)
 	mux.HandleFunc("POST /api/llm-router/logout", h.apiLogout)
-	mux.HandleFunc("POST /api/llm-router/bootstrap", h.apiBootstrap)
 	mux.HandleFunc("POST /api/llm-router/shutdown", h.apiShutdown)
 	mux.HandleFunc("POST /api/llm-router/dashboard/admin/password", h.requireAuth(h.apiAdminChangePassword))
 	mux.HandleFunc("GET /api/llm-router/status", h.apiStatus())
@@ -330,29 +329,19 @@ func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			h.jsonErr(w, http.StatusUnauthorized, "unauthenticated")
 			return
 		}
-		if _, ok := h.gormAdminService.ValidateSession(r.Context(), c.Value); !ok {
+		session, ok := h.gormAdminService.ValidateSession(r.Context(), c.Value)
+		if !ok {
 			h.logDebug("Authentication required", "endpoint", r.URL.Path)
 			h.jsonErr(w, http.StatusUnauthorized, "unauthenticated")
 			return
 		}
+		// A refreshed remembered session reissues its persistent cookie so
+		// the browser keeps it as long as the server does.
+		if session.Refreshed && session.RememberMe {
+			setSessionCookie(w, r, c.Value, session)
+		}
 		next(w, r)
 	}
-}
-
-// sessionUser resolves the authenticated username from the session cookie.
-func (h *Handler) sessionUser(r *http.Request) string {
-	if requestsource.SourceFromContext(r.Context()) == requestsource.RequestSourcePrivate {
-		return "admin"
-	}
-	c, err := r.Cookie(sessionCookie)
-	if err != nil || c.Value == "" {
-		return ""
-	}
-	username, ok := h.gormAdminService.ValidateSession(r.Context(), c.Value)
-	if !ok {
-		return ""
-	}
-	return username
 }
 
 func (h *Handler) json(w http.ResponseWriter, status int, data any) {

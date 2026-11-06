@@ -41,7 +41,7 @@ Unknown input returns unchanged.
 Top level domains group keys by feature.
 
 - `common` - Shared actions, labels, state, empty text, time words.
-- `auth` - Sign in, sign out, username, password, errors.
+- `auth` - Sign in, sign out, password, errors.
 - `nav` - Menu, search, settings, sidebar.
 - `providers` - Provider list, detail, models, fields.
 - `credentials` - Credential CRUD, test, probe state, summaries.
@@ -93,7 +93,7 @@ Suffix conventions:
 'common.status.loading': 'Loading...',
 'auth.sign_in.title': 'Sign in',
 'auth.sign_out.action': 'Sign out',
-'auth.errors.invalid_credentials': 'Invalid username or password.',
+'auth.errors.invalid_password': 'Wrong password.',
 'providers.list.title': 'Providers',
 'providers.list.empty': 'No providers yet. Add one to get started.',
 'providers.detail.enable': 'Enable provider',

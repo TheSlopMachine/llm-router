@@ -33,13 +33,6 @@ func TestConfigSettingsMissReturnsZero(t *testing.T) {
 	if configuration != (models.RouterConfiguration{}) {
 		t.Errorf("miss holds %+v, want zero configuration", configuration)
 	}
-	bootstrapped, err := service.IsBootstrapped(ctx)
-	if err != nil {
-		t.Fatalf("is bootstrapped on empty table: %v", err)
-	}
-	if bootstrapped {
-		t.Errorf("miss reports bootstrapped, want false")
-	}
 }
 
 func TestConfigPutSettingsRoundTrip(t *testing.T) {
@@ -91,72 +84,6 @@ func TestConfigPutSettingsInvalidFilterRejected(t *testing.T) {
 	}
 }
 
-func TestConfigSetBootstrappedMarksBootstrapped(t *testing.T) {
-	ctx := context.Background()
-	service := setupSQLiteService(t)
-
-	if err := service.SetBootstrapped(ctx); err != nil {
-		t.Fatalf("set bootstrapped: %v", err)
-	}
-	bootstrapped, err := service.IsBootstrapped(ctx)
-	if err != nil {
-		t.Fatalf("is bootstrapped: %v", err)
-	}
-	if !bootstrapped {
-		t.Errorf("flag reads false after set, want true")
-	}
-	if err := service.SetBootstrapped(ctx); err != nil {
-		t.Fatalf("second set bootstrapped: %v", err)
-	}
-}
-
-func TestConfigPutSettingsPreservesBootstrapped(t *testing.T) {
-	ctx := context.Background()
-	service := setupSQLiteService(t)
-
-	if err := service.SetBootstrapped(ctx); err != nil {
-		t.Fatalf("set bootstrapped: %v", err)
-	}
-	want := models.RouterConfiguration{IsClusterNode: true, ModelsFilter: "disabled", ProxyMaxChecks: checks(0), ProxyEnabled: flag(true), ProxyPoolEnabled: flag(true)}
-	if err := service.PutSettings(ctx, want); err != nil {
-		t.Fatalf("put settings: %v", err)
-	}
-	bootstrapped, err := service.IsBootstrapped(ctx)
-	if err != nil {
-		t.Fatalf("is bootstrapped: %v", err)
-	}
-	if !bootstrapped {
-		t.Errorf("put cleared the bootstrapped flag, want it preserved")
-	}
-	got, err := service.GetSettings(ctx)
-	if err != nil {
-		t.Fatalf("get settings: %v", err)
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("configuration holds %+v, want %+v", got, want)
-	}
-}
-
-func TestConfigSetBootstrappedPreservesConfiguration(t *testing.T) {
-	ctx := context.Background()
-	service := setupSQLiteService(t)
-
-	want := models.RouterConfiguration{DisableTelemetry: true, ModelsFilter: "enabled", ProxyMaxChecks: checks(0), ProxyEnabled: flag(true), ProxyPoolEnabled: flag(true)}
-	if err := service.PutSettings(ctx, want); err != nil {
-		t.Fatalf("put settings: %v", err)
-	}
-	if err := service.SetBootstrapped(ctx); err != nil {
-		t.Fatalf("set bootstrapped: %v", err)
-	}
-	got, err := service.GetSettings(ctx)
-	if err != nil {
-		t.Fatalf("get settings: %v", err)
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("set bootstrapped holds %+v, want %+v", got, want)
-	}
-}
-
 func TestConfigSQLiteMethodsFailClosedWithoutHandle(t *testing.T) {
 	ctx := context.Background()
 	service := New(nil)
@@ -166,12 +93,6 @@ func TestConfigSQLiteMethodsFailClosedWithoutHandle(t *testing.T) {
 	}
 	if err := service.PutSettings(ctx, models.RouterConfiguration{}); !errors.Is(err, apierrors.ErrInvalidInput) {
 		t.Errorf("put settings without sqlite returns %v, want invalid input", err)
-	}
-	if _, err := service.IsBootstrapped(ctx); !errors.Is(err, apierrors.ErrInvalidInput) {
-		t.Errorf("is bootstrapped without sqlite returns %v, want invalid input", err)
-	}
-	if err := service.SetBootstrapped(ctx); !errors.Is(err, apierrors.ErrInvalidInput) {
-		t.Errorf("set bootstrapped without sqlite returns %v, want invalid input", err)
 	}
 }
 

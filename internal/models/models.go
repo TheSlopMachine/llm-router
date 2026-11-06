@@ -1279,17 +1279,6 @@ func (e *PluginInternalError) Error() string {
 }
 
 // ─────────────────────────────────────────────
-// Admin
-// ─────────────────────────────────────────────
-
-// AdminUser is the dashboard operator account.
-type AdminUser struct {
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"password_hash"`
-	CreatedAt    time.Time `json:"created_at"`
-}
-
-// ─────────────────────────────────────────────
 // Router Tokens
 // ─────────────────────────────────────────────
 

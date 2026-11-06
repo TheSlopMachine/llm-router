@@ -4,8 +4,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/requestsource"
+	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 )
 
 // TestRequireAuthBranchesOnSource pins the session gate to the request
@@ -31,13 +33,24 @@ func TestRequireAuthBranchesOnSource(t *testing.T) {
 	}
 }
 
-// TestSessionUserPrivate pins the admin identity on the admin listener.
-func TestSessionUserPrivate(t *testing.T) {
-	handler := &Handler{}
-	request := httptest.NewRequest(http.MethodGet, "/", nil)
-	request = request.WithContext(requestsource.ContextWithSource(request.Context(), requestsource.RequestSourcePrivate))
-	if got := handler.sessionUser(request); got != "admin" {
-		t.Fatalf("private session user = %q, want admin", got)
+// TestSetSessionCookieLifetime pins the remember-me contract: a remembered
+// session gets a persistent cookie, any other a browser-session cookie.
+func TestSetSessionCookieLifetime(t *testing.T) {
+	expiresAt := time.Now().Add(time.Hour)
+	request := httptest.NewRequest(http.MethodPost, "/api/llm-router/login", nil)
+
+	recorder := httptest.NewRecorder()
+	setSessionCookie(recorder, request, "token", admin.Session{ExpiresAt: expiresAt, RememberMe: true})
+	cookies := recorder.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Expires.IsZero() {
+		t.Fatalf("remembered session: want a persistent cookie, got %+v", cookies)
+	}
+
+	recorder = httptest.NewRecorder()
+	setSessionCookie(recorder, request, "token", admin.Session{ExpiresAt: expiresAt})
+	cookies = recorder.Result().Cookies()
+	if len(cookies) != 1 || !cookies[0].Expires.IsZero() || cookies[0].MaxAge != 0 {
+		t.Fatalf("session without remember me: want a browser-session cookie, got %+v", cookies)
 	}
 }
 

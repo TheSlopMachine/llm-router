@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/instance"
 	"github.com/TheSlopMachine/llm-router/internal/logging"
 	"github.com/TheSlopMachine/llm-router/internal/server"
+	"github.com/TheSlopMachine/llm-router/internal/services/admin"
 )
 
 var serveLaunchedBy string
@@ -57,6 +59,10 @@ func runServe(command *cobra.Command, _ []string) error {
 	logger.Debug("Configuration loads", "database", applicationConfig.DBPath, "cache", applicationConfig.CachePath, "events", applicationConfig.EventsPath)
 
 	applicationServer, err := server.New(applicationConfig, logger)
+	if errors.Is(err, admin.ErrPasswordNotSet) {
+		logger.Error("Dashboard password is not set", "operation", "run_server", "reason", "password_not_set")
+		return errors.New(i18n.T("serve.passwordNotSet"))
+	}
 	if err != nil {
 		logger.Error("Server initialization fails", "operation", "run_server", "error", err)
 		return i18n.Wrap(err, "serve.initFailed")

@@ -43,14 +43,9 @@ func WaitReady(web string) error {
 func WaitReadyTimeout(web string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
-		statusCode, raw, err := uploadJSON("GET", web+"/api/llm-router/status", nil)
+		statusCode, _, err := uploadJSON("GET", web+"/api/llm-router/status", nil)
 		if err == nil && statusCode == 200 {
-			var statusBody struct {
-				Bootstrapped bool `json:"bootstrapped"`
-			}
-			if jerr := json.Unmarshal(raw, &statusBody); jerr == nil {
-				return nil
-			}
+			return nil
 		}
 		if time.Now().After(deadline) {
 			if err != nil {

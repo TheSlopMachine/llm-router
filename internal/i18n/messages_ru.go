@@ -26,7 +26,8 @@ var russian = map[string]string{
 
 Эта команда нужна для юнитов systemd и контейнеров. Настройки берутся из
 окружения и файла .env (см. "llm-router config").`,
-	"serve.initFailed": "инициализация сервера",
+	"serve.initFailed":     "инициализация сервера",
+	"serve.passwordNotSet": "пароль дашборда не задан; выполни: llm-router set-dashboard-password",
 
 	"daemon.short": "Запускать сервер в фоне (Linux, macOS, FreeBSD)",
 	"daemon.long": `Запускает сервер в фоне.
@@ -62,7 +63,7 @@ Lock-файл рядом с базой хранит данные о запуще
 
 	"status.short": "Показать состояние запущенного сервера",
 	"status.long": `Показывает состояние запущенного сервера: процесс, время работы, адрес,
-версию, отвечает ли дашборд и задан ли пароль.
+версию и отвечает ли дашборд.
 
 Код выхода 3 означает, что сервер не запущен.`,
 	"status.label.status":    "статус",
@@ -72,13 +73,10 @@ Lock-файл рядом с базой хранит данные о запуще
 	"status.label.listen":    "адрес",
 	"status.label.version":   "версия",
 	"status.label.dashboard": "дашборд",
-	"status.label.password":  "пароль",
 	"status.value.running":   "запущен",
 	"status.value.stopped":   "остановлен",
 	"status.value.answering": "отвечает",
 	"status.value.silent":    "не отвечает",
-	"status.value.set":       "задан",
-	"status.value.notSet":    "не задан (выполни: llm-router set-dashboard-password)",
 
 	"logs.short": "Показать события сервера",
 	"logs.long": `Показывает события, которые сохранил сервер. Команда читает базу событий
@@ -153,9 +151,8 @@ proxy или doctor. --filter и --exclude точно сравнивают лю�
 	"key.LUA_POOL_BUCKET_SIZE":  "свободных Lua-состояний на плагин, 0 отключает пул",
 	"key.CREDENTIALS_KEY_FILE":  "файл ключа шифрования ключей провайдеров, создаётся при первом запуске (CREDENTIALS_KEY его заменяет)",
 
-	"password.short": "Задать пароль пользователя дашборда admin",
-	"password.long": `Задаёт пароль пользователя дашборда "admin". При первом вызове
-пользователь создаётся.
+	"password.short": "Задать пароль дашборда",
+	"password.long": `Задаёт пароль дашборда. Без него сервер не запускается.
 
 Без флага-источника команда дважды спрашивает пароль в терминале.
 Изменение действует сразу, перезапуск не нужен.
@@ -167,14 +164,13 @@ proxy или doctor. --filter и --exclude точно сравнивают лю�
 	"password.flag.stdin":     "прочитать пароль из stdin",
 	"password.flag.value":     "пароль аргументом (виден в ps и истории shell)",
 	"password.flag.generate":  "сгенерировать случайный пароль и вывести его в stdout",
-	"password.flag.ifAbsent":  "ничего не делать, если пароль admin уже задан",
+	"password.flag.ifAbsent":  "ничего не делать, если пароль уже задан",
 	"password.empty":          "--password не должен быть пустым",
-	"password.checkAccounts":  "проверка учётных записей дашборда",
-	"password.listAccounts":   "список учётных записей дашборда",
-	"password.alreadySet":     "пароль admin уже задан",
-	"password.setFailed":      "установка пароля admin",
-	"password.created":        "пароль admin создан",
-	"password.updated":        "пароль admin обновлён",
+	"password.check":          "проверка пароля дашборда",
+	"password.alreadySet":     "пароль дашборда уже задан",
+	"password.setFailed":      "установка пароля дашборда",
+	"password.created":        "пароль дашборда задан",
+	"password.updated":        "пароль дашборда обновлён",
 	"password.warnArgument":   "внимание: пароль в командной строке виден в списке процессов и истории shell",
 	"password.noSource":       "нет источника пароля: используй --password-stdin или --generate, либо запусти в терминале",
 	"password.prompt.new":     "Новый пароль: ",

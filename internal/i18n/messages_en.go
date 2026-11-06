@@ -26,7 +26,8 @@ var english = map[string]string{
 
 Use this command in systemd units and containers. Configuration comes from
 the environment and the .env file (see "llm-router config").`,
-	"serve.initFailed": "init server",
+	"serve.initFailed":     "init server",
+	"serve.passwordNotSet": "dashboard password is not set; run: llm-router set-dashboard-password",
 
 	"daemon.short": "Run the server in the background (Linux, macOS, FreeBSD)",
 	"daemon.long": `Run the server in the background.
@@ -62,7 +63,7 @@ process in the foreground.`,
 
 	"status.short": "Show the state of the running server",
 	"status.long": `Show the state of the running server: process, uptime, address, version
-and whether the dashboard answers and has a password.
+and whether the dashboard answers.
 
 Exit code 3 means the server is not running.`,
 	"status.label.status":    "status",
@@ -72,13 +73,10 @@ Exit code 3 means the server is not running.`,
 	"status.label.listen":    "listen",
 	"status.label.version":   "version",
 	"status.label.dashboard": "dashboard",
-	"status.label.password":  "password",
 	"status.value.running":   "running",
 	"status.value.stopped":   "stopped",
 	"status.value.answering": "answering",
 	"status.value.silent":    "not answering",
-	"status.value.set":       "set",
-	"status.value.notSet":    "not set (run: llm-router set-dashboard-password)",
 
 	"logs.short": "Print server events",
 	"logs.long": `Print the events the server persisted. The command reads the events
@@ -152,9 +150,8 @@ after a restart of the server.`,
 	"key.LUA_POOL_BUCKET_SIZE":  "idle Lua states kept per plugin, 0 disables the pool",
 	"key.CREDENTIALS_KEY_FILE":  "credential encryption key file, created on first start (CREDENTIALS_KEY overrides it)",
 
-	"password.short": "Set the password of the dashboard user admin",
-	"password.long": `Set the password of the dashboard user "admin". The user is created on
-first use.
+	"password.short": "Set the dashboard password",
+	"password.long": `Set the dashboard password. The server does not start without it.
 
 Without a source flag the command asks for the password twice on a terminal.
 The change applies at once, no restart needed.
@@ -167,14 +164,13 @@ password changed in the dashboard survives restarts. A password in
 	"password.flag.stdin":     "read the password from stdin",
 	"password.flag.value":     "password as an argument (visible in ps and shell history)",
 	"password.flag.generate":  "generate a random password and print it to stdout",
-	"password.flag.ifAbsent":  "do nothing when the admin password is already set",
+	"password.flag.ifAbsent":  "do nothing when the password is already set",
 	"password.empty":          "--password must not be empty",
-	"password.checkAccounts":  "check dashboard accounts",
-	"password.listAccounts":   "list dashboard accounts",
-	"password.alreadySet":     "admin password is already set",
-	"password.setFailed":      "set admin password",
-	"password.created":        "admin password created",
-	"password.updated":        "admin password updated",
+	"password.check":          "check dashboard password",
+	"password.alreadySet":     "dashboard password is already set",
+	"password.setFailed":      "set dashboard password",
+	"password.created":        "dashboard password set",
+	"password.updated":        "dashboard password updated",
 	"password.warnArgument":   "warning: a password in the command line is visible in the process list and the shell history",
 	"password.noSource":       "no password source: use --password-stdin or --generate, or run in a terminal",
 	"password.prompt.new":     "New password: ",

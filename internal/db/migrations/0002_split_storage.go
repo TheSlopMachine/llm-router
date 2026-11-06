@@ -25,6 +25,7 @@ import (
 // so the cache lineage starts at 1 independently of the primary lineage.
 var RegistryCache = []migrate.Migration{
 	{Version: 1, Name: "cache_schema", Up: upCacheSchema},
+	{Version: 2, Name: "session_without_username", Up: upCacheSessionWithoutUsername},
 }
 
 type cacheSession struct {
@@ -412,10 +413,9 @@ func LegacySingleFile(primary *gorm.DB) bool {
 // database into the cache database. Inserts upsert so a repeated run after
 // an interrupted startup converges instead of duplicating. Only plugin
 // storage rows with a TTL move; durable rows stay in the primary file.
+// Sessions never move: the cache sessions table has no username column
+// since cache version 2, and an operator signs in again.
 func CopyLegacyCacheTables(ctx context.Context, primary, cache *gorm.DB) error {
-	if err := copyCacheTable[cacheSession](ctx, primary, cache); err != nil {
-		return err
-	}
 	if err := copyCacheTable[cacheProxyState](ctx, primary, cache); err != nil {
 		return err
 	}

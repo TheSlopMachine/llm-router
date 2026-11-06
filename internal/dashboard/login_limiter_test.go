@@ -12,7 +12,7 @@ func TestLoginLimiterLocksAfterFreeFailuresAndDoubles(t *testing.T) {
 	limiter.now = func() time.Time { return now }
 	request := httptest.NewRequest("POST", "/api/llm-router/login", nil)
 	request.RemoteAddr = "198.51.100.7:51234"
-	key := loginLimiterKey(request, "admin")
+	key := loginLimiterKey(request)
 
 	for i := 0; i < loginFreeFailures-1; i++ {
 		limiter.recordFailure(key)
@@ -37,7 +37,7 @@ func TestLoginLimiterLocksAfterFreeFailuresAndDoubles(t *testing.T) {
 
 	otherPort := httptest.NewRequest("POST", "/api/llm-router/login", nil)
 	otherPort.RemoteAddr = "198.51.100.7:60000"
-	if loginLimiterKey(otherPort, "admin") != key {
+	if loginLimiterKey(otherPort) != key {
 		t.Fatal("the source port must not change the key")
 	}
 
@@ -51,7 +51,7 @@ func TestLoginLimiterIgnoresForwardedFor(t *testing.T) {
 	request := httptest.NewRequest("POST", "/api/llm-router/login", nil)
 	request.RemoteAddr = "198.51.100.7:51234"
 	request.Header.Set("X-Forwarded-For", "203.0.113.99")
-	if key := loginLimiterKey(request, "admin"); key != "198.51.100.7\x00admin" {
+	if key := loginLimiterKey(request); key != "198.51.100.7" {
 		t.Fatalf("key must use the socket peer, got %q", key)
 	}
 }

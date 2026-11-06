@@ -11,7 +11,7 @@ cmd/root.go              CLI root: command groups, exit codes, version
 cmd/serve.go             foreground server (takes the instance lock)
 cmd/daemon.go            daemon start/stop/restart/status (daemon_unix.go, daemon_windows.go)
 cmd/config.go            config menu, init, get, set, unset, list over the .env file
-cmd/password.go          set-dashboard-password (single user admin)
+cmd/password.go          set-dashboard-password (the only way to set the first password)
 cmd/logs.go              logs: reads the events database read-only
 cmd/status.go, doctor.go, update.go   status, database doctor, self-update
 internal/instance/       one process per database: file lock + holder record next to DB_PATH
@@ -35,7 +35,7 @@ internal/services/
   events/                operator telemetry: append-only records with metadata keys, retention prune, filtered queries
   videojobs/             router-side video job rows (local id → upstream job)
   healthcheck/           failure-triggered credential verification (check_health, cooldown, singleflight, disable on unhealthy only with automation on)
-  admin/                 admin users (bootstrap, logins list/create, password change/reset) + sessions; bootstrap flag cached once true
+  admin/                 dashboard password (one hash, no accounts) + sessions; "password set" cached once true
   config/                instance-wide router configuration
   datamanagement/        subsystem export/import/clear + provider export/import/purge
   doctor/                database inspection and repair
@@ -264,7 +264,7 @@ exist (`ErrParentMissing`). `GET
 (limit default 50). The schema
 (`internal/db/migrations/0001_initial_schema.go` untouched history plus
 `0002_split_storage.go`) owns every table; `internal/db/record/` pins the
-row shapes. The database file keeps instance settings, admin users, proxy
+row shapes. The database file keeps instance settings, the dashboard password, proxy
 pools plus entries, tokens plus rules, providers, credentials, model
 overrides, virtual models, plugin repos, plugins, hosts, versions and
 durable plugin storage. The cache file keeps sessions, proxy states, model
@@ -280,6 +280,24 @@ synchronous NORMAL, busy timeout and immediate lock; `maintenance.go` owns
 the only raw statements (checkpoint, vacuum, freelist count, optimize,
 integrity check, backup, events prune).
 Sessions store the token hash as primary key, never plaintext.
+
+### Dashboard authentication
+
+The dashboard has one operator, so it has no accounts: `dashboard_password`
+holds one bcrypt hash (row id 1) and login takes the password only.
+`set-dashboard-password` is the only way to set the first password, and
+`serve` refuses to start while none is set (`admin.ErrPasswordNotSet`). There
+is no first-run setup page: on an instance reachable from the network a
+setup page would hand the dashboard to whoever opened it first. Containers
+set the password in the entrypoint with `--password-stdin --if-absent`.
+
+Login failures lock out per client address (`login_limiter.go`, socket peer
+only, never `X-Forwarded-For`). A session lives 8 hours, or 30 days with
+`remember_me`; the expiration moves forward while the session is in use.
+Without `remember_me` the cookie is a browser-session cookie, so closing the
+browser signs out; with it the cookie carries the server-side expiration and
+is reissued when that moves forward. A password change keeps existing
+sessions. The admin listener needs neither password nor session.
 `credentials.data` stores `llmr-enc:v1:<base64>` (AES-256-GCM through the
 `credential_cipher` serializer); the key installs before `OpenSQLite` from
 `CREDENTIALS_KEY` or `CREDENTIALS_KEY_FILE` (created with mode 0600 when
@@ -303,7 +321,7 @@ and durable storage; metric bucket deletes cascade dimension children.
 ## Smoke harness
 
 `scripts/smoke/` drives the request paths black-box against a dev stack
-(`make smoke-test` runs it against the running stack with no restart, then drives the admin listener): status → bootstrap →
+(`make smoke-test` runs it against the running stack with no restart, then drives the admin listener): status →
 plugin install → provider + dev-database credentials → model matrix
 (one model per capability, first success closes it, plus fallback and
 negative `endpoint_not_supported` paths) → mock `mock-limited` skip-path

@@ -2,8 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -54,28 +52,6 @@ func requestJSON(method, url string, body any, output any) error {
 		return fmt.Errorf("%s %s: decode: %w", method, url, err)
 	}
 	return nil
-}
-
-// ensureBootstrapped creates the single dashboard account the first time the
-// backend starts, as smoke does. The admin listener itself needs no login.
-func ensureBootstrapped(base string) error {
-	var status struct {
-		Bootstrapped bool `json:"bootstrapped"`
-	}
-	if err := requestJSON("GET", base+"/api/llm-router/status", nil, &status); err != nil {
-		return err
-	}
-	if status.Bootstrapped {
-		return nil
-	}
-	var random [16]byte
-	if _, err := rand.Read(random[:]); err != nil {
-		return err
-	}
-	return requestJSON("POST", base+"/api/llm-router/bootstrap", map[string]any{
-		"username": "harness",
-		"password": hex.EncodeToString(random[:]),
-	}, nil)
 }
 
 // discoverTarget finds the harness-mock provider instance and checks that the

@@ -12,10 +12,6 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/i18n"
 )
 
-// dashboardUsername is the only dashboard account. Only its password
-// changes.
-const dashboardUsername = "admin"
-
 var passwordOptions struct {
 	stdin    bool
 	value    string
@@ -59,21 +55,11 @@ func runSetDashboardPassword(command *cobra.Command, _ []string) error {
 	}
 	defer closeDatabase()
 
-	bootstrapped, err := service.IsBootstrapped(ctx)
+	passwordSet, err := service.HasPassword(ctx)
 	if err != nil {
-		return i18n.Wrap(err, "password.checkAccounts")
+		return i18n.Wrap(err, "password.check")
 	}
-	users, err := service.ListLogins(ctx)
-	if err != nil {
-		return i18n.Wrap(err, "password.listAccounts")
-	}
-	adminExists := false
-	for _, user := range users {
-		if user.Username == dashboardUsername {
-			adminExists = true
-		}
-	}
-	if passwordOptions.ifAbsent && bootstrapped && adminExists {
+	if passwordOptions.ifAbsent && passwordSet {
 		fmt.Fprintln(os.Stderr, i18n.T("password.alreadySet"))
 		return nil
 	}
@@ -82,19 +68,14 @@ func runSetDashboardPassword(command *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	var outcome string
-	switch {
-	case !bootstrapped:
-		err, outcome = service.Bootstrap(ctx, dashboardUsername, password), "password.created"
-	case adminExists:
-		err, outcome = service.ResetPassword(ctx, dashboardUsername, password), "password.updated"
-	default:
-		err, outcome = service.CreateLogin(ctx, dashboardUsername, password), "password.created"
-	}
-	if err != nil {
+	if err := service.SetPassword(ctx, password); err != nil {
 		return i18n.Wrap(err, "password.setFailed")
 	}
-	fmt.Fprintln(os.Stderr, i18n.T(outcome))
+	if passwordSet {
+		fmt.Fprintln(os.Stderr, i18n.T("password.updated"))
+	} else {
+		fmt.Fprintln(os.Stderr, i18n.T("password.created"))
+	}
 	if passwordOptions.generate {
 		fmt.Println(password)
 	}

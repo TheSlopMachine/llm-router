@@ -148,8 +148,8 @@ func TestSplitStorageUpgradesLegacyFile(t *testing.T) {
 	if err := CopyLegacyCacheTables(ctx, primary, cache); err != nil {
 		t.Fatalf("copy legacy cache tables: %v", err)
 	}
-	if got := countCacheRows[cacheSession](t, ctx, cache); got != 1 {
-		t.Errorf("cache sessions hold %d rows, want 1", got)
+	if got := countCacheRows[cacheSessionWithoutUsername](t, ctx, cache); got != 0 {
+		t.Errorf("cache sessions hold %d rows, want 0: sessions never move", got)
 	}
 	if got := countCacheRows[cacheProxyState](t, ctx, cache); got != 1 {
 		t.Errorf("cache proxy states hold %d rows, want 1", got)
@@ -203,9 +203,6 @@ func TestSplitStorageUpgradesLegacyFile(t *testing.T) {
 	// A repeated copy converges instead of duplicating.
 	if err := CopyLegacyCacheTables(ctx, primary, cache); err != nil {
 		t.Fatalf("recopy legacy cache tables: %v", err)
-	}
-	if got := countCacheRows[cacheSession](t, ctx, cache); got != 1 {
-		t.Errorf("cache sessions hold %d rows after recopy, want 1", got)
 	}
 
 	if err := migrate.Run(ctx, primary, RegistryDatabase); err != nil {

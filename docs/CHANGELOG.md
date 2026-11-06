@@ -1,5 +1,10 @@
 # Changelog
 
+## Done (2026-11-06, v0.8)
+
+- **Dashboard password, no accounts** — the dashboard has one operator: login asks for the password only. Migration 8 (`dashboard_password`) moved one hash out of `admin_users` (the `admin` account, else the oldest) into a single-row table, then dropped `admin_users` and the `bootstrapped` flag; cache migration 2 recreated sessions without a username, so existing dashboard sessions ended once. `set-dashboard-password` is the only way to set the first password and `serve` refuses to start without one; the first-run Bootstrap page and the login list are gone. Login failures lock out per client address (socket peer only). A session lives 8 hours, or 30 days with `remember_me`, and slides while in use; a password change keeps sessions.
+- **Dashboard on FUI 2.1** — cards (`Card`) replaced GroupBox and DisclosureGroup; controls, text centring, surfaces and shadows follow the new FUI.
+
 ## Done (2026-11-06, v0.7)
 
 - **Daemon stop waits for exit** — `daemon stop`, `daemon restart` and `update` waited up to 5 minutes for the instance lock to drop instead of 30 seconds, printed a waiting line after 2 seconds, then sent SIGKILL and waited 10 more seconds. A graceful shutdown runs plugin hooks, listener and events drains and a vacuum, which outlasted the old bound.

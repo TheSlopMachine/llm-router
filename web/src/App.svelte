@@ -3,11 +3,10 @@
   import { api } from './lib/api'
   import { getErrorMessage } from './lib/errors'
   import Login from './pages/Login.svelte'
-  import Bootstrap from './pages/Bootstrap.svelte'
   import Dashboard from './pages/Dashboard.svelte'
   import { Modal, Toasts, Banner } from '@fuckyouryan/fui'
 
-  type AppState = 'loading' | 'bootstrap' | 'login' | 'dashboard'
+  type AppState = 'loading' | 'login' | 'dashboard'
 
   let appState: AppState = $state('loading')
   let error: string | null = $state(null)
@@ -18,13 +17,7 @@
     try {
       const status = await api.status()
 
-      if (!status.bootstrapped) {
-        if (path !== '/bootstrap') {
-          window.location.replace('/bootstrap')
-          return
-        }
-        appState = 'bootstrap'
-      } else if (!status.authenticated) {
+      if (!status.authenticated) {
         if (path !== '/login') {
           window.location.replace('/login')
           return
@@ -54,10 +47,6 @@
     window.location.replace('/#/metrics')
   }
 
-  function onBootstrap(): void {
-    window.location.replace('/login')
-  }
-
   function onLogout(): void {
     window.location.replace('/login')
   }
@@ -74,8 +63,6 @@
       llm-router
     {/if}
   </div>
-{:else if appState === 'bootstrap'}
-  <Bootstrap ondone={onBootstrap} />
 {:else if appState === 'login'}
   <Login ondone={onLogin} />
 {:else}

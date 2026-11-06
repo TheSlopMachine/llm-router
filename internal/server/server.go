@@ -1,8 +1,8 @@
 // Package server wires all services together and starts the HTTP servers.
 // The public listener serves dashboard SPA, dashboard JSON API (/api) and
-// /v1 API with bootstrapping and authentication enforced. The optional
-// admin listener serves the same JSON API without either and binds
-// loopback only. Route tables live in httpapi and mount on both.
+// /v1 API with authentication enforced. The optional admin listener serves
+// the same JSON API without authentication and binds loopback only. The
+// server refuses to start while the dashboard password is unset. Route tables live in httpapi and mount on both.
 package server
 
 import (
@@ -84,6 +84,19 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite database: %w", err)
 	}
+	adminService := admin.NewGorm(sqliteDatabase)
+	adminService.SetLogger(logger)
+	// The dashboard password comes from the CLI only, so an instance without
+	// one never serves: nobody on the network can claim it first.
+	passwordSet, err := adminService.HasPassword(context.Background())
+	if err != nil {
+		_ = sqliteDatabase.Close()
+		return nil, fmt.Errorf("check dashboard password: %w", err)
+	}
+	if !passwordSet {
+		_ = sqliteDatabase.Close()
+		return nil, admin.ErrPasswordNotSet
+	}
 
 	listenAddr := applicationConfig.Addr
 	if listenAddr == "" {
@@ -107,8 +120,6 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		return nil, fmt.Errorf("seed providers: %w", err)
 	}
 
-	adminService := admin.NewGorm(sqliteDatabase)
-	adminService.SetLogger(logger)
 	tokenService := token.NewGorm(sqliteDatabase)
 	tokenService.SetLogger(logger)
 	credentialService := credential.NewGorm(sqliteDatabase, providerService)
@@ -253,10 +264,10 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 	}
 	privateMux := httpapi.BuildPrivateMux(apiV1, dashboardHandler)
 	publicHandler := securityHeadersMiddleware(requestsource.Middleware(requestsource.RequestSourcePublic)(
-		bootstrapMiddleware(adminService, logger)(requestLogger(logger, publicMux))))
+		requestLogger(logger, publicMux)))
 	privateHandler := loopbackHostMiddleware(applicationConfig.AdminAddr, logger)(
 		requestsource.Middleware(requestsource.RequestSourcePrivate)(
-			bootstrapMiddleware(adminService, logger)(requestLogger(logger, privateMux))))
+			requestLogger(logger, privateMux)))
 
 	// No WriteTimeout: streams legitimately run for minutes. The header and
 	// idle bounds stop slow-header and idle-connection exhaustion.
