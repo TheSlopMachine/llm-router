@@ -140,7 +140,8 @@
 </script>
 
 <div class="layout">
-<Scaffold bind:collapsed={getCollapsed, setCollapsed}>
+<!-- the shell two levels below FUI's default: sidebar -2, content column -1, cards 0 -->
+<Scaffold level={-2} bind:collapsed={getCollapsed, setCollapsed}>
   {#snippet sidebar()}
     <Sidebar>
       {#snippet header()}<Text class="brand" weight="bold" size="sm" text="llm-router" />{/snippet}

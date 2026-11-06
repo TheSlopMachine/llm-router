@@ -1,5 +1,9 @@
 # Changelog
 
+## Done (2026-11-06, v0.8.3)
+
+- **Darker shell** — the dashboard shell sits two surface levels lower (sidebar -2, content column -1, cards 0); modals stand on the content column level, so cards inside a modal are lighter than the modal (FUI 2.2.4).
+
 ## Done (2026-11-06, v0.8.2)
 
 - **Data management polish** — the group header stands one level above the subsystem rows; "clear all data" is a prominent red button with text; trash buttons are red; the proxy row keeps its actions in line with the collapsible rows.
