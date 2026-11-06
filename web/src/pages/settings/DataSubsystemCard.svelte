@@ -1,7 +1,7 @@
 <script lang="ts">
   // One data management subsystem: Import / Export / Clear in the header. With `items` the card
   // folds open to the subsystem's items, one row each with its own export (see data-items.ts).
-  import { Button, Card, Chip, ContentUnavailable, Divider, HStack, Spacer, Text, VStack, modal, toast, type HeaderAction } from '@fuckyouryan/fui'
+  import { Button, Card, Chip, ContentUnavailable, Divider, HStack, Spacer, Text, VStack, ZStack, modal, toast, type HeaderAction } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { t } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
@@ -117,7 +117,7 @@
   const actions = $derived<HeaderAction[]>([
     { id: 'import', text: t('data.import'), icon: 'upload', iconOnly: true, buttonStyle: 'text', disabled: busy, onclick: () => void importFile() },
     { id: 'export', text: t('data.export'), icon: 'download', iconOnly: true, buttonStyle: 'text', disabled: busy, onclick: () => void exportAll() },
-    { id: 'clear', text: t('data.clear'), icon: 'delete', iconOnly: true, buttonStyle: 'text', tint: 'danger', disabled: busy, onclick: () => void clear() },
+    { id: 'clear', text: t('data.clear'), icon: 'delete', iconOnly: true, buttonStyle: 'text', tint: 'var(--fui-color-danger)', disabled: busy, onclick: () => void clear() },
   ])
 </script>
 
@@ -150,5 +150,7 @@
     {/if}
   </Card>
 {:else}
-  <Card {title} {actions} accessory={countChip} />
+  <!-- an empty box where the collapsible rows have their chevron: the actions line up across rows -->
+  {#snippet chevronGap()}<ZStack width="var(--fui-ctl-md)" height="var(--fui-ctl-md)" />{/snippet}
+  <Card {title} {actions} accessory={countChip} trailing={chevronGap} />
 {/if}

@@ -133,7 +133,7 @@
   ] : [])
 
   const dataActions = $derived<HeaderAction[]>([
-    { id: 'clear-all', text: t('data.clear_all'), icon: 'delete', iconOnly: true, buttonStyle: 'text', tint: 'danger', disabled: clearingAll, onclick: () => void clearAll() },
+    { id: 'clear-all', text: t('data.clear_all'), icon: 'delete', buttonStyle: 'prominent', tint: 'var(--fui-color-danger)', disabled: clearingAll, onclick: () => void clearAll() },
   ])
 </script>
 

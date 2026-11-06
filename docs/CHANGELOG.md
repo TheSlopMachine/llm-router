@@ -1,5 +1,10 @@
 # Changelog
 
+## Done (2026-11-06, v0.8.2)
+
+- **Data management polish** — the group header stands one level above the subsystem rows; "clear all data" is a prominent red button with text; trash buttons are red; the proxy row keeps its actions in line with the collapsible rows.
+- **Dashboard on FUI 2.2.3** — buttons with an icon pad both sides equally; table headers keep the table's corners in every shape.
+
 ## Done (2026-11-06, v0.8.1)
 
 - **Footer** — the dashboard shows `LLM Router <version>`, a GitHub link and the API address (`<origin>/v1`, copyable); the authenticated `status` answer carries `version`.
