@@ -1,6 +1,6 @@
 <script lang="ts">
   // Body of the event detail modal. Rendered by the shared Modal shell (title, close button).
-  import { Button, Chip, CopyButton, GroupBox, HStack, Spacer, Text, VStack } from '@fuckyouryan/fui'
+  import { Button, Chip, CopyButton, Card, HStack, Spacer, Text, VStack } from '@fuckyouryan/fui'
   import { keyLabel } from '$lib/event-labels'
   import { severityLabel, severityTint } from '$lib/events'
   import { locale, t } from '$lib/i18n.svelte'
@@ -35,7 +35,7 @@
   <Text break>{entry.message}</Text>
 
   {#if entry.keys.length > 0}
-    <GroupBox title={t('metrics.logs.detail_keys.title')}>
+    <Card title={t('metrics.logs.detail_keys.title')}>
       <VStack gap={2}>
         {#each entry.keys as pair}
           <HStack valign="center" gap={3}>
@@ -64,7 +64,7 @@
           </HStack>
         {/each}
       </VStack>
-    </GroupBox>
+    </Card>
   {/if}
 
   <HStack>

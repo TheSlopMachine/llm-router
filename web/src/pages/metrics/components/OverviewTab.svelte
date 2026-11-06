@@ -4,7 +4,7 @@
   import { getErrorMessage } from '$lib/errors'
   import type { MetricsFilters, MetricsOverview, TimeSeriesPoint, Provider } from '$lib/types'
   import { t } from '$lib/i18n.svelte'
-  import { Banner, Button, Grid, GroupBox, HStack, Stat, Text, VStack } from '@fuckyouryan/fui'
+  import { Banner, Button, Card, Grid, HStack, Stat, Text, VStack } from '@fuckyouryan/fui'
   import MetricsFiltersCmp from './MetricsFilters.svelte'
   import PeakUsageChart from './PeakUsageChart.svelte'
 
@@ -170,15 +170,15 @@
   <VStack gap={4}>
     <Text variant="section-title">{t('metrics.overview')}</Text>
     <Grid min="md" gap={5}>
-      <GroupBox>
+      <Card>
         <Stat label={t('metrics.total_requests')} value={totalRequests} />
-      </GroupBox>
-      <GroupBox>
+      </Card>
+      <Card>
         <Stat label={t('metrics.total_errors')} value={totalErrors} tint={errorTint} />
-      </GroupBox>
-      <GroupBox>
+      </Card>
+      <Card>
         <Stat label={t('metrics.error_rate.label')} value={errorRate} tint={errorTint} />
-      </GroupBox>
+      </Card>
     </Grid>
   </VStack>
 

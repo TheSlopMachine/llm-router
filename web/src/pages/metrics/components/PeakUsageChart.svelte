@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { GroupBox, Histogram, Text } from '@fuckyouryan/fui'
+  import { Card, Histogram, Text } from '@fuckyouryan/fui'
   import { locale, t } from '$lib/i18n.svelte'
   import type { TimeSeriesPoint } from '$lib/types'
 
@@ -38,7 +38,7 @@
   const hasData = $derived(bins.some((bin) => bin.values[0] > 0))
 </script>
 
-<GroupBox {title}>
+<Card {title}>
   {#if loading}
     <Text foregroundStyle="secondary" size="sm">{t('common.state.loading')}</Text>
   {:else if !hasData}
@@ -46,4 +46,4 @@
   {:else}
     <Histogram {bins} series={[{ name: title, tint: 'accent' }]} height={120} locale={locale()} label={title} />
   {/if}
-</GroupBox>
+</Card>

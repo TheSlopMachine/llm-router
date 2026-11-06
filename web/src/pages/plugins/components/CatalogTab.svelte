@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Toolbar, ToolbarItem, FloatingView, HStack, VStack, Text, Toggle, SearchField, TextField, List, GroupBox, Chip, Spacer, Banner, ConfirmAction, ContentUnavailable, modal } from '@fuckyouryan/fui'
+  import { Button, Toolbar, ToolbarItem, FloatingView, HStack, VStack, Text, Toggle, SearchField, TextField, List, Card, Chip, Spacer, Banner, ConfirmAction, ContentUnavailable, modal } from '@fuckyouryan/fui'
   import PluginCard from './PluginCard.svelte'
   import RepoDetailsModal from './RepoDetailsModal.svelte'
   import { createPluginState } from './plugin-state.svelte'
@@ -259,7 +259,7 @@
   </div>
 
   {#if showAddRepo}
-    <GroupBox title={t('plugins.repo.add')} description={t('plugins.repo.url_hint')}>
+    <Card title={t('plugins.repo.add')} subtitle={t('plugins.repo.url_hint')}>
       <VStack gap={4}>
         <VStack gap={1}>
           <Text size="sm" weight="medium" tag="label" for="repo-url">{t('plugins.repo.url_label')}</Text>
@@ -270,11 +270,11 @@
           <Button buttonStyle="prominent" onclick={addRepo} disabled={adding || !repositoryUrl.trim()}>{t('common.actions.add')}</Button>
         </HStack>
       </VStack>
-    </GroupBox>
+    </Card>
   {/if}
 
   {#if showUpdatesBanner}
-    <GroupBox title={t('plugins.updates_available')}>
+    <Card title={t('plugins.updates_available')}>
       <List>
         {#each availableUpdates as u}
           <div style="padding: var(--fui-space-3) var(--fui-space-4);">
@@ -286,7 +286,7 @@
           </div>
         {/each}
       </List>
-    </GroupBox>
+    </Card>
   {/if}
 
   {#if repos.length === 0}

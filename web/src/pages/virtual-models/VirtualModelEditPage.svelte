@@ -1,6 +1,6 @@
 <script lang="ts">
   import ModalitiesFlow from '../../components/domain/ModalitiesFlow.svelte'
-  import { Icon, Button, Chip, HStack, GroupBox, Text, TextField, VStack, Banner, Header, ContentUnavailable, Picker, Field } from '@fuckyouryan/fui'
+  import { Icon, Button, Chip, HStack, Card, Text, TextField, VStack, Banner, Header, ContentUnavailable, Picker, Field } from '@fuckyouryan/fui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -234,7 +234,7 @@
       <Banner tint="warning" text={t('virtual.configure_first')} />
     {/if}
 
-    <GroupBox title={t('virtual.basic_info')}>
+    <Card title={t('virtual.basic_info')}>
       <Field label="ID" required>
         <TextField id="vm-name" bind:value={name} placeholder={t('virtual.model')} disabled={isManaged} />
       </Field>
@@ -244,9 +244,9 @@
       <Field label={t('virtual.instruction_label')}>
         <TextField maxRows={10} id="vm-instruction" bind:value={instruction} placeholder={t('virtual.general_instructions')} minRows={4} disabled={isManaged} />
       </Field>
-    </GroupBox>
+    </Card>
 
-    <GroupBox title={t('models.list.title')}>
+    <Card title={t('models.list.title')}>
       {#if modelsLoadState === 'loading'}
         <ContentUnavailable title={t('common.state.loading')} />
       {:else if modelsLoadState === 'error'}
@@ -330,7 +330,7 @@
           {/if}
         </HStack>
       {/if}
-    </GroupBox>
+    </Card>
 
     {#if isEditable}
     <HStack halign="end" gap={2}>

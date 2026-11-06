@@ -8,7 +8,7 @@
   import { t, n } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { accent, accents } from '$lib/accent.svelte'
-  import { Button, HStack, GroupBox, Spacer, Toggle, Text, VStack, TextField, Banner, Icon, Chip, Header, ContentUnavailable, ColorPicker, Field, FilePicker, toast, modal, Picker, type HeaderAction } from '@fuckyouryan/fui'
+  import { Button, HStack, Card, Spacer, Toggle, Text, VStack, TextField, Banner, Icon, Chip, Header, ContentUnavailable, ColorPicker, Field, FilePicker, toast, modal, Picker, type HeaderAction } from '@fuckyouryan/fui'
   import type { Provider, SubsystemStats, DoctorReport } from '$lib/types'
   import { downloadJson, readJsonFile } from '$lib/download'
 
@@ -272,7 +272,7 @@
     <Banner tint="danger" text={error} />
   {/if}
 
-  <GroupBox title={t('settings.preferences')} description={t('settings.preferences.desc')}>
+  <Card title={t('settings.preferences')} subtitle={t('settings.preferences.desc')}>
     <Field label={t('settings.language.label')}>
       <Picker value={lang} options={languageOptions} onchange={(v) => (lang = v as Language)} />
     </Field>
@@ -290,9 +290,9 @@
         onchange={(bg) => { accent.value = accents.find((a) => a.bg === bg) ?? accent.value }}
       />
     </Field>
-  </GroupBox>
+  </Card>
 
-  <GroupBox title={t('settings.instance.title')} description={t('settings.instance.desc')}>
+  <Card title={t('settings.instance.title')} subtitle={t('settings.instance.desc')}>
     <HStack valign="center" gap={4}>
       <Text>{t('settings.cluster_node')}</Text>
       <Spacer />
@@ -304,10 +304,10 @@
       <Spacer />
       <Toggle bind:checked={disableTelemetry} />
     </HStack>
-  </GroupBox>
+  </Card>
 
   <!-- Security section -->
-  <GroupBox title={t('settings.security')} description={t('settings.password.title')}>
+  <Card title={t('settings.security')} subtitle={t('settings.password.title')}>
     {#if passwordError}
       <Banner tint="danger" text={passwordError} />
     {/if}
@@ -329,10 +329,10 @@
         {passwordSaving ? t('common.actions.saving') : t('settings.password.change')}
       </Button>
     </HStack>
-  </GroupBox>
+  </Card>
 
   <!-- Database Doctor Section -->
-  <GroupBox title={t('data.doctor.title')} description={t('data.doctor.desc')}>
+  <Card title={t('data.doctor.title')} subtitle={t('data.doctor.desc')}>
     {#if doctorLoading}
       <ContentUnavailable title={t('common.state.loading')} />
     {:else if doctorReport}
@@ -361,10 +361,10 @@
         </VStack>
       {/if}
     {/if}
-  </GroupBox>
+  </Card>
 
   <!-- Data Management section -->
-  <GroupBox title={t('data.title')} description={t('data.subtitle')}>
+  <Card title={t('data.title')} subtitle={t('data.subtitle')}>
     {#if subsystemStatisticsLoading}
       <ContentUnavailable title={t('common.state.loading')} />
     {:else if subsystemStatistics}
@@ -376,7 +376,7 @@
           { key: 'tokens', label: t('data.access_tokens'), count: subsystemStatistics.tokens },
           { key: 'proxy', label: t('data.proxy'), count: subsystemStatistics.proxy_pools + subsystemStatistics.proxies }
         ] as sub}
-          <VStack gap={2} class="subsystem-box">
+          <VStack gap={2} pad={4} elev radius="md">
             <HStack valign="center" gap={3}>
               <VStack gap={0} grow>
                 <Text weight="medium" size="md">{sub.label}</Text>
@@ -400,10 +400,10 @@
         {/each}
       </VStack>
     {/if}
-  </GroupBox>
+  </Card>
 
   <!-- Individual Provider Management section -->
-  <GroupBox title={t('data.provider.title')} description={t('data.provider.desc')}>
+  <Card title={t('data.provider.title')} subtitle={t('data.provider.desc')}>
     {#if providersLoading}
       <ContentUnavailable title={t('common.state.loading')} />
     {:else if allProviders.length === 0}
@@ -430,7 +430,7 @@
         </HStack>
       </VStack>
     {/if}
-  </GroupBox>
+  </Card>
 </VStack>
 
 <style>
@@ -441,12 +441,6 @@
     padding: var(--fui-space-3) var(--fui-space-4);
     background: var(--fui-color-surface-container);
     border-radius: var(--fui-radius-md);
-  }
-  :global(.subsystem-box) {
-    padding: var(--fui-space-4);
-    background: var(--fui-elev);
-    border-radius: var(--fui-radius-md);
-    border: var(--fui-border-w) solid var(--fui-color-outline-soft);
   }
   :global(.file-action-row) {
     margin-top: var(--fui-space-2);

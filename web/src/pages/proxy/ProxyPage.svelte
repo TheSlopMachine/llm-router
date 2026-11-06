@@ -1,6 +1,6 @@
 <script lang="ts">
   import SectionHeading from '../../components/SectionHeading.svelte'
-  import { VStack, HStack, Text, Button, Toggle, Table, GroupBox, Chip, FloatingView, Banner, ConfirmAction, Header, Stat, Grid, Picker, Spacer, DisclosureGroup, RelativeTime, Field, TextField, toast, type TableColumn, ContentUnavailable, type HeaderAction } from '@fuckyouryan/fui'
+  import { VStack, HStack, Text, Button, Toggle, Table, Card, Chip, FloatingView, Banner, ConfirmAction, Header, Stat, Grid, Picker, Spacer, RelativeTime, Field, TextField, toast, type TableColumn, ContentUnavailable, type HeaderAction } from '@fuckyouryan/fui'
   import { viewport } from '$lib/viewport.svelte'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
@@ -315,7 +315,7 @@
 <VStack gap={6}>
   <Header title={t('proxy.title')} subtitle={t('proxy.pool.auto_refresh')} primary={headerPrimary} actions={headerActions} />
 
-  <GroupBox>
+  <Card>
     <Grid min="md" gap={4}>
       <VStack gap={1}>
         <Toggle label={t('proxy.switch.enabled')} ariaLabel={t('proxy.switch.enabled')} checked={proxyEnabled} disabled={!routerConfig || savingSwitch} onchange={(value: boolean) => void setSwitch({ proxy_enabled: value })} />
@@ -326,7 +326,7 @@
         <Text variant="caption">{t('proxy.switch.pool_hint')}</Text>
       </VStack>
     </Grid>
-  </GroupBox>
+  </Card>
 
   {#if !proxyEnabled}
     <Banner tint="warning" text={t('proxy.switch.off_banner')} />
@@ -357,7 +357,7 @@
     <ContentUnavailable title={t('common.state.loading')} />
   {:else if tab === 'status'}
     {#if status}
-      <GroupBox>
+      <Card>
         <Grid min="xs" gap={5}>
           <Stat label={t('proxy.pool.net')} value={status.net.rtt_ms > 0 ? `${status.net.state} ${status.net.rtt_ms} ms` : status.net.state} />
           <Stat label={`${t('proxy.pool.inflight')} / ${t('proxy.pool.limit')}`}>
@@ -392,7 +392,7 @@
             </HStack>
           </VStack>
         {/if}
-      </GroupBox>
+      </Card>
 
       <VStack gap={4}>
         <SectionHeading title={t('proxy.pool.lanes')} />
@@ -425,10 +425,10 @@
       </VStack>
 
       <!-- rarely needed: folded away so the overview stays short -->
-      <DisclosureGroup title={`${t('proxy.pool.healthy')} (${status.alive})`} bind:open={proxiesOpen}>
+      <Card collapsible title={`${t('proxy.pool.healthy')} (${status.alive})`} bind:open={proxiesOpen}>
         <!-- mounted only while open: it polls -->
         {#if proxiesOpen}<HealthyProxies />{/if}
-      </DisclosureGroup>
+      </Card>
     {:else}
       <ContentUnavailable title={t('common.state.loading')} />
     {/if}

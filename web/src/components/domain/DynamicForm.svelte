@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Banner, CodeBlock, GroupBox, Grid, TextField, Toggle, Text, VStack, HStack, Spacer, Divider, type HAlign, type VAlign, type Step, Picker } from '@fuckyouryan/fui'
+  import { Button, Banner, Card, CodeBlock, Grid, TextField, Toggle, Text, VStack, HStack, Spacer, Divider, type HAlign, type VAlign, type Step, Picker } from '@fuckyouryan/fui'
   import { isStepValue, isBannerVariant, isSecretInput } from '$lib/ui-helpers'
   import type { UINode } from '../../lib/types'
 
@@ -167,9 +167,9 @@
         {@render nodeList(node.content ?? [])}
       </Grid>
     {:else if node.type === 'section'}
-      <GroupBox title={node.title ?? ''} description={node.subtitle}>
+      <Card title={node.title ?? ''} subtitle={node.subtitle}>
         {@render nodeList(node.content ?? [])}
-      </GroupBox>
+      </Card>
     {:else if node.type === 'spacer'}
       {#if node.grow ?? true}
         <Spacer />

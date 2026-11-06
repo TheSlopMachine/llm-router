@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import {
-    Banner, Button, ContentUnavailable, DisclosureGroup, GroupBox, HStack, List, Spacer, VStack, modal,
+    Banner, Button, Card, ContentUnavailable, HStack, List, Spacer, VStack, modal,
   } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -242,12 +242,12 @@
   {/if}
 
   {#if facets.length > 0}
-    <DisclosureGroup title={t('metrics.logs.facets.title')} bind:open={facetsOpen}>
+    <Card collapsible title={t('metrics.logs.facets.title')} bind:open={facetsOpen}>
       <LogFacets groups={facets} onfilter={(key, value) => addFilter(key, value, false)} />
-    </DisclosureGroup>
+    </Card>
   {/if}
 
-  <GroupBox>
+  <Card>
     <VStack gap={3}>
       {#if olderAvailable || !follow}
         <HStack valign="center" gap={3}>
@@ -293,6 +293,6 @@
         {/snippet}
       </List>
     </VStack>
-  </GroupBox>
+  </Card>
 </VStack>
 
