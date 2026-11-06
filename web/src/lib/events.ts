@@ -4,12 +4,13 @@ import type { Tint } from '@fuckyouryan/fui'
 import type { TranslationKey } from './i18n/types'
 import type { EventEntry, EventKeyFilter, EventsQuery } from './types'
 
-export const SEVERITY_LEVELS: ReadonlyArray<{ level: number; tint: Tint; label: TranslationKey }> = [
-  { level: 0, tint: 'neutral', label: 'metrics.logs.severity_debug.label' },
-  { level: 1, tint: 'info', label: 'metrics.logs.severity_info.label' },
-  { level: 2, tint: 'warning', label: 'metrics.logs.severity_warn.label' },
-  { level: 3, tint: 'danger', label: 'metrics.logs.severity_error.label' },
-  { level: 4, tint: 'purple', label: 'metrics.logs.severity_fatal.label' },
+// `name`: the level as the server logs it (not localized).
+export const SEVERITY_LEVELS: ReadonlyArray<{ level: number; name: string; tint: Tint; label: TranslationKey }> = [
+  { level: 0, name: 'debug', tint: 'neutral', label: 'metrics.logs.severity_debug.label' },
+  { level: 1, name: 'info', tint: 'info', label: 'metrics.logs.severity_info.label' },
+  { level: 2, name: 'warn', tint: 'warning', label: 'metrics.logs.severity_warn.label' },
+  { level: 3, name: 'error', tint: 'danger', label: 'metrics.logs.severity_error.label' },
+  { level: 4, name: 'fatal', tint: 'purple', label: 'metrics.logs.severity_fatal.label' },
 ]
 
 export const TIME_RANGES: ReadonlyArray<{ id: string; minutes: number; label: TranslationKey }> = [
@@ -29,12 +30,20 @@ export const KNOWN_KEYS = [
 // Keys worth a facet: few distinct values, each one a sensible filter.
 export const FACET_KEYS = ['subsystem', 'provider_id', 'model', 'endpoint', 'code', 'status', 'operation'] as const
 
+function severityLevel(level: number): (typeof SEVERITY_LEVELS)[number] {
+  return SEVERITY_LEVELS[Math.min(Math.max(level, 0), SEVERITY_LEVELS.length - 1)]
+}
+
 export function severityTint(level: number): Tint {
-  return SEVERITY_LEVELS[Math.min(Math.max(level, 0), SEVERITY_LEVELS.length - 1)].tint
+  return severityLevel(level).tint
 }
 
 export function severityLabel(level: number): TranslationKey {
-  return SEVERITY_LEVELS[Math.min(Math.max(level, 0), SEVERITY_LEVELS.length - 1)].label
+  return severityLevel(level).label
+}
+
+export function severityName(level: number): string {
+  return severityLevel(level).name
 }
 
 // The API reads one predicate per prefix and key, so the wire format is a flat record.
@@ -60,13 +69,13 @@ export function withoutFilter(filters: EventKeyFilter[], target: EventKeyFilter)
   return filters.filter((filter) => !(filter.key === target.key && filter.exclude === target.exclude))
 }
 
-// Merges by id, sorted oldest first; past `cap` the oldest entries are dropped.
+// Merges by id, sorted newest first; past `cap` the oldest entries are dropped.
 export function mergeEntries(current: EventEntry[], incoming: EventEntry[], cap: number): EventEntry[] {
   const byId = new Map<number, EventEntry>()
   for (const entry of current) byId.set(entry.id, entry)
   for (const entry of incoming) byId.set(entry.id, entry)
-  const merged = [...byId.values()].sort((left, right) => left.id - right.id)
-  return merged.length > cap ? merged.slice(merged.length - cap) : merged
+  const merged = [...byId.values()].sort((left, right) => right.id - left.id)
+  return merged.length > cap ? merged.slice(0, cap) : merged
 }
 
 // undefined: key absent. null: key present without a value.

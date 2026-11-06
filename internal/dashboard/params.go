@@ -49,6 +49,9 @@ type Params struct {
 	// Required: construction fails when it is missing so integrator
 	// miswiring surfaces at startup, never as a nil dereference later.
 	SQLiteDatabase *db.Database
+	// Version is the build version reported to authenticated status
+	// requests. Empty reports an empty string.
+	Version string
 }
 
 // New constructs a dashboard Handler.
@@ -118,6 +121,7 @@ func New(parameters Params) (*Handler, error) {
 		maintenanceService:    parameters.MaintSvc,
 		eventsService:         parameters.EventsSvc,
 		dataGormService:       dataGormService,
+		version:               parameters.Version,
 		doctorGormService:     doctorGormService,
 		logger:                parameters.Logger,
 		requestShutdown:       parameters.RequestShutdown,

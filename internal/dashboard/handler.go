@@ -97,6 +97,10 @@ type Handler struct {
 	// served from the embedded build/web. Set via SetDevRedirect. See its
 	// documentation comment for why this exists.
 	devRedirect string
+
+	// version is the build version reported by the status endpoint to
+	// authenticated requests.
+	version string
 }
 
 // SetDevRedirect configures the handler to 302-redirect any browser
@@ -225,6 +229,7 @@ func (h *Handler) RegisterAPI(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/llm-router/dashboard/plugins/{id}", h.requireAuth(h.apiPluginsUpdate))
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/plugins/{id}", h.requireAuth(h.apiPluginsDelete))
 	mux.HandleFunc("POST /api/llm-router/dashboard/plugins/{id}/rollback", h.requireAuth(h.apiPluginsRollback))
+	mux.HandleFunc("GET /api/llm-router/dashboard/plugins/{id}/source", h.requireAuth(h.apiPluginsSource))
 	mux.HandleFunc("GET /api/llm-router/dashboard/plugins/{id}/logs", h.requireAuth(h.apiPluginsLogs))
 	mux.HandleFunc("GET /api/llm-router/dashboard/plugins/{id}/crashes", h.requireAuth(h.apiPluginsCrashes))
 

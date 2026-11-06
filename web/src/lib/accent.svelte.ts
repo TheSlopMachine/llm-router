@@ -1,15 +1,16 @@
 import { setAccent } from '@fuckyouryan/fui'
-// Accent color: user-picked in Settings, persisted per browser, applied to
-// both themes. Widgets read --color-accent (+hover/soft) and
-// --color-text-on-button-reverse; inline properties beat theme rules, so one
-// accent covers light and dark.
+// Accent color: a preset or any color picked in Settings, persisted per browser
+// (preset name or #rrggbb), applied to both themes. Presets carry tuned hover
+// and on-accent text colors; for a custom color FUI setAccent derives them
+// (on-accent text is white or dark by luminance).
 
 export interface Accent {
+  /** preset name, or 'custom' */
   name: string
   bg: string
-  hover: string
+  hover?: string
   /** Text color on the accent fill */
-  text: string
+  text?: string
 }
 
 export const accents: Accent[] = [
@@ -24,6 +25,12 @@ export const accents: Accent[] = [
 ]
 
 const STORAGE_KEY = 'accent'
+const HEX_COLOR = /^#[0-9a-f]{6}$/i
+
+/** The preset with this fill color, else a custom accent. */
+export function accentOf(bg: string): Accent {
+  return accents.find((a) => a.bg.toLowerCase() === bg.toLowerCase()) ?? { name: 'custom', bg: bg.toLowerCase() }
+}
 
 function getInitialAccent(): Accent {
   if (typeof window === 'undefined') return accents[0]
@@ -31,6 +38,7 @@ function getInitialAccent(): Accent {
     const stored = localStorage.getItem(STORAGE_KEY)
     const found = accents.find((a) => a.name === stored)
     if (found) return found
+    if (stored && HEX_COLOR.test(stored)) return accentOf(stored)
   } catch (e) {
     console.error('Failed to access localStorage for accent:', e)
   }
@@ -56,7 +64,7 @@ export const accent: {
   set value(a: Accent) {
     current = a
     try {
-      localStorage.setItem(STORAGE_KEY, a.name)
+      localStorage.setItem(STORAGE_KEY, a.name === 'custom' ? a.bg : a.name)
     } catch (e) {
       console.error('Failed to save accent to localStorage:', e)
     }

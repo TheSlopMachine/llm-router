@@ -1,35 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { theme } from '$lib/theme.svelte'
-  import type { Theme } from '$lib/theme.svelte'
-  import { language } from '$lib/language.svelte'
-  import type { Language } from '$lib/language.svelte'
   import { api } from '$lib/api'
-  import { t, n } from '$lib/i18n.svelte'
+  import { t } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
-  import { accent, accents } from '$lib/accent.svelte'
-  import { Button, HStack, Card, Spacer, Toggle, Text, VStack, TextField, Banner, Icon, Chip, Header, ContentUnavailable, ColorPicker, Field, FilePicker, toast, modal, Picker, type HeaderAction } from '@fuckyouryan/fui'
-  import type { Provider, SubsystemStats, DoctorReport } from '$lib/types'
-  import { downloadJson, readJsonFile } from '$lib/download'
-
-  let languageOptions = $derived([
-    { value: 'auto', label: t('common.auto') },
-    { value: 'en', label: t('settings.language.english') },
-    { value: 'ru', label: t('settings.language.russian') }
-  ])
-  let themeOptions: Array<{ value: string; label: string }> = $derived([
-    { value: 'auto', label: t('common.auto') },
-    { value: 'light', label: t('settings.theme.light') },
-    { value: 'dark', label: t('settings.theme.dark') }
-  ])
-
-  // Preferences
-  let lang = $state<Language>(language.value)
-  let th = $state<Theme>(theme.value)
-
-  // Config
-  let isClusterNode = $state(false)
-  let disableTelemetry = $state(false)
+  import { Button, HStack, Card, Text, VStack, TextField, Banner, Icon, Chip, Header, ContentUnavailable, Field, toast, modal, CardGroup, type HeaderAction } from '@fuckyouryan/fui'
+  import type { SubsystemStats, DoctorReport } from '$lib/types'
+  import AppearanceCard from './AppearanceCard.svelte'
+  import DataSubsystemCard from './DataSubsystemCard.svelte'
+  import { clearAllData, itemExports, type DataItem } from './data-items'
 
   // Security
   let currentPassword = $state('')
@@ -42,58 +20,15 @@
   // Data Management
   let subsystemStatistics = $state<SubsystemStats | null>(null)
   let subsystemStatisticsLoading = $state(false)
-  let importFileMap = $state<Record<string, File | null>>({})
-
-  let allProviders = $state<Provider[]>([])
-  let providerOptions = $derived(allProviders.map(p => ({ value: p.id, label: p.name })))
-  let selectedProviderId = $state('')
-  let providerImportFile = $state<File | null>(null)
-  let providersLoading = $state(false)
 
   // Database Doctor
   let doctorReport = $state<DoctorReport | null>(null)
   let doctorLoading = $state(false)
   let doctorFixing = $state(false)
 
-  // General state
-  let saving = $state(false)
-  let error = $state('')
-
-  const headerPrimary = $derived<HeaderAction>({
-    id: 'save',
-    text: saving ? t('common.actions.saving') : t('common.actions.save_changes'),
-    icon: 'save',
-    disabled: saving,
-    onclick: () => void save(),
-  })
-
   onMount(async () => {
-    await Promise.all([loadConfig(), loadDataStats(), runDoctorInspect(), loadProviders()])
+    await Promise.all([loadDataStats(), runDoctorInspect()])
   })
-
-  async function loadProviders(): Promise<void> {
-    providersLoading = true
-    try {
-      allProviders = await api.providers.list()
-      if (allProviders.length > 0) {
-        selectedProviderId = allProviders[0].id
-      }
-    } catch (e) {
-      toast.error(getErrorMessage(e))
-    } finally {
-      providersLoading = false
-    }
-  }
-
-  async function loadConfig(): Promise<void> {
-    try {
-      const routerConfig = await api.config.get()
-      isClusterNode = routerConfig.is_cluster_node
-      disableTelemetry = routerConfig.disable_telemetry
-    } catch (e) {
-      error = getErrorMessage(e)
-    }
-  }
 
   async function loadDataStats(): Promise<void> {
     subsystemStatisticsLoading = true
@@ -117,23 +52,8 @@
     }
   }
 
-  async function save(): Promise<void> {
-    if (saving) return
-    saving = true
-    error = ''
-    try {
-      language.value = lang
-      theme.value = th
-      await api.config.update({
-        is_cluster_node: isClusterNode,
-        disable_telemetry: disableTelemetry
-      })
-      toast.success(t('settings.saved'))
-    } catch (e) {
-      error = getErrorMessage(e)
-    } finally {
-      saving = false
-    }
+  async function refreshData(): Promise<void> {
+    await Promise.all([loadDataStats(), runDoctorInspect()])
   }
 
   async function updatePassword(): Promise<void> {
@@ -157,60 +77,13 @@
     }
   }
 
-  // Data Management actions
-  async function exportSubsystem(sub: string): Promise<void> {
-    try {
-      const data = await api.data.exportSubsystem(sub)
-      downloadJson(`llm_router_${sub}_export.json`, data)
-      toast.success(`${sub} exported successfully`)
-    } catch (e) {
-      toast.error(getErrorMessage(e))
-    }
-  }
-
-
-  async function importSubsystem(sub: string): Promise<void> {
-    const file = importFileMap[sub]
-    if (!file) {
-      toast.error(t('data.select_file_first'))
-      return
-    }
-    try {
-      const json = await readJsonFile(file)
-      await api.data.importSubsystem(sub, json)
-      toast.success(`${sub} imported successfully`)
-      importFileMap = { ...importFileMap, [sub]: null }
-      await Promise.all([loadDataStats(), runDoctorInspect()])
-    } catch (e) {
-      toast.error(getErrorMessage(e))
-    }
-  }
-
-  async function clearSubsystem(sub: string): Promise<void> {
-    const confirmed = await modal.confirm({
-      title: t('data.clear_subsystem'),
-      message: t('data.clear_confirm'),
-      confirmText: t('data.clear'),
-      confirmRole: 'destructive'
-    })
-    if (!confirmed) return
-    try {
-      await api.data.clearSubsystem(sub)
-      toast.success(`${sub} cleared successfully`)
-      await Promise.all([loadDataStats(), runDoctorInspect()])
-    } catch (e) {
-      toast.error(getErrorMessage(e))
-    }
-  }
-
-  // Database Doctor actions
   async function fixIssues(): Promise<void> {
     if (doctorFixing) return
     doctorFixing = true
     try {
       const fixResult = await api.doctor.fix([])
       toast.success(`${fixResult.fixed} ${t('data.doctor.resolved')}`)
-      await Promise.all([loadDataStats(), runDoctorInspect()])
+      await refreshData()
     } catch (e) {
       toast.error(getErrorMessage(e))
     } finally {
@@ -218,110 +91,72 @@
     }
   }
 
-  // Individual Provider Management actions
-  async function exportIndividualProvider(providerId: string): Promise<void> {
+  let clearingAll = $state(false)
+  // bumped after a clear of every subsystem: the subsystem cards mount anew, so open item lists reload
+  let subsystemCardsGeneration = $state(0)
+
+  async function clearAll(): Promise<void> {
+    if (clearingAll) return
+    clearingAll = true
     try {
-      const data = await api.data.exportProvider(providerId)
-      downloadJson(`llm_router_provider_${providerId}_export.json`, data)
-      toast.success(t('providers.export.success'))
+      if (!(await clearAllData())) return
+      toast.success(t('data.clear.success'))
     } catch (e) {
+      // a failed step leaves the earlier subsystems cleared: refresh anyway
       toast.error(getErrorMessage(e))
+    } finally {
+      clearingAll = false
     }
+    subsystemCardsGeneration++
+    await refreshData()
   }
 
-
-  async function importIndividualProvider(providerId: string): Promise<void> {
-    if (!providerImportFile) {
-      toast.error(t('data.select_file_first'))
-      return
-    }
-    try {
-      const json = await readJsonFile(providerImportFile)
-      await api.data.importProvider(providerId, json as never)
-      toast.success(t('providers.import.success'))
-      providerImportFile = null
-      await Promise.all([loadDataStats(), runDoctorInspect(), loadProviders()])
-    } catch (e) {
-      toast.error(getErrorMessage(e))
-    }
-  }
-
-  async function purgeIndividualProvider(providerId: string): Promise<void> {
+  async function purgeProvider(provider: DataItem): Promise<boolean> {
     const confirmed = await modal.confirm({
       title: t('data.purge_provider'),
       message: t('data.purge_confirm'),
       confirmText: t('data.purge'),
       confirmRole: 'destructive'
     })
-    if (!confirmed) return
-    try {
-      await api.data.purgeProvider(providerId)
-      toast.success(t('providers.purge.success'))
-      await Promise.all([loadDataStats(), runDoctorInspect(), loadProviders()])
-    } catch (e) {
-      toast.error(getErrorMessage(e))
-    }
+    if (!confirmed) return false
+    await api.data.purgeProvider(provider.id)
+    toast.success(t('providers.purge.success'))
+    return true
   }
 
+  const subsystems = $derived(subsystemStatistics ? [
+    { key: 'providers', title: t('data.providers_credentials'), count: subsystemStatistics.providers },
+    { key: 'virtual_models', title: t('data.virtual_models'), count: subsystemStatistics.virtual_models },
+    { key: 'plugins', title: t('data.plugins_repos'), count: subsystemStatistics.plugins },
+    { key: 'tokens', title: t('data.access_tokens'), count: subsystemStatistics.tokens },
+    { key: 'proxy', title: t('data.proxy'), count: subsystemStatistics.proxy_pools + subsystemStatistics.proxies },
+  ] : [])
+
+  const dataActions = $derived<HeaderAction[]>([
+    { id: 'clear-all', text: t('data.clear_all'), icon: 'delete', iconOnly: true, buttonStyle: 'text', tint: 'danger', disabled: clearingAll, onclick: () => void clearAll() },
+  ])
 </script>
 
 <VStack gap={6}>
-  <Header title={t('settings.title')} subtitle={t('settings.subtitle')} primary={headerPrimary} />
+  <Header title={t('settings.title')} subtitle={t('settings.subtitle')} />
 
-  {#if error}
-    <Banner tint="danger" text={error} />
-  {/if}
+  <AppearanceCard />
 
-  <Card title={t('settings.preferences')} subtitle={t('settings.preferences.desc')}>
-    <Field label={t('settings.language.label')}>
-      <Picker value={lang} options={languageOptions} onchange={(v) => (lang = v as Language)} />
-    </Field>
-
-    <Field label={t('settings.theme.label')}>
-      <Picker value={th} options={themeOptions} onchange={(v) => (th = v as Theme)} />
-    </Field>
-
-    <Field label={t('settings.accent')}>
-      <ColorPicker
-        label={t('settings.accent')}
-        colors={accents.map((a) => a.bg)}
-        custom={false}
-        value={accent.value.bg}
-        onchange={(bg) => { accent.value = accents.find((a) => a.bg === bg) ?? accent.value }}
-      />
-    </Field>
-  </Card>
-
-  <Card title={t('settings.instance.title')} subtitle={t('settings.instance.desc')}>
-    <HStack valign="center" gap={4}>
-      <Text>{t('settings.cluster_node')}</Text>
-      <Spacer />
-      <Toggle bind:checked={isClusterNode} />
-    </HStack>
-
-    <HStack valign="center" gap={4}>
-      <Text>{t('settings.disable_telemetry')}</Text>
-      <Spacer />
-      <Toggle bind:checked={disableTelemetry} />
-    </HStack>
-  </Card>
-
-  <!-- Security section -->
-  <Card title={t('settings.security')} subtitle={t('settings.password.title')}>
+  <Card title={t('settings.security')}>
     {#if passwordError}
       <Banner tint="danger" text={passwordError} />
     {/if}
 
     <Field label={t('settings.password.current')}>
-      <TextField id="current-password" name="current-password" bind:value={currentPassword} secure autocomplete="current-password" />
+      <TextField id="current-password" name="current-password" bind:value={currentPassword} size="lg" secure autocomplete="current-password" />
     </Field>
 
     <Field label={t('settings.password.new')}>
-      <TextField id="new-password" name="new-password" bind:value={newPassword} secure autocomplete="new-password" />
+      <TextField id="new-password" name="new-password" bind:value={newPassword} size="lg" secure autocomplete="new-password" />
     </Field>
 
     <Field label={t('settings.password.confirm')}>
-      <TextField id="confirm-password" name="new-password-confirm" bind:value={confirmPassword} secure autocomplete="new-password" />
+      <TextField id="confirm-password" name="new-password-confirm" bind:value={confirmPassword} size="lg" secure autocomplete="new-password" />
     </Field>
 
     <HStack halign="end">
@@ -331,8 +166,7 @@
     </HStack>
   </Card>
 
-  <!-- Database Doctor Section -->
-  <Card title={t('data.doctor.title')} subtitle={t('data.doctor.desc')}>
+  <Card title={t('data.doctor.title')}>
     {#if doctorLoading}
       <ContentUnavailable title={t('common.state.loading')} />
     {:else if doctorReport}
@@ -363,88 +197,34 @@
     {/if}
   </Card>
 
-  <!-- Data Management section -->
-  <Card title={t('data.title')} subtitle={t('data.subtitle')}>
-    {#if subsystemStatisticsLoading}
-      <ContentUnavailable title={t('common.state.loading')} />
-    {:else if subsystemStatistics}
-      <VStack gap={4} class="data-container">
-        {#each [
-          { key: 'providers', label: t('data.providers_credentials'), count: subsystemStatistics.providers },
-          { key: 'virtual_models', label: t('data.virtual_models'), count: subsystemStatistics.virtual_models },
-          { key: 'plugins', label: t('data.plugins_repos'), count: subsystemStatistics.plugins },
-          { key: 'tokens', label: t('data.access_tokens'), count: subsystemStatistics.tokens },
-          { key: 'proxy', label: t('data.proxy'), count: subsystemStatistics.proxy_pools + subsystemStatistics.proxies }
-        ] as sub}
-          <VStack gap={2} pad={4} elev radius="md">
-            <HStack valign="center" gap={3}>
-              <VStack gap={0} grow>
-                <Text weight="medium" size="md">{sub.label}</Text>
-                <Text size="xs" foregroundStyle="secondary">{n(sub.count, 'units.item.one', 'units.item.many')}</Text>
-              </VStack>
-              <HStack gap={2} wrap>
-                <Button size="sm" icon={{ name: 'download' }} onclick={() => exportSubsystem(sub.key)}>{t('data.export')}</Button>
-                <Button size="sm" buttonStyle="text" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} onclick={() => clearSubsystem(sub.key)}>{t('data.clear')}</Button>
-              </HStack>
-            </HStack>
-            <HStack gap={3} valign="center" wrap class="file-action-row">
-              <!-- remount on change: the button shows the site's chosen file and resets after import -->
-              {#key importFileMap[sub.key]}
-                <FilePicker size="sm" accept=".json" icon="attach_file" label={t('data.select_json')} buttonText={importFileMap[sub.key]?.name ?? t('data.select_json')} onpick={(files) => { importFileMap = { ...importFileMap, [sub.key]: files[0] } }} />
-              {/key}
-              {#if importFileMap[sub.key]}
-                <Button size="sm" buttonStyle="prominent" onclick={() => importSubsystem(sub.key)}>{t('data.import')}</Button>
-              {/if}
-            </HStack>
-          </VStack>
+  {#if subsystemStatisticsLoading && !subsystemStatistics}
+    <ContentUnavailable title={t('common.state.loading')} />
+  {/if}
+  {#if subsystemStatistics}
+    {#key subsystemCardsGeneration}
+      <CardGroup title={t('data.management.title')} actions={dataActions}>
+        {#each subsystems as subsystem (subsystem.key)}
+          <DataSubsystemCard
+            subsystem={subsystem.key}
+            title={subsystem.title}
+            count={subsystem.count}
+            items={itemExports[subsystem.key]}
+            purgeItem={subsystem.key === 'providers' ? purgeProvider : undefined}
+            onchanged={refreshData}
+          />
         {/each}
-      </VStack>
-    {/if}
-  </Card>
-
-  <!-- Individual Provider Management section -->
-  <Card title={t('data.provider.title')} subtitle={t('data.provider.desc')}>
-    {#if providersLoading}
-      <ContentUnavailable title={t('common.state.loading')} />
-    {:else if allProviders.length === 0}
-      <ContentUnavailable title={t('providers.manage.none_available')} />
-    {:else}
-      <VStack gap={3}>
-        <VStack gap={1}>
-          <Text size="sm" weight="medium">{t('data.provider.select')}</Text>
-          <Picker ariaLabel={t('data.provider.select')} bind:value={selectedProviderId} options={providerOptions} />
-        </VStack>
-
-        <HStack gap={2} valign="center" wrap>
-          <Button size="sm" icon={{ name: 'download' }} onclick={() => exportIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.export')}</Button>
-          <Button size="sm" buttonStyle="text" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} onclick={() => purgeIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.purge_provider')}</Button>
-        </HStack>
-
-        <HStack gap={3} valign="center" wrap class="file-action-row">
-          {#key providerImportFile}
-            <FilePicker size="sm" accept=".json" icon="attach_file" label={t('data.select_json')} buttonText={providerImportFile?.name ?? t('data.select_json')} onpick={(files) => { providerImportFile = files[0] }} />
-          {/key}
-          {#if providerImportFile}
-            <Button size="sm" buttonStyle="prominent" onclick={() => importIndividualProvider(selectedProviderId)} disabled={!selectedProviderId}>{t('data.import')}</Button>
-          {/if}
-        </HStack>
-      </VStack>
-    {/if}
-  </Card>
+      </CardGroup>
+    {/key}
+  {/if}
 </VStack>
 
 <style>
-  :global(.issues-container), :global(.data-container) {
+  :global(.issues-container) {
     width: 100%;
   }
   :global(.issue-row) {
     padding: var(--fui-space-3) var(--fui-space-4);
     background: var(--fui-color-surface-container);
     border-radius: var(--fui-radius-md);
-  }
-  :global(.file-action-row) {
-    margin-top: var(--fui-space-2);
-    padding-top: var(--fui-space-2);
-    border-top: var(--fui-border-w) dashed var(--fui-color-outline-soft);
   }
 </style>

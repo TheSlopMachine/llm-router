@@ -21,8 +21,6 @@ function getInitialTheme(): Theme {
 function applyTheme(theme: Theme): void {
   if (typeof window === 'undefined') return
 
-  const root = document.documentElement
-
   if (theme === 'auto') {
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
     setTheme(prefersDark ? 'dark' : 'light')

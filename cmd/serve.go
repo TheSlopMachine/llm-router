@@ -41,6 +41,7 @@ func runServe(command *cobra.Command, _ []string) error {
 		slog.Default().Error("Configuration fails to load", "operation", "run_server", "error", err)
 		return err
 	}
+	applicationConfig.Version = versionInformation.Version
 
 	mode := instance.ModeForeground
 	if serveLaunchedBy == string(instance.ModeDaemon) {

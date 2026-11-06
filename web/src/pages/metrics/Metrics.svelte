@@ -14,7 +14,8 @@
   } = $props()
 </script>
 
-<VStack gap={6}>
+<!-- logs: a column as tall as the page, the log table takes what is left -->
+<VStack gap={6} grow={tab === 'logs'}>
   <Header title={t('metrics.title')} subtitle={t('metrics.subtitle')} />
 
   <Picker

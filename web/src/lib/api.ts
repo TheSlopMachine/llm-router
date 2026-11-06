@@ -81,6 +81,7 @@ export const api = {
     const raw = (await apiCall('get', '/api/llm-router/status')) as unknown as Record<string, unknown>
     return {
       authenticated: (raw?.authenticated as boolean) ?? false,
+      version: (raw?.version as string | undefined) ?? '',
       stats: raw?.stats as { providers?: number; tokens?: number; credentials?: number } | undefined,
     }
   },
@@ -160,6 +161,10 @@ export const api = {
 
     get: (id: string): Promise<Plugin> =>
       fetch(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}`).then(assertOk),
+
+    /** the stored Lua source */
+    source: (id: string): Promise<Blob> =>
+      fetch(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}/source`).then(assertOkBlob),
 
     installFile: (source: string): Promise<Plugin> =>
       fetch('/api/llm-router/dashboard/plugins/install-file', {
@@ -457,14 +462,22 @@ export const api = {
     importSubsystem: (subsystem: string, payload: any): Promise<{ ok: boolean }> =>
       postJson(`/api/llm-router/dashboard/data/${encodeURIComponent(subsystem)}/import`, payload),
 
+    /** the plugins subsystem export: a zip of plugins.json plus one .lua per plugin */
+    exportPluginsArchive: (): Promise<Blob> =>
+      fetch('/api/llm-router/dashboard/data/plugins/export').then(assertOkBlob),
+
+    importPluginsArchive: (archive: Blob): Promise<{ ok: boolean }> =>
+      fetch('/api/llm-router/dashboard/data/plugins/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/zip' },
+        body: archive,
+      }).then(assertOk),
+
     clearSubsystem: (subsystem: string): Promise<{ ok: boolean }> =>
       postJson(`/api/llm-router/dashboard/data/${encodeURIComponent(subsystem)}/clear`, {}),
 
     exportProvider: (providerId: string): Promise<ProviderBundle> =>
       fetch(`/api/llm-router/dashboard/providers/${encodeURIComponent(providerId)}/export`).then(assertOk),
-
-    importProvider: (providerId: string, bundle: ProviderBundle): Promise<{ ok: boolean }> =>
-      postJson(`/api/llm-router/dashboard/providers/${encodeURIComponent(providerId)}/import`, bundle),
 
     purgeProvider: (providerId: string): Promise<void> =>
       fetch(`/api/llm-router/dashboard/providers/${encodeURIComponent(providerId)}/purge`, { method: 'DELETE' }).then(assertOkVoid),
@@ -487,6 +500,13 @@ async function assertOk(response: Response): Promise<any> {
   // 204/empty bodies are valid answers; response.json() on them throws.
   const text = await response.text()
   return text ? JSON.parse(text) : undefined
+}
+
+async function assertOkBlob(response: Response): Promise<Blob> {
+  if (!response.ok) {
+    throw new Error(await errorText(response))
+  }
+  return response.blob()
 }
 
 async function assertOkVoid(response: Response): Promise<void> {

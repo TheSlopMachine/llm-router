@@ -13,10 +13,10 @@ import (
 
 // apiStatus returns system status
 // @Summary      Get system status
-// @Description  Returns authentication status and system statistics.
+// @Description  Returns authentication status; authenticated requests also get system statistics and the build version.
 // @Tags         System
 // @Produce      json
-// @Success      200 {object} object{authenticated=bool,stats=object{providers=int,tokens=int,credentials=int}}
+// @Success      200 {object} object{authenticated=bool,version=string,stats=object{providers=int,tokens=int,credentials=int}}
 // @Router       /api/llm-router/status [get]
 func (h *Handler) apiStatus() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -41,10 +41,14 @@ func (h *Handler) apiStatus() http.HandlerFunc {
 			}
 		}
 
-		h.json(w, http.StatusOK, map[string]any{
+		response := map[string]any{
 			"authenticated": authenticated,
 			"stats":         statistics,
-		})
+		}
+		if authenticated {
+			response["version"] = h.version
+		}
+		h.json(w, http.StatusOK, response)
 	}
 }
 

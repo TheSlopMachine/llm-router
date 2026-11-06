@@ -154,7 +154,7 @@ internal/services/
   healthcheck/           failure-triggered credential verification (check_health, cooldown, disable on unhealthy only with automation on)
   admin/                 dashboard password (one hash, no accounts) + sessions
   config/                instance-wide router configuration
-  datamanagement/        subsystem export/import/clear + provider export/import/purge
+  datamanagement/        subsystem export/import/clear (JSON; plugins: zip of plugins.json without sources + one <id>.lua per plugin; providers and virtual_models import also take one item object) + provider export/import/purge
   doctor/                database inspection and repair
   proxypool/             free-pool hosting, Lua feed bridge, SQLite cache, custom pools, lane scheduler adapter
   events/                event log storage (events SQLite store)
@@ -710,7 +710,7 @@ Auth: under admin listener no headers needed. With auth on (public), `/v1` needs
 
 Dashboard `/api/llm-router/*` (same `:PORT`, JSON `{"error":...}` on failure):
 
-- `GET /api/llm-router/status` — `{authenticated, stats}`; boot gate for everything else.
+- `GET /api/llm-router/status` — `{authenticated, stats, version}` (`stats` and `version` only when authenticated); boot gate for everything else.
 - `GET /dashboard/providers`, `/dashboard/tokens`, `/dashboard/credentials` — inventory.
 - `POST /dashboard/chat/completions` — same router through a session, `TokenID: "dashboard"` in metrics.
 - `POST /dashboard/credentials/{id}/test {"model":...}` — pinned single-credential probe (bare model name; endpoint prepends provider).

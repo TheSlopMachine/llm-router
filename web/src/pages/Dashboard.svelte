@@ -17,6 +17,7 @@
   import type { MetricsTab } from './metrics/Metrics.svelte'
   import { t } from '../lib/i18n.svelte'
   import { BP_NARROW } from '../lib/breakpoints'
+  import AppFooter from '../components/AppFooter.svelte'
 
   let { onlogout }: { onlogout: () => void } = $props()
 
@@ -184,6 +185,7 @@
       {/if}
     </div>
   </div>
+  <AppFooter />
 </Scaffold>
 </div>
 
@@ -204,9 +206,13 @@
     padding: var(--fui-page-pad);
     padding-left: calc(var(--fui-page-pad) + env(safe-area-inset-left));
     padding-right: calc(var(--fui-page-pad) + env(safe-area-inset-right));
-    padding-bottom: calc(var(--fui-page-pad) + env(safe-area-inset-bottom));
   }
+  /* A flex column filling the scroll area, so a page can `grow` a child
+     (the logs table) down to the viewport bottom instead of scrolling. */
   .main-content {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
     width: 100%;
     max-width: var(--fui-content-max-w);
     min-width: 0;

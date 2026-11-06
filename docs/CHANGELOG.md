@@ -1,5 +1,13 @@
 # Changelog
 
+## Done (2026-11-06, v0.8.1)
+
+- **Footer** — the dashboard shows `LLM Router <version>`, a GitHub link and the API address (`<origin>/v1`, copyable); the authenticated `status` answer carries `version`.
+- **Logs as a lazy table** — newest first, a coloured square per level, the table fills the rest of the page and only its body scrolls; new events wait while the list is scrolled down.
+- **Settings** — Appearance card (language, theme as a segmented picker, accent with custom colours, widget shape), applied and saved at once; the instance card and the save button are gone; password fields are large.
+- **Data management** — one titled list of subsystem cards with icon-only import / export / clear and "clear all data"; providers, virtual models, plugins and tokens expand into per-item exports. Providers and virtual models import one item or the whole set. Plugins export and import as a zip (`plugins.json` plus one `.lua` per plugin); a single plugin downloads as its `.lua` (`GET /plugins/{id}/source`).
+- **Dashboard on FUI 2.2.1** — CardGroup, tinted header actions, capsule containers with rounded corners, text buttons hover in the accent wash.
+
 ## Done (2026-11-06, v0.8)
 
 - **Dashboard password, no accounts** — the dashboard has one operator: login asks for the password only. Migration 8 (`dashboard_password`) moved one hash out of `admin_users` (the `admin` account, else the oldest) into a single-row table, then dropped `admin_users` and the `bootstrapped` flag; cache migration 2 recreated sessions without a username, so existing dashboard sessions ended once. `set-dashboard-password` is the only way to set the first password and `serve` refuses to start without one; the first-run Bootstrap page and the login list are gone. Login failures lock out per client address (socket peer only). A session lives 8 hours, or 30 days with `remember_me`, and slides while in use; a password change keeps sessions.

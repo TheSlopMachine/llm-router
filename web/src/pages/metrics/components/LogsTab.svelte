@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import {
-    Banner, Button, Card, ContentUnavailable, HStack, List, Spacer, VStack, modal,
+    Banner, Button, Card, ContentUnavailable, HStack, Spacer, Table, VStack, modal,
+    type TableColumn,
   } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -14,14 +15,18 @@
   import LogDetail from './LogDetail.svelte'
   import LogFacets from './LogFacets.svelte'
   import LogFilterBuilder from './LogFilterBuilder.svelte'
-  import LogRow from './LogRow.svelte'
+  import LogCell, { type LogColumn } from './LogCell.svelte'
   import LogToolbar from './LogToolbar.svelte'
 
   const PAGE_SIZE = 1000
   const LIVE_PAGE_SIZE = 500
   const BUFFER_CAP = 20000
   const POLL_INTERVAL = 2000
-  const ROW_HEIGHT = 32
+  // The level tile between the table's cell paddings and the row divider.
+  const ROW_HEIGHT = 'calc(var(--fui-ctl-tile-sm) + 2 * var(--fui-space-3) + var(--fui-border-w))'
+  // Scrolled this close to the top, the table follows new events.
+  const FOLLOW_SLACK = 4
+  const MIN_TABLE_HEIGHT = 360
   const VALUE_OPTIONS_LIMIT = 200
   // Events around a picked one: this many ms on each side.
   const AROUND_SPAN = 30_000
@@ -33,18 +38,21 @@
   let filters = $state.raw<EventKeyFilter[]>([])
   let search = $state('')
   let live = $state(true)
+  // At the top: new events are shown as they arrive. Scrolled away: they wait in `pending`.
   let follow = $state(true)
   let entries = $state.raw<EventEntry[]>([])
+  let pending = $state.raw<EventEntry[]>([])
   let loading = $state(true)
   let loadingOlder = $state(false)
   let olderAvailable = $state(false)
   let error = $state('')
   let clock = $state(Date.now())
   let facetsOpen = $state(false)
-  let list: ReturnType<typeof List<EventEntry>> | undefined = $state()
 
   let latestRequest = 0
   let polling = false
+  // The table body; known from its first scroll event (until then it is at the top).
+  let scroller: HTMLElement | null = null
 
   const bounds = $derived(rangeBounds(rangeId, customStart, customEnd, clock))
   const liveAvailable = $derived(bounds.end === null)
@@ -70,6 +78,36 @@
     return timeFormatter.format(new Date(timestamp))
   }
 
+  const columns = $derived<TableColumn[]>([
+    { key: 'level', width: 'calc(var(--fui-ctl-tile-sm) + var(--fui-space-5) + var(--fui-space-2))' },
+    {
+      key: 'time',
+      title: t('metrics.logs.column_time.label'),
+      width: longRange ? 'var(--fui-table-col-2xl)' : 'var(--fui-table-col-md)',
+    },
+    { key: 'message', title: t('metrics.logs.column_message.label') },
+    { key: 'attributes', title: t('metrics.logs.detail_keys.title'), width: '40%', priority: 2 },
+  ])
+
+  async function scrollToTop(): Promise<void> {
+    await tick()
+    scroller?.scrollTo({ top: 0 })
+  }
+
+  function showPending(): void {
+    if (pending.length > 0) entries = mergeEntries(entries, pending, BUFFER_CAP)
+    pending = []
+    void scrollToTop()
+  }
+
+  // Scroll events do not bubble: the wrapper catches the table body's in the capture phase.
+  function onTableScroll(event: Event): void {
+    if (!(event.target instanceof HTMLElement)) return
+    scroller = event.target
+    follow = scroller.scrollTop <= FOLLOW_SLACK
+    if (follow && pending.length > 0) showPending()
+  }
+
   async function reload(): Promise<void> {
     const request = ++latestRequest
     loading = true
@@ -86,8 +124,10 @@
       })
       if (request !== latestRequest) return
       entries = mergeEntries([], result, BUFFER_CAP)
+      pending = []
       olderAvailable = result.length >= PAGE_SIZE
       follow = true
+      void scrollToTop()
     } catch (err) {
       if (request === latestRequest) error = getErrorMessage(err)
     } finally {
@@ -101,7 +141,7 @@
     polling = true
     const request = latestRequest
     try {
-      const newest = entries.at(-1)
+      const newest = pending[0] ?? entries[0]
       const range = rangeBounds(rangeId, customStart, customEnd, Date.now())
       const result = await api.events.list({
         severity,
@@ -119,7 +159,14 @@
         return
       }
       const fresh = result.filter((entry) => newest === undefined || entry.id > newest.id)
-      if (fresh.length > 0) entries = mergeEntries(entries, fresh, BUFFER_CAP)
+      if (fresh.length === 0) return
+      if (follow) {
+        entries = mergeEntries(entries, fresh, BUFFER_CAP)
+        void scrollToTop()
+      } else {
+        // Rows inserted above the reader would push the rows in view down.
+        pending = mergeEntries(pending, fresh, BUFFER_CAP)
+      }
     } catch (err) {
       if (request === latestRequest) error = getErrorMessage(err)
     } finally {
@@ -128,7 +175,7 @@
   }
 
   async function loadOlder(): Promise<void> {
-    const oldest = entries[0]
+    const oldest = entries.at(-1)
     if (oldest === undefined || loadingOlder) return
     loadingOlder = true
     const request = latestRequest
@@ -145,10 +192,8 @@
       if (request !== latestRequest) return
       const older = result.filter((entry) => entry.id < oldest.id)
       olderAvailable = result.length >= PAGE_SIZE
-      follow = false
+      // Older events go below the loaded ones: the rows in view stay put.
       entries = mergeEntries(entries, older, BUFFER_CAP)
-      await tick()
-      list?.scrollBy(older.length * ROW_HEIGHT)
     } catch (err) {
       error = getErrorMessage(err)
     } finally {
@@ -159,7 +204,7 @@
   function setLive(next: boolean): void {
     live = next
     if (!next) return
-    list?.scrollToEnd()
+    showPending()
     void poll()
   }
 
@@ -218,7 +263,7 @@
   })
 </script>
 
-<VStack gap={4}>
+<VStack gap={4} grow>
   <LogToolbar
     {live}
     {liveAvailable}
@@ -247,52 +292,50 @@
     </Card>
   {/if}
 
-  <Card>
-    <VStack gap={3}>
-      {#if olderAvailable || !follow}
-        <HStack valign="center" gap={3}>
-          <Spacer />
-          {#if olderAvailable}
-            <Button
-              buttonStyle="neutral"
-              size="sm"
-              icon={{ name: 'arrow_upward' }}
-              text={t('metrics.logs.load_older.action')}
-              loading={loadingOlder}
-              onclick={() => void loadOlder()}
-            />
-          {/if}
-          {#if !follow}
-            <Button
-              buttonStyle="prominent"
-              size="sm"
-              icon={{ name: 'keyboard_double_arrow_down' }}
-              text={t('metrics.logs.jump_latest.action')}
-              onclick={() => list?.scrollToEnd()}
-            />
-          {/if}
-        </HStack>
+  {#if olderAvailable || !follow}
+    <HStack valign="center" gap={3}>
+      <Spacer />
+      {#if !follow}
+        <Button
+          buttonStyle="prominent"
+          size="sm"
+          icon={{ name: 'keyboard_double_arrow_up' }}
+          text={t('metrics.logs.jump_latest.action')}
+          onclick={showPending}
+        />
       {/if}
-      <List
-        bind:this={list}
-        lazy
-        bind:follow
-        elev={false}
-        items={visible}
-        rowHeight={ROW_HEIGHT}
-        itemKey={(entry) => String(entry.id)}
-        onselect={openDetail}
-        height="72dvh"
-        minHeight={360}
-      >
-        {#snippet row(entry)}
-          <LogRow {entry} {formatTime} />
-        {/snippet}
-        {#snippet empty()}
-          <ContentUnavailable title={loading ? t('common.state.loading') : t('metrics.logs.empty.title')} />
-        {/snippet}
-      </List>
-    </VStack>
-  </Card>
+      {#if olderAvailable}
+        <Button
+          buttonStyle="neutral"
+          size="sm"
+          icon={{ name: 'arrow_downward' }}
+          text={t('metrics.logs.load_older.action')}
+          loading={loadingOlder}
+          onclick={() => void loadOlder()}
+        />
+      {/if}
+    </HStack>
+  {/if}
+
+  <!-- the remaining height of the page; the table body scrolls inside it -->
+  <VStack grow minHeight={MIN_TABLE_HEIGHT} onscrollcapture={onTableScroll}>
+    <Table
+      {columns}
+      rows={visible}
+      rowKey={(entry) => entry.id}
+      lazy
+      rowHeight={ROW_HEIGHT}
+      grow
+      loading={loading && entries.length === 0}
+      onrowclick={openDetail}
+    >
+      {#snippet cell({ column, row })}
+        <LogCell column={column.key as LogColumn} entry={row} {formatTime} />
+      {/snippet}
+      {#snippet empty()}
+        <ContentUnavailable title={t('metrics.logs.empty.title')} />
+      {/snippet}
+    </Table>
+  </VStack>
 </VStack>
 

@@ -37,7 +37,7 @@ internal/services/
   healthcheck/           failure-triggered credential verification (check_health, cooldown, singleflight, disable on unhealthy only with automation on)
   admin/                 dashboard password (one hash, no accounts) + sessions; "password set" cached once true
   config/                instance-wide router configuration
-  datamanagement/        subsystem export/import/clear + provider export/import/purge
+  datamanagement/        subsystem export/import/clear (JSON; plugins: zip of plugins.json without sources + one <id>.lua per plugin; providers and virtual_models import also take one item object) + provider export/import/purge
   doctor/                database inspection and repair
   proxypool/             free-pool hosting, Lua feed bridge, SQLite cache, custom pools (built-in auto row seeded), lane scheduler adapter
 internal/httpkit/        shared transport helpers (SSE headers, StreamWriter: 200 + headers on the first byte, flush per write)

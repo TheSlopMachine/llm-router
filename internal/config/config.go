@@ -121,6 +121,10 @@ type Config struct {
 	// (CREDENTIALS_KEY_FILE). A missing file is created with a fresh random
 	// key and mode 0600 on first start.
 	CredentialsKeyFile string
+
+	// Version is the build version shown in the dashboard. Not read from
+	// the environment: the serve command sets it from the stamped binary.
+	Version string
 }
 
 // Validate checks that all required configuration fields are set.

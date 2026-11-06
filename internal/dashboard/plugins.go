@@ -3,13 +3,16 @@ package dashboard
 import (
 	"encoding/json"
 	"io"
+	"mime"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	stdErrors "errors"
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
+	"github.com/TheSlopMachine/llm-router/internal/services/datamanagement"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 )
 
@@ -88,6 +91,32 @@ func (h *Handler) apiPluginsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.json(w, http.StatusOK, toPluginView(record))
+}
+
+// apiPluginsSource returns the stored Lua source of one installed plugin.
+// @Summary      Get plugin source
+// @Description  Returns the stored Lua source of one installed plugin as a <plugin id>.lua attachment.
+// @Tags         Plugins
+// @Produce      plain
+// @Param        id path string true "Plugin ID"
+// @Success      200 {string} string "Lua plugin source"
+// @Failure      401 {object} models.ErrorResponse
+// @Failure      404 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/plugins/{id}/source [get]
+func (h *Handler) apiPluginsSource(w http.ResponseWriter, r *http.Request) {
+	record, err := h.luaService.GetSQLite(r.Context(), r.PathValue("id"))
+	if err != nil {
+		h.jsonErr(w, http.StatusNotFound, "plugin not found")
+		return
+	}
+	fileName := strings.ReplaceAll(datamanagement.PluginSourceFileName(record.ID), "/", "_")
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": fileName}))
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(record.Source); err != nil {
+		h.logError("Failed to write plugin source", "plugin_id", record.ID, "error", err)
+	}
 }
 
 // apiPluginsUpdate flips the operator-owned disabled flag of one plugin.

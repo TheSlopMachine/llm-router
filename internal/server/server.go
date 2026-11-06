@@ -241,6 +241,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		Logger:          logger,
 		RequestShutdown: requestShutdown,
 		SQLiteDatabase:  sqliteDatabase,
+		Version:         applicationConfig.Version,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard handler: %w", err)

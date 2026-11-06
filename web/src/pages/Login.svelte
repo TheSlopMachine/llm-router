@@ -67,7 +67,9 @@
           onclick={submit}
         />
       </HStack>
-      <Checkbox bind:checked={rememberMe} label={t('auth.remember_me.label')} />
+      <div class="remember">
+        <Checkbox bind:checked={rememberMe} label={t('auth.remember_me.label')} />
+      </div>
     </VStack>
   </VStack>
 </div>
@@ -91,6 +93,11 @@
     stroke: var(--fui-color-text);
     stroke-width: 7;
     stroke-linejoin: round;
+  }
+  /* The field's lock glyph is centred half a field height in from its side:
+     put the checkbox box centre on the same vertical line. */
+  .remember {
+    padding-inline-start: calc(var(--fui-ctl-lg) / 2 - var(--fui-checkbox-box) / 2);
   }
   :global(.login-form) {
     width: 100%;

@@ -244,9 +244,11 @@
               </Text>
               <CopyButton size="sm" text={fullId(model)} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
             </HStack>
-            <Text size="sm" foregroundStyle="secondary" class="secondary-text">{model.description || '—'}</Text>
+            <HStack valign="center" class="identity-line">
+              <Text size="sm" foregroundStyle="secondary" class="secondary-text">{model.description || '—'}</Text>
+            </HStack>
           {:else}
-            <HStack gap={2} class="identity-line">
+            <HStack gap={2} valign="center" class="identity-line">
               <Text size="md" weight="medium" class="primary-text">{model.name || model.id}</Text>
             </HStack>
             <HStack gap={2} valign="center" class="identity-line">
@@ -257,12 +259,12 @@
           {#if showProviderNameLink(model)}
             <a class="provider-link" href={`#/providers/${model.providerId}`}>
               <Text size="sm">{model.providerName}</Text>
-              <Icon name="chevron_right" />
+              <Icon name="chevron_right" size="sm" />
             </a>
           {:else if showVirtualLink(model)}
             <a class="provider-link" href="#/virtual">
               <Text size="sm">{t('virtual.models_plural')}</Text>
-              <Icon name="chevron_right" />
+              <Icon name="chevron_right" size="sm" />
             </a>
           {/if}
         </VStack>
@@ -320,6 +322,19 @@
     gap: var(--fui-space-2);
     justify-content: start;
     align-items: center;
+  }
+  /* Every line of the model cell is one control row tall (the copy button's height), so the
+     lines are evenly spaced whatever each one holds. */
+  :global(.model-identity > *) {
+    min-height: var(--fui-ctl-sm);
+  }
+  /* in-app navigation row, not a text link: no underline, the cell's text colour */
+  .provider-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--fui-space-1);
+    color: inherit;
+    text-decoration: none;
   }
   /* Measurement host for the merge stages: full width, no visuals. */
   .mt-wrap {
