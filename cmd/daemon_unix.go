@@ -15,3 +15,7 @@ func detachedAttributes() *syscall.SysProcAttr {
 func terminateProcess(pid int) error {
 	return syscall.Kill(pid, syscall.SIGTERM)
 }
+
+func killProcess(pid int) error {
+	return syscall.Kill(pid, syscall.SIGKILL)
+}

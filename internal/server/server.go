@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -388,7 +389,8 @@ func shutdownListeners(publicServer *http.Server, adminServer *http.Server, logg
 }
 
 // Run starts the maintenance loop and blocks on the HTTP servers.
-func (s *Server) Run(ctx context.Context) error {
+// onListening, when set, runs once after every listener is bound.
+func (s *Server) Run(ctx context.Context, onListening func()) error {
 	// Run startup plugin jobs before serving traffic so a restarted
 	// router refreshes-around stale state while the ticker runs.
 	rgate, cancel := context.WithTimeout(ctx, startupRefreshTimeout)
@@ -422,19 +424,35 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	s.logger.Info("Server starts", startFields...)
 
+	// serve binds the listener synchronously, so a successful return means
+	// the port accepts connections, then serves in the background. A bind
+	// failure reaches the select below like a serve failure.
 	errorChannel := make(chan error, 2)
-	serve := func(server *http.Server, name string) {
+	serve := func(server *http.Server, name string) bool {
 		if server == nil {
-			return
+			return true
+		}
+		address := server.Addr
+		if address == "" {
+			address = ":http"
+		}
+		listener, err := net.Listen("tcp", address)
+		if err != nil {
+			errorChannel <- fmt.Errorf("%s server: %w", name, err)
+			return false
 		}
 		go func() {
-			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 				errorChannel <- fmt.Errorf("%s server: %w", name, err)
 			}
 		}()
+		return true
 	}
-	serve(s.httpServer, "http")
-	serve(s.adminServer, "admin")
+	publicListening := serve(s.httpServer, "http")
+	adminListening := serve(s.adminServer, "admin")
+	if publicListening && adminListening && onListening != nil {
+		onListening()
+	}
 
 	shutdown := func() {
 		shutdownListeners(s.httpServer, s.adminServer, s.logger, shutdownListenerTimeout)

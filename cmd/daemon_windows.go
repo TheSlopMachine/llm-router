@@ -14,3 +14,7 @@ func detachedAttributes() *syscall.SysProcAttr { return nil }
 func terminateProcess(int) error {
 	return errors.New("not supported")
 }
+
+func killProcess(int) error {
+	return errors.New("not supported")
+}

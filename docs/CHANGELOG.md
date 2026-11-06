@@ -1,5 +1,11 @@
 # Changelog
 
+## Done (2026-11-06, v0.7.0)
+
+- **Daemon stop waits for exit** — `daemon stop`, `daemon restart` and `update` waited up to 5 minutes for the instance lock to drop instead of 30 seconds, printed a waiting line after 2 seconds, then sent SIGKILL and waited 10 more seconds. A graceful shutdown runs plugin hooks, listener and events drains and a vacuum, which outlasted the old bound.
+- **Update keeps the daemon** — `update` replaced the binary only after the daemon exited. A daemon that did not stop left the old binary in place with `the binary is not replaced`; before, the staged binary was dropped after SIGTERM and the daemon was not started again. A failed backup or swap started the old binary again and reported a failed restart.
+- **Ready mark in the instance lock** — `serve` bound its listeners synchronously and then recorded `ready` in the lock record. `daemon start` waited 20 seconds for the lock and up to 2 minutes for the mark instead of polling HTTP, so a listener bound to another address, TLS or a firewall no longer failed the start. A server that held the lock without the mark yet counted as started and printed its log path.
+
 ## Done (2026-11-05, v0.6.9)
 
 - **Outbound address policy** — the new `internal/netguard` package owned the public-address rule (loopback, private, link-local, CGNAT, multicast, reserved, NAT64, 6to4 and local hostnames blocked). The plugin HTTP client, the JSON `input_audio` URL download and the proxy feed bridge used it.

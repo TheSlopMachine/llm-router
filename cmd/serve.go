@@ -68,7 +68,12 @@ func runServe(command *cobra.Command, _ []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := applicationServer.Run(ctx); err != nil {
+	markReady := func() {
+		if err := lock.MarkReady(); err != nil {
+			logger.Warn("Instance lock ready mark fails", "operation", "run_server", "error", err)
+		}
+	}
+	if err := applicationServer.Run(ctx, markReady); err != nil {
 		logger.Error("Server run fails", "operation", "run_server", "error", err)
 		return err
 	}

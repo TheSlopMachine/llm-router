@@ -48,7 +48,7 @@ This starts one public listener on `PORT` (default `8080`) for the dashboard and
 | `status`, `doctor` | Inspect the running server, check the database. |
 | `update` | Install the latest release. |
 
-Only one instance runs per database.
+Only one instance runs per database. A background server does not start again after a reboot; for that, run `serve` under a supervisor.
 
 Provider keys are encrypted in the database. The first start creates the key file `~/.config/llm-router/credentials.key`; back it up together with the database, because credentials cannot be decrypted without it. `CREDENTIALS_KEY` (base64, 32 bytes) or `CREDENTIALS_KEY_FILE` replace it, for example with a container secret.
 

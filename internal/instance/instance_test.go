@@ -91,3 +91,25 @@ func TestReleaseTwiceIsSafe(t *testing.T) {
 		t.Errorf("nil Release = %v, want nil", err)
 	}
 }
+
+func TestMarkReadyKeepsRecord(t *testing.T) {
+	path := LockPath(filepath.Join(t.TempDir(), "router.sqlite3"))
+	lock, err := Acquire(path, Info{Mode: ModeDaemon, Address: "localhost:8080", Version: "1.2"})
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	defer lock.Release()
+	if info, held, err := Probe(path); err != nil || !held || info.Ready {
+		t.Fatalf("Probe before MarkReady = %+v, held %v, err %v", info, held, err)
+	}
+	if err := lock.MarkReady(); err != nil {
+		t.Fatalf("MarkReady: %v", err)
+	}
+	info, held, err := Probe(path)
+	if err != nil || !held {
+		t.Fatalf("Probe after MarkReady: held %v, err %v", held, err)
+	}
+	if !info.Ready || info.Mode != ModeDaemon || info.Address != "localhost:8080" || info.Version != "1.2" || info.PID != os.Getpid() {
+		t.Errorf("record after MarkReady = %+v", info)
+	}
+}

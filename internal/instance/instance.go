@@ -42,6 +42,8 @@ type Info struct {
 	Executable string    `json:"executable"`
 	Address    string    `json:"address"`
 	Version    string    `json:"version"`
+	// Ready reports that the holder finished starting (MarkReady).
+	Ready bool `json:"ready,omitempty"`
 }
 
 // HeldError reports the holder of a lock that Acquire could not take.
@@ -61,6 +63,7 @@ func (err *HeldError) Unwrap() error { return ErrHeld }
 // Lock is a held instance lock.
 type Lock struct {
 	file *os.File
+	info Info
 }
 
 // LockPath returns the lock file for a database path.
@@ -99,21 +102,35 @@ func Acquire(path string, info Info) (*Lock, error) {
 	if info.Started.IsZero() {
 		info.Started = time.Now().UTC()
 	}
+	if err := writeRecord(file, info); err != nil {
+		releaseFile(file)
+		return nil, err
+	}
+	return &Lock{file: file, info: info}, nil
+}
+
+// MarkReady records in the lock that the holder finished starting.
+func (lock *Lock) MarkReady() error {
+	if lock == nil || lock.file == nil {
+		return nil
+	}
+	lock.info.Ready = true
+	return writeRecord(lock.file, lock.info)
+}
+
+func writeRecord(file *os.File, info Info) error {
 	record, err := json.Marshal(info)
 	if err != nil {
-		releaseFile(file)
-		return nil, fmt.Errorf("encode lock record: %w", err)
+		return fmt.Errorf("encode lock record: %w", err)
 	}
 	if err := file.Truncate(0); err != nil {
-		releaseFile(file)
-		return nil, fmt.Errorf("truncate %s: %w", path, err)
+		return fmt.Errorf("truncate %s: %w", file.Name(), err)
 	}
 	if _, err := file.WriteAt(record, 0); err != nil {
-		releaseFile(file)
-		return nil, fmt.Errorf("write %s: %w", path, err)
+		return fmt.Errorf("write %s: %w", file.Name(), err)
 	}
 	_ = file.Sync()
-	return &Lock{file: file}, nil
+	return nil
 }
 
 // Release clears the record and drops the lock. The file stays: removing it

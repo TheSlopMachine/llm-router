@@ -152,27 +152,32 @@ func runUpdate(command *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// The swap waits for the daemon to exit: a daemon that does not stop
+	// leaves the old binary in place.
 	if restartDaemon {
 		if _, _, err := stopInstance(lockPath, daemonStopTimeout); err != nil {
 			updater.Discard(staging)
-			return err
+			return i18n.Wrap(err, "update.notApplied")
 		}
+	}
+	// restore starts the old binary again after a failed step.
+	restore := func(cause error) error {
+		updater.Discard(staging)
+		if !restartDaemon {
+			return cause
+		}
+		if _, err := startDaemon(applicationConfig, executable); err != nil {
+			return errors.Join(cause, i18n.Wrap(err, "update.restoreFailed"))
+		}
+		return cause
 	}
 	backupPath, err := backupDatabase(applicationConfig.DBPath)
 	if err != nil {
-		updater.Discard(staging)
-		if restartDaemon {
-			_, _ = startDaemon(applicationConfig, executable)
-		}
-		return err
+		return restore(err)
 	}
 	previous, err := updater.Swap(executable, staging)
 	if err != nil {
-		updater.Discard(staging)
-		if restartDaemon {
-			_, _ = startDaemon(applicationConfig, executable)
-		}
-		return err
+		return restore(err)
 	}
 
 	fmt.Println(i18n.T("update.done", current, latestVersion))
@@ -181,11 +186,11 @@ func runUpdate(command *cobra.Command, _ []string) error {
 		fmt.Println(i18n.T("update.copy", backupPath))
 	}
 	if restartDaemon {
-		info, err := startDaemon(applicationConfig, executable)
+		started, err := startDaemon(applicationConfig, executable)
 		if err != nil {
 			return i18n.Wrap(err, "update.restartFailed")
 		}
-		fmt.Println(i18n.T("update.restarted", info.PID))
+		printDaemonStarted(started, applicationConfig.Addr)
 	}
 	return nil
 }
