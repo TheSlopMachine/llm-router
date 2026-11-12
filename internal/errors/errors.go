@@ -46,6 +46,9 @@ var (
 	// ErrEndpointNotSupported is returned when the provider or model does
 	// not serve the requested endpoint (e.g. audio/transcriptions)
 	ErrEndpointNotSupported = errors.New("endpoint not supported")
+	// ErrInputNotSupported is returned when the request carries an input
+	// modality (a file, for example) the model card does not declare.
+	ErrInputNotSupported = errors.New("input not supported")
 
 	// ErrTimeout marks upstream timeouts outside the ProviderError path
 	// (e.g. transport-level deadlines). Prefer ProviderError with

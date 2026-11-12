@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -60,9 +61,9 @@ func AnthropicBlocks(raw json.RawMessage) ([]AnthropicContentBlock, error) {
 }
 
 // ToChat converts the Anthropic request into the router's chat shape.
-// Document blocks are refused: the chat pipeline has no document part.
-// Cache-control, top_k and top-level thinking budgets are accepted and
-// documented; they carry no mapping.
+// Document blocks become file parts (base64 and text sources; url sources
+// are forbidden). Cache-control, top_k and top-level thinking budgets are
+// accepted and documented; they carry no mapping.
 func (r *AnthropicMessageRequest) ToChat() (*ChatCompletionRequest, error) {
 	out := &ChatCompletionRequest{
 		Model:     ModelId(r.Model),
@@ -141,6 +142,9 @@ func (r *AnthropicMessageRequest) ToChat() (*ChatCompletionRequest, error) {
 			}
 			msg := ChatMessage{Role: "user"}
 			if len(parts) > 0 {
+				if len(texts) > 0 {
+					parts = append(parts, ChatMessageContentPart{Type: "text", Text: strings.Join(texts, "\n")})
+				}
 				msg.ContentParts = parts
 			} else {
 				msg.Content = strings.Join(texts, "\n")
@@ -182,6 +186,16 @@ func (r *AnthropicMessageRequest) ToChat() (*ChatCompletionRequest, error) {
 					Type:     "image_url",
 					ImageURL: &ChatMessageImageURL{URL: url},
 				})
+			case "document":
+				file, err := anthropicDocumentFile(i, block)
+				if err != nil {
+					return nil, err
+				}
+				if len(texts) > 0 {
+					parts = append(parts, ChatMessageContentPart{Type: "text", Text: strings.Join(texts, "\n")})
+					texts = nil
+				}
+				parts = append(parts, ChatMessageContentPart{Type: "file", File: file})
 			case "tool_result":
 				flushUser()
 				content, err := anthropicToolResultText(i, block.Content)
@@ -285,6 +299,39 @@ func anthropicAssistantMessage(index int, blocks []AnthropicContentBlock) (ChatM
 	}
 	msg.Content = strings.Join(texts, "\n")
 	return msg, nil
+}
+
+// anthropicDocumentFile maps a document block onto a chat file part: base64
+// sources keep their media type, text sources become a text/plain file, and
+// the block title names the file. Remote url sources are forbidden: the
+// router never fetches content on behalf of a client.
+func anthropicDocumentFile(index int, block AnthropicContentBlock) (*ChatMessageFile, error) {
+	if block.Source == nil {
+		return nil, fmt.Errorf("messages[%d]: document block without source", index)
+	}
+	var dataURL string
+	switch block.Source.Type {
+	case "base64":
+		if block.Source.MediaType == "" || block.Source.Data == "" {
+			return nil, fmt.Errorf("messages[%d]: base64 document needs media_type and data", index)
+		}
+		dataURL = "data:" + block.Source.MediaType + ";base64," + block.Source.Data
+	case "text":
+		mediaType := block.Source.MediaType
+		if mediaType == "" {
+			mediaType = "text/plain"
+		}
+		dataURL = "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString([]byte(block.Source.Data))
+	case "url":
+		return nil, fmt.Errorf("messages[%d]: %w: document url sources are forbidden", index, ErrInvalidAttachment)
+	default:
+		return nil, fmt.Errorf("messages[%d]: unsupported document source type %q", index, block.Source.Type)
+	}
+	file, err := newChatMessageFile(dataURL, "", block.Title)
+	if err != nil {
+		return nil, fmt.Errorf("messages[%d]: %w", index, err)
+	}
+	return file, nil
 }
 
 func anthropicToolResultText(index int, raw json.RawMessage) (string, error) {

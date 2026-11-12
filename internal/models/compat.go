@@ -426,8 +426,8 @@ func (r *ResponseRequest) InputTexts() []string {
 
 // ToChat maps the response request onto the chat pipeline: instructions
 // become the system turn, input items become chat turns, function tools
-// become chat tools.
-func (r *ResponseRequest) ToChat() *ChatCompletionRequest {
+// become chat tools. An attachment the router cannot carry is an error.
+func (r *ResponseRequest) ToChat() (*ChatCompletionRequest, error) {
 	out := &ChatCompletionRequest{
 		Model:  r.Model,
 		Stream: r.Stream,
@@ -445,7 +445,11 @@ func (r *ResponseRequest) ToChat() *ChatCompletionRequest {
 	if strings.TrimSpace(r.Instructions) != "" {
 		out.Messages = append(out.Messages, ChatMessage{Role: "system", Content: r.Instructions})
 	}
-	out.Messages = append(out.Messages, responseInputMessages(r.Input)...)
+	input, err := responseInputMessages(r.Input)
+	if err != nil {
+		return nil, err
+	}
+	out.Messages = append(out.Messages, input...)
 	for _, raw := range r.Tools {
 		var tool struct {
 			Type        string         `json:"type"`
@@ -474,7 +478,7 @@ func (r *ResponseRequest) ToChat() *ChatCompletionRequest {
 	if r.ToolChoice != nil {
 		out.ToolChoice = r.ToolChoice
 	}
-	return out
+	return out, nil
 }
 
 // ResponseObject is the stored and served response.
@@ -725,11 +729,12 @@ type AnthropicContentSource struct {
 
 // AnthropicContentBlock is one typed content block in a message, tool
 // definition, or tool result. CacheControl is accepted on every block and
-// forwarded as a caching hint; document blocks are refused at the edge
-// (the chat pipeline has no document part).
+// forwarded as a caching hint; document blocks become chat file parts
+// (Title names the file).
 type AnthropicContentBlock struct {
 	Type         string                  `json:"type"`
 	Text         string                  `json:"text,omitempty"`
+	Title        string                  `json:"title,omitempty"`
 	Thinking     string                  `json:"thinking,omitempty"`
 	Source       *AnthropicContentSource `json:"source,omitempty"`
 	ID           string                  `json:"id,omitempty"`

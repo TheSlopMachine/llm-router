@@ -565,9 +565,9 @@ func (h *Handler) embeddings(w http.ResponseWriter, r *http.Request, token *mode
 // @Summary      Create message (Anthropic Messages API)
 // @Description  Anthropic-compatible endpoint. The request is converted to the OpenAI
 // @Description  chat shape, routed normally, and the answer converted back. Supports
-// @Description  streaming (SSE), tools, system prompts, images and tool results.
-// @Description  Document blocks are refused; cache_control, top_k and thinking budgets
-// @Description  are accepted. Errors serialize as {type:error,error:{type,message}} when
+// @Description  streaming (SSE), tools, system prompts, images, documents (base64 and
+// @Description  text sources; url sources are forbidden) and tool results. cache_control,
+// @Description  top_k and thinking budgets are accepted. Errors serialize as {type:error,error:{type,message}} when
 // @Description  anthropic-version is present, OpenAIError otherwise. SSE uses
 // @Description  event: message_start|content_block_delta|message_stop.
 // @Tags         Anthropic API

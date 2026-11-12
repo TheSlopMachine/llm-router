@@ -99,6 +99,8 @@ func ToAPIError(err error) APIError {
 		return APIError{http.StatusNotFound, CodeModelNotFound}
 	case errors.Is(err, ErrEndpointNotSupported):
 		return APIError{http.StatusBadRequest, CodeEndpointUnsupported}
+	case errors.Is(err, ErrInputNotSupported):
+		return APIError{http.StatusBadRequest, CodeInvalidRequest}
 	case errors.Is(err, ErrNoCredential):
 		return APIError{http.StatusServiceUnavailable, CodeNoCredential}
 	case errors.Is(err, ErrProviderDisabled):

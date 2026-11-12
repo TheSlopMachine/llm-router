@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -133,7 +134,10 @@ func TestResponseRequest_ToChat(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &request); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	chat := request.ToChat()
+	chat, err := request.ToChat()
+	if err != nil {
+		t.Fatalf("to chat: %v", err)
+	}
 	if len(chat.Messages) != 2 {
 		t.Fatalf("messages: %+v", chat.Messages)
 	}
@@ -171,6 +175,72 @@ func TestAnthropicCompleteRequest_ToMessageRequest(t *testing.T) {
 	}
 	if len(chat.Messages) != 1 || chat.Messages[0].Content != "hi" {
 		t.Fatalf("chat: %+v", chat.Messages)
+	}
+}
+
+func TestChatMessage_FileParts(t *testing.T) {
+	raw := `{"role":"user","content":[
+		{"type":"text","text":"compare"},
+		{"type":"file","file":{"filename":"a.pdf","file_data":"data:application/pdf;base64,JVBE"}},
+		{"type":"file","file":{"filename":"b.txt","file_data":"data:text/plain;base64,aGk="}}
+	]}`
+	var message ChatMessage
+	if err := json.Unmarshal([]byte(raw), &message); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(message.ContentParts) != 3 || message.ContentParts[1].File == nil || message.ContentParts[2].File.Filename != "b.txt" {
+		t.Fatalf("parts: %+v", message.ContentParts)
+	}
+	request := ChatCompletionRequest{Messages: []ChatMessage{message}}
+	if !request.HasFileParts() {
+		t.Fatal("HasFileParts: want true")
+	}
+	encoded, err := json.Marshal(message)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"file":{"file_data":"data:application/pdf;base64,JVBE","filename":"a.pdf"}`) {
+		t.Fatalf("encoded: %s", encoded)
+	}
+	for name, part := range map[string]string{
+		"file_id":      `{"type":"file","file":{"file_id":"file-1"}}`,
+		"plain base64": `{"type":"file","file":{"file_data":"JVBE"}}`,
+		"no body":      `{"type":"file"}`,
+	} {
+		var bad ChatMessage
+		err := json.Unmarshal([]byte(`{"role":"user","content":[`+part+`]}`), &bad)
+		if !errors.Is(err, ErrInvalidAttachment) {
+			t.Fatalf("%s: got %v, want ErrInvalidAttachment", name, err)
+		}
+	}
+}
+
+func TestAnthropicMessageRequest_Documents(t *testing.T) {
+	raw := `{"model":"mock/m","max_tokens":16,"messages":[{"role":"user","content":[
+		{"type":"document","title":"a.pdf","source":{"type":"base64","media_type":"application/pdf","data":"JVBE"}},
+		{"type":"document","source":{"type":"text","media_type":"text/plain","data":"hi"}},
+		{"type":"text","text":"compare them"}
+	]}]}`
+	var request AnthropicMessageRequest
+	if err := json.Unmarshal([]byte(raw), &request); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	chat, err := request.ToChat()
+	if err != nil {
+		t.Fatalf("to chat: %v", err)
+	}
+	parts := chat.Messages[0].ContentParts
+	if len(parts) != 3 || parts[0].File == nil || parts[0].File.Filename != "a.pdf" ||
+		parts[1].File == nil || parts[1].File.FileData != "data:text/plain;base64,aGk=" || parts[2].Text != "compare them" {
+		t.Fatalf("parts: %+v", parts)
+	}
+	var remote AnthropicMessageRequest
+	if err := json.Unmarshal([]byte(`{"model":"mock/m","max_tokens":16,"messages":[{"role":"user","content":[
+		{"type":"document","source":{"type":"url","url":"https://example.com/a.pdf"}}]}]}`), &remote); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, err := remote.ToChat(); !errors.Is(err, ErrInvalidAttachment) {
+		t.Fatalf("url document: got %v, want ErrInvalidAttachment", err)
 	}
 }
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## Done (2026-11-12, v0.10)
+
+- **File attachments** — chat completions accepted `{"type":"file","file":{"file_data","filename"}}` parts, any number per message; before, file parts were dropped while the request was parsed and the model never saw them. Responses carried `input_file` and `input_image` blocks (images were dropped too), and Messages carried `document` blocks with `base64` or `text` sources. `file_id`, `input_file` URLs and url document sources answered 400; a model whose card lists input modalities without `file` answered 400 before the plugin ran.
+- **Larger request bodies** — the JSON body cap rose from 8 MiB to 32 MiB for inline base64 attachments.
+- **Thinking budget flag** — model cards carried `reasoning.supports_max_tokens` (the OpenRouter field), folded across virtual-model members.
+- Fixed Messages user turns that dropped the text written after the last image block.
+
 ## Done (2026-11-12, v0.9)
 
 - **Provider purge keeps the provider** — purging a plugin-backed provider in data management removed its settings, credentials and model data and created its default row again at once; before, the provider left the list until a restart or a plugin reinstall. Clearing the providers subsystem restores the plugin and virtual default rows the same way. A custom provider still leaves with its data.

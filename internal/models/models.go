@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -158,8 +159,54 @@ type ChatMessageContentPart struct {
 	Input       json.RawMessage          `json:"input,omitempty"`
 	ImageURL    *ChatMessageImageURL     `json:"image_url,omitempty"`
 	InputAudio  *ChatMessageInputAudio   `json:"input_audio,omitempty"`
+	File        *ChatMessageFile         `json:"file,omitempty"`
 	Content     []ChatMessageContentPart `json:"-"`
 	ContentText string                   `json:"-"`
+}
+
+// ChatMessageFile is an OpenAI file content part: FileData is the document
+// as a base64 data: URL, Filename its original name. Files travel inline
+// only: the router keeps no file store, so file_id references are rejected.
+type ChatMessageFile struct {
+	FileData string `json:"file_data,omitempty"`
+	Filename string `json:"filename,omitempty"`
+}
+
+// ErrInvalidAttachment marks an image or file part the router cannot carry.
+var ErrInvalidAttachment = errors.New("invalid attachment")
+
+// parseChatMessageFile decodes and validates a chat file part body.
+func parseChatMessageFile(raw json.RawMessage) (*ChatMessageFile, error) {
+	var body struct {
+		FileData string `json:"file_data"`
+		FileID   string `json:"file_id"`
+		Filename string `json:"filename"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, err
+	}
+	return newChatMessageFile(body.FileData, body.FileID, body.Filename)
+}
+
+// newChatMessageFile validates an inline file: file_data must be a base64
+// data: URL; a bare file_id is rejected because no file store exists.
+func newChatMessageFile(fileData, fileID, filename string) (*ChatMessageFile, error) {
+	if fileID != "" && fileData == "" {
+		return nil, fmt.Errorf("%w: file_id is not supported, the router keeps no file store; send file_data", ErrInvalidAttachment)
+	}
+	if !IsBase64DataURL(fileData) {
+		return nil, fmt.Errorf("%w: file_data must be a base64 data: URL", ErrInvalidAttachment)
+	}
+	return &ChatMessageFile{FileData: fileData, Filename: filename}, nil
+}
+
+// IsBase64DataURL reports a "data:<mime>;base64,<payload>" URL with a payload.
+func IsBase64DataURL(s string) bool {
+	if !strings.HasPrefix(s, "data:") {
+		return false
+	}
+	head, payload, ok := strings.Cut(s, ",")
+	return ok && payload != "" && strings.HasSuffix(head, ";base64")
 }
 
 // ChatMessageImageURL is an OpenAI image_url content part. URL is either a
@@ -186,6 +233,7 @@ func (p *ChatMessageContentPart) UnmarshalJSON(data []byte) error {
 		Input      json.RawMessage `json:"input,omitempty"`
 		ImageURL   json.RawMessage `json:"image_url,omitempty"`
 		InputAudio json.RawMessage `json:"input_audio,omitempty"`
+		File       json.RawMessage `json:"file,omitempty"`
 		Content    json.RawMessage `json:"content,omitempty"`
 	}
 	var raw rawPart
@@ -212,6 +260,15 @@ func (p *ChatMessageContentPart) UnmarshalJSON(data []byte) error {
 		}
 		p.InputAudio = &inputAudio
 	}
+	if trimmed := strings.TrimSpace(string(raw.File)); trimmed != "" && trimmed != "null" {
+		file, err := parseChatMessageFile(raw.File)
+		if err != nil {
+			return err
+		}
+		p.File = file
+	} else if p.Type == "file" {
+		return fmt.Errorf("%w: file part without file body", ErrInvalidAttachment)
+	}
 	rawContent := strings.TrimSpace(string(raw.Content))
 	switch {
 	case rawContent == "", rawContent == "null":
@@ -237,12 +294,13 @@ func (p ChatMessageContentPart) MarshalJSON() ([]byte, error) {
 		Input      json.RawMessage        `json:"input,omitempty"`
 		ImageURL   *ChatMessageImageURL   `json:"image_url,omitempty"`
 		InputAudio *ChatMessageInputAudio `json:"input_audio,omitempty"`
+		File       *ChatMessageFile       `json:"file,omitempty"`
 		Content    any                    `json:"content,omitempty"`
 	}
 	out := rawPart{
 		Type: p.Type, Text: p.Text, ToolUseID: p.ToolUseID,
 		ID: p.ID, Name: p.Name, Input: p.Input,
-		ImageURL: p.ImageURL, InputAudio: p.InputAudio,
+		ImageURL: p.ImageURL, InputAudio: p.InputAudio, File: p.File,
 	}
 	if len(p.Content) > 0 {
 		out.Content = p.Content
@@ -399,6 +457,18 @@ func (m ChatMessage) TextContent() string {
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+// HasFileParts reports whether any message carries a file content part.
+func (r *ChatCompletionRequest) HasFileParts() bool {
+	for _, message := range r.Messages {
+		for _, part := range message.ContentParts {
+			if part.File != nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func flattenContentParts(parts []ChatMessageContentPart) string {
@@ -607,6 +677,8 @@ type ModelReasoning struct {
 	DefaultEffort    string   `json:"default_effort,omitempty"`
 	DefaultEnabled   bool     `json:"default_enabled,omitempty"`
 	Mandatory        bool     `json:"mandatory,omitempty"`
+	// SupportsMaxTokens: the model takes a thinking budget (reasoning.max_tokens).
+	SupportsMaxTokens bool `json:"supports_max_tokens,omitempty"`
 }
 
 // ModelInfo contains metadata about a specific model.

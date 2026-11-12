@@ -6,9 +6,10 @@ import (
 	"net/http"
 )
 
-// maxJSONBodyBytes caps a single JSON request body. Large inputs arrive as
-// multipart uploads (audio) or b64_json responses, never as raw JSON.
-const maxJSONBodyBytes = 8 << 20
+// maxJSONBodyBytes caps a single JSON request body. Images and files travel
+// inline as base64 data: URLs, so the cap leaves room for about 24 MB of
+// attachments (Gemini takes 20 MB inline); audio uploads use multipart.
+const maxJSONBodyBytes = 32 << 20
 
 // errBodyTooLarge reports a JSON body over maxJSONBodyBytes.
 var errBodyTooLarge = errors.New("request body too large")

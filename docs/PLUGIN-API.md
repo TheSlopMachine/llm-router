@@ -311,11 +311,21 @@ Parameters:
 | `request.model` | Full routing identifier. |
 | `request.model_name` | Bare model name for upstream payload. |
 | `request.cache_key` | Cache partition string. |
-| `request.messages` | Message array. |
+| `request.messages` | Message array. `content` is a string or an OpenAI part array: `{type="text", text}`, `{type="image_url", image_url={url, detail}}`, `{type="input_audio", input_audio={data, format}}`, `{type="file", file={file_data, filename}}`. `file_data` is always a base64 `data:` URL; any number of file parts may appear. Responses `input_image`/`input_file` and Anthropic `document` blocks arrive in the same shapes. |
 | `request.tools` | Tool array when present. |
 
 Return values: `ChatCompletionResponse`. The `choices` array must be
 non-empty. Second slot is `nil` on success, terminal error table on failure.
+
+File parts reach a plugin only when its model card lists `file` in
+`input_modalities` or lists no input modalities at all: a card that declares
+modalities without `file` makes the router answer 400 before the handler
+runs.
+
+A model card's `reasoning` block follows OpenRouter: `supported_efforts`
+(highest first), `default_effort`, `default_enabled`, `mandatory` and
+`supports_max_tokens` (the model takes `reasoning.max_tokens` as a thinking
+budget).
 
 Example:
 

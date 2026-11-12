@@ -79,7 +79,10 @@ func (s *Service) CreateResponse(
 	if err := s.mustResponseStore(); err != nil {
 		return nil, err
 	}
-	chatRequest := request.ToChat()
+	chatRequest, err := request.ToChat()
+	if err != nil {
+		return nil, invalidRequest(err.Error())
+	}
 	if len(chatRequest.Messages) == 0 {
 		return nil, invalidRequest("input is required: provide a string or input items")
 	}

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
@@ -282,6 +283,27 @@ func (s *Service) checkEndpoint(ctx context.Context, providerID, modelName, endp
 	return nil
 }
 
+// checkFileInput rejects a chat request carrying file parts when the cached
+// model card lists input modalities without "file". Models absent from the
+// cache, or cards without a modality list, pass: gating acts on declared data
+// only, never on guesses.
+func (s *Service) checkFileInput(ctx context.Context, providerID, modelName string, request *models.ChatCompletionRequest) error {
+	if !request.HasFileParts() {
+		return nil
+	}
+	for _, info := range s.modelInfoService.PeekModelInfos(ctx, providerID) {
+		if info.Name != modelName {
+			continue
+		}
+		if len(info.InputModalities) == 0 || slices.Contains(info.InputModalities, "file") {
+			return nil
+		}
+		return fmt.Errorf("%w: model %s/%s does not accept file input",
+			apierrors.ErrInputNotSupported, providerID, modelName)
+	}
+	return nil
+}
+
 // requireModelEnabled enforces the admin model override gate fail-closed:
 // missing overrides allow routing, storage failures deny routing.
 func (s *Service) requireModelEnabled(ctx context.Context, providerID, modelName string, model models.ModelId, allowDisabled bool) error {
@@ -392,6 +414,9 @@ func (s *Service) complete(
 	if err != nil {
 		return nil, err
 	}
+	if err := s.checkFileInput(ctx, resolvedRequest.providerID, resolvedRequest.modelName, request); err != nil {
+		return nil, err
+	}
 	resolved := resolvedRequest.resolved
 	// Virtual agents resolve from the model name suffix and need no
 	// credentials of their own; the outer token snapshot in ctx still
@@ -435,6 +460,9 @@ func (s *Service) CompleteStream(
 ) error {
 	ctx, resolvedRequest, err := s.resolveRequest(ctx, request.Model, token, false, models.EndpointChatCompletions)
 	if err != nil {
+		return err
+	}
+	if err := s.checkFileInput(ctx, resolvedRequest.providerID, resolvedRequest.modelName, request); err != nil {
 		return err
 	}
 	resolved := resolvedRequest.resolved

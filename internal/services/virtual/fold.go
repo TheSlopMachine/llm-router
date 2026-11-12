@@ -76,11 +76,13 @@ func FoldMembers(members []models.ModelInfo) Metadata {
 	defaultEffortSame := true
 	defaultEnabled := true
 	mandatory := true
+	maxTokensBudget := true
 	if allReasoning {
 		efforts = append([]string(nil), members[0].Reasoning.SupportedEfforts...)
 		defaultEffort = members[0].Reasoning.DefaultEffort
 		defaultEnabled = members[0].Reasoning.DefaultEnabled
 		mandatory = members[0].Reasoning.Mandatory
+		maxTokensBudget = members[0].Reasoning.SupportsMaxTokens
 	}
 	for _, member := range members[1:] {
 		capabilities = intersectStrings(capabilities, member.Capabilities)
@@ -99,6 +101,7 @@ func FoldMembers(members []models.ModelInfo) Metadata {
 		}
 		defaultEnabled = defaultEnabled && member.Reasoning.DefaultEnabled
 		mandatory = mandatory && member.Reasoning.Mandatory
+		maxTokensBudget = maxTokensBudget && member.Reasoning.SupportsMaxTokens
 	}
 	aggregate.Capabilities = capabilities
 	aggregate.SupportedParameters = parameters
@@ -108,9 +111,10 @@ func FoldMembers(members []models.ModelInfo) Metadata {
 	aggregate.MaxCompletionTokens = maxTokens
 	if allReasoning {
 		aggregate.Reasoning = &models.ModelReasoning{
-			SupportedEfforts: efforts,
-			DefaultEnabled:   defaultEnabled,
-			Mandatory:        mandatory,
+			SupportedEfforts:  efforts,
+			DefaultEnabled:    defaultEnabled,
+			Mandatory:         mandatory,
+			SupportsMaxTokens: maxTokensBudget,
 		}
 		if defaultEffortSame {
 			aggregate.Reasoning.DefaultEffort = defaultEffort

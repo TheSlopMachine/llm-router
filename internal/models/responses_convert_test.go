@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -33,9 +34,18 @@ func decodeResponseRequest(t *testing.T, raw string) ResponseRequest {
 	return request
 }
 
+func chatMessages(t *testing.T, request ResponseRequest) []ChatMessage {
+	t.Helper()
+	chat, err := request.ToChat()
+	if err != nil {
+		t.Fatalf("to chat: %v", err)
+	}
+	return chat.Messages
+}
+
 func TestResponseRequestToChatKeepsToolHistory(t *testing.T) {
 	request := decodeResponseRequest(t, codexToolHistoryBody)
-	messages := request.ToChat().Messages
+	messages := chatMessages(t, request)
 
 	gotRoles := make([]string, 0, len(messages))
 	for _, message := range messages {
@@ -64,7 +74,7 @@ func TestResponseRequestToChatKeepsToolHistory(t *testing.T) {
 
 func TestResponseRequestToChatMapsDeveloperToSystem(t *testing.T) {
 	request := decodeResponseRequest(t, `{"model":"m/x","input":[{"type":"message","role":"developer","content":"rules"}]}`)
-	messages := request.ToChat().Messages
+	messages := chatMessages(t, request)
 	if len(messages) != 1 || messages[0].Role != "system" || messages[0].Content != "rules" {
 		t.Fatalf("developer turn: %+v", messages)
 	}
@@ -75,9 +85,41 @@ func TestResponseRequestToChatFunctionOutputArrayText(t *testing.T) {
 		{"type":"function_call","call_id":"call_2","name":"exec_command","arguments":"{}"},
 		{"type":"function_call_output","call_id":"call_2","output":[{"type":"input_text","text":"first"},{"type":"input_text","text":"second"}]}
 	]}`)
-	messages := request.ToChat().Messages
+	messages := chatMessages(t, request)
 	if len(messages) != 2 || messages[1].Role != "tool" || messages[1].Content != "first\nsecond" {
 		t.Fatalf("array output: %+v", messages)
+	}
+}
+
+func TestResponseRequestToChatCarriesAttachments(t *testing.T) {
+	request := decodeResponseRequest(t, `{"model":"m/x","input":[{"type":"message","role":"user","content":[
+		{"type":"input_text","text":"compare"},
+		{"type":"input_image","image_url":"data:image/png;base64,iVBO"},
+		{"type":"input_file","filename":"a.pdf","file_data":"data:application/pdf;base64,JVBE"},
+		{"type":"input_file","filename":"b.txt","file_data":"data:text/plain;base64,aGk="}
+	]}]}`)
+	messages := chatMessages(t, request)
+	if len(messages) != 1 || messages[0].Content != "compare" {
+		t.Fatalf("message: %+v", messages)
+	}
+	parts := messages[0].ContentParts
+	if len(parts) != 4 || parts[0].Text != "compare" || parts[1].ImageURL == nil ||
+		parts[2].File == nil || parts[2].File.Filename != "a.pdf" || parts[3].File == nil || parts[3].File.Filename != "b.txt" {
+		t.Fatalf("parts: %+v", parts)
+	}
+}
+
+func TestResponseRequestToChatRejectsUncarriedAttachments(t *testing.T) {
+	for name, block := range map[string]string{
+		"file_id":       `{"type":"input_file","file_id":"file-1"}`,
+		"file_url":      `{"type":"input_file","file_url":"https://example.com/a.pdf"}`,
+		"image file_id": `{"type":"input_image","file_id":"file-1"}`,
+		"plain base64":  `{"type":"input_file","file_data":"JVBE"}`,
+	} {
+		request := decodeResponseRequest(t, `{"model":"m/x","input":[{"type":"message","role":"user","content":[`+block+`]}]}`)
+		if _, err := request.ToChat(); !errors.Is(err, ErrInvalidAttachment) {
+			t.Fatalf("%s: got %v, want ErrInvalidAttachment", name, err)
+		}
 	}
 }
 

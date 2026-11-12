@@ -46,9 +46,9 @@ func anthropicBlocks(raw json.RawMessage) ([]anthropicBlock, error) {
 }
 
 // anthropicToOpenAI converts the Anthropic request into the router's chat
-// shape. Document blocks are refused: the chat pipeline has no document
-// part. Cache-control, top_k and top-level thinking budgets are accepted
-// and documented; they carry no mapping.
+// shape. Document blocks become file parts. Cache-control, top_k and
+// top-level thinking budgets are accepted and documented; they carry no
+// mapping.
 func anthropicToOpenAI(r *anthropicRequest) (*models.ChatCompletionRequest, error) {
 	return r.ToChat()
 }

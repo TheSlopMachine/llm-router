@@ -2,39 +2,44 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 )
 
 // responseInputMessages converts a Responses input into chat turns. A string
 // input is one user turn. Item arrays map per item type: messages keep their
-// role, function calls become assistant tool calls, function call outputs
-// become tool turns, and reasoning or built-in tool items carry no chat turn.
-func responseInputMessages(raw json.RawMessage) []ChatMessage {
+// role (input_image and input_file blocks become content parts), function
+// calls become assistant tool calls, function call outputs become tool turns,
+// and reasoning or built-in tool items carry no chat turn.
+func responseInputMessages(raw json.RawMessage) ([]ChatMessage, error) {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {
-		return nil
+		return nil, nil
 	}
 	var single string
 	if err := json.Unmarshal(raw, &single); err == nil {
 		if strings.TrimSpace(single) == "" {
-			return nil
+			return nil, nil
 		}
-		return []ChatMessage{{Role: "user", Content: single}}
+		return []ChatMessage{{Role: "user", Content: single}}, nil
 	}
 	var items []ResponseInputItem
 	if err := json.Unmarshal(raw, &items); err != nil {
-		return nil
+		return nil, nil
 	}
 	var messages []ChatMessage
 	for _, item := range items {
 		switch item.Type {
 		case "", "message":
-			text := contentText(item.Content)
-			if text == "" {
+			text, parts, err := responseMessageContent(item.Content)
+			if err != nil {
+				return nil, err
+			}
+			if text == "" && len(parts) == 0 {
 				continue
 			}
-			messages = append(messages, ChatMessage{Role: messageRole(item.Role), Content: text})
+			messages = append(messages, ChatMessage{Role: messageRole(item.Role), Content: text, ContentParts: parts})
 		case "function_call":
 			callID := item.CallID
 			if callID == "" {
@@ -56,7 +61,65 @@ func responseInputMessages(raw json.RawMessage) []ChatMessage {
 			})
 		}
 	}
-	return messages
+	return messages, nil
+}
+
+// responseMessageContent maps a message item's content onto chat content.
+// A string or text-only blocks stay plain text. input_image and input_file
+// blocks turn the turn into content parts that keep the block order. Files
+// travel inline only: file_id needs a file store the router does not keep,
+// and remote file_url sources are forbidden.
+func responseMessageContent(raw json.RawMessage) (string, []ChatMessageContentPart, error) {
+	var single string
+	if err := json.Unmarshal(raw, &single); err == nil {
+		return single, nil, nil
+	}
+	var blocks []struct {
+		Type     string `json:"type"`
+		Text     string `json:"text"`
+		ImageURL string `json:"image_url"`
+		Detail   string `json:"detail"`
+		FileID   string `json:"file_id"`
+		FileData string `json:"file_data"`
+		FileURL  string `json:"file_url"`
+		Filename string `json:"filename"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return "", nil, nil
+	}
+	texts := make([]string, 0, len(blocks))
+	parts := make([]ChatMessageContentPart, 0, len(blocks))
+	attachments := false
+	for _, block := range blocks {
+		switch block.Type {
+		case "input_image":
+			if block.ImageURL == "" {
+				return "", nil, fmt.Errorf("%w: input_image needs image_url; file_id is not supported, the router keeps no file store", ErrInvalidAttachment)
+			}
+			parts = append(parts, ChatMessageContentPart{Type: "image_url", ImageURL: &ChatMessageImageURL{URL: block.ImageURL, Detail: block.Detail}})
+			attachments = true
+		case "input_file":
+			if block.FileURL != "" {
+				return "", nil, fmt.Errorf("%w: input_file url sources are forbidden", ErrInvalidAttachment)
+			}
+			file, err := newChatMessageFile(block.FileData, block.FileID, block.Filename)
+			if err != nil {
+				return "", nil, err
+			}
+			parts = append(parts, ChatMessageContentPart{Type: "file", File: file})
+			attachments = true
+		default:
+			if strings.TrimSpace(block.Text) != "" {
+				texts = append(texts, block.Text)
+				parts = append(parts, ChatMessageContentPart{Type: "text", Text: block.Text})
+			}
+		}
+	}
+	text := strings.Join(texts, "\n")
+	if !attachments {
+		return text, nil, nil
+	}
+	return text, parts, nil
 }
 
 // messageRole maps a Responses message role onto a chat role. Developer
