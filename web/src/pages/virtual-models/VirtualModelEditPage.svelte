@@ -207,7 +207,7 @@
     }
   })
 
-  let modelOptions = $derived(availableModels.map((m) => ({ value: m.full_model_id, label: m.display_name })))
+  let modelOptions = $derived(availableModels.map((m) => ({ value: m.full_model_id, label: m.full_model_id })))
   let canSave = $derived(name.trim() !== '' && models.length > 0 && models.every((id) => id !== ''))
   let isManaged = $derived(!!vm?.managed_by)
   let isEditable = $derived(!vm?.managed_by)
@@ -284,18 +284,21 @@
                 </div>
                 <Button tint="var(--fui-color-danger)" buttonStyle="text" icon={{ name: 'delete' }} ariaLabel={t('virtual.remove_model')} onclick={() => removeModel(i)} disabled={isManaged} />
               </div>
+              <!-- three groups (modalities, capabilities, limits) apart; chips tight inside a group -->
               <div class="model-row-bottom">
-                <HStack gap={2} wrap valign="center" class="row-caps">
-                  <ModalitiesFlow modalities={{ input: modalityMap[id]?.input, output: modalityMap[id]?.output }} chipsDirection="horizontal" />
-                  {#each modelInfoOf(id)?.capabilities ?? [] as cap}
-                    {@const capability = CAPABILITY_META[cap]}
-                    {#if capability}
-                      <Chip icon={capability.icon} tint={capability.chipTint} size="md" title={t(capability.hint)} />
-                    {:else}
-                      <Chip text={cap} size="md" title={cap} />
-                    {/if}
-                  {/each}
-                </HStack>
+                <ModalitiesFlow modalities={{ input: modalityMap[id]?.input, output: modalityMap[id]?.output }} chipsDirection="horizontal" />
+                {#if (modelInfoOf(id)?.capabilities ?? []).length > 0}
+                  <HStack gap={2} wrap valign="center">
+                    {#each modelInfoOf(id)?.capabilities ?? [] as cap}
+                      {@const capability = CAPABILITY_META[cap]}
+                      {#if capability}
+                        <Chip icon={capability.icon} tint={capability.chipTint} size="md" title={t(capability.hint)} />
+                      {:else}
+                        <Chip text={cap} size="md" title={cap} />
+                      {/if}
+                    {/each}
+                  </HStack>
+                {/if}
                 <VStack gap={0} class="row-ctx">
                   {#if modelInfoOf(id)?.context_window}<Text size="sm" foregroundStyle="secondary">{(modelInfoOf(id)!.context_window! / 1000).toFixed(0)}k ctx</Text>{/if}
                   {#if modelInfoOf(id)?.max_tokens}<Text size="sm" foregroundStyle="secondary">{(modelInfoOf(id)!.max_tokens! / 1000).toFixed(0)}k out</Text>{/if}
@@ -307,26 +310,32 @@
         {#if isEditable}
           <Button text={t('models.actions.add')} icon={{ name: 'add' }} onclick={addModel} />
         {/if}
-        <HStack gap={3} wrap valign="center">
+        <HStack gap={5} wrap valign="center">
           <Text size="sm" weight="medium" foregroundStyle="secondary">{t('virtual.capabilities')}</Text>
           <ModalitiesFlow modalities={{ input: aggregates.inMods, output: aggregates.outMods }} chipsDirection="horizontal" />
-          {#if aggregates.caps.length > 0}
-            {#each aggregates.caps as cap}
-              {@const capability = CAPABILITY_META[cap]}
-              {#if capability}
-                <Chip icon={capability.icon} text={t(capability.label)} size="md" tint={capability.chipTint} title={t(capability.hint)} />
-              {:else}
-                <Chip text={cap} title={cap} />
+          <HStack gap={2} wrap valign="center">
+            {#if aggregates.caps.length > 0}
+              {#each aggregates.caps as cap}
+                {@const capability = CAPABILITY_META[cap]}
+                {#if capability}
+                  <Chip icon={capability.icon} size="md" tint={capability.chipTint} title={t(capability.hint)} />
+                {:else}
+                  <Chip text={cap} title={cap} />
+                {/if}
+              {/each}
+            {:else}
+              <Text foregroundStyle="tertiary" size="sm">—</Text>
+            {/if}
+          </HStack>
+          {#if aggregates.context > 0 || aggregates.output > 0}
+            <HStack gap={3} valign="center">
+              {#if aggregates.context > 0}
+                <Text size="sm" foregroundStyle="secondary" title={t('virtual.smallest_context')}>{(aggregates.context / 1000).toFixed(0)}k ctx</Text>
               {/if}
-            {/each}
-          {:else}
-            <Text foregroundStyle="tertiary" size="sm">—</Text>
-          {/if}
-          {#if aggregates.context > 0}
-            <Text size="sm" foregroundStyle="secondary" title={t('virtual.smallest_context')}>{(aggregates.context / 1000).toFixed(0)}k ctx</Text>
-          {/if}
-          {#if aggregates.output > 0}
-            <Text size="sm" foregroundStyle="secondary" title={t('virtual.smallest_output')}>{(aggregates.output / 1000).toFixed(0)}k out</Text>
+              {#if aggregates.output > 0}
+                <Text size="sm" foregroundStyle="secondary" title={t('virtual.smallest_output')}>{(aggregates.output / 1000).toFixed(0)}k out</Text>
+              {/if}
+            </HStack>
           {/if}
         </HStack>
       {/if}
@@ -366,7 +375,8 @@
   .model-row-bottom {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--fui-space-2);
+    align-items: center;
+    gap: var(--fui-space-2) var(--fui-space-5);
     min-width: 0;
   }
 

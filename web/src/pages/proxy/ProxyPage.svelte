@@ -135,7 +135,6 @@
       await api.config.update(payload)
       routerConfig = payload
       maxChecksInput = String(next)
-      toast.success(t('proxy.pool.max_checks_saved'))
       await loadStatus()
     } catch (e) {
       maxChecksError = getErrorMessage(e)

@@ -7,10 +7,13 @@
     nodes,
     values = $bindable({}),
     busy = false,
+    flat = false,
   }: {
     nodes: UINode[]
     values?: Record<string, unknown>
     busy?: boolean
+    /** inside a modal: sections draw as a heading over their content, not as a card in the card */
+    flat?: boolean
   } = $props()
 
   function setValue(name: string, value: unknown): void {
@@ -166,6 +169,25 @@
       <Grid min="md" gap={toStep(node.gap, 4)} class="dyn-grid">
         {@render nodeList(node.content ?? [])}
       </Grid>
+    {:else if node.type === 'section' && flat}
+      <!-- a heading row (title, subtitle, the section's links as prominent
+           buttons on the right) over the rest of the content -->
+      {@const links = (node.content ?? []).filter((child) => child.type === 'link')}
+      {@const rest = (node.content ?? []).filter((child) => child.type !== 'link')}
+      <VStack gap={4}>
+        {#if node.title || node.subtitle || links.length > 0}
+          <HStack gap={3} valign="center" wrap>
+            <VStack gap={1} grow>
+              {#if node.title}<Text variant="section-title">{node.title}</Text>{/if}
+              {#if node.subtitle}<Text size="sm" foregroundStyle="secondary">{node.subtitle}</Text>{/if}
+            </VStack>
+            {#each links as link (link.url)}
+              <Button href={link.url ?? ''} external buttonStyle="prominent" text={link.text || link.url} />
+            {/each}
+          </HStack>
+        {/if}
+        {@render nodeList(rest)}
+      </VStack>
     {:else if node.type === 'section'}
       <Card title={node.title ?? ''} subtitle={node.subtitle}>
         {@render nodeList(node.content ?? [])}

@@ -50,7 +50,7 @@ func TestCheckHealth_Verdicts(t *testing.T) {
 		"dead":  HealthUnhealthy,
 		"flaky": HealthUnknown,
 	} {
-		status, _, err := service.CheckHealth(context.Background(), "health-type", &models.Credential{ID: id})
+		status, _, err := service.CheckHealth(context.Background(), "health-type", &models.Credential{ID: id}, nil)
 		if err != nil {
 			t.Fatalf("id %s: %v", id, err)
 		}
@@ -58,7 +58,7 @@ func TestCheckHealth_Verdicts(t *testing.T) {
 			t.Fatalf("id %s: got %q, want %q", id, status, want)
 		}
 	}
-	status, message, err := service.CheckHealth(context.Background(), "health-type", &models.Credential{ID: "dead"})
+	status, message, err := service.CheckHealth(context.Background(), "health-type", &models.Credential{ID: "dead"}, nil)
 	if err != nil || status != HealthUnhealthy || message != "key revoked" {
 		t.Fatalf("unhealthy must carry the message: %q %q %v", status, message, err)
 	}
@@ -67,7 +67,7 @@ func TestCheckHealth_Verdicts(t *testing.T) {
 func TestCheckHealth_InvalidShapeIsInternal(t *testing.T) {
 	service := setupService(t)
 	installHealthPlugin(t, service)
-	_, _, err := service.CheckHealth(context.Background(), "health-type", &models.Credential{ID: "broken"})
+	_, _, err := service.CheckHealth(context.Background(), "health-type", &models.Credential{ID: "broken"}, nil)
 	var ierr *models.PluginInternalError
 	if !errors.As(err, &ierr) {
 		t.Fatalf("invalid verdict must be internal, got %T (%v)", err, err)
@@ -87,7 +87,7 @@ llm_router.register("mark-type", {
 })`), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	_, _, err := service.CheckHealth(context.Background(), "mark-type", &models.Credential{ID: "c1"})
+	_, _, err := service.CheckHealth(context.Background(), "mark-type", &models.Credential{ID: "c1"}, nil)
 	var nerr *notFoundError
 	if !errors.As(err, &nerr) {
 		t.Fatalf("missing handler must report not found, got %T (%v)", err, err)

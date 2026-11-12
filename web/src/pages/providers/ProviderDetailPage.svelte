@@ -48,6 +48,7 @@
 
   const providerIdValue = $derived(provider?.id ?? '')
 
+
   const credentialColumns: TableColumn[] = [
     { key: 'name', title: t('common.labels.name'), width: '1fr', priority: 1 },
     { key: 'actions', title: t('common.labels.actions'), width: 'auto', align: 'right', priority: 1 },
@@ -90,7 +91,6 @@
       await api.providers.updateInstance(provider.id, { name: provider.name, disabled: !enabled })
       const providers = await api.providers.list()
       provider = (providers as Provider[]).find((p) => p.id === providerId) ?? provider
-      toast.success(enabled ? `${provider.name} enabled` : `${provider.name} disabled`)
     } catch (e) {
       error = getErrorMessage(e)
     }
@@ -292,7 +292,6 @@
   async function unparkCredential(cred: Credential): Promise<void> {
     try {
       await api.credentials.unpark(cred.id)
-      toast.success(`"${cred.label || t('common.labels.unnamed')}" ${t('credentials.status.unparked')}`)
       await reloadCredentials()
     } catch (e) {
       toast.error(`${t('credentials.unpark_failed')}: ${getErrorMessage(e)}`)
@@ -418,7 +417,6 @@
       })
       const providers = await api.providers.list()
       provider = (providers as Provider[]).find((p) => p.id === providerId) ?? provider
-      toast.success(t('providers.detail.settings_saved'))
     } catch (e) {
       error = getErrorMessage(e)
     } finally {
@@ -445,7 +443,7 @@
 
     {#if credentialsEnabled}
       <VStack tag="section" gap={4} class="provider-section">
-        <SectionHeading title={t('credentials.title_plural')} subtitle={String(credentials.length)}>
+        <SectionHeading title={t('credentials.title_plural')} count={credentials.length}>
           {#snippet actions()}
             <Button buttonStyle="prominent" onclick={openAddCredential} icon={{ name: 'add' }}>{t('credentials.add')}</Button>
           {/snippet}
@@ -640,5 +638,4 @@
   :global(.table-empty) {
     width: 100%;
     padding: var(--fui-space-4);
-  }
-</style>
+  }</style>

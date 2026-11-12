@@ -17,12 +17,16 @@ inventoried. Minor is informational for plugin maintainers.
 `@version` accepts `MAJOR.MINOR[.PATCH]` (missing patch means `.0`, one
 leading `v` allowed); `@plugin_api` accepts `MAJOR.MINOR[.PATCH]` in the same
 spelling. Anything else fails install. Neither `@plugin` nor `@author` may
-contain a `/` character: the pair forms the plugin identity, spelled
-`Author Name/Plugin Name`, and installation is interchangeable across
-sources. Installs from any store or a file upload with the same
-`@author`/`@plugin` pair override the previous installation and append it to
-the rollback history; version-match reinstall from the same source skips
-deployment.
+contain a `/` character: the pair forms the plugin identity `author/plugin`
+(each part sanitized: runs of characters outside `A-Z a-z 0-9 - _ .` become
+one `-`, leading and trailing `-` are trimmed), and installation is
+interchangeable across sources. Installs from any store or a file upload with
+the same `@author`/`@plugin` pair override the previous installation and
+append it to the rollback history (the last 10 versions are kept). The install
+core replaces the row on every install, whatever the version; `make
+upload-plugins` skips a file whose `@version` equals the installed one. A
+plugin file is at most 1 MiB. A type key already served by a different plugin
+fails the install.
 
 ## Table of Contents
 
@@ -76,8 +80,9 @@ maps every route.
 
 High-level description: the manifest is the leading contiguous run of `---`
 lines at byte zero of the file. The parser reads `--- @tag value` lines.
-The block ends at the first non-`---` line. Carriage returns normalize to
-line feeds. Unknown tags fail install. Duplicate single-value tags fail
+The block ends at the first non-`---` line. A `---` line whose text does not
+start with `@` is ignored. Carriage returns normalize to line feeds. Unknown
+tags fail install. Duplicate single-value tags fail
 install.
 
 API signature:
@@ -98,8 +103,8 @@ Parameters:
 |---|---|---|
 | `@plugin` | required, once | Display name. Non-empty string. Must not contain `/`. Forms the plugin identity with `@author`. |
 | `@author` | required, once | Author name. Non-empty string. Must not contain `/`. Forms the plugin identity with `@plugin`. |
-| `@version` | required, once | Plugin version. Format `MAJOR.MINOR[.PATCH]`, leading `v` allowed, missing patch means `.0`. Every content edit bumps this value. Version-match reinstall skips deployment. |
-| `@plugin_api` | required, once | Contract declaration. Format `x.y[.z]`. Major must equal served major `1`. |
+| `@version` | required, once | Plugin version. Format `MAJOR.MINOR[.PATCH]`, leading `v` allowed, missing patch means `.0`. Every content edit bumps this value: the dashboard offers an update only when the store version is greater than the installed one, and `make upload-plugins` skips an equal version. |
+| `@plugin_api` | required, once | Contract declaration. Format `x.y[.z]`, leading `v` allowed. Major must equal served major `1`. |
 | `@allow_host` | required, repeatable, minimum one | Bare hostname without `/`, space, or `:`. Value `*` marks the plugin unsafe and must stand alone. |
 | `@description` | optional, once | Free text description. |
 | `@license` | optional, once | Free text license. |
@@ -123,10 +128,13 @@ Example:
 ## Registration
 
 High-level description: top-level code runs once at install in dry-run mode
-and again per worker at load. Top-level code calls exactly one registration
-function. Handler bodies do not run during dry-run. Dry-run validates
+and again on every handler call, because each call loads the source into a
+pooled state before invoking the handler. Top-level code calls
+`llm_router.register` once per type key and `llm_router.register_proxy_source`
+once per proxy source, at least one call in total; a file without a call
+fails install. Handler bodies do not run during dry-run. Dry-run validates
 handlers, icon, model specifications, health cooldown, schemas, locales, and
-jobs.
+jobs. The `credentials` and `proxies` tables are absent during dry-run.
 
 API signatures:
 
@@ -146,7 +154,7 @@ Parameters:
 
 | Parameter | Description |
 |---|---|
-| `type_key` | Backend identifier. Must match `^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`. Must be unique. |
+| `type_key` | Backend identifier. Must match `^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`. Must be unique within the file and across installed plugins. |
 | `handlers.complete` | Required function for provider backends. |
 | Optional handlers | `complete_stream`, `transcribe`, `speech`, `generate_image`, `embed`, `moderate`, `generate_video`, `poll_video`, `video_content`, `validate_credentials`, `get_model_infos`, `check_health`, `check_model`, `auth_initiate`, `auth_step`, `initialize`, `deinitialize`. Each must be a function when present. Unknown handler names are ignored. |
 | Static tables | `credential_schema`, `config_schema`, `settings_schema`, `proxy_schema`, `locales`, `jobs`, `model_specs`. Each must be a table when present. |
@@ -196,7 +204,7 @@ llm_router.register("example", {
 | `check_model` | no | `(ctx, model_ref)` | `model health table` |
 | `auth_initiate` | no | `(ctx)` | `authentication result` |
 | `auth_step` | no | `(ctx, {action, values})` | `authentication result` |
-| `fetch_proxies` | no | `()` | `array?` |
+| `fetch_proxies` | yes, for `register_proxy_source` | `()` | `array?` |
 | `initialize` | no | `(ctx)` | `nil`/`true`, or terminal error table |
 | `deinitialize` | no | `(ctx)` | `nil`/`true`, or terminal error table |
 
@@ -207,8 +215,9 @@ names are ignored.
 
 ### `ctx`
 
-High-level description: first argument to every handler except
-`validate_credentials`, `fetch_proxies`, and job variants.
+High-level description: first argument to every handler and to job `run`
+functions, except `validate_credentials` and `fetch_proxies`, which take no
+`ctx`. Only the fields listed below ever appear.
 
 API signature:
 
@@ -221,7 +230,7 @@ Parameters:
 
 | Field | Description |
 |---|---|
-| `provider_config` | Table with provider configuration. Present when configured. |
+| `provider_config` | Table with provider configuration. Present when the configuration is non-empty. Absent in lifecycle hooks other than provider `disable`. |
 | `flow_id` | String. Present for authentication flows only. |
 | `reason` | String. Present in lifecycle hooks only: `install`, `update`, `startup`, `enable` (initialize) and `delete`, `update`, `shutdown`, `disable` (deinitialize). Absent in jobs and request handlers. |
 | `provider_id` | String. Present on provider disable deinitialization only. |
@@ -230,7 +239,8 @@ Parameters:
 
 ### `credential`
 
-High-level description: credential record passed to health checks.
+High-level description: credential record passed to health checks. The same
+record shape is returned by `credentials.list` and `credentials.get`.
 
 API signature:
 
@@ -244,6 +254,7 @@ Parameters:
 | Field | Description |
 |---|---|
 | `id` | Credential identifier string. |
+| `label` | Dashboard name of the key. |
 | `data` | Credential payload table. Empty table when no payload exists. |
 
 ### `model_ref`
@@ -268,13 +279,16 @@ Parameters:
 ### `request`
 
 High-level description: every request table carries `model` (full
-`provider/model` identifier), `model_name` (bare name for upstream payloads)
-and `cache_key` (opaque cross-turn prefix-cache partition derived from model,
-first message and sorted tool names; `"prefix-boot"` for empty histories).
-`stream` is absent by contract: streaming is served by `complete_stream`,
-never by a flag. Never forward a request table verbatim upstream:
-`model_name` and `cache_key` are router-only and upstreams reject unknown
-properties.
+`provider/model` identifier) and `model_name` (bare name for upstream
+payloads). Chat requests (`complete`, `complete_stream`) also carry
+`cache_key`, an opaque cross-turn prefix-cache partition derived from model,
+first message and sorted tool names (`pck_` plus 32 hex digits;
+`"prefix-boot"` for empty histories). `stream` is absent by contract:
+streaming is served by `complete_stream`, never by a flag. Never forward a
+request table verbatim upstream: `model_name` and `cache_key` are router-only
+and upstreams reject unknown properties. Optional fields are absent when the
+client did not set them (chat `max_tokens`, `temperature` and `top_p` are
+also absent when zero).
 
 ### Return idiom
 
@@ -297,7 +311,7 @@ API signature:
 ```lua
 --- Serve unary chat completion.
 -- @param ctx table: execution context with optional provider_config.
--- @param request table: chat completion request without stream flag, with model, model_name, cache_key, messages, tools.
+-- @param request table: chat completion request without stream flag, with model, model_name, cache_key, messages, tools and the optional fields below.
 -- @return table: ChatCompletionResponse with non-empty choices.
 -- @return nil: error slot, nil on success.
 complete = function(ctx, request) return result, nil end
@@ -311,23 +325,28 @@ Parameters:
 | `request.model` | Full routing identifier. |
 | `request.model_name` | Bare model name for upstream payload. |
 | `request.cache_key` | Cache partition string. |
-| `request.messages` | Message array. `content` is a string or an OpenAI part array: `{type="text", text}`, `{type="image_url", image_url={url, detail}}`, `{type="input_audio", input_audio={data, format}}`, `{type="file", file={file_data, filename}}`. `file_data` is always a base64 `data:` URL; any number of file parts may appear. Responses `input_image`/`input_file` and Anthropic `document` blocks arrive in the same shapes. |
-| `request.tools` | Tool array when present. |
+| `request.messages` | Message array of `{role, content, tool_calls, tool_call_id, name, refusal, reasoning_content}`; `tool_calls` entries are `{id, type, function={name, arguments}}` with `arguments` a JSON string. `content` is a string or an OpenAI part array: `{type="text", text}`, `{type="image_url", image_url={url, detail}}`, `{type="input_audio", input_audio={data, format}}`, `{type="file", file={file_data, filename}}`. `image_url.url` is a remote `http(s)` URL or a `data:` URL, `input_audio.data` is base64 (`wav` or `mp3`), `file_data` is always a base64 `data:` URL; any number of file parts may appear. Responses `input_image`/`input_file` and Anthropic `document` blocks arrive in the same shapes. |
+| `request.tools` | Tool array when present. Entries are `{type, function={name, description, parameters, strict}}` or the flat form `{type, name, description, parameters, input_schema, strict}`. |
+| Sampling and limits | `tool_choice`, `parallel_tool_calls`, `max_tokens`, `max_completion_tokens`, `temperature`, `top_p`, `n`, `stop` (string or string array), `seed`, `frequency_penalty`, `presence_penalty`, `logprobs`, `top_logprobs`, `response_format`, `user`, `service_tier`, `reasoning_effort`, `verbosity`, `stream_options`. |
+| Client aliases | `random_seed`, `options`, `format`, `think`, `keep_alive`, `reasoning` (`{effort, max_tokens, exclude, enabled}`), `prompt_cache_key`, `guardrails` pass through when the client sent them. The `/v1/chat/completions` edge folds `random_seed`, `reasoning.effort`, `reasoning.max_tokens` (into `max_completion_tokens`), `format` and the Ollama `options` keys `temperature`, `top_p`, `seed`, `stop`, `num_predict` into the canonical fields above before the handler runs; canonical fields win. |
 
-Return values: `ChatCompletionResponse`. The `choices` array must be
-non-empty. Second slot is `nil` on success, terminal error table on failure.
+Return values: `ChatCompletionResponse`: `{id, object, created, model,
+choices, usage, system_fingerprint, service_tier}`. Each choice is `{index,
+message, finish_reason}` with `message` as `{role, content, tool_calls,
+reasoning_content}` (`reasoning` is accepted as an alias of
+`reasoning_content`); `usage` is `{prompt_tokens, completion_tokens,
+total_tokens, prompt_tokens_details={cached_tokens, audio_tokens},
+completion_tokens_details={reasoning_tokens, audio_tokens}}`. The `choices`
+array must be non-empty. Second slot is `nil` on success, terminal error
+table on failure.
 
 Image (`image_url`), audio (`input_audio`) and file parts reach a plugin
 only when its model card lists `image`, `audio` or `file` respectively in
 `input_modalities`, or lists no input modalities at all: a card that
 declares modalities without the one a part needs makes the router answer
-400 before the handler runs. A card must therefore list every input the
-model really takes.
-
-A model card's `reasoning` block follows OpenRouter: `supported_efforts`
-(highest first), `default_effort`, `default_enabled`, `mandatory` and
-`supports_max_tokens` (the model takes `reasoning.max_tokens` as a thinking
-budget).
+400 `invalid_request_error` before the handler runs. A card must therefore
+list every input the model really takes. Models absent from the model cache
+pass the gate. Model card fields are listed under `get_model_infos`.
 
 Example:
 
@@ -371,7 +390,7 @@ Parameters:
 |---|---|
 | `ctx` | Execution context. |
 | `request` | Same shape as `complete`. |
-| `emit` | Function accepting one chunk table. Each chunk must contain non-empty `choices` or `usage`. Each call writes `data: <canonical-json>\n\n` and sets delivery flag. |
+| `emit` | Function accepting one chunk table `{id, object, created, model, choices, usage}` with `choices` entries `{index, delta, finish_reason}`. Each chunk must contain non-empty `choices` or `usage`; an invalid chunk or a failed client write raises a Lua error. Each call writes `data: <canonical-json>\n\n` and sets delivery flag. An empty `choices` table encodes as `[]`. |
 
 Return values: no result table. Returns terminal error table on failure
 before first `emit`. After first `emit`, failure is final.
@@ -422,7 +441,11 @@ optional number, `timestamp_granularities` optional string array,
 The router validates `audio/transcriptions` and `audio/translations` separately
 against each model's declared `endpoints` before calling this handler.
 
-Return values: transcription response table.
+Return values: transcription response table in the OpenAI `verbose_json`
+shape: `{text, language, duration, segments, words, task}`. `segments` entries
+are `{id, seek, start, end, text, tokens, temperature, avg_logprob,
+compression_ratio, no_speech_prob}`, `words` entries `{word, start, end}`. The
+router renders the client-facing `response_format` from these fields.
 
 Example:
 
@@ -462,7 +485,9 @@ Parameters: `model`, `model_name`, `input` string, `voice` optional string,
 `response_format` optional string, `speed` optional number, `instructions`
 optional string.
 
-Return values: table with `audio_b64` base64 audio and `format` string.
+Return values: table with `audio_b64` base64 audio (standard alphabet,
+non-empty after decoding; otherwise a schema violation) and `format` string
+(`mp3`, `opus`, `aac`, `flac`, `wav`, `pcm`).
 
 Example:
 
@@ -500,7 +525,8 @@ Parameters: `model`, `model_name`, `prompt` string, `n` optional number,
 edits/variations, `image_name` optional string, `mask_b64` optional base64
 mask.
 
-Return values: image response with non-empty `data`.
+Return values: image response `{created, data}` with non-empty `data`; each
+entry is `{url, b64_json, revised_prompt}`.
 
 Example:
 
@@ -535,8 +561,9 @@ embed = function(ctx, request) return result, nil end
 Parameters: `model`, `model_name`, `input` string array,
 `encoding_format` optional string, `dimensions` optional number.
 
-Return values: embeddings response where length of `data` equals length of
-`input`.
+Return values: embeddings response `{data, model, usage}` where length of
+`data` equals length of `input` and each entry is `{index, embedding}` with
+`embedding` a non-empty array of numbers. The router renumbers `index` from 0.
 
 Example:
 
@@ -571,7 +598,9 @@ moderate = function(ctx, request) return result, nil end
 Parameters: `model`, `model_name`, `input` string array.
 
 Return values: moderation response where length of `results` equals length of
-`input`.
+`input`. Each result is `{flagged, categories, category_scores}`; missing
+`categories` and `category_scores` become empty maps, and the router fills an
+empty `id` with `modr_router` and an empty `model` with the routed id.
 
 Example:
 
@@ -611,14 +640,20 @@ Parameters for `generate_video`: `model`, `model_name`, `prompt` optional
 string, `duration` optional, `resolution` optional, `aspect_ratio` optional,
 `size` optional, `seed` optional, `generate_audio` optional boolean,
 `frame_images` optional array of `{type, image_url={url}, frame_type}`,
-`input_references` optional array of `{type, image_url, audio_url,
-video_url}`, `previous_job_id` optional string, `callback_url` storage only,
-`provider.options` optional table, `user` optional string, `session_id`
-optional string. `poll_video` takes `job_id`. `video_content` takes `job_id`
-and `index`.
+`input_references` optional array of `{type, image_url={url},
+audio_url={url}, video_url={url}}`, `previous_job_id` optional string,
+`callback_url` storage only, `provider` optional table `{options}` carrying
+the provider options, `user` optional string, `session_id` optional string.
+`poll_video` takes `job_id` (the upstream job identifier). `video_content`
+takes `job_id` and `index` (number).
 
-Return values: submit returns `{id, status}`; poll returns status table;
-content returns `{video_b64, content_type}`.
+Return values: submit and poll return `{id, status}` plus optional
+`generation_id`, `unsigned_urls` (string array), `usage` (`{cost, is_byok}`)
+and `error` (string). `id` must be non-empty and `status` one of `pending`,
+`in_progress`, `completed`, `failed`, `cancelled`, `expired`; anything else is
+a schema violation. Content returns `{video_b64, content_type}` with
+`video_b64` non-empty valid base64 and `content_type` defaulting to
+`video/mp4`.
 
 Example:
 
@@ -657,7 +692,9 @@ validate_credentials = function(data) return true end
 Parameters: `data` table with credential fields.
 
 Return values: boolean plus optional error table. `false` plus `nil` maps to
-`400 invalid_request_error`.
+`400 invalid_request_error` with message `credentials rejected`; `false` plus
+an error table renders that table. A `nil` result accepts. Any other
+non-boolean result is a crash. The handler receives no `ctx`.
 
 Example:
 
@@ -673,27 +710,52 @@ end
 ### `get_model_infos`
 
 High-level description: returns provider model inventory. Runs with
-provider-scoped credential list. Static `model_specs` overlay the result.
+provider-scoped credential list. Static `model_specs` overlay the result. A
+type that declares `credential_schema` is not called while its provider has no
+credential: the list is empty (the dashboard shows no models, a list cached
+earlier included) until a credential is added. Keyless types (no
+`credential_schema`) are always called.
 
 API signature:
 
 ```lua
 --- List upstream models.
 -- @param ctx table: execution context.
--- @return table: array of {name, display_name, endpoints array}.
+-- @return table: array of model cards {name, display_name, endpoints array, ...}.
 get_model_infos = function(ctx) return result, nil end
 ```
 
 Parameters: `ctx` execution context.
 
-Return values: array of `{name, display_name, endpoints}` where `endpoints`
-lists capability names.
+Return values: array of model cards; `nil` reads as an empty array. Card
+fields:
+
+| Field | Description |
+|---|---|
+| `name` | Bare upstream model name. |
+| `display_name` | Display name. |
+| `description` | Optional text. |
+| `rpm`, `tpm`, `rpd` | Rate limits as whole numbers, `0` when unknown. |
+| `context_window`, `max_tokens` | Optional whole numbers. |
+| `capabilities` | Optional string array of feature chips (`tools`, `json_mode`, `structured_outputs`, `reasoning`). When absent the router derives them from `supported_parameters` (`tools`, `response_format`, `structured_outputs`) and `reasoning`. `vision` and `audio` chips are dropped: modalities carry them. |
+| `input_modalities`, `output_modalities` | Optional string arrays (`text`, `image`, `audio`, `file`, ...). See the input gate under `complete`. |
+| `supported_parameters` | Optional string array of request parameters the model takes. |
+| `reasoning` | Optional table following OpenRouter: `supported_efforts` (highest first), `default_effort`, `default_enabled`, `mandatory`, `supports_max_tokens` (the model takes `reasoning.max_tokens` as a thinking budget). |
+| `endpoints` | Optional string array of served endpoints: `chat/completions`, `audio/transcriptions`, `audio/translations`, `audio/speech`, `images/generations`, `embeddings`, `videos`, `moderations`, `responses`. Empty or absent means `chat/completions` only. |
+
+The router rejects a request with `endpoint_not_supported` when the cached
+card declares `endpoints` without the target endpoint. Chat-pipeline routes
+(`/v1/messages`, responses, conversations, assistants, threads, runs,
+moderations) gate on `chat/completions`. A model absent from the cache passes
+the gate. A fresh result refreshes known cards and adds new ones; cards the
+result omits stay until a request reports the model `not_found`. A field of
+the wrong type is a schema violation. The result is cached for one hour.
 
 Example:
 
 ```lua
 get_model_infos = function(ctx)
-  return { { name = "model-1", display_name = "Model 1", endpoints = { "chat" } } }, nil
+  return { { name = "model-1", display_name = "Model 1", endpoints = { "chat/completions" } } }, nil
 end
 ```
 
@@ -716,7 +778,8 @@ API signature:
 check_health = function(ctx, credential) return result end
 ```
 
-Parameters: `ctx` execution context, `credential` with `id` and `data`.
+Parameters: `ctx` with the credential's `provider_config` (so the probe uses
+the provider's selected proxy pool), `credential` with `id`, `label` and `data`.
 
 Return values: table with `status` one of `healthy`, `unhealthy`, `unknown`
 and optional `message` string. Invalid shapes are crashes and change nothing.
@@ -797,7 +860,7 @@ API signatures:
 auth_initiate = function(ctx) return result end
 
 --- Handle authentication step.
--- @param ctx table: execution context.
+-- @param ctx table: {flow_id, provider_config optional}.
 -- @param input table: {action, values}.
 -- @return table: exactly one of render, redirect_url, credentials.
 auth_step = function(ctx, input) return result end
@@ -832,12 +895,12 @@ API signatures:
 
 ```lua
 --- Run initialization.
--- @param ctx table: {reason="install|update|startup|enable", provider_id on provider disable only, provider_config on provider disable only}.
+-- @param ctx table: {reason="install|update|startup|enable"}.
 -- @return nil|boolean|table: nil or true on success, terminal error table on failure.
 initialize = function(ctx) return true end
 
 --- Run deinitialization.
--- @param ctx table: {reason="delete|update|shutdown|disable"}.
+-- @param ctx table: {reason="delete|update|shutdown|disable"}; provider_id and provider_config join on a provider disable.
 -- @return nil|boolean|table.
 deinitialize = function(ctx) return true end
 ```
@@ -856,13 +919,15 @@ Any other value is a crash.
 
 Sandbox: `storage`, `http_client`, `proxies` when the type declares
 `proxy_schema`, `print`, `llm_router.log`, `json`, `uuid_v5`, `random_hex`,
-`multipart`, `base64_*`. Credential tables stay out of plugin-scoped hooks;
-the `disable` hook reads `credentials.list`/`get`/`parked` for its provider
-only. No lifecycle hook writes credentials. Each call runs in fresh state
-with 30 second bound. Calls fan out concurrently across types; failures log
-and never block install, delete, disable, enable, startup or shutdown. States
-stay per call: top-level file code reruns on every request, so it stays
-side-effect free. One-time state persists through `llm_router.storage`.
+`multipart`, `base64_*`. `credentials` is present when the type serves
+credentials but exposes `list`, `get` and `parked` only; `list` is scoped to
+the provider, so it returns rows only in the provider `disable` hook. No
+lifecycle hook writes credentials. Each call has a 30 second bound. Calls fan
+out across types with at most 4 running at once; failures log and never block
+install, delete, disable, enable, startup or shutdown. Each call loads the
+source again (see Sandbox limits), so top-level file code reruns on every
+call and stays side-effect free. One-time state persists through
+`llm_router.storage`.
 
 Example:
 
@@ -902,11 +967,11 @@ Parameters:
 
 | Field | Description |
 |---|---|
-| Name | Pattern `^[a-z0-9_]{1,32}$`. Maximum 8 jobs per type. |
-| `interval_seconds` | Interval in seconds. Range 60 to 86400. |
+| Name | Pattern `^[a-z0-9_]{1,32}$`. Maximum 8 jobs per type. A violation fails install. |
+| `interval_seconds` | Required number, interval in seconds. Range 60 to 86400; a value outside the range fails install. |
 | `run_on_startup` | Boolean. Runs once at startup when true. Defaults to false. |
 | `timeout_ms` | Timeout in milliseconds. Defaults to 60000. Bounds 1000 to 900000. Values outside bounds clamp to bounds. |
-| `run` | Function `function(ctx)` where `ctx` carries `job_name`, `run_reason` (`tick`, `startup`, `manual`), and optional `provider_config`. Returns `true`, `nil`, or terminal error table. |
+| `run` | Required function `function(ctx)` where `ctx` carries `job_name`, `run_reason` (`tick`, `startup`, `manual`), and optional `provider_config`. Returns `true`, `nil`, or terminal error table. Jobs are the only context where `credentials.update` works. |
 
 Return values: `true` or `nil` marks success. Terminal error table marks
 failure. Any other value is a crash.
@@ -946,21 +1011,38 @@ Parameters:
 | Field | Description |
 |---|---|
 | `message` | Required non-empty string. Missing or empty value rejects the table as a crash. |
-| `code` | Optional string. Default `server_error`. Use `invalid_request_error`, `authentication_error`, `payment_required`, `not_found`, `rate_limit`, `insufficient_quota`, `server_error`. |
-| `param` | Optional offending field name string. |
-| `status` | Optional HTTP status override 400 to 599. Default 502. |
+| `code` | Optional non-empty string, rendered verbatim. Default `server_error`. Conventional values: `invalid_request_error`, `authentication_error`, `payment_required`, `not_found`, `rate_limit`, `insufficient_quota`, `server_error`. A non-string or empty value rejects the table as a crash. |
+| `param` | Optional string naming the offending field. Validated (a non-string rejects the table as a crash) but not rendered into the envelope. |
+| `status` | Optional HTTP status override, a number from 400 to 599. Default 502. Any other value rejects the table as a crash. |
 | `headers` | Optional string-to-string table rendered as response headers on unary `/v1` errors in both envelopes. Names pass a strict allow-list (`Retry-After` today); anything else is dropped, never an error. `Retry-After` accepts non-negative integer seconds or an HTTP date. Mid-stream server-sent event failures carry no headers because status is already 200. Non-string keys or values are dropped, never fatal. |
 
 Return behavior: the router renders `message`/`code` verbatim into the
-OpenAI `{"error":{"message","type","code"}}` envelope (Anthropic envelope on
-Anthropic-style requests). No `type`/`scope`/`retry_after`/`upstream_status`/
+OpenAI `{"error":{"message","type","param","code"}}` envelope (Anthropic
+`{"type":"error","error":{"type","message"}}` envelope on requests carrying an
+`anthropic-version` header); `param` is always `null`. The envelope `type` derives from `code`:
+
+| `code` | OpenAI `type` | Anthropic `type` |
+|---|---|---|
+| `invalid_request_error`, `not_found` | `invalid_request_error` | `invalid_request_error` |
+| `auth_error` | `invalid_request_error` | `authentication_error` |
+| `payment_required` | `invalid_request_error` | `permission_error` |
+| `rate_limit`, `quota_exceeded` | `rate_limit_error` | `rate_limit_error` |
+| `overloaded` | `server_error` | `overloaded_error` |
+| `timeout` | `api_error` | `api_error` |
+| `server_error`, `upstream_error`, `transport_error`, `model_unavailable`, `structural_fault`, `internal_error` | `server_error` | `api_error` |
+| any other value, such as `authentication_error` or `insufficient_quota` | `invalid_request_error` | `api_error` |
+
+The HTTP status is the table `status` (502 by default); the Anthropic
+envelope answers 429 for `rate_limit` and `quota_exceeded` and 529 for
+`overloaded` regardless of `status`. No `type`/`scope`/`retry_after`/`upstream_status`/
 `upstream_body` fields exist: rate interpretation, parking and backoff live in
 plugin code backed by `storage` time to live. `not_found` means the requested
 model does not exist upstream. The router drops the model from the model cache
 (best-effort) and returns the error as-is. Emit it only when the upstream
 names the model as missing, never for bad endpoints or malformed requests.
 Calling Lua `error()` with a terminal table on the stack maps to provider
-error. Any other Lua error maps to internal error plus crash record. Branch on
+error. Any other Lua error, and any malformed return value, records a crash
+and answers `502 upstream_error` with the plugin crash text. Branch on
 `response.status` directly: `401` tries next credential, `429` parks plus
 next, `400` or `404` returns terminal `invalid_request_error`.
 
@@ -1020,19 +1102,25 @@ Parameters:
 |---|---|
 | `method` | HTTP method string. Default `GET`. |
 | `url` | Required `http` or `https` string. Must match allow-list. |
-| `proxy_url` | Optional non-empty string. Empty or absent means direct connection. Must be a URL served by `proxies.query` / `proxies.require` in the same execution, or one a router pool still holds (free pool cache or a custom pool entry); any other value raises `request blocked: proxy_url is not served by the router proxy pools`. |
-| `headers` | Table string to string. Custom `Host` header is revalidated against allow-list. |
-| `body` | String payload. |
+| `proxy_url` | Optional non-empty string; absent means direct connection, an empty or non-string value raises. Must be a URL served by `proxies.query` / `proxies.require` in the same execution, or one a router pool still holds (free pool cache or a custom pool entry); any other value raises `request blocked: proxy_url is not served by the router proxy pools`. |
+| `headers` | Table string to string; entries with non-string keys or values are ignored. Custom `Host` header is revalidated against allow-list. |
+| `body` | String payload. Any other type raises. |
 
 Return values: success returns `(response, nil)` where `response` holds
-`status` number, `headers` table with lowercased keys, `body` string capped at
-32 MiB. Failure returns `(nil, fault)` where `fault` follows the error
-contract plus transport fields below. Redirects recheck allow-list, maximum 10
-hops. Non-public destinations (loopback, private, link-local, CGNAT,
-multicast, reserved, NAT64, 6to4, local hostnames such as `localhost` and
-`*.local`) are blocked even under `*`: direct requests resolve the host and
-dial the validated IP; requests with `proxy_url` check the hostname and IP
-literals only, because the proxy resolves the target.
+`status` number, `headers` table with lowercased keys (repeated headers join
+with `, `), `body` string capped at 32 MiB (a longer body is cut, not
+failed). Failure returns `(nil, fault)` where `fault` follows the error
+contract plus transport fields below. A call that fails validation raises a
+Lua error instead of returning a fault: a missing `url`, a scheme other than
+`http`/`https`, a host outside `@allow_host`, a blocked custom `Host` header,
+a non-string `body` and a rejected `proxy_url`. Redirects recheck allow-list,
+maximum 10 hops; a blocked hop returns a fault. Non-public destinations
+(loopback, private, link-local, CGNAT, multicast, reserved, NAT64, 6to4,
+`localhost`, and hostnames ending in `.localhost`, `.local`, `.internal`,
+`.lan`, `.home.arpa`) are blocked even under `*`: direct requests resolve the
+host and dial the validated IP; requests with `proxy_url` check the hostname
+and IP literals only, because the proxy resolves the target. Direct requests
+of provider types dial IPv4 only.
 
 `timeout_ms` bounds the whole exchange, including the response body: a stream
 running longer than `timeout_ms` ends with a transport fault. Streaming
@@ -1085,14 +1173,17 @@ Parameters:
 
 | Parameter | Description |
 |---|---|
-| `method`, `url`, `proxy_url`, `headers`, `body` | Same semantics as `request`. Exactly one of `on_line` or `on_chunk` is required. |
-| `on_line` | Function `function(line)` called per server-sent event line. Scanner buffer 64 KiB to 1 MiB. |
-| `on_chunk` | Function `function(bytes)` called per byte chunk. Buffer 32 KiB. Exclusive with `on_line`. |
-| `on_response` | Function `function(head)` where `head` is `{status, headers}` plus `body` on non-2xx. Non-nil table return aborts with that error. Non-table return raises. `nil` accepts the response. |
+| `method`, `url`, `proxy_url`, `headers`, `body` | Same semantics as `request`. At least one of `on_line` or `on_chunk` is required. |
+| `on_line` | Function `function(line)` called per line, without the line terminator. Scanner buffer 64 KiB to 1 MiB; a longer line ends the stream with a fault. |
+| `on_chunk` | Function `function(bytes)` called per byte chunk. Buffer 32 KiB. Takes precedence when `on_line` is also given. |
+| `on_response` | Function `function(head)` where `head` is `{status, headers}` plus `body` (up to 64 KiB) on non-2xx. Runs before any body streams. Non-nil table return aborts with that table as the error. Non-table return raises. `nil` accepts a 2xx response. |
 
-Return values: non-2xx without hook returns
-`(nil, {message="unexpected status N: <body up to 64 KiB>",
-code="server_error"})`. Success returns `(head, nil)`.
+Return values: a non-2xx response whose hook is absent or returns `nil`
+returns `(nil, {message="unexpected status N: <body up to 64 KiB>",
+code="server_error"})`. A callback that raises ends the stream with
+`(nil, {message="on_line failed: <cause>", code="server_error"})` (`on_chunk
+failed` for chunks). Success returns `(head, nil)` with `head` as
+`{status, headers}`.
 
 Example:
 
@@ -1175,7 +1266,7 @@ Parameters:
 | `fallback` | `"fail"` (default) or `"direct"`: behavior when no proxy is available. |
 
 Return values: table `{proxies={{id,url,country,pool},...}, timed_out,
-direct}`.
+direct}`; `country` is absent when unknown.
 
 | Outcome | Result |
 |---|---|
@@ -1189,9 +1280,11 @@ direct}`.
 | Custom pool without a matching entry, `fallback="fail"` | `nil, "no_match"`. |
 | Request cancelled | `nil, "canceled"`, with either `fallback`. |
 
-`direct=true` is the only signal that the plugin may connect without a proxy.
-A plugin that must never connect directly passes `fallback="fail"` and never
-receives it for a non-empty `pool`. The router makes no direct connection
+With `fallback="direct"` an empty `proxies` list means "connect directly"
+whatever `direct` says (`direct=true` only tells that no pool applies). With
+`fallback="fail"` an empty list comes only with `direct=true` (empty `pool`):
+a plugin that must never connect directly passes `fallback="fail"` and a
+non-empty `pool`, and gets proxies or `nil` with a code. The router makes no direct connection
 itself; the plugin connects directly by omitting `proxy_url`.
 
 Malformed options raise an error. So does an exhausted demand registry
@@ -1276,10 +1369,12 @@ fetch_proxies = function() return result end
 
 Parameters: none.
 
-Return values: array of rows in either shape below, or `nil` for no changes
-(304-style). Rows without an address are dropped; other schemes count as
-unsupported. The router verifies every candidate through the pool before
-serving it.
+Return values: array of rows in either shape below, or `nil`, which reads as
+an empty array: nothing new this fetch, earlier candidates stay in the pool. Rows without an address are dropped; other schemes and
+non-public hosts (private ranges, loopback, local hostnames) count as
+unsupported. A row built from `protocol`, `host` and `port` needs a non-empty
+`host` and a `port` above 0. The router verifies every candidate through the
+pool before serving it.
 
 Example:
 
@@ -1299,7 +1394,8 @@ end
 ## `credentials`
 
 Availability: installed only when the type serves credentials, that is when
-`credential_schema` exists or `auth_initiate` is declared.
+`credential_schema` exists or `auth_initiate` is declared. Elsewhere
+`llm_router.credentials` is `nil`.
 
 ### `list`
 
@@ -1317,7 +1413,8 @@ Parameters: none.
 
 Return values: array `[{id, label, data}]` filtered by the router-token allow-list
 (`label` is the dashboard name of the key: errors that blame one key name it);
-parked rows are skipped automatically, disabled and denied rows are skipped.
+parked rows are skipped automatically, expired, disabled and denied rows are
+skipped.
 An absent allow-list (admin probes, jobs, lifecycle hooks) means unrestricted.
 The router rejects a request before the plugin runs when the token rules
 leave no credential (`credential_not_allowed`), so a plugin never sees an
@@ -1364,14 +1461,16 @@ API signature:
 ```lua
 --- Update credential payload.
 -- @param id string: credential identifier.
--- @param data table: new payload.
+-- @param data table: new payload, replaces the stored one.
 -- @return boolean: true on success, raises otherwise. Job contexts only.
 llm_router.credentials.update(id, { key = "next" })
 ```
 
-Parameters: `id` string, `data` table.
+Parameters: `id` string, `data` table. The table replaces the whole stored
+payload (no merge, so pass every field) and clears the credential expiry.
 
-Return values: `true` on success. Request paths calling it fail loudly.
+Return values: `true` on success; an unknown `id` raises. Request paths,
+lifecycle hooks and every other non-job context calling it fail loudly.
 
 Example:
 
@@ -1406,8 +1505,9 @@ Parameters: `id` string, `reason` optional string.
 Return values: `true` on success. Both serve request and job contexts but
 require the provider `disable_failed_credentials` switch, failing loudly
 without it so plugins fall back to parking. `disable` sets the shared flag
-(first-wins against other causes). `enable` clears plugin-caused disables
-only.
+(first-wins against other causes; an empty `reason` becomes `disabled by
+plugin`, reasons cap at 1024 bytes). `enable` clears plugin-caused disables
+only. An unknown `id` raises. Lifecycle hooks have neither function.
 
 Example:
 
@@ -1440,12 +1540,15 @@ llm_router.credentials.unpark(id)
 local state = llm_router.credentials.parked(id)
 ```
 
-Parameters: `id` string, `ttl` number seconds, `reason` optional string.
+Parameters: `id` string, `ttl` number seconds (greater than 0, at most 90
+days), `reason` optional string.
 
-Return values: `park` and `unpark` return `true`. `parked` returns `nil` for
-a live credential or `{reason, until}` for a parked one. Misuse (non-numeric
-time to live, non-string reason) raises a Lua error. Both serve request and
-job contexts with no switch.
+Return values: `park` and `unpark` return `true`; `unpark` of a live
+credential succeeds. `parked` returns `nil` for a live credential or
+`{reason, until}` for a parked one. Misuse (non-numeric time to live, one
+outside the bounds, non-string reason, unknown `id` on `park`) raises a Lua
+error. All three serve request and job contexts with no switch; lifecycle
+hooks only read (`parked`).
 
 Guidance: park (router-owned entry with time to live, invisible,
 self-healing) is for transient states: rate limits, quota windows. Disable
@@ -1499,17 +1602,18 @@ Parameters:
 
 | Parameter | Description |
 |---|---|
-| `scope` | Non-empty namespace string. |
-| `key` | Non-empty key string. |
-| `value` | Any JSON-compatible Lua value. |
-| `ttl` | Seconds as number. `0` means durable database. Greater than `0` means cache database with expiry. Negative fails. Greater than 90 days fails. |
+| `scope` | Non-empty namespace string (not blank). |
+| `key` | Non-empty key string (not blank). |
+| `value` | Any JSON-compatible Lua value: tables with string keys or a gap-free array part. Functions, mixed tables and sparse arrays raise. |
+| `ttl` | Seconds as number, fractions allowed. Absent or `0` means durable database. Greater than `0` means cache database with expiry. Negative fails. Greater than 90 days fails. Non-number raises. |
 
 Return values: `set` and `delete` return `true`. `get` returns stored value
 or `nil`. Reads check durable storage first, then cache with expiry check.
-`set` migrates rows between files when time-to-live class changes. Bare rows
-written before contract 0.7.0 serve without expiry. Entries with a time to
-live live in the disposable cache file: deleting it while the router is
-stopped drops them. Durable entries stay in the database file.
+`set` migrates rows between files when time-to-live class changes. The store
+is per plugin file: every type key of one plugin shares it, other plugins
+never see it. Entries with a time to live live in the disposable cache file:
+deleting it while the router is stopped drops them. Durable entries stay in
+the database file. Every failure raises a Lua error.
 
 Example:
 
@@ -1532,7 +1636,7 @@ API signature:
 ```lua
 --- Write structured log.
 -- @param severity string: debug, info, warn, warning alias, error, fatal, critical alias to fatal.
--- @param message any: required message, tables encode as JSON, truncated to 2048 characters.
+-- @param message any: required message, tables encode as JSON, truncated to 2048 bytes.
 -- @param keys table|nil: optional string keys to string, number, boolean, or JSON-encoded table. Maximum 32 keys. Reserved plugin and type rejected.
 llm_router.log("warn", "rate limited", { code = "rate_limit", cred_id = id })
 ```
@@ -1542,8 +1646,8 @@ Parameters:
 | Parameter | Description |
 |---|---|
 | `severity` | `debug`, `info`, `warn`, `error`, `fatal`. `warning` aliases `warn`. `critical` aliases `fatal`. |
-| `message` | Required message. Tables encode as JSON. Truncated to 2048 characters. |
-| `keys` | Optional table. Maximum 32 entries. Values truncate at 2048 characters. Reserved `plugin` and `type` rejected. |
+| `message` | Required message (a missing or `nil` message raises). Tables encode as JSON. Truncated to 2048 bytes. |
+| `keys` | Optional table. Maximum 32 entries. Values truncate at 2048 bytes; `nil` values are skipped. Reserved `plugin` and `type` rejected. |
 
 Return values: none. Entries below configured `LOG_LEVEL` never persist. The
 router attaches `plugin` (record identifier) and `type` (type key) itself.
@@ -1738,7 +1842,13 @@ local value = json.decode(text)
 
 Parameters: value or text.
 
-Return values: encoded text or decoded Lua value.
+Return values: encoded text or decoded Lua value. `encode` maps a table with
+only consecutive integer keys from 1 to an array and any other table to an
+object; an empty table encodes as `{}`. Functions, userdata, mixed tables,
+sparse arrays and non-string object keys raise. Invalid JSON raises in
+`decode`. Handler results normalize an empty `{}` to `[]` for the array fields
+`choices`, `tool_calls`, `data`, `results`, `segments`, `words` and
+`unsigned_urls`.
 
 ## Schemas UI nodes locales static metadata
 
@@ -1783,7 +1893,7 @@ API signature:
 
 ```lua
 --- UI tree.
--- @param nodes table: array table, maximum 200 nodes, depth maximum 8.
+-- @param nodes table: array table, maximum 200 nodes per array, nesting depth maximum 8.
 local tree = { { type = "secret", name = "api_key", label = "API Key" } }
 ```
 
@@ -1791,13 +1901,14 @@ Parameters:
 
 | Kind | Rules |
 |---|---|
+| all kinds | `type` required. Shared optional fields: `text`, `name`, `label`, `placeholder`, `required` (boolean), `value`, `title`, `subtitle`. A non-string text field reads as empty. `columns` needs a number, `wrap` and `grow` booleans, `option_labels` a table with non-empty string keys and values, `options` and `content` arrays; a wrong type fails install. |
 | `input`, `select`, `checkbox`, `secret` | Require `name`. `input.input_type` is `text`, `password`, `number`, or `secret`. `select.options` is a string array, `option_labels` keys must be a subset of `options`. |
 | `link` | Requires `url` with `http`, `https`, `mailto`, or relative form. Rejects `javascript:` and `data:`. |
 | `button` | `form_action` defaults to `submit`. Variant is `primary`, `secondary`, or `danger`. Buttons render in host footer. |
 | `banner` | Variant is `info`, `error`, or `success`. |
 | `code` | Requires `text`. |
-| `group`, `flow`, `grid`, `section` | Require non-empty `content`. `flow.direction` is `horizontal` or `vertical`, default `vertical`. `gap` is step 0 to 8 or `sm`, `md`, `lg`, default `md`. `align` is `start`, `center`, `end`, or `stretch`. `justify` is `start`, `center`, `end`, `between`, `around`, or `evenly`. `grid.columns` range 1 to 6. `section.title` required, maximum 120 characters, `subtitle` maximum 240 characters. |
-| `spacer`, `divider` | No content. `spacer.size` is step value, `grow` defaults to true. |
+| `group`, `flow`, `grid`, `section` | Require non-empty `content`. `flow.direction` is `horizontal` or `vertical`, default `vertical`. `flow` and `grid` `gap` is a whole step 0 to 8 or `sm`, `md`, `lg` (steps 2, 4, 6), default `md`. `flow.align` is `start`, `center`, `end`, or `stretch`, default `stretch`. `flow.justify` is `start`, `center`, `end`, `between`, `around`, or `evenly`, default `start`. `flow.wrap` defaults to true. `grid.columns` required, range 1 to 6. `section.title` required, maximum 120 bytes, `subtitle` maximum 240 bytes. |
+| `spacer`, `divider` | No content. `spacer.size` is a step value (whole 0 to 8 or `sm`, `md`, `lg`), `grow` defaults to true. |
 
 Return values: validated node array served through `Schema` plus
 `ResolveUINodes` per locale.
@@ -1822,16 +1933,16 @@ API signature:
 
 ```lua
 --- Locales table.
--- @param locales table: {en={key=text}, ru={key=text}}. Maximum 1000 entries per locale. Key maximum 128 characters. Value maximum 1000 characters.
+-- @param locales table: {en={key=text}, ru={key=text}}. Maximum 1000 entries per locale. Key maximum 128 bytes. Value maximum 1000 bytes.
 locales = {
   en = { ["API Key"] = "API Key" },
   ru = { ["API Key"] = "API Key RU" },
 }
 ```
 
-Parameters: locale codes `en` and `ru` only. Entry keys 1 to 128 characters,
-values 1 to 1000 characters, maximum 1000 entries per locale. Values must be
-non-empty strings.
+Parameters: locale codes `en` and `ru` only (case-insensitive). Entry keys 1
+to 128 bytes, values 1 to 1000 bytes, maximum 1000 entries per locale. Keys
+and values must be non-blank strings.
 
 Return behavior: widget fields (`text`, `label`, `placeholder`, `title`,
 `subtitle`, `option_labels` values, including nested `content`) match by exact
@@ -1880,12 +1991,14 @@ model_specs = {
 }
 ```
 
-Parameters: map keys select model identifiers. Every field merges over the
-`get_model_infos` row except the identifier.
+Parameters: map keys select model names. Every model card field listed under
+`get_model_infos` except `name` merges over the `get_model_infos` row.
 
-Return behavior: fields absent from the specification pass through; entries
-for undiscovered identifiers are ignored (specifications never resurrect
-removed models). Unknown fields and mistyped values fail install.
+Return behavior: only non-zero, non-empty specification fields replace the
+row (a specification cannot reset a field to `0` or empty); fields absent from
+the specification pass through. Entries for undiscovered names are ignored
+(specifications never resurrect removed models). Unknown fields, `name`
+inside an entry, and mistyped values fail install.
 
 ### `healthcheck_cooldown`
 
@@ -1905,9 +2018,11 @@ Return behavior: mistyped and out-of-range values fail install. Absent means
 
 ## Sandbox limits
 
-High-level description: one Lua state per call, taken from a per-plugin pool
-and rebound. Module-level globals a plugin creates survive into later calls
-of the same plugin; per-call state belongs in locals or `storage`.
+High-level description: one Lua state per call, taken from a pool per plugin
+and type key (`LUA_POOL_BUCKET_SIZE` idle states each, default 16) and rebound; the plugin source
+loads again in it on every call. Module-level globals a plugin creates
+survive into later calls of the same type; per-call state belongs in locals
+or `storage`.
 
 API surface:
 
@@ -1919,13 +2034,16 @@ API surface:
 Parameters: none.
 
 Limits: no `io`, `debug`, `package`, `coroutine`, `require`, `load`,
-`dofile`, `print` (shims `llm_router.log` at info severity). Response bodies
-cap at 32 MiB; stream error bodies at 64 KiB; redirects cap at 10 hops
+`loadstring`, `dofile`, `loadfile`, `unpack`, `rawlen`, `collectgarbage`;
+`print` is the shim that logs at info severity. Plugin file 1 MiB. Response
+bodies cap at 32 MiB; stream error bodies at 64 KiB; redirects cap at 10 hops
 validated against `@allow_host`; private and link-local dial targets are
 blocked even under wildcard hosts. `on_chunk` buffer 32 KiB. `on_line`
 scanner 64 KiB to 1 MiB. `multipart` 1 to 64 parts. `random_hex` 1 to 1024
-bytes. Log values cap at 2048 characters and 32 keys. UI trees cap at depth 8
-and 200 nodes. Locales cap at 1000 entries. Jobs cap at 8 per type.
+bytes. Log values cap at 2048 bytes and 32 keys. UI trees cap at depth 8 and
+200 nodes per array. Locales cap at 1000 entries per locale. Jobs cap at 8
+per type. Storage `ttl` caps at 90 days. `http_client` `timeout_ms` clamps to
+1000 to 900000.
 
 ## Worked example
 

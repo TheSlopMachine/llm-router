@@ -38,7 +38,7 @@ func (f *fakeLua) HealthCooldown(typeKey string) time.Duration {
 	return luaplugin.DefaultHealthCooldown
 }
 
-func (f *fakeLua) CheckHealth(ctx context.Context, typeKey string, credential *models.Credential) (luaplugin.HealthStatus, string, error) {
+func (f *fakeLua) CheckHealth(ctx context.Context, typeKey string, credential *models.Credential, _ map[string]any) (luaplugin.HealthStatus, string, error) {
 	f.calls.Add(1)
 	if f.releaseChannel != nil {
 		select {

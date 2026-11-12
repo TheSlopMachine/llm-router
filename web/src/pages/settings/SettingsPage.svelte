@@ -66,7 +66,7 @@
     passwordSaving = true
     try {
       await api.admin.changePassword(currentPassword, newPassword)
-      toast.success(t('settings.password.success'))
+      // the cleared fields are the confirmation
       currentPassword = ''
       newPassword = ''
       confirmPassword = ''

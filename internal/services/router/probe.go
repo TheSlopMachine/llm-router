@@ -65,7 +65,7 @@ func (s *Service) TestCredential(ctx context.Context, providerID, credentialID s
 	start := time.Now()
 	checkCtx, cancel := context.WithTimeout(ctx, healthcheck.CheckTimeout)
 	defer cancel()
-	status, message, healthError := luaService.CheckHealth(checkCtx, resolved.Instance.TypeKey, credential)
+	status, message, healthError := luaService.CheckHealth(checkCtx, resolved.Instance.TypeKey, credential, resolved.Instance.Config)
 	latency := time.Since(start).Milliseconds()
 	if healthError != nil {
 		s.debug("Probing credential health check fails",

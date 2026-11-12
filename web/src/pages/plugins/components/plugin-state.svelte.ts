@@ -1,7 +1,7 @@
 import { api } from '$lib/api'
 import { toast } from '@fuckyouryan/fui'
 import { getErrorMessage } from '$lib/errors'
-import { t } from '$lib/i18n.svelte'
+import { t, tx } from '$lib/i18n.svelte'
 import type { Plugin, PluginUpdate, StoreFile } from '$lib/types'
 
 export interface PluginCardAction {
@@ -40,7 +40,6 @@ export function createPluginState(options: {
     togglingIds = [...togglingIds, plugin.id]
     try {
       const rec = await api.plugins.update(plugin.id, { disabled: !enabled })
-      toast.success(enabled ? `${rec.display_name} enabled` : `${rec.display_name} disabled`)
       options.onPluginSaved(rec)
     } catch (e) {
       options.onError(getErrorMessage(e))
@@ -103,7 +102,7 @@ export function createPluginState(options: {
     const latest = update?.latest || file?.version || plugin.version
     try {
       const rec = await api.plugins.installFromRepo(target.repo_id, target.path)
-      toast.success(`${plugin.display_name} updated to v${latest}`)
+      toast.success(tx('plugins.toast.updated', { name: plugin.display_name, version: latest }))
       options.onPluginSaved(rec)
       await options.onUpdatesRefresh?.()
     } catch (e) {
@@ -137,7 +136,7 @@ export function createPluginState(options: {
       }
       await options.onUpdatesRefresh?.()
       if (failures.length === 0) {
-        toast.success(`${succeeded} plugins updated`)
+        toast.success(tx('plugins.toast.updated_many', { count: succeeded }))
       } else {
         options.onError(failures.join('\n'))
       }
@@ -176,9 +175,9 @@ export function createPluginState(options: {
         const text = await file.text()
         const rec = await api.plugins.installFile(text)
         if (rec.id !== plugin.id) {
-          toast.success(`${rec.display_name} v${rec.version} installed as a separate plugin`)
+          toast.success(tx('plugins.toast.installed_separately', { name: rec.display_name, version: rec.version }))
         } else {
-          toast.success(`${rec.display_name} updated to v${rec.version}`)
+          toast.success(tx('plugins.toast.updated', { name: rec.display_name, version: rec.version }))
         }
         options.onPluginSaved(rec)
       } catch (e) {

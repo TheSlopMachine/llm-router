@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Button, Scaffold, Sidebar, Text, type IconName } from '@fuckyouryan/fui'
+  import { surfaceLevel } from '$lib/surface.svelte'
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
   import Metrics from './metrics/Metrics.svelte'
@@ -140,7 +141,7 @@
 
 <div class="layout">
 <!-- the shell two levels below FUI's default: sidebar -2, content column -1, cards 0 -->
-<Scaffold level={-2} bind:collapsed={getCollapsed, setCollapsed}>
+<Scaffold level={surfaceLevel.value} bind:collapsed={getCollapsed, setCollapsed}>
   {#snippet sidebar()}
     <Sidebar>
       {#snippet header()}<Text class="brand" weight="bold" size="sm" text="llm-router" />{/snippet}

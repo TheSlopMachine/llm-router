@@ -74,7 +74,9 @@ func (s *Service) HealthCooldown(typeKey string) time.Duration {
 // type never health-checks). Invalid verdict shapes become
 // PluginInternalError and change nothing: only an explicit "unhealthy"
 // may disable.
-func (s *Service) CheckHealth(goCtx context.Context, typeKey string, credential *models.Credential) (HealthStatus, string, error) {
+// providerConfig rides ctx.provider_config like every other handler's, so a
+// health probe goes through the provider's selected proxy pool.
+func (s *Service) CheckHealth(goCtx context.Context, typeKey string, credential *models.Credential, providerConfig map[string]any) (HealthStatus, string, error) {
 	record, err := s.Lookup(typeKey)
 	if err != nil {
 		s.logLookupFailed(typeKey, string(HandlerCheckHealth), err)
@@ -83,7 +85,7 @@ func (s *Service) CheckHealth(goCtx context.Context, typeKey string, credential 
 	var status HealthStatus
 	var message string
 	found, err := s.handlerCall(goCtx, record, typeKey, string(HandlerCheckHealth), func(L *lua.LState) {
-		L.Push(ctxTable(L, "", nil))
+		L.Push(ctxTable(L, "", providerConfig))
 		L.Push(credentialTable(L, credential))
 	}, 1, func(L *lua.LState) error {
 		table, ok := L.Get(-1).(*lua.LTable)

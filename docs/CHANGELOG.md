@@ -1,5 +1,18 @@
 # Changelog
 
+## Done (2026-11-12, v0.11)
+
+- **Provider models: selection and bulk actions** — every row got a checkbox; the first pick opened a bar pinned to the bottom of the list (count, select all / none, enable, disable, test) that closed only by its close button.
+- **Provider models: status, filters, sorting** — a status column kept each model's last check (latency or failure reason, and when) in the browser; modality and capability filter chips, counts on the all/enabled/disabled filter, the search field right over the table; columns sorted instead of rows dragged (the drag order was never saved); context and output limits on one line.
+- **One report per model check** — a single model, the picked models or all of them each ended in one localized toast with the totals (and how many were disabled), instead of one English toast per model.
+- **Fewer toasts** — plugin enable/disable, provider enable/disable, successful key unpark, provider settings save, proxy check limit save and password change no longer toasted; plugin update toasts were localized.
+- **Naming a key on add** — the add-credential dialog took a name; device-login flows named the new key right after login. Schema sections drew as a heading with their links as buttons, not as a card inside the dialog.
+- **No discovery without a key** — a plugin that declares a credential schema was not called while its provider had no credential; the model list stayed empty ("No models"), a list cached earlier included.
+- **Health checks through the proxy pool** — `check_health` got the provider config in `ctx`, so key checks use the provider's selected pool; before, they always went direct.
+- **Provider virtual models start disabled** — new provider-wide fall-through models are created off; enabling them is the admin's call.
+- **Background brightness** — Settings gained darker / normal / lighter surfaces (default normal, one step lighter than before).
+- Virtual model editor listed models as `provider/model` and grouped modality, capability and limit chips; section headings showed counts on the title line; plugin docs were synced with the code.
+
 ## Done (2026-11-12, v0.10.1)
 
 - **Input modality gate** — chat requests carrying image (`image_url`) or audio (`input_audio`) parts answered 400 before the plugin ran when the model card lists input modalities without that one, as file parts already did; before, the request reached the upstream and came back with its own unclear error.

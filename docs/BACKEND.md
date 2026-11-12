@@ -115,8 +115,8 @@ Keep changes shallow. Touch service internals only when the task requires it.
   invalidates), rebind of per-call globals, source load, handler lookup
   (including `jobs.<name>.run` for `job:<name>` invocations), `PCall`,
   terminal-error decode. Lua error tables matching
-  `{message, code?, param?, status?}` become `ProviderError`; everything
-  else becomes `PluginInternalError` with crash accounting.
+  `{message, code?, param?, status?, headers?}` become `ProviderError`;
+  everything else becomes `PluginInternalError` with crash accounting.
 - Failure-triggered health verification runs detached: attempts carrying a
   credential identity mark it suspect, the healthcheck service bounds check
   frequency by cooldown and disables only on an explicit unhealthy verdict
@@ -124,7 +124,8 @@ Keep changes shallow. Touch service internals only when the task requires it.
   verdict without touching the credential. Traffic paths carry no credential
   identity and never trigger.
 - Request handlers run `(ctx, request)` (`complete_stream` adds `emit`).
-  `check_health` keeps `(ctx, credential)`; `check_model` takes
+  `check_health` keeps `(ctx, credential)` with the credential's
+  `provider_config` inside; `check_model` takes
   `(ctx, model_ref)` with `provider_config` inside; `validate_credentials`
   keeps `(data)`; `get_model_infos` takes `(ctx)` with `provider_config` inside.
 - Dashboard model test (`POST /dashboard/models/test`) delegates to
@@ -137,12 +138,14 @@ Keep changes shallow. Touch service internals only when the task requires it.
   and persist in the record; `Service.Schema` serves them without invoking
   Lua. Presence drives capability: credentials iff `credential_schema` or
   `auth_initiate` exists, proxies iff `proxy_schema` exists.
-- Colocated jobs validate at install (`parseJobSpecs`: name pattern,
-  `interval_seconds` 60..86400, `timeout_ms`, required `run`) and run via
-  `Service.RunJob` with `run_reason` tick/startup/manual. Overlap skips;
-  `credentials.update` exists in job sandboxes only.
+- Colocated jobs validate at install (`parseJobSpecifications`: name pattern,
+  `interval_seconds` 60..86400, `timeout_ms` clamped to 1000..900000,
+  required `run`) and run via `Service.RunJob` with `run_reason`
+  tick/startup/manual. Overlap skips; `credentials.update` works in job
+  contexts only (elsewhere it raises).
 - Proxy source keys qualify per plugin (`<recordID>/<name>`). The Lua feed
-  bridge accepts unauthenticated HTTP entries into the free pool. The
+  bridge accepts http, https, socks4 and socks5 entries on public hosts
+  (optional `user[:pass]@` credentials) into the free pool. The
   external proxypool library owns candidate ingestion, health checks,
   scoring and cache lifecycle. `proxypool.Service` owns the read-only
   `Query`, `Require` (demand-driven acquisition: waits on the free pool, never

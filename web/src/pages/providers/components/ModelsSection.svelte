@@ -1,8 +1,11 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import ModelsTable from '../../../components/domain/ModelsTable.svelte'
-  import { squircle, toast, FloatingView, Table, CopyButton, Button, Spacer, HStack, VStack, Text, Toggle, Picker, SearchField, Toolbar, ToolbarItem, TextField, Banner, ConfirmAction, ContentUnavailable, type IconName } from '@fuckyouryan/fui'
-  import { t, tb } from '$lib/i18n.svelte'
+  import { squircle, toast, FloatingView, Table, CopyButton, Button, Spacer, HStack, VStack, Text, Toggle, Checkbox, Picker, SearchField, Toolbar, ToolbarItem, TextField, Banner, ConfirmAction, ContentUnavailable, type IconName } from '@fuckyouryan/fui'
+  import { RelativeTime, Chip } from '@fuckyouryan/fui'
+  import { modalityIcon, modalityTint } from '$lib/modalities'
+  import type { TranslationKey } from '$lib/i18n.svelte'
+  import { t, tb, tx, locale } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { CAPABILITY_META, hasModalities } from '$lib/capabilities'
   import { filterByFields } from '$lib/filter'
@@ -28,6 +31,7 @@
     void credRevision
     if (!providerId) return
     untrack(() => {
+      loadChecks()
       void reloadModels()
     })
   })
@@ -47,22 +51,87 @@
   let importing = $state(false)
   let modelFilter = $state<'all' | 'enabled' | 'disabled'>(loadFilter())
 
+  // Last check per model, kept in this browser so the status column survives
+  // reloads: the result and when it came.
+  type CheckRecord = { result: TestResult; at: string }
   let modelTestResults = $state<Record<string, TestResult | 'loading'>>({})
+  let lastChecks = $state<Record<string, CheckRecord>>({})
+
+  function checksKey(): string {
+    return `llm-router:model-checks:${providerId}`
+  }
+
+  function loadChecks(): void {
+    try {
+      const raw = localStorage.getItem(checksKey())
+      lastChecks = raw ? (JSON.parse(raw) as Record<string, CheckRecord>) : {}
+    } catch {
+      lastChecks = {}
+    }
+  }
+
+  function rememberCheck(name: string, result: TestResult): void {
+    lastChecks = { ...lastChecks, [name]: { result, at: new Date().toISOString() } }
+    try {
+      localStorage.setItem(checksKey(), JSON.stringify(lastChecks))
+    } catch {
+      // storage full or blocked: the status still shows for this session
+    }
+  }
 
   let testingAll = $state(false)
 
   // Writable deriveds: the toggle writes override locally until the provider
   // prop changes, then the saved config wins again.
   let disableFailedModels = $derived(provider?.config?.disable_failed_models === true)
-
   let autoSyncModels = $derived(provider?.config?.models_auto_sync === true)
 
-  const resultTimers = new Map<string, ReturnType<typeof setTimeout>>()
-
-  function flashTimer(key: string, clear: () => void): void {
-    clearTimeout(resultTimers.get(key))
-    resultTimers.set(key, setTimeout(clear, 3000))
+  async function saveAutomation(): Promise<void> {
+    if (!provider) return
+    error = ''
+    try {
+      // Patch only the two automation fields on top of the saved config.
+      await api.providers.updateInstance(provider.id, {
+        name: provider.name,
+        config: {
+          ...(provider.config ?? {}),
+          disable_failed_models: disableFailedModels,
+          models_auto_sync: autoSyncModels,
+        },
+      })
+      const providers = await api.providers.list()
+      provider = (providers as Provider[]).find((p) => p.id === providerId) ?? provider
+    } catch (e) {
+      error = getErrorMessage(e)
+    }
   }
+
+  // Filters: modalities (keys "mod:<name>", input or output; text is
+  // everywhere, so it is not offered) and capabilities. Only what some model
+  // has is offered; a model must match every picked filter.
+  const MODALITY_ORDER = ['image', 'audio', 'video', 'file', 'speech', 'transcription', 'embedding']
+  let capFilter = $state<string[]>([])
+
+  function hasFeature(m: ProviderModel, key: string): boolean {
+    if (key.startsWith('mod:')) {
+      const modality = key.slice(4)
+      return (m.input_modalities ?? []).includes(modality) || (m.output_modalities ?? []).includes(modality)
+    }
+    return (m.capabilities ?? []).includes(key)
+  }
+
+  const modalityOptions = $derived(MODALITY_ORDER.filter((mod) => models.some((m) => hasFeature(m, 'mod:' + mod))))
+  const capabilityOptions = $derived(Object.keys(CAPABILITY_META).filter((cap) => models.some((m) => hasFeature(m, cap))))
+
+  function toggleFeature(key: string): void {
+    capFilter = capFilter.includes(key) ? capFilter.filter((k) => k !== key) : [...capFilter, key]
+  }
+
+  const filterCounts = $derived({
+    all: models.length,
+    enabled: models.filter((m) => !m.disabled).length,
+    disabled: models.filter((m) => m.disabled).length,
+  })
 
   let customId = $state('')
 
@@ -76,6 +145,7 @@
     let list = models
     if (modelFilter === 'enabled') list = list.filter((m) => !m.disabled)
     if (modelFilter === 'disabled') list = list.filter((m) => m.disabled)
+    if (capFilter.length > 0) list = list.filter((m) => capFilter.every((key) => hasFeature(m, key)))
     return filterByFields(list, modelSearch, (m) => [m.name, m.display_name])
   })
 
@@ -212,12 +282,19 @@
     return [...new Set([...(a ?? []), ...b])]
   }
 
-  function probeToast(m: ProviderModel, result: TestResult): void {
-    if (result.ok) {
-      toast.success(`${m.name} works · ${result.latency_ms}ms`)
-      return
-    }
-    toast.error(`${m.name} failed: ${result.summary ? tb(result.summary) : t('credentials.probe_failed')}`)
+  function failureReason(result: TestResult): string {
+    return result.summary ? tb(result.summary) : t('credentials.probe_failed')
+  }
+
+  // One toast per check: a single model, the picked models or all of them.
+  function reportCheck(tested: number, failed: number, disabled: number): void {
+    if (tested === 0) return
+    let text = failed === 0
+      ? tx('models.test.batch_ok', { count: tested })
+      : tx('models.test.batch_failed', { count: tested, ok: tested - failed, failed })
+    if (disabled > 0) text += ' ' + tx('models.test.disabled', { count: disabled })
+    if (failed === 0) toast.success(text)
+    else toast.error(text)
   }
 
   function isFailingModel(result: TestResult): boolean {
@@ -250,70 +327,119 @@
     } catch (e) {
       result = { ok: false, latency_ms: 0, error: getErrorMessage(e) }
     }
-    modelTestResults = { ...modelTestResults, [m.name]: result }
+    const next = { ...modelTestResults }
+    delete next[m.name]
+    modelTestResults = next
+    rememberCheck(m.name, result)
     return result
   }
 
   async function testModel(m: ProviderModel): Promise<TestResult> {
     const result = await probeModel(m)
-    probeToast(m, result)
+    let disabled = false
     if (!result.ok) {
       // Disable only on model failures. Credential, provider, and transport
       // errors never disable a model.
       if (disableFailedModels && isFailingModel(result)) {
         await api.models.setOverride(providerId, m.name, { disabled: true })
+        disabled = true
         await reloadModels()
       }
     }
-    flashTimer('model:' + m.name, () => {
-      const next = { ...modelTestResults }
-      delete next[m.name]
-      modelTestResults = next
-    })
+    if (result.ok) {
+      toast.success(tx('models.test.ok', { name: m.name, ms: result.latency_ms }))
+    } else {
+      let text = tx('models.test.failed', { name: m.name, reason: failureReason(result) })
+      if (disabled) text += ' ' + tx('models.test.disabled', { count: 1 })
+      toast.error(text)
+    }
     return result
   }
 
   let testAllCancel = $state(false)
 
-  async function testAllModels(): Promise<void> {
+  // Selection: a checkbox per row; picking any row brings up the bulk action bar.
+  let selected = $state<string[]>([])
+  let bulkBusy = $state(false)
+  const visibleNames = $derived(filteredModels.map((m) => m.name))
+  const allVisibleSelected = $derived(visibleNames.length > 0 && visibleNames.every((n) => selected.includes(n)))
+
+  // The bar opens with the first pick and closes only by its close button.
+  let bulkOpen = $state(false)
+
+  function setSelected(name: string, on: boolean): void {
+    selected = on ? [...new Set([...selected, name])] : selected.filter((n) => n !== name)
+    if (on) bulkOpen = true
+  }
+
+  function toggleSelectAll(): void {
+    selected = allVisibleSelected
+      ? selected.filter((n) => !visibleNames.includes(n))
+      : [...new Set([...selected, ...visibleNames])]
+  }
+
+  function clearSelection(): void {
+    selected = []
+    bulkOpen = false
+  }
+
+  async function setSelectedDisabled(disabled: boolean): Promise<void> {
+    if (bulkBusy || selected.length === 0) return
+    bulkBusy = true
+    modelsError = ''
+    try {
+      for (const name of selected) await api.models.setOverride(providerId, name, { disabled })
+      await reloadModels()
+    } catch (e) {
+      modelsError = getErrorMessage(e)
+    } finally {
+      bulkBusy = false
+    }
+  }
+
+  function testSelected(): void {
+    // An explicit pick: disabled and media models are probed too, like a single test.
+    void testAllModels(models.filter((m) => selected.includes(m.name)))
+  }
+
+  async function testAllModels(only?: ProviderModel[]): Promise<void> {
     if (testingAll) {
       testAllCancel = true
       return
     }
     testingAll = true
     testAllCancel = false
-    for (const key of [...resultTimers.keys()]) {
-      if (key.startsWith('model:')) {
-        clearTimeout(resultTimers.get(key))
-        resultTimers.delete(key)
-      }
-    }
     try {
       const failed: ProviderModel[] = []
-      for (const m of models) {
+      let tested = 0
+      let failedCount = 0
+      for (const m of only ?? models) {
         if (testAllCancel) break
-        if (m.disabled) continue
-        // Test all skips priced media generations: each video job bills on
-        // render, each image bills per image. Single model tests probe them.
-        const endpoint = probeEndpoint(m)
-        if (endpoint === 'video' || endpoint === 'image') continue
+        if (!only) {
+          if (m.disabled) continue
+          // Test all skips priced media generations: each video job bills on
+          // render, each image bills per image. Single model tests probe them.
+          const endpoint = probeEndpoint(m)
+          if (endpoint === 'video' || endpoint === 'image') continue
+        }
         const result = await probeModel(m)
-        probeToast(m, result)
+        tested++
         if (!result.ok) {
+          failedCount++
           // Disable only on model failures. Credential, provider, and transport
           // errors never disable a model.
           if (isFailingModel(result)) failed.push(m)
         }
       }
+      let disabledCount = 0
       if (!testAllCancel && disableFailedModels) {
         for (const m of failed) {
           await api.models.setOverride(providerId, m.name, { disabled: true })
         }
-        if (failed.length > 0) {
-          toast.success(`${failed.length} failing model${failed.length === 1 ? '' : 's'} disabled`)
-          await reloadModels()
-        }
+        disabledCount = failed.length
+        if (failed.length > 0) await reloadModels()
       }
+      reportCheck(tested, failedCount, disabledCount)
     } finally {
       testingAll = false
       testAllCancel = false
@@ -377,27 +503,6 @@
     return { icon: 'error', title: result.error ?? t('common.state.failed') }
   }
 
-  async function saveAutomation(): Promise<void> {
-    if (!provider) return
-    error = ''
-    try {
-      // Patch only the two automation fields on top of whatever config the
-      // server currently has -- Proxy settings live in ProxySection now, so
-      // this must not try to reconstruct or clobber the proxy portion.
-      await api.providers.updateInstance(provider.id, {
-        name: provider.name,
-        config: {
-          ...(provider.config ?? {}),
-          disable_failed_models: disableFailedModels,
-          models_auto_sync: autoSyncModels,
-        },
-      })
-      const providers = await api.providers.list()
-      provider = (providers as Provider[]).find((p) => p.id === providerId) ?? provider
-    } catch (e) {
-      error = getErrorMessage(e)
-    }
-  }
 </script>
 
   {#if discoveryFailed && !modelsLoading}
@@ -407,15 +512,12 @@
     <Text variant="section-title">{t('models.list.available')}</Text>
 
     <Toolbar overflow="wrap" gap={3}>
-      <ToolbarItem pinned fill="md">
-        <SearchField bind:value={modelSearch} placeholder={t('models.filter.placeholder')} />
-      </ToolbarItem>
       <Picker pickerStyle="segmented"
         bind:value={modelFilter}
         options={[
-          { value: 'all', label: t('common.actions.all') },
-          { value: 'enabled', label: t('common.labels.enabled') },
-          { value: 'disabled', label: t('common.labels.disabled') },
+          { value: 'all', label: `${t('common.actions.all')} ${filterCounts.all}` },
+          { value: 'enabled', label: `${t('common.labels.enabled')} ${filterCounts.enabled}` },
+          { value: 'disabled', label: `${t('common.labels.disabled')} ${filterCounts.disabled}` },
         ]}
         ariaLabel={t('models.filter.visibility')}
         onchange={(v) => void saveModelsFilter(v as typeof modelFilter)}
@@ -432,7 +534,7 @@
         <Button
           icon={{ name: testingAll ? 'stop' : 'network_check' }}
           text={testingAll ? t('credentials.testing_click_cancel') : t('credentials.test_all')}
-          onclick={testAllModels}
+          onclick={() => void testAllModels()}
         />
       </ToolbarItem>
     </Toolbar>
@@ -442,20 +544,90 @@
       <Toggle
         checked={disableFailedModels}
         ariaLabel={t('providers.detail.disable_failing')}
-        onchange={(v) => { disableFailedModels = v; saveAutomation() }}
+        onchange={(v) => { disableFailedModels = v; void saveAutomation() }}
       />
       <Text>{t('providers.detail.auto_sync')}</Text>
       <Toggle
         checked={autoSyncModels}
         ariaLabel={t('providers.detail.auto_sync')}
-        onchange={(v) => { autoSyncModels = v; saveAutomation() }}
+        onchange={(v) => { autoSyncModels = v; void saveAutomation() }}
       />
     </div>
+
+    {#if modalityOptions.length > 0 || capabilityOptions.length > 0}
+      <!-- filters: a page block like the other sections; every chip wears its
+           modality/capability colour, the unpicked ones muted -->
+      <VStack gap={4} class="filter-section">
+        <Text variant="section-title">{t('models.filter.label')}</Text>
+        <div class="filter-grid">
+          {#if modalityOptions.length > 0}
+            <Text size="sm" foregroundStyle="secondary">{t('models.filter.modalities')}</Text>
+            <HStack gap={3} wrap valign="center">
+              {#each modalityOptions as mod (mod)}
+                <Chip
+                  icon={modalityIcon(mod)}
+                  text={t(`modality.${mod}` as TranslationKey)}
+                  tint={modalityTint(mod)}
+                  class={capFilter.includes('mod:' + mod) ? '' : 'chip-off'}
+                  onclick={() => toggleFeature('mod:' + mod)}
+                />
+              {/each}
+            </HStack>
+          {/if}
+          {#if capabilityOptions.length > 0}
+            <Text size="sm" foregroundStyle="secondary">{t('models.filter.capabilities')}</Text>
+            <HStack gap={3} wrap valign="center">
+              {#each capabilityOptions as cap (cap)}
+                {@const meta = CAPABILITY_META[cap]}
+                <Chip
+                  icon={meta.icon}
+                  text={t(meta.label)}
+                  title={t(meta.hint)}
+                  tint={meta.chipTint}
+                  class={capFilter.includes(cap) ? '' : 'chip-off'}
+                  onclick={() => toggleFeature(cap)}
+                />
+              {/each}
+            </HStack>
+          {/if}
+        </div>
+      </VStack>
+    {/if}
+
+    <!-- search sits right over the table it narrows -->
+    <SearchField bind:value={modelSearch} placeholder={t('models.filter.placeholder')} />
 
     {#if modelsError}
       <Banner tint="danger" text={modelsError} />
     {:else}
       {@render modelsTable()}
+      {#if bulkOpen}
+        <!-- bulk actions over the picked rows; stays in view while the list
+             scrolls and until its close button, whatever the selection holds -->
+        <div class="bulk-bar">
+          <HStack gap={2} wrap valign="center" pad={3} radius="lg" elev>
+            <span class="bulk-count"><Text size="sm" weight="medium">{t('models.bulk.count')}: {selected.length}</Text></span>
+            <Spacer />
+            <Button
+              size="sm"
+              icon={{ name: allVisibleSelected ? 'deselect' : 'select_all' }}
+              text={allVisibleSelected ? t('models.bulk.select_none') : t('common.actions.select_all')}
+              disabled={visibleNames.length === 0}
+              onclick={toggleSelectAll}
+            />
+            <Button size="sm" icon={{ name: 'toggle_on' }} text={t('models.bulk.enable')} disabled={bulkBusy || selected.length === 0} onclick={() => void setSelectedDisabled(false)} />
+            <Button size="sm" icon={{ name: 'toggle_off' }} text={t('models.bulk.disable')} disabled={bulkBusy || selected.length === 0} onclick={() => void setSelectedDisabled(true)} />
+            <Button
+              size="sm"
+              icon={{ name: testingAll ? 'stop' : 'network_check' }}
+              text={testingAll ? t('credentials.testing_click_cancel') : t('models.bulk.test')}
+              disabled={!testingAll && selected.length === 0}
+              onclick={testingAll ? () => void testAllModels() : testSelected}
+            />
+            <Button size="sm" buttonStyle="text" icon={{ name: 'close' }} title={t('models.bulk.clear')} ariaLabel={t('models.bulk.clear')} onclick={clearSelection} />
+          </HStack>
+        </div>
+      {/if}
     {/if}
   </VStack>
 
@@ -621,6 +793,24 @@
   </HStack>
 {/snippet}
 
+{#snippet modelStatus(m: ProviderModel)}
+  {@const check = lastChecks[m.name]}
+  {#if modelTestResults[m.name] === 'loading'}
+    <Text size="sm" foregroundStyle="secondary">{t('credentials.testing')}</Text>
+  {:else if check}
+    <VStack gap={0} halign="start">
+      {#if check.result.ok}
+        <Text size="sm" tint="success">✓ {check.result.latency_ms} {t('models.status.ms')}</Text>
+      {:else}
+        <Text size="sm" tint="danger" title={check.result.error ?? failureReason(check.result)}>✗ {failureReason(check.result)}</Text>
+      {/if}
+      <Text size="xs" foregroundStyle="tertiary"><RelativeTime date={check.at} locale={locale()} /></Text>
+    </VStack>
+  {:else}
+    <Text size="sm" foregroundStyle="tertiary">—</Text>
+  {/if}
+{/snippet}
+
 {#snippet modelsTable()}
   <ModelsTable
     models={filteredModels.map((m): ModelsTableModel => ({
@@ -637,28 +827,37 @@
       custom: m.custom,
       source: m,
     }))}
-    draggable
+    sortable
     loading={modelsLoading && models.length === 0}
-    onreorder={(from, to) => {
-      const visible = filteredModels
-      const moved = visible[from]
-      const target = visible[to]
-      if (!moved || !target || moved.name === target.name) return
-      const fromIndex = models.findIndex((m) => m.name === moved.name)
-      const toIndex = models.findIndex((m) => m.name === target.name)
-      if (fromIndex < 0 || toIndex < 0) return
-      const next = [...models]
-      const [item] = next.splice(fromIndex, 1)
-      next.splice(toIndex, 0, item)
-      models = next
+    statusValue={(model) => {
+      const check = lastChecks[(model.source as ProviderModel).name]
+      if (!check) return 2
+      return check.result.ok ? 0 : 1
     }}
   >
+    {#snippet select({ model })}
+      {@const m = model.source as ProviderModel}
+      <span class="select-cell">
+        <Checkbox
+          checked={selected.includes(m.name)}
+          ariaLabel={t('models.bulk.select_row')}
+          onchange={(v) => setSelected(m.name, v)}
+        />
+      </span>
+    {/snippet}
+    {#snippet status({ model })}
+      {@render modelStatus(model.source as ProviderModel)}
+    {/snippet}
     {#snippet actions({ model })}
       {@const m = model.source as ProviderModel}
       {@render modelActions(m)}
     {/snippet}
     {#snippet empty()}
-      <ContentUnavailable title={models.length === 0 ? t('providers.models.empty') : t('providers.models.no_filter_match')} icon="search" />
+      {#if models.length === 0}
+        <ContentUnavailable title={t('providers.models.empty')} />
+      {:else}
+        <ContentUnavailable title={t('providers.models.no_filter_match')} icon="search" />
+      {/if}
     {/snippet}
   </ModelsTable>
 {/snippet}
@@ -689,5 +888,41 @@
     justify-content: start;
     align-items: center;
     gap: var(--fui-space-3) var(--fui-space-5);
+  }
+  /* the count reads as a label among small buttons: inset like their text */
+  .bulk-count {
+    display: inline-flex;
+    padding-inline: var(--fui-btn-pad-h-sm);
+  }
+  /* label | chip row pairs: the chip rows start in one column; rows are as
+     far apart as the chips in a row (space-3) */
+  .filter-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: var(--fui-space-3) var(--fui-space-4);
+  }
+  /* The filters sit inside the models section (gap space-4) but read as a
+     section of their own: the page puts space-6 between sections. */
+  :global(.filter-section) {
+    margin-top: calc(var(--fui-space-6) - var(--fui-space-4));
+  }
+  /* an unpicked filter chip keeps its colour, lightly muted */
+  :global(.chip-off) {
+    opacity: 0.75;
+  }
+  /* The selection column is the table's first: its left inset is the table's
+     edge padding (space-5), its right is this cell's plus the next cell's
+     (2 x space-2). The margin evens the two sides out. */
+  .select-cell {
+    display: inline-flex;
+    margin-right: calc(var(--fui-space-5) - 2 * var(--fui-space-2));
+  }
+  /* bulk actions stick to the bottom of the scroll area while rows are picked */
+  .bulk-bar {
+    position: sticky;
+    bottom: var(--fui-space-4);
+    z-index: 2;
+    filter: var(--fui-filter-floating);
   }
 </style>

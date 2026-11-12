@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Picker, Banner, ContentUnavailable, TextField, Field } from '@fuckyouryan/fui'
+  import { Button, Picker, Banner, ContentUnavailable, TextField, Field, Text, VStack } from '@fuckyouryan/fui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -32,8 +32,35 @@
   // (e.g. Kiro) let the user pick the entry method up front.
   let entryTab = $state<'flow' | 'manual'>('flow')
   let manualAvailable = $state(false)
+  // The key's dashboard name, set here instead of the automatic one. Auth
+  // flows create the credential server-side: the name lands on it right after.
+  let label = $state('')
+  let knownIds: string[] = []
+
+  async function providerCredentialIds(): Promise<string[]> {
+    const all = (await api.credentials.list()) as { id: string; provider_id: string }[]
+    return all.filter((c) => c.provider_id === provider.id).map((c) => c.id)
+  }
+
+  async function finish(): Promise<void> {
+    const name = label.trim()
+    if (name !== '') {
+      try {
+        const fresh = (await providerCredentialIds()).filter((id) => !knownIds.includes(id))
+        for (const id of fresh) await api.credentials.update(id, { label: name })
+      } catch {
+        // the key exists; only its name stays automatic
+      }
+    }
+    onComplete()
+  }
 
   onMount(async (): Promise<void> => {
+    try {
+      knownIds = await providerCredentialIds()
+    } catch {
+      knownIds = []
+    }
     if (provider.supports_auth_flow) {
       try {
         const schema = await api.providers.credentialSchema(provider.id)
@@ -77,7 +104,7 @@
         nodes = []
         flowId = flow.flow_id ?? ''
       } else if (flow.status === 'complete') {
-        onComplete()
+        await finish()
         return
       } else {
         await loadSingleStep()
@@ -116,7 +143,7 @@
   // auto Cancel (unless the tree declares cancel itself), then a default
   // primary submit when the tree declares no buttons at all.
   function defaultSubmitLabel(): string {
-    return mode === 'wizard' ? 'Continue' : 'Save'
+    return mode === 'wizard' ? t('common.actions.continue') : t('common.actions.save')
   }
 
   function submitFor(action: string): void {
@@ -140,7 +167,7 @@
     const buttons: ModalButton[] = tree.map((n) => {
       const action = n.form_action || 'submit'
       if (action === 'cancel') {
-        return { label: n.text || 'Cancel', ...buttonAppearance(n), onclick: closeModal, disabled: loading }
+        return { label: n.text || t('common.actions.cancel'), ...buttonAppearance(n), onclick: closeModal, disabled: loading }
       }
       return {
         label: n.text || defaultSubmitLabel(),
@@ -150,7 +177,7 @@
       }
     })
     if (!tree.some((n) => (n.form_action || 'submit') === 'cancel')) {
-      buttons.push({ label: 'Cancel', buttonStyle: 'neutral', onclick: closeModal, disabled: loading })
+      buttons.push({ label: t('common.actions.cancel'), buttonStyle: 'neutral', onclick: closeModal, disabled: loading })
     }
     if (tree.length === 0 && nodes.length > 0) {
       buttons.push({
@@ -180,7 +207,7 @@
         window.open(flow.redirect_url, '_blank')
         redirectMessage = 'Complete authentication in the new window.'
       } else if (flow.status === 'complete') {
-        onComplete()
+        await finish()
       } else {
         error = t('credentials.unexpected_auth')
       }
@@ -201,7 +228,7 @@
     error = ''
     syncFooter()
     try {
-      await api.credentials.create({ provider_id: provider.id, data: formValues })
+      await api.credentials.create({ provider_id: provider.id, label: label.trim() || undefined, data: formValues })
       onComplete()
     } catch (e) {
       error = getErrorMessage(e)
@@ -216,7 +243,7 @@
     error = ''
     try {
       const data = JSON.parse(rawJson) as Record<string, unknown>
-      await api.credentials.create({ provider_id: provider.id, data })
+      await api.credentials.create({ provider_id: provider.id, label: label.trim() || undefined, data })
       onComplete()
     } catch (e) {
       error = getErrorMessage(e)
@@ -244,6 +271,16 @@
   </div>
 {/if}
 
+<!-- one column, one step (space-4) between every block; the name field is
+     built like the form's own fields (label over input, gap space-1) -->
+<VStack gap={4}>
+{#if mode !== 'loading'}
+  <VStack gap={1}>
+    <Text size="sm" weight="medium">{t('credentials.name_label')}</Text>
+    <TextField bind:value={label} placeholder={t('credentials.name_placeholder')} ariaLabel={t('credentials.name_label')} />
+  </VStack>
+{/if}
+
 {#if mode === 'loading'}
   <ContentUnavailable title={t('common.state.loading')} />
 {:else if mode === 'wizard'}
@@ -251,10 +288,10 @@
     <Banner tint="info" text={redirectMessage} />
   {/if}
   {#if nodes.length > 0}
-    <DynamicForm {nodes} bind:values={formValues} busy={loading} />
+    <DynamicForm {nodes} bind:values={formValues} busy={loading} flat />
   {/if}
 {:else if mode === 'single'}
-  <DynamicForm {nodes} bind:values={formValues} busy={loading} />
+  <DynamicForm {nodes} bind:values={formValues} busy={loading} flat />
 {:else}
   <p class="form-text">{t('credentials.no_form_hint')}</p>
   <Field label={t('credentials.json_label')}>
@@ -264,12 +301,13 @@
     <Button buttonStyle="prominent" onclick={submitRaw} disabled={loading}>{t('common.actions.save')}</Button>
   </div>
 {/if}
+</VStack>
 
 <style>
   .entry-switch {
     display: flex;
     justify-content: center;
-    margin-bottom: var(--fui-space-5);
+    margin-bottom: var(--fui-space-4);
   }
 
   .form-text {

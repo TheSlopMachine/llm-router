@@ -628,7 +628,7 @@ Manifest: required `@plugin`, `@author`, `@version`, `@plugin_api`, one or more 
 - BAD: missing `@allow_host`, undeclared API major.
 - GOOD: complete manifest with matching `@plugin_api` major.
 
-API surface: `llm_router.register(type_key, {complete, ...})`, `llm_router.http_client({timeout_ms?})` with per-request `proxy_url` (router owns TLS-fault `MarkDead`, plugins never mark proxies), `llm_router.proxies.query`/`require`, `llm_router.credentials` (`list`/`get` plus job-only `update`, switch-gated `disable`/`enable`, ungated `park`/`unpark`/`parked`), `llm_router.storage` with TTL, colocated `jobs`, `llm_router.multipart`, `llm_router.uuid_v5(namespace, name)` (RFC 4122), `llm_router.random_hex(nbytes)`, `json.encode/decode`. Terminal errors are OpenAI-shaped `{message, code?, param?, status?, headers?}` and render verbatim; `type`/`scope`/`retry_after` fields are not honored (extras are ignored).
+API surface: `llm_router.register(type_key, {complete, ...})`, `llm_router.register_proxy_source(source_key, {fetch_proxies})`, `llm_router.http_client({timeout_ms?})` with per-request `proxy_url` (router owns TLS-fault `MarkDead`, plugins never mark proxies), `llm_router.proxies.query`/`require`, `llm_router.credentials` (`list`/`get` plus job-only `update`, switch-gated `disable`/`enable`, ungated `park`/`unpark`/`parked`), `llm_router.storage` with TTL, colocated `jobs`, `llm_router.log`, `llm_router.multipart`, `llm_router.base64_encode`/`base64_decode`, `llm_router.uuid_v5(namespace, name)` (RFC 4122), `llm_router.random_hex(nbytes)`, `json.encode/decode`. Terminal errors are OpenAI-shaped `{message, code?, param?, status?, headers?}` and render verbatim (`param` is validated, not rendered); `type`/`scope`/`retry_after` fields are not honored (extras are ignored).
 
 - BAD: plugin marking proxies dead, returning `type`/`scope`/`retry_after` error fields.
 - GOOD: per-request `proxy_url` only, OpenAI-shaped errors only.
@@ -755,7 +755,7 @@ Provider plugins ship from plugin store repositories, not from the binary. Built
 - BAD: editing a shipped plugin inside the binary repo.
 - GOOD: bumping `@version` in the store repository.
 
-Reissue checklist per plugin: `@version` bump on every content edit (major on contract breaks) — version-match reinstall skips same-version sources, so rewritten content under a fixed version never deploys; `@plugin_api` major MUST equal the served contract; classify through the helper; `(resp, err)` stream idiom with `on_response`; park on rate/quota (terminal errors carry no `scope`); `request.model_name` (never forward request tables verbatim upstream).
+Reissue checklist per plugin: `@version` bump on every content edit (major on contract breaks) — `make upload-plugins` skips same-version sources, so rewritten content under a fixed version never deploys; `@plugin_api` major MUST equal the served contract; classify through the helper; `(resp, err)` stream idiom with `on_response`; park on rate/quota (terminal errors carry no `scope`); `request.model_name` (never forward request tables verbatim upstream).
 
 - BAD: rewriting plugin content without a `@version` bump.
 - GOOD: every content edit bumps `@version` (major on contract breaks).

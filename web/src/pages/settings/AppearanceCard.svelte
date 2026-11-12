@@ -6,6 +6,10 @@
   import { theme, type Theme } from '$lib/theme.svelte'
   import { accent, accentOf, accents } from '$lib/accent.svelte'
   import { shape, type Shape } from '$lib/shape.svelte'
+  import { surfaceLevel, surfaceLevels, type SurfaceLevel } from '$lib/surface.svelte'
+
+  const levelLabels = { [-1]: 'settings.surface.darker', 0: 'settings.surface.normal', 1: 'settings.surface.lighter' } as const
+  const levelOptions = $derived(surfaceLevels.map((level) => ({ value: String(level), label: t(levelLabels[level]) })))
 
   const languageOptions = $derived([
     { value: 'auto', label: t('common.auto') },
@@ -45,5 +49,9 @@
 
   <Field label={t('settings.shape.label')}>
     <Picker pickerStyle="segmented" value={shape.value} options={shapeOptions} onchange={(value) => (shape.value = value as Shape)} />
+  </Field>
+
+  <Field label={t('settings.surface.label')} hint={t('settings.surface.hint')}>
+    <Picker pickerStyle="segmented" value={String(surfaceLevel.value)} options={levelOptions} onchange={(value) => (surfaceLevel.value = Number(value) as SurfaceLevel)} />
   </Field>
 </Card>

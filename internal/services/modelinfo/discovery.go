@@ -256,6 +256,28 @@ func (s *GormService) GetModels(ctx context.Context, providerID string) ([]strin
 	return names, nil
 }
 
+// takesCredentials reports whether a Lua plugin type needs credentials: it
+// declares a credential schema. Keyless plugins declare none.
+func (s *GormService) takesCredentials(typeKey string) bool {
+	if s.providerService == nil || s.providerService.LuaService() == nil {
+		return false
+	}
+	schema, err := s.providerService.LuaService().Schema(typeKey, "credential_schema", "en")
+	return err == nil && len(schema) > 0
+}
+
+// awaitingCredentials: a credentialed Lua provider with no credential has
+// nothing to list. Discovery skips the plugin, and the dashboard view shows no
+// upstream models (a list cached while a key existed included).
+func (s *GormService) awaitingCredentials(ctx context.Context, providerID string) bool {
+	resolved, err := provider.Resolve(s.providerService, ctx, providerID)
+	if err != nil || !resolved.IsLua() || !s.takesCredentials(resolved.Instance.TypeKey) {
+		return false
+	}
+	credentials, err := s.credentialService.ListByProvider(ctx, providerID)
+	return err == nil && len(credentials) == 0
+}
+
 // fetchAndCache fetches model metadata from the provider backend and caches it.
 func (s *GormService) fetchAndCache(ctx context.Context, providerID string) ([]models.ModelInfo, error) {
 	resolved, err := provider.Resolve(s.providerService, ctx, providerID)
@@ -279,6 +301,12 @@ func (s *GormService) fetchAndCache(ctx context.Context, providerID string) ([]m
 	// call serves every case, credentialed or not. The provider ID scopes
 	// credentials.list() to this provider's rows.
 	if resolved.IsLua() {
+		if len(credentials) == 0 && s.takesCredentials(instance.TypeKey) {
+			if s.logger != nil {
+				s.logger.Debug("Model discovery skipped: no credentials", "provider_id", providerID)
+			}
+			return []models.ModelInfo{}, nil
+		}
 		modelInfos, err := s.providerService.LuaService().GetModelInfos(ctx, providerID, instance.TypeKey, config)
 		if err != nil {
 			if s.logger != nil {
@@ -411,9 +439,13 @@ func (s *GormService) mergeRetained(ctx context.Context, providerID string, fres
 // disabled models are flagged, custom models appended, display metadata applied.
 // Fetches from the upstream on a cache miss — explicit refresh paths only.
 func (s *GormService) MergedView(ctx context.Context, providerID string) ([]ModelView, error) {
-	modelList, err := s.GetModelInfos(ctx, providerID)
-	if err != nil {
-		return nil, err
+	var modelList []models.ModelInfo
+	if !s.awaitingCredentials(ctx, providerID) {
+		list, err := s.GetModelInfos(ctx, providerID)
+		if err != nil {
+			return nil, err
+		}
+		modelList = list
 	}
 	overrides, err := s.ListOverrides(ctx, providerID)
 	if err != nil {

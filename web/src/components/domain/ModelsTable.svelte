@@ -40,6 +40,9 @@
     skeletonRows = 5,
     onreorder,
     actions,
+    select,
+    status,
+    statusValue,
     empty,
   }: {
     models: ModelsTableModel[]
@@ -51,6 +54,11 @@
     skeletonRows?: number
     onreorder?: (from: number, to: number) => void
     actions?: ModelsTableActions
+    /** leading selection cell (a checkbox) */
+    select?: ModelsTableActions
+    /** status cell (last check); sorted by statusValue */
+    status?: ModelsTableActions
+    statusValue?: (model: ModelsTableModel) => number | string
     empty?: Snippet<[]>
   } = $props()
 
@@ -94,8 +102,10 @@
   }
 
   const columns = $derived<TableColumn[]>([
+    ...(select && mode !== 'compact' ? [{ key: 'select', title: '', width: 'auto' }] : []),
     { key: 'model', title: t('models.list.title'), width: readonly ? '3.6fr' : '3.2fr', sortable },
     ...modeColumns(mode, readonly, sortable),
+    ...(status && mode !== 'compact' ? [{ key: 'status', title: t('models.status.title'), width: '1fr', sortable }] : []),
     ...(!readonly ? [{ key: 'actions', title: '', width: '0.9fr', align: 'right' as const }] : []),
   ])
 
@@ -125,6 +135,8 @@
         return `${model.inputModalities?.join(',') ?? ''}|${model.outputModalities?.join(',') ?? ''}`
       case 'capabilities':
         return (model.capabilities ?? []).join(',')
+      case 'status':
+        return statusValue ? statusValue(model) : ''
       default:
         return ''
     }
@@ -169,21 +181,19 @@
 </script>
 
 {#snippet ctxBlock({ model }: { model: ModelsTableModel })}
-  <VStack gap={1} halign="start" class="ctx-text">
-    {#if model.contextWindow}
-      <Text size="sm" foregroundStyle="secondary" title={t('models.context.window_up_to') + ` ${model.contextWindow.toLocaleString()} ` + t('models.context.input_tokens')}>
-        {(model.contextWindow / 1000).toFixed(0)}k {t('models.context.lowercase')}
-      </Text>
-    {/if}
-    {#if model.maxTokens}
-      <Text size="sm" foregroundStyle="secondary" title={t('models.output.max_up_to') + ` ${model.maxTokens.toLocaleString()} ` + t('models.output.tokens_per_response')}>
-        {(model.maxTokens / 1000).toFixed(0)}k {t('models.output.lowercase')}
-      </Text>
-    {/if}
-    {#if !model.contextWindow && !model.maxTokens}
-      <Text size="sm" foregroundStyle="tertiary">—</Text>
-    {/if}
-  </VStack>
+  <!-- one line, "context / output"; the column title names the pair, the tooltip spells it out -->
+  {#if model.contextWindow || model.maxTokens}
+    <Text
+      size="sm"
+      foregroundStyle="secondary"
+      class="ctx-text"
+      title={`${t('models.context.window_up_to')} ${(model.contextWindow ?? 0).toLocaleString()} ${t('models.context.input_tokens')} · ${t('models.output.max_up_to')} ${(model.maxTokens ?? 0).toLocaleString()} ${t('models.output.tokens_per_response')}`}
+    >
+      {model.contextWindow ? `${(model.contextWindow / 1000).toFixed(0)}k` : '—'} / {model.maxTokens ? `${(model.maxTokens / 1000).toFixed(0)}k` : '—'}
+    </Text>
+  {:else}
+    <Text size="sm" foregroundStyle="tertiary">—</Text>
+  {/if}
 {/snippet}
 
 {#snippet modsBlock({ model }: { model: ModelsTableModel }, size: 'sm' | 'lg' = 'sm', direction: 'vertical' | 'horizontal' = 'vertical')}
@@ -289,11 +299,16 @@
         <HStack halign="end" gap={2} class="actions-cell">
           {#if actions}{@render actions({ model })}{/if}
         </HStack>
+      {:else if column.key === 'select'}
+        {#if select}{@render select({ model })}{/if}
+      {:else if column.key === 'status'}
+        {#if status}{@render status({ model })}{/if}
       {/if}
     {/snippet}
     {#snippet card({ row })}
       {@const model = row as ModelsTableModel}
       <HStack gap={3} valign="center">
+        {#if select}{@render select({ model })}{/if}
         <VStack gap={1} grow>
           <Text variant="value">{model.kind === 'virtual' ? `virtual/${model.id}` : model.name || model.id}</Text>
           {#if model.kind === 'virtual'}
@@ -305,10 +320,10 @@
         {#if actions}<HStack gap={2}>{@render actions({ model })}</HStack>{/if}
       </HStack>
       <HStack gap={2} wrap>
-        {#if model.contextWindow}<Text variant="caption">{(model.contextWindow / 1000).toFixed(0)}k ctx</Text>{/if}
-        {#if model.maxTokens}<Text variant="caption">{(model.maxTokens / 1000).toFixed(0)}k out</Text>{/if}
+        {#if model.contextWindow || model.maxTokens}<Text variant="caption">{model.contextWindow ? `${(model.contextWindow / 1000).toFixed(0)}k` : '—'} / {model.maxTokens ? `${(model.maxTokens / 1000).toFixed(0)}k` : '—'}</Text>{/if}
         {#if (model.capabilities ?? []).length > 0}<Text variant="caption">{(model.capabilities ?? []).join(', ')}</Text>{/if}
       </HStack>
+      {#if status}{@render status({ model })}{/if}
     {/snippet}
   </Table>
 </div>

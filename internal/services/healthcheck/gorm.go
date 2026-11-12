@@ -42,7 +42,7 @@ type Record struct {
 type PluginHealth interface {
 	HasHandler(typeKey, handler string) bool
 	HealthCooldown(typeKey string) time.Duration
-	CheckHealth(ctx context.Context, typeKey string, credential *models.Credential) (luaplugin.HealthStatus, string, error)
+	CheckHealth(ctx context.Context, typeKey string, credential *models.Credential, providerConfig map[string]any) (luaplugin.HealthStatus, string, error)
 }
 
 // CredentialStore fetches credentials and disables unhealthy ones.
@@ -173,6 +173,19 @@ func (s *GormService) done(credentialID string) {
 	s.mu.Unlock()
 }
 
+// providerConfig is the credential's provider config for the handler's
+// ctx (proxy pool selection included); nil when it cannot be read.
+func (s *GormService) providerConfig(credential *models.Credential) map[string]any {
+	if s.providerConfigs == nil || credential == nil || credential.ProviderID == "" {
+		return nil
+	}
+	instance, err := s.providerConfigs.Get(context.Background(), credential.ProviderID)
+	if err != nil || instance == nil {
+		return nil
+	}
+	return instance.Config
+}
+
 // automationOn reports whether the credential's provider opts into
 // automatic disables. Absent providers, missing services and absent flags
 // read off, matching the dashboard default.
@@ -220,7 +233,7 @@ func (s *GormService) run(typeKey, credentialID string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), CheckTimeout)
 	defer cancel()
-	status, message, checkError := s.lua.CheckHealth(ctx, typeKey, credential)
+	status, message, checkError := s.lua.CheckHealth(ctx, typeKey, credential, s.providerConfig(credential))
 	if checkError != nil {
 		s.stamp(credentialID, string(luaplugin.HealthUnknown))
 		if s.logger != nil {
