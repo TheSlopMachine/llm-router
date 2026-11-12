@@ -12,43 +12,40 @@
   let error: string | null = $state(null)
 
   onMount(async (): Promise<void> => {
-    const path = window.location.pathname
-
     try {
       const status = await api.status()
-
-      if (!status.authenticated) {
-        if (path !== '/login') {
-          window.location.replace('/login')
-          return
-        }
-        appState = 'login'
+      if (status.authenticated) {
+        showDashboard(window.location.hash || '#/metrics')
       } else {
-        if (path !== '/') {
-          window.location.replace('/' + (window.location.hash || '#/metrics'))
-          return
-        }
-        if (!window.location.hash) {
-          window.location.hash = '#/metrics'
-        }
-        appState = 'dashboard'
+        showLogin()
       }
     } catch (e) {
       error = getErrorMessage(e)
-      if (path !== '/login') {
-        window.location.replace('/login')
-        return
-      }
-      appState = 'login'
     }
   })
 
+  // The login form and the dashboard switch in place: the address changes
+  // through the history API, so the document never loads a second time.
+  function showLogin(): void {
+    if (window.location.pathname !== '/login' || window.location.hash) {
+      window.history.replaceState(null, '', '/login')
+    }
+    appState = 'login'
+  }
+
+  function showDashboard(hash: string): void {
+    if (window.location.pathname !== '/' || window.location.hash !== hash) {
+      window.history.replaceState(null, '', '/' + hash)
+    }
+    appState = 'dashboard'
+  }
+
   function onLogin(): void {
-    window.location.replace('/#/metrics')
+    showDashboard('#/metrics')
   }
 
   function onLogout(): void {
-    window.location.replace('/login')
+    showLogin()
   }
 </script>
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## Done (2026-11-12, v0.9)
+
+- **Provider purge keeps the provider** — purging a plugin-backed provider in data management removed its settings, credentials and model data and created its default row again at once; before, the provider left the list until a restart or a plugin reinstall. Clearing the providers subsystem restores the plugin and virtual default rows the same way. A custom provider still leaves with its data.
+- **Dashboard opens without a second page load** — the login form and the dashboard switched in place; before, an open of `/` without a session, an open of another path with a session, a login and a logout each loaded the document again. A failed `status` request shows its error on the start screen instead of the login form.
+
 ## Done (2026-11-06, v0.8.3)
 
 - **Darker shell** — the dashboard shell sits two surface levels lower (sidebar -2, content column -1, cards 0); modals stand on the content column level, so cards inside a modal are lighter than the modal (FUI 2.2.4).

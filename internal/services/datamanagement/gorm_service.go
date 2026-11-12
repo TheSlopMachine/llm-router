@@ -57,13 +57,15 @@ type PluginsExportBundle struct {
 
 // GormProviderBackend is the provider surface the GORM data management path
 // needs: inventory reads plus the create/update/delete writes imports and
-// purges drive. Signatures match the provider GORM service.
+// purges drive, and the default row seeding that follows a delete.
+// Signatures match the provider GORM service.
 type GormProviderBackend interface {
 	Get(ctx context.Context, identifier string) (*models.ProviderInstance, error)
 	List(ctx context.Context) ([]*models.ProviderInstance, error)
 	Create(ctx context.Context, options provider.CreateOptions) (*models.ProviderInstance, error)
 	Update(ctx context.Context, identifier string, options provider.UpdateOptions) (*models.ProviderInstance, error)
 	Delete(ctx context.Context, identifier string) error
+	SyncDefaultProviders(ctx context.Context) error
 }
 
 // GormCredentialBackend is the credential surface the GORM data management
@@ -447,15 +449,36 @@ func (s *GormService) ImportProvider(ctx context.Context, bundle *ProviderBundle
 	return s.ImportProviders(ctx, []*ProviderBundle{bundle})
 }
 
-// PurgeProvider removes a provider instance and all associated data:
-// credentials cascade from the provider delete, snapshots and overrides go
-// through the owning model info service, and managed virtual models delete
-// through the virtual service. A missing snapshot is not an error,
-// matching the idempotent previous invalidation.
+// PurgeProvider removes all data of a provider. The default row of a served
+// type is created again with default settings, so a plugin-backed provider
+// stays listed and routable; a custom provider has no default row and
+// leaves with its data. The default rows are restored after a partial
+// failure too.
 func (s *GormService) PurgeProvider(ctx context.Context, identifier string) error {
 	if _, err := s.providerSource.Get(ctx, identifier); err != nil {
 		return err
 	}
+	return stdErrors.Join(s.deleteProviderData(ctx, identifier), s.restoreDefaultProviders(ctx))
+}
+
+// restoreDefaultProviders creates the default provider rows a delete
+// removed. Without it they return only on the next startup or plugin change.
+func (s *GormService) restoreDefaultProviders(ctx context.Context) error {
+	if err := s.providerSource.SyncDefaultProviders(ctx); err != nil {
+		if s != nil && s.logger != nil {
+			s.logger.Error("Default provider restore failed", "subsystem", "providers", "error", err)
+		}
+		return err
+	}
+	return nil
+}
+
+// deleteProviderData removes a provider instance and all associated data:
+// credentials cascade from the provider delete, snapshots and overrides go
+// through the owning model info service, and managed virtual models delete
+// through the virtual service. A missing snapshot is not an error,
+// matching the idempotent previous invalidation.
+func (s *GormService) deleteProviderData(ctx context.Context, identifier string) error {
 	// 1. Delete provider instance and cascade credentials.
 	if err := s.providerSource.Delete(ctx, identifier); err != nil {
 		if s != nil && s.logger != nil {
@@ -534,10 +557,17 @@ func (s *GormService) PurgeProvider(ctx context.Context, identifier string) erro
 	return nil
 }
 
-// ClearProviders deletes every provider instance. Credential, park, health,
+// ClearProviders deletes every provider instance with its data, then
+// creates the default rows of the served types again with default settings.
+// The default rows are restored after a partial failure too.
+func (s *GormService) ClearProviders(ctx context.Context) error {
+	return stdErrors.Join(s.deleteProviders(ctx), s.restoreDefaultProviders(ctx))
+}
+
+// deleteProviders deletes every provider instance. Credential, park, health,
 // override, info, managed virtual, and member rows cascade from the provider
 // foreign keys with no scans.
-func (s *GormService) ClearProviders(ctx context.Context) error {
+func (s *GormService) deleteProviders(ctx context.Context) error {
 	providers, err := s.providerSource.List(ctx)
 	if err != nil {
 		return err

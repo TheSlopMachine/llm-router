@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 
+	stdErrors "errors"
+
 	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
@@ -26,6 +28,9 @@ type stubProviderBackend struct {
 	mutex       sync.Mutex
 	providers   map[string]*models.ProviderInstance
 	updateError error
+	// defaultTypeKeys lists the served types that own a default row.
+	defaultTypeKeys []string
+	syncError       error
 }
 
 func newStubProviderBackend() *stubProviderBackend {
@@ -101,6 +106,24 @@ func (s *stubProviderBackend) Delete(_ context.Context, identifier string) error
 		return fmt.Errorf("provider %q: %w", identifier, apierrors.ErrNotFound)
 	}
 	delete(s.providers, identifier)
+	return nil
+}
+
+// SyncDefaultProviders creates the missing default row of every served type.
+func (s *stubProviderBackend) SyncDefaultProviders(_ context.Context) error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if s.syncError != nil {
+		return s.syncError
+	}
+	for _, typeKey := range s.defaultTypeKeys {
+		if _, ok := s.providers[typeKey]; ok {
+			continue
+		}
+		s.providers[typeKey] = &models.ProviderInstance{
+			ID: typeKey, Name: typeKey, TypeKey: typeKey, Config: map[string]any{}, IsUIReadonly: true,
+		}
+	}
 	return nil
 }
 
@@ -547,6 +570,61 @@ func TestGormPurgeProviderRemovesOverrides(t *testing.T) {
 	}
 	if _, err := providers.Get(ctx, created.ID); err == nil {
 		t.Fatal("provider after purge still present, want it removed")
+	}
+}
+
+func TestGormPurgeProviderRestoresDefaultRow(t *testing.T) {
+	service, providers, _, _, _, _, _, _ := gormDataStack()
+	ctx := context.Background()
+	providers.defaultTypeKeys = []string{"dm-type"}
+	created, err := providers.Create(ctx, provider.CreateOptions{Name: "Configured", TypeKey: "dm-type", Config: map[string]any{"region": "eu"}})
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+	if err := service.PurgeProvider(ctx, created.ID); err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	restored, err := providers.Get(ctx, "dm-type")
+	if err != nil {
+		t.Fatalf("default row after purge: %v", err)
+	}
+	if len(restored.Config) != 0 {
+		t.Fatalf("default row config after purge = %v, want empty", restored.Config)
+	}
+}
+
+func TestGormPurgeProviderRestoreErrorSurfaces(t *testing.T) {
+	service, providers, _, _, _, _, _, _ := gormDataStack()
+	ctx := context.Background()
+	created, err := providers.Create(ctx, provider.CreateOptions{Name: "Purge", TypeKey: "dm-type"})
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+	providers.syncError = fmt.Errorf("storage unavailable")
+	if err := service.PurgeProvider(ctx, created.ID); !stdErrors.Is(err, providers.syncError) {
+		t.Fatalf("purge error = %v, want the default row restore error", err)
+	}
+}
+
+func TestGormClearProvidersRestoresDefaultRows(t *testing.T) {
+	service, providers, _, _, _, _, _, _ := gormDataStack()
+	ctx := context.Background()
+	providers.defaultTypeKeys = []string{"dm-type"}
+	if _, err := providers.Create(ctx, provider.CreateOptions{Name: "Default", TypeKey: "dm-type", Config: map[string]any{"region": "eu"}}); err != nil {
+		t.Fatalf("create default provider: %v", err)
+	}
+	if _, err := providers.Create(ctx, provider.CreateOptions{Name: "Extra", TypeKey: "dm-other", Qualifier: "q"}); err != nil {
+		t.Fatalf("create extra provider: %v", err)
+	}
+	if err := service.ClearProviders(ctx); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	remaining, err := providers.List(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(remaining) != 1 || remaining[0].ID != "dm-type" || len(remaining[0].Config) != 0 {
+		t.Fatalf("providers after clear = %v, want the dm-type default row alone with empty config", remaining)
 	}
 }
 

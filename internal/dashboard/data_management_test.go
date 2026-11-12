@@ -13,6 +13,7 @@ import (
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/requestsource"
+	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/datamanagement"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
 	"github.com/TheSlopMachine/llm-router/internal/services/provider"
@@ -26,6 +27,7 @@ const archivePluginSource = `--- @plugin Archive Test
 
 llm_router.register("archive-type", {
   complete = function() end,
+  validate_credentials = function() return true end,
 })
 `
 
@@ -243,6 +245,109 @@ func TestVirtualModelImportTakesOneItemAndSubsystemFiles(test *testing.T) {
 			test.Fatalf("%s import: got %+v", name, listed)
 		}
 		virtualModel = listed[0]
+	}
+}
+
+// seedConfiguredPluginProvider installs the archive plugin, seeds its
+// default row, and gives the row a setting and a credential.
+func seedConfiguredPluginProvider(test *testing.T, handler *Handler) {
+	test.Helper()
+	ctx := context.Background()
+	if _, err := handler.luaService.InstallSQLite(ctx, []byte(archivePluginSource), luaplugin.PluginOrigin{Manual: true}); err != nil {
+		test.Fatalf("install: %v", err)
+	}
+	if err := handler.gormProviderService.SyncDefaultProviders(ctx); err != nil {
+		test.Fatalf("seed plugin provider: %v", err)
+	}
+	if _, err := handler.gormProviderService.Update(ctx, "archive-type", provider.UpdateOptions{Name: "Archive Test", Config: map[string]any{"region": "eu"}}); err != nil {
+		test.Fatalf("configure plugin provider: %v", err)
+	}
+	if _, err := handler.gormCredentialService.Add(ctx, credential.AddOptions{ProviderID: "archive-type", Label: "key", Data: map[string]any{"api_key": "value"}}); err != nil {
+		test.Fatalf("add credential: %v", err)
+	}
+}
+
+// requireDefaultPluginProvider asserts the archive plugin row is listed for
+// the dashboard with default settings and no credentials.
+func requireDefaultPluginProvider(test *testing.T, handler *Handler, mux *http.ServeMux) {
+	test.Helper()
+	ctx := context.Background()
+	instance, err := handler.gormProviderService.Get(ctx, "archive-type")
+	if err != nil {
+		test.Fatalf("plugin provider row: %v", err)
+	}
+	if !instance.IsUIReadonly || instance.Config["region"] != nil {
+		test.Fatalf("plugin provider row = readonly %v, config %v; want a default row", instance.IsUIReadonly, instance.Config)
+	}
+	credentials, err := handler.gormCredentialService.ListByProvider(ctx, "archive-type")
+	if err != nil || len(credentials) != 0 {
+		test.Fatalf("plugin provider credentials = %v, %v; want none", credentials, err)
+	}
+	listed := serveData(test, mux, http.MethodGet, "/api/llm-router/dashboard/providers", "", nil)
+	if listed.Code != http.StatusOK {
+		test.Fatalf("providers list: got %d (%s)", listed.Code, listed.Body.String())
+	}
+	var items []map[string]any
+	if err := json.Unmarshal(listed.Body.Bytes(), &items); err != nil {
+		test.Fatalf("decode providers list: %v (%s)", err, listed.Body.String())
+	}
+	for _, item := range items {
+		if item["id"] == "archive-type" {
+			return
+		}
+	}
+	test.Fatalf("providers list %s misses archive-type", listed.Body.String())
+}
+
+// TestProviderPurgeKeepsPluginProvider purges a plugin-backed provider: its
+// settings and credentials leave, the provider stays listed without a
+// restart or a plugin reinstall.
+func TestProviderPurgeKeepsPluginProvider(test *testing.T) {
+	handler, mux := wiredDataMux(test)
+	seedConfiguredPluginProvider(test, handler)
+	if got := serveData(test, mux, http.MethodDelete, "/api/llm-router/dashboard/providers/archive-type/purge", "", nil); got.Code != http.StatusOK {
+		test.Fatalf("purge: got %d (%s)", got.Code, got.Body.String())
+	}
+	requireDefaultPluginProvider(test, handler, mux)
+}
+
+// TestProviderPurgeRemovesCustomProvider purges a custom provider: it has no
+// default row and leaves with its data.
+func TestProviderPurgeRemovesCustomProvider(test *testing.T) {
+	handler, mux := wiredDataMux(test)
+	ctx := context.Background()
+	instance, err := handler.gormProviderService.Create(ctx, provider.CreateOptions{Name: "Purged Custom", TypeKey: "custom", Config: customProviderConfig()})
+	if err != nil {
+		test.Fatalf("create provider: %v", err)
+	}
+	if got := serveData(test, mux, http.MethodDelete, "/api/llm-router/dashboard/providers/"+url.PathEscape(instance.ID)+"/purge", "", nil); got.Code != http.StatusOK {
+		test.Fatalf("purge: got %d (%s)", got.Code, got.Body.String())
+	}
+	if _, err := handler.gormProviderService.Get(ctx, instance.ID); err == nil {
+		test.Fatal("custom provider after purge still present, want it removed")
+	}
+}
+
+// TestProvidersClearKeepsDefaultProviders clears the providers subsystem:
+// custom providers leave, the plugin and virtual default rows stay with
+// default settings.
+func TestProvidersClearKeepsDefaultProviders(test *testing.T) {
+	handler, mux := wiredDataMux(test)
+	ctx := context.Background()
+	seedConfiguredPluginProvider(test, handler)
+	custom, err := handler.gormProviderService.Create(ctx, provider.CreateOptions{Name: "Cleared Custom", TypeKey: "custom", Config: customProviderConfig()})
+	if err != nil {
+		test.Fatalf("create provider: %v", err)
+	}
+	if got := serveData(test, mux, http.MethodPost, "/api/llm-router/dashboard/data/providers/clear", "", nil); got.Code != http.StatusOK {
+		test.Fatalf("clear: got %d (%s)", got.Code, got.Body.String())
+	}
+	requireDefaultPluginProvider(test, handler, mux)
+	if _, err := handler.gormProviderService.Get(ctx, provider.TypeVirtual); err != nil {
+		test.Fatalf("virtual provider row after clear: %v", err)
+	}
+	if _, err := handler.gormProviderService.Get(ctx, custom.ID); err == nil {
+		test.Fatal("custom provider after clear still present, want it removed")
 	}
 }
 

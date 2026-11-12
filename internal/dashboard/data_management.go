@@ -273,8 +273,10 @@ func (h *Handler) apiProviderImport(w http.ResponseWriter, r *http.Request) {
 	h.json(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// apiProviderPurge completely removes a provider and all associated data.
-// @Summary      Purge provider completely
+// apiProviderPurge removes all data of a provider. A plugin-backed provider
+// stays with default settings; a custom provider is removed.
+// @Summary      Purge provider data
+// @Description  Removes the settings, credentials, model overrides, model cache and managed virtual models of a provider. A plugin-backed provider stays with default settings; a custom provider is removed.
 // @Tags         Data
 // @Produce      json
 // @Param        id path string true "Provider ID"
