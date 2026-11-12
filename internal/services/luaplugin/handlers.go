@@ -39,6 +39,8 @@ func credentialTable(L *lua.LState, credential *models.Credential) *lua.LTable {
 		return table
 	}
 	table.RawSetString("id", lua.LString(credential.ID))
+	// The dashboard label, so plugin errors can name the key they mean.
+	table.RawSetString("label", lua.LString(credential.Label))
 	if credential.Data == nil {
 		table.RawSetString("data", L.NewTable())
 	} else {

@@ -148,7 +148,7 @@
     try {
       models = await api.models.forProvider(providerId)
     } catch (e) {
-      modelsError = getErrorMessage(e)
+      modelsError = `${t('models.discovery_failed')}: ${getErrorMessage(e)}`
       models = []
       discoveryFailed = true
     } finally {
@@ -167,7 +167,8 @@
       await reloadModels()
       await loadVmGroups()
     } catch (e) {
-      modelsError = getErrorMessage(e)
+      // the previous list stays on screen; only the reason is added
+      modelsError = `${t('models.discovery_failed')}: ${getErrorMessage(e)}`
     } finally {
       importing = false
     }

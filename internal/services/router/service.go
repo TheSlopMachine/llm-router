@@ -283,23 +283,29 @@ func (s *Service) checkEndpoint(ctx context.Context, providerID, modelName, endp
 	return nil
 }
 
-// checkFileInput rejects a chat request carrying file parts when the cached
-// model card lists input modalities without "file". Models absent from the
-// cache, or cards without a modality list, pass: gating acts on declared data
-// only, never on guesses.
-func (s *Service) checkFileInput(ctx context.Context, providerID, modelName string, request *models.ChatCompletionRequest) error {
-	if !request.HasFileParts() {
+// checkInputModalities rejects a chat request carrying image, audio or file
+// parts when the cached model card lists input modalities without that one.
+// Models absent from the cache, or cards without a modality list, pass:
+// gating acts on declared data only, never on guesses.
+func (s *Service) checkInputModalities(ctx context.Context, providerID, modelName string, request *models.ChatCompletionRequest) error {
+	used := request.InputModalities()
+	if len(used) == 0 {
 		return nil
 	}
 	for _, info := range s.modelInfoService.PeekModelInfos(ctx, providerID) {
 		if info.Name != modelName {
 			continue
 		}
-		if len(info.InputModalities) == 0 || slices.Contains(info.InputModalities, "file") {
+		if len(info.InputModalities) == 0 {
 			return nil
 		}
-		return fmt.Errorf("%w: model %s/%s does not accept file input",
-			apierrors.ErrInputNotSupported, providerID, modelName)
+		for _, modality := range used {
+			if !slices.Contains(info.InputModalities, modality) {
+				return fmt.Errorf("%w: model %s/%s does not accept %s input",
+					apierrors.ErrInputNotSupported, providerID, modelName, modality)
+			}
+		}
+		return nil
 	}
 	return nil
 }
@@ -414,7 +420,7 @@ func (s *Service) complete(
 	if err != nil {
 		return nil, err
 	}
-	if err := s.checkFileInput(ctx, resolvedRequest.providerID, resolvedRequest.modelName, request); err != nil {
+	if err := s.checkInputModalities(ctx, resolvedRequest.providerID, resolvedRequest.modelName, request); err != nil {
 		return nil, err
 	}
 	resolved := resolvedRequest.resolved
@@ -462,7 +468,7 @@ func (s *Service) CompleteStream(
 	if err != nil {
 		return err
 	}
-	if err := s.checkFileInput(ctx, resolvedRequest.providerID, resolvedRequest.modelName, request); err != nil {
+	if err := s.checkInputModalities(ctx, resolvedRequest.providerID, resolvedRequest.modelName, request); err != nil {
 		return err
 	}
 	resolved := resolvedRequest.resolved

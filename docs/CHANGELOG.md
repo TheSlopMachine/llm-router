@@ -1,5 +1,15 @@
 # Changelog
 
+## Done (2026-11-12, v0.10.1)
+
+- **Input modality gate** — chat requests carrying image (`image_url`) or audio (`input_audio`) parts answered 400 before the plugin ran when the model card lists input modalities without that one, as file parts already did; before, the request reached the upstream and came back with its own unclear error.
+- **Readable model list errors** — the provider page and «Import from /models» showed the plugin's message under «Could not fetch the model list» instead of the Go wrapping chain (`provider "x" discovery: provider error (401): ...`); a failed import kept the cached list on screen and said why, where before it failed silently.
+- **Credential label for plugins** — `credentials.list()`, `credentials.get()` and health checks handed plugins the key's dashboard `label` next to `id` and `data`, so plugin errors name the key they mean.
+- **Proxy page** — the subsystem switch moved into the header as a power button; with proxies off the page showed only that switch and a placeholder. Two tabs replaced three: Auto pool (its switch, statistics, sources, lanes, working proxies; hidden while the pool is off) and Custom pools; old `#/proxy/status` and `#/proxy/sources` links opened Auto pool. The switches no longer toasted «saved».
+- **Logs on phones** — range, severity, the key filter builder and top values moved into a Filters modal on narrow screens; the page kept live, search, the active filter chips and the table.
+- **FUI 2.2.5** — columns of bounded height no longer squashed their rows over each other (logs on short screens), and a segmented picker's hidden measuring copy no longer widened the page's scroll area.
+- **`make restart`** — restarted the whole dev stack (stop + start); before, a live frontend was kept and kept serving the dependencies it loaded at its own start.
+
 ## Done (2026-11-12, v0.10)
 
 - **File attachments** — chat completions accepted `{"type":"file","file":{"file_data","filename"}}` parts, any number per message; before, file parts were dropped while the request was parsed and the model never saw them. Responses carried `input_file` and `input_image` blocks (images were dropped too), and Messages carried `document` blocks with `base64` or `text` sources. `file_id`, `input_file` URLs and url document sources answered 400; a model whose card lists input modalities without `file` answered 400 before the plugin ran.

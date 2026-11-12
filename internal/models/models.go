@@ -459,16 +459,28 @@ func (m ChatMessage) TextContent() string {
 	return strings.Join(parts, "\n")
 }
 
-// HasFileParts reports whether any message carries a file content part.
-func (r *ChatCompletionRequest) HasFileParts() bool {
+// InputModalities lists the non-text input modalities the request's content
+// parts use, in the fixed order image, audio, file.
+func (r *ChatCompletionRequest) InputModalities() []string {
+	var image, audio, file bool
 	for _, message := range r.Messages {
 		for _, part := range message.ContentParts {
-			if part.File != nil {
-				return true
-			}
+			image = image || part.ImageURL != nil
+			audio = audio || part.InputAudio != nil
+			file = file || part.File != nil
 		}
 	}
-	return false
+	var used []string
+	if image {
+		used = append(used, "image")
+	}
+	if audio {
+		used = append(used, "audio")
+	}
+	if file {
+		used = append(used, "file")
+	}
+	return used
 }
 
 func flattenContentParts(parts []ChatMessageContentPart) string {

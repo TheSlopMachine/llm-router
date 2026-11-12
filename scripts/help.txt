@@ -6,7 +6,7 @@ Targets:
   init              Initialize project (bun install, openapi.yaml, api-types, embed stub)
   start             Init, then start backend (go run) + frontend (vite) in dev mode
   stop              Stop dev processes (backend shuts down gracefully via admin API, frontend is killed)
-  restart           Rebuild and restart the backend only (live frontend is kept; full start when frontend is down)
+  restart           make stop + make start with the last start params (backend and frontend)
   smoke-test        Run the smoke harness against the running dev stack (no restart; `make start` first)
   upload-plugins    Upload every store .lua plugin via the admin listener (no restart)
   status            Show dev server status

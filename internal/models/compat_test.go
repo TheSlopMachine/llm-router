@@ -192,8 +192,8 @@ func TestChatMessage_FileParts(t *testing.T) {
 		t.Fatalf("parts: %+v", message.ContentParts)
 	}
 	request := ChatCompletionRequest{Messages: []ChatMessage{message}}
-	if !request.HasFileParts() {
-		t.Fatal("HasFileParts: want true")
+	if got := request.InputModalities(); len(got) != 1 || got[0] != "file" {
+		t.Fatalf("InputModalities: got %v, want [file]", got)
 	}
 	encoded, err := json.Marshal(message)
 	if err != nil {

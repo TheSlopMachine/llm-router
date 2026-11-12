@@ -29,15 +29,8 @@ func main() {
 		overlay("LUA_POOL_BUCKET_SIZE", parameters.LuaPoolBucketSize, "16")
 	}
 
-	// Backend-only restart keeps a live frontend (vite hot-reloads the
-	// SPA itself); only the backend is rebuilt and respawned. Without a
-	// live frontend the full stop and start converge to a full stack.
-	if process, err := shared.ReadPidFile(pidFile); err == nil &&
-		shared.AliveMatches(process.Frontend, process.FrontendPath) {
-		shared.Stepf("Frontend kept, restarting backend only...")
-		_ = os.Setenv("SCOPE", "backend")
-	}
-
+	// Always the whole stack: a kept vite serves the dependencies it loaded
+	// at its own start (a bumped FUI stays old until vite restarts).
 	root, err := shared.RootDir()
 	if err != nil {
 		shared.Failf("%v", err)

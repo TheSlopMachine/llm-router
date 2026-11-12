@@ -6,6 +6,8 @@
   const CUSTOM = 'custom'
 
   let {
+    part = 'full',
+    filterCount = 0,
     live,
     liveAvailable,
     severity,
@@ -19,7 +21,14 @@
     onrange,
     oncustomrange,
     onrefresh,
+    onfilters,
   }: {
+    /** full: everything (wide screens); bar: live, search and the filters button (phones);
+     *  settings: range, severity and refresh (the phone filters modal) */
+    part?: 'full' | 'bar' | 'settings'
+    /** shown on the filters button of the bar */
+    filterCount?: number
+    onfilters?: () => void
     live: boolean
     /** false while the range has a fixed end: nothing new can arrive */
     liveAvailable: boolean
@@ -46,15 +55,35 @@
   )
 </script>
 
+{#snippet liveButton(iconOnly: boolean)}
+  <Button
+    buttonStyle={live && liveAvailable ? 'prominent' : 'neutral'}
+    icon={{ name: live && liveAvailable ? 'sensors' : 'pause' }}
+    text={iconOnly ? undefined : t('metrics.logs.live.action')}
+    title={iconOnly ? t('metrics.logs.live.action') : undefined}
+    ariaLabel={iconOnly ? t('metrics.logs.live.action') : undefined}
+    disabled={!liveAvailable}
+    onclick={() => onlive(!live)}
+  />
+{/snippet}
+
+{#if part === 'bar'}
+  <HStack gap={2} valign="center">
+    {@render liveButton(true)}
+    <SearchField bind:value={search} placeholder={t('metrics.logs.search.placeholder')} fill="sm" />
+    <Button
+      buttonStyle={filterCount > 0 ? 'prominent' : 'neutral'}
+      icon={{ name: 'filter_list' }}
+      text={filterCount > 0 ? `${filterCount}` : undefined}
+      title={t('metrics.logs.filters.action')}
+      ariaLabel={t('metrics.logs.filters.action')}
+      onclick={() => onfilters?.()}
+    />
+  </HStack>
+{:else}
 <VStack gap={3}>
   <HStack gap={2} valign="center" wrap>
-    <Button
-      buttonStyle={live && liveAvailable ? 'prominent' : 'neutral'}
-      icon={{ name: live && liveAvailable ? 'sensors' : 'pause' }}
-      text={t('metrics.logs.live.action')}
-      disabled={!liveAvailable}
-      onclick={() => onlive(!live)}
-    />
+    {#if part === 'full'}{@render liveButton(false)}{/if}
     <Picker
       value={rangeId}
       options={rangeOptions}
@@ -90,6 +119,8 @@
     </HStack>
   {/if}
 
-  <SearchField bind:value={search} placeholder={t('metrics.logs.search.placeholder')} />
-
+  {#if part === 'full'}
+    <SearchField bind:value={search} placeholder={t('metrics.logs.search.placeholder')} />
+  {/if}
 </VStack>
+{/if}

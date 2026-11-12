@@ -20,13 +20,36 @@ func fileRequest(model string) *models.ChatCompletionRequest {
 	}
 }
 
-func TestRouterService_FileInputGate(t *testing.T) {
+func imageChatRequest(model string) *models.ChatCompletionRequest {
+	return &models.ChatCompletionRequest{
+		Model: models.ModelId(model),
+		Messages: []models.ChatMessage{{Role: "user", ContentParts: []models.ChatMessageContentPart{
+			{Type: "text", Text: "describe"},
+			{Type: "image_url", ImageURL: &models.ChatMessageImageURL{URL: "data:image/png;base64,iVBO"}},
+		}}},
+	}
+}
+
+func TestRouterService_InputModalityGate(t *testing.T) {
 	service, credentialService, modelInfoService, mock := setupSpeechRouter(t)
 	addTranscribeCred(t, credentialService, "Cred 1")
 	mock.infos = []models.ModelInfo{
 		{Name: "text-only", InputModalities: []string{"text", "image"}},
 		{Name: "doc-model", InputModalities: []string{"text", "file"}},
 		{Name: "undeclared"},
+	}
+	ctx0 := context.Background()
+	if _, err := modelInfoService.GetModelInfos(ctx0, "mock"); err != nil {
+		t.Fatalf("warm model cache: %v", err)
+	}
+	if _, err := service.Complete(ctx0, imageChatRequest("mock/doc-model"), nil); !errors.Is(err, apierrors.ErrInputNotSupported) {
+		t.Fatalf("image to doc-only model: got %v, want ErrInputNotSupported", err)
+	}
+	if _, err := service.Complete(ctx0, imageChatRequest("mock/text-only"), nil); err != nil {
+		t.Fatalf("image to image model: %v", err)
+	}
+	if _, err := service.Complete(ctx0, imageChatRequest("mock/undeclared"), nil); err != nil {
+		t.Fatalf("image to undeclared model: %v", err)
 	}
 	ctx := context.Background()
 	if _, err := modelInfoService.GetModelInfos(ctx, "mock"); err != nil {

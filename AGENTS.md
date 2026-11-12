@@ -262,7 +262,7 @@ Stop dev processes (backend graceful via admin API with kill fallback; frontend 
 - BAD: `kill`, `pkill`, `taskkill`, `Stop-Process`.
 - GOOD: `make stop`
 
-Rebuild and restart backend only, keeping live frontend and last start params (full start when frontend is down):
+Rebuild and restart the whole dev stack (stop + start, backend and frontend) with the last start params:
 
 - BAD: killing the backend process, restarting the binary by hand.
 - GOOD: `make restart`

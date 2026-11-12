@@ -11,9 +11,9 @@
   import CustomPoolModal from './components/CustomPoolModal.svelte'
   import HealthyProxies from './components/HealthyProxies.svelte'
 
-  export type ProxyTab = 'status' | 'sources' | 'pools'
+  export type ProxyTab = 'auto' | 'pools'
 
-  let { tab = 'status', ontabchange }: {
+  let { tab = 'auto', ontabchange }: {
     tab?: ProxyTab
     ontabchange?: (next: ProxyTab) => void
   } = $props()
@@ -33,7 +33,6 @@
   let savingSwitch = $state(false)
   const proxyEnabled = $derived(routerConfig?.proxy_enabled ?? true)
   const poolEnabled = $derived(routerConfig?.proxy_pool_enabled ?? true)
-  const discoveryOn = $derived(proxyEnabled && poolEnabled)
   const MAX_CHECKS_LIMIT = 2000
   let error = $state('')
   let deletePoolTarget = $state<ProxyPool | null>(null)
@@ -108,7 +107,6 @@
       const payload = { ...routerConfig, ...patch }
       await api.config.update(payload)
       routerConfig = payload
-      toast.success(t('settings.saved'))
       await loadStatus()
     } catch (e) {
       error = getErrorMessage(e)
@@ -283,79 +281,88 @@
   const queuedCount = $derived(status?.queued ?? 0)
   const forcedForeground = $derived(!!status?.forced_foreground)
 
-  const headerPrimary = $derived<HeaderAction | undefined>(
-    tab === 'pools'
-      ? undefined
-      : {
-          id: 'refresh',
-          text: requestingRefresh ? t('proxy.pool.refreshing') : t('proxy.pool.refresh'),
-          icon: 'refresh',
-          disabled: requestingRefresh || !discoveryOn,
-          onclick: () => void refreshPool(),
-        },
-  )
+  // The header's primary slot is the subsystem switch, drawn like the provider
+  // enable switch: a power icon, filled when on, soft when off. The open tab
+  // adds its actions beside it: pool maintenance on the auto tab while the
+  // auto pool runs, pool creation on the custom tab. With proxies off only
+  // the switch remains.
+  const headerPrimary = $derived<HeaderAction>({
+    id: 'proxy-switch',
+    text: proxyEnabled ? t('proxy.switch.enabled') : t('proxy.switch.turn_on'),
+    icon: 'power_settings_new',
+    iconOnly: true,
+    selected: proxyEnabled,
+    disabled: !routerConfig || savingSwitch,
+    onclick: () => void setSwitch({ proxy_enabled: !proxyEnabled }),
+  })
   const headerActions = $derived<HeaderAction[]>(
-    tab === 'pools'
+    !proxyEnabled
       ? []
-      : [
-          {
-            id: 'force',
-            text: t('proxy.force.action'),
-            icon: 'bolt',
-            loading: forcing || forcedForeground,
-            disabled: !discoveryOn || !statusLoaded || (queuedCount === 0 && !forcedForeground),
-            onclick: () => void forceChecks(),
-          },
-          { id: 'recheck', text: t('proxy.recheck_banned.action'), icon: 'lock_reset', loading: recheckingBanned, disabled: !discoveryOn, onclick: () => void recheckBanned() },
-        ],
+      : tab === 'pools'
+        ? [{ id: 'new-pool', text: t('proxy.custom_pools.new'), icon: 'add', onclick: () => openPoolModal('create') }]
+        : !poolEnabled
+          ? []
+          : [
+              {
+                id: 'force',
+                text: t('proxy.force.action'),
+                icon: 'bolt',
+                loading: forcing || forcedForeground,
+                disabled: !statusLoaded || (queuedCount === 0 && !forcedForeground),
+                onclick: () => void forceChecks(),
+              },
+              { id: 'recheck', text: t('proxy.recheck_banned.action'), icon: 'lock_reset', loading: recheckingBanned, onclick: () => void recheckBanned() },
+              {
+                id: 'refresh',
+                text: requestingRefresh ? t('proxy.pool.refreshing') : t('proxy.pool.refresh'),
+                icon: 'refresh',
+                disabled: requestingRefresh,
+                onclick: () => void refreshPool(),
+              },
+            ],
   )
 </script>
 
 
 <VStack gap={6}>
-  <Header title={t('proxy.title')} subtitle={t('proxy.pool.auto_refresh')} primary={headerPrimary} actions={headerActions} />
-
-  <Card>
-    <Grid min="md" gap={4}>
-      <VStack gap={1}>
-        <Toggle label={t('proxy.switch.enabled')} ariaLabel={t('proxy.switch.enabled')} checked={proxyEnabled} disabled={!routerConfig || savingSwitch} onchange={(value: boolean) => void setSwitch({ proxy_enabled: value })} />
-        <Text variant="caption">{t('proxy.switch.enabled_hint')}</Text>
-      </VStack>
-      <VStack gap={1}>
-        <Toggle label={t('proxy.switch.pool')} ariaLabel={t('proxy.switch.pool')} checked={poolEnabled} disabled={!routerConfig || savingSwitch || !proxyEnabled} onchange={(value: boolean) => void setSwitch({ proxy_pool_enabled: value })} />
-        <Text variant="caption">{t('proxy.switch.pool_hint')}</Text>
-      </VStack>
-    </Grid>
-  </Card>
-
-  {#if !proxyEnabled}
-    <Banner tint="warning" text={t('proxy.switch.off_banner')} />
-  {:else if !poolEnabled}
-    <Banner tint="info" text={t('proxy.switch.pool_off_banner')} />
-  {/if}
+  <Header title={t('proxy.title')} subtitle={t('proxy.subtitle')} primary={headerPrimary} actions={headerActions} />
 
   {#if error}
     <Banner tint="danger" text={error} />
   {/if}
 
-  {#if status?.last_error}
-    <Banner tint="danger" text={status.last_error} />
-  {/if}
-
+  {#if routerConfig && !proxyEnabled}
+    <VStack minHeight="50vh" valign="center" halign="center">
+      <ContentUnavailable icon="vpn_lock" title={t('proxy.off.title')} />
+    </VStack>
+  {:else}
   <Picker pickerStyle="segmented"
     value={tab}
     onchange={(next) => ontabchange?.(next as ProxyTab)}
     options={[
-      { value: 'status', label: t('proxy.pool.status') },
-      { value: 'sources', label: t('proxy.sources.title') },
+      { value: 'auto', label: t('proxy.tab.auto') },
       { value: 'pools', label: t('proxy.custom_pools.title') }
     ]}
     ariaLabel={t('proxy.title')}
   />
 
-  {#if loading && !status}
+  {#if tab === 'auto'}
+    <Card>
+      <VStack gap={1}>
+        <Toggle label={t('proxy.switch.pool')} ariaLabel={t('proxy.switch.pool')} checked={poolEnabled} disabled={!routerConfig || savingSwitch} onchange={(value: boolean) => void setSwitch({ proxy_pool_enabled: value })} />
+        <Text variant="caption">{poolEnabled ? t('proxy.pool.auto_refresh') : t('proxy.switch.pool_hint')}</Text>
+      </VStack>
+    </Card>
+  {/if}
+
+  {#if tab === 'auto' && !poolEnabled}
+    <!-- auto pool off: its statistics and settings have nothing to show -->
+  {:else if loading && !status}
     <ContentUnavailable title={t('common.state.loading')} />
-  {:else if tab === 'status'}
+  {:else if tab === 'auto'}
+    {#if status?.last_error}
+      <Banner tint="danger" text={status.last_error} />
+    {/if}
     {#if status}
       <Card>
         <Grid min="xs" gap={5}>
@@ -395,6 +402,49 @@
       </Card>
 
       <VStack gap={4}>
+        <SectionHeading title={t('proxy.sources.title')} subtitle={t('proxy.sources.desc')} />
+        <Table
+          columns={sourceColumns}
+          rows={mergedSources}
+          rowKey={(row) => (row as MergedSource).name}
+          loading={loading}
+        >
+          {#snippet cell({ column, row })}
+            {@const src = row as MergedSource}
+            {#if column.key === 'name'}
+              <Text variant="value">{src.name}</Text>
+              {#if src.configuration?.last_error}<Text tint="danger" variant="caption">{src.configuration.last_error}</Text>{/if}
+            {:else if column.key === 'fetched'}
+              {@const lf = src.configuration?.last_fetch_at}{#if lf && !lf.startsWith('0001-')}<RelativeTime date={lf} locale={locale()} />{:else}<Text size="sm">—</Text>{/if}
+            {:else if column.key === 'candidates'}
+              <Text size="sm">{src.configuration ? src.configuration.total : '—'}</Text>
+              {#if src.configuration && src.configuration.unsupported > 0}<Text variant="caption">{t('proxy.sources.unsupported')}: {src.configuration.unsupported}</Text>{/if}
+            {:else if column.key === 'alive'}
+              <Text size="sm" tint="success">{src.live?.alive ?? '—'}</Text>
+            {:else if column.key === 'suspect'}
+              <Text size="sm" tint="warning">{src.live?.suspect ?? '—'}</Text>
+            {:else if column.key === 'banned'}
+              <Text size="sm" tint="danger">{src.live?.banned ?? '—'}</Text>
+            {/if}
+          {/snippet}
+          {#snippet card({ row })}
+            {@const src = row as MergedSource}
+            <Text variant="value">{src.name}</Text>
+            {#if src.live}
+              <Text variant="caption">{t('proxy.pool.alive')}: {src.live.alive} · {t('proxy.pool.suspect')}: {src.live.suspect} · {t('proxy.pool.banned')}: {src.live.banned}</Text>
+            {/if}
+            {#if src.configuration}
+              <Text variant="caption">{t('proxy.sources.last_fetched')}: {formatTime(src.configuration.last_fetch_at)} · {t('proxy.sources.candidates')}: {src.configuration.total} · {t('proxy.sources.unsupported')}: {src.configuration.unsupported}</Text>
+            {/if}
+            {#if src.configuration?.last_error}<Text tint="danger" variant="caption">{src.configuration.last_error}</Text>{/if}
+          {/snippet}
+          {#snippet empty()}
+            <ContentUnavailable title={t('proxy.no_sources')} icon="extension" />
+          {/snippet}
+        </Table>
+      </VStack>
+
+      <VStack gap={4}>
         <SectionHeading title={t('proxy.pool.lanes')} />
         <Table columns={laneColumns} rows={status.lanes} rowKey={(lane) => lane.lane}>
           {#snippet cell({ column, row })}
@@ -432,56 +482,9 @@
     {:else}
       <ContentUnavailable title={t('common.state.loading')} />
     {/if}
-  {:else if tab === 'sources'}
-    <VStack gap={4}>
-      <SectionHeading title={t('proxy.sources.title')} subtitle={t('proxy.sources.desc')} />
-      <Table
-        columns={sourceColumns}
-        rows={mergedSources}
-        rowKey={(row) => (row as MergedSource).name}
-        loading={loading}
-      >
-        {#snippet cell({ column, row })}
-          {@const src = row as MergedSource}
-          {#if column.key === 'name'}
-            <Text variant="value">{src.name}</Text>
-            {#if src.configuration?.last_error}<Text tint="danger" variant="caption">{src.configuration.last_error}</Text>{/if}
-          {:else if column.key === 'fetched'}
-            {@const lf = src.configuration?.last_fetch_at}{#if lf && !lf.startsWith('0001-')}<RelativeTime date={lf} locale={locale()} />{:else}<Text size="sm">—</Text>{/if}
-          {:else if column.key === 'candidates'}
-            <Text size="sm">{src.configuration ? src.configuration.total : '—'}</Text>
-            {#if src.configuration && src.configuration.unsupported > 0}<Text variant="caption">{t('proxy.sources.unsupported')}: {src.configuration.unsupported}</Text>{/if}
-          {:else if column.key === 'alive'}
-            <Text size="sm" tint="success">{src.live?.alive ?? '—'}</Text>
-          {:else if column.key === 'suspect'}
-            <Text size="sm" tint="warning">{src.live?.suspect ?? '—'}</Text>
-          {:else if column.key === 'banned'}
-            <Text size="sm" tint="danger">{src.live?.banned ?? '—'}</Text>
-          {/if}
-        {/snippet}
-        {#snippet card({ row })}
-          {@const src = row as MergedSource}
-          <Text variant="value">{src.name}</Text>
-          {#if src.live}
-            <Text variant="caption">{t('proxy.pool.alive')}: {src.live.alive} · {t('proxy.pool.suspect')}: {src.live.suspect} · {t('proxy.pool.banned')}: {src.live.banned}</Text>
-          {/if}
-          {#if src.configuration}
-            <Text variant="caption">{t('proxy.sources.last_fetched')}: {formatTime(src.configuration.last_fetch_at)} · {t('proxy.sources.candidates')}: {src.configuration.total} · {t('proxy.sources.unsupported')}: {src.configuration.unsupported}</Text>
-          {/if}
-          {#if src.configuration?.last_error}<Text tint="danger" variant="caption">{src.configuration.last_error}</Text>{/if}
-        {/snippet}
-        {#snippet empty()}
-          <ContentUnavailable title={t('proxy.no_sources')} icon="extension" />
-        {/snippet}
-      </Table>
-    </VStack>
   {:else}
     <VStack gap={4}>
-      <SectionHeading title={t('proxy.custom_pools.title')} subtitle={t('proxy.custom_pools.desc')}>
-        {#snippet actions()}
-          <Button buttonStyle="prominent" onclick={() => openPoolModal('create')} icon={{ name: 'add' }}>{t('proxy.custom_pools.new')}</Button>
-        {/snippet}
-      </SectionHeading>
+      <Text variant="caption">{t('proxy.custom_pools.desc')}</Text>
       <Table
         columns={poolColumns}
         rows={pools}
@@ -549,6 +552,7 @@
         {/snippet}
       </Table>
     </VStack>
+  {/if}
   {/if}
 
   <FloatingView

@@ -100,9 +100,8 @@
     window.location.hash = '#/plugins/' + next
   }
 
-  let proxyTab = $derived<ProxyTab>(
-    routeSegments[0] === 'sources' ? 'sources' : routeSegments[0] === 'pools' ? 'pools' : 'status'
-  )
+  // Older links (#/proxy/status, #/proxy/sources) land on the auto pool tab.
+  let proxyTab = $derived<ProxyTab>(routeSegments[0] === 'pools' ? 'pools' : 'auto')
 
   let metricsTab = $derived<MetricsTab>(routeSegments[0] === 'logs' ? 'logs' : 'overview')
 

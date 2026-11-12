@@ -317,10 +317,12 @@ Parameters:
 Return values: `ChatCompletionResponse`. The `choices` array must be
 non-empty. Second slot is `nil` on success, terminal error table on failure.
 
-File parts reach a plugin only when its model card lists `file` in
-`input_modalities` or lists no input modalities at all: a card that declares
-modalities without `file` makes the router answer 400 before the handler
-runs.
+Image (`image_url`), audio (`input_audio`) and file parts reach a plugin
+only when its model card lists `image`, `audio` or `file` respectively in
+`input_modalities`, or lists no input modalities at all: a card that
+declares modalities without the one a part needs makes the router answer
+400 before the handler runs. A card must therefore list every input the
+model really takes.
 
 A model card's `reasoning` block follows OpenRouter: `supported_efforts`
 (highest first), `default_effort`, `default_enabled`, `mandatory` and
@@ -709,7 +711,7 @@ API signature:
 ```lua
 --- Check credential health.
 -- @param ctx table: execution context.
--- @param credential table: {id, data}.
+-- @param credential table: {id, label, data}.
 -- @return table: {status="healthy|unhealthy|unknown", message=optional string}.
 check_health = function(ctx, credential) return result end
 ```
@@ -1307,13 +1309,14 @@ API signature:
 
 ```lua
 --- List usable credentials.
--- @return table: array of {id, data}.
+-- @return table: array of {id, label, data}.
 local list = llm_router.credentials.list()
 ```
 
 Parameters: none.
 
-Return values: array `[{id, data}]` filtered by the router-token allow-list;
+Return values: array `[{id, label, data}]` filtered by the router-token allow-list
+(`label` is the dashboard name of the key: errors that blame one key name it);
 parked rows are skipped automatically, disabled and denied rows are skipped.
 An absent allow-list (admin probes, jobs, lifecycle hooks) means unrestricted.
 The router rejects a request before the plugin runs when the token rules
@@ -1337,13 +1340,13 @@ API signature:
 ```lua
 --- Fetch one credential.
 -- @param id string: credential identifier.
--- @return table|nil: {id, data} or nil when missing, disabled, or denied. No error is raised.
+-- @return table|nil: {id, label, data} or nil when missing, disabled, or denied. No error is raised.
 local item = llm_router.credentials.get(id)
 ```
 
 Parameters: `id` credential identifier string.
 
-Return values: `{id, data}` table or `nil`.
+Return values: `{id, label, data}` table or `nil`.
 
 Example:
 

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import {
-    Banner, Button, Card, ContentUnavailable, HStack, Spacer, Table, VStack, modal,
+    Banner, Button, Card, ContentUnavailable, HStack, Spacer, Table, Text, VStack, modal,
     type TableColumn,
   } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
@@ -11,6 +11,7 @@
     mergeEntries, observedValues, rangeBounds, selectableKeys, toDateTimeLocal, withFilter,
   } from '$lib/events'
   import { locale, t } from '$lib/i18n.svelte'
+  import { viewport } from '$lib/viewport.svelte'
   import type { EventEntry, EventKeyFilter } from '$lib/types'
   import LogDetail from './LogDetail.svelte'
   import LogFacets from './LogFacets.svelte'
@@ -31,8 +32,10 @@
   // Events around a picked one: this many ms on each side.
   const AROUND_SPAN = 30_000
 
-  let severity = $state(1)
-  let rangeId = $state('1h')
+  const DEFAULT_SEVERITY = 1
+  const DEFAULT_RANGE = '1h'
+  let severity = $state(DEFAULT_SEVERITY)
+  let rangeId = $state(DEFAULT_RANGE)
   let customStart = $state('')
   let customEnd = $state('')
   let filters = $state.raw<EventKeyFilter[]>([])
@@ -60,6 +63,16 @@
   const visible = $derived(needle === '' ? entries : entries.filter((entry) => matchesSearch(entry, needle)))
   const keys = $derived(selectableKeys(entries))
   const facets = $derived(facetGroups(entries, FACET_KEYS, 8))
+
+  // Phones: range, severity, the key filter builder and the facets move into a modal; the page
+  // keeps live, search, the active filter chips and the table.
+  const filterCount = $derived(
+    (rangeId !== DEFAULT_RANGE ? 1 : 0) + (severity !== DEFAULT_SEVERITY ? 1 : 0) + filters.length,
+  )
+
+  function openFilters(): void {
+    modal.open({ title: t('metrics.logs.filters.action'), size: 'md', contentSnippet: filtersBody })
+  }
 
   // Rows carry a date too once the range can span midnight.
   const longRange = $derived(bounds.start === null || (bounds.end ?? clock) - bounds.start >= 86_400_000)
@@ -263,8 +276,10 @@
   })
 </script>
 
-<VStack gap={4} grow>
+{#snippet toolbar(part: 'full' | 'bar' | 'settings')}
   <LogToolbar
+    {part}
+    {filterCount}
     {live}
     {liveAvailable}
     {severity}
@@ -278,15 +293,42 @@
     onrange={setRange}
     oncustomrange={() => void reload()}
     onrefresh={() => void reload()}
+    onfilters={openFilters}
   />
+{/snippet}
 
-  <LogFilterBuilder {filters} {keys} valuesFor={(key) => observedValues(entries, key, VALUE_OPTIONS_LIMIT)} onchange={applyFilters} />
+{#snippet filterBuilder(part: 'all' | 'chips')}
+  <LogFilterBuilder {part} {filters} {keys} valuesFor={(key) => observedValues(entries, key, VALUE_OPTIONS_LIMIT)} onchange={applyFilters} />
+{/snippet}
+
+<!-- the phone filters modal: closes over this tab's state, so it stays live while open -->
+{#snippet filtersBody()}
+  <VStack gap={5}>
+    {@render toolbar('settings')}
+    {@render filterBuilder('all')}
+    {#if facets.length > 0}
+      <VStack gap={3}>
+        <Text variant="label">{t('metrics.logs.facets.title')}</Text>
+        <LogFacets groups={facets} onfilter={(key, value) => addFilter(key, value, false)} />
+      </VStack>
+    {/if}
+  </VStack>
+{/snippet}
+
+<VStack gap={4} grow>
+  {#if viewport.mobile}
+    {@render toolbar('bar')}
+    {#if filters.length > 0}{@render filterBuilder('chips')}{/if}
+  {:else}
+    {@render toolbar('full')}
+    {@render filterBuilder('all')}
+  {/if}
 
   {#if error}
     <Banner tint="danger" text={error} />
   {/if}
 
-  {#if facets.length > 0}
+  {#if facets.length > 0 && !viewport.mobile}
     <Card collapsible title={t('metrics.logs.facets.title')} bind:open={facetsOpen}>
       <LogFacets groups={facets} onfilter={(key, value) => addFilter(key, value, false)} />
     </Card>

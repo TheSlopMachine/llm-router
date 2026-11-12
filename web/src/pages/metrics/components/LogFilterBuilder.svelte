@@ -5,7 +5,9 @@
   import { t } from '$lib/i18n.svelte'
   import type { EventKeyFilter } from '$lib/types'
 
-  let { filters, keys, valuesFor, onchange }: {
+  let { part = 'all', filters, keys, valuesFor, onchange }: {
+    /** all: builder row and active chips; chips: the chips only (the phone page, the row lives in the filters modal) */
+    part?: 'all' | 'chips'
     filters: EventKeyFilter[]
     keys: string[]
     /** values the key takes in the loaded events; those events already obey the applied filters */
@@ -41,6 +43,7 @@
 </script>
 
 <VStack gap={3}>
+  {#if part !== 'chips'}
   <HStack gap={2} valign="center" wrap>
     <Picker
       value={key}
@@ -96,6 +99,7 @@
       />
     {/if}
   </HStack>
+  {/if}
 
   {#if filters.length > 0}
     <HStack gap={2} valign="center" wrap>

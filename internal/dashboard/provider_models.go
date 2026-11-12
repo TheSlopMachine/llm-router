@@ -2,7 +2,9 @@ package dashboard
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/modelinfo"
@@ -30,7 +32,7 @@ func (h *Handler) apiProviderModels(w http.ResponseWriter, r *http.Request) {
 	views, err := h.gormModelInfoService.MergedView(r.Context(), providerID)
 	if err != nil {
 		h.logError("Failed to read provider models", "provider_id", providerID, "error", err)
-		h.jsonErr(w, http.StatusBadGateway, err.Error())
+		h.jsonErr(w, http.StatusBadGateway, discoveryErrorMessage(err))
 		return
 	}
 	if views == nil {
@@ -151,12 +153,27 @@ func (h *Handler) apiProviderModelDeleteOverride(w http.ResponseWriter, r *http.
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// discoveryErrorMessage is what the dashboard shows for a failed model list:
+// the plugin's own message (it names the key and quotes the upstream), not
+// the Go wrapping chain, which goes to the log.
+func discoveryErrorMessage(err error) string {
+	var providerErr *models.ProviderError
+	if errors.As(err, &providerErr) && strings.TrimSpace(providerErr.Message) != "" {
+		return providerErr.Message
+	}
+	var internalErr *models.PluginInternalError
+	if errors.As(err, &internalErr) {
+		return "plugin failed: " + internalErr.Cause
+	}
+	return err.Error()
+}
+
 // apiProviderModelsRefresh fetches the provider model list again. The
 // previous list stays live until a new one arrives: a failed fetch keeps
-// serving the stale list instead of wiping it. Managed virtual models
-// refresh their members on a successful import.
+// the stale list cached instead of wiping it and answers 502 with the reason.
+// Managed virtual models refresh their members on a successful import.
 // @Summary      Refresh provider models
-// @Description  Fetches the model list from the provider again; the previous list stays until a new one arrives.
+// @Description  Fetches the model list from the provider again; on failure the previous list stays cached and the reason comes back as 502.
 // @Tags         Providers
 // @Produce      json
 // @Param        id path string true "Provider ID"
@@ -173,14 +190,18 @@ func (h *Handler) apiProviderModelsRefresh(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if _, err := h.gormModelInfoService.Refresh(r.Context(), providerID); err != nil {
-		h.logWarn("Model refresh failed, serving stale list", "provider_id", providerID, "error", err)
-	} else if _, err := h.gormVirtualService.SyncProviderModels(r.Context(), providerID); err != nil {
+		// The stale list stays in the cache; the caller still learns why the import failed.
+		h.logWarn("Model refresh failed, keeping stale list", "provider_id", providerID, "error", err)
+		h.jsonErr(w, http.StatusBadGateway, discoveryErrorMessage(err))
+		return
+	}
+	if _, err := h.gormVirtualService.SyncProviderModels(r.Context(), providerID); err != nil {
 		h.logWarn("Managed virtual models sync failed", "provider_id", providerID, "error", err)
 	}
 	views, err := h.gormModelInfoService.MergedView(r.Context(), providerID)
 	if err != nil {
 		h.logError("Failed to read provider models", "provider_id", providerID, "error", err)
-		h.jsonErr(w, http.StatusBadGateway, err.Error())
+		h.jsonErr(w, http.StatusBadGateway, discoveryErrorMessage(err))
 		return
 	}
 	h.logInfo("Provider models refreshed", "provider_id", providerID, "count", len(views))
