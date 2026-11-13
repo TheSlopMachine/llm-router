@@ -154,6 +154,8 @@
           title={plugin.display_name}
           version={`v${plugin.version}`}
           description={plugin.description}
+          iconUrl={plugin.icon_url}
+          subsystems={plugin.subsystems}
           mode="installed"
           unsafe={plugin.unsafe}
           disabled={plugin.disabled ?? false}

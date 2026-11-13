@@ -1,13 +1,16 @@
 <script lang="ts">
-  import { Button, FloatingView, HStack, VStack, Text, Chip, Spacer, Toggle } from '@fuckyouryan/fui'
+  import { Button, FloatingView, HStack, VStack, Text, Chip, Spacer, Toggle, Image } from '@fuckyouryan/fui'
   import InstallConfirm from './InstallConfirm.svelte'
   import { t } from '$lib/i18n.svelte'
   import { viewport } from '$lib/viewport.svelte'
+  import { subsystemIcon } from '$lib/subsystems'
 
   let {
     title,
     version,
     description = '',
+    iconUrl = '',
+    subsystems = [],
     mode,
     unsafe = false,
     disabled = false,
@@ -30,6 +33,8 @@
     title: string
     version: string
     description?: string
+    iconUrl?: string
+    subsystems?: string[]
     mode: 'installed' | 'uninstalled'
     unsafe?: boolean
     disabled?: boolean
@@ -66,6 +71,16 @@
 </script>
 
 <div class="plugin-card-row">
+  <Image
+    src={iconUrl}
+    width="var(--fui-size-icon-lg)"
+    height="var(--fui-size-icon-lg)"
+    fit="contain"
+    radius="sm"
+    fallbackIcon={subsystemIcon(subsystems)}
+    style="--fui-icon-size: var(--fui-size-icon-lg); flex: none"
+  />
+  <div class="plugin-card-content">
   <HStack valign="center" gap={4} wrap>
     <HStack valign="center" gap={2} wrap class="plugin-title">
       <span class="plugin-name"><Text variant="value">{title}</Text></span>
@@ -80,7 +95,7 @@
         {#if isManual}
           <Button
             buttonStyle="neutral"
-            size="md"
+            size="sm"
             icon={{ name: 'upload_file' }}
             title={t('plugins.update_from_file')}
             ariaLabel={t('plugins.update_from_file')}
@@ -90,7 +105,7 @@
         {#if hasUpdate}
           <Button
             buttonStyle="neutral"
-            size="md"
+            size="sm"
             icon={{ name: 'upgrade' }}
             title={t('common.actions.update')}
             ariaLabel={t('common.actions.update')}
@@ -99,7 +114,7 @@
         {/if}
         <Button
           buttonStyle="text"
-          size="md"
+          size="sm"
           tint="var(--fui-color-danger)"
           icon={{ name: 'delete' }}
           title={t('common.actions.delete')}
@@ -127,6 +142,7 @@
   {#if description}
     <Text variant="subtitle">{description}</Text>
   {/if}
+  </div>
 
   <FloatingView
     open={confirmOpen}
@@ -153,11 +169,18 @@
 
 <style>
   .plugin-card-row {
-    padding: var(--fui-space-4);
+    padding: var(--fui-space-3);
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--fui-space-3);
+  }
+  .plugin-card-content {
+    flex: 1;
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--fui-space-1);
+    gap: 0;
   }
   .plugin-card-row :global(.plugin-title) {
     flex: 1 1 var(--fui-grid-min-lg);

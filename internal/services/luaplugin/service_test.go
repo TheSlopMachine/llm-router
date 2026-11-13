@@ -103,7 +103,7 @@ func TestInstallRejectsBadIcon(t *testing.T) {
 		"wrong scheme":   `icon = "ftp://example.com/icon.svg"`,
 		"http not https": `icon = "http://example.com/icon.svg"`,
 		"non-string":     `icon = 42`,
-		"oversized data": `icon = "data:image/svg+xml,` + strings.Repeat("a", 40<<10) + `"`,
+		"oversized data": `icon = "data:image/svg+xml,` + strings.Repeat("a", 70<<10) + `"`,
 		"data non-image": `icon = "data:text/plain,hello"`,
 	}
 	for name, iconLine := range cases {

@@ -191,6 +191,8 @@ type storeFileView struct {
 	Description      string   `json:"description"`
 	AllowHosts       []string `json:"allow_hosts"`
 	Unsafe           bool     `json:"unsafe"`
+	Subsystems       []string `json:"subsystems"`
+	IconURL          string   `json:"icon_url"`
 	Installed        bool     `json:"installed"`
 	InstalledVersion string   `json:"installed_version"`
 	UpdateAvailable  bool     `json:"update_available"`
@@ -223,6 +225,13 @@ func (h *Handler) describeFiles(r *http.Request, repoID string, files []pluginre
 			view.Description = manifest.Description
 			view.AllowHosts = append([]string{}, manifest.AllowHosts...)
 			view.Unsafe = manifest.Unsafe
+			view.Subsystems = []string{}
+			if description, err := h.luaService.Describe(source, manifest); err == nil {
+				view.Subsystems = description.Subsystems
+				view.IconURL = description.Icon
+			} else {
+				h.logDebug("Plugin description failed", "repository_id", repoID, "path", file.Path, "error", err)
+			}
 			if id, err := luaplugin.BuildID(luaplugin.PluginOrigin{RepoID: repoID, Path: file.Path}, manifest); err == nil {
 				if existing, err := h.luaService.GetSQLite(r.Context(), id); err == nil && existing != nil {
 					view.Installed = true

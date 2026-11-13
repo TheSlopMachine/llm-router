@@ -110,6 +110,22 @@ func withTokenRules(ctx context.Context, token *models.RouterToken) context.Cont
 	return context.WithValue(ctx, tokenRulesCtxKey{}, &rules)
 }
 
+// virtualGrantCtxKey marks routing steps reached through a virtual model
+// the token allows. A virtual model grant covers its members when they are
+// called through it: member calls skip the model gate, and member providers
+// the token does not allow use every credential. Members stay closed to
+// direct calls.
+type virtualGrantCtxKey struct{}
+
+func withVirtualGrant(ctx context.Context) context.Context {
+	return context.WithValue(ctx, virtualGrantCtxKey{}, true)
+}
+
+func viaVirtualGrant(ctx context.Context) bool {
+	granted, _ := ctx.Value(virtualGrantCtxKey{}).(bool)
+	return granted
+}
+
 // effectiveToken resolves the credential policy for a routing step: the
 // explicit token wins, otherwise the outer snapshot from ctx applies,
 // otherwise the call is unrestricted.
@@ -248,7 +264,13 @@ func (s *Service) gateCredentials(ctx context.Context, resolved *provider.Resolv
 			"token_id", tokenIdentifier(token))
 		return nil, nil, fmt.Errorf("%w for provider %q", apierrors.ErrNoCredential, instance.Name)
 	}
-	filtered := s.filterCredentials(instance.ID, credentials, effectiveToken(ctx, token))
+	policy := effectiveToken(ctx, token)
+	if policy != nil && viaVirtualGrant(ctx) && !policy.Rules.AllowsProvider(instance.ID) {
+		// The provider is reachable only as a member of a granted virtual
+		// model; the token has no credential rules for it.
+		policy = nil
+	}
+	filtered := s.filterCredentials(instance.ID, credentials, policy)
 	if len(filtered) == 0 {
 		s.debug("Denying request with no allowed credentials",
 			"provider_id", instance.ID, "model", model.String(),

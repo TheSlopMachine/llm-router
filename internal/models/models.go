@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Plugin API history lives with luaplugin.PluginAPIVersion (1.6).
+// Plugin API history lives with luaplugin.PluginAPIVersion (1.7).
 // Past router contract notes:
 //
 // 0.0.5 adds the transcribe handler and llm_router.multipart.

@@ -349,6 +349,8 @@
                   title={f.display_name || f.path}
                   version={`v${plugin.version}`}
                   description={f.description}
+                  iconUrl={plugin.icon_url}
+                  subsystems={plugin.subsystems}
                   mode="installed"
                   unsafe={plugin.unsafe}
                   disabled={plugin.disabled ?? false}
@@ -369,6 +371,8 @@
                   title={f.display_name || f.path}
                   version={f.version ? `v${f.version}` : ''}
                   description={f.description}
+                  iconUrl={f.icon_url}
+                  subsystems={f.subsystems}
                   mode="uninstalled"
                   unsafe={f.unsafe}
                   installing={installingPath === key}

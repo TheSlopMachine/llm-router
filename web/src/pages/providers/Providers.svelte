@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { Button, Text, Toggle, Banner, Icon, Table, Header, HStack, VStack, type TableColumn, ContentUnavailable, squircle } from '@fuckyouryan/fui'
+  import { Text, Toggle, Banner, Image, Table, Header, HStack, VStack, type TableColumn, ContentUnavailable } from '@fuckyouryan/fui'
+  import { PROVIDERS_ICON } from '$lib/subsystems'
   import { openFormModal } from '$lib/modal-helpers'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -53,6 +54,18 @@
   }
 </script>
 
+{#snippet providerIcon(provider: Provider)}
+  <Image
+    src={provider.icon_url}
+    width="var(--fui-size-icon-lg)"
+    height="var(--fui-size-icon-lg)"
+    fit="contain"
+    radius="sm"
+    fallbackIcon={PROVIDERS_ICON}
+    style="--fui-icon-size: var(--fui-size-icon-lg); flex: none"
+  />
+{/snippet}
+
 <VStack gap={6}>
   <Header title={t('providers.list.title')} subtitle={t('providers.list.subtitle')} primary={{ id: 'new', text: t('providers.actions.new'), icon: 'add', onclick: openCreate }} />
 
@@ -75,12 +88,8 @@
         {@const provider = row as Provider}
         {@const stats = resource.data.providerStats[provider.id] || null}
         {#if column.key === 'name'}
-          <HStack gap={3} valign="center">
-            {#if provider.icon_url}
-              <img src={provider.icon_url} alt="" class="provider-icon" use:squircle />
-            {:else}
-              <span class="provider-icon-fallback"><Icon name="cloud" size="xl" /></span>
-            {/if}
+          <HStack gap={4} valign="center">
+            {@render providerIcon(provider)}
             <VStack gap={1}>
               <Text variant="value">{provider.name}</Text>
               <Text variant="caption">{provider.type}{provider.qualifier ? ':' + provider.qualifier : ''}</Text>
@@ -111,12 +120,8 @@
       {#snippet card({ row })}
         {@const provider = row as Provider}
         {@const stats = resource.data.providerStats[provider.id] || null}
-        <HStack gap={3} valign="center">
-          {#if provider.icon_url}
-            <img src={provider.icon_url} alt="" class="provider-icon" use:squircle />
-          {:else}
-            <span class="provider-icon-fallback"><Icon name="cloud" size="xl" /></span>
-          {/if}
+        <HStack gap={4} valign="center">
+          {@render providerIcon(provider)}
           <VStack gap={1} grow>
             <Text variant="value">{provider.name}</Text>
             <Text variant="caption">{provider.type}{provider.qualifier ? ':' + provider.qualifier : ''}</Text>
@@ -146,24 +151,6 @@
 </VStack>
 
 <style>
-  .provider-icon {
-    width: var(--fui-size-icon-lg);
-    height: var(--fui-size-icon-lg);
-    border-radius: var(--fui-radius-sm);
-    object-fit: contain;
-    flex-shrink: 0;
-  }
-  .provider-icon-fallback {
-    width: var(--fui-size-icon-lg);
-    height: var(--fui-size-icon-lg);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--fui-color-surface-container-highest);
-    border-radius: var(--fui-radius-sm);
-    color: var(--fui-color-text-soft);
-    flex-shrink: 0;
-  }
   .col-toggle {
     display: flex;
     justify-content: flex-end;

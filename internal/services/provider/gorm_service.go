@@ -53,6 +53,15 @@ func (s *GormService) SetLuaService(service *luaplugin.Service) { s.luaService =
 // LuaService returns the wired Lua plugin service, if any.
 func (s *GormService) LuaService() *luaplugin.Service { return s.luaService }
 
+// Icon returns the icon of a provider instance: its own icon when set,
+// otherwise the icon declared by its plugin type, otherwise empty.
+func (s *GormService) Icon(instance *models.ProviderInstance) string {
+	if instance.IconURL != "" || s.luaService == nil {
+		return instance.IconURL
+	}
+	return s.luaService.Icon(instance.TypeKey)
+}
+
 // SetOnChanged registers a callback fired after provider create/update/delete.
 func (s *GormService) SetOnChanged(function func(providerID string)) { s.onChanged = function }
 

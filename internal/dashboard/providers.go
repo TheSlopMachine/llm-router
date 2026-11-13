@@ -37,7 +37,7 @@ func toProviderView(provider *models.ProviderInstance, providerService *provider
 	baseURL, _ := config["base_url"].(string)
 	return providerView{
 		ID: provider.ID, Name: provider.Name, TypeKey: provider.TypeKey, Type: provider.TypeKey,
-		Qualifier: provider.Qualifier, Config: config, BaseURL: baseURL, IconURL: provider.IconURL,
+		Qualifier: provider.Qualifier, Config: config, BaseURL: baseURL, IconURL: providerService.Icon(provider),
 		SupportsAuthFlow: providerService.SupportsAuthFlow(provider.TypeKey),
 		IsUIReadonly:     provider.IsUIReadonly, IsUIHidden: provider.IsUIHidden,
 		Disabled: provider.Disabled, DisabledBy: provider.DisabledBy, DisabledReason: provider.DisabledReason,

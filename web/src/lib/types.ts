@@ -446,6 +446,8 @@ export interface Plugin {
   unsafe: boolean
   disabled: boolean
   type_keys: string[]
+  subsystems: string[]
+  icon_url: string
   origin: { repo_id: string; path: string; manual: boolean }
   installed_at: string
   updated_at: string
@@ -469,6 +471,8 @@ export interface StoreFile {
   description: string
   allow_hosts: string[]
   unsafe: boolean
+  subsystems: string[]
+  icon_url: string
   installed: boolean
   installed_version: string
   update_available: boolean

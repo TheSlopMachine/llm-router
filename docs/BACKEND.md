@@ -27,7 +27,7 @@ internal/services/
   virtual/               virtual models (fall-through lists + instruction)
   responses/             router-side compat records (responses, conversations, assistants, threads, messages, runs)
   batches/               router-side Anthropic message batches (entries + JSONL-ready results)
-  luaplugin/             Lua execution core: manifest, author/plugin-name plugin identity, sandbox, pooled states per plugin bucket, HTTP+SSRF, storage+TTL, credentials/proxies tables, jobs
+  luaplugin/             Lua execution core: manifest, author/plugin-name plugin identity, sandbox, pooled states per plugin bucket, HTTP+SSRF, storage+TTL, credentials/proxies tables, jobs, catalog descriptions (`describe.go`: subsystems and icon of an uninstalled source, cached by digest)
   pluginrepo/            plugin store: single-URL index repos (repo URL or direct index.json, files resolved against the index directory); code-defined built-in repos (`BuiltinRepos`, seeded on startup, protected from removal)
   modelinfo/             model metadata cache (1h TTL)
   metrics/               1m buckets with dimension children, 90d retention
@@ -83,11 +83,14 @@ Keep changes shallow. Touch service internals only when the task requires it.
 - `allowDisabled` probe paths bypass the disabled gate; virtual short-circuit
   runs before the credential gate.
 - Virtual models fan out through the router re-entrantly in list order. The
-  outer token rules travel in ctx (`router/service.go:withTokenRules`); inner
-  member calls inherit them, re-check provider/model rules (`tokenDenies`)
-  and recompute the credential gate per member. A denied member fails over
-  like an unavailable one, so a token needs every member it may reach.
-  `nil` token with no snapshot stays unrestricted (admin probes only).
+  outer token rules travel in ctx (`router/service.go:withTokenRules`).
+  Resolving a virtual model marks ctx with the virtual grant
+  (`withVirtualGrant`): member calls under it skip the provider/model rules,
+  and the credential gate applies the token's credential rules only to
+  member providers the token allows; other member providers use every
+  credential. Members stay closed to direct calls. A member denied by
+  credential rules fails over like an unavailable one. `nil` token with no
+  snapshot stays unrestricted (admin probes only).
 - Response model identity: non-virtual chat and embeddings responses carry
   the routed id (`router/service.go` for unary, `router/model_stamp.go`
   rewriting every SSE data frame for streams). Virtual requests pass the

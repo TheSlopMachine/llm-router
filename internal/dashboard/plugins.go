@@ -28,6 +28,8 @@ type pluginView struct {
 	Unsafe       bool                   `json:"unsafe"`
 	Disabled     bool                   `json:"disabled"`
 	TypeKeys     []string               `json:"type_keys"`
+	Subsystems   []string               `json:"subsystems"`
+	IconURL      string                 `json:"icon_url"`
 	Origin       luaplugin.PluginOrigin `json:"origin"`
 	InstalledAt  time.Time              `json:"installed_at"`
 	UpdatedAt    time.Time              `json:"updated_at"`
@@ -43,7 +45,7 @@ func toPluginView(record *luaplugin.PluginRecord) pluginView {
 		Version: record.Version, PluginAPI: record.PluginAPI,
 		Description: record.Description, License: record.License,
 		AllowHosts: allowHosts, Unsafe: record.Unsafe, Disabled: record.Disabled,
-		TypeKeys: typeKeys, Origin: record.Origin,
+		TypeKeys: typeKeys, Subsystems: record.Subsystems(), IconURL: record.Icon(), Origin: record.Origin,
 		InstalledAt: record.InstalledAt, UpdatedAt: record.UpdatedAt,
 		HistoryCount: len(record.History),
 	}
@@ -54,7 +56,7 @@ func toPluginView(record *luaplugin.PluginRecord) pluginView {
 // @Description  Returns all installed Lua plugins.
 // @Tags         Plugins
 // @Produce      json
-// @Success      200 {array} object{id=string,display_name=string,author=string,version=string,allow_hosts=[]string,unsafe=bool,disabled=bool,type_keys=[]string}
+// @Success      200 {array} object{id=string,display_name=string,author=string,version=string,allow_hosts=[]string,unsafe=bool,disabled=bool,type_keys=[]string,subsystems=[]string,icon_url=string}
 // @Failure      401 {object} models.ErrorResponse
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugins [get]

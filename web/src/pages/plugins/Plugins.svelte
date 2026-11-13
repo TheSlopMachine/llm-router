@@ -112,27 +112,30 @@
     <ContentUnavailable title={t('common.state.loading')} />
   {:else if resource.error && resource.data.plugins.length === 0 && resource.data.repos.length === 0}
     <Banner tint="danger" text={resource.error} />
-  {:else if tab === 'installed'}
-    <InstalledTab
-      plugins={resource.data.plugins}
-      updates={resource.data.updates}
-      repos={resource.data.repos}
-      {knownRepoIDs}
-      onPluginSaved={applySaved}
-      onPluginRemoved={applyRemoved}
-      onBrowseCatalog={() => ontabchange('catalog')}
-    />
   {:else}
-    <CatalogTab
-      repos={resource.data.repos}
-      plugins={resource.data.plugins}
-      updates={resource.data.updates}
-      onPluginSaved={applySaved}
-      onPluginRemoved={applyRemoved}
-      onUpdatesRefresh={refreshUpdates}
-      onRepoAdded={applyRepoAdded}
-      onRepoRemoved={applyRepoRemoved}
-      onRefreshRepos={refreshRepos}
-    />
+    <div style:display={tab === 'installed' ? undefined : 'none'}>
+      <InstalledTab
+        plugins={resource.data.plugins}
+        updates={resource.data.updates}
+        repos={resource.data.repos}
+        {knownRepoIDs}
+        onPluginSaved={applySaved}
+        onPluginRemoved={applyRemoved}
+        onBrowseCatalog={() => ontabchange('catalog')}
+      />
+    </div>
+    <div style:display={tab === 'catalog' ? undefined : 'none'}>
+      <CatalogTab
+        repos={resource.data.repos}
+        plugins={resource.data.plugins}
+        updates={resource.data.updates}
+        onPluginSaved={applySaved}
+        onPluginRemoved={applyRemoved}
+        onUpdatesRefresh={refreshUpdates}
+        onRepoAdded={applyRepoAdded}
+        onRepoRemoved={applyRepoRemoved}
+        onRefreshRepos={refreshRepos}
+      />
+    </div>
   {/if}
 </VStack>

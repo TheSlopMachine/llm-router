@@ -5,7 +5,7 @@ handler, argument table, return shape and error form listed here is enforced
 by the core: schema violations become `PluginInternalError` and are recorded
 as plugin crashes.
 
-Plugin API: **1.6** (`luaplugin.PluginAPIVersion`). A plugin declares the
+Plugin API: **1.7** (`luaplugin.PluginAPIVersion`). A plugin declares the
 `@plugin_api` contract it speaks; the router label (`main.RouterVersion`,
 stamped from the release tag) carries no compatibility meaning. Install,
 rollback, and the startup registry compare majors only: plugin major above
@@ -136,6 +136,10 @@ fails install. Handler bodies do not run during dry-run. Dry-run validates
 handlers, icon, model specifications, health cooldown, schemas, locales, and
 jobs. The `credentials` and `proxies` tables are absent during dry-run.
 
+The plugin catalog runs the same dry-run on repository files that are not
+installed, to read their subsystems and icon. That run has no `storage` and no
+log sink, and stops after 5 seconds with an error.
+
 API signatures:
 
 ```lua
@@ -160,6 +164,7 @@ Parameters:
 | Static tables | `credential_schema`, `config_schema`, `settings_schema`, `proxy_schema`, `locales`, `jobs`, `model_specs`. Each must be a table when present. |
 | Optional values | `icon`, `healthcheck_cooldown`. See static metadata section. |
 | `source.fetch_proxies` | Required function for proxy sources. |
+| `source.icon` | Optional, same rules as the `icon` value. |
 
 Return values: registration returns no value. Duplicate keys raise an error.
 Invalid shapes fail dry-run.
@@ -1964,18 +1969,31 @@ locales = {
 
 ### `icon`
 
-High-level description: dashboard icon selector.
+High-level description: dashboard icon of the plugin and of its providers.
+Valid in `register` and `register_proxy_source` tables.
 
 API signature:
 
 ```lua
---- @param icon string: empty string, https:// URL, or data:image/ URI. Maximum 32 KiB.
+--- @param icon string: empty string, https:// URL, or data:image/ URI. Maximum 64 KiB.
 icon = "https://example.com/icon.png"
 ```
 
 Parameters: `icon` string.
 
-Return behavior: empty means no icon. Other schemes fail install.
+Return behavior: absent or empty means no icon. Other schemes fail install.
+The dashboard shows the icon of the first type key (sorted) that declares one
+as the plugin icon, and the icon of a provider's type key as the provider icon
+unless the provider has its own. Without an icon, or when the image fails to
+load, the dashboard shows the icon of the plugin's subsystem. A `data:image/`
+value needs no network access: declare it as a local above the registration,
+at most 256x256 pixels.
+
+```lua
+local ICON = "data:image/png;base64,iVBORw0KGgo..."
+
+llm_router.register("example", { icon = ICON, complete = function(ctx, request) end })
+```
 
 ### `model_specs`
 

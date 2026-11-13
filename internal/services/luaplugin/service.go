@@ -123,6 +123,9 @@ type Service struct {
 
 	eventsService *events.Service
 
+	// descriptions memoizes Describe results for catalog sources.
+	descriptions descriptionCache
+
 	logMu   sync.Mutex
 	crashes map[string][]CrashEntry
 
@@ -469,9 +472,28 @@ func (s *Service) Registered() []string {
 	return keys
 }
 
-// Get returns a plugin record by composite ID.
 // maxPluginIconBytes caps an icon value (data-URI icons live in SQLite).
-const maxPluginIconBytes = 32 << 10
+const maxPluginIconBytes = 64 << 10
+
+// dryRunTimeout bounds the execution of plugin top-level code.
+const dryRunTimeout = 5 * time.Second
+
+// readIcon extracts the optional icon field of a registration table.
+// Absent and empty mean no icon.
+func readIcon(table *lua.LTable, typeKey string) (string, error) {
+	value := table.RawGetString("icon")
+	if value == lua.LNil {
+		return "", nil
+	}
+	icon, ok := value.(lua.LString)
+	if !ok {
+		return "", fmt.Errorf("plugin type %q: icon must be a string", typeKey)
+	}
+	if err := validateIcon(typeKey, string(icon)); err != nil {
+		return "", err
+	}
+	return string(icon), nil
+}
 
 // validateIcon accepts empty (no icon), https:// URLs and data:image URIs.
 func validateIcon(typeKey, value string) error {
@@ -510,15 +532,6 @@ var schemaKinds = []string{"credential_schema", "config_schema", "settings_schem
 // and returns the validated registration surface. Handlers and job bodies
 // are not invoked.
 func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) (*dryResult, error) {
-	out := &dryResult{
-		handlers:       map[string][]string{},
-		icons:          map[string]string{},
-		specifications: map[string]map[string]models.ModelInfo{},
-		cooldowns:      map[string]int64{},
-		schemas:        map[string]map[string][]*models.UINode{},
-		locales:        map[string]PluginLocales{},
-		jobs:           map[string]map[string]JobSpec{},
-	}
 	ctx := &executionContext{
 		pluginID:      pluginID,
 		allowHosts:    manifest.AllowHosts,
@@ -529,8 +542,27 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) (*d
 		registrations: map[string]*lua.LTable{},
 		proxySources:  map[string]*lua.LTable{},
 	}
+	return evaluateRegistrations(ctx, source)
+}
+
+// evaluateRegistrations runs the plugin top-level code in the sandbox of ctx
+// under dryRunTimeout and validates what it registered.
+func evaluateRegistrations(ctx *executionContext, source []byte) (*dryResult, error) {
+	pluginID := ctx.pluginID
+	out := &dryResult{
+		handlers:       map[string][]string{},
+		icons:          map[string]string{},
+		specifications: map[string]map[string]models.ModelInfo{},
+		cooldowns:      map[string]int64{},
+		schemas:        map[string]map[string][]*models.UINode{},
+		locales:        map[string]PluginLocales{},
+		jobs:           map[string]map[string]JobSpec{},
+	}
 	L := newSandboxState(ctx)
 	defer L.Close()
+	deadline, cancel := context.WithTimeout(context.Background(), dryRunTimeout)
+	defer cancel()
+	L.SetContext(deadline)
 	if err := L.DoString(string(source)); err != nil {
 		// A parse failure pushes nothing: fall back to the Go error so
 		// the message carries the parser diagnostics instead of "nil".
@@ -545,8 +577,15 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) (*d
 	if len(ctx.registrations) == 0 && len(ctx.proxySources) == 0 {
 		return nil, fmt.Errorf("plugin declares no type keys: missing llm_router.register call")
 	}
-	for k := range ctx.proxySources {
+	for k, table := range ctx.proxySources {
 		out.sourceKeys = append(out.sourceKeys, k)
+		icon, err := readIcon(table, k)
+		if err != nil {
+			return nil, err
+		}
+		if icon != "" {
+			out.icons[k] = icon
+		}
 	}
 	sort.Strings(out.sourceKeys)
 	for k, table := range ctx.registrations {
@@ -559,17 +598,12 @@ func (s *Service) dryRun(pluginID string, source []byte, manifest *Manifest) (*d
 		}
 		sort.Strings(names)
 		out.handlers[k] = names
-		if v := table.RawGetString("icon"); v != lua.LNil {
-			icon, ok := v.(lua.LString)
-			if !ok {
-				return nil, fmt.Errorf("plugin type %q: icon must be a string", k)
-			}
-			if err := validateIcon(k, string(icon)); err != nil {
-				return nil, err
-			}
-			if string(icon) != "" {
-				out.icons[k] = string(icon)
-			}
+		icon, err := readIcon(table, k)
+		if err != nil {
+			return nil, err
+		}
+		if icon != "" {
+			out.icons[k] = icon
 		}
 		if v := table.RawGetString("model_specs"); v != lua.LNil {
 			specificationTable, ok := v.(*lua.LTable)

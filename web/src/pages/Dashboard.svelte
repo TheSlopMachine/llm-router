@@ -18,6 +18,7 @@
   import type { MetricsTab } from './metrics/Metrics.svelte'
   import { t } from '../lib/i18n.svelte'
   import { BP_NARROW } from '../lib/breakpoints'
+  import { PLUGINS_ICON, PROVIDERS_ICON, PROXIES_ICON } from '../lib/subsystems'
   import AppFooter from '../components/AppFooter.svelte'
 
   let { onlogout }: { onlogout: () => void } = $props()
@@ -87,12 +88,12 @@
 
   const nav: NavItem[] = [
     { id: 'metrics',      label: 'metrics.title',      icon: 'analytics' },
-    { id: 'providers',    label: 'providers.list.title',    icon: 'cloud' },
+    { id: 'providers',    label: 'providers.list.title',    icon: PROVIDERS_ICON },
     { id: 'models',       label: 'models.list.title',       icon: 'view_list' },
-    { id: 'plugins',      label: 'plugins.title',      icon: 'extension' },
+    { id: 'plugins',      label: 'plugins.title',      icon: PLUGINS_ICON },
     { id: 'virtual',      label: 'virtual.models_plural', icon: 'robot' },
     { id: 'tokens',       label: 'tokens.list.title',       icon: 'key' },
-    { id: 'proxy',        label: 'proxy.title',      icon: 'vpn_lock' },
+    { id: 'proxy',        label: 'proxy.title',      icon: PROXIES_ICON },
   ]
 
   let pluginsTab = $derived<PluginsTab>(routeSegments[0] === 'catalog' ? 'catalog' : 'installed')

@@ -15,12 +15,11 @@ import (
 
 // EnsureSeeded creates the virtual-models row and one provider row per
 // enabled Lua plugin type key when none exists yet, keeping fresh installs
-// routable without manual provider setup. Missing icons on existing rows
-// are backfilled from the plugin; user-set icons are never overwritten.
-// Seeded rows are marked UI-readonly; the virtual-models row is
-// additionally UI-hidden.
+// routable without manual provider setup. Seeded rows carry no icon: the
+// plugin type owns it (see Icon). Seeded rows are marked UI-readonly; the
+// virtual-models row is additionally UI-hidden.
 func (s *GormService) EnsureSeeded(ctx context.Context) error {
-	ensure := func(identifier, name, typeKey, icon string) error {
+	ensure := func(identifier, name, typeKey string) error {
 		if _, err := s.Get(ctx, identifier); err == nil {
 			if s.logger != nil {
 				s.logger.Debug("Provider seed skipped", "provider_id", identifier, "type", typeKey)
@@ -36,7 +35,6 @@ func (s *GormService) EnsureSeeded(ctx context.Context) error {
 			Name:         name,
 			TypeKey:      typeKey,
 			Config:       map[string]any{},
-			IconURL:      icon,
 			IsUIReadonly: true,
 			IsUIHidden:   typeKey == TypeVirtual,
 			CreatedAt:    now,
@@ -51,7 +49,7 @@ func (s *GormService) EnsureSeeded(ctx context.Context) error {
 		s.notifyChanged(identifier)
 		return nil
 	}
-	if err := ensure(TypeVirtual, "Virtual models", TypeVirtual, ""); err != nil {
+	if err := ensure(TypeVirtual, "Virtual models", TypeVirtual); err != nil {
 		return err
 	}
 	if s.luaService == nil {
@@ -78,40 +76,19 @@ func (s *GormService) EnsureSeeded(ctx context.Context) error {
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		var icon string
-		if s.luaService != nil {
-			icon = s.luaService.Icon(key)
-		}
 		existing, err := s.GetByType(ctx, key)
 		if err != nil {
 			return err
 		}
-		if len(existing) == 0 {
-			name := seen[key]
-			if strings.TrimSpace(name) == "" {
-				name = key
-			}
-			if err := ensure(key, name, key, icon); err != nil {
-				return err
-			}
+		if len(existing) > 0 {
 			continue
 		}
-		if icon == "" {
-			if s.logger != nil {
-				s.logger.Debug("Provider icon backfill skipped", "type", key, "reason", "missing icon")
-			}
-			continue
+		name := seen[key]
+		if strings.TrimSpace(name) == "" {
+			name = key
 		}
-		for _, inst := range existing {
-			if inst.IconURL != "" {
-				continue
-			}
-			if _, err := s.Update(ctx, inst.ID, UpdateOptions{Name: inst.Name, Config: inst.Config, IconURL: icon}); err != nil {
-				return err
-			}
-			if s.logger != nil {
-				s.logger.Info("Provider icon backfilled", "provider_id", inst.ID, "type", key)
-			}
+		if err := ensure(key, name, key); err != nil {
+			return err
 		}
 	}
 	return nil

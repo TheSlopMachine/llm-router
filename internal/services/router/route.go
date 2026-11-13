@@ -25,11 +25,14 @@ type resolvedRequest struct {
 func (s *Service) resolveRequest(ctx context.Context, model models.ModelId, token *models.RouterToken, allowDisabled bool, endpoint string) (context.Context, resolvedRequest, error) {
 	var resolution resolvedRequest
 	ctx = withTokenRules(ctx, token)
-	// The edge already checked the outer model; this also covers every
-	// virtual-model member, which re-enters with a nil token and inherits the
-	// outer rules from ctx. A denied member fails like an unavailable one, so
-	// the virtual fall-through moves to the next member.
-	if err := s.tokenDenies(effectiveToken(ctx, token), model, ""); err != nil {
+	// The edge already checked the outer model. Virtual-model members
+	// re-enter with a nil token and inherit the outer rules from ctx; a member
+	// reached through a granted virtual model passes the model gate, since
+	// the grant covers the members it routes to.
+	if viaVirtualGrant(ctx) {
+		s.debug("Allowing virtual model member by grant",
+			"model", model.String(), "endpoint", endpoint, "token_id", tokenIdentifier(token))
+	} else if err := s.tokenDenies(effectiveToken(ctx, token), model, ""); err != nil {
 		return ctx, resolution, err
 	}
 	providerID, modelName, err := model.Parse()
@@ -75,5 +78,8 @@ func (s *Service) resolveRequest(ctx context.Context, model models.ModelId, toke
 		return ctx, resolution, err
 	}
 	resolution = resolvedRequest{providerID: providerID, modelName: modelName, resolved: resolved}
+	if resolved.Instance.TypeKey == provider.TypeVirtual {
+		ctx = withVirtualGrant(ctx)
+	}
 	return ctx, resolution, nil
 }

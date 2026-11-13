@@ -1,5 +1,14 @@
 # Changelog
 
+## Done (2026-11-13, v0.11.1)
+
+- **Plugin icons** — plugin cards (installed and catalog) showed the plugin's icon left of the title and description. Proxy sources accepted `icon` like providers (plugin API 1.7); the limit rose from 32 KiB to 64 KiB for `data:image/` values.
+- **Subsystem fallback** — a plugin without an icon, or whose image failed to load, showed the icon of its subsystem: `cloud` for providers, `vpn_lock` for proxy sources, `extension` when unknown. The provider list used `cloud` the same way instead of the broken image placeholder.
+- **Catalog descriptions** — the catalog ran the dry-run of uninstalled files to read their subsystems and icon. The dry-run stopped after 5 seconds; before, a plugin looping at top level hung install.
+- **Virtual model grant covers members** — a token allowing only a virtual model failed every request: each member was checked against the token's own provider and model rules. Members reached through an allowed virtual model passed, with every credential of a member provider the token does not allow; direct member calls stayed denied.
+- **Plugin tabs kept mounted** — switching between installed and catalog no longer rebuilt the lists and reloaded the icons.
+- **Provider icon from the plugin type** — seeded providers kept a copy of the plugin icon that never followed plugin updates. The copy was cleared (migration 9) and the icon resolved from the plugin type at read time; a provider's own icon still wins.
+
 ## Done (2026-11-12, v0.11)
 
 - **Provider models: selection and bulk actions** — every row got a checkbox; the first pick opened a bar pinned to the bottom of the list (count, select all / none, enable, disable, test) that closed only by its close button.
