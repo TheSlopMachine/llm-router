@@ -1,5 +1,9 @@
 # Changelog
 
+## Done (2026-11-13, v0.11.2)
+
+- **FUI 2.2.6** — segmented pickers no longer launched the selection pill from the left edge when the selected label was the longer one: selection recoloured the label instead of bolding it, so segments kept their width. Separators stayed drawn under the pill; the pill's width settled at 75% of its slide.
+
 ## Done (2026-11-13, v0.11.1)
 
 - **Plugin icons** — plugin cards (installed and catalog) showed the plugin's icon left of the title and description. Proxy sources accepted `icon` like providers (plugin API 1.7); the limit rose from 32 KiB to 64 KiB for `data:image/` values.
