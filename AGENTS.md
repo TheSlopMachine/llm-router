@@ -4,7 +4,7 @@ Guidelines for AI agents in `llm-router/`. Read before any change. Treat every r
 
 ## 0. Wording
 
-Applies to all agent output: commit messages, PR descriptions, code comments, log strings, UI copy, CLI help/output, error messages, doc edits.
+Applies to all agent output: commit messages, PR descriptions, code comments, log strings, UI copy, CLI help/output, error messages, README.md, doc edits.
 
 ### 0.1 No filler phrases
 
@@ -24,7 +24,15 @@ DO:
 - "Also update the router."
 - "The test now passes."
 
-### 0.2 Over-explaining in UI is forbidden
+### 0.2 No insignificant explanation
+
+Applies to everything an end user reads: UI copy, CLI output and help, error messages, README.md, release notes.
+
+User-facing text answers one of three questions: what is this, what do I do, what happened. Everything else gets deleted, not rephrased.
+
+A constraint the binary enforces with a clear error at the moment it fires needs no paragraph in the docs.
+
+A fact the user must know before an irreversible mistake gets one line at the point of action: `"Back up credentials.key with the database: provider keys cannot be decrypted without it."`
 
 Do not explain internals. Surface intent only:
 
@@ -40,6 +48,17 @@ Do not guide the UX with text:
 
 - BAD: `"Press 'Done' to close."`
 - GOOD: UI that guides visually, without text.
+
+README.md and `help` output carry the same rule:
+
+- BAD (README): `"This starts one public listener on PORT (default 8080) for the dashboard and /v1. The dashboard asks for the password only: it has one operator and no accounts. The server does not start until the password is set."`
+- GOOD (README): `"This starts the server on the configured port (default is 8080)."`
+- BAD (`help` table): `` `logs` | Print server events (`-f`, `--subsystem`, `--severity`, ...). ``
+- GOOD (`help` table): `` `logs` | Print server events. `` Flags live in `help`, not in the table.
+
+Cut: internals (how it is built), mechanics (locks, encryption, fallback chains, listener layout), inventories already covered by `help` or the code, reasoning about why the design is the way it is.
+
+Keep: what the thing is, what to do next, what failed and how to fix it, one sentence each.
 
 ### 0.3 No redundant wording
 
