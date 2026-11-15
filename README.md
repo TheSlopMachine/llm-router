@@ -34,29 +34,23 @@ llm-router set-dashboard-password
 llm-router daemon start
 ```
 
-This starts one public listener on `PORT` (default `8080`) for the dashboard and `/v1`. The dashboard asks for the password only: it has one operator and no accounts. The server does not start until the password is set.
+This starts the server on the configured port (default is `8080`).
 
 `llm-router help` lists every command. The main ones:
 
 | Command | Purpose |
 |---|---|
-| `serve` | Run in the foreground (systemd, Docker). |
+| `serve` | Run in the foreground. |
 | `daemon start\|stop\|restart\|status` | Run in the background (Linux, macOS, FreeBSD). |
-| `config` | Interactive settings menu; `config get\|set\|unset\|list\|init` for scripts. |
+| `config` | Interactive settings menu. |
 | `set-dashboard-password` | Set the dashboard password. |
-| `logs` | Print server events (`-f`, `--subsystem`, `--severity`, ...). |
-| `status`, `doctor` | Inspect the running server, check the database. |
+| `logs` | Print server events. |
+| `status`, `doctor` | Inspect the running server and database. |
 | `update` | Install the latest release. |
-
-Only one instance runs per database. A background server does not start again after a reboot; for that, run `serve` under a supervisor.
-
-Provider keys are encrypted in the database. The first start creates the key file `~/.config/llm-router/credentials.key`; back it up together with the database, because credentials cannot be decrypted without it. `CREDENTIALS_KEY` (base64, 32 bytes) or `CREDENTIALS_KEY_FILE` replace it, for example with a container secret.
-
-Output is Russian or English: `LLM_ROUTER_LANG` (`ru` or `en`), else `LC_ALL`, `LC_MESSAGES`, `LANG` or the Windows user locale; anything but Russian gives English. Event messages, `--json`, config values and command names stay English.
 
 ### systemd and Docker
 
-Run `llm-router serve` in the foreground; the supervisor restarts it. Set the password before `serve`, for example in the container entrypoint. `--if-absent` keeps a password changed in the dashboard across restarts:
+Systemd and Docker should use this initialization logic:
 
 ```bash
 llm-router config init
@@ -70,4 +64,4 @@ exec llm-router serve
 2. Add credentials.
 3. Create a new token.
 4. Pick a model.
-5. Connect your harness to the router. Set the base URL to `http://HOST:PORT/v1` and the API key to the token you've just created.
+5. Connect your harness to the router. Set the base URL to `http://localhost:8080/v1` and the API key to the token you've just created.
