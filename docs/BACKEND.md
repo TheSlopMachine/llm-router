@@ -61,7 +61,7 @@ web/                     Svelte SPA (web/openapi.yaml + src/lib/generated/ auto-
 scripts/                 separate Go module — build/dev helpers (never imported by main module)
 scripts/smoke/           black-box smoke harness (live upstreams only)
 docs/                    PLUGIN-API.md (binding plugin contract), BACKEND.md (core map), CHANGELOG.md
-Makefile                 thin launcher for scripts/ — see AGENTS.md §3
+Makefile                 thin launcher for scripts/ (targets: AGENTS.md §4, `make help`)
 ```
 
 Keep changes shallow. Touch service internals only when the task requires it.

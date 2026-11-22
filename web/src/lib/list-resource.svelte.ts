@@ -2,14 +2,8 @@ import { onMount } from 'svelte'
 import { getErrorMessage } from './errors'
 
 /**
- * Generic list-loader for CRUD pages (Providers / Tokens / Agents).
- * Collapse of the repeated pattern:
- *   let loading = $state(true); let error = $state('')
- *   async function load() { loading=true; error=''; try{ data=await fetcher() } catch(e){ error=getErrorMessage(e)} finally{ loading=false } }
- *   onMount(load)
- *
- * Properly generic now that `api` is typed (P1 done) — no `any`.
- * Uses `$state` + `onMount` (not `$effect`) per AGENTS.md §4.
+ * Loads a list for a page: `data`, `loading`, `error` and `reload`.
+ * Loads in `onMount`, not in an `$effect` (AGENTS.md §8).
  */
 export function createListResource<T>(fetcher: () => Promise<T>, initialValue: T) {
   let data = $state<T>(initialValue)
