@@ -3,6 +3,7 @@
 ## Done (2026-11-22, v0.11.4)
 
 - The virtual models page showed its description under the title, as the other pages do, instead of behind an info button.
+- **Virtual models search** — the virtual models page got a search field over the table (id, name, description) and rendered only the rows in view, as the models page does; a search without matches no longer offered to create the first virtual model.
 
 ## Done (2026-11-22, v0.11.3)
 

@@ -29,6 +29,13 @@ export function similarity(queryValue: string, candidate: string): number {
   return 1 - levenshtein(queryValue, candidate) / maxLength
 }
 
+/** True when the query is empty or a substring of the virtual model's id, name, description or full id. */
+export function matchesVirtualModel(model: { id: string; name: string; description?: string }, rawQuery: string): boolean {
+  const normalizedQuery = normalize(rawQuery)
+  if (!normalizedQuery) return true
+  return [model.id, model.name, model.description ?? '', `virtual/${model.id}`].some((value) => normalize(value).includes(normalizedQuery))
+}
+
 export type Ranked<T> = T & { category: number; score: number }
 
 type SearchableModel = { full_model_id: string; model_name: string; provider_name: string; display_name: string }

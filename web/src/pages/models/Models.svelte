@@ -7,7 +7,7 @@
   import type { AvailableModel, VirtualModel } from '$lib/types'
   import { t, n } from '$lib/i18n.svelte'
   import { HStack, SearchField, Text, VStack, Banner, Header, ContentUnavailable } from '@fuckyouryan/fui'
-  import { rankModels, normalize } from '$lib/model-search'
+  import { rankModels, matchesVirtualModel } from '$lib/model-search'
   import type { Ranked } from '$lib/model-search'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
 
@@ -56,9 +56,8 @@
       outputModalities: model.output_modalities,
       capabilities: model.capabilities,
     }))
-    const q = normalize(query)
     for (const vm of virtualModels) {
-      if (q && ![vm.id, vm.name, vm.description ?? '', `virtual/${vm.id}`].some((v) => normalize(v).includes(q))) continue
+      if (!matchesVirtualModel(vm, query)) continue
       const memberIds = (vm.models ?? []).map((e) => e.model_id)
       const members = memberIds.map((id) => candidateById.get(id))
       const union = (pick: (m: AvailableModel | undefined) => string[] | undefined): string[] =>

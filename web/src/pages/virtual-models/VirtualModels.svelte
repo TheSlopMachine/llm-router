@@ -7,8 +7,10 @@
   import type { VirtualModel, AvailableModel } from '$lib/types'
   import { setPendingClone } from '$lib/virtual-clone'
   import { t } from '$lib/i18n.svelte'
-  import { ContentUnavailable, Button, FloatingView, HStack, Toggle, Text, VStack, Banner, ConfirmAction, Header } from '@fuckyouryan/fui'
+  import { ContentUnavailable, Button, FloatingView, HStack, Toggle, Text, VStack, Banner, ConfirmAction, Header, SearchField } from '@fuckyouryan/fui'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
+  import { matchesVirtualModel } from '$lib/model-search'
+  import type { ModelsTableModel } from '../../components/domain/ModelsTable.svelte'
   import { isUnauthenticated } from '$lib/credential-state'
 
   const resource = createListResource<VirtualModel[]>(
@@ -30,7 +32,8 @@
   // Candidate metadata comes from one dashboard call: union per virtual
   // model over its member ids. Loaded once on mount: the list does not
   // depend on the virtual models, so no effect re-triggers it.
-  let candidates: AvailableModel[] = $state([])
+  // replaced as a whole on load, never mutated: raw state keeps the rows out of deep proxies
+  let candidates: AvailableModel[] = $state.raw([])
   let candidatesError = $state('')
 
   onMount(() => {
@@ -58,6 +61,26 @@
   function minMembers(vm: VirtualModel, pick: (m: AvailableModel | undefined) => number | undefined): number {
     return minPositive((vm.models ?? []).map((e) => pick(byId.get(e.model_id))))
   }
+
+  let query = $state('')
+
+  const tableModels = $derived(
+    (resource.data ?? [])
+      .filter((vm) => vm && matchesVirtualModel(vm, query))
+      .map((vm): ModelsTableModel => ({
+        kind: 'virtual',
+        id: vm.id,
+        fullId: `virtual/${vm.id}`,
+        description: vm.description || '—',
+        contextWindow: minMembers(vm, (m) => m?.context_window),
+        maxTokens: minMembers(vm, (m) => m?.max_tokens),
+        inputModalities: unionMembers(vm, (m) => m?.input_modalities),
+        outputModalities: unionMembers(vm, (m) => m?.output_modalities),
+        capabilities: unionMembers(vm, (m) => m?.capabilities),
+        source: vm,
+      })),
+  )
+  const hasVirtualModels = $derived((resource.data ?? []).length > 0)
 
   let isEditableVm = (vm: VirtualModel): boolean => !vm.managed_by
 
@@ -117,7 +140,7 @@
   }
 </script>
 
-<VStack gap={6}>
+<VStack gap={6} grow>
   <Header
     title={t('virtual.models_plural')}
     subtitle={t('virtual.models_desc')}
@@ -131,24 +154,12 @@
     <Banner tint="danger" text={resource.error} />
   {/if}
 
+  <SearchField bind:value={query} placeholder={t('models.search.placeholder')} />
+
   {#if resource.loading}
     <ContentUnavailable title={t('common.state.loading')} />
   {:else}
-    <ModelsTable
-      models={(resource.data ?? []).filter((a) => a).map((vm) => ({
-        kind: 'virtual' as const,
-        id: vm.id,
-        fullId: `virtual/${vm.id}`,
-        description: vm.description || '—',
-        contextWindow: minMembers(vm, (m) => m?.context_window),
-        maxTokens: minMembers(vm, (m) => m?.max_tokens),
-        inputModalities: unionMembers(vm, (m) => m?.input_modalities),
-        outputModalities: unionMembers(vm, (m) => m?.output_modalities),
-        capabilities: unionMembers(vm, (m) => m?.capabilities),
-        source: vm,
-      }))}
-      sortable
-    >
+    <ModelsTable models={tableModels} sortable lazy>
       {#snippet actions({ model })}
         {@const vm = model.source as VirtualModel}
          <HStack gap={2} class="vm-actions" valign="center" halign="end">
@@ -168,11 +179,15 @@
        {#snippet createVmAction()}
            <Button buttonStyle="prominent" icon={{ name: 'add' }} onclick={openNew}>{t('virtual.create.first')}</Button>
          {/snippet}
-         <ContentUnavailable
-           icon="robot"
-           title={t('virtual.list.empty')}
-           action={createVmAction}
-         />
+         {#if hasVirtualModels}
+           <ContentUnavailable title={t('models.list.no_match')} icon="search" />
+         {:else}
+           <ContentUnavailable
+             icon="robot"
+             title={t('virtual.list.empty')}
+             action={createVmAction}
+           />
+         {/if}
        {/snippet}
      </ModelsTable>
    {/if}
