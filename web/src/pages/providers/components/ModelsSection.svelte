@@ -174,21 +174,41 @@
   }
 
   let vmGroups = $state<ProviderVMGroup[]>([])
+  // The provider-wide switch: off, the provider has no virtual models at all.
+  let vmEnabled = $state(true)
+  let vmSwitching = $state(false)
   // Managed records are ensured once per provider view: the toggle needs a
   // record, and sync is idempotent and cache-only.
   let vmSyncEnsuredFor = $state('')
 
   async function loadVmGroups(): Promise<void> {
     try {
-      const groups = await api.providers.virtualModels(providerId)
-      if (groups.some((g) => !g.virtual) && vmSyncEnsuredFor !== providerId) {
+      const [enabled, groups] = await Promise.all([
+        api.providers.virtualModelsEnabled(providerId),
+        api.providers.virtualModels(providerId),
+      ])
+      vmEnabled = enabled
+      if (enabled && groups.some((g) => !g.virtual) && vmSyncEnsuredFor !== providerId) {
         vmSyncEnsuredFor = providerId
-        vmGroups = await api.providers.syncVirtualModels(providerId).catch(() => groups)
+        vmGroups = await api.providers.syncVirtualModels(providerId)
       } else {
         vmGroups = groups
       }
-    } catch {
+    } catch (e) {
       vmGroups = []
+      error = getErrorMessage(e)
+    }
+  }
+
+  async function switchVirtualModels(enabled: boolean): Promise<void> {
+    vmSwitching = true
+    try {
+      vmGroups = await api.providers.setVirtualModelsEnabled(providerId, enabled)
+      vmEnabled = enabled
+    } catch (e) {
+      error = getErrorMessage(e)
+    } finally {
+      vmSwitching = false
     }
   }
 
@@ -632,14 +652,23 @@
   </VStack>
 
   <VStack tag="section" gap={4} class="provider-section">
-    <VStack gap={1}>
-      <Text variant="section-title">{t('virtual.models_plural')}</Text>
-      <Text foregroundStyle="secondary" size="sm">{t('providers.models.fallthrough_description')}</Text>
-    </VStack>
+    <HStack gap={3} valign="center">
+      <VStack gap={1} grow>
+        <Text variant="section-title">{t('virtual.models_plural')}</Text>
+        <Text foregroundStyle="secondary" size="sm">{t('providers.models.fallthrough_description')}</Text>
+      </VStack>
+      <Toggle
+        checked={vmEnabled}
+        disabled={vmSwitching}
+        ariaLabel={t('common.labels.enabled')}
+        onchange={(enabled) => void switchVirtualModels(enabled)}
+      />
+    </HStack>
 
-    {#if vmGroups.length === 0}
+    <!-- switched off, the provider has no virtual models to list -->
+    {#if vmEnabled && vmGroups.length === 0}
       <ContentUnavailable title={t('providers.models.no_endpoint_groups')} />
-    {:else}
+    {:else if vmEnabled}
       <Table
         columns={[
           { key: 'vm', title: t('virtual.model'), width: '1.4fr' },

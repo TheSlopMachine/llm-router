@@ -35,7 +35,7 @@ function toProvider(raw: Record<string, unknown>): Provider {
 function toProviderStats(raw: Record<string, unknown>): ProviderStats {
   const r = raw as Record<string, unknown>
   return {
-    model_count: (r.model_count as number) ?? 0,
+    enabled_model_count: (r.enabled_model_count as number) ?? 0,
     credential_count: (r.credential_count as number) ?? 0,
   }
 }
@@ -117,6 +117,19 @@ export const api = {
 
     syncVirtualModels: async (id: string): Promise<ProviderVMGroup[]> => {
       const raw = await postJson(`/api/llm-router/dashboard/providers/${id}/virtual-models/sync`, {})
+      return Array.isArray(raw) ? (raw as ProviderVMGroup[]) : []
+    },
+
+    /** whether the provider's managed virtual models are on */
+    virtualModelsEnabled: async (id: string): Promise<boolean> => {
+      const response = await fetch(`/api/llm-router/dashboard/providers/${id}/virtual-models/settings`)
+      const raw = (await assertOk(response)) as { enabled: boolean }
+      return raw.enabled
+    },
+
+    /** switches the provider's managed virtual models; returns the endpoint groups */
+    setVirtualModelsEnabled: async (id: string, enabled: boolean): Promise<ProviderVMGroup[]> => {
+      const raw = await putJson(`/api/llm-router/dashboard/providers/${id}/virtual-models/settings`, { enabled })
       return Array.isArray(raw) ? (raw as ProviderVMGroup[]) : []
     },
 

@@ -1531,8 +1531,9 @@ func NormalizeBaseURL(raw string) (string, error) {
 
 // ProviderStats holds aggregated statistics for a provider.
 type ProviderStats struct {
-	ModelCount      int `json:"model_count" example:"5"`
-	CredentialCount int `json:"credential_count" example:"2"`
+	// EnabledModelCount counts the cached models the operator has not disabled.
+	EnabledModelCount int `json:"enabled_model_count" example:"5"`
+	CredentialCount   int `json:"credential_count" example:"2"`
 }
 
 // ProviderInstanceCreateRequest is the create body for custom providers.

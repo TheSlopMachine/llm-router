@@ -117,7 +117,7 @@ func (h *Handler) apiProvidersList(w http.ResponseWriter, r *http.Request) {
 
 // apiProvidersStats returns aggregated statistics for all providers
 // @Summary      Get provider statistics
-// @Description  Returns aggregated statistics for all providers (cached model count, credential count). Never fetches from upstreams.
+// @Description  Returns aggregated statistics for all providers (enabled cached model count, credential count). Never fetches from upstreams.
 // @Tags         Providers
 // @Produce      json
 // @Success      200 {object} map[string]models.ProviderStats
@@ -140,12 +140,25 @@ func (h *Handler) apiProvidersStats(w http.ResponseWriter, r *http.Request) {
 		entry := &models.ProviderStats{}
 
 		// Cache peek only: a stats read must never fetch from the upstream.
-		entry.ModelCount = len(h.gormModelInfoService.PeekModelInfos(r.Context(), provider.ID))
+		views, err := h.gormModelInfoService.PeekMergedView(r.Context(), provider.ID)
+		if err != nil {
+			h.logError("Failed to read provider statistics", "provider_id", provider.ID, "operation", "models", "error", err)
+			h.jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for _, view := range views {
+			if !view.Disabled {
+				entry.EnabledModelCount++
+			}
+		}
 
 		credentials, err := h.gormCredentialService.ListByProvider(r.Context(), provider.ID)
-		if err == nil {
-			entry.CredentialCount = len(credentials)
+		if err != nil {
+			h.logError("Failed to read provider statistics", "provider_id", provider.ID, "operation", "credentials", "error", err)
+			h.jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
 		}
+		entry.CredentialCount = len(credentials)
 
 		statistics[provider.ID] = entry
 	}

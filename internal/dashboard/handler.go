@@ -187,6 +187,8 @@ func (h *Handler) RegisterAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/llm-router/dashboard/providers/{id}/models/refresh", h.requireAuth(h.apiProviderModelsRefresh))
 	mux.HandleFunc("GET /api/llm-router/dashboard/providers/{id}/virtual-models", h.requireAuth(h.apiProviderVirtualModels))
 	mux.HandleFunc("POST /api/llm-router/dashboard/providers/{id}/virtual-models/sync", h.requireAuth(h.apiProviderVirtualModelsSync))
+	mux.HandleFunc("GET /api/llm-router/dashboard/providers/{id}/virtual-models/settings", h.requireAuth(h.apiProviderVirtualSettings))
+	mux.HandleFunc("PUT /api/llm-router/dashboard/providers/{id}/virtual-models/settings", h.requireAuth(h.apiProviderVirtualSettingsUpdate))
 	mux.HandleFunc("PUT /api/llm-router/dashboard/providers/{id}/models/{model...}", h.requireAuth(h.apiProviderModelSetOverride))
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/providers/{id}/models/{model...}", h.requireAuth(h.apiProviderModelDeleteOverride))
 

@@ -159,6 +159,18 @@ Remaining Lua keys follow the `docs/PLUGIN-API.md` vocabulary (`status`,
 `proxy_url`, `body`, `line`, payload facts) plus per-plugin extras; filter
 the stable ones, read the variable ones.
 
+## Provider virtual models
+
+Emitted by `internal/services/virtual/provider_setting.go` (`Provider virtual
+models switched`, `Provider virtual models switch fails`) and
+`internal/services/virtual/sync.go` (`Managed virtual model sync fails`).
+
+| Key | Meaning | Example filter |
+|---|---|---|
+| `provider_id` | Provider whose managed virtual models were switched or synced | `EVENT_FILTERS="provider_id=groq"` |
+| `enabled` | Switch state after the change (boolean) | `EVENT_FILTERS="enabled=false"` |
+| `operation` | Failing step (`switch_off`, `read_setting`, `clear_flag`, `drop_setting`, `load_setting`, `groups`, `create`, `update`, `delete`, ...) | `EVENT_FILTERS="operation=switch_off"` |
+
 ## Worked examples
 
 One model exhausts quota; which other models failed right after, and did the

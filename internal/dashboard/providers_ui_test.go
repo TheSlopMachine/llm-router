@@ -432,6 +432,41 @@ func TestAvailableModelsListsDisabledOnlyOnRequest(t *testing.T) {
 	}
 }
 
+func TestProvidersStatsCountsEnabledModels(t *testing.T) {
+	h, providerService, database := newProvidersUIHandler(t)
+	ctx := context.Background()
+	providerService.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
+	instance, err := providerService.Create(ctx, provider.CreateOptions{Name: "Mock", TypeKey: "mock"})
+	if err != nil {
+		t.Fatalf("create mock provider: %v", err)
+	}
+	credentialService := credential.NewGorm(database, providerService)
+	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, 1*time.Hour)
+	h.gormCredentialService = credentialService
+	h.gormModelInfoService = modelInfoService
+	for _, override := range []models.ModelOverride{
+		{ProviderID: instance.ID, Name: "on-model", Custom: true},
+		{ProviderID: instance.ID, Name: "off-model", Custom: true, Disabled: true},
+	} {
+		if err := modelInfoService.SetOverride(ctx, override); err != nil {
+			t.Fatalf("set override %s: %v", override.Name, err)
+		}
+	}
+
+	recorder := httptest.NewRecorder()
+	h.apiProvidersStats(recorder, httptest.NewRequest(http.MethodGet, "/api/llm-router/dashboard/providers/stats", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var statistics map[string]models.ProviderStats
+	if err := json.Unmarshal(recorder.Body.Bytes(), &statistics); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got := statistics[instance.ID].EnabledModelCount; got != 1 {
+		t.Fatalf("enabled model count: got %d, want 1", got)
+	}
+}
+
 func postAuthInitiate(t *testing.T, h *Handler, providerID string) *httptest.ResponseRecorder {
 	t.Helper()
 	body := strings.NewReader(`{"provider_id":"` + providerID + `"}`)

@@ -50,6 +50,7 @@ func TestOpenCreatesSchema(t *testing.T) {
 		"model_override_modalities",
 		"virtual_models",
 		"virtual_model_members",
+		"provider_virtual_settings",
 		"proxy_pool_entries",
 		"plugin_repositories",
 		"plugins",
@@ -63,8 +64,8 @@ func TestOpenCreatesSchema(t *testing.T) {
 			t.Errorf("primary missing table %s", table)
 		}
 	}
-	if len(primaryTables) != 23 {
-		t.Errorf("primary schema holds %d tables, want 23", len(primaryTables))
+	if len(primaryTables) != 24 {
+		t.Errorf("primary schema holds %d tables, want 24", len(primaryTables))
 	}
 	cacheTables := []string{
 		"schema_migrations",

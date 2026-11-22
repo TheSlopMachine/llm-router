@@ -272,7 +272,7 @@ export type MetricsFilters = Record<string, unknown>
 export type Stats = Record<string, unknown>
 export type Status = Record<string, unknown>
 export type ErrorResponse = { error: string }
-export type ProviderStats = { model_count: number; credential_count: number }
+export type ProviderStats = { enabled_model_count: number; credential_count: number }
 
 export interface ProviderRetry {
   mode: 'fail_fast' | 'next_proxy'

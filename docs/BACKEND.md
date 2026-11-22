@@ -24,7 +24,7 @@ internal/services/
   router/                ModelId → backend, token allow-list gate, single pass, no repeats
   provider/              ProviderInstance CRUD (all types, one path) + schema/capability delegation
   credential/            credential storage + admin mutation + plugin lifecycle writes (no ordering, no usage)
-  virtual/               virtual models (fall-through lists + instruction)
+  virtual/               virtual models (fall-through lists + instruction); provider-managed ones per endpoint, with a per-provider switch (`provider_virtual_settings`: off holds no managed rows and keeps which were enabled)
   responses/             router-side compat records (responses, conversations, assistants, threads, messages, runs)
   batches/               router-side Anthropic message batches (entries + JSONL-ready results)
   luaplugin/             Lua execution core: manifest, author/plugin-name plugin identity, sandbox, pooled states per plugin bucket, HTTP+SSRF, storage+TTL, credentials/proxies tables, jobs, catalog descriptions (`describe.go`: subsystems and icon of an uninstalled source, cached by digest)
@@ -321,7 +321,7 @@ rows live in cache, durable rows in the database. Metrics persist one
 drives it. Provider `proxy.pool` references `proxy_pools` with RESTRICT.
 Foreign keys carry the cascades the bucket scans used to perform by hand:
 provider deletes cascade credentials, model overrides, managed
-virtual models and virtual members; plugin deletes cascade hosts, versions
+virtual models, virtual members and the provider virtual setting; plugin deletes cascade hosts, versions
 and durable storage; metric bucket deletes cascade dimension children.
 
 ## Smoke harness

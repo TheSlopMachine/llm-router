@@ -23,6 +23,7 @@ var RegistryDatabase = []migrate.Migration{
 	{Version: 7, Name: "encrypt_credentials", Up: upEncryptCredentials},
 	{Version: 8, Name: "dashboard_password", Up: upDashboardPassword},
 	{Version: 9, Name: "provider_seed_icons", Up: upProviderSeedIcons},
+	{Version: 10, Name: "provider_virtual_settings", Up: upProviderVirtualSettings},
 }
 
 type instanceSettingSnapshot struct {

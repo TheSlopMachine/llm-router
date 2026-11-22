@@ -26,6 +26,23 @@ func (VirtualModel) TableName() string {
 	return "virtual_models"
 }
 
+// ProviderVirtualSetting switches a provider's managed virtual models off.
+// No row means on. While off the managed rows do not exist; EnabledEndpoints
+// keeps the endpoint slugs whose model was enabled, so switching on restores
+// them.
+type ProviderVirtualSetting struct {
+	ProviderID       string           `gorm:"primaryKey"`
+	Provider         ProviderInstance `gorm:"foreignKey:ProviderID;references:ID;belongsTo;constraint:OnDelete:CASCADE"`
+	Disabled         bool             `gorm:"not null"`
+	EnabledEndpoints []string         `gorm:"serializer:json;not null"`
+	UpdatedAt        time.Time        `gorm:"not null"`
+}
+
+// TableName pins the provider virtual settings table name.
+func (ProviderVirtualSetting) TableName() string {
+	return "provider_virtual_settings"
+}
+
 // VirtualModelMember is one fall-through step. Position keeps the priority
 // order. Members pointing at another virtual model use the virtual provider
 // row, so every member references a provider instance.

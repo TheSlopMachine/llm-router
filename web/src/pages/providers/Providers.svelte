@@ -25,7 +25,7 @@
   const providerColumns: TableColumn[] = [
     { key: 'name', title: t('providers.detail.title'), width: '1fr', priority: 1 },
     { key: 'creds', title: t('credentials.title_plural'), width: 'var(--fui-table-col-xl)', priority: 2 },
-    { key: 'models', title: t('models.list.title'), width: 'var(--fui-table-col-md)', align: 'right', priority: 2 },
+    { key: 'models', title: t('models.list.title'), width: 'var(--fui-table-col-md)', priority: 2 },
     { key: 'toggle', title: '', width: 'auto', align: 'right', priority: 1 }
   ]
 
@@ -101,7 +101,7 @@
         {:else if column.key === 'creds'}
           <Text size="sm">{n(stats?.credential_count ?? 0, 'credentials.status.active.one', 'credentials.status.active.many')}</Text>
         {:else if column.key === 'models'}
-          <Text size="sm">{String(stats?.model_count ?? 0)}</Text>
+          <Text size="sm">{String(stats?.enabled_model_count ?? 0)}</Text>
         {:else if column.key === 'toggle'}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <span
@@ -138,7 +138,7 @@
             />
           </span>
         </HStack>
-        <Text size="sm">{n(stats?.credential_count ?? 0, 'credentials.status.active.one', 'credentials.status.active.many')} · {stats?.model_count ?? 0} {t('models.list.title')}</Text>
+        <Text size="sm">{n(stats?.credential_count ?? 0, 'credentials.status.active.one', 'credentials.status.active.many')} · {stats?.enabled_model_count ?? 0} {t('models.list.title')}</Text>
         {#if isSystemDisabled(provider)}
           <Text variant="caption" tint="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(provider.disabled_reason)}</Text>
         {/if}

@@ -128,18 +128,37 @@ func sameMembers(current []models.VirtualModelEntry, desired []models.VirtualMod
 // serving the endpoint, in cache order. Managed VMs whose group emptied are
 // deleted. Disabled providers hold no groups: their managed rows delete so
 // a disabled provider never leaves routable-looking virtual models behind;
-// re-enabling recreates them from the cache. Manual edits to
+// re-enabling recreates them from the cache. A provider with its virtual
+// models switched off holds no groups either. New models start disabled
+// unless the provider's stored switch state lists their endpoint. Manual edits to
 // name/description/instruction survive: only the member list is rewritten.
 // Per-group failures accumulate into the returned error; completed groups
 // still apply.
 func (s *GormService) SyncProviderModels(ctx context.Context, providerID string) ([]ProviderVMGroup, error) {
+	if _, err := s.requireHandle(); err != nil {
+		return nil, err
+	}
 	instance, err := s.providerService.Get(ctx, providerID)
 	if err != nil {
 		s.log().Error("Managed virtual model sync fails", "provider_id", providerID, "operation", "load_provider", "error", err)
 		return nil, err
 	}
+	setting, err := providerSetting(ctx, s.database.Handle.WithContext(ctx), providerID)
+	if err != nil {
+		s.log().Error("Managed virtual model sync fails", "provider_id", providerID, "operation", "load_setting", "error", err)
+		return nil, err
+	}
+	switchedOff := setting != nil && setting.Disabled
+	restoreEnabled := map[string]bool{}
+	if setting != nil && !setting.Disabled {
+		for _, slug := range setting.EnabledEndpoints {
+			restoreEnabled[slug] = true
+		}
+	}
 	var groups []ProviderVMGroup
-	if !instance.Disabled {
+	if switchedOff {
+		s.log().Debug("Managed virtual model sync purges switched-off provider", "provider_id", providerID)
+	} else if !instance.Disabled {
 		groups, err = s.GroupsForProvider(ctx, providerID)
 		if err != nil {
 			s.log().Error("Managed virtual model sync fails", "provider_id", providerID, "operation", "groups", "error", err)
@@ -198,13 +217,14 @@ func (s *GormService) SyncProviderModels(ctx context.Context, providerID string)
 				continue
 			}
 			// New provider virtual models start disabled: routing through a
-			// provider-wide fall-through is the admin's opt-in.
+			// provider-wide fall-through is the admin's opt-in. Switching the
+			// provider's virtual models on again restores the enabled ones.
 			virtualModel := &models.VirtualModel{
 				Name:        autoName,
 				Description: fmt.Sprintf("Automatic fall-through across %s %s models. Members refresh on import.", instance.Name, strings.ToLower(group.Label)),
 				Models:      toEntries(entries),
 				ManagedBy:   marker,
-				Disabled:    true,
+				Disabled:    !restoreEnabled[group.Endpoint],
 			}
 			if err := s.Create(ctx, virtualModel); err != nil {
 				fail(group.Endpoint, "create", err)

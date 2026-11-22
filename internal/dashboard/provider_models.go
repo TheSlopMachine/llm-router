@@ -270,6 +270,73 @@ func (h *Handler) apiProviderVirtualModels(w http.ResponseWriter, r *http.Reques
 	h.json(w, http.StatusOK, groups)
 }
 
+// apiProviderVirtualSettings reports the switch of a provider's managed virtual models.
+// @Summary      Get provider virtual-model settings
+// @Description  Reports whether the provider's managed virtual models are on.
+// @Tags         Providers
+// @Produce      json
+// @Param        id path string true "Provider ID"
+// @Success      200 {object} virtual.ProviderVirtualSettings
+// @Failure      401 {object} models.ErrorResponse
+// @Failure      404 {object} models.ErrorResponse
+// @Failure      500 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/providers/{id}/virtual-models/settings [get]
+func (h *Handler) apiProviderVirtualSettings(w http.ResponseWriter, r *http.Request) {
+	providerID := r.PathValue("id")
+	if _, ok := h.loadVisibleProvider(r.Context(), providerID); !ok {
+		h.jsonErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	settings, err := h.gormVirtualService.ProviderSettings(r.Context(), providerID)
+	if err != nil {
+		h.logError("Failed to read provider virtual settings", "provider_id", providerID, "error", err)
+		h.jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.json(w, http.StatusOK, settings)
+}
+
+// apiProviderVirtualSettingsUpdate switches a provider's managed virtual models.
+// @Summary      Switch provider virtual models
+// @Description  Off deletes the provider's managed virtual models and keeps which were enabled; on rebuilds them with those enabled. Returns the endpoint groups.
+// @Tags         Providers
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Provider ID"
+// @Param        body body virtual.ProviderVirtualSettings true "Switch state"
+// @Success      200 {array} virtual.ProviderVMGroup
+// @Failure      400 {object} models.ErrorResponse
+// @Failure      401 {object} models.ErrorResponse
+// @Failure      404 {object} models.ErrorResponse
+// @Failure      500 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/providers/{id}/virtual-models/settings [put]
+func (h *Handler) apiProviderVirtualSettingsUpdate(w http.ResponseWriter, r *http.Request) {
+	providerID := r.PathValue("id")
+	if _, ok := h.loadVisibleProvider(r.Context(), providerID); !ok {
+		h.jsonErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	var body struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Enabled == nil {
+		h.jsonErr(w, http.StatusBadRequest, "enabled (true or false) is required")
+		return
+	}
+	groups, err := h.gormVirtualService.SetProviderVirtualModelsEnabled(r.Context(), providerID, *body.Enabled)
+	if err != nil {
+		h.logError("Failed to switch provider virtual models", "provider_id", providerID, "error", err)
+		h.jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if groups == nil {
+		groups = []virtual.ProviderVMGroup{}
+	}
+	h.json(w, http.StatusOK, groups)
+}
+
 // apiModelTest verifies one model through the type's check_model handler.
 // @Summary      Test model
 // @Description  Delegates liveness to the plugin check_model handler and reports success and latency. Endpoint passes through verbatim (chat default); the plugin reports unsupported endpoints.
