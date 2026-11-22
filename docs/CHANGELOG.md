@@ -8,6 +8,7 @@
 - **Large model lists** — the models page, provider models and the token wizard rendered only the rows in view, so 500+ models no longer froze the dashboard; long names truncated. Model search stopped re-normalizing every model per keystroke.
 - A provider whose model overrides failed to load was logged instead of skipped without a trace in the available models list.
 - **FUI 2.2.7** — the peak chart tip was no longer cut off by the card: it floated over the page and stayed inside the window.
+- `make publish` let ssh ask for the key passphrase and printed git's own error; before, `git fetch` failed with no cause shown.
 
 ## Done (2026-11-13, v0.11.2)
 

@@ -88,6 +88,16 @@ func gitOK(args ...string) (string, bool) {
 	return strings.TrimSpace(string(output)), true
 }
 
+// gitRemote runs a git command that talks to origin on the terminal of this
+// process: ssh can ask for the key passphrase, and git prints its own error.
+func gitRemote(args ...string) error {
+	cmd := exec.Command("git", args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 func main() {
 	releaseType := strings.ToLower(strings.TrimSpace(os.Getenv("TYPE")))
 	forced := strings.TrimSpace(os.Getenv("VERSION"))
@@ -113,8 +123,8 @@ func main() {
 	if branch != "main" {
 		shared.Failf("publish only from main, current branch is %q", branch)
 	}
-	if _, ok := gitOK("fetch", "origin"); !ok {
-		shared.Failf("git fetch origin failed")
+	if err := gitRemote("fetch", "origin"); err != nil {
+		shared.Failf("git fetch origin: %v", err)
 	}
 	head := git("rev-parse", "HEAD")
 	upstream, ok := gitOK("rev-parse", "origin/main")
@@ -181,8 +191,8 @@ func main() {
 	if output, err := exec.Command("git", arguments...).CombinedOutput(); err != nil {
 		shared.Failf("git tag %s: %v\n%s", tagName, err, string(output))
 	}
-	if output, err := exec.Command("git", "push", "origin", tagName).CombinedOutput(); err != nil {
-		shared.Failf("git push origin %s: %v\n%s", tagName, err, string(output))
+	if err := gitRemote("push", "origin", tagName); err != nil {
+		shared.Failf("git push origin %s: %v", tagName, err)
 	}
 	fmt.Printf("\n[OK] Published %s (from %s, commit %s)\n", tagName, latestRaw, head)
 	fmt.Printf("[OK] CI builds on tag push\n")
