@@ -6,32 +6,45 @@
   import { getErrorMessage } from '$lib/errors'
   import type { AvailableModel, VirtualModel } from '$lib/types'
   import { t, n } from '$lib/i18n.svelte'
-  import { Button, ConfirmAction, ContentUnavailable, FloatingView, HStack, Picker, SearchField, Toggle, Toolbar, VStack, Banner, Header } from '@fuckyouryan/fui'
+  import { Button, ConfirmAction, ContentUnavailable, FloatingView, HStack, Picker, SearchField, Spacer, Toggle, VStack, Banner, Header } from '@fuckyouryan/fui'
   import { rankModels, matchesVirtualModel } from '$lib/model-search'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
   import { setPendingClone } from '$lib/virtual-clone'
 
-  // Which models the table lists; the choice is kept in this browser.
-  type ModelKind = 'all' | 'real' | 'virtual'
+  // Which models the table lists: real or virtual ones, all or only enabled or disabled.
+  // Both choices are kept in this browser.
+  type ModelKind = 'real' | 'virtual'
+  type ModelStatus = 'all' | 'enabled' | 'disabled'
   const KIND_KEY = 'llm-router:models-kind'
+  const STATUS_KEY = 'llm-router:models-status'
 
-  function loadKind(): ModelKind {
+  function loadChoice<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
     try {
-      const stored = localStorage.getItem(KIND_KEY)
-      if (stored === 'real' || stored === 'virtual') return stored
+      const stored = localStorage.getItem(key)
+      const found = allowed.find((value) => value === stored)
+      if (found) return found
     } catch (e) {
-      console.error('Failed to access localStorage for the models kind:', e)
+      console.error(`Failed to access localStorage for ${key}:`, e)
     }
-    return 'all'
+    return fallback
   }
 
-  function saveKind(next: ModelKind): void {
-    kind = next
+  function saveChoice(key: string, value: string): void {
     try {
-      localStorage.setItem(KIND_KEY, next)
+      localStorage.setItem(key, value)
     } catch (e) {
-      console.error('Failed to save the models kind to localStorage:', e)
+      console.error(`Failed to save ${key} to localStorage:`, e)
     }
+  }
+
+  function selectKind(next: ModelKind): void {
+    kind = next
+    saveChoice(KIND_KEY, next)
+  }
+
+  function selectStatus(next: ModelStatus): void {
+    status = next
+    saveChoice(STATUS_KEY, next)
   }
 
   // replaced as a whole on load, never mutated: raw state keeps the rows out of deep proxies
@@ -40,7 +53,8 @@
   let loading = $state(true)
   let error = $state('')
   let query = $state('')
-  let kind = $state<ModelKind>(loadKind())
+  let kind = $state<ModelKind>(loadChoice(KIND_KEY, ['real', 'virtual'], 'real'))
+  let status = $state<ModelStatus>(loadChoice(STATUS_KEY, ['all', 'enabled', 'disabled'], 'all'))
 
   let hasModels = $derived(!loading && allModels.length + virtualModels.length > 0)
   let isEmptyCatalog = $derived(allModels.length + virtualModels.length === 0)
@@ -99,9 +113,21 @@
       }),
   )
 
-  let tableModels = $derived(
-    kind === 'real' ? realRows : kind === 'virtual' ? virtualRows : [...realRows, ...virtualRows],
-  )
+  const matchesStatus = (row: ModelsTableModel, wanted: ModelStatus): boolean =>
+    wanted === 'all' || (wanted === 'disabled') === Boolean(row.disabled)
+
+  // Each picker counts the rows its option would list under the other picker's choice.
+  let kindRows = $derived(kind === 'real' ? realRows : virtualRows)
+  let kindCounts = $derived({
+    real: realRows.filter((row) => matchesStatus(row, status)).length,
+    virtual: virtualRows.filter((row) => matchesStatus(row, status)).length,
+  })
+  let statusCounts = $derived({
+    all: kindRows.length,
+    enabled: kindRows.filter((row) => matchesStatus(row, 'enabled')).length,
+    disabled: kindRows.filter((row) => matchesStatus(row, 'disabled')).length,
+  })
+  let tableModels = $derived(kindRows.filter((row) => matchesStatus(row, status)))
 
   onMount(load)
 
@@ -199,21 +225,33 @@
     <Banner tint="danger" text={error} />
   {/if}
 
-  <Toolbar overflow="wrap" gap={3}>
-    <Picker
-      pickerStyle="segmented"
-      value={kind}
-      options={[
-        { value: 'all', label: `${t('common.actions.all')} ${realRows.length + virtualRows.length}` },
-        { value: 'real', label: `${t('models.kind.real.label')} ${realRows.length}` },
-        { value: 'virtual', label: `${t('models.kind.virtual.label')} ${virtualRows.length}` },
-      ]}
-      ariaLabel={t('models.kind.title')}
-      onchange={(next) => saveKind(next as ModelKind)}
-    />
-  </Toolbar>
-
-  <SearchField bind:value={query} placeholder={t('models.search.placeholder')} />
+  <VStack gap={3}>
+    <SearchField bind:value={query} placeholder={t('models.search.placeholder')} />
+    <HStack gap={3} wrap valign="center">
+      <Picker
+        pickerStyle="segmented"
+        value={kind}
+        options={[
+          { value: 'real', label: `${t('models.kind.real.label')} ${kindCounts.real}` },
+          { value: 'virtual', label: `${t('models.kind.virtual.label')} ${kindCounts.virtual}` },
+        ]}
+        ariaLabel={t('models.kind.title')}
+        onchange={(next) => selectKind(next as ModelKind)}
+      />
+      <Spacer />
+      <Picker
+        pickerStyle="segmented"
+        value={status}
+        options={[
+          { value: 'all', label: `${t('common.actions.all')} ${statusCounts.all}` },
+          { value: 'enabled', label: `${t('common.labels.enabled')} ${statusCounts.enabled}` },
+          { value: 'disabled', label: `${t('common.labels.disabled')} ${statusCounts.disabled}` },
+        ]}
+        ariaLabel={t('models.filter.visibility')}
+        onchange={(next) => selectStatus(next as ModelStatus)}
+      />
+    </HStack>
+  </VStack>
 
   <ModelsTable models={tableModels} sortable showProviderLink lazy {loading}>
     {#snippet actions({ model })}
