@@ -221,7 +221,7 @@ func (s *GormService) SyncProviderModels(ctx context.Context, providerID string)
 			// provider's virtual models on again restores the enabled ones.
 			virtualModel := &models.VirtualModel{
 				Name:        autoName,
-				Description: fmt.Sprintf("Fall-through across %s %s models.", instance.Name, strings.ToLower(group.Label)),
+				Description: fmt.Sprintf("Fall-through across %s %s models.", instance.Name, endpointNoun(group.Label)),
 				Models:      toEntries(entries),
 				ManagedBy:   marker,
 				Disabled:    !restoreEnabled[group.Endpoint],
@@ -278,6 +278,15 @@ func (s *GormService) SyncProviderModels(ctx context.Context, providerID string)
 	}
 	s.log().Debug("Managed virtual model sync succeeds", "provider_id", providerID, "count", len(groups))
 	return groups, errors.Join(syncErrors...)
+}
+
+// endpointNoun writes an endpoint label inside a sentence: acronyms keep
+// their case ("STT"), words go lower case ("chat").
+func endpointNoun(label string) string {
+	if strings.ToUpper(label) == label {
+		return label
+	}
+	return strings.ToLower(label)
 }
 
 func toEntries(ids []models.ModelId) []models.VirtualModelEntry {

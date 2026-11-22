@@ -2,8 +2,9 @@
 //
 // Provider-managed virtual models were created with the description
 // "Automatic fall-through across <provider> <endpoint> models. Members refresh
-// on import." New ones read "Fall-through across <provider> <endpoint>
-// models." Version 11 rewrites stored descriptions in the old form; edited
+// on import." with the endpoint in lower case. New ones read "Fall-through
+// across <provider> <endpoint> models." with acronym endpoints (STT, TTS) in
+// upper case. Version 11 rewrites stored descriptions in the old form. Edited
 // descriptions stay.
 package migrations
 
@@ -28,6 +29,11 @@ func shortManagedDescription(description string) (string, bool) {
 		return "", false
 	}
 	subject := strings.TrimSuffix(strings.TrimPrefix(description, legacyManagedDescriptionPrefix), legacyManagedDescriptionSuffix)
+	for _, acronym := range []string{"stt", "tts"} {
+		if strings.HasSuffix(subject, " "+acronym) {
+			subject = strings.TrimSuffix(subject, acronym) + strings.ToUpper(acronym)
+		}
+	}
 	return "Fall-through across " + subject + " models.", true
 }
 

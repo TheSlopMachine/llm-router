@@ -22,11 +22,12 @@ func TestManagedVirtualDescriptionsRewritesLegacyTextOnly(t *testing.T) {
 		t.Fatalf("seed provider: %v", err)
 	}
 	providerID := "groq"
-	chat, speech := "chat", "speech"
+	chat, speech, transcription := "chat", "speech", "transcription"
 	legacy := "Automatic fall-through across Groq chat models. Members refresh on import."
 	rows := []virtualModelSnapshot{
 		{ID: "groq-chat", Name: "Groq Chat", NameKey: "groq chat", Description: legacy, ManagedProviderID: &providerID, ManagedEndpointSlug: &chat, CreatedAt: now, UpdatedAt: now},
 		{ID: "groq-tts", Name: "Groq TTS", NameKey: "groq tts", Description: "Edited by hand.", ManagedProviderID: &providerID, ManagedEndpointSlug: &speech, CreatedAt: now, UpdatedAt: now},
+		{ID: "groq-stt", Name: "Groq STT", NameKey: "groq stt", Description: "Automatic fall-through across Groq stt models. Members refresh on import.", ManagedProviderID: &providerID, ManagedEndpointSlug: &transcription, CreatedAt: now, UpdatedAt: now},
 		{ID: "mine", Name: "Mine", NameKey: "mine", Description: legacy, CreatedAt: now, UpdatedAt: now},
 	}
 	for index := range rows {
@@ -47,6 +48,9 @@ func TestManagedVirtualDescriptionsRewritesLegacyTextOnly(t *testing.T) {
 	}
 	if got := descriptions["groq-chat"]; got != "Fall-through across Groq chat models." {
 		t.Errorf("managed legacy description = %q, want the short form", got)
+	}
+	if got := descriptions["groq-stt"]; got != "Fall-through across Groq STT models." {
+		t.Errorf("managed legacy acronym description = %q, want STT in upper case", got)
 	}
 	if got := descriptions["groq-tts"]; got != "Edited by hand." {
 		t.Errorf("edited managed description = %q, want kept", got)
