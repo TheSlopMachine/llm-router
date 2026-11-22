@@ -7,6 +7,7 @@
 - **Toggle labels name the state** — the provider header button read "Enabled" or "Disabled" instead of "Enable provider" for both states; provider, credential, model and virtual model switches were labelled "Enabled".
 - **Large model lists** — the models page, provider models and the token wizard rendered only the rows in view, so 500+ models no longer froze the dashboard; long names truncated. Model search stopped re-normalizing every model per keystroke.
 - A provider whose model overrides failed to load was logged instead of skipped without a trace in the available models list.
+- **FUI 2.2.7** — the peak chart tip was no longer cut off by the card: it floated over the page and stayed inside the window.
 
 ## Done (2026-11-13, v0.11.2)
 
