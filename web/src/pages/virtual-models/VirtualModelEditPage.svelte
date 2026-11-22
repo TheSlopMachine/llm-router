@@ -95,7 +95,7 @@
   }
 
   function backToList() {
-    window.location.hash = '#/virtual'
+    window.location.hash = '#/models'
   }
 
   async function loadAvailableModels() {
@@ -215,7 +215,7 @@
 </script>
 
   <VStack gap={6}>
-  <Header title={vmId ? t('virtual.edit.title') : t('virtual.create.title')} back={{ label: t('virtual.models_plural'), href: '#/virtual' }} subtitle={vmId ? t('virtual.update_desc') : t('virtual.create_desc')} />
+  <Header title={vmId ? t('virtual.edit.title') : t('virtual.create.title')} back={{ label: t('models.list.title'), href: '#/models' }} subtitle={vmId ? t('virtual.update_desc') : t('virtual.create_desc')} />
 
   {#if error}
     <Banner tint="danger" text={error} />

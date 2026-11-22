@@ -184,16 +184,8 @@
     return resolveModelId(model)
   }
 
-  function openProvider(providerId: string): void {
-    window.location.hash = `#/providers/${providerId}`
-  }
-
   function showProviderNameLink(model: ModelsTableModel): boolean {
     return showProviderLink && !!model.providerId && !!model.providerName
-  }
-
-  function showVirtualLink(model: ModelsTableModel): boolean {
-    return showProviderLink && model.kind === 'virtual'
   }
 </script>
 
@@ -287,11 +279,6 @@
           {#if showProviderNameLink(model)}
             <a class="provider-link" href={`#/providers/${model.providerId}`}>
               <Text size="sm" truncate={lazy}>{model.providerName}</Text>
-              <Icon name="chevron_right" size="sm" />
-            </a>
-          {:else if showVirtualLink(model)}
-            <a class="provider-link" href="#/virtual">
-              <Text size="sm">{t('virtual.models_plural')}</Text>
               <Icon name="chevron_right" size="sm" />
             </a>
           {/if}

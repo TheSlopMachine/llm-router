@@ -312,8 +312,10 @@ export const api = {
     test: (modelId: string, endpoint?: string): Promise<TestResult> =>
       postJson('/api/llm-router/dashboard/models/test', { model_id: modelId, endpoint }),
 
-    available: async (): Promise<AvailableModel[]> => {
-      const raw = (await apiCall('get', '/api/llm-router/dashboard/models/available')) as unknown
+    /** models of enabled providers; disabled models too (marked `disabled`) with includeDisabled */
+    available: async (options: { includeDisabled?: boolean } = {}): Promise<AvailableModel[]> => {
+      const query = options.includeDisabled ? { include_disabled: true } : undefined
+      const raw = (await apiCall('get', '/api/llm-router/dashboard/models/available', { query })) as unknown
       const records = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []
       return records.map((r) => ({
         full_model_id: (r.full_model_id as string) ?? '',
@@ -330,6 +332,7 @@ export const api = {
         output_modalities: r.output_modalities as string[] | undefined,
         reasoning: r.reasoning as AvailableModel['reasoning'],
         supported_parameters: r.supported_parameters as string[] | undefined,
+        disabled: r.disabled === true,
       }))
     },
   },

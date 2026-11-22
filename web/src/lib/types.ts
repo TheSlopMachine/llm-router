@@ -294,6 +294,8 @@ export interface AvailableModel {
   output_modalities?: string[]
   reasoning?: ProviderModel['reasoning']
   supported_parameters?: string[]
+  /** listed only when the request includes disabled models */
+  disabled: boolean
 }
 
 export interface VirtualModel {

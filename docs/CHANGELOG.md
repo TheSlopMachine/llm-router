@@ -2,8 +2,7 @@
 
 ## Done (2026-11-22, v0.11.4)
 
-- The virtual models page showed its description under the title, as the other pages do, instead of behind an info button.
-- **Virtual models search** — the virtual models page got a search field over the table (id, name, description) and rendered only the rows in view, as the models page does; a search without matches no longer offered to create the first virtual model.
+- **One models page** — real and virtual models listed on the Models page under an All / Real / Virtual picker remembered in the browser; the Virtual models page and its sidebar entry were removed (`#/virtual` opened Models). New model moved to the Models header; virtual models kept clone, edit, delete and their switch, and real models got an enable switch. Disabled models stayed listed, dimmed: `GET /dashboard/models/available` took `include_disabled=true` and marked such models `disabled`.
 
 ## Done (2026-11-22, v0.11.3)
 

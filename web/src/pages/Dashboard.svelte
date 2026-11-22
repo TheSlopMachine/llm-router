@@ -11,7 +11,6 @@
   import Models from './models/Models.svelte'
   import Providers from './providers/Providers.svelte'
   import Tokens from './tokens/Tokens.svelte'
-  import VirtualModels from './virtual-models/VirtualModels.svelte'
   import SettingsPage from './settings/SettingsPage.svelte'
   import type { PluginsTab } from './plugins/Plugins.svelte'
   import type { ProxyTab } from './proxy/ProxyPage.svelte'
@@ -50,6 +49,13 @@
       panel = 'plugins'
       routeSegments = ['catalog']
       window.location.hash = '#/plugins/catalog'
+      return
+    }
+    // Virtual models list with the others under Models; #/virtual keeps only the editor.
+    if (segments[0] === 'virtual' && segments.length === 1) {
+      panel = 'models'
+      routeSegments = []
+      window.location.hash = '#/models'
       return
     }
     if (segments.length === 0) {
@@ -91,7 +97,6 @@
     { id: 'providers',    label: 'providers.list.title',    icon: PROVIDERS_ICON },
     { id: 'models',       label: 'models.list.title',       icon: 'view_list' },
     { id: 'plugins',      label: 'plugins.title',      icon: PLUGINS_ICON },
-    { id: 'virtual',      label: 'virtual.models_plural', icon: 'robot' },
     { id: 'tokens',       label: 'tokens.list.title',       icon: 'key' },
     { id: 'proxy',        label: 'proxy.title',      icon: PROXIES_ICON },
   ]
@@ -147,7 +152,7 @@
     <Sidebar>
       {#snippet header()}<Text class="brand" weight="bold" size="sm" text="llm-router" />{/snippet}
       {#each nav as item (item.id)}
-        <Button icon={{ name: item.icon }} text={t(item.label)} selected={panel === item.id} onclick={() => navigateTo(item.id)} />
+        <Button icon={{ name: item.icon }} text={t(item.label)} selected={panel === item.id || (panel === 'virtual' && item.id === 'models')} onclick={() => navigateTo(item.id)} />
       {/each}
       {#snippet footer()}
         <Button icon={{ name: 'settings' }} text={t('settings.title')} selected={panel === 'settings'} onclick={openSettings} />
@@ -169,13 +174,7 @@
       {:else if panel === 'models'}
         <Models />
       {:else if panel === 'virtual'}
-        {#if routeSegments[0] === 'new'}
-          <VirtualModelEditorPage vmId={null} />
-        {:else if routeSegments[0]}
-          <VirtualModelEditorPage vmId={routeSegments[0]} />
-        {:else}
-          <VirtualModels />
-        {/if}
+        <VirtualModelEditorPage vmId={routeSegments[0] === 'new' ? null : routeSegments[0]} />
       {:else if panel === 'tokens'}
         <Tokens />
       {:else if panel === 'plugins'}

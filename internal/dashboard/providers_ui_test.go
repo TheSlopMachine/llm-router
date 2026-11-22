@@ -357,7 +357,7 @@ func TestAvailableModelsIncludesVirtualWithoutCredentials(t *testing.T) {
 		t.Fatalf("expected zero virtual credentials, got %d", len(rows))
 	}
 
-	items, err := h.availableModels(ctx)
+	items, err := h.availableModels(ctx, false)
 	if err != nil {
 		t.Fatalf("available models failed: %v", err)
 	}
@@ -365,6 +365,70 @@ func TestAvailableModelsIncludesVirtualWithoutCredentials(t *testing.T) {
 		if item.ProviderType == provider.TypeVirtual {
 			t.Fatalf("virtual entry must not be listed: %+v", item)
 		}
+	}
+}
+
+func TestAvailableModelsListsDisabledOnlyOnRequest(t *testing.T) {
+	h, providerService, database := newProvidersUIHandler(t)
+	ctx := context.Background()
+	providerService.RegisterGoAdapter(testutil.NewMockAdapter("mock"))
+	instance, err := providerService.Create(ctx, provider.CreateOptions{Name: "Mock", TypeKey: "mock"})
+	if err != nil {
+		t.Fatalf("create mock provider: %v", err)
+	}
+	credentialService := credential.NewGorm(database, providerService)
+	modelInfoService := modelinfo.NewGorm(database, providerService, credentialService, 1*time.Hour)
+	h.gormModelInfoService = modelInfoService
+	for _, override := range []models.ModelOverride{
+		{ProviderID: instance.ID, Name: "on-model", Custom: true},
+		{ProviderID: instance.ID, Name: "off-model", Custom: true, Disabled: true},
+	} {
+		if err := modelInfoService.SetOverride(ctx, override); err != nil {
+			t.Fatalf("set override %s: %v", override.Name, err)
+		}
+	}
+
+	request := func(query string) (int, []availableModelView) {
+		recorder := httptest.NewRecorder()
+		h.apiAvailableModels(recorder, httptest.NewRequest(http.MethodGet, "/api/llm-router/dashboard/models/available"+query, nil))
+		var items []availableModelView
+		if recorder.Code == http.StatusOK {
+			if err := json.Unmarshal(recorder.Body.Bytes(), &items); err != nil {
+				t.Fatalf("decode %q: %v", query, err)
+			}
+		}
+		return recorder.Code, items
+	}
+	disabledByName := func(items []availableModelView) map[string]bool {
+		listed := map[string]bool{}
+		for _, item := range items {
+			listed[item.ModelName] = item.Disabled
+		}
+		return listed
+	}
+
+	code, items := request("")
+	if code != http.StatusOK {
+		t.Fatalf("default: status %d", code)
+	}
+	if listed := disabledByName(items); len(listed) != 1 || listed["on-model"] {
+		t.Fatalf("default lists enabled models only: %+v", listed)
+	}
+
+	code, items = request("?include_disabled=true")
+	if code != http.StatusOK {
+		t.Fatalf("include_disabled: status %d", code)
+	}
+	listed := disabledByName(items)
+	if disabled, ok := listed["off-model"]; !ok || !disabled {
+		t.Fatalf("include_disabled lists the disabled model marked disabled: %+v", listed)
+	}
+	if disabled, ok := listed["on-model"]; !ok || disabled {
+		t.Fatalf("include_disabled lists the enabled model unmarked: %+v", listed)
+	}
+
+	if code, _ := request("?include_disabled=maybe"); code != http.StatusBadRequest {
+		t.Fatalf("invalid include_disabled: status %d, want 400", code)
 	}
 }
 
