@@ -226,19 +226,7 @@
   {/if}
 
   <VStack gap={3}>
-    <SearchField bind:value={query} placeholder={t('models.search.placeholder')} />
     <HStack gap={3} wrap valign="center">
-      <Picker
-        pickerStyle="segmented"
-        value={kind}
-        options={[
-          { value: 'real', label: `${t('models.kind.real.label')} ${kindCounts.real}` },
-          { value: 'virtual', label: `${t('models.kind.virtual.label')} ${kindCounts.virtual}` },
-        ]}
-        ariaLabel={t('models.kind.title')}
-        onchange={(next) => selectKind(next as ModelKind)}
-      />
-      <Spacer />
       <Picker
         pickerStyle="segmented"
         value={status}
@@ -250,7 +238,19 @@
         ariaLabel={t('models.filter.visibility')}
         onchange={(next) => selectStatus(next as ModelStatus)}
       />
+      <Spacer />
+      <Picker
+        pickerStyle="segmented"
+        value={kind}
+        options={[
+          { value: 'real', label: `${t('models.kind.real.label')} ${kindCounts.real}` },
+          { value: 'virtual', label: `${t('models.kind.virtual.label')} ${kindCounts.virtual}` },
+        ]}
+        ariaLabel={t('models.kind.title')}
+        onchange={(next) => selectKind(next as ModelKind)}
+      />
     </HStack>
+    <SearchField bind:value={query} placeholder={t('models.search.placeholder')} />
   </VStack>
 
   <ModelsTable models={tableModels} sortable showProviderLink lazy {loading}>
