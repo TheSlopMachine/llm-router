@@ -4,6 +4,7 @@
   import { t } from '$lib/i18n.svelte'
 
   type Filters = MetricsFilters & { provider_id: string; model: string; time_range: string }
+  type FilterField = 'provider_id' | 'time_range' | 'model'
 
   let {
     filters = $bindable({ provider_id: '', model: '', time_range: 'hour' } as unknown as Filters),
@@ -14,11 +15,11 @@
     filters: Filters
     providers: Provider[]
     models: string[]
-    onchange?: (f: Filters) => void
+    onchange?: (f: Filters, field: FilterField) => void
   } = $props()
 
-  function handleChange() {
-    onchange?.(filters)
+  function handleChange(field: FilterField) {
+    onchange?.(filters, field)
   }
 
   let timeRangeOptions = $derived([
@@ -47,7 +48,7 @@
     <Picker
       bind:value={filters.provider_id}
       options={providerOptions}
-      onchange={handleChange}
+      onchange={() => handleChange('provider_id')}
     />
   </VStack>
 
@@ -56,7 +57,7 @@
     <Picker
       bind:value={filters.time_range}
       options={timeRangeOptions}
-      onchange={handleChange}
+      onchange={() => handleChange('time_range')}
     />
   </VStack>
 
@@ -65,7 +66,7 @@
     <Picker
       bind:value={filters.model}
       options={modelOptions}
-      onchange={handleChange}
+      onchange={() => handleChange('model')}
     />
   </VStack>
 </HStack>

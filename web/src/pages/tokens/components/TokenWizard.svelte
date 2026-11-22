@@ -526,7 +526,7 @@
       </div>
     </HStack>
     <div class={isModelScopeLocked ? 'is-disabled' : ''}>
-      <ModelsTable models={filteredTableModels} loading={wizardLoading}>
+      <ModelsTable models={filteredTableModels} lazy maxHeight="60vh" loading={wizardLoading}>
         {#snippet actions({ model })}
           {@const fid = modelFullId(model as ModelsTableModel)}
           <Checkbox

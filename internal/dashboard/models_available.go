@@ -62,6 +62,7 @@ func (h *Handler) availableModels(ctx context.Context) ([]availableModelView, er
 		// Cache peek only: browsing the models tab must not ping upstreams.
 		modelInfos, err := h.gormModelInfoService.PeekMergedView(ctx, providerRecord.ID)
 		if err != nil {
+			h.logWarn("Skipped provider models in the available list", "provider_id", providerRecord.ID, "error", err)
 			continue
 		}
 

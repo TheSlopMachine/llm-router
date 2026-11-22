@@ -44,6 +44,8 @@
     status,
     statusValue,
     empty,
+    lazy = false,
+    maxHeight,
   }: {
     models: ModelsTableModel[]
     readonly?: boolean
@@ -52,6 +54,9 @@
     showProviderLink?: boolean
     loading?: boolean
     skeletonRows?: number
+    /** only the rows in view exist; the table scrolls inside maxHeight, or fills the remaining height without it */
+    lazy?: boolean
+    maxHeight?: string
     onreorder?: (from: number, to: number) => void
     actions?: ModelsTableActions
     /** leading selection cell (a checkbox) */
@@ -61,6 +66,18 @@
     statusValue?: (model: ModelsTableModel) => number | string
     empty?: Snippet<[]>
   } = $props()
+
+  // A lazy row is as tall as the model cell: one control row per identity line (name, id, and the
+  // provider link when shown). Longer texts truncate; the chip grids hold two rows at most.
+  const identityLines = $derived(showProviderLink ? 3 : 2)
+  const rowHeight = $derived(
+    `calc(${identityLines} * var(--fui-ctl-sm) + ${identityLines - 1} * var(--fui-space-1) + 2 * var(--fui-space-3) + var(--fui-border-w))`,
+  )
+  const windowing = $derived(
+    !lazy ? {} : maxHeight !== undefined
+      ? { lazy: true as const, rowHeight, maxHeight }
+      : { lazy: true as const, rowHeight, grow: true as const },
+  )
 
   let sortKey = $state<string | null>(null)
   let sortDir = $state<TableSortDir | null>(null)
@@ -228,8 +245,9 @@
   </div>
 {/snippet}
 
-<div class="mt-wrap" bind:this={wrapperElement}>
+<div class="mt-wrap" class:fill={lazy && maxHeight === undefined} bind:this={wrapperElement}>
   <Table
+    {...windowing}
     {columns}
     rows={sortedModels}
     rowKey={(model) => (model as ModelsTableModel).fullId ?? `${(model as ModelsTableModel).kind}:${(model as ModelsTableModel).id}`}
@@ -249,26 +267,26 @@
         <VStack gap={1} halign="start" class="model-identity">
           {#if model.kind === 'virtual'}
             <HStack gap={2} valign="center" class="identity-line">
-              <Text mono size="sm" class="id-text">
+              <Text mono size="sm" class="id-text" truncate={lazy}>
                 virtual/{model.id}
               </Text>
               <CopyButton size="sm" text={fullId(model)} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
             </HStack>
             <HStack valign="center" class="identity-line">
-              <Text size="sm" foregroundStyle="secondary" class="secondary-text">{model.description || '—'}</Text>
+              <Text size="sm" foregroundStyle="secondary" class="secondary-text" truncate={lazy}>{model.description || '—'}</Text>
             </HStack>
           {:else}
             <HStack gap={2} valign="center" class="identity-line">
-              <Text size="md" weight="medium" class="primary-text">{model.name || model.id}</Text>
+              <Text size="md" weight="medium" class="primary-text" truncate={lazy}>{model.name || model.id}</Text>
             </HStack>
             <HStack gap={2} valign="center" class="identity-line">
-              <Text mono size="sm" class="id-text">{fullId(model)}</Text>
+              <Text mono size="sm" class="id-text" truncate={lazy}>{fullId(model)}</Text>
               <CopyButton size="sm" text={fullId(model)} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
             </HStack>
           {/if}
           {#if showProviderNameLink(model)}
             <a class="provider-link" href={`#/providers/${model.providerId}`}>
-              <Text size="sm">{model.providerName}</Text>
+              <Text size="sm" truncate={lazy}>{model.providerName}</Text>
               <Icon name="chevron_right" size="sm" />
             </a>
           {:else if showVirtualLink(model)}
@@ -354,6 +372,26 @@
   /* Measurement host for the merge stages: full width, no visuals. */
   .mt-wrap {
     width: 100%;
+    min-width: 0;
+  }
+  /* a lazy table without maxHeight takes the remaining height of the page */
+  .mt-wrap.fill {
+    flex: 1 1 0;
+    min-height: 360px;
+    display: flex;
+    flex-direction: column;
+  }
+  /* the identity lines shrink to the cell, so the texts of a lazy table truncate inside it */
+  .mt-wrap :global(.model-identity) {
+    max-width: 100%;
+    min-width: 0;
+  }
+  .mt-wrap :global(.model-identity > *) {
+    max-width: 100%;
+    min-width: 0;
+  }
+  .provider-link {
+    max-width: 100%;
     min-width: 0;
   }
 </style>

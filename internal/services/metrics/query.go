@@ -87,6 +87,29 @@ func (s *Service) QueryTimeSeries(metric string, filters models.MetricsFilters) 
 	return points, nil
 }
 
+// QueryLastActivity returns the start of the newest bucket with requests
+// matching the provider and model filters, or nil when the retention period
+// holds none. The time range filter is ignored.
+func (s *Service) QueryLastActivity(filters models.MetricsFilters) (*time.Time, error) {
+	end := time.Now()
+	buckets, err := s.fetchBuckets(end.Add(-RetentionPeriod), end)
+	if err != nil {
+		s.logger.Error("Metrics query failed", "operation", "last_activity", "provider_id", filters.ProviderID, "model", string(filters.Model), "error", err)
+		return nil, fmt.Errorf("fetch buckets: %w", err)
+	}
+	var latest *time.Time
+	for _, bucket := range s.applyFilters(buckets, filters) {
+		if bucket.TotalRequests == 0 {
+			continue
+		}
+		if latest == nil || bucket.Timestamp.After(*latest) {
+			timestamp := bucket.Timestamp
+			latest = &timestamp
+		}
+	}
+	return latest, nil
+}
+
 // GetDistinctModels returns a list of unique models from metrics data:
 // in-memory buckets plus the SQLite model dimension rows.
 func (s *Service) GetDistinctModels() ([]string, error) {

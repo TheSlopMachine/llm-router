@@ -57,7 +57,7 @@ func decodeOneOrMany[T any](body io.Reader) ([]*T, error) {
 // @Description  Returns the subsystem as JSON. The plugins subsystem is a zip archive: plugins.json (repositories and plugin records without source and history) plus one <plugin id>.lua per plugin.
 // @Tags         Data
 // @Produce      json,application/zip
-// @Param        subsystem path string true "Subsystem name (providers, virtual_models, plugins, tokens, proxy)"
+// @Param        subsystem path string true "Subsystem name (providers, virtual_models, plugins, tokens, proxy_pools, proxies)"
 // @Success      200 {object} object
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/data/{subsystem}/export [get]
@@ -76,8 +76,10 @@ func (h *Handler) apiDataExport(w http.ResponseWriter, r *http.Request) {
 		return
 	case "tokens":
 		data, err = h.dataGormService.ExportTokens(r.Context())
-	case "proxy":
-		data, err = h.dataGormService.ExportProxy(r.Context())
+	case "proxy_pools":
+		data, err = h.dataGormService.ExportProxyPools(r.Context())
+	case "proxies":
+		data, err = h.dataGormService.ExportDiscoveredProxies(r.Context())
 	default:
 		h.jsonErr(w, http.StatusBadRequest, "unknown subsystem")
 		return
@@ -165,13 +167,23 @@ func (h *Handler) apiDataImport(w http.ResponseWriter, r *http.Request) {
 			h.jsonErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-	case "proxy":
-		var bundle models.ProxyDataBundle
+	case "proxy_pools":
+		var bundle models.ProxyPoolsBundle
 		if err := decoder.Decode(&bundle); err != nil {
-			h.jsonErr(w, http.StatusBadRequest, "invalid proxy data payload")
+			h.jsonErr(w, http.StatusBadRequest, "invalid proxy pools payload")
 			return
 		}
-		if err := h.dataGormService.ImportProxy(r.Context(), &bundle); err != nil {
+		if err := h.dataGormService.ImportProxyPools(r.Context(), &bundle); err != nil {
+			h.jsonErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	case "proxies":
+		var bundle models.DiscoveredProxiesBundle
+		if err := decoder.Decode(&bundle); err != nil {
+			h.jsonErr(w, http.StatusBadRequest, "invalid discovered proxies payload")
+			return
+		}
+		if err := h.dataGormService.ImportDiscoveredProxies(r.Context(), &bundle); err != nil {
 			h.jsonErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -215,8 +227,10 @@ func (h *Handler) apiDataClear(w http.ResponseWriter, r *http.Request) {
 		err = h.dataGormService.ClearPlugins(r.Context())
 	case "tokens":
 		err = h.dataGormService.ClearTokens(r.Context())
-	case "proxy":
-		err = h.dataGormService.ClearProxy(r.Context())
+	case "proxy_pools":
+		err = h.dataGormService.ClearProxyPools(r.Context())
+	case "proxies":
+		err = h.dataGormService.ClearDiscoveredProxies(r.Context())
 	default:
 		h.jsonErr(w, http.StatusBadRequest, "unknown subsystem")
 		return

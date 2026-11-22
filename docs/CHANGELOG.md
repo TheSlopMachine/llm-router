@@ -1,5 +1,13 @@
 # Changelog
 
+## Done (2026-11-22, v0.11.3)
+
+- **Metrics range from activity** — the overview opened on the shortest range (last hour, 1, 7, 28 or 90 days) holding the last request, and picked again on a provider or model change until a range was chosen by hand. `GET /dashboard/metrics/last-activity` returned the start of the newest bucket with requests.
+- **Proxy pools and discovered proxies apart** — data management split the `proxy` subsystem into `proxy_pools` (pools, switches, check cap) and `proxies` (discovered proxies), each with its own export, import and clear. A file from the former combined export imported into either.
+- **Toggle labels name the state** — the provider header button read "Enabled" or "Disabled" instead of "Enable provider" for both states; provider, credential, model and virtual model switches were labelled "Enabled".
+- **Large model lists** — the models page, provider models and the token wizard rendered only the rows in view, so 500+ models no longer froze the dashboard; long names truncated. Model search stopped re-normalizing every model per keystroke.
+- A provider whose model overrides failed to load was logged instead of skipped without a trace in the available models list.
+
 ## Done (2026-11-13, v0.11.2)
 
 - **FUI 2.2.6** — segmented pickers no longer launched the selection pill from the left edge when the selected label was the longer one: selection recoloured the label instead of bolding it, so segments kept their width. Separators stayed drawn under the pill; the pill's width settled at 75% of its slide.

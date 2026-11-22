@@ -1804,6 +1804,13 @@ type MetricsOverview struct {
 	PeakOutputTokens int64 `json:"peak_output_tokens" example:"3500"`
 }
 
+// MetricsLastActivity reports when the newest request happened.
+type MetricsLastActivity struct {
+	// At is the start of the newest bucket with requests; null when the
+	// retention period holds none.
+	At *time.Time `json:"at" example:"2026-05-04T19:00:00Z"`
+}
+
 // TimeSeriesPoint for chart data.
 type TimeSeriesPoint struct {
 	Timestamp time.Time `json:"timestamp" example:"2026-05-04T19:00:00Z"`
@@ -1938,17 +1945,24 @@ type VirtualModel struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// ProxyDataVersion is the format version of ProxyDataBundle.
+// ProxyDataVersion is the format version of ProxyPoolsBundle and
+// DiscoveredProxiesBundle. Both keep the field names of the former combined
+// proxy export, so one such file imports into either subsystem.
 const ProxyDataVersion = 1
 
-// ProxyDataBundle packages the proxy subsystem for export and import:
-// switches and cap, manually managed pools and the currently healthy
-// discovered proxies. Banned and unchecked proxies are volatile and stay out.
-type ProxyDataBundle struct {
+// ProxyPoolsBundle packages the proxy switches, the check cap and the
+// manually managed pools for export and import.
+type ProxyPoolsBundle struct {
 	Version  int               `json:"version"`
 	Settings *ProxyDataSetting `json:"settings,omitempty"`
 	Pools    []CustomProxyPool `json:"pools"`
-	Proxies  []ProxyDataEntry  `json:"proxies"`
+}
+
+// DiscoveredProxiesBundle packages the currently healthy discovered proxies
+// for export and import. Banned and unchecked proxies are volatile and stay out.
+type DiscoveredProxiesBundle struct {
+	Version int              `json:"version"`
+	Proxies []ProxyDataEntry `json:"proxies"`
 }
 
 // ProxyDataSetting carries the proxy switches and the check cap.

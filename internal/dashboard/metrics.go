@@ -82,6 +82,34 @@ func (h *Handler) apiMetricsTimeSeries(w http.ResponseWriter, r *http.Request) {
 	h.json(w, http.StatusOK, points)
 }
 
+// apiMetricsLastActivity returns when the newest request happened
+// @Summary      Get last metrics activity
+// @Description  Returns the start of the newest bucket with requests within the retention period.
+// @Tags         Metrics
+// @Produce      json
+// @Param        provider_id query string false "Filter by provider ID"
+// @Param        model query string false "Filter by model"
+// @Success      200 {object} models.MetricsLastActivity
+// @Failure      401 {object} models.ErrorResponse
+// @Failure      500 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/metrics/last-activity [get]
+func (h *Handler) apiMetricsLastActivity(w http.ResponseWriter, r *http.Request) {
+	filters := models.MetricsFilters{
+		ProviderID: r.URL.Query().Get("provider_id"),
+		Model:      models.ModelId(r.URL.Query().Get("model")),
+	}
+
+	at, err := h.metricsService.QueryLastActivity(filters)
+	if err != nil {
+		h.logError("Failed to query last metrics activity", "error", err)
+		h.jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.json(w, http.StatusOK, models.MetricsLastActivity{At: at})
+}
+
 // apiMetricsModels returns distinct models from metrics data
 // @Summary      Get distinct models
 // @Description  Returns list of models that have been used in API requests.

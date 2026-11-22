@@ -11,8 +11,9 @@
   import type { Ranked } from '$lib/model-search'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
 
-  let allModels = $state<AvailableModel[]>([])
-  let virtualModels = $state<VirtualModel[]>([])
+  // replaced as a whole on load, never mutated: raw state keeps the rows out of deep proxies
+  let allModels = $state.raw<AvailableModel[]>([])
+  let virtualModels = $state.raw<VirtualModel[]>([])
   let loading = $state(true)
   let error = $state('')
   let query = $state('')
@@ -104,7 +105,7 @@
   type RankedModel = Ranked<AvailableModel>
 </script>
 
-<VStack gap={6}>
+<VStack gap={6} grow>
   <Header title={t('models.list.title')} subtitle={hasModels ? n(allModels.length + virtualModels.length, 'units.model.one', 'units.model.many') : undefined} />
 
   {#if error}
@@ -113,7 +114,7 @@
 
   <SearchField bind:value={query} placeholder={t('models.search.placeholder')} />
 
-  <ModelsTable models={tableModels} readonly sortable showProviderLink loading={loading}>
+  <ModelsTable models={tableModels} readonly sortable showProviderLink lazy loading={loading}>
     {#snippet empty()}
       {#if isEmptyCatalog}
         <ContentUnavailable title={t('models.list.empty_configure_first')} icon="cloud" />

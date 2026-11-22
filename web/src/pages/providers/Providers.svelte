@@ -111,7 +111,7 @@
           >
             <Toggle
               checked={!provider.disabled}
-              ariaLabel={t('providers.detail.enable')}
+              ariaLabel={t('common.labels.enabled')}
               onchange={(v) => toggleProvider(provider, v)}
             />
           </span>
@@ -133,7 +133,7 @@
           >
             <Toggle
               checked={!provider.disabled}
-              ariaLabel={t('providers.detail.enable')}
+              ariaLabel={t('common.labels.enabled')}
               onchange={(v) => toggleProvider(provider, v)}
             />
           </span>

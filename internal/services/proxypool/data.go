@@ -47,17 +47,15 @@ func (s *Service) aliveStates() []proxypoollib.ProxyState {
 	return alive
 }
 
-// ExportData packages the switches, the manual pools and the healthy
-// discovered proxies.
-func (s *Service) ExportData(ctx context.Context) (*models.ProxyDataBundle, error) {
+// ExportPools packages the switches, the check cap and the manual pools.
+func (s *Service) ExportPools(ctx context.Context) (*models.ProxyPoolsBundle, error) {
 	pools, err := s.ListCustomPools(ctx)
 	if err != nil {
 		return nil, err
 	}
-	bundle := &models.ProxyDataBundle{
+	bundle := &models.ProxyPoolsBundle{
 		Version: models.ProxyDataVersion,
 		Pools:   make([]models.CustomProxyPool, 0, len(pools)),
-		Proxies: []models.ProxyDataEntry{},
 	}
 	s.settingsMu.RLock()
 	bundle.Settings = &models.ProxyDataSetting{Enabled: !s.disabled, PoolEnabled: !s.poolDisabled, MaxChecks: s.maxChecks}
@@ -65,25 +63,41 @@ func (s *Service) ExportData(ctx context.Context) (*models.ProxyDataBundle, erro
 	for _, pool := range pools {
 		bundle.Pools = append(bundle.Pools, *pool)
 	}
+	s.currentLogger().Info("Exporting proxy pools", "pools", len(bundle.Pools))
+	return bundle, nil
+}
+
+// ExportProxies packages the healthy discovered proxies.
+func (s *Service) ExportProxies(context.Context) (*models.DiscoveredProxiesBundle, error) {
+	bundle := &models.DiscoveredProxiesBundle{
+		Version: models.ProxyDataVersion,
+		Proxies: []models.ProxyDataEntry{},
+	}
 	alive := s.aliveStates()
 	sort.Slice(alive, func(left, right int) bool { return alive[left].URL < alive[right].URL })
 	for _, state := range alive {
 		bundle.Proxies = append(bundle.Proxies, models.ProxyDataEntry{URL: state.URL, Country: state.Location})
 	}
-	s.currentLogger().Info("Exporting proxy data", "pools", len(bundle.Pools), "proxies", len(bundle.Proxies))
+	s.currentLogger().Info("Exporting discovered proxies", "proxies", len(bundle.Proxies))
 	return bundle, nil
 }
 
-// ImportData restores manual pools, the switches and the check cap, and
-// queues the exported proxies for a fresh check. Existing pools with the same
-// ID are replaced. Proxies are never trusted as healthy: they join the
-// candidate queue on the next ingest, which runs now when discovery is on.
-func (s *Service) ImportData(ctx context.Context, bundle *models.ProxyDataBundle) error {
-	if bundle == nil {
-		return fmt.Errorf("proxy data bundle is required")
+// checkProxyDataVersion rejects a bundle in an unknown format.
+func checkProxyDataVersion(version int) error {
+	if version != models.ProxyDataVersion {
+		return fmt.Errorf("unsupported proxy data version %d, expected %d", version, models.ProxyDataVersion)
 	}
-	if bundle.Version != models.ProxyDataVersion {
-		return fmt.Errorf("unsupported proxy data version %d, expected %d", bundle.Version, models.ProxyDataVersion)
+	return nil
+}
+
+// ImportPools restores manual pools, the switches and the check cap.
+// Existing pools with the same ID are replaced.
+func (s *Service) ImportPools(ctx context.Context, bundle *models.ProxyPoolsBundle) error {
+	if bundle == nil {
+		return fmt.Errorf("proxy pools bundle is required")
+	}
+	if err := checkProxyDataVersion(bundle.Version); err != nil {
+		return err
 	}
 	if bundle.Settings != nil && (bundle.Settings.MaxChecks < 0 || bundle.Settings.MaxChecks > models.MaxProxyChecks) {
 		return fmt.Errorf("proxy max checks must be between 0 and %d", models.MaxProxyChecks)
@@ -106,6 +120,20 @@ func (s *Service) ImportData(ctx context.Context, bundle *models.ProxyDataBundle
 			return err
 		}
 	}
+	s.currentLogger().Info("Imported proxy pools", "pools", len(bundle.Pools))
+	return nil
+}
+
+// ImportProxies queues the exported proxies for a fresh check. Proxies are
+// never trusted as healthy: they join the candidate queue on the next ingest,
+// which runs now when discovery is on.
+func (s *Service) ImportProxies(_ context.Context, bundle *models.DiscoveredProxiesBundle) error {
+	if bundle == nil {
+		return fmt.Errorf("discovered proxies bundle is required")
+	}
+	if err := checkProxyDataVersion(bundle.Version); err != nil {
+		return err
+	}
 	accepted := make([]proxypoollib.TaggedURL, 0, len(bundle.Proxies))
 	for _, entry := range bundle.Proxies {
 		validated, ok := candidateURL(Candidate{URL: strings.TrimSpace(entry.URL), Country: entry.Country})
@@ -120,7 +148,7 @@ func (s *Service) ImportData(ctx context.Context, bundle *models.ProxyDataBundle
 		s.settingsMu.Unlock()
 		s.RequestIngest()
 	}
-	s.currentLogger().Info("Imported proxy data", "pools", len(bundle.Pools), "proxies", len(accepted))
+	s.currentLogger().Info("Imported discovered proxies", "proxies", len(accepted))
 	return nil
 }
 
@@ -141,10 +169,9 @@ func (s *Service) persistSettings(ctx context.Context, setting models.ProxyDataS
 	return nil
 }
 
-// ClearData deletes every manual pool and every discovered proxy with its
-// queues. The switches and the check cap stay. Pools that providers still
-// reference survive and are reported in the error.
-func (s *Service) ClearData(ctx context.Context) error {
+// ClearProxies deletes every discovered proxy with its queues. Pools, the
+// switches and the check cap stay.
+func (s *Service) ClearProxies(context.Context) error {
 	s.activityMu.Lock()
 	defer s.activityMu.Unlock()
 
@@ -164,7 +191,14 @@ func (s *Service) ClearData(ctx context.Context) error {
 	if restart {
 		s.pool.Start(rootCtx)
 	}
+	s.currentLogger().Info("Cleared discovered proxies")
+	return nil
+}
 
+// ClearPools deletes every manual pool. The switches, the check cap and the
+// discovered proxies stay. Pools that providers still reference survive and
+// are reported in the error.
+func (s *Service) ClearPools(ctx context.Context) error {
 	pools, err := s.ListCustomPools(ctx)
 	if err != nil {
 		return err
@@ -175,7 +209,7 @@ func (s *Service) ClearData(ctx context.Context) error {
 			inUse = append(inUse, pool.Name)
 		}
 	}
-	s.currentLogger().Info("Cleared proxy data", "pools_deleted", len(pools)-len(inUse), "pools_kept", len(inUse))
+	s.currentLogger().Info("Cleared proxy pools", "pools_deleted", len(pools)-len(inUse), "pools_kept", len(inUse))
 	if len(inUse) > 0 {
 		return fmt.Errorf("proxy pools still used by providers were kept: %s", strings.Join(inUse, ", "))
 	}

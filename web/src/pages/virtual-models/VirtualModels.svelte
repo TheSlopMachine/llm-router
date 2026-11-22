@@ -159,7 +159,7 @@
            {/if}
            <Toggle
              checked={!vm.disabled}
-             ariaLabel={vm.disabled ? t('virtual.enable') : t('virtual.disable')}
+             ariaLabel={t('common.labels.enabled')}
              onchange={(en) => toggle(vm, en)}
            />
          </HStack>

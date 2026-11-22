@@ -6,19 +6,20 @@ export function normalize(value: string): string {
   return value.trim().toLowerCase()
 }
 
+// Two rows of the distance table: the previous and the current one.
 export function levenshtein(a: string, b: string): number {
-  const rows = a.length + 1
-  const cols = b.length + 1
-  const dp = Array.from({ length: rows }, () => new Array<number>(cols).fill(0))
-  for (let i = 0; i < rows; i += 1) dp[i][0] = i
-  for (let j = 0; j < cols; j += 1) dp[0][j] = j
-  for (let i = 1; i < rows; i += 1) {
-    for (let j = 1; j < cols; j += 1) {
+  let previous = new Array<number>(b.length + 1)
+  let current = new Array<number>(b.length + 1)
+  for (let j = 0; j <= b.length; j += 1) previous[j] = j
+  for (let i = 1; i <= a.length; i += 1) {
+    current[0] = i
+    for (let j = 1; j <= b.length; j += 1) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost)
+      current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost)
     }
+    ;[previous, current] = [current, previous]
   }
-  return dp[rows - 1][cols - 1]
+  return previous[b.length]
 }
 
 export function similarity(queryValue: string, candidate: string): number {
@@ -30,7 +31,26 @@ export function similarity(queryValue: string, candidate: string): number {
 
 export type Ranked<T> = T & { category: number; score: number }
 
-export function rankModels<T extends { full_model_id: string; model_name: string; provider_name: string; display_name: string }>(
+type SearchableModel = { full_model_id: string; model_name: string; provider_name: string; display_name: string }
+
+// Normalized search fields per model object, built once instead of on every keystroke.
+const searchFields = new WeakMap<SearchableModel, string[]>()
+
+function fieldsOf(model: SearchableModel): string[] {
+  let fields = searchFields.get(model)
+  if (fields === undefined) {
+    fields = [
+      normalize(model.full_model_id),
+      normalize(model.model_name),
+      normalize(model.provider_name),
+      normalize(`${model.provider_name} ${model.display_name} ${model.full_model_id}`)
+    ]
+    searchFields.set(model, fields)
+  }
+  return fields
+}
+
+export function rankModels<T extends SearchableModel>(
   models: T[],
   rawQuery: string
 ): Ranked<T>[] {
@@ -40,12 +60,7 @@ export function rankModels<T extends { full_model_id: string; model_name: string
   }
   const ranked: Ranked<T>[] = []
   for (const model of models) {
-    const fields = [
-      normalize(model.full_model_id),
-      normalize(model.model_name),
-      normalize(model.provider_name),
-      normalize(`${model.provider_name} ${model.display_name} ${model.full_model_id}`)
-    ]
+    const fields = fieldsOf(model)
     if (fields.some((field) => field.startsWith(normalizedQuery))) {
       ranked.push({ ...model, category: 0, score: 1 })
       continue

@@ -100,9 +100,12 @@ type GormTokenBackend interface {
 // GormProxyBackend is the proxy subsystem persistence the data service needs.
 type GormProxyBackend interface {
 	DataCounts(ctx context.Context) (pools, proxies int, err error)
-	ExportData(ctx context.Context) (*models.ProxyDataBundle, error)
-	ImportData(ctx context.Context, bundle *models.ProxyDataBundle) error
-	ClearData(ctx context.Context) error
+	ExportPools(ctx context.Context) (*models.ProxyPoolsBundle, error)
+	ImportPools(ctx context.Context, bundle *models.ProxyPoolsBundle) error
+	ClearPools(ctx context.Context) error
+	ExportProxies(ctx context.Context) (*models.DiscoveredProxiesBundle, error)
+	ImportProxies(ctx context.Context, bundle *models.DiscoveredProxiesBundle) error
+	ClearProxies(ctx context.Context) error
 }
 
 // GormModelInfoBackend is the model metadata surface the GORM data
@@ -910,27 +913,50 @@ func (s *GormService) ClearTokens(ctx context.Context) error {
 
 var errProxyBackendMissing = stdErrors.New("proxy subsystem is not configured")
 
-// ExportProxy packages the proxy switches, manual pools and healthy
-// discovered proxies.
-func (s *GormService) ExportProxy(ctx context.Context) (*models.ProxyDataBundle, error) {
+// ExportProxyPools packages the proxy switches, the check cap and the manual pools.
+func (s *GormService) ExportProxyPools(ctx context.Context) (*models.ProxyPoolsBundle, error) {
 	if s.proxySource == nil {
 		return nil, errProxyBackendMissing
 	}
-	return s.proxySource.ExportData(ctx)
+	return s.proxySource.ExportPools(ctx)
 }
 
-// ImportProxy restores a proxy data bundle.
-func (s *GormService) ImportProxy(ctx context.Context, bundle *models.ProxyDataBundle) error {
+// ImportProxyPools restores a proxy pools bundle.
+func (s *GormService) ImportProxyPools(ctx context.Context, bundle *models.ProxyPoolsBundle) error {
 	if s.proxySource == nil {
 		return errProxyBackendMissing
 	}
-	return s.proxySource.ImportData(ctx, bundle)
+	return s.proxySource.ImportPools(ctx, bundle)
 }
 
-// ClearProxy removes manual pools and every discovered proxy.
-func (s *GormService) ClearProxy(ctx context.Context) error {
+// ClearProxyPools removes the manual pools.
+func (s *GormService) ClearProxyPools(ctx context.Context) error {
 	if s.proxySource == nil {
 		return errProxyBackendMissing
 	}
-	return s.proxySource.ClearData(ctx)
+	return s.proxySource.ClearPools(ctx)
+}
+
+// ExportDiscoveredProxies packages the healthy discovered proxies.
+func (s *GormService) ExportDiscoveredProxies(ctx context.Context) (*models.DiscoveredProxiesBundle, error) {
+	if s.proxySource == nil {
+		return nil, errProxyBackendMissing
+	}
+	return s.proxySource.ExportProxies(ctx)
+}
+
+// ImportDiscoveredProxies queues the proxies of a discovered proxies bundle for a check.
+func (s *GormService) ImportDiscoveredProxies(ctx context.Context, bundle *models.DiscoveredProxiesBundle) error {
+	if s.proxySource == nil {
+		return errProxyBackendMissing
+	}
+	return s.proxySource.ImportProxies(ctx, bundle)
+}
+
+// ClearDiscoveredProxies removes every discovered proxy.
+func (s *GormService) ClearDiscoveredProxies(ctx context.Context) error {
+	if s.proxySource == nil {
+		return errProxyBackendMissing
+	}
+	return s.proxySource.ClearProxies(ctx)
 }

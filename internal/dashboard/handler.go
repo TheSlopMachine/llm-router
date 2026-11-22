@@ -215,6 +215,7 @@ func (h *Handler) RegisterAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/llm-router/dashboard/metrics/overview", h.requireAuth(h.apiMetricsOverview))
 	mux.HandleFunc("GET /api/llm-router/dashboard/metrics/timeseries", h.requireAuth(h.apiMetricsTimeSeries))
 	mux.HandleFunc("GET /api/llm-router/dashboard/metrics/models", h.requireAuth(h.apiMetricsModels))
+	mux.HandleFunc("GET /api/llm-router/dashboard/metrics/last-activity", h.requireAuth(h.apiMetricsLastActivity))
 	mux.HandleFunc("GET /api/llm-router/dashboard/tokens/usage", h.requireAuth(h.apiTokenUsage))
 
 	// Auth flow endpoints (lua UI-tree wizards)

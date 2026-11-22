@@ -420,6 +420,13 @@ export const api = {
 
     models: () =>
       apiCall('get', '/api/llm-router/dashboard/metrics/models') as Promise<string[]>,
+
+    /** start of the newest bucket with requests, null when the retention period holds none */
+    lastActivity: async (filters: { provider_id?: string; model?: string }): Promise<string | null> => {
+      const query = { provider_id: filters.provider_id, model: filters.model }
+      const response = await apiCall('get', '/api/llm-router/dashboard/metrics/last-activity', { query })
+      return response.at ?? null
+    },
   },
 
   // Router configuration (instance-wide, RouterConfiguration bucket)

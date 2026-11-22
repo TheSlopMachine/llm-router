@@ -827,25 +827,41 @@ func TestGormImportVirtualModelsSkipsManaged(t *testing.T) {
 }
 
 type fakeProxyBackend struct {
-	bundle  *models.ProxyDataBundle
-	cleared bool
+	pools          *models.ProxyPoolsBundle
+	proxies        *models.DiscoveredProxiesBundle
+	poolsCleared   bool
+	proxiesCleared bool
 }
 
 func (f *fakeProxyBackend) DataCounts(context.Context) (int, int, error) {
-	return len(f.bundle.Pools), len(f.bundle.Proxies), nil
+	return len(f.pools.Pools), len(f.proxies.Proxies), nil
 }
 
-func (f *fakeProxyBackend) ExportData(context.Context) (*models.ProxyDataBundle, error) {
-	return f.bundle, nil
+func (f *fakeProxyBackend) ExportPools(context.Context) (*models.ProxyPoolsBundle, error) {
+	return f.pools, nil
 }
 
-func (f *fakeProxyBackend) ImportData(_ context.Context, bundle *models.ProxyDataBundle) error {
-	f.bundle = bundle
+func (f *fakeProxyBackend) ImportPools(_ context.Context, bundle *models.ProxyPoolsBundle) error {
+	f.pools = bundle
 	return nil
 }
 
-func (f *fakeProxyBackend) ClearData(context.Context) error {
-	f.cleared = true
+func (f *fakeProxyBackend) ClearPools(context.Context) error {
+	f.poolsCleared = true
+	return nil
+}
+
+func (f *fakeProxyBackend) ExportProxies(context.Context) (*models.DiscoveredProxiesBundle, error) {
+	return f.proxies, nil
+}
+
+func (f *fakeProxyBackend) ImportProxies(_ context.Context, bundle *models.DiscoveredProxiesBundle) error {
+	f.proxies = bundle
+	return nil
+}
+
+func (f *fakeProxyBackend) ClearProxies(context.Context) error {
+	f.proxiesCleared = true
 	return nil
 }
 
@@ -853,15 +869,23 @@ func TestGormProxyDataRoundTripThroughBackend(t *testing.T) {
 	service, _, _, _, _, _, _, _ := gormDataStack()
 	ctx := context.Background()
 
-	if _, err := service.ExportProxy(ctx); err == nil {
-		t.Fatal("export without a proxy backend succeeded, want an error")
+	if _, err := service.ExportProxyPools(ctx); err == nil {
+		t.Fatal("pools export without a proxy backend succeeded, want an error")
+	}
+	if _, err := service.ExportDiscoveredProxies(ctx); err == nil {
+		t.Fatal("proxies export without a proxy backend succeeded, want an error")
 	}
 
-	backend := &fakeProxyBackend{bundle: &models.ProxyDataBundle{
-		Version: models.ProxyDataVersion,
-		Pools:   []models.CustomProxyPool{{ID: "mine", Name: "Mine"}},
-		Proxies: []models.ProxyDataEntry{{URL: "http://203.0.113.1:8080"}, {URL: "http://203.0.113.2:8080"}},
-	}}
+	backend := &fakeProxyBackend{
+		pools: &models.ProxyPoolsBundle{
+			Version: models.ProxyDataVersion,
+			Pools:   []models.CustomProxyPool{{ID: "mine", Name: "Mine"}},
+		},
+		proxies: &models.DiscoveredProxiesBundle{
+			Version: models.ProxyDataVersion,
+			Proxies: []models.ProxyDataEntry{{URL: "http://203.0.113.1:8080"}, {URL: "http://203.0.113.2:8080"}},
+		},
+	}
 	service.SetProxyBackend(backend)
 
 	stats, err := service.Stats(ctx)
@@ -871,15 +895,29 @@ func TestGormProxyDataRoundTripThroughBackend(t *testing.T) {
 	if stats.ProxyPools != 1 || stats.Proxies != 2 {
 		t.Fatalf("proxy stats = %d pools, %d proxies; want 1 and 2", stats.ProxyPools, stats.Proxies)
 	}
-	exported, err := service.ExportProxy(ctx)
-	if err != nil || exported != backend.bundle {
-		t.Fatalf("export = %v, %v; want the backend bundle", exported, err)
+
+	exportedPools, err := service.ExportProxyPools(ctx)
+	if err != nil || exportedPools != backend.pools {
+		t.Fatalf("pools export = %v, %v; want the backend bundle", exportedPools, err)
 	}
-	incoming := &models.ProxyDataBundle{Version: models.ProxyDataVersion}
-	if err := service.ImportProxy(ctx, incoming); err != nil || backend.bundle != incoming {
-		t.Fatalf("import stored %v, err %v; want the incoming bundle", backend.bundle, err)
+	exportedProxies, err := service.ExportDiscoveredProxies(ctx)
+	if err != nil || exportedProxies != backend.proxies {
+		t.Fatalf("proxies export = %v, %v; want the backend bundle", exportedProxies, err)
 	}
-	if err := service.ClearProxy(ctx); err != nil || !backend.cleared {
-		t.Fatalf("clear = %v, cleared %v; want success", err, backend.cleared)
+
+	incomingPools := &models.ProxyPoolsBundle{Version: models.ProxyDataVersion}
+	if err := service.ImportProxyPools(ctx, incomingPools); err != nil || backend.pools != incomingPools {
+		t.Fatalf("pools import stored %v, err %v; want the incoming bundle", backend.pools, err)
+	}
+	incomingProxies := &models.DiscoveredProxiesBundle{Version: models.ProxyDataVersion}
+	if err := service.ImportDiscoveredProxies(ctx, incomingProxies); err != nil || backend.proxies != incomingProxies {
+		t.Fatalf("proxies import stored %v, err %v; want the incoming bundle", backend.proxies, err)
+	}
+
+	if err := service.ClearDiscoveredProxies(ctx); err != nil || !backend.proxiesCleared || backend.poolsCleared {
+		t.Fatalf("proxies clear = %v, proxies cleared %v, pools cleared %v; want only proxies", err, backend.proxiesCleared, backend.poolsCleared)
+	}
+	if err := service.ClearProxyPools(ctx); err != nil || !backend.poolsCleared {
+		t.Fatalf("pools clear = %v, cleared %v; want success", err, backend.poolsCleared)
 	}
 }

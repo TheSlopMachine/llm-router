@@ -31,10 +31,17 @@
   let refreshInterval: number | undefined
   let latestMetricsRequest = 0
 
+  // Ranges in growing order for the activity pick; 'month' is a calendar range, not a step.
+  const ACTIVITY_RANGES = ['hour', '1d', '7d', '28d', '90d'] as const
+  // A range the user picked stays; until then the range follows the last activity.
+  let rangePickedByUser = false
+  let activityError = $state('')
+
   onMount(() => {
     void (async () => {
       await loadProviders()
       await loadModels()
+      await pickRangeFromActivity()
       await loadMetrics()
     })()
 
@@ -73,6 +80,25 @@
       }
       models = []
     }
+  }
+
+  // Selects the shortest range holding the last request; no activity selects the shortest range.
+  async function pickRangeFromActivity() {
+    if (rangePickedByUser) return
+    let lastActivity: string | null
+    try {
+      lastActivity = await api.metrics.lastActivity(filters)
+      activityError = ''
+    } catch (err) {
+      activityError = `${t('metrics.last_activity.error')}: ${getErrorMessage(err)}`
+      return
+    }
+    if (rangePickedByUser) return
+    const now = Date.now()
+    const activityTime = lastActivity === null ? null : Date.parse(lastActivity)
+    filters.time_range = activityTime === null
+      ? ACTIVITY_RANGES[0]
+      : ACTIVITY_RANGES.find((range) => rangeStart(range, now) <= activityTime) ?? ACTIVITY_RANGES[ACTIVITY_RANGES.length - 1]
   }
 
   async function loadMetrics() {
@@ -138,16 +164,18 @@
   )
   const errorTint = $derived(overview !== null && overview.total_errors > 0 ? 'danger' : undefined)
 
-  function handleFilterChange(f: any) {
-    filters = f
+  async function handleFilterChange(changed: typeof filters, field: 'provider_id' | 'time_range' | 'model') {
+    filters = changed
     overview = null
-    void loadMetrics()
+    if (field === 'time_range') rangePickedByUser = true
+    else await pickRangeFromActivity()
+    await loadMetrics()
   }
 </script>
 
 <VStack gap={6}>
   <HStack gap={3} valign="end" wrap>
-    <MetricsFiltersCmp bind:filters {providers} {models} onchange={handleFilterChange} />
+    <MetricsFiltersCmp bind:filters {providers} {models} onchange={(changed, field) => void handleFilterChange(changed, field)} />
     <Button
       buttonStyle={live ? 'prominent' : 'neutral'}
       icon={{ name: live ? 'sensors' : 'pause' }}
@@ -159,11 +187,14 @@
     />
   </HStack>
 
-  {#if errors.length > 0}
+  {#if errors.length > 0 || activityError}
     <VStack gap={2}>
       {#each errors as error}
         <Banner tint="danger" text={error} />
       {/each}
+      {#if activityError}
+        <Banner tint="danger" text={activityError} />
+      {/if}
     </VStack>
   {/if}
 

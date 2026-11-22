@@ -675,7 +675,7 @@
               {@const v = g.virtual}
               <Toggle
                 checked={!v.disabled}
-                ariaLabel={t('virtual.enable')}
+                ariaLabel={t('common.labels.enabled')}
                 onchange={(en) => toggleVirtualModel(v, en)}
               />
             {/if}
@@ -702,7 +702,7 @@
               >
                 <Toggle
                   checked={!v.disabled}
-                  ariaLabel={t('virtual.enable')}
+                  ariaLabel={t('common.labels.enabled')}
                   onchange={(en) => toggleVirtualModel(v, en)}
                 />
               </span>
@@ -787,7 +787,7 @@
     {/if}
     <Toggle
       checked={!m.disabled}
-      ariaLabel={t('models.actions.enable')}
+      ariaLabel={t('common.labels.enabled')}
       onchange={(v) => toggleModel(m, v)}
     />
   </HStack>
@@ -802,7 +802,7 @@
       {#if check.result.ok}
         <Text size="sm" tint="success">✓ {check.result.latency_ms} {t('models.status.ms')}</Text>
       {:else}
-        <Text size="sm" tint="danger" title={check.result.error ?? failureReason(check.result)}>✗ {failureReason(check.result)}</Text>
+        <Text size="sm" tint="danger" truncate title={check.result.error ?? failureReason(check.result)}>✗ {failureReason(check.result)}</Text>
       {/if}
       <Text size="xs" foregroundStyle="tertiary"><RelativeTime date={check.at} locale={locale()} /></Text>
     </VStack>
@@ -828,6 +828,8 @@
       source: m,
     }))}
     sortable
+    lazy
+    maxHeight="70vh"
     loading={modelsLoading && models.length === 0}
     statusValue={(model) => {
       const check = lastChecks[(model.source as ProviderModel).name]

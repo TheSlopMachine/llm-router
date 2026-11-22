@@ -129,7 +129,8 @@
     { key: 'virtual_models', title: t('data.virtual_models'), count: subsystemStatistics.virtual_models },
     { key: 'plugins', title: t('data.plugins_repos'), count: subsystemStatistics.plugins },
     { key: 'tokens', title: t('data.access_tokens'), count: subsystemStatistics.tokens },
-    { key: 'proxy', title: t('data.proxy'), count: subsystemStatistics.proxy_pools + subsystemStatistics.proxies },
+    { key: 'proxy_pools', title: t('data.proxy_pools'), count: subsystemStatistics.proxy_pools },
+    { key: 'proxies', title: t('data.proxies'), count: subsystemStatistics.proxies },
   ] : [])
 
   const dataActions = $derived<HeaderAction[]>([

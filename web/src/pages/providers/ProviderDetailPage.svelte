@@ -126,7 +126,7 @@
   }
 
   function detailEnable(p: Provider): HeaderAction {
-    return { id: 'enable', text: t('providers.detail.enable'), icon: 'power_settings_new', iconOnly: true, selected: !p.disabled, onclick: () => void toggleProviderEnabled(Boolean(p.disabled)) }
+    return { id: 'enable', text: p.disabled ? t('common.labels.disabled') : t('common.labels.enabled'), icon: 'power_settings_new', iconOnly: true, selected: !p.disabled, onclick: () => void toggleProviderEnabled(Boolean(p.disabled)) }
   }
 
   let deletingProvider = $state(false)
@@ -490,7 +490,7 @@
               >
                 <Toggle
                   checked={!cred.disabled}
-                  ariaLabel={t('credentials.enable')}
+                  ariaLabel={t('common.labels.enabled')}
                   onchange={(v) => toggleCredential(cred, v)}
                 />
               </span>
@@ -537,7 +537,7 @@
               <Button size="sm" tint="var(--fui-color-danger)" buttonStyle="text" icon={{ name: 'delete' }} ariaLabel={t('credentials.delete')} title={t('credentials.delete')} onclick={(e) => openDeleteCredential(cred, e.currentTarget as HTMLElement)} />
               <Toggle
                 checked={!cred.disabled}
-                ariaLabel={t('credentials.enable')}
+                ariaLabel={t('common.labels.enabled')}
                 onchange={(v) => toggleCredential(cred, v)}
               />
             </HStack>

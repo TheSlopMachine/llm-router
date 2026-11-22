@@ -19,6 +19,9 @@ const (
 	cleanupInterval   = 1 * time.Hour
 )
 
+// RetentionPeriod is how long metric buckets are kept.
+const RetentionPeriod = 90 * 24 * time.Hour
+
 // Service manages metrics collection, aggregation, and querying on the
 // cache SQLite handle.
 type Service struct {
@@ -385,8 +388,7 @@ func (s *Service) cleanup() error {
 		return err
 	}
 
-	// Delete all buckets older than 90 days
-	cutoff := now.Add(-90 * 24 * time.Hour)
+	cutoff := now.Add(-RetentionPeriod)
 	if err := s.deleteBucketsOlderThan(cutoff); err != nil {
 		return err
 	}

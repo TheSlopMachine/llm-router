@@ -22,7 +22,7 @@ export interface ItemExport {
 }
 
 /** The subsystems in clear order: providers first, so their managed virtual models go with them. */
-export const subsystemKeys = ['providers', 'virtual_models', 'plugins', 'tokens', 'proxy'] as const
+export const subsystemKeys = ['providers', 'virtual_models', 'plugins', 'tokens', 'proxy_pools', 'proxies'] as const
 
 interface ExportRecord {
   id: string
