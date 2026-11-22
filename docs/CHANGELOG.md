@@ -8,6 +8,7 @@
 - **Disabled models listed.** `GET /dashboard/models/available?include_disabled=true` also returned disabled models, marked `disabled`. The Models page showed them dimmed.
 - **Provider virtual models switch.** A switch in a provider's Virtual models block turned all its virtual models off or on. Off deleted them and kept which were enabled. On rebuilt them in that state. API: `GET`/`PUT /dashboard/providers/{id}/virtual-models/settings`. Storage: table `provider_virtual_settings` (migration 10).
 - **Provider list.** The Models column was left-aligned and counted enabled models only. `/dashboard/providers/stats` returned `enabled_model_count` instead of `model_count`. A failing read returned an error instead of a zero.
+- **Plugin contract.** `docs/PLUGIN-API.md` opened with what llm-router is, how a request reaches a plugin, a complete quickstart plugin and the development loop. Tests failed when a sandbox function or handler slot was missing from it, or when the quickstart stopped installing.
 - **Shorter texts.** UI hints and messages lost internal details. Provider virtual models were described as "Fall-through across <provider> <endpoint> models." Migration 11 rewrote stored descriptions in the old form.
 
 ## Done (2026-11-22, v0.11.3)

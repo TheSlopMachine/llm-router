@@ -279,7 +279,7 @@ UI text uses robotic keys from `web/src/lib/i18n/`: `types.ts` (the `Translation
 
 ## 10. Lua plugins
 
-`docs/PLUGIN-API.md` is the binding contract. Every handler or API change updates it in the same change.
+`docs/PLUGIN-API.md` is the binding contract. Every handler or API change updates it in the same change. `TestPluginContract*` in `luaplugin` fails when a sandbox function or handler slot is missing from it, or when its quickstart plugin stops installing.
 
 - A new provider is one `.lua` file with a `--- @` manifest. Never a new Go backend.
 - Plugins never mark proxies dead and never return HTML. New widgets become first-class UI node kinds in `DynamicForm.svelte`.

@@ -1,35 +1,207 @@
 # Plugin Contract
 
-The binding contract between the router core and Lua provider plugins. Every
-handler, argument table, return shape and error form listed here is enforced
-by the core: schema violations become `PluginInternalError` and are recorded
-as plugin crashes.
+The complete reference for writing an llm-router provider plugin. A plugin can
+be written from this file alone. The router core enforces every handler,
+argument, return shape and error form described here: a violation becomes
+`PluginInternalError` and counts as a plugin crash.
 
-Plugin API: **1.7** (`luaplugin.PluginAPIVersion`). A plugin declares the
-`@plugin_api` contract it speaks; the router label (`main.RouterVersion`,
-stamped from the release tag) carries no compatibility meaning. Install,
-rollback, and the startup registry compare majors only: plugin major above
-the served one fails with `too_new`, below fails with `too_old`, a missing
-tag fails with `no_api_version`. A rejected install or rollback writes
-nothing; startup skips incompatible rows with a warning while keeping them
-inventoried. Minor is informational for plugin maintainers.
+Plugin API: **1.7** (`luaplugin.PluginAPIVersion`).
 
-`@version` accepts `MAJOR.MINOR[.PATCH]` (missing patch means `.0`, one
-leading `v` allowed); `@plugin_api` accepts `MAJOR.MINOR[.PATCH]` in the same
-spelling. Anything else fails install. Neither `@plugin` nor `@author` may
-contain a `/` character: the pair forms the plugin identity `author/plugin`
-(each part sanitized: runs of characters outside `A-Z a-z 0-9 - _ .` become
-one `-`, leading and trailing `-` are trimmed), and installation is
-interchangeable across sources. Installs from any store or a file upload with
-the same `@author`/`@plugin` pair override the previous installation and
-append it to the rollback history (the last 10 versions are kept). The install
-core replaces the row on every install, whatever the version; `make
-upload-plugins` skips a file whose `@version` equals the installed one. A
-plugin file is at most 1 MiB. A type key already served by a different plugin
-fails the install.
+## What llm-router is
+
+llm-router is a self-hosted gateway with an OpenAI-compatible API. Clients
+call the OpenAI routes (`/v1/chat/completions`, `/v1/embeddings`,
+`/v1/audio/speech`, ...) and the Anthropic `/v1/messages` with one router
+token. The router picks the backend and the upstream key.
+
+- **Provider**: one configured backend, for example `groq`. It has a type, settings and credentials.
+- **Model id**: `provider/model`, for example `groq/llama-3.3-70b-versatile`. The part before the first slash picks the provider. The rest is the upstream model name.
+- **Credential**: one upstream key or account of a provider, stored encrypted. A provider can hold many.
+- **Router token**: the client's key. It can limit the providers, models and credentials a client reaches.
+- **Virtual model**: `virtual/<id>`, an ordered list of models. A request tries them in order until one answers. Plugins never see virtual models: the router calls each member's provider in turn.
+- **Plugin**: one Lua file. It registers one or more provider types and translates the router's OpenAI-shaped requests into the upstream API and back.
+
+Installing a plugin creates one provider per registered type key, with the
+type key as provider id. The operator adds credentials on the provider page.
+
+## How a request reaches a plugin
+
+1. A client sends `POST /v1/chat/completions` with `model = "groq/llama-3.3-70b-versatile"`.
+2. The router checks the token, finds provider `groq`, checks that the model is enabled and serves the endpoint, and narrows the credentials to those the token allows.
+3. The router calls the handler for the endpoint (`complete` here) with a request table.
+4. The plugin picks a credential, calls the upstream, handles rate limits and errors, and returns an OpenAI-shaped result or a terminal error.
+5. The router renders the result for the client (OpenAI or Anthropic envelope) and records metrics.
+
+The router owns routing, authorization, proxy pools, the model cache, metrics
+and rendering. The plugin owns everything about the upstream: payloads,
+credential choice, retries and rate-limit handling. See
+[Responsibility split](#responsibility-split).
+
+## Quickstart
+
+A complete plugin for an OpenAI-compatible upstream. It serves unary and
+streaming chat, lists models, checks keys and models, rotates credentials,
+parks rate-limited keys and returns OpenAI-shaped errors.
+
+```lua
+--- @plugin Example Provider
+--- @author example
+--- @version 1.0.0
+--- @plugin_api 1.7
+--- @allow_host api.example.com
+--- @description OpenAI-compatible example provider.
+
+local BASE_URL = "https://api.example.com/v1"
+
+local function headers_for(credential_entry)
+  return {
+    ["content-type"] = "application/json",
+    ["authorization"] = "Bearer " .. (credential_entry.data.api_key or ""),
+  }
+end
+
+-- Upstream payload. Never forward the request table: model_name and
+-- cache_key are router-only fields.
+local function chat_body(request, stream)
+  return json.encode({
+    model = request.model_name,
+    messages = request.messages,
+    tools = request.tools,
+    tool_choice = request.tool_choice,
+    max_tokens = request.max_tokens,
+    temperature = request.temperature,
+    top_p = request.top_p,
+    stream = stream,
+  })
+end
+
+local function upstream_error(status, body)
+  local code = "server_error"
+  if status == 400 or status == 404 then code = "invalid_request_error" end
+  return { message = "upstream status " .. status .. ": " .. (body or ""), code = code, status = status }
+end
+
+local function rejected(status) return status == 401 or status == 403 end
+
+llm_router.register("example", {
+  credential_schema = {
+    { type = "secret", name = "api_key", label = "API Key" },
+  },
+
+  complete = function(ctx, request)
+    local client = llm_router.http_client({ timeout_ms = 120000 })
+    for _, credential_entry in ipairs(llm_router.credentials.list()) do
+      local response, call_error = client:request({
+        method = "POST", url = BASE_URL .. "/chat/completions",
+        headers = headers_for(credential_entry), body = chat_body(request, false),
+      })
+      if call_error ~= nil then return nil, call_error end
+      if response.status == 200 then return json.decode(response.body), nil end
+      if response.status == 429 then
+        llm_router.credentials.park(credential_entry.id, 60, "rate_limit")
+        llm_router.log("warn", "rate limited", { code = "rate_limit", cred_id = credential_entry.id })
+      elseif rejected(response.status) then
+        llm_router.log("warn", "rejected key", { status = response.status, cred_id = credential_entry.id })
+      else
+        return nil, upstream_error(response.status, response.body)
+      end
+    end
+    return nil, { message = "no credential accepted the request", code = "rate_limit", status = 429 }
+  end,
+
+  complete_stream = function(ctx, request, emit)
+    local client = llm_router.http_client({ timeout_ms = 900000 })
+    for _, credential_entry in ipairs(llm_router.credentials.list()) do
+      local status = nil
+      local _, call_error = client:stream({
+        method = "POST", url = BASE_URL .. "/chat/completions",
+        headers = headers_for(credential_entry), body = chat_body(request, true),
+        on_response = function(head)
+          status = head.status
+          if head.status ~= 200 then return upstream_error(head.status, head.body) end
+        end,
+        on_line = function(line)
+          local payload = line:match("^data: (.*)$")
+          if payload == nil or payload == "[DONE]" then return end
+          local chunk = json.decode(payload)
+          -- emit rejects chunks with neither choices nor usage
+          if (chunk.choices ~= nil and #chunk.choices > 0) or chunk.usage ~= nil then emit(chunk) end
+        end,
+      })
+      if call_error == nil then return nil, nil end
+      if status == 429 then
+        llm_router.credentials.park(credential_entry.id, 60, "rate_limit")
+      elseif not rejected(status) then
+        return nil, call_error
+      end
+    end
+    return nil, { message = "no credential accepted the request", code = "rate_limit", status = 429 }
+  end,
+
+  get_model_infos = function(ctx)
+    local credential_entry = llm_router.credentials.list()[1]
+    if credential_entry == nil then return {}, nil end
+    local client = llm_router.http_client({ timeout_ms = 30000 })
+    local response, call_error = client:request({
+      method = "GET", url = BASE_URL .. "/models", headers = headers_for(credential_entry),
+    })
+    if call_error ~= nil then return nil, call_error end
+    if response.status ~= 200 then return nil, upstream_error(response.status, response.body) end
+    local cards = {}
+    for _, entry in ipairs(json.decode(response.body).data or {}) do
+      table.insert(cards, { name = entry.id, display_name = entry.id, endpoints = { "chat/completions" } })
+    end
+    return cards, nil
+  end,
+
+  check_health = function(ctx, credential)
+    local client = llm_router.http_client({ timeout_ms = 15000 })
+    local response, call_error = client:request({
+      method = "GET", url = BASE_URL .. "/models", headers = headers_for(credential),
+    })
+    if call_error ~= nil then return { status = "unknown", message = "probe failed" } end
+    if response.status == 200 then return { status = "healthy" } end
+    if rejected(response.status) then return { status = "unhealthy", message = "rejected key" } end
+    return { status = "unknown", message = "status " .. response.status }
+  end,
+
+  check_model = function(ctx, model_ref)
+    if model_ref.endpoint ~= "chat" then
+      return { status = "unknown", message = "endpoint not supported" }
+    end
+    local client = llm_router.http_client({ timeout_ms = 30000 })
+    local body = json.encode({ model = model_ref.model_name, messages = { { role = "user", content = "hi" } }, max_tokens = 8 })
+    for _, credential_entry in ipairs(llm_router.credentials.list()) do
+      local response, call_error = client:request({
+        method = "POST", url = BASE_URL .. "/chat/completions",
+        headers = headers_for(credential_entry), body = body,
+      })
+      if call_error == nil then
+        if response.status == 200 then return { status = "healthy", response = "ok" } end
+        if response.status == 429 then return { status = "quota_exceeded" } end
+        if response.status == 404 then return { status = "unhealthy", message = "model not found" } end
+      end
+    end
+    return { status = "unknown", message = "no credential answered" }
+  end,
+})
+```
+
+## Development loop
+
+1. Write the file. Bump `@version` on every content change.
+2. Install it: Dashboard, Plugins, upload the `.lua` file. Or send the source as the raw body of `POST /api/llm-router/dashboard/plugins/install-file`. Install runs the file once in dry-run mode: manifest, registration and schema errors fail it with a message.
+3. Open the provider the install created (id = type key) and add a credential. The form comes from `credential_schema`.
+4. On the provider page, import models (`get_model_infos`), test models (`check_model`) and test credentials (`check_health`).
+5. Call it: `curl http://localhost:8080/v1/chat/completions -H "Authorization: Bearer <router token>" -H "Content-Type: application/json" -d '{"model":"example/<model>","messages":[{"role":"user","content":"hi"}]}'`.
+6. Read the plugin's log lines in Dashboard, Metrics, Logs, filtered by `type=<type key>`.
 
 ## Table of Contents
 
+- [What llm-router is](#what-llm-router-is)
+- [How a request reaches a plugin](#how-a-request-reaches-a-plugin)
+- [Quickstart](#quickstart)
+- [Development loop](#development-loop)
 - [Responsibility split](#responsibility-split)
 - [Manifest reference](#manifest-reference)
 - [Registration](#registration)
@@ -78,7 +250,7 @@ maps every route.
 
 ## Manifest reference
 
-High-level description: the manifest is the leading contiguous run of `---`
+The manifest is the leading contiguous run of `---`
 lines at byte zero of the file. The parser reads `--- @tag value` lines.
 The block ends at the first non-`---` line. A `---` line whose text does not
 start with `@` is ignored. Carriage returns normalize to line feeds. Unknown
@@ -114,20 +286,30 @@ failures report `no_api_version` (missing tag), `too_new` (plugin major
 above `1`), `too_old` (plugin major below `1`). Rejected install writes
 nothing. Startup skips incompatible rows with a warning.
 
+### Versions and identity
+
+- `@plugin_api` is the contract the plugin speaks. Install, rollback and startup compare the major only. The minor is informational. The router release version has no compatibility meaning.
+- `@version` and `@plugin_api` accept `MAJOR.MINOR[.PATCH]` with one optional leading `v`. A missing patch means `.0`. Anything else fails install.
+- `@author` and `@plugin` form the plugin identity `author/plugin`. Each part is sanitized: runs of characters outside `A-Z a-z 0-9 - _ .` become one `-`, and leading and trailing `-` are trimmed.
+- An install with an existing identity replaces that plugin, whatever the version or source (any store or a file upload). The previous version goes to the rollback history, which keeps the last 10.
+- `make upload-plugins` skips a file whose `@version` equals the installed one. The install itself always replaces.
+- A plugin file is at most 1 MiB.
+- A type key already served by a different plugin fails the install.
+
 Example:
 
 ```lua
 --- @plugin Harness Mock
 --- @author llm-router
 --- @version 1.0.1
---- @plugin_api 1.6
+--- @plugin_api 1.7
 --- @allow_host example.com
 --- @description Mock backend for harness runs.
 ```
 
 ## Registration
 
-High-level description: top-level code runs once at install in dry-run mode
+Top-level code runs once at install in dry-run mode
 and again on every handler call, because each call loads the source into a
 pooled state before invoking the handler. Top-level code calls
 `llm_router.register` once per type key and `llm_router.register_proxy_source`
@@ -220,7 +402,7 @@ names are ignored.
 
 ### `ctx`
 
-High-level description: first argument to every handler and to job `run`
+First argument to every handler and to job `run`
 functions, except `validate_credentials` and `fetch_proxies`, which take no
 `ctx`. Only the fields listed below ever appear.
 
@@ -244,7 +426,7 @@ Parameters:
 
 ### `credential`
 
-High-level description: credential record passed to health checks. The same
+Credential record passed to health checks. The same
 record shape is returned by `credentials.list` and `credentials.get`.
 
 API signature:
@@ -264,7 +446,7 @@ Parameters:
 
 ### `model_ref`
 
-High-level description: model reference passed to model checks.
+Model reference passed to model checks.
 
 API signature:
 
@@ -283,7 +465,7 @@ Parameters:
 
 ### `request`
 
-High-level description: every request table carries `model` (full
+Every request table carries `model` (full
 `provider/model` identifier) and `model_name` (bare name for upstream
 payloads). Chat requests (`complete`, `complete_stream`) also carry
 `cache_key`, an opaque cross-turn prefix-cache partition derived from model,
@@ -297,7 +479,7 @@ also absent when zero).
 
 ### Return idiom
 
-High-level description: request handlers return `(result, nil)` or
+Request handlers return `(result, nil)` or
 `(nil, call_error)`; `nil` result is always a schema violation. Streams must
 not fail over after the first `emit` call: the stream belongs to that attempt.
 
@@ -305,7 +487,7 @@ not fail over after the first `emit` call: the stream belongs to that attempt.
 
 ### `complete`
 
-High-level description: serves unary chat completions. Required handler.
+Serves unary chat completions. Required handler.
 The router overwrites the response `model` (and the `model` of every
 `complete_stream` chunk, and of `embed` responses) with the routed id
 `<provider>/<model>`: clients always see the model that answered in router
@@ -375,7 +557,7 @@ end
 
 ### `complete_stream`
 
-High-level description: serves streaming chat completions. Optional. Missing
+Serves streaming chat completions. Optional. Missing
 handler emulates streaming from `complete` with one chunk plus `[DONE]`.
 
 API signature:
@@ -425,7 +607,7 @@ end
 
 ### `transcribe`
 
-High-level description: serves transcription.
+Serves transcription.
 
 API signature:
 
@@ -474,7 +656,7 @@ end
 
 ### `speech`
 
-High-level description: serves text to speech.
+Serves text to speech.
 
 API signature:
 
@@ -512,7 +694,7 @@ end
 
 ### `generate_image`
 
-High-level description: serves image generation, edits, and variations.
+Serves image generation, edits, and variations.
 
 API signature:
 
@@ -551,7 +733,7 @@ end
 
 ### `embed`
 
-High-level description: serves embeddings.
+Serves embeddings.
 
 API signature:
 
@@ -588,7 +770,7 @@ end
 
 ### `moderate`
 
-High-level description: serves moderation.
+Serves moderation.
 
 API signature:
 
@@ -617,7 +799,7 @@ end
 
 ### `generate_video`, `poll_video`, `video_content`
 
-High-level description: serves asynchronous video generation.
+Serves asynchronous video generation.
 
 API signatures:
 
@@ -681,7 +863,7 @@ end
 
 ### `validate_credentials`
 
-High-level description: validates one credential payload. Missing handler
+Validates one credential payload. Missing handler
 accepts all payloads.
 
 API signature:
@@ -714,7 +896,7 @@ end
 
 ### `get_model_infos`
 
-High-level description: returns provider model inventory. Runs with
+Returns provider model inventory. Runs with
 provider-scoped credential list. Static `model_specs` overlay the result. A
 type that declares `credential_schema` is not called while its provider has no
 credential: the list is empty (the dashboard shows no models, a list cached
@@ -766,7 +948,7 @@ end
 
 ### `check_health`
 
-High-level description: checks one credential. The router calls it from
+Checks one credential. The router calls it from
 explicit credential probes (dashboard credential test, probe endpoints). Failed
 traffic requests do not trigger it: request paths carry no credential identity.
 Only `unhealthy` disables the credential, and only when provider automation is
@@ -804,7 +986,7 @@ end
 
 ### `check_model`
 
-High-level description: checks one model plus endpoint.
+Checks one model plus endpoint.
 
 API signature:
 
@@ -853,7 +1035,7 @@ end
 
 ### `auth_initiate` and `auth_step`
 
-High-level description: implements multi-step credential capture. Missing
+Implements multi-step credential capture. Missing
 `auth_initiate` uses single-step `credential_schema` form.
 
 API signatures:
@@ -893,7 +1075,7 @@ end
 
 ### `initialize` and `deinitialize`
 
-High-level description: optional one-time slots. Declare them only when the
+Optional one-time slots. Declare them only when the
 plugin needs setup or teardown; most plugins omit both.
 
 API signatures:
@@ -951,7 +1133,7 @@ end,
 
 ### `jobs`
 
-High-level description: colocated periodic tasks.
+Colocated periodic tasks.
 
 API signature:
 
@@ -1001,7 +1183,7 @@ jobs = {
 
 ## Error contract
 
-High-level description: terminal errors are OpenAI-shaped tables and render
+Terminal errors are OpenAI-shaped tables and render
 verbatim. Extra fields are ignored.
 
 API signature:
@@ -1061,7 +1243,7 @@ return nil, { message = "upstream rejected request", code = "invalid_request_err
 
 ### `http_client({timeout_ms?})`
 
-High-level description: creates an HTTP client bound to `@allow_host` plus
+Creates an HTTP client bound to `@allow_host` plus
 server-side request forgery guard. The router classifies network faults on the
 proxied leg and reports them to the proxy pool internally; plugins never mark
 proxies. Reasons `dns_resolution`, `address_parse`, `tls_certificate_verification`
@@ -1089,7 +1271,7 @@ Return values: client userdata with `request` and `stream` methods.
 
 #### `client:request`
 
-High-level description: sends one unary request.
+Sends one unary request.
 
 API signature:
 
@@ -1161,7 +1343,7 @@ local response, call_error = client:request({
 
 #### `client:stream`
 
-High-level description: sends one streaming request with line or chunk
+Sends one streaming request with line or chunk
 callbacks plus optional response gate.
 
 API signature:
@@ -1214,7 +1396,7 @@ Availability: installed only when the type declares `proxy_schema`.
 
 ### `proxies.query`
 
-High-level description: reads a read-only snapshot of the router pool.
+Reads a read-only snapshot of the router pool.
 
 API signature:
 
@@ -1247,7 +1429,7 @@ local list = llm_router.proxies.query({ pool = "auto", limit = 3 })
 
 ### `proxies.require`
 
-High-level description: acquires live proxies for one attempt.
+Acquires live proxies for one attempt.
 
 API signature:
 
@@ -1317,7 +1499,7 @@ local proxy_url = result.proxies[1].url
 
 ## Provider proxy configuration
 
-High-level description: how the dashboard proxy switch reaches a plugin. The
+How the dashboard proxy switch reaches a plugin. The
 router never routes provider traffic through a proxy by itself. It stores the
 operator choice in the provider config, passes the config to every handler as
 `ctx.provider_config`, and hosts the pool; the plugin reads the choice and
@@ -1360,7 +1542,7 @@ passes `fallback="fail"`: with the router-wide switches off it gets
 
 ## `fetch_proxies`
 
-High-level description: proxy source feed. Source-only plugins use this slot.
+Proxy source feed. Source-only plugins use this slot.
 One bare source name may be claimed by several plugins; the runtime qualifies
 each as `<recordID>/<name>`.
 
@@ -1404,7 +1586,7 @@ Availability: installed only when the type serves credentials, that is when
 
 ### `list`
 
-High-level description: lists usable credentials.
+Lists usable credentials.
 
 API signature:
 
@@ -1435,7 +1617,7 @@ end
 
 ### `get`
 
-High-level description: fetches one credential.
+Fetches one credential.
 
 API signature:
 
@@ -1459,7 +1641,7 @@ if item == nil then return nil, { message = "missing credential", code = "server
 
 ### `update`
 
-High-level description: persists refreshed credential payload.
+Persists refreshed credential payload.
 
 API signature:
 
@@ -1488,7 +1670,7 @@ end
 
 ### `disable` and `enable`
 
-High-level description: sets or clears the shared disabled flag.
+Sets or clears the shared disabled flag.
 
 API signatures:
 
@@ -1522,7 +1704,7 @@ llm_router.credentials.disable(credential_entry.id, "rejected key")
 
 ### `park`, `unpark`, `parked`
 
-High-level description: shelves credentials transiently with time to live.
+Shelves credentials transiently with time to live.
 
 API signatures:
 
@@ -1575,7 +1757,7 @@ end
 
 ## `storage`
 
-High-level description: per-plugin key-value store shared by request
+Per-plugin key-value store shared by request
 handlers, jobs, and lifecycle hooks. Use it for quota state and cooldowns when
 `park` is insufficient. Prefer `credentials.park` over hand-rolled cooldowns.
 
@@ -1632,7 +1814,7 @@ llm_router.storage.delete("cooldown", credential_entry.id)
 
 ### `log`
 
-High-level description: writes one structured event. Message holds a stable
+Writes one structured event. Message holds a stable
 human sentence without embedded values and without provider name. Type
 identifies source. Keys carry facts.
 
@@ -1665,7 +1847,7 @@ llm_router.log("warn", "rate limited", { code = "rate_limit", status = 429, wait
 
 ### `print`
 
-High-level description: print shim.
+Print shim.
 
 API signature:
 
@@ -1745,7 +1927,7 @@ llm_router.log("debug", "usable=3 skipped_rate_limited=1", { tag = "EXITS" })
 
 ### `multipart`
 
-High-level description: builds multipart bodies.
+Builds multipart bodies.
 
 API signature:
 
@@ -1776,7 +1958,7 @@ local body, content_type = llm_router.multipart({
 
 ### `base64_encode` and `base64_decode`
 
-High-level description: standard encoding helpers.
+Standard encoding helpers.
 
 API signatures:
 
@@ -1798,7 +1980,7 @@ Return values: encoded or decoded string.
 
 ### `uuid_v5` and `random_hex`
 
-High-level description: identifier helpers.
+Identifier helpers.
 
 API signatures:
 
@@ -1829,7 +2011,7 @@ local nonce = llm_router.random_hex(16)
 
 ### `json`
 
-High-level description: global JSON table, not under `llm_router`.
+Global JSON table, not under `llm_router`.
 
 API signatures:
 
@@ -1859,7 +2041,7 @@ sparse arrays and non-string object keys raise. Invalid JSON raises in
 
 ### Schema kinds
 
-High-level description: static tables validated at install and served through
+Static tables validated at install and served through
 the dashboard.
 
 API signature:
@@ -1890,7 +2072,7 @@ proxy_schema = {},
 
 ### UI node kinds
 
-High-level description: leaf kinds `text`, `input`, `select`, `checkbox`,
+Leaf kinds `text`, `input`, `select`, `checkbox`,
 `button`, `link`, `banner`, `secret`, `code`. Container kinds `group`,
 `flow`, `grid`, `section`, `spacer`, `divider`. No raw HTML from plugins.
 
@@ -1932,7 +2114,7 @@ credential_schema = {
 
 ### Locales
 
-High-level description: per-type widget translations.
+Per-type widget translations.
 
 API signature:
 
@@ -1969,7 +2151,7 @@ locales = {
 
 ### `icon`
 
-High-level description: dashboard icon of the plugin and of its providers.
+Dashboard icon of the plugin and of its providers.
 Valid in `register` and `register_proxy_source` tables.
 
 API signature:
@@ -1997,7 +2179,7 @@ llm_router.register("example", { icon = ICON, complete = function(ctx, request) 
 
 ### `model_specs`
 
-High-level description: pinned per-model rows that clarify discovered catalog
+Pinned per-model rows that clarify discovered catalog
 rows.
 
 API signature:
@@ -2020,7 +2202,7 @@ inside an entry, and mistyped values fail install.
 
 ### `healthcheck_cooldown`
 
-High-level description: per-type credential health-check cooldown.
+Per-type credential health-check cooldown.
 
 API signature:
 
@@ -2036,7 +2218,7 @@ Return behavior: mistyped and out-of-range values fail install. Absent means
 
 ## Sandbox limits
 
-High-level description: one Lua state per call, taken from a pool per plugin
+One Lua state per call, taken from a pool per plugin
 and type key (`LUA_POOL_BUCKET_SIZE` idle states each, default 16) and rebound; the plugin source
 loads again in it on every call. Module-level globals a plugin creates
 survive into later calls of the same type; per-call state belongs in locals
@@ -2065,7 +2247,7 @@ per type. Storage `ttl` caps at 90 days. `http_client` `timeout_ms` clamps to
 
 ## Worked example
 
-High-level description: credential plus proxy loop with park, authentication
+Credential plus proxy loop with park, authentication
 break, rate-limit park, and terminal invalid request.
 
 ```lua
