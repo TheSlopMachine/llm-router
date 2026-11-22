@@ -54,7 +54,7 @@
   let error = $state('')
   let query = $state('')
   let kind = $state<ModelKind>(loadChoice(KIND_KEY, ['real', 'virtual'], 'real'))
-  let status = $state<ModelStatus>(loadChoice(STATUS_KEY, ['all', 'enabled', 'disabled'], 'all'))
+  let status = $state<ModelStatus>(loadChoice(STATUS_KEY, ['all', 'enabled', 'disabled'], 'enabled'))
 
   let hasModels = $derived(!loading && allModels.length + virtualModels.length > 0)
   let isEmptyCatalog = $derived(allModels.length + virtualModels.length === 0)
@@ -116,18 +116,7 @@
   const matchesStatus = (row: ModelsTableModel, wanted: ModelStatus): boolean =>
     wanted === 'all' || (wanted === 'disabled') === Boolean(row.disabled)
 
-  // Each picker counts the rows its option would list under the other picker's choice.
-  let kindRows = $derived(kind === 'real' ? realRows : virtualRows)
-  let kindCounts = $derived({
-    real: realRows.filter((row) => matchesStatus(row, status)).length,
-    virtual: virtualRows.filter((row) => matchesStatus(row, status)).length,
-  })
-  let statusCounts = $derived({
-    all: kindRows.length,
-    enabled: kindRows.filter((row) => matchesStatus(row, 'enabled')).length,
-    disabled: kindRows.filter((row) => matchesStatus(row, 'disabled')).length,
-  })
-  let tableModels = $derived(kindRows.filter((row) => matchesStatus(row, status)))
+  let tableModels = $derived((kind === 'real' ? realRows : virtualRows).filter((row) => matchesStatus(row, status)))
 
   onMount(load)
 
@@ -231,9 +220,9 @@
         pickerStyle="segmented"
         value={status}
         options={[
-          { value: 'all', label: `${t('common.actions.all')} ${statusCounts.all}` },
-          { value: 'enabled', label: `${t('common.labels.enabled')} ${statusCounts.enabled}` },
-          { value: 'disabled', label: `${t('common.labels.disabled')} ${statusCounts.disabled}` },
+          { value: 'all', label: t('common.actions.all') },
+          { value: 'enabled', label: t('common.labels.enabled') },
+          { value: 'disabled', label: t('common.labels.disabled') },
         ]}
         ariaLabel={t('models.filter.visibility')}
         onchange={(next) => selectStatus(next as ModelStatus)}
@@ -243,8 +232,8 @@
         pickerStyle="segmented"
         value={kind}
         options={[
-          { value: 'real', label: `${t('models.kind.real.label')} ${kindCounts.real}` },
-          { value: 'virtual', label: `${t('models.kind.virtual.label')} ${kindCounts.virtual}` },
+          { value: 'real', label: t('models.kind.real.label') },
+          { value: 'virtual', label: t('models.kind.virtual.label') },
         ]}
         ariaLabel={t('models.kind.title')}
         onchange={(next) => selectKind(next as ModelKind)}
