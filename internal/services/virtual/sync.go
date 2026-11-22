@@ -221,7 +221,7 @@ func (s *GormService) SyncProviderModels(ctx context.Context, providerID string)
 			// provider's virtual models on again restores the enabled ones.
 			virtualModel := &models.VirtualModel{
 				Name:        autoName,
-				Description: fmt.Sprintf("Automatic fall-through across %s %s models. Members refresh on import.", instance.Name, strings.ToLower(group.Label)),
+				Description: fmt.Sprintf("Fall-through across %s %s models.", instance.Name, strings.ToLower(group.Label)),
 				Models:      toEntries(entries),
 				ManagedBy:   marker,
 				Disabled:    !restoreEnabled[group.Endpoint],

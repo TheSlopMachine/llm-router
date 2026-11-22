@@ -2,9 +2,13 @@
 
 ## Done (2026-11-22, v0.11.4)
 
-- **One models page** — real and virtual models listed on the Models page; over the search field an All / Enabled / Disabled picker and a Real / Virtual picker (enabled real models first), both remembered in the browser; the Virtual models page and its sidebar entry were removed (`#/virtual` opened Models). New model moved to the Models header; virtual models kept clone, edit, delete and their switch, and real models got an enable switch. Disabled models stayed listed, dimmed: `GET /dashboard/models/available` took `include_disabled=true` and marked such models `disabled`.
-- **Provider virtual models switch** — the Virtual models block of a provider got a switch for all of the provider's virtual models. Off deleted them, so they left every list and route and sync created none, and kept which were enabled; on rebuilt them with those enabled again (`GET`/`PUT /dashboard/providers/{id}/virtual-models/settings`, table `provider_virtual_settings`, migration 10).
-- **Provider list** — the Models column was left-aligned like the rest and counted enabled models only (`enabled_model_count` replaced `model_count` in `/dashboard/providers/stats`); a failing model or credential read returned an error instead of a zero.
+- **One models page.** Real and virtual models moved to the Models page. The Virtual models page and its sidebar entry were removed, and `#/virtual` opened Models.
+- **Models page filters.** All / Enabled / Disabled and Real / Virtual pickers sat over the search field. The browser remembered both. A first visit showed enabled real models.
+- **Models page actions.** New model moved to the page header. Real models got an enable switch. Virtual models kept clone, edit, delete and their switch.
+- **Disabled models listed.** `GET /dashboard/models/available?include_disabled=true` also returned disabled models, marked `disabled`. The Models page showed them dimmed.
+- **Provider virtual models switch.** A switch in a provider's Virtual models block turned all its virtual models off or on. Off deleted them and kept which were enabled. On rebuilt them in that state. API: `GET`/`PUT /dashboard/providers/{id}/virtual-models/settings`. Storage: table `provider_virtual_settings` (migration 10).
+- **Provider list.** The Models column was left-aligned and counted enabled models only. `/dashboard/providers/stats` returned `enabled_model_count` instead of `model_count`. A failing read returned an error instead of a zero.
+- **Shorter texts.** UI hints and messages lost internal details. Provider virtual models were described as "Fall-through across <provider> <endpoint> models." Migration 11 rewrote stored descriptions in the old form.
 
 ## Done (2026-11-22, v0.11.3)
 

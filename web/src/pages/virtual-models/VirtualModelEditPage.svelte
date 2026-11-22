@@ -215,7 +215,7 @@
 </script>
 
   <VStack gap={6}>
-  <Header title={vmId ? t('virtual.edit.title') : t('virtual.create.title')} back={{ label: t('models.list.title'), href: '#/models' }} subtitle={vmId ? t('virtual.update_desc') : t('virtual.create_desc')} />
+  <Header title={vmId ? t('virtual.edit.title') : t('virtual.create.title')} back={{ label: t('models.list.title'), href: '#/models' }} subtitle={t('virtual.fallthrough.desc')} />
 
   {#if error}
     <Banner tint="danger" text={error} />
@@ -228,10 +228,6 @@
 
     {#if isManaged}
       <Text foregroundStyle="secondary" size="sm">{t('virtual.managed_by_provider')}</Text>
-    {/if}
-
-    {#if modelsLoadState === 'empty'}
-      <Banner tint="warning" text={t('virtual.configure_first')} />
     {/if}
 
     <Card title={t('virtual.basic_info')}>
@@ -256,7 +252,7 @@
         </VStack>
       {:else if models.length === 0}
         {#if modelsLoadState === 'empty'}
-          <ContentUnavailable title={t('virtual.no_models_configure')} />
+          <ContentUnavailable title={t('models.list.empty_configure_first')} />
         {:else if isEditable}
           <Button text={t('models.actions.add')} icon={{ name: 'add' }} onclick={addModel} />
         {/if}
