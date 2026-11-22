@@ -1,5 +1,9 @@
 # Changelog
 
+## Done (2026-11-22, v0.11.4)
+
+- The virtual models page showed its description under the title, as the other pages do, instead of behind an info button.
+
 ## Done (2026-11-22, v0.11.3)
 
 - **Metrics range from activity** — the overview opened on the shortest range (last hour, 1, 7, 28 or 90 days) holding the last request, and picked again on a provider or model change until a range was chosen by hand. `GET /dashboard/metrics/last-activity` returned the start of the newest bucket with requests.

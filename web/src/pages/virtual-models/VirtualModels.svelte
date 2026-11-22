@@ -120,7 +120,7 @@
 <VStack gap={6}>
   <Header
     title={t('virtual.models_plural')}
-    info={t('virtual.models_desc')}
+    subtitle={t('virtual.models_desc')}
     primary={{ id: 'new', text: t('virtual.actions.new_model'), icon: 'add', onclick: openNew }}
   />
 
