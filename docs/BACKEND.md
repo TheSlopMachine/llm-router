@@ -1,8 +1,9 @@
 # Backend Architecture
 
 Single-binary OpenAI-compatible routing gateway: Go backend, embedded Svelte
-SPA, embedded SQLite DB. `docs/PLUGIN-API.md` is the binding plugin contract;
-this file maps the Go core.
+SPA, embedded SQLite DB. This file maps the code: where each part lives,
+how a request flows and where each kind of change goes. The plugin contract
+is `docs/PLUGIN-API.md`.
 
 ## System map
 
@@ -24,7 +25,7 @@ internal/services/
   router/                ModelId → backend, token allow-list gate, single pass, no repeats
   provider/              ProviderInstance CRUD (all types, one path) + schema/capability delegation
   credential/            credential storage + admin mutation + plugin lifecycle writes (no ordering, no usage)
-  virtual/               virtual models (fall-through lists + instruction); provider-managed ones per endpoint, with a per-provider switch (`provider_virtual_settings`: off holds no managed rows and keeps which were enabled)
+  virtual/               virtual models (fall-through lists + instruction). Provider-managed ones: one per endpoint, members are the provider's enabled models, resynced on model import and toggles. Per-provider switch (`provider_virtual_settings`): off holds no managed rows and keeps which were enabled
   responses/             router-side compat records (responses, conversations, assistants, threads, messages, runs)
   batches/               router-side Anthropic message batches (entries + JSONL-ready results)
   luaplugin/             Lua execution core: manifest, author/plugin-name plugin identity, sandbox, pooled states per plugin bucket, HTTP+SSRF, storage+TTL, credentials/proxies tables, jobs, catalog descriptions (`describe.go`: subsystems and icon of an uninstalled source, cached by digest)
@@ -57,14 +58,28 @@ internal/version/        Version struct (Parse/String, short X.Y when fix is 0);
 internal/config/         environment + .env loading and Config struct
 internal/adapters/generic/ built-in custom backend (Go, single pass over gated pool)
 providers/virtual/       built-in virtual-models backend (Go, list-order fall-through + first-byte gate)
-web/                     Svelte SPA (web/openapi.yaml + src/lib/generated/ auto-generated — do not hand-edit)
-scripts/                 separate Go module — build/dev helpers (never imported by main module)
+web/                     Svelte SPA (web/openapi.yaml and src/lib/generated/ are generated, never hand-edited)
+scripts/                 separate Go module: build and dev helpers, never imported by the main module
 scripts/smoke/           black-box smoke harness (live upstreams only)
-docs/                    PLUGIN-API.md (binding plugin contract), BACKEND.md (core map), CHANGELOG.md
+docs/                    PLUGIN-API.md (plugin contract), BACKEND.md (this map), EVENT-KEYS.md (event keys), CHANGELOG.md
 Makefile                 thin launcher for scripts/ (targets: AGENTS.md §4, `make help`)
 ```
 
-Keep changes shallow. Touch service internals only when the task requires it.
+## Frontend map
+
+```
+web/src/main.ts, App.svelte    boot: GET /status, then Login or Dashboard
+web/src/pages/Dashboard.svelte sidebar and hash routing (#/<panel>/<segments>)
+web/src/pages/<panel>/         one folder per sidebar page: metrics, providers, models, plugins, tokens, proxy, settings
+web/src/pages/virtual-models/  virtual model editor (#/virtual/new, #/virtual/<id>); the list is the Models page
+web/src/pages/*/components/    widgets used by one page only
+web/src/components/domain/     widgets shared by pages: ModelsTable (windowed model lists), DynamicForm (plugin UI node trees), ModalitiesFlow
+web/src/components/wizards/    CustomProviderWizard
+web/src/lib/api.ts             dashboard API client over api-client.ts and generated/ (OpenAPI types, `make init` regenerates)
+web/src/lib/types.ts           frontend wire types
+web/src/lib/i18n/              UI text keys: types.ts, en.ts, ru.ts
+web/src/lib/<concern>.ts       one helper module per concern: format, model-search, model-aggregates, token-rules, token-scope, capabilities, modalities, download, errors, list-resource
+```
 
 ## Request flow
 
@@ -184,19 +199,11 @@ Keep changes shallow. Touch service internals only when the task requires it.
 
 ## Transactions
 
-One public method = one SQLite transaction per handle when the operation
-must be atomic: `token.Create/Delete/Regenerate` (token + join rows),
-`provider.Delete` (provider row, credentials and model overrides cascade
-from foreign keys; cached parks, health verdicts and model rows clear
-explicitly after), metrics bucket persist (base row plus dimension
-children). The two files share no transaction: cross-file writes sequence
-primary then cache (plugin storage `set` targets the routed handle first,
-then removes the key from the other, so an interrupted write duplicates
-instead of losing). Each transaction runs on one pooled connection
-(`MaxOpenConnections=16` per file, WAL, `_txlock=immediate`); writers
-serialize on the database lock. Each migration runs in one transaction
-together with its `schema_migrations` row. `repository` returns
-`ErrNotFound` via `%w`; services map it with `errors.Is`, never by string.
+- One public method owns one transaction per file when the operation must be atomic. Examples: `token.Create/Delete/Regenerate` (token and join rows), `provider.Delete` (foreign keys cascade credentials and model overrides, then cached parks, health verdicts and model rows clear), metrics bucket persist (base row and dimension children).
+- The database and cache files share no transaction. Cross-file writes go to the database first, then the cache. Plugin storage `set` writes the routed file first and then removes the key from the other, so an interrupted write duplicates instead of losing.
+- Each transaction holds one pooled connection: `MaxOpenConnections=16` per file, WAL, `_txlock=immediate`. Writers serialize on the database lock.
+- Each migration runs in one transaction with its `schema_migrations` row.
+- `repository` wraps `ErrNotFound` with `%w`. Services match it with `errors.Is`.
 
 ## Lifecycle
 
@@ -238,91 +245,50 @@ together with its `schema_migrations` row. `repository` returns
   for the admin listener first (binds after the startup gate), uses the
   endpoint with a 45s wait and kills past it; the frontend is
   always killed.
-- `proxypool.Service.Start(ctx)`: starts the proxypool library scheduler and
-  independent 3s cache-flush loop. Library-owned lanes, foreground/background
-  hysteresis, adaptive concurrency, suspect handling and network breaker drive
-  checks; only validated proxies are persisted. `Stop` occurs via context
-  cancellation rather than an adapter-owned adaptive refresh schedule.
+- `proxypool.Service.Start(ctx)` starts the proxypool library scheduler and
+  the 3s cache flush loop. The library owns check lanes, foreground and
+  background modes, adaptive concurrency, suspect handling and the network
+  breaker. Only validated proxies persist. Cancelling the context stops it.
 - `proxypool.New` loads the persisted library cache and surfaces read errors
   during server construction.
 
 ## Storage
 
-SQLite (`internal/db/sqlite.go`, `OpenSQLite`) owns three files:
-`DB_PATH` (prod default `~/.local/share/llm-router/llm-router.sqlite3`)
-holds durable configuration, `CACHE_PATH` (prod default
-`~/.cache/llm-router/llm-router.cache.sqlite3`) holds rebuildable state,
-`EVENTS_PATH` (prod default
-`~/.local/state/llm-router/llm-router.events.sqlite3`) holds operator
-telemetry with `EVENTS_RETENTION_DAYS` (default 3, minimum 1) pruning on
-startup and hourly plus `auto_vacuum=INCREMENTAL` reclamation. Dev runs use
-`.dev` suffixed files under the same XDG directories
-(`llm-router.dev.sqlite3`, `llm-router.cache.dev.sqlite3`,
-`llm-router.events.dev.sqlite3`, `.env.dev`); `make start` injects them
-through `DB_PATH`/`CACHE_PATH`/`EVENTS_PATH`/`ENV_FILE` when unset. All
-paths plus `ENV_FILE` expand a leading `~` (home directory, every OS),
-`%NAME%` and `$VAR`/`${VAR}` references, then clean; a tilde elsewhere
-stays literal. Managed XDG parents create on startup; custom parents must
-exist (`ErrParentMissing`). `GET
-/api/events` queries the events file by `severity` (>=), `id`, `start`/`end`
-(RFC3339), `filter.<key>` existence or `filter.<key>=<value>` match plus
-`exclude.<key>` existence or `exclude.<key>=<value>` drop
-(limit default 50). The schema
-(`internal/db/migrations/0001_initial_schema.go` untouched history plus
-`0002_split_storage.go`) owns every table; `internal/db/record/` pins the
-row shapes. The database file keeps instance settings, the dashboard password, proxy
-pools plus entries, tokens plus rules, providers, credentials, model
-overrides, virtual models, plugin repos, plugins, hosts, versions and
-durable plugin storage. The cache file keeps sessions, proxy states, model
-info snapshots plus rows, credential parks plus health, TTL plugin storage,
-metric buckets plus dimensions, video jobs, response records and message
-batches. Cache rows reference durable parents softly: no cross-file foreign
-key exists, deletes clear related cache rows explicitly, and deleting the
-cache file while stopped only logs operators out and refills in the
-background. Reads and writes run through `gorm.G` with typed clauses (`scripts/sqlpolicy` enforces the policy);
-`repository.GormRepository` owns the generics API (500-row upsert batches,
-`Clear` is the one `AllowGlobalUpdate` path). DSN pins foreign keys, WAL,
-synchronous NORMAL, busy timeout and immediate lock; `maintenance.go` owns
-the only raw statements (checkpoint, vacuum, freelist count, optimize,
-integrity check, backup, events prune).
-Sessions store the token hash as primary key, never plaintext.
+SQLite (`internal/db/sqlite.go`, `OpenSQLite`) owns three files.
+
+| File | Variable | Release default | Holds |
+|---|---|---|---|
+| Database | `DB_PATH` | `~/.local/share/llm-router/llm-router.sqlite3` | Instance settings, dashboard password, proxy pools and entries, tokens and rules, providers, credentials, model overrides, virtual models, provider virtual settings, plugin repos, plugins, hosts, versions, durable plugin storage |
+| Cache | `CACHE_PATH` | `~/.cache/llm-router/llm-router.cache.sqlite3` | Rebuildable state: sessions, proxy states, model info snapshots and rows, credential parks and health, TTL plugin storage, metric buckets and dimensions, video jobs, response records, message batches |
+| Events | `EVENTS_PATH` | `~/.local/state/llm-router/llm-router.events.sqlite3` | Operator telemetry, pruned on startup and hourly after `EVENTS_RETENTION_DAYS` (default 3, minimum 1), `auto_vacuum=INCREMENTAL` |
+
+- Dev runs use `.dev` files in the same directories (`llm-router.dev.sqlite3`, `llm-router.cache.dev.sqlite3`, `llm-router.events.dev.sqlite3`, `.env.dev`). `make start` passes them through `DB_PATH`, `CACHE_PATH`, `EVENTS_PATH` and `ENV_FILE` when unset.
+- Paths and `ENV_FILE` expand a leading `~`, `%NAME%`, `$VAR` and `${VAR}`. A tilde elsewhere stays literal. Default parent directories are created on startup. A custom parent must exist (`ErrParentMissing`).
+- `internal/db/migrations` owns every table. `internal/db/record/` holds the row shapes.
+- Reads and writes go through `gorm.G` with typed clauses (`make sql-policy-test`). `repository.GormRepository` owns the generic operations: 500-row upsert batches, `Clear` as the only `AllowGlobalUpdate` path. `maintenance.go` owns the only raw statements: checkpoint, vacuum, freelist count, optimize, integrity check, backup, events prune.
+- The DSN pins foreign keys, WAL, synchronous NORMAL, busy timeout and the immediate lock.
+- Cache rows reference database rows without foreign keys. Deletes clear related cache rows explicitly. Deleting the cache file while stopped signs operators out, and the cache refills.
+- Foreign keys cascade: a provider delete removes its credentials, model overrides, managed virtual models, virtual members and virtual setting. A plugin delete removes hosts, versions and durable storage. A metric bucket delete removes its dimension rows.
+- Provider `proxy.pool` references `proxy_pools` with RESTRICT.
+- `virtual_models.name_key` is UNIQUE and signals duplicate names.
+- `plugin_storage.expires_at` routes a row: TTL rows live in the cache, durable rows in the database.
+- Metrics persist one `metric_buckets` row plus dimension rows (`metric_bucket_providers`, `metric_bucket_models`, `metric_bucket_tokens`, `metric_bucket_error_types`). Provider dimensions carry no duration columns.
+- `proxypool.gormCache` buffers proxy states in memory. `Set` stages a state. `Flush` writes 500-row upserts, one transaction per 20000 states. The 3s `flushLoop` calls it.
+- `GET /api/events` filters the events file by `severity` (minimum), `id`, `start`/`end` (RFC3339), `filter.<key>[=<value>]` and `exclude.<key>[=<value>]`. Default limit 50.
+
+### Credentials at rest
+
+- `credentials.data` stores `llmr-enc:v1:<base64>`: AES-256-GCM through the `credential_cipher` serializer.
+- The key comes from `CREDENTIALS_KEY` or `CREDENTIALS_KEY_FILE` (created with mode 0600 when missing) and installs before `OpenSQLite`. Without it every credential read and write fails.
 
 ### Dashboard authentication
 
-The dashboard has one operator, so it has no accounts: `dashboard_password`
-holds one bcrypt hash (row id 1) and login takes the password only.
-`set-dashboard-password` is the only way to set the first password, and
-`serve` refuses to start while none is set (`admin.ErrPasswordNotSet`). There
-is no first-run setup page: on an instance reachable from the network a
-setup page would hand the dashboard to whoever opened it first. Containers
-set the password in the entrypoint with `--password-stdin --if-absent`.
-
-Login failures lock out per client address (`login_limiter.go`, socket peer
-only, never `X-Forwarded-For`). A session lives 8 hours, or 30 days with
-`remember_me`; the expiration moves forward while the session is in use.
-Without `remember_me` the cookie is a browser-session cookie, so closing the
-browser signs out; with it the cookie carries the server-side expiration and
-is reissued when that moves forward. A password change keeps existing
-sessions. The admin listener needs neither password nor session.
-`credentials.data` stores `llmr-enc:v1:<base64>` (AES-256-GCM through the
-`credential_cipher` serializer); the key installs before `OpenSQLite` from
-`CREDENTIALS_KEY` or `CREDENTIALS_KEY_FILE` (created with mode 0600 when
-missing), migration 7 sealed older plaintext rows, and a missing key fails
-both writes and reads. Back up the key file with the database: without it
-credentials cannot be decrypted.
-`virtual_models.name_key` carries the UNIQUE duplicate signal.
-`plugin_storage.expires_at` carries the TTL index and routes the row: TTL
-rows live in cache, durable rows in the database. Metrics persist one
-`metric_buckets` row plus dimension children (`metric_bucket_providers`,
-`metric_bucket_models`, `metric_bucket_tokens`,
-`metric_bucket_error_types`); provider dimensions carry no duration columns.
-`proxypool.gormCache` buffers states in memory; `Set` stages, `Flush` lands
-500-row upserts inside one transaction per 20000 states, the 3s `flushLoop`
-drives it. Provider `proxy.pool` references `proxy_pools` with RESTRICT.
-Foreign keys carry the cascades the bucket scans used to perform by hand:
-provider deletes cascade credentials, model overrides, managed
-virtual models, virtual members and the provider virtual setting; plugin deletes cascade hosts, versions
-and durable storage; metric bucket deletes cascade dimension children.
+- One operator, no accounts. `dashboard_password` holds one bcrypt hash (row id 1). Login takes the password only.
+- `set-dashboard-password` sets the first password. `serve` refuses to start without one (`admin.ErrPasswordNotSet`). Containers set it in the entrypoint with `--password-stdin --if-absent`.
+- Failed logins lock out per socket peer address (`login_limiter.go`), never by `X-Forwarded-For`.
+- A session lives 8 hours, or 30 days with `remember_me`. Use moves the expiration forward. Without `remember_me` the cookie ends with the browser session. With it the cookie carries the server expiration and is reissued when it moves.
+- Sessions store the token hash as primary key, never the token.
+- A password change keeps existing sessions. The admin listener needs neither password nor session.
 
 ## Smoke harness
 
@@ -336,7 +302,23 @@ self-check → cleanup of created credentials. Quota (`quota_exceeded`,
 outcomes skip with reason; anything else fails. Exit 0 means clean (skips
 allowed).
 
-## Adding an endpoint
+## Where a change goes
+
+| Change | Touch |
+|---|---|
+| `/v1` endpoint | steps below |
+| Dashboard API route | handler with swag annotations in `internal/dashboard/<area>.go`, route in `dashboard/handler.go`, `make init` (OpenAPI and `web/src/lib/generated`), client method in `web/src/lib/api.ts` |
+| Dashboard page | `web/src/pages/<panel>/`, `PANELS` and `nav` in `pages/Dashboard.svelte`, keys in `web/src/lib/i18n` |
+| UI text | `web/src/lib/i18n/types.ts`, `en.ts`, `ru.ts` |
+| Table or column | numbered migration in `internal/db/migrations` (registry in `0001_initial_schema.go`), row shape in `internal/db/record`, table list in `internal/db/sqlite_test.go`, the owning service, "Storage" below |
+| Provider setting | the owning service: provider config keys (`provider/gorm_convert.go`, seeded-provider allow-list in `dashboard/providers.go`) or a table of that service (`provider_virtual_settings`) |
+| Data management subsystem | `datamanagement` service, switch in `dashboard/data_management.go`, `subsystemKeys` in `web/src/pages/settings/data-items.ts`, row in `SettingsPage.svelte` |
+| Plugin API function or handler | `luaplugin` (`sandbox.go`, `handler_names.go`), `luaplugin.PluginAPIVersion`, `docs/PLUGIN-API.md` |
+| Event key | the log call, a row in `docs/EVENT-KEYS.md` |
+| Make target or variable | `scripts/`, `Makefile`, `scripts/help.txt`, `scripts/README.md` |
+| CLI command or text | `cmd/`, `internal/i18n/messages_en.go` and `messages_ru.go` |
+
+### `/v1` endpoint
 
 1. `models`: `Endpoint*` constant + `SupportsEndpoint` coverage.
 2. `provider`: capability interface (`Transcriber` / `Speaker` / `ImageGenerator` / `Embedder` / `Moderator` / `VideoGenerator`) for Go backends.
