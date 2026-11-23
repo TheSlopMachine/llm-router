@@ -6,7 +6,7 @@
   import { getErrorMessage } from '$lib/errors'
   import type { AvailableModel, VirtualModel } from '$lib/types'
   import { t, n } from '$lib/i18n.svelte'
-  import { Button, ConfirmAction, ContentUnavailable, FloatingView, HStack, Picker, SearchField, Spacer, Toggle, VStack, Banner, Header } from '@fuckyouryan/fui'
+  import { Button, ConfirmAction, ContentUnavailable, FloatingView, HStack, Picker, SearchField, Toggle, VStack, Banner, Header } from '@fuckyouryan/fui'
   import { rankModels, matchesVirtualModel } from '$lib/model-search'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
   import { setPendingClone } from '$lib/virtual-clone'
@@ -227,7 +227,6 @@
         ariaLabel={t('models.filter.visibility')}
         onchange={(next) => selectStatus(next as ModelStatus)}
       />
-      <Spacer />
       <Picker
         pickerStyle="segmented"
         value={kind}

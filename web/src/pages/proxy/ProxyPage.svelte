@@ -13,7 +13,8 @@
 
   export type ProxyTab = 'auto' | 'pools'
 
-  let { tab = 'auto', ontabchange }: {
+  let { tab, ontabchange }: {
+    /** unset: the auto pool tab while the auto pool is on, the custom pools tab while it is off */
     tab?: ProxyTab
     ontabchange?: (next: ProxyTab) => void
   } = $props()
@@ -33,6 +34,9 @@
   let savingSwitch = $state(false)
   const proxyEnabled = $derived(routerConfig?.proxy_enabled ?? true)
   const poolEnabled = $derived(routerConfig?.proxy_pool_enabled ?? true)
+  // Picked once from the first loaded configuration, so switching the pool off keeps the open tab.
+  let defaultTab = $state<ProxyTab | null>(null)
+  const openTab = $derived(tab ?? defaultTab)
   const MAX_CHECKS_LIMIT = 2000
   let error = $state('')
   let deletePoolTarget = $state<ProxyPool | null>(null)
@@ -93,6 +97,7 @@
     try {
       const config = await api.config.get()
       routerConfig = config
+      defaultTab ??= poolEnabled ? 'auto' : 'pools'
       maxChecksInput = String(config.proxy_max_checks ?? 0)
     } catch (e) {
       error = getErrorMessage(e)
@@ -297,7 +302,7 @@
   const headerActions = $derived<HeaderAction[]>(
     !proxyEnabled
       ? []
-      : tab === 'pools'
+      : openTab === 'pools'
         ? [{ id: 'new-pool', text: t('proxy.custom_pools.new'), icon: 'add', onclick: () => openPoolModal('create') }]
         : !poolEnabled
           ? []
@@ -334,9 +339,9 @@
     <VStack minHeight="50vh" valign="center" halign="center">
       <ContentUnavailable icon="vpn_lock" title={t('proxy.off.title')} />
     </VStack>
-  {:else}
+  {:else if openTab}
   <Picker pickerStyle="segmented"
-    value={tab}
+    value={openTab}
     onchange={(next) => ontabchange?.(next as ProxyTab)}
     options={[
       { value: 'auto', label: t('proxy.tab.auto') },
@@ -345,7 +350,7 @@
     ariaLabel={t('proxy.title')}
   />
 
-  {#if tab === 'auto'}
+  {#if openTab === 'auto'}
     <Card>
       <VStack gap={1}>
         <Toggle label={t('proxy.switch.pool')} ariaLabel={t('proxy.switch.pool')} checked={poolEnabled} disabled={!routerConfig || savingSwitch} onchange={(value: boolean) => void setSwitch({ proxy_pool_enabled: value })} />
@@ -354,11 +359,11 @@
     </Card>
   {/if}
 
-  {#if tab === 'auto' && !poolEnabled}
+  {#if openTab === 'auto' && !poolEnabled}
     <!-- auto pool off: its statistics and settings have nothing to show -->
   {:else if loading && !status}
     <ContentUnavailable title={t('common.state.loading')} />
-  {:else if tab === 'auto'}
+  {:else if openTab === 'auto'}
     {#if status?.last_error}
       <Banner tint="danger" text={status.last_error} />
     {/if}

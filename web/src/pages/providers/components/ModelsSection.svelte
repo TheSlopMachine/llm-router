@@ -387,12 +387,8 @@
   const visibleNames = $derived(filteredModels.map((m) => m.name))
   const allVisibleSelected = $derived(visibleNames.length > 0 && visibleNames.every((n) => selected.includes(n)))
 
-  // The bar opens with the first pick and closes only by its close button.
-  let bulkOpen = $state(false)
-
   function setSelected(name: string, on: boolean): void {
     selected = on ? [...new Set([...selected, name])] : selected.filter((n) => n !== name)
-    if (on) bulkOpen = true
   }
 
   function toggleSelectAll(): void {
@@ -403,7 +399,6 @@
 
   function clearSelection(): void {
     selected = []
-    bulkOpen = false
   }
 
   async function setSelectedDisabled(disabled: boolean): Promise<void> {
@@ -626,9 +621,8 @@
       <Banner tint="danger" text={modelsError} />
     {:else}
       {@render modelsTable()}
-      {#if bulkOpen}
-        <!-- bulk actions over the picked rows; stays in view while the list
-             scrolls and until its close button, whatever the selection holds -->
+      {#if selected.length > 0}
+        <!-- bulk actions over the picked rows; stays in view while the list scrolls -->
         <div class="bulk-bar">
           <HStack gap={2} wrap valign="center" pad={3} radius="lg" elev>
             <span class="bulk-count"><Text size="sm" weight="medium">{t('models.bulk.count')}: {selected.length}</Text></span>
@@ -640,13 +634,12 @@
               disabled={visibleNames.length === 0}
               onclick={toggleSelectAll}
             />
-            <Button size="sm" icon={{ name: 'toggle_on' }} text={t('models.bulk.enable')} disabled={bulkBusy || selected.length === 0} onclick={() => void setSelectedDisabled(false)} />
-            <Button size="sm" icon={{ name: 'toggle_off' }} text={t('models.bulk.disable')} disabled={bulkBusy || selected.length === 0} onclick={() => void setSelectedDisabled(true)} />
+            <Button size="sm" icon={{ name: 'toggle_on' }} text={t('models.bulk.enable')} disabled={bulkBusy} onclick={() => void setSelectedDisabled(false)} />
+            <Button size="sm" icon={{ name: 'toggle_off' }} text={t('models.bulk.disable')} disabled={bulkBusy} onclick={() => void setSelectedDisabled(true)} />
             <Button
               size="sm"
               icon={{ name: testingAll ? 'stop' : 'network_check' }}
               text={testingAll ? t('credentials.testing_click_cancel') : t('models.bulk.test')}
-              disabled={!testingAll && selected.length === 0}
               onclick={testingAll ? () => void testAllModels() : testSelected}
             />
             <Button size="sm" buttonStyle="text" icon={{ name: 'close' }} title={t('models.bulk.clear')} ariaLabel={t('models.bulk.clear')} onclick={clearSelection} />
