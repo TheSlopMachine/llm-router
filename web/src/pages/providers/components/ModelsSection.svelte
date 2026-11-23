@@ -13,10 +13,13 @@
   import { api } from '$lib/api'
   import type { ModelsTableModel } from '../../../components/domain/ModelsTable.svelte'
 
-  let { provider = $bindable(), onrefresh, credRevision = 0 }: {
+  let { provider = $bindable(), onrefresh, discoveryRevision = 0, waitingText = '' }: {
     provider: Provider | null
     onrefresh?: () => void
-    credRevision?: number
+    /** a bump retries discovery */
+    discoveryRevision?: number
+    /** set while the provider's containers prepare: a failed discovery shows it instead of the error */
+    waitingText?: string
   } = $props()
   const providerId = $derived(provider?.id ?? '')
 
@@ -25,10 +28,10 @@
     const KNOWN_CAPABILITIES = ['tools', 'vision', 'audio', 'json_mode', 'structured_outputs', 'reasoning']
 
   $effect(() => {
-    // Dependencies: provider identity and credRevision only. credRevision bumps on
-    // credential add, so a key added to a credential-less provider retries discovery.
+    // Dependencies: provider identity and discoveryRevision only. The revision bumps
+    // on credential add and when containers finish preparing, so discovery retries.
     // Replacing the provider object (config toggles) must not reload the model list.
-    void credRevision
+    void discoveryRevision
     if (!providerId) return
     untrack(() => {
       loadChecks()
@@ -525,7 +528,9 @@
 
 </script>
 
-  {#if discoveryFailed && !modelsLoading}
+  {#if discoveryFailed && !modelsLoading && waitingText}
+    <Banner tint="info" text={tx('models.discovery_waiting.status', { detail: waitingText })} />
+  {:else if discoveryFailed && !modelsLoading}
     <Banner tint="danger" text={modelsError} />
   {:else}
   <VStack tag="section" gap={4} class="provider-section">

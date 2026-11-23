@@ -3,7 +3,7 @@
   import PluginCard from './PluginCard.svelte'
   import RepoDetailsModal from './RepoDetailsModal.svelte'
   import { createPluginState } from './plugin-state.svelte'
-  import { diffAllowHosts } from './plugin-permission-diff'
+  import { diffPermissions } from '$lib/plugin-permissions'
   import type { Plugin, PluginRepo, PluginUpdate, StoreFile } from '$lib/types'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -125,12 +125,13 @@
       .filter((entry: RepoEntry) => isRepoVisible(entry))
   })
 
-  async function installEntry(repoId: string, path: string): Promise<void> {
+  /** installs the file when it requests the approved permissions */
+  async function installEntry(repoId: string, path: string, approvedDigest: string): Promise<void> {
     const key = storeKey(repoId, path)
     installingPath = key
     actionError = ''
     try {
-      const rec = await api.plugins.installFromRepo(repoId, path)
+      const rec = await api.plugins.installFromRepo(repoId, path, approvedDigest)
       onPluginSaved(rec)
       await onUpdatesRefresh()
     } catch (e) {
@@ -140,12 +141,9 @@
     }
   }
 
-  async function handleCatalogAction(plugin: Plugin, file: StoreFile, id: string, anchor?: HTMLElement): Promise<void> {
-    if (id === 'update' || id === 'reinstall') {
-      await installEntry(file.repo_id, file.path)
-      return
-    }
-    await pluginState.handleAction(plugin, id, anchor)
+  /** the permissions an update keeps: without a review only those install */
+  function installedDigest(update: PluginUpdate): string | null {
+    return plugins.find((plugin: Plugin) => plugin.id === update.plugin_id)?.permissions.digest ?? null
   }
 
   function openRepoDetails(entry: RepoEntry): void {
@@ -277,11 +275,12 @@
     <Card title={t('plugins.updates_available')}>
       <List>
         {#each availableUpdates as u}
+          {@const approved = installedDigest(u)}
           <div style="padding: var(--fui-space-3) var(--fui-space-4);">
             <HStack valign="center" gap={3}>
               <Text size="sm">{u.plugin_id}: {u.current} → {u.latest}</Text>
               <Spacer />
-              <Button buttonStyle="neutral" size="sm" onclick={() => void installEntry(u.repo_id, u.path)}>{t('common.actions.update')}</Button>
+              <Button buttonStyle="neutral" size="sm" disabled={!approved} onclick={() => { if (approved) void installEntry(u.repo_id, u.path, approved) }}>{t('common.actions.update')}</Button>
             </HStack>
           </div>
         {/each}
@@ -342,9 +341,7 @@
               {@const key = storeKey(f.repo_id, f.path)}
               {#if plugin}
                 {@const update = findUpdate(plugin)}
-                {@const newHosts = update?.new_allow_hosts ?? f.allow_hosts ?? []}
-                {@const newUnsafe = update?.new_unsafe ?? f.unsafe}
-                {@const diff = diffAllowHosts(plugin.allow_hosts ?? [], plugin.unsafe, newHosts, newUnsafe)}
+                {@const review = update?.new_permissions ?? plugin.permissions}
                 <PluginCard
                   title={f.display_name || f.path}
                   version={`v${plugin.version}`}
@@ -352,19 +349,15 @@
                   iconUrl={plugin.icon_url}
                   subsystems={plugin.subsystems}
                   mode="installed"
-                  unsafe={plugin.unsafe}
-                  disabled={plugin.disabled ?? false}
+                  permissions={plugin.permissions}
+                  {review}
+                  diff={diffPermissions(plugin.permissions, review)}
+                  disabled={plugin.disabled}
                   toggling={pluginState.isToggling(plugin.id)}
                   hasUpdate={!!update}
-                  allowHosts={plugin.allow_hosts ?? []}
-                  newHosts={newHosts}
-                  added={diff.added}
-                  removed={diff.removed}
-                  escalatesToUnsafe={diff.escalatesToUnsafe}
-                  latestVersion={update?.latest ?? f.version}
-                  onUpdate={() => void installEntry(f.repo_id, f.path)}
-                  onToggle={(enabled) => void pluginState.togglePlugin(plugin, enabled)}
-                  onaction={(id, anchor) => handleCatalogAction(plugin, f, id, anchor)}
+                  onUpdate={() => void installEntry(f.repo_id, f.path, review.digest)}
+                  onToggle={(enabled) => pluginState.togglePlugin(plugin, enabled)}
+                  onaction={(id, anchor) => pluginState.handleAction(plugin, id, anchor)}
                 />
               {:else}
                 <PluginCard
@@ -374,10 +367,10 @@
                   iconUrl={f.icon_url}
                   subsystems={f.subsystems}
                   mode="uninstalled"
-                  unsafe={f.unsafe}
+                  permissions={f.permissions}
+                  review={f.permissions}
                   installing={installingPath === key}
-                  allowHosts={f.allow_hosts ?? []}
-                  onInstall={() => void installEntry(f.repo_id, f.path)}
+                  onInstall={() => { if (f.permissions) void installEntry(f.repo_id, f.path, f.permissions.digest) }}
                 />
               {/if}
               {#if f.error}<Text tint="danger" variant="caption">{f.error}</Text>{/if}

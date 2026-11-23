@@ -96,6 +96,7 @@ func (s *Service) handlerCallEx(
 	credentialUnpark := s.credentialUnpark
 	credentialParked := s.credentialParked
 	automationOn := s.automationOn
+	dockerService := s.docker
 	s.wiringMu.RUnlock()
 	ctx := &executionContext{
 		pluginID:             record.ID,
@@ -135,6 +136,12 @@ func (s *Service) handlerCallEx(
 	}
 	if configuration.capabilitiesOverride != nil {
 		ctx.capabilities = *configuration.capabilitiesOverride
+	}
+	// Install validated the manifest, so a parse failure here means a
+	// corrupt stored source: the load below reports it with the parser
+	// diagnostics, and the Docker table stays absent.
+	if dockerPolicy, dockerDeclared, policyError := s.dockerPolicy(record); policyError == nil && dockerDeclared {
+		ctx.docker = &dockerBridge{service: dockerService, policy: dockerPolicy}
 	}
 	if configuration.lifecycleReadOnly {
 		ctx.credentialUpdate = nil

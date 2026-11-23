@@ -1,11 +1,10 @@
 <script lang="ts">
   import { SearchField, Toolbar, ToolbarItem, Button, FloatingView, List, VStack, HStack, Text, Banner, ConfirmAction, FilePicker, ContentUnavailable } from '@fuckyouryan/fui'
   import PluginCard from './PluginCard.svelte'
+  import InstallConfirm from './InstallConfirm.svelte'
   import { createPluginState } from './plugin-state.svelte'
-  import { diffAllowHosts } from './plugin-permission-diff'
+  import { diffPermissions } from '$lib/plugin-permissions'
   import type { Plugin, PluginRepo, PluginUpdate, StoreFile } from '$lib/types'
-  import { api } from '$lib/api'
-  import { getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
   import { matchesPlugin, hasStoreOrigin, storeKey } from '$lib/plugin-search'
 
@@ -29,8 +28,7 @@
 
   let query = $state('')
   let actionError = $state('')
-  let uploading = $state(false)
-  let uploadLabel = $derived(uploading ? t('plugins.uploading') : t('upload.file'))
+  let uploadAnchor = $state<HTMLElement>()
 
   function findUpdate(plugin: Plugin): PluginUpdate | null {
     return updates.find((u: PluginUpdate) => u.plugin_id === plugin.id && u.update_available) ?? null
@@ -71,7 +69,8 @@
     },
     findUpdate,
     findRepoPath,
-    findStoreFile
+    findStoreFile,
+    findPlugin: (id) => plugins.find((plugin) => plugin.id === id) ?? null
   })
 
   let updateCount = $derived(updates.filter((u: PluginUpdate) => u.update_available).length)
@@ -81,20 +80,6 @@
       ? plugins.filter((p: Plugin) => matchesPlugin(p, query))
       : plugins
   )
-
-  async function uploadPickedFile(file: File): Promise<void> {
-    uploading = true
-    actionError = ''
-    try {
-      const text = await file.text()
-      const rec = await api.plugins.installFile(text)
-      onPluginSaved(rec)
-    } catch (err) {
-      actionError = getErrorMessage(err)
-    } finally {
-      uploading = false
-    }
-  }
 </script>
 
 <VStack gap={4}>
@@ -108,14 +93,16 @@
         <SearchField bind:value={query} placeholder={t('plugins.search.installed')} />
       </ToolbarItem>
       <div class="toolbar-spacer" aria-hidden="true"></div>
-      <FilePicker
-        accept=".lua"
-        label={t('plugins.upload_file')}
-        buttonText={uploadLabel}
-        icon="upload_file"
-        disabled={uploading}
-        onpick={(files) => void uploadPickedFile(files[0])}
-      />
+      <div bind:this={uploadAnchor} class="upload-anchor">
+        <FilePicker
+          accept=".lua"
+          label={t('plugins.upload_file')}
+          buttonText={t('upload.file')}
+          icon="upload_file"
+          disabled={pluginState.installingFile}
+          onpick={(files) => { actionError = ''; void pluginState.reviewFile(files[0], null, uploadAnchor) }}
+        />
+      </div>
       {#if updateCount > 0}
         <ToolbarItem priority={1}>
           <Button
@@ -146,10 +133,7 @@
     <List>
       {#each filtered as plugin (plugin.id)}
         {@const update = findUpdate(plugin)}
-        {@const file = findStoreFile(plugin)}
-        {@const newHosts = update?.new_allow_hosts ?? file?.allow_hosts ?? []}
-        {@const newUnsafe = update?.new_unsafe ?? file?.unsafe ?? plugin.unsafe}
-        {@const diff = diffAllowHosts(plugin.allow_hosts ?? [], plugin.unsafe, newHosts, newUnsafe)}
+        {@const review = update?.new_permissions ?? plugin.permissions}
         <PluginCard
           title={plugin.display_name}
           version={`v${plugin.version}`}
@@ -157,19 +141,15 @@
           iconUrl={plugin.icon_url}
           subsystems={plugin.subsystems}
           mode="installed"
-          unsafe={plugin.unsafe}
-          disabled={plugin.disabled ?? false}
+          permissions={plugin.permissions}
+          {review}
+          diff={diffPermissions(plugin.permissions, review)}
+          disabled={plugin.disabled}
           toggling={pluginState.isToggling(plugin.id)}
-          isManual={plugin.origin?.manual ?? false}
+          isManual={plugin.origin.manual}
           hasUpdate={!!update}
-          allowHosts={plugin.allow_hosts ?? []}
-          newHosts={newHosts}
-          added={diff.added}
-          removed={diff.removed}
-          escalatesToUnsafe={diff.escalatesToUnsafe}
-          latestVersion={update?.latest ?? file?.version ?? ''}
-          onUpdate={() => void pluginState.updatePlugin(plugin)}
-          onToggle={(enabled) => void pluginState.togglePlugin(plugin, enabled)}
+          onUpdate={() => void pluginState.updatePlugin(plugin, review.digest)}
+          onToggle={(enabled) => pluginState.togglePlugin(plugin, enabled)}
           onaction={(id, anchor) => pluginState.handleAction(plugin, id, anchor)}
         />
       {/each}
@@ -191,6 +171,28 @@
         busyLabel={t('common.actions.deleting')}
         oncancel={close}
         onconfirm={() => void pluginState.doDelete()} />
+    {/snippet}
+  </FloatingView>
+
+  <FloatingView
+    open={Boolean(pluginState.pendingFile)}
+    anchor={pluginState.pendingFile?.anchor}
+    width="md"
+    onclose={() => { pluginState.pendingFile = null }}
+    label={t('plugins.install')}
+  >
+    {#snippet children({ close })}
+      {#if pluginState.pendingFile}
+        {@const pending = pluginState.pendingFile}
+        <InstallConfirm
+          permissions={pending.preview.permissions}
+          diff={pending.current ? diffPermissions(pending.current.permissions, pending.preview.permissions) : null}
+          confirmLabel={pending.current ? t('common.actions.update') : t('plugins.install')}
+          busy={pluginState.installingFile}
+          oncancel={close}
+          onconfirm={() => void pluginState.installReviewedFile()}
+        />
+      {/if}
     {/snippet}
   </FloatingView>
 
@@ -231,6 +233,10 @@
      the far edge. */
   .installed-toolbar :global(.tbar-row) {
     flex: 1 1 auto;
+  }
+  /* The file review popover anchors to the upload button. */
+  .upload-anchor {
+    display: inline-flex;
   }
   .toolbar-spacer {
     flex: 1 1 auto;

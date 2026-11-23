@@ -110,6 +110,10 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 		return nil, err
 	}
 	typeKeys := dryOutput.keys
+	waitsForDocker, err := service.waitsForDocker(ctx, manifest)
+	if err != nil {
+		return nil, err
+	}
 	if err := service.requireHandle(); err != nil {
 		return nil, err
 	}
@@ -136,6 +140,7 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 				License:             manifest.License,
 				AllowHosts:          append([]string(nil), manifest.AllowHosts...),
 				Unsafe:              manifest.Unsafe,
+				Disabled:            waitsForDocker,
 				ProxySourceKeys:     append([]string(nil), dryOutput.sourceKeys...),
 				ModelSpecifications: dryOutput.specifications,
 				HealthCooldown:      dryOutput.cooldowns,
@@ -198,7 +203,7 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 			License:             manifest.License,
 			AllowHosts:          append([]string(nil), manifest.AllowHosts...),
 			Unsafe:              manifest.Unsafe,
-			Disabled:            existingRecord.Disabled,
+			Disabled:            existingRecord.Disabled || waitsForDocker,
 			ProxySourceKeys:     append([]string(nil), dryOutput.sourceKeys...),
 			ModelSpecifications: dryOutput.specifications,
 			HealthCooldown:      dryOutput.cooldowns,
@@ -232,9 +237,8 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 	service.invalidatePoolBuckets(installed.ID, unionKeys(previousKeys, installed.TypeKeys), unionKeys(previousSources, installed.ProxySourceKeys))
 	service.notify(unionKeys(previousKeys, installed.TypeKeys)...)
 	if previousRecord != nil {
-		service.launchLifecycleHook(previousRecord, string(HandlerDeinitialize), DeinitializeReasonUpdate)
-		service.launchLifecycleHook(installed, string(HandlerInitialize), InitializeReasonUpdate)
-	} else {
+		service.launchReplacementHooks(previousRecord, installed)
+	} else if !installed.Disabled {
 		service.launchLifecycleHook(installed, string(HandlerInitialize), InitializeReasonInstall)
 	}
 	return installed, nil
@@ -380,6 +384,19 @@ func (service *Service) SetDisabled(ctx context.Context, pluginID string, disabl
 	if existing.Disabled == disabled {
 		return existing, nil
 	}
+	if !disabled {
+		manifest, err := ParseManifest(existing.Source)
+		if err != nil {
+			return nil, fmt.Errorf("manifest: %w", err)
+		}
+		waitsForDocker, err := service.waitsForDocker(ctx, manifest)
+		if err != nil {
+			return nil, err
+		}
+		if waitsForDocker {
+			return nil, ErrDockerUnconfigured
+		}
+	}
 	now := util.Now()
 	updated := *existing
 	updated.Disabled = disabled
@@ -448,6 +465,10 @@ func (service *Service) RollbackSQLite(ctx context.Context, pluginID string) (*P
 		service.logAPIIncompatible(manifest, currentRecord.Origin, err)
 		return nil, err
 	}
+	waitsForDocker, err := service.waitsForDocker(ctx, manifest)
+	if err != nil {
+		return nil, err
+	}
 	handlers := previousSnapshot.Handlers
 	icons := previousSnapshot.Icons
 	specifications := previousSnapshot.ModelSpecifications
@@ -485,7 +506,7 @@ func (service *Service) RollbackSQLite(ctx context.Context, pluginID string) (*P
 		License:             manifest.License,
 		AllowHosts:          append([]string(nil), manifest.AllowHosts...),
 		Unsafe:              manifest.Unsafe,
-		Disabled:            currentRecord.Disabled,
+		Disabled:            currentRecord.Disabled || waitsForDocker,
 		ProxySourceKeys:     append([]string(nil), sourceKeys...),
 		ModelSpecifications: specifications,
 		HealthCooldown:      cooldowns,
@@ -545,8 +566,7 @@ func (service *Service) RollbackSQLite(ctx context.Context, pluginID string) (*P
 	}
 	service.invalidatePoolBuckets(rolled.ID, unionKeys(currentRecord.TypeKeys, rolled.TypeKeys), unionKeys(currentRecord.ProxySourceKeys, rolled.ProxySourceKeys))
 	service.notify(rolled.TypeKeys...)
-	service.launchLifecycleHook(currentRecord, string(HandlerDeinitialize), DeinitializeReasonUpdate)
-	service.launchLifecycleHook(rolled, string(HandlerInitialize), InitializeReasonUpdate)
+	service.launchReplacementHooks(currentRecord, rolled)
 	return rolled, nil
 }
 

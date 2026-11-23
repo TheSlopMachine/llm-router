@@ -10,6 +10,8 @@
   import CustomProviderWizard from '../../components/wizards/CustomProviderWizard.svelte'
   import ProviderCredentialWizard from './components/ProviderCredentialWizard.svelte'
   import ModelsSection from './components/ModelsSection.svelte'
+  import DockerSection from './components/DockerSection.svelte'
+  import type { DockerSectionState } from '$lib/docker'
   import DynamicForm from '../../components/domain/DynamicForm.svelte'
   import { t, tx } from '$lib/i18n.svelte'
   import { isAutoDisabled, isPluginDisabled } from '$lib/credential-state'
@@ -31,9 +33,20 @@
   let testAllCredsCancel = $state(false)
   let credentialsEnabled = $state(true)
 
-  // Bumped on credential add so ModelsSection retries discovery: a key
-  // added to a credential-less provider heals the catalog without clicks.
-  let credRevision = $state(0)
+  // Bumped so ModelsSection retries discovery: on credential add (a key
+  // added to a credential-less provider heals the catalog without clicks)
+  // and when the plugin's containers finish preparing.
+  let discoveryRevision = $state(0)
+
+  // One line on the plugin's containers while they prepare, '' otherwise.
+  let dockerWait = $state('')
+  let dockerWasBusy = false
+
+  function onDockerState(state: DockerSectionState): void {
+    dockerWait = state.busy ? state.waitText : ''
+    if (dockerWasBusy && !state.busy) discoveryRevision += 1
+    dockerWasBusy = state.busy
+  }
 
   let proxyEnabled = $state(false)
   let proxyPool = $state('auto')
@@ -186,7 +199,7 @@
         onComplete: async () => {
           modal.close()
           await reloadCredentials()
-          credRevision += 1
+          discoveryRevision += 1
         },
       },
     })
@@ -598,7 +611,9 @@
       </VStack>
     {/if}
 
-    <ModelsSection bind:provider onrefresh={loadPage} credRevision={credRevision} />
+    <DockerSection providerId={provider.id} onstate={onDockerState} />
+
+    <ModelsSection bind:provider onrefresh={loadPage} {discoveryRevision} waitingText={dockerWait} />
   </VStack>
 {/if}
 

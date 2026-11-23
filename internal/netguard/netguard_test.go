@@ -93,3 +93,43 @@ func TestCheckURL(t *testing.T) {
 		}
 	}
 }
+
+func TestHostAllowList(t *testing.T) {
+	listed := NewHostAllowList([]string{"API.example.com", " registry.npmjs.org "})
+	cases := map[string]bool{
+		"api.example.com":         true,
+		"api.example.com:443":     true,
+		"API.EXAMPLE.COM.":        true,
+		"registry.npmjs.org":      true,
+		"other.example.com":       false,
+		"8.8.8.8":                 false,
+		"":                        false,
+		"[2606:4700::1111]:443":   false,
+		"sub.api.example.com":     false,
+		"registry.npmjs.org:8080": true,
+	}
+	for host, want := range cases {
+		if err := listed.Check(host); (err == nil) != want {
+			t.Errorf("listed.Check(%q) error = %v, want allowed %v", host, err, want)
+		}
+	}
+	wildcard := NewHostAllowList([]string{"*"})
+	wildcardCases := map[string]bool{
+		"anything.example.com": true,
+		"8.8.8.8":              true,
+		"10.0.0.1":             false,
+		"127.0.0.1:80":         false,
+		"[::1]:80":             false,
+	}
+	for host, want := range wildcardCases {
+		if err := wildcard.Check(host); (err == nil) != want {
+			t.Errorf("wildcard.Check(%q) error = %v, want allowed %v", host, err, want)
+		}
+	}
+	if err := listed.Check("other.example.com"); !errors.Is(err, ErrHostNotAllowed) {
+		t.Errorf("unlisted host error = %v, want ErrHostNotAllowed", err)
+	}
+	if err := wildcard.Check("10.0.0.1"); !errors.Is(err, ErrBlockedAddress) {
+		t.Errorf("private literal error = %v, want ErrBlockedAddress", err)
+	}
+}

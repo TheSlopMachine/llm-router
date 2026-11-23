@@ -6,6 +6,7 @@
   import { Button, HStack, Card, Text, VStack, TextField, Banner, Icon, Chip, Header, ContentUnavailable, Field, toast, modal, CardGroup, type HeaderAction } from '@fuckyouryan/fui'
   import type { SubsystemStats, DoctorReport } from '$lib/types'
   import AppearanceCard from './AppearanceCard.svelte'
+  import DockerCard from './DockerCard.svelte'
   import DataSubsystemCard from './DataSubsystemCard.svelte'
   import { clearAllData, itemExports, type DataItem } from './data-items'
 
@@ -166,6 +167,8 @@
       </Button>
     </HStack>
   </Card>
+
+  <DockerCard />
 
   <Card title={t('data.doctor.title')}>
     {#if doctorLoading}

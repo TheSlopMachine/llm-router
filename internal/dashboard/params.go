@@ -9,6 +9,7 @@ import (
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/datamanagement"
+	"github.com/TheSlopMachine/llm-router/internal/services/dockerhost"
 	"github.com/TheSlopMachine/llm-router/internal/services/doctor"
 	"github.com/TheSlopMachine/llm-router/internal/services/events"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
@@ -40,7 +41,10 @@ type Params struct {
 	ProxySvc     *proxypool.Service
 	MaintSvc     *maintenance.GormService
 	EventsSvc    *events.Service
-	Logger       *slog.Logger
+	// DockerSvc serves the Docker settings and plugin container routes.
+	// Nil answers those routes with 503.
+	DockerSvc *dockerhost.Service
+	Logger    *slog.Logger
 	// RequestShutdown signals graceful shutdown when the admin shutdown
 	// endpoint fires. Required: construction fails when it is missing so
 	// integrator miswiring surfaces at startup, never as a silent no-op.
@@ -120,6 +124,7 @@ func New(parameters Params) (*Handler, error) {
 		proxyService:          parameters.ProxySvc,
 		maintenanceService:    parameters.MaintSvc,
 		eventsService:         parameters.EventsSvc,
+		dockerService:         parameters.DockerSvc,
 		dataGormService:       dataGormService,
 		version:               parameters.Version,
 		doctorGormService:     doctorGormService,

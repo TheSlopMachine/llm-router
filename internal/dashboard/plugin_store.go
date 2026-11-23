@@ -183,20 +183,19 @@ func (h *Handler) apiStoreSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 type storeFileView struct {
-	RepoID           string   `json:"repo_id"`
-	Path             string   `json:"path"`
-	DisplayName      string   `json:"display_name"`
-	Author           string   `json:"author"`
-	Version          string   `json:"version"`
-	Description      string   `json:"description"`
-	AllowHosts       []string `json:"allow_hosts"`
-	Unsafe           bool     `json:"unsafe"`
-	Subsystems       []string `json:"subsystems"`
-	IconURL          string   `json:"icon_url"`
-	Installed        bool     `json:"installed"`
-	InstalledVersion string   `json:"installed_version"`
-	UpdateAvailable  bool     `json:"update_available"`
-	Error            string   `json:"error,omitempty"`
+	RepoID           string                 `json:"repo_id"`
+	Path             string                 `json:"path"`
+	DisplayName      string                 `json:"display_name"`
+	Author           string                 `json:"author"`
+	Version          string                 `json:"version"`
+	Description      string                 `json:"description"`
+	Permissions      *luaplugin.Permissions `json:"permissions"`
+	Subsystems       []string               `json:"subsystems"`
+	IconURL          string                 `json:"icon_url"`
+	Installed        bool                   `json:"installed"`
+	InstalledVersion string                 `json:"installed_version"`
+	UpdateAvailable  bool                   `json:"update_available"`
+	Error            string                 `json:"error,omitempty"`
 }
 
 func (h *Handler) describeFiles(r *http.Request, repoID string, files []pluginrepo.RepoFile) []storeFileView {
@@ -223,8 +222,8 @@ func (h *Handler) describeFiles(r *http.Request, repoID string, files []pluginre
 			view.Author = manifest.Author
 			view.Version = manifest.Version
 			view.Description = manifest.Description
-			view.AllowHosts = append([]string{}, manifest.AllowHosts...)
-			view.Unsafe = manifest.Unsafe
+			permissions := manifest.Permissions()
+			view.Permissions = &permissions
 			view.Subsystems = []string{}
 			if description, err := h.luaService.Describe(source, manifest); err == nil {
 				view.Subsystems = description.Subsystems
@@ -254,20 +253,22 @@ func (h *Handler) describeFiles(r *http.Request, repoID string, files []pluginre
 
 // apiPluginsInstallFromRepo downloads a file and installs it.
 // @Summary      Install plugin from repository
-// @Description  Downloads a plugin file and installs it.
+// @Description  Downloads a plugin file and installs it. With permissions_digest set, the file must request exactly the permissions the operator approved.
 // @Tags         Plugins
 // @Accept       json
 // @Produce      json
-// @Param        body body object{repo_id=string,path=string} true "Plugin location"
+// @Param        body body object{repo_id=string,path=string,permissions_digest=string} true "Plugin location and approved permissions"
 // @Success      200 {object} object{id=string,version=string}
 // @Failure      400 {object} models.ErrorResponse
 // @Failure      401 {object} models.ErrorResponse
+// @Failure      409 {object} models.ErrorResponse
 // @Security     SessionAuth
 // @Router       /api/llm-router/dashboard/plugins/install-from-repo [post]
 func (h *Handler) apiPluginsInstallFromRepo(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		RepoID string `json:"repo_id"`
-		Path   string `json:"path"`
+		RepoID            string `json:"repo_id"`
+		Path              string `json:"path"`
+		PermissionsDigest string `json:"permissions_digest"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		h.jsonErr(w, http.StatusBadRequest, "invalid request body")
@@ -282,13 +283,12 @@ func (h *Handler) apiPluginsInstallFromRepo(w http.ResponseWriter, r *http.Reque
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	record, err := h.luaService.InstallSQLite(r.Context(), source, luaplugin.PluginOrigin{RepoID: body.RepoID, Path: body.Path})
-	if err != nil {
-		h.jsonErr(w, http.StatusBadRequest, err.Error())
+	record, ok := h.installPlugin(w, r, source, luaplugin.PluginOrigin{RepoID: body.RepoID, Path: body.Path}, body.PermissionsDigest)
+	if !ok {
 		return
 	}
 	h.logInfo("Plugin installed from repository", "plugin_id", record.ID, "repository_id", body.RepoID)
-	h.json(w, http.StatusOK, toPluginView(record))
+	h.writePluginView(w, record)
 }
 
 // apiStoreUpdates lists installed repo-backed plugins with newer upstream versions.
@@ -308,15 +308,14 @@ func (h *Handler) apiStoreUpdates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type updateView struct {
-		PluginID        string   `json:"plugin_id"`
-		Current         string   `json:"current"`
-		Latest          string   `json:"latest"`
-		RepoID          string   `json:"repo_id"`
-		Path            string   `json:"path"`
-		NewAllowHosts   []string `json:"new_allow_hosts"`
-		NewUnsafe       bool     `json:"new_unsafe"`
-		UpdateAvailable bool     `json:"update_available"`
-		Error           string   `json:"error,omitempty"`
+		PluginID        string                 `json:"plugin_id"`
+		Current         string                 `json:"current"`
+		Latest          string                 `json:"latest"`
+		RepoID          string                 `json:"repo_id"`
+		Path            string                 `json:"path"`
+		NewPermissions  *luaplugin.Permissions `json:"new_permissions"`
+		UpdateAvailable bool                   `json:"update_available"`
+		Error           string                 `json:"error,omitempty"`
 	}
 	channel := make(chan updateView, len(installed))
 	count := 0
@@ -326,7 +325,7 @@ func (h *Handler) apiStoreUpdates(w http.ResponseWriter, r *http.Request) {
 		}
 		count++
 		go func(record *luaplugin.PluginRecord) {
-			view := updateView{PluginID: record.ID, Current: record.Version, RepoID: record.Origin.RepoID, Path: record.Origin.Path, NewAllowHosts: []string{}}
+			view := updateView{PluginID: record.ID, Current: record.Version, RepoID: record.Origin.RepoID, Path: record.Origin.Path}
 			source, err := h.repositoryService.FetchFile(r.Context(), record.Origin.RepoID, record.Origin.Path)
 			if err != nil {
 				view.Error = err.Error()
@@ -340,8 +339,8 @@ func (h *Handler) apiStoreUpdates(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			view.Latest = manifest.Version
-			view.NewAllowHosts = append([]string{}, manifest.AllowHosts...)
-			view.NewUnsafe = manifest.Unsafe
+			permissions := manifest.Permissions()
+			view.NewPermissions = &permissions
 			if comparison, comparisonError := luaplugin.CompareVersions(manifest.Version, record.Version); comparisonError == nil && comparison > 0 {
 				view.UpdateAvailable = true
 			}

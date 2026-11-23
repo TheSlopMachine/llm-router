@@ -1,15 +1,19 @@
 import { api } from '$lib/api'
-import { toast } from '@fuckyouryan/fui'
+import { modal, toast } from '@fuckyouryan/fui'
+import DockerWizard from '../../../components/domain/DockerWizard.svelte'
 import { getErrorMessage } from '$lib/errors'
 import { t, tx } from '$lib/i18n.svelte'
-import type { Plugin, PluginUpdate, StoreFile } from '$lib/types'
+import type { Plugin, PluginPreview, PluginUpdate, StoreFile } from '$lib/types'
 
-export interface PluginCardAction {
-  id: string
-  label: string
-  icon?: string
-  disabled?: boolean
-  tint?: string
+/** an uploaded file waiting for the operator to approve its permissions */
+export interface PendingFile {
+  source: string
+  preview: PluginPreview
+  /** the installed plugin with the same id, compared against */
+  current: Plugin | null
+  /** the plugin the operator chose Update From File on */
+  target: Plugin | null
+  anchor?: HTMLElement
 }
 
 /**
@@ -24,28 +28,49 @@ export function createPluginState(options: {
   findUpdate: (plugin: Plugin) => PluginUpdate | null
   findRepoPath: (plugin: Plugin) => { repo_id: string; path: string } | null
   findStoreFile?: (plugin: Plugin) => StoreFile | null
+  findPlugin?: (id: string) => Plugin | null
 }) {
   let pendingDelete = $state<{ plugin: Plugin; anchor?: HTMLElement } | null>(null)
   let deleting = $state(false)
   let pendingRollback = $state<{ plugin: Plugin; anchor?: HTMLElement } | null>(null)
   let rollingBack = $state(false)
+  let pendingFile = $state<PendingFile | null>(null)
+  let installingFile = $state(false)
   let togglingIds = $state<string[]>([])
 
   function isToggling(id: string): boolean {
     return togglingIds.includes(id)
   }
 
-  async function togglePlugin(plugin: Plugin, enabled: boolean): Promise<void> {
-    if (togglingIds.includes(plugin.id)) return
+  /** applies the switch; false when the plugin keeps its state */
+  async function togglePlugin(plugin: Plugin, enabled: boolean): Promise<boolean> {
+    if (togglingIds.includes(plugin.id)) return false
     togglingIds = [...togglingIds, plugin.id]
     try {
+      if (enabled && plugin.permissions.docker && !(await api.docker.connection()).endpoint) {
+        openDockerSetup(plugin)
+        return false
+      }
       const rec = await api.plugins.update(plugin.id, { disabled: !enabled })
       options.onPluginSaved(rec)
+      return true
     } catch (e) {
       options.onError(getErrorMessage(e))
+      return false
     } finally {
       togglingIds = togglingIds.filter((id) => id !== plugin.id)
     }
+  }
+
+  /** a Docker plugin turns on once a Docker host is set up */
+  function openDockerSetup(plugin: Plugin): void {
+    modal.open({
+      title: t('settings.docker.wizard.title'),
+      content: DockerWizard,
+      size: 'md',
+      severity: 'medium',
+      props: { onComplete: () => void togglePlugin(plugin, true) },
+    })
   }
 
   function openDelete(plugin: Plugin, anchor?: HTMLElement): void {
@@ -94,14 +119,15 @@ export function createPluginState(options: {
     }
   }
 
-  async function updatePlugin(plugin: Plugin): Promise<void> {
+  /** installs the store version when it requests the approved permissions */
+  async function updatePlugin(plugin: Plugin, approvedDigest: string): Promise<void> {
     const update = options.findUpdate(plugin)
     const target = update ?? options.findRepoPath(plugin)
     if (!target) return
     const file = options.findStoreFile?.(plugin) ?? null
     const latest = update?.latest || file?.version || plugin.version
     try {
-      const rec = await api.plugins.installFromRepo(target.repo_id, target.path)
+      const rec = await api.plugins.installFromRepo(target.repo_id, target.path, approvedDigest)
       toast.success(tx('plugins.toast.updated', { name: plugin.display_name, version: latest }))
       options.onPluginSaved(rec)
       await options.onUpdatesRefresh?.()
@@ -127,7 +153,8 @@ export function createPluginState(options: {
           continue
         }
         try {
-          const rec = await api.plugins.installFromRepo(target.repo_id, target.path)
+          // Without a review only updates that keep the approved permissions install.
+          const rec = await api.plugins.installFromRepo(target.repo_id, target.path, plugin.permissions.digest)
           options.onPluginSaved(rec)
           succeeded++
         } catch (e) {
@@ -145,58 +172,52 @@ export function createPluginState(options: {
     }
   }
 
-  function buildActions(plugin: Plugin): PluginCardAction[] {
-    const update = options.findUpdate(plugin)
-    const origin = options.findRepoPath(plugin)
-    const actions: PluginCardAction[] = []
-    if (update) {
-      actions.push({ id: 'update', label: `${t('plugins.update_to')} v${update.latest}`, icon: 'upgrade' })
-    } else if (origin) {
-      actions.push({ id: 'reinstall', label: t('plugins.reinstall'), icon: 'refresh' })
+  /** reads an uploaded file and asks the operator to approve its permissions */
+  async function reviewFile(file: File, target: Plugin | null, anchor?: HTMLElement): Promise<void> {
+    try {
+      const source = await file.text()
+      const preview = await api.plugins.previewFile(source)
+      pendingFile = { source, preview, current: options.findPlugin?.(preview.id) ?? null, target, anchor }
+    } catch (e) {
+      options.onError(getErrorMessage(e))
     }
-    if (plugin.origin?.manual) {
-      actions.push({ id: 'update_file', label: t('plugins.update_from_file'), icon: 'upload_file' })
-    }
-    if (plugin.history_count > 0) {
-      actions.push({ id: 'rollback', label: t('plugins.rollback_title'), icon: 'history' })
-    }
-    actions.push({ id: 'delete', label: t('common.actions.delete'), icon: 'delete', tint: '#dc2626' })
-    return actions
   }
 
-  async function updateFromFile(plugin: Plugin): Promise<void> {
+  async function installReviewedFile(): Promise<void> {
+    const pending = pendingFile
+    if (!pending || installingFile) return
+    installingFile = true
+    try {
+      const rec = await api.plugins.installFile(pending.source, pending.preview.permissions.digest)
+      pendingFile = null
+      if (pending.target && rec.id !== pending.target.id) {
+        toast.success(tx('plugins.toast.installed_separately', { name: rec.display_name, version: rec.version }))
+      } else if (pending.target) {
+        toast.success(tx('plugins.toast.updated', { name: rec.display_name, version: rec.version }))
+      }
+      options.onPluginSaved(rec)
+    } catch (e) {
+      options.onError(getErrorMessage(e))
+    } finally {
+      installingFile = false
+    }
+  }
+
+  function updateFromFile(plugin: Plugin, anchor?: HTMLElement): void {
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = '.lua'
-    input.onchange = async () => {
+    input.onchange = () => {
       const file = input.files?.[0]
-      if (!file) return
-      try {
-        const text = await file.text()
-        const rec = await api.plugins.installFile(text)
-        if (rec.id !== plugin.id) {
-          toast.success(tx('plugins.toast.installed_separately', { name: rec.display_name, version: rec.version }))
-        } else {
-          toast.success(tx('plugins.toast.updated', { name: rec.display_name, version: rec.version }))
-        }
-        options.onPluginSaved(rec)
-      } catch (e) {
-        options.onError(getErrorMessage(e))
-      }
+      if (file) void reviewFile(file, plugin, anchor)
     }
     input.click()
   }
 
-  async function handleAction(plugin: Plugin, id: string, anchor?: HTMLElement): Promise<void> {
+  function handleAction(plugin: Plugin, id: string, anchor?: HTMLElement): void {
     switch (id) {
-      case 'update':
-        await updatePlugin(plugin)
-        break
-      case 'reinstall':
-        await updatePlugin(plugin)
-        break
       case 'update_file':
-        await updateFromFile(plugin)
+        updateFromFile(plugin, anchor)
         break
       case 'rollback':
         openRollback(plugin, anchor)
@@ -216,10 +237,20 @@ export function createPluginState(options: {
     updateAll,
     togglePlugin,
     isToggling,
-    buildActions,
     handleAction,
+    reviewFile,
+    installReviewedFile,
     get updatingAll(): boolean {
       return updatingAll
+    },
+    get pendingFile(): PendingFile | null {
+      return pendingFile
+    },
+    set pendingFile(v: PendingFile | null) {
+      pendingFile = v
+    },
+    get installingFile(): boolean {
+      return installingFile
     },
     get pendingDelete(): { plugin: Plugin; anchor?: HTMLElement } | null {
       return pendingDelete

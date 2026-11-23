@@ -24,8 +24,7 @@ type pluginView struct {
 	PluginAPI    string                 `json:"plugin_api_version"`
 	Description  string                 `json:"description"`
 	License      string                 `json:"license"`
-	AllowHosts   []string               `json:"allow_hosts"`
-	Unsafe       bool                   `json:"unsafe"`
+	Permissions  luaplugin.Permissions  `json:"permissions"`
 	Disabled     bool                   `json:"disabled"`
 	TypeKeys     []string               `json:"type_keys"`
 	Subsystems   []string               `json:"subsystems"`
@@ -36,19 +35,33 @@ type pluginView struct {
 	HistoryCount int                    `json:"history_count"`
 }
 
-func toPluginView(record *luaplugin.PluginRecord) pluginView {
+func (h *Handler) pluginView(record *luaplugin.PluginRecord) (pluginView, error) {
 	typeKeys := append([]string{}, record.TypeKeys...)
-	allowHosts := append([]string{}, record.AllowHosts...)
 	sort.Strings(typeKeys)
+	permissions, err := h.luaService.Permissions(record)
+	if err != nil {
+		return pluginView{}, err
+	}
 	return pluginView{
 		ID: record.ID, DisplayName: record.DisplayName, Author: record.Author,
 		Version: record.Version, PluginAPI: record.PluginAPI,
 		Description: record.Description, License: record.License,
-		AllowHosts: allowHosts, Unsafe: record.Unsafe, Disabled: record.Disabled,
+		Permissions: permissions, Disabled: record.Disabled,
 		TypeKeys: typeKeys, Subsystems: record.Subsystems(), IconURL: record.Icon(), Origin: record.Origin,
 		InstalledAt: record.InstalledAt, UpdatedAt: record.UpdatedAt,
 		HistoryCount: len(record.History),
+	}, nil
+}
+
+// writePluginView answers with the view of one plugin record.
+func (h *Handler) writePluginView(w http.ResponseWriter, record *luaplugin.PluginRecord) {
+	view, err := h.pluginView(record)
+	if err != nil {
+		h.logError("Failed to read plugin manifest", "plugin_id", record.ID, "error", err)
+		h.jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
 	}
+	h.json(w, http.StatusOK, view)
 }
 
 // apiPluginsList lists installed plugins.
@@ -69,7 +82,13 @@ func (h *Handler) apiPluginsList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]pluginView, 0, len(records))
 	for _, record := range records {
-		out = append(out, toPluginView(record))
+		view, err := h.pluginView(record)
+		if err != nil {
+			h.logError("Failed to read plugin manifest", "plugin_id", record.ID, "error", err)
+			h.jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		out = append(out, view)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	h.json(w, http.StatusOK, out)
@@ -92,7 +111,7 @@ func (h *Handler) apiPluginsGet(w http.ResponseWriter, r *http.Request) {
 		h.jsonErr(w, http.StatusNotFound, "plugin not found")
 		return
 	}
-	h.json(w, http.StatusOK, toPluginView(record))
+	h.writePluginView(w, record)
 }
 
 // apiPluginsSource returns the stored Lua source of one installed plugin.
@@ -157,43 +176,117 @@ func (h *Handler) apiPluginsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	record, err := h.luaService.SetDisabled(r.Context(), id, *body.Disabled)
 	if err != nil {
-		if stdErrors.Is(err, apierrors.ErrNotFound) {
+		switch {
+		case stdErrors.Is(err, apierrors.ErrNotFound):
 			h.jsonErr(w, http.StatusNotFound, "plugin not found")
-			return
+		case stdErrors.Is(err, luaplugin.ErrDockerUnconfigured):
+			h.jsonErr(w, http.StatusConflict, err.Error())
+		default:
+			h.jsonErr(w, http.StatusBadRequest, err.Error())
 		}
-		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	h.logInfo("Plugin admin state changed", "plugin_id", id, "disabled", *body.Disabled)
-	h.json(w, http.StatusOK, toPluginView(record))
+	h.writePluginView(w, record)
 }
 
-// apiPluginsInstallFile installs a plugin from uploaded source.
-// @Summary      Install plugin file
-// @Description  Installs a Lua plugin from uploaded source.
-// @Tags         Plugins
-// @Accept       plain
-// @Produce      json
-// @Param        source body string true "Lua plugin source"
-// @Success      200 {object} object{id=string,version=string}
-// @Failure      400 {object} models.ErrorResponse
-// @Failure      401 {object} models.ErrorResponse
-// @Security     SessionAuth
-// @Router       /api/llm-router/dashboard/plugins/install-file [post]
-func (h *Handler) apiPluginsInstallFile(w http.ResponseWriter, r *http.Request) {
+// readPluginSource reads an uploaded plugin source.
+func (h *Handler) readPluginSource(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20+1024)
 	source, err := io.ReadAll(r.Body)
 	if err != nil {
 		h.jsonErr(w, http.StatusBadRequest, "read plugin source: "+err.Error())
+		return nil, false
+	}
+	return source, true
+}
+
+// installPlugin installs source once it requests the approved permissions.
+// An empty digest approves nothing: API clients install without a review.
+func (h *Handler) installPlugin(w http.ResponseWriter, r *http.Request, source []byte, origin luaplugin.PluginOrigin, approved string) (*luaplugin.PluginRecord, bool) {
+	if err := luaplugin.CheckApproval(source, approved); err != nil {
+		status := http.StatusBadRequest
+		if stdErrors.Is(err, luaplugin.ErrPermissionsChanged) {
+			status = http.StatusConflict
+		}
+		h.jsonErr(w, status, err.Error())
+		return nil, false
+	}
+	record, err := h.luaService.InstallSQLite(r.Context(), source, origin)
+	if err != nil {
+		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		return nil, false
+	}
+	return record, true
+}
+
+// pluginPreview is what an uploaded plugin would install as.
+type pluginPreview struct {
+	ID          string                `json:"id"`
+	DisplayName string                `json:"display_name"`
+	Version     string                `json:"version"`
+	Permissions luaplugin.Permissions `json:"permissions"`
+}
+
+// apiPluginsPreviewFile reads an uploaded plugin without installing it.
+// @Summary      Preview plugin file
+// @Description  Returns the identity and requested permissions of an uploaded Lua plugin without installing it.
+// @Tags         Plugins
+// @Accept       plain
+// @Produce      json
+// @Param        source body string true "Lua plugin source"
+// @Success      200 {object} dashboard.pluginPreview
+// @Failure      400 {object} models.ErrorResponse
+// @Failure      401 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/plugins/preview-file [post]
+func (h *Handler) apiPluginsPreviewFile(w http.ResponseWriter, r *http.Request) {
+	source, ok := h.readPluginSource(w, r)
+	if !ok {
 		return
 	}
-	record, err := h.luaService.InstallSQLite(r.Context(), source, luaplugin.PluginOrigin{Manual: true})
+	manifest, err := luaplugin.ParseManifest(source)
+	if err != nil {
+		h.jsonErr(w, http.StatusBadRequest, "manifest: "+err.Error())
+		return
+	}
+	if err := luaplugin.CheckPluginAPI(manifest); err != nil {
+		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	id, err := luaplugin.BuildID(luaplugin.PluginOrigin{Manual: true}, manifest)
 	if err != nil {
 		h.jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	h.json(w, http.StatusOK, pluginPreview{ID: id, DisplayName: manifest.Plugin, Version: manifest.Version, Permissions: manifest.Permissions()})
+}
+
+// apiPluginsInstallFile installs a plugin from uploaded source.
+// @Summary      Install plugin file
+// @Description  Installs a Lua plugin from uploaded source. With permissions_digest set, the source must request exactly the permissions the operator approved.
+// @Tags         Plugins
+// @Accept       plain
+// @Produce      json
+// @Param        source body string true "Lua plugin source"
+// @Param        permissions_digest query string false "Digest of the approved permissions"
+// @Success      200 {object} object{id=string,version=string}
+// @Failure      400 {object} models.ErrorResponse
+// @Failure      401 {object} models.ErrorResponse
+// @Failure      409 {object} models.ErrorResponse
+// @Security     SessionAuth
+// @Router       /api/llm-router/dashboard/plugins/install-file [post]
+func (h *Handler) apiPluginsInstallFile(w http.ResponseWriter, r *http.Request) {
+	source, ok := h.readPluginSource(w, r)
+	if !ok {
+		return
+	}
+	record, ok := h.installPlugin(w, r, source, luaplugin.PluginOrigin{Manual: true}, r.URL.Query().Get("permissions_digest"))
+	if !ok {
+		return
+	}
 	h.logInfo("Plugin installed", "plugin_id", record.ID)
-	h.json(w, http.StatusOK, toPluginView(record))
+	h.writePluginView(w, record)
 }
 
 // apiPluginsDelete removes an installed plugin.
@@ -236,7 +329,7 @@ func (h *Handler) apiPluginsRollback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.logInfo("Plugin rolled back", "plugin_id", id)
-	h.json(w, http.StatusOK, toPluginView(record))
+	h.writePluginView(w, record)
 }
 
 // apiPluginsLogs returns recent plugin log lines from the events database.

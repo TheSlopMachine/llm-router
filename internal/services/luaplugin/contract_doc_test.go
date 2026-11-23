@@ -28,7 +28,7 @@ func readPluginContract(t *testing.T) string {
 // llm_router and json, as dotted paths ("credentials.park", "json.decode").
 func sandboxAPINames(t *testing.T) []string {
 	t.Helper()
-	state := newSandboxState(&executionContext{capabilities: capabilities{credentials: true, proxies: true}})
+	state := newSandboxState(&executionContext{capabilities: capabilities{credentials: true, proxies: true}, docker: &dockerBridge{}})
 	defer state.Close()
 	var names []string
 	var walk func(prefix string, table *lua.LTable)

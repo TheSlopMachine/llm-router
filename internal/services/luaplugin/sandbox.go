@@ -101,6 +101,9 @@ type executionContext struct {
 	// for shared disable/enable writes; nil reads off.
 	automationOn func(providerID string) bool // capabilities gates the credentials/proxies tables for this type key.
 	capabilities capabilities
+	// docker serves llm_router.docker for plugins declaring
+	// @require_api docker (nil = table absent).
+	docker *dockerBridge
 
 	registrations map[string]*lua.LTable
 	proxySources  map[string]*lua.LTable
@@ -513,6 +516,10 @@ func installRouterTable(L *lua.LState, ctx *executionContext) {
 
 	if ctx != nil && ctx.capabilities.proxies {
 		router.RawSetString("proxies", newProxiesTable(L, ctx))
+	}
+
+	if ctx != nil && ctx.docker != nil {
+		router.RawSetString("docker", newDockerTable(L, ctx))
 	}
 
 	router.RawSetString("uuid_v5", L.NewFunction(func(L *lua.LState) int {

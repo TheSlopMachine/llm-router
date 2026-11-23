@@ -1,5 +1,16 @@
 # Changelog
 
+## Done (2026-11-23, v0.12.0)
+
+- **Docker for plugins (plugin API 1.8).** `--- @require_api docker` gave a plugin `llm_router.docker`: `ensure`, `compose` (Lua table or compose YAML subset), `start`, `stop`, `remove`, `status`, `list`, `logs`, `wait`, `exec` and `open_http`. `@docker.image` and `@docker.build` declared what may run; `@docker.memory_limit_mb`, `cpu_limit`, `pids_limit`, `container_limit`, `gpu_limit` and `shm_limit_mb` bounded it.
+- **Docker host setup.** A wizard set up the Docker host: another machine over SSH, this machine, the Docker API over TLS, or WSL on this PC. It checked the SSH host key fingerprint, then saved and tested the connection. A failed test named the stage that broke (connect, host key, login, Docker socket, TLS, daemon) and what to fix. The Settings card showed the connection state, advanced options and registry logins. Secrets were sealed like credentials. The router spoke the Engine API itself, without the Docker CLI.
+- **Containers on the provider page.** Providers of Docker plugins got a Docker section: a table of containers and preparing images, with the plugin permissions behind an info button. Images showed progress (source download, image download, build step). Containers had start, stop, restart, delete and a logs window that followed new output. While the image built or the container started, the model list showed that progress instead of an error and loaded once the container was ready.
+- **Permissions approved on install.** The install and update popovers listed the network hosts and, for Docker plugins, the container limits. Uploading a plugin file showed the same review before installing. Dashboard installs passed the reviewed permissions digest, and a file requesting other permissions was refused. Update all installed only updates that kept the permissions. API installs, such as `make upload-plugins`, needed no review. Plugin and store views returned `permissions` instead of `allow_hosts`, `unsafe` and `required_apis`. `POST /dashboard/plugins/preview-file` read an upload without installing it.
+- **Docker plugins need a Docker host.** A Docker plugin installed disabled while no Docker host was configured. Enabling it opened the Docker setup first. Removing the Docker host disabled these plugins.
+- **Contained egress.** Plugin containers ran on internal networks. A router gateway per plugin forwarded only to the plugin's `@allow_host` list and to public addresses. Refused hosts logged `code=docker_egress_blocked`.
+- **Lifecycle.** Deleting a plugin removed its containers, networks, volumes and built images. Disabling it stopped its containers. Router shutdown stopped every plugin container. An hourly sweep removed objects of plugins gone.
+- Storage: tables `docker_connections` and `docker_registry_credentials` (migration 12).
+
 ## Done (2026-11-22, v0.11.4)
 
 - **One models page.** Real and virtual models moved to the Models page. The Virtual models page and its sidebar entry were removed, and `#/virtual` opened Models.

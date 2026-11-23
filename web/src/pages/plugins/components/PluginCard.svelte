@@ -4,6 +4,8 @@
   import { t } from '$lib/i18n.svelte'
   import { viewport } from '$lib/viewport.svelte'
   import { subsystemIcon } from '$lib/subsystems'
+  import type { PermissionDiff } from '$lib/plugin-permissions'
+  import type { PluginPermissions } from '$lib/types'
 
   let {
     title,
@@ -12,19 +14,15 @@
     iconUrl = '',
     subsystems = [],
     mode,
-    unsafe = false,
+    permissions,
+    review,
+    diff = null,
     disabled = false,
     toggling = false,
     isManual = false,
     hasUpdate = false,
     installing = false,
     installLabel = t('plugins.install'),
-    allowHosts = [],
-    newHosts = [],
-    added = [],
-    removed = [],
-    escalatesToUnsafe = false,
-    latestVersion = '',
     onInstall,
     onUpdate,
     onToggle,
@@ -36,27 +34,32 @@
     iconUrl?: string
     subsystems?: string[]
     mode: 'installed' | 'uninstalled'
-    unsafe?: boolean
+    /** what the plugin holds now, or requests when not installed; null when its file failed to load */
+    permissions: PluginPermissions | null
+    /** what installing or updating approves */
+    review: PluginPermissions | null
+    diff?: PermissionDiff | null
     disabled?: boolean
     toggling?: boolean
     isManual?: boolean
     hasUpdate?: boolean
     installing?: boolean
     installLabel?: string
-    allowHosts?: string[]
-    newHosts?: string[]
-    added?: string[]
-    removed?: string[]
-    escalatesToUnsafe?: boolean
-    latestVersion?: string
     onInstall?: () => void
     onUpdate?: () => void
-    onToggle?: (enabled: boolean) => void
+    /** resolves false when the plugin keeps its state */
+    onToggle?: (enabled: boolean) => Promise<boolean>
     onaction?: (id: string, anchor?: HTMLElement) => void
   } = $props()
 
   let confirmAnchor = $state<HTMLElement>()
   let confirmOpen = $state(false)
+  // The switch flips on click. A refused change remounts it at the stored state.
+  let toggleRevision = $state(0)
+
+  async function toggle(enabled: boolean): Promise<void> {
+    if (!(await onToggle?.(enabled))) toggleRevision++
+  }
 
   function openConfirm(anchor: HTMLElement): void {
     confirmAnchor = anchor
@@ -85,8 +88,11 @@
     <HStack valign="center" gap={2} wrap class="plugin-title">
       <span class="plugin-name"><Text variant="value">{title}</Text></span>
       <Chip text={version} tint="accent" size="sm" />
-      {#if unsafe}
+      {#if permissions?.unsafe}
         <Chip text={t('plugins.network.unrestricted')} tint="danger" size="sm" />
+      {/if}
+      {#if permissions?.docker}
+        <Chip text={t('plugins.docker.label')} tint="warning" size="sm" />
       {/if}
     </HStack>
 
@@ -121,18 +127,20 @@
           ariaLabel={t('common.actions.delete')}
           onclick={(e) => onaction?.('delete', e.currentTarget as HTMLElement)}
         />
-        <Toggle
-          checked={!disabled}
-          disabled={toggling}
-          ariaLabel={t('plugins.toggle_active')}
-          onchange={(next) => onToggle?.(next)}
-        />
+        {#key toggleRevision}
+          <Toggle
+            checked={!disabled}
+            disabled={toggling}
+            ariaLabel={t('plugins.toggle_active')}
+            onchange={(next) => void toggle(next)}
+          />
+        {/key}
       {:else}
         <Button
           buttonStyle="neutral"
           icon={{ name: 'download' }}
           text={viewport.narrow ? '' : (installing ? t('plugins.installing') : installLabel)}
-          disabled={installing}
+          disabled={installing || !review}
           onclick={(e) => openConfirm(e.currentTarget as HTMLElement)}
         />
       {/if}
@@ -152,17 +160,16 @@
     label={mode === 'installed' ? t('common.actions.update') : installLabel}
   >
     {#snippet children({ close })}
-      <InstallConfirm
-        allowHosts={mode === 'installed' && newHosts.length > 0 ? newHosts : allowHosts}
-        unsafe={unsafe}
-        added={added}
-        removed={removed}
-        escalatesToUnsafe={escalatesToUnsafe}
-        confirmLabel={mode === 'installed' ? t('common.actions.update') : installLabel}
-        busy={installing}
-        oncancel={close}
-        onconfirm={handleConfirm}
-      />
+      {#if review}
+        <InstallConfirm
+          permissions={review}
+          {diff}
+          confirmLabel={mode === 'installed' ? t('common.actions.update') : installLabel}
+          busy={installing}
+          oncancel={close}
+          onconfirm={handleConfirm}
+        />
+      {/if}
     {/snippet}
   </FloatingView>
 </div>

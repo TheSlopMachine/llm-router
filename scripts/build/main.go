@@ -29,6 +29,11 @@ func main() {
 		shared.Failf("%v", err)
 	}
 
+	// Strict: the router embeds the Docker gateway built for linux.
+	if err := shared.EnsureGatewayPayload(root, true); err != nil {
+		shared.Failf("%v", err)
+	}
+
 	gitCommit := shared.GitCommit()
 	buildTime := shared.BuildTime()
 

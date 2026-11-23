@@ -27,6 +27,7 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/services/batches"
 	configservice "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
+	"github.com/TheSlopMachine/llm-router/internal/services/dockerhost"
 	"github.com/TheSlopMachine/llm-router/internal/services/events"
 	"github.com/TheSlopMachine/llm-router/internal/services/healthcheck"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
@@ -61,6 +62,7 @@ type Server struct {
 	proxyService       *proxypool.Service
 	luaService         *luaplugin.Service
 	eventsService      *events.Service
+	dockerService      *dockerhost.Service
 }
 
 // New builds the full Server from config. The SQLite file at DBPath owns
@@ -183,6 +185,10 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		},
 	)
 	luaService.SetCredentialParks(credentialService.Park, credentialService.Unpark, credentialService.Parked)
+	dockerService := dockerhost.New(sqliteDatabase)
+	dockerService.SetLogger(logger)
+	dockerService.SetPolicySource(luaService.DockerPolicies)
+	luaService.SetDocker(dockerService)
 	luaService.SetOnChanged(func(_ string) {
 		_ = proxyService.RequestIngest()
 	})
@@ -238,6 +244,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		VirtualSvc: virtualService, RouterSvc: routerService, ConfigSvc: configService,
 		LuaSvc: luaService, RepoSvc: repositoryService, ProxySvc: proxyService, MaintSvc: maintenanceService,
 		EventsSvc:       eventsService,
+		DockerSvc:       dockerService,
 		Logger:          logger,
 		RequestShutdown: requestShutdown,
 		SQLiteDatabase:  sqliteDatabase,
@@ -301,6 +308,7 @@ func New(applicationConfig *config.Config, logger *slog.Logger) (*Server, error)
 		proxyService:       proxyService,
 		luaService:         luaService,
 		eventsService:      eventsService,
+		dockerService:      dockerService,
 	}, nil
 }
 
@@ -363,6 +371,9 @@ const startupRefreshTimeout = 30 * time.Second
 // shutdown proceeds when the gate expires, regardless of hook outcomes.
 const shutdownLifecycleTimeout = 30 * time.Second
 
+// shutdownContainerTimeout bounds stopping plugin containers on exit.
+const shutdownContainerTimeout = 20 * time.Second
+
 // shutdownListenerTimeout bounds both listener shutdowns on exit: open
 // streams must delay shutdown, never block it. In-flight requests keep
 // their connections until the process exits.
@@ -383,6 +394,20 @@ func (s *Server) runShutdownHooks() {
 	if err := s.luaService.RunShutdownDeinitializers(gate); err != nil && s.logger != nil {
 		s.logger.Warn("Plugin shutdown hooks fail", "error", err)
 	}
+}
+
+// stopContainers stops every plugin container after the plugin hooks ran.
+// Failures log; shutdown always proceeds.
+func (s *Server) stopContainers() {
+	if s.dockerService == nil {
+		return
+	}
+	gate, cancel := context.WithTimeout(context.Background(), shutdownContainerTimeout)
+	defer cancel()
+	if err := s.dockerService.StopAll(gate); err != nil && s.logger != nil {
+		s.logger.Warn("Plugin containers not stopped", "subsystem", "docker", "error", err)
+	}
+	s.dockerService.Close()
 }
 
 // shutdownListeners stops both listeners, waiting for in-flight requests
@@ -425,6 +450,7 @@ func (s *Server) Run(ctx context.Context, onListening func()) error {
 	s.proxyService.Start(servicesCtx)
 	s.logger.Debug("Proxy service starts")
 	s.maintenanceService.Start(servicesCtx)
+	s.dockerService.RunBackground(servicesCtx)
 	if s.eventsService != nil {
 		s.eventsService.Start(servicesCtx)
 		s.logger.Debug("Events service starts")
@@ -470,7 +496,8 @@ func (s *Server) Run(ctx context.Context, onListening func()) error {
 		shutdownListeners(s.httpServer, s.adminServer, s.logger, shutdownListenerTimeout)
 	}
 	// graceful runs the single shutdown path: background writers stop,
-	// plugin hooks, metrics flush, then both listeners. Listener shutdown
+	// plugin hooks, plugin containers stop, metrics flush, then both
+	// listeners. Listener shutdown
 	// waits for in-flight requests only until its timeout expires, so the
 	// admin shutdown response is always delivered first. The events queue
 	// drains after the listeners stop so the final lines persist before
@@ -478,6 +505,7 @@ func (s *Server) Run(ctx context.Context, onListening func()) error {
 	graceful := func() {
 		cancelServices()
 		s.runShutdownHooks()
+		s.stopContainers()
 		s.metricsService.Stop()
 		shutdown()
 		if handler, ok := s.logger.Handler().(*logging.EventsHandler); ok {

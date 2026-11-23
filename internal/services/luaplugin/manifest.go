@@ -1,16 +1,22 @@
 package luaplugin
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/TheSlopMachine/llm-router/internal/services/dockerhost"
 	"github.com/TheSlopMachine/llm-router/internal/version"
 )
 
 // PluginAPIVersion is the plugin API contract served by this router.
 // Format x.y: x breaks, y extends without breaking.
-var PluginAPIVersion = version.Version{Major: 1, Minor: 7}
+var PluginAPIVersion = version.Version{Major: 1, Minor: 8}
 
 // APICompatError reports a plugin API mismatch with a machine-readable
 // Reason for the dashboard toast: "too_new", "too_old", "no_api_version".
@@ -42,7 +48,21 @@ type Manifest struct {
 	AllowHosts  []string
 	// Unsafe is true when the plugin requests a wildcard allow_host.
 	Unsafe bool
+	// RequiredAPIs lists the @require_api names: router APIs beyond the
+	// base sandbox the plugin needs.
+	RequiredAPIs []string
+	// Docker holds the @docker.* directives; set only under
+	// @require_api docker.
+	Docker dockerhost.Directives
 }
+
+// RequiresAPI reports whether the manifest declares @require_api name.
+func (manifest *Manifest) RequiresAPI(name string) bool {
+	return slices.Contains(manifest.RequiredAPIs, name)
+}
+
+// knownAPIs are the @require_api values this router serves.
+var knownAPIs = []string{dockerhost.API}
 
 // ParseManifest parses the leading "---" header block. The header is the
 // contiguous run of "---"-prefixed lines at the very start of the file.
@@ -54,6 +74,8 @@ func ParseManifest(source []byte) (*Manifest, error) {
 	// reports the reissue error, never a tag error for a contract it
 	// predates.
 	unknownTag := ""
+	// Directive errors also defer past the version floor.
+	var directiveError error
 
 	text := strings.ReplaceAll(string(source), "\r\n", "\n")
 	lines := strings.Split(text, "\n")
@@ -97,7 +119,21 @@ func ParseManifest(source []byte) (*Manifest, error) {
 			if value != "" {
 				allowHosts = append(allowHosts, value)
 			}
+		case "@require_api":
+			if !slices.Contains(knownAPIs, value) {
+				directiveError = errors.Join(directiveError, fmt.Errorf("unknown @require_api %q: this router serves %s", value, strings.Join(knownAPIs, ", ")))
+			} else if manifest.RequiresAPI(value) {
+				directiveError = errors.Join(directiveError, fmt.Errorf("duplicate @require_api %q", value))
+			} else {
+				manifest.RequiredAPIs = append(manifest.RequiredAPIs, value)
+			}
 		default:
+			if name, isDocker := strings.CutPrefix(tag, "@docker."); isDocker {
+				if err := manifest.Docker.Apply(name, value); err != nil {
+					directiveError = errors.Join(directiveError, err)
+				}
+				continue
+			}
 			if unknownTag == "" {
 				unknownTag = tag
 			}
@@ -160,7 +196,71 @@ func ParseManifest(source []byte) (*Manifest, error) {
 	if _, err := version.Parse(manifest.PluginAPI); err != nil {
 		return nil, fmt.Errorf("invalid @plugin_api %q: %w", manifest.PluginAPI, err)
 	}
+	if directiveError != nil {
+		return nil, directiveError
+	}
+	if manifest.Docker.Declared() && !manifest.RequiresAPI(dockerhost.API) {
+		return nil, fmt.Errorf("@docker.* tags need @require_api docker")
+	}
+	if manifest.RequiresAPI(dockerhost.API) {
+		if err := manifest.Docker.Finish(); err != nil {
+			return nil, err
+		}
+	}
 	return manifest, nil
+}
+
+// Permissions are what the operator approves on install: the egress hosts
+// and, under @require_api docker, the Docker directives. Digest identifies
+// them.
+type Permissions struct {
+	AllowHosts []string               `json:"allow_hosts"`
+	Unsafe     bool                   `json:"unsafe"`
+	Docker     *dockerhost.Directives `json:"docker"`
+	Digest     string                 `json:"digest"`
+}
+
+// Permissions returns the permissions the manifest requests.
+func (manifest *Manifest) Permissions() Permissions {
+	permissions := Permissions{AllowHosts: slices.Sorted(slices.Values(manifest.AllowHosts)), Unsafe: manifest.Unsafe}
+	if manifest.RequiresAPI(dockerhost.API) {
+		directives := manifest.Docker
+		permissions.Docker = &directives
+	}
+	encoded, err := json.Marshal(permissions)
+	if err != nil {
+		// Permissions hold only strings, numbers and booleans: encoding cannot fail.
+		panic(fmt.Sprintf("encode plugin permissions: %v", err))
+	}
+	sum := sha256.Sum256(encoded)
+	permissions.Digest = hex.EncodeToString(sum[:])
+	return permissions
+}
+
+// CheckApproval parses source and checks that it requests the permissions
+// with the approved digest. Installs through the API approve nothing and
+// skip the check.
+func CheckApproval(source []byte, approved string) error {
+	if approved == "" {
+		return nil
+	}
+	manifest, err := ParseManifest(source)
+	if err != nil {
+		return fmt.Errorf("manifest: %w", err)
+	}
+	if manifest.Permissions().Digest != approved {
+		return ErrPermissionsChanged
+	}
+	return nil
+}
+
+// DockerPolicy returns the Docker policy of a manifest, or false when it
+// does not require the Docker API.
+func (manifest *Manifest) DockerPolicy(pluginID string) (dockerhost.Policy, bool) {
+	if !manifest.RequiresAPI(dockerhost.API) {
+		return dockerhost.Policy{}, false
+	}
+	return dockerhost.Policy{PluginID: pluginID, Directives: manifest.Docker, AllowHosts: manifest.AllowHosts}, true
 }
 
 func dedupeStrings(input []string) []string {

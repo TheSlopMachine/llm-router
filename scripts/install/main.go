@@ -47,6 +47,10 @@ func main() {
 		shared.Failf("%v", err)
 	}
 
+	if err := shared.EnsureGatewayPayload(root, true); err != nil {
+		shared.Failf("%v", err)
+	}
+
 	if err := os.MkdirAll(binDirectory, 0755); err != nil {
 		shared.Failf("create %s: %v", binDirectory, err)
 	}

@@ -5,7 +5,7 @@ be written from this file alone. The router core enforces every handler,
 argument, return shape and error form described here: a violation becomes
 `PluginInternalError` and counts as a plugin crash.
 
-Plugin API: **1.7** (`luaplugin.PluginAPIVersion`).
+Plugin API: **1.8** (`luaplugin.PluginAPIVersion`).
 
 ## What llm-router is
 
@@ -47,7 +47,7 @@ parks rate-limited keys and returns OpenAI-shaped errors.
 --- @plugin Example Provider
 --- @author example
 --- @version 1.0.0
---- @plugin_api 1.7
+--- @plugin_api 1.8
 --- @allow_host api.example.com
 --- @description OpenAI-compatible example provider.
 
@@ -218,6 +218,7 @@ llm_router.register("example", {
 - [fetch_proxies](#fetch_proxies)
 - [credentials](#credentials)
 - [storage](#storage)
+- [docker](#docker)
 - [log and print](#log-and-print)
 - [Logging convention](#logging-convention)
 - [Utilities](#utilities)
@@ -267,6 +268,8 @@ API signature:
 --- @allow_host <hostname>
 --- @description <free text>
 --- @license <free text>
+--- @require_api <api name>
+--- @docker.<directive> <value>
 ```
 
 Parameters:
@@ -280,6 +283,8 @@ Parameters:
 | `@allow_host` | required, repeatable, minimum one | Bare hostname without `/`, space, or `:`. Value `*` marks the plugin unsafe and must stand alone. |
 | `@description` | optional, once | Free text description. |
 | `@license` | optional, once | Free text license. |
+| `@require_api` | optional, repeatable | Router API beyond the base sandbox. The only value is `docker`, which installs `llm_router.docker`. An unknown value or a repeated one fails install. |
+| `@docker.*` | under `@require_api docker` only | Docker images, builds and limits. See [docker](#docker). Any `@docker.*` tag without `@require_api docker` fails install, and so does an unknown one. |
 
 Return values: install returns `installed` on success. Compatibility
 failures report `no_api_version` (missing tag), `too_new` (plugin major
@@ -302,7 +307,7 @@ Example:
 --- @plugin Harness Mock
 --- @author llm-router
 --- @version 1.0.1
---- @plugin_api 1.7
+--- @plugin_api 1.8
 --- @allow_host example.com
 --- @description Mock backend for harness runs.
 ```
@@ -1810,6 +1815,308 @@ local saved = llm_router.storage.get("cooldown", credential_entry.id)
 llm_router.storage.delete("cooldown", credential_entry.id)
 ```
 
+## `docker`
+
+Runs plugin containers on the Docker host the operator configures in
+Settings. Availability: installed only when the manifest declares
+`@require_api docker`, absent during dry-run. The operator approves the
+`@docker.*` directives with the `@allow_host` list when installing or
+updating the plugin. The plugin stays disabled while no Docker host is
+configured. Every call needs a reachable Docker host. Calls work in request
+handlers, jobs and lifecycle hooks.
+
+### Directives
+
+```lua
+--- @require_api docker
+--- @docker.image <reference>
+--- @docker.build <name> <https url> [dockerfile]
+--- @docker.memory_limit_mb <whole number>
+--- @docker.cpu_limit <number>
+--- @docker.pids_limit <whole number>
+--- @docker.container_limit <whole number>
+--- @docker.gpu_limit <whole number>
+--- @docker.shm_limit_mb <whole number>
+```
+
+| Tag | Cardinality | Range | Meaning |
+|---|---|---|---|
+| `@docker.image` | repeatable, at most 32 | image reference | Images a spec may run. A digest (`name:tag@sha256:...`) pins the content. |
+| `@docker.build` | repeatable | name matches `^[a-z0-9][a-z0-9_-]{0,31}$` | Image built from a `.tar` or `.tar.gz` context archive at an https URL, with the Dockerfile at the given path (default `Dockerfile`). The router downloads the archive (at most 512 MiB). A single top-level directory, as in code host source archives, is stripped. |
+| `@docker.memory_limit_mb` | required, once | 16 to 65536 | Memory ceiling per container, swap included. Builds get the same bound. |
+| `@docker.cpu_limit` | required, once | 0.1 to 64 | CPU ceiling per container. Builds get the same bound. |
+| `@docker.pids_limit` | once, default 256 | 16 to 8192 | Process limit per container. |
+| `@docker.container_limit` | once, default 4 | 1 to 32 | Containers of the plugin, compose services included. |
+| `@docker.gpu_limit` | once, default 0 | 0 to 16 | NVIDIA GPUs per container. |
+| `@docker.shm_limit_mb` | once, default 64 | 64 to 65536 | `/dev/shm` ceiling per container. |
+
+At least one `@docker.image` or `@docker.build` is required. A
+repeated single-value tag, a value out of range and an unknown tag fail
+install.
+
+### Targets
+
+A target names one container: a key such as `"nginx"`, or
+`"<project>/<service>"` for a compose service. Keys, project keys and
+service names match `^[a-z0-9][a-z0-9_-]{0,31}$`. Keys belong to the plugin:
+two plugins using `"nginx"` get two containers. One key holds either a
+standalone container or a compose project, never both. `start`, `stop`,
+`remove` and `status` take a project key too and act on every service.
+
+### Container spec
+
+| Field | Type | Rule |
+|---|---|---|
+| `image` | string | A declared `@docker.image`. Set `image` or `build`, not both. |
+| `build` | string | A declared `@docker.build` name. |
+| `command`, `entrypoint` | string array | At most 256 entries each. |
+| `environment` | string to string | At most 256 entries. Names starting with `LLMR_` and the proxy variables are reserved. |
+| `working_directory` | string | Absolute path. |
+| `user` | string | User or `user:group` inside the image. |
+| `ports` | number array | TCP ports `open_http` and `wait` may use. At most 16. Nothing is published on the host. |
+| `volumes` | name to path | Named volumes owned by the router. Host paths are not supported. Standalone containers share volumes per plugin, compose services per project. |
+| `files` | path to text | Files written into the container before its first start. Clean absolute paths, 1 MiB in total. |
+| `health` | table | `{command, interval_seconds, timeout_seconds, start_period_seconds, retries}`. `command` runs directly, without a shell. |
+| `restart` | string | `"no"` (default) or `"on_failure"` (up to 5 restarts). |
+| `memory_limit_mb`, `cpu_limit` | number | Default and ceiling: the directive. |
+| `gpus` | number | At most `@docker.gpu_limit`. Needs an NVIDIA runtime or CDI devices on the host. |
+| `shm_size_mb` | number | 64 to `@docker.shm_limit_mb`. |
+| `read_only` | boolean | Read-only root filesystem. |
+| `depends_on` | name array or name to condition | Compose services only. Conditions: `service_started`, `service_healthy` (the dependency needs `health`). |
+
+Unknown fields raise. Every container runs without privileges, with
+`NET_RAW`, `MKNOD` and `AUDIT_WRITE` dropped, `no-new-privileges`, an init
+process and logs capped at 10 MB times 3 files.
+
+### Network
+
+Containers sit on internal networks with no route out. A router gateway on
+the same network forwards HTTP and HTTPS proxy traffic to the plugin's
+`@allow_host` list and to public addresses only, as `http_client` does.
+Containers get `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` and the lowercase
+variants. Traffic that ignores the proxy has no route. A refused host logs
+`Docker egress blocked` with `code=docker_egress_blocked` and the `host`.
+Image pulls and build context downloads go out from the daemon and the
+router: the approved declarations cover them. Compose services reach
+each other by service name, standalone containers reach each other by key.
+
+### Results and faults
+
+A status table is `{key, service, state, health, exit_code, started_at,
+image}`. `state` is a Docker state (`created`, `running`, `exited`, ...),
+`missing` or `preparing`. `health` is `none` without a health check. A
+project status is `{key, state, services}` where `services` maps names to
+status tables and `state` is the common state, `preparing`, `missing` or
+`mixed`.
+
+Misuse raises a Lua error: an invalid target, an undeclared image or build,
+an unknown field, a host path, a limit above its ceiling, a bad option.
+Runtime failures return `(nil, fault)` where `fault` is an error-contract
+table plus `docker = true` and `reason`:
+
+| `reason` | `status` | Meaning |
+|---|---|---|
+| `unconfigured` | 503 | No Docker host in Settings, or the settings are incomplete. |
+| `unreachable` | 503 | The daemon does not answer. |
+| `preparing` | 503 | The image is still downloading or building. |
+| `not_running` | 503 | The container is stopped, exited or unhealthy. |
+| `gpu_unavailable` | 503 | The spec asks for GPUs the host does not have. |
+| `not_found` | 502 | The target or port does not exist. |
+| `ownership_conflict` | 502 | An object of that name exists and is not owned by this router. |
+| `container_limit` | 502 | `@docker.container_limit` is reached. |
+| `registry_auth` | 502 | The registry refused the login. |
+| `timeout` | 504 | The call ran out of time. |
+| `daemon_error` | 502 | Any other daemon failure. |
+
+`code` is always `server_error`, so a handler may return a fault
+unchanged.
+
+### `llm_router.docker.ensure`
+
+```lua
+--- Make one standalone container match a spec.
+-- @param key string: container key.
+-- @param spec table: container spec.
+-- @return table|nil: status, state "preparing" while the image downloads or builds.
+-- @return table|nil: fault.
+local status, fault = llm_router.docker.ensure("web", { image = "nginx:1.27-alpine", ports = { 80 } })
+```
+
+The same spec is a no-op. A changed spec, image or limit recreates the
+container and keeps its volumes. A missing image starts a
+download or build in the background and returns `preparing` without
+waiting: call again later. A failed download or build answers with its
+fault for one minute, then tries again. Installing, updating or enabling
+the plugin starts preparing every declared image. `ensure` creates;
+`start` runs.
+
+### `llm_router.docker.compose`
+
+```lua
+--- Make one compose project match its services.
+-- @param key string: project key.
+-- @param project table: {services = {name = spec}} or {yaml = text, variables = {NAME = value}}.
+-- @return table|nil: project status.
+-- @return table|nil: fault.
+local status, fault = llm_router.docker.compose("stack", { yaml = COMPOSE, variables = { MODE = "mock" } })
+```
+
+Services the project no longer lists are removed with their volumes kept.
+The YAML form reads a compose subset. `${NAME}`, `$NAME`,
+`${NAME:-default}`, `${NAME-default}`, `${NAME:?message}` and
+`${NAME?message}` resolve from `variables` only; `$$` is a literal dollar
+sign. Supported keys:
+
+| Compose key | Becomes |
+|---|---|
+| `services.<name>.image` | `image` |
+| `services.<name>.build` (URL, or `{context, dockerfile}`) | `build`: the declared `@docker.build` with that URL and Dockerfile |
+| `command`, `entrypoint` (list, or a string split like a shell) | `command`, `entrypoint` |
+| `environment` (map or `NAME=value` list) | `environment` |
+| `working_dir`, `user`, `read_only` | `working_directory`, `user`, `read_only` |
+| `expose` | `ports` (tcp only) |
+| `healthcheck` (`test` as `[CMD, ...]`, `[CMD-SHELL, text]` or text; `interval`, `timeout`, `start_period`, `retries`, `disable`) | `health` |
+| `depends_on` (list, or map with `condition`) | `depends_on` |
+| `volumes` (`name:/path`, or `{type: volume, source, target}`) | `volumes`; every name must be listed in the top-level `volumes` |
+| `deploy.resources.limits.memory`, `.cpus` | `memory_limit_mb`, `cpu_limit` |
+| `deploy.resources.reservations.devices` (`driver: nvidia`, `count`, `capabilities: [gpu]`) | `gpus` |
+| `shm_size` | `shm_size_mb` |
+| `restart` (`no`, `on-failure`) | `restart` |
+
+`version`, `name` and `x-*` keys are ignored. Every other key raises with
+its path, for example `services.api.ports: publishing is not supported, use
+expose`. YAML aliases are not supported. A document holds at most 256 KiB.
+
+### `llm_router.docker.start`, `llm_router.docker.stop`, `llm_router.docker.remove`
+
+```lua
+--- Start a container, or every service of a project in dependency order:
+--- a service_healthy dependency must report healthy before its dependents start.
+-- @return table|nil: status or project status.
+-- @return table|nil: fault, not_found when the target does not exist.
+local status, fault = llm_router.docker.start("web")
+
+--- Stop a container or a project. Stopped or missing is a no-op.
+-- @param options table|nil: {timeout_seconds = 0..300, default 10}.
+local status, fault = llm_router.docker.stop("web", { timeout_seconds = 5 })
+
+--- Remove a container or a project. Missing is a no-op.
+-- @param options table|nil: {volumes = boolean}, true removes the volumes the target mounted.
+-- @return boolean|nil: true.
+local removed, fault = llm_router.docker.remove("web", { volumes = true })
+```
+
+Running is a no-op for `start`. The router stops every container when it
+shuts down and when the operator disables the plugin. It removes every
+object of the plugin when the plugin is deleted. Bring containers back from
+`initialize` or a job with `run_on_startup`.
+
+### `llm_router.docker.status`, `llm_router.docker.list`, `llm_router.docker.logs`
+
+```lua
+local status, fault = llm_router.docker.status("web")      -- state "missing" when absent
+local statuses, fault = llm_router.docker.list()           -- every container of the plugin
+local text, fault = llm_router.docker.logs("web", { tail = 200 })
+```
+
+`logs` returns stdout then stderr of the last `tail` lines (1 to 10000,
+default 200), at most 64 KiB. It takes a container target, not a project.
+
+### `llm_router.docker.wait`
+
+```lua
+--- Wait until the target runs, is healthy when it has a health check and,
+--- with port set, accepts a TCP connection on it.
+-- @param options table|nil: {port = number, timeout_ms = 100..900000, default 60000}.
+local status, fault = llm_router.docker.wait("web", { port = 80, timeout_ms = 30000 })
+```
+
+An exited or unhealthy target fails at once with `not_running`. The wait is
+bounded by the call's own time limit too.
+
+### `llm_router.docker.exec`
+
+```lua
+--- Run one command in a running container and wait for it.
+-- @param command table: string array.
+-- @param options table|nil: {timeout_ms = 100..900000 (default 60000), environment = table, user = string, working_directory = string, stdin = string}.
+-- @return table|nil: {exit_code, stdout, stderr, truncated}.
+local result, fault = llm_router.docker.exec("web", { "nginx", "-t" }, { timeout_ms = 10000 })
+```
+
+The command inherits the container environment, proxy variables included.
+stdout and stderr cap at 1 MiB each; `truncated` reports a cut. A
+non-zero exit code is a result, not a fault. A timeout returns `timeout`.
+Long work belongs in jobs, whose `timeout_ms` reaches 900000.
+
+### `llm_router.docker.open_http`
+
+```lua
+--- HTTP client bound to one port of one container.
+-- @param options table|nil: {timeout_ms}, same range as http_client.
+-- @return userdata: client with request and stream methods.
+local client = llm_router.docker.open_http("web", 80, { timeout_ms = 120000 })
+local response, fault = client:request({ method = "GET", url = "/health" })
+```
+
+The client has the `request` and `stream` methods of `http_client`. `url`
+is a path. `proxy_url` and a `Host` header raise. Redirects follow within
+the container only. The port must be in the container's `ports`. The
+client opens even when the container is stopped: each new connection
+checks the state, so a fault with `docker = true` and
+`reason` (`not_running`, `not_found`, ...) comes back from `request`. The
+address and the route to the container stay hidden. Idle connections are
+reused across calls.
+
+Example:
+
+```lua
+--- @plugin Echo Container
+--- @author example
+--- @version 1.0.0
+--- @plugin_api 1.8
+--- @allow_host example.com
+--- @require_api docker
+--- @docker.image hashicorp/http-echo:1.0
+--- @docker.memory_limit_mb 64
+--- @docker.cpu_limit 0.25
+
+local docker = llm_router.docker
+
+local function ensure_running()
+  local status, fault = docker.ensure("echo", {
+    image = "hashicorp/http-echo:1.0",
+    command = { "-listen=:5678", "-text=hello" },
+    ports = { 5678 },
+  })
+  if fault ~= nil then return fault end
+  if status.state == "preparing" then
+    return { message = "image is downloading", code = "server_error", status = 503 }
+  end
+  local _, start_fault = docker.start("echo")
+  return start_fault
+end
+
+llm_router.register("echo", {
+  initialize = function(ctx)
+    local fault = ensure_running()
+    if fault ~= nil then llm_router.log("warn", "container not ready", { reason = fault.reason }) end
+  end,
+
+  complete = function(ctx, request)
+    local client = docker.open_http("echo", 5678)
+    local response, fault = client:request({ method = "GET", url = "/" })
+    if fault ~= nil and fault.docker and (fault.reason == "not_running" or fault.reason == "not_found") then
+      local start_fault = ensure_running()
+      if start_fault ~= nil then return nil, start_fault end
+      response, fault = client:request({ method = "GET", url = "/" })
+    end
+    if fault ~= nil then return nil, fault end
+    return { choices = { { message = { role = "assistant", content = response.body } } } }, nil
+  end,
+})
+```
+
 ## `log` and `print`
 
 ### `log`
@@ -2243,7 +2550,8 @@ scanner 64 KiB to 1 MiB. `multipart` 1 to 64 parts. `random_hex` 1 to 1024
 bytes. Log values cap at 2048 bytes and 32 keys. UI trees cap at depth 8 and
 200 nodes per array. Locales cap at 1000 entries per locale. Jobs cap at 8
 per type. Storage `ttl` caps at 90 days. `http_client` `timeout_ms` clamps to
-1000 to 900000.
+1000 to 900000. Docker: `exec` output 1 MiB per stream, `logs` 64 KiB,
+`files` 1 MiB per spec, compose YAML 256 KiB, build context 512 MiB.
 
 ## Worked example
 

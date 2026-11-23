@@ -66,8 +66,8 @@ func TestStoreSearchErrorRepoReturnsEmptyFiles(t *testing.T) {
 	}
 }
 
-// Updates expose the upstream allow list so the UI confirms host changes.
-func TestStoreUpdatesExposeNewAllowHosts(t *testing.T) {
+// Updates expose the upstream permissions so the UI confirms their changes.
+func TestStoreUpdatesExposeNewPermissions(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/files/index.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -99,12 +99,11 @@ func TestStoreUpdatesExposeNewAllowHosts(t *testing.T) {
 
 	var body struct {
 		Updates []struct {
-			PluginID      string   `json:"plugin_id"`
-			Current       string   `json:"current"`
-			Latest        string   `json:"latest"`
-			NewAllowHosts []string `json:"new_allow_hosts"`
-			NewUnsafe     bool     `json:"new_unsafe"`
-			Available     bool     `json:"update_available"`
+			PluginID       string                `json:"plugin_id"`
+			Current        string                `json:"current"`
+			Latest         string                `json:"latest"`
+			NewPermissions luaplugin.Permissions `json:"new_permissions"`
+			Available      bool                  `json:"update_available"`
 		} `json:"updates"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
@@ -117,11 +116,12 @@ func TestStoreUpdatesExposeNewAllowHosts(t *testing.T) {
 	if !update.Available || update.Current != "1.0.0" || update.Latest != "1.1.0" {
 		t.Fatalf("version: %+v", update)
 	}
-	if len(update.NewAllowHosts) != 2 || update.NewAllowHosts[0] != "old.example.com" || update.NewAllowHosts[1] != "new.example.com" {
+	permissions := update.NewPermissions
+	if len(permissions.AllowHosts) != 2 || permissions.AllowHosts[0] != "new.example.com" || permissions.AllowHosts[1] != "old.example.com" {
 		t.Fatalf("new hosts: %+v", update)
 	}
-	if update.NewUnsafe {
-		t.Fatalf("unsafe: %+v", update)
+	if permissions.Unsafe || permissions.Docker != nil || permissions.Digest == "" {
+		t.Fatalf("permissions: %+v", permissions)
 	}
 }
 

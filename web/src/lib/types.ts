@@ -444,8 +444,7 @@ export interface Plugin {
   plugin_api_version: string
   description: string
   license: string
-  allow_hosts: string[]
-  unsafe: boolean
+  permissions: PluginPermissions
   disabled: boolean
   type_keys: string[]
   subsystems: string[]
@@ -455,6 +454,133 @@ export interface Plugin {
   updated_at: string
   history_count: number
 }
+
+export interface DockerDirectives {
+  images: string[]
+  builds: Record<string, { url: string; dockerfile: string }>
+  memory_limit_mb: number
+  cpu_limit: number
+  pids_limit: number
+  container_limit: number
+  gpu_limit: number
+  shm_limit_mb: number
+}
+
+/** what the operator approves on install; docker is null when the plugin needs no Docker */
+export interface PluginPermissions {
+  allow_hosts: string[]
+  unsafe: boolean
+  docker: DockerDirectives | null
+  digest: string
+}
+
+/** what an uploaded file would install as */
+export interface PluginPreview {
+  id: string
+  display_name: string
+  version: string
+  permissions: PluginPermissions
+}
+
+export interface DockerConnection {
+  endpoint: string
+  namespace: string
+  dial_mode: 'auto' | 'route' | 'relay'
+  gateway_image: string
+  ssh_host_key: string
+  ssh_host_key_fingerprint: string
+  has_tls_ca: boolean
+  has_tls_certificate: boolean
+  has_tls_key: boolean
+  has_ssh_private_key: boolean
+  has_ssh_passphrase: boolean
+  router_os: string
+}
+
+/** a null secret keeps the stored value, an empty string clears it */
+export interface DockerConnectionUpdate {
+  endpoint: string
+  namespace: string
+  dial_mode: string
+  gateway_image: string
+  ssh_host_key: string
+  tls_ca: string | null
+  tls_certificate: string | null
+  tls_key: string | null
+  ssh_private_key: string | null
+  ssh_passphrase: string | null
+}
+
+export interface DockerConnectionTest {
+  server_version: string
+  api_version: string
+  operating_system: string
+  architecture: string
+  rootless: boolean
+  gpu: boolean
+  dial_mode: string
+  gateway_image: string
+}
+
+export interface DockerRegistry {
+  host: string
+  username: string
+  updated_at: string
+}
+
+export interface DockerContainerStatus {
+  key: string
+  service?: string
+  state: string
+  health: string
+  exit_code: number
+  started_at?: string
+  image?: string
+}
+
+export interface DockerPluginView {
+  policy: {
+    plugin_id: string
+    allow_hosts: string[]
+    directives: DockerDirectives
+  }
+  images: DockerImageStatus[]
+  containers: DockerContainerStatus[]
+  error?: string
+  error_stage?: DockerStage
+  connection: DockerConnection
+}
+
+export type DockerStage = 'connect' | 'handshake' | 'host_key' | 'authenticate' | 'socket' | 'tls' | 'daemon'
+
+export interface DockerImageProgress {
+  phase: 'download_context' | 'pull' | 'build'
+  step?: number
+  steps?: number
+  detail?: string
+  bytes_done?: number
+  bytes_total?: number
+  started_at: string
+}
+
+export interface DockerImageStatus {
+  reference: string
+  build?: string
+  state: 'ready' | 'preparing' | 'failed' | 'absent'
+  progress?: DockerImageProgress
+  error?: string
+}
+
+export interface ProviderDocker {
+  plugin_id: string
+  uses_docker: boolean
+  view?: DockerPluginView
+}
+
+/** a test answer: the daemon facts, or the failure with the stage that broke */
+export type DockerTestResult =
+  | { ok: true; result: DockerConnectionTest }
+  | { ok: false; error: string; stage?: DockerStage }
 
 export interface PluginRepo {
   id: string
@@ -471,8 +597,8 @@ export interface StoreFile {
   author: string
   version: string
   description: string
-  allow_hosts: string[]
-  unsafe: boolean
+  /** null when the file failed to load */
+  permissions: PluginPermissions | null
   subsystems: string[]
   icon_url: string
   installed: boolean
@@ -487,8 +613,8 @@ export interface PluginUpdate {
   latest: string
   repo_id: string
   path: string
-  new_allow_hosts: string[]
-  new_unsafe: boolean
+  /** null when the upstream file failed to load */
+  new_permissions: PluginPermissions | null
   update_available: boolean
   error?: string
 }

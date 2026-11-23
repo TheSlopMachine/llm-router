@@ -5,7 +5,8 @@ import (
 )
 
 // init prepares the project for `make start` / `make publish`:
-// bun install, web/openapi.yaml, TypeScript API types, embed stub.
+// bun install, web/openapi.yaml, TypeScript API types, embed stub, Docker
+// gateway payload.
 // Steps whose outputs are newer than their inputs are skipped,
 // unless NO_SKIP is truthy. Configuration comes from env only.
 func main() {
@@ -33,6 +34,10 @@ func main() {
 	}
 
 	if err := shared.EnsureEmbedStub(root, host, port); err != nil {
+		shared.Failf("%v", err)
+	}
+
+	if err := shared.EnsureGatewayPayload(root, noSkip); err != nil {
 		shared.Failf("%v", err)
 	}
 

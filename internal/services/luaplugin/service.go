@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
+	"github.com/TheSlopMachine/llm-router/internal/services/dockerhost"
 	"github.com/TheSlopMachine/llm-router/internal/services/events"
 	lua "github.com/yuin/gopher-lua"
 	"gorm.io/gorm"
@@ -173,6 +174,12 @@ type Service struct {
 	// automationOn reports the provider disable_failed_credentials switch
 	// gating shared disable/enable writes; nil reads off.
 	automationOn func(providerID string) bool
+
+	// docker serves llm_router.docker (nil = Docker calls fail with
+	// unconfigured).
+	docker *dockerhost.Service
+	// manifestCache memoizes manifest facts per source revision.
+	manifestCache sync.Map
 }
 
 // SetHealthTrigger wires detached health-check dispatch for failed

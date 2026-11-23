@@ -88,6 +88,60 @@ func PublicHostLiteral(host string) (literal bool, public bool) {
 	return false, host != "" && !IsLocalHostname(host)
 }
 
+// HostAllowList is a plugin @allow_host list: bare hostnames, or "*" for any
+// public destination. The public-address policy applies under "*" too.
+type HostAllowList struct {
+	hosts    map[string]bool
+	wildcard bool
+}
+
+// NewHostAllowList builds the matcher from @allow_host values.
+func NewHostAllowList(hosts []string) HostAllowList {
+	list := HostAllowList{hosts: map[string]bool{}}
+	for _, host := range hosts {
+		host = strings.ToLower(strings.TrimSpace(host))
+		if host == "*" {
+			list.wildcard = true
+			continue
+		}
+		if host != "" {
+			list.hosts[host] = true
+		}
+	}
+	return list
+}
+
+// Check reports whether host may be dialed. IP literals pass only when
+// public and only under "*"; hostnames must be listed (or "*" set).
+// Dial-time resolution through ResolvePublic still refuses local zones and
+// non-public answers.
+func (list HostAllowList) Check(host string) error {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if splitHost, _, err := net.SplitHostPort(host); err == nil {
+		host = splitHost
+	}
+	host = strings.Trim(host, "[]")
+	if host == "" {
+		return fmt.Errorf("%w: empty host", ErrBlockedAddress)
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if !IsPublicIP(ip) {
+			return fmt.Errorf("dial to %q blocked: %w", host, ErrBlockedAddress)
+		}
+		if !list.wildcard {
+			return fmt.Errorf("host %q is not in plugin allow-list: %w", host, ErrHostNotAllowed)
+		}
+		return nil
+	}
+	if !list.wildcard && !list.hosts[host] {
+		return fmt.Errorf("host %q is not in plugin allow-list: %w", host, ErrHostNotAllowed)
+	}
+	return nil
+}
+
+// ErrHostNotAllowed reports a hostname outside the plugin allow-list.
+var ErrHostNotAllowed = errors.New("host is not allowed")
+
 // Resolver is the DNS surface ResolvePublic needs; net.DefaultResolver
 // satisfies it.
 type Resolver interface {

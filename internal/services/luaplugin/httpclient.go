@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/netguard"
+	"github.com/TheSlopMachine/llm-router/internal/services/dockerhost"
 	"github.com/TheSlopMachine/llm-router/internal/services/proxypool"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -46,44 +47,16 @@ const (
 // netguard public-address policy. The address policy applies even when the
 // plugin holds a wildcard allow_host.
 type ssrfGuard struct {
-	allowHosts map[string]bool
-	wildcard   bool
-	resolver   netguard.Resolver
+	allowList netguard.HostAllowList
+	resolver  netguard.Resolver
 }
 
 func newSSRFGuard(allowHosts []string) *ssrfGuard {
-	g := &ssrfGuard{allowHosts: map[string]bool{}, resolver: net.DefaultResolver}
-	for _, h := range allowHosts {
-		if h == "*" {
-			g.wildcard = true
-			continue
-		}
-		g.allowHosts[strings.ToLower(strings.TrimSpace(h))] = true
-	}
-	return g
+	return &ssrfGuard{allowList: netguard.NewHostAllowList(allowHosts), resolver: net.DefaultResolver}
 }
 
 func (g *ssrfGuard) checkHost(host string) error {
-	host = strings.ToLower(strings.TrimSpace(host))
-	if host == "" {
-		return fmt.Errorf("empty host")
-	}
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		if !netguard.IsPublicIP(ip) {
-			return fmt.Errorf("dial to %q blocked: %w", host, netguard.ErrBlockedAddress)
-		}
-		if !g.wildcard {
-			return fmt.Errorf("host %q is not in plugin allow-list", host)
-		}
-		return nil
-	}
-	if !g.wildcard && !g.allowHosts[host] {
-		return fmt.Errorf("host %q is not in plugin allow-list", host)
-	}
-	return nil
+	return g.allowList.Check(host)
 }
 
 func (g *ssrfGuard) checkURL(raw string) (*url.URL, error) {
@@ -120,6 +93,20 @@ type pluginHTTPClient struct {
 	// reuse connections instead of rebuilding the transport per request.
 	proxyMu      sync.Mutex
 	proxyClients map[string]*http.Client
+	// container binds the client to one container port (open_http): URLs
+	// are paths, proxies and the allow-list do not apply.
+	container *dockerhost.ContainerHTTP
+}
+
+// newContainerHTTPClient builds the open_http client of one container port.
+func newContainerHTTPClient(ctx *executionContext, container dockerhost.ContainerHTTP, timeoutMs int) *pluginHTTPClient {
+	return &pluginHTTPClient{
+		ctx:       ctx,
+		guard:     newSSRFGuard(nil),
+		client:    container.Client,
+		timeout:   time.Duration(timeoutMs) * time.Millisecond,
+		container: &container,
+	}
 }
 
 func newPluginHTTPClient(ctx *executionContext, timeoutMs int) *pluginHTTPClient {
@@ -403,6 +390,9 @@ func (c *pluginHTTPClient) buildRequest(L *lua.LState, arguments *lua.LTable) (*
 		L.RaiseError("request: url is required")
 		return nil, ""
 	}
+	if c.container != nil {
+		return c.buildContainerRequest(L, arguments, method, rawURL)
+	}
 	targetURL, err := c.guard.checkURL(rawURL)
 	if err != nil {
 		L.RaiseError("request blocked: %s", err.Error())
@@ -456,6 +446,49 @@ func (c *pluginHTTPClient) buildRequest(L *lua.LState, arguments *lua.LTable) (*
 		request.Header.Set(k, v)
 	}
 	return request, proxyURL
+}
+
+// buildContainerRequest builds one open_http request: url is a path on the
+// bound container port.
+func (c *pluginHTTPClient) buildContainerRequest(L *lua.LState, arguments *lua.LTable, method, path string) (*http.Request, string) {
+	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") {
+		L.RaiseError("request: open_http clients take a path such as /v1/models, not %q", path)
+		return nil, ""
+	}
+	if arguments.RawGetString("proxy_url") != lua.LNil {
+		L.RaiseError("request: open_http clients do not take proxy_url")
+		return nil, ""
+	}
+	headers := luaTableStringMap(arguments, "headers")
+	var body io.Reader
+	var bodyBytes []byte
+	if v := arguments.RawGetString("body"); v != lua.LNil {
+		text, ok := v.(lua.LString)
+		if !ok {
+			L.RaiseError("request: body must be a string")
+			return nil, ""
+		}
+		bodyBytes = []byte(text)
+		body = bytes.NewReader(bodyBytes)
+	}
+	request, err := http.NewRequestWithContext(clientContext(c), method, c.container.BaseURL+path, body)
+	if err != nil {
+		L.RaiseError("request: %s", err.Error())
+		return nil, ""
+	}
+	if bodyBytes != nil {
+		request.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+		}
+	}
+	for name, value := range headers {
+		if strings.EqualFold(name, "host") {
+			L.RaiseError("request: open_http clients do not take a Host header")
+			return nil, ""
+		}
+		request.Header.Set(name, value)
+	}
+	return request, ""
 }
 
 // luaRequest implements client:request({...}) -> (response, err).
@@ -681,6 +714,10 @@ func pushLuaError(L *lua.LState, code, message string) {
 //
 // Cancellation of the caller context is never a transport failure.
 func (c *pluginHTTPClient) pushFault(L *lua.LState, err error, direct bool) {
+	if fault, ok := dockerhost.AsFault(err); ok {
+		L.Push(dockerFaultTable(L, fault))
+		return
+	}
 	table := L.NewTable()
 	table.RawSetString("message", lua.LString(err.Error()))
 	table.RawSetString("code", lua.LString("server_error"))

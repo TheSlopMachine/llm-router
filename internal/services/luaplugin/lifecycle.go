@@ -34,6 +34,10 @@ const (
 // crash or terminal error logs and the triggering operation proceeds.
 const lifecycleHookTimeout = 30 * time.Second
 
+// dockerCleanupTimeout bounds the Docker cleanup after a delete or disable
+// hook. It runs after the hook, with its own budget.
+const dockerCleanupTimeout = 2 * time.Minute
+
 // lifecycleMaxWorkers bounds concurrent hook calls. Sweeps fan out across
 // plugin types instead of running sequentially; one slow upstream never
 // holds the whole sweep.
@@ -183,6 +187,17 @@ func enabledRecords(records []*PluginRecord) []*PluginRecord {
 	return filtered
 }
 
+// launchReplacementHooks deinitializes a replaced version and initializes
+// its successor, both with reason update. Disabled versions run no hooks.
+func (s *Service) launchReplacementHooks(previous, next *PluginRecord) {
+	if !previous.Disabled {
+		s.launchLifecycleHook(previous, string(HandlerDeinitialize), DeinitializeReasonUpdate)
+	}
+	if !next.Disabled {
+		s.launchLifecycleHook(next, string(HandlerInitialize), InitializeReasonUpdate)
+	}
+}
+
 // launchLifecycleHook runs one record sweep detached. Lua execution stays
 // outside transactions; failures log and never block the caller. Install,
 // update, rollback and delete paths use it so dashboard calls return while
@@ -206,7 +221,41 @@ func (s *Service) launchLifecycleHook(record *PluginRecord, handler, reason stri
 					"plugin_id", record.ID, "endpoint", handler, "reason", reason, "error", err.Error())
 			}
 		}
+		if handler == string(HandlerDeinitialize) {
+			s.afterDeinitialize(record, reason)
+		} else {
+			s.afterInitialize(record)
+		}
 	}()
+}
+
+// afterDeinitialize releases Docker objects once the plugin's own hook has
+// run: a deleted plugin loses every object, a disabled plugin stops its
+// containers.
+func (s *Service) afterDeinitialize(record *PluginRecord, reason string) {
+	if reason != DeinitializeReasonDelete && reason != DeinitializeReasonDisable {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), dockerCleanupTimeout)
+	defer cancel()
+	dockerService := s.dockerHost()
+	if dockerService == nil {
+		return
+	}
+	_, declared, err := s.dockerPolicy(record)
+	if err != nil || !declared {
+		return
+	}
+	if reason == DeinitializeReasonDelete {
+		err = dockerService.RemovePlugin(ctx, record.ID)
+	} else {
+		err = dockerService.StopPlugin(ctx, record.ID)
+	}
+	if err != nil {
+		if logger := s.getLogger(); logger != nil {
+			logger.Warn("Plugin Docker cleanup failed", "plugin_id", record.ID, "reason", reason, "error", err.Error())
+		}
+	}
 }
 
 // NotifyProviderDisabled fires deinitialize with reason disable for the

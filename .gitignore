@@ -6,6 +6,7 @@
 node_modules/
 build/
 internal/dashboard/build/
+internal/services/dockerhost/payload/*.gz
 
 # Compiled binaries and archives
 *.exe

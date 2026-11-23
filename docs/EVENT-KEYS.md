@@ -60,7 +60,7 @@ rules`, `Request decode failed`, `Authentication failed`).
 
 | Key | Meaning | Example filter |
 |---|---|---|
-| `subsystem` | Part of the server that logged the event (`providers`, `virtual_models`, `plugins`, `plugin_repos`, `plugin_storage`, `tokens`, `credentials`, `proxy`, `doctor`) | `EVENT_FILTERS="subsystem=providers"` |
+| `subsystem` | Part of the server that logged the event (`providers`, `virtual_models`, `plugins`, `plugin_repos`, `plugin_storage`, `tokens`, `credentials`, `proxy`, `doctor`, `docker`) | `EVENT_FILTERS="subsystem=providers"` |
 | `provider_id` | Provider instance serving the call | `EVENT_FILTERS="provider_id=google"` |
 | `type` | Plugin type key (`google`, `groq`, ...) | `EVENT_FILTERS="type=google"` |
 | `model` | Full router model id (`provider/model`) | `EVENT_FILTERS="model=google/gemini-2.5-flash"` |
@@ -108,6 +108,30 @@ park succeeds`, `Credential creation succeeds`, `Credential disables by
 | `wait` | Park or cooldown seconds (number) | read, do not filter |
 | `operation` | Gated sub-operation (`generate_id`, `create`, `get`, `list_usable`, `disable_unhealthy`, `disable_by_plugin`, `require`, `query`, ...) | `EVENT_FILTERS="operation=disable_by_plugin"` |
 | `count`, `total`, `disabled`, `parked`, `denied`, `expired` | Pool census numbers | `EVENT_FILTERS="parked=1"` |
+| `error` | Variable failure text | read, do not filter |
+
+## Docker
+
+Emitted by `internal/services/dockerhost` (`Docker daemon connected`,
+`Docker container created`, `Docker image ready`, `Docker egress blocked`,
+`Docker sweep failed`, ...) and the plugin lifecycle (`Plugin Docker cleanup
+failed`). Every line carries `subsystem=docker` except the lifecycle line.
+
+| Key | Meaning | Example filter |
+|---|---|---|
+| `plugin_id` | Plugin owning the container, image or gateway | `EVENT_FILTERS="subsystem=docker plugin_id=<id>"` |
+| `container_key` | Plugin target: a key or `project/service` | `EVENT_FILTERS="container_key=nginx"` |
+| `image` | Image reference pulled, built or run | `EVENT_FILTERS="image=node:20-alpine"` |
+| `url` | Build context URL of `@docker.build` | read, do not filter |
+| `host` | Destination the gateway refused | `EVENT_FILTERS="code=docker_egress_blocked"` |
+| `code` | `docker_egress_blocked` on refused container egress | `EVENT_FILTERS="code=docker_egress_blocked"` |
+| `reason` | Refusal cause (`not_allowed`, `not_public`, `resolve_failed`) or lifecycle reason (`delete`, `disable`) | `EVENT_FILTERS="reason=not_allowed"` |
+| `endpoint` | Daemon endpoint, without secrets | read, do not filter |
+| `dial_mode` | Resolved container connection mode (`route`, `relay`) | `EVENT_FILTERS="dial_mode=relay"` |
+| `version` | Daemon version | read, do not filter |
+| `status` | Exit code of an exec (number) | read, do not filter |
+| `count` | Containers stopped at shutdown | read, do not filter |
+| `latency_ms` | Image preparation time (number) | read, do not filter |
 | `error` | Variable failure text | read, do not filter |
 
 ## Proxy pool

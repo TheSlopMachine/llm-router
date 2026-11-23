@@ -112,6 +112,10 @@ func main() {
 		}
 	}
 
+	if err := shared.EnsureGatewayPayload(root, false); err != nil {
+		shared.Failf("%v", err)
+	}
+
 	shared.Stepf("Building backend...")
 
 	// Build to a temp binary and spawn it directly: `go run` would put its

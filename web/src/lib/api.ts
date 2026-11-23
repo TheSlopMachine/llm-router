@@ -3,7 +3,7 @@ import { locale } from './i18n/index'
 import { eventsQueryParams } from './events'
 import type { BackendTokenRules } from './token-rules'
 import type { CredentialScope } from './types'
-import type { EventEntry, EventsQuery, Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, ProxySchemaResponse, AuthStepResponse, Plugin, PluginRepo, StoreFile, PluginUpdate, ProviderModel, ProviderVMGroup, TestResult, Proxy, ProxyStatus, ProxySourceInfo, ProxyPool, SubsystemStats, DoctorReport, DoctorCategory, ProviderBundle } from './types'
+import type { EventEntry, EventsQuery, Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, ProxySchemaResponse, AuthStepResponse, Plugin, PluginPreview, PluginRepo, StoreFile, PluginUpdate, ProviderModel, ProviderVMGroup, TestResult, Proxy, ProxyStatus, ProxySourceInfo, ProxyPool, SubsystemStats, DoctorReport, DoctorCategory, ProviderBundle, DockerConnection, DockerConnectionUpdate, DockerConnectionTest, DockerRegistry, DockerTestResult, ProviderDocker } from './types'
 
 const apiCall = _apiCall
 
@@ -179,15 +179,25 @@ export const api = {
     source: (id: string): Promise<Blob> =>
       fetch(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}/source`).then(assertOkBlob),
 
-    installFile: (source: string): Promise<Plugin> =>
-      fetch('/api/llm-router/dashboard/plugins/install-file', {
+    /** the identity and permissions of an uploaded source, without installing it */
+    previewFile: (source: string): Promise<PluginPreview> =>
+      fetch('/api/llm-router/dashboard/plugins/preview-file', {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: source,
       }).then(assertOk),
 
-    installFromRepo: (repo_id: string, path: string): Promise<Plugin> =>
-      postJson('/api/llm-router/dashboard/plugins/install-from-repo', { repo_id, path }),
+    /** installs when the source requests the permissions with this digest */
+    installFile: (source: string, permissionsDigest: string): Promise<Plugin> =>
+      fetch(`/api/llm-router/dashboard/plugins/install-file?permissions_digest=${encodeURIComponent(permissionsDigest)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: source,
+      }).then(assertOk),
+
+    /** installs when the file requests the permissions with this digest */
+    installFromRepo: (repo_id: string, path: string, permissionsDigest: string): Promise<Plugin> =>
+      postJson('/api/llm-router/dashboard/plugins/install-from-repo', { repo_id, path, permissions_digest: permissionsDigest }),
 
     remove: (id: string): Promise<void> =>
       fetch(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(assertOkVoid),
@@ -460,6 +470,45 @@ export const api = {
     },
     update: (payload: { is_cluster_node: boolean; disable_telemetry: boolean; models_filter?: string; proxy_max_checks?: number; proxy_enabled?: boolean; proxy_pool_enabled?: boolean }) =>
       apiCall('put', '/api/llm-router/dashboard/config' as never, { body: payload as unknown as never } as never),
+  },
+
+  // Docker host and plugin containers
+  docker: {
+    connection: (): Promise<DockerConnection> =>
+      fetch('/api/llm-router/dashboard/docker/connection').then(assertOk),
+
+    saveConnection: (payload: DockerConnectionUpdate): Promise<DockerConnection> =>
+      putJson('/api/llm-router/dashboard/docker/connection', payload),
+
+    testConnection: async (): Promise<DockerTestResult> => {
+      const response = await fetch('/api/llm-router/dashboard/docker/connection/test', { method: 'POST' })
+      const body = await response.json().catch(() => null)
+      if (response.ok) return { ok: true, result: body as DockerConnectionTest }
+      return { ok: false, error: typeof body?.error === 'string' ? body.error : `HTTP ${response.status}`, stage: body?.stage || undefined }
+    },
+
+    scanHostKey: (endpoint: string): Promise<{ host_key: string; fingerprint: string }> =>
+      postJson('/api/llm-router/dashboard/docker/host-key', { endpoint }),
+
+    registries: (): Promise<DockerRegistry[]> =>
+      fetch('/api/llm-router/dashboard/docker/registries').then(assertOk),
+
+    saveRegistry: (host: string, username: string, secret: string): Promise<DockerRegistry> =>
+      putJson(`/api/llm-router/dashboard/docker/registries/${encodeURIComponent(host)}`, { username, secret }),
+
+    deleteRegistry: (host: string): Promise<void> =>
+      fetch(`/api/llm-router/dashboard/docker/registries/${encodeURIComponent(host)}`, { method: 'DELETE' }).then(assertOkVoid),
+
+    provider: (providerId: string): Promise<ProviderDocker> =>
+      fetch(`/api/llm-router/dashboard/providers/${encodeURIComponent(providerId)}/docker`).then(assertOk),
+
+    action: (pluginId: string, action: 'start' | 'stop' | 'remove', target: string): Promise<void> =>
+      postJson(`/api/llm-router/dashboard/plugins/${encodeURIComponent(pluginId)}/docker/containers/${action}?target=${encodeURIComponent(target)}`, {}),
+
+    logs: async (pluginId: string, target: string): Promise<string> => {
+      const answer = await fetch(`/api/llm-router/dashboard/plugins/${encodeURIComponent(pluginId)}/docker/logs?target=${encodeURIComponent(target)}`).then(assertOk)
+      return answer.logs as string
+    },
   },
 
   // Chat (dashboard session -> router proxy, no token)

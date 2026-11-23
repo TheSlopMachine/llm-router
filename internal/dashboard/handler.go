@@ -46,6 +46,7 @@ import (
 	configsvc "github.com/TheSlopMachine/llm-router/internal/services/config"
 	"github.com/TheSlopMachine/llm-router/internal/services/credential"
 	"github.com/TheSlopMachine/llm-router/internal/services/datamanagement"
+	"github.com/TheSlopMachine/llm-router/internal/services/dockerhost"
 	"github.com/TheSlopMachine/llm-router/internal/services/doctor"
 	"github.com/TheSlopMachine/llm-router/internal/services/events"
 	"github.com/TheSlopMachine/llm-router/internal/services/luaplugin"
@@ -81,6 +82,7 @@ type Handler struct {
 	proxyService          *proxypool.Service
 	maintenanceService    *maintenance.GormService
 	eventsService         *events.Service
+	dockerService         *dockerhost.Service
 	// dataGormService and doctorGormService are the GORM data and doctor
 	// services constructed in New from the GORM set.
 	dataGormService   *datamanagement.GormService
@@ -227,6 +229,7 @@ func (h *Handler) RegisterAPI(mux *http.ServeMux) {
 	// Plugin endpoints
 	mux.HandleFunc("GET /api/llm-router/dashboard/plugins", h.requireAuth(h.apiPluginsList))
 	mux.HandleFunc("POST /api/llm-router/dashboard/plugins/install-file", h.requireAuth(h.apiPluginsInstallFile))
+	mux.HandleFunc("POST /api/llm-router/dashboard/plugins/preview-file", h.requireAuth(h.apiPluginsPreviewFile))
 	mux.HandleFunc("POST /api/llm-router/dashboard/plugins/install-from-repo", h.requireAuth(h.apiPluginsInstallFromRepo))
 	mux.HandleFunc("GET /api/llm-router/dashboard/plugins/{id}", h.requireAuth(h.apiPluginsGet))
 	mux.HandleFunc("PUT /api/llm-router/dashboard/plugins/{id}", h.requireAuth(h.apiPluginsUpdate))
@@ -243,6 +246,18 @@ func (h *Handler) RegisterAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/llm-router/dashboard/plugin-repos/{id}/files", h.requireAuth(h.apiReposFiles))
 	mux.HandleFunc("GET /api/llm-router/dashboard/plugin-store/search", h.requireAuth(h.apiStoreSearch))
 	mux.HandleFunc("GET /api/llm-router/dashboard/plugin-store/updates", h.requireAuth(h.apiStoreUpdates))
+
+	// Docker host
+	mux.HandleFunc("GET /api/llm-router/dashboard/docker/connection", h.requireAuth(h.apiDockerConnectionGet))
+	mux.HandleFunc("PUT /api/llm-router/dashboard/docker/connection", h.requireAuth(h.apiDockerConnectionPut))
+	mux.HandleFunc("POST /api/llm-router/dashboard/docker/connection/test", h.requireAuth(h.apiDockerConnectionTest))
+	mux.HandleFunc("POST /api/llm-router/dashboard/docker/host-key", h.requireAuth(h.apiDockerHostKeyScan))
+	mux.HandleFunc("GET /api/llm-router/dashboard/docker/registries", h.requireAuth(h.apiDockerRegistriesList))
+	mux.HandleFunc("PUT /api/llm-router/dashboard/docker/registries/{host}", h.requireAuth(h.apiDockerRegistryPut))
+	mux.HandleFunc("DELETE /api/llm-router/dashboard/docker/registries/{host}", h.requireAuth(h.apiDockerRegistryDelete))
+	mux.HandleFunc("GET /api/llm-router/dashboard/providers/{id}/docker", h.requireAuth(h.apiProviderDocker))
+	mux.HandleFunc("POST /api/llm-router/dashboard/plugins/{id}/docker/containers/{action}", h.requireAuth(h.apiPluginDockerAction))
+	mux.HandleFunc("GET /api/llm-router/dashboard/plugins/{id}/docker/logs", h.requireAuth(h.apiPluginDockerLogs))
 
 	// Router configuration (instance-wide)
 	mux.HandleFunc("GET /api/llm-router/dashboard/config", h.requireAuth(h.apiConfigGet))

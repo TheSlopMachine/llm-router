@@ -41,8 +41,11 @@ internal/services/
   datamanagement/        subsystem export/import/clear (JSON; plugins: zip of plugins.json without sources + one <id>.lua per plugin; providers and virtual_models import also take one item object) + provider export/import/purge
   doctor/                database inspection and repair
   proxypool/             free-pool hosting, Lua feed bridge, SQLite cache, custom pools (built-in auto row seeded), lane scheduler adapter
+  dockerhost/            plugin containers on the configured Docker host: connection settings, registry logins, directives and spec rules, compose YAML subset, naming and ownership labels, egress gateway, image pulls and builds, reconcile, container dials, cleanup
 internal/httpkit/        shared transport helpers (SSE headers, StreamWriter: 200 + headers on the first byte, flush per write)
-internal/netguard/       outbound-address policy: public-only destinations, pinned-IP dial, guarded HTTP client
+internal/netguard/       outbound-address policy: public-only destinations, pinned-IP dial, guarded HTTP client, @allow_host matcher
+internal/dockerengine/   minimal Docker Engine API client: unix, tcp (TLS outside loopback) and ssh transports, exec hijack, stream demultiplexing; no Docker CLI
+internal/dockergateway/  gateway program of plugin containers (allow-list proxy, port relay); `make init` cross-compiles it into dockerhost/payload
 internal/credentialcipher/ AES-256-GCM sealing of credentials.data (credential_cipher GORM serializer, key from CREDENTIALS_KEY or CREDENTIALS_KEY_FILE)
 internal/logging/        bracket stderr renderer plus events handler (persist and display by LOG_LEVEL)
 internal/requestsource/  RequestSource in request context (public vs private listener)
@@ -175,6 +178,18 @@ web/src/lib/<concern>.ts       one helper module per concern: format, model-sear
   before the first byte reaches the client. After that the stream belongs
   to one member.
 
+## Docker
+
+- `@require_api docker` installs `llm_router.docker` (`luaplugin/docker.go`). The manifest owns the policy: `@docker.*` directives plus `@allow_host`, parsed by `dockerhost.Directives` and memoized per source revision.
+- Installing is the consent. `Manifest.Permissions` holds the hosts and directives with a digest. Dashboard installs pass the digest the operator reviewed, `luaplugin.CheckApproval` refuses a source that requests other permissions. API installs pass none.
+- A Docker plugin stays disabled while no Docker host is configured: install, update and rollback store it disabled, enabling fails with `ErrDockerUnconfigured`. Removing the host disables these plugins through the connection removed hook. Initialize of an enabled Docker plugin starts preparing its images.
+- One live session per settings revision (`dockerhost/service.go`): connector, Engine client, daemon info, resolved dial mode. Saving the connection drops it. Failed calls keep it: the connector redials a lost SSH connection.
+- Objects carry `io.llm-router.*` labels (namespace, plugin, key, service, role, spec hash). Names `<namespace>.<author>.<plugin>.<key>[.<service>]-<hash8>` make creation atomic. A name match without our labels is an ownership conflict.
+- Containers join an internal network per plugin (standalone) or per compose project. One gateway container per plugin joins those networks and the `<namespace>.egress` bridge. Its proxy applies `netguard.HostAllowList` and public-address dials; containers get proxy variables with a per-gateway token.
+- Reconcile renders the engine config, hashes it with the files into the spec label and recreates on change. Images prepare in background tasks keyed by reference; builds download the context through `netguard.NewHTTPClient`. The gateway image is imported from the embedded payload.
+- `open_http` clients dial per new connection: `route` dials the container address on the host or through SSH `direct-tcpip`, `relay` runs `gateway relay` by exec. Transports are cached per plugin, target and port.
+- Cleanup: plugin delete removes every plugin object after `deinitialize`, plugin disable stops its containers, shutdown stops every namespace container after the hooks, an hourly sweep removes objects of plugins no longer declaring Docker. Gateway logs are polled every 30 s for blocked egress.
+
 ## Error contract
 
 - Domain errors live in `internal/errors`: sentinels (`ErrNotFound`,
@@ -235,7 +250,8 @@ web/src/lib/<concern>.ts       one helper module per concern: format, model-sear
   stay inventoried and fail with `provider_disabled`.
 - Shutdown enters one path (SIGINT/SIGTERM, listener error, or
   `POST /api/llm-router/shutdown` on the admin listener): background
-  writers stop (maintenance, proxy flush, events prune), hooks, metrics
+  writers stop (maintenance, proxy flush, events prune, Docker sweep),
+  hooks, plugin containers stop (20s), metrics
   flush, then both listeners `Shutdown` (in-flight requests wait only
   until the 10s timeout expires, so the shutdown response is always
   delivered), then the events queue drains.
@@ -258,7 +274,7 @@ SQLite (`internal/db/sqlite.go`, `OpenSQLite`) owns three files.
 
 | File | Variable | Release default | Holds |
 |---|---|---|---|
-| Database | `DB_PATH` | `~/.local/share/llm-router/llm-router.sqlite3` | Instance settings, dashboard password, proxy pools and entries, tokens and rules, providers, credentials, model overrides, virtual models, provider virtual settings, plugin repos, plugins, hosts, versions, durable plugin storage |
+| Database | `DB_PATH` | `~/.local/share/llm-router/llm-router.sqlite3` | Instance settings, dashboard password, proxy pools and entries, tokens and rules, providers, credentials, model overrides, virtual models, provider virtual settings, plugin repos, plugins, hosts, versions, durable plugin storage, Docker connection, registry logins |
 | Cache | `CACHE_PATH` | `~/.cache/llm-router/llm-router.cache.sqlite3` | Rebuildable state: sessions, proxy states, model info snapshots and rows, credential parks and health, TTL plugin storage, metric buckets and dimensions, video jobs, response records, message batches |
 | Events | `EVENTS_PATH` | `~/.local/state/llm-router/llm-router.events.sqlite3` | Operator telemetry, pruned on startup and hourly after `EVENTS_RETENTION_DAYS` (default 3, minimum 1), `auto_vacuum=INCREMENTAL` |
 
@@ -278,7 +294,7 @@ SQLite (`internal/db/sqlite.go`, `OpenSQLite`) owns three files.
 
 ### Credentials at rest
 
-- `credentials.data` stores `llmr-enc:v1:<base64>`: AES-256-GCM through the `credential_cipher` serializer.
+- `credentials.data` stores `llmr-enc:v1:<base64>`: AES-256-GCM through the `credential_cipher` serializer. `docker_connections.secrets` and `docker_registry_credentials.secret` use the same serializer.
 - The key comes from `CREDENTIALS_KEY` or `CREDENTIALS_KEY_FILE` (created with mode 0600 when missing) and installs before `OpenSQLite`. Without it every credential read and write fails.
 
 ### Dashboard authentication
@@ -314,6 +330,8 @@ allowed).
 | Provider setting | the owning service: provider config keys (`provider/gorm_convert.go`, seeded-provider allow-list in `dashboard/providers.go`) or a table of that service (`provider_virtual_settings`) |
 | Data management subsystem | `datamanagement` service, switch in `dashboard/data_management.go`, `subsystemKeys` in `web/src/pages/settings/data-items.ts`, row in `SettingsPage.svelte` |
 | Plugin API function or handler | `luaplugin` (`sandbox.go`, `handler_names.go`), `luaplugin.PluginAPIVersion`, `docs/PLUGIN-API.md` |
+| Docker rule, directive or Lua function | rules in `dockerhost`, Lua argument mapping in `luaplugin/docker.go`, Engine calls in `dockerengine`, `docs/PLUGIN-API.md` |
+| Manifest tag | `luaplugin/manifest.go`; a new `@require_api` value joins `knownAPIs` |
 | Event key | the log call, a row in `docs/EVENT-KEYS.md` |
 | Make target or variable | `scripts/`, `Makefile`, `scripts/help.txt`, `scripts/README.md` |
 | CLI command or text | `cmd/`, `internal/i18n/messages_en.go` and `messages_ru.go` |
