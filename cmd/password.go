@@ -21,12 +21,12 @@ var passwordOptions struct {
 
 func newPasswordCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:   "set-dashboard-password",
+		Use:   "passwd",
 		Short: i18n.T("password.short"),
 		Long:  i18n.T("password.long"),
-		Example: `  llm-router set-dashboard-password
-  llm-router set-dashboard-password --generate
-  llm-router set-dashboard-password --password-stdin --if-absent < /run/secrets/admin_password`,
+		Example: `  llm-router passwd
+  llm-router passwd --generate
+  llm-router passwd --password-stdin --if-absent < /run/secrets/admin_password`,
 		GroupID: groupConfigure,
 		Args:    cobra.NoArgs,
 		RunE:    runSetDashboardPassword,

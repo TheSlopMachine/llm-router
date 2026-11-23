@@ -27,7 +27,7 @@ var english = map[string]string{
 Use this command in systemd units and containers. Configuration comes from
 the environment and the .env file (see "llm-router config").`,
 	"serve.initFailed":     "init server",
-	"serve.passwordNotSet": "dashboard password is not set; run: llm-router set-dashboard-password",
+	"serve.passwordNotSet": "dashboard password is not set; run: llm-router passwd",
 
 	"daemon.short": "Run the server in the background",
 	"daemon.long": `Run the server in the background.

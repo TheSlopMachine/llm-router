@@ -640,7 +640,7 @@ export const en: TranslationRecord = {
   'settings.docker.test.action': 'Test Connection',
   'settings.docker.test.status': 'Connected to Docker {version}, {mode} connections',
   'settings.docker.registries.title': 'Registry Logins',
-  'settings.docker.registries.empty': 'No registry logins.',
+  'settings.docker.registry_add.title': 'Add Registry Login',
   'settings.docker.registry_host.label': 'Registry Host',
   'settings.docker.registry_username.label': 'Username',
   'settings.docker.registry_secret.label': 'Password or Token',

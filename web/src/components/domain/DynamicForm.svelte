@@ -135,7 +135,6 @@
           id="dyn-{node.name}"
           name="dyn-{node.name}"
           secure
-          autocomplete="off"
           value={fieldValue(node)}
           placeholder={node.placeholder ?? ''}
           required={node.required ?? false}

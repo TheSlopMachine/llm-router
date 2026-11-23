@@ -154,7 +154,7 @@ func main() {
 	}
 	// The server refuses to start without a dashboard password. A fresh dev
 	// database gets a generated one, printed once; later starts keep it.
-	setPassword := exec.Command(binPath, "set-dashboard-password", "--generate", "--if-absent")
+	setPassword := exec.Command(binPath, "passwd", "--generate", "--if-absent")
 	setPassword.Dir = root
 	setPassword.Env = shared.EnvWith(backendEnvironment)
 	setPassword.Stderr = os.Stderr

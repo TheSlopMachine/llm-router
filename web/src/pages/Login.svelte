@@ -46,7 +46,7 @@
       <HStack gap={2}>
         <TextField
           id="password"
-          secure
+          type="password"
           fill
           size="lg"
           name="current-password"

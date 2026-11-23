@@ -275,7 +275,7 @@
         </VStack>
       </Field>
       <Field label={t('settings.docker.ssh_passphrase.label')} hint={stored?.has_ssh_passphrase ? t('settings.docker.secret.hint') : ''}>
-        <TextField bind:value={passphrase} secure size="lg" autocomplete="off" />
+        <TextField bind:value={passphrase} secure size="lg" />
       </Field>
       <Field label={t('settings.docker.socket.label')}>
         <TextField bind:value={socket} size="lg" autocomplete="off" />

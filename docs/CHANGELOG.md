@@ -1,5 +1,15 @@
 # Changelog
 
+## Done (2026-11-23, v0.12.3)
+
+- **`passwd` command.** `set-dashboard-password` was renamed to `passwd`. The old name was gone.
+- **Mobile layout.** The footer hid the router version on phones. Provider cards dropped the credential and model counts on phones. Plugin cards kept their actions on the title row. The Docker card tested the connection with an icon next to its status, and the registry list showed nothing when empty.
+- **Upload button.** The plugin upload button kept its label after a pick.
+- **Secret fields.** Browsers autofilled the saved dashboard password only on the login page. Credential, registry, SSH and password-change fields stayed empty and showed one reveal button.
+- **Registry logins.** The Add button opened a modal with the registry fields.
+- **Metrics.** The Overview cards came before the filters. Jump To Latest floated over the bottom of the log table and no longer moved the table.
+- **Toasts.** A toast no longer showed a scrollbar next to its text.
+
 ## Done (2026-11-23, v0.12.2)
 
 - **Faster releases.** The release workflow built each platform in its own job, all at once. `make build` built several platforms in parallel: `BUILD_WORKERS` set how many, one per CPU by default.

@@ -138,7 +138,6 @@
             />
           </span>
         </HStack>
-        <Text size="sm">{n(stats?.credential_count ?? 0, 'credentials.status.active.one', 'credentials.status.active.many')} · {stats?.enabled_model_count ?? 0} {t('models.list.title')}</Text>
         {#if isSystemDisabled(provider)}
           <Text variant="caption" tint="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(provider.disabled_reason)}</Text>
         {/if}

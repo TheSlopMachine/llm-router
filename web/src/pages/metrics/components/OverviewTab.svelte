@@ -174,19 +174,6 @@
 </script>
 
 <VStack gap={6}>
-  <HStack gap={3} valign="end" wrap>
-    <MetricsFiltersCmp bind:filters {providers} {models} onchange={(changed, field) => void handleFilterChange(changed, field)} />
-    <Button
-      buttonStyle={live ? 'prominent' : 'neutral'}
-      icon={{ name: live ? 'sensors' : 'pause' }}
-      text={t('metrics.live.action')}
-      onclick={() => {
-        live = !live
-        if (live) void loadMetrics()
-      }}
-    />
-  </HStack>
-
   {#if errors.length > 0 || activityError}
     <VStack gap={2}>
       {#each errors as error}
@@ -212,6 +199,19 @@
       </Card>
     </Grid>
   </VStack>
+
+  <HStack gap={3} valign="end" wrap>
+    <MetricsFiltersCmp bind:filters {providers} {models} onchange={(changed, field) => void handleFilterChange(changed, field)} />
+    <Button
+      buttonStyle={live ? 'prominent' : 'neutral'}
+      icon={{ name: live ? 'sensors' : 'pause' }}
+      text={t('metrics.live.action')}
+      onclick={() => {
+        live = !live
+        if (live) void loadMetrics()
+      }}
+    />
+  </HStack>
 
   <VStack gap={4}>
     <Text variant="section-title">{t('metrics.peak_trends')}</Text>

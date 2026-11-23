@@ -84,7 +84,7 @@
     style="--fui-icon-size: var(--fui-size-icon-lg); flex: none"
   />
   <div class="plugin-card-content">
-  <HStack valign="center" gap={4} wrap>
+  <HStack valign="center" gap={4}>
     <HStack valign="center" gap={2} wrap class="plugin-title">
       <span class="plugin-name"><Text variant="value">{title}</Text></span>
       <Chip text={version} tint="accent" size="sm" />
@@ -96,7 +96,7 @@
       {/if}
     </HStack>
 
-    <HStack valign="center" gap={2}>
+    <HStack valign="center" gap={2} class="plugin-actions">
       {#if mode === 'installed'}
         {#if isManual}
           <Button
@@ -190,8 +190,11 @@
     gap: 0;
   }
   .plugin-card-row :global(.plugin-title) {
-    flex: 1 1 var(--fui-grid-min-lg);
+    flex: 1 1 0;
     min-width: 0;
+  }
+  .plugin-card-row :global(.plugin-actions) {
+    flex: none;
   }
   .plugin-name {
     min-width: 0;

@@ -640,7 +640,7 @@ export const ru: TranslationRecord = {
   'settings.docker.test.action': 'Проверить подключение',
   'settings.docker.test.status': 'Подключено к Docker {version}, подключения: {mode}',
   'settings.docker.registries.title': 'Входы в реестры',
-  'settings.docker.registries.empty': 'Нет входов в реестры.',
+  'settings.docker.registry_add.title': 'Добавить вход в реестр',
   'settings.docker.registry_host.label': 'Хост реестра',
   'settings.docker.registry_username.label': 'Имя пользователя',
   'settings.docker.registry_secret.label': 'Пароль или токен',

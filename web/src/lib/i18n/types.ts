@@ -639,7 +639,7 @@ export type TranslationKey =
   | 'settings.docker.test.action'
   | 'settings.docker.test.status'
   | 'settings.docker.registries.title'
-  | 'settings.docker.registries.empty'
+  | 'settings.docker.registry_add.title'
   | 'settings.docker.registry_host.label'
   | 'settings.docker.registry_username.label'
   | 'settings.docker.registry_secret.label'

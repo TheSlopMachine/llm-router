@@ -150,15 +150,15 @@
     {/if}
 
     <Field label={t('settings.password.current')}>
-      <TextField id="current-password" name="current-password" bind:value={currentPassword} size="lg" secure autocomplete="current-password" />
+      <TextField id="current-password" bind:value={currentPassword} size="lg" secure />
     </Field>
 
     <Field label={t('settings.password.new')}>
-      <TextField id="new-password" name="new-password" bind:value={newPassword} size="lg" secure autocomplete="new-password" />
+      <TextField id="new-password" bind:value={newPassword} size="lg" secure />
     </Field>
 
     <Field label={t('settings.password.confirm')}>
-      <TextField id="confirm-password" name="new-password-confirm" bind:value={confirmPassword} size="lg" secure autocomplete="new-password" />
+      <TextField id="confirm-password" bind:value={confirmPassword} size="lg" secure />
     </Field>
 
     <HStack halign="end">

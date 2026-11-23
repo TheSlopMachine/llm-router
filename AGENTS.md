@@ -265,7 +265,17 @@ $effect(() => {
 
 Never stack a second guarded `$effect` to stabilize the first. Replace the first with `$derived` or imperative setup. Re-check every touched `$effect` before finishing a `.svelte` change.
 
-## 9. UI text (i18n)
+## 9. UI patterns
+
+- Adding an item to a list opens a modal with the item's fields. The page shows only an Add button next to the list. Never place an inline form under the list.
+  - BAD: Host, Username and Secret fields with an Add button under the registry table.
+  - GOOD: an Add button that opens a modal with those fields (`openFormModal`).
+- Action buttons sit at the right end. A section with a header puts them in the header (`Header primary`, `SectionHeading actions`, `CardGroup actions`). Otherwise they go in an `HStack halign="end"` under the content. Add and Save rows follow the same rule.
+  - BAD: Add on the left under the registry table, Save on the right above it.
+  - GOOD: both in `HStack halign="end"`.
+- A masked value uses `TextField secure`: browsers do not autofill it. Only the login form uses `type="password"`.
+
+## 10. UI text (i18n)
 
 UI text uses robotic keys from `web/src/lib/i18n/`: `types.ts` (the `TranslationKey` union), `en.ts`, `ru.ts`, `index.ts` (`t`, `n`, `tb`). Full guide: `web/src/lib/i18n/README.md`.
 
@@ -277,7 +287,7 @@ UI text uses robotic keys from `web/src/lib/i18n/`: `types.ts` (the `Translation
 - ASCII only (`...`, `-`). Title case for titles and buttons, sentence case for descriptions.
 - Delete a key in all three files when its last use goes.
 
-## 10. Lua plugins
+## 11. Lua plugins
 
 `docs/PLUGIN-API.md` is the binding contract. Every handler or API change updates it in the same change. `TestPluginContract*` in `luaplugin` fails when a sandbox function or handler slot is missing from it, or when its quickstart plugin stops installing.
 
@@ -296,7 +306,7 @@ Store plugins live in the sibling store repository, not in this repository. Reis
 
 Synthetic checks (install dry-run, classify on fake `{status, headers, body}`) do not replace live checks for stream paths.
 
-## 11. Runtime and smoke
+## 12. Runtime and smoke
 
 Debug in a closed loop: `make status`, filtered `make log` around the incident window, one direct call per affected path, the fix, the same calls, scoped smoke.
 
@@ -316,7 +326,7 @@ Debug in a closed loop: `make status`, filtered `make log` around the incident w
 - Streams assert delivery, dashboard chat asserts non-empty `choices`, unary asserts content. A unary-only failure with passing streams means empty upstream text.
 - Diagnose from the debug log first: `make smoke-test SMOKE_PLUGINS=... LOG_LEVEL=debug`. Entries below `LOG_LEVEL` never persist, so a missing `debug` line proves nothing.
 
-## 12. Documentation
+## 13. Documentation
 
 Docs change in the same change as the code. Present simple for current state, past simple for history.
 

@@ -99,6 +99,7 @@
           label={t('plugins.upload_file')}
           buttonText={t('upload.file')}
           icon="upload_file"
+          hideFileName
           disabled={pluginState.installingFile}
           onpick={(files) => { actionError = ''; void pluginState.reviewFile(files[0], null, uploadAnchor) }}
         />

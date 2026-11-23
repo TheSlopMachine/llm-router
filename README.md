@@ -34,7 +34,7 @@ Configure via .env file or environment variables.
 
 ```bash
 llm-router config init
-llm-router set-dashboard-password
+llm-router passwd
 llm-router daemon start
 ```
 
@@ -48,7 +48,7 @@ This starts the server on the configured port (default is `8080`).
 | `daemon start\|stop\|restart\|status` | Run in the background. |
 | `daemon enable\|disable` | Start the package service at boot. |
 | `config` | Interactive settings menu. |
-| `set-dashboard-password` | Set the dashboard password. |
+| `passwd` | Set the dashboard password. |
 | `logs` | Print server events. |
 | `status`, `doctor` | Inspect the running server and database. |
 | `update` | Install the latest release. |
@@ -59,7 +59,7 @@ Systemd and Docker should use this initialization logic:
 
 ```bash
 llm-router config init
-llm-router set-dashboard-password --password-stdin --if-absent < /run/secrets/dashboard_password
+llm-router passwd --password-stdin --if-absent < /run/secrets/dashboard_password
 exec llm-router serve
 ```
 

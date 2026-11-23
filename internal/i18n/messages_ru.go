@@ -27,7 +27,7 @@ var russian = map[string]string{
 Эта команда нужна для юнитов systemd и контейнеров. Настройки берутся из
 окружения и файла .env (см. "llm-router config").`,
 	"serve.initFailed":     "инициализация сервера",
-	"serve.passwordNotSet": "пароль дашборда не задан; выполни: llm-router set-dashboard-password",
+	"serve.passwordNotSet": "пароль дашборда не задан; выполни: llm-router passwd",
 
 	"daemon.short": "Запускать сервер в фоне",
 	"daemon.long": `Запускает сервер в фоне.

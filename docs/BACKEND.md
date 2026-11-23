@@ -13,7 +13,7 @@ cmd/serve.go             foreground server (takes the instance lock)
 cmd/daemon.go            daemon start/stop/restart/status/enable/disable; stop is SIGTERM, or a named stop event on Windows (daemon_unix.go, daemon_windows.go)
 cmd/service.go           daemon commands for the system service of a package install
 cmd/config.go            config menu, init, get, set, unset, list over the .env file
-cmd/password.go          set-dashboard-password (the only way to set the first password)
+cmd/password.go          passwd (the only way to set the first password)
 cmd/logs.go              logs: reads the events database read-only
 cmd/status.go, doctor.go, update.go   status, database doctor, self-update
 internal/instance/       one process per database: file lock + holder record next to DB_PATH
@@ -314,7 +314,7 @@ SQLite (`internal/db/sqlite.go`, `OpenSQLite`) owns three files.
 ### Dashboard authentication
 
 - One operator, no accounts. `dashboard_password` holds one bcrypt hash (row id 1). Login takes the password only.
-- `set-dashboard-password` sets the first password. `serve` refuses to start without one (`admin.ErrPasswordNotSet`). Containers set it in the entrypoint with `--password-stdin --if-absent`.
+- `passwd` sets the first password. `serve` refuses to start without one (`admin.ErrPasswordNotSet`). Containers set it in the entrypoint with `--password-stdin --if-absent`.
 - Failed logins lock out per socket peer address (`login_limiter.go`), never by `X-Forwarded-For`.
 - A session lives 8 hours, or 30 days with `remember_me`. Use moves the expiration forward. Without `remember_me` the cookie ends with the browser session. With it the cookie carries the server expiration and is reissued when it moves.
 - Sessions store the token hash as primary key, never the token.

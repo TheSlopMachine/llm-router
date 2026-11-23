@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Banner, Button, Card, Chip, ContentUnavailable, DisclosureGroup, Field, HStack, Picker, Table, Text, TextField, VStack, modal, toast, type TableColumn } from '@fuckyouryan/fui'
+  import { Banner, Button, Card, Chip, DisclosureGroup, Field, HStack, Picker, Table, Text, TextField, VStack, modal, toast, type TableColumn } from '@fuckyouryan/fui'
   import DockerWizard from '../../components/domain/DockerWizard.svelte'
+  import RegistryLoginModal from './RegistryLoginModal.svelte'
   import { api } from '$lib/api'
+  import { openFormModal } from '$lib/modal-helpers'
   import { t, tx } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { stageHint } from '$lib/docker'
@@ -21,10 +23,6 @@
   let savingAdvanced = $state(false)
 
   let registries = $state<DockerRegistry[]>([])
-  let registryHost = $state('')
-  let registryUsername = $state('')
-  let registrySecret = $state('')
-  let registrySaving = $state(false)
 
   let configured = $derived(!!connection?.endpoint)
 
@@ -130,19 +128,20 @@
     }
   }
 
-  async function saveRegistry(): Promise<void> {
-    registrySaving = true
+  function openRegistryModal(): void {
     error = ''
+    openFormModal(RegistryLoginModal, {
+      title: t('settings.docker.registry_add.title'),
+      size: 'sm',
+      onReload: () => void reloadRegistries(),
+    })
+  }
+
+  async function reloadRegistries(): Promise<void> {
     try {
-      await api.docker.saveRegistry(registryHost, registryUsername, registrySecret)
       registries = await api.docker.registries()
-      registryHost = ''
-      registryUsername = ''
-      registrySecret = ''
     } catch (e) {
       error = getErrorMessage(e)
-    } finally {
-      registrySaving = false
     }
   }
 
@@ -178,6 +177,7 @@
         {:else if testError}
           <Chip text={t('settings.docker.failed.status')} size="sm" tint="danger" />
         {/if}
+        <Button buttonStyle="text" size="sm" icon={{ name: 'refresh' }} ariaLabel={t('settings.docker.test.action')} title={t('settings.docker.test.action')} onclick={() => void runTest()} disabled={testing} />
       </HStack>
       {#if test}
         <Text size="sm" foregroundStyle="secondary">{tx('settings.docker.test.status', { version: test.server_version, mode: test.dial_mode })} · {test.operating_system} · {test.architecture}{test.gpu ? ` · ${t('settings.docker.gpu_available.status')}` : ''}</Text>
@@ -195,9 +195,8 @@
         {/if}
       {/if}
     </VStack>
-    <HStack halign="end" gap={2} wrap>
+    <HStack halign="end" gap={2}>
       <Button buttonStyle="text" tint="var(--fui-color-danger)" onclick={() => void disconnect()}>{t('settings.docker.disconnect.action')}</Button>
-      <Button buttonStyle="neutral" onclick={() => void runTest()} disabled={testing}>{t('settings.docker.test.action')}</Button>
       <Button buttonStyle="neutral" icon={{ name: 'edit' }} onclick={openWizard}>{t('settings.docker.change.action')}</Button>
     </HStack>
   {/if}
@@ -230,34 +229,24 @@
   </DisclosureGroup>
 
   <DisclosureGroup title={t('settings.docker.registries.title')}>
-    <VStack gap={2}>
-      <Table columns={registryColumns} rows={registries} rowKey={(registry) => registry.host} hideHeaderWhenEmpty>
-        {#snippet cell({ column, row })}
-          {#if column.key === 'host'}
-            <Text variant="value">{row.host}</Text>
-          {:else if column.key === 'username'}
-            <Text size="sm">{row.username}</Text>
-          {:else}
-            <HStack gap={3} halign="end">
-              <Button buttonStyle="text" size="sm" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} ariaLabel={t('common.actions.delete')} title={t('common.actions.delete')} onclick={() => void deleteRegistry(row.host)} />
-            </HStack>
-          {/if}
-        {/snippet}
-        {#snippet empty()}
-          <ContentUnavailable title={t('settings.docker.registries.empty')} />
-        {/snippet}
-      </Table>
-      <HStack gap={2} wrap valign="end">
-        <Field label={t('settings.docker.registry_host.label')}>
-          <TextField bind:value={registryHost} placeholder="ghcr.io" autocomplete="off" />
-        </Field>
-        <Field label={t('settings.docker.registry_username.label')}>
-          <TextField bind:value={registryUsername} autocomplete="off" />
-        </Field>
-        <Field label={t('settings.docker.registry_secret.label')}>
-          <TextField bind:value={registrySecret} secure autocomplete="off" />
-        </Field>
-        <Button buttonStyle="neutral" icon={{ name: 'add' }} onclick={() => void saveRegistry()} disabled={registrySaving || !registryHost || !registryUsername || !registrySecret}>{t('common.actions.add')}</Button>
+    <VStack gap={4}>
+      {#if registries.length > 0}
+        <Table columns={registryColumns} rows={registries} rowKey={(registry) => registry.host}>
+          {#snippet cell({ column, row })}
+            {#if column.key === 'host'}
+              <Text variant="value">{row.host}</Text>
+            {:else if column.key === 'username'}
+              <Text size="sm">{row.username}</Text>
+            {:else}
+              <HStack gap={3} halign="end">
+                <Button buttonStyle="text" size="sm" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} ariaLabel={t('common.actions.delete')} title={t('common.actions.delete')} onclick={() => void deleteRegistry(row.host)} />
+              </HStack>
+            {/if}
+          {/snippet}
+        </Table>
+      {/if}
+      <HStack halign="end">
+        <Button buttonStyle="neutral" icon={{ name: 'add' }} onclick={openRegistryModal}>{t('common.actions.add')}</Button>
       </HStack>
     </VStack>
   </DisclosureGroup>

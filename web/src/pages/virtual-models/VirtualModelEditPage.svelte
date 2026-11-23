@@ -254,7 +254,9 @@
         {#if modelsLoadState === 'empty'}
           <ContentUnavailable title={t('models.list.empty_configure_first')} />
         {:else if isEditable}
-          <Button text={t('models.actions.add')} icon={{ name: 'add' }} onclick={addModel} />
+          <HStack halign="end">
+            <Button text={t('models.actions.add')} icon={{ name: 'add' }} onclick={addModel} />
+          </HStack>
         {/if}
       {:else}
         <VStack gap={3}>
@@ -304,7 +306,9 @@
           {/each}
         </VStack>
         {#if isEditable}
-          <Button text={t('models.actions.add')} icon={{ name: 'add' }} onclick={addModel} />
+          <HStack halign="end">
+            <Button text={t('models.actions.add')} icon={{ name: 'add' }} onclick={addModel} />
+          </HStack>
         {/if}
         <HStack gap={5} wrap valign="center">
           <Text size="sm" weight="medium" foregroundStyle="secondary">{t('virtual.capabilities')}</Text>

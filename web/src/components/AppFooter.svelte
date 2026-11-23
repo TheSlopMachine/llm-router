@@ -3,6 +3,7 @@
   import { onMount } from 'svelte'
   import { api } from '../lib/api'
   import { t, tx } from '../lib/i18n.svelte'
+  import { viewport } from '../lib/viewport.svelte'
 
   const REPOSITORY_URL = 'https://github.com/TheSlopMachine/llm-router'
   // The origin the dashboard was reached with also serves /v1 (vite proxies it in dev).
@@ -21,7 +22,9 @@
 </script>
 
 <Footer>
-  <Text size="sm" foregroundStyle="secondary" whiteSpace="nowrap" text={tx('nav.footer.app_version', { version: versionLabel }).trim()} />
+  {#if !viewport.mobile}
+    <Text size="sm" foregroundStyle="secondary" whiteSpace="nowrap" text={tx('nav.footer.app_version', { version: versionLabel }).trim()} />
+  {/if}
   <Button href={REPOSITORY_URL} external buttonStyle="text" size="sm" text={t('nav.footer.source_code')} />
   <Spacer />
   <Text size="sm" foregroundStyle="secondary" truncate text={tx('nav.footer.api_url', { url: apiUrl })} />

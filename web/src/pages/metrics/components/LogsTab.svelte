@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import {
-    Banner, Button, Card, ContentUnavailable, HStack, Spacer, Table, Text, VStack, modal,
+    Banner, Button, Card, ContentUnavailable, HStack, Spacer, Table, Text, VStack, ZStack, modal,
     type TableColumn,
   } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
@@ -334,10 +334,42 @@
     </Card>
   {/if}
 
-  {#if olderAvailable || !follow}
+  {#if olderAvailable}
     <HStack valign="center" gap={3}>
       <Spacer />
-      {#if !follow}
+      <Button
+        buttonStyle="neutral"
+        size="sm"
+        icon={{ name: 'arrow_downward' }}
+        text={t('metrics.logs.load_older.action')}
+        loading={loadingOlder}
+        onclick={() => void loadOlder()}
+      />
+    </HStack>
+  {/if}
+
+  <!-- the remaining height of the page; the table body scrolls inside it -->
+  <VStack grow minHeight={MIN_TABLE_HEIGHT} onscrollcapture={onTableScroll}>
+    <ZStack grow>
+      <Table
+        {columns}
+        rows={visible}
+        rowKey={(entry) => entry.id}
+        lazy
+        rowHeight={ROW_HEIGHT}
+        grow
+        loading={loading && entries.length === 0}
+        onrowclick={openDetail}
+      >
+        {#snippet cell({ column, row })}
+          <LogCell column={column.key as LogColumn} entry={row} {formatTime} />
+        {/snippet}
+        {#snippet empty()}
+          <ContentUnavailable title={t('metrics.logs.empty.title')} />
+        {/snippet}
+      </Table>
+      <!-- floats over the table while the view is scrolled away from the newest entries -->
+      <div class="jump-latest" class:shown={!follow} inert={follow}>
         <Button
           buttonStyle="prominent"
           size="sm"
@@ -345,39 +377,34 @@
           text={t('metrics.logs.jump_latest.action')}
           onclick={showPending}
         />
-      {/if}
-      {#if olderAvailable}
-        <Button
-          buttonStyle="neutral"
-          size="sm"
-          icon={{ name: 'arrow_downward' }}
-          text={t('metrics.logs.load_older.action')}
-          loading={loadingOlder}
-          onclick={() => void loadOlder()}
-        />
-      {/if}
-    </HStack>
-  {/if}
-
-  <!-- the remaining height of the page; the table body scrolls inside it -->
-  <VStack grow minHeight={MIN_TABLE_HEIGHT} onscrollcapture={onTableScroll}>
-    <Table
-      {columns}
-      rows={visible}
-      rowKey={(entry) => entry.id}
-      lazy
-      rowHeight={ROW_HEIGHT}
-      grow
-      loading={loading && entries.length === 0}
-      onrowclick={openDetail}
-    >
-      {#snippet cell({ column, row })}
-        <LogCell column={column.key as LogColumn} entry={row} {formatTime} />
-      {/snippet}
-      {#snippet empty()}
-        <ContentUnavailable title={t('metrics.logs.empty.title')} />
-      {/snippet}
-    </Table>
+      </div>
+    </ZStack>
   </VStack>
 </VStack>
+
+<style>
+  .jump-latest {
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    padding: var(--fui-space-5);
+    pointer-events: none;
+    filter: var(--fui-filter-floating);
+    opacity: 0;
+    transform: translateY(var(--fui-space-3));
+    transition:
+      opacity var(--fui-dur-base) ease,
+      transform var(--fui-dur-base) var(--fui-ease-standard);
+  }
+  .jump-latest.shown {
+    opacity: 1;
+    transform: none;
+  }
+  .jump-latest.shown > :global(*) {
+    pointer-events: auto;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .jump-latest { transition: none; }
+  }
+</style>
 
