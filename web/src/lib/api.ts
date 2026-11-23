@@ -3,7 +3,7 @@ import { locale } from './i18n/index'
 import { eventsQueryParams } from './events'
 import type { BackendTokenRules } from './token-rules'
 import type { CredentialScope } from './types'
-import type { EventEntry, EventsQuery, Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, ProxySchemaResponse, AuthStepResponse, Plugin, PluginPreview, PluginRepo, StoreFile, PluginUpdate, ProviderModel, ProviderVMGroup, TestResult, Proxy, ProxyStatus, ProxySourceInfo, ProxyPool, SubsystemStats, DoctorReport, DoctorCategory, ProviderBundle, DockerConnection, DockerConnectionUpdate, DockerConnectionTest, DockerRegistry, DockerTestResult, ProviderDocker } from './types'
+import type { EventEntry, EventsQuery, Provider, Token, ProviderStats, TokenUsageInfo, TimeRange, MetricsOverview, TimeSeriesPoint, AvailableModel, SchemaResponse, ProxySchemaResponse, AuthStepResponse, Plugin, PluginPreview, PluginRepo, StoreFile, PluginUpdate, ProviderModel, ProviderVMGroup, TestResult, Proxy, ProxyStatus, ProxySourceInfo, ProxyPool, SubsystemStats, DoctorReport, DoctorCategory, ProviderBundle, DockerConnection, DockerConnectionUpdate, DockerConnectionTest, DockerRegistry, DockerTestResult, WSLDistribution, WSLDockerStatus, LocalDocker, LocalDockerSocket, ProviderDocker } from './types'
 
 const apiCall = _apiCall
 
@@ -487,6 +487,21 @@ export const api = {
 
     scanHostKey: (endpoint: string): Promise<{ host_key: string; fingerprint: string }> =>
       postJson('/api/llm-router/dashboard/docker/host-key', { endpoint }),
+
+    wslDistributions: (): Promise<WSLDistribution[]> =>
+      fetch('/api/llm-router/dashboard/docker/wsl/distributions').then(assertOk),
+
+    wslStatus: (name: string): Promise<WSLDockerStatus> =>
+      fetch(`/api/llm-router/dashboard/docker/wsl/distributions/${encodeURIComponent(name)}`).then(assertOk),
+
+    wslSetUp: (name: string): Promise<WSLDockerStatus> =>
+      postJson(`/api/llm-router/dashboard/docker/wsl/distributions/${encodeURIComponent(name)}/setup`, {}),
+
+    localDocker: (): Promise<LocalDocker> =>
+      fetch('/api/llm-router/dashboard/docker/local').then(assertOk),
+
+    probeLocalSocket: (path: string): Promise<LocalDockerSocket> =>
+      postJson('/api/llm-router/dashboard/docker/local/probe', { path }),
 
     registries: (): Promise<DockerRegistry[]> =>
       fetch('/api/llm-router/dashboard/docker/registries').then(assertOk),

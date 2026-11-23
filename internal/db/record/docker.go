@@ -10,14 +10,17 @@ import (
 // DockerConnection is the single Docker daemon connection row. The
 // identifier is always 1. An empty endpoint means Docker is unconfigured.
 type DockerConnection struct {
-	ID           int64                   `gorm:"primaryKey;check:id = 1"`
-	Endpoint     string                  `gorm:"not null"`
-	Namespace    string                  `gorm:"not null"`
-	DialMode     string                  `gorm:"not null"`
-	GatewayImage string                  `gorm:"not null"`
-	SSHHostKey   string                  `gorm:"column:ssh_host_key;not null"`
-	Secrets      DockerConnectionSecrets `gorm:"serializer:credential_cipher;not null"`
-	UpdatedAt    time.Time               `gorm:"not null"`
+	ID           int64  `gorm:"primaryKey;check:id = 1"`
+	Endpoint     string `gorm:"not null"`
+	Namespace    string `gorm:"not null"`
+	DialMode     string `gorm:"not null"`
+	GatewayImage string `gorm:"not null"`
+	SSHHostKey   string `gorm:"column:ssh_host_key;not null"`
+	// WSLDistribution is the WSL distro the router keeps running for the
+	// daemon, empty outside WSL setups.
+	WSLDistribution string                  `gorm:"column:wsl_distribution;not null;default:''"`
+	Secrets         DockerConnectionSecrets `gorm:"serializer:credential_cipher;not null"`
+	UpdatedAt       time.Time               `gorm:"not null"`
 }
 
 // TableName pins the docker connections table name.

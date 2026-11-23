@@ -493,7 +493,10 @@ export interface DockerConnection {
   has_tls_key: boolean
   has_ssh_private_key: boolean
   has_ssh_passphrase: boolean
-  router_os: string
+  /** the WSL distro the router keeps running, empty outside WSL setups */
+  wsl_distribution: string
+  /** the ways this router reaches Docker: wsl only on Windows, unix only on Linux and macOS */
+  connection_kinds: Array<'ssh' | 'unix' | 'tcp' | 'wsl'>
 }
 
 /** a null secret keeps the stored value, an empty string clears it */
@@ -503,6 +506,7 @@ export interface DockerConnectionUpdate {
   dial_mode: string
   gateway_image: string
   ssh_host_key: string
+  wsl_distribution: string
   tls_ca: string | null
   tls_certificate: string | null
   tls_key: string | null
@@ -525,6 +529,39 @@ export interface DockerRegistry {
   host: string
   username: string
   updated_at: string
+}
+
+export interface WSLDistribution {
+  name: string
+  version: number
+  default: boolean
+}
+
+export interface WSLDockerStatus {
+  distribution: string
+  state: 'ready' | 'needs_setup' | 'systemd_off' | 'docker_missing'
+  /** the script the setup runs as root */
+  commands: string
+}
+
+export interface LocalDockerSocket {
+  path: string
+  source: 'docker_host' | 'context' | 'system' | 'rootless' | 'podman' | 'podman_rootless' | 'custom'
+  /** the Docker context name, empty for other sources */
+  context: string
+  state: 'ready' | 'permission_denied' | 'not_running' | 'missing' | 'unreachable'
+  /** why an unreachable socket failed */
+  error: string
+  /** shell commands that fix the state, empty when the router knows none */
+  commands: string
+}
+
+export interface LocalDocker {
+  /** the account the router runs as */
+  user: string
+  sockets: LocalDockerSocket[]
+  /** shell commands that start Docker when no socket exists */
+  commands: string
 }
 
 export interface DockerContainerStatus {
@@ -550,7 +587,7 @@ export interface DockerPluginView {
   connection: DockerConnection
 }
 
-export type DockerStage = 'connect' | 'handshake' | 'host_key' | 'authenticate' | 'socket' | 'tls' | 'daemon'
+export type DockerStage = 'connect' | 'handshake' | 'host_key' | 'authenticate' | 'socket' | 'local_socket' | 'tls' | 'daemon'
 
 export interface DockerImageProgress {
   phase: 'download_context' | 'pull' | 'build'

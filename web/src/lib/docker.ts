@@ -107,6 +107,7 @@ export function stageHint(stage: DockerStage | undefined): string {
     host_key: 'settings.docker.stage_host_key.hint',
     authenticate: 'settings.docker.stage_authenticate.hint',
     socket: 'settings.docker.stage_socket.hint',
+    local_socket: 'settings.docker.stage_local_socket.hint',
     tls: 'settings.docker.stage_tls.hint',
     daemon: 'settings.docker.stage_daemon.hint',
   }
@@ -128,8 +129,9 @@ export const DEFAULT_DOCKER_SOCKET = '/var/run/docker.sock'
 /** the WSL setup: dockerd in the distro listens on loopback, WSL forwards it to Windows */
 export const WSL_DOCKER_PORT = '2375'
 
-/** the parts of a stored endpoint; an empty or unknown one reads as a fresh ssh form */
-export function parseDockerEndpoint(raw: string): DockerEndpointParts {
+/** the parts of a stored endpoint; an empty or unknown one reads as a fresh ssh form.
+ * The WSL address reads as WSL only where the router offers it. */
+export function parseDockerEndpoint(raw: string, connectionKinds: DockerEndpointKind[]): DockerEndpointParts {
   const empty: DockerEndpointParts = { kind: 'ssh', host: '', port: '22', user: '', socket: DEFAULT_DOCKER_SOCKET }
   const match = /^(ssh|unix|tcp):\/\/(.*)$/.exec(raw.trim())
   if (!match) return empty
@@ -144,7 +146,7 @@ export function parseDockerEndpoint(raw: string): DockerEndpointParts {
   const colon = hostPort.lastIndexOf(':')
   const host = colon >= 0 ? hostPort.slice(0, colon) : hostPort
   const port = colon >= 0 ? hostPort.slice(colon + 1) : kind === 'ssh' ? '22' : '2376'
-  if (kind === 'tcp' && host === '127.0.0.1' && port === WSL_DOCKER_PORT) {
+  if (kind === 'tcp' && host === '127.0.0.1' && port === WSL_DOCKER_PORT && connectionKinds.includes('wsl')) {
     return { ...empty, kind: 'wsl', host, port }
   }
   return { kind: kind as DockerEndpointKind, host, port, user, socket: path || DEFAULT_DOCKER_SOCKET }

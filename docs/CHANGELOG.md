@@ -4,6 +4,10 @@
 
 - **Faster releases.** The release workflow built each platform in its own job, all at once. `make build` built several platforms in parallel: `BUILD_WORKERS` set how many, one per CPU by default.
 - **Static Linux binaries.** Release and install builds ran with cgo off on every platform. Native builds linked no libc, so they ran on glibc and musl systems alike.
+- **Docker setup in WSL.** The Docker wizard listed the WSL distros of the PC and set up Docker in the chosen one: a service that started with the distro and listened on 127.0.0.1:2375. It turned systemd on when it was off. The manual `dockerd` command was gone. WSL support was built only into Windows binaries. Other platforms offered no WSL option, had no WSL routes, and a stored `tcp://127.0.0.1:2375` opened as plain TCP there. The connection view returned `connection_kinds` instead of `router_os`.
+- **WSL distro kept running.** WSL stopped an idle distro, and its Docker with it, even while dockerd ran. The router kept the distro of a WSL setup running while it ran, and started it at launch. The Settings card named the distro.
+- **Docker on this machine.** On Linux and macOS the wizard found the local Docker sockets itself: `DOCKER_HOST`, Docker contexts (Docker Desktop, OrbStack, Colima, Rancher Desktop), system and rootless Docker, and Podman. It showed which ones answered. For a socket without access or a stopped daemon it named the router user and showed the command that fixed it. The manual socket field became an optional path check. FreeBSD routers no longer offered a local Docker option. The wizard listed the local option first, then SSH, then TLS.
+- **Cross-platform vet.** `make go-vet VET_GOOS=linux` checked the files of another platform's build.
 
 ## Done (2026-11-23, v0.12.1)
 

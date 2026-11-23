@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -73,7 +74,8 @@ func TestPluginFileRoutes(t *testing.T) {
 }
 
 // TestDockerConnectionRoutes guards the Docker settings routes: defaults on
-// a fresh database, validation on write and 503 without the service.
+// a fresh database, validation on write, 503 without the service, and the
+// platform routes and connection kinds of each OS.
 func TestDockerConnectionRoutes(t *testing.T) {
 	serve := func(h *Handler, method, path, body string) *httptest.ResponseRecorder {
 		mux := http.NewServeMux()
@@ -96,12 +98,30 @@ func TestDockerConnectionRoutes(t *testing.T) {
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("invalid host key: got %d %s", recorder.Code, recorder.Body.String())
 	}
-	recorder = serve(h, http.MethodPut, "/api/llm-router/dashboard/docker/connection", `{"endpoint":"tcp://127.0.0.1:2375","ssh_private_key":"secret"}`)
+	recorder = serve(h, http.MethodPut, "/api/llm-router/dashboard/docker/connection", `{"endpoint":"tcp://127.0.0.1:1","ssh_private_key":"secret"}`)
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"has_ssh_private_key":true`) || strings.Contains(recorder.Body.String(), "secret\"") {
 		t.Fatalf("store: got %d %s", recorder.Code, recorder.Body.String())
 	}
 	recorder = serve(h, http.MethodPost, "/api/llm-router/dashboard/docker/connection/test", "")
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("unreachable daemon test: got %d %s", recorder.Code, recorder.Body.String())
+	}
+	kinds, wslRoute, localRoute := `"connection_kinds":["ssh","unix","tcp"]`, http.StatusNotFound, http.StatusBadRequest
+	switch runtime.GOOS {
+	case "windows":
+		kinds, wslRoute, localRoute = `"connection_kinds":["ssh","tcp","wsl"]`, http.StatusBadRequest, http.StatusNotFound
+	case "freebsd":
+		kinds, localRoute = `"connection_kinds":["ssh","tcp"]`, http.StatusNotFound
+	}
+	if recorder := serve(h, http.MethodGet, "/api/llm-router/dashboard/docker/connection", ""); !strings.Contains(recorder.Body.String(), kinds) {
+		t.Fatalf("connection kinds: %s", recorder.Body.String())
+	}
+	recorder = serve(h, http.MethodPost, "/api/llm-router/dashboard/docker/wsl/distributions/bad%20name/setup", "")
+	if recorder.Code != wslRoute {
+		t.Fatalf("wsl route with an invalid distro name: got %d %s", recorder.Code, recorder.Body.String())
+	}
+	recorder = serve(h, http.MethodPost, "/api/llm-router/dashboard/docker/local/probe", `{"path":"docker.sock"}`)
+	if recorder.Code != localRoute {
+		t.Fatalf("local probe with a relative path: got %d %s", recorder.Code, recorder.Body.String())
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -27,6 +28,14 @@ const (
 	DialModeAuto  = "auto"
 	DialModeRoute = "route"
 	DialModeRelay = "relay"
+)
+
+// Ways to reach Docker, as the setup wizard offers them. They match the
+// endpoint schemes.
+const (
+	ConnectionSSH  = string(dockerengine.EndpointSSH)
+	ConnectionUnix = string(dockerengine.EndpointUnix)
+	ConnectionTCP  = string(dockerengine.EndpointTCP)
 )
 
 // DefaultNamespace prefixes every object name and labels every object.
@@ -52,24 +61,30 @@ type ConnectionSettings struct {
 	HasTLSKey             bool   `json:"has_tls_key"`
 	HasSSHPrivateKey      bool   `json:"has_ssh_private_key"`
 	HasSSHPassphrase      bool   `json:"has_ssh_passphrase"`
-	// RouterOS is the operating system of the router: unix endpoints need
-	// a router outside Windows.
-	RouterOS string `json:"router_os"`
+	// WSLDistribution is the WSL distro the router keeps running, empty
+	// outside WSL setups.
+	WSLDistribution string `json:"wsl_distribution"`
+	// ConnectionKinds are the ways this router reaches Docker. They depend
+	// on the platform the router runs on.
+	ConnectionKinds []string `json:"connection_kinds"`
 }
 
 // ConnectionUpdate changes the connection. A nil secret keeps the stored
 // value; an empty string clears it.
 type ConnectionUpdate struct {
-	Endpoint       string  `json:"endpoint"`
-	Namespace      string  `json:"namespace"`
-	DialMode       string  `json:"dial_mode"`
-	GatewayImage   string  `json:"gateway_image"`
-	SSHHostKey     string  `json:"ssh_host_key"`
-	TLSCA          *string `json:"tls_ca"`
-	TLSCertificate *string `json:"tls_certificate"`
-	TLSKey         *string `json:"tls_key"`
-	SSHPrivateKey  *string `json:"ssh_private_key"`
-	SSHPassphrase  *string `json:"ssh_passphrase"`
+	Endpoint     string `json:"endpoint"`
+	Namespace    string `json:"namespace"`
+	DialMode     string `json:"dial_mode"`
+	GatewayImage string `json:"gateway_image"`
+	SSHHostKey   string `json:"ssh_host_key"`
+	// WSLDistribution names the WSL distro to keep running. It needs the
+	// WSL endpoint on a Windows router.
+	WSLDistribution string  `json:"wsl_distribution"`
+	TLSCA           *string `json:"tls_ca"`
+	TLSCertificate  *string `json:"tls_certificate"`
+	TLSKey          *string `json:"tls_key"`
+	SSHPrivateKey   *string `json:"ssh_private_key"`
+	SSHPassphrase   *string `json:"ssh_passphrase"`
 }
 
 // RegistryCredential is the dashboard view of one registry login.
@@ -114,7 +129,8 @@ func connectionView(row record.DockerConnection) ConnectionSettings {
 		HasTLSKey:         row.Secrets.TLSKey != "",
 		HasSSHPrivateKey:  row.Secrets.SSHPrivateKey != "",
 		HasSSHPassphrase:  row.Secrets.SSHPassphrase != "",
-		RouterOS:          runtime.GOOS,
+		WSLDistribution:   row.WSLDistribution,
+		ConnectionKinds:   connectionKinds,
 	}
 	if row.SSHHostKey != "" {
 		if fingerprint, err := dockerengine.HostKeyFingerprint(row.SSHHostKey); err == nil {
@@ -143,8 +159,8 @@ func validateEndpoint(raw string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidSettings, err)
 	}
-	if endpoint.Kind == dockerengine.EndpointUnix && runtime.GOOS == "windows" {
-		return fmt.Errorf("%w: unix endpoints are not supported on Windows: use ssh:// or tcp://127.0.0.1 for a WSL daemon", ErrInvalidSettings)
+	if !slices.Contains(connectionKinds, string(endpoint.Kind)) {
+		return fmt.Errorf("%w: %s endpoints are not supported on %s", ErrInvalidSettings, endpoint.Kind, runtime.GOOS)
 	}
 	return nil
 }
@@ -186,6 +202,10 @@ func (service *Service) PutConnection(ctx context.Context, update ConnectionUpda
 			return ConnectionSettings{}, fmt.Errorf("%w: %v", ErrInvalidSettings, err)
 		}
 	}
+	update.WSLDistribution = strings.TrimSpace(update.WSLDistribution)
+	if err := validateWSLDistribution(update.Endpoint, update.WSLDistribution); err != nil {
+		return ConnectionSettings{}, err
+	}
 	var stored record.DockerConnection
 	err := service.database.Transaction(func(transaction *gorm.DB) error {
 		row, err := service.loadConnectionRow(ctx, transaction)
@@ -197,6 +217,7 @@ func (service *Service) PutConnection(ctx context.Context, update ConnectionUpda
 		row.DialMode = update.DialMode
 		row.GatewayImage = update.GatewayImage
 		row.SSHHostKey = update.SSHHostKey
+		row.WSLDistribution = update.WSLDistribution
 		applySecret(&row.Secrets.TLSCA, update.TLSCA)
 		applySecret(&row.Secrets.TLSCertificate, update.TLSCertificate)
 		applySecret(&row.Secrets.TLSKey, update.TLSKey)
@@ -213,6 +234,7 @@ func (service *Service) PutConnection(ctx context.Context, update ConnectionUpda
 		return ConnectionSettings{}, err
 	}
 	service.resetSession()
+	service.keepWSLDistribution(stored.WSLDistribution)
 	service.logInfo("Docker connection updated", "endpoint", update.Endpoint, "dial_mode", update.DialMode)
 	if update.Endpoint == "" {
 		service.wiringMu.RLock()

@@ -89,6 +89,7 @@
       dial_mode: dialMode,
       gateway_image: gatewayImage,
       ssh_host_key: clearSecrets ? '' : connection?.ssh_host_key ?? '',
+      wsl_distribution: clearSecrets ? '' : connection?.wsl_distribution ?? '',
       ssh_private_key: keep,
       ssh_passphrase: keep,
       tls_ca: keep,
@@ -180,6 +181,9 @@
       </HStack>
       {#if test}
         <Text size="sm" foregroundStyle="secondary">{tx('settings.docker.test.status', { version: test.server_version, mode: test.dial_mode })} · {test.operating_system} · {test.architecture}{test.gpu ? ` · ${t('settings.docker.gpu_available.status')}` : ''}</Text>
+      {/if}
+      {#if connection.wsl_distribution}
+        <Text size="sm" foregroundStyle="secondary">{tx('settings.docker.wsl_keeper.status', { distribution: connection.wsl_distribution })}</Text>
       {/if}
       {#if connection.ssh_host_key_fingerprint}
         <Text size="sm" foregroundStyle="secondary">{connection.ssh_host_key_fingerprint}</Text>

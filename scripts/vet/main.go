@@ -14,6 +14,7 @@ func main() {
 		shared.Failf("%v", err)
 	}
 	packagePattern := shared.Getenv("PKG", "./...")
+	targetOS := shared.Getenv("VET_GOOS", "")
 	// Unscoped runs cover both Go modules; a scoped PKG narrows to exactly
 	// the requested tree.
 	directories := []string{root, filepath.Join(root, "scripts")}
@@ -28,11 +29,15 @@ func main() {
 		cmd.Dir = directory
 		// The scripts module stays hermetic (never in go.work): vet it
 		// with the workspace off. The root module vets inside it.
-		env := shared.EnvWithoutGowork()
+		var extra []string
 		if directory != root {
-			env = shared.EnvWith([]string{"GOWORK=off"})
+			extra = append(extra, "GOWORK=off")
 		}
-		cmd.Env = env
+		// VET_GOOS checks the files of another platform's build.
+		if targetOS != "" {
+			extra = append(extra, "GOOS="+targetOS)
+		}
+		cmd.Env = shared.EnvWith(extra)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {

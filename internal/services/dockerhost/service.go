@@ -46,6 +46,8 @@ type Service struct {
 
 	gatewayLogMu    sync.Mutex
 	gatewayLogSince map[string]int64
+
+	wslKeeper wslKeeper
 }
 
 // New builds the service on the durable database handle.
@@ -216,9 +218,21 @@ func (service *Service) resetSession() {
 	}
 }
 
-// Close releases the daemon connection.
+// ResumeConnection restores what the stored connection needs before the
+// first daemon call: on Windows, the WSL distro of the daemon keeps running.
+func (service *Service) ResumeConnection(ctx context.Context) error {
+	row, err := service.loadConnectionRow(ctx, service.database)
+	if err != nil {
+		return err
+	}
+	service.keepWSLDistribution(row.WSLDistribution)
+	return nil
+}
+
+// Close releases the daemon connection and lets the WSL distro idle.
 func (service *Service) Close() {
 	service.resetSession()
+	service.keepWSLDistribution("")
 }
 
 // faultFromError wraps a daemon error as a fault. Unavailable transports

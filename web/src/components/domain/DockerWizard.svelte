@@ -7,6 +7,9 @@
   import { getErrorMessage } from '$lib/errors'
   import { composeDockerEndpoint, parseDockerEndpoint, stageHint, DEFAULT_DOCKER_SOCKET, type DockerEndpointKind } from '$lib/docker'
   import type { DockerConnection, DockerConnectionTest, DockerStage } from '$lib/types'
+  import DockerChoice from './DockerChoice.svelte'
+  import DockerWizardSocket from './DockerWizardSocket.svelte'
+  import DockerWizardWSL from './DockerWizardWSL.svelte'
 
   let {
     onComplete,
@@ -24,7 +27,7 @@
     closeModal: () => void
   } = $props()
 
-  type Step = 'kind' | 'details' | 'host_key' | 'test'
+  type Step = 'kind' | 'details' | 'host_key' | 'socket' | 'distribution' | 'service' | 'test'
 
   let stored = $state<DockerConnection | null>(null)
   let step = $state<Step>('kind')
@@ -32,7 +35,10 @@
   let host = $state('')
   let port = $state('22')
   let user = $state('')
+  /** the daemon socket on the SSH host */
   let socket = $state(DEFAULT_DOCKER_SOCKET)
+  /** the daemon socket on the router machine */
+  let localSocket = $state('')
   let privateKey = $state('')
   let passphrase = $state('')
   let tlsCA = $state('')
@@ -45,23 +51,34 @@
   let error = $state('')
   let stage = $state<DockerStage | undefined>(undefined)
   let result = $state<DockerConnectionTest | null>(null)
+  let distribution = $state('')
 
+  /** most used first: Docker on the router machine, then SSH, then TLS */
   const kinds: Array<{ value: DockerEndpointKind; title: TranslationKey; hint: TranslationKey }> = [
-    { value: 'ssh', title: 'settings.docker.kind_ssh.label', hint: 'settings.docker.kind_ssh.hint' },
-    { value: 'unix', title: 'settings.docker.kind_unix.label', hint: 'settings.docker.kind_unix.hint' },
-    { value: 'tcp', title: 'settings.docker.kind_tcp.label', hint: 'settings.docker.kind_tcp.hint' },
     { value: 'wsl', title: 'settings.docker.kind_wsl.label', hint: 'settings.docker.kind_wsl.hint' },
+    { value: 'unix', title: 'settings.docker.kind_unix.label', hint: 'settings.docker.kind_unix.hint' },
+    { value: 'ssh', title: 'settings.docker.kind_ssh.label', hint: 'settings.docker.kind_ssh.hint' },
+    { value: 'tcp', title: 'settings.docker.kind_tcp.label', hint: 'settings.docker.kind_tcp.hint' },
   ]
-  let availableKinds = $derived(stored?.router_os === 'windows' ? kinds.filter((option) => option.value !== 'unix') : kinds)
+  let availableKinds = $derived(kinds.filter((option) => stored?.connection_kinds.includes(option.value)))
 
   const stepLabelKeys: Record<Step, TranslationKey> = {
     kind: 'settings.docker.step_kind.label',
     details: 'settings.docker.step_details.label',
     host_key: 'settings.docker.step_host_key.label',
+    socket: 'settings.docker.step_socket.label',
+    distribution: 'settings.docker.step_distribution.label',
+    service: 'settings.docker.step_service.label',
     test: 'settings.docker.step_test.label',
   }
-  let endpoint = $derived(composeDockerEndpoint({ kind, host, port, user, socket }))
-  let steps = $derived<Step[]>(kind === 'ssh' ? ['kind', 'details', 'host_key', 'test'] : ['kind', 'details', 'test'])
+  let endpoint = $derived(composeDockerEndpoint({ kind, host, port, user, socket: kind === 'unix' ? localSocket : socket }))
+  const kindSteps: Record<DockerEndpointKind, Step[]> = {
+    wsl: ['kind', 'distribution', 'service', 'test'],
+    unix: ['kind', 'socket', 'test'],
+    ssh: ['kind', 'details', 'host_key', 'test'],
+    tcp: ['kind', 'details', 'test'],
+  }
+  let steps = $derived(kindSteps[kind])
   let stepLabels = $derived(steps.map((name) => t(stepLabelKeys[name])))
 
   let detailsValid = $derived.by(() => {
@@ -71,7 +88,6 @@
       case 'tcp':
         return !!host.trim() && /^\d+$/.test(port.trim())
       case 'unix':
-        return socket.trim().startsWith('/')
       case 'wsl':
         return true
     }
@@ -89,14 +105,18 @@
       const connection = await api.docker.connection()
       stored = connection
       if (connection.endpoint) {
-        const parts = parseDockerEndpoint(connection.endpoint)
+        const parts = parseDockerEndpoint(connection.endpoint, connection.connection_kinds)
         kind = parts.kind
         host = parts.host
         port = parts.port
         user = parts.user
-        socket = parts.socket
+        if (parts.kind === 'unix') localSocket = parts.socket
+        else socket = parts.socket
         hostKey = connection.ssh_host_key
         fingerprint = connection.ssh_host_key_fingerprint
+        distribution = connection.wsl_distribution
+      } else if (availableKinds.length) {
+        chooseKind(availableKinds[0].value)
       }
     } catch (e) {
       error = getErrorMessage(e)
@@ -164,6 +184,7 @@
         dial_mode: stored?.dial_mode ?? 'auto',
         gateway_image: stored?.gateway_image ?? '',
         ssh_host_key: kind === 'ssh' ? hostKey : '',
+        wsl_distribution: kind === 'wsl' ? distribution : '',
         ssh_private_key: kind === 'ssh' ? secret(privateKey) : null,
         ssh_passphrase: kind === 'ssh' ? secret(passphrase) : null,
         tls_ca: kind === 'tcp' ? secret(tlsCA) : null,
@@ -206,6 +227,11 @@
         case 'host_key':
           updateButtons([back, { label: t('common.actions.next'), buttonStyle: 'prominent', onclick: nextStep, disabled: busy || !hostKey || !hostKeyConfirmed }])
           return
+        case 'socket':
+        case 'distribution':
+        case 'service':
+          // DockerWizardSocket and DockerWizardWSL own the buttons of their steps.
+          return
         case 'test':
           if (result) {
             updateButtons([{ label: t('common.actions.done'), buttonStyle: 'prominent', onclick: finish }])
@@ -226,10 +252,7 @@
   {#if step === 'kind'}
     <VStack gap={2}>
       {#each availableKinds as option (option.value)}
-        <button type="button" class="docker-kind" class:selected={kind === option.value} onclick={() => chooseKind(option.value)}>
-          <Text weight="medium">{t(option.title)}</Text>
-          <Text size="sm" foregroundStyle="secondary">{t(option.hint)}</Text>
-        </button>
+        <DockerChoice title={t(option.title)} hint={t(option.hint)} selected={kind === option.value} onclick={() => chooseKind(option.value)} />
       {/each}
     </VStack>
   {:else if step === 'details'}
@@ -276,14 +299,13 @@
         </Field>
       {/each}
       <Text size="sm" foregroundStyle="secondary">{t('settings.docker.tls.hint')}</Text>
-    {:else if kind === 'unix'}
-      <Field label={t('settings.docker.socket.label')}>
-        <TextField bind:value={socket} size="lg" autocomplete="off" />
-      </Field>
-    {:else}
-      <Text>{t('settings.docker.wsl.hint')}</Text>
-      <CodeBlock text={`sudo dockerd -H unix:///var/run/docker.sock -H tcp://127.0.0.1:2375`} />
     {/if}
+  {:else if step === 'socket'}
+    <DockerWizardSocket bind:socket={localSocket} {updateButtons} onBack={previousStep} onNext={nextStep} />
+  {:else if step === 'distribution' || step === 'service'}
+    {#key step}
+      <DockerWizardWSL {step} bind:distribution {updateButtons} onBack={previousStep} onNext={nextStep} />
+    {/key}
   {:else if step === 'host_key'}
     {#if busy && !hostKey}
       <ContentUnavailable title={t('settings.docker.host_key_scanning.status')} />
@@ -313,23 +335,3 @@
     {/if}
   {/if}
 </VStack>
-
-<style>
-  .docker-kind {
-    all: unset;
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    gap: var(--fui-space-1);
-    padding: var(--fui-space-3) var(--fui-space-4);
-    border-radius: var(--fui-radius-md);
-    background: var(--fui-color-surface-container);
-    outline: 2px solid transparent;
-  }
-  .docker-kind:focus-visible {
-    outline-color: var(--fui-color-accent);
-  }
-  .docker-kind.selected {
-    outline-color: var(--fui-color-accent);
-  }
-</style>

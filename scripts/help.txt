@@ -53,6 +53,7 @@ Variables:
   BUILD_WORKERS      Platforms built at once by build. Default: CPU count
   TYPE               Release bump for publish: fix|minor|major (or VERSION=X.Y[.Z] to force)
   PKG                Package scope for go-vet, go-test and go-test-race. Default: "./..."
+  VET_GOOS           Target OS for go-vet (linux, darwin, freebsd, windows). Default: this machine
   PATHS              Space-separated files/dirs for go-fmt and go-fmt-check. Default: whole tree
   LINES              Initial tail size for log-frontend. Default: "100"
   FOLLOW             Force log follow (1) or dump-and-exit (0). Default: follow on TTY only
@@ -68,6 +69,7 @@ Examples:
   make init
   make go-test PKG=./internal/services/router/
   make go-vet PKG=./internal/services/router/...
+  make go-vet VET_GOOS=linux
   make go-fmt-check PATHS="internal/server scripts/smoke"
   make start
   make start HOST=0.0.0.0 PORT=3000

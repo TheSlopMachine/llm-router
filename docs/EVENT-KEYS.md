@@ -129,6 +129,9 @@ failed`). Every line carries `subsystem=docker` except the lifecycle line.
 | `endpoint` | Daemon endpoint, without secrets | read, do not filter |
 | `dial_mode` | Resolved container connection mode (`route`, `relay`) | `EVENT_FILTERS="dial_mode=relay"` |
 | `version` | Daemon version | read, do not filter |
+| `distribution` | WSL distro of a Docker setup or of the keeper | `EVENT_FILTERS="subsystem=docker distribution=Ubuntu-24.04"` |
+| `retry_ms` | Delay before the WSL keeper restarts (number) | read, do not filter |
+| `path` | Docker context file the local socket search skipped | read, do not filter |
 | `status` | Exit code of an exec (number) | read, do not filter |
 | `count` | Containers stopped at shutdown | read, do not filter |
 | `latency_ms` | Image preparation time (number) | read, do not filter |

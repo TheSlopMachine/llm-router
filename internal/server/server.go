@@ -428,6 +428,11 @@ func shutdownListeners(publicServer *http.Server, adminServer *http.Server, logg
 // Run starts the maintenance loop and blocks on the HTTP servers.
 // onListening, when set, runs once after every listener is bound.
 func (s *Server) Run(ctx context.Context, onListening func()) error {
+	// Resume the Docker connection first: plugin initializers may need the
+	// daemon, and a WSL daemon needs its distro running.
+	if err := s.dockerService.ResumeConnection(ctx); err != nil && s.logger != nil {
+		s.logger.Warn("Docker connection not resumed", "subsystem", "docker", "error", err)
+	}
 	// Run startup plugin jobs before serving traffic so a restarted
 	// router refreshes-around stale state while the ticker runs.
 	rgate, cancel := context.WithTimeout(ctx, startupRefreshTimeout)

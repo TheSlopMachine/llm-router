@@ -251,6 +251,7 @@ func (h *Handler) RegisterAPI(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/llm-router/dashboard/docker/connection", h.requireAuth(h.apiDockerConnectionPut))
 	mux.HandleFunc("POST /api/llm-router/dashboard/docker/connection/test", h.requireAuth(h.apiDockerConnectionTest))
 	mux.HandleFunc("POST /api/llm-router/dashboard/docker/host-key", h.requireAuth(h.apiDockerHostKeyScan))
+	h.registerDockerPlatformRoutes(mux)
 	mux.HandleFunc("GET /api/llm-router/dashboard/docker/registries", h.requireAuth(h.apiDockerRegistriesList))
 	mux.HandleFunc("PUT /api/llm-router/dashboard/docker/registries/{host}", h.requireAuth(h.apiDockerRegistryPut))
 	mux.HandleFunc("DELETE /api/llm-router/dashboard/docker/registries/{host}", h.requireAuth(h.apiDockerRegistryDelete))

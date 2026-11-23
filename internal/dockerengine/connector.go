@@ -33,6 +33,9 @@ const (
 	StageAuthenticate = "authenticate"
 	StageSocket       = "socket"
 	StageTLS          = "tls"
+	// StageLocalSocket is the unix socket on the router machine. StageSocket
+	// is the daemon socket behind SSH.
+	StageLocalSocket = "local_socket"
 )
 
 // ConnectionError is a daemon connection failure with the stage it
@@ -52,7 +55,7 @@ func (e *ConnectionError) Error() string {
 		return "the host key does not match the pinned key: " + e.Err.Error()
 	case StageAuthenticate:
 		return "the host refused the ssh key: " + e.Err.Error()
-	case StageSocket:
+	case StageSocket, StageLocalSocket:
 		return "cannot open the docker socket: " + e.Err.Error()
 	case StageTLS:
 		return "tls handshake failed: " + e.Err.Error()
@@ -230,7 +233,7 @@ func (connector *Connector) DialDaemon(ctx context.Context) (net.Conn, error) {
 	case EndpointUnix:
 		dialer := net.Dialer{Timeout: dialTimeout}
 		conn, err := dialer.DialContext(ctx, "unix", connector.endpoint.SocketPath)
-		return conn, stageError(StageSocket, err)
+		return conn, stageError(StageLocalSocket, err)
 	case EndpointTCP:
 		dialer := net.Dialer{Timeout: dialTimeout}
 		conn, err := dialer.DialContext(ctx, "tcp", connector.endpoint.Address)
