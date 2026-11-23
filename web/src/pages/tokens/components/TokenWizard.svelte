@@ -2,36 +2,27 @@
   import ModelsTable from '../../../components/domain/ModelsTable.svelte'
   import type { ModelsTableModel } from '../../../components/domain/ModelsTable.svelte'
   import { onMount } from 'svelte'
-  import { untrack } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import { toggleSet } from '$lib/token-helpers'
   import { t, n } from '$lib/i18n.svelte'
   import type { Token, Provider, VirtualModel, AvailableModel, ProviderModel, CredentialScope } from '$lib/types'
-  import { type ModalButton, type StepperConfig, Toggle, Checkbox, SearchField, Text, TextField, Spacer, VStack, HStack, List, Banner } from '@fuckyouryan/fui'
+  import { type ModalButton, type StepperConfig, ModalChrome, Toggle, Checkbox, SearchField, Text, TextField, Spacer, VStack, HStack, List, Banner } from '@fuckyouryan/fui'
   import { buildBackendTokenRules } from '$lib/token-rules'
   import { hasFullAccess, resolveWizardSubtitle, resolveStepValidity, resolveModelId } from '$lib/token-scope'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
   import { filterByFields } from '$lib/filter'
-    import TokenSuccessView from './TokenSuccessView.svelte'
+  import TokenSuccessView from './TokenSuccessView.svelte'
 
   let {
     providers,
     editingToken = null,
     onComplete,
-    updateButtons,
-    updateTitle,
-    updateSubtitle,
-    updateStepper,
     closeModal
   }: {
     providers: Provider[]
     editingToken?: Token | null
     onComplete: (result: { token?: string }) => void
-    updateButtons: (buttons: ModalButton[]) => void
-    updateTitle: (title: string) => void
-    updateSubtitle: (subtitle: string) => void
-    updateStepper: (stepper: StepperConfig | null) => void
     closeModal: () => void
   } = $props()
 
@@ -120,7 +111,6 @@
     } catch (_) {
       virtualModelCount = null
     }
-    syncChrome()
   })
 
   function credsOf(providerId: string): typeof allCredentials {
@@ -282,39 +272,33 @@
   let isModelScopeLocked = $derived(allowAllModels)
   let hasBroadProviderScope = $derived(fullAccess || allowAllProvidersCredentials)
 
-  function syncChrome(): void {
-    untrack(() => {
-      updateTitle(baseTitle)
-      updateSubtitle(subtitle)
-      updateStepper(stepperConfig)
-      if (wizardStep === 4) {
-        updateButtons([
-          { label: t('tokens.create_another'), buttonStyle: 'neutral', onclick: resetWizard },
-          { label: t('common.actions.done'), buttonStyle: 'prominent', onclick: handleDone }
-        ])
-        return
-      }
-      if (wizardStep === 1) {
-        updateButtons([
+  const buttons = $derived.by((): ModalButton[] => {
+    switch (wizardStep) {
+      case 1:
+        return [
           { label: t('common.actions.cancel'), buttonStyle: 'neutral', onclick: closeModal },
           { label: t('common.actions.next'), buttonStyle: 'prominent', onclick: nextFromStep1, disabled: !currentValid, loading: wizardLoading }
-        ])
-      } else if (wizardStep === 2) {
-        updateButtons([
+        ]
+      case 2:
+        return [
           { label: t('common.actions.back'), buttonStyle: 'neutral', onclick: goBackToStep1 },
           { label: t('common.actions.next'), buttonStyle: 'prominent', onclick: goToStep3, disabled: !currentValid, loading: wizardLoading }
-        ])
-      } else {
-        updateButtons([
+        ]
+      case 3:
+        return [
           { label: t('common.actions.back'), buttonStyle: 'neutral', onclick: goBackToStep2 },
           { label: isEditMode ? t('tokens.edit.update') : t('tokens.create.create'), buttonStyle: 'prominent', onclick: submit, disabled: !currentValid, loading: wizardLoading }
-        ])
-      }
-    })
-  }
+        ]
+      default:
+        return [
+          { label: t('tokens.create_another'), buttonStyle: 'neutral', onclick: resetWizard },
+          { label: t('common.actions.done'), buttonStyle: 'prominent', onclick: handleDone }
+        ]
+    }
+  })
 
-  function goBackToStep1(): void { wizardStep = 1; error = ''; syncChrome() }
-  function goBackToStep2(): void { wizardStep = 2; error = ''; syncChrome() }
+  function goBackToStep1(): void { wizardStep = 1; error = '' }
+  function goBackToStep2(): void { wizardStep = 2; error = '' }
 
   function nextFromStep1(): void {
     error = ''
@@ -323,12 +307,12 @@
       void submit()
       return
     }
-    wizardStep = 2; error = ''; syncChrome()
+    wizardStep = 2; error = ''
   }
 
   async function goToStep3(): Promise<void> {
     error = ''
-    wizardLoading = true; syncChrome()
+    wizardLoading = true
     try {
       const scope = new Set(activeProviderIds)
       const [availResult, vmsResult] = await Promise.all([
@@ -345,7 +329,7 @@
       for (const vm of virtualModels) valid.add(`virtual/${vm.id}`)
       selectedModels = new Set([...selectedModels].filter((id) => valid.has(id)))
       wizardStep = 3; error = ''
-    } catch (e) { error = getErrorMessage(e) } finally { wizardLoading = false; syncChrome() }
+    } catch (e) { error = getErrorMessage(e) } finally { wizardLoading = false }
   }
 
   function wizardState() {
@@ -365,7 +349,7 @@
   }
 
   async function submit(): Promise<void> {
-    error = ''; wizardLoading = true; syncChrome()
+    error = ''; wizardLoading = true
     const state = wizardState()
     const payload = {
       name: state.name,
@@ -381,11 +365,9 @@
         createdToken = tokenStr
         if (tokenStr) { wizardStep = 4; error = '' }
         else { onComplete({ token: tokenStr ?? undefined }); closeModal(); return }
-        syncChrome()
       }
     } catch (e) { error = getErrorMessage(e) } finally {
       wizardLoading = false
-      syncChrome()
     }
   }
 
@@ -395,17 +377,11 @@
     allowAllProvidersCredentials = false; providerUseAll = new Set(); providerCreds = new Set(); virtualEnabled = false
     availableModels = []; virtualModels = []; allCandidates = []; allowAllModels = false; selectedModels = new Set(); searchModels = ''
     error = ''; createdToken = null
-    wizardStep = 1; syncChrome()
+    wizardStep = 1
   }
-
-  $effect(() => {
-    void wizardStep; void tokenName; void fullAccess
-    void allowAllProvidersCredentials; void providerUseAll.size; void providerCreds.size; void virtualEnabled
-    void allowAllModels; void selectedModels.size; void searchModels
-    void wizardLoading; void createdToken; void error; void subtitle; void stepperConfig
-    untrack(() => syncChrome())
-  })
 </script>
+
+<ModalChrome title={baseTitle} {subtitle} stepper={stepperConfig} {buttons} />
 
 {#if isDoneStep}
   <TokenSuccessView

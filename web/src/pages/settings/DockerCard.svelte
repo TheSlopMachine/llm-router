@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Banner, Button, Card, Chip, DisclosureGroup, Field, HStack, Picker, Table, Text, TextField, VStack, modal, toast, type TableColumn } from '@fuckyouryan/fui'
+  import { Banner, Button, Card, Chip, Field, HStack, Picker, Table, Text, TextField, VStack, modal, toast, type TableColumn } from '@fuckyouryan/fui'
   import DockerWizard from '../../components/domain/DockerWizard.svelte'
   import RegistryLoginModal from './RegistryLoginModal.svelte'
   import { api } from '$lib/api'
@@ -201,7 +201,7 @@
     </HStack>
   {/if}
 
-  <DisclosureGroup title={t('settings.docker.advanced.title')}>
+  <Card collapsible open={false} title={t('settings.docker.advanced.title')}>
     <VStack gap={3}>
       <HStack gap={3} wrap>
         <Field label={t('settings.docker.dial_mode.label')}>
@@ -226,9 +226,9 @@
         <Button buttonStyle="neutral" onclick={() => void saveAdvanced()} disabled={savingAdvanced}>{savingAdvanced ? t('common.actions.saving') : t('common.actions.save')}</Button>
       </HStack>
     </VStack>
-  </DisclosureGroup>
+  </Card>
 
-  <DisclosureGroup title={t('settings.docker.registries.title')}>
+  <Card collapsible open={false} title={t('settings.docker.registries.title')}>
     <VStack gap={4}>
       {#if registries.length > 0}
         <Table columns={registryColumns} rows={registries} rowKey={(registry) => registry.host}>
@@ -249,5 +249,5 @@
         <Button buttonStyle="neutral" icon={{ name: 'add' }} onclick={openRegistryModal}>{t('common.actions.add')}</Button>
       </HStack>
     </VStack>
-  </DisclosureGroup>
+  </Card>
 </Card>

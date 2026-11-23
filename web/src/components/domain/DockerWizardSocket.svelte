@@ -1,7 +1,7 @@
 <!-- The socket step of the Docker wizard: finds Docker on the router machine. Only Linux and macOS routers offer it. -->
 <script lang="ts">
-  import { onMount, untrack } from 'svelte'
-  import { Banner, Button, CodeBlock, ContentUnavailable, Field, HStack, TextField, VStack, type ModalButton } from '@fuckyouryan/fui'
+  import { onMount } from 'svelte'
+  import { Banner, Button, CodeBlock, ContentUnavailable, Field, HStack, ModalChrome, TextField, VStack, type ModalButton } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { t, tx } from '$lib/i18n.svelte'
   import type { TranslationKey } from '$lib/i18n.svelte'
@@ -11,12 +11,10 @@
 
   let {
     socket = $bindable(),
-    updateButtons,
     onBack,
     onNext,
   }: {
     socket: string
-    updateButtons: (buttons: ModalButton[]) => void
     onBack: () => void
     onNext: () => void
   } = $props()
@@ -80,21 +78,17 @@
     }
   }
 
-  function primaryButton(): ModalButton {
-    if (selected?.state === 'ready') return { label: t('common.actions.next'), buttonStyle: 'prominent', onclick: onNext, disabled: busy }
-    return { label: t('settings.docker.check_again.action'), buttonStyle: 'prominent', onclick: () => void load(), disabled: busy, loading: busy }
-  }
-
-  $effect(() => {
-    void busy; void selected
-    untrack(() => updateButtons([{ label: t('common.actions.back'), buttonStyle: 'neutral', onclick: onBack, disabled: busy }, primaryButton()]))
-  })
+  const primaryButton = $derived<ModalButton>(selected?.state === 'ready'
+    ? { label: t('common.actions.next'), buttonStyle: 'prominent', onclick: onNext, disabled: busy }
+    : { label: t('settings.docker.check_again.action'), buttonStyle: 'prominent', onclick: load, disabled: busy, loading: busy })
 
   function describe(item: LocalDockerSocket): string {
     const source = item.source === 'context' ? tx('settings.docker.socket_source_context.label', { context: item.context }) : t(sourceKeys[item.source])
     return `${source} · ${t(stateKeys[item.state])}`
   }
 </script>
+
+<ModalChrome buttons={[{ label: t('common.actions.back'), buttonStyle: 'neutral', onclick: onBack, disabled: busy }, primaryButton]} />
 
 <VStack gap={4}>
   {#if !local && busy}

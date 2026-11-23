@@ -18,14 +18,6 @@
 
   const input = $derived(modalities.input ?? [])
   const output = $derived(modalities.output ?? [])
-
-  $effect(() => {
-    const hasIn = input.length > 0
-    const hasOut = output.length > 0
-    if (hasIn !== hasOut) {
-      console.error('ModalitiesFlow requires both input and output modalities, or neither.')
-    }
-  })
 </script>
 
 {#if input.length > 0 || output.length > 0}

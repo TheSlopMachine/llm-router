@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Picker, Banner, ContentUnavailable, TextField, Field, Text, VStack } from '@fuckyouryan/fui'
+  import { Picker, Banner, ContentUnavailable, HStack, ModalChrome, TextField, Field, Text, VStack } from '@fuckyouryan/fui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -11,12 +11,10 @@
     provider,
     onComplete,
     closeModal,
-    updateButtons,
   }: {
     provider: Provider
     onComplete: () => void
     closeModal: () => void
-    updateButtons: (buttons: ModalButton[]) => void
   } = $props()
 
   type Mode = 'loading' | 'wizard' | 'single' | 'raw'
@@ -120,7 +118,6 @@
         mode = 'single'
       }
     }
-    syncFooter()
   }
 
   async function loadSingleStep(): Promise<void> {
@@ -136,7 +133,6 @@
       error = getErrorMessage(e)
       mode = 'raw'
     }
-    syncFooter()
   }
 
   // Footer owns every flow control: tree-declared buttons first, then an
@@ -162,38 +158,28 @@
     void submitWizard(action, { ...formValues })
   }
 
-  function syncFooter(): void {
+  const buttons = $derived.by((): ModalButton[] => {
+    const cancel: ModalButton = { label: t('common.actions.cancel'), buttonStyle: 'neutral', onclick: closeModal, disabled: loading }
+    if (mode === 'loading') return [cancel]
+    if (mode === 'raw') return [cancel, { label: t('common.actions.save'), buttonStyle: 'prominent', onclick: submitRaw, disabled: loading }]
     const tree = collectButtons(nodes)
-    const buttons: ModalButton[] = tree.map((n) => {
+    const declared: ModalButton[] = tree.map((n) => {
       const action = n.form_action || 'submit'
       if (action === 'cancel') {
         return { label: n.text || t('common.actions.cancel'), ...buttonAppearance(n), onclick: closeModal, disabled: loading }
       }
-      return {
-        label: n.text || defaultSubmitLabel(),
-        ...buttonAppearance(n),
-        onclick: () => submitFor(action),
-        disabled: loading,
-      }
+      return { label: n.text || defaultSubmitLabel(), ...buttonAppearance(n), onclick: () => submitFor(action), disabled: loading }
     })
-    if (!tree.some((n) => (n.form_action || 'submit') === 'cancel')) {
-      buttons.push({ label: t('common.actions.cancel'), buttonStyle: 'neutral', onclick: closeModal, disabled: loading })
-    }
+    if (!tree.some((n) => (n.form_action || 'submit') === 'cancel')) declared.push(cancel)
     if (tree.length === 0 && nodes.length > 0) {
-      buttons.push({
-        label: defaultSubmitLabel(),
-        buttonStyle: 'prominent',
-        onclick: () => submitFor('submit'),
-        disabled: loading,
-      })
+      declared.push({ label: defaultSubmitLabel(), buttonStyle: 'prominent', onclick: () => submitFor('submit'), disabled: loading })
     }
-    updateButtons(buttons)
-  }
+    return declared
+  })
 
   async function submitWizard(action: string, formValues: Record<string, unknown>): Promise<void> {
     loading = true
     error = ''
-    syncFooter()
     try {
       const flow = await api.auth.step({
         provider_id: provider.id,
@@ -215,7 +201,6 @@
       error = getErrorMessage(e)
     } finally {
       loading = false
-      syncFooter()
     }
   }
 
@@ -226,7 +211,6 @@
     }
     loading = true
     error = ''
-    syncFooter()
     try {
       await api.credentials.create({ provider_id: provider.id, label: label.trim() || undefined, data: formValues })
       onComplete()
@@ -234,7 +218,6 @@
       error = getErrorMessage(e)
     } finally {
       loading = false
-      syncFooter()
     }
   }
 
@@ -253,12 +236,16 @@
   }
 </script>
 
+<ModalChrome {buttons} />
+
+<!-- one column, one step (space-4) between every block -->
+<VStack gap={4}>
 {#if error}
   <Banner tint="danger" text={error} />
 {/if}
 
 {#if manualAvailable}
-  <div class="entry-switch">
+  <HStack halign="center">
     <Picker pickerStyle="segmented"
       value={entryTab}
       options={[
@@ -268,17 +255,13 @@
       ariaLabel="Credential entry method"
       onchange={(v) => switchEntry(v as 'flow' | 'manual')}
     />
-  </div>
+  </HStack>
 {/if}
 
-<!-- one column, one step (space-4) between every block; the name field is
-     built like the form's own fields (label over input, gap space-1) -->
-<VStack gap={4}>
 {#if mode !== 'loading'}
-  <VStack gap={1}>
-    <Text size="sm" weight="medium">{t('credentials.name_label')}</Text>
-    <TextField bind:value={label} placeholder={t('credentials.name_placeholder')} ariaLabel={t('credentials.name_label')} />
-  </VStack>
+  <Field label={t('credentials.name_label')}>
+    <TextField bind:value={label} placeholder={t('credentials.name_placeholder')} />
+  </Field>
 {/if}
 
 {#if mode === 'loading'}
@@ -293,31 +276,9 @@
 {:else if mode === 'single'}
   <DynamicForm {nodes} bind:values={formValues} busy={loading} flat />
 {:else}
-  <p class="form-text">{t('credentials.no_form_hint')}</p>
+  <Text foregroundStyle="secondary">{t('credentials.no_form_hint')}</Text>
   <Field label={t('credentials.json_label')}>
     <TextField maxRows={10} id="cred-raw" minRows={6} bind:value={rawJson} />
   </Field>
-  <div class="form-actions">
-    <Button buttonStyle="prominent" onclick={submitRaw} disabled={loading}>{t('common.actions.save')}</Button>
-  </div>
 {/if}
 </VStack>
-
-<style>
-  .entry-switch {
-    display: flex;
-    justify-content: center;
-    margin-bottom: var(--fui-space-4);
-  }
-
-  .form-text {
-    font-size: var(--fui-text-md);
-    color: var(--fui-color-text-soft);
-  }
-
-  .form-actions {
-    display: flex;
-    gap: var(--fui-space-3);
-    margin-top: var(--fui-space-4);
-  }
-</style>

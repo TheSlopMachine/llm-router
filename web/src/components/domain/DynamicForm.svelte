@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Banner, Card, CodeBlock, Grid, TextField, Toggle, Text, VStack, HStack, Spacer, Divider, type HAlign, type VAlign, type Step, Picker } from '@fuckyouryan/fui'
+  import { Button, Banner, Card, CodeBlock, Field, Grid, TextField, Toggle, Text, VStack, HStack, Spacer, Divider, type HAlign, type VAlign, type Step, Picker } from '@fuckyouryan/fui'
   import { isStepValue, isBannerVariant, isSecretInput } from '$lib/ui-helpers'
   import type { UINode } from '../../lib/types'
 
@@ -88,35 +88,38 @@
       <Text foregroundStyle="secondary">{node.text}</Text>
     {:else if node.type === 'banner'}
       <Banner tint={bannerTint(node)} text={node.text ?? ''} />
-    {:else if node.type === 'input'}
-      <VStack gap={1}>
-        {#if node.label}
-          <Text size="sm" weight="medium">{node.label}{#if node.required} *{/if}</Text>
-        {/if}
+    {:else if node.type === 'input' || node.type === 'secret'}
+      {#snippet field()}
         <TextField
           id="dyn-{node.name}"
           name="dyn-{node.name}"
-          type={isSecretInput(node.input_type) ? 'secret' : 'text'}
-          autocomplete={isSecretInput(node.input_type) ? 'off' : undefined}
+          secure={node.type === 'secret' || isSecretInput(node.input_type)}
           value={fieldValue(node)}
           placeholder={node.placeholder ?? ''}
           required={node.required ?? false}
           disabled={busy}
           onchange={(v) => setValue(node.name ?? '', v)}
         />
-      </VStack>
+      {/snippet}
+      {#if node.label}
+        <Field label={node.label} required={node.required ?? false}>{@render field()}</Field>
+      {:else}
+        {@render field()}
+      {/if}
     {:else if node.type === 'select'}
-      <VStack gap={1}>
-        {#if node.label}
-          <Text size="sm" weight="medium">{node.label}{#if node.required} *{/if}</Text>
-        {/if}
+      {#snippet picker()}
         <Picker
           value={selectValue(node)}
           options={(node.options ?? []).map((opt) => ({ value: opt, label: optionLabel(node, opt) }))}
           disabled={busy}
           onchange={(v) => setValue(node.name ?? '', v)}
         />
-      </VStack>
+      {/snippet}
+      {#if node.label}
+        <Field label={node.label} required={node.required ?? false}>{@render picker()}</Field>
+      {:else}
+        {@render picker()}
+      {/if}
     {:else if node.type === 'checkbox'}
       <Toggle
         checked={values[node.name ?? ''] === true}
@@ -126,22 +129,6 @@
       />
     {:else if node.type === 'link'}
       <Button href={node.url ?? ''} external buttonStyle="text" text={node.text || node.url} />
-    {:else if node.type === 'secret'}
-      <VStack gap={1}>
-        {#if node.label}
-          <Text size="sm" weight="medium">{node.label}{#if node.required} *{/if}</Text>
-        {/if}
-        <TextField
-          id="dyn-{node.name}"
-          name="dyn-{node.name}"
-          secure
-          value={fieldValue(node)}
-          placeholder={node.placeholder ?? ''}
-          required={node.required ?? false}
-          disabled={busy}
-          onchange={(v) => setValue(node.name ?? '', v)}
-        />
-      </VStack>
     {:else if node.type === 'code'}
       <CodeBlock text={node.text ?? ''} label={node.label ?? ''} />
     {:else if node.type === 'flow'}

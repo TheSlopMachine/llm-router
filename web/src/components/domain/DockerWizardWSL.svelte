@@ -1,7 +1,7 @@
 <!-- The WSL steps of the Docker wizard. Only a Windows router offers them. -->
 <script lang="ts">
-  import { onMount, untrack } from 'svelte'
-  import { Banner, CodeBlock, ContentUnavailable, DisclosureGroup, Text, VStack, type ModalButton } from '@fuckyouryan/fui'
+  import { onMount } from 'svelte'
+  import { Banner, Card, CodeBlock, ContentUnavailable, ModalChrome, Text, VStack, type ModalButton } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { t, tx } from '$lib/i18n.svelte'
   import type { TranslationKey } from '$lib/i18n.svelte'
@@ -12,13 +12,11 @@
   let {
     step,
     distribution = $bindable(),
-    updateButtons,
     onBack,
     onNext,
   }: {
     step: 'distribution' | 'service'
     distribution: string
-    updateButtons: (buttons: ModalButton[]) => void
     onBack: () => void
     onNext: () => void
   } = $props()
@@ -72,7 +70,7 @@
     return run(() => api.docker.wslSetUp(distribution), 'settings.docker.wsl_setting_up.status')
   }
 
-  function primaryButton(): ModalButton {
+  const primaryButton = $derived.by((): ModalButton => {
     const next: ModalButton = { label: t('common.actions.next'), buttonStyle: 'prominent', onclick: onNext }
     if (step === 'distribution') return { ...next, disabled: busy || !distribution }
     switch (status?.state) {
@@ -80,15 +78,10 @@
         return next
       case 'needs_setup':
       case 'systemd_off':
-        return { label: t('settings.docker.wsl_setup.action'), buttonStyle: 'prominent', onclick: () => void setUpDistribution(), disabled: busy, loading: busy }
+        return { label: t('settings.docker.wsl_setup.action'), buttonStyle: 'prominent', onclick: setUpDistribution, disabled: busy, loading: busy }
       default:
-        return { label: t('settings.docker.check_again.action'), buttonStyle: 'prominent', onclick: () => void checkDistribution(), disabled: busy, loading: busy }
+        return { label: t('settings.docker.check_again.action'), buttonStyle: 'prominent', onclick: checkDistribution, disabled: busy, loading: busy }
     }
-  }
-
-  $effect(() => {
-    void step; void busy; void distribution; void status
-    untrack(() => updateButtons([{ label: t('common.actions.back'), buttonStyle: 'neutral', onclick: onBack, disabled: busy }, primaryButton()]))
   })
 
   function describe(item: WSLDistribution): string {
@@ -97,6 +90,8 @@
     return item.default ? `${version} · ${t('settings.docker.distribution_default.label')}` : version
   }
 </script>
+
+<ModalChrome buttons={[{ label: t('common.actions.back'), buttonStyle: 'neutral', onclick: onBack, disabled: busy }, primaryButton]} />
 
 <VStack gap={4}>
   {#if step === 'distribution'}
@@ -120,9 +115,9 @@
   {:else if status}
     <Text>{tx(status.state === 'systemd_off' ? 'settings.docker.wsl_systemd.hint' : 'settings.docker.wsl_setup.hint', { distribution })}</Text>
     <Banner tint="warning" text={t('settings.docker.wsl_restart.hint')} />
-    <DisclosureGroup title={t('settings.docker.wsl_commands.title')}>
+    <Card collapsible open={false} title={t('settings.docker.wsl_commands.title')}>
       <CodeBlock text={status.commands} />
-    </DisclosureGroup>
+    </Card>
   {/if}
 
   {#if error}

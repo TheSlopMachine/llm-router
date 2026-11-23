@@ -85,17 +85,8 @@
   // Responsive merge stages: when narrow, context folds into modalities
   // first, then everything folds into one column. Measured on a local
   // wrapper — Table only sees the resulting column set.
-  let wrapperElement = $state<HTMLElement | null>(null)
+  // null until the first layout
   let tableWidth = $state<number | null>(null)
-  $effect(() => {
-    const element = wrapperElement
-    if (!element || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver((entries) => {
-      tableWidth = entries[0]?.contentRect.width ?? null
-    })
-    ro.observe(element)
-    return () => ro.disconnect()
-  })
   const mode = $derived.by((): 'full' | 'merged' | 'compact' => {
     const w = tableWidth
     if (w == null) return 'full'
@@ -237,7 +228,7 @@
   </div>
 {/snippet}
 
-<div class="mt-wrap" class:fill={lazy && maxHeight === undefined} bind:this={wrapperElement}>
+<div class="mt-wrap" class:fill={lazy && maxHeight === undefined} bind:clientWidth={() => tableWidth ?? 0, (width) => { tableWidth = width }}>
   <Table
     {...windowing}
     {columns}

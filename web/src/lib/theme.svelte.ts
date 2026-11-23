@@ -44,25 +44,13 @@ function persist(v: Theme): void {
 export const theme: {
   get value(): Theme
   set value(v: Theme)
-  get current(): Theme
-  cycle(): void
 } = {
   get value(): Theme {
-    return current
-  },
-  /** @deprecated use `theme.value` — kept for backwards compat */
-  get current(): Theme {
     return current
   },
   set value(v: Theme) {
     persist(v)
     current = v
-  },
-  cycle(): void {
-    const themes: Theme[] = ['auto', 'light', 'dark']
-    const next = themes[(themes.indexOf(current) + 1) % themes.length]
-    persist(next)
-    current = next
   }
 }
 

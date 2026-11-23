@@ -1,26 +1,20 @@
 <script lang="ts">
-  // Body of the New/Edit custom pool modal. Rendered by the shared Modal
-  // shell (title, close button, footer chrome).
-  import { untrack } from 'svelte'
+  // Body of the New/Edit custom pool modal. Rendered by the shared Modal shell.
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
-  import type { ModalButton, ProxyPool } from '$lib/types'
-  import { Text, TextField, VStack, Banner } from '@fuckyouryan/fui'
+  import type { ProxyPool } from '$lib/types'
+  import { Banner, Field, ModalChrome, TextField, VStack } from '@fuckyouryan/fui'
 
   let {
     editingPool = null,
     onComplete,
     closeModal,
-    updateButtons,
   }: {
     editingPool?: ProxyPool | null
     onComplete: () => void | Promise<void>
     closeModal: () => void
-    updateButtons: (buttons: ModalButton[]) => void
   } = $props()
-
-  const isEditMode = $derived(editingPool !== null)
 
   // Initial values only: the modal owns this component's lifetime.
   // svelte-ignore state_referenced_locally
@@ -50,14 +44,9 @@
     saving = true
     error = ''
     try {
-      const entries = parseEntries(entriesText)
       // Edit passes the existing id so renames keep the same pool;
       // create omits it and the backend slugifies the name.
-      if (isEditMode && editingPool) {
-        await api.proxies.pools.save({ id: editingPool.id, name: name.trim(), entries })
-      } else {
-        await api.proxies.pools.save({ name: name.trim(), entries })
-      }
+      await api.proxies.pools.save({ id: editingPool?.id, name: name.trim(), entries: parseEntries(entriesText) })
       await onComplete()
     } catch (e) {
       error = getErrorMessage(e)
@@ -65,41 +54,25 @@
       saving = false
     }
   }
-
-  $effect(() => {
-    void saving
-    void name
-    untrack(() => {
-      updateButtons([
-        { label: t('common.actions.cancel'), buttonStyle: 'neutral', onclick: closeModal, disabled: saving },
-        {
-          label: saving ? t('common.actions.saving') : t('common.actions.save'),
-          buttonStyle: 'prominent',
-          onclick: () => void save(),
-          disabled: saving || !name.trim(),
-        },
-      ])
-    })
-  })
 </script>
+
+<ModalChrome buttons={[
+  { label: t('common.actions.cancel'), buttonStyle: 'neutral', onclick: closeModal, disabled: saving },
+  { label: saving ? t('common.actions.saving') : t('common.actions.save'), buttonStyle: 'prominent', onclick: save, disabled: saving || !name.trim() },
+]} />
 
 <VStack gap={4}>
   {#if error}
     <Banner tint="danger" text={error} />
   {/if}
-  <VStack gap={1}>
-    <Text size="sm" weight="medium">{t('common.labels.name')}</Text>
+  <Field label={t('common.labels.name')}>
     <TextField
       bind:value={name}
       placeholder={t('proxy.custom_pools.name')}
       onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') void save() }}
     />
-  </VStack>
-  <VStack gap={1}>
-    <Text size="sm" weight="medium">{t('proxy.title')}</Text>
-    <TextField maxRows={10} minRows={4}
-      bind:value={entriesText}
-      placeholder={t('proxy.custom_pools.hint')}
-    />
-  </VStack>
+  </Field>
+  <Field label={t('proxy.title')}>
+    <TextField maxRows={10} minRows={4} bind:value={entriesText} placeholder={t('proxy.custom_pools.hint')} />
+  </Field>
 </VStack>

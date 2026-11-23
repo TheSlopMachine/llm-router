@@ -1,24 +1,19 @@
 <script lang="ts">
-  // Body of the "Edit Key" modal. Rendered by the shared Modal (title, close
-  // button, footer chrome), replacing a hand-rolled dialog in
-  // ProviderDetailPage whose .modal-* classes had no CSS left.
-  import { untrack } from 'svelte'
+  // Body of the "Edit Key" modal. Rendered by the shared Modal shell.
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
-  import type { Credential, ModalButton } from '$lib/types'
-  import { Text, TextField, VStack, Banner } from '@fuckyouryan/fui'
+  import type { Credential } from '$lib/types'
+  import { Banner, Field, ModalChrome, TextField, VStack } from '@fuckyouryan/fui'
 
   let {
     cred,
     onComplete,
     closeModal,
-    updateButtons,
   }: {
     cred: Credential
     onComplete: () => void | Promise<void>
     closeModal: () => void
-    updateButtons: (buttons: ModalButton[]) => void
   } = $props()
 
   // initial value only: the modal owns this component's lifetime
@@ -39,29 +34,23 @@
       saving = false
     }
   }
-
-  $effect(() => {
-    void saving
-    untrack(() => {
-      updateButtons([
-        { label: t('common.actions.cancel'), buttonStyle: 'neutral', onclick: closeModal, disabled: saving },
-        { label: saving ? t('common.actions.saving') : t('common.actions.save'), buttonStyle: 'prominent', onclick: () => void save(), disabled: saving },
-      ])
-    })
-  })
 </script>
+
+<ModalChrome buttons={[
+  { label: t('common.actions.cancel'), buttonStyle: 'neutral', onclick: closeModal, disabled: saving },
+  { label: saving ? t('common.actions.saving') : t('common.actions.save'), buttonStyle: 'prominent', onclick: save, disabled: saving },
+]} />
 
 <VStack gap={4}>
   {#if error}
     <Banner tint="danger" text={error} />
   {/if}
-  <VStack gap={1}>
-    <Text size="sm" weight="medium">{t('common.labels.name')}</Text>
+  <Field label={t('common.labels.name')}>
     <TextField
       id="cred-edit-label"
       bind:value={label}
       placeholder={t('credentials.label_example')}
       onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') void save() }}
     />
-  </VStack>
+  </Field>
 </VStack>

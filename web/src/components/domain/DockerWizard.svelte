@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte'
-  import { Banner, Checkbox, CodeBlock, ContentUnavailable, Field, FilePicker, HStack, Text, TextField, VStack, type ModalButton, type StepperConfig } from '@fuckyouryan/fui'
+  import { onMount } from 'svelte'
+  import { Banner, Checkbox, CodeBlock, ContentUnavailable, Field, FilePicker, HStack, ModalChrome, Text, TextField, VStack, type ModalButton, type StepperConfig } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { t, tx } from '$lib/i18n.svelte'
   import type { TranslationKey } from '$lib/i18n.svelte'
@@ -13,17 +13,9 @@
 
   let {
     onComplete,
-    updateButtons,
-    updateTitle,
-    updateSubtitle,
-    updateStepper,
     closeModal,
   }: {
     onComplete: () => void
-    updateButtons: (buttons: ModalButton[]) => void
-    updateTitle: (title: string) => void
-    updateSubtitle: (subtitle: string) => void
-    updateStepper: (stepper: StepperConfig | null) => void
     closeModal: () => void
   } = $props()
 
@@ -210,43 +202,30 @@
     closeModal()
   }
 
-  function syncChrome(): void {
-    untrack(() => {
-      updateTitle(t('settings.docker.wizard.title'))
-      updateSubtitle(t(stepLabelKeys[step]))
-      updateStepper({ current: steps.indexOf(step) + 1, total: steps.length, labels: stepLabels })
-      const back: ModalButton = { label: t('common.actions.back'), buttonStyle: 'neutral', onclick: previousStep, disabled: busy }
-      const cancel: ModalButton = { label: t('common.actions.cancel'), buttonStyle: 'neutral', onclick: closeModal }
-      switch (step) {
-        case 'kind':
-          updateButtons([cancel, { label: t('common.actions.next'), buttonStyle: 'prominent', onclick: nextStep }])
-          return
-        case 'details':
-          updateButtons([back, { label: t('common.actions.next'), buttonStyle: 'prominent', onclick: nextStep, disabled: !detailsValid }])
-          return
-        case 'host_key':
-          updateButtons([back, { label: t('common.actions.next'), buttonStyle: 'prominent', onclick: nextStep, disabled: busy || !hostKey || !hostKeyConfirmed }])
-          return
-        case 'socket':
-        case 'distribution':
-        case 'service':
-          // DockerWizardSocket and DockerWizardWSL own the buttons of their steps.
-          return
-        case 'test':
-          if (result) {
-            updateButtons([{ label: t('common.actions.done'), buttonStyle: 'prominent', onclick: finish }])
-          } else {
-            updateButtons([back, { label: t('settings.docker.retry.action'), buttonStyle: 'prominent', onclick: () => void saveAndTest(), disabled: busy, loading: busy }])
-          }
-      }
-    })
-  }
+  const stepper = $derived<StepperConfig>({ current: steps.indexOf(step) + 1, total: steps.length, labels: stepLabels })
 
-  $effect(() => {
-    void step; void steps; void stepLabels; void busy; void detailsValid; void hostKey; void hostKeyConfirmed; void result
-    untrack(() => syncChrome())
+  /** undefined on the socket, distribution and service steps: DockerWizardSocket and DockerWizardWSL own those buttons */
+  const buttons = $derived.by((): ModalButton[] | undefined => {
+    const back: ModalButton = { label: t('common.actions.back'), buttonStyle: 'neutral', onclick: previousStep, disabled: busy }
+    const next = (disabled: boolean): ModalButton => ({ label: t('common.actions.next'), buttonStyle: 'prominent', onclick: nextStep, disabled })
+    switch (step) {
+      case 'kind':
+        return [{ label: t('common.actions.cancel'), buttonStyle: 'neutral', onclick: closeModal }, next(false)]
+      case 'details':
+        return [back, next(!detailsValid)]
+      case 'host_key':
+        return [back, next(busy || !hostKey || !hostKeyConfirmed)]
+      case 'test':
+        return result
+          ? [{ label: t('common.actions.done'), buttonStyle: 'prominent', onclick: finish }]
+          : [back, { label: t('settings.docker.retry.action'), buttonStyle: 'prominent', onclick: saveAndTest, disabled: busy, loading: busy }]
+      default:
+        return undefined
+    }
   })
 </script>
+
+<ModalChrome title={t('settings.docker.wizard.title')} subtitle={t(stepLabelKeys[step])} {stepper} {buttons} />
 
 <VStack gap={4}>
   {#if step === 'kind'}
@@ -301,10 +280,10 @@
       <Text size="sm" foregroundStyle="secondary">{t('settings.docker.tls.hint')}</Text>
     {/if}
   {:else if step === 'socket'}
-    <DockerWizardSocket bind:socket={localSocket} {updateButtons} onBack={previousStep} onNext={nextStep} />
+    <DockerWizardSocket bind:socket={localSocket} onBack={previousStep} onNext={nextStep} />
   {:else if step === 'distribution' || step === 'service'}
     {#key step}
-      <DockerWizardWSL {step} bind:distribution {updateButtons} onBack={previousStep} onNext={nextStep} />
+      <DockerWizardWSL {step} bind:distribution onBack={previousStep} onNext={nextStep} />
     {/key}
   {:else if step === 'host_key'}
     {#if busy && !hostKey}

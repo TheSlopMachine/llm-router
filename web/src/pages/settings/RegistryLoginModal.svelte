@@ -1,20 +1,16 @@
 <script lang="ts">
   // Body of the Add registry login modal. Rendered by the shared Modal shell.
-  import { untrack } from 'svelte'
-  import { Banner, Field, TextField, VStack } from '@fuckyouryan/fui'
+  import { Banner, Field, ModalChrome, TextField, VStack } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
-  import type { ModalButton } from '$lib/types'
 
   let {
     onComplete,
     closeModal,
-    updateButtons,
   }: {
     onComplete: () => void | Promise<void>
     closeModal: () => void
-    updateButtons: (buttons: ModalButton[]) => void
   } = $props()
 
   let host = $state('')
@@ -38,23 +34,12 @@
       saving = false
     }
   }
-
-  $effect(() => {
-    void saving
-    void complete
-    untrack(() => {
-      updateButtons([
-        { label: t('common.actions.cancel'), buttonStyle: 'neutral', onclick: closeModal, disabled: saving },
-        {
-          label: saving ? t('common.actions.saving') : t('common.actions.add'),
-          buttonStyle: 'prominent',
-          onclick: () => void save(),
-          disabled: saving || !complete,
-        },
-      ])
-    })
-  })
 </script>
+
+<ModalChrome buttons={[
+  { label: t('common.actions.cancel'), buttonStyle: 'neutral', onclick: closeModal, disabled: saving },
+  { label: saving ? t('common.actions.saving') : t('common.actions.add'), buttonStyle: 'prominent', onclick: save, disabled: saving || !complete },
+]} />
 
 <VStack gap={4}>
   {#if error}

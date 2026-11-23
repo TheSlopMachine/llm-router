@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Button, Scaffold, Sidebar, Text, type IconName } from '@fuckyouryan/fui'
   import { surfaceLevel } from '$lib/surface.svelte'
-  import { onMount } from 'svelte'
+  import { viewport } from '$lib/viewport.svelte'
   import { api } from '../lib/api'
   import Metrics from './metrics/Metrics.svelte'
   import Plugins from './plugins/Plugins.svelte'
@@ -16,15 +16,12 @@
   import type { ProxyTab } from './proxy/ProxyPage.svelte'
   import type { MetricsTab } from './metrics/Metrics.svelte'
   import { t } from '../lib/i18n.svelte'
-  import { BP_NARROW } from '../lib/breakpoints'
   import { PLUGINS_ICON, PROVIDERS_ICON, PROXIES_ICON } from '../lib/subsystems'
   import AppFooter from '../components/AppFooter.svelte'
 
   let { onlogout }: { onlogout: () => void } = $props()
 
-  // One source of truth: the tuple drives both the type and the runtime
-  // validation below. Previously the same nine ids were written twice and
-  // drifted apart the moment a section was added.
+  // One source of truth: the tuple drives both the type and the runtime validation below.
   const PANELS = ['metrics', 'providers', 'models', 'virtual', 'tokens', 'plugins', 'proxy', 'settings'] as const
   type PanelId = (typeof PANELS)[number]
 
@@ -77,11 +74,7 @@
     routeSegments = segments.slice(1)
   }
 
-  $effect(() => {
-    applyRoute()
-    window.addEventListener('hashchange', applyRoute)
-    return () => window.removeEventListener('hashchange', applyRoute)
-  })
+  applyRoute()
 
   function openSettings(): void {
     navigateTo('settings')
@@ -126,24 +119,16 @@
   let collapsedOverride = $state<boolean | null>(
     localStorage.getItem(SIDEBAR_KEY) === null ? null : localStorage.getItem(SIDEBAR_KEY) === '1'
   )
-  let narrow = $state(false)
-
-  onMount(() => {
-    const narrowMql = window.matchMedia(`(max-width: ${BP_NARROW}px)`)
-    narrow = narrowMql.matches
-    const onNarrow = (e: MediaQueryListEvent) => { narrow = e.matches }
-    narrowMql.addEventListener('change', onNarrow)
-    return () => narrowMql.removeEventListener('change', onNarrow)
-  })
-
   function getCollapsed(): boolean {
-    return collapsedOverride ?? narrow
+    return collapsedOverride ?? viewport.narrow
   }
   function setCollapsed(next: boolean): void {
     collapsedOverride = next
     localStorage.setItem(SIDEBAR_KEY, next ? '1' : '0')
   }
 </script>
+
+<svelte:window onhashchange={applyRoute} />
 
 <div class="layout">
 <!-- the shell two levels below FUI's default: sidebar -2, content column -1, cards 0 -->
