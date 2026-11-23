@@ -17,22 +17,21 @@ import (
 )
 
 type pluginView struct {
-	ID           string                 `json:"id"`
-	DisplayName  string                 `json:"display_name"`
-	Author       string                 `json:"author"`
-	Version      string                 `json:"version"`
-	PluginAPI    string                 `json:"plugin_api_version"`
-	Description  string                 `json:"description"`
-	License      string                 `json:"license"`
-	Permissions  luaplugin.Permissions  `json:"permissions"`
-	Disabled     bool                   `json:"disabled"`
-	TypeKeys     []string               `json:"type_keys"`
-	Subsystems   []string               `json:"subsystems"`
-	IconURL      string                 `json:"icon_url"`
-	Origin       luaplugin.PluginOrigin `json:"origin"`
-	InstalledAt  time.Time              `json:"installed_at"`
-	UpdatedAt    time.Time              `json:"updated_at"`
-	HistoryCount int                    `json:"history_count"`
+	ID          string                 `json:"id"`
+	DisplayName string                 `json:"display_name"`
+	Author      string                 `json:"author"`
+	Version     string                 `json:"version"`
+	PluginAPI   string                 `json:"plugin_api_version"`
+	Description string                 `json:"description"`
+	License     string                 `json:"license"`
+	Permissions luaplugin.Permissions  `json:"permissions"`
+	Disabled    bool                   `json:"disabled"`
+	TypeKeys    []string               `json:"type_keys"`
+	Subsystems  []string               `json:"subsystems"`
+	IconURL     string                 `json:"icon_url"`
+	Origin      luaplugin.PluginOrigin `json:"origin"`
+	InstalledAt time.Time              `json:"installed_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
 }
 
 func (h *Handler) pluginView(record *luaplugin.PluginRecord) (pluginView, error) {
@@ -49,7 +48,6 @@ func (h *Handler) pluginView(record *luaplugin.PluginRecord) (pluginView, error)
 		Permissions: permissions, Disabled: record.Disabled,
 		TypeKeys: typeKeys, Subsystems: record.Subsystems(), IconURL: record.Icon(), Origin: record.Origin,
 		InstalledAt: record.InstalledAt, UpdatedAt: record.UpdatedAt,
-		HistoryCount: len(record.History),
 	}, nil
 }
 
@@ -308,28 +306,6 @@ func (h *Handler) apiPluginsDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	h.logInfo("Plugin deleted", "plugin_id", id)
 	h.json(w, http.StatusOK, map[string]string{"message": "plugin deleted"})
-}
-
-// apiPluginsRollback rolls a plugin back to its previous version.
-// @Summary      Roll back plugin
-// @Description  Rolls an installed Lua plugin back to its previous version.
-// @Tags         Plugins
-// @Produce      json
-// @Param        id path string true "Plugin ID"
-// @Success      200 {object} object{id=string,version=string}
-// @Failure      400 {object} models.ErrorResponse
-// @Failure      401 {object} models.ErrorResponse
-// @Security     SessionAuth
-// @Router       /api/llm-router/dashboard/plugins/{id}/rollback [post]
-func (h *Handler) apiPluginsRollback(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	record, err := h.luaService.RollbackSQLite(r.Context(), id)
-	if err != nil {
-		h.jsonErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	h.logInfo("Plugin rolled back", "plugin_id", id)
-	h.writePluginView(w, record)
 }
 
 // apiPluginsLogs returns recent plugin log lines from the events database.

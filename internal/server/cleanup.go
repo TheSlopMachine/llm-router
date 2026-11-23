@@ -38,7 +38,7 @@ func wireInvalidation(logger *slog.Logger, providerService *provider.GormService
 	}
 	providerService.SetOnChanged(invalidate)
 	luaService.SetOnChanged(func(typeKey string) {
-		// Runtime plugin changes (install/update/rollback/enable) must
+		// Runtime plugin changes (install/update/enable) must
 		// create default provider rows, previously seeded at startup.
 		if err := providerService.SyncDefaultProviders(ctx); err != nil {
 			logger.Warn("Default provider sync fails", "plugin_id", typeKey, "error", err)

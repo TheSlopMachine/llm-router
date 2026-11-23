@@ -141,10 +141,9 @@ func TestOverlayCoversEverySpecificationField(t *testing.T) {
 	}
 }
 
-func TestRollbackRestoresModelSpecifications(t *testing.T) {
+func TestUpdateReplacesModelSpecifications(t *testing.T) {
 	service := setupService(t)
-	record, err := service.InstallSQLite(context.Background(), []byte(specificationPluginSource), PluginOrigin{Manual: true})
-	if err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(specificationPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install v1: %v", err)
 	}
 	v2 := strings.Replace(specificationPluginSource, "@version 1.0.0", "@version 2.0.0", 1)
@@ -155,16 +154,5 @@ func TestRollbackRestoresModelSpecifications(t *testing.T) {
 	modelInfos, err := service.GetModelInfos(t.Context(), "spec-provider", "spec-type", nil)
 	if err != nil || modelInfos[0].ContextWindow != 300000 {
 		t.Fatalf("v2 specs: %+v %v", modelInfos, err)
-	}
-	rolled, err := service.RollbackSQLite(context.Background(), record.ID)
-	if err != nil {
-		t.Fatalf("rollback: %v", err)
-	}
-	if got := rolled.ModelSpecifications["spec-type"]["m-one"].ContextWindow; got != 200000 {
-		t.Fatalf("rolled-back specs: got %d", got)
-	}
-	modelInfos, err = service.GetModelInfos(t.Context(), "spec-provider", "spec-type", nil)
-	if err != nil || modelInfos[0].ContextWindow != 200000 {
-		t.Fatalf("specs after rollback: %+v %v", modelInfos, err)
 	}
 }

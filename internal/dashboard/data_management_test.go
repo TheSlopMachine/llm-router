@@ -105,7 +105,7 @@ func TestPluginsArchiveRoundTrip(test *testing.T) {
 	if len(settings.Plugins) != 1 || settings.Plugins[0].ID != record.ID || !settings.Plugins[0].Disabled {
 		test.Fatalf("settings plugins: %+v", settings.Plugins)
 	}
-	if len(settings.Plugins[0].Source) != 0 || len(settings.Plugins[0].History) != 0 {
+	if len(settings.Plugins[0].Source) != 0 {
 		test.Fatal("settings must not carry sources")
 	}
 

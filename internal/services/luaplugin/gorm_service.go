@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sort"
 	"time"
 
 	stdErrors "errors"
@@ -18,10 +17,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
-
-// maxPluginHistoryEntries caps rollback history at ten full-source snapshots
-// per plugin, matching the previous History discipline.
-const maxPluginHistoryEntries = 10
 
 // eventsRetentionDays carries the events service retention for plugin log
 // persistence. The plugin service never prunes; the server-owned service
@@ -73,17 +68,8 @@ func orderAllowHostsByHost() clause.OrderBy {
 	return clause.OrderBy{Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "host"}}}}
 }
 
-// orderVersionsByCreation sorts version rows oldest first with identifier
-// tiebreak so history rebuilds in insertion order.
-func orderVersionsByCreation() clause.OrderBy {
-	return clause.OrderBy{Columns: []clause.OrderByColumn{
-		{Column: clause.Column{Name: "created_at"}},
-		{Column: clause.Column{Name: "id"}},
-	}}
-}
-
 // InstallSQLite validates plugin source outside the transaction and persists
-// the plugin row plus allow host and version child rows in one transaction.
+// the plugin row plus allow host child rows in one transaction.
 // Lua execution stays outside the transaction; the transaction uses its
 // handle only.
 func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin PluginOrigin) (*PluginRecord, error) {
@@ -166,33 +152,13 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 			if hostErr != nil {
 				return nil, db.Translate(hostErr)
 			}
-			versionRows, versionErr := gorm.G[record.PluginVersion](transaction, clause.Eq{Column: "plugin_id", Value: identifier}, orderVersionsByCreation()).Find(ctx)
-			if versionErr != nil {
-				return nil, db.Translate(versionErr)
-			}
-			return pluginRecordFromRows(existingRow, hostRows, versionRows)
+			return pluginRecordFromRows(existingRow, hostRows)
 		}()
 		if err != nil {
 			return err
 		}
-		previousSnapshot := snapshotFromRecord(existingRecord)
 		previousKeys = append([]string(nil), existingRecord.TypeKeys...)
 		previousRecord = existingRecord
-		versionIdentifier, err := util.GenerateID()
-		if err != nil {
-			return fmt.Errorf("generate version identifier: %w", err)
-		}
-		versionRow := versionRowFromSnapshot(identifier, previousSnapshot, versionIdentifier, now)
-		if err := writeVersionRowInTransaction(ctx, transaction, versionRow); err != nil {
-			return err
-		}
-		if err := pruneVersionHistoryInTransaction(ctx, transaction, identifier); err != nil {
-			return err
-		}
-		history := append(existingRecord.History, previousSnapshot)
-		if len(history) > maxPluginHistoryEntries {
-			history = history[len(history)-maxPluginHistoryEntries:]
-		}
 		updated := &PluginRecord{
 			ID:                  identifier,
 			DisplayName:         manifest.Plugin,
@@ -214,7 +180,6 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 			Handlers:            dryOutput.handlers,
 			Icons:               dryOutput.icons,
 			Source:              append([]byte(nil), source...),
-			History:             history,
 			Origin:              origin,
 			InstalledAt:         existingRecord.InstalledAt,
 			UpdatedAt:           now,
@@ -244,8 +209,8 @@ func (service *Service) InstallSQLite(ctx context.Context, source []byte, origin
 	return installed, nil
 }
 
-// GetSQLite returns one plugin record with hosts and history assembled from
-// the child tables in one transaction. A miss reports the not-found sentinel.
+// GetSQLite returns one plugin record with its hosts assembled in one
+// transaction. A miss reports the not-found sentinel.
 func (service *Service) GetSQLite(ctx context.Context, pluginID string) (*PluginRecord, error) {
 	if err := service.requireHandle(); err != nil {
 		return nil, err
@@ -260,11 +225,7 @@ func (service *Service) GetSQLite(ctx context.Context, pluginID string) (*Plugin
 		if err != nil {
 			return db.Translate(err)
 		}
-		versionRows, err := gorm.G[record.PluginVersion](transaction, clause.Eq{Column: "plugin_id", Value: pluginID}, orderVersionsByCreation()).Find(ctx)
-		if err != nil {
-			return db.Translate(err)
-		}
-		assembled, err := pluginRecordFromRows(baseRow, hostRows, versionRows)
+		assembled, err := pluginRecordFromRows(baseRow, hostRows)
 		if err != nil {
 			return err
 		}
@@ -280,7 +241,7 @@ func (service *Service) GetSQLite(ctx context.Context, pluginID string) (*Plugin
 }
 
 // ListSQLite returns every plugin record ordered by identifier with hosts
-// and history assembled per row in one transaction.
+// assembled per row in one transaction.
 func (service *Service) ListSQLite(ctx context.Context) ([]*PluginRecord, error) {
 	if err := service.requireHandle(); err != nil {
 		return nil, err
@@ -295,21 +256,13 @@ func (service *Service) ListSQLite(ctx context.Context) ([]*PluginRecord, error)
 		if err != nil {
 			return db.Translate(err)
 		}
-		versionRows, err := gorm.G[record.PluginVersion](transaction, orderVersionsByCreation()).Find(ctx)
-		if err != nil {
-			return db.Translate(err)
-		}
 		hostsByPlugin := map[string][]record.PluginAllowHost{}
 		for _, hostRow := range hostRows {
 			hostsByPlugin[hostRow.PluginID] = append(hostsByPlugin[hostRow.PluginID], hostRow)
 		}
-		versionsByPlugin := map[string][]record.PluginVersion{}
-		for _, versionRow := range versionRows {
-			versionsByPlugin[versionRow.PluginID] = append(versionsByPlugin[versionRow.PluginID], versionRow)
-		}
 		assembled := make([]*PluginRecord, 0, len(pluginRows))
 		for _, pluginRow := range pluginRows {
-			pluginRecord, err := pluginRecordFromRows(pluginRow, hostsByPlugin[pluginRow.ID], versionsByPlugin[pluginRow.ID])
+			pluginRecord, err := pluginRecordFromRows(pluginRow, hostsByPlugin[pluginRow.ID])
 			if err != nil {
 				return err
 			}
@@ -323,8 +276,8 @@ func (service *Service) ListSQLite(ctx context.Context) ([]*PluginRecord, error)
 	return result, nil
 }
 
-// DeleteSQLite removes one plugin row. Allow host, version and durable
-// storage rows cascade from the base delete; TTL storage rows reference the
+// DeleteSQLite removes one plugin row. Allow host and durable storage rows
+// cascade from the base delete; TTL storage rows reference the
 // plugin softly from the cache file and clear explicitly after the durable
 // delete succeeds. A zero-row delete reports the not-found sentinel through
 // the WithResult tracker. The registry rebuilds and notifies the removed
@@ -367,8 +320,7 @@ func (service *Service) DeleteSQLite(ctx context.Context, pluginID string) error
 }
 
 // SetDisabled flips the operator-owned disabled flag for one plugin row.
-// The flag persists across restarts, reinstalls, and rollbacks; history
-// never versions it. Enabling re-enters the type registry, disabling leaves
+// The flag persists across restarts and reinstalls. Enabling re-enters the type registry, disabling leaves
 // it. A no-op returns the stored record without lifecycle hooks. Disable
 // fires deinitialize with reason disable; enable fires initialize with
 // reason enable. Both run detached and never block the caller. One
@@ -420,154 +372,6 @@ func (service *Service) SetDisabled(ctx context.Context, pluginID string, disabl
 		logger.Info("Plugin admin state changed", "plugin_id", pluginID, "disabled", disabled)
 	}
 	return &updated, nil
-}
-
-// RollbackSQLite restores the most recent previous version. Reads for the
-// Lua fallback happen outside the transaction on the base handle; the single
-// transaction holds the read-modify-write for the plugin row, host
-// replacement, version delete and version insert. The rolled-back-from
-// version returns to history so rollback toggles forward again, matching
-// the previous discipline.
-func (service *Service) RollbackSQLite(ctx context.Context, pluginID string) (*PluginRecord, error) {
-	if err := service.requireHandle(); err != nil {
-		return nil, err
-	}
-	pluginRow, err := gorm.G[record.Plugin](service.database, clause.Eq{Column: "id", Value: pluginID}).First(ctx)
-	if err != nil {
-		translated := db.Translate(err)
-		if stdErrors.Is(translated, apierrors.ErrNotFound) {
-			return nil, fmt.Errorf("plugin %q: %w", pluginID, apierrors.ErrNotFound)
-		}
-		return nil, translated
-	}
-	hostRows, err := gorm.G[record.PluginAllowHost](service.database, clause.Eq{Column: "plugin_id", Value: pluginID}, orderAllowHostsByHost()).Find(ctx)
-	if err != nil {
-		return nil, db.Translate(err)
-	}
-	versionRows, err := gorm.G[record.PluginVersion](service.database, clause.Eq{Column: "plugin_id", Value: pluginID}, orderVersionsByCreation()).Find(ctx)
-	if err != nil {
-		return nil, db.Translate(err)
-	}
-	currentRecord, err := pluginRecordFromRows(pluginRow, hostRows, versionRows)
-	if err != nil {
-		return nil, err
-	}
-	if len(currentRecord.History) == 0 {
-		return nil, fmt.Errorf("plugin %q has no previous version", pluginID)
-	}
-	previousSnapshot := currentRecord.History[len(currentRecord.History)-1]
-	remainingHistory := append([]PluginVersionSnapshot(nil), currentRecord.History[:len(currentRecord.History)-1]...)
-	manifest, err := ParseManifest(previousSnapshot.Source)
-	if err != nil {
-		return nil, fmt.Errorf("previous version manifest: %w", err)
-	}
-	if err := CheckPluginAPI(manifest); err != nil {
-		service.logAPIIncompatible(manifest, currentRecord.Origin, err)
-		return nil, err
-	}
-	waitsForDocker, err := service.waitsForDocker(ctx, manifest)
-	if err != nil {
-		return nil, err
-	}
-	handlers := previousSnapshot.Handlers
-	icons := previousSnapshot.Icons
-	specifications := previousSnapshot.ModelSpecifications
-	cooldowns := previousSnapshot.HealthCooldown
-	sourceKeys := previousSnapshot.ProxySourceKeys
-	schemas := previousSnapshot.Schemas
-	locales := previousSnapshot.Locales
-	jobs := previousSnapshot.Jobs
-	if handlers == nil {
-		dryOutput, dryErr := service.dryRun(pluginID, previousSnapshot.Source, manifest)
-		if dryErr != nil {
-			return nil, fmt.Errorf("previous version dry-run: %w", dryErr)
-		}
-		handlers = dryOutput.handlers
-		icons = dryOutput.icons
-		specifications = dryOutput.specifications
-		cooldowns = dryOutput.cooldowns
-		sourceKeys = dryOutput.sourceKeys
-		schemas = dryOutput.schemas
-		locales = dryOutput.locales
-		jobs = dryOutput.jobs
-	}
-	rolledSnapshot := snapshotFromRecord(currentRecord)
-	remainingHistory = append(remainingHistory, rolledSnapshot)
-	if len(remainingHistory) > maxPluginHistoryEntries {
-		remainingHistory = remainingHistory[len(remainingHistory)-maxPluginHistoryEntries:]
-	}
-	rolled := &PluginRecord{
-		ID:                  currentRecord.ID,
-		DisplayName:         manifest.Plugin,
-		Author:              manifest.Author,
-		Version:             previousSnapshot.Version,
-		PluginAPI:           manifest.PluginAPI,
-		Description:         manifest.Description,
-		License:             manifest.License,
-		AllowHosts:          append([]string(nil), manifest.AllowHosts...),
-		Unsafe:              manifest.Unsafe,
-		Disabled:            currentRecord.Disabled || waitsForDocker,
-		ProxySourceKeys:     append([]string(nil), sourceKeys...),
-		ModelSpecifications: specifications,
-		HealthCooldown:      cooldowns,
-		Schemas:             schemas,
-		Locales:             locales,
-		Jobs:                jobs,
-		TypeKeys:            append([]string(nil), previousSnapshot.TypeKeys...),
-		Handlers:            handlers,
-		Icons:               icons,
-		Source:              append([]byte(nil), previousSnapshot.Source...),
-		History:             remainingHistory,
-		Origin:              currentRecord.Origin,
-		InstalledAt:         currentRecord.InstalledAt,
-		UpdatedAt:           util.Now(),
-	}
-	rolledBackIdentifier, err := util.GenerateID()
-	if err != nil {
-		return nil, fmt.Errorf("generate version identifier: %w", err)
-	}
-	rolledRow := versionRowFromSnapshot(pluginID, rolledSnapshot, rolledBackIdentifier, util.Now())
-	if err := service.database.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
-		versionRows, err := gorm.G[record.PluginVersion](transaction, clause.Eq{Column: "plugin_id", Value: pluginID}, orderVersionsByCreation()).Find(ctx)
-		if err != nil {
-			return db.Translate(err)
-		}
-		if len(versionRows) == 0 {
-			return fmt.Errorf("plugin %q has no previous version", pluginID)
-		}
-		ordered := append([]record.PluginVersion(nil), versionRows...)
-		sort.Slice(ordered, func(first int, second int) bool {
-			if ordered[first].CreatedAt.Equal(ordered[second].CreatedAt) {
-				return ordered[first].ID < ordered[second].ID
-			}
-			return ordered[first].CreatedAt.Before(ordered[second].CreatedAt)
-		})
-		latest := ordered[len(ordered)-1]
-		tracker := gorm.WithResult()
-		affected, err := gorm.G[record.PluginVersion](transaction, clause.Eq{Column: "id", Value: latest.ID}, tracker).Delete(ctx)
-		if err != nil {
-			return db.Translate(err)
-		}
-		if affected == 0 || tracker.RowsAffected == 0 {
-			return fmt.Errorf("plugin %q has no previous version", pluginID)
-		}
-		if err := writeVersionRowInTransaction(ctx, transaction, rolledRow); err != nil {
-			return err
-		}
-		if err := pruneVersionHistoryInTransaction(ctx, transaction, pluginID); err != nil {
-			return err
-		}
-		return writePluginRecordInTransaction(ctx, transaction, rolled, rolled.InstalledAt, rolled.UpdatedAt)
-	}); err != nil {
-		return nil, err
-	}
-	if err := service.rebuild(ctx); err != nil {
-		return nil, err
-	}
-	service.invalidatePoolBuckets(rolled.ID, unionKeys(currentRecord.TypeKeys, rolled.TypeKeys), unionKeys(currentRecord.ProxySourceKeys, rolled.ProxySourceKeys))
-	service.notify(rolled.TypeKeys...)
-	service.launchReplacementHooks(currentRecord, rolled)
-	return rolled, nil
 }
 
 // checkTypeKeyConflictsInTransaction rejects type keys already served by
@@ -630,36 +434,6 @@ func writePluginRecordInTransaction(ctx context.Context, transaction *gorm.DB, p
 	hostRows := allowHostRowsFromRecord(pluginRecord)
 	if len(hostRows) > 0 {
 		if err := gorm.G[record.PluginAllowHost](transaction, clause.OnConflict{Columns: []clause.Column{{Name: "plugin_id"}, {Name: "host"}}, UpdateAll: true}).CreateInBatches(ctx, &hostRows, 500); err != nil {
-			return db.Translate(err)
-		}
-	}
-	return nil
-}
-
-// writeVersionRowInTransaction inserts one history row on the transaction
-// handle. The conflict target is the generated primary key.
-func writeVersionRowInTransaction(ctx context.Context, transaction *gorm.DB, versionRow record.PluginVersion) error {
-	rows := []record.PluginVersion{versionRow}
-	if err := gorm.G[record.PluginVersion](transaction, clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, UpdateAll: true}).CreateInBatches(ctx, &rows, 500); err != nil {
-		return db.Translate(err)
-	}
-	return nil
-}
-
-// pruneVersionHistoryInTransaction keeps the ten most recent history rows
-// for one plugin on the transaction handle and deletes the older excess by
-// primary key condition.
-func pruneVersionHistoryInTransaction(ctx context.Context, transaction *gorm.DB, pluginID string) error {
-	versionRows, err := gorm.G[record.PluginVersion](transaction, clause.Eq{Column: "plugin_id", Value: pluginID}, orderVersionsByCreation()).Find(ctx)
-	if err != nil {
-		return db.Translate(err)
-	}
-	if len(versionRows) <= maxPluginHistoryEntries {
-		return nil
-	}
-	excess := versionRows[:len(versionRows)-maxPluginHistoryEntries]
-	for _, versionRow := range excess {
-		if _, err := gorm.G[record.PluginVersion](transaction, clause.Eq{Column: "id", Value: versionRow.ID}).Delete(ctx); err != nil {
 			return db.Translate(err)
 		}
 	}

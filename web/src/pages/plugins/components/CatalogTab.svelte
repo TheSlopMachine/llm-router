@@ -417,36 +417,6 @@
         onconfirm={() => void pluginState.doDelete()} />
     {/snippet}
   </FloatingView>
-
-  <FloatingView
-    open={Boolean(pluginState.pendingRollback)}
-    anchor={pluginState.pendingRollback?.anchor}
-    width="sm"
-    onclose={() => { pluginState.pendingRollback = null }}
-    label={t('plugins.rollback_title')}
-  >
-    {#snippet children({ close })}
-      <VStack gap={3}>
-        <VStack gap={1}>
-          <Text weight="medium" size="md">{t('plugins.rollback_title')}</Text>
-          <Text size="sm" foregroundStyle="secondary">
-            {t('plugins.rollback')} "{pluginState.pendingRollback?.plugin.display_name}" {t('plugins.rollback_confirm')}
-          </Text>
-        </VStack>
-        <HStack halign="end" gap={2}>
-          <Button size="sm" buttonStyle="text" onclick={close} disabled={pluginState.rollingBack}>{t('common.actions.cancel')}</Button>
-          <Button
-            size="sm"
-            buttonStyle="prominent"
-            disabled={pluginState.rollingBack}
-            onclick={() => void pluginState.doRollback()}
-          >
-            {pluginState.rollingBack ? t('plugins.rollbacking') : t('plugins.rollback_title')}
-          </Button>
-        </HStack>
-      </VStack>
-    {/snippet}
-  </FloatingView>
 </VStack>
 
 <style>

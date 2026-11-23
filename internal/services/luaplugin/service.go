@@ -34,21 +34,6 @@ type JobSpec struct {
 	TimeoutMs       int   `json:"timeout_ms"`
 }
 
-// PluginVersionSnapshot is one rollback entry.
-type PluginVersionSnapshot struct {
-	Version             string                                 `json:"version"`
-	Source              []byte                                 `json:"source"`
-	TypeKeys            []string                               `json:"type_keys"`
-	Handlers            map[string][]string                    `json:"handlers"`
-	Icons               map[string]string                      `json:"icons"`
-	ModelSpecifications map[string]map[string]models.ModelInfo `json:"model_specs,omitempty"`
-	HealthCooldown      map[string]int64                       `json:"health_cooldown,omitempty"`
-	ProxySourceKeys     []string                               `json:"proxy_source_keys,omitempty"`
-	Schemas             map[string]map[string][]*models.UINode `json:"schemas,omitempty"`
-	Locales             map[string]PluginLocales               `json:"locales,omitempty"`
-	Jobs                map[string]map[string]JobSpec          `json:"jobs,omitempty"`
-}
-
 // PluginRecord is the stored plugin row in the plugins table.
 type PluginRecord struct {
 	ID          string   `json:"id"`
@@ -83,7 +68,6 @@ type PluginRecord struct {
 	Handlers    map[string][]string           `json:"handlers"`
 	Icons       map[string]string             `json:"icons"`
 	Source      []byte                        `json:"source"`
-	History     []PluginVersionSnapshot       `json:"history"`
 	Origin      PluginOrigin                  `json:"origin"`
 	InstalledAt time.Time                     `json:"installed_at"`
 	UpdatedAt   time.Time                     `json:"updated_at"`
@@ -277,7 +261,7 @@ func (s *Service) SetMinimumLevel(level slog.Level) {
 }
 
 // SetOnChanged registers a callback fired with every affected type key
-// after install/update/rollback/delete/enable/disable.
+// after install/update/delete/enable/disable.
 func (s *Service) SetOnChanged(callback func(typeKey string)) {
 	s.wiringMu.Lock()
 	defer s.wiringMu.Unlock()

@@ -13,8 +13,8 @@ import (
 )
 
 // The plugins subsystem travels as a zip archive: PluginsArchiveSettingsFile
-// holds the PluginsExportBundle with every plugin's source and version
-// history removed, and every plugin's source is a separate
+// holds the PluginsExportBundle with every plugin's source removed, and
+// every plugin's source is a separate
 // PluginSourceFileName entry.
 const (
 	PluginsArchiveSettingsFile = "plugins.json"
@@ -53,7 +53,6 @@ func WritePluginsArchive(writer io.Writer, bundle *PluginsExportBundle) error {
 		}
 		metadata := *plugin
 		metadata.Source = nil
-		metadata.History = nil
 		settings.Plugins = append(settings.Plugins, &metadata)
 	}
 	entry, err := archive.Create(PluginsArchiveSettingsFile)

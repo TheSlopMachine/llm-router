@@ -9,7 +9,8 @@
 - **Docker plugins need a Docker host.** A Docker plugin installed disabled while no Docker host was configured. Enabling it opened the Docker setup first. Removing the Docker host disabled these plugins.
 - **Contained egress.** Plugin containers ran on internal networks. A router gateway per plugin forwarded only to the plugin's `@allow_host` list and to public addresses. Refused hosts logged `code=docker_egress_blocked`.
 - **Lifecycle.** Deleting a plugin removed its containers, networks, volumes and built images. Disabling it stopped its containers. Router shutdown stopped every plugin container. An hourly sweep removed objects of plugins gone.
-- Storage: tables `docker_connections` and `docker_registry_credentials` (migration 12).
+- **Plugin rollback removed.** The dashboard offered no way to reach it. `POST /dashboard/plugins/{id}/rollback`, `history_count` and the stored previous versions were removed. An update replaced the plugin without keeping the old source.
+- Storage: tables `docker_connections` and `docker_registry_credentials` (migration 12). Migration 13 dropped `plugin_versions`.
 
 ## Done (2026-11-22, v0.11.4)
 

@@ -114,10 +114,9 @@ func TestInstallRejectsBadIcon(t *testing.T) {
 	}
 }
 
-func TestRollbackRestoresIcon(t *testing.T) {
+func TestUpdateReplacesIcon(t *testing.T) {
 	service := setupService(t)
-	record, err := service.InstallSQLite(context.Background(), []byte(iconPluginSource), PluginOrigin{Manual: true})
-	if err != nil {
+	if _, err := service.InstallSQLite(context.Background(), []byte(iconPluginSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install v1: %v", err)
 	}
 	v2 := strings.Replace(iconPluginSource, "@version 1.0.0", "@version 2.0.0", 1)
@@ -127,16 +126,6 @@ func TestRollbackRestoresIcon(t *testing.T) {
 	}
 	if got := service.Icon("icon-type"); got != "https://example.com/icon2.svg" {
 		t.Fatalf("v2 icon: got %q", got)
-	}
-	rolled, err := service.RollbackSQLite(context.Background(), record.ID)
-	if err != nil {
-		t.Fatalf("rollback: %v", err)
-	}
-	if got := rolled.Icons["icon-type"]; got != "https://example.com/icon.svg" {
-		t.Fatalf("rolled-back icon: got %q", got)
-	}
-	if got := service.Icon("icon-type"); got != "https://example.com/icon.svg" {
-		t.Fatalf("registry icon after rollback: got %q", got)
 	}
 }
 
@@ -445,28 +434,6 @@ llm_router.register("crash-type", {
 	}
 	if len(service.Crashes("a/P")) == 0 {
 		t.Fatal("crash must be recorded")
-	}
-}
-
-func TestRollback(t *testing.T) {
-	service := setupService(t)
-	if _, err := service.InstallSQLite(context.Background(), []byte(testPluginSource), PluginOrigin{Manual: true}); err != nil {
-		t.Fatalf("install v1: %v", err)
-	}
-	v2 := strings.Replace(testPluginSource, "@version 1.0.0", "@version 2.0.0", 1)
-	rec2, err := service.InstallSQLite(context.Background(), []byte(v2), PluginOrigin{Manual: true})
-	if err != nil {
-		t.Fatalf("install v2: %v", err)
-	}
-	if rec2.Version != "2.0.0" || len(rec2.History) != 1 {
-		t.Fatalf("unexpected v2 record: %+v", rec2)
-	}
-	rolled, err := service.RollbackSQLite(context.Background(), rec2.ID)
-	if err != nil {
-		t.Fatalf("rollback: %v", err)
-	}
-	if rolled.Version != "1.0.0" {
-		t.Fatalf("version after rollback: %q", rolled.Version)
 	}
 }
 

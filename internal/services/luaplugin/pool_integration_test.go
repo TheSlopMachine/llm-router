@@ -165,33 +165,6 @@ func TestPoolInvalidatedOnDelete(t *testing.T) {
 	}
 }
 
-func TestPoolInvalidatedOnRollback(t *testing.T) {
-	resetSharedPool(t)
-	service := setupService(t)
-	record, err := service.InstallSQLite(context.Background(), []byte(testPluginSource), PluginOrigin{Manual: true})
-	if err != nil {
-		t.Fatalf("install v1: %v", err)
-	}
-	bucketKey := qualifiedBucketKey(record, "test-type")
-	second := strings.Replace(testPluginSource, "hello", "second", 1)
-	second = strings.Replace(second, "@version 1.0.0", "@version 2.0.0", 1)
-	if _, err := service.InstallSQLite(context.Background(), []byte(second), PluginOrigin{Manual: true}); err != nil {
-		t.Fatalf("install v2: %v", err)
-	}
-	if content := completeWithHello(t, service, "test-type"); content != "second" {
-		t.Fatalf("v2 content = %q", content)
-	}
-	if _, err := service.RollbackSQLite(context.Background(), record.ID); err != nil {
-		t.Fatalf("rollback: %v", err)
-	}
-	if got := statepool.Length(bucketKey); got != 0 {
-		t.Fatalf("length after rollback = %d, want 0", got)
-	}
-	if content := completeWithHello(t, service, "test-type"); content != "hello" {
-		t.Fatalf("content after rollback = %q, want hello", content)
-	}
-}
-
 func TestConcurrentPooledCompletes(t *testing.T) {
 	resetSharedPool(t)
 	service := setupService(t)

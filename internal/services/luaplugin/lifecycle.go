@@ -134,8 +134,8 @@ func (s *Service) runLifecycleHook(
 
 // RunInitialize runs the initialize slot of every declaring type in a plugin
 // record with one reason. Calls fan out concurrently; the call waits for all
-// of them. Detach (go) at call sites that must not wait: install, update and
-// rollback handlers. Unknown reasons fail closed before any hook runs.
+// of them. Detach (go) at call sites that must not wait: install and update
+// handlers. Unknown reasons fail closed before any hook runs.
 func (s *Service) RunInitialize(goCtx context.Context, record *PluginRecord, reason string) error {
 	return s.runRecordHooks(goCtx, []*PluginRecord{record}, string(HandlerInitialize), reason, "", nil)
 }
@@ -200,7 +200,7 @@ func (s *Service) launchReplacementHooks(previous, next *PluginRecord) {
 
 // launchLifecycleHook runs one record sweep detached. Lua execution stays
 // outside transactions; failures log and never block the caller. Install,
-// update, rollback and delete paths use it so dashboard calls return while
+// update and delete paths use it so dashboard calls return while
 // hooks finish in the background.
 func (s *Service) launchLifecycleHook(record *PluginRecord, handler, reason string) {
 	if record == nil {

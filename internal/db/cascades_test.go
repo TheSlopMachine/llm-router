@@ -236,10 +236,6 @@ func TestPluginDeleteCascades(t *testing.T) {
 	if err := hosts.Upsert(ctx, record.PluginAllowHost{PluginID: "plugin", Host: "example.com"}); err != nil {
 		t.Fatalf("seed host: %v", err)
 	}
-	versions := repository.NewGormRepository[record.PluginVersion](database.Handle, "id")
-	if err := versions.Upsert(ctx, record.PluginVersion{ID: "version", PluginID: "plugin", Version: "1.0.0", Source: []byte("return {}"), Declarations: map[string]any{}, CreatedAt: now}); err != nil {
-		t.Fatalf("seed version: %v", err)
-	}
 	storage := repository.NewGormRepository[record.PluginStorage](database.Handle, "plugin_id", "scope", "key")
 	if err := storage.Upsert(ctx, record.PluginStorage{PluginID: "plugin", Scope: "scope", Key: "key", Value: []byte("{}")}); err != nil {
 		t.Fatalf("seed storage: %v", err)
@@ -250,9 +246,6 @@ func TestPluginDeleteCascades(t *testing.T) {
 	}
 	if got := countRows[record.PluginAllowHost](t, ctx, database.Handle, "plugin_id", "host"); got != 0 {
 		t.Errorf("allow hosts hold %d rows, want 0 cascade", got)
-	}
-	if got := countRows[record.PluginVersion](t, ctx, database.Handle, "id"); got != 0 {
-		t.Errorf("versions hold %d rows, want 0 cascade", got)
 	}
 	if got := countRows[record.PluginStorage](t, ctx, database.Handle, "plugin_id", "scope", "key"); got != 0 {
 		t.Errorf("storage holds %d rows, want 0 cascade", got)

@@ -32,8 +32,6 @@ export function createPluginState(options: {
 }) {
   let pendingDelete = $state<{ plugin: Plugin; anchor?: HTMLElement } | null>(null)
   let deleting = $state(false)
-  let pendingRollback = $state<{ plugin: Plugin; anchor?: HTMLElement } | null>(null)
-  let rollingBack = $state(false)
   let pendingFile = $state<PendingFile | null>(null)
   let installingFile = $state(false)
   let togglingIds = $state<string[]>([])
@@ -93,29 +91,6 @@ export function createPluginState(options: {
       options.onError(getErrorMessage(e))
     } finally {
       deleting = false
-    }
-  }
-
-  function openRollback(plugin: Plugin, anchor?: HTMLElement): void {
-    if (pendingRollback?.plugin.id === plugin.id) {
-      pendingRollback = null
-    } else {
-      pendingRollback = { plugin, anchor }
-    }
-  }
-
-  async function doRollback(): Promise<void> {
-    const target = pendingRollback
-    if (!target || rollingBack) return
-    rollingBack = true
-    try {
-      const rec = await api.plugins.rollback(target.plugin.id)
-      pendingRollback = null
-      options.onPluginSaved(rec)
-    } catch (e) {
-      options.onError(getErrorMessage(e))
-    } finally {
-      rollingBack = false
     }
   }
 
@@ -219,9 +194,6 @@ export function createPluginState(options: {
       case 'update_file':
         updateFromFile(plugin, anchor)
         break
-      case 'rollback':
-        openRollback(plugin, anchor)
-        break
       case 'delete':
         openDelete(plugin, anchor)
         break
@@ -231,8 +203,6 @@ export function createPluginState(options: {
   return {
     openDelete,
     doDelete,
-    openRollback,
-    doRollback,
     updatePlugin,
     updateAll,
     togglePlugin,
@@ -260,15 +230,6 @@ export function createPluginState(options: {
     },
     get deleting(): boolean {
       return deleting
-    },
-    get pendingRollback(): { plugin: Plugin; anchor?: HTMLElement } | null {
-      return pendingRollback
-    },
-    set pendingRollback(v: { plugin: Plugin; anchor?: HTMLElement } | null) {
-      pendingRollback = v
-    },
-    get rollingBack(): boolean {
-      return rollingBack
     }
   }
 }

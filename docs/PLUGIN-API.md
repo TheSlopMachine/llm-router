@@ -293,10 +293,10 @@ nothing. Startup skips incompatible rows with a warning.
 
 ### Versions and identity
 
-- `@plugin_api` is the contract the plugin speaks. Install, rollback and startup compare the major only. The minor is informational. The router release version has no compatibility meaning.
+- `@plugin_api` is the contract the plugin speaks. Install and startup compare the major only. The minor is informational. The router release version has no compatibility meaning.
 - `@version` and `@plugin_api` accept `MAJOR.MINOR[.PATCH]` with one optional leading `v`. A missing patch means `.0`. Anything else fails install.
 - `@author` and `@plugin` form the plugin identity `author/plugin`. Each part is sanitized: runs of characters outside `A-Z a-z 0-9 - _ .` become one `-`, and leading and trailing `-` are trimmed.
-- An install with an existing identity replaces that plugin, whatever the version or source (any store or a file upload). The previous version goes to the rollback history, which keeps the last 10.
+- An install with an existing identity replaces that plugin, whatever the version or source (any store or a file upload). The previous version is not kept.
 - `make upload-plugins` skips a file whose `@version` equals the installed one. The install itself always replaces.
 - A plugin file is at most 1 MiB.
 - A type key already served by a different plugin fails the install.
@@ -1098,7 +1098,7 @@ deinitialize = function(ctx) return true end
 ```
 
 Parameters: `initialize` reason one of `install` (first install), `update`
-(reinstall or rollback), `startup` (router boot with the plugin enabled),
+(reinstall), `startup` (router boot with the plugin enabled),
 `enable` (operator re-enabled the plugin). `deinitialize` reason one of
 `delete` (plugin removal), `update` (source replacement, old source runs),
 `shutdown` (router exit), `disable` (provider instance left enabled state or

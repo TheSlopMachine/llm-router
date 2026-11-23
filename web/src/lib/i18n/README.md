@@ -48,7 +48,7 @@ Top level domains group keys by feature.
 - `models` - Model list, search, filter, custom models, capabilities, endpoints.
 - `tokens` - Token CRUD, wizard steps, permissions, status.
 - `virtual` - Virtual model list, create, edit, decision routing.
-- `plugins` - Tabs, catalog, installed, repos, install, update, rollback.
+- `plugins` - Tabs, catalog, installed, repos, install, update, permissions.
 - `proxy` - Mode, pool status, sources, custom pools, retry mode.
 - `settings` - Language, theme, accent, cluster, telemetry, password.
 - `data` - Export, import, clear, purge, doctor.

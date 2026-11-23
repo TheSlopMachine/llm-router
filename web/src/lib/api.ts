@@ -205,8 +205,6 @@ export const api = {
     update: (id: string, payload: { disabled: boolean }): Promise<Plugin> =>
       putJson(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}`, payload),
 
-    rollback: (id: string): Promise<Plugin> =>
-      postJson(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}/rollback`, {}),
 
     logs: (id: string): Promise<Array<{ at: string; severity: number; message: string; keys: Record<string, string> }>> =>
       fetch(`/api/llm-router/dashboard/plugins/${encodeURIComponent(id)}/logs`).then(assertOk),

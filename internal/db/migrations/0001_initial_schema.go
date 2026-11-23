@@ -26,6 +26,7 @@ var RegistryDatabase = []migrate.Migration{
 	{Version: 10, Name: "provider_virtual_settings", Up: upProviderVirtualSettings},
 	{Version: 11, Name: "managed_virtual_descriptions", Up: upManagedVirtualDescriptions},
 	{Version: 12, Name: "docker", Up: upDocker},
+	{Version: 13, Name: "drop_plugin_history", Up: upDropPluginHistory},
 }
 
 type instanceSettingSnapshot struct {

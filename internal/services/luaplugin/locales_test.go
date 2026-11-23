@@ -209,7 +209,7 @@ func TestAuthLocaleResolution(t *testing.T) {
 	}
 }
 
-func TestLocalesPersistAndRollback(t *testing.T) {
+func TestLocalesPersistAcrossUpdate(t *testing.T) {
 	service, err := New(testutil.SetupTestSQLite(t), nil)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
@@ -233,19 +233,5 @@ func TestLocalesPersistAndRollback(t *testing.T) {
 	}
 	if russian[0].Label != "Ключ" {
 		t.Fatalf("v2 label: got %q", russian[0].Label)
-	}
-	rolled, err := service.RollbackSQLite(ctx, first.ID)
-	if err != nil {
-		t.Fatalf("rollback: %v", err)
-	}
-	if rolled.Locales["locprobe"]["ru"]["misc.api_key"] != "API-ключ" {
-		t.Fatalf("rollback locales wrong: %+v", rolled.Locales)
-	}
-	restored, err := service.Schema("locprobe", "credential_schema", "ru")
-	if err != nil {
-		t.Fatalf("schema rollback ru: %v", err)
-	}
-	if restored[0].Label != "API-ключ" {
-		t.Fatalf("restored label: got %q", restored[0].Label)
 	}
 }

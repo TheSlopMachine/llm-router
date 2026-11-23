@@ -180,145 +180,22 @@ func TestProxySourceKeysIncludesSourceOnlyPlugins(t *testing.T) {
 	}
 }
 
-func TestInstallSQLiteUpdatePushesHistory(t *testing.T) {
+func TestInstallSQLiteUpdateReplacesVersion(t *testing.T) {
 	service, ctx := setupSQLitePluginService(t)
 	installed, err := service.InstallSQLite(ctx, []byte(testPluginSource), PluginOrigin{Manual: true})
 	if err != nil {
 		t.Fatalf("install v1: %v", err)
 	}
 	secondSource := strings.Replace(testPluginSource, "@version 1.0.0", "@version 2.0.0", 1)
-	updated, err := service.InstallSQLite(ctx, []byte(secondSource), PluginOrigin{Manual: true})
-	if err != nil {
+	if _, err := service.InstallSQLite(ctx, []byte(secondSource), PluginOrigin{Manual: true}); err != nil {
 		t.Fatalf("install v2: %v", err)
-	}
-	if updated.Version != "2.0.0" {
-		t.Fatalf("version: got %q", updated.Version)
-	}
-	if len(updated.History) != 1 {
-		t.Fatalf("history length: got %d want 1", len(updated.History))
-	}
-	if updated.History[0].Version != "1.0.0" {
-		t.Fatalf("history version: got %q", updated.History[0].Version)
 	}
 	fetched, err := service.GetSQLite(ctx, installed.ID)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if len(fetched.History) != 1 || fetched.History[0].Version != "1.0.0" {
-		t.Fatalf("persisted history: %+v", fetched.History)
-	}
-}
-
-func TestInstallSQLiteHistoryCapsAtTen(t *testing.T) {
-	service, ctx := setupSQLitePluginService(t)
-	identifier := ""
-	for iteration := 0; iteration < 12; iteration++ {
-		versioned := strings.Replace(testPluginSource, "@version 1.0.0", fmt.Sprintf("@version 1.0.%d", iteration), 1)
-		installed, err := service.InstallSQLite(ctx, []byte(versioned), PluginOrigin{Manual: true})
-		if err != nil {
-			t.Fatalf("install %d: %v", iteration, err)
-		}
-		identifier = installed.ID
-	}
-	fetched, err := service.GetSQLite(ctx, identifier)
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if len(fetched.History) != maxPluginHistoryEntries {
-		t.Fatalf("history length: got %d want %d", len(fetched.History), maxPluginHistoryEntries)
-	}
-}
-
-func TestRollbackSQLiteRestoresPrevious(t *testing.T) {
-	service, ctx := setupSQLitePluginService(t)
-	installed, err := service.InstallSQLite(ctx, []byte(testPluginSource), PluginOrigin{Manual: true})
-	if err != nil {
-		t.Fatalf("install v1: %v", err)
-	}
-	secondSource := strings.Replace(testPluginSource, "@version 1.0.0", "@version 2.0.0", 1)
-	second, err := service.InstallSQLite(ctx, []byte(secondSource), PluginOrigin{Manual: true})
-	if err != nil {
-		t.Fatalf("install v2: %v", err)
-	}
-	if second.Version != "2.0.0" {
-		t.Fatalf("v2 version: %q", second.Version)
-	}
-	rolled, err := service.RollbackSQLite(ctx, installed.ID)
-	if err != nil {
-		t.Fatalf("rollback: %v", err)
-	}
-	if rolled.Version != "1.0.0" {
-		t.Fatalf("rolled version: %q", rolled.Version)
-	}
-	fetched, err := service.GetSQLite(ctx, installed.ID)
-	if err != nil {
-		t.Fatalf("get after rollback: %v", err)
-	}
-	if fetched.Version != "1.0.0" {
-		t.Fatalf("persisted version: %q", fetched.Version)
-	}
-	// Rollback toggles forward: the rolled-back-from version returns to history.
-	rerolled, err := service.RollbackSQLite(ctx, installed.ID)
-	if err != nil {
-		t.Fatalf("second rollback: %v", err)
-	}
-	if rerolled.Version != "2.0.0" {
-		t.Fatalf("toggle version: %q", rerolled.Version)
-	}
-}
-
-func TestRollbackSQLiteWithoutHistoryFails(t *testing.T) {
-	service, ctx := setupSQLitePluginService(t)
-	installed, err := service.InstallSQLite(ctx, []byte(testPluginSource), PluginOrigin{Manual: true})
-	if err != nil {
-		t.Fatalf("install: %v", err)
-	}
-	if _, err := service.RollbackSQLite(ctx, installed.ID); err == nil {
-		t.Fatal("rollback without history must fail")
-	}
-	if _, err := service.RollbackSQLite(ctx, "missing-plugin"); !stdErrors.Is(err, apierrors.ErrNotFound) {
-		t.Fatalf("rollback missing must report not found, got %v", err)
-	}
-}
-
-func TestRollbackSQLiteRejectsIncompatiblePrevious(t *testing.T) {
-	originalAPI := PluginAPIVersion
-	defer func() { PluginAPIVersion = originalAPI }()
-	PluginAPIVersion = version.Version{Major: 2}
-	sqliteDatabase := testutil.SetupTestSQLite(t)
-	service, err := New(sqliteDatabase, nil)
-	if err != nil {
-		t.Fatalf("new sqlite service: %v", err)
-	}
-	ctx := context.Background()
-	firstSource := strings.Replace(testPluginSource, "@plugin_api 1.0", "@plugin_api 2.0", 1)
-	installed, err := service.InstallSQLite(ctx, []byte(firstSource), PluginOrigin{Manual: true})
-	if err != nil {
-		t.Fatalf("install v1: %v", err)
-	}
-	secondSource := strings.Replace(firstSource, "@version 1.0.0", "@version 2.0.0", 1)
-	second, err := service.InstallSQLite(ctx, []byte(secondSource), PluginOrigin{Manual: true})
-	if err != nil {
-		t.Fatalf("install v2: %v", err)
-	}
-	PluginAPIVersion = originalAPI
-	if _, err := service.RollbackSQLite(ctx, installed.ID); err == nil {
-		t.Fatal("rollback to a newer-major previous version must fail")
-	} else {
-		var compat *APICompatError
-		if !stdErrors.As(err, &compat) || compat.Reason != "too_new" {
-			t.Fatalf("expected too_new, got: %v", err)
-		}
-	}
-	fetched, err := service.GetSQLite(ctx, installed.ID)
-	if err != nil {
-		t.Fatalf("get after rejected rollback: %v", err)
-	}
-	if fetched.Version != second.Version {
-		t.Fatalf("rejected rollback must not mutate: version %q", fetched.Version)
-	}
-	if len(fetched.History) != 1 {
-		t.Fatalf("rejected rollback must not mutate history: got %d entries", len(fetched.History))
+	if fetched.Version != "2.0.0" || fetched.InstalledAt != installed.InstalledAt {
+		t.Fatalf("updated record: version %q, installed at %v", fetched.Version, fetched.InstalledAt)
 	}
 }
 
@@ -677,9 +554,6 @@ func TestSQLiteMethodsFailClosedWithoutHandle(t *testing.T) {
 	}
 	if err := service.DeleteSQLite(ctx, "missing"); err == nil {
 		t.Fatal("delete without sqlite must fail")
-	}
-	if _, err := service.RollbackSQLite(ctx, "missing"); err == nil {
-		t.Fatal("rollback without sqlite must fail")
 	}
 	if _, err := service.SetDisabled(ctx, "missing", true); err == nil {
 		t.Fatal("set disabled without sqlite must fail")

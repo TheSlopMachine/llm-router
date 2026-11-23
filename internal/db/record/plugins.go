@@ -63,23 +63,6 @@ func (PluginAllowHost) TableName() string {
 	return "plugin_allow_hosts"
 }
 
-// PluginVersion is one rollback history entry. Retention follows the
-// luaplugin cap: ten full-source snapshots per plugin.
-type PluginVersion struct {
-	ID           string         `gorm:"primaryKey"`
-	PluginID     string         `gorm:"not null;index"`
-	Plugin       Plugin         `gorm:"foreignKey:PluginID;references:ID;belongsTo;constraint:OnDelete:CASCADE"`
-	Version      string         `gorm:"not null"`
-	Source       []byte         `gorm:"not null"`
-	Declarations map[string]any `gorm:"serializer:json"`
-	CreatedAt    time.Time      `gorm:"not null"`
-}
-
-// TableName pins the plugin versions table name.
-func (PluginVersion) TableName() string {
-	return "plugin_versions"
-}
-
 // PluginStorage is one llm_router.storage entry. The composite primary key
 // replaces the NUL-separated bucket string. Value stays JSON because the
 // shape is plugin-owned; expiry is an indexed column.

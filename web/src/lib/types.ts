@@ -452,7 +452,6 @@ export interface Plugin {
   origin: { repo_id: string; path: string; manual: boolean }
   installed_at: string
   updated_at: string
-  history_count: number
 }
 
 export interface DockerDirectives {

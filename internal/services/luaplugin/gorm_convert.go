@@ -12,7 +12,7 @@ import (
 // pluginDeclarationsFromRecord builds the plugin-owned JSON declarations from
 // the wire record. Type keys, handlers, icons, model specifications, health
 // cooldowns, proxy source keys, schemas, locales and jobs stay JSON because
-// the shape is plugin-owned. Allow hosts, history, source, origin and
+// the shape is plugin-owned. Allow hosts, source, origin and
 // timestamps live in columns or child tables, never in declarations.
 func pluginDeclarationsFromRecord(pluginRecord *PluginRecord) map[string]any {
 	declarations := map[string]any{}
@@ -64,12 +64,10 @@ func pluginRowFromRecord(pluginRecord *PluginRecord, installedAt time.Time, upda
 }
 
 // pluginRecordFromRows rebuilds the wire record from the base row plus its
-// allow host and version child rows. Declarations decode through a JSON
-// round trip so numbers, nested maps and pointer slices return in
-// plugin-visible shapes. Hosts sort for determinism; history orders by
-// creation time with identifier tiebreak so rollback pops the most recent
-// entry first. Timestamps return in UTC.
-func pluginRecordFromRows(pluginRow record.Plugin, hostRows []record.PluginAllowHost, versionRows []record.PluginVersion) (*PluginRecord, error) {
+// allow host rows. Declarations decode through a JSON round trip so
+// numbers, nested maps and pointer slices return in plugin-visible shapes.
+// Hosts sort for determinism. Timestamps return in UTC.
+func pluginRecordFromRows(pluginRow record.Plugin, hostRows []record.PluginAllowHost) (*PluginRecord, error) {
 	pluginRecord := &PluginRecord{
 		ID:          pluginRow.ID,
 		DisplayName: pluginRow.DisplayName,
@@ -123,111 +121,7 @@ func pluginRecordFromRows(pluginRow record.Plugin, hostRows []record.PluginAllow
 	if err := decodeDeclarationsField(declarations, "jobs", &pluginRecord.Jobs); err != nil {
 		return nil, fmt.Errorf("decode jobs: %w", err)
 	}
-	orderedVersions := append([]record.PluginVersion(nil), versionRows...)
-	sort.Slice(orderedVersions, func(first int, second int) bool {
-		if orderedVersions[first].CreatedAt.Equal(orderedVersions[second].CreatedAt) {
-			return orderedVersions[first].ID < orderedVersions[second].ID
-		}
-		return orderedVersions[first].CreatedAt.Before(orderedVersions[second].CreatedAt)
-	})
-	history := make([]PluginVersionSnapshot, 0, len(orderedVersions))
-	for _, versionRow := range orderedVersions {
-		snapshot, err := snapshotFromVersionRow(versionRow)
-		if err != nil {
-			return nil, err
-		}
-		history = append(history, snapshot)
-	}
-	pluginRecord.History = history
 	return pluginRecord, nil
-}
-
-// versionDeclarationsFromSnapshot builds the plugin-owned JSON declarations
-// for one history entry. The keys match pluginDeclarationsFromRecord so
-// rollback restores the identical shapes.
-func versionDeclarationsFromSnapshot(snapshot PluginVersionSnapshot) map[string]any {
-	return map[string]any{
-		"type_keys":         copyStringSlice(snapshot.TypeKeys),
-		"handlers":          snapshot.Handlers,
-		"icons":             snapshot.Icons,
-		"model_specs":       snapshot.ModelSpecifications,
-		"health_cooldown":   snapshot.HealthCooldown,
-		"proxy_source_keys": copyStringSlice(snapshot.ProxySourceKeys),
-		"schemas":           snapshot.Schemas,
-		"locales":           snapshot.Locales,
-		"jobs":              snapshot.Jobs,
-	}
-}
-
-// versionRowFromSnapshot maps one history snapshot onto a plugin_versions
-// row. The identifier is generated outside so writes stay deterministic in
-// tests. Creation time normalizes to UTC.
-func versionRowFromSnapshot(pluginID string, snapshot PluginVersionSnapshot, identifier string, createdAt time.Time) record.PluginVersion {
-	return record.PluginVersion{
-		ID:           identifier,
-		PluginID:     pluginID,
-		Version:      snapshot.Version,
-		Source:       append([]byte(nil), snapshot.Source...),
-		Declarations: versionDeclarationsFromSnapshot(snapshot),
-		CreatedAt:    createdAt.UTC(),
-	}
-}
-
-// snapshotFromVersionRow rebuilds one history snapshot from a
-// plugin_versions row. Declarations decode through the same JSON round trip
-// as the base row so rollback restores plugin-visible shapes.
-func snapshotFromVersionRow(versionRow record.PluginVersion) (PluginVersionSnapshot, error) {
-	snapshot := PluginVersionSnapshot{
-		Version: versionRow.Version,
-		Source:  append([]byte(nil), versionRow.Source...),
-	}
-	declarations := versionRow.Declarations
-	if err := decodeDeclarationsField(declarations, "type_keys", &snapshot.TypeKeys); err != nil {
-		return PluginVersionSnapshot{}, fmt.Errorf("decode version type keys: %w", err)
-	}
-	if err := decodeDeclarationsField(declarations, "handlers", &snapshot.Handlers); err != nil {
-		return PluginVersionSnapshot{}, fmt.Errorf("decode version handlers: %w", err)
-	}
-	if err := decodeDeclarationsField(declarations, "icons", &snapshot.Icons); err != nil {
-		return PluginVersionSnapshot{}, fmt.Errorf("decode version icons: %w", err)
-	}
-	if err := decodeDeclarationsField(declarations, "model_specs", &snapshot.ModelSpecifications); err != nil {
-		return PluginVersionSnapshot{}, fmt.Errorf("decode version model specifications: %w", err)
-	}
-	if err := decodeDeclarationsField(declarations, "health_cooldown", &snapshot.HealthCooldown); err != nil {
-		return PluginVersionSnapshot{}, fmt.Errorf("decode version health cooldown: %w", err)
-	}
-	if err := decodeDeclarationsField(declarations, "proxy_source_keys", &snapshot.ProxySourceKeys); err != nil {
-		return PluginVersionSnapshot{}, fmt.Errorf("decode version proxy source keys: %w", err)
-	}
-	if err := decodeDeclarationsField(declarations, "schemas", &snapshot.Schemas); err != nil {
-		return PluginVersionSnapshot{}, fmt.Errorf("decode version schemas: %w", err)
-	}
-	if err := decodeDeclarationsField(declarations, "locales", &snapshot.Locales); err != nil {
-		return PluginVersionSnapshot{}, fmt.Errorf("decode version locales: %w", err)
-	}
-	if err := decodeDeclarationsField(declarations, "jobs", &snapshot.Jobs); err != nil {
-		return PluginVersionSnapshot{}, fmt.Errorf("decode version jobs: %w", err)
-	}
-	return snapshot, nil
-}
-
-// snapshotFromRecord builds one history snapshot from the current wire
-// record before an update or rollback overwrites it.
-func snapshotFromRecord(pluginRecord *PluginRecord) PluginVersionSnapshot {
-	return PluginVersionSnapshot{
-		Version:             pluginRecord.Version,
-		Source:              append([]byte(nil), pluginRecord.Source...),
-		TypeKeys:            append([]string(nil), pluginRecord.TypeKeys...),
-		Handlers:            pluginRecord.Handlers,
-		Icons:               pluginRecord.Icons,
-		ModelSpecifications: pluginRecord.ModelSpecifications,
-		HealthCooldown:      pluginRecord.HealthCooldown,
-		ProxySourceKeys:     append([]string(nil), pluginRecord.ProxySourceKeys...),
-		Schemas:             pluginRecord.Schemas,
-		Locales:             pluginRecord.Locales,
-		Jobs:                pluginRecord.Jobs,
-	}
 }
 
 // allowHostRowsFromRecord maps the allow host list onto one

@@ -55,7 +55,6 @@ func TestOpenCreatesSchema(t *testing.T) {
 		"plugin_repositories",
 		"plugins",
 		"plugin_allow_hosts",
-		"plugin_versions",
 		"plugin_storage",
 		"docker_connections",
 		"docker_registry_credentials",
@@ -66,8 +65,8 @@ func TestOpenCreatesSchema(t *testing.T) {
 			t.Errorf("primary missing table %s", table)
 		}
 	}
-	if len(primaryTables) != 26 {
-		t.Errorf("primary schema holds %d tables, want 26", len(primaryTables))
+	if len(primaryTables) != 25 {
+		t.Errorf("primary schema holds %d tables, want 25", len(primaryTables))
 	}
 	cacheTables := []string{
 		"schema_migrations",

@@ -132,7 +132,7 @@ web/src/lib/<concern>.ts       one helper module per concern: format, model-sear
 - `luaplugin/exec.go:handlerCallEx` is the single call site: pooled `LState`
   per call (`luaplugin/statepool`: per-plugin buckets keyed by
   `<pluginID>\x00<typeKey>`, `LUA_POOL_BUCKET_SIZE` idle states per bucket,
-  default 16, excess closes on return, update/rollback/disable/delete
+  default 16, excess closes on return, update/disable/delete
   invalidates), rebind of per-call globals, source load, handler lookup
   (including `jobs.<name>.run` for `job:<name>` invocations), `PCall`,
   terminal-error decode. Lua error tables matching
@@ -182,7 +182,7 @@ web/src/lib/<concern>.ts       one helper module per concern: format, model-sear
 
 - `@require_api docker` installs `llm_router.docker` (`luaplugin/docker.go`). The manifest owns the policy: `@docker.*` directives plus `@allow_host`, parsed by `dockerhost.Directives` and memoized per source revision.
 - Installing is the consent. `Manifest.Permissions` holds the hosts and directives with a digest. Dashboard installs pass the digest the operator reviewed, `luaplugin.CheckApproval` refuses a source that requests other permissions. API installs pass none.
-- A Docker plugin stays disabled while no Docker host is configured: install, update and rollback store it disabled, enabling fails with `ErrDockerUnconfigured`. Removing the host disables these plugins through the connection removed hook. Initialize of an enabled Docker plugin starts preparing its images.
+- A Docker plugin stays disabled while no Docker host is configured: install and update store it disabled, enabling fails with `ErrDockerUnconfigured`. Removing the host disables these plugins through the connection removed hook. Initialize of an enabled Docker plugin starts preparing its images.
 - One live session per settings revision (`dockerhost/service.go`): connector, Engine client, daemon info, resolved dial mode. Saving the connection drops it. Failed calls keep it: the connector redials a lost SSH connection.
 - Objects carry `io.llm-router.*` labels (namespace, plugin, key, service, role, spec hash). Names `<namespace>.<author>.<plugin>.<key>[.<service>]-<hash8>` make creation atomic. A name match without our labels is an ownership conflict.
 - Containers join an internal network per plugin (standalone) or per compose project. One gateway container per plugin joins those networks and the `<namespace>.egress` bridge. Its proxy applies `netguard.HostAllowList` and public-address dials; containers get proxy variables with a per-gateway token.
@@ -240,7 +240,7 @@ web/src/lib/<concern>.ts       one helper module per concern: format, model-sear
   gate; failures log, never fail startup.
 - `luaplugin` lifecycle hooks (`lifecycle.go`): optional `initialize` /
   `deinitialize` slots fan out concurrently (4 workers, 30s per call,
-  failures log, never block). Install/update/delete/rollback dispatch
+  failures log, never block). Install/update/delete dispatch
   detached after commit; startup runs in the server gate next to
   `RunStartupRefresh`; shutdown runs before metrics stop; provider disable
   transitions dispatch from the provider service only
@@ -274,7 +274,7 @@ SQLite (`internal/db/sqlite.go`, `OpenSQLite`) owns three files.
 
 | File | Variable | Release default | Holds |
 |---|---|---|---|
-| Database | `DB_PATH` | `~/.local/share/llm-router/llm-router.sqlite3` | Instance settings, dashboard password, proxy pools and entries, tokens and rules, providers, credentials, model overrides, virtual models, provider virtual settings, plugin repos, plugins, hosts, versions, durable plugin storage, Docker connection, registry logins |
+| Database | `DB_PATH` | `~/.local/share/llm-router/llm-router.sqlite3` | Instance settings, dashboard password, proxy pools and entries, tokens and rules, providers, credentials, model overrides, virtual models, provider virtual settings, plugin repos, plugins, hosts, durable plugin storage, Docker connection, registry logins |
 | Cache | `CACHE_PATH` | `~/.cache/llm-router/llm-router.cache.sqlite3` | Rebuildable state: sessions, proxy states, model info snapshots and rows, credential parks and health, TTL plugin storage, metric buckets and dimensions, video jobs, response records, message batches |
 | Events | `EVENTS_PATH` | `~/.local/state/llm-router/llm-router.events.sqlite3` | Operator telemetry, pruned on startup and hourly after `EVENTS_RETENTION_DAYS` (default 3, minimum 1), `auto_vacuum=INCREMENTAL` |
 
@@ -284,7 +284,7 @@ SQLite (`internal/db/sqlite.go`, `OpenSQLite`) owns three files.
 - Reads and writes go through `gorm.G` with typed clauses (`make sql-policy-test`). `repository.GormRepository` owns the generic operations: 500-row upsert batches, `Clear` as the only `AllowGlobalUpdate` path. `maintenance.go` owns the only raw statements: checkpoint, vacuum, freelist count, optimize, integrity check, backup, events prune.
 - The DSN pins foreign keys, WAL, synchronous NORMAL, busy timeout and the immediate lock.
 - Cache rows reference database rows without foreign keys. Deletes clear related cache rows explicitly. Deleting the cache file while stopped signs operators out, and the cache refills.
-- Foreign keys cascade: a provider delete removes its credentials, model overrides, managed virtual models, virtual members and virtual setting. A plugin delete removes hosts, versions and durable storage. A metric bucket delete removes its dimension rows.
+- Foreign keys cascade: a provider delete removes its credentials, model overrides, managed virtual models, virtual members and virtual setting. A plugin delete removes hosts and durable storage. A metric bucket delete removes its dimension rows.
 - Provider `proxy.pool` references `proxy_pools` with RESTRICT.
 - `virtual_models.name_key` is UNIQUE and signals duplicate names.
 - `plugin_storage.expires_at` routes a row: TTL rows live in the cache, durable rows in the database.
