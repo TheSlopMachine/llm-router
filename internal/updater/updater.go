@@ -261,6 +261,25 @@ func Swap(executable, staging string) (string, error) {
 	return previous, nil
 }
 
+// InstalledBy returns the package manager named by the marker file of a
+// package install, or empty for a binary installed by hand. Packages place
+// the marker at ../share/llm-router/package-manager from the binary.
+func InstalledBy(executable string) (string, error) {
+	marker := filepath.Join(filepath.Dir(executable), "..", "share", "llm-router", "package-manager")
+	content, err := os.ReadFile(marker)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", marker, err)
+	}
+	name := strings.TrimSpace(string(content))
+	if name == "" {
+		return "", fmt.Errorf("%s names no package manager", marker)
+	}
+	return name, nil
+}
+
 // Discard removes a staged binary.
 func Discard(staging string) {
 	_ = os.Remove(staging)

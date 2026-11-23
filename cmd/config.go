@@ -79,14 +79,6 @@ func completeConfigKeys(_ *cobra.Command, arguments []string, _ string) ([]strin
 	return names, cobra.ShellCompDirectiveNoFileComp
 }
 
-func dotenvPath() (string, error) {
-	path, err := config.ExpandPath(config.ResolveDotenvPath())
-	if err != nil {
-		return "", i18n.Wrap(err, "config.invalidEnvFile")
-	}
-	return path, nil
-}
-
 func lookupConfigKey(name string) (config.Key, error) {
 	key, found := config.LookupKey(name)
 	if !found {
@@ -96,7 +88,7 @@ func lookupConfigKey(name string) (config.Key, error) {
 }
 
 func runConfigInit(*cobra.Command, []string) error {
-	path, err := dotenvPath()
+	path, err := config.ResolveDotenvPath()
 	if err != nil {
 		return err
 	}
@@ -120,7 +112,7 @@ func runConfigGet(_ *cobra.Command, arguments []string) error {
 	if err != nil {
 		return err
 	}
-	path, err := dotenvPath()
+	path, err := config.ResolveDotenvPath()
 	if err != nil {
 		return err
 	}
@@ -137,7 +129,7 @@ func runConfigGet(_ *cobra.Command, arguments []string) error {
 }
 
 func runConfigList(*cobra.Command, []string) error {
-	path, err := dotenvPath()
+	path, err := config.ResolveDotenvPath()
 	if err != nil {
 		return err
 	}
@@ -158,7 +150,7 @@ func runConfigSet(_ *cobra.Command, arguments []string) error {
 	if err != nil {
 		return err
 	}
-	path, err := dotenvPath()
+	path, err := config.ResolveDotenvPath()
 	if err != nil {
 		return err
 	}
@@ -170,7 +162,7 @@ func runConfigUnset(_ *cobra.Command, arguments []string) error {
 	if err != nil {
 		return err
 	}
-	path, err := dotenvPath()
+	path, err := config.ResolveDotenvPath()
 	if err != nil {
 		return err
 	}
@@ -248,7 +240,7 @@ func runConfigMenu(*cobra.Command, []string) error {
 	if !isTerminal() {
 		return errors.New(i18n.T("config.needTerminal"))
 	}
-	path, err := dotenvPath()
+	path, err := config.ResolveDotenvPath()
 	if err != nil {
 		return err
 	}

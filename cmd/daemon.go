@@ -52,7 +52,27 @@ func newDaemonCommand() *cobra.Command {
 		RunE: func(command *cobra.Command, _ []string) error {
 			return command.Help()
 		},
+		PersistentPreRunE: prepareDaemon,
 	}
+	var enableNow, disableNow bool
+	enableCommand := &cobra.Command{
+		Use:   "enable",
+		Short: i18n.T("daemon.enable.short"),
+		Args:  cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			return runDaemonEnable(enableNow)
+		},
+	}
+	enableCommand.Flags().BoolVar(&enableNow, "now", false, i18n.T("daemon.enable.now"))
+	disableCommand := &cobra.Command{
+		Use:   "disable",
+		Short: i18n.T("daemon.disable.short"),
+		Args:  cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			return runDaemonDisable(disableNow)
+		},
+	}
+	disableCommand.Flags().BoolVar(&disableNow, "now", false, i18n.T("daemon.disable.now"))
 	command.AddCommand(
 		&cobra.Command{
 			Use:   "start",
@@ -80,11 +100,18 @@ func newDaemonCommand() *cobra.Command {
 				return runStatus(false)
 			},
 		},
+		enableCommand,
+		disableCommand,
 	)
 	return command
 }
 
 func runDaemonStart(*cobra.Command, []string) error {
+	if manager, err := systemServiceFor(); err != nil {
+		return err
+	} else if manager != nil {
+		return runServiceAction(manager, manager.Start)
+	}
 	applicationConfig, _, err := config.Load()
 	if err != nil {
 		return err
@@ -111,6 +138,11 @@ func printDaemonStarted(started daemonStart, address string) {
 }
 
 func runDaemonStop(*cobra.Command, []string) error {
+	if manager, err := systemServiceFor(); err != nil {
+		return err
+	} else if manager != nil {
+		return stopService(manager)
+	}
 	applicationConfig, _, err := config.Load()
 	if err != nil {
 		return err
@@ -128,6 +160,11 @@ func runDaemonStop(*cobra.Command, []string) error {
 }
 
 func runDaemonRestart(*cobra.Command, []string) error {
+	if manager, err := systemServiceFor(); err != nil {
+		return err
+	} else if manager != nil {
+		return runServiceAction(manager, manager.Restart)
+	}
 	applicationConfig, _, err := config.Load()
 	if err != nil {
 		return err

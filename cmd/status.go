@@ -39,8 +39,15 @@ func runStatus(full bool) error {
 	if err != nil {
 		return err
 	}
+	service, err := serviceStatus()
+	if err != nil {
+		return err
+	}
 	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	defer writer.Flush()
+	if service != "" {
+		fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.service"), service)
+	}
 	if !held {
 		fmt.Fprintf(writer, "%s\t%s\n", i18n.T("status.label.status"), i18n.T("status.value.stopped"))
 		return &exitError{code: notRunningExitCode}

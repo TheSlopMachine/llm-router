@@ -347,3 +347,46 @@ func TestDotenvExampleMirrorsTemplate(t *testing.T) {
 		t.Fatalf(".env.example drifts from DefaultTemplate:\n%s", string(raw))
 	}
 }
+
+func TestResolveDotenvPathOrder(t *testing.T) {
+	clearProcessEnvironment(t)
+	home := t.TempDir()
+	setHomeDirectory(t, home)
+	userPath := filepath.Join(home, ".config", "llm-router", ".env")
+	systemPath := filepath.Join(t.TempDir(), "system.env")
+	previousSystemPath := systemDotenvPath
+	systemDotenvPath = systemPath
+	t.Cleanup(func() { systemDotenvPath = previousSystemPath })
+
+	resolve := func() string {
+		t.Helper()
+		path, err := ResolveDotenvPath()
+		if err != nil {
+			t.Fatalf("ResolveDotenvPath: %v", err)
+		}
+		return path
+	}
+	if got := resolve(); got != userPath {
+		t.Errorf("no files: path = %q, want the user default %q", got, userPath)
+	}
+	if err := os.WriteFile(systemPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolve(); got != systemPath {
+		t.Errorf("system file only: path = %q, want %q", got, systemPath)
+	}
+	if err := os.MkdirAll(filepath.Dir(userPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(userPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolve(); got != userPath {
+		t.Errorf("both files: path = %q, want the user file %q", got, userPath)
+	}
+	explicit := filepath.Join(t.TempDir(), "explicit.env")
+	t.Setenv("ENV_FILE", explicit)
+	if got := resolve(); got != explicit {
+		t.Errorf("ENV_FILE: path = %q, want %q", got, explicit)
+	}
+}

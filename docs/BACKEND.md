@@ -10,13 +10,15 @@ is `docs/PLUGIN-API.md`.
 ```
 cmd/root.go              CLI root: command groups, exit codes, version
 cmd/serve.go             foreground server (takes the instance lock)
-cmd/daemon.go            daemon start/stop/restart/status; stop is SIGTERM, or a named stop event on Windows (daemon_unix.go, daemon_windows.go)
+cmd/daemon.go            daemon start/stop/restart/status/enable/disable; stop is SIGTERM, or a named stop event on Windows (daemon_unix.go, daemon_windows.go)
+cmd/service.go           daemon commands for the system service of a package install
 cmd/config.go            config menu, init, get, set, unset, list over the .env file
 cmd/password.go          set-dashboard-password (the only way to set the first password)
 cmd/logs.go              logs: reads the events database read-only
 cmd/status.go, doctor.go, update.go   status, database doctor, self-update
 internal/instance/       one process per database: file lock + holder record next to DB_PATH
 internal/updater/        GitHub release lookup, checksum check, binary swap
+internal/systemservice/  systemd, OpenRC and FreeBSD rc.d control of the package service
 internal/cli/            pure CLI helpers (argument parsing, formatting)
 internal/i18n/           ru/en catalogs of CLI text (messages_en.go, messages_ru.go); add a key to both
 internal/server/         HTTP server: public listener (HOST, PORT) + optional loopback admin listener (127.0.0.1, ADMIN_PORT, API only, no auth); route tables in httpapi, source in requestsource
@@ -283,6 +285,10 @@ SQLite (`internal/db/sqlite.go`, `OpenSQLite`) owns three files.
 
 - Dev runs use `.dev` files in the same directories (`llm-router.dev.sqlite3`, `llm-router.cache.dev.sqlite3`, `llm-router.events.dev.sqlite3`, `.env.dev`). `make start` passes them through `DB_PATH`, `CACHE_PATH`, `EVENTS_PATH` and `ENV_FILE` when unset.
 - Paths and `ENV_FILE` expand a leading `~`, `%NAME%`, `$VAR` and `${VAR}`. A tilde elsewhere stays literal. Default parent directories are created on startup. A custom parent must exist (`ErrParentMissing`).
+- `config.ResolveDotenvPath` picks the `.env` file: `ENV_FILE`, then the user's `~/.config/llm-router/.env`, then the system file of a package install (`/etc/llm-router/.env` on Linux, `/usr/local/etc/llm-router/.env` on FreeBSD). The system file sets absolute paths for the service directories.
+- Root runs every command as the owner of the resolved `.env` file (`cmd/owner_unix.go`). A package gives that file to its service user, so files that `sudo llm-router ...` creates stay usable by the service. The system file applies only to users who can read it.
+- With the system `.env` and an installed service, `daemon` commands go to the service manager (`systemservice.Detect`) and keep root. `enable` and `disable` exist only for that service. A service file without a running manager fails the commands.
+- A package install places `../share/llm-router/package-manager` next to the binary. `updater.InstalledBy` reads it, and `update` refuses to replace a packaged binary. Packages and their service files live in TheSlopMachine/llm-packages.
 - `internal/db/migrations` owns every table. `internal/db/record/` holds the row shapes.
 - Reads and writes go through `gorm.G` with typed clauses (`make sql-policy-test`). `repository.GormRepository` owns the generic operations: 500-row upsert batches, `Clear` as the only `AllowGlobalUpdate` path. `maintenance.go` owns the only raw statements: checkpoint, vacuum, freelist count, optimize, integrity check, backup, events prune.
 - The DSN pins foreign keys, WAL, synchronous NORMAL, busy timeout and the immediate lock.

@@ -214,3 +214,27 @@ func TestSiblingKeepsExtension(t *testing.T) {
 		t.Errorf("sibling = %s", got)
 	}
 }
+
+func TestInstalledByReadsMarker(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "bin", "llm-router")
+	if name, err := InstalledBy(executable); name != "" || err != nil {
+		t.Fatalf("InstalledBy without marker = %q, %v, want empty", name, err)
+	}
+	marker := filepath.Join(root, "share", "llm-router", "package-manager")
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("APT\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if name, err := InstalledBy(executable); name != "APT" || err != nil {
+		t.Errorf("InstalledBy = %q, %v, want APT", name, err)
+	}
+	if err := os.WriteFile(marker, []byte("\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InstalledBy(executable); err == nil {
+		t.Error("InstalledBy with an empty marker succeeded")
+	}
+}

@@ -47,10 +47,11 @@ var rootCommand *cobra.Command
 func init() {
 	i18n.Init()
 	rootCommand = &cobra.Command{
-		Use:           "llm-router",
-		Short:         i18n.T("root.short"),
-		SilenceUsage:  true,
-		SilenceErrors: true,
+		Use:               "llm-router",
+		Short:             i18n.T("root.short"),
+		SilenceUsage:      true,
+		SilenceErrors:     true,
+		PersistentPreRunE: runAsConfigurationOwner,
 	}
 	rootCommand.AddGroup(
 		&cobra.Group{ID: groupRun, Title: i18n.T("group.run")},

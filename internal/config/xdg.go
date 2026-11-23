@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -33,6 +34,14 @@ const (
 	DefaultDevEventsPath   = "~/.local/state/llm-router/llm-router.events.dev.sqlite3"
 	DefaultDevDotenvPath   = "~/.config/llm-router/.env.dev"
 )
+
+// systemDotenvPath is the dotenv file of a package install on this OS, or
+// empty where packages ship none. ResolveDotenvPath reads it when the user
+// has no file of their own. Tests replace it.
+var systemDotenvPath = map[string]string{
+	"linux":   "/etc/llm-router/.env",
+	"freebsd": "/usr/local/etc/llm-router/.env",
+}[runtime.GOOS]
 
 // ApplicationDirectoryName is the single directory entry under each XDG
 // base that llm-router owns.

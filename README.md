@@ -46,6 +46,7 @@ This starts the server on the configured port (default is `8080`).
 |---|---|
 | `serve` | Run in the foreground. |
 | `daemon start\|stop\|restart\|status` | Run in the background. |
+| `daemon enable\|disable` | Start the package service at boot. |
 | `config` | Interactive settings menu. |
 | `set-dashboard-password` | Set the dashboard password. |
 | `logs` | Print server events. |

@@ -42,12 +42,47 @@ var (
 	ErrMissingTargetPath        = errors.New("configuration target path is required")
 )
 
-// ResolveDotenvPath returns the dotenv path: ENV_FILE or the prod XDG default.
-func ResolveDotenvPath() string {
+// ResolveDotenvPath returns the expanded dotenv path. ENV_FILE wins. Without
+// it the user's own file wins over the system file of a package install.
+// The system file belongs to the package service, so it applies only to
+// users who may read it: root, the service user and its group. Everyone
+// else gets the user's default path.
+func ResolveDotenvPath() (string, error) {
 	if value := strings.TrimSpace(os.Getenv("ENV_FILE")); value != "" {
-		return value
+		expanded, err := ExpandPath(value)
+		if err != nil {
+			return "", fmt.Errorf("invalid ENV_FILE: %w", err)
+		}
+		return expanded, nil
 	}
-	return defaultDotenvPath()
+	userPath, err := ExpandPath(defaultDotenvPath())
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(userPath); err == nil {
+		return userPath, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("inspect dotenv file %s: %w", userPath, err)
+	}
+	if systemDotenvPath == "" {
+		return userPath, nil
+	}
+	file, err := os.Open(systemDotenvPath)
+	switch {
+	case err == nil:
+		_ = file.Close()
+		return systemDotenvPath, nil
+	case errors.Is(err, os.ErrNotExist), errors.Is(err, os.ErrPermission):
+		return userPath, nil
+	default:
+		return "", fmt.Errorf("open dotenv file %s: %w", systemDotenvPath, err)
+	}
+}
+
+// IsSystemDotenvPath reports whether path is the system dotenv file of a
+// package install. Its instance runs as the package service.
+func IsSystemDotenvPath(path string) bool {
+	return systemDotenvPath != "" && path == systemDotenvPath
 }
 
 // defaultDatabasePath returns the prod database default, honoring
@@ -99,9 +134,9 @@ func defaultDotenvPath() string {
 // resulting process environment. It returns the loaded file path or empty
 // when no file was present.
 func Load() (*Config, string, error) {
-	dotenvPath, err := ExpandPath(ResolveDotenvPath())
+	dotenvPath, err := ResolveDotenvPath()
 	if err != nil {
-		return nil, "", fmt.Errorf("invalid ENV_FILE: %w", err)
+		return nil, "", err
 	}
 	loadedPath, err := loadDotenvFile(dotenvPath)
 	if err != nil {

@@ -52,6 +52,17 @@ func runUpdate(command *cobra.Command, _ []string) error {
 	if inContainer() {
 		return errors.New(i18n.T("update.container"))
 	}
+	executable, err := os.Executable()
+	if err != nil {
+		return i18n.Wrap(err, "daemon.resolve")
+	}
+	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
+		executable = resolved
+	}
+	packageManager, err := updater.InstalledBy(executable)
+	if err != nil {
+		return err
+	}
 	current := versionInformation.Version
 	currentVersion, currentErr := version.Parse(current)
 	if currentErr != nil && !updateOptions.force && !updateOptions.check {
@@ -88,6 +99,9 @@ func runUpdate(command *cobra.Command, _ []string) error {
 		}
 		return nil
 	}
+	if packageManager != "" {
+		return errors.New(i18n.T("update.packaged", packageManager))
+	}
 	if order >= 0 && !updateOptions.force {
 		if order == 0 {
 			fmt.Println(i18n.T("update.upToDate", current))
@@ -105,13 +119,6 @@ func runUpdate(command *cobra.Command, _ []string) error {
 	checksumsURL, found := release.Assets[updater.ChecksumsAssetName]
 	if !found {
 		return errors.New(i18n.T("update.noChecksums", release.Tag, updater.ChecksumsAssetName))
-	}
-	executable, err := os.Executable()
-	if err != nil {
-		return i18n.Wrap(err, "daemon.resolve")
-	}
-	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
-		executable = resolved
 	}
 	applicationConfig, _, err := config.Load()
 	if err != nil {

@@ -35,7 +35,11 @@ var russian = map[string]string{
 Lock-файл рядом с базой хранит данные о запущенном процессе, поэтому
 команды находят и сервер, запущенный через "llm-router serve". Для systemd
 и контейнеров используй "llm-router serve": супервизору нужен процесс
-на переднем плане.`,
+на переднем плане.
+
+Установка из пакета ставит системный сервис. С sudo команды управляют
+этим сервисом через его менеджер, а enable и disable включают и
+выключают его запуск при загрузке.`,
 	"daemon.start.short":       "Запустить сервер в фоне",
 	"daemon.stop.short":        "Остановить сервер и дождаться корректного завершения",
 	"daemon.restart.short":     "Остановить сервер, если он запущен, и запустить снова",
@@ -61,6 +65,20 @@ Lock-файл рядом с базой хранит данные о запуще
 	"daemon.didNotExit":        "pid %d не завершился за %s",
 	"daemon.resolve":           "определение пути к бинарю",
 	"daemon.start":             "запуск %s",
+	"daemon.enable.short":      "Запускать сервис пакета при загрузке",
+	"daemon.enable.now":        "также запустить сервис сейчас",
+	"daemon.disable.short":     "Не запускать сервис пакета при загрузке",
+	"daemon.disable.now":       "также остановить сервис сейчас",
+	"daemon.enabled":           "сервис %s запускается при загрузке",
+	"daemon.disabled":          "сервис %s больше не запускается при загрузке",
+	"daemon.serviceStarted":    "сервис %s работает (pid %d), слушает %s",
+	"daemon.serviceWaiting":    "ожидание, пока сервис %s закончит запуск...",
+	"daemon.serviceStarting":   "сервис %s ещё запускается; см. %s",
+	"daemon.serviceFailed":     "сервис %s не запустился; см. %s",
+	"daemon.serviceStopped":    "сервис %s остановлен",
+	"daemon.noService":         "системный сервис не обслуживает %s; для сервиса пакета запусти команду через sudo",
+	"daemon.managerDown":       "сервису пакета нужен %s, а он здесь не работает; используй llm-router serve",
+	"daemon.declarative":       "сервисом управляет NixOS: задай services.llm-router.enable в конфигурации системы",
 
 	"instance.held":        "другой экземпляр llm-router уже работает с этой базой (pid %d, %s)",
 	"instance.heldUnknown": "другой экземпляр llm-router уже работает с этой базой",
@@ -70,17 +88,21 @@ Lock-файл рядом с базой хранит данные о запуще
 версию и отвечает ли дашборд.
 
 Код выхода 3 означает, что сервер не запущен.`,
-	"status.label.status":    "статус",
-	"status.label.mode":      "режим",
-	"status.label.pid":       "pid",
-	"status.label.uptime":    "работает",
-	"status.label.listen":    "адрес",
-	"status.label.version":   "версия",
-	"status.label.dashboard": "дашборд",
-	"status.value.running":   "запущен",
-	"status.value.stopped":   "остановлен",
-	"status.value.answering": "отвечает",
-	"status.value.silent":    "не отвечает",
+	"status.label.status":          "статус",
+	"status.label.mode":            "режим",
+	"status.label.pid":             "pid",
+	"status.label.uptime":          "работает",
+	"status.label.listen":          "адрес",
+	"status.label.version":         "версия",
+	"status.label.dashboard":       "дашборд",
+	"status.value.running":         "запущен",
+	"status.value.stopped":         "остановлен",
+	"status.value.answering":       "отвечает",
+	"status.value.silent":          "не отвечает",
+	"status.label.service":         "сервис",
+	"status.value.serviceEnabled":  "%s, запускается при загрузке",
+	"status.value.serviceDisabled": "%s, не запускается при загрузке",
+	"status.value.managerDown":     "%s не работает",
 
 	"logs.short": "Показать события сервера",
 	"logs.long": `Показывает события, которые сохранил сервер. Команда читает базу событий
@@ -119,31 +141,31 @@ proxy или doctor. --filter и --exclude точно сравнивают лю�
 	"config.short": "Показать и изменить настройки",
 	"config.long": `Показывает и меняет настройки развёртывания из файла .env.
 
-Без подкоманды открывает интерактивное меню. Файл — это ENV_FILE или путь
-по умолчанию в каталоге конфигурации XDG. Переменные окружения сильнее
+Без подкоманды открывает интерактивное меню. Файл — это ENV_FILE, иначе
+файл пользователя в каталоге конфигурации XDG, иначе системный файл
+установки из пакета. Переменные окружения сильнее
 файла; "config list" показывает, откуда взято каждое значение. Изменения
 применяются после перезапуска сервера.`,
-	"config.init.short":     "Записать файл .env со значениями по умолчанию",
-	"config.init.force":     "перезаписать существующий файл",
-	"config.get.short":      "Показать действующее значение ключа",
-	"config.set.short":      "Записать значение в файл .env",
-	"config.unset.short":    "Удалить ключ из файла .env и вернуть значение по умолчанию",
-	"config.list.short":     "Показать все ключи со значением, источником и смыслом",
-	"config.needTerminal":   "меню требует терминал: используй config get, set, unset или list",
-	"config.unknownKey":     "неизвестный ключ %q: см. llm-router config list",
-	"config.invalidEnvFile": "неверный ENV_FILE",
-	"config.wrote":          "записан %s",
-	"config.exists":         "%s уже есть: --force перезапишет его",
-	"config.writeDefault":   "запись конфигурации по умолчанию",
-	"config.file":           "файл %s",
-	"config.notSet":         "%s не задан в %s",
-	"config.reset":          "%s сброшен к значению по умолчанию (%s)",
-	"config.envWins":        "%s также задан в окружении и перекрывает файл",
-	"config.restart":        "сервер запущен: перезапусти его, чтобы применить изменение",
-	"config.prompt.number":  "Номер (пусто — выход): ",
-	"config.noItem":         "нет такого пункта",
-	"config.prompt.value":   "%s [%s] (пусто — оставить, - — сбросить): ",
-	"config.error":          "ошибка: %v",
+	"config.init.short":    "Записать файл .env со значениями по умолчанию",
+	"config.init.force":    "перезаписать существующий файл",
+	"config.get.short":     "Показать действующее значение ключа",
+	"config.set.short":     "Записать значение в файл .env",
+	"config.unset.short":   "Удалить ключ из файла .env и вернуть значение по умолчанию",
+	"config.list.short":    "Показать все ключи со значением, источником и смыслом",
+	"config.needTerminal":  "меню требует терминал: используй config get, set, unset или list",
+	"config.unknownKey":    "неизвестный ключ %q: см. llm-router config list",
+	"config.wrote":         "записан %s",
+	"config.exists":        "%s уже есть: --force перезапишет его",
+	"config.writeDefault":  "запись конфигурации по умолчанию",
+	"config.file":          "файл %s",
+	"config.notSet":        "%s не задан в %s",
+	"config.reset":         "%s сброшен к значению по умолчанию (%s)",
+	"config.envWins":       "%s также задан в окружении и перекрывает файл",
+	"config.restart":       "сервер запущен: перезапусти его, чтобы применить изменение",
+	"config.prompt.number": "Номер (пусто — выход): ",
+	"config.noItem":        "нет такого пункта",
+	"config.prompt.value":  "%s [%s] (пусто — оставить, - — сбросить): ",
+	"config.error":         "ошибка: %v",
 
 	"key.HOST":                  "адрес прослушивания",
 	"key.PORT":                  "порт для дашборда, /api и /v1",
@@ -216,10 +238,12 @@ proxy или doctor. --filter и --exclude точно сравнивают лю�
 
 Сервер, работающий в фоне, останавливается и запускается снова на новом
 бинаре. Сервер на переднем плане блокирует обновление: сначала останови
-его. Контейнеры на месте не обновляются: возьми новый образ.`,
+его. Контейнеры на месте не обновляются: возьми новый образ. Установку
+из пакета обновляет пакетный менеджер.`,
 	"update.flag.check":    "только сообщить, есть ли обновление",
 	"update.flag.force":    "разрешить откат, переустановку или обновление dev-сборки",
 	"update.container":     "обновление отключено в контейнерах: возьми новый образ",
+	"update.packaged":      "установлено через %[1]s: обновляй через %[1]s",
 	"update.devBuild":      "у сборки %q нет версии релиза: --force установит последний релиз",
 	"update.noRelease":     "релизов пока нет",
 	"update.badTag":        "тег релиза %q не является версией",
