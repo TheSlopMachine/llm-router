@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -58,7 +59,7 @@ func main() {
 	ldflags := shared.ReleaseLdflags(version, gitCommit, buildTime)
 	staging := filepath.Join(binDirectory, shared.BinaryName(targetOS)+".install-tmp")
 	shared.Stepf("Building %s/%s...", targetOS, targetArch)
-	if err := shared.BuildBinary(root, targetOS, targetArch, staging, ldflags); err != nil {
+	if err := shared.BuildBinary(context.Background(), root, targetOS, targetArch, staging, ldflags, os.Stdout); err != nil {
 		_ = os.Remove(staging)
 		shared.Failf("%v", err)
 	}

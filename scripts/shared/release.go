@@ -5,7 +5,9 @@
 package shared
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -91,13 +93,15 @@ func RunViteBuild(root string) error {
 }
 
 // BuildBinary compiles one GOOS/GOARCH binary with the given linker flags.
+// Compiler output goes to log. Cancelling ctx stops the compiler. Cgo stays
+// off so a native build links no libc and runs on glibc and musl alike.
 // Strict: any go failure is fatal to the caller.
-func BuildBinary(root, targetOS, targetArch, output, ldflags string) error {
-	cmd := exec.Command("go", "build", "-ldflags", ldflags, "-o", output, ".")
+func BuildBinary(ctx context.Context, root, targetOS, targetArch, output, ldflags string, log io.Writer) error {
+	cmd := exec.CommandContext(ctx, "go", "build", "-ldflags", ldflags, "-o", output, ".")
 	cmd.Dir = root
-	cmd.Env = EnvWith([]string{"GOOS=" + targetOS, "GOARCH=" + targetArch})
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Env = EnvWith([]string{"GOOS=" + targetOS, "GOARCH=" + targetArch, "CGO_ENABLED=0"})
+	cmd.Stdout = log
+	cmd.Stderr = log
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("go build %s/%s: %w", targetOS, targetArch, err)
 	}

@@ -9,8 +9,25 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  platforms:
     runs-on: ubuntu-latest
+    outputs:
+      list: ${{ steps.list.outputs.list }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: List platforms
+        id: list
+        run: echo "list=$(make platforms | jq -R -c '[splits(" +")]')" >> "$GITHUB_OUTPUT"
+
+  # One runner per platform. The jobs run at the same time.
+  build:
+    needs: platforms
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: ${{ fromJSON(needs.platforms.outputs.list) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,19 +45,38 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Install zip
-        run: sudo apt-get update && sudo apt-get install -y zip
-
       - name: Check build deps
         run: make check-build-deps
 
-      - name: Build release
-        run: make build VERSION=${{ github.ref_name }}
+      - name: Build ${{ matrix.platform }}
+        run: make build VERSION=${{ github.ref_name }} PLATFORMS=${{ matrix.platform }}
 
-      - name: List artifacts
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ strategy.job-index }}
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            build/release/*/*.zip
+            build/release/checksums.txt
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download builds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: build/release
+
+      - name: Merge checksums
+        working-directory: build/release
         run: |
-          ls -R build/release
-          cat build/release/checksums.txt
+          cat release-*/checksums.txt | LC_ALL=C sort > checksums.txt
+          ls -R
+          cat checksums.txt
 
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2

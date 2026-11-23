@@ -15,6 +15,7 @@ Targets:
   browser           Open dashboard in browser (http://localhost:38080)
   clean             Stop + clean ignored files (keeps .env files and SQLite databases)
   build             Init, then build frontend + all PLATFORMS binaries
+  platforms         Print PLATFORMS
   install           Init, then build host release binary into ~/.local/bin (refuses when running)
   publish           Cut and push the next release tag (TYPE or VERSION; CI builds)
   go-vet            Run go vet (PKG scopes packages, default "./...")
@@ -49,6 +50,7 @@ Variables:
   HARNESS_RUN_ROOT   Run directory root for harness-test artifacts. Default: "~/.cache/llm-router/harness"
   HARNESS_PHASE_TIMEOUT  Timeout per harness-test invocation. Default: "5m"
   PLATFORMS          Platforms for build. Default: "windows/amd64 ..."
+  BUILD_WORKERS      Platforms built at once by build. Default: CPU count
   TYPE               Release bump for publish: fix|minor|major (or VERSION=X.Y[.Z] to force)
   PKG                Package scope for go-vet, go-test and go-test-race. Default: "./..."
   PATHS              Space-separated files/dirs for go-fmt and go-fmt-check. Default: whole tree
@@ -72,5 +74,6 @@ Examples:
   make restart
   make build
   make build PLATFORMS="linux/amd64 darwin/arm64"
+  make build BUILD_WORKERS=4
   make publish TYPE=fix
   make publish VERSION=1.3.1

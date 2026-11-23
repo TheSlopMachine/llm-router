@@ -1,5 +1,10 @@
 # Changelog
 
+## Done (2026-11-23, v0.12.2)
+
+- **Faster releases.** The release workflow built each platform in its own job, all at once. `make build` built several platforms in parallel: `BUILD_WORKERS` set how many, one per CPU by default.
+- **Static Linux binaries.** Release and install builds ran with cgo off on every platform. Native builds linked no libc, so they ran on glibc and musl systems alike.
+
 ## Done (2026-11-23, v0.12.1)
 
 - **Daemon on Windows.** `daemon start|stop|restart|status` ran on Windows. The server ran with a hidden console of its own. `daemon stop` set a named stop event of the server process in place of SIGTERM, so the shutdown stayed graceful. A server that did not exit in time was ended with TerminateProcess.

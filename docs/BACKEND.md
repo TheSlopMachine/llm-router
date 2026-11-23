@@ -68,6 +68,7 @@ scripts/                 separate Go module: build and dev helpers, never import
 scripts/smoke/           black-box smoke harness (live upstreams only)
 docs/                    PLUGIN-API.md (plugin contract), BACKEND.md (this map), EVENT-KEYS.md (event keys), CHANGELOG.md
 Makefile                 thin launcher for scripts/ (targets: AGENTS.md §4, `make help`)
+.github/workflows/       CI: validate, harness, release (one build job per `make platforms` entry, then one publish job)
 ```
 
 ## Frontend map

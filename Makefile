@@ -13,6 +13,7 @@ NO_SKIP    ?= 0
 export NO_SKIP
 
 PLATFORMS ?= windows/amd64 windows/386 windows/arm64 linux/amd64 linux/386 linux/arm64 linux/arm darwin/amd64 darwin/arm64 freebsd/amd64 freebsd/386 freebsd/arm64
+BUILD_WORKERS ?=
 
 HOST      ?= localhost
 PORT      ?= 38080
@@ -32,14 +33,14 @@ PKG       ?= ./...
 HARNESS   ?=
 HARNESS_RUN_ROOT ?= ~/.cache/llm-router/harness
 HARNESS_PHASE_TIMEOUT ?= 5m
-export HOST PORT ADMIN_PORT SCOPE URL VERSION PLATFORMS LOG_LEVEL DB_PATH CACHE_PATH EVENTS_PATH EVENTS_RETENTION_DAYS LUA_POOL_BUCKET_SIZE DEV_UI_REDIRECT ENV_FILE PID_FILE PKG
+export HOST PORT ADMIN_PORT SCOPE URL VERSION PLATFORMS BUILD_WORKERS LOG_LEVEL DB_PATH CACHE_PATH EVENTS_PATH EVENTS_RETENTION_DAYS LUA_POOL_BUCKET_SIZE DEV_UI_REDIRECT ENV_FILE PID_FILE PKG
 export HARNESS HARNESS_RUN_ROOT HARNESS_PHASE_TIMEOUT
 
 BUN_MIN := 1.2
 GO_MIN  := 1.27.1
 BUN     := bun
 
-.PHONY: help check-frontend-deps check-build-deps go-tidy go-fmt go-fmt-check init start stop restart status browser log log-frontend clean build install publish go-vet go-test go-test-race sql-policy-test check-frontend smoke-test upload-plugins harness-test
+.PHONY: help check-frontend-deps check-build-deps go-tidy go-fmt go-fmt-check init start stop restart status browser log log-frontend clean build platforms install publish go-vet go-test go-test-race sql-policy-test check-frontend smoke-test upload-plugins harness-test
 
 help:
 	@cat scripts/help.txt
@@ -123,6 +124,10 @@ clean:
 
 build: check-build-deps init
 	@cd scripts && GOWORK=off go run ./build
+
+# Print PLATFORMS. The release workflow starts one build job per entry.
+platforms:
+	@echo $(PLATFORMS)
 
 install: check-build-deps init
 	@cd scripts && GOWORK=off go run ./install
