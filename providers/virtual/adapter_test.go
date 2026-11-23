@@ -16,36 +16,55 @@ import (
 	"github.com/TheSlopMachine/llm-router/internal/testutil"
 )
 
-// fakeCompleter is a minimal provider.Completer for exercising the
+// fakeMemberRouter is a minimal provider.MemberRouter for exercising the
 // fall-through loop without a real router service: succeedAt is the model
 // whose attempt succeeds (empty = every attempt fails).
-type fakeCompleter struct {
+type fakeMemberRouter struct {
 	succeedAt string
 	attempted []string
 }
 
-func (f *fakeCompleter) Complete(_ context.Context, request *models.ChatCompletionRequest, _ *models.RouterToken) (*models.ChatCompletionResponse, error) {
-	f.attempted = append(f.attempted, request.Model.String())
-	if request.Model.String() == f.succeedAt {
-		return &models.ChatCompletionResponse{}, nil
+// attempt records one member call and answers it with response or a failure.
+func attempt[Response any](f *fakeMemberRouter, model models.ModelId, response Response) (Response, error) {
+	f.attempted = append(f.attempted, model.String())
+	if model.String() == f.succeedAt {
+		return response, nil
 	}
-	return nil, fmt.Errorf("fake failure for %s", request.Model)
+	var empty Response
+	return empty, fmt.Errorf("fake failure for %s", model)
 }
 
-func (f *fakeCompleter) CompleteStream(_ context.Context, request *models.ChatCompletionRequest, _ io.Writer, _ *models.RouterToken) error {
-	f.attempted = append(f.attempted, request.Model.String())
-	if request.Model.String() == f.succeedAt {
-		return nil
-	}
-	return fmt.Errorf("fake failure for %s", request.Model)
+func (f *fakeMemberRouter) Complete(_ context.Context, request *models.ChatCompletionRequest, _ *models.RouterToken) (*models.ChatCompletionResponse, error) {
+	return attempt(f, request.Model, &models.ChatCompletionResponse{})
 }
 
-func (f *fakeCompleter) SubmitVideo(_ context.Context, request *models.VideoGenerationRequest, _ *models.RouterToken) (*models.VideoGenerationResponse, error) {
-	f.attempted = append(f.attempted, request.Model.String())
-	if request.Model.String() == f.succeedAt {
-		return &models.VideoGenerationResponse{ID: "job-1", PollingURL: "/v1/videos/job-1", Status: models.VideoStatusCompleted}, nil
-	}
-	return nil, fmt.Errorf("fake failure for %s", request.Model)
+func (f *fakeMemberRouter) CompleteStream(_ context.Context, request *models.ChatCompletionRequest, _ io.Writer, _ *models.RouterToken) error {
+	_, err := attempt(f, request.Model, struct{}{})
+	return err
+}
+
+func (f *fakeMemberRouter) Transcribe(_ context.Context, request *models.TranscriptionRequest, _ *models.RouterToken) (*models.TranscriptionResponse, error) {
+	return attempt(f, request.Model, &models.TranscriptionResponse{})
+}
+
+func (f *fakeMemberRouter) Speech(_ context.Context, request *models.SpeechRequest, _ *models.RouterToken) (*models.SpeechResponse, error) {
+	return attempt(f, request.Model, &models.SpeechResponse{})
+}
+
+func (f *fakeMemberRouter) GenerateImage(_ context.Context, request *models.ImageGenerationRequest, _ *models.RouterToken) (*models.ImageGenerationResponse, error) {
+	return attempt(f, request.Model, &models.ImageGenerationResponse{})
+}
+
+func (f *fakeMemberRouter) Embed(_ context.Context, request *models.EmbeddingsRequest, _ *models.RouterToken) (*models.EmbeddingsResponse, error) {
+	return attempt(f, request.Model, &models.EmbeddingsResponse{})
+}
+
+func (f *fakeMemberRouter) Moderate(_ context.Context, request *models.ModerationRequest, _ *models.RouterToken) (*models.ModerationResponse, error) {
+	return attempt(f, request.Model, &models.ModerationResponse{})
+}
+
+func (f *fakeMemberRouter) SubmitVideo(_ context.Context, request *models.VideoGenerationRequest, _ *models.RouterToken) (*models.VideoGenerationResponse, error) {
+	return attempt(f, request.Model, &models.VideoGenerationResponse{ID: "job-1", PollingURL: "/v1/videos/job-1", Status: models.VideoStatusCompleted})
 }
 
 func newVirtualModelStack(t *testing.T) *virtual.GormService {
@@ -76,7 +95,7 @@ func TestComplete_FallsThroughInListOrder(t *testing.T) {
 		t.Fatalf("create virtual model: %v", err)
 	}
 
-	fake := &fakeCompleter{succeedAt: "demo/model-b"}
+	fake := &fakeMemberRouter{succeedAt: "demo/model-b"}
 	adapter := New(fake, virtualService, nil)
 	request := &models.ChatCompletionRequest{Model: models.ModelId("virtual/" + virtualModel.ID)}
 	if _, err := adapter.Complete(context.Background(), nil, request, nil); err != nil {
@@ -102,7 +121,7 @@ func TestComplete_TriesEveryMemberInOrder(t *testing.T) {
 		t.Fatalf("create virtual model: %v", err)
 	}
 
-	fake := &fakeCompleter{}
+	fake := &fakeMemberRouter{}
 	adapter := New(fake, virtualService, nil)
 	request := &models.ChatCompletionRequest{Model: models.ModelId("virtual/" + virtualModel.ID)}
 	_, err := adapter.Complete(context.Background(), nil, request, nil)
@@ -127,7 +146,7 @@ func TestCompleteStream_FallsThroughInListOrder(t *testing.T) {
 		t.Fatalf("create virtual model: %v", err)
 	}
 
-	fake := &fakeCompleter{succeedAt: "demo/model-b"}
+	fake := &fakeMemberRouter{succeedAt: "demo/model-b"}
 	adapter := New(fake, virtualService, nil)
 	request := &models.ChatCompletionRequest{Model: models.ModelId("virtual/" + virtualModel.ID)}
 	var buffer bytes.Buffer
@@ -136,6 +155,59 @@ func TestCompleteStream_FallsThroughInListOrder(t *testing.T) {
 	}
 	if len(fake.attempted) != 2 || fake.attempted[0] != "demo/model-a" || fake.attempted[1] != "demo/model-b" {
 		t.Fatalf("attempted = %v, want [demo/model-a demo/model-b]", fake.attempted)
+	}
+}
+
+// Every endpoint a virtual model serves falls through its members in list order.
+func TestEveryEndpointFallsThroughInListOrder(t *testing.T) {
+	virtualService := newVirtualModelStack(t)
+	virtualModel := &models.VirtualModel{
+		Name: "Endpoints",
+		Models: []models.VirtualModelEntry{
+			{ModelID: "demo/model-a"},
+			{ModelID: "demo/model-b"},
+		},
+	}
+	if err := virtualService.Create(context.Background(), virtualModel); err != nil {
+		t.Fatalf("create virtual model: %v", err)
+	}
+	model := models.ModelId("virtual/" + virtualModel.ID)
+	calls := map[string]func(context.Context, *Adapter) error{
+		"transcribe": func(ctx context.Context, adapter *Adapter) error {
+			_, err := adapter.Transcribe(ctx, nil, &models.TranscriptionRequest{Model: model}, nil)
+			return err
+		},
+		"speech": func(ctx context.Context, adapter *Adapter) error {
+			_, err := adapter.Speech(ctx, nil, &models.SpeechRequest{Model: model}, nil)
+			return err
+		},
+		"image": func(ctx context.Context, adapter *Adapter) error {
+			_, err := adapter.GenerateImage(ctx, nil, &models.ImageGenerationRequest{Model: model}, nil)
+			return err
+		},
+		"embed": func(ctx context.Context, adapter *Adapter) error {
+			_, err := adapter.Embed(ctx, nil, &models.EmbeddingsRequest{Model: model}, nil)
+			return err
+		},
+		"moderate": func(ctx context.Context, adapter *Adapter) error {
+			_, err := adapter.Moderate(ctx, nil, &models.ModerationRequest{Model: model}, nil)
+			return err
+		},
+		"video": func(ctx context.Context, adapter *Adapter) error {
+			_, err := adapter.SubmitVideo(ctx, nil, &models.VideoGenerationRequest{Model: model}, nil)
+			return err
+		},
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			fake := &fakeMemberRouter{succeedAt: "demo/model-b"}
+			if err := call(context.Background(), New(fake, virtualService, nil)); err != nil {
+				t.Fatalf("call: %v", err)
+			}
+			if len(fake.attempted) != 2 || fake.attempted[0] != "demo/model-a" || fake.attempted[1] != "demo/model-b" {
+				t.Fatalf("attempted = %v, want [demo/model-a demo/model-b]", fake.attempted)
+			}
+		})
 	}
 }
 

@@ -52,12 +52,14 @@ func (s *Service) moderate(
 	}
 	resolved := resolvedRequest.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		err := fmt.Errorf("%w: virtual models do not serve moderations", apierrors.ErrEndpointNotSupported)
-		s.debug("Denying request without backend capability",
-			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
-			"model", request.Model.String(), "endpoint", models.EndpointModerations,
-			"reason", "virtual_unsupported", "token_id", tokenIdentifier(token), "error", err)
-		return nil, err
+		response, err := s.moderateOne(ctx, resolved, nil, nil, request)
+		if err != nil {
+			s.logError("Moderation request fails",
+				"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+				"model", request.Model.String(), "endpoint", models.EndpointModerations,
+				"token_id", tokenIdentifier(token), "error", err)
+		}
+		return response, err
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
 	_, goSupported := resolved.Go.(provider.Moderator)

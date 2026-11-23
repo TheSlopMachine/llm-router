@@ -571,13 +571,17 @@ func (s *Service) transcribe(
 		return nil, err
 	}
 	resolved := resolvedRequest.resolved
+	// Virtual models fall through their members; each member call runs the
+	// full pipeline, credential gate included.
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		err := fmt.Errorf("%w: virtual models do not serve audio task %q", apierrors.ErrEndpointNotSupported, task)
-		s.debug("Denying request without backend capability",
-			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
-			"model", request.Model.String(), "endpoint", endpoint,
-			"reason", "virtual_unsupported", "token_id", tokenIdentifier(token), "error", err)
-		return nil, err
+		response, err := s.transcribeOne(ctx, resolved, nil, nil, request)
+		if err != nil {
+			s.logError("Audio request fails",
+				"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+				"model", request.Model.String(), "endpoint", endpoint,
+				"token_id", tokenIdentifier(token), "error", err)
+		}
+		return response, err
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
 	_, goSupported := resolved.Go.(provider.Transcriber)
@@ -644,12 +648,14 @@ func (s *Service) speech(
 	}
 	resolved := resolvedRequest.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		err := fmt.Errorf("%w: virtual models do not serve text-to-speech", apierrors.ErrEndpointNotSupported)
-		s.debug("Denying request without backend capability",
-			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
-			"model", request.Model.String(), "endpoint", models.EndpointAudioSpeech,
-			"reason", "virtual_unsupported", "token_id", tokenIdentifier(token), "error", err)
-		return nil, err
+		response, err := s.speechOne(ctx, resolved, nil, nil, request)
+		if err != nil {
+			s.logError("Audio speech request fails",
+				"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+				"model", request.Model.String(), "endpoint", models.EndpointAudioSpeech,
+				"token_id", tokenIdentifier(token), "error", err)
+		}
+		return response, err
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
 	_, goSupported := resolved.Go.(provider.Speaker)
@@ -716,12 +722,14 @@ func (s *Service) generateImage(
 	}
 	resolved := resolvedRequest.resolved
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		err := fmt.Errorf("%w: virtual models do not serve image generation", apierrors.ErrEndpointNotSupported)
-		s.debug("Denying request without backend capability",
-			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
-			"model", request.Model.String(), "endpoint", models.EndpointImagesGenerations,
-			"reason", "virtual_unsupported", "token_id", tokenIdentifier(token), "error", err)
-		return nil, err
+		response, err := s.generateImageOne(ctx, resolved, nil, nil, request)
+		if err != nil {
+			s.logError("Image generation request fails",
+				"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+				"model", request.Model.String(), "endpoint", models.EndpointImagesGenerations,
+				"token_id", tokenIdentifier(token), "error", err)
+		}
+		return response, err
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
 	_, goSupported := resolved.Go.(provider.ImageGenerator)
@@ -787,13 +795,16 @@ func (s *Service) embed(
 		return nil, err
 	}
 	resolved := resolvedRequest.resolved
+	// The member response arrives stamped with the member id, as on chat.
 	if resolved.Instance.TypeKey == provider.TypeVirtual {
-		err := fmt.Errorf("%w: virtual models do not serve embeddings", apierrors.ErrEndpointNotSupported)
-		s.debug("Denying request without backend capability",
-			"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
-			"model", request.Model.String(), "endpoint", models.EndpointEmbeddings,
-			"reason", "virtual_unsupported", "token_id", tokenIdentifier(token), "error", err)
-		return nil, err
+		response, err := s.embedOne(ctx, resolved, nil, nil, request)
+		if err != nil {
+			s.logError("Embeddings request fails",
+				"provider_id", resolvedRequest.providerID, "type", resolved.Instance.TypeKey,
+				"model", request.Model.String(), "endpoint", models.EndpointEmbeddings,
+				"token_id", tokenIdentifier(token), "error", err)
+		}
+		return response, err
 	}
 	// Capability pre-check: fail loudly before touching the credential gate.
 	_, goSupported := resolved.Go.(provider.Embedder)

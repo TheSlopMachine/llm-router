@@ -91,17 +91,20 @@ web/src/lib/<concern>.ts       one helper module per concern: format, model-sear
 
 - `router/route.go:resolveRequest` owns the shared prefix (token
   provider/model rules, parse, resolve, disabled gate, model-override gate,
-  endpoint gate). Endpoint code in
-  `router/service.go` adds virtual short-circuit, capability pre-check
+  endpoint gate). Virtual models skip the endpoint gate: their cards declare
+  no endpoints, and every member call runs it on the member's card. Endpoint
+  code in `router/service.go` and `router/moderate.go` adds virtual
+  short-circuit, capability pre-check
   (`HasHandler` / `Transcriber` / `Speaker` / `ImageGenerator` / `Embedder` /
-  `VideoGenerator` / `VideoSubmitter`), the credential gate and one backend
+  `Moderator` / `VideoGenerator` / `VideoSubmitter`), the credential gate and one backend
   call; metrics record in `api/v1/handler.go`. Video submits persist a
   `videojobs` row mapping the local job id to the upstream one; polls and
   content downloads resolve that row first and gate fresh credentials.
 - `allowDisabled` probe paths bypass the disabled gate; virtual short-circuit
   runs before the credential gate.
-- Virtual models fan out through the router re-entrantly in list order. The
-  outer token rules travel in ctx (`router/service.go:withTokenRules`).
+- Virtual models fan out through the router re-entrantly in list order, on
+  every endpoint (`providers/virtual/adapter.go:fallThrough` over the
+  `provider.MemberRouter` port). The outer token rules travel in ctx (`router/service.go:withTokenRules`).
   Resolving a virtual model marks ctx with the virtual grant
   (`withVirtualGrant`): member calls under it skip the provider/model rules,
   and the credential gate applies the token's credential rules only to

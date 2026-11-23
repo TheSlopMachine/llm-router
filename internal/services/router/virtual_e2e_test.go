@@ -21,16 +21,25 @@ import (
 	virtualadapter "github.com/TheSlopMachine/llm-router/providers/virtual"
 )
 
-// setupVirtualStack wires a full router where member requests resolve through
-// a mock provider while virtual/* resolves through the real virtual adapter.
-func setupVirtualStack(t *testing.T) (*router.Service, *virtual.GormService, *credential.GormService) {
-	t.Helper()
-	return setupVirtualStackWithAdapter(t, testutil.NewMockAdapter("mock"))
+// virtualStack is a full router where member requests resolve through a mock
+// provider while virtual/* resolves through the real virtual adapter.
+type virtualStack struct {
+	routerService     *router.Service
+	virtualService    *virtual.GormService
+	credentialService *credential.GormService
+	modelInfoService  *modelinfo.GormService
 }
 
-// setupVirtualStackWithAdapter is setupVirtualStack with a caller-built
+// setupVirtualStack wires a virtualStack over the default mock member adapter.
+func setupVirtualStack(t *testing.T) (*router.Service, *virtual.GormService, *credential.GormService) {
+	t.Helper()
+	stack := setupVirtualStackWithAdapter(t, testutil.NewMockAdapter("mock"))
+	return stack.routerService, stack.virtualService, stack.credentialService
+}
+
+// setupVirtualStackWithAdapter wires a virtualStack over a caller-built
 // member adapter (type key "mock").
-func setupVirtualStackWithAdapter(t *testing.T, adapter *testutil.MockAdapter) (*router.Service, *virtual.GormService, *credential.GormService) {
+func setupVirtualStackWithAdapter(t *testing.T, adapter provider.GoAdapter) virtualStack {
 	t.Helper()
 	database := testutil.SetupTestSQLite(t)
 	ctx := context.Background()
@@ -71,7 +80,12 @@ func setupVirtualStackWithAdapter(t *testing.T, adapter *testutil.MockAdapter) (
 		t.Fatalf("virtual model id: got %q, want %q", virtualModel.ID, "e2e")
 	}
 
-	return routerService, virtualService, credentialService
+	return virtualStack{
+		routerService:     routerService,
+		virtualService:    virtualService,
+		credentialService: credentialService,
+		modelInfoService:  modelInfoService,
+	}
 }
 
 func virtualRequest(model string) *models.ChatCompletionRequest {

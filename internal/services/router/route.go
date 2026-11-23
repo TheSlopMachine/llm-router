@@ -71,7 +71,13 @@ func (s *Service) resolveRequest(ctx context.Context, model models.ModelId, toke
 			"reason", reason, "token_id", tokenIdentifier(token), "error", err)
 		return ctx, resolution, err
 	}
-	if err := s.checkEndpoint(ctx, providerID, modelName, endpoint); err != nil {
+	// A virtual model card declares no endpoints of its own. Each member call
+	// runs this gate against the member's card instead.
+	if resolved.Instance.TypeKey == provider.TypeVirtual {
+		s.debug("Skipping endpoint gate for virtual model",
+			"provider_id", providerID, "model", model.String(), "endpoint", endpoint,
+			"token_id", tokenIdentifier(token))
+	} else if err := s.checkEndpoint(ctx, providerID, modelName, endpoint); err != nil {
 		s.debug("Denying request for unsupported endpoint",
 			"provider_id", providerID, "model", model.String(), "endpoint", endpoint,
 			"reason", "endpoint_not_supported", "token_id", tokenIdentifier(token), "error", err)

@@ -35,19 +35,19 @@ func (g *firstByteGate) Written() bool { return g.written }
 
 // Adapter implements the provider.GoAdapter interface for virtual models.
 type Adapter struct {
-	routerService  provider.Completer
+	memberRouter   provider.MemberRouter
 	virtualService *virtual.GormService
 	logger         *slog.Logger
 }
 
 // New constructs an Adapter with all dependencies. The router dependency
-// enters as the narrow provider.Completer port, so construction order is
+// enters as the narrow provider.MemberRouter port, so construction order is
 // explicit and no setter injection is needed.
-func New(completer provider.Completer, virtualService *virtual.GormService, logger *slog.Logger) *Adapter {
+func New(memberRouter provider.MemberRouter, virtualService *virtual.GormService, logger *slog.Logger) *Adapter {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Adapter{routerService: completer, virtualService: virtualService, logger: logger}
+	return &Adapter{memberRouter: memberRouter, virtualService: virtualService, logger: logger}
 }
 
 func (a *Adapter) currentLogger() *slog.Logger {
@@ -57,55 +57,109 @@ func (a *Adapter) currentLogger() *slog.Logger {
 	return a.logger
 }
 
-// resolve looks up the virtual model targeted by the request model id
-// (virtual/<agent-id>) and returns the agent, the member queue snapshotted
-// for this request, and the request with the instruction prepended as the
-// first user message.
-func (a *Adapter) resolve(ctx context.Context, request *models.ChatCompletionRequest) (*models.VirtualModel, []models.ModelId, *models.ChatCompletionRequest, error) {
+// members looks up the virtual model targeted by the request model id
+// (virtual/<agent-id>) and returns it with the member queue snapshotted for
+// this request. A virtual model without members is an error.
+func (a *Adapter) members(ctx context.Context, model models.ModelId, endpoint string) (*models.VirtualModel, []models.ModelId, error) {
 	logger := a.currentLogger()
-	_, agentID, err := request.Model.Parse()
+	if a.memberRouter == nil {
+		fault := fmt.Errorf("router service not initialized")
+		logger.Error("Routing virtual request failed", "model", model.String(), "endpoint", endpoint, "error", fault)
+		return nil, nil, fault
+	}
+	_, agentID, err := model.Parse()
 	if err != nil {
 		fault := &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: fmt.Sprintf("invalid model id: %s", err)}
-		logger.Error("Resolving virtual model failed", "model", request.Model.String(), "endpoint", "/chat/completions", "error", err)
-		return nil, nil, nil, fault
+		logger.Error("Resolving virtual model failed", "model", model.String(), "endpoint", endpoint, "error", err)
+		return nil, nil, fault
 	}
 	if agentID == "" {
 		fault := &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: "virtual model id is required"}
-		logger.Error("Resolving virtual model failed", "model", request.Model.String(), "endpoint", "/chat/completions", "reason", "virtual model id is required")
-		return nil, nil, nil, fault
+		logger.Error("Resolving virtual model failed", "model", model.String(), "endpoint", endpoint, "reason", "virtual model id is required")
+		return nil, nil, fault
 	}
-	virtualService := a.virtualService
-	if virtualService == nil {
+	if a.virtualService == nil {
 		fault := fmt.Errorf("virtual model service not initialized")
-		logger.Error("Resolving virtual model failed", "provider_id", agentID, "model", request.Model.String(), "endpoint", "/chat/completions", "error", fault)
-		return nil, nil, nil, fault
+		logger.Error("Resolving virtual model failed", "provider_id", agentID, "model", model.String(), "endpoint", endpoint, "error", fault)
+		return nil, nil, fault
 	}
-	agent, err := virtualService.Get(ctx, agentID)
+	agent, err := a.virtualService.Get(ctx, agentID)
 	if err != nil {
 		fault := &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: fmt.Sprintf("virtual model %q not found", agentID)}
-		logger.Error("Resolving virtual model failed", "provider_id", agentID, "model", request.Model.String(), "endpoint", "/chat/completions", "error", err)
-		return nil, nil, nil, fault
+		logger.Error("Resolving virtual model failed", "provider_id", agentID, "model", model.String(), "endpoint", endpoint, "error", err)
+		return nil, nil, fault
 	}
 	if agent.Disabled {
 		fault := fmt.Errorf("%w: virtual/%s", apierrors.ErrModelDisabled, agentID)
-		logger.Error("Resolving virtual model failed", "provider_id", agent.ID, "model", request.Model.String(), "endpoint", "/chat/completions", "error", fault)
-		return nil, nil, nil, fault
+		logger.Error("Resolving virtual model failed", "provider_id", agent.ID, "model", model.String(), "endpoint", endpoint, "error", fault)
+		return nil, nil, fault
 	}
-	members, err := virtualService.LiveMembers(ctx, agent)
+	members, err := a.virtualService.LiveMembers(ctx, agent)
 	if err != nil {
-		fault := fmt.Errorf("virtual model %q members: %w", agent.Name, err)
-		logger.Error("Listing virtual members failed", "provider_id", agent.ID, "model", request.Model.String(), "endpoint", "/chat/completions", "error", err)
-		return nil, nil, nil, fault
+		logger.Error("Listing virtual members failed", "provider_id", agent.ID, "model", model.String(), "endpoint", endpoint, "error", err)
+		return nil, nil, fmt.Errorf("virtual model %q members: %w", agent.Name, err)
 	}
 	if len(members) == 0 {
-		logger.Warn("Virtual model group is empty", "provider_id", agent.ID, "count", 0)
+		fault := fmt.Errorf("virtual model %q has no models to try", agent.Name)
+		logger.Error("Virtual model has no members", "provider_id", agent.ID, "endpoint", endpoint, "count", 0)
+		return nil, nil, fault
 	}
+	return agent, members, nil
+}
 
-	modifiedRequest := *request
-	if agent.Instruction != "" {
-		modifiedRequest.Messages = append([]models.ChatMessage{{Role: "user", Content: agent.Instruction}}, request.Messages...)
+// fallThrough routes one request of a virtual model to its members in list
+// order, each tried at most once. The first success wins; otherwise the last
+// error is returned as-is. committed, when set, reports that the client
+// already received output: the failing member then ends the request instead
+// of the next member taking over.
+func fallThrough[Response any](
+	ctx context.Context,
+	adapter *Adapter,
+	model models.ModelId,
+	endpoint string,
+	committed func() bool,
+	try func(agent *models.VirtualModel, member models.ModelId) (Response, error),
+) (Response, error) {
+	var empty Response
+	agent, members, err := adapter.members(ctx, model, endpoint)
+	if err != nil {
+		return empty, err
 	}
-	return agent, members, &modifiedRequest, nil
+	logger := adapter.currentLogger()
+	var lastErr error
+	for i, member := range members {
+		if err := ctx.Err(); err != nil {
+			logger.Warn("Virtual request canceled", "provider_id", agent.ID, "model", member.String(), "endpoint", endpoint, "attempt", i, "error", err)
+			return empty, err
+		}
+		logger.Debug("Trying member model", "provider_id", agent.ID, "model", member.String(), "endpoint", endpoint, "attempt", i, "count", len(members))
+		response, err := try(agent, member)
+		if err == nil {
+			logger.Debug("Member model succeeded", "provider_id", agent.ID, "model", member.String(), "endpoint", endpoint, "attempt", i)
+			return response, nil
+		}
+		lastErr = err
+		if committed != nil && committed() {
+			logger.Warn("Stopping failover after first byte", "provider_id", agent.ID, "model", member.String(), "endpoint", endpoint, "attempt", i, "error", err)
+			return empty, err
+		}
+		if i < len(members)-1 {
+			logger.Warn("Member model failed, trying next", "provider_id", agent.ID, "model", member.String(), "endpoint", endpoint, "attempt", i, "count", len(members), "error", err)
+		}
+	}
+	logger.Warn("All member models failed", "provider_id", agent.ID, "endpoint", endpoint, "count", len(members), "error", lastErr)
+	return empty, lastErr
+}
+
+// memberChatRequest addresses a chat request to one member, with the
+// virtual model's instruction prepended as the first user message.
+func memberChatRequest(request *models.ChatCompletionRequest, agent *models.VirtualModel, member models.ModelId) *models.ChatCompletionRequest {
+	memberRequest := *request
+	memberRequest.Model = member
+	if agent.Instruction != "" {
+		memberRequest.Messages = append([]models.ChatMessage{{Role: "user", Content: agent.Instruction}}, request.Messages...)
+	}
+	return &memberRequest
 }
 
 // ─────────────────────────────────────────────
@@ -145,236 +199,121 @@ func (a *Adapter) ValidateCredentials(data map[string]any) error {
 
 func (a *Adapter) Complete(
 	ctx context.Context,
-	credentials []*models.Credential,
+	_ []*models.Credential,
 	request *models.ChatCompletionRequest,
 	_ map[string]any,
 ) (*models.ChatCompletionResponse, error) {
-	routerService := a.routerService
-	if routerService == nil {
-		fault := fmt.Errorf("router service not initialized")
-		a.currentLogger().Error("Routing virtual request failed", "model", request.Model.String(), "endpoint", "/chat/completions", "error", fault)
-		return nil, fault
-	}
-
-	agent, members, modifiedRequest, err := a.resolve(ctx, request)
-	if err != nil {
-		return nil, err
-	}
-	logger := a.currentLogger()
-
-	// Fall-through queue in list order: each member is tried at most once.
-	// The first success wins; otherwise the last error is returned as-is.
-	var lastErr error
-	for i, memberID := range members {
-		if err := ctx.Err(); err != nil {
-			logger.Warn("Virtual request canceled", "provider_id", agent.ID, "model", memberID.String(), "endpoint", "/chat/completions", "attempt", i, "error", err)
-			return nil, err
-		}
-		modelRequest := *modifiedRequest
-		modelRequest.Model = memberID
-		logger.Debug("Trying member model",
-			"provider_id", agent.ID,
-			"model", memberID.String(),
-			"endpoint", "/chat/completions",
-			"attempt", i,
-			"count", len(members))
-		resp, err := routerService.Complete(ctx, &modelRequest, nil)
-		if err == nil {
-			logger.Debug("Member model succeeded",
-				"provider_id", agent.ID,
-				"model", memberID.String(),
-				"endpoint", "/chat/completions",
-				"attempt", i)
-			return resp, nil
-		}
-		lastErr = err
-		if i < len(members)-1 {
-			logger.Warn("Member model failed, trying next",
-				"provider_id", agent.ID,
-				"model", memberID.String(),
-				"endpoint", "/chat/completions",
-				"attempt", i,
-				"count", len(members),
-				"error", err)
-		}
-	}
-	if lastErr == nil {
-		fault := fmt.Errorf("virtual model %q has no models to try", agent.Name)
-		logger.Error("Virtual model has no members", "provider_id", agent.ID, "endpoint", "/chat/completions", "count", 0)
-		return nil, fault
-	}
-	logger.Warn("All member models failed",
-		"provider_id", agent.ID,
-		"endpoint", "/chat/completions",
-		"count", len(members),
-		"error", lastErr)
-	return nil, lastErr
+	return fallThrough(ctx, a, request.Model, models.EndpointChatCompletions, nil,
+		func(agent *models.VirtualModel, member models.ModelId) (*models.ChatCompletionResponse, error) {
+			return a.memberRouter.Complete(ctx, memberChatRequest(request, agent, member), nil)
+		})
 }
 
 func (a *Adapter) CompleteStream(
 	ctx context.Context,
-	credentials []*models.Credential,
+	_ []*models.Credential,
 	request *models.ChatCompletionRequest,
 	writer io.Writer,
 	_ map[string]any,
 ) error {
-	routerService := a.routerService
-	if routerService == nil {
-		fault := fmt.Errorf("router service not initialized")
-		a.currentLogger().Error("Routing virtual request failed", "model", request.Model.String(), "endpoint", "/chat/completions", "error", fault)
-		return fault
-	}
-
-	agent, members, modifiedRequest, err := a.resolve(ctx, request)
-	if err != nil {
-		return err
-	}
-	logger := a.currentLogger()
-
-	// Same fall-through queue as Complete, with one guard: once the first
-	// byte reaches the client the stream belongs to that member and ends
-	// with its error instead of continuing to the next member.
 	gate := &firstByteGate{writer: writer}
-	var lastErr error
-	for i, memberID := range members {
-		if err := ctx.Err(); err != nil {
-			logger.Warn("Virtual request canceled", "provider_id", agent.ID, "model", memberID.String(), "endpoint", "/chat/completions", "attempt", i, "error", err)
-			return err
-		}
-		modelRequest := *modifiedRequest
-		modelRequest.Model = memberID
-		logger.Debug("Trying member model for stream",
-			"provider_id", agent.ID,
-			"model", memberID.String(),
-			"endpoint", "/chat/completions",
-			"attempt", i,
-			"count", len(members))
-		if err := routerService.CompleteStream(ctx, &modelRequest, gate, nil); err == nil {
-			return nil
-		} else {
-			lastErr = err
-		}
-		if gate.Written() {
-			logger.Warn("Stopping failover after first byte", "provider_id", agent.ID, "model", memberID.String(), "endpoint", "/chat/completions", "attempt", i, "error", lastErr)
-			return lastErr
-		}
-		if i < len(members)-1 {
-			logger.Warn("Member model failed, trying next",
-				"provider_id", agent.ID,
-				"model", memberID.String(),
-				"endpoint", "/chat/completions",
-				"attempt", i,
-				"count", len(members),
-				"error", lastErr)
-		}
-	}
-	if lastErr == nil {
-		fault := fmt.Errorf("virtual model %q has no models to try", agent.Name)
-		logger.Error("Virtual model has no members", "provider_id", agent.ID, "endpoint", "/chat/completions", "count", 0)
-		return fault
-	}
-	logger.Warn("All member models failed",
-		"provider_id", agent.ID,
-		"endpoint", "/chat/completions",
-		"count", len(members),
-		"error", lastErr)
-	return lastErr
+	_, err := fallThrough(ctx, a, request.Model, models.EndpointChatCompletions, gate.Written,
+		func(agent *models.VirtualModel, member models.ModelId) (struct{}, error) {
+			return struct{}{}, a.memberRouter.CompleteStream(ctx, memberChatRequest(request, agent, member), gate, nil)
+		})
+	return err
 }
 
-// SubmitVideo fans one video generation submit out over the member queue
-// (healthy members first, exhausted members last). The first success wins and its router-side job row (keyed
-// by the winning member model) is returned as-is: later polls authorize
-// against that member model and route to it directly. Otherwise the last
-// error is returned as-is.
+func (a *Adapter) Transcribe(
+	ctx context.Context,
+	_ []*models.Credential,
+	request *models.TranscriptionRequest,
+	_ map[string]any,
+) (*models.TranscriptionResponse, error) {
+	endpoint := models.EndpointAudioTranscription
+	if request.Task == "translate" {
+		endpoint = models.EndpointAudioTranslation
+	}
+	return fallThrough(ctx, a, request.Model, endpoint, nil,
+		func(_ *models.VirtualModel, member models.ModelId) (*models.TranscriptionResponse, error) {
+			memberRequest := *request
+			memberRequest.Model = member
+			return a.memberRouter.Transcribe(ctx, &memberRequest, nil)
+		})
+}
+
+func (a *Adapter) Speech(
+	ctx context.Context,
+	_ []*models.Credential,
+	request *models.SpeechRequest,
+	_ map[string]any,
+) (*models.SpeechResponse, error) {
+	return fallThrough(ctx, a, request.Model, models.EndpointAudioSpeech, nil,
+		func(_ *models.VirtualModel, member models.ModelId) (*models.SpeechResponse, error) {
+			memberRequest := *request
+			memberRequest.Model = member
+			return a.memberRouter.Speech(ctx, &memberRequest, nil)
+		})
+}
+
+func (a *Adapter) GenerateImage(
+	ctx context.Context,
+	_ []*models.Credential,
+	request *models.ImageGenerationRequest,
+	_ map[string]any,
+) (*models.ImageGenerationResponse, error) {
+	return fallThrough(ctx, a, request.Model, models.EndpointImagesGenerations, nil,
+		func(_ *models.VirtualModel, member models.ModelId) (*models.ImageGenerationResponse, error) {
+			memberRequest := *request
+			memberRequest.Model = member
+			return a.memberRouter.GenerateImage(ctx, &memberRequest, nil)
+		})
+}
+
+func (a *Adapter) Embed(
+	ctx context.Context,
+	_ []*models.Credential,
+	request *models.EmbeddingsRequest,
+	_ map[string]any,
+) (*models.EmbeddingsResponse, error) {
+	return fallThrough(ctx, a, request.Model, models.EndpointEmbeddings, nil,
+		func(_ *models.VirtualModel, member models.ModelId) (*models.EmbeddingsResponse, error) {
+			memberRequest := *request
+			memberRequest.Model = member
+			return a.memberRouter.Embed(ctx, &memberRequest, nil)
+		})
+}
+
+func (a *Adapter) Moderate(
+	ctx context.Context,
+	_ []*models.Credential,
+	request *models.ModerationRequest,
+	_ map[string]any,
+) (*models.ModerationResponse, error) {
+	return fallThrough(ctx, a, request.Model, models.EndpointModerations, nil,
+		func(_ *models.VirtualModel, member models.ModelId) (*models.ModerationResponse, error) {
+			memberRequest := *request
+			memberRequest.Model = member
+			return a.memberRouter.Moderate(ctx, &memberRequest, nil)
+		})
+}
+
+// SubmitVideo fans one video generation submit out over the member queue.
+// The first success wins and its router-side job row (keyed by the winning
+// member model) is returned as-is: later polls authorize against that member
+// model and route to it directly.
 func (a *Adapter) SubmitVideo(
 	ctx context.Context,
 	_ []*models.Credential,
 	request *models.VideoGenerationRequest,
 	_ map[string]any,
 ) (*models.VideoGenerationResponse, error) {
-	routerService := a.routerService
-	if routerService == nil {
-		fault := fmt.Errorf("router service not initialized")
-		a.currentLogger().Error("Routing virtual request failed", "model", request.Model.String(), "endpoint", "/videos", "error", fault)
-		return nil, fault
-	}
-	_, agentID, err := request.Model.Parse()
-	if err != nil || agentID == "" {
-		fault := &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: "virtual model id is required"}
-		a.currentLogger().Error("Resolving virtual model failed", "model", request.Model.String(), "endpoint", "/videos", "reason", "virtual model id is required")
-		return nil, fault
-	}
-	virtualService := a.virtualService
-	if virtualService == nil {
-		fault := fmt.Errorf("virtual model service not initialized")
-		a.currentLogger().Error("Resolving virtual model failed", "provider_id", agentID, "model", request.Model.String(), "endpoint", "/videos", "error", fault)
-		return nil, fault
-	}
-	agent, err := virtualService.Get(ctx, agentID)
-	if err != nil {
-		fault := &models.ProviderError{StatusCode: 400, Code: "invalid_request_error", Message: fmt.Sprintf("virtual model %q not found", agentID)}
-		a.currentLogger().Error("Resolving virtual model failed", "provider_id", agentID, "model", request.Model.String(), "endpoint", "/videos", "error", err)
-		return nil, fault
-	}
-	if agent.Disabled {
-		fault := fmt.Errorf("%w: virtual/%s", apierrors.ErrModelDisabled, agentID)
-		a.currentLogger().Error("Resolving virtual model failed", "provider_id", agent.ID, "model", request.Model.String(), "endpoint", "/videos", "error", fault)
-		return nil, fault
-	}
-	members, err := virtualService.LiveMembers(ctx, agent)
-	if err != nil {
-		a.currentLogger().Error("Listing virtual members failed", "provider_id", agent.ID, "model", request.Model.String(), "endpoint", "/videos", "error", err)
-		return nil, fmt.Errorf("virtual model %q members: %w", agent.Name, err)
-	}
-	if len(members) == 0 {
-		a.currentLogger().Warn("Virtual model group is empty", "provider_id", agent.ID, "endpoint", "/videos", "count", 0)
-	}
-	logger := a.currentLogger()
-	var lastErr error
-	for i, memberID := range members {
-		if err := ctx.Err(); err != nil {
-			logger.Warn("Virtual request canceled", "provider_id", agent.ID, "model", memberID.String(), "endpoint", "/videos", "attempt", i, "error", err)
-			return nil, err
-		}
-		memberRequest := *request
-		memberRequest.Model = memberID
-		logger.Debug("Trying member model",
-			"provider_id", agent.ID,
-			"model", memberID.String(),
-			"endpoint", "/videos",
-			"attempt", i,
-			"count", len(members))
-		resp, err := routerService.SubmitVideo(ctx, &memberRequest, nil)
-		if err == nil {
-			logger.Debug("Member model succeeded",
-				"provider_id", agent.ID,
-				"model", memberID.String(),
-				"endpoint", "/videos",
-				"attempt", i)
-			return resp, nil
-		}
-		lastErr = err
-		if i < len(members)-1 {
-			logger.Warn("Member model failed, trying next",
-				"provider_id", agent.ID,
-				"model", memberID.String(),
-				"endpoint", "/videos",
-				"attempt", i,
-				"count", len(members),
-				"error", err)
-		}
-	}
-	if lastErr == nil {
-		fault := fmt.Errorf("virtual model %q has no models to try", agent.Name)
-		logger.Error("Virtual model has no members", "provider_id", agent.ID, "endpoint", "/videos", "count", 0)
-		return nil, fault
-	}
-	logger.Warn("All member video models failed",
-		"provider_id", agent.ID,
-		"endpoint", "/videos",
-		"count", len(members),
-		"error", lastErr)
-	return nil, lastErr
+	return fallThrough(ctx, a, request.Model, models.EndpointVideos, nil,
+		func(_ *models.VirtualModel, member models.ModelId) (*models.VideoGenerationResponse, error) {
+			memberRequest := *request
+			memberRequest.Model = member
+			return a.memberRouter.SubmitVideo(ctx, &memberRequest, nil)
+		})
 }
 
 func (a *Adapter) NeedsRefresh(credential *models.Credential) bool {

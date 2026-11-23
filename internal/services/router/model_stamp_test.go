@@ -76,7 +76,7 @@ func TestRouterStampPreservesFramesAcrossSplitWrites(t *testing.T) {
 			_, _ = io.WriteString(writer, "data: [DONE]\n\n")
 			return nil
 		})
-	routerService, _, _ := setupVirtualStackWithAdapter(t, adapter)
+	routerService := setupVirtualStackWithAdapter(t, adapter).routerService
 	var output bytes.Buffer
 	if err := routerService.CompleteStream(context.Background(), virtualRequest("mock/test-model"), &output, nil); err != nil {
 		t.Fatalf("stream: %v", err)
