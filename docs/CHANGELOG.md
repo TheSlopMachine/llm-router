@@ -1,5 +1,11 @@
 # Changelog
 
+## Done (2026-11-23, v0.12.1)
+
+- **Daemon on Windows.** `daemon start|stop|restart|status` ran on Windows. The server ran with a hidden console of its own. `daemon stop` set a named stop event of the server process in place of SIGTERM, so the shutdown stayed graceful. A server that did not exit in time was ended with TerminateProcess.
+- **Stop during startup.** `serve` accepted stop requests from process start. A request during initialization no longer killed the process mid-migration: the server finished starting, then shut down.
+- **Daemon start aborts cleanly.** `daemon start` printed a waiting line after 2 seconds. Ctrl+C during the wait stopped the starting server and reported `start aborted`; a second Ctrl+C killed it. A child that took no lock within 20 seconds was stopped too. Before, both cases left a server running behind a silent or failed start.
+
 ## Done (2026-11-23, v0.12.0)
 
 - **Docker for plugins (plugin API 1.8).** `--- @require_api docker` gave a plugin `llm_router.docker`: `ensure`, `compose` (Lua table or compose YAML subset), `start`, `stop`, `remove`, `status`, `list`, `logs`, `wait`, `exec` and `open_http`. `@docker.image` and `@docker.build` declared what may run; `@docker.memory_limit_mb`, `cpu_limit`, `pids_limit`, `container_limit`, `gpu_limit` and `shm_limit_mb` bounded it.

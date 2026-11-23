@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -29,11 +29,13 @@ const (
 	daemonReadyTimeout = 2 * time.Minute
 	// daemonStopTimeout bounds a graceful shutdown: plugin hooks, listener
 	// and events drains, database vacuum. A process still running after it
-	// gets SIGKILL.
+	// is killed.
 	daemonStopTimeout = 5 * time.Minute
 	// daemonKillWait bounds the wait for the kernel to end a killed process.
-	daemonKillWait     = 10 * time.Second
-	daemonStopNotice   = 2 * time.Second
+	daemonKillWait = 10 * time.Second
+	// daemonNoticeDelay is the wait after which start and stop print what
+	// they wait for.
+	daemonNoticeDelay  = 2 * time.Second
 	daemonPollInterval = 100 * time.Millisecond
 	daemonLogLimit     = 1 << 20
 	daemonLogTailLines = 15
@@ -47,13 +49,7 @@ func newDaemonCommand() *cobra.Command {
 		Long:    i18n.T("daemon.long"),
 		GroupID: groupRun,
 		Args:    cobra.NoArgs,
-		PersistentPreRunE: func(*cobra.Command, []string) error {
-			return requireDaemonSupport()
-		},
 		RunE: func(command *cobra.Command, _ []string) error {
-			if err := requireDaemonSupport(); err != nil {
-				return err
-			}
 			return command.Help()
 		},
 	}
@@ -86,13 +82,6 @@ func newDaemonCommand() *cobra.Command {
 		},
 	)
 	return command
-}
-
-func requireDaemonSupport() error {
-	if !daemonSupported {
-		return errors.New(i18n.T("daemon.unsupported", runtime.GOOS))
-	}
-	return nil
 }
 
 func runDaemonStart(*cobra.Command, []string) error {
@@ -168,11 +157,8 @@ type daemonStart struct {
 	LogPath string
 }
 
-// startDaemon launches "executable serve" detached, waits until the child
-// holds the instance lock, then waits for the ready mark in the lock
-// record. A child that exits during either wait fails the start with the
-// tail of its output. A child that holds the lock but is not ready within
-// daemonReadyTimeout is started, not ready.
+// startDaemon launches "executable serve" detached and waits for it to
+// start (awaitStart).
 func startDaemon(applicationConfig *config.Config, executable string) (daemonStart, error) {
 	lockPath := lockPathFor(applicationConfig)
 	if info, held, err := instance.Probe(lockPath); err != nil {
@@ -200,32 +186,81 @@ func startDaemon(applicationConfig *config.Config, executable string) (daemonSta
 	}
 	exited := make(chan error, 1)
 	go func() { exited <- child.Wait() }()
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, os.Interrupt)
+	defer signal.Stop(interrupts)
+	return awaitStart(child.Process, exited, interrupts, lockPath, logPath)
+}
 
+// awaitStart waits until the child holds the instance lock, then for the
+// ready mark in the lock record. A child that exits during either wait
+// fails the start with the tail of its output. Ctrl+C, or no lock within
+// daemonLockTimeout, stops the child (abortStart): a failed start leaves
+// no server behind. A child that holds the lock but is not ready within
+// daemonReadyTimeout is started, not ready.
+func awaitStart(process *os.Process, exited <-chan error, interrupts <-chan os.Signal, lockPath, logPath string) (daemonStart, error) {
 	started := daemonStart{LogPath: logPath}
 	launched := time.Now()
+	noticed := false
 	for {
 		select {
 		case waitError := <-exited:
 			return daemonStart{}, startFailure(logPath, waitError)
+		case <-interrupts:
+			if err := abortStart(process, exited, interrupts); err != nil {
+				return daemonStart{}, err
+			}
+			return daemonStart{}, errors.New(i18n.T("daemon.aborted", process.Pid))
 		case <-time.After(daemonPollInterval):
 		}
-		if info, held, _ := instance.Probe(lockPath); held && info.PID == child.Process.Pid {
+		if info, held, _ := instance.Probe(lockPath); held && info.PID == process.Pid {
 			started.Info = info
 			if info.Ready {
 				started.Ready = true
 				return started, nil
 			}
 		}
+		if !noticed && time.Since(launched) >= daemonNoticeDelay {
+			noticed = true
+			fmt.Println(i18n.T("daemon.waitingReady", process.Pid))
+		}
 		if started.Info.PID == 0 {
 			if time.Since(launched) >= daemonLockTimeout {
-				return daemonStart{}, errors.New(i18n.T("daemon.startTimeout",
-					child.Process.Pid, daemonLockTimeout, logPath))
+				timeout := errors.New(i18n.T("daemon.startTimeout", process.Pid, daemonLockTimeout, logPath))
+				return daemonStart{}, errors.Join(timeout, abortStart(process, exited, interrupts))
 			}
 			continue
 		}
 		if time.Since(launched) >= daemonReadyTimeout {
 			return started, nil
 		}
+	}
+}
+
+// abortStart stops a child that did not finish starting and waits for it
+// to exit. It sends a stop request first. A failed request, a second
+// Ctrl+C or daemonStopTimeout kills the child.
+func abortStart(process *os.Process, exited <-chan error, interrupts <-chan os.Signal) error {
+	fmt.Println(i18n.T("daemon.aborting", process.Pid))
+	if err := requestStop(process.Pid); err != nil {
+		fmt.Println(i18n.T("daemon.stopRequestFailed", process.Pid, err))
+	} else {
+		select {
+		case <-exited:
+			return nil
+		case <-interrupts:
+		case <-time.After(daemonStopTimeout):
+			fmt.Println(i18n.T("daemon.killing", process.Pid, daemonStopTimeout))
+		}
+	}
+	if err := process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return i18n.Wrap(err, "daemon.stopPID", process.Pid)
+	}
+	select {
+	case <-exited:
+		return nil
+	case <-time.After(daemonKillWait):
+		return errors.New(i18n.T("daemon.didNotExit", process.Pid, daemonKillWait))
 	}
 }
 
@@ -241,10 +276,10 @@ func startFailure(logPath string, waitError error) error {
 	return errors.New(i18n.T("daemon.startFailed", reason, tail))
 }
 
-// stopInstance sends SIGTERM to the lock holder and waits for the lock to
-// drop: the kernel drops it when the process exits. The lock proves the
-// process is alive, so the recorded pid is never stale. Short maintenance
-// commands are not stopped.
+// stopInstance asks the lock holder to stop (requestStop) and waits for the
+// lock to drop: the kernel drops it when the process exits. The lock proves
+// the process is alive, so the recorded pid is never stale. Short
+// maintenance commands are not stopped.
 func stopInstance(lockPath string, timeout time.Duration) (bool, instance.Info, error) {
 	info, held, err := instance.Probe(lockPath)
 	if err != nil {
@@ -259,16 +294,17 @@ func stopInstance(lockPath string, timeout time.Duration) (bool, instance.Info, 
 	if info.PID == 0 {
 		return false, info, errors.New(i18n.T("daemon.noPID"))
 	}
-	if err := terminateProcess(info.PID); err != nil {
+	if err := requestStop(info.PID); err != nil {
 		return false, info, i18n.Wrap(err, "daemon.stopPID", info.PID)
 	}
 	notice := func() { fmt.Println(i18n.T("daemon.waitingExit", info.PID)) }
-	err = waitForRelease(lockPath, timeout, daemonStopNotice, notice)
+	err = waitForRelease(lockPath, timeout, daemonNoticeDelay, notice)
 	if !errors.Is(err, errLockStillHeld) {
 		return err == nil, info, err
 	}
-	// A process that ignores SIGTERM past the timeout is hung: SIGKILL
-	// ends it. SQLite recovers its write-ahead log on the next open.
+	// A process that ignores the stop request past the timeout is hung:
+	// killProcess ends it. SQLite recovers its write-ahead log on the next
+	// open.
 	fmt.Println(i18n.T("daemon.killing", info.PID, timeout))
 	if err := killProcess(info.PID); err != nil {
 		return false, info, i18n.Wrap(err, "daemon.stopPID", info.PID)
@@ -278,6 +314,17 @@ func stopInstance(lockPath string, timeout time.Duration) (bool, instance.Info, 
 		return false, info, errors.New(i18n.T("daemon.didNotExit", info.PID, timeout+daemonKillWait))
 	}
 	return err == nil, info, err
+}
+
+// killProcess ends process pid at once: SIGKILL, or TerminateProcess on
+// Windows.
+func killProcess(pid int) error {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	defer process.Release()
+	return process.Kill()
 }
 
 // errLockStillHeld reports a lock that waitForRelease saw held to the end.

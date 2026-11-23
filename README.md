@@ -45,7 +45,7 @@ This starts the server on the configured port (default is `8080`).
 | Command | Purpose |
 |---|---|
 | `serve` | Run in the foreground. |
-| `daemon start\|stop\|restart\|status` | Run in the background (Linux, macOS, FreeBSD). |
+| `daemon start\|stop\|restart\|status` | Run in the background. |
 | `config` | Interactive settings menu. |
 | `set-dashboard-password` | Set the dashboard password. |
 | `logs` | Print server events. |

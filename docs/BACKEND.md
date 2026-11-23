@@ -10,7 +10,7 @@ is `docs/PLUGIN-API.md`.
 ```
 cmd/root.go              CLI root: command groups, exit codes, version
 cmd/serve.go             foreground server (takes the instance lock)
-cmd/daemon.go            daemon start/stop/restart/status (daemon_unix.go, daemon_windows.go)
+cmd/daemon.go            daemon start/stop/restart/status; stop is SIGTERM, or a named stop event on Windows (daemon_unix.go, daemon_windows.go)
 cmd/config.go            config menu, init, get, set, unset, list over the .env file
 cmd/password.go          set-dashboard-password (the only way to set the first password)
 cmd/logs.go              logs: reads the events database read-only

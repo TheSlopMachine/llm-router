@@ -5,8 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -43,6 +41,14 @@ func runServe(command *cobra.Command, _ []string) error {
 	}
 	applicationConfig.Version = versionInformation.Version
 
+	// Stop requests arrive from the start: one during initialization ends
+	// the server right after it starts, never in the middle of a migration.
+	ctx, stop, err := shutdownContext(context.Background())
+	if err != nil {
+		return err
+	}
+	defer stop()
+
 	mode := instance.ModeForeground
 	if serveLaunchedBy == string(instance.ModeDaemon) {
 		mode = instance.ModeDaemon
@@ -70,10 +76,6 @@ func runServe(command *cobra.Command, _ []string) error {
 	}
 	eventsHandler.SetService(applicationServer.EventsService())
 	defer applicationServer.Close()
-
-	// Graceful shutdown on SIGINT / SIGTERM
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	markReady := func() {
 		if err := lock.MarkReady(); err != nil {
