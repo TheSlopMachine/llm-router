@@ -51,3 +51,9 @@ jobs:
             build/release/checksums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # llm-packages rebuilds Scoop, Homebrew, Nix, APT, RPM, APK and FreeBSD packages from the latest release.
+      - name: Update package repositories
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGES_DISPATCH_TOKEN }}
+        run: gh api repos/TheSlopMachine/llm-packages/dispatches -f event_type=release

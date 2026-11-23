@@ -18,6 +18,10 @@ Speaks OpenAI- and Anthropic-compatible formats. Connect your harness to the rou
 
 Download the latest release: https://github.com/TheSlopMachine/llm-router/releases/latest
 
+## Install with a package manager
+
+Scoop, Homebrew, Nix, APT, DNF, Zypper, APK and FreeBSD pkg: https://github.com/TheSlopMachine/llm-packages
+
 ## Install from source
 
 ```bash
