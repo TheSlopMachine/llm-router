@@ -23,8 +23,8 @@ const (
 	containerActionTimeout = 10
 )
 
-// StopPlugin stops every container of a plugin, its gateway included.
-// Missing Docker settings stop nothing.
+// StopPlugin stops every container of a plugin, its gateway included,
+// under the exclusive plugin lock. Missing Docker settings stop nothing.
 func (service *Service) StopPlugin(ctx context.Context, pluginID string) error {
 	current, err := service.session(ctx)
 	if err != nil {
@@ -33,6 +33,8 @@ func (service *Service) StopPlugin(ctx context.Context, pluginID string) error {
 		}
 		return err
 	}
+	unlock := service.lockPlugin(pluginID)
+	defer unlock()
 	listed, err := current.client.ContainerList(ctx, map[string]string{labelNamespace: current.namespace, labelPlugin: pluginID})
 	if err != nil {
 		return service.faultFromError(err, "list containers")
@@ -107,65 +109,55 @@ func (service *Service) RemovePlugin(ctx context.Context, pluginID string) error
 		}
 		return err
 	}
-	err = service.removeOwned(ctx, current, func(labels map[string]string) bool {
-		return labels[labelPlugin] == pluginID
-	})
+	unlock := service.lockPlugin(pluginID)
+	defer unlock()
+	err = service.removeOwned(ctx, current, pluginID)
 	if err == nil {
 		service.logInfo("Docker objects of plugin removed", "plugin_id", pluginID)
 	}
 	return err
 }
 
-// removeOwned removes namespace objects whose labels match: containers
-// first, then networks, volumes and images.
-func (service *Service) removeOwned(ctx context.Context, current *session, match func(map[string]string) bool) error {
+// removeOwned removes the namespace objects of one plugin: containers
+// first, then networks, volumes and images. The caller holds the plugin
+// lock exclusively.
+func (service *Service) removeOwned(ctx context.Context, current *session, pluginID string) error {
 	var failures error
-	containers, err := current.client.ContainerList(ctx, current.namespaceLabels())
+	labels := current.namespaceLabels()
+	labels[labelPlugin] = pluginID
+	containers, err := current.client.ContainerList(ctx, labels)
 	if err != nil {
 		return service.faultFromError(err, "list containers")
 	}
 	for _, summary := range containers {
-		if summary.Labels[labelPlugin] == "" || !match(summary.Labels) {
-			continue
-		}
 		if err := current.client.ContainerRemove(ctx, summary.ID); err != nil && !errors.Is(err, dockerengine.ErrNotFound) {
 			failures = errors.Join(failures, service.faultFromError(err, "remove container %s", firstName(summary)))
 		}
-		owner := summary.Labels[labelPlugin]
-		service.dropTransports(func(key transportKey) bool { return key.pluginID == owner })
 	}
-	networks, err := current.client.NetworkList(ctx, current.namespaceLabels())
+	service.dropTransports(func(key transportKey) bool { return key.pluginID == pluginID })
+	networks, err := current.client.NetworkList(ctx, labels)
 	if err != nil {
 		return errors.Join(failures, service.faultFromError(err, "list networks"))
 	}
 	for _, network := range networks {
-		if network.Labels[labelPlugin] == "" || !match(network.Labels) {
-			continue
-		}
 		if err := current.client.NetworkRemove(ctx, network.ID); err != nil && !errors.Is(err, dockerengine.ErrNotFound) {
 			failures = errors.Join(failures, service.faultFromError(err, "remove network %s", network.Name))
 		}
 	}
-	volumes, err := current.client.VolumeList(ctx, current.namespaceLabels())
+	volumes, err := current.client.VolumeList(ctx, labels)
 	if err != nil {
 		return errors.Join(failures, service.faultFromError(err, "list volumes"))
 	}
 	for _, volume := range volumes {
-		if volume.Labels[labelPlugin] == "" || !match(volume.Labels) {
-			continue
-		}
 		if err := current.client.VolumeRemove(ctx, volume.Name); err != nil && !errors.Is(err, dockerengine.ErrNotFound) {
 			failures = errors.Join(failures, service.faultFromError(err, "remove volume %s", volume.Name))
 		}
 	}
-	images, err := current.client.ImageList(ctx, current.namespaceLabels())
+	images, err := current.client.ImageList(ctx, labels)
 	if err != nil {
 		return errors.Join(failures, service.faultFromError(err, "list images"))
 	}
 	for _, image := range images {
-		if image.Labels[labelPlugin] == "" || !match(image.Labels) {
-			continue
-		}
 		if err := current.client.ImageRemove(ctx, image.ID); err != nil {
 			failures = errors.Join(failures, service.faultFromError(err, "remove image %s", image.ID))
 		}
@@ -174,7 +166,8 @@ func (service *Service) removeOwned(ctx context.Context, current *session, match
 }
 
 // Sweep removes namespace objects whose plugin is no longer installed with
-// @require_api docker.
+// @require_api docker. It checks each owner again under the exclusive
+// plugin lock, so a plugin installed during the sweep keeps its objects.
 func (service *Service) Sweep(ctx context.Context) error {
 	service.wiringMu.RLock()
 	source := service.policies
@@ -189,17 +182,81 @@ func (service *Service) Sweep(ctx context.Context) error {
 		}
 		return err
 	}
-	policies, err := source(ctx)
+	owners, err := service.owners(ctx, current)
 	if err != nil {
 		return err
+	}
+	installed, err := installedPlugins(ctx, source)
+	if err != nil {
+		return err
+	}
+	var failures error
+	for _, pluginID := range owners {
+		if !installed[pluginID] {
+			failures = errors.Join(failures, service.sweepOwner(ctx, current, source, pluginID))
+		}
+	}
+	return failures
+}
+
+// sweepOwner removes the objects of one plugin unless it is installed by
+// the time the exclusive plugin lock is held.
+func (service *Service) sweepOwner(ctx context.Context, current *session, source PolicySource, pluginID string) error {
+	unlock := service.lockPlugin(pluginID)
+	defer unlock()
+	installed, err := installedPlugins(ctx, source)
+	if err != nil || installed[pluginID] {
+		return err
+	}
+	return service.removeOwned(ctx, current, pluginID)
+}
+
+// installedPlugins reads the IDs of the installed Docker plugins.
+func installedPlugins(ctx context.Context, source PolicySource) (map[string]bool, error) {
+	policies, err := source(ctx)
+	if err != nil {
+		return nil, err
 	}
 	installed := map[string]bool{}
 	for _, policy := range policies {
 		installed[policy.PluginID] = true
 	}
-	return service.removeOwned(ctx, current, func(labels map[string]string) bool {
-		return !installed[labels[labelPlugin]]
-	})
+	return installed, nil
+}
+
+// owners lists the plugin IDs that own namespace objects, sorted.
+func (service *Service) owners(ctx context.Context, current *session) ([]string, error) {
+	found := map[string]bool{}
+	containers, err := current.client.ContainerList(ctx, current.namespaceLabels())
+	if err != nil {
+		return nil, service.faultFromError(err, "list containers")
+	}
+	for _, summary := range containers {
+		found[summary.Labels[labelPlugin]] = true
+	}
+	networks, err := current.client.NetworkList(ctx, current.namespaceLabels())
+	if err != nil {
+		return nil, service.faultFromError(err, "list networks")
+	}
+	for _, network := range networks {
+		found[network.Labels[labelPlugin]] = true
+	}
+	volumes, err := current.client.VolumeList(ctx, current.namespaceLabels())
+	if err != nil {
+		return nil, service.faultFromError(err, "list volumes")
+	}
+	for _, volume := range volumes {
+		found[volume.Labels[labelPlugin]] = true
+	}
+	images, err := current.client.ImageList(ctx, current.namespaceLabels())
+	if err != nil {
+		return nil, service.faultFromError(err, "list images")
+	}
+	for _, image := range images {
+		found[image.Labels[labelPlugin]] = true
+	}
+	delete(found, "")
+	return sortedKeys(found), nil
 }
 
 // RunBackground runs the background work until ctx ends: the startup and

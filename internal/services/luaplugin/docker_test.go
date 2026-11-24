@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/services/dockerhost"
@@ -146,6 +147,47 @@ func TestDockerPluginWaitsForDockerHost(t *testing.T) {
 	}
 	if !stored.Disabled {
 		t.Error("removing the Docker host left the plugin enabled")
+	}
+}
+
+// Docker calls outside lifecycle hooks wait for the plugin's pending
+// teardown, so none observes objects still being removed.
+func TestDockerCallsWaitForTeardown(t *testing.T) {
+	ctx := context.Background()
+	service := setupService(t)
+	docker := dockerhost.New(testutil.SetupTestSQLite(t))
+	service.SetDocker(docker)
+	if _, err := docker.PutConnection(ctx, dockerhost.ConnectionUpdate{Endpoint: "tcp://127.0.0.1:1"}); err != nil {
+		t.Fatalf("store connection: %v", err)
+	}
+	installed, err := service.InstallSQLite(ctx, []byte(dockerManifest+dockerPluginBody), PluginOrigin{Manual: true})
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	release := blockTeardown(service, installed.ID)
+	type outcome struct {
+		content string
+		err     error
+	}
+	finished := make(chan outcome, 1)
+	go func() {
+		content, err := callDockerPlugin(t, service, "status")
+		finished <- outcome{content, err}
+	}()
+	select {
+	case result := <-finished:
+		t.Fatalf("docker call ran during a teardown: %+v", result)
+	case <-time.After(100 * time.Millisecond):
+	}
+	release()
+	select {
+	case result := <-finished:
+		if result.err != nil || result.content != "unreachable,true,unreachable" {
+			t.Errorf("docker call after the teardown = %q, %v", result.content, result.err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("docker call never ran after the teardown")
 	}
 }
 

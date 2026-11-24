@@ -286,6 +286,41 @@ func TestLifecycleDeleteStillDeletesOnHookFailure(t *testing.T) {
 	}
 }
 
+// blockTeardown queues a teardown step for a plugin that holds the
+// plugin's lifecycle order until the returned release runs.
+func blockTeardown(service *Service, pluginID string) (release func()) {
+	gate := make(chan struct{})
+	service.launchOrdered(pluginID, true, func() { <-gate })
+	return func() { close(gate) }
+}
+
+// A reinstall waits for the teardown launched before it: initialize never
+// runs while an earlier deinitialize or its Docker cleanup is pending.
+func TestLifecycleHooksWaitForEarlierTeardown(t *testing.T) {
+	service := setupService(t)
+	record, err := service.InstallSQLite(context.Background(), []byte(hooksPluginSource), PluginOrigin{Manual: true})
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	pollStorage(t, service, record.ID, "init", InitializeReasonInstall)
+
+	release := blockTeardown(service, record.ID)
+	updated := strings.Replace(hooksPluginSource, "@version 1.0.0", "@version 1.0.1", 1)
+	if _, err := service.InstallSQLite(context.Background(), []byte(updated), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if mapped := storageReason(t, service, record.ID, "deinit"); mapped != nil {
+		t.Fatalf("deinitialize ran during an earlier teardown: %+v", mapped)
+	}
+	if mapped := storageReason(t, service, record.ID, "init"); mapped["reason"] != InitializeReasonInstall {
+		t.Fatalf("initialize ran during an earlier teardown: %+v", mapped)
+	}
+	release()
+	pollStorage(t, service, record.ID, "deinit", DeinitializeReasonUpdate)
+	pollStorage(t, service, record.ID, "init", InitializeReasonUpdate)
+}
+
 func TestNotifyProviderDisabledSkipsUnknownType(t *testing.T) {
 	service := setupService(t)
 	service.NotifyProviderDisabled(&models.ProviderInstance{ID: "ghost", TypeKey: "missing-type"})

@@ -1,5 +1,9 @@
 # Changelog
 
+## Done (2026-11-24, v0.12.4)
+
+- **Docker plugin reinstall.** Deleting and reinstalling a Docker plugin raced the container removal against the new version. `initialize` and the first job run failed with Docker 409 errors. Lifecycle hooks of one plugin ran in launch order, and Docker calls from handlers and jobs waited for a pending teardown. Plugin-wide removal and stop no longer overlapped container operations.
+
 ## Done (2026-11-23, v0.12.3)
 
 - **`passwd` command.** `set-dashboard-password` was renamed to `passwd`. The old name was gone.

@@ -1116,7 +1116,9 @@ credentials but exposes `list`, `get` and `parked` only; `list` is scoped to
 the provider, so it returns rows only in the provider `disable` hook. No
 lifecycle hook writes credentials. Each call has a 30 second bound. Calls fan
 out across types with at most 4 running at once; failures log and never block
-install, delete, disable, enable, startup or shutdown. Each call loads the
+install, delete, disable, enable, startup or shutdown. Hooks of one plugin
+run in launch order: a reinstall's `initialize` starts after the previous
+`deinitialize` and its Docker cleanup end. Each call loads the
 source again (see Sandbox limits), so top-level file code reruns on every
 call and stays side-effect free. One-time state persists through
 `llm_router.storage`.
@@ -2009,7 +2011,9 @@ local removed, fault = llm_router.docker.remove("web", { volumes = true })
 Running is a no-op for `start`. The router stops every container when it
 shuts down and when the operator disables the plugin. It removes every
 object of the plugin when the plugin is deleted. Bring containers back from
-`initialize` or a job with `run_on_startup`.
+`initialize` or a job with `run_on_startup`. Docker calls from handlers and
+jobs wait until a pending `deinitialize` and its cleanup finish. A wait
+that outlasts the call returns `timeout`.
 
 ### `llm_router.docker.status`, `llm_router.docker.list`, `llm_router.docker.logs`
 

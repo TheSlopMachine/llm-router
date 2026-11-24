@@ -66,10 +66,12 @@ func gatewayToken() (string, error) {
 }
 
 // ensureGateway reconciles the plugin gateway: the right image and
-// allow-list, running, attached to every network in networkIDs.
+// allow-list, running, attached to every network in networkIDs. Callers
+// hold a target lock of the plugin.
 func (service *Service) ensureGateway(ctx context.Context, current *session, policy Policy, networkIDs ...string) (gateway, error) {
-	unlock := service.lock(policy.PluginID, "\x00gateway")
-	defer unlock()
+	gatewayLock := service.targetLock(policy.PluginID, "\x00gateway")
+	gatewayLock.Lock()
+	defer gatewayLock.Unlock()
 	image, err := service.ensureGatewayImage(ctx, current)
 	if err != nil {
 		return gateway{}, err
