@@ -6,7 +6,7 @@
   import { getErrorMessage } from '$lib/errors'
   import type { AvailableModel, VirtualModel } from '$lib/types'
   import { t, n } from '$lib/i18n.svelte'
-  import { Button, ConfirmAction, ContentUnavailable, FloatingView, HStack, Picker, SearchField, Toggle, VStack, Banner, Header } from '@fuckyouryan/fui'
+  import { Button, ContentUnavailable, DeleteButton, HStack, Picker, SearchField, Toggle, VStack, Banner, Header, confirmAt } from '@fuckyouryan/fui'
   import { rankModels, matchesVirtualModel } from '$lib/model-search'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
   import { setPendingClone } from '$lib/virtual-clone'
@@ -174,31 +174,18 @@
   // provider-managed virtual models follow their provider: no edit, no delete
   const isEditableVirtualModel = (vm: VirtualModel): boolean => !vm.managed_by
 
-  let deleteTarget = $state<VirtualModel | null>(null)
-  let deleteAnchor = $state<HTMLElement>()
-  let deleting = $state(false)
-
-  function openDelete(vm: VirtualModel, anchor: HTMLElement): void {
-    if (deleteTarget?.id === vm.id) {
-      deleteTarget = null
-      return
-    }
-    deleteTarget = vm
-    deleteAnchor = anchor
-  }
-
-  async function confirmDelete(): Promise<void> {
-    const vm = deleteTarget
-    if (!vm || deleting) return
-    deleting = true
+  async function deleteVirtualModel(vm: VirtualModel, anchor: HTMLElement): Promise<void> {
+    error = ''
     try {
-      await api.virtualModels.delete(vm.id)
-      deleteTarget = null
-      await load()
+      const deleted = await confirmAt(anchor, {
+        title: t('virtual.delete_title'),
+        body: `${t('misc.delete_confirm')} "${vm.name}"? ${t('common.undo.cannot_undo')}`,
+        busyLabel: t('common.actions.deleting'),
+        run: () => api.virtualModels.delete(vm.id),
+      })
+      if (deleted) await load()
     } catch (e) {
       error = getErrorMessage(e)
-    } finally {
-      deleting = false
     }
   }
 </script>
@@ -249,7 +236,7 @@
           <Button buttonStyle="text" icon={{ name: 'content_copy' }} ariaLabel={t('tokens.actions.clone')} title={t('tokens.actions.clone')} size="sm" onclick={() => cloneVirtualModel(vm)} />
           {#if isEditableVirtualModel(vm)}
             <Button buttonStyle="text" icon={{ name: 'edit' }} ariaLabel={t('common.actions.edit')} title={t('common.actions.edit')} size="sm" onclick={() => openEditVirtualModel(vm)} />
-            <Button buttonStyle="text" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} ariaLabel={t('common.actions.delete')} title={t('common.actions.delete')} size="sm" onclick={(e) => openDelete(vm, e.currentTarget as HTMLElement)} />
+            <DeleteButton size="sm" onclick={(e) => void deleteVirtualModel(vm, e.currentTarget as HTMLElement)} />
           {/if}
           <Toggle checked={!vm.disabled} ariaLabel={t('common.labels.enabled')} onchange={(enabled) => void toggleVirtualModel(vm, enabled)} />
         </HStack>
@@ -271,23 +258,4 @@
       {/if}
     {/snippet}
   </ModelsTable>
-
-  <FloatingView
-    open={Boolean(deleteTarget)}
-    anchor={deleteAnchor}
-    width="sm"
-    onclose={() => { deleteTarget = null }}
-    label={t('virtual.delete_title')}
-  >
-    {#snippet children({ close })}
-      <ConfirmAction
-        title={t('virtual.delete_title')}
-        body={`${t('misc.delete_confirm')} "${deleteTarget?.name}"? ${t('common.undo.cannot_undo')}`}
-        busy={deleting}
-        busyLabel={t('common.actions.deleting')}
-        oncancel={close}
-        onconfirm={confirmDelete}
-      />
-    {/snippet}
-  </FloatingView>
 </VStack>

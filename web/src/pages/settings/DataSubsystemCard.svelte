@@ -117,7 +117,7 @@
   const actions = $derived<HeaderAction[]>([
     { id: 'import', text: t('data.import'), icon: 'upload', iconOnly: true, buttonStyle: 'text', disabled: busy, onclick: () => void importFile() },
     { id: 'export', text: t('data.export'), icon: 'download', iconOnly: true, buttonStyle: 'text', disabled: busy, onclick: () => void exportAll() },
-    { id: 'clear', text: t('data.clear'), icon: 'delete', iconOnly: true, buttonStyle: 'text', tint: 'var(--fui-color-danger)', disabled: busy, onclick: () => void clear() },
+    { id: 'clear', text: t('data.clear'), icon: 'delete', iconOnly: true, buttonStyle: 'text', tint: 'danger', disabled: busy, onclick: () => void clear() },
   ])
 </script>
 
@@ -142,7 +142,7 @@
             <Spacer />
             <Button size="sm" icon={{ name: 'download' }} onclick={() => void exportItem(item)}>{t('data.export')}</Button>
             {#if purgeItem}
-              <Button size="sm" buttonStyle="text" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} onclick={() => void purge(item)}>{t('data.purge_provider')}</Button>
+              <Button size="sm" buttonStyle="text" role="destructive" icon={{ name: 'delete' }} onclick={() => void purge(item)}>{t('data.purge_provider')}</Button>
             {/if}
           </HStack>
         {/each}

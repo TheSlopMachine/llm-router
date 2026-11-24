@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { SearchField, Toolbar, ToolbarItem, Button, FloatingView, List, VStack, HStack, Text, Banner, ConfirmAction, FilePicker, ContentUnavailable } from '@fuckyouryan/fui'
+  import { SearchField, Toolbar, ToolbarItem, ToolbarSpacer, Button, FloatingView, List, VStack, HStack, Text, Banner, FilePicker, ContentUnavailable } from '@fuckyouryan/fui'
   import PluginCard from './PluginCard.svelte'
   import InstallConfirm from './InstallConfirm.svelte'
   import { createPluginState } from './plugin-state.svelte'
@@ -87,36 +87,34 @@
     <Banner tint="danger" text={actionError} />
   {/if}
 
-  <div class="installed-toolbar">
-    <Toolbar overflow="wrap" gap={3}>
-      <ToolbarItem pinned fill="md">
-        <SearchField bind:value={query} placeholder={t('plugins.search.installed')} />
-      </ToolbarItem>
-      <div class="toolbar-spacer" aria-hidden="true"></div>
-      <div bind:this={uploadAnchor} class="upload-anchor">
-        <FilePicker
-          accept=".lua"
-          label={t('plugins.upload_file')}
-          buttonText={t('upload.file')}
-          icon="upload_file"
-          hideFileName
-          disabled={pluginState.installingFile}
-          onpick={(files) => { actionError = ''; void pluginState.reviewFile(files[0], null, uploadAnchor) }}
+  <Toolbar overflow="wrap" gap={3}>
+    <ToolbarItem pinned fill="md">
+      <SearchField bind:value={query} placeholder={t('plugins.search.installed')} />
+    </ToolbarItem>
+    <ToolbarSpacer />
+    <div bind:this={uploadAnchor} class="upload-anchor">
+      <FilePicker
+        accept=".lua"
+        label={t('plugins.upload_file')}
+        buttonText={t('upload.file')}
+        icon="upload_file"
+        hideFileName
+        disabled={pluginState.installingFile}
+        onpick={(files) => { actionError = ''; void pluginState.reviewFile(files[0], null, uploadAnchor) }}
+      />
+    </div>
+    {#if updateCount > 0}
+      <ToolbarItem priority={1}>
+        <Button
+          buttonStyle="prominent"
+          icon={{ name: 'upgrade' }}
+          text={pluginState.updatingAll ? t('plugins.updating') : `${t('plugins.update_all')} (${updateCount})`}
+          disabled={pluginState.updatingAll}
+          onclick={() => void pluginState.updateAll(plugins)}
         />
-      </div>
-      {#if updateCount > 0}
-        <ToolbarItem priority={1}>
-          <Button
-            buttonStyle="prominent"
-            icon={{ name: 'upgrade' }}
-            text={pluginState.updatingAll ? t('plugins.updating') : `${t('plugins.update_all')} (${updateCount})`}
-            disabled={pluginState.updatingAll}
-            onclick={() => void pluginState.updateAll(plugins)}
-          />
-        </ToolbarItem>
-      {/if}
-    </Toolbar>
-  </div>
+      </ToolbarItem>
+    {/if}
+  </Toolbar>
 
   {#if plugins.length === 0}
     {#snippet browseCatalogAction()}
@@ -158,24 +156,6 @@
   {/if}
 
   <FloatingView
-    open={Boolean(pluginState.pendingDelete)}
-    anchor={pluginState.pendingDelete?.anchor}
-    width="sm"
-    onclose={() => { pluginState.pendingDelete = null }}
-    label={t('plugins.delete')}
-  >
-    {#snippet children({ close })}
-      <ConfirmAction
-        title={t('plugins.delete')}
-        body={`${t('common.actions.delete')} "${pluginState.pendingDelete?.plugin.display_name}"? ${t('plugins.delete_warning')}`}
-        busy={pluginState.deleting}
-        busyLabel={t('common.actions.deleting')}
-        oncancel={close}
-        onconfirm={() => void pluginState.doDelete()} />
-    {/snippet}
-  </FloatingView>
-
-  <FloatingView
     open={Boolean(pluginState.pendingFile)}
     anchor={pluginState.pendingFile?.anchor}
     width="md"
@@ -199,20 +179,9 @@
 </VStack>
 
 <style>
-  /* FUI's toolbar row is content-sized; stretch it so toolbar-spacer can
-     grow and push the right-docked Upload file and Update all buttons to
-     the far edge. */
-  .installed-toolbar :global(.tbar-row) {
-    flex: 1 1 auto;
-  }
   /* The file review popover anchors to the upload button. */
   .upload-anchor {
     display: inline-flex;
-  }
-  .toolbar-spacer {
-    flex: 1 1 auto;
-    margin-inline-start: auto;
-    min-width: 0;
   }
 </style>
 

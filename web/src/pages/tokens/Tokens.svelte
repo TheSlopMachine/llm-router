@@ -1,12 +1,11 @@
 <script lang="ts">
-  import { Button, CodeBlock, FloatingView, HStack, Table, Text, TextField, VStack, Banner, ConfirmAction, Header, Spacer, RelativeTime, type TableColumn, ContentUnavailable, modal } from '@fuckyouryan/fui'
+  import { Button, CodeBlock, DeleteButton, FloatingView, HStack, Table, Text, TextField, VStack, Banner, Header, Spacer, RelativeTime, confirmAt, type TableColumn, ContentUnavailable, modal } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
-  import { formatRelativeTime } from '$lib/time'
   import { createListResource } from '$lib/list-resource.svelte'
   import TokenWizard from './components/TokenWizard.svelte'
   import type { Token, Provider, TokenUsageInfo } from '$lib/types'
-  import { n, t, locale } from '$lib/i18n.svelte'
+  import { n, t } from '$lib/i18n.svelte'
 
   const tokenColumns: TableColumn[] = [
     { key: 'name', title: t('common.labels.name'), width: '1fr', priority: 1 },
@@ -63,29 +62,38 @@
     }
   }
 
-  let revokeTarget = $state<{ id: string; name: string } | null>(null)
-  let revokeAnchor = $state<HTMLElement>()
-  let revoking = $state(false)
-
-  function openRevoke(token: Token, anchorEl?: HTMLElement): void {
-    if (revokeTarget?.id === token.id) {
-      revokeTarget = null
-    } else {
-      revokeTarget = { id: token.id, name: token.name }
-      revokeAnchor = anchorEl
+  async function revoke(token: Token, anchor: HTMLElement): Promise<void> {
+    resource.error = ''
+    try {
+      const revoked = await confirmAt(anchor, {
+        title: t('tokens.actions.revoke_title'),
+        body: `${t('tokens.actions.revoke_confirm')} "${token.name}"? ${t('common.undo.cannot_undo')}`,
+        confirmLabel: t('tokens.actions.revoke'),
+        busyLabel: t('tokens.actions.revoking'),
+        run: () => api.tokens.delete(token.id),
+      })
+      if (revoked) await resource.reload()
+    } catch (e) {
+      resource.error = getErrorMessage(e)
     }
   }
 
-  let regenerateTarget = $state<{ id: string; name: string } | null>(null)
-  let regenerateAnchor = $state<HTMLElement>()
-  let regenerating = $state(false)
-
-  function openRegenerate(token: Token, anchorEl?: HTMLElement): void {
-    if (regenerateTarget?.id === token.id) {
-      regenerateTarget = null
-    } else {
-      regenerateTarget = { id: token.id, name: token.name }
-      regenerateAnchor = anchorEl
+  async function regenerate(token: Token, anchor: HTMLElement): Promise<void> {
+    resource.error = ''
+    try {
+      const regenerated = await confirmAt(anchor, {
+        title: t('tokens.actions.regenerate_title'),
+        body: `${t('tokens.actions.regenerate_for')} "${token.name}"? ${t('tokens.actions.regenerate_warning')}`,
+        confirmLabel: t('tokens.actions.regenerate'),
+        busyLabel: t('tokens.actions.regenerating'),
+        run: async () => {
+          const result: any = await api.tokens.regenerate(token.id)
+          newTokenSecret = result?.token ?? result?.Token ?? result?.token_hash ?? null
+        },
+      })
+      if (regenerated) await resource.reload()
+    } catch (e) {
+      resource.error = getErrorMessage(e)
     }
   }
 
@@ -95,44 +103,28 @@
 
   let isCloneReady = $derived(!!cloneName.trim() && !!cloneSource && !cloneSaving)
 
-  async function confirmRevoke(close: () => void): Promise<void> {
-    if (!revokeTarget || revoking) return
-    revoking = true
-    try {
-      await api.tokens.delete(revokeTarget.id)
-      close()
-      revokeTarget = null
-      await resource.reload()
-    } catch (e) {
-      resource.error = getErrorMessage(e)
-    } finally {
-      revoking = false
-    }
-  }
-
-  async function confirmRegenerate(close: () => void): Promise<void> {
-    if (!regenerateTarget || regenerating) return
-    regenerating = true
-    try {
-      const regenerated: any = await api.tokens.regenerate(regenerateTarget.id)
-      newTokenSecret = regenerated?.token ?? regenerated?.Token ?? regenerated?.token_hash ?? null
-      close()
-      regenerateTarget = null
-      await resource.reload()
-    } catch (e) {
-      resource.error = getErrorMessage(e)
-    } finally {
-      regenerating = false
-    }
-  }
   function getUsage(tokenId: string): number {
     return resource.data.tokenUsage[tokenId]?.requests || 0
   }
 
-  function getLastUsed(tokenId: string): string {
-    return formatRelativeTime(resource.data.tokenUsage[tokenId]?.last_used, 'long')
-  }
 </script>
+
+{#snippet lastUsed(tok: Token)}
+  {@const at = resource.data.tokenUsage[tok.id]?.last_used}
+  {#if at}<RelativeTime date={at} />{:else}—{/if}
+{/snippet}
+
+{#snippet tokenActions(tok: Token)}
+  <HStack halign="end" gap={2}>
+    <Button buttonStyle="text" size="sm" icon={{ name: 'refresh' }} title={t('tokens.actions.regenerate')} ariaLabel={t('tokens.actions.regenerate')}
+      onclick={(e) => void regenerate(tok, e.currentTarget as HTMLElement)} />
+    <Button buttonStyle="text" size="sm" icon={{ name: 'content_copy' }} title={t('tokens.actions.clone')} ariaLabel={t('tokens.actions.clone')}
+      onclick={(e) => openClone(tok, e.currentTarget as HTMLElement)} />
+    <Button buttonStyle="text" size="sm" icon={{ name: 'edit' }} title={t('common.actions.edit')} ariaLabel={t('common.actions.edit')}
+      onclick={() => openEdit(tok)} />
+    <DeleteButton size="sm" label={t('tokens.actions.revoke')} onclick={(e) => void revoke(tok, e.currentTarget as HTMLElement)} />
+  </HStack>
+{/snippet}
 
 <VStack gap={6}>
   <Header title={t('tokens.list.title')} primary={{ id: 'new', text: t('tokens.actions.new'), icon: 'add', onclick: openCreate }}>
@@ -163,43 +155,9 @@
       <HStack gap={3} valign="center">
         <Text variant="value">{tok.name}</Text>
         <Spacer />
-        <HStack halign="end" gap={2}>
-          <Button
-            buttonStyle="text"
-            icon={{ name: 'refresh' }}
-            title={t('tokens.actions.regenerate')}
-            size="sm"
-            ariaLabel={t('tokens.actions.regenerate')}
-            onclick={(e) => openRegenerate(tok, e.currentTarget as HTMLElement)}
-          />
-          <Button
-            buttonStyle="text"
-            icon={{ name: 'content_copy' }}
-            title={t('tokens.actions.clone')}
-            size="sm"
-            ariaLabel={t('tokens.actions.clone')}
-            onclick={(e) => openClone(tok, e.currentTarget as HTMLElement)}
-          />
-          <Button
-            buttonStyle="text"
-            icon={{ name: 'edit' }}
-            title={t('common.actions.edit')}
-            size="sm"
-            ariaLabel={t('common.actions.edit')}
-            onclick={() => openEdit(tok)}
-          />
-          <Button
-            buttonStyle="text"
-            tint="var(--fui-color-danger)"
-            size="sm"
-            icon={{ name: 'delete' }}
-            title={t('tokens.actions.revoke')}
-            ariaLabel={t('tokens.actions.revoke')}
-            onclick={(e) => openRevoke(tok, e.currentTarget as HTMLElement)}
-          />
-        </HStack>
+        {@render tokenActions(tok)}
       </HStack>
-      <Text variant="caption">{fmt(tok.created_at)} · {getLastUsed(tok.id)} · {n(getUsage(tok.id), 'units.api_call.one', 'units.api_call.many')}</Text>
+      <Text variant="caption">{fmt(tok.created_at)} · {@render lastUsed(tok)} · {n(getUsage(tok.id), 'units.api_call.one', 'units.api_call.many')}</Text>
     {/snippet}
     {#snippet cell({ column, row })}
       {@const tok = row as Token}
@@ -208,44 +166,10 @@
       {:else if column.key === 'created'}
         <Text size="sm" foregroundStyle="secondary">{fmt(tok.created_at)}</Text>
       {:else if column.key === 'used'}
-        {@const lu = resource.data.tokenUsage[tok.id]?.last_used}{#if lu}<RelativeTime date={lu} locale={locale()} />{:else}<Text size="sm">—</Text>{/if}
+        <Text size="sm">{@render lastUsed(tok)}</Text>
         <Text size="sm" foregroundStyle="secondary">{n(getUsage(tok.id), 'units.api_call.one', 'units.api_call.many')}</Text>
       {:else if column.key === 'actions'}
-        <HStack halign="end" gap={2}>
-          <Button
-            buttonStyle="text"
-            icon={{ name: 'refresh' }}
-            title={t('tokens.actions.regenerate')}
-            size="sm"
-            ariaLabel={t('tokens.actions.regenerate')}
-            onclick={(e) => openRegenerate(tok, e.currentTarget as HTMLElement)}
-          />
-          <Button
-            buttonStyle="text"
-            icon={{ name: 'content_copy' }}
-            title={t('tokens.actions.clone')}
-            size="sm"
-            ariaLabel={t('tokens.actions.clone')}
-            onclick={(e) => openClone(tok, e.currentTarget as HTMLElement)}
-          />
-          <Button
-            buttonStyle="text"
-            icon={{ name: 'edit' }}
-            title={t('common.actions.edit')}
-            size="sm"
-            ariaLabel={t('common.actions.edit')}
-            onclick={() => openEdit(tok)}
-          />
-          <Button
-            buttonStyle="text"
-            tint="var(--fui-color-danger)"
-            size="sm"
-            icon={{ name: 'delete' }}
-            title={t('tokens.actions.revoke')}
-            ariaLabel={t('tokens.actions.revoke')}
-            onclick={(e) => openRevoke(tok, e.currentTarget as HTMLElement)}
-          />
-        </HStack>
+        {@render tokenActions(tok)}
       {/if}
     {/snippet}
     {#snippet empty()}
@@ -292,44 +216,6 @@
           </Button>
         </HStack>
       </VStack>
-    {/snippet}
-  </FloatingView>
-
-  <FloatingView
-    open={Boolean(revokeTarget)}
-    anchor={revokeAnchor}
-    width="sm"
-    onclose={() => { revokeTarget = null }}
-    label={t('tokens.actions.revoke_title')}
-  >
-    {#snippet children({ close })}
-      <ConfirmAction
-        title={t('tokens.actions.revoke_title')}
-        body={`${t('tokens.actions.revoke_confirm')} "${revokeTarget?.name}"? ${t('common.undo.cannot_undo')}`}
-        confirmLabel={t('tokens.actions.revoke')}
-        busy={revoking}
-        busyLabel={t('tokens.actions.revoking')}
-        oncancel={close}
-        onconfirm={() => void confirmRevoke(close)} />
-    {/snippet}
-  </FloatingView>
-
-  <FloatingView
-    open={Boolean(regenerateTarget)}
-    anchor={regenerateAnchor}
-    width="sm"
-    onclose={() => { regenerateTarget = null }}
-    label={t('tokens.actions.regenerate_title')}
-  >
-    {#snippet children({ close })}
-      <ConfirmAction
-        title={t('tokens.actions.regenerate_title')}
-        body={`${t('tokens.actions.regenerate_for')} "${regenerateTarget?.name}"? ${t('tokens.actions.regenerate_warning')}`}
-        confirmLabel={t('tokens.actions.regenerate')}
-        busy={regenerating}
-        busyLabel={t('tokens.actions.regenerating')}
-        oncancel={close}
-        onconfirm={() => void confirmRegenerate(close)} />
     {/snippet}
   </FloatingView>
 </VStack>

@@ -1,11 +1,11 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import ModelsTable from '../../../components/domain/ModelsTable.svelte'
-  import { squircle, toast, FloatingView, Table, CopyButton, Button, Spacer, HStack, VStack, Text, Toggle, Checkbox, Picker, SearchField, Toolbar, ToolbarItem, TextField, Banner, ConfirmAction, ContentUnavailable, type IconName } from '@fuckyouryan/fui'
+  import { toast, Table, CopyButton, Button, DeleteButton, SelectionBar, Spacer, HStack, VStack, Text, Toggle, Checkbox, Picker, SearchField, Toolbar, ToolbarItem, TextField, Banner, ContentUnavailable, confirmAt, type IconName } from '@fuckyouryan/fui'
   import { RelativeTime, Chip } from '@fuckyouryan/fui'
   import { modalityIcon, modalityTint } from '$lib/modalities'
   import type { TranslationKey } from '$lib/i18n.svelte'
-  import { t, tb, tx, locale } from '$lib/i18n.svelte'
+  import { t, tb, tx } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { CAPABILITY_META, hasModalities } from '$lib/capabilities'
   import { filterByFields } from '$lib/filter'
@@ -486,31 +486,18 @@
     }
   }
 
-  let deleteCustomTarget = $state<ProviderModel | null>(null)
-  let deleteCustomAnchor = $state<HTMLElement>()
-  let deletingCustom = $state(false)
-
-  function openDeleteCustomModel(m: ProviderModel, anchorEl?: HTMLElement): void {
-    if (deleteCustomTarget?.name === m.name) {
-      deleteCustomTarget = null
-    } else {
-      deleteCustomTarget = m
-      deleteCustomAnchor = anchorEl
-    }
-  }
-
-  async function confirmDeleteCustomModel(): Promise<void> {
-    const m = deleteCustomTarget
-    if (!m || deletingCustom) return
-    deletingCustom = true
+  async function deleteCustomModel(m: ProviderModel, anchor: HTMLElement): Promise<void> {
+    modelsError = ''
     try {
-      await api.models.deleteOverride(providerId, m.name)
-      deleteCustomTarget = null
-      await reloadModels()
+      const deleted = await confirmAt(anchor, {
+        title: t('models.actions.delete_custom'),
+        body: `${t('common.actions.remove')} "${m.name}" ${t('providers.models.delete_from')}`,
+        busyLabel: t('common.actions.deleting'),
+        run: () => api.models.deleteOverride(providerId, m.name),
+      })
+      if (deleted) await reloadModels()
     } catch (e) {
       modelsError = getErrorMessage(e)
-    } finally {
-      deletingCustom = false
     }
   }
 
@@ -622,11 +609,8 @@
     {:else}
       {@render modelsTable()}
       {#if selected.length > 0}
-        <!-- bulk actions over the picked rows; stays in view while the list scrolls -->
-        <div class="bulk-bar">
-          <HStack gap={2} wrap valign="center" pad={3} radius="lg" elev>
-            <span class="bulk-count"><Text size="sm" weight="medium">{t('models.bulk.count')}: {selected.length}</Text></span>
-            <Spacer />
+        <SelectionBar text={`${t('models.bulk.count')}: ${selected.length}`} onclear={clearSelection}>
+          {#snippet actions()}
             <Button
               size="sm"
               icon={{ name: allVisibleSelected ? 'deselect' : 'select_all' }}
@@ -642,9 +626,8 @@
               text={testingAll ? t('credentials.testing_click_cancel') : t('models.bulk.test')}
               onclick={testingAll ? () => void testAllModels() : testSelected}
             />
-            <Button size="sm" buttonStyle="text" icon={{ name: 'close' }} title={t('models.bulk.clear')} ariaLabel={t('models.bulk.clear')} onclick={clearSelection} />
-          </HStack>
-        </div>
+          {/snippet}
+        </SelectionBar>
       {/if}
     {/if}
   </VStack>
@@ -722,17 +705,11 @@
             </VStack>
             {#if g.virtual}
               {@const v = g.virtual}
-              <span
-                role="presentation"
-                onclick={(e) => e.stopPropagation()}
-                onkeydown={(e) => e.stopPropagation()}
-              >
-                <Toggle
-                  checked={!v.disabled}
-                  ariaLabel={t('common.labels.enabled')}
-                  onchange={(en) => toggleVirtualModel(v, en)}
-                />
-              </span>
+              <Toggle
+                checked={!v.disabled}
+                ariaLabel={t('common.labels.enabled')}
+                onchange={(en) => toggleVirtualModel(v, en)}
+              />
             {/if}
           </HStack>
           {@const ep = VM_ENDPOINTS[g.endpoint] ?? { path: g.endpoint, hint: g.label }}
@@ -804,13 +781,7 @@
       onclick={() => testModel(m)}
     />
     {#if m.custom}
-      <Button
-        size="sm"
-        icon={{ name: 'delete' }}
-        title={t('models.actions.delete_custom')}
-        ariaLabel={t('models.actions.delete_custom')}
-        onclick={(e) => openDeleteCustomModel(m, e.currentTarget as HTMLElement)}
-      />
+      <DeleteButton size="sm" label={t('models.actions.delete_custom')} onclick={(e) => void deleteCustomModel(m, e.currentTarget as HTMLElement)} />
     {/if}
     <Toggle
       checked={!m.disabled}
@@ -831,7 +802,7 @@
       {:else}
         <Text size="sm" tint="danger" truncate title={check.result.error ?? failureReason(check.result)}>✗ {failureReason(check.result)}</Text>
       {/if}
-      <Text size="xs" foregroundStyle="tertiary"><RelativeTime date={check.at} locale={locale()} /></Text>
+      <Text size="xs" foregroundStyle="tertiary"><RelativeTime date={check.at} /></Text>
     </VStack>
   {:else}
     <Text size="sm" foregroundStyle="tertiary">—</Text>
@@ -891,24 +862,6 @@
   </ModelsTable>
 {/snippet}
 
-<FloatingView
-  open={Boolean(deleteCustomTarget)}
-  anchor={deleteCustomAnchor}
-  width="sm"
-  onclose={() => { deleteCustomTarget = null }}
-  label={t('models.actions.delete_custom')}
->
-  {#snippet children({ close })}
-    <ConfirmAction
-      title={t('models.actions.delete_custom')}
-      body={`${t('common.actions.remove')} "${deleteCustomTarget?.name}" ${t('providers.models.delete_from')}`}
-      busy={deletingCustom}
-      busyLabel={t('common.actions.deleting')}
-      oncancel={close}
-      onconfirm={confirmDeleteCustomModel} />
-  {/snippet}
-</FloatingView>
-
 <style>
   /* label | switch pairs: switches sit in one column right after the longest label */
   .setting-grid {
@@ -917,11 +870,6 @@
     justify-content: start;
     align-items: center;
     gap: var(--fui-space-3) var(--fui-space-5);
-  }
-  /* the count reads as a label among small buttons: inset like their text */
-  .bulk-count {
-    display: inline-flex;
-    padding-inline: var(--fui-btn-pad-h-sm);
   }
   /* label | chip row pairs: the chip rows start in one column; rows are as
      far apart as the chips in a row (space-3) */
@@ -946,12 +894,5 @@
   .select-cell {
     display: inline-flex;
     margin-right: calc(var(--fui-space-5) - 2 * var(--fui-space-2));
-  }
-  /* bulk actions stick to the bottom of the scroll area while rows are picked */
-  .bulk-bar {
-    position: sticky;
-    bottom: var(--fui-space-4);
-    z-index: 2;
-    filter: var(--fui-filter-floating);
   }
 </style>

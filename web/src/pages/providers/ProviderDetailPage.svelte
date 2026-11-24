@@ -1,8 +1,7 @@
 <script lang="ts">
-  import SectionHeading from '../../components/SectionHeading.svelte'
   import { untrack } from 'svelte'
   import { api } from '../../lib/api'
-  import { modal, toast, ContentUnavailable, Button, Chip, FloatingView, HStack, Image, Spacer, Toggle, Table, Text, VStack, Banner, ConfirmAction, Header, type TableColumn, squircle, Picker, type HeaderAction, type IconName } from '@fuckyouryan/fui'
+  import { modal, toast, ContentUnavailable, Button, Chip, DeleteButton, HStack, SectionHeader, Spacer, Toggle, Table, Text, VStack, Banner, Header, confirmAt, type TableColumn, squircle, Picker, type HeaderAction, type IconName } from '@fuckyouryan/fui'
   import { hasUiNodes } from '$lib/ui-helpers'
   import { getErrorMessage } from '../../lib/errors'
   import type { Credential, Provider, ProxyPool, TestResult, UINode } from '../../lib/types'
@@ -134,7 +133,7 @@
     if (p.is_ui_readonly) return []
     return [
       { id: 'edit', text: t('common.actions.edit'), icon: 'edit', onclick: openEditProvider },
-      { id: 'delete', text: t('common.actions.delete'), icon: 'delete', onclick: () => void confirmDeleteProvider() },
+      { id: 'delete', text: t('common.actions.delete'), icon: 'delete', tint: 'danger', onclick: () => void confirmDeleteProvider() },
     ]
   }
 
@@ -221,31 +220,18 @@
     })
   }
 
-  let deleteCredTarget = $state<Credential | null>(null)
-  let deleteCredAnchor = $state<HTMLElement>()
-  let deletingCred = $state(false)
-
-  function openDeleteCredential(cred: Credential, anchorEl?: HTMLElement): void {
-    if (deleteCredTarget?.id === cred.id) {
-      deleteCredTarget = null
-    } else {
-      deleteCredTarget = cred
-      deleteCredAnchor = anchorEl
-    }
-  }
-
-  async function confirmDeleteCredential(): Promise<void> {
-    const cred = deleteCredTarget
-    if (!cred || deletingCred) return
-    deletingCred = true
+  async function deleteCredential(cred: Credential, anchor: HTMLElement): Promise<void> {
+    error = ''
     try {
-      await api.credentials.delete(cred.id)
-      credentials = credentials.filter((c) => c.id !== cred.id)
-      deleteCredTarget = null
+      const deleted = await confirmAt(anchor, {
+        title: t('credentials.delete'),
+        body: `${t('misc.delete_confirm')} "${cred.label || t('common.labels.unnamed')}"? ${t('common.undo.cannot_undo')}`,
+        busyLabel: t('common.actions.deleting'),
+        run: () => api.credentials.delete(cred.id),
+      })
+      if (deleted) credentials = credentials.filter((c) => c.id !== cred.id)
     } catch (e) {
       error = getErrorMessage(e)
-    } finally {
-      deletingCred = false
     }
   }
 
@@ -456,11 +442,11 @@
 
     {#if credentialsEnabled}
       <VStack tag="section" gap={4} class="provider-section">
-        <SectionHeading title={t('credentials.title_plural')} count={credentials.length}>
+        <SectionHeader title={t('credentials.title_plural')} count={credentials.length}>
           {#snippet actions()}
             <Button buttonStyle="prominent" onclick={openAddCredential} icon={{ name: 'add' }}>{t('credentials.add')}</Button>
           {/snippet}
-        </SectionHeading>
+        </SectionHeader>
       <HStack valign="center" gap={4} wrap>
         <Toggle
           checked={disableFailedCredentials}
@@ -494,19 +480,12 @@
             </VStack>
             <HStack gap={2}>
               <Button size="sm" buttonStyle="text" icon={{ name: 'edit' }} ariaLabel={t('credentials.edit')} title={t('credentials.edit')} onclick={() => openEditCredential(cred)} />
-              <Button size="sm" tint="var(--fui-color-danger)" buttonStyle="text" icon={{ name: 'delete' }} ariaLabel={t('credentials.delete')} title={t('credentials.delete')} onclick={(e) => openDeleteCredential(cred, e.currentTarget as HTMLElement)} />
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <span
-                role="presentation"
-                onclick={(e) => e.stopPropagation()}
-                onkeydown={(e) => e.stopPropagation()}
-              >
-                <Toggle
-                  checked={!cred.disabled}
-                  ariaLabel={t('common.labels.enabled')}
-                  onchange={(v) => toggleCredential(cred, v)}
-                />
-              </span>
+              <DeleteButton size="sm" label={t('credentials.delete')} onclick={(e) => void deleteCredential(cred, e.currentTarget as HTMLElement)} />
+              <Toggle
+                checked={!cred.disabled}
+                ariaLabel={t('common.labels.enabled')}
+                onchange={(v) => toggleCredential(cred, v)}
+              />
             </HStack>
           </HStack>
         {/snippet}
@@ -547,7 +526,7 @@
                 onclick={() => testCredential(cred)}
               />
               <Button size="sm" buttonStyle="text" icon={{ name: 'edit' }} ariaLabel={t('credentials.edit')} title={t('credentials.edit')} onclick={() => openEditCredential(cred)} />
-              <Button size="sm" tint="var(--fui-color-danger)" buttonStyle="text" icon={{ name: 'delete' }} ariaLabel={t('credentials.delete')} title={t('credentials.delete')} onclick={(e) => openDeleteCredential(cred, e.currentTarget as HTMLElement)} />
+              <DeleteButton size="sm" label={t('credentials.delete')} onclick={(e) => void deleteCredential(cred, e.currentTarget as HTMLElement)} />
               <Toggle
                 checked={!cred.disabled}
                 ariaLabel={t('common.labels.enabled')}
@@ -600,13 +579,13 @@
 
     {#if settingsNodes.length > 0}
       <VStack tag="section" gap={4} halign="start" class="provider-section">
-        <SectionHeading title={t('providers.detail.plugin_settings')}>
+        <SectionHeader title={t('providers.detail.plugin_settings')}>
           {#snippet actions()}
             <Button buttonStyle="prominent" onclick={() => void saveSettings()} disabled={savingSettings}>
               {savingSettings ? t('common.actions.saving') : t('providers.detail.save_settings')}
             </Button>
           {/snippet}
-        </SectionHeading>
+        </SectionHeader>
         <DynamicForm nodes={settingsNodes} bind:values={settingsValues} busy={savingSettings} />
       </VStack>
     {/if}
@@ -616,24 +595,6 @@
     <ModelsSection bind:provider onrefresh={loadPage} {discoveryRevision} waitingText={dockerWait} />
   </VStack>
 {/if}
-
-<FloatingView
-  open={Boolean(deleteCredTarget)}
-  anchor={deleteCredAnchor}
-  width="sm"
-  onclose={() => { deleteCredTarget = null }}
-  label={t('credentials.delete')}
->
-  {#snippet children({ close })}
-    <ConfirmAction
-      title={t('credentials.delete')}
-      body={`${t('misc.delete_confirm')} "${deleteCredTarget?.label || t('common.labels.unnamed')}"? ${t('common.undo.cannot_undo')}`}
-      busy={deletingCred}
-      busyLabel={t('common.actions.deleting')}
-      oncancel={close}
-      onconfirm={confirmDeleteCredential} />
-  {/snippet}
-</FloatingView>
 
 <style>
   :global(.provider-detail),

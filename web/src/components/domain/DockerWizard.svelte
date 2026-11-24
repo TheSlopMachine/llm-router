@@ -1,13 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Banner, Checkbox, CodeBlock, ContentUnavailable, Field, FilePicker, HStack, ModalChrome, Text, TextField, VStack, type ModalButton, type StepperConfig } from '@fuckyouryan/fui'
+  import { Banner, ChoiceList, Checkbox, CodeBlock, ContentUnavailable, Field, FilePicker, HStack, ModalChrome, Text, TextField, VStack, type ModalButton, type StepperConfig } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { t, tx } from '$lib/i18n.svelte'
   import type { TranslationKey } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
   import { composeDockerEndpoint, parseDockerEndpoint, stageHint, DEFAULT_DOCKER_SOCKET, type DockerEndpointKind } from '$lib/docker'
   import type { DockerConnection, DockerConnectionTest, DockerStage } from '$lib/types'
-  import DockerChoice from './DockerChoice.svelte'
   import DockerWizardSocket from './DockerWizardSocket.svelte'
   import DockerWizardWSL from './DockerWizardWSL.svelte'
 
@@ -229,11 +228,7 @@
 
 <VStack gap={4}>
   {#if step === 'kind'}
-    <VStack gap={2}>
-      {#each availableKinds as option (option.value)}
-        <DockerChoice title={t(option.title)} hint={t(option.hint)} selected={kind === option.value} onclick={() => chooseKind(option.value)} />
-      {/each}
-    </VStack>
+    <ChoiceList options={availableKinds.map((option) => ({ value: option.value, title: t(option.title), hint: t(option.hint) }))} value={kind} ariaLabel={t('settings.docker.step_kind.label')} onchange={(next) => chooseKind(next as DockerEndpointKind)} />
   {:else if step === 'details'}
     {#if kind === 'ssh'}
       <HStack gap={3} wrap>

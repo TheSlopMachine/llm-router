@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Banner, Button, Card, Chip, Field, HStack, Picker, Table, Text, TextField, VStack, modal, toast, type TableColumn } from '@fuckyouryan/fui'
+  import { Banner, Button, Card, Chip, Field, HStack, Picker, Table, Text, TextField, VStack, modal, toast, type TableColumn, DeleteButton } from '@fuckyouryan/fui'
   import DockerWizard from '../../components/domain/DockerWizard.svelte'
   import RegistryLoginModal from './RegistryLoginModal.svelte'
   import { api } from '$lib/api'
@@ -196,7 +196,7 @@
       {/if}
     </VStack>
     <HStack halign="end" gap={2}>
-      <Button buttonStyle="text" tint="var(--fui-color-danger)" onclick={() => void disconnect()}>{t('settings.docker.disconnect.action')}</Button>
+      <Button buttonStyle="text" role="destructive" onclick={() => void disconnect()}>{t('settings.docker.disconnect.action')}</Button>
       <Button buttonStyle="neutral" icon={{ name: 'edit' }} onclick={openWizard}>{t('settings.docker.change.action')}</Button>
     </HStack>
   {/if}
@@ -239,7 +239,7 @@
               <Text size="sm">{row.username}</Text>
             {:else}
               <HStack gap={3} halign="end">
-                <Button buttonStyle="text" size="sm" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} ariaLabel={t('common.actions.delete')} title={t('common.actions.delete')} onclick={() => void deleteRegistry(row.host)} />
+                <DeleteButton size="sm" onclick={() => void deleteRegistry(row.host)} />
               </HStack>
             {/if}
           {/snippet}

@@ -1,13 +1,12 @@
 <!-- The socket step of the Docker wizard: finds Docker on the router machine. Only Linux and macOS routers offer it. -->
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Banner, Button, CodeBlock, ContentUnavailable, Field, HStack, ModalChrome, TextField, VStack, type ModalButton } from '@fuckyouryan/fui'
+  import { Banner, ChoiceList, Button, CodeBlock, ContentUnavailable, Field, HStack, ModalChrome, TextField, VStack, type ModalButton } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { t, tx } from '$lib/i18n.svelte'
   import type { TranslationKey } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
   import type { LocalDocker, LocalDockerSocket } from '$lib/types'
-  import DockerChoice from './DockerChoice.svelte'
 
   let {
     socket = $bindable(),
@@ -96,11 +95,7 @@
   {:else if local}
     {@const found = local}
     {#if local.sockets.length}
-      <VStack gap={2}>
-        {#each local.sockets as item (item.path)}
-          <DockerChoice title={item.path} hint={describe(item)} selected={socket === item.path} onclick={() => { socket = item.path }} />
-        {/each}
-      </VStack>
+      <ChoiceList options={local.sockets.map((item) => ({ value: item.path, title: item.path, hint: describe(item) }))} bind:value={socket} ariaLabel={t('settings.docker.step_socket.label')} />
     {:else}
       <ContentUnavailable title={t('settings.docker.sockets.empty')} />
       {#if local.commands}

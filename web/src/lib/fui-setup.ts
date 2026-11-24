@@ -1,6 +1,8 @@
-// Site-side wiring for the texts the widget library must not own.
-import { setFuiTexts } from '@fuckyouryan/fui'
-import { t } from './i18n.svelte'
+// Site-side wiring for the texts and the locale the widget library must not own.
+import { setFuiLocale, setFuiTexts } from '@fuckyouryan/fui'
+import { locale, t } from './i18n.svelte'
+
+setFuiLocale(locale)
 
 setFuiTexts(() => ({
   close: t('common.actions.close'),

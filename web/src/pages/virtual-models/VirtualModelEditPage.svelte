@@ -1,6 +1,6 @@
 <script lang="ts">
   import ModalitiesFlow from '../../components/domain/ModalitiesFlow.svelte'
-  import { Icon, Button, Chip, HStack, Card, Text, TextField, VStack, Banner, Header, ContentUnavailable, Picker, Field } from '@fuckyouryan/fui'
+  import { Icon, Button, Chip, HStack, Card, Text, TextField, VStack, Banner, Header, ContentUnavailable, Picker, Field, DeleteButton } from '@fuckyouryan/fui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
@@ -280,7 +280,7 @@
                 <div class="model-row-select">
                   <Picker value={id} options={modelOptions} searchable={true} placeholder={t('models.select.placeholder')} onchange={(v) => setModel(i, v)} disabled={isManaged} />
                 </div>
-                <Button tint="var(--fui-color-danger)" buttonStyle="text" icon={{ name: 'delete' }} ariaLabel={t('virtual.remove_model')} onclick={() => removeModel(i)} disabled={isManaged} />
+                <DeleteButton label={t('virtual.remove_model')} onclick={() => removeModel(i)} disabled={isManaged} />
               </div>
               <!-- three groups (modalities, capabilities, limits) apart; chips tight inside a group -->
               <div class="model-row-bottom">

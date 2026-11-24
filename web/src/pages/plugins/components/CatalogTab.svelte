@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Toolbar, ToolbarItem, FloatingView, HStack, VStack, Text, Toggle, SearchField, TextField, List, Card, Chip, Spacer, Banner, ConfirmAction, ContentUnavailable, modal } from '@fuckyouryan/fui'
+  import { Button, Toolbar, ToolbarItem, ToolbarSpacer, DeleteButton, HStack, VStack, Text, Toggle, SearchField, TextField, List, Card, Chip, Spacer, Banner, ContentUnavailable, modal, confirmAt } from '@fuckyouryan/fui'
   import PluginCard from './PluginCard.svelte'
   import RepoDetailsModal from './RepoDetailsModal.svelte'
   import { createPluginState } from './plugin-state.svelte'
@@ -192,31 +192,19 @@
     }
   }
 
-  let removeRepoTarget = $state<{ id: string; title: string } | null>(null)
-  let removeRepoAnchor = $state<HTMLElement>()
-  let removingRepo = $state(false)
-
-  function openRemoveRepo(entry: RepoEntry, anchorEl?: HTMLElement): void {
-    if (removeRepoTarget?.id === entry.repo.id) {
-      removeRepoTarget = null
-    } else {
-      removeRepoTarget = { id: entry.repo.id, title: entry.repo.title || entry.repo.id }
-      removeRepoAnchor = anchorEl
-    }
-  }
-
-  async function confirmRemoveRepo(): Promise<void> {
-    const target = removeRepoTarget
-    if (!target || removingRepo) return
-    removingRepo = true
+  async function removeRepo(entry: RepoEntry, anchor: HTMLElement): Promise<void> {
+    actionError = ''
     try {
-      await api.repos.remove(target.id)
-      removeRepoTarget = null
-      onRepoRemoved(target.id)
+      const removed = await confirmAt(anchor, {
+        title: t('plugins.repo.remove'),
+        body: t('plugins.repo.remove_confirm'),
+        confirmLabel: t('common.actions.remove'),
+        busyLabel: t('common.actions.removing'),
+        run: () => api.repos.remove(entry.repo.id),
+      })
+      if (removed) onRepoRemoved(entry.repo.id)
     } catch (e) {
       actionError = getErrorMessage(e)
-    } finally {
-      removingRepo = false
     }
   }
 </script>
@@ -226,35 +214,33 @@
     <Banner tint="danger" text={actionError} />
   {/if}
 
-  <div class="catalog-toolbar">
-    <Toolbar overflow="menu" gap={3} moreLabel={t('providers.detail.more_actions')}>
-      <ToolbarItem pinned fill="md">
-        <SearchField bind:value={query} placeholder={t('plugins.search.catalog')} />
-      </ToolbarItem>
-      <ToolbarItem priority={3} active={showUpdatesOnly}>
-        <Toggle bind:checked={showUpdatesOnly} label={t('plugins.updates_only')} ariaLabel={t('plugins.updates_only')} />
-      </ToolbarItem>
-      <div class="toolbar-spacer" aria-hidden="true"></div>
-      <ToolbarItem priority={1}>
-        <Button
-          buttonStyle="prominent"
-          icon={{ name: 'add' }}
-          text={t('plugins.repo.add')}
-          onclick={() => { showAddRepo = !showAddRepo }}
-        />
-      </ToolbarItem>
-      <ToolbarItem priority={2}>
-        <Button
-          buttonStyle="neutral"
-          icon={{ name: 'sync' }}
-          text={refreshing ? t('plugins.repo.refreshing') : t('plugins.repo.refresh')}
-          disabled={refreshing}
-          onclick={() => void refreshRepos()}
-          ariaLabel={t('plugins.repo.refresh')}
-        />
-      </ToolbarItem>
-    </Toolbar>
-  </div>
+  <Toolbar overflow="menu" gap={3} moreLabel={t('providers.detail.more_actions')}>
+    <ToolbarItem pinned fill="md">
+      <SearchField bind:value={query} placeholder={t('plugins.search.catalog')} />
+    </ToolbarItem>
+    <ToolbarItem priority={3} active={showUpdatesOnly}>
+      <Toggle bind:checked={showUpdatesOnly} label={t('plugins.updates_only')} ariaLabel={t('plugins.updates_only')} />
+    </ToolbarItem>
+    <ToolbarSpacer />
+    <ToolbarItem priority={1}>
+      <Button
+        buttonStyle="prominent"
+        icon={{ name: 'add' }}
+        text={t('plugins.repo.add')}
+        onclick={() => { showAddRepo = !showAddRepo }}
+      />
+    </ToolbarItem>
+    <ToolbarItem priority={2}>
+      <Button
+        buttonStyle="neutral"
+        icon={{ name: 'sync' }}
+        text={refreshing ? t('plugins.repo.refreshing') : t('plugins.repo.refresh')}
+        disabled={refreshing}
+        onclick={() => void refreshRepos()}
+        ariaLabel={t('plugins.repo.refresh')}
+      />
+    </ToolbarItem>
+  </Toolbar>
 
   {#if showAddRepo}
     <Card title={t('plugins.repo.add')} subtitle={t('plugins.repo.url_hint')}>
@@ -318,14 +304,7 @@
               ariaLabel={t('plugins.repo.details')}
             />
             {#if !entry.repo.builtin}
-              <Button
-                buttonStyle="text"
-                tint="var(--fui-color-danger)"
-                icon={{ name: 'delete' }}
-                size="sm"
-                onclick={(e) => openRemoveRepo(entry, e.currentTarget as HTMLElement)}
-                ariaLabel={t('plugins.repo.remove')}
-              />
+              <DeleteButton size="sm" label={t('plugins.repo.remove')} onclick={(e) => void removeRepo(entry, e.currentTarget as HTMLElement)} />
             {/if}
           </HStack>
         </HStack>
@@ -380,55 +359,6 @@
       </VStack>
     {/each}
   {/if}
-
-  <FloatingView
-    open={Boolean(removeRepoTarget)}
-    anchor={removeRepoAnchor}
-    width="sm"
-    onclose={() => { removeRepoTarget = null }}
-    label={t('plugins.repo.remove')}
-  >
-    {#snippet children({ close })}
-      <ConfirmAction
-        title={t('plugins.repo.remove')}
-        body={t('plugins.repo.remove_confirm')}
-        confirmLabel={t('common.actions.remove')}
-        busy={removingRepo}
-        busyLabel={t('common.actions.removing')}
-        oncancel={close}
-        onconfirm={confirmRemoveRepo} />
-    {/snippet}
-  </FloatingView>
-
-  <FloatingView
-    open={Boolean(pluginState.pendingDelete)}
-    anchor={pluginState.pendingDelete?.anchor}
-    width="sm"
-    onclose={() => { pluginState.pendingDelete = null }}
-    label={t('plugins.delete')}
-  >
-    {#snippet children({ close })}
-      <ConfirmAction
-        title={t('plugins.delete')}
-        body={`${t('common.actions.delete')} "${pluginState.pendingDelete?.plugin.display_name}"? ${t('plugins.delete_warning')}`}
-        busy={pluginState.deleting}
-        busyLabel={t('common.actions.deleting')}
-        oncancel={close}
-        onconfirm={() => void pluginState.doDelete()} />
-    {/snippet}
-  </FloatingView>
 </VStack>
 
-<style>
-  /* FUI's toolbar row is content-sized; stretch it so toolbar-spacer can
-     grow and push the right-docked action buttons to the far edge. */
-  .catalog-toolbar :global(.tbar-row) {
-    flex: 1 1 auto;
-  }
-  .toolbar-spacer {
-    flex: 1 1 auto;
-    margin-inline-start: auto;
-    min-width: 0;
-  }
-</style>
 

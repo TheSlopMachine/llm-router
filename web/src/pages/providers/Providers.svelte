@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Text, Toggle, Banner, Image, Table, Header, HStack, VStack, type TableColumn, ContentUnavailable } from '@fuckyouryan/fui'
+  import { Text, Toggle, Banner, Table, Header, ListRow, VStack, type TableColumn, ContentUnavailable } from '@fuckyouryan/fui'
   import { PROVIDERS_ICON } from '$lib/subsystems'
   import { openFormModal } from '$lib/modal-helpers'
   import { api } from '$lib/api'
@@ -10,7 +10,6 @@
   import { isSystemDisabled } from '$lib/credential-state'
   import { formatDisableReason } from '$lib/format'
   import { t, n } from '$lib/i18n.svelte'
-  import { viewport } from '$lib/viewport.svelte'
 
   const resource = createListResource<{ providers: Provider[]; providerStats: Record<string, ProviderStats> }>(
     async () => {
@@ -19,8 +18,6 @@
     },
     { providers: [], providerStats: {} }
   )
-
-  let visibleProviders = $derived(resource.data.providers)
 
   const providerColumns: TableColumn[] = [
     { key: 'name', title: t('providers.detail.title'), width: '1fr', priority: 1 },
@@ -54,16 +51,24 @@
   }
 </script>
 
-{#snippet providerIcon(provider: Provider)}
-  <Image
-    src={provider.icon_url}
-    width="var(--fui-size-icon-lg)"
-    height="var(--fui-size-icon-lg)"
-    fit="contain"
-    radius="sm"
-    fallbackIcon={PROVIDERS_ICON}
-    style="--fui-icon-size: var(--fui-size-icon-lg); flex: none"
-  />
+{#snippet toggle(provider: Provider)}
+  <Toggle checked={!provider.disabled} ariaLabel={t('common.labels.enabled')} onchange={(v) => toggleProvider(provider, v)} />
+{/snippet}
+
+<!-- the table row and the phone card show the provider the same way; the toggle is the card's own control -->
+{#snippet identity(provider: Provider, withToggle: boolean)}
+  {#snippet providerToggle()}{@render toggle(provider)}{/snippet}
+  <ListRow
+    title={provider.name}
+    subtitle={provider.type + (provider.qualifier ? ':' + provider.qualifier : '')}
+    image={provider.icon_url}
+    icon={PROVIDERS_ICON}
+    trailing={withToggle ? providerToggle : undefined}
+  >
+    {#if isSystemDisabled(provider)}
+      <Text variant="caption" tint="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(provider.disabled_reason)}</Text>
+    {/if}
+  </ListRow>
 {/snippet}
 
 <VStack gap={6}>
@@ -73,85 +78,31 @@
     <Banner tint="danger" text={resource.error} />
   {/if}
 
-  {#if resource.loading}
-    <ContentUnavailable title={t('common.state.loading')} />
-  {:else if visibleProviders.length === 0}
-    <ContentUnavailable title={t('providers.list.empty')} icon="cloud" />
-  {:else}
-    <Table
-      columns={providerColumns}
-      rows={visibleProviders}
-      rowKey={(p) => (p as Provider).id}
-      onrowclick={(p) => openProviderDetail(p as Provider)}
-    >
-      {#snippet cell({ column, row })}
-        {@const provider = row as Provider}
-        {@const stats = resource.data.providerStats[provider.id] || null}
-        {#if column.key === 'name'}
-          <HStack gap={4} valign="center">
-            {@render providerIcon(provider)}
-            <VStack gap={1}>
-              <Text variant="value">{provider.name}</Text>
-              <Text variant="caption">{provider.type}{provider.qualifier ? ':' + provider.qualifier : ''}</Text>
-              {#if isSystemDisabled(provider)}
-                <Text variant="caption" tint="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(provider.disabled_reason)}</Text>
-              {/if}
-            </VStack>
-          </HStack>
-        {:else if column.key === 'creds'}
-          <Text size="sm">{n(stats?.credential_count ?? 0, 'credentials.status.active.one', 'credentials.status.active.many')}</Text>
-        {:else if column.key === 'models'}
-          <Text size="sm">{String(stats?.enabled_model_count ?? 0)}</Text>
-        {:else if column.key === 'toggle'}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <span
-            class="col-toggle"
-            onclick={(e) => e.stopPropagation()}
-            onkeydown={(e) => e.stopPropagation()}
-          >
-            <Toggle
-              checked={!provider.disabled}
-              ariaLabel={t('common.labels.enabled')}
-              onchange={(v) => toggleProvider(provider, v)}
-            />
-          </span>
-        {/if}
-      {/snippet}
-      {#snippet card({ row })}
-        {@const provider = row as Provider}
-        {@const stats = resource.data.providerStats[provider.id] || null}
-        <HStack gap={4} valign="center">
-          {@render providerIcon(provider)}
-          <VStack gap={1} grow>
-            <Text variant="value">{provider.name}</Text>
-            <Text variant="caption">{provider.type}{provider.qualifier ? ':' + provider.qualifier : ''}</Text>
-          </VStack>
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <span
-            onclick={(e) => e.stopPropagation()}
-            onkeydown={(e) => e.stopPropagation()}
-          >
-            <Toggle
-              checked={!provider.disabled}
-              ariaLabel={t('common.labels.enabled')}
-              onchange={(v) => toggleProvider(provider, v)}
-            />
-          </span>
-        </HStack>
-        {#if isSystemDisabled(provider)}
-          <Text variant="caption" tint="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(provider.disabled_reason)}</Text>
-        {/if}
-      {/snippet}
-      {#snippet empty()}
-        <ContentUnavailable title={t('providers.list.empty')} icon="cloud" />
-      {/snippet}
-    </Table>
-  {/if}
+  <Table
+    columns={providerColumns}
+    rows={resource.data.providers}
+    rowKey={(p) => (p as Provider).id}
+    loading={resource.loading}
+    onrowclick={(p) => openProviderDetail(p as Provider)}
+  >
+    {#snippet cell({ column, row })}
+      {@const provider = row as Provider}
+      {@const stats = resource.data.providerStats[provider.id] || null}
+      {#if column.key === 'name'}
+        {@render identity(provider, false)}
+      {:else if column.key === 'creds'}
+        <Text size="sm">{n(stats?.credential_count ?? 0, 'credentials.status.active.one', 'credentials.status.active.many')}</Text>
+      {:else if column.key === 'models'}
+        <Text size="sm">{String(stats?.enabled_model_count ?? 0)}</Text>
+      {:else if column.key === 'toggle'}
+        {@render toggle(provider)}
+      {/if}
+    {/snippet}
+    {#snippet card({ row })}
+      {@render identity(row as Provider, true)}
+    {/snippet}
+    {#snippet empty()}
+      <ContentUnavailable title={t('providers.list.empty')} icon="cloud" />
+    {/snippet}
+  </Table>
 </VStack>
-
-<style>
-  .col-toggle {
-    display: flex;
-    justify-content: flex-end;
-  }
-</style>

@@ -1,5 +1,5 @@
 import { api } from '$lib/api'
-import { modal, toast } from '@fuckyouryan/fui'
+import { confirmAt, modal, toast } from '@fuckyouryan/fui'
 import DockerWizard from '../../../components/domain/DockerWizard.svelte'
 import { getErrorMessage } from '$lib/errors'
 import { t, tx } from '$lib/i18n.svelte'
@@ -30,8 +30,6 @@ export function createPluginState(options: {
   findStoreFile?: (plugin: Plugin) => StoreFile | null
   findPlugin?: (id: string) => Plugin | null
 }) {
-  let pendingDelete = $state<{ plugin: Plugin; anchor?: HTMLElement } | null>(null)
-  let deleting = $state(false)
   let pendingFile = $state<PendingFile | null>(null)
   let installingFile = $state(false)
   let togglingIds = $state<string[]>([])
@@ -71,26 +69,17 @@ export function createPluginState(options: {
     })
   }
 
-  function openDelete(plugin: Plugin, anchor?: HTMLElement): void {
-    if (pendingDelete?.plugin.id === plugin.id) {
-      pendingDelete = null
-    } else {
-      pendingDelete = { plugin, anchor }
-    }
-  }
-
-  async function doDelete(): Promise<void> {
-    const target = pendingDelete
-    if (!target || deleting) return
-    deleting = true
+  async function deletePlugin(plugin: Plugin, anchor: HTMLElement): Promise<void> {
     try {
-      await api.plugins.remove(target.plugin.id)
-      pendingDelete = null
-      options.onPluginRemoved(target.plugin.id)
+      const deleted = await confirmAt(anchor, {
+        title: t('plugins.delete'),
+        body: `${t('common.actions.delete')} "${plugin.display_name}"? ${t('plugins.delete_warning')}`,
+        busyLabel: t('common.actions.deleting'),
+        run: () => api.plugins.remove(plugin.id),
+      })
+      if (deleted) options.onPluginRemoved(plugin.id)
     } catch (e) {
       options.onError(getErrorMessage(e))
-    } finally {
-      deleting = false
     }
   }
 
@@ -189,20 +178,18 @@ export function createPluginState(options: {
     input.click()
   }
 
-  function handleAction(plugin: Plugin, id: string, anchor?: HTMLElement): void {
+  function handleAction(plugin: Plugin, id: string, anchor: HTMLElement): void {
     switch (id) {
       case 'update_file':
         updateFromFile(plugin, anchor)
         break
       case 'delete':
-        openDelete(plugin, anchor)
+        void deletePlugin(plugin, anchor)
         break
     }
   }
 
   return {
-    openDelete,
-    doDelete,
     updatePlugin,
     updateAll,
     togglePlugin,
@@ -221,15 +208,6 @@ export function createPluginState(options: {
     },
     get installingFile(): boolean {
       return installingFile
-    },
-    get pendingDelete(): { plugin: Plugin; anchor?: HTMLElement } | null {
-      return pendingDelete
-    },
-    set pendingDelete(v: { plugin: Plugin; anchor?: HTMLElement } | null) {
-      pendingDelete = v
-    },
-    get deleting(): boolean {
-      return deleting
     }
   }
 }

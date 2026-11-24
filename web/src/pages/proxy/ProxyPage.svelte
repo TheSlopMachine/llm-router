@@ -1,13 +1,12 @@
 <script lang="ts">
-  import SectionHeading from '../../components/SectionHeading.svelte'
-  import { VStack, HStack, Text, Button, Toggle, Table, Card, Chip, FloatingView, Banner, ConfirmAction, Header, Stat, Grid, Picker, Spacer, RelativeTime, Field, TextField, toast, type TableColumn, ContentUnavailable, type HeaderAction } from '@fuckyouryan/fui'
+  import { VStack, HStack, Text, Button, Toggle, Table, Card, Chip, Banner, Header, DeleteButton, StatusDot, confirmAt, Stat, Grid, Picker, Spacer, RelativeTime, Field, TextField, toast, type TableColumn, ContentUnavailable, type HeaderAction, SectionHeader } from '@fuckyouryan/fui'
   import { viewport } from '$lib/viewport.svelte'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { openFormModal } from '$lib/modal-helpers'
   import { getErrorMessage } from '$lib/errors'
     import type { ProxyStatus, ProxySourceInfo, ProxyPool, RouterConfiguration } from '$lib/types'
-  import { t, tx, locale, type TranslationKey } from '$lib/i18n.svelte'
+  import { t, tx, type TranslationKey } from '$lib/i18n.svelte'
   import CustomPoolModal from './components/CustomPoolModal.svelte'
   import HealthyProxies from './components/HealthyProxies.svelte'
 
@@ -39,9 +38,6 @@
   const openTab = $derived(tab ?? defaultTab)
   const MAX_CHECKS_LIMIT = 2000
   let error = $state('')
-  let deletePoolTarget = $state<ProxyPool | null>(null)
-  let deletePoolAnchor = $state<HTMLElement>()
-  let deletingPool = $state(false)
 
   const poolColumns: TableColumn[] = [
     { key: 'name', title: t('common.labels.name'), width: '1fr', priority: 1 },
@@ -254,27 +250,18 @@
     })
   }
 
-  function openDeletePool(pool: ProxyPool, anchorEl?: HTMLElement): void {
-    if (deletePoolTarget?.id === pool.id) {
-      deletePoolTarget = null
-    } else {
-      deletePoolTarget = pool
-      deletePoolAnchor = anchorEl
-    }
-  }
-
-  async function confirmDeletePool(): Promise<void> {
-    const pool = deletePoolTarget
-    if (!pool || deletingPool) return
-    deletingPool = true
+  async function deletePool(pool: ProxyPool, anchor: HTMLElement): Promise<void> {
+    error = ''
     try {
-      await api.proxies.pools.remove(pool.id)
-      deletePoolTarget = null
-      await loadAll()
+      const deleted = await confirmAt(anchor, {
+        title: t('proxy.custom_pools.delete'),
+        body: `${t('misc.delete_confirm')} "${pool.name}"? ${t('common.undo.cannot_undo')}`,
+        busyLabel: t('common.actions.deleting'),
+        run: () => api.proxies.pools.remove(pool.id),
+      })
+      if (deleted) await loadAll()
     } catch (e) {
       error = getErrorMessage(e)
-    } finally {
-      deletingPool = false
     }
   }
 
@@ -381,15 +368,15 @@
         </Grid>
         <HStack gap={4} wrap>
           <HStack gap={2} valign="center">
-            <span class="legend-dot legend-success"></span>
+            <StatusDot tint="success" />
             <Text size="sm">{t('proxy.pool.alive')} · {status.alive}</Text>
           </HStack>
           <HStack gap={2} valign="center">
-            <span class="legend-dot legend-warning"></span>
+            <StatusDot tint="warning" />
             <Text size="sm">{t('proxy.pool.suspect')} · {status.suspect}</Text>
           </HStack>
           <HStack gap={2} valign="center">
-            <span class="legend-dot legend-danger"></span>
+            <StatusDot tint="danger" />
             <Text size="sm">{t('proxy.pool.banned')} · {status.banned}</Text>
           </HStack>
         </HStack>
@@ -406,7 +393,7 @@
       </Card>
 
       <VStack gap={4}>
-        <SectionHeading title={t('proxy.sources.title')} subtitle={t('proxy.sources.desc')} />
+        <SectionHeader title={t('proxy.sources.title')} subtitle={t('proxy.sources.desc')} />
         <Table
           columns={sourceColumns}
           rows={mergedSources}
@@ -419,7 +406,7 @@
               <Text variant="value">{src.name}</Text>
               {#if src.configuration?.last_error}<Text tint="danger" variant="caption">{src.configuration.last_error}</Text>{/if}
             {:else if column.key === 'fetched'}
-              {@const lf = src.configuration?.last_fetch_at}{#if lf && !lf.startsWith('0001-')}<RelativeTime date={lf} locale={locale()} />{:else}<Text size="sm">—</Text>{/if}
+              {@const lf = src.configuration?.last_fetch_at}<Text size="sm">{#if lf && !lf.startsWith('0001-')}<RelativeTime date={lf} />{:else}—{/if}</Text>
             {:else if column.key === 'candidates'}
               <Text size="sm">{src.configuration ? src.configuration.total : '—'}</Text>
               {#if src.configuration && src.configuration.unsupported > 0}<Text variant="caption">{t('proxy.sources.unsupported')}: {src.configuration.unsupported}</Text>{/if}
@@ -449,7 +436,7 @@
       </VStack>
 
       <VStack gap={4}>
-        <SectionHeading title={t('proxy.pool.lanes')} />
+        <SectionHeader title={t('proxy.pool.lanes')} />
         <Table columns={laneColumns} rows={status.lanes} rowKey={(lane) => lane.lane}>
           {#snippet cell({ column, row })}
             {@const lane = row as ProxyStatus['lanes'][number]}
@@ -503,25 +490,7 @@
           {:else if column.key === 'proxies'}
             <Text size="sm">{pool.entries.length}</Text>
           {:else if column.key === 'actions'}
-            <HStack halign="end" gap={2}>
-              <Button
-                buttonStyle="text"
-                icon={{ name: 'edit' }}
-                title={t('common.actions.edit')}
-                size="sm"
-                ariaLabel={t('common.actions.edit')}
-                onclick={() => openPoolModal('edit', pool)}
-              />
-              <Button
-                buttonStyle="text"
-                tint="var(--fui-color-danger)"
-                size="sm"
-                icon={{ name: 'delete' }}
-                title={t('common.actions.delete')}
-                ariaLabel={t('common.actions.delete')}
-                onclick={(e) => openDeletePool(pool, e.currentTarget as HTMLElement)}
-              />
-            </HStack>
+            {@render poolActions(pool)}
           {/if}
         {/snippet}
         {#snippet card({ row })}
@@ -529,25 +498,7 @@
           <HStack gap={3} valign="center">
             <Text variant="value">{pool.name}</Text>
             <Spacer />
-            <HStack halign="end" gap={2}>
-              <Button
-                buttonStyle="text"
-                icon={{ name: 'edit' }}
-                title={t('common.actions.edit')}
-                size="sm"
-                ariaLabel={t('common.actions.edit')}
-                onclick={() => openPoolModal('edit', pool)}
-              />
-              <Button
-                buttonStyle="text"
-                tint="var(--fui-color-danger)"
-                size="sm"
-                icon={{ name: 'delete' }}
-                title={t('common.actions.delete')}
-                ariaLabel={t('common.actions.delete')}
-                onclick={(e) => openDeletePool(pool, e.currentTarget as HTMLElement)}
-              />
-            </HStack>
+            {@render poolActions(pool)}
           </HStack>
           <Text variant="caption">{t('proxy.title')}: {pool.entries.length}</Text>
         {/snippet}
@@ -558,40 +509,13 @@
     </VStack>
   {/if}
   {/if}
-
-  <FloatingView
-    open={Boolean(deletePoolTarget)}
-    anchor={deletePoolAnchor}
-    width="sm"
-    onclose={() => { deletePoolTarget = null }}
-    label={t('proxy.custom_pools.delete')}
-  >
-    {#snippet children({ close })}
-      <ConfirmAction
-        title={t('proxy.custom_pools.delete')}
-        body={`${t('misc.delete_confirm')} "${deletePoolTarget?.name}"? ${t('common.undo.cannot_undo')}`}
-        busy={deletingPool}
-        busyLabel={t('common.actions.deleting')}
-        oncancel={close}
-        onconfirm={confirmDeletePool} />
-    {/snippet}
-  </FloatingView>
 </VStack>
 
-<style>
-  .legend-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-  .legend-success {
-    background: springgreen;
-  }
-  .legend-warning {
-    background: yellow;
-  }
-  .legend-danger {
-    background: red;
-  }
-</style>
+{#snippet poolActions(pool: ProxyPool)}
+  <HStack halign="end" gap={2}>
+    <Button buttonStyle="text" size="sm" icon={{ name: 'edit' }} title={t('common.actions.edit')} ariaLabel={t('common.actions.edit')}
+      onclick={() => openPoolModal('edit', pool)} />
+    <DeleteButton size="sm" onclick={(e) => void deletePool(pool, e.currentTarget as HTMLElement)} />
+  </HStack>
+{/snippet}
+

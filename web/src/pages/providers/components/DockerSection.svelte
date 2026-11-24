@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Banner, Button, ConfirmAction, ContentUnavailable, FloatingView, HStack, Table, Text, VStack, modal, type TableColumn } from '@fuckyouryan/fui'
-  import SectionHeading from '../../../components/SectionHeading.svelte'
+  import { Banner, Button, ContentUnavailable, DeleteButton, FloatingView, HStack, SectionHeader, Table, Text, VStack, confirmAt, modal, type TableColumn } from '@fuckyouryan/fui'
   import PluginPermissionList from '../../../components/domain/PluginPermissionList.svelte'
   import DockerLogs from './DockerLogs.svelte'
   import { api } from '$lib/api'
@@ -33,8 +32,6 @@
 
   let permissionsOpen = $state(false)
   let permissionsAnchor = $state<HTMLElement>()
-  let removeTarget = $state<DockerContainerStatus | null>(null)
-  let removeAnchor = $state<HTMLElement>()
 
   let busy = $derived(dockerBusy(view))
   let configured = $derived(!!view?.connection.endpoint)
@@ -76,16 +73,14 @@
     }
   }
 
-  async function confirmRemove(): Promise<void> {
-    const container = removeTarget
-    if (!container) return
-    await act(container, ['remove'])
-    removeTarget = null
-  }
-
-  function openRemove(container: DockerContainerStatus, anchor: HTMLElement): void {
-    removeTarget = removeTarget === container ? null : container
-    removeAnchor = anchor
+  // act() surfaces its own failure, so the popover only waits for it
+  function remove(container: DockerContainerStatus, anchor: HTMLElement): void {
+    void confirmAt(anchor, {
+      title: t('providers.docker.delete.title'),
+      body: `${t('misc.delete_confirm')} "${containerTarget(container)}"? ${t('common.undo.cannot_undo')}`,
+      busyLabel: t('common.actions.deleting'),
+      run: () => act(container, ['remove']),
+    })
   }
 
   function openLogs(container: DockerContainerStatus): void {
@@ -140,7 +135,7 @@
         <Button size="sm" buttonStyle="text" icon={{ name: 'play_arrow' }} ariaLabel={t('providers.docker.start.action')} title={t('providers.docker.start.action')} disabled={acting} onclick={() => void act(container, ['start'])} />
       {/if}
       <Button size="sm" buttonStyle="text" icon={{ name: 'article' }} ariaLabel={t('providers.docker.logs.action')} title={t('providers.docker.logs.action')} onclick={() => openLogs(container)} />
-      <Button size="sm" buttonStyle="text" tint="var(--fui-color-danger)" icon={{ name: 'delete' }} ariaLabel={t('providers.docker.delete.title')} title={t('providers.docker.delete.title')} disabled={acting} onclick={(e) => openRemove(container, e.currentTarget as HTMLElement)} />
+      <DeleteButton size="sm" label={t('providers.docker.delete.title')} disabled={acting} onclick={(e) => remove(container, e.currentTarget as HTMLElement)} />
     </HStack>
   {/if}
 {/snippet}
@@ -148,11 +143,11 @@
 {#if usesDocker && view}
   {@const policy = view.policy}
   <VStack tag="section" gap={4} class="provider-section">
-    <SectionHeading title={t('providers.docker.title')}>
+    <SectionHeader title={t('providers.docker.title')}>
       {#snippet actions()}
         <Button buttonStyle="neutral" icon={{ name: 'info' }} ariaLabel={t('plugins.permissions.title')} title={t('plugins.permissions.title')} onclick={(e) => togglePermissions(e.currentTarget as HTMLElement)} />
       {/snippet}
-    </SectionHeading>
+    </SectionHeader>
 
     {#if error}
       <Banner tint="danger" text={error} />
@@ -193,18 +188,6 @@
   <FloatingView open={permissionsOpen} anchor={permissionsAnchor} width="sm" onclose={() => { permissionsOpen = false }} label={t('plugins.permissions.title')}>
     {#snippet children()}
       <PluginPermissionList hosts={policy.allow_hosts} unsafe={policy.allow_hosts.includes('*')} docker={policy.directives} />
-    {/snippet}
-  </FloatingView>
-
-  <FloatingView open={Boolean(removeTarget)} anchor={removeAnchor} width="sm" onclose={() => { removeTarget = null }} label={t('providers.docker.delete.title')}>
-    {#snippet children({ close })}
-      <ConfirmAction
-        title={t('providers.docker.delete.title')}
-        body={`${t('misc.delete_confirm')} "${removeTarget ? containerTarget(removeTarget) : ''}"? ${t('common.undo.cannot_undo')}`}
-        busy={acting}
-        busyLabel={t('common.actions.deleting')}
-        oncancel={close}
-        onconfirm={confirmRemove} />
     {/snippet}
   </FloatingView>
 {:else if error}

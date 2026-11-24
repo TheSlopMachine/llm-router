@@ -3,7 +3,7 @@
   import { api } from '$lib/api'
   import { t } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
-  import { Button, HStack, Card, Text, VStack, TextField, Banner, Icon, Chip, Header, ContentUnavailable, Field, toast, modal, CardGroup, type HeaderAction } from '@fuckyouryan/fui'
+  import { Button, HStack, Card, Text, VStack, TextField, Banner, Chip, List, ListRow, Header, ContentUnavailable, Field, toast, modal, CardGroup, type HeaderAction } from '@fuckyouryan/fui'
   import type { SubsystemStats, DoctorReport } from '$lib/types'
   import AppearanceCard from './AppearanceCard.svelte'
   import DockerCard from './DockerCard.svelte'
@@ -135,7 +135,7 @@
   ] : [])
 
   const dataActions = $derived<HeaderAction[]>([
-    { id: 'clear-all', text: t('data.clear_all'), icon: 'delete', buttonStyle: 'prominent', tint: 'var(--fui-color-danger)', disabled: clearingAll, onclick: () => void clearAll() },
+    { id: 'clear-all', text: t('data.clear_all'), icon: 'delete', buttonStyle: 'prominent', tint: 'danger', disabled: clearingAll, onclick: () => void clearAll() },
   ])
 </script>
 
@@ -179,20 +179,17 @@
       {:else}
         <VStack gap={3}>
           <Banner tint="warning" text={`${t('data.doctor.found')}: ${doctorReport.total_issues}`} />
-          <VStack gap={2} class="issues-container">
-            {#each doctorReport.issues as issue}
-              <HStack valign="center" gap={3} class="issue-row">
-                <Icon name="error" tint="danger" />
-                <VStack gap={0} grow>
-                  <Text weight="medium" size="sm">{issue.title}</Text>
-                  <Text size="xs" foregroundStyle="secondary">{issue.description}</Text>
-                </VStack>
-                <Chip text={String(issue.count)} tint="danger" />
-              </HStack>
+          <List>
+            {#each doctorReport.issues as issue (issue.title)}
+              <VStack pad={3}>
+                <ListRow title={issue.title} subtitle={issue.description} icon="error" iconTint="danger">
+                  {#snippet trailing()}<Chip text={String(issue.count)} tint="danger" />{/snippet}
+                </ListRow>
+              </VStack>
             {/each}
-          </VStack>
+          </List>
           <HStack halign="end">
-            <Button buttonStyle="prominent" tint="var(--fui-color-danger)" onclick={fixIssues} disabled={doctorFixing}>
+            <Button buttonStyle="prominent" role="destructive" onclick={fixIssues} disabled={doctorFixing}>
               {doctorFixing ? t('data.doctor.resolving') : t('data.doctor.clean')}
             </Button>
           </HStack>
@@ -222,13 +219,3 @@
   {/if}
 </VStack>
 
-<style>
-  :global(.issues-container) {
-    width: 100%;
-  }
-  :global(.issue-row) {
-    padding: var(--fui-space-3) var(--fui-space-4);
-    background: var(--fui-color-surface-container);
-    border-radius: var(--fui-radius-md);
-  }
-</style>

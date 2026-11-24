@@ -1,13 +1,12 @@
 <!-- The WSL steps of the Docker wizard. Only a Windows router offers them. -->
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Banner, Card, CodeBlock, ContentUnavailable, ModalChrome, Text, VStack, type ModalButton } from '@fuckyouryan/fui'
+  import { Banner, ChoiceList, Card, CodeBlock, ContentUnavailable, ModalChrome, Text, VStack, type ModalButton } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { t, tx } from '$lib/i18n.svelte'
   import type { TranslationKey } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
   import type { WSLDistribution, WSLDockerStatus } from '$lib/types'
-  import DockerChoice from './DockerChoice.svelte'
 
   let {
     step,
@@ -97,11 +96,7 @@
   {#if step === 'distribution'}
     {#if distributions?.length}
       <Text size="sm" foregroundStyle="secondary">{t('settings.docker.distribution.hint')}</Text>
-      <VStack gap={2}>
-        {#each distributions as item (item.name)}
-          <DockerChoice title={item.name} hint={describe(item)} selected={distribution === item.name} disabled={item.version !== 2} onclick={() => { distribution = item.name }} />
-        {/each}
-      </VStack>
+      <ChoiceList options={distributions.map((item) => ({ value: item.name, title: item.name, hint: describe(item), disabled: item.version !== 2 }))} bind:value={distribution} ariaLabel={t('settings.docker.step_distribution.label')} />
     {:else if distributions}
       <ContentUnavailable title={t('settings.docker.distributions.empty')} />
     {/if}
