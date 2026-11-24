@@ -270,10 +270,53 @@ Never stack a second guarded `$effect` to stabilize the first. Replace the first
 - Adding an item to a list opens a modal with the item's fields. The page shows only an Add button next to the list. Never place an inline form under the list.
   - BAD: Host, Username and Secret fields with an Add button under the registry table.
   - GOOD: an Add button that opens a modal with those fields (`openFormModal`).
-- Action buttons sit at the right end. A section with a header puts them in the header (`Header primary`, `SectionHeading actions`, `CardGroup actions`). Otherwise they go in an `HStack halign="end"` under the content. Add and Save rows follow the same rule.
+- Action buttons sit at the right end. A section with a header puts them in the header (`Header primary`, `SectionHeader actions`, `CardGroup actions`). Otherwise they go in an `HStack halign="end"` under the content. Add and Save rows follow the same rule.
   - BAD: Add on the left under the registry table, Save on the right above it.
   - GOOD: both in `HStack halign="end"`.
 - A masked value uses `TextField secure`: browsers do not autofill it. Only the login form uses `type="password"`.
+
+### 9.1 FUI first
+
+The UI is built from `@fuckyouryan/fui`. Use its part before writing markup or CSS for the same job.
+
+| Need | Use |
+|---|---|
+| Content is loading | `ProgressView`, never a "Loading..." text |
+| Confirm a destructive or costly action | `confirmAt(anchor, ...)` at the clicked control, with `run` for the request |
+| Delete a row or card | `DeleteButton` |
+| A row: glyph, title, subtitle, trailing actions | `ListRow` |
+| A section title with a count and actions | `SectionHeader` |
+| One of a few described choices | `ChoiceList` |
+| Bulk actions over picked rows | `SelectionBar` |
+| A coloured state or legend mark | `StatusDot` |
+| A relative date | `RelativeTime` inside `Text` |
+
+A missing generic part (no llm-router knowledge) goes into FUI. A part that knows llm-router data stays in `web/src/components/domain/` or in the page's `components/`.
+
+- BAD: a "Delete" `Button` with its own red style and a `modal.confirm` in the middle of the screen.
+- GOOD: `DeleteButton` whose click runs `confirmAt(anchor, { title, run })`.
+
+### 9.2 Motion
+
+Every change of what the screen shows animates, and only through FUI.
+
+- A page, tab or wizard step that changes with one value: `Swap key={value}`.
+- A tab that keeps its state while hidden: `TabPanel active`.
+- A block that comes and goes in the flow: `transition:reveal`. Keyed list items that reorder: `animate:move`.
+- FUI widgets (Modal, Table, List, Banner, Toasts, the drawer) animate themselves. Add nothing around them.
+- Never `svelte/transition`, own `@keyframes` or duration literals. A CSS transition uses `--fui-dur-*` and stops under `prefers-reduced-motion`.
+
+### 9.3 Look
+
+- Text goes through `Text`: a `variant`, or `size` from the scale (`xs` to `2xl`) and `weight`. No `font-size`, `font-weight` or numeric `size` in the app.
+- Layout and spacing go through FUI props (`VStack gap`, `width`, `maxWidth`, `pad`). Sizes FUI does not own are `--app-*` tokens in `web/src/app.css`.
+- Styles stay scoped. `:global` only appears under the component's own class (`.wrap :global(.cell)`), never as a bare selector.
+
+### 9.4 State and errors
+
+- A preference stored in the browser is a `Persisted` value from `web/src/lib/persisted.svelte.ts`. Never call `localStorage` directly.
+- The UI branches on a dashboard error with `errorCode(e)` from `web/src/lib/errors.ts`, never on its message. A new code follows the `docs/BACKEND.md` row "Dashboard error the UI branches on".
+- A failed load shows a `Banner` in its section. A failed action shows `toast.error`. Both carry `getErrorMessage(e)`.
 
 ## 10. UI text (i18n)
 

@@ -37,7 +37,7 @@
       <svg class="mark" viewBox="0 0 100 100" aria-hidden="true">
         <polygon points="50,8 86.4,29 86.4,71 50,92 13.6,71 13.6,29" />
       </svg>
-      <Text tag="h1" size={32} weight="medium">llm-router</Text>
+      <Text tag="h1" size="2xl" weight="medium">llm-router</Text>
     </VStack>
     <VStack gap={4}>
       {#if error}

@@ -5,7 +5,7 @@
   import { getErrorMessage } from './lib/errors'
   import Login from './pages/Login.svelte'
   import Dashboard from './pages/Dashboard.svelte'
-  import { Modal, Toasts, Banner } from '@fuckyouryan/fui'
+  import { Modal, Toasts, Banner, Text, VStack } from '@fuckyouryan/fui'
 
   type AppState = 'loading' | 'login' | 'dashboard'
 
@@ -55,14 +55,12 @@
 
 {#if appState === 'loading'}
   <div class="splash">
-    {#if error}
-      <div style="max-width: var(--app-splash-max-w); text-align: center;">
-        <div style="font-size: var(--fui-text-xl); font-weight: 600; margin-bottom: var(--app-splash-gap);">llm-router</div>
+    <VStack gap={5} width="full" maxWidth="var(--app-splash-max-w)">
+      <Text size="xl" weight="bold" foregroundStyle="secondary" align="center">llm-router</Text>
+      {#if error}
         <Banner tint="danger" text={error} />
-      </div>
-    {:else}
-      llm-router
-    {/if}
+      {/if}
+    </VStack>
   </div>
 {:else if appState === 'login'}
   <Login ondone={onLogin} />
@@ -80,9 +78,5 @@
     justify-content: center;
     height: 100vh;
     height: 100dvh;
-    font-size: var(--fui-text-xl);
-    font-weight: 600;
-    color: var(--fui-color-text-soft);
-    letter-spacing: var(--fui-tracking-wide);
   }
 </style>

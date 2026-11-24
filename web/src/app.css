@@ -8,7 +8,6 @@
   /* site-owned sizes that used to live in FUI */
   --app-auth-max-w: 400px;
   --app-splash-max-w: 400px;
-  --app-splash-gap: 16px;
   --app-provider-state-min-h: 240px;
   --app-token-search-min: 220px;
   --app-vmedit-name-min: 220px;
