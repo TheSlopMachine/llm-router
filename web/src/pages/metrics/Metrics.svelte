@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-  import { Header, Picker, VStack } from '@fuckyouryan/fui'
+  import { Header, Picker, Swap, VStack } from '@fuckyouryan/fui'
   import { t } from '$lib/i18n.svelte'
   import LogsTab from './components/LogsTab.svelte'
   import OverviewTab from './components/OverviewTab.svelte'
@@ -29,9 +29,11 @@
     ariaLabel={t('metrics.title')}
   />
 
-  {#if tab === 'logs'}
-    <LogsTab />
-  {:else}
-    <OverviewTab />
-  {/if}
+  <Swap key={tab}>
+    {#if tab === 'logs'}
+      <LogsTab />
+    {:else}
+      <OverviewTab />
+    {/if}
+  </Swap>
 </VStack>

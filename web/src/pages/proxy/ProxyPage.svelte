@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { VStack, HStack, Text, Button, Toggle, Table, Card, Chip, Banner, Header, DeleteButton, StatusDot, confirmAt, Stat, Grid, Picker, Spacer, RelativeTime, Field, TextField, toast, type TableColumn, ContentUnavailable, type HeaderAction, SectionHeader } from '@fuckyouryan/fui'
+  import { VStack, HStack, Text, Button, Toggle, Table, Card, Chip, Banner, Header, DeleteButton, StatusDot, confirmAt, Stat, Grid, Picker, Spacer, Swap, RelativeTime, Field, TextField, toast, type TableColumn, ContentUnavailable, type HeaderAction, SectionHeader } from '@fuckyouryan/fui'
   import { viewport } from '$lib/viewport.svelte'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
@@ -337,6 +337,7 @@
     ariaLabel={t('proxy.title')}
   />
 
+  <Swap key={openTab}><VStack gap={6}>
   {#if openTab === 'auto'}
     <Card>
       <VStack gap={1}>
@@ -508,6 +509,7 @@
       </Table>
     </VStack>
   {/if}
+  </VStack></Swap>
   {/if}
 </VStack>
 

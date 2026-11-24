@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api } from '$lib/api'
   import { createListResource } from '$lib/list-resource.svelte'
-  import { Picker, Text, VStack, HStack, Header, Banner, ContentUnavailable } from '@fuckyouryan/fui'
+  import { Picker, Text, VStack, HStack, Header, Banner, ContentUnavailable, TabPanel } from '@fuckyouryan/fui'
   import InstalledTab from './components/InstalledTab.svelte'
   import CatalogTab from './components/CatalogTab.svelte'
   import type { Plugin, PluginRepo, PluginUpdate, StoreFile } from '$lib/types'
@@ -113,7 +113,7 @@
   {:else if resource.error && resource.data.plugins.length === 0 && resource.data.repos.length === 0}
     <Banner tint="danger" text={resource.error} />
   {:else}
-    <div style:display={tab === 'installed' ? undefined : 'none'}>
+    <TabPanel active={tab === 'installed'}>
       <InstalledTab
         plugins={resource.data.plugins}
         updates={resource.data.updates}
@@ -123,8 +123,8 @@
         onPluginRemoved={applyRemoved}
         onBrowseCatalog={() => ontabchange('catalog')}
       />
-    </div>
-    <div style:display={tab === 'catalog' ? undefined : 'none'}>
+    </TabPanel>
+    <TabPanel active={tab === 'catalog'}>
       <CatalogTab
         repos={resource.data.repos}
         plugins={resource.data.plugins}
@@ -136,6 +136,6 @@
         onRepoRemoved={applyRepoRemoved}
         onRefreshRepos={refreshRepos}
       />
-    </div>
+    </TabPanel>
   {/if}
 </VStack>

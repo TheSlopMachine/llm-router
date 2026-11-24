@@ -7,7 +7,7 @@
   import { toggleSet } from '$lib/token-helpers'
   import { t, n } from '$lib/i18n.svelte'
   import type { Token, Provider, VirtualModel, AvailableModel, ProviderModel, CredentialScope } from '$lib/types'
-  import { type ModalButton, type StepperConfig, ModalChrome, Toggle, Checkbox, SearchField, Text, TextField, Spacer, VStack, HStack, List, Banner } from '@fuckyouryan/fui'
+  import { type ModalButton, type StepperConfig, ModalChrome, Toggle, Checkbox, SearchField, Text, TextField, Spacer, Swap, VStack, HStack, List, Banner } from '@fuckyouryan/fui'
   import { buildBackendTokenRules } from '$lib/token-rules'
   import { hasFullAccess, resolveWizardSubtitle, resolveStepValidity, resolveModelId } from '$lib/token-scope'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
@@ -383,6 +383,7 @@
 
 <ModalChrome title={baseTitle} {subtitle} stepper={stepperConfig} {buttons} />
 
+<Swap key={wizardStep}>
 {#if isDoneStep}
   <TokenSuccessView
     token={createdToken ?? ''}
@@ -521,6 +522,7 @@
     </div>
   </VStack>
 {/if}
+</Swap>
 
 <style>
   .is-disabled {

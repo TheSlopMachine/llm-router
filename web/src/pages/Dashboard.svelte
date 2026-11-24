@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Scaffold, Sidebar, Text, type IconName } from '@fuckyouryan/fui'
+  import { Button, Scaffold, Sidebar, Swap, Text, type IconName } from '@fuckyouryan/fui'
   import { surfaceLevel } from '$lib/surface.svelte'
   import { viewport } from '$lib/viewport.svelte'
   import { api } from '../lib/api'
@@ -94,6 +94,10 @@
     { id: 'proxy',        label: 'proxy.title',      icon: PROXIES_ICON },
   ]
 
+  // A new page animates in. The detail pages count as one page per provider or virtual model; tabs
+  // animate inside their page.
+  let pageKey = $derived(panel === 'providers' || panel === 'virtual' ? `${panel}/${routeSegments[0] ?? ''}` : panel)
+
   let pluginsTab = $derived<PluginsTab>(routeSegments[0] === 'catalog' ? 'catalog' : 'installed')
 
   function selectPluginsTab(next: PluginsTab): void {
@@ -148,6 +152,7 @@
 
   <div class="main-scroll">
     <div class="main-content">
+      <Swap key={pageKey}>
       {#if panel === 'metrics'}
         <Metrics tab={metricsTab} ontabchange={selectMetricsTab} />
       {:else if panel === 'providers'}
@@ -169,6 +174,7 @@
       {:else if panel === 'settings'}
         <SettingsPage />
       {/if}
+      </Swap>
     </div>
   </div>
   <AppFooter />

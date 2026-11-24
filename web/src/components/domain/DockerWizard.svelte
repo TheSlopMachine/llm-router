@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Banner, ChoiceList, Checkbox, CodeBlock, ContentUnavailable, Field, FilePicker, HStack, ModalChrome, Text, TextField, VStack, type ModalButton, type StepperConfig } from '@fuckyouryan/fui'
+  import { Banner, ChoiceList, Checkbox, CodeBlock, ContentUnavailable, Field, FilePicker, HStack, ModalChrome, Swap, Text, TextField, VStack, type ModalButton, type StepperConfig } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { t, tx } from '$lib/i18n.svelte'
   import type { TranslationKey } from '$lib/i18n.svelte'
@@ -227,6 +227,7 @@
 <ModalChrome title={t('settings.docker.wizard.title')} subtitle={t(stepLabelKeys[step])} {stepper} {buttons} />
 
 <VStack gap={4}>
+  <Swap key={step}><VStack gap={4}>
   {#if step === 'kind'}
     <ChoiceList options={availableKinds.map((option) => ({ value: option.value, title: t(option.title), hint: t(option.hint) }))} value={kind} ariaLabel={t('settings.docker.step_kind.label')} onchange={(next) => chooseKind(next as DockerEndpointKind)} />
   {:else if step === 'details'}
@@ -277,9 +278,7 @@
   {:else if step === 'socket'}
     <DockerWizardSocket bind:socket={localSocket} onBack={previousStep} onNext={nextStep} />
   {:else if step === 'distribution' || step === 'service'}
-    {#key step}
-      <DockerWizardWSL {step} bind:distribution onBack={previousStep} onNext={nextStep} />
-    {/key}
+    <DockerWizardWSL {step} bind:distribution onBack={previousStep} onNext={nextStep} />
   {:else if step === 'host_key'}
     {#if busy && !hostKey}
       <ContentUnavailable title={t('settings.docker.host_key_scanning.status')} />
@@ -301,6 +300,7 @@
       </VStack>
     {/if}
   {/if}
+  </VStack></Swap>
 
   {#if error}
     <Banner tint="danger" text={error} />
