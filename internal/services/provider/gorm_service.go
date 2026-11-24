@@ -428,6 +428,50 @@ func (s *GormService) SystemDisable(ctx context.Context, identifier, reason stri
 	return nil
 }
 
+// LiftSystemDisable enables the providers of one type that the system
+// disabled, and returns their identifiers. The system disables only
+// providers whose type has no backend, so the caller runs this once the
+// type is registered again. Admin and other causes stay untouched. One
+// transaction holds the read-modify-write on the transaction handle only.
+func (s *GormService) LiftSystemDisable(ctx context.Context, typeKey string) ([]string, error) {
+	if _, err := s.requireHandle(); err != nil {
+		return nil, err
+	}
+	lifted := []string{}
+	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		rows, err := gorm.G[record.ProviderInstance](transaction, clause.Eq{Column: "type_key", Value: typeKey}, clause.Eq{Column: "disabled_by", Value: models.DisabledBySystem}, orderProvidersByIdentifier()).Find(ctx)
+		if err != nil {
+			return db.Translate(err)
+		}
+		now := util.Now()
+		for _, row := range rows {
+			row.Disabled = false
+			row.DisabledBy = ""
+			row.DisabledReason = ""
+			row.DisabledAt = nil
+			row.UpdatedAt = now
+			changed := []record.ProviderInstance{row}
+			if err := gorm.G[record.ProviderInstance](transaction, clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, UpdateAll: true}).CreateInBatches(ctx, &changed, 500); err != nil {
+				return db.Translate(err)
+			}
+			lifted = append(lifted, row.ID)
+		}
+		return nil
+	}); err != nil {
+		if s.logger != nil {
+			s.logger.Error("Provider system disable lift failed", "type", typeKey, "error", err)
+		}
+		return nil, err
+	}
+	for _, identifier := range lifted {
+		if s.logger != nil {
+			s.logger.Info("provider enabled after backend returned", "provider_id", identifier, "type", typeKey)
+		}
+		s.notifyChanged(identifier)
+	}
+	return lifted, nil
+}
+
 // Delete removes a provider in one delete. Credential, model override,
 // managed virtual model, and virtual member rows cascade from the foreign
 // keys; cached park, health, and model info rows reference the provider

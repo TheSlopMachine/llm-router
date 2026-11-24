@@ -121,7 +121,7 @@ func (s *Service) runLifecycleHook(
 		providerConfig:       providerConfig,
 		timeoutMs:            defaultHTTPTimeoutMs,
 		capabilitiesOverride: &caps,
-		lifecycleReadOnly:    true,
+		lifecycleHook:        true,
 	})
 	if err != nil {
 		return err
@@ -187,6 +187,76 @@ func enabledRecords(records []*PluginRecord) []*PluginRecord {
 	return filtered
 }
 
+// lifecycleOrder runs the lifecycle steps of one plugin ID one at a time,
+// in launch order. A teardown step is a deinitialize hook plus its Docker
+// cleanup. Docker calls outside lifecycle hooks wait for the teardowns
+// launched before them, so no call observes objects still being removed.
+type lifecycleOrder struct {
+	mu        sync.Mutex
+	tails     map[string]chan struct{}
+	teardowns map[string]chan struct{}
+}
+
+// enqueue appends one step for a plugin. The step starts once previous
+// closes (nil: at once) and calls finish when it ends.
+func (order *lifecycleOrder) enqueue(pluginID string, teardown bool) (previous <-chan struct{}, finish func()) {
+	order.mu.Lock()
+	defer order.mu.Unlock()
+	if order.tails == nil {
+		order.tails = map[string]chan struct{}{}
+		order.teardowns = map[string]chan struct{}{}
+	}
+	done := make(chan struct{})
+	if tail, queued := order.tails[pluginID]; queued {
+		previous = tail
+	}
+	order.tails[pluginID] = done
+	if teardown {
+		order.teardowns[pluginID] = done
+	}
+	return previous, func() {
+		order.mu.Lock()
+		defer order.mu.Unlock()
+		close(done)
+		if order.tails[pluginID] == done {
+			delete(order.tails, pluginID)
+		}
+		if order.teardowns[pluginID] == done {
+			delete(order.teardowns, pluginID)
+		}
+	}
+}
+
+// awaitTeardown blocks until every teardown of a plugin launched so far has
+// finished, or ctx ends.
+func (order *lifecycleOrder) awaitTeardown(ctx context.Context, pluginID string) error {
+	order.mu.Lock()
+	pending := order.teardowns[pluginID]
+	order.mu.Unlock()
+	if pending == nil {
+		return nil
+	}
+	select {
+	case <-pending:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// launchOrdered runs one lifecycle step detached, after every step launched
+// earlier for the same plugin.
+func (s *Service) launchOrdered(pluginID string, teardown bool, step func()) {
+	previous, finish := s.lifecycle.enqueue(pluginID, teardown)
+	go func() {
+		defer finish()
+		if previous != nil {
+			<-previous
+		}
+		step()
+	}()
+}
+
 // launchReplacementHooks deinitializes a replaced version and initializes
 // its successor, both with reason update. Disabled versions run no hooks.
 func (s *Service) launchReplacementHooks(previous, next *PluginRecord) {
@@ -198,15 +268,16 @@ func (s *Service) launchReplacementHooks(previous, next *PluginRecord) {
 	}
 }
 
-// launchLifecycleHook runs one record sweep detached. Lua execution stays
-// outside transactions; failures log and never block the caller. Install,
-// update and delete paths use it so dashboard calls return while
-// hooks finish in the background.
+// launchLifecycleHook runs one record sweep detached, ordered after the
+// earlier lifecycle steps of the same plugin. Lua execution stays outside
+// transactions; failures log and never block the caller. Install, update
+// and delete paths use it so dashboard calls return while hooks finish in
+// the background.
 func (s *Service) launchLifecycleHook(record *PluginRecord, handler, reason string) {
 	if record == nil {
 		return
 	}
-	go func() {
+	s.launchOrdered(record.ID, handler == string(HandlerDeinitialize), func() {
 		hookCtx, cancel := context.WithTimeout(context.Background(), lifecycleHookTimeout)
 		defer cancel()
 		var err error
@@ -226,7 +297,7 @@ func (s *Service) launchLifecycleHook(record *PluginRecord, handler, reason stri
 		} else {
 			s.afterInitialize(record)
 		}
-	}()
+	})
 }
 
 // afterDeinitialize releases Docker objects once the plugin's own hook has
@@ -263,8 +334,8 @@ func (s *Service) afterDeinitialize(record *PluginRecord, reason string) {
 // provider-disable lifecycle events: the provider service calls it exactly
 // when a provider transitions from enabled to disabled or is deleted while
 // enabled. Lookup misses (built-in Go backends, uninstalled plugins) and
-// types without the slot skip silently. Execution runs detached and never
-// blocks the caller.
+// types without the slot skip silently. Execution runs detached in the
+// plugin's lifecycle order and never blocks the caller.
 func (s *Service) NotifyProviderDisabled(instance *models.ProviderInstance) {
 	if instance == nil {
 		return
@@ -276,7 +347,7 @@ func (s *Service) NotifyProviderDisabled(instance *models.ProviderInstance) {
 	}
 	providerID := instance.ID
 	providerConfig := instance.Config
-	go func() {
+	s.launchOrdered(record.ID, true, func() {
 		hookCtx, cancel := context.WithTimeout(context.Background(), lifecycleHookTimeout)
 		defer cancel()
 		if hookErr := s.RunDeinitialize(hookCtx, record, DeinitializeReasonDisable, providerID, providerConfig); hookErr != nil {
@@ -285,7 +356,7 @@ func (s *Service) NotifyProviderDisabled(instance *models.ProviderInstance) {
 					"plugin_id", record.ID, "provider_id", providerID, "error", hookErr.Error())
 			}
 		}
-	}()
+	})
 }
 
 // lifecycleTask is one hook invocation of one type served by one record.

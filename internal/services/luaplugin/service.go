@@ -164,6 +164,8 @@ type Service struct {
 	docker *dockerhost.Service
 	// manifestCache memoizes manifest facts per source revision.
 	manifestCache sync.Map
+	// lifecycle orders detached lifecycle steps per plugin.
+	lifecycle lifecycleOrder
 }
 
 // SetHealthTrigger wires detached health-check dispatch for failed

@@ -25,9 +25,12 @@ const (
 )
 
 // dockerBridge binds the Docker service to one plugin policy for one call.
+// settle, when set, blocks each Docker call until the plugin's pending
+// teardowns finish.
 type dockerBridge struct {
 	service *dockerhost.Service
 	policy  dockerhost.Policy
+	settle  func(ctx context.Context) error
 }
 
 // SetDocker wires the Docker host service for plugins declaring
@@ -391,10 +394,21 @@ func newDockerTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 	bridge := ctx.docker
 	table := L.NewTable()
 	callContext := ctx.callContext
-	unavailable := func(L *lua.LState) bool {
+	// blocked pushes nil plus a fault and reports true when a call cannot
+	// run: Docker is unavailable, or a teardown of this plugin did not
+	// finish within the call context.
+	blocked := func(L *lua.LState) bool {
 		if bridge.service == nil {
 			L.Push(lua.LNil)
 			L.Push(dockerFaultTable(L, &dockerhost.Fault{Reason: dockerhost.ReasonUnconfigured, Message: "docker is not available in this router"}))
+			return true
+		}
+		if bridge.settle == nil {
+			return false
+		}
+		if err := bridge.settle(callContext()); err != nil {
+			L.Push(lua.LNil)
+			L.Push(dockerFaultTable(L, &dockerhost.Fault{Reason: dockerhost.ReasonTimeout, Message: "plugin teardown did not finish: " + err.Error(), Cause: err}))
 			return true
 		}
 		return false
@@ -406,7 +420,7 @@ func newDockerTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 	set("ensure", func(L *lua.LState) int {
 		key := L.CheckString(1)
 		spec := containerSpecFrom(L, L.Get(2), key)
-		if unavailable(L) {
+		if blocked(L) {
 			return 2
 		}
 		status, err := bridge.service.Ensure(callContext(), bridge.policy, key, spec)
@@ -414,8 +428,7 @@ func newDockerTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 	})
 	set("compose", func(L *lua.LState) int {
 		key := L.CheckString(1)
-		if bridge.service == nil {
-			unavailable(L)
+		if blocked(L) {
 			return 2
 		}
 		project := projectFrom(L, bridge, L.Get(2))
@@ -424,7 +437,7 @@ func newDockerTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 	})
 	set("start", func(L *lua.LState) int {
 		target := L.CheckString(1)
-		if unavailable(L) {
+		if blocked(L) {
 			return 2
 		}
 		status, err := bridge.service.Start(callContext(), bridge.policy, target)
@@ -435,7 +448,7 @@ func newDockerTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 		options := dockerOptions(L, 2, "stop")
 		checkOptionNames(L, options, "stop", "timeout_seconds")
 		timeout := optionalNumber(L, options, "timeout_seconds", "stop", defaultStopSeconds, 0, maximumStopSeconds)
-		if unavailable(L) {
+		if blocked(L) {
 			return 2
 		}
 		status, err := bridge.service.Stop(callContext(), bridge.policy, target, timeout)
@@ -446,7 +459,7 @@ func newDockerTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 		options := dockerOptions(L, 2, "remove")
 		checkOptionNames(L, options, "remove", "volumes")
 		volumes := lua.LVAsBool(options.RawGetString("volumes"))
-		if unavailable(L) {
+		if blocked(L) {
 			return 2
 		}
 		if err := bridge.service.Remove(callContext(), bridge.policy, target, volumes); err != nil {
@@ -458,14 +471,14 @@ func newDockerTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 	})
 	set("status", func(L *lua.LState) int {
 		target := L.CheckString(1)
-		if unavailable(L) {
+		if blocked(L) {
 			return 2
 		}
 		status, err := bridge.service.Status(callContext(), bridge.policy, target)
 		return pushDockerResult(L, status, err)
 	})
 	set("list", func(L *lua.LState) int {
-		if unavailable(L) {
+		if blocked(L) {
 			return 2
 		}
 		statuses, err := bridge.service.List(callContext(), bridge.policy)
@@ -485,7 +498,7 @@ func newDockerTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 		options := dockerOptions(L, 2, "logs")
 		checkOptionNames(L, options, "logs", "tail")
 		tail := optionalNumber(L, options, "tail", "logs", defaultDockerLogTail, 1, maximumDockerLogTail)
-		if unavailable(L) {
+		if blocked(L) {
 			return 2
 		}
 		text, err := bridge.service.Logs(callContext(), bridge.policy, target, tail)
@@ -502,7 +515,7 @@ func newDockerTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 		checkOptionNames(L, options, "wait", "port", "timeout_ms")
 		port := optionalNumber(L, options, "port", "wait", 0, 1, 65535)
 		timeout := optionalNumber(L, options, "timeout_ms", "wait", defaultDockerWaitMs, 100, maximumDockerWaitMs)
-		if unavailable(L) {
+		if blocked(L) {
 			return 2
 		}
 		status, err := bridge.service.Wait(callContext(), bridge.policy, target, port, time.Duration(timeout)*time.Millisecond)
@@ -524,7 +537,7 @@ func newDockerTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 			text := string(stdin)
 			commandOptions.Stdin = &text
 		}
-		if unavailable(L) {
+		if blocked(L) {
 			return 2
 		}
 		result, err := bridge.service.RunCommand(callContext(), bridge.policy, target, command, commandOptions)
@@ -542,6 +555,9 @@ func newDockerTable(L *lua.LState, ctx *executionContext) *lua.LTable {
 		}
 		container := dockerhost.UnavailableHTTP()
 		if bridge.service != nil {
+			if blocked(L) {
+				return 2
+			}
 			opened, err := bridge.service.OpenHTTP(bridge.policy, target, port, time.Duration(timeoutMs)*time.Millisecond)
 			if err != nil {
 				return pushDockerFault(L, err)

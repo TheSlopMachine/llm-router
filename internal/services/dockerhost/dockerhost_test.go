@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/TheSlopMachine/llm-router/internal/dockerengine"
 )
@@ -345,6 +346,70 @@ func TestUnavailableFaultKeepsSession(t *testing.T) {
 	}
 	if service.current != live {
 		t.Error("faultFromError dropped the live session")
+	}
+}
+
+// A plugin-wide teardown waits for running target operations and holds new
+// ones until it ends. The gateway lock taken under a shared hold never
+// deadlocks behind a waiting teardown.
+func TestPluginLockOrdersTeardownAndTargets(t *testing.T) {
+	const settle = 50 * time.Millisecond
+	service := &Service{}
+	unlockTarget := service.lock("plugin", "web")
+
+	teardownHeld := make(chan struct{})
+	releaseTeardown := make(chan struct{})
+	go func() {
+		unlock := service.lockPlugin("plugin")
+		close(teardownHeld)
+		<-releaseTeardown
+		unlock()
+	}()
+	select {
+	case <-teardownHeld:
+		t.Fatal("teardown overlapped a running target operation")
+	case <-time.After(settle):
+	}
+
+	gateway := service.targetLock("plugin", "\x00gateway")
+	gatewayTaken := make(chan struct{})
+	go func() {
+		gateway.Lock()
+		close(gatewayTaken)
+		gateway.Unlock()
+	}()
+	select {
+	case <-gatewayTaken:
+	case <-time.After(5 * time.Second):
+		t.Fatal("gateway lock blocked behind a waiting teardown")
+	}
+
+	unlockOther := service.lock("other", "web")
+	unlockOther()
+
+	unlockTarget()
+	select {
+	case <-teardownHeld:
+	case <-time.After(5 * time.Second):
+		t.Fatal("teardown never started after the target operation ended")
+	}
+
+	targetHeld := make(chan struct{})
+	go func() {
+		unlock := service.lock("plugin", "web")
+		close(targetHeld)
+		unlock()
+	}()
+	select {
+	case <-targetHeld:
+		t.Fatal("target operation ran during the teardown")
+	case <-time.After(settle):
+	}
+	close(releaseTeardown)
+	select {
+	case <-targetHeld:
+	case <-time.After(5 * time.Second):
+		t.Fatal("target operation never ran after the teardown")
 	}
 }
 

@@ -28,11 +28,13 @@ type callConfiguration struct {
 	// for lifecycle hooks executed from a stored record snapshot (the
 	// registry may already serve a newer source). Nil keeps the registry.
 	capabilitiesOverride *capabilities
-	// lifecycleReadOnly strips credential write access (update, disable,
-	// enable, park, unpark) from the sandbox. List, get and parked stay
-	// available. Lifecycle hooks observe and persist through storage;
-	// they never mutate shared credential state.
-	lifecycleReadOnly bool
+	// lifecycleHook marks a lifecycle hook call. It strips credential write
+	// access (update, disable, enable, park, unpark) from the sandbox; list,
+	// get and parked stay available. Lifecycle hooks observe and persist
+	// through storage; they never mutate shared credential state. Docker
+	// calls skip the teardown wait: the lifecycle order already places the
+	// hook after earlier teardowns.
+	lifecycleHook bool
 }
 
 // isProviderType distinguishes registered provider types from proxy sources.
@@ -142,8 +144,14 @@ func (s *Service) handlerCallEx(
 	// diagnostics, and the Docker table stays absent.
 	if dockerPolicy, dockerDeclared, policyError := s.dockerPolicy(record); policyError == nil && dockerDeclared {
 		ctx.docker = &dockerBridge{service: dockerService, policy: dockerPolicy}
+		if !configuration.lifecycleHook {
+			pluginID := record.ID
+			ctx.docker.settle = func(callContext context.Context) error {
+				return s.lifecycle.awaitTeardown(callContext, pluginID)
+			}
+		}
 	}
-	if configuration.lifecycleReadOnly {
+	if configuration.lifecycleHook {
 		ctx.credentialUpdate = nil
 		ctx.credentialDisable = nil
 		ctx.credentialEnable = nil

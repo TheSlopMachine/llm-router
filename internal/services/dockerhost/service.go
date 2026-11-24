@@ -35,6 +35,8 @@ type Service struct {
 	sessionMu sync.Mutex
 	current   *session
 
+	// pluginLocks orders target operations against plugin-wide teardown.
+	pluginLocks sync.Map
 	// locks serializes operations per plugin and target.
 	locks sync.Map
 
@@ -298,10 +300,36 @@ func (service *Service) TestConnection(ctx context.Context) (ConnectionTest, err
 	}, nil
 }
 
-// lock serializes operations on one plugin target.
+// lock serializes operations on one plugin target. It holds the plugin
+// lock shared, so a plugin-wide teardown never overlaps a target operation.
 func (service *Service) lock(pluginID, key string) func() {
+	plugin := service.pluginLock(pluginID)
+	plugin.RLock()
+	target := service.targetLock(pluginID, key)
+	target.Lock()
+	return func() {
+		target.Unlock()
+		plugin.RUnlock()
+	}
+}
+
+// lockPlugin holds the plugin lock exclusively for a plugin-wide teardown:
+// it waits for running target operations and blocks new ones.
+func (service *Service) lockPlugin(pluginID string) func() {
+	plugin := service.pluginLock(pluginID)
+	plugin.Lock()
+	return plugin.Unlock
+}
+
+func (service *Service) pluginLock(pluginID string) *sync.RWMutex {
+	value, _ := service.pluginLocks.LoadOrStore(pluginID, &sync.RWMutex{})
+	return value.(*sync.RWMutex)
+}
+
+// targetLock returns the mutex of one plugin target. Callers that already
+// hold the plugin lock shared take it directly: a second shared hold
+// deadlocks behind a waiting teardown.
+func (service *Service) targetLock(pluginID, key string) *sync.Mutex {
 	value, _ := service.locks.LoadOrStore(pluginID+"\x00"+key, &sync.Mutex{})
-	mutex := value.(*sync.Mutex)
-	mutex.Lock()
-	return mutex.Unlock
+	return value.(*sync.Mutex)
 }

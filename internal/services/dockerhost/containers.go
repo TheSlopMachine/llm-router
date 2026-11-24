@@ -274,7 +274,13 @@ func (service *Service) reconcile(ctx context.Context, current *session, policy 
 		return Status{}, err
 	}
 	if existing != nil && existing.Config.Labels[labelSpec] == hash {
-		return statusOf(place.target, existing), nil
+		stale, err := service.holdsRemovedNetwork(ctx, current, *existing)
+		if err != nil {
+			return Status{}, err
+		}
+		if !stale {
+			return statusOf(place.target, existing), nil
+		}
 	}
 	name := current.containerName(policy.PluginID, place.target)
 	if existing != nil {

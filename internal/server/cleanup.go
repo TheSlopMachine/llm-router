@@ -45,6 +45,12 @@ func wireInvalidation(logger *slog.Logger, providerService *provider.GormService
 		} else {
 			logger.Debug("Default provider sync completes", "plugin_id", typeKey)
 		}
+		// A type served again lifts the doctor disable of its providers.
+		if _, err := luaService.Lookup(typeKey); err == nil {
+			if _, err := providerService.LiftSystemDisable(ctx, typeKey); err != nil {
+				logger.Warn("Provider system disable lift fails", "plugin_id", typeKey, "error", err)
+			}
+		}
 		providers, err := providerService.GetByType(ctx, typeKey)
 		if err != nil {
 			logger.Warn("Provider lookup fails", "plugin_id", typeKey, "error", err)

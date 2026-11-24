@@ -300,7 +300,7 @@ func (s *GormService) Inspect(ctx context.Context) (*InspectionReport, error) {
 		issues = append(issues, Issue{
 			Category:    CategoryMissingProviderBackend,
 			Title:       "Providers Without Backend",
-			Description: "Providers whose type has no installed plugin or built-in backend: requests fail and credentials never refresh. Install the missing plugin or clean to disable; re-enable after installing.",
+			Description: "Providers whose type has no installed plugin or built-in backend: requests fail and credentials never refresh. Install the missing plugin or clean to disable. Installing the plugin later enables them again.",
 			Count:       len(missingBackendKeys),
 			Keys:        missingBackendKeys,
 		})

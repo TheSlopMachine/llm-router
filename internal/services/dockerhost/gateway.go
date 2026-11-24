@@ -56,6 +56,30 @@ func (service *Service) ensureNetwork(ctx context.Context, current *session, nam
 	return "", newFault(ReasonDaemonError, nil, "network %s: concurrent creation did not settle", name)
 }
 
+// holdsRemovedNetwork reports whether a container keeps an endpoint of a
+// network that no longer exists. The daemon removes a network under a
+// stopped container and the container then fails to start. Only a
+// replacement repairs it. A running container holds only live networks.
+func (service *Service) holdsRemovedNetwork(ctx context.Context, current *session, details dockerengine.ContainerDetails) (bool, error) {
+	if details.State.Running {
+		return false, nil
+	}
+	networks, err := current.client.NetworkList(ctx, current.namespaceLabels())
+	if err != nil {
+		return false, service.faultFromError(err, "list networks")
+	}
+	live := map[string]bool{}
+	for _, network := range networks {
+		live[network.ID] = true
+	}
+	for _, attachment := range details.NetworkSettings.Networks {
+		if attachment.NetworkID != "" && !live[attachment.NetworkID] {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // gatewayToken returns a fresh proxy password.
 func gatewayToken() (string, error) {
 	buffer := make([]byte, 24)
@@ -66,10 +90,12 @@ func gatewayToken() (string, error) {
 }
 
 // ensureGateway reconciles the plugin gateway: the right image and
-// allow-list, running, attached to every network in networkIDs.
+// allow-list, running, attached to every network in networkIDs. Callers
+// hold a target lock of the plugin.
 func (service *Service) ensureGateway(ctx context.Context, current *session, policy Policy, networkIDs ...string) (gateway, error) {
-	unlock := service.lock(policy.PluginID, "\x00gateway")
-	defer unlock()
+	gatewayLock := service.targetLock(policy.PluginID, "\x00gateway")
+	gatewayLock.Lock()
+	defer gatewayLock.Unlock()
 	image, err := service.ensureGatewayImage(ctx, current)
 	if err != nil {
 		return gateway{}, err
@@ -92,7 +118,13 @@ func (service *Service) ensureGateway(ctx context.Context, current *session, pol
 			return gateway{}, newFault(ReasonOwnershipConflict, nil, "container %s exists and is not owned by this router", name)
 		}
 		token = details.Config.Labels[labelProxyToken]
-		if details.Config.Labels[labelSpec] != specHash {
+		replace := details.Config.Labels[labelSpec] != specHash
+		if !replace {
+			if replace, err = service.holdsRemovedNetwork(ctx, current, details); err != nil {
+				return gateway{}, err
+			}
+		}
+		if replace {
 			if err := current.client.ContainerRemove(ctx, details.ID); err != nil && !errors.Is(err, dockerengine.ErrNotFound) {
 				return gateway{}, service.faultFromError(err, "replace gateway %s", name)
 			}

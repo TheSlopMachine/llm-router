@@ -199,6 +199,8 @@ web/src/lib/<concern>.ts       one helper module per concern: format, model-sear
 - Reconcile renders the engine config, hashes it with the files into the spec label and recreates on change. Images prepare in background tasks keyed by reference; builds download the context through `netguard.NewHTTPClient`. The gateway image is imported from the embedded payload.
 - `open_http` clients dial per new connection: `route` dials the container address on the host or through SSH `direct-tcpip`, `relay` runs `gateway relay` by exec. Transports are cached per plugin, target and port.
 - Cleanup: plugin delete removes every plugin object after `deinitialize`, plugin disable stops its containers, shutdown stops every namespace container after the hooks, an hourly sweep removes objects of plugins no longer declaring Docker. Gateway logs are polled every 30 s for blocked egress.
+- Locks (`dockerhost/service.go`): target operations hold the plugin lock shared plus a per-target mutex. Plugin-wide teardown (`RemovePlugin`, `StopPlugin`, each swept owner) holds the plugin lock exclusively, so no target operation overlaps a removal. The sweep checks an owner again under that lock.
+- A stopped container keeps the endpoint of a network removed under it and then fails to start. `ensureGateway` and `reconcile` replace a stopped container that holds an endpoint of a network that no longer exists (`holdsRemovedNetwork`). The gateway keeps its proxy token.
 
 ## Error contract
 
@@ -258,6 +260,15 @@ web/src/lib/<concern>.ts       one helper module per concern: format, model-sear
   enable/disable toggles dispatch from `SetDisabled` (`enable`/`disable`
   reasons). The plugin registry serves enabled types only; disabled rows
   stay inventoried and fail with `provider_disabled`.
+- The doctor disables providers whose type has no backend (`disabled_by:
+  system`). `wireInvalidation` (`server/cleanup.go`) lifts that disable
+  through `LiftSystemDisable` when a plugin change leaves the type
+  registered. Admin disables stay.
+- Detached lifecycle steps run one at a time per plugin ID, in launch order
+  (`lifecycleOrder` in `luaplugin/lifecycle.go`). A deinitialize step is a
+  teardown: the hook plus its Docker cleanup. Delete then install runs the
+  old teardown before the new `initialize`. Docker calls outside lifecycle
+  hooks wait for the plugin's pending teardowns (`dockerBridge.settle`).
 - Shutdown enters one path (SIGINT/SIGTERM, listener error, or
   `POST /api/llm-router/shutdown` on the admin listener): background
   writers stop (maintenance, proxy flush, events prune, Docker sweep),

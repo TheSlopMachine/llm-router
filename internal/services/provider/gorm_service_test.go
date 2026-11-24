@@ -348,6 +348,55 @@ func TestGormSystemDisableFirstWins(t *testing.T) {
 	}
 }
 
+// A system disable lifts for its type only. Admin disables and other types
+// stay disabled.
+func TestGormLiftSystemDisable(t *testing.T) {
+	service, _, ctx := setupGormProvider(t)
+	create := func(name, typeKey string) *models.ProviderInstance {
+		created, err := service.Create(ctx, CreateOptions{Name: name, TypeKey: typeKey, Qualifier: name})
+		if err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		return created
+	}
+	system := create("System", "lift-type")
+	admin := create("Admin", "lift-type")
+	other := create("Other", "other-type")
+	if err := service.SystemDisable(ctx, system.ID, "doctor: no backend"); err != nil {
+		t.Fatalf("system disable: %v", err)
+	}
+	if err := service.SystemDisable(ctx, other.ID, "doctor: no backend"); err != nil {
+		t.Fatalf("other disable: %v", err)
+	}
+	disabled := true
+	if _, err := service.Update(ctx, admin.ID, UpdateOptions{Name: "Admin", Disabled: &disabled}); err != nil {
+		t.Fatalf("admin disable: %v", err)
+	}
+	var changed []string
+	service.SetOnChanged(func(identifier string) { changed = append(changed, identifier) })
+
+	lifted, err := service.LiftSystemDisable(ctx, "lift-type")
+	if err != nil || len(lifted) != 1 || lifted[0] != system.ID {
+		t.Fatalf("lifted %v err %v, want only %s", lifted, err, system.ID)
+	}
+	if len(changed) != 1 || changed[0] != system.ID {
+		t.Fatalf("changed callbacks %v", changed)
+	}
+	for identifier, wantDisabled := range map[string]bool{system.ID: false, admin.ID: true, other.ID: true} {
+		fetched, err := service.Get(ctx, identifier)
+		if err != nil || fetched.Disabled != wantDisabled {
+			t.Fatalf("%s disabled %v err %v, want %v", identifier, fetched.Disabled, err, wantDisabled)
+		}
+	}
+	fetched, _ := service.Get(ctx, system.ID)
+	if fetched.DisabledBy != "" || fetched.DisabledReason != "" || fetched.DisabledAt != nil {
+		t.Fatalf("lifted provider keeps disable metadata: %+v", fetched)
+	}
+	if again, err := service.LiftSystemDisable(ctx, "lift-type"); err != nil || len(again) != 0 {
+		t.Fatalf("second lift: %v %v", again, err)
+	}
+}
+
 func TestGormDeleteCascadesCredentials(t *testing.T) {
 	service, database, ctx := setupGormProvider(t)
 	created, err := service.Create(ctx, CreateOptions{Name: "Mock", TypeKey: "mock"})
