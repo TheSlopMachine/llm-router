@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { api } from './lib/api'
+  import { onSessionExpired } from './lib/api-client'
   import { getErrorMessage } from './lib/errors'
   import Login from './pages/Login.svelte'
   import Dashboard from './pages/Dashboard.svelte'
@@ -39,6 +40,9 @@
     }
     appState = 'dashboard'
   }
+
+  // A session that expires while the dashboard is open brings back the login form.
+  onSessionExpired(showLogin)
 
   function onLogin(): void {
     showDashboard('#/metrics')

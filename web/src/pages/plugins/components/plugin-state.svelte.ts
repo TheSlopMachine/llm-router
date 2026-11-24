@@ -113,7 +113,7 @@ export function createPluginState(options: {
       for (const plugin of pending) {
         const target = options.findUpdate(plugin) ?? options.findRepoPath(plugin)
         if (!target) {
-          failures.push(`${plugin.display_name}: no repository origin`)
+          failures.push(`${plugin.display_name}: ${t('plugins.update_all.no_origin.error')}`)
           continue
         }
         try {

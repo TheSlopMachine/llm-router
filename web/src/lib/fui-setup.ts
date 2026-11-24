@@ -19,5 +19,9 @@ setFuiTexts(() => ({
   chooseFile: t('fui.choose_file'),
   searchPlaceholder: t('common.search.placeholder'),
   noOptions: t('common.empty.no_options'),
-  copy: t('models.actions.copy_id'),
+  copy: t('common.actions.copy'),
+  copyFailed: t('fui.copy_failed'),
+  loading: t('common.state.loading'),
+  expand: t('fui.expand'),
+  collapse: t('fui.collapse'),
 }))

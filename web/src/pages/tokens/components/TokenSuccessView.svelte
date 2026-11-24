@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CodeBlock, Grid, VStack, Text, Banner } from '@fuckyouryan/fui'
+  import { CodeBlock, Grid, Stat, VStack, Text, Banner } from '@fuckyouryan/fui'
   import { t, tx } from '$lib/i18n.svelte'
 
   let {
@@ -27,36 +27,15 @@
 
   <CodeBlock text={token ?? ''} />
 
-  <Grid min="sm" gap={4} class="scope-summary">
-    <VStack elev radius="md" pad={4}>
-      <VStack halign="center" gap={2}>
-        <Text size="xs" weight="medium" foregroundStyle="secondary" class="scope-label">{t('providers.list.title')}</Text>
-        <Text size="sm" weight="medium">{scopeLabel.providers}</Text>
+  <Grid min="sm" gap={4}>
+    {#each [
+      { label: t('providers.list.title'), value: scopeLabel.providers },
+      { label: t('models.list.title'), value: scopeLabel.models },
+      { label: t('credentials.title_plural'), value: scopeLabel.credentials },
+    ] as scope (scope.label)}
+      <VStack elev radius="md" pad={4}>
+        <Stat label={scope.label} value={scope.value} />
       </VStack>
-    </VStack>
-    <VStack elev radius="md" pad={4}>
-      <VStack halign="center" gap={2}>
-        <Text size="xs" weight="medium" foregroundStyle="secondary" class="scope-label">{t('models.list.title')}</Text>
-        <Text size="sm" weight="medium">{scopeLabel.models}</Text>
-      </VStack>
-    </VStack>
-    <VStack elev radius="md" pad={4}>
-      <VStack halign="center" gap={2}>
-        <Text size="xs" weight="medium" foregroundStyle="secondary" class="scope-label">{t('credentials.title_plural')}</Text>
-        <Text size="sm" weight="medium">{scopeLabel.credentials}</Text>
-      </VStack>
-    </VStack>
+    {/each}
   </Grid>
 </VStack>
-
-<style>
-  /* :global — every class below rides a ui-component root in another component. */
-  :global(.scope-summary) {
-    width: 100%;
-  }
-
-  :global(.scope-label) {
-    text-transform: uppercase;
-    letter-spacing: var(--fui-tracking-label);
-  }
-</style>

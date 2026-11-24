@@ -1,7 +1,7 @@
 <!-- The WSL steps of the Docker wizard. Only a Windows router offers them. -->
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Banner, ChoiceList, Card, CodeBlock, ContentUnavailable, ModalChrome, Text, VStack, type ModalButton } from '@fuckyouryan/fui'
+  import { Banner, ChoiceList, Card, CodeBlock, ContentUnavailable, ModalChrome, ProgressView, Text, VStack, type ModalButton } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { t, tx } from '$lib/i18n.svelte'
   import type { TranslationKey } from '$lib/i18n.svelte'
@@ -101,7 +101,7 @@
       <ContentUnavailable title={t('settings.docker.distributions.empty')} />
     {/if}
   {:else if busy}
-    <ContentUnavailable title={tx(busyText, { distribution })} />
+    <ProgressView label={tx(busyText, { distribution })} />
   {:else if status?.state === 'ready'}
     <Banner tint="success" text={tx('settings.docker.wsl_ready.status', { distribution })} />
   {:else if status?.state === 'docker_missing'}

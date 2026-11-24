@@ -5,7 +5,7 @@
   import { createListResource } from '$lib/list-resource.svelte'
   import TokenWizard from './components/TokenWizard.svelte'
   import type { Token, Provider, TokenUsageInfo } from '$lib/types'
-  import { n, t } from '$lib/i18n.svelte'
+  import { n, t, tx } from '$lib/i18n.svelte'
 
   const tokenColumns: TableColumn[] = [
     { key: 'name', title: t('common.labels.name'), width: '1fr', priority: 1 },
@@ -56,7 +56,7 @@
     } else {
       resource.error = ''
       cloneSource = token
-      cloneName = `${token.name} (copy)`
+      cloneName = tx('common.clone.name', { name: token.name })
       cloneError = ''
       cloneAnchor = anchorEl
     }

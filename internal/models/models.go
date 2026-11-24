@@ -1991,6 +1991,9 @@ type VirtualModelEntry struct {
 // ErrorResponse is the standard error response format for all API endpoints.
 type ErrorResponse struct {
 	Error string `json:"error" example:"invalid request"`
+	// Code names the failure for the UI to branch on; the message is for people. Empty when the UI
+	// has no branch for the failure.
+	Code string `json:"code,omitempty" example:"already_exists"`
 }
 
 // ─────────────────────────────────────────────

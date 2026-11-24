@@ -246,7 +246,7 @@ func (s *GormService) Create(ctx context.Context, virtualModel *models.VirtualMo
 		if err := gorm.G[record.VirtualModel](transaction).Create(ctx, &row); err != nil {
 			translated := db.Translate(err)
 			if stdErrors.Is(translated, apierrors.ErrAlreadyExists) {
-				return fmt.Errorf("virtual model name %q already exists: %w", virtualModel.Name, apierrors.ErrAlreadyExists)
+				return fmt.Errorf("virtual model name %q: %w", virtualModel.Name, apierrors.ErrAlreadyExists)
 			}
 			return translated
 		}
@@ -362,7 +362,6 @@ func (s *GormService) Update(ctx context.Context, identifier string, virtualMode
 		return err
 	}
 	trimmed := strings.TrimSpace(identifier)
-	conflict := false
 	if err := s.database.Handle.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		existing, err := gorm.G[record.VirtualModel](transaction, clause.Eq{Column: "id", Value: trimmed}).First(ctx)
 		if err != nil {
@@ -373,8 +372,7 @@ func (s *GormService) Update(ctx context.Context, identifier string, virtualMode
 			return translated
 		}
 		if virtualModel.Version != 0 && virtualModel.Version != existing.Version {
-			conflict = true
-			return fmt.Errorf("virtual model was modified by another process, please refresh and try again")
+			return fmt.Errorf("virtual model: %w", apierrors.ErrConcurrentUpdate)
 		}
 		if err := checkVirtualMemberProviders(ctx, transaction, virtualModel.Models); err != nil {
 			return err
@@ -392,7 +390,7 @@ func (s *GormService) Update(ctx context.Context, identifier string, virtualMode
 		if err := gorm.G[record.VirtualModel](transaction, clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, UpdateAll: true}).CreateInBatches(ctx, &rows, 500); err != nil {
 			translated := db.Translate(err)
 			if stdErrors.Is(translated, apierrors.ErrAlreadyExists) {
-				return fmt.Errorf("virtual model name %q already exists: %w", virtualModel.Name, apierrors.ErrAlreadyExists)
+				return fmt.Errorf("virtual model name %q: %w", virtualModel.Name, apierrors.ErrAlreadyExists)
 			}
 			return translated
 		}
@@ -408,7 +406,7 @@ func (s *GormService) Update(ctx context.Context, identifier string, virtualMode
 		return nil
 	}); err != nil {
 		switch {
-		case conflict:
+		case stdErrors.Is(err, apierrors.ErrConcurrentUpdate):
 			s.log().Debug("Virtual model update conflicts", "model", trimmed, "operation", "update")
 		case stdErrors.Is(err, apierrors.ErrNotFound):
 			s.log().Debug("Virtual model update misses", "model", trimmed)

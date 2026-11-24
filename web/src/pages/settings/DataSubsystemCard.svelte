@@ -1,7 +1,7 @@
 <script lang="ts">
   // One data management subsystem: Import / Export / Clear in the header. With `items` the card
   // folds open to the subsystem's items, one row each with its own export (see data-items.ts).
-  import { Button, Card, Chip, ContentUnavailable, Divider, HStack, Spacer, Text, VStack, ZStack, modal, toast, type HeaderAction } from '@fuckyouryan/fui'
+  import { Button, Card, Chip, ContentUnavailable, Divider, HStack, ProgressView, Spacer, Text, VStack, ZStack, modal, toast, type HeaderAction } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { t } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
@@ -128,7 +128,7 @@
 {#if items}
   <Card {title} {actions} accessory={countChip} collapsible bind:open={() => open, setOpen}>
     {#if listLoading && list === null}
-      <ContentUnavailable title={t('common.state.loading')} />
+      <ProgressView />
     {:else if !list || list.length === 0}
       <ContentUnavailable title={t('common.empty.no_data')} />
     {:else}

@@ -1,3 +1,18 @@
+/** Error codes of dashboard responses (internal/dashboard/handler.go): branch on these, never on message text. */
+export type ApiErrorCode = 'unauthenticated' | 'already_exists' | 'concurrent_update' | 'auth_flow_unsupported'
+
+/** A failed dashboard request: the server's message, its HTTP status and its code when it sent one. */
+export class ApiRequestError extends Error {
+  constructor(message: string, readonly status: number, readonly code: ApiErrorCode | '') {
+    super(message)
+    this.name = 'ApiRequestError'
+  }
+}
+
+export function errorCode(e: unknown): ApiErrorCode | '' {
+  return e instanceof ApiRequestError ? e.code : ''
+}
+
 /** Central error-message extraction — single source of truth. */
 export function hasApiErrorPayload(json: unknown): boolean {
   return (

@@ -1,4 +1,4 @@
-import { apiCall as _apiCall } from './api-client'
+import { apiCall as _apiCall, requestError } from './api-client'
 import { locale } from './i18n/index'
 import { eventsQueryParams } from './events'
 import type { BackendTokenRules } from './token-rules'
@@ -579,25 +579,19 @@ export const api = {
 }
 
 async function assertOk(response: Response): Promise<any> {
-  if (!response.ok) {
-    throw new Error(await errorText(response))
-  }
+  if (!response.ok) throw await requestError(response)
   // 204/empty bodies are valid answers; response.json() on them throws.
   const text = await response.text()
   return text ? JSON.parse(text) : undefined
 }
 
 async function assertOkBlob(response: Response): Promise<Blob> {
-  if (!response.ok) {
-    throw new Error(await errorText(response))
-  }
+  if (!response.ok) throw await requestError(response)
   return response.blob()
 }
 
 async function assertOkVoid(response: Response): Promise<void> {
-  if (!response.ok) {
-    throw new Error(await errorText(response))
-  }
+  if (!response.ok) throw await requestError(response)
 }
 
 async function postJson(path: string, payload: unknown, signal?: AbortSignal): Promise<any> {
@@ -617,16 +611,4 @@ async function putJson(path: string, payload: unknown): Promise<any> {
     body: JSON.stringify(payload),
   })
   return assertOk(response)
-}
-
-async function errorText(response: Response): Promise<string> {
-  const text = await response.text()
-  try {
-    const json = JSON.parse(text) as unknown
-    if (json && typeof json === 'object' && 'error' in (json as Record<string, unknown>)) {
-      const candidate = (json as Record<string, unknown>).error
-      if (typeof candidate === 'string' && candidate) return candidate
-    }
-  } catch {}
-  return `HTTP ${response.status}`
 }

@@ -1,5 +1,32 @@
 import type { paths } from './generated/api-types'
-import { getErrorMessage } from './errors'
+import { ApiRequestError, getErrorMessage, isUsableErrorMessage, type ApiErrorCode } from './errors'
+
+let sessionExpired: () => void = () => {}
+
+/** The app's answer to an expired session: any request the server refuses as unauthenticated calls it. */
+export function onSessionExpired(handler: () => void): void {
+  sessionExpired = handler
+}
+
+/** Builds the error of a failed response from its { error, code } body. */
+export async function requestError(response: Response): Promise<ApiRequestError> {
+  const text = await response.text()
+  let message = `HTTP ${response.status}`
+  let code: ApiErrorCode | '' = ''
+  try {
+    const json = JSON.parse(text) as { error?: unknown; message?: unknown; code?: unknown }
+    if (json && typeof json === 'object') {
+      const candidate = getErrorMessage(json)
+      if (isUsableErrorMessage(candidate)) message = candidate
+      if (typeof json.code === 'string') code = json.code as ApiErrorCode
+    }
+  } catch (parseError) {
+    // a body that is not JSON (a proxy's HTML page): the status line is the message
+    console.error('Error response is not JSON:', parseError)
+  }
+  if (code === 'unauthenticated') sessionExpired()
+  return new ApiRequestError(message, response.status, code)
+}
 
 // Extract path string type
 export type ApiPath = keyof paths
@@ -93,20 +120,7 @@ export async function apiCall<
 
   const response = await fetch(url.toString(), fetchOptions)
 
-  if (!response.ok) {
-    const text = await response.text()
-    let message = `HTTP ${response.status}`
-    try {
-      const json = JSON.parse(text) as unknown
-      if (json && typeof json === 'object' && ('error' in (json as Record<string, unknown>) || 'message' in (json as Record<string, unknown>))) {
-        const candidate = getErrorMessage(json)
-        if (candidate && candidate !== 'Request failed' && candidate !== '{}' && candidate !== '[object Object]') {
-          message = candidate
-        }
-      }
-    } catch {}
-    throw new Error(message)
-  }
+  if (!response.ok) throw await requestError(response)
 
   if (response.status === 204) {
     return null as ApiResponse<P, M>

@@ -152,7 +152,7 @@
         </VStack>
       {/if}
     {:else if node.type === 'grid'}
-      <Grid min="md" gap={toStep(node.gap, 4)} class="dyn-grid">
+      <Grid min="md" gap={toStep(node.gap, 4)} width="full">
         {@render nodeList(node.content ?? [])}
       </Grid>
     {:else if node.type === 'section' && flat}
@@ -197,9 +197,3 @@
 <VStack gap={4}>
   {@render nodeList(nodes)}
 </VStack>
-
-<style>
-  :global(.dyn-grid) {
-    width: 100%;
-  }
-</style>

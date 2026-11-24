@@ -1,14 +1,13 @@
 <script lang="ts">
   import ModalitiesFlow from '../../components/domain/ModalitiesFlow.svelte'
-  import { Icon, Button, Chip, HStack, Card, Text, TextField, VStack, Banner, Header, ContentUnavailable, Picker, Field, DeleteButton } from '@fuckyouryan/fui'
+  import { Icon, Button, Chip, HStack, Card, Text, TextField, VStack, Banner, Header, ContentUnavailable, ProgressView, Picker, Field, DeleteButton } from '@fuckyouryan/fui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
-  import { getErrorMessage } from '$lib/errors'
+  import { errorCode, getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
   import { CAPABILITY_META } from '$lib/capabilities'
   import type { VirtualModel, AvailableModel } from '$lib/types'
   import { takePendingClone } from '$lib/virtual-clone'
-  import { isUnauthenticated } from '$lib/credential-state'
   import { intersectMembers, minPositive } from '$lib/model-aggregates'
 
   let { vmId = null }: { vmId: string | null } = $props()
@@ -35,14 +34,9 @@
     )
   )
 
+  // The dashboard mounts this page once per virtual model id (its Swap key), so it loads once here.
   onMount(() => {
     void loadAvailableModels()
-  })
-
-  // Reload when navigating between list/new/edit without a remount. Reads
-  // the vmId prop only, so the loader cannot feed back into the effect.
-  $effect(() => {
-    void vmId
     void loadVirtualModel()
   })
 
@@ -59,12 +53,7 @@
       vm = fetched
       hydrate(fetched)
     } catch (e: unknown) {
-      const message = getErrorMessage(e)
-      if (isUnauthenticated(e, message)) {
-        window.location.href = '/login'
-        return
-      }
-      error = message
+      error = getErrorMessage(e)
     } finally {
       loading = false
     }
@@ -103,12 +92,7 @@
       availableModels = await api.models.available()
       modelsLoadState = availableModels.length === 0 ? 'empty' : 'loaded'
     } catch (e: unknown) {
-      const message = getErrorMessage(e)
-      if (isUnauthenticated(e, message)) {
-        window.location.href = '/login'
-        return
-      }
-      formError = message
+      formError = getErrorMessage(e)
       modelsLoadState = 'error'
       availableModels = []
     }
@@ -130,10 +114,10 @@
       else await api.virtualModels.create(payload)
       backToList()
     } catch (e: unknown) {
-      const message = getErrorMessage(e)
-      if (message.includes('modified by another process')) formError = t('virtual.errors.modified_elsewhere')
-      else if (message.includes('already exists')) formError = t('virtual.errors.duplicate_name')
-      else formError = message
+      const code = errorCode(e)
+      if (code === 'concurrent_update') formError = t('virtual.errors.modified_elsewhere')
+      else if (code === 'already_exists') formError = t('virtual.errors.duplicate_name')
+      else formError = getErrorMessage(e)
       saving = false
     }
   }
@@ -220,7 +204,7 @@
   {#if error}
     <Banner tint="danger" text={error} />
   {:else if loading}
-    <ContentUnavailable title={t('common.state.loading')} />
+    <ProgressView />
   {:else}
     {#if formError}
       <Banner tint="danger" text={formError} />
@@ -244,7 +228,7 @@
 
     <Card title={t('models.list.title')}>
       {#if modelsLoadState === 'loading'}
-        <ContentUnavailable title={t('common.state.loading')} />
+        <ProgressView />
       {:else if modelsLoadState === 'error'}
         <VStack gap={2} halign="center">
           <Banner tint="danger" text={t('models.list.failed_load')} />

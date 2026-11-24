@@ -249,21 +249,21 @@
       {#if column.key === 'model'}
         <VStack gap={1} halign="start" class="model-identity">
           {#if model.kind === 'virtual'}
-            <HStack gap={2} valign="center" class="identity-line">
-              <Text mono size="sm" class="id-text" truncate={lazy}>
+            <HStack gap={2} valign="center">
+              <Text mono size="sm" truncate={lazy}>
                 virtual/{model.id}
               </Text>
               <CopyButton size="sm" text={fullId(model)} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
             </HStack>
-            <HStack valign="center" class="identity-line">
-              <Text size="sm" foregroundStyle="secondary" class="secondary-text" truncate={lazy}>{model.description || '—'}</Text>
+            <HStack valign="center">
+              <Text size="sm" foregroundStyle="secondary" truncate={lazy}>{model.description || '—'}</Text>
             </HStack>
           {:else}
-            <HStack gap={2} valign="center" class="identity-line">
-              <Text size="md" weight="medium" class="primary-text" truncate={lazy}>{model.name || model.id}</Text>
+            <HStack gap={2} valign="center">
+              <Text size="md" weight="medium" truncate={lazy}>{model.name || model.id}</Text>
             </HStack>
-            <HStack gap={2} valign="center" class="identity-line">
-              <Text mono size="sm" class="id-text" truncate={lazy}>{fullId(model)}</Text>
+            <HStack gap={2} valign="center">
+              <Text mono size="sm" truncate={lazy}>{fullId(model)}</Text>
               <CopyButton size="sm" text={fullId(model)} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
             </HStack>
           {/if}
@@ -292,7 +292,7 @@
           {@render capsBlock({ model }, 'sm')}
         </VStack>
       {:else if column.key === 'actions'}
-        <HStack halign="end" gap={2} class="actions-cell">
+        <HStack halign="end" gap={2}>
           {#if actions}{@render actions({ model })}{/if}
         </HStack>
       {:else if column.key === 'select'}
@@ -334,16 +334,13 @@
     justify-content: start;
     align-items: center;
   }
-  /* Every line of the model cell is one control row tall (the copy button's height), so the
-     lines are evenly spaced whatever each one holds. */
-  :global(.model-identity > *) {
-    min-height: var(--fui-ctl-sm);
-  }
   /* in-app navigation row, not a text link: no underline, the cell's text colour */
   .provider-link {
     display: inline-flex;
     align-items: center;
     gap: var(--fui-space-1);
+    max-width: 100%;
+    min-width: 0;
     color: inherit;
     text-decoration: none;
   }
@@ -364,11 +361,10 @@
     max-width: 100%;
     min-width: 0;
   }
+  /* Every line of the model cell is one control row tall (the copy button's height), so the
+     lines are evenly spaced whatever each one holds. */
   .mt-wrap :global(.model-identity > *) {
-    max-width: 100%;
-    min-width: 0;
-  }
-  .provider-link {
+    min-height: var(--fui-ctl-sm);
     max-width: 100%;
     min-width: 0;
   }

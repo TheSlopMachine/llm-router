@@ -1,4 +1,5 @@
 import { setAccent } from '@fuckyouryan/fui'
+import { Persisted } from './persisted.svelte'
 // Accent color: a preset or any color picked in Settings, persisted per browser
 // (preset name or #rrggbb), applied to both themes. Presets carry tuned hover
 // and on-accent text colors; for a custom color FUI setAccent derives them
@@ -24,7 +25,6 @@ export const accents: Accent[] = [
   { name: 'graphite', bg: '#4b4f55', hover: '#33373c', text: '#ffffff' },
 ]
 
-const STORAGE_KEY = 'accent'
 const HEX_COLOR = /^#[0-9a-f]{6}$/i
 
 /** The preset with this fill color, else a custom accent. */
@@ -32,46 +32,12 @@ export function accentOf(bg: string): Accent {
   return accents.find((a) => a.bg.toLowerCase() === bg.toLowerCase()) ?? { name: 'custom', bg: bg.toLowerCase() }
 }
 
-function getInitialAccent(): Accent {
-  if (typeof window === 'undefined') return accents[0]
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    const found = accents.find((a) => a.name === stored)
-    if (found) return found
-    if (stored && HEX_COLOR.test(stored)) return accentOf(stored)
-  } catch (e) {
-    console.error('Failed to access localStorage for accent:', e)
-  }
-  return accents[0]
-}
-
 // Site decision: should elevation overlays pick up the accent?
 const ELEV_TINT = false
 
-function applyAccent(a: Accent): void {
-  setAccent(a.bg, { hover: a.hover, text: a.text, tintElev: ELEV_TINT })
-}
-
-let current = $state<Accent>(getInitialAccent())
-
-export const accent: {
-  get value(): Accent
-  set value(a: Accent)
-} = {
-  get value(): Accent {
-    return current
-  },
-  set value(a: Accent) {
-    current = a
-    try {
-      localStorage.setItem(STORAGE_KEY, a.name === 'custom' ? a.bg : a.name)
-    } catch (e) {
-      console.error('Failed to save accent to localStorage:', e)
-    }
-    applyAccent(a)
-  },
-}
-
-if (typeof window !== 'undefined') {
-  applyAccent(current)
-}
+// Stored as the preset name, or the #rrggbb of a custom color.
+export const accent = new Persisted<Accent>('accent', accents[0], {
+  parse: (stored) => accents.find((a) => a.name === stored) ?? (HEX_COLOR.test(stored) ? accentOf(stored) : undefined),
+  serialize: (a) => (a.name === 'custom' ? a.bg : a.name),
+  apply: (a) => setAccent(a.bg, { hover: a.hover, text: a.text, tintElev: ELEV_TINT }),
+})

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { untrack } from 'svelte'
+  import { onMount } from 'svelte'
   import { api } from '../../lib/api'
-  import { modal, toast, ContentUnavailable, Button, Chip, DeleteButton, HStack, SectionHeader, Spacer, Toggle, Table, Text, VStack, Banner, Header, confirmAt, type TableColumn, squircle, Picker, type HeaderAction, type IconName } from '@fuckyouryan/fui'
+  import { modal, toast, ContentUnavailable, ProgressView, Button, Chip, DeleteButton, HStack, SectionHeader, Spacer, Toggle, Table, Text, VStack, Banner, Header, confirmAt, type TableColumn, Picker, type HeaderAction, type IconName } from '@fuckyouryan/fui'
   import { hasUiNodes } from '$lib/ui-helpers'
   import { getErrorMessage } from '../../lib/errors'
   import type { Credential, Provider, ProxyPool, TestResult, UINode } from '../../lib/types'
@@ -32,10 +32,9 @@
   let testAllCredsCancel = $state(false)
   let credentialsEnabled = $state(true)
 
-  // Bumped so ModelsSection retries discovery: on credential add (a key
-  // added to a credential-less provider heals the catalog without clicks)
-  // and when the plugin's containers finish preparing.
-  let discoveryRevision = $state(0)
+  // Discovery retries on credential add (a key added to a credential-less provider heals the
+  // catalog without clicks) and when the plugin's containers finish preparing.
+  let modelsSection = $state<ModelsSection>()
 
   // One line on the plugin's containers while they prepare, '' otherwise.
   let dockerWait = $state('')
@@ -43,7 +42,7 @@
 
   function onDockerState(state: DockerSectionState): void {
     dockerWait = state.busy ? state.waitText : ''
-    if (dockerWasBusy && !state.busy) discoveryRevision += 1
+    if (dockerWasBusy && !state.busy) modelsSection?.retryDiscovery()
     dockerWasBusy = state.busy
   }
 
@@ -66,21 +65,15 @@
     { key: 'actions', title: t('common.labels.actions'), width: 'auto', align: 'right', priority: 1 },
   ]
 
-  $effect(() => {
-    void providerId
-    void loadPage()
-  })
-
-  // Runs when the provider identity changes, not when the provider object is replaced:
-  // a refetch after a toggle would otherwise reload everything and reset unsaved form edits.
-  $effect(() => {
-    if (!providerIdValue) return
-    untrack(() => {
-      void loadCapabilities()
-      void reloadCredentials()
-      initializeProxyConfig()
-      void loadPools()
-    })
+  // The dashboard mounts this page once per provider id (its Swap key), so everything loads once
+  // here. A refetch after a toggle replaces the provider object and keeps unsaved form edits.
+  onMount(async () => {
+    await loadPage()
+    if (!provider) return
+    void loadCapabilities()
+    void reloadCredentials()
+    initializeProxyConfig()
+    void loadPools()
   })
 
   async function loadPage(): Promise<void> {
@@ -198,7 +191,7 @@
         onComplete: async () => {
           modal.close()
           await reloadCredentials()
-          discoveryRevision += 1
+          modelsSection?.retryDiscovery()
         },
       },
     })
@@ -346,20 +339,21 @@
 
   async function loadCapabilities(): Promise<void> {
     if (!provider) return
-    try {
-      const [credSchema, settingsSchema, proxySchema] = await Promise.all([
-        api.providers.credentialSchema(provider.id).catch(() => null),
-        api.providers.settingsSchema(provider.id).catch(() => null),
-        api.providers.proxySchema(provider.id).catch(() => null),
-      ])
-      credentialsEnabled = hasUiNodes(credSchema)
-      settingsNodes = settingsSchema?.nodes ?? []
-      settingsValues = { ...((provider.config?.settings ?? {}) as Record<string, unknown>) }
-      proxyNodes = proxySchema?.nodes ?? []
-      proxiesEnabled = hasUiNodes(proxySchema)
-    } catch (e) {
-      error = getErrorMessage(e)
+    // A schema that fails to load hides its section and says why; the other sections still load.
+    const reportFailure = (failure: unknown): null => {
+      error = getErrorMessage(failure)
+      return null
     }
+    const [credSchema, settingsSchema, proxySchema] = await Promise.all([
+      api.providers.credentialSchema(provider.id).catch(reportFailure),
+      api.providers.settingsSchema(provider.id).catch(reportFailure),
+      api.providers.proxySchema(provider.id).catch(reportFailure),
+    ])
+    credentialsEnabled = hasUiNodes(credSchema)
+    settingsNodes = settingsSchema?.nodes ?? []
+    settingsValues = { ...((provider.config?.settings ?? {}) as Record<string, unknown>) }
+    proxyNodes = proxySchema?.nodes ?? []
+    proxiesEnabled = hasUiNodes(proxySchema)
   }
 
   function testIcon(result: TestResult | 'loading' | undefined, idleTitle: string): { icon: IconName; title: string } {
@@ -424,16 +418,30 @@
   }
 </script>
 
+{#snippet credentialState(cred: Credential)}
+  {#if isAutoDisabled(cred)}
+    <Text variant="caption" tint="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(cred.disabled_reason)}</Text>
+  {:else if isPluginDisabled(cred)}
+    <Text variant="caption" tint="danger">{t('providers.detail.disabled_by_plugin')}{formatDisableReason(cred.disabled_reason)}</Text>
+  {/if}
+{/snippet}
+
+{#snippet credentialActions(cred: Credential)}
+  <Button size="sm" buttonStyle="text" icon={{ name: 'edit' }} ariaLabel={t('credentials.edit')} title={t('credentials.edit')} onclick={() => openEditCredential(cred)} />
+  <DeleteButton size="sm" label={t('credentials.delete')} onclick={(e) => void deleteCredential(cred, e.currentTarget as HTMLElement)} />
+  <Toggle checked={!cred.disabled} ariaLabel={t('common.labels.enabled')} onchange={(v) => toggleCredential(cred, v)} />
+{/snippet}
+
 {#if loading}
-  <ContentUnavailable title={t('common.state.loading')} />
+  <ProgressView />
 {:else if !provider}
-  <VStack halign="center" gap={4} class="provider-state">
+  <VStack halign="center" valign="center" gap={4} minHeight="var(--app-provider-state-min-h)">
     <ContentUnavailable title={t('providers.detail.not_found')} />
     <Button buttonStyle="text" onclick={back}>{t('providers.detail.back_to_providers')}</Button>
   </VStack>
 {:else}
   {@const p = provider}
-  <VStack gap={6} class="provider-detail">
+  <VStack gap={6}>
     <Header title={p.name} subtitle={p.type_key} back={{ label: t('providers.list.title'), href: '#/providers' }} actions={detailActions(p)} primary={detailEnable(p)} />
 
     {#if error}
@@ -441,7 +449,7 @@
     {/if}
 
     {#if credentialsEnabled}
-      <VStack tag="section" gap={4} class="provider-section">
+      <VStack tag="section" gap={4}>
         <SectionHeader title={t('credentials.title_plural')} count={credentials.length}>
           {#snippet actions()}
             <Button buttonStyle="prominent" onclick={openAddCredential} icon={{ name: 'add' }}>{t('credentials.add')}</Button>
@@ -469,24 +477,12 @@
           <HStack gap={3} valign="center">
             <VStack gap={1} grow>
               <Text variant="value">{cred.label || t('common.labels.unnamed')}</Text>
-              {#if isAutoDisabled(cred)}
-                <Text variant="caption" tint="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(cred.disabled_reason)}</Text>
-              {:else if isPluginDisabled(cred)}
-                <Text variant="caption" tint="danger">{t('providers.detail.disabled_by_plugin')}{formatDisableReason(cred.disabled_reason)}</Text>
-              {/if}
+              {@render credentialState(cred)}
               {#if cred.is_expired}
                 <Text variant="caption" tint="danger">{t('tokens.status.expired')}</Text>
               {/if}
             </VStack>
-            <HStack gap={2}>
-              <Button size="sm" buttonStyle="text" icon={{ name: 'edit' }} ariaLabel={t('credentials.edit')} title={t('credentials.edit')} onclick={() => openEditCredential(cred)} />
-              <DeleteButton size="sm" label={t('credentials.delete')} onclick={(e) => void deleteCredential(cred, e.currentTarget as HTMLElement)} />
-              <Toggle
-                checked={!cred.disabled}
-                ariaLabel={t('common.labels.enabled')}
-                onchange={(v) => toggleCredential(cred, v)}
-              />
-            </HStack>
+            <HStack gap={2}>{@render credentialActions(cred)}</HStack>
           </HStack>
         {/snippet}
         {#snippet cell({ column, row })}
@@ -498,11 +494,7 @@
                 <Chip text={t('tokens.status.expired')} tint="danger" />
               {/if}
             </HStack>
-            {#if isAutoDisabled(cred)}
-              <Text variant="caption" tint="danger">{t('providers.detail.disabled_auto')}{formatDisableReason(cred.disabled_reason)}</Text>
-            {:else if isPluginDisabled(cred)}
-              <Text variant="caption" tint="danger">{t('providers.detail.disabled_by_plugin')}{formatDisableReason(cred.disabled_reason)}</Text>
-            {/if}
+            {@render credentialState(cred)}
           {:else}
             {@const ti = testIcon(credentialTestResults[cred.id], t('credentials.test'))}
             <HStack gap={3} halign="end">
@@ -525,13 +517,7 @@
                 title={ti.title}
                 onclick={() => testCredential(cred)}
               />
-              <Button size="sm" buttonStyle="text" icon={{ name: 'edit' }} ariaLabel={t('credentials.edit')} title={t('credentials.edit')} onclick={() => openEditCredential(cred)} />
-              <DeleteButton size="sm" label={t('credentials.delete')} onclick={(e) => void deleteCredential(cred, e.currentTarget as HTMLElement)} />
-              <Toggle
-                checked={!cred.disabled}
-                ariaLabel={t('common.labels.enabled')}
-                onchange={(v) => toggleCredential(cred, v)}
-              />
+              {@render credentialActions(cred)}
             </HStack>
           {/if}
         {/snippet}
@@ -543,7 +529,7 @@
     {/if}
 
     {#if proxiesEnabled}
-      <VStack tag="section" gap={4} halign="start" class="provider-section">
+      <VStack tag="section" gap={4} halign="start">
         <Text variant="section-title">{t('proxy.title_singular')}</Text>
         <HStack valign="center" gap={3}>
           <Text>{t('providers.detail.route_pool')}</Text>
@@ -578,7 +564,7 @@
     {/if}
 
     {#if settingsNodes.length > 0}
-      <VStack tag="section" gap={4} halign="start" class="provider-section">
+      <VStack tag="section" gap={4} halign="start">
         <SectionHeader title={t('providers.detail.plugin_settings')}>
           {#snippet actions()}
             <Button buttonStyle="prominent" onclick={() => void saveSettings()} disabled={savingSettings}>
@@ -592,26 +578,6 @@
 
     <DockerSection providerId={provider.id} onstate={onDockerState} />
 
-    <ModelsSection bind:provider onrefresh={loadPage} {discoveryRevision} waitingText={dockerWait} />
+    <ModelsSection bind:this={modelsSection} bind:provider={() => p, (next) => { provider = next }} waitingText={dockerWait} />
   </VStack>
 {/if}
-
-<style>
-  :global(.provider-detail),
-  :global(.provider-section) {
-    width: 100%;
-  }
-
-  :global(.provider-state) {
-    min-height: var(--app-provider-state-min-h);
-    justify-content: center;
-  }
-
-  :global(.provider-off) {
-    opacity: var(--fui-opacity-disabled);
-  }
-
-  :global(.table-empty) {
-    width: 100%;
-    padding: var(--fui-space-4);
-  }</style>

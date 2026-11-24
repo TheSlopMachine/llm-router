@@ -5,46 +5,26 @@
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import type { AvailableModel, VirtualModel } from '$lib/types'
-  import { t, n } from '$lib/i18n.svelte'
+  import { t, n, tx } from '$lib/i18n.svelte'
   import { Button, ContentUnavailable, DeleteButton, HStack, Picker, SearchField, Toggle, VStack, Banner, Header, confirmAt } from '@fuckyouryan/fui'
   import { rankModels, matchesVirtualModel } from '$lib/model-search'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
   import { setPendingClone } from '$lib/virtual-clone'
+  import { Persisted, oneOf } from '$lib/persisted.svelte'
 
   // Which models the table lists: real or virtual ones, all or only enabled or disabled.
   // Both choices are kept in this browser.
   type ModelKind = 'real' | 'virtual'
   type ModelStatus = 'all' | 'enabled' | 'disabled'
-  const KIND_KEY = 'llm-router:models-kind'
-  const STATUS_KEY = 'llm-router:models-status'
-
-  function loadChoice<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
-    try {
-      const stored = localStorage.getItem(key)
-      const found = allowed.find((value) => value === stored)
-      if (found) return found
-    } catch (e) {
-      console.error(`Failed to access localStorage for ${key}:`, e)
-    }
-    return fallback
-  }
-
-  function saveChoice(key: string, value: string): void {
-    try {
-      localStorage.setItem(key, value)
-    } catch (e) {
-      console.error(`Failed to save ${key} to localStorage:`, e)
-    }
-  }
+  const kindChoice = new Persisted<ModelKind>('llm-router:models-kind', 'real', { parse: oneOf(['real', 'virtual'] as const) })
+  const statusChoice = new Persisted<ModelStatus>('llm-router:models-status', 'enabled', { parse: oneOf(['all', 'enabled', 'disabled'] as const) })
 
   function selectKind(next: ModelKind): void {
-    kind = next
-    saveChoice(KIND_KEY, next)
+    kindChoice.value = next
   }
 
   function selectStatus(next: ModelStatus): void {
-    status = next
-    saveChoice(STATUS_KEY, next)
+    statusChoice.value = next
   }
 
   // replaced as a whole on load, never mutated: raw state keeps the rows out of deep proxies
@@ -53,8 +33,8 @@
   let loading = $state(true)
   let error = $state('')
   let query = $state('')
-  let kind = $state<ModelKind>(loadChoice(KIND_KEY, ['real', 'virtual'], 'real'))
-  let status = $state<ModelStatus>(loadChoice(STATUS_KEY, ['all', 'enabled', 'disabled'], 'enabled'))
+  let kind = $derived(kindChoice.value)
+  let status = $derived(statusChoice.value)
 
   let hasModels = $derived(!loading && allModels.length + virtualModels.length > 0)
   let isEmptyCatalog = $derived(allModels.length + virtualModels.length === 0)
@@ -163,7 +143,7 @@
 
   function cloneVirtualModel(vm: VirtualModel): void {
     setPendingClone({
-      name: `${vm.name} Copy`,
+      name: tx('common.clone.name', { name: vm.name }),
       description: vm.description ?? '',
       instruction: vm.instruction ?? '',
       models: (vm.models ?? []).map((entry) => entry.model_id),

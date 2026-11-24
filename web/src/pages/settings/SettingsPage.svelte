@@ -3,7 +3,7 @@
   import { api } from '$lib/api'
   import { t } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
-  import { Button, HStack, Card, Text, VStack, TextField, Banner, Chip, List, ListRow, Header, ContentUnavailable, Field, toast, modal, CardGroup, type HeaderAction } from '@fuckyouryan/fui'
+  import { Button, HStack, Card, Text, VStack, TextField, Banner, Chip, List, ListRow, Header, ProgressView, Field, toast, modal, CardGroup, type HeaderAction } from '@fuckyouryan/fui'
   import type { SubsystemStats, DoctorReport } from '$lib/types'
   import AppearanceCard from './AppearanceCard.svelte'
   import DockerCard from './DockerCard.svelte'
@@ -172,7 +172,7 @@
 
   <Card title={t('data.doctor.title')}>
     {#if doctorLoading}
-      <ContentUnavailable title={t('common.state.loading')} />
+      <ProgressView />
     {:else if doctorReport}
       {#if doctorReport.total_issues === 0}
         <Banner tint="success" text={t('data.doctor.no_issues')} />
@@ -199,7 +199,7 @@
   </Card>
 
   {#if subsystemStatisticsLoading && !subsystemStatistics}
-    <ContentUnavailable title={t('common.state.loading')} />
+    <ProgressView />
   {/if}
   {#if subsystemStatistics}
     {#key subsystemCardsGeneration}

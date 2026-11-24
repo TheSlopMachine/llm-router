@@ -17,11 +17,3 @@ export function isPluginDisabled(cred: Credential): boolean {
 export function formatDisableReason(reason: string | null | undefined): string {
   return reason ? `: ${reason}` : ''
 }
-
-export function isUnauthenticated(err: unknown, message = ''): boolean {
-  if (typeof err === 'object' && err !== null && 'status' in err) {
-    const status = (err as { status?: number }).status
-    if (status === 401) return true
-  }
-  return message.toLowerCase().includes('unauthenticated')
-}

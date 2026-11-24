@@ -14,6 +14,10 @@ var (
 	// ErrAlreadyExists is returned when attempting to create a duplicate resource
 	ErrAlreadyExists = errors.New("already exists")
 
+	// ErrConcurrentUpdate is returned when an update carries a stale version:
+	// someone else changed the record since the caller read it
+	ErrConcurrentUpdate = errors.New("modified by another process, refresh and try again")
+
 	// ErrInvalidInput is returned when input validation fails
 	ErrInvalidInput = errors.New("invalid input")
 

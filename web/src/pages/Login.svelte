@@ -31,7 +31,7 @@
 </script>
 
 <div class="login-page">
-  <VStack gap={7} class="login-form">
+  <VStack gap={7} width="full" maxWidth="var(--app-auth-max-w)">
     <VStack gap={3} halign="center">
       <!-- App icon mark: outlined hexagon standing on a vertex. -->
       <svg class="mark" viewBox="0 0 100 100" aria-hidden="true">
@@ -98,9 +98,5 @@
      put the checkbox box centre on the same vertical line. */
   .remember {
     padding-inline-start: calc(var(--fui-ctl-lg) / 2 - var(--fui-checkbox-box) / 2);
-  }
-  :global(.login-form) {
-    width: 100%;
-    max-width: var(--app-auth-max-w);
   }
 </style>

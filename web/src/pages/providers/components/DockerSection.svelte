@@ -142,7 +142,7 @@
 
 {#if usesDocker && view}
   {@const policy = view.policy}
-  <VStack tag="section" gap={4} class="provider-section">
+  <VStack tag="section" gap={4}>
     <SectionHeader title={t('providers.docker.title')}>
       {#snippet actions()}
         <Button buttonStyle="neutral" icon={{ name: 'info' }} ariaLabel={t('plugins.permissions.title')} title={t('plugins.permissions.title')} onclick={(e) => togglePermissions(e.currentTarget as HTMLElement)} />

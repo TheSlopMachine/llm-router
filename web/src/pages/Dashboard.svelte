@@ -2,6 +2,7 @@
   import { Button, Scaffold, Sidebar, Swap, Text, type IconName } from '@fuckyouryan/fui'
   import { surfaceLevel } from '$lib/surface.svelte'
   import { viewport } from '$lib/viewport.svelte'
+  import { Persisted } from '$lib/persisted.svelte'
   import { api } from '../lib/api'
   import Metrics from './metrics/Metrics.svelte'
   import Plugins from './plugins/Plugins.svelte'
@@ -119,16 +120,16 @@
 
   // Manual toggle wins (remembered); otherwise the sidebar folds into a rail on narrow widths.
   // Phone widths are the Scaffold's drawer.
-  const SIDEBAR_KEY = 'llmr_sidebar_collapsed'
-  let collapsedOverride = $state<boolean | null>(
-    localStorage.getItem(SIDEBAR_KEY) === null ? null : localStorage.getItem(SIDEBAR_KEY) === '1'
-  )
+  // null: never toggled, the width decides
+  const collapsedOverride = new Persisted<boolean | null>('llmr_sidebar_collapsed', null, {
+    parse: (stored) => (stored === '1' ? true : stored === '0' ? false : undefined),
+    serialize: (collapsed) => (collapsed ? '1' : '0'),
+  })
   function getCollapsed(): boolean {
-    return collapsedOverride ?? viewport.narrow
+    return collapsedOverride.value ?? viewport.narrow
   }
   function setCollapsed(next: boolean): void {
-    collapsedOverride = next
-    localStorage.setItem(SIDEBAR_KEY, next ? '1' : '0')
+    collapsedOverride.value = next
   }
 </script>
 

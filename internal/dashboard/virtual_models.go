@@ -42,6 +42,7 @@ func (h *Handler) apiVirtualModelsList(w http.ResponseWriter, r *http.Request) {
 // @Success      201    {object}  models.VirtualModel
 // @Failure      400    {object}  models.ErrorResponse
 // @Failure      401    {object}  models.ErrorResponse
+// @Failure      409    {object}  models.ErrorResponse
 // @Failure      500    {object}  models.ErrorResponse
 // @Router       /api/llm-router/dashboard/virtual-models [post]
 func (h *Handler) apiVirtualModelsCreate(w http.ResponseWriter, r *http.Request) {
@@ -53,7 +54,7 @@ func (h *Handler) apiVirtualModelsCreate(w http.ResponseWriter, r *http.Request)
 
 	if err := h.gormVirtualService.Create(r.Context(), &virtualModel); err != nil {
 		h.logError("Failed to create virtual model", "error", err)
-		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		h.serviceErr(w, http.StatusBadRequest, err)
 		return
 	}
 
@@ -125,6 +126,7 @@ func managedUpdateIsToggleOnly(existing *models.VirtualModel, incoming *models.V
 // @Failure      400    {object}  models.ErrorResponse
 // @Failure      401    {object}  models.ErrorResponse
 // @Failure      404    {object}  models.ErrorResponse
+// @Failure      409    {object}  models.ErrorResponse
 // @Failure      500    {object}  models.ErrorResponse
 // @Router       /api/llm-router/dashboard/virtual-models/{id} [put]
 func (h *Handler) apiVirtualModelsUpdate(w http.ResponseWriter, r *http.Request) {
@@ -152,7 +154,7 @@ func (h *Handler) apiVirtualModelsUpdate(w http.ResponseWriter, r *http.Request)
 
 	if err := h.gormVirtualService.Update(r.Context(), id, &virtualModel); err != nil {
 		h.logError("Failed to update virtual model", "model", id, "error", err)
-		h.jsonErr(w, http.StatusBadRequest, err.Error())
+		h.serviceErr(w, http.StatusBadRequest, err)
 		return
 	}
 

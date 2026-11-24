@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { Picker, Banner, ContentUnavailable, HStack, ModalChrome, TextField, Field, Text, VStack } from '@fuckyouryan/fui'
+  import { Picker, Banner, ProgressView, HStack, ModalChrome, TextField, Field, Text, VStack, toast } from '@fuckyouryan/fui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
-  import { getErrorMessage } from '$lib/errors'
+  import { errorCode, getErrorMessage } from '$lib/errors'
   import type { Provider, UINode, ModalButton } from '$lib/types'
   import DynamicForm, { collectButtons, buttonAppearance } from '../../../components/domain/DynamicForm.svelte'
   import { t } from '$lib/i18n.svelte'
@@ -33,7 +33,9 @@
   // The key's dashboard name, set here instead of the automatic one. Auth
   // flows create the credential server-side: the name lands on it right after.
   let label = $state('')
-  let knownIds: string[] = []
+  // The provider's credentials before the flow: the new one is the id not in this list. null when
+  // the list failed to load, so no credential is renamed by guess.
+  let knownIds: string[] | null = null
 
   async function providerCredentialIds(): Promise<string[]> {
     const all = (await api.credentials.list()) as { id: string; provider_id: string }[]
@@ -42,12 +44,15 @@
 
   async function finish(): Promise<void> {
     const name = label.trim()
-    if (name !== '') {
+    const before = knownIds
+    if (name !== '' && before === null) {
+      toast.warning(t('credentials.rename_failed.error'))
+    } else if (name !== '' && before !== null) {
       try {
-        const fresh = (await providerCredentialIds()).filter((id) => !knownIds.includes(id))
+        const fresh = (await providerCredentialIds()).filter((id) => !before.includes(id))
         for (const id of fresh) await api.credentials.update(id, { label: name })
-      } catch {
-        // the key exists; only its name stays automatic
+      } catch (e) {
+        toast.warning(`${t('credentials.rename_failed.error')}: ${getErrorMessage(e)}`)
       }
     }
     onComplete()
@@ -56,15 +61,15 @@
   onMount(async (): Promise<void> => {
     try {
       knownIds = await providerCredentialIds()
-    } catch {
-      knownIds = []
+    } catch (e) {
+      error = getErrorMessage(e)
     }
     if (provider.supports_auth_flow) {
       try {
         const schema = await api.providers.credentialSchema(provider.id)
         manualAvailable = !!(schema.nodes && schema.nodes.length > 0)
-      } catch {
-        manualAvailable = false
+      } catch (e) {
+        error = getErrorMessage(e)
       }
     }
     if (!provider.supports_auth_flow) {
@@ -97,7 +102,7 @@
         mode = 'wizard'
       } else if (flow.status === 'redirect' && flow.redirect_url) {
         window.open(flow.redirect_url, '_blank')
-        redirectMessage = 'Complete authentication in the new window, then close this dialog.'
+        redirectMessage = t('credentials.auth_redirect_close.hint')
         mode = 'wizard'
         nodes = []
         flowId = flow.flow_id ?? ''
@@ -109,14 +114,12 @@
         return
       }
     } catch (e) {
-      const message = getErrorMessage(e)
-      if (message.includes('stepped auth flows') || message.includes('409')) {
+      if (errorCode(e) === 'auth_flow_unsupported') {
         await loadSingleStep()
         return
-      } else {
-        error = message
-        mode = 'single'
       }
+      error = getErrorMessage(e)
+      mode = 'single'
     }
   }
 
@@ -191,7 +194,7 @@
         nodes = flow.nodes
       } else if (flow.status === 'redirect' && flow.redirect_url) {
         window.open(flow.redirect_url, '_blank')
-        redirectMessage = 'Complete authentication in the new window.'
+        redirectMessage = t('credentials.auth_redirect.hint')
       } else if (flow.status === 'complete') {
         await finish()
       } else {
@@ -252,7 +255,7 @@
         { value: 'flow', label: t('credentials.device_login') },
         { value: 'manual', label: t('credentials.paste') },
       ]}
-      ariaLabel="Credential entry method"
+      ariaLabel={t('credentials.entry_method.label')}
       onchange={(v) => switchEntry(v as 'flow' | 'manual')}
     />
   </HStack>
@@ -265,7 +268,7 @@
 {/if}
 
 {#if mode === 'loading'}
-  <ContentUnavailable title={t('common.state.loading')} />
+  <ProgressView />
 {:else if mode === 'wizard'}
   {#if redirectMessage}
     <Banner tint="info" text={redirectMessage} />

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { VStack, HStack, Text, Button, Toggle, Table, Card, Chip, Banner, Header, DeleteButton, StatusDot, confirmAt, Stat, Grid, Picker, Spacer, Swap, RelativeTime, Field, TextField, toast, type TableColumn, ContentUnavailable, type HeaderAction, SectionHeader } from '@fuckyouryan/fui'
+  import { VStack, HStack, Text, Button, Toggle, Table, Card, Chip, Banner, Header, DeleteButton, StatusDot, confirmAt, Stat, Grid, Picker, Spacer, Swap, RelativeTime, Field, TextField, toast, type TableColumn, ContentUnavailable, ProgressView, type HeaderAction, SectionHeader } from '@fuckyouryan/fui'
   import { viewport } from '$lib/viewport.svelte'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
@@ -350,7 +350,7 @@
   {#if openTab === 'auto' && !poolEnabled}
     <!-- auto pool off: its statistics and settings have nothing to show -->
   {:else if loading && !status}
-    <ContentUnavailable title={t('common.state.loading')} />
+    <ProgressView />
   {:else if openTab === 'auto'}
     {#if status?.last_error}
       <Banner tint="danger" text={status.last_error} />
@@ -472,7 +472,7 @@
         {#if proxiesOpen}<HealthyProxies />{/if}
       </Card>
     {:else}
-      <ContentUnavailable title={t('common.state.loading')} />
+      <ProgressView />
     {/if}
   {:else}
     <VStack gap={4}>

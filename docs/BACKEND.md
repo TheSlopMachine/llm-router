@@ -338,6 +338,7 @@ allowed).
 |---|---|
 | `/v1` endpoint | steps below |
 | Dashboard API route | handler with swag annotations in `internal/dashboard/<area>.go`, route in `dashboard/handler.go`, `make init` (OpenAPI and `web/src/lib/generated`), client method in `web/src/lib/api.ts` |
+| Dashboard error the UI branches on | an `errorCode*` constant in `dashboard/handler.go` (sent as `code` by `jsonErrCode`, or by `serviceErr` for a sentinel), the `ApiErrorCode` union in `web/src/lib/errors.ts`, a check with `errorCode(e)` |
 | Dashboard page | `web/src/pages/<panel>/`, `PANELS` and `nav` in `pages/Dashboard.svelte`, keys in `web/src/lib/i18n` |
 | UI text | `web/src/lib/i18n/types.ts`, `en.ts`, `ru.ts` |
 | Table or column | numbered migration in `internal/db/migrations` (registry in `0001_initial_schema.go`), row shape in `internal/db/record`, table list in `internal/db/sqlite_test.go`, the owning service, "Storage" below |

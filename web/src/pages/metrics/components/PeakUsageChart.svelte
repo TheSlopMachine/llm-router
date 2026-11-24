@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Card, Histogram, Text } from '@fuckyouryan/fui'
+  import { Card, Histogram, ProgressView, Text } from '@fuckyouryan/fui'
   import { locale, t } from '$lib/i18n.svelte'
   import type { TimeSeriesPoint } from '$lib/types'
 
@@ -40,7 +40,7 @@
 
 <Card {title}>
   {#if loading}
-    <Text foregroundStyle="secondary" size="sm">{t('common.state.loading')}</Text>
+    <ProgressView />
   {:else if !hasData}
     <Text foregroundStyle="secondary" size="sm">{t('common.empty.no_data')}</Text>
   {:else}

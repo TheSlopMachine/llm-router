@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Banner, ChoiceList, Checkbox, CodeBlock, ContentUnavailable, Field, FilePicker, HStack, ModalChrome, Swap, Text, TextField, VStack, type ModalButton, type StepperConfig } from '@fuckyouryan/fui'
+  import { Banner, ChoiceList, Checkbox, CodeBlock, Field, ProgressView, FilePicker, HStack, ModalChrome, Swap, Text, TextField, VStack, type ModalButton, type StepperConfig } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { t, tx } from '$lib/i18n.svelte'
   import type { TranslationKey } from '$lib/i18n.svelte'
@@ -281,7 +281,7 @@
     <DockerWizardWSL {step} bind:distribution onBack={previousStep} onNext={nextStep} />
   {:else if step === 'host_key'}
     {#if busy && !hostKey}
-      <ContentUnavailable title={t('settings.docker.host_key_scanning.status')} />
+      <ProgressView label={t('settings.docker.host_key_scanning.status')} />
     {:else if hostKey}
       <Text>{t('settings.docker.host_key.hint')}</Text>
       <CodeBlock text={fingerprint} />
@@ -291,7 +291,7 @@
     {/if}
   {:else}
     {#if busy}
-      <ContentUnavailable title={t('settings.docker.testing.status')} />
+      <ProgressView label={t('settings.docker.testing.status')} />
     {:else if result}
       <Banner tint="success" text={tx('settings.docker.test.status', { version: result.server_version, mode: result.dial_mode })} />
       <VStack gap={1}>

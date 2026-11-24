@@ -490,8 +490,8 @@ func TestAuthInitiateGoBackendFallsBack409(t *testing.T) {
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("status: got %d, body %s", recorder.Code, recorder.Body.String())
 	}
-	if !strings.Contains(recorder.Body.String(), "stepped auth flows") {
-		t.Fatalf("body must name the stepped-flow fallback: %s", recorder.Body.String())
+	if code := responseErrorCode(t, recorder); code != errorCodeAuthFlowUnsupported {
+		t.Fatalf("code: got %q, body %s", code, recorder.Body.String())
 	}
 }
 
@@ -517,6 +517,9 @@ func TestAuthInitiateLuaWithoutHandlerFallsBack409(t *testing.T) {
 	recorder := postAuthInitiate(t, h, zenID)
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("status: got %d, body %s", recorder.Code, recorder.Body.String())
+	}
+	if code := responseErrorCode(t, recorder); code != errorCodeAuthFlowUnsupported {
+		t.Fatalf("code: got %q, body %s", code, recorder.Body.String())
 	}
 }
 

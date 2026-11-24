@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { Button, Toolbar, ToolbarItem, ToolbarSpacer, DeleteButton, HStack, VStack, Text, Toggle, SearchField, TextField, List, Card, Chip, Spacer, Banner, ContentUnavailable, modal, confirmAt } from '@fuckyouryan/fui'
+  import { Button, Toolbar, ToolbarItem, ToolbarSpacer, DeleteButton, HStack, VStack, Text, Toggle, SearchField, List, ListRow, Card, Chip, Banner, ContentUnavailable, modal, confirmAt } from '@fuckyouryan/fui'
   import PluginCard from './PluginCard.svelte'
   import RepoDetailsModal from './RepoDetailsModal.svelte'
+  import AddRepositoryModal from './AddRepositoryModal.svelte'
+  import { openFormModal } from '$lib/modal-helpers'
   import { createPluginState } from './plugin-state.svelte'
   import { diffPermissions } from '$lib/plugin-permissions'
   import type { Plugin, PluginRepo, PluginUpdate, StoreFile } from '$lib/types'
@@ -41,10 +43,6 @@
   let query = $state('')
   let showUpdatesOnly = $state(false)
   let actionError = $state('')
-
-  let showAddRepo = $state(false)
-  let repositoryUrl = $state('')
-  let adding = $state(false)
 
   let installingPath = $state<string | null>(null)
 
@@ -162,19 +160,9 @@
     })
   }
 
-  async function addRepo(): Promise<void> {
-    adding = true
+  function openAddRepo(): void {
     actionError = ''
-    try {
-      const addedEntry = await api.repos.addRepo(repositoryUrl.trim())
-      showAddRepo = false
-      repositoryUrl = ''
-      onRepoAdded(addedEntry)
-    } catch (e) {
-      actionError = getErrorMessage(e)
-    } finally {
-      adding = false
-    }
+    openFormModal(AddRepositoryModal, { title: t('plugins.repo.add'), size: 'sm', props: { onAdded: onRepoAdded } })
   }
 
   let refreshing = $state(false)
@@ -227,7 +215,7 @@
         buttonStyle="prominent"
         icon={{ name: 'add' }}
         text={t('plugins.repo.add')}
-        onclick={() => { showAddRepo = !showAddRepo }}
+        onclick={openAddRepo}
       />
     </ToolbarItem>
     <ToolbarItem priority={2}>
@@ -242,33 +230,18 @@
     </ToolbarItem>
   </Toolbar>
 
-  {#if showAddRepo}
-    <Card title={t('plugins.repo.add')} subtitle={t('plugins.repo.url_hint')}>
-      <VStack gap={4}>
-        <VStack gap={1}>
-          <Text size="sm" weight="medium" tag="label" for="repo-url">{t('plugins.repo.url_label')}</Text>
-          <TextField id="repo-url" bind:value={repositoryUrl} placeholder="https://github.com/..." />
-        </VStack>
-        <HStack gap={2} halign="end">
-          <Button onclick={() => { showAddRepo = false }}>{t('common.actions.cancel')}</Button>
-          <Button buttonStyle="prominent" onclick={addRepo} disabled={adding || !repositoryUrl.trim()}>{t('common.actions.add')}</Button>
-        </HStack>
-      </VStack>
-    </Card>
-  {/if}
-
   {#if showUpdatesBanner}
     <Card title={t('plugins.updates_available')}>
       <List>
-        {#each availableUpdates as u}
+        {#each availableUpdates as u (u.plugin_id)}
           {@const approved = installedDigest(u)}
-          <div style="padding: var(--fui-space-3) var(--fui-space-4);">
-            <HStack valign="center" gap={3}>
-              <Text size="sm">{u.plugin_id}: {u.current} → {u.latest}</Text>
-              <Spacer />
-              <Button buttonStyle="neutral" size="sm" disabled={!approved} onclick={() => { if (approved) void installEntry(u.repo_id, u.path, approved) }}>{t('common.actions.update')}</Button>
-            </HStack>
-          </div>
+          <VStack pad={3}>
+            <ListRow title={u.plugin_id} subtitle={`${u.current} → ${u.latest}`}>
+              {#snippet trailing()}
+                <Button buttonStyle="neutral" size="sm" disabled={!approved} onclick={() => { if (approved) void installEntry(u.repo_id, u.path, approved) }}>{t('common.actions.update')}</Button>
+              {/snippet}
+            </ListRow>
+          </VStack>
         {/each}
       </List>
     </Card>
@@ -276,7 +249,7 @@
 
   {#if repos.length === 0}
     {#snippet addRepoAction()}
-      <Button buttonStyle="prominent" icon={{ name: 'add' }} onclick={() => { showAddRepo = true }}>{t('plugins.repo.add')}</Button>
+      <Button buttonStyle="prominent" icon={{ name: 'add' }} onclick={openAddRepo}>{t('plugins.repo.add')}</Button>
     {/snippet}
     <ContentUnavailable
       icon="download"

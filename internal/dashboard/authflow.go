@@ -45,7 +45,7 @@ func (h *Handler) authInitiate(w http.ResponseWriter, r *http.Request) {
 
 	// Go backends never offer stepped flows; fall back without touching Lua.
 	if _, ok := h.gormProviderService.GoAdapterFor(provider.TypeKey); ok {
-		h.jsonErr(w, http.StatusConflict, "provider does not support stepped auth flows")
+		h.jsonErrCode(w, http.StatusConflict, errorCodeAuthFlowUnsupported, "provider does not support stepped auth flows")
 		return
 	}
 
@@ -60,7 +60,7 @@ func (h *Handler) authInitiate(w http.ResponseWriter, r *http.Request) {
 	result, err := h.luaService.AuthInitiate(r.Context(), provider.TypeKey, flowID, provider.Config, locale)
 	if err != nil {
 		if isAuthFallback(err) {
-			h.jsonErr(w, http.StatusConflict, "provider does not support stepped auth flows")
+			h.jsonErrCode(w, http.StatusConflict, errorCodeAuthFlowUnsupported, "provider does not support stepped auth flows")
 			return
 		}
 		h.logError("Failed to initiate authentication", "provider_id", body.ProviderID, "error", err)
@@ -108,7 +108,7 @@ func (h *Handler) authStep(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, ok := h.gormProviderService.GoAdapterFor(provider.TypeKey); ok {
-		h.jsonErr(w, http.StatusConflict, "provider does not support stepped auth flows")
+		h.jsonErrCode(w, http.StatusConflict, errorCodeAuthFlowUnsupported, "provider does not support stepped auth flows")
 		return
 	}
 

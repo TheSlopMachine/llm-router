@@ -230,7 +230,7 @@ func (s *stubVirtualBackend) Create(_ context.Context, virtualModel *models.Virt
 		virtualModel.ID = strings.ToLower(strings.ReplaceAll(virtualModel.Name, " ", "-"))
 	}
 	if _, taken := s.models[virtualModel.ID]; taken {
-		return fmt.Errorf("virtual model %q already exists: %w", virtualModel.Name, apierrors.ErrAlreadyExists)
+		return fmt.Errorf("virtual model %q: %w", virtualModel.Name, apierrors.ErrAlreadyExists)
 	}
 	s.models[virtualModel.ID] = virtualModel
 	return nil

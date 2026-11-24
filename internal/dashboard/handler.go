@@ -34,12 +34,14 @@ package dashboard
 import (
 	"embed"
 	"encoding/json"
+	"errors"
 	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"strings"
 
+	apierrors "github.com/TheSlopMachine/llm-router/internal/errors"
 	"github.com/TheSlopMachine/llm-router/internal/models"
 	"github.com/TheSlopMachine/llm-router/internal/requestsource"
 	"github.com/TheSlopMachine/llm-router/internal/services/admin"
@@ -349,13 +351,13 @@ func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		c, err := r.Cookie(sessionCookie)
 		if err != nil || c.Value == "" {
 			h.logDebug("Authentication required", "endpoint", r.URL.Path)
-			h.jsonErr(w, http.StatusUnauthorized, "unauthenticated")
+			h.jsonErrCode(w, http.StatusUnauthorized, errorCodeUnauthenticated, "unauthenticated")
 			return
 		}
 		session, ok := h.gormAdminService.ValidateSession(r.Context(), c.Value)
 		if !ok {
 			h.logDebug("Authentication required", "endpoint", r.URL.Path)
-			h.jsonErr(w, http.StatusUnauthorized, "unauthenticated")
+			h.jsonErrCode(w, http.StatusUnauthorized, errorCodeUnauthenticated, "unauthenticated")
 			return
 		}
 		// A refreshed remembered session reissues its persistent cookie so
@@ -374,7 +376,32 @@ func (h *Handler) json(w http.ResponseWriter, status int, data any) {
 }
 
 func (h *Handler) jsonErr(w http.ResponseWriter, status int, message string) {
-	h.json(w, status, map[string]string{"error": message})
+	h.jsonErrCode(w, status, "", message)
+}
+
+// Error codes of dashboard responses: the UI branches on these, never on message text.
+const (
+	errorCodeUnauthenticated     = "unauthenticated"
+	errorCodeAlreadyExists       = "already_exists"
+	errorCodeConcurrentUpdate    = "concurrent_update"
+	errorCodeAuthFlowUnsupported = "auth_flow_unsupported"
+)
+
+func (h *Handler) jsonErrCode(w http.ResponseWriter, status int, code string, message string) {
+	h.json(w, status, models.ErrorResponse{Error: message, Code: code})
+}
+
+// serviceErr answers a failed service call. A duplicate or a stale version is a 409 with its code;
+// any other error keeps the given status.
+func (h *Handler) serviceErr(w http.ResponseWriter, status int, err error) {
+	switch {
+	case errors.Is(err, apierrors.ErrAlreadyExists):
+		h.jsonErrCode(w, http.StatusConflict, errorCodeAlreadyExists, err.Error())
+	case errors.Is(err, apierrors.ErrConcurrentUpdate):
+		h.jsonErrCode(w, http.StatusConflict, errorCodeConcurrentUpdate, err.Error())
+	default:
+		h.jsonErr(w, status, err.Error())
+	}
 }
 
 // logDebug records flow and troubleshooting events. Nil-safe: handlers run

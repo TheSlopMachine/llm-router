@@ -1,7 +1,7 @@
 <!-- The socket step of the Docker wizard: finds Docker on the router machine. Only Linux and macOS routers offer it. -->
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Banner, ChoiceList, Button, CodeBlock, ContentUnavailable, Field, HStack, ModalChrome, TextField, VStack, type ModalButton } from '@fuckyouryan/fui'
+  import { Banner, ChoiceList, Button, CodeBlock, ContentUnavailable, Field, HStack, ModalChrome, ProgressView, TextField, VStack, type ModalButton } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { t, tx } from '$lib/i18n.svelte'
   import type { TranslationKey } from '$lib/i18n.svelte'
@@ -91,7 +91,7 @@
 
 <VStack gap={4}>
   {#if !local && busy}
-    <ContentUnavailable title={t('settings.docker.sockets_checking.status')} />
+    <ProgressView label={t('settings.docker.sockets_checking.status')} />
   {:else if local}
     {@const found = local}
     {#if local.sockets.length}

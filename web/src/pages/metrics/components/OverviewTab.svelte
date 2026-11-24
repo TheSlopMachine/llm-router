@@ -3,7 +3,7 @@
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import type { MetricsFilters, MetricsOverview, TimeSeriesPoint, Provider } from '$lib/types'
-  import { t } from '$lib/i18n.svelte'
+  import { t, type TranslationKey } from '$lib/i18n.svelte'
   import { Banner, Button, Card, Grid, HStack, Stat, Text, VStack } from '@fuckyouryan/fui'
   import MetricsFiltersCmp from './MetricsFilters.svelte'
   import PeakUsageChart from './PeakUsageChart.svelte'
@@ -21,7 +21,18 @@
   let loading = $state(true)
   let providers = $state<Provider[]>([])
   let models = $state<string[]>([])
-  let errors = $state<string[]>([])
+  // One slot per loader: a loader that succeeds clears its own failure only.
+  type LoadSource = 'providers' | 'models' | 'activity' | 'metrics'
+  const LOAD_ERROR_KEYS: Record<LoadSource, TranslationKey> = {
+    providers: 'metrics.load_providers.error',
+    models: 'metrics.load_models.error',
+    activity: 'metrics.last_activity.error',
+    metrics: 'metrics.load_data.error',
+  }
+  let loadErrors = $state<Record<LoadSource, string>>({ providers: '', models: '', activity: '', metrics: '' })
+  function reportLoad(source: LoadSource, failure: unknown = null): void {
+    loadErrors[source] = failure === null ? '' : `${t(LOAD_ERROR_KEYS[source])}: ${getErrorMessage(failure)}`
+  }
 
   // Live: a refresh every few seconds, skipped while hidden or while the previous one runs.
   const LIVE_INTERVAL = 5000
@@ -35,7 +46,6 @@
   const ACTIVITY_RANGES = ['hour', '1d', '7d', '28d', '90d'] as const
   // A range the user picked stays; until then the range follows the last activity.
   let rangePickedByUser = false
-  let activityError = $state('')
 
   onMount(() => {
     void (async () => {
@@ -58,12 +68,9 @@
     try {
       const result = await api.providers.list()
       providers = result || []
-      errors = errors.filter((e) => !e.includes('providers'))
+      reportLoad('providers')
     } catch (err) {
-      const message = `Failed to load providers: ${getErrorMessage(err)}`
-      if (!errors.includes(message)) {
-        errors = [...errors, message]
-      }
+      reportLoad('providers', err)
       providers = []
     }
   }
@@ -72,12 +79,9 @@
     try {
       const result = await api.metrics.models()
       models = result || []
-      errors = errors.filter((e) => !e.includes('models'))
+      reportLoad('models')
     } catch (err) {
-      const message = `Failed to load models: ${getErrorMessage(err)}`
-      if (!errors.includes(message)) {
-        errors = [...errors, message]
-      }
+      reportLoad('models', err)
       models = []
     }
   }
@@ -88,9 +92,9 @@
     let lastActivity: string | null
     try {
       lastActivity = await api.metrics.lastActivity(filters)
-      activityError = ''
+      reportLoad('activity')
     } catch (err) {
-      activityError = `${t('metrics.last_activity.error')}: ${getErrorMessage(err)}`
+      reportLoad('activity', err)
       return
     }
     if (rangePickedByUser) return
@@ -121,13 +125,10 @@
       requestsData = reqSeries || []
       inputTokensData = inSeries || []
       outputTokensData = outSeries || []
-      errors = errors.filter((e) => !e.includes('metrics'))
+      reportLoad('metrics')
     } catch (err) {
       if (request !== latestMetricsRequest) return
-      const message = `Failed to load metrics: ${getErrorMessage(err)}`
-      if (!errors.includes(message)) {
-        errors = [...errors, message]
-      }
+      reportLoad('metrics', err)
       requestsData = []
       inputTokensData = []
       outputTokensData = []
@@ -174,14 +175,11 @@
 </script>
 
 <VStack gap={6}>
-  {#if errors.length > 0 || activityError}
+  {#if Object.values(loadErrors).some(Boolean)}
     <VStack gap={2}>
-      {#each errors as error}
-        <Banner tint="danger" text={error} />
+      {#each Object.entries(loadErrors) as [source, message] (source)}
+        {#if message}<Banner tint="danger" text={message} />{/if}
       {/each}
-      {#if activityError}
-        <Banner tint="danger" text={activityError} />
-      {/if}
     </VStack>
   {/if}
 
