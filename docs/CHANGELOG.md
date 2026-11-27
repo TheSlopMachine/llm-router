@@ -1,5 +1,11 @@
 # Changelog
 
+## Done (2026-11-27, v0.12.5)
+
+- **Plugin API 1.9.** Plugins got `llm_router.sha256_hex`, `json.null` and `json.array`. A request body could carry `null` and an empty `[]`, which an empty Lua table encoded as `{}`.
+- **Credentials without a validator.** A plugin without `validate_credentials` could not save credentials: the router failed with `does not declare handler "validate_credentials"`. A missing validator accepts any payload again, as the plugin contract states.
+- **Model discovery for sign-in plugins.** A plugin with a sign-in flow and no `credential_schema` was asked for models while it had no account. Discovery now waits for the first credential, as it did for plugins with a credential schema.
+
 ## Done (2026-11-24, v0.12.4)
 
 - **Docker plugin reinstall.** Deleting and reinstalling a Docker plugin raced the container removal against the new version. `initialize` and the first job run failed with Docker 409 errors. Lifecycle hooks of one plugin ran in launch order, and Docker calls from handlers and jobs waited for a pending teardown. Plugin-wide removal and stop no longer overlapped container operations.

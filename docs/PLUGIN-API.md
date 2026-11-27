@@ -5,7 +5,7 @@ be written from this file alone. The router core enforces every handler,
 argument, return shape and error form described here: a violation becomes
 `PluginInternalError` and counts as a plugin crash.
 
-Plugin API: **1.8** (`luaplugin.PluginAPIVersion`).
+Plugin API: **1.9** (`luaplugin.PluginAPIVersion`).
 
 ## What llm-router is
 
@@ -47,7 +47,7 @@ parks rate-limited keys and returns OpenAI-shaped errors.
 --- @plugin Example Provider
 --- @author example
 --- @version 1.0.0
---- @plugin_api 1.8
+--- @plugin_api 1.9
 --- @allow_host api.example.com
 --- @description OpenAI-compatible example provider.
 
@@ -307,7 +307,7 @@ Example:
 --- @plugin Harness Mock
 --- @author llm-router
 --- @version 1.0.1
---- @plugin_api 1.8
+--- @plugin_api 1.9
 --- @allow_host example.com
 --- @description Mock backend for harness runs.
 ```
@@ -903,10 +903,10 @@ end
 
 Returns provider model inventory. Runs with
 provider-scoped credential list. Static `model_specs` overlay the result. A
-type that declares `credential_schema` is not called while its provider has no
-credential: the list is empty (the dashboard shows no models, a list cached
-earlier included) until a credential is added. Keyless types (no
-`credential_schema`) are always called.
+type that declares `credential_schema` or `auth_initiate` is not called while
+its provider has no credential: the list is empty (the dashboard shows no
+models, a list cached earlier included) until a credential is added. Keyless
+types (neither declared) are always called.
 
 API signature:
 
@@ -1111,7 +1111,7 @@ Any other value is a crash.
 
 Sandbox: `storage`, `http_client`, `proxies` when the type declares
 `proxy_schema`, `print`, `llm_router.log`, `json`, `uuid_v5`, `random_hex`,
-`multipart`, `base64_*`. `credentials` is present when the type serves
+`multipart`, `base64_*`, `sha256_hex`. `credentials` is present when the type serves
 credentials but exposes `list`, `get` and `parked` only; `list` is scoped to
 the provider, so it returns rows only in the provider `disable` hook. No
 lifecycle hook writes credentials. Each call has a 30 second bound. Calls fan
@@ -2078,7 +2078,7 @@ Example:
 --- @plugin Echo Container
 --- @author example
 --- @version 1.0.0
---- @plugin_api 1.8
+--- @plugin_api 1.9
 --- @allow_host example.com
 --- @require_api docker
 --- @docker.image hashicorp/http-echo:1.0
@@ -2289,6 +2289,29 @@ Parameters: `value` string.
 
 Return values: encoded or decoded string.
 
+### `sha256_hex`
+
+SHA-256 digest.
+
+API signature:
+
+```lua
+--- Hash bytes with SHA-256.
+-- @param value string: raw bytes.
+-- @return string: digest as 64 lowercase hex characters.
+local digest = llm_router.sha256_hex(value)
+```
+
+Parameters: `value` string.
+
+Return values: hex digest string.
+
+Example:
+
+```lua
+assert(llm_router.sha256_hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+```
+
 ### `uuid_v5` and `random_hex`
 
 Identifier helpers.
@@ -2336,15 +2359,26 @@ local text = json.encode({ hello = "world" })
 -- @param text string: JSON text.
 -- @return any: Lua value. JSON null maps to nil.
 local value = json.decode(text)
+
+--- Mark a table as a JSON array.
+-- @param value table: table without a metatable.
+-- @return table: the same table. It encodes as an array, `[]` when empty.
+local files = json.array({})
+
+--- JSON null. A value, not a function: it keeps a key that nil would drop.
+local body = { id = json.null }
 ```
 
 Parameters: value or text.
 
 Return values: encoded text or decoded Lua value. `encode` maps a table with
 only consecutive integer keys from 1 to an array and any other table to an
-object; an empty table encodes as `{}`. Functions, userdata, mixed tables,
-sparse arrays and non-string object keys raise. Invalid JSON raises in
-`decode`. Handler results normalize an empty `{}` to `[]` for the array fields
+object; an empty table encodes as `{}`. A table passed to `json.array(`
+encodes as an array, also when empty; one with string keys raises. `json.null`
+encodes as `null` anywhere: in objects, arrays and handler results. Functions,
+other userdata, mixed tables, sparse arrays and non-string object keys raise.
+`json.array` raises on a table that already has a metatable. Invalid JSON
+raises in `decode`. Handler results normalize an empty `{}` to `[]` for the array fields
 `choices`, `tool_calls`, `data`, `results`, `segments`, `words` and
 `unsigned_urls`.
 

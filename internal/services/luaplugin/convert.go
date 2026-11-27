@@ -21,6 +21,19 @@ var (
 	ErrSparseArray = errors.New("luaplugin: sparse array table")
 )
 
+// jsonNullValue is the Go value behind the json.null userdata. It encodes
+// as JSON null wherever it appears.
+type jsonNullValue struct{}
+
+// jsonArrayField marks the metatable json.array sets: the table encodes as
+// a JSON array, also when it is empty.
+const jsonArrayField = "__json"
+
+func isJSONArray(table *lua.LTable) bool {
+	metatable, ok := table.Metatable.(*lua.LTable)
+	return ok && metatable.RawGetString(jsonArrayField) == lua.LString("array")
+}
+
 // toLuaValue converts JSON-compatible Go values into Lua values.
 // Maps become string-keyed tables, slices become 1-based array tables.
 func toLuaValue(L *lua.LState, v any) lua.LValue {
@@ -77,13 +90,19 @@ func toLuaValue(L *lua.LState, v any) lua.LValue {
 }
 
 // fromLuaValue converts a Lua value into JSON-compatible Go values.
-// Tables with only consecutive 1-based integer keys become []any,
-// all other tables become map[string]any. Functions, userdata and threads,
-// sparse arrays, mixed tables and non-string object keys are errors.
+// Tables with only consecutive 1-based integer keys become []any, and so do
+// tables marked by json.array; all other tables become map[string]any.
+// json.null becomes nil. Functions, other userdata and threads, sparse
+// arrays, mixed tables and non-string object keys are errors.
 func fromLuaValue(v lua.LValue) (any, error) {
 	switch typed := v.(type) {
 	case *lua.LNilType:
 		return nil, nil
+	case *lua.LUserData:
+		if _, ok := typed.Value.(jsonNullValue); ok {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedLuaType, v.Type().String())
 	case lua.LBool:
 		return bool(typed), nil
 	case lua.LString:
@@ -125,6 +144,12 @@ func tableToGo(table *lua.LTable) (any, error) {
 		})
 		if convErr != nil {
 			return nil, convErr
+		}
+		if isJSONArray(table) {
+			if !empty {
+				return nil, fmt.Errorf("%w: json.array table has object keys", ErrMixedTable)
+			}
+			return []any{}, nil
 		}
 		if empty {
 			return map[string]any{}, nil

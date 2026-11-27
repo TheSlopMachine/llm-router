@@ -84,7 +84,7 @@ func (s *Service) CheckHealth(goCtx context.Context, typeKey string, credential 
 	}
 	var status HealthStatus
 	var message string
-	found, err := s.handlerCall(goCtx, record, typeKey, string(HandlerCheckHealth), func(L *lua.LState) {
+	err = s.handlerCall(goCtx, record, typeKey, string(HandlerCheckHealth), func(L *lua.LState) {
 		L.Push(ctxTable(L, "", providerConfig))
 		L.Push(credentialTable(L, credential))
 	}, 1, func(L *lua.LState) error {
@@ -117,9 +117,6 @@ func (s *Service) CheckHealth(goCtx context.Context, typeKey string, credential 
 	}, nil)
 	if err != nil {
 		return "", "", err
-	}
-	if !found {
-		return "", "", &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: string(HandlerCheckHealth)}
 	}
 	s.logHealthVerdict(record.ID, typeKey, credential, status, message)
 	return status, message, nil

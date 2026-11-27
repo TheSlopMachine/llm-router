@@ -2,7 +2,9 @@ package luaplugin
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -358,6 +360,21 @@ func installJSON(L *lua.LState) {
 		L.Push(toLuaValue(L, decoded))
 		return 1
 	}))
+	null := L.NewUserData()
+	null.Value = jsonNullValue{}
+	table.RawSetString("null", null)
+	table.RawSetString("array", L.NewFunction(func(L *lua.LState) int {
+		target := L.CheckTable(1)
+		if target.Metatable != lua.LNil && !isJSONArray(target) {
+			L.RaiseError("json.array: the table already has a metatable")
+			return 0
+		}
+		metatable := L.NewTable()
+		metatable.RawSetString(jsonArrayField, lua.LString("array"))
+		target.Metatable = metatable
+		L.Push(target)
+		return 1
+	}))
 	L.SetGlobal("json", table)
 }
 
@@ -571,6 +588,12 @@ func installRouterTable(L *lua.LState, ctx *executionContext) {
 			return 0
 		}
 		L.Push(lua.LString(string(raw)))
+		return 1
+	}))
+
+	router.RawSetString("sha256_hex", L.NewFunction(func(L *lua.LState) int {
+		sum := sha256.Sum256([]byte(L.CheckString(1)))
+		L.Push(lua.LString(hex.EncodeToString(sum[:])))
 		return 1
 	}))
 

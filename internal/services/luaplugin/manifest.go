@@ -16,7 +16,7 @@ import (
 
 // PluginAPIVersion is the plugin API contract served by this router.
 // Format x.y: x breaks, y extends without breaking.
-var PluginAPIVersion = version.Version{Major: 1, Minor: 8}
+var PluginAPIVersion = version.Version{Major: 1, Minor: 9}
 
 // APICompatError reports a plugin API mismatch with a machine-readable
 // Reason for the dashboard toast: "too_new", "too_old", "no_api_version".

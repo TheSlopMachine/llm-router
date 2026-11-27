@@ -93,7 +93,7 @@ func (s *Service) runLifecycleHook(
 	caps := capabilitiesForRecord(record, typeKey)
 	hookErr := error(nil)
 	metadata := HandlerMeta{ProviderID: providerID, TypeKey: typeKey, ProviderConfig: providerConfig}
-	found, err := s.handlerCallEx(hookCtx, record, metadata, handler, func(L *lua.LState) {
+	err := s.handlerCallEx(hookCtx, record, metadata, handler, func(L *lua.LState) {
 		table := ctxTable(L, "", providerConfig)
 		table.RawSetString("reason", lua.LString(reason))
 		if providerID != "" {
@@ -125,9 +125,6 @@ func (s *Service) runLifecycleHook(
 	})
 	if err != nil {
 		return err
-	}
-	if !found {
-		return &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: handler}
 	}
 	return hookErr
 }

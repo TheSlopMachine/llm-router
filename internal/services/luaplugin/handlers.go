@@ -167,7 +167,7 @@ func (s *Service) CompleteStream(
 		delivered.Store(true)
 		return 0
 	}
-	found, callError := s.handlerCallEx(goCtx, record, handlerMetadata, "complete_stream", func(L *lua.LState) {
+	callError := s.handlerCallEx(goCtx, record, handlerMetadata, "complete_stream", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", handlerMetadata.ProviderConfig))
 		L.Push(requestTable(L, request))
 		L.Push(L.NewFunction(emitFunction))
@@ -179,7 +179,7 @@ func (s *Service) CompleteStream(
 	if callError != nil && !missingHandler {
 		return callError
 	}
-	if found && !missingHandler {
+	if !missingHandler {
 		_, werr := io.WriteString(w, "data: [DONE]\n\n")
 		return werr
 	}
@@ -637,7 +637,7 @@ func (s *Service) ValidateCredentials(typeKey string, data map[string]any) (bool
 		data = map[string]any{}
 	}
 	valid := true
-	found, err := s.handlerCall(context.Background(), record, typeKey, "validate_credentials", func(L *lua.LState) {
+	err = s.handlerCall(context.Background(), record, typeKey, "validate_credentials", func(L *lua.LState) {
 		L.Push(toLuaValue(L, data))
 	}, 2, func(L *lua.LState) error {
 		result, returnError := splitReturn(L)
@@ -659,11 +659,11 @@ func (s *Service) ValidateCredentials(typeKey string, data map[string]any) (bool
 		}
 		return s.contractErrOrInternal(record, typeKey, returnError)
 	}, nil)
+	if errors.Is(err, ErrHandlerNotFound) {
+		return true, nil
+	}
 	if err != nil {
 		return false, err
-	}
-	if !found {
-		return true, nil
 	}
 	return valid, nil
 }
@@ -686,7 +686,7 @@ func (s *Service) GetModelInfos(
 	}
 	var modelInfos []models.ModelInfo
 	handlerMetadata := HandlerMeta{ProviderID: providerID, TypeKey: typeKey, ProviderConfig: providerConfig}
-	found, callError := s.handlerCallEx(goCtx, record, handlerMetadata, "get_model_infos", func(L *lua.LState) {
+	callError := s.handlerCallEx(goCtx, record, handlerMetadata, "get_model_infos", func(L *lua.LState) {
 		L.Push(ctxTable(L, "", providerConfig))
 	}, 2, func(L *lua.LState) error {
 		result, returnError := splitReturn(L)
@@ -712,9 +712,6 @@ func (s *Service) GetModelInfos(
 	}, nil)
 	if callError != nil {
 		return nil, callError
-	}
-	if !found {
-		return nil, &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: "get_model_infos"}
 	}
 	modelInfos = applyModelSpecifications(modelInfos, record.ModelSpecifications[typeKey])
 	if modelInfos == nil {
@@ -755,7 +752,7 @@ func (s *Service) AuthInitiate(goCtx context.Context, typeKey, flowID string, pr
 		return nil, err
 	}
 	var result *models.AuthFlowResult
-	found, err := s.handlerCall(goCtx, record, typeKey, "auth_initiate", func(L *lua.LState) {
+	err = s.handlerCall(goCtx, record, typeKey, "auth_initiate", func(L *lua.LState) {
 		L.Push(ctxTable(L, flowID, providerConfig))
 	}, 1, func(L *lua.LState) error {
 		parsed, perr := parseAuthResult(L.Get(-1))
@@ -768,9 +765,6 @@ func (s *Service) AuthInitiate(goCtx context.Context, typeKey, flowID string, pr
 	}, nil)
 	if err != nil {
 		return nil, err
-	}
-	if !found {
-		return nil, &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: "auth_initiate"}
 	}
 	if result != nil && len(result.Render) > 0 {
 		result.Render = ResolveUINodes(result.Render, record.Locales[typeKey], locale)
@@ -790,7 +784,7 @@ func (s *Service) AuthStep(goCtx context.Context, typeKey, flowID, action string
 		values = map[string]any{}
 	}
 	var result *models.AuthFlowResult
-	found, err := s.handlerCall(goCtx, record, typeKey, "auth_step", func(L *lua.LState) {
+	err = s.handlerCall(goCtx, record, typeKey, "auth_step", func(L *lua.LState) {
 		L.Push(ctxTable(L, flowID, providerConfig))
 		input := L.NewTable()
 		input.RawSetString("action", lua.LString(action))
@@ -807,9 +801,6 @@ func (s *Service) AuthStep(goCtx context.Context, typeKey, flowID, action string
 	}, nil)
 	if err != nil {
 		return nil, err
-	}
-	if !found {
-		return nil, &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: "auth_step"}
 	}
 	if result != nil && len(result.Render) > 0 {
 		result.Render = ResolveUINodes(result.Render, record.Locales[typeKey], locale)
@@ -875,7 +866,7 @@ func (s *Service) FetchProxies(goCtx context.Context, sourceKey string) ([]proxy
 		return nil, missing
 	}
 	var candidates []proxypool.Candidate
-	found, err := s.handlerCall(goCtx, record, declared, "fetch_proxies", nil, 1, func(L *lua.LState) error {
+	err = s.handlerCall(goCtx, record, declared, "fetch_proxies", nil, 1, func(L *lua.LState) error {
 		result := L.Get(-1)
 		if result == lua.LNil {
 			candidates = []proxypool.Candidate{}
@@ -917,9 +908,6 @@ func (s *Service) FetchProxies(goCtx context.Context, sourceKey string) ([]proxy
 	}, nil)
 	if err != nil {
 		return nil, err
-	}
-	if !found {
-		return nil, &notFoundError{PluginID: record.ID, TypeKey: sourceKey, Handler: "fetch_proxies"}
 	}
 	return candidates, nil
 }

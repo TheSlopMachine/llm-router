@@ -116,7 +116,7 @@ func (s *Service) RunJob(goCtx context.Context, typeKey, name, reason, providerI
 	ctx, cancel := context.WithTimeout(goCtx, time.Duration(timeoutMs)*time.Millisecond)
 	defer cancel()
 	applyError := error(nil)
-	found, err := s.handlerCallEx(ctx, record, HandlerMeta{TypeKey: typeKey, ProviderID: providerID, ProviderConfig: providerConfig}, "job:"+name, func(L *lua.LState) {
+	err = s.handlerCallEx(ctx, record, HandlerMeta{TypeKey: typeKey, ProviderID: providerID, ProviderConfig: providerConfig}, "job:"+name, func(L *lua.LState) {
 		table := L.NewTable()
 		table.RawSetString("job_name", lua.LString(name))
 		table.RawSetString("run_reason", lua.LString(reason))
@@ -149,10 +149,6 @@ func (s *Service) RunJob(goCtx context.Context, typeKey, name, reason, providerI
 			s.logJobFailed(record.ID, typeKey, name, reason, timeoutMs, err)
 		}
 		return err
-	}
-	if !found {
-		s.logJobMissing(record.ID, typeKey, name, reason)
-		return &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: "job:" + name}
 	}
 	if applyError != nil {
 		s.logJobFailed(record.ID, typeKey, name, reason, timeoutMs, applyError)

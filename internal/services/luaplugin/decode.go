@@ -116,7 +116,7 @@ func callAndDecode[T any](
 		return nil, err
 	}
 	var out *T
-	found, callError := s.handlerCallEx(goCtx, record, handlerMetadata, handler, pushArgs, 2, func(L *lua.LState) error {
+	callError := s.handlerCallEx(goCtx, record, handlerMetadata, handler, pushArgs, 2, func(L *lua.LState) error {
 		result, returnError := splitReturn(L)
 		decoded, derr := decodeHandlerResult(s, record, typeKey, handler, result, returnError, emptyKeys, validate)
 		if derr != nil {
@@ -127,9 +127,6 @@ func callAndDecode[T any](
 	}, nil)
 	if callError != nil {
 		return nil, callError
-	}
-	if !found {
-		return nil, &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: handler}
 	}
 	return out, nil
 }

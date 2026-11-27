@@ -257,13 +257,13 @@ func (s *GormService) GetModels(ctx context.Context, providerID string) ([]strin
 }
 
 // takesCredentials reports whether a Lua plugin type needs credentials: it
-// declares a credential schema. Keyless plugins declare none.
+// declares a credential schema or a sign-in flow. Keyless plugins declare
+// neither.
 func (s *GormService) takesCredentials(typeKey string) bool {
 	if s.providerService == nil || s.providerService.LuaService() == nil {
 		return false
 	}
-	schema, err := s.providerService.LuaService().Schema(typeKey, "credential_schema", "en")
-	return err == nil && len(schema) > 0
+	return s.providerService.LuaService().CredentialsEnabled(typeKey)
 }
 
 // awaitingCredentials: a credentialed Lua provider with no credential has

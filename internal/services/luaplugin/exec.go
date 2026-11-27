@@ -55,6 +55,7 @@ func isProviderType(record *PluginRecord, typeKey string) bool {
 // handlerCall loads plugin source in a pooled state and invokes one handler.
 // Lua error tables matching the terminal (message, code?, param?, status?)
 // shape become ProviderError; everything else becomes PluginInternalError.
+// An undeclared handler returns an error wrapping ErrHandlerNotFound.
 func (s *Service) handlerCall(
 	goCtx context.Context,
 	record *PluginRecord,
@@ -63,7 +64,7 @@ func (s *Service) handlerCall(
 	returnCount int,
 	applyRet func(L *lua.LState) error,
 	providerConfig map[string]any,
-) (bool, error) {
+) error {
 	return s.handlerCallEx(goCtx, record, HandlerMeta{TypeKey: typeKey, ProviderConfig: providerConfig}, handler, pushArgs, returnCount, applyRet, nil)
 }
 
@@ -77,7 +78,7 @@ func (s *Service) handlerCallEx(
 	returnCount int,
 	applyRet func(L *lua.LState) error,
 	configuration *callConfiguration,
-) (found bool, err error) {
+) (err error) {
 	typeKey := handlerMetadata.TypeKey
 	if configuration == nil {
 		configuration = &callConfiguration{providerID: handlerMetadata.ProviderID, providerConfig: handlerMetadata.ProviderConfig, credentialID: handlerMetadata.credentialID(), model: handlerMetadata.Model, allowedCredentials: handlerMetadata.AllowedCredentials}
@@ -185,7 +186,7 @@ func (s *Service) handlerCallEx(
 		return newSandboxState(nil)
 	})
 	if pooled == nil {
-		return true, &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "load: lua state pool exhausted"}
+		return &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "load: lua state pool exhausted"}
 	}
 	rebindPooledState(pooled, ctx)
 	defer func() {
@@ -207,7 +208,7 @@ func (s *Service) handlerCallEx(
 		cause = fmt.Sprintf("%s (source %d bytes)", cause, len(record.Source))
 		s.recordCrash(record.ID, typeKey, s.crashPrefix(ctx)+"load: "+cause)
 		s.logHandlerLoadFailed(record.ID, typeKey, handler, ctx.jobName, ctx.model.String(), s.crashPrefix(ctx)+"load: "+cause)
-		return true, &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "load: " + cause}
+		return &models.PluginInternalError{PluginID: record.ID, TypeKey: typeKey, Cause: "load: " + cause}
 	}
 	handlers, ok := ctx.registrations[typeKey]
 	if !ok {
@@ -215,7 +216,7 @@ func (s *Service) handlerCallEx(
 			handlers = srcHandlers
 		} else {
 			s.logHandlerMissing(record.ID, typeKey, handler, ctx.jobName, ctx.model.String())
-			return false, &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: handler}
+			return &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: handler}
 		}
 	}
 	handlerFunction := lookupCallable(handlers, handler)
@@ -225,7 +226,7 @@ func (s *Service) handlerCallEx(
 			handlerFunction = jobFunction
 		} else {
 			s.logHandlerMissing(record.ID, typeKey, handler, ctx.jobName, ctx.model.String())
-			return false, &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: handler}
+			return &notFoundError{PluginID: record.ID, TypeKey: typeKey, Handler: handler}
 		}
 	}
 
@@ -239,16 +240,16 @@ func (s *Service) handlerCallEx(
 		err := s.luaCallError(record, typeKey, L, callError, s.crashPrefix(ctx))
 		s.logHandlerCallFailed(record.ID, typeKey, handler, ctx.jobName, ctx.model.String(), err)
 		L.SetTop(top)
-		return true, err
+		return err
 	}
 	defer L.SetTop(top)
 	if applyRet != nil {
 		if err := applyRet(L); err != nil {
 			s.logHandlerCallFailed(record.ID, typeKey, handler, ctx.jobName, ctx.model.String(), err)
-			return true, err
+			return err
 		}
 	}
-	return true, nil
+	return nil
 }
 
 // poolBucketKey qualifies a lookup key with the owning plugin identifier so

@@ -19,6 +19,7 @@ var uploadClient = &http.Client{Timeout: 120 * time.Second}
 // PluginRow is one installed plugin record: ID, version, claimed type keys.
 type PluginRow struct {
 	ID          string   `json:"id"`
+	Author      string   `json:"author"`
 	DisplayName string   `json:"display_name"`
 	Version     string   `json:"version"`
 	TypeKeys    []string `json:"type_keys"`
@@ -66,14 +67,19 @@ func PluginSource(storeDir, pluginType string) ([]byte, error) {
 	return src, nil
 }
 
-// ManifestVersion reads --- @version from a plugin source.
-func ManifestVersion(source []byte) string {
+// manifestTag reads the first --- @<tag> value from a plugin source.
+func manifestTag(source []byte, tag string) string {
 	for _, line := range strings.Split(string(source), "\n") {
-		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "--- @version "); ok {
-			return strings.TrimSpace(v)
+		if value, ok := strings.CutPrefix(strings.TrimSpace(line), "--- @"+tag+" "); ok {
+			return strings.TrimSpace(value)
 		}
 	}
 	return ""
+}
+
+// ManifestVersion reads --- @version from a plugin source.
+func ManifestVersion(source []byte) string {
+	return manifestTag(source, "version")
 }
 
 // ListPlugins returns installed plugin records.
@@ -91,12 +97,7 @@ func ListPlugins(web string) ([]PluginRow, error) {
 
 // ManifestName reads --- @plugin from a plugin source.
 func ManifestName(source []byte) string {
-	for _, line := range strings.Split(string(source), "\n") {
-		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "--- @plugin "); ok {
-			return strings.TrimSpace(v)
-		}
-	}
-	return ""
+	return manifestTag(source, "plugin")
 }
 
 // installedCurrentName reports whether a keyless plugin with the display
@@ -128,10 +129,13 @@ func deletePlugin(web, id string) error {
 }
 
 // InstallPlugin installs one plugin source, skipping reinstalls when the
-// installed version already matches. Returns true when an install ran.
+// installed version already matches. Returns true when an install ran. An
+// install replaces the plugin of the same author and name in place, keeping
+// its storage. Another plugin that holds the type key is deleted first.
 func InstallPlugin(web, pluginType string, source []byte) (bool, error) {
 	version := ManifestVersion(source)
 	name := ManifestName(source)
+	author := manifestTag(source, "author")
 	rows, err := ListPlugins(web)
 	if err != nil {
 		return false, err
@@ -149,6 +153,9 @@ func InstallPlugin(web, pluginType string, source []byte) (bool, error) {
 		}
 	}
 	for _, plugin := range rows {
+		if plugin.Author == author && plugin.DisplayName == name {
+			continue
+		}
 		matched := false
 		for _, key := range plugin.TypeKeys {
 			if key == pluginType {

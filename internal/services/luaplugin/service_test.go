@@ -246,6 +246,48 @@ func TestValidateCredentials(t *testing.T) {
 	}
 }
 
+func TestValidateCredentialsWithoutHandlerAccepts(t *testing.T) {
+	service := setupService(t)
+	source := `--- @plugin No Validator
+--- @author tester
+--- @version 1.0.0
+--- @plugin_api 1.0
+--- @allow_host example.com
+llm_router.register("no-validator", {
+  complete = function(ctx, request) return nil, { message = "unused" } end,
+  credential_schema = { { type = "secret", name = "api_key", label = "API Key" } },
+})
+`
+	if _, err := service.InstallSQLite(context.Background(), []byte(source), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	ok, err := service.ValidateCredentials("no-validator", map[string]any{"api_key": "secret"})
+	if err != nil || !ok {
+		t.Fatalf("missing validate_credentials must accept: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestCredentialsEnabledBySignInFlowAlone(t *testing.T) {
+	service := setupService(t)
+	source := `--- @plugin Sign In Only
+--- @author tester
+--- @version 1.0.0
+--- @plugin_api 1.0
+--- @allow_host example.com
+llm_router.register("sign-in-only", {
+  complete = function(ctx, request) return nil, { message = "unused" } end,
+  auth_initiate = function(ctx) return { render = { { type = "input", name = "email", label = "Email" } } } end,
+  auth_step = function(ctx, input) return { credentials = { email = input.values.email } } end,
+})
+`
+	if _, err := service.InstallSQLite(context.Background(), []byte(source), PluginOrigin{Manual: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if !service.CredentialsEnabled("sign-in-only") {
+		t.Fatal("a type with auth_initiate and no credential_schema must serve credentials")
+	}
+}
+
 func TestSandboxDeniesUnsafeGlobals(t *testing.T) {
 	service := setupService(t)
 	bad := `--- @plugin P
