@@ -270,9 +270,10 @@ Never stack a second guarded `$effect` to stabilize the first. Replace the first
 - Adding an item to a list opens a modal with the item's fields. The page shows only an Add button next to the list. Never place an inline form under the list.
   - BAD: Host, Username and Secret fields with an Add button under the registry table.
   - GOOD: an Add button that opens a modal with those fields (`openFormModal`).
-- Action buttons sit at the right end. A section with a header puts them in the header (`Header primary`, `SectionHeader actions`, `CardGroup actions`). Otherwise they go in an `HStack halign="end"` under the content. Add and Save rows follow the same rule.
+- Action buttons sit at the right end. A section with a header puts them in the header (`Header primary`, `Section actions`, `CardGroup actions`). A Card puts them in its `footer`. Otherwise they go in an `HStack halign="end"` under the content. Add and Save rows follow the same rule.
   - BAD: Add on the left under the registry table, Save on the right above it.
   - GOOD: both in `HStack halign="end"`.
+- A count of what a picker choice lists is its option's `badge`, never a number in the label.
 - A masked value uses `TextField secure`: browsers do not autofill it. Only the login form uses `type="password"`.
 
 ### 9.1 FUI first
@@ -284,8 +285,10 @@ The UI is built from `@fuckyouryan/fui`. Use its part before writing markup or C
 | Content is loading | `ProgressView`, never a "Loading..." text |
 | Confirm a destructive or costly action | `confirmAt(anchor, ...)` at the clicked control, with `run` for the request |
 | Delete a row or card | `DeleteButton` |
-| A row: glyph, title, subtitle, trailing actions | `ListRow` |
-| A section title with a count and actions | `SectionHeader` |
+| A row: glyph, title, subtitle, trailing actions | `ListRow` in a `List` |
+| A titled part of a page with a count and actions | `Section` |
+| Fields | `Form`, `FormRow` for fields side by side, `Field` |
+| A status with its glyph | `Label` |
 | One of a few described choices | `ChoiceList` |
 | Bulk actions over picked rows | `SelectionBar` |
 | A coloured state or legend mark | `StatusDot` |
@@ -309,7 +312,12 @@ Every change of what the screen shows animates, and only through FUI.
 ### 9.3 Look
 
 - Text goes through `Text`: a `variant`, or `size` from the scale (`xs` to `2xl`) and `weight`. No `font-size`, `font-weight` or numeric `size` in the app.
-- Layout and spacing go through FUI props (`VStack gap`, `width`, `maxWidth`, `pad`). Sizes FUI does not own are `--app-*` tokens in `web/src/app.css`.
+- FUI owns spacing, like SwiftUI: containers inset their content and stacks space their children by default (FUI `docs/LAYOUT.md`). A page is `Header`, then `Section`s, `Card`s and `Form`s; it writes no spacing. A deviation names a role (`spacing="tight"`, `padding`), never a number. `make check-frontend` fails on spacing numbers and on `--fui-space-*`.
+  - BAD: `<VStack gap={3}>` around a title and its caption, `padding: 12px` on a row.
+  - GOOD: `<VStack spacing="tight">`; the row is a `ListRow` in a `List`, which insets it.
+  - A spacing default that looks wrong is a FUI bug: fix it in FUI, not on the page.
+- Control sizes come from the container (`controlSize`): a `Form` draws its fields large, a `Table` its row controls small. Pass `size` only to step out of that.
+- Layout sizes go through FUI props (`width`, `maxWidth`). Sizes FUI does not own are `--app-*` tokens in `web/src/app.css`.
 - Styles stay scoped. `:global` only appears under the component's own class (`.wrap :global(.cell)`), never as a bare selector.
 
 ### 9.4 State and errors

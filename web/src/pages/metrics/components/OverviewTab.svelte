@@ -4,7 +4,7 @@
   import { getErrorMessage } from '$lib/errors'
   import type { MetricsFilters, MetricsOverview, TimeSeriesPoint, Provider } from '$lib/types'
   import { t, type TranslationKey } from '$lib/i18n.svelte'
-  import { Banner, Button, Card, Grid, HStack, Stat, Text, VStack } from '@fuckyouryan/fui'
+  import { Banner, Button, Card, Grid, HStack, Section, Stat, VStack } from '@fuckyouryan/fui'
   import MetricsFiltersCmp from './MetricsFilters.svelte'
   import PeakUsageChart from './PeakUsageChart.svelte'
 
@@ -174,33 +174,33 @@
   }
 </script>
 
-<VStack gap={6}>
-  {#if Object.values(loadErrors).some(Boolean)}
-    <VStack gap={2}>
-      {#each Object.entries(loadErrors) as [source, message] (source)}
-        {#if message}<Banner tint="danger" text={message} />{/if}
-      {/each}
-    </VStack>
-  {/if}
-
-  <VStack gap={4}>
-    <Text variant="section-title">{t('metrics.overview')}</Text>
-    <Grid min="md" gap={5}>
-      <Card>
-        <Stat label={t('metrics.total_requests')} value={totalRequests} />
-      </Card>
-      <Card>
-        <Stat label={t('metrics.total_errors')} value={totalErrors} tint={errorTint} />
-      </Card>
-      <Card>
-        <Stat label={t('metrics.error_rate.label')} value={errorRate} tint={errorTint} />
-      </Card>
-    </Grid>
+{#if Object.values(loadErrors).some(Boolean)}
+  <VStack>
+    {#each Object.entries(loadErrors) as [source, message] (source)}
+      {#if message}<Banner tint="danger" text={message} />{/if}
+    {/each}
   </VStack>
+{/if}
 
-  <HStack gap={3} valign="end" wrap>
+<Section title={t('metrics.overview')}>
+  <Grid min="md" spacing="group">
+    <Card>
+      <Stat label={t('metrics.total_requests')} value={totalRequests} />
+    </Card>
+    <Card>
+      <Stat label={t('metrics.total_errors')} value={totalErrors} tint={errorTint} />
+    </Card>
+    <Card>
+      <Stat label={t('metrics.error_rate.label')} value={errorRate} tint={errorTint} />
+    </Card>
+  </Grid>
+</Section>
+
+<HStack spacing="group" valign="end" wrap>
+  <VStack grow>
     <MetricsFiltersCmp bind:filters {providers} {models} onchange={(changed, field) => void handleFilterChange(changed, field)} />
-    <Button
+  </VStack>
+  <Button
       buttonStyle={live ? 'prominent' : 'neutral'}
       icon={{ name: live ? 'sensors' : 'pause' }}
       text={t('metrics.live.action')}
@@ -209,14 +209,12 @@
         if (live) void loadMetrics()
       }}
     />
-  </HStack>
+</HStack>
 
-  <VStack gap={4}>
-    <Text variant="section-title">{t('metrics.peak_trends')}</Text>
-    <Grid min="md" gap={5}>
-      <PeakUsageChart title={t('metrics.peak_requests')} data={requestsData} from={chartFrom} to={clock} {loading} />
-      <PeakUsageChart title={t('metrics.peak_input')} data={inputTokensData} from={chartFrom} to={clock} {loading} />
-      <PeakUsageChart title={t('metrics.peak_output')} data={outputTokensData} from={chartFrom} to={clock} {loading} />
-    </Grid>
-  </VStack>
-</VStack>
+<Section title={t('metrics.peak_trends')}>
+  <Grid min="md" spacing="group">
+    <PeakUsageChart title={t('metrics.peak_requests')} data={requestsData} from={chartFrom} to={clock} {loading} />
+    <PeakUsageChart title={t('metrics.peak_input')} data={inputTokensData} from={chartFrom} to={clock} {loading} />
+    <PeakUsageChart title={t('metrics.peak_output')} data={outputTokensData} from={chartFrom} to={clock} {loading} />
+  </Grid>
+</Section>

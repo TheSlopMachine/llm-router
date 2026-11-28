@@ -132,13 +132,12 @@
     {:else if !list || list.length === 0}
       <ContentUnavailable title={t('common.empty.no_data')} />
     {:else}
-      <!-- the Card body pads every side and spaces its children by the same step: rows follow it,
-           the dividers sit on that step between them -->
-      <VStack gap={5}>
+      <!-- rows a group's gap apart, the dividers in the middle of the gaps -->
+      <VStack spacing="group">
         {#each list as item, index (item.id)}
           {#if index > 0}<Divider />{/if}
-          <HStack valign="center" gap={3}>
-            <Text truncate>{item.label}</Text>
+          <HStack valign="center">
+            <Text lineLimit={1}>{item.label}</Text>
             <Spacer />
             <Button size="sm" icon={{ name: 'download' }} onclick={() => void exportItem(item)}>{t('data.export')}</Button>
             {#if purgeItem}

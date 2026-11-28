@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Banner, Card, CodeBlock, Field, Grid, TextField, Toggle, Text, VStack, HStack, Spacer, Divider, type HAlign, type VAlign, type Step, Picker } from '@fuckyouryan/fui'
+  import { Button, Banner, Card, CodeBlock, Field, Form, Grid, TextField, Toggle, Text, VStack, HStack, Spacer, Divider, type HAlign, type VAlign, type Spacing, Picker } from '@fuckyouryan/fui'
   import { isStepValue, isBannerVariant, isSecretInput } from '$lib/ui-helpers'
   import type { UINode } from '../../lib/types'
 
@@ -38,12 +38,12 @@
     return node.option_labels?.[option] ?? option
   }
 
-  // Backend normalizes gap/size to Step int (legacy sm|md|lg accepted).
-  const LEGACY_GAP: Record<string, Step> = { sm: 2, md: 4, lg: 6 }
-  function toStep(v: unknown, fallback: Step): Step {
-    if (isStepValue(v)) return v as Step
-    if (typeof v === 'string' && v in LEGACY_GAP) return LEGACY_GAP[v]
-    return fallback
+  // The plugin contract sizes a gap as a step 0 to 8 (the backend normalizes the legacy sm, md and
+  // lg to steps 2, 4 and 6). The dashboard places views by role: a step maps onto the role whose
+  // width it had, the default role for anything else.
+  const STEP_SPACING: Spacing[] = ['none', 'tight', 'tight', 'default', 'default', 'group', 'section', 'section', 'section']
+  function pluginSpacing(value: unknown): Spacing {
+    return isStepValue(value) ? STEP_SPACING[value] : 'default'
   }
 
   // The plugin contract names the failure style `error`; the widget tint is `danger`.
@@ -134,7 +134,7 @@
     {:else if node.type === 'flow'}
       {#if (node.direction ?? 'vertical') === 'horizontal'}
         <HStack
-          gap={toStep(node.gap, 4)}
+          spacing={pluginSpacing(node.gap)}
           valign={(node.align ?? 'stretch') as VAlign}
           halign={(node.justify ?? 'start') as HAlign}
           wrap={node.wrap ?? true}
@@ -143,7 +143,7 @@
         </HStack>
       {:else}
         <VStack
-          gap={toStep(node.gap, 4)}
+          spacing={pluginSpacing(node.gap)}
           halign={(node.align ?? 'stretch') as HAlign}
           valign={(node.justify ?? 'start') as VAlign}
           wrap={node.wrap ?? true}
@@ -152,7 +152,7 @@
         </VStack>
       {/if}
     {:else if node.type === 'grid'}
-      <Grid min="md" gap={toStep(node.gap, 4)} width="full">
+      <Grid min="md" spacing={pluginSpacing(node.gap)} width="full">
         {@render nodeList(node.content ?? [])}
       </Grid>
     {:else if node.type === 'section' && flat}
@@ -160,10 +160,10 @@
            buttons on the right) over the rest of the content -->
       {@const links = (node.content ?? []).filter((child) => child.type === 'link')}
       {@const rest = (node.content ?? []).filter((child) => child.type !== 'link')}
-      <VStack gap={4}>
+      <VStack spacing="group">
         {#if node.title || node.subtitle || links.length > 0}
-          <HStack gap={3} valign="center" wrap>
-            <VStack gap={1} grow>
+          <HStack valign="center" wrap>
+            <VStack spacing="tight" grow>
               {#if node.title}<Text variant="section-title">{node.title}</Text>{/if}
               {#if node.subtitle}<Text size="sm" foregroundStyle="secondary">{node.subtitle}</Text>{/if}
             </VStack>
@@ -182,18 +182,18 @@
       {#if node.grow ?? true}
         <Spacer />
       {:else}
-        <Spacer size={toStep(node.size, 4)} axis="y" />
+        <Spacer size={pluginSpacing(node.size)} axis="y" />
       {/if}
     {:else if node.type === 'divider'}
       <Divider />
     {:else if node.type === 'group'}
-      <VStack elev pad={3} radius="md">
+      <VStack elev padding="default" radius="md">
         {@render nodeList(node.content ?? [])}
       </VStack>
     {/if}
   {/each}
 {/snippet}
 
-<VStack gap={4}>
+<Form>
   {@render nodeList(nodes)}
-</VStack>
+</Form>

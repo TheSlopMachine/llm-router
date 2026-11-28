@@ -22,12 +22,12 @@
   } = $props()
 </script>
 
-<VStack gap={3}>
+<VStack controlSize="sm">
   <Text weight="medium" size="md">{t('plugins.permissions_requested')}</Text>
   <PluginPermissionList hosts={permissions.allow_hosts} unsafe={permissions.unsafe} docker={permissions.docker} {diff} />
-  <HStack halign="end" gap={3}>
-    <Button size="sm" buttonStyle="text" onclick={oncancel} disabled={busy}>{t('common.actions.cancel')}</Button>
-    <Button size="sm" buttonStyle="prominent" onclick={onconfirm} disabled={busy}>
+  <HStack halign="end">
+    <Button buttonStyle="text" onclick={oncancel} disabled={busy}>{t('common.actions.cancel')}</Button>
+    <Button buttonStyle="prominent" onclick={onconfirm} disabled={busy}>
       {confirmLabel}
     </Button>
   </HStack>

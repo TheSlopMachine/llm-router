@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, CodeBlock, DeleteButton, FloatingView, HStack, Table, Text, TextField, VStack, Banner, Header, Spacer, RelativeTime, confirmAt, type TableColumn, ContentUnavailable, modal } from '@fuckyouryan/fui'
+  import { Button, CodeBlock, DeleteButton, FloatingView, HStack, Section, Table, Text, TextField, VStack, Banner, Header, Spacer, RelativeTime, confirmAt, type TableColumn, ContentUnavailable, modal } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import { createListResource } from '$lib/list-resource.svelte'
@@ -115,30 +115,30 @@
 {/snippet}
 
 {#snippet tokenActions(tok: Token)}
-  <HStack halign="end" gap={2}>
-    <Button buttonStyle="text" size="sm" icon={{ name: 'refresh' }} title={t('tokens.actions.regenerate')} ariaLabel={t('tokens.actions.regenerate')}
+  <HStack halign="end">
+    <Button buttonStyle="text" icon={{ name: 'refresh' }} title={t('tokens.actions.regenerate')} ariaLabel={t('tokens.actions.regenerate')}
       onclick={(e) => void regenerate(tok, e.currentTarget as HTMLElement)} />
-    <Button buttonStyle="text" size="sm" icon={{ name: 'content_copy' }} title={t('tokens.actions.clone')} ariaLabel={t('tokens.actions.clone')}
+    <Button buttonStyle="text" icon={{ name: 'content_copy' }} title={t('tokens.actions.clone')} ariaLabel={t('tokens.actions.clone')}
       onclick={(e) => openClone(tok, e.currentTarget as HTMLElement)} />
-    <Button buttonStyle="text" size="sm" icon={{ name: 'edit' }} title={t('common.actions.edit')} ariaLabel={t('common.actions.edit')}
+    <Button buttonStyle="text" icon={{ name: 'edit' }} title={t('common.actions.edit')} ariaLabel={t('common.actions.edit')}
       onclick={() => openEdit(tok)} />
-    <DeleteButton size="sm" label={t('tokens.actions.revoke')} onclick={(e) => void revoke(tok, e.currentTarget as HTMLElement)} />
+    <DeleteButton label={t('tokens.actions.revoke')} onclick={(e) => void revoke(tok, e.currentTarget as HTMLElement)} />
   </HStack>
 {/snippet}
 
-<VStack gap={6}>
-  <Header title={t('tokens.list.title')} primary={{ id: 'new', text: t('tokens.actions.new'), icon: 'add', onclick: openCreate }}>
-    {#snippet subtitle()}
-      {t('tokens.list.router_for')} <code>/v1</code> {t('tokens.list.subtitle')}
-    {/snippet}
-  </Header>
+<Header title={t('tokens.list.title')} primary={{ id: 'new', text: t('tokens.actions.new'), icon: 'add', onclick: openCreate }}>
+  {#snippet subtitle()}
+    {t('tokens.list.router_for')} <code>/v1</code> {t('tokens.list.subtitle')}
+  {/snippet}
+</Header>
 
-  {#if resource.error}
-    <Banner tint="danger" text={resource.error} />
-  {/if}
+{#if resource.error}
+  <Banner tint="danger" text={resource.error} />
+{/if}
 
+<Section>
   {#if newTokenSecret}
-    <VStack gap={2}>
+    <VStack spacing="tight">
       <Text tint="success" size="sm">{t('tokens.success.copy_warning')}</Text>
       <CodeBlock text={newTokenSecret} />
     </VStack>
@@ -152,7 +152,7 @@
   >
     {#snippet card({ row })}
       {@const tok = row as Token}
-      <HStack gap={3} valign="center">
+      <HStack valign="center">
         <Text variant="value">{tok.name}</Text>
         <Spacer />
         {@render tokenActions(tok)}
@@ -185,14 +185,13 @@
     label={t('tokens.actions.clone_title')}
   >
     {#snippet children({ close })}
-      <VStack gap={3}>
+      <VStack controlSize="sm">
         <Text variant="value">{t('tokens.actions.clone_title')}</Text>
         {#if cloneError}<Banner tint="danger" text={cloneError} />{/if}
-        <TextField bind:value={cloneName} placeholder={t('tokens.create.name_placeholder')} />
-        <HStack halign="end" gap={2}>
-          <Button size="sm" buttonStyle="text" onclick={close} disabled={cloneSaving}>{t('common.actions.cancel')}</Button>
+        <TextField bind:value={cloneName} placeholder={t('tokens.create.name_placeholder')} size="md" />
+        <HStack halign="end">
+          <Button buttonStyle="text" onclick={close} disabled={cloneSaving}>{t('common.actions.cancel')}</Button>
           <Button
-            size="sm"
             buttonStyle="prominent"
             disabled={!isCloneReady}
             onclick={async () => {
@@ -218,4 +217,4 @@
       </VStack>
     {/snippet}
   </FloatingView>
-</VStack>
+</Section>

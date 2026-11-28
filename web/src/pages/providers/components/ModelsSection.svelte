@@ -5,7 +5,7 @@
   import ModelsTable from '../../../components/domain/ModelsTable.svelte'
   import ProviderVirtualModels from './ProviderVirtualModels.svelte'
   import AddCustomModelModal from './AddCustomModelModal.svelte'
-  import { toast, Button, DeleteButton, SectionHeader, SelectionBar, HStack, VStack, Text, Toggle, Checkbox, Picker, SearchField, Toolbar, ToolbarItem, Banner, ContentUnavailable, RelativeTime, Chip, confirmAt, type IconName } from '@fuckyouryan/fui'
+  import { toast, Button, DeleteButton, Grid, Label, Section, SelectionBar, HStack, VStack, Text, Toggle, Checkbox, Picker, SearchField, Toolbar, ToolbarItem, Banner, ContentUnavailable, RelativeTime, Chip, confirmAt, type IconName } from '@fuckyouryan/fui'
   import { modalityIcon, modalityTint } from '$lib/modalities'
   import { t, tb, tx, type TranslationKey } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
@@ -369,10 +369,10 @@
 
 {#snippet modelActions(m: ProviderModel)}
   {@const icon = testIcon(modelTestResults[m.name])}
-  <HStack gap={2}>
-    <Button size="sm" icon={{ name: icon.icon }} title={icon.title} ariaLabel={icon.title} disabled={modelTestResults[m.name] === 'loading'} onclick={() => testModel(m)} />
+  <HStack>
+    <Button icon={{ name: icon.icon }} title={icon.title} ariaLabel={icon.title} disabled={modelTestResults[m.name] === 'loading'} onclick={() => testModel(m)} />
     {#if m.custom}
-      <DeleteButton size="sm" label={t('models.actions.delete_custom')} onclick={(e) => void deleteCustomModel(m, e.currentTarget as HTMLElement)} />
+      <DeleteButton label={t('models.actions.delete_custom')} onclick={(e) => void deleteCustomModel(m, e.currentTarget as HTMLElement)} />
     {/if}
     <Toggle checked={!m.disabled} ariaLabel={t('common.labels.enabled')} onchange={(next) => toggleModel(m, next)} />
   </HStack>
@@ -383,11 +383,11 @@
   {#if modelTestResults[m.name] === 'loading'}
     <Text size="sm" foregroundStyle="secondary">{t('credentials.testing')}</Text>
   {:else if check}
-    <VStack gap={0} halign="start">
+    <VStack spacing="tight">
       {#if check.result.ok}
-        <Text size="sm" tint="success">✓ {check.result.latency_ms} {t('models.status.ms')}</Text>
+        <Label tint="success" text={`${check.result.latency_ms} ${t('models.status.ms')}`} />
       {:else}
-        <Text size="sm" tint="danger" truncate title={check.result.error ?? failureReason(check.result)}>✗ {failureReason(check.result)}</Text>
+        <Label tint="danger" text={failureReason(check.result)} title={check.result.error ?? failureReason(check.result)} />
       {/if}
       <Text size="xs" foregroundStyle="tertiary"><RelativeTime date={check.at} /></Text>
     </VStack>
@@ -401,24 +401,21 @@
 {:else if discoveryFailed && !modelsLoading}
   <Banner tint="danger" text={modelsError} />
 {:else}
-  <VStack tag="section" gap={4}>
-    <SectionHeader title={t('models.list.available')}>
-      {#snippet actions()}
-        <Button buttonStyle="prominent" icon={{ name: 'add' }} text={t('models.actions.add_custom')} onclick={openAddCustomModel} />
-      {/snippet}
-    </SectionHeader>
-
+  {#snippet addCustomModelAction()}
+    <Button buttonStyle="prominent" icon={{ name: 'add' }} text={t('models.actions.add_custom')} onclick={openAddCustomModel} />
+  {/snippet}
+  <Section title={t('models.list.available')} actions={addCustomModelAction}>
     {#if error}
       <Banner tint="danger" text={error} />
     {/if}
 
-    <Toolbar overflow="wrap" gap={3}>
+    <Toolbar overflow="wrap">
       <Picker pickerStyle="segmented"
         value={filterChoice.value}
         options={[
-          { value: 'all', label: `${t('common.actions.all')} ${filterCounts.all}` },
-          { value: 'enabled', label: `${t('common.labels.enabled')} ${filterCounts.enabled}` },
-          { value: 'disabled', label: `${t('common.labels.disabled')} ${filterCounts.disabled}` },
+          { value: 'all', label: t('common.actions.all'), badge: filterCounts.all },
+          { value: 'enabled', label: t('common.labels.enabled'), badge: filterCounts.enabled },
+          { value: 'disabled', label: t('common.labels.disabled'), badge: filterCounts.disabled },
         ]}
         ariaLabel={t('models.filter.visibility')}
         onchange={(next) => void saveModelsFilter(next as ModelFilter)}
@@ -440,55 +437,55 @@
       </ToolbarItem>
     </Toolbar>
 
-    <div class="setting-grid">
+    <!-- label | switch pairs: the switches line up after the longest label -->
+    <Grid cols="max-content max-content" valign="center">
       <Text>{t('providers.detail.disable_failing')}</Text>
       <Toggle checked={disableFailedModels} ariaLabel={t('providers.detail.disable_failing')} onchange={(next) => { disableFailedModels = next; void saveAutomation() }} />
       <Text>{t('providers.detail.auto_sync')}</Text>
       <Toggle checked={autoSyncModels} ariaLabel={t('providers.detail.auto_sync')} onchange={(next) => { autoSyncModels = next; void saveAutomation() }} />
-    </div>
+    </Grid>
+  </Section>
 
-    {#if modalityOptions.length > 0 || capabilityOptions.length > 0}
-      <!-- filters: every chip wears its modality or capability colour, the unpicked ones muted -->
-      <div class="filters">
-        <VStack gap={4}>
-          <Text variant="section-title">{t('models.filter.label')}</Text>
-          <div class="filter-grid">
-            {#if modalityOptions.length > 0}
-              <Text size="sm" foregroundStyle="secondary">{t('models.filter.modalities')}</Text>
-              <HStack gap={3} wrap valign="center">
-                {#each modalityOptions as mod (mod)}
-                  <Chip
-                    icon={modalityIcon(mod)}
-                    text={t(`modality.${mod}` as TranslationKey)}
-                    tint={modalityTint(mod)}
-                    class={capFilter.includes('mod:' + mod) ? '' : 'chip-off'}
-                    onclick={() => toggleFeature('mod:' + mod)}
-                  />
-                {/each}
-              </HStack>
-            {/if}
-            {#if capabilityOptions.length > 0}
-              <Text size="sm" foregroundStyle="secondary">{t('models.filter.capabilities')}</Text>
-              <HStack gap={3} wrap valign="center">
-                {#each capabilityOptions as cap (cap)}
-                  {@const meta = CAPABILITY_META[cap]}
-                  <Chip
-                    icon={meta.icon}
-                    text={t(meta.label)}
-                    title={t(meta.hint)}
-                    tint={meta.chipTint}
-                    class={capFilter.includes(cap) ? '' : 'chip-off'}
-                    onclick={() => toggleFeature(cap)}
-                  />
-                {/each}
-              </HStack>
-            {/if}
-          </div>
-        </VStack>
-      </div>
-    {/if}
+  {#if modalityOptions.length > 0 || capabilityOptions.length > 0}
+    <!-- filters: every chip wears its modality or capability colour, the unpicked ones muted -->
+    <Section title={t('models.filter.label')}>
+      <Grid cols="max-content 1fr" valign="center">
+        {#if modalityOptions.length > 0}
+          <Text size="sm" foregroundStyle="secondary">{t('models.filter.modalities')}</Text>
+          <HStack wrap valign="center">
+            {#each modalityOptions as mod (mod)}
+              <Chip
+                icon={modalityIcon(mod)}
+                text={t(`modality.${mod}` as TranslationKey)}
+                tint={modalityTint(mod)}
+                selected={capFilter.includes('mod:' + mod)}
+                onclick={() => toggleFeature('mod:' + mod)}
+              />
+            {/each}
+          </HStack>
+        {/if}
+        {#if capabilityOptions.length > 0}
+          <Text size="sm" foregroundStyle="secondary">{t('models.filter.capabilities')}</Text>
+          <HStack wrap valign="center">
+            {#each capabilityOptions as cap (cap)}
+              {@const meta = CAPABILITY_META[cap]}
+              <Chip
+                icon={meta.icon}
+                text={t(meta.label)}
+                title={t(meta.hint)}
+                tint={meta.chipTint}
+                selected={capFilter.includes(cap)}
+                onclick={() => toggleFeature(cap)}
+              />
+            {/each}
+          </HStack>
+        {/if}
+      </Grid>
+    </Section>
+  {/if}
 
-    <!-- search sits right over the table it narrows -->
+  <!-- the search sits right over the table it narrows -->
+  <Section>
     <SearchField bind:value={modelSearch} placeholder={t('models.filter.placeholder')} />
 
     {#if modelsError}
@@ -521,9 +518,7 @@
     >
       {#snippet select({ model })}
         {@const m = model.source as ProviderModel}
-        <span class="select-cell">
-          <Checkbox checked={selected.includes(m.name)} ariaLabel={t('models.bulk.select_row')} onchange={(next) => setSelected(m.name, next)} />
-        </span>
+        <Checkbox checked={selected.includes(m.name)} ariaLabel={t('models.bulk.select_row')} onchange={(next) => setSelected(m.name, next)} />
       {/snippet}
       {#snippet status({ model })}
         {@render modelStatus(model.source as ProviderModel)}
@@ -543,16 +538,14 @@
       <SelectionBar text={`${t('models.bulk.count')}: ${selected.length}`} onclear={() => { selected = [] }}>
         {#snippet actions()}
           <Button
-            size="sm"
             icon={{ name: allVisibleSelected ? 'deselect' : 'select_all' }}
             text={allVisibleSelected ? t('models.bulk.select_none') : t('common.actions.select_all')}
             disabled={visibleNames.length === 0}
             onclick={toggleSelectAll}
           />
-          <Button size="sm" icon={{ name: 'toggle_on' }} text={t('models.bulk.enable')} disabled={bulkBusy} onclick={() => void setSelectedDisabled(false)} />
-          <Button size="sm" icon={{ name: 'toggle_off' }} text={t('models.bulk.disable')} disabled={bulkBusy} onclick={() => void setSelectedDisabled(true)} />
+          <Button icon={{ name: 'toggle_on' }} text={t('models.bulk.enable')} disabled={bulkBusy} onclick={() => void setSelectedDisabled(false)} />
+          <Button icon={{ name: 'toggle_off' }} text={t('models.bulk.disable')} disabled={bulkBusy} onclick={() => void setSelectedDisabled(true)} />
           <Button
-            size="sm"
             icon={{ name: testingAll ? 'stop' : 'network_check' }}
             text={testingAll ? t('credentials.testing_click_cancel') : t('models.bulk.test')}
             onclick={testingAll ? () => void testAllModels() : testSelected}
@@ -560,42 +553,7 @@
         {/snippet}
       </SelectionBar>
     {/if}
-  </VStack>
+  </Section>
 
   <ProviderVirtualModels bind:this={virtualModels} {providerId} onerror={(message) => { error = message }} />
 {/if}
-
-<style>
-  /* label | switch pairs: switches sit in one column right after the longest label */
-  .setting-grid {
-    display: grid;
-    grid-template-columns: auto auto;
-    justify-content: start;
-    align-items: center;
-    gap: var(--fui-space-3) var(--fui-space-5);
-  }
-  /* The filters sit inside the models section (gap space-4) but read as a section of their own:
-     the page puts space-6 between sections. */
-  .filters {
-    margin-top: calc(var(--fui-space-6) - var(--fui-space-4));
-  }
-  /* label | chip row pairs: the chip rows start in one column; rows are as far apart as the chips
-     in a row (space-3) */
-  .filter-grid {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    align-items: center;
-    gap: var(--fui-space-3) var(--fui-space-4);
-  }
-  /* an unpicked filter chip keeps its colour, lightly muted */
-  .filter-grid :global(.chip-off) {
-    opacity: 0.75;
-  }
-  /* The selection column is the table's first: its left inset is the table's edge padding
-     (space-5), its right is this cell's plus the next cell's (2 x space-2). The margin evens the
-     two sides out. */
-  .select-cell {
-    display: inline-flex;
-    margin-right: calc(var(--fui-space-5) - 2 * var(--fui-space-2));
-  }
-</style>

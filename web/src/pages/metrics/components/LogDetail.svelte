@@ -24,30 +24,29 @@
   }
 </script>
 
-<VStack gap={4}>
-  <HStack valign="center" gap={3}>
+<VStack spacing="group">
+  <HStack valign="center">
     <Chip tint={severityTint(entry.severity)} text={t(severityLabel(entry.severity))} />
     <Text size="sm" mono foregroundStyle="secondary">{moment}</Text>
     <Spacer />
     <CopyButton text={JSON.stringify(entry, null, 2)} />
   </HStack>
 
-  <Text break>{entry.message}</Text>
+  <Text>{entry.message}</Text>
 
   {#if entry.keys.length > 0}
     <Card title={t('metrics.logs.detail_keys.title')}>
-      <VStack gap={2}>
+      <VStack spacing="tight" controlSize="sm">
         {#each entry.keys as pair}
-          <HStack valign="center" gap={3}>
+          <HStack valign="center">
             <HStack width={120} minWidth={0}>
-              <Text size="sm" foregroundStyle="secondary" truncate title={pair.key}>{keyLabel(pair.key)}</Text>
+              <Text size="sm" foregroundStyle="secondary" lineLimit={1} title={pair.key}>{keyLabel(pair.key)}</Text>
             </HStack>
             <HStack grow minWidth={0}>
-              <Text size="sm" mono break>{pair.value ?? '—'}</Text>
+              <Text size="sm" mono>{pair.value ?? '—'}</Text>
             </HStack>
             <Button
               buttonStyle="text"
-              size="sm"
               icon={{ name: 'filter_list' }}
               title={t('metrics.logs.detail_filter.action')}
               ariaLabel={t('metrics.logs.detail_filter.action')}
@@ -55,7 +54,6 @@
             />
             <Button
               buttonStyle="text"
-              size="sm"
               icon={{ name: 'block' }}
               title={t('metrics.logs.detail_exclude.action')}
               ariaLabel={t('metrics.logs.detail_exclude.action')}

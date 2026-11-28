@@ -31,24 +31,23 @@
 </script>
 
 <div class="login-page">
-  <VStack gap={7} width="full" maxWidth="var(--app-auth-max-w)">
-    <VStack gap={3} halign="center">
+  <VStack spacing="section" width="full" maxWidth="var(--app-auth-max-w)" controlSize="lg">
+    <VStack halign="center">
       <!-- App icon mark: outlined hexagon standing on a vertex. -->
       <svg class="mark" viewBox="0 0 100 100" aria-hidden="true">
         <polygon points="50,8 86.4,29 86.4,71 50,92 13.6,71 13.6,29" />
       </svg>
       <Text tag="h1" size="2xl" weight="medium">llm-router</Text>
     </VStack>
-    <VStack gap={4}>
+    <VStack>
       {#if error}
         <Banner tint="danger" text={error} />
       {/if}
-      <HStack gap={2}>
+      <HStack spacing="tight">
         <TextField
           id="password"
           type="password"
           fill
-          size="lg"
           name="current-password"
           autocomplete="current-password"
           placeholder={t('auth.password.label')}
@@ -58,7 +57,6 @@
         />
         <Button
           buttonStyle="prominent"
-          size="lg"
           icon={{ name: 'arrow_forward' }}
           ariaLabel={t('auth.sign_in.title')}
           title={t('auth.sign_in.title')}
@@ -81,9 +79,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: var(--fui-space-6);
+    padding: var(--fui-spacing-section);
     /* Extra bottom padding lifts the block to the optical center. */
-    padding-bottom: calc(var(--fui-space-6) + 10vh);
+    padding-bottom: calc(var(--fui-spacing-section) + 10vh);
     background: var(--fui-color-background);
   }
   .mark {

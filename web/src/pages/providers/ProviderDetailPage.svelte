@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { api } from '../../lib/api'
-  import { modal, toast, ContentUnavailable, ProgressView, Button, Chip, DeleteButton, HStack, SectionHeader, Spacer, Toggle, Table, Text, VStack, Banner, Header, confirmAt, type TableColumn, Picker, type HeaderAction, type IconName } from '@fuckyouryan/fui'
+  import { modal, toast, ContentUnavailable, ProgressView, Button, Chip, DeleteButton, HStack, Section, Toggle, Table, Text, VStack, Banner, Header, confirmAt, type TableColumn, Picker, type HeaderAction, type IconName } from '@fuckyouryan/fui'
   import { hasUiNodes } from '$lib/ui-helpers'
   import { getErrorMessage } from '../../lib/errors'
   import type { Credential, Provider, ProxyPool, TestResult, UINode } from '../../lib/types'
@@ -427,35 +427,32 @@
 {/snippet}
 
 {#snippet credentialActions(cred: Credential)}
-  <Button size="sm" buttonStyle="text" icon={{ name: 'edit' }} ariaLabel={t('credentials.edit')} title={t('credentials.edit')} onclick={() => openEditCredential(cred)} />
-  <DeleteButton size="sm" label={t('credentials.delete')} onclick={(e) => void deleteCredential(cred, e.currentTarget as HTMLElement)} />
+  <Button buttonStyle="text" icon={{ name: 'edit' }} ariaLabel={t('credentials.edit')} title={t('credentials.edit')} onclick={() => openEditCredential(cred)} />
+  <DeleteButton label={t('credentials.delete')} onclick={(e) => void deleteCredential(cred, e.currentTarget as HTMLElement)} />
   <Toggle checked={!cred.disabled} ariaLabel={t('common.labels.enabled')} onchange={(v) => toggleCredential(cred, v)} />
 {/snippet}
 
 {#if loading}
   <ProgressView />
 {:else if !provider}
-  <VStack halign="center" valign="center" gap={4} minHeight="var(--app-provider-state-min-h)">
-    <ContentUnavailable title={t('providers.detail.not_found')} />
+  {#snippet backAction()}
     <Button buttonStyle="text" onclick={back}>{t('providers.detail.back_to_providers')}</Button>
-  </VStack>
+  {/snippet}
+  <ContentUnavailable title={t('providers.detail.not_found')} action={backAction} />
 {:else}
   {@const p = provider}
-  <VStack gap={6}>
-    <Header title={p.name} subtitle={p.type_key} back={{ label: t('providers.list.title'), href: '#/providers' }} actions={detailActions(p)} primary={detailEnable(p)} />
+  <Header title={p.name} subtitle={p.type_key} back={{ label: t('providers.list.title'), href: '#/providers' }} actions={detailActions(p)} primary={detailEnable(p)} />
 
-    {#if error}
-      <Banner tint="danger" text={error} />
-    {/if}
+  {#if error}
+    <Banner tint="danger" text={error} />
+  {/if}
 
-    {#if credentialsEnabled}
-      <VStack tag="section" gap={4}>
-        <SectionHeader title={t('credentials.title_plural')} count={credentials.length}>
-          {#snippet actions()}
-            <Button buttonStyle="prominent" onclick={openAddCredential} icon={{ name: 'add' }}>{t('credentials.add')}</Button>
-          {/snippet}
-        </SectionHeader>
-      <HStack valign="center" gap={4} wrap>
+  {#if credentialsEnabled}
+    {#snippet addCredentialAction()}
+      <Button buttonStyle="prominent" onclick={openAddCredential} icon={{ name: 'add' }}>{t('credentials.add')}</Button>
+    {/snippet}
+    <Section title={t('credentials.title_plural')} count={credentials.length} actions={addCredentialAction}>
+      <HStack valign="center" wrap>
         <Toggle
           checked={disableFailedCredentials}
           label={t('credentials.disable_failing')}
@@ -474,21 +471,21 @@
       >
         {#snippet card({ row })}
           {@const cred = row as Credential}
-          <HStack gap={3} valign="center">
-            <VStack gap={1} grow>
+          <HStack valign="center">
+            <VStack spacing="tight" grow>
               <Text variant="value">{cred.label || t('common.labels.unnamed')}</Text>
               {@render credentialState(cred)}
               {#if cred.is_expired}
                 <Text variant="caption" tint="danger">{t('tokens.status.expired')}</Text>
               {/if}
             </VStack>
-            <HStack gap={2}>{@render credentialActions(cred)}</HStack>
+            <HStack>{@render credentialActions(cred)}</HStack>
           </HStack>
         {/snippet}
         {#snippet cell({ column, row })}
           {@const cred = row as Credential}
           {#if column.key === 'name'}
-            <HStack gap={2} valign="center" wrap>
+            <HStack valign="center" wrap>
               <Text variant="value">{cred.label || t('common.labels.unnamed')}</Text>
               {#if cred.is_expired}
                 <Chip text={t('tokens.status.expired')} tint="danger" />
@@ -497,10 +494,9 @@
             {@render credentialState(cred)}
           {:else}
             {@const ti = testIcon(credentialTestResults[cred.id], t('credentials.test'))}
-            <HStack gap={3} halign="end">
+            <HStack halign="end">
               {#if cred.parked}
                 <Button
-                  size="sm"
                   buttonStyle="text"
                   icon={{ name: 'ac_unit' }}
                   ariaLabel={t('credentials.unpark_action')}
@@ -509,7 +505,6 @@
                 />
               {/if}
               <Button
-                size="sm"
                 icon={{ name: ti.icon }}
                 buttonStyle="text"
                 disabled={credentialTestResults[cred.id] === 'loading'}
@@ -525,15 +520,13 @@
           <ContentUnavailable title={t('credentials.empty')} />
         {/snippet}
       </Table>
-      </VStack>
-    {/if}
+    </Section>
+  {/if}
 
-    {#if proxiesEnabled}
-      <VStack tag="section" gap={4} halign="start">
-        <Text variant="section-title">{t('proxy.title_singular')}</Text>
-        <HStack valign="center" gap={3}>
+  {#if proxiesEnabled}
+    <Section title={t('proxy.title_singular')}>
+        <HStack valign="center">
           <Text>{t('providers.detail.route_pool')}</Text>
-          <Spacer />
           <Toggle
             checked={proxyEnabled}
             ariaLabel={t('providers.detail.route_pool')}
@@ -541,7 +534,7 @@
           />
         </HStack>
         {#if proxyEnabled}
-          <HStack valign="center" gap={3} wrap>
+          <HStack valign="center" wrap>
             <Picker
               bind:value={proxyPool}
               options={[
@@ -560,24 +553,21 @@
         {#if proxyEnabled && proxyNodes.length > 0}
           <DynamicForm nodes={proxyNodes} bind:values={settingsValues} busy={savingProxy} />
         {/if}
-      </VStack>
-    {/if}
+    </Section>
+  {/if}
 
-    {#if settingsNodes.length > 0}
-      <VStack tag="section" gap={4} halign="start">
-        <SectionHeader title={t('providers.detail.plugin_settings')}>
-          {#snippet actions()}
-            <Button buttonStyle="prominent" onclick={() => void saveSettings()} disabled={savingSettings}>
-              {savingSettings ? t('common.actions.saving') : t('providers.detail.save_settings')}
-            </Button>
-          {/snippet}
-        </SectionHeader>
-        <DynamicForm nodes={settingsNodes} bind:values={settingsValues} busy={savingSettings} />
-      </VStack>
-    {/if}
+  {#if settingsNodes.length > 0}
+    {#snippet saveSettingsAction()}
+      <Button buttonStyle="prominent" onclick={() => void saveSettings()} disabled={savingSettings}>
+        {savingSettings ? t('common.actions.saving') : t('providers.detail.save_settings')}
+      </Button>
+    {/snippet}
+    <Section title={t('providers.detail.plugin_settings')} actions={saveSettingsAction}>
+      <DynamicForm nodes={settingsNodes} bind:values={settingsValues} busy={savingSettings} />
+    </Section>
+  {/if}
 
-    <DockerSection providerId={provider.id} onstate={onDockerState} />
+  <DockerSection providerId={provider.id} onstate={onDockerState} />
 
-    <ModelsSection bind:this={modelsSection} bind:provider={() => p, (next) => { provider = next }} waitingText={dockerWait} />
-  </VStack>
+  <ModelsSection bind:this={modelsSection} bind:provider={() => p, (next) => { provider = next }} waitingText={dockerWait} />
 {/if}

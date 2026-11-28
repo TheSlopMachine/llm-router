@@ -12,13 +12,13 @@
   const counter = $derived(new Intl.NumberFormat(locale()))
 </script>
 
-<VStack gap={3}>
+<VStack>
   {#each groups as group (group.key)}
-    <HStack gap={3} valign="start">
+    <HStack valign="start">
       <HStack width={112} minWidth={0}>
-        <Text size="sm" foregroundStyle="secondary" truncate title={group.key}>{keyLabel(group.key)}</Text>
+        <Text size="sm" foregroundStyle="secondary" lineLimit={1} title={group.key}>{keyLabel(group.key)}</Text>
       </HStack>
-      <HStack grow gap={2} wrap>
+      <HStack grow spacing="tight" wrap>
         {#each group.values as facet (facet.value)}
           <Chip
             size="sm"

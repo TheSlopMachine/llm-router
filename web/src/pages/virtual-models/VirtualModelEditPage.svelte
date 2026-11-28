@@ -1,6 +1,6 @@
 <script lang="ts">
   import ModalitiesFlow from '../../components/domain/ModalitiesFlow.svelte'
-  import { Icon, Button, Chip, HStack, Card, Text, TextField, VStack, Banner, Header, ContentUnavailable, ProgressView, Picker, Field, DeleteButton } from '@fuckyouryan/fui'
+  import { Icon, Button, Chip, HStack, Card, Text, TextField, VStack, Banner, Header, ContentUnavailable, ProgressView, Picker, Field, Form, DeleteButton } from '@fuckyouryan/fui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { errorCode, getErrorMessage } from '$lib/errors'
@@ -198,7 +198,6 @@
   let saveLabel = $derived(saving ? t('common.actions.saving') : vm ? t('common.actions.save') : t('virtual.create.title'))
 </script>
 
-  <VStack gap={6}>
   <Header title={vmId ? t('virtual.edit.title') : t('virtual.create.title')} back={{ label: t('models.list.title'), href: '#/models' }} subtitle={t('virtual.fallthrough.desc')} />
 
   {#if error}
@@ -215,22 +214,24 @@
     {/if}
 
     <Card title={t('virtual.basic_info')}>
-      <Field label="ID" required>
-        <TextField id="vm-name" bind:value={name} placeholder={t('virtual.model')} disabled={isManaged} />
-      </Field>
-      <Field label={t('virtual.description_for_decision')}>
-        <TextField maxRows={10} id="vm-description" bind:value={description} placeholder={t('virtual.description_example')} minRows={2} disabled={isManaged} />
-      </Field>
-      <Field label={t('virtual.instruction_label')}>
-        <TextField maxRows={10} id="vm-instruction" bind:value={instruction} placeholder={t('virtual.general_instructions')} minRows={4} disabled={isManaged} />
-      </Field>
+      <Form>
+        <Field label="ID" required>
+          <TextField id="vm-name" bind:value={name} placeholder={t('virtual.model')} disabled={isManaged} />
+        </Field>
+        <Field label={t('virtual.description_for_decision')}>
+          <TextField maxRows={10} id="vm-description" bind:value={description} placeholder={t('virtual.description_example')} minRows={2} disabled={isManaged} />
+        </Field>
+        <Field label={t('virtual.instruction_label')}>
+          <TextField maxRows={10} id="vm-instruction" bind:value={instruction} placeholder={t('virtual.general_instructions')} minRows={4} disabled={isManaged} />
+        </Field>
+      </Form>
     </Card>
 
     <Card title={t('models.list.title')}>
       {#if modelsLoadState === 'loading'}
         <ProgressView />
       {:else if modelsLoadState === 'error'}
-        <VStack gap={2} halign="center">
+        <VStack halign="center">
           <Banner tint="danger" text={t('models.list.failed_load')} />
           <Button text={t('common.actions.reload')} onclick={loadAvailableModels} />
         </VStack>
@@ -243,7 +244,7 @@
           </HStack>
         {/if}
       {:else}
-        <VStack gap={3}>
+        <VStack>
           <!-- keyed by the model id, not the index: this list is drag-reorderable,
                and an index key makes Svelte rewrite rows in place instead of
                moving them, so per-row state sticks to the position -->
@@ -257,7 +258,7 @@
               role="listitem"
             >
               <div class="model-row-top">
-                <HStack gap={0} valign="center" class="col-priority">
+                <HStack spacing="none" valign="center" class="col-priority">
                   <span class="drag-handle" title={t('models.drag_reorder')}><Icon name="drag_indicator" /></span>
                   <Text size="sm" foregroundStyle="secondary" align="center" class="row-num">{i + 1}</Text>
                 </HStack>
@@ -270,7 +271,7 @@
               <div class="model-row-bottom">
                 <ModalitiesFlow modalities={{ input: modalityMap[id]?.input, output: modalityMap[id]?.output }} chipsDirection="horizontal" />
                 {#if (modelInfoOf(id)?.capabilities ?? []).length > 0}
-                  <HStack gap={2} wrap valign="center">
+                  <HStack spacing="tight" wrap valign="center">
                     {#each modelInfoOf(id)?.capabilities ?? [] as cap}
                       {@const capability = CAPABILITY_META[cap]}
                       {#if capability}
@@ -281,7 +282,7 @@
                     {/each}
                   </HStack>
                 {/if}
-                <VStack gap={0} class="row-ctx">
+                <VStack spacing="none" class="row-ctx">
                   {#if modelInfoOf(id)?.context_window}<Text size="sm" foregroundStyle="secondary">{(modelInfoOf(id)!.context_window! / 1000).toFixed(0)}k ctx</Text>{/if}
                   {#if modelInfoOf(id)?.max_tokens}<Text size="sm" foregroundStyle="secondary">{(modelInfoOf(id)!.max_tokens! / 1000).toFixed(0)}k out</Text>{/if}
                 </VStack>
@@ -294,10 +295,10 @@
             <Button text={t('models.actions.add')} icon={{ name: 'add' }} onclick={addModel} />
           </HStack>
         {/if}
-        <HStack gap={5} wrap valign="center">
+        <HStack spacing="group" wrap valign="center">
           <Text size="sm" weight="medium" foregroundStyle="secondary">{t('virtual.capabilities')}</Text>
           <ModalitiesFlow modalities={{ input: aggregates.inMods, output: aggregates.outMods }} chipsDirection="horizontal" />
-          <HStack gap={2} wrap valign="center">
+          <HStack spacing="tight" wrap valign="center">
             {#if aggregates.caps.length > 0}
               {#each aggregates.caps as cap}
                 {@const capability = CAPABILITY_META[cap]}
@@ -312,7 +313,7 @@
             {/if}
           </HStack>
           {#if aggregates.context > 0 || aggregates.output > 0}
-            <HStack gap={3} valign="center">
+            <HStack valign="center">
               {#if aggregates.context > 0}
                 <Text size="sm" foregroundStyle="secondary" title={t('virtual.smallest_context')}>{(aggregates.context / 1000).toFixed(0)}k ctx</Text>
               {/if}
@@ -326,7 +327,7 @@
     </Card>
 
     {#if isEditable}
-    <HStack halign="end" gap={2}>
+    <HStack halign="end">
       <Button text={t('common.actions.cancel')} buttonStyle="text" onclick={backToList} disabled={saving} />
       <Button
         text={saveLabel}
@@ -337,19 +338,18 @@
     </HStack>
     {/if}
   {/if}
-</VStack>
 
 <style>
   .model-row {
     display: flex;
     flex-direction: column;
-    gap: var(--fui-space-2);
+    gap: var(--fui-spacing-tight);
     min-width: 0;
   }
   .model-row-top {
     display: flex;
     align-items: center;
-    gap: var(--fui-space-3);
+    gap: var(--fui-spacing-default);
     min-width: 0;
   }
   .model-row-select {
@@ -360,7 +360,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--fui-space-2) var(--fui-space-5);
+    gap: var(--fui-spacing-tight) var(--fui-spacing-group);
     min-width: 0;
   }
 

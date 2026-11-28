@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Picker, Banner, ProgressView, HStack, ModalChrome, TextField, Field, Text, VStack, toast } from '@fuckyouryan/fui'
+  import { Picker, Banner, ProgressView, HStack, ModalChrome, TextField, Field, Form, Text, toast } from '@fuckyouryan/fui'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { errorCode, getErrorMessage } from '$lib/errors'
@@ -241,8 +241,6 @@
 
 <ModalChrome {buttons} />
 
-<!-- one column, one step (space-4) between every block -->
-<VStack gap={4}>
 {#if error}
   <Banner tint="danger" text={error} />
 {/if}
@@ -261,27 +259,27 @@
   </HStack>
 {/if}
 
-{#if mode !== 'loading'}
-  <Field label={t('credentials.name_label')}>
-    <TextField bind:value={label} placeholder={t('credentials.name_placeholder')} />
-  </Field>
-{/if}
-
 {#if mode === 'loading'}
   <ProgressView />
-{:else if mode === 'wizard'}
-  {#if redirectMessage}
-    <Banner tint="info" text={redirectMessage} />
-  {/if}
-  {#if nodes.length > 0}
-    <DynamicForm {nodes} bind:values={formValues} busy={loading} flat />
-  {/if}
-{:else if mode === 'single'}
-  <DynamicForm {nodes} bind:values={formValues} busy={loading} flat />
 {:else}
-  <Text foregroundStyle="secondary">{t('credentials.no_form_hint')}</Text>
-  <Field label={t('credentials.json_label')}>
-    <TextField maxRows={10} id="cred-raw" minRows={6} bind:value={rawJson} />
-  </Field>
+  <Form>
+    <Field label={t('credentials.name_label')}>
+      <TextField bind:value={label} placeholder={t('credentials.name_placeholder')} />
+    </Field>
+    {#if mode === 'wizard'}
+      {#if redirectMessage}
+        <Banner tint="info" text={redirectMessage} />
+      {/if}
+      {#if nodes.length > 0}
+        <DynamicForm {nodes} bind:values={formValues} busy={loading} flat />
+      {/if}
+    {:else if mode === 'single'}
+      <DynamicForm {nodes} bind:values={formValues} busy={loading} flat />
+    {:else}
+      <Text foregroundStyle="secondary">{t('credentials.no_form_hint')}</Text>
+      <Field label={t('credentials.json_label')}>
+        <TextField maxRows={10} id="cred-raw" minRows={6} bind:value={rawJson} />
+      </Field>
+    {/if}
+  </Form>
 {/if}
-</VStack>

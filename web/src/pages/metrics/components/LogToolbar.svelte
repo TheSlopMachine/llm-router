@@ -68,7 +68,7 @@
 {/snippet}
 
 {#if part === 'bar'}
-  <HStack gap={2} valign="center">
+  <HStack valign="center">
     {@render liveButton(true)}
     <SearchField bind:value={search} placeholder={t('metrics.logs.search.placeholder')} fill="sm" />
     <Button
@@ -81,8 +81,8 @@
     />
   </HStack>
 {:else}
-<VStack gap={3}>
-  <HStack gap={2} valign="center" wrap>
+<VStack>
+  <HStack valign="center" wrap>
     {#if part === 'full'}{@render liveButton(false)}{/if}
     <Picker
       value={rangeId}
@@ -109,7 +109,7 @@
   </HStack>
 
   {#if rangeId === CUSTOM}
-    <HStack gap={3} wrap>
+    <HStack spacing="group" wrap>
       <Field label={t('metrics.logs.range_from.label')}>
         <TextField type="datetime-local" bind:value={customStart} onchange={() => oncustomrange()} />
       </Field>

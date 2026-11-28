@@ -30,14 +30,14 @@
   />
 {:else if column === 'time'}
   <HStack width="full" minWidth={0}>
-    <Text size="xs" mono foregroundStyle="secondary" truncate>{formatTime(entry.timestamp)}</Text>
+    <Text size="xs" mono foregroundStyle="secondary" lineLimit={1}>{formatTime(entry.timestamp)}</Text>
   </HStack>
 {:else if column === 'message'}
   <HStack width="full" minWidth={0}>
-    <Text size="sm" truncate>{entry.message}</Text>
+    <Text size="sm" lineLimit={1}>{entry.message}</Text>
   </HStack>
 {:else}
   <HStack width="full" minWidth={0}>
-    <Text size="xs" mono foregroundStyle="tertiary" truncate title={summary}>{summary}</Text>
+    <Text size="xs" mono foregroundStyle="tertiary" lineLimit={1} title={summary}>{summary}</Text>
   </HStack>
 {/if}

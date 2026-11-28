@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-  import { Header, Picker, Swap, VStack } from '@fuckyouryan/fui'
+  import { Header, Picker, Swap } from '@fuckyouryan/fui'
   import { t } from '$lib/i18n.svelte'
   import LogsTab from './components/LogsTab.svelte'
   import OverviewTab from './components/OverviewTab.svelte'
@@ -14,26 +14,24 @@
   } = $props()
 </script>
 
-<!-- logs: a column as tall as the page, the log table takes what is left -->
-<VStack gap={6} grow={tab === 'logs'}>
-  <Header title={t('metrics.title')} subtitle={t('metrics.subtitle')} />
+<Header title={t('metrics.title')} subtitle={t('metrics.subtitle')} />
 
-  <Picker
-    pickerStyle="segmented"
-    value={tab}
-    onchange={(next) => ontabchange?.(next as MetricsTab)}
-    options={[
-      { value: 'overview', label: t('metrics.tab_overview.label') },
-      { value: 'logs', label: t('metrics.tab_logs.label') },
-    ]}
-    ariaLabel={t('metrics.title')}
-  />
+<Picker
+  pickerStyle="segmented"
+  value={tab}
+  onchange={(next) => ontabchange?.(next as MetricsTab)}
+  options={[
+    { value: 'overview', label: t('metrics.tab_overview.label') },
+    { value: 'logs', label: t('metrics.tab_logs.label') },
+  ]}
+  ariaLabel={t('metrics.title')}
+/>
 
-  <Swap key={tab}>
-    {#if tab === 'logs'}
-      <LogsTab />
-    {:else}
-      <OverviewTab />
-    {/if}
-  </Swap>
-</VStack>
+<!-- the tab takes the height left in the page: the log table scrolls inside it -->
+<Swap key={tab}>
+  {#if tab === 'logs'}
+    <LogsTab />
+  {:else}
+    <OverviewTab />
+  {/if}
+</Swap>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Chip, DeleteButton, FloatingView, ListRow, Toggle, VStack } from '@fuckyouryan/fui'
+  import { Button, Chip, DeleteButton, FloatingView, ListRow, Toggle } from '@fuckyouryan/fui'
   import InstallConfirm from './InstallConfirm.svelte'
   import { t } from '$lib/i18n.svelte'
   import { viewport } from '$lib/viewport.svelte'
@@ -20,7 +20,7 @@
     disabled = false,
     toggling = false,
     isManual = false,
-    hasUpdate = false,
+    updateVersion,
     installing = false,
     installLabel = t('plugins.install'),
     onInstall,
@@ -42,7 +42,8 @@
     disabled?: boolean
     toggling?: boolean
     isManual?: boolean
-    hasUpdate?: boolean
+    /** the version an available update installs ("v1.2.0"); unset when there is none */
+    updateVersion?: string
     installing?: boolean
     installLabel?: string
     onInstall?: () => void
@@ -73,10 +74,9 @@
   }
 </script>
 
-<VStack pad={3}>
-  <ListRow {title} subtitle={description || undefined} image={iconUrl} icon={subsystemIcon(subsystems)}>
+<ListRow {title} subtitle={description || undefined} image={iconUrl} icon={subsystemIcon(subsystems)}>
     {#snippet accessories()}
-      <Chip text={version} tint="accent" size="sm" />
+      <Chip text={updateVersion ? `${version} → ${updateVersion}` : version} tint="accent" size="sm" />
       {#if permissions?.unsafe}
         <Chip text={t('plugins.network.unrestricted')} tint="danger" size="sm" />
       {/if}
@@ -90,7 +90,7 @@
           <Button buttonStyle="neutral" size="sm" icon={{ name: 'upload_file' }} title={t('plugins.update_from_file')} ariaLabel={t('plugins.update_from_file')}
             onclick={(e) => onaction?.('update_file', e.currentTarget as HTMLElement)} />
         {/if}
-        {#if hasUpdate}
+        {#if updateVersion}
           <Button buttonStyle="neutral" size="sm" icon={{ name: 'upgrade' }} title={t('common.actions.update')} ariaLabel={t('common.actions.update')}
             onclick={(e) => openConfirm(e.currentTarget as HTMLElement)} />
         {/if}
@@ -128,5 +128,4 @@
       {/if}
     {/snippet}
   </FloatingView>
-</VStack>
 

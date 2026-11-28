@@ -1,7 +1,7 @@
 <!-- The socket step of the Docker wizard: finds Docker on the router machine. Only Linux and macOS routers offer it. -->
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Banner, ChoiceList, Button, CodeBlock, ContentUnavailable, Field, HStack, ModalChrome, ProgressView, TextField, VStack, type ModalButton } from '@fuckyouryan/fui'
+  import { Banner, ChoiceList, Button, CodeBlock, ContentUnavailable, Field, HStack, ModalChrome, ProgressView, TextField, type ModalButton } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { t, tx } from '$lib/i18n.svelte'
   import type { TranslationKey } from '$lib/i18n.svelte'
@@ -89,8 +89,7 @@
 
 <ModalChrome buttons={[{ label: t('common.actions.back'), buttonStyle: 'neutral', onclick: onBack, disabled: busy }, primaryButton]} />
 
-<VStack gap={4}>
-  {#if !local && busy}
+{#if !local && busy}
     <ProgressView label={t('settings.docker.sockets_checking.status')} />
   {:else if local}
     {@const found = local}
@@ -117,9 +116,9 @@
     {/if}
 
     <Field label={t('settings.docker.socket_other.label')}>
-      <HStack gap={2}>
-        <TextField bind:value={otherPath} placeholder="/var/run/docker.sock" size="lg" autocomplete="off" />
-        <Button text={t('settings.docker.socket_check.action')} buttonStyle="neutral" size="lg" disabled={busy || !otherPath.trim().startsWith('/')} onclick={() => void checkOtherPath(found)} />
+      <HStack>
+        <TextField bind:value={otherPath} placeholder="/var/run/docker.sock" autocomplete="off" />
+        <Button text={t('settings.docker.socket_check.action')} buttonStyle="neutral" disabled={busy || !otherPath.trim().startsWith('/')} onclick={() => void checkOtherPath(found)} />
       </HStack>
     </Field>
   {/if}
@@ -127,4 +126,3 @@
   {#if error}
     <Banner tint="danger" text={error} />
   {/if}
-</VStack>

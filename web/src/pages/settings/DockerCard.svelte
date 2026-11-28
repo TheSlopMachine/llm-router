@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Banner, Button, Card, Chip, Field, HStack, Picker, Table, Text, TextField, VStack, modal, toast, type TableColumn, DeleteButton } from '@fuckyouryan/fui'
+  import { Banner, Button, Card, Chip, Field, Form, FormRow, HStack, Picker, Table, Text, TextField, VStack, modal, toast, type TableColumn, DeleteButton } from '@fuckyouryan/fui'
   import DockerWizard from '../../components/domain/DockerWizard.svelte'
   import RegistryLoginModal from './RegistryLoginModal.svelte'
   import { api } from '$lib/api'
@@ -156,20 +156,28 @@
   }
 </script>
 
+{#snippet saveAdvancedAction()}
+  <Button buttonStyle="neutral" onclick={() => void saveAdvanced()} disabled={savingAdvanced}>{savingAdvanced ? t('common.actions.saving') : t('common.actions.save')}</Button>
+{/snippet}
+
+{#snippet addRegistryAction()}
+  <Button buttonStyle="neutral" icon={{ name: 'add' }} onclick={openRegistryModal}>{t('common.actions.add')}</Button>
+{/snippet}
+
 <Card title={t('settings.docker.title')} subtitle={t('settings.docker.desc')}>
   {#if error}
     <Banner tint="danger" text={error} />
   {/if}
 
   {#if !configured}
-    <HStack gap={3} valign="center" wrap>
+    <HStack valign="center" wrap>
       <Text grow foregroundStyle="secondary">{t('settings.docker.unconfigured.status')}</Text>
       <Button buttonStyle="prominent" icon={{ name: 'add' }} onclick={openWizard}>{t('settings.docker.setup.action')}</Button>
     </HStack>
   {:else if connection}
-    <VStack gap={2}>
-      <HStack gap={2} valign="center" wrap>
-        <Text weight="medium" grow truncate>{connection.endpoint}</Text>
+    <VStack spacing="tight">
+      <HStack valign="center" wrap>
+        <Text weight="medium" grow lineLimit={1}>{connection.endpoint}</Text>
         {#if testing}
           <Chip text={t('settings.docker.testing.status')} size="sm" tint="warning" />
         {:else if test}
@@ -195,15 +203,15 @@
         {/if}
       {/if}
     </VStack>
-    <HStack halign="end" gap={2}>
+    <HStack halign="end">
       <Button buttonStyle="text" role="destructive" onclick={() => void disconnect()}>{t('settings.docker.disconnect.action')}</Button>
       <Button buttonStyle="neutral" icon={{ name: 'edit' }} onclick={openWizard}>{t('settings.docker.change.action')}</Button>
     </HStack>
   {/if}
 
-  <Card collapsible open={false} title={t('settings.docker.advanced.title')}>
-    <VStack gap={3}>
-      <HStack gap={3} wrap>
+  <Card collapsible open={false} title={t('settings.docker.advanced.title')} footer={saveAdvancedAction}>
+    <Form>
+      <FormRow>
         <Field label={t('settings.docker.dial_mode.label')}>
           <Picker
             bind:value={dialMode}
@@ -216,38 +224,30 @@
           />
         </Field>
         <Field label={t('settings.docker.namespace.label')}>
-          <TextField bind:value={namespace} size="lg" autocomplete="off" />
+          <TextField bind:value={namespace} autocomplete="off" />
         </Field>
         <Field label={t('settings.docker.gateway_image.label')}>
-          <TextField bind:value={gatewayImage} placeholder={t('settings.docker.gateway_image.placeholder')} size="lg" autocomplete="off" />
+          <TextField bind:value={gatewayImage} placeholder={t('settings.docker.gateway_image.placeholder')} autocomplete="off" />
         </Field>
-      </HStack>
-      <HStack halign="end">
-        <Button buttonStyle="neutral" onclick={() => void saveAdvanced()} disabled={savingAdvanced}>{savingAdvanced ? t('common.actions.saving') : t('common.actions.save')}</Button>
-      </HStack>
-    </VStack>
+      </FormRow>
+    </Form>
   </Card>
 
-  <Card collapsible open={false} title={t('settings.docker.registries.title')}>
-    <VStack gap={4}>
-      {#if registries.length > 0}
-        <Table columns={registryColumns} rows={registries} rowKey={(registry) => registry.host}>
-          {#snippet cell({ column, row })}
-            {#if column.key === 'host'}
-              <Text variant="value">{row.host}</Text>
-            {:else if column.key === 'username'}
-              <Text size="sm">{row.username}</Text>
-            {:else}
-              <HStack gap={3} halign="end">
-                <DeleteButton size="sm" onclick={() => void deleteRegistry(row.host)} />
-              </HStack>
-            {/if}
-          {/snippet}
-        </Table>
-      {/if}
-      <HStack halign="end">
-        <Button buttonStyle="neutral" icon={{ name: 'add' }} onclick={openRegistryModal}>{t('common.actions.add')}</Button>
-      </HStack>
-    </VStack>
+  <Card collapsible open={false} title={t('settings.docker.registries.title')} footer={addRegistryAction}>
+    {#if registries.length > 0}
+      <Table columns={registryColumns} rows={registries} rowKey={(registry) => registry.host}>
+        {#snippet cell({ column, row })}
+          {#if column.key === 'host'}
+            <Text variant="value">{row.host}</Text>
+          {:else if column.key === 'username'}
+            <Text size="sm">{row.username}</Text>
+          {:else}
+            <HStack halign="end">
+              <DeleteButton onclick={() => void deleteRegistry(row.host)} />
+            </HStack>
+          {/if}
+        {/snippet}
+      </Table>
+    {/if}
   </Card>
 </Card>

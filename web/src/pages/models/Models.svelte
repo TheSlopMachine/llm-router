@@ -5,8 +5,8 @@
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import type { AvailableModel, VirtualModel } from '$lib/types'
-  import { t, n, tx } from '$lib/i18n.svelte'
-  import { Button, ContentUnavailable, DeleteButton, HStack, Picker, SearchField, Toggle, VStack, Banner, Header, confirmAt } from '@fuckyouryan/fui'
+  import { t, tx } from '$lib/i18n.svelte'
+  import { Button, ContentUnavailable, DeleteButton, HStack, Picker, SearchField, Section, Toggle, Banner, Header, confirmAt } from '@fuckyouryan/fui'
   import { rankModels, matchesVirtualModel } from '$lib/model-search'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
   import { setPendingClone } from '$lib/virtual-clone'
@@ -36,7 +36,6 @@
   let kind = $derived(kindChoice.value)
   let status = $derived(statusChoice.value)
 
-  let hasModels = $derived(!loading && allModels.length + virtualModels.length > 0)
   let isEmptyCatalog = $derived(allModels.length + virtualModels.length === 0)
 
   let realRows = $derived.by((): ModelsTableModel[] =>
@@ -97,6 +96,16 @@
     wanted === 'all' || (wanted === 'disabled') === Boolean(row.disabled)
 
   let tableModels = $derived((kind === 'real' ? realRows : virtualRows).filter((row) => matchesStatus(row, status)))
+
+  // The pickers count what each choice lists, before the search: the status counts are the
+  // selected kind's.
+  const kindCounts = $derived({ real: allModels.length, virtual: virtualModels.length })
+  const kindSource = $derived<{ disabled?: boolean }[]>(kind === 'real' ? allModels : virtualModels)
+  const statusCounts = $derived({
+    all: kindSource.length,
+    enabled: kindSource.filter((model) => !model.disabled).length,
+    disabled: kindSource.filter((model) => model.disabled).length,
+  })
 
   onMount(load)
 
@@ -170,53 +179,50 @@
   }
 </script>
 
-<VStack gap={6} grow>
-  <Header
-    title={t('models.list.title')}
-    subtitle={hasModels ? n(allModels.length + virtualModels.length, 'units.model.one', 'units.model.many') : undefined}
-    primary={{ id: 'new', text: t('virtual.actions.new_model'), icon: 'add', onclick: openNewVirtualModel }}
-  />
+<Header
+  title={t('models.list.title')}
+  primary={{ id: 'new', text: t('virtual.actions.new_model'), icon: 'add', onclick: openNewVirtualModel }}
+/>
 
-  {#if error}
-    <Banner tint="danger" text={error} />
-  {/if}
+{#if error}
+  <Banner tint="danger" text={error} />
+{/if}
 
-  <VStack gap={3}>
-    <HStack gap={3} wrap valign="center">
-      <Picker
-        pickerStyle="segmented"
-        value={status}
-        options={[
-          { value: 'all', label: t('common.actions.all') },
-          { value: 'enabled', label: t('common.labels.enabled') },
-          { value: 'disabled', label: t('common.labels.disabled') },
-        ]}
-        ariaLabel={t('models.filter.visibility')}
-        onchange={(next) => selectStatus(next as ModelStatus)}
-      />
-      <Picker
-        pickerStyle="segmented"
-        value={kind}
-        options={[
-          { value: 'real', label: t('models.kind.real.label') },
-          { value: 'virtual', label: t('models.kind.virtual.label') },
-        ]}
-        ariaLabel={t('models.kind.title')}
-        onchange={(next) => selectKind(next as ModelKind)}
-      />
-    </HStack>
-    <SearchField bind:value={query} placeholder={t('models.search.placeholder')} />
-  </VStack>
+<Section grow>
+  <HStack wrap valign="center">
+    <Picker
+      pickerStyle="segmented"
+      value={status}
+      options={[
+        { value: 'all', label: t('common.actions.all'), badge: statusCounts.all },
+        { value: 'enabled', label: t('common.labels.enabled'), badge: statusCounts.enabled },
+        { value: 'disabled', label: t('common.labels.disabled'), badge: statusCounts.disabled },
+      ]}
+      ariaLabel={t('models.filter.visibility')}
+      onchange={(next) => selectStatus(next as ModelStatus)}
+    />
+    <Picker
+      pickerStyle="segmented"
+      value={kind}
+      options={[
+        { value: 'real', label: t('models.kind.real.label'), badge: kindCounts.real },
+        { value: 'virtual', label: t('models.kind.virtual.label'), badge: kindCounts.virtual },
+      ]}
+      ariaLabel={t('models.kind.title')}
+      onchange={(next) => selectKind(next as ModelKind)}
+    />
+  </HStack>
+  <SearchField bind:value={query} placeholder={t('models.search.placeholder')} />
 
   <ModelsTable models={tableModels} sortable showProviderLink lazy {loading}>
     {#snippet actions({ model })}
       {#if model.kind === 'virtual'}
         {@const vm = model.source as VirtualModel}
-        <HStack gap={2} valign="center" halign="end">
-          <Button buttonStyle="text" icon={{ name: 'content_copy' }} ariaLabel={t('tokens.actions.clone')} title={t('tokens.actions.clone')} size="sm" onclick={() => cloneVirtualModel(vm)} />
+        <HStack valign="center" halign="end">
+          <Button buttonStyle="text" icon={{ name: 'content_copy' }} ariaLabel={t('tokens.actions.clone')} title={t('tokens.actions.clone')} onclick={() => cloneVirtualModel(vm)} />
           {#if isEditableVirtualModel(vm)}
-            <Button buttonStyle="text" icon={{ name: 'edit' }} ariaLabel={t('common.actions.edit')} title={t('common.actions.edit')} size="sm" onclick={() => openEditVirtualModel(vm)} />
-            <DeleteButton size="sm" onclick={(e) => void deleteVirtualModel(vm, e.currentTarget as HTMLElement)} />
+            <Button buttonStyle="text" icon={{ name: 'edit' }} ariaLabel={t('common.actions.edit')} title={t('common.actions.edit')} onclick={() => openEditVirtualModel(vm)} />
+            <DeleteButton onclick={(e) => void deleteVirtualModel(vm, e.currentTarget as HTMLElement)} />
           {/if}
           <Toggle checked={!vm.disabled} ariaLabel={t('common.labels.enabled')} onchange={(enabled) => void toggleVirtualModel(vm, enabled)} />
         </HStack>
@@ -238,4 +244,4 @@
       {/if}
     {/snippet}
   </ModelsTable>
-</VStack>
+</Section>

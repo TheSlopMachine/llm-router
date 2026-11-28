@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import {
-    Banner, Button, Card, ContentUnavailable, HStack, Spacer, Table, Text, VStack, ZStack, modal,
+    Banner, Button, Card, ContentUnavailable, HStack, Section, Table, Text, VStack, ZStack, modal,
     type TableColumn,
   } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
@@ -23,8 +23,6 @@
   const LIVE_PAGE_SIZE = 500
   const BUFFER_CAP = 20000
   const POLL_INTERVAL = 2000
-  // The level tile between the table's cell paddings and the row divider.
-  const ROW_HEIGHT = 'calc(var(--fui-ctl-tile-sm) + 2 * var(--fui-space-3) + var(--fui-border-w))'
   // Scrolled this close to the top, the table follows new events.
   const FOLLOW_SLACK = 4
   const MIN_TABLE_HEIGHT = 360
@@ -92,7 +90,7 @@
   }
 
   const columns = $derived<TableColumn[]>([
-    { key: 'level', width: 'calc(var(--fui-ctl-tile-sm) + var(--fui-space-5) + var(--fui-space-2))' },
+    { key: 'level', contentWidth: 'var(--fui-ctl-tile-sm)' },
     {
       key: 'time',
       title: t('metrics.logs.column_time.label'),
@@ -303,19 +301,17 @@
 
 <!-- the phone filters modal: closes over this tab's state, so it stays live while open -->
 {#snippet filtersBody()}
-  <VStack gap={5}>
-    {@render toolbar('settings')}
-    {@render filterBuilder('all')}
-    {#if facets.length > 0}
-      <VStack gap={3}>
-        <Text variant="label">{t('metrics.logs.facets.title')}</Text>
-        <LogFacets groups={facets} onfilter={(key, value) => addFilter(key, value, false)} />
-      </VStack>
-    {/if}
-  </VStack>
+  {@render toolbar('settings')}
+  {@render filterBuilder('all')}
+  {#if facets.length > 0}
+    <VStack>
+      <Text variant="label">{t('metrics.logs.facets.title')}</Text>
+      <LogFacets groups={facets} onfilter={(key, value) => addFilter(key, value, false)} />
+    </VStack>
+  {/if}
 {/snippet}
 
-<VStack gap={4} grow>
+<Section grow>
   {#if viewport.mobile}
     {@render toolbar('bar')}
     {#if filters.length > 0}{@render filterBuilder('chips')}{/if}
@@ -335,8 +331,7 @@
   {/if}
 
   {#if olderAvailable}
-    <HStack valign="center" gap={3}>
-      <Spacer />
+    <HStack valign="center" halign="end">
       <Button
         buttonStyle="neutral"
         size="sm"
@@ -356,7 +351,6 @@
         rows={visible}
         rowKey={(entry) => entry.id}
         lazy
-        rowHeight={ROW_HEIGHT}
         grow
         loading={loading && entries.length === 0}
         onrowclick={openDetail}
@@ -380,18 +374,18 @@
       </div>
     </ZStack>
   </VStack>
-</VStack>
+</Section>
 
 <style>
   .jump-latest {
     display: flex;
     justify-content: center;
     align-items: flex-end;
-    padding: var(--fui-space-5);
+    padding: var(--fui-content-margin);
     pointer-events: none;
     filter: var(--fui-filter-floating);
     opacity: 0;
-    transform: translateY(var(--fui-space-3));
+    transform: translateY(var(--fui-spacing-default));
     transition:
       opacity var(--fui-dur-base) ease,
       transform var(--fui-dur-base) var(--fui-ease-standard);

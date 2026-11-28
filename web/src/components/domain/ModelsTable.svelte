@@ -23,7 +23,7 @@
 </script>
 
 <script lang="ts">
-  import { Table, type TableColumn, type TableSortDir, Chip, Icon, VStack, HStack, Text, CopyButton, squircle } from '@fuckyouryan/fui'
+  import { Table, type TableColumn, type TableSortDir, Chip, Icon, VStack, HStack, Text, CopyButton } from '@fuckyouryan/fui'
   import { isSortActive } from '$lib/ui-helpers'
   import { CAPABILITY_META, hasModalities, hasCapabilities } from '../../lib/capabilities'
   import { resolveModelId } from '../../lib/token-scope'
@@ -54,7 +54,7 @@
     showProviderLink?: boolean
     loading?: boolean
     skeletonRows?: number
-    /** only the rows in view exist; the table scrolls inside maxHeight, or fills the remaining height without it */
+    /** only the rows in view exist; the table scrolls inside maxHeight, or inside the height left in its column without it */
     lazy?: boolean
     maxHeight?: string
     onreorder?: (from: number, to: number) => void
@@ -67,24 +67,20 @@
     empty?: Snippet<[]>
   } = $props()
 
-  // A lazy row is as tall as the model cell: one control row per identity line (name, id, and the
-  // provider link when shown). Longer texts truncate; the chip grids hold two rows at most.
-  const identityLines = $derived(showProviderLink ? 3 : 2)
-  const rowHeight = $derived(
-    `calc(${identityLines} * var(--fui-ctl-sm) + ${identityLines - 1} * var(--fui-space-1) + 2 * var(--fui-space-3) + var(--fui-border-w))`,
-  )
+  // A lazy table measures its first row: every row holds the same lines (longer texts truncate,
+  // the chip grids hold two rows at most).
   const windowing = $derived(
     !lazy ? {} : maxHeight !== undefined
-      ? { lazy: true as const, rowHeight, maxHeight }
-      : { lazy: true as const, rowHeight, grow: true as const },
+      ? { lazy: true as const, maxHeight }
+      : { lazy: true as const, grow: true as const },
   )
 
   let sortKey = $state<string | null>(null)
   let sortDir = $state<TableSortDir | null>(null)
 
   // Responsive merge stages: when narrow, context folds into modalities
-  // first, then everything folds into one column. Measured on a local
-  // wrapper — Table only sees the resulting column set.
+  // first, then everything folds into one column. The Table measures its
+  // width; it only sees the resulting column set.
   // null until the first layout
   let tableWidth = $state<number | null>(null)
   const mode = $derived.by((): 'full' | 'merged' | 'compact' => {
@@ -113,8 +109,8 @@
     ...(select && mode !== 'compact' ? [{ key: 'select', title: '', width: 'auto' }] : []),
     { key: 'model', title: t('models.list.title'), width: readonly ? '3.6fr' : '3.2fr', sortable },
     ...modeColumns(mode, readonly, sortable),
-    ...(status && mode !== 'compact' ? [{ key: 'status', title: t('models.status.title'), width: '1fr', sortable }] : []),
-    ...(!readonly ? [{ key: 'actions', title: '', width: '0.9fr', align: 'right' as const }] : []),
+    ...(status && mode !== 'compact' ? [{ key: 'status', title: t('models.status.title'), width: '1.2fr', minWidth: 'var(--fui-table-col-xl)', sortable }] : []),
+    ...(!readonly ? [{ key: 'actions', title: '', width: '0.9fr', minWidth: 'var(--fui-table-col-md)', align: 'right' as const }] : []),
   ])
 
   const sortedModels = $derived.by(() => {
@@ -228,8 +224,8 @@
   </div>
 {/snippet}
 
-<div class="mt-wrap" class:fill={lazy && maxHeight === undefined} bind:clientWidth={() => tableWidth ?? 0, (width) => { tableWidth = width }}>
-  <Table
+<Table
+    bind:measuredWidth={tableWidth}
     {...windowing}
     {columns}
     rows={sortedModels}
@@ -247,31 +243,28 @@
     {#snippet cell({ column, row })}
       {@const model = row as ModelsTableModel}
       {#if column.key === 'model'}
-        <VStack gap={1} halign="start" class="model-identity">
+        {@const lineLimit = lazy ? 1 : undefined}
+        <VStack spacing="tight">
           {#if model.kind === 'virtual'}
-            <HStack gap={2} valign="center">
-              <Text mono size="sm" truncate={lazy}>
-                virtual/{model.id}
-              </Text>
-              <CopyButton size="sm" text={fullId(model)} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
+            <HStack spacing="tight">
+              <Text mono size="sm" {lineLimit} text={`virtual/${model.id}`} />
+              <CopyButton text={fullId(model)} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
             </HStack>
-            <HStack valign="center">
-              <Text size="sm" foregroundStyle="secondary" truncate={lazy}>{model.description || '—'}</Text>
-            </HStack>
+            <Text size="sm" foregroundStyle="secondary" {lineLimit}>{model.description || '—'}</Text>
           {:else}
-            <HStack gap={2} valign="center">
-              <Text size="md" weight="medium" truncate={lazy}>{model.name || model.id}</Text>
-            </HStack>
-            <HStack gap={2} valign="center">
-              <Text mono size="sm" truncate={lazy}>{fullId(model)}</Text>
-              <CopyButton size="sm" text={fullId(model)} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
+            <Text size="md" weight="medium" {lineLimit}>{model.name || model.id}</Text>
+            <HStack spacing="tight">
+              <Text mono size="sm" {lineLimit}>{fullId(model)}</Text>
+              <CopyButton text={fullId(model)} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
             </HStack>
           {/if}
           {#if showProviderNameLink(model)}
-            <a class="provider-link" href={`#/providers/${model.providerId}`}>
-              <Text size="sm" truncate={lazy}>{model.providerName}</Text>
-              <Icon name="chevron_right" size="sm" />
-            </a>
+            <HStack spacing="none">
+              <a class="provider-link" href={`#/providers/${model.providerId}`}>
+                <Text size="sm" {lineLimit}>{model.providerName}</Text>
+                <Icon name="chevron_right" size="sm" />
+              </a>
+            </HStack>
           {/if}
         </VStack>
       {:else if column.key === 'context'}
@@ -281,18 +274,18 @@
       {:else if column.key === 'capabilities'}
         {@render capsBlock({ model })}
       {:else if column.key === 'ctxmods'}
-        <VStack gap={2} halign="start">
+        <VStack spacing="tight" halign="start">
           {@render ctxBlock({ model })}
           {@render modsBlock({ model }, 'sm', 'horizontal')}
         </VStack>
       {:else if column.key === 'all'}
-        <VStack gap={4} halign="start">
+        <VStack halign="start">
           {@render ctxBlock({ model })}
           {@render modsBlock({ model }, 'sm', 'horizontal')}
           {@render capsBlock({ model }, 'sm')}
         </VStack>
       {:else if column.key === 'actions'}
-        <HStack halign="end" gap={2}>
+        <HStack halign="end">
           {#if actions}{@render actions({ model })}{/if}
         </HStack>
       {:else if column.key === 'select'}
@@ -303,9 +296,9 @@
     {/snippet}
     {#snippet card({ row })}
       {@const model = row as ModelsTableModel}
-      <HStack gap={3} valign="center">
+      <HStack valign="center">
         {#if select}{@render select({ model })}{/if}
-        <VStack gap={1} grow>
+        <VStack spacing="tight" grow>
           <Text variant="value">{model.kind === 'virtual' ? `virtual/${model.id}` : model.name || model.id}</Text>
           {#if model.kind === 'virtual'}
             <Text variant="caption">{model.description || '—'}</Text>
@@ -313,16 +306,15 @@
             <Text variant="caption" mono>{fullId(model)}</Text>
           {/if}
         </VStack>
-        {#if actions}<HStack gap={2}>{@render actions({ model })}</HStack>{/if}
+        {#if actions}<HStack>{@render actions({ model })}</HStack>{/if}
       </HStack>
-      <HStack gap={2} wrap>
+      <HStack wrap>
         {#if model.contextWindow || model.maxTokens}<Text variant="caption">{model.contextWindow ? `${(model.contextWindow / 1000).toFixed(0)}k` : '—'} / {model.maxTokens ? `${(model.maxTokens / 1000).toFixed(0)}k` : '—'}</Text>{/if}
         {#if (model.capabilities ?? []).length > 0}<Text variant="caption">{(model.capabilities ?? []).join(', ')}</Text>{/if}
       </HStack>
       {#if status}{@render status({ model })}{/if}
     {/snippet}
   </Table>
-</div>
 
 <style>
   /* two rows at most; more chips add columns */
@@ -330,7 +322,7 @@
     display: grid;
     grid-auto-flow: column;
     grid-template-rows: repeat(2, auto);
-    gap: var(--fui-space-2);
+    gap: var(--fui-spacing-tight);
     justify-content: start;
     align-items: center;
   }
@@ -338,34 +330,9 @@
   .provider-link {
     display: inline-flex;
     align-items: center;
-    gap: var(--fui-space-1);
     max-width: 100%;
     min-width: 0;
     color: inherit;
     text-decoration: none;
-  }
-  /* Measurement host for the merge stages: full width, no visuals. */
-  .mt-wrap {
-    width: 100%;
-    min-width: 0;
-  }
-  /* a lazy table without maxHeight takes the remaining height of the page */
-  .mt-wrap.fill {
-    flex: 1 1 0;
-    min-height: 360px;
-    display: flex;
-    flex-direction: column;
-  }
-  /* the identity lines shrink to the cell, so the texts of a lazy table truncate inside it */
-  .mt-wrap :global(.model-identity) {
-    max-width: 100%;
-    min-width: 0;
-  }
-  /* Every line of the model cell is one control row tall (the copy button's height), so the
-     lines are evenly spaced whatever each one holds. */
-  .mt-wrap :global(.model-identity > *) {
-    min-height: var(--fui-ctl-sm);
-    max-width: 100%;
-    min-width: 0;
   }
 </style>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Toolbar, ToolbarItem, ToolbarSpacer, DeleteButton, HStack, VStack, Text, Toggle, SearchField, List, ListRow, Card, Chip, Banner, ContentUnavailable, modal, confirmAt } from '@fuckyouryan/fui'
+  import { Button, Toolbar, ToolbarItem, ToolbarSpacer, DeleteButton, Section, Text, Toggle, SearchField, List, ListRow, Card, Chip, Banner, ContentUnavailable, modal, confirmAt } from '@fuckyouryan/fui'
   import PluginCard from './PluginCard.svelte'
   import RepoDetailsModal from './RepoDetailsModal.svelte'
   import AddRepositoryModal from './AddRepositoryModal.svelte'
@@ -197,12 +197,12 @@
   }
 </script>
 
-<VStack gap={4}>
+<Section>
   {#if actionError}
     <Banner tint="danger" text={actionError} />
   {/if}
 
-  <Toolbar overflow="menu" gap={3} moreLabel={t('providers.detail.more_actions')}>
+  <Toolbar overflow="menu" moreLabel={t('providers.detail.more_actions')}>
     <ToolbarItem pinned fill="md">
       <SearchField bind:value={query} placeholder={t('plugins.search.catalog')} />
     </ToolbarItem>
@@ -229,59 +229,51 @@
       />
     </ToolbarItem>
   </Toolbar>
+</Section>
 
-  {#if showUpdatesBanner}
-    <Card title={t('plugins.updates_available')}>
-      <List>
-        {#each availableUpdates as u (u.plugin_id)}
-          {@const approved = installedDigest(u)}
-          <VStack pad={3}>
-            <ListRow title={u.plugin_id} subtitle={`${u.current} → ${u.latest}`}>
-              {#snippet trailing()}
-                <Button buttonStyle="neutral" size="sm" disabled={!approved} onclick={() => { if (approved) void installEntry(u.repo_id, u.path, approved) }}>{t('common.actions.update')}</Button>
-              {/snippet}
-            </ListRow>
-          </VStack>
-        {/each}
-      </List>
-    </Card>
-  {/if}
+{#if showUpdatesBanner}
+  <Card title={t('plugins.updates_available')}>
+    <List>
+      {#each availableUpdates as u (u.plugin_id)}
+        {@const approved = installedDigest(u)}
+        <ListRow title={u.plugin_id} subtitle={`${u.current} → ${u.latest}`}>
+          {#snippet trailing()}
+            <Button buttonStyle="neutral" size="sm" disabled={!approved} onclick={() => { if (approved) void installEntry(u.repo_id, u.path, approved) }}>{t('common.actions.update')}</Button>
+          {/snippet}
+        </ListRow>
+      {/each}
+    </List>
+  </Card>
+{/if}
 
-  {#if repos.length === 0}
-    {#snippet addRepoAction()}
-      <Button buttonStyle="prominent" icon={{ name: 'add' }} onclick={openAddRepo}>{t('plugins.repo.add')}</Button>
+{#if repos.length === 0}
+  {#snippet addRepoAction()}
+    <Button buttonStyle="prominent" icon={{ name: 'add' }} onclick={openAddRepo}>{t('plugins.repo.add')}</Button>
+  {/snippet}
+  <ContentUnavailable
+    icon="download"
+    title={t('plugins.repo.empty')}
+    caption={t('plugins.repo.add_short')}
+    action={addRepoAction}
+  />
+{:else if visibleRepos.length === 0}
+  <ContentUnavailable title={t('plugins.catalog.no_filter_match')} icon="search" />
+{:else}
+  {#each visibleRepos as entry (entry.repo.id)}
+    {#snippet repoActions()}
+      {#if entry.repo.builtin}<Chip text={t('plugins.repo.builtin')} tint="neutral" size="sm" />{/if}
+      <Button
+        buttonStyle="text"
+        icon={{ name: 'info' }}
+        size="sm"
+        onclick={() => openRepoDetails(entry)}
+        ariaLabel={t('plugins.repo.details')}
+      />
+      {#if !entry.repo.builtin}
+        <DeleteButton size="sm" label={t('plugins.repo.remove')} onclick={(e) => void removeRepo(entry, e.currentTarget as HTMLElement)} />
+      {/if}
     {/snippet}
-    <ContentUnavailable
-      icon="download"
-      title={t('plugins.repo.empty')}
-      caption={t('plugins.repo.add_short')}
-      action={addRepoAction}
-    />
-  {:else if visibleRepos.length === 0}
-    <Text foregroundStyle="secondary" align="center">{t('plugins.catalog.no_filter_match')}</Text>
-  {:else}
-    {#each visibleRepos as entry (entry.repo.id)}
-      <VStack gap={3}>
-        <HStack valign="center" gap={3}>
-          <VStack gap={0} grow>
-            <Text variant="section-title">{entry.repo.title || entry.repo.id}</Text>
-            {#if entry.repo.description}<Text size="xs" foregroundStyle="secondary">{entry.repo.description}</Text>{/if}
-          </VStack>
-          <HStack gap={2}>
-            {#if entry.repo.builtin}<Chip text={t('plugins.repo.builtin')} tint="neutral" size="sm" />{/if}
-            <Button
-              buttonStyle="text"
-              icon={{ name: 'info' }}
-              size="sm"
-              onclick={() => openRepoDetails(entry)}
-              ariaLabel={t('plugins.repo.details')}
-            />
-            {#if !entry.repo.builtin}
-              <DeleteButton size="sm" label={t('plugins.repo.remove')} onclick={(e) => void removeRepo(entry, e.currentTarget as HTMLElement)} />
-            {/if}
-          </HStack>
-        </HStack>
-
+    <Section title={entry.repo.title || entry.repo.id} subtitle={entry.repo.description || undefined} actions={repoActions}>
         {#if entry.error}
           <Banner tint="danger" text={entry.error} />
         {:else if entry.files.length === 0}
@@ -306,7 +298,7 @@
                   diff={diffPermissions(plugin.permissions, review)}
                   disabled={plugin.disabled}
                   toggling={pluginState.isToggling(plugin.id)}
-                  hasUpdate={!!update}
+                  updateVersion={update ? `v${update.latest}` : undefined}
                   onUpdate={() => void installEntry(f.repo_id, f.path, review.digest)}
                   onToggle={(enabled) => pluginState.togglePlugin(plugin, enabled)}
                   onaction={(id, anchor) => pluginState.handleAction(plugin, id, anchor)}
@@ -329,9 +321,8 @@
             {/each}
           </List>
         {/if}
-      </VStack>
-    {/each}
-  {/if}
-</VStack>
+    </Section>
+  {/each}
+{/if}
 
 

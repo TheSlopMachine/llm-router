@@ -7,7 +7,7 @@
   import { toggleSet } from '$lib/token-helpers'
   import { t, n } from '$lib/i18n.svelte'
   import type { Token, Provider, VirtualModel, AvailableModel, ProviderModel, CredentialScope } from '$lib/types'
-  import { type ModalButton, type StepperConfig, ModalChrome, Toggle, Checkbox, SearchField, Text, TextField, Spacer, Swap, VStack, HStack, List, Banner } from '@fuckyouryan/fui'
+  import { type ModalButton, type StepperConfig, ModalChrome, Toggle, Checkbox, SearchField, Text, TextField, Spacer, Swap, VStack, HStack, List, Banner, ContentUnavailable } from '@fuckyouryan/fui'
   import { buildBackendTokenRules } from '$lib/token-rules'
   import { hasFullAccess, resolveWizardSubtitle, resolveStepValidity, resolveModelId } from '$lib/token-scope'
   import { unionMembers as unionIds, minPositive } from '$lib/model-aggregates'
@@ -397,20 +397,20 @@
   />
 {:else if isNameStep}
   {#if error}<Banner tint="danger" text={error} />{/if}
-  <VStack gap={4}>
+  <VStack spacing="group">
     <TextField id="token-name" autocomplete="off" bind:value={tokenName} placeholder={`${t('tokens.create.name_label')} (${t('common.labels.required')})`} />
     <Toggle bind:checked={fullAccess} label={t('tokens.permissions.full_access')} id="full-access" />
   </VStack>
 {:else if isProvidersStep}
   {#if error}<Banner tint="danger" text={error} />{/if}
-  <VStack gap={6}>
+  <VStack spacing="section">
     <Toggle bind:checked={allowAllProvidersCredentials} label={t('tokens.permissions.all_providers_creds')} id="allow-all-providers-credentials" />
     {#each displayProviders as p (p.id)}
       {@const creds = p.type === 'virtual' ? [] : credsOf(p.id)}
       <div class={isProviderScopeLocked ? 'is-disabled' : ''}>
-        <VStack gap={2}>
-          <HStack valign="center" gap={3}>
-            <HStack valign="baseline" gap={3}>
+        <VStack>
+          <HStack valign="center">
+            <HStack valign="baseline">
               <Text variant="section-title">{p.name}</Text>
               <Text size="xs" foregroundStyle="secondary" mono>{p.id}</Text>
             </HStack>
@@ -465,7 +465,7 @@
               <List>
                 {#each creds as c (c.id)}
                   <label class="provider-row">
-                    <HStack gap={3} valign="center">
+                    <HStack valign="center">
                       <Text size="md">{c.label || t('credentials.title')}</Text>
                       <Spacer />
                       <Checkbox
@@ -486,9 +486,9 @@
   </VStack>
 {:else if isModelsStep}
   {#if error}<Banner tint="danger" text={error} />{/if}
-  <VStack gap={4}>
+  <VStack spacing="group">
     <Toggle bind:checked={allowAllModels} label={t('tokens.permissions.allow_all_models')} id="allow-all-models" />
-    <HStack valign="center" gap={3}>
+    <HStack valign="center">
       <Text variant="section-title">{t('models.list.title')}</Text>
       <div class="models-search">
         <SearchField bind:value={searchModels} placeholder={t('models.search.placeholder')} disabled={allowAllModels} />
@@ -514,9 +514,7 @@
           />
         {/snippet}
         {#snippet empty()}
-          <VStack halign="center" gap={2}>
-            <Text size="sm" foregroundStyle="secondary">{t('tokens.permissions.no_models_available')}</Text>
-          </VStack>
+          <ContentUnavailable title={t('tokens.permissions.no_models_available')} />
         {/snippet}
       </ModelsTable>
     </div>
@@ -529,9 +527,11 @@
     opacity: var(--fui-opacity-disabled);
     pointer-events: none;
   }
-  .provider-row { display: block; padding: var(--fui-space-4) var(--fui-space-5); cursor: pointer; }
-  .head-check { margin-right: var(--fui-space-5); display: grid; place-content: center; }
-  .head-check-even { margin: 0 var(--fui-space-5); display: grid; place-content: center; }
-  .head-toggle { margin-right: var(--fui-space-5); display: grid; place-content: center; }
+  /* a List row: the list insets it; the whole row toggles its checkbox */
+  .provider-row { cursor: pointer; }
+  /* the header's checkbox and toggle stand over the rows' ones: as far in as the rows' content */
+  .head-check { margin-right: var(--fui-content-margin); display: grid; place-content: center; }
+  .head-check-even { margin: 0 var(--fui-content-margin); display: grid; place-content: center; }
+  .head-toggle { margin-right: var(--fui-content-margin); display: grid; place-content: center; }
   .models-search { flex: 1 1 var(--app-token-search-min); min-width: 0; }
 </style>

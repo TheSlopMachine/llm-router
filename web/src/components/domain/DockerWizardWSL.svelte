@@ -1,7 +1,7 @@
 <!-- The WSL steps of the Docker wizard. Only a Windows router offers them. -->
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Banner, ChoiceList, Card, CodeBlock, ContentUnavailable, ModalChrome, ProgressView, Text, VStack, type ModalButton } from '@fuckyouryan/fui'
+  import { Banner, ChoiceList, Card, CodeBlock, ContentUnavailable, ModalChrome, ProgressView, Text, type ModalButton } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { t, tx } from '$lib/i18n.svelte'
   import type { TranslationKey } from '$lib/i18n.svelte'
@@ -92,8 +92,7 @@
 
 <ModalChrome buttons={[{ label: t('common.actions.back'), buttonStyle: 'neutral', onclick: onBack, disabled: busy }, primaryButton]} />
 
-<VStack gap={4}>
-  {#if step === 'distribution'}
+{#if step === 'distribution'}
     {#if distributions?.length}
       <Text size="sm" foregroundStyle="secondary">{t('settings.docker.distribution.hint')}</Text>
       <ChoiceList options={distributions.map((item) => ({ value: item.name, title: item.name, hint: describe(item), disabled: item.version !== 2 }))} bind:value={distribution} ariaLabel={t('settings.docker.step_distribution.label')} />
@@ -118,4 +117,3 @@
   {#if error}
     <Banner tint="danger" text={error} />
   {/if}
-</VStack>

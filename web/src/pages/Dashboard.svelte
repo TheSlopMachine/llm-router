@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Scaffold, Sidebar, Swap, Text, type IconName } from '@fuckyouryan/fui'
+  import { Button, Page, Scaffold, Sidebar, Swap, Text, type IconName } from '@fuckyouryan/fui'
   import { surfaceLevel } from '$lib/surface.svelte'
   import { viewport } from '$lib/viewport.svelte'
   import { Persisted } from '$lib/persisted.svelte'
@@ -151,8 +151,7 @@
     </Sidebar>
   {/snippet}
 
-  <div class="main-scroll">
-    <div class="main-content">
+  <Page>
       <Swap key={pageKey}>
       {#if panel === 'metrics'}
         <Metrics tab={metricsTab} ontabchange={selectMetricsTab} />
@@ -176,8 +175,7 @@
         <SettingsPage />
       {/if}
       </Swap>
-    </div>
-  </div>
+  </Page>
   <AppFooter />
 </Scaffold>
 </div>
@@ -186,29 +184,9 @@
   .layout {
     height: 100vh;
     height: 100dvh;
-    --fui-page-pad: var(--fui-space-5);
   }
   .layout :global(.brand) {
     letter-spacing: var(--fui-tracking-caps);
     text-transform: uppercase;
-  }
-  .main-scroll {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    padding: var(--fui-page-pad);
-    padding-left: calc(var(--fui-page-pad) + env(safe-area-inset-left));
-    padding-right: calc(var(--fui-page-pad) + env(safe-area-inset-right));
-  }
-  /* A flex column filling the scroll area, so a page can `grow` a child
-     (the logs table) down to the viewport bottom instead of scrolling. */
-  .main-content {
-    display: flex;
-    flex-direction: column;
-    min-height: 100%;
-    width: 100%;
-    max-width: var(--fui-content-max-w);
-    min-width: 0;
-    margin: 0 auto;
   }
 </style>

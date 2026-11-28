@@ -1,6 +1,6 @@
 <script lang="ts">
   // Body of the Add custom model modal: a model the provider serves but does not list.
-  import { Banner, Button, Field, HStack, ModalChrome, TextField, VStack } from '@fuckyouryan/fui'
+  import { Banner, Button, Field, Form, HStack, ModalChrome, TextField } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
@@ -40,21 +40,20 @@
   { label: t('models.actions.add'), buttonStyle: 'prominent', onclick: add, disabled: !id.trim(), loading: adding },
 ]} />
 
-<VStack gap={4}>
-  {#if error}
-    <Banner tint="danger" text={error} />
-  {/if}
+{#if error}
+  <Banner tint="danger" text={error} />
+{/if}
+<Form>
   <Field label={t('models.custom.id_hint')}>
-    <TextField bind:value={id} size="lg" autocomplete="off" />
+    <TextField bind:value={id} autocomplete="off" />
   </Field>
   <Field label={t('models.custom.display_name')}>
-    <TextField bind:value={name} size="lg" autocomplete="off" />
+    <TextField bind:value={name} autocomplete="off" />
   </Field>
-  <HStack gap={2} wrap valign="center">
+  <HStack spacing="tight" wrap valign="center" controlSize="sm">
     {#each KNOWN_CAPABILITIES as capability (capability)}
       {@const meta = CAPABILITY_META[capability]}
       <Button
-        size="sm"
         selected={capabilities.includes(capability)}
         tint={meta?.tint}
         icon={meta?.icon ? { name: meta.icon } : undefined}
@@ -63,4 +62,4 @@
       >{meta ? t(meta.label) : capability}</Button>
     {/each}
   </HStack>
-</VStack>
+</Form>

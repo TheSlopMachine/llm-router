@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api } from '$lib/api'
   import { createListResource } from '$lib/list-resource.svelte'
-  import { Picker, Text, VStack, HStack, Header, Banner, ProgressView, TabPanel } from '@fuckyouryan/fui'
+  import { Picker, Header, Banner, ProgressView, TabPanel } from '@fuckyouryan/fui'
   import InstalledTab from './components/InstalledTab.svelte'
   import CatalogTab from './components/CatalogTab.svelte'
   import type { Plugin, PluginRepo, PluginUpdate, StoreFile } from '$lib/types'
@@ -95,15 +95,14 @@
   }
 </script>
 
-  <VStack gap={6}>
   <Header title={t('plugins.title')} subtitle={t('plugins.manage_desc')} />
 
   <Picker pickerStyle="segmented"
     value={tab}
     onchange={(next) => ontabchange(next as PluginsTab)}
     options={[
-      { value: 'installed', label: `${t('plugins.tabs.installed')} (${installedCount})` },
-      { value: 'catalog', label: `${t('plugins.tabs.catalog')} (${catalogCount})` }
+      { value: 'installed', label: t('plugins.tabs.installed'), badge: installedCount },
+      { value: 'catalog', label: t('plugins.tabs.catalog'), badge: catalogCount }
     ]}
     ariaLabel={t('plugins.views')}
   />
@@ -138,4 +137,3 @@
       />
     </TabPanel>
   {/if}
-</VStack>

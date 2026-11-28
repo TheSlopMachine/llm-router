@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { VStack, HStack, Text, Button, Toggle, Table, Card, Chip, Banner, Header, DeleteButton, StatusDot, confirmAt, Stat, Grid, Picker, Spacer, Swap, RelativeTime, Field, TextField, toast, type TableColumn, ContentUnavailable, ProgressView, type HeaderAction, SectionHeader } from '@fuckyouryan/fui'
+  import { VStack, HStack, Text, Button, Toggle, Table, Card, Chip, Banner, Header, DeleteButton, StatusDot, confirmAt, Stat, Grid, Picker, Spacer, Swap, RelativeTime, Field, TextField, toast, type TableColumn, ContentUnavailable, ProgressView, type HeaderAction, Section } from '@fuckyouryan/fui'
   import { viewport } from '$lib/viewport.svelte'
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
@@ -315,18 +315,15 @@
 </script>
 
 
-<VStack gap={6}>
-  <Header title={t('proxy.title')} subtitle={t('proxy.subtitle')} primary={headerPrimary} actions={headerActions} />
+<Header title={t('proxy.title')} subtitle={t('proxy.subtitle')} primary={headerPrimary} actions={headerActions} />
 
-  {#if error}
-    <Banner tint="danger" text={error} />
-  {/if}
+{#if error}
+  <Banner tint="danger" text={error} />
+{/if}
 
-  {#if routerConfig && !proxyEnabled}
-    <VStack minHeight="50vh" valign="center" halign="center">
-      <ContentUnavailable icon="vpn_lock" title={t('proxy.off.title')} />
-    </VStack>
-  {:else if openTab}
+{#if routerConfig && !proxyEnabled}
+  <ContentUnavailable icon="vpn_lock" title={t('proxy.off.title')} />
+{:else if openTab}
   <Picker pickerStyle="segmented"
     value={openTab}
     onchange={(next) => ontabchange?.(next as ProxyTab)}
@@ -337,10 +334,10 @@
     ariaLabel={t('proxy.title')}
   />
 
-  <Swap key={openTab}><VStack gap={6}>
+  <Swap key={openTab}>
   {#if openTab === 'auto'}
     <Card>
-      <VStack gap={1}>
+      <VStack spacing="tight">
         <Toggle label={t('proxy.switch.pool')} ariaLabel={t('proxy.switch.pool')} checked={poolEnabled} disabled={!routerConfig || savingSwitch} onchange={(value: boolean) => void setSwitch({ proxy_pool_enabled: value })} />
         <Text variant="caption">{poolEnabled ? t('proxy.pool.auto_refresh') : t('proxy.switch.pool_hint')}</Text>
       </VStack>
@@ -357,7 +354,7 @@
     {/if}
     {#if status}
       <Card>
-        <Grid min="xs" gap={5}>
+        <Grid min="xs" spacing="group">
           <Stat label={t('proxy.pool.net')} value={status.net.rtt_ms > 0 ? `${status.net.state} ${status.net.rtt_ms} ms` : status.net.state} />
           <Stat label={`${t('proxy.pool.inflight')} / ${t('proxy.pool.limit')}`}>
             <Text variant="value" text={loadLabel} />
@@ -367,24 +364,24 @@
             <TextField value={maxChecksInput} ariaLabel={t('proxy.pool.max_checks')} disabled={savingMaxChecks} onchange={(value) => void saveMaxChecks(value)} />
           </Field>
         </Grid>
-        <HStack gap={4} wrap>
-          <HStack gap={2} valign="center">
+        <HStack spacing="group" wrap>
+          <HStack spacing="tight" valign="center">
             <StatusDot tint="success" />
             <Text size="sm">{t('proxy.pool.alive')} · {status.alive}</Text>
           </HStack>
-          <HStack gap={2} valign="center">
+          <HStack spacing="tight" valign="center">
             <StatusDot tint="warning" />
             <Text size="sm">{t('proxy.pool.suspect')} · {status.suspect}</Text>
           </HStack>
-          <HStack gap={2} valign="center">
+          <HStack spacing="tight" valign="center">
             <StatusDot tint="danger" />
             <Text size="sm">{t('proxy.pool.banned')} · {status.banned}</Text>
           </HStack>
         </HStack>
         {#if banReasonList.length > 0}
-          <VStack gap={2}>
+          <VStack>
             <Text variant="label">{t('proxy.pool.ban_reasons')}</Text>
-            <HStack gap={2} wrap>
+            <HStack spacing="tight" wrap>
               {#each banReasonList as [reason, count] (reason)}
                 <Chip text={`${banReasonLabel(reason)} · ${count}`} size="sm" />
               {/each}
@@ -393,8 +390,7 @@
         {/if}
       </Card>
 
-      <VStack gap={4}>
-        <SectionHeader title={t('proxy.sources.title')} subtitle={t('proxy.sources.desc')} />
+      <Section title={t('proxy.sources.title')} subtitle={t('proxy.sources.desc')}>
         <Table
           columns={sourceColumns}
           rows={mergedSources}
@@ -434,15 +430,14 @@
             <ContentUnavailable title={t('proxy.no_sources')} icon="extension" />
           {/snippet}
         </Table>
-      </VStack>
+      </Section>
 
-      <VStack gap={4}>
-        <SectionHeader title={t('proxy.pool.lanes')} />
+      <Section title={t('proxy.pool.lanes')}>
         <Table columns={laneColumns} rows={status.lanes} rowKey={(lane) => lane.lane}>
           {#snippet cell({ column, row })}
             {@const lane = row as ProxyStatus['lanes'][number]}
             {#if column.key === 'lane'}
-              <HStack gap={2} valign="center">
+              <HStack spacing="tight" valign="center">
                 <Text variant="value">{lane.lane}</Text>
                 {#if lane.lane === idleLane}<Text variant="caption">{t('proxy.pool.lane_idle')}</Text>{/if}
               </HStack>
@@ -454,17 +449,17 @@
           {/snippet}
           {#snippet card({ row })}
             {@const lane = row as ProxyStatus['lanes'][number]}
-            <HStack gap={2} valign="center">
+            <HStack spacing="tight" valign="center">
               <Text variant="value">{lane.lane}</Text>
               {#if lane.lane === idleLane}<Text variant="caption">{t('proxy.pool.lane_idle')}</Text>{/if}
             </HStack>
-            <Text variant="caption">{t('proxy.pool.inflight')}: {lane.inflight} · {t('proxy.pool.queued')}: {lane.lane === idleLane ? '—' : lane.queued}</Text>
+            <Text variant="caption">{t('proxy.pool.inflight')}:{lane.inflight} · {t('proxy.pool.queued')}: {lane.lane === idleLane ? '—' : lane.queued}</Text>
           {/snippet}
           {#snippet empty()}
             <ContentUnavailable title={t('proxy.pool.empty')} />
           {/snippet}
         </Table>
-      </VStack>
+      </Section>
 
       <!-- rarely needed: folded away so the overview stays short -->
       <Card collapsible title={`${t('proxy.pool.healthy')} (${status.alive})`} bind:open={proxiesOpen}>
@@ -475,7 +470,7 @@
       <ProgressView />
     {/if}
   {:else}
-    <VStack gap={4}>
+    <Section>
       <Text variant="caption">{t('proxy.custom_pools.desc')}</Text>
       <Table
         columns={poolColumns}
@@ -496,7 +491,7 @@
         {/snippet}
         {#snippet card({ row })}
           {@const pool = row as ProxyPool}
-          <HStack gap={3} valign="center">
+          <HStack valign="center">
             <Text variant="value">{pool.name}</Text>
             <Spacer />
             {@render poolActions(pool)}
@@ -507,17 +502,16 @@
           <ContentUnavailable title={t('proxy.custom_pools.empty')} />
         {/snippet}
       </Table>
-    </VStack>
+    </Section>
   {/if}
-  </VStack></Swap>
-  {/if}
-</VStack>
+  </Swap>
+{/if}
 
 {#snippet poolActions(pool: ProxyPool)}
-  <HStack halign="end" gap={2}>
-    <Button buttonStyle="text" size="sm" icon={{ name: 'edit' }} title={t('common.actions.edit')} ariaLabel={t('common.actions.edit')}
+  <HStack halign="end">
+    <Button buttonStyle="text" icon={{ name: 'edit' }} title={t('common.actions.edit')} ariaLabel={t('common.actions.edit')}
       onclick={() => openPoolModal('edit', pool)} />
-    <DeleteButton size="sm" onclick={(e) => void deletePool(pool, e.currentTarget as HTMLElement)} />
+    <DeleteButton onclick={(e) => void deletePool(pool, e.currentTarget as HTMLElement)} />
   </HStack>
 {/snippet}
 

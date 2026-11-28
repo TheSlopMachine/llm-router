@@ -1,6 +1,6 @@
 <script lang="ts">
   // Body of the Add repository modal. Rendered by the shared Modal shell.
-  import { Banner, Field, ModalChrome, TextField, VStack } from '@fuckyouryan/fui'
+  import { Banner, Field, Form, ModalChrome, TextField } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
@@ -40,11 +40,11 @@
   { label: t('common.actions.add'), buttonStyle: 'prominent', onclick: add, disabled: !url.trim(), loading: adding },
 ]} />
 
-<VStack gap={4}>
-  {#if error}
-    <Banner tint="danger" text={error} />
-  {/if}
+{#if error}
+  <Banner tint="danger" text={error} />
+{/if}
+<Form>
   <Field label={t('plugins.repo.url_label')} hint={t('plugins.repo.url_hint')}>
-    <TextField bind:value={url} placeholder="https://github.com/..." size="lg" autocomplete="off" onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') void add() }} />
+    <TextField bind:value={url} placeholder="https://github.com/..." autocomplete="off" onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') void add() }} />
   </Field>
-</VStack>
+</Form>

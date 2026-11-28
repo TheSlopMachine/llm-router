@@ -27,6 +27,6 @@
   {/if}
   <Button href={REPOSITORY_URL} external buttonStyle="text" size="sm" text={t('nav.footer.source_code')} />
   <Spacer />
-  <Text size="sm" foregroundStyle="secondary" truncate text={tx('nav.footer.api_url', { url: apiUrl })} />
+  <Text size="sm" foregroundStyle="secondary" lineLimit={1} text={tx('nav.footer.api_url', { url: apiUrl })} />
   <CopyButton text={apiUrl} title={t('nav.footer.copy_api_url')} ariaLabel={t('nav.footer.copy_api_url')} />
 </Footer>

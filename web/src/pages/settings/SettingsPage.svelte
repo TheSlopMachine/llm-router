@@ -3,7 +3,7 @@
   import { api } from '$lib/api'
   import { t } from '$lib/i18n.svelte'
   import { getErrorMessage } from '$lib/errors'
-  import { Button, HStack, Card, Text, VStack, TextField, Banner, Chip, List, ListRow, Header, ProgressView, Field, toast, modal, CardGroup, type HeaderAction } from '@fuckyouryan/fui'
+  import { Button, HStack, Card, TextField, Banner, Chip, List, ListRow, Header, ProgressView, Field, Form, toast, modal, CardGroup, type HeaderAction } from '@fuckyouryan/fui'
   import type { SubsystemStats, DoctorReport } from '$lib/types'
   import AppearanceCard from './AppearanceCard.svelte'
   import DockerCard from './DockerCard.svelte'
@@ -139,83 +139,78 @@
   ])
 </script>
 
-<VStack gap={6}>
-  <Header title={t('settings.title')} subtitle={t('settings.subtitle')} />
+<Header title={t('settings.title')} subtitle={t('settings.subtitle')} />
 
-  <AppearanceCard />
+<AppearanceCard />
 
-  <Card title={t('settings.security')}>
-    {#if passwordError}
-      <Banner tint="danger" text={passwordError} />
-    {/if}
+{#snippet changePasswordAction()}
+  <Button buttonStyle="prominent" onclick={updatePassword} disabled={!isPasswordFormValid}>
+    {passwordSaving ? t('common.actions.saving') : t('settings.password.change')}
+  </Button>
+{/snippet}
+<Card title={t('settings.security')} footer={changePasswordAction}>
+  {#if passwordError}
+    <Banner tint="danger" text={passwordError} />
+  {/if}
 
+  <Form>
     <Field label={t('settings.password.current')}>
-      <TextField id="current-password" bind:value={currentPassword} size="lg" secure />
+      <TextField id="current-password" bind:value={currentPassword} secure />
     </Field>
 
     <Field label={t('settings.password.new')}>
-      <TextField id="new-password" bind:value={newPassword} size="lg" secure />
+      <TextField id="new-password" bind:value={newPassword} secure />
     </Field>
 
     <Field label={t('settings.password.confirm')}>
-      <TextField id="confirm-password" bind:value={confirmPassword} size="lg" secure />
+      <TextField id="confirm-password" bind:value={confirmPassword} secure />
     </Field>
+  </Form>
+</Card>
 
-    <HStack halign="end">
-      <Button buttonStyle="prominent" onclick={updatePassword} disabled={!isPasswordFormValid}>
-        {passwordSaving ? t('common.actions.saving') : t('settings.password.change')}
-      </Button>
-    </HStack>
-  </Card>
+<DockerCard />
 
-  <DockerCard />
-
-  <Card title={t('data.doctor.title')}>
-    {#if doctorLoading}
-      <ProgressView />
-    {:else if doctorReport}
-      {#if doctorReport.total_issues === 0}
-        <Banner tint="success" text={t('data.doctor.no_issues')} />
-      {:else}
-        <VStack gap={3}>
-          <Banner tint="warning" text={`${t('data.doctor.found')}: ${doctorReport.total_issues}`} />
-          <List>
-            {#each doctorReport.issues as issue (issue.title)}
-              <VStack pad={3}>
-                <ListRow title={issue.title} subtitle={issue.description} icon="error" iconTint="danger">
-                  {#snippet trailing()}<Chip text={String(issue.count)} tint="danger" />{/snippet}
-                </ListRow>
-              </VStack>
-            {/each}
-          </List>
-          <HStack halign="end">
-            <Button buttonStyle="prominent" role="destructive" onclick={fixIssues} disabled={doctorFixing}>
-              {doctorFixing ? t('data.doctor.resolving') : t('data.doctor.clean')}
-            </Button>
-          </HStack>
-        </VStack>
-      {/if}
-    {/if}
-  </Card>
-
-  {#if subsystemStatisticsLoading && !subsystemStatistics}
+<Card title={t('data.doctor.title')}>
+  {#if doctorLoading}
     <ProgressView />
-  {/if}
-  {#if subsystemStatistics}
-    {#key subsystemCardsGeneration}
-      <CardGroup title={t('data.management.title')} actions={dataActions}>
-        {#each subsystems as subsystem (subsystem.key)}
-          <DataSubsystemCard
-            subsystem={subsystem.key}
-            title={subsystem.title}
-            count={subsystem.count}
-            items={itemExports[subsystem.key]}
-            purgeItem={subsystem.key === 'providers' ? purgeProvider : undefined}
-            onchanged={refreshData}
-          />
+  {:else if doctorReport}
+    {#if doctorReport.total_issues === 0}
+      <Banner tint="success" text={t('data.doctor.no_issues')} />
+    {:else}
+      <Banner tint="warning" text={`${t('data.doctor.found')}: ${doctorReport.total_issues}`} />
+      <List>
+        {#each doctorReport.issues as issue (issue.title)}
+          <ListRow title={issue.title} subtitle={issue.description} icon="error" iconTint="danger">
+            {#snippet trailing()}<Chip text={String(issue.count)} tint="danger" />{/snippet}
+          </ListRow>
         {/each}
-      </CardGroup>
-    {/key}
+      </List>
+      <HStack halign="end">
+        <Button buttonStyle="prominent" role="destructive" onclick={fixIssues} disabled={doctorFixing}>
+          {doctorFixing ? t('data.doctor.resolving') : t('data.doctor.clean')}
+        </Button>
+      </HStack>
+    {/if}
   {/if}
-</VStack>
+</Card>
+
+{#if subsystemStatisticsLoading && !subsystemStatistics}
+  <ProgressView />
+{/if}
+{#if subsystemStatistics}
+  {#key subsystemCardsGeneration}
+    <CardGroup title={t('data.management.title')} actions={dataActions}>
+      {#each subsystems as subsystem (subsystem.key)}
+        <DataSubsystemCard
+          subsystem={subsystem.key}
+          title={subsystem.title}
+          count={subsystem.count}
+          items={itemExports[subsystem.key]}
+          purgeItem={subsystem.key === 'providers' ? purgeProvider : undefined}
+          onchanged={refreshData}
+        />
+      {/each}
+    </CardGroup>
+  {/key}
+{/if}
 

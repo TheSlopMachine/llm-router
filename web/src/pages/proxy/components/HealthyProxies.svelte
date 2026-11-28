@@ -39,9 +39,9 @@
   {#snippet cell({ column, row })}
     {@const proxy = row as Proxy}
     {#if column.key === 'url'}
-      <HStack gap={2} valign="center">
+      <HStack spacing="tight" valign="center">
         {#if proxy.location}<Chip text={proxy.location} size="sm" />{/if}
-        <Text variant="value" mono truncate>{proxy.url}</Text>
+        <Text variant="value" mono lineLimit={1}>{proxy.url}</Text>
       </HStack>
     {:else if column.key === 'latency'}
       <Text size="sm">{formatLatency(proxy.latency)}</Text>
@@ -51,9 +51,9 @@
   {/snippet}
   {#snippet card({ row })}
     {@const proxy = row as Proxy}
-    <HStack gap={2} valign="center">
+    <HStack spacing="tight" valign="center">
       {#if proxy.location}<Chip text={proxy.location} size="sm" />{/if}
-      <Text variant="value" mono truncate>{proxy.url}</Text>
+      <Text variant="value" mono lineLimit={1}>{proxy.url}</Text>
     </HStack>
     <Text variant="caption">{t('proxy.latency')}: {formatLatency(proxy.latency)} · {t('proxy.score')}: {proxy.score.toFixed(2)}</Text>
   {/snippet}

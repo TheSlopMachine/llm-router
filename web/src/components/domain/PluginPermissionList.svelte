@@ -14,8 +14,8 @@
   } = $props()
 </script>
 
-<VStack gap={3}>
-  <VStack gap={1}>
+<VStack>
+  <VStack spacing="tight">
     <Text tag="h3" size="sm" weight="bold">{t('plugins.permissions.hosts.title')}</Text>
     {#if unsafe}
       <div><Chip text={t('plugins.network.unrestricted')} tint="danger" size="sm" /></div>
@@ -35,8 +35,8 @@
     {/each}
   </VStack>
   {#if docker}
-    <VStack gap={1}>
-      <HStack gap={2} valign="center">
+    <VStack spacing="tight">
+      <HStack spacing="tight" valign="center">
         <Text tag="h3" size="sm" weight="bold">{t('plugins.docker.label')}</Text>
         {#if diff?.dockerChanged}
           <Chip text={t('plugins.permissions.changed.status')} tint="warning" size="sm" />

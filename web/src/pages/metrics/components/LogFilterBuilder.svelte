@@ -42,9 +42,9 @@
   }
 </script>
 
-<VStack gap={3}>
+<VStack>
   {#if part !== 'chips'}
-  <HStack gap={2} valign="center" wrap>
+  <HStack valign="center" wrap>
     <Picker
       value={key}
       onchange={setKey}
@@ -102,7 +102,7 @@
   {/if}
 
   {#if filters.length > 0}
-    <HStack gap={2} valign="center" wrap>
+    <HStack spacing="tight" valign="center" wrap>
       {#each filters as filter (`${filter.exclude ? '!' : ''}${filter.key}`)}
         <Chip
           text={describe(filter)}

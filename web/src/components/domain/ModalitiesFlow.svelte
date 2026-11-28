@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Chip, Icon, HStack, VStack } from '@fuckyouryan/fui'
+  import { Chip, Icon, HStack } from '@fuckyouryan/fui'
   import { modalityTint, modalityIcon } from '../../lib/modalities'
 
   // In → out modality flow. The root always runs left to right;
@@ -21,7 +21,7 @@
 </script>
 
 {#if input.length > 0 || output.length > 0}
-  <HStack gap={2} valign="center">
+  <HStack spacing="tight" valign="center">
     {#if chipsDirection === 'vertical'}
       <div class="mods">
         {#each input as mod}
@@ -56,7 +56,7 @@
     display: grid;
     grid-auto-flow: column;
     grid-template-rows: repeat(2, auto);
-    gap: var(--fui-space-2);
+    gap: var(--fui-spacing-tight);
     justify-items: center;
     align-items: center;
   }

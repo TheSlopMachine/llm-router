@@ -4,7 +4,7 @@
   import { getErrorMessage } from '$lib/errors'
   import { t } from '$lib/i18n.svelte'
   import type { ProxyPool } from '$lib/types'
-  import { Banner, Field, ModalChrome, TextField, VStack } from '@fuckyouryan/fui'
+  import { Banner, Field, Form, ModalChrome, TextField } from '@fuckyouryan/fui'
 
   let {
     editingPool = null,
@@ -61,10 +61,10 @@
   { label: saving ? t('common.actions.saving') : t('common.actions.save'), buttonStyle: 'prominent', onclick: save, disabled: saving || !name.trim() },
 ]} />
 
-<VStack gap={4}>
-  {#if error}
-    <Banner tint="danger" text={error} />
-  {/if}
+{#if error}
+  <Banner tint="danger" text={error} />
+{/if}
+<Form>
   <Field label={t('common.labels.name')}>
     <TextField
       bind:value={name}
@@ -75,4 +75,4 @@
   <Field label={t('proxy.title')}>
     <TextField maxRows={10} minRows={4} bind:value={entriesText} placeholder={t('proxy.custom_pools.hint')} />
   </Field>
-</VStack>
+</Form>

@@ -49,7 +49,7 @@
   }
 </script>
 
-<VStack gap={3}>
+<VStack>
   <HStack>
     <Toggle checked={following} label={t('providers.docker.follow.label')} onchange={setFollowing} />
   </HStack>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { SearchField, Toolbar, ToolbarItem, ToolbarSpacer, Button, FloatingView, List, VStack, HStack, Text, Banner, FilePicker, ContentUnavailable } from '@fuckyouryan/fui'
+  import { SearchField, Toolbar, ToolbarItem, ToolbarSpacer, Button, FloatingView, List, Section, Banner, FilePicker, ContentUnavailable } from '@fuckyouryan/fui'
   import PluginCard from './PluginCard.svelte'
   import InstallConfirm from './InstallConfirm.svelte'
   import { createPluginState } from './plugin-state.svelte'
@@ -82,12 +82,12 @@
   )
 </script>
 
-<VStack gap={4}>
+<Section>
   {#if actionError}
     <Banner tint="danger" text={actionError} />
   {/if}
 
-  <Toolbar overflow="wrap" gap={3}>
+  <Toolbar overflow="wrap">
     <ToolbarItem pinned fill="md">
       <SearchField bind:value={query} placeholder={t('plugins.search.installed')} />
     </ToolbarItem>
@@ -146,7 +146,7 @@
           disabled={plugin.disabled}
           toggling={pluginState.isToggling(plugin.id)}
           isManual={plugin.origin.manual}
-          hasUpdate={!!update}
+          updateVersion={update ? `v${update.latest}` : undefined}
           onUpdate={() => void pluginState.updatePlugin(plugin, review.digest)}
           onToggle={(enabled) => pluginState.togglePlugin(plugin, enabled)}
           onaction={(id, anchor) => pluginState.handleAction(plugin, id, anchor)}
@@ -176,7 +176,7 @@
       {/if}
     {/snippet}
   </FloatingView>
-</VStack>
+</Section>
 
 <style>
   /* The file review popover anchors to the upload button. */

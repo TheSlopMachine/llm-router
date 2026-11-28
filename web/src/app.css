@@ -8,28 +8,11 @@
   /* site-owned sizes that used to live in FUI */
   --app-auth-max-w: 400px;
   --app-splash-max-w: 400px;
-  --app-provider-state-min-h: 240px;
   --app-token-search-min: 220px;
   --app-vmedit-name-min: 220px;
 }
 
-/* ── Status blocks ─────────────────────────────────────────────────────── */
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--fui-space-4);
-  padding: var(--fui-space-8) var(--fui-space-6);
-  text-align: center;
-  color: var(--fui-color-text-soft);
-}
-
 /* ── Misc helpers still referenced by pages ───────────────────────────── */
-.mono {
-  font-family: var(--fui-font-mono);
-  font-size: var(--fui-text-sm);
-}
 .drag-handle {
   cursor: grab;
   color: var(--fui-color-text-disabled);

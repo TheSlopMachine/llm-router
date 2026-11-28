@@ -3,7 +3,7 @@
   import { getErrorMessage } from '../../lib/errors'
   import { t } from '../../lib/i18n.svelte'
   import type { Provider } from '../../lib/types'
-  import { Banner, Field, ModalChrome, TextField, VStack } from '@fuckyouryan/fui'
+  import { Banner, Field, Form, ModalChrome, TextField } from '@fuckyouryan/fui'
 
   let {
     editingProvider = null,
@@ -63,11 +63,11 @@
   { label: editingProvider ? t('common.actions.save') : t('common.actions.add'), buttonStyle: 'prominent', onclick: save, disabled: !complete || saving, loading: saving },
 ]} />
 
-<VStack gap={4}>
-  {#if error}
-    <Banner tint="danger" text={error} />
-  {/if}
+{#if error}
+  <Banner tint="danger" text={error} />
+{/if}
 
+<Form>
   <Field label={t('common.labels.name')} required>
     <TextField id="provider-name" bind:value={name} placeholder={t('providers.fields.my_provider')} />
   </Field>
@@ -79,4 +79,4 @@
   <Field label={t('providers.fields.icon_url')}>
     <TextField id="icon-url" bind:value={iconURL} placeholder="https://example.com/icon.svg" />
   </Field>
-</VStack>
+</Form>

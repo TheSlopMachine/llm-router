@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Banner, ChoiceList, Checkbox, CodeBlock, Field, ProgressView, FilePicker, HStack, ModalChrome, Swap, Text, TextField, VStack, type ModalButton, type StepperConfig } from '@fuckyouryan/fui'
+  import { Banner, ChoiceList, Checkbox, CodeBlock, Field, Form, FormRow, ProgressView, FilePicker, ModalChrome, Swap, Text, TextField, VStack, type ModalButton, type StepperConfig } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { t, tx } from '$lib/i18n.svelte'
   import type { TranslationKey } from '$lib/i18n.svelte'
@@ -226,44 +226,43 @@
 
 <ModalChrome title={t('settings.docker.wizard.title')} subtitle={t(stepLabelKeys[step])} {stepper} {buttons} />
 
-<VStack gap={4}>
-  <Swap key={step}><VStack gap={4}>
+<Swap key={step}><Form>
   {#if step === 'kind'}
     <ChoiceList options={availableKinds.map((option) => ({ value: option.value, title: t(option.title), hint: t(option.hint) }))} value={kind} ariaLabel={t('settings.docker.step_kind.label')} onchange={(next) => chooseKind(next as DockerEndpointKind)} />
   {:else if step === 'details'}
     {#if kind === 'ssh'}
-      <HStack gap={3} wrap>
+      <FormRow>
         <Field label={t('settings.docker.host.label')}>
-          <TextField bind:value={host} placeholder="192.168.1.10" size="lg" autocomplete="off" />
+          <TextField bind:value={host} placeholder="192.168.1.10" autocomplete="off" />
         </Field>
         <Field label={t('settings.docker.port.label')}>
-          <TextField bind:value={port} size="lg" autocomplete="off" />
+          <TextField bind:value={port} autocomplete="off" />
         </Field>
         <Field label={t('settings.docker.user.label')}>
-          <TextField bind:value={user} size="lg" autocomplete="off" />
+          <TextField bind:value={user} autocomplete="off" />
         </Field>
-      </HStack>
+      </FormRow>
       <Field label={t('settings.docker.ssh_key.label')} hint={stored?.has_ssh_private_key ? t('settings.docker.secret.hint') : t('settings.docker.ssh_key.hint')}>
-        <VStack gap={2}>
+        <VStack>
           <TextField bind:value={privateKey} minRows={3} maxRows={8} placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" autocomplete="off" />
           <FilePicker buttonText={t('settings.docker.key_file.action')} icon="upload_file" buttonStyle="neutral" onpick={(files) => void readFile(files[0], (text) => { privateKey = text })} />
         </VStack>
       </Field>
       <Field label={t('settings.docker.ssh_passphrase.label')} hint={stored?.has_ssh_passphrase ? t('settings.docker.secret.hint') : ''}>
-        <TextField bind:value={passphrase} secure size="lg" />
+        <TextField bind:value={passphrase} secure />
       </Field>
       <Field label={t('settings.docker.socket.label')}>
-        <TextField bind:value={socket} size="lg" autocomplete="off" />
+        <TextField bind:value={socket} autocomplete="off" />
       </Field>
     {:else if kind === 'tcp'}
-      <HStack gap={3} wrap>
+      <FormRow>
         <Field label={t('settings.docker.host.label')}>
-          <TextField bind:value={host} size="lg" autocomplete="off" />
+          <TextField bind:value={host} autocomplete="off" />
         </Field>
         <Field label={t('settings.docker.port.label')}>
-          <TextField bind:value={port} size="lg" autocomplete="off" />
+          <TextField bind:value={port} autocomplete="off" />
         </Field>
-      </HStack>
+      </FormRow>
       {#each [
         { label: 'settings.docker.tls_ca.label', has: stored?.has_tls_ca, value: tlsCA, assign: (text: string) => { tlsCA = text } },
         { label: 'settings.docker.tls_certificate.label', has: stored?.has_tls_certificate, value: tlsCertificate, assign: (text: string) => { tlsCertificate = text } },
@@ -294,18 +293,17 @@
       <ProgressView label={t('settings.docker.testing.status')} />
     {:else if result}
       <Banner tint="success" text={tx('settings.docker.test.status', { version: result.server_version, mode: result.dial_mode })} />
-      <VStack gap={1}>
+      <VStack spacing="tight">
         <Text size="sm">{result.operating_system} · {result.architecture}</Text>
         <Text size="sm" foregroundStyle="secondary">{result.gpu ? t('settings.docker.gpu_available.status') : t('settings.docker.gpu_missing.status')}</Text>
       </VStack>
     {/if}
   {/if}
-  </VStack></Swap>
+</Form></Swap>
 
-  {#if error}
-    <Banner tint="danger" text={error} />
-    {#if stage}
-      <Text size="sm">{stageHint(stage)}</Text>
-    {/if}
+{#if error}
+  <Banner tint="danger" text={error} />
+  {#if stage}
+    <Text size="sm">{stageHint(stage)}</Text>
   {/if}
-</VStack>
+{/if}

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Text, Toggle, Banner, Table, Header, ListRow, VStack, type TableColumn, ContentUnavailable } from '@fuckyouryan/fui'
+  import { Text, Toggle, Banner, Table, Header, ListRow, type TableColumn, ContentUnavailable } from '@fuckyouryan/fui'
   import { PROVIDERS_ICON } from '$lib/subsystems'
   import { openFormModal } from '$lib/modal-helpers'
   import { api } from '$lib/api'
@@ -71,8 +71,7 @@
   </ListRow>
 {/snippet}
 
-<VStack gap={6}>
-  <Header title={t('providers.list.title')} subtitle={t('providers.list.subtitle')} primary={{ id: 'new', text: t('providers.actions.new'), icon: 'add', onclick: openCreate }} />
+<Header title={t('providers.list.title')} subtitle={t('providers.list.subtitle')} primary={{ id: 'new', text: t('providers.actions.new'), icon: 'add', onclick: openCreate }} />
 
   {#if resource.error}
     <Banner tint="danger" text={resource.error} />
@@ -105,4 +104,3 @@
       <ContentUnavailable title={t('providers.list.empty')} icon="cloud" />
     {/snippet}
   </Table>
-</VStack>

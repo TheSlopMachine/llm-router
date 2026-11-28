@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CodeBlock, Grid, Stat, VStack, Text, Banner } from '@fuckyouryan/fui'
+  import { Card, CodeBlock, Grid, Stat, VStack, Text, Banner } from '@fuckyouryan/fui'
   import { t, tx } from '$lib/i18n.svelte'
 
   let {
@@ -15,8 +15,8 @@
   } = $props()
 </script>
 
-<VStack gap={4}>
-  <VStack gap={1} halign="center">
+<VStack spacing="group">
+  <VStack spacing="tight" halign="center">
     <Text variant="section-title" align="center">{tx('tokens.success.created_named', { name: tokenName })}</Text>
     <Text tag="h3" size="sm" foregroundStyle="secondary" align="center">{t('tokens.success.copy_now')}</Text>
   </VStack>
@@ -27,15 +27,15 @@
 
   <CodeBlock text={token ?? ''} />
 
-  <Grid min="sm" gap={4}>
+  <Grid min="sm" spacing="group">
     {#each [
       { label: t('providers.list.title'), value: scopeLabel.providers },
       { label: t('models.list.title'), value: scopeLabel.models },
       { label: t('credentials.title_plural'), value: scopeLabel.credentials },
     ] as scope (scope.label)}
-      <VStack elev radius="md" pad={4}>
+      <Card>
         <Stat label={scope.label} value={scope.value} />
-      </VStack>
+      </Card>
     {/each}
   </Grid>
 </VStack>

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Banner, Button, ContentUnavailable, DeleteButton, FloatingView, HStack, SectionHeader, Table, Text, VStack, confirmAt, modal, type TableColumn } from '@fuckyouryan/fui'
+  import { Banner, Button, ContentUnavailable, DeleteButton, FloatingView, HStack, Section, Table, Text, VStack, confirmAt, modal, type TableColumn } from '@fuckyouryan/fui'
   import PluginPermissionList from '../../../components/domain/PluginPermissionList.svelte'
   import DockerLogs from './DockerLogs.svelte'
   import { api } from '$lib/api'
@@ -95,8 +95,9 @@
 </script>
 
 {#snippet rowName(row: DockerRow)}
-  <VStack gap={0}>
-    <Text variant="value">{row.name}</Text>
+  <VStack spacing="tight">
+    <!-- an image reference ends in its tag and digest: keep the end in view -->
+    <Text variant="value" lineLimit={1} truncationMode={row.kind === 'image' ? 'middle' : 'tail'} text={row.name} />
     <Text variant="caption">{row.kind === 'image' ? t('providers.docker.image.label') : t('providers.docker.container.label')}</Text>
   </VStack>
 {/snippet}
@@ -104,10 +105,10 @@
 {#snippet rowStatus(row: DockerRow)}
   {#if row.kind === 'image'}
     {#if row.image.state === 'failed'}
-      <VStack gap={0} halign="start">
+      <VStack spacing="tight" halign="start">
         <Text size="sm" tint="danger">{describeImage(row.image)}</Text>
         {#if row.image.error}
-          <Text size="xs" foregroundStyle="tertiary" truncate title={row.image.error}>{row.image.error}</Text>
+          <Text size="xs" foregroundStyle="tertiary" lineLimit={1} title={row.image.error}>{row.image.error}</Text>
         {/if}
       </VStack>
     {:else}
@@ -115,7 +116,7 @@
     {/if}
   {:else}
     {@const status = containerStatus(row.container)}
-    <VStack gap={0} halign="start">
+    <VStack spacing="tight" halign="start">
       <Text size="sm" tint={status.tint} foregroundStyle={status.tint ? undefined : 'secondary'}>{status.label}</Text>
       {#if status.caption}
         <Text size="xs" foregroundStyle="tertiary">{status.caption}</Text>
@@ -127,27 +128,25 @@
 {#snippet rowActions(row: DockerRow)}
   {#if row.kind === 'container'}
     {@const container = row.container}
-    <HStack gap={3} halign="end">
+    <HStack halign="end">
       {#if container.state === 'running'}
-        <Button size="sm" buttonStyle="text" icon={{ name: 'restart_alt' }} ariaLabel={t('providers.docker.restart.action')} title={t('providers.docker.restart.action')} disabled={acting} onclick={() => void act(container, ['stop', 'start'])} />
-        <Button size="sm" buttonStyle="text" icon={{ name: 'stop' }} ariaLabel={t('providers.docker.stop.action')} title={t('providers.docker.stop.action')} disabled={acting} onclick={() => void act(container, ['stop'])} />
+        <Button buttonStyle="text" icon={{ name: 'restart_alt' }} ariaLabel={t('providers.docker.restart.action')} title={t('providers.docker.restart.action')} disabled={acting} onclick={() => void act(container, ['stop', 'start'])} />
+        <Button buttonStyle="text" icon={{ name: 'stop' }} ariaLabel={t('providers.docker.stop.action')} title={t('providers.docker.stop.action')} disabled={acting} onclick={() => void act(container, ['stop'])} />
       {:else}
-        <Button size="sm" buttonStyle="text" icon={{ name: 'play_arrow' }} ariaLabel={t('providers.docker.start.action')} title={t('providers.docker.start.action')} disabled={acting} onclick={() => void act(container, ['start'])} />
+        <Button buttonStyle="text" icon={{ name: 'play_arrow' }} ariaLabel={t('providers.docker.start.action')} title={t('providers.docker.start.action')} disabled={acting} onclick={() => void act(container, ['start'])} />
       {/if}
-      <Button size="sm" buttonStyle="text" icon={{ name: 'article' }} ariaLabel={t('providers.docker.logs.action')} title={t('providers.docker.logs.action')} onclick={() => openLogs(container)} />
-      <DeleteButton size="sm" label={t('providers.docker.delete.title')} disabled={acting} onclick={(e) => remove(container, e.currentTarget as HTMLElement)} />
+      <Button buttonStyle="text" icon={{ name: 'article' }} ariaLabel={t('providers.docker.logs.action')} title={t('providers.docker.logs.action')} onclick={() => openLogs(container)} />
+      <DeleteButton label={t('providers.docker.delete.title')} disabled={acting} onclick={(e) => remove(container, e.currentTarget as HTMLElement)} />
     </HStack>
   {/if}
 {/snippet}
 
 {#if usesDocker && view}
   {@const policy = view.policy}
-  <VStack tag="section" gap={4}>
-    <SectionHeader title={t('providers.docker.title')}>
-      {#snippet actions()}
-        <Button buttonStyle="neutral" icon={{ name: 'info' }} ariaLabel={t('plugins.permissions.title')} title={t('plugins.permissions.title')} onclick={(e) => togglePermissions(e.currentTarget as HTMLElement)} />
-      {/snippet}
-    </SectionHeader>
+  {#snippet permissionsAction()}
+    <Button buttonStyle="neutral" icon={{ name: 'info' }} ariaLabel={t('plugins.permissions.title')} title={t('plugins.permissions.title')} onclick={(e) => togglePermissions(e.currentTarget as HTMLElement)} />
+  {/snippet}
+  <Section title={t('providers.docker.title')} actions={permissionsAction}>
 
     {#if error}
       <Banner tint="danger" text={error} />
@@ -172,8 +171,8 @@
           {/if}
         {/snippet}
         {#snippet card({ row })}
-          <HStack gap={3} valign="center">
-            <VStack gap={1} grow>{@render rowName(row)}</VStack>
+          <HStack valign="center">
+            <VStack grow>{@render rowName(row)}</VStack>
             {@render rowActions(row)}
           </HStack>
           {@render rowStatus(row)}
@@ -183,7 +182,7 @@
         {/snippet}
       </Table>
     {/if}
-  </VStack>
+  </Section>
 
   <FloatingView open={permissionsOpen} anchor={permissionsAnchor} width="sm" onclose={() => { permissionsOpen = false }} label={t('plugins.permissions.title')}>
     {#snippet children()}

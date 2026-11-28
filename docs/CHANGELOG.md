@@ -6,6 +6,11 @@
 - **Plugin API minor check.** Install accepted a plugin that declared a newer minor than the router served, such as `@plugin_api 1.9` on a router with API 1.8. Install and startup now reject it as `too_new`.
 - **Credentials without a validator.** A plugin without `validate_credentials` could not save credentials: the router failed with `does not declare handler "validate_credentials"`. A missing validator accepts any payload again, as the plugin contract states.
 - **Model discovery for sign-in plugins.** A plugin with a sign-in flow and no `credential_schema` was asked for models while it had no account. Discovery now waits for the first credential, as it did for plugins with a credential schema.
+- **Dashboard spacing.** Every page took its spacing from FUI 4 defaults, as SwiftUI does: lists, tables, cards, forms and modals inset their content themselves. Plugin rows kept their actions centred beside the text, and the text no longer ran under them. Tables ended at their last row, and their empty state sat in the middle. A long image name no longer ran into the next column. Fields side by side were equally tall. A modal's title, body and buttons shared one margin.
+- **Counts in pickers.** The Models page showed the counts of the selected kind next to All, Enabled and Disabled, instead of one total under the title. The plugin tabs and the provider model filter showed their counts the same way.
+- **Plugin updates.** The version chip of a plugin with an update read `v1.0.1 → v1.1.2`.
+- **Model status.** The last check of a model showed as a glyph and one line, with the full reason on hover.
+- **Colours.** Tints took Apple's system colours. Red buttons were a strong red with white text, and icon buttons were a quieter grey.
 
 ## Done (2026-11-24, v0.12.4)
 

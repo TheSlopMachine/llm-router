@@ -2,7 +2,7 @@
   // The provider's virtual models: one per endpoint, falling through the provider's models of that
   // endpoint. A provider-wide switch turns them all off.
   import { onMount } from 'svelte'
-  import { ContentUnavailable, CopyButton, HStack, SectionHeader, Table, Text, Toggle, VStack } from '@fuckyouryan/fui'
+  import { ContentUnavailable, CopyButton, HStack, Section, Table, Text, Toggle, VStack } from '@fuckyouryan/fui'
   import { api } from '$lib/api'
   import { getErrorMessage } from '$lib/errors'
   import { t, type TranslationKey } from '$lib/i18n.svelte'
@@ -79,12 +79,10 @@
   {/if}
 {/snippet}
 
-<VStack tag="section" gap={4}>
-  <SectionHeader title={t('virtual.models_plural')} subtitle={t('providers.models.fallthrough_description')}>
-    {#snippet actions()}
-      <Toggle checked={enabled} disabled={switching} ariaLabel={t('common.labels.enabled')} onchange={(next) => void switchAll(next)} />
-    {/snippet}
-  </SectionHeader>
+{#snippet switchAllAction()}
+  <Toggle checked={enabled} disabled={switching} ariaLabel={t('common.labels.enabled')} onchange={(next) => void switchAll(next)} />
+{/snippet}
+<Section title={t('virtual.models_plural')} subtitle={t('providers.models.fallthrough_description')} actions={switchAllAction}>
 
   <!-- switched off, the provider has no virtual models to list -->
   {#if enabled}
@@ -103,9 +101,9 @@
         {#if column.key === 'vm'}
           {#if group.virtual}
             <Text size="md" weight="medium">{group.virtual.name}</Text>
-            <HStack gap={2} valign="center">
+            <HStack spacing="tight" valign="center">
               <Text mono size="sm">virtual/{group.virtual.id}</Text>
-              <CopyButton size="sm" text={`virtual/${group.virtual.id}`} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
+              <CopyButton text={`virtual/${group.virtual.id}`} title={t('models.actions.copy_id')} ariaLabel={t('models.actions.copy_id')} />
             </HStack>
           {:else}
             <Text foregroundStyle="tertiary">—</Text>
@@ -121,8 +119,8 @@
       {/snippet}
       {#snippet card({ row })}
         {@const group = row as ProviderVMGroup}
-        <HStack gap={3} valign="center">
-          <VStack gap={1} grow>
+        <HStack valign="center">
+          <VStack spacing="tight" grow>
             {#if group.virtual}
               <Text variant="value">{group.virtual.name}</Text>
               <Text variant="caption" mono>virtual/{group.virtual.id}</Text>
@@ -139,4 +137,4 @@
       {/snippet}
     </Table>
   {/if}
-</VStack>
+</Section>

@@ -55,7 +55,7 @@
 
 {#if appState === 'loading'}
   <div class="splash">
-    <VStack gap={5} width="full" maxWidth="var(--app-splash-max-w)">
+    <VStack spacing="group" width="full" maxWidth="var(--app-splash-max-w)">
       <Text size="xl" weight="bold" foregroundStyle="secondary" align="center">llm-router</Text>
       {#if error}
         <Banner tint="danger" text={error} />
