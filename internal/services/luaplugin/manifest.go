@@ -276,21 +276,25 @@ func dedupeStrings(input []string) []string {
 	return out
 }
 
-// CheckPluginAPI compares the plugin @plugin_api major against the served
-// contract. Minor is informational only. Missing tag reports no_api_version.
+// CheckPluginAPI compares the plugin @plugin_api against the served contract.
+// A newer major or a newer minor under the same major reports too_new: the
+// plugin may call functions this router lacks. An older major reports too_old.
+// The fix component is informational only. A missing tag reports
+// no_api_version.
 func CheckPluginAPI(manifest *Manifest) error {
 	if manifest == nil || manifest.PluginAPI == "" {
 		return &APICompatError{Reason: "no_api_version", RouterAPI: PluginAPIVersion}
 	}
-	p, err := version.Parse(manifest.PluginAPI)
+	pluginAPI, err := version.Parse(manifest.PluginAPI)
 	if err != nil {
 		return fmt.Errorf("invalid @plugin_api %q: %w", manifest.PluginAPI, err)
 	}
 	switch {
-	case p.Major > PluginAPIVersion.Major:
-		return &APICompatError{Reason: "too_new", RouterAPI: PluginAPIVersion, PluginAPI: p}
-	case p.Major < PluginAPIVersion.Major:
-		return &APICompatError{Reason: "too_old", RouterAPI: PluginAPIVersion, PluginAPI: p}
+	case pluginAPI.Major > PluginAPIVersion.Major,
+		pluginAPI.Major == PluginAPIVersion.Major && pluginAPI.Minor > PluginAPIVersion.Minor:
+		return &APICompatError{Reason: "too_new", RouterAPI: PluginAPIVersion, PluginAPI: pluginAPI}
+	case pluginAPI.Major < PluginAPIVersion.Major:
+		return &APICompatError{Reason: "too_old", RouterAPI: PluginAPIVersion, PluginAPI: pluginAPI}
 	default:
 		return nil
 	}

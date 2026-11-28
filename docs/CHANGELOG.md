@@ -3,6 +3,7 @@
 ## Done (2026-11-27, v0.12.5)
 
 - **Plugin API 1.9.** Plugins got `llm_router.sha256_hex`, `json.null` and `json.array`. A request body could carry `null` and an empty `[]`, which an empty Lua table encoded as `{}`.
+- **Plugin API minor check.** Install accepted a plugin that declared a newer minor than the router served, such as `@plugin_api 1.9` on a router with API 1.8. Install and startup now reject it as `too_new`.
 - **Credentials without a validator.** A plugin without `validate_credentials` could not save credentials: the router failed with `does not declare handler "validate_credentials"`. A missing validator accepts any payload again, as the plugin contract states.
 - **Model discovery for sign-in plugins.** A plugin with a sign-in flow and no `credential_schema` was asked for models while it had no account. Discovery now waits for the first credential, as it did for plugins with a credential schema.
 

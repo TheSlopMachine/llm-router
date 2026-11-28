@@ -3,6 +3,7 @@ package luaplugin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -169,10 +170,20 @@ func TestParseManifestMissing(t *testing.T) {
 }
 
 func TestCheckPluginAPI(t *testing.T) {
-	// Same major passes; minor is informational only.
-	for _, api := range []string{"1.0", "1.5", "v1.2"} {
+	// Same major with an equal or lower minor passes. Fix is informational.
+	for _, api := range []string{"1.0", "1.5", "v1.2", PluginAPIVersion.String(), fmt.Sprintf("%d.%d.7", PluginAPIVersion.Major, PluginAPIVersion.Minor)} {
 		if err := CheckPluginAPI(&Manifest{PluginAPI: api}); err != nil {
 			t.Fatalf("API %s must pass: %v", api, err)
+		}
+	}
+	// Newer minor under the served major reports too_new.
+	newerMinor := fmt.Sprintf("%d.%d", PluginAPIVersion.Major, PluginAPIVersion.Minor+1)
+	if err := CheckPluginAPI(&Manifest{PluginAPI: newerMinor}); err == nil {
+		t.Fatalf("expected rejection of plugin API %s", newerMinor)
+	} else {
+		var compat *APICompatError
+		if !errors.As(err, &compat) || compat.Reason != "too_new" {
+			t.Fatalf("expected too_new, got: %v", err)
 		}
 	}
 	// Newer major reports too_new.

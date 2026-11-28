@@ -279,7 +279,7 @@ Parameters:
 | `@plugin` | required, once | Display name. Non-empty string. Must not contain `/`. Forms the plugin identity with `@author`. |
 | `@author` | required, once | Author name. Non-empty string. Must not contain `/`. Forms the plugin identity with `@plugin`. |
 | `@version` | required, once | Plugin version. Format `MAJOR.MINOR[.PATCH]`, leading `v` allowed, missing patch means `.0`. Every content edit bumps this value: the dashboard offers an update only when the store version is greater than the installed one, and `make upload-plugins` skips an equal version. |
-| `@plugin_api` | required, once | Contract declaration. Format `x.y[.z]`, leading `v` allowed. Major must equal served major `1`. |
+| `@plugin_api` | required, once | Contract declaration. Format `x.y[.z]`, leading `v` allowed. Major must equal served major `1`. Minor must not exceed the served minor. |
 | `@allow_host` | required, repeatable, minimum one | Bare hostname without `/`, space, or `:`. Value `*` marks the plugin unsafe and must stand alone. |
 | `@description` | optional, once | Free text description. |
 | `@license` | optional, once | Free text license. |
@@ -288,12 +288,12 @@ Parameters:
 
 Return values: install returns `installed` on success. Compatibility
 failures report `no_api_version` (missing tag), `too_new` (plugin major
-above `1`), `too_old` (plugin major below `1`). Rejected install writes
+above `1`, or minor above the served minor), `too_old` (plugin major below `1`). Rejected install writes
 nothing. Startup skips incompatible rows with a warning.
 
 ### Versions and identity
 
-- `@plugin_api` is the contract the plugin speaks. Install and startup compare the major only. The minor is informational. The router release version has no compatibility meaning.
+- `@plugin_api` is the contract the plugin speaks. Install and startup reject a plugin whose major differs from the served major or whose minor exceeds the served minor. The patch is informational. The router release version has no compatibility meaning.
 - `@version` and `@plugin_api` accept `MAJOR.MINOR[.PATCH]` with one optional leading `v`. A missing patch means `.0`. Anything else fails install.
 - `@author` and `@plugin` form the plugin identity `author/plugin`. Each part is sanitized: runs of characters outside `A-Z a-z 0-9 - _ .` become one `-`, and leading and trailing `-` are trimmed.
 - An install with an existing identity replaces that plugin, whatever the version or source (any store or a file upload). The previous version is not kept.
